@@ -143,7 +143,7 @@
         var clear = document.createElement('button');
         clear.type = 'button';
         clear.className = 'btn btn-sm btn-outline-secondary';
-        clear.innerHTML = '<i class="bi bi-eraser"></i>';   // markup estático
+        clear.innerHTML = '<i class="fa-solid fa-eraser"></i>';   // markup estático
         clear.title = 'Limpiar selección';
         clear.setAttribute('aria-label', 'Limpiar selección');
         clear.setAttribute('data-adhoc-picker-clear', '');
@@ -264,7 +264,7 @@
             var remove = document.createElement('button');
             remove.type = 'button';
             remove.className = 'adhoc-chip-remove';
-            remove.innerHTML = '<i class="bi bi-x-lg"></i>';   // markup estático
+            remove.innerHTML = '<i class="fa-solid fa-xmark"></i>';   // markup estático
             remove.title = 'Quitar';
             remove.setAttribute('aria-label', 'Quitar');
             remove.setAttribute('data-adhoc-picker-remove', this.selected[i]);

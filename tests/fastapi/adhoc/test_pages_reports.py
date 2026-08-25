@@ -289,9 +289,9 @@ class TestSeleccionRender:
             )
             assert match, report_type
 
-    def test_iconos_bootstrap_no_font_awesome(self, html):
-        assert "fa-solid" not in html
-        assert "fa-" not in html.split("</head>")[-1] or "bi bi-" in html
+    def test_iconos_son_font_awesome(self, html):
+        """Porte visual: la app entera volvió a Font Awesome 6.4, como el legacy."""
+        assert "fa-solid" in html
 
     def test_el_modal_es_de_bootstrap(self, html):
         assert 'class="modal fade" id="adhoc-report-modal"' in html
@@ -331,8 +331,12 @@ class TestSeleccionRender:
         assert "/static/adhoc/js/reports/reports.js?v=" in html
 
     def test_el_nav_sigue_presente(self, html):
+        # Reportes no es una tarjeta del shell (en el legacy cuelga del panel de
+        # control), así que lo que se comprueba es que el shell y sus cuatro
+        # tarjetas sí estén.
         assert "adhoc-appbar" in html
-        assert 'href="/adhoc/reportes"' in html
+        assert 'href="/adhoc/dashboard"' in html
+        assert 'href="/adhoc/panel"' in html
 
 
 # ==========================================================================
@@ -347,11 +351,20 @@ class TestReporteRender:
 
     def test_es_una_pagina_de_la_app_no_un_html_suelto(self, html):
         """Los 5 del legacy eran documentos standalone con su propio <head>,
-        Font Awesome, Google Fonts y SheetJS por CDN."""
+        Font Awesome, Google Fonts y SheetJS por CDN.
+
+        Aquí extienden el base: hay UN solo <head>, el del shell (que sí trae
+        Font Awesome y Poppins, igual que el legacy), y los estáticos de la
+        página son los de la app.
+        """
         assert "adhoc-print" in html
         assert "/static/adhoc/css/adhoc.css?v=" in html
-        assert "cdnjs.cloudflare.com" not in html
-        assert "fonts.googleapis.com" not in html
+        assert "adhoc-appbar" in html
+        assert html.count("<head>") == 1
+        # Lo que sí desapareció: los CDN propios de cada reporte (SheetJS venía
+        # de un CDN en los cinco; ahora es un estático de la app).
+        assert "cdn.sheetjs.com" not in html
+        assert "/static/adhoc/js/vendor/xlsx" in html
 
     def test_encabezado_con_titulo_y_metadatos(self, html):
         assert REPORT_META["area_usuarios"]["title"] in html

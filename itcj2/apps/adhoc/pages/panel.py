@@ -124,7 +124,7 @@ def _allowed(perms, needed: set[str]) -> bool:
 # Tarjetas del panel
 # ==========================================================================
 
-#: (título, icono Bootstrap, url, descripción, permisos any-of).
+#: (título, icono Font Awesome, url, descripción, permisos any-of).
 #:
 #: Es la rejilla de ``control_panel/control_panel.html`` menos las dos tarjetas
 #: muertas ("7 Herramientas" y "Soporte", sin ``data-link``: no hacían nada).
@@ -133,63 +133,63 @@ def _allowed(perms, needed: set[str]) -> bool:
 PANEL_TILES: list[tuple[str, str, str, str, set[str]]] = [
     (
         "Procesos",
-        "bi-diagram-3",
+        "fa-solid fa-cogs",
         "/adhoc/panel/procesos",
         "Catálogo de procesos del sistema de gestión.",
         {"adhoc.processes.page.list"},
     ),
     (
         "Áreas",
-        "bi-layers",
+        "fa-solid fa-layer-group",
         "/adhoc/panel/areas",
         "Áreas a las que se adscriben documentos, incidencias y personas.",
         {"adhoc.areas.page.list"},
     ),
     (
         "Usuarios",
-        "bi-people",
+        "fa-solid fa-users",
         "/adhoc/panel/usuarios",
         "Rol dentro de Calidad y áreas de cada persona.",
         {"adhoc.users.page.list"},
     ),
     (
         "Documentos",
-        "bi-file-earmark-text",
+        "fa-solid fa-file-lines",
         "/adhoc/documentos/panel",
         "Administración documental y flujos de aprobación.",
         {"adhoc.documents.page.manage"},
     ),
     (
         "Incidencias",
-        "bi-exclamation-triangle",
+        "fa-solid fa-fire-extinguisher",
         "/adhoc/incidencias",
         "Seguimiento de incidencias y sus tareas.",
         {"adhoc.incidents.page.list"},
     ),
     (
         "Programa",
-        "bi-calendar3",
+        "fa-regular fa-calendar-days",
         "/adhoc/programas",
         "Eventos del programa de trabajo de Calidad.",
         {"adhoc.programs.page.list"},
     ),
     (
         "Indicadores",
-        "bi-speedometer2",
+        "fa-solid fa-gauge-high",
         "/adhoc/indicadores",
         "Indicadores anuales y tablero de seguimiento.",
         {"adhoc.indicators.page.list", "adhoc.indicators.page.manage"},
     ),
     (
         "Reportes",
-        "bi-clipboard-data",
+        "fa-solid fa-file-circle-check",
         "/adhoc/reportes",
         "Reportes imprimibles del sistema.",
         {"adhoc.reports.page.view"},
     ),
     (
         "Configuración",
-        "bi-sliders",
+        "fa-solid fa-sliders",
         "/adhoc/panel/configuracion",
         "Catálogos, flujos y funciones de correo.",
         {"adhoc.panel.page.view"},
@@ -202,7 +202,7 @@ PANEL_TILES: list[tuple[str, str, str, str, set[str]]] = [
 CONFIG_GROUPS: list[dict] = [
     {
         "title": "Documentos",
-        "icon": "bi-file-earmark-text",
+        "icon": "fa-solid fa-file-lines",
         "links": [
             ("Categorías de documentos", "/adhoc/documentos/categorias",
              {"adhoc.doc_catalogs.page.list"}),
@@ -214,7 +214,7 @@ CONFIG_GROUPS: list[dict] = [
     },
     {
         "title": "Incidencias",
-        "icon": "bi-exclamation-triangle",
+        "icon": "fa-solid fa-fire-extinguisher",
         "links": [
             ("Categorías de incidencias", "/adhoc/incidencias/categorias",
              {"adhoc.incident_categories.page.list"}),
@@ -222,7 +222,7 @@ CONFIG_GROUPS: list[dict] = [
     },
     {
         "title": "Programa",
-        "icon": "bi-calendar3",
+        "icon": "fa-regular fa-calendar-days",
         "links": [
             ("Categorías del programa", "/adhoc/programas/categorias",
              {"adhoc.program_categories.page.list"}),
@@ -230,7 +230,7 @@ CONFIG_GROUPS: list[dict] = [
     },
     {
         "title": "Funciones",
-        "icon": "bi-toolbox",
+        "icon": "fa-solid fa-toolbox",
         "links": [
             ("Correo electrónico", "/adhoc/panel/correo", {"adhoc.mail.page.view"}),
         ],
@@ -327,9 +327,8 @@ async def panel_areas(
     perms = ctx["perms"]
     return render_adhoc(request, "adhoc/panel/color_catalog.html", {
         **ctx,
-        "page_title": "Áreas",
-        "subtitle": "Áreas del sistema de gestión de calidad.",
-        "icon": "bi-layers",
+        "page_title": "Gestión de Áreas",
+        "icon": "fa-solid fa-layer-group",
         "resource": "areas",
         "api_path": "/api/adhoc/v2/areas",
         "singular": "área",
@@ -357,9 +356,8 @@ async def panel_processes(
     perms = ctx["perms"]
     return render_adhoc(request, "adhoc/panel/color_catalog.html", {
         **ctx,
-        "page_title": "Procesos",
-        "subtitle": "Procesos del sistema de gestión de calidad.",
-        "icon": "bi-diagram-3",
+        "page_title": "Gestión de procesos",
+        "icon": "fa-solid fa-cogs",
         "resource": "processes",
         "api_path": "/api/adhoc/v2/processes",
         "singular": "proceso",

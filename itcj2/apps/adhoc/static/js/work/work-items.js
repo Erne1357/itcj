@@ -28,7 +28,7 @@
  *       kind: 'program',
  *       extraFields: [ {name: 'location', label: 'Ubicación', type: 'text', after: 'process_id'} ],
  *       cells: { files: function (item, ctx) { ... } },
- *       actions: function (item, ctx) { return [ {name: 'duplicate', icon: 'bi-copy'} ]; },
+ *       actions: function (item, ctx) { return [ {name: 'duplicate', icon: 'fa-regular fa-copy'} ]; },
  *       onAction: function (name, item, ctx) { ... },
  *       buildCreate: function (records, formRoot, ctx) { return {url, options}; }
  *   });
@@ -44,23 +44,17 @@
 
     // ==================== TONOS (espejo de la macro status_badge) ====================
 
-    var TONES = {
-        incident: {
-            'No Iniciada': 'neutral', 'Iniciada': 'warning', 'Cerrada': 'success'
-        },
-        program: {
-            'Planeado': 'neutral', 'En Proceso': 'info', 'Completado': 'success'
-        },
-        priority: {
-            'Baja': 'muted', 'Media': 'info', 'Alta': 'warning', 'Urgente': 'danger'
-        }
-    };
-
-    var PRIORITY_ICONS = {
-        'Baja': 'bi-arrow-down-short',
-        'Media': 'bi-dash-lg',
-        'Alta': 'bi-arrow-up-short',
-        'Urgente': 'bi-exclamation-triangle-fill'
+    // Prioridad: el legacy la pinta con la clase `.badge-` + la prioridad en
+    // minusculas. Urgente va en recuadro rojo claro, Media en ambar y Baja en
+    // verde, las tres como TEXTO en negrita, sin pastilla solida ni mayusculas.
+    // Se conserva ese aspecto con clases propias (`.badge-` esta prohibida:
+    // pisaria a Bootstrap). 'Alta' no existia en el legacy: se pinta como
+    // Urgente.
+    var PRIORITY_CLASS = {
+        'Baja': 'adhoc-prio-baja',
+        'Media': 'adhoc-prio-media',
+        'Alta': 'adhoc-prio-urgente',
+        'Urgente': 'adhoc-prio-urgente'
     };
 
     // ==================== HELPERS DE DOM ====================
@@ -72,34 +66,23 @@
         return node;
     }
 
+    /** `name` es la clase COMPLETA de Font Awesome 6 ("fa-solid fa-trash"). */
     function iconEl(name, title) {
-        var i = el('i', 'bi ' + name);
+        var i = el('i', name);
         if (title) i.setAttribute('title', title);
         return i;
     }
 
-    /** Badge con las MISMAS clases que la macro Jinja `status_badge`. */
-    function badge(value, map) {
-        var tone = (map && map[value]) || 'neutral';
-        var span = el('span', 'badge adhoc-badge adhoc-badge-' + tone);
+    function priorityBadge(value) {
+        var span = el('span', PRIORITY_CLASS[value] || 'adhoc-prio-media');
         span.textContent = value || '—';
         return span;
     }
 
-    function priorityBadge(value) {
-        var tone = TONES.priority[value] || 'neutral';
-        var span = el('span', 'badge adhoc-badge adhoc-badge-' + tone);
-        var icon = PRIORITY_ICONS[value];
-        if (icon) {
-            span.appendChild(iconEl(icon));
-            span.appendChild(document.createTextNode(' '));
-        }
-        span.appendChild(document.createTextNode(value || '—'));
-        return span;
-    }
-
+    /** Boton de icono suelto de la fila. Legacy `.btn-icon` / `.icon-action-blue`:
+     *  sin recuadro, coloreado, y crece al pasar el raton. */
     function actionButton(name, icon, title, variant) {
-        var btn = el('button', 'btn btn-sm ' + (variant || 'btn-outline-secondary') + ' adhoc-btn-icon');
+        var btn = el('button', 'adhoc-icon-btn ' + (variant || 'adhoc-icon-primary'));
         btn.type = 'button';
         btn.setAttribute('data-adhoc-row-action', name);
         btn.setAttribute('title', title);
@@ -361,7 +344,7 @@
                 td.textContent = item.commitment_date || '—';
                 if (this.isOverdue(item)) {
                     td.appendChild(document.createTextNode(' '));
-                    var warn = iconEl('bi-exclamation-triangle-fill', 'Vencido');
+                    var warn = iconEl('fa-solid fa-triangle-exclamation', 'Vencido');
                     warn.classList.add('adhoc-overdue');
                     td.appendChild(warn);
                 }
@@ -370,7 +353,9 @@
                 td.appendChild(priorityBadge(item.priority));
                 break;
             case 'status':
-                td.appendChild(badge(item.status, TONES[this.kind]));
+                // El legacy escribe el estatus tal cual, sin pastilla.
+                td.className += ' adhoc-cell-nowrap';
+                td.textContent = item.status || '—';
                 break;
             case 'tasks':
                 td.appendChild(this.tasksButton(item));
@@ -391,7 +376,7 @@
     };
 
     WorkItems.prototype.tasksButton = function (item) {
-        var btn = actionButton('tasks', 'bi-list-check', 'Ver tareas');
+        var btn = actionButton('tasks', 'fa-solid fa-list-check', 'Ver Tareas', 'adhoc-icon-task');
         var count = item.task_count;
         if (typeof count === 'number') {
             btn.appendChild(document.createTextNode(' '));
@@ -404,7 +389,7 @@
         var box = el('div', 'adhoc-actions');
 
         if (this.can.update) {
-            box.appendChild(actionButton('edit', 'bi-pencil', 'Editar'));
+            box.appendChild(actionButton('edit', 'fa-solid fa-pen', 'Editar'));
         }
 
         var extra = (typeof this.config.actions === 'function')
@@ -415,7 +400,7 @@
         }
 
         if (this.can.delete) {
-            box.appendChild(actionButton('delete', 'bi-trash', 'Eliminar', 'btn-outline-danger'));
+            box.appendChild(actionButton('delete', 'fa-solid fa-trash', 'Eliminar', 'adhoc-icon-trash'));
         }
         return box;
     };
@@ -548,7 +533,7 @@
         var count = qty ? (parseInt(qty.value, 10) || 1) : 1;
 
         this.editing = null;
-        this.setModalTitle('Nuevo ' + (this.labels.singular || 'registro'), 'bi-plus-circle');
+        this.setModalTitle('Nuevo ' + (this.labels.singular || 'registro'), 'fa-solid fa-circle-plus');
         this.fieldsBox.textContent = '';
 
         for (var i = 0; i < count; i++) {
@@ -561,7 +546,7 @@
     WorkItems.prototype.openEdit = function (item) {
         if (!this.modal || !this.fieldsBox || !item) return;
         this.editing = item;
-        this.setModalTitle('Editar ' + (this.labels.singular || 'registro'), 'bi-pencil-square');
+        this.setModalTitle('Editar ' + (this.labels.singular || 'registro'), 'fa-solid fa-pen-to-square');
         this.fieldsBox.textContent = '';
         this.fieldsBox.appendChild(this.buildRecordBlock(0, item, 'edit', 1));
         this.toggleDelete(!!this.can.delete);
@@ -594,7 +579,7 @@
         var title = this.modal.querySelector('[data-adhoc-work-modal-title]');
         var iconEl_ = this.modal.querySelector('[data-adhoc-work-modal-icon]');
         if (title) title.textContent = text;
-        if (iconEl_) iconEl_.className = 'bi ' + icon + ' me-2';
+        if (iconEl_) iconEl_.className = icon + ' me-2';
     };
 
     WorkItems.prototype.toggleDelete = function (show) {
@@ -752,6 +737,15 @@
                 self.clearFilters();
                 return;
             }
+            // "Filtrar" existe porque la pantalla del legacy lo tiene. Los
+            // filtros ya se aplican solos al cambiar, asi que aqui solo fuerza
+            // una recarga desde la primera pagina.
+            if (evt.target.closest('[data-adhoc-work-filter]')) {
+                evt.preventDefault();
+                self.page = 1;
+                self.load();
+                return;
+            }
 
             var pager = evt.target.closest('[data-adhoc-work-page]');
             if (pager) {
@@ -883,7 +877,6 @@
     window.AdhocWorkItems = {
         register: register,
         initAll: initAll,
-        badge: badge,
         priorityBadge: priorityBadge,
         actionButton: actionButton,
         el: el,

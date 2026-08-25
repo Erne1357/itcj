@@ -1,23 +1,31 @@
 {# ===========================================================================
    panel/config.html — tercer nivel de navegación (catálogos, flujos, correo).
 
-   Origen legacy: control_panel/advanced_config.html, que abría un <head>
-   completo DENTRO del <body> para meter su CSS y traía las URLs a mano.
+   Origen legacy: control_panel/advanced_config.html + advanced_config.css, que
+   abría un <head> completo DENTRO del <body> para meter su CSS y traía las URLs
+   a mano. El aspecto se porta tal cual: contenedor ancho, título de sección con
+   icono, rejilla de CUATRO columnas y tarjetas con borde superior violeta,
+   cabecera con icono en círculo lavanda separada por una línea, y enlaces con
+   galón (chevron) gris.
+
    Aquí los grupos y sus enlaces los arma pages/panel.py ya filtrados por
    permiso; el template solo los pinta. Sin JS.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
 {% from "adhoc/partials/_macros.html" import page_header, back_button, empty_state %}
 
-{% block title %}Configuración · Calidad · ITCJ{% endblock %}
+{% block title %}Configuración Avanzada · Calidad · ITCJ{% endblock %}
+
+{# El legacy ensancha el contenedor en esta pantalla (95% y 40px de padding). #}
+{% block body_class %}adhoc-wider adhoc-config-page{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/panel/config.css?v={{ sv('css/panel/config.css') }}">
 {% endblock %}
 
 {% block content %}
-  {% call page_header("Configuración", "Catálogos y funciones del sistema.", "bi-sliders") %}
-    {{ back_button(panel_url, "Volver al panel") }}
+  {% call page_header("Configuración Avanzada", None, "fa-solid fa-sliders") %}
+    {{ back_button(panel_url, "Volver al Panel") }}
   {% endcall %}
 
   {% if groups %}
@@ -25,14 +33,14 @@
     {% for group in groups %}
     <section class="adhoc-card adhoc-config-card">
       <header class="adhoc-config-card-head">
-        <span class="adhoc-tile-icon"><i class="bi {{ group.icon }}"></i></span>
+        <span class="adhoc-config-icon"><i class="{{ group.icon }}"></i></span>
         <h2 class="adhoc-config-card-title">{{ group.title }}</h2>
       </header>
       <ul class="adhoc-config-links">
         {% for link in group.links %}
         <li class="adhoc-config-link-item">
           <a class="adhoc-config-link" href="{{ link.url }}">
-            <i class="bi bi-chevron-right"></i>
+            <i class="fa-solid fa-chevron-right"></i>
             <span>{{ link.label }}</span>
           </a>
         </li>
@@ -43,7 +51,7 @@
   </div>
   {% else %}
   <div class="adhoc-card">
-    {{ empty_state("No tienes catálogos habilitados.", "bi-shield-lock") }}
+    {{ empty_state("No tienes catálogos habilitados.", "fa-solid fa-lock") }}
   </div>
   {% endif %}
 {% endblock %}

@@ -2,13 +2,13 @@
    documents/documents-panel.css — /adhoc/documentos/panel.
 
    Se carga DESPUÉS de documents/documents.css, que ya trae las piezas comunes
-   de la sección (paginador, celda de archivo, estado de carga). Aquí solo va lo
-   propio del panel de administración.
+   de la sección (fila de filtros, celda de archivo, iconos de acción,
+   controles inferiores, paginador). Aquí solo va lo propio del panel.
 
    El legacy tenía todo esto en advanced_documents.css junto a 4 bloques
-   `.modal-overlay` duplicados y a redefiniciones de `.form-row`, `.form-grid` y
-   `.form-input` que pisaban Bootstrap. Nada de eso sobrevive: los modales son
-   bootstrap.Modal y la rejilla es .adhoc-form-grid.
+   `.modal-overlay` duplicados y a redefiniciones de las clases de formulario
+   que pisaban Bootstrap. Nada de eso sobrevive: los modales son bootstrap.Modal
+   y la rejilla es .adhoc-form-grid.
    =========================================================================== */
 
 /* ── Raíz de la pantalla ───────────────────────────────────────────────── */
@@ -16,11 +16,25 @@
   display: block;
 }
 
-/* ── Celda "Versión / Estatus" ─────────────────────────────────────────── */
-.adhoc-doc-version {
-  margin-right: .4rem;
-  color: var(--adhoc-dark);
-  font-weight: 700;
+/* Legacy `.doc-table` del panel: 2000px de ancho mínimo (13 columnas) y celdas
+   un punto más compactas que las de la vista de consulta. */
+.adhoc-doc-panel .adhoc-table {
+  min-width: 2000px;
+}
+
+.adhoc-doc-panel .adhoc-table th,
+.adhoc-doc-panel .adhoc-table td {
+  padding: 10px;
+  font-size: .85rem;
+}
+
+/* Legacy `.interactive-row:hover`: azul muy tenue, no el lavanda del resto. */
+.adhoc-doc-panel .adhoc-table tbody tr:hover {
+  background-color: rgb(227 242 253);
+}
+
+.adhoc-doc-panel .adhoc-table tbody tr[data-adhoc-empty]:hover {
+  background: transparent;
 }
 
 /* ── Modal de arranque de flujo ────────────────────────────────────────── */

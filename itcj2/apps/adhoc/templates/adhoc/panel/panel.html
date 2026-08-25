@@ -1,8 +1,13 @@
 {# ===========================================================================
    panel/panel.html — rejilla de navegación del Panel de Control.
 
-   Origen legacy: control_panel/control_panel.html.
-   Cambios deliberados:
+   Origen legacy: control_panel/control_panel.html + css/control_panel/control_panel.css.
+   Es la MISMA pantalla: título de sección grande con icono y una rejilla de
+   TRES columnas de tarjetas horizontales (icono en círculo lavanda a la
+   izquierda, etiqueta al lado) con borde violeta a la izquierda. Sin texto
+   descriptivo: el legacy no lo pinta y la tarjeta es de una sola línea.
+
+   Cambios deliberados respecto del legacy:
      · Las tarjetas son anclas reales, no div + data-link + JS global. La página
        NO carga ningún módulo JS.
      · Fuera las tarjetas "7 Herramientas" y "Soporte": no tenían destino.
@@ -10,30 +15,35 @@
        del usuario, no un {% if is_admin %} cosmético.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import page_header, empty_state %}
+{% from "adhoc/partials/_macros.html" import empty_state %}
 
 {% block title %}Panel de Control · Calidad · ITCJ{% endblock %}
+
+{% block body_class %}adhoc-panel-page{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/panel/panel.css?v={{ sv('css/panel/panel.css') }}">
 {% endblock %}
 
 {% block content %}
-  {{ page_header("Panel de Control", "Administración del sistema de gestión de calidad.", "bi-sliders") }}
+  {# Legacy `.section-title`: icono oscuro + <h2> grande, 25px de aire debajo. #}
+  <div class="adhoc-panel-head">
+    <i class="fa-solid fa-sliders"></i>
+    <h2 class="adhoc-panel-title">Panel de Control</h2>
+  </div>
 
   {% if tiles %}
   <div class="adhoc-tile-grid adhoc-panel-grid" hx-boost="true">
     {% for tile in tiles %}
     <a class="adhoc-tile" href="{{ tile.url }}">
-      <span class="adhoc-tile-icon"><i class="bi {{ tile.icon }}"></i></span>
-      <h2 class="adhoc-tile-title">{{ tile.title }}</h2>
-      <p class="adhoc-tile-text">{{ tile.text }}</p>
+      <span class="adhoc-tile-icon"><i class="{{ tile.icon }}"></i></span>
+      <h3 class="adhoc-tile-title">{{ tile.title }}</h3>
     </a>
     {% endfor %}
   </div>
   {% else %}
   <div class="adhoc-card">
-    {{ empty_state("No tienes secciones habilitadas en el panel de control.", "bi-shield-lock") }}
+    {{ empty_state("No tienes secciones habilitadas en el panel de control.", "fa-solid fa-lock") }}
   </div>
   {% endif %}
 {% endblock %}

@@ -106,7 +106,7 @@
             var li = el('li', 'adhoc-files-item');
 
             var info = el('span', 'adhoc-files-info');
-            info.appendChild(iconEl('bi-file-earmark-text'));
+            info.appendChild(iconEl('fa-regular fa-file-lines'));
             // textContent: el nombre lo elige quien sube el archivo.
             info.appendChild(el('span', 'adhoc-files-name', file.original_name || ''));
             var meta = humanSize(file.size_bytes);
@@ -116,23 +116,23 @@
             var actions = el('span', 'adhoc-actions');
 
             if (can.files) {
-                var link = el('a', 'btn btn-sm btn-outline-secondary adhoc-btn-icon');
+                var link = el('a', 'adhoc-icon-btn adhoc-icon-primary');
                 // Descarga por ID, no por nombre: sin concatenar nada del usuario.
                 link.href = this.ctx.api + '/files/' + encodeURIComponent(file.id) + '/download';
                 link.setAttribute('title', 'Descargar');
                 link.setAttribute('aria-label', 'Descargar');
-                link.appendChild(iconEl('bi-download'));
+                link.appendChild(iconEl('fa-solid fa-download'));
                 actions.appendChild(link);
             }
 
             if (can.files_delete) {
-                var del = el('button', 'btn btn-sm btn-outline-danger adhoc-btn-icon');
+                var del = el('button', 'adhoc-icon-btn adhoc-icon-trash');
                 del.type = 'button';
                 del.setAttribute('data-adhoc-files-delete', String(file.id));
                 del.setAttribute('data-adhoc-files-name', file.original_name || '');
                 del.setAttribute('title', 'Eliminar');
                 del.setAttribute('aria-label', 'Eliminar');
-                del.appendChild(iconEl('bi-trash'));
+                del.appendChild(iconEl('fa-solid fa-trash'));
                 actions.appendChild(del);
             }
 
@@ -253,7 +253,7 @@
         cells: {
             files: function (item, ctx) {
                 if (!ctx.can.files && !ctx.can.files_create) return '—';
-                var btn = Base.actionButton('files', 'bi-folder2-open', 'Archivos adjuntos');
+                var btn = Base.actionButton('files', 'fa-regular fa-folder-open', 'Documentos Adjuntos', 'adhoc-icon-doc');
                 var count = item.files_count;
                 if (typeof count === 'number') {
                     btn.appendChild(document.createTextNode(' '));
@@ -265,7 +265,7 @@
 
         actions: function (item, ctx) {
             return ctx.can.duplicate
-                ? [{ name: 'duplicate', icon: 'bi-copy', title: 'Duplicar evento' }]
+                ? [{ name: 'duplicate', icon: 'fa-regular fa-copy', title: 'Copiar Registro' }]
                 : [];
         },
 

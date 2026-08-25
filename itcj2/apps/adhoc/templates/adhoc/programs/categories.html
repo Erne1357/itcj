@@ -14,24 +14,29 @@
 
 {% block title %}Categorías de programa · Calidad · ITCJ{% endblock %}
 
+{# El legacy lleva estas dos pantallas al 98 % del ancho
+   (`.main-container { max-width: 98% !important }` en su hoja). #}
+{% block body_class %}adhoc-wide{% endblock %}
+
 {% block content %}
+  {# Título, icono y etiqueta de columna son los del legacy
+     (`programs/programs_categories.html`): sin subtítulo y con el calendario. #}
   {{ catalog_page(
-       "Categorías de programa",
+       "Categorías de Programas",
        "program-categories",
        "/api/adhoc/v2/program-categories",
        "/adhoc/programas",
        singular="categoría",
        plural="categorías",
-       subtitle="Clasifican los eventos del programa de trabajo de Calidad.",
-       icon="bi-tags",
-       name_label="Nombre",
+       icon="fa-regular fa-calendar-days",
+       name_label="Nombre Categoría",
        can_create=can_create,
        can_update=can_update,
        can_delete=can_delete) }}
 {% endblock %}
 
 {% block modals %}
-  {{ catalog_modal("program-categories", singular="categoría", name_label="Nombre") }}
+  {{ catalog_modal("program-categories", singular="categoría", name_label="Nombre Categoría") }}
 {% endblock %}
 
 {% block extra_js %}

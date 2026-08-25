@@ -5,13 +5,18 @@
  * (el legacy dejaba 28 clases ES6 sueltas en el scope global).
  *
  * PROHIBIDO en toda la app: alert(), confirm(), prompt(). Usa showToast() y
- * confirmDialog(), que devuelven UI de Bootstrap 5.3 y no bloquean el hilo.
+ * confirmDialog(), que pintan el overlay propio (el del legacy) y no bloquean
+ * el hilo. Desde el porte visual este archivo NO depende de Bootstrap: el
+ * diálogo, el toast y la apertura/cierre de modales son propios.
  */
 (function () {
     'use strict';
 
     var API_BASE = '/api/adhoc/v2';
     var TOAST_CONTAINER_ID = 'adhoc-toast-container';
+    var LOADER_ID = 'adhoc-loader';
+    var LOGOUT_URL = '/api/core/v2/auth/logout';
+    var LOGIN_URL = '/itcj/login';
 
     // ==================== ESCAPE ====================
 
@@ -39,22 +44,22 @@
         if (!el) {
             el = document.createElement('div');
             el.id = TOAST_CONTAINER_ID;
-            el.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+            el.className = 'adhoc-toast-container';
             document.body.appendChild(el);
         }
         return el;
     }
 
     var TOAST_STYLE = {
-        success: { bg: 'bg-success', icon: 'bi-check-circle-fill', dark: false },
-        error:   { bg: 'bg-danger',  icon: 'bi-exclamation-octagon-fill', dark: false },
-        danger:  { bg: 'bg-danger',  icon: 'bi-exclamation-octagon-fill', dark: false },
-        warning: { bg: 'bg-warning', icon: 'bi-exclamation-triangle-fill', dark: true },
-        info:    { bg: 'bg-info',    icon: 'bi-info-circle-fill', dark: true }
+        success: { css: 'adhoc-toast-success', icon: 'fa-solid fa-circle-check' },
+        error:   { css: 'adhoc-toast-error',   icon: 'fa-solid fa-circle-exclamation' },
+        danger:  { css: 'adhoc-toast-error',   icon: 'fa-solid fa-circle-exclamation' },
+        warning: { css: 'adhoc-toast-warning', icon: 'fa-solid fa-triangle-exclamation' },
+        info:    { css: 'adhoc-toast-info',    icon: 'fa-solid fa-circle-info' }
     };
 
     /**
-     * Muestra un toast de Bootstrap. Crea el contenedor si no existe.
+     * Muestra un aviso flotante. Crea el contenedor si no existe.
      * @param {string} message  texto plano (se escapa)
      * @param {string} [type]   success | error | warning | info
      */
@@ -63,31 +68,57 @@
         var container = toastContainer();
 
         var toast = document.createElement('div');
-        toast.className = 'toast align-items-center border-0 ' + style.bg + ' ' +
-            (style.dark ? 'text-dark' : 'text-white');
+        toast.className = 'adhoc-toast ' + style.css;
         toast.setAttribute('role', 'alert');
         toast.setAttribute('aria-live', 'assertive');
-        toast.setAttribute('aria-atomic', 'true');
         toast.innerHTML =
-            '<div class="d-flex align-items-center">' +
-              '<div class="toast-body flex-grow-1 d-flex align-items-center gap-2">' +
-                '<i class="bi ' + style.icon + '"></i>' +
-                '<span>' + escapeHtml(message) + '</span>' +
-              '</div>' +
-              '<button type="button" class="btn-close ' + (style.dark ? '' : 'btn-close-white') +
-                ' me-2" data-bs-dismiss="toast" aria-label="Cerrar"></button>' +
-            '</div>';
+            '<i class="' + style.icon + '"></i>' +
+            '<span>' + escapeHtml(message) + '</span>';
 
         container.appendChild(toast);
+        // Un frame de retraso para que la transición de entrada se vea.
+        requestAnimationFrame(function () { toast.classList.add('is-visible'); });
 
-        if (window.bootstrap && window.bootstrap.Toast) {
-            var bsToast = new window.bootstrap.Toast(toast, { delay: 5000 });
-            toast.addEventListener('hidden.bs.toast', function () { toast.remove(); });
-            bsToast.show();
-        } else {
-            // Sin el bundle de Bootstrap todavía cargado: al menos que se vea.
-            toast.classList.add('show');
-            setTimeout(function () { toast.remove(); }, 5000);
+        setTimeout(function () {
+            toast.classList.remove('is-visible');
+            setTimeout(function () { toast.remove(); }, 250);
+        }, 5000);
+    }
+
+    // ==================== MODALES ====================
+
+    /**
+     * Abre un overlay `.adhoc-modal`. Sustituye a bootstrap.Modal para todo lo
+     * que ya está migrado; los modales de sección que aún llevan el markup
+     * `modal fade` los sigue abriendo bootstrap.Modal (mismo aspecto: adhoc.css
+     * viste las dos familias de clases igual).
+     * @param {HTMLElement|string} target elemento o id
+     * @returns {HTMLElement|null}
+     */
+    function openModal(target) {
+        var el = typeof target === 'string' ? document.getElementById(target) : target;
+        if (!el) return null;
+        el.classList.add('is-open');
+        el.removeAttribute('aria-hidden');
+        document.body.classList.add('adhoc-modal-open');
+        var focusable = el.querySelector('[autofocus], input, select, textarea, button');
+        if (focusable) {
+            try { focusable.focus(); } catch (e) { /* sin foco, da igual */ }
+        }
+        return el;
+    }
+
+    /**
+     * Cierra un overlay `.adhoc-modal`.
+     * @param {HTMLElement|string} target elemento o id
+     */
+    function closeModal(target) {
+        var el = typeof target === 'string' ? document.getElementById(target) : target;
+        if (!el) return;
+        el.classList.remove('is-open');
+        el.setAttribute('aria-hidden', 'true');
+        if (!document.querySelector('.adhoc-modal.is-open')) {
+            document.body.classList.remove('adhoc-modal-open');
         }
     }
 
@@ -101,8 +132,8 @@
     };
 
     /**
-     * Diálogo de confirmación con bootstrap.Modal. Sustituye a confirm().
-     * Crea el modal en el DOM al vuelo y lo destruye al cerrarse.
+     * Diálogo de confirmación. Sustituye a confirm(). Crea el overlay al vuelo
+     * y lo destruye al cerrarse. Misma firma de siempre.
      *
      *   if (await AdhocUtils.confirmDialog({ title: 'Eliminar', message: 'Se borra', variant: 'danger' })) { ... }
      *
@@ -119,19 +150,19 @@
 
         return new Promise(function (resolve) {
             var modal = document.createElement('div');
-            modal.className = 'modal fade';
-            modal.setAttribute('tabindex', '-1');
-            modal.setAttribute('aria-hidden', 'true');
+            modal.className = 'adhoc-modal';
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
             modal.innerHTML =
-                '<div class="modal-dialog modal-dialog-centered">' +
-                  '<div class="modal-content">' +
-                    '<div class="modal-header">' +
-                      '<h5 class="modal-title">' + escapeHtml(title) + '</h5>' +
-                      '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>' +
+                '<div class="adhoc-modal-dialog">' +
+                  '<div class="adhoc-modal-content">' +
+                    '<div class="adhoc-modal-header">' +
+                      '<h2 class="adhoc-modal-title">' + escapeHtml(title) + '</h2>' +
+                      '<button type="button" class="btn-close" data-adhoc-role="cancel" aria-label="Cerrar"></button>' +
                     '</div>' +
-                    '<div class="modal-body">' + escapeHtml(message) + '</div>' +
-                    '<div class="modal-footer">' +
-                      '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">' +
+                    '<div class="adhoc-modal-body">' + escapeHtml(message) + '</div>' +
+                    '<div class="adhoc-modal-footer">' +
+                      '<button type="button" class="btn btn-secondary" data-adhoc-role="cancel">' +
                         escapeHtml(cancelText) + '</button>' +
                       '<button type="button" class="btn ' + btnClass + '" data-adhoc-role="confirm">' +
                         escapeHtml(confirmText) + '</button>' +
@@ -139,29 +170,32 @@
                   '</div>' +
                 '</div>';
 
-            // El modal se cuelga de <body> a propósito: fuera de cualquier
+            // El overlay se cuelga de <body> a propósito: fuera de cualquier
             // contenedor con transform, que rompería su position:fixed.
             document.body.appendChild(modal);
 
-            if (!window.bootstrap || !window.bootstrap.Modal) {
+            function finish(answer) {
+                closeModal(modal);
                 modal.remove();
-                resolve(false);
-                return;
+                document.removeEventListener('keydown', onKey);
+                resolve(answer);
             }
 
-            var bsModal = window.bootstrap.Modal.getOrCreateInstance(modal);
-            var answer = false;
+            function onKey(evt) {
+                if (evt.key === 'Escape') finish(false);
+            }
 
-            modal.querySelector('[data-adhoc-role="confirm"]').addEventListener('click', function () {
-                answer = true;
-                bsModal.hide();
+            modal.addEventListener('click', function (evt) {
+                var role = evt.target.closest ? evt.target.closest('[data-adhoc-role]') : null;
+                if (role) {
+                    finish(role.getAttribute('data-adhoc-role') === 'confirm');
+                    return;
+                }
+                if (evt.target === modal) finish(false);   // clic en el velo
             });
-            modal.addEventListener('hidden.bs.modal', function () {
-                modal.remove();
-                resolve(answer);
-            });
+            document.addEventListener('keydown', onKey);
 
-            bsModal.show();
+            openModal(modal);
         });
     }
 
@@ -265,6 +299,69 @@
         }
     }
 
+    // ==================== SALIR ====================
+
+    /**
+     * Cierra la sesión con el overlay de engranes del legacy y manda al login.
+     * El botón vive en la cabecera del base (`[data-adhoc-logout]`), así que el
+     * listener es delegado: sobrevive a los swaps de HTMX.
+     */
+    async function logout() {
+        var loader = document.getElementById(LOADER_ID);
+        if (loader) loader.classList.add('is-visible');
+        try {
+            await fetch(LOGOUT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin'
+            });
+        } catch (e) {
+            console.error('[adhoc] error de red al cerrar sesión:', e);
+        }
+        window.location.href = LOGIN_URL;
+    }
+
+    // ==================== LISTENERS GLOBALES ====================
+
+    /**
+     * Se instalan UNA sola vez sobre `document`: cierre de modales propios
+     * (botón, velo y Escape) y el botón "Salir" de la cabecera. Al colgar de
+     * `document` no hay que re-enganchar nada tras un swap de HTMX.
+     */
+    function bindGlobal() {
+        if (document.documentElement.dataset.adhocGlobalBound === '1') return;
+        document.documentElement.dataset.adhocGlobalBound = '1';
+
+        document.addEventListener('click', function (evt) {
+            var t = evt.target;
+            if (!t || !t.closest) return;
+
+            if (t.closest('[data-adhoc-logout]')) {
+                evt.preventDefault();
+                logout();
+                return;
+            }
+
+            var closer = t.closest('[data-adhoc-modal-close]');
+            if (closer) {
+                evt.preventDefault();
+                closeModal(closer.closest('.adhoc-modal'));
+                return;
+            }
+
+            // Clic en el velo (el overlay en sí, no su diálogo).
+            if (t.classList && t.classList.contains('adhoc-modal')) {
+                closeModal(t);
+            }
+        });
+
+        document.addEventListener('keydown', function (evt) {
+            if (evt.key !== 'Escape') return;
+            var open = document.querySelectorAll('.adhoc-modal.is-open');
+            if (open.length) closeModal(open[open.length - 1]);
+        });
+    }
+
     // ==================== INIT IDEMPOTENTE ====================
 
     var _readyCounter = 0;
@@ -313,6 +410,12 @@
         }
     }
 
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bindGlobal);
+    } else {
+        bindGlobal();
+    }
+
     // ==================== EXPORT ====================
 
     window.AdhocUtils = {
@@ -320,6 +423,9 @@
         escapeHtml: escapeHtml,
         showToast: showToast,
         confirmDialog: confirmDialog,
+        openModal: openModal,
+        closeModal: closeModal,
+        logout: logout,
         fetchJson: fetchJson,
         extractError: extractError,
         pageData: pageData,

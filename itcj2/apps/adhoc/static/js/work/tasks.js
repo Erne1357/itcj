@@ -35,16 +35,15 @@
 
     var U = window.AdhocUtils;
 
-    var TASK_TONES = {
-        'Pendiente': 'neutral', 'En Proceso': 'info', 'En Revisión': 'warning',
-        'En Espera': 'muted', 'Completada': 'success', 'Rechazada': 'danger'
-    };
-    var PRIORITY_TONES = {
-        'Baja': 'muted', 'Media': 'info', 'Alta': 'warning', 'Urgente': 'danger'
-    };
-    var PRIORITY_ICONS = {
-        'Baja': 'bi-arrow-down-short', 'Media': 'bi-dash-lg',
-        'Alta': 'bi-arrow-up-short', 'Urgente': 'bi-exclamation-triangle-fill'
+    // El legacy escribe el estatus de la tarea en NEGRITA, sin pastilla
+    // (`<td><strong>{{ tarea.status }}</strong></td>`), y la prioridad ni la
+    // enseña. Aqui se conserva el estatus en negrita y la prioridad se pinta
+    // con las mismas clases de texto que la tabla de incidencias.
+    var PRIORITY_CLASS = {
+        'Baja': 'adhoc-prio-baja',
+        'Media': 'adhoc-prio-media',
+        'Alta': 'adhoc-prio-urgente',
+        'Urgente': 'adhoc-prio-urgente'
     };
 
     // ==================== HELPERS ====================
@@ -56,25 +55,22 @@
         return node;
     }
 
+    /** `name` es la clase COMPLETA de Font Awesome 6 ("fa-solid fa-bell"). */
     function iconEl(name, title) {
-        var i = el('i', 'bi ' + name);
+        var i = el('i', name);
         if (title) i.setAttribute('title', title);
         return i;
     }
 
-    function badge(value, tones, icons) {
-        var span = el('span', 'badge adhoc-badge adhoc-badge-' + ((tones && tones[value]) || 'neutral'));
-        var icon = icons && icons[value];
-        if (icon) {
-            span.appendChild(iconEl(icon));
-            span.appendChild(document.createTextNode(' '));
-        }
-        span.appendChild(document.createTextNode(value || '—'));
+    function priorityBadge(value) {
+        var span = el('span', PRIORITY_CLASS[value] || 'adhoc-prio-media');
+        span.textContent = value || '—';
         return span;
     }
 
+    /** Legacy `.btn-icon-small`: 1.1rem, sin recuadro, y crece al pasar el raton. */
     function actionButton(name, icon, title, variant) {
-        var btn = el('button', 'btn btn-sm ' + (variant || 'btn-outline-secondary') + ' adhoc-btn-icon');
+        var btn = el('button', 'adhoc-icon-btn ' + (variant || 'adhoc-icon-primary'));
         btn.type = 'button';
         btn.setAttribute('data-adhoc-task-action', name);
         btn.setAttribute('title', title);
@@ -177,11 +173,11 @@
 
         var tdStatus = this.cell('status', '');
         tdStatus.setAttribute('data-adhoc-value', task.status || '');
-        tdStatus.appendChild(badge(task.status, TASK_TONES));
+        tdStatus.appendChild(el('strong', null, task.status || '—'));
         tr.appendChild(tdStatus);
 
         var tdPriority = this.cell('priority', '');
-        tdPriority.appendChild(badge(task.priority, PRIORITY_TONES, PRIORITY_ICONS));
+        tdPriority.appendChild(priorityBadge(task.priority));
         tr.appendChild(tdPriority);
 
         tr.appendChild(this.cell('start_date', task.start_date || '—', 'adhoc-cell-nowrap'));
@@ -208,14 +204,14 @@
     Tasks.prototype.buildActions = function (task) {
         var box = el('div', 'adhoc-actions');
         if (this.can.assign) {
-            box.appendChild(actionButton('assign', 'bi-person-plus', 'Asignar responsables'));
-            box.appendChild(actionButton('notify', 'bi-bell', 'Notificar atraso'));
+            box.appendChild(actionButton('assign', 'fa-solid fa-user-plus', 'Asignar Usuarios', 'adhoc-icon-users'));
+            box.appendChild(actionButton('notify', 'fa-solid fa-bell', 'Notificar Atraso', 'adhoc-icon-bell'));
         }
         if (this.can.update) {
-            box.appendChild(actionButton('edit', 'bi-pencil', 'Editar'));
+            box.appendChild(actionButton('edit', 'fa-solid fa-pen', 'Editar'));
         }
         if (this.can.delete) {
-            box.appendChild(actionButton('delete', 'bi-trash', 'Eliminar', 'btn-outline-danger'));
+            box.appendChild(actionButton('delete', 'fa-solid fa-trash', 'Eliminar', 'adhoc-icon-trash'));
         }
         return box;
     };
@@ -334,7 +330,7 @@
         var count = qty ? (parseInt(qty.value, 10) || 1) : 1;
 
         this.editing = null;
-        this.setTitle('Nuevas tareas', 'bi-plus-circle');
+        this.setTitle('Nuevas tareas', 'fa-solid fa-circle-plus');
         this.fieldsBox.textContent = '';
         for (var i = 0; i < count; i++) {
             this.fieldsBox.appendChild(this.buildBlock(i, null, 'create', count));
@@ -346,7 +342,7 @@
     Tasks.prototype.openEdit = function (task) {
         if (!this.modal || !this.fieldsBox || !task) return;
         this.editing = task;
-        this.setTitle('Editar tarea', 'bi-pencil-square');
+        this.setTitle('Editar tarea', 'fa-solid fa-pen-to-square');
         this.fieldsBox.textContent = '';
         this.fieldsBox.appendChild(this.buildBlock(0, task, 'edit', 1));
         this.toggleDelete(!!this.can.delete);
@@ -357,7 +353,7 @@
         var title = this.modal.querySelector('[data-adhoc-tasks-modal-title]');
         var node = this.modal.querySelector('[data-adhoc-tasks-modal-icon]');
         if (title) title.textContent = text;
-        if (node) node.className = 'bi ' + icon + ' me-2';
+        if (node) node.className = icon + ' me-2';
     };
 
     Tasks.prototype.toggleDelete = function (show) {
@@ -497,6 +493,16 @@
             if (evt.target.closest('[data-adhoc-tasks-new]')) {
                 evt.preventDefault();
                 self.openNew();
+                return;
+            }
+            // "Filtrar" existe porque la pantalla del legacy lo tiene. El
+            // filtrado ya corre en vivo al teclear, asi que aqui solo se
+            // reaplica sobre la tabla.
+            if (evt.target.closest('[data-adhoc-tasks-filter]')) {
+                evt.preventDefault();
+                if (window.AdhocTableFilter && self.table) {
+                    window.AdhocTableFilter.apply(self.table);
+                }
                 return;
             }
 

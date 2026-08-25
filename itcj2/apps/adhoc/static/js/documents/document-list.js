@@ -37,10 +37,12 @@
 
     var DEFAULT_PER_PAGE = 25;
 
-    //: Mismos tonos que la macro Jinja status_badge(kind='document').
+    //: Colores del LEGACY (advanced_documents.html, líneas 77-89): Borrador y
+    //: Rechazado en rojo, En Revisión en azul, Aprobado en verde. El estatus se
+    //: pinta como TEXTO de color, nunca como pastilla sólida.
     var STATUS_TONE = {
-        'Borrador': 'neutral',
-        'En Revisión': 'warning',
+        'Borrador': 'danger',
+        'En Revisión': 'info',
         'Aprobado': 'success',
         'Rechazado': 'danger'
     };
@@ -75,9 +77,10 @@
         return td;
     }
 
+    /** Estatus como texto de color (legacy `.rev-container` + span en línea). */
     function statusBadge(status) {
         var badge = document.createElement('span');
-        badge.className = 'badge adhoc-badge adhoc-badge-' +
+        badge.className = 'adhoc-badge adhoc-status adhoc-doc-status adhoc-badge-' +
             (STATUS_TONE[status] || 'neutral');
         badge.textContent = text(status);
         return badge;
@@ -88,40 +91,48 @@
      * permiso. En el legacy la descarga era una ruta ANÓNIMA con el id en la
      * URL: bastaba iterar para bajarse el SGC completo.
      */
-    function fileCell(doc, canDownload) {
+    function fileCell(doc, canDownload, opts) {
+        var o = opts || {};
+        var icon = o.icon || 'fa-solid fa-link';
         if (!doc.has_file) {
             var none = document.createElement('i');
-            none.className = 'bi bi-dash-circle adhoc-file-none';
+            none.className = 'fa-solid fa-file-excel adhoc-file-none';
             none.title = 'Sin archivo';
             none.setAttribute('aria-label', 'Sin archivo');
             return none;
         }
         if (!canDownload) {
             var locked = document.createElement('i');
-            locked.className = 'bi bi-file-earmark adhoc-file-none';
+            locked.className = 'fa-solid fa-file-circle-xmark adhoc-file-none';
             locked.title = 'Sin permiso para descargar';
             locked.setAttribute('aria-label', 'Sin permiso para descargar');
             return locked;
         }
         var link = document.createElement('a');
-        link.className = 'adhoc-file-link';
+        link.className = o.linkClass || 'adhoc-file-link';
         link.href = U.API_BASE + '/documents/' + encodeURIComponent(doc.id) + '/download';
         link.title = 'Descargar archivo';
         link.setAttribute('aria-label', 'Descargar archivo');
         link.rel = 'noopener';
         link.target = '_blank';
-        link.innerHTML = '<i class="bi bi-download"></i>';   // markup estático
+        link.innerHTML = '<i class="' + icon + '"></i>';   // markup estático
         return link;
     }
 
+    /**
+     * Icono de acción de fila. Aspecto del legacy `.icon-btn-blue`: icono
+     * pelado del color de la marca, sin recuadro, que crece al pasar el ratón.
+     * `icon` es la clase COMPLETA de Font Awesome; `variant` una de las clases
+     * de color de documents.css (adhoc-icon-danger, -warning, -muted...).
+     */
     function iconButton(action, icon, label, variant) {
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'btn btn-sm ' + (variant || 'btn-outline-secondary') + ' adhoc-btn-icon';
+        btn.className = 'adhoc-icon-action' + (variant ? ' ' + variant : '');
         btn.setAttribute('data-adhoc-doc-action', action);
         btn.title = label;
         btn.setAttribute('aria-label', label);
-        btn.innerHTML = '<i class="bi ' + icon + '"></i>';   // markup estático
+        btn.innerHTML = '<i class="' + icon + '"></i>';   // markup estático
         return btn;
     }
 

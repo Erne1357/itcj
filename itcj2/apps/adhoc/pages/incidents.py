@@ -146,12 +146,16 @@ def incidents_page(
             **ctx,
             "page_data": page_data,
             "columns": _COLUMNS,
-            "page_title": "Gestión de incidencias",
-            "page_subtitle": "Hallazgos, no conformidades y acciones correctivas del SGC.",
-            "page_icon": "bi-exclamation-triangle",
+            # Textos e iconos del legacy (`incidents/incidents.html`): título
+            # "Gestión de Incidencias" con el extintor, sin subtítulo.
+            "page_title": "Gestión de Incidencias",
+            "page_subtitle": None,
+            "page_icon": "fa-solid fa-fire-extinguisher",
             "back_url": "/adhoc/panel",
+            "back_label": "Volver al Panel",
+            "new_label": "Añadir Nuevas Incidencias",
             "empty_message": "No hay incidencias que coincidan con el filtro.",
-            "empty_icon": "bi-exclamation-triangle",
+            "empty_icon": "fa-solid fa-fire-extinguisher",
             "can_create": page_data["can"]["create"],
             "categories_url": "/adhoc/incidencias/categorias",
             "can_manage_categories": True,
@@ -236,16 +240,18 @@ def incident_tasks_page(
 _ASSIGN_ACTIONS = {
     "assign": {
         "target": "task",
-        "title": "Asignar responsables",
-        "icon": "bi-person-plus",
+        "title": "Asignar Usuarios",
+        "icon": "fa-solid fa-users-gear",
+        "back_label": "Volver a Tareas",
         "subtitle": "Marca a quién le toca esta tarea. El orden de selección es el orden de atención.",
         "endpoint": "/api/adhoc/v2/tasks/{id}/assignees",
         "method": "PUT",
     },
     "notify": {
         "target": "task",
-        "title": "Notificar atraso",
-        "icon": "bi-bell",
+        "title": "Notificar Atraso",
+        "icon": "fa-solid fa-bell",
+        "back_label": "Volver a Tareas",
         "subtitle": (
             "Marca a quién avisar del vencimiento. Ojo: guardar escala la tarea a "
             "prioridad Urgente, y quien no fuera responsable queda asignado."
@@ -255,16 +261,18 @@ _ASSIGN_ACTIONS = {
     },
     "step_assign": {
         "target": "step",
-        "title": "Asignar validadores al paso",
-        "icon": "bi-people",
+        "title": "Asignar Validadores al Paso",
+        "icon": "fa-solid fa-users-viewfinder",
+        "back_label": "Volver a Config. de Flujo",
         "subtitle": "El orden en que selecciones a los validadores es el orden secuencial de aprobación.",
         "endpoint": "/api/adhoc/v2/approval-flows/steps/{id}/validators",
         "method": "PUT",
     },
     "notify_step": {
         "target": "step",
-        "title": "Notificar validadores atrasados",
-        "icon": "bi-person-exclamation",
+        "title": "Notificar Validadores Atrasados",
+        "icon": "fa-solid fa-user-clock",
+        "back_label": "Volver a Config. de Flujo",
         "subtitle": "Marca a los validadores que recibirán la alerta de atraso de este paso.",
         "endpoint": "/api/adhoc/v2/approval-flows/steps/{id}/overdue-notifications",
         "method": "PUT",
@@ -334,6 +342,7 @@ def assignments_page(
             "page_subtitle": config["subtitle"],
             "page_icon": config["icon"],
             "back_url": page_data["return_to"],
+            "back_label": config["back_label"],
         },
     )
 

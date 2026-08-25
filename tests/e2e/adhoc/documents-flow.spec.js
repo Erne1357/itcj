@@ -115,9 +115,9 @@ async function approveFromDashboard(page, taskId, comment) {
   await expect(approve).toBeVisible();
   await approve.click();
 
-  // AdhocUtils.confirmDialog: modal de Bootstrap creado al vuelo, NUNCA
-  // window.confirm.
-  const confirm = page.locator('.modal.show [data-adhoc-role="confirm"]');
+  // AdhocUtils.confirmDialog: overlay propio creado al vuelo (el del legacy),
+  // NUNCA window.confirm.
+  const confirm = page.locator('.adhoc-modal.is-open [data-adhoc-role="confirm"]');
   await expect(confirm).toBeVisible();
 
   const actionDone = page.waitForResponse(

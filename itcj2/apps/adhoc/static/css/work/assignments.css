@@ -1,37 +1,157 @@
 /* ==========================================================================
    work/assignments.css — pantalla /adhoc/asignaciones.
 
-   Casi todo el peso visual lo lleva `shared/user-picker.js` con las clases que
-   ya define adhoc.css (.adhoc-user-picker, .adhoc-user-option, .adhoc-chip,
-   .adhoc-order-badge). Aquí solo queda el encuadre de la tarjeta y la fila de
-   botones. El legacy tenía `incidents/tasks_users.css` con un switch iOS
-   dibujado a mano, badges de orden posicionados con style= y su propio
-   .modal-overlay para las alertas.
+   PORTE de `static/css/incidents/tasks_users.css` del legacy. El markup de la
+   lista lo pinta `shared/user-picker.js` (clases .adhoc-user-picker…, que ya
+   define adhoc.css), así que aquí se le da EL ASPECTO del original:
+
+     .table-container  → .adhoc-card
+     .controls-top     → cabecera del picker (buscador + contador + limpiar)
+     .doc-table filas  → .adhoc-user-option, con línea inferior y 12px de aire
+     .switch/.slider   → el propio checkbox del picker, vestido de interruptor
+                         de iOS (50x26, pastilla gris que se pone violeta)
+     .order-badge      → .adhoc-order-badge en azul 2980b9, círculo con sombra
+     botón Confirmar   → .adhoc-assign-confirm, sobre una línea separadora
    ========================================================================== */
 
 .adhoc-assign {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  display: block;
 }
 
-/* La lista de personas puede ser larga: se le da altura cómoda y su propio
-   scroll, para que los botones de guardar queden siempre alcanzables. */
-.adhoc-assign .adhoc-user-picker-list {
-  max-height: 55vh;
+.adhoc-assign-card {
+  padding: 25px;
 }
+
+/* El legacy deja el título pegado a la leyenda (5px) y la leyenda a 20px de la
+   lista. `.adhoc-page-head` ya trae el hueco de abajo. */
+.adhoc-assign-card .adhoc-page-head {
+  margin-bottom: 20px;
+}
+
+/* ---------- lista de personas ---------- */
+
+/* Sin recuadro exterior: en el legacy la lista es una tabla dentro de la
+   tarjeta, no una caja aparte. */
+.adhoc-assign .adhoc-user-picker-box {
+  border: 0;
+  border-radius: 0;
+}
+
+/* Cabecera = la fila de controles del legacy: buscador a la izquierda,
+   contador y "limpiar selecciones" a la derecha. */
+.adhoc-assign .adhoc-user-picker-head {
+  gap: 10px;
+  padding: 10px 0 15px;
+  background: none;
+  border-bottom: 0;
+}
+
+.adhoc-assign .adhoc-user-picker-search {
+  flex: 1 1 20rem;
+}
+
+/* La lista es larga a propósito: el legacy no la acota, así que aquí se le da
+   una altura cómoda con su propio scroll y los botones quedan alcanzables. */
+.adhoc-assign .adhoc-user-picker-list {
+  max-height: 60vh;
+  border-top: 1px solid var(--adhoc-line);
+}
+
+/* Fila = fila de tabla del legacy: 12px de relleno y línea inferior. */
+.adhoc-assign .adhoc-user-option {
+  gap: 12px;
+  padding: 12px;
+}
+
+/* Orden visual del legacy: datos · interruptor · número de turno. En el DOM el
+   checkbox va primero (es la etiqueta del label), así que se recoloca con
+   `order` en vez de reordenar el markup del módulo compartido. */
+.adhoc-assign .adhoc-user-option-body { order: 1; }
+.adhoc-assign .adhoc-user-option input[type="checkbox"] { order: 2; }
+.adhoc-assign .adhoc-order-badge { order: 3; }
+
+.adhoc-assign .adhoc-user-option-name {
+  font-size: .9rem;
+  font-weight: 400;
+}
+
+/* ---------- interruptor de iOS (legacy `.switch` + `.slider`) ---------- */
+
+.adhoc-assign .adhoc-user-option input[type="checkbox"] {
+  position: relative;
+  flex: 0 0 auto;
+  width: 50px;
+  height: 26px;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: rgb(204, 204, 204);
+  border: 0;
+  border-radius: 34px;
+  cursor: pointer;
+  transition: .4s;
+}
+
+.adhoc-assign .adhoc-user-option input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  width: 20px;
+  height: 20px;
+  background-color: var(--adhoc-surface);
+  border-radius: 50%;
+  transition: .4s;
+}
+
+.adhoc-assign .adhoc-user-option input[type="checkbox"]:checked {
+  background-color: var(--adhoc-primary);
+}
+
+.adhoc-assign .adhoc-user-option input[type="checkbox"]:checked::before {
+  transform: translateX(24px);
+}
+
+.adhoc-assign .adhoc-user-option input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- badge de orden (legacy `.order-badge`) ---------- */
+
+/* Azul 2980b9 = --adhoc-info, círculo con sombra y 10px de aire a la
+   izquierda del interruptor. */
+.adhoc-assign .adhoc-order-badge {
+  min-width: 1.6rem;
+  height: 1.6rem;
+  margin-left: 10px;
+  background: var(--adhoc-info);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, .2);
+}
+
+/* ---------- pie: confirmar ---------- */
 
 .adhoc-assign-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: .5rem;
-  margin-top: 1.25rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--adhoc-border);
+  gap: 10px;
+  margin-top: 25px;
+  padding-top: 20px;
+  border-top: 1px solid var(--adhoc-line);
+}
+
+/* Legacy: 12px 30px y 1rem, más grande que el resto de la pantalla. */
+.adhoc-assign-confirm {
+  padding: 12px 30px;
+  font-size: 1rem;
 }
 
 @media (max-width: 575.98px) {
+  .adhoc-assign-card {
+    padding: 15px;
+  }
+
   .adhoc-assign-actions .btn {
     flex: 1 1 100%;
   }

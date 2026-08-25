@@ -3,48 +3,71 @@
 
    Ruta: GET /adhoc/reportes · permiso: adhoc.reports.page.view
 
-   Qué cambia respecto al legacy (reports/reports.html):
-     · Los DOS modales caseros (#modalReporte y #modalDocumentosNotas, ambos
-       .modal-overlay con style.display='flex') se funden en UN modal de
-       Bootstrap 5.3 que conmuta su vista previa según el reporte elegido.
-       De paso, "Documentos y Notas" vuelve a ser generable: su modal del legacy
-       solo tenía un botón "Cerrar", así que ese reporte era inalcanzable desde
-       la interfaz.
-     · Las filas de las dos vistas previas NO se renderizan desde Jinja: viajan
-       como JSON en el bloque page_data y las pinta el módulo JS escapando cada
-       celda.
-     · Cero CSS inline, cero manejadores inline, iconos Bootstrap Icons.
+   PORTE VISUAL del legacy (reports/reports.html + css/control_panel/reports.css):
+     · Toda la pantalla vive dentro de UNA tarjeta blanca (.table-container del
+       legacy → .adhoc-card) al 98% de ancho (body_class="adhoc-wide", que es lo
+       que hacía el `.main-container { max-width: 98% !important }` de la hoja).
+     · "Volver al Panel" es la pastilla gris ANCLADA a la esquina superior
+       derecha de esa tarjeta, no un botón del encabezado.
+     · Las tarjetas de reporte son las del legacy: caja gris clara, icono base
+       gigante en #dfe6e9 con el icono pequeño superpuesto abajo a la derecha en
+       el color de marca, y SOLO el título debajo (el legacy nunca pinta
+       descripción; su `.report-card span` está declarado pero sin uso).
+
+   Qué sigue cambiando respecto al legacy (decidido en la migración, no aquí):
+     · Los DOS modales caseros (#modalReporte y #modalDocumentosNotas) se funden
+       en UNO. De paso, "Documentos y Notas" vuelve a ser generable: su modal del
+       legacy solo tenía un botón "Cerrar", así que ese reporte era inalcanzable.
+       El diálogo cambia de ancho según el reporte (850px / 1200px, los dos del
+       legacy) mirando `data-adhoc-subject` desde CSS.
+     · Las filas de las vistas previas NO se renderizan desde Jinja: viajan como
+       JSON en page_data y las pinta el módulo JS escapando cada celda.
+     · Cero CSS inline, cero manejadores inline, iconos Font Awesome 6.4.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import page_header, data_table, form_field, select_field, page_data_script %}
+{% from "adhoc/partials/_macros.html" import back_button, page_data_script %}
 
 {% block title %}Centro de Reportes · Calidad{% endblock %}
+
+{# El legacy ensancha el contenedor a 98% SOLO en esta pantalla. #}
+{% block body_class %}adhoc-wide{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/reports/reports.css?v={{ sv('css/reports/reports.css') }}">
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-reports" data-adhoc-reports>
+<section class="adhoc-card adhoc-reports" data-adhoc-reports>
 
-  {{ page_header(
-      'Centro de Reportes',
-      'Seleccione el reporte que desea generar para configurar sus filtros.',
-      'bi-clipboard-data') }}
+  {# Anclado arriba a la derecha de la tarjeta (legacy `.btn-back-panel`). #}
+  <div class="adhoc-reports-back">
+    {{ back_button('/adhoc/panel', 'Volver al Panel') }}
+  </div>
 
-  <div class="adhoc-tile-grid">
+  {# El icono es HERMANO del bloque de texto, no va dentro del <h1>: así queda
+     centrado sobre título + subtítulo, que es como se ve en el legacy
+     (`.header-title` es un flex de [icono, div[h2, p]]). Por eso esta pantalla
+     no usa la macro page_header(), que lo mete dentro del título. #}
+  <div class="adhoc-reports-head">
+    <i class="fa-solid fa-chart-pie adhoc-reports-head-icon"></i>
+    <div class="adhoc-page-head-main">
+      <h1 class="adhoc-page-title">Centro de Reportes</h1>
+      <p class="adhoc-page-subtitle">Seleccione el reporte que desea generar para configurar sus filtros.</p>
+    </div>
+  </div>
+
+  <div class="adhoc-reports-grid">
     {% for card in reports %}
     <button type="button"
-            class="adhoc-tile adhoc-report-card"
+            class="adhoc-report-card"
             data-adhoc-report="{{ card.type }}"
             data-adhoc-report-label="{{ card.label }}"
             data-adhoc-report-subject="{{ card.subject }}">
-      <span class="adhoc-tile-icon adhoc-report-icon">
-        <i class="bi {{ card.icon }}"></i>
-        <i class="bi {{ card.icon_overlay }} adhoc-report-icon-overlay" aria-hidden="true"></i>
+      <span class="adhoc-report-icon">
+        <i class="{{ card.icon }} adhoc-report-icon-base"></i>
+        <i class="{{ card.icon_overlay }} adhoc-report-icon-overlay" aria-hidden="true"></i>
       </span>
-      <span class="adhoc-tile-title">{{ card.label }}</span>
-      <span class="adhoc-tile-text">{{ card.title }}</span>
+      <span class="adhoc-report-card-title">{{ card.label }}</span>
     </button>
     {% endfor %}
   </div>
@@ -54,27 +77,11 @@
 
 
 {% block modals %}
-{% set PREVIEW_USERS_COLS = [
-  {'key': 'first_name', 'label': 'Nombre'},
-  {'key': 'last_name',  'label': 'Apellidos'},
-  {'key': 'areas',      'label': 'Área'}
-] %}
-{% set PREVIEW_DOCS_COLS = [
-  {'key': 'code',       'label': 'Código'},
-  {'key': 'title',      'label': 'Título'},
-  {'key': 'author',     'label': 'Autor'},
-  {'key': 'area',       'label': 'Área'},
-  {'key': 'status',     'label': 'Estado'},
-  {'key': 'version',    'label': 'Versión', 'align': 'center'},
-  {'key': 'created_at', 'label': 'Fecha',   'align': 'center'},
-  {'key': 'notes',      'label': 'Notas'}
-] %}
-
 {# Un solo modal para los 5 reportes. Vive aquí, a nivel <body>, fuera de
-   cualquier contenedor con transform (.adhoc-tile usa translateY en :hover). #}
-<div class="modal fade" id="adhoc-report-modal" tabindex="-1"
+   cualquier contenedor con transform (.adhoc-report-card usa translateY). #}
+<div class="modal fade" id="adhoc-report-modal" tabindex="-1" data-adhoc-subject="users"
      aria-labelledby="adhoc-report-modal-title" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
 
       {# GET + target=_blank: el reporte se abre en otra pestaña y esta pantalla
@@ -83,53 +90,113 @@
       <form id="adhoc-report-form" method="get" action="/adhoc/reportes" target="_blank">
 
         <div class="modal-header">
-          <h5 class="modal-title" id="adhoc-report-modal-title">
-            <i class="bi bi-funnel me-2"></i><span data-adhoc-report-title>Filtros</span>
+          <h5 class="modal-title adhoc-report-modal-title" id="adhoc-report-modal-title">
+            <i class="fa-solid fa-filter"></i>
+            <span data-adhoc-report-title>Filtros</span>
           </h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
 
         <div class="modal-body">
 
-          <div class="adhoc-form-grid adhoc-report-filters">
-            {{ form_field('f_nombre', 'Nombre', placeholder='Nombre...',
-                          id='adhoc-report-f-nombre',
-                          attrs={'data-adhoc-report-filter': 'nombre', 'autocomplete': 'off'}) }}
-            {{ form_field('f_apellidos', 'Apellidos', placeholder='Apellidos...',
-                          id='adhoc-report-f-apellidos',
-                          attrs={'data-adhoc-report-filter': 'apellidos', 'autocomplete': 'off'}) }}
-            {{ select_field('f_area', 'Área', areas|map(attribute='name')|list,
-                            placeholder='Todas las Áreas',
-                            id='adhoc-report-f-area',
-                            attrs={'data-adhoc-report-filter': 'area'}) }}
-          </div>
-
-          <div class="adhoc-toolbar adhoc-toolbar-between adhoc-report-preview-bar">
+          {# Barra de acciones del legacy: "Limpiar" y "Buscar" a la derecha. El
+             filtrado ya es en vivo (input/change), así que "Buscar" solo fuerza
+             un repintado; se conserva porque está en el original. #}
+          <div class="adhoc-toolbar adhoc-toolbar-between adhoc-report-actions">
             <span class="adhoc-report-hint">
-              <i class="bi bi-eye"></i>
+              <i class="fa-solid fa-eye"></i>
               Vista previa de lo que incluirá el reporte
               (<span data-adhoc-preview-count>0</span>).
             </span>
-            <button type="button" class="btn btn-sm btn-outline-secondary"
-                    data-adhoc-report-clear>
-              <i class="bi bi-eraser"></i>
-              <span class="d-none d-sm-inline">Limpiar</span>
-            </button>
+            <div class="adhoc-report-actions-buttons">
+              <button type="button" class="btn adhoc-btn-clear" data-adhoc-report-clear>
+                <i class="fa-solid fa-eraser"></i> Limpiar
+              </button>
+              <button type="button" class="btn adhoc-btn-search" data-adhoc-report-search>
+                <i class="fa-solid fa-magnifying-glass"></i> Buscar
+              </button>
+            </div>
           </div>
 
-          {# Dos vistas previas; el JS enseña la que corresponda al reporte. #}
+          {# Los TRES filtros del legacy. Van una sola vez (los lee
+             `currentFilters()` de todo el documento) y encima de las dos vistas
+             previas, alineados en columnas como la fila de filtros de la tabla
+             del original. #}
+          <div class="adhoc-report-filters">
+            <input type="text" name="f_nombre" id="adhoc-report-f-nombre"
+                   class="adhoc-filter-input" placeholder="Nombre..."
+                   autocomplete="off" aria-label="Filtrar por nombre"
+                   data-adhoc-report-filter="nombre">
+            <input type="text" name="f_apellidos" id="adhoc-report-f-apellidos"
+                   class="adhoc-filter-input" placeholder="Apellidos..."
+                   autocomplete="off" aria-label="Filtrar por apellidos"
+                   data-adhoc-report-filter="apellidos">
+            <select name="f_area" id="adhoc-report-f-area"
+                    class="adhoc-filter-input" aria-label="Filtrar por área"
+                    data-adhoc-report-filter="area">
+              <option value="">Todas las Áreas</option>
+              {% for a in areas %}
+              <option value="{{ a.name }}">{{ a.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          {# Dos vistas previas; el JS enseña la que corresponda al reporte.
+             Escritas a mano (no con la macro data_table) porque la fila de
+             filtros de la macro trae su propio hook `data-adhoc-filter-input`,
+             que dispararía TAMBIÉN el filtrado genérico de table-filter.js
+             sobre el DOM: dos filtrados encima del mismo <tbody>. #}
           <div class="adhoc-report-preview" data-adhoc-preview="users">
-            {{ data_table('adhoc-report-users', PREVIEW_USERS_COLS,
-                          'Ningún colaborador coincide con los filtros.',
-                          empty_icon='bi-person-x', width='auto',
-                          wrap_css='adhoc-table-sticky') }}
+            <div class="adhoc-table-wrap adhoc-table-sticky" data-adhoc-table-wrap>
+              <table class="adhoc-table" id="adhoc-report-users" data-adhoc-table="adhoc-report-users">
+                <thead>
+                  <tr>
+                    <th scope="col">Nombre</th>
+                    <th scope="col">Apellidos</th>
+                    <th scope="col">Área</th>
+                  </tr>
+                </thead>
+                <tbody id="adhoc-report-users-body" data-adhoc-table-body>
+                  <tr class="adhoc-table-empty" data-adhoc-empty>
+                    <td colspan="3">
+                      <div class="adhoc-empty">
+                        <i class="fa-solid fa-user-slash adhoc-empty-icon"></i>
+                        <p class="adhoc-empty-text mb-0">Ningún colaborador coincide con los filtros.</p>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <div class="adhoc-report-preview" data-adhoc-preview="documents" hidden>
-            {{ data_table('adhoc-report-docs', PREVIEW_DOCS_COLS,
-                          'Ningún documento coincide con los filtros.',
-                          empty_icon='bi-file-earmark-x', width='xl',
-                          wrap_css='adhoc-table-sticky') }}
+            <div class="adhoc-table-wrap adhoc-table-sticky" data-adhoc-table-wrap>
+              <table class="adhoc-table adhoc-table-md" id="adhoc-report-docs" data-adhoc-table="adhoc-report-docs">
+                <thead>
+                  <tr>
+                    <th scope="col">Código</th>
+                    <th scope="col">Título</th>
+                    <th scope="col">Autor</th>
+                    <th scope="col">Área</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col" class="adhoc-col-center">Versión</th>
+                    <th scope="col" class="adhoc-col-center">Fecha</th>
+                    <th scope="col">Notas</th>
+                  </tr>
+                </thead>
+                <tbody id="adhoc-report-docs-body" data-adhoc-table-body>
+                  <tr class="adhoc-table-empty" data-adhoc-empty>
+                    <td colspan="8">
+                      <div class="adhoc-empty">
+                        <i class="fa-solid fa-file-circle-xmark adhoc-empty-icon"></i>
+                        <p class="adhoc-empty-text mb-0">Ningún documento coincide con los filtros.</p>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
         </div>
@@ -138,11 +205,11 @@
           <span class="adhoc-report-hint">Seleccione el formato de salida:</span>
           <div class="d-flex gap-2">
             <button type="submit" name="formato" value="sencillo" class="btn btn-primary">
-              <i class="bi bi-file-earmark-text"></i>
+              <i class="fa-solid fa-file-invoice"></i>
               Reporte Sencillo
             </button>
             <button type="submit" name="formato" value="completo" class="btn btn-success">
-              <i class="bi bi-file-earmark-spreadsheet"></i>
+              <i class="fa-solid fa-file-excel"></i>
               Reporte Completo
             </button>
           </div>

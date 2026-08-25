@@ -9,32 +9,55 @@
      adhoc/incidents/incidents.html   (kind = "incident")
      adhoc/programs/programs.html     (kind = "program")
 
+   ASPECTO — porte 1:1 de `templates/app_prueba/incidents/incidents.html` y
+   `programs/programs.html`:
+     · UNA sola tarjeta blanca (`.table-container`) que contiene título,
+       botón "Volver al Panel", controles, tabla y controles inferiores;
+     · contenedor al 98 % (`.main-container { max-width: 98% }` del legacy →
+       clase `adhoc-wide` en el <body>);
+     · los filtros viven DENTRO de la tabla, en la segunda fila del <thead>,
+       no en un panel gris aparte;
+     · "Limpiar" + "Filtrar" arriba a la derecha;
+     · "Añadir Nuevas…" + selector de cantidad abajo a la izquierda.
+
    Lo que cambia entre las dos viaja por CONTEXTO desde `pages/`, no por
    markup duplicado:
      page_title · page_subtitle · page_icon · back_url · categories_url
-     columns          lista de columnas de data_table()
+     columns          lista de columnas (key/label/align)
      empty_message / empty_icon
-     can_create       oculta el botón "Nuevo" (el gate real es require_perms)
+     new_label        texto del botón de alta masiva
+     can_create       oculta el botón de alta (el gate real es require_perms)
      page_data        bloque JSON que lee el módulo JS (AdhocUtils.pageData)
 
    Bloques que puede sobrescribir el hijo:
      extra_css / extra_js   sus estáticos propios (SIEMPRE con ?v={{ sv(...) }})
      work_toolbar_extra     botones de acción adicionales de la cabecera
-     work_filters_extra     filtros propios del dominio
      work_extra_modals      modales propios (p. ej. el de archivos de programa)
+
+   POR QUÉ LA TABLA VA A MANO Y NO POR LA MACRO `data_table()`: la fila de
+   filtros de la macro solo sabe emitir `input[data-adhoc-filter-input]`, que
+   es el hook del filtrado EN CLIENTE de shared/table-filter.js. Aquí la lista
+   está paginada en el servidor, así que cada control declara
+   `data-adhoc-param` con el nombre lógico del filtro y el módulo JS lo traduce
+   al parámetro real de cada API con `page_data.query_map`. Mezclar los dos
+   hooks filtraría dos veces y escondería filas que el servidor sí devolvió.
+   El contrato con el JS se conserva intacto: `table[data-adhoc-table]`,
+   `th[data-adhoc-filter-key]` en la PRIMERA fila (de ahí sale el orden de
+   columnas), `tbody[data-adhoc-table-body]` y `tr[data-adhoc-empty]`.
 
    Reglas duras aplicadas: cero <style>, cero style="...", cero onclick=,
    modales en {% block modals %} a nivel <body>, y ni un solo <option>
-   pre-renderizado con datos del servidor (los `<select>` del formulario los
-   construye el JS desde `page_data`, que es el bug de XSS #23 del legacy).
+   pre-renderizado con datos del servidor (los `<select>` los rellena el JS
+   desde `page_data`, que es el bug de XSS #23 del legacy).
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import
-     back_button, page_header, data_table, filter_bar, page_data_script %}
+{% from "adhoc/partials/_macros.html" import back_button, page_header, page_data_script %}
 
 {% block title %}{{ page_title }} · Calidad · ITCJ{% endblock %}
 
-{% block body_class %}adhoc-work-body{% endblock %}
+{# `adhoc-wide` = el `.main-container { max-width: 98% }` que las dos hojas del
+   legacy imponían con !important. #}
+{% block body_class %}adhoc-work-body adhoc-wide{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/work/work-items.css?v={{ sv('css/work/work-items.css') }}">
@@ -42,130 +65,133 @@
 
 {% block content %}
 <section class="adhoc-work" data-adhoc-work>
+  <div class="adhoc-card adhoc-work-card">
 
-  {% call page_header(page_title, page_subtitle, page_icon) %}
-    {{ back_button(back_url, 'Panel') }}
-    {% if categories_url and can_manage_categories %}
-      <a class="btn btn-sm btn-outline-secondary" href="{{ categories_url }}">
-        <i class="bi bi-tags"></i>
-        <span class="d-none d-sm-inline">Categorías</span>
-      </a>
-    {% endif %}
-    {% block work_toolbar_extra %}{% endblock %}
-    {% if can_create %}
-      <div class="adhoc-work-new">
-        <label class="visually-hidden" for="adhoc-work-qty">Cuántos registros capturar</label>
-        <select class="form-select form-select-sm adhoc-qty-select" id="adhoc-work-qty" data-adhoc-work-qty>
-          {% for n in [1, 2, 3, 5, 10] %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
-        </select>
-        <button type="button" class="btn btn-sm btn-primary" data-adhoc-work-new>
-          <i class="bi bi-plus-lg"></i>
-          <span class="d-none d-sm-inline">Nuevo</span>
-        </button>
-      </div>
-    {% endif %}
-  {% endcall %}
+    {% call page_header(page_title, page_subtitle, page_icon) %}
+      {{ back_button(back_url, back_label|default('Volver al Panel', true)) }}
+      {% if categories_url and can_manage_categories %}
+        <a class="btn btn-sm adhoc-btn-clear" href="{{ categories_url }}">
+          <i class="fa-solid fa-tags"></i>
+          <span class="d-none d-sm-inline">Categorías</span>
+        </a>
+      {% endif %}
+      {% block work_toolbar_extra %}{% endblock %}
+    {% endcall %}
 
-  {# — FILTROS —
-     Van al SERVIDOR (la lista está paginada), así que cada control declara
-     `data-adhoc-param` con el nombre lógico del filtro; el módulo JS lo traduce
-     al parámetro real de cada API con `page_data.query_map`. Por eso NO se usa
-     `data-adhoc-filter-input`, que es el hook del filtrado en cliente de
-     shared/table-filter.js: mezclarlos filtraría dos veces y escondería filas
-     que el servidor sí devolvió. #}
-  {% call filter_bar(clear=False, css='adhoc-work-filters') %}
-    <div class="adhoc-field adhoc-work-filter-search">
-      <label class="form-label adhoc-label" for="adhoc-work-f-search">Buscar</label>
-      <input type="search" class="form-control form-control-sm" id="adhoc-work-f-search"
-             data-adhoc-param="search" placeholder="Folio, título o descripción">
-    </div>
-
-    <div class="adhoc-field">
-      <label class="form-label adhoc-label" for="adhoc-work-f-status">Estatus</label>
-      <select class="form-select form-select-sm" id="adhoc-work-f-status"
-              data-adhoc-param="status" data-adhoc-options="statuses">
-        <option value="">Todos</option>
-      </select>
-    </div>
-
-    <div class="adhoc-field">
-      <label class="form-label adhoc-label" for="adhoc-work-f-priority">Prioridad</label>
-      <select class="form-select form-select-sm" id="adhoc-work-f-priority"
-              data-adhoc-param="priority" data-adhoc-options="priorities">
-        <option value="">Todas</option>
-      </select>
-    </div>
-
-    <div class="adhoc-field">
-      <label class="form-label adhoc-label" for="adhoc-work-f-category">Categoría</label>
-      <select class="form-select form-select-sm" id="adhoc-work-f-category"
-              data-adhoc-param="category_id" data-adhoc-options="categories">
-        <option value="">Todas</option>
-      </select>
-    </div>
-
-    <div class="adhoc-field">
-      <label class="form-label adhoc-label" for="adhoc-work-f-area">Área</label>
-      <select class="form-select form-select-sm" id="adhoc-work-f-area"
-              data-adhoc-param="area_id" data-adhoc-options="areas">
-        <option value="">Todas</option>
-      </select>
-    </div>
-
-    <div class="adhoc-field">
-      <label class="form-label adhoc-label" for="adhoc-work-f-process">Proceso</label>
-      <select class="form-select form-select-sm" id="adhoc-work-f-process"
-              data-adhoc-param="process_id" data-adhoc-options="processes">
-        <option value="">Todos</option>
-      </select>
-    </div>
-
-    <div class="adhoc-field">
-      <label class="form-label adhoc-label" for="adhoc-work-f-responsible">Responsable</label>
-      <select class="form-select form-select-sm" id="adhoc-work-f-responsible"
-              data-adhoc-param="responsible_id" data-adhoc-options="users">
-        <option value="">Todos</option>
-      </select>
-    </div>
-
-    <div class="adhoc-field">
-      <label class="form-label adhoc-label" for="adhoc-work-f-from">Desde</label>
-      <input type="date" class="form-control form-control-sm" id="adhoc-work-f-from"
-             data-adhoc-param="date_from">
-    </div>
-
-    <div class="adhoc-field">
-      <label class="form-label adhoc-label" for="adhoc-work-f-to">Hasta</label>
-      <input type="date" class="form-control form-control-sm" id="adhoc-work-f-to"
-             data-adhoc-param="date_to">
-    </div>
-
-    {% block work_filters_extra %}{% endblock %}
-
-    <div class="adhoc-field adhoc-work-filter-actions">
-      <button type="button" class="btn btn-sm btn-outline-secondary" data-adhoc-work-clear>
-        <i class="bi bi-eraser"></i>
-        <span class="d-none d-sm-inline">Limpiar</span>
+    {# — CONTROLES SUPERIORES (legacy `.controls-top`) — #}
+    <div class="adhoc-work-controls">
+      <button type="button" class="btn btn-sm adhoc-btn-clear" data-adhoc-work-clear>
+        <i class="fa-solid fa-eraser"></i> Limpiar
+      </button>
+      <button type="button" class="btn btn-sm adhoc-btn-filter" data-adhoc-work-filter>
+        <i class="fa-solid fa-filter"></i> Filtrar
       </button>
     </div>
-  {% endcall %}
 
-  <div class="adhoc-card">
-    {{ data_table(page_data.table_id, columns,
-                  empty_message|default('No hay registros para mostrar.', true),
-                  empty_icon|default('bi-inbox', true), width='xl') }}
+    <div class="adhoc-table-wrap" data-adhoc-table-wrap>
+      <table class="adhoc-table adhoc-table-xl adhoc-work-table"
+             id="{{ page_data.table_id }}" data-adhoc-table="{{ page_data.table_id }}">
+        <thead>
+          <tr>
+            {%- for col in columns %}
+            <th scope="col" data-adhoc-filter-key="{{ col.key }}"
+                class="adhoc-col-{{ col.align|default('start', true) }}">{{ col.label|default(col.key, true) }}</th>
+            {%- endfor %}
+          </tr>
+          {# Fila de filtros: cada control se pinta en SU columna, como en el
+             legacy. Los que no tienen filtro dejan la celda vacía. #}
+          <tr class="adhoc-filter-row">
+            {%- for col in columns %}
+            <th data-adhoc-filter-key="{{ col.key }}">
+              {%- if col.key == 'title' %}
+              <input type="search" class="adhoc-filter-input" id="adhoc-work-f-search"
+                     data-adhoc-param="search" placeholder="Buscar..."
+                     aria-label="Buscar por folio, título o descripción">
+              {%- elif col.key == 'category' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-category"
+                      data-adhoc-param="category_id" data-adhoc-options="categories"
+                      aria-label="Filtrar por categoría">
+                <option value="">Todas</option>
+              </select>
+              {%- elif col.key == 'area' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-area"
+                      data-adhoc-param="area_id" data-adhoc-options="areas"
+                      aria-label="Filtrar por área">
+                <option value="">Todas</option>
+              </select>
+              {%- elif col.key == 'process' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-process"
+                      data-adhoc-param="process_id" data-adhoc-options="processes"
+                      aria-label="Filtrar por proceso">
+                <option value="">Todos</option>
+              </select>
+              {%- elif col.key == 'responsible' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-responsible"
+                      data-adhoc-param="responsible_id" data-adhoc-options="users"
+                      aria-label="Filtrar por responsable">
+                <option value="">Todos</option>
+              </select>
+              {%- elif col.key == 'commitment_date' %}
+              <span class="adhoc-work-daterange">
+                <input type="date" class="adhoc-filter-input" id="adhoc-work-f-from"
+                       data-adhoc-param="date_from" aria-label="Compromiso desde">
+                <input type="date" class="adhoc-filter-input" id="adhoc-work-f-to"
+                       data-adhoc-param="date_to" aria-label="Compromiso hasta">
+              </span>
+              {%- elif col.key == 'priority' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-priority"
+                      data-adhoc-param="priority" data-adhoc-options="priorities"
+                      aria-label="Filtrar por prioridad">
+                <option value="">Todas</option>
+              </select>
+              {%- elif col.key == 'status' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-status"
+                      data-adhoc-param="status" data-adhoc-options="statuses"
+                      aria-label="Filtrar por estatus">
+                <option value="">Todos</option>
+              </select>
+              {%- endif %}
+            </th>
+            {%- endfor %}
+          </tr>
+        </thead>
+        <tbody id="{{ page_data.table_id }}-body" data-adhoc-table-body>
+          {# Las filas las pinta work-items.js. Esta se esconde sola (CSS :has)
+             en cuanto hay alguna fila visible. #}
+          <tr class="adhoc-table-empty" data-adhoc-empty>
+            <td colspan="{{ columns|length or 1 }}">
+              <div class="adhoc-empty">
+                <i class="{{ empty_icon|default('fa-solid fa-inbox', true) }} adhoc-empty-icon"></i>
+                <p class="adhoc-empty-text mb-0">{{ empty_message|default('No hay registros para mostrar.', true) }}</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
-    <div class="adhoc-work-footer">
-      <span class="adhoc-work-count" data-adhoc-work-count aria-live="polite"></span>
+    {# — CONTROLES INFERIORES (legacy `.bottom-controls`) — #}
+    <div class="adhoc-work-bottom">
+      {% if can_create %}
+      <button type="button" class="btn adhoc-btn-add" data-adhoc-work-new>
+        <i class="fa-solid fa-plus"></i> {{ new_label|default('Añadir Nuevos', true) }}
+      </button>
+      <label class="visually-hidden" for="adhoc-work-qty">Cuántos registros capturar</label>
+      <select class="adhoc-qty-select" id="adhoc-work-qty" data-adhoc-work-qty>
+        {% for n in [1, 2, 3, 5, 10] %}<option value="{{ n }}">{{ n }} {{ 'Registro' if n == 1 else 'Registros' }}</option>{% endfor %}
+      </select>
+      {% endif %}
+
       <div class="adhoc-work-pager">
-        <button type="button" class="btn btn-sm btn-outline-secondary"
+        <span class="adhoc-work-count" data-adhoc-work-count aria-live="polite"></span>
+        <button type="button" class="btn btn-sm adhoc-btn-clear"
                 data-adhoc-work-page="prev" aria-label="Página anterior">
-          <i class="bi bi-chevron-left"></i>
+          <i class="fa-solid fa-chevron-left"></i>
         </button>
         <span class="adhoc-work-pageinfo" data-adhoc-work-pageinfo></span>
-        <button type="button" class="btn btn-sm btn-outline-secondary"
+        <button type="button" class="btn btn-sm adhoc-btn-clear"
                 data-adhoc-work-page="next" aria-label="Página siguiente">
-          <i class="bi bi-chevron-right"></i>
+          <i class="fa-solid fa-chevron-right"></i>
         </button>
       </div>
     </div>
@@ -183,7 +209,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="adhoc-work-modal-title">
-          <i class="bi bi-plus-circle me-2" data-adhoc-work-modal-icon></i>
+          <i class="fa-solid fa-circle-plus me-2" data-adhoc-work-modal-icon></i>
           <span data-adhoc-work-modal-title>Nuevo registro</span>
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
@@ -194,13 +220,13 @@
         </form>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline-danger me-auto" data-adhoc-work-delete hidden>
-          <i class="bi bi-trash"></i>
+        <button type="button" class="btn adhoc-btn-delete me-auto" data-adhoc-work-delete hidden>
+          <i class="fa-solid fa-trash"></i>
           <span class="d-none d-sm-inline">Eliminar</span>
         </button>
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primary" data-adhoc-work-save>
-          <i class="bi bi-floppy"></i> Guardar
+        <button type="button" class="btn adhoc-btn-clear" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn adhoc-btn-save" data-adhoc-work-save>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar Cambios
         </button>
       </div>
     </div>

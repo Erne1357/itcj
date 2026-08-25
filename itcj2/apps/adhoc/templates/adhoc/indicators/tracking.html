@@ -5,7 +5,12 @@
    Permiso de edición: adhoc.indicators.api.tracking  → `can_edit`
    Legacy: app_prueba/indicators/indicators_tracking.html
 
-   Cambios respecto del legacy:
+   ASPECTO: porte 1:1 de indicators_tracking.css — barra de título blanca
+   propia (.header-section), tarjeta con cabecera gris (.tc-header), rejilla
+   con línea en las cuatro caras de cada celda y pie sobre #fdfdfd. Los iconos
+   son Font Awesome 6.4, como en el original.
+
+   Cambios de fondo respecto del legacy (se conservan de la migración):
      · `can_edit` es un permiso REAL. La ruta del legacy pasaba is_admin=True
        hardcodeado, pisando el valor del context processor: los inputs nunca
        iban disabled y el <select> de color se pintaba siempre, así que
@@ -14,15 +19,14 @@
        ind.planned_value.split('-') dentro de la propia plantilla.
      · El número de periodos y la celda de cada uno los resuelve la vista en
        Python (pages/indicators.py::_tracking_cards); la plantilla solo itera.
-       El legacy los calculaba con una cadena de {% set %}/{% if %} y buscaba
-       cada celda con un selectattr dentro del bucle (O(n·m)).
      · Colores por .adhoc-state-*, no por .bg-blanco/.bg-rojo/… (que chocan con
-       las utilidades .bg-* de Bootstrap 5.3).
+       las utilidades .bg-* heredadas). Los hex son los del legacy: se retiñen
+       en tracking.css, acotados a esta pantalla.
      · Cero atributos de estilo en línea (el legacy tenía 9) y cero manejadores
        de evento en línea.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import back_button, page_header, empty_state, page_data_script %}
+{% from "adhoc/partials/_macros.html" import back_button, empty_state, page_data_script %}
 
 {% block title %}Seguimiento {{ year.year }} · Indicadores · Calidad{% endblock %}
 
@@ -32,22 +36,32 @@
 
 {% block content %}
 <section class="adhoc-indicator-tracking" data-adhoc-indicator-tracking>
-  {% call page_header(
-       "Seguimiento del año " ~ year.year,
-       "Captura el valor real de cada periodo y su color de aceptación.",
-       "bi-grid-3x3-gap") %}
-    {{ back_button("/adhoc/indicadores?mode=tracking", "Volver a años") }}
-    {% if can_manage %}
-    <a class="btn btn-sm btn-outline-primary" href="{{ board_url }}">
-      <i class="bi bi-speedometer2"></i>
-      <span class="d-none d-sm-inline">Ver tablero</span>
-    </a>
-    {% endif %}
-  {% endcall %}
+
+  {# Barra de título del legacy (.header-section): tarjeta blanca propia, con
+     el año en violeta y el botón gris de volver a la derecha. #}
+  <div class="adhoc-card adhoc-tracking-topbar">
+    <div class="adhoc-page-head">
+      <div class="adhoc-page-head-main">
+        <h1 class="adhoc-page-title">
+          <i class="fa-solid fa-chart-line"></i>
+          <span>Seguimiento de Indicadores: <span class="adhoc-tracking-year">{{ year.year }}</span></span>
+        </h1>
+      </div>
+      <div class="adhoc-page-actions">
+        {% if can_manage %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ board_url }}">
+          <i class="fa-solid fa-gauge-high"></i>
+          <span class="d-none d-sm-inline">Ver tablero</span>
+        </a>
+        {% endif %}
+        {{ back_button("/adhoc/indicadores?mode=tracking", "Volver") }}
+      </div>
+    </div>
+  </div>
 
   {% if not can_edit %}
   <p class="adhoc-tracking-readonly">
-    <i class="bi bi-eye"></i>
+    <i class="fa-solid fa-eye"></i>
     Solo lectura: no tienes el permiso de captura de seguimiento.
   </p>
   {% endif %}
@@ -69,39 +83,39 @@
       </div>
       <div class="adhoc-tracking-info">
         <span class="adhoc-tracking-label">Responsable</span>
-        <span class="adhoc-tracking-value"><i class="bi bi-person-badge"></i> {{ card.responsible or '—' }}</span>
+        <span class="adhoc-tracking-value"><i class="fa-solid fa-user-tie"></i> {{ card.responsible or '—' }}</span>
       </div>
       <div class="adhoc-tracking-info">
         <span class="adhoc-tracking-label">Frecuencia / Unidad</span>
-        <span class="adhoc-tracking-value">{{ card.frequency or 'Sin definir' }} · {{ card.unit_calc or '—' }}</span>
+        <span class="adhoc-tracking-value">{{ card.frequency or 'Sin definir' }} | {{ card.unit_calc or '—' }}</span>
       </div>
 
       <div class="adhoc-tracking-info adhoc-tracking-info-full">
-        <span class="adhoc-tracking-label">Métricas de aceptación (planificado)</span>
+        <span class="adhoc-tracking-label">Métricas de Aceptación (Planificado)</span>
         <div class="adhoc-tracking-legend">
           <span class="adhoc-legend-item">
             <span class="adhoc-legend-dot adhoc-state-white"></span>
-            Estándar: <strong>{{ card.planned_white or '—' }}</strong>
+            Meta: {{ card.planned_white or '—' }}
           </span>
           <span class="adhoc-legend-item">
             <span class="adhoc-legend-dot adhoc-state-red"></span>
-            Rechazado: <strong>{{ card.planned_red or '—' }}</strong>
+            Rechazo: {{ card.planned_red or '—' }}
           </span>
           <span class="adhoc-legend-item">
             <span class="adhoc-legend-dot adhoc-state-yellow"></span>
-            Preventivo: <strong>{{ card.planned_yellow or '—' }}</strong>
+            Prev: {{ card.planned_yellow or '—' }}
           </span>
           <span class="adhoc-legend-item">
             <span class="adhoc-legend-dot adhoc-state-green"></span>
-            Aprobado: <strong>{{ card.planned_green or '—' }}</strong>
+            Aprob: {{ card.planned_green or '—' }}
           </span>
           {% if card.has_document and can_download %}
           <a class="adhoc-legend-doc" href="/api/adhoc/v2/indicators/{{ card.id }}/download">
-            <i class="bi bi-paperclip"></i> Evidencia
+            <i class="fa-solid fa-paperclip"></i> Evidencia
           </a>
           {% endif %}
           <span class="adhoc-tracking-saved" data-adhoc-saved="{{ card.id }}" hidden>
-            <i class="bi bi-check-circle-fill"></i> Guardado
+            <i class="fa-solid fa-check"></i> Guardado
           </span>
         </div>
       </div>
@@ -119,13 +133,15 @@
         </thead>
         <tbody>
           <tr class="adhoc-tracking-plan">
-            <th scope="row" class="adhoc-tracking-sticky"><i class="bi bi-calendar-check"></i> PLAN</th>
+            <th scope="row" class="adhoc-tracking-sticky"><i class="fa-regular fa-calendar-check"></i> PLAN</th>
             {% for cell in card.cells %}
-            <td class="adhoc-col-center">{{ card.planned_white or '—' }}</td>
+            <td class="adhoc-col-center">
+              <span class="adhoc-tracking-plan-val">{{ card.planned_white or '—' }}</span>
+            </td>
             {% endfor %}
           </tr>
           <tr>
-            <th scope="row" class="adhoc-tracking-sticky"><i class="bi bi-pencil-square"></i> REAL</th>
+            <th scope="row" class="adhoc-tracking-sticky"><i class="fa-solid fa-pen-ruler"></i> REAL</th>
             {% for cell in card.cells %}
             <td class="adhoc-tracking-cell">
               <div class="adhoc-tracking-cell-box">
@@ -165,7 +181,7 @@
   </article>
   {% else %}
   <div class="adhoc-card">
-    {{ empty_state("No hay indicadores configurados para este año. Ve al tablero para agregarlos.", "bi-folder2-open") }}
+    {{ empty_state("No hay indicadores configurados para este año. Ve al tablero para agregarlos.", "fa-solid fa-folder-open") }}
   </div>
   {% endfor %}
 </section>

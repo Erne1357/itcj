@@ -42,14 +42,19 @@
         btn.classList.toggle('disabled', !!isBusy);
     }
 
+    /**
+      * Icono de acción de fila. Aspecto del legacy `.icon-btn`: icono pelado del
+      * color de la marca, sin recuadro, que crece al pasar el ratón. `icon` es
+      * la clase COMPLETA de Font Awesome.
+      */
     function iconButton(action, icon, label, variant) {
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'btn btn-sm ' + (variant || 'btn-outline-secondary') + ' adhoc-btn-icon';
+        btn.className = 'adhoc-icon-action' + (variant ? ' ' + variant : '');
         btn.setAttribute('data-adhoc-flow-action', action);
         btn.title = label;
         btn.setAttribute('aria-label', label);
-        btn.innerHTML = '<i class="bi ' + icon + '"></i>';   // markup estático
+        btn.innerHTML = '<i class="' + icon + '"></i>';   // markup estático
         return btn;
     }
 
@@ -138,16 +143,18 @@
         var tdSteps = document.createElement('td');
         tdSteps.setAttribute('data-adhoc-cell', 'steps');
         tdSteps.className = 'adhoc-col-center';
+        // El legacy no tenía esta columna: se pinta como TEXTO, no como
+        // pastilla, para no meter un color que el original no usa.
         var count = document.createElement('span');
         var total = parseInt(flow.step_count, 10) || 0;
-        count.className = 'badge adhoc-badge adhoc-badge-' + (total ? 'info' : 'danger');
+        count.className = total ? 'adhoc-flow-steps-count' : 'adhoc-flow-steps-none';
         count.textContent = total ? (total + ' paso(s)') : 'Sin pasos';
         tdSteps.appendChild(count);
         tr.appendChild(tdSteps);
 
         var tdActions = document.createElement('td');
         tdActions.setAttribute('data-adhoc-cell', 'actions');
-        tdActions.className = 'adhoc-col-end';
+        tdActions.className = 'adhoc-col-center';
         tdActions.appendChild(this.buildActions(flow));
         tr.appendChild(tdActions);
 
@@ -161,19 +168,19 @@
         // Enlace real: se puede abrir en otra pestaña. El legacy hacía
         // window.location.href dentro de un listener.
         var steps = document.createElement('a');
-        steps.className = 'btn btn-sm btn-outline-primary adhoc-btn-icon';
+        steps.className = 'adhoc-icon-action';
         steps.href = STEPS_URL + encodeURIComponent(flow.id) + '/pasos';
-        steps.title = 'Configurar pasos';
-        steps.setAttribute('aria-label', 'Configurar pasos');
-        steps.innerHTML = '<i class="bi bi-list-ol"></i>';   // markup estático
+        steps.title = 'Configurar Pasos';
+        steps.setAttribute('aria-label', 'Configurar Pasos');
+        steps.innerHTML = '<i class="fa-solid fa-stamp"></i>';   // markup estático
         box.appendChild(steps);
 
         if (this.canUpdate) {
-            box.appendChild(iconButton('edit', 'bi-pencil', 'Editar flujo'));
+            box.appendChild(iconButton('edit', 'fa-solid fa-pen-to-square', 'Editar flujo'));
         }
         if (this.canDelete) {
-            box.appendChild(iconButton('delete', 'bi-trash', 'Eliminar flujo',
-                                       'btn-outline-danger'));
+            box.appendChild(iconButton('delete', 'fa-solid fa-trash', 'Eliminar flujo',
+                                       'adhoc-icon-danger'));
         }
         return box;
     };
@@ -189,7 +196,7 @@
 
     Flows.prototype.openNew = function () {
         this.editingId = null;
-        this.setTitle('Nuevo flujo');
+        this.setTitle('Nuevo Flujo');
         if (this.inputName) this.inputName.value = '';
         if (this.inputDescription) this.inputDescription.value = '';
         this.show();
@@ -197,7 +204,7 @@
 
     Flows.prototype.openEdit = function (flow) {
         this.editingId = flow.id;
-        this.setTitle('Editar flujo');
+        this.setTitle('Editar Flujo');
         if (this.inputName) this.inputName.value = flow.name || '';
         if (this.inputDescription) this.inputDescription.value = flow.description || '';
         this.show();
@@ -205,7 +212,7 @@
 
     Flows.prototype.setTitle = function (textValue) {
         if (!this.modalTitle) return;
-        this.modalTitle.innerHTML = '<i class="bi bi-diagram-3 me-2"></i>';  // estático
+        this.modalTitle.innerHTML = '<i class="fa-solid fa-diagram-project me-2"></i>';  // estático
         this.modalTitle.appendChild(document.createTextNode(textValue));
     };
 
@@ -286,6 +293,15 @@
             if (evt.target.closest('[data-adhoc-flow-new]')) {
                 evt.preventDefault();
                 self.openNew();
+                return;
+            }
+            // "Filtrar" del legacy: reaplica el filtro de la tabla. No es
+            // decorativo — es la misma pasada que dispara el input.
+            if (evt.target.closest('[data-adhoc-flow-apply]')) {
+                evt.preventDefault();
+                if (window.AdhocTableFilter && self.table) {
+                    window.AdhocTableFilter.apply(self.table);
+                }
                 return;
             }
             var btn = evt.target.closest('[data-adhoc-flow-action]');

@@ -112,8 +112,10 @@
             ? window.bootstrap.Modal.getOrCreateInstance(this.modalEl)
             : null;
         this.forms = this.modalEl ? this.modalEl.querySelector('[data-adhoc-board-forms]') : null;
-        this.qty = this.modalEl ? this.modalEl.querySelector('[data-adhoc-board-qty]') : null;
-        this.qtyWrap = this.modalEl ? this.modalEl.querySelector('[data-adhoc-board-qty-wrap]') : null;
+        // El <select> de cantidad esta en los controles inferiores de la pagina,
+        // como en el legacy: se elige ANTES de abrir el modal.
+        this.qty = document.querySelector('[data-adhoc-board-qty]');
+        this.qtyWrap = document.querySelector('[data-adhoc-board-qty-wrap]');
         this.label = this.modalEl ? this.modalEl.querySelector('[data-adhoc-board-modal-label]') : null;
         this.deleteBtn = this.modalEl ? this.modalEl.querySelector('[data-adhoc-board-delete]') : null;
 
@@ -160,7 +162,7 @@
         var wrap = document.createElement('span');
         wrap.className = 'adhoc-board-process';
         var dot = document.createElement('span');
-        dot.className = 'adhoc-swatch';
+        dot.className = 'adhoc-swatch adhoc-board-dot';
         dot.style.backgroundColor = item.process_color || '#b2bec3';
         wrap.appendChild(dot);
         var name = document.createElement('span');
@@ -169,14 +171,14 @@
         tdProcess.appendChild(wrap);
         tr.appendChild(tdProcess);
 
-        tr.appendChild(this.textCell('responsible', item.responsible || '—'));
+        tr.appendChild(this.responsibleCell(item.responsible || '—'));
 
         // — Frecuencia
         var tdFreq = document.createElement('td');
         tdFreq.setAttribute('data-adhoc-cell', 'frequency');
         tdFreq.setAttribute('data-adhoc-value', item.frequency || '');
         var badge = document.createElement('span');
-        badge.className = 'badge adhoc-badge adhoc-badge-' + (item.frequency ? 'info' : 'neutral');
+        badge.className = 'adhoc-board-freq' + (item.frequency ? '' : ' adhoc-board-freq-none');
         badge.textContent = item.frequency || 'Sin definir';
         tdFreq.appendChild(badge);
         tr.appendChild(tdFreq);
@@ -214,25 +216,36 @@
 
         // — Acciones
         var tdActions = document.createElement('td');
-        tdActions.className = 'adhoc-col-end';
+        tdActions.className = 'adhoc-col-center';
         var box = document.createElement('div');
-        box.className = 'adhoc-actions';
+        box.className = 'adhoc-actions adhoc-board-actions';
         var html = '';
         if (this.canUpdate) {
-            html += '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
+            html += '<button type="button" class="adhoc-board-icon adhoc-board-icon-edit" ' +
                     'data-adhoc-action="edit" title="Editar" aria-label="Editar">' +
-                    '<i class="bi bi-pencil"></i></button>';
+                    '<i class="fa-solid fa-pen-to-square"></i></button>';
         }
         if (this.canDelete) {
-            html += '<button type="button" class="btn btn-sm btn-outline-danger adhoc-btn-icon" ' +
+            html += '<button type="button" class="adhoc-board-icon adhoc-board-icon-delete" ' +
                     'data-adhoc-action="delete" title="Eliminar" aria-label="Eliminar">' +
-                    '<i class="bi bi-trash"></i></button>';
+                    '<i class="fa-solid fa-trash"></i></button>';
         }
         box.innerHTML = html;   // markup estático, sin datos del servidor
         tdActions.appendChild(box);
         tr.appendChild(tdActions);
 
         return tr;
+    };
+
+    Board.prototype.responsibleCell = function (value) {
+        var td = document.createElement('td');
+        td.setAttribute('data-adhoc-cell', 'responsible');
+        td.setAttribute('data-adhoc-value', value);
+        var icon = document.createElement('i');
+        icon.className = 'fa-solid fa-user-tie adhoc-board-resp-icon';
+        td.appendChild(icon);
+        td.appendChild(document.createTextNode(' ' + value));
+        return td;
     };
 
     Board.prototype.textCell = function (key, value) {
@@ -255,7 +268,7 @@
         }
         if (!this.canDownload) {
             var lock = document.createElement('i');
-            lock.className = 'bi bi-paperclip';
+            lock.className = 'fa-solid fa-paperclip';
             lock.title = 'Hay evidencia, pero no tienes permiso de descarga';
             return lock;
         }
@@ -264,7 +277,7 @@
         link.href = this.downloadUrl(item.id);
         link.title = 'Descargar evidencia';
         link.setAttribute('data-adhoc-action', 'download');
-        link.innerHTML = '<i class="bi bi-paperclip"></i>';   // markup estático
+        link.innerHTML = '<i class="fa-solid fa-paperclip"></i>';   // markup estático
         return link;
     };
 
@@ -297,7 +310,7 @@
             '<section class="adhoc-board-form" data-adhoc-board-form="' + index + '"' +
                 (d.id ? ' data-id="' + esc(d.id) + '"' : '') + '>' +
               '<h6 class="adhoc-board-form-title">' +
-                '<i class="bi bi-pie-chart"></i> Ficha de indicador #' + (index + 1) +
+                '<i class="fa-solid fa-chart-pie"></i> Ficha de indicador #' + (index + 1) +
               '</h6>' +
               '<div class="adhoc-form-grid">' +
                 '<div class="adhoc-field">' +
@@ -307,16 +320,23 @@
                     this.processOptions(d.process_id) +
                   '</select>' +
                 '</div>' +
-                '<div class="adhoc-field">' +
-                  '<label class="form-label adhoc-label" for="' + uid + '-frequency">' +
-                    'Frecuencia de seguimiento</label>' +
-                  '<select class="form-select" id="' + uid + '-frequency" data-adhoc-field="frequency">' +
-                    this.frequencyOptions(d.frequency) +
-                  '</select>' +
-                '</div>';
+                '';
+
+        // El <select> de frecuencia va donde lo ponia el legacy: en la misma
+        // fila que "Resultados del anio anterior", no pegado al de proceso (si
+        // no, "Responsable principal" se queda solo en su fila con un hueco).
+        var freqField =
+            '<div class="adhoc-field">' +
+              '<label class="form-label adhoc-label" for="' + uid + '-frequency">' +
+                'Frecuencia de seguimiento</label>' +
+              '<select class="form-select" id="' + uid + '-frequency" data-adhoc-field="frequency">' +
+                this.frequencyOptions(d.frequency) +
+              '</select>' +
+            '</div>';
 
         for (var i = 0; i < FIELDS.length; i++) {
             html += this.buildField(uid, FIELDS[i], d);
+            if (FIELDS[i].key === 'prev_results') html += freqField;
         }
 
         html +=
@@ -327,7 +347,7 @@
                 '</div>' +
                 '<div class="adhoc-field adhoc-field-full">' +
                   '<label class="form-label adhoc-label" for="' + uid + '-file">' +
-                    '<i class="bi bi-paperclip"></i> Documento estándar (evidencia)</label>' +
+                    '<i class="fa-solid fa-paperclip"></i> Documento estándar (evidencia)</label>' +
                   '<input type="file" class="form-control" id="' + uid + '-file" data-adhoc-file>' +
                   '<div class="adhoc-board-evidence">' + this.currentEvidence(d) + '</div>' +
                 '</div>' +
@@ -383,7 +403,7 @@
             return '<span class="adhoc-board-evidence-none">Hay evidencia cargada.</span>';
         }
         return '<a class="adhoc-board-evidence-link" href="' + esc(this.downloadUrl(d.id)) + '">' +
-               '<i class="bi bi-download"></i> Descargar la actual</a>' +
+               '<i class="fa-solid fa-download"></i> Descargar la actual</a>' +
                '<span class="adhoc-board-evidence-none">Subir un archivo reemplaza la anterior.</span>';
     };
 
@@ -427,7 +447,7 @@
     Board.prototype.openNew = function () {
         if (!this.modal || !this.forms) return;
         this.editingId = null;
-        if (this.label) this.label.textContent = 'Alta de indicadores';
+        if (this.label) this.label.textContent = 'Alta de Nuevos Procesos';
         if (this.qtyWrap) this.qtyWrap.hidden = false;
         if (this.deleteBtn) this.deleteBtn.hidden = true;
         this.buildForms();
@@ -447,7 +467,7 @@
         var item = this.find(id);
         if (!item) return;
         this.editingId = item.id;
-        if (this.label) this.label.textContent = 'Editar indicador';
+        if (this.label) this.label.textContent = 'Editar Proceso Existente';
         if (this.qtyWrap) this.qtyWrap.hidden = true;
         if (this.deleteBtn) this.deleteBtn.hidden = !this.canDelete;
         this.forms.innerHTML = this.buildForm(0, item);
@@ -573,6 +593,12 @@
 
         this.root.addEventListener('click', function (evt) {
             if (evt.target.closest('[data-adhoc-board-new]')) { self.openNew(); return; }
+
+            // "Filtrar" del legacy: el filtrado ya es en vivo, el boton lo reaplica.
+            if (evt.target.closest('[data-adhoc-board-filter]')) {
+                if (window.AdhocTableFilter && self.table) window.AdhocTableFilter.apply(self.table);
+                return;
+            }
 
             // La descarga es un <a> real: no se intercepta.
             if (evt.target.closest('[data-adhoc-action="download"]')) return;

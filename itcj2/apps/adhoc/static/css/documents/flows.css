@@ -1,18 +1,59 @@
 /* ===========================================================================
    documents/flows.css — /adhoc/documentos/flujos.
 
+   Se carga DESPUÉS de documents/documents.css, que ya trae la tarjeta con el
+   título dentro, la botonera superior, los iconos de acción y los controles
+   inferiores. Aquí solo queda lo propio de la pantalla.
+
    El legacy (documents_flows.css) redeclaraba `.doc-table`, `.filter-input`,
    `.btn-action` y un bloque `.modal-overlay` completo. Todo eso vive ya en
-   adhoc.css como .adhoc-table / .adhoc-filter-input / clases de Bootstrap, y
-   los modales son bootstrap.Modal. Aquí solo queda lo específico.
+   adhoc.css y en documents.css.
    =========================================================================== */
 
 .adhoc-flows {
   display: block;
 }
 
-/* El nombre del flujo es la columna que se lee primero: se destaca. */
+/* El nombre del flujo va en peso normal: en el legacy la celda es un <td> a
+   secas (`documents_flows.html:33`) y `.doc-table td` no toca el font-weight.
+   El 600 que habia aqui era un realce inventado, no un porte. */
 .adhoc-flow-name {
   color: var(--adhoc-dark);
+}
+
+/* Legacy `.icon-btn`: un punto más grandes que los del panel de documentos. */
+.adhoc-flows .adhoc-icon-action {
+  font-size: 1.3rem;
+  margin: 0 5px;
+}
+
+/* Columna "Configuración" del legacy: 150px y centrada. */
+.adhoc-flows .adhoc-table th:last-child,
+.adhoc-flows .adhoc-table td:last-child {
+  width: 150px;
+}
+
+/* La descripción se recorta a UNA línea con puntos suspensivos: dentro de una
+   celda de tabla el clamp de -webkit-box de adhoc.css deja asomar un trozo de
+   la línea siguiente, y esta columna ni siquiera existe en el legacy. */
+.adhoc-flows .adhoc-cell-clamp {
+  display: block;
+  max-width: 46ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Número de pasos: texto, nunca pastilla (el legacy no tiene esta columna y no
+   se le inventa un color). */
+.adhoc-flow-steps-count {
+  color: var(--adhoc-muted);
+  font-size: .85rem;
+  font-weight: 600;
+}
+
+.adhoc-flow-steps-none {
+  color: var(--adhoc-disabled);
+  font-size: .85rem;
   font-weight: 600;
 }

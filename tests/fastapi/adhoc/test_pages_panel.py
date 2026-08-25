@@ -362,13 +362,17 @@ class TestConfigPage:
 
 
 class TestMailPage:
-    def test_interruptor_de_bootstrap_no_switch_casero(self, client):
+    def test_interruptor_es_el_switch_del_legacy(self, client):
+        """El interruptor es el `.switch`/`.slider` del legacy, prefijado y con
+        su CSS en panel/mail.css — NO el `.form-switch` de Bootstrap (la app ya
+        no carga Bootstrap). Lo que sigue sin portarse es el modal casero de
+        éxito: el guardado avisa con un toast."""
         html = get_page(client, "/adhoc/panel/correo", "adhoc.mail.page.view",
                         "adhoc.mail.api.update").text
-        assert "form-switch" in html
+        assert 'class="adhoc-switch"' in html
+        assert 'class="adhoc-switch-slider"' in html
         assert "data-adhoc-mail-toggle" in html
         assert "modal-success" not in html
-        assert "slider" not in html
 
     def test_apunta_a_la_api_v2(self, client):
         html = get_page(client, "/adhoc/panel/correo", "adhoc.mail.page.view").text
@@ -444,12 +448,14 @@ class TestTiles:
             for _label, url, _perms in group["links"]:
                 assert url.startswith("/adhoc/"), url
 
-    def test_iconos_son_bootstrap_icons(self):
-        """El legacy usaba Font Awesome incrustado en strings de innerHTML."""
+    def test_iconos_son_font_awesome_con_la_clase_completa(self):
+        """La app usa Font Awesome 6.4, igual que el legacy (decisión visual de
+        la fase de porte: fuera Bootstrap Icons). El icono se guarda con la
+        clase COMPLETA porque las plantillas lo escupen tal cual en `class=`."""
         for _title, icon, _url, _text, _perms in PANEL_TILES:
-            assert icon.startswith("bi-"), icon
+            assert icon.startswith(("fa-solid ", "fa-regular ")), icon
         for group in CONFIG_GROUPS:
-            assert group["icon"].startswith("bi-"), group["icon"]
+            assert group["icon"].startswith(("fa-solid ", "fa-regular ")), group["icon"]
 
     def test_admin_global_ve_todas_las_tarjetas(self):
         assert len(_tiles_for(ALL_PERMS)) == len(PANEL_TILES)

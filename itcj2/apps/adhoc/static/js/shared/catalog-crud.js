@@ -50,7 +50,7 @@
     }
 
     function icon(name) {
-        return '<i class="bi ' + name + '"></i>';
+        return '<i class="' + name + '"></i>';
     }
 
     function busy(btn, isBusy) {
@@ -165,11 +165,11 @@
         var html = '';
         if (this.canUpdate) {
             html += '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
-                    'data-adhoc-action="edit" title="Editar" aria-label="Editar">' + icon('bi-pencil') + '</button>';
+                    'data-adhoc-action="edit" title="Editar" aria-label="Editar">' + icon('fa-solid fa-pen') + '</button>';
         }
         if (this.canDelete) {
             html += '<button type="button" class="btn btn-sm btn-outline-danger adhoc-btn-icon" ' +
-                    'data-adhoc-action="delete" title="Eliminar" aria-label="Eliminar">' + icon('bi-trash') + '</button>';
+                    'data-adhoc-action="delete" title="Eliminar" aria-label="Eliminar">' + icon('fa-solid fa-trash') + '</button>';
         }
         box.innerHTML = html;   // markup estático, sin datos del servidor
         return box;
@@ -202,9 +202,9 @@
         var actions = tr.querySelector('.adhoc-actions');
         actions.innerHTML =
             '<button type="button" class="btn btn-sm btn-primary adhoc-btn-icon" ' +
-            'data-adhoc-action="save" title="Guardar" aria-label="Guardar">' + icon('bi-check-lg') + '</button>' +
+            'data-adhoc-action="save" title="Guardar" aria-label="Guardar">' + icon('fa-solid fa-check') + '</button>' +
             '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
-            'data-adhoc-action="cancel" title="Cancelar" aria-label="Cancelar">' + icon('bi-x-lg') + '</button>';
+            'data-adhoc-action="cancel" title="Cancelar" aria-label="Cancelar">' + icon('fa-solid fa-xmark') + '</button>';
     };
 
     Catalog.prototype.cancelEdit = function () {

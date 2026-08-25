@@ -111,22 +111,24 @@ class TestNavSections:
         for _label, _icon, url, _perms in NAV_SECTIONS:
             assert url.startswith("/adhoc/"), url
 
-    def test_iconos_son_bootstrap_icons(self):
-        """El legacy usaba Font Awesome; en adhoc todo es bi-*."""
+    def test_iconos_son_font_awesome(self):
+        """Porte visual: la app usa Font Awesome 6.4, como el legacy."""
         for _label, icon, _url, _perms in NAV_SECTIONS:
-            assert icon.startswith("bi-"), icon
+            assert icon.startswith("fa-"), icon
 
-    def test_secciones_del_plan_estan_presentes(self):
-        urls = {url.split("?")[0] for _l, _i, url, _p in NAV_SECTIONS}
-        assert urls == {
+    def test_son_las_cuatro_tarjetas_del_legacy(self):
+        """El shell del legacy tiene EXACTAMENTE cuatro tarjetas de navegación.
+
+        Incidencias, Programa y Reportes no son de primer nivel: se llega a
+        ellas desde las tarjetas del panel de control, como en el original.
+        """
+        urls = [url.split("?")[0] for _l, _i, url, _p in NAV_SECTIONS]
+        assert urls == [
             "/adhoc/dashboard",
             "/adhoc/documentos",
-            "/adhoc/incidencias",
-            "/adhoc/programas",
             "/adhoc/indicadores",
-            "/adhoc/reportes",
             "/adhoc/panel",
-        }
+        ]
 
     def test_asignaciones_no_esta_en_el_nav(self):
         """Pantalla auxiliar: sin ?action/?task_id no tiene nada que mostrar."""
@@ -139,13 +141,21 @@ class TestNavSections:
         assert {i["label"] for i in items} == {s[0] for s in NAV_SECTIONS}
 
     def test_filtra_por_permisos(self):
-        perms = {"adhoc.dashboard.page.view", "adhoc.incidents.page.list"}
+        perms = {"adhoc.dashboard.page.view", "adhoc.panel.page.view"}
         with patch(
             "itcj2.core.services.authz_service.get_user_permissions_for_app",
             return_value=perms,
         ):
             items = nav_items(MagicMock(), 7)
-        assert [i["label"] for i in items] == ["Tareas", "Incidencias"]
+        assert [i["label"] for i in items] == ["Tareas", "Panel Control"]
+
+    def test_un_permiso_que_no_es_de_las_tarjetas_no_pinta_nada(self):
+        """Incidencias vive dentro del panel: no asoma en la barra superior."""
+        with patch(
+            "itcj2.core.services.authz_service.get_user_permissions_for_app",
+            return_value={"adhoc.incidents.page.list"},
+        ):
+            assert nav_items(MagicMock(), 7) == []
 
     def test_indicadores_basta_con_uno_de_los_dos_permisos(self):
         with patch(
@@ -346,12 +356,18 @@ class TestFormMacros:
 
 class TestSmallMacros:
     @pytest.mark.parametrize("value,tone", [
-        ("Baja", "muted"), ("Media", "info"), ("Alta", "warning"), ("Urgente", "danger"),
+        ("Baja", "success"), ("Media", "warning"), ("Alta", "danger"), ("Urgente", "danger"),
     ])
     def test_priority_badge_tono(self, macros, value, tone):
+        """Paleta del legacy (`.prio-baja` verde, `.prio-media` ámbar, roja arriba)."""
         html = macros.priority_badge(value)
         assert f"adhoc-badge-{tone}" in html
         assert value in html
+
+    def test_status_badge_es_texto_de_color_no_pastilla(self, macros):
+        """El legacy nunca pinta el estatus como pastilla sólida (`.k-status`)."""
+        assert "adhoc-status" in macros.status_badge("Aprobado", "document")
+        assert "adhoc-status" not in macros.priority_badge("Alta")
 
     def test_priority_badge_valor_desconocido_no_revienta(self, macros):
         html = macros.priority_badge("Inventada")
@@ -543,20 +559,30 @@ class TestReglasDuras:
             assignments = set(re.findall(r"^\s*(window\.\w+)\s*=", text, re.M))
             assert assignments == {expected[path.name]}, (path.name, assignments)
 
-    def test_css_no_redefine_clases_de_bootstrap(self):
-        """Plan §6.4: pisar .form-control o .card rompe media UI."""
-        css = (STATIC_DIR / "css" / "adhoc.css").read_text(encoding="utf-8")
-        selectors = re.findall(r"^\s*([.#][^{\n]+?)\s*\{", css, re.M)
-        prohibidas = re.compile(
-            r"(^|[\s,>])\.(form-control|form-group|form-row|form-label|form-select|"
-            r"card|badge-|alert-|bg-)"
-        )
-        for selector in selectors:
-            for part in selector.split(","):
-                part = part.strip()
-                if not part.startswith("."):
-                    continue
-                assert not prohibidas.search(" " + part), part
+    def test_la_hoja_base_es_autosuficiente_sin_bootstrap(self):
+        """Porte visual: la app YA NO carga Bootstrap.
+
+        Antes esta prueba prohibía declarar `.form-control` o `.btn` (pisar
+        Bootstrap rompía media UI). Ahora es al revés: si `adhoc.css` no las
+        define, los formularios y los botones de las 24 pantallas se quedan sin
+        estilo. Se comprueba que estén las que el markup usa de verdad.
+        """
+        css = _strip_css_comments((STATIC_DIR / "css" / "adhoc.css").read_text(encoding="utf-8"))
+        for needed in (
+            ".btn", ".btn-primary", ".btn-secondary", ".btn-close",
+            ".form-control", ".form-select", ".form-label", ".form-check",
+            ".modal", ".modal-content", ".alert", ".d-none",
+        ):
+            # el selector tiene que ESTAR declarado: seguido de coma o de llave.
+            assert re.search(rf"{re.escape(needed)}(?![\w-])\s*[,{{]", css), needed
+
+    def test_el_base_no_enlaza_bootstrap_ni_bootstrap_icons(self):
+        """El shell carga Font Awesome 6.4 y Poppins, como el legacy."""
+        html = (TEMPLATES_DIR / "adhoc" / "base_adhoc.html").read_text(encoding="utf-8")
+        assert "bootstrap.min.css" not in html
+        assert "bootstrap-icons" not in html
+        assert "font-awesome/6.4.0" in html
+        assert "family=Poppins" in html
 
     def test_css_comentarios_no_cierran_sobre_un_token(self):
         """Gotcha real del repo: un cierre de comentario pegado a un comodín."""

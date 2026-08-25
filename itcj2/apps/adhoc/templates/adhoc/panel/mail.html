@@ -1,19 +1,26 @@
 {# ===========================================================================
    panel/mail.html — interruptor global del correo del SGC.
 
-   Origen legacy: control_panel/mail.html, que traía 132 líneas de <style>
-   inline (un `.switch`/`.slider` casero, un `.modal-success` propio y un
-   `.main-container{... !important}` que pisaba el layout de TODA la app) y un
-   `alert()` en el manejador de error del JS. Nada de eso se porta:
+   Origen legacy: control_panel/mail.html. La pantalla se porta TAL CUAL: una
+   tarjeta de 500px centrada, con el botón "Volver" en su esquina superior
+   derecha, el sobre grande en violeta, el título, la línea de ayuda, el
+   interruptor propio del legacy (60×34, redondo, violeta al encender) con su
+   etiqueta debajo y el botón de guardar a todo el ancho.
 
-     · el interruptor es `.form-check.form-switch` de Bootstrap 5.3;
-     · el "guardado correctamente" es un toast de AdhocUtils;
-     · el error también es un toast, con el texto real que devuelve la API.
+   Lo que NO se porta del original:
+     · sus 132 líneas de <style> inline — todo eso vive ahora en
+       static/css/panel/mail.css (incluido el interruptor, que es de la casa,
+       no de Bootstrap);
+     · el `.main-container { … !important }` que pisaba el layout de TODA la app;
+     · el modal casero de "guardado" y el `alert()` de error → toasts de
+       AdhocUtils.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import page_header, back_button, page_data_script %}
+{% from "adhoc/partials/_macros.html" import back_button, page_data_script %}
 
 {% block title %}Correo · Calidad · ITCJ{% endblock %}
+
+{% block body_class %}adhoc-mail-page{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/panel/mail.css?v={{ sv('css/panel/mail.css') }}">
@@ -24,36 +31,39 @@
          data-adhoc-api="/api/adhoc/v2/mail-config"
          data-adhoc-can-update="{{ 1 if can_update else 0 }}">
 
-  {% call page_header("Correo electrónico", "Notificaciones automáticas del sistema de gestión.", "bi-envelope-check") %}
-    {{ back_button("/adhoc/panel/configuracion", "Volver") }}
-  {% endcall %}
-
   <div class="adhoc-card adhoc-mail-card">
-    <div class="adhoc-mail-icon"><i class="bi bi-envelope-check"></i></div>
+    {{ back_button("/adhoc/panel/configuracion", "Volver") }}
 
-    <h2 class="adhoc-mail-title">Envío de correo</h2>
-    <p class="adhoc-mail-text">
-      Con el envío apagado, el sistema sigue registrando las notificaciones dentro de la
-      plataforma y solo omite el correo electrónico.
-    </p>
+    <div class="adhoc-mail-header">
+      <i class="fa-solid fa-envelope-circle-check adhoc-mail-icon"></i>
+      <h2 class="adhoc-mail-title">Activar correo electrónico</h2>
+      <p class="adhoc-mail-text">Habilite o desactive las notificaciones automáticas</p>
+    </div>
 
-    <div class="form-check form-switch adhoc-mail-switch">
-      <input class="form-check-input" type="checkbox" role="switch"
-             id="adhoc-mail-enabled" data-adhoc-mail-toggle
-             {% if not can_update %}disabled{% endif %}>
-      <label class="form-check-label" for="adhoc-mail-enabled" data-adhoc-mail-status>
-        Consultando estado...
+    <div class="adhoc-mail-switch-wrap">
+      {# Interruptor del legacy (`.switch` + `.slider`), prefijado. La casilla
+         real queda encima del riel (el riel no recibe el clic), así que sigue
+         siendo enfocable con el teclado. #}
+      <label class="adhoc-switch" for="adhoc-mail-enabled">
+        <input type="checkbox" id="adhoc-mail-enabled" name="email_enabled"
+               data-adhoc-mail-toggle
+               aria-describedby="adhoc-mail-status"
+               {% if not can_update %}disabled{% endif %}>
+        <span class="adhoc-switch-slider"></span>
       </label>
+      <span class="adhoc-switch-label" id="adhoc-mail-status" data-adhoc-mail-status>
+        Consultando estado...
+      </span>
     </div>
 
     {% if can_update %}
     <button type="button" class="btn btn-primary adhoc-mail-save" data-adhoc-mail-save>
-      <i class="bi bi-floppy"></i>
+      <i class="fa-solid fa-floppy-disk"></i>
       <span data-adhoc-mail-save-label>Guardar cambios</span>
     </button>
     {% else %}
     <p class="adhoc-mail-readonly">
-      <i class="bi bi-lock me-1"></i>Solo lectura: no tienes permiso para cambiar esta opción.
+      <i class="fa-solid fa-lock me-1"></i>Solo lectura: no tienes permiso para cambiar esta opción.
     </p>
     {% endif %}
   </div>

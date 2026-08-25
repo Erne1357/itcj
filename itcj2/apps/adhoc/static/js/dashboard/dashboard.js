@@ -200,15 +200,15 @@
 
         if (kind === 'document') {
             html += cell('Código', parent.code);
-            html += cell('Autor (solicitante)', userName(parent.author));
-            html += cell('Paso actual', parent.step_name, 'is-primary');
-            html += cell('Días límite', parent.step_days === null || parent.step_days === undefined
+            html += cell('Autor (Solicitante)', userName(parent.author));
+            html += cell('Paso Actual', parent.step_name, 'is-primary');
+            html += cell('Días Límite', parent.step_days === null || parent.step_days === undefined
                 ? null : parent.step_days + ' días');
             html += '</dl>';
             if (parent.has_file) {
-                html += '<a class="btn btn-sm btn-outline-primary adhoc-wf-download" target="_blank" rel="noopener" href="' +
+                html += '<a class="btn btn-sm btn-primary adhoc-wf-download" target="_blank" rel="noopener" href="' +
                     U.escapeHtml(U.API_BASE + '/documents/' + parent.id + '/download') + '">' +
-                    '<i class="bi bi-file-earmark-arrow-down"></i> Revisar documento adjunto</a>';
+                    '<i class="fa-solid fa-file-pdf"></i> Revisar documento adjunto</a>';
             }
         } else {
             html += cell('Folio', parent.folio);
@@ -227,7 +227,7 @@
         var btn = document.querySelector('[data-adhoc-wf-parent-toggle]');
         var icon = byId('adhoc-wf-parent-icon');
         if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-        if (icon) icon.className = open ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+        if (icon) icon.className = open ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
     }
 
     function toggleParent() {
@@ -271,13 +271,13 @@
 
         var aprobados = approvals.filter(function (a) { return a.decision === 'aprobado'; });
         var html = '<p class="adhoc-wf-approvals-head">' +
-            '<i class="bi bi-patch-check"></i> Validaciones: ' +
+            '<i class="fa-solid fa-clipboard-check"></i> Validaciones: ' +
             U.escapeHtml(aprobados.length + ' de ' + total) + '</p><ul class="adhoc-wf-approvals-list">';
 
         approvals.forEach(function (a) {
             var ok = a.decision === 'aprobado';
             html += '<li class="adhoc-wf-approval' + (ok ? ' is-ok' : ' is-ko') + '">' +
-                '<i class="bi ' + (ok ? 'bi-check-circle-fill' : 'bi-x-circle-fill') + '"></i> ' +
+                '<i class="fa-solid ' + (ok ? 'fa-circle-check' : 'fa-circle-xmark') + '"></i> ' +
                 U.escapeHtml(userName(a.user)) +
                 ' <span class="adhoc-wf-muted">' + U.escapeHtml(a.created_at || '') + '</span>' +
                 '</li>';
@@ -307,7 +307,7 @@
             if (c.file_path) {
                 adjunto = '<a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="' +
                     U.escapeHtml(U.API_BASE + '/tasks/comments/' + c.id + '/download') + '">' +
-                    '<i class="bi bi-download"></i> ' + U.escapeHtml(c.file_name || 'Descargar') + '</a>';
+                    '<i class="fa-solid fa-download"></i> ' + U.escapeHtml(c.file_name || 'Descargar') + '</a>';
             }
             html += '<tr>' +
                 '<td class="adhoc-wf-date">' + U.escapeHtml(c.created_at || '') + '</td>' +

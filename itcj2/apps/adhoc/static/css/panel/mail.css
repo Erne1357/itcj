@@ -1,80 +1,153 @@
 /* ==========================================================================
    panel/mail.css — interruptor global de correo (/adhoc/panel/correo).
 
-   Sustituye a las 132 líneas de <style> inline de control_panel/mail.html.
-   Lo que NO se porta: el `.switch`/`.slider` casero (aquí es .form-switch de
-   Bootstrap), el `.modal-success` propio (aquí es un toast) y sobre todo el
-   `.main-container { ... !important }` que pisaba el layout de toda la app.
+   PORTE de las 132 líneas de <style> inline de control_panel/mail.html, con
+   sus valores exactos: tarjeta de 500px centrada (padding 60/40, 50px de aire
+   arriba y abajo), sobre a 3rem en violeta, interruptor de 60×34 con el pomo
+   de 26px, y botón de guardar a todo el ancho con 12px de padding.
+
+   Lo único que NO se porta: el `.main-container { … !important }`, que pisaba
+   el layout de toda la app, y el `.modal-success` casero (aquí es un toast).
    ========================================================================== */
 
 .adhoc-mail-card {
-  max-width: 32rem;
-  margin: 0 auto;
-  padding: 2rem 1.5rem;
+  position: relative;
+  max-width: 500px;
+  margin: 50px auto;
+  padding: 60px 40px;
   text-align: center;
 }
 
-.adhoc-mail-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 4rem;
-  height: 4rem;
-  margin-bottom: .75rem;
-  color: var(--adhoc-primary);
-  font-size: 1.9rem;
-  background: var(--adhoc-primary-tint);
-  border-radius: 50%;
+/* "Volver": esquina superior derecha DENTRO de la tarjeta, como el legacy. */
+.adhoc-mail-card .adhoc-back {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  font-size: .8rem;
 }
 
+.adhoc-mail-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.adhoc-mail-icon {
+  font-size: 3rem;
+  color: var(--adhoc-primary);
+}
+
+/* Sin line-height: el <h2> del legacy hereda `normal` (35px de caja para estos
+   24px de Poppins). Un 1.2 lo dejaba en 28.8px y subia 6px todo lo que va
+   debajo — icono, interruptor y boton incluidos. */
 .adhoc-mail-title {
-  margin: 0 0 .35rem;
+  margin: 0;
   color: var(--adhoc-dark);
-  font-size: 1.15rem;
-  font-weight: 600;
+  font-size: 1.5em;
+  font-weight: 700;
 }
 
 .adhoc-mail-text {
-  margin: 0 auto 1.5rem;
-  max-width: 26rem;
-  color: var(--adhoc-muted);
-  font-size: .875rem;
+  margin: 0;
+  color: var(--adhoc-dark);
 }
 
-/* El .form-check.form-switch de Bootstrap se alinea a la izquierda por su
-   padding-left; aquí se centra sin tocar la clase de Bootstrap. */
-.adhoc-mail-switch {
-  display: inline-flex;
+/* Interruptor + etiqueta, en columna y con 40px de aire arriba y abajo. */
+.adhoc-mail-switch-wrap {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: .6rem;
-  margin: 0 0 1.5rem;
-  padding-left: 0;
+  gap: 20px;
+  margin: 40px 0;
 }
 
-.adhoc-mail-switch .form-check-input {
-  width: 2.75rem;
-  height: 1.45rem;
+.adhoc-switch {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+/* La casilla real es invisible pero conserva su caja: recibe el clic y el foco
+   del teclado (el riel va con pointer-events:none justo debajo). */
+.adhoc-switch input {
+  width: 100%;
+  height: 100%;
   margin: 0;
+  opacity: 0;
   cursor: pointer;
 }
 
-.adhoc-mail-switch .form-check-input:checked {
+.adhoc-switch input:disabled {
+  cursor: not-allowed;
+}
+
+.adhoc-switch-slider {
+  position: absolute;
+  inset: 0;
+  background-color: var(--adhoc-disabled);
+  border-radius: 34px;
+  transition: .4s;
+  pointer-events: none;
+}
+
+.adhoc-switch-slider::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  width: 26px;
+  height: 26px;
+  background: var(--adhoc-surface);
+  border-radius: 50%;
+  transition: .4s;
+}
+
+.adhoc-switch input:checked ~ .adhoc-switch-slider {
   background-color: var(--adhoc-primary);
-  border-color: var(--adhoc-primary);
 }
 
-.adhoc-mail-switch .form-check-label {
-  margin: 0;
+.adhoc-switch input:checked ~ .adhoc-switch-slider::before {
+  transform: translateX(26px);
+}
+
+.adhoc-switch input:focus-visible ~ .adhoc-switch-slider {
+  box-shadow: 0 0 0 3px var(--adhoc-primary-tint);
+}
+
+.adhoc-switch input:disabled ~ .adhoc-switch-slider {
+  opacity: .6;
+}
+
+.adhoc-switch-label {
   font-weight: 600;
-  cursor: pointer;
 }
 
+/* Botón de guardar: ancho completo, como el `.btn-submit` del legacy. */
 .adhoc-mail-save {
-  min-width: 12rem;
+  justify-content: center;
+  width: 100%;
+  padding: 12px;
 }
 
 .adhoc-mail-readonly {
   margin: 0;
   color: var(--adhoc-muted);
   font-size: .82rem;
+}
+
+@media (max-width: 575.98px) {
+  .adhoc-mail-card {
+    margin: 25px auto;
+    padding: 45px 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adhoc-switch-slider,
+  .adhoc-switch-slider::before {
+    transition: none;
+  }
 }

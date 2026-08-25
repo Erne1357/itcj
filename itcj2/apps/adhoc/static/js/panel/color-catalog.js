@@ -195,8 +195,10 @@
             tdActive.setAttribute('data-adhoc-cell', 'is_active');
             tdActive.className = 'adhoc-col-center';
             var badge = document.createElement('span');
-            badge.className = 'badge adhoc-badge ' +
-                (item.is_active ? 'adhoc-badge-success' : 'adhoc-badge-muted');
+            // El legacy nunca pinta el estatus como pastilla sólida: es texto de
+            // color (verde/rojo). `.adhoc-status` es justo eso en adhoc.css.
+            badge.className = 'adhoc-badge adhoc-status ' +
+                (item.is_active ? 'adhoc-badge-success' : 'adhoc-badge-danger');
             badge.textContent = item.is_active ? 'Activa' : 'Inactiva';
             tdActive.appendChild(badge);
             tr.appendChild(tdActive);
@@ -218,12 +220,12 @@
         if (this.canUpdate) {
             html += '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
                     'data-adhoc-action="edit" title="Editar" aria-label="Editar">' +
-                    '<i class="bi bi-pencil"></i></button>';
+                    '<i class="fa-solid fa-pen"></i></button>';
         }
         if (this.canDelete) {
             html += '<button type="button" class="btn btn-sm btn-outline-danger adhoc-btn-icon" ' +
                     'data-adhoc-action="delete" title="Eliminar" aria-label="Eliminar">' +
-                    '<i class="bi bi-trash"></i></button>';
+                    '<i class="fa-solid fa-trash"></i></button>';
         }
         box.innerHTML = html;   // markup estático: no lleva ni un dato del servidor
         return box;

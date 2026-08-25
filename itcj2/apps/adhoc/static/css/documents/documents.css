@@ -1,15 +1,18 @@
 /* ===========================================================================
-   documents/documents.css — hoja de la sección Documentos.
+   documents/documents.css — hoja BASE de la sección Documentos y flujos.
 
-   Cubre /adhoc/documentos y, por herencia, las piezas que el panel de
-   administración reutiliza (paginador, celda de archivo, estado de carga): el
-   panel enlaza esta hoja ANTES de la suya en vez de recopiarlas. En el legacy
-   cada pantalla redeclaraba `.controls-top`, `.doc-table` y `.filter-input` en
-   su propio archivo, con 45 hex sueltos repetidos.
+   Es el porte 1:1 de las piezas que el legacy repetía en sus seis hojas
+   (documents.css, advanced_documents.css, documents_categories.css,
+   documents_classifications.css, documents_flows.css, documents_steps.css):
+   la fila de filtros dentro de la tabla, el enlace del archivo, los iconos de
+   acción de fila y los controles inferiores.
+
+   La cargan las CUATRO pantallas propias de la sección (consulta, panel,
+   flujos y pasos) ANTES de su hoja específica, en vez de recopiar las reglas.
 
    Reglas duras del plan 6.4:
    * Todo prefijado .adhoc-  (nunca .form-control, .card, .badge, .bg-...).
-   * Colores SIEMPRE por token, cero hex sueltos.
+   * Colores SIEMPRE por token o por rgb(); cero hex sueltos.
    * Ningun comentario contiene el comodin de los tokens pegado al cierre: esa
      secuencia cierra el comentario antes de tiempo y deja el :root siguiente
      sin variables (gotcha real de este repo).
@@ -29,40 +32,203 @@
   transition: opacity .15s ease-in-out;
 }
 
-/* ── Contador y botonera de la barra de filtros ────────────────────────── */
-.adhoc-doc-count {
-  color: var(--adhoc-muted);
-  font-size: .85rem;
+/* ── Tarjeta con el título dentro (legacy `.table-container`) ───────────
+   En el legacy el h1/h2 de la pantalla vive DENTRO del recuadro blanco, con
+   el botón "Volver" pegado a su esquina superior derecha. La macro
+   page_header() se coloca por eso dentro de .adhoc-card, y aquí solo se
+   recupera el tamaño de icono del original (1.8rem). */
+.adhoc-doc-card .adhoc-page-head {
+  margin-bottom: 15px;
+}
+
+.adhoc-doc-card .adhoc-page-title i {
+  font-size: 1.8rem;
+}
+
+/* ── Saludo de la vista de consulta ─────────────────────────────────────
+   Legacy documents.html: "Hola, <nombre>, estos son tus documentos:". */
+.adhoc-doc-greeting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.adhoc-doc-greeting-title {
+  margin: 0;
+  color: var(--adhoc-dark);
+  font-size: 1.6rem;
   font-weight: 600;
 }
 
-.adhoc-doc-buttons {
-  display: inline-flex;
-  align-items: center;
-  gap: .4rem;
+.adhoc-doc-greeting-name {
+  color: var(--adhoc-primary);
+  font-weight: 700;
 }
 
-/* ── Celda de archivo ──────────────────────────────────────────────────── */
+/* ── Barra de botones sobre la tabla (legacy `.controls-top`) ───────────── */
+.adhoc-doc-controls {
+  display: flex;
+  gap: 15px;
+  justify-content: flex-end;
+  margin-bottom: 20px;
+}
+
+.adhoc-doc-controls-sm {
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* ── Fila de filtros DENTRO de la tabla (legacy `.filter-input`) ─────────
+   La macro data_table() solo la pinta para el filtrado de DOM; estas dos
+   pantallas filtran en el servidor, así que la escriben a mano con
+   data-adhoc-doc-filter. El aspecto es el mismo de .adhoc-filter-input. */
+.adhoc-doc-filter {
+  width: 100%;
+  min-width: 6rem;
+  padding: 6px 8px;
+  color: var(--adhoc-dark);
+  background: var(--adhoc-surface);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: .8rem;
+  font-weight: 400;
+  outline: none;
+}
+
+.adhoc-doc-filter:focus {
+  border-color: var(--adhoc-primary);
+}
+
+/* ── Celda "Versión / Estatus" ──────────────────────────────────────────
+   Legacy: la versión en negrita seguida del estatus como TEXTO de color
+   (nunca una pastilla sólida). */
+.adhoc-doc-version {
+  margin-right: 8px;
+  color: var(--adhoc-dark);
+  font-weight: 700;
+}
+
+.adhoc-doc-status {
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+/* adhoc.css pinta el tono "info" del estatus en violeta; el legacy usa el azul
+   de "En Firma". Misma especificidad, esta hoja carga después. */
+.adhoc-doc-status.adhoc-badge-info {
+  color: var(--adhoc-info);
+}
+
+/* ── Celda de archivo (legacy `.link-btn`) ──────────────────────────────
+   Pastilla azul muy tenue con el icono de enlace; al pasar el ratón se
+   invierte a azul sólido. */
 .adhoc-file-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  color: var(--adhoc-primary);
-  border-radius: 50%;
+  padding: 5px 10px;
+  color: rgb(9 132 227);
+  background: rgba(9, 132, 227, .08);
+  border-radius: 5px;
+  font-weight: 700;
   text-decoration: none;
-  transition: background-color .15s ease-in-out;
+  transition: .2s;
 }
 
 .adhoc-file-link:hover,
 .adhoc-file-link:focus-visible {
-  background: var(--adhoc-primary-tint);
-  color: var(--adhoc-primary-hover);
+  color: rgb(255 255 255);
+  background: rgb(9 132 227);
 }
 
 .adhoc-file-none {
   color: var(--adhoc-disabled);
+}
+
+/* ── Iconos de acción de fila (legacy `.icon-btn-blue` / `.icon-btn`) ────
+   Icono pelado del color de la marca, sin recuadro, que crece al pasar el
+   ratón. Sustituye a los botones con borde de Bootstrap. */
+.adhoc-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  padding: 0;
+  color: var(--adhoc-primary);
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  transition: .2s;
+}
+
+.adhoc-icon-action:hover,
+.adhoc-icon-action:focus-visible {
+  color: var(--adhoc-primary);
+  transform: scale(1.2);
+}
+
+.adhoc-icon-action:disabled,
+.adhoc-icon-action.disabled {
+  opacity: .4;
+  transform: none;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.adhoc-icon-danger  { color: var(--adhoc-danger); }
+.adhoc-icon-danger:hover,
+.adhoc-icon-danger:focus-visible { color: var(--adhoc-danger); }
+
+.adhoc-icon-warning { color: var(--adhoc-warning); }
+.adhoc-icon-warning:hover,
+.adhoc-icon-warning:focus-visible { color: var(--adhoc-warning); }
+
+.adhoc-icon-muted   { color: var(--adhoc-muted); }
+.adhoc-icon-muted:hover,
+.adhoc-icon-muted:focus-visible { color: var(--adhoc-muted); }
+
+.adhoc-icon-info    { color: var(--adhoc-info); }
+.adhoc-icon-info:hover,
+.adhoc-icon-info:focus-visible { color: var(--adhoc-info); }
+
+.adhoc-icon-success { color: var(--adhoc-success); }
+.adhoc-icon-success:hover,
+.adhoc-icon-success:focus-visible { color: var(--adhoc-success); }
+
+/* Legacy `.action-icons`: los iconos van centrados en su columna. */
+.adhoc-col-center > .adhoc-actions {
+  justify-content: center;
+}
+
+/* ── Controles bajo la tabla (legacy `.bottom-controls` + `.qty-select`) ── */
+.adhoc-doc-bottom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 25px;
+}
+
+.adhoc-doc-bottom-between {
+  justify-content: space-between;
+}
+
+.adhoc-doc-qty {
+  padding: 9px;
+  color: var(--adhoc-dark);
+  background: var(--adhoc-surface);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
 }
 
 /* ── Paginador ─────────────────────────────────────────────────────────── */
@@ -90,5 +256,9 @@
 @media (max-width: 575.98px) {
   .adhoc-pager-info {
     min-width: 0;
+  }
+
+  .adhoc-doc-greeting-title {
+    font-size: 1.25rem;
   }
 }

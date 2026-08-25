@@ -25,8 +25,10 @@
 
     var U = window.AdhocUtils;
 
-    var LABEL_ON = 'Envío de correo activo';
-    var LABEL_OFF = 'Envío de correo desactivado';
+    // Textos del legacy (js/control_panel/mail.js): el interruptor rotula el
+    // SERVICIO, no la acción.
+    var LABEL_ON = 'Servicio Activo';
+    var LABEL_OFF = 'Servicio Desactivado';
     var LABEL_LOADING = 'Consultando estado...';
 
     function bool(value) {

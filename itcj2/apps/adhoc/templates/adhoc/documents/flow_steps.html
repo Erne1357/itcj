@@ -5,8 +5,15 @@
    Origen legacy: templates/app_prueba/documents/documents_steps.html +
    static/js/documents/documents_steps.js.
 
+   ASPECTO: porte 1:1 del original. Contenedor al 98% (body.adhoc-wide), título
+   con el icono de lista numerada DENTRO del recuadro blanco y "Volver a Flujos"
+   en su esquina superior derecha, caja de aviso azul con filo violeta, tabla de
+   cuatro columnas (Orden · Nombre del Paso · Días Límite · Configuración y
+   Acciones) e, bajo ella, "Añadir Pasos" + cantidad a la izquierda y "Guardar
+   Diseño del Flujo" en verde a la derecha.
+
    Qué cambia respecto del legacy:
-   * Guardar ya no es un `<form method="POST">` que recarga la página contra
+   * Guardar ya no es un form POST que recarga la página contra
      `save_flow_steps`: es un PUT /approval-flows/{id}/steps, un UPSERT por
      `step_order`. El endpoint del legacy BORRABA todos los pasos y los recreaba
      con ids nuevos (bug #3), dejando `adhoc_tasks.flow_step_id` y
@@ -16,12 +23,11 @@
      y si lo usan la API responde 409.
    * Asignar validadores ya no navega a otra pantalla
      (`/app_prueba/extintor/usuarios?action=step_assign&step_id=…`): se hace en
-     un modal con el selector compartido, que además NUMERA la selección porque
-     el orden de marcado ES el orden de validación.
-   * Los usuarios NO se pintan desde Jinja (el legacy listaba `first_name` y
-     `last_name` en un <ul>, y en la pantalla de asignación los inyectaba como
-     HTML crudo). Van como JSON en page_data y los pinta shared/user-picker.js
-     con textContent.
+     un modal con el selector compartido.
+   * Los usuarios NO se pintan desde Jinja (el legacy listaba nombre y apellido
+     en un <ul>, y en la pantalla de asignación los inyectaba como HTML crudo).
+     Van como JSON en page_data y los pinta shared/user-picker.js con
+     textContent.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
 {% from "adhoc/partials/_macros.html" import page_header, back_button, data_table,
@@ -29,56 +35,57 @@
 
 {% block title %}Pasos de {{ flow.name }} · Calidad{% endblock %}
 
+{% block body_class %}adhoc-wide{% endblock %}
+
 {% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/documents/documents.css?v={{ sv('css/documents/documents.css') }}">
 <link rel="stylesheet" href="/static/adhoc/css/documents/flow-steps.css?v={{ sv('css/documents/flow-steps.css') }}">
 {% endblock %}
 
 {% block content %}
 <section class="adhoc-flow-steps" data-adhoc-flow-steps>
 
-  {% call page_header(
-       "Diseño del flujo: " ~ flow.name,
-       flow.description or "Pasos secuenciales por los que pasa un documento hasta aprobarse",
-       "bi-list-ol") %}
-    {{ back_button(back_url, 'Volver a flujos') }}
-  {% endcall %}
+  <div class="adhoc-card adhoc-doc-card">
 
-  <div class="alert alert-info adhoc-steps-hint">
-    <i class="bi bi-info-circle me-2"></i>
-    Los pasos se aplican en el orden de la tabla. Un paso nuevo se guarda antes de
-    poder asignarle validadores, y un paso solo puede eliminarse si ningún
-    documento o tarea lo está usando.
-  </div>
+    {% call page_header("Diseño del Flujo: " ~ flow.name, None, "fa-solid fa-list-ol") %}
+      {{ back_button(back_url, 'Volver a Flujos') }}
+    {% endcall %}
 
-  <div class="adhoc-card">
+    <div class="adhoc-steps-hint">
+      <p class="adhoc-steps-hint-text">
+        Aquí puedes definir los pasos secuenciales que tomará un documento para
+        ser aprobado.
+      </p>
+      <p class="adhoc-steps-hint-note">
+        Un paso nuevo se guarda antes de poder asignarle validadores, y un paso
+        solo puede eliminarse si ningún documento o tarea lo está usando.
+      </p>
+    </div>
+
     {{ data_table(
          'adhoc-steps-table',
          [
            {'key': 'order', 'label': 'Orden', 'align': 'center'},
-           {'key': 'name', 'label': 'Nombre del paso'},
-           {'key': 'days', 'label': 'Días límite'},
-           {'key': 'validators', 'label': 'Validadores', 'align': 'center'},
-           {'key': 'actions', 'label': 'Acciones', 'align': 'end'}
+           {'key': 'name', 'label': 'Nombre del Paso'},
+           {'key': 'days', 'label': 'Días Límite'},
+           {'key': 'actions', 'label': 'Configuración y Acciones', 'align': 'center'}
          ],
          'Este flujo todavía no tiene pasos.',
-         'bi-list-ol',
-         width='md') }}
+         'fa-solid fa-list-ol') }}
 
     {%- if can_update %}
-    <div class="adhoc-toolbar adhoc-toolbar-between">
+    <div class="adhoc-doc-bottom adhoc-doc-bottom-between">
       <span class="adhoc-steps-add">
-        <button type="button" class="btn btn-sm btn-outline-primary" data-adhoc-steps-add>
-          <i class="bi bi-plus-lg"></i>
-          <span class="d-none d-sm-inline">Añadir pasos</span>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-steps-add>
+          <i class="fa-solid fa-plus"></i> Añadir Pasos
         </button>
         <label class="visually-hidden" for="adhoc-steps-qty">Cuántos pasos añadir</label>
-        <select class="form-select form-select-sm adhoc-qty-select" id="adhoc-steps-qty"
-                data-adhoc-steps-qty>
+        <select class="adhoc-doc-qty" id="adhoc-steps-qty" data-adhoc-steps-qty>
           {% for n in range(1, 11) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
         </select>
       </span>
-      <button type="button" class="btn btn-sm btn-primary" data-adhoc-steps-save>
-        <i class="bi bi-floppy"></i> Guardar diseño
+      <button type="button" class="btn btn-sm btn-success" data-adhoc-steps-save>
+        <i class="fa-solid fa-floppy-disk"></i> Guardar Diseño del Flujo
       </button>
     </div>
     {%- endif %}
@@ -98,7 +105,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="adhoc-step-users-modal-title" data-adhoc-step-modal-title>
-          <i class="bi bi-person-check me-2"></i>Validadores del paso
+          <i class="fa-solid fa-users-gear me-2"></i>Validadores del paso
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
@@ -118,9 +125,9 @@
                        help='Todos los validadores del paso deben aprobar para que el documento avance al siguiente.') }}
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primary" data-adhoc-step-users-save>
-          <i class="bi bi-floppy"></i> Guardar
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-step-users-save>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar
         </button>
       </div>
     </div>

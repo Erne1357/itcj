@@ -1,14 +1,23 @@
 {# ===========================================================================
-   base_adhoc.html — layout raíz de Adhoc / "Calidad" (Variante B: Jinja propio).
-   Molde: itcj2/apps/directory/templates/directory/base_directory.html
+   base_adhoc.html — layout raíz de Adhoc / "Calidad".
+
+   Es el PORTE del layout del legacy
+   (template/itcj/apps/app_prueba/templates/app_prueba/dashboard/layout_dashboard.html):
+   cabecera blanca fija con "Salir" y "Ayuda", fila de tarjetas de navegación y
+   contenedor central de 1200px. La hoja que lo viste es static/css/adhoc.css,
+   que YA NO depende de Bootstrap: se cargan Font Awesome 6.4.0 y Poppins, que
+   es exactamente lo que usa el original.
 
    Bloques disponibles (usar EXACTAMENTE estos nombres):
      title       — contenido del <title>
      extra_css   — <link> de la hoja de la página (siempre con ?v={{ sv(...) }})
-     body_class  — clases extra del <body> (p. ej. "adhoc-print")
-     header      — sustituye el appbar por completo (raro; casi nunca hace falta)
+     body_class  — clases extra del <body>. Además de las propias de la página:
+                     adhoc-wide   → contenedor al 98% (listados anchos)
+                     adhoc-wider  → contenedor al 95% con 40px de padding
+                     adhoc-print  → vista imprimible (reportes)
+     header      — sustituye la cabecera por completo (raro; casi nunca hace falta)
      content     — el cuerpo de la página
-     modals      — modales de Bootstrap; ver la nota de posicionamiento abajo
+     modals      — modales; ver la nota de posicionamiento abajo
      extra_js    — <script id="adhoc-page-data" type="application/json"> + módulos
 
    Reglas duras (plan §6.2): cero <style>, cero style="...", cero onclick=.
@@ -20,52 +29,83 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}Calidad · ITCJ{% endblock %}</title>
 
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  {# Iconos y tipografía DEL LEGACY. Mismas URLs que layout_dashboard.html. #}
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
 
   {# Shell móvil compartido del core: da el botón "volver al inicio" cuando la app
      corre dentro del iframe del dashboard. #}
   <link rel="stylesheet" href="/static/core/css/apps/mobile-app-shell.css?v={{ sv_core('css/apps/mobile-app-shell.css') }}">
 
-  {# Capa de diseño de Adhoc — SIEMPRE después de Bootstrap. #}
+  {# Capa de diseño de Adhoc. Es autosuficiente: incluye el reset, el shell, los
+     componentes comunes y las pocas utilidades que las páginas heredaron de
+     Bootstrap. NO hay hoja de Bootstrap detrás. #}
   <link rel="stylesheet" href="/static/adhoc/css/adhoc.css?v={{ sv('css/adhoc.css') }}">
 
   {% block extra_css %}{% endblock %}
 </head>
 <body class="adhoc-shell {% block body_class %}{% endblock %}" hx-ext="morph">
 
+  {# Overlay de "cerrando sesión" (los dos engranes del legacy). Lo enciende
+     AdhocUtils al pulsar "Salir". #}
+  <div class="adhoc-loading-overlay" id="adhoc-loader">
+    <div class="adhoc-gears">
+      <i class="fa-solid fa-gear adhoc-gear adhoc-gear-1"></i>
+      <i class="fa-solid fa-gear adhoc-gear adhoc-gear-2"></i>
+    </div>
+    <div class="adhoc-loading-text">CERRANDO SESIÓN...</div>
+  </div>
+
   {% block header %}
-  {# App bar propio de Calidad. En escritorio es la barra de navegación; dentro del
-     iframe móvil el CSS le da el tratamiento de app bar nativa. #}
+  {# Cabecera del legacy: "Salir" a la izquierda, "Ayuda" a la derecha. El botón
+     de volver al inicio solo se ve dentro del iframe móvil del core. #}
   <header class="adhoc-appbar">
     <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
-      <i class="bi bi-arrow-left"></i>
+      <i class="fa-solid fa-arrow-left"></i>
     </button>
-    <span class="adhoc-appbar-title"><i class="bi bi-clipboard2-check-fill me-2"></i>Calidad</span>
-    {% include "adhoc/partials/_nav.html" %}
+    <button type="button" class="adhoc-btn-header adhoc-btn-salir" id="adhoc-logout" data-adhoc-logout>
+      <i class="fa-solid fa-arrow-right-from-bracket"></i> Salir
+    </button>
+    <a href="#" class="adhoc-btn-header adhoc-btn-ayuda">
+      <i class="fa-solid fa-circle-question"></i> Ayuda
+    </a>
   </header>
   {% endblock %}
 
-  <main class="adhoc-page" id="adhoc-main">
-    {% block content %}{% endblock %}
-  </main>
+  <div class="adhoc-main-container">
+    {# Tarjetas de navegación (las 4 del legacy), filtradas por permisos en
+       pages/nav.py. #}
+    {% include "adhoc/partials/_nav.html" %}
+
+    <main class="adhoc-page" id="adhoc-main">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
 
   {# Modales: SIEMPRE aquí, a nivel <body>, DESPUÉS del contenedor principal y
      FUERA de cualquier elemento con `transform` (o `filter`/`perspective`): esas
      propiedades crean un containing block nuevo y rompen el position:fixed del
-     .modal de Bootstrap, que quedaría recortado o desplazado. #}
+     overlay, que quedaría recortado o desplazado. #}
   {% block modals %}{% endblock %}
 
   {# Contenedor de toasts. AdhocUtils.showToast() lo crea si falta, pero tenerlo
      aquí evita que se pierda entre morphs de HTMX. #}
-  <div class="toast-container position-fixed bottom-0 end-0 p-3" id="adhoc-toast-container"></div>
+  <div class="adhoc-toast-container" id="adhoc-toast-container"></div>
 
   {# HTMX + Idiomorph (morph, sin parpadeo). Idiomorph SIEMPRE después de HTMX. #}
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
   <script src="https://unpkg.com/idiomorph@0.7.3/dist/idiomorph-ext.min.js"></script>
+
+  {# TRANSITORIO: el bundle de Bootstrap se queda SOLO por su JS. Los módulos de
+     sección (documentos, incidencias, indicadores, panel, tareas...) siguen
+     abriendo sus modales con bootstrap.Modal; el aspecto ya no lo pone
+     Bootstrap sino adhoc.css, que viste `.modal…` como el overlay del legacy.
+     Cuando la última sección migre a AdhocUtils.openModal(), este <script> se
+     borra. AdhocUtils ya no lo necesita para nada. #}
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  {# Utils de Adhoc: toast, confirmDialog, fetchJson (prohibidos alert/confirm/prompt). #}
+  {# Utils de Adhoc: toast, confirmDialog, modales, logout, fetchJson
+     (prohibidos alert/confirm/prompt). #}
   <script src="/static/adhoc/js/adhoc-utils.js?v={{ sv('js/adhoc-utils.js') }}"></script>
 
   {# Filtrado de tablas por data-adhoc-filter-key. Va en el base a propósito:

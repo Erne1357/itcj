@@ -821,5 +821,7 @@ class TestSelectionData:
         assert [c["type"] for c in tarjetas] == list(REPORT_META)
         for card in tarjetas:
             assert card["title"]
-            assert card["icon"].startswith("bi-")      # nunca Font Awesome
+            # Toda la app volvió a Font Awesome 6.4, como el legacy.
+            assert card["icon"].startswith("fa-")
+            assert card["icon_overlay"].startswith("fa-")
             assert card["subject"] in ("users", "documents")

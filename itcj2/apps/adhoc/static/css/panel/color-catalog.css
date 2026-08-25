@@ -7,6 +7,18 @@
    sin prefijo. La muestra de color reusa .adhoc-swatch de adhoc.css.
    ========================================================================== */
 
+/* Encabezado dentro de la tarjeta, con el aspecto del `.header-title` del
+   legacy: <h2> en negrita de verdad y el icono en 1rem del color del texto (su
+   hoja nunca estiliza `.icon-title` en estas dos pantallas). */
+.adhoc-color-catalog .adhoc-page-title {
+  font-weight: 700;
+}
+
+.adhoc-color-catalog .adhoc-page-title i {
+  font-size: 1rem;
+  color: var(--adhoc-dark);
+}
+
 /* Fila de captura del alta masiva: nombre + color en la misma línea. */
 .adhoc-color-new-fields {
   display: flex;

@@ -2,18 +2,92 @@
    indicators/board.css — tablero (fichas de indicador) de un año.
    Página: /adhoc/indicadores/{year_id}/tablero   ·   Módulo: js/indicators/board.js
 
-   Sustituye a app_prueba/css/indicators/indicators_board.css, que redeclaraba
-   .modal-overlay, .badge-freq / .badge-proceso (sintaxis BS4) y .form-input, y
-   repetia seis hex de la paleta. Aqui: tokens --adhoc- y clases .adhoc-.
+   PORTE de app_prueba/css/indicators/indicators_board.css: tarjeta de 25px,
+   botón gris de volver arriba a la derecha, punto de proceso de 12px, pastilla
+   de frecuencia azul con borde, iconos de fila pelados que crecen al pasar por
+   encima, y los cuatro cuadros de color del formulario (#ff7675 / #ffeaa7 /
+   #55efc4). Lo que allí eran .bg-rojo/.bg-amarillo/.bg-verde aquí son las
+   .adhoc-state-… que emite el JS; el tinte se aplica acotado a esta pantalla.
    ========================================================================== */
 
+/* ── Tarjeta y cabecera ─────────────────────────────────────────────────── */
+
+.adhoc-board-card .adhoc-page-head {
+  margin-bottom: 0;
+}
+
+.adhoc-board-card .adhoc-page-title i {
+  font-size: 1.8rem;
+}
+
+/* El año, en violeta (el legacy lo pintaba con un style en línea). */
+.adhoc-board-year {
+  color: var(--adhoc-primary);
+}
+
+/* Fila Limpiar / Filtrar (legacy .controls-top: margin 20px 0). */
+.adhoc-board-controls {
+  gap: 10px;
+  margin: 20px 0;
+}
+
+/* ── Anchos de columna (legacy: style="width: …%") ──────────────────────── */
+/* El legacy tenía 5 columnas; aquí hay 7 porque los 4 umbrales y la evidencia
+   son datos que su tabla no mostraba. Los porcentajes se reparten igual. */
+.adhoc-board-col-process { width: 18%; }
+.adhoc-board-col-resp    { width: 16%; }
+.adhoc-board-col-freq    { width: 10%; }
+.adhoc-board-col-obj     { width: 26%; }
+.adhoc-board-col-planned { width: 15%; }
+.adhoc-board-col-doc     { width: 7%; }
+.adhoc-board-col-actions { width: 8%; }
+
 /* ── Celdas de la tabla ─────────────────────────────────────────────────── */
+
+.adhoc-indicator-board .adhoc-table th,
+.adhoc-indicator-board .adhoc-table td {
+  padding: 12px;
+}
 
 .adhoc-board-process {
   display: inline-flex;
   align-items: center;
-  gap: .4rem;
-  font-weight: 600;
+  font-weight: 700;
+}
+
+/* Punto del color del proceso (legacy .badge-proceso: 12px con sombra). */
+.adhoc-board-dot {
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  border: 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+}
+
+/* Icono del responsable: gris claro, como en el original. */
+.adhoc-board-resp-icon {
+  margin-right: 5px;
+  color: #bdc3c7;
+}
+
+/* Pastilla de frecuencia (legacy .badge-freq). Ojo: NO va en mayúsculas, a
+   diferencia del badge genérico de la app. */
+.adhoc-board-freq {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: .8rem;
+  font-weight: 700;
+  color: var(--adhoc-info);
+  background-color: #e8f4fd;
+  border: 1px solid #74b9ff;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.adhoc-board-freq-none {
+  color: var(--adhoc-muted);
+  background-color: var(--adhoc-soft);
+  border-color: var(--adhoc-border);
 }
 
 .adhoc-board-objective {
@@ -24,74 +98,67 @@
    El legacy los guardaba concatenados en un string "b-r-a-v". */
 .adhoc-board-planned {
   display: inline-flex;
-  flex-wrap: wrap;
-  gap: .25rem;
+  flex-wrap: nowrap;
+  gap: 4px;
 }
 
 .adhoc-board-planned-chip {
-  min-width: 2.25rem;
-  padding: .1rem .4rem;
+  min-width: 2.1rem;
+  padding: 2px 6px;
   font-size: .75rem;
-  font-weight: 600;
+  font-weight: 800;
   text-align: center;
-  border-radius: 5px;
-}
-
-/* ── Formulario del modal ───────────────────────────────────────────────── */
-
-.adhoc-board-form + .adhoc-board-form {
-  margin-top: 1.1rem;
-  padding-top: 1.1rem;
-  border-top: 1px dashed var(--adhoc-border);
-}
-
-.adhoc-board-form-title {
-  display: flex;
-  align-items: center;
-  gap: .45rem;
-  margin-bottom: .75rem;
-  font-size: .95rem;
-  font-weight: 700;
-  color: var(--adhoc-primary);
-}
-
-/* Fila de los cuatro umbrales: cuatro campos independientes, uno por color. */
-.adhoc-board-thresholds {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: .65rem;
-}
-
-.adhoc-board-threshold-tag {
-  display: block;
-  margin-bottom: .2rem;
-  font-size: .72rem;
-  font-weight: 700;
-  letter-spacing: .02em;
-  text-transform: uppercase;
-}
-
-.adhoc-board-threshold-tag-white  { color: var(--adhoc-muted); }
-.adhoc-board-threshold-tag-red    { color: var(--adhoc-state-red); }
-.adhoc-board-threshold-tag-yellow { color: var(--adhoc-state-yellow); }
-.adhoc-board-threshold-tag-green  { color: var(--adhoc-state-green); }
-
-/* El input de umbral se tine con la clase de estado de la base
-   (.adhoc-state-white/red/yellow/green), sin tocar .form-control. */
-.adhoc-board-threshold-input {
-  width: 100%;
-  padding: .35rem .5rem;
-  font-size: .85rem;
-  border: 1px solid var(--adhoc-border);
+  border: 1px solid rgba(0, 0, 0, .1);
   border-radius: 6px;
 }
 
-.adhoc-board-threshold-input:focus {
-  outline: 2px solid var(--adhoc-primary);
-  outline-offset: -1px;
+/* Los cuatro fondos del legacy (indicators_board.css: .bg-blanco/.bg-rojo/…). */
+.adhoc-board-planned-chip.adhoc-state-white  { color: var(--adhoc-dark); background-color: var(--adhoc-surface); }
+.adhoc-board-planned-chip.adhoc-state-red    { color: #fff;              background-color: #ff7675; }
+.adhoc-board-planned-chip.adhoc-state-yellow { color: var(--adhoc-dark); background-color: #ffeaa7; }
+.adhoc-board-planned-chip.adhoc-state-green  { color: var(--adhoc-dark); background-color: #55efc4; }
+
+/* ── Iconos de fila (legacy .btn-icon-small) ────────────────────────────── */
+/* Sin recuadro: un icono a pelo que crece al pasar por encima. */
+.adhoc-board-actions {
+  justify-content: center;
+  gap: 6px;
 }
 
-/* Campo de archivo de evidencia + enlace de descarga del actual. */
+.adhoc-board-icon {
+  padding: 5px;
+  font-size: 1.2rem;
+  line-height: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: .2s;
+}
+
+.adhoc-board-icon:hover {
+  transform: scale(1.2);
+}
+
+.adhoc-board-icon-edit   { color: var(--adhoc-primary); }
+.adhoc-board-icon-delete { color: #ff7675; }
+
+/* ── Controles inferiores (legacy .bottom-controls + .qty-select) ───────── */
+
+.adhoc-board-qty {
+  max-width: 10rem;
+  padding: 10px;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--adhoc-dark);
+  background: var(--adhoc-surface);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+}
+
+/* ── Evidencia ──────────────────────────────────────────────────────────── */
+
 .adhoc-board-evidence {
   display: flex;
   flex-wrap: wrap;
@@ -118,8 +185,133 @@
   color: var(--adhoc-muted);
 }
 
-/* El pie del modal lleva el boton de eliminar a la izquierda (me-auto) y los
-   de cancelar/guardar a la derecha; sin el, Bootstrap los junta todos. */
+/* ── Formulario del modal (legacy .process-card + .form-grid-ind) ───────── */
+/* Cada ficha es una tarjeta gris dentro del modal, no una sección separada
+   por una línea de puntos. */
+.adhoc-board-form {
+  padding: 20px;
+  margin-bottom: 25px;
+  background: var(--adhoc-soft);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 10px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, .02);
+}
+
+.adhoc-board-form:last-child {
+  margin-bottom: 0;
+}
+
+.adhoc-board-form-title {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding-bottom: 8px;
+  margin-bottom: 15px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--adhoc-dark);
+  border-bottom: 2px solid var(--adhoc-border);
+}
+
+.adhoc-board-form-title i {
+  color: var(--adhoc-primary);
+}
+
+/* El modal del legacy mide 1000px (.modal-lg de indicators_board.css), no los
+   600 del dialogo por defecto ni los 1200 del extragrande. */
+.adhoc-board-dialog {
+  width: 1000px;
+  max-width: 95%;
+}
+
+/* El titulo del modal va en violeta, como en el legacy. */
+.adhoc-board-modal-title {
+  color: var(--adhoc-primary);
+}
+
+/* Rejilla de DOS columnas (legacy .form-grid-ind), no auto-fit: con cuatro
+   columnas los campos quedan estrechos y el formulario no se parece. */
+.adhoc-board-form .adhoc-form-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Etiquetas del formulario del legacy: mas oscuras y en negrita. */
+.adhoc-board-form .adhoc-label {
+  color: #34495e;
+  font-weight: 700;
+}
+
+/* Fila de los cuatro umbrales: cuatro campos independientes, uno por color
+   (legacy .planned-colors-container, cuatro columnas). */
+.adhoc-board-thresholds {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
+  margin-top: 5px;
+}
+
+@media (max-width: 700px) {
+  .adhoc-board-thresholds { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Cada umbral va en su propia caja blanca (legacy .color-input-group). El
+   envoltorio lo emite board.js sin clase, asi que se selecciona por elemento. */
+.adhoc-board-thresholds > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px;
+  background: var(--adhoc-surface);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 8px;
+}
+
+.adhoc-board-threshold-tag {
+  display: block;
+  margin-bottom: 5px;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.adhoc-board-threshold-tag-white  { color: var(--adhoc-muted); }
+.adhoc-board-threshold-tag-red    { color: #d63031; }
+.adhoc-board-threshold-tag-yellow { color: #e67e22; }
+.adhoc-board-threshold-tag-green  { color: #00b894; }
+
+/* El cuadro del umbral (legacy .color-box-input): grande, centrado y con el
+   fondo de su color. */
+.adhoc-board-threshold-input {
+  width: 100%;
+  padding: 10px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--adhoc-dark);
+  text-align: center;
+  border: 1px solid rgba(0, 0, 0, .1);
+  border-radius: 6px;
+  outline: none;
+}
+
+.adhoc-board-threshold-input:focus {
+  border-color: var(--adhoc-primary);
+}
+
+.adhoc-board-threshold-input.adhoc-state-white  { color: var(--adhoc-dark); background-color: var(--adhoc-surface); }
+.adhoc-board-threshold-input.adhoc-state-red    { color: #fff;              background-color: #ff7675; }
+.adhoc-board-threshold-input.adhoc-state-yellow { color: var(--adhoc-dark); background-color: #ffeaa7; }
+.adhoc-board-threshold-input.adhoc-state-green  { color: var(--adhoc-dark); background-color: #55efc4; }
+
+.adhoc-board-threshold-input.adhoc-state-red::placeholder {
+  color: rgba(255, 255, 255, .7);
+}
+
+/* El pie del modal lleva el botón de eliminar a la izquierda y los de
+   cancelar/guardar a la derecha (legacy .btn-delete con margin-right:auto). */
 .adhoc-board-modal-footer {
   flex-wrap: wrap;
   gap: .4rem;

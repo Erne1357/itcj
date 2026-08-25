@@ -107,7 +107,11 @@ class TestListItems:
         _mk(db_session, AdhocProcess, name="zzz_Compras", color="#333333")
 
         found = AdhocCatalogService.list_items(db_session, AdhocProcess, search="calidad")
-        assert [p.name for p in found] == ["zzz_Gestión de Calidad"]
+        # Solo se afirma sobre las filas que crea este test: la BD de desarrollo
+        # puede tener procesos sembrados que tambien casen con "calidad", y una
+        # igualdad exacta de la lista completa acoplaria el test a ese contenido.
+        propios = [p.name for p in found if p.name.startswith("zzz_")]
+        assert propios == ["zzz_Gestión de Calidad"]
 
     def test_modelo_no_soportado(self, db_session):
         with pytest.raises(CatalogValidationError):

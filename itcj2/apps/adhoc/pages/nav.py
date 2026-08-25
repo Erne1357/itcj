@@ -2,8 +2,11 @@
 
 Patrón 2 de `docs/adhoc/analysis/tgt_convenciones-app.md` §Nav — el mismo de
 `itcj2/apps/titulatec/pages/nav.py`: una tabla de tuplas
-``(label, icon_bi, url, {permisos any-of})`` y un filtro contra
+``(label, icono, url, {permisos any-of})`` y un filtro contra
 ``get_user_permissions_for_app``. URLs literales (`/adhoc/...`), sin ENDPOINT_MAP.
+
+El icono es la clase COMPLETA de Font Awesome 6.4 (``fa-solid fa-…``), que es lo
+que usa el legacy; el template la escribe tal cual en el ``<i>``.
 
 Regla de fail-soft (importante mientras el DML de F2 no exista): si el cálculo de
 permisos revienta o el usuario no tiene ninguno, se devuelve una lista **vacía**.
@@ -20,71 +23,43 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
-# (label, icono Bootstrap, url, permisos que lo habilitan — any-of)
+# (label, icono Font Awesome, url, permisos que lo habilitan — any-of)
 #
-# Las URLs son LITERALES y salen de la tabla del plan §4; los códigos de permiso
-# están verificados contra `core_permissions` (los 20 permisos `adhoc.*.page.*`
-# que sembró el DML de F2). Un permiso mal escrito aquí no rompe nada, pero deja
-# la sección invisible para todo el mundo salvo el admin global.
+# SON LAS CUATRO TARJETAS DEL LEGACY, en su mismo orden y con sus mismos iconos
+# (`layout_dashboard.html`): Tareas, Documentos, Indicadores y Panel Control,
+# esta última condicionada al permiso (en el legacy, a no ser `is_consult`).
 #
-# El legacy tenía cuatro tarjetas de primer nivel (Tareas, Documentos,
-# Indicadores, Panel Control) y escondía Incidencias, Programa y Reportes dentro
-# del panel de control, con un gate puramente cosmético. Aquí Incidencias,
-# Programa y Reportes suben al nav: son secciones de trabajo diario y el gate es
-# real (`require_page_app` en la página + este filtro en el menú). Reparto de
-# roles tal y como está hoy en BD:
+# Incidencias, Programa y Reportes NO están aquí a propósito: en el legacy son
+# secciones internas del panel de control y así se llega a ellas (las tarjetas
+# de `/adhoc/panel`). Ponerlas también en la barra superior era la desviación
+# visual más grande del shell respecto al original.
 #
-#   consult         → Tareas, Documentos, Incidencias, Programa, Indicadores
-#   supervisor_doc  → Tareas, Documentos, Reportes, Panel
-#   supervisor_inc  → Tareas, Incidencias, Reportes, Panel
-#   supervisor_prog → Tareas, Programa, Reportes, Panel
-#   admin           → todo
-#
-# NO va en el nav `/adhoc/asignaciones` (`adhoc.tasks.page.assign`): es una
-# pantalla auxiliar a la que se llega desde una tarea o un paso de flujo con
-# parámetros en la query (`?action=…&task_id=…&step_id=…`); sin ellos no tiene
-# nada que mostrar. Tampoco van las sub-páginas de catálogos y flujos, que
-# cuelgan del panel de control.
+# Tampoco va `/adhoc/asignaciones` (`adhoc.tasks.page.assign`): es una pantalla
+# auxiliar a la que se llega desde una tarea o un paso de flujo con parámetros
+# en la query (`?action=…&task_id=…&step_id=…`); sin ellos no tiene nada que
+# mostrar. Ni las sub-páginas de catálogos y flujos, que cuelgan del panel.
 NAV_SECTIONS: list[tuple[str, str, str, set[str]]] = [
     (
         "Tareas",
-        "bi-list-task",
+        "fa-solid fa-clipboard-list",
         "/adhoc/dashboard",
         {"adhoc.dashboard.page.view"},
     ),
     (
         "Documentos",
-        "bi-file-earmark-text",
+        "fa-solid fa-folder-open",
         "/adhoc/documentos",
         {"adhoc.documents.page.list"},
     ),
     (
-        "Incidencias",
-        "bi-exclamation-triangle",
-        "/adhoc/incidencias",
-        {"adhoc.incidents.page.list"},
-    ),
-    (
-        "Programa",
-        "bi-calendar3",
-        "/adhoc/programas",
-        {"adhoc.programs.page.list"},
-    ),
-    (
         "Indicadores",
-        "bi-graph-up-arrow",
+        "fa-solid fa-gauge-high",
         "/adhoc/indicadores?mode=tracking",
         {"adhoc.indicators.page.list", "adhoc.indicators.page.tracking"},
     ),
     (
-        "Reportes",
-        "bi-clipboard-data",
-        "/adhoc/reportes",
-        {"adhoc.reports.page.view"},
-    ),
-    (
-        "Panel de Control",
-        "bi-sliders",
+        "Panel Control",
+        "fa-solid fa-sliders",
         "/adhoc/panel",
         {"adhoc.panel.page.view"},
     ),

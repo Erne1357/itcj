@@ -175,7 +175,11 @@
         var tdFile = document.createElement('td');
         tdFile.setAttribute('data-adhoc-cell', 'file');
         tdFile.className = 'adhoc-col-center';
-        tdFile.appendChild(H.fileCell(doc, this.canDownload));
+        // Legacy: icono de PDF en rojo, sin pastilla (`.icon-btn-blue`).
+        tdFile.appendChild(H.fileCell(doc, this.canDownload, {
+            icon: 'fa-solid fa-file-pdf',
+            linkClass: 'adhoc-icon-action adhoc-icon-danger'
+        }));
         tr.appendChild(tdFile);
 
         H.cell(tr, 'code', H.text(doc.code, '—'), 'adhoc-cell-nowrap');
@@ -214,20 +218,20 @@
         box.className = 'adhoc-actions';
 
         if (this.canStartFlow && STARTABLE[doc.status]) {
-            box.appendChild(H.iconButton('start-flow', 'bi-play-circle',
-                                         'Iniciar flujo de aprobación', 'btn-outline-primary'));
+            box.appendChild(H.iconButton('start-flow', 'fa-solid fa-stamp',
+                                         'Sellar e iniciar el flujo de aprobación'));
         }
         if (doc.status === 'En Revisión') {
-            box.appendChild(H.iconButton('flow-info', 'bi-clock-history',
-                                         'Ver paso actual del flujo'));
+            box.appendChild(H.iconButton('flow-info', 'fa-solid fa-clock-rotate-left',
+                                         'Ver paso actual del flujo', 'adhoc-icon-info'));
         }
         if (this.canCreate) {
-            box.appendChild(H.iconButton('new-version', 'bi-file-earmark-plus',
-                                         'Registrar nueva versión'));
+            box.appendChild(H.iconButton('new-version', 'fa-solid fa-file-circle-plus',
+                                         'Anexar nueva versión'));
         }
         if (this.canDelete) {
-            box.appendChild(H.iconButton('delete', 'bi-trash',
-                                         'Eliminar documento', 'btn-outline-danger'));
+            box.appendChild(H.iconButton('delete', 'fa-solid fa-trash',
+                                         'Eliminar documento', 'adhoc-icon-danger'));
         }
         return box;
     };
@@ -237,8 +241,8 @@
     Panel.prototype.openNew = function () {
         if (!this.modal) return;
         if (this.modalTitle) {
-            this.modalTitle.innerHTML = '<i class="bi bi-file-earmark-plus me-2"></i>';
-            this.modalTitle.appendChild(document.createTextNode('Añadir documentos'));
+            this.modalTitle.innerHTML = '<i class="fa-solid fa-file-circle-plus me-2"></i>';
+            this.modalTitle.appendChild(document.createTextNode('Añadir Documento'));
         }
         if (this.qtyBox) this.qtyBox.hidden = false;
         this.buildFields();
@@ -254,7 +258,7 @@
     Panel.prototype.openNewVersion = function (doc) {
         if (!this.modal) return;
         if (this.modalTitle) {
-            this.modalTitle.innerHTML = '<i class="bi bi-files me-2"></i>';
+            this.modalTitle.innerHTML = '<i class="fa-solid fa-copy me-2"></i>';
             this.modalTitle.appendChild(document.createTextNode('Registrar nueva versión'));
         }
         if (this.qtyBox) this.qtyBox.hidden = true;

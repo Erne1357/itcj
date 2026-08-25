@@ -10,6 +10,18 @@
    columna. Aquí las columnas y las filas llegan YA resueltas del
    report_service, así que el template solo las pinta.
 
+   PORTE VISUAL: la "hoja membretada" del legacy se conserva DENTRO del
+   contenido (barra de acciones a la derecha, hoja blanca centrada, título en
+   versalitas moradas, filete de 3px y la rejilla de metadatos de tres columnas
+   con `Etiqueta: valor` en línea), para que lo impreso salga igual que antes.
+   Los anchos de hoja son los de cada archivo del legacy —1000 / 1200 / 1300px—,
+   medidos sobre la caja de CONTENIDO como allí (ver la nota de view-report.css).
+
+   Los metadatos son EXACTAMENTE los del legacy, reporte por reporte. Los de
+   documentos rotulan el filtro de texto como "Filtro Texto" (así lo hacen
+   view_report_documents_users y view_report_documents_notes) y los de personas
+   como "Filtro Nombre".
+
    body_class="adhoc-print" activa el @media print de adhoc.css, que esconde
    appbar, nav y barra de acciones. El bloque de modales se deja sin sobrescribir
    a propósito: un reporte no tiene diálogos.
@@ -18,63 +30,71 @@
 {% from "adhoc/partials/_macros.html" import back_button, empty_state, page_data_script %}
 
 {% block title %}{{ report.title }} · Calidad{% endblock %}
-{% block body_class %}adhoc-print{% endblock %}
+{# `adhoc-wide` (contenedor al 98%) para que la hoja de 1200/1300px del
+   legacy quepa entera; con el contenedor por defecto se recortaba a 1160. #}
+{% block body_class %}adhoc-print adhoc-wide{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/reports/view-report.css?v={{ sv('css/reports/view-report.css') }}">
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-report" data-adhoc-report-view>
+{# Ancho de hoja de cada reporte en el legacy (`.hoja-reporte { max-width }`). #}
+{% set SHEET_WIDTH = {
+     'area_usuarios': 'md',
+     'usuarios_tareas': 'md',
+     'usuarios_documentos': 'lg',
+     'documentos_usuarios': 'xl',
+     'documentos_notas': 'lg'
+   } %}
+{# Rótulo del filtro de texto: "Filtro Texto" en los reportes sobre documentos
+   (view_report_documents_users / _documents_notes), "Filtro Nombre" en los de
+   personas. Y "Usuarios y Tareas" es el único que NO imprime los filtros: su
+   cabecera en el legacy son cuatro campos. #}
+{% set TEXT_FILTER_LABEL = 'Filtro Texto' if report.subject == 'documents' else 'Filtro Nombre' %}
+{% set FILTER_ITEMS = [] if report.report_type == 'usuarios_tareas' else [
+     ('Filtro Área', report.filters.area or 'Todas'),
+     (TEXT_FILTER_LABEL, report.filters.nombre or 'N/A')
+   ] %}
+{% set META_ITEMS = [
+     ('Solicitado por', requester),
+     ('Fecha de emisión', issued_date),
+     ('Hora de emisión', issued_time)
+   ] + FILTER_ITEMS + [('Formato', report.formato|capitalize)] %}
 
+<section class="adhoc-report adhoc-report-{{ SHEET_WIDTH.get(report.report_type, 'lg') }}"
+         data-adhoc-report-view>
+
+  {# Legacy `.acciones-bar`: pegada a la derecha, encima de la hoja y con la
+     misma anchura que ella. "Volver a Reportes" es el único añadido: el legacy
+     abría cada reporte en una pestaña suelta, sin sitio al que volver. #}
   <div class="adhoc-toolbar adhoc-toolbar-end adhoc-report-actions">
     {{ back_button('/adhoc/reportes', 'Volver a Reportes') }}
-    <button type="button" class="btn btn-sm btn-success" data-adhoc-report-excel>
-      <i class="bi bi-file-earmark-spreadsheet"></i>
+    <button type="button" class="btn btn-success" data-adhoc-report-excel>
+      <i class="fa-solid fa-file-excel"></i>
       <span class="d-none d-sm-inline">Exportar a Excel</span>
     </button>
-    <button type="button" class="btn btn-sm btn-secondary" data-adhoc-report-print>
-      <i class="bi bi-printer"></i>
+    <button type="button" class="btn btn-dark" data-adhoc-report-print>
+      <i class="fa-solid fa-print"></i>
       <span class="d-none d-sm-inline">Imprimir PDF</span>
     </button>
   </div>
 
-  <article class="adhoc-card adhoc-report-sheet">
+  <article class="adhoc-report-sheet">
 
     <header class="adhoc-report-head">
       <h1 class="adhoc-report-title">{{ report.title }}</h1>
 
-      <dl class="adhoc-report-meta">
-        <div class="adhoc-report-meta-item">
-          <dt>Solicitado por</dt><dd>{{ requester }}</dd>
-        </div>
-        <div class="adhoc-report-meta-item">
-          <dt>Fecha de emisión</dt><dd>{{ issued_date }}</dd>
-        </div>
-        <div class="adhoc-report-meta-item">
-          <dt>Hora de emisión</dt><dd>{{ issued_time }}</dd>
-        </div>
-        <div class="adhoc-report-meta-item">
-          <dt>Filtro Área</dt><dd>{{ report.filters.area or 'Todas' }}</dd>
-        </div>
-        <div class="adhoc-report-meta-item">
-          <dt>Filtro Nombre</dt><dd>{{ report.filters.nombre or 'N/A' }}</dd>
-        </div>
-        <div class="adhoc-report-meta-item">
-          <dt>Filtro Apellidos</dt><dd>{{ report.filters.apellidos or 'N/A' }}</dd>
-        </div>
-        <div class="adhoc-report-meta-item">
-          <dt>Formato</dt><dd>{{ report.formato|capitalize }}</dd>
-        </div>
-        <div class="adhoc-report-meta-item">
-          <dt>Registros</dt><dd>{{ report.total }}</dd>
-        </div>
-      </dl>
+      <div class="adhoc-report-meta">
+        {% for label, value in META_ITEMS %}
+        <p><strong>{{ label }}:</strong> {{ value }}</p>
+        {% endfor %}
+      </div>
     </header>
 
     {% if report.truncated %}
     <p class="alert alert-warning adhoc-no-print" role="alert">
-      <i class="bi bi-exclamation-triangle-fill"></i>
+      <i class="fa-solid fa-triangle-exclamation"></i>
       El reporte se recortó a los primeros {{ report.max_rows }} registros de origen.
       Acote los filtros para verlo completo.
     </p>
@@ -107,7 +127,7 @@
     </div>
 
     {% if not report.rows %}
-      {{ empty_state('No se encontró información con los filtros especificados.', 'bi-clipboard-x') }}
+      {{ empty_state('No se encontró información con los filtros especificados.', 'fa-solid fa-clipboard-question') }}
     {% endif %}
 
   </article>

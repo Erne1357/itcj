@@ -182,8 +182,10 @@
             var rolesBox = document.createElement('div');
             rolesBox.className = 'adhoc-users-chips';
             for (var r = 0; r < roles.length; r++) {
+                // Rol: texto violeta, no pastilla (el legacy pinta las celdas
+                // de la tabla en texto plano).
                 var badge = document.createElement('span');
-                badge.className = 'badge adhoc-badge adhoc-badge-primary';
+                badge.className = 'adhoc-badge adhoc-status adhoc-badge-primary';
                 badge.textContent = this.roleLabels[roles[r]] || roles[r];
                 rolesBox.appendChild(badge);
             }
@@ -217,9 +219,10 @@
         var tdActive = document.createElement('td');
         tdActive.setAttribute('data-adhoc-cell', 'is_active');
         tdActive.className = 'adhoc-col-center';
+        // Estatus como en el legacy: texto en verde/rojo, no una pastilla.
         var status = document.createElement('span');
-        status.className = 'badge adhoc-badge ' +
-            (user.is_active ? 'adhoc-badge-success' : 'adhoc-badge-muted');
+        status.className = 'adhoc-badge adhoc-status ' +
+            (user.is_active ? 'adhoc-badge-success' : 'adhoc-badge-danger');
         status.textContent = user.is_active ? 'Activo' : 'Inactivo';
         tdActive.appendChild(status);
         tr.appendChild(tdActive);
@@ -242,12 +245,12 @@
         if (this.canAssignRole) {
             html += '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
                     'data-adhoc-action="role" title="Cambiar rol" aria-label="Cambiar rol">' +
-                    '<i class="bi bi-person-badge"></i></button>';
+                    '<i class="fa-solid fa-user-tag"></i></button>';
         }
         if (this.canAssignAreas) {
             html += '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
                     'data-adhoc-action="areas" title="Asignar áreas" aria-label="Asignar áreas">' +
-                    '<i class="bi bi-layers"></i></button>';
+                    '<i class="fa-solid fa-layer-group"></i></button>';
         }
         box.innerHTML = html;   // markup estático, sin datos del servidor
         return box;

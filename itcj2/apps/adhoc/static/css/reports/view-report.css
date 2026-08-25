@@ -1,87 +1,156 @@
 /* ==========================================================================
    reports/view-report.css — la hoja imprimible de los CINCO reportes.
 
-   Sustituye a los 5 archivos del legacy (view_report_areas.css,
+   PORTE de los 5 archivos del legacy (view_report_areas.css,
    view_report_tasks.css, view_report_users_documents.css,
    view_report_documents_users.css, view_report_documents_notes.css): eran
-   copias del mismo archivo, con estas diferencias reales entre ellas:
-   `max-width: 1000px` vs `1200px`, y tres utilidades sueltas
-   (.text-center/.text-bold/.sin-datos/.cell-notes) presentes en unos sí y en
-   otros no. Todos redeclaraban `:root { --color-primario: ... }` por su cuenta,
-   redefinían `body` y repetían su propio `@media print`.
+   copias del mismo archivo y solo se diferenciaban de verdad en el
+   `max-width` de la hoja (1000 / 1200 / 1300px) y en un par de utilidades
+   sueltas. Aquí ese ancho es una clase (`.adhoc-report-md|lg|xl`) y todo lo
+   demás está una sola vez, con los valores literales del original:
 
-   Aquí: el `@media print` general está en adhoc.css (lo activa
-   body_class="adhoc-print"), la alineación por columna la da `.adhoc-col-*`, y
-   este archivo solo aporta la estética de "hoja de reporte".
+     hoja      padding 40px · radio 8px · sombra 0 10px 30px rgba(0,0,0,.1)
+     cabecera  filete inferior de 3px en el color de marca · 20px/30px
+     título    1.8rem · MAYÚSCULAS · color de marca
+     metadatos rejilla de 3 columnas · #f8f9fa · radio 6px · 0.9rem
+     tabla     th morada · celdas 12px 15px · 0.95rem · cebra #fcfcfc
+
+   Lo que NO se copia: el `:root` que cada archivo redeclaraba (los tokens
+   viven en adhoc.css) y el `body { … }` (esto ya no es un HTML suelto).
    ========================================================================== */
 
-.adhoc-report {
-  max-width: 1200px;
+/* ── Anchos de hoja del legacy ─────────────────────────────────────────── */
+/* OJO al detalle: en el legacy estos HTML sueltos NO cargaban el reset
+   `* { box-sizing: border-box }` (vivía en layout_dashboard.css), así que el
+   `max-width: 1000px` de `.hoja-reporte` era el de su CAJA DE CONTENIDO y la
+   hoja medía 1080px con sus 40px de padding — mientras que `.acciones-bar`,
+   sin padding, medía los 1000px justos y quedaba 40px más estrecha por cada
+   lado. Se replica con `box-sizing: content-box` en la hoja; si no, la hoja
+   sale 80px más angosta que el original.
+   La página pide `adhoc-wide` (contenedor al 98%) para que quepan las hojas de
+   1200 y 1300px; con el contenedor de 1200 se recortaban a 1160. */
+.adhoc-report-actions,
+.adhoc-report-sheet {
   margin-inline: auto;
 }
 
-.adhoc-report-actions {
-  margin-bottom: 1rem;
+.adhoc-report-sheet {
+  box-sizing: content-box;
 }
 
-/* ── La hoja ───────────────────────────────────────────────────────────── */
+.adhoc-report-md .adhoc-report-actions,
+.adhoc-report-md .adhoc-report-sheet { max-width: 1000px; }
+
+.adhoc-report-lg .adhoc-report-actions,
+.adhoc-report-lg .adhoc-report-sheet { max-width: 1200px; }
+
+.adhoc-report-xl .adhoc-report-actions,
+.adhoc-report-xl .adhoc-report-sheet { max-width: 1300px; }
+
+/* ── Barra de acciones (legacy `.acciones-bar`) ────────────────────────── */
+.adhoc-report-actions {
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+/* Los botones del legacy llevan sombra propia (`.btn-action`). Su tamaño de
+   letra se deja en el de la app: el legacy se quedaba con los 13.3px que el
+   navegador da a un <button> sin `font-size`, un descuido de esa hoja (en el
+   resto de la app el mismo `.btn-action` sí declara 0.9rem). */
+.adhoc-report-actions .btn {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, .1);
+}
+
+/* ── La hoja (legacy `.hoja-reporte`) ──────────────────────────────────── */
 .adhoc-report-sheet {
-  padding: clamp(1rem, 3vw, 2.5rem);
+  display: block;
+  padding: 40px;
+  background: var(--adhoc-surface);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .1);
 }
 
 .adhoc-report-head {
-  padding-bottom: 1.25rem;
-  margin-bottom: 1.5rem;
+  padding-bottom: 20px;
+  margin-bottom: 30px;
   border-bottom: 3px solid var(--adhoc-primary);
 }
 
 .adhoc-report-title {
-  margin: 0 0 1rem;
+  margin: 0 0 15px;
   color: var(--adhoc-primary);
-  font-size: clamp(1.25rem, 2.5vw, 1.8rem);
-  font-weight: 600;
+  font-size: 1.8rem;
+  /* El <h1> del legacy va en negrita del navegador (700). Poppins solo trae
+     300/400/600, así que el 700 se sintetiza: bajar a 600 lo adelgaza. */
+  font-weight: 700;
   text-transform: uppercase;
-  line-height: 1.2;
 }
 
-/* ── Metadatos de emisión ──────────────────────────────────────────────── */
+/* ── Metadatos de emisión (legacy `.meta-info`) ────────────────────────── */
+/* Tres columnas fijas y `Etiqueta: valor` EN LÍNEA: la etiqueta en oscuro y
+   negrita, el valor en gris. */
 .adhoc-report-meta {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: .5rem 1.25rem;
-  padding: 1rem;
-  margin: 0;
-  background: var(--adhoc-soft);
-  border-radius: var(--adhoc-radius);
-  font-size: .85rem;
-}
-
-.adhoc-report-meta-item {
-  min-width: 0;
-}
-
-.adhoc-report-meta dt {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 15px;
   color: var(--adhoc-muted);
-  font-weight: 400;
+  font-size: .9rem;
+  background: var(--adhoc-soft);
+  border-radius: 6px;
 }
 
-.adhoc-report-meta dd {
+.adhoc-report-meta p {
   margin: 0;
-  color: var(--adhoc-dark);
-  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
-/* ── Tabla del reporte ─────────────────────────────────────────────────── */
-/* Cabecera en el color de marca, como en el legacy; el resto (bordes, zebra,
-   sticky) ya lo pone `.adhoc-table` de adhoc.css. */
-.adhoc-report-table thead th {
-  color: var(--adhoc-surface);
-  background: var(--adhoc-primary);
-  border-bottom-color: var(--adhoc-primary);
+/* `<strong>` del navegador: 700 sintetizado, como en el legacy. */
+.adhoc-report-meta strong {
+  color: var(--adhoc-dark);
+  font-weight: 700;
 }
 
+@media (max-width: 767.98px) {
+  .adhoc-report-sheet { padding: 20px; }
+  .adhoc-report-meta { grid-template-columns: 1fr; }
+}
+
+/* ── Tabla del reporte (legacy `.tabla-reporte`) ───────────────────────── */
+.adhoc-report-table {
+  margin-top: 20px;
+  font-size: .95rem;
+}
+
+.adhoc-report-table th,
+.adhoc-report-table td {
+  padding: 12px 15px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--adhoc-border);
+}
+
+/* Cabecera morada del legacy. Se le quitan la altura fija y el `nowrap` que
+   `.adhoc-table` impone: el original deja que los títulos largos partan. */
+.adhoc-report-table thead th {
+  height: auto;
+  color: var(--adhoc-surface);
+  background: var(--adhoc-primary);
+  border-bottom-color: var(--adhoc-border);
+  white-space: normal;
+}
+
+/* Cebra apenas perceptible, como la del legacy (que usa #fcfcfc; el token de
+   la app es #f8f9fa, cuatro puntos de gris más). Y sin resaltado al pasar el
+   ratón: esto es una hoja impresa, no una lista con la que se interactúe. */
 .adhoc-report-table tbody tr:nth-child(even) {
+  background: var(--adhoc-soft);
+}
+
+.adhoc-report-table tbody tr:hover {
+  background: transparent;
+}
+
+.adhoc-report-table tbody tr:nth-child(even):hover {
   background: var(--adhoc-soft);
 }
 
@@ -94,37 +163,32 @@
 }
 
 /* ── Impresión ─────────────────────────────────────────────────────────── */
-/* Lo transversal (esconder appbar, nav y toolbar) vive en adhoc.css. Aquí solo
-   lo propio de la hoja. */
+/* El `@media print` del legacy hacía CUATRO cosas y ninguna más: fondo blanco,
+   hoja sin sombra ni padding ni tope de ancho, y barra de acciones oculta. Se
+   respeta al pie de la letra —incluida la cabecera de tabla en morado, que el
+   original NO desactiva al imprimir—; lo transversal (esconder appbar, nav y
+   barra de acciones) ya lo pone adhoc.css con body_class="adhoc-print". */
 @media print {
-  .adhoc-report {
-    max-width: none;
+  /* adhoc.css intenta blanquear el fondo con `.adhoc-print` (0,1,0), pero
+     `body.adhoc-shell` (0,1,1) le gana y la hoja salía sobre el gris de la app.
+     Este selector empata en especificidad y va después. */
+  body.adhoc-print {
+    background: #fff;
+  }
+
+  .adhoc-report-md .adhoc-report-sheet,
+  .adhoc-report-lg .adhoc-report-sheet,
+  .adhoc-report-xl .adhoc-report-sheet {
+    max-width: 100%;
   }
 
   .adhoc-report-sheet {
     padding: 0;
+    box-shadow: none;
   }
 
-  .adhoc-report-meta {
-    background: transparent;
-    padding: 0;
-  }
-
-  /* Sin esto el navegador descarta los fondos y la cabecera sale en blanco
-     sobre blanco. */
-  .adhoc-report-table thead th {
-    color: #000;
-    background: transparent;
-    border-bottom: 2px solid #000;
-    print-color-adjust: exact;
-    -webkit-print-color-adjust: exact;
-  }
-
-  .adhoc-report-table tbody tr:nth-child(even) {
-    background: transparent;
-  }
-
-  /* La cabecera se repite en cada página del PDF. */
+  /* Añadido sobre el legacy, y solo para PDFs de varias páginas: repetir la
+     cabecera y no partir una fila por la mitad. No cambia la primera página. */
   .adhoc-report-table thead {
     display: table-header-group;
   }

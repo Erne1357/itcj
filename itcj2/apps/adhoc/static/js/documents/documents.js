@@ -22,19 +22,29 @@
 
     var TABLE_ID = 'adhoc-documents-table';
 
-    /** Una fila de la tabla de consulta. Cero innerHTML con datos del servidor. */
+    /**
+     * Una fila de la tabla de consulta, en el ORDEN DE COLUMNAS DEL LEGACY:
+     * Código · Nombre Doc · Versión/Estatus · Enlace · Categoría · Área ·
+     * Proceso · Clasificación · Aprobación.
+     * Cero innerHTML con datos del servidor.
+     */
     function buildRow(doc, canDownload) {
         var tr = document.createElement('tr');
         tr.setAttribute('data-id', String(doc.id));
 
         H.cell(tr, 'code', H.text(doc.code, '—'), 'adhoc-cell-nowrap');
         H.cell(tr, 'title', H.text(doc.title));
-        H.cell(tr, 'version', H.text(doc.version), 'adhoc-cell-nowrap');
 
-        var tdStatus = document.createElement('td');
-        tdStatus.setAttribute('data-adhoc-cell', 'status');
-        tdStatus.appendChild(H.statusBadge(doc.status));
-        tr.appendChild(tdStatus);
+        // — versión + estatus en una sola celda, como el legacy —
+        var tdVersion = document.createElement('td');
+        tdVersion.setAttribute('data-adhoc-cell', 'version');
+        tdVersion.className = 'adhoc-cell-nowrap';
+        var version = document.createElement('span');
+        version.className = 'adhoc-doc-version';
+        version.textContent = 'v' + H.text(doc.version);
+        tdVersion.appendChild(version);
+        tdVersion.appendChild(H.statusBadge(doc.status));
+        tr.appendChild(tdVersion);
 
         var tdFile = document.createElement('td');
         tdFile.setAttribute('data-adhoc-cell', 'file');

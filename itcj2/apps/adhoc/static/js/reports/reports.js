@@ -30,7 +30,8 @@
  *   <button data-adhoc-report="{tipo}" data-adhoc-report-label data-adhoc-report-subject>
  *   <form id="adhoc-report-form">                 action = /adhoc/reportes/{tipo}
  *   <input|select data-adhoc-report-filter="nombre|apellidos|area">
- *   <button data-adhoc-report-clear>
+ *   <button data-adhoc-report-clear>            "Limpiar" del legacy
+ *   <button data-adhoc-report-search>           "Buscar" del legacy (repinta)
  *   <div data-adhoc-preview="users|documents">    contenedor de cada tabla
  *   <span data-adhoc-preview-count>               "N de M"
  *
@@ -274,6 +275,15 @@
             if (target.closest('[data-adhoc-report-clear]')) {
                 evt.preventDefault();
                 clearFilters();
+                return;
+            }
+
+            // "Buscar" del legacy. El filtrado ya es en vivo (input/change), así
+            // que aquí solo fuerza un repintado; el botón se conserva porque
+            // está en el original.
+            if (target.closest('[data-adhoc-report-search]')) {
+                evt.preventDefault();
+                refresh();
             }
         });
 

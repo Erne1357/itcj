@@ -4,9 +4,17 @@
    Permiso: adhoc.indicators.page.manage
    Legacy: app_prueba/indicators/indicators_board.html
 
-   Cambios respecto del legacy:
+   ASPECTO: porte de indicators_board.css — una sola tarjeta blanca que
+   contiene el título ("Tableros del Año: <año>" con el año en violeta), el
+   botón gris de volver arriba a la derecha, la fila Limpiar/Filtrar, la tabla
+   y los controles inferiores (alta + cuántos capturar). Iconos Font Awesome
+   6.4, como el original.
+
+   Cambios de fondo respecto del legacy (se conservan de la migración):
      · Los CUATRO umbrales son cuatro campos del formulario, no un string
-       "b-r-a-v" partido con .split('-') (bug #16 del plan).
+       "b-r-a-v" partido con .split('-') (bug #16 del plan). Por eso hay una
+       columna "Metas" que el legacy no tenía: sin ella no habría forma de ver
+       los cuatro valores sin abrir la ficha.
      · El <select> de frecuencia ofrece Semanal | Mensual | Anual. En el legacy
        'Semanal' se reconocía al pintar la rejilla pero el formulario no lo
        ofrecía: era un valor inalcanzable.
@@ -18,9 +26,11 @@
        con style.display = 'flex'.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import back_button, page_header, data_table, page_data_script %}
+{% from "adhoc/partials/_macros.html" import back_button, data_table, page_data_script %}
 
 {% block title %}Tablero {{ year.year }} · Indicadores · Calidad{% endblock %}
+
+{% block body_class %}adhoc-wide{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/indicators/board.css?v={{ sv('css/indicators/board.css') }}">
@@ -28,40 +38,60 @@
 
 {% block content %}
 <section class="adhoc-indicator-board" data-adhoc-indicator-board>
-  {% call page_header(
-       "Tablero del año " ~ year.year,
-       "Fichas de indicador del año: proceso, metas y evidencia.",
-       "bi-speedometer2") %}
-    {{ back_button("/adhoc/indicadores", "Volver a años") }}
-    {% if can_track %}
-    <a class="btn btn-sm btn-outline-primary" href="{{ tracking_url }}">
-      <i class="bi bi-grid-3x3-gap"></i>
-      <span class="d-none d-sm-inline">Ver seguimiento</span>
-    </a>
-    {% endif %}
-    {% if can_create %}
-    <button type="button" class="btn btn-sm btn-primary" data-adhoc-board-new>
-      <i class="bi bi-plus-lg"></i>
-      <span class="d-none d-sm-inline">Añadir indicador(es)</span>
-    </button>
-    {% endif %}
-  {% endcall %}
+  <div class="adhoc-card adhoc-board-card">
 
-  <div class="adhoc-card">
+    <div class="adhoc-page-head">
+      <div class="adhoc-page-head-main">
+        <h1 class="adhoc-page-title">
+          <i class="fa-solid fa-gauge-high"></i>
+          <span>Tableros del Año: <span class="adhoc-board-year">{{ year.year }}</span></span>
+        </h1>
+      </div>
+      <div class="adhoc-page-actions">
+        {% if can_track %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ tracking_url }}">
+          <i class="fa-solid fa-table-cells"></i>
+          <span class="d-none d-sm-inline">Ver seguimiento</span>
+        </a>
+        {% endif %}
+        {{ back_button("/adhoc/indicadores", "Volver a Años") }}
+      </div>
+    </div>
+
+    <div class="adhoc-toolbar adhoc-toolbar-end adhoc-board-controls">
+      <button type="button" class="btn adhoc-btn-clear"
+              data-adhoc-filter-clear="adhoc-indicator-board">Limpiar</button>
+      <button type="button" class="btn adhoc-btn-filter" data-adhoc-board-filter>Filtrar</button>
+    </div>
+
     {{ data_table(
          'adhoc-indicator-board',
          [
-           {'key': 'process', 'label': 'Proceso', 'filter': true, 'placeholder': 'Proceso...'},
-           {'key': 'responsible', 'label': 'Responsable', 'filter': true, 'placeholder': 'Responsable...'},
-           {'key': 'frequency', 'label': 'Frecuencia', 'filter': true, 'placeholder': 'Frecuencia...'},
-           {'key': 'objective', 'label': 'Objetivo', 'filter': true, 'placeholder': 'Objetivo...'},
-           {'key': 'planned', 'label': 'Metas (E / R / P / A)'},
-           {'key': 'evidence', 'label': 'Evidencia', 'align': 'center'},
-           {'key': 'actions', 'label': 'Acciones', 'align': 'end'}
+           {'key': 'process', 'label': 'Proceso', 'filter': true, 'placeholder': 'Proceso...', 'css': 'adhoc-board-col-process'},
+           {'key': 'responsible', 'label': 'Responsable', 'filter': true, 'placeholder': 'Responsable...', 'css': 'adhoc-board-col-resp'},
+           {'key': 'frequency', 'label': 'Frecuencia', 'filter': true, 'placeholder': 'Frecuencia...', 'css': 'adhoc-board-col-freq'},
+           {'key': 'objective', 'label': 'Objetivo', 'filter': true, 'placeholder': 'Objetivo...', 'css': 'adhoc-board-col-obj'},
+           {'key': 'planned', 'label': 'Metas (E / R / P / A)', 'css': 'adhoc-board-col-planned'},
+           {'key': 'evidence', 'label': 'Evidencia', 'align': 'center', 'css': 'adhoc-board-col-doc'},
+           {'key': 'actions', 'label': 'Acciones', 'align': 'center', 'css': 'adhoc-board-col-actions'}
          ],
          'No hay indicadores registrados en este año.',
-         'bi-folder2-open',
+         'fa-solid fa-folder-open',
          'lg') }}
+
+    {% if can_create %}
+    <div class="adhoc-bottom-controls">
+      <button type="button" class="btn adhoc-btn-add" data-adhoc-board-new>
+        <i class="fa-solid fa-plus"></i> Añadir Proceso(s)
+      </button>
+      <select class="adhoc-qty-select adhoc-board-qty" data-adhoc-board-qty
+              aria-label="Cuántos indicadores capturar">
+        <option value="1">1 Proceso</option>
+        <option value="3">3 Procesos</option>
+        <option value="5">5 Procesos</option>
+      </select>
+    </div>
+    {% endif %}
   </div>
 </section>
 {% endblock %}
@@ -69,30 +99,24 @@
 {% block modals %}
 <div class="modal fade" id="adhoc-board-modal" tabindex="-1"
      aria-labelledby="adhoc-board-modal-title" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable adhoc-board-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="adhoc-board-modal-title">
-          <i class="bi bi-speedometer2 me-2"></i><span data-adhoc-board-modal-label>Gestión de indicador</span>
+        <h5 class="modal-title adhoc-board-modal-title" id="adhoc-board-modal-title">
+          <i class="fa-solid fa-gauge-high me-2"></i><span data-adhoc-board-modal-label>Gestión de Proceso</span>
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
-        <div class="adhoc-catalog-count" data-adhoc-board-qty-wrap>
-          <label class="form-label adhoc-label" for="adhoc-board-qty">Cuántos indicadores capturar</label>
-          <select class="form-select adhoc-qty-select" id="adhoc-board-qty" data-adhoc-board-qty>
-            {% for n in [1, 2, 3, 5] %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
-          </select>
-        </div>
         <div data-adhoc-board-forms></div>
       </div>
       <div class="modal-footer adhoc-board-modal-footer">
-        <button type="button" class="btn btn-outline-danger me-auto" data-adhoc-board-delete hidden>
-          <i class="bi bi-trash"></i> Eliminar
+        <button type="button" class="btn btn-danger me-auto" data-adhoc-board-delete hidden>
+          <i class="fa-solid fa-trash"></i> Eliminar Proceso
         </button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" class="btn btn-primary" data-adhoc-board-save>
-          <i class="bi bi-floppy"></i> Guardar
+          <i class="fa-solid fa-floppy-disk"></i> Guardar Tablero
         </button>
       </div>
     </div>

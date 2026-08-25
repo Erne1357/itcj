@@ -355,16 +355,20 @@ class TestPaginaIncidencias:
         `nav_items` no usa `cached_perms` sino `get_user_permissions_for_app`, así
         que hay que parchear ESE nombre en su módulo fuente.
         """
+        # Desde el porte visual el nav son las CUATRO tarjetas del legacy
+        # (Tareas, Documentos, Indicadores, Panel Control): incidencias y
+        # programa se alcanzan desde el panel, no desde la barra superior.
         visibles = {"adhoc.incidents.page.list", "adhoc.dashboard.page.view"}
         with grant(), patch(
             "itcj2.core.services.authz_service.get_user_permissions_for_app",
             return_value=visibles,
         ):
             html = pages_client.get("/adhoc/incidencias", headers=headers).text
-        assert 'href="/adhoc/incidencias"' in html
-        assert 'href="/adhoc/dashboard"' in html
-        # Sin el permiso, la sección no aparece: el menú es fail-closed.
-        assert 'href="/adhoc/programas"' not in html
+        nav = html.split('<nav class="adhoc-nav"')[1].split("</nav>")[0]
+        assert 'href="/adhoc/dashboard"' in nav
+        # Sin el permiso, la tarjeta no aparece: el menú es fail-closed.
+        assert 'href="/adhoc/panel"' not in nav
+        assert 'href="/adhoc/documentos"' not in nav
 
     def test_el_boton_nuevo_depende_del_permiso_de_alta(self, pages_client, headers,
                                                         grant, catalogs):

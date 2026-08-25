@@ -1,65 +1,126 @@
 /* ===========================================================================
    documents/flow-steps.css — /adhoc/documentos/flujos/{flow_id}/pasos.
 
-   El legacy (documents_steps.css) traía `.info-box`, `.child-row`,
-   `.user-list-badge` y otro bloque `.modal-overlay`, más media docena de
-   estilos escritos con style="..." dentro del template. Aquí solo quedan las
-   piezas propias de la pantalla, todas prefijadas y con tokens.
+   Se carga DESPUÉS de documents/documents.css, que ya trae la tarjeta con el
+   título dentro, los iconos de acción y los controles inferiores. Aquí solo
+   quedan las piezas propias de la pantalla, todas prefijadas y con tokens.
+
+   Porte de documents_steps.css: `.info-box`, `.child-row`, `.user-list-badge`
+   y los estilos que el legacy escribía con style="..." dentro del template.
    =========================================================================== */
 
 .adhoc-flow-steps {
   display: block;
 }
 
-/* ── Aviso superior ────────────────────────────────────────────────────── */
-/* Se usa la clase `alert alert-info` de Bootstrap tal cual (nunca se redefine);
-   esto solo ajusta el ritmo vertical dentro de la página. */
+/* ── Aviso superior (legacy `.info-box`) ────────────────────────────────
+   Recuadro azul muy tenue con un filo violeta a la izquierda. */
 .adhoc-steps-hint {
-  margin-bottom: 1rem;
-  font-size: .9rem;
+  margin-bottom: 25px;
+  padding: 15px 20px;
+  background-color: rgb(232 244 253);
+  border-left: 4px solid var(--adhoc-primary);
+  border-radius: 8px;
 }
 
-/* ── Fila de paso ──────────────────────────────────────────────────────── */
+.adhoc-steps-hint-text {
+  margin: 0;
+  color: var(--adhoc-dark);
+  font-size: .95rem;
+  line-height: 1.5;
+}
+
+.adhoc-steps-hint-note {
+  margin: 10px 0 0;
+  color: var(--adhoc-muted);
+  font-size: .85rem;
+  line-height: 1.5;
+}
+
+/* ── Columnas de la tabla (legacy: 50px / auto / 120px / 220px) ─────────── */
+.adhoc-flow-steps .adhoc-table th:first-child,
+.adhoc-flow-steps .adhoc-table td:first-child {
+  width: 50px;
+}
+
+.adhoc-flow-steps .adhoc-table th:nth-child(3),
+.adhoc-flow-steps .adhoc-table td:nth-child(3) {
+  width: 120px;
+}
+
+.adhoc-flow-steps .adhoc-table th:last-child,
+.adhoc-flow-steps .adhoc-table td:last-child {
+  width: 220px;
+}
+
+/* ── Fila de paso ──────────────────────────────────────────────────────
+   Legacy: el número de orden es TEXTO gris en negrita, no una pastilla. */
 .adhoc-step-order {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.9rem;
-  height: 1.9rem;
-  background: var(--adhoc-primary-tint);
-  border-radius: 50%;
-  color: var(--adhoc-primary);
+  color: var(--adhoc-disabled);
+  font-size: 1.1rem;
   font-weight: 700;
+}
+
+/* Legacy `.form-control` de esta pantalla: borde muy claro, 8px de relleno,
+   y el filo violeta al enfocar. Prefijado para no pisar el de adhoc.css. */
+.adhoc-step-input {
+  width: 100%;
+  padding: 8px;
+  color: var(--adhoc-dark);
+  background: var(--adhoc-surface);
+  border: 1px solid var(--adhoc-line);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: .9rem;
+  outline: none;
+}
+
+.adhoc-step-input:focus {
+  border-color: var(--adhoc-primary);
+}
+
+.adhoc-step-input:disabled {
+  background: var(--adhoc-soft);
+  cursor: not-allowed;
 }
 
 .adhoc-step-days {
   max-width: 7rem;
 }
 
+/* Legacy `.icon-action-blue`: separación entre los iconos de la fila. */
+.adhoc-flow-steps .adhoc-icon-action {
+  margin: 0 5px;
+}
+
 /* ── Añadir pasos ──────────────────────────────────────────────────────── */
 .adhoc-steps-add {
   display: inline-flex;
   align-items: center;
-  gap: .5rem;
+  gap: 10px;
 }
 
-/* ── Fila de detalle (validadores del paso) ────────────────────────────── */
+/* ── Fila de detalle (legacy `.child-row`) ──────────────────────────────
+   Fondo casi blanco y filo violeta inyectado con una sombra interior. */
 .adhoc-step-detail[hidden] {
   display: none;
 }
 
 .adhoc-step-detail > td {
+  padding: 15px 25px;
   background: var(--adhoc-soft);
+  border-bottom: 2px solid var(--adhoc-border);
+  box-shadow: inset 4px 0 0 var(--adhoc-primary);
 }
 
 .adhoc-step-detail-box {
-  padding: .35rem .15rem;
+  padding: 0;
 }
 
 .adhoc-step-detail-title {
-  margin-bottom: .5rem;
+  margin-bottom: 5px;
   color: var(--adhoc-primary);
-  font-size: .85rem;
+  font-size: .9rem;
   font-weight: 700;
 }
 
@@ -69,10 +130,11 @@
   font-size: .85rem;
 }
 
+/* Legacy `.user-list-badge`: pastillas azules con borde. */
 .adhoc-step-users {
   display: flex;
   flex-wrap: wrap;
-  gap: .4rem;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -81,17 +143,19 @@
 .adhoc-step-users > li {
   display: inline-flex;
   align-items: center;
-  gap: .4rem;
-  padding: .25rem .6rem;
-  background: var(--adhoc-surface);
-  border: 1px solid var(--adhoc-border);
-  border-radius: 999px;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgb(227 242 253);
+  border: 1px solid rgb(116 185 255);
+  border-radius: 20px;
+  color: var(--adhoc-info);
   font-size: .85rem;
+  font-weight: 700;
 }
 
 .adhoc-step-user-name {
-  color: var(--adhoc-dark);
-  font-weight: 600;
+  color: var(--adhoc-info);
+  font-weight: 700;
 }
 
 /* ── Modal de validadores ──────────────────────────────────────────────── */

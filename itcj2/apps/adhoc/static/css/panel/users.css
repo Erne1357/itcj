@@ -7,12 +7,24 @@
    .adhoc-badge de adhoc.css y las áreas son .adhoc-chip.
    ========================================================================== */
 
+/* Encabezado dentro de la tarjeta, como el saludo del legacy: negrita de
+   verdad y el icono del color del texto. */
+.adhoc-users .adhoc-page-title {
+  font-weight: 700;
+}
+
+.adhoc-users .adhoc-page-title i {
+  font-size: 1rem;
+  color: var(--adhoc-dark);
+}
+
 .adhoc-users-note {
   font-size: .875rem;
 }
 
+/* El legacy pinta las celdas en texto plano: nada de nombres en negrita. */
 .adhoc-users-name {
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .adhoc-users-muted {

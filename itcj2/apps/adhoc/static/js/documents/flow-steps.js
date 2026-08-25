@@ -37,13 +37,13 @@
 
     var TABLE_ID = 'adhoc-steps-table';
     var API = '/approval-flows';
-    var COLUMNS = 5;
+    var COLUMNS = 4;                       //: Orden · Nombre · Días · Acciones
     var MAX_DAYS = 365;
 
     var MODES = {
         validators: {
             title: 'Validadores del paso',
-            icon: 'bi-person-check',
+            icon: 'fa-solid fa-users-gear',
             path: '/validators',
             hint: 'Quién tiene que aprobar el documento en este paso.',
             key: 'assigned',
@@ -51,7 +51,7 @@
         },
         notify: {
             title: 'Avisos de atraso del paso',
-            icon: 'bi-alarm',
+            icon: 'fa-solid fa-user-clock',
             path: '/overdue-notifications',
             hint: 'Quién recibe el aviso si el paso se pasa de sus días límite. ' +
                   'Marcar a alguien que todavía no era validador también lo asigna al paso.',
@@ -68,15 +68,20 @@
         btn.classList.toggle('disabled', !!isBusy);
     }
 
+    /**
+      * Icono de acción de fila. Aspecto del legacy `.icon-action-blue`: icono
+      * pelado, sin recuadro, que crece al pasar el ratón. `icon` es la clase
+      * COMPLETA de Font Awesome.
+      */
     function iconButton(action, icon, label, variant, disabled) {
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'btn btn-sm ' + (variant || 'btn-outline-secondary') + ' adhoc-btn-icon';
+        btn.className = 'adhoc-icon-action' + (variant ? ' ' + variant : '');
         btn.setAttribute('data-adhoc-step-action', action);
         btn.title = label;
         btn.setAttribute('aria-label', label);
         if (disabled) btn.disabled = true;
-        btn.innerHTML = '<i class="bi ' + icon + '"></i>';   // markup estático
+        btn.innerHTML = '<i class="' + icon + '"></i>';   // markup estático
         return btn;
     }
 
@@ -172,7 +177,7 @@
         // — nombre —
         var name = document.createElement('input');
         name.type = 'text';
-        name.className = 'form-control form-control-sm';
+        name.className = 'adhoc-step-input';
         name.maxLength = 100;
         name.value = step.name || '';        // .value, nunca innerHTML
         name.placeholder = 'Nombre del paso';
@@ -184,7 +189,7 @@
         // — días límite —
         var days = document.createElement('input');
         days.type = 'number';
-        days.className = 'form-control form-control-sm adhoc-step-days';
+        days.className = 'adhoc-step-input adhoc-step-days';
         days.min = '1';
         days.max = String(MAX_DAYS);
         days.value = String(step.days_limit || 3);
@@ -193,43 +198,34 @@
         if (!this.canUpdate) days.disabled = true;
         cellWith(tr, days);
 
-        // — validadores —
-        var badge = document.createElement('span');
-        if (saved) {
-            var count = parseInt(step.assignee_count, 10) || 0;
-            badge.className = 'badge adhoc-badge adhoc-badge-' + (count ? 'info' : 'danger');
-            badge.textContent = count ? (count + ' validador(es)') : 'Sin validadores';
-        } else {
-            badge.className = 'badge adhoc-badge adhoc-badge-muted';
-            badge.textContent = 'Sin guardar';
-        }
-        cellWith(tr, badge, 'adhoc-col-center');
-
         // — acciones —
+        // El legacy no tiene columna de validadores: se ven al desplegar la fila
+        // hija con el chevron, y por eso aquí tampoco se pinta.
+
         var actions = document.createElement('div');
         actions.className = 'adhoc-actions';
 
-        if (saved) {
-            actions.appendChild(iconButton('toggle', 'bi-chevron-down',
-                                           'Ver validadores asignados'));
-        }
         if (this.canAssign) {
             actions.appendChild(iconButton(
-                'validators', 'bi-person-check', saved
-                    ? 'Asignar validadores'
+                'validators', 'fa-solid fa-users-gear', saved
+                    ? 'Asignar Validadores'
                     : 'Guarda el diseño para poder asignar validadores',
-                'btn-outline-primary', !saved));
+                null, !saved));
             actions.appendChild(iconButton(
-                'notify', 'bi-alarm', saved
-                    ? 'Configurar avisos de atraso'
+                'notify', 'fa-solid fa-user-clock', saved
+                    ? 'Notificar a Destiempo'
                     : 'Guarda el diseño para poder configurar los avisos',
-                'btn-outline-warning', !saved));
+                'adhoc-icon-warning', !saved));
+        }
+        if (saved) {
+            actions.appendChild(iconButton('toggle', 'fa-solid fa-circle-chevron-down',
+                                           'Ver Validadores Asignados', 'adhoc-icon-muted'));
         }
         if (this.canUpdate) {
-            actions.appendChild(iconButton('remove', 'bi-trash',
-                                           'Quitar este paso del diseño', 'btn-outline-danger'));
+            actions.appendChild(iconButton('remove', 'fa-solid fa-trash',
+                                           'Quitar este paso del diseño', 'adhoc-icon-danger'));
         }
-        cellWith(tr, actions, 'adhoc-col-end');
+        cellWith(tr, actions, 'adhoc-col-center');
 
         return tr;
     };
@@ -324,7 +320,7 @@
 
                 if (notify[String(user.id)]) {
                     var flag = document.createElement('span');
-                    flag.className = 'badge adhoc-badge adhoc-badge-warning';
+                    flag.className = 'adhoc-badge adhoc-badge-warning';
                     flag.textContent = 'Avisar si se atrasa';
                     item.appendChild(flag);
                 }
@@ -447,7 +443,7 @@
         this.currentStepId = stepId;
 
         if (this.modalTitle) {
-            this.modalTitle.innerHTML = '<i class="bi ' + config.icon + ' me-2"></i>'; // estático
+            this.modalTitle.innerHTML = '<i class="' + config.icon + ' me-2"></i>'; // estático
             this.modalTitle.appendChild(document.createTextNode(config.title));
         }
         if (this.modalHint) this.modalHint.textContent = config.hint;

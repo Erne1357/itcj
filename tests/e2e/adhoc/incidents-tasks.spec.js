@@ -71,7 +71,7 @@ async function runWorkflow(page, taskId, accion, comment) {
   await expect(button).toBeVisible();
   await button.click();
 
-  const confirm = page.locator('.modal.show [data-adhoc-role="confirm"]');
+  const confirm = page.locator('.adhoc-modal.is-open [data-adhoc-role="confirm"]');
   await expect(confirm).toBeVisible();
   const done = page.waitForResponse(
     (r) => r.url().includes('/workflow-action') && r.request().method() === 'POST'

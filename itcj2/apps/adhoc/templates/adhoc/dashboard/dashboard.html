@@ -13,12 +13,21 @@
      · las tarjetas no llevan manejadores inline: se abren por delegación desde
        data-adhoc-task.
 
+   PRESENTACIÓN — porte 1:1 del legacy (fase visual):
+     · el saludo es UNA sola línea ("Hola, <nombre>. Estas son tus tareas
+       pendientes:"), no un título con subtítulo;
+     · la tarjeta es la `.kanban-card` original: 320 px fijos, filete violeta
+       arriba (5 px) y a la izquierda (4 px), prioridad a la izquierda y
+       estatus a la derecha, y el bloque de metadatos sobre gris #f8f9fa;
+     · los iconos son Font Awesome 6.4 (`fa-solid` / `fa-regular`), que es lo
+       que carga el shell — los mismos glifos que elegía el original.
+
    Las tarjetas llegan ya resueltas desde pages/dashboard.py::build_card(): el
    template no navega ninguna relación del ORM (el legacy hacía
    tarea.creator.first_name dentro del bucle → un SELECT por tarjeta).
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import page_header, empty_state, priority_badge, status_badge, page_data_script %}
+{% from "adhoc/partials/_macros.html" import priority_badge, status_badge, page_data_script %}
 
 {% block title %}Mis tareas · Calidad · ITCJ{% endblock %}
 
@@ -27,7 +36,13 @@
 {% endblock %}
 
 {% block content %}
-  {{ page_header("Hola, " ~ user_name, "Estas son tus tareas pendientes.", "bi-list-task") }}
+{# `.adhoc-tasks` es la `.tasks-section` del legacy: 98 % centrado con 20 px de
+   aire propio DENTRO del contenedor de 1200 px. De ahí el desplazamiento del
+   tablero respecto a la fila de tarjetas de navegación. #}
+<section class="adhoc-tasks">
+  <div class="adhoc-tasks-head">
+    <h1 class="adhoc-tasks-title">Hola, <span class="adhoc-tasks-name">{{ user_name }}</span>. Estas son tus tareas pendientes:</h1>
+  </div>
 
   {% if cards %}
   {# Tira horizontal con scroll-snap, como el legacy. El overflow vive en este
@@ -40,48 +55,53 @@
              data-adhoc-task="{{ c.id }}"
              data-adhoc-task-status="{{ c.status }}"
              aria-label="Abrir la tarea {{ c.description }}">
+      {# El legacy agrupa cabecera + cuerpo en un <div> y deja el pie abajo del
+         todo con `justify-content: space-between`. Aquí el pie lo baja su
+         propio `margin-top:auto`, que da el mismo resultado sin anidar. #}
       <div class="adhoc-kcard-head">
         {{ priority_badge(c.priority) }}
-        {{ status_badge(c.status, 'task') }}
-        {% if c.is_locked %}<i class="bi bi-lock-fill adhoc-kcard-lock" aria-hidden="true"></i>{% endif %}
+        <span class="adhoc-kcard-state">
+          {{ status_badge(c.status, 'task') }}
+          {% if c.is_locked %}<i class="fa-solid fa-lock adhoc-kcard-lock" aria-hidden="true"></i>{% endif %}
+        </span>
       </div>
 
       <div class="adhoc-kcard-body">
         {% if c.is_review %}
           <p class="adhoc-kcard-kicker">
             {% if c.parent_kind == 'document' %}
-              <i class="bi bi-file-earmark-check" aria-hidden="true"></i> Revisión de documento
+              <i class="fa-solid fa-file-signature" aria-hidden="true"></i> Revisión de documento:
             {% else %}
-              <i class="bi bi-list-check" aria-hidden="true"></i> Validar conclusión y eficacia
+              <i class="fa-solid fa-list-check" aria-hidden="true"></i> Validar conclusión y eficacia de:
             {% endif %}
           </p>
-          <p class="adhoc-kcard-title">
+          <p class="adhoc-kcard-parent">
             {{ c.parent_title or c.description }}{% if c.parent_version %} (v{{ c.parent_version }}){% endif %}
           </p>
           <p class="adhoc-kcard-sub">{{ c.description }}</p>
         {% elif c.is_rejected %}
           <p class="adhoc-kcard-kicker is-danger">
-            <i class="bi bi-exclamation-triangle-fill adhoc-blink" aria-hidden="true"></i> Notificación de rechazo
+            <i class="fa-solid fa-triangle-exclamation adhoc-blink" aria-hidden="true"></i> Notificación de rechazo:
           </p>
-          <p class="adhoc-kcard-title">{{ c.description }}</p>
+          <p class="adhoc-kcard-parent">{{ c.description }}</p>
         {% else %}
           <p class="adhoc-kcard-title">{{ c.description }}</p>
         {% endif %}
 
         {% if c.needs_attention %}
         <p class="adhoc-kcard-flag">
-          <i class="bi bi-exclamation-triangle-fill adhoc-blink" aria-hidden="true"></i> ¡Atención requerida!
+          <i class="fa-solid fa-triangle-exclamation adhoc-blink" aria-hidden="true"></i> ¡Atención requerida!
         </p>
         {% endif %}
       </div>
 
       <footer class="adhoc-kcard-foot">
         <span class="adhoc-kcard-meta">
-          <i class="bi bi-calendar-check" aria-hidden="true"></i>
+          <i class="fa-regular fa-calendar-check adhoc-kcard-ico-date" aria-hidden="true"></i>
           <strong>Límite:</strong> {{ c.due_label }}
         </span>
         <span class="adhoc-kcard-meta">
-          <i class="bi bi-person-badge" aria-hidden="true"></i>
+          <i class="fa-solid fa-user-pen adhoc-kcard-ico-user" aria-hidden="true"></i>
           <strong>Solicitante:</strong> {{ c.creator_name }}
         </span>
         <span class="adhoc-kcard-origin">
@@ -93,10 +113,22 @@
     {% endfor %}
   </div>
   {% else %}
-  <div class="adhoc-card">
-    {{ empty_state("¡Todo al día! No tienes tareas pendientes asignadas en este momento.", "bi-cup-hot") }}
+  {# Recuadro grande con borde discontinuo y taza, igual que el legacy: título
+     y frase en dos líneas, sin tarjeta blanca alrededor.
+
+     El envoltorio es la misma caja flexible que la tira de tarjetas: el legacy
+     mete el estado vacío DENTRO de `.kanban-grid`, y de ahí sale su geometría
+     (los 10 px de margen no se colapsan contra el saludo y el tablero conserva
+     los 20 px de aire inferior). #}
+  <div class="adhoc-tasks-board">
+    <div class="adhoc-empty adhoc-tasks-empty">
+      <i class="fa-solid fa-mug-hot adhoc-empty-icon" aria-hidden="true"></i>
+      <h3 class="adhoc-tasks-empty-title">¡Todo al día!</h3>
+      <p class="adhoc-empty-text">No tienes tareas pendientes asignadas en este momento.</p>
+    </div>
   </div>
   {% endif %}
+</section>
 {% endblock %}
 
 
@@ -104,16 +136,17 @@
 {# Modal de workflow. Todo su contenido dinámico lo pinta dashboard.js con
    AdhocUtils.escapeHtml(): aquí solo va el esqueleto y los textos de carga.
    El legacy volcaba ${c.texto} y ${c.usuario} a innerHTML sin escapar — el XSS
-   almacenado más grave de la app (dashboard.html:395). #}
+   almacenado más grave de la app (dashboard.html:395).
+   `modal-lg` = 850 px, el ancho exacto de `.modal-wf-content` del original. #}
 <div class="modal fade" id="adhoc-wf-modal" tabindex="-1"
      aria-labelledby="adhoc-wf-modal-title" aria-hidden="true"
      data-adhoc-wf-modal>
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
 
       <div class="modal-header">
-        <h5 class="modal-title" id="adhoc-wf-modal-title">
-          <i class="bi bi-list-check me-2" aria-hidden="true"></i>Gestión y validación de tarea
+        <h5 class="modal-title adhoc-wf-modal-title" id="adhoc-wf-modal-title">
+          <i class="fa-solid fa-list-check me-2" aria-hidden="true"></i>Gestión y Validación de Tarea
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
@@ -124,16 +157,16 @@
         <button type="button" class="adhoc-wf-banner" data-adhoc-wf-parent-toggle
                 aria-expanded="false" aria-controls="adhoc-wf-parent">
           <span>
-            <i class="bi bi-diagram-3 me-2" aria-hidden="true"></i>
-            Tarea perteneciente a: <span id="adhoc-wf-parent-type">Cargando…</span>
+            <i class="fa-solid fa-sitemap me-2" aria-hidden="true"></i>
+            Tarea perteneciente a: <span id="adhoc-wf-parent-type">Cargando...</span>
           </span>
-          <i class="bi bi-chevron-down" id="adhoc-wf-parent-icon" aria-hidden="true"></i>
+          <i class="fa-solid fa-chevron-down" id="adhoc-wf-parent-icon" aria-hidden="true"></i>
         </button>
         <div class="adhoc-wf-parent d-none" id="adhoc-wf-parent"></div>
 
         {# — La tarea — #}
         <section class="adhoc-wf-task">
-          <h6 class="adhoc-wf-task-title" id="adhoc-wf-title">Cargando tarea…</h6>
+          <h6 class="adhoc-wf-task-title" id="adhoc-wf-title">Cargando Tarea...</h6>
 
           <dl class="adhoc-wf-grid">
             <div class="adhoc-wf-cell">
@@ -141,11 +174,11 @@
               <dd class="adhoc-wf-value" id="adhoc-wf-assignees">…</dd>
             </div>
             <div class="adhoc-wf-cell">
-              <dt class="adhoc-wf-label">Fecha de inicio</dt>
+              <dt class="adhoc-wf-label">Fecha Inicio</dt>
               <dd class="adhoc-wf-value" id="adhoc-wf-start">…</dd>
             </div>
             <div class="adhoc-wf-cell">
-              <dt class="adhoc-wf-label">Fecha compromiso</dt>
+              <dt class="adhoc-wf-label">Fecha Compromiso</dt>
               <dd class="adhoc-wf-value" id="adhoc-wf-due">…</dd>
             </div>
             <div class="adhoc-wf-cell">
@@ -162,26 +195,26 @@
         {# — Comentarios — #}
         <section class="adhoc-wf-comments">
           <div class="adhoc-wf-comments-head">
-            <h6 class="mb-0">
-              <i class="bi bi-chat-left-text me-2" aria-hidden="true"></i>Historial de comentarios
+            <h6 class="adhoc-wf-comments-title">
+              <i class="fa-regular fa-comments me-2" aria-hidden="true"></i>Historial de Comentarios
             </h6>
             {% if page_data.can_comment %}
             <button type="button" class="btn btn-sm btn-primary" data-adhoc-wf-comment-new>
-              <i class="bi bi-chat-left-dots" aria-hidden="true"></i>
-              <span class="d-none d-sm-inline">Agregar comentario</span>
+              <i class="fa-solid fa-comment-medical" aria-hidden="true"></i>
+              <span class="d-none d-sm-inline">Agregar Comentario</span>
             </button>
             {% endif %}
           </div>
 
           {% if page_data.can_comment %}
           <div class="adhoc-wf-comment-form d-none" id="adhoc-wf-comment-form">
-            <label class="form-label adhoc-label" for="adhoc-wf-comment-text">Comentario o justificación</label>
+            <label class="visually-hidden" for="adhoc-wf-comment-text">Comentario o justificación</label>
             <textarea class="form-control" id="adhoc-wf-comment-text" rows="3"
                       placeholder="Escribe tu comentario o justificación aquí…"></textarea>
             <div class="adhoc-wf-comment-actions">
               <input type="file" class="form-control form-control-sm adhoc-wf-comment-file" id="adhoc-wf-comment-file">
               <button type="button" class="btn btn-sm btn-primary" data-adhoc-wf-comment-save>
-                <i class="bi bi-floppy" aria-hidden="true"></i> Guardar comentario
+                <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Guardar Comentario
               </button>
             </div>
           </div>
@@ -193,11 +226,11 @@
                 <tr>
                   <th scope="col" class="adhoc-col-start">Fecha</th>
                   <th scope="col" class="adhoc-col-start">Comentario</th>
-                  <th scope="col" class="adhoc-col-center">Adjunto</th>
+                  <th scope="col" class="adhoc-col-center">Adjuntos</th>
                 </tr>
               </thead>
               <tbody id="adhoc-wf-comments">
-                <tr><td colspan="3" class="adhoc-wf-muted">Consultando historial…</td></tr>
+                <tr><td colspan="3" class="adhoc-wf-muted">Consultando historial...</td></tr>
               </tbody>
             </table>
           </div>
@@ -209,13 +242,13 @@
         {% if page_data.can_workflow %}
         <div class="adhoc-wf-actions">
           <button type="button" class="btn btn-success d-none" data-adhoc-wf-action="terminar">
-            <i class="bi bi-check-circle" aria-hidden="true"></i> ¡Terminé esta tarea!
+            <i class="fa-solid fa-circle-check" aria-hidden="true"></i> ¡Terminé esta tarea!
           </button>
           <button type="button" class="btn btn-danger d-none" data-adhoc-wf-action="rechazar">
-            <i class="bi bi-x-lg" aria-hidden="true"></i> Rechazar
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i> Rechazar
           </button>
           <button type="button" class="btn btn-primary d-none" data-adhoc-wf-action="aprobar">
-            <i class="bi bi-hand-thumbs-up" aria-hidden="true"></i> Aprobar y validar
+            <i class="fa-solid fa-thumbs-up" aria-hidden="true"></i> Aprobar y Validar
           </button>
         </div>
         {% endif %}

@@ -133,7 +133,7 @@ test('borrado con el modal de confirmación (cancelar no borra, confirmar sí)',
 
   // — cancelar —
   await row.locator('[data-adhoc-action="delete"]').click();
-  let dialog = page.locator('.modal.show').filter({
+  let dialog = page.locator('.adhoc-modal.is-open').filter({
     has: page.locator('[data-adhoc-role="confirm"]'),
   });
   await expect(dialog).toBeVisible();
@@ -145,7 +145,7 @@ test('borrado con el modal de confirmación (cancelar no borra, confirmar sí)',
 
   // — confirmar —
   await rowByName(page, NAMES[1]).locator('[data-adhoc-action="delete"]').click();
-  dialog = page.locator('.modal.show').filter({
+  dialog = page.locator('.adhoc-modal.is-open').filter({
     has: page.locator('[data-adhoc-role="confirm"]'),
   });
   await expect(dialog).toBeVisible();

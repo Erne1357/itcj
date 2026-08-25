@@ -4,9 +4,15 @@
    Permiso: adhoc.indicators.page.list
    Legacy: app_prueba/indicators/indicators_years.html
 
-   Cambios respecto del legacy:
-     · Cero atributos de estilo en línea (el legacy tenía 11 en 60 líneas) y cero
-       HTML crudo en JS.
+   ASPECTO: porte de indicators_year.css — una sola tarjeta blanca de 30px con
+   el título ("Tablero de Indicadores"), la línea de ayuda con el icono de
+   información, el botón gris de volver arriba a la derecha, la fila
+   Limpiar/Filtrar, la tabla y los controles inferiores (alta + cuántos años).
+   Iconos Font Awesome 6.4, como el original.
+
+   Cambios de fondo respecto del legacy (se conservan de la migración):
+     · Cero atributos de estilo en línea (el legacy tenía 11 en 60 líneas) y
+       cero HTML crudo en JS.
      · El modal deja de ser un .modal-overlay con display:flex y pasa a
        bootstrap.Modal, dentro de {% block modals %} a nivel <body>.
      · El borrado ya no construye un <form> sintético y hace submit(): va por
@@ -15,11 +21,15 @@
        se le hace .replace('/0','/') dentro de un string JS, ni ramifica con un
        condicional de Jinja en medio de esa cadena: viaja como
        target_base/target_suffix en el bloque page_data.
+     · La columna "Indicadores" es nueva: el conteo ya viene de la misma
+       consulta que la lista, así que enseñarlo no cuesta una query extra.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import back_button, page_header, data_table, page_data_script %}
+{% from "adhoc/partials/_macros.html" import back_button, data_table, page_data_script %}
 
 {% block title %}Indicadores · Calidad · ITCJ{% endblock %}
+
+{% block body_class %}adhoc-wide{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/indicators/years.css?v={{ sv('css/indicators/years.css') }}">
@@ -27,40 +37,62 @@
 
 {% block content %}
 <section class="adhoc-indicator-years" data-adhoc-indicator-years>
-  {% call page_header(
-       "Tablero de Indicadores",
-       "Seleccione el año de seguimiento o registre uno nuevo.",
-       "bi-graph-up-arrow") %}
-    {{ back_button("/adhoc/panel", "Volver al Panel") }}
-    {% if can_create %}
-    <button type="button" class="btn btn-sm btn-primary" data-adhoc-years-new>
-      <i class="bi bi-plus-lg"></i>
-      <span class="d-none d-sm-inline">Añadir año(s)</span>
-    </button>
-    {% endif %}
-  {% endcall %}
+  <div class="adhoc-card adhoc-years-card">
 
-  <p class="adhoc-years-mode">
-    <i class="bi bi-info-circle"></i>
-    {% if mode == 'tracking' %}
-      Modo <strong>seguimiento</strong>: al abrir un año se muestra la rejilla de captura por colores.
-      <a class="adhoc-years-mode-swap" href="/adhoc/indicadores?mode=config">Ir a configuración</a>
-    {% else %}
-      Modo <strong>configuración</strong>: al abrir un año se editan las fichas de indicador.
-      <a class="adhoc-years-mode-swap" href="/adhoc/indicadores?mode=tracking">Ir a seguimiento</a>
-    {% endif %}
-  </p>
+    <div class="adhoc-page-head">
+      <div class="adhoc-page-head-main">
+        <h1 class="adhoc-page-title">
+          <i class="fa-solid fa-chart-line"></i>
+          <span>Tablero de Indicadores</span>
+        </h1>
+      </div>
+      <div class="adhoc-page-actions">
+        {{ back_button("/adhoc/panel", "Volver al Panel") }}
+      </div>
+    </div>
 
-  <div class="adhoc-card">
+    <p class="adhoc-years-hint">
+      <i class="fa-solid fa-circle-info"></i>
+      Seleccione el año de seguimiento o registre uno nuevo.
+      {% if mode == 'tracking' %}
+      <a class="adhoc-years-mode-swap" href="/adhoc/indicadores?mode=config"
+         title="Ahora cada año abre la rejilla de captura por colores">Ir a configuración</a>
+      {% else %}
+      <a class="adhoc-years-mode-swap" href="/adhoc/indicadores?mode=tracking"
+         title="Ahora cada año abre las fichas de indicador">Ir a seguimiento</a>
+      {% endif %}
+    </p>
+
+    <div class="adhoc-toolbar adhoc-toolbar-end adhoc-years-controls">
+      <button type="button" class="btn adhoc-btn-clear"
+              data-adhoc-filter-clear="adhoc-indicator-years">Limpiar</button>
+      <button type="button" class="btn adhoc-btn-filter" data-adhoc-years-filter>Filtrar</button>
+    </div>
+
     {{ data_table(
          'adhoc-indicator-years',
          [
-           {'key': 'year', 'label': 'Año de seguimiento', 'filter': true, 'placeholder': 'Buscar año...'},
-           {'key': 'indicators_count', 'label': 'Indicadores', 'align': 'center'},
-           {'key': 'actions', 'label': 'Acciones', 'align': 'end'}
+           {'key': 'year', 'label': 'Año de Seguimiento', 'filter': true, 'placeholder': 'Buscar año...'},
+           {'key': 'indicators_count', 'label': 'Indicadores', 'align': 'center', 'css': 'adhoc-years-col-count'},
+           {'key': 'actions', 'label': 'Acciones', 'align': 'center', 'css': 'adhoc-years-col-actions'}
          ],
          'No hay años registrados.',
-         'bi-calendar3') }}
+         'fa-solid fa-calendar-days') }}
+
+    {% if can_create %}
+    <div class="adhoc-bottom-controls">
+      <button type="button" class="btn adhoc-btn-add" data-adhoc-years-new>
+        <i class="fa-solid fa-plus"></i> Añadir Nuevo(s)
+      </button>
+      <select class="adhoc-qty-select adhoc-years-qty" data-adhoc-years-qty
+              aria-label="Cuántos años capturar">
+        <option value="1">1 Año</option>
+        <option value="3">3 Años</option>
+        <option value="5">5 Años</option>
+        <option value="10">10 Años</option>
+      </select>
+    </div>
+    {% endif %}
   </div>
 </section>
 {% endblock %}
@@ -68,27 +100,21 @@
 {% block modals %}
 <div class="modal fade" id="adhoc-years-modal" tabindex="-1"
      aria-labelledby="adhoc-years-modal-title" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="adhoc-years-modal-title">
-          <i class="bi bi-calendar-plus me-2"></i>Alta de tablero
+        <h5 class="modal-title adhoc-years-modal-title" id="adhoc-years-modal-title">
+          <i class="fa-regular fa-calendar me-2"></i>Alta de Tablero
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
-        <div class="adhoc-catalog-count">
-          <label class="form-label adhoc-label" for="adhoc-years-qty">Cuántos años capturar</label>
-          <select class="form-select adhoc-qty-select" id="adhoc-years-qty" data-adhoc-years-qty>
-            {% for n in [1, 3, 5, 10] %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
-          </select>
-        </div>
         <div class="adhoc-form-grid" data-adhoc-years-fields></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" class="btn btn-primary" data-adhoc-years-save>
-          <i class="bi bi-floppy"></i> Guardar
+          <i class="fa-solid fa-floppy-disk"></i> Aceptar
         </button>
       </div>
     </div>

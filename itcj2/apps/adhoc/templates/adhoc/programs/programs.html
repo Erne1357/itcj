@@ -22,8 +22,8 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="adhoc-files-modal-title">
-          <i class="bi bi-folder2-open me-2"></i>
-          <span data-adhoc-files-title>Archivos del evento</span>
+          <i class="fa-regular fa-folder-open me-2"></i>
+          <span data-adhoc-files-title>Archivos del Programa</span>
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
@@ -33,16 +33,16 @@
         {% if page_data.can.files_create %}
         <div class="adhoc-files-upload">
           <label class="form-label adhoc-label" for="adhoc-files-input">Adjuntar archivos</label>
-          <input type="file" class="form-control form-control-sm" id="adhoc-files-input"
+          <input type="file" class="form-control" id="adhoc-files-input"
                  data-adhoc-files-input multiple>
-          <button type="button" class="btn btn-sm btn-primary" data-adhoc-files-upload>
-            <i class="bi bi-upload"></i> Subir
+          <button type="button" class="btn btn-sm adhoc-btn-filter" data-adhoc-files-upload>
+            <i class="fa-solid fa-upload"></i> Subir
           </button>
         </div>
         {% endif %}
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn adhoc-btn-clear" data-bs-dismiss="modal">Cerrar</button>
       </div>
     </div>
   </div>

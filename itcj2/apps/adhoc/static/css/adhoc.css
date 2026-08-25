@@ -1,22 +1,39 @@
 /* ===========================================================================
-   adhoc.css — capa de diseño de Calidad. Se carga DESPUÉS de Bootstrap 5.3.
+   adhoc.css — capa de diseño de Calidad. PORTADA DEL LEGACY (app_prueba).
 
-   REGLA 1 (colisiones): prohibido redefinir .form-control, .form-group,
-   .form-row, .card, .badge-… , .alert-… y .bg-… — son de Bootstrap 5.3 y
-   pisarlas rompe media UI. Todo lo propio va prefijado .adhoc-… .
+   Esta hoja es AUTOSUFICIENTE: la app ya NO carga Bootstrap. El shell, los
+   componentes comunes y la corta lista de clases utilitarias que las 24
+   plantillas heredaron de Bootstrap se definen aquí, con los valores exactos
+   de las 28 hojas de `template/itcj/apps/app_prueba/static/css/`.
 
-   REGLA 2 (gotcha real de este repo): NUNCA escribas la secuencia de cierre de
+   Orden del archivo
+     1. Tokens              (los del legacy, con nombre propio + alias legacy)
+     2. Reset y base        (el reset del legacy + Poppins)
+     3. Shell               (overlay de salida, cabecera, contenedor, tarjetas de nav)
+     4. Página              (encabezado, tarjeta contenedora, estado vacío)
+     5. Tablas              (cabecera, fila de filtros, fila interactiva)
+     6. Badges              (prioridad = pastilla suave; estatus = texto de color)
+     7. Botones             (.btn… y los alias del legacy)
+     8. Formularios         (.form-control, .form-select, .form-check…)
+     9. Modales             (overlay del legacy; .adhoc-modal… y alias .modal…)
+    10. Toasts
+    11. Alertas
+    12. Componentes propios (selector de usuarios, tiles del panel, swatch)
+    13. Utilidades          (el subconjunto de d-…/gap-…/m-… que usan las páginas)
+    14. Impresión y motion
+
+   REGLA (gotcha real de este repo): NUNCA escribas la secuencia de cierre de
    comentario pegada a un token dentro de un comentario CSS. Un comentario que
-   diga "los tokens --adhoc-" seguido de asterisco y barra CIERRA el comentario
-   ahí mismo, y el bloque :root siguiente se queda sin parsear: todas las
-   variables quedan indefinidas y los colores se pintan en blanco. Si necesitas
-   citar un patrón con comodín, escribe "--adhoc-…" con puntos suspensivos.
+   diga "las clases --adhoc-" seguido de asterisco y barra CIERRA el comentario
+   ahí mismo y el bloque siguiente se queda sin parsear. Cita los comodines con
+   puntos suspensivos, como arriba.
    =========================================================================== */
 
+/* ── 1. Tokens ─────────────────────────────────────────────────────────── */
 :root {
-  /* Marca (violeta del legacy) */
+  /* Marca (violeta del legacy: layout_dashboard.css) */
   --adhoc-primary: #4834d4;
-  --adhoc-primary-hover: #3a29a8;
+  --adhoc-primary-hover: #301bcc;
   --adhoc-secondary: #686de0;
 
   /* Superficies */
@@ -29,6 +46,9 @@
   /* Forma */
   --adhoc-radius: 12px;
   --adhoc-shadow: 0 10px 20px rgba(0, 0, 0, .05), 0 6px 6px rgba(0, 0, 0, .07);
+  --adhoc-shadow-card: 0 10px 20px rgba(0, 0, 0, .05);
+  --adhoc-shadow-hover: 0 15px 30px rgba(0, 0, 0, .1);
+  --adhoc-shadow-modal: 0 15px 30px rgba(0, 0, 0, .2);
 
   /* Semánticos */
   --adhoc-success: #27ae60;
@@ -42,246 +62,449 @@
   --adhoc-state-yellow: #f39c12;
   --adhoc-state-green: #27ae60;
 
-  /* Superficies secundarias — tokenizan los hex más repetidos del legacy:
-     #f8f9fa (28 usos), #f1f4ff / #f0f3ff (hover de fila), #b2bec3 (deshabilitado). */
+  /* Superficies secundarias — los hex más repetidos del legacy:
+     #f8f9fa (cabecera de tabla), #f0f3ff / #f1f4ff (hover de fila),
+     #ecf0f3 (línea de tabla), #b2bec3 (deshabilitado). */
   --adhoc-soft: #f8f9fa;
   --adhoc-hover: #f1f4ff;
+  --adhoc-line: #ecf0f3;
   --adhoc-disabled: #b2bec3;
-  --adhoc-primary-tint: rgba(72, 52, 212, .08);
+  --adhoc-primary-tint: #4834d420;
 
   /* Métricas compartidas de tabla. La altura de la cabecera la necesita la fila
      de filtros para su `top` cuando la tabla es de cabecera fija. */
-  --adhoc-th-height: 2.6rem;
+  --adhoc-th-height: 3rem;
   --adhoc-table-max-height: 70vh;
+
+  /* Alias con los nombres del legacy: permiten pegar reglas de las 28 hojas
+     originales sin reescribir cada var(). */
+  --color-fondo: var(--adhoc-bg);
+  --color-oscuro: var(--adhoc-dark);
+  --color-blanco: var(--adhoc-surface);
+  --color-primario: var(--adhoc-primary);
+  --color-secundario: var(--adhoc-secondary);
+  --sombra-suave: var(--adhoc-shadow);
+  --borde-radio: var(--adhoc-radius);
 }
 
-/* ── Shell ─────────────────────────────────────────────────────────────── */
-.adhoc-shell {
-  background: var(--adhoc-bg);
+/* ── 2. Reset y base ───────────────────────────────────────────────────── */
+/* El legacy abre con el reset de tres líneas de layout_dashboard.css. Sin
+   Bootstrap hay que traerlo tal cual o toda la app se desplaza. */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* El legacy declara SOLO font-family, background y padding-bottom. En concreto
+   NO declara line-height, asi que hereda `normal` — que en Poppins es ~1.53, no
+   1.5. Ese 0.03 parecia inocuo y no lo era: multiplicado por cada linea de cada
+   tabla y cada tarjeta, desplazaba el alto de casi todas las pantallas (los
+   `line-height: normal` sueltos de reports.css y dashboard.css eran parches
+   locales a este mismo problema). Se declara `normal` explicito para que el
+   valor quede a la vista y nadie lo vuelva a "redondear" a 1.5.
+   La pila de fuentes tambien es la del legacy tal cual: sin 'Segoe UI' ni
+   system-ui, para que el fallback (si Poppins no carga) sea el mismo. */
+body.adhoc-shell {
+  font-family: 'Poppins', sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: normal;
+  background-color: var(--adhoc-bg);
   color: var(--adhoc-dark);
-  min-height: 100vh;
+  padding-bottom: 40px;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ── App bar ───────────────────────────────────────────────────────────── */
+/* Todo lo que sigue va con :where() para que su especificidad sea CERO: son
+   valores por defecto, y cualquier clase (.adhoc-tile-title, .adhoc-back…) debe
+   ganarles sin tener que subir el selector. Sin esto, `.adhoc-shell h2` (0,1,1)
+   pisaría a `.adhoc-tile-title` (0,1,0) y el título de una tarjeta saldría con
+   el tamaño del encabezado. */
+:where(.adhoc-shell) :where(img, svg) {
+  max-width: 100%;
+}
+
+:where(.adhoc-shell) :where(a) {
+  color: var(--adhoc-primary);
+}
+
+:where(.adhoc-shell) :where(button, input, select, textarea) {
+  font-family: inherit;
+}
+
+:where(.adhoc-shell) :where(ul, ol) {
+  list-style: none;
+}
+
+:where(.adhoc-shell) :where(table) {
+  border-collapse: collapse;
+}
+
+:where(.adhoc-shell) :where(h1) { font-size: 2rem; font-weight: 600; }
+:where(.adhoc-shell) :where(h2) { font-size: 1.5rem; font-weight: 600; }
+:where(.adhoc-shell) :where(h3) { font-size: 1.17rem; font-weight: 600; }
+:where(.adhoc-shell) :where(h4) { font-size: 1rem; font-weight: 600; }
+
+.adhoc-shell [hidden] {
+  display: none !important;
+}
+
+/* ── 3. Shell ──────────────────────────────────────────────────────────── */
+
+/* 3.1 Overlay de "cerrando sesión" (los dos engranes del legacy). */
+.adhoc-loading-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(255, 255, 255, .9);
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+}
+
+.adhoc-loading-overlay.is-visible {
+  display: flex;
+}
+
+.adhoc-gears {
+  position: relative;
+  width: 80px;
+  height: 80px;
+}
+
+.adhoc-gear {
+  position: absolute;
+  color: var(--adhoc-primary);
+  animation: adhoc-rotate 2s linear infinite;
+}
+
+.adhoc-gear-1 { font-size: 3rem; top: 0; left: 0; }
+
+.adhoc-gear-2 {
+  font-size: 2rem;
+  top: 35px;
+  left: 40px;
+  color: var(--adhoc-secondary);
+  animation-direction: reverse;
+}
+
+@keyframes adhoc-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.adhoc-loading-text {
+  margin-top: 20px;
+  font-weight: 600;
+  color: var(--adhoc-dark);
+  letter-spacing: 1px;
+}
+
+/* 3.2 Cabecera (legacy `.header-top`). Conserva el nombre de clase
+   `.adhoc-appbar` porque hay tests de varias secciones que lo asertan. */
 .adhoc-appbar {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: .75rem;
-  position: sticky;
-  top: 0;
-  z-index: 1030;
-  padding: calc(env(safe-area-inset-top, 0px) + .5rem) 1rem .5rem;
-  background: linear-gradient(135deg, var(--adhoc-primary) 0%, var(--adhoc-primary-hover) 100%);
-  color: #fff;
-  box-shadow: 0 2px 12px rgba(45, 52, 54, .22);
+  gap: 10px;
+  padding: 15px 30px;
+  background: var(--adhoc-surface);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .05);
+  margin-bottom: 30px;
 }
 
-.adhoc-appbar-title {
+.adhoc-btn-header {
   display: flex;
   align-items: center;
+  gap: 8px;
+  padding: 8px 15px;
+  border: none;
+  border-radius: var(--adhoc-radius);
+  color: var(--adhoc-dark);
   font-size: 1rem;
   font-weight: 600;
-  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: .3s;
 }
 
-/* El botón "volver al inicio" lo estiliza core/css/apps/mobile-app-shell.css
-   (círculo translúcido) y solo se muestra dentro del iframe del dashboard. */
+.adhoc-btn-salir {
+  color: #d63031;
+  background-color: #fab1a040;
+}
+
+.adhoc-btn-ayuda {
+  color: var(--adhoc-primary);
+  background-color: #4834d420;
+}
+
+.adhoc-btn-header:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--adhoc-shadow);
+}
+
+/* El botón "volver al inicio" del shell móvil del core viene pensado para una
+   appbar de color; sobre la cabecera blanca del legacy hay que recolorearlo. */
 .adhoc-appbar .mobile-back-to-dashboard {
   flex: 0 0 auto;
+  color: var(--adhoc-primary);
+  background: #4834d420;
 }
 
-/* ── Navegación ────────────────────────────────────────────────────────── */
+.adhoc-appbar .mobile-back-to-dashboard:hover {
+  background: #4834d433;
+}
+
+/* 3.3 Contenedor central (legacy `.main-container`).
+   Varias pantallas del legacy lo ensanchan (98% / 95%): eso se pide con una
+   clase en el <body> desde {% block body_class %}, nunca con style="…". */
+.adhoc-main-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.adhoc-wide .adhoc-main-container {
+  max-width: 98%;
+  padding: 0 20px;
+}
+
+.adhoc-wider .adhoc-main-container {
+  max-width: 95%;
+  padding: 0 40px;
+}
+
+/* 3.4 Fila de tarjetas de navegación (legacy `.cards-grid` + `.card`).
+   El markup lo pinta partials/_nav.html a partir de pages/nav.py. */
 .adhoc-nav {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.adhoc-nav::-webkit-scrollbar {
-  display: none;
+  display: block;
 }
 
 .adhoc-nav-list {
   display: flex;
-  align-items: center;
-  gap: .25rem;
-  margin: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20px;
+  margin-bottom: 40px;
   padding: 0;
   list-style: none;
 }
 
+.adhoc-nav-item {
+  display: flex;
+  flex: 1 1 200px;
+  max-width: 280px;
+}
+
 .adhoc-nav-link {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: .4rem;
-  padding: .35rem .7rem;
-  border-radius: 999px;
-  font-size: .875rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, .82);
+  gap: 20px;
+  width: 100%;
+  padding: 20px 25px;
+  color: var(--adhoc-dark);
   text-decoration: none;
-  white-space: nowrap;
-  transition: background .12s ease, color .12s ease;
+  background: var(--adhoc-surface);
+  border-radius: var(--adhoc-radius);
+  border-left: 5px solid var(--adhoc-primary);
+  box-shadow: var(--adhoc-shadow);
+  cursor: pointer;
+  transition: transform .3s ease, box-shadow .3s ease;
 }
 
 .adhoc-nav-link:hover,
 .adhoc-nav-link:focus-visible {
-  background: rgba(255, 255, 255, .14);
-  color: #fff;
+  color: var(--adhoc-dark);
+  transform: translateY(-5px);
+  box-shadow: var(--adhoc-shadow-hover);
 }
 
-.adhoc-nav-link.is-active {
-  background: rgba(255, 255, 255, .22);
-  color: #fff;
+.adhoc-nav-icon {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 55px;
+  height: 55px;
+  min-width: 55px;
+  font-size: 2rem;
+  color: var(--adhoc-primary);
+  background-color: #4834d420;
+  border-radius: 50%;
+}
+
+.adhoc-nav-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 @media (max-width: 575.98px) {
-  .adhoc-nav-label {
-    display: none;
-  }
-
-  .adhoc-nav-link {
-    padding: .35rem .55rem;
-    font-size: 1rem;
-  }
+  .adhoc-appbar { padding: 12px 15px; }
+  .adhoc-main-container { padding: 0 12px; }
+  .adhoc-nav-list { gap: 12px; margin-bottom: 24px; }
+  .adhoc-nav-link { padding: 14px 16px; gap: 14px; }
+  .adhoc-nav-icon { width: 44px; height: 44px; min-width: 44px; font-size: 1.5rem; }
+  .adhoc-nav-label { font-size: 1rem; }
 }
 
-/* ── Página ────────────────────────────────────────────────────────────── */
+/* ── 4. Página ─────────────────────────────────────────────────────────── */
 /* `min-width:0` es lo que impide que una tabla ancha estire el <main> y saque
-   la barra de scroll horizontal al <body>: el desbordamiento tiene que quedarse
-   dentro de .adhoc-table-wrap, que tiene su propio scroll. */
+   la barra de scroll horizontal al <body>: el desbordamiento se queda dentro
+   de .adhoc-table-wrap, que tiene su propio scroll. */
 .adhoc-page {
   display: block;
   min-width: 0;
   max-width: 100%;
-  padding: 1rem .75rem 2.5rem;
 }
 
-@media (min-width: 768px) {
-  .adhoc-page {
-    padding: 1.25rem 1.25rem 3rem;
-  }
+/* Encabezado de página (legacy `.section-title` / `.header-title`): icono +
+   título grande, y a la derecha los botones de acción de la pantalla. */
+.adhoc-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 25px;
+}
+
+.adhoc-page-head-main {
+  min-width: 0;
 }
 
 .adhoc-page-title {
-  color: var(--adhoc-dark);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.5rem;
   font-weight: 600;
+  color: var(--adhoc-dark);
+}
+
+.adhoc-page-title i {
+  font-size: 1.35rem;
+  color: var(--adhoc-primary);
 }
 
 .adhoc-page-subtitle {
+  margin-top: 2px;
   color: var(--adhoc-muted);
-  font-size: .875rem;
+  font-size: .9rem;
+  font-weight: 300;
 }
 
-/* ── Tarjeta ───────────────────────────────────────────────────────────── */
+.adhoc-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── Encabezado APILADO (icono en su propia linea, titulo debajo) ─────────
+   El legacy no tiene UN encabezado de pagina, tiene dos. En reports.css y en
+   control_panel.css el contenedor del icono+titulo es flex (`.header-title`,
+   `.section-title`) y sale en una sola linea. Pero en processes.css,
+   areas_conf.css, advanced_config.css e indicators_tracking.css ese contenedor
+   NO tiene ninguna regla: el <i> queda inline, el <h2> es un bloque, y el
+   navegador los parte en dos lineas. No es un descuido puntual — son cuatro
+   hojas distintas y son cuatro pantallas de las 24, asi que es lo que el
+   usuario ve al comparar. Aqui se reproduce solo en esas cuatro.
+
+   Se aplica por ancestro (no por una clase nueva en el markup) para no tocar
+   plantillas que los tests recorren. Para volver al encabezado en una sola
+   linea en todas partes, basta con borrar este bloque entero. */
+.adhoc-config-page .adhoc-page-head,
+.adhoc-color-catalog .adhoc-page-head,
+.adhoc-tracking-topbar .adhoc-page-head {
+  align-items: flex-start;
+}
+
+.adhoc-config-page .adhoc-page-title,
+.adhoc-color-catalog .adhoc-page-title,
+.adhoc-tracking-topbar .adhoc-page-title {
+  display: block;
+}
+
+.adhoc-config-page .adhoc-page-title > i,
+.adhoc-color-catalog .adhoc-page-title > i,
+.adhoc-tracking-topbar .adhoc-page-title > i {
+  display: block;
+}
+
+/* Tarjeta contenedora (legacy `.table-container`). */
 .adhoc-card {
+  position: relative;
   background: var(--adhoc-surface);
-  border: 1px solid var(--adhoc-border);
+  padding: 25px;
   border-radius: var(--adhoc-radius);
-  box-shadow: var(--adhoc-shadow);
-  padding: 1rem;
+  box-shadow: var(--adhoc-shadow-card);
 }
 
-/* ── Estado vacío ──────────────────────────────────────────────────────── */
+.adhoc-card + .adhoc-card {
+  margin-top: 25px;
+}
+
+/* Estado vacío (legacy `.empty-state`). */
 .adhoc-empty {
-  padding: 2.5rem 1rem;
-  color: var(--adhoc-muted);
+  padding: 50px 20px;
+  text-align: center;
+  color: var(--adhoc-disabled);
+  background: var(--adhoc-surface);
+  border: 2px dashed var(--adhoc-border);
+  border-radius: var(--adhoc-radius);
 }
 
 .adhoc-empty-icon {
   display: block;
-  margin-bottom: .5rem;
-  font-size: 2.25rem;
-  opacity: .55;
+  margin-bottom: 15px;
+  font-size: 3rem;
+  color: var(--adhoc-border);
 }
 
 .adhoc-empty-text {
-  font-size: .9375rem;
+  color: var(--adhoc-muted);
+  font-size: .95rem;
 }
 
-/* ── Badges ────────────────────────────────────────────────────────────── */
-/* Se apoyan en .badge de Bootstrap y solo aportan color. El tono lo elige la
-   macro Jinja status_badge() del partial _macros.html. */
-.adhoc-badge {
-  font-weight: 600;
-  letter-spacing: .01em;
+/* Dentro de una tabla el estado vacío no lleva su propio recuadro: ya está
+   dentro de la tarjeta. */
+.adhoc-table-empty .adhoc-empty {
+  border: 0;
+  padding: 40px 20px;
 }
 
-.adhoc-badge-neutral {
-  background: var(--adhoc-border);
-  color: var(--adhoc-dark);
-}
-
-.adhoc-badge-muted {
-  background: var(--adhoc-muted);
-  color: #fff;
-}
-
-.adhoc-badge-info {
-  background: var(--adhoc-info);
-  color: #fff;
-}
-
-.adhoc-badge-success {
-  background: var(--adhoc-success);
-  color: #fff;
-}
-
-.adhoc-badge-warning {
-  background: var(--adhoc-warning);
-  color: #fff;
-}
-
-.adhoc-badge-danger {
-  background: var(--adhoc-danger);
-  color: #fff;
-}
-
-.adhoc-badge-primary {
-  background: var(--adhoc-primary);
-  color: #fff;
-}
-
-/* ── Estados del tablero de indicadores ────────────────────────────────── */
-/* Reemplazan a .bg-blanco/.bg-rojo/.bg-amarillo/.bg-verde del legacy, que
-   colisionaban con las utilidades .bg-… de Bootstrap. */
-.adhoc-state-white {
-  background: var(--adhoc-state-white);
-  color: var(--adhoc-dark);
-  border: 1px solid var(--adhoc-border);
-}
-
-.adhoc-state-red {
-  background: var(--adhoc-state-red);
-  color: #fff;
-}
-
-.adhoc-state-yellow {
-  background: var(--adhoc-state-yellow);
-  color: var(--adhoc-dark);
-}
-
-.adhoc-state-green {
-  background: var(--adhoc-state-green);
-  color: #fff;
-}
-
-/* ── Botón "Volver" (macro back_button) ────────────────────────────────── */
+/* Botón "Volver" (legacy `.btn-back-panel`: gris sólido, esquina superior). */
 .adhoc-back {
   display: inline-flex;
   align-items: center;
-  gap: .35rem;
+  gap: 8px;
+  padding: 8px 15px;
+  border: none;
+  border-radius: 8px;
+  background-color: var(--adhoc-muted);
+  color: #fff;
+  font-size: .9rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: .3s;
 }
 
-/* ── Barra de acciones (toolbar) ───────────────────────────────────────── */
-/* Sustituye a `.controls-top`, redeclarada en 8 hojas del legacy. */
+.adhoc-back:hover {
+  background-color: var(--adhoc-dark);
+  color: #fff;
+  transform: translateY(-2px);
+}
+
+/* Barra de acciones (legacy `.controls-top`, redeclarada en 8 hojas). */
 .adhoc-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: .5rem;
-  margin-bottom: .85rem;
+  gap: 15px;
+  margin-bottom: 20px;
 }
 
 .adhoc-toolbar-start   { justify-content: flex-start; }
@@ -289,52 +512,47 @@
 .adhoc-toolbar-end     { justify-content: flex-end; }
 .adhoc-toolbar-between { justify-content: space-between; }
 
-/* ── Barra de filtros ──────────────────────────────────────────────────── */
+/* Barra de filtros: los filtros que no caben en la fila de la tabla. */
 .adhoc-filter-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: .65rem;
-  margin-bottom: .85rem;
-  padding: .75rem;
-  background: var(--adhoc-soft);
-  border: 1px solid var(--adhoc-border);
-  border-radius: calc(var(--adhoc-radius) - 4px);
+  gap: 15px;
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 8px;
 }
 
 .adhoc-filter-fields {
   display: flex;
   flex: 1 1 auto;
   flex-wrap: wrap;
-  gap: .65rem;
+  gap: 15px;
   min-width: 0;
 }
 
 .adhoc-filter-fields > .adhoc-field {
   flex: 1 1 180px;
   min-width: 0;
-  margin-bottom: 0;
 }
 
 .adhoc-filter-clear {
   flex: 0 0 auto;
 }
 
-/* ── Tablas ────────────────────────────────────────────────────────────── */
-/* El scroll horizontal vive AQUÍ, no en el <body>. El legacy ponía
-   min-width:1200px en la tabla y dejaba que desbordara la página en móvil. */
+/* ── 5. Tablas (legacy `.doc-table`) ───────────────────────────────────── */
+/* El scroll horizontal vive AQUÍ, no en el <body>. */
 .adhoc-table-wrap {
   position: relative;
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--adhoc-border);
-  border-radius: calc(var(--adhoc-radius) - 4px);
-  background: var(--adhoc-surface);
   -webkit-overflow-scrolling: touch;
 }
 
-/* Cabecera fija: exige un contenedor con altura acotada, así que es opt-in.
-   Pásala como wrap_css="adhoc-table-sticky" en la macro data_table(). */
+/* Cabecera fija: exige un contenedor con altura acotada, así que es opt-in
+   (wrap_css="adhoc-table-sticky" en la macro data_table). */
 .adhoc-table-sticky {
   max-height: var(--adhoc-table-max-height);
   overflow-y: auto;
@@ -343,24 +561,25 @@
 .adhoc-table {
   width: 100%;
   margin: 0;
-  border-collapse: separate;
-  border-spacing: 0;
+  border-collapse: collapse;
   font-size: .9rem;
   color: var(--adhoc-dark);
 }
 
-/* Ancho mínimo por clase (nunca style="…", que está prohibido en templates). */
+/* Ancho mínimo por clase (nunca style="…", prohibido en templates). Los
+   valores son los del legacy: 1200px en documentos/tareas, 1700px en
+   incidencias y programas. */
 .adhoc-table-auto { min-width: 0; }
 .adhoc-table-md   { min-width: 720px; }
-.adhoc-table-lg   { min-width: 960px; }
-.adhoc-table-xl   { min-width: 1200px; }
+.adhoc-table-lg   { min-width: 1200px; }
+.adhoc-table-xl   { min-width: 1700px; }
 
 .adhoc-table th,
 .adhoc-table td {
-  padding: .6rem .65rem;
+  padding: 12px 10px;
   text-align: left;
   vertical-align: middle;
-  border-bottom: 1px solid var(--adhoc-border);
+  border-bottom: 1px solid var(--adhoc-line);
 }
 
 .adhoc-table thead th {
@@ -368,32 +587,33 @@
   top: 0;
   z-index: 2;
   height: var(--adhoc-th-height);
-  background: var(--adhoc-soft);
+  background-color: var(--adhoc-soft);
+  color: var(--adhoc-dark);
   font-weight: 600;
   white-space: nowrap;
 }
 
 .adhoc-table thead .adhoc-filter-row th {
   top: var(--adhoc-th-height);
-  padding-top: .35rem;
-  padding-bottom: .35rem;
-}
-
-.adhoc-table tbody tr:last-child > td {
-  border-bottom: 0;
+  height: auto;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  background-color: var(--adhoc-surface);
+  font-weight: 400;
 }
 
 .adhoc-table tbody tr:hover {
-  background: var(--adhoc-hover);
+  background-color: var(--adhoc-hover);
 }
 
 .adhoc-table tbody tr[data-adhoc-empty]:hover {
   background: transparent;
 }
 
-/* Fila clicable (el legacy la llamaba .interactive-row). */
+/* Fila clicable (el legacy la llamaba `.interactive-row`). */
 .adhoc-row-click {
   cursor: pointer;
+  transition: .2s;
 }
 
 .adhoc-col-start  { text-align: left; }
@@ -410,27 +630,26 @@
   overflow: hidden;
 }
 
-/* Input de la fila de filtros. */
+/* Input de la fila de filtros (legacy `.filter-input`). */
 .adhoc-filter-input {
   width: 100%;
   min-width: 6rem;
-  padding: .25rem .5rem;
+  padding: 6px 8px;
   font-size: .8rem;
   font-weight: 400;
   color: var(--adhoc-dark);
   background: var(--adhoc-surface);
   border: 1px solid var(--adhoc-border);
   border-radius: 6px;
+  outline: none;
 }
 
 .adhoc-filter-input:focus {
-  outline: 2px solid var(--adhoc-primary);
-  outline-offset: -1px;
+  border-color: var(--adhoc-primary);
 }
 
 /* Fila de "sin resultados": se pinta siempre y se esconde sola cuando queda
-   alguna fila visible. La conmuta también table-filter.js (atributo hidden);
-   las dos vías coinciden, así que no se pisan. */
+   alguna fila visible. La conmuta también table-filter.js (atributo hidden). */
 .adhoc-table-empty > td {
   border-bottom: 0;
 }
@@ -439,12 +658,12 @@
   display: none;
 }
 
-/* ── Botones de acción de fila ─────────────────────────────────────────── */
+/* Botones de acción de fila. */
 .adhoc-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: .35rem;
+  gap: 10px;
   white-space: nowrap;
 }
 
@@ -458,61 +677,389 @@
   line-height: 1;
 }
 
-/* ── Formularios ───────────────────────────────────────────────────────── */
-/* Rejilla auto-ajustable: sustituye a `.form-grid` + `.form-row` del legacy
-   (que además redefinían nombres de Bootstrap). Nunca se redefine
-   .form-control, .form-label ni .form-select: se usan tal cual las trae BS 5.3. */
+/* Controles inferiores (legacy `.bottom-controls`). */
+.adhoc-bottom-controls {
+  margin-top: 25px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+/* ── 6. Badges ─────────────────────────────────────────────────────────── */
+/* Prioridad: pastilla de fondo SUAVE con el texto en MAYÚSCULAS (legacy
+   `.k-priority`). Estatus: texto de color, sin pastilla (legacy `.k-status`
+   y `.badge-media` / `.badge-baja`). */
+.adhoc-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: .75rem;
+  font-weight: 700;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+
+.adhoc-badge-neutral { background: #f1f2f6; color: var(--adhoc-dark); }
+.adhoc-badge-muted   { background: #f1f2f6; color: var(--adhoc-muted); }
+.adhoc-badge-info    { background: #e3f2fd; color: var(--adhoc-info); }
+.adhoc-badge-success { background: #e8f5e9; color: var(--adhoc-success); }
+.adhoc-badge-warning { background: #fff4e6; color: #e67e22; }
+.adhoc-badge-danger  { background: #ffeaea; color: #d63031; }
+.adhoc-badge-primary { background: #4834d420; color: var(--adhoc-primary); }
+
+/* Estatus: el legacy nunca lo pinta como pastilla sólida. */
+.adhoc-status {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  font-size: .85rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.adhoc-status.adhoc-badge-neutral { color: var(--adhoc-primary); background: none; }
+.adhoc-status.adhoc-badge-muted   { color: #95a5a6; background: none; }
+.adhoc-status.adhoc-badge-info    { color: var(--adhoc-primary); background: none; }
+.adhoc-status.adhoc-badge-success { color: var(--adhoc-success); background: none; }
+.adhoc-status.adhoc-badge-warning { color: var(--adhoc-warning); background: none; }
+.adhoc-status.adhoc-badge-danger  { color: var(--adhoc-danger); background: none; }
+.adhoc-status.adhoc-badge-primary { color: var(--adhoc-primary); background: none; }
+
+/* Estados del tablero de indicadores. Reemplazan a las clases de color del
+   legacy, que colisionaban con las utilidades de Bootstrap. */
+.adhoc-state-white {
+  background: var(--adhoc-state-white);
+  color: var(--adhoc-dark);
+  border: 1px solid var(--adhoc-border);
+}
+
+.adhoc-state-red    { background: var(--adhoc-state-red);    color: #fff; }
+.adhoc-state-yellow { background: var(--adhoc-state-yellow); color: var(--adhoc-dark); }
+.adhoc-state-green  { background: var(--adhoc-state-green);  color: #fff; }
+
+/* ── 7. Botones ────────────────────────────────────────────────────────── */
+/* Base del legacy `.btn-action` / `.btn-add`: radio 6-8, peso 600, icono + texto. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--adhoc-dark);
+  font-family: inherit;
+  font-size: .9rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: .3s;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 2px;
+}
+
+.btn-sm {
+  padding: 8px 15px;
+  border-radius: 6px;
+  font-size: .85rem;
+}
+
+.btn-lg {
+  padding: 12px 24px;
+  font-size: 1rem;
+}
+
+.btn:disabled,
+.btn.disabled {
+  opacity: .55;
+  transform: none;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn-primary { background-color: var(--adhoc-primary); color: #fff; }
+.btn-primary:hover { background-color: var(--adhoc-primary-hover); color: #fff; }
+
+.btn-secondary { background-color: var(--adhoc-border); color: var(--adhoc-muted); }
+.btn-secondary:hover { background-color: var(--adhoc-disabled); color: #fff; }
+
+.btn-success { background-color: var(--adhoc-success); color: #fff; }
+.btn-success:hover { background-color: #1e8449; color: #fff; }
+
+.btn-warning { background-color: var(--adhoc-warning); color: #fff; }
+.btn-warning:hover { background-color: #d68910; color: #fff; }
+
+.btn-danger { background-color: #ff7675; color: #fff; }
+.btn-danger:hover { background-color: #d63031; color: #fff; }
+
+.btn-info { background-color: var(--adhoc-info); color: #fff; }
+.btn-info:hover { background-color: #1f618d; color: #fff; }
+
+.btn-light { background-color: var(--adhoc-soft); color: var(--adhoc-dark); }
+.btn-light:hover { background-color: var(--adhoc-border); }
+
+.btn-dark { background-color: var(--adhoc-muted); color: #fff; }
+.btn-dark:hover { background-color: var(--adhoc-dark); color: #fff; }
+
+.btn-link {
+  background: none;
+  color: var(--adhoc-primary);
+  text-decoration: underline;
+}
+
+.btn-outline-primary {
+  background: var(--adhoc-surface);
+  color: var(--adhoc-primary);
+  border: 1px solid var(--adhoc-primary);
+}
+
+.btn-outline-primary:hover {
+  background: var(--adhoc-primary);
+  color: #fff;
+}
+
+.btn-outline-secondary {
+  background: var(--adhoc-surface);
+  color: var(--adhoc-muted);
+  border: 1px solid var(--adhoc-border);
+}
+
+.btn-outline-secondary:hover {
+  background: var(--adhoc-border);
+  color: var(--adhoc-dark);
+}
+
+.btn-outline-danger {
+  background: var(--adhoc-surface);
+  color: var(--adhoc-danger);
+  border: 1px solid var(--adhoc-danger);
+}
+
+.btn-outline-danger:hover {
+  background: var(--adhoc-danger);
+  color: #fff;
+}
+
+.btn-outline-success {
+  background: var(--adhoc-surface);
+  color: var(--adhoc-success);
+  border: 1px solid var(--adhoc-success);
+}
+
+.btn-outline-success:hover {
+  background: var(--adhoc-success);
+  color: #fff;
+}
+
+/* Alias con los nombres del legacy: dejan pegar su markup sin traducir. */
+.adhoc-btn-filter { background-color: var(--adhoc-primary); color: #fff; }
+.adhoc-btn-clear  { background-color: var(--adhoc-border); color: var(--adhoc-muted); }
+.adhoc-btn-add    { background-color: var(--adhoc-primary); color: #fff; }
+.adhoc-btn-save   { background-color: var(--adhoc-primary); color: #fff; }
+.adhoc-btn-delete { background-color: #ff7675; color: #fff; }
+
+/* Cierre de modal (legacy `.close-btn`: una × gris, sin imagen de fondo). */
+.btn-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--adhoc-muted);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.btn-close::before {
+  content: '\00d7';
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.btn-close:hover {
+  color: var(--adhoc-dark);
+}
+
+/* ── 8. Formularios ────────────────────────────────────────────────────── */
 .adhoc-form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: .85rem;
+  gap: 15px;
 }
 
 .adhoc-field {
   min-width: 0;
-  margin-bottom: 0;
 }
 
 .adhoc-field-full {
   grid-column: 1 / -1;
 }
 
+.form-label,
 .adhoc-label {
-  margin-bottom: .25rem;
+  display: block;
+  margin-bottom: 5px;
   color: var(--adhoc-muted);
-  font-size: .8rem;
+  font-size: .85rem;
   font-weight: 600;
 }
 
 .adhoc-required {
-  margin-left: .15rem;
+  margin-left: 3px;
   color: var(--adhoc-danger);
 }
 
-.adhoc-field-help {
+.form-control,
+.form-select {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  color: var(--adhoc-dark);
+  font-family: inherit;
+  font-size: .9rem;
+  background-color: var(--adhoc-surface);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--adhoc-primary);
+}
+
+.form-control:disabled,
+.form-select:disabled,
+.form-control[readonly] {
+  background-color: var(--adhoc-soft);
   color: var(--adhoc-muted);
-  font-size: .78rem;
+}
+
+.form-control::placeholder {
+  color: var(--adhoc-disabled);
+}
+
+textarea.form-control {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.form-control-sm,
+.form-select-sm {
+  padding: 6px 8px;
+  font-size: .8rem;
+  border-radius: 6px;
+}
+
+.form-control-color {
+  width: 3.5rem;
+  min-width: 3.5rem;
+  height: 2.6rem;
+  padding: 2px;
+  cursor: pointer;
 }
 
 .adhoc-field-color .adhoc-color-input {
   width: 3.5rem;
-  height: 2.4rem;
-  padding: .15rem;
+  height: 2.6rem;
+  padding: 2px;
 }
 
+.form-text,
+.adhoc-field-help {
+  margin-top: 4px;
+  color: var(--adhoc-muted);
+  font-size: .78rem;
+  font-weight: 300;
+}
+
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 2.2rem;
+}
+
+.form-check-input {
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  accent-color: var(--adhoc-primary);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.form-check-label {
+  margin: 0;
+  color: var(--adhoc-dark);
+  font-size: .9rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+/* Interruptor (legacy `.switch` + `.slider` de mail.css). */
+.form-switch .form-check-input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 2.6rem;
+  height: 1.5rem;
+  background-color: #ccc;
+  border-radius: 34px;
+  transition: .4s;
+}
+
+.form-switch .form-check-input::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 1.1rem;
+  height: 1.1rem;
+  background: #fff;
+  border-radius: 50%;
+  transition: .4s;
+}
+
+.form-switch .form-check-input:checked {
+  background-color: var(--adhoc-primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translateX(1.1rem);
+}
+
+/* Agrupador de campos (legacy `.form-grid`: bloque gris dentro del modal). */
 .adhoc-fieldset {
-  padding: .85rem;
-  background: var(--adhoc-soft);
-  border: 1px solid var(--adhoc-border);
-  border-radius: calc(var(--adhoc-radius) - 4px);
+  padding: 15px;
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 8px;
 }
 
 .adhoc-fieldset + .adhoc-fieldset {
-  margin-top: .85rem;
+  margin-top: 15px;
 }
 
 .adhoc-fieldset-title {
-  margin-bottom: .6rem;
+  margin-bottom: 10px;
   color: var(--adhoc-dark);
   font-size: .95rem;
   font-weight: 600;
@@ -523,86 +1070,268 @@
 }
 
 .adhoc-catalog-count {
-  margin-bottom: .85rem;
+  margin-bottom: 15px;
 }
 
-/* ── Muestra de color ──────────────────────────────────────────────────── */
+/* ── 9. Modales ────────────────────────────────────────────────────────── */
+/* Overlay del legacy (`.modal-overlay` + `.modal-content`), con nombre propio.
+   Los alias sin prefijo existen porque los modales de sección siguen usando
+   ese markup: mismo aspecto, se migran cuando se migren. */
+.adhoc-modal,
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, .5);
+}
+
+.adhoc-modal.is-open {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+/* Con un modal abierto el fondo no se desplaza (lo pone AdhocUtils.openModal). */
+body.adhoc-modal-open {
+  overflow: hidden;
+}
+
+.adhoc-modal.fade,
+.modal.fade {
+  opacity: 0;
+  transition: opacity .15s linear;
+}
+
+.adhoc-modal.fade.is-open,
+.modal.fade.show {
+  opacity: 1;
+}
+
+/* El backdrop sobra: el propio overlay ya pinta el velo. */
+.modal-backdrop {
+  display: none;
+}
+
+.adhoc-modal-dialog,
+.modal-dialog {
+  width: 600px;
+  max-width: 95%;
+  margin: 40px auto;
+}
+
+.modal-dialog-centered {
+  display: flex;
+  align-items: center;
+  min-height: calc(100% - 80px);
+}
+
+.modal-sm  { width: 450px; }
+.modal-lg  { width: 850px; }
+.modal-xl  { width: 1200px; }
+
+.adhoc-modal-content,
+.modal-content {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 90vh;
+  padding: 25px;
+  overflow-y: auto;
+  background: var(--adhoc-surface);
+  border-radius: var(--adhoc-radius);
+  box-shadow: var(--adhoc-shadow-modal);
+  animation: adhoc-modal-in .3s;
+}
+
+@keyframes adhoc-modal-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.adhoc-modal-header,
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.adhoc-modal-title,
+.modal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--adhoc-dark);
+}
+
+.adhoc-modal-body,
+.modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.modal-dialog-scrollable .modal-body {
+  overflow-y: auto;
+}
+
+.adhoc-modal-footer,
+.modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 25px;
+  padding-top: 20px;
+  border-top: 1px solid #eee;
+}
+
+/* ── 10. Toasts ────────────────────────────────────────────────────────── */
+.adhoc-toast-container {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.adhoc-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 360px;
+  padding: 12px 18px;
+  color: #fff;
+  font-size: .9rem;
+  font-weight: 600;
+  border-radius: 8px;
+  box-shadow: var(--adhoc-shadow-modal);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity .2s ease, transform .2s ease;
+  pointer-events: auto;
+}
+
+.adhoc-toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.adhoc-toast-success { background-color: var(--adhoc-success); }
+.adhoc-toast-error   { background-color: var(--adhoc-danger); }
+.adhoc-toast-warning { background-color: var(--adhoc-warning); color: var(--adhoc-dark); }
+.adhoc-toast-info    { background-color: var(--adhoc-primary); }
+
+/* ── 11. Alertas ───────────────────────────────────────────────────────── */
+.alert {
+  padding: 12px 18px;
+  border-radius: 8px;
+  font-size: .9rem;
+}
+
+.alert-info      { background: #e3f2fd; color: var(--adhoc-primary); }
+.alert-secondary { background: var(--adhoc-soft); color: var(--adhoc-muted); }
+.alert-warning   { background: #fff4e6; color: #e67e22; }
+.alert-danger    { background: #ffeaea; color: #d63031; }
+.alert-success   { background: #e8f5e9; color: var(--adhoc-success); }
+
+/* ── 12. Componentes propios ───────────────────────────────────────────── */
+
+/* Muestra de color (legacy `.color-badge`: círculo de 15px). */
 .adhoc-swatch {
   display: inline-block;
-  width: .9rem;
-  height: .9rem;
-  margin-right: .4rem;
-  vertical-align: -1px;
-  border: 1px solid var(--adhoc-border);
-  border-radius: 4px;
+  width: 15px;
+  height: 15px;
+  margin-right: 10px;
+  vertical-align: middle;
+  border: 1px solid rgba(0, 0, 0, .1);
+  border-radius: 50%;
 }
 
-/* ── Tarjetas del panel de control ─────────────────────────────────────── */
-/* El legacy usaba `.card` a secas (colisión frontal con Bootstrap) y su JS
-   hacía querySelectorAll('.card') sin scope, así que enganchaba también las
-   tarjetas del layout. Aquí es .adhoc-tile, con su propio hook data-*. */
+/* Tarjetas del panel de control: el legacy reutiliza la MISMA tarjeta del nav
+   (blanca, borde izquierdo violeta, icono en círculo lavanda a la izquierda). */
 .adhoc-tile-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+@media (max-width: 992px) {
+  .adhoc-tile-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .adhoc-tile-grid { grid-template-columns: 1fr; }
 }
 
 .adhoc-tile {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   align-items: center;
-  gap: .5rem;
-  padding: 1.25rem 1rem;
-  color: inherit;
-  text-align: center;
+  gap: 20px;
+  padding: 20px 25px;
+  color: var(--adhoc-dark);
   text-decoration: none;
   background: var(--adhoc-surface);
-  border: 1px solid var(--adhoc-border);
   border-radius: var(--adhoc-radius);
+  border-left: 5px solid var(--adhoc-primary);
   box-shadow: var(--adhoc-shadow);
-  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  cursor: pointer;
+  transition: transform .3s ease, box-shadow .3s ease;
 }
 
 .adhoc-tile:hover,
 .adhoc-tile:focus-visible {
-  transform: translateY(-3px);
-  border-color: var(--adhoc-primary);
-  color: inherit;
-  box-shadow: 0 12px 24px rgba(45, 52, 54, .12);
+  color: var(--adhoc-dark);
+  transform: translateY(-5px);
+  box-shadow: var(--adhoc-shadow-hover);
 }
 
 .adhoc-tile-icon {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 3rem;
-  height: 3rem;
-  font-size: 1.4rem;
+  width: 55px;
+  height: 55px;
+  min-width: 55px;
+  font-size: 2rem;
   color: var(--adhoc-primary);
-  background: var(--adhoc-primary-tint);
+  background-color: #4834d420;
   border-radius: 50%;
 }
 
 .adhoc-tile-title {
-  margin: 0;
-  font-size: 1rem;
+  font-size: 1.1rem;
   font-weight: 600;
 }
 
+/* El legacy no pinta descripción en las tarjetas del panel. Mientras alguna
+   pantalla la siga pasando, cae a una segunda línea completa en vez de
+   aplastarse contra el título. */
 .adhoc-tile-text {
-  margin: 0;
+  flex: 1 0 100%;
   color: var(--adhoc-muted);
   font-size: .82rem;
+  font-weight: 300;
 }
 
-/* ── Selector múltiple de usuarios ─────────────────────────────────────── */
+/* Selector múltiple de usuarios. */
 .adhoc-user-picker {
   display: block;
 }
 
 .adhoc-user-picker-box {
   border: 1px solid var(--adhoc-border);
-  border-radius: calc(var(--adhoc-radius) - 4px);
+  border-radius: 8px;
   background: var(--adhoc-surface);
   overflow: hidden;
 }
@@ -611,8 +1340,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: .5rem;
-  padding: .5rem;
+  gap: 10px;
+  padding: 10px;
   background: var(--adhoc-soft);
   border-bottom: 1px solid var(--adhoc-border);
 }
@@ -636,12 +1365,12 @@
 .adhoc-user-option {
   display: flex;
   align-items: center;
-  gap: .6rem;
+  gap: 10px;
   width: 100%;
   margin: 0;
-  padding: .45rem .6rem;
+  padding: 8px 12px;
   cursor: pointer;
-  border-bottom: 1px solid var(--adhoc-border);
+  border-bottom: 1px solid var(--adhoc-line);
 }
 
 .adhoc-user-option:last-child {
@@ -659,7 +1388,7 @@
 
 .adhoc-user-option-name {
   display: block;
-  font-size: .88rem;
+  font-size: .9rem;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -669,7 +1398,7 @@
 .adhoc-user-option-meta {
   display: block;
   color: var(--adhoc-muted);
-  font-size: .76rem;
+  font-size: .78rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -682,7 +1411,7 @@
   justify-content: center;
   min-width: 1.5rem;
   height: 1.5rem;
-  padding: 0 .35rem;
+  padding: 0 6px;
   color: #fff;
   font-size: .75rem;
   font-weight: 700;
@@ -693,8 +1422,8 @@
 .adhoc-user-picker-selected {
   display: flex;
   flex-wrap: wrap;
-  gap: .35rem;
-  padding: .5rem;
+  gap: 6px;
+  padding: 10px;
   border-top: 1px solid var(--adhoc-border);
   background: var(--adhoc-soft);
 }
@@ -702,14 +1431,13 @@
 .adhoc-chip {
   display: inline-flex;
   align-items: center;
-  gap: .35rem;
+  gap: 6px;
   max-width: 100%;
-  padding: .15rem .5rem;
+  padding: 3px 10px;
   color: var(--adhoc-primary);
   font-size: .78rem;
   font-weight: 600;
-  background: var(--adhoc-primary-tint);
-  border: 1px solid var(--adhoc-border);
+  background: #4834d420;
   border-radius: 999px;
 }
 
@@ -726,19 +1454,113 @@
   line-height: 1;
   background: none;
   border: 0;
+  cursor: pointer;
 }
 
 .adhoc-picker-empty {
-  padding: 1rem;
+  padding: 15px;
   color: var(--adhoc-muted);
   font-size: .85rem;
   text-align: center;
 }
 
-/* ── Reportes imprimibles ──────────────────────────────────────────────── */
-/* body_class="adhoc-print". Los 5 reportes del legacy eran HTML standalone que
-   se re-declaraban las variables; aquí extienden el base y solo cambian la
-   presentación al imprimir. */
+/* ── 13. Utilidades ────────────────────────────────────────────────────── */
+/* Subconjunto EXACTO de lo que las 24 plantillas heredaron de Bootstrap. No
+   crece por gusto: si una pantalla necesita algo más, va en su propia hoja. */
+.d-none { display: none !important; }
+.d-block { display: block !important; }
+.d-inline { display: inline !important; }
+.d-inline-block { display: inline-block !important; }
+.d-flex { display: flex !important; }
+.d-inline-flex { display: inline-flex !important; }
+.d-grid { display: grid !important; }
+
+@media (min-width: 576px) {
+  .d-sm-inline { display: inline !important; }
+  .d-sm-block { display: block !important; }
+  .d-sm-flex { display: flex !important; }
+  .d-sm-none { display: none !important; }
+}
+
+.flex-wrap { flex-wrap: wrap !important; }
+.flex-column { flex-direction: column !important; }
+.flex-grow-1 { flex-grow: 1 !important; }
+.align-items-center { align-items: center !important; }
+.align-items-start { align-items: flex-start !important; }
+.align-items-end { align-items: flex-end !important; }
+.justify-content-start { justify-content: flex-start !important; }
+.justify-content-center { justify-content: center !important; }
+.justify-content-end { justify-content: flex-end !important; }
+.justify-content-between { justify-content: space-between !important; }
+
+.gap-1 { gap: .25rem !important; }
+.gap-2 { gap: .5rem !important; }
+.gap-3 { gap: 1rem !important; }
+
+.m-0 { margin: 0 !important; }
+.mb-0 { margin-bottom: 0 !important; }
+.mb-1 { margin-bottom: .25rem !important; }
+.mb-2 { margin-bottom: .5rem !important; }
+.mb-3 { margin-bottom: 1rem !important; }
+.mb-4 { margin-bottom: 1.5rem !important; }
+.mt-0 { margin-top: 0 !important; }
+.mt-1 { margin-top: .25rem !important; }
+.mt-2 { margin-top: .5rem !important; }
+.mt-3 { margin-top: 1rem !important; }
+.me-1 { margin-right: .25rem !important; }
+.me-2 { margin-right: .5rem !important; }
+.me-3 { margin-right: 1rem !important; }
+.me-auto { margin-right: auto !important; }
+.ms-1 { margin-left: .25rem !important; }
+.ms-2 { margin-left: .5rem !important; }
+.ms-auto { margin-left: auto !important; }
+
+.p-0 { padding: 0 !important; }
+.p-2 { padding: .5rem !important; }
+.p-3 { padding: 1rem !important; }
+
+.w-100 { width: 100% !important; }
+.min-w-0 { min-width: 0 !important; }
+
+.text-center { text-align: center !important; }
+.text-start { text-align: left !important; }
+.text-end { text-align: right !important; }
+.text-muted { color: var(--adhoc-muted) !important; }
+.text-white { color: #fff !important; }
+.text-danger { color: var(--adhoc-danger) !important; }
+.text-success { color: var(--adhoc-success) !important; }
+.text-nowrap { white-space: nowrap !important; }
+.small { font-size: .85rem !important; }
+.fw-bold { font-weight: 700 !important; }
+.fw-semibold { font-weight: 600 !important; }
+.fw-normal { font-weight: 400 !important; }
+
+.h4 { font-size: 1.5rem; font-weight: 600; }
+.h5 { font-size: 1.25rem; font-weight: 600; }
+.h6 { font-size: 1rem; font-weight: 600; }
+
+.position-relative { position: relative !important; }
+.position-fixed { position: fixed !important; }
+.top-0 { top: 0 !important; }
+.bottom-0 { bottom: 0 !important; }
+.start-0 { left: 0 !important; }
+.end-0 { right: 0 !important; }
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* ── 14. Impresión y motion ────────────────────────────────────────────── */
+/* body_class="adhoc-print": los 5 reportes del legacy eran HTML standalone;
+   aquí extienden el base y solo cambian la presentación al imprimir. */
 @media print {
   .adhoc-print .adhoc-appbar,
   .adhoc-print .adhoc-nav,
@@ -746,20 +1568,20 @@
   .adhoc-print .adhoc-filter-bar,
   .adhoc-print .adhoc-filter-row,
   .adhoc-print .adhoc-page-actions,
-  .adhoc-print .toast-container,
+  .adhoc-print .adhoc-toast-container,
   .adhoc-print .adhoc-no-print {
     display: none !important;
   }
 
   .adhoc-print,
-  .adhoc-print .adhoc-page {
+  .adhoc-print .adhoc-main-container {
     padding: 0;
+    max-width: 100%;
     background: #fff;
   }
 
-  .adhoc-print .adhoc-card,
-  .adhoc-print .adhoc-table-wrap {
-    border: 0;
+  .adhoc-print .adhoc-card {
+    padding: 0;
     box-shadow: none;
   }
 
@@ -775,15 +1597,115 @@
   }
 }
 
-/* ── Accesibilidad / motion ────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .adhoc-nav-link,
-  .adhoc-tile {
+  .adhoc-tile,
+  .btn,
+  .adhoc-toast {
     transition: none;
   }
 
+  .adhoc-nav-link:hover,
   .adhoc-tile:hover,
-  .adhoc-tile:focus-visible {
+  .btn:hover {
     transform: none;
   }
+
+  .adhoc-gear {
+    animation: none;
+  }
+
+  .adhoc-modal-content,
+  .modal-content {
+    animation: none;
+  }
+}
+
+
+/* ── Pantalla de catálogo (macro `catalog_page()`) ────────────────────────
+   Las CUATRO pantallas de catálogo —categorias y clasificacion de documentos,
+   categorias de incidencias y categorias del programa— son la misma macro, y
+   en el legacy son cuatro hojas practicamente identicas
+   (documents_categories.css, documents_classifications.css,
+   incidents_categories.css, programs_categories.css): todas abren con el mismo
+   `.table-container` blanco que envuelve al <h2>, al boton "Volver" y a la
+   tabla.
+
+   Estas reglas vivian en documents/document-catalogs.css, que solo cargaban
+   las dos pantallas de documentos; incidencias y programas se quedaban sin
+   tarjeta y pintaban el encabezado suelto sobre el fondo gris. Como la macro
+   es compartida, su aspecto va aqui. */
+.adhoc-catalog {
+  position: relative;
+  padding: 25px;
+  background: var(--adhoc-surface);
+  border-radius: var(--adhoc-radius);
+  box-shadow: var(--adhoc-shadow-card);
+}
+
+/* La tarjeta que la macro pinta dentro se queda sin caja propia, para que no
+   haya un recuadro blanco encima de otro. */
+.adhoc-catalog > .adhoc-card {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Título con su icono grande, como en el legacy (1.8rem). El peso es el `bold`
+   del navegador (700): el legacy pinta un <h2> pelado dentro de
+   `.table-container` y ninguna de las cuatro hojas le toca el font-weight. */
+.adhoc-catalog .adhoc-page-head {
+  margin-bottom: 15px;
+}
+
+.adhoc-catalog .adhoc-page-title {
+  font-weight: 700;
+}
+
+.adhoc-catalog .adhoc-page-title i {
+  font-size: 1.8rem;
+}
+
+/* La tabla de estas cuatro pantallas va al tamaño de texto del documento, no
+   al .9rem del resto de tablas de la app: `.doc-table` del legacy no declara
+   font-size, asi que hereda los 16px del <body>. De ahi que la fila mida 50px
+   y no 46. */
+.adhoc-catalog .adhoc-table {
+  font-size: 1rem;
+}
+
+/* Celdas del legacy: 12px de relleno en las cuatro esquinas. */
+.adhoc-catalog .adhoc-table th,
+.adhoc-catalog .adhoc-table td {
+  padding: 12px;
+}
+
+/* Legacy `.interactive-row:hover`: lavanda muy tenue. */
+.adhoc-catalog .adhoc-table tbody tr:hover {
+  background-color: rgb(240 243 255);
+}
+
+.adhoc-catalog .adhoc-table tbody tr[data-adhoc-empty]:hover {
+  background: transparent;
+}
+
+/* Iconos de acción de fila: el legacy no los enmarca. Se anula el recuadro que
+   trae la macro compartida y se deja el icono pelado que crece al pasar el
+   ratón (legacy `.icon-btn`). */
+.adhoc-catalog .adhoc-actions .adhoc-btn-icon {
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0 5px;
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  line-height: 1;
+  transition: .2s;
+}
+
+.adhoc-catalog .adhoc-actions .adhoc-btn-icon:hover {
+  background: none;
+  transform: scale(1.2);
 }

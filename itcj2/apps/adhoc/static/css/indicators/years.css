@@ -2,27 +2,41 @@
    indicators/years.css — lista de años del tablero de indicadores.
    Página: /adhoc/indicadores   ·   Módulo: js/indicators/years.js
 
-   Sustituye a app_prueba/css/indicators/indicators_year.css, que redeclaraba
-   .modal-overlay (con backdrop-filter), .form-input, .btn-action y una paleta
-   de hex sueltos. Aquí todo cuelga de los tokens --adhoc- de adhoc.css y las
-   clases van prefijadas .adhoc-; el modal es de Bootstrap 5.3.
+   PORTE de app_prueba/css/indicators/indicators_year.css: tarjeta de 30px,
+   línea de ayuda con el icono de información, botón gris de volver, fila
+   Limpiar/Filtrar, año en violeta a 1.1rem y bote de basura pelado. Lo que
+   allí eran .modal-overlay, .form-input y .btn-action lo pone ya adhoc.css
+   (que es el porte del CSS del legacy); aquí solo queda lo propio de la
+   pantalla, prefijado .adhoc-…
    ========================================================================== */
 
-/* Aviso del modo activo (configuracion | seguimiento). */
-.adhoc-years-mode {
+/* La tarjeta de esta pantalla es la ancha del legacy (padding 30, no 25). */
+.adhoc-years-card {
+  padding: 30px;
+}
+
+.adhoc-years-card .adhoc-page-head {
+  margin-bottom: 15px;
+}
+
+.adhoc-years-card .adhoc-page-title i {
+  font-size: 1.8rem;
+}
+
+/* Línea de ayuda del legacy: icono de información + texto gris pequeño. El
+   enlace de la derecha conmuta el modo (config ↔ seguimiento), que es lo
+   único que esta pantalla tiene de más que el original. */
+.adhoc-years-hint {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: .4rem;
-  margin-bottom: 1rem;
-  padding: .55rem .75rem;
-  font-size: .85rem;
+  margin-bottom: 20px;
+  font-size: .9rem;
   color: var(--adhoc-muted);
-  background: var(--adhoc-primary-tint);
-  border-radius: calc(var(--adhoc-radius) - 4px);
 }
 
-.adhoc-years-mode > i {
+.adhoc-years-hint > i {
   color: var(--adhoc-primary);
 }
 
@@ -38,21 +52,79 @@
   text-decoration: underline;
 }
 
-/* El ano es el dato principal de la fila: se lee de un vistazo. */
+/* Fila Limpiar / Filtrar (legacy .controls-top: margin 25px 0 15px). */
+.adhoc-years-controls {
+  gap: 10px;
+  margin: 25px 0 15px;
+}
+
+/* Las celdas de esta tabla son más altas que las de la app (legacy: 15px 12px
+   y 0.95rem), porque la lista tiene una sola columna de datos. */
+.adhoc-indicator-years .adhoc-table th,
+.adhoc-indicator-years .adhoc-table td {
+  padding: 15px 12px;
+  font-size: .95rem;
+}
+
+.adhoc-years-col-count   { width: 140px; }
+.adhoc-years-col-actions { width: 100px; }
+
+/* El año es el dato principal de la fila: se lee de un vistazo. */
 .adhoc-years-value {
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   font-weight: 700;
   color: var(--adhoc-primary);
 }
 
-/* Contador de indicadores del ano (viene de la misma consulta que la lista). */
+/* Contador de indicadores del año (viene de la misma consulta que la lista). */
 .adhoc-years-count {
   font-variant-numeric: tabular-nums;
 }
 
-/* Filas clicables: el cursor lo pone .adhoc-row-click de la base; aqui solo se
+/* Bote de basura del legacy (.icon-btn): sin recuadro, crece al pasar por
+   encima y se oscurece. */
+.adhoc-years-actions {
+  justify-content: center;
+}
+
+.adhoc-years-icon {
+  padding: 5px;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: #ff7675;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: .2s;
+}
+
+.adhoc-years-icon:hover {
+  color: #d63031;
+  transform: scale(1.2);
+}
+
+/* Selector de cuántos años capturar (legacy .qty-select). */
+.adhoc-years-qty {
+  max-width: 10rem;
+  padding: 10px 15px;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--adhoc-dark);
+  background: var(--adhoc-surface);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 8px;
+  outline: none;
+  cursor: pointer;
+}
+
+/* Filas clicables: el cursor lo pone .adhoc-row-click de la base; aquí solo se
    marca el foco por teclado, porque la fila es navegable con Tab. */
 .adhoc-indicator-years tbody tr[data-id]:focus-visible {
   outline: 2px solid var(--adhoc-primary);
   outline-offset: -2px;
+}
+
+/* El titulo del modal va en violeta, como en el legacy. */
+.adhoc-years-modal-title {
+  color: var(--adhoc-primary);
 }

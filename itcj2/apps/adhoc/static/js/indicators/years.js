@@ -68,7 +68,9 @@
             ? window.bootstrap.Modal.getOrCreateInstance(this.modalEl)
             : null;
         this.fields = this.modalEl ? this.modalEl.querySelector('[data-adhoc-years-fields]') : null;
-        this.qty = this.modalEl ? this.modalEl.querySelector('[data-adhoc-years-qty]') : null;
+        // El <select> de cantidad esta en los controles inferiores de la pagina,
+        // como en el legacy: se elige ANTES de abrir el modal.
+        this.qty = document.querySelector('[data-adhoc-years-qty]');
     }
 
     Years.prototype.init = function () {
@@ -127,15 +129,15 @@
         tr.appendChild(tdCount);
 
         var tdActions = document.createElement('td');
-        tdActions.className = 'adhoc-col-end';
+        tdActions.className = 'adhoc-col-center';
         var box = document.createElement('div');
-        box.className = 'adhoc-actions';
+        box.className = 'adhoc-actions adhoc-years-actions';
         if (this.canDelete) {
             // Markup estático: ningún dato del servidor entra en este innerHTML.
             box.innerHTML =
-                '<button type="button" class="btn btn-sm btn-outline-danger adhoc-btn-icon" ' +
+                '<button type="button" class="adhoc-years-icon" ' +
                 'data-adhoc-action="delete" title="Eliminar año" aria-label="Eliminar año">' +
-                '<i class="bi bi-trash"></i></button>';
+                '<i class="fa-solid fa-trash"></i></button>';
         }
         tdActions.appendChild(box);
         tr.appendChild(tdActions);
@@ -262,6 +264,11 @@
         this.root.addEventListener('click', function (evt) {
             var newBtn = evt.target.closest('[data-adhoc-years-new]');
             if (newBtn) { self.openNew(); return; }
+
+            if (evt.target.closest('[data-adhoc-years-filter]')) {
+                if (window.AdhocTableFilter && self.table) window.AdhocTableFilter.apply(self.table);
+                return;
+            }
 
             var del = evt.target.closest('[data-adhoc-action="delete"]');
             if (del) {

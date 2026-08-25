@@ -475,11 +475,17 @@ class TestReglasDuras:
         inline = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>", text)
         assert inline == [], inline
 
-    def test_template_usa_iconos_bootstrap(self):
+    def test_template_usa_iconos_font_awesome(self):
+        """El shell carga Font Awesome 6.4, que es lo que usa el legacy.
+
+        Bootstrap Icons ya no se sirve: una clase ``bi bi-…`` aquí no pinta
+        nada, y el hueco solo se ve en la captura (fue exactamente lo que pasó
+        con los iconos del pie de la tarjeta).
+        """
         text = TEMPLATE.read_text(encoding="utf-8")
-        assert "bi bi-" in text
-        assert "fa-solid" not in text
-        assert "fa-regular" not in text
+        assert "fa-solid" in text
+        assert "fa-regular" in text
+        assert "bi bi-" not in text
 
     def test_template_declara_el_modal_en_su_bloque(self):
         """El legacy los dejaba inline al final del contenido, con .modal-overlay."""
@@ -526,6 +532,12 @@ class TestReglasDuras:
         assert "escapeHtml(userName(a.user))" in text
         # El helper de celda escapa etiqueta Y valor: es el que pinta el padre.
         assert text.count("U.escapeHtml") >= 10
+
+    def test_js_usa_iconos_font_awesome(self):
+        """Los iconos que inyecta el modal siguen la misma regla que el template."""
+        text = JS.read_text(encoding="utf-8")
+        assert "fa-solid" in text
+        assert "bi bi-" not in text
 
     def test_js_apunta_a_la_api_v2(self):
         text = _strip_js_comments(JS.read_text(encoding="utf-8"))

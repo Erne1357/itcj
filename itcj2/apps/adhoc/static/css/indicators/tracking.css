@@ -3,11 +3,51 @@
    Página: /adhoc/indicadores/{year_id}/seguimiento
    Módulo: js/indicators/tracking.js
 
-   Sustituye a app_prueba/css/indicators/indicators_tracking.css. Ahí las
-   celdas se pintaban con .bg-blanco / .bg-rojo / .bg-amarillo / .bg-verde, que
-   colisionan con las utilidades .bg- de Bootstrap 5.3; aquí se usan las clases
-   de estado de adhoc.css (.adhoc-state-white / red / yellow / green).
+   PORTE de app_prueba/css/indicators/indicators_tracking.css. Se conservan
+   sus medidas exactas (padding 20px 25px de la cabecera, celda de 120px,
+   input al 80%, línea de 1px en las cuatro caras) y sus colores de estado
+   (#ff7675 / #fdcb6e / #55efc4). Lo único que cambia son los nombres: allí
+   .bg-blanco/.bg-rojo/.bg-amarillo/.bg-verde, aquí .adhoc-state-white/red/
+   yellow/green, que es lo que emite la vista. El tinte se aplica ACOTADO a
+   esta pantalla para no tocar la paleta de estado del resto de la app.
    ========================================================================== */
+
+/* Ancho de la pantalla (legacy .tracking-container): 98% del contenedor
+   central, no del viewport. El legacy anidaba su propio contenedor dentro de
+   .main-container, así que esta vista NO se ensancha como el tablero. */
+.adhoc-indicator-tracking {
+  max-width: 98%;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* ── Barra de título (legacy .header-section) ───────────────────────────── */
+/* Es una tarjeta blanca propia, con menos sombra que las de contenido. */
+.adhoc-tracking-topbar {
+  margin-bottom: 25px;
+  padding: 20px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, .03);
+}
+
+.adhoc-tracking-topbar .adhoc-page-head {
+  margin-bottom: 0;
+}
+
+/* El titulo del legacy es un <h2> pelado dentro de `.title-area`: hereda el
+   `bold` (700) del navegador, no el 600 del encabezado generico de la app. */
+.adhoc-tracking-topbar .adhoc-page-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.adhoc-tracking-topbar .adhoc-page-title i {
+  font-size: 1.8rem;
+}
+
+/* El año, en violeta (el legacy lo pintaba con un style en línea). */
+.adhoc-tracking-year {
+  color: var(--adhoc-primary);
+}
 
 /* Aviso de solo lectura: se pinta cuando falta adhoc.indicators.api.tracking.
    En el legacy nunca aparecía porque is_admin iba hardcodeado a True. */
@@ -24,23 +64,33 @@
   border-radius: calc(var(--adhoc-radius) - 4px);
 }
 
-/* ── Tarjeta de indicador ───────────────────────────────────────────────── */
+/* ── Tarjeta de indicador (legacy .tracking-card) ───────────────────────── */
+/* Sin padding propio: la cabecera, la rejilla y el pie llegan hasta el borde,
+   y `overflow:hidden` recorta la cabecera gris contra el radio de la tarjeta. */
+.adhoc-tracking-card {
+  margin-bottom: 30px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--adhoc-line);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, .05);
+}
 
 .adhoc-tracking-card + .adhoc-tracking-card {
-  margin-top: 1.25rem;
+  margin-top: 0;
 }
 
 .adhoc-tracking-head {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: .75rem 1.1rem;
-  margin-bottom: .9rem;
+  gap: 15px;
+  padding: 20px 25px;
+  background: var(--adhoc-soft);
+  border-bottom: 1px solid var(--adhoc-line);
 }
 
 .adhoc-tracking-info {
   display: flex;
   flex-direction: column;
-  gap: .15rem;
   min-width: 0;
 }
 
@@ -49,23 +99,28 @@
 }
 
 .adhoc-tracking-label {
-  font-size: .7rem;
+  margin-bottom: 4px;
+  font-size: .75rem;
   font-weight: 700;
-  letter-spacing: .03em;
+  letter-spacing: .5px;
   text-transform: uppercase;
-  color: var(--adhoc-muted);
+  color: var(--adhoc-disabled);
 }
 
 .adhoc-tracking-value {
   overflow: hidden;
-  font-size: .9rem;
+  font-size: .95rem;
+  font-weight: 600;
   color: var(--adhoc-dark);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.adhoc-tracking-value i {
+  color: var(--adhoc-disabled);
+}
+
 .adhoc-tracking-strong {
-  font-weight: 700;
   color: var(--adhoc-primary);
 }
 
@@ -73,37 +128,53 @@
    plantillas está prohibido style="…", así que no puede venir del servidor. */
 .adhoc-tracking-swatch {
   flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
   background: var(--adhoc-disabled);
 }
 
-/* ── Leyenda de los cuatro umbrales ─────────────────────────────────────── */
-
+/* ── Leyenda de los cuatro umbrales (legacy .color-legend) ──────────────── */
+/* Cada umbral es una pastilla blanca con borde, no texto suelto. */
 .adhoc-tracking-legend {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: .35rem .85rem;
-  font-size: .8rem;
-  color: var(--adhoc-muted);
+  gap: 10px;
+  margin-top: 5px;
 }
 
 .adhoc-legend-item {
   display: inline-flex;
   align-items: center;
-  gap: .3rem;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--adhoc-dark);
+  background: var(--adhoc-surface);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 6px;
 }
 
 .adhoc-legend-dot {
   display: inline-block;
-  width: .8rem;
-  height: .8rem;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
 }
+
+/* Los puntos de la leyenda llevan los mismos hex que las celdas. */
+.adhoc-legend-dot.adhoc-state-white  { background: var(--adhoc-surface); border: 1px solid #ccc; }
+.adhoc-legend-dot.adhoc-state-red    { background: #ff7675; border: 0; }
+.adhoc-legend-dot.adhoc-state-yellow { background: #fdcb6e; border: 0; }
+.adhoc-legend-dot.adhoc-state-green  { background: #55efc4; border: 0; }
 
 .adhoc-legend-doc {
   display: inline-flex;
   align-items: center;
   gap: .25rem;
+  font-size: .8rem;
   font-weight: 600;
   color: var(--adhoc-primary);
   text-decoration: none;
@@ -114,13 +185,14 @@
   text-decoration: underline;
 }
 
-/* Confirmación de guardado. El JS quita/pone el atributo hidden; la
-   transición hace el resto (el legacy alternaba una clase .show a mano). */
+/* Confirmación de guardado (legacy .save-indicator). El JS quita/pone el
+   atributo hidden; el legacy alternaba una clase .show a mano. */
 .adhoc-tracking-saved {
   display: inline-flex;
   align-items: center;
-  gap: .25rem;
+  gap: 5px;
   margin-left: auto;
+  font-size: .8rem;
   font-weight: 600;
   color: var(--adhoc-success);
 }
@@ -129,102 +201,199 @@
   display: none;
 }
 
-/* ── Rejilla de periodos ────────────────────────────────────────────────── */
-
+/* ── Rejilla de periodos (legacy .tracking-table) ───────────────────────── */
+/* Solo scroll horizontal: el legacy no acota la altura. */
 .adhoc-tracking-grid {
-  max-height: 60vh;
-  overflow: auto;
+  overflow-x: auto;
+  background: var(--adhoc-surface);
 }
 
 .adhoc-tracking-table {
-  min-width: max-content;
+  width: 100%;
+  min-width: 800px;
+  font-size: 1rem;
 }
 
+/* Línea en las CUATRO caras: es lo que da el aspecto de rejilla. */
 .adhoc-tracking-table th,
 .adhoc-tracking-table td {
-  padding: .35rem .4rem;
-  white-space: nowrap;
+  min-width: 120px;
+  padding: 12px;
+  text-align: center;
+  border: 1px solid var(--adhoc-line);
+}
+
+.adhoc-tracking-table thead th {
+  height: auto;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--adhoc-muted);
+  background: #f1f2f6;
+}
+
+/* Sin realce al pasar por encima: aquí cada celda es un campo, no una fila
+   clicable (el legacy tampoco lo tenía). */
+.adhoc-tracking-table tbody tr:hover {
+  background-color: var(--adhoc-surface);
+}
+
+.adhoc-tracking-table tbody tr.adhoc-tracking-plan,
+.adhoc-tracking-table tbody tr.adhoc-tracking-plan:hover {
+  background-color: #fdfdfd;
+}
+
+.adhoc-tracking-plan-val {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #7f8c8d;
 }
 
 /* Primera columna congelada. En la fila de encabezado se suma al sticky
-   vertical que ya trae .adhoc-table thead th, así que se queda fija en las dos
-   direcciones y necesita ganar la capa. */
+   vertical de .adhoc-table thead th, así que gana la capa en las dos. */
 .adhoc-tracking-sticky {
   position: sticky;
   left: 0;
-  z-index: 3;
-  min-width: 7.5rem;
+  z-index: 2;
+  min-width: 150px;
   font-weight: 700;
+  color: var(--adhoc-dark);
+  background: #fafafa;
+  box-shadow: 2px 0 5px rgba(0, 0, 0, .02);
+}
+
+.adhoc-tracking-table th.adhoc-tracking-sticky,
+.adhoc-tracking-table td.adhoc-tracking-sticky {
   text-align: left;
-  background: var(--adhoc-soft);
+  border-right: 2px solid var(--adhoc-border);
 }
 
 .adhoc-tracking-table thead .adhoc-tracking-sticky {
   z-index: 4;
+  color: var(--adhoc-dark);
+  background: #fafafa;
 }
 
-.adhoc-tracking-plan {
-  color: var(--adhoc-muted);
-  background: var(--adhoc-soft);
-}
-
-.adhoc-tracking-plan td {
-  font-variant-numeric: tabular-nums;
-}
-
+/* ── Celda de captura (legacy .real-input-wrapper) ──────────────────────── */
+/* El tope de ancho solo actua cuando el indicador tiene UN periodo (frecuencia
+   anual): sin el, la unica columna se come toda la fila y el campo sale de
+   1000px. En las rejillas de 12 o 52 celdas la caja mide menos que el tope y
+   la regla no interviene. */
 .adhoc-tracking-cell-box {
   display: flex;
   flex-direction: column;
-  gap: .2rem;
-  min-width: 5.5rem;
+  align-items: center;
+  gap: 6px;
+  max-width: 10rem;
+  margin: 0 auto;
 }
 
-/* Input y select comparten la clase de estado, que les da fondo y color. */
-.adhoc-tracking-input,
-.adhoc-tracking-color {
-  width: 100%;
-  padding: .2rem .35rem;
-  font-size: .8rem;
+.adhoc-tracking-input {
+  width: 80%;
+  padding: 6px;
+  font-family: inherit;
+  font-weight: 600;
   text-align: center;
   border: 1px solid var(--adhoc-border);
-  border-radius: 5px;
+  border-radius: 6px;
+  outline: none;
+  transition: .2s;
 }
 
-.adhoc-tracking-input:focus,
-.adhoc-tracking-color:focus {
-  outline: 2px solid var(--adhoc-primary);
-  outline-offset: -1px;
+.adhoc-tracking-input:focus {
+  border-color: var(--adhoc-primary);
 }
 
+/* Solo lectura: el legacy quita el recuadro y agranda el número. */
 .adhoc-tracking-input:disabled {
-  color: var(--adhoc-muted);
-  cursor: not-allowed;
+  font-size: 1.1rem;
+  color: var(--adhoc-dark);
+  background: transparent;
+  border: none;
+}
+
+/* Un guardado fallido deja la celda marcada (la clase la pone tracking.js). */
+.adhoc-tracking-invalid {
+  border-color: var(--adhoc-danger);
+  box-shadow: 0 0 0 2px #ffeaea;
 }
 
 .adhoc-tracking-color {
-  font-size: .7rem;
+  width: 80%;
+  padding: 4px;
+  font-family: inherit;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--adhoc-dark);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
 }
 
-/* ── Pie de la tarjeta ──────────────────────────────────────────────────── */
+/* ── Colores de estado, ACOTADOS a esta rejilla ─────────────────────────── */
+/* Son los cuatro fondos del legacy (.bg-blanco/.bg-rojo/.bg-amarillo/.bg-verde
+   de indicators_tracking.css). Se tiñen input Y <select>, igual que allí: el
+   JS del legacy le añadía la misma clase a los dos. */
+.adhoc-tracking-input.adhoc-state-white,
+.adhoc-tracking-color.adhoc-state-white {
+  color: var(--adhoc-dark);
+  background-color: var(--adhoc-surface);
+  border-color: var(--adhoc-border);
+}
 
+.adhoc-tracking-input.adhoc-state-red,
+.adhoc-tracking-color.adhoc-state-red {
+  color: #fff;
+  background-color: #ff7675;
+  border-color: #d63031;
+}
+
+.adhoc-tracking-input.adhoc-state-yellow,
+.adhoc-tracking-color.adhoc-state-yellow {
+  color: var(--adhoc-dark);
+  background-color: #fdcb6e;
+  border-color: var(--adhoc-state-yellow);
+}
+
+.adhoc-tracking-input.adhoc-state-green,
+.adhoc-tracking-color.adhoc-state-green {
+  color: var(--adhoc-dark);
+  background-color: #55efc4;
+  border-color: #00b894;
+}
+
+/* ── Pie de la tarjeta (legacy .tc-footer) ──────────────────────────────── */
 .adhoc-tracking-foot {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: .35rem 1.1rem;
-  margin-top: .85rem;
-  padding-top: .7rem;
-  font-size: .82rem;
+  gap: 20px;
+  padding: 15px 25px;
+  font-size: .85rem;
   color: var(--adhoc-muted);
-  border-top: 1px solid var(--adhoc-border);
+  background: #fdfdfd;
+  border-top: 1px solid var(--adhoc-line);
 }
 
 .adhoc-tracking-planb {
   color: var(--adhoc-danger);
 }
 
+/* Barra de scroll de la rejilla, como en el legacy. */
+.adhoc-tracking-grid::-webkit-scrollbar {
+  height: 10px;
+}
+
+.adhoc-tracking-grid::-webkit-scrollbar-track {
+  background: #f1f2f6;
+}
+
+.adhoc-tracking-grid::-webkit-scrollbar-thumb {
+  background: var(--adhoc-disabled);
+  border-radius: 10px;
+}
+
 @media print {
   .adhoc-tracking-grid {
-    max-height: none;
     overflow: visible;
   }
 }

@@ -134,14 +134,14 @@
         return U.fetchJson(this.api, { method: 'PUT', body: JSON.stringify(body) })
             .then(function (payload) {
                 var saved = (payload && payload.data) || {};
-                if (cell.input) cell.input.classList.remove('is-invalid');
+                if (cell.input) cell.input.classList.remove('adhoc-tracking-invalid');
                 if (saved.color) self.applyColor(cell, saved.color);
                 self.flagSaved(cell.indicatorId);
             })
             .catch(function (err) {
                 // El legacy se comía el error con un console.error: el usuario
                 // veía su valor en pantalla y lo daba por guardado.
-                if (cell.input) cell.input.classList.add('is-invalid');
+                if (cell.input) cell.input.classList.add('adhoc-tracking-invalid');
                 toast('No se pudo guardar el periodo ' + cell.periodIndex + ': ' + err.message, 'error');
             });
     };

@@ -11,6 +11,10 @@
    `confirm()` para borrar y URLs con el prefijo inexistente `/app_prueba/api/…`
    que devolvía 404 en silencio.
 
+   ASPECTO: el legacy mete el h2 y el botón "Volver" DENTRO del recuadro
+   blanco y estira el contenedor al 98%. Como la macro es compartida (y es del
+   agente del shell), eso se consigue desde document-catalogs.css sin tocarla.
+
    Los flags can_* solo ocultan botones; el gate real lo ponen require_page_app
    en la ruta y require_perms en la API.
    =========================================================================== #}
@@ -19,17 +23,22 @@
 
 {% block title %}Categorías de documento · Calidad{% endblock %}
 
+{% block body_class %}adhoc-wide{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/documents/document-catalogs.css?v={{ sv('css/documents/document-catalogs.css') }}">
+{% endblock %}
+
 {% block content %}
 {{ catalog_page(
-     "Categorías de documento",
+     "Categorías de Documentos",
      "document-categories",
      "/api/adhoc/v2/document-categories",
      back_url,
      singular="categoría",
      plural="categorías",
-     subtitle="Catálogo de clasificación temática de los documentos del SGC",
-     icon="bi-tags",
-     name_label="Nombre",
+     icon="fa-solid fa-tags",
+     name_label="Nombre Categoría",
      can_create=can_create,
      can_update=can_update,
      can_delete=can_delete) }}

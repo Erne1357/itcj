@@ -4,18 +4,25 @@
 
    Origen legacy: templates/app_prueba/documents/documents.html.
 
+   ASPECTO: porte 1:1 del original. Saludo "Hola, <nombre>, estos son tus
+   documentos:" dentro del recuadro blanco, botonera Limpiar/Filtrar alineada a
+   la derecha y tabla con la FILA DE FILTROS bajo la cabecera.
+
    Qué cambia respecto del legacy:
    * Los cuatro <select> de filtro (categoría, área, proceso, clasificación)
      ahora RECIBEN sus opciones. En el legacy el template las iteraba pero la
      ruta solo pasaba `documentos`, así que salían vacíos en silencio (bug #28).
    * El filtrado y la paginación son de SERVIDOR (GET /api/adhoc/v2/documents).
      El legacy filtraba en el DOM por índice de columna: con paginación eso solo
-     filtraría la página visible, y añadir una <td> desalineaba todo.
-   * Cero CSS inline y cero manejadores inline. Iconos Bootstrap Icons.
+     filtraría la página visible, y añadir una <td> desalineaba todo. Por eso la
+     fila de filtros se escribe A MANO con `data-adhoc-doc-filter` en vez de con
+     el `filter` de la macro data_table(), que instala el filtrado de DOM.
+   * La API expone un único texto libre (`q`, código O nombre), así que donde el
+     legacy tenía tres cajas (código, nombre, versión) aquí hay una.
+   * Cero CSS inline y cero manejadores inline. Iconos Font Awesome 6.4.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import page_header, data_table, filter_bar,
-        form_field, select_field, page_data_script %}
+{% from "adhoc/partials/_macros.html" import page_data_script %}
 
 {% block title %}Documentos · Calidad{% endblock %}
 
@@ -24,76 +31,122 @@
 {% endblock %}
 
 {% block content %}
+{%- set _nombre = (current_user.name if current_user else None) or 'Usuario' %}
 <section class="adhoc-documents" data-adhoc-documents>
 
-  {{ page_header(
-       "Documentos",
-       "Consulta del sistema de gestión de calidad",
-       "bi-file-earmark-text") }}
+  <div class="adhoc-card adhoc-doc-card">
 
-  <div class="adhoc-card">
-    {% call filter_bar(clear=False) %}
-      {{ form_field('q', 'Código o nombre', 'search',
-                    placeholder='Buscar...',
-                    attrs={'data-adhoc-doc-filter': 'q'}) }}
-      {{ select_field('status', 'Estatus', status_options,
-                      placeholder='Todos',
-                      attrs={'data-adhoc-doc-filter': 'status'}) }}
-      {{ select_field('category_id', 'Categoría', categoria_options,
-                      placeholder='Todas',
-                      attrs={'data-adhoc-doc-filter': 'category_id'}) }}
-      {{ select_field('area_id', 'Área', area_options,
-                      placeholder='Todas',
-                      attrs={'data-adhoc-doc-filter': 'area_id'}) }}
-      {{ select_field('process_id', 'Proceso', proceso_options,
-                      placeholder='Todos',
-                      attrs={'data-adhoc-doc-filter': 'process_id'}) }}
-      {{ select_field('classification_id', 'Clasificación', clasificacion_options,
-                      placeholder='Todas',
-                      attrs={'data-adhoc-doc-filter': 'classification_id'}) }}
-    {% endcall %}
-
-    <div class="adhoc-toolbar adhoc-toolbar-between">
-      <span class="adhoc-doc-count" data-adhoc-doc-count aria-live="polite"></span>
-      <span class="adhoc-doc-buttons">
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-adhoc-doc-clear>
-          <i class="bi bi-eraser"></i>
-          <span class="d-none d-sm-inline">Limpiar</span>
-        </button>
-        <button type="button" class="btn btn-sm btn-primary" data-adhoc-doc-apply>
-          <i class="bi bi-funnel"></i>
-          <span class="d-none d-sm-inline">Filtrar</span>
-        </button>
-      </span>
+    <div class="adhoc-doc-greeting">
+      <h1 class="adhoc-doc-greeting-title">
+        Hola, <span class="adhoc-doc-greeting-name">{{ _nombre }}</span>, estos son tus documentos:
+      </h1>
     </div>
 
-    {{ data_table(
-         'adhoc-documents-table',
-         [
-           {'key': 'code', 'label': 'Código'},
-           {'key': 'title', 'label': 'Nombre del documento'},
-           {'key': 'version', 'label': 'Versión'},
-           {'key': 'status', 'label': 'Estatus'},
-           {'key': 'file', 'label': 'Archivo', 'align': 'center'},
-           {'key': 'category', 'label': 'Categoría'},
-           {'key': 'area', 'label': 'Área'},
-           {'key': 'process', 'label': 'Proceso'},
-           {'key': 'classification', 'label': 'Clasificación'},
-           {'key': 'approval_date', 'label': 'Aprobación'}
-         ],
-         'No hay documentos que coincidan con los filtros.',
-         'bi-file-earmark-text',
-         width='xl') }}
+    <div class="adhoc-doc-controls">
+      <button type="button" class="btn btn-secondary" data-adhoc-doc-clear>
+        <i class="fa-solid fa-eraser"></i> Limpiar
+      </button>
+      <button type="button" class="btn btn-primary" data-adhoc-doc-apply>
+        <i class="fa-solid fa-filter"></i> Filtrar
+      </button>
+    </div>
+
+    <div class="adhoc-table-wrap" data-adhoc-table-wrap>
+      <table class="adhoc-table adhoc-table-lg" id="adhoc-documents-table"
+             data-adhoc-table="adhoc-documents-table">
+        <thead>
+          <tr>
+            <th scope="col" class="adhoc-col-start">Código</th>
+            <th scope="col" class="adhoc-col-start">Nombre Doc</th>
+            <th scope="col" class="adhoc-col-start">Versión / Estatus</th>
+            <th scope="col" class="adhoc-col-center">Enlace</th>
+            <th scope="col" class="adhoc-col-start">Categoría</th>
+            <th scope="col" class="adhoc-col-start">Área</th>
+            <th scope="col" class="adhoc-col-start">Proceso</th>
+            <th scope="col" class="adhoc-col-start">Clasificación</th>
+            <th scope="col" class="adhoc-col-start">Aprobación</th>
+          </tr>
+          <tr class="adhoc-filter-row">
+            <th>
+              <input type="search" name="q" class="adhoc-doc-filter"
+                     data-adhoc-doc-filter="q" placeholder="Buscar Código..."
+                     aria-label="Buscar por código o nombre del documento">
+            </th>
+            <th></th>
+            <th>
+              <select name="status" class="adhoc-doc-filter" data-adhoc-doc-filter="status"
+                      aria-label="Filtrar por estatus">
+                <option value="">Todos</option>
+                {%- for s in status_options %}
+                <option value="{{ s }}">{{ s }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th></th>
+            <th>
+              <select name="category_id" class="adhoc-doc-filter" data-adhoc-doc-filter="category_id"
+                      aria-label="Filtrar por categoría">
+                <option value="">Todas</option>
+                {%- for o in categoria_options %}
+                <option value="{{ o.value }}">{{ o.label }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th>
+              <select name="area_id" class="adhoc-doc-filter" data-adhoc-doc-filter="area_id"
+                      aria-label="Filtrar por área">
+                <option value="">Todas</option>
+                {%- for o in area_options %}
+                <option value="{{ o.value }}">{{ o.label }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th>
+              <select name="process_id" class="adhoc-doc-filter" data-adhoc-doc-filter="process_id"
+                      aria-label="Filtrar por proceso">
+                <option value="">Todos</option>
+                {%- for o in proceso_options %}
+                <option value="{{ o.value }}">{{ o.label }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th>
+              <select name="classification_id" class="adhoc-doc-filter"
+                      data-adhoc-doc-filter="classification_id"
+                      aria-label="Filtrar por clasificación">
+                <option value="">Todas</option>
+                {%- for o in clasificacion_options %}
+                <option value="{{ o.value }}">{{ o.label }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="adhoc-documents-table-body" data-adhoc-table-body>
+          <tr class="adhoc-table-empty" data-adhoc-empty>
+            <td colspan="9">
+              <div class="adhoc-empty">
+                <i class="fa-solid fa-folder-open adhoc-empty-icon"></i>
+                <p class="adhoc-empty-text mb-0">
+                  No hay documentos registrados para mostrar en el reporte.
+                </p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <nav class="adhoc-pager" data-adhoc-pager aria-label="Paginación de documentos" hidden>
-      <button type="button" class="btn btn-sm btn-outline-secondary" data-adhoc-page="prev">
-        <i class="bi bi-chevron-left"></i>
+      <button type="button" class="btn btn-sm btn-secondary" data-adhoc-page="prev">
+        <i class="fa-solid fa-chevron-left"></i>
         <span class="d-none d-sm-inline">Anterior</span>
       </button>
       <span class="adhoc-pager-info" data-adhoc-page-info aria-live="polite"></span>
-      <button type="button" class="btn btn-sm btn-outline-secondary" data-adhoc-page="next">
+      <button type="button" class="btn btn-sm btn-secondary" data-adhoc-page="next">
         <span class="d-none d-sm-inline">Siguiente</span>
-        <i class="bi bi-chevron-right"></i>
+        <i class="fa-solid fa-chevron-right"></i>
       </button>
     </nav>
   </div>

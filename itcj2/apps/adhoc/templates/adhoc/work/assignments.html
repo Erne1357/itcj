@@ -14,6 +14,13 @@
      step_assign  → PUT /api/adhoc/v2/approval-flows/steps/{id}/validators
      notify_step  → PUT /api/adhoc/v2/approval-flows/steps/{id}/overdue-notifications
 
+   ASPECTO — porte de `templates/app_prueba/incidents/tasks_users.html`:
+   una tarjeta blanca al 98 %, título con el icono de la acción, la leyenda del
+   orden de aprobación debajo, la lista de personas con el interruptor de iOS
+   a la derecha y su badge de orden azul, y "Confirmar y Guardar" al pie, sobre
+   una línea separadora. El legacy dibujaba ese interruptor a mano en
+   `tasks_users.css`; aquí es el mismo checkbox del picker, vestido igual.
+
    Los usuarios los pinta `shared/user-picker.js` desde `page_data`, con
    `ordered=True`: el orden de selección ES el orden de aprobación, que es lo
    que la propia pantalla del legacy prometía en su leyenda. Nunca se emite un
@@ -26,33 +33,34 @@
 
 {% block title %}{{ page_title }} · Calidad · ITCJ{% endblock %}
 
+{% block body_class %}adhoc-assign-body adhoc-wide{% endblock %}
+
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/work/assignments.css?v={{ sv('css/work/assignments.css') }}">
 {% endblock %}
 
 {% block content %}
 <section class="adhoc-assign" data-adhoc-assign>
+  <div class="adhoc-card adhoc-assign-card">
 
-  {% call page_header(page_title, page_subtitle, page_icon) %}
-    {{ back_button(back_url) }}
-  {% endcall %}
+    {% call page_header(page_title, page_subtitle, page_icon) %}
+      {{ back_button(back_url, back_label|default('Volver', true)) }}
+    {% endcall %}
 
-  <div class="adhoc-card">
     {{ user_picker(
          'adhoc-assign-picker',
-         label='Personas',
          users_key='users',
          selected_key='selected_ids',
          name='user_ids',
          ordered=True,
-         help='El orden en el que marques a las personas es el orden secuencial de atención.') }}
+         search_placeholder='Buscar por nombre, correo o puesto...') }}
 
     <div class="adhoc-assign-actions">
-      <button type="button" class="btn btn-outline-secondary" data-adhoc-assign-cancel>
-        <i class="bi bi-x-lg"></i> Cancelar
+      <button type="button" class="btn adhoc-btn-clear" data-adhoc-assign-cancel>
+        <i class="fa-solid fa-xmark"></i> Cancelar
       </button>
-      <button type="button" class="btn btn-primary" data-adhoc-assign-save>
-        <i class="bi bi-floppy"></i> Confirmar y guardar
+      <button type="button" class="btn adhoc-btn-filter adhoc-assign-confirm" data-adhoc-assign-save>
+        <i class="fa-solid fa-floppy-disk"></i> Confirmar y Guardar
       </button>
     </div>
   </div>

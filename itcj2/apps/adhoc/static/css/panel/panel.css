@@ -1,44 +1,92 @@
 /* ==========================================================================
    panel/panel.css — rejilla del Panel de Control (/adhoc/panel).
 
+   PORTE de control_panel/control_panel.css sobre el `.card` de
+   dashboard/layout_dashboard.css (en el legacy la segunda hoja pisaba a la
+   primera: de ahí padding 20px y el icono a 1.5rem, pero conservando la
+   tarjeta horizontal con borde izquierdo violeta).
+
    La tarjeta base (.adhoc-tile, .adhoc-tile-grid) vive en adhoc.css: aquí solo
-   van los ajustes propios de esta pantalla. Nada de .card a secas — esa clase
+   van los valores propios de esta pantalla. Nada de .card a secas — esa clase
    es de Bootstrap y el legacy la pisaba (su JS enganchaba TODAS las .card de la
    página, incluidas las del layout).
    ========================================================================== */
 
+/* Título de sección del legacy (`.section-title`): contenedor a 1.5rem, así que
+   el <h2> queda en 1.5em de eso (36px) y el icono en 24px, ambos en el color
+   del texto — el icono NO va en violeta aquí. */
+.adhoc-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 25px;
+  font-size: 1.5rem;
+  color: var(--adhoc-dark);
+}
+
+/* El <h2> del legacy no declara line-height: hereda `normal`, que en Poppins
+   deja la caja en 55px (36px x ~1.53), no en los 43px de un 1.2. De ahi salian
+   12px de desfase que empujaban toda la rejilla hacia arriba. */
+.adhoc-panel-title {
+  margin: 0;
+  font-size: 1.5em;
+  font-weight: 700;
+}
+
+/* Rejilla de TRES columnas fijas (`.panel-grid`), no auto-fill. */
 .adhoc-panel-grid {
-  /* Tarjetas algo más anchas que el mínimo global: aquí llevan descripción. */
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
 }
 
+/* `.card` del legacy tras la cascada: padding 20px y ancho tope de 280px, que
+   es lo que deja el hueco entre columnas del original. */
 .adhoc-panel-grid .adhoc-tile {
-  /* Altura pareja aunque las descripciones ocupen una o dos líneas. */
-  justify-content: flex-start;
-  min-height: 11rem;
+  padding: 20px;
+  max-width: 280px;
+  text-align: center;
 }
 
-.adhoc-panel-grid .adhoc-tile-text {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  overflow: hidden;
+/* `.card-icon` de control_panel.css: 1.5rem y 10px de margen inferior (el
+   círculo sigue siendo el de 55px de layout_dashboard.css). */
+.adhoc-panel-grid .adhoc-tile-icon {
+  margin-bottom: 10px;
+  font-size: 1.5rem;
 }
 
-@media (max-width: 575.98px) {
-  .adhoc-panel-grid {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: .75rem;
-  }
+.adhoc-panel-grid .adhoc-tile-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
 
-  .adhoc-panel-grid .adhoc-tile {
-    min-height: 9rem;
-    padding: 1rem .75rem;
-  }
+@media (max-width: 992px) {
+  .adhoc-panel-grid { grid-template-columns: repeat(2, 1fr); }
+}
 
-  .adhoc-panel-grid .adhoc-tile-text {
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-  }
+@media (max-width: 600px) {
+  .adhoc-panel-grid { grid-template-columns: 1fr; }
+
+  .adhoc-panel-grid .adhoc-tile { max-width: none; }
+
+  .adhoc-panel-head { font-size: 1.25rem; }
+}
+
+/* ── La fila de navegación, SOLO en esta pantalla ──────────────────────────
+   No es un capricho: en el legacy, control_panel.html mete su <link> dentro de
+   `{% block content %}`. El navegador iza ese <link> al <head>, y como queda
+   DESPUES de layout_dashboard.css, las reglas `.card` / `.card-icon` de
+   control_panel.css pisan tambien a las tarjetas del menu superior — que usan
+   esas mismas clases. Resultado: en /panel_control (y solo ahi) el menu mide
+   105px en vez de 95, el glifo del icono va a 1.5rem y el texto arranca 5px
+   antes. Es un accidente de cascada del original, pero es lo que se ve, asi
+   que se reproduce acotado al <body> de esta pagina. */
+.adhoc-panel-page .adhoc-nav-link {
+  padding: 20px;
+  text-align: center;
+}
+
+.adhoc-panel-page .adhoc-nav-icon {
+  margin-bottom: 10px;
+  font-size: 1.5rem;
 }

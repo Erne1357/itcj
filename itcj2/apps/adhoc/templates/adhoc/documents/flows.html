@@ -5,17 +5,26 @@
    Origen legacy: templates/app_prueba/documents/documents_flows.html +
    static/js/documents/documents_flows.js.
 
+   ASPECTO: porte 1:1 del original. Contenedor al 98% (body.adhoc-wide), título
+   con el icono del diagrama DENTRO del recuadro blanco y el botón "Volver" en
+   su esquina superior derecha, botonera Limpiar/Filtrar a la derecha, tabla con
+   la fila de filtros bajo la cabecera, iconos de acción pelados (sin recuadro)
+   y "Añadir Nuevo Flujo" bajo la tabla.
+
    Qué cambia respecto del legacy:
-   * El modal `.modal-overlay` con `style.display='flex'` es un bootstrap.Modal
-     en {% block modals %}, y el `confirm('¿Borrar este flujo?')` pasa a
-     AdhocUtils.confirmDialog (que devuelve Promise<boolean>).
+   * El modal `.modal-overlay` con display flex forzado desde JS es un
+     bootstrap.Modal en el bloque de modales, y el confirm() nativo para borrar
+     pasa a AdhocUtils.confirmDialog (que devuelve Promise<boolean>).
    * El legacy abría el modal de edición al pulsar CUALQUIER punto de la fila,
-     incluidos los botones: había que meter `stopPropagation()` en cada uno.
+     incluidos los botones: había que meter stopPropagation() en cada uno.
      Aquí cada acción tiene su botón con su `data-adhoc-flow-action`.
    * Desaparece el botón "Documentos Asociados", que no tenía handler ni
      data-* (analysis src_paginas.md, línea 340).
    * "Configurar pasos" es un <a> de verdad (se puede abrir en otra pestaña),
-     no un `window.location.href` dentro de un listener.
+     no un window.location.href dentro de un listener.
+   * Se añaden dos columnas que el legacy no tenía (descripción y número de
+     pasos) porque la API ya las devuelve y sin ellas la tabla de flujos no
+     dice nada.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
 {% from "adhoc/partials/_macros.html" import page_header, back_button, data_table,
@@ -23,39 +32,51 @@
 
 {% block title %}Flujos de aprobación · Calidad{% endblock %}
 
+{% block body_class %}adhoc-wide{% endblock %}
+
 {% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/documents/documents.css?v={{ sv('css/documents/documents.css') }}">
 <link rel="stylesheet" href="/static/adhoc/css/documents/flows.css?v={{ sv('css/documents/flows.css') }}">
 {% endblock %}
 
 {% block content %}
 <section class="adhoc-flows" data-adhoc-flows>
 
-  {% call page_header(
-       "Flujos de aprobación",
-       "Secuencia de pasos por la que pasa un documento hasta quedar aprobado",
-       "bi-diagram-3") %}
-    {{ back_button(back_url) }}
-    {%- if can_create %}
-    <button type="button" class="btn btn-sm btn-primary" data-adhoc-flow-new>
-      <i class="bi bi-plus-lg"></i>
-      <span class="d-none d-sm-inline">Nuevo flujo</span>
-    </button>
-    {%- endif %}
-  {% endcall %}
+  <div class="adhoc-card adhoc-doc-card">
 
-  <div class="adhoc-card">
+    {% call page_header("Flujos de Aprobación", None, "fa-solid fa-diagram-project") %}
+      {{ back_button(back_url, 'Volver a Documentos') }}
+    {% endcall %}
+
+    <div class="adhoc-doc-controls adhoc-doc-controls-sm">
+      <button type="button" class="btn btn-sm btn-secondary"
+              data-adhoc-filter-clear="adhoc-flows-table">
+        Limpiar
+      </button>
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-flow-apply>
+        Filtrar
+      </button>
+    </div>
+
     {{ data_table(
          'adhoc-flows-table',
          [
-           {'key': 'name', 'label': 'Nombre del flujo', 'filter': true,
+           {'key': 'name', 'label': 'Nombre del Flujo', 'filter': true,
             'placeholder': 'Buscar flujo...'},
            {'key': 'description', 'label': 'Descripción'},
            {'key': 'steps', 'label': 'Pasos', 'align': 'center'},
-           {'key': 'actions', 'label': 'Acciones', 'align': 'end'}
+           {'key': 'actions', 'label': 'Configuración', 'align': 'center'}
          ],
-         'No hay flujos de aprobación registrados.',
-         'bi-diagram-3',
-         width='md') }}
+         'No hay flujos registrados.',
+         'fa-solid fa-diagram-project') }}
+
+    {%- if can_create %}
+    <div class="adhoc-doc-bottom">
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-flow-new>
+        <i class="fa-solid fa-plus"></i> Añadir Nuevo Flujo
+      </button>
+    </div>
+    {%- endif %}
   </div>
 
 </section>
@@ -64,16 +85,16 @@
 {% block modals %}
 <div class="modal fade" id="adhoc-flow-modal" tabindex="-1"
      aria-labelledby="adhoc-flow-modal-title" aria-hidden="true" data-adhoc-flow-modal>
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="adhoc-flow-modal-title" data-adhoc-flow-modal-title>
-          <i class="bi bi-diagram-3 me-2"></i>Nuevo flujo
+          <i class="fa-solid fa-diagram-project me-2"></i>Gestión de Flujo
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
-        {{ form_field('name', 'Nombre del flujo', required=True,
+        {{ form_field('name', 'Nombre del Flujo', required=True,
                       placeholder='Ej: Revisión de Calidad',
                       id='adhoc-flow-name',
                       attrs={'maxlength': '100'}) }}
@@ -83,9 +104,9 @@
                       attrs={'maxlength': '255'}) }}
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primary" data-adhoc-flow-save>
-          <i class="bi bi-floppy"></i> Guardar
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-flow-save>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar
         </button>
       </div>
     </div>

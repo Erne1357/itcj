@@ -73,8 +73,8 @@ REPORT_META: Final[dict[str, dict[str, str]]] = {
         "sheet": "Usuarios y Areas",
         "file_prefix": "Reporte_Areas_Usuarios",
         "subject": "users",
-        "icon": "bi-layers-fill",
-        "icon_overlay": "bi-people-fill",
+        "icon": "fa-solid fa-layer-group",
+        "icon_overlay": "fa-solid fa-users",
     },
     "usuarios_tareas": {
         "title": "Reporte de Usuarios y Tareas",
@@ -82,8 +82,8 @@ REPORT_META: Final[dict[str, dict[str, str]]] = {
         "sheet": "Tareas",
         "file_prefix": "Reporte_Usuarios_Tareas",
         "subject": "users",
-        "icon": "bi-person-badge-fill",
-        "icon_overlay": "bi-list-check",
+        "icon": "fa-solid fa-user-tie",
+        "icon_overlay": "fa-solid fa-list-check",
     },
     "usuarios_documentos": {
         "title": "Reporte de Usuarios y Documentos",
@@ -91,8 +91,8 @@ REPORT_META: Final[dict[str, dict[str, str]]] = {
         "sheet": "UsuariosDocumentos",
         "file_prefix": "Reporte_Usuarios_Documentos",
         "subject": "users",
-        "icon": "bi-people-fill",
-        "icon_overlay": "bi-file-earmark-pdf-fill",
+        "icon": "fa-solid fa-users",
+        "icon_overlay": "fa-solid fa-file-pdf",
     },
     "documentos_usuarios": {
         "title": "Reporte de Documentos y Usuarios",
@@ -100,8 +100,8 @@ REPORT_META: Final[dict[str, dict[str, str]]] = {
         "sheet": "DocumentosUsuarios",
         "file_prefix": "Reporte_Documentos_Usuarios",
         "subject": "documents",
-        "icon": "bi-file-earmark-text-fill",
-        "icon_overlay": "bi-person-check-fill",
+        "icon": "fa-solid fa-file-signature",
+        "icon_overlay": "fa-solid fa-user-tag",
     },
     "documentos_notas": {
         "title": "Reporte de Documentos y Notas",
@@ -109,8 +109,8 @@ REPORT_META: Final[dict[str, dict[str, str]]] = {
         "sheet": "DocumentosNotas",
         "file_prefix": "Reporte_Documentos_Notas",
         "subject": "documents",
-        "icon": "bi-file-earmark-text-fill",
-        "icon_overlay": "bi-sticky-fill",
+        "icon": "fa-solid fa-file-lines",
+        "icon_overlay": "fa-solid fa-note-sticky",
     },
 }
 

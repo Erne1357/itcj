@@ -30,24 +30,26 @@
          data-adhoc-can-assign-role="{{ 1 if can_assign_role else 0 }}"
          data-adhoc-can-assign-areas="{{ 1 if can_assign_areas else 0 }}">
 
-  {% call page_header("Usuarios", "Rol dentro de Calidad y áreas asignadas.", "bi-people") %}
-    {{ back_button("/adhoc/panel", "Volver al panel") }}
-    <a class="btn btn-sm btn-outline-primary" href="{{ core_config_url }}">
-      <i class="bi bi-person-gear"></i>
-      <span class="d-none d-sm-inline">Administrar personas</span>
-    </a>
-  {% endcall %}
-
-  <div class="alert alert-secondary adhoc-users-note" role="note">
-    <i class="bi bi-info-circle me-2"></i>
-    Aquí solo se administra lo que es de Calidad: el <strong>rol dentro de la app</strong> y las
-    <strong>áreas</strong>. El alta de personas, las contraseñas y el acceso a la aplicación se
-    gestionan en <a href="{{ core_config_url }}">Configuración del ITCJ</a>.
-  </div>
-
+  {# Encabezado, aviso y tabla DENTRO de la tarjeta blanca, como el legacy
+     (`.table-container` con el título arriba y "Volver" en su esquina). #}
   <div class="adhoc-card">
+    {% call page_header("Usuarios", None, "fa-solid fa-users") %}
+      {{ back_button("/adhoc/panel", "Volver al Panel") }}
+      <a class="btn btn-sm btn-outline-primary" href="{{ core_config_url }}">
+        <i class="fa-solid fa-user-gear"></i>
+        <span class="d-none d-sm-inline">Administrar personas</span>
+      </a>
+    {% endcall %}
+
+    <div class="alert alert-secondary adhoc-users-note" role="note">
+      <i class="fa-solid fa-circle-info me-2"></i>
+      Aquí solo se administra lo que es de Calidad: el <strong>rol dentro de la app</strong> y las
+      <strong>áreas</strong>. El alta de personas, las contraseñas y el acceso a la aplicación se
+      gestionan en <a href="{{ core_config_url }}">Configuración del ITCJ</a>.
+    </div>
+
     {{ data_table('adhoc-users-table', columns,
-                  'No hay usuarios con acceso a Calidad.', 'bi-person-x', width='lg') }}
+                  'No hay usuarios con acceso a Calidad.', 'fa-solid fa-user-slash', width='lg') }}
   </div>
 </section>
 {% endblock %}
@@ -60,7 +62,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="adhoc-users-role-title">
-          <i class="bi bi-person-badge me-2"></i>Rol en Calidad
+          <i class="fa-solid fa-user-tag me-2"></i>Rol en Calidad
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
@@ -74,7 +76,7 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" class="btn btn-primary" data-adhoc-users-save-role>
-          <i class="bi bi-check-lg"></i> Guardar
+          <i class="fa-solid fa-check"></i> Guardar
         </button>
       </div>
     </div>
@@ -89,7 +91,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="adhoc-users-areas-title">
-          <i class="bi bi-layers me-2"></i>Áreas asignadas
+          <i class="fa-solid fa-layer-group me-2"></i>Áreas asignadas
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
@@ -100,7 +102,7 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" class="btn btn-primary" data-adhoc-users-save-areas>
-          <i class="bi bi-check-lg"></i> Guardar
+          <i class="fa-solid fa-check"></i> Guardar
         </button>
       </div>
     </div>

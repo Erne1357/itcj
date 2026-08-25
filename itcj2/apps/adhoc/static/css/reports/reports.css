@@ -1,29 +1,105 @@
 /* ==========================================================================
    reports/reports.css — Centro de Reportes (pantalla de selección).
 
-   Molde legacy: static/css/control_panel/reports.css, del que se descartan:
-     · los 8 bloques de `.modal-overlay` / `.modal-content` / `.modal-header` /
-       `.modal-footer` (colisionaban de frente con Bootstrap 5.3 y ahora el
-       modal ES de Bootstrap);
-     · `.doc-table`, `.filter-input`, `.btn-action` y sus 6 variantes de color,
-       que ya viven en adhoc.css como `.adhoc-table` / `.adhoc-filter-input` y
-       como las clases de botón de Bootstrap;
-     · los 12 hex sueltos: aquí todo sale de los tokens `--adhoc-...`.
+   PORTE 1:1 de static/css/control_panel/reports.css del legacy (ojo: la
+   pantalla de selección usa la hoja de `control_panel/`, no la de `reports/`).
+   Se conservan sus valores exactos: 35px de padding en la tarjeta, rejilla
+   `auto-fit minmax(240px, 1fr)` con 25px de hueco, tarjeta gris #f8f9fa con
+   borde #ecf0f3, icono base de 3rem en #dfe6e9 y su icono superpuesto de 1.5rem
+   en el color de marca.
 
-   Solo queda lo específico de esta pantalla: la tarjeta con el icono
-   superpuesto y la caja de la vista previa dentro del modal.
+   Lo que NO se copia del legacy porque ya vive en adhoc.css: `.doc-table`
+   (→ `.adhoc-table`), `.filter-input` (→ `.adhoc-filter-input`), `.btn-action`
+   y sus variantes (→ `.btn` + `.adhoc-btn-clear`), y el overlay del modal
+   (`.modal-overlay`/`.modal-content` → los alias sin prefijo de la §9).
    ========================================================================== */
 
-/* ── Tarjeta de reporte ────────────────────────────────────────────────── */
-/* Es un <button> (el legacy usaba un <div> con onclick, que ni es focusable
-   ni responde a Enter). Hereda .adhoc-tile y solo anula lo que el agente de
-   usuario le impone a los botones. */
+/* ── La tarjeta contenedora (legacy `.table-container`) ─────────────────── */
+/* `.adhoc-card` trae 25px; el legacy usa 35px en esta pantalla. */
+.adhoc-reports {
+  padding: 35px;
+}
+
+/* "Volver al Panel": anclado a la esquina, como el `.btn-back-panel` del
+   legacy (position:absolute; top:25px; right:25px). */
+.adhoc-reports-back {
+  position: absolute;
+  top: 25px;
+  right: 25px;
+  z-index: 10;
+}
+
+/* Encabezado (legacy `.header-title`): flex de [icono, texto] con 15px de
+   hueco, centrado en vertical y 30px hasta la rejilla. El hueco de la derecha
+   deja sitio al botón anclado. */
+.adhoc-reports-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 30px;
+  padding-right: 170px;
+}
+
+.adhoc-reports-head-icon {
+  flex: 0 0 auto;
+  font-size: 2rem;
+  color: var(--adhoc-primary);
+}
+
+/* El <h2> del legacy: 1.5rem y la negrita del navegador (700, que Poppins
+   sintetiza porque solo se cargan 300/400/600). El `.adhoc-page-title` general
+   va a 600 y se vería más fino. */
+.adhoc-reports-head .adhoc-page-title {
+  font-weight: 700;
+}
+
+/* El subtítulo del legacy es un <p> normal: 16px y peso 400, no el 0.9rem/300
+   del subtítulo genérico de página. */
+.adhoc-reports-head .adhoc-page-subtitle {
+  margin-top: 5px;
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+/* ── Rejilla y tarjetas de reporte ─────────────────────────────────────── */
+.adhoc-reports-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 25px;
+  margin-top: 20px;
+}
+
+/* Es un <button> (el legacy usaba un <div> con listener: ni focusable ni
+   operable con teclado). De ahí `font: inherit` y `appearance: none`: lo demás
+   son los valores literales de `.report-card`. */
 .adhoc-report-card {
+  /* Columna en vez de bloque por un detalle del agente de usuario: el contenido
+     de un <button> más alto que su contenido se centra en vertical, y como la
+     rejilla estira las cinco tarjetas a la altura de la más alta, las de título
+     de una sola línea bajaban 13px respecto al legacy, que usa un <div>. */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
   width: 100%;
-  font: inherit;
+  padding: 30px 20px;
   color: inherit;
+  font: inherit;
+  text-align: center;
+  background: var(--adhoc-soft);
+  border: 1px solid var(--adhoc-line);
+  border-radius: var(--adhoc-radius);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, .02);
   cursor: pointer;
   appearance: none;
+  transition: all .3s ease;
+}
+
+.adhoc-report-card:hover {
+  background: var(--adhoc-surface);
+  border-color: var(--adhoc-primary);
+  box-shadow: 0 12px 20px rgba(0, 0, 0, .08);
+  transform: translateY(-5px);
 }
 
 .adhoc-report-card:focus-visible {
@@ -31,65 +107,149 @@
   outline-offset: 2px;
 }
 
-/* Icono base + icono superpuesto abajo a la derecha. */
+/* Icono base + icono superpuesto abajo a la derecha (legacy `.icon-wrapper`).
+   `line-height: normal` no es adorno: es la caja de línea del icono de 3rem que
+   va dentro. Con el `line-height: 1.5` que la app hereda del <body> mediría
+   72px en vez de 48 y el glifo se pintaría 12px por debajo de su sitio (el
+   legacy no declara line-height en ninguna parte). */
 .adhoc-report-icon {
   position: relative;
-  overflow: visible;
+  width: 60px;
+  height: 60px;
+  margin: 0 auto 10px;
+  line-height: normal;
+}
+
+.adhoc-report-icon-base {
+  font-size: 3rem;
+  line-height: normal;
+  color: var(--adhoc-border);
+  transition: .3s;
+}
+
+.adhoc-report-card:hover .adhoc-report-icon-base {
+  color: var(--adhoc-disabled);
 }
 
 .adhoc-report-icon-overlay {
   position: absolute;
-  right: -.25rem;
-  bottom: -.25rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  font-size: .8rem;
-  color: var(--adhoc-surface);
-  background: var(--adhoc-primary);
-  border: 2px solid var(--adhoc-surface);
+  right: -5px;
+  bottom: -5px;
+  padding: 2px;
+  font-size: 1.5rem;
+  color: var(--adhoc-primary);
+  background: var(--adhoc-surface);
   border-radius: 50%;
+  transition: .3s;
+}
+
+/* Legacy `.report-card h3`: 1.1rem con la negrita del navegador (700). */
+.adhoc-report-card-title {
+  display: block;
+  margin: 15px 0 5px;
+  color: var(--adhoc-dark);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+@media (max-width: 575.98px) {
+  .adhoc-reports { padding: 20px; }
+  .adhoc-reports-head { padding-right: 0; margin-top: 35px; }
+  .adhoc-reports-back { top: 20px; right: 20px; }
 }
 
 /* ── Modal de filtros ──────────────────────────────────────────────────── */
-.adhoc-report-filters {
-  margin-bottom: 1rem;
+/* El legacy tenía DOS: 850px el de parámetros y 1200px el de "Documentos y
+   Notas". Aquí es uno solo y el ancho lo decide el reporte elegido, que el JS
+   marca en `data-adhoc-subject`. */
+#adhoc-report-modal[data-adhoc-subject="documents"] .modal-dialog {
+  width: 1200px;
 }
 
-@media (min-width: 768px) {
-  .adhoc-report-filters {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+#adhoc-report-modal .modal-content {
+  padding: 30px;
 }
 
-.adhoc-report-preview-bar {
-  margin-bottom: .5rem;
+/* Cabecera y pie del legacy: filete de 2px en #f1f2f6, no el de 1px del
+   modal genérico. */
+#adhoc-report-modal .modal-header {
+  padding-bottom: 15px;
+  border-bottom: 2px solid var(--adhoc-line);
 }
 
-.adhoc-report-hint {
+#adhoc-report-modal .modal-footer {
+  padding-top: 20px;
+  border-top: 2px solid var(--adhoc-line);
+}
+
+/* Título en el color de marca y al tamaño del <h2> del legacy. */
+.adhoc-report-modal-title {
   display: inline-flex;
   align-items: center;
-  gap: .4rem;
-  color: var(--adhoc-muted);
-  font-size: .85rem;
+  gap: 10px;
+  color: var(--adhoc-primary);
+  font-size: 1.5rem;
 }
 
-/* La vista previa se queda dentro del modal: el scroll es suyo, no del
-   cuerpo del diálogo, para que la cabecera pegajosa de la tabla sirva. */
+/* Barra "Limpiar / Buscar" (legacy `.actions`: 10px de hueco y 15px al que
+   viene debajo). A la izquierda, en el hueco que el legacy dejaba vacío, el
+   contador de la vista previa. */
+.adhoc-report-actions {
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.adhoc-report-actions-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+}
+
+/* Legacy `.btn-filter` (#34495e); aquí, el token oscuro de la app. */
+.adhoc-btn-search {
+  background-color: var(--adhoc-dark);
+  color: #fff;
+}
+
+/* Los tres filtros, en columnas sobre la vista previa. */
+.adhoc-report-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+@media (max-width: 575.98px) {
+  .adhoc-report-filters { grid-template-columns: 1fr; }
+}
+
+/* Caja de la vista previa: el recuadro con scroll del legacy
+   (`.table-scroll-container`). El scroll es suyo, no del cuerpo del diálogo,
+   para que la cabecera pegajosa de la tabla sirva de algo. */
 .adhoc-report-preview .adhoc-table-wrap {
-  max-height: 45vh;
+  max-height: 40vh;
+  border: 1px solid var(--adhoc-line);
+  border-radius: 8px;
 }
 
 .adhoc-report-preview[hidden] {
   display: none;
 }
 
+.adhoc-report-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--adhoc-muted);
+  font-size: .9rem;
+}
+
 .adhoc-report-footer {
   display: flex;
   flex-wrap: wrap;
-  gap: .75rem;
+  gap: 10px;
   align-items: center;
   justify-content: space-between;
 }

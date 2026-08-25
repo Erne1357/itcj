@@ -16,24 +16,29 @@
 
 {% block title %}Categorías de incidencia · Calidad · ITCJ{% endblock %}
 
+{# El legacy lleva estas dos pantallas al 98 % del ancho
+   (`.main-container { max-width: 98% !important }` en su hoja). #}
+{% block body_class %}adhoc-wide{% endblock %}
+
 {% block content %}
+  {# Título, icono y etiqueta de columna son los del legacy
+     (`incidents/incidents_categories.html`): sin subtítulo y con el extintor. #}
   {{ catalog_page(
-       "Categorías de incidencia",
+       "Categorías de Incidencias",
        "incident-categories",
        "/api/adhoc/v2/incident-categories",
        "/adhoc/incidencias",
        singular="categoría",
        plural="categorías",
-       subtitle="Clasifican las incidencias del sistema de gestión de calidad.",
-       icon="bi-tags",
-       name_label="Nombre",
+       icon="fa-solid fa-fire-extinguisher",
+       name_label="Nombre Categoría",
        can_create=can_create,
        can_update=can_update,
        can_delete=can_delete) }}
 {% endblock %}
 
 {% block modals %}
-  {{ catalog_modal("incident-categories", singular="categoría", name_label="Nombre") }}
+  {{ catalog_modal("incident-categories", singular="categoría", name_label="Nombre Categoría") }}
 {% endblock %}
 
 {% block extra_js %}

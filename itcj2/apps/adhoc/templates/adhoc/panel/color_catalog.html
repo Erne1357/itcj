@@ -37,18 +37,20 @@
          data-adhoc-can-update="{{ 1 if can_update else 0 }}"
          data-adhoc-can-delete="{{ 1 if can_delete else 0 }}">
 
-  {% call page_header(page_title, subtitle, icon) %}
-    {{ back_button("/adhoc/panel", "Volver al panel") }}
-    {% if can_create %}
-    <button type="button" class="btn btn-sm btn-primary" data-adhoc-catalog-new>
-      <i class="bi bi-plus-lg"></i>
-      <span class="d-none d-sm-inline">Nuevo</span>
-    </button>
-    {% endif %}
-  {% endcall %}
-
+  {# Como en el legacy, el encabezado y sus botones van DENTRO de la tarjeta
+     blanca (`.table-container`), no encima de ella. #}
   <div class="adhoc-card">
-    {{ data_table('adhoc-color-catalog-' ~ resource, columns, empty_message, 'bi-tags') }}
+    {% call page_header(page_title, None, icon) %}
+      {{ back_button("/adhoc/panel", "Volver al Panel") }}
+      {% if can_create %}
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-catalog-new>
+        <i class="fa-solid fa-plus"></i>
+        <span class="d-none d-sm-inline">Añadir Nuevo(s)</span>
+      </button>
+      {% endif %}
+    {% endcall %}
+
+    {{ data_table('adhoc-color-catalog-' ~ resource, columns, empty_message, 'fa-solid fa-tags') }}
   </div>
 </section>
 {% endblock %}
@@ -62,7 +64,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="adhoc-color-new-{{ resource }}-title">
-          <i class="bi bi-plus-circle me-2"></i>Agregar {{ plural }}
+          <i class="fa-solid fa-circle-plus me-2"></i>Agregar {{ plural }}
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
@@ -78,7 +80,7 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" class="btn btn-primary" data-adhoc-catalog-save>
-          <i class="bi bi-floppy"></i> Guardar
+          <i class="fa-solid fa-floppy-disk"></i> Guardar
         </button>
       </div>
     </div>
@@ -94,7 +96,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="adhoc-color-edit-{{ resource }}-title">
-          <i class="bi bi-pencil-square me-2"></i>Editar {{ singular }}
+          <i class="fa-solid fa-pen-to-square me-2"></i>Editar {{ singular }}
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
@@ -120,13 +122,13 @@
       <div class="modal-footer adhoc-modal-footer-split">
         {% if can_delete %}
         <button type="button" class="btn btn-outline-danger" data-adhoc-catalog-delete>
-          <i class="bi bi-trash"></i> Eliminar
+          <i class="fa-solid fa-trash"></i> Eliminar
         </button>
         {% endif %}
         <div class="adhoc-modal-footer-actions">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
           <button type="button" class="btn btn-primary" data-adhoc-catalog-update>
-            <i class="bi bi-check-lg"></i> Guardar
+            <i class="fa-solid fa-check"></i> Guardar
           </button>
         </div>
       </div>
