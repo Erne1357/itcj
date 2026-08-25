@@ -1,0 +1,66 @@
+{# ===========================================================================
+   panel/mail.html — interruptor global del correo del SGC.
+
+   Origen legacy: control_panel/mail.html, que traía 132 líneas de <style>
+   inline (un `.switch`/`.slider` casero, un `.modal-success` propio y un
+   `.main-container{... !important}` que pisaba el layout de TODA la app) y un
+   `alert()` en el manejador de error del JS. Nada de eso se porta:
+
+     · el interruptor es `.form-check.form-switch` de Bootstrap 5.3;
+     · el "guardado correctamente" es un toast de AdhocUtils;
+     · el error también es un toast, con el texto real que devuelve la API.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, back_button, page_data_script %}
+
+{% block title %}Correo · Calidad · ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/panel/mail.css?v={{ sv('css/panel/mail.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-mail" data-adhoc-mail
+         data-adhoc-api="/api/adhoc/v2/mail-config"
+         data-adhoc-can-update="{{ 1 if can_update else 0 }}">
+
+  {% call page_header("Correo electrónico", "Notificaciones automáticas del sistema de gestión.", "bi-envelope-check") %}
+    {{ back_button("/adhoc/panel/configuracion", "Volver") }}
+  {% endcall %}
+
+  <div class="adhoc-card adhoc-mail-card">
+    <div class="adhoc-mail-icon"><i class="bi bi-envelope-check"></i></div>
+
+    <h2 class="adhoc-mail-title">Envío de correo</h2>
+    <p class="adhoc-mail-text">
+      Con el envío apagado, el sistema sigue registrando las notificaciones dentro de la
+      plataforma y solo omite el correo electrónico.
+    </p>
+
+    <div class="form-check form-switch adhoc-mail-switch">
+      <input class="form-check-input" type="checkbox" role="switch"
+             id="adhoc-mail-enabled" data-adhoc-mail-toggle
+             {% if not can_update %}disabled{% endif %}>
+      <label class="form-check-label" for="adhoc-mail-enabled" data-adhoc-mail-status>
+        Consultando estado...
+      </label>
+    </div>
+
+    {% if can_update %}
+    <button type="button" class="btn btn-primary adhoc-mail-save" data-adhoc-mail-save>
+      <i class="bi bi-floppy"></i>
+      <span data-adhoc-mail-save-label>Guardar cambios</span>
+    </button>
+    {% else %}
+    <p class="adhoc-mail-readonly">
+      <i class="bi bi-lock me-1"></i>Solo lectura: no tienes permiso para cambiar esta opción.
+    </p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/panel/mail.js?v={{ sv('js/panel/mail.js') }}"></script>
+{% endblock %}

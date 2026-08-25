@@ -1,0 +1,75 @@
+/* ==========================================================================
+   panel/color-catalog.css — catálogos de nombre + color
+   (/adhoc/panel/areas y /adhoc/panel/procesos).
+
+   Sustituye a control_panel/areas_conf.css y control_panel/processes.css, que
+   eran la misma hoja duplicada, con `.modal-overlay` casero y `.color-badge`
+   sin prefijo. La muestra de color reusa .adhoc-swatch de adhoc.css.
+   ========================================================================== */
+
+/* Fila de captura del alta masiva: nombre + color en la misma línea. */
+.adhoc-color-new-fields {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+}
+
+.adhoc-color-new-row {
+  display: flex;
+  align-items: flex-end;
+  gap: .75rem;
+}
+
+.adhoc-color-new-row .adhoc-color-new-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.adhoc-color-new-row .adhoc-color-new-color {
+  flex: 0 0 auto;
+}
+
+/* Celda de color de la tabla: la muestra y su hex, legible de un vistazo. */
+.adhoc-color-cell {
+  white-space: nowrap;
+}
+
+.adhoc-color-hex {
+  color: var(--adhoc-muted);
+  font-size: .78rem;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+}
+
+/* Descripción del proceso bajo su nombre (el legacy la usaba para guardar el
+   color, así que nunca se mostró). */
+.adhoc-color-description {
+  display: block;
+  margin-top: .15rem;
+  color: var(--adhoc-muted);
+  font-size: .78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 32rem;
+}
+
+/* Pie del modal de edición: eliminar a la izquierda, guardar a la derecha. */
+.adhoc-modal-footer-split {
+  justify-content: space-between;
+}
+
+.adhoc-modal-footer-actions {
+  display: flex;
+  gap: .5rem;
+}
+
+@media (max-width: 575.98px) {
+  .adhoc-color-new-row {
+    flex-wrap: wrap;
+  }
+
+  .adhoc-color-new-row .adhoc-color-new-name {
+    flex: 1 1 100%;
+  }
+}

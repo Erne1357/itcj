@@ -1,0 +1,80 @@
+/* ==========================================================================
+   panel/mail.css — interruptor global de correo (/adhoc/panel/correo).
+
+   Sustituye a las 132 líneas de <style> inline de control_panel/mail.html.
+   Lo que NO se porta: el `.switch`/`.slider` casero (aquí es .form-switch de
+   Bootstrap), el `.modal-success` propio (aquí es un toast) y sobre todo el
+   `.main-container { ... !important }` que pisaba el layout de toda la app.
+   ========================================================================== */
+
+.adhoc-mail-card {
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+
+.adhoc-mail-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4rem;
+  height: 4rem;
+  margin-bottom: .75rem;
+  color: var(--adhoc-primary);
+  font-size: 1.9rem;
+  background: var(--adhoc-primary-tint);
+  border-radius: 50%;
+}
+
+.adhoc-mail-title {
+  margin: 0 0 .35rem;
+  color: var(--adhoc-dark);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.adhoc-mail-text {
+  margin: 0 auto 1.5rem;
+  max-width: 26rem;
+  color: var(--adhoc-muted);
+  font-size: .875rem;
+}
+
+/* El .form-check.form-switch de Bootstrap se alinea a la izquierda por su
+   padding-left; aquí se centra sin tocar la clase de Bootstrap. */
+.adhoc-mail-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: .6rem;
+  margin: 0 0 1.5rem;
+  padding-left: 0;
+}
+
+.adhoc-mail-switch .form-check-input {
+  width: 2.75rem;
+  height: 1.45rem;
+  margin: 0;
+  cursor: pointer;
+}
+
+.adhoc-mail-switch .form-check-input:checked {
+  background-color: var(--adhoc-primary);
+  border-color: var(--adhoc-primary);
+}
+
+.adhoc-mail-switch .form-check-label {
+  margin: 0;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.adhoc-mail-save {
+  min-width: 12rem;
+}
+
+.adhoc-mail-readonly {
+  margin: 0;
+  color: var(--adhoc-muted);
+  font-size: .82rem;
+}

@@ -1,0 +1,39 @@
+{# ===========================================================================
+   panel/panel.html — rejilla de navegación del Panel de Control.
+
+   Origen legacy: control_panel/control_panel.html.
+   Cambios deliberados:
+     · Las tarjetas son anclas reales, no div + data-link + JS global. La página
+       NO carga ningún módulo JS.
+     · Fuera las tarjetas "7 Herramientas" y "Soporte": no tenían destino.
+     · El filtrado por permisos lo hace pages/panel.py con los permisos reales
+       del usuario, no un {% if is_admin %} cosmético.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, empty_state %}
+
+{% block title %}Panel de Control · Calidad · ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/panel/panel.css?v={{ sv('css/panel/panel.css') }}">
+{% endblock %}
+
+{% block content %}
+  {{ page_header("Panel de Control", "Administración del sistema de gestión de calidad.", "bi-sliders") }}
+
+  {% if tiles %}
+  <div class="adhoc-tile-grid adhoc-panel-grid" hx-boost="true">
+    {% for tile in tiles %}
+    <a class="adhoc-tile" href="{{ tile.url }}">
+      <span class="adhoc-tile-icon"><i class="bi {{ tile.icon }}"></i></span>
+      <h2 class="adhoc-tile-title">{{ tile.title }}</h2>
+      <p class="adhoc-tile-text">{{ tile.text }}</p>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="adhoc-card">
+    {{ empty_state("No tienes secciones habilitadas en el panel de control.", "bi-shield-lock") }}
+  </div>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,140 @@
+{# ===========================================================================
+   panel/color_catalog.html — catálogo de nombre + color.
+
+   UNA plantilla para DOS pantallas (plan §6.5): /adhoc/panel/areas y
+   /adhoc/panel/procesos. En el legacy eran `areas_conf.html` + `areas_conf.js`
+   y `processes.html` + `processes.js`, copias literales entre sí salvo los ids.
+
+   Toda la configuración llega en el contexto desde pages/panel.py y se expone
+   al módulo JS por atributos data-* (no hay constantes inline en <script>).
+
+   Diferencias reales entre los dos recursos:
+     · área    → tiene `is_active` (has_active)
+     · proceso → tiene `description` (has_description). Su color es ahora una
+       columna de verdad; el legacy lo guardaba dentro de `description`.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, back_button, data_table, form_field, color_field %}
+
+{% block title %}{{ page_title }} · Calidad · ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/panel/color-catalog.css?v={{ sv('css/panel/color-catalog.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-color-catalog"
+         data-adhoc-color-catalog
+         data-adhoc-resource="{{ resource }}"
+         data-adhoc-api="{{ api_path }}"
+         data-adhoc-singular="{{ singular }}"
+         data-adhoc-plural="{{ plural }}"
+         data-adhoc-name-label="{{ name_label }}"
+         data-adhoc-default-color="{{ default_color }}"
+         data-adhoc-has-active="{{ 1 if has_active else 0 }}"
+         data-adhoc-has-description="{{ 1 if has_description else 0 }}"
+         data-adhoc-can-create="{{ 1 if can_create else 0 }}"
+         data-adhoc-can-update="{{ 1 if can_update else 0 }}"
+         data-adhoc-can-delete="{{ 1 if can_delete else 0 }}">
+
+  {% call page_header(page_title, subtitle, icon) %}
+    {{ back_button("/adhoc/panel", "Volver al panel") }}
+    {% if can_create %}
+    <button type="button" class="btn btn-sm btn-primary" data-adhoc-catalog-new>
+      <i class="bi bi-plus-lg"></i>
+      <span class="d-none d-sm-inline">Nuevo</span>
+    </button>
+    {% endif %}
+  {% endcall %}
+
+  <div class="adhoc-card">
+    {{ data_table('adhoc-color-catalog-' ~ resource, columns, empty_message, 'bi-tags') }}
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+{# — ALTA MASIVA — los campos los construye el módulo JS según la cantidad. — #}
+<div class="modal fade" id="adhoc-color-new-{{ resource }}" tabindex="-1"
+     aria-labelledby="adhoc-color-new-{{ resource }}-title" aria-hidden="true"
+     data-adhoc-color-modal="new">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-color-new-{{ resource }}-title">
+          <i class="bi bi-plus-circle me-2"></i>Agregar {{ plural }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="adhoc-catalog-count">
+          <label class="form-label adhoc-label" for="adhoc-color-qty-{{ resource }}">Cuántas capturar</label>
+          <select class="form-select adhoc-qty-select" id="adhoc-color-qty-{{ resource }}" data-adhoc-catalog-qty>
+            {% for n in range(1, 11) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="adhoc-color-new-fields" data-adhoc-catalog-fields></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" data-adhoc-catalog-save>
+          <i class="bi bi-floppy"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# — EDICIÓN — un solo registro. El botón de eliminar pide confirmación con
+     AdhocUtils.confirmDialog(); el legacy usaba un submit con `formaction`. — #}
+<div class="modal fade" id="adhoc-color-edit-{{ resource }}" tabindex="-1"
+     aria-labelledby="adhoc-color-edit-{{ resource }}-title" aria-hidden="true"
+     data-adhoc-color-modal="edit">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-color-edit-{{ resource }}-title">
+          <i class="bi bi-pencil-square me-2"></i>Editar {{ singular }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="adhoc-form-grid">
+          {{ form_field('name', name_label, required=True, id='adhoc-edit-name-' ~ resource,
+                        col='adhoc-field-full', attrs={'maxlength': '100', 'data-adhoc-edit-field': 'name'}) }}
+          {{ color_field('color', 'Color', default_color, id='adhoc-edit-color-' ~ resource,
+                         attrs={'data-adhoc-edit-field': 'color'}) }}
+          {% if has_description %}
+          {{ form_field('description', 'Descripción', 'textarea', rows=3,
+                        id='adhoc-edit-description-' ~ resource, col='adhoc-field-full',
+                        help='Opcional. Vaciarla borra la descripción guardada.',
+                        attrs={'data-adhoc-edit-field': 'description'}) }}
+          {% endif %}
+          {% if has_active %}
+          {{ form_field('is_active', 'Área activa', 'checkbox', value=True,
+                        id='adhoc-edit-active-' ~ resource, col='adhoc-field-full',
+                        attrs={'data-adhoc-edit-field': 'is_active'}) }}
+          {% endif %}
+        </div>
+      </div>
+      <div class="modal-footer adhoc-modal-footer-split">
+        {% if can_delete %}
+        <button type="button" class="btn btn-outline-danger" data-adhoc-catalog-delete>
+          <i class="bi bi-trash"></i> Eliminar
+        </button>
+        {% endif %}
+        <div class="adhoc-modal-footer-actions">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary" data-adhoc-catalog-update>
+            <i class="bi bi-check-lg"></i> Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/adhoc/js/panel/color-catalog.js?v={{ sv('js/panel/color-catalog.js') }}"></script>
+{% endblock %}

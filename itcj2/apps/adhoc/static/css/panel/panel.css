@@ -1,0 +1,44 @@
+/* ==========================================================================
+   panel/panel.css — rejilla del Panel de Control (/adhoc/panel).
+
+   La tarjeta base (.adhoc-tile, .adhoc-tile-grid) vive en adhoc.css: aquí solo
+   van los ajustes propios de esta pantalla. Nada de .card a secas — esa clase
+   es de Bootstrap y el legacy la pisaba (su JS enganchaba TODAS las .card de la
+   página, incluidas las del layout).
+   ========================================================================== */
+
+.adhoc-panel-grid {
+  /* Tarjetas algo más anchas que el mínimo global: aquí llevan descripción. */
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.adhoc-panel-grid .adhoc-tile {
+  /* Altura pareja aunque las descripciones ocupen una o dos líneas. */
+  justify-content: flex-start;
+  min-height: 11rem;
+}
+
+.adhoc-panel-grid .adhoc-tile-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+@media (max-width: 575.98px) {
+  .adhoc-panel-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: .75rem;
+  }
+
+  .adhoc-panel-grid .adhoc-tile {
+    min-height: 9rem;
+    padding: 1rem .75rem;
+  }
+
+  .adhoc-panel-grid .adhoc-tile-text {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+}

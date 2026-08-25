@@ -1,0 +1,49 @@
+{# ===========================================================================
+   panel/config.html — tercer nivel de navegación (catálogos, flujos, correo).
+
+   Origen legacy: control_panel/advanced_config.html, que abría un <head>
+   completo DENTRO del <body> para meter su CSS y traía las URLs a mano.
+   Aquí los grupos y sus enlaces los arma pages/panel.py ya filtrados por
+   permiso; el template solo los pinta. Sin JS.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, back_button, empty_state %}
+
+{% block title %}Configuración · Calidad · ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/panel/config.css?v={{ sv('css/panel/config.css') }}">
+{% endblock %}
+
+{% block content %}
+  {% call page_header("Configuración", "Catálogos y funciones del sistema.", "bi-sliders") %}
+    {{ back_button(panel_url, "Volver al panel") }}
+  {% endcall %}
+
+  {% if groups %}
+  <div class="adhoc-config-grid" hx-boost="true">
+    {% for group in groups %}
+    <section class="adhoc-card adhoc-config-card">
+      <header class="adhoc-config-card-head">
+        <span class="adhoc-tile-icon"><i class="bi {{ group.icon }}"></i></span>
+        <h2 class="adhoc-config-card-title">{{ group.title }}</h2>
+      </header>
+      <ul class="adhoc-config-links">
+        {% for link in group.links %}
+        <li class="adhoc-config-link-item">
+          <a class="adhoc-config-link" href="{{ link.url }}">
+            <i class="bi bi-chevron-right"></i>
+            <span>{{ link.label }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="adhoc-card">
+    {{ empty_state("No tienes catálogos habilitados.", "bi-shield-lock") }}
+  </div>
+  {% endif %}
+{% endblock %}

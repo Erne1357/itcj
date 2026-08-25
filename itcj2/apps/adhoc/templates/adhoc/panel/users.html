@@ -1,0 +1,115 @@
+{# ===========================================================================
+   panel/users.html — usuarios con acceso a Calidad (módulo RECORTADO, D8).
+
+   Origen legacy: control_panel/users.html + js/control_panel/users.js.
+   Qué desaparece a propósito:
+     · El alta de personas y el cambio de contraseña: el endpoint del legacy era
+       ANÓNIMO y creaba el usuario con role_id=4 (que en esta BD es `admin`).
+       Ese trabajo es del core → enlace a /itcj/config.
+     · El borrado, que pegaba a /api/usuarios/delete/ — una ruta que nunca
+       existió (404 silencioso tras un confirm() nativo).
+     · La serialización a mano de `areas` dentro de un literal JS, interpolando
+       el nombre del área sin escapar. Las áreas ahora se piden a la API.
+
+   Las filas las pinta panel/users.js desde GET /api/adhoc/v2/users: nada de
+   datos de usuario se interpola en el HTML desde Jinja.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, back_button, data_table, page_data_script, select_field %}
+
+{% block title %}Usuarios · Calidad · ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/panel/users.css?v={{ sv('css/panel/users.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-users" data-adhoc-users
+         data-adhoc-api="/api/adhoc/v2/users"
+         data-adhoc-areas-api="/api/adhoc/v2/areas"
+         data-adhoc-can-assign-role="{{ 1 if can_assign_role else 0 }}"
+         data-adhoc-can-assign-areas="{{ 1 if can_assign_areas else 0 }}">
+
+  {% call page_header("Usuarios", "Rol dentro de Calidad y áreas asignadas.", "bi-people") %}
+    {{ back_button("/adhoc/panel", "Volver al panel") }}
+    <a class="btn btn-sm btn-outline-primary" href="{{ core_config_url }}">
+      <i class="bi bi-person-gear"></i>
+      <span class="d-none d-sm-inline">Administrar personas</span>
+    </a>
+  {% endcall %}
+
+  <div class="alert alert-secondary adhoc-users-note" role="note">
+    <i class="bi bi-info-circle me-2"></i>
+    Aquí solo se administra lo que es de Calidad: el <strong>rol dentro de la app</strong> y las
+    <strong>áreas</strong>. El alta de personas, las contraseñas y el acceso a la aplicación se
+    gestionan en <a href="{{ core_config_url }}">Configuración del ITCJ</a>.
+  </div>
+
+  <div class="adhoc-card">
+    {{ data_table('adhoc-users-table', columns,
+                  'No hay usuarios con acceso a Calidad.', 'bi-person-x', width='lg') }}
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+{% if can_assign_role %}
+<div class="modal fade" id="adhoc-users-role-modal" tabindex="-1"
+     aria-labelledby="adhoc-users-role-title" aria-hidden="true" data-adhoc-users-modal="role">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-users-role-title">
+          <i class="bi bi-person-badge me-2"></i>Rol en Calidad
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="adhoc-users-target mb-3" data-adhoc-users-target></p>
+        {{ select_field('role', 'Rol de la aplicación', [], placeholder='Seleccionar...',
+                        id='adhoc-users-role-select', col='adhoc-field-full',
+                        help='Reemplaza el rol del usuario dentro de Calidad. No revoca su acceso a la app.',
+                        attrs={'data-adhoc-users-role-select': true}) }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" data-adhoc-users-save-role>
+          <i class="bi bi-check-lg"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if can_assign_areas %}
+<div class="modal fade" id="adhoc-users-areas-modal" tabindex="-1"
+     aria-labelledby="adhoc-users-areas-title" aria-hidden="true" data-adhoc-users-modal="areas">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-users-areas-title">
+          <i class="bi bi-layers me-2"></i>Áreas asignadas
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="adhoc-users-target mb-3" data-adhoc-users-target></p>
+        <div class="adhoc-users-areas-list" data-adhoc-users-areas-list></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" data-adhoc-users-save-areas>
+          <i class="bi bi-check-lg"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/panel/users.js?v={{ sv('js/panel/users.js') }}"></script>
+{% endblock %}

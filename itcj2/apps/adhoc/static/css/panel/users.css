@@ -1,0 +1,77 @@
+/* ==========================================================================
+   panel/users.css — usuarios con acceso a Calidad (/adhoc/panel/usuarios).
+
+   Sustituye a control_panel/users.css. El legacy pintaba el estatus con
+   style="color:#2ecc71" dentro del <td> y el formulario con `.form-grid` /
+   `.form-input` propios (colisión frontal con Bootstrap). Aquí los estados son
+   .adhoc-badge de adhoc.css y las áreas son .adhoc-chip.
+   ========================================================================== */
+
+.adhoc-users-note {
+  font-size: .875rem;
+}
+
+.adhoc-users-name {
+  font-weight: 600;
+}
+
+.adhoc-users-muted {
+  color: var(--adhoc-muted);
+  font-size: .8rem;
+}
+
+/* Lista de chips de áreas dentro de la celda de la tabla. */
+.adhoc-users-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+}
+
+/* Nombre del usuario sobre el que actúa el modal. */
+.adhoc-users-target {
+  color: var(--adhoc-muted);
+  font-size: .875rem;
+}
+
+.adhoc-users-target strong {
+  color: var(--adhoc-dark);
+}
+
+/* Selector de áreas del modal: rejilla de casillas, con scroll propio para no
+   estirar el modal cuando hay muchas áreas. */
+.adhoc-users-areas-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: .35rem;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: .25rem;
+  border: 1px solid var(--adhoc-border);
+  border-radius: 8px;
+}
+
+.adhoc-users-area-option {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .35rem .5rem;
+  border-radius: 6px;
+}
+
+.adhoc-users-area-option:hover {
+  background: var(--adhoc-hover);
+}
+
+.adhoc-users-area-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adhoc-users-areas-empty {
+  grid-column: 1 / -1;
+  padding: 1rem;
+  color: var(--adhoc-muted);
+  font-size: .85rem;
+  text-align: center;
+}

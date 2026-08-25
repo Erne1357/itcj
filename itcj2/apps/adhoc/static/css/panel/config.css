@@ -1,0 +1,70 @@
+/* ==========================================================================
+   panel/config.css — tercer nivel de navegación (/adhoc/panel/configuracion).
+
+   Sustituye a control_panel/advanced_config.css. Todas las clases van
+   prefijadas .adhoc-*; el contenedor de tarjeta reusa .adhoc-card de adhoc.css.
+   ========================================================================== */
+
+.adhoc-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.adhoc-config-card {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+}
+
+.adhoc-config-card-head {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+.adhoc-config-card-title {
+  margin: 0;
+  color: var(--adhoc-dark);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.adhoc-config-links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.adhoc-config-link-item + .adhoc-config-link-item {
+  border-top: 1px solid var(--adhoc-border);
+}
+
+.adhoc-config-link {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .6rem .25rem;
+  color: var(--adhoc-dark);
+  font-size: .9rem;
+  text-decoration: none;
+  border-radius: 6px;
+  transition: background-color .15s ease, color .15s ease;
+}
+
+.adhoc-config-link i {
+  color: var(--adhoc-primary);
+  font-size: .8rem;
+}
+
+.adhoc-config-link:hover,
+.adhoc-config-link:focus-visible {
+  color: var(--adhoc-primary);
+  background: var(--adhoc-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adhoc-config-link {
+    transition: none;
+  }
+}
