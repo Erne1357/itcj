@@ -1,0 +1,102 @@
+/* ===========================================================================
+   documents/flow-steps.css — /adhoc/documentos/flujos/{flow_id}/pasos.
+
+   El legacy (documents_steps.css) traía `.info-box`, `.child-row`,
+   `.user-list-badge` y otro bloque `.modal-overlay`, más media docena de
+   estilos escritos con style="..." dentro del template. Aquí solo quedan las
+   piezas propias de la pantalla, todas prefijadas y con tokens.
+   =========================================================================== */
+
+.adhoc-flow-steps {
+  display: block;
+}
+
+/* ── Aviso superior ────────────────────────────────────────────────────── */
+/* Se usa la clase `alert alert-info` de Bootstrap tal cual (nunca se redefine);
+   esto solo ajusta el ritmo vertical dentro de la página. */
+.adhoc-steps-hint {
+  margin-bottom: 1rem;
+  font-size: .9rem;
+}
+
+/* ── Fila de paso ──────────────────────────────────────────────────────── */
+.adhoc-step-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  background: var(--adhoc-primary-tint);
+  border-radius: 50%;
+  color: var(--adhoc-primary);
+  font-weight: 700;
+}
+
+.adhoc-step-days {
+  max-width: 7rem;
+}
+
+/* ── Añadir pasos ──────────────────────────────────────────────────────── */
+.adhoc-steps-add {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+/* ── Fila de detalle (validadores del paso) ────────────────────────────── */
+.adhoc-step-detail[hidden] {
+  display: none;
+}
+
+.adhoc-step-detail > td {
+  background: var(--adhoc-soft);
+}
+
+.adhoc-step-detail-box {
+  padding: .35rem .15rem;
+}
+
+.adhoc-step-detail-title {
+  margin-bottom: .5rem;
+  color: var(--adhoc-primary);
+  font-size: .85rem;
+  font-weight: 700;
+}
+
+.adhoc-step-detail-empty {
+  margin-bottom: 0;
+  color: var(--adhoc-danger);
+  font-size: .85rem;
+}
+
+.adhoc-step-users {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.adhoc-step-users > li {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .25rem .6rem;
+  background: var(--adhoc-surface);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 999px;
+  font-size: .85rem;
+}
+
+.adhoc-step-user-name {
+  color: var(--adhoc-dark);
+  font-weight: 600;
+}
+
+/* ── Modal de validadores ──────────────────────────────────────────────── */
+.adhoc-step-modal-hint {
+  margin-bottom: .85rem;
+  color: var(--adhoc-muted);
+  font-size: .875rem;
+}

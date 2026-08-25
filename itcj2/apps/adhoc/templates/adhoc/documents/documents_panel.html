@@ -1,0 +1,202 @@
+{# ===========================================================================
+   documents/documents_panel.html — /adhoc/documentos/panel
+   Administración del SGC. Permiso: adhoc.documents.page.manage.
+
+   Origen legacy: templates/app_prueba/documents/advanced_documents.html.
+
+   Qué cambia respecto del legacy:
+   * Los catálogos ya NO viajan como HTML crudo dentro de un template literal
+     (`DOC_CONFIG.categoriasHtml` y sus tres hermanos: cuatro de los siete
+     vectores de XSS del legacy, que además reventaban con un backtick o un
+     `${`). Van como JSON en page_data y el JS construye los <option>.
+   * Los cuatro `.modal-overlay` con `style.display='flex'` son ahora dos
+     bootstrap.Modal en {% block modals %}, fuera de todo contenedor con
+     transform. Los de alerta y confirmación desaparecen: AdhocUtils.
+   * NO SE PORTAN (plan §4) los dos mockups: el bloque "Historial de Versiones
+     Anteriores" (fecha `2025-01-15` escrita a mano y versión calculada como
+     `version|float - 1.0`) y la celda `<td>ISO 9001</td>` de "Sist. Gestión".
+     Tampoco los cinco botones "en construcción" (copiar enlace, usuarios,
+     histórico, reporte) que solo abrían un alert.
+   * El arranque de flujo ya no vive en una fila hija con un <select> por
+     documento: es un modal único que se rellena con el documento pulsado.
+
+   Esta pantalla enlaza documents.css (piezas comunes de la sección: paginador,
+   celda de archivo, estado de carga) ANTES de la suya, en vez de recopiarlas.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, back_button, data_table,
+        filter_bar, form_field, select_field, page_data_script %}
+
+{% block title %}Administración de documentos · Calidad{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/documents/documents.css?v={{ sv('css/documents/documents.css') }}">
+<link rel="stylesheet" href="/static/adhoc/css/documents/documents-panel.css?v={{ sv('css/documents/documents-panel.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-doc-panel" data-adhoc-doc-panel>
+
+  {% call page_header(
+       "Administración de documentos",
+       "Alta, archivo y flujo de aprobación",
+       "bi-folder2-open") %}
+    {{ back_button('/adhoc/panel', 'Volver al panel') }}
+    {%- if can_create %}
+    <button type="button" class="btn btn-sm btn-primary" data-adhoc-doc-new>
+      <i class="bi bi-plus-lg"></i>
+      <span class="d-none d-sm-inline">Añadir documentos</span>
+    </button>
+    {%- endif %}
+  {% endcall %}
+
+  <div class="adhoc-card">
+    {% call filter_bar(clear=False) %}
+      {{ form_field('q', 'Código o nombre', 'search',
+                    placeholder='Buscar...',
+                    attrs={'data-adhoc-doc-filter': 'q'}) }}
+      {{ select_field('status', 'Estatus', status_options,
+                      placeholder='Todos',
+                      attrs={'data-adhoc-doc-filter': 'status'}) }}
+      {{ select_field('category_id', 'Categoría', categoria_options,
+                      placeholder='Todas',
+                      attrs={'data-adhoc-doc-filter': 'category_id'}) }}
+      {{ select_field('area_id', 'Área', area_options,
+                      placeholder='Todas',
+                      attrs={'data-adhoc-doc-filter': 'area_id'}) }}
+      {{ select_field('process_id', 'Proceso', proceso_options,
+                      placeholder='Todos',
+                      attrs={'data-adhoc-doc-filter': 'process_id'}) }}
+      {{ select_field('classification_id', 'Clasificación', clasificacion_options,
+                      placeholder='Todas',
+                      attrs={'data-adhoc-doc-filter': 'classification_id'}) }}
+    {% endcall %}
+
+    <div class="adhoc-toolbar adhoc-toolbar-between">
+      <span class="adhoc-doc-count" data-adhoc-doc-count aria-live="polite"></span>
+      <span class="adhoc-doc-buttons">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-adhoc-doc-clear>
+          <i class="bi bi-eraser"></i>
+          <span class="d-none d-sm-inline">Limpiar</span>
+        </button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-doc-apply>
+          <i class="bi bi-funnel"></i>
+          <span class="d-none d-sm-inline">Filtrar</span>
+        </button>
+      </span>
+    </div>
+
+    {{ data_table(
+         'adhoc-doc-panel-table',
+         [
+           {'key': 'file', 'label': 'Archivo', 'align': 'center'},
+           {'key': 'code', 'label': 'Código'},
+           {'key': 'title', 'label': 'Nombre del documento'},
+           {'key': 'version', 'label': 'Versión / Estatus'},
+           {'key': 'category', 'label': 'Categoría'},
+           {'key': 'area', 'label': 'Área'},
+           {'key': 'process', 'label': 'Proceso'},
+           {'key': 'classification', 'label': 'Clasificación'},
+           {'key': 'notes', 'label': 'Notas'},
+           {'key': 'approval_date', 'label': 'Aprobación'},
+           {'key': 'actions', 'label': 'Acciones', 'align': 'end'}
+         ],
+         'No hay documentos registrados.',
+         'bi-folder2-open',
+         width='xl') }}
+
+    <nav class="adhoc-pager" data-adhoc-pager aria-label="Paginación de documentos" hidden>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-adhoc-page="prev">
+        <i class="bi bi-chevron-left"></i>
+        <span class="d-none d-sm-inline">Anterior</span>
+      </button>
+      <span class="adhoc-pager-info" data-adhoc-page-info aria-live="polite"></span>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-adhoc-page="next">
+        <span class="d-none d-sm-inline">Siguiente</span>
+        <i class="bi bi-chevron-right"></i>
+      </button>
+    </nav>
+  </div>
+
+</section>
+{% endblock %}
+
+{% block modals %}
+{# — Alta masiva de documentos (multipart) —
+   Los campos de cada registro los construye documents-panel.js a partir de los
+   catálogos JSON: el número de bloques lo elige el usuario en el <select>. #}
+<div class="modal fade" id="adhoc-doc-modal" tabindex="-1"
+     aria-labelledby="adhoc-doc-modal-title" aria-hidden="true" data-adhoc-doc-modal>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-doc-modal-title" data-adhoc-doc-modal-title>
+          <i class="bi bi-file-earmark-plus me-2"></i>Añadir documentos
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="adhoc-catalog-count" data-adhoc-doc-qty-box>
+          <label class="form-label adhoc-label" for="adhoc-doc-qty">Cuántos capturar</label>
+          <select class="form-select adhoc-qty-select" id="adhoc-doc-qty" data-adhoc-doc-qty>
+            {% for n in [1, 2, 3, 4, 5, 10] %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+          </select>
+        </div>
+        {# El <form> real existe para que `new FormData(form)` conserve el orden
+           del DOM: los campos repetidos (titles, codes, files…) llegan a la API
+           como listas PARALELAS por índice. Un <input type="file"> sin elegir
+           manda su parte con filename vacío, así que el hueco de esa fila se
+           conserva y la alineación no se rompe. #}
+        <form data-adhoc-doc-form novalidate>
+          <div data-adhoc-doc-fields></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" data-adhoc-doc-save>
+          <i class="bi bi-floppy"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# — Arranque del flujo de aprobación — #}
+<div class="modal fade" id="adhoc-doc-flow-modal" tabindex="-1"
+     aria-labelledby="adhoc-doc-flow-modal-title" aria-hidden="true" data-adhoc-flow-modal>
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-doc-flow-modal-title">
+          <i class="bi bi-diagram-3 me-2"></i>Iniciar flujo de aprobación
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="adhoc-flow-doc" data-adhoc-flow-doc></p>
+        <div class="adhoc-field">
+          <label class="form-label adhoc-label" for="adhoc-doc-flow-select">
+            Flujo<span class="adhoc-required" aria-hidden="true">*</span>
+          </label>
+          <select class="form-select" id="adhoc-doc-flow-select" data-adhoc-flow-select></select>
+          <div class="form-text adhoc-field-help">
+            Se creará una tarea por paso y se avisará a los validadores del primero.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" data-adhoc-flow-start>
+          <i class="bi bi-play-circle"></i> Iniciar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/documents/document-list.js?v={{ sv('js/documents/document-list.js') }}"></script>
+<script src="/static/adhoc/js/documents/documents-panel.js?v={{ sv('js/documents/documents-panel.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,18 @@
+/* ===========================================================================
+   documents/flows.css — /adhoc/documentos/flujos.
+
+   El legacy (documents_flows.css) redeclaraba `.doc-table`, `.filter-input`,
+   `.btn-action` y un bloque `.modal-overlay` completo. Todo eso vive ya en
+   adhoc.css como .adhoc-table / .adhoc-filter-input / clases de Bootstrap, y
+   los modales son bootstrap.Modal. Aquí solo queda lo específico.
+   =========================================================================== */
+
+.adhoc-flows {
+  display: block;
+}
+
+/* El nombre del flujo es la columna que se lee primero: se destaca. */
+.adhoc-flow-name {
+  color: var(--adhoc-dark);
+  font-weight: 600;
+}

@@ -1,0 +1,37 @@
+/* ===========================================================================
+   documents/documents-panel.css — /adhoc/documentos/panel.
+
+   Se carga DESPUÉS de documents/documents.css, que ya trae las piezas comunes
+   de la sección (paginador, celda de archivo, estado de carga). Aquí solo va lo
+   propio del panel de administración.
+
+   El legacy tenía todo esto en advanced_documents.css junto a 4 bloques
+   `.modal-overlay` duplicados y a redefiniciones de `.form-row`, `.form-grid` y
+   `.form-input` que pisaban Bootstrap. Nada de eso sobrevive: los modales son
+   bootstrap.Modal y la rejilla es .adhoc-form-grid.
+   =========================================================================== */
+
+/* ── Raíz de la pantalla ───────────────────────────────────────────────── */
+.adhoc-doc-panel {
+  display: block;
+}
+
+/* ── Celda "Versión / Estatus" ─────────────────────────────────────────── */
+.adhoc-doc-version {
+  margin-right: .4rem;
+  color: var(--adhoc-dark);
+  font-weight: 700;
+}
+
+/* ── Modal de arranque de flujo ────────────────────────────────────────── */
+.adhoc-flow-doc {
+  margin-bottom: .85rem;
+  padding: .6rem .75rem;
+  background: var(--adhoc-soft);
+  border: 1px solid var(--adhoc-border);
+  border-left: 3px solid var(--adhoc-primary);
+  border-radius: calc(var(--adhoc-radius) - 6px);
+  color: var(--adhoc-dark);
+  font-size: .9rem;
+  font-weight: 600;
+}

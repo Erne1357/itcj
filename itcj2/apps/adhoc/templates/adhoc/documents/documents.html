@@ -1,0 +1,108 @@
+{# ===========================================================================
+   documents/documents.html — /adhoc/documentos
+   Vista de CONSULTA del SGC. Permiso: adhoc.documents.page.list.
+
+   Origen legacy: templates/app_prueba/documents/documents.html.
+
+   Qué cambia respecto del legacy:
+   * Los cuatro <select> de filtro (categoría, área, proceso, clasificación)
+     ahora RECIBEN sus opciones. En el legacy el template las iteraba pero la
+     ruta solo pasaba `documentos`, así que salían vacíos en silencio (bug #28).
+   * El filtrado y la paginación son de SERVIDOR (GET /api/adhoc/v2/documents).
+     El legacy filtraba en el DOM por índice de columna: con paginación eso solo
+     filtraría la página visible, y añadir una <td> desalineaba todo.
+   * Cero CSS inline y cero manejadores inline. Iconos Bootstrap Icons.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, data_table, filter_bar,
+        form_field, select_field, page_data_script %}
+
+{% block title %}Documentos · Calidad{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/documents/documents.css?v={{ sv('css/documents/documents.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-documents" data-adhoc-documents>
+
+  {{ page_header(
+       "Documentos",
+       "Consulta del sistema de gestión de calidad",
+       "bi-file-earmark-text") }}
+
+  <div class="adhoc-card">
+    {% call filter_bar(clear=False) %}
+      {{ form_field('q', 'Código o nombre', 'search',
+                    placeholder='Buscar...',
+                    attrs={'data-adhoc-doc-filter': 'q'}) }}
+      {{ select_field('status', 'Estatus', status_options,
+                      placeholder='Todos',
+                      attrs={'data-adhoc-doc-filter': 'status'}) }}
+      {{ select_field('category_id', 'Categoría', categoria_options,
+                      placeholder='Todas',
+                      attrs={'data-adhoc-doc-filter': 'category_id'}) }}
+      {{ select_field('area_id', 'Área', area_options,
+                      placeholder='Todas',
+                      attrs={'data-adhoc-doc-filter': 'area_id'}) }}
+      {{ select_field('process_id', 'Proceso', proceso_options,
+                      placeholder='Todos',
+                      attrs={'data-adhoc-doc-filter': 'process_id'}) }}
+      {{ select_field('classification_id', 'Clasificación', clasificacion_options,
+                      placeholder='Todas',
+                      attrs={'data-adhoc-doc-filter': 'classification_id'}) }}
+    {% endcall %}
+
+    <div class="adhoc-toolbar adhoc-toolbar-between">
+      <span class="adhoc-doc-count" data-adhoc-doc-count aria-live="polite"></span>
+      <span class="adhoc-doc-buttons">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-adhoc-doc-clear>
+          <i class="bi bi-eraser"></i>
+          <span class="d-none d-sm-inline">Limpiar</span>
+        </button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-doc-apply>
+          <i class="bi bi-funnel"></i>
+          <span class="d-none d-sm-inline">Filtrar</span>
+        </button>
+      </span>
+    </div>
+
+    {{ data_table(
+         'adhoc-documents-table',
+         [
+           {'key': 'code', 'label': 'Código'},
+           {'key': 'title', 'label': 'Nombre del documento'},
+           {'key': 'version', 'label': 'Versión'},
+           {'key': 'status', 'label': 'Estatus'},
+           {'key': 'file', 'label': 'Archivo', 'align': 'center'},
+           {'key': 'category', 'label': 'Categoría'},
+           {'key': 'area', 'label': 'Área'},
+           {'key': 'process', 'label': 'Proceso'},
+           {'key': 'classification', 'label': 'Clasificación'},
+           {'key': 'approval_date', 'label': 'Aprobación'}
+         ],
+         'No hay documentos que coincidan con los filtros.',
+         'bi-file-earmark-text',
+         width='xl') }}
+
+    <nav class="adhoc-pager" data-adhoc-pager aria-label="Paginación de documentos" hidden>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-adhoc-page="prev">
+        <i class="bi bi-chevron-left"></i>
+        <span class="d-none d-sm-inline">Anterior</span>
+      </button>
+      <span class="adhoc-pager-info" data-adhoc-page-info aria-live="polite"></span>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-adhoc-page="next">
+        <span class="d-none d-sm-inline">Siguiente</span>
+        <i class="bi bi-chevron-right"></i>
+      </button>
+    </nav>
+  </div>
+
+</section>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/documents/document-list.js?v={{ sv('js/documents/document-list.js') }}"></script>
+<script src="/static/adhoc/js/documents/documents.js?v={{ sv('js/documents/documents.js') }}"></script>
+{% endblock %}

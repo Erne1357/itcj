@@ -1,0 +1,94 @@
+/* ===========================================================================
+   documents/documents.css — hoja de la sección Documentos.
+
+   Cubre /adhoc/documentos y, por herencia, las piezas que el panel de
+   administración reutiliza (paginador, celda de archivo, estado de carga): el
+   panel enlaza esta hoja ANTES de la suya en vez de recopiarlas. En el legacy
+   cada pantalla redeclaraba `.controls-top`, `.doc-table` y `.filter-input` en
+   su propio archivo, con 45 hex sueltos repetidos.
+
+   Reglas duras del plan 6.4:
+   * Todo prefijado .adhoc-  (nunca .form-control, .card, .badge, .bg-...).
+   * Colores SIEMPRE por token, cero hex sueltos.
+   * Ningun comentario contiene el comodin de los tokens pegado al cierre: esa
+     secuencia cierra el comentario antes de tiempo y deja el :root siguiente
+     sin variables (gotcha real de este repo).
+   =========================================================================== */
+
+/* ── Raíz de la pantalla ───────────────────────────────────────────────── */
+.adhoc-documents {
+  display: block;
+}
+
+/* Atenúa la tabla mientras vuela el fetch, sin quitarla de la página: evita
+   el salto de layout del "vaciar y volver a pintar". */
+.adhoc-documents.is-loading .adhoc-table-wrap,
+.adhoc-doc-panel.is-loading .adhoc-table-wrap {
+  opacity: .55;
+  pointer-events: none;
+  transition: opacity .15s ease-in-out;
+}
+
+/* ── Contador y botonera de la barra de filtros ────────────────────────── */
+.adhoc-doc-count {
+  color: var(--adhoc-muted);
+  font-size: .85rem;
+  font-weight: 600;
+}
+
+.adhoc-doc-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+/* ── Celda de archivo ──────────────────────────────────────────────────── */
+.adhoc-file-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  color: var(--adhoc-primary);
+  border-radius: 50%;
+  text-decoration: none;
+  transition: background-color .15s ease-in-out;
+}
+
+.adhoc-file-link:hover,
+.adhoc-file-link:focus-visible {
+  background: var(--adhoc-primary-tint);
+  color: var(--adhoc-primary-hover);
+}
+
+.adhoc-file-none {
+  color: var(--adhoc-disabled);
+}
+
+/* ── Paginador ─────────────────────────────────────────────────────────── */
+.adhoc-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .75rem;
+  padding-top: .85rem;
+}
+
+.adhoc-pager[hidden] {
+  display: none;
+}
+
+.adhoc-pager-info {
+  color: var(--adhoc-muted);
+  font-size: .85rem;
+  font-weight: 600;
+  min-width: 9rem;
+  text-align: center;
+}
+
+/* ── Móvil ─────────────────────────────────────────────────────────────── */
+@media (max-width: 575.98px) {
+  .adhoc-pager-info {
+    min-width: 0;
+  }
+}

@@ -1,0 +1,44 @@
+{# ===========================================================================
+   documents/document_categories.html — /adhoc/documentos/categorias
+   Permiso: adhoc.doc_catalogs.page.list.
+
+   Origen legacy: templates/app_prueba/documents/documents_categories.html +
+   static/js/documents/documents_categories.js (111 líneas).
+
+   Aquí NO hay JS ni CSS propios: esta pantalla es la macro `catalog_page()` más
+   `shared/catalog-crud.js` (plan §6.5). El legacy tenía cuatro copias del mismo
+   archivo con distintos ids, todas con el nombre sin escapar en `innerHTML`,
+   `confirm()` para borrar y URLs con el prefijo inexistente `/app_prueba/api/…`
+   que devolvía 404 en silencio.
+
+   Los flags can_* solo ocultan botones; el gate real lo ponen require_page_app
+   en la ruta y require_perms en la API.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import catalog_page, catalog_modal %}
+
+{% block title %}Categorías de documento · Calidad{% endblock %}
+
+{% block content %}
+{{ catalog_page(
+     "Categorías de documento",
+     "document-categories",
+     "/api/adhoc/v2/document-categories",
+     back_url,
+     singular="categoría",
+     plural="categorías",
+     subtitle="Catálogo de clasificación temática de los documentos del SGC",
+     icon="bi-tags",
+     name_label="Nombre",
+     can_create=can_create,
+     can_update=can_update,
+     can_delete=can_delete) }}
+{% endblock %}
+
+{% block modals %}
+{{ catalog_modal("document-categories", singular="categoría", name_label="Nombre") }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/adhoc/js/shared/catalog-crud.js?v={{ sv('js/shared/catalog-crud.js') }}"></script>
+{% endblock %}

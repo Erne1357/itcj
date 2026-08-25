@@ -1,0 +1,39 @@
+{# ===========================================================================
+   documents/document_classifications.html — /adhoc/documentos/clasificaciones
+   Permiso: adhoc.doc_catalogs.page.list.
+
+   Origen legacy: templates/app_prueba/documents/documents_classifications.html
+   + static/js/documents/documents_classifications.js (112 líneas), que era
+   `documents_categories.js` con el nombre de la clase cambiado.
+
+   Igual que categorías: macro `catalog_page()` + `shared/catalog-crud.js`, sin
+   una sola línea de JS ni de CSS propios (plan §6.5).
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import catalog_page, catalog_modal %}
+
+{% block title %}Clasificaciones de documento · Calidad{% endblock %}
+
+{% block content %}
+{{ catalog_page(
+     "Clasificaciones de documento",
+     "document-classifications",
+     "/api/adhoc/v2/document-classifications",
+     back_url,
+     singular="clasificación",
+     plural="clasificaciones",
+     subtitle="Catálogo de nivel documental del SGC (manual, procedimiento, formato...)",
+     icon="bi-bookmarks",
+     name_label="Nombre",
+     can_create=can_create,
+     can_update=can_update,
+     can_delete=can_delete) }}
+{% endblock %}
+
+{% block modals %}
+{{ catalog_modal("document-classifications", singular="clasificación", name_label="Nombre") }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/adhoc/js/shared/catalog-crud.js?v={{ sv('js/shared/catalog-crud.js') }}"></script>
+{% endblock %}

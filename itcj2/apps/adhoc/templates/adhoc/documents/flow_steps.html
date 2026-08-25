@@ -1,0 +1,135 @@
+{# ===========================================================================
+   documents/flow_steps.html — /adhoc/documentos/flujos/{flow_id}/pasos
+   Permiso: adhoc.flows.page.list.
+
+   Origen legacy: templates/app_prueba/documents/documents_steps.html +
+   static/js/documents/documents_steps.js.
+
+   Qué cambia respecto del legacy:
+   * Guardar ya no es un `<form method="POST">` que recarga la página contra
+     `save_flow_steps`: es un PUT /approval-flows/{id}/steps, un UPSERT por
+     `step_order`. El endpoint del legacy BORRABA todos los pasos y los recreaba
+     con ids nuevos (bug #3), dejando `adhoc_tasks.flow_step_id` y
+     `adhoc_documents.current_step_id` apuntando a filas muertas. Por eso el
+     aviso del modal del legacy ("los usuarios asignados se perderán") ya no
+     aplica y se sustituye por el real: un paso solo se borra si nadie lo usa,
+     y si lo usan la API responde 409.
+   * Asignar validadores ya no navega a otra pantalla
+     (`/app_prueba/extintor/usuarios?action=step_assign&step_id=…`): se hace en
+     un modal con el selector compartido, que además NUMERA la selección porque
+     el orden de marcado ES el orden de validación.
+   * Los usuarios NO se pintan desde Jinja (el legacy listaba `first_name` y
+     `last_name` en un <ul>, y en la pantalla de asignación los inyectaba como
+     HTML crudo). Van como JSON en page_data y los pinta shared/user-picker.js
+     con textContent.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, back_button, data_table,
+        user_picker, page_data_script %}
+
+{% block title %}Pasos de {{ flow.name }} · Calidad{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/documents/flow-steps.css?v={{ sv('css/documents/flow-steps.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-flow-steps" data-adhoc-flow-steps>
+
+  {% call page_header(
+       "Diseño del flujo: " ~ flow.name,
+       flow.description or "Pasos secuenciales por los que pasa un documento hasta aprobarse",
+       "bi-list-ol") %}
+    {{ back_button(back_url, 'Volver a flujos') }}
+  {% endcall %}
+
+  <div class="alert alert-info adhoc-steps-hint">
+    <i class="bi bi-info-circle me-2"></i>
+    Los pasos se aplican en el orden de la tabla. Un paso nuevo se guarda antes de
+    poder asignarle validadores, y un paso solo puede eliminarse si ningún
+    documento o tarea lo está usando.
+  </div>
+
+  <div class="adhoc-card">
+    {{ data_table(
+         'adhoc-steps-table',
+         [
+           {'key': 'order', 'label': 'Orden', 'align': 'center'},
+           {'key': 'name', 'label': 'Nombre del paso'},
+           {'key': 'days', 'label': 'Días límite'},
+           {'key': 'validators', 'label': 'Validadores', 'align': 'center'},
+           {'key': 'actions', 'label': 'Acciones', 'align': 'end'}
+         ],
+         'Este flujo todavía no tiene pasos.',
+         'bi-list-ol',
+         width='md') }}
+
+    {%- if can_update %}
+    <div class="adhoc-toolbar adhoc-toolbar-between">
+      <span class="adhoc-steps-add">
+        <button type="button" class="btn btn-sm btn-outline-primary" data-adhoc-steps-add>
+          <i class="bi bi-plus-lg"></i>
+          <span class="d-none d-sm-inline">Añadir pasos</span>
+        </button>
+        <label class="visually-hidden" for="adhoc-steps-qty">Cuántos pasos añadir</label>
+        <select class="form-select form-select-sm adhoc-qty-select" id="adhoc-steps-qty"
+                data-adhoc-steps-qty>
+          {% for n in range(1, 11) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+        </select>
+      </span>
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-steps-save>
+        <i class="bi bi-floppy"></i> Guardar diseño
+      </button>
+    </div>
+    {%- endif %}
+  </div>
+
+</section>
+{% endblock %}
+
+{% block modals %}
+{# — Validadores / avisos de atraso de un paso —
+   El mismo modal sirve para las dos acciones: cambia el título, la ayuda y el
+   endpoint (…/validators o …/overdue-notifications), que comparten el body
+   {"user_ids": [...]}. #}
+<div class="modal fade" id="adhoc-step-users-modal" tabindex="-1"
+     aria-labelledby="adhoc-step-users-modal-title" aria-hidden="true" data-adhoc-step-modal>
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-step-users-modal-title" data-adhoc-step-modal-title>
+          <i class="bi bi-person-check me-2"></i>Validadores del paso
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="adhoc-step-modal-hint" data-adhoc-step-modal-hint></p>
+        {# ordered=False A PROPÓSITO. La macro sugiere ordered=True "porque el
+           orden de marcado es el orden de aprobación", pero eso no se sostiene
+           contra esta API: `set_step_validators` guarda un CONJUNTO (no hay
+           columna de orden en adhoc_flow_step_assignees) y el motor de workflow
+           completa el paso cuando TODOS los asignados han aprobado, sin
+           secuencia entre ellos (plan §10.b, rama C). Numerar la selección
+           prometería un orden que no sobrevive al guardado. La secuencia real
+           es la de los PASOS, y esa sí se ve en la tabla. #}
+        {{ user_picker('adhoc-step-users-picker',
+                       users_key='users',
+                       name='user_ids',
+                       help='Todos los validadores del paso deben aprobar para que el documento avance al siguiente.') }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" data-adhoc-step-users-save>
+          <i class="bi bi-floppy"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/shared/user-picker.js?v={{ sv('js/shared/user-picker.js') }}"></script>
+<script src="/static/adhoc/js/documents/flow-steps.js?v={{ sv('js/documents/flow-steps.js') }}"></script>
+{% endblock %}
