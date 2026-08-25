@@ -25,6 +25,7 @@ apps = {
     'helpdesk':  'itcj2/apps/helpdesk/static',
     'vistetec':  'itcj2/apps/vistetec/static',
     'maint':     'itcj2/apps/maint/static',
+    'adhoc':     'itcj2/apps/adhoc/static',
 }
 
 manifest = {}
