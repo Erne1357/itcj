@@ -1,0 +1,126 @@
+{# ===========================================================================
+   reports/view_report.html — LOS CINCO reportes imprimibles.
+
+   Ruta: GET /adhoc/reportes/{tipo} · permiso: adhoc.reports.page.view
+
+   Un solo template para los 5. En el legacy eran cinco documentos HTML
+   standalone (view_report_areas / _tasks / _users_documents / _documents_users
+   / _documents_notes) que repetían el <head>, tres CDN, sus propias variables
+   de color y una tabla cableada a mano con un condicional de formato por
+   columna. Aquí las columnas y las filas llegan YA resueltas del
+   report_service, así que el template solo las pinta.
+
+   body_class="adhoc-print" activa el @media print de adhoc.css, que esconde
+   appbar, nav y barra de acciones. El bloque de modales se deja sin sobrescribir
+   a propósito: un reporte no tiene diálogos.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import back_button, empty_state, page_data_script %}
+
+{% block title %}{{ report.title }} · Calidad{% endblock %}
+{% block body_class %}adhoc-print{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/reports/view-report.css?v={{ sv('css/reports/view-report.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-report" data-adhoc-report-view>
+
+  <div class="adhoc-toolbar adhoc-toolbar-end adhoc-report-actions">
+    {{ back_button('/adhoc/reportes', 'Volver a Reportes') }}
+    <button type="button" class="btn btn-sm btn-success" data-adhoc-report-excel>
+      <i class="bi bi-file-earmark-spreadsheet"></i>
+      <span class="d-none d-sm-inline">Exportar a Excel</span>
+    </button>
+    <button type="button" class="btn btn-sm btn-secondary" data-adhoc-report-print>
+      <i class="bi bi-printer"></i>
+      <span class="d-none d-sm-inline">Imprimir PDF</span>
+    </button>
+  </div>
+
+  <article class="adhoc-card adhoc-report-sheet">
+
+    <header class="adhoc-report-head">
+      <h1 class="adhoc-report-title">{{ report.title }}</h1>
+
+      <dl class="adhoc-report-meta">
+        <div class="adhoc-report-meta-item">
+          <dt>Solicitado por</dt><dd>{{ requester }}</dd>
+        </div>
+        <div class="adhoc-report-meta-item">
+          <dt>Fecha de emisión</dt><dd>{{ issued_date }}</dd>
+        </div>
+        <div class="adhoc-report-meta-item">
+          <dt>Hora de emisión</dt><dd>{{ issued_time }}</dd>
+        </div>
+        <div class="adhoc-report-meta-item">
+          <dt>Filtro Área</dt><dd>{{ report.filters.area or 'Todas' }}</dd>
+        </div>
+        <div class="adhoc-report-meta-item">
+          <dt>Filtro Nombre</dt><dd>{{ report.filters.nombre or 'N/A' }}</dd>
+        </div>
+        <div class="adhoc-report-meta-item">
+          <dt>Filtro Apellidos</dt><dd>{{ report.filters.apellidos or 'N/A' }}</dd>
+        </div>
+        <div class="adhoc-report-meta-item">
+          <dt>Formato</dt><dd>{{ report.formato|capitalize }}</dd>
+        </div>
+        <div class="adhoc-report-meta-item">
+          <dt>Registros</dt><dd>{{ report.total }}</dd>
+        </div>
+      </dl>
+    </header>
+
+    {% if report.truncated %}
+    <p class="alert alert-warning adhoc-no-print" role="alert">
+      <i class="bi bi-exclamation-triangle-fill"></i>
+      El reporte se recortó a los primeros {{ report.max_rows }} registros de origen.
+      Acote los filtros para verlo completo.
+    </p>
+    {% endif %}
+
+    {# Tabla escrita a mano (no con la macro data_table) por una razón concreta:
+       la macro siempre emite una fila "sin resultados" que el CSS esconde, y
+       XLSX.utils.table_to_book lee el <table> del DOM tal cual — esa fila
+       fantasma acabaría dentro del Excel. Aquí el estado vacío va FUERA. #}
+    <div class="adhoc-table-wrap">
+      <table class="adhoc-table adhoc-report-table" id="adhoc-report-table">
+        <thead>
+          <tr>
+            {% for col in report.columns %}
+            <th scope="col" class="adhoc-col-{{ col.align|default('start', true) }}">{{ col.label }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report.rows %}
+          <tr>
+            {% for col in report.columns %}
+            <td class="adhoc-col-{{ col.align|default('start', true) }}{% if col.key in ('notes', 'assigned_users') %} adhoc-report-cell-long{% endif %}"
+                data-adhoc-cell="{{ col.key }}">{{ row[col.key] }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if not report.rows %}
+      {{ empty_state('No se encontró información con los filtros especificados.', 'bi-clipboard-x') }}
+    {% endif %}
+
+  </article>
+</section>
+{% endblock %}
+
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+{# SheetJS PINEADO y servido desde el propio host. El legacy lo cargaba de
+   https://cdn.sheetjs.com/xlsx-latest/... — "latest", sin versión ni SRI: quien
+   controlara ese CDN ejecutaba código en la sesión de cualquiera que abriese un
+   reporte. #}
+<script src="/static/adhoc/js/vendor/xlsx-0.20.3.mini.min.js?v={{ sv('js/vendor/xlsx-0.20.3.mini.min.js') }}"></script>
+<script src="/static/adhoc/js/reports/report-view.js?v={{ sv('js/reports/report-view.js') }}"></script>
+{% endblock %}

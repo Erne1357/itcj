@@ -1,0 +1,135 @@
+/* ==========================================================================
+   reports/view-report.css — la hoja imprimible de los CINCO reportes.
+
+   Sustituye a los 5 archivos del legacy (view_report_areas.css,
+   view_report_tasks.css, view_report_users_documents.css,
+   view_report_documents_users.css, view_report_documents_notes.css): eran
+   copias del mismo archivo, con estas diferencias reales entre ellas:
+   `max-width: 1000px` vs `1200px`, y tres utilidades sueltas
+   (.text-center/.text-bold/.sin-datos/.cell-notes) presentes en unos sí y en
+   otros no. Todos redeclaraban `:root { --color-primario: ... }` por su cuenta,
+   redefinían `body` y repetían su propio `@media print`.
+
+   Aquí: el `@media print` general está en adhoc.css (lo activa
+   body_class="adhoc-print"), la alineación por columna la da `.adhoc-col-*`, y
+   este archivo solo aporta la estética de "hoja de reporte".
+   ========================================================================== */
+
+.adhoc-report {
+  max-width: 1200px;
+  margin-inline: auto;
+}
+
+.adhoc-report-actions {
+  margin-bottom: 1rem;
+}
+
+/* ── La hoja ───────────────────────────────────────────────────────────── */
+.adhoc-report-sheet {
+  padding: clamp(1rem, 3vw, 2.5rem);
+}
+
+.adhoc-report-head {
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 3px solid var(--adhoc-primary);
+}
+
+.adhoc-report-title {
+  margin: 0 0 1rem;
+  color: var(--adhoc-primary);
+  font-size: clamp(1.25rem, 2.5vw, 1.8rem);
+  font-weight: 600;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+/* ── Metadatos de emisión ──────────────────────────────────────────────── */
+.adhoc-report-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: .5rem 1.25rem;
+  padding: 1rem;
+  margin: 0;
+  background: var(--adhoc-soft);
+  border-radius: var(--adhoc-radius);
+  font-size: .85rem;
+}
+
+.adhoc-report-meta-item {
+  min-width: 0;
+}
+
+.adhoc-report-meta dt {
+  color: var(--adhoc-muted);
+  font-weight: 400;
+}
+
+.adhoc-report-meta dd {
+  margin: 0;
+  color: var(--adhoc-dark);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* ── Tabla del reporte ─────────────────────────────────────────────────── */
+/* Cabecera en el color de marca, como en el legacy; el resto (bordes, zebra,
+   sticky) ya lo pone `.adhoc-table` de adhoc.css. */
+.adhoc-report-table thead th {
+  color: var(--adhoc-surface);
+  background: var(--adhoc-primary);
+  border-bottom-color: var(--adhoc-primary);
+}
+
+.adhoc-report-table tbody tr:nth-child(even) {
+  background: var(--adhoc-soft);
+}
+
+/* Notas y listas de validadores: texto largo que debe respetar los saltos de
+   línea sin estirar la tabla a lo ancho de la pantalla. */
+.adhoc-report-cell-long {
+  max-width: 26rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── Impresión ─────────────────────────────────────────────────────────── */
+/* Lo transversal (esconder appbar, nav y toolbar) vive en adhoc.css. Aquí solo
+   lo propio de la hoja. */
+@media print {
+  .adhoc-report {
+    max-width: none;
+  }
+
+  .adhoc-report-sheet {
+    padding: 0;
+  }
+
+  .adhoc-report-meta {
+    background: transparent;
+    padding: 0;
+  }
+
+  /* Sin esto el navegador descarta los fondos y la cabecera sale en blanco
+     sobre blanco. */
+  .adhoc-report-table thead th {
+    color: #000;
+    background: transparent;
+    border-bottom: 2px solid #000;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .adhoc-report-table tbody tr:nth-child(even) {
+    background: transparent;
+  }
+
+  /* La cabecera se repite en cada página del PDF. */
+  .adhoc-report-table thead {
+    display: table-header-group;
+  }
+
+  .adhoc-report-table tr {
+    break-inside: avoid;
+  }
+}

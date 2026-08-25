@@ -1,0 +1,161 @@
+{# ===========================================================================
+   reports/reports.html — Centro de Reportes (pantalla de selección).
+
+   Ruta: GET /adhoc/reportes · permiso: adhoc.reports.page.view
+
+   Qué cambia respecto al legacy (reports/reports.html):
+     · Los DOS modales caseros (#modalReporte y #modalDocumentosNotas, ambos
+       .modal-overlay con style.display='flex') se funden en UN modal de
+       Bootstrap 5.3 que conmuta su vista previa según el reporte elegido.
+       De paso, "Documentos y Notas" vuelve a ser generable: su modal del legacy
+       solo tenía un botón "Cerrar", así que ese reporte era inalcanzable desde
+       la interfaz.
+     · Las filas de las dos vistas previas NO se renderizan desde Jinja: viajan
+       como JSON en el bloque page_data y las pinta el módulo JS escapando cada
+       celda.
+     · Cero CSS inline, cero manejadores inline, iconos Bootstrap Icons.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, data_table, form_field, select_field, page_data_script %}
+
+{% block title %}Centro de Reportes · Calidad{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/reports/reports.css?v={{ sv('css/reports/reports.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-reports" data-adhoc-reports>
+
+  {{ page_header(
+      'Centro de Reportes',
+      'Seleccione el reporte que desea generar para configurar sus filtros.',
+      'bi-clipboard-data') }}
+
+  <div class="adhoc-tile-grid">
+    {% for card in reports %}
+    <button type="button"
+            class="adhoc-tile adhoc-report-card"
+            data-adhoc-report="{{ card.type }}"
+            data-adhoc-report-label="{{ card.label }}"
+            data-adhoc-report-subject="{{ card.subject }}">
+      <span class="adhoc-tile-icon adhoc-report-icon">
+        <i class="bi {{ card.icon }}"></i>
+        <i class="bi {{ card.icon_overlay }} adhoc-report-icon-overlay" aria-hidden="true"></i>
+      </span>
+      <span class="adhoc-tile-title">{{ card.label }}</span>
+      <span class="adhoc-tile-text">{{ card.title }}</span>
+    </button>
+    {% endfor %}
+  </div>
+
+</section>
+{% endblock %}
+
+
+{% block modals %}
+{% set PREVIEW_USERS_COLS = [
+  {'key': 'first_name', 'label': 'Nombre'},
+  {'key': 'last_name',  'label': 'Apellidos'},
+  {'key': 'areas',      'label': 'Área'}
+] %}
+{% set PREVIEW_DOCS_COLS = [
+  {'key': 'code',       'label': 'Código'},
+  {'key': 'title',      'label': 'Título'},
+  {'key': 'author',     'label': 'Autor'},
+  {'key': 'area',       'label': 'Área'},
+  {'key': 'status',     'label': 'Estado'},
+  {'key': 'version',    'label': 'Versión', 'align': 'center'},
+  {'key': 'created_at', 'label': 'Fecha',   'align': 'center'},
+  {'key': 'notes',      'label': 'Notas'}
+] %}
+
+{# Un solo modal para los 5 reportes. Vive aquí, a nivel <body>, fuera de
+   cualquier contenedor con transform (.adhoc-tile usa translateY en :hover). #}
+<div class="modal fade" id="adhoc-report-modal" tabindex="-1"
+     aria-labelledby="adhoc-report-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+
+      {# GET + target=_blank: el reporte se abre en otra pestaña y esta pantalla
+         conserva los filtros, igual que en el legacy. El `action` lo fija el JS
+         con el tipo de reporte elegido. #}
+      <form id="adhoc-report-form" method="get" action="/adhoc/reportes" target="_blank">
+
+        <div class="modal-header">
+          <h5 class="modal-title" id="adhoc-report-modal-title">
+            <i class="bi bi-funnel me-2"></i><span data-adhoc-report-title>Filtros</span>
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+
+        <div class="modal-body">
+
+          <div class="adhoc-form-grid adhoc-report-filters">
+            {{ form_field('f_nombre', 'Nombre', placeholder='Nombre...',
+                          id='adhoc-report-f-nombre',
+                          attrs={'data-adhoc-report-filter': 'nombre', 'autocomplete': 'off'}) }}
+            {{ form_field('f_apellidos', 'Apellidos', placeholder='Apellidos...',
+                          id='adhoc-report-f-apellidos',
+                          attrs={'data-adhoc-report-filter': 'apellidos', 'autocomplete': 'off'}) }}
+            {{ select_field('f_area', 'Área', areas|map(attribute='name')|list,
+                            placeholder='Todas las Áreas',
+                            id='adhoc-report-f-area',
+                            attrs={'data-adhoc-report-filter': 'area'}) }}
+          </div>
+
+          <div class="adhoc-toolbar adhoc-toolbar-between adhoc-report-preview-bar">
+            <span class="adhoc-report-hint">
+              <i class="bi bi-eye"></i>
+              Vista previa de lo que incluirá el reporte
+              (<span data-adhoc-preview-count>0</span>).
+            </span>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-adhoc-report-clear>
+              <i class="bi bi-eraser"></i>
+              <span class="d-none d-sm-inline">Limpiar</span>
+            </button>
+          </div>
+
+          {# Dos vistas previas; el JS enseña la que corresponda al reporte. #}
+          <div class="adhoc-report-preview" data-adhoc-preview="users">
+            {{ data_table('adhoc-report-users', PREVIEW_USERS_COLS,
+                          'Ningún colaborador coincide con los filtros.',
+                          empty_icon='bi-person-x', width='auto',
+                          wrap_css='adhoc-table-sticky') }}
+          </div>
+
+          <div class="adhoc-report-preview" data-adhoc-preview="documents" hidden>
+            {{ data_table('adhoc-report-docs', PREVIEW_DOCS_COLS,
+                          'Ningún documento coincide con los filtros.',
+                          empty_icon='bi-file-earmark-x', width='xl',
+                          wrap_css='adhoc-table-sticky') }}
+          </div>
+
+        </div>
+
+        <div class="modal-footer adhoc-report-footer">
+          <span class="adhoc-report-hint">Seleccione el formato de salida:</span>
+          <div class="d-flex gap-2">
+            <button type="submit" name="formato" value="sencillo" class="btn btn-primary">
+              <i class="bi bi-file-earmark-text"></i>
+              Reporte Sencillo
+            </button>
+            <button type="submit" name="formato" value="completo" class="btn btn-success">
+              <i class="bi bi-file-earmark-spreadsheet"></i>
+              Reporte Completo
+            </button>
+          </div>
+        </div>
+
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/reports/reports.js?v={{ sv('js/reports/reports.js') }}"></script>
+{% endblock %}

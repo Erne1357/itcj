@@ -1,0 +1,95 @@
+/* ==========================================================================
+   reports/reports.css — Centro de Reportes (pantalla de selección).
+
+   Molde legacy: static/css/control_panel/reports.css, del que se descartan:
+     · los 8 bloques de `.modal-overlay` / `.modal-content` / `.modal-header` /
+       `.modal-footer` (colisionaban de frente con Bootstrap 5.3 y ahora el
+       modal ES de Bootstrap);
+     · `.doc-table`, `.filter-input`, `.btn-action` y sus 6 variantes de color,
+       que ya viven en adhoc.css como `.adhoc-table` / `.adhoc-filter-input` y
+       como las clases de botón de Bootstrap;
+     · los 12 hex sueltos: aquí todo sale de los tokens `--adhoc-...`.
+
+   Solo queda lo específico de esta pantalla: la tarjeta con el icono
+   superpuesto y la caja de la vista previa dentro del modal.
+   ========================================================================== */
+
+/* ── Tarjeta de reporte ────────────────────────────────────────────────── */
+/* Es un <button> (el legacy usaba un <div> con onclick, que ni es focusable
+   ni responde a Enter). Hereda .adhoc-tile y solo anula lo que el agente de
+   usuario le impone a los botones. */
+.adhoc-report-card {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  appearance: none;
+}
+
+.adhoc-report-card:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 2px;
+}
+
+/* Icono base + icono superpuesto abajo a la derecha. */
+.adhoc-report-icon {
+  position: relative;
+  overflow: visible;
+}
+
+.adhoc-report-icon-overlay {
+  position: absolute;
+  right: -.25rem;
+  bottom: -.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: .8rem;
+  color: var(--adhoc-surface);
+  background: var(--adhoc-primary);
+  border: 2px solid var(--adhoc-surface);
+  border-radius: 50%;
+}
+
+/* ── Modal de filtros ──────────────────────────────────────────────────── */
+.adhoc-report-filters {
+  margin-bottom: 1rem;
+}
+
+@media (min-width: 768px) {
+  .adhoc-report-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.adhoc-report-preview-bar {
+  margin-bottom: .5rem;
+}
+
+.adhoc-report-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  color: var(--adhoc-muted);
+  font-size: .85rem;
+}
+
+/* La vista previa se queda dentro del modal: el scroll es suyo, no del
+   cuerpo del diálogo, para que la cabecera pegajosa de la tabla sirva. */
+.adhoc-report-preview .adhoc-table-wrap {
+  max-height: 45vh;
+}
+
+.adhoc-report-preview[hidden] {
+  display: none;
+}
+
+.adhoc-report-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  align-items: center;
+  justify-content: space-between;
+}
