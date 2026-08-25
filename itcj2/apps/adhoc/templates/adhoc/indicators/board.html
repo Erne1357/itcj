@@ -1,0 +1,106 @@
+{# ===========================================================================
+   indicators/board.html — tablero (fichas de indicador) de un año.
+   Ruta: GET /adhoc/indicadores/{year_id}/tablero
+   Permiso: adhoc.indicators.page.manage
+   Legacy: app_prueba/indicators/indicators_board.html
+
+   Cambios respecto del legacy:
+     · Los CUATRO umbrales son cuatro campos del formulario, no un string
+       "b-r-a-v" partido con .split('-') (bug #16 del plan).
+     · El <select> de frecuencia ofrece Semanal | Mensual | Anual. En el legacy
+       'Semanal' se reconocía al pintar la rejilla pero el formulario no lo
+       ofrecía: era un valor inalcanzable.
+     · Los procesos ya no llegan como htmlProcesos (HTML crudo dentro de un
+       template literal de JS): viajan como JSON en page_data.
+     · Enlace de descarga de la evidencia — funcionalidad NUEVA: el legacy subía
+       el archivo y no ofrecía forma de recuperarlo.
+     · El modal es bootstrap.Modal en {% block modals %}, no un .modal-overlay
+       con style.display = 'flex'.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import back_button, page_header, data_table, page_data_script %}
+
+{% block title %}Tablero {{ year.year }} · Indicadores · Calidad{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/indicators/board.css?v={{ sv('css/indicators/board.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-indicator-board" data-adhoc-indicator-board>
+  {% call page_header(
+       "Tablero del año " ~ year.year,
+       "Fichas de indicador del año: proceso, metas y evidencia.",
+       "bi-speedometer2") %}
+    {{ back_button("/adhoc/indicadores", "Volver a años") }}
+    {% if can_track %}
+    <a class="btn btn-sm btn-outline-primary" href="{{ tracking_url }}">
+      <i class="bi bi-grid-3x3-gap"></i>
+      <span class="d-none d-sm-inline">Ver seguimiento</span>
+    </a>
+    {% endif %}
+    {% if can_create %}
+    <button type="button" class="btn btn-sm btn-primary" data-adhoc-board-new>
+      <i class="bi bi-plus-lg"></i>
+      <span class="d-none d-sm-inline">Añadir indicador(es)</span>
+    </button>
+    {% endif %}
+  {% endcall %}
+
+  <div class="adhoc-card">
+    {{ data_table(
+         'adhoc-indicator-board',
+         [
+           {'key': 'process', 'label': 'Proceso', 'filter': true, 'placeholder': 'Proceso...'},
+           {'key': 'responsible', 'label': 'Responsable', 'filter': true, 'placeholder': 'Responsable...'},
+           {'key': 'frequency', 'label': 'Frecuencia', 'filter': true, 'placeholder': 'Frecuencia...'},
+           {'key': 'objective', 'label': 'Objetivo', 'filter': true, 'placeholder': 'Objetivo...'},
+           {'key': 'planned', 'label': 'Metas (E / R / P / A)'},
+           {'key': 'evidence', 'label': 'Evidencia', 'align': 'center'},
+           {'key': 'actions', 'label': 'Acciones', 'align': 'end'}
+         ],
+         'No hay indicadores registrados en este año.',
+         'bi-folder2-open',
+         'lg') }}
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+<div class="modal fade" id="adhoc-board-modal" tabindex="-1"
+     aria-labelledby="adhoc-board-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-board-modal-title">
+          <i class="bi bi-speedometer2 me-2"></i><span data-adhoc-board-modal-label>Gestión de indicador</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="adhoc-catalog-count" data-adhoc-board-qty-wrap>
+          <label class="form-label adhoc-label" for="adhoc-board-qty">Cuántos indicadores capturar</label>
+          <select class="form-select adhoc-qty-select" id="adhoc-board-qty" data-adhoc-board-qty>
+            {% for n in [1, 2, 3, 5] %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+          </select>
+        </div>
+        <div data-adhoc-board-forms></div>
+      </div>
+      <div class="modal-footer adhoc-board-modal-footer">
+        <button type="button" class="btn btn-outline-danger me-auto" data-adhoc-board-delete hidden>
+          <i class="bi bi-trash"></i> Eliminar
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" data-adhoc-board-save>
+          <i class="bi bi-floppy"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/indicators/board.js?v={{ sv('js/indicators/board.js') }}"></script>
+{% endblock %}

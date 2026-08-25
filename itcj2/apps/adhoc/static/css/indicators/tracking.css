@@ -1,0 +1,230 @@
+/* ==========================================================================
+   indicators/tracking.css — rejilla de seguimiento por colores.
+   Página: /adhoc/indicadores/{year_id}/seguimiento
+   Módulo: js/indicators/tracking.js
+
+   Sustituye a app_prueba/css/indicators/indicators_tracking.css. Ahí las
+   celdas se pintaban con .bg-blanco / .bg-rojo / .bg-amarillo / .bg-verde, que
+   colisionan con las utilidades .bg- de Bootstrap 5.3; aquí se usan las clases
+   de estado de adhoc.css (.adhoc-state-white / red / yellow / green).
+   ========================================================================== */
+
+/* Aviso de solo lectura: se pinta cuando falta adhoc.indicators.api.tracking.
+   En el legacy nunca aparecía porque is_admin iba hardcodeado a True. */
+.adhoc-tracking-readonly {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  margin-bottom: 1rem;
+  padding: .55rem .75rem;
+  font-size: .85rem;
+  color: var(--adhoc-muted);
+  background: var(--adhoc-soft);
+  border: 1px solid var(--adhoc-border);
+  border-radius: calc(var(--adhoc-radius) - 4px);
+}
+
+/* ── Tarjeta de indicador ───────────────────────────────────────────────── */
+
+.adhoc-tracking-card + .adhoc-tracking-card {
+  margin-top: 1.25rem;
+}
+
+.adhoc-tracking-head {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: .75rem 1.1rem;
+  margin-bottom: .9rem;
+}
+
+.adhoc-tracking-info {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  min-width: 0;
+}
+
+.adhoc-tracking-info-full {
+  grid-column: 1 / -1;
+}
+
+.adhoc-tracking-label {
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--adhoc-muted);
+}
+
+.adhoc-tracking-value {
+  overflow: hidden;
+  font-size: .9rem;
+  color: var(--adhoc-dark);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adhoc-tracking-strong {
+  font-weight: 700;
+  color: var(--adhoc-primary);
+}
+
+/* El color del proceso lo aplica el JS leyendo data-adhoc-color: en las
+   plantillas está prohibido style="…", así que no puede venir del servidor. */
+.adhoc-tracking-swatch {
+  flex: 0 0 auto;
+  background: var(--adhoc-disabled);
+}
+
+/* ── Leyenda de los cuatro umbrales ─────────────────────────────────────── */
+
+.adhoc-tracking-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem .85rem;
+  font-size: .8rem;
+  color: var(--adhoc-muted);
+}
+
+.adhoc-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+}
+
+.adhoc-legend-dot {
+  display: inline-block;
+  width: .8rem;
+  height: .8rem;
+  border-radius: 50%;
+}
+
+.adhoc-legend-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  font-weight: 600;
+  color: var(--adhoc-primary);
+  text-decoration: none;
+}
+
+.adhoc-legend-doc:hover,
+.adhoc-legend-doc:focus-visible {
+  text-decoration: underline;
+}
+
+/* Confirmación de guardado. El JS quita/pone el atributo hidden; la
+   transición hace el resto (el legacy alternaba una clase .show a mano). */
+.adhoc-tracking-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--adhoc-success);
+}
+
+.adhoc-tracking-saved[hidden] {
+  display: none;
+}
+
+/* ── Rejilla de periodos ────────────────────────────────────────────────── */
+
+.adhoc-tracking-grid {
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.adhoc-tracking-table {
+  min-width: max-content;
+}
+
+.adhoc-tracking-table th,
+.adhoc-tracking-table td {
+  padding: .35rem .4rem;
+  white-space: nowrap;
+}
+
+/* Primera columna congelada. En la fila de encabezado se suma al sticky
+   vertical que ya trae .adhoc-table thead th, así que se queda fija en las dos
+   direcciones y necesita ganar la capa. */
+.adhoc-tracking-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  min-width: 7.5rem;
+  font-weight: 700;
+  text-align: left;
+  background: var(--adhoc-soft);
+}
+
+.adhoc-tracking-table thead .adhoc-tracking-sticky {
+  z-index: 4;
+}
+
+.adhoc-tracking-plan {
+  color: var(--adhoc-muted);
+  background: var(--adhoc-soft);
+}
+
+.adhoc-tracking-plan td {
+  font-variant-numeric: tabular-nums;
+}
+
+.adhoc-tracking-cell-box {
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  min-width: 5.5rem;
+}
+
+/* Input y select comparten la clase de estado, que les da fondo y color. */
+.adhoc-tracking-input,
+.adhoc-tracking-color {
+  width: 100%;
+  padding: .2rem .35rem;
+  font-size: .8rem;
+  text-align: center;
+  border: 1px solid var(--adhoc-border);
+  border-radius: 5px;
+}
+
+.adhoc-tracking-input:focus,
+.adhoc-tracking-color:focus {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: -1px;
+}
+
+.adhoc-tracking-input:disabled {
+  color: var(--adhoc-muted);
+  cursor: not-allowed;
+}
+
+.adhoc-tracking-color {
+  font-size: .7rem;
+}
+
+/* ── Pie de la tarjeta ──────────────────────────────────────────────────── */
+
+.adhoc-tracking-foot {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: .35rem 1.1rem;
+  margin-top: .85rem;
+  padding-top: .7rem;
+  font-size: .82rem;
+  color: var(--adhoc-muted);
+  border-top: 1px solid var(--adhoc-border);
+}
+
+.adhoc-tracking-planb {
+  color: var(--adhoc-danger);
+}
+
+@media print {
+  .adhoc-tracking-grid {
+    max-height: none;
+    overflow: visible;
+  }
+}

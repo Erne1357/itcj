@@ -1,0 +1,58 @@
+/* ==========================================================================
+   indicators/years.css — lista de años del tablero de indicadores.
+   Página: /adhoc/indicadores   ·   Módulo: js/indicators/years.js
+
+   Sustituye a app_prueba/css/indicators/indicators_year.css, que redeclaraba
+   .modal-overlay (con backdrop-filter), .form-input, .btn-action y una paleta
+   de hex sueltos. Aquí todo cuelga de los tokens --adhoc- de adhoc.css y las
+   clases van prefijadas .adhoc-; el modal es de Bootstrap 5.3.
+   ========================================================================== */
+
+/* Aviso del modo activo (configuracion | seguimiento). */
+.adhoc-years-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+  margin-bottom: 1rem;
+  padding: .55rem .75rem;
+  font-size: .85rem;
+  color: var(--adhoc-muted);
+  background: var(--adhoc-primary-tint);
+  border-radius: calc(var(--adhoc-radius) - 4px);
+}
+
+.adhoc-years-mode > i {
+  color: var(--adhoc-primary);
+}
+
+.adhoc-years-mode-swap {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--adhoc-primary);
+  text-decoration: none;
+}
+
+.adhoc-years-mode-swap:hover,
+.adhoc-years-mode-swap:focus-visible {
+  text-decoration: underline;
+}
+
+/* El ano es el dato principal de la fila: se lee de un vistazo. */
+.adhoc-years-value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--adhoc-primary);
+}
+
+/* Contador de indicadores del ano (viene de la misma consulta que la lista). */
+.adhoc-years-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Filas clicables: el cursor lo pone .adhoc-row-click de la base; aqui solo se
+   marca el foco por teclado, porque la fila es navegable con Tab. */
+.adhoc-indicator-years tbody tr[data-id]:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: -2px;
+}

@@ -1,0 +1,177 @@
+{# ===========================================================================
+   indicators/tracking.html — rejilla de seguimiento por colores de un año.
+   Ruta: GET /adhoc/indicadores/{year_id}/seguimiento
+   Permiso de página: adhoc.indicators.page.tracking
+   Permiso de edición: adhoc.indicators.api.tracking  → `can_edit`
+   Legacy: app_prueba/indicators/indicators_tracking.html
+
+   Cambios respecto del legacy:
+     · `can_edit` es un permiso REAL. La ruta del legacy pasaba is_admin=True
+       hardcodeado, pisando el valor del context processor: los inputs nunca
+       iban disabled y el <select> de color se pintaba siempre, así que
+       cualquier usuario podía reescribir el seguimiento del SGC (bug #26).
+     · Los cuatro umbrales son cuatro campos; el legacy los sacaba de
+       ind.planned_value.split('-') dentro de la propia plantilla.
+     · El número de periodos y la celda de cada uno los resuelve la vista en
+       Python (pages/indicators.py::_tracking_cards); la plantilla solo itera.
+       El legacy los calculaba con una cadena de {% set %}/{% if %} y buscaba
+       cada celda con un selectattr dentro del bucle (O(n·m)).
+     · Colores por .adhoc-state-*, no por .bg-blanco/.bg-rojo/… (que chocan con
+       las utilidades .bg-* de Bootstrap 5.3).
+     · Cero atributos de estilo en línea (el legacy tenía 9) y cero manejadores
+       de evento en línea.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import back_button, page_header, empty_state, page_data_script %}
+
+{% block title %}Seguimiento {{ year.year }} · Indicadores · Calidad{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/indicators/tracking.css?v={{ sv('css/indicators/tracking.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-indicator-tracking" data-adhoc-indicator-tracking>
+  {% call page_header(
+       "Seguimiento del año " ~ year.year,
+       "Captura el valor real de cada periodo y su color de aceptación.",
+       "bi-grid-3x3-gap") %}
+    {{ back_button("/adhoc/indicadores?mode=tracking", "Volver a años") }}
+    {% if can_manage %}
+    <a class="btn btn-sm btn-outline-primary" href="{{ board_url }}">
+      <i class="bi bi-speedometer2"></i>
+      <span class="d-none d-sm-inline">Ver tablero</span>
+    </a>
+    {% endif %}
+  {% endcall %}
+
+  {% if not can_edit %}
+  <p class="adhoc-tracking-readonly">
+    <i class="bi bi-eye"></i>
+    Solo lectura: no tienes el permiso de captura de seguimiento.
+  </p>
+  {% endif %}
+
+  {% for card in cards %}
+  <article class="adhoc-card adhoc-tracking-card" data-adhoc-tracking-card="{{ card.id }}">
+
+    <header class="adhoc-tracking-head">
+      <div class="adhoc-tracking-info">
+        <span class="adhoc-tracking-label">Proceso</span>
+        <span class="adhoc-tracking-value adhoc-tracking-strong">
+          <span class="adhoc-swatch adhoc-tracking-swatch" data-adhoc-color="{{ card.process_color }}"></span>
+          {{ card.process_name }}
+        </span>
+      </div>
+      <div class="adhoc-tracking-info">
+        <span class="adhoc-tracking-label">Objetivo</span>
+        <span class="adhoc-tracking-value" title="{{ card.objective }}">{{ card.objective or '—' }}</span>
+      </div>
+      <div class="adhoc-tracking-info">
+        <span class="adhoc-tracking-label">Responsable</span>
+        <span class="adhoc-tracking-value"><i class="bi bi-person-badge"></i> {{ card.responsible or '—' }}</span>
+      </div>
+      <div class="adhoc-tracking-info">
+        <span class="adhoc-tracking-label">Frecuencia / Unidad</span>
+        <span class="adhoc-tracking-value">{{ card.frequency or 'Sin definir' }} · {{ card.unit_calc or '—' }}</span>
+      </div>
+
+      <div class="adhoc-tracking-info adhoc-tracking-info-full">
+        <span class="adhoc-tracking-label">Métricas de aceptación (planificado)</span>
+        <div class="adhoc-tracking-legend">
+          <span class="adhoc-legend-item">
+            <span class="adhoc-legend-dot adhoc-state-white"></span>
+            Estándar: <strong>{{ card.planned_white or '—' }}</strong>
+          </span>
+          <span class="adhoc-legend-item">
+            <span class="adhoc-legend-dot adhoc-state-red"></span>
+            Rechazado: <strong>{{ card.planned_red or '—' }}</strong>
+          </span>
+          <span class="adhoc-legend-item">
+            <span class="adhoc-legend-dot adhoc-state-yellow"></span>
+            Preventivo: <strong>{{ card.planned_yellow or '—' }}</strong>
+          </span>
+          <span class="adhoc-legend-item">
+            <span class="adhoc-legend-dot adhoc-state-green"></span>
+            Aprobado: <strong>{{ card.planned_green or '—' }}</strong>
+          </span>
+          {% if card.has_document and can_download %}
+          <a class="adhoc-legend-doc" href="/api/adhoc/v2/indicators/{{ card.id }}/download">
+            <i class="bi bi-paperclip"></i> Evidencia
+          </a>
+          {% endif %}
+          <span class="adhoc-tracking-saved" data-adhoc-saved="{{ card.id }}" hidden>
+            <i class="bi bi-check-circle-fill"></i> Guardado
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <div class="adhoc-table-wrap adhoc-tracking-grid">
+      <table class="adhoc-table adhoc-tracking-table">
+        <thead>
+          <tr>
+            <th scope="col" class="adhoc-tracking-sticky">Parámetro</th>
+            {% for cell in card.cells %}
+            <th scope="col" class="adhoc-col-center">{{ card.period_label }} {{ cell.index }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="adhoc-tracking-plan">
+            <th scope="row" class="adhoc-tracking-sticky"><i class="bi bi-calendar-check"></i> PLAN</th>
+            {% for cell in card.cells %}
+            <td class="adhoc-col-center">{{ card.planned_white or '—' }}</td>
+            {% endfor %}
+          </tr>
+          <tr>
+            <th scope="row" class="adhoc-tracking-sticky"><i class="bi bi-pencil-square"></i> REAL</th>
+            {% for cell in card.cells %}
+            <td class="adhoc-tracking-cell">
+              <div class="adhoc-tracking-cell-box">
+                <input type="text"
+                       class="adhoc-tracking-input {{ cell.color_class }}"
+                       data-adhoc-tracking-input
+                       data-adhoc-indicator="{{ card.id }}"
+                       data-adhoc-period="{{ cell.index }}"
+                       value="{{ cell.value }}"
+                       maxlength="100"
+                       placeholder="---"
+                       aria-label="{{ card.period_label }} {{ cell.index }} — valor real"
+                       {% if not can_edit %}disabled{% endif %}>
+                {% if can_edit %}
+                <select class="adhoc-tracking-color {{ cell.color_class }}"
+                        data-adhoc-tracking-color
+                        data-adhoc-indicator="{{ card.id }}"
+                        data-adhoc-period="{{ cell.index }}"
+                        aria-label="{{ card.period_label }} {{ cell.index }} — color">
+                  {% for color in colors %}
+                  <option value="{{ color.value }}"{% if color.value == cell.color %} selected{% endif %}>{{ color.label }}</option>
+                  {% endfor %}
+                </select>
+                {% endif %}
+              </div>
+            </td>
+            {% endfor %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <footer class="adhoc-tracking-foot">
+      <div><strong>Criterios:</strong> {{ card.criteria or '—' }}</div>
+      <div><strong class="adhoc-tracking-planb">Plan B:</strong> {{ card.plan_b or '—' }}</div>
+    </footer>
+  </article>
+  {% else %}
+  <div class="adhoc-card">
+    {{ empty_state("No hay indicadores configurados para este año. Ve al tablero para agregarlos.", "bi-folder2-open") }}
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/indicators/tracking.js?v={{ sv('js/indicators/tracking.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,102 @@
+{# ===========================================================================
+   indicators/years.html — lista de años del tablero de indicadores.
+   Ruta: GET /adhoc/indicadores?mode=config|tracking
+   Permiso: adhoc.indicators.page.list
+   Legacy: app_prueba/indicators/indicators_years.html
+
+   Cambios respecto del legacy:
+     · Cero atributos de estilo en línea (el legacy tenía 11 en 60 líneas) y cero
+       HTML crudo en JS.
+     · El modal deja de ser un .modal-overlay con display:flex y pasa a
+       bootstrap.Modal, dentro de {% block modals %} a nivel <body>.
+     · El borrado ya no construye un <form> sintético y hace submit(): va por
+       DELETE /api/adhoc/v2/indicator-years/{id} tras AdhocUtils.confirmDialog().
+     · La URL de destino de cada fila ya no se arma con un url_for(id=0) al que
+       se le hace .replace('/0','/') dentro de un string JS, ni ramifica con un
+       condicional de Jinja en medio de esa cadena: viaja como
+       target_base/target_suffix en el bloque page_data.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import back_button, page_header, data_table, page_data_script %}
+
+{% block title %}Indicadores · Calidad · ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/indicators/years.css?v={{ sv('css/indicators/years.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-indicator-years" data-adhoc-indicator-years>
+  {% call page_header(
+       "Tablero de Indicadores",
+       "Seleccione el año de seguimiento o registre uno nuevo.",
+       "bi-graph-up-arrow") %}
+    {{ back_button("/adhoc/panel", "Volver al Panel") }}
+    {% if can_create %}
+    <button type="button" class="btn btn-sm btn-primary" data-adhoc-years-new>
+      <i class="bi bi-plus-lg"></i>
+      <span class="d-none d-sm-inline">Añadir año(s)</span>
+    </button>
+    {% endif %}
+  {% endcall %}
+
+  <p class="adhoc-years-mode">
+    <i class="bi bi-info-circle"></i>
+    {% if mode == 'tracking' %}
+      Modo <strong>seguimiento</strong>: al abrir un año se muestra la rejilla de captura por colores.
+      <a class="adhoc-years-mode-swap" href="/adhoc/indicadores?mode=config">Ir a configuración</a>
+    {% else %}
+      Modo <strong>configuración</strong>: al abrir un año se editan las fichas de indicador.
+      <a class="adhoc-years-mode-swap" href="/adhoc/indicadores?mode=tracking">Ir a seguimiento</a>
+    {% endif %}
+  </p>
+
+  <div class="adhoc-card">
+    {{ data_table(
+         'adhoc-indicator-years',
+         [
+           {'key': 'year', 'label': 'Año de seguimiento', 'filter': true, 'placeholder': 'Buscar año...'},
+           {'key': 'indicators_count', 'label': 'Indicadores', 'align': 'center'},
+           {'key': 'actions', 'label': 'Acciones', 'align': 'end'}
+         ],
+         'No hay años registrados.',
+         'bi-calendar3') }}
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+<div class="modal fade" id="adhoc-years-modal" tabindex="-1"
+     aria-labelledby="adhoc-years-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-years-modal-title">
+          <i class="bi bi-calendar-plus me-2"></i>Alta de tablero
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="adhoc-catalog-count">
+          <label class="form-label adhoc-label" for="adhoc-years-qty">Cuántos años capturar</label>
+          <select class="form-select adhoc-qty-select" id="adhoc-years-qty" data-adhoc-years-qty>
+            {% for n in [1, 3, 5, 10] %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="adhoc-form-grid" data-adhoc-years-fields></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" data-adhoc-years-save>
+          <i class="bi bi-floppy"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/indicators/years.js?v={{ sv('js/indicators/years.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,126 @@
+/* ==========================================================================
+   indicators/board.css — tablero (fichas de indicador) de un año.
+   Página: /adhoc/indicadores/{year_id}/tablero   ·   Módulo: js/indicators/board.js
+
+   Sustituye a app_prueba/css/indicators/indicators_board.css, que redeclaraba
+   .modal-overlay, .badge-freq / .badge-proceso (sintaxis BS4) y .form-input, y
+   repetia seis hex de la paleta. Aqui: tokens --adhoc- y clases .adhoc-.
+   ========================================================================== */
+
+/* ── Celdas de la tabla ─────────────────────────────────────────────────── */
+
+.adhoc-board-process {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  font-weight: 600;
+}
+
+.adhoc-board-objective {
+  color: var(--adhoc-muted);
+}
+
+/* Los cuatro umbrales en una sola celda, cada uno con su color de estado.
+   El legacy los guardaba concatenados en un string "b-r-a-v". */
+.adhoc-board-planned {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+}
+
+.adhoc-board-planned-chip {
+  min-width: 2.25rem;
+  padding: .1rem .4rem;
+  font-size: .75rem;
+  font-weight: 600;
+  text-align: center;
+  border-radius: 5px;
+}
+
+/* ── Formulario del modal ───────────────────────────────────────────────── */
+
+.adhoc-board-form + .adhoc-board-form {
+  margin-top: 1.1rem;
+  padding-top: 1.1rem;
+  border-top: 1px dashed var(--adhoc-border);
+}
+
+.adhoc-board-form-title {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  margin-bottom: .75rem;
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--adhoc-primary);
+}
+
+/* Fila de los cuatro umbrales: cuatro campos independientes, uno por color. */
+.adhoc-board-thresholds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: .65rem;
+}
+
+.adhoc-board-threshold-tag {
+  display: block;
+  margin-bottom: .2rem;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+.adhoc-board-threshold-tag-white  { color: var(--adhoc-muted); }
+.adhoc-board-threshold-tag-red    { color: var(--adhoc-state-red); }
+.adhoc-board-threshold-tag-yellow { color: var(--adhoc-state-yellow); }
+.adhoc-board-threshold-tag-green  { color: var(--adhoc-state-green); }
+
+/* El input de umbral se tine con la clase de estado de la base
+   (.adhoc-state-white/red/yellow/green), sin tocar .form-control. */
+.adhoc-board-threshold-input {
+  width: 100%;
+  padding: .35rem .5rem;
+  font-size: .85rem;
+  border: 1px solid var(--adhoc-border);
+  border-radius: 6px;
+}
+
+.adhoc-board-threshold-input:focus {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: -1px;
+}
+
+/* Campo de archivo de evidencia + enlace de descarga del actual. */
+.adhoc-board-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  font-size: .82rem;
+}
+
+.adhoc-board-evidence-link {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-weight: 600;
+  color: var(--adhoc-primary);
+  text-decoration: none;
+}
+
+.adhoc-board-evidence-link:hover,
+.adhoc-board-evidence-link:focus-visible {
+  text-decoration: underline;
+}
+
+.adhoc-board-evidence-none {
+  color: var(--adhoc-muted);
+}
+
+/* El pie del modal lleva el boton de eliminar a la izquierda (me-auto) y los
+   de cancelar/guardar a la derecha; sin el, Bootstrap los junta todos. */
+.adhoc-board-modal-footer {
+  flex-wrap: wrap;
+  gap: .4rem;
+}
