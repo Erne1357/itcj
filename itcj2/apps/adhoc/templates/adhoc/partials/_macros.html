@@ -7,6 +7,24 @@
    se sustituyen por bootstrap.Modal.
    Reglas: cero style="...", cero onclick=. Toda interacción va por data-* y
    listeners delegados desde el JS del módulo.
+
+   Índice
+     back_button(url, label)
+     page_header(title, subtitle, icon)                        [acepta {% call %}]
+     empty_state(message, icon)
+     confirm_modal(id, title, body, confirm_text)
+     status_badge(value, kind)
+     priority_badge(value)
+     page_data_script(data, id)
+     toolbar(align, css)                                       [acepta {% call %}]
+     filter_bar(target, clear, clear_label, css)               [acepta {% call %}]
+     data_table(id, columns, empty_message, ...)               [acepta {% call %}]
+     form_field(name, label, type, ...)
+     select_field(name, label, options, ...)
+     color_field(name, label, value, ...)
+     user_picker(id, ...)
+     catalog_page(title, resource, api_path, back_url, ...)
+     catalog_modal(resource, singular, name_label, max_items)
    =========================================================================== #}
 
 {# — BOTÓN "VOLVER" — el único permitido en toda la app. — #}
@@ -107,3 +125,416 @@
   {%- set _tone = _tones.get(kind, {}).get(value, 'neutral') -%}
   <span class="badge adhoc-badge adhoc-badge-{{ _tone }}">{{ value }}</span>
 {%- endmacro %}
+
+
+{# — BADGE DE PRIORIDAD —
+   Complemento de status_badge(): mismo vocabulario cerrado del plan §2
+   (Baja | Media | Alta | Urgente) pero con icono, porque la prioridad se lee de
+   un vistazo en tablas largas. Un valor desconocido cae en el tono neutro y sin
+   icono; nunca revienta el render.
+#}
+{% macro priority_badge(value) %}
+  {%- set _tones = {'Baja': 'muted', 'Media': 'info', 'Alta': 'warning', 'Urgente': 'danger'} -%}
+  {%- set _icons = {
+    'Baja': 'bi-arrow-down-short', 'Media': 'bi-dash-lg',
+    'Alta': 'bi-arrow-up-short', 'Urgente': 'bi-exclamation-triangle-fill'
+  } -%}
+  {%- set _tone = _tones.get(value, 'neutral') -%}
+  {%- set _icon = _icons.get(value) -%}
+  <span class="badge adhoc-badge adhoc-badge-{{ _tone }}">
+    {%- if _icon %}<i class="bi {{ _icon }}"></i> {% endif -%}
+    {{ value }}
+  </span>
+{%- endmacro %}
+
+
+{# — BLOQUE DE CONSTANTES JINJA → JS —
+   El ÚNICO script inline permitido en toda la app (plan §6.2). Se emite con
+   |tojson dentro de un script de tipo application/json, así que el navegador no
+   lo ejecuta nunca: ni los backticks ni la interpolación de plantilla ni una
+   etiqueta de cierre pueden romperlo (Jinja escapa el signo de menor-que dentro
+   de tojson). El JS lo lee con AdhocUtils.pageData().
+
+   Va en {% block extra_js %}, ANTES del script del módulo.
+
+   PROHIBIDO el patrón del legacy de inyectar <option> pre-renderizados
+   (htmlCat, areasHtml, htmlUsers...): eran siete vectores de XSS. Pasa arrays de
+   objetos y construye el DOM en JS con AdhocUtils.escapeHtml().
+#}
+{% macro page_data_script(data, id='adhoc-page-data') %}
+  <script id="{{ id }}" type="application/json">{{ (data or {})|tojson }}</script>
+{%- endmacro %}
+
+
+{# — ATRIBUTOS EXTRA (helper interno) —
+   Convierte un dict en atributos HTML escapados. Se pasa SIEMPRE un dict, nunca
+   una cadena cruda con |safe: así ningún valor puede cerrar la etiqueta e
+   inyectar markup. Un valor True pinta el atributo sin valor; None/False lo omite.
+#}
+{% macro _attrs(attrs) %}
+  {%- for _k, _v in (attrs or {}).items() %}{% if _v is not none and _v is not sameas(false) %} {{ _k }}{% if _v is not sameas(true) %}="{{ _v }}"{% endif %}{% endif %}{% endfor -%}
+{%- endmacro %}
+
+
+{# — TOOLBAR —
+   Fila de botones de acción de una pantalla. Sustituye a los `.controls-top` del
+   legacy, redeclarados en 8 hojas CSS distintas.
+   align ∈ ('start', 'center', 'end', 'between').
+
+   {% call toolbar() %}
+     <button class="btn btn-primary btn-sm" data-adhoc-action="new">Nuevo</button>
+   {% endcall %}
+#}
+{% macro toolbar(align='end', css='') %}
+  <div class="adhoc-toolbar adhoc-toolbar-{{ align }} {{ css }}">
+    {%- if caller is defined %}{{ caller() }}{% endif -%}
+  </div>
+{% endmacro %}
+
+
+{# — BARRA DE FILTROS —
+   Contenedor de los filtros que NO viven en la fila de la tabla (rangos de
+   fecha, selects de estatus...). El botón "limpiar" lo maneja
+   shared/table-filter.js por delegación: vacía todos los `data-adhoc-filter-input`
+   de la barra Y los de la tabla destino.
+
+   `target` = id de la <table> a la que aplican estos filtros. Es obligatorio si
+   la barra vive FUERA del contenedor de la tabla; los inputs de dentro heredan
+   el destino de la barra y no necesitan repetirlo.
+
+   {% call filter_bar(target='tabla-docs') %}
+     {{ select_field('status', 'Estatus', ESTATUS, attrs={'data-adhoc-filter-input': 'status'}) }}
+   {% endcall %}
+#}
+{% macro filter_bar(target=None, clear=True, clear_label='Limpiar filtros', css='') %}
+  <div class="adhoc-filter-bar {{ css }}"{% if target %} data-adhoc-filter-scope="{{ target }}"{% endif %}>
+    <div class="adhoc-filter-fields">
+      {%- if caller is defined %}{{ caller() }}{% endif -%}
+    </div>
+    {% if clear %}
+      <button type="button" class="btn btn-sm btn-outline-secondary adhoc-filter-clear"
+              data-adhoc-filter-clear{% if target %}="{{ target }}"{% endif %}>
+        <i class="bi bi-eraser"></i>
+        <span class="d-none d-sm-inline">{{ clear_label }}</span>
+      </button>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+
+{# — TABLA DE DATOS —
+   `columns` es una lista de dicts. Claves reconocidas (todas opcionales salvo `key`):
+
+     key         identificador estable de la columna. Va en `data-adhoc-filter-key`
+                 de la <th> y es lo que el JS usa para filtrar. NO es un índice.
+     label       encabezado visible (por defecto, `key`).
+     filter      True → pinta un input de filtro para esa columna.
+     placeholder texto del input de filtro (por defecto, `label`).
+     align       'start' | 'center' | 'end'.
+     css         clases extra de la celda de encabezado.
+
+   POR QUÉ `data-adhoc-filter-key` Y NO ÍNDICES: el legacy cableaba el filtrado a
+   mano por posición (`documents.js:8-17` mapea input→índice de columna,
+   `advanced_documents.js:118` tiene el array literal [2,3,...,11]), así que
+   añadir un solo <td> desalineaba todos los filtros de la pantalla. Aquí el
+   índice lo deduce shared/table-filter.js leyendo el <thead> en cada pasada, y
+   además cada <td> puede marcarse con `data-adhoc-cell="{key}"` para no depender
+   de la posición en absoluto. Marca SIEMPRE las celdas de las columnas filtrables.
+
+   `width` ∈ ('auto', 'md', 'lg', 'xl') fija el min-width de la tabla con una
+   clase (nunca style="..."): el scroll horizontal vive en el contenedor
+   `.adhoc-table-wrap`, así que el <body> nunca desborda. El legacy ponía
+   min-width:1200px sin contenedor propio en varias pantallas.
+
+   Las filas las pinta el JS del módulo, o el propio template con {% call %}:
+
+     {% call data_table('tabla-areas', COLS, 'Sin áreas registradas.') %}
+       {% for a in areas %}
+         <tr data-id="{{ a.id }}"><td data-adhoc-cell="name">{{ a.name }}</td></tr>
+       {% endfor %}
+     {% endcall %}
+
+   La fila de "sin resultados" se pinta siempre y se oculta sola (CSS `:has`) en
+   cuanto hay una fila visible; table-filter.js la conmuta también al filtrar,
+   para que los dos caminos coincidan.
+#}
+{% macro data_table(id, columns, empty_message='No hay registros para mostrar.', empty_icon='bi-inbox', width='auto', table_css='', wrap_css='') %}
+  {%- set _cols = columns or [] -%}
+  {%- set _has_filters = (_cols | selectattr('filter') | list | length) > 0 -%}
+  <div class="adhoc-table-wrap {{ wrap_css }}" data-adhoc-table-wrap>
+    <table class="adhoc-table adhoc-table-{{ width }} {{ table_css }}" id="{{ id }}" data-adhoc-table="{{ id }}">
+      <thead>
+        <tr>
+          {%- for col in _cols %}
+          <th scope="col" data-adhoc-filter-key="{{ col.key }}"
+              class="adhoc-col-{{ col.align|default('start', true) }} {{ col.css|default('', true) }}">{{ col.label|default(col.key, true) }}</th>
+          {%- endfor %}
+        </tr>
+        {%- if _has_filters %}
+        <tr class="adhoc-filter-row">
+          {%- for col in _cols %}
+          <th data-adhoc-filter-key="{{ col.key }}">
+            {%- if col.filter %}
+            <input type="search" class="adhoc-filter-input" data-adhoc-filter-input="{{ col.key }}"
+                   placeholder="{{ col.placeholder|default(col.label|default(col.key, true), true) }}"
+                   aria-label="Filtrar por {{ col.label|default(col.key, true) }}">
+            {%- endif %}
+          </th>
+          {%- endfor %}
+        </tr>
+        {%- endif %}
+      </thead>
+      <tbody id="{{ id }}-body" data-adhoc-table-body>
+        {%- if caller is defined %}{{ caller() }}{% endif %}
+        <tr class="adhoc-table-empty" data-adhoc-empty>
+          <td colspan="{{ _cols|length or 1 }}">
+            <div class="adhoc-empty text-center">
+              <i class="bi {{ empty_icon }} adhoc-empty-icon"></i>
+              <p class="adhoc-empty-text mb-0">{{ empty_message }}</p>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+{% endmacro %}
+
+
+{# — CAMPO DE FORMULARIO —
+   type ∈ cualquier type de <input> + 'textarea' + 'checkbox'.
+   `col` son las clases de rejilla del envoltorio (p. ej. 'col-md-6'); dentro de
+   .adhoc-form-grid puede quedar vacío y la rejilla se encarga.
+   `attrs` es un DICT (nunca una cadena con |safe): así ningún valor puede cerrar
+   la etiqueta. Ahí van los data-* (p. ej. {'data-adhoc-filter-input': 'title'}).
+#}
+{% macro form_field(name, label, type='text', value=None, required=False, placeholder='', help=None, id=None, col='', rows=3, disabled=False, readonly=False, attrs={}) %}
+  {%- set _id = id or ('adhoc-f-' ~ name|replace('[]', '')|replace('[', '-')|replace(']', '')|replace('.', '-')) -%}
+  {%- set _val = '' if value is none else value -%}
+  <div class="adhoc-field {{ col }}">
+    {%- if type == 'checkbox' %}
+    <div class="form-check adhoc-check">
+      <input class="form-check-input" type="checkbox" id="{{ _id }}" name="{{ name }}" value="1"
+             {%- if value %} checked{% endif %}
+             {%- if required %} required{% endif %}
+             {%- if disabled %} disabled{% endif %}{{ _attrs(attrs) }}>
+      <label class="form-check-label" for="{{ _id }}">{{ label }}</label>
+    </div>
+    {%- else %}
+    <label class="form-label adhoc-label" for="{{ _id }}">
+      {{ label }}{% if required %}<span class="adhoc-required" aria-hidden="true">*</span>{% endif %}
+    </label>
+    {%- if type == 'textarea' %}
+    <textarea class="form-control" id="{{ _id }}" name="{{ name }}" rows="{{ rows }}"
+              {%- if placeholder %} placeholder="{{ placeholder }}"{% endif %}
+              {%- if required %} required{% endif %}
+              {%- if disabled %} disabled{% endif %}
+              {%- if readonly %} readonly{% endif %}
+              {%- if help %} aria-describedby="{{ _id }}-help"{% endif %}{{ _attrs(attrs) }}>{{ _val }}</textarea>
+    {%- else %}
+    <input type="{{ type }}" class="form-control" id="{{ _id }}" name="{{ name }}" value="{{ _val }}"
+           {%- if placeholder %} placeholder="{{ placeholder }}"{% endif %}
+           {%- if required %} required{% endif %}
+           {%- if disabled %} disabled{% endif %}
+           {%- if readonly %} readonly{% endif %}
+           {%- if help %} aria-describedby="{{ _id }}-help"{% endif %}{{ _attrs(attrs) }}>
+    {%- endif %}
+    {%- endif %}
+    {%- if help and type != 'checkbox' %}
+    <div class="form-text adhoc-field-help" id="{{ _id }}-help">{{ help }}</div>
+    {%- endif %}
+  </div>
+{% endmacro %}
+
+
+{# — SELECT —
+   `options` admite tres formas por elemento: dict {value, label}, tupla
+   (value, label) o escalar (se usa como valor Y etiqueta).
+   `selected` admite un escalar o una lista (para multiple). La comparación se
+   hace por cadena, así que 1 y "1" casan.
+   `placeholder` pinta la opción vacía value="" — el schema Pydantic la convierte
+   a None (regla 2 del plan §2.8); pasa placeholder=None para omitirla.
+#}
+{% macro select_field(name, label, options, selected=None, placeholder='Seleccionar...', required=False, multiple=False, id=None, col='', help=None, disabled=False, size=None, attrs={}) %}
+  {%- set _id = id or ('adhoc-f-' ~ name|replace('[]', '')|replace('[', '-')|replace(']', '')|replace('.', '-')) -%}
+  {%- set _sel_raw = selected if (selected is sequence and selected is not string) else [selected] -%}
+  {%- set _sel = _sel_raw | reject('none') | map('string') | list -%}
+  <div class="adhoc-field {{ col }}">
+    <label class="form-label adhoc-label" for="{{ _id }}">
+      {{ label }}{% if required %}<span class="adhoc-required" aria-hidden="true">*</span>{% endif %}
+    </label>
+    <select class="form-select" id="{{ _id }}" name="{{ name }}"
+            {%- if multiple %} multiple{% endif %}
+            {%- if size %} size="{{ size }}"{% endif %}
+            {%- if required %} required{% endif %}
+            {%- if disabled %} disabled{% endif %}
+            {%- if help %} aria-describedby="{{ _id }}-help"{% endif %}{{ _attrs(attrs) }}>
+      {%- if placeholder is not none %}
+      <option value="">{{ placeholder }}</option>
+      {%- endif %}
+      {%- for opt in options or [] %}
+        {%- if opt is mapping -%}
+          {%- set _v = opt.value -%}{%- set _l = opt.label|default(opt.value, true) -%}
+        {%- elif opt is sequence and opt is not string -%}
+          {%- set _v = opt[0] -%}{%- set _l = opt[1] -%}
+        {%- else -%}
+          {%- set _v = opt -%}{%- set _l = opt -%}
+        {%- endif %}
+      <option value="{{ _v }}"{% if _v|string in _sel %} selected{% endif %}>{{ _l }}</option>
+      {%- endfor %}
+    </select>
+    {%- if help %}
+    <div class="form-text adhoc-field-help" id="{{ _id }}-help">{{ help }}</div>
+    {%- endif %}
+  </div>
+{% endmacro %}
+
+
+{# — SELECTOR DE COLOR —
+   Áreas y procesos guardan un hex #RRGGBB (columna String(7), validada por el
+   schema). El legacy repetía el valor por defecto a mano en cada template y
+   además guardaba el color de proceso dentro de `description`.
+#}
+{% macro color_field(name, label, value='#4834d4', id=None, col='', help=None, required=False, disabled=False, attrs={}) %}
+  {%- set _id = id or ('adhoc-f-' ~ name|replace('[]', '')|replace('[', '-')|replace(']', '')|replace('.', '-')) -%}
+  <div class="adhoc-field adhoc-field-color {{ col }}">
+    <label class="form-label adhoc-label" for="{{ _id }}">
+      {{ label }}{% if required %}<span class="adhoc-required" aria-hidden="true">*</span>{% endif %}
+    </label>
+    <input type="color" class="form-control form-control-color adhoc-color-input"
+           id="{{ _id }}" name="{{ name }}" value="{{ value or '#4834d4' }}"
+           {%- if required %} required{% endif %}
+           {%- if disabled %} disabled{% endif %}
+           {%- if help %} aria-describedby="{{ _id }}-help"{% endif %}{{ _attrs(attrs) }}>
+    {%- if help %}
+    <div class="form-text adhoc-field-help" id="{{ _id }}-help">{{ help }}</div>
+    {%- endif %}
+  </div>
+{% endmacro %}
+
+
+{# — SELECTOR MÚLTIPLE DE USUARIOS —
+   Contenedor vacío que rellena shared/user-picker.js desde JSON. Los usuarios
+   NUNCA se pintan desde Jinja: el legacy inyectaba `htmlUsers` como HTML crudo
+   dentro de un template literal (7 vectores de XSS, y reventaba con un apóstrofo
+   en el apellido).
+
+   users_key / selected_key son claves DENTRO del bloque page_data_script().
+   `ordered=True` numera la selección: en los pasos de aprobación, el orden en
+   que se marcan los validadores ES el orden de aprobación (comportamiento del
+   legacy que se conserva).
+#}
+{% macro user_picker(id, label=None, users_key='users', selected_key=None, name='user_ids', ordered=False, help=None, search_placeholder='Buscar por nombre, correo o puesto...') %}
+  <div class="adhoc-user-picker" id="{{ id }}"
+       data-adhoc-user-picker
+       data-adhoc-users-key="{{ users_key }}"
+       {%- if selected_key %} data-adhoc-selected-key="{{ selected_key }}"{% endif %}
+       data-adhoc-name="{{ name }}"
+       data-adhoc-search-placeholder="{{ search_placeholder }}"
+       {%- if ordered %} data-adhoc-ordered="1"{% endif %}>
+    {%- if label %}
+    <span class="form-label adhoc-label d-block">{{ label }}</span>
+    {%- endif %}
+    {%- if help %}
+    <div class="form-text adhoc-field-help">{{ help }}</div>
+    {%- endif %}
+  </div>
+{% endmacro %}
+
+
+{# — PÁGINA DE CATÁLOGO (solo nombre) —
+   Cuatro pantallas del legacy son literalmente el mismo código con distintos
+   ids: categorías y clasificaciones de documento, categorías de incidencia y
+   categorías de programa. Aquí son esta macro + shared/catalog-crud.js.
+
+   La página completa queda así:
+
+     {% block content %}
+       {{ catalog_page("Categorías de documento", "document-categories",
+                       "/api/adhoc/v2/document-categories", "/adhoc/documentos/panel",
+                       singular="categoría", plural="categorías",
+                       can_create=can_create, can_update=can_update, can_delete=can_delete) }}
+     {% endblock %}
+     {% block modals %}{{ catalog_modal("document-categories", singular="categoría") }}{% endblock %}
+     {% block extra_js %}
+       <script src="/static/adhoc/js/shared/catalog-crud.js?v={{ sv('js/shared/catalog-crud.js') }}"></script>
+     {% endblock %}
+
+   (table-filter.js no hace falta declararlo: ya viene en base_adhoc.html.)
+
+   El modal va aparte porque {% block modals %} vive a nivel <body>, fuera de
+   cualquier contenedor con transform (que rompería su position:fixed).
+   Los flags can_* solo ocultan botones; el gate real lo ponen require_page_app
+   en la página y require_perms en la API.
+#}
+{% macro catalog_page(title, resource, api_path, back_url, singular='registro', plural=None, subtitle=None, icon='bi-tags', name_label='Nombre', can_create=True, can_update=True, can_delete=True, empty_message=None) %}
+  {%- set _plural = plural or (singular ~ 's') -%}
+  <section class="adhoc-catalog" data-adhoc-catalog
+           data-adhoc-resource="{{ resource }}"
+           data-adhoc-api="{{ api_path }}"
+           data-adhoc-singular="{{ singular }}"
+           data-adhoc-plural="{{ _plural }}"
+           data-adhoc-name-label="{{ name_label }}"
+           data-adhoc-can-create="{{ 1 if can_create else 0 }}"
+           data-adhoc-can-update="{{ 1 if can_update else 0 }}"
+           data-adhoc-can-delete="{{ 1 if can_delete else 0 }}">
+    {% call page_header(title, subtitle, icon) %}
+      {{ back_button(back_url) }}
+      {%- if can_create %}
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-catalog-new>
+        <i class="bi bi-plus-lg"></i>
+        <span class="d-none d-sm-inline">Nuevo</span>
+      </button>
+      {%- endif %}
+    {% endcall %}
+
+    <div class="adhoc-card">
+      {{ data_table(
+           'adhoc-catalog-' ~ resource,
+           [
+             {'key': 'name', 'label': name_label, 'filter': true},
+             {'key': 'actions', 'label': 'Acciones', 'align': 'end'}
+           ],
+           empty_message or ('No hay ' ~ _plural ~ ' registradas.'),
+           'bi-tags') }}
+    </div>
+  </section>
+{% endmacro %}
+
+
+{# — MODAL DEL ALTA MASIVA DE UN CATÁLOGO —
+   Va en {% block modals %}. Los campos los construye catalog-crud.js: se elige
+   cuántos capturar y pinta esa cantidad. El alta es masiva y deduplicada del
+   lado del service, así que un nombre repetido ya no tumba el lote entero (el
+   legacy revertía todo y devolvía un redirect "exitoso").
+#}
+{% macro catalog_modal(resource, singular='registro', name_label='Nombre', max_items=10) %}
+  <div class="modal fade" id="adhoc-catalog-modal-{{ resource }}" tabindex="-1"
+       aria-labelledby="adhoc-catalog-modal-{{ resource }}-title" aria-hidden="true"
+       data-adhoc-catalog-modal="{{ resource }}" data-adhoc-max-items="{{ max_items }}">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="adhoc-catalog-modal-{{ resource }}-title">
+            <i class="bi bi-plus-circle me-2"></i>Agregar {{ singular }}
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="adhoc-catalog-count">
+            <label class="form-label adhoc-label" for="adhoc-catalog-qty-{{ resource }}">Cuántas capturar</label>
+            <select class="form-select adhoc-qty-select" id="adhoc-catalog-qty-{{ resource }}" data-adhoc-catalog-qty>
+              {% for n in range(1, max_items + 1) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="adhoc-form-grid" data-adhoc-catalog-fields data-adhoc-name-label="{{ name_label }}"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary" data-adhoc-catalog-save>
+            <i class="bi bi-floppy"></i> Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endmacro %}
