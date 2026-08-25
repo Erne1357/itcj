@@ -169,11 +169,19 @@ class WindowsDesktop {
       const el = document.createElement('div')
       el.className = 'desktop-icon'
       el.dataset.app = item.id
+      // El badge de notificaciones solo existía en las tarjetas escritas a mano en
+      // dashboard.html, así que las generadas aquí nunca lo pintaban:
+      // notification-widget.js buscaba #badge-{id} y siempre encontraba null.
+      // La papelera y demás items readonly no reciben notificaciones.
+      const badge = item.readonly
+        ? ''
+        : `<span id="badge-${item.id}" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 10px; padding: 2px 5px;">0</span>`
       el.innerHTML = `
-                <div class="icon-container">
+                <div class="icon-container" style="position: relative;">
                     ${item.id === 'agendatec'
           ? `<img src="/static/agendatec/icon/agendatec.ico" alt="AgendaTec" style="width:45px;height:45px;">`
           : `<i data-lucide="${item.icon || 'square'}"></i>`}
+                    ${badge}
                 </div>
                 <span class="icon-label">${item.name}</span>`
       if (item.readonly) el.addEventListener('click', e => e.preventDefault())
