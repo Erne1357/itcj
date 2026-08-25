@@ -124,6 +124,26 @@ class WindowsDesktop {
       }
     })
   }
+  // Cierra la ventana cuyo iframe envio el postMessage ('CLOSE_APP' / 'GO_TO_DASHBOARD').
+  // Reutiliza closeWindow() para seguir exactamente el mismo camino que el boton de cerrar
+  // (quitar del DOM + sacar de openWindows + repintar la taskbar).
+  closeAppWindowBySource(source) {
+    if (!source) return
+    const windows = document.querySelectorAll('.app-window')
+    for (const win of windows) {
+      const iframe = win.querySelector('.window-iframe')
+      if (!iframe || iframe.contentWindow !== source) continue
+      const appId = win.dataset.appId
+      if (appId) {
+        this.closeWindow(appId)
+      } else {
+        win.remove()
+        this.updateTaskbar()
+      }
+      return
+    }
+  }
+
   renderDesktopGrid() {
     const grid = document.getElementById('desktop-grid')
     if (!grid) return
