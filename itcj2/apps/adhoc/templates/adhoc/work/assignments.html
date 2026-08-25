@@ -1,0 +1,66 @@
+{# ===========================================================================
+   work/assignments.html — /adhoc/asignaciones
+   Permiso de página: adhoc.tasks.page.assign
+
+   UNA pantalla que consolida las DOS rutas del legacy (`/extintor/usuarios` y
+   `/calendario/usuarios`), que renderizaban el mismo template con contextos
+   incompatibles. El destino y la selección inicial los resuelve
+   `pages/incidents.py::assignments_page` a partir de la querystring
+   (`?action=`, `?task_id=`, `?step_id=`) y viajan en `page_data`.
+
+   Las cuatro acciones y su endpoint:
+     assign       → PUT /api/adhoc/v2/tasks/{id}/assignees
+     notify       → PUT /api/adhoc/v2/tasks/{id}/overdue-notifications
+     step_assign  → PUT /api/adhoc/v2/approval-flows/steps/{id}/validators
+     notify_step  → PUT /api/adhoc/v2/approval-flows/steps/{id}/overdue-notifications
+
+   Los usuarios los pinta `shared/user-picker.js` desde `page_data`, con
+   `ordered=True`: el orden de selección ES el orden de aprobación, que es lo
+   que la propia pantalla del legacy prometía en su leyenda. Nunca se emite un
+   `<option>` desde Jinja (el `htmlUsers` del legacy era HTML crudo dentro de un
+   template literal: rompía con un apóstrofo y aceptaba `<script>`).
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import
+     back_button, page_header, user_picker, page_data_script %}
+
+{% block title %}{{ page_title }} · Calidad · ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/work/assignments.css?v={{ sv('css/work/assignments.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-assign" data-adhoc-assign>
+
+  {% call page_header(page_title, page_subtitle, page_icon) %}
+    {{ back_button(back_url) }}
+  {% endcall %}
+
+  <div class="adhoc-card">
+    {{ user_picker(
+         'adhoc-assign-picker',
+         label='Personas',
+         users_key='users',
+         selected_key='selected_ids',
+         name='user_ids',
+         ordered=True,
+         help='El orden en el que marques a las personas es el orden secuencial de atención.') }}
+
+    <div class="adhoc-assign-actions">
+      <button type="button" class="btn btn-outline-secondary" data-adhoc-assign-cancel>
+        <i class="bi bi-x-lg"></i> Cancelar
+      </button>
+      <button type="button" class="btn btn-primary" data-adhoc-assign-save>
+        <i class="bi bi-floppy"></i> Confirmar y guardar
+      </button>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/shared/user-picker.js?v={{ sv('js/shared/user-picker.js') }}"></script>
+<script src="/static/adhoc/js/work/assignments.js?v={{ sv('js/work/assignments.js') }}"></script>
+{% endblock %}

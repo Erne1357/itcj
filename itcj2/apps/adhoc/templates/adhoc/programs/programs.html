@@ -1,0 +1,54 @@
+{# ===========================================================================
+   programs/programs.html — /adhoc/programas
+   Permiso de página: adhoc.programs.page.list
+
+   Extiende la base compartida con incidencias (`adhoc/work/_work_item_page.html`)
+   y añade lo único que es propio de los eventos de programa:
+     · el modal de ARCHIVOS ADJUNTOS (listar / subir / descargar / eliminar),
+     · el módulo JS que además sabe duplicar un evento.
+
+   Origen legacy: `templates/app_prueba/programs/programs.html`. Su modal de
+   archivos pintaba `${archivo.nombre}` sin escapar dentro de `innerHTML` y
+   construía la URL de descarga concatenando el nombre crudo, sin
+   `encodeURIComponent` (404 con cualquier espacio o acento). Aquí la lista se
+   construye con `textContent` y la descarga va **por id de archivo**.
+   =========================================================================== #}
+{% extends "adhoc/work/_work_item_page.html" %}
+
+{% block work_extra_modals %}
+<div class="modal fade" id="adhoc-files-modal" tabindex="-1"
+     aria-labelledby="adhoc-files-modal-title" aria-hidden="true" data-adhoc-files-modal>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-files-modal-title">
+          <i class="bi bi-folder2-open me-2"></i>
+          <span data-adhoc-files-title>Archivos del evento</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="adhoc-files-list" data-adhoc-files-list aria-live="polite"></div>
+
+        {% if page_data.can.files_create %}
+        <div class="adhoc-files-upload">
+          <label class="form-label adhoc-label" for="adhoc-files-input">Adjuntar archivos</label>
+          <input type="file" class="form-control form-control-sm" id="adhoc-files-input"
+                 data-adhoc-files-input multiple>
+          <button type="button" class="btn btn-sm btn-primary" data-adhoc-files-upload>
+            <i class="bi bi-upload"></i> Subir
+          </button>
+        </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block work_page_js %}
+<script src="/static/adhoc/js/programs/programs.js?v={{ sv('js/programs/programs.js') }}"></script>
+{% endblock %}

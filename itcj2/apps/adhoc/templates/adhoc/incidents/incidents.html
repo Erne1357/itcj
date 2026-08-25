@@ -1,0 +1,18 @@
+{# ===========================================================================
+   incidents/incidents.html — /adhoc/incidencias
+   Permiso de página: adhoc.incidents.page.list
+
+   Casi todo vive en la base compartida `adhoc/work/_work_item_page.html`
+   (plan §6.5: `incidents.js` ≈ `programs.js` al 90 %). Aquí solo queda la
+   configuración propia de incidencias: su módulo JS.
+
+   Origen legacy: `templates/app_prueba/incidents/incidents.html`, que traía
+   300+ atributos `style=`, un `.modal-overlay` casero, la tabla renderizada
+   desde Jinja con `Incident.query.all()` y cuatro campos `htmlCat`/`htmlArea`/
+   `htmlProc`/`htmlUsers` con HTML crudo dentro de un template literal.
+   =========================================================================== #}
+{% extends "adhoc/work/_work_item_page.html" %}
+
+{% block work_page_js %}
+<script src="/static/adhoc/js/incidents/incidents.js?v={{ sv('js/incidents/incidents.js') }}"></script>
+{% endblock %}

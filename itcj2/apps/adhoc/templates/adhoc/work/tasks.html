@@ -1,0 +1,124 @@
+{# ===========================================================================
+   work/tasks.html — tareas de una incidencia O de un evento de programa.
+     /adhoc/incidencias/{id}/tareas
+     /adhoc/programas/{id}/tareas
+   Permiso de página (las dos): adhoc.tasks.page.list
+
+   UN SOLO template parametrizado por `parent_type`, como pedía el plan. El
+   legacy también reusaba `incidents/tasks.html` desde la ruta de programas,
+   pero cada ruta le pasaba un contexto distinto (`notified_map` solo desde
+   programas, y sin usarse) y el template resolvía la URL de asignación con un
+   `{% raw %}{% set ruta_base = ... if parent_type == 'incident' else ... %}{% endraw %}`
+   embebido. Aquí las URLs salen de `page_data`, que arma
+   `pages/_work_context.py::tasks_page_context` — la misma función para los dos.
+
+   La lista NO viene paginada del servidor (`GET /tasks?parent_type=&parent_id=`
+   devuelve todas las de ese padre), así que el filtrado sí es en cliente y lo
+   hace `shared/table-filter.js` por CLAVE de columna. Cada <td> filtrable lleva
+   su `data-adhoc-cell`.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import
+     back_button, page_header, data_table, status_badge, page_data_script %}
+
+{% block title %}Tareas · {{ parent.folio or parent.title }} · Calidad · ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/work/tasks.css?v={{ sv('css/work/tasks.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="adhoc-tasks" data-adhoc-tasks>
+
+  {% call page_header(page_title, parent.title, 'bi-list-check') %}
+    {{ back_button(back_url) }}
+    {% if can_create %}
+      <div class="adhoc-work-new">
+        <label class="visually-hidden" for="adhoc-tasks-qty">Cuántas tareas capturar</label>
+        <select class="form-select form-select-sm adhoc-qty-select" id="adhoc-tasks-qty" data-adhoc-tasks-qty>
+          {% for n in [1, 2, 3, 5, 10] %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+        </select>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-tasks-new>
+          <i class="bi bi-plus-lg"></i>
+          <span class="d-none d-sm-inline">Añadir tareas</span>
+        </button>
+      </div>
+    {% endif %}
+  {% endcall %}
+
+  <div class="adhoc-card adhoc-tasks-parent">
+    <dl class="adhoc-parent-meta">
+      <div class="adhoc-parent-item">
+        <dt>Folio</dt>
+        <dd>{{ parent.folio or '—' }}</dd>
+      </div>
+      <div class="adhoc-parent-item">
+        <dt>{{ parent_label|capitalize }}</dt>
+        <dd>{{ parent.title }}</dd>
+      </div>
+      <div class="adhoc-parent-item">
+        <dt>Estatus</dt>
+        <dd>{{ status_badge(parent.status, parent_type) }}</dd>
+      </div>
+    </dl>
+  </div>
+
+  <div class="adhoc-card">
+    {{ data_table(
+         page_data.table_id,
+         [
+           {'key': 'description', 'label': 'Tarea', 'filter': true, 'placeholder': 'Buscar tarea'},
+           {'key': 'assignees', 'label': 'Responsables', 'filter': true, 'placeholder': 'Responsable'},
+           {'key': 'status', 'label': 'Estatus', 'filter': true, 'placeholder': 'Estatus'},
+           {'key': 'priority', 'label': 'Prioridad'},
+           {'key': 'start_date', 'label': 'Inicio'},
+           {'key': 'due_date', 'label': 'Compromiso'},
+           {'key': 'completed_at', 'label': 'Cierre real'},
+           {'key': 'comments', 'label': 'Notas', 'align': 'center'},
+           {'key': 'actions', 'label': 'Acciones', 'align': 'end'}
+         ],
+         'Todavía no hay tareas para este expediente.',
+         'bi-list-check',
+         width='xl') }}
+  </div>
+</section>
+{% endblock %}
+
+
+{% block modals %}
+<div class="modal fade" id="adhoc-tasks-modal" tabindex="-1"
+     aria-labelledby="adhoc-tasks-modal-title" aria-hidden="true" data-adhoc-tasks-modal>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-tasks-modal-title">
+          <i class="bi bi-list-check me-2" data-adhoc-tasks-modal-icon></i>
+          <span data-adhoc-tasks-modal-title>Nuevas tareas</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <form data-adhoc-tasks-form novalidate>
+          <div data-adhoc-tasks-fields></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-danger me-auto" data-adhoc-tasks-delete hidden>
+          <i class="bi bi-trash"></i>
+          <span class="d-none d-sm-inline">Eliminar</span>
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" data-adhoc-tasks-save>
+          <i class="bi bi-floppy"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/work/tasks.js?v={{ sv('js/work/tasks.js') }}"></script>
+{% endblock %}

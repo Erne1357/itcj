@@ -1,0 +1,39 @@
+{# ===========================================================================
+   programs/categories.html — /adhoc/programas/categorias
+   Permiso de página: adhoc.program_categories.page.list
+
+   Gemela de `incidents/categories.html`: la misma macro con otro recurso. En
+   el legacy eran dos archivos HTML, dos JS y dos CSS distintos, y encima el
+   alta tenía **dos endpoints duplicados** en blueprints diferentes
+   (`pages/programs.py:78` y `api_programs.py:157`), mientras el JS pedía
+   `/api/programas/categorias/edit|delete` cuando las rutas reales eran
+   `editar|eliminar` — 404 silencioso en editar y borrar.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import catalog_page, catalog_modal %}
+
+{% block title %}Categorías de programa · Calidad · ITCJ{% endblock %}
+
+{% block content %}
+  {{ catalog_page(
+       "Categorías de programa",
+       "program-categories",
+       "/api/adhoc/v2/program-categories",
+       "/adhoc/programas",
+       singular="categoría",
+       plural="categorías",
+       subtitle="Clasifican los eventos del programa de trabajo de Calidad.",
+       icon="bi-tags",
+       name_label="Nombre",
+       can_create=can_create,
+       can_update=can_update,
+       can_delete=can_delete) }}
+{% endblock %}
+
+{% block modals %}
+  {{ catalog_modal("program-categories", singular="categoría", name_label="Nombre") }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/adhoc/js/shared/catalog-crud.js?v={{ sv('js/shared/catalog-crud.js') }}"></script>
+{% endblock %}

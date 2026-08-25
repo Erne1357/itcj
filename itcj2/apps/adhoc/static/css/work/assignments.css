@@ -1,0 +1,38 @@
+/* ==========================================================================
+   work/assignments.css — pantalla /adhoc/asignaciones.
+
+   Casi todo el peso visual lo lleva `shared/user-picker.js` con las clases que
+   ya define adhoc.css (.adhoc-user-picker, .adhoc-user-option, .adhoc-chip,
+   .adhoc-order-badge). Aquí solo queda el encuadre de la tarjeta y la fila de
+   botones. El legacy tenía `incidents/tasks_users.css` con un switch iOS
+   dibujado a mano, badges de orden posicionados con style= y su propio
+   .modal-overlay para las alertas.
+   ========================================================================== */
+
+.adhoc-assign {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* La lista de personas puede ser larga: se le da altura cómoda y su propio
+   scroll, para que los botones de guardar queden siempre alcanzables. */
+.adhoc-assign .adhoc-user-picker-list {
+  max-height: 55vh;
+}
+
+.adhoc-assign-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .5rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--adhoc-border);
+}
+
+@media (max-width: 575.98px) {
+  .adhoc-assign-actions .btn {
+    flex: 1 1 100%;
+  }
+}

@@ -1,0 +1,41 @@
+{# ===========================================================================
+   incidents/categories.html — /adhoc/incidencias/categorias
+   Permiso de página: adhoc.incident_categories.page.list
+
+   Uno de los cuatro CRUD de catálogo "solo nombre" que el legacy tenía
+   copiados (plan §6.5). Aquí son DOS macros (`catalog_page` + `catalog_modal`)
+   y `shared/catalog-crud.js`, que ya viene resuelto de la fase base: esta
+   plantilla no aporta ni una línea de JS ni de CSS propios.
+
+   Origen legacy: `incidents/incidents_categories.html` + `incidents_categories.js`
+   — con `confirm()` para borrar, `${nombre}` sin escapar en `innerHTML` y URLs
+   con el prefijo inexistente `/app_prueba/api/incident-categories/...` (404).
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import catalog_page, catalog_modal %}
+
+{% block title %}Categorías de incidencia · Calidad · ITCJ{% endblock %}
+
+{% block content %}
+  {{ catalog_page(
+       "Categorías de incidencia",
+       "incident-categories",
+       "/api/adhoc/v2/incident-categories",
+       "/adhoc/incidencias",
+       singular="categoría",
+       plural="categorías",
+       subtitle="Clasifican las incidencias del sistema de gestión de calidad.",
+       icon="bi-tags",
+       name_label="Nombre",
+       can_create=can_create,
+       can_update=can_update,
+       can_delete=can_delete) }}
+{% endblock %}
+
+{% block modals %}
+  {{ catalog_modal("incident-categories", singular="categoría", name_label="Nombre") }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/adhoc/js/shared/catalog-crud.js?v={{ sv('js/shared/catalog-crud.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,208 @@
+/* ==========================================================================
+   work/work-items.css — capa visual de INCIDENCIAS y EVENTOS DE PROGRAMA
+   (/adhoc/incidencias y /adhoc/programas), más el modal de archivos adjuntos.
+
+   Una sola hoja para las dos pantallas: en el legacy eran `incidents.css` e
+   `incidents/… programs.css`, copiadas, con el bloque `.modal-overlay`
+   duplicado y 45 hex sueltos repetidos. Aquí todo sale de los tokens de
+   adhoc.css y ninguna clase pisa a Bootstrap 5.3.
+
+   Convenciones (plan 6.4): clases prefijadas .adhoc-, colores por variable, y
+   NUNCA la secuencia de cierre de comentario pegada a un comodín — es un
+   gotcha real del repo que rompe el :root siguiente.
+   ========================================================================== */
+
+/* ---------- contenedor de la pantalla ---------- */
+
+.adhoc-work {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.adhoc-work.is-loading {
+  opacity: .6;
+  pointer-events: none;
+}
+
+/* Alta masiva: el selector de cantidad y el botón viajan juntos. */
+.adhoc-work-new {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+/* ---------- barra de filtros ---------- */
+
+/* Los filtros van al SERVIDOR, así que la rejilla es fija y cabe todo sin
+   depender del ancho de la tabla. */
+.adhoc-work-filters .adhoc-filter-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: .6rem .75rem;
+  width: 100%;
+}
+
+.adhoc-work-filters .adhoc-field {
+  min-width: 0;
+  margin: 0;
+}
+
+.adhoc-work-filter-search {
+  grid-column: span 2;
+}
+
+.adhoc-work-filter-actions {
+  display: flex;
+  align-items: flex-end;
+}
+
+.adhoc-work-filter-actions .btn {
+  width: 100%;
+}
+
+@media (max-width: 575.98px) {
+  .adhoc-work-filter-search {
+    grid-column: span 1;
+  }
+}
+
+/* ---------- pie de tabla: conteo y paginación ---------- */
+
+.adhoc-work-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  padding: .75rem .25rem 0;
+  border-top: 1px solid var(--adhoc-border);
+  margin-top: .75rem;
+}
+
+.adhoc-work-count {
+  color: var(--adhoc-muted);
+  font-size: .85rem;
+}
+
+.adhoc-work-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.adhoc-work-pageinfo {
+  color: var(--adhoc-dark);
+  font-size: .85rem;
+  min-width: 8rem;
+  text-align: center;
+}
+
+/* ---------- celdas ---------- */
+
+/* Aviso de compromiso vencido sin cierre real. En el legacy era un icono de
+   Font Awesome con el color escrito a mano en cada plantilla. */
+.adhoc-overdue {
+  color: var(--adhoc-danger);
+  margin-left: .25rem;
+}
+
+/* Contador junto a un icono (tareas, archivos). */
+.adhoc-count-pill {
+  display: inline-block;
+  min-width: 1.5rem;
+  padding: 0 .35rem;
+  border-radius: 999px;
+  background: var(--adhoc-primary-tint);
+  color: var(--adhoc-primary);
+  font-size: .75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.adhoc-muted-cell {
+  color: var(--adhoc-muted);
+  font-style: italic;
+}
+
+/* ---------- modal de archivos del evento ---------- */
+
+.adhoc-files-list {
+  min-height: 4rem;
+}
+
+.adhoc-files-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.adhoc-files-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .6rem .25rem;
+  border-bottom: 1px solid var(--adhoc-border);
+}
+
+.adhoc-files-item:last-child {
+  border-bottom: 0;
+}
+
+.adhoc-files-info {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-width: 0;
+}
+
+.adhoc-files-name {
+  color: var(--adhoc-dark);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adhoc-files-meta {
+  color: var(--adhoc-muted);
+  font-size: .78rem;
+  white-space: nowrap;
+}
+
+.adhoc-files-empty,
+.adhoc-files-error {
+  margin: 0;
+  padding: 1.25rem .25rem;
+  text-align: center;
+}
+
+.adhoc-files-empty {
+  color: var(--adhoc-muted);
+}
+
+.adhoc-files-error {
+  color: var(--adhoc-danger);
+}
+
+.adhoc-files-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: .5rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--adhoc-border);
+}
+
+.adhoc-files-upload .adhoc-label {
+  width: 100%;
+  margin-bottom: .25rem;
+}
+
+.adhoc-files-upload input[type="file"] {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
