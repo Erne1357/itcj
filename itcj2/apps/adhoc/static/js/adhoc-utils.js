@@ -365,12 +365,21 @@
     // ==================== INIT IDEMPOTENTE ====================
 
     var _readyCounter = 0;
+    var _callbacks = [];
+    var _htmxBound = false;
+    // Generacion de swap. La guarda de idempotencia se ata a ESTO y no al nodo:
+    // con hx-boost el target es <body>, que idiomorph CONSERVA entre navegaciones
+    // aunque su contenido se reemplace entero. Marcando el nodo con un '1' fijo,
+    // un modulo compartido (table-filter) se daba por inicializado en la primera
+    // carga y no volvia a ejecutarse en ninguna pagina posterior.
+    var _generation = 0;
 
     /**
      * Ejecuta `fn` en la carga inicial Y tras cada swap de HTMX
      * (htmx:afterSettle), que es cuando la navegación morph reemplaza el DOM.
-     * La guarda por `dataset` evita enganchar listeners dos veces sobre el mismo
-     * nodo cuando el morph conserva elementos.
+     * Se ejecuta una vez por nodo y por generación de swap; dentro de una misma
+     * generación no se repite. Enganchar dos veces el MISMO elemento sigue siendo
+     * responsabilidad del módulo (guarda `dataset.*Bound` sobre ese elemento).
      *
      *   AdhocUtils.onReady(function (root) { ... });
      *
@@ -383,8 +392,9 @@
         function run(root) {
             var scope = root || document.body;
             if (!scope || !scope.dataset) return;
-            if (scope.dataset[flag] === '1') return;   // ya inicializado en este nodo
-            scope.dataset[flag] = '1';
+            var marca = String(_generation);
+            if (scope.dataset[flag] === marca) return;   // ya corrió en esta generación
+            scope.dataset[flag] = marca;
             try {
                 fn(scope);
             } catch (e) {
@@ -392,22 +402,33 @@
             }
         }
 
-        function bindHtmx() {
-            document.body.addEventListener('htmx:afterSettle', function (evt) {
-                var target = (evt && evt.target && evt.target.dataset) ? evt.target : document.body;
-                run(target);
-            });
-        }
+        _callbacks.push(run);
+        bindHtmxOnce();
 
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function () {
-                run(document.body);
-                bindHtmx();
-            });
+            document.addEventListener('DOMContentLoaded', function () { run(document.body); });
         } else {
             run(document.body);
-            bindHtmx();
         }
+    }
+
+    /**
+     * Un único listener de `htmx:afterSettle` para todos los callbacks. Antes se
+     * enganchaba uno por cada llamada a onReady, y como los módulos de página se
+     * re-ejecutan en cada navegación boosted, los listeners se acumulaban sin
+     * retirarse nunca durante toda la sesión.
+     */
+    function bindHtmxOnce() {
+        if (_htmxBound || !document.body) return;
+        _htmxBound = true;
+        document.body.addEventListener('htmx:afterSettle', function (evt) {
+            _generation++;
+            var target = (evt && evt.target && evt.target.dataset) ? evt.target : document.body;
+            for (var i = 0; i < _callbacks.length; i++) {
+                _callbacks[i](target);
+                if (target !== document.body) _callbacks[i](document.body);
+            }
+        });
     }
 
     if (document.readyState === 'loading') {

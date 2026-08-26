@@ -44,7 +44,7 @@
 
   {% block extra_css %}{% endblock %}
 </head>
-<body class="adhoc-shell {% block body_class %}{% endblock %}" hx-ext="morph">
+<body class="adhoc-shell {% block body_class %}{% endblock %}" hx-ext="morph,head-support">
 
   {# Overlay de "cerrando sesión" (los dos engranes del legacy). Lo enciende
      AdhocUtils al pulsar "Salir". #}
@@ -95,6 +95,18 @@
   {# HTMX + Idiomorph (morph, sin parpadeo). Idiomorph SIEMPRE después de HTMX. #}
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
   <script src="https://unpkg.com/idiomorph@0.7.3/dist/idiomorph-ext.min.js"></script>
+  {# head-support: fusiona el <head> de la respuesta en cada navegacion boosted.
+     Sin esto, hx-boost sustituye solo el <body>, asi que el <link> del bloque
+     extra_css de la pagina destino NUNCA llega: el <head> se queda con el CSS de
+     la ultima pagina cargada a pulso. Sintomas que producia: pantallas sin su
+     hoja (el tablero de tareas sin estilo tras volver del panel) y modales que
+     "no abren" porque se abren invisibles, al vivir sus estilos en la hoja que
+     no cargo. Mismo remedio y misma version que helpdesk.
+     OJO: la extension se auto-activa con solo cargar este <script> — comprobado
+     quitando el `head-support` del hx-ext de arriba y viendo que seguia
+     funcionando. No borres este <script> pensando que basta con el hx-ext: es al
+     reves. Prueba de regresion en tests/e2e/adhoc/boosted-head.spec.js. #}
+  <script src="https://unpkg.com/htmx-ext-head-support@2.0.4/head-support.js" integrity="sha384-alEpTwaoXBHw9xh1d3fDZ4lNnOqQYkcIaRQTSQXgSZnAhcnj1H4F27lOZ1Eci1Sp" crossorigin="anonymous"></script>
 
   {# TRANSITORIO: el bundle de Bootstrap se queda SOLO por su JS. Los módulos de
      sección (documentos, incidencias, indicadores, panel, tareas...) siguen
