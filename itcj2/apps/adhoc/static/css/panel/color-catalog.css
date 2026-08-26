@@ -65,15 +65,12 @@
   max-width: 32rem;
 }
 
-/* Pie del modal de edición: eliminar a la izquierda, guardar a la derecha. */
-.adhoc-modal-footer-split {
-  justify-content: space-between;
-}
-
-.adhoc-modal-footer-actions {
-  display: flex;
-  gap: .5rem;
-}
+/* El pie partido del modal de edición (eliminar a la izquierda, guardar a la
+   derecha) se hacía aquí con `space-between` + un <div> envolviendo las dos
+   acciones de la derecha. Ya no: el botón de eliminar lleva `me-auto` y el
+   `.modal-footer` de adhoc.css —flex con `justify-content:flex-end`— hace el
+   resto. Se borran las dos reglas porque nadie las usa; dejarlas sería un
+   tercer modo de escribir un pie de modal esperando a que alguien lo copie. */
 
 @media (max-width: 575.98px) {
   .adhoc-color-new-row {

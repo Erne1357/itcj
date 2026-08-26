@@ -25,7 +25,7 @@
        consulta que la lista, así que enseñarlo no cuesta una query extra.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import back_button, data_table, page_data_script %}
+{% from "adhoc/partials/_macros.html" import back_button, data_table, page_data_script, toolbar %}
 
 {% block title %}Indicadores · Calidad · ITCJ{% endblock %}
 
@@ -63,11 +63,19 @@
       {% endif %}
     </p>
 
-    <div class="adhoc-toolbar adhoc-toolbar-end adhoc-years-controls">
-      <button type="button" class="btn adhoc-btn-clear"
-              data-adhoc-filter-clear="adhoc-indicator-years">Limpiar</button>
-      <button type="button" class="btn adhoc-btn-filter" data-adhoc-years-filter>Filtrar</button>
-    </div>
+    {# La fila Limpiar/Filtrar sale de la macro `toolbar()`, no de un <div>
+       escrito a mano. El `css=` conserva .adhoc-years-controls porque esa clase
+       NO agrupa nada, solo lleva el margen del legacy (.controls-top:
+       25px 0 15px), que no es el mismo que el del tablero. #}
+    {% call toolbar(css='adhoc-years-controls') %}
+      <button type="button" class="btn btn-sm btn-secondary"
+              data-adhoc-filter-clear="adhoc-indicator-years">
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
+      </button>
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-years-filter>
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
+      </button>
+    {% endcall %}
 
     {{ data_table(
          'adhoc-indicator-years',
@@ -81,8 +89,8 @@
 
     {% if can_create %}
     <div class="adhoc-bottom-controls">
-      <button type="button" class="btn adhoc-btn-add" data-adhoc-years-new>
-        <i class="fa-solid fa-plus"></i> Añadir Nuevo(s)
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-years-new>
+        <i class="fa-solid fa-plus"></i><span class="d-none d-sm-inline">Añadir Nuevo(s)</span>
       </button>
       <select class="adhoc-qty-select adhoc-years-qty" data-adhoc-years-qty
               aria-label="Cuántos años capturar">
@@ -112,8 +120,10 @@
         <div class="adhoc-form-grid" data-adhoc-years-fields></div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primary" data-adhoc-years-save>
+        {# Pie de modal al tamaño único y con la etiqueta sin envolver: dentro
+           del modal siempre hay ancho para leer la acción. #}
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-years-save>
           <i class="fa-solid fa-floppy-disk"></i> Aceptar
         </button>
       </div>

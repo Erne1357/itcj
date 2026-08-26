@@ -16,7 +16,7 @@
 
    Equivalencias:
      .table-container    → .adhoc-card (adhoc.css)
-     .controls-top       → .adhoc-worktasks-controls
+     .controls-top       → macro toolbar() → .adhoc-toolbar (adhoc.css)
      .doc-table          → .adhoc-table .adhoc-table-lg (adhoc.css, 1200px)
      .icon-btn-group     → .adhoc-actions (adhoc.css) con 12px de separación
      .btn-icon-small     → .adhoc-icon-btn
@@ -40,16 +40,17 @@
   padding: var(--adhoc-space-4xl);
 }
 
-/* ---------- controles superiores (legacy `.controls-top`) ---------- */
+/* ---------- controles superiores ---------- */
 
-.adhoc-worktasks-controls {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: var(--adhoc-space-lg);
-  margin: var(--adhoc-space-3xl) 0;
-}
+/* `.adhoc-worktasks-controls` ya no existe: la fila "Limpiar / Filtrar" la pinta
+   la macro `toolbar()` con `.adhoc-toolbar` de adhoc.css: flex, wrap, alineada a
+   la derecha y con el MISMO hueco inferior (3xl). El hueco superior lo daba aqui
+   un `margin-top` de 3xl que colapsaba con el margen inferior, mayor (4xl), de
+   `.adhoc-page-head`: sin la regla manda ese y el resultado no cambia.
+   La UNICA diferencia es la separacion entre los dos botones: 10px (lg) aqui,
+   15px (2xl) en `.adhoc-toolbar`. Es el objetivo del barrido, no un descuido:
+   son los mismos 15px que ya separaban "Limpiar / Filtrar" en la pantalla
+   hermana de incidencias/programas. */
 
 /* ---------- tabla ---------- */
 

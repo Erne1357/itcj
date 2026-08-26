@@ -73,10 +73,15 @@
                         help='Reemplaza el rol del usuario dentro de Calidad. No revoca su acceso a la app.',
                         attrs={'data-adhoc-users-role-select': true}) }}
       </div>
+      {# Pie canónico de la app: cancelar `btn-secondary`, confirmar `btn-primary`,
+         los dos `btn-sm` como TODO control con clase `btn`. Y el disquete: en el
+         resto de Calidad `fa-check` es "aprobar" (la acción del workflow de
+         documentos), así que usarlo aquí para "Guardar" mezclaba dos gestos que
+         no son el mismo. #}
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primary" data-adhoc-users-save-role>
-          <i class="fa-solid fa-check"></i> Guardar
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-users-save-role>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar
         </button>
       </div>
     </div>
@@ -100,9 +105,9 @@
         <div class="adhoc-users-areas-list" data-adhoc-users-areas-list></div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primary" data-adhoc-users-save-areas>
-          <i class="fa-solid fa-check"></i> Guardar
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-users-save-areas>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar
         </button>
       </div>
     </div>

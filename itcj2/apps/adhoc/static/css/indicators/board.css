@@ -28,7 +28,9 @@
   color: var(--adhoc-primary);
 }
 
-/* Fila Limpiar / Filtrar (legacy .controls-top: margin 20px 0). */
+/* Fila Limpiar / Filtrar (legacy .controls-top: margin 20px 0). La plantilla ya
+   no escribe esta clase a mano: llega por el `css=` de la macro toolbar(), que
+   es quien pone el contenedor. Aquí solo queda el margen, no el layout. */
 .adhoc-board-controls {
   gap: var(--adhoc-space-lg);
   margin: var(--adhoc-space-3xl) 0;
@@ -143,6 +145,15 @@
   border-radius: var(--adhoc-radius-md);
   outline: none;
 }
+
+/* El anillo de foco. Este campo no lleva `form-control` ni `form-select`, asi
+   que no hereda nada de la hoja base: sin esta regla no habia NINGUNA
+   diferencia visible entre enfocado y no enfocado. */
+.adhoc-board-qty:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 1px;
+}
+
 
 /* ── Evidencia ──────────────────────────────────────────────────────────── */
 
@@ -283,6 +294,15 @@
   border-radius: var(--adhoc-radius-md);
   outline: none;
 }
+
+/* El anillo de foco. Este campo no lleva `form-control` ni `form-select`, asi
+   que no hereda nada de la hoja base: sin esta regla no habia NINGUNA
+   diferencia visible entre enfocado y no enfocado. */
+.adhoc-board-threshold-input:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 1px;
+}
+
 
 .adhoc-board-threshold-input:focus {
   border-color: var(--adhoc-primary);

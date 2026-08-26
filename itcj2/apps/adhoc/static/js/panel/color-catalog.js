@@ -213,17 +213,24 @@
         return tr;
     };
 
+    // Iconos de accion de la fila: GLIFO PELADO (`adhoc-icon-action` + variante
+    // de color), como en el resto de la app. Antes salian de aqui con recuadro
+    // (`btn btn-sm btn-outline-secondary|danger adhoc-btn-icon`), 32px con
+    // borde: esta pantalla y la de usuarios eran las dos unicas que lo hacian
+    // asi. `remove()` le pasa este mismo boton a `busy()`, que le pone la clase
+    // `disabled`; `.adhoc-icon-action.disabled` de adhoc.css la cubre, asi que
+    // el bloqueo durante el DELETE se sigue viendo sin depender del `btn`.
     ColorCatalog.prototype.buildActions = function () {
         var box = document.createElement('div');
         box.className = 'adhoc-actions';
         var html = '';
         if (this.canUpdate) {
-            html += '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
+            html += '<button type="button" class="adhoc-icon-action adhoc-icon-primary" ' +
                     'data-adhoc-action="edit" title="Editar" aria-label="Editar">' +
                     '<i class="fa-solid fa-pen"></i></button>';
         }
         if (this.canDelete) {
-            html += '<button type="button" class="btn btn-sm btn-outline-danger adhoc-btn-icon" ' +
+            html += '<button type="button" class="adhoc-icon-action adhoc-icon-danger" ' +
                     'data-adhoc-action="delete" title="Eliminar" aria-label="Eliminar">' +
                     '<i class="fa-solid fa-trash"></i></button>';
         }

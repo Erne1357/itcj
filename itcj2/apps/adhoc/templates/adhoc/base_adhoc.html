@@ -167,6 +167,14 @@
        hx-select="#adhoc-root"
        hx-swap="morph:outerHTML">
 
+    {# Enlace de salto. Invisible hasta que recibe el foco: es el primer Tab de
+       la página y lleva directamente al contenido, sin pasar por la cabecera y
+       las cuatro tarjetas de navegación. Sin él, quien navega con teclado o con
+       lector de pantalla tenía que atravesar seis controles idénticos en CADA
+       pantalla antes de llegar a la tabla que venía a leer. El destino,
+       `#adhoc-main`, ya existía; lo único que faltaba era el enlace. #}
+    <a class="adhoc-skip" href="#adhoc-main">Saltar al contenido</a>
+
     {% block header %}
     {# Cabecera del legacy: "Salir" a la izquierda, "Ayuda" a la derecha. El botón
        de volver al inicio solo se ve dentro del iframe móvil del core. #}
@@ -190,7 +198,7 @@
          pages/nav.py. #}
       {% include "adhoc/partials/_nav.html" %}
 
-      <main class="adhoc-page" id="adhoc-main">
+      <main class="adhoc-page" id="adhoc-main" tabindex="-1">
         {% block content %}{% endblock %}
       </main>
     </div>
@@ -209,8 +217,15 @@
 
   {# Contenedor de toasts. Fuera de la caja a propósito: así un aviso lanzado
      justo antes de navegar sigue en pantalla al llegar a la página siguiente.
-     AdhocUtils.showToast() lo crea si falta. #}
-  <div class="adhoc-toast-container" id="adhoc-toast-container"></div>
+     AdhocUtils.showToast() lo crea si falta.
+
+     Es una REGIÓN VIVA, y tiene que estar en el DOM desde el principio: un
+     lector de pantalla observa las regiones que ya existen cuando carga la
+     página, así que insertar el contenedor y el aviso a la vez —que es lo que
+     hacía el respaldo de showToast()— puede no anunciarse nunca. Con la región
+     ya puesta, basta con meter dentro el texto. #}
+  <div class="adhoc-toast-container" id="adhoc-toast-container"
+       role="status" aria-live="polite" aria-atomic="false"></div>
 
 </body>
 </html>

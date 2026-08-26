@@ -17,7 +17,7 @@
 
    Lo que NO se copia del legacy porque ya vive en adhoc.css: `.doc-table`
    (→ `.adhoc-table`), `.filter-input` (→ `.adhoc-filter-input`), `.btn-action`
-   y sus variantes (→ `.btn` + `.adhoc-btn-clear`), y el overlay del modal
+   y sus variantes (→ `btn btn-sm {variante}`), y el overlay del modal
    (`.modal-overlay`/`.modal-content` → los alias sin prefijo de la §9).
    ========================================================================== */
 
@@ -193,24 +193,33 @@
 
 /* Barra "Limpiar / Buscar" (legacy `.actions`: 10px de hueco y 15px al que
    viene debajo). A la izquierda, en el hueco que el legacy dejaba vacío, el
-   contador de la vista previa. */
-.adhoc-report-actions {
+   contador de la vista previa.
+
+   SE LLAMA `-launch` Y NO `-actions` A PROPÓSITO. Con el nombre viejo había dos
+   `.adhoc-report-actions` con geometrías incompatibles: esta (barra de un modal,
+   sin ancho máximo) y la de view-report.css (barra de pantalla, centrada y
+   clavada al ancho de la hoja de 1000/1200/1300px). Nunca dieron guerra porque
+   las dos pantallas cargan hojas distintas, pero al buscar la clase salían las
+   dos reglas y cualquiera podía "arreglar" la que no era. La de view-report
+   conserva el nombre; la del modal —que aquí lanza el reporte— es `-launch`. */
+.adhoc-report-launch {
   gap: var(--adhoc-space-lg);
   margin-bottom: var(--adhoc-space-2xl);
 }
 
-.adhoc-report-actions-buttons {
+.adhoc-report-launch-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: var(--adhoc-space-lg);
   margin-left: auto;
 }
 
-/* Legacy `.btn-filter` (#34495e); aquí, el token oscuro de la app. */
-.adhoc-btn-search {
-  background-color: var(--adhoc-dark);
-  color: var(--adhoc-surface);
-}
+/* NO REPONER: aquí vivía `.adhoc-btn-search`, el sexto alias del legacy
+   (`.btn-filter`, #34495e → token oscuro). Solo lo usaba el botón "Buscar" de
+   esta pantalla, así que era un color de botón que no existía en ninguna otra
+   barra de la app; y como no traía `btn-sm` ni `:hover`, salía más grande y
+   más muerto que el "Limpiar" que tenía al lado. Ahora es `btn btn-sm
+   btn-primary`, igual que cualquier otro botón de filtrar. */
 
 /* Los tres filtros, en columnas sobre la vista previa. */
 .adhoc-report-filters {

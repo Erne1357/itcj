@@ -238,17 +238,25 @@
         return tr;
     };
 
+    // Iconos de accion de la fila: GLIFO PELADO (`adhoc-icon-action` + variante
+    // de color), que es como los pintan las otras nueve pantallas. Antes salian
+    // de aqui como `btn btn-sm btn-outline-secondary adhoc-btn-icon`: un
+    // recuadro de 32px con borde. Mismo papel, dos aspectos, y esta pantalla era
+    // una de las dos raras. Ojo si alguien vuelve a tocarlo: `busy()` le pone la
+    // clase `disabled` al boton, y `.adhoc-icon-action.disabled` de adhoc.css ya
+    // la contempla (opacidad .4 + pointer-events:none), asi que el deshabilitado
+    // sigue funcionando sin el `btn`.
     PanelUsers.prototype.buildActions = function () {
         var box = document.createElement('div');
         box.className = 'adhoc-actions';
         var html = '';
         if (this.canAssignRole) {
-            html += '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
+            html += '<button type="button" class="adhoc-icon-action adhoc-icon-primary" ' +
                     'data-adhoc-action="role" title="Cambiar rol" aria-label="Cambiar rol">' +
                     '<i class="fa-solid fa-user-tag"></i></button>';
         }
         if (this.canAssignAreas) {
-            html += '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
+            html += '<button type="button" class="adhoc-icon-action adhoc-icon-primary" ' +
                     'data-adhoc-action="areas" title="Asignar áreas" aria-label="Asignar áreas">' +
                     '<i class="fa-solid fa-layer-group"></i></button>';
         }

@@ -159,16 +159,21 @@
         return tr;
     };
 
+    // Iconos de accion de la fila: GLIFO PELADO (`adhoc-icon-action` + su
+    // variante de color), que es la familia de las otras diez pantallas de la
+    // app. Salian de aqui como `btn btn-sm btn-outline-secondary|danger
+    // adhoc-btn-icon`: un recuadro de 32px con borde, para el mismo papel.
+    // Coexistian las dos formas y en el catalogo se veia la del recuadro.
     Catalog.prototype.buildActions = function () {
         var box = document.createElement('div');
         box.className = 'adhoc-actions';
         var html = '';
         if (this.canUpdate) {
-            html += '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
+            html += '<button type="button" class="adhoc-icon-action adhoc-icon-primary" ' +
                     'data-adhoc-action="edit" title="Editar" aria-label="Editar">' + icon('fa-solid fa-pen') + '</button>';
         }
         if (this.canDelete) {
-            html += '<button type="button" class="btn btn-sm btn-outline-danger adhoc-btn-icon" ' +
+            html += '<button type="button" class="adhoc-icon-action adhoc-icon-danger" ' +
                     'data-adhoc-action="delete" title="Eliminar" aria-label="Eliminar">' + icon('fa-solid fa-trash') + '</button>';
         }
         box.innerHTML = html;   // markup estático, sin datos del servidor
@@ -200,18 +205,16 @@
         input.select();
 
         var actions = tr.querySelector('.adhoc-actions');
-        // OJO con la variante: dentro de `.adhoc-catalog .adhoc-actions` la hoja
-        // quita el fondo del boton (adhoc.css: `.adhoc-catalog .adhoc-actions
-        // .adhoc-btn-icon`, 0,3,0) pero NO su `color`, asi que un `.btn-primary`
-        // (0,1,0) se quedaba con su texto blanco sobre la fila blanca: el check
-        // de confirmar era invisible en las cuatro pantallas de catalogo, ni
-        // siquiera al pasar el raton. Las variantes `outline` ya traen el color
-        // en el texto, que es justo lo que sobrevive al quitarles el fondo, y son
-        // ademas las que usan los otros dos botones de la misma fila.
+        // El check de confirmar fue INVISIBLE durante toda la migracion: salia
+        // como `.btn-primary` (texto blanco) dentro de `.adhoc-catalog
+        // .adhoc-actions`, donde la hoja le quitaba el fondo pero no el color,
+        // asi que quedaba blanco sobre la fila blanca. Ahora usa la familia de
+        // glifo pelado como el resto de iconos de fila de la app, que lleva el
+        // color EN el texto: verde para confirmar, gris para cancelar.
         actions.innerHTML =
-            '<button type="button" class="btn btn-sm btn-outline-primary adhoc-btn-icon" ' +
+            '<button type="button" class="adhoc-icon-action adhoc-icon-success" ' +
             'data-adhoc-action="save" title="Guardar" aria-label="Guardar">' + icon('fa-solid fa-check') + '</button>' +
-            '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
+            '<button type="button" class="adhoc-icon-action adhoc-icon-muted" ' +
             'data-adhoc-action="cancel" title="Cancelar" aria-label="Cancelar">' + icon('fa-solid fa-xmark') + '</button>';
     };
 

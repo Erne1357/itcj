@@ -123,7 +123,7 @@
   <div class="adhoc-tasks-board">
     <div class="adhoc-empty adhoc-tasks-empty">
       <i class="fa-solid fa-mug-hot adhoc-empty-icon" aria-hidden="true"></i>
-      <h3 class="adhoc-tasks-empty-title">¡Todo al día!</h3>
+      <h2 class="adhoc-tasks-empty-title">¡Todo al día!</h2>
       <p class="adhoc-empty-text">No tienes tareas pendientes asignadas en este momento.</p>
     </div>
   </div>
@@ -166,7 +166,9 @@
 
         {# — La tarea — #}
         <section class="adhoc-wf-task">
-          <h6 class="adhoc-wf-task-title" id="adhoc-wf-title">Cargando Tarea...</h6>
+          {# h3: cuelga del h2 del titulo del dialogo. Iba en h6 —tres niveles de
+             golpe— y su clase ya fija el tamano, asi que no cambia nada visual. #}
+          <h3 class="adhoc-wf-task-title" id="adhoc-wf-title">Cargando Tarea...</h3>
 
           <dl class="adhoc-wf-grid">
             <div class="adhoc-wf-cell">
@@ -195,9 +197,9 @@
         {# — Comentarios — #}
         <section class="adhoc-wf-comments">
           <div class="adhoc-wf-comments-head">
-            <h6 class="adhoc-wf-comments-title">
+            <h3 class="adhoc-wf-comments-title">
               <i class="fa-regular fa-comments me-2" aria-hidden="true"></i>Historial de Comentarios
-            </h6>
+            </h3>
             {% if page_data.can_comment %}
             <button type="button" class="btn btn-sm btn-primary" data-adhoc-wf-comment-new>
               <i class="fa-solid fa-comment-medical" aria-hidden="true"></i>
@@ -240,14 +242,32 @@
       <div class="modal-footer adhoc-wf-footer">
         <p class="adhoc-wf-notice d-none" id="adhoc-wf-notice" role="status"></p>
         {% if page_data.can_workflow %}
+        {# Las tres acciones irreversibles del SGC. Dos detalles que no se
+           tocan aunque el vocabulario general diga otra cosa:
+
+             · La etiqueta NUNCA se envuelve en `d-none d-sm-inline`. En móvil
+               quedarían tres botones de icono para "terminar", "rechazar" y
+               "aprobar" —y un pulgar y una paloma son el mismo gesto a 24px—.
+               Un acierto de lectura por casualidad aquí cierra un documento del
+               SGC o rechaza el trabajo de otro; el texto se queda.
+             · "¡Terminé esta tarea!" va en `btn-primary`, no en `btn-secondary`,
+               porque nunca convive con "Aprobar y Validar": renderActionButtons()
+               (dashboard.js) enseña `terminar` solo si el estatus es FINISHABLE
+               y el par rechazar/aprobar solo si es REVIEWABLE. Cuando se ve,
+               se ve SOLA, y pintar de gris la única acción de la pantalla la
+               haría parecer deshabilitada.
+
+           `me-auto` tampoco entra: el vocabulario lo pide para el "eliminar"
+           anclado a la izquierda del pie, y estos tres viven dentro de
+           `.adhoc-wf-actions`, que los centra como grupo. #}
         <div class="adhoc-wf-actions">
-          <button type="button" class="btn btn-success d-none" data-adhoc-wf-action="terminar">
+          <button type="button" class="btn btn-sm btn-primary d-none" data-adhoc-wf-action="terminar">
             <i class="fa-solid fa-circle-check" aria-hidden="true"></i> ¡Terminé esta tarea!
           </button>
-          <button type="button" class="btn btn-danger d-none" data-adhoc-wf-action="rechazar">
+          <button type="button" class="btn btn-sm btn-danger d-none" data-adhoc-wf-action="rechazar">
             <i class="fa-solid fa-xmark" aria-hidden="true"></i> Rechazar
           </button>
-          <button type="button" class="btn btn-primary d-none" data-adhoc-wf-action="aprobar">
+          <button type="button" class="btn btn-sm btn-primary d-none" data-adhoc-wf-action="aprobar">
             <i class="fa-solid fa-thumbs-up" aria-hidden="true"></i> Aprobar y Validar
           </button>
         </div>

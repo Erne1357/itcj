@@ -101,19 +101,25 @@
 
           {# Barra de acciones del legacy: "Limpiar" y "Buscar" a la derecha. El
              filtrado ya es en vivo (input/change), así que "Buscar" solo fuerza
-             un repintado; se conserva porque está en el original. #}
-          <div class="adhoc-toolbar adhoc-toolbar-between adhoc-report-actions">
+             un repintado; se conserva porque está en el original.
+
+             La clase de la barra es `adhoc-report-launch`, no `-actions`: ese
+             nombre lo declaraban DOS hojas con geometrías distintas (aquí y en
+             view-report.css) y solo pasaba desapercibido porque las dos
+             pantallas se cargan por separado. Quien tocara una creía estar
+             tocando la otra. #}
+          <div class="adhoc-toolbar adhoc-toolbar-between adhoc-report-launch">
             <span class="adhoc-report-hint">
               <i class="fa-solid fa-eye"></i>
               Vista previa de lo que incluirá el reporte
               (<span data-adhoc-preview-count>0</span>).
             </span>
-            <div class="adhoc-report-actions-buttons">
-              <button type="button" class="btn adhoc-btn-clear" data-adhoc-report-clear>
-                <i class="fa-solid fa-eraser"></i> Limpiar
+            <div class="adhoc-report-launch-buttons">
+              <button type="button" class="btn btn-sm btn-secondary" data-adhoc-report-clear>
+                <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
               </button>
-              <button type="button" class="btn adhoc-btn-search" data-adhoc-report-search>
-                <i class="fa-solid fa-magnifying-glass"></i> Buscar
+              <button type="button" class="btn btn-sm btn-primary" data-adhoc-report-search>
+                <i class="fa-solid fa-magnifying-glass"></i><span class="d-none d-sm-inline">Buscar</span>
               </button>
             </div>
           </div>
@@ -203,12 +209,21 @@
 
         <div class="modal-footer adhoc-report-footer">
           <span class="adhoc-report-hint">Seleccione el formato de salida:</span>
+          {# Los DOS son "confirmar": el mismo reporte con otro nivel de detalle,
+             ninguno subordinado al otro. Por eso los dos van en `btn-primary` y
+             no uno en primary y otro en secondary. El verde que llevaba
+             "Completo" (heredado del icono de Excel del legacy) era la única
+             aparición de `btn-success` en un pie de modal de toda la app: lo
+             que distingue las dos salidas es el icono y la etiqueta, no el
+             color. Y aquí NO se envuelve la etiqueta en `d-sm-inline`: son
+             botones de pie de modal, y dos iconos de fichero seguidos sin texto
+             no se distinguen. #}
           <div class="d-flex gap-2">
-            <button type="submit" name="formato" value="sencillo" class="btn btn-primary">
+            <button type="submit" name="formato" value="sencillo" class="btn btn-sm btn-primary">
               <i class="fa-solid fa-file-invoice"></i>
               Reporte Sencillo
             </button>
-            <button type="submit" name="formato" value="completo" class="btn btn-success">
+            <button type="submit" name="formato" value="completo" class="btn btn-sm btn-primary">
               <i class="fa-solid fa-file-excel"></i>
               Reporte Completo
             </button>

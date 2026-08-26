@@ -12,8 +12,11 @@
    que devolvía 404 en silencio.
 
    ASPECTO: el legacy mete el h2 y el botón "Volver" DENTRO del recuadro
-   blanco y estira el contenedor al 98%. Como la macro es compartida (y es del
-   agente del shell), eso se consigue desde document-catalogs.css sin tocarla.
+   blanco y estira el contenedor al 98%. Lo primero lo pinta la capa de catálogo
+   de adhoc.css (vale para las CUATRO pantallas de catálogo, no solo para las dos
+   de documentos); lo segundo, el `body_class` adhoc-wide de aquí abajo. Esta
+   pantalla NO enlaza hoja propia: la que había estaba vacía y solo la cargaban
+   dos de las cuatro, que es justo la incoherencia que se quitó.
 
    Los flags can_* solo ocultan botones; el gate real lo ponen require_page_app
    en la ruta y require_perms en la API.
@@ -24,10 +27,6 @@
 {% block title %}Categorías de documento · Calidad{% endblock %}
 
 {% block body_class %}adhoc-wide{% endblock %}
-
-{% block extra_css %}
-<link rel="stylesheet" href="/static/adhoc/css/documents/document-catalogs.css?v={{ sv('css/documents/document-catalogs.css') }}">
-{% endblock %}
 
 {% block content %}
 {{ catalog_page(

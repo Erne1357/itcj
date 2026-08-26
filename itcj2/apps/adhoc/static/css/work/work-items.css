@@ -1,7 +1,7 @@
 /* ---------------------------------------------------------------------------
    PAGINA   /adhoc/incidencias y /adhoc/programas
-   CONTIENE controles superiores, rango de fechas del filtro, paginador propio,
-            aviso de vencimiento y el modal de archivos adjuntos
+   CONTIENE rango de fechas del filtro, paginador propio, aviso de vencimiento
+            y el modal de archivos adjuntos
    EN BASE  prioridad de fila, icono de fila, contador, barra inferior y la caja
             del selector de cantidad
    --------------------------------------------------------------------------- */
@@ -17,7 +17,7 @@
 
    Equivalencias con el legacy:
      .table-container   → .adhoc-card (adhoc.css)
-     .controls-top      → .adhoc-work-controls
+     .controls-top      → macro toolbar() → .adhoc-toolbar (adhoc.css)
      .doc-table         → .adhoc-table .adhoc-table-xl (adhoc.css)
      .filter-input      → .adhoc-filter-input (adhoc.css)
      .badge-urgente/…   → .adhoc-prio-urgente / -media / -baja
@@ -48,17 +48,13 @@
   padding: var(--adhoc-space-4xl);
 }
 
-/* ---------- controles superiores (legacy `.controls-top`) ---------- */
+/* ---------- controles superiores ---------- */
 
-.adhoc-work-controls {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: var(--adhoc-space-2xl);
-  margin-top: var(--adhoc-space-3xl);
-  margin-bottom: var(--adhoc-space-3xl);
-}
+/* `.adhoc-work-controls` ya no existe: la fila "Limpiar / Filtrar" la pinta la
+   macro `toolbar()` con `.adhoc-toolbar` de adhoc.css, que declaraba justo esta
+   misma regla (era la copia numero N de `.controls-top`). El `margin-top` que
+   habia aqui colapsaba con el margen inferior, mayor, de `.adhoc-page-head`, asi
+   que al quitarlo manda ese y la pantalla no se mueve. */
 
 /* ---------- fila de filtros dentro de la tabla ---------- */
 

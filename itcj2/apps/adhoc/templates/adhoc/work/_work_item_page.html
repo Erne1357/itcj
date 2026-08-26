@@ -51,13 +51,14 @@
    desde `page_data`, que es el bug de XSS #23 del legacy).
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import back_button, page_header, page_data_script %}
+{% from "adhoc/partials/_macros.html" import back_button, page_header, toolbar, page_data_script %}
 
 {% block title %}{{ page_title }} · Calidad · ITCJ{% endblock %}
 
 {# `adhoc-wide` = el `.main-container { max-width: 98% }` que las dos hojas del
-   legacy imponían con !important. #}
-{% block body_class %}adhoc-work-body adhoc-wide{% endblock %}
+   legacy imponían con !important. Iba acompañada de `adhoc-work-body`, que no
+   tenía regla en ninguna hoja: gancho muerto, fuera. #}
+{% block body_class %}adhoc-wide{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/work/work-items.css?v={{ sv('css/work/work-items.css') }}">
@@ -72,7 +73,7 @@
     {% call page_header(page_title, page_subtitle, page_icon) %}
       {{ back_button(back_url, back_label|default('Volver al Panel', true)) }}
       {% if categories_url and can_manage_categories %}
-        <a class="btn btn-sm adhoc-btn-clear" href="{{ categories_url }}">
+        <a class="btn btn-sm btn-secondary" href="{{ categories_url }}">
           <i class="fa-solid fa-tags"></i>
           <span class="d-none d-sm-inline">Categorías</span>
         </a>
@@ -80,15 +81,21 @@
       {% block work_toolbar_extra %}{% endblock %}
     {% endcall %}
 
-    {# — CONTROLES SUPERIORES (legacy `.controls-top`) — #}
-    <div class="adhoc-work-controls">
-      <button type="button" class="btn btn-sm adhoc-btn-clear" data-adhoc-work-clear>
-        <i class="fa-solid fa-eraser"></i> Limpiar
+    {# — CONTROLES SUPERIORES (legacy `.controls-top`) —
+       Por la macro `toolbar()`, no por un `.adhoc-work-controls` propio: era una
+       de las ocho copias del mismo `.controls-top` y `.adhoc-toolbar` ya trae
+       exactamente esa geometría (flex/wrap, alineado a la derecha, mismo hueco
+       inferior). El hueco superior lo daba un `margin-top` que COLAPSABA con el
+       margen inferior de `.adhoc-page-head`, que es mayor; al quitarlo manda ese
+       mismo margen y la pantalla no se mueve un píxel. #}
+    {% call toolbar() %}
+      <button type="button" class="btn btn-sm btn-secondary" data-adhoc-work-clear>
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
       </button>
-      <button type="button" class="btn btn-sm adhoc-btn-filter" data-adhoc-work-filter>
-        <i class="fa-solid fa-filter"></i> Filtrar
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-work-filter>
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
       </button>
-    </div>
+    {% endcall %}
 
     <div class="adhoc-table-wrap" data-adhoc-table-wrap>
       <table class="adhoc-table adhoc-table-xl adhoc-work-table"
@@ -175,7 +182,11 @@
     {# — CONTROLES INFERIORES (legacy `.bottom-controls`) — #}
     <div class="adhoc-work-bottom">
       {% if can_create %}
-      <button type="button" class="btn adhoc-btn-add" data-adhoc-work-new>
+      {# La etiqueta NO se colapsa en móvil: este botón no está en una barra de
+         acciones sino pegado al selector de cantidad, y `new_label` es lo único
+         que distingue "Añadir Nuevas Incidencias" de "Añadir Nuevos Eventos".
+         Un "+" pelado no diría cuál de las dos pantallas es. #}
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-work-new>
         <i class="fa-solid fa-plus"></i> {{ new_label|default('Añadir Nuevos', true) }}
       </button>
       <label class="visually-hidden" for="adhoc-work-qty">Cuántos registros capturar</label>
@@ -186,12 +197,12 @@
 
       <div class="adhoc-work-pager">
         <span class="adhoc-work-count" data-adhoc-work-count aria-live="polite"></span>
-        <button type="button" class="btn btn-sm adhoc-btn-clear"
+        <button type="button" class="btn btn-sm btn-secondary"
                 data-adhoc-work-page="prev" aria-label="Página anterior">
           <i class="fa-solid fa-chevron-left"></i>
         </button>
         <span class="adhoc-work-pageinfo" data-adhoc-work-pageinfo></span>
-        <button type="button" class="btn btn-sm adhoc-btn-clear"
+        <button type="button" class="btn btn-sm btn-secondary"
                 data-adhoc-work-page="next" aria-label="Página siguiente">
           <i class="fa-solid fa-chevron-right"></i>
         </button>
@@ -221,13 +232,16 @@
           <div data-adhoc-work-fields></div>
         </form>
       </div>
+      {# Pie canónico de la app: eliminar (rojo, `me-auto` lo empuja al extremo
+         izquierdo) · cancelar (gris) · confirmar (violeta). Nada de
+         `btn-outline-*` ni `btn-success` aquí. #}
       <div class="modal-footer">
-        <button type="button" class="btn adhoc-btn-delete me-auto" data-adhoc-work-delete hidden>
+        <button type="button" class="btn btn-sm btn-danger me-auto" data-adhoc-work-delete hidden>
           <i class="fa-solid fa-trash"></i>
           <span class="d-none d-sm-inline">Eliminar</span>
         </button>
-        <button type="button" class="btn adhoc-btn-clear" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn adhoc-btn-save" data-adhoc-work-save>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-work-save>
           <i class="fa-solid fa-floppy-disk"></i> Guardar Cambios
         </button>
       </div>

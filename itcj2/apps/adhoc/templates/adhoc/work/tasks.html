@@ -28,11 +28,13 @@
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
 {% from "adhoc/partials/_macros.html" import
-     back_button, page_header, data_table, page_data_script %}
+     back_button, page_header, data_table, toolbar, page_data_script %}
 
 {% block title %}Tareas · {{ parent.folio or parent.title }} · Calidad · ITCJ{% endblock %}
 
-{% block body_class %}adhoc-worktasks-body adhoc-wide{% endblock %}
+{# `adhoc-worktasks-body` no llegó a existir como regla en ninguna hoja: era una
+   clase-gancho que nadie enganchó. `adhoc-wide` sí (el 98 % del legacy). #}
+{% block body_class %}adhoc-wide{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/work/tasks.css?v={{ sv('css/work/tasks.css') }}">
@@ -52,16 +54,24 @@
     {# — CONTROLES SUPERIORES (legacy `.controls-top`) —
        "Limpiar" lo atiende shared/table-filter.js por delegación: vacía todos
        los `data-adhoc-filter-input` de la tabla destino. "Filtrar" existe
-       porque la pantalla del legacy lo tiene; el filtrado ya es en vivo. #}
-    <div class="adhoc-worktasks-controls">
-      <button type="button" class="btn btn-sm adhoc-btn-clear"
+       porque la pantalla del legacy lo tiene; el filtrado ya es en vivo.
+
+       Va por `toolbar()` y no por un `.adhoc-worktasks-controls` propio: era la
+       novena copia del mismo `.controls-top`. `.adhoc-toolbar` ya es flex/wrap/
+       end con el mismo hueco inferior, y el superior lo pone el margen de
+       `.adhoc-page-head` (que colapsaba con el de la regla borrada, así que el
+       margen resultante es el mismo). Lo único que se mueve es la separación
+       entre los dos botones: 10px → 15px, los mismos que ya tenía esta barra en
+       incidencias/programas. Unificar eso es justamente el objetivo. #}
+    {% call toolbar() %}
+      <button type="button" class="btn btn-sm btn-secondary"
               data-adhoc-filter-clear="{{ page_data.table_id }}">
-        <i class="fa-solid fa-eraser"></i> Limpiar
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
       </button>
-      <button type="button" class="btn btn-sm adhoc-btn-filter" data-adhoc-tasks-filter>
-        <i class="fa-solid fa-filter"></i> Filtrar
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-tasks-filter>
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
       </button>
-    </div>
+    {% endcall %}
 
     {{ data_table(
          page_data.table_id,
@@ -83,7 +93,10 @@
     {# — CONTROLES INFERIORES (legacy `.bottom-controls`) — #}
     {% if can_create %}
     <div class="adhoc-worktasks-bottom">
-      <button type="button" class="btn adhoc-btn-add" data-adhoc-tasks-new>
+      {# La etiqueta NO se colapsa en móvil: este botón no vive en una barra de
+         acciones, sino pegado al selector de cantidad, y un "+" suelto junto a
+         un "2 Tareas" no dice qué se va a añadir. #}
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-tasks-new>
         <i class="fa-solid fa-plus"></i> Añadir Tareas
       </button>
       <label class="visually-hidden" for="adhoc-tasks-qty">Cuántas tareas capturar</label>
@@ -116,13 +129,16 @@
           <div data-adhoc-tasks-fields></div>
         </form>
       </div>
+      {# Pie canónico de la app: eliminar (rojo, empujado a la izquierda con
+         `me-auto`) · cancelar (gris) · confirmar (violeta). Las tres clases son
+         las únicas admitidas en un pie de modal. #}
       <div class="modal-footer">
-        <button type="button" class="btn adhoc-btn-delete me-auto" data-adhoc-tasks-delete hidden>
+        <button type="button" class="btn btn-sm btn-danger me-auto" data-adhoc-tasks-delete hidden>
           <i class="fa-solid fa-trash"></i>
           <span class="d-none d-sm-inline">Eliminar</span>
         </button>
-        <button type="button" class="btn adhoc-btn-clear" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn adhoc-btn-save" data-adhoc-tasks-save>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-tasks-save>
           <i class="fa-solid fa-floppy-disk"></i> Guardar Cambios
         </button>
       </div>

@@ -37,7 +37,10 @@
     {% for tile in tiles %}
     <a class="adhoc-tile" href="{{ tile.url }}">
       <span class="adhoc-tile-icon"><i class="{{ tile.icon }}"></i></span>
-      <h3 class="adhoc-tile-title">{{ tile.title }}</h3>
+      {# h2, no h3: el titulo de la pantalla es el h1 y saltarse un nivel deja al
+         lector de pantalla sin la relacion "dentro de". La clase fija el tamano,
+         asi que el nivel no cambia ni un pixel. #}
+      <h2 class="adhoc-tile-title">{{ tile.title }}</h2>
     </a>
     {% endfor %}
   </div>

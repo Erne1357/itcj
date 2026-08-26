@@ -34,7 +34,7 @@
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
 {% from "adhoc/partials/_macros.html" import page_header, back_button,
-        page_data_script %}
+        page_data_script, toolbar %}
 
 {% block title %}Administración de documentos · Calidad{% endblock %}
 
@@ -54,14 +54,18 @@
       {{ back_button('/adhoc/panel', 'Volver al Panel') }}
     {% endcall %}
 
-    <div class="adhoc-doc-controls adhoc-doc-controls-sm">
+    {# toolbar() pone el contenedor; `adhoc-doc-controls-sm` sobrevive como
+       modificador porque aquí la botonera va DEBAJO del encabezado y necesita el
+       margen superior del legacy, que la macro no trae (ni debe: las pantallas
+       sin encabezado, como la de consulta, no lo llevan). #}
+    {% call toolbar(css='adhoc-doc-controls-sm') %}
       <button type="button" class="btn btn-sm btn-secondary" data-adhoc-doc-clear>
-        <i class="fa-solid fa-eraser"></i> Limpiar
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
       </button>
       <button type="button" class="btn btn-sm btn-primary" data-adhoc-doc-apply>
-        <i class="fa-solid fa-filter"></i> Filtrar
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
       </button>
-    </div>
+    {% endcall %}
 
     <div class="adhoc-table-wrap" data-adhoc-table-wrap>
       <table class="adhoc-table adhoc-table-xl" id="adhoc-doc-panel-table"
@@ -167,7 +171,7 @@
     {%- if can_create %}
     <div class="adhoc-doc-bottom">
       <button type="button" class="btn btn-sm btn-primary" data-adhoc-doc-new>
-        <i class="fa-solid fa-plus"></i> Añadir Nuevos
+        <i class="fa-solid fa-plus"></i><span class="d-none d-sm-inline">Añadir Nuevos</span>
       </button>
     </div>
     {%- endif %}

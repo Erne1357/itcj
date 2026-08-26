@@ -26,7 +26,7 @@
        con style.display = 'flex'.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import back_button, data_table, page_data_script %}
+{% from "adhoc/partials/_macros.html" import back_button, data_table, page_data_script, toolbar %}
 
 {% block title %}Tablero {{ year.year }} · Indicadores · Calidad{% endblock %}
 
@@ -48,21 +48,33 @@
         </h1>
       </div>
       <div class="adhoc-page-actions">
+        {# "Volver" abre SIEMPRE la fila de acciones: es la salida de la pantalla
+           y su sitio no puede depender de que `can_track` sea cierto, o el ancla
+           de escape se mueve según el permiso de quien mira. #}
+        {{ back_button("/adhoc/indicadores", "Volver a Años") }}
         {% if can_track %}
         <a class="btn btn-sm btn-outline-primary" href="{{ tracking_url }}">
           <i class="fa-solid fa-table-cells"></i>
           <span class="d-none d-sm-inline">Ver seguimiento</span>
         </a>
         {% endif %}
-        {{ back_button("/adhoc/indicadores", "Volver a Años") }}
       </div>
     </div>
 
-    <div class="adhoc-toolbar adhoc-toolbar-end adhoc-board-controls">
-      <button type="button" class="btn adhoc-btn-clear"
-              data-adhoc-filter-clear="adhoc-indicator-board">Limpiar</button>
-      <button type="button" class="btn adhoc-btn-filter" data-adhoc-board-filter>Filtrar</button>
-    </div>
+    {# La fila Limpiar/Filtrar sale de la macro `toolbar()`, no de un <div>
+       escrito a mano: es el mismo contenedor que emiten las demás pantallas.
+       El `css=` conserva .adhoc-board-controls porque esa clase NO agrupa nada,
+       solo lleva el margen del legacy (.controls-top: 20px 0); sin ella la fila
+       se pega a la cabecera. #}
+    {% call toolbar(css='adhoc-board-controls') %}
+      <button type="button" class="btn btn-sm btn-secondary"
+              data-adhoc-filter-clear="adhoc-indicator-board">
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
+      </button>
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-board-filter>
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
+      </button>
+    {% endcall %}
 
     {{ data_table(
          'adhoc-indicator-board',
@@ -81,8 +93,8 @@
 
     {% if can_create %}
     <div class="adhoc-bottom-controls">
-      <button type="button" class="btn adhoc-btn-add" data-adhoc-board-new>
-        <i class="fa-solid fa-plus"></i> Añadir Proceso(s)
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-board-new>
+        <i class="fa-solid fa-plus"></i><span class="d-none d-sm-inline">Añadir Proceso(s)</span>
       </button>
       <select class="adhoc-qty-select adhoc-board-qty" data-adhoc-board-qty
               aria-label="Cuántos indicadores capturar">
@@ -111,11 +123,14 @@
         <div data-adhoc-board-forms></div>
       </div>
       <div class="modal-footer adhoc-board-modal-footer">
-        <button type="button" class="btn btn-danger me-auto" data-adhoc-board-delete hidden>
+        {# Pie de modal: eliminar a la izquierda con me-auto, cancelar y guardar a
+           la derecha. Los tres al tamaño único (btn-sm) y con la etiqueta SIN
+           envolver: dentro del modal siempre hay ancho para leer la acción. #}
+        <button type="button" class="btn btn-sm btn-danger me-auto" data-adhoc-board-delete hidden>
           <i class="fa-solid fa-trash"></i> Eliminar Proceso
         </button>
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primary" data-adhoc-board-save>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-board-save>
           <i class="fa-solid fa-floppy-disk"></i> Guardar Tablero
         </button>
       </div>

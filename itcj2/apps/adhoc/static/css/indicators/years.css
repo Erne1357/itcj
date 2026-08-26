@@ -51,7 +51,9 @@
   text-decoration: underline;
 }
 
-/* Fila Limpiar / Filtrar (legacy .controls-top: margin 25px 0 15px). */
+/* Fila Limpiar / Filtrar (legacy .controls-top: margin 25px 0 15px). La plantilla
+   ya no escribe esta clase a mano: llega por el `css=` de la macro toolbar(), que
+   es quien pone el contenedor. Aquí solo queda el margen, no el layout. */
 .adhoc-years-controls {
   gap: var(--adhoc-space-lg);
   margin: var(--adhoc-space-4xl) 0 var(--adhoc-space-2xl);
@@ -102,6 +104,15 @@
   border-radius: var(--adhoc-radius-lg);
   outline: none;
 }
+
+/* El anillo de foco. Este campo no lleva `form-control` ni `form-select`, asi
+   que no hereda nada de la hoja base: sin esta regla no habia NINGUNA
+   diferencia visible entre enfocado y no enfocado. */
+.adhoc-years-qty:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 1px;
+}
+
 
 /* Filas clicables: el cursor lo pone .adhoc-row-click de la base; aquí solo se
    marca el foco por teclado, porque la fila es navegable con Tab. */

@@ -22,7 +22,7 @@
    * Cero CSS inline y cero manejadores inline. Iconos Font Awesome 6.4.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import page_data_script %}
+{% from "adhoc/partials/_macros.html" import page_data_script, toolbar %}
 
 {% block title %}Documentos · Calidad{% endblock %}
 
@@ -42,14 +42,18 @@
       </h1>
     </div>
 
-    <div class="adhoc-doc-controls">
-      <button type="button" class="btn btn-secondary" data-adhoc-doc-clear>
-        <i class="fa-solid fa-eraser"></i> Limpiar
+    {# La botonera era un `.adhoc-doc-controls` a mano que repetía, regla por
+       regla, lo que ya hace toolbar() (flex, hueco y margen inferior). Con la
+       macro las tres pantallas de la sección comparten el mismo contenedor, y
+       los `data-*` —que son lo único que el JS engancha— viajan intactos. #}
+    {% call toolbar() %}
+      <button type="button" class="btn btn-sm btn-secondary" data-adhoc-doc-clear>
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
       </button>
-      <button type="button" class="btn btn-primary" data-adhoc-doc-apply>
-        <i class="fa-solid fa-filter"></i> Filtrar
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-doc-apply>
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
       </button>
-    </div>
+    {% endcall %}
 
     <div class="adhoc-table-wrap" data-adhoc-table-wrap>
       <table class="adhoc-table adhoc-table-lg" id="adhoc-documents-table"

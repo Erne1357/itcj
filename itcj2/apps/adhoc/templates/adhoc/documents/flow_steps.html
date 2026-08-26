@@ -77,15 +77,19 @@
     <div class="adhoc-doc-bottom adhoc-doc-bottom-between">
       <span class="adhoc-steps-add">
         <button type="button" class="btn btn-sm btn-primary" data-adhoc-steps-add>
-          <i class="fa-solid fa-plus"></i> Añadir Pasos
+          <i class="fa-solid fa-plus"></i><span class="d-none d-sm-inline">Añadir Pasos</span>
         </button>
         <label class="visually-hidden" for="adhoc-steps-qty">Cuántos pasos añadir</label>
         <select class="adhoc-doc-qty" id="adhoc-steps-qty" data-adhoc-steps-qty>
           {% for n in range(1, 11) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
         </select>
       </span>
-      <button type="button" class="btn btn-sm btn-success" data-adhoc-steps-save>
-        <i class="fa-solid fa-floppy-disk"></i> Guardar Diseño del Flujo
+      {# `btn-primary`, no el verde del legacy: "Guardar" es la accion primaria y
+   en el resto de la app va en violeta. Dos colores para el mismo verbo era
+   justo la incoherencia que este barrido cierra. El verde se queda solo
+   donde significa otra cosa (exportar a Excel, en view_report.html). #}
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-steps-save>
+        <i class="fa-solid fa-floppy-disk"></i><span class="d-none d-sm-inline">Guardar Diseño del Flujo</span>
       </button>
     </div>
     {%- endif %}

@@ -12,6 +12,16 @@
    construía la URL de descarga concatenando el nombre crudo, sin
    `encodeURIComponent` (404 con cualquier espacio o acento). Aquí la lista se
    construye con `textContent` y la descarga va **por id de archivo**.
+
+   Los botones de este modal siguen el vocabulario único de controles. "Subir" y
+   "Cerrar" venían con dos de los alias `.adhoc-btn-*` del legacy, que ya no
+   existen en adhoc.css, así que ahora se escriben con la variante de Bootstrap
+   y SIEMPRE con `btn-sm`. "Cerrar" es el descarte del pie, o sea la forma
+   "cancelar": `btn btn-sm btn-secondary`.
+
+   "Subir" NO colapsa su etiqueta con `d-none d-sm-inline`: vive dentro del
+   cuerpo del modal (`.adhoc-files-upload`), que no es ni `.adhoc-page-actions`
+   ni una toolbar, y ahí el texto siempre cabe.
    =========================================================================== #}
 {% extends "adhoc/work/_work_item_page.html" %}
 
@@ -35,14 +45,14 @@
           <label class="form-label adhoc-label" for="adhoc-files-input">Adjuntar archivos</label>
           <input type="file" class="form-control" id="adhoc-files-input"
                  data-adhoc-files-input multiple>
-          <button type="button" class="btn btn-sm adhoc-btn-filter" data-adhoc-files-upload>
+          <button type="button" class="btn btn-sm btn-primary" data-adhoc-files-upload>
             <i class="fa-solid fa-upload"></i> Subir
           </button>
         </div>
         {% endif %}
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn adhoc-btn-clear" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
       </div>
     </div>
   </div>

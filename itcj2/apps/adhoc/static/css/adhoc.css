@@ -285,6 +285,11 @@ body.adhoc-shell {
 :where(.adhoc-shell) :where(h2) { font-size: var(--adhoc-fs-3xl); font-weight: var(--adhoc-fw-semibold); }
 :where(.adhoc-shell) :where(h3) { font-size: 1.17rem; font-weight: var(--adhoc-fw-semibold); }
 :where(.adhoc-shell) :where(h4) { font-size: var(--adhoc-fs-base); font-weight: var(--adhoc-fw-semibold); }
+/* h5 y h6 tambien: el reset llegaba hasta h4 y el navegador dejaba los dos
+   ultimos con su tamano por defecto (0.83rem y 0.67rem), mas pequenos que el
+   texto normal. */
+:where(.adhoc-shell) :where(h5) { font-size: var(--adhoc-fs-base); font-weight: var(--adhoc-fw-semibold); }
+:where(.adhoc-shell) :where(h6) { font-size: var(--adhoc-fs-md); font-weight: var(--adhoc-fw-semibold); }
 
 .adhoc-shell [hidden] {
   display: none !important;
@@ -396,6 +401,38 @@ body.adhoc-shell {
   }
 }
 
+/* ── Enlace de salto ───────────────────────────────────────────────────────
+   Fuera de la pantalla hasta que recibe el foco. No se oculta con `display:none`
+   ni con `visibility:hidden` a proposito: las dos formas lo sacan del orden de
+   tabulacion y entonces no habria enlace de salto en absoluto. */
+.adhoc-skip {
+  position: absolute;
+  top: var(--adhoc-space-lg);
+  left: var(--adhoc-space-lg);
+  z-index: 1200;
+  padding: var(--adhoc-space-lg) var(--adhoc-space-2xl);
+  color: var(--adhoc-surface);
+  font-weight: var(--adhoc-fw-semibold);
+  text-decoration: none;
+  background: var(--adhoc-primary);
+  border-radius: var(--adhoc-radius);
+  box-shadow: var(--adhoc-shadow-hover);
+  transform: translateY(-200%);
+}
+
+.adhoc-skip:focus-visible {
+  color: var(--adhoc-surface);
+  outline: 2px solid var(--adhoc-surface);
+  outline-offset: -4px;
+  transform: translateY(0);
+}
+
+/* `#adhoc-main` lleva `tabindex="-1"` para poder recibir el foco al saltar; sin
+   esto el navegador dibujaria un anillo alrededor de TODO el contenido. */
+.adhoc-page:focus {
+  outline: none;
+}
+
 .adhoc-appbar {
   display: flex;
   justify-content: space-between;
@@ -425,6 +462,16 @@ body.adhoc-shell {
 .adhoc-btn-salir {
   color: var(--adhoc-danger-ink);
   background-color: var(--adhoc-coral-tint);
+}
+
+/* El foco se ve. `.adhoc-back` es el control mas repetido de la app —sale en 19
+   pantallas— y era el unico interactivo sin estilo propio de foco: quien navega
+   con teclado no tenia forma de saber donde estaba. Se usa el mismo anillo que
+   ya declara `.btn`, para que el teclado se comporte igual en toda la app. */
+.adhoc-back:focus-visible,
+.adhoc-btn-header:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 2px;
 }
 
 .adhoc-btn-header:hover {
@@ -829,8 +876,20 @@ body.adhoc-shell {
   outline: none;
 }
 
+/* El cambio de borde de 1px NO es un indicador de foco suficiente: es el mismo
+   grosor que en reposo, solo cambia el tono, y WCAG 2.4.7 pide que el elemento
+   enfocado se distinga. Se conserva el borde violeta del legacy Y se anade el
+   anillo, que es el mismo que ya usan `.btn` y `.adhoc-nav-link`, para que el
+   teclado se comporte igual en toda la app.
+   `:focus-visible` y no `:focus`: el anillo aparece al tabular, no al hacer clic
+   con el raton, que es lo que la gente espera de un campo de texto. */
 .adhoc-filter-input:focus {
   border-color: var(--adhoc-primary);
+}
+
+.adhoc-filter-input:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 1px;
 }
 
 /* Fila de "sin resultados": se pinta siempre y se esconde sola cuando queda
@@ -976,29 +1035,35 @@ body.adhoc-shell {
 
 /* Variantes de color. Van DESPUES de las dos bases: el markup las combina
    (`adhoc-icon-action adhoc-icon-danger`) y con la misma especificidad manda
-   la ultima que se declara. */
-.adhoc-icon-primary { color: var(--adhoc-primary); }
-.adhoc-icon-trash   { color: var(--adhoc-danger); }
+   la ultima que se declara.
+
+   Un icono de accion es un COMPONENTE, no texto: WCAG 1.4.11 le pide 3:1, no
+   4.5. Aun asi, dos de los seis no llegaban ni a eso sobre la fila blanca —el
+   verde daba 2.87:1 y el ambar 2.15:1—, y son los dos que marcan "confirmar" y
+   "atencion" en una tabla del SGC. Los dos pasan a su escalon de tinta; los
+   otros cuatro ya cumplian y se quedan con el color de marca. */
+.adhoc-icon-primary { color: var(--adhoc-primary); }        /* 7.73:1 */
+.adhoc-icon-trash   { color: var(--adhoc-danger); }         /* 3.82:1 */
 
 .adhoc-icon-danger  { color: var(--adhoc-danger); }
 .adhoc-icon-danger:hover,
 .adhoc-icon-danger:focus-visible { color: var(--adhoc-danger); }
 
-.adhoc-icon-warning { color: var(--adhoc-warning); }
+.adhoc-icon-warning { color: var(--adhoc-warning-ink); }    /* era 2.15:1 */
 .adhoc-icon-warning:hover,
-.adhoc-icon-warning:focus-visible { color: var(--adhoc-warning); }
+.adhoc-icon-warning:focus-visible { color: var(--adhoc-warning-ink); }
 
-.adhoc-icon-muted   { color: var(--adhoc-muted); }
+.adhoc-icon-muted   { color: var(--adhoc-muted); }          /* 5.24:1 */
 .adhoc-icon-muted:hover,
 .adhoc-icon-muted:focus-visible { color: var(--adhoc-muted); }
 
-.adhoc-icon-info    { color: var(--adhoc-info); }
+.adhoc-icon-info    { color: var(--adhoc-info); }           /* 4.30:1 */
 .adhoc-icon-info:hover,
 .adhoc-icon-info:focus-visible { color: var(--adhoc-info); }
 
-.adhoc-icon-success { color: var(--adhoc-success); }
+.adhoc-icon-success { color: var(--adhoc-success-ink); }    /* era 2.87:1 */
 .adhoc-icon-success:hover,
-.adhoc-icon-success:focus-visible { color: var(--adhoc-success); }
+.adhoc-icon-success:focus-visible { color: var(--adhoc-success-ink); }
 
 /* Legacy `.action-icons`: los iconos van centrados en su columna. */
 .adhoc-col-center > .adhoc-actions {
@@ -1258,12 +1323,20 @@ body.adhoc-shell {
   color: var(--adhoc-surface);
 }
 
-/* Alias con los nombres del legacy: dejan pegar su markup sin traducir. */
-.adhoc-btn-filter { background-color: var(--adhoc-primary); color: var(--adhoc-surface); }
-.adhoc-btn-clear  { background-color: var(--adhoc-border); color: var(--adhoc-slate); }
-.adhoc-btn-add    { background-color: var(--adhoc-primary); color: var(--adhoc-surface); }
-.adhoc-btn-save   { background-color: var(--adhoc-primary); color: var(--adhoc-surface); }
-.adhoc-btn-delete { background-color: var(--adhoc-danger-strong); color: var(--adhoc-surface); }
+/* NO REPONER: aqui vivian cinco alias con los nombres del legacy
+   (`.adhoc-btn-filter`, `-clear`, `-add`, `-save`, `-delete`). Existian para
+   poder pegar el markup del original sin traducirlo, y el precio fue que las
+   plantillas elegian al azar entre el alias y la variante de verdad: 26 usos
+   repartidos por diez pantallas, a veces los dos en la MISMA barra.
+
+   No eran equivalentes. Ninguno declaraba `:hover`, asi que el boton "Limpiar"
+   escrito con el alias no reaccionaba al raton y el de al lado si. Y como el
+   alias no trae `btn-sm`, el mismo boton salia a 10px/0.9rem en una pantalla y
+   a 8px/0.85rem en su hermana.
+
+   El vocabulario es ahora uno: `btn btn-sm {variante}`, con
+   filter/add/save -> btn-primary, clear -> btn-secondary, delete -> btn-danger.
+   Vigilado por tests/fastapi/adhoc/test_template_conventions.py. */
 
 /* Cierre de modal (legacy `.close-btn`: una × gris, sin imagen de fondo). */
 .btn-close {
@@ -1333,9 +1406,22 @@ body.adhoc-shell {
   outline: none;
 }
 
+/* Mismo caso que el input de filtro: el borde violeta del legacy se queda, y
+   encima va el anillo. Sin el, cada formulario de la app era WCAG 2.4.7 fallado.
+
+   OJO: cuatro selects de la app NO llevan la clase `form-select` en su markup
+   (viven en las hojas de indicadores y documentos) y por eso no heredaban ni
+   este `:focus` de repuesto: se quedaban SIN NINGUNA diferencia entre enfocado y
+   no enfocado. Sus hojas los cubren aparte. */
 .form-control:focus,
 .form-select:focus {
   border-color: var(--adhoc-primary);
+}
+
+.form-control:focus-visible,
+.form-select:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 1px;
 }
 
 .form-control:disabled,
@@ -1922,6 +2008,17 @@ body.adhoc-modal-open {
 
 .adhoc-catalog .adhoc-actions .adhoc-btn-icon:hover {
   background: none;
+}
+
+/* Fila en edicion en linea. `catalog-crud.js` marca la fila con esta clase al
+   abrir el campo, y ninguna hoja la pintaba: la fila que estabas editando se
+   veia exactamente igual que las demas, asi que si te ibas a otra pestana y
+   volvias, no habia forma de saber cual estaba abierta. Es el mismo lavanda del
+   `:hover` de fila, un escalon mas marcado. */
+.adhoc-catalog .adhoc-row-editing,
+.adhoc-catalog .adhoc-row-editing:hover {
+  background: var(--adhoc-primary-soft-alt);
+  box-shadow: inset 3px 0 0 var(--adhoc-primary);
 }
 
 

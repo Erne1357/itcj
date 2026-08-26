@@ -48,13 +48,16 @@
         </h1>
       </div>
       <div class="adhoc-page-actions">
+        {# "Volver" abre SIEMPRE la fila de acciones: es la salida de la pantalla
+           y su sitio no puede depender de que `can_manage` sea cierto, o el ancla
+           de escape se mueve según el permiso de quien mira. #}
+        {{ back_button("/adhoc/indicadores?mode=tracking", "Volver") }}
         {% if can_manage %}
         <a class="btn btn-sm btn-outline-primary" href="{{ board_url }}">
           <i class="fa-solid fa-gauge-high"></i>
           <span class="d-none d-sm-inline">Ver tablero</span>
         </a>
         {% endif %}
-        {{ back_button("/adhoc/indicadores?mode=tracking", "Volver") }}
       </div>
     </div>
   </div>

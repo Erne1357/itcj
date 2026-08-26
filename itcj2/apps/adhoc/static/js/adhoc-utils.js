@@ -42,9 +42,16 @@
     function toastContainer() {
         var el = document.getElementById(TOAST_CONTAINER_ID);
         if (!el) {
+            // Respaldo por si la pagina no extiende el base. Lleva los mismos
+            // atributos de region viva que el del shell, aunque creada asi puede
+            // no anunciarse: un lector de pantalla observa las regiones que ya
+            // existian al cargar. Por eso el sitio bueno es base_adhoc.html.
             el = document.createElement('div');
             el.id = TOAST_CONTAINER_ID;
             el.className = 'adhoc-toast-container';
+            el.setAttribute('role', 'status');
+            el.setAttribute('aria-live', 'polite');
+            el.setAttribute('aria-atomic', 'false');
             document.body.appendChild(el);
         }
         return el;
@@ -69,8 +76,13 @@
 
         var toast = document.createElement('div');
         toast.className = 'adhoc-toast ' + style.css;
-        toast.setAttribute('role', 'alert');
-        toast.setAttribute('aria-live', 'assertive');
+        // El anuncio lo da la region viva del contenedor, no cada aviso: dos
+        // regiones anidadas hacen que algunos lectores lean el texto dos veces.
+        // Solo lo que es un ERROR se marca como alerta, que es lo que lo saca
+        // por delante de lo que el lector estuviera diciendo.
+        if (style.css === 'adhoc-toast-error' || style.css === 'adhoc-toast-warning') {
+            toast.setAttribute('role', 'alert');
+        }
         toast.innerHTML =
             '<i class="' + style.icon + '"></i>' +
             '<span>' + escapeHtml(message) + '</span>';
@@ -95,21 +107,49 @@
      * @param {HTMLElement|string} target elemento o id
      * @returns {HTMLElement|null}
      */
+    //: Todo lo que puede recibir el foco dentro de un dialogo.
+    var ENFOCABLES = [
+        'a[href]', 'button:not([disabled])', 'input:not([disabled]):not([type=hidden])',
+        'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])'
+    ].join(',');
+
+    /** Los enfocables VISIBLES de `el`, en orden de tabulacion. */
+    function enfocables(el) {
+        var todos = el.querySelectorAll(ENFOCABLES);
+        var out = [];
+        for (var i = 0; i < todos.length; i++) {
+            var n = todos[i];
+            if (n.offsetWidth || n.offsetHeight || n.getClientRects().length) out.push(n);
+        }
+        return out;
+    }
+
     function openModal(target) {
         var el = typeof target === 'string' ? document.getElementById(target) : target;
         if (!el) return null;
+
+        // A quien hay que devolverle el foco al cerrar. Sin esto, cerrar un
+        // dialogo con Escape dejaba el foco en el <body> y el siguiente Tab
+        // empezaba desde el principio de la pagina: quien navega con teclado
+        // tenia que recorrer la barra y la tabla entera para volver al boton que
+        // acababa de pulsar. Los modales de Bootstrap si lo hacen, asi que
+        // conviviendo las dos familias habia dos comportamientos de teclado.
+        el._adhocFocoPrevio = document.activeElement;
+
         el.classList.add('is-open');
         el.removeAttribute('aria-hidden');
         document.body.classList.add('adhoc-modal-open');
-        var focusable = el.querySelector('[autofocus], input, select, textarea, button');
-        if (focusable) {
-            try { focusable.focus(); } catch (e) { /* sin foco, da igual */ }
+
+        var candidatos = enfocables(el);
+        var primero = el.querySelector('[autofocus]') || candidatos[0];
+        if (primero) {
+            try { primero.focus(); } catch (e) { /* sin foco, da igual */ }
         }
         return el;
     }
 
     /**
-     * Cierra un overlay `.adhoc-modal`.
+     * Cierra un overlay `.adhoc-modal` y devuelve el foco a donde estaba.
      * @param {HTMLElement|string} target elemento o id
      */
     function closeModal(target) {
@@ -119,6 +159,12 @@
         el.setAttribute('aria-hidden', 'true');
         if (!document.querySelector('.adhoc-modal.is-open')) {
             document.body.classList.remove('adhoc-modal-open');
+        }
+        var previo = el._adhocFocoPrevio;
+        el._adhocFocoPrevio = null;
+        // Solo si sigue en el documento: el intercambio de HTMX pudo llevarselo.
+        if (previo && previo.focus && document.contains(previo)) {
+            try { previo.focus(); } catch (e) { /* da igual */ }
         }
     }
 
@@ -356,9 +402,34 @@
         });
 
         document.addEventListener('keydown', function (evt) {
-            if (evt.key !== 'Escape') return;
-            var open = document.querySelectorAll('.adhoc-modal.is-open');
-            if (open.length) closeModal(open[open.length - 1]);
+            var abiertos = document.querySelectorAll('.adhoc-modal.is-open');
+            if (!abiertos.length) return;
+            var dialogo = abiertos[abiertos.length - 1];
+
+            if (evt.key === 'Escape') {
+                closeModal(dialogo);
+                return;
+            }
+
+            // Trampa de foco. Sin ella, tabular dentro de un dialogo se salia por
+            // detras a la pagina de abajo —que sigue ahi, solo tapada por el
+            // velo— y a partir de ahi el usuario de teclado estaba interactuando
+            // con controles que no puede ver. Los modales de Bootstrap si la
+            // traen, asi que las dos familias de dialogo se comportaban distinto.
+            if (evt.key !== 'Tab') return;
+            var lista = enfocables(dialogo);
+            if (!lista.length) return;
+            var primero = lista[0];
+            var ultimo = lista[lista.length - 1];
+            var activo = document.activeElement;
+
+            if (evt.shiftKey && (activo === primero || !dialogo.contains(activo))) {
+                evt.preventDefault();
+                ultimo.focus();
+            } else if (!evt.shiftKey && activo === ultimo) {
+                evt.preventDefault();
+                primero.focus();
+            }
         });
     }
 

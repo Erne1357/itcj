@@ -9,6 +9,18 @@
    es el porte del CSS del legacy. Los iconos son Font Awesome 6.4
    (``fa-solid fa-…``), como en el original: se pasan con la clase COMPLETA.
 
+   VOCABULARIO DE CONTROLES: todo botón sale de aquí como `btn btn-sm {variante}`,
+   con la variante de Bootstrap y nunca con los seis alias `.adhoc-btn-*` del
+   legacy, ya borrados de adhoc.css (ahí queda la nota «NO REPONER» con el
+   porqué y la tabla de equivalencias). Este archivo es lo que copian las 34
+   plantillas: si aquí se cuela un `btn` sin tamaño o un alias, reaparece en
+   toda la app. En un pie de modal solo caben tres formas:
+   `btn-sm btn-secondary` (cancelar), `btn-sm btn-primary` (confirmar) y
+   `btn-sm btn-danger me-auto` (eliminar).
+   Vigilado por tests/fastapi/adhoc/test_template_conventions.py, que busca los
+   nombres de los alias en el TEXTO de la plantilla: no los escribas ni en un
+   comentario.
+
    Reglas: cero style="...", cero onclick=. Toda interacción va por data-* y
    listeners delegados desde el JS del módulo.
 
@@ -95,8 +107,8 @@
         </div>
         <div class="adhoc-modal-body">{{ body }}</div>
         <div class="adhoc-modal-footer">
-          <button type="button" class="btn btn-secondary" data-adhoc-modal-close>Cancelar</button>
-          <button type="button" class="btn btn-primary" data-adhoc-confirm="{{ id }}">{{ confirm_text }}</button>
+          <button type="button" class="btn btn-sm btn-secondary" data-adhoc-modal-close>Cancelar</button>
+          <button type="button" class="btn btn-sm btn-primary" data-adhoc-confirm="{{ id }}">{{ confirm_text }}</button>
         </div>
       </div>
     </div>
@@ -550,8 +562,8 @@
           <div class="adhoc-form-grid" data-adhoc-catalog-fields data-adhoc-name-label="{{ name_label }}"></div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-primary" data-adhoc-catalog-save>
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-sm btn-primary" data-adhoc-catalog-save>
             <i class="fa-solid fa-floppy-disk"></i> Guardar
           </button>
         </div>

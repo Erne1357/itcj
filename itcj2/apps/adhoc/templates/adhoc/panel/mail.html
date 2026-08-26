@@ -20,7 +20,10 @@
 
 {% block title %}Correo · Calidad · ITCJ{% endblock %}
 
-{% block body_class %}adhoc-mail-page{% endblock %}
+{# Sin body_class: `adhoc-mail-page` no tenia NI UNA regla en ninguna hoja.
+   Una clase que se emite y nadie usa hace creer, a quien lee la plantilla,
+   que la pantalla se viste distinto, y a quien lee el CSS, que se le ha
+   perdido un bloque. #}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/panel/mail.css?v={{ sv('css/panel/mail.css') }}">
@@ -57,7 +60,7 @@
     </div>
 
     {% if can_update %}
-    <button type="button" class="btn btn-primary adhoc-mail-save" data-adhoc-mail-save>
+    <button type="button" class="btn btn-sm btn-primary adhoc-mail-save" data-adhoc-mail-save>
       <i class="fa-solid fa-floppy-disk"></i>
       <span data-adhoc-mail-save-label>Guardar cambios</span>
     </button>

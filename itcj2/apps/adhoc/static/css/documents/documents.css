@@ -1,10 +1,12 @@
 /* ---------------------------------------------------------------------------
    PAGINA   hoja BASE de la seccion: /adhoc/documentos, /documentos/panel,
             /documentos/flujos y /documentos/flujos/{id}/pasos
-   CONTIENE saludo de la vista de consulta, barra de botones, filtro de servidor
-            dentro de la tabla, celda version/estatus, celda de archivo y paginador
-   EN BASE  iconos de fila (.adhoc-icon-action…), barra inferior, caja del selector
-            de cantidad y encabezado dentro de la tarjeta
+   CONTIENE saludo de la vista de consulta, margen superior de la barra de botones,
+            filtro de servidor dentro de la tabla, celda version/estatus, celda de
+            archivo y paginador
+   EN BASE  la barra de botones (.adhoc-toolbar, via la macro toolbar()), iconos de
+            fila (.adhoc-icon-action…), barra inferior, caja del selector de
+            cantidad y encabezado dentro de la tarjeta
    --------------------------------------------------------------------------- */
 
 /* ===========================================================================
@@ -68,14 +70,14 @@
   font-weight: var(--adhoc-fw-bold);
 }
 
-/* ── Barra de botones sobre la tabla (legacy `.controls-top`) ───────────── */
-.adhoc-doc-controls {
-  display: flex;
-  gap: var(--adhoc-space-2xl);
-  justify-content: flex-end;
-  margin-bottom: var(--adhoc-space-3xl);
-}
-
+/* ── Barra de botones sobre la tabla (legacy `.controls-top`) ────────────
+   El contenedor ya no se declara aqui: las tres pantallas de la seccion usan la
+   macro toolbar(), y .adhoc-toolbar de adhoc.css trae exactamente lo mismo que
+   traia .adhoc-doc-controls (flex, hueco de 2xl, alineado a la derecha y margen
+   inferior de 3xl). Lo unico que NO puede venir de la macro es el margen
+   SUPERIOR: solo lo necesitan las pantallas cuya botonera cuelga de un
+   encabezado (panel y flujos), no la de consulta, que arranca bajo el saludo.
+   Por eso el modificador sigue vivo y se pasa como `css=` a la macro. */
 .adhoc-doc-controls-sm {
   gap: var(--adhoc-space-lg);
   margin-top: var(--adhoc-space-3xl);
@@ -98,6 +100,15 @@
   font-weight: var(--adhoc-fw-normal);
   outline: none;
 }
+
+/* El anillo de foco. Este campo no lleva `form-control` ni `form-select`, asi
+   que no hereda nada de la hoja base: sin esta regla no habia NINGUNA
+   diferencia visible entre enfocado y no enfocado. */
+.adhoc-doc-filter:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 1px;
+}
+
 
 .adhoc-doc-filter:focus {
   border-color: var(--adhoc-primary);
@@ -161,6 +172,15 @@
   font-size: var(--adhoc-fs-lg);
   outline: none;
 }
+
+/* El anillo de foco. Este campo no lleva `form-control` ni `form-select`, asi
+   que no hereda nada de la hoja base: sin esta regla no habia NINGUNA
+   diferencia visible entre enfocado y no enfocado. */
+.adhoc-doc-qty:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 1px;
+}
+
 
 /* ── Paginador ─────────────────────────────────────────────────────────── */
 .adhoc-pager {

@@ -78,8 +78,8 @@
         <div class="adhoc-color-new-fields" data-adhoc-catalog-fields></div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primary" data-adhoc-catalog-save>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-catalog-save>
           <i class="fa-solid fa-floppy-disk"></i> Guardar
         </button>
       </div>
@@ -119,18 +119,24 @@
           {% endif %}
         </div>
       </div>
-      <div class="modal-footer adhoc-modal-footer-split">
+      {# Pie canónico de tres piezas: eliminar `btn-danger me-auto` a la izquierda,
+         cancelar `btn-secondary` y confirmar `btn-primary` a la derecha, los tres
+         `btn-sm`. El `me-auto` es lo que separa los bandos —`.modal-footer` ya es
+         flex con `justify-content:flex-end`—, así que el envoltorio
+         `.adhoc-modal-footer-split` + `.adhoc-modal-footer-actions` que hacía ese
+         mismo trabajo a mano sobra y se ha quitado (y sus reglas de la hoja).
+         El eliminar era `btn-outline-danger`, el único contorno en un pie de modal
+         de toda la app: el borrado destructivo se pinta sólido, como en el resto. #}
+      <div class="modal-footer">
         {% if can_delete %}
-        <button type="button" class="btn btn-outline-danger" data-adhoc-catalog-delete>
+        <button type="button" class="btn btn-sm btn-danger me-auto" data-adhoc-catalog-delete>
           <i class="fa-solid fa-trash"></i> Eliminar
         </button>
         {% endif %}
-        <div class="adhoc-modal-footer-actions">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-primary" data-adhoc-catalog-update>
-            <i class="fa-solid fa-check"></i> Guardar
-          </button>
-        </div>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-catalog-update>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar
+        </button>
       </div>
     </div>
   </div>

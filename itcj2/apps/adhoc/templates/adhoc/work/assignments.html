@@ -33,7 +33,9 @@
 
 {% block title %}{{ page_title }} · Calidad · ITCJ{% endblock %}
 
-{% block body_class %}adhoc-assign-body adhoc-wide{% endblock %}
+{# `adhoc-assign-body` no tenía ni una regla en ninguna hoja: gancho muerto.
+   `adhoc-wide` sí (el 98 % de ancho del legacy). #}
+{% block body_class %}adhoc-wide{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/work/assignments.css?v={{ sv('css/work/assignments.css') }}">
@@ -55,11 +57,16 @@
          ordered=True,
          search_placeholder='Buscar por nombre, correo o puesto...') }}
 
+    {# Pie de la tarjeta, NO una barra de acciones: en móvil sus dos botones se
+       estiran al 100 % (`assignments.css`), así que la etiqueta se queda entera
+       — colapsarla dejaría dos botones anchos con un icono suelto dentro.
+       `adhoc-assign-confirm` se conserva: es la geometría grande del legacy
+       (12px 30px, 1rem), no un color. #}
     <div class="adhoc-assign-actions">
-      <button type="button" class="btn adhoc-btn-clear" data-adhoc-assign-cancel>
+      <button type="button" class="btn btn-sm btn-secondary" data-adhoc-assign-cancel>
         <i class="fa-solid fa-xmark"></i> Cancelar
       </button>
-      <button type="button" class="btn adhoc-btn-filter adhoc-assign-confirm" data-adhoc-assign-save>
+      <button type="button" class="btn btn-sm btn-primary adhoc-assign-confirm" data-adhoc-assign-save>
         <i class="fa-solid fa-floppy-disk"></i> Confirmar y Guardar
       </button>
     </div>

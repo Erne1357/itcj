@@ -10,7 +10,8 @@
    PORTE de las 132 líneas de <style> inline de control_panel/mail.html, con
    sus valores exactos: tarjeta de 500px centrada (padding 60/40, 50px de aire
    arriba y abajo), sobre a 3rem en violeta, interruptor de 60×34 con el pomo
-   de 26px, y botón de guardar a todo el ancho con 12px de padding.
+   de 26px, y botón de guardar a todo el ancho. (Su alto ya no se porta: lo
+   pone el `.btn-sm` del vocabulario común — ver la regla más abajo.)
 
    Lo único que NO se porta: el `.main-container { … !important }`, que pisaba
    el layout de toda la app, y el `.modal-success` casero (aquí es un toast).
@@ -131,11 +132,16 @@
   font-weight: var(--adhoc-fw-semibold);
 }
 
-/* Botón de guardar: ancho completo, como el `.btn-submit` del legacy. */
+/* Botón de guardar: ancho completo, como el `.btn-submit` del legacy.
+   Ya NO declara `padding: var(--adhoc-space-xl)` (los 12px del original). Ese
+   relleno era la altura del botón grande, y sobrescribía el del `.btn-sm` que
+   ahora lleva el marcado: el control se veía canónico en las clases y de otro
+   tamaño en pantalla, que es justo la incoherencia que se está quitando. El
+   alto lo pone `.btn-sm` de adhoc.css; lo propio de esta pantalla —lo que de
+   verdad la distingue— es que ocupe todo el ancho de la tarjeta. */
 .adhoc-mail-save {
   justify-content: center;
   width: 100%;
-  padding: var(--adhoc-space-xl);
 }
 
 .adhoc-mail-readonly {

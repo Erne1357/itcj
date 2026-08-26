@@ -7,9 +7,9 @@
    `documents_categories.js` con el nombre de la clase cambiado.
 
    Igual que categorías: macro `catalog_page()` + `shared/catalog-crud.js`, sin
-   una sola línea de JS propio (plan §6.5). Lo único suyo es la hoja
-   document-catalogs.css, que mete el título dentro del recuadro blanco como
-   hace el legacy sin tener que tocar la macro compartida.
+   una sola línea de JS propio (plan §6.5) y sin hoja propia. El título dentro
+   del recuadro blanco lo pone la capa de catálogo de adhoc.css, compartida por
+   las cuatro pantallas; el ancho, el `body_class` adhoc-wide de aquí abajo.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
 {% from "adhoc/partials/_macros.html" import catalog_page, catalog_modal %}
@@ -17,10 +17,6 @@
 {% block title %}Clasificaciones de documento · Calidad{% endblock %}
 
 {% block body_class %}adhoc-wide{% endblock %}
-
-{% block extra_css %}
-<link rel="stylesheet" href="/static/adhoc/css/documents/document-catalogs.css?v={{ sv('css/documents/document-catalogs.css') }}">
-{% endblock %}
 
 {% block content %}
 {{ catalog_page(

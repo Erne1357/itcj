@@ -61,9 +61,13 @@
 }
 
 /* Los botones del legacy llevan sombra propia (`.btn-action`). Su tamaño de
-   letra se deja en el de la app: el legacy se quedaba con los 13.3px que el
+   letra se deja en el de la app —hoy el del paso `btn-sm`, que es el único
+   tamaño de botón que existe—: el legacy se quedaba con los 13.3px que el
    navegador da a un <button> sin `font-size`, un descuido de esa hoja (en el
-   resto de la app el mismo `.btn-action` sí declara 0.9rem). */
+   resto de la app el mismo `.btn-action` sí declara 0.9rem).
+   OJO: este `.adhoc-report-actions` es el de ESTA pantalla (barra centrada al
+   ancho de la hoja). El del modal de /adhoc/reportes se llama ahora
+   `.adhoc-report-launch`; eran dos geometrías distintas bajo el mismo nombre. */
 .adhoc-report-actions .btn {
   box-shadow: 0 4px 6px rgba(0, 0, 0, .1);
 }

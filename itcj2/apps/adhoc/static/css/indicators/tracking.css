@@ -299,6 +299,15 @@
   transition: .2s;
 }
 
+/* El anillo de foco. Este campo no lleva `form-control` ni `form-select`, asi
+   que no hereda nada de la hoja base: sin esta regla no habia NINGUNA
+   diferencia visible entre enfocado y no enfocado. */
+.adhoc-tracking-input:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 1px;
+}
+
+
 .adhoc-tracking-input:focus {
   border-color: var(--adhoc-primary);
 }
