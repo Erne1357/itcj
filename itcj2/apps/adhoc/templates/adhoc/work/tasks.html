@@ -32,15 +32,15 @@
 
 {% block title %}Tareas · {{ parent.folio or parent.title }} · Calidad · ITCJ{% endblock %}
 
-{% block body_class %}adhoc-tasks-body adhoc-wide{% endblock %}
+{% block body_class %}adhoc-worktasks-body adhoc-wide{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/work/tasks.css?v={{ sv('css/work/tasks.css') }}">
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-tasks" data-adhoc-tasks>
-  <div class="adhoc-card adhoc-tasks-card">
+<section class="adhoc-worktasks" data-adhoc-tasks>
+  <div class="adhoc-card adhoc-worktasks-card">
 
     {% call page_header('Tareas del Expediente: ' ~ (parent.folio or parent.title),
                         parent.title, 'fa-solid fa-list-check') %}
@@ -51,7 +51,7 @@
        "Limpiar" lo atiende shared/table-filter.js por delegación: vacía todos
        los `data-adhoc-filter-input` de la tabla destino. "Filtrar" existe
        porque la pantalla del legacy lo tiene; el filtrado ya es en vivo. #}
-    <div class="adhoc-tasks-controls">
+    <div class="adhoc-worktasks-controls">
       <button type="button" class="btn btn-sm adhoc-btn-clear"
               data-adhoc-filter-clear="{{ page_data.table_id }}">
         <i class="fa-solid fa-eraser"></i> Limpiar
@@ -80,7 +80,7 @@
 
     {# — CONTROLES INFERIORES (legacy `.bottom-controls`) — #}
     {% if can_create %}
-    <div class="adhoc-tasks-bottom">
+    <div class="adhoc-worktasks-bottom">
       <button type="button" class="btn adhoc-btn-add" data-adhoc-tasks-new>
         <i class="fa-solid fa-plus"></i> Añadir Tareas
       </button>

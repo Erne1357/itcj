@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/indicadores/{year_id}/seguimiento
+   CONTIENE barra de titulo, tarjeta de indicador, leyenda de umbrales y la rejilla
+            de captura con su primera columna congelada y sus colores de estado
+   EN BASE  tarjeta, encabezado de pagina, tabla y formulario
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    indicators/tracking.css — rejilla de seguimiento por colores.
    Página: /adhoc/indicadores/{year_id}/seguimiento
@@ -18,14 +25,14 @@
 .adhoc-indicator-tracking {
   max-width: 98%;
   margin: 0 auto;
-  padding: 0 20px;
+  padding: 0 var(--adhoc-space-3xl);
 }
 
 /* ── Barra de título (legacy .header-section) ───────────────────────────── */
 /* Es una tarjeta blanca propia, con menos sombra que las de contenido. */
 .adhoc-tracking-topbar {
-  margin-bottom: 25px;
-  padding: 20px;
+  margin-bottom: var(--adhoc-space-4xl);
+  padding: var(--adhoc-space-3xl);
   box-shadow: 0 4px 15px rgba(0, 0, 0, .03);
 }
 
@@ -37,11 +44,7 @@
    `bold` (700) del navegador, no el 600 del encabezado generico de la app. */
 .adhoc-tracking-topbar .adhoc-page-title {
   font-size: 1.6rem;
-  font-weight: 700;
-}
-
-.adhoc-tracking-topbar .adhoc-page-title i {
-  font-size: 1.8rem;
+  font-weight: var(--adhoc-fw-bold);
 }
 
 /* El año, en violeta (el legacy lo pintaba con un style en línea). */
@@ -57,7 +60,7 @@
   gap: .45rem;
   margin-bottom: 1rem;
   padding: .55rem .75rem;
-  font-size: .85rem;
+  font-size: var(--adhoc-fs-md);
   color: var(--adhoc-muted);
   background: var(--adhoc-soft);
   border: 1px solid var(--adhoc-border);
@@ -68,11 +71,11 @@
 /* Sin padding propio: la cabecera, la rejilla y el pie llegan hasta el borde,
    y `overflow:hidden` recorta la cabecera gris contra el radio de la tarjeta. */
 .adhoc-tracking-card {
-  margin-bottom: 30px;
+  margin-bottom: var(--adhoc-space-5xl);
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--adhoc-line);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, .05);
+  box-shadow: var(--adhoc-elev-4);
 }
 
 .adhoc-tracking-card + .adhoc-tracking-card {
@@ -82,8 +85,8 @@
 .adhoc-tracking-head {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 15px;
-  padding: 20px 25px;
+  gap: var(--adhoc-space-2xl);
+  padding: var(--adhoc-space-3xl) var(--adhoc-space-4xl);
   background: var(--adhoc-soft);
   border-bottom: 1px solid var(--adhoc-line);
 }
@@ -99,9 +102,9 @@
 }
 
 .adhoc-tracking-label {
-  margin-bottom: 4px;
-  font-size: .75rem;
-  font-weight: 700;
+  margin-bottom: var(--adhoc-space-2xs);
+  font-size: var(--adhoc-fs-xs);
+  font-weight: var(--adhoc-fw-bold);
   letter-spacing: .5px;
   text-transform: uppercase;
   color: var(--adhoc-disabled);
@@ -110,7 +113,7 @@
 .adhoc-tracking-value {
   overflow: hidden;
   font-size: .95rem;
-  font-weight: 600;
+  font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-dark);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -130,7 +133,7 @@
   flex: 0 0 auto;
   width: 12px;
   height: 12px;
-  margin-right: 6px;
+  margin-right: var(--adhoc-space-sm);
   background: var(--adhoc-disabled);
 }
 
@@ -140,42 +143,42 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  margin-top: 5px;
+  gap: var(--adhoc-space-lg);
+  margin-top: var(--adhoc-space-xs);
 }
 
 .adhoc-legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 8px;
-  font-size: .8rem;
-  font-weight: 600;
+  gap: var(--adhoc-space-xs);
+  padding: var(--adhoc-space-2xs) var(--adhoc-space-md);
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-dark);
   background: var(--adhoc-surface);
   border: 1px solid var(--adhoc-border);
-  border-radius: 6px;
+  border-radius: var(--adhoc-radius-md);
 }
 
 .adhoc-legend-dot {
   display: inline-block;
   width: 10px;
   height: 10px;
-  border-radius: 50%;
+  border-radius: var(--adhoc-radius-circle);
 }
 
 /* Los puntos de la leyenda llevan los mismos hex que las celdas. */
-.adhoc-legend-dot.adhoc-state-white  { background: var(--adhoc-surface); border: 1px solid #ccc; }
-.adhoc-legend-dot.adhoc-state-red    { background: #ff7675; border: 0; }
-.adhoc-legend-dot.adhoc-state-yellow { background: #fdcb6e; border: 0; }
-.adhoc-legend-dot.adhoc-state-green  { background: #55efc4; border: 0; }
+.adhoc-legend-dot.adhoc-state-white  { background: var(--adhoc-surface); border: 1px solid var(--adhoc-border-mid); }
+.adhoc-legend-dot.adhoc-state-red    { background: var(--adhoc-coral); border: 0; }
+.adhoc-legend-dot.adhoc-state-yellow { background: var(--adhoc-honey); border: 0; }
+.adhoc-legend-dot.adhoc-state-green  { background: var(--adhoc-mint); border: 0; }
 
 .adhoc-legend-doc {
   display: inline-flex;
   align-items: center;
   gap: .25rem;
-  font-size: .8rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-primary);
   text-decoration: none;
 }
@@ -190,10 +193,10 @@
 .adhoc-tracking-saved {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--adhoc-space-xs);
   margin-left: auto;
-  font-size: .8rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-success);
 }
 
@@ -211,24 +214,24 @@
 .adhoc-tracking-table {
   width: 100%;
   min-width: 800px;
-  font-size: 1rem;
+  font-size: var(--adhoc-fs-base);
 }
 
 /* Línea en las CUATRO caras: es lo que da el aspecto de rejilla. */
 .adhoc-tracking-table th,
 .adhoc-tracking-table td {
   min-width: 120px;
-  padding: 12px;
+  padding: var(--adhoc-space-xl);
   text-align: center;
   border: 1px solid var(--adhoc-line);
 }
 
 .adhoc-tracking-table thead th {
   height: auto;
-  font-size: .85rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-md);
+  font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-muted);
-  background: #f1f2f6;
+  background: var(--adhoc-surface-400);
 }
 
 /* Sin realce al pasar por encima: aquí cada celda es un campo, no una fila
@@ -239,13 +242,13 @@
 
 .adhoc-tracking-table tbody tr.adhoc-tracking-plan,
 .adhoc-tracking-table tbody tr.adhoc-tracking-plan:hover {
-  background-color: #fdfdfd;
+  background-color: var(--adhoc-surface-50);
 }
 
 .adhoc-tracking-plan-val {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: #7f8c8d;
+  font-size: var(--adhoc-fs-xl);
+  font-weight: var(--adhoc-fw-bold);
+  color: var(--adhoc-grey);
 }
 
 /* Primera columna congelada. En la fila de encabezado se suma al sticky
@@ -255,9 +258,9 @@
   left: 0;
   z-index: 2;
   min-width: 150px;
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
   color: var(--adhoc-dark);
-  background: #fafafa;
+  background: var(--adhoc-surface-100);
   box-shadow: 2px 0 5px rgba(0, 0, 0, .02);
 }
 
@@ -270,7 +273,7 @@
 .adhoc-tracking-table thead .adhoc-tracking-sticky {
   z-index: 4;
   color: var(--adhoc-dark);
-  background: #fafafa;
+  background: var(--adhoc-surface-100);
 }
 
 /* ── Celda de captura (legacy .real-input-wrapper) ──────────────────────── */
@@ -282,19 +285,19 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: var(--adhoc-space-sm);
   max-width: 10rem;
   margin: 0 auto;
 }
 
 .adhoc-tracking-input {
   width: 80%;
-  padding: 6px;
+  padding: var(--adhoc-space-sm);
   font-family: inherit;
-  font-weight: 600;
+  font-weight: var(--adhoc-fw-semibold);
   text-align: center;
   border: 1px solid var(--adhoc-border);
-  border-radius: 6px;
+  border-radius: var(--adhoc-radius-md);
   outline: none;
   transition: .2s;
 }
@@ -305,7 +308,7 @@
 
 /* Solo lectura: el legacy quita el recuadro y agranda el número. */
 .adhoc-tracking-input:disabled {
-  font-size: 1.1rem;
+  font-size: var(--adhoc-fs-xl);
   color: var(--adhoc-dark);
   background: transparent;
   border: none;
@@ -314,18 +317,18 @@
 /* Un guardado fallido deja la celda marcada (la clase la pone tracking.js). */
 .adhoc-tracking-invalid {
   border-color: var(--adhoc-danger);
-  box-shadow: 0 0 0 2px #ffeaea;
+  box-shadow: 0 0 0 2px var(--adhoc-danger-soft);
 }
 
 .adhoc-tracking-color {
   width: 80%;
-  padding: 4px;
+  padding: var(--adhoc-space-2xs);
   font-family: inherit;
-  font-size: .8rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-dark);
   border: 1px solid var(--adhoc-border);
-  border-radius: 6px;
+  border-radius: var(--adhoc-radius-md);
   outline: none;
   cursor: pointer;
 }
@@ -343,34 +346,34 @@
 
 .adhoc-tracking-input.adhoc-state-red,
 .adhoc-tracking-color.adhoc-state-red {
-  color: #fff;
-  background-color: #ff7675;
-  border-color: #d63031;
+  color: var(--adhoc-surface);
+  background-color: var(--adhoc-coral);
+  border-color: var(--adhoc-danger-strong);
 }
 
 .adhoc-tracking-input.adhoc-state-yellow,
 .adhoc-tracking-color.adhoc-state-yellow {
   color: var(--adhoc-dark);
-  background-color: #fdcb6e;
+  background-color: var(--adhoc-honey);
   border-color: var(--adhoc-state-yellow);
 }
 
 .adhoc-tracking-input.adhoc-state-green,
 .adhoc-tracking-color.adhoc-state-green {
   color: var(--adhoc-dark);
-  background-color: #55efc4;
-  border-color: #00b894;
+  background-color: var(--adhoc-mint);
+  border-color: var(--adhoc-teal);
 }
 
 /* ── Pie de la tarjeta (legacy .tc-footer) ──────────────────────────────── */
 .adhoc-tracking-foot {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 20px;
-  padding: 15px 25px;
-  font-size: .85rem;
+  gap: var(--adhoc-space-3xl);
+  padding: var(--adhoc-space-2xl) var(--adhoc-space-4xl);
+  font-size: var(--adhoc-fs-md);
   color: var(--adhoc-muted);
-  background: #fdfdfd;
+  background: var(--adhoc-surface-50);
   border-top: 1px solid var(--adhoc-line);
 }
 
@@ -384,12 +387,12 @@
 }
 
 .adhoc-tracking-grid::-webkit-scrollbar-track {
-  background: #f1f2f6;
+  background: var(--adhoc-surface-400);
 }
 
 .adhoc-tracking-grid::-webkit-scrollbar-thumb {
   background: var(--adhoc-disabled);
-  border-radius: 10px;
+  border-radius: var(--adhoc-radius-xl);
 }
 
 @media print {

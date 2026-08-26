@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/panel
+   CONTIENE rejilla de tres columnas del panel y el tamano de sus tarjetas, mas el
+            accidente de cascada del legacy que agranda la fila de navegacion
+   EN BASE  la tarjeta (.adhoc-tile) y la fila de navegacion
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    panel/panel.css — rejilla del Panel de Control (/adhoc/panel).
 
@@ -18,9 +25,9 @@
 .adhoc-panel-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 25px;
-  font-size: 1.5rem;
+  gap: var(--adhoc-space-lg);
+  margin-bottom: var(--adhoc-space-4xl);
+  font-size: var(--adhoc-fs-3xl);
   color: var(--adhoc-dark);
 }
 
@@ -30,19 +37,19 @@
 .adhoc-panel-title {
   margin: 0;
   font-size: 1.5em;
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
 }
 
 /* Rejilla de TRES columnas fijas (`.panel-grid`), no auto-fill. */
 .adhoc-panel-grid {
   grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  gap: var(--adhoc-space-3xl);
 }
 
 /* `.card` del legacy tras la cascada: padding 20px y ancho tope de 280px, que
    es lo que deja el hueco entre columnas del original. */
 .adhoc-panel-grid .adhoc-tile {
-  padding: 20px;
+  padding: var(--adhoc-space-3xl);
   max-width: 280px;
   text-align: center;
 }
@@ -50,14 +57,14 @@
 /* `.card-icon` de control_panel.css: 1.5rem y 10px de margen inferior (el
    círculo sigue siendo el de 55px de layout_dashboard.css). */
 .adhoc-panel-grid .adhoc-tile-icon {
-  margin-bottom: 10px;
-  font-size: 1.5rem;
+  margin-bottom: var(--adhoc-space-lg);
+  font-size: var(--adhoc-fs-3xl);
 }
 
 .adhoc-panel-grid .adhoc-tile-title {
   margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-xl);
+  font-weight: var(--adhoc-fw-semibold);
 }
 
 @media (max-width: 992px) {
@@ -69,7 +76,7 @@
 
   .adhoc-panel-grid .adhoc-tile { max-width: none; }
 
-  .adhoc-panel-head { font-size: 1.25rem; }
+  .adhoc-panel-head { font-size: var(--adhoc-fs-2xl); }
 }
 
 /* ── La fila de navegación, SOLO en esta pantalla ──────────────────────────
@@ -82,11 +89,11 @@
    antes. Es un accidente de cascada del original, pero es lo que se ve, asi
    que se reproduce acotado al <body> de esta pagina. */
 .adhoc-panel-page .adhoc-nav-link {
-  padding: 20px;
+  padding: var(--adhoc-space-3xl);
   text-align: center;
 }
 
 .adhoc-panel-page .adhoc-nav-icon {
-  margin-bottom: 10px;
-  font-size: 1.5rem;
+  margin-bottom: var(--adhoc-space-lg);
+  font-size: var(--adhoc-fs-3xl);
 }

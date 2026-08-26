@@ -1,3 +1,12 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   hoja BASE de la seccion: /adhoc/documentos, /documentos/panel,
+            /documentos/flujos y /documentos/flujos/{id}/pasos
+   CONTIENE saludo de la vista de consulta, barra de botones, filtro de servidor
+            dentro de la tabla, celda version/estatus, celda de archivo y paginador
+   EN BASE  iconos de fila (.adhoc-icon-action…), barra inferior, caja del selector
+            de cantidad y encabezado dentro de la tarjeta
+   --------------------------------------------------------------------------- */
+
 /* ===========================================================================
    documents/documents.css — hoja BASE de la sección Documentos y flujos.
 
@@ -12,7 +21,8 @@
 
    Reglas duras del plan 6.4:
    * Todo prefijado .adhoc-  (nunca .form-control, .card, .badge, .bg-...).
-   * Colores SIEMPRE por token o por rgb(); cero hex sueltos.
+   * Colores SIEMPRE por token de :root; cero literales de color, ni hex
+     ni rgb() (un rgb() es un literal igual que un hex, solo que disfrazado).
    * Ningun comentario contiene el comodin de los tokens pegado al cierre: esa
      secuencia cierra el comentario antes de tiempo y deja el :root siguiente
      sin variables (gotcha real de este repo).
@@ -37,46 +47,38 @@
    el botón "Volver" pegado a su esquina superior derecha. La macro
    page_header() se coloca por eso dentro de .adhoc-card, y aquí solo se
    recupera el tamaño de icono del original (1.8rem). */
-.adhoc-doc-card .adhoc-page-head {
-  margin-bottom: 15px;
-}
-
-.adhoc-doc-card .adhoc-page-title i {
-  font-size: 1.8rem;
-}
-
 /* ── Saludo de la vista de consulta ─────────────────────────────────────
    Legacy documents.html: "Hola, <nombre>, estos son tus documentos:". */
 .adhoc-doc-greeting {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: var(--adhoc-space-3xl);
 }
 
 .adhoc-doc-greeting-title {
   margin: 0;
   color: var(--adhoc-dark);
   font-size: 1.6rem;
-  font-weight: 600;
+  font-weight: var(--adhoc-fw-semibold);
 }
 
 .adhoc-doc-greeting-name {
   color: var(--adhoc-primary);
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
 }
 
 /* ── Barra de botones sobre la tabla (legacy `.controls-top`) ───────────── */
 .adhoc-doc-controls {
   display: flex;
-  gap: 15px;
+  gap: var(--adhoc-space-2xl);
   justify-content: flex-end;
-  margin-bottom: 20px;
+  margin-bottom: var(--adhoc-space-3xl);
 }
 
 .adhoc-doc-controls-sm {
-  gap: 10px;
-  margin-top: 20px;
+  gap: var(--adhoc-space-lg);
+  margin-top: var(--adhoc-space-3xl);
 }
 
 /* ── Fila de filtros DENTRO de la tabla (legacy `.filter-input`) ─────────
@@ -86,14 +88,14 @@
 .adhoc-doc-filter {
   width: 100%;
   min-width: 6rem;
-  padding: 6px 8px;
+  padding: var(--adhoc-space-sm) var(--adhoc-space-md);
   color: var(--adhoc-dark);
   background: var(--adhoc-surface);
   border: 1px solid var(--adhoc-border);
-  border-radius: 6px;
+  border-radius: var(--adhoc-radius-md);
   font-family: inherit;
-  font-size: .8rem;
-  font-weight: 400;
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-normal);
   outline: none;
 }
 
@@ -105,14 +107,14 @@
    Legacy: la versión en negrita seguida del estatus como TEXTO de color
    (nunca una pastilla sólida). */
 .adhoc-doc-version {
-  margin-right: 8px;
+  margin-right: var(--adhoc-space-md);
   color: var(--adhoc-dark);
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
 }
 
 .adhoc-doc-status {
-  font-size: .8rem;
-  font-weight: 700;
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-bold);
 }
 
 /* adhoc.css pinta el tono "info" del estatus en violeta; el legacy usa el azul
@@ -128,106 +130,33 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 5px 10px;
-  color: rgb(9 132 227);
-  background: rgba(9, 132, 227, .08);
+  padding: var(--adhoc-space-xs) var(--adhoc-space-lg);
+  color: var(--adhoc-blue);
+  background: var(--adhoc-blue-tint);
   border-radius: 5px;
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
   text-decoration: none;
   transition: .2s;
 }
 
 .adhoc-file-link:hover,
 .adhoc-file-link:focus-visible {
-  color: rgb(255 255 255);
-  background: rgb(9 132 227);
+  color: var(--adhoc-surface);
+  background: var(--adhoc-blue);
 }
 
 .adhoc-file-none {
   color: var(--adhoc-disabled);
 }
 
-/* ── Iconos de acción de fila (legacy `.icon-btn-blue` / `.icon-btn`) ────
-   Icono pelado del color de la marca, sin recuadro, que crece al pasar el
-   ratón. Sustituye a los botones con borde de Bootstrap. */
-.adhoc-icon-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: auto;
-  height: auto;
-  padding: 0;
-  color: var(--adhoc-primary);
-  background: none;
-  border: none;
-  font-size: 1.2rem;
-  line-height: 1;
-  text-decoration: none;
-  cursor: pointer;
-  transition: .2s;
-}
-
-.adhoc-icon-action:hover,
-.adhoc-icon-action:focus-visible {
-  color: var(--adhoc-primary);
-  transform: scale(1.2);
-}
-
-.adhoc-icon-action:disabled,
-.adhoc-icon-action.disabled {
-  opacity: .4;
-  transform: none;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-.adhoc-icon-danger  { color: var(--adhoc-danger); }
-.adhoc-icon-danger:hover,
-.adhoc-icon-danger:focus-visible { color: var(--adhoc-danger); }
-
-.adhoc-icon-warning { color: var(--adhoc-warning); }
-.adhoc-icon-warning:hover,
-.adhoc-icon-warning:focus-visible { color: var(--adhoc-warning); }
-
-.adhoc-icon-muted   { color: var(--adhoc-muted); }
-.adhoc-icon-muted:hover,
-.adhoc-icon-muted:focus-visible { color: var(--adhoc-muted); }
-
-.adhoc-icon-info    { color: var(--adhoc-info); }
-.adhoc-icon-info:hover,
-.adhoc-icon-info:focus-visible { color: var(--adhoc-info); }
-
-.adhoc-icon-success { color: var(--adhoc-success); }
-.adhoc-icon-success:hover,
-.adhoc-icon-success:focus-visible { color: var(--adhoc-success); }
-
-/* Legacy `.action-icons`: los iconos van centrados en su columna. */
-.adhoc-col-center > .adhoc-actions {
-  justify-content: center;
-}
-
-/* ── Controles bajo la tabla (legacy `.bottom-controls` + `.qty-select`) ── */
-.adhoc-doc-bottom {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 25px;
-}
-
-.adhoc-doc-bottom-between {
-  justify-content: space-between;
-}
-
+/* ── Selector de cantidad ───────────────────────────────────────────────
+   La caja la pone adhoc.css; aqui el relleno, el radio y el tamano de letra
+   del legacy (las otras cuatro copias del selector NO declaran tamano: se
+   quedan con el que el navegador da a un <select>). */
 .adhoc-doc-qty {
   padding: 9px;
-  color: var(--adhoc-dark);
-  background: var(--adhoc-surface);
-  border: 1px solid var(--adhoc-border);
-  border-radius: 6px;
-  font-family: inherit;
-  font-size: .9rem;
-  font-weight: 600;
-  cursor: pointer;
+  border-radius: var(--adhoc-radius-md);
+  font-size: var(--adhoc-fs-lg);
   outline: none;
 }
 
@@ -246,8 +175,8 @@
 
 .adhoc-pager-info {
   color: var(--adhoc-muted);
-  font-size: .85rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-md);
+  font-weight: var(--adhoc-fw-semibold);
   min-width: 9rem;
   text-align: center;
 }
@@ -259,6 +188,6 @@
   }
 
   .adhoc-doc-greeting-title {
-    font-size: 1.25rem;
+    font-size: var(--adhoc-fs-2xl);
   }
 }

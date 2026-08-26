@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/indicadores/{year_id}/tablero
+   CONTIENE anchos de columna, punto de proceso, pastilla de frecuencia, chips de
+            umbral, y el formulario del modal con sus cuatro cuadros de color
+   EN BASE  icono de fila pelado, caja del selector de cantidad, tabla y modal
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    indicators/board.css — tablero (fichas de indicador) de un año.
    Página: /adhoc/indicadores/{year_id}/tablero   ·   Módulo: js/indicators/board.js
@@ -16,10 +23,6 @@
   margin-bottom: 0;
 }
 
-.adhoc-board-card .adhoc-page-title i {
-  font-size: 1.8rem;
-}
-
 /* El año, en violeta (el legacy lo pintaba con un style en línea). */
 .adhoc-board-year {
   color: var(--adhoc-primary);
@@ -27,8 +30,8 @@
 
 /* Fila Limpiar / Filtrar (legacy .controls-top: margin 20px 0). */
 .adhoc-board-controls {
-  gap: 10px;
-  margin: 20px 0;
+  gap: var(--adhoc-space-lg);
+  margin: var(--adhoc-space-3xl) 0;
 }
 
 /* ── Anchos de columna (legacy: style="width: …%") ──────────────────────── */
@@ -46,40 +49,40 @@
 
 .adhoc-indicator-board .adhoc-table th,
 .adhoc-indicator-board .adhoc-table td {
-  padding: 12px;
+  padding: var(--adhoc-space-xl);
 }
 
 .adhoc-board-process {
   display: inline-flex;
   align-items: center;
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
 }
 
 /* Punto del color del proceso (legacy .badge-proceso: 12px con sombra). */
 .adhoc-board-dot {
   width: 12px;
   height: 12px;
-  margin-right: 8px;
+  margin-right: var(--adhoc-space-md);
   border: 0;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+  box-shadow: var(--adhoc-elev-1);
 }
 
 /* Icono del responsable: gris claro, como en el original. */
 .adhoc-board-resp-icon {
-  margin-right: 5px;
-  color: #bdc3c7;
+  margin-right: var(--adhoc-space-xs);
+  color: var(--adhoc-grey-pale);
 }
 
 /* Pastilla de frecuencia (legacy .badge-freq). Ojo: NO va en mayúsculas, a
    diferencia del badge genérico de la app. */
 .adhoc-board-freq {
   display: inline-block;
-  padding: 4px 10px;
-  font-size: .8rem;
-  font-weight: 700;
+  padding: var(--adhoc-space-2xs) var(--adhoc-space-lg);
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-bold);
   color: var(--adhoc-info);
-  background-color: #e8f4fd;
-  border: 1px solid #74b9ff;
+  background-color: var(--adhoc-info-soft-alt);
+  border: 1px solid var(--adhoc-info-border);
   border-radius: 20px;
   white-space: nowrap;
 }
@@ -99,62 +102,46 @@
 .adhoc-board-planned {
   display: inline-flex;
   flex-wrap: nowrap;
-  gap: 4px;
+  gap: var(--adhoc-space-2xs);
 }
 
 .adhoc-board-planned-chip {
   min-width: 2.1rem;
   padding: 2px 6px;
-  font-size: .75rem;
-  font-weight: 800;
+  font-size: var(--adhoc-fs-xs);
+  font-weight: var(--adhoc-fw-black);
   text-align: center;
   border: 1px solid rgba(0, 0, 0, .1);
-  border-radius: 6px;
+  border-radius: var(--adhoc-radius-md);
 }
 
 /* Los cuatro fondos del legacy (indicators_board.css: .bg-blanco/.bg-rojo/…). */
 .adhoc-board-planned-chip.adhoc-state-white  { color: var(--adhoc-dark); background-color: var(--adhoc-surface); }
-.adhoc-board-planned-chip.adhoc-state-red    { color: #fff;              background-color: #ff7675; }
-.adhoc-board-planned-chip.adhoc-state-yellow { color: var(--adhoc-dark); background-color: #ffeaa7; }
-.adhoc-board-planned-chip.adhoc-state-green  { color: var(--adhoc-dark); background-color: #55efc4; }
+.adhoc-board-planned-chip.adhoc-state-red    { color: var(--adhoc-surface);              background-color: var(--adhoc-coral); }
+.adhoc-board-planned-chip.adhoc-state-yellow { color: var(--adhoc-dark); background-color: var(--adhoc-amber); }
+.adhoc-board-planned-chip.adhoc-state-green  { color: var(--adhoc-dark); background-color: var(--adhoc-mint); }
 
 /* ── Iconos de fila (legacy .btn-icon-small) ────────────────────────────── */
 /* Sin recuadro: un icono a pelo que crece al pasar por encima. */
 .adhoc-board-actions {
   justify-content: center;
-  gap: 6px;
+  gap: var(--adhoc-space-sm);
 }
 
 .adhoc-board-icon {
-  padding: 5px;
-  font-size: 1.2rem;
-  line-height: 1;
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: .2s;
-}
-
-.adhoc-board-icon:hover {
-  transform: scale(1.2);
+  padding: var(--adhoc-space-xs);
 }
 
 .adhoc-board-icon-edit   { color: var(--adhoc-primary); }
-.adhoc-board-icon-delete { color: #ff7675; }
+.adhoc-board-icon-delete { color: var(--adhoc-coral); }
 
 /* ── Controles inferiores (legacy .bottom-controls + .qty-select) ───────── */
 
 .adhoc-board-qty {
   max-width: 10rem;
-  padding: 10px;
-  font-family: inherit;
-  font-weight: 600;
-  color: var(--adhoc-dark);
-  background: var(--adhoc-surface);
-  border: 1px solid var(--adhoc-border);
-  border-radius: 6px;
+  padding: var(--adhoc-space-lg);
+  border-radius: var(--adhoc-radius-md);
   outline: none;
-  cursor: pointer;
 }
 
 /* ── Evidencia ──────────────────────────────────────────────────────────── */
@@ -171,7 +158,7 @@
   display: inline-flex;
   align-items: center;
   gap: .3rem;
-  font-weight: 600;
+  font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-primary);
   text-decoration: none;
 }
@@ -189,12 +176,12 @@
 /* Cada ficha es una tarjeta gris dentro del modal, no una sección separada
    por una línea de puntos. */
 .adhoc-board-form {
-  padding: 20px;
-  margin-bottom: 25px;
+  padding: var(--adhoc-space-3xl);
+  margin-bottom: var(--adhoc-space-4xl);
   background: var(--adhoc-soft);
   border: 1px solid var(--adhoc-border);
-  border-radius: 10px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, .02);
+  border-radius: var(--adhoc-radius-xl);
+  box-shadow: var(--adhoc-elev-2);
 }
 
 .adhoc-board-form:last-child {
@@ -205,10 +192,10 @@
   display: flex;
   align-items: center;
   gap: .45rem;
-  padding-bottom: 8px;
-  margin-bottom: 15px;
-  font-size: 1.1rem;
-  font-weight: 600;
+  padding-bottom: var(--adhoc-space-md);
+  margin-bottom: var(--adhoc-space-2xl);
+  font-size: var(--adhoc-fs-xl);
+  font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-dark);
   border-bottom: 2px solid var(--adhoc-border);
 }
@@ -237,8 +224,8 @@
 
 /* Etiquetas del formulario del legacy: mas oscuras y en negrita. */
 .adhoc-board-form .adhoc-label {
-  color: #34495e;
-  font-weight: 700;
+  color: var(--adhoc-slate);
+  font-weight: var(--adhoc-fw-bold);
 }
 
 /* Fila de los cuatro umbrales: cuatro campos independientes, uno por color
@@ -246,8 +233,8 @@
 .adhoc-board-thresholds {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 15px;
-  margin-top: 5px;
+  gap: var(--adhoc-space-2xl);
+  margin-top: var(--adhoc-space-xs);
 }
 
 @media (max-width: 700px) {
@@ -260,40 +247,40 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding: 10px;
+  gap: var(--adhoc-space-xs);
+  padding: var(--adhoc-space-lg);
   background: var(--adhoc-surface);
   border: 1px solid var(--adhoc-border);
-  border-radius: 8px;
+  border-radius: var(--adhoc-radius-lg);
 }
 
 .adhoc-board-threshold-tag {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: var(--adhoc-space-xs);
   font-size: .72rem;
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
   letter-spacing: .02em;
   text-align: center;
   text-transform: uppercase;
 }
 
 .adhoc-board-threshold-tag-white  { color: var(--adhoc-muted); }
-.adhoc-board-threshold-tag-red    { color: #d63031; }
-.adhoc-board-threshold-tag-yellow { color: #e67e22; }
-.adhoc-board-threshold-tag-green  { color: #00b894; }
+.adhoc-board-threshold-tag-red    { color: var(--adhoc-danger-strong); }
+.adhoc-board-threshold-tag-yellow { color: var(--adhoc-warning-ink); }
+.adhoc-board-threshold-tag-green  { color: var(--adhoc-teal); }
 
 /* El cuadro del umbral (legacy .color-box-input): grande, centrado y con el
    fondo de su color. */
 .adhoc-board-threshold-input {
   width: 100%;
-  padding: 10px;
+  padding: var(--adhoc-space-lg);
   font-family: inherit;
-  font-size: 1rem;
-  font-weight: 800;
+  font-size: var(--adhoc-fs-base);
+  font-weight: var(--adhoc-fw-black);
   color: var(--adhoc-dark);
   text-align: center;
   border: 1px solid rgba(0, 0, 0, .1);
-  border-radius: 6px;
+  border-radius: var(--adhoc-radius-md);
   outline: none;
 }
 
@@ -302,12 +289,12 @@
 }
 
 .adhoc-board-threshold-input.adhoc-state-white  { color: var(--adhoc-dark); background-color: var(--adhoc-surface); }
-.adhoc-board-threshold-input.adhoc-state-red    { color: #fff;              background-color: #ff7675; }
-.adhoc-board-threshold-input.adhoc-state-yellow { color: var(--adhoc-dark); background-color: #ffeaa7; }
-.adhoc-board-threshold-input.adhoc-state-green  { color: var(--adhoc-dark); background-color: #55efc4; }
+.adhoc-board-threshold-input.adhoc-state-red    { color: var(--adhoc-surface);              background-color: var(--adhoc-coral); }
+.adhoc-board-threshold-input.adhoc-state-yellow { color: var(--adhoc-dark); background-color: var(--adhoc-amber); }
+.adhoc-board-threshold-input.adhoc-state-green  { color: var(--adhoc-dark); background-color: var(--adhoc-mint); }
 
 .adhoc-board-threshold-input.adhoc-state-red::placeholder {
-  color: rgba(255, 255, 255, .7);
+  color: var(--adhoc-on-danger-faint);
 }
 
 /* El pie del modal lleva el botón de eliminar a la izquierda y los de

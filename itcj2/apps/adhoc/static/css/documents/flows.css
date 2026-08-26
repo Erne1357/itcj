@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/documentos/flujos
+   CONTIENE nombre del flujo, ancho de la columna Configuracion, recorte de la
+            descripcion a una linea y el contador de pasos
+   EN BASE  iconos de fila, tabla, tarjeta y barra inferior
+   --------------------------------------------------------------------------- */
+
 /* ===========================================================================
    documents/flows.css — /adhoc/documentos/flujos.
 
@@ -24,7 +31,7 @@
 /* Legacy `.icon-btn`: un punto más grandes que los del panel de documentos. */
 .adhoc-flows .adhoc-icon-action {
   font-size: 1.3rem;
-  margin: 0 5px;
+  margin: 0 var(--adhoc-space-xs);
 }
 
 /* Columna "Configuración" del legacy: 150px y centrada. */
@@ -48,12 +55,12 @@
    se le inventa un color). */
 .adhoc-flow-steps-count {
   color: var(--adhoc-muted);
-  font-size: .85rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-md);
+  font-weight: var(--adhoc-fw-semibold);
 }
 
 .adhoc-flow-steps-none {
   color: var(--adhoc-disabled);
-  font-size: .85rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-md);
+  font-weight: var(--adhoc-fw-semibold);
 }

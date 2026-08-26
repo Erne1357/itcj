@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/documentos/flujos/{flow_id}/pasos
+   CONTIENE aviso superior, anchos de columna, campo de paso, fila de detalle
+            desplegable y las pastillas de validador
+   EN BASE  iconos de fila, tabla, tarjeta y modal
+   --------------------------------------------------------------------------- */
+
 /* ===========================================================================
    documents/flow-steps.css — /adhoc/documentos/flujos/{flow_id}/pasos.
 
@@ -16,11 +23,11 @@
 /* ── Aviso superior (legacy `.info-box`) ────────────────────────────────
    Recuadro azul muy tenue con un filo violeta a la izquierda. */
 .adhoc-steps-hint {
-  margin-bottom: 25px;
-  padding: 15px 20px;
-  background-color: rgb(232 244 253);
+  margin-bottom: var(--adhoc-space-4xl);
+  padding: var(--adhoc-space-2xl) var(--adhoc-space-3xl);
+  background-color: var(--adhoc-info-soft-alt);
   border-left: 4px solid var(--adhoc-primary);
-  border-radius: 8px;
+  border-radius: var(--adhoc-radius-lg);
 }
 
 .adhoc-steps-hint-text {
@@ -31,9 +38,9 @@
 }
 
 .adhoc-steps-hint-note {
-  margin: 10px 0 0;
+  margin: var(--adhoc-space-lg) 0 0;
   color: var(--adhoc-muted);
-  font-size: .85rem;
+  font-size: var(--adhoc-fs-md);
   line-height: 1.5;
 }
 
@@ -57,21 +64,21 @@
    Legacy: el número de orden es TEXTO gris en negrita, no una pastilla. */
 .adhoc-step-order {
   color: var(--adhoc-disabled);
-  font-size: 1.1rem;
-  font-weight: 700;
+  font-size: var(--adhoc-fs-xl);
+  font-weight: var(--adhoc-fw-bold);
 }
 
 /* Legacy `.form-control` de esta pantalla: borde muy claro, 8px de relleno,
    y el filo violeta al enfocar. Prefijado para no pisar el de adhoc.css. */
 .adhoc-step-input {
   width: 100%;
-  padding: 8px;
+  padding: var(--adhoc-space-md);
   color: var(--adhoc-dark);
   background: var(--adhoc-surface);
   border: 1px solid var(--adhoc-line);
-  border-radius: 6px;
+  border-radius: var(--adhoc-radius-md);
   font-family: inherit;
-  font-size: .9rem;
+  font-size: var(--adhoc-fs-lg);
   outline: none;
 }
 
@@ -90,14 +97,14 @@
 
 /* Legacy `.icon-action-blue`: separación entre los iconos de la fila. */
 .adhoc-flow-steps .adhoc-icon-action {
-  margin: 0 5px;
+  margin: 0 var(--adhoc-space-xs);
 }
 
 /* ── Añadir pasos ──────────────────────────────────────────────────────── */
 .adhoc-steps-add {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--adhoc-space-lg);
 }
 
 /* ── Fila de detalle (legacy `.child-row`) ──────────────────────────────
@@ -107,7 +114,7 @@
 }
 
 .adhoc-step-detail > td {
-  padding: 15px 25px;
+  padding: var(--adhoc-space-2xl) var(--adhoc-space-4xl);
   background: var(--adhoc-soft);
   border-bottom: 2px solid var(--adhoc-border);
   box-shadow: inset 4px 0 0 var(--adhoc-primary);
@@ -118,23 +125,23 @@
 }
 
 .adhoc-step-detail-title {
-  margin-bottom: 5px;
+  margin-bottom: var(--adhoc-space-xs);
   color: var(--adhoc-primary);
-  font-size: .9rem;
-  font-weight: 700;
+  font-size: var(--adhoc-fs-lg);
+  font-weight: var(--adhoc-fw-bold);
 }
 
 .adhoc-step-detail-empty {
   margin-bottom: 0;
   color: var(--adhoc-danger);
-  font-size: .85rem;
+  font-size: var(--adhoc-fs-md);
 }
 
 /* Legacy `.user-list-badge`: pastillas azules con borde. */
 .adhoc-step-users {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--adhoc-space-lg);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -143,19 +150,19 @@
 .adhoc-step-users > li {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: rgb(227 242 253);
-  border: 1px solid rgb(116 185 255);
+  gap: var(--adhoc-space-md);
+  padding: var(--adhoc-space-sm) var(--adhoc-space-xl);
+  background: var(--adhoc-info-soft);
+  border: 1px solid var(--adhoc-info-border);
   border-radius: 20px;
   color: var(--adhoc-info);
-  font-size: .85rem;
-  font-weight: 700;
+  font-size: var(--adhoc-fs-md);
+  font-weight: var(--adhoc-fw-bold);
 }
 
 .adhoc-step-user-name {
   color: var(--adhoc-info);
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
 }
 
 /* ── Modal de validadores ──────────────────────────────────────────────── */

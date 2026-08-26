@@ -1,3 +1,11 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/incidencias/{id}/tareas y /adhoc/programas/{id}/tareas
+   CONTIENE compactado de la tabla, separacion de los iconos de la columna Acciones
+            y los dos colores de icono propios (usuarios y campana)
+   EN BASE  prioridad de fila, icono de fila, contador, barra inferior y la caja
+            del selector de cantidad
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    work/tasks.css — tareas de una incidencia o de un evento de programa
    (/adhoc/incidencias/{id}/tareas y /adhoc/programas/{id}/tareas).
@@ -8,156 +16,87 @@
 
    Equivalencias:
      .table-container    → .adhoc-card (adhoc.css)
-     .controls-top       → .adhoc-tasks-controls
+     .controls-top       → .adhoc-worktasks-controls
      .doc-table          → .adhoc-table .adhoc-table-lg (adhoc.css, 1200px)
      .icon-btn-group     → .adhoc-actions (adhoc.css) con 12px de separación
      .btn-icon-small     → .adhoc-icon-btn
      .ic-users/-bell/…   → .adhoc-icon-users / -bell / -trash
      .empty-state        → .adhoc-empty (adhoc.css)
+
+   OJO — RENOMBRADO: la raiz de esta pantalla se llamaba `.adhoc-tasks`, el
+   MISMO nombre que la seccion del tablero de tareas del dashboard, que es otra
+   cosa (98 % de ancho, 20px de relleno, interlineado normal). Como cada una
+   vive en su hoja no chocaban, pero bastaba con que dos pantallas cargaran las
+   dos hojas para que el tablero se llevara la geometria de la otra. Aqui es
+   `.adhoc-worktasks`. Los `data-adhoc-tasks…`, los id y los name NO cambian:
+   de ellos dependen el JS y los tests.
    ========================================================================== */
 
-.adhoc-tasks {
+.adhoc-worktasks {
   display: block;
 }
 
-.adhoc-tasks-card {
-  padding: 25px;
-}
-
-/* El encabezado del legacy va pegado a la tabla (15px), no a 25. */
-.adhoc-tasks-card .adhoc-page-head {
-  margin-bottom: 15px;
+.adhoc-worktasks-card {
+  padding: var(--adhoc-space-4xl);
 }
 
 /* ---------- controles superiores (legacy `.controls-top`) ---------- */
 
-.adhoc-tasks-controls {
+.adhoc-worktasks-controls {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 10px;
-  margin: 20px 0;
+  gap: var(--adhoc-space-lg);
+  margin: var(--adhoc-space-3xl) 0;
 }
 
 /* ---------- tabla ---------- */
 
 /* El legacy aprieta esta tabla a 10px de relleno y 0.9rem, un punto más grande
    que la de incidencias. */
-.adhoc-tasks .adhoc-table th,
-.adhoc-tasks .adhoc-table td {
-  padding: 10px;
-  font-size: .9rem;
+.adhoc-worktasks .adhoc-table th,
+.adhoc-worktasks .adhoc-table td {
+  padding: var(--adhoc-space-lg);
+  font-size: var(--adhoc-fs-lg);
 }
 
 /* Grupo de iconos de la columna Acciones (legacy `.icon-btn-group`). */
-.adhoc-tasks .adhoc-actions {
+.adhoc-worktasks .adhoc-actions {
   justify-content: center;
-  gap: 12px;
+  gap: var(--adhoc-space-xl);
 }
 
 /* Legacy `.btn-icon-small`: un punto más pequeños que los de incidencias. */
-.adhoc-tasks .adhoc-icon-btn {
-  font-size: 1.1rem;
+.adhoc-worktasks .adhoc-icon-btn {
+  font-size: var(--adhoc-fs-xl);
 }
 
-/* Base del botón de icono. Se repite aquí (y en work-items.css) a propósito:
-   es la única forma de que las dos pantallas la tengan sin meter reglas de
-   sección en adhoc.css, que es la hoja compartida de toda la app. */
-.adhoc-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  font-size: 1.1rem;
-  line-height: 1;
-  color: var(--adhoc-primary);
-  background: none;
-  border: none;
-  text-decoration: none;
-  cursor: pointer;
-  transition: .2s;
-}
-
-.adhoc-icon-btn:hover {
-  transform: scale(1.2);
-}
-
-/* Colores exactos del legacy: users 3498db, bell e67e22, trash e74c3c. */
-.adhoc-icon-primary { color: var(--adhoc-primary); }
-.adhoc-icon-users   { color: rgb(52, 152, 219); }
-.adhoc-icon-bell    { color: rgb(230, 126, 34); }
-.adhoc-icon-trash   { color: var(--adhoc-danger); }
-
-/* ---------- prioridad (legacy `.badge-urgente` / `-media` / `-baja`) ---------- */
-
-.adhoc-prio-urgente,
-.adhoc-prio-media,
-.adhoc-prio-baja {
-  font-size: .85rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.adhoc-prio-urgente {
-  display: inline-block;
-  padding: 2px 6px;
-  color: rgb(214, 48, 49);
-  background: rgb(255, 245, 245);
-  border: 1px solid rgb(214, 48, 49);
-  border-radius: 4px;
-}
-
-.adhoc-prio-media { color: var(--adhoc-warning); }
-.adhoc-prio-baja  { color: var(--adhoc-success); }
+/* Colores propios de esta pantalla (legacy: users 3498db, bell e67e22). El
+   icono base, `.adhoc-icon-primary` y `.adhoc-icon-trash` los pone adhoc.css. */
+.adhoc-icon-users { color: var(--adhoc-blue-flat); }
+.adhoc-icon-bell  { color: var(--adhoc-warning-ink); }
 
 /* ---------- celdas ---------- */
 
 /* "Sin asignar" en gris claro, como el legacy. */
-.adhoc-tasks .adhoc-muted-cell {
+.adhoc-worktasks .adhoc-muted-cell {
   color: var(--adhoc-disabled);
   font-style: normal;
 }
 
-/* Contador de notas. No existe en el legacy. */
-.adhoc-tasks .adhoc-count-pill {
-  display: inline-block;
-  min-width: 1.35rem;
-  padding: 0 .3rem;
-  border-radius: 999px;
-  background: var(--adhoc-primary-tint);
-  color: var(--adhoc-primary);
-  font-size: .7rem;
-  font-weight: 600;
-  line-height: 1.5;
-  text-align: center;
-}
-
 /* ---------- controles inferiores (legacy `.bottom-controls`) ---------- */
 
-.adhoc-tasks-bottom {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 15px;
-  margin-top: 25px;
-}
-
-.adhoc-tasks-bottom .adhoc-qty-select {
+/* La barra y la caja del selector son de adhoc.css; aqui, sus medidas. */
+.adhoc-worktasks-bottom .adhoc-qty-select {
   max-width: 10rem;
-  padding: 10px;
-  color: var(--adhoc-dark);
-  background: var(--adhoc-surface);
-  border: 1px solid var(--adhoc-border);
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: .9rem;
-  font-weight: 600;
-  cursor: pointer;
+  padding: var(--adhoc-space-lg);
+  border-radius: var(--adhoc-radius-lg);
+  font-size: var(--adhoc-fs-lg);
 }
 
 @media (max-width: 575.98px) {
-  .adhoc-tasks-card {
-    padding: 15px;
+  .adhoc-worktasks-card {
+    padding: var(--adhoc-space-2xl);
   }
 }

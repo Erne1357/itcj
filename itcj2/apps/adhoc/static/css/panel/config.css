@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/panel/configuracion
+   CONTIENE rejilla de cuatro columnas, tarjeta con filete violeta y su lista de
+            enlaces con galon
+   EN BASE  la tarjeta contenedora y el encabezado en negrita con icono a 1rem
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    panel/config.css — tercer nivel de navegación (/adhoc/panel/configuracion).
 
@@ -14,29 +21,20 @@
    en 1rem y del color del texto, y el <h2> en negrita de verdad (700). (Que
    ademas salga apilado —icono arriba, titulo debajo— lo resuelve el bloque de
    encabezado apilado de adhoc.css.) */
-.adhoc-config-page .adhoc-page-title {
-  font-weight: 700;
-}
-
 /* Los 20px de `.config-container { padding-top: 20px }`. Van como PADDING del
    contenedor de contenido, no como margin del encabezado: siendo este el
    primer hijo, su margen superior se colapsaria hacia fuera y no moveria nada.
    Sin esto la pantalla entera queda 20px mas arriba que el original. */
 .adhoc-config-page .adhoc-page {
-  padding-top: 20px;
-}
-
-.adhoc-config-page .adhoc-page-title i {
-  font-size: 1rem;
-  color: var(--adhoc-dark);
+  padding-top: var(--adhoc-space-3xl);
 }
 
 /* Rejilla: CUATRO columnas exactas, como el original. */
 .adhoc-config-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
-  margin-top: 40px;
+  gap: var(--adhoc-space-3xl);
+  margin-top: var(--adhoc-space-6xl);
 }
 
 /* `.adhoc-card + .adhoc-card` de adhoc.css mete 25px de margen superior entre
@@ -49,7 +47,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 25px 20px;
+  padding: var(--adhoc-space-4xl) var(--adhoc-space-3xl);
   border-top: 5px solid var(--adhoc-primary);
   transition: .3s;
 }
@@ -62,9 +60,9 @@
 .adhoc-config-card-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
-  padding-bottom: 15px;
+  gap: var(--adhoc-space-xl);
+  margin-bottom: var(--adhoc-space-3xl);
+  padding-bottom: var(--adhoc-space-2xl);
   border-bottom: 1px solid var(--adhoc-line);
 }
 
@@ -79,14 +77,14 @@
   font-size: 1.3rem;
   color: var(--adhoc-primary);
   background-color: var(--adhoc-primary-tint);
-  border-radius: 50%;
+  border-radius: var(--adhoc-radius-circle);
 }
 
 .adhoc-config-card-title {
   margin: 0;
   color: var(--adhoc-dark);
-  font-size: 1.1rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-xl);
+  font-weight: var(--adhoc-fw-semibold);
   white-space: nowrap;
 }
 
@@ -97,16 +95,16 @@
 }
 
 .adhoc-config-link-item {
-  margin-bottom: 10px;
+  margin-bottom: var(--adhoc-space-lg);
 }
 
 .adhoc-config-link {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--adhoc-space-md);
   color: var(--adhoc-muted);
-  font-size: .9rem;
-  font-weight: 500;
+  font-size: var(--adhoc-fs-lg);
+  font-weight: var(--adhoc-fw-medium);
   text-decoration: none;
   white-space: nowrap;
   overflow: hidden;
@@ -116,7 +114,7 @@
 
 .adhoc-config-link i {
   flex-shrink: 0;
-  font-size: .8rem;
+  font-size: var(--adhoc-fs-sm);
   color: var(--adhoc-disabled);
 }
 

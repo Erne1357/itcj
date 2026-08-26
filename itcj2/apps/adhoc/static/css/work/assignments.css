@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/asignaciones
+   CONTIENE aspecto de la lista de personas: fila con linea inferior, checkbox
+            vestido de interruptor de iOS y el numero de turno
+   EN BASE  el selector de usuarios entero (.adhoc-user-picker…), tarjeta y boton
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    work/assignments.css — pantalla /adhoc/asignaciones.
 
@@ -19,13 +26,13 @@
 }
 
 .adhoc-assign-card {
-  padding: 25px;
+  padding: var(--adhoc-space-4xl);
 }
 
 /* El legacy deja el título pegado a la leyenda (5px) y la leyenda a 20px de la
    lista. `.adhoc-page-head` ya trae el hueco de abajo. */
 .adhoc-assign-card .adhoc-page-head {
-  margin-bottom: 20px;
+  margin-bottom: var(--adhoc-space-3xl);
 }
 
 /* ---------- lista de personas ---------- */
@@ -40,8 +47,8 @@
 /* Cabecera = la fila de controles del legacy: buscador a la izquierda,
    contador y "limpiar selecciones" a la derecha. */
 .adhoc-assign .adhoc-user-picker-head {
-  gap: 10px;
-  padding: 10px 0 15px;
+  gap: var(--adhoc-space-lg);
+  padding: var(--adhoc-space-lg) 0 var(--adhoc-space-2xl);
   background: none;
   border-bottom: 0;
 }
@@ -59,8 +66,8 @@
 
 /* Fila = fila de tabla del legacy: 12px de relleno y línea inferior. */
 .adhoc-assign .adhoc-user-option {
-  gap: 12px;
-  padding: 12px;
+  gap: var(--adhoc-space-xl);
+  padding: var(--adhoc-space-xl);
 }
 
 /* Orden visual del legacy: datos · interruptor · número de turno. En el DOM el
@@ -71,8 +78,8 @@
 .adhoc-assign .adhoc-order-badge { order: 3; }
 
 .adhoc-assign .adhoc-user-option-name {
-  font-size: .9rem;
-  font-weight: 400;
+  font-size: var(--adhoc-fs-lg);
+  font-weight: var(--adhoc-fw-normal);
 }
 
 /* ---------- interruptor de iOS (legacy `.switch` + `.slider`) ---------- */
@@ -85,7 +92,7 @@
   margin: 0;
   appearance: none;
   -webkit-appearance: none;
-  background-color: rgb(204, 204, 204);
+  background-color: var(--adhoc-border-mid);
   border: 0;
   border-radius: 34px;
   cursor: pointer;
@@ -100,7 +107,7 @@
   width: 20px;
   height: 20px;
   background-color: var(--adhoc-surface);
-  border-radius: 50%;
+  border-radius: var(--adhoc-radius-circle);
   transition: .4s;
 }
 
@@ -124,7 +131,7 @@
 .adhoc-assign .adhoc-order-badge {
   min-width: 1.6rem;
   height: 1.6rem;
-  margin-left: 10px;
+  margin-left: var(--adhoc-space-lg);
   background: var(--adhoc-info);
   box-shadow: 0 2px 5px rgba(0, 0, 0, .2);
 }
@@ -135,21 +142,21 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 25px;
-  padding-top: 20px;
+  gap: var(--adhoc-space-lg);
+  margin-top: var(--adhoc-space-4xl);
+  padding-top: var(--adhoc-space-3xl);
   border-top: 1px solid var(--adhoc-line);
 }
 
 /* Legacy: 12px 30px y 1rem, más grande que el resto de la pantalla. */
 .adhoc-assign-confirm {
-  padding: 12px 30px;
-  font-size: 1rem;
+  padding: var(--adhoc-space-xl) var(--adhoc-space-5xl);
+  font-size: var(--adhoc-fs-base);
 }
 
 @media (max-width: 575.98px) {
   .adhoc-assign-card {
-    padding: 15px;
+    padding: var(--adhoc-space-2xl);
   }
 
   .adhoc-assign-actions .btn {

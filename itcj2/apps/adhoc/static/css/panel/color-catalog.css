@@ -1,3 +1,11 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/panel/areas y /adhoc/panel/procesos
+   CONTIENE fila de alta masiva (nombre + color), celda de color con su hex y el
+            pie partido del modal de edicion
+   EN BASE  muestra de color (.adhoc-swatch), tabla, modal y el encabezado en
+            negrita con icono a 1rem
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    panel/color-catalog.css — catálogos de nombre + color
    (/adhoc/panel/areas y /adhoc/panel/procesos).
@@ -10,15 +18,6 @@
 /* Encabezado dentro de la tarjeta, con el aspecto del `.header-title` del
    legacy: <h2> en negrita de verdad y el icono en 1rem del color del texto (su
    hoja nunca estiliza `.icon-title` en estas dos pantallas). */
-.adhoc-color-catalog .adhoc-page-title {
-  font-weight: 700;
-}
-
-.adhoc-color-catalog .adhoc-page-title i {
-  font-size: 1rem;
-  color: var(--adhoc-dark);
-}
-
 /* Fila de captura del alta masiva: nombre + color en la misma línea. */
 .adhoc-color-new-fields {
   display: flex;

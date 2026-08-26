@@ -1,3 +1,9 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/panel/correo
+   CONTIENE tarjeta centrada de 500px y el interruptor de 60x34 con su pomo
+   EN BASE  tarjeta, boton y toast
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    panel/mail.css — interruptor global de correo (/adhoc/panel/correo).
 
@@ -23,18 +29,18 @@
   position: absolute;
   top: 20px;
   right: 20px;
-  font-size: .8rem;
+  font-size: var(--adhoc-fs-sm);
 }
 
 .adhoc-mail-header {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: var(--adhoc-space-lg);
 }
 
 .adhoc-mail-icon {
-  font-size: 3rem;
+  font-size: var(--adhoc-fs-5xl);
   color: var(--adhoc-primary);
 }
 
@@ -45,7 +51,7 @@
   margin: 0;
   color: var(--adhoc-dark);
   font-size: 1.5em;
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
 }
 
 .adhoc-mail-text {
@@ -58,8 +64,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
-  margin: 40px 0;
+  gap: var(--adhoc-space-3xl);
+  margin: var(--adhoc-space-6xl) 0;
 }
 
 .adhoc-switch {
@@ -101,7 +107,7 @@
   width: 26px;
   height: 26px;
   background: var(--adhoc-surface);
-  border-radius: 50%;
+  border-radius: var(--adhoc-radius-circle);
   transition: .4s;
 }
 
@@ -122,14 +128,14 @@
 }
 
 .adhoc-switch-label {
-  font-weight: 600;
+  font-weight: var(--adhoc-fw-semibold);
 }
 
 /* Botón de guardar: ancho completo, como el `.btn-submit` del legacy. */
 .adhoc-mail-save {
   justify-content: center;
   width: 100%;
-  padding: 12px;
+  padding: var(--adhoc-space-xl);
 }
 
 .adhoc-mail-readonly {
@@ -140,7 +146,7 @@
 
 @media (max-width: 575.98px) {
   .adhoc-mail-card {
-    margin: 25px auto;
+    margin: var(--adhoc-space-4xl) auto;
     padding: 45px 20px;
   }
 }

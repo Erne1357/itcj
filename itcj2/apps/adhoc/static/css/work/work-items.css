@@ -1,3 +1,11 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/incidencias y /adhoc/programas
+   CONTIENE controles superiores, rango de fechas del filtro, paginador propio,
+            aviso de vencimiento y el modal de archivos adjuntos
+   EN BASE  prioridad de fila, icono de fila, contador, barra inferior y la caja
+            del selector de cantidad
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    work/work-items.css — capa visual de INCIDENCIAS y EVENTOS DE PROGRAMA
    (/adhoc/incidencias y /adhoc/programas), más el modal de archivos adjuntos.
@@ -5,7 +13,7 @@
    PORTE DE `static/css/incidents/incidents.css` + `programs/programs.css` del
    legacy, que eran la misma hoja copiada (mismos px, mismos colores, el bloque
    `.modal-overlay` duplicado y 45 hex sueltos repetidos). Aquí es una sola,
-   con los valores exactos del original y el color siempre por variable.
+   con los valores exactos del original y el color siempre por token.
 
    Equivalencias con el legacy:
      .table-container   → .adhoc-card (adhoc.css)
@@ -37,13 +45,7 @@
    controles inferiores viven todos dentro. `overflow-x` va en el envoltorio de
    la tabla, no aquí, para no recortar sombras ni el foco. */
 .adhoc-work-card {
-  padding: 25px;
-}
-
-/* El encabezado del legacy no lleva subtítulo y el título va pegado a la
-   tabla: 15px por debajo, no 25. */
-.adhoc-work-card .adhoc-page-head {
-  margin-bottom: 15px;
+  padding: var(--adhoc-space-4xl);
 }
 
 /* ---------- controles superiores (legacy `.controls-top`) ---------- */
@@ -53,9 +55,9 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 15px;
-  margin-top: 20px;
-  margin-bottom: 20px;
+  gap: var(--adhoc-space-2xl);
+  margin-top: var(--adhoc-space-3xl);
+  margin-bottom: var(--adhoc-space-3xl);
 }
 
 /* ---------- fila de filtros dentro de la tabla ---------- */
@@ -74,7 +76,7 @@
 .adhoc-work-daterange {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--adhoc-space-2xs);
 }
 
 .adhoc-work-daterange .adhoc-filter-input {
@@ -98,59 +100,17 @@
   overflow: visible;
 }
 
-/* ---------- prioridad (legacy `.badge-urgente` / `-media` / `-baja`) ---------- */
-
-/* Texto en negrita, NUNCA una pastilla sólida ni mayúsculas. Urgente además va
-   en un recuadro rojo claro con borde. Los tonos son los del original:
-   d63031 / f39c12 / 27ae60 sobre fff5f5. */
-.adhoc-prio-urgente,
-.adhoc-prio-media,
-.adhoc-prio-baja {
-  font-size: .85rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.adhoc-prio-urgente {
-  display: inline-block;
-  padding: 2px 6px;
-  color: rgb(214, 48, 49);
-  background: rgb(255, 245, 245);
-  border: 1px solid rgb(214, 48, 49);
-  border-radius: 4px;
-}
-
-.adhoc-prio-media { color: var(--adhoc-warning); }
-.adhoc-prio-baja  { color: var(--adhoc-success); }
-
 /* ---------- iconos de acción de la fila ---------- */
 
-/* Legacy `.btn-icon` / `.icon-action-blue`: sin recuadro, 1.2rem, y escala al
-   pasar el ratón. Nada de botones con borde. */
-.adhoc-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  font-size: 1.2rem;
-  line-height: 1;
-  color: var(--adhoc-primary);
-  background: none;
-  border: none;
-  text-decoration: none;
-  cursor: pointer;
-  transition: .2s;
-}
-
+/* El icono base (legacy `.btn-icon` / `.icon-action-blue`) y las variantes
+   primary/trash viven en adhoc.css. Aqui, lo propio de estas dos pantallas:
+   el icono se tine de lila al pasar el raton y hay dos colores mas. */
 .adhoc-icon-btn:hover {
-  transform: scale(1.2);
   color: var(--adhoc-secondary);
 }
 
-.adhoc-icon-primary { color: var(--adhoc-primary); }
-.adhoc-icon-task    { color: rgb(46, 204, 113); }
-.adhoc-icon-doc     { color: rgb(52, 152, 219); }
-.adhoc-icon-trash   { color: var(--adhoc-danger); }
+.adhoc-icon-task { color: var(--adhoc-green-flat); }
+.adhoc-icon-doc  { color: var(--adhoc-blue-flat); }
 
 .adhoc-icon-task:hover,
 .adhoc-icon-doc:hover,
@@ -160,32 +120,17 @@
 
 /* La columna de acciones del legacy centra sus iconos con 12px de separación. */
 .adhoc-work-table .adhoc-actions {
-  gap: 12px;
+  gap: var(--adhoc-space-xl);
 }
 
 /* ---------- controles inferiores (legacy `.bottom-controls`) ---------- */
 
-.adhoc-work-bottom {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 15px;
-  margin-top: 25px;
-}
-
-/* Selector de cantidad: 10px de relleno, radio 8 y negrita (legacy
-   `.qty-select`). El ancho lo acota .adhoc-qty-select de adhoc.css. */
+/* La barra y la caja del selector son de adhoc.css; aqui, sus medidas. */
 .adhoc-work-bottom .adhoc-qty-select {
   max-width: 11rem;
-  padding: 10px;
-  color: var(--adhoc-dark);
-  background: var(--adhoc-surface);
-  border: 1px solid var(--adhoc-border);
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: .9rem;
-  font-weight: 600;
-  cursor: pointer;
+  padding: var(--adhoc-space-lg);
+  border-radius: var(--adhoc-radius-lg);
+  font-size: var(--adhoc-fs-lg);
 }
 
 /* Conteo y paginación: el legacy no paginaba, así que esto va discreto y
@@ -199,12 +144,12 @@
 
 .adhoc-work-count {
   color: var(--adhoc-muted);
-  font-size: .85rem;
+  font-size: var(--adhoc-fs-md);
 }
 
 .adhoc-work-pageinfo {
   color: var(--adhoc-dark);
-  font-size: .85rem;
+  font-size: var(--adhoc-fs-md);
   min-width: 8rem;
   text-align: center;
 }
@@ -215,29 +160,15 @@
    5px a la derecha del texto y parpadeando. */
 .adhoc-overdue {
   color: var(--adhoc-danger);
-  margin-left: 5px;
-  animation: adhoc-blink 1.5s infinite;
+  margin-left: var(--adhoc-space-xs);
+  animation: adhoc-overdue-blink 1.5s infinite;
 }
 
-@keyframes adhoc-blink {
+/* Parpadeo propio: el generico de adhoc.css baja a .35, este a .3. */
+@keyframes adhoc-overdue-blink {
   0%   { opacity: 1; }
   50%  { opacity: .3; }
   100% { opacity: 1; }
-}
-
-/* Contador junto a un icono (tareas, archivos). No existe en el legacy: ahí el
-   número de tareas no se veía hasta entrar. */
-.adhoc-count-pill {
-  display: inline-block;
-  min-width: 1.35rem;
-  padding: 0 .3rem;
-  border-radius: 999px;
-  background: var(--adhoc-primary-tint);
-  color: var(--adhoc-primary);
-  font-size: .7rem;
-  font-weight: 600;
-  line-height: 1.5;
-  text-align: center;
 }
 
 .adhoc-muted-cell {
@@ -279,7 +210,7 @@
 
 .adhoc-files-name {
   color: var(--adhoc-dark);
-  font-weight: 500;
+  font-weight: var(--adhoc-fw-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -313,9 +244,9 @@
   align-items: flex-end;
   gap: .5rem;
   margin-top: 1rem;
-  padding: 15px;
+  padding: var(--adhoc-space-2xl);
   border: 1px dashed var(--adhoc-disabled);
-  border-radius: 6px;
+  border-radius: var(--adhoc-radius-md);
 }
 
 .adhoc-files-upload .adhoc-label {
@@ -332,7 +263,7 @@
 
 @media (max-width: 575.98px) {
   .adhoc-work-card {
-    padding: 15px;
+    padding: var(--adhoc-space-2xl);
   }
 
   .adhoc-work-pager {

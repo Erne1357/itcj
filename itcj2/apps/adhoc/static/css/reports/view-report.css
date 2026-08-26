@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/reportes/{tipo} — las CINCO vistas de reporte
+   CONTIENE los tres anchos de hoja, la hoja imprimible con su cabecera y metadatos,
+            la tabla morada con cebra, y el bloque de impresion
+   EN BASE  boton, tabla y el ocultado de la interfaz al imprimir
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    reports/view-report.css — la hoja imprimible de los CINCO reportes.
 
@@ -49,8 +56,8 @@
 
 /* ── Barra de acciones (legacy `.acciones-bar`) ────────────────────────── */
 .adhoc-report-actions {
-  gap: 15px;
-  margin-bottom: 20px;
+  gap: var(--adhoc-space-2xl);
+  margin-bottom: var(--adhoc-space-3xl);
 }
 
 /* Los botones del legacy llevan sombra propia (`.btn-action`). Su tamaño de
@@ -64,25 +71,25 @@
 /* ── La hoja (legacy `.hoja-reporte`) ──────────────────────────────────── */
 .adhoc-report-sheet {
   display: block;
-  padding: 40px;
+  padding: var(--adhoc-space-6xl);
   background: var(--adhoc-surface);
-  border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .1);
+  border-radius: var(--adhoc-radius-lg);
+  box-shadow: var(--adhoc-elev-5);
 }
 
 .adhoc-report-head {
-  padding-bottom: 20px;
-  margin-bottom: 30px;
+  padding-bottom: var(--adhoc-space-3xl);
+  margin-bottom: var(--adhoc-space-5xl);
   border-bottom: 3px solid var(--adhoc-primary);
 }
 
 .adhoc-report-title {
-  margin: 0 0 15px;
+  margin: 0 0 var(--adhoc-space-2xl);
   color: var(--adhoc-primary);
   font-size: 1.8rem;
   /* El <h1> del legacy va en negrita del navegador (700). Poppins solo trae
      300/400/600, así que el 700 se sintetiza: bajar a 600 lo adelgaza. */
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
   text-transform: uppercase;
 }
 
@@ -92,12 +99,12 @@
 .adhoc-report-meta {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  padding: 15px;
+  gap: var(--adhoc-space-lg);
+  padding: var(--adhoc-space-2xl);
   color: var(--adhoc-muted);
-  font-size: .9rem;
+  font-size: var(--adhoc-fs-lg);
   background: var(--adhoc-soft);
-  border-radius: 6px;
+  border-radius: var(--adhoc-radius-md);
 }
 
 .adhoc-report-meta p {
@@ -108,23 +115,23 @@
 /* `<strong>` del navegador: 700 sintetizado, como en el legacy. */
 .adhoc-report-meta strong {
   color: var(--adhoc-dark);
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
 }
 
 @media (max-width: 767.98px) {
-  .adhoc-report-sheet { padding: 20px; }
+  .adhoc-report-sheet { padding: var(--adhoc-space-3xl); }
   .adhoc-report-meta { grid-template-columns: 1fr; }
 }
 
 /* ── Tabla del reporte (legacy `.tabla-reporte`) ───────────────────────── */
 .adhoc-report-table {
-  margin-top: 20px;
+  margin-top: var(--adhoc-space-3xl);
   font-size: .95rem;
 }
 
 .adhoc-report-table th,
 .adhoc-report-table td {
-  padding: 12px 15px;
+  padding: var(--adhoc-space-xl) var(--adhoc-space-2xl);
   vertical-align: top;
   border-bottom: 1px solid var(--adhoc-border);
 }
@@ -173,7 +180,7 @@
      `body.adhoc-shell` (0,1,1) le gana y la hoja salía sobre el gris de la app.
      Este selector empata en especificidad y va después. */
   body.adhoc-print {
-    background: #fff;
+    background: var(--adhoc-surface);
   }
 
   .adhoc-report-md .adhoc-report-sheet,

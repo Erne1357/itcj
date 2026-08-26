@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/panel/usuarios
+   CONTIENE celdas de la tabla en texto plano, chips de area y el selector de areas
+            del modal
+   EN BASE  badges, chips, tabla, modal y el encabezado en negrita con icono a 1rem
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    panel/users.css — usuarios con acceso a Calidad (/adhoc/panel/usuarios).
 
@@ -9,27 +16,18 @@
 
 /* Encabezado dentro de la tarjeta, como el saludo del legacy: negrita de
    verdad y el icono del color del texto. */
-.adhoc-users .adhoc-page-title {
-  font-weight: 700;
-}
-
-.adhoc-users .adhoc-page-title i {
-  font-size: 1rem;
-  color: var(--adhoc-dark);
-}
-
 .adhoc-users-note {
   font-size: .875rem;
 }
 
 /* El legacy pinta las celdas en texto plano: nada de nombres en negrita. */
 .adhoc-users-name {
-  font-weight: 400;
+  font-weight: var(--adhoc-fw-normal);
 }
 
 .adhoc-users-muted {
   color: var(--adhoc-muted);
-  font-size: .8rem;
+  font-size: var(--adhoc-fs-sm);
 }
 
 /* Lista de chips de áreas dentro de la celda de la tabla. */
@@ -59,7 +57,7 @@
   overflow-y: auto;
   padding: .25rem;
   border: 1px solid var(--adhoc-border);
-  border-radius: 8px;
+  border-radius: var(--adhoc-radius-lg);
 }
 
 .adhoc-users-area-option {
@@ -67,7 +65,7 @@
   align-items: center;
   gap: .5rem;
   padding: .35rem .5rem;
-  border-radius: 6px;
+  border-radius: var(--adhoc-radius-md);
 }
 
 .adhoc-users-area-option:hover {
@@ -84,6 +82,6 @@
   grid-column: 1 / -1;
   padding: 1rem;
   color: var(--adhoc-muted);
-  font-size: .85rem;
+  font-size: var(--adhoc-fs-md);
   text-align: center;
 }

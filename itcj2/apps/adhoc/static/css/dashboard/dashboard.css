@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/dashboard
+   CONTIENE tira de tarjetas de tarea (kanban), sus cuatro variantes de cuerpo,
+            estado vacio del tablero y el modal de workflow
+   EN BASE  badges, modal, boton, estado vacio generico, parpadeo (.adhoc-blink)
+   --------------------------------------------------------------------------- */
+
 /* ===========================================================================
    dashboard.css — tablero de tareas de Calidad y modal de workflow.
    Reemplaza los dos bloques <style> (110 líneas) que el legacy tenía dentro de
@@ -28,7 +35,7 @@
 .adhoc-tasks {
   max-width: 98%;
   margin: 0 auto;
-  padding: 20px;
+  padding: var(--adhoc-space-3xl);
   /* El legacy no fija interlineado en el <body>: todo el tablero se compone con
      el `normal` del navegador. Con el 1.5 del shell cada pastilla y cada línea
      del pie crecen 1-2 px y la tarjeta deja de cuadrar. */
@@ -38,20 +45,20 @@
 /* Saludo: UNA sola línea, con el nombre en violeta (legacy `.dashboard-header`
    + `.highlight`). Nada de título grande con subtítulo debajo. */
 .adhoc-tasks-head {
-  margin-bottom: 25px;
-  padding: 0 5px;
+  margin-bottom: var(--adhoc-space-4xl);
+  padding: 0 var(--adhoc-space-xs);
 }
 
 .adhoc-tasks-title {
   display: block;
-  font-size: 1.5rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-3xl);
+  font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-dark);
 }
 
 .adhoc-tasks-name {
   color: var(--adhoc-primary);
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
 }
 
 /* ── Tablero ───────────────────────────────────────────────────────────── */
@@ -60,9 +67,9 @@
    AQUÍ, así que el <body> nunca hace scroll horizontal. */
 .adhoc-kanban {
   display: flex;
-  gap: 20px;
+  gap: var(--adhoc-space-3xl);
   overflow-x: auto;
-  padding-bottom: 20px;
+  padding-bottom: var(--adhoc-space-3xl);
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
 }
@@ -72,13 +79,13 @@
 }
 
 .adhoc-kanban::-webkit-scrollbar-track {
-  background: #f1f2f6;
-  border-radius: 8px;
+  background: var(--adhoc-surface-400);
+  border-radius: var(--adhoc-radius-lg);
 }
 
 .adhoc-kanban::-webkit-scrollbar-thumb {
   background: var(--adhoc-primary);
-  border-radius: 8px;
+  border-radius: var(--adhoc-radius-lg);
 }
 
 /* ── Tarjeta ───────────────────────────────────────────────────────────── */
@@ -90,12 +97,12 @@
   min-width: 320px;
   max-width: 320px;
   min-height: 160px;
-  padding: 20px;
+  padding: var(--adhoc-space-3xl);
   background: var(--adhoc-surface);
   border-top: 5px solid var(--adhoc-secondary);
   border-left: 4px solid var(--adhoc-primary);
-  border-radius: 10px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, .05);
+  border-radius: var(--adhoc-radius-xl);
+  box-shadow: var(--adhoc-elev-3);
   cursor: pointer;
   scroll-snap-align: start;
   transition: transform .2s ease, box-shadow .2s ease;
@@ -111,7 +118,7 @@
 .adhoc-kcard:hover,
 .adhoc-kcard:focus-visible {
   transform: translateY(-5px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, .1);
+  box-shadow: var(--adhoc-elev-hover-1);
 }
 
 .adhoc-kcard:focus-visible {
@@ -124,19 +131,19 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-  font-size: .85rem;
+  gap: var(--adhoc-space-md);
+  margin-bottom: var(--adhoc-space-lg);
+  font-size: var(--adhoc-fs-md);
 }
 
 .adhoc-kcard-state {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--adhoc-space-xs);
 }
 
 .adhoc-kcard-lock {
-  color: #95a5a6;
+  color: var(--adhoc-grey-light);
 }
 
 /* Prioridad: pastilla cuadrada de fondo suave (legacy `.k-priority`), no la
@@ -144,33 +151,33 @@
    que comparte la clase base pero es texto de color. */
 .adhoc-kcard-head .adhoc-badge:not(.adhoc-status) {
   padding: 3px 8px;
-  border-radius: 4px;
-  font-size: .75rem;
-  font-weight: 700;
+  border-radius: var(--adhoc-radius-sm);
+  font-size: var(--adhoc-fs-xs);
+  font-weight: var(--adhoc-fw-bold);
   line-height: normal;
   letter-spacing: 0;
 }
 
 .adhoc-kcard-head .adhoc-badge-danger:not(.adhoc-status) {
-  background: #ffeaa7;
-  color: #d63031;
+  background: var(--adhoc-amber);
+  color: var(--adhoc-danger-strong);
 }
 
 .adhoc-kcard-head .adhoc-badge-warning:not(.adhoc-status) {
-  background: #fab1a0;
-  color: #e17055;
+  background: var(--adhoc-coral-soft);
+  color: var(--adhoc-coral-ink);
 }
 
 .adhoc-kcard-head .adhoc-badge-success:not(.adhoc-status) {
-  background: #55efc4;
-  color: #00b894;
+  background: var(--adhoc-mint);
+  color: var(--adhoc-teal);
 }
 
 /* Estatus: texto en negrita, sin pastilla. El color lo pone adhoc.css según el
    tono (violeta para Pendiente / En Proceso, ámbar para En Revisión…). */
 .adhoc-kcard-head .adhoc-status {
-  font-size: .8rem;
-  font-weight: 700;
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-bold);
   line-height: normal;
 }
 
@@ -184,8 +191,8 @@
    mayúsculas, con el nombre del expediente debajo en gris pequeño. */
 .adhoc-kcard-kicker {
   margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-base);
+  font-weight: var(--adhoc-fw-semibold);
   line-height: 1.4;
   text-transform: uppercase;
   color: var(--adhoc-primary);
@@ -193,17 +200,17 @@
 
 /* El de rechazo no baja a 1rem: el legacy solo encoge el de revisión. */
 .adhoc-kcard-kicker.is-danger {
-  font-size: 1.1rem;
-  color: #d63031;
+  font-size: var(--adhoc-fs-xl);
+  color: var(--adhoc-danger-strong);
 }
 
 /* Es el <small> que el legacy anida dentro del titular: hereda su peso (600) y
    se dimensiona en em, de modo que sale a .8rem bajo el titular de revisión
    (que baja a 1rem) y a .88rem bajo el de rechazo (que se queda en 1.1rem). */
 .adhoc-kcard-parent {
-  margin: 0 0 15px;
-  font-size: .8rem;
-  font-weight: 600;
+  margin: 0 0 var(--adhoc-space-2xl);
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-semibold);
   line-height: 1.4;
   color: var(--adhoc-muted);
 }
@@ -213,15 +220,15 @@
 }
 
 .adhoc-kcard-title {
-  margin: 0 0 15px;
-  font-size: 1.1rem;
-  font-weight: 600;
+  margin: 0 0 var(--adhoc-space-2xl);
+  font-size: var(--adhoc-fs-xl);
+  font-weight: var(--adhoc-fw-semibold);
   line-height: 1.4;
   color: var(--adhoc-dark);
 }
 
 .adhoc-kcard-sub {
-  margin: 0 0 15px;
+  margin: 0 0 var(--adhoc-space-2xl);
   font-size: .78rem;
   line-height: 1.4;
   color: var(--adhoc-disabled);
@@ -232,16 +239,16 @@
 .adhoc-kcard-flag {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 10px 0 0;
-  padding: 8px;
-  font-size: .8rem;
-  font-weight: 700;
+  gap: var(--adhoc-space-sm);
+  margin: var(--adhoc-space-lg) 0 0;
+  padding: var(--adhoc-space-md);
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-bold);
   text-transform: uppercase;
-  color: #d63031;
-  background: #ffeaea;
-  border-left: 3px solid #d63031;
-  border-radius: 6px;
+  color: var(--adhoc-danger-strong);
+  background: var(--adhoc-danger-soft);
+  border-left: 3px solid var(--adhoc-danger-strong);
+  border-radius: var(--adhoc-radius-md);
 }
 
 /* ── Pie: metadatos sobre gris ─────────────────────────────────────────── */
@@ -249,20 +256,20 @@
 .adhoc-kcard-foot {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--adhoc-space-md);
   margin-top: auto;
-  padding: 10px;
-  font-size: .9rem;
+  padding: var(--adhoc-space-lg);
+  font-size: var(--adhoc-fs-lg);
   color: var(--adhoc-muted);
   background: var(--adhoc-soft);
-  border-top: 1px solid #f1f2f6;
-  border-radius: 6px;
+  border-top: 1px solid var(--adhoc-surface-400);
+  border-radius: var(--adhoc-radius-md);
 }
 
 .adhoc-kcard-meta i {
   display: inline-block;
   width: 18px;
-  margin-right: 5px;
+  margin-right: var(--adhoc-space-xs);
   text-align: center;
 }
 
@@ -271,12 +278,12 @@
 }
 
 .adhoc-kcard-ico-user {
-  color: #8e44ad;
+  color: var(--adhoc-violet);
 }
 
 .adhoc-kcard-origin {
-  margin-top: 5px;
-  font-size: .8rem;
+  margin-top: var(--adhoc-space-xs);
+  font-size: var(--adhoc-fs-sm);
   color: var(--adhoc-disabled);
 }
 
@@ -286,51 +293,36 @@
    recuadro caiga donde caía. */
 .adhoc-tasks-board {
   display: flex;
-  padding-bottom: 20px;
+  padding-bottom: var(--adhoc-space-3xl);
 }
 
 /* El del tablero es más alto que el genérico: recuadro grande con la taza. */
 .adhoc-tasks-empty {
   flex: 1;
   width: 100%;
-  margin: 10px 0;
+  margin: var(--adhoc-space-lg) 0;
   padding: 80px 20px;
-  color: #95a5a6;
+  color: var(--adhoc-grey-light);
 }
 
 .adhoc-tasks-empty .adhoc-empty-icon {
-  margin-bottom: 20px;
+  margin-bottom: var(--adhoc-space-3xl);
   font-size: 4rem;
 }
 
 .adhoc-tasks-empty-title {
-  margin-bottom: 5px;
+  margin-bottom: var(--adhoc-space-xs);
   font-size: 1.17rem;
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
   color: var(--adhoc-muted);
 }
 
 .adhoc-tasks-empty .adhoc-empty-text {
-  font-size: 1rem;
-  color: #95a5a6;
-}
-
-/* Parpadeo del icono de atención (el legacy lo declaraba inline en cada
-   tarjeta). Se desactiva si el usuario pidió menos movimiento. */
-@keyframes adhoc-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .35; }
-}
-
-.adhoc-blink {
-  animation: adhoc-blink 1.6s ease-in-out infinite;
+  font-size: var(--adhoc-fs-base);
+  color: var(--adhoc-grey-light);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .adhoc-blink {
-    animation: none;
-  }
-
   .adhoc-kcard {
     transition: none;
   }
@@ -341,8 +333,8 @@
 /* El legacy titula con un <h2>: 1.5rem en negrita, no el 1.25rem del
    `.modal-title` genérico del shell. */
 .adhoc-wf-modal-title {
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-size: var(--adhoc-fs-3xl);
+  font-weight: var(--adhoc-fw-bold);
 }
 
 /* ── Modal de workflow: origen de la tarea ─────────────────────────────── */
@@ -352,62 +344,62 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 15px;
+  gap: var(--adhoc-space-2xl);
   width: 100%;
-  padding: 12px 20px;
-  font-size: 1rem;
-  font-weight: 600;
+  padding: var(--adhoc-space-xl) var(--adhoc-space-3xl);
+  font-size: var(--adhoc-fs-base);
+  font-weight: var(--adhoc-fw-semibold);
   text-align: left;
   color: var(--adhoc-primary);
-  background: #e3f2fd;
+  background: var(--adhoc-info-soft);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--adhoc-radius-lg);
   cursor: pointer;
   transition: background .2s ease;
 }
 
 .adhoc-wf-banner:hover {
-  background: #d0e8f8;
+  background: var(--adhoc-info-soft-deep);
 }
 
 .adhoc-wf-parent {
-  margin-top: 10px;
-  padding: 20px;
-  font-size: .9rem;
-  background: #fafafa;
+  margin-top: var(--adhoc-space-lg);
+  padding: var(--adhoc-space-3xl);
+  font-size: var(--adhoc-fs-lg);
+  background: var(--adhoc-surface-100);
   border: 1px solid var(--adhoc-border);
-  border-radius: 8px;
+  border-radius: var(--adhoc-radius-lg);
 }
 
 .adhoc-wf-parent-title {
-  margin: 0 0 15px;
-  font-size: 1rem;
-  font-weight: 700;
+  margin: 0 0 var(--adhoc-space-2xl);
+  font-size: var(--adhoc-fs-base);
+  font-weight: var(--adhoc-fw-bold);
   color: var(--adhoc-dark);
 }
 
 .adhoc-wf-version {
-  font-size: .8rem;
-  font-weight: 500;
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-medium);
   color: var(--adhoc-muted);
 }
 
 .adhoc-wf-download {
-  margin-top: 15px;
+  margin-top: var(--adhoc-space-2xl);
 }
 
 /* ── Modal de workflow: la tarea ───────────────────────────────────────── */
 
 .adhoc-wf-task {
-  margin-top: 25px;
-  padding-top: 20px;
+  margin-top: var(--adhoc-space-4xl);
+  padding-top: var(--adhoc-space-3xl);
   border-top: 2px dashed var(--adhoc-border);
 }
 
 .adhoc-wf-task-title {
-  margin-bottom: 15px;
+  margin-bottom: var(--adhoc-space-2xl);
   font-size: 1.3rem;
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
   line-height: 1.3;
   color: var(--adhoc-primary);
 }
@@ -417,8 +409,8 @@
 .adhoc-wf-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 15px;
-  margin: 0 0 15px;
+  gap: var(--adhoc-space-2xl);
+  margin: 0 0 var(--adhoc-space-2xl);
 }
 
 @media (min-width: 576px) {
@@ -433,8 +425,8 @@
 
 .adhoc-wf-label {
   margin: 0;
-  font-size: .8rem;
-  font-weight: 700;
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-bold);
   text-transform: uppercase;
   color: var(--adhoc-muted);
 }
@@ -442,43 +434,43 @@
 .adhoc-wf-value {
   margin: 0;
   font-size: .95rem;
-  font-weight: 500;
+  font-weight: var(--adhoc-fw-medium);
   overflow-wrap: anywhere;
   color: var(--adhoc-dark);
 }
 
 .adhoc-wf-value.is-primary {
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
   color: var(--adhoc-primary);
 }
 
 /* ── Validaciones (tabla adhoc_task_approvals) ─────────────────────────── */
 
 .adhoc-wf-approvals {
-  margin-top: 15px;
-  padding: 12px 15px;
+  margin-top: var(--adhoc-space-2xl);
+  padding: var(--adhoc-space-xl) var(--adhoc-space-2xl);
   background: var(--adhoc-soft);
-  border-radius: 8px;
+  border-radius: var(--adhoc-radius-lg);
 }
 
 .adhoc-wf-approvals-head {
-  margin: 0 0 8px;
-  font-size: .85rem;
-  font-weight: 700;
+  margin: 0 0 var(--adhoc-space-md);
+  font-size: var(--adhoc-fs-md);
+  font-weight: var(--adhoc-fw-bold);
   color: var(--adhoc-dark);
 }
 
 .adhoc-wf-approvals-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 15px;
+  gap: var(--adhoc-space-md) var(--adhoc-space-2xl);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .adhoc-wf-approval {
-  font-size: .85rem;
+  font-size: var(--adhoc-fs-md);
 }
 
 .adhoc-wf-approval.is-ok i {
@@ -492,30 +484,30 @@
 /* ── Comentarios ───────────────────────────────────────────────────────── */
 
 .adhoc-wf-comments {
-  margin-top: 25px;
+  margin-top: var(--adhoc-space-4xl);
 }
 
 .adhoc-wf-comments-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 15px;
+  gap: var(--adhoc-space-2xl);
 }
 
 /* El legacy lo pinta con un <h4>: 1rem y 600, no el 0.67em del <h6> nativo. */
 .adhoc-wf-comments-title {
   margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-base);
+  font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-dark);
 }
 
 .adhoc-wf-comment-form {
-  margin-top: 15px;
-  padding: 15px;
-  background: #f4f6f8;
+  margin-top: var(--adhoc-space-2xl);
+  padding: var(--adhoc-space-2xl);
+  background: var(--adhoc-surface-300);
   border: 1px solid var(--adhoc-border);
-  border-radius: 8px;
+  border-radius: var(--adhoc-radius-lg);
 }
 
 .adhoc-wf-comment-actions {
@@ -523,18 +515,18 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-top: 10px;
+  gap: var(--adhoc-space-lg);
+  margin-top: var(--adhoc-space-lg);
 }
 
 .adhoc-wf-comment-file {
   max-width: 22rem;
-  font-size: .85rem;
+  font-size: var(--adhoc-fs-md);
 }
 
 .adhoc-wf-comments-table {
-  margin-top: 20px;
-  font-size: .9rem;
+  margin-top: var(--adhoc-space-3xl);
+  font-size: var(--adhoc-fs-lg);
 }
 
 .adhoc-wf-comments-table td {
@@ -543,16 +535,16 @@
 
 .adhoc-wf-date {
   white-space: nowrap;
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
 }
 
 .adhoc-wf-author {
-  font-weight: 700;
+  font-weight: var(--adhoc-fw-bold);
   color: var(--adhoc-info);
 }
 
 .adhoc-wf-muted {
-  color: #95a5a6;
+  color: var(--adhoc-grey-light);
   text-align: center;
 }
 
@@ -561,21 +553,21 @@
 .adhoc-wf-footer {
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
+  gap: var(--adhoc-space-lg);
 }
 
 /* Aviso de la regla de calidad: texto suelto centrado, sin recuadro (legacy
    `#msgObligatorio`). */
 .adhoc-wf-notice {
   margin: 0;
-  font-size: .85rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-md);
+  font-weight: var(--adhoc-fw-semibold);
   text-align: center;
   color: var(--adhoc-danger);
 }
 
 .adhoc-wf-notice.is-warning {
-  color: #e67e22;
+  color: var(--adhoc-warning-ink);
 }
 
 .adhoc-wf-notice.is-danger {
@@ -586,5 +578,5 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 20px;
+  gap: var(--adhoc-space-3xl);
 }

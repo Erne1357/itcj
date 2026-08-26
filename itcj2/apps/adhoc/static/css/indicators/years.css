@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/indicadores
+   CONTIENE linea de ayuda con el conmutador de modo, anchos de columna, el ano en
+            violeta y el bote de basura de la fila
+   EN BASE  icono de fila pelado, caja del selector de cantidad, tabla y modal
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    indicators/years.css — lista de años del tablero de indicadores.
    Página: /adhoc/indicadores   ·   Módulo: js/indicators/years.js
@@ -12,15 +19,7 @@
 
 /* La tarjeta de esta pantalla es la ancha del legacy (padding 30, no 25). */
 .adhoc-years-card {
-  padding: 30px;
-}
-
-.adhoc-years-card .adhoc-page-head {
-  margin-bottom: 15px;
-}
-
-.adhoc-years-card .adhoc-page-title i {
-  font-size: 1.8rem;
+  padding: var(--adhoc-space-5xl);
 }
 
 /* Línea de ayuda del legacy: icono de información + texto gris pequeño. El
@@ -31,8 +30,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: .4rem;
-  margin-bottom: 20px;
-  font-size: .9rem;
+  margin-bottom: var(--adhoc-space-3xl);
+  font-size: var(--adhoc-fs-lg);
   color: var(--adhoc-muted);
 }
 
@@ -42,7 +41,7 @@
 
 .adhoc-years-mode-swap {
   margin-left: auto;
-  font-weight: 600;
+  font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-primary);
   text-decoration: none;
 }
@@ -54,15 +53,15 @@
 
 /* Fila Limpiar / Filtrar (legacy .controls-top: margin 25px 0 15px). */
 .adhoc-years-controls {
-  gap: 10px;
-  margin: 25px 0 15px;
+  gap: var(--adhoc-space-lg);
+  margin: var(--adhoc-space-4xl) 0 var(--adhoc-space-2xl);
 }
 
 /* Las celdas de esta tabla son más altas que las de la app (legacy: 15px 12px
    y 0.95rem), porque la lista tiene una sola columna de datos. */
 .adhoc-indicator-years .adhoc-table th,
 .adhoc-indicator-years .adhoc-table td {
-  padding: 15px 12px;
+  padding: var(--adhoc-space-2xl) var(--adhoc-space-xl);
   font-size: .95rem;
 }
 
@@ -71,8 +70,8 @@
 
 /* El año es el dato principal de la fila: se lee de un vistazo. */
 .adhoc-years-value {
-  font-size: 1.1rem;
-  font-weight: 700;
+  font-size: var(--adhoc-fs-xl);
+  font-weight: var(--adhoc-fw-bold);
   color: var(--adhoc-primary);
 }
 
@@ -88,33 +87,20 @@
 }
 
 .adhoc-years-icon {
-  padding: 5px;
-  font-size: 1.2rem;
-  line-height: 1;
-  color: #ff7675;
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: .2s;
+  padding: var(--adhoc-space-xs);
+  color: var(--adhoc-coral);
 }
 
 .adhoc-years-icon:hover {
-  color: #d63031;
-  transform: scale(1.2);
+  color: var(--adhoc-danger-strong);
 }
 
 /* Selector de cuántos años capturar (legacy .qty-select). */
 .adhoc-years-qty {
   max-width: 10rem;
-  padding: 10px 15px;
-  font-family: inherit;
-  font-weight: 600;
-  color: var(--adhoc-dark);
-  background: var(--adhoc-surface);
-  border: 1px solid var(--adhoc-border);
-  border-radius: 8px;
+  padding: var(--adhoc-space-lg) var(--adhoc-space-2xl);
+  border-radius: var(--adhoc-radius-lg);
   outline: none;
-  cursor: pointer;
 }
 
 /* Filas clicables: el cursor lo pone .adhoc-row-click de la base; aquí solo se

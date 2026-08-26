@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/documentos/panel
+   CONTIENE ancho y compactado de la tabla de 13 columnas, hover azul de la fila y
+            la ficha del documento dentro del modal de arranque de flujo
+   EN BASE  todo lo demas, via documents/documents.css + adhoc.css
+   --------------------------------------------------------------------------- */
+
 /* ===========================================================================
    documents/documents-panel.css — /adhoc/documentos/panel.
 
@@ -24,13 +31,13 @@
 
 .adhoc-doc-panel .adhoc-table th,
 .adhoc-doc-panel .adhoc-table td {
-  padding: 10px;
-  font-size: .85rem;
+  padding: var(--adhoc-space-lg);
+  font-size: var(--adhoc-fs-md);
 }
 
 /* Legacy `.interactive-row:hover`: azul muy tenue, no el lavanda del resto. */
 .adhoc-doc-panel .adhoc-table tbody tr:hover {
-  background-color: rgb(227 242 253);
+  background-color: var(--adhoc-info-soft);
 }
 
 .adhoc-doc-panel .adhoc-table tbody tr[data-adhoc-empty]:hover {
@@ -46,6 +53,6 @@
   border-left: 3px solid var(--adhoc-primary);
   border-radius: calc(var(--adhoc-radius) - 6px);
   color: var(--adhoc-dark);
-  font-size: .9rem;
-  font-weight: 600;
+  font-size: var(--adhoc-fs-lg);
+  font-weight: var(--adhoc-fw-semibold);
 }

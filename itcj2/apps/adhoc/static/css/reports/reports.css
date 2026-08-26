@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/reportes
+   CONTIENE rejilla de tarjetas de reporte con su icono superpuesto y el modal de
+            filtros (ancho variable segun el reporte elegido)
+   EN BASE  tarjeta, tabla, boton, modal y el encabezado en negrita
+   --------------------------------------------------------------------------- */
+
 /* ==========================================================================
    reports/reports.css — Centro de Reportes (pantalla de selección).
 
@@ -36,38 +43,31 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 15px;
-  margin-bottom: 30px;
+  gap: var(--adhoc-space-2xl);
+  margin-bottom: var(--adhoc-space-5xl);
   padding-right: 170px;
 }
 
 .adhoc-reports-head-icon {
   flex: 0 0 auto;
-  font-size: 2rem;
+  font-size: var(--adhoc-fs-4xl);
   color: var(--adhoc-primary);
-}
-
-/* El <h2> del legacy: 1.5rem y la negrita del navegador (700, que Poppins
-   sintetiza porque solo se cargan 300/400/600). El `.adhoc-page-title` general
-   va a 600 y se vería más fino. */
-.adhoc-reports-head .adhoc-page-title {
-  font-weight: 700;
 }
 
 /* El subtítulo del legacy es un <p> normal: 16px y peso 400, no el 0.9rem/300
    del subtítulo genérico de página. */
 .adhoc-reports-head .adhoc-page-subtitle {
-  margin-top: 5px;
-  font-size: 1rem;
-  font-weight: 400;
+  margin-top: var(--adhoc-space-xs);
+  font-size: var(--adhoc-fs-base);
+  font-weight: var(--adhoc-fw-normal);
 }
 
 /* ── Rejilla y tarjetas de reporte ─────────────────────────────────────── */
 .adhoc-reports-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 25px;
-  margin-top: 20px;
+  gap: var(--adhoc-space-4xl);
+  margin-top: var(--adhoc-space-3xl);
 }
 
 /* Es un <button> (el legacy usaba un <div> con listener: ni focusable ni
@@ -82,14 +82,14 @@
   flex-direction: column;
   justify-content: flex-start;
   width: 100%;
-  padding: 30px 20px;
+  padding: var(--adhoc-space-5xl) var(--adhoc-space-3xl);
   color: inherit;
   font: inherit;
   text-align: center;
   background: var(--adhoc-soft);
   border: 1px solid var(--adhoc-line);
   border-radius: var(--adhoc-radius);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, .02);
+  box-shadow: var(--adhoc-elev-2);
   cursor: pointer;
   appearance: none;
   transition: all .3s ease;
@@ -98,7 +98,7 @@
 .adhoc-report-card:hover {
   background: var(--adhoc-surface);
   border-color: var(--adhoc-primary);
-  box-shadow: 0 12px 20px rgba(0, 0, 0, .08);
+  box-shadow: var(--adhoc-elev-hover-2);
   transform: translateY(-5px);
 }
 
@@ -116,12 +116,12 @@
   position: relative;
   width: 60px;
   height: 60px;
-  margin: 0 auto 10px;
+  margin: 0 auto var(--adhoc-space-lg);
   line-height: normal;
 }
 
 .adhoc-report-icon-base {
-  font-size: 3rem;
+  font-size: var(--adhoc-fs-5xl);
   line-height: normal;
   color: var(--adhoc-border);
   transition: .3s;
@@ -136,24 +136,24 @@
   right: -5px;
   bottom: -5px;
   padding: 2px;
-  font-size: 1.5rem;
+  font-size: var(--adhoc-fs-3xl);
   color: var(--adhoc-primary);
   background: var(--adhoc-surface);
-  border-radius: 50%;
+  border-radius: var(--adhoc-radius-circle);
   transition: .3s;
 }
 
 /* Legacy `.report-card h3`: 1.1rem con la negrita del navegador (700). */
 .adhoc-report-card-title {
   display: block;
-  margin: 15px 0 5px;
+  margin: var(--adhoc-space-2xl) 0 var(--adhoc-space-xs);
   color: var(--adhoc-dark);
-  font-size: 1.1rem;
-  font-weight: 700;
+  font-size: var(--adhoc-fs-xl);
+  font-weight: var(--adhoc-fw-bold);
 }
 
 @media (max-width: 575.98px) {
-  .adhoc-reports { padding: 20px; }
+  .adhoc-reports { padding: var(--adhoc-space-3xl); }
   .adhoc-reports-head { padding-right: 0; margin-top: 35px; }
   .adhoc-reports-back { top: 20px; right: 20px; }
 }
@@ -167,18 +167,18 @@
 }
 
 #adhoc-report-modal .modal-content {
-  padding: 30px;
+  padding: var(--adhoc-space-5xl);
 }
 
 /* Cabecera y pie del legacy: filete de 2px en #f1f2f6, no el de 1px del
    modal genérico. */
 #adhoc-report-modal .modal-header {
-  padding-bottom: 15px;
+  padding-bottom: var(--adhoc-space-2xl);
   border-bottom: 2px solid var(--adhoc-line);
 }
 
 #adhoc-report-modal .modal-footer {
-  padding-top: 20px;
+  padding-top: var(--adhoc-space-3xl);
   border-top: 2px solid var(--adhoc-line);
 }
 
@@ -186,38 +186,38 @@
 .adhoc-report-modal-title {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--adhoc-space-lg);
   color: var(--adhoc-primary);
-  font-size: 1.5rem;
+  font-size: var(--adhoc-fs-3xl);
 }
 
 /* Barra "Limpiar / Buscar" (legacy `.actions`: 10px de hueco y 15px al que
    viene debajo). A la izquierda, en el hueco que el legacy dejaba vacío, el
    contador de la vista previa. */
 .adhoc-report-actions {
-  gap: 10px;
-  margin-bottom: 15px;
+  gap: var(--adhoc-space-lg);
+  margin-bottom: var(--adhoc-space-2xl);
 }
 
 .adhoc-report-actions-buttons {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--adhoc-space-lg);
   margin-left: auto;
 }
 
 /* Legacy `.btn-filter` (#34495e); aquí, el token oscuro de la app. */
 .adhoc-btn-search {
   background-color: var(--adhoc-dark);
-  color: #fff;
+  color: var(--adhoc-surface);
 }
 
 /* Los tres filtros, en columnas sobre la vista previa. */
 .adhoc-report-filters {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 15px;
+  gap: var(--adhoc-space-lg);
+  margin-bottom: var(--adhoc-space-2xl);
 }
 
 @media (max-width: 575.98px) {
@@ -230,7 +230,7 @@
 .adhoc-report-preview .adhoc-table-wrap {
   max-height: 40vh;
   border: 1px solid var(--adhoc-line);
-  border-radius: 8px;
+  border-radius: var(--adhoc-radius-lg);
 }
 
 .adhoc-report-preview[hidden] {
@@ -240,16 +240,16 @@
 .adhoc-report-hint {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--adhoc-space-md);
   margin: 0;
   color: var(--adhoc-muted);
-  font-size: .9rem;
+  font-size: var(--adhoc-fs-lg);
 }
 
 .adhoc-report-footer {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--adhoc-space-lg);
   align-items: center;
   justify-content: space-between;
 }
