@@ -194,7 +194,7 @@ def _register_error_handlers(app: FastAPI):
     renderizador elige el template según el prefijo de la ruta.
     """
 
-    from fastapi.responses import RedirectResponse
+    from fastapi.responses import RedirectResponse, Response
     from .exceptions import PageForbidden, PageLoginRequired
 
     # ── Errores HTTP generales ────────────────────────────────────────────────
@@ -325,7 +325,21 @@ def _register_error_handlers(app: FastAPI):
     # ── Páginas: login redirige; forbidden ahora muestra página de error ─────
     @app.exception_handler(PageLoginRequired)
     async def page_login_required_handler(request: Request, exc: PageLoginRequired):
-        """Redirige a login cuando una página requiere autenticación."""
+        """Redirige a login cuando una página requiere autenticación.
+
+        Con HTMX el 302 NO sirve. Las apps que navegan con ``hx-boost``
+        (helpdesk, adhoc) no piden la página con el documento sino con un XHR, y
+        un 3xx lo sigue el navegador de forma transparente: HTMX nunca ve el
+        redirect, recibe un 200 con el HTML del login y lo inyecta donde iba el
+        contenido. El usuario acaba con el formulario de acceso dentro del marco
+        de la app y con la URL de la página que pidió.
+
+        Para esas peticiones se contesta lo que HTMX sí entiende: 200 con la
+        cabecera ``HX-Redirect``, que traduce a una navegación real del
+        documento. El cuerpo va vacío a propósito — no hay nada que inyectar.
+        """
+        if request.headers.get("hx-request") == "true":
+            return Response(status_code=200, headers={"HX-Redirect": "/itcj/login"})
         return RedirectResponse("/itcj/login", status_code=302)
 
     @app.exception_handler(PageForbidden)
