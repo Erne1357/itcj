@@ -76,22 +76,37 @@
   /* ── Semanticos: solido · variante oscura (hover) · fondo suave ──
      Los fondos suaves estaban sueltos por las hojas (#ffeaea, #fff4e6,
      #e8f5e9, #e3f2fd); son parte del sistema, no accidentes. */
+  /* Cada semantico tiene ahora CUATRO escalones y cada uno tiene un trabajo:
+       (base)       el color de marca; solo para bordes, iconos y adornos
+       -dark        fondo de un boton solido (texto blanco encima, >= 4.5:1)
+       -ink         TEXTO: sobre blanco y sobre el fondo suave (>= 4.5:1),
+                    y fondo del boton al pasar el raton
+       -soft        el fondo pastel del legacy, intacto
+     El escalon `-ink` es el que faltaba, y su ausencia dejaba las dos acciones
+     irreversibles del SGC en 2.87:1 y 2.59:1 contra un minimo de 4.5.
+     Los fondos suaves NO se tocan: la identidad pastel del legacy se conserva
+     entera y lo unico que baja de tono es la tinta. */
   --adhoc-success: #27ae60;
   --adhoc-success-dark: #1e8449;
+  --adhoc-success-ink: #1b7a43;      /* 5.37:1 sobre blanco - 4.77:1 sobre el suave */
   --adhoc-success-soft: #e8f5e9;
 
   --adhoc-warning: #f39c12;
   --adhoc-warning-dark: #d68910;
   --adhoc-warning-soft: #fff4e6;
-  --adhoc-warning-ink: #e67e22;      /* texto sobre el fondo suave */
+  --adhoc-warning-ink: #925e0b;      /* 5.49:1 sobre blanco - 5.05:1 sobre el suave.
+                                        Era #e67e22, que daba 2.62:1 pese a estar
+                                        documentado como texto sobre el fondo suave. */
 
   --adhoc-danger: #e74c3c;
   --adhoc-danger-strong: #d63031;    /* el rojo de aviso del legacy */
+  --adhoc-danger-ink: #ad392d;       /* 6.18:1 sobre blanco - 5.36:1 sobre el suave */
   --adhoc-danger-soft: #ffeaea;
   --adhoc-danger-tint: #fff5f5;      /* mas palido aun: pastilla de prioridad */
 
   --adhoc-info: #2980b9;
   --adhoc-info-dark: #1f618d;
+  --adhoc-info-ink: #17496b;         /* 8.4:1 sobre blanco */
   --adhoc-info-soft: #e3f2fd;
   --adhoc-info-soft-alt: #e8f4fd;
   --adhoc-info-soft-deep: #d0e8f8;   /* el suave al pasar el raton */
@@ -357,7 +372,7 @@ body.adhoc-shell {
 }
 
 .adhoc-btn-salir {
-  color: var(--adhoc-danger-strong);
+  color: var(--adhoc-danger-ink);
   background-color: var(--adhoc-coral-tint);
 }
 
@@ -973,14 +988,16 @@ body.adhoc-shell {
 .adhoc-prio-urgente {
   display: inline-block;
   padding: 2px 6px;
-  color: var(--adhoc-danger-strong);
+  color: var(--adhoc-danger-ink);
   background: var(--adhoc-danger-tint);
   border: 1px solid var(--adhoc-danger-strong);
   border-radius: var(--adhoc-radius-sm);
 }
 
-.adhoc-prio-media { color: var(--adhoc-warning); }
-.adhoc-prio-baja  { color: var(--adhoc-success); }
+/* Tinta, no color de marca: sobre la fila blanca el ambar daba 2.19:1 y el
+   verde 2.87:1, y esta es la columna por la que se prioriza el trabajo. */
+.adhoc-prio-media { color: var(--adhoc-warning-ink); }
+.adhoc-prio-baja  { color: var(--adhoc-success-ink); }
 
 /* ── Contador junto a un icono (tareas, notas, archivos) ───────────────── */
 .adhoc-count-pill {
@@ -1012,12 +1029,15 @@ body.adhoc-shell {
   white-space: nowrap;
 }
 
+/* El FONDO suave es el del legacy y no se toca; lo que baja de tono es la
+   tinta, con el escalon `-ink`. La columna de estatus es la que se escanea en
+   cada tabla y ninguna variante llegaba a AA salvo neutral y primary. */
 .adhoc-badge-neutral { background: var(--adhoc-surface-400); color: var(--adhoc-dark); }
 .adhoc-badge-muted   { background: var(--adhoc-surface-400); color: var(--adhoc-muted); }
-.adhoc-badge-info    { background: var(--adhoc-info-soft); color: var(--adhoc-info); }
-.adhoc-badge-success { background: var(--adhoc-success-soft); color: var(--adhoc-success); }
+.adhoc-badge-info    { background: var(--adhoc-info-soft); color: var(--adhoc-info-dark); }
+.adhoc-badge-success { background: var(--adhoc-success-soft); color: var(--adhoc-success-ink); }
 .adhoc-badge-warning { background: var(--adhoc-warning-soft); color: var(--adhoc-warning-ink); }
-.adhoc-badge-danger  { background: var(--adhoc-danger-soft); color: var(--adhoc-danger-strong); }
+.adhoc-badge-danger  { background: var(--adhoc-danger-soft); color: var(--adhoc-danger-ink); }
 .adhoc-badge-primary { background: var(--adhoc-primary-tint); color: var(--adhoc-primary); }
 
 /* Estatus: el legacy nunca lo pinta como pastilla sólida. */
@@ -1031,12 +1051,14 @@ body.adhoc-shell {
   letter-spacing: 0;
 }
 
+/* Sin pastilla, el estatus es texto suelto sobre la fila blanca: la tinta tiene
+   que pasar AA contra blanco, no contra el fondo suave. */
 .adhoc-status.adhoc-badge-neutral { color: var(--adhoc-primary); background: none; }
-.adhoc-status.adhoc-badge-muted   { color: var(--adhoc-grey-light); background: none; }
+.adhoc-status.adhoc-badge-muted   { color: var(--adhoc-muted); background: none; }
 .adhoc-status.adhoc-badge-info    { color: var(--adhoc-primary); background: none; }
-.adhoc-status.adhoc-badge-success { color: var(--adhoc-success); background: none; }
-.adhoc-status.adhoc-badge-warning { color: var(--adhoc-warning); background: none; }
-.adhoc-status.adhoc-badge-danger  { color: var(--adhoc-danger); background: none; }
+.adhoc-status.adhoc-badge-success { color: var(--adhoc-success-ink); background: none; }
+.adhoc-status.adhoc-badge-warning { color: var(--adhoc-warning-ink); background: none; }
+.adhoc-status.adhoc-badge-danger  { color: var(--adhoc-danger-ink); background: none; }
 .adhoc-status.adhoc-badge-primary { color: var(--adhoc-primary); background: none; }
 
 /* Estados del tablero de indicadores. Reemplazan a las clases de color del
@@ -1105,20 +1127,27 @@ body.adhoc-shell {
 .btn-primary { background-color: var(--adhoc-primary); color: var(--adhoc-surface); }
 .btn-primary:hover { background-color: var(--adhoc-primary-hover); color: var(--adhoc-surface); }
 
-.btn-secondary { background-color: var(--adhoc-border); color: var(--adhoc-muted); }
-.btn-secondary:hover { background-color: var(--adhoc-disabled); color: var(--adhoc-surface); }
+/* Las variantes solidas usan el escalon `-dark` de fondo y el `-ink` al pasar
+   el raton, para que el texto blanco pase AA en los dos estados. Medido antes:
+   success 2.87:1, danger 2.59:1 (sobre el CORAL pastel, no sobre el rojo),
+   warning 2.19:1, secondary 4.15:1 y su hover 1.90:1 -- el hover EMPEORABA la
+   legibilidad. Son los botones de "Terminar", "Rechazar" y "Aprobar" del SGC. */
+.btn-secondary { background-color: var(--adhoc-border); color: var(--adhoc-slate); }
+.btn-secondary:hover { background-color: var(--adhoc-disabled); color: var(--adhoc-slate); }
 
-.btn-success { background-color: var(--adhoc-success); color: var(--adhoc-surface); }
-.btn-success:hover { background-color: var(--adhoc-success-dark); color: var(--adhoc-surface); }
+.btn-success { background-color: var(--adhoc-success-dark); color: var(--adhoc-surface); }
+.btn-success:hover { background-color: var(--adhoc-success-ink); color: var(--adhoc-surface); }
 
-.btn-warning { background-color: var(--adhoc-warning); color: var(--adhoc-surface); }
-.btn-warning:hover { background-color: var(--adhoc-warning-dark); color: var(--adhoc-surface); }
+/* El ambar es el unico que NO admite texto blanco a ninguna profundidad
+   razonable: se queda el ambar del legacy y lo que cambia es la tinta. */
+.btn-warning { background-color: var(--adhoc-warning); color: var(--adhoc-dark); }
+.btn-warning:hover { background-color: var(--adhoc-warning-dark); color: var(--adhoc-dark); }
 
-.btn-danger { background-color: var(--adhoc-coral); color: var(--adhoc-surface); }
-.btn-danger:hover { background-color: var(--adhoc-danger-strong); color: var(--adhoc-surface); }
+.btn-danger { background-color: var(--adhoc-danger-strong); color: var(--adhoc-surface); }
+.btn-danger:hover { background-color: var(--adhoc-danger-ink); color: var(--adhoc-surface); }
 
-.btn-info { background-color: var(--adhoc-info); color: var(--adhoc-surface); }
-.btn-info:hover { background-color: var(--adhoc-info-dark); color: var(--adhoc-surface); }
+.btn-info { background-color: var(--adhoc-info-dark); color: var(--adhoc-surface); }
+.btn-info:hover { background-color: var(--adhoc-info-ink); color: var(--adhoc-surface); }
 
 .btn-light { background-color: var(--adhoc-soft); color: var(--adhoc-dark); }
 .btn-light:hover { background-color: var(--adhoc-border); }
@@ -1154,34 +1183,36 @@ body.adhoc-shell {
   color: var(--adhoc-dark);
 }
 
+/* En un boton de contorno el color ES texto, asi que va con el escalon `-ink`;
+   el borde se queda con el color de marca (a un borde le basta 3:1). */
 .btn-outline-danger {
   background: var(--adhoc-surface);
-  color: var(--adhoc-danger);
+  color: var(--adhoc-danger-ink);
   border: 1px solid var(--adhoc-danger);
 }
 
 .btn-outline-danger:hover {
-  background: var(--adhoc-danger);
+  background: var(--adhoc-danger-strong);
   color: var(--adhoc-surface);
 }
 
 .btn-outline-success {
   background: var(--adhoc-surface);
-  color: var(--adhoc-success);
+  color: var(--adhoc-success-ink);
   border: 1px solid var(--adhoc-success);
 }
 
 .btn-outline-success:hover {
-  background: var(--adhoc-success);
+  background: var(--adhoc-success-dark);
   color: var(--adhoc-surface);
 }
 
 /* Alias con los nombres del legacy: dejan pegar su markup sin traducir. */
 .adhoc-btn-filter { background-color: var(--adhoc-primary); color: var(--adhoc-surface); }
-.adhoc-btn-clear  { background-color: var(--adhoc-border); color: var(--adhoc-muted); }
+.adhoc-btn-clear  { background-color: var(--adhoc-border); color: var(--adhoc-slate); }
 .adhoc-btn-add    { background-color: var(--adhoc-primary); color: var(--adhoc-surface); }
 .adhoc-btn-save   { background-color: var(--adhoc-primary); color: var(--adhoc-surface); }
-.adhoc-btn-delete { background-color: var(--adhoc-coral); color: var(--adhoc-surface); }
+.adhoc-btn-delete { background-color: var(--adhoc-danger-strong); color: var(--adhoc-surface); }
 
 /* Cierre de modal (legacy `.close-btn`: una × gris, sin imagen de fondo). */
 .btn-close {

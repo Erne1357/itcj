@@ -143,7 +143,7 @@
 }
 
 .adhoc-kcard-lock {
-  color: var(--adhoc-grey-light);
+  color: var(--adhoc-muted);
 }
 
 /* Prioridad: pastilla cuadrada de fondo suave (legacy `.k-priority`), no la
@@ -302,7 +302,7 @@
   width: 100%;
   margin: var(--adhoc-space-lg) 0;
   padding: 80px 20px;
-  color: var(--adhoc-grey-light);
+  color: var(--adhoc-muted);
 }
 
 .adhoc-tasks-empty .adhoc-empty-icon {
@@ -319,7 +319,7 @@
 
 .adhoc-tasks-empty .adhoc-empty-text {
   font-size: var(--adhoc-fs-base);
-  color: var(--adhoc-grey-light);
+  color: var(--adhoc-muted);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -544,7 +544,7 @@
 }
 
 .adhoc-wf-muted {
-  color: var(--adhoc-grey-light);
+  color: var(--adhoc-muted);
   text-align: center;
 }
 

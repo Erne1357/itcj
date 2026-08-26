@@ -234,34 +234,132 @@ test('los iconos de acción conservan su color al pasar el ratón', async ({ pag
   expect(perdidos, 'iconos que pierden su color al pasar el raton: ' + perdidos.join(' | ')).toEqual([]);
 });
 
-test('las acciones irreversibles del SGC cumplen contraste AA', async ({ page }) => {
+test('ningun texto de la app queda por debajo de contraste AA', async ({ page }) => {
+  // Se miden sobre elementos SINTETICOS: las clases son las que emiten las
+  // plantillas y los modulos, y asi el caso no depende de que haya datos.
+  // Cada entrada es [selector CSS que se construye, descripcion].
   await gotoAdhoc(page, '/adhoc/dashboard');
 
-  // Se miden sobre botones sintéticos: las clases son las mismas que usa el
-  // modal de workflow, y así el caso no depende de que haya tareas abiertas.
   const medidas = await page.evaluate(() => {
     const caja = document.createElement('div');
     caja.style.position = 'absolute';
     caja.style.left = '-9999px';
+    caja.style.background = '#ffffff';
     document.body.appendChild(caja);
-    const clases = ['btn-success', 'btn-danger', 'btn-warning', 'btn-primary', 'btn-secondary'];
-    const out = {};
-    for (const c of clases) {
+
+    const out = [];
+
+    /** [r,g,b,a] de cualquier color que devuelva getComputedStyle. */
+    const rgba = (v) => {
+      const n = String(v).match(/-?[\d.]+/g) || [0, 0, 0, 0];
+      return [Number(n[0]), Number(n[1]), Number(n[2]), n[3] === undefined ? 1 : Number(n[3])];
+    };
+    /** Compone `frente` sobre `detras` (los dos [r,g,b,a]). */
+    const componer = (frente, detras) =>
+      [0, 1, 2].map((i) => Math.round(frente[i] * frente[3] + detras[i] * (1 - frente[3])));
+
+    /**
+     * Fondo OPACO real de un elemento. Los tintes de la paleta son hex de ocho
+     * digitos (`#4834d420`), asi que llegan como `rgba(...)` con alfa: medir el
+     * contraste contra ellos sin componer da 1:1 y esconde el caso.
+     */
+    const fondoOpaco = (el) => {
+      const capas = [];
+      let n = el;
+      while (n && n.nodeType === 1) {
+        const c = rgba(getComputedStyle(n).backgroundColor);
+        if (c[3] > 0) {
+          capas.push(c);
+          if (c[3] === 1) break;
+        }
+        n = n.parentElement;
+      }
+      capas.push([255, 255, 255, 1]); // el lienzo
+      let acc = capas[capas.length - 1];
+      for (let i = capas.length - 2; i >= 0; i--) acc = componer(capas[i], [acc[0], acc[1], acc[2], 1]);
+      return 'rgb(' + acc.join(', ') + ')';
+    };
+
+    const medir = (nombre, el, hover) => {
+      caja.appendChild(el);
+      const cs = getComputedStyle(el);
+      out.push({ nombre: nombre + (hover ? ' :hover' : ''), color: cs.color, fondo: fondoOpaco(el) });
+    };
+
+    const boton = (clase) => {
       const b = document.createElement('button');
-      b.className = `btn ${c}`;
-      b.textContent = 'x';
-      caja.appendChild(b);
-      const cs = getComputedStyle(b);
-      out[c] = { color: cs.color, fondo: cs.backgroundColor };
+      b.className = 'btn ' + clase;
+      b.textContent = 'Accion';
+      return b;
+    };
+    const badge = (clase, estatus) => {
+      const s = document.createElement('span');
+      s.className = 'adhoc-badge ' + (estatus ? 'adhoc-status ' : '') + clase;
+      s.textContent = 'Estado';
+      return s;
+    };
+
+    const SOLIDOS = ['btn-primary', 'btn-secondary', 'btn-success', 'btn-warning',
+                     'btn-danger', 'btn-info', 'btn-dark'];
+    const CONTORNO = ['btn-outline-primary', 'btn-outline-secondary',
+                      'btn-outline-danger', 'btn-outline-success'];
+    const TONOS = ['adhoc-badge-neutral', 'adhoc-badge-muted', 'adhoc-badge-info',
+                   'adhoc-badge-success', 'adhoc-badge-warning', 'adhoc-badge-danger',
+                   'adhoc-badge-primary'];
+
+    for (const c of SOLIDOS.concat(CONTORNO)) medir(c, boton(c), false);
+    for (const c of TONOS) medir('badge ' + c, badge(c, false), false);
+    for (const c of TONOS) medir('estatus ' + c, badge(c, true), false);
+
+    caja.remove();
+    return out;
+  });
+
+  // El :hover de las variantes solidas se mide aparte, con una hoja inyectada
+  // que replica el selector: forzar el pseudo por CDP en siete elementos seria
+  // mas fragil y mucho mas lento.
+  const hover = await page.evaluate(() => {
+    const caja = document.createElement('div');
+    caja.style.position = 'absolute';
+    caja.style.left = '-9999px';
+    document.body.appendChild(caja);
+    const out = [];
+    const CLASES = ['btn-primary', 'btn-secondary', 'btn-success', 'btn-warning',
+                    'btn-danger', 'btn-info'];
+    for (const c of CLASES) {
+      const sonda = document.createElement('button');
+      sonda.className = 'btn ' + c;
+      sonda.textContent = 'x';
+      caja.appendChild(sonda);
+      // Copia declarada del :hover: se lee la regla real de la hoja.
+      let color = null;
+      let fondo = null;
+      for (const hoja of Array.from(document.styleSheets)) {
+        let reglas;
+        try { reglas = hoja.cssRules; } catch (e) { continue; }
+        for (const r of Array.from(reglas || [])) {
+          if (r.selectorText === '.' + c + ':hover') {
+            color = r.style.color || color;
+            fondo = r.style.backgroundColor || fondo;
+          }
+        }
+      }
+      // Se dejan resolver AL NAVEGADOR: el valor declarado puede ser un
+      // `var(--token)`, y hacer la sustitucion a mano devolveria un hex que la
+      // funcion de contraste no sabe leer.
+      if (color) sonda.style.color = color;
+      if (fondo) sonda.style.backgroundColor = fondo;
+      const cs = getComputedStyle(sonda);
+      out.push({ nombre: c + ' :hover', color: cs.color, fondo: cs.backgroundColor });
     }
     caja.remove();
     return out;
   });
 
   const fallan = [];
-  for (const [clase, { color, fondo }] of Object.entries(medidas)) {
+  for (const { nombre, color, fondo } of medidas.concat(hover)) {
     const ratio = await contraste(page, color, fondo);
-    if (ratio < 4.5) fallan.push(`${clase}: ${ratio}:1 (${color} sobre ${fondo})`);
+    if (ratio < 4.5) fallan.push(nombre + ': ' + ratio + ':1 (' + color + ' sobre ' + fondo + ')');
   }
-  expect(fallan, `variantes por debajo de AA:\n${fallan.join('\n')}`).toEqual([]);
+  expect(fallan, 'por debajo de AA: ' + fallan.join(' | ')).toEqual([]);
 });

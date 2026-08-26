@@ -119,8 +119,10 @@
 
 /* adhoc.css pinta el tono "info" del estatus en violeta; el legacy usa el azul
    de "En Firma". Misma especificidad, esta hoja carga después. */
+/* Va con el escalon de tinta: el azul de marca daba 4.3:1 sobre la fila
+   blanca, justo por debajo del minimo. */
 .adhoc-doc-status.adhoc-badge-info {
-  color: var(--adhoc-info);
+  color: var(--adhoc-info-dark);
 }
 
 /* ── Celda de archivo (legacy `.link-btn`) ──────────────────────────────
