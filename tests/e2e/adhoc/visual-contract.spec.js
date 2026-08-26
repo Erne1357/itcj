@@ -16,7 +16,27 @@
  *   · el contraste de las acciones irreversibles del SGC cumple WCAG AA.
  */
 const { test, expect } = require('@playwright/test');
-const { gotoAdhoc } = require('./_helpers');
+const { gotoAdhoc, newApiContext, cleanupAdhoc, E2E } = require('./_helpers');
+
+/** La categoría que el caso de la edición en línea necesita para tener fila. */
+const CATEGORIA = `${E2E}cat_contrato_visual`;
+let PUEDE_CREAR = false;
+
+// Sin una fila en el catálogo no hay botón de editar, y el caso del check
+// invisible se saltaba en silencio — que es como ese defecto llegó a
+// producción. La fila la crea el propio caso y `cleanupAdhoc()` la barre.
+test.beforeAll(async () => {
+  await cleanupAdhoc();
+  const api = await newApiContext();
+  try {
+    const alta = await api.post('/document-categories', { items: [{ name: CATEGORIA }] }, [200, 201, 403]);
+    PUEDE_CREAR = alta.status !== 403;
+  } finally {
+    await api.dispose();
+  }
+});
+
+test.afterAll(() => cleanupAdhoc());
 
 test.use({ viewport: { width: 1600, height: 900 } });
 
@@ -136,10 +156,14 @@ test('el botón de guardar de la edición en línea se ve', async ({ page }) => 
   // Guerra de especificidad real: `.adhoc-catalog .adhoc-actions .adhoc-btn-icon`
   // (0,3,0) quita el fondo de `.btn-primary` (0,1,0) pero no su `color`, así que
   // el check quedaba blanco sobre fila blanca en las cuatro pantallas de catálogo.
+  test.skip(!PUEDE_CREAR, 'el usuario de prueba no tiene permiso de alta en catálogos');
   await gotoAdhoc(page, '/adhoc/documentos/categorias');
 
-  const editar = page.locator('[data-adhoc-action="edit"]').first();
-  if ((await editar.count()) === 0) test.skip(true, 'no hay filas de catálogo que editar');
+  const fila = page.locator(`tr:has-text("${CATEGORIA}")`).first();
+  await expect(fila, 'no apareció la categoría que crea beforeAll').toBeVisible();
+
+  const editar = fila.locator('[data-adhoc-action="edit"]').first();
+  await expect(editar, 'la fila no trae botón de editar').toBeVisible();
   await editar.click();
 
   const guardar = page.locator('[data-adhoc-action="save"]').first();

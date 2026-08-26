@@ -19,7 +19,32 @@
  * destino QUEDA VIVO, no que el HTML llegó (eso ya lo cubre boosted-head).
  */
 const { test, expect } = require('@playwright/test');
-const { gotoAdhoc, ADHOC_SHELL } = require('./_helpers');
+const { gotoAdhoc, ADHOC_SHELL, newApiContext, cleanupAdhoc, E2E } = require('./_helpers');
+
+// Dos casos dependen de poder abrir el alta de un catálogo. Antes hacían
+// `test.skip` si el botón no estaba, lo que confundía DOS cosas distintas: que
+// el usuario de prueba no tenga permiso (motivo legítimo para saltar) y que la
+// pantalla esté muerta (que es justo el defecto que el caso persigue). Ahora se
+// comprueba el permiso UNA vez, contra la API, y si lo hay el caso es
+// obligatorio.
+let PUEDE_CREAR = false;
+
+test.beforeAll(async () => {
+  await cleanupAdhoc();
+  const api = await newApiContext();
+  try {
+    const alta = await api.post(
+      '/document-categories',
+      { items: [{ name: `${E2E}cat_ciclo_de_vida` }] },
+      [200, 201, 403]
+    );
+    PUEDE_CREAR = alta.status !== 403;
+  } finally {
+    await api.dispose();
+  }
+});
+
+test.afterAll(() => cleanupAdhoc());
 
 test.use({ viewport: { width: 1600, height: 900 } });
 
@@ -96,8 +121,9 @@ test.describe('el módulo de la pantalla de destino queda vivo', () => {
     // Prueba viva: el botón de alta abre SU modal. Si catalog-crud no reenganchó
     // la sección nueva, el clic no hace nada; si quedaron listeners del catálogo
     // anterior, abriría el modal equivocado.
+    test.skip(!PUEDE_CREAR, 'el usuario de prueba no tiene permiso de alta en catálogos');
     const alta = page.locator('[data-adhoc-catalog-new]');
-    if ((await alta.count()) === 0) test.skip(true, 'el usuario de prueba no tiene alta');
+    await expect(alta, 'el usuario puede crear pero el botón de alta no se pintó').toBeVisible();
     await alta.click();
     await expect(page.locator('[data-adhoc-catalog-modal="document-classifications"]')).toBeVisible();
     await expect(page.locator('[data-adhoc-catalog-modal="document-categories"]')).toHaveCount(0);
@@ -135,8 +161,9 @@ test.describe('nada se acumula al ir y venir', () => {
     await gotoAdhoc(page, '/adhoc/panel/configuracion');
     await navegar(page, 'a[href="/adhoc/documentos/categorias"]');
 
+    test.skip(!PUEDE_CREAR, 'el usuario de prueba no tiene permiso de alta en catálogos');
     const alta = page.locator('[data-adhoc-catalog-new]');
-    if ((await alta.count()) === 0) test.skip(true, 'el usuario de prueba no tiene alta');
+    await expect(alta, 'el usuario puede crear pero el botón de alta no se pintó').toBeVisible();
     await alta.click();
     await expect(page.locator('[data-adhoc-catalog-modal="document-categories"]')).toBeVisible();
 

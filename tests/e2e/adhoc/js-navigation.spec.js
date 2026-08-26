@@ -21,7 +21,26 @@
  * llegar a verse.
  */
 const { test, expect } = require('@playwright/test');
-const { gotoAdhoc, ADHOC_SHELL } = require('./_helpers');
+const { gotoAdhoc, ADHOC_SHELL, newApiContext, cleanupAdhoc, E2E_YEAR_MIN } = require('./_helpers');
+
+/** Año del rango reservado (2090-2099) que `cleanupAdhoc()` barre al terminar. */
+const ANIO = E2E_YEAR_MIN + 3;
+
+// El tablero de indicadores necesita un año para tener filas. Antes los dos
+// casos hacían `test.skip` si no había ninguno — y en una base recién sembrada
+// eso son dos casos en verde que no prueban nada. Se crea aquí y se borra al
+// final, como el resto de la suite de adhoc.
+test.beforeAll(async () => {
+  await cleanupAdhoc();
+  const api = await newApiContext();
+  try {
+    await api.post('/indicator-years', { years: [ANIO] }, [200, 201]);
+  } finally {
+    await api.dispose();
+  }
+});
+
+test.afterAll(() => cleanupAdhoc());
 
 test.use({ viewport: { width: 1600, height: 900 } });
 
@@ -105,8 +124,8 @@ test.describe('las transiciones del flujo de trabajo son fluidas', () => {
   test('la fila de un año abre su tablero sin recargar', async ({ page }) => {
     await gotoAdhoc(page, '/adhoc/indicadores');
 
-    const fila = page.locator('tr[data-id]').first();
-    if ((await fila.count()) === 0) test.skip(true, 'no hay años registrados');
+    const fila = page.locator('tr[data-id]', { hasText: String(ANIO) }).first();
+    await expect(fila, `no apareció la fila del año ${ANIO} que crea beforeAll`).toBeVisible();
 
     await fila.click();
     await asentar(page);
@@ -121,8 +140,8 @@ test.describe('las transiciones del flujo de trabajo son fluidas', () => {
     // como enlace. La primera celda tiene que llevar un <a href> real.
     await gotoAdhoc(page, '/adhoc/indicadores');
 
-    const fila = page.locator('tr[data-id]').first();
-    if ((await fila.count()) === 0) test.skip(true, 'no hay años registrados');
+    const fila = page.locator('tr[data-id]', { hasText: String(ANIO) }).first();
+    await expect(fila, `no apareció la fila del año ${ANIO} que crea beforeAll`).toBeVisible();
 
     const enlace = fila.locator('a[href]').first();
     await expect(enlace, 'la fila del año no tiene ningún enlace real').toHaveCount(1);
