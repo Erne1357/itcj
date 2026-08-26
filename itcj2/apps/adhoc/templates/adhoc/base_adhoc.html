@@ -124,7 +124,7 @@
 
   {# Utils de Adhoc: toast, confirmDialog, modales, logout, fetchJson, navigate
      (prohibidos alert/confirm/prompt). #}
-  <script src="/static/adhoc/js/adhoc-utils.js?v={{ sv('js/adhoc-utils.js') }}"></script>
+  <script id="adhoc-mod-adhoc-utils" src="/static/adhoc/js/adhoc-utils.js?v={{ sv('js/adhoc-utils.js') }}"></script>
 
   {# Filtrado de tablas por data-adhoc-filter-key. Va en el base a propósito:
      toda pantalla que use la macro data_table() con columnas filtrables lo
@@ -132,7 +132,7 @@
      sería silencioso (los inputs se pintan pero no filtran). Sin tablas en la
      página no hace nada. Los otros dos módulos compartidos (catalog-crud.js y
      user-picker.js) sí son opt-in: solo los carga quien los usa. #}
-  <script src="/static/adhoc/js/shared/table-filter.js?v={{ sv('js/shared/table-filter.js') }}"></script>
+  <script id="adhoc-mod-shared-table-filter" src="/static/adhoc/js/shared/table-filter.js?v={{ sv('js/shared/table-filter.js') }}"></script>
 
   {# Detecta iframe → marca body.in-mobile-iframe y enlaza el botón "volver"
      (postMessage CLOSE_APP al parent). #}

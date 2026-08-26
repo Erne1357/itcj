@@ -467,7 +467,7 @@
      {% endblock %}
      {% block modals %}{{ catalog_modal("document-categories", singular="categoría") }}{% endblock %}
      {% block extra_js %}
-       <script src="/static/adhoc/js/shared/catalog-crud.js?v={{ sv('js/shared/catalog-crud.js') }}"></script>
+       <script id="adhoc-mod-shared-catalog-crud" src="/static/adhoc/js/shared/catalog-crud.js?v={{ sv('js/shared/catalog-crud.js') }}"></script>
      {% endblock %}
 
    (table-filter.js no hace falta declararlo: ya viene en base_adhoc.html.)
@@ -479,7 +479,11 @@
 #}
 {% macro catalog_page(title, resource, api_path, back_url, singular='registro', plural=None, subtitle=None, icon='fa-solid fa-tags', name_label='Nombre', can_create=True, can_update=True, can_delete=True, empty_message=None) %}
   {%- set _plural = plural or (singular ~ 's') -%}
-  <section class="adhoc-catalog" data-adhoc-catalog
+  {# El id lleva el recurso porque esta macro sirve a CINCO pantallas: sin
+     discriminar, idiomorph conservaria la seccion al ir de un catalogo a
+     otro y catalog-crud.js acabaria con sus listeners duplicados sobre el
+     mismo nodo. #}
+  <section id="adhoc-page-catalog-{{ resource }}" class="adhoc-catalog" data-adhoc-catalog
            data-adhoc-resource="{{ resource }}"
            data-adhoc-api="{{ api_path }}"
            data-adhoc-singular="{{ singular }}"

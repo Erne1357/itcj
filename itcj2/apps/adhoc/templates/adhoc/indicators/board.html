@@ -37,7 +37,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-indicator-board" data-adhoc-indicator-board>
+<section id="adhoc-page-indicator-board" class="adhoc-indicator-board" data-adhoc-indicator-board>
   <div class="adhoc-card adhoc-board-card">
 
     <div class="adhoc-page-head">
@@ -126,5 +126,5 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/indicators/board.js?v={{ sv('js/indicators/board.js') }}"></script>
+<script id="adhoc-mod-indicators-board" src="/static/adhoc/js/indicators/board.js?v={{ sv('js/indicators/board.js') }}"></script>
 {% endblock %}

@@ -40,7 +40,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-assign" data-adhoc-assign>
+<section id="adhoc-page-assign" class="adhoc-assign" data-adhoc-assign>
   <div class="adhoc-card adhoc-assign-card">
 
     {% call page_header(page_title, page_subtitle, page_icon) %}
@@ -69,6 +69,6 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/shared/user-picker.js?v={{ sv('js/shared/user-picker.js') }}"></script>
-<script src="/static/adhoc/js/work/assignments.js?v={{ sv('js/work/assignments.js') }}"></script>
+<script id="adhoc-mod-shared-user-picker" src="/static/adhoc/js/shared/user-picker.js?v={{ sv('js/shared/user-picker.js') }}"></script>
+<script id="adhoc-mod-work-assignments" src="/static/adhoc/js/work/assignments.js?v={{ sv('js/work/assignments.js') }}"></script>
 {% endblock %}

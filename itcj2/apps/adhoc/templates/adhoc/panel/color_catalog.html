@@ -23,7 +23,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-color-catalog"
+<section id="adhoc-page-color-catalog" class="adhoc-color-catalog"
          data-adhoc-color-catalog
          data-adhoc-resource="{{ resource }}"
          data-adhoc-api="{{ api_path }}"
@@ -138,5 +138,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="/static/adhoc/js/panel/color-catalog.js?v={{ sv('js/panel/color-catalog.js') }}"></script>
+<script id="adhoc-mod-panel-color-catalog" src="/static/adhoc/js/panel/color-catalog.js?v={{ sv('js/panel/color-catalog.js') }}"></script>
 {% endblock %}

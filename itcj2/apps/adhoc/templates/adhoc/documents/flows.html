@@ -40,7 +40,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-flows" data-adhoc-flows>
+<section id="adhoc-page-flows" class="adhoc-flows" data-adhoc-flows>
 
   <div class="adhoc-card adhoc-doc-card">
 
@@ -116,5 +116,5 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/documents/flows.js?v={{ sv('js/documents/flows.js') }}"></script>
+<script id="adhoc-mod-documents-flows" src="/static/adhoc/js/documents/flows.js?v={{ sv('js/documents/flows.js') }}"></script>
 {% endblock %}

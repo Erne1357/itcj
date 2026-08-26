@@ -39,7 +39,7 @@
 {# `.adhoc-tasks` es la `.tasks-section` del legacy: 98 % centrado con 20 px de
    aire propio DENTRO del contenedor de 1200 px. De ahí el desplazamiento del
    tablero respecto a la fila de tarjetas de navegación. #}
-<section class="adhoc-tasks">
+<section id="adhoc-page-tasks" class="adhoc-tasks">
   <div class="adhoc-tasks-head">
     <h1 class="adhoc-tasks-title">Hola, <span class="adhoc-tasks-name">{{ user_name }}</span>. Estas son tus tareas pendientes:</h1>
   </div>
@@ -262,5 +262,5 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/dashboard/dashboard.js?v={{ sv('js/dashboard/dashboard.js') }}"></script>
+<script id="adhoc-mod-dashboard-dashboard" src="/static/adhoc/js/dashboard/dashboard.js?v={{ sv('js/dashboard/dashboard.js') }}"></script>
 {% endblock %}

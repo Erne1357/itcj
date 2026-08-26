@@ -24,7 +24,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-users" data-adhoc-users
+<section id="adhoc-page-users" class="adhoc-users" data-adhoc-users
          data-adhoc-api="/api/adhoc/v2/users"
          data-adhoc-areas-api="/api/adhoc/v2/areas"
          data-adhoc-can-assign-role="{{ 1 if can_assign_role else 0 }}"
@@ -113,5 +113,5 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/panel/users.js?v={{ sv('js/panel/users.js') }}"></script>
+<script id="adhoc-mod-panel-users" src="/static/adhoc/js/panel/users.js?v={{ sv('js/panel/users.js') }}"></script>
 {% endblock %}

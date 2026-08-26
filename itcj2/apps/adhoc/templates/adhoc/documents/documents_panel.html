@@ -46,7 +46,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-doc-panel" data-adhoc-doc-panel>
+<section id="adhoc-page-doc-panel" class="adhoc-doc-panel" data-adhoc-doc-panel>
 
   <div class="adhoc-card adhoc-doc-card">
 
@@ -252,6 +252,6 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/documents/document-list.js?v={{ sv('js/documents/document-list.js') }}"></script>
-<script src="/static/adhoc/js/documents/documents-panel.js?v={{ sv('js/documents/documents-panel.js') }}"></script>
+<script id="adhoc-mod-documents-document-list" src="/static/adhoc/js/documents/document-list.js?v={{ sv('js/documents/document-list.js') }}"></script>
+<script id="adhoc-mod-documents-documents-panel" src="/static/adhoc/js/documents/documents-panel.js?v={{ sv('js/documents/documents-panel.js') }}"></script>
 {% endblock %}

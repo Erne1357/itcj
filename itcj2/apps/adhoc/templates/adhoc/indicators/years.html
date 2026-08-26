@@ -36,7 +36,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-indicator-years" data-adhoc-indicator-years>
+<section id="adhoc-page-indicator-years" class="adhoc-indicator-years" data-adhoc-indicator-years>
   <div class="adhoc-card adhoc-years-card">
 
     <div class="adhoc-page-head">
@@ -124,5 +124,5 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/indicators/years.js?v={{ sv('js/indicators/years.js') }}"></script>
+<script id="adhoc-mod-indicators-years" src="/static/adhoc/js/indicators/years.js?v={{ sv('js/indicators/years.js') }}"></script>
 {% endblock %}

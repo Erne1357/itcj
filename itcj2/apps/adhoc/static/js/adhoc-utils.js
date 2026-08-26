@@ -362,38 +362,118 @@
         });
     }
 
-    // ==================== INIT IDEMPOTENTE ====================
+    // ==================== CICLO DE VIDA DE LOS MODULOS ====================
 
-    var _readyCounter = 0;
-    var _callbacks = [];
+    /*
+     * El problema que resuelve este bloque
+     * ------------------------------------
+     * El bloque `extra_js` vive DENTRO de #adhoc-root, la caja que HTMX
+     * intercambia, asi que los modulos de seccion entran y salen con la
+     * pantalla. Idiomorph empareja nodo a nodo, y para un <script> el
+     * emparejamiento es por `id` si lo hay y por POSICION si no. Sin `id`
+     * pasaba esto:
+     *
+     *   pantalla A (1 modulo) -> pantalla B (1 modulo)
+     *      idiomorph reescribe el `src` del mismo nodo, y un <script> ya
+     *      ejecutado NO se vuelve a ejecutar porque le cambien el src: B se
+     *      pinta entera y se queda muerta.
+     *   pantalla sin modulos -> pantalla B
+     *      el <script> entra como nodo nuevo y SI se ejecuta.
+     *
+     * O sea: el mismo par de pantallas se comportaba distinto segun por donde
+     * hubieras pasado antes. Con id="adhoc-mod-..." en cada <script> el
+     * emparejamiento es por identidad y los dos caminos coinciden: si el modulo
+     * cambia, el nodo se sustituye y se ejecuta; si es el mismo (los cinco
+     * catalogos comparten shared/catalog-crud.js), el nodo se conserva y NO se
+     * re-ejecuta -- para eso esta `onReady`, que vuelve a correr en cada
+     * `htmx:afterSettle`.
+     *
+     * Dos consecuencias que hay que sostener a mano:
+     *
+     *   1. Un modulo puede ejecutarse VARIAS veces por sesion. Todo registro se
+     *      indexa por el modulo que lo hizo (`document.currentScript`), asi que
+     *      volver a registrarse SUSTITUYE en vez de acumular. Antes cada
+     *      re-ejecucion anadia un callback que no se retiraba nunca y
+     *      `htmx:afterSettle` acababa recorriendo callbacks de pantallas por
+     *      las que ya no estas.
+     *   2. Un modulo puede DESAPARECER sin avisar. Lo que haya dejado abierto
+     *      (un modal, un temporizador, una peticion en vuelo) se recoge en
+     *      `onTeardown`, que corre en `htmx:beforeSwap`.
+     */
+
+    var _registros = Object.create(null);   // clave de modulo -> {ready, teardown, marca}
+    var _orden = [];                        // el orden de registro, que importa
     var _htmxBound = false;
-    // Generacion de swap. La guarda de idempotencia se ata a ESTO y no al nodo:
-    // con hx-boost el target es <body>, que idiomorph CONSERVA entre navegaciones
-    // aunque su contenido se reemplace entero. Marcando el nodo con un '1' fijo,
-    // un modulo compartido (table-filter) se daba por inicializado en la primera
-    // carga y no volvia a ejecutarse en ninguna pagina posterior.
-    var _generation = 0;
+    // Generacion de intercambio. La guarda de idempotencia se ata a ESTO y no al
+    // nodo: #adhoc-root sobrevive al intercambio (idiomorph lo morphea, no lo
+    // sustituye), asi que una marca fija haria que el callback corriera una sola
+    // vez en toda la sesion.
+    var _generacion = 0;
 
     /**
-     * Ejecuta `fn` en la carga inicial Y tras cada swap de HTMX
-     * (htmx:afterSettle), que es cuando la navegación morph reemplaza el DOM.
-     * Se ejecuta una vez por nodo y por generación de swap; dentro de una misma
-     * generación no se repite. Enganchar dos veces el MISMO elemento sigue siendo
-     * responsabilidad del módulo (guarda `dataset.*Bound` sobre ese elemento).
+     * Identidad del modulo que esta ejecutandose. `document.currentScript` solo
+     * vale durante la ejecucion SINCRONA del script, que es justo cuando los
+     * modulos llaman a onReady/onTeardown desde su IIFE.
+     * @returns {string}
+     */
+    function claveDeModulo() {
+        var sc = document.currentScript;
+        if (sc) {
+            if (sc.id) return sc.id;
+            var src = sc.getAttribute('src');
+            if (src) return src.split('?')[0];
+        }
+        // Fuera de la ejecucion sincrona no hay forma de saberlo: se le da una
+        // clave propia para no pisar el registro de nadie.
+        return 'anon-' + (_orden.length + 1);
+    }
+
+    function registro(clave) {
+        if (!_registros[clave]) {
+            _registros[clave] = { ready: [], teardown: [], marca: 'r' + _orden.length };
+            _orden.push(clave);
+        }
+        return _registros[clave];
+    }
+
+    /**
+     * Ejecuta `fn` en la carga inicial Y tras cada intercambio de HTMX.
      *
      *   AdhocUtils.onReady(function (root) { ... });
+     *   AdhocUtils.onReady('[data-adhoc-catalog]', function (root) { ... });
      *
-     * @param {Function} fn recibe el elemento raíz (document.body o el target del swap)
+     * Con selector, el callback SOLO corre si ese enganche existe en el DOM: un
+     * modulo cuyo <script> se conserva entre pantallas (los catalogos comparten
+     * el suyo) deja de correr en pantallas que no son la suya.
+     *
+     * Se ejecuta una vez por nodo y por generacion de intercambio. Enganchar dos
+     * veces el MISMO elemento sigue siendo responsabilidad del modulo (guarda
+     * `dataset.*Bound` sobre ese elemento).
+     *
+     * @param {string|Function} selector enganche obligatorio, o el propio callback
+     * @param {Function} [fn] callback; recibe el elemento raiz
      */
-    function onReady(fn) {
+    function onReady(selector, fn) {
+        var enganche = null;
+        if (typeof selector === 'function') {
+            fn = selector;
+        } else {
+            enganche = selector;
+        }
         if (typeof fn !== 'function') return;
-        var flag = 'adhocInit' + (++_readyCounter);
+
+        var reg = registro(claveDeModulo());
+        var flag = 'adhocInit' + reg.marca + '_' + reg.ready.length;
 
         function run(root) {
             var scope = root || document.body;
             if (!scope || !scope.dataset) return;
-            var marca = String(_generation);
-            if (scope.dataset[flag] === marca) return;   // ya corrió en esta generación
+            if (enganche) {
+                var hay = (scope.matches && scope.matches(enganche)) || scope.querySelector(enganche);
+                if (!hay) return;
+            }
+            var marca = String(_generacion);
+            if (scope.dataset[flag] === marca) return;   // ya corrio en esta generacion
             scope.dataset[flag] = marca;
             try {
                 fn(scope);
@@ -402,7 +482,7 @@
             }
         }
 
-        _callbacks.push(run);
+        reg.ready.push(run);
         bindHtmxOnce();
 
         if (document.readyState === 'loading') {
@@ -413,20 +493,104 @@
     }
 
     /**
-     * Un único listener de `htmx:afterSettle` para todos los callbacks. Antes se
-     * enganchaba uno por cada llamada a onReady, y como los módulos de página se
-     * re-ejecutan en cada navegación boosted, los listeners se acumulaban sin
-     * retirarse nunca durante toda la sesión.
+     * Registra el desmontaje del modulo. Corre en `htmx:beforeSwap`, ANTES de
+     * que el intercambio se lleve el DOM de la pantalla actual.
+     *
+     *   AdhocUtils.onTeardown(function () { clearTimeout(t); controlador.abort(); });
+     *
+     * Aqui va lo que sobrevive al DOM: temporizadores, `AbortController`,
+     * intervalos, suscripciones. Lo que este colgado de un nodo que se va no
+     * hace falta recogerlo.
+     * @param {Function} fn
+     */
+    function onTeardown(fn) {
+        if (typeof fn !== 'function') return;
+        registro(claveDeModulo()).teardown.push(fn);
+        bindHtmxOnce();
+    }
+
+    /** Estado de los registros. Para las pruebas; la app no lo usa. */
+    function debugRegistros() {
+        return _orden.map(function (clave) {
+            return {
+                clave: clave,
+                ready: _registros[clave].ready.length,
+                teardown: _registros[clave].teardown.length
+            };
+        });
+    }
+
+    /**
+     * Deja el `<body>` como estaba: sin clases de bloqueo, sin el
+     * `overflow`/`padding-right` en linea que pone Bootstrap y sin velos
+     * huerfanos.
+     *
+     * Hace falta porque el nodo del modal se va con el intercambio y su
+     * `closeModal()` (o el `hide()` de Bootstrap) ya no llega a correr: la
+     * pantalla siguiente aparecia sin poder desplazarse.
+     */
+    function limpiarModales() {
+        var abiertos = document.querySelectorAll('.adhoc-modal.is-open');
+        for (var i = 0; i < abiertos.length; i++) closeModal(abiertos[i]);
+
+        if (window.bootstrap && window.bootstrap.Modal) {
+            var bs = document.querySelectorAll('.modal.show');
+            for (var j = 0; j < bs.length; j++) {
+                try {
+                    var inst = window.bootstrap.Modal.getInstance(bs[j]);
+                    if (inst) inst.hide();
+                } catch (e) { /* el nodo ya no existe: da igual */ }
+                bs[j].classList.remove('show');
+                bs[j].style.removeProperty('display');
+                bs[j].setAttribute('aria-hidden', 'true');
+            }
+        }
+
+        var velos = document.querySelectorAll('.modal-backdrop');
+        for (var k = 0; k < velos.length; k++) velos[k].remove();
+
+        document.body.classList.remove('adhoc-modal-open');
+        document.body.classList.remove('modal-open');
+        document.body.style.removeProperty('overflow');
+        document.body.style.removeProperty('padding-right');
+    }
+
+    /**
+     * Un unico par de listeners para todos los modulos, sobre `document`, que
+     * sobrevive a cualquier intercambio.
      */
     function bindHtmxOnce() {
-        if (_htmxBound || !document.body) return;
+        if (_htmxBound) return;
         _htmxBound = true;
-        document.body.addEventListener('htmx:afterSettle', function (evt) {
-            _generation++;
+
+        function desmontar() {
+            limpiarModales();
+            for (var i = 0; i < _orden.length; i++) {
+                var lista = _registros[_orden[i]].teardown;
+                for (var j = 0; j < lista.length; j++) {
+                    try { lista[j](); } catch (e) { console.error('[adhoc] error en onTeardown:', e); }
+                }
+            }
+        }
+
+        document.addEventListener('htmx:beforeSwap', desmontar);
+
+        // El boton ATRAS no pasa por `beforeSwap`: HTMX restaura la pantalla
+        // desde su cache de historial y solo emite `htmx:historyRestore`. Sin
+        // esto, abrir un modal y darle a atras dejaba el `<body>` con la clase
+        // de bloqueo y la pantalla siguiente sin poder desplazarse — que es
+        // ademas el camino mas comun: abrir el alta, cambiar de idea y volver.
+        document.addEventListener('htmx:historyRestore', desmontar);
+
+        document.addEventListener('htmx:afterSettle', function (evt) {
+            _generacion++;
             var target = (evt && evt.target && evt.target.dataset) ? evt.target : document.body;
-            for (var i = 0; i < _callbacks.length; i++) {
-                _callbacks[i](target);
-                if (target !== document.body) _callbacks[i](document.body);
+            for (var i = 0; i < _orden.length; i++) {
+                var lista = _registros[_orden[i]].ready;
+                for (var j = 0; j < lista.length; j++) {
+                    lista[j](target);
+                    if (target !== document.body) lista[j](document.body);
+                }
             }
         });
     }
@@ -450,6 +614,8 @@
         fetchJson: fetchJson,
         extractError: extractError,
         pageData: pageData,
-        onReady: onReady
+        onReady: onReady,
+        onTeardown: onTeardown,
+        debugRegistros: debugRegistros
     };
 })();

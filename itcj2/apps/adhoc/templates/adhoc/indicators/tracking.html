@@ -35,7 +35,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-indicator-tracking" data-adhoc-indicator-tracking>
+<section id="adhoc-page-indicator-tracking" class="adhoc-indicator-tracking" data-adhoc-indicator-tracking>
 
   {# Barra de título del legacy (.header-section): tarjeta blanca propia, con
      el año en violeta y el botón gris de volver a la derecha. #}
@@ -189,5 +189,5 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/indicators/tracking.js?v={{ sv('js/indicators/tracking.js') }}"></script>
+<script id="adhoc-mod-indicators-tracking" src="/static/adhoc/js/indicators/tracking.js?v={{ sv('js/indicators/tracking.js') }}"></script>
 {% endblock %}

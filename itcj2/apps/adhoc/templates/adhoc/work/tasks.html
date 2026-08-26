@@ -39,7 +39,9 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-worktasks" data-adhoc-tasks>
+{# El id lleva el tipo de expediente: la misma plantilla pinta las tareas de
+   una incidencia y las de un evento de programa. #}
+<section id="adhoc-page-worktasks-{{ parent_type }}" class="adhoc-worktasks" data-adhoc-tasks>
   <div class="adhoc-card adhoc-worktasks-card">
 
     {% call page_header('Tareas del Expediente: ' ~ (parent.folio or parent.title),
@@ -132,5 +134,5 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/work/tasks.js?v={{ sv('js/work/tasks.js') }}"></script>
+<script id="adhoc-mod-work-tasks" src="/static/adhoc/js/work/tasks.js?v={{ sv('js/work/tasks.js') }}"></script>
 {% endblock %}

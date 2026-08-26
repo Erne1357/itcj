@@ -43,7 +43,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-flow-steps" data-adhoc-flow-steps>
+<section id="adhoc-page-flow-steps" class="adhoc-flow-steps" data-adhoc-flow-steps>
 
   <div class="adhoc-card adhoc-doc-card">
 
@@ -137,6 +137,6 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/shared/user-picker.js?v={{ sv('js/shared/user-picker.js') }}"></script>
-<script src="/static/adhoc/js/documents/flow-steps.js?v={{ sv('js/documents/flow-steps.js') }}"></script>
+<script id="adhoc-mod-shared-user-picker" src="/static/adhoc/js/shared/user-picker.js?v={{ sv('js/shared/user-picker.js') }}"></script>
+<script id="adhoc-mod-documents-flow-steps" src="/static/adhoc/js/documents/flow-steps.js?v={{ sv('js/documents/flow-steps.js') }}"></script>
 {% endblock %}

@@ -27,7 +27,7 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-mail" data-adhoc-mail
+<section id="adhoc-page-mail" class="adhoc-mail" data-adhoc-mail
          data-adhoc-api="/api/adhoc/v2/mail-config"
          data-adhoc-can-update="{{ 1 if can_update else 0 }}">
 
@@ -72,5 +72,5 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/panel/mail.js?v={{ sv('js/panel/mail.js') }}"></script>
+<script id="adhoc-mod-panel-mail" src="/static/adhoc/js/panel/mail.js?v={{ sv('js/panel/mail.js') }}"></script>
 {% endblock %}

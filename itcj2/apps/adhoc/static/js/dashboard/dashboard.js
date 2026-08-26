@@ -59,7 +59,6 @@
     /** Estado del modal abierto. Se reinicia en cada apertura. */
     var state = { taskId: null, status: null, hasComments: false, busy: false };
 
-    var wired = false;
 
     // ==================== HELPERS DE DOM ====================
 
@@ -497,8 +496,20 @@
     }
 
     function init() {
-        if (wired) return;
-        wired = true;
+        // La guarda va en <html>, NO en una variable de modulo. Este archivo se
+        // ejecuta de nuevo cada vez que vuelves al tablero desde otra pantalla
+        // (idiomorph retira su <script> al salir y lo inserta al volver), asi que
+        // una variable de modulo arranca en false cada vez y los dos listeners
+        // se acumulaban sobre `document`, que sobrevive a todo. Con dos copias de
+        // `onDocumentClick`, cada una con su propio `state`, la guarda
+        // `state.busy` deja de servir: un clic en "Aprobar" abria dos dialogos y
+        // mandaba DOS POST de flujo sobre la misma tarea del SGC.
+        //
+        // <html> es el unico nodo que ni el morph ni una navegacion boosted
+        // tocan. Es el mismo patron de work-items.js, tasks.js y assignments.js.
+        if (document.documentElement.dataset.adhocDashboardBound === '1') return;
+        document.documentElement.dataset.adhocDashboardBound = '1';
+
         // Delegación en `document`: el morph de HTMX puede reemplazar tanto las
         // tarjetas como el modal sin que haya que reenganchar nada.
         document.addEventListener('click', onDocumentClick);

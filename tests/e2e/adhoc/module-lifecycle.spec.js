@@ -67,29 +67,40 @@ test.describe('el módulo de la pantalla de destino queda vivo', () => {
     expect(await vivos(page), 'dashboard.js no llegó a correr').toHaveProperty('AdhocDashboard');
   });
 
-  test('ida y vuelta entre dos catálogos que comparten módulo', async ({ page }) => {
+  test('de un catálogo a otro, compartiendo el mismo módulo', async ({ page }) => {
     // Las cinco pantallas de catálogo cargan el MISMO shared/catalog-crud.js.
-    // Idiomorph conserva el nodo (mismo src) y NO lo re-ejecuta: el módulo tiene
-    // que re-inicializarse por `htmx:afterSettle`, no por volver a ejecutarse.
-    await gotoAdhoc(page, '/adhoc/documentos/categorias');
-    await expect(page.locator('[data-adhoc-catalog]')).toBeAttached();
+    // Idiomorph conserva ese <script> (mismo id, mismo src) y NO lo re-ejecuta:
+    // el módulo tiene que reengancharse por `htmx:afterSettle`, no por volver a
+    // ejecutarse. Lo que sí se sustituye es la <section>, cuyo id lleva el
+    // recurso; si no lo llevara, los listeners del catálogo anterior seguirían
+    // colgados del mismo nodo y cada acción se dispararía dos veces.
+    await gotoAdhoc(page, '/adhoc/panel/configuracion');
+    await navegar(page, 'a[href="/adhoc/documentos/categorias"]');
+    await expect(page.locator('[data-adhoc-catalog]')).toHaveAttribute(
+      'data-adhoc-resource',
+      'document-categories'
+    );
 
-    await gotoAdhoc(page, '/adhoc/documentos/panel');
+    // El "Volver" de un catalogo lleva a SU seccion (/adhoc/documentos), no a
+    // configuracion: para llegar al segundo catalogo se pasa por la barra.
+    await navegar(page, '.adhoc-nav-link[href="/adhoc/panel"]');
+    await navegar(page, 'a.adhoc-tile[href="/adhoc/panel/configuracion"]');
     await navegar(page, 'a[href="/adhoc/documentos/clasificaciones"]');
 
     const seccion = page.locator('[data-adhoc-catalog]');
-    await expect(seccion).toBeAttached();
-    expect(
-      await seccion.getAttribute('data-adhoc-resource'),
-      'la sección es la de la pantalla nueva'
-    ).toBe('document-classifications');
+    await expect(seccion, 'la sección es la de la pantalla nueva').toHaveAttribute(
+      'data-adhoc-resource',
+      'document-classifications'
+    );
 
-    // Prueba viva: el botón de alta abre su modal. Si catalog-crud no reenganchó
-    // la sección nueva, el clic no hace nada.
+    // Prueba viva: el botón de alta abre SU modal. Si catalog-crud no reenganchó
+    // la sección nueva, el clic no hace nada; si quedaron listeners del catálogo
+    // anterior, abriría el modal equivocado.
     const alta = page.locator('[data-adhoc-catalog-new]');
     if ((await alta.count()) === 0) test.skip(true, 'el usuario de prueba no tiene alta');
     await alta.click();
     await expect(page.locator('[data-adhoc-catalog-modal="document-classifications"]')).toBeVisible();
+    await expect(page.locator('[data-adhoc-catalog-modal="document-categories"]')).toHaveCount(0);
   });
 });
 
@@ -121,13 +132,20 @@ test.describe('nada se acumula al ir y venir', () => {
     // corre y el `<body>` se queda con la clase de bloqueo (o con el
     // `overflow:hidden` + `padding-right` en línea que pone Bootstrap): la
     // pantalla siguiente aparece sin poder desplazarse.
-    await gotoAdhoc(page, '/adhoc/documentos/categorias');
+    await gotoAdhoc(page, '/adhoc/panel/configuracion');
+    await navegar(page, 'a[href="/adhoc/documentos/categorias"]');
+
     const alta = page.locator('[data-adhoc-catalog-new]');
     if ((await alta.count()) === 0) test.skip(true, 'el usuario de prueba no tiene alta');
     await alta.click();
     await expect(page.locator('[data-adhoc-catalog-modal="document-categories"]')).toBeVisible();
 
-    await navegar(page, '.adhoc-nav-link[href="/adhoc/dashboard"]');
+    // Con el modal abierto el velo tapa la barra, así que la única navegación
+    // que un usuario puede lanzar de verdad es la del botón atrás. Es además el
+    // camino que más se da: abrir el alta, cambiar de idea y volver.
+    await page.goBack();
+    await expect(page.locator(ADHOC_SHELL)).toBeVisible();
+    await page.waitForTimeout(900);
 
     const estado = await page.evaluate(() => ({
       clases: document.body.className,

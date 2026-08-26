@@ -64,7 +64,9 @@
 {% endblock %}
 
 {% block content %}
-<section class="adhoc-work" data-adhoc-work>
+{# El id lleva el tipo porque esta base sirve a incidencias Y a programa;
+   ver la nota de la macro catalog_page(). #}
+<section id="adhoc-page-work-{{ page_data.kind }}" class="adhoc-work" data-adhoc-work>
   <div class="adhoc-card adhoc-work-card">
 
     {% call page_header(page_title, page_subtitle, page_icon) %}
@@ -239,6 +241,6 @@
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
-<script src="/static/adhoc/js/work/work-items.js?v={{ sv('js/work/work-items.js') }}"></script>
+<script id="adhoc-mod-work-work-items" src="/static/adhoc/js/work/work-items.js?v={{ sv('js/work/work-items.js') }}"></script>
 {% block work_page_js %}{% endblock %}
 {% endblock %}
