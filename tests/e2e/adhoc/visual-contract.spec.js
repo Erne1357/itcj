@@ -159,16 +159,79 @@ test('el botón de guardar de la edición en línea se ve', async ({ page }) => 
 });
 
 test('los iconos de acción conservan su color al pasar el ratón', async ({ page }) => {
+  // Se mide sobre botones SINTÉTICOS con las clases que emite work-items.js, y
+  // el :hover se fuerza por CDP. Depender de que existan incidencias en la base
+  // convertía el caso en un `skip` silencioso — que es justo como este defecto
+  // sobrevivió a una suite de 6198 líneas.
+  //
+  // DOS TRAMPAS, las dos pisadas al escribir esto:
+  //   · `DOM.getDocument` sin `depth: -1` no baja el árbol completo y el nodeId
+  //     no resuelve contra el nodo que interesa;
+  //   · `.adhoc-icon-btn` tiene `transition: .2s`, así que leer el color justo
+  //     después de forzar el pseudo devuelve el valor de PARTIDA y el caso pasa
+  //     en vacío. Hay que esperar a que la transición termine.
+  //
+  // El caso se autovalida: `adhoc-icon-primary` (la variante por defecto) SÍ
+  // debe teñirse de lila, y eso demuestra que la sonda detecta cambios de color.
   await gotoAdhoc(page, '/adhoc/incidencias');
 
-  const icono = page.locator('.adhoc-icon-task, .adhoc-icon-doc').first();
-  if ((await icono.count()) === 0) test.skip(true, 'no hay incidencias con iconos de acción');
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('DOM.enable');
+  await cdp.send('CSS.enable');
 
-  const reposo = await icono.evaluate((el) => getComputedStyle(el).color);
-  await icono.hover();
-  const encima = await icono.evaluate((el) => getComputedStyle(el).color);
+  /** Color en reposo y con :hover asentado, para un botón con esas clases. */
+  async function colores(variante) {
+    await page.evaluate((v) => {
+      const previo = document.getElementById('probe-icono');
+      if (previo) previo.remove();
+      const fila = document.createElement('div');
+      fila.id = 'probe-icono';
+      fila.className = 'adhoc-actions';
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'adhoc-icon-btn ' + v;
+      b.textContent = 'x';
+      fila.appendChild(b);
+      const main = document.querySelector('#adhoc-main');
+      if (main) main.appendChild(fila);
+    }, variante);
 
-  expect(encima, 'el icono cae al gris de la celda al pasar el ratón').toBe(reposo);
+    const sel = '#probe-icono button';
+    const reposo = await page.locator(sel).evaluate((el) => getComputedStyle(el).color);
+
+    const { root } = await cdp.send('DOM.getDocument', { depth: -1 });
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: sel });
+    expect(nodeId, `no se resolvió el nodo de ${variante}`).toBeTruthy();
+
+    await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: ['hover'] });
+    await page.waitForTimeout(400); // la transición es de .2s
+    const encima = await page.locator(sel).evaluate((el) => getComputedStyle(el).color);
+    await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] });
+
+    return { reposo, encima };
+  }
+
+  // Control negativo: la variante por defecto SÍ cambia (se tiñe de lila).
+  const defecto = await colores('adhoc-icon-primary');
+  expect(
+    defecto.encima,
+    'la sonda no detecta cambios de color: el resto del caso no probaría nada'
+  ).not.toBe(defecto.reposo);
+
+  // Lo que se vigila: las variantes con color propio lo conservan.
+  const perdidos = [];
+  for (const variante of ['adhoc-icon-task', 'adhoc-icon-doc', 'adhoc-icon-trash']) {
+    const { reposo, encima } = await colores(variante);
+    if (encima !== reposo) perdidos.push(variante + ': ' + reposo + ' -> ' + encima);
+  }
+
+  await page.evaluate(() => {
+    const probe = document.getElementById('probe-icono');
+    if (probe) probe.remove();
+  });
+  await cdp.detach();
+
+  expect(perdidos, 'iconos que pierden su color al pasar el raton: ' + perdidos.join(' | ')).toEqual([]);
 });
 
 test('las acciones irreversibles del SGC cumplen contraste AA', async ({ page }) => {

@@ -200,8 +200,16 @@
         input.select();
 
         var actions = tr.querySelector('.adhoc-actions');
+        // OJO con la variante: dentro de `.adhoc-catalog .adhoc-actions` la hoja
+        // quita el fondo del boton (adhoc.css: `.adhoc-catalog .adhoc-actions
+        // .adhoc-btn-icon`, 0,3,0) pero NO su `color`, asi que un `.btn-primary`
+        // (0,1,0) se quedaba con su texto blanco sobre la fila blanca: el check
+        // de confirmar era invisible en las cuatro pantallas de catalogo, ni
+        // siquiera al pasar el raton. Las variantes `outline` ya traen el color
+        // en el texto, que es justo lo que sobrevive al quitarles el fondo, y son
+        // ademas las que usan los otros dos botones de la misma fila.
         actions.innerHTML =
-            '<button type="button" class="btn btn-sm btn-primary adhoc-btn-icon" ' +
+            '<button type="button" class="btn btn-sm btn-outline-primary adhoc-btn-icon" ' +
             'data-adhoc-action="save" title="Guardar" aria-label="Guardar">' + icon('fa-solid fa-check') + '</button>' +
             '<button type="button" class="btn btn-sm btn-outline-secondary adhoc-btn-icon" ' +
             'data-adhoc-action="cancel" title="Cancelar" aria-label="Cancelar">' + icon('fa-solid fa-xmark') + '</button>';

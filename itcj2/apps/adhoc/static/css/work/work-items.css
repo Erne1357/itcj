@@ -112,11 +112,25 @@
 .adhoc-icon-task { color: var(--adhoc-green-flat); }
 .adhoc-icon-doc  { color: var(--adhoc-blue-flat); }
 
+/* Cada variante de color REPITE su color en :hover, que es la convencion de
+   adhoc.css (`.adhoc-icon-danger:hover`, `.adhoc-icon-warning:hover`…). Hacen
+   falta dos veces:
+     · el `.adhoc-icon-btn:hover` de arriba tine de lila TODO icono de estas dos
+       pantallas, y con la misma especificidad (0,2,0) gana el que se declara
+       despues — estos;
+     · aqui habia un `color: inherit` que hacia caer los tres al gris de la
+       celda, justo lo contrario de lo que dice el bloque de arriba y de lo que
+       hace la pantalla hermana de tareas.
+   El realce al pasar el raton lo pone el `transform: scale(1.2)` del componente
+   comun, no un cambio de color. */
 .adhoc-icon-task:hover,
+.adhoc-icon-task:focus-visible { color: var(--adhoc-green-flat); }
+
 .adhoc-icon-doc:hover,
-.adhoc-icon-trash:hover {
-  color: inherit;
-}
+.adhoc-icon-doc:focus-visible { color: var(--adhoc-blue-flat); }
+
+.adhoc-icon-trash:hover,
+.adhoc-icon-trash:focus-visible { color: var(--adhoc-danger); }
 
 /* La columna de acciones del legacy centra sus iconos con 12px de separación. */
 .adhoc-work-table .adhoc-actions {
@@ -162,6 +176,14 @@
   color: var(--adhoc-danger);
   margin-left: var(--adhoc-space-xs);
   animation: adhoc-overdue-blink 1.5s infinite;
+}
+
+/* El guard de adhoc.css (`@media (prefers-reduced-motion: reduce)`) no llega
+   hasta aqui: tiene la misma especificidad (0,1,0) que la regla de arriba y su
+   hoja se carga ANTES, asi que pierde. Hay que repetirlo en la hoja de pagina o
+   el icono sigue parpadeando indefinidamente para quien pidio no ver movimiento. */
+@media (prefers-reduced-motion: reduce) {
+  .adhoc-overdue { animation: none; }
 }
 
 /* Parpadeo propio: el generico de adhoc.css baja a .35, este a .3. */
