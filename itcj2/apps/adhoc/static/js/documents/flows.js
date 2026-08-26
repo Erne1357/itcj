@@ -122,6 +122,10 @@
         if (window.AdhocTableFilter && this.table) {
             window.AdhocTableFilter.apply(this.table);
         }
+
+        // El enlace "Configurar pasos" lo pinta este modulo, asi que HTMX no lo
+        // ve hasta que se le da de alta: sin esto recargaria la pagina entera.
+        U.enlazar(this.body);
     };
 
     Flows.prototype.buildRow = function (flow) {
@@ -167,6 +171,8 @@
 
         // Enlace real: se puede abrir en otra pestaña. El legacy hacía
         // window.location.href dentro de un listener.
+        // Lo pinta el JS, así que HTMX no lo ve hasta que el módulo llama a
+        // `AdhocUtils.enlazar()` sobre el cuerpo de la tabla (ver render()).
         var steps = document.createElement('a');
         steps.className = 'adhoc-icon-action';
         steps.href = STEPS_URL + encodeURIComponent(flow.id) + '/pasos';

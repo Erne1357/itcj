@@ -439,9 +439,16 @@
             });
             closeModal();
             U.showToast((body && body.message) || 'Acción procesada exitosamente.', 'success');
-            // El tablero se arma server-side: recargar es la forma más simple y
-            // barata de reflejar el nuevo estado de la tarea y de su padre.
-            setTimeout(function () { window.location.reload(); }, 1200);
+            // El tablero se arma server-side, así que hay que volver a pedirlo;
+            // lo que ya NO se hace es recargar el documento entero. Antes eran
+            // 1,2 s mirando el tablero desactualizado y después una recarga
+            // completa —volviendo a bajar HTMX, Bootstrap y las fuentes— en la
+            // accion más repetida de la app.
+            //
+            // Los 400 ms son para que dé tiempo a leer el toast antes de que el
+            // tablero se repinte debajo; sin ellos, el aviso y el cambio ocurren
+            // a la vez y cuesta relacionarlos.
+            setTimeout(function () { U.navigate(window.location.pathname + window.location.search); }, 400);
         } catch (err) {
             U.showToast(err.message, 'error');
             state.busy = false;

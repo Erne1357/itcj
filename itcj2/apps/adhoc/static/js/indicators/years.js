@@ -102,6 +102,10 @@
         if (window.AdhocTableFilter && this.table) {
             window.AdhocTableFilter.apply(this.table);
         }
+
+        // HTMX solo boostea lo que ha procesado, y no ve nada de lo que se mete
+        // con appendChild: sin esto, el enlace del año recargaría la página.
+        U.enlazar(this.body);
     };
 
     Years.prototype.buildRow = function (item) {
@@ -110,16 +114,30 @@
 
         var href = this.href(item.id);
         if (href) {
+            // Solo el aspecto de fila clicable. NADA de role="link" ni de
+            // tabindex sobre el <tr>: el enlace de verdad va en la celda del
+            // ano, y tener las dos cosas daria dos paradas de tabulacion para
+            // una sola accion.
             tr.classList.add('adhoc-row-click');
-            tr.setAttribute('tabindex', '0');
-            tr.setAttribute('role', 'link');
         }
 
         // Año — textContent, nunca innerHTML (aunque sea un entero del servidor).
+        // Va dentro de un <a> REAL cuando el año tiene destino: eso es lo que le
+        // da Ctrl+clic, "abrir en otra pestaña", destino en la barra de estado y
+        // anuncio como enlace al lector de pantalla. La fila con `role="link"` y
+        // un salto por JS no daba ninguna de las cuatro cosas.
         var tdYear = document.createElement('td');
         tdYear.setAttribute('data-adhoc-cell', 'year');
         tdYear.className = 'adhoc-years-value';
-        tdYear.textContent = String(item.year);
+        if (href) {
+            var enlaceYear = document.createElement('a');
+            enlaceYear.className = 'adhoc-years-link';
+            enlaceYear.href = href;
+            enlaceYear.textContent = String(item.year);
+            tdYear.appendChild(enlaceYear);
+        } else {
+            tdYear.textContent = String(item.year);
+        }
         tr.appendChild(tdYear);
 
         var tdCount = document.createElement('td');
@@ -279,20 +297,19 @@
                 return;
             }
 
+            // Un clic en cualquier parte de la fila abre el ano. El enlace
+            // real de la primera celda cubre el teclado y el Ctrl+clic.
+            if (evt.target.closest('a[href]')) return;   // el <a> se basta solo
             var tr = evt.target.closest('tr[data-id]');
             if (tr && self.targetBase) {
-                window.location.href = self.href(tr.getAttribute('data-id'));
+                U.navigate(self.href(tr.getAttribute('data-id')));
             }
         });
 
-        // La fila es role="link": Enter/Espacio la abren, como un <a>.
-        this.root.addEventListener('keydown', function (evt) {
-            if (evt.key !== 'Enter' && evt.key !== ' ') return;
-            var tr = evt.target.closest ? evt.target.closest('tr[data-id]') : null;
-            if (!tr || !self.targetBase) return;
-            evt.preventDefault();
-            window.location.href = self.href(tr.getAttribute('data-id'));
-        });
+        // El teclado ya no depende de la fila: la primera celda lleva un <a>
+        // real, que es enfocable, se anuncia como enlace, ensena el destino en
+        // la barra de estado y se puede abrir en otra pestana. La fila entera
+        // sigue siendo clicable con el raton por comodidad.
 
         if (this.qty) {
             this.qty.addEventListener('change', function () { self.buildFields(); });

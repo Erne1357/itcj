@@ -345,6 +345,57 @@ body.adhoc-shell {
 
 /* 3.2 Cabecera (legacy `.header-top`). Conserva el nombre de clase
    `.adhoc-appbar` porque hay tests de varias secciones que lo asertan. */
+/* ── Indicador de carga de la navegación ───────────────────────────────────
+   Una línea de 3px en el borde superior mientras HTMX pide una pantalla.
+
+   EL RETARDO ES LO IMPORTANTE. `AdhocUtils` pone la clase en cuanto arranca la
+   petición, pero la animación no empieza hasta pasados 350 ms y hasta entonces
+   la barra conserva su estado base, que es invisible (`animation-fill-mode:
+   forwards` no pinta nada durante el retardo; `backwards` sí lo haría, y por eso
+   NO se usa). En la red del ITCJ las pantallas llegan muy por debajo de ese
+   umbral, así que en el uso normal el indicador no se ve nunca: solo aparece
+   cuando de verdad hay espera. Un indicador que parpadea en cada clic estorba
+   más de lo que informa.
+
+   La barra no llega nunca al 100 %: no se sabe cuánto falta, y fingirlo con una
+   barra que se planta en el 90 % es lo honesto. Al terminar, la clase se
+   retira y desaparece.
+   ────────────────────────────────────────────────────────────────────────── */
+.adhoc-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: var(--adhoc-primary);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1100;
+}
+
+.adhoc-loading .adhoc-progress {
+  animation: adhoc-progress 8s cubic-bezier(.15, .75, .25, 1) 350ms forwards;
+}
+
+@keyframes adhoc-progress {
+  0%   { transform: scaleX(0);   opacity: 1; }
+  40%  { transform: scaleX(.55); opacity: 1; }
+  100% { transform: scaleX(.92); opacity: 1; }
+}
+
+/* Sin movimiento: la barra aparece entera pasado el mismo retardo y se queda
+   quieta. Se conserva la señal, se quita la animación. */
+@media (prefers-reduced-motion: reduce) {
+  .adhoc-loading .adhoc-progress {
+    animation: none;
+    transform: scaleX(1);
+    opacity: 1;
+    transition: opacity 1ms linear 350ms;
+  }
+}
+
 .adhoc-appbar {
   display: flex;
   justify-content: space-between;

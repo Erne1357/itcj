@@ -221,10 +221,10 @@
     Tasks.prototype.goToAssign = function (task, action) {
         var base = this.data.assign_url || '/adhoc/asignaciones';
         var back = window.location.pathname + window.location.search;
-        window.location.href = base +
+        U.navigate(base +
             '?action=' + encodeURIComponent(action) +
             '&task_id=' + encodeURIComponent(task.id) +
-            '&return_to=' + encodeURIComponent(back);
+            '&return_to=' + encodeURIComponent(back));
     };
 
     // ---------- formulario ----------

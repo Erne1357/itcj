@@ -67,7 +67,7 @@
     };
 
     Assignments.prototype.leave = function () {
-        window.location.href = this.data.return_to || '/adhoc/dashboard';
+        U.navigate(this.data.return_to || '/adhoc/dashboard');
     };
 
     Assignments.prototype.save = function (button) {

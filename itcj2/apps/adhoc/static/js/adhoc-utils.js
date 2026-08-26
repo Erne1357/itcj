@@ -362,6 +362,103 @@
         });
     }
 
+    // ==================== NAVEGACION ====================
+
+    /**
+     * Navega a una pantalla de la app SIN recargar el documento.
+     *
+     *   AdhocUtils.navigate('/adhoc/panel/usuarios');
+     *
+     * Es lo que hay que usar en lugar de `window.location.href` para cualquier
+     * ruta interna. Los cinco saltos que habia en los modulos (fila de un ano ->
+     * su tablero, incidencia -> sus tareas, tarea -> asignaciones, asignaciones
+     * -> volver, y la recarga del tablero tras una accion de flujo) encadenaban
+     * recargas duras dentro de una app que por lo demas navega con morph: el
+     * ciclo tarea -> asignacion -> vuelta eran TRES seguidas.
+     *
+     * COMO: no llama a `htmx.ajax`, sino que fabrica un <a> real dentro de la
+     * caja, deja que HTMX lo procese y le hace clic. Asi la navegacion recorre
+     * EXACTAMENTE el mismo camino que la de un enlace de la plantilla —el mismo
+     * target, el mismo `morph:outerHTML`, el mismo empujon al historial y la
+     * misma fusion del <head> por head-support— en vez de una copia paralela que
+     * habria que mantener en sintonia. Sin HTMX (o sin la caja) cae en una
+     * navegacion normal, que sigue funcionando.
+     *
+     * @param {string} url ruta interna
+     */
+    function navigate(url) {
+        var destino = String(url || '');
+        var raiz = document.getElementById('adhoc-root');
+        if (!destino) return;
+        if (!window.htmx || !raiz) {
+            window.location.href = destino;
+            return;
+        }
+        var a = document.createElement('a');
+        a.href = destino;
+        a.hidden = true;                       // adhoc.css oculta todo [hidden]
+        a.setAttribute('data-adhoc-nav', '');
+        raiz.appendChild(a);
+        window.htmx.process(a);                // hereda hx-boost/target/swap de la caja
+        a.click();
+        // El ancla se retira cuando la peticion TERMINA, no en el siguiente tick.
+        // HTMX emite `htmx:afterRequest` sobre el elemento que la lanzo, y un
+        // nodo ya desconectado no burbujea hasta `document`: el indicador de
+        // carga se quedaba encendido para siempre porque su contador nunca
+        // bajaba. Si el intercambio sale bien, el ancla se va con el (es hija de
+        // la caja); esto cubre el caso en que la peticion falla.
+        a.addEventListener('htmx:afterRequest', function () {
+            if (a.parentNode) a.parentNode.removeChild(a);
+        });
+    }
+
+    /**
+     * Da de alta ante HTMX los enlaces que un modulo acaba de inyectar.
+     *
+     * HTMX solo boostea lo que ha procesado, y no ve nada de lo que se mete con
+     * `innerHTML` o `appendChild`. Un modulo que pinte un <a> a una ruta interna
+     * tiene que llamar a esto con el contenedor; si no, ese enlace recargara la
+     * pagina entera. Los enlaces de DESCARGA no deben pasar por aqui (o hay que
+     * marcarlos con hx-boost="false"): tienen que ser navegaciones de verdad.
+     *
+     * @param {Element} root contenedor recien pintado
+     */
+    function enlazar(root) {
+        if (root && window.htmx) window.htmx.process(root);
+    }
+
+    // ==================== INDICADOR DE CARGA ====================
+
+    /*
+     * Antes no habia ninguno. Mientras la navegacion recargaba el documento, el
+     * propio parpadeo del navegador hacia de senal; al quitarlo, el usuario se
+     * quedo sin saber si su clic habia hecho algo.
+     *
+     * El retardo NO esta aqui sino en el CSS (`animation-delay`), y es
+     * deliberado: la clase se pone en cuanto arranca la peticion, pero la barra
+     * no se pinta hasta pasado ese retardo. En la red del ITCJ las pantallas
+     * llegan muy por debajo de ese umbral, asi que en el uso normal el
+     * indicador NO llega a verse nunca — solo aparece cuando de verdad hay
+     * espera. Un indicador que parpadea en cada clic estorba mas de lo que
+     * informa.
+     */
+    var _peticiones = 0;
+
+    function bindIndicador() {
+        document.addEventListener('htmx:beforeRequest', function () {
+            _peticiones++;
+            document.body.classList.add('adhoc-loading');
+        });
+        function fin() {
+            _peticiones = Math.max(0, _peticiones - 1);
+            if (_peticiones === 0) document.body.classList.remove('adhoc-loading');
+        }
+        document.addEventListener('htmx:afterRequest', fin);
+        document.addEventListener('htmx:sendError', fin);
+        document.addEventListener('htmx:timeout', fin);
+        document.addEventListener('htmx:responseError', fin);
+    }
+
     // ==================== CICLO DE VIDA DE LOS MODULOS ====================
 
     /*
@@ -596,9 +693,10 @@
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', bindGlobal);
+        document.addEventListener('DOMContentLoaded', function () { bindGlobal(); bindIndicador(); });
     } else {
         bindGlobal();
+        bindIndicador();
     }
 
     // ==================== EXPORT ====================
@@ -616,6 +714,8 @@
         pageData: pageData,
         onReady: onReady,
         onTeardown: onTeardown,
+        navigate: navigate,
+        enlazar: enlazar,
         debugRegistros: debugRegistros
     };
 })();

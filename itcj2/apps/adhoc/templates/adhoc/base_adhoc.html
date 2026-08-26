@@ -76,6 +76,14 @@
 </head>
 <body class="adhoc-shell" hx-ext="morph,head-support">
 
+  {# Indicador de carga de la navegación. Vive FUERA de la caja porque tiene que
+     seguir en pantalla justo mientras la caja se sustituye.
+     No aparece en cada clic: el retardo lo pone el `animation-delay` de
+     adhoc.css, así que en una respuesta rápida —lo normal en la red del ITCJ—
+     no llega a pintarse. Lo enciende y lo apaga AdhocUtils con la clase
+     `adhoc-loading` del <body>. #}
+  <div class="adhoc-progress" id="adhoc-progress" aria-hidden="true"></div>
+
   {# Overlay de "cerrando sesión" (los dos engranes del legacy). Lo enciende
      AdhocUtils al pulsar "Salir". Vive FUERA de #adhoc-root: si la navegación
      y el cierre de sesión se pisan, el overlay no debe irse con el intercambio. #}

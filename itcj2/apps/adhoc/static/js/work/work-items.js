@@ -718,7 +718,7 @@
     WorkItems.prototype.goToTasks = function (item) {
         var template = this.data.tasks_url;
         if (!template) return;
-        window.location.href = template.replace('{id}', encodeURIComponent(item.id));
+        U.navigate(template.replace('{id}', encodeURIComponent(item.id)));
     };
 
     // ---------- listeners (delegados, cero onclick inline) ----------
