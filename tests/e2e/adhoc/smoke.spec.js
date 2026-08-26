@@ -145,7 +145,12 @@ test('las 29 páginas restantes responden y renderizan contenido', async ({ page
 test('el nav de la app navega con hx-boost (sin full reload)', async ({ page }) => {
   await gotoAdhoc(page, '/adhoc/dashboard');
 
-  const nav = page.locator('nav.adhoc-nav[hx-boost="true"]');
+  // El `hx-boost` ya no vive en el <nav>: lo declara la caja que se intercambia
+  // (#adhoc-root en base_adhoc.html) y lo heredan TODOS los enlaces de la app,
+  // no solo los cuatro de la barra. Ver navigation-integrity.spec.js.
+  await expect(page.locator('#adhoc-root[hx-boost="true"]')).toBeAttached();
+
+  const nav = page.locator('nav.adhoc-nav');
   await expect(nav).toBeVisible();
 
   const link = nav.locator('a.adhoc-nav-link[href="/adhoc/documentos"]');

@@ -36,18 +36,21 @@ const { gotoAdhoc, ADHOC_SHELL } = require('./_helpers');
 /** Ancho de viewport fijo: los asertos de contenedor son en píxeles. */
 const VIEWPORT = { width: 1600, height: 900 };
 
-/** Clases del `<body>` que NO dependen de la página (las pone el shell). */
-const CLASES_DEL_SHELL = new Set(['adhoc-shell', 'in-mobile-iframe']);
+/** Clase estructural de la caja; no dice nada de la página. */
+const CLASES_DEL_SHELL = ['adhoc-root'];
 
-/** Clases de página presentes en el `<body>`, sin las del shell. */
+/**
+ * Clases de página presentes en la caja que se intercambia (#adhoc-root),
+ * sin la estructural. Ahí es donde `{% block body_class %}` las escribe.
+ */
 const clasesDePagina = (page) =>
-  page.evaluate(
-    (shell) =>
-      Array.from(document.body.classList)
-        .filter((c) => !shell.includes(c))
-        .sort(),
-    Array.from(CLASES_DEL_SHELL)
-  );
+  page.evaluate((shell) => {
+    const root = document.getElementById('adhoc-root');
+    if (!root) throw new Error('no hay #adhoc-root: el shell no se renderizo');
+    return Array.from(root.classList)
+      .filter((c) => !shell.includes(c))
+      .sort();
+  }, CLASES_DEL_SHELL);
 
 /** Ancho renderizado del contenedor central. */
 const anchoContenedor = (page) =>
@@ -68,8 +71,8 @@ const sinRecarga = (page) => page.evaluate(() => !!(/** @type {any} */ (window).
 
 test.use({ viewport: VIEWPORT });
 
-test.describe('el <body> refleja la página en la que estás', () => {
-  test('llegar navegando deja el mismo <body class> que entrar directo', async ({ page }) => {
+test.describe('la caja intercambiada refleja la página en la que estás', () => {
+  test('llegar navegando deja las mismas clases de página que entrar directo', async ({ page }) => {
     // Referencia: /adhoc/panel cargado a pulso.
     await gotoAdhoc(page, '/adhoc/panel');
     const referencia = await clasesDePagina(page);
@@ -80,7 +83,7 @@ test.describe('el <body> refleja la página en la que estás', () => {
     await navegar(page, '.adhoc-nav-link[href="/adhoc/panel"]');
 
     expect(await sinRecarga(page), 'la nav debe navegar sin recargar').toBe(true);
-    expect(await clasesDePagina(page), 'el panel llegó sin su body_class').toEqual(referencia);
+    expect(await clasesDePagina(page), 'el panel llegó sin sus clases de página').toEqual(referencia);
   });
 
   test('salir de una página ancha NO deja el contenedor ancho en la siguiente', async ({ page }) => {
@@ -156,7 +159,7 @@ test.describe('toda navegación interna es fluida', () => {
     await expect(page.locator(ADHOC_SHELL)).toBeVisible();
     await expect(page).toHaveURL(/\/adhoc\/panel$/);
     await expect(page.locator('a.adhoc-tile[href="/adhoc/panel/areas"]')).toBeVisible();
-    expect(await clasesDePagina(page), 'el atrás dejó el body de la otra página').toContain(
+    expect(await clasesDePagina(page), 'el atrás dejó las clases de la otra página').toContain(
       'adhoc-panel-page'
     );
   });

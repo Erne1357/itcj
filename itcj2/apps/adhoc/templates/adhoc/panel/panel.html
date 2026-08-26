@@ -33,7 +33,7 @@
   </div>
 
   {% if tiles %}
-  <div class="adhoc-tile-grid adhoc-panel-grid" hx-boost="true">
+  <div class="adhoc-tile-grid adhoc-panel-grid">
     {% for tile in tiles %}
     <a class="adhoc-tile" href="{{ tile.url }}">
       <span class="adhoc-tile-icon"><i class="{{ tile.icon }}"></i></span>

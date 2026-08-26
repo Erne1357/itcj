@@ -110,7 +110,7 @@
             Aprob: {{ card.planned_green or '—' }}
           </span>
           {% if card.has_document and can_download %}
-          <a class="adhoc-legend-doc" href="/api/adhoc/v2/indicators/{{ card.id }}/download">
+          <a class="adhoc-legend-doc" href="/api/adhoc/v2/indicators/{{ card.id }}/download" hx-boost="false">
             <i class="fa-solid fa-paperclip"></i> Evidencia
           </a>
           {% endif %}

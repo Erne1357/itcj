@@ -8,13 +8,16 @@
    enlaces reales: las tarjetas del legacy eran <div onclick="location.href=…">,
    que además está prohibido aquí.
 
+   El `hx-boost` ya no vive aquí: lo pone #adhoc-root en base_adhoc.html y lo
+   hereda TODO enlace de la app, no solo estos cuatro.
+
    Los items los produce itcj2/apps/adhoc/pages/nav.py::nav_items() ya filtrados
    por permisos; la página los pasa en el contexto como `nav`. Si `nav` no viene
    (o viene vacío) no se pinta nada: fail-closed, nunca el menú completo.
    =========================================================================== #}
 {% set _nav = nav|default([]) %}
 {% if _nav %}
-<nav class="adhoc-nav" aria-label="Secciones de Calidad" hx-boost="true">
+<nav class="adhoc-nav" aria-label="Secciones de Calidad">
   <ul class="adhoc-nav-list">
     {% for item in _nav %}
       {% set _path = item.url.split('?')[0] %}

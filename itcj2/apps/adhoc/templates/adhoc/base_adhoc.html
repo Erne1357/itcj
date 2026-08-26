@@ -11,7 +11,10 @@
    Bloques disponibles (usar EXACTAMENTE estos nombres):
      title       — contenido del <title>
      extra_css   — <link> de la hoja de la página (siempre con ?v={{ sv(...) }})
-     body_class  — clases extra del <body>. Además de las propias de la página:
+     body_class  — clases de la PÁGINA. Van en #adhoc-root, no en el <body>
+                   (ver "LA CAJA QUE SE INTERCAMBIA", abajo). El nombre del
+                   bloque se conserva por compatibilidad con las 14 plantillas
+                   que ya lo declaran. Además de las propias de la página:
                      adhoc-wide   → contenedor al 98% (listados anchos)
                      adhoc-wider  → contenedor al 95% con 40px de padding
                      adhoc-print  → vista imprimible (reportes)
@@ -21,6 +24,33 @@
      extra_js    — <script id="adhoc-page-data" type="application/json"> + módulos
 
    Reglas duras (plan §6.2): cero <style>, cero style="...", cero onclick=.
+
+   ─── LA CAJA QUE SE INTERCAMBIA ────────────────────────────────────────────
+   Todo lo que cambia de una pantalla a otra vive dentro de #adhoc-root, y ESE
+   es el elemento que HTMX intercambia (hx-target + hx-select + morph:outerHTML).
+   Fuera se queda solo lo que es del shell y debe sobrevivir a la navegación:
+   el overlay de "cerrando sesión", el contenedor de toasts y los <script> de
+   la base.
+
+   Por qué NO se intercambia el <body> entero, que era lo de antes: hx-boost
+   apunta a `body` con swap `innerHTML`, y eso sustituye a los HIJOS del body
+   pero jamás toca su atributo `class`. Con las clases de página en el <body>
+   pasaba lo siguiente, medido en Chromium:
+
+     · llegar a /adhoc/panel navegando NO aplicaba `adhoc-panel-page`, así que
+       la misma URL se veía distinta según cómo hubieras llegado;
+     · salir de una pantalla `adhoc-wide` dejaba el contenedor al 98 % en la
+       siguiente (1568 px en vez de 1200 px con viewport de 1600).
+
+   Poniendo las clases en #adhoc-root el problema desaparece por construcción:
+   la clase viaja DENTRO del fragmento que se intercambia, así que es imposible
+   que se quede pegada ni que falte. Regresión cubierta por
+   tests/e2e/adhoc/navigation-integrity.spec.js.
+
+   Los <script> de la base quedan FUERA de la caja a propósito: al no entrar en
+   el intercambio no se re-ejecutan, y adhoc-utils.js deja de reinstalar sus
+   listeners globales en cada navegación (eran 15 listeners de `click` sobre
+   `document` en la carga inicial y 54 tras tres navegaciones).
    =========================================================================== #}
 <!doctype html>
 <html lang="es">
@@ -44,10 +74,11 @@
 
   {% block extra_css %}{% endblock %}
 </head>
-<body class="adhoc-shell {% block body_class %}{% endblock %}" hx-ext="morph,head-support">
+<body class="adhoc-shell" hx-ext="morph,head-support">
 
   {# Overlay de "cerrando sesión" (los dos engranes del legacy). Lo enciende
-     AdhocUtils al pulsar "Salir". #}
+     AdhocUtils al pulsar "Salir". Vive FUERA de #adhoc-root: si la navegación
+     y el cierre de sesión se pisan, el overlay no debe irse con el intercambio. #}
   <div class="adhoc-loading-overlay" id="adhoc-loader">
     <div class="adhoc-gears">
       <i class="fa-solid fa-gear adhoc-gear adhoc-gear-1"></i>
@@ -56,47 +87,22 @@
     <div class="adhoc-loading-text">CERRANDO SESIÓN...</div>
   </div>
 
-  {% block header %}
-  {# Cabecera del legacy: "Salir" a la izquierda, "Ayuda" a la derecha. El botón
-     de volver al inicio solo se ve dentro del iframe móvil del core. #}
-  <header class="adhoc-appbar">
-    <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
-      <i class="fa-solid fa-arrow-left"></i>
-    </button>
-    <button type="button" class="adhoc-btn-header adhoc-btn-salir" id="adhoc-logout" data-adhoc-logout>
-      <i class="fa-solid fa-arrow-right-from-bracket"></i> Salir
-    </button>
-    <a href="#" class="adhoc-btn-header adhoc-btn-ayuda">
-      <i class="fa-solid fa-circle-question"></i> Ayuda
-    </a>
-  </header>
-  {% endblock %}
-
-  <div class="adhoc-main-container">
-    {# Tarjetas de navegación (las 4 del legacy), filtradas por permisos en
-       pages/nav.py. #}
-    {% include "adhoc/partials/_nav.html" %}
-
-    <main class="adhoc-page" id="adhoc-main">
-      {% block content %}{% endblock %}
-    </main>
-  </div>
-
-  {# Modales: SIEMPRE aquí, a nivel <body>, DESPUÉS del contenedor principal y
-     FUERA de cualquier elemento con `transform` (o `filter`/`perspective`): esas
-     propiedades crean un containing block nuevo y rompen el position:fixed del
-     overlay, que quedaría recortado o desplazado. #}
-  {% block modals %}{% endblock %}
-
-  {# Contenedor de toasts. AdhocUtils.showToast() lo crea si falta, pero tenerlo
-     aquí evita que se pierda entre morphs de HTMX. #}
-  <div class="adhoc-toast-container" id="adhoc-toast-container"></div>
-
+  {# ── LOS SCRIPTS DE LA BASE VAN AQUI, ANTES DE LA CAJA ─────────────────
+     No es estetica: `{% block extra_js %}` vive DENTRO de #adhoc-root (tiene
+     que entrar y salir con la pagina), y un <script> se ejecuta en cuanto el
+     parser lo encuentra. Si estos fueran despues, cada modulo de pagina
+     correria con `window.AdhocUtils` todavia sin definir: `U.onReady` no
+     existiria, el modulo no se inicializaria y la pantalla quedaria pintada
+     pero muerta (el modal de alta "no abre").
+     Estar fuera de la caja tambien es deliberado: al no entrar en el
+     intercambio no se re-ejecutan, y adhoc-utils.js deja de reinstalar sus
+     listeners globales en cada navegacion.
+     ────────────────────────────────────────────────────────────────────── #}
   {# HTMX + Idiomorph (morph, sin parpadeo). Idiomorph SIEMPRE después de HTMX. #}
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
   <script src="https://unpkg.com/idiomorph@0.7.3/dist/idiomorph-ext.min.js"></script>
   {# head-support: fusiona el <head> de la respuesta en cada navegacion boosted.
-     Sin esto, hx-boost sustituye solo el <body>, asi que el <link> del bloque
+     Sin esto, el intercambio solo toca #adhoc-root, asi que el <link> del bloque
      extra_css de la pagina destino NUNCA llega: el <head> se queda con el CSS de
      la ultima pagina cargada a pulso. Sintomas que producia: pantallas sin su
      hoja (el tablero de tareas sin estilo tras volver del panel) y modales que
@@ -116,7 +122,7 @@
      borra. AdhocUtils ya no lo necesita para nada. #}
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  {# Utils de Adhoc: toast, confirmDialog, modales, logout, fetchJson
+  {# Utils de Adhoc: toast, confirmDialog, modales, logout, fetchJson, navigate
      (prohibidos alert/confirm/prompt). #}
   <script src="/static/adhoc/js/adhoc-utils.js?v={{ sv('js/adhoc-utils.js') }}"></script>
 
@@ -132,6 +138,73 @@
      (postMessage CLOSE_APP al parent). #}
   <script src="/static/core/js/apps/mobile-app-shell.js?v={{ sv_core('js/apps/mobile-app-shell.js') }}"></script>
 
-  {% block extra_js %}{% endblock %}
+  {# ── LA CAJA QUE SE INTERCAMBIA ──────────────────────────────────────────
+     hx-boost   → todo <a> de dentro navega por HTMX, no solo los cuatro de la
+                  barra. Los que NO deben hacerlo (descargas, otras apps,
+                  target="_blank") se marcan uno a uno con hx-boost="false".
+     hx-target  → el propio #adhoc-root.
+     hx-select  → de la respuesta se toma SOLO #adhoc-root; los <script> de la
+                  base, que van fuera, ni se miran.
+     hx-swap    → morph:outerHTML. Idiomorph reconcilia el árbol en vez de
+                  reconstruirlo: la cabecera y la fila de navegación sobreviven
+                  al cambio (nada de parpadeo) y el atributo `class` de la caja
+                  se actualiza con el de la página nueva.
+                  OJO: sin `hx-swap` la extensión `morph` está cargada pero no
+                  se usa NUNCA — el swap por defecto es `innerHTML`. Estuvo así
+                  y por eso cada navegación destruía el árbol entero.
+     ────────────────────────────────────────────────────────────────────── #}
+  <div id="adhoc-root" class="adhoc-root {% block body_class %}{% endblock %}"
+       hx-boost="true"
+       hx-target="#adhoc-root"
+       hx-select="#adhoc-root"
+       hx-swap="morph:outerHTML">
+
+    {% block header %}
+    {# Cabecera del legacy: "Salir" a la izquierda, "Ayuda" a la derecha. El botón
+       de volver al inicio solo se ve dentro del iframe móvil del core. #}
+    <header class="adhoc-appbar">
+      <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
+        <i class="fa-solid fa-arrow-left"></i>
+      </button>
+      <button type="button" class="adhoc-btn-header adhoc-btn-salir" id="adhoc-logout" data-adhoc-logout>
+        <i class="fa-solid fa-arrow-right-from-bracket"></i> Salir
+      </button>
+      {# TODO(producto): "Ayuda" no tiene destino todavía (viene así del legacy).
+         hx-boost="false" es obligatorio mientras siga siendo href="#": con boost
+         activo, HTMX lo tomaría por una navegación e iría a buscar la página
+         actual otra vez. #}
+      <a href="#" class="adhoc-btn-header adhoc-btn-ayuda" hx-boost="false">
+        <i class="fa-solid fa-circle-question"></i> Ayuda
+      </a>
+    </header>
+    {% endblock %}
+
+    <div class="adhoc-main-container">
+      {# Tarjetas de navegación (las 4 del legacy), filtradas por permisos en
+         pages/nav.py. #}
+      {% include "adhoc/partials/_nav.html" %}
+
+      <main class="adhoc-page" id="adhoc-main">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+
+    {# Modales: SIEMPRE aquí, al final de la caja y FUERA de cualquier elemento
+       con `transform` (o `filter`/`perspective`): esas propiedades crean un
+       containing block nuevo y rompen el position:fixed del overlay, que
+       quedaría recortado o desplazado. #adhoc-root no lleva ninguna de las
+       tres, así que este sitio es tan válido como el <body> y además hace que
+       los modales de la página entren y salgan con ella. #}
+    {% block modals %}{% endblock %}
+
+    {# El JS de la página entra y sale con ella. Los <script> de la base, no. #}
+    {% block extra_js %}{% endblock %}
+  </div>
+
+  {# Contenedor de toasts. Fuera de la caja a propósito: así un aviso lanzado
+     justo antes de navegar sigue en pantalla al llegar a la página siguiente.
+     AdhocUtils.showToast() lo crea si falta. #}
+  <div class="adhoc-toast-container" id="adhoc-toast-container"></div>
+
 </body>
 </html>

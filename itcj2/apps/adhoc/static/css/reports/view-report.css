@@ -179,7 +179,7 @@
   /* adhoc.css intenta blanquear el fondo con `.adhoc-print` (0,1,0), pero
      `body.adhoc-shell` (0,1,1) le gana y la hoja salía sobre el gris de la app.
      Este selector empata en especificidad y va después. */
-  body.adhoc-print {
+  .adhoc-root.adhoc-print {
     background: var(--adhoc-surface);
   }
 

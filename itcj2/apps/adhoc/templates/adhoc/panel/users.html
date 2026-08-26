@@ -35,7 +35,7 @@
   <div class="adhoc-card">
     {% call page_header("Usuarios", None, "fa-solid fa-users") %}
       {{ back_button("/adhoc/panel", "Volver al Panel") }}
-      <a class="btn btn-sm btn-outline-primary" href="{{ core_config_url }}">
+      <a class="btn btn-sm btn-outline-primary" href="{{ core_config_url }}" hx-boost="false">
         <i class="fa-solid fa-user-gear"></i>
         <span class="d-none d-sm-inline">Administrar personas</span>
       </a>
@@ -45,7 +45,7 @@
       <i class="fa-solid fa-circle-info me-2"></i>
       Aquí solo se administra lo que es de Calidad: el <strong>rol dentro de la app</strong> y las
       <strong>áreas</strong>. El alta de personas, las contraseñas y el acceso a la aplicación se
-      gestionan en <a href="{{ core_config_url }}">Configuración del ITCJ</a>.
+      gestionan en <a href="{{ core_config_url }}" hx-boost="false">Configuración del ITCJ</a>.
     </div>
 
     {{ data_table('adhoc-users-table', columns,
