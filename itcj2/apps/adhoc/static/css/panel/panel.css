@@ -19,25 +19,11 @@
    página, incluidas las del layout).
    ========================================================================== */
 
-/* Título de sección del legacy (`.section-title`): contenedor a 1.5rem, así que
-   el <h2> queda en 1.5em de eso (36px) y el icono en 24px, ambos en el color
-   del texto — el icono NO va en violeta aquí. */
-.adhoc-panel-head {
-  display: flex;
-  align-items: center;
-  gap: var(--adhoc-space-lg);
+/* El encabezado es el comun (`page_header()` + `.adhoc-page-title`): esta
+   pantalla ya no declara el suyo. Lo unico propio es el aire que deja debajo,
+   que en el legacy eran 25px. */
+.adhoc-panel-page .adhoc-page-head {
   margin-bottom: var(--adhoc-space-4xl);
-  font-size: var(--adhoc-fs-3xl);
-  color: var(--adhoc-dark);
-}
-
-/* El <h2> del legacy no declara line-height: hereda `normal`, que en Poppins
-   deja la caja en 55px (36px x ~1.53), no en los 43px de un 1.2. De ahi salian
-   12px de desfase que empujaban toda la rejilla hacia arriba. */
-.adhoc-panel-title {
-  margin: 0;
-  font-size: 1.5em;
-  font-weight: var(--adhoc-fw-bold);
 }
 
 /* Rejilla de TRES columnas fijas (`.panel-grid`), no auto-fill. */
@@ -75,25 +61,19 @@
   .adhoc-panel-grid { grid-template-columns: 1fr; }
 
   .adhoc-panel-grid .adhoc-tile { max-width: none; }
-
-  .adhoc-panel-head { font-size: var(--adhoc-fs-2xl); }
 }
 
-/* ── La fila de navegación, SOLO en esta pantalla ──────────────────────────
-   No es un capricho: en el legacy, control_panel.html mete su <link> dentro de
-   `{% block content %}`. El navegador iza ese <link> al <head>, y como queda
-   DESPUES de layout_dashboard.css, las reglas `.card` / `.card-icon` de
-   control_panel.css pisan tambien a las tarjetas del menu superior — que usan
-   esas mismas clases. Resultado: en /panel_control (y solo ahi) el menu mide
-   105px en vez de 95, el glifo del icono va a 1.5rem y el texto arranca 5px
-   antes. Es un accidente de cascada del original, pero es lo que se ve, asi
-   que se reproduce acotado al <body> de esta pagina. */
-.adhoc-panel-page .adhoc-nav-link {
-  padding: var(--adhoc-space-3xl);
-  text-align: center;
-}
+/* NO REPONER: aqui vivia el unico bloque de toda la app en el que una hoja de
+   pagina repintaba el shell. Reproducia un accidente de cascada del legacy
+   (control_panel.html metia su <link> dentro del `{% block content %}`, el
+   navegador lo izaba al <head> por detras de layout_dashboard.css, y sus reglas
+   `.card` / `.card-icon` alcanzaban tambien a las tarjetas del menu superior).
+   Efecto: en /adhoc/panel, y solo ahi, la barra de navegacion medra a 105px, el
+   glifo baja de 32px a 24px y el texto arranca 5px antes.
 
-.adhoc-panel-page .adhoc-nav-icon {
-  margin-bottom: var(--adhoc-space-lg);
-  font-size: var(--adhoc-fs-3xl);
-}
+   La barra es el UNICO elemento que persiste entre pantallas; que se redibuje
+   al navegar era el defecto mas visible del producto, y ademas se volvio mas
+   evidente al arreglar el intercambio de la caja (antes la clase de pagina no
+   llegaba cuando venias navegando, asi que el salto solo pasaba en carga
+   directa). Decision del dueno del producto: la barra mide lo mismo en las 30
+   pantallas. Cubierto por tests/e2e/adhoc/visual-contract.spec.js. */

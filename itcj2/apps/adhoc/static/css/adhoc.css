@@ -361,11 +361,6 @@ body.adhoc-shell {
   background-color: var(--adhoc-coral-tint);
 }
 
-.adhoc-btn-ayuda {
-  color: var(--adhoc-primary);
-  background-color: var(--adhoc-primary-tint);
-}
-
 .adhoc-btn-header:hover {
   transform: translateY(-2px);
   box-shadow: var(--adhoc-shadow);
@@ -445,6 +440,26 @@ body.adhoc-shell {
   color: var(--adhoc-dark);
   transform: translateY(-5px);
   box-shadow: var(--adhoc-shadow-hover);
+}
+
+/* Seccion en la que estas. `_nav.html` calcula `is-active` y `aria-current` en
+   el servidor desde el primer dia, pero NINGUNA hoja lo pintaba: la barra se
+   veia igual en las cuatro secciones y no habia forma de saber donde estabas.
+   El realce reutiliza los dos tintes del violeta que ya son el lenguaje de la
+   tarjeta (borde izquierdo y circulo del icono), sin mover un pixel: el borde
+   no cambia de grosor y el fondo tenido no altera la caja. */
+.adhoc-nav-link.is-active {
+  background: var(--adhoc-primary-soft);
+  box-shadow: inset 0 0 0 1px var(--adhoc-primary-tint-strong), var(--adhoc-shadow);
+}
+
+.adhoc-nav-link.is-active .adhoc-nav-icon {
+  color: var(--adhoc-surface);
+  background-color: var(--adhoc-primary);
+}
+
+.adhoc-nav-link.is-active .adhoc-nav-label {
+  color: var(--adhoc-primary);
 }
 
 .adhoc-nav-icon {
@@ -528,36 +543,13 @@ body.adhoc-shell {
   gap: var(--adhoc-space-lg);
 }
 
-/* ── Encabezado APILADO (icono en su propia linea, titulo debajo) ─────────
-   El legacy no tiene UN encabezado de pagina, tiene dos. En reports.css y en
-   control_panel.css el contenedor del icono+titulo es flex (`.header-title`,
-   `.section-title`) y sale en una sola linea. Pero en processes.css,
-   areas_conf.css, advanced_config.css e indicators_tracking.css ese contenedor
-   NO tiene ninguna regla: el <i> queda inline, el <h2> es un bloque, y el
-   navegador los parte en dos lineas. No es un descuido puntual — son cuatro
-   hojas distintas y son cuatro pantallas de las 24, asi que es lo que el
-   usuario ve al comparar. Aqui se reproduce solo en esas cuatro.
-
-   Se aplica por ancestro (no por una clase nueva en el markup) para no tocar
-   plantillas que los tests recorren. Para volver al encabezado en una sola
-   linea en todas partes, basta con borrar este bloque entero. */
-.adhoc-config-page .adhoc-page-head,
-.adhoc-color-catalog .adhoc-page-head,
-.adhoc-tracking-topbar .adhoc-page-head {
-  align-items: flex-start;
-}
-
-.adhoc-config-page .adhoc-page-title,
-.adhoc-color-catalog .adhoc-page-title,
-.adhoc-tracking-topbar .adhoc-page-title {
-  display: block;
-}
-
-.adhoc-config-page .adhoc-page-title > i,
-.adhoc-color-catalog .adhoc-page-title > i,
-.adhoc-tracking-topbar .adhoc-page-title > i {
-  display: block;
-}
+/* NO REPONER: aqui vivia el encabezado APILADO (icono en su propia linea,
+   titulo debajo) de cuatro pantallas. No era un diseno: en el legacy, cuatro
+   hojas distintas se olvidaron de dar reglas al contenedor de icono+titulo, el
+   <i> quedo inline, el <h2> en bloque, y el navegador los partio en dos lineas.
+   Se porto por fidelidad y era una de las cuatro formas en que el MISMO
+   componente se veia distinto segun la pantalla. Decision del dueno del
+   producto: un solo tratamiento de encabezado en toda la app. */
 
 /* Tarjeta contenedora (legacy `.table-container`). */
 .adhoc-card {
@@ -958,32 +950,13 @@ body.adhoc-shell {
   margin-bottom: var(--adhoc-space-2xl);
 }
 
-.adhoc-catalog .adhoc-page-title i,
-.adhoc-doc-card .adhoc-page-title i,
-.adhoc-board-card .adhoc-page-title i,
-.adhoc-tracking-topbar .adhoc-page-title i,
-.adhoc-years-card .adhoc-page-title i {
-  font-size: 1.8rem;
-}
-
-/* El <h2> del legacy va con la negrita del navegador (700), no con el 600 del
-   encabezado generico de la app. Otras cinco pantallas, otra regla repetida. */
-.adhoc-catalog .adhoc-page-title,
-.adhoc-color-catalog .adhoc-page-title,
-.adhoc-config-page .adhoc-page-title,
-.adhoc-users .adhoc-page-title,
-.adhoc-reports-head .adhoc-page-title {
-  font-weight: var(--adhoc-fw-bold);
-}
-
-/* Y en tres de ellas el icono NO va en violeta ni grande: se queda a 1rem y
-   del color del texto, porque su hoja del legacy nunca estiliza `.icon-title`. */
-.adhoc-color-catalog .adhoc-page-title i,
-.adhoc-config-page .adhoc-page-title i,
-.adhoc-users .adhoc-page-title i {
-  font-size: var(--adhoc-fs-base);
-  color: var(--adhoc-dark);
-}
+/* NO REPONER: tres bloques de excepcion mas del mismo encabezado. Entre los
+   tres, el MISMO markup rendia el icono a 16px, 21.6px o 28.8px y en dos
+   colores, y el titulo a 600 o a 700, segun en que pantalla estuvieras. Cada
+   uno estaba documentado como fidelidad al legacy y cada uno era una hoja del
+   original que se habia olvidado de estilizar algo. Decision del dueno del
+   producto: un solo tratamiento, 24px/600 con el icono a 1.35rem en violeta.
+   Vigilado por tests/e2e/adhoc/visual-contract.spec.js. */
 
 /* ── Pastilla de prioridad de fila ─────────────────────────────────────────
    Legacy `.badge-urgente` / `-media` / `-baja`. Identica en incidencias, en

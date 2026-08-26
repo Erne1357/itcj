@@ -40,12 +40,9 @@
   margin-bottom: 0;
 }
 
-/* El titulo del legacy es un <h2> pelado dentro de `.title-area`: hereda el
-   `bold` (700) del navegador, no el 600 del encabezado generico de la app. */
-.adhoc-tracking-topbar .adhoc-page-title {
-  font-size: 1.6rem;
-  font-weight: var(--adhoc-fw-bold);
-}
+/* NO REPONER: el titulo iba aqui a 25.6px/700 porque en el legacy era un <h2>
+   pelado que heredaba el bold del navegador. Era la quinta forma distinta del
+   mismo encabezado. Ahora usa la comun. */
 
 /* El año, en violeta (el legacy lo pintaba con un style en línea). */
 .adhoc-tracking-year {

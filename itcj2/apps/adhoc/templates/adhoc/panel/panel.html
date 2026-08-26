@@ -15,7 +15,7 @@
        del usuario, no un {% if is_admin %} cosmético.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
-{% from "adhoc/partials/_macros.html" import empty_state %}
+{% from "adhoc/partials/_macros.html" import page_header, empty_state %}
 
 {% block title %}Panel de Control · Calidad · ITCJ{% endblock %}
 
@@ -26,11 +26,11 @@
 {% endblock %}
 
 {% block content %}
-  {# Legacy `.section-title`: icono oscuro + <h2> grande, 25px de aire debajo. #}
-  <div class="adhoc-panel-head">
-    <i class="fa-solid fa-sliders"></i>
-    <h2 class="adhoc-panel-title">Panel de Control</h2>
-  </div>
+  {# El mismo encabezado que las otras 29 pantallas. El legacy lo pintaba a
+     36px/700 con el icono en gris (su `.section-title`), pero era el unico
+     sitio de la app con ese tratamiento y el salto de tamano al entrar aqui
+     era el cambio tipografico mas grande del producto. #}
+  {{ page_header("Panel de Control", None, "fa-solid fa-sliders") }}
 
   {% if tiles %}
   <div class="adhoc-tile-grid adhoc-panel-grid">

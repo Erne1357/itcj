@@ -169,13 +169,11 @@
       <button type="button" class="adhoc-btn-header adhoc-btn-salir" id="adhoc-logout" data-adhoc-logout>
         <i class="fa-solid fa-arrow-right-from-bracket"></i> Salir
       </button>
-      {# TODO(producto): "Ayuda" no tiene destino todavía (viene así del legacy).
-         hx-boost="false" es obligatorio mientras siga siendo href="#": con boost
-         activo, HTMX lo tomaría por una navegación e iría a buscar la página
-         actual otra vez. #}
-      <a href="#" class="adhoc-btn-header adhoc-btn-ayuda" hx-boost="false">
-        <i class="fa-solid fa-circle-question"></i> Ayuda
-      </a>
+      {# Aquí iba el "Ayuda" del legacy: un href="#" sin destino ni listener en
+         las 30 pantallas. Al pulsarlo saltaba al inicio del documento y metía
+         una entrada en el historial. Un control que no hace nada resta
+         confianza en el resto de la interfaz, así que se retira hasta que haya
+         contenido de ayuda que enseñar. #}
     </header>
     {% endblock %}
 

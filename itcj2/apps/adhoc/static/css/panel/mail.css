@@ -44,14 +44,14 @@
   color: var(--adhoc-primary);
 }
 
-/* Sin line-height: el <h2> del legacy hereda `normal` (35px de caja para estos
-   24px de Poppins). Un 1.2 lo dejaba en 28.8px y subia 6px todo lo que va
-   debajo — icono, interruptor y boton incluidos. */
+/* El tamano y el peso vienen de `.adhoc-page-title`, como en las otras 29
+   pantallas. Aqui solo se ajusta lo propio del hero: sin margen y centrado
+   (`.adhoc-page-title` es flex, asi que hay que centrar su contenido).
+   Antes declaraba `font-size: 1.5em`, uno de los dos unicos `em` de la app:
+   valia 24px aqui y 36px en el panel por tener otro ancestro. */
 .adhoc-mail-title {
   margin: 0;
-  color: var(--adhoc-dark);
-  font-size: 1.5em;
-  font-weight: var(--adhoc-fw-bold);
+  justify-content: center;
 }
 
 .adhoc-mail-text {
