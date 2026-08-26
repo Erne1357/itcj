@@ -87,6 +87,19 @@ def _seed_minimal_reference_data(_pg_engine):
     Si un test nuevo pega contra una app o rol que no está aquí, agrégalo a
     este fixture (no a `database/DML/`, que es solo para bootstrap local/staging
     — ver `core seed-reference-data` en `itcj2/cli/core.py`).
+
+    ── POR QUÉ ESTÁN LAS NUEVE APPS Y NO SOLO TRES ──
+    Estaban solo `itcj`, `helpdesk` y `maint`, y era una bomba de relojería: en
+    la BD de desarrollo las nueve filas existen, así que un test que consulta
+    `core_apps` de verdad pasa en local y solo revienta en CI, donde la BD se
+    construye vacía con `create_all`. Comprobado ejecutando la suite contra una
+    BD limpia: 20 fallos y 15 errores, todos con el mismo mensaje —
+    "App 'adhoc' no existe o está inactiva"— y ninguno visible en local.
+
+    La lista son las claves sobre las que el código pone un gate
+    (`require_app`, `require_page_app`, `require_perms`, `require_roles`). El
+    guard de `tests/fastapi/core/test_seed_cubre_las_apps.py` falla si alguien
+    añade una app y se olvida de esta lista.
     """
     from sqlalchemy import text
 
@@ -96,7 +109,13 @@ def _seed_minimal_reference_data(_pg_engine):
             VALUES
                 ('itcj', 'Plataforma ITCJ', true, false, true),
                 ('helpdesk', 'Help desk', true, false, true),
-                ('maint', 'Mantenimiento', true, false, true)
+                ('maint', 'Mantenimiento', true, false, true),
+                ('adhoc', 'Calidad', true, false, true),
+                ('agendatec', 'AgendaTec', true, true, true),
+                ('vistetec', 'VisteTec', true, true, true),
+                ('titulatec', 'TitulaTec', true, true, true),
+                ('warehouse', 'Almacen', true, false, true),
+                ('directory', 'Directorio', true, false, true)
             ON CONFLICT (key) DO NOTHING
         """))
         conn.execute(text("""
