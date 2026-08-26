@@ -33,7 +33,7 @@
 .adhoc-steps-hint-text {
   margin: 0;
   color: var(--adhoc-dark);
-  font-size: .95rem;
+  font-size: var(--adhoc-fs-base);
   line-height: 1.5;
 }
 
@@ -163,7 +163,7 @@
   padding: var(--adhoc-space-sm) var(--adhoc-space-xl);
   background: var(--adhoc-info-soft);
   border: 1px solid var(--adhoc-info-border);
-  border-radius: 20px;
+  border-radius: var(--adhoc-radius-pill);
   color: var(--adhoc-info);
   font-size: var(--adhoc-fs-md);
   font-weight: var(--adhoc-fw-bold);
@@ -178,5 +178,5 @@
 .adhoc-step-modal-hint {
   margin-bottom: .85rem;
   color: var(--adhoc-muted);
-  font-size: .875rem;
+  font-size: var(--adhoc-fs-lg);
 }

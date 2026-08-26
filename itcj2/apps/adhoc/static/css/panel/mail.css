@@ -95,7 +95,7 @@
   position: absolute;
   inset: 0;
   background-color: var(--adhoc-disabled);
-  border-radius: 34px;
+  border-radius: var(--adhoc-radius-pill);
   transition: .4s;
   pointer-events: none;
 }
@@ -147,7 +147,7 @@
 .adhoc-mail-readonly {
   margin: 0;
   color: var(--adhoc-muted);
-  font-size: .82rem;
+  font-size: var(--adhoc-fs-sm);
 }
 
 @media (max-width: 575.98px) {

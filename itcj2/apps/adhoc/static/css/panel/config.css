@@ -74,7 +74,7 @@
   flex-shrink: 0;
   width: 45px;
   height: 45px;
-  font-size: 1.3rem;
+  font-size: var(--adhoc-fs-2xl);
   color: var(--adhoc-primary);
   background-color: var(--adhoc-primary-tint);
   border-radius: var(--adhoc-radius-circle);
@@ -125,7 +125,7 @@
 }
 
 /* Regla de seguridad del legacy: en móvil las tarjetas se apilan. */
-@media (max-width: 768px) {
+@media (max-width: 767.98px) {
   .adhoc-config-grid {
     grid-template-columns: 1fr;
   }

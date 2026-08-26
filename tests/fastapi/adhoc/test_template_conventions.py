@@ -55,6 +55,13 @@ def _plantillas() -> list[tuple[str, str]]:
 RE_CONTROL = re.compile(r"<(button|a)\b(?P<attrs>[^>]*)>(?P<inner>.*?)</(?:button|a)>", re.S)
 RE_CLASE = re.compile(r'class="([^"]*)"')
 
+#: Un hex de 3 a 8 dígitos, o un `rgb()`/`rgba()`.
+RE_COLOR = r"(#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\))"
+
+#: Una clase usada de verdad: entre comillas, espacios o el punto de un selector.
+RE_USO_CLASE = r"[\s\"\'.]%s[\s\"\'{,:]"
+
+
 
 def _controles(fuente: str):
     for m in RE_CONTROL.finditer(fuente):
@@ -218,4 +225,109 @@ def test_los_controles_del_shell_tienen_foco_visible(selector):
         f"`{selector}` no declara `:focus-visible`. Es el control más repetido "
         "de la app (el «Volver» sale en 19 pantallas) y quien navega con teclado "
         "no puede saber dónde está."
+    )
+
+
+# ── 8. la capa de tokens es la fuente de verdad ────────────────────────────
+
+def _css_sin_comentarios(texto: str) -> str:
+    return re.sub(r"/\*.*?\*/", "", texto, flags=re.S)
+
+
+def _hojas_sin_root() -> list:
+    """Cada hoja sin comentarios y sin su bloque ``:root``."""
+    out = []
+    for ruta in sorted(HOJAS.rglob("*.css")):
+        s = _css_sin_comentarios(ruta.read_text(encoding="utf8"))
+        i = s.find(":root {")
+        if i >= 0:
+            s = s[:i] + s[s.index("}", i) + 1:]
+        out.append((ruta.name, s))
+    return out
+
+
+def test_ningun_color_vive_fuera_de_root():
+    """La capa 1 de adhoc.css lo declara, y durante la migración no se cumplía.
+
+    Un hex suelto en la hoja de una pantalla es un color que nadie puede cambiar
+    de golpe: para mover el violeta de la marca habría que abrir las 21 hojas.
+    """
+    sueltos = []
+    for nombre, cuerpo in _hojas_sin_root():
+        for m in re.finditer(RE_COLOR, cuerpo):
+            linea = cuerpo[: m.start()].count("\n") + 1
+            sueltos.append(nombre + ":" + str(linea) + " " + m.group(0))
+    assert not sueltos, (
+        "Colores fuera de `:root`. Todo color va como token; si el valor no "
+        "encaja en ningún escalón, se le da SU token en vez de escribirlo a "
+        "mano:\n  " + "\n  ".join(sueltos)
+    )
+
+
+def test_el_z_index_va_por_la_escala():
+    """Había siete números mágicos y ningún token: así se acaba inventando un 9999."""
+    sueltos = []
+    for nombre, cuerpo in _hojas_sin_root():
+        for m in re.finditer(r"z-index:\s*([^;]+);", cuerpo):
+            if "var(--adhoc-z-" not in m.group(1):
+                sueltos.append(nombre + ": z-index: " + m.group(1).strip())
+    assert not sueltos, (
+        "z-index sin token. La escala es --adhoc-z-{cell,cell-corner,sticky,"
+        "modal,toast,top}; si algo pide colarse entre dos escalones, el que "
+        "sobra es uno de los dos:\n  " + "\n  ".join(sueltos)
+    )
+
+
+#: Los tres cortes de la app, y sus pares `min-width`. Los `.98` evitan que un
+#: `max-width: 575.98` y un `min-width: 576` se solapen en el píxel fraccionario
+#: de una pantalla con escalado, que es donde aparecen los saltos de un píxel.
+BREAKPOINTS = {"575.98px", "767.98px", "991.98px", "576px", "768px", "992px"}
+
+
+def test_los_cortes_responsive_son_los_de_la_escala():
+    sueltos = []
+    for nombre, cuerpo in _hojas_sin_root():
+        for m in re.finditer(r"@media[^{]*?\((?:min|max)-width:\s*([^)]+)\)", cuerpo):
+            valor = m.group(1).strip()
+            if valor not in BREAKPOINTS:
+                sueltos.append(nombre + ": " + valor)
+    assert not sueltos, (
+        "Cortes fuera de la escala (575.98 / 767.98 / 991.98). Había ocho "
+        "valores distintos, uno por cada hoja portada del legacy:\n  "
+        + "\n  ".join(sueltos)
+    )
+
+
+def test_las_utilidades_declaradas_se_usan():
+    """Eran 64 y solo once tenían un uso.
+
+    No es solo peso muerto: `.h4` valía 1.5rem mientras el elemento ``<h4>``
+    vale 1rem, así que la clase y la etiqueta con el mismo nombre daban tamaños
+    distintos — una trampa esperando a que alguien la pisara.
+    """
+    # Los limites se buscan en el texto CRUDO: los rotulos de capa viven dentro
+    # de un comentario, asi que quitarlos antes se lleva tambien las marcas.
+    base = (HOJAS / "adhoc.css").read_text(encoding="utf8")
+    capa = _css_sin_comentarios(base[base.index("CAPA 5"): base.index("CAPA 6")])
+    clases = sorted(set(re.findall(r"^\.([\w-]+)\s*\{", capa, re.M)))
+
+    corpus = ""
+    for patron in ("templates/**/*.html", "static/js/**/*.js", "**/*.py"):
+        for ruta in RAIZ.glob(patron):
+            corpus += ruta.read_text(encoding="utf8", errors="ignore")
+    for ruta in HOJAS.rglob("*.css"):
+        if ruta.name != "adhoc.css":
+            corpus += ruta.read_text(encoding="utf8")
+
+    muertas = []
+    for clase in clases:
+        if clase == "visually-hidden":       # solo para lectores de pantalla
+            continue
+        if re.search(RE_USO_CLASE % re.escape(clase), corpus):
+            continue
+        muertas.append(clase)
+    assert not muertas, (
+        "Utilidades declaradas que no usa nadie. Esta lista no crece por gusto: "
+        "si una pantalla necesita algo más, va en la hoja de esa pantalla:\n  "
+        + " ".join(muertas)
     )

@@ -69,7 +69,7 @@
    ancho de la hoja). El del modal de /adhoc/reportes se llama ahora
    `.adhoc-report-launch`; eran dos geometrías distintas bajo el mismo nombre. */
 .adhoc-report-actions .btn {
-  box-shadow: 0 4px 6px rgba(0, 0, 0, .1);
+  box-shadow: var(--adhoc-elev-press);
 }
 
 /* ── La hoja (legacy `.hoja-reporte`) ──────────────────────────────────── */
@@ -90,7 +90,7 @@
 .adhoc-report-title {
   margin: 0 0 var(--adhoc-space-2xl);
   color: var(--adhoc-primary);
-  font-size: 1.8rem;
+  font-size: var(--adhoc-fs-3xl);
   /* El <h1> del legacy va en negrita del navegador (700). Poppins solo trae
      300/400/600, así que el 700 se sintetiza: bajar a 600 lo adelgaza. */
   font-weight: var(--adhoc-fw-bold);
@@ -130,7 +130,7 @@
 /* ── Tabla del reporte (legacy `.tabla-reporte`) ───────────────────────── */
 .adhoc-report-table {
   margin-top: var(--adhoc-space-3xl);
-  font-size: .95rem;
+  font-size: var(--adhoc-fs-base);
 }
 
 .adhoc-report-table th,

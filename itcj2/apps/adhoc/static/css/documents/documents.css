@@ -61,7 +61,7 @@
 .adhoc-doc-greeting-title {
   margin: 0;
   color: var(--adhoc-dark);
-  font-size: 1.6rem;
+  font-size: var(--adhoc-fs-3xl);
   font-weight: var(--adhoc-fw-semibold);
 }
 
@@ -146,7 +146,7 @@
   padding: var(--adhoc-space-xs) var(--adhoc-space-lg);
   color: var(--adhoc-blue);
   background: var(--adhoc-blue-tint);
-  border-radius: 5px;
+  border-radius: var(--adhoc-radius-md);
   font-weight: var(--adhoc-fw-bold);
   text-decoration: none;
   transition: .2s;

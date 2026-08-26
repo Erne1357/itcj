@@ -108,7 +108,10 @@
   transition: transform .2s ease, box-shadow .2s ease;
 }
 
-@media (max-width: 420px) {
+/* 575.98 y no el 420 del legacy: la tarjeta del tablero mide 320px fijos, asi
+   que entre 420 y 576 ya no cabia con su margen y se salia del carril. El corte
+   estaba puesto donde dejaba de caber EXACTA, no donde deja de caber. */
+@media (max-width: 575.98px) {
   .adhoc-kcard {
     min-width: 88vw;
     max-width: 88vw;
@@ -216,7 +219,7 @@
 }
 
 .adhoc-kcard-kicker.is-danger + .adhoc-kcard-parent {
-  font-size: .88rem;
+  font-size: var(--adhoc-fs-lg);
 }
 
 .adhoc-kcard-title {
@@ -229,7 +232,7 @@
 
 .adhoc-kcard-sub {
   margin: 0 0 var(--adhoc-space-2xl);
-  font-size: .78rem;
+  font-size: var(--adhoc-fs-sm);
   line-height: 1.4;
   color: var(--adhoc-disabled);
 }
@@ -312,7 +315,7 @@
 
 .adhoc-tasks-empty-title {
   margin-bottom: var(--adhoc-space-xs);
-  font-size: 1.17rem;
+  font-size: var(--adhoc-fs-xl);
   font-weight: var(--adhoc-fw-bold);
   color: var(--adhoc-muted);
 }
@@ -398,7 +401,7 @@
 
 .adhoc-wf-task-title {
   margin-bottom: var(--adhoc-space-2xl);
-  font-size: 1.3rem;
+  font-size: var(--adhoc-fs-2xl);
   font-weight: var(--adhoc-fw-bold);
   line-height: 1.3;
   color: var(--adhoc-primary);
@@ -433,7 +436,7 @@
 
 .adhoc-wf-value {
   margin: 0;
-  font-size: .95rem;
+  font-size: var(--adhoc-fs-base);
   font-weight: var(--adhoc-fw-medium);
   overflow-wrap: anywhere;
   color: var(--adhoc-dark);

@@ -79,7 +79,7 @@
   min-width: 0;
   width: 7.6rem;
   padding: 3px 5px;
-  font-size: .72rem;
+  font-size: var(--adhoc-fs-xs);
 }
 
 /* El folio nunca se parte: en el legacy cabe entero en su columna. */
@@ -236,7 +236,7 @@
 
 .adhoc-files-meta {
   color: var(--adhoc-muted);
-  font-size: .78rem;
+  font-size: var(--adhoc-fs-sm);
   white-space: nowrap;
 }
 

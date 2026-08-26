@@ -53,11 +53,11 @@
   font-weight: var(--adhoc-fw-semibold);
 }
 
-@media (max-width: 992px) {
+@media (max-width: 991.98px) {
   .adhoc-panel-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 575.98px) {
   .adhoc-panel-grid { grid-template-columns: 1fr; }
 
   .adhoc-panel-grid .adhoc-tile { max-width: none; }

@@ -33,7 +33,7 @@
   position: absolute;
   top: 25px;
   right: 25px;
-  z-index: 10;
+  z-index: var(--adhoc-z-sticky);
 }
 
 /* Encabezado (legacy `.header-title`): flex de [icono, texto] con 15px de

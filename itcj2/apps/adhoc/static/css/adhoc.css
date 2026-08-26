@@ -68,7 +68,31 @@
   --adhoc-disabled: #b2bec3;
   --adhoc-grey-pale: #bdc3c7;
 
+  /* ── Capas (z-index) ──
+     Habia SIETE numeros magicos repartidos por las hojas (2, 4, 10, 1050, 1100,
+     1200 y un 9999) y ningun token, asi que cada vez que dos cosas se pisaban
+     alguien inventaba un valor mas grande. Son seis escalones con nombre y solo
+     seis; si algo pide colarse entre dos, el que sobra es uno de los dos.
+     El 9999 del overlay de salida no significaba nada: por encima de el no hay
+     nada, y eso es exactamente lo que dice `--adhoc-z-top`. */
+  --adhoc-z-cell: 2;          /* celda congelada de una tabla */
+  --adhoc-z-cell-corner: 3;   /* la esquina, que cruza fila y columna fijas */
+  --adhoc-z-sticky: 10;       /* control anclado dentro de una tarjeta */
+  --adhoc-z-modal: 1050;      /* dialogos */
+  --adhoc-z-toast: 1100;      /* avisos y barra de carga: por encima del dialogo */
+  --adhoc-z-top: 1200;        /* enlace de salto y overlay de cierre de sesion */
+
+  /* El velo NEGRO del dialogo. `--adhoc-veil` es el blanco del overlay de
+     salida; son dos cosas distintas y una de ellas no tenia nombre. */
+  --adhoc-scrim: rgba(0, 0, 0, .5);
+
   /* ── Bordes ── */
+  /* El borde translucido de las muestras de color: tiene que oscurecer LO QUE
+     HAYA debajo, asi que es alfa y no un gris fijo — sobre una muestra amarilla
+     un `--adhoc-border` gris se veria sucio. Estaba escrito a mano en tres
+     sitios. */
+  --adhoc-border-veil: rgba(0, 0, 0, .1);
+
   --adhoc-border: #dfe6e9;
   --adhoc-border-soft: #eee;
   --adhoc-border-mid: #ccc;
@@ -184,6 +208,17 @@
   --adhoc-elev-hover-1: 0 8px 25px rgba(0, 0, 0, .1);
   --adhoc-elev-hover-2: 0 12px 20px rgba(0, 0, 0, .08);
   /* Las cuatro con nombre de rol que ya usaba la app. */
+  /* Los tres que no encajaban en ningun escalon y vivian sueltos por las hojas.
+     No se colapsan al mas parecido porque no lo son: el primero es una sombra
+     LATERAL (el borde derecho de la columna congelada del seguimiento), y los
+     otros dos tienen la misma geometria que un escalon pero el doble o el
+     quintuple de opacidad, que es justo lo que se ve. */
+  --adhoc-elev-side: 2px 0 5px rgba(0, 0, 0, .02);   /* columna congelada */
+  --adhoc-elev-flat: 0 2px 10px rgba(0, 0, 0, .05);  /* cabecera y barras */
+  --adhoc-elev-soft: 0 4px 15px rgba(0, 0, 0, .03);  /* barra del seguimiento */
+  --adhoc-elev-press: 0 4px 6px rgba(0, 0, 0, .1);   /* boton con relieve */
+  --adhoc-elev-pin: 0 2px 5px rgba(0, 0, 0, .2);     /* pastilla de orden */
+
   --adhoc-shadow: 0 10px 20px rgba(0, 0, 0, .05), 0 6px 6px rgba(0, 0, 0, .07);
   --adhoc-shadow-card: 0 10px 20px rgba(0, 0, 0, .05);
   --adhoc-shadow-hover: 0 15px 30px rgba(0, 0, 0, .1);
@@ -283,7 +318,7 @@ body.adhoc-shell {
 
 :where(.adhoc-shell) :where(h1) { font-size: var(--adhoc-fs-4xl); font-weight: var(--adhoc-fw-semibold); }
 :where(.adhoc-shell) :where(h2) { font-size: var(--adhoc-fs-3xl); font-weight: var(--adhoc-fw-semibold); }
-:where(.adhoc-shell) :where(h3) { font-size: 1.17rem; font-weight: var(--adhoc-fw-semibold); }
+:where(.adhoc-shell) :where(h3) { font-size: var(--adhoc-fs-xl); font-weight: var(--adhoc-fw-semibold); }
 :where(.adhoc-shell) :where(h4) { font-size: var(--adhoc-fs-base); font-weight: var(--adhoc-fw-semibold); }
 /* h5 y h6 tambien: el reset llegaba hasta h4 y el navegador dejaba los dos
    ultimos con su tamano por defecto (0.83rem y 0.67rem), mas pequenos que el
@@ -303,7 +338,7 @@ body.adhoc-shell {
   display: none;
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: var(--adhoc-z-top);
   background: var(--adhoc-veil);
   justify-content: center;
   align-items: center;
@@ -377,7 +412,7 @@ body.adhoc-shell {
   transform-origin: 0 50%;
   opacity: 0;
   pointer-events: none;
-  z-index: 1100;
+  z-index: var(--adhoc-z-toast);
 }
 
 .adhoc-loading .adhoc-progress {
@@ -409,7 +444,7 @@ body.adhoc-shell {
   position: absolute;
   top: var(--adhoc-space-lg);
   left: var(--adhoc-space-lg);
-  z-index: 1200;
+  z-index: var(--adhoc-z-top);
   padding: var(--adhoc-space-lg) var(--adhoc-space-2xl);
   color: var(--adhoc-surface);
   font-weight: var(--adhoc-fw-semibold);
@@ -440,7 +475,7 @@ body.adhoc-shell {
   gap: var(--adhoc-space-lg);
   padding: var(--adhoc-space-2xl) var(--adhoc-space-5xl);
   background: var(--adhoc-surface);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, .05);
+  box-shadow: var(--adhoc-elev-flat);
   margin-bottom: var(--adhoc-space-5xl);
 }
 
@@ -594,6 +629,15 @@ body.adhoc-shell {
   white-space: nowrap;
 }
 
+/* La escala de cortes de la app es UNA y son tres:
+     575.98px  movil
+     767.98px  tableta en vertical
+     991.98px  tableta en horizontal
+   Los `.98` no son cosmeticos: evitan que un `max-width: 575.98` y un
+   `min-width: 576` se solapen en el pixel fraccionario de una pantalla con
+   escalado, que es donde aparecen los saltos de un pixel. Habia ocho valores
+   distintos —420, 600, 700, 768, 992 y los tres de la escala—, uno por cada vez
+   que alguien porto una hoja del legacy. */
 @media (max-width: 575.98px) {
   .adhoc-appbar { padding: var(--adhoc-space-xl) var(--adhoc-space-2xl); }
   .adhoc-main-container { padding: 0 var(--adhoc-space-xl); }
@@ -638,7 +682,7 @@ body.adhoc-shell {
 }
 
 .adhoc-page-title i {
-  font-size: 1.35rem;
+  font-size: var(--adhoc-fs-2xl);
   color: var(--adhoc-primary);
 }
 
@@ -696,7 +740,7 @@ body.adhoc-shell {
 
 .adhoc-empty-text {
   color: var(--adhoc-muted);
-  font-size: .95rem;
+  font-size: var(--adhoc-fs-base);
 }
 
 /* Dentro de una tabla el estado vacío no lleva su propio recuadro: ya está
@@ -817,7 +861,7 @@ body.adhoc-shell {
 .adhoc-table thead th {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: var(--adhoc-z-cell);
   height: var(--adhoc-th-height);
   background-color: var(--adhoc-soft);
   color: var(--adhoc-dark);
@@ -982,7 +1026,7 @@ body.adhoc-shell {
 .adhoc-catalog .adhoc-actions .adhoc-btn-icon {
   background: none;
   border: none;
-  font-size: 1.2rem;
+  font-size: var(--adhoc-fs-2xl);
   line-height: 1;
   cursor: pointer;
   transition: .2s;
@@ -1123,7 +1167,7 @@ body.adhoc-shell {
   border-radius: var(--adhoc-radius-pill);
   background: var(--adhoc-primary-tint);
   color: var(--adhoc-primary);
-  font-size: .7rem;
+  font-size: var(--adhoc-fs-xs);
   font-weight: var(--adhoc-fw-semibold);
   line-height: 1.5;
   text-align: center;
@@ -1136,7 +1180,7 @@ body.adhoc-shell {
 .adhoc-badge {
   display: inline-block;
   padding: var(--adhoc-space-2xs) var(--adhoc-space-lg);
-  border-radius: 20px;
+  border-radius: var(--adhoc-radius-pill);
   font-size: var(--adhoc-fs-xs);
   font-weight: var(--adhoc-fw-bold);
   line-height: 1.4;
@@ -1355,7 +1399,7 @@ body.adhoc-shell {
 
 .btn-close::before {
   content: '\00d7';
-  font-size: 1.75rem;
+  font-size: var(--adhoc-fs-4xl);
   line-height: 1;
 }
 
@@ -1465,7 +1509,7 @@ textarea.form-control {
 .adhoc-field-help {
   margin-top: var(--adhoc-space-2xs);
   color: var(--adhoc-muted);
-  font-size: .78rem;
+  font-size: var(--adhoc-fs-sm);
   font-weight: var(--adhoc-fw-light);
 }
 
@@ -1501,7 +1545,7 @@ textarea.form-control {
   width: 2.6rem;
   height: 1.5rem;
   background-color: var(--adhoc-border-mid);
-  border-radius: 34px;
+  border-radius: var(--adhoc-radius-pill);
   transition: .4s;
 }
 
@@ -1540,7 +1584,7 @@ textarea.form-control {
 .adhoc-fieldset-title {
   margin-bottom: var(--adhoc-space-lg);
   color: var(--adhoc-dark);
-  font-size: .95rem;
+  font-size: var(--adhoc-fs-base);
   font-weight: var(--adhoc-fw-semibold);
 }
 
@@ -1561,10 +1605,10 @@ textarea.form-control {
   display: none;
   position: fixed;
   inset: 0;
-  z-index: 1050;
+  z-index: var(--adhoc-z-modal);
   overflow-x: hidden;
   overflow-y: auto;
-  background: rgba(0, 0, 0, .5);
+  background: var(--adhoc-scrim);
 }
 
 .adhoc-modal.is-open {
@@ -1675,7 +1719,7 @@ body.adhoc-modal-open {
   position: fixed;
   right: 20px;
   bottom: 20px;
-  z-index: 1100;
+  z-index: var(--adhoc-z-toast);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -1732,7 +1776,7 @@ body.adhoc-modal-open {
   height: 15px;
   margin-right: var(--adhoc-space-lg);
   vertical-align: middle;
-  border: 1px solid rgba(0, 0, 0, .1);
+  border: 1px solid var(--adhoc-border-veil);
   border-radius: var(--adhoc-radius-circle);
 }
 
@@ -1744,11 +1788,11 @@ body.adhoc-modal-open {
   gap: var(--adhoc-space-3xl);
 }
 
-@media (max-width: 992px) {
+@media (max-width: 991.98px) {
   .adhoc-tile-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 575.98px) {
   .adhoc-tile-grid { grid-template-columns: 1fr; }
 }
 
@@ -1799,7 +1843,7 @@ body.adhoc-modal-open {
 .adhoc-tile-text {
   flex: 1 0 100%;
   color: var(--adhoc-muted);
-  font-size: .82rem;
+  font-size: var(--adhoc-fs-sm);
   font-weight: var(--adhoc-fw-light);
 }
 
@@ -1877,7 +1921,7 @@ body.adhoc-modal-open {
 .adhoc-user-option-meta {
   display: block;
   color: var(--adhoc-muted);
-  font-size: .78rem;
+  font-size: var(--adhoc-fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1914,7 +1958,7 @@ body.adhoc-modal-open {
   max-width: 100%;
   padding: 3px 10px;
   color: var(--adhoc-primary);
-  font-size: .78rem;
+  font-size: var(--adhoc-fs-sm);
   font-weight: var(--adhoc-fw-semibold);
   background: var(--adhoc-primary-tint);
   border-radius: var(--adhoc-radius-pill);
@@ -2024,15 +2068,23 @@ body.adhoc-modal-open {
 
 /* ═══ CAPA 5 · UTILIDADES ═══ */
 /* ── 5.1 Utilidades ────────────────────────────────────────────────────── */
-/* Subconjunto EXACTO de lo que las 24 plantillas heredaron de Bootstrap. No
-   crece por gusto: si una pantalla necesita algo más, va en su propia hoja. */
+/* Lo que las plantillas heredaron de Bootstrap Y SIGUEN USANDO. Eran 64 clases
+   y solo once tenian un uso: las otras 53 se declararon "por si acaso" al
+   portar el legacy y nunca las llamo nadie (comprobado contra plantillas, JS,
+   Python y el resto de hojas).
+
+   No era solo peso muerto. `.h4` valia 1.5rem mientras el elemento <h4> vale
+   1rem, asi que la clase y la etiqueta con el mismo nombre daban tamanos
+   distintos: una trampa esperando a que alguien la pisara. Y una lista larga de
+   utilidades invita a resolver con ellas lo que deberia ser una regla del
+   componente, que es justo como el legacy acabo con 300 atributos `style=`.
+
+   REGLA: esta lista NO crece por gusto. Si una pantalla necesita algo mas, va
+   en la hoja de esa pantalla. Vigilado por
+   tests/fastapi/adhoc/test_template_conventions.py. */
 .d-none { display: none !important; }
 .d-block { display: block !important; }
-.d-inline { display: inline !important; }
-.d-inline-block { display: inline-block !important; }
 .d-flex { display: flex !important; }
-.d-inline-flex { display: inline-flex !important; }
-.d-grid { display: grid !important; }
 
 @media (min-width: 576px) {
   .d-sm-inline { display: inline !important; }
@@ -2041,70 +2093,15 @@ body.adhoc-modal-open {
   .d-sm-none { display: none !important; }
 }
 
-.flex-wrap { flex-wrap: wrap !important; }
-.flex-column { flex-direction: column !important; }
-.flex-grow-1 { flex-grow: 1 !important; }
-.align-items-center { align-items: center !important; }
-.align-items-start { align-items: flex-start !important; }
-.align-items-end { align-items: flex-end !important; }
-.justify-content-start { justify-content: flex-start !important; }
-.justify-content-center { justify-content: center !important; }
-.justify-content-end { justify-content: flex-end !important; }
-.justify-content-between { justify-content: space-between !important; }
+.gap-2 { gap: var(--adhoc-space-lg) !important; }
 
-.gap-1 { gap: .25rem !important; }
-.gap-2 { gap: .5rem !important; }
-.gap-3 { gap: 1rem !important; }
-
-.m-0 { margin: 0 !important; }
 .mb-0 { margin-bottom: 0 !important; }
-.mb-1 { margin-bottom: .25rem !important; }
-.mb-2 { margin-bottom: .5rem !important; }
-.mb-3 { margin-bottom: 1rem !important; }
-.mb-4 { margin-bottom: 1.5rem !important; }
-.mt-0 { margin-top: 0 !important; }
-.mt-1 { margin-top: .25rem !important; }
-.mt-2 { margin-top: .5rem !important; }
-.mt-3 { margin-top: 1rem !important; }
-.me-1 { margin-right: .25rem !important; }
-.me-2 { margin-right: .5rem !important; }
-.me-3 { margin-right: 1rem !important; }
+.mb-3 { margin-bottom: var(--adhoc-space-2xl) !important; }
+.me-1 { margin-right: var(--adhoc-space-xs) !important; }
+.me-2 { margin-right: var(--adhoc-space-lg) !important; }
 .me-auto { margin-right: auto !important; }
-.ms-1 { margin-left: .25rem !important; }
-.ms-2 { margin-left: .5rem !important; }
-.ms-auto { margin-left: auto !important; }
 
-.p-0 { padding: 0 !important; }
-.p-2 { padding: .5rem !important; }
-.p-3 { padding: 1rem !important; }
-
-.w-100 { width: 100% !important; }
-.min-w-0 { min-width: 0 !important; }
-
-.text-center { text-align: center !important; }
-.text-start { text-align: left !important; }
-.text-end { text-align: right !important; }
-.text-muted { color: var(--adhoc-muted) !important; }
-.text-white { color: var(--adhoc-surface) !important; }
-.text-danger { color: var(--adhoc-danger) !important; }
-.text-success { color: var(--adhoc-success) !important; }
-.text-nowrap { white-space: nowrap !important; }
-.small { font-size: var(--adhoc-fs-md) !important; }
-.fw-bold { font-weight: var(--adhoc-fw-bold) !important; }
-.fw-semibold { font-weight: var(--adhoc-fw-semibold) !important; }
-.fw-normal { font-weight: var(--adhoc-fw-normal) !important; }
-
-.h4 { font-size: var(--adhoc-fs-3xl); font-weight: var(--adhoc-fw-semibold); }
-.h5 { font-size: var(--adhoc-fs-2xl); font-weight: var(--adhoc-fw-semibold); }
-.h6 { font-size: var(--adhoc-fs-base); font-weight: var(--adhoc-fw-semibold); }
-
-.position-relative { position: relative !important; }
-.position-fixed { position: fixed !important; }
-.top-0 { top: 0 !important; }
-.bottom-0 { bottom: 0 !important; }
-.start-0 { left: 0 !important; }
-.end-0 { right: 0 !important; }
-
+/* Para la etiqueta que solo existe para el lector de pantalla. */
 .visually-hidden {
   position: absolute !important;
   width: 1px !important;

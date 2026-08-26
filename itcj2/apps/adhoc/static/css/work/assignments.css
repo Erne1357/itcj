@@ -94,7 +94,7 @@
   -webkit-appearance: none;
   background-color: var(--adhoc-border-mid);
   border: 0;
-  border-radius: 34px;
+  border-radius: var(--adhoc-radius-pill);
   cursor: pointer;
   transition: .4s;
 }
@@ -133,7 +133,7 @@
   height: 1.6rem;
   margin-left: var(--adhoc-space-lg);
   background: var(--adhoc-info);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, .2);
+  box-shadow: var(--adhoc-elev-pin);
 }
 
 /* ---------- pie: confirmar ---------- */

@@ -30,7 +30,7 @@
 
 /* Legacy `.icon-btn`: un punto más grandes que los del panel de documentos. */
 .adhoc-flows .adhoc-icon-action {
-  font-size: 1.3rem;
+  font-size: var(--adhoc-fs-2xl);
   margin: 0 var(--adhoc-space-xs);
 }
 

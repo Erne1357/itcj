@@ -47,7 +47,7 @@
 
 .adhoc-color-hex {
   color: var(--adhoc-muted);
-  font-size: .78rem;
+  font-size: var(--adhoc-fs-sm);
   font-variant-numeric: tabular-nums;
   text-transform: uppercase;
 }
@@ -58,7 +58,7 @@
   display: block;
   margin-top: .15rem;
   color: var(--adhoc-muted);
-  font-size: .78rem;
+  font-size: var(--adhoc-fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

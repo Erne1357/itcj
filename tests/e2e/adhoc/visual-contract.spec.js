@@ -82,7 +82,9 @@ test.describe('el título de página es uno solo', () => {
       expect(estilo.fontSize, `${ruta}: tamaño del título`).toBe('24px');
       expect(estilo.fontWeight, `${ruta}: peso del título`).toBe('600');
       if (estilo.iconoFontSize) {
-        expect(estilo.iconoFontSize, `${ruta}: tamaño del icono`).toBe('21.6px');
+        // 20px = --adhoc-fs-2xl. Antes era 1.35rem (21.6px), un valor suelto
+        // que no caía en ningún escalón de la escala; colapsarlo lo movió 1.6px.
+        expect(estilo.iconoFontSize, `${ruta}: tamaño del icono`).toBe('20px');
         expect(estilo.iconoColor, `${ruta}: color del icono`).toBe('rgb(72, 52, 212)');
       }
     });

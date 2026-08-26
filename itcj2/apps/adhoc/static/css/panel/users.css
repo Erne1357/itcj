@@ -17,7 +17,7 @@
 /* Encabezado dentro de la tarjeta, como el saludo del legacy: negrita de
    verdad y el icono del color del texto. */
 .adhoc-users-note {
-  font-size: .875rem;
+  font-size: var(--adhoc-fs-lg);
 }
 
 /* El legacy pinta las celdas en texto plano: nada de nombres en negrita. */
@@ -40,7 +40,7 @@
 /* Nombre del usuario sobre el que actúa el modal. */
 .adhoc-users-target {
   color: var(--adhoc-muted);
-  font-size: .875rem;
+  font-size: var(--adhoc-fs-lg);
 }
 
 .adhoc-users-target strong {

@@ -33,7 +33,7 @@
 .adhoc-tracking-topbar {
   margin-bottom: var(--adhoc-space-4xl);
   padding: var(--adhoc-space-3xl);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, .03);
+  box-shadow: var(--adhoc-elev-soft);
 }
 
 .adhoc-tracking-topbar .adhoc-page-head {
@@ -109,7 +109,7 @@
 
 .adhoc-tracking-value {
   overflow: hidden;
-  font-size: .95rem;
+  font-size: var(--adhoc-fs-base);
   font-weight: var(--adhoc-fw-semibold);
   color: var(--adhoc-dark);
   text-overflow: ellipsis;
@@ -253,12 +253,12 @@
 .adhoc-tracking-sticky {
   position: sticky;
   left: 0;
-  z-index: 2;
+  z-index: var(--adhoc-z-cell);
   min-width: 150px;
   font-weight: var(--adhoc-fw-bold);
   color: var(--adhoc-dark);
   background: var(--adhoc-surface-100);
-  box-shadow: 2px 0 5px rgba(0, 0, 0, .02);
+  box-shadow: var(--adhoc-elev-side);
 }
 
 .adhoc-tracking-table th.adhoc-tracking-sticky,
@@ -268,7 +268,7 @@
 }
 
 .adhoc-tracking-table thead .adhoc-tracking-sticky {
-  z-index: 4;
+  z-index: var(--adhoc-z-cell-corner);
   color: var(--adhoc-dark);
   background: var(--adhoc-surface-100);
 }

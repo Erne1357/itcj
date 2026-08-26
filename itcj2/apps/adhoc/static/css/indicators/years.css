@@ -64,7 +64,7 @@
 .adhoc-indicator-years .adhoc-table th,
 .adhoc-indicator-years .adhoc-table td {
   padding: var(--adhoc-space-2xl) var(--adhoc-space-xl);
-  font-size: .95rem;
+  font-size: var(--adhoc-fs-base);
 }
 
 .adhoc-years-col-count   { width: 140px; }
