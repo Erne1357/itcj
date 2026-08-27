@@ -28,6 +28,8 @@ __all__ = [
     "DocumentStatus", "DOCUMENT_STATUSES", "DOCUMENT_STATUS_DEFAULT",
     "DOCUMENT_STATUS_DRAFT", "DOCUMENT_STATUS_IN_REVIEW",
     "DOCUMENT_STATUS_APPROVED", "DOCUMENT_STATUS_REJECTED",
+    "DOCUMENT_STATUS_OBSOLETE",
+    "DOCUMENT_STATUSES_STARTABLE", "DOCUMENT_STATUSES_VIA_PATCH",
     # Incidencias
     "IncidentStatus", "INCIDENT_STATUSES", "INCIDENT_STATUS_DEFAULT",
     "INCIDENT_STATUS_NOT_STARTED", "INCIDENT_STATUS_STARTED", "INCIDENT_STATUS_CLOSED",
@@ -77,12 +79,31 @@ DOCUMENT_STATUS_DRAFT: Final[str] = "Borrador"
 DOCUMENT_STATUS_IN_REVIEW: Final[str] = "En Revisión"
 DOCUMENT_STATUS_APPROVED: Final[str] = "Aprobado"
 DOCUMENT_STATUS_REJECTED: Final[str] = "Rechazado"
+#: Versión superada por otra más nueva de la misma cadena. Es un estado
+#: TERMINAL: un documento obsoleto no vuelve a flujo (ver
+#: ``DOCUMENT_STATUSES_STARTABLE``). Lo introdujo la migración del SGC legacy,
+#: donde ``dap_approval_status = 2`` marca 59 de 206 documentos como superados.
+DOCUMENT_STATUS_OBSOLETE: Final[str] = "Obsoleto"
 
-DocumentStatus = Literal["Borrador", "En Revisión", "Aprobado", "Rechazado"]
+DocumentStatus = Literal["Borrador", "En Revisión", "Aprobado", "Rechazado", "Obsoleto"]
 DOCUMENT_STATUSES: Final[tuple[str, ...]] = (
-    "Borrador", "En Revisión", "Aprobado", "Rechazado",
+    "Borrador", "En Revisión", "Aprobado", "Rechazado", "Obsoleto",
 )
 DOCUMENT_STATUS_DEFAULT: Final[str] = DOCUMENT_STATUS_DRAFT
+
+#: Estados desde los que se puede arrancar un flujo de aprobación. Los demás
+#: son producto del motor de flujo o terminales, y el PATCH genérico no debe
+#: poder escribirlos (ver ``AdhocDocumentService.update``).
+DOCUMENT_STATUSES_STARTABLE: Final[tuple[str, ...]] = (
+    DOCUMENT_STATUS_DRAFT, DOCUMENT_STATUS_REJECTED,
+)
+#: Estados que el PATCH genérico SÍ puede escribir. 'En Revisión', 'Aprobado' y
+#: 'Rechazado' los produce el motor de flujo: dejarlos aquí permitiría marcar
+#: aprobado un documento cuyo flujo sigue en el primer paso, con
+#: ``adhoc_task_approvals`` vacío y ``current_step_id`` colgando.
+DOCUMENT_STATUSES_VIA_PATCH: Final[tuple[str, ...]] = (
+    DOCUMENT_STATUS_DRAFT, DOCUMENT_STATUS_OBSOLETE,
+)
 
 
 # --------------------------------------------------------------------------

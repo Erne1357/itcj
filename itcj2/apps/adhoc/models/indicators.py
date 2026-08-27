@@ -51,6 +51,9 @@ class AdhocIndicator(Base):
     plan_b = Column(Text, nullable=True)
     document_url = Column(String(255), nullable=True)  # ruta relativa "{indicator_id}/{filename}"
 
+    #: `tableros.tablero_id` del legacy. Idempotencia del ETL.
+    legacy_id = Column(Integer, nullable=True, unique=True)
+
     frequency = Column(String(50), nullable=True)
     # Semanal | Mensual | Anual — nullable: el legacy escribe '' cuando no se captura.
 

@@ -36,6 +36,11 @@ class AdhocTask(Base):
     due_date = Column(Date, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
+    #: Origen en el legacy, prefijado porque las tareas vienen de TRES tablas
+    #: cuyos espacios de id se solapan: ``t:{tareas.task_id}``,
+    #: ``tp:{tareas_prog.task_id}``, ``ip:{indiceprin.accion_id}``.
+    legacy_id = Column(String(30), nullable=True, unique=True)
+
     created_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True, index=True)
     incident_id = Column(Integer, ForeignKey("adhoc_incidents.id", ondelete="CASCADE"),
                           nullable=True, index=True)
@@ -104,6 +109,36 @@ class AdhocTaskComment(Base):
 
     def __repr__(self) -> str:
         return f"<AdhocTaskComment task={self.task_id} user={self.user_id}>"
+
+
+class AdhocTaskCommentFile(Base):
+    """Adjuntos de un comentario de tarea.
+
+    ``AdhocTaskComment.file_path`` solo admite UN archivo por comentario, y el
+    legacy tiene 85 comentarios con más de uno (uno llega a 14). La columna
+    vieja se conserva para no romper el flujo de subida actual; lo nuevo y lo
+    migrado va aquí.
+
+    ``file_path`` nullable por la misma razón que en
+    :class:`AdhocIncidentFile`: hay registros cuyo binario ya no existe.
+    """
+    __tablename__ = "adhoc_task_comment_files"
+
+    id = Column(Integer, primary_key=True)
+    task_comment_id = Column(Integer, ForeignKey("adhoc_task_comments.id", ondelete="CASCADE"),
+                              nullable=False, index=True)
+    file_path = Column(String(255), nullable=True)   # ruta relativa "{task_id}/{filename}"
+    original_name = Column(String(255), nullable=False)
+    mime_type = Column(String(100), nullable=True)
+    size_bytes = Column(Integer, nullable=True)
+    uploaded_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True, index=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    comment = relationship("AdhocTaskComment", foreign_keys=[task_comment_id])
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
+
+    def __repr__(self) -> str:
+        return f"<AdhocTaskCommentFile {self.original_name} (comment={self.task_comment_id})>"
 
 
 class AdhocTaskApproval(Base):

@@ -1,5 +1,5 @@
 """
-Tests de contrato para los 22 modelos de `itcj2.apps.adhoc.models`.
+Tests de contrato para los 26 modelos de `itcj2.apps.adhoc.models`.
 
 Introspección sobre `__table__` (no requiere BD): nombres de tabla exactos,
 BigInteger en toda FK a `core_users`, índice en toda columna FK, vocabularios
@@ -14,10 +14,13 @@ from itcj2.apps.adhoc.models import (
     AdhocApprovalFlowStep,
     AdhocArea,
     AdhocDocument,
+    AdhocDocumentAcknowledgement,
     AdhocDocumentCategory,
     AdhocDocumentClassification,
+    AdhocDocumentVisibility,
     AdhocIncident,
     AdhocIncidentCategory,
+    AdhocIncidentFile,
     AdhocIndicator,
     AdhocIndicatorTracking,
     AdhocIndicatorYear,
@@ -29,22 +32,24 @@ from itcj2.apps.adhoc.models import (
     AdhocTask,
     AdhocTaskApproval,
     AdhocTaskComment,
+    AdhocTaskCommentFile,
     adhoc_flow_step_assignees,
     adhoc_task_assignees,
     adhoc_user_areas,
 )
 
 
-# Las 19 clases mapeadas (entidad + catálogo + singleton).
+# Las 23 clases mapeadas (entidad + catálogo + singleton).
 MAPPED_MODELS = [
     AdhocArea, AdhocProcess,
     AdhocIndicatorYear, AdhocIndicator, AdhocIndicatorTracking,
     AdhocMailConfig,
     AdhocDocumentCategory, AdhocDocumentClassification,
     AdhocApprovalFlow, AdhocApprovalFlowStep, AdhocDocument,
-    AdhocIncidentCategory, AdhocIncident,
+    AdhocDocumentAcknowledgement, AdhocDocumentVisibility,
+    AdhocIncidentCategory, AdhocIncident, AdhocIncidentFile,
     AdhocProgramCategory, AdhocProgramEvent, AdhocProgramEventFile,
-    AdhocTask, AdhocTaskComment, AdhocTaskApproval,
+    AdhocTask, AdhocTaskComment, AdhocTaskCommentFile, AdhocTaskApproval,
 ]
 
 # Las 3 tablas de asociación puras (sqlalchemy.Table, sin clase mapeada).
@@ -64,13 +69,17 @@ EXPECTED_TABLENAMES = {
     "AdhocApprovalFlow": "adhoc_approval_flows",
     "AdhocApprovalFlowStep": "adhoc_approval_flow_steps",
     "AdhocDocument": "adhoc_documents",
+    "AdhocDocumentAcknowledgement": "adhoc_document_acknowledgements",
+    "AdhocDocumentVisibility": "adhoc_document_visibility",
     "AdhocIncidentCategory": "adhoc_incident_categories",
     "AdhocIncident": "adhoc_incidents",
+    "AdhocIncidentFile": "adhoc_incident_files",
     "AdhocProgramCategory": "adhoc_program_categories",
     "AdhocProgramEvent": "adhoc_program_events",
     "AdhocProgramEventFile": "adhoc_program_event_files",
     "AdhocTask": "adhoc_tasks",
     "AdhocTaskComment": "adhoc_task_comments",
+    "AdhocTaskCommentFile": "adhoc_task_comment_files",
     "AdhocTaskApproval": "adhoc_task_approvals",
 }
 
@@ -102,11 +111,13 @@ def _unique_constraints(table: Table) -> list[UniqueConstraint]:
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 1. Las 22 tablas existen con el nombre exacto
+# 1. Las 26 tablas existen con el nombre exacto
 # ─────────────────────────────────────────────────────────────────────────
 
-def test_22_tables_total():
-    assert len(MAPPED_MODELS) + len(ASSOC_TABLES) == 22
+def test_26_tables_total():
+    # 22 originales + las 4 de la migracion del SGC legacy:
+    # acuses, visibilidad, archivos de incidencia y archivos de comentario.
+    assert len(MAPPED_MODELS) + len(ASSOC_TABLES) == 26
 
 
 def test_tablenames_exact():
@@ -145,11 +156,13 @@ def test_all_core_users_fks_are_biginteger():
                         f"pero es {col.type!r}, no BigInteger"
                     )
                     checked += 1
-    # 10 FKs a core_users en total: user_areas.user_id, flow_step_assignees.user_id,
+    # 14 FKs a core_users en total: user_areas.user_id, flow_step_assignees.user_id,
     # documents.author_id, incidents.responsible_id, program_events.responsible_id,
     # program_event_files.uploaded_by_id, tasks.created_by_id, task_assignees.user_id,
-    # task_comments.user_id, task_approvals.user_id.
-    assert checked == 10
+    # task_comments.user_id, task_approvals.user_id, y las 4 de la migracion del
+    # SGC legacy: document_acknowledgements.user_id, document_visibility.user_id,
+    # incident_files.uploaded_by_id, task_comment_files.uploaded_by_id.
+    assert checked == 14
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -184,7 +197,74 @@ def test_indicator_tracking_color_vocabulary():
 
 
 def test_document_status_vocabulary():
-    _assert_check_contains(AdhocDocument.__table__, "Borrador", "En Revisión", "Aprobado", "Rechazado")
+    # 'Obsoleto' = versión superada por otra más nueva de la misma cadena.
+    # Lo trajo la migración del SGC legacy, donde 59 de 206 documentos lo son.
+    _assert_check_contains(
+        AdhocDocument.__table__,
+        "Borrador", "En Revisión", "Aprobado", "Rechazado", "Obsoleto",
+    )
+
+
+def test_document_status_vocabulary_matches_constants():
+    """El CheckConstraint y `DOCUMENT_STATUSES` no pueden divergir."""
+    from itcj2.apps.adhoc.utils.constants import DOCUMENT_STATUSES
+    texts = " | ".join(
+        str(c.sqltext) for c in _check_constraints(AdhocDocument.__table__)
+    )
+    for value in DOCUMENT_STATUSES:
+        assert f"'{value}'" in texts, f"falta '{value}' en ck_adhoc_documents_status"
+
+
+def test_document_version_chain_columns():
+    """`parent_id` sin ondelete (RESTRICT) e `is_current` indexado."""
+    cols = AdhocDocument.__table__.columns
+    assert cols["parent_id"].nullable is True
+    assert cols["is_current"].nullable is False
+    assert _is_indexed(AdhocDocument.__table__, "is_current")
+    fk = next(iter(cols["parent_id"].foreign_keys))
+    assert fk.target_fullname == "adhoc_documents.id"
+    # Sin ondelete a propósito: borrar la raíz de una cadena con versiones
+    # colgando debe fallar, no dejar huérfanos.
+    assert fk.ondelete is None
+
+
+def test_acknowledgement_requires_a_real_date():
+    """Una tabla de acuses con fechas vacías no sostiene una auditoría ISO."""
+    cols = AdhocDocumentAcknowledgement.__table__.columns
+    assert cols["acknowledged_at"].nullable is False
+    uniques = {
+        tuple(c.name for c in u.columns)
+        for u in _unique_constraints(AdhocDocumentAcknowledgement.__table__)
+    }
+    assert ("document_id", "user_id") in uniques
+
+
+def test_visibility_is_separate_from_acknowledgements():
+    """`ver_doctos` del legacy es visibilidad, no acuse: tablas distintas."""
+    assert AdhocDocumentVisibility.__tablename__ != AdhocDocumentAcknowledgement.__tablename__
+    assert "acknowledged_at" not in AdhocDocumentVisibility.__table__.columns
+
+
+def test_legacy_file_paths_are_nullable():
+    """51 adjuntos del legacy existen como registro sin binario en el servidor."""
+    for model in (AdhocIncidentFile, AdhocTaskCommentFile, AdhocProgramEventFile):
+        cols = model.__table__.columns
+        assert cols["file_path"].nullable is True, model.__name__
+        assert cols["original_name"].nullable is False, model.__name__
+
+
+def test_legacy_id_columns_are_unique():
+    """`legacy_id` da idempotencia al ETL: sin UNIQUE no sirve para nada."""
+    expected = {
+        "adhoc_areas", "adhoc_processes", "adhoc_approval_flows", "adhoc_documents",
+        "adhoc_incidents", "adhoc_program_events", "adhoc_indicators", "adhoc_tasks",
+    }
+    found = set()
+    for table in ALL_TABLES:
+        if "legacy_id" in table.columns:
+            assert table.columns["legacy_id"].unique is True, table.name
+            found.add(table.name)
+    assert found == expected
 
 
 def test_incident_status_and_priority_vocabulary():
@@ -382,7 +462,11 @@ def test_task_approval_columns():
 def test_program_event_file_columns():
     cols = AdhocProgramEventFile.__table__.columns
     assert cols["event_id"].nullable is False
-    assert cols["file_path"].nullable is False
+    # `file_path` es nullable desde la migración del SGC legacy: hay adjuntos
+    # cuyo registro existe pero cuyo binario ya no está en el servidor del
+    # proveedor. Se conserva el rastro (quién adjuntó qué y cuándo) en vez de
+    # perder la fila; `original_name` sigue siendo obligatorio.
+    assert cols["file_path"].nullable is True
     assert cols["original_name"].nullable is False
     assert "updated_at" not in cols   # inmutable
 
@@ -391,7 +475,12 @@ def test_program_event_file_columns():
 # 7. Timestamps — excepciones explícitas del plan §2 (nota transversal)
 # ─────────────────────────────────────────────────────────────────────────
 
-ONLY_CREATED_AT = {"adhoc_program_event_files", "adhoc_task_comments", "adhoc_task_approvals"}
+ONLY_CREATED_AT = {
+    "adhoc_program_event_files", "adhoc_task_comments", "adhoc_task_approvals",
+    # Las 4 de la migracion del SGC legacy: registros de hecho, inmutables.
+    "adhoc_document_acknowledgements", "adhoc_document_visibility",
+    "adhoc_incident_files", "adhoc_task_comment_files",
+}
 ONLY_UPDATED_AT = {"adhoc_mail_config"}
 NO_TIMESTAMPS = EXPECTED_ASSOC_TABLENAMES   # las 3 tablas de asociación
 

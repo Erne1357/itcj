@@ -33,6 +33,8 @@ class AdhocArea(Base):
     name = Column(String(100), nullable=False, unique=True)
     color = Column(String(7), nullable=False, server_default=text("'#4834d4'"))
     is_active = Column(Boolean, nullable=False, server_default=text("true"), index=True)
+    #: `areas.id_area` del legacy. Idempotencia del ETL.
+    legacy_id = Column(Integer, nullable=True, unique=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -51,6 +53,8 @@ class AdhocProcess(Base):
     name = Column(String(100), nullable=False, unique=True)
     color = Column(String(7), nullable=False, server_default=text("'#b2bec3'"))
     description = Column(Text, nullable=True)
+    #: `procesos.id_proceso` del legacy. Idempotencia del ETL.
+    legacy_id = Column(Integer, nullable=True, unique=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

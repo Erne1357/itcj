@@ -14,7 +14,7 @@ Nota de integridad referencial (ver `document_flow_service` en F3/F7):
 tareas activas debe fallar con un error claro, no dejar columnas huérfanas.
 """
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, Column, DateTime, ForeignKey, Index,
+    BigInteger, Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index,
     Integer, String, Table, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -53,6 +53,8 @@ class AdhocApprovalFlow(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False)
     description = Column(String(255), nullable=True)
+    #: `rutas_apro.ruta_id` del legacy. Idempotencia del ETL.
+    legacy_id = Column(Integer, nullable=True, unique=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -111,6 +113,24 @@ class AdhocDocument(Base):
     approval_date = Column(DateTime, nullable=True)
     file_url = Column(String(255), nullable=True)   # ruta relativa "{document_id}/{filename}"
 
+    #: Vencimiento del documento controlado. En un SGC ISO 9001 el control de
+    #: documentos vencidos es el punto del sistema; el legacy lo guardaba en
+    #: `dap_vigencia` (199 de 206 poblados, 49 ya vencidos).
+    expiration_date = Column(Date, nullable=True)
+
+    #: Raíz de la cadena de versiones. NULL = este documento ES la raíz.
+    #: Sin `ondelete` a propósito (RESTRICT), por la misma razón que
+    #: `current_step_id`: borrar la raíz de una cadena con versiones colgando
+    #: debe fallar con un error claro, no dejar huérfanos.
+    parent_id = Column(Integer, ForeignKey("adhoc_documents.id"), nullable=True, index=True)
+    #: Punta de la cadena. La lista de documentos filtra por esto para no
+    #: mostrar las versiones superadas mezcladas con las vigentes.
+    is_current = Column(Boolean, nullable=False, server_default=text("true"), index=True)
+
+    #: `doc_approve.dap_id` del legacy. Da idempotencia al ETL y trazabilidad
+    #: hacia atrás. NULL en todo lo capturado en el sistema nuevo.
+    legacy_id = Column(Integer, nullable=True, unique=True)
+
     category_id = Column(Integer, ForeignKey("adhoc_document_categories.id"), nullable=True, index=True)
     area_id = Column(Integer, ForeignKey("adhoc_areas.id"), nullable=True, index=True)
     process_id = Column(Integer, ForeignKey("adhoc_processes.id"), nullable=True, index=True)
@@ -131,13 +151,81 @@ class AdhocDocument(Base):
     flow = relationship("AdhocApprovalFlow")
     current_step = relationship("AdhocApprovalFlowStep", foreign_keys=[current_step_id])
     author = relationship("User", foreign_keys=[author_id])
+    parent = relationship("AdhocDocument", remote_side=[id], foreign_keys=[parent_id])
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('Borrador','En Revisión','Aprobado','Rechazado')",
+            "status IN ('Borrador','En Revisión','Aprobado','Rechazado','Obsoleto')",
             name="ck_adhoc_documents_status",
         ),
     )
 
     def __repr__(self) -> str:
         return f"<AdhocDocument {self.code or self.id}: {self.title}>"
+
+
+class AdhocDocumentAcknowledgement(Base):
+    """Acuse de recibo de un documento controlado: evidencia ISO de difusión.
+
+    Solo entra aquí lo que de verdad es un acuse. El legacy tenía dos cosas
+    parecidas y solo una lo era: las acciones de difusión de ``indiceprin``
+    (con fecha real de acuse) sí, y ``ver_doctos`` no — esa resultó ser una
+    lista de visibilidad, ver :class:`AdhocDocumentVisibility`.
+
+    Por eso ``acknowledged_at`` es NOT NULL: todas las filas migradas traen su
+    fecha. Una tabla de acuses con fechas vacías no sostiene una auditoría.
+    """
+    __tablename__ = "adhoc_document_acknowledgements"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("adhoc_documents.id", ondelete="CASCADE"),
+                          nullable=False, index=True)
+    user_id = Column(BigInteger, ForeignKey("core_users.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    acknowledged_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    document = relationship("AdhocDocument", foreign_keys=[document_id])
+    user = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        UniqueConstraint("document_id", "user_id",
+                          name="uq_adhoc_document_acknowledgements_document_user"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<AdhocDocumentAcknowledgement doc={self.document_id} user={self.user_id}>"
+
+
+class AdhocDocumentVisibility(Base):
+    """Quién puede ver qué documento controlado.
+
+    Es el destino honesto de ``ver_doctos`` del legacy, que el análisis inicial
+    confundió con acuses de lectura. La forma de los datos lo desmiente: 126
+    documentos tienen exactamente los mismos 51 usuarios, la mediana es 47 de 63
+    usuarios totales y 33 personas aparecen en más de 600 de los 742 documentos.
+    Eso es la plantilla completa asignada por documento, no gente leyendo — y la
+    vista del propio proveedor se llamaba ``UsuariosxDocumento``.
+
+    No tiene fecha porque el origen no la tiene (``ver_doctos`` son tres
+    columnas: id, documento, usuario).
+    """
+    __tablename__ = "adhoc_document_visibility"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("adhoc_documents.id", ondelete="CASCADE"),
+                          nullable=False, index=True)
+    user_id = Column(BigInteger, ForeignKey("core_users.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    document = relationship("AdhocDocument", foreign_keys=[document_id])
+    user = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        UniqueConstraint("document_id", "user_id",
+                          name="uq_adhoc_document_visibility_document_user"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<AdhocDocumentVisibility doc={self.document_id} user={self.user_id}>"

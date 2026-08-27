@@ -40,11 +40,14 @@
     //: Colores del LEGACY (advanced_documents.html, líneas 77-89): Borrador y
     //: Rechazado en rojo, En Revisión en azul, Aprobado en verde. El estatus se
     //: pinta como TEXTO de color, nunca como pastilla sólida.
+    //: 'Obsoleto' (version superada por otra mas nueva) va en gris apagado:
+    //: no es un error, solo dejo de estar vigente.
     var STATUS_TONE = {
         'Borrador': 'danger',
         'En Revisión': 'info',
         'Aprobado': 'success',
-        'Rechazado': 'danger'
+        'Rechazado': 'danger',
+        'Obsoleto': 'muted'
     };
 
     // ==================== HELPERS ====================

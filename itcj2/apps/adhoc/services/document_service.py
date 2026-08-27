@@ -52,7 +52,9 @@ from itcj2.apps.adhoc.schemas.documents import (
     DocumentUpdate,
 )
 from itcj2.apps.adhoc.services import upload_service
-from itcj2.apps.adhoc.utils.constants import DOCUMENT_STATUS_DEFAULT
+from itcj2.apps.adhoc.utils.constants import (
+    DOCUMENT_STATUS_DEFAULT, DOCUMENT_STATUSES_VIA_PATCH,
+)
 from itcj2.models.base import paginate
 
 logger = logging.getLogger(__name__)
@@ -257,6 +259,21 @@ class AdhocDocumentService:
             changes["title"] = changes["title"].strip()
         if "version" in changes and not changes.get("version"):
             changes.pop("version")      # NOT NULL: un vacío no lo borra
+        if "status" in changes:
+            # `status` es NOT NULL con CheckConstraint: un '' escribiría NULL y
+            # saldría como 500 sin traducir.
+            if not (changes.get("status") or "").strip():
+                changes.pop("status")
+            elif changes["status"] not in DOCUMENT_STATUSES_VIA_PATCH:
+                # 'En Revisión', 'Aprobado' y 'Rechazado' los produce el motor de
+                # flujo. Dejarlos aquí permitiría marcar aprobado un documento
+                # cuyo flujo sigue en el primer paso, con `adhoc_task_approvals`
+                # vacío y `current_step_id` colgando de un paso ya superado.
+                raise ValueError(
+                    f"El estado '{changes['status']}' lo asigna el flujo de aprobación, "
+                    f"no se puede escribir directamente. Permitidos aquí: "
+                    f"{', '.join(DOCUMENT_STATUSES_VIA_PATCH)}"
+                )
 
         _validate_fks(db, [changes])
 

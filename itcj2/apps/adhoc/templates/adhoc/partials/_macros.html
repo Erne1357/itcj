@@ -119,7 +119,7 @@
 {# — BADGE DE ESTADO —
    kind ∈ ('document', 'task', 'incident', 'program', 'priority').
    Vocabularios cerrados del plan §2 (los mismos de los CheckConstraint):
-     document : Borrador | En Revisión | Aprobado | Rechazado
+     document : Borrador | En Revisión | Aprobado | Rechazado | Obsoleto
      task     : Pendiente | En Proceso | En Revisión | En Espera | Completada | Rechazada
      incident : No Iniciada | Iniciada | Cerrada
      program  : Planeado | En Proceso | Completado
@@ -134,7 +134,8 @@
   {%- set _tones = {
     'document': {
       'Borrador': 'neutral', 'En Revisión': 'warning',
-      'Aprobado': 'success', 'Rechazado': 'danger'
+      'Aprobado': 'success', 'Rechazado': 'danger',
+      'Obsoleto': 'muted'
     },
     'task': {
       'Pendiente': 'neutral', 'En Proceso': 'info', 'En Revisión': 'warning',

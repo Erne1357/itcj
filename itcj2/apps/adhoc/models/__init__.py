@@ -28,10 +28,15 @@ from .documents import (
     AdhocApprovalFlowStep,
     adhoc_flow_step_assignees,
     AdhocDocument,
+    AdhocDocumentAcknowledgement,
+    AdhocDocumentVisibility,
 )
-from .incidents import AdhocIncidentCategory, AdhocIncident
+from .incidents import AdhocIncidentCategory, AdhocIncident, AdhocIncidentFile
 from .programs import AdhocProgramCategory, AdhocProgramEvent, AdhocProgramEventFile
-from .tasks import AdhocTask, adhoc_task_assignees, AdhocTaskComment, AdhocTaskApproval
+from .tasks import (
+    AdhocTask, adhoc_task_assignees, AdhocTaskComment,
+    AdhocTaskCommentFile, AdhocTaskApproval,
+)
 
 __all__ = [
     # Estructura
@@ -51,9 +56,12 @@ __all__ = [
     "AdhocApprovalFlowStep",
     "adhoc_flow_step_assignees",
     "AdhocDocument",
+    "AdhocDocumentAcknowledgement",
+    "AdhocDocumentVisibility",
     # Incidencias
     "AdhocIncidentCategory",
     "AdhocIncident",
+    "AdhocIncidentFile",
     # Programa (calendario)
     "AdhocProgramCategory",
     "AdhocProgramEvent",
@@ -62,5 +70,6 @@ __all__ = [
     "AdhocTask",
     "adhoc_task_assignees",
     "AdhocTaskComment",
+    "AdhocTaskCommentFile",
     "AdhocTaskApproval",
 ]

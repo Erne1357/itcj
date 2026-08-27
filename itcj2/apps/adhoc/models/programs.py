@@ -52,6 +52,9 @@ class AdhocProgramEvent(Base):
     status = Column(String(50), nullable=False, server_default=text("'Planeado'"))
     location = Column(String(100), nullable=True)
 
+    #: `programas.proj_id` del legacy. Negativo en los eventos placeholder.
+    legacy_id = Column(Integer, nullable=True, unique=True)
+
     category_id = Column(Integer, ForeignKey("adhoc_program_categories.id"), nullable=True, index=True)
     area_id = Column(Integer, ForeignKey("adhoc_areas.id"), nullable=True, index=True)
     process_id = Column(Integer, ForeignKey("adhoc_processes.id"), nullable=True, index=True)
@@ -85,7 +88,9 @@ class AdhocProgramEventFile(Base):
     id = Column(Integer, primary_key=True)
     event_id = Column(Integer, ForeignKey("adhoc_program_events.id", ondelete="CASCADE"),
                        nullable=False, index=True)
-    file_path = Column(String(255), nullable=False)   # ruta relativa "{event_id}/{filename}"
+    # Nullable: hay adjuntos del legacy cuyo registro existe pero cuyo binario
+    # ya no esta en el servidor del proveedor. Se conserva el rastro.
+    file_path = Column(String(255), nullable=True)   # ruta relativa "{event_id}/{filename}"
     original_name = Column(String(255), nullable=False)
     mime_type = Column(String(100), nullable=True)
     size_bytes = Column(Integer, nullable=True)

@@ -40,6 +40,8 @@
     var TABLE_ID = 'adhoc-doc-panel-table';
 
     //: Estatus desde los que se puede arrancar el flujo de aprobación.
+    //: 'Obsoleto' es TERMINAL: una version superada no vuelve a flujo, se crea
+    //: una version nueva. Espeja DOCUMENT_STATUSES_STARTABLE de constants.py.
     var STARTABLE = { 'Borrador': true, 'Rechazado': true };
 
     // ==================== CONSTRUCTORES DE CAMPO ====================

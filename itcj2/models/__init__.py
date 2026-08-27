@@ -59,7 +59,9 @@ from itcj2.apps.adhoc.models import (  # noqa: F401
     AdhocMailConfig,
     AdhocDocumentCategory, AdhocDocumentClassification,
     AdhocApprovalFlow, AdhocApprovalFlowStep, adhoc_flow_step_assignees, AdhocDocument,
-    AdhocIncidentCategory, AdhocIncident,
+    AdhocDocumentAcknowledgement, AdhocDocumentVisibility,
+    AdhocIncidentCategory, AdhocIncident, AdhocIncidentFile,
     AdhocProgramCategory, AdhocProgramEvent, AdhocProgramEventFile,
-    AdhocTask, adhoc_task_assignees, AdhocTaskComment, AdhocTaskApproval,
+    AdhocTask, adhoc_task_assignees, AdhocTaskComment, AdhocTaskCommentFile,
+    AdhocTaskApproval,
 )
