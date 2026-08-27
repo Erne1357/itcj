@@ -186,11 +186,71 @@ def download(item: dict) -> dict:
     return result
 
 
+LOCAL_DUMP = ROOT.parent / "adhoc" / "documentos"
+
+
+def match_key(name: str) -> str:
+    """Clave de comparacion tolerante para nombres de archivo del legacy.
+
+    El volcado local y la BD no siempre coinciden byte a byte: `doc_approve`
+    dice 'FORMATO LISTA DE ASISTENCIA.xlsx' y el archivo real (en disco Y en el
+    servidor) se llama 'FORMATO LISTA DE ASISTENCIA .xlsx', con un espacio
+    antes de la extension. Se normaliza espacio en blanco alrededor del punto
+    final y se compara sin distinguir mayusculas.
+    """
+    stem, dot, ext = name.rpartition(".")
+    if not dot:
+        return " ".join(name.split()).lower()
+    return f"{' '.join(stem.split())}.{ext}".lower()
+
+
+def stage_documents() -> int:
+    """Coloca los documentos de `doc_approve` en el staging, desde el volcado local.
+
+    Decision del usuario: usar el volcado local y bajar del servidor solo lo que
+    falte. Hoy no falta nada — los 201 documentos con nombre de archivo estan en
+    disco (200 con match exacto y 1 por el espacio antes de la extension).
+    """
+    docs = load("doc_approve")
+    on_disk = {match_key(p.name): p for p in LOCAL_DUMP.iterdir() if p.is_file()}
+
+    staged = missing = no_name = 0
+    for doc in docs:
+        filename = doc.get("dap_documento")
+        if not filename:
+            no_name += 1
+            continue
+        source = on_disk.get(match_key(filename))
+        if source is None:
+            missing += 1
+            print(f"  SIN ARCHIVO  dap_id={doc['dap_id']}  {filename}")
+            continue
+        target = FILES_DIR / "doc_approve" / str(doc["dap_id"]) / source.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+        staged += 1
+
+    referenced = {match_key(d["dap_documento"]) for d in docs if d.get("dap_documento")}
+    orphans = [p for k, p in on_disk.items() if k not in referenced]
+    orphan_bytes = sum(p.stat().st_size for p in orphans)
+
+    print(f"\n{staged} documentos en staging · {no_name} sin nombre en BD · {missing} sin archivo")
+    print(f"{len(orphans)} huerfanos en el volcado local ({orphan_bytes/1048576:.1f} MB) — "
+          f"NO se migran, archivar aparte")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=0, help="piloto: solo N archivos")
     parser.add_argument("--retry", action="store_true", help="reintentar solo los fallidos")
+    parser.add_argument("--documents", action="store_true",
+                        help="staging de doc_approve desde el volcado local (no descarga)")
     args = parser.parse_args()
+
+    if args.documents:
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        return stage_documents()
 
     work = build_worklist()
 
