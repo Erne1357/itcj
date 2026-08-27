@@ -19,7 +19,8 @@
  *   POST /tasks/{id}/comments          → multipart {comment, file}
  *   POST /tasks/{id}/workflow-action   → {accion: terminar|rechazar|aprobar}
  *   GET  /documents/{id}/download      → documento del padre
- *   GET  /tasks/comments/{id}/download → adjunto de un comentario
+ *   GET  /tasks/comments/{id}/download → adjunto heredado de un comentario (columna `file_path`)
+ *   GET  /tasks/comments/files/{id}/download → adjunto de `adhoc_task_comment_files` (0..N por comentario)
  */
 (function () {
     'use strict';
@@ -289,6 +290,46 @@
 
     // ==================== RENDER: COMENTARIOS ====================
 
+    /**
+     * Enlaces de descarga de un comentario, uniendo las dos fuentes de
+     * adjunto: `files` (0..N, `adhoc_task_comment_files`) y el `file_path`
+     * heredado (el único que sigue escribiendo el formulario de comentario).
+     * Un adjunto migrado sin binario (`is_available: false`) se lista sin
+     * enlace, en vez de ofrecer una descarga que va a dar 404.
+     */
+    function renderAttachments(c) {
+        var pedazos = [];
+
+        (c.files || []).forEach(function (f) {
+            if (!f.is_available) {
+                pedazos.push(
+                    '<span class="adhoc-wf-muted" title="El archivo ya no está disponible">' +
+                    '<i class="fa-solid fa-file-circle-xmark"></i> ' +
+                    U.escapeHtml(f.original_name || 'Archivo') + '</span>'
+                );
+                return;
+            }
+            pedazos.push(
+                '<a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="' +
+                U.escapeHtml(U.API_BASE + '/tasks/comments/files/' + f.id + '/download') + '">' +
+                '<i class="fa-solid fa-download"></i> ' + U.escapeHtml(f.original_name || 'Descargar') + '</a>'
+            );
+        });
+
+        if (c.file_path) {
+            pedazos.push(
+                '<a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="' +
+                U.escapeHtml(U.API_BASE + '/tasks/comments/' + c.id + '/download') + '">' +
+                '<i class="fa-solid fa-download"></i> ' + U.escapeHtml(c.file_name || 'Descargar') + '</a>'
+            );
+        }
+
+        if (!pedazos.length) {
+            return '<span class="adhoc-wf-muted">Sin adjuntos</span>';
+        }
+        return pedazos.join(' ');
+    }
+
     function renderComments(comments) {
         var tbody = byId('adhoc-wf-comments');
         state.hasComments = comments.length > 0;
@@ -302,12 +343,7 @@
 
         var html = '';
         comments.forEach(function (c) {
-            var adjunto = '<span class="adhoc-wf-muted">Sin adjuntos</span>';
-            if (c.file_path) {
-                adjunto = '<a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="' +
-                    U.escapeHtml(U.API_BASE + '/tasks/comments/' + c.id + '/download') + '">' +
-                    '<i class="fa-solid fa-download"></i> ' + U.escapeHtml(c.file_name || 'Descargar') + '</a>';
-            }
+            var adjunto = renderAttachments(c);
             html += '<tr>' +
                 '<td class="adhoc-wf-date">' + U.escapeHtml(c.created_at || '') + '</td>' +
                 '<td><span class="adhoc-wf-author">' + U.escapeHtml(userName(c.user)) + ':</span><br>' +

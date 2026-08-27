@@ -74,6 +74,7 @@ def _load_task(db: Session, task_id: int, *, eager: bool = False):
             .options(
                 selectinload(AdhocTask.assignees),
                 selectinload(AdhocTask.comments).selectinload(AdhocTaskComment.user),
+                selectinload(AdhocTask.comments).selectinload(AdhocTaskComment.files),
                 selectinload(AdhocTask.approvals).selectinload(AdhocTaskApproval.user),
                 selectinload(AdhocTask.document).selectinload(AdhocDocument.author),
                 selectinload(AdhocTask.document).selectinload(AdhocDocument.current_step),
@@ -544,3 +545,40 @@ class AdhocTaskService:
             raise HTTPException(status_code=404, detail="El archivo no está disponible") from exc
 
         return comment, path
+
+    @staticmethod
+    def get_comment_file_download(db: Session, file_id: int):
+        """``(archivo, ruta absoluta verificada)`` para el archivo de un comentario.
+
+        Espejo de :meth:`get_comment_download`, pero sobre
+        ``adhoc_task_comment_files``: un comentario puede tener más de un
+        adjunto (85 comentarios del histórico migrado, uno con 14), algo que
+        ``AdhocTaskComment.file_path`` nunca pudo representar.
+
+        ``file_path`` es NULLABLE en esta tabla — hay adjuntos migrados cuyo
+        binario ya no está en el servidor del proveedor. Ese caso también da
+        **404** legible, igual que uno con ``open_stored`` fallido.
+        """
+        from itcj2.apps.adhoc.models import AdhocTaskCommentFile
+        from itcj2.apps.adhoc.services.upload_service import open_stored
+
+        file_row = db.get(AdhocTaskCommentFile, file_id)
+        if file_row is None:
+            raise HTTPException(status_code=404, detail="Archivo no encontrado")
+        if not file_row.file_path:
+            raise HTTPException(
+                status_code=404,
+                detail="El archivo no tiene un binario disponible "
+                       "(adjunto migrado sin archivo en el servidor de origen)",
+            )
+
+        try:
+            path = open_stored("task_comments", file_row.file_path)
+        except ValueError as exc:
+            logger.warning(
+                "[adhoc] Descarga de adjunto de comentario (file_id=%s) rechazada: %s",
+                file_id, exc,
+            )
+            raise HTTPException(status_code=404, detail="El archivo no está disponible") from exc
+
+        return file_row, path

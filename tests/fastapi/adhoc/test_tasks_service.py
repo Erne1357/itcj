@@ -5,12 +5,15 @@ dashboard (``get_dashboard_tasks``), que es la fuente de ``GET /tasks/mine`` y
 la puerta de entrada al workflow (plan §3.b: cuatro predicados en UNA query).
 """
 from datetime import date, datetime
+from io import BytesIO
 
 import pytest
 from fastapi import HTTPException
 
+from itcj2.apps.adhoc.services import upload_service
 from tests.fastapi.adhoc._tasks_helpers import (
     add_comment,
+    add_comment_file,
     assignee_flag,
     make_document,
     make_flow,
@@ -19,6 +22,28 @@ from tests.fastapi.adhoc._tasks_helpers import (
     make_task,
     make_user,
 )
+
+
+class _FakeUploadSettings:
+    def __init__(self, root):
+        self.ADHOC_UPLOAD_PATH = str(root)
+        self.ADHOC_MAX_FILE_SIZE = 1024 * 1024
+        self.ADHOC_ALLOWED_EXTENSIONS = "pdf,png,txt"
+
+
+class _FakeUpload:
+    """Duck-type de ``fastapi.UploadFile`` (espejo del de ``test_incidents_service.py``)."""
+
+    def __init__(self, filename, content=b"contenido", content_type="application/pdf"):
+        self.filename = filename
+        self.content_type = content_type
+        self.file = BytesIO(content)
+
+
+@pytest.fixture()
+def uploads_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(upload_service, "_settings", lambda: _FakeUploadSettings(tmp_path))
+    return tmp_path
 
 
 # ==========================================================================
@@ -335,6 +360,97 @@ def test_comment_download_con_traversal_es_404(db_session):
         AdhocTaskService.get_comment_download(db_session, c.id)
 
     assert exc.value.status_code == 404
+
+
+# ==========================================================================
+# Adjuntos de comentario (`adhoc_task_comment_files`)
+# ==========================================================================
+
+def test_comment_file_download_ok(db_session, uploads_root):
+    """El adjunto nuevo se descarga por id de archivo, no por id de comentario."""
+    from itcj2.apps.adhoc.services.task_service import AdhocTaskService
+
+    inc = make_incident(db_session)
+    u = make_user(db_session)
+    t = make_task(db_session, incident=inc)
+    c = add_comment(db_session, t, u)
+    meta = upload_service.save_upload("task_comments", t.id, _FakeUpload("evidencia.pdf"))
+    f = add_comment_file(db_session, c, original_name="evidencia.pdf", file_path=meta["file_path"])
+
+    row, path = AdhocTaskService.get_comment_file_download(db_session, f.id)
+
+    assert row.id == f.id
+    assert path.is_file()
+    assert path.name.endswith(".pdf")
+
+
+def test_comment_file_download_inexistente_es_404(db_session):
+    from itcj2.apps.adhoc.services.task_service import AdhocTaskService
+
+    with pytest.raises(HTTPException) as exc:
+        AdhocTaskService.get_comment_file_download(db_session, 99_999_999)
+
+    assert exc.value.status_code == 404
+
+
+def test_comment_file_download_sin_binario_es_404(db_session):
+    """``file_path`` NULL: adjunto migrado cuyo binario ya no está en el proveedor."""
+    from itcj2.apps.adhoc.services.task_service import AdhocTaskService
+
+    inc = make_incident(db_session)
+    u = make_user(db_session)
+    t = make_task(db_session, incident=inc)
+    c = add_comment(db_session, t, u)
+    f = add_comment_file(db_session, c, file_path=None)
+
+    with pytest.raises(HTTPException) as exc:
+        AdhocTaskService.get_comment_file_download(db_session, f.id)
+
+    assert exc.value.status_code == 404
+
+
+def test_comment_file_download_con_traversal_es_404(db_session):
+    """Fila envenenada: ``open_stored`` la rechaza, no lee fuera de la raíz."""
+    from itcj2.apps.adhoc.services.task_service import AdhocTaskService
+
+    inc = make_incident(db_session)
+    u = make_user(db_session)
+    t = make_task(db_session, incident=inc)
+    c = add_comment(db_session, t, u)
+    f = add_comment_file(db_session, c, file_path="../../../etc/passwd")
+
+    with pytest.raises(HTTPException) as exc:
+        AdhocTaskService.get_comment_file_download(db_session, f.id)
+
+    assert exc.value.status_code == 404
+
+
+def test_workflow_details_expone_varios_adjuntos_por_comentario(db_session):
+    """``serialize_comment`` trae ``files`` (0..N) además del ``file_path`` heredado.
+
+    Cubre exactamente el caso que dejó 213 comentarios sin adjunto visible: el
+    ETL puso más de un archivo en ``adhoc_task_comment_files`` porque
+    ``file_path`` solo admite uno.
+    """
+    from itcj2.apps.adhoc.services.task_service import AdhocTaskService
+
+    inc = make_incident(db_session)
+    u = make_user(db_session)
+    t = make_task(db_session, incident=inc)
+    c = add_comment(db_session, t, u, file_path="legado/unico.pdf")
+    f1 = add_comment_file(db_session, c, original_name="anexo1.pdf", file_path="1/anexo1.pdf")
+    f2 = add_comment_file(db_session, c, original_name="anexo2.pdf", file_path=None)
+
+    detail = AdhocTaskService.get_workflow_details(
+        db_session, t.id, actor_id=u.id, has_read_all=True
+    )
+
+    comentario = detail["comments"][0]
+    assert comentario["file_path"] == "legado/unico.pdf"
+    assert [f["id"] for f in comentario["files"]] == [f1.id, f2.id]
+    disponibilidad = {f["id"]: f["is_available"] for f in comentario["files"]}
+    assert disponibilidad[f1.id] is True
+    assert disponibilidad[f2.id] is False
 
 
 # ==========================================================================

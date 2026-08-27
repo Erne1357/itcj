@@ -50,6 +50,7 @@ __all__ = [
     "serialize_user",
     "parent_type_of",
     "serialize_task",
+    "serialize_comment_file",
     "serialize_comment",
     "serialize_approval",
     "serialize_parent",
@@ -275,8 +276,35 @@ def serialize_task(task: Any, *, with_parent: bool = False) -> dict:
     return data
 
 
+def serialize_comment_file(file: Any) -> dict:
+    """Un adjunto de ``adhoc_task_comment_files``.
+
+    ``is_available`` distingue los adjuntos migrados cuyo ``file_path`` es
+    ``NULL`` (el binario ya no está en el servidor del proveedor) de los que
+    sí se pueden descargar — mismo criterio que
+    ``incidents.file_to_dict``/``programs.file_to_dict``. El frontend no debe
+    ofrecer el enlace de descarga cuando esto es ``False``.
+    """
+    return {
+        "id": file.id,
+        "original_name": file.original_name,
+        "mime_type": file.mime_type,
+        "size_bytes": file.size_bytes,
+        "is_available": bool(file.file_path),
+    }
+
+
 def serialize_comment(comment: Any) -> dict:
-    """Comentario con su autor y su adjunto (si lo tiene)."""
+    """Comentario con su autor y sus adjuntos.
+
+    Dos fuentes de adjunto conviven a propósito (plan del backfill de adjuntos
+    de comentarios): ``file_path``/``file_name`` es el flujo viejo, el único
+    que sigue escribiendo ``POST /tasks/{id}/comments`` hoy; ``files`` es
+    ``adhoc_task_comment_files``, donde vive el histórico migrado con más de
+    un adjunto por comentario (85 casos, uno con 14) — la columna vieja solo
+    admite uno. Un comentario puede tener ambas cosas a la vez. Asume que el
+    service ya hizo ``selectinload`` de ``files``.
+    """
     return {
         "id": comment.id,
         "task_id": comment.task_id,
@@ -285,6 +313,7 @@ def serialize_comment(comment: Any) -> dict:
         "comment": comment.comment,
         "file_path": comment.file_path,
         "file_name": (comment.file_path or "").split("/")[-1] or None,
+        "files": [serialize_comment_file(f) for f in (getattr(comment, "files", None) or [])],
         "created_at": _iso(comment.created_at),
     }
 

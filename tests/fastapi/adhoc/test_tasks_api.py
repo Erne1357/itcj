@@ -16,6 +16,7 @@ está ``staff_headers`` + el parche de ``cached_has_assignment`` / ``cached_perm
 (hay que parchear ``itcj2.dependencies``, que es donde se importan).
 """
 import shutil
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,6 +26,7 @@ from itcj2.database import get_db
 from tests.conftest import make_jwt
 from tests.fastapi.adhoc._tasks_helpers import (
     add_comment,
+    add_comment_file,
     assignee_flag,
     make_document,
     make_flow,
@@ -53,6 +55,17 @@ def headers_for(user, role: str = "admin") -> dict:
     return {"Cookie": f"itcj_token={make_jwt(user_id=user.id, role=role)}"}
 
 
+class _FakeUpload:
+    """Duck-type de ``fastapi.UploadFile``, para escribir un binario real en
+    disco sin pasar por el endpoint multipart (que solo sube UN archivo por
+    comentario, columna vieja)."""
+
+    def __init__(self, filename, content=b"contenido", content_type="application/pdf"):
+        self.filename = filename
+        self.content_type = content_type
+        self.file = BytesIO(content)
+
+
 # ==========================================================================
 # Autenticación y autorización
 # ==========================================================================
@@ -69,6 +82,7 @@ def headers_for(user, role: str = "admin") -> dict:
     ("post", f"{PREFIX}/1/workflow-action"),
     ("post", f"{PREFIX}/1/comments"),
     ("get", f"{PREFIX}/comments/1/download"),
+    ("get", f"{PREFIX}/comments/files/1/download"),
 ])
 def test_sin_cookie_es_401(tasks_client, method, path):
     resp = getattr(tasks_client, method)(path)
@@ -564,5 +578,93 @@ def test_download_con_ruta_envenenada_es_404(tasks_client, db_session):
     c = add_comment(db_session, t, u, file_path="../../../../etc/passwd")
 
     resp = tasks_client.get(f"{PREFIX}/comments/{c.id}/download", headers=headers_for(u))
+
+    assert resp.status_code == 404
+
+
+# ==========================================================================
+# Adjuntos de comentario (`adhoc_task_comment_files`) — el bug de los 533
+# adjuntos invisibles: el ETL dejó `file_path` en NULL en 1098 filas y puso
+# los archivos aquí porque 85 comentarios del legacy tienen más de uno.
+# ==========================================================================
+
+def test_comentario_con_varios_adjuntos_se_listan_en_el_workflow(tasks_client, db_session):
+    """``GET /tasks/{id}/workflow`` expone ``files`` (0..N) además del
+    ``file_path`` heredado — un mismo comentario puede traer ambas cosas."""
+    u = make_user(db_session)
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[u])
+    c = add_comment(db_session, t, u, file_path="legado/unico.pdf")
+    f1 = add_comment_file(db_session, c, original_name="anexo1.pdf", file_path="1/anexo1.pdf")
+    f2 = add_comment_file(db_session, c, original_name="anexo2.pdf", file_path=None)
+
+    resp = tasks_client.get(f"{PREFIX}/{t.id}/workflow", headers=headers_for(u))
+
+    assert resp.status_code == 200
+    comentario = resp.json()["data"]["comments"][0]
+    assert comentario["file_path"] == "legado/unico.pdf"
+    assert len(comentario["files"]) == 2
+    disponibilidad = {f["id"]: f["is_available"] for f in comentario["files"]}
+    assert disponibilidad[f1.id] is True
+    assert disponibilidad[f2.id] is False
+
+
+def test_comentario_con_adjunto_nuevo_se_descarga_por_id_de_archivo(tasks_client, db_session):
+    from itcj2.apps.adhoc.services.upload_service import resolve_dir, save_upload
+
+    u = make_user(db_session)
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc)
+    c = add_comment(db_session, t, u)
+    directorio: Path | None = None
+
+    try:
+        meta = save_upload(
+            "task_comments", t.id,
+            _FakeUpload("anexo.txt", content=b"hola mundo", content_type="text/plain"),
+        )
+        f = add_comment_file(db_session, c, original_name="anexo.txt", file_path=meta["file_path"],
+                             mime_type="text/plain")
+        directorio = resolve_dir("task_comments", t.id)
+
+        descarga = tasks_client.get(f"{PREFIX}/comments/files/{f.id}/download",
+                                    headers=headers_for(u))
+        assert descarga.status_code == 200
+        assert descarga.content == b"hola mundo"
+    finally:
+        if directorio is not None and directorio.exists():
+            shutil.rmtree(directorio, ignore_errors=True)
+
+
+def test_descarga_de_adjunto_sin_binario_es_404_legible(tasks_client, db_session):
+    """Adjunto migrado cuyo binario ya no está en el servidor del proveedor."""
+    u = make_user(db_session)
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc)
+    c = add_comment(db_session, t, u)
+    f = add_comment_file(db_session, c, file_path=None)
+
+    resp = tasks_client.get(f"{PREFIX}/comments/files/{f.id}/download", headers=headers_for(u))
+
+    assert resp.status_code == 404
+    assert resp.json()["error"]
+
+
+def test_descarga_de_adjunto_inexistente_es_404(tasks_client, db_session):
+    u = make_user(db_session)
+
+    resp = tasks_client.get(f"{PREFIX}/comments/files/99999999/download", headers=headers_for(u))
+
+    assert resp.status_code == 404
+
+
+def test_descarga_de_adjunto_con_ruta_envenenada_es_404(tasks_client, db_session):
+    u = make_user(db_session)
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc)
+    c = add_comment(db_session, t, u)
+    f = add_comment_file(db_session, c, file_path="../../../../etc/passwd")
+
+    resp = tasks_client.get(f"{PREFIX}/comments/files/{f.id}/download", headers=headers_for(u))
 
     assert resp.status_code == 404

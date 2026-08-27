@@ -146,6 +146,26 @@ def add_comment(db, task, user, text: str = "Comentario de prueba", file_path: O
     return c
 
 
+def add_comment_file(db, comment, *, original_name: str = "evidencia.pdf",
+                     file_path: Optional[str] = None, mime_type: Optional[str] = "application/pdf",
+                     size_bytes: Optional[int] = None, uploaded_by=None):
+    """Fila de ``adhoc_task_comment_files``. ``file_path=None`` simula un
+    adjunto migrado cuyo binario ya no está en el servidor de origen."""
+    from itcj2.apps.adhoc.models import AdhocTaskCommentFile
+
+    f = AdhocTaskCommentFile(
+        task_comment_id=comment.id,
+        file_path=file_path,
+        original_name=original_name,
+        mime_type=mime_type,
+        size_bytes=size_bytes,
+        uploaded_by_id=getattr(uploaded_by, "id", None),
+    )
+    db.add(f)
+    db.flush()
+    return f
+
+
 def assignee_flag(db, task_id: int, user_id: int) -> bool:
     """Lee ``notified_overdue`` de la fila de asociación (no hay relationship)."""
     from sqlalchemy import select

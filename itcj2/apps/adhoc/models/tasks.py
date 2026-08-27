@@ -106,6 +106,15 @@ class AdhocTaskComment(Base):
 
     task = relationship("AdhocTask", back_populates="comments")
     user = relationship("User", foreign_keys=[user_id])
+    #: Adjuntos del sistema nuevo (0..N). El ``file_path`` de arriba sigue
+    #: siendo el único adjunto que escribe el flujo de subida actual; esta
+    #: colección es la que trae el histórico migrado con más de un archivo por
+    #: comentario (85 casos, uno con 14) y la que usará cualquier alta futura
+    #: que soporte varios adjuntos.
+    files = relationship(
+        "AdhocTaskCommentFile", back_populates="comment",
+        cascade="all, delete-orphan", order_by="AdhocTaskCommentFile.id",
+    )
 
     def __repr__(self) -> str:
         return f"<AdhocTaskComment task={self.task_id} user={self.user_id}>"
@@ -134,7 +143,7 @@ class AdhocTaskCommentFile(Base):
     uploaded_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True, index=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
-    comment = relationship("AdhocTaskComment", foreign_keys=[task_comment_id])
+    comment = relationship("AdhocTaskComment", back_populates="files", foreign_keys=[task_comment_id])
     uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
 
     def __repr__(self) -> str:

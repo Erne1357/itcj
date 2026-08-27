@@ -257,6 +257,39 @@ def add_task_comment(
     return {"success": True, "data": serialize_comment(nuevo)}
 
 
+@router.get("/comments/files/{file_id}/download")
+def download_task_comment_file_by_id(
+    file_id: int,
+    request: Request,
+    user: dict = require_perms("adhoc", ["adhoc.tasks.api.comment"]),
+    db: DbSession = None,
+):
+    """Descarga un adjunto de ``adhoc_task_comment_files`` por **id de archivo**.
+
+    Declarada ANTES de ``/comments/{comment_id}/download``: aunque el número de
+    segmentos difiere, el resto del router (``incidents``/``programs``) sigue
+    esta misma convención de poner las rutas ``/files/{...}`` antes de las
+    genéricas por id, así que se replica aquí para no ser la excepción que
+    rompe la regla el día que alguien reordene el archivo.
+
+    Un comentario puede tener varios adjuntos (85 del histórico migrado, uno
+    con 14) — ``file_path`` en ``adhoc_task_comments`` solo admitía uno. Esta
+    ruta es la única forma de bajarse los adjuntos que no entraron ahí.
+    """
+    from fastapi.responses import FileResponse
+
+    from itcj2.apps.adhoc.services import upload_service
+    from itcj2.apps.adhoc.services.task_service import AdhocTaskService
+
+    file_row, path = AdhocTaskService.get_comment_file_download(db, file_id)
+    return FileResponse(
+        str(path),
+        media_type=file_row.mime_type or "application/octet-stream",
+        # `original_name` no siempre trae extensión — ver `download_name`.
+        filename=upload_service.download_name(path, file_row.original_name),
+    )
+
+
 @router.get("/comments/{comment_id}/download")
 def download_task_comment_file(
     comment_id: int,
@@ -264,7 +297,7 @@ def download_task_comment_file(
     user: dict = require_perms("adhoc", ["adhoc.tasks.api.comment"]),
     db: DbSession = None,
 ):
-    """Descarga el adjunto de un comentario.
+    """Descarga el adjunto **heredado** de un comentario (``file_path``).
 
     Con permiso obligatorio y ``safe_join`` en el service: el legacy servía
     estos archivos de forma anónima y bastaba enumerar ids para bajarse los
