@@ -212,6 +212,11 @@ def resolve() -> list[dict]:
             "ack_refs": ack_refs.get(row["id_usuario"], 0),
             "verdict": None,
             "core_user_id": None,
+            # Username en core_users, que NO siempre es el del legacy: el empate
+            # por nombre resuelve `lvillarreal` a `dbustillos`, `ghernandez` a
+            # `gcruz` y `jcpizarro` a `jpizarro`. El ETL joinea por username, asi
+            # que sin este campo esos usuarios caen al usuario tecnico.
+            "core_username": None,
             "matched_by": None,
             "note": None,
         }
@@ -257,6 +262,7 @@ def resolve() -> list[dict]:
         if candidate:
             entry["verdict"] = "match"
             entry["core_user_id"] = candidate["id"]
+            entry["core_username"] = candidate["username"]
         else:
             entry["verdict"] = "placeholder"
             if username in USERNAME_BLACKLIST:
