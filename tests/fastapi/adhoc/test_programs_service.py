@@ -254,6 +254,60 @@ def test_update_event_inexistente_lanza_event_not_found(db_session):
         svc.update_event(db_session, 99_999_999, ProgramEventUpdate(title="X"))
 
 
+def test_update_event_title_vacio_lanza_valueerror(db_session):
+    """D2: ``title`` es NOT NULL sin default razonable — a diferencia de
+    ``priority``/``status`` (que se ignoran cuando llegan en ``None``), un
+    ``""`` en ``title`` se rechaza en vez de escribir NULL y reventar con
+    ``IntegrityError`` (500 sin traducir)."""
+    event = _create(db_session, title="Original")
+
+    with pytest.raises(ValueError):
+        svc.update_event(db_session, event.id, ProgramEventUpdate.model_validate({"title": ""}))
+
+    db_session.expire(event)
+    assert event.title == "Original"
+
+
+# --------------------------------------------------------------------------
+# Validación de FKs (D5)
+# --------------------------------------------------------------------------
+
+def test_bulk_create_con_fk_inexistente_no_crea_nada(db_session):
+    """D5: mismo patrón que ``IncidentService._check_refs`` — todo el lote se
+    valida antes de insertar; una FK inexistente aborta sin dejar basura."""
+    with pytest.raises(ValueError):
+        svc.bulk_create(db_session, [
+            ProgramEventCreate(title="Con área fantasma", area_id=987654321),
+        ])
+
+    assert db_session.query(AdhocProgramEvent).filter_by(title="Con área fantasma").first() is None
+
+
+def test_bulk_create_con_fk_inexistente_en_cualquier_fila_aborta_el_lote(db_session):
+    """El legacy insertaba las filas válidas y reventaba a media tanda con la
+    inválida; aquí es todo o nada."""
+    with pytest.raises(ValueError):
+        svc.bulk_create(db_session, [
+            ProgramEventCreate(title="Válido"),
+            ProgramEventCreate(title="Con responsable fantasma", responsible_id=987654321),
+        ])
+
+    assert db_session.query(AdhocProgramEvent).filter_by(title="Válido").first() is None
+
+
+def test_update_event_con_fk_inexistente_lanza_y_no_muta(db_session):
+    event = _create(db_session, title="Intacto")
+
+    with pytest.raises(ValueError):
+        svc.update_event(
+            db_session, event.id, ProgramEventUpdate.model_validate({"process_id": 987654321})
+        )
+
+    db_session.expire(event)
+    assert event.title == "Intacto"
+    assert event.process_id is None
+
+
 # --------------------------------------------------------------------------
 # delete_event  (bug #18)
 # --------------------------------------------------------------------------

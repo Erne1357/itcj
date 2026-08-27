@@ -186,6 +186,38 @@ def test_get_workflow(tasks_client, db_session):
     assert data["approvals"] == []
 
 
+def test_get_workflow_con_read_own_y_asignado_pasa(tasks_client, db_session):
+    """``consult`` (solo ``read.own``) sí puede ver el detalle de SU tarea."""
+    u = make_user(db_session)
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[u])
+    add_comment(db_session, t, u)
+
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.tasks.api.read.own"}):
+        resp = tasks_client.get(f"{PREFIX}/{t.id}/workflow", headers=headers_for(u, role="staff"))
+
+    assert resp.status_code == 200
+
+
+def test_get_workflow_sin_read_all_ni_relacion_es_403(tasks_client, db_session):
+    """D4: con solo ``read.own``, un ajeno a la tarea (ni asignado ni
+    responsable del padre) no puede leer su detalle."""
+    ajeno = make_user(db_session, "AJENO")
+    asignado = make_user(db_session, "ASIGNADO")
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[asignado])
+
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.tasks.api.read.own"}):
+        resp = tasks_client.get(f"{PREFIX}/{t.id}/workflow",
+                                headers=headers_for(ajeno, role="staff"))
+
+    assert resp.status_code == 403
+
+
 # ==========================================================================
 # Alta, parche y borrado
 # ==========================================================================

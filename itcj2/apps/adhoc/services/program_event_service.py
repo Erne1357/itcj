@@ -100,6 +100,53 @@ _DUPLICATED_FIELDS = (
 )
 
 
+#: ``campo del payload`` -> ``(modelo referenciado, etiqueta legible)``. Mismo
+#: patrón que ``incident_service.IncidentService._check_refs`` (D5).
+_FK_LABELS: dict[str, str] = {
+    "category_id": "categoría de evento",
+    "area_id": "área",
+    "process_id": "proceso",
+    "responsible_id": "usuario responsable",
+}
+
+
+def _check_refs(db: Session, rows: Sequence[Mapping[str, Any]]) -> None:
+    """Verifica que las FKs de ``rows`` existan. Una query por catálogo.
+
+    🔧 D5: ``category_id``, ``area_id``, ``process_id`` y ``responsible_id``
+    inexistentes llegaban a Postgres como ``IntegrityError`` -> 500.
+    ``document_service`` (``_validate_fks``) e ``incident_service``
+    (``_check_refs``) ya lo hacían; este es el mismo patrón, replicado literal
+    (mismas cuatro FKs, mismos catálogos) para que ``bulk_create`` y
+    ``update_event`` respondan 400 legible en vez de reventar a mitad de un
+    ``INSERT``/``UPDATE``. Lanza ``ValueError`` con el id concreto que falta.
+    """
+    from itcj2.apps.adhoc.models.programs import AdhocProgramCategory
+    from itcj2.apps.adhoc.models.structure import AdhocArea, AdhocProcess
+    from itcj2.core.models.user import User
+
+    modelos = {
+        "category_id": AdhocProgramCategory,
+        "area_id": AdhocArea,
+        "process_id": AdhocProcess,
+        "responsible_id": User,
+    }
+
+    for campo, modelo in modelos.items():
+        ids = {row.get(campo) for row in rows if row.get(campo) is not None}
+        if not ids:
+            continue
+        encontrados = {
+            fila[0] for fila in db.query(modelo.id).filter(modelo.id.in_(ids)).all()
+        }
+        faltantes = sorted(ids - encontrados)
+        if faltantes:
+            raise ValueError(
+                f"No existe {_FK_LABELS[campo]} con id "
+                + ", ".join(str(i) for i in faltantes)
+            )
+
+
 def _eager(query):
     """Carga las relaciones que la serialización necesita — mata el N+1.
 
@@ -210,9 +257,10 @@ def bulk_create(
         Los eventos creados, en el mismo orden que ``events``.
 
     Raises:
-        ValueError: lista vacía o adjunto inválido (extensión, tamaño, nombre).
-            En ese caso no queda ni un evento ni un fichero: se hace rollback y
-            se borran del disco los archivos ya escritos.
+        ValueError: lista vacía, una FK inexistente en cualquier fila del lote
+            (D5) o adjunto inválido (extensión, tamaño, nombre). En ese caso no
+            queda ni un evento ni un fichero: se hace rollback y se borran del
+            disco los archivos ya escritos.
     """
     from itcj2.apps.adhoc.models import AdhocProgramEvent, AdhocProgramEventFile
     from itcj2.apps.adhoc.services import upload_service
@@ -220,13 +268,18 @@ def bulk_create(
     if not events:
         raise ValueError("No se recibió ningún evento para registrar")
 
+    filas = [
+        payload.model_dump() if hasattr(payload, "model_dump") else dict(payload)
+        for payload in events
+    ]
+    _check_refs(db, filas)  # 🔧 D5: TODAS las FKs del lote, antes de insertar nada
+
     files_by_index = files_by_index or {}
     created: list = []
     written: list[str] = []   # rutas relativas ya escritas, para limpiar si algo falla
 
     try:
-        for index, payload in enumerate(events):
-            data = payload.model_dump() if hasattr(payload, "model_dump") else dict(payload)
+        for index, data in enumerate(filas):
             event = AdhocProgramEvent(**data)
             db.add(event)
             db.flush()          # necesitamos el id para el directorio del evento
@@ -268,11 +321,25 @@ def update_event(db: Session, event_id: int, data: Any):
 
     Solo se tocan los campos presentes en el payload (``exclude_unset``); un
     ``null``/``""`` limpia las columnas nullable, y se ignora en ``priority`` y
-    ``status``, que son NOT NULL con CheckConstraint.
+    ``status``, que son NOT NULL con CheckConstraint. ``title`` es también NOT
+    NULL pero sin default razonable: un ``""``/``null`` explícito se
+    **rechaza** con ``ValueError`` en vez de ignorarse (D2). Las FKs
+    (``category_id``, ``area_id``, ``process_id``, ``responsible_id``) se
+    validan antes de tocar la fila (D5).
     """
     event = get_event(db, event_id, eager=False)
 
     changes = data.model_dump(exclude_unset=True) if hasattr(data, "model_dump") else dict(data)
+
+    # 🔧 D2: `title` es NOT NULL pero, a diferencia de `priority`/`status`, no
+    # tiene un default razonable al que resolverse — un `""` que el schema ya
+    # coaccionó a `None` se rechaza aquí en vez de llegar como NULL a
+    # Postgres (IntegrityError sin traducir -> 500).
+    if "title" in changes and not (changes["title"] or "").strip():
+        raise ValueError("El título no puede estar vacío")
+
+    _check_refs(db, [changes])  # 🔧 D5
+
     for field, value in changes.items():
         if value is None and field in _NOT_NULL_FIELDS:
             continue

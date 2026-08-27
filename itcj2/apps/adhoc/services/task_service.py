@@ -241,11 +241,36 @@ class AdhocTaskService:
         )
 
     @staticmethod
-    def get_workflow_details(db: Session, task_id: int) -> dict:
-        """Payload del modal de workflow: tarea + padre + comentarios + aprobaciones."""
+    def get_workflow_details(db: Session, task_id: int, *, actor_id: int,
+                             has_read_all: bool) -> dict:
+        """Payload del modal de workflow: tarea + padre + comentarios + aprobaciones.
+
+        Sin ``adhoc.tasks.api.read.all`` (``has_read_all=False``) el actor tiene
+        que estar asignado a la tarea o ser el responsable del padre —el mismo
+        predicado "asignado o responsable" que decide si la tarea aparece en su
+        tablero (ver :meth:`get_dashboard_tasks`)— o **403** (D4). Antes de este
+        fix, tener solo ``adhoc.tasks.api.read.own`` (p.ej. el rol ``consult``)
+        alcanzaba para leer el detalle completo de cualquier tarea del sistema:
+        comentarios, aprobaciones, todo.
+        """
         from itcj2.apps.adhoc.schemas.tasks import serialize_workflow_details
 
         task = _load_task(db, task_id, eager=True)
+
+        if not has_read_all:
+            asignado = any(u.id == actor_id for u in task.assignees)
+            responsable_incidencia = (
+                task.incident is not None and task.incident.responsible_id == actor_id
+            )
+            responsable_programa = (
+                task.program is not None and task.program.responsible_id == actor_id
+            )
+            if not (asignado or responsable_incidencia or responsable_programa):
+                raise HTTPException(
+                    status_code=403,
+                    detail="No tienes acceso al detalle de esta tarea",
+                )
+
         return serialize_workflow_details(task)
 
     # ------------------------------------------------------------- escritura
@@ -303,12 +328,18 @@ class AdhocTaskService:
         """Parche de una tarea. Solo toca los campos presentes en ``changes``.
 
         Regla ``completed_at`` ↔ ``Completada`` (heredada del legacy): al pasar a
-        ``Completada`` se sella la fecha si no la tenía; al salir de
-        ``Completada`` se limpia.
+        ``Completada`` se sella la fecha si no la tenía. La limpieza es más
+        angosta que en el legacy (D1): solo se borra cuando el ``status``
+        **cambia en esta misma edición** y el nuevo valor es de trabajo abierto
+        (:data:`TASK_OPEN_STATUSES`). Sin esa condición, cualquier PATCH que no
+        tocara el status —aunque fuera solo la prioridad— le borraba la fecha a
+        una tarea que ``task_workflow_service._generic_task`` había dejado en
+        ``'En Revisión'`` con ``completed_at`` ya sellado, que es la fuente del
+        dashboard.
         """
         from itcj2.apps.adhoc.services import notify
         from itcj2.apps.adhoc.services.email_helper import AdhocEmailHelper
-        from itcj2.apps.adhoc.utils.constants import TASK_STATUS_COMPLETED
+        from itcj2.apps.adhoc.utils.constants import TASK_OPEN_STATUSES, TASK_STATUS_COMPLETED
 
         task = _load_task(db, task_id)
 
@@ -324,10 +355,12 @@ class AdhocTaskService:
                     continue  # NOT NULL con CheckConstraint: un None no borra nada
                 setattr(task, campo, valor)
 
+        estatus_cambio = "status" in changes and task.status != estatus_previo
+
         if task.status == TASK_STATUS_COMPLETED:
             if not task.completed_at:
                 task.completed_at = datetime.now()
-        else:
+        elif estatus_cambio and task.status in TASK_OPEN_STATUSES:
             task.completed_at = None
 
         db.commit()

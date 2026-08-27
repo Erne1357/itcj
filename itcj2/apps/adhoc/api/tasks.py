@@ -26,7 +26,7 @@ from itcj2.apps.adhoc.schemas.tasks import (
     TaskUpdate,
     TaskWorkflowActionRequest,
 )
-from itcj2.dependencies import DbSession, require_perms
+from itcj2.dependencies import DbSession, is_global_admin, require_perms
 
 router = APIRouter(tags=["adhoc-tasks"])
 logger = logging.getLogger(__name__)
@@ -93,10 +93,24 @@ def get_task_workflow(
     Incluye ``approvals`` —la información que el legacy destruía al modelar la
     aprobación borrando la asignación— para que la UI pueda mostrar quién ya
     validó y quién falta.
+
+    El permiso solo dice "puede consultar detalle de ALGUNA tarea": con
+    ``read.own`` (p.ej. el rol ``consult``, que no tiene ``read.all``) el
+    service exige además que el actor esté asignado a la tarea o sea el
+    responsable del padre — si no, 403 (D4).
     """
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
+    from itcj2.core.services.authz_cache import cached_perms
 
-    return {"success": True, "data": AdhocTaskService.get_workflow_details(db, task_id)}
+    actor_id = int(user["sub"])
+    has_read_all = is_global_admin(user) or (
+        "adhoc.tasks.api.read.all" in cached_perms(db, actor_id, "adhoc")
+    )
+
+    data = AdhocTaskService.get_workflow_details(
+        db, task_id, actor_id=actor_id, has_read_all=has_read_all
+    )
+    return {"success": True, "data": data}
 
 
 # ==========================================================================

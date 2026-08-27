@@ -41,6 +41,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from fastapi import HTTPException
+from sqlalchemy import and_
 from sqlalchemy.orm import Session, selectinload
 
 logger = logging.getLogger(__name__)
@@ -156,11 +157,27 @@ def _record_decision(db: Session, task, actor_id: int, decision: str):
 
 
 def _approved_count(db: Session, task_id: int) -> int:
-    from itcj2.apps.adhoc.models import AdhocTaskApproval
+    """Aprobaciones vigentes: solo las de quien **sigue asignado** a la tarea.
+
+    🔧 D3: filtrar nada más por ``task_id`` + ``decision`` cuenta también las
+    aprobaciones de gente que ya no está asignada. Si alguien reasigna la
+    tarea después de que parte del paso ya aprobó, esas aprobaciones viejas
+    seguían sumando y el paso avanzaba sin que los asignados actuales
+    aprobaran. El join contra ``adhoc_task_assignees`` acota el conteo a los
+    asignados vivos.
+    """
+    from itcj2.apps.adhoc.models import AdhocTaskApproval, adhoc_task_assignees
     from itcj2.apps.adhoc.utils.constants import APPROVAL_DECISION_APPROVED
 
     return (
         db.query(AdhocTaskApproval)
+        .join(
+            adhoc_task_assignees,
+            and_(
+                adhoc_task_assignees.c.task_id == AdhocTaskApproval.task_id,
+                adhoc_task_assignees.c.user_id == AdhocTaskApproval.user_id,
+            ),
+        )
         .filter(
             AdhocTaskApproval.task_id == task_id,
             AdhocTaskApproval.decision == APPROVAL_DECISION_APPROVED,

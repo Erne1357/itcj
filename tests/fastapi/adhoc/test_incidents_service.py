@@ -386,6 +386,20 @@ def test_update_priority_en_blanco_nunca_guarda_none(db_session):
     assert actualizada.priority == "Media"
 
 
+def test_update_title_vacio_lanza_valueerror_y_no_deja_none_para_el_orm(db_session):
+    """D2: ``title`` es NOT NULL. El ``""`` del cliente llega como ``None`` al
+    service (coaccionado por el schema); a diferencia de ``priority``/``status``
+    no tiene un default razonable, así que se rechaza en vez de escribir NULL
+    y reventar con ``IntegrityError`` (500 sin traducir)."""
+    inc = _create(db_session, title="Original")
+
+    with pytest.raises(ValueError):
+        IncidentService.update(db_session, inc.id, IncidentUpdate(title=""))
+
+    db_session.expire(inc)
+    assert inc.title == "Original"
+
+
 def test_update_cambia_status_dentro_del_vocabulario(db_session):
     inc = _create(db_session, title="x")
     actualizada = IncidentService.update(db_session, inc.id, IncidentUpdate(status="Cerrada"))

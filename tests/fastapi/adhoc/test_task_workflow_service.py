@@ -288,6 +288,49 @@ def test_rama_c_aprobar_dos_veces_es_idempotente(db_session):
     assert tareas[0].status == "En Revisión"
 
 
+def test_rama_c_reasignar_no_cuenta_aprobaciones_de_quien_ya_no_esta(db_session):
+    """🔧 D3: ``_approved_count`` filtraba solo por ``task_id`` + ``decision``.
+
+    Si alguien reasigna la tarea después de que parte del paso ya aprobó, las
+    aprobaciones de gente que ya no está asignada no deben seguir contando
+    para el paso avanzar.
+    """
+    from itcj2.apps.adhoc.models import AdhocTaskApproval
+
+    v1 = make_user(db_session, "VAL1")
+    v2 = make_user(db_session, "VAL2")
+    v3 = make_user(db_session, "VAL3")
+    autor, doc, steps, tareas = _documento_en_flujo(db_session, [v1, v2])
+    add_comment(db_session, tareas[0], v1)
+
+    result1 = _action(db_session, tareas[0].id, "aprobar", v1.id)
+    assert "Esperando" in result1["message"]
+
+    # Reasignación: v1 sale, entra v3. La tarea queda en manos de v2 y v3, y la
+    # aprobación histórica de v1 sigue en `adhoc_task_approvals`.
+    tareas[0].assignees = [v2, v3]
+    db_session.flush()
+    assert db_session.query(AdhocTaskApproval).filter_by(
+        task_id=tareas[0].id, decision="aprobado"
+    ).count() == 1  # la de v1, todavía ahí
+
+    add_comment(db_session, tareas[0], v2)
+    result2 = _action(db_session, tareas[0].id, "aprobar", v2.id)
+
+    db_session.refresh(tareas[0])
+    # Sin el fix, la aprobación vieja de v1 (ya no asignado) sumaba junto con
+    # la de v2 y el paso avanzaba sin que v3 aprobara nada.
+    assert "Esperando" in result2["message"]
+    assert tareas[0].status == "En Revisión"
+
+    add_comment(db_session, tareas[0], v3)
+    result3 = _action(db_session, tareas[0].id, "aprobar", v3.id)
+
+    db_session.refresh(tareas[0])
+    assert tareas[0].status == "Completada"
+    assert "Acción procesada" in result3["message"]
+
+
 def test_rama_c_ultimo_validador_avanza_al_siguiente_paso(db_session):
     v1 = make_user(db_session, "VAL1")
     v2 = make_user(db_session, "VAL2")

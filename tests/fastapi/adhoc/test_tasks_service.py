@@ -352,7 +352,9 @@ def test_get_workflow_details_de_tarea_documental(db_session):
                   status="En Revisión", assignees=[val])
     add_comment(db_session, t, val, "primer comentario")
 
-    detail = AdhocTaskService.get_workflow_details(db_session, t.id)
+    detail = AdhocTaskService.get_workflow_details(
+        db_session, t.id, actor_id=val.id, has_read_all=False
+    )
 
     assert detail["task"]["id"] == t.id
     assert detail["parent"]["type"] == "document"
@@ -369,17 +371,40 @@ def test_get_workflow_details_de_tarea_de_incidencia(db_session):
     inc = make_incident(db_session, "Inc con responsable", responsible=resp)
     t = make_task(db_session, incident=inc)
 
-    detail = AdhocTaskService.get_workflow_details(db_session, t.id)
+    # Sin `read.all`: `resp` no está asignado a la tarea, pero es el
+    # responsable del padre, y eso basta (D4).
+    detail = AdhocTaskService.get_workflow_details(
+        db_session, t.id, actor_id=resp.id, has_read_all=False
+    )
 
     assert detail["parent"]["type"] == "incident"
     assert detail["parent"]["responsible"]["id"] == resp.id
+
+
+def test_get_workflow_details_sin_read_all_ni_relacion_es_403(db_session):
+    """D4: ni asignado ni responsable del padre, y sin `read.all` -> 403."""
+    from itcj2.apps.adhoc.services.task_service import AdhocTaskService
+
+    ajeno = make_user(db_session, "AJENO")
+    asignado = make_user(db_session, "ASIGNADO")
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[asignado])
+
+    with pytest.raises(HTTPException) as exc:
+        AdhocTaskService.get_workflow_details(
+            db_session, t.id, actor_id=ajeno.id, has_read_all=False
+        )
+
+    assert exc.value.status_code == 403
 
 
 def test_get_workflow_details_inexistente_es_404(db_session):
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
 
     with pytest.raises(HTTPException) as exc:
-        AdhocTaskService.get_workflow_details(db_session, 987654321)
+        AdhocTaskService.get_workflow_details(
+            db_session, 987654321, actor_id=1, has_read_all=True
+        )
 
     assert exc.value.status_code == 404
 

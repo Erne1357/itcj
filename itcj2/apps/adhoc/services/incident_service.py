@@ -238,6 +238,14 @@ class IncidentService:
         if not cambios:
             return incidencia
 
+        # 🔧 D2: `title` es NOT NULL pero, a diferencia de `status`/`priority`,
+        # no tiene un default razonable al que resolverse — un `""` que el
+        # schema ya coaccionó a `None` (`AdhocSchema`/`empty_to_none`) se
+        # rechaza aquí en vez de llegar como NULL a Postgres (IntegrityError
+        # sin traducir -> 500).
+        if "title" in cambios and not (cambios["title"] or "").strip():
+            raise ValueError("El título no puede estar vacío")
+
         IncidentService._check_refs(db, [cambios])
 
         for campo, valor in cambios.items():
