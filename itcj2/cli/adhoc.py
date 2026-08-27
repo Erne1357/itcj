@@ -54,6 +54,39 @@ def init_adhoc_command():
     click.echo(click.style(f"\nOK: {ok}/{len(_DML_FILES)} archivos ejecutados — app adhoc lista.", fg="green"))
 
 
+@click.command("grant-incident-files")
+def grant_incident_files_command():
+    """Carga los permisos de archivos de incidencia (delta posterior a init).
+
+    Corre **solo** ``database/DML/adhoc/incident_files/``. El DML de ``init/``
+    no se vuelve a ejecutar: en producción re-correr un DML viejo es la forma
+    más fácil de reintroducir algo que ya se había corregido a mano.
+
+    Los tres permisos (``adhoc.incidents.api.files.{create,delete,download}``)
+    no existían porque la app se construyó asumiendo que las incidencias no
+    llevan adjuntos. El SGC legacy sí los tenía, y al importar el historial
+    aparecieron 351 archivos sin forma de verse.
+    """
+    dml_dir = PROJECT_ROOT / "database" / "DML" / "adhoc" / "incident_files"
+    files = ["01_insert_permissions.sql", "02_insert_role_permission.sql"]
+
+    click.echo(f"Cargando permisos de archivos de incidencia ({dml_dir})\n")
+    for sql_file in files:
+        path = dml_dir / sql_file
+        if not path.exists():
+            click.echo(click.style(f"  ERROR: no existe {path}", fg="red"), err=True)
+            raise click.Abort()
+        click.echo(f"  Ejecutando: {sql_file}")
+        try:
+            execute_sql_file(str(path))
+        except Exception as exc:
+            click.echo(click.style(f"  ERROR en {sql_file}: {exc}", fg="red"), err=True)
+            raise click.Abort()
+        click.echo(click.style(f"  OK: {sql_file}", fg="green"))
+
+    click.echo(click.style("\nOK: permisos de archivos de incidencia cargados.", fg="green"))
+
+
 @click.command("import-legacy")
 @click.option("--dry-run", is_flag=True,
               help="Corre todo y revierte al final: valida sin dejar rastro.")
@@ -135,4 +168,5 @@ def adhoc_cli():
 
 
 adhoc_cli.add_command(init_adhoc_command)
+adhoc_cli.add_command(grant_incident_files_command)
 adhoc_cli.add_command(import_legacy_command)

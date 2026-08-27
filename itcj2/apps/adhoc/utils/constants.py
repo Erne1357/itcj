@@ -234,9 +234,11 @@ TASK_PARENT_TYPES: Final[tuple[str, ...]] = ("incident", "program", "document")
 
 #: Los cuatro almacenes de ``instance/apps/adhoc/``. El nombre del kind es el
 #: nombre del subdirectorio: ver ``services/upload_service.py``.
-UploadKind = Literal["documents", "program_events", "task_comments", "indicators"]
+UploadKind = Literal[
+    "documents", "program_events", "task_comments", "indicators", "incidents",
+]
 UPLOAD_KINDS: Final[tuple[str, ...]] = (
-    "documents", "program_events", "task_comments", "indicators",
+    "documents", "program_events", "task_comments", "indicators", "incidents",
 )
 
 #: ``GET /adhoc/reportes/{tipo}`` (plan §4).
