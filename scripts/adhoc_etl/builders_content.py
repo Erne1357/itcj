@@ -269,7 +269,29 @@ def step_incidents(ctx: Ctx) -> SqlFile:
 
     incidents = load("proyectos")
     rows = []
-    for i, p in enumerate(incidents, start=1):
+
+    # Los placeholder van PRIMERO en el espacio de ids, no al final. La lista
+    # ordena por id descendente (igual que documentos y programa), asi que con
+    # los ids altos lo primero que veria Calidad al entrar serian 14 filas
+    # "registro no conservado". Con los ids bajos quedan hasta el fondo.
+    orphan_parents = sorted({
+        as_int(t.get("task_proyecto")) for t in load("tareas")
+        if as_int(t.get("task_proyecto"))
+        and as_int(t.get("task_proyecto")) not in {p["proj_id"] for p in incidents}
+    })
+    for i, legacy in enumerate(orphan_parents, start=1):
+        ctx.incident[legacy] = i
+        rows.append((
+            str(i), "NULL",
+            q(f"Incidencia legacy #{legacy} — registro no conservado"),
+            q("El registro original fue borrado del sistema legacy. Este marcador "
+              "existe solo para conservar las tareas y comentarios que colgaban de él."),
+            "NULL", "NULL", "NULL", q("Media"), q("Cerrada"), "NULL", "NULL", "NULL",
+            str(-legacy),
+        ))
+
+    offset = len(orphan_parents)
+    for i, p in enumerate(incidents, start=offset + 1):
         ctx.incident[p["proj_id"]] = i
     for p in incidents:
         new_id = ctx.incident[p["proj_id"]]
@@ -290,26 +312,8 @@ def step_incidents(ctx: Ctx) -> SqlFile:
             str(p["proj_id"]),
         ))
 
-    # Placeholders para los padres borrados (D12): rescatan 18 tareas con
-    # contenido real y sus 35 comentarios.
-    orphan_parents = sorted({
-        as_int(t.get("task_proyecto")) for t in load("tareas")
-        if as_int(t.get("task_proyecto")) and as_int(t.get("task_proyecto")) not in ctx.incident
-    })
-    next_id = len(incidents) + 1
-    for legacy in orphan_parents:
-        ctx.incident[legacy] = next_id
-        rows.append((
-            str(next_id), "NULL",
-            q(f"Incidencia legacy #{legacy} — registro no conservado"),
-            q("El registro original fue borrado del sistema legacy. Este marcador "
-              "existe solo para conservar las tareas y comentarios que colgaban de él."),
-            "NULL", "NULL", "NULL", q("Media"), q("Cerrada"), "NULL", "NULL", "NULL",
-            str(-legacy),
-        ))
-        next_id += 1
-
-    f.add(f"\n-- Incidencias: {len(incidents)} reales + {len(orphan_parents)} placeholder (D12).")
+    f.add(f"\n-- Incidencias: {len(incidents)} reales + {len(orphan_parents)} placeholder (D12),\n"
+          "-- estos ultimos con los ids BAJOS para que el orden descendente los deje al fondo.")
     f.insert_many(
         "adhoc_incidents",
         ("id", "folio", "title", "description", "start_date", "commitment_date",
@@ -336,7 +340,27 @@ def step_program(ctx: Ctx) -> SqlFile:
     )
     events = load("programas")
     rows = []
-    for i, p in enumerate(events, start=1):
+
+    # Mismo criterio que incidencias: los placeholder ocupan los ids bajos para
+    # que el listado descendente muestre primero los eventos de verdad.
+    orphans = sorted({
+        as_int(t.get("task_proyecto")) for t in load("tareas_prog")
+        if as_int(t.get("task_proyecto"))
+        and as_int(t.get("task_proyecto")) not in {p["proj_id"] for p in events}
+    })
+    for i, legacy in enumerate(orphans, start=1):
+        ctx.program[legacy] = i
+        rows.append((
+            str(i), "NULL",
+            q(f"Programa legacy #{legacy} — registro no conservado"),
+            q("El registro original fue borrado del sistema legacy. Marcador para "
+              "conservar sus tareas y comentarios."),
+            "NULL", "NULL", "NULL", q("Media"), q("Completado"), "NULL", "NULL", "NULL",
+            str(-legacy),
+        ))
+
+    offset = len(orphans)
+    for i, p in enumerate(events, start=offset + 1):
         ctx.program[p["proj_id"]] = i
     for p in events:
         new_id = ctx.program[p["proj_id"]]
@@ -351,24 +375,7 @@ def step_program(ctx: Ctx) -> SqlFile:
             ctx.user_expr(p.get("proj_resp")),
             str(p["proj_id"]),
         ))
-    orphans = sorted({
-        as_int(t.get("task_proyecto")) for t in load("tareas_prog")
-        if as_int(t.get("task_proyecto")) and as_int(t.get("task_proyecto")) not in ctx.program
-    })
-    next_id = len(events) + 1
-    for legacy in orphans:
-        ctx.program[legacy] = next_id
-        rows.append((
-            str(next_id), "NULL",
-            q(f"Programa legacy #{legacy} — registro no conservado"),
-            q("El registro original fue borrado del sistema legacy. Marcador para "
-              "conservar sus tareas y comentarios."),
-            "NULL", "NULL", "NULL", q("Media"), q("Completado"), "NULL", "NULL", "NULL",
-            str(-legacy),
-        ))
-        next_id += 1
-
-    f.add(f"\n-- Eventos: {len(events)} reales + {len(orphans)} placeholder.")
+    f.add(f"\n-- Eventos: {len(events)} reales + {len(orphans)} placeholder (ids bajos).")
     f.insert_many(
         "adhoc_program_events",
         ("id", "folio", "title", "description", "start_date", "commitment_date",
