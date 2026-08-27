@@ -183,6 +183,12 @@ def step_comments_and_files(ctx: Ctx, file_plan: list[dict]) -> SqlFile:
         "analisis previo se equivocaba: si se hace ese join, 522 adjuntos cuelgan de\n"
         "tareas ajenas.\n"
         "file_path NULL = el binario ya no esta en el servidor del proveedor.\n"
+        "`original_name` lleva el NOMBRE DE ARCHIVO real con su extension, NO la\n"
+        "etiqueta descriptiva del legacy (`inf_name` / `td_nombre`): para el archivo\n"
+        "'VR-01.xls' esa etiqueta dice 'NOTIFICACION VR-01', sin extension. La API de\n"
+        "descarga usa esta columna como nombre del archivo que baja el usuario\n"
+        "(api/programs.py), asi que con la etiqueta el navegador lo guarda sin\n"
+        "extension y no lo abre nada.\n"
         "NO entran los 995 comentarios de doc_com que cuelgan de una accion de ACUSE\n"
         "(a_type NULL) en vez de un paso de aprobacion: no son comentarios de tarea y\n"
         "ademas son ruido puro. 856 de los 995 dicen literalmente 'Enterado sin\n"
@@ -244,7 +250,7 @@ def step_comments_and_files(ctx: Ctx, file_plan: list[dict]) -> SqlFile:
         if not incident or not name:
             continue
         path, mime, size = plan("incidents", incident, downloaded.get(("inci_files", r["inf_id"])), name)
-        inci_rows.append((str(incident), path, q(clip(r.get("inf_name") or name, 255)), mime, size))
+        inci_rows.append((str(incident), path, q(clip(name, 255)), mime, size))
     f.add(f"\n-- Archivos de incidencia: {len(inci_rows)}")
     f.insert_many("adhoc_incident_files",
                   ("incident_id", "file_path", "original_name", "mime_type", "size_bytes"),
@@ -260,7 +266,7 @@ def step_comments_and_files(ctx: Ctx, file_plan: list[dict]) -> SqlFile:
                 continue
             path, mime, size = plan("task_comments", comment, downloaded.get((source, r["td_llave"])), name)
             comment_rows.append((
-                str(comment), path, q(clip(r.get("td_nombre") or name, 255)), mime, size,
+                str(comment), path, q(clip(name, 255)), mime, size,
                 ctx.user_expr(r.get("td_user")),
             ))
     f.add(f"\n-- Adjuntos de comentario: {len(comment_rows)}")
@@ -277,7 +283,7 @@ def step_comments_and_files(ctx: Ctx, file_plan: list[dict]) -> SqlFile:
         if not event or not name:
             continue
         path, mime, size = plan("program_events", event, downloaded.get(("prog_files", r["inf_id"])), name)
-        prog_rows.append((str(event), path, q(clip(r.get("inf_name") or name, 255)), mime, size))
+        prog_rows.append((str(event), path, q(clip(name, 255)), mime, size))
     f.add(f"\n-- Archivos de evento de programa: {len(prog_rows)}")
     f.insert_many("adhoc_program_event_files",
                   ("event_id", "file_path", "original_name", "mime_type", "size_bytes"),

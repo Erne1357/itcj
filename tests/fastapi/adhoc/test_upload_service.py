@@ -232,3 +232,38 @@ def test_delete_file_no_borra_fuera_de_la_raiz(settings, tmp_path):
 
     assert upload_service.delete_file("documents", "../../victima.txt") is False
     assert externo.exists()
+
+
+# --------------------------------------------------------------------------
+# download_name
+# --------------------------------------------------------------------------
+# Un Content-Disposition sin extension deja al usuario con un archivo que el
+# sistema no sabe abrir. Paso justo con los adjuntos migrados del SGC legacy:
+# `original_name` traia la etiqueta descriptiva del proveedor ('NOTIFICACION
+# VR-01' para el archivo VR-01.xls), y el navegador guardaba 'NOTIFICACION
+# VR-01', a secas.
+
+def test_download_name_respeta_el_nombre_original_si_ya_trae_extension():
+    ruta = Path("/app/instance/apps/adhoc/program_events/11/minuta_2016.pdf")
+    assert upload_service.download_name(ruta, "Minuta de acuerdos.pdf") == "Minuta de acuerdos.pdf"
+
+
+def test_download_name_pega_la_extension_del_archivo_real():
+    ruta = Path("/app/instance/apps/adhoc/incidents/15/VR-01.xls")
+    assert upload_service.download_name(ruta, "NOTIFICACION VR-01") == "NOTIFICACION VR-01.xls"
+
+
+def test_download_name_cae_al_nombre_en_disco_si_no_hay_original():
+    ruta = Path("/app/instance/apps/adhoc/documents/202/tortuga.xlsx")
+    for vacio in (None, "", "   "):
+        assert upload_service.download_name(ruta, vacio) == "tortuga.xlsx"
+
+
+def test_download_name_no_duplica_la_extension_por_mayusculas():
+    ruta = Path("/app/instance/apps/adhoc/documents/7/LISTA.DOC")
+    assert upload_service.download_name(ruta, "Lista de aspirantes.doc") == "Lista de aspirantes.doc"
+
+
+def test_download_name_con_archivo_sin_extension_devuelve_el_original():
+    ruta = Path("/app/instance/apps/adhoc/documents/9/sin_extension")
+    assert upload_service.download_name(ruta, "Informe anual") == "Informe anual"

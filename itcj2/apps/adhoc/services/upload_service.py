@@ -57,6 +57,7 @@ __all__ = [
     "open_download",
     "open_stored",
     "delete_file",
+    "download_name",
     "AdhocUploadService",
 ]
 
@@ -208,6 +209,28 @@ def _unique_target(directory: Path, filename: str) -> Path:
 # ==========================================================================
 # API pública
 # ==========================================================================
+
+def download_name(stored_path: Path, original_name: Optional[str]) -> str:
+    """Nombre con el que el navegador guarda el archivo.
+
+    Un ``Content-Disposition`` sin extensión deja al usuario con un archivo que
+    el sistema no sabe abrir. Y ``original_name`` no siempre la trae: el
+    histórico migrado del SGC guardaba ahí la etiqueta descriptiva del legacy
+    (``'NOTIFICACION VR-01'`` para el archivo ``VR-01.xls``), y nada impide que
+    alguien suba un archivo llamado ``informe``.
+
+    Se respeta ``original_name`` cuando ya tiene la extensión correcta; si no,
+    se le pega la del archivo real en disco. El nombre en disco es el último
+    recurso.
+    """
+    suffix = stored_path.suffix
+    candidate = (original_name or "").strip()
+    if not candidate:
+        return stored_path.name
+    if suffix and not candidate.lower().endswith(suffix.lower()):
+        return f"{candidate}{suffix}"
+    return candidate
+
 
 def resolve_dir(kind: UploadKind, entity_id: Any, *, create: bool = False) -> Path:
     """Directorio absoluto de los adjuntos de una entidad.

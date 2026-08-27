@@ -154,10 +154,13 @@ def download_event_file(
     except svc.EventFileNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
+    from itcj2.apps.adhoc.services import upload_service
+
     return FileResponse(
         str(path),
         media_type=row.mime_type or "application/octet-stream",
-        filename=row.original_name,
+        # `original_name` no siempre trae extensión — ver `download_name`.
+        filename=upload_service.download_name(path, row.original_name),
     )
 
 
