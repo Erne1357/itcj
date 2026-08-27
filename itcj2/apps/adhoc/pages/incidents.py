@@ -44,10 +44,16 @@ __all__ = ["router"]
 
 #: Permisos de escritura que solo sirven para ocultar botones (el gate real está
 #: en ``require_perms`` de cada endpoint de la API).
+#: Los tres de archivos son un delta posterior al alta de la app —ver
+#: ``cli/adhoc.py::grant_incident_files_command``—: la incidencia se construyó
+#: asumiendo que no llevaba adjuntos y el SGC legacy migró 351 con ella.
 _WRITE_PERMS = (
     "adhoc.incidents.api.create",
     "adhoc.incidents.api.update",
     "adhoc.incidents.api.delete",
+    "adhoc.incidents.api.files.create",
+    "adhoc.incidents.api.files.delete",
+    "adhoc.incidents.api.files.download",
 )
 
 _CAT_PERMS = (
@@ -124,8 +130,12 @@ def incidents_page(
             "create": permisos["adhoc.incidents.api.create"],
             "update": permisos["adhoc.incidents.api.update"],
             "delete": permisos["adhoc.incidents.api.delete"],
+            # "Duplicar" sigue sin existir para incidencias (solo tiene sentido
+            # para un evento repetible del programa de trabajo).
             "duplicate": False,
-            "files": False,
+            "files": permisos["adhoc.incidents.api.files.download"],
+            "files_create": permisos["adhoc.incidents.api.files.create"],
+            "files_delete": permisos["adhoc.incidents.api.files.delete"],
         },
         "labels": {
             "singular": "incidencia",

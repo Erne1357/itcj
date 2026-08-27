@@ -194,7 +194,7 @@
   font-style: italic;
 }
 
-/* ---------- modal de archivos del evento ---------- */
+/* ---------- modal de archivos (incidencia / evento de programa) ---------- */
 
 .adhoc-files-list {
   min-height: 4rem;
@@ -253,6 +253,16 @@
 
 .adhoc-files-error {
   color: var(--adhoc-danger);
+}
+
+/* Adjunto de incidencia migrado sin binario (51 de 351 — el proveedor del
+   SGC legacy ya no tiene el archivo). Mismo criterio que `.adhoc-file-none`
+   de documents/document-list.js: icono apagado + `title` explicativo en vez
+   de un enlace de descarga que el backend respondería con 404. Los eventos
+   de programa no tienen adjuntos sin binario, pero la clase queda aquí
+   porque esta hoja ya es compartida por las dos pantallas. */
+.adhoc-file-none {
+  color: var(--adhoc-disabled);
 }
 
 /* Caja de subida: el legacy la dibuja con borde discontinuo (`.file-upload-box`). */

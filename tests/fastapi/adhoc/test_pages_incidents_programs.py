@@ -49,6 +49,9 @@ ALL_PERMS = {
     "adhoc.incidents.api.create",
     "adhoc.incidents.api.update",
     "adhoc.incidents.api.delete",
+    "adhoc.incidents.api.files.create",
+    "adhoc.incidents.api.files.delete",
+    "adhoc.incidents.api.files.download",
     "adhoc.incident_categories.api.create",
     "adhoc.incident_categories.api.update",
     "adhoc.incident_categories.api.delete",
@@ -377,6 +380,27 @@ class TestPaginaIncidencias:
             html = pages_client.get("/adhoc/incidencias", headers=headers).text
         assert "data-adhoc-work-new" not in html
         assert page_data(html)["can"]["create"] is False
+
+    def test_trae_el_modal_de_archivos(self, html):
+        """La incidencia se construyó sin adjuntos; ya no es el caso (351 del
+        SGC legacy). El modal es el mismo markup que el de programas."""
+        assert "data-adhoc-files-modal" in html
+        assert "data-adhoc-files-list" in html
+
+    def test_permisos_de_archivos_llegan_al_json(self, html):
+        can = page_data(html)["can"]
+        assert can["files"] is True
+        assert can["files_create"] is True
+        assert can["files_delete"] is True
+        # "Duplicar" nunca aplica a una incidencia.
+        assert can["duplicate"] is False
+
+    def test_sin_permiso_de_subida_no_hay_formulario_de_subida(
+        self, pages_client, headers, grant, catalogs
+    ):
+        with grant(perms=ALL_PERMS - {"adhoc.incidents.api.files.create"}):
+            html = pages_client.get("/adhoc/incidencias", headers=headers).text
+        assert "data-adhoc-files-upload" not in html
 
 
 # ==========================================================================

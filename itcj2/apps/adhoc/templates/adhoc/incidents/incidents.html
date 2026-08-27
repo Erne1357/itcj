@@ -4,14 +4,55 @@
 
    Casi todo vive en la base compartida `adhoc/work/_work_item_page.html`
    (plan §6.5: `incidents.js` ≈ `programs.js` al 90 %). Aquí solo queda la
-   configuración propia de incidencias: su módulo JS.
+   configuración propia de incidencias: su módulo JS y el modal de ARCHIVOS
+   ADJUNTOS, espejo literal del de `adhoc/programs/programs.html`.
 
    Origen legacy: `templates/app_prueba/incidents/incidents.html`, que traía
    300+ atributos `style=`, un `.modal-overlay` casero, la tabla renderizada
    desde Jinja con `Incident.query.all()` y cuatro campos `htmlCat`/`htmlArea`/
    `htmlProc`/`htmlUsers` con HTML crudo dentro de un template literal.
+
+   Por qué ahora lleva modal de archivos: la app se construyó asumiendo que
+   las incidencias no llevan adjuntos, pero el SGC legacy migró 351 (51 sin
+   binario — ver `incidents.js`). El backend ya existe
+   (`GET/POST /incidents/{id}/files`, `DELETE/GET .../files/{id}[/download]`);
+   esto es únicamente la interfaz que faltaba.
    =========================================================================== #}
 {% extends "adhoc/work/_work_item_page.html" %}
+
+{% block work_extra_modals %}
+<div class="modal fade" id="adhoc-files-modal" tabindex="-1"
+     aria-labelledby="adhoc-files-modal-title" aria-hidden="true" data-adhoc-files-modal>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="adhoc-files-modal-title">
+          <i class="fa-regular fa-folder-open me-2"></i>
+          <span data-adhoc-files-title>Archivos de la Incidencia</span>
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="adhoc-files-list" data-adhoc-files-list aria-live="polite"></div>
+
+        {% if page_data.can.files_create %}
+        <div class="adhoc-files-upload">
+          <label class="form-label adhoc-label" for="adhoc-files-input">Adjuntar archivos</label>
+          <input type="file" class="form-control" id="adhoc-files-input"
+                 data-adhoc-files-input multiple>
+          <button type="button" class="btn btn-sm btn-primary" data-adhoc-files-upload>
+            <i class="fa-solid fa-upload"></i> Subir
+          </button>
+        </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
 
 {% block work_page_js %}
 <script id="adhoc-mod-incidents-incidents" src="/static/adhoc/js/incidents/incidents.js?v={{ sv('js/incidents/incidents.js') }}"></script>

@@ -20,6 +20,7 @@ const {
   cleanupAdhoc,
   adminUserId,
   dbRows,
+  runPy,
   trapNativeDialogs,
 } = require('./_helpers');
 
@@ -203,4 +204,127 @@ test('el workflow cierra la incidencia (estatus "Cerrada", no "Completado")', as
   await expect(row).toContainText('Cerrada');
 
   expect(await readDialogs()).toEqual([]);
+});
+
+/**
+ * Inserta un `AdhocIncidentFile` con `file_path = NULL` directamente en BD:
+ * un registro migrado del SGC legacy sin binario en el servidor del
+ * proveedor (51 de los 351 reales). La API de subida siempre escribe un
+ * archivo de verdad, así que este es el único camino para fabricar el caso
+ * `is_available: false` que la UI tiene que enseñar sin ofrecer descarga.
+ * @param {number} incidentId
+ * @param {string} originalName
+ * @returns {number} id del archivo insertado
+ */
+function insertUnavailableIncidentFile(incidentId, originalName) {
+  const src = [
+    'import json',
+    'from itcj2.database import SessionLocal',
+    'from itcj2.apps.adhoc.models.incidents import AdhocIncidentFile',
+    'db = SessionLocal()',
+    'try:',
+    '    row = AdhocIncidentFile(',
+    `        incident_id=${incidentId},`,
+    '        file_path=None,',
+    `        original_name=${JSON.stringify(originalName)},`,
+    "        mime_type='application/pdf',",
+    '        size_bytes=None,',
+    '    )',
+    '    db.add(row)',
+    '    db.commit()',
+    '    db.refresh(row)',
+    '    print(json.dumps({"id": row.id}))',
+    'finally:',
+    '    db.close()',
+  ].join('\n');
+  return JSON.parse(runPy(src).trim()).id;
+}
+
+// `.serial`: la segunda prueba depende del adjunto que sube la primera (sigue
+// visible con su enlace de descarga tras insertar el registro sin binario).
+test.describe.serial('adjuntos de la incidencia (351 reales migrados del SGC legacy, 51 sin binario)', () => {
+  const UPLOADED_NAME = `${E2E}adjunto_disponible.pdf`;
+  const MISSING_NAME = `${E2E}adjunto_sin_binario.pdf`;
+
+  test('el icono de la fila abre el modal, sube un adjunto y lo lista', async ({ page }) => {
+    const readDialogs = await trapNativeDialogs(page);
+    expect(ctx.incidentId).toBeGreaterThan(0);
+
+    await gotoAdhoc(page, '/adhoc/incidencias');
+    const row = page.locator('#adhoc-table-incidents tbody tr', { hasText: INCIDENT_TITLE });
+    await expect(row).toBeVisible();
+
+    // El icono de archivos es una ACCIÓN DE FILA (igual que "duplicar" en
+    // programas), no una columna: incidencias no tiene página de detalle a la
+    // que enlazar, y `GET /incidents` no trae un `files_count` por fila con el
+    // que pintar un contador de verdad.
+    const filesBtn = row.locator('[data-adhoc-row-action="files"]');
+    await expect(filesBtn).toBeVisible();
+
+    const listed = page.waitForResponse(
+      (r) => r.url().includes(`/incidents/${ctx.incidentId}/files`) && r.request().method() === 'GET'
+    );
+    await filesBtn.click();
+
+    const modal = page.locator('#adhoc-files-modal');
+    await expect(modal).toBeVisible();
+    await expect(modal.locator('[data-adhoc-files-title]')).toContainText(INCIDENT_TITLE);
+    expect((await listed).status()).toBe(200);
+    await expect(modal.locator('.adhoc-files-empty')).toContainText('no tiene archivos adjuntos');
+
+    await modal.locator('[data-adhoc-files-input]').setInputFiles({
+      name: UPLOADED_NAME,
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('contenido de prueba e2e'),
+    });
+    const uploaded = page.waitForResponse(
+      (r) => r.url().includes(`/incidents/${ctx.incidentId}/files`) && r.request().method() === 'POST'
+    );
+    await modal.locator('[data-adhoc-files-upload]').click();
+    expect((await uploaded).status()).toBe(201);
+
+    const item = modal.locator('.adhoc-files-item', { hasText: UPLOADED_NAME });
+    await expect(item).toBeVisible();
+    // Disponible: enlace de descarga por ID, nunca por nombre.
+    const link = item.locator('a[href*="/download"]');
+    await expect(link).toHaveCount(1);
+    await expect(link).toHaveAttribute(
+      'href', new RegExp(`/api/adhoc/v2/incidents/files/\\d+/download$`)
+    );
+
+    expect(await readDialogs()).toEqual([]);
+  });
+
+  test('un adjunto sin binario se enseña sin ofrecer descarga', async ({ page }) => {
+    expect(ctx.incidentId).toBeGreaterThan(0);
+    insertUnavailableIncidentFile(ctx.incidentId, MISSING_NAME);
+
+    await gotoAdhoc(page, '/adhoc/incidencias');
+    const row = page.locator('#adhoc-table-incidents tbody tr', { hasText: INCIDENT_TITLE });
+
+    const listed = page.waitForResponse(
+      (r) => r.url().includes(`/incidents/${ctx.incidentId}/files`) && r.request().method() === 'GET'
+    );
+    await row.locator('[data-adhoc-row-action="files"]').click();
+    expect((await listed).status()).toBe(200);
+
+    const modal = page.locator('#adhoc-files-modal');
+    const item = modal.locator('.adhoc-files-item', { hasText: MISSING_NAME });
+    await expect(item).toBeVisible();
+
+    // Ni rastro de un enlace de descarga: el backend respondería 404 con este
+    // registro (`file_path IS NULL`), así que la UI no lo ofrece.
+    await expect(item.locator('a[href*="/download"]')).toHaveCount(0);
+
+    // En su lugar, el icono apagado con el motivo — mismo criterio que
+    // `.adhoc-file-none` en documents/document-list.js.
+    const unavailable = item.locator('.adhoc-file-none');
+    await expect(unavailable).toHaveCount(1);
+    await expect(unavailable).toHaveAttribute('title', /sin archivo/i);
+
+    // El adjunto disponible de la prueba anterior sigue mostrando su enlace:
+    // la ausencia de descarga es por archivo, no por incidencia entera.
+    const available = modal.locator('.adhoc-files-item', { hasText: UPLOADED_NAME });
+    await expect(available.locator('a[href*="/download"]')).toHaveCount(1);
+  });
 });
