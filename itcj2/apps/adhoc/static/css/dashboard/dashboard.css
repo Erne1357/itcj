@@ -168,7 +168,10 @@
 
 .adhoc-kcard-head .adhoc-badge-warning:not(.adhoc-status) {
   background: var(--adhoc-coral-soft);
-  color: var(--adhoc-coral-ink);
+  /* Coral profundo, no el ink normal: sobre el coral suave ese se queda en
+     1.78:1. Solo se notaba con el tablero lleno, y hasta la migracion del SGC
+     nunca hubo tareas que pintar aqui. */
+  color: var(--adhoc-coral-deep);
 }
 
 .adhoc-kcard-head .adhoc-badge-success:not(.adhoc-status) {
@@ -234,7 +237,9 @@
   margin: 0 0 var(--adhoc-space-2xl);
   font-size: var(--adhoc-fs-sm);
   line-height: 1.4;
-  color: var(--adhoc-disabled);
+  /* `disabled` se queda en 1.90:1 sobre blanco. `muted` da 5.24:1 con el mismo
+     papel visual de texto secundario. */
+  color: var(--adhoc-muted);
 }
 
 /* Aviso de atención: recuadro rojo claro con filete izquierdo y el texto en
@@ -248,7 +253,10 @@
   font-size: var(--adhoc-fs-sm);
   font-weight: var(--adhoc-fw-bold);
   text-transform: uppercase;
-  color: var(--adhoc-danger-strong);
+  /* El rojo fuerte se queda en 4.21:1 sobre el rojo suave, justo por debajo de
+     AA. El ink da 5.36:1 y se ve igual de rojo. El filete sí puede seguir con
+     el fuerte: es decoración, no texto. */
+  color: var(--adhoc-danger-ink);
   background: var(--adhoc-danger-soft);
   border-left: 3px solid var(--adhoc-danger-strong);
   border-radius: var(--adhoc-radius-md);
@@ -287,7 +295,8 @@
 .adhoc-kcard-origin {
   margin-top: var(--adhoc-space-xs);
   font-size: var(--adhoc-fs-sm);
-  color: var(--adhoc-disabled);
+  /* Mismo caso que `.adhoc-kcard-sub`: `disabled` da 1.80:1 sobre blanco. */
+  color: var(--adhoc-muted);
 }
 
 /* ── Estado vacío ──────────────────────────────────────────────────────── */

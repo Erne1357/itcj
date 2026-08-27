@@ -143,6 +143,8 @@
   --adhoc-coral-soft: #fab1a0;
   --adhoc-coral-tint: #fab1a040;
   --adhoc-coral-ink: #e17055;
+  --adhoc-coral-deep: #7d3517;      /* 4.96:1 sobre el coral suave: el ink
+                                       normal se queda en 1.78:1 y no pasa AA */
   --adhoc-amber: #ffeaa7;
   --adhoc-honey: #fdcb6e;
   --adhoc-mint: #55efc4;

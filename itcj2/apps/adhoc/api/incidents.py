@@ -114,7 +114,7 @@ def list_incidents(
     commitment_from: Optional[str] = Query(None),
     commitment_to: Optional[str] = Query(None),
     order_by: str = Query("id"),
-    order_dir: str = Query("asc", pattern="^(asc|desc)$"),
+    order_dir: str = Query("desc", pattern="^(asc|desc)$"),
     pagination: PaginationParams = Depends(),
     user: dict = require_perms("adhoc", ["adhoc.incidents.api.read"]),
     db: DbSession = None,

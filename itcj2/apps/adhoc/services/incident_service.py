@@ -91,13 +91,19 @@ class IncidentService:
         commitment_from: Optional[date] = None,
         commitment_to: Optional[date] = None,
         order_by: str = "id",
-        order_dir: str = "asc",
+        order_dir: str = "desc",
     ) -> Pagination:
         """Listado filtrado y paginado.
 
         ``q`` busca en ``folio``, ``title`` y ``description`` (``ILIKE``).
         Devuelve el ``Pagination`` de ``itcj2.models.base``: ``.items`` trae las
         incidencias de la página con catálogos y responsable ya cargados.
+
+        El orden por defecto es DESCENDENTE, igual que documentos
+        (``document_service.list_documents``) y eventos de programa
+        (``program_event_service``). Con ``asc`` la incidencia recién creada
+        aterrizaba en la última página: con las 276 del histórico del SGC eso
+        significa que el usuario la da de alta y desaparece de su vista.
 
         Lanza ``ValueError`` si ``order_by`` no está en
         :data:`ORDERABLE_COLUMNS` (el parámetro viene del cliente y termina en
