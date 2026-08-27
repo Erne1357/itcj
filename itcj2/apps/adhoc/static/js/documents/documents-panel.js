@@ -202,7 +202,7 @@
         H.cell(tr, 'area', H.named(doc.area));
         H.cell(tr, 'process', H.named(doc.process));
         H.cell(tr, 'classification', H.named(doc.classification));
-        H.cell(tr, 'notes', H.text(doc.notes), 'adhoc-cell-clamp');
+        H.clampCell(tr, 'notes', H.text(doc.notes));
         H.cell(tr, 'approval_date', H.isoDate(doc.approval_date) || 'Pendiente',
                'adhoc-cell-nowrap');
 

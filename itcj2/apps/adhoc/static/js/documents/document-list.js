@@ -80,6 +80,24 @@
         return td;
     }
 
+    /**
+     * <td> con el texto acotado a 2 lineas.
+     *
+     * El clamp NO puede ir en el <td>: un <td> no acepta `display:-webkit-box`,
+     * el navegador lo revierte a `table-cell` y `-webkit-line-clamp` se ignora.
+     * Va en un hijo bloque (`.adhoc-clamp-text`), y el texto completo queda en
+     * el `title` para que lo truncado siga siendo alcanzable.
+     */
+    function clampCell(row, key, value) {
+        var td = cell(row, key, '', 'adhoc-cell-clamp');
+        var box = document.createElement('div');
+        box.className = 'adhoc-clamp-text';
+        box.textContent = value;
+        if (value) td.title = value;
+        td.appendChild(box);
+        return td;
+    }
+
     /** Estatus como texto de color (legacy `.rev-container` + span en línea). */
     function statusBadge(status) {
         var badge = document.createElement('span');
@@ -356,6 +374,7 @@
             isoDate: isoDate,
             named: named,
             cell: cell,
+            clampCell: clampCell,
             statusBadge: statusBadge,
             fileCell: fileCell,
             iconButton: iconButton

@@ -164,7 +164,7 @@
         var tr = el('tr', this.can.update ? 'adhoc-row-click' : '');
         tr.setAttribute('data-id', String(task.id));
 
-        tr.appendChild(this.cell('description', task.description || '', 'adhoc-cell-clamp'));
+        tr.appendChild(this.clampCell('description', task.description || ''));
 
         var responsables = assigneeNames(task);
         var tdUsers = this.cell('assignees', responsables || 'Sin asignar');
@@ -198,6 +198,24 @@
     Tasks.prototype.cell = function (key, text, css) {
         var td = el('td', css || null, text);
         td.setAttribute('data-adhoc-cell', key);
+        return td;
+    };
+
+    /**
+     * <td> con el texto acotado a 2 lineas.
+     *
+     * El clamp va en un hijo bloque porque un <td> no acepta
+     * `display:-webkit-box`. Aqui el alto de fila lo fija la columna Acciones
+     * (63px), asi que sin el hijo el `overflow:hidden` cortaba la descripcion
+     * A MEDIA LETRA en la tercera linea y se perdian las siguientes sin
+     * elipsis. Son descripciones de hasta 255 caracteres.
+     */
+    Tasks.prototype.clampCell = function (key, text) {
+        var td = this.cell(key, '', 'adhoc-cell-clamp');
+        var box = el('div', 'adhoc-clamp-text');
+        box.textContent = text;
+        if (text) td.title = text;
+        td.appendChild(box);
         return td;
     };
 

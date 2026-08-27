@@ -19,6 +19,11 @@
 
 {% block title %}Usuarios · Calidad · ITCJ{% endblock %}
 
+{# La tabla pide min-width 1200px: sin `adhoc-wide` el contenedor se queda
+   en 1200px con 48px de padding y el ancho util nunca pasa de 1110px, asi
+   que desborda a CUALQUIER resolucion. #}
+{% block body_class %}adhoc-wide{% endblock %}
+
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/panel/users.css?v={{ sv('css/panel/users.css') }}">
 {% endblock %}

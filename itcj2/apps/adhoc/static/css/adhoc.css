@@ -850,7 +850,17 @@ body.adhoc-shell {
 .adhoc-table-auto { min-width: 0; }
 .adhoc-table-md   { min-width: 720px; }
 .adhoc-table-lg   { min-width: 1200px; }
-.adhoc-table-xl   { min-width: 1700px; }
+/* 1400 y no los 1700 del legacy: ese valor se copio tal cual de las hojas
+   viejas, no se midio sobre estos datos. A 1280 —resolucion habitual de los
+   equipos del ITCJ— 1700px dejaba fuera 6 de las 13 columnas de incidencias,
+   incluidas Estatus, Prioridad y Acciones. Con el clamp ya funcionando la
+   columna de titulo dejo de reclamar ancho y 1400 basta.
+   No lleva media query a proposito: la escala de cortes de la app es
+   575.98 / 767.98 / 991.98 y `test_los_cortes_responsive_son_los_de_la_escala`
+   existe para que nadie invente un cuarto. Una tabla de 13 columnas a 1280
+   seguira necesitando scroll lateral; resolverlo de verdad pide decidir que
+   columnas se ocultan, y eso es trabajo de producto, no de CSS. */
+.adhoc-table-xl   { min-width: 1400px; }
 
 .adhoc-table th,
 .adhoc-table td {
@@ -900,11 +910,23 @@ body.adhoc-shell {
 
 .adhoc-cell-nowrap { white-space: nowrap; }
 
-.adhoc-cell-clamp {
+/* Celda con texto largo acotado a 2 lineas.
+   El clamp va en un HIJO bloque, no en el `td`. Un `td` no puede ser
+   `-webkit-box`: el navegador lo devuelve a `table-cell` y `-webkit-line-clamp`
+   se ignora, con lo que solo sobrevive el `overflow: hidden` y el resultado
+   depende de quien mande el alto de la fila:
+     - si lo manda OTRA celda (la de Acciones, 63px), el texto se corta A MEDIA
+       LETRA en la tercera linea y las siguientes desaparecen sin elipsis;
+     - si lo manda la PROPIA celda, `overflow` computa a `visible`, la regla no
+       hace nada y un titulo de 200 caracteres estira la fila a 235px.
+   Los dos sintomas son el mismo bug. Con el clamp en `.adhoc-clamp-text` la
+   caja si acota y aparece la elipsis de verdad. */
+.adhoc-cell-clamp { max-width: 32ch; }
+
+.adhoc-cell-clamp > .adhoc-clamp-text {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  max-width: 32ch;
   overflow: hidden;
 }
 

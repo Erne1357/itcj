@@ -12,7 +12,10 @@ class Settings(BaseSettings):
     # cambios no se verían hasta un refresh forzado.
     # Bump 2026-08-25: alta de la app adhoc (Calidad) — nuevos estáticos bajo
     # /static/adhoc/ y ajuste del dashboard del core.
-    STATIC_VERSION: str = "1.0.1111524"
+    # Bump 2026-08-27: adjuntos de incidencias (adhoc) — modal de archivos en
+    # incidents.js/incidents.html y la clase .adhoc-file-none compartida en
+    # work-items.css.
+    STATIC_VERSION: str = "1.0.1111526"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

@@ -141,7 +141,12 @@
         var tdDescription = document.createElement('td');
         tdDescription.setAttribute('data-adhoc-cell', 'description');
         tdDescription.className = 'adhoc-cell-clamp';
-        tdDescription.textContent = flow.description || '';
+        // El clamp vive en el hijo: un <td> no puede ser -webkit-box.
+        var descBox = document.createElement('div');
+        descBox.className = 'adhoc-clamp-text';
+        descBox.textContent = flow.description || '';
+        if (flow.description) tdDescription.title = flow.description;
+        tdDescription.appendChild(descBox);
         tr.appendChild(tdDescription);
 
         var tdSteps = document.createElement('td');

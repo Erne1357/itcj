@@ -26,6 +26,11 @@
 
 {% block title %}Documentos · Calidad{% endblock %}
 
+{# La tabla pide min-width 1200px: sin `adhoc-wide` el contenedor se queda
+   en 1200px con 48px de padding y el ancho util nunca pasa de 1110px, asi
+   que desborda a CUALQUIER resolucion. #}
+{% block body_class %}adhoc-wide{% endblock %}
+
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/documents/documents.css?v={{ sv('css/documents/documents.css') }}">
 {% endblock %}
@@ -55,7 +60,7 @@
       </button>
     {% endcall %}
 
-    <div class="adhoc-table-wrap" data-adhoc-table-wrap>
+    <div class="adhoc-table-wrap adhoc-table-sticky" data-adhoc-table-wrap>
       <table class="adhoc-table adhoc-table-lg" id="adhoc-documents-table"
              data-adhoc-table="adhoc-documents-table">
         <thead>

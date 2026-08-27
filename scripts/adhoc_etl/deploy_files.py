@@ -38,9 +38,63 @@ DEST_ROOT = ROOT / "instance" / "apps" / "adhoc"
 VALID_KINDS = {"documents", "program_events", "task_comments", "indicators", "incidents"}
 
 
+def prune(plan: list[dict], *, apply: bool) -> int:
+    """Borra los archivos que el plan actual ya no referencia.
+
+    Hace falta porque el destino es `{kind}/{id_NUEVO}/`: si el ETL vuelve a
+    correr y una entidad cambia de id, la copia anterior queda huérfana. Pasó
+    de verdad — al mover los placeholder de incidencia y programa a los ids
+    bajos, los 347 adjuntos de incidencia y los 2 de evento se duplicaron.
+
+    Solo mira las carpetas de los kinds que el plan toca, y solo borra lo que
+    NO está en el plan. Un archivo subido por la web que el plan desconoce
+    también entra en ese saco, así que por defecto solo informa.
+    """
+    expected: set[Path] = {
+        DEST_ROOT / item["kind"] / str(item["entity_id"]) / item["name"] for item in plan
+    }
+    kinds = {item["kind"] for item in plan}
+
+    orphans: list[Path] = []
+    for kind in sorted(kinds):
+        root = DEST_ROOT / kind
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if path.is_file() and path not in expected:
+                orphans.append(path)
+
+    if not orphans:
+        print("\nSin archivos huerfanos.")
+        return 0
+
+    wasted = sum(p.stat().st_size for p in orphans)
+    print(f"\n{len(orphans)} archivos huerfanos ({wasted/1048576:.1f} MB):")
+    by_kind: Counter = Counter(p.relative_to(DEST_ROOT).parts[0] for p in orphans)
+    for kind, count in sorted(by_kind.items()):
+        print(f"  {kind:<16} {count:>5}")
+    for path in orphans[:5]:
+        print(f"    ej. {path.relative_to(DEST_ROOT)}")
+
+    if not apply:
+        print("\n(solo informe — usa --prune para borrarlos)")
+        return 0
+
+    for path in orphans:
+        path.unlink()
+    for kind in sorted(kinds):
+        for folder in sorted((DEST_ROOT / kind).glob("*"), reverse=True):
+            if folder.is_dir() and not any(folder.iterdir()):
+                folder.rmdir()
+    print(f"\n{len(orphans)} archivos borrados.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--prune", action="store_true",
+                        help="borra los archivos que el plan ya no referencia")
     args = parser.parse_args()
 
     if not PLAN.exists():
@@ -77,6 +131,9 @@ def main() -> int:
     if missing:
         print(f"\n{missing} archivos del plan no estan en el staging")
     print(f"\nDestino: {DEST_ROOT}")
+
+    if not args.dry_run:
+        prune(plan, apply=args.prune)
     return 0
 
 

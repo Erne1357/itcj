@@ -285,7 +285,7 @@
 {% macro data_table(id, columns, empty_message='No hay registros para mostrar.', empty_icon='fa-solid fa-inbox', width='auto', table_css='', wrap_css='') %}
   {%- set _cols = columns or [] -%}
   {%- set _has_filters = (_cols | selectattr('filter') | list | length) > 0 -%}
-  <div class="adhoc-table-wrap {{ wrap_css }}" data-adhoc-table-wrap>
+  <div class="adhoc-table-wrap adhoc-table-sticky {{ wrap_css }}" data-adhoc-table-wrap>
     <table class="adhoc-table adhoc-table-{{ width }} {{ table_css }}" id="{{ id }}" data-adhoc-table="{{ id }}">
       <thead>
         <tr>

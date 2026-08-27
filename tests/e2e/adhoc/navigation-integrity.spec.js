@@ -87,18 +87,22 @@ test.describe('la caja intercambiada refleja la página en la que estás', () =>
   });
 
   test('salir de una página ancha NO deja el contenedor ancho en la siguiente', async ({ page }) => {
-    // Referencia: /adhoc/documentos a pulso, contenedor estrecho (1200 px).
-    await gotoAdhoc(page, '/adhoc/documentos');
+    // Referencia estrecha: el tablero. Antes se usaba /adhoc/documentos, pero
+    // esa pantalla pasó a `adhoc-wide`: pedía una tabla de min-width 1200px
+    // dentro de un contenedor de 1200px con 48px de padding a cada lado, así
+    // que desbordaba 90px a CUALQUIER resolución. El tablero son tarjetas, no
+    // una tabla, y se queda estrecho de verdad.
+    await gotoAdhoc(page, '/adhoc/dashboard');
     const estrecho = await anchoContenedor(page);
-    expect(await clasesDePagina(page), 'documentos no declara body_class').toEqual([]);
+    expect(await clasesDePagina(page), 'el tablero no declara body_class').toEqual([]);
 
     // /adhoc/documentos/panel sí es ancha (`adhoc-wide`, 98 %).
     await gotoAdhoc(page, '/adhoc/documentos/panel');
     expect(await clasesDePagina(page)).toContain('adhoc-wide');
     expect(await anchoContenedor(page)).toBeGreaterThan(estrecho);
 
-    // Al volver a documentos navegando, el ancho tiene que ser el estrecho.
-    await navegar(page, '.adhoc-nav-link[href="/adhoc/documentos"]');
+    // Al volver al tablero navegando, el ancho tiene que ser el estrecho.
+    await navegar(page, '.adhoc-nav-link[href="/adhoc/dashboard"]');
     expect(await sinRecarga(page)).toBe(true);
     expect(await clasesDePagina(page), 'adhoc-wide se quedó pegada').toEqual([]);
     expect(await anchoContenedor(page), 'el contenedor siguió ancho').toBe(estrecho);

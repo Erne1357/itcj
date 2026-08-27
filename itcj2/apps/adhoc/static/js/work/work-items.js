@@ -320,8 +320,13 @@
                 td.appendChild(el('strong', null, item.folio || '—'));
                 break;
             case 'title':
+                // El clamp vive en el hijo: un <td> no puede ser -webkit-box, y
+                // sin esto un titulo de 200 chars estira la fila a 235px.
                 td.className += ' adhoc-cell-clamp';
-                td.textContent = item.title || '';
+                var titleBox = el('div', 'adhoc-clamp-text');
+                titleBox.textContent = item.title || '';
+                if (item.title) td.title = item.title;
+                td.appendChild(titleBox);
                 break;
             case 'category':
             case 'area':
@@ -475,7 +480,7 @@
             control.value = value == null ? '' : String(value);
         } else if (spec.type === 'select') {
             control = el('select', 'form-select');
-            this.fillSelect(control, spec, value);
+            this.fillSelect(control, spec, value, values);
         } else if (spec.type === 'file') {
             control = el('input', 'form-control');
             control.type = 'file';
@@ -497,9 +502,22 @@
         return wrap;
     };
 
-    WorkItems.prototype.fillSelect = function (select, spec, value) {
+    /**
+     * Rellena un <select> del modal.
+     *
+     * `record` es la fila que se esta editando y solo se usa para el caso de
+     * abajo: si el valor guardado NO esta entre las opciones, hay que inyectarlo
+     * igualmente. Sin eso el select se queda en el placeholder, `readBlock` lo
+     * lee como '' y el PATCH manda `null`: guardar cualquier cambio BORRA el
+     * valor historico sin avisar. Pasaba con `responsible_id` en 145 de las 276
+     * incidencias migradas, porque `assignable_users()` solo devuelve a quien
+     * tiene acceso a la app hoy (29 personas) y la mitad del historial de 10
+     * anios lo firmo gente que ya no lo tiene.
+     */
+    WorkItems.prototype.fillSelect = function (select, spec, value, record) {
         var values = this.data[spec.source] || [];
         var chosen = (value === null || value === undefined) ? '' : String(value);
+        var matched = false;
 
         if (spec.placeholder !== null) {
             var ph = document.createElement('option');
@@ -518,8 +536,21 @@
                 option.value = String(raw);
                 option.textContent = String(raw);
             }
-            if (option.value === chosen) option.selected = true;
+            if (option.value === chosen) { option.selected = true; matched = true; }
             select.appendChild(option);
+        }
+
+        // El valor guardado ya no esta en el catalogo: se conserva como opcion
+        // propia para que editar el registro no lo borre. Se rotula con el
+        // nombre que la propia fila ya trae (viene por relationship en el
+        // serializer), asi que no hace falta pedirlo al servidor.
+        if (chosen && !matched) {
+            var kept = document.createElement('option');
+            kept.value = chosen;
+            var label = record ? userName(record, spec.name.replace(/_id$/, '')) : '';
+            kept.textContent = (label || '#' + chosen) + ' (sin acceso actual)';
+            kept.selected = true;
+            select.appendChild(kept);
         }
 
         if (!chosen && spec.fallback) select.value = spec.fallback;
