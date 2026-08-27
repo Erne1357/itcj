@@ -2,8 +2,9 @@
    PAGINA   hoja BASE de la seccion: /adhoc/documentos, /documentos/panel,
             /documentos/flujos y /documentos/flujos/{id}/pasos
    CONTIENE saludo de la vista de consulta, margen superior de la barra de botones,
-            filtro de servidor dentro de la tabla, celda version/estatus, celda de
-            archivo y paginador
+            filtro de servidor dentro de la tabla (campos y casilla), celda
+            version/estatus, celda de vigencia, marca de version superada, celda
+            de archivo, paginador y el modal del historial de versiones
    EN BASE  la barra de botones (.adhoc-toolbar, via la macro toolbar()), iconos de
             fila (.adhoc-icon-action…), barra inferior, caja del selector de
             cantidad y encabezado dentro de la tarjeta
@@ -33,6 +34,17 @@
 /* ── Raíz de la pantalla ───────────────────────────────────────────────── */
 .adhoc-documents {
   display: block;
+}
+
+/* Techo de la única columna de texto libre de la consulta.
+   El ancho real de una tabla `auto` no lo fija su `min-width` (1400px por
+   .adhoc-table-xl): lo fija la columna que más pide, y "Nombre Doc" crece con
+   el título más largo del SGC —los hay de 120 caracteres—, empujando Vigencia y
+   Acciones fuera de pantalla a 1280px. `.adhoc-cell-clamp` (adhoc.css) acota a
+   32ch; con once columnas se baja un punto, igual que el panel bajó a 26ch con
+   doce. El texto íntegro sigue alcanzable: clampCell lo deja en el `title`. */
+.adhoc-documents .adhoc-table td[data-adhoc-cell="title"] {
+  max-width: 30ch;
 }
 
 /* Atenúa la tabla mientras vuela el fetch, sin quitarla de la página: evita
@@ -203,6 +215,130 @@
   text-align: center;
 }
 
+
+/* ── Columna "Vigencia" ─────────────────────────────────────────────────
+   La pinta el helper expiryCell() de document-list.js: la fecha en texto y,
+   detras, un badge rojo (vencido) o ambar (vence dentro de 30 dias o menos).
+   Quien decide el tono es el SERVIDOR, con expiry_state; aqui solo se le da
+   forma.
+
+   El badge va DESPUES de la fecha y no en su lugar porque la fecha es el dato
+   que se compara entre filas: sustituirla por "Vence en 12 d" obligaria a
+   abrir el documento para saber cuando. */
+.adhoc-doc-expiry-date {
+  color: var(--adhoc-dark);
+  font-weight: var(--adhoc-fw-semibold);
+}
+
+.adhoc-doc-expiry-badge {
+  margin-left: var(--adhoc-space-md);
+  font-size: var(--adhoc-fs-xs);
+}
+
+/* Un documento sin fecha de vigencia no es un error: 5 de los 202 no la traen.
+   Va en el gris de texto apagado y NO en el de deshabilitado, que sobre fondo
+   blanco se queda en 2:1 y deja de leerse. */
+.adhoc-doc-expiry-none {
+  color: var(--adhoc-muted);
+  font-style: italic;
+}
+
+/* ── Marca de version superada ──────────────────────────────────────────
+   La pone currentBadge() en la celda de version. Solo se ve con la casilla
+   "Ver versiones anteriores" marcada o dentro del historial: por defecto las
+   dos listas ensenan unicamente la punta de cada cadena. */
+.adhoc-doc-superseded,
+.adhoc-doc-current {
+  margin-left: var(--adhoc-space-md);
+  font-size: var(--adhoc-fs-xs);
+  font-weight: var(--adhoc-fw-semibold);
+}
+
+/* ── Casilla de la barra de filtros ─────────────────────────────────────
+   "Ver versiones anteriores" vive en la misma fila que los campos de filtro,
+   asi que necesita la altura de un control, no la de un texto suelto. El
+   <label> envuelve a la casilla: pulsar el texto tambien la conmuta, sin
+   depender de que el `for` y el `id` sigan cuadrando manana. */
+.adhoc-doc-filter-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--adhoc-space-sm);
+  color: var(--adhoc-slate);
+  font-size: var(--adhoc-fs-md);
+  font-weight: var(--adhoc-fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.adhoc-doc-filter-check input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--adhoc-primary);
+  cursor: pointer;
+}
+
+.adhoc-doc-filter-check input:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 2px;
+}
+
+/* ── Modal "Historial de versiones" ─────────────────────────────────────
+   Markup en partials/_document_versions_modal.html, contenido en
+   js/documents/document-versions.js.
+
+   El dialogo de la familia propia mide 600px y aqui hay cinco columnas: a ese
+   ancho la de "Vigencia" parte la fecha del badge en dos lineas. El max-width
+   del 95% lo sigue poniendo la hoja base, asi que en un movil no se desborda. */
+.adhoc-doc-versions-dialog {
+  width: 820px;
+}
+
+/* Codigo y titulo del documento desde el que se abrio el historial. */
+.adhoc-doc-versions-doc {
+  margin: 0 0 var(--adhoc-space-sm);
+  color: var(--adhoc-dark);
+  font-size: var(--adhoc-fs-lg);
+  font-weight: var(--adhoc-fw-semibold);
+}
+
+/* Linea de estado: cargando, numero de versiones, "unica version" o el error. */
+.adhoc-doc-versions-note {
+  margin: 0 0 var(--adhoc-space-3xl);
+  color: var(--adhoc-muted);
+  font-size: var(--adhoc-fs-md);
+}
+
+/* Atenua la tabla mientras vuela el fetch, igual que hacen las dos listas: sin
+   esto, el modal se abria con la tabla de la version anterior en pantalla. */
+.adhoc-modal.is-loading .adhoc-doc-versions-table {
+  opacity: .55;
+  pointer-events: none;
+  transition: opacity .15s ease-in-out;
+}
+
+/* La fila vigente, en el mismo verde del badge que la marca. Se declara
+   despues de la regla de :hover de la hoja base (misma especificidad, esta
+   hoja carga despues), asi que el hover no la repinta: en una cadena de cinco
+   versiones, pasar el raton no puede hacer que la vigente cambie de sitio. */
+.adhoc-doc-versions-table tbody tr.adhoc-version-current {
+  background: var(--adhoc-success-soft);
+}
+
+/* La fila DESDE LA QUE se abrio el historial. Sin ella, en una cadena larga el
+   usuario pierde de vista cual estaba mirando en cuanto se pintan las demas.
+   Es una barra lateral y no un fondo, para que pueda coincidir con la fila
+   vigente sin taparla (el caso normal: se abre desde la punta). */
+.adhoc-doc-versions-table tbody tr.adhoc-version-focus > td:first-child {
+  box-shadow: inset 3px 0 0 var(--adhoc-primary);
+}
+
+/* La version de una fila superada se apaga: el badge dice "Superada" y el
+   numero deja de competir con el de la vigente. */
+.adhoc-doc-versions-table tbody tr:not(.adhoc-version-current) .adhoc-doc-version {
+  color: var(--adhoc-muted);
+  font-weight: var(--adhoc-fw-semibold);
+}
+
 /* ── Móvil ─────────────────────────────────────────────────────────────── */
 @media (max-width: 575.98px) {
   .adhoc-pager-info {
@@ -211,5 +347,19 @@
 
   .adhoc-doc-greeting-title {
     font-size: var(--adhoc-fs-2xl);
+  }
+
+  /* La fecha y su badge dejan de ir en linea: juntos piden ~14rem y la columna
+     no los tiene, asi que el badge se salia de la celda. */
+  .adhoc-doc-expiry-badge {
+    display: block;
+    margin-left: 0;
+    margin-top: var(--adhoc-space-2xs);
+  }
+
+  /* El pie del historial es un solo boton: a lo ancho se pulsa con el pulgar
+     sin apuntar. */
+  .adhoc-doc-versions-dialog .adhoc-modal-footer .btn {
+    width: 100%;
   }
 }

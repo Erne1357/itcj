@@ -33,10 +33,11 @@ Ningún service lanza ``HTTPException``: así se prueban sin cliente HTTP.
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
-from sqlalchemy import or_
+from sqlalchemy import case, or_
 from sqlalchemy.orm import Session, joinedload
 
 from itcj2.apps.adhoc.models import (
@@ -45,6 +46,7 @@ from itcj2.apps.adhoc.models import (
     AdhocDocumentCategory,
     AdhocDocumentClassification,
     AdhocProcess,
+    AdhocTask,
 )
 from itcj2.apps.adhoc.schemas.documents import (
     DocumentCreate,
@@ -53,7 +55,9 @@ from itcj2.apps.adhoc.schemas.documents import (
 )
 from itcj2.apps.adhoc.services import upload_service
 from itcj2.apps.adhoc.utils.constants import (
-    DOCUMENT_STATUS_DEFAULT, DOCUMENT_STATUSES_VIA_PATCH,
+    DOCUMENT_EXPIRY_SOON_DAYS,
+    DOCUMENT_STATUS_DEFAULT, DOCUMENT_STATUS_OBSOLETE, DOCUMENT_STATUSES_VIA_PATCH,
+    TASK_STATUS_IN_REVIEW, TASK_STATUS_WAITING,
 )
 from itcj2.models.base import paginate
 
@@ -149,16 +153,61 @@ class AdhocDocumentService:
         *,
         page: int = 1,
         per_page: int = 20,
+        today: Optional[date] = None,
     ):
         """Listado paginado con eager loading de los 5 catálogos.
 
         El legacy renderizaba la tabla desde la página y disparaba un N+1 por
         fila (categoría, área, proceso, clasificación y autor).
+
+        **Por defecto solo devuelve la punta de cada cadena de versiones**
+        (``filters.only_current``, que vale ``True`` si el query string no dice
+        otra cosa). No es una preferencia estética: en la base hay 202
+        documentos repartidos en 144 cadenas, y 54 códigos aparecen dos o tres
+        veces. Sin este filtro, quien buscaba el procedimiento vigente recibía
+        el vigente **y** sus dos versiones superadas, sin más señal para
+        distinguirlos que un ``version`` que es ``String(10)``: el usuario se
+        bajaba el PDF equivocado, que en un SGC ISO 9001 es exactamente el
+        hallazgo de auditoría que el sistema existe para evitar. Las superadas
+        se ven marcando "Ver versiones anteriores" (``only_current=false``) o,
+        una cadena a la vez, en ``list_versions``.
+
+        ``today`` es el mismo "hoy" que el endpoint le pasa a ``document_out``.
+        Se recibe de fuera para que el ``WHERE`` de ``?expiring=vencidos`` y el
+        ``expiry_state`` que se serializa salgan del **mismo** reloj: con dos
+        ``date.today()`` independientes, una petición que cruce la medianoche
+        puede devolver una fila que el filtro considera vencida y el badge pinta
+        como "por vencer".
         """
         q = db.query(AdhocDocument).options(*_EAGER)
 
         if filters.status:
             q = q.filter(AdhocDocument.status == filters.status)
+        if filters.only_current:
+            q = q.filter(AdhocDocument.is_current.is_(True))
+        if filters.expiring:
+            # Tres cubos disjuntos y exhaustivos sobre `expiration_date`. Los
+            # predicados replican `schemas.documents._expiry` uno a uno: si
+            # alguno se toca, se tocan los dos, o la fila que el filtro
+            # devuelve y el badge que pinta dejan de coincidir.
+            hoy = today or date.today()
+            limite = hoy + timedelta(days=DOCUMENT_EXPIRY_SOON_DAYS)
+            if filters.expiring == "vencidos":
+                q = q.filter(
+                    AdhocDocument.expiration_date.isnot(None),
+                    AdhocDocument.expiration_date < hoy,
+                )
+            elif filters.expiring == "por_vencer_30d":
+                q = q.filter(
+                    AdhocDocument.expiration_date.isnot(None),
+                    AdhocDocument.expiration_date >= hoy,
+                    AdhocDocument.expiration_date <= limite,
+                )
+            else:   # "vigentes" — sin vencimiento también cuenta como vigente
+                q = q.filter(or_(
+                    AdhocDocument.expiration_date.is_(None),
+                    AdhocDocument.expiration_date > limite,
+                ))
         for field in ("category_id", "area_id", "process_id", "classification_id",
                       "flow_id", "author_id"):
             value = getattr(filters, field)
@@ -173,6 +222,42 @@ class AdhocDocumentService:
 
         q = q.order_by(AdhocDocument.id.desc())
         return paginate(q, page, per_page)
+
+    @staticmethod
+    def list_versions(db: Session, document_id: int) -> list[AdhocDocument]:
+        """Cadena de versiones completa a la que pertenece ``document_id``.
+
+        Da igual por dónde se entre —la raíz o cualquiera de sus versiones—:
+        se normaliza a la raíz (``parent_id or id``) y se devuelven la raíz más
+        todos sus hijos. La estructura migrada es **plana**, de profundidad 1
+        (cero filas con un padre que a su vez tenga padre), así que un solo
+        nivel de ``OR`` cubre la cadena entera; ``bulk_create`` mantiene esa
+        invariante apuntando siempre a la raíz, nunca al hermano anterior.
+
+        El orden es **la raíz primero y después por id ascendente**, es decir
+        cronológico de alta. Ordenar por ``version`` sería lo intuitivo y está
+        mal: es ``String(10)``, así que Postgres pondría ``'10.0'`` antes que
+        ``'2.0'`` y el historial saldría desordenado justo en las cadenas
+        largas, que son las únicas donde el historial importa.
+        """
+        doc = db.get(AdhocDocument, document_id)
+        if doc is None:
+            raise LookupError("Documento no encontrado")
+
+        root_id = doc.parent_id or doc.id
+        return (
+            db.query(AdhocDocument)
+            .options(*_EAGER)
+            .filter(or_(
+                AdhocDocument.id == root_id,
+                AdhocDocument.parent_id == root_id,
+            ))
+            .order_by(
+                case((AdhocDocument.id == root_id, 0), else_=1),
+                AdhocDocument.id.asc(),
+            )
+            .all()
+        )
 
     # ------------------------------------------------------------------
     # Escritura
@@ -191,6 +276,33 @@ class AdhocDocumentService:
 
         Si algo falla a mitad se hace ``rollback`` **y** se borran los archivos
         ya escritos: el legacy dejaba basura en disco y filas a medias.
+
+        **Anexar una versión nueva** (``parent_id`` presente en la fila) es la
+        única operación que mueve la cadena de versiones, y hace las tres cosas
+        de golpe, dentro de la misma transacción:
+
+        1. el documento nuevo cuelga de la **raíz** de la cadena
+           (``parent.parent_id or parent.id``), no del hermano anterior — por
+           eso la estructura se mantiene plana;
+        2. nace como la punta (``is_current=True``);
+        3. **toda** la cadena anterior —raíz incluida— pasa a
+           ``is_current=False`` y ``status='Obsoleto'``, de un solo ``UPDATE``
+           en lote.
+
+        Los dos últimos van juntos a propósito: es lo que hacía el SGC original
+        (su ``dap_approval_status = 2`` marca superado) y es la forma exacta de
+        los datos migrados —144 cadenas, **exactamente una** fila
+        ``is_current`` en cada una—. Dejar la versión anterior "vigente pero no
+        actual" rompería esa invariante y las dos listas volverían a mostrar
+        dos procedimientos vigentes con el mismo código.
+
+        Y por eso mismo el anexado tiene una precondición: la cadena **no puede
+        tener un flujo de aprobación en curso** (``AdhocConflict`` → 409, ver
+        :meth:`_assert_sin_flujo_vivo`). Con tareas de flujo vivas el
+        ``'Obsoleto'`` que escribe este método es reversible —quien apruebe la
+        tarea huérfana devuelve el documento superado a ``'Aprobado'``—, así que
+        la invariante que promete el párrafo de arriba solo se sostiene si el
+        flujo anterior está cerrado antes de anexar.
         """
         if not items:
             raise ValueError("No se recibió ningún documento para guardar")
@@ -204,18 +316,29 @@ class AdhocDocumentService:
         created: list[AdhocDocument] = []
         try:
             for index, data in enumerate(payloads):
+                # El UPDATE de la cadena va ANTES de insertar la versión nueva:
+                # si el documento nuevo ya estuviera en la sesión, el filtro
+                # `parent_id == root_id` lo alcanzaría y nacería obsoleto.
+                root_id = AdhocDocumentService._supersede_chain(db, data.get("parent_id"))
+
                 doc = AdhocDocument(
                     code=data.get("code"),
                     title=data["title"],
                     version=data.get("version") or "1.0",
                     notes=data.get("notes"),
                     status=DOCUMENT_STATUS_DEFAULT,
+                    expiration_date=data.get("expiration_date"),
+                    parent_id=root_id,
                     category_id=data.get("category_id"),
                     area_id=data.get("area_id"),
                     process_id=data.get("process_id"),
                     classification_id=data.get("classification_id"),
                     author_id=author_id,
                 )
+                if root_id is not None:
+                    # Sin padre no se toca: `is_current` lo pone el
+                    # `server_default true` de la columna, como hasta ahora.
+                    doc.is_current = True
                 db.add(doc)
                 db.flush()          # necesitamos el id para la ruta del adjunto
 
@@ -246,7 +369,17 @@ class AdhocDocumentService:
         *,
         upload: Any = None,
     ) -> AdhocDocument:
-        """``PATCH``: aplica solo los campos presentes en el payload."""
+        """``PATCH``: aplica solo los campos presentes en el payload.
+
+        ``expiration_date`` no necesita tratamiento especial: Pydantic ya la
+        entregó como ``date`` (o como ``None`` si llegó vacía, que es la forma
+        legítima de quitarle la vigencia a un documento).
+
+        Lo que **no** se puede tocar por aquí es ``is_current`` ni
+        ``parent_id`` —no están en :class:`DocumentUpdate` y ``AdhocSchema``
+        ignora los extras—: la cadena de versiones solo la mueve
+        ``bulk_create``, que cambia punta y estado de todas las filas a la vez.
+        """
         doc = db.get(AdhocDocument, document_id)
         if doc is None:
             raise LookupError("Documento no encontrado")
@@ -308,10 +441,35 @@ class AdhocDocumentService:
         Las tareas del documento caen por ``ondelete CASCADE``; el adjunto no
         tiene quien lo borre, así que lo hace este método (bug #18 en su versión
         documental).
+
+        Lo que **no** cae solo es la cadena de versiones:
+        ``fk_adhoc_documents_parent_id`` se declaró sin ``ON DELETE`` (RESTRICT,
+        igual que ``flow_id`` y ``current_step_id``), así que borrar la raíz de
+        una cadena con versiones anexadas es un ``ForeignKeyViolation`` que
+        ``_domain_errors`` no traduce y que el usuario ve como un 500 sin
+        mensaje. Se rechaza antes, con el 409 que el módulo ya declara: la raíz
+        es la **primera** versión del documento —el original del que cuelga todo
+        el historial—, y perderla dejaría a las versiones posteriores sin la
+        cabecera de su propia cadena. Se borran primero las anexadas, que es
+        además el orden en que un SGC retira documentación.
         """
         doc = db.get(AdhocDocument, document_id)
         if doc is None:
             raise LookupError("Documento no encontrado")
+
+        hijas = (
+            db.query(AdhocDocument.id)
+            .filter(AdhocDocument.parent_id == doc.id)
+            .count()
+        )
+        if hijas:
+            cuantas = (
+                "1 versión posterior" if hijas == 1 else f"{hijas} versiones posteriores"
+            )
+            raise AdhocConflict(
+                f"No se puede eliminar la versión raíz de una cadena con {cuantas}; "
+                f"elimine primero las versiones anexadas."
+            )
 
         file_url = doc.file_url
         db.delete(doc)
@@ -349,6 +507,92 @@ class AdhocDocumentService:
     # ------------------------------------------------------------------
     # Internos
     # ------------------------------------------------------------------
+    @staticmethod
+    def _supersede_chain(db: Session, parent_id: Optional[int]) -> Optional[int]:
+        """Marca superada la cadena de ``parent_id`` y devuelve su raíz.
+
+        Sin ``parent_id`` devuelve ``None`` y no toca nada (alta normal). Con
+        él: valida que el documento exista (``ValueError`` → 400, no el
+        ``IntegrityError`` a 500 del legacy), comprueba que la cadena no tenga
+        un flujo de aprobación a medias (:meth:`_assert_sin_flujo_vivo`,
+        ``AdhocConflict`` → 409), normaliza a la raíz y deja la cadena entera en
+        ``is_current=False`` / ``status='Obsoleto'``.
+
+        El ``UPDATE`` es **en lote**, no fila a fila: una cadena puede tener
+        media docena de versiones y recorrerlas con el ORM son N ``SELECT`` +
+        N ``UPDATE`` por cada alta. ``synchronize_session=False`` es seguro
+        aquí porque los objetos afectados se releen —``bulk_create`` hace
+        ``db.refresh`` de lo que crea, y la cadena vieja no vuelve a mirarse en
+        esta transacción—; lo que no puede es correr **después** de insertar la
+        versión nueva.
+        """
+        if not parent_id:
+            return None
+
+        parent = db.get(AdhocDocument, int(parent_id))
+        if parent is None:
+            raise ValueError(
+                f"No existe el documento del que se anexa la versión: {parent_id}"
+            )
+
+        root_id = parent.parent_id or parent.id
+        AdhocDocumentService._assert_sin_flujo_vivo(db, root_id)
+
+        db.query(AdhocDocument).filter(or_(
+            AdhocDocument.id == root_id,
+            AdhocDocument.parent_id == root_id,
+        )).update(
+            {
+                AdhocDocument.is_current: False,
+                AdhocDocument.status: DOCUMENT_STATUS_OBSOLETE,
+            },
+            synchronize_session=False,
+        )
+        return root_id
+
+    @staticmethod
+    def _assert_sin_flujo_vivo(db: Session, root_id: int) -> None:
+        """409 si la cadena de ``root_id`` tiene un flujo de aprobación a medias.
+
+        Anexar una versión deja la cadena anterior en ``status='Obsoleto'``, que
+        es un estado **terminal**. Si en ese momento el documento tiene tareas de
+        flujo vivas —``'En Revisión'`` o ``'En Espera'``, el mismo par con el que
+        el tablero reconoce al revisor documental—, el anexado dejaría un estado
+        intermedio que se deshace solo:
+
+        * los validadores conservan en su tablero la tarea *"Aprobar Documento:
+          …"* de una versión que las dos listas ya ocultan, y no hay pantalla
+          desde la que llegar al documento que están validando;
+        * aprobar esa tarea huérfana hace que ``task_workflow_service`` vuelva a
+          escribir ``status='Aprobado'`` sobre la versión superada, borrando en
+          silencio el ``'Obsoleto'`` que el anexado acababa de poner y dejando
+          dos filas de la misma cadena contando historias distintas.
+
+        Lo que **no** se hace es cancelar por cuenta propia las tareas de
+        terceros: el flujo se cierra por donde el SGC lo tiene previsto —se
+        aprueba o se rechaza—, y esos dos caminos dejan registro de quién decidió
+        en ``adhoc_task_approvals``. Cancelar en silencio para poder anexar
+        borraría justo la evidencia que una auditoría ISO 9001 viene a mirar.
+        """
+        cadena = db.query(AdhocDocument.id).filter(or_(
+            AdhocDocument.id == root_id,
+            AdhocDocument.parent_id == root_id,
+        ))
+        viva = (
+            db.query(AdhocTask.id)
+            .filter(
+                AdhocTask.document_id.in_(cadena),
+                AdhocTask.status.in_((TASK_STATUS_IN_REVIEW, TASK_STATUS_WAITING)),
+            )
+            .first()
+        )
+        if viva is not None:
+            raise AdhocConflict(
+                "No se puede anexar una versión: el documento tiene un flujo de "
+                "aprobación en curso. Termine o rechace el flujo antes de anexar "
+                "la versión nueva."
+            )
+
     @staticmethod
     def _resolve_author(db: Session, author_id: Optional[int]) -> Optional[int]:
         """Confirma que el autor exista en ``core_users``; si no, lo deja nulo.

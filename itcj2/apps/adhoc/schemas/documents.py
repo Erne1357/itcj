@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Annotated, Any, Optional
 
-from pydantic import Field
+from pydantic import BeforeValidator, Field
 
 from itcj2.apps.adhoc.schemas.common import (
     AdhocSchema,
@@ -32,7 +32,11 @@ from itcj2.apps.adhoc.schemas.common import (
     OptStr,
     blank_to_default,
 )
-from itcj2.apps.adhoc.utils.constants import DocumentStatus
+from itcj2.apps.adhoc.utils.constants import (
+    DOCUMENT_EXPIRY_SOON_DAYS,
+    DocumentExpiryFilter,
+    DocumentStatus,
+)
 
 __all__ = [
     # Entrada — documentos
@@ -40,6 +44,8 @@ __all__ = [
     "DocumentUpdate",
     "DocumentFilters",
     "StartFlowIn",
+    "query_flag_to_bool",
+    "QueryFlag",
     # Entrada — flujos y pasos
     "FlowCreate",
     "FlowUpdate",
@@ -56,6 +62,51 @@ __all__ = [
 
 
 # ==========================================================================
+# Coerción de banderas de query string
+# ==========================================================================
+
+#: Lo que un query string puede traer por un ``bool``. Se compara en minúsculas
+#: y sin espacios; ``"si"`` está para el JS que arma el filtro en español.
+_FLAG_TRUE: frozenset[str] = frozenset({"true", "1", "on", "yes", "si", "sí"})
+_FLAG_FALSE: frozenset[str] = frozenset({"false", "0", "off", "no"})
+
+
+def query_flag_to_bool(value: Any) -> Any:
+    """Validador ``mode="before"`` para una bandera booleana de query string.
+
+    Existe por una colisión concreta entre dos piezas ya escritas:
+    :class:`AdhocSchema` coacciona todo string vacío a ``None``
+    (``empty_to_none``), y ``None`` **no satisface** un campo ``bool`` — así
+    que un ``?only_current=`` reventaría con un 422 y un ``?only_current=false``
+    ni siquiera llegaría a evaluarse como falso, porque el valor entra como el
+    string ``"false"``, que Pydantic sí sabe convertir pero que primero pasa por
+    aquí para uniformar el vocabulario.
+
+    Tres casos, en este orden:
+
+    * ``None`` (parámetro ausente o vacío) → ``True``. Es lo mismo que no pedir
+      nada: la lista sigue ocultando las versiones superadas por defecto.
+    * un string de :data:`_FLAG_TRUE` / :data:`_FLAG_FALSE` → ``True`` /
+      ``False``.
+    * cualquier otra cosa (un ``bool`` de verdad, un ``1``) se deja pasar tal
+      cual para que la valide Pydantic.
+    """
+    if value is None:
+        return True
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in _FLAG_TRUE:
+            return True
+        if token in _FLAG_FALSE:
+            return False
+    return value
+
+
+#: Anotación lista para componer en un campo de filtros: ``QueryFlag = True``.
+QueryFlag = Annotated[bool, BeforeValidator(query_flag_to_bool)]
+
+
+# ==========================================================================
 # Entrada — documentos
 # ==========================================================================
 
@@ -66,12 +117,21 @@ class DocumentCreate(AdhocSchema):
     descartaba la fila en silencio si faltaba alguno. Aquí ``title`` es
     obligatorio de verdad (422 si falta) y ``code`` es opcional, como declara la
     columna (``nullable=True``).
+
+    ``parent_id`` significa **"esta fila es una versión nueva de X"**: no es una
+    jerarquía de carpetas ni un documento "padre" en sentido documental, es el
+    puntero a la cadena de versiones del mismo ``code``. El service lo normaliza
+    a la **raíz** de esa cadena (``parent.parent_id or parent.id``, ver
+    ``bulk_create``), que es la forma que tienen los 202 documentos migrados:
+    plana, de profundidad 1, con una sola punta ``is_current`` por cadena.
     """
 
     code: Annotated[Optional[str], Field(max_length=50)] = None
     title: str = Field(min_length=1, max_length=200)
     version: Annotated[str, blank_to_default("1.0"), Field(max_length=10)] = "1.0"
     notes: OptStr = None
+    expiration_date: Optional[date] = None
+    parent_id: OptInt = None
     category_id: OptInt = None
     area_id: OptInt = None
     process_id: OptInt = None
@@ -83,7 +143,14 @@ class DocumentUpdate(AdhocSchema):
 
     Un ``""`` entrante se vuelve ``None`` (limpia la columna); por eso ``title``
     es ``Optional`` aquí y su vacío lo rechaza el service con un 400 legible en
-    vez de dejar un documento sin título.
+    vez de dejar un documento sin título. En ``expiration_date`` ese vaciado
+    **sí** es lo correcto: quitarle la vigencia a un documento es una edición
+    legítima, no un error.
+
+    Deliberadamente **no** hay aquí ``is_current`` ni ``parent_id``: la cadena
+    de versiones solo la mueve ``bulk_create`` al anexar una versión nueva. Un
+    PATCH que pudiera escribirlos dejaría cadenas con dos puntas o con ninguna,
+    y la lista —que oculta las superadas— pasaría a mentir.
     """
 
     code: Annotated[Optional[str], Field(max_length=50)] = None
@@ -91,6 +158,7 @@ class DocumentUpdate(AdhocSchema):
     version: Annotated[Optional[str], Field(max_length=10)] = None
     status: Optional[DocumentStatus] = None
     notes: OptStr = None
+    expiration_date: Optional[date] = None
     category_id: OptInt = None
     area_id: OptInt = None
     process_id: OptInt = None
@@ -103,10 +171,19 @@ class DocumentFilters(AdhocSchema):
     El endpoint los recibe como strings crudos y arma este modelo dentro de un
     ``try``: un ``status`` inventado tiene que ser un 400 legible, no un 500 por
     ``ValidationError`` suelta.
+
+    ``only_current`` es el **único filtro con default activo**: sin él las dos
+    listas devuelven las 58 versiones superadas mezcladas con las 144 vigentes
+    (54 códigos aparecen 2 o 3 veces) y quien busca "el procedimiento" no sabe
+    cuál de los tres resultados es el bueno. Se apaga con
+    ``?only_current=false``, que es lo que manda el checkbox "Ver versiones
+    anteriores" de la barra de filtros.
     """
 
     q: OptStr = None
     status: Optional[DocumentStatus] = None
+    only_current: QueryFlag = True
+    expiring: Optional[DocumentExpiryFilter] = None
     category_id: OptInt = None
     area_id: OptInt = None
     process_id: OptInt = None
@@ -182,6 +259,51 @@ def user_brief(user: Any) -> Optional[dict]:
     }
 
 
+def _as_date(value: Any) -> Optional[date]:
+    """``date`` de una columna de vigencia, sea ``Date`` o ``DateTime``.
+
+    La columna es ``Date``, pero el ETL del SGC legacy trajo fechas con parte
+    horaria (``FOR JSON`` de SQL Server las emite con ``T``) y un ``datetime``
+    comparado contra un ``date`` explota. Aquí se normaliza una sola vez.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return None
+
+
+def _expiry(doc: Any, today: Optional[date] = None) -> tuple[bool, Optional[int], Optional[str]]:
+    """``(is_expired, days_to_expire, expiry_state)`` de un documento.
+
+    Un solo sitio con la aritmética, para que la columna "Vigencia" de las dos
+    tablas, el badge y el contador del dashboard no puedan discrepar por un
+    ``<`` contra un ``<=``. Los tres cubos son los de
+    :data:`~itcj2.apps.adhoc.utils.constants.DocumentExpiryFilter`, y coinciden
+    exactamente con los predicados SQL de ``list_documents``:
+
+    * ``days < 0``  → ``'vencido'``   (``expiration_date < hoy``)
+    * ``0 <= days <= DOCUMENT_EXPIRY_SOON_DAYS`` → ``'por_vencer'``
+    * el resto      → ``'vigente'``
+
+    Sin ``expiration_date`` devuelve ``(False, None, None)``: no hay vigencia
+    que controlar, y ``None`` es lo que distingue "no vence" de "vence hoy".
+    ``today`` se recibe de fuera para calcular ``date.today()`` una sola vez por
+    respuesta (una lista de 200 filas no debe consultar el reloj 200 veces, y
+    peor: cruzar la medianoche a mitad de la página).
+    """
+    fecha = _as_date(getattr(doc, "expiration_date", None))
+    if fecha is None:
+        return False, None, None
+
+    dias = (fecha - (today or date.today())).days
+    if dias < 0:
+        return True, dias, "vencido"
+    if dias <= DOCUMENT_EXPIRY_SOON_DAYS:
+        return False, dias, "por_vencer"
+    return False, dias, "vigente"
+
+
 def _named(obj: Any, *extra: str) -> Optional[dict]:
     if obj is None:
         return None
@@ -191,12 +313,31 @@ def _named(obj: Any, *extra: str) -> Optional[dict]:
     return out
 
 
-def document_out(doc: Any, *, detail: bool = False) -> dict:
+def document_out(doc: Any, *, detail: bool = False, today: Optional[date] = None) -> dict:
     """Fila de documento para la API.
 
     ``detail=True`` añade el flujo y el paso actual resueltos; el listado los
     omite para no forzar dos joins más en cada página.
+
+    ``today`` es el "hoy" de **toda la respuesta**, y por eso se recibe de fuera:
+    calcularlo aquí dentro significa una llamada a ``date.today()`` por fila —50
+    en una página de 50— y, lo que importa de verdad, que una página renderizada
+    a caballo de la medianoche pueda devolver dos filas con la MISMA
+    ``expiration_date`` y distinto ``expiry_state``. Los endpoints lo calculan
+    una vez y se lo pasan también a ``list_documents``, de modo que el ``WHERE``
+    de ``?expiring=vencidos`` y el badge que se pinta no puedan discrepar nunca.
+    Omitirlo sigue siendo válido (``date.today()``) para el uso suelto.
+
+    Las seis claves de versionado y vigencia (``is_current``, ``parent_id``,
+    ``expiration_date``, ``is_expired``, ``days_to_expire``, ``expiry_state``)
+    van **siempre**, también en el listado: el badge rojo/ámbar de la columna
+    "Vigencia" se pinta desde ``expiry_state`` sin que el JS tenga que volver a
+    hacer aritmética de fechas —que además la haría contra el reloj del cliente,
+    y el navegador de un usuario con la zona horaria mal puesta cambiaría de
+    color un documento vencido.
     """
+    hoy = today or date.today()
+    is_expired, days_to_expire, expiry_state = _expiry(doc, hoy)
     data = {
         "id": doc.id,
         "code": doc.code,
@@ -205,6 +346,12 @@ def document_out(doc: Any, *, detail: bool = False) -> dict:
         "status": doc.status,
         "notes": doc.notes,
         "approval_date": _iso(doc.approval_date),
+        "expiration_date": _iso(_as_date(doc.expiration_date)),
+        "is_expired": is_expired,
+        "days_to_expire": days_to_expire,
+        "expiry_state": expiry_state,
+        "is_current": bool(doc.is_current),
+        "parent_id": doc.parent_id,
         "file_url": doc.file_url,
         "has_file": bool(doc.file_url),
         "category": _named(doc.category),

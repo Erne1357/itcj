@@ -20,13 +20,39 @@
    * La API expone un único texto libre (`q`, código O nombre), así que donde el
      legacy tenía tres cajas (código, nombre, versión) aquí hay una.
    * Cero CSS inline y cero manejadores inline. Iconos Font Awesome 6.4.
+
+   LAS DOS COLUMNAS NUEVAS (vigencia y versiones)
+   ----------------------------------------------
+   * "Vigencia" va DETRÁS de "Versión / Estatus" porque las tres cosas que dicen
+     si un documento sirve hoy —qué versión es, en qué punto del flujo está y
+     hasta cuándo vale— tienen que leerse juntas. Su `<select>` de filtro
+     (`expiring`) ocupa el `<th>` de la fila de filtros que le toca, igual que
+     los otros cinco: la fila de filtros es una rejilla, y un filtro colocado
+     bajo otra columna es exactamente el defecto que el legacy tenía por
+     construcción.
+   * "Acciones" es una columna NUEVA al final, con un solo botón: el historial
+     de versiones. Podría haber colgado del `<td>` de "Versión / Estatus", pero
+     esa celda ya lleva dos datos y con la casilla marcada tres (la marca
+     "Superada"), así que el botón ni ahorraría ancho —crecería la celda en vez
+     de la tabla— ni quedaría anunciado bajo un encabezado que lo describa. En
+     el panel las acciones ya viven en la última columna; que estén en el mismo
+     sitio en las dos pantallas es la mitad del valor de tenerlas.
+   * De `adhoc-table-lg` (1200px) a `adhoc-table-xl` (1400px): son once columnas,
+     y "Vigencia" pide ~14rem sin partirse (fecha + "Vencido hace 120 d"). Es un
+     escalón de la escala que ya existe —el que usa el panel—, NO un `min-width`
+     inventado ni un `@media` fuera de 575.98/767.98/991.98. Por debajo de
+     1400px la tabla se desplaza dentro de `.adhoc-table-wrap`, que es para lo
+     que está.
+   * La casilla "Ver versiones anteriores" va en la BOTONERA, no en un `<th>`:
+     dentro de la fila de filtros su etiqueta no cabe legible, y sin etiqueta
+     una casilla no dice qué hace.
    =========================================================================== #}
 {% extends "adhoc/base_adhoc.html" %}
 {% from "adhoc/partials/_macros.html" import page_data_script, toolbar %}
 
 {% block title %}Documentos · Calidad{% endblock %}
 
-{# La tabla pide min-width 1200px: sin `adhoc-wide` el contenedor se queda
+{# La tabla pide min-width 1400px: sin `adhoc-wide` el contenedor se queda
    en 1200px con 48px de padding y el ancho util nunca pasa de 1110px, asi
    que desborda a CUALQUIER resolucion. #}
 {% block body_class %}adhoc-wide{% endblock %}
@@ -52,6 +78,16 @@
        macro las tres pantallas de la sección comparten el mismo contenedor, y
        los `data-*` —que son lo único que el JS engancha— viajan intactos. #}
     {% call toolbar() %}
+      {# Marcada = `only_current=false`: el sentido de la casilla es el CONTRARIO
+         al del parámetro, y por eso los dos valores los declara el propio input
+         (`document-list.js::valorDeCasilla`) en vez de leerse de `.value`. Un
+         checkbox siempre tiene `.value`, así que leerlo mandaría la clave
+         estuviera marcado o no y el filtro no habría hecho nada nunca. #}
+      <label class="adhoc-doc-filter-check">
+        <input type="checkbox" data-adhoc-doc-filter="only_current"
+               data-adhoc-checked-value="false" data-adhoc-unchecked-value="true">
+        <span>Ver versiones anteriores</span>
+      </label>
       <button type="button" class="btn btn-sm btn-secondary" data-adhoc-doc-clear>
         <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
       </button>
@@ -61,19 +97,21 @@
     {% endcall %}
 
     <div class="adhoc-table-wrap adhoc-table-sticky" data-adhoc-table-wrap>
-      <table class="adhoc-table adhoc-table-lg" id="adhoc-documents-table"
+      <table class="adhoc-table adhoc-table-xl" id="adhoc-documents-table"
              data-adhoc-table="adhoc-documents-table">
         <thead>
           <tr>
             <th scope="col" class="adhoc-col-start">Código</th>
             <th scope="col" class="adhoc-col-start">Nombre Doc</th>
             <th scope="col" class="adhoc-col-start">Versión / Estatus</th>
+            <th scope="col" class="adhoc-col-start">Vigencia</th>
             <th scope="col" class="adhoc-col-center">Enlace</th>
             <th scope="col" class="adhoc-col-start">Categoría</th>
             <th scope="col" class="adhoc-col-start">Área</th>
             <th scope="col" class="adhoc-col-start">Proceso</th>
             <th scope="col" class="adhoc-col-start">Clasificación</th>
             <th scope="col" class="adhoc-col-start">Aprobación</th>
+            <th scope="col" class="adhoc-col-center">Acciones</th>
           </tr>
           <tr class="adhoc-filter-row">
             <th>
@@ -88,6 +126,15 @@
                 <option value="">Todos</option>
                 {%- for s in status_options %}
                 <option value="{{ s }}">{{ s }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th>
+              <select name="expiring" class="adhoc-doc-filter" data-adhoc-doc-filter="expiring"
+                      aria-label="Filtrar por vigencia">
+                <option value="">Todos</option>
+                {%- for o in expiry_options %}
+                <option value="{{ o.value }}">{{ o.label }}</option>
                 {%- endfor %}
               </select>
             </th>
@@ -130,11 +177,12 @@
               </select>
             </th>
             <th></th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="adhoc-documents-table-body" data-adhoc-table-body>
           <tr class="adhoc-table-empty" data-adhoc-empty>
-            <td colspan="9">
+            <td colspan="11">
               <div class="adhoc-empty">
                 <i class="fa-solid fa-folder-open adhoc-empty-icon"></i>
                 <p class="adhoc-empty-text mb-0">
@@ -163,8 +211,19 @@
 </section>
 {% endblock %}
 
+{# El modal va en `{% block modals %}`, que base_adhoc.html declara al final
+   de #adhoc-root —dentro de la caja que HTMX intercambia, para que el diálogo
+   entre y salga con su pantalla— y fuera de cualquier contenedor con
+   transform/filter/perspective: esos crean un containing block nuevo y el
+   `position: fixed` del velo deja de cubrir la pantalla. #adhoc-root no lleva
+   ninguna de las tres. #}
+{% block modals %}
+  {% include "adhoc/partials/_document_versions_modal.html" %}
+{% endblock %}
+
 {% block extra_js %}
 {{ page_data_script(page_data) }}
 <script id="adhoc-mod-documents-document-list" src="/static/adhoc/js/documents/document-list.js?v={{ sv('js/documents/document-list.js') }}"></script>
+<script id="adhoc-mod-documents-document-versions" src="/static/adhoc/js/documents/document-versions.js?v={{ sv('js/documents/document-versions.js') }}"></script>
 <script id="adhoc-mod-documents-documents" src="/static/adhoc/js/documents/documents.js?v={{ sv('js/documents/documents.js') }}"></script>
 {% endblock %}

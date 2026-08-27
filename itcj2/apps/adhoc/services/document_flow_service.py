@@ -54,6 +54,7 @@ from itcj2.apps.adhoc.services.document_service import AdhocConflict
 from itcj2.apps.adhoc.utils.constants import (
     DOCUMENT_STATUS_APPROVED,
     DOCUMENT_STATUS_IN_REVIEW,
+    DOCUMENT_STATUSES_STARTABLE,
     PRIORITY_HIGH,
     TASK_STATUS_IN_REVIEW,
     TASK_STATUS_WAITING,
@@ -393,6 +394,9 @@ class AdhocDocumentFlowService:
         Raises:
             ValueError: sin ``flow_id``, flujo sin pasos, o documento ya iniciado.
             LookupError: documento o flujo inexistentes.
+            AdhocConflict: el estado del documento no admite arrancar un flujo
+                (``DOCUMENT_STATUSES_STARTABLE``): una versión superada está en
+                ``'Obsoleto'``, que es terminal.
         """
         if not flow_id:
             raise ValueError("Debe enviar flow_id.")
@@ -403,6 +407,22 @@ class AdhocDocumentFlowService:
 
         if doc.status == DOCUMENT_STATUS_IN_REVIEW and doc.flow_id:
             raise ValueError("El documento ya tiene un flujo iniciado.")
+
+        # `DOCUMENT_STATUSES_STARTABLE` existía desde la migración y hasta ahora
+        # solo lo respetaba el navegador (`documents-panel.js` esconde el botón
+        # del sello salvo en 'Borrador' y 'Rechazado'). El servidor no lo miraba,
+        # así que un POST a mano —o el mismo botón sobre una fila desactualizada—
+        # arrancaba un flujo sobre un documento OBSOLETO: la versión superada
+        # volvía a 'En Revisión' con tareas nuevas para sus validadores, invisible
+        # en las dos listas porque `is_current` seguía en false. 'Obsoleto' es
+        # terminal por definición: de ahí no se sale arrancando otro flujo, se
+        # sale anexando una versión nueva.
+        if doc.status not in DOCUMENT_STATUSES_STARTABLE:
+            raise AdhocConflict(
+                f"No se puede iniciar un flujo de aprobación sobre un documento en "
+                f"estado '{doc.status}'. Solo se puede desde: "
+                f"{', '.join(DOCUMENT_STATUSES_STARTABLE)}."
+            )
 
         flow = db.get(AdhocApprovalFlow, int(flow_id))
         if flow is None:

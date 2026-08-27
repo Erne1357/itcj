@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Bump 2026-08-27: adjuntos de incidencias (adhoc) — modal de archivos en
     # incidents.js/incidents.html y la clase .adhoc-file-none compartida en
     # work-items.css.
-    STATIC_VERSION: str = "1.0.1111526"
+    STATIC_VERSION: str = "1.0.1111527"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

@@ -26,9 +26,22 @@
  * CONTRATO DE API (plan §3)
  * -------------------------
  *   POST   /documents                  multipart, listas paralelas por índice
+ *                                      (+ expiration_dates, + parent_ids)
  *   DELETE /documents/{id}
  *   GET    /documents/{id}             detalle (incluye current_step)
+ *   GET    /documents/{id}/versions    la cadena entera (lo pide el modal
+ *                                      compartido document-versions.js)
  *   POST   /documents/{id}/start-flow  {"flow_id": N}
+ *
+ * LO QUE AÑADE LA CADENA DE VERSIONES
+ * -----------------------------------
+ * Anexar una versión no edita el documento: crea uno NUEVO con `parent_ids`
+ * apuntando a la versión desde la que se anexa. El servidor resuelve solo la
+ * RAÍZ de la cadena (la estructura es plana, profundidad 1) y deja al resto de
+ * la cadena con `is_current=false` y `status='Obsoleto'`. Es una operación con
+ * consecuencia visible para todo el SGC —el documento que hasta ese momento
+ * era el vigente deja de serlo—, así que el modal lo dice ANTES de guardar y
+ * el toast dice después qué versión quedó vigente.
  */
 (function () {
     'use strict';
@@ -148,6 +161,14 @@
         this.qtyBox = this.modal ? this.modal.querySelector('[data-adhoc-doc-qty-box]') : null;
         this.qtySelect = this.modal ? this.modal.querySelector('[data-adhoc-doc-qty]') : null;
         this.modalTitle = this.modal ? this.modal.querySelector('[data-adhoc-doc-modal-title]') : null;
+        this.versionWarning = this.modal
+            ? this.modal.querySelector('[data-adhoc-doc-version-warning]') : null;
+        this.versionWarningDoc = this.modal
+            ? this.modal.querySelector('[data-adhoc-doc-version-warning-doc]') : null;
+
+        //: Documento del que se está anexando una versión, o null en el alta
+        //: normal. Decide el aviso del modal y el texto del toast final.
+        this.versionSource = null;
 
         this.flowModal = document.querySelector('[data-adhoc-flow-modal]');
         this.flowSelect = this.flowModal ? this.flowModal.querySelector('[data-adhoc-flow-select]') : null;
@@ -159,9 +180,16 @@
 
     Panel.prototype.init = function () {
         var self = this;
+        // Los filtros que vengan en la URL (el enlace del contador de vencidos
+        // del dashboard, p. ej.) los vuelca `document-list.js` sobre la barra
+        // antes de su primera consulta: es el mismo volcado que en la pantalla
+        // de consulta, así que vive con el resto del contrato de la barra —qué
+        // nodos son filtros, cómo se lee una casilla— y no una copia por
+        // pantalla que diverge sin que nadie se entere.
         this.list = List.create(this.root, {
             tableId: TABLE_ID,
             perPage: this.data.per_page,
+            initialFilters: this.data.initial_filters,
             buildRow: function (doc) { return self.buildRow(doc); }
         });
         this.bind();
@@ -185,7 +213,12 @@
         tr.appendChild(tdFile);
 
         H.cell(tr, 'code', H.text(doc.code, '—'), 'adhoc-cell-nowrap');
-        H.cell(tr, 'title', H.text(doc.title));
+
+        // El título va ACOTADO a dos líneas, no suelto: con doce columnas es la
+        // única celda de texto libre que puede reclamar ancho sin techo, y un
+        // título del SGC de 120 caracteres empujaba la mitad de la tabla fuera
+        // de la pantalla. El texto íntegro queda en el `title` del <td>.
+        H.clampCell(tr, 'title', H.text(doc.title));
 
         // — versión + estatus en una sola celda, como el legacy —
         var tdVersion = document.createElement('td');
@@ -196,7 +229,17 @@
         version.textContent = 'v' + H.text(doc.version);
         tdVersion.appendChild(version);
         tdVersion.appendChild(H.statusBadge(doc.status));
+        // "Superada" solo aparece con la casilla "Ver versiones anteriores"
+        // marcada: por defecto la lista trae únicamente la punta de cada
+        // cadena y el badge no tendría a quién distinguir.
+        var superada = H.currentBadge(doc);
+        if (superada) tdVersion.appendChild(superada);
         tr.appendChild(tdVersion);
+
+        // Vigencia: la fecha y, detrás, el badge rojo o ámbar. El tono lo
+        // decide el servidor con `expiry_state`; aquí no se hace aritmética de
+        // fechas contra el reloj del cliente.
+        H.expiryCell(tr, doc);
 
         H.cell(tr, 'category', H.named(doc.category));
         H.cell(tr, 'area', H.named(doc.area));
@@ -227,6 +270,12 @@
             box.appendChild(H.iconButton('flow-info', 'fa-solid fa-clock-rotate-left',
                                          'Ver paso actual del flujo', 'adhoc-icon-info'));
         }
+        // El historial se pinta SIEMPRE, también en un documento de una sola
+        // versión: la fila no sabe si tiene hijos (`parent_id` solo dice si
+        // ella es hija) y averiguarlo por fila serían 25 peticiones por página.
+        // Es el propio modal el que dice "es la única versión" cuando toca.
+        box.appendChild(H.versionButton(doc));
+
         if (this.canCreate) {
             box.appendChild(H.iconButton('new-version', 'fa-solid fa-file-circle-plus',
                                          'Anexar nueva versión'));
@@ -247,8 +296,28 @@
             this.modalTitle.appendChild(document.createTextNode('Añadir Documento'));
         }
         if (this.qtyBox) this.qtyBox.hidden = false;
+        // Alta normal: no hay cadena, así que el hidden `parent_ids` va vacío y
+        // el servidor lo coacciona a None. El aviso de "quedará obsoleta" no
+        // aplica y se apaga: el modal es el MISMO nodo en los dos modos.
+        this.versionSource = null;
+        this.setVersionWarning(null);
         this.buildFields();
         this.show(this.modal);
+    };
+
+    /**
+     * Enciende o apaga el aviso de consecuencia del modal.
+     * Solo se reescribe el <strong>, con textContent: el resto de la frase es
+     * markup de la plantilla y no se toca.
+     */
+    Panel.prototype.setVersionWarning = function (doc) {
+        if (!this.versionWarning) return;
+        this.versionWarning.hidden = !doc;
+        if (!doc || !this.versionWarningDoc) return;
+
+        var quien = H.text(doc.code) || H.text(doc.title, 'este documento');
+        this.versionWarningDoc.textContent =
+            'la versión ' + H.text(doc.version, 'actual') + ' de ' + quien;
     };
 
     /**
@@ -256,6 +325,17 @@
      * conserva: se crea un documento NUEVO con el mismo código y título y la
      * versión incrementada en 1.0 (`advanced_documents.js:184`), no se edita el
      * original — así el histórico del SGC no se pierde.
+     *
+     * Lo que el legacy NO hacía: enlazar las dos. Ahora el alta viaja con
+     * `parent_ids = doc.id` y es el servidor quien resuelve la RAÍZ de la
+     * cadena y apaga la anterior (`is_current=false`, `status='Obsoleto'`).
+     * Desde aquí se manda el id del documento del que se anexa y nada más: la
+     * jerarquía no se calcula en el navegador.
+     *
+     * La fecha de vigencia se arrastra como propuesta, no como copia ciega: una
+     * versión nueva casi siempre renueva la vigencia, y llegar con la fecha
+     * anterior ya escrita hace evidente que hay que moverla. Vacío se vería
+     * como "este documento no caduca", que es justo lo contrario.
      */
     Panel.prototype.openNewVersion = function (doc) {
         if (!this.modal) return;
@@ -268,11 +348,16 @@
         var current = parseFloat(doc.version);
         var next = isNaN(current) ? '1.0' : (current + 1.0).toFixed(1);
 
+        this.versionSource = doc;
+        this.setVersionWarning(doc);
+
         this.buildFields(1, {
             code: doc.code,
             title: doc.title,
             version: next,
             notes: doc.notes,
+            parent_id: doc.id,
+            expiration_date: doc.expiration_date,
             category_id: doc.category ? doc.category.id : null,
             area_id: doc.area ? doc.area.id : null,
             process_id: doc.process ? doc.process.id : null,
@@ -327,6 +412,12 @@
                       { maxLength: 10 })));
 
         grid.appendChild(fieldBox(
+            'adhoc-doc-expiration' + suffix, 'Vigencia hasta',
+            makeInput('adhoc-doc-expiration' + suffix, 'expiration_dates', 'date',
+                      H.isoDate(p.expiration_date)),
+            { help: 'Opcional. Pasada esta fecha el documento aparece como vencido.' }));
+
+        grid.appendChild(fieldBox(
             'adhoc-doc-category' + suffix, 'Categoría',
             makeCatalogSelect('adhoc-doc-category' + suffix, 'category_ids',
                               this.data.categories, p.category_id)));
@@ -358,6 +449,20 @@
             { full: true, help: 'Opcional. Un archivo por documento.' }));
 
         block.appendChild(grid);
+
+        // Cadena de versiones. Va OCULTO y siempre presente —también en el alta
+        // normal, donde viaja vacío— porque `parent_ids` es una de las listas
+        // paralelas del multipart: si un bloque no lo emitiera, el índice de
+        // todos los siguientes se desplazaría y cada versión acabaría colgando
+        // de la cadena equivocada. La cadena no se elige a mano: no lleva label
+        // ni id, solo el name que espera la API.
+        var parent = document.createElement('input');
+        parent.type = 'hidden';
+        parent.name = 'parent_ids';
+        parent.value = (p.parent_id === null || p.parent_id === undefined)
+            ? '' : String(p.parent_id);
+        block.appendChild(parent);
+
         return block;
     };
 
@@ -375,13 +480,33 @@
             return;
         }
 
+        // Se captura ANTES del envío: `hide()` no lo borra, pero el usuario
+        // puede volver a abrir el modal en modo alta mientras vuela la petición.
+        var origen = this.versionSource;
+
         this.busy(btn, true);
         // FormData del <form>: conserva el orden del DOM, así que las listas
-        // paralelas (titles/codes/…/files) llegan alineadas por índice.
+        // paralelas (titles/codes/…/files/expiration_dates/parent_ids) llegan
+        // alineadas por índice.
         U.fetchJson('/documents', { method: 'POST', body: new FormData(this.form) })
             .then(function (payload) {
                 var total = (payload && payload.total) || 0;
-                U.showToast(total + ' documento(s) registrado(s).', 'success');
+                var creado = ((payload && payload.data) || [])[0] || {};
+                if (origen) {
+                    // El aviso del modal decía lo que IBA a pasar; este dice lo
+                    // que pasó, y con números: cuál manda ahora y cuál dejó de
+                    // mandar. Sin esto, la fila anterior simplemente desaparece
+                    // de la tabla (la lista oculta las superadas) y parece que
+                    // se ha borrado.
+                    U.showToast(
+                        'Versión ' + H.text(creado.version, 'nueva') + ' de ' +
+                        (H.text(creado.code) || H.text(creado.title, 'el documento')) +
+                        ' registrada: es la vigente. La versión ' +
+                        H.text(origen.version, 'anterior') + ' quedó como Obsoleta.',
+                        'success');
+                } else {
+                    U.showToast(total + ' documento(s) registrado(s).', 'success');
+                }
                 self.hide(self.modal);
                 return self.list.reload();
             })
@@ -468,6 +593,22 @@
             .catch(function (err) { U.showToast(err.message, 'error'); });
     };
 
+    // ---------- historial de versiones ----------
+
+    /**
+     * Abre el modal compartido (partials/_document_versions_modal.html). El
+     * módulo se carga en la misma página, así que faltar solo puede faltar si
+     * alguien quita su <script>: se avisa en vez de romper el clic en silencio.
+     */
+    Panel.prototype.openVersions = function (doc) {
+        var mod = window.AdhocDocumentVersions;
+        if (!mod || typeof mod.open !== 'function') {
+            U.showToast('No se pudo abrir el historial de versiones.', 'error');
+            return;
+        }
+        mod.open(doc.id);
+    };
+
     // ---------- borrado ----------
 
     Panel.prototype.remove = function (doc) {
@@ -532,6 +673,7 @@
             var action = btn.getAttribute('data-adhoc-doc-action');
             if (action === 'start-flow') self.openFlow(doc);
             else if (action === 'flow-info') self.showFlowInfo(doc);
+            else if (action === 'versions') self.openVersions(doc);
             else if (action === 'new-version') self.openNewVersion(doc);
             else if (action === 'delete') self.remove(doc);
         });

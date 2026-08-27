@@ -1,6 +1,8 @@
 /* ---------------------------------------------------------------------------
    PAGINA   /adhoc/documentos/panel
-   CONTIENE ancho y compactado de la tabla de 13 columnas, hover azul de la fila y
+   CONTIENE ancho y compactado de la tabla de 12 columnas, techo de las dos
+            columnas de texto libre, colapso de "Notas" en pantalla estrecha,
+            hover azul de la fila, aviso de version superada del modal de alta y
             la ficha del documento dentro del modal de arranque de flujo
    EN BASE  todo lo demas, via documents/documents.css + adhoc.css
    --------------------------------------------------------------------------- */
@@ -23,10 +25,37 @@
   display: block;
 }
 
-/* Legacy `.doc-table` del panel: 2000px de ancho mínimo (13 columnas) y celdas
-   un punto más compactas que las de la vista de consulta. */
+/* Ancho mínimo de la tabla. El 2000px que había aquí era el `.doc-table` del
+   legacy copiado tal cual: un número medido sobre las 13 columnas del original,
+   heredado sin revisar cuando el porte se quedó en 11. La auditoría (A21) lo
+   midió: a 1280px —la resolución habitual de los equipos del ITCJ— dejaba 550px
+   fuera de la pantalla, y "Vigencia" habría sumado otros 200.
+
+   El ancho de una tabla `auto` no lo fija este número: lo fija la columna que
+   más pide. Aquí eran las dos de texto libre (Nombre y Notas), que sin techo
+   crecen con el documento más largo del SGC. Con las dos acotadas más abajo, la
+   suma medida de las doce columnas ronda los 1850px: una columna MÁS que antes
+   y 150px MENOS de desplazamiento lateral.
+
+   Las celdas van un punto más compactas que las de la vista de consulta, como
+   en el legacy. */
 .adhoc-doc-panel .adhoc-table {
-  min-width: 2000px;
+  min-width: 1850px;
+}
+
+/* Techo de las dos columnas de texto libre.
+   `.adhoc-cell-clamp` (adhoc.css) las acota a 32ch, que es lo correcto en una
+   tabla de seis columnas; en una de doce, 32+32 son ~500px que le quita a las
+   otras diez. Se bajan aquí y no en la hoja base porque la vista de consulta,
+   con menos columnas, sí puede permitírselo.
+   El texto íntegro sigue alcanzable: `clampCell` lo deja en el `title` del
+   <td>. */
+.adhoc-doc-panel .adhoc-table td[data-adhoc-cell="title"] {
+  max-width: 26ch;
+}
+
+.adhoc-doc-panel .adhoc-table td[data-adhoc-cell="notes"] {
+  max-width: 22ch;
 }
 
 .adhoc-doc-panel .adhoc-table th,
@@ -44,6 +73,33 @@
   background: transparent;
 }
 
+/* ── Aviso de la version que se supera ─────────────────────────────────
+   Lo enciende documents-panel.js solo al anexar una version. Es el unico sitio
+   de la pantalla donde se avisa de que un documento del SGC deja de ser el
+   vigente, asi que lleva el ambar de aviso y la barra lateral: tiene que verse
+   sin leerlo, con el modal recien abierto y el foco ya en el primer campo. */
+.adhoc-doc-version-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--adhoc-space-lg);
+  margin: 0 0 var(--adhoc-space-3xl);
+  padding: var(--adhoc-space-xl);
+  background: var(--adhoc-warning-soft);
+  border: 1px solid var(--adhoc-warning);
+  border-left: 3px solid var(--adhoc-warning);
+  border-radius: calc(var(--adhoc-radius) - 6px);
+  color: var(--adhoc-warning-ink);
+  font-size: var(--adhoc-fs-md);
+  line-height: 1.45;
+}
+
+/* El icono no se encoge cuando el texto pasa a tres lineas. */
+.adhoc-doc-version-warning > i {
+  flex: 0 0 auto;
+  margin-top: var(--adhoc-space-2xs);
+  font-size: var(--adhoc-fs-lg);
+}
+
 /* ── Modal de arranque de flujo ────────────────────────────────────────── */
 .adhoc-flow-doc {
   margin-bottom: .85rem;
@@ -55,4 +111,27 @@
   color: var(--adhoc-dark);
   font-size: var(--adhoc-fs-lg);
   font-weight: var(--adhoc-fw-semibold);
+}
+
+/* ── Tableta y movil ───────────────────────────────────────────────────
+   Doce columnas no caben en 991px por mucho que se recorte: lo que se decide
+   aqui es cual sobra ANTES que las demas, y es "Notas". Es la unica columna que
+   no participa en ninguna decision de la pantalla —no se filtra por ella, no
+   ordena, no cambia lo que se puede hacer con el documento—, ya viene acotada a
+   dos lineas, y su texto completo vive en el `title` del <td>, que en una
+   pantalla tactil no hay forma de ver. Quitarla devuelve ~200px de los ~950 que
+   faltan; el resto se sigue recorriendo en horizontal, que es lo honesto con
+   doce columnas.
+
+   El corte es 991.98, de la escala de la app (575.98 / 767.98 / 991.98). Un
+   valor a medida lo caza test_los_cortes_responsive_son_los_de_la_escala. */
+@media (max-width: 991.98px) {
+  .adhoc-doc-panel .adhoc-table th[data-adhoc-col="notes"],
+  .adhoc-doc-panel .adhoc-table td[data-adhoc-cell="notes"] {
+    display: none;
+  }
+
+  .adhoc-doc-panel .adhoc-table {
+    min-width: 1650px;
+  }
 }

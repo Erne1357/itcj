@@ -14,6 +14,14 @@ Qué se comprueba y por qué:
   (bug #25), o sea la página era pública. Aquí: 302 a login para anónimo y 403
   HTML sin el permiso.
 * **XSS**: la descripción de la tarea sale escapada del template.
+* **Aviso de vigencia documental** (``_expiry_notice``, B1): lo único que este
+  tablero añade sobre el legacy. Son dos conteos que no salen de las tareas del
+  usuario sino de ``adhoc_documents``, y tienen tres formas de no pintarse —sin
+  permiso de consulta, con la query caída y con los dos conteos en cero—, las
+  tres deliberadas y las tres probadas. El caso interesante no es que el número
+  salga: es que **quien no puede abrir /adhoc/documentos no ve el aviso ni paga
+  su query**, porque enseñarle "45 documentos vencidos" a quien no puede abrir
+  ni uno es filtrarle el estado del SGC y mandarlo a un 403.
 * **Reglas duras del plan §6.2/§6.3** sobre mis tres archivos estáticos.
 
 Harness (plan §9.1): las páginas devuelven HTML (302/403 renderizado, no JSON);
@@ -33,6 +41,7 @@ placeholder.
 import re
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -40,13 +49,17 @@ from fastapi.testclient import TestClient
 
 from itcj2.apps.adhoc.pages.dashboard import (
     DASHBOARD_PERM,
+    DOCUMENTS_PERM,
     _action_flags,
+    _can_list_documents,
     _creator_names,
+    _expiry_notice,
     _format_date,
     build_card,
     router as dashboard_router,
 )
 from itcj2.apps.adhoc.services.task_service import AdhocTaskService
+from itcj2.apps.adhoc.utils.constants import DOCUMENT_EXPIRY_SOON_DAYS
 from itcj2.database import get_db
 from tests.conftest import TEST_SECRET, make_jwt
 
@@ -94,15 +107,25 @@ class FakeTask:
 
 
 class StubDb:
-    """Sesión falsa: solo tiene que servir el lote de solicitantes.
+    """Sesión falsa: sirve el lote de solicitantes y el conteo de vigencia.
 
     Cuenta las llamadas a ``query`` para poder afirmar que el dashboard no
-    dispara un SELECT por tarjeta (el N+1 del legacy).
+    dispara un SELECT por tarjeta (el N+1 del legacy), y las de
+    ``select_from`` —que solo hace la query del aviso— para poder afirmar lo
+    contrario del aviso: que para quien no puede consultar documentos **no se
+    ejecuta ninguna**.
+
+    El aviso se configura con ``expiry=(vencidos, por_vencer)``; ``expiry_error``
+    hace reventar la ejecución para ejercitar el ``try/except`` defensivo, que
+    es lo que impide que un contador tumbe la pantalla que la gente viene a ver.
     """
 
-    def __init__(self, users=None):
+    def __init__(self, users=None, expiry=(0, 0)):
         self.users = list(users or [])
         self.queries = 0
+        self.expiry = expiry
+        self.expiry_error = None
+        self.expiry_queries = 0
 
     def query(self, *args, **kwargs):
         self.queries += 1
@@ -111,8 +134,19 @@ class StubDb:
     def filter(self, *args, **kwargs):
         return self
 
+    def select_from(self, *args, **kwargs):
+        # Solo la query del aviso de vigencia pasa por aquí.
+        self.expiry_queries += 1
+        return self
+
     def all(self):
         return list(self.users)
+
+    def one(self):
+        if self.expiry_error is not None:
+            raise self.expiry_error
+        vencidos, por_vencer = self.expiry
+        return SimpleNamespace(vencidos=vencidos, por_vencer=por_vencer)
 
 
 # ==========================================================================
@@ -259,6 +293,105 @@ class TestActionFlags:
 
 
 # ==========================================================================
+# _can_list_documents — quién llega a ver (y a pagar) el aviso
+# ==========================================================================
+
+#: El JWT del admin global. No consulta permisos: los bypasea en la API, así
+#: que esconderle el aviso sería mentirle sobre algo que sí puede abrir.
+ADMIN = {"sub": "1", "role": "admin"}
+
+#: Un usuario cualquiera de Calidad; sus permisos los pone cada test.
+STAFF = {"sub": "9", "role": "staff"}
+
+
+class TestCanListDocuments:
+    def test_admin_global_no_consulta_permisos(self):
+        db = MagicMock()
+        assert _can_list_documents(db, ADMIN) is True
+        db.query.assert_not_called()
+
+    def test_con_el_permiso_de_la_consulta(self):
+        with patch("itcj2.core.services.authz_cache.cached_perms",
+                   return_value={DOCUMENTS_PERM, DASHBOARD_PERM}):
+            assert _can_list_documents(MagicMock(), STAFF) is True
+
+    def test_entrar_al_tablero_no_basta(self):
+        """El aviso enlaza a otra pantalla, con su propio permiso."""
+        with patch("itcj2.core.services.authz_cache.cached_perms",
+                   return_value={DASHBOARD_PERM}):
+            assert _can_list_documents(MagicMock(), STAFF) is False
+
+    def test_error_al_resolver_permisos_es_fail_closed(self):
+        with patch("itcj2.core.services.authz_cache.cached_perms",
+                   side_effect=RuntimeError("sin Redis ni BD")):
+            assert _can_list_documents(MagicMock(), STAFF) is False
+
+
+# ==========================================================================
+# _expiry_notice — dos conteos, una query, tres formas de callarse
+# ==========================================================================
+
+class TestExpiryNotice:
+    def test_sin_permiso_de_documentos_no_hay_aviso_ni_query(self):
+        """Ni el número ni el coste: la consulta no llega a ejecutarse."""
+        db = StubDb(expiry=(45, 3))
+        with patch("itcj2.core.services.authz_cache.cached_perms",
+                   return_value={DASHBOARD_PERM}):
+            assert _expiry_notice(db, STAFF, TODAY) is None
+        assert db.expiry_queries == 0
+
+    def test_los_dos_conteos_en_cero_no_pintan_nada(self):
+        """El estado sano no merece una tarjeta que solo diga "todo bien"."""
+        assert _expiry_notice(StubDb(expiry=(0, 0)), ADMIN, TODAY) is None
+
+    def test_una_sola_query_para_los_dos_conteos(self):
+        """Dos agregados sobre el mismo barrido, nunca las filas.
+
+        Traerlas para hacer ``len()`` costaría los 202 documentos con sus
+        catálogos para pintar dos números.
+        """
+        db = StubDb(expiry=(45, 3))
+        aviso = _expiry_notice(db, ADMIN, TODAY)
+        assert aviso["expired"] == 45
+        assert aviso["soon"] == 3
+        assert db.expiry_queries == 1
+
+    def test_solo_por_vencer_sigue_siendo_aviso(self):
+        aviso = _expiry_notice(StubDb(expiry=(0, 7)), ADMIN, TODAY)
+        assert aviso["expired"] == 0
+        assert aviso["soon"] == 7
+
+    def test_texto_en_plural(self):
+        aviso = _expiry_notice(StubDb(expiry=(45, 3)), ADMIN, TODAY)
+        assert aviso["expired_text"] == "documentos vigentes están vencidos"
+        assert aviso["soon_text"] == (
+            "documentos vigentes vencen en los próximos %d días"
+            % DOCUMENT_EXPIRY_SOON_DAYS
+        )
+
+    def test_texto_en_singular(self):
+        aviso = _expiry_notice(StubDb(expiry=(1, 1)), ADMIN, TODAY)
+        assert aviso["expired_text"] == "documento vigente está vencido"
+        assert aviso["soon_text"] == (
+            "documento vigente vence en los próximos %d días"
+            % DOCUMENT_EXPIRY_SOON_DAYS
+        )
+
+    def test_el_texto_no_repite_la_cifra_de_la_pastilla(self):
+        """El número lo lleva la pastilla; repetirlo lo sacaría dos veces."""
+        aviso = _expiry_notice(StubDb(expiry=(45, 3)), ADMIN, TODAY)
+        assert not re.search(r"\d", aviso["expired_text"])
+        # Lo único numérico del segundo texto es la ventana de aviso.
+        assert re.findall(r"\d+", aviso["soon_text"]) == [str(DOCUMENT_EXPIRY_SOON_DAYS)]
+
+    def test_error_en_el_conteo_devuelve_none(self):
+        """Igual que ``_creator_names``: el tablero no se cae por un contador."""
+        db = StubDb(expiry=(45, 3))
+        db.expiry_error = RuntimeError("sin BD")
+        assert _expiry_notice(db, ADMIN, TODAY) is None
+
+
+# ==========================================================================
 # HTTP
 # ==========================================================================
 
@@ -306,6 +439,19 @@ def admin_headers():
 @pytest.fixture()
 def staff_headers():
     return {"Cookie": f"itcj_token={make_jwt(user_id=201, role='staff')}"}
+
+
+@pytest.fixture(autouse=True)
+def _limpia_stub(db_stub):
+    """El ``db_stub`` es de módulo: el escenario de vigencia no se hereda.
+
+    Sin esto, el test que deja 45 vencidos le pintaría el aviso al siguiente.
+    """
+    db_stub.expiry = (0, 0)
+    db_stub.expiry_error = None
+    db_stub.expiry_queries = 0
+    db_stub.queries = 0
+    yield
 
 
 @pytest.fixture()
@@ -440,6 +586,91 @@ class TestPaginaDashboard:
             html = client.get("/adhoc/dashboard", headers=admin_headers).text
         assert "adhoc-nav" in html
         assert 'href="/adhoc/documentos"' in html
+
+
+# ==========================================================================
+# El aviso de vigencia, ya renderizado
+# ==========================================================================
+
+class TestAvisoDeVigencia:
+    """Lo que la pantalla enseña, y a dónde lleva.
+
+    El enlace es la mitad del valor: un contador que no se puede pulsar obliga
+    a ir a Documentos y reconstruir el filtro a mano, y entonces el número de
+    la tarjeta y las filas de la lista pueden discrepar sin que nadie lo note.
+    Por eso el destino es literal, ``?expiring=vencidos``, el mismo vocabulario
+    que valida la API.
+    """
+
+    def test_los_vencidos_enlazan_a_la_lista_ya_filtrada(self, client, admin_headers,
+                                                         board, db_stub):
+        db_stub.expiry = (45, 0)
+        with board([]):
+            html = client.get("/adhoc/dashboard", headers=admin_headers).text
+        assert "adhoc-expiry" in html
+        assert ">45</span>" in html
+        assert "documentos vigentes están vencidos" in html
+        assert 'href="/adhoc/documentos?expiring=vencidos"' in html
+
+    def test_solo_por_vencer_pinta_el_aviso_en_ambar(self, client, admin_headers,
+                                                     board, db_stub):
+        """Sin nada vencido el aviso existe igual, pero no es una alarma roja."""
+        db_stub.expiry = (0, 7)
+        with board([]):
+            html = client.get("/adhoc/dashboard", headers=admin_headers).text
+        assert "adhoc-expiry is-warning" in html
+        assert 'href="/adhoc/documentos?expiring=por_vencer_30d"' in html
+        assert 'href="/adhoc/documentos?expiring=vencidos"' not in html
+
+    def test_las_dos_lineas_conviven(self, client, admin_headers, board, db_stub):
+        db_stub.expiry = (45, 3)
+        with board([]):
+            html = client.get("/adhoc/dashboard", headers=admin_headers).text
+        assert html.count("adhoc-expiry-line") == 2
+        assert "is-warning" not in html
+
+    def test_sin_vencidos_ni_por_vencer_no_hay_aviso(self, client, admin_headers,
+                                                     board, db_stub):
+        db_stub.expiry = (0, 0)
+        with board([]):
+            html = client.get("/adhoc/dashboard", headers=admin_headers).text
+        assert "adhoc-expiry" not in html
+        assert "expiring=" not in html
+
+    def test_sin_permiso_de_documentos_no_hay_aviso_ni_query(self, client, staff_headers,
+                                                             board, authz, db_stub):
+        """Entrar al tablero no da derecho a saber cuántos documentos caducaron."""
+        authz["perms"] = {DASHBOARD_PERM}
+        db_stub.expiry = (45, 3)
+        with board([]):
+            res = client.get("/adhoc/dashboard", headers=staff_headers)
+        assert res.status_code == 200
+        assert "adhoc-expiry" not in res.text
+        # El conteo no se filtra por ningún lado. Se busca el TEXTO del aviso y
+        # no el "45": el `?v=` de los estáticos es un número que cambia con cada
+        # bump, y un día traería un 45 dentro y este test empezaría a mentir.
+        assert "documentos vigentes están vencidos" not in res.text
+        assert db_stub.expiry_queries == 0
+
+    def test_con_el_permiso_de_documentos_si_lo_ve(self, client, staff_headers,
+                                                   board, authz, db_stub):
+        authz["perms"] = {DASHBOARD_PERM, DOCUMENTS_PERM}
+        db_stub.expiry = (45, 3)
+        with board([]):
+            res = client.get("/adhoc/dashboard", headers=staff_headers)
+        assert res.status_code == 200
+        assert "adhoc-expiry" in res.text
+        assert db_stub.expiry_queries == 1
+
+    def test_el_conteo_caido_no_tumba_el_tablero(self, client, admin_headers,
+                                                 board, db_stub):
+        """El tablero es lo que la gente viene a ver; el contador es un extra."""
+        db_stub.expiry_error = RuntimeError("sin BD")
+        with board([FakeTask(id=21, description="Cambiar extintor")]):
+            res = client.get("/adhoc/dashboard", headers=admin_headers)
+        assert res.status_code == 200
+        assert "adhoc-expiry" not in res.text
+        assert "Cambiar extintor" in res.text
 
 
 # ==========================================================================

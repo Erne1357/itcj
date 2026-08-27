@@ -18,6 +18,7 @@ Dos particularidades del harness que conviene tener presentes:
    de la función.
 """
 import uuid
+from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -29,6 +30,7 @@ from itcj2.apps.adhoc.models import (
     AdhocApprovalFlow,
     AdhocApprovalFlowStep,
     AdhocDocument,
+    AdhocTask,
 )
 from itcj2.apps.adhoc.services import upload_service
 from itcj2.core.models.user import User
@@ -123,6 +125,7 @@ def make_document(db, **kw):
     ("get", DOCS),
     ("post", DOCS),
     ("get", f"{DOCS}/1"),
+    ("get", f"{DOCS}/1/versions"),
     ("patch", f"{DOCS}/1"),
     ("delete", f"{DOCS}/1"),
     ("get", f"{DOCS}/1/download"),
@@ -280,6 +283,422 @@ def test_descarga_devuelve_el_archivo(client, admin_cookies, uploads_root, db_se
 
 
 # ==========================================================================
+# Versionado — only_current y el historial de la cadena
+# ==========================================================================
+
+def make_version_chain(db, versions=("1.0", "2.0")):
+    """Cadena real: raíz **superada** + su versión vigente, con el mismo ``code``.
+
+    Es la forma que tienen los 202 documentos migrados —``parent_id`` a la raíz,
+    una sola fila ``is_current`` por cadena— y el ``code`` repetido es
+    precisamente el problema que ``only_current`` resuelve: 54 códigos aparecen
+    dos o tres veces en la base.
+    """
+    code = f"E2E-VER-{uuid.uuid4().hex[:8]}"
+    raiz = make_document(
+        db, code=code, title="e2e versión vieja", version=versions[0],
+        is_current=False, status="Obsoleto",
+    )
+    nueva = make_document(
+        db, code=code, title="e2e versión vigente", version=versions[1],
+        parent_id=raiz.id, is_current=True,
+    )
+    return code, raiz, nueva
+
+
+def test_listado_oculta_por_defecto_las_versiones_superadas(client, admin_cookies, db_session):
+    """Sin ``only_current`` en el query string, la lista solo trae la punta."""
+    code, raiz, nueva = make_version_chain(db_session)
+    resp = client.get(DOCS, params={"q": code}, cookies=admin_cookies)
+    assert resp.status_code == 200, resp.text
+    assert [d["id"] for d in resp.json()["data"]] == [nueva.id]
+
+
+def test_listado_con_only_current_false_incluye_las_superadas(client, admin_cookies, db_session):
+    """El checkbox "Ver versiones anteriores" manda ``only_current=false``."""
+    code, raiz, nueva = make_version_chain(db_session)
+    resp = client.get(
+        DOCS, params={"q": code, "only_current": "false"}, cookies=admin_cookies,
+    )
+    assert resp.status_code == 200, resp.text
+    assert {d["id"] for d in resp.json()["data"]} == {raiz.id, nueva.id}
+
+
+def test_only_current_vacio_no_es_422_y_vale_como_el_default(client, admin_cookies, db_session):
+    """Un checkbox nunca tocado reenvía ``?only_current=``; eso no puede ser un 422.
+
+    Es la razón por la que el parámetro se declara ``str`` y no ``bool``: FastAPI
+    rechazaría el vacío antes de que ``query_flag_to_bool`` llegara a verlo.
+    """
+    code, raiz, nueva = make_version_chain(db_session)
+    resp = client.get(DOCS, params={"q": code, "only_current": ""}, cookies=admin_cookies)
+    assert resp.status_code == 200, resp.text
+    assert [d["id"] for d in resp.json()["data"]] == [nueva.id]
+
+
+def test_historial_de_versiones_devuelve_la_cadena_completa(client, admin_cookies, db_session):
+    """``GET /documents/{id}/versions`` — sobre ``ok_list``, raíz primero."""
+    code, raiz, nueva = make_version_chain(db_session)
+    resp = client.get(f"{DOCS}/{nueva.id}/versions", cookies=admin_cookies)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["success"] is True
+    assert body["total"] == 2
+    assert [d["id"] for d in body["data"]] == [raiz.id, nueva.id]
+    assert [d["is_current"] for d in body["data"]] == [False, True]
+
+
+def test_historial_de_versiones_desde_la_raiz_es_el_mismo(client, admin_cookies, db_session):
+    """Da igual el id de la cadena con el que se entre."""
+    code, raiz, nueva = make_version_chain(db_session)
+    desde_raiz = client.get(f"{DOCS}/{raiz.id}/versions", cookies=admin_cookies).json()
+    desde_punta = client.get(f"{DOCS}/{nueva.id}/versions", cookies=admin_cookies).json()
+    assert desde_raiz["data"] == desde_punta["data"]
+
+
+def test_historial_de_versiones_de_un_documento_suelto_trae_una_fila(
+    client, admin_cookies, db_session,
+):
+    doc = make_document(db_session)
+    body = client.get(f"{DOCS}/{doc.id}/versions", cookies=admin_cookies).json()
+    assert body["total"] == 1
+    assert body["data"][0]["id"] == doc.id
+
+
+def test_historial_de_versiones_de_un_id_inexistente_es_404(client, admin_cookies):
+    resp = client.get(f"{DOCS}/99999999/versions", cookies=admin_cookies)
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "Documento no encontrado", "status": 404}
+
+
+def test_historial_de_versiones_sin_el_permiso_de_lectura_es_403(client, db_session):
+    """``role="staff"`` no bypasea: el historial exige ``adhoc.documents.api.read``."""
+    doc = make_document(db_session)
+    cookies = {"itcj_token": make_jwt(user_id=1, role="staff")}
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.documents.api.create"}):
+        resp = client.get(f"{DOCS}/{doc.id}/versions", cookies=cookies)
+    assert resp.status_code == 403
+    assert "error" in resp.json()
+
+
+def test_historial_de_versiones_con_el_permiso_exacto_pasa(client, db_session):
+    doc = make_document(db_session)
+    cookies = {"itcj_token": make_jwt(user_id=1, role="staff")}
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.documents.api.read"}):
+        resp = client.get(f"{DOCS}/{doc.id}/versions", cookies=cookies)
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+
+# ==========================================================================
+# Vigencia — las seis claves nuevas de document_out y el filtro
+# ==========================================================================
+
+def test_document_out_trae_las_seis_claves_de_versionado_y_vigencia(
+    client, admin_cookies, db_session,
+):
+    """El JS pinta el badge desde ``expiry_state``; no hace aritmética de fechas.
+
+    Si la hiciera, la haría contra el reloj del cliente y un navegador con la
+    zona horaria mal puesta cambiaría de color un documento vencido.
+    """
+    vence = date.today() + timedelta(days=5)
+    doc = make_document(db_session, expiration_date=vence)
+    data = client.get(f"{DOCS}/{doc.id}", cookies=admin_cookies).json()["data"]
+
+    assert {"is_current", "parent_id", "expiration_date",
+            "is_expired", "days_to_expire", "expiry_state"} <= set(data)
+    assert data["is_current"] is True
+    assert data["parent_id"] is None
+    assert data["expiration_date"] == vence.isoformat()
+    assert data["is_expired"] is False
+    assert data["days_to_expire"] == 5
+    assert data["expiry_state"] == "por_vencer"
+
+
+def test_document_out_marca_vencido_el_documento_caducado(client, admin_cookies, db_session):
+    """45 de los 47 documentos vencidos de la base siguen marcados ``is_current``."""
+    doc = make_document(db_session, expiration_date=date.today() - timedelta(days=3))
+    data = client.get(f"{DOCS}/{doc.id}", cookies=admin_cookies).json()["data"]
+    assert data["is_expired"] is True
+    assert data["days_to_expire"] == -3
+    assert data["expiry_state"] == "vencido"
+
+
+def test_document_out_sin_vigencia_deja_expiry_state_en_null(client, admin_cookies, db_session):
+    """``None`` es lo que distingue "no vence" de "vence hoy"."""
+    doc = make_document(db_session)
+    data = client.get(f"{DOCS}/{doc.id}", cookies=admin_cookies).json()["data"]
+    assert data["expiration_date"] is None
+    assert data["is_expired"] is False
+    assert data["days_to_expire"] is None
+    assert data["expiry_state"] is None
+
+
+def test_el_listado_tambien_trae_las_seis_claves(client, admin_cookies, db_session):
+    """No solo el detalle: la columna "Vigencia" se pinta desde la tabla."""
+    code = f"E2E-VIG-{uuid.uuid4().hex[:8]}"
+    make_document(db_session, code=code, expiration_date=date.today() + timedelta(days=2))
+    fila = client.get(DOCS, params={"q": code}, cookies=admin_cookies).json()["data"][0]
+    assert fila["expiry_state"] == "por_vencer"
+    assert fila["days_to_expire"] == 2
+    assert fila["is_current"] is True
+    assert fila["parent_id"] is None
+
+
+def test_filtro_expiring_acota_a_los_vencidos(client, admin_cookies, db_session):
+    code = f"E2E-VIG-{uuid.uuid4().hex[:8]}"
+    vencido = make_document(
+        db_session, code=code, expiration_date=date.today() - timedelta(days=1),
+    )
+    make_document(db_session, code=code, expiration_date=date.today() + timedelta(days=90))
+    make_document(db_session, code=code)
+
+    resp = client.get(
+        DOCS, params={"q": code, "expiring": "vencidos"}, cookies=admin_cookies,
+    )
+    assert resp.status_code == 200, resp.text
+    assert [d["id"] for d in resp.json()["data"]] == [vencido.id]
+
+
+def test_expiring_con_valor_inventado_es_400_con_detail_string(client, admin_cookies):
+    """400 legible, no el 422 de FastAPI ni un 500 por ``ValidationError`` suelta.
+
+    Y el ``error`` tiene que ser un **string**: un dict produciría
+    ``{"error": {...}, "status": 400}`` anidado y rompería al JS.
+    """
+    resp = client.get(DOCS, params={"expiring": "inventado"}, cookies=admin_cookies)
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["status"] == 400
+    assert isinstance(body["error"], str)
+    assert "expiring" in body["error"]
+    assert "detail" not in body
+
+
+def test_el_filtro_de_vigencia_y_el_badge_comparten_el_mismo_hoy(
+    client, admin_cookies, db_session, monkeypatch
+):
+    """El ``WHERE`` de ``?expiring`` y el ``expiry_state`` salen del mismo reloj.
+
+    Son dos implementaciones del mismo criterio —el SQL de ``list_documents`` y
+    la aritmética de ``schemas.documents._expiry``—, así que cada una con su
+    ``date.today()`` puede discrepar en la ventana en que una petición cruza la
+    medianoche: el filtro devuelve una fila que el badge pinta como "por
+    vencer". Aquí se adelanta el reloj **del endpoint** diez días: si el ``hoy``
+    viaja a los dos sitios, el documento que vence dentro de cinco sale en
+    ``vencidos`` Y se serializa como ``'vencido'``.
+    """
+    from itcj2.apps.adhoc.api import documents as api_documents
+
+    dentro_de_cinco = date.today() + timedelta(days=5)
+    doc = make_document(db_session, code=f"E2E-RELOJ-{uuid.uuid4().hex[:6]}",
+                        expiration_date=dentro_de_cinco)
+
+    class _RelojAdelantado:
+        @staticmethod
+        def today():
+            return date.today() + timedelta(days=10)
+
+    monkeypatch.setattr(api_documents, "date", _RelojAdelantado)
+
+    resp = client.get(DOCS, params={"q": doc.code, "expiring": "vencidos"},
+                      cookies=admin_cookies)
+    assert resp.status_code == 200, resp.text
+    filas = resp.json()["data"]
+    assert [d["id"] for d in filas] == [doc.id]
+    assert filas[0]["expiry_state"] == "vencido"
+    assert filas[0]["is_expired"] is True
+    assert filas[0]["days_to_expire"] == -5
+
+
+# ==========================================================================
+# Alta y edición con vigencia / anexado de versión
+# ==========================================================================
+
+def test_alta_masiva_con_vigencia_y_anexado_de_version(client, admin_cookies, db_session):
+    """``expiration_dates`` y ``parent_ids``, listas paralelas por índice.
+
+    La segunda fila es el "Anexar nueva versión" del panel de gestión, que
+    reutiliza este mismo endpoint: se anexa sobre la **punta** de la cadena y el
+    service tiene que normalizar el puntero a la **raíz**, además de dejar toda
+    la cadena anterior superada y obsoleta.
+    """
+    code, raiz, punta = make_version_chain(db_session)
+    vence = (date.today() + timedelta(days=10)).isoformat()
+
+    resp = client.post(
+        DOCS,
+        data={
+            "titles": ["e2e con vigencia", "e2e versión nueva"],
+            "codes": ["E2E-VIG-ALTA", code],
+            "expiration_dates": [vence, ""],
+            "parent_ids": ["", str(punta.id)],
+        },
+        cookies=admin_cookies,
+    )
+    assert resp.status_code == 200, resp.text
+    creados = {d["title"]: d for d in resp.json()["data"]}
+
+    con_vigencia = creados["e2e con vigencia"]
+    assert con_vigencia["expiration_date"] == vence
+    assert con_vigencia["expiry_state"] == "por_vencer"
+    assert con_vigencia["parent_id"] is None
+    assert con_vigencia["is_current"] is True
+
+    version = creados["e2e versión nueva"]
+    assert version["expiration_date"] is None
+    assert version["parent_id"] == raiz.id      # la RAÍZ, no el padre inmediato
+    assert version["is_current"] is True
+
+    # El UPDATE en lote de `_supersede_chain` va con `synchronize_session=False`
+    # y la sesión del harness es `expire_on_commit=False`: hay que releer, que
+    # es lo que en producción hace el commit del request.
+    db_session.expire_all()
+    historial = client.get(
+        f"{DOCS}/{version['id']}/versions", cookies=admin_cookies,
+    ).json()["data"]
+    assert [d["id"] for d in historial] == [raiz.id, punta.id, version["id"]]
+    assert [d["is_current"] for d in historial] == [False, False, True]
+    assert [d["status"] for d in historial] == ["Obsoleto", "Obsoleto", "Borrador"]
+
+
+def test_anexar_version_con_el_flujo_en_curso_es_409(client, admin_cookies, db_session):
+    """El anexado deja la cadena en ``'Obsoleto'``, que es terminal.
+
+    Con una tarea de aprobación viva encima, ese ``'Obsoleto'`` es reversible:
+    el validador que aprueba su tarea devuelve el documento superado a
+    ``'Aprobado'``. Se rechaza antes, con un mensaje que dice qué hacer.
+    """
+    code, raiz, punta = make_version_chain(db_session)
+    db_session.add(AdhocTask(
+        description=f"Aprobar Documento: {punta.title}",
+        status="En Revisión", priority="Alta", document_id=punta.id,
+    ))
+    db_session.commit()
+
+    resp = client.post(
+        DOCS,
+        data={"titles": ["e2e versión nueva"], "codes": [code],
+              "parent_ids": [str(punta.id)]},
+        cookies=admin_cookies,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "flujo de aprobación en curso" in resp.json()["error"]
+
+    # Nada a medias: la punta sigue vigente y la cadena no creció.
+    db_session.expire_all()
+    historial = client.get(
+        f"{DOCS}/{punta.id}/versions", cookies=admin_cookies,
+    ).json()["data"]
+    assert [d["id"] for d in historial] == [raiz.id, punta.id]
+    assert historial[-1]["is_current"] is True
+
+
+def test_borrar_la_raiz_de_una_cadena_es_409_y_no_un_500(client, admin_cookies, db_session):
+    """``fk_adhoc_documents_parent_id`` no tiene ``ON DELETE``.
+
+    Sin el guard del service, el DELETE llega a Postgres, revienta con
+    ``ForeignKeyViolation`` y sale como ``{"error": "internal_error"}`` con 500,
+    porque ``_domain_errors`` no traduce ``IntegrityError``. El camino es real
+    desde el panel: con "Ver versiones anteriores" marcado, la raíz aparece con
+    su papelera como cualquier otra fila.
+    """
+    code, raiz, punta = make_version_chain(db_session)
+
+    resp = client.delete(f"{DOCS}/{raiz.id}", cookies=admin_cookies)
+    assert resp.status_code == 409, resp.text
+    assert isinstance(resp.json()["error"], str)
+    assert db_session.get(AdhocDocument, raiz.id) is not None
+
+    # La versión anexada sí se borra: lo protegido es la raíz de la cadena.
+    assert client.delete(f"{DOCS}/{punta.id}", cookies=admin_cookies).status_code == 200
+
+
+def test_alta_masiva_con_parent_id_inexistente_es_400(client, admin_cookies):
+    resp = client.post(
+        DOCS,
+        data={"titles": ["e2e huérfana"], "parent_ids": ["99999999"]},
+        cookies=admin_cookies,
+    )
+    assert resp.status_code == 400
+    assert isinstance(resp.json()["error"], str)
+
+
+def test_patch_escribe_y_limpia_la_vigencia(client, admin_cookies, db_session):
+    """Mandar el campo vacío es la forma de decir "este documento no vence"."""
+    doc = make_document(db_session)
+    vence = (date.today() + timedelta(days=60)).isoformat()
+
+    puesta = client.patch(
+        f"{DOCS}/{doc.id}", data={"expiration_date": vence}, cookies=admin_cookies,
+    )
+    assert puesta.status_code == 200, puesta.text
+    assert puesta.json()["data"]["expiration_date"] == vence
+    assert puesta.json()["data"]["expiry_state"] == "vigente"
+
+    limpiada = client.patch(
+        f"{DOCS}/{doc.id}", data={"expiration_date": ""}, cookies=admin_cookies,
+    )
+    assert limpiada.status_code == 200, limpiada.text
+    assert limpiada.json()["data"]["expiration_date"] is None
+    assert limpiada.json()["data"]["expiry_state"] is None
+
+
+def test_patch_distingue_el_campo_ausente_del_campo_vacio(client, admin_cookies, db_session):
+    """El bug que cazó este archivo, clavado como regresión.
+
+    FastAPI sustituye por el default todo ``Form`` de texto que llegue vacío
+    (``dependencies/utils.py``), así que con ``Optional[str]`` "no lo mandé" y
+    "lo mandé vacío" llegaban los dos como ``None``: la vigencia se podía poner
+    pero **no quitar**, y un PATCH que solo la vaciaba respondía 400 "No se
+    envió ningún cambio". Los ``Form`` del PATCH son listas justamente por esto.
+    """
+    vence = date.today() + timedelta(days=20)
+    doc = make_document(db_session, expiration_date=vence)
+
+    ausente = client.patch(
+        f"{DOCS}/{doc.id}", data={"title": "Otro título"}, cookies=admin_cookies,
+    )
+    assert ausente.status_code == 200, ausente.text
+    assert ausente.json()["data"]["expiration_date"] == vence.isoformat()
+
+    vacio = client.patch(
+        f"{DOCS}/{doc.id}", data={"expiration_date": ""}, cookies=admin_cookies,
+    )
+    assert vacio.status_code == 200, vacio.text
+    assert vacio.json()["data"]["expiration_date"] is None
+
+
+def test_patch_con_fecha_invalida_es_422(client, admin_cookies, db_session):
+    doc = make_document(db_session)
+    resp = client.patch(
+        f"{DOCS}/{doc.id}", data={"expiration_date": "31/12/2026"}, cookies=admin_cookies,
+    )
+    assert resp.status_code == 422
+    assert isinstance(resp.json()["error"], str)
+
+
+def test_patch_no_puede_mover_la_cadena_de_versiones(client, admin_cookies, db_session):
+    """``is_current`` y ``parent_id`` no son campos del PATCH y se ignoran."""
+    code, raiz, punta = make_version_chain(db_session)
+    resp = client.patch(
+        f"{DOCS}/{punta.id}",
+        data={"title": "Editada", "is_current": "false", "parent_id": ""},
+        cookies=admin_cookies,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["title"] == "Editada"
+    assert data["is_current"] is True
+    assert data["parent_id"] == raiz.id
+
+
+# ==========================================================================
 # start-flow
 # ==========================================================================
 
@@ -296,6 +715,30 @@ def test_start_flow_con_flujo_inexistente_es_404(client, admin_cookies, db_sessi
         f"{DOCS}/{doc.id}/start-flow", json={"flow_id": 99999999}, cookies=admin_cookies,
     )
     assert resp.status_code == 404
+
+
+def test_start_flow_sobre_una_version_superada_es_409(client, admin_cookies, db_session):
+    """``'Obsoleto'`` es terminal: de ahí no se sale arrancando otro flujo.
+
+    ``DOCUMENT_STATUSES_STARTABLE`` solo lo respetaba el navegador (el panel
+    esconde el botón del sello salvo en 'Borrador' y 'Rechazado'). Sin el guard
+    del servidor, la versión superada volvía a 'En Revisión' con tareas nuevas
+    para sus validadores, y las dos listas seguían ocultándola porque
+    ``is_current`` no cambia.
+    """
+    flow = make_flow(db_session)
+    code, raiz, punta = make_version_chain(db_session)
+
+    resp = client.post(
+        f"{DOCS}/{raiz.id}/start-flow", json={"flow_id": flow.id}, cookies=admin_cookies,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "Obsoleto" in resp.json()["error"]
+
+    db_session.refresh(raiz)
+    assert raiz.status == "Obsoleto"
+    assert raiz.flow_id is None
+    assert db_session.query(AdhocTask).filter_by(document_id=raiz.id).count() == 0
 
 
 def test_start_flow_camino_feliz(client, admin_cookies, db_session):

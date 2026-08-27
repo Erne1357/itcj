@@ -113,7 +113,14 @@ def _assign_area(db, user, area):
 
 def _make_document(db, title="Doc", author=None, area=None, code=None,
                    flow=None, status="Borrador", notes=None, version="1.0",
-                   category=None, approval_date=None):
+                   category=None, approval_date=None, is_current=True, parent=None):
+    """Un documento del SGC.
+
+    ``is_current=False`` + ``parent=<raíz>`` siembra una **versión superada**:
+    la forma real de los datos es plana (``parent_id`` apunta siempre a la raíz
+    de la cadena, nunca a la versión anterior) y hay exactamente una fila
+    ``is_current=True`` por cadena.
+    """
     doc = AdhocDocument(
         code=code if code is not None else f"E2E-{_tag()[:6]}",
         title=title,
@@ -125,6 +132,8 @@ def _make_document(db, title="Doc", author=None, area=None, code=None,
         author_id=author.id if author else None,
         flow_id=flow.id if flow else None,
         category_id=category.id if category else None,
+        is_current=is_current,
+        parent_id=parent.id if parent else None,
     )
     db.add(doc)
     db.flush()
@@ -732,6 +741,109 @@ class TestDocumentosNotas:
         db_session.flush()
         report = ReportService.build_report(db_session, "documentos_notas", nombre=tag)
         assert _rows(report)[0]["code"] == "N/A"
+
+
+# ---------------------------------------------------------------------------
+# Versiones superadas: NUNCA salen en un reporte imprimible
+# ---------------------------------------------------------------------------
+
+class TestSoloVersionesVigentes:
+    """La cadena de versiones se recorta a su punta en los cinco reportes.
+
+    No es cosmética: un reporte imprimible del SGC es lo que se pone sobre la
+    mesa en una auditoría ISO 9001, y la cláusula 7.5.3 exige impedir el uso no
+    intencionado de documentos obsoletos. Como todas las versiones de una cadena
+    comparten el ``code`` y el papel no trae ninguna columna que las distinga,
+    listarlas juntas es entregar documentación superada como si estuviera en
+    vigor.
+    """
+
+    @pytest.mark.parametrize("report_type", ["documentos_usuarios", "documentos_notas"])
+    def test_los_reportes_de_documentos_solo_ven_la_vigente(self, db_session, report_type):
+        tag = _tag()
+        raiz = _make_document(db_session, title=f"Manual {tag}", code=f"MC-{tag[:6]}",
+                              version="1.0", is_current=False)
+        _make_document(db_session, title=f"Manual {tag}", code=raiz.code,
+                       version="2.0", is_current=False, parent=raiz)
+        _make_document(db_session, title=f"Manual {tag}", code=raiz.code,
+                       version="3.0", is_current=True, parent=raiz)
+
+        report = ReportService.build_report(db_session, report_type, nombre=tag)
+        filas = _rows(report)
+
+        # Una sola fila pese a que la cadena tiene tres versiones con el MISMO code.
+        assert len(filas) == 1, filas
+        assert filas[0]["code"] == raiz.code
+        assert report["subjects"] == 1
+
+    def test_la_version_superada_no_aparece_ni_filtrando_por_su_titulo(self, db_session):
+        tag = _tag()
+        raiz = _make_document(db_session, title=f"Superada {tag}", is_current=False)
+        _make_document(db_session, title=f"Vigente {tag}", is_current=True, parent=raiz)
+
+        report = ReportService.build_report(db_session, "documentos_notas",
+                                            nombre=f"Superada {tag}")
+        assert _rows(report) == []
+
+    def test_la_punta_marcada_obsoleto_sigue_saliendo(self, db_session):
+        """``is_current`` no es ``status != 'Obsoleto'``.
+
+        En los datos reales hay filas que son punta de su cadena y a la vez
+        están en estado ``Obsoleto``. Son historia legítima y el reporte las
+        emite: lo que se recorta es la versión **superada**, no el estado.
+        """
+        tag = _tag()
+        _make_document(db_session, title=f"Retirado {tag}", status="Obsoleto",
+                       is_current=True)
+
+        report = ReportService.build_report(db_session, "documentos_notas", nombre=tag)
+        filas = _rows(report)
+        assert len(filas) == 1
+        assert filas[0]["doc_status"] == "Obsoleto"
+
+    def test_el_reporte_por_autor_tampoco_cuenta_las_superadas(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """``usuarios_documentos`` es el único que no pasa por ``_fetch_documents``.
+
+        Parte de usuarios y agrupa por autor (``_documents_by_author``), así que
+        el filtro de control documental hay que repetirlo ahí. Sin él, la
+        columna "Total Documentos" contaba las versiones superadas y el formato
+        completo las imprimía una por una, con el mismo ``code`` que la vigente
+        y sin ninguna columna que las distinga.
+        """
+        tag = _tag()
+        autor = _make_user(db_session, adhoc_app, adhoc_role, first=f"AUTORVER{tag}")
+        raiz = _make_document(db_session, title=f"Manual {tag}", code=f"MC-{tag[:6]}",
+                              version="1.0", author=autor, is_current=False,
+                              status="Obsoleto")
+        _make_document(db_session, title=f"Manual {tag}", code=raiz.code, version="2.0",
+                       author=autor, is_current=True, parent=raiz)
+
+        report = ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=autor.first_name,
+            formato="completo",
+        )
+        filas = _rows(report)
+
+        assert [f["total_documents"] for f in filas] == [1]
+        assert [f["version"] for f in filas] == ["2.0"]
+        assert "Obsoleto" not in {f["doc_status"] for f in filas}
+
+    def test_la_pantalla_de_seleccion_tampoco_las_lista(self, db_session):
+        """``get_selection_data`` comparte ``_fetch_documents``: mismo criterio.
+
+        La vista previa del modal es de donde el usuario copia el código para
+        filtrar; si ahí aparecieran las superadas, filtraría por un documento
+        que el reporte no va a imprimir.
+        """
+        tag = _tag()
+        raiz = _make_document(db_session, title=f"Previa superada {tag}", is_current=False)
+        _make_document(db_session, title=f"Previa vigente {tag}", is_current=True, parent=raiz)
+
+        titulos = {d["title"] for d in ReportService.get_selection_data(db_session)["documents"]}
+        assert f"Previa vigente {tag}" in titulos
+        assert f"Previa superada {tag}" not in titulos
 
 
 # ---------------------------------------------------------------------------

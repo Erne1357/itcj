@@ -22,6 +22,11 @@
      · los iconos son Font Awesome 6.4 (`fa-solid` / `fa-regular`), que es lo
        que carga el shell — los mismos glifos que elegía el original.
 
+   LO ÚNICO QUE NO VIENE DEL LEGACY es el aviso de vigencia documental que va
+   entre el saludo y el tablero: el contador de documentos vigentes vencidos,
+   que se calcula en pages/dashboard.py::_expiry_notice() y llega como `expiry`
+   (o como None, y entonces no se pinta). El legacy no tenía dónde verlo.
+
    Las tarjetas llegan ya resueltas desde pages/dashboard.py::build_card(): el
    template no navega ninguna relación del ORM (el legacy hacía
    tarea.creator.first_name dentro del bucle → un SELECT por tarjeta).
@@ -43,6 +48,52 @@
   <div class="adhoc-tasks-head">
     <h1 class="adhoc-tasks-title">Hola, <span class="adhoc-tasks-name">{{ user_name }}</span>. Estas son tus tareas pendientes:</h1>
   </div>
+
+  {# — Aviso de vigencia documental —————————————————————————————————————
+     Va DEBAJO del saludo, no encima, por tres razones:
+
+       · el saludo es el <h1> y la identidad de la landing; un recuadro rojo
+         por delante lo empuja fuera del primer golpe de vista y se lee como un
+         error de la propia página, no como un dato del SGC;
+       · el encabezado sigue siendo el primer elemento del documento, que es lo
+         que anuncia un lector de pantalla al entrar;
+       · el saludo ocupa UNA línea, así que "debajo" sigue estando por encima
+         del tablero y sobre la línea de flotación en cualquier viewport.
+
+     No habla de "mis tareas" —es el estado del SGC entero—, de ahí el <aside>
+     con nombre propio: quien navega por landmarks lo encuentra sin barrer la
+     página.
+
+     Solo llega con `expiry` distinto de None: sin permiso de documentos, con
+     la query caída o con los dos conteos en cero, pages/dashboard.py manda
+     None y aquí no se pinta nada. La pastilla lleva el número y el texto solo
+     concuerda con él, así que la cifra no sale dos veces. #}
+  {% if expiry %}
+  <aside class="adhoc-card adhoc-expiry{% if not expiry.expired %} is-warning{% endif %}"
+         aria-label="Vigencia documental">
+    <i class="fa-solid fa-file-circle-exclamation adhoc-expiry-icon" aria-hidden="true"></i>
+    <div class="adhoc-expiry-body">
+      {% if expiry.expired %}
+      <p class="adhoc-expiry-line">
+        <span class="adhoc-badge adhoc-badge-danger">{{ expiry.expired }}</span>
+        <span class="adhoc-expiry-text">{{ expiry.expired_text }}</span>
+        <a class="adhoc-expiry-link" href="/adhoc/documentos?expiring=vencidos">
+          Revisarlos <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+        </a>
+      </p>
+      {% endif %}
+      {% if expiry.soon %}
+      <p class="adhoc-expiry-line">
+        <span class="adhoc-badge adhoc-badge-warning">{{ expiry.soon }}</span>
+        <span class="adhoc-expiry-text">{{ expiry.soon_text }}</span>
+        <a class="adhoc-expiry-link" href="/adhoc/documentos?expiring=por_vencer_30d">
+          Verlos <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+        </a>
+      </p>
+      {% endif %}
+    </div>
+  </aside>
+  {% endif %}
 
   {% if cards %}
   {# Tira horizontal con scroll-snap, como el legacy. El overflow vive en este

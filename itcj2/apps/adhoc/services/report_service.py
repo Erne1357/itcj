@@ -28,6 +28,25 @@ Y un cuarto, heredado de todo el legacy: ``app_id = 4`` hardcodeado
 (``api_reports.py:29``), que en la BD de itcj2 es *warehouse*. La app se resuelve
 siempre por ``key='adhoc'``.
 
+Alcance documental: solo la versión vigente
+-------------------------------------------
+
+Los cinco reportes miran **únicamente** los documentos con ``is_current=True``.
+No es un filtro de conveniencia ni una optimización: es control documental.
+``adhoc_documents`` guarda la cadena de versiones completa (``parent_id`` apunta
+a la raíz, y hay exactamente una fila ``is_current=True`` por cadena), así que
+sin ese filtro un reporte imprimible saca varias filas con el **mismo `code`** y
+ninguna columna que diga cuál está en vigor. Un reporte imprimible del SGC es lo
+que se entrega en una auditoría ISO 9001, y entregar ahí las versiones superadas
+como si estuvieran vigentes es una no conformidad de 7.5.3 (impedir el uso no
+intencionado de documentos obsoletos). El historial completo se consulta donde
+corresponde: ``GET /api/adhoc/v2/documents/{document_id}/versions``.
+
+El filtro vive en **dos** consultas, no en una: ``_fetch_documents`` (los cuatro
+reportes que parten de documentos) y ``_documents_by_author`` (el quinto,
+``usuarios_documentos``, que parte de usuarios y agrupa por autor). Si se toca
+una, se toca la otra.
+
 Contrato de errores
 -------------------
 * :class:`LookupError` — el tipo de reporte no existe → la página responde 404.
@@ -357,11 +376,17 @@ class ReportService:
     def _fetch_documents(
         db: Session, filters: dict[str, str], *, with_flow: bool
     ) -> tuple[list, bool]:
-        """Documentos filtrados en SQL, con la carga previa que toque.
+        """Documentos **vigentes**, filtrados en SQL, con la carga previa que toque.
 
         ``with_flow=True`` añade el flujo, sus pasos y los validadores de cada
         paso — las tres colecciones que ``documentos_usuarios`` recorre. Sin
         esto, cada ``doc.flow.steps[i].assignees`` sería una consulta más.
+
+        Las versiones superadas quedan fuera (ver el encabezado del módulo).
+        Esta es la fuente de documentos de cuatro de los cinco reportes; el
+        quinto, ``usuarios_documentos``, agrupa por autor y va por
+        ``_documents_by_author``, que repite el mismo filtro. Son los **dos**
+        sitios donde se aplica el criterio, y tienen que moverse juntos.
         """
         from itcj2.apps.adhoc.models import (
             AdhocApprovalFlow,
@@ -384,6 +409,18 @@ class ReportService:
             )
 
         query = db.query(AdhocDocument).options(*options)
+
+        # Control documental, NO una optimización. La tabla guarda la cadena de
+        # versiones entera y solo una fila por cadena es la punta; sin este
+        # WHERE los reportes arrastran las versiones superadas, repetidas bajo
+        # el mismo `code` y sin nada que las distinga en el papel impreso. Eso
+        # es exactamente lo que la cláusula 7.5.3 de ISO 9001 prohíbe entregar.
+        #
+        # Ojo: `is_current` NO equivale a `status != 'Obsoleto'`. Hay filas
+        # históricas que son punta de su cadena y a la vez están marcadas
+        # 'Obsoleto' (dato legítimo, no una inconsistencia que arreglar): siguen
+        # saliendo en los reportes y su estado se lee en la columna "Estado".
+        query = query.filter(AdhocDocument.is_current.is_(True))
 
         if filters["nombre"]:
             like = f"%{filters['nombre']}%"
@@ -456,6 +493,19 @@ class ReportService:
 
     @staticmethod
     def _documents_by_author(db: Session, user_ids: Sequence[int]) -> dict[int, list]:
+        """Documentos **vigentes** de cada autor, en un solo golpe.
+
+        Es la fuente de ``usuarios_documentos`` y la única del módulo que no
+        pasa por ``_fetch_documents``: aquí se agrupa por autor, no se filtra por
+        los criterios del formulario. Por eso el filtro de control documental se
+        repite —``is_current=True``, el mismo del encabezado del módulo—: sin él
+        este reporte era el hueco por el que las versiones superadas entraban al
+        papel que se pone sobre la mesa en una auditoría, tanto en la columna
+        "Total Documentos" como en las filas de detalle. Hoy pasa desapercibido
+        solo porque los dos autores con versiones superadas están inactivos y
+        ``_fetch_users`` los descarta; en cuanto alguien anexe una versión desde
+        el panel, el autor de la superada será un usuario activo.
+        """
         from itcj2.apps.adhoc.models import AdhocDocument
 
         if not user_ids:
@@ -465,7 +515,10 @@ class ReportService:
         rows = (
             db.query(AdhocDocument)
             .options(joinedload(AdhocDocument.category))
-            .filter(AdhocDocument.author_id.in_(user_ids))
+            .filter(
+                AdhocDocument.author_id.in_(user_ids),
+                AdhocDocument.is_current.is_(True),
+            )
             .order_by(AdhocDocument.created_at.desc(), AdhocDocument.id.desc())
             .all()
         )

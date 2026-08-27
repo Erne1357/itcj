@@ -15,15 +15,17 @@ Tres cosas que el legacy no hacía y aquí son obligatorias:
 * **Sobre de respuesta uniforme** (``schemas/common.ok_*``).
 
 Sobre el ``PATCH``: es ``multipart/form-data`` como el ``POST``, y distingue
-"campo no enviado" (``None`` de Python → no se toca) de "campo enviado vacío"
-(``""`` → se limpia la columna). Por eso los ``Form`` son opcionales sin default
-y el dict de cambios se arma con los que llegaron: es lo que hace que
-``model_dump(exclude_unset=True)`` signifique algo en un PATCH.
+"campo no enviado" (no se toca) de "campo enviado vacío" (se limpia la columna).
+Es lo que hace que ``model_dump(exclude_unset=True)`` signifique algo en un
+PATCH… y lo que obliga a declarar sus ``Form`` como **listas**: ver
+:func:`_first`. Con ``Optional[str]`` esa distinción no existe, porque FastAPI
+convierte el campo vacío en el default antes de que el endpoint lo vea.
 """
 from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
+from datetime import date
 from typing import Any, Optional, Sequence
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
@@ -38,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 #: Campos que acepta el PATCH (nombre del Form == nombre de la columna).
 _PATCH_FIELDS = (
-    "code", "title", "version", "status", "notes",
+    "code", "title", "version", "status", "notes", "expiration_date",
     "category_id", "area_id", "process_id", "classification_id",
 )
 
@@ -75,6 +77,31 @@ def _at(seq: Optional[Sequence[Any]], index: int) -> Any:
     return seq[index]
 
 
+def _first(values: Optional[list[str]]) -> Optional[str]:
+    """Primer valor de un campo del PATCH, o ``None`` si el formulario no lo trajo.
+
+    Los ``Form`` del PATCH se declaran ``Optional[list[str]]`` y no
+    ``Optional[str]`` por una razón muy concreta, y no por gusto: FastAPI trata
+    un campo de texto **vacío** como si no se hubiera enviado y lo sustituye por
+    el default antes de llamar al endpoint
+    (``fastapi/dependencies/utils.py``: ``isinstance(field_info, params.Form)
+    and isinstance(value, str) and value == ""`` → ``deepcopy(field.default)``).
+    Con ``Optional[str] = Form(default=None)`` los dos casos llegan como
+    ``None`` y **es imposible limpiar una columna por PATCH**: mandar la
+    vigencia vacía para decir "este documento no vence" no hacía nada, en
+    silencio, aunque el docstring prometiera lo contrario.
+
+    Esa comprobación de FastAPI lleva un ``isinstance(value, str)``, así que un
+    campo declarado como secuencia se salva: ausente llega ``None`` y vacío
+    llega ``[""]``. El formato en el alambre no cambia —el navegador sigue
+    mandando ``expiration_date=``—; lo único que cambia es que ahora el
+    endpoint lo ve.
+    """
+    if not values:
+        return None
+    return values[0]
+
+
 def _validation_message(exc: ValidationError, *, row: Optional[int] = None) -> str:
     """Primer error de Pydantic en una línea legible (el ``detail`` es string)."""
     err = exc.errors()[0]
@@ -94,6 +121,8 @@ def list_documents(
     per_page: int = Query(20, ge=1, le=200),
     q: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    only_current: str = Query("true"),
+    expiring: Optional[str] = Query(None),
     category_id: Optional[str] = Query(None),
     area_id: Optional[str] = Query(None),
     process_id: Optional[str] = Query(None),
@@ -108,6 +137,22 @@ def list_documents(
     Los filtros llegan como strings crudos a propósito: el ``<select>`` manda
     ``""`` para "todos", y ``DocumentFilters`` lo coacciona a ``None``. Un
     ``status`` inventado es un **400 legible**, no un 500 por ``ValidationError``.
+
+    ``only_current`` es ``str`` por lo mismo, no ``bool``: declararlo booleano
+    haría que FastAPI rechazara con 422 un ``?only_current=`` vacío, que es
+    justo lo que manda un formulario cuyo checkbox nunca se tocó. La coacción
+    la hace ``query_flag_to_bool`` dentro del schema, y su default —ausente ⇒
+    ``True``— es lo que mantiene ocultas las versiones superadas mientras el
+    checkbox "Ver versiones anteriores" siga sin marcarse.
+
+    ``expiring`` acepta ``vencidos`` | ``por_vencer_30d`` | ``vigentes``;
+    cualquier otra cosa es un 400 con el mismo mensaje que un ``status`` malo.
+
+    El ``hoy`` se calcula **una vez** y viaja al service y a ``document_out``:
+    son las dos implementaciones del mismo criterio de vigencia (el ``WHERE`` y
+    la aritmética del badge), y con un reloj cada una una página servida a
+    caballo de la medianoche podía traer una fila filtrada como vencida y
+    pintada como "por vencer".
     """
     from itcj2.apps.adhoc.schemas.common import ok_page
     from itcj2.apps.adhoc.schemas.documents import DocumentFilters, document_out
@@ -115,18 +160,21 @@ def list_documents(
 
     try:
         filters = DocumentFilters(
-            q=q, status=status, category_id=category_id, area_id=area_id,
+            q=q, status=status, only_current=only_current, expiring=expiring,
+            category_id=category_id, area_id=area_id,
             process_id=process_id, classification_id=classification_id,
             flow_id=flow_id, author_id=author_id,
         )
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=_validation_message(exc)) from exc
 
+    hoy = date.today()
     with _domain_errors():
         result = AdhocDocumentService.list_documents(
-            db, filters, page=page, per_page=per_page,
+            db, filters, page=page, per_page=per_page, today=hoy,
         )
-    return ok_page([document_out(d) for d in result.items], result, page, per_page)
+    return ok_page([document_out(d, today=hoy) for d in result.items],
+                   result, page, per_page)
 
 
 @router.get("/{document_id}")
@@ -146,6 +194,35 @@ def get_document(
     return ok_item(document_out(doc, detail=True))
 
 
+@router.get("/{document_id}/versions")
+def list_document_versions(
+    request: Request,
+    document_id: int,
+    user: dict = require_perms("adhoc", ["adhoc.documents.api.read"]),
+    db: DbSession = None,
+):
+    """Historial completo de la cadena de versiones del documento.
+
+    Es el respaldo de la decisión de ocultar las superadas en las dos listas:
+    si el listado solo enseña la punta, tiene que haber **un** sitio donde se
+    vean las 58 versiones anteriores, y este es. Da igual con qué id de la
+    cadena se entre —raíz o versión—, la respuesta es la misma: la raíz primero
+    y después las versiones por id ascendente.
+
+    Sin permiso propio a propósito: exige el mismo ``adhoc.documents.api.read``
+    que el detalle, porque no revela nada que ``GET /documents/{id}`` no
+    revelara ya de cada fila por separado.
+    """
+    from itcj2.apps.adhoc.schemas.common import ok_list
+    from itcj2.apps.adhoc.schemas.documents import document_out
+    from itcj2.apps.adhoc.services.document_service import AdhocDocumentService
+
+    hoy = date.today()
+    with _domain_errors():
+        versions = AdhocDocumentService.list_versions(db, document_id)
+    return ok_list([document_out(d, today=hoy) for d in versions])
+
+
 # ==========================================================================
 # Alta masiva
 # ==========================================================================
@@ -157,6 +234,8 @@ def create_documents(
     codes: list[str] = Form(default=[]),
     versions: list[str] = Form(default=[]),
     notes: list[str] = Form(default=[]),
+    expiration_dates: list[str] = Form(default=[]),
+    parent_ids: list[str] = Form(default=[]),
     category_ids: list[str] = Form(default=[]),
     area_ids: list[str] = Form(default=[]),
     process_ids: list[str] = Form(default=[]),
@@ -171,12 +250,19 @@ def create_documents(
     filas en blanco del formulario se descartan junto con su hueco de archivo,
     de modo que la alineación se conserva; si no queda ninguna fila útil es un
     400, no el "302 exitoso" del legacy con cero inserciones.
+
+    ``parent_ids[i]`` convierte la fila ``i`` en **una versión nueva** del
+    documento indicado: el service la cuelga de la raíz de esa cadena y deja
+    todas las versiones anteriores superadas. Es el "Anexar nueva versión" del
+    panel de gestión, que reutiliza este mismo endpoint en vez de tener uno
+    propio: el alta y el anexado difieren en un campo, no en un flujo.
     """
     from itcj2.apps.adhoc.schemas.common import ok_list
     from itcj2.apps.adhoc.schemas.documents import DocumentCreate, document_out
     from itcj2.apps.adhoc.services.document_service import AdhocDocumentService
 
     total = max(len(titles), len(codes), len(versions), len(notes),
+                len(expiration_dates), len(parent_ids),
                 len(category_ids), len(area_ids), len(process_ids),
                 len(classification_ids))
 
@@ -191,6 +277,8 @@ def create_documents(
             "code": _at(codes, i),
             "version": _at(versions, i),
             "notes": _at(notes, i),
+            "expiration_date": _at(expiration_dates, i),
+            "parent_id": _at(parent_ids, i),
             "category_id": _at(category_ids, i),
             "area_id": _at(area_ids, i),
             "process_id": _at(process_ids, i),
@@ -209,11 +297,12 @@ def create_documents(
             status_code=400, detail="No se recibió ningún documento para guardar",
         )
 
+    hoy = date.today()
     with _domain_errors():
         docs = AdhocDocumentService.bulk_create(
             db, items, author_id=int(user["sub"]), uploads=uploads,
         )
-    return ok_list([document_out(d) for d in docs])
+    return ok_list([document_out(d, today=hoy) for d in docs])
 
 
 # ==========================================================================
@@ -224,15 +313,16 @@ def create_documents(
 def update_document(
     request: Request,
     document_id: int,
-    code: Optional[str] = Form(default=None),
-    title: Optional[str] = Form(default=None),
-    version: Optional[str] = Form(default=None),
-    status: Optional[str] = Form(default=None),
-    notes: Optional[str] = Form(default=None),
-    category_id: Optional[str] = Form(default=None),
-    area_id: Optional[str] = Form(default=None),
-    process_id: Optional[str] = Form(default=None),
-    classification_id: Optional[str] = Form(default=None),
+    code: Optional[list[str]] = Form(default=None),
+    title: Optional[list[str]] = Form(default=None),
+    version: Optional[list[str]] = Form(default=None),
+    status: Optional[list[str]] = Form(default=None),
+    notes: Optional[list[str]] = Form(default=None),
+    expiration_date: Optional[list[str]] = Form(default=None),
+    category_id: Optional[list[str]] = Form(default=None),
+    area_id: Optional[list[str]] = Form(default=None),
+    process_id: Optional[list[str]] = Form(default=None),
+    classification_id: Optional[list[str]] = Form(default=None),
     file: Optional[UploadFile] = File(default=None),
     user: dict = require_perms("adhoc", ["adhoc.documents.api.update"]),
     db: DbSession = None,
@@ -240,18 +330,32 @@ def update_document(
     """Edición parcial (``multipart/form-data``), con reemplazo opcional del archivo.
 
     Solo se aplican los campos **presentes** en el formulario; mandar un campo
-    vacío limpia la columna. El archivo anterior se borra del disco cuando llega
-    uno nuevo.
+    vacío limpia la columna —incluida ``expiration_date``, que es la forma de
+    decir "este documento no vence"—. El archivo anterior se borra del disco
+    cuando llega uno nuevo.
+
+    Los ``Form`` son listas porque es la única manera de que el campo vacío
+    llegue hasta aquí; ver :func:`_first`. El cliente no se entera: sigue
+    mandando un valor por campo.
+
+    ``is_current`` y ``parent_id`` **no** son campos del PATCH: la cadena de
+    versiones se mueve solo al anexar una versión nueva (``POST``).
     """
     from itcj2.apps.adhoc.schemas.common import ok_item
     from itcj2.apps.adhoc.schemas.documents import DocumentUpdate, document_out
     from itcj2.apps.adhoc.services.document_service import AdhocDocumentService
 
     enviados = {
-        "code": code, "title": title, "version": version, "status": status,
-        "notes": notes, "category_id": category_id, "area_id": area_id,
-        "process_id": process_id, "classification_id": classification_id,
+        "code": _first(code), "title": _first(title), "version": _first(version),
+        "status": _first(status), "notes": _first(notes),
+        "expiration_date": _first(expiration_date),
+        "category_id": _first(category_id), "area_id": _first(area_id),
+        "process_id": _first(process_id),
+        "classification_id": _first(classification_id),
     }
+    # `None` es "no vino en el formulario"; `""` es "vino vacío" y sí viaja al
+    # schema, que lo vuelve `None` dejando el campo *set* — que es como
+    # `exclude_unset` distingue limpiar una columna de no tocarla.
     changes = {k: v for k, v in enviados.items() if v is not None}
 
     if not changes and (file is None or not (file.filename or "").strip()):

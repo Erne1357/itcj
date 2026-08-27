@@ -366,6 +366,32 @@ def test_start_flow_rechaza_documento_ya_iniciado(db_session):
         SVC.start_flow(db_session, doc.id, flow.id, actor_id=None)
 
 
+@pytest.mark.parametrize("status", ["Obsoleto", "Aprobado"])
+def test_start_flow_solo_arranca_desde_los_estados_startable(db_session, status):
+    """``DOCUMENT_STATUSES_STARTABLE`` es 'Borrador' y 'Rechazado', y nada más.
+
+    Hasta ahora esa tupla solo la respetaba el navegador
+    (``documents-panel.js`` esconde el botón del sello en los demás estados);
+    el servidor no la miraba. Con la cadena de versiones eso dejó de ser
+    teórico: anexar deja la versión anterior en ``'Obsoleto'``, y un flujo
+    arrancado sobre ella la devolvía a ``'En Revisión'`` con tareas nuevas para
+    sus validadores —invisible en las dos listas, porque ``is_current`` sigue en
+    ``false``—. ``'Aprobado'`` va en el mismo saco: un documento ya aprobado se
+    revisa anexando una versión, no reabriendo su propio flujo.
+    """
+    flow = make_flow(db_session)
+    doc = make_document(db_session, status=status)
+
+    with pytest.raises(AdhocConflict) as exc:
+        SVC.start_flow(db_session, doc.id, flow.id, actor_id=None)
+    assert status in str(exc.value)
+
+    db_session.refresh(doc)
+    assert doc.status == status
+    assert doc.flow_id is None
+    assert db_session.query(AdhocTask).filter_by(document_id=doc.id).count() == 0
+
+
 def test_start_flow_crea_una_tarea_por_paso_con_snapshot_de_validadores(db_session):
     flow = make_flow(db_session)
     u1, u2 = make_user(db_session, "a"), make_user(db_session, "b")

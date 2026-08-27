@@ -1,8 +1,10 @@
 /* ---------------------------------------------------------------------------
    PAGINA   /adhoc/dashboard
-   CONTIENE tira de tarjetas de tarea (kanban), sus cuatro variantes de cuerpo,
-            estado vacio del tablero y el modal de workflow
-   EN BASE  badges, modal, boton, estado vacio generico, parpadeo (.adhoc-blink)
+   CONTIENE aviso de vigencia documental, tira de tarjetas de tarea (kanban),
+            sus cuatro variantes de cuerpo, estado vacio del tablero y el modal
+            de workflow
+   EN BASE  tarjeta (.adhoc-card), badges, modal, boton, estado vacio generico,
+            parpadeo (.adhoc-blink)
    --------------------------------------------------------------------------- */
 
 /* ===========================================================================
@@ -59,6 +61,96 @@
 .adhoc-tasks-name {
   color: var(--adhoc-primary);
   font-weight: var(--adhoc-fw-bold);
+}
+
+/* ── Aviso de vigencia documental ──────────────────────────────────────── */
+
+/* Lo único de esta pantalla que no habla de tareas: los documentos vigentes
+   que ya vencieron (ISO 9001, control de la información documentada). No es un
+   componente nuevo — es una `.adhoc-card` puesta en fila, con el filete rojo a
+   la izquierda que el resto de la app ya usa para avisar (`.adhoc-kcard-flag`).
+   La caja se queda BLANCA a propósito: el fondo suave de aviso es exactamente
+   el que llevan `.adhoc-badge-danger` y `.adhoc-badge-warning`, así que teñirla
+   haría desaparecer la pastilla que lleva la cifra. */
+.adhoc-expiry {
+  display: flex;
+  align-items: center;
+  gap: var(--adhoc-space-xl);
+  margin: 0 0 var(--adhoc-space-4xl);
+  /* Más plano que la tarjeta genérica: es una línea de aviso, no una sección. */
+  padding: var(--adhoc-space-xl) var(--adhoc-space-3xl);
+  border-left: 4px solid var(--adhoc-danger-strong);
+}
+
+/* Sin ningún vencido el aviso sigue existiendo (queda el "por vencer"), pero
+   deja de ser una no conformidad y baja a ámbar. */
+.adhoc-expiry.is-warning {
+  border-left-color: var(--adhoc-warning-dark);
+}
+
+.adhoc-expiry-icon {
+  flex: 0 0 auto;
+  font-size: var(--adhoc-fs-2xl);
+  color: var(--adhoc-danger-ink);
+}
+
+.adhoc-expiry.is-warning .adhoc-expiry-icon {
+  color: var(--adhoc-warning-ink);
+}
+
+.adhoc-expiry-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Pastilla + frase + enlace en una fila que envuelve: en móvil el enlace baja
+   solo, sin partir la frase por la mitad. */
+.adhoc-expiry-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--adhoc-space-md);
+  margin: 0;
+  font-size: var(--adhoc-fs-lg);
+  color: var(--adhoc-dark);
+}
+
+.adhoc-expiry-line + .adhoc-expiry-line {
+  margin-top: var(--adhoc-space-md);
+}
+
+.adhoc-expiry-text {
+  font-weight: var(--adhoc-fw-semibold);
+}
+
+/* Subrayado siempre: la hoja base no da estilo al `<a>` suelto, así que sin
+   esto el enlace sería el azul del navegador — el único de toda la app. */
+.adhoc-expiry-link {
+  font-size: var(--adhoc-fs-md);
+  font-weight: var(--adhoc-fw-bold);
+  color: var(--adhoc-primary);
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+.adhoc-expiry-link:hover {
+  color: var(--adhoc-primary-hover);
+}
+
+.adhoc-expiry-link:focus-visible {
+  outline: 3px solid var(--adhoc-secondary);
+  outline-offset: 2px;
+  border-radius: var(--adhoc-radius-sm);
+}
+
+/* Con la frase partida en tres o cuatro líneas, el icono centrado se queda
+   flotando en mitad del bloque; anclado arriba vuelve a leerse como marca de
+   aviso. Y 20px de aire lateral sobre una columna de 88vw se comen la línea. */
+@media (max-width: 575.98px) {
+  .adhoc-expiry {
+    align-items: flex-start;
+    padding: var(--adhoc-space-lg) var(--adhoc-space-xl);
+  }
 }
 
 /* ── Tablero ───────────────────────────────────────────────────────────── */

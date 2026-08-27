@@ -30,6 +30,8 @@ __all__ = [
     "DOCUMENT_STATUS_APPROVED", "DOCUMENT_STATUS_REJECTED",
     "DOCUMENT_STATUS_OBSOLETE",
     "DOCUMENT_STATUSES_STARTABLE", "DOCUMENT_STATUSES_VIA_PATCH",
+    # Vigencia documental
+    "DocumentExpiryFilter", "DOCUMENT_EXPIRY_FILTERS", "DOCUMENT_EXPIRY_SOON_DAYS",
     # Incidencias
     "IncidentStatus", "INCIDENT_STATUSES", "INCIDENT_STATUS_DEFAULT",
     "INCIDENT_STATUS_NOT_STARTED", "INCIDENT_STATUS_STARTED", "INCIDENT_STATUS_CLOSED",
@@ -103,6 +105,36 @@ DOCUMENT_STATUSES_STARTABLE: Final[tuple[str, ...]] = (
 #: ``adhoc_task_approvals`` vacío y ``current_step_id`` colgando.
 DOCUMENT_STATUSES_VIA_PATCH: Final[tuple[str, ...]] = (
     DOCUMENT_STATUS_DRAFT, DOCUMENT_STATUS_OBSOLETE,
+)
+
+
+# --------------------------------------------------------------------------
+# Vigencia documental — sin CheckConstraint detrás
+# --------------------------------------------------------------------------
+#
+# Estos tres no replican una restricción de la BD: se **calculan** sobre
+# ``adhoc_documents.expiration_date`` (columna ``Date``, nullable). Viven aquí
+# igual porque son un vocabulario cerrado que cruza las tres capas —el
+# ``<select>`` de la barra de filtros, el ``Literal`` de ``DocumentFilters`` y
+# los tres predicados SQL de ``list_documents``— y en un SGC ISO 9001 el
+# control del documento vencido es el punto del sistema: de los 197 documentos
+# con vigencia, 47 ya vencieron y 45 de esos siguen marcados como vigentes.
+
+#: Ventana de aviso previo, en días. Un documento cuya vigencia cae dentro de
+#: los próximos ``30`` días es "por vencer": es el plazo con el que Calidad
+#: alcanza a arrancar el flujo de revisión antes de que caduque.
+DOCUMENT_EXPIRY_SOON_DAYS: Final[int] = 30
+
+#: Los tres cubos son **disjuntos y exhaustivos** respecto de hoy y de
+#: :data:`DOCUMENT_EXPIRY_SOON_DAYS`; un documento sin ``expiration_date`` cae
+#: en ``'vigentes'`` (no tiene vencimiento que controlar)::
+#:
+#:     vencidos       -> expiration_date < hoy
+#:     por_vencer_30d -> hoy <= expiration_date <= hoy + 30
+#:     vigentes       -> expiration_date IS NULL OR expiration_date > hoy + 30
+DocumentExpiryFilter = Literal["vencidos", "por_vencer_30d", "vigentes"]
+DOCUMENT_EXPIRY_FILTERS: Final[tuple[str, ...]] = (
+    "vencidos", "por_vencer_30d", "vigentes",
 )
 
 

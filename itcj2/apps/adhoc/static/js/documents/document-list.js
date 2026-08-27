@@ -22,6 +22,8 @@
  * MARCADO QUE CONSUME
  * -------------------
  *   [data-adhoc-doc-filter="q|status|category_id|…"]   inputs y selects
+ *   [data-adhoc-doc-filter] sobre <input type="checkbox">, con
+ *       [data-adhoc-checked-value] / [data-adhoc-unchecked-value]   banderas
  *   [data-adhoc-doc-apply] / [data-adhoc-doc-clear]    botones
  *   #{tableId}-body                                    tbody a pintar
  *   [data-adhoc-doc-count]                             "N documento(s)"
@@ -157,12 +159,130 @@
         return btn;
     }
 
+    // ---------- vigencia y cadena de versiones ----------
+
+    //: Tono del badge de vigencia por `expiry_state`. Los tres cubos los define
+    //: el SERVIDOR (utils/constants.DOCUMENT_EXPIRY_SOON_DAYS = 30): aquí no se
+    //: vuelve a hacer aritmética de fechas. Si se hiciera, se haría contra el
+    //: reloj del cliente, y un equipo con la zona horaria mal puesta pintaría de
+    //: rojo un documento que no ha vencido. 'vigente' no lleva badge: la fecha
+    //: sola ya lo dice.
+    var EXPIRY_TONE = {
+        'vencido': 'adhoc-badge-danger',
+        'por_vencer': 'adhoc-badge-warning'
+    };
+
+    /**
+     * Etiqueta corta del badge de vigencia. `days_to_expire` viene del servidor
+     * y es NEGATIVO cuando ya venció.
+     */
+    function expiryLabel(doc) {
+        var dias = doc ? doc.days_to_expire : null;
+        if (doc && doc.expiry_state === 'vencido') {
+            return (typeof dias === 'number' && dias < 0)
+                ? 'Vencido hace ' + Math.abs(dias) + ' d'
+                : 'Vencido';
+        }
+        if (typeof dias !== 'number') return 'Por vencer';
+        return dias === 0 ? 'Vence hoy' : 'Vence en ' + dias + ' d';
+    }
+
+    /**
+     * <td data-adhoc-cell="expiration"> de la columna "Vigencia": la fecha en
+     * texto y, si el documento está vencido o le quedan 30 días o menos, un
+     * badge rojo o ámbar detrás.
+     *
+     * Un documento del SGC sin fecha de vigencia NO es un error —5 de los 202
+     * no la traen— así que se dice "Sin fecha" en tono apagado en vez de dejar
+     * la celda vacía, que se lee como "falta el dato".
+     *
+     * Cero innerHTML: fecha y etiqueta van por textContent.
+     *
+     * @param {HTMLTableRowElement} row fila a la que se añade la celda
+     * @param {Object} doc fila de `document_out()`
+     * @returns {HTMLTableCellElement}
+     */
+    function expiryCell(row, doc) {
+        var td = cell(row, 'expiration', '', 'adhoc-cell-nowrap');
+        var fecha = isoDate(doc ? doc.expiration_date : null);
+
+        if (!fecha) {
+            var vacio = document.createElement('span');
+            vacio.className = 'adhoc-doc-expiry-none';
+            vacio.textContent = 'Sin fecha';
+            td.appendChild(vacio);
+            return td;
+        }
+
+        var texto = document.createElement('span');
+        texto.className = 'adhoc-doc-expiry-date';
+        texto.textContent = fecha;
+        td.appendChild(texto);
+
+        var tono = EXPIRY_TONE[doc.expiry_state];
+        if (tono) {
+            var badge = document.createElement('span');
+            badge.className = 'adhoc-badge adhoc-doc-expiry-badge ' + tono;
+            badge.textContent = expiryLabel(doc);
+            td.appendChild(badge);
+        }
+        return td;
+    }
+
+    /**
+     * Botón de fila que abre el historial de versiones
+     * (`AdhocDocumentVersions.open`). Es un `iconButton` con la acción
+     * 'versions', así que lo recoge la MISMA delegación que el resto de
+     * acciones (`[data-adhoc-doc-action]`).
+     *
+     * Se pinta SIEMPRE, también en un documento de una sola versión: la fila no
+     * sabe si tiene hijos —`parent_id` solo dice si ella es hija— y consultarlo
+     * por fila serían 25 peticiones por página. El modal es el que dice "Esta es
+     * la única versión" cuando la cadena trae una sola.
+     *
+     * @param {Object} doc fila de `document_out()`
+     * @returns {HTMLButtonElement}
+     */
+    function versionButton(doc) {
+        // Sin variante de color: es el violeta de marca, el mismo de las otras
+        // acciones neutras de la fila. El azul queda reservado para 'flow-info'
+        // y el rojo para 'delete', que es lo que hace legible una barra de
+        // cuatro iconos de un vistazo.
+        var btn = iconButton('versions', 'fa-solid fa-code-branch',
+                             'Historial de versiones');
+        if (doc && doc.id !== null && doc.id !== undefined) {
+            btn.setAttribute('data-adhoc-doc-id', String(doc.id));
+        }
+        return btn;
+    }
+
+    /**
+     * Marca "Superada" de una versión que ya no es la punta de su cadena.
+     * Devuelve `null` cuando el documento SÍ es el vigente, para que quien lo
+     * llama pueda hacer `var b = currentBadge(doc); if (b) td.appendChild(b);`
+     * sin preguntar dos veces por lo mismo.
+     *
+     * Solo se ve con la casilla "Ver versiones anteriores" marcada o dentro del
+     * modal de historial: por defecto las dos listas ocultan las superadas.
+     *
+     * @param {Object} doc fila de `document_out()`
+     * @returns {HTMLElement|null}
+     */
+    function currentBadge(doc) {
+        if (!doc || doc.is_current !== false) return null;
+        var badge = document.createElement('span');
+        badge.className = 'adhoc-badge adhoc-badge-muted adhoc-doc-superseded';
+        badge.textContent = 'Superada';
+        badge.title = 'Versión superada por otra más reciente';
+        return badge;
+    }
+
     // ==================== INSTANCIA ====================
 
     /**
      * @param {HTMLElement} root  contenedor de la pantalla
      * @param {{tableId:string, perPage:number, buildRow:Function,
-     *          afterRender:Function}} opts
+     *          afterRender:Function, initialFilters:Object}} opts
      */
     function DocumentList(root, opts) {
         var o = opts || {};
@@ -172,6 +292,9 @@
         this.perPage = parseInt(o.perPage, 10) || DEFAULT_PER_PAGE;
         this.buildRow = o.buildRow;
         this.afterRender = o.afterRender || null;
+        //: Bloque `initial_filters` de page_data (o null). Lo vuelca `init()`
+        //: sobre la barra ANTES de la primera consulta.
+        this.initialFilters = o.initialFilters || null;
 
         this.table = root.querySelector('#' + this.tableId);
         this.body = root.querySelector('#' + this.tableId + '-body');
@@ -194,18 +317,104 @@
             return this;
         }
         this.bind();
+        this.applyInitialFilters();
         this.load();
         return this;
     };
 
     // ---------- filtros ----------
 
+    /** `true` si el nodo es una casilla: su valor NO se lee de `.value`. */
+    function esCasilla(node) {
+        return node.tagName === 'INPUT' && node.type === 'checkbox';
+    }
+
+    /**
+     * Valor que una casilla aporta a la query.
+     *
+     * POR QUÉ NO VALE `.value`: un <input type="checkbox"> SIEMPRE tiene
+     * `.value` —el atributo si lo trae, y "on" si no—, así que leerlo como se
+     * lee un <input type="search"> emitía la clave estuviera marcada o no. La
+     * casilla "Ver versiones anteriores" habría mandado `only_current` con el
+     * mismo valor en los dos estados: el filtro no habría hecho nada nunca.
+     *
+     * Los dos valores los declara el propio input, porque el sentido de la
+     * casilla no siempre coincide con el del parámetro: "Ver versiones
+     * anteriores" MARCADA significa `only_current=false`. Sin los atributos el
+     * par por defecto es "true"/"", y la cadena vacía no se emite — que es lo
+     * que deja al servidor aplicar SU default.
+     */
+    function valorDeCasilla(node) {
+        var attr = node.checked ? 'data-adhoc-checked-value' : 'data-adhoc-unchecked-value';
+        var declarado = node.getAttribute(attr);
+        if (declarado !== null) return declarado;
+        return node.checked ? 'true' : '';
+    }
+
+    /**
+     * Vuelca `page_data.initial_filters` sobre la barra de filtros, ANTES de la
+     * primera consulta.
+     *
+     * Vive aquí y no en cada pantalla porque el resto del contrato de la barra
+     * —qué nodos son filtros, cómo se lee una casilla, cómo se limpia— ya vive
+     * aquí: cuando `documents.js` y `documents-panel.js` tenían cada uno su
+     * copia, las dos ya habían divergido (una descartaba la cadena vacía y
+     * validaba la clave con un regex, la otra no), así que un filtro nuevo podía
+     * comportarse distinto en /adhoc/documentos que en /adhoc/documentos/panel
+     * sin que nada avisara.
+     *
+     * Se recorren los nodos que declara el MARCADO, no una lista escrita en JS:
+     * un filtro nuevo en la plantilla funciona sin tocar este archivo. Una clave
+     * que no venga en `initial_filters` deja su control como estaba.
+     *
+     * El valor que manda el servidor es el MISMO string que el control volverá a
+     * enviar (`"vencidos"`, `"false"`), así que aquí no se traduce nada: a un
+     * <select> se le asigna y a una casilla se le compara con el valor que ella
+     * declara para "marcada". Un valor que no case con ninguna opción deja el
+     * <select> en el placeholder, que es lo correcto: el servidor ya descartó
+     * los inventados (`pages/documents.py::_initial_filters`).
+     *
+     * El orden importa: `init()` arranca pidiendo datos, así que aplicarlo
+     * después haría dos peticiones —la primera sin el filtro— y quien llega
+     * desde el contador de vencidos del dashboard vería parpadear la lista
+     * completa antes de la que pidió.
+     */
+    DocumentList.prototype.applyInitialFilters = function () {
+        var initial = this.initialFilters;
+        if (!initial) return this;
+
+        var nodes = this.root.querySelectorAll('[data-adhoc-doc-filter]');
+        for (var i = 0; i < nodes.length; i++) {
+            var node = nodes[i];
+            var key = node.getAttribute('data-adhoc-doc-filter');
+            if (!Object.prototype.hasOwnProperty.call(initial, key)) continue;
+
+            var value = initial[key];
+            // `null` es "el parámetro no venía en la URL": el servidor manda
+            // siempre las dos claves para que el JS no tenga que preguntar si
+            // existen.
+            if (value === null || value === undefined) continue;
+            value = String(value);
+
+            if (esCasilla(node)) {
+                var marcado = node.getAttribute('data-adhoc-checked-value');
+                node.checked = (marcado !== null) ? (value === marcado) : (value === 'true');
+            } else {
+                node.value = value;
+            }
+        }
+        return this;
+    };
+
     DocumentList.prototype.filters = function () {
         var nodes = this.root.querySelectorAll('[data-adhoc-doc-filter]');
         var out = {};
         for (var i = 0; i < nodes.length; i++) {
-            var key = nodes[i].getAttribute('data-adhoc-doc-filter');
-            var value = (nodes[i].value || '').trim();
+            var node = nodes[i];
+            var key = node.getAttribute('data-adhoc-doc-filter');
+            var value = esCasilla(node)
+                ? valorDeCasilla(node)
+                : (node.value || '').trim();
             if (value) out[key] = value;
         }
         return out;
@@ -224,9 +433,18 @@
         return params.toString();
     };
 
+    /**
+     * Deja la barra de filtros como al entrar. Una casilla se limpia
+     * DESMARCÁNDOLA: `.value = ''` no la desmarca —solo le cambia el valor que
+     * enviaría—, así que "Limpiar" dejaba encendida la casilla de ver versiones
+     * anteriores mientras el resto de la barra sí se vaciaba.
+     */
     DocumentList.prototype.clearFilters = function () {
         var nodes = this.root.querySelectorAll('[data-adhoc-doc-filter]');
-        for (var i = 0; i < nodes.length; i++) nodes[i].value = '';
+        for (var i = 0; i < nodes.length; i++) {
+            if (esCasilla(nodes[i])) nodes[i].checked = false;
+            else nodes[i].value = '';
+        }
         return this.reload();
     };
 
@@ -335,14 +553,18 @@
             self.load();
         });
 
-        // Los <select> recargan al instante; el texto, con rebote.
+        // Los <select> y las casillas recargan al instante; el texto, con rebote.
         this.root.addEventListener('change', function (evt) {
-            if (!evt.target.matches('select[data-adhoc-doc-filter]')) return;
+            if (!evt.target.matches('select[data-adhoc-doc-filter]') &&
+                !evt.target.matches('input[type="checkbox"][data-adhoc-doc-filter]')) return;
             self.reload();
         });
 
         this.root.addEventListener('input', function (evt) {
             if (!evt.target.matches('input[data-adhoc-doc-filter]')) return;
+            // Una casilla emite `input` ADEMÁS de `change`: sin esta salida se
+            // recargaría dos veces por clic, la segunda 350 ms más tarde.
+            if (esCasilla(evt.target)) return;
             clearTimeout(self.debounce);
             self.debounce = setTimeout(function () { self.reload(); }, 350);
         });
@@ -369,6 +591,7 @@
     window.AdhocDocumentList = {
         create: create,
         STATUS_TONE: STATUS_TONE,
+        EXPIRY_TONE: EXPIRY_TONE,
         helpers: {
             text: text,
             isoDate: isoDate,
@@ -377,7 +600,11 @@
             clampCell: clampCell,
             statusBadge: statusBadge,
             fileCell: fileCell,
-            iconButton: iconButton
+            iconButton: iconButton,
+            expiryLabel: expiryLabel,
+            expiryCell: expiryCell,
+            versionButton: versionButton,
+            currentBadge: currentBadge
         }
     };
 })();

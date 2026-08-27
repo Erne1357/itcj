@@ -331,3 +331,88 @@ def test_las_utilidades_declaradas_se_usan():
         "si una pantalla necesita algo más, va en la hoja de esa pantalla:\n  "
         + " ".join(muertas)
     )
+# ── 9. las dos listas de documentos ────────────────────────────────────────
+#
+# /adhoc/documentos y /adhoc/documentos/panel son dos pantallas que pintan la
+# MISMA tabla con el mismo módulo (`document-list.js`). Todo lo que se escriba
+# dos veces —una por pantalla— diverge: ya pasó con el volcado de los filtros
+# de la URL, que acabó con dos semánticas distintas para el mismo bloque de
+# `page_data`. Estas tres reglas son estáticas a propósito: un E2E solo ve la
+# pantalla que visita y solo si tiene datos, y lo que se vigila aquí es que las
+# dos pantallas sigan compartiendo el mismo código.
+
+JS_DOCS = RAIZ / "static" / "js" / "documents"
+
+
+def _js(nombre: str) -> str:
+    return (JS_DOCS / nombre).read_text(encoding="utf8")
+
+
+def test_las_dos_tablas_de_documentos_acotan_su_columna_de_texto_libre():
+    """El ancho de una tabla ``auto`` lo fija la columna que más pide.
+
+    ``.adhoc-table-xl`` declara ``min-width: 1400px``, pero eso es un mínimo: la
+    columna del título crece con el documento más largo del SGC —los hay de 120
+    caracteres— y empuja las últimas columnas fuera de pantalla a 1280px, que es
+    la resolución habitual de los equipos del ITCJ. El techo son dos cosas
+    juntas, y ninguna funciona sola: ``clampCell`` (que mete el texto en un hijo
+    bloque, porque un ``<td>`` no admite ``-webkit-line-clamp``) y un
+    ``max-width`` sobre la celda en la hoja de la pantalla.
+    """
+    faltan = []
+    for js, css, raiz_css in (
+        ("documents.js", "documents.css", ".adhoc-documents"),
+        ("documents-panel.js", "documents-panel.css", ".adhoc-doc-panel"),
+    ):
+        if "clampCell(tr, 'title'" not in _js(js):
+            faltan.append(f"{js}: la celda 'title' no usa H.clampCell")
+        hoja = (HOJAS / "documents" / css).read_text(encoding="utf8")
+        if not re.search(
+            re.escape(raiz_css) + r'[^{]*td\[data-adhoc-cell="title"\]\s*\{[^}]*max-width',
+            hoja,
+        ):
+            faltan.append(f"{css}: falta el max-width de td[data-adhoc-cell=\"title\"]")
+    assert not faltan, "Columna de título sin techo: " + " · ".join(faltan)
+
+
+def test_el_volcado_de_los_filtros_de_la_url_vive_en_un_solo_sitio():
+    """``applyInitialFilters`` es del contrato de la barra, no de la pantalla.
+
+    Estuvo implementado dos veces, y las dos copias ya habían divergido: la de
+    la consulta descartaba la cadena vacía y validaba la clave con un regex, la
+    del panel no hacía ni lo uno ni lo otro. Un filtro nuevo se habría
+    comportado distinto en cada pantalla sin que nada avisara.
+    """
+    dueños = [f.name for f in sorted(JS_DOCS.glob("*.js"))
+              if "applyInitialFilters = function" in f.read_text(encoding="utf8")]
+    assert dueños == ["document-list.js"], (
+        "El volcado de `initial_filters` tiene que vivir SOLO en "
+        f"document-list.js, junto al resto del contrato de la barra. Lo declaran: {dueños}"
+    )
+    for js in ("documents.js", "documents-panel.js"):
+        assert "initialFilters:" in _js(js), (
+            f"{js} no le pasa `initialFilters` a List.create, así que la pantalla "
+            "ignora los filtros que vengan en la URL (el enlace del contador de "
+            "vencidos del dashboard)."
+        )
+
+
+def test_el_modal_de_versiones_separa_el_vacio_de_la_version_unica():
+    """Cero filas y una fila son casos distintos, no ``length <= 1``.
+
+    Con ``items.length <= 1`` el modal enseñaba a la vez la fila "No se
+    encontraron versiones de este documento" y la nota "Esta es la única versión
+    registrada": dos frases que se contradicen en la misma pantalla.
+    """
+    # Solo el código: los comentarios citan la condición vieja para explicar
+    # por qué se fue, y citarla no es volver a escribirla.
+    fuente = "".join(
+        linea for linea in _js("document-versions.js").splitlines(keepends=True)
+        if not linea.lstrip().startswith(("//", "*", "/*"))
+    )
+    assert "items.length <= 1" not in fuente, (
+        "`items.length <= 1` mete el caso vacío en la rama de 'única versión'. "
+        "Son tres: 0 (habla la fila de vacío), 1 y más de 1."
+    )
+    for rama in ("items.length === 0", "items.length === 1"):
+        assert rama in fuente, f"Falta la rama `{rama}` en el modal del historial."
