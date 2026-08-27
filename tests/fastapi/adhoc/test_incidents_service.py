@@ -22,6 +22,7 @@ Regresiones del legacy cubiertas (``docs/adhoc/analysis/src_api.md`` §1.3):
   paralelas tienen longitudes distintas.
 """
 from datetime import date, datetime
+from io import BytesIO
 
 import pytest
 from pydantic import ValidationError
@@ -30,9 +31,15 @@ from itcj2.apps.adhoc.schemas.incidents import (
     IncidentBulkCreate,
     IncidentCreate,
     IncidentUpdate,
+    file_to_dict,
     serialize_incident,
 )
-from itcj2.apps.adhoc.services.incident_service import IncidentService
+from itcj2.apps.adhoc.services import upload_service
+from itcj2.apps.adhoc.services.incident_service import (
+    IncidentFileNotFound,
+    IncidentNotFound,
+    IncidentService,
+)
 
 
 # ==========================================================================
@@ -505,3 +512,176 @@ def test_serialize_sin_catalogos_deja_nulos(db_session):
     data = serialize_incident(_create(db_session, title="Pelada"))
     assert data["area"] is None and data["responsible"] is None
     assert data["task_count"] == 0
+
+
+# ==========================================================================
+# Adjuntos (351 filas migradas del SGC legacy, sin service hasta ahora)
+# ==========================================================================
+#
+# Espejo de ``test_programs_service.py`` para el circuito de archivos. Única
+# diferencia real: ``AdhocIncidentFile.file_path`` es NULLABLE (51 de los 351
+# adjuntos migrados no tienen binario en el servidor del proveedor), así que
+# aquí se cubre también el camino "registro sin archivo" -> 404 legible.
+
+class _FakeSettings:
+    def __init__(self, root):
+        self.ADHOC_UPLOAD_PATH = str(root)
+        self.ADHOC_MAX_FILE_SIZE = 1024 * 1024
+        self.ADHOC_ALLOWED_EXTENSIONS = "pdf,png,txt"
+
+
+class _FakeUpload:
+    """Duck-type de ``fastapi.UploadFile``."""
+
+    def __init__(self, filename, content=b"contenido", content_type="application/pdf"):
+        self.filename = filename
+        self.content_type = content_type
+        self.file = BytesIO(content)
+
+
+@pytest.fixture()
+def uploads_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(upload_service, "_settings", lambda: _FakeSettings(tmp_path))
+    return tmp_path
+
+
+def _sin_binario(db, incident_id, *, original_name="NOTIFICACION VR-01"):
+    """Un adjunto migrado sin archivo: ``file_path`` es ``NULL`` a propósito."""
+    from itcj2.apps.adhoc.models.incidents import AdhocIncidentFile
+
+    row = AdhocIncidentFile(
+        incident_id=incident_id, file_path=None, original_name=original_name,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def test_add_files_y_list_files(db_session, uploads_root):
+    inc = _create(db_session, title="Con adjuntos")
+
+    saved = IncidentService.add_files(
+        db_session, inc.id, [_FakeUpload("evidencia.pdf")], uploaded_by_id=None
+    )
+
+    assert len(saved) == 1
+    assert saved[0].original_name == "evidencia.pdf"
+    assert saved[0].size_bytes > 0
+    assert [f.id for f in IncidentService.list_files(db_session, inc.id)] == [saved[0].id]
+
+
+def test_list_files_incluye_los_registros_sin_binario(db_session):
+    inc = _create(db_session, title="Con huecos")
+    huerfano = _sin_binario(db_session, inc.id)
+
+    filas = IncidentService.list_files(db_session, inc.id)
+
+    assert [f.id for f in filas] == [huerfano.id]
+    assert filas[0].file_path is None
+
+
+def test_list_files_de_incidencia_inexistente_lanza_incident_not_found(db_session):
+    with pytest.raises(IncidentNotFound):
+        IncidentService.list_files(db_session, 99_999_999)
+
+
+def test_add_files_a_incidencia_inexistente_lanza_incident_not_found(db_session, uploads_root):
+    with pytest.raises(IncidentNotFound):
+        IncidentService.add_files(
+            db_session, 99_999_999, [_FakeUpload("x.pdf")], uploaded_by_id=None
+        )
+
+
+def test_add_files_sin_archivos_lanza_value_error(db_session, uploads_root):
+    inc = _create(db_session, title="Sin archivos")
+    with pytest.raises(ValueError):
+        IncidentService.add_files(db_session, inc.id, [], uploaded_by_id=None)
+
+
+def test_add_files_rechaza_extension_no_permitida_sin_dejar_rastro(db_session, uploads_root):
+    inc = _create(db_session, title="Extension mala")
+
+    with pytest.raises(ValueError):
+        IncidentService.add_files(
+            db_session, inc.id, [_FakeUpload("shell.php", content_type="application/x-php")],
+            uploaded_by_id=None,
+        )
+
+    assert IncidentService.list_files(db_session, inc.id) == []
+
+
+def test_get_file_inexistente_lanza_incident_file_not_found(db_session):
+    with pytest.raises(IncidentFileNotFound):
+        IncidentService.get_file(db_session, 99_999_999)
+
+
+def test_open_file_devuelve_la_ruta_absoluta_verificada(db_session, uploads_root):
+    inc = _create(db_session, title="Descargable")
+    saved = IncidentService.add_files(
+        db_session, inc.id, [_FakeUpload("plan.pdf")], uploaded_by_id=None
+    )[0]
+
+    path = IncidentService.open_file(saved)
+
+    assert path.is_file()
+    assert path.name == "plan.pdf"
+
+
+def test_open_file_sin_binario_lanza_incident_file_not_found(db_session):
+    """51 de los 351 adjuntos migrados no tienen archivo en el proveedor."""
+    inc = _create(db_session, title="Sin binario")
+    huerfano = _sin_binario(db_session, inc.id)
+
+    with pytest.raises(IncidentFileNotFound):
+        IncidentService.open_file(huerfano)
+
+
+def test_delete_file_borra_la_fila_y_el_archivo(db_session, uploads_root):
+    inc = _create(db_session, title="Borrable")
+    saved = IncidentService.add_files(
+        db_session, inc.id, [_FakeUpload("plan.pdf")], uploaded_by_id=None
+    )[0]
+    on_disk = upload_service.open_stored("incidents", saved.file_path)
+    file_id = saved.id
+
+    IncidentService.delete_file(db_session, file_id)
+
+    from itcj2.apps.adhoc.models.incidents import AdhocIncidentFile
+
+    assert db_session.get(AdhocIncidentFile, file_id) is None
+    assert not on_disk.exists()
+
+
+def test_delete_file_sin_binario_solo_borra_la_fila(db_session):
+    """Un registro migrado sin archivo no debe reventar al borrarse."""
+    from itcj2.apps.adhoc.models.incidents import AdhocIncidentFile
+
+    inc = _create(db_session, title="Borrable sin binario")
+    huerfano = _sin_binario(db_session, inc.id)
+    file_id = huerfano.id
+
+    IncidentService.delete_file(db_session, file_id)
+
+    assert db_session.get(AdhocIncidentFile, file_id) is None
+
+
+def test_delete_file_inexistente_lanza_incident_file_not_found(db_session):
+    with pytest.raises(IncidentFileNotFound):
+        IncidentService.delete_file(db_session, 99_999_999)
+
+
+def test_file_to_dict_marca_is_available_segun_el_binario(db_session):
+    inc = _create(db_session, title="Serializable con adjuntos")
+
+    from itcj2.apps.adhoc.models.incidents import AdhocIncidentFile
+
+    con_archivo = AdhocIncidentFile(
+        incident_id=inc.id, file_path="1/plan.pdf", original_name="plan.pdf",
+    )
+    sin_archivo = _sin_binario(db_session, inc.id, original_name="NOTIFICACION VR-01")
+    db_session.add(con_archivo)
+    db_session.flush()
+
+    assert file_to_dict(con_archivo)["is_available"] is True
+    assert file_to_dict(sin_archivo)["is_available"] is False
+    assert file_to_dict(sin_archivo)["original_name"] == "NOTIFICACION VR-01"

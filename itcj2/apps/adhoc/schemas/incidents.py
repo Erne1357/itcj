@@ -53,6 +53,7 @@ __all__ = [
     "IncidentUserRefOut",
     "IncidentOut",
     "serialize_incident",
+    "file_to_dict",
     "MAX_BULK_ITEMS",
 ]
 
@@ -258,3 +259,30 @@ def serialize_incident(incident: Any, *, task_count: Optional[int] = None) -> di
     if task_count is not None:
         out["task_count"] = task_count
     return out
+
+
+def file_to_dict(file: Any) -> dict:
+    """Serializa un ``AdhocIncidentFile``. Espejo de ``programs.file_to_dict``.
+
+    ``is_available`` es lo único que no tiene equivalente en eventos de
+    programa: distingue los adjuntos migrados cuyo ``file_path`` es ``NULL``
+    (51 de los 351 del SGC legacy — el binario ya no está en el servidor del
+    proveedor) de los que sí se pueden descargar. El listado los muestra
+    igual, marcados como no disponibles, en vez de perder el rastro de qué se
+    adjuntó.
+    """
+    return {
+        "id": file.id,
+        "incident_id": file.incident_id,
+        "file_path": file.file_path,
+        "original_name": file.original_name,
+        "mime_type": file.mime_type,
+        "size_bytes": file.size_bytes,
+        "uploaded_by_id": file.uploaded_by_id,
+        "is_available": bool(file.file_path),
+        "created_at": (
+            file.created_at.isoformat()
+            if isinstance(getattr(file, "created_at", None), (date, datetime))
+            else None
+        ),
+    }

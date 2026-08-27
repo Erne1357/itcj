@@ -36,7 +36,7 @@ import logging
 from datetime import date
 from typing import Optional, Sequence
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 
 from itcj2.apps.adhoc.schemas.common import PaginationParams
 from itcj2.apps.adhoc.schemas.incidents import IncidentBulkCreate, IncidentUpdate
@@ -93,6 +93,64 @@ def _as_choice(
             detail=f"'{field}' inválido: {limpio}. Válidos: {', '.join(choices)}",
         )
     return limpio
+
+
+# ==========================================================================
+# Adjuntos por id — declaradas ANTES que las rutas /{incident_id} a
+# propósito, igual que en ``api/programs.py``: el convertidor por defecto de
+# FastAPI es ``str``, así que un patrón genérico registrado antes podría
+# capturar el segmento literal "files" si el orden fuera el inverso.
+#
+# 351 adjuntos del SGC legacy viven en ``adhoc_incident_files`` sin service ni
+# endpoint desde que la reescritura a FastAPI perdió esa capacidad —
+# ``static/js/incidents/incidents.js:35,39`` lo dejó escrito: "los adjuntos
+# son cosa de programas". 51 de esos 351 no tienen binario (el archivo ya no
+# está en el servidor del proveedor de la migración): la descarga responde
+# 404 legible, no un 500.
+# ==========================================================================
+
+@router.get("/files/{file_id}/download")
+def download_incident_file(
+    file_id: int,
+    user: dict = require_perms("adhoc", ["adhoc.incidents.api.files.download"]),
+    db: DbSession = None,
+):
+    """Descarga un adjunto de incidencia por **id**."""
+    from fastapi.responses import FileResponse
+
+    from itcj2.apps.adhoc.services import upload_service
+    from itcj2.apps.adhoc.services.incident_service import IncidentFileNotFound, IncidentService
+
+    try:
+        row = IncidentService.get_file(db, file_id)
+        path = IncidentService.open_file(row)
+    except IncidentFileNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return FileResponse(
+        str(path),
+        media_type=row.mime_type or "application/octet-stream",
+        # `original_name` no siempre trae extensión — ver `download_name`.
+        filename=upload_service.download_name(path, row.original_name),
+    )
+
+
+@router.delete("/files/{file_id}")
+def delete_incident_file(
+    file_id: int,
+    user: dict = require_perms("adhoc", ["adhoc.incidents.api.files.delete"]),
+    db: DbSession = None,
+):
+    """Elimina un adjunto de incidencia: la fila y el fichero del disco
+    (si lo hay — puede ser un registro migrado sin binario)."""
+    from itcj2.apps.adhoc.services.incident_service import IncidentFileNotFound, IncidentService
+
+    try:
+        IncidentService.delete_file(db, file_id)
+    except IncidentFileNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return {"success": True, "message": "Archivo eliminado"}
 
 
 # ==========================================================================
@@ -243,3 +301,63 @@ def delete_incident(
 
     logger.info("[adhoc] Usuario %s eliminó la incidencia %s", user.get("sub"), incident_id)
     return ok_message("Incidencia eliminada")
+
+
+# ==========================================================================
+# Adjuntos de una incidencia
+# ==========================================================================
+
+@router.get("/{incident_id}/files")
+def list_incident_files(
+    incident_id: int,
+    user: dict = require_perms("adhoc", ["adhoc.incidents.api.read"]),
+    db: DbSession = None,
+):
+    """Adjuntos de la incidencia, leídos de la BD (no de ``os.listdir``).
+
+    Incluye los registros migrados sin binario (``is_available: false``): el
+    expediente de una no conformidad ES la evidencia, así que ocultar la fila
+    perdería el rastro de qué se adjuntó y quién.
+    """
+    from itcj2.apps.adhoc.schemas.common import ok_list
+    from itcj2.apps.adhoc.schemas.incidents import file_to_dict
+    from itcj2.apps.adhoc.services.incident_service import IncidentNotFound, IncidentService
+
+    try:
+        rows = IncidentService.list_files(db, incident_id)
+    except IncidentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return ok_list([file_to_dict(f) for f in rows])
+
+
+@router.post("/{incident_id}/files", status_code=201)
+def upload_incident_files(
+    incident_id: int,
+    files: list[UploadFile] = File(...),
+    user: dict = require_perms("adhoc", ["adhoc.incidents.api.files.create"]),
+    db: DbSession = None,
+):
+    """Adjunta archivos a una incidencia existente (``multipart/form-data``).
+
+    Campo repetible ``files``. Extensión, tamaño y nombre los valida
+    ``upload_service``; si uno falla no se guarda ninguno.
+    """
+    from itcj2.apps.adhoc.schemas.common import ok_list
+    from itcj2.apps.adhoc.schemas.incidents import file_to_dict
+    from itcj2.apps.adhoc.services.incident_service import IncidentNotFound, IncidentService
+
+    try:
+        rows = IncidentService.add_files(
+            db, incident_id, files, uploaded_by_id=int(user["sub"])
+        )
+    except IncidentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    logger.info(
+        "[adhoc] Usuario %s subió %d adjunto(s) a la incidencia %s",
+        user.get("sub"), len(rows), incident_id,
+    )
+    return ok_list([file_to_dict(f) for f in rows])

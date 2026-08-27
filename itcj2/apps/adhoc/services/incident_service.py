@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
+from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
 from sqlalchemy import or_
@@ -47,7 +48,10 @@ from itcj2.models.base import Pagination, paginate
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["IncidentService", "ORDERABLE_COLUMNS"]
+__all__ = [
+    "IncidentService", "ORDERABLE_COLUMNS", "UPLOAD_KIND",
+    "IncidentNotFound", "IncidentFileNotFound",
+]
 
 #: Columnas por las que se puede ordenar el listado. Whitelist explícita: el
 #: valor llega de un query param y se resuelve con ``getattr`` sobre el modelo.
@@ -64,6 +68,26 @@ _FK_LABELS: dict[str, str] = {
     "process_id": "proceso",
     "responsible_id": "usuario responsable",
 }
+
+#: Almacén de ``upload_service`` para los adjuntos de incidencia. Espejo de
+#: ``program_event_service.UPLOAD_KIND``.
+UPLOAD_KIND = "incidents"
+
+
+class IncidentNotFound(LookupError):
+    """La incidencia no existe.
+
+    Los métodos de adjuntos (``list_files``/``add_files``) la lanzan para
+    poder distinguir "incidencia inexistente" de "archivo inexistente"
+    (:class:`IncidentFileNotFound`). El CRUD base de arriba (``get``/
+    ``update``/``delete``) no la usa a propósito: ya tiene su propio contrato
+    probado (``None``/``False``) y cambiarlo aquí rompería esos tests sin
+    necesidad.
+    """
+
+
+class IncidentFileNotFound(LookupError):
+    """El adjunto de la incidencia no existe. El endpoint lo traduce a 404."""
 
 
 class IncidentService:
@@ -278,6 +302,143 @@ class IncidentService:
         db.commit()
         logger.info("[adhoc] Incidencia %s eliminada", incident_id)
         return True
+
+    # ----------------------------------------------------------------------
+    # Adjuntos
+    # ----------------------------------------------------------------------
+    #
+    # Espejo literal de ``program_event_service.{list_files, add_files,
+    # get_file, open_file, delete_file}``. Única diferencia real: aquí
+    # ``AdhocIncidentFile.file_path`` es NULLABLE (351 adjuntos migrados del
+    # SGC legacy, 51 de ellos sin binario en el servidor del proveedor), así
+    # que ``open_file`` puede fallar con :class:`IncidentFileNotFound` por un
+    # registro perfectamente válido, no solo por un archivo borrado a mano.
+
+    @staticmethod
+    def list_files(db: Session, incident_id: int) -> list:
+        """Adjuntos de una incidencia, del más reciente al más antiguo.
+
+        Incluye los registros sin binario (``file_path IS NULL``): ocultarlos
+        perdería el rastro de qué se adjuntó y quién. El endpoint los
+        serializa con ``is_available: false`` en vez de descartarlos.
+        """
+        from itcj2.apps.adhoc.models.incidents import AdhocIncident, AdhocIncidentFile
+
+        if db.get(AdhocIncident, incident_id) is None:
+            raise IncidentNotFound(f"La incidencia {incident_id} no existe")
+
+        return (
+            db.query(AdhocIncidentFile)
+            .filter(AdhocIncidentFile.incident_id == incident_id)
+            .order_by(AdhocIncidentFile.id.desc())
+            .all()
+        )
+
+    @staticmethod
+    def add_files(
+        db: Session,
+        incident_id: int,
+        uploads: Sequence[Any],
+        *,
+        uploaded_by_id: Optional[int] = None,
+    ) -> list:
+        """Adjunta uno o más archivos a una incidencia existente.
+
+        Raises:
+            IncidentNotFound: la incidencia no existe.
+            ValueError: no venía ningún archivo, o alguno es inválido
+                (extensión fuera de whitelist, tamaño, nombre con traversal).
+                En ese caso no queda ninguno: se borra del disco lo ya escrito
+                y se hace rollback.
+        """
+        from itcj2.apps.adhoc.models.incidents import AdhocIncident, AdhocIncidentFile
+        from itcj2.apps.adhoc.services import upload_service
+
+        if db.get(AdhocIncident, incident_id) is None:
+            raise IncidentNotFound(f"La incidencia {incident_id} no existe")
+
+        usable = [u for u in (uploads or []) if getattr(u, "filename", None)]
+        if not usable:
+            raise ValueError("No se recibió ningún archivo")
+
+        rows: list = []
+        written: list[str] = []
+        try:
+            for upload in usable:
+                meta = upload_service.save_upload(UPLOAD_KIND, incident_id, upload)
+                written.append(meta["file_path"])
+                row = AdhocIncidentFile(
+                    incident_id=incident_id,
+                    file_path=meta["file_path"],
+                    original_name=meta["original_name"],
+                    mime_type=meta["mime_type"],
+                    size_bytes=meta["size_bytes"],
+                    uploaded_by_id=uploaded_by_id,
+                )
+                db.add(row)
+                rows.append(row)
+            db.commit()
+        except Exception:
+            db.rollback()
+            for relative in written:
+                upload_service.delete_file(UPLOAD_KIND, relative)
+            raise
+
+        for row in rows:
+            db.refresh(row)
+        logger.info(
+            "[adhoc] %d adjunto(s) agregado(s) a la incidencia %s", len(rows), incident_id
+        )
+        return rows
+
+    @staticmethod
+    def get_file(db: Session, file_id: int):
+        """Adjunto por PK o :class:`IncidentFileNotFound`."""
+        from itcj2.apps.adhoc.models.incidents import AdhocIncidentFile
+
+        row = db.get(AdhocIncidentFile, file_id)
+        if row is None:
+            raise IncidentFileNotFound(f"El archivo {file_id} no existe")
+        return row
+
+    @staticmethod
+    def open_file(file_row: Any) -> Path:
+        """Ruta absoluta y verificada del adjunto, lista para ``FileResponse``.
+
+        Pasa por ``safe_join``: el valor de ``file_path`` viene de la BD y se
+        trata como dato no confiable.
+
+        Raises:
+            IncidentFileNotFound: el registro no tiene binario asociado
+                (``file_path`` es ``NULL`` — adjunto migrado sin archivo en el
+                servidor del proveedor) o el fichero ya no está en disco / la
+                ruta se sale de la raíz de uploads.
+        """
+        from itcj2.apps.adhoc.services import upload_service
+
+        if not file_row.file_path:
+            raise IncidentFileNotFound(
+                f"El archivo {file_row.id} no tiene un binario disponible "
+                "(adjunto migrado sin archivo en el servidor de origen)"
+            )
+        try:
+            return upload_service.open_stored(UPLOAD_KIND, file_row.file_path)
+        except ValueError as exc:
+            raise IncidentFileNotFound(str(exc)) from exc
+
+    @staticmethod
+    def delete_file(db: Session, file_id: int) -> None:
+        """Borra el adjunto: primero la fila, después el fichero del disco
+        (si lo hay — puede ser un registro migrado sin binario)."""
+        from itcj2.apps.adhoc.services import upload_service
+
+        row = IncidentService.get_file(db, file_id)
+        relative = row.file_path
+        db.delete(row)
+        db.commit()
+        if relative:
+            upload_service.delete_file(UPLOAD_KIND, relative)
+        logger.info("[adhoc] Adjunto de incidencia %s eliminado", file_id)
 
     # ----------------------------------------------------------------------
     # Internos

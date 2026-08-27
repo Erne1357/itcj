@@ -18,6 +18,7 @@ Gotchas del harness aplicados (plan §9.1):
 * ``get_db`` se sobreescribe con la sesión transaccional del test para que lo
   que escriba el endpoint sea visible al assert y se revierta al final.
 """
+from io import BytesIO
 from unittest.mock import patch
 
 import pytest
@@ -30,6 +31,15 @@ PERMS = {
     "adhoc.incidents.api.create",
     "adhoc.incidents.api.update",
     "adhoc.incidents.api.delete",
+}
+
+#: Los tres permisos de archivos, cargados por separado (delta posterior al
+#: init de la app — ``cli/adhoc.py::grant_incident_files_command``).
+FILE_PERMS = {
+    "adhoc.incidents.api.read",
+    "adhoc.incidents.api.files.create",
+    "adhoc.incidents.api.files.delete",
+    "adhoc.incidents.api.files.download",
 }
 
 BASE = "/api/adhoc/v2/incidents"
@@ -102,6 +112,21 @@ def _crear(client, headers, **campos):
     resp = client.post(BASE, json={"items": [payload]}, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()["data"][0]
+
+
+class _FakeSettings:
+    def __init__(self, root):
+        self.ADHOC_UPLOAD_PATH = str(root)
+        self.ADHOC_MAX_FILE_SIZE = 1024 * 1024
+        self.ADHOC_ALLOWED_EXTENSIONS = "pdf,png,txt"
+
+
+@pytest.fixture()
+def uploads_root(tmp_path, monkeypatch):
+    from itcj2.apps.adhoc.services import upload_service
+
+    monkeypatch.setattr(upload_service, "_settings", lambda: _FakeSettings(tmp_path))
+    return tmp_path
 
 
 # ==========================================================================
@@ -426,4 +451,170 @@ def test_delete_arrastra_las_tareas_hijas(incidents_client, admin_headers, db_se
 
 def test_delete_de_inexistente_es_404(incidents_client, admin_headers):
     resp = incidents_client.delete(f"{BASE}/987654321", headers=admin_headers)
+    assert resp.status_code == 404
+
+
+# ==========================================================================
+# Adjuntos — 351 filas migradas del SGC legacy sin service ni endpoint hasta
+# ahora (``static/js/incidents/incidents.js:35,39``: "los adjuntos son cosa
+# de programas"). Espejo de ``test_programs_api.py``; la diferencia real es
+# el registro migrado sin binario (``file_path IS NULL``): la descarga debe
+# responder 404 legible, no reventar.
+# ==========================================================================
+
+@pytest.mark.parametrize(
+    "metodo,url",
+    [
+        ("get", f"{BASE}/1/files"),
+        ("post", f"{BASE}/1/files"),
+        ("delete", f"{BASE}/files/1"),
+        ("get", f"{BASE}/files/1/download"),
+    ],
+)
+def test_adjuntos_sin_cookie_es_401(incidents_client, metodo, url):
+    resp = incidents_client.request(metodo.upper(), url)
+    assert resp.status_code == 401
+
+
+def test_adjuntos_sin_el_permiso_concreto_es_403(incidents_client, staff_headers, grant):
+    """``adhoc.incidents.api.read`` no alcanza para subir ni borrar adjuntos."""
+    with grant(perms={"adhoc.incidents.api.read"}):
+        subida = incidents_client.post(
+            f"{BASE}/1/files", headers=staff_headers,
+            files=[("files", ("x.pdf", BytesIO(b"x"), "application/pdf"))],
+        )
+        borrado = incidents_client.delete(f"{BASE}/files/1", headers=staff_headers)
+    assert subida.status_code == 403
+    assert borrado.status_code == 403
+
+
+def test_adjuntos_con_los_permisos_reales_funciona_sin_ser_admin(
+    incidents_client, admin_headers, staff_headers, grant
+):
+    creada = _crear(incidents_client, admin_headers, title="e2e_api_files_staff")
+
+    with grant(perms=FILE_PERMS):
+        resp = incidents_client.get(f"{BASE}/{creada['id']}/files", headers=staff_headers)
+    assert resp.status_code == 200
+
+
+def test_subir_y_listar_adjuntos(incidents_client, admin_headers, uploads_root):
+    creada = _crear(incidents_client, admin_headers, title="e2e_api_files_list")
+
+    subida = incidents_client.post(
+        f"{BASE}/{creada['id']}/files", headers=admin_headers,
+        files=[
+            ("files", ("plan.pdf", BytesIO(b"uno"), "application/pdf")),
+            ("files", ("acta.txt", BytesIO(b"dos"), "text/plain")),
+        ],
+    )
+    assert subida.status_code == 201
+    assert subida.json()["total"] == 2
+
+    listado = incidents_client.get(
+        f"{BASE}/{creada['id']}/files", headers=admin_headers
+    ).json()
+    assert listado["total"] == 2
+    assert {f["original_name"] for f in listado["data"]} == {"plan.pdf", "acta.txt"}
+    assert all(f["is_available"] for f in listado["data"])
+
+
+def test_listar_adjuntos_incluye_los_registros_sin_binario(
+    incidents_client, admin_headers, db_session
+):
+    from itcj2.apps.adhoc.models.incidents import AdhocIncidentFile
+
+    creada = _crear(incidents_client, admin_headers, title="e2e_api_files_huerfano")
+    db_session.add(AdhocIncidentFile(
+        incident_id=creada["id"], file_path=None, original_name="NOTIFICACION VR-01",
+    ))
+    db_session.flush()
+
+    resp = incidents_client.get(f"{BASE}/{creada['id']}/files", headers=admin_headers)
+    cuerpo = resp.json()
+
+    assert resp.status_code == 200
+    assert cuerpo["total"] == 1
+    assert cuerpo["data"][0]["is_available"] is False
+    assert cuerpo["data"][0]["original_name"] == "NOTIFICACION VR-01"
+
+
+def test_listar_adjuntos_de_incidencia_inexistente_es_404(incidents_client, admin_headers):
+    resp = incidents_client.get(f"{BASE}/987654321/files", headers=admin_headers)
+    assert resp.status_code == 404
+
+
+def test_subir_adjunto_a_incidencia_inexistente_es_404(incidents_client, admin_headers, uploads_root):
+    resp = incidents_client.post(
+        f"{BASE}/987654321/files", headers=admin_headers,
+        files=[("files", ("plan.pdf", BytesIO(b"x"), "application/pdf"))],
+    )
+    assert resp.status_code == 404
+
+
+def test_subir_sin_archivos_es_400(incidents_client, admin_headers, uploads_root):
+    creada = _crear(incidents_client, admin_headers, title="e2e_api_files_sin_archivo")
+    resp = incidents_client.post(f"{BASE}/{creada['id']}/files", headers=admin_headers, files=[])
+    assert resp.status_code in (400, 422)
+
+
+def test_descargar_adjunto_por_id_devuelve_el_binario(incidents_client, admin_headers, uploads_root):
+    from itcj2.apps.adhoc.services.incident_service import IncidentService
+
+    creada = _crear(incidents_client, admin_headers, title="e2e_api_files_download")
+    # Nombre con espacio y acento: el legacy lo rompía al armar la URL cruda.
+    upload_resp = incidents_client.post(
+        f"{BASE}/{creada['id']}/files", headers=admin_headers,
+        files=[("files", ("acta de revisión.pdf", BytesIO(b"binario"), "application/pdf"))],
+    )
+    file_id = upload_resp.json()["data"][0]["id"]
+
+    resp = incidents_client.get(f"{BASE}/files/{file_id}/download", headers=admin_headers)
+
+    assert resp.status_code == 200
+    assert resp.content == b"binario"
+    assert "attachment" in resp.headers["content-disposition"]
+
+
+def test_descargar_adjunto_sin_binario_es_404_legible(incidents_client, admin_headers, db_session):
+    """51 de los 351 adjuntos migrados no tienen archivo en el proveedor."""
+    from itcj2.apps.adhoc.models.incidents import AdhocIncidentFile
+
+    creada = _crear(incidents_client, admin_headers, title="e2e_api_files_sin_binario")
+    row = AdhocIncidentFile(
+        incident_id=creada["id"], file_path=None, original_name="NOTIFICACION VR-01",
+    )
+    db_session.add(row)
+    db_session.flush()
+    file_id = row.id
+
+    resp = incidents_client.get(f"{BASE}/files/{file_id}/download", headers=admin_headers)
+
+    assert resp.status_code == 404
+    assert isinstance(resp.json()["error"], str)
+
+
+def test_descargar_adjunto_inexistente_es_404(incidents_client, admin_headers):
+    resp = incidents_client.get(f"{BASE}/files/987654321/download", headers=admin_headers)
+    assert resp.status_code == 404
+
+
+def test_borrar_adjunto_por_id(incidents_client, admin_headers, uploads_root, db_session):
+    from itcj2.apps.adhoc.models.incidents import AdhocIncidentFile
+
+    creada = _crear(incidents_client, admin_headers, title="e2e_api_files_delete")
+    upload_resp = incidents_client.post(
+        f"{BASE}/{creada['id']}/files", headers=admin_headers,
+        files=[("files", ("plan.pdf", BytesIO(b"x"), "application/pdf"))],
+    )
+    file_id = upload_resp.json()["data"][0]["id"]
+
+    resp = incidents_client.delete(f"{BASE}/files/{file_id}", headers=admin_headers)
+
+    assert resp.status_code == 200
+    assert db_session.get(AdhocIncidentFile, file_id) is None
+
+
+def test_borrar_adjunto_inexistente_es_404(incidents_client, admin_headers):
+    resp = incidents_client.delete(f"{BASE}/files/987654321", headers=admin_headers)
     assert resp.status_code == 404
