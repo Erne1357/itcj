@@ -311,8 +311,8 @@ def assignments_page(
     el JS del legacy, ya con el usuario habiendo elegido a diez personas).
     """
     from itcj2.apps.adhoc.pages._work_context import (
-        assignable_users,
         page_context,
+        picker_users,
         safe_return_to,
     )
     from itcj2.apps.adhoc.pages.render import render_adhoc
@@ -336,7 +336,16 @@ def assignments_page(
         "target_id": target_id,
         "endpoint": config["endpoint"].format(id=target_id),
         "method": config["method"],
-        "users": assignable_users(db),
+        # `picker_users` y NO `assignable_users`: la lista de a quién se puede
+        # marcar y la de quién ya está marcado salen del mismo criterio de
+        # acceso, así que al responsable que lo perdió lo excluye la primera
+        # exactamente por el motivo por el que aparece en la segunda. Sin
+        # conciliarlas, el picker no lo encontraba y pintaba la ficha `#24055`
+        # —un número— justo en la pantalla a la que manda el aviso de "tarea
+        # bloqueada", y `getSelection()` lo devolvía igual: guardar un
+        # sustituto lo conservaba y la tarea volvía marcada. Los dos conjuntos
+        # los conoce el servidor; los concilia el servidor.
+        "users": picker_users(db, selected),
         "selected_ids": selected,
         "return_to": safe_return_to(return_to, fallback_back),
         "labels": {"title": config["title"]},
@@ -380,11 +389,21 @@ def _task_target(db: Session, action: str, task_id: int | None) -> tuple[int, li
         else task_assignee_ids(db, task.id)
     )
 
+    # Los TRES padres de una tarea, cada uno a su expediente. El de documento
+    # faltaba y el `else` se lo tragaba: reasignar la tarea de aprobación de un
+    # documento —justo lo que hay que hacer cuando un paso se atasca porque sus
+    # validadores ya no entran a la app— devolvía al tablero en vez de a la
+    # pantalla desde la que se venía, y desde el tablero no hay forma de volver.
     if task.incident_id:
         volver = f"/adhoc/incidencias/{task.incident_id}/tareas"
     elif task.program_id:
         volver = f"/adhoc/programas/{task.program_id}/tareas"
+    elif task.document_id:
+        volver = f"/adhoc/documentos/{task.document_id}/tareas"
     else:
+        # `adhoc_tasks` tiene un CheckConstraint que obliga a exactamente uno de
+        # los tres, así que esto no debería darse; el tablero es el destino
+        # neutral por si un día se añade un cuarto padre y se olvida esta rama.
         volver = "/adhoc/dashboard"
 
     return task.id, selected, volver

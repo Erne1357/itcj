@@ -1,6 +1,6 @@
 """Tests de la sección **Documentos y flujos** de Calidad (fase F5/F6).
 
-Cubre las seis páginas de ``itcj2/apps/adhoc/pages/documents.py``:
+Cubre las siete páginas de ``itcj2/apps/adhoc/pages/documents.py``:
 
 ======================================  ============================
 URL                                     Permiso de página
@@ -11,7 +11,18 @@ URL                                     Permiso de página
 ``/adhoc/documentos/clasificaciones``   ``adhoc.doc_catalogs.page.list``
 ``/adhoc/documentos/flujos``            ``adhoc.flows.page.list``
 ``/adhoc/documentos/flujos/{id}/pasos`` ``adhoc.flows.page.list``
+``/adhoc/documentos/{id}/tareas``       ``adhoc.tasks.page.list``   (B4)
 ======================================  ============================
+
+La séptima la añadió B4 y cierra el hallazgo A16: ``parent_type='document'`` lo
+soportaban la API y el service, pero **no había pantalla**, así que las tareas
+de aprobación de un documento solo se veían en el tablero personal de cada
+validador. Nadie podía mirar el avance por pasos ni destrabar un paso cuyos
+asignados ya no entran a la app. Sus tests van aparte, en
+``TestTareasDelDocumento``: es la única de las siete que necesita **BD real**
+(resuelve el documento con el service y arma su contexto con
+``assignable_users``, que hace un join de cuatro tablas), así que no la sirve el
+doble de sesión que basta para las otras seis.
 
 Harness (plan §9.1): estas rutas devuelven **HTML** (403 renderizado, 302 al
 login), no JSON, y ``cached_has_assignment``/``cached_perms`` se parchean en el
@@ -67,7 +78,9 @@ TEMPLATES_DIR = APP_ROOT / "templates" / "adhoc" / "documents"
 CSS_DIR = APP_ROOT / "static" / "css" / "documents"
 JS_DIR = APP_ROOT / "static" / "js" / "documents"
 
-#: URL → permiso de página exigido (tabla del plan §4).
+#: URL → permiso de página exigido (tabla del plan §4). Son las **seis** que
+#: sirve la sesión falsa; la séptima (``/documentos/{id}/tareas``) necesita BD
+#: real y se ejercita en ``TestTareasDelDocumento``.
 PAGES = {
     "/adhoc/documentos": "adhoc.documents.page.list",
     "/adhoc/documentos/panel": "adhoc.documents.page.manage",
@@ -80,12 +93,15 @@ PAGES = {
 #: Nombre con markup: si sale sin escapar en el HTML, es un XSS.
 EVIL = '<img src=x onerror="alert(1)">'
 
-#: Todos los permisos de Calidad que tocan estas seis pantallas. Es lo que ve el
+#: Todos los permisos de Calidad que tocan estas siete pantallas. Es lo que ve el
 #: rol ``admin`` de la app. OJO: ``require_page_app`` **no** tiene bypass para el
 #: admin global del JWT —comprueba asignación y permiso siempre—, así que estos
 #: tests parchean ``cached_has_assignment``/``cached_perms`` incluso para él.
 ALL_PERMS = {
     "adhoc.dashboard.page.view",
+    # B4: la pantalla de tareas de un documento pide EL MISMO permiso que sus
+    # dos hermanas de incidencias y programa, no uno propio.
+    "adhoc.tasks.page.list",
     "adhoc.documents.page.list",
     "adhoc.documents.page.manage",
     "adhoc.documents.api.read",
@@ -339,7 +355,14 @@ class TestRutas:
                            {"adhoc.documents.page.list"}, authz)
         assert res.status_code == 403
 
-    def test_las_seis_rutas_estan_en_el_router_de_la_seccion(self):
+    def test_las_siete_rutas_estan_en_el_router_de_la_seccion(self):
+        """Inventario exacto: sobra y falta se cazan igual.
+
+        La séptima (B4) va declarada **después** de las literales dentro del
+        módulo, que es lo que impide que la paramétrica de segundo nivel se
+        coma un ``/documentos/algo`` futuro. Aquí solo se comprueba que está;
+        el orden lo garantiza el propio archivo.
+        """
         paths = {r.path for r in documents_router.routes}
         assert paths == {
             "/documentos",
@@ -348,6 +371,7 @@ class TestRutas:
             "/documentos/clasificaciones",
             "/documentos/flujos",
             "/documentos/flujos/{flow_id}/pasos",
+            "/documentos/{document_id}/tareas",
         }
 
     def test_el_router_no_trae_prefijo_propio(self):
@@ -409,6 +433,16 @@ class TestConsulta:
         el botón en algo que pintar en una pantalla de lectura.
         """
         assert "can_update" not in page_data(html)
+
+    def test_la_consulta_no_enlaza_a_las_tareas_del_documento(self, html):
+        """B4, decisión 2: a la pantalla de tareas se entra desde el PANEL.
+
+        Misma asimetría que ``can_update`` y por la misma razón: ver el avance
+        de un flujo y reasignar un paso atascado es administrar el ciclo
+        documental. Esta pantalla es de lectura y su permiso lo tiene el rol
+        ``consult``.
+        """
+        assert "tasks_url" not in page_data(html)
 
     def test_estaticos_versionados(self, html):
         assert "/static/adhoc/css/documents/documents.css?v=" in html
@@ -484,6 +518,42 @@ class TestPanel:
                            {"adhoc.documents.page.manage"}, authz)
         assert res.status_code == 200
         assert page_data(res.text)["can_update"] is False
+
+    def test_la_accion_de_fila_de_tareas_sale_del_json_no_del_js(self, html):
+        """B4: el destino viaja como PLANTILLA en ``page_data``.
+
+        Mismo criterio que en incidencias y programas
+        (``test_la_url_de_tareas_sale_del_json_no_del_js``): el legacy tenía
+        ``/app_prueba/extintor/tareas/${id}`` escrito dentro del módulo JS, así
+        que renombrar una ruta obligaba a buscarla en los estáticos.
+        """
+        assert page_data(html)["tasks_url"] == "/adhoc/documentos/{id}/tareas"
+
+    def test_sin_el_permiso_de_la_pagina_destino_no_hay_boton(
+            self, client, staff_headers, authz):
+        """La clave es a la vez el DESTINO y el gate, así que se condiciona.
+
+        `documents-panel.js` pinta la acción con `if (this.tasksUrl)`, así que
+        emitirla sin comprobar `adhoc.tasks.page.list` ponía el icono
+        `fa-list-check` en las 25 filas de la página y cada clic sacaba al
+        usuario a la pantalla de prohibido: la ruta destino sí exige el
+        permiso. Hoy los dos roles del DML que administran documentos tienen
+        también el de tareas, así que no lo alcanza nadie —pero un permiso
+        directo o un override de puesto arma la combinación, y un botón que no
+        lleva a ningún sitio es peor que no tenerlo.
+        """
+        res = get_as_staff(client, staff_headers, "/adhoc/documentos/panel",
+                           ALL_PERMS - {"adhoc.tasks.page.list"}, authz)
+
+        assert res.status_code == 200, res.text[:300]
+        assert page_data(res.text)["tasks_url"] is None
+
+    def test_con_el_permiso_el_boton_vuelve(self, client, staff_headers, authz):
+        """La otra mitad: el gate no puede apagarlo para quien sí puede pasar."""
+        res = get_as_staff(client, staff_headers, "/adhoc/documentos/panel",
+                           ALL_PERMS, authz)
+
+        assert page_data(res.text)["tasks_url"] == "/adhoc/documentos/{id}/tareas"
 
     def test_las_extensiones_permitidas_llegan_al_input_de_archivo(self, html):
         accept = page_data(html)["accept"]
@@ -933,6 +1003,189 @@ class TestPasos:
         assert data["can_update"] is False
         assert data["can_assign"] is False
         assert "data-adhoc-steps-add" not in res.text
+
+
+# ==========================================================================
+# /adhoc/documentos/{id}/tareas — el avance por pasos del flujo  (B4)
+#
+# La pantalla que faltaba. `parent_type='document'` lo soportaban `TaskParentType`,
+# `task_service._parent_model` y `GET /tasks`, pero la URL no existía: las tareas
+# de aprobación de un documento solo asomaban en el tablero personal de cada
+# validador, y `/adhoc/asignaciones` —lo único que reasigna un paso atascado— solo
+# se alcanza desde una página de tareas. Con 125 tareas documentales en la base y
+# dos abiertas (una de ellas con su único responsable ya sin acceso a la app), el
+# ciclo documental no tenía dónde mirarse ni cómo destrabarse.
+#
+# Aquí va con BD real y no con `FakeDB`: la ruta resuelve el documento con
+# `AdhocDocumentService.get` y su contexto llama a `assignable_users`, que hace un
+# join de cuatro tablas. Un doble que aguantara eso sería una reimplementación de
+# SQLAlchemy, y entonces el test no probaría la pantalla sino al doble.
+# ==========================================================================
+
+class TestTareasDelDocumento:
+    @pytest.fixture()
+    def real_client(self, app_client, db_session):
+        """Cliente sobre el cableado REAL (``pages/router.py``) con BD de test.
+
+        Se monta el router solo **si falta**: hoy `create_app()` ya lo incluye,
+        así que duplicarlo dejaría dos rutas para la misma URL. Si el cableado
+        se cayera, la fixture lo repone y el test seguiría midiendo la ruta.
+        """
+        from itcj2.database import get_db
+
+        app = app_client.app
+        existentes = {getattr(r, "path", None) for r in app.routes}
+        if "/adhoc/documentos/{document_id}/tareas" not in existentes:
+            app.include_router(documents_router, prefix="/adhoc")
+
+        def _override():
+            yield db_session
+
+        app.dependency_overrides[get_db] = _override
+        yield app_client
+        app.dependency_overrides.pop(get_db, None)
+
+    @pytest.fixture()
+    def documento(self, db_session):
+        """Documento con código y versión, como los 203 de la base real."""
+        from itcj2.apps.adhoc.models import AdhocDocument
+
+        row = AdhocDocument(code="b4_052", title="b4 Manual de la calidad",
+                            version="4.0", status="En Revisión")
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    def test_responde_200_y_su_page_data_describe_al_documento(
+            self, real_client, staff_headers, documento):
+        data = page_data(real_client.get(
+            f"/adhoc/documentos/{documento.id}/tareas", headers=staff_headers).text)
+
+        assert data["parent_type"] == "document"
+        assert data["parent_id"] == documento.id
+        assert data["api"] == "/api/adhoc/v2/tasks"
+        # Se llega desde el PANEL —donde están sellar / historial / editar /
+        # eliminar—, no desde la lista de consulta, que no tiene acciones de
+        # administración. El botón "Volver" tiene que devolver ahí.
+        assert data["back_url"] == "/adhoc/documentos/panel"
+
+    def test_enciende_la_columna_paso(self, real_client, staff_headers, documento):
+        """La bandera que convierte la lista en un avance por pasos.
+
+        Es del servidor y una sola: la plantilla y ``work/tasks.js`` leen la
+        MISMA clave, así que no pueden discrepar sobre si la columna existe.
+        """
+        html = real_client.get(
+            f"/adhoc/documentos/{documento.id}/tareas", headers=staff_headers).text
+
+        assert page_data(html)["show_step_column"] is True
+        assert '<th scope="col" data-adhoc-filter-key="flow_step"' in html
+
+    def test_la_cabecera_identifica_la_VERSION_no_solo_el_codigo(
+            self, real_client, staff_headers, documento):
+        """``code`` nombra la cadena; el flujo corre sobre **una** versión.
+
+        El caso que lo destapó es el documento 202: código ``052``, versión
+        ``4.0``, y hay dos documentos más con ese mismo ``052`` (v2.0 y v3.0,
+        ya obsoletos). Una cabecera que dijera solo "052" nombraría igual las
+        tres pantallas de tareas, y la que estás mirando es la de la versión
+        que se está aprobando.
+        """
+        html = real_client.get(
+            f"/adhoc/documentos/{documento.id}/tareas", headers=staff_headers).text
+
+        assert page_data(html)["parent_folio"] == "b4_052 v4.0"
+        assert "Tareas del Expediente: b4_052 v4.0" in html
+        # Y también en el <title>: el template lo resuelve con `parent.folio`,
+        # así que si el folio se hubiera dejado en `None` la pestaña del
+        # navegador repetiría el título del documento.
+        assert "<title>Tareas · b4_052 v4.0 · Calidad · ITCJ</title>" in html
+
+    def test_un_documento_sin_codigo_no_revienta_y_pinta_algo_honesto(
+            self, real_client, staff_headers, db_session):
+        """``code`` es nullable y el alta no lo exige: la rama tiene que existir.
+
+        Y no puede resolverse dejando caer el ``parent.folio or parent.title``
+        de la plantilla: eso pondría el título en el hueco del folio **y** en el
+        subtítulo, repetido, y perdería la versión, que aquí es el único dato
+        que distingue un expediente de otro.
+        """
+        from itcj2.apps.adhoc.models import AdhocDocument
+
+        sin_codigo = AdhocDocument(code=None, title="b4 sin código",
+                                   version="2.0", status="Borrador")
+        db_session.add(sin_codigo)
+        db_session.flush()
+
+        res = real_client.get(f"/adhoc/documentos/{sin_codigo.id}/tareas",
+                              headers=staff_headers)
+
+        assert res.status_code == 200, res.text[:400]
+        assert page_data(res.text)["parent_folio"] == "Sin código v2.0"
+        assert "Tareas del Expediente: Sin código v2.0" in res.text
+
+    def test_documento_inexistente_es_404_html(self, real_client, staff_headers):
+        """El ``LookupError`` del service se traduce a 404, no a un 500."""
+        res = real_client.get("/adhoc/documentos/99999999/tareas",
+                              headers=staff_headers)
+
+        assert res.status_code == 404
+        assert "text/html" in res.headers["content-type"]
+
+    def test_pide_el_mismo_permiso_que_sus_dos_hermanas(
+            self, real_client, staff_headers, authz, documento):
+        """``adhoc.tasks.page.list`` y nada más: es la misma pantalla.
+
+        Inventarle un permiso propio habría dejado a los supervisores
+        documentales fuera de la única vista de su propio ciclo hasta que
+        alguien corriera un DML nuevo.
+        """
+        authz.return_value = {"adhoc.tasks.page.list"}
+        try:
+            res = real_client.get(f"/adhoc/documentos/{documento.id}/tareas",
+                                  headers=staff_headers)
+        finally:
+            authz.return_value = set(ALL_PERMS)
+
+        assert res.status_code == 200, res.text[:400]
+
+    def test_sin_ese_permiso_es_403(self, real_client, staff_headers, authz, documento):
+        """Con TODO lo demás de la sección, pero sin el de tareas: 403."""
+        authz.return_value = ALL_PERMS - {"adhoc.tasks.page.list"}
+        try:
+            res = real_client.get(f"/adhoc/documentos/{documento.id}/tareas",
+                                  headers=staff_headers, follow_redirects=False)
+        finally:
+            authz.return_value = set(ALL_PERMS)
+
+        assert res.status_code == 403
+
+    def test_sin_acceso_a_la_app_es_403(self, real_client, staff_headers, documento):
+        with patch("itcj2.core.services.authz_cache.cached_has_assignment",
+                   return_value=False):
+            res = real_client.get(f"/adhoc/documentos/{documento.id}/tareas",
+                                  headers=staff_headers, follow_redirects=False)
+
+        assert res.status_code == 403
+
+    def test_anonimo_va_al_login(self, real_client, documento):
+        res = real_client.get(f"/adhoc/documentos/{documento.id}/tareas",
+                              follow_redirects=False)
+
+        assert res.status_code in (302, 307)
+        assert "/itcj/login" in res.headers["location"]
+
+    def test_comparte_template_y_modulo_con_las_otras_dos_pantallas(
+            self, real_client, staff_headers, documento):
+        """Un solo template para los tres padres: si esto se bifurca, se nota."""
+        html = real_client.get(
+            f"/adhoc/documentos/{documento.id}/tareas", headers=staff_headers).text
+
+        assert "/static/adhoc/js/work/tasks.js?v=" in html
+        assert "/static/adhoc/css/work/tasks.css?v=" in html
+        assert "data-adhoc-tasks" in html
+        # El rótulo del padre lo pone el contexto, no un `if` en la plantilla.
+        assert page_data(html)["labels"]["parent"] == "documento"
 
 
 # ==========================================================================

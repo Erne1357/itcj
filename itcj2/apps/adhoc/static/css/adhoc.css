@@ -1951,6 +1951,28 @@ body.adhoc-modal-open {
   white-space: nowrap;
 }
 
+/* Marca de "sin acceso" del selector de usuarios.
+
+   La pone el servidor (`picker_users`) sobre quien sigue asignado y ya no puede
+   entrar a la app. NO se atenua la fila: atenuar dice "no se puede elegir", y
+   esta si se puede —de hecho esta elegida—; lo que hace falta es leer por que
+   sobra. Asi que la senal es tinta de peligro sobre el fondo suave, y la fila
+   se marca con una linea lateral para encontrarla sin leerla. */
+.adhoc-user-option-off {
+  background: var(--adhoc-danger-soft);
+  box-shadow: inset 3px 0 0 0 var(--adhoc-danger-ink);
+}
+
+/* Tercera linea de la ficha, debajo del puesto: es texto pequeno, asi que la
+   tinta es el escalon `-ink` (5.36:1 sobre el fondo suave), nunca el rojo de
+   marca, que sobre este fondo no llega a AA. */
+.adhoc-user-option-flag {
+  display: block;
+  color: var(--adhoc-danger-ink);
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-semibold);
+}
+
 .adhoc-order-badge {
   flex: 0 0 auto;
   display: inline-flex;
@@ -1992,6 +2014,24 @@ body.adhoc-modal-open {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* La ficha de alguien sin acceso: mismo dibujo, otro color. El violeta de la
+   ficha normal dice "seleccionado"; este dice "seleccionado y sobra". */
+.adhoc-chip-off {
+  color: var(--adhoc-danger-ink);
+  background: var(--adhoc-danger-soft);
+}
+
+/* El rotulo corto de la ficha. Va detras del nombre y NO se encoge: el nombre
+   se corta con puntos suspensivos cuando no cabe, y si el rotulo compartiera
+   ese destino desapareceria justo en las fichas mas largas. */
+.adhoc-chip-flag {
+  flex: 0 0 auto;
+  font-size: var(--adhoc-fs-xs);
+  font-weight: var(--adhoc-fw-bold);
+  text-transform: uppercase;
+  letter-spacing: .02em;
 }
 
 .adhoc-chip-remove {

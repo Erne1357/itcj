@@ -32,7 +32,12 @@ class Settings(BaseSettings):
     # carga con un testigo de apertura (respuesta vieja pintada en el diálogo
     # nuevo) y tasks.js deja inerte el contador apagado, que hasta ahora caía en
     # el atajo de fila y abría el modal de edición.
-    STATIC_VERSION: str = "1.0.1111530"
+    # Bump 2026-08-28: revisión de B4 (adhoc) — el selector de
+    # /adhoc/asignaciones ya no pinta "#24055" para el responsable que perdió
+    # el acceso (user-picker.js + assignments.js + adhoc.css), tasks.js deja
+    # inerte el aviso de atasco y sube el contraste de "Fuera del flujo", y
+    # documents-panel.js documenta el gate real del botón "Tareas".
+    STATIC_VERSION: str = "1.0.1111532"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

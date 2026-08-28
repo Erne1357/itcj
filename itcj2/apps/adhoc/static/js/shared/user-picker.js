@@ -46,6 +46,19 @@
  *
  * Para un <select> de UN solo usuario (el caso del modal de tareas del legacy):
  *   AdhocUserPicker.fillSelect(selectEl, users, { selected: 4 });
+ *
+ * FICHAS "SIN ACCESO"
+ * -------------------
+ * Un usuario puede traer `without_access: true`. Significa que sigue asignado
+ * pero ya no puede entrar a la app, así que se pinta marcado —en la lista y en
+ * su ficha— y `selectionWithoutAccess()` lo delata antes de guardar.
+ *
+ * QUIÉN tiene acceso no se decide aquí: lo calcula el servidor
+ * (`pages/_work_context.py::picker_users`, con el MISMO criterio que llena la
+ * lista de asignables) y este archivo solo lo pinta. Antes de esa marca, el
+ * respaldo `'#' + id` de `renderSelection` era todo lo que se veía de esa
+ * persona: un número, en la pantalla a la que manda el aviso de "tarea
+ * bloqueada" para arreglarla.
  */
 (function () {
     'use strict';
@@ -67,6 +80,17 @@
         return '#' + user.id;
     }
 
+    /**
+     * ¿El servidor marcó a esta persona como "ya no entra a la app"?
+     *
+     * Una sola lectura de la clave para los dos sitios que la pintan (la fila
+     * de la lista y la ficha de la selección) y para `selectionWithoutAccess`,
+     * que es lo que impide que uno de los tres se olvide de mirarla.
+     */
+    function withoutAccess(user) {
+        return !!(user && user.without_access);
+    }
+
     /** Segunda línea: puesto / departamento / correo, lo que haya. */
     function metaLine(user) {
         var bits = [];
@@ -78,6 +102,12 @@
         if (!bits.length && user.username) bits.push(user.username);
         return bits.join(' · ');
     }
+
+    //: Lo que dice la marca, en los dos sitios. Escrito una vez: la fila y la
+    //: ficha tienen que explicar lo MISMO, porque son la misma persona.
+    var SIN_ACCESO_CORTO = 'Sin acceso';
+    var SIN_ACCESO_LARGO = 'Ya no puede entrar a Calidad: sigue asignado, pero ' +
+        'no puede atender nada. Quítalo de la selección con su ✕.';
 
     function normalize(value) {
         var text = (value === null || value === undefined) ? '' : String(value);
@@ -225,6 +255,21 @@
             metaEl.textContent = meta;
             body.appendChild(metaEl);
         }
+
+        // La marca va DENTRO de la ficha, debajo del nombre, y no como un
+        // atenuado de la fila entera: atenuar diría "no se puede elegir", y sí
+        // se puede —de hecho está elegido—; lo que hace falta es leer por qué
+        // sobra. El `title` de la fila repite la frase larga para quien pasa el
+        // ratón sin llegar a la ficha de la selección.
+        if (withoutAccess(user)) {
+            label.className += ' adhoc-user-option-off';
+            label.title = SIN_ACCESO_LARGO;
+            var flag = document.createElement('span');
+            flag.className = 'adhoc-user-option-flag';
+            flag.textContent = SIN_ACCESO_CORTO;
+            body.appendChild(flag);
+        }
+
         label.appendChild(body);
 
         if (this.ordered) {
@@ -248,6 +293,10 @@
             var user = this.find(this.selected[i]);
             var chip = document.createElement('span');
             chip.className = 'adhoc-chip';
+            if (withoutAccess(user)) {
+                chip.className += ' adhoc-chip-off';
+                chip.title = SIN_ACCESO_LARGO;
+            }
 
             if (this.ordered) {
                 var order = document.createElement('span');
@@ -260,6 +309,16 @@
             text.className = 'adhoc-chip-label';
             text.textContent = user ? displayName(user) : ('#' + this.selected[i]);
             chip.appendChild(text);
+
+            // El rótulo va en su propio <span> y no pegado al nombre: el nombre
+            // se corta con puntos suspensivos cuando no cabe (`.adhoc-chip-label`),
+            // y un "· sin acceso" concatenado sería lo PRIMERO que desaparece.
+            if (withoutAccess(user)) {
+                var chipFlag = document.createElement('span');
+                chipFlag.className = 'adhoc-chip-flag';
+                chipFlag.textContent = SIN_ACCESO_CORTO;
+                chip.appendChild(chipFlag);
+            }
 
             var remove = document.createElement('button');
             remove.type = 'button';
@@ -363,6 +422,26 @@
         for (var i = 0; i < this.selected.length; i++) {
             var n = parseInt(this.selected[i], 10);
             out.push(isNaN(n) ? this.selected[i] : n);
+        }
+        return out;
+    };
+
+    /**
+     * Los seleccionados que el SERVIDOR marcó como "ya no entra a la app".
+     *
+     * Devuelve las fichas enteras, no solo sus ids: quien avisa antes de
+     * guardar (`work/assignments.js`) tiene que poder decir el nombre, y
+     * volver a buscarlo por su cuenta sería una segunda forma de resolver lo
+     * mismo. Un id seleccionado que ni siquiera está en `users` NO cuenta: de
+     * ese no se sabe nada, y afirmar que no tiene acceso sería inventarlo.
+     *
+     * @returns {Array<Object>} las fichas marcadas, en orden de selección
+     */
+    Picker.prototype.selectionWithoutAccess = function () {
+        var out = [];
+        for (var i = 0; i < this.selected.length; i++) {
+            var user = this.find(this.selected[i]);
+            if (withoutAccess(user)) out.push(user);
         }
         return out;
     };
@@ -484,6 +563,7 @@
         get: get,
         initAll: initAll,
         fillSelect: fillSelect,
-        displayName: displayName
+        displayName: displayName,
+        withoutAccess: withoutAccess
     };
 })();

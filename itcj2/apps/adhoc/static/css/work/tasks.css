@@ -1,19 +1,25 @@
 /* ---------------------------------------------------------------------------
-   PAGINA   /adhoc/incidencias/{id}/tareas y /adhoc/programas/{id}/tareas
+   PAGINA   /adhoc/incidencias/{id}/tareas, /adhoc/programas/{id}/tareas y
+            /adhoc/documentos/{id}/tareas
    CONTIENE compactado de la tabla, separacion de los iconos de la columna Acciones,
-            los dos colores de icono propios (usuarios y campana) y los dos
-            estados del contador de la columna Notas (clicable y apagado)
-   EN BASE  prioridad de fila, icono de fila, contador, barra inferior y la caja
-            del selector de cantidad
+            los dos colores de icono propios (usuarios y campana), los dos
+            estados del contador de la columna Notas (clicable y apagado), la
+            columna "Paso" y el aviso de atasco (los dos ultimos solo se ven en
+            la pantalla de documento)
+   EN BASE  prioridad de fila, icono de fila, contador, pastilla, barra inferior
+            y la caja del selector de cantidad
    --------------------------------------------------------------------------- */
 
 /* ==========================================================================
-   work/tasks.css — tareas de una incidencia o de un evento de programa
-   (/adhoc/incidencias/{id}/tareas y /adhoc/programas/{id}/tareas).
+   work/tasks.css — tareas de una incidencia, de un evento de programa o de un
+   documento (/adhoc/incidencias/{id}/tareas, /adhoc/programas/{id}/tareas y
+   /adhoc/documentos/{id}/tareas).
 
    PORTE de `static/css/incidents/tasks.css` del legacy. Una sola hoja para las
-   dos rutas, igual que el template: allí la tarjeta del expediente estaba
-   escrita a golpe de atributos style= dentro del HTML.
+   tres rutas, igual que el template: allí la tarjeta del expediente estaba
+   escrita a golpe de atributos style= dentro del HTML. Lo que solo existe en la
+   pantalla de documento —la columna "Paso" y el aviso de atasco— vive aquí
+   igual: es la misma pantalla con una columna más, no otra.
 
    Equivalencias:
      .table-container    → .adhoc-card (adhoc.css)
@@ -132,6 +138,49 @@
   background: var(--adhoc-surface-400);
   color: var(--adhoc-muted);
   font-weight: var(--adhoc-fw-normal);
+  cursor: help;
+}
+
+/* ---------- columna "Paso" (solo la pantalla de un documento) ---------- */
+
+/* El numero de orden se atenua para que el ojo baje por los NOMBRES de los
+   pasos, que es lo que se lee ("Revision y liberacion", "Autorizacion"), y el
+   numero quede de guia lateral. Cifras de ancho fijo para que la columna de
+   puntos no baile entre filas. */
+.adhoc-worktasks .adhoc-step-order {
+  color: var(--adhoc-muted);
+  font-weight: var(--adhoc-fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* "Fuera del flujo": la celda de una tarea que cuelga del documento pero no de
+   un paso —la correccion de un rechazo, o cualquiera dada de alta a mano—.
+
+   NO reutiliza `.adhoc-muted-cell`, que es el placeholder de "Sin asignar" y
+   en esta hoja va en `--adhoc-disabled`: 1.9:1 sobre la tarjeta blanca, el
+   texto menos legible de la pantalla. Aqui el texto es INFORMACION, no un
+   hueco, asi que va en el gris de texto atenuado (`--adhoc-muted`, 5.24:1),
+   el mismo con el que el contador apagado se queda legible dos reglas mas
+   arriba y por la misma razon. */
+.adhoc-worktasks .adhoc-step-empty {
+  color: var(--adhoc-muted);
+}
+
+/* ---------- aviso de atasco de la columna Acciones ---------- */
+
+/* La pastilla es la `.adhoc-badge` de la app con su tono de peligro o de aviso:
+   nada nuevo que aprender, y los dos estados se distinguen por color ANTES de
+   leerlos. Aqui solo se le mete el icono dentro y se le baja el relleno lateral,
+   que con un glifo delante sobraba.
+
+   `cursor: help` es el mismo gesto que ya usa el contador apagado de esta hoja:
+   dice que hay algo escrito detras sin prometer que se pueda pulsar —porque no
+   se puede: no es un control, es un rotulo—. */
+.adhoc-worktasks .adhoc-task-stuck {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--adhoc-space-2xs);
+  padding: var(--adhoc-space-2xs) var(--adhoc-space-md);
   cursor: help;
 }
 

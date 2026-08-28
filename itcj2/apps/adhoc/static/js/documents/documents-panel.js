@@ -71,6 +71,20 @@
  * STARTABLE` solo la respetaba este JS, así que la API dejaba arrancar un
  * flujo sobre un documento obsoleto. Una regla que solo vive en el navegador
  * no es una regla.
+ *
+ * LO QUE AÑADE LA ENTRADA A LAS TAREAS (hallazgo A16)
+ * --------------------------------------------------
+ * El flujo documental se rompía por la mitad: `parent_type='document'` estaba
+ * soportado por la API y por `task_service`, pero no existía ninguna página que
+ * listara las tareas de un documento, así que las tareas de aprobación solo se
+ * veían en el tablero PERSONAL de cada validador. Nadie podía mirar por qué paso
+ * va un documento, y sobre todo nadie podía destrabar un paso cuyos validadores
+ * ya no entran a la app —porque a `/adhoc/asignaciones` solo se llega desde una
+ * página de tareas—. La acción de fila "Tareas" es esa puerta.
+ *
+ * Va en el PANEL y no en `/adhoc/documentos`: ver el avance de un flujo y
+ * reasignar un paso atascado es administración del ciclo documental, y la lista
+ * de consulta no tiene ninguna acción de administración.
  */
 (function () {
     'use strict';
@@ -280,6 +294,13 @@
         this.canDelete = !!this.data.can_delete;
         this.canDownload = !!this.data.can_download;
         this.canStartFlow = !!this.data.can_start_flow;
+        //: Plantilla de la página de tareas del documento, con `{id}` dentro.
+        //: Es a la vez el DESTINO y el permiso: el botón solo se pinta si el
+        //: servidor manda la clave, y `pages/documents.py` solo la manda si el
+        //: usuario tiene `adhoc.tasks.page.list`, que es lo que exige la página
+        //: destino. Quien decide si hay botón es quien sabe si esa puerta se
+        //: abre —no este archivo—; aquí solo se obedece.
+        this.tasksUrl = this.data.tasks_url || null;
         this.accept = (this.data.accept || []).join(',');
 
         this.modal = document.querySelector('[data-adhoc-doc-modal]');
@@ -404,6 +425,32 @@
         if (doc.status === 'En Revisión') {
             box.appendChild(H.iconButton('flow-info', 'fa-solid fa-clock-rotate-left',
                                          'Ver paso actual del flujo', 'adhoc-icon-info'));
+        }
+        // "Tareas" va aquí, entre el paso actual y el historial: las tres leen el
+        // flujo del documento, de lo más puntual (en qué paso está hoy) a lo más
+        // amplio (todas sus versiones), y a partir de ahí empiezan las acciones
+        // que escriben.
+        //
+        // Se pinta SIEMPRE, también en un documento sin flujo. Es la misma
+        // decisión que ya toma el botón de historial dos líneas más abajo y por
+        // la misma razón: la fila no sabe cuántas tareas tiene —`document_out`
+        // no trae contador y pedirlo por fila serían 25 peticiones por página—,
+        // así que esconderlo cuando `flow_id` viene vacío escondría la pantalla
+        // justo cuando alguien quiere COMPROBAR que un documento no tiene tareas
+        // pendientes. Y `flow_id` tampoco sería el criterio correcto: la tarea de
+        // corrección de un rechazo y cualquier tarea dada de alta a mano cuelgan
+        // del documento sin pasar por el flujo. Un botón que a veces lleva a una
+        // pantalla vacía es mejor que un botón que a veces no está: lo primero se
+        // responde solo, lo segundo deja al usuario buscando.
+        //
+        // El icono es el mismo `fa-list-check` con el que se entra a las tareas
+        // desde incidencias y programas (`work/work-items.js::tasksButton`): la
+        // misma acción no puede tener dos dibujos. Sin variante de color, como
+        // el historial: en esta botonera el azul es de 'flow-info' y el rojo de
+        // 'delete', y eso es lo que la hace legible de un vistazo.
+        if (this.tasksUrl) {
+            box.appendChild(H.iconButton('tasks', 'fa-solid fa-list-check',
+                                         'Ver tareas del flujo de aprobación'));
         }
         // El historial se pinta SIEMPRE, también en un documento de una sola
         // versión: la fila no sabe si tiene hijos (`parent_id` solo dice si
@@ -1057,6 +1104,25 @@
         }
     };
 
+    /**
+     * Salta a `/adhoc/documentos/{id}/tareas`, la página de tareas del documento.
+     *
+     * La plantilla de la URL viene en `page_data.tasks_url` y no escrita aquí,
+     * por lo mismo que en incidencias y programas: el legacy tenía
+     * `/app_prueba/extintor/tareas/${id}` dentro del módulo, así que renombrar
+     * una ruta obligaba a ir a buscarla por los estáticos.
+     *
+     * `U.navigate` y no `window.location.href`: la app navega con hx-boost y
+     * morph, y una recarga dura aquí rompe la cadena panel → tareas →
+     * asignaciones → vuelta, que son tres saltos seguidos.
+     *
+     * @param {Object} doc fila de `document_out()`
+     */
+    Panel.prototype.goToTasks = function (doc) {
+        if (!this.tasksUrl || !doc) return;
+        U.navigate(this.tasksUrl.replace('{id}', encodeURIComponent(doc.id)));
+    };
+
     Panel.prototype.busy = function (btn, isBusy) {
         if (!btn) return;
         btn.disabled = !!isBusy;
@@ -1092,6 +1158,7 @@
             var action = btn.getAttribute('data-adhoc-doc-action');
             if (action === 'start-flow') self.openFlow(doc);
             else if (action === 'flow-info') self.showFlowInfo(doc);
+            else if (action === 'tasks') self.goToTasks(doc);
             else if (action === 'versions') self.openVersions(doc);
             else if (action === 'edit') self.openEdit(doc);
             else if (action === 'new-version') self.openNewVersion(doc);

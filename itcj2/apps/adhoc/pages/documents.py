@@ -1,6 +1,7 @@
 """Páginas de **Documentos y flujos de aprobación** (Adhoc / Calidad).
 
-Seis rutas (plan §4), todas montadas por el router padre con ``prefix="/adhoc"``:
+Siete rutas (plan §4 + B4), todas montadas por el router padre con
+``prefix="/adhoc"``:
 
 ======================================  ===============================  ============================
 URL                                     Origen legacy                    Permiso de página
@@ -11,7 +12,16 @@ URL                                     Origen legacy                    Permiso
 ``/documentos/clasificaciones``         ``config_doc_clasificacion``     ``adhoc.doc_catalogs.page.list``
 ``/documentos/flujos``                  ``config_doc_flujos``            ``adhoc.flows.page.list``
 ``/documentos/flujos/{id}/pasos``       ``config_flujo_pasos``           ``adhoc.flows.page.list``
+``/documentos/{id}/tareas``             — (no existía)                   ``adhoc.tasks.page.list``
 ======================================  ===============================  ============================
+
+La última es de B4 y no tiene origen legacy: el flujo documental se cortaba a la
+mitad. ``parent_type='document'`` lo soportan la API, ``task_service`` y
+``GET /tasks``, pero la pantalla no existía, así que las tareas de aprobación de
+un documento solo aparecían en el tablero personal de cada validador. Nadie
+—supervisor documental ni admin— podía ver en qué paso va un documento ni
+reasignar un paso atascado, porque a ``/adhoc/asignaciones`` solo se llega desde
+una página de tareas.
 
 Qué hace este módulo y qué NO
 -----------------------------
@@ -368,6 +378,29 @@ async def documents_panel_page(
             "classifications": catalogs["classifications"],
             "flows": flows,
             "accept": [f".{ext}" for ext in extensions],
+            # Destino de la acción de fila "Tareas" (B4). Va como PLANTILLA en
+            # el JSON y no cableada en el JS por la misma razón que en
+            # incidencias y programas —`test_la_url_de_tareas_sale_del_json_no_
+            # del_js`—: el legacy tenía `/app_prueba/extintor/tareas/${id}`
+            # escrito dentro del módulo, así que renombrar una ruta obligaba a
+            # buscarla en los estáticos.
+            #
+            # Solo en el PANEL. La lista de consulta (`/adhoc/documentos`) no
+            # recibe esta clave: ver el avance de un flujo y reasignar un paso
+            # atascado es administración del ciclo documental, y esa pantalla no
+            # tiene ninguna acción de administración.
+            #
+            # Y solo si la puerta se abre. La clave es a la vez el DESTINO y el
+            # gate —`documents-panel.js` pinta el botón si y solo si la recibe—,
+            # así que emitirla sin comprobar el permiso de la página destino
+            # convierte el botón en un callejón a la pantalla de prohibido: hoy
+            # ningún rol del DML separa `documents.page.manage` de
+            # `tasks.page.list`, pero un permiso directo o un override de puesto
+            # sí puede, y entonces el icono sale en las 25 filas y ninguna
+            # lleva a ningún sitio. La decisión la toma quien sabe si esa puerta
+            # se abre, que es el servidor.
+            "tasks_url": ("/adhoc/documentos/{id}/tareas"
+                          if _can(perms, "adhoc.tasks.page.list") else None),
             "can_create": _can(perms, "adhoc.documents.api.create"),
             # `can_update` solo viaja en el PANEL, no en la lista de consulta:
             # el botón "Editar" es una acción de administración y
@@ -512,3 +545,65 @@ async def flow_steps_page(
             ],
         },
     })
+
+
+# ==========================================================================
+# 7. Tareas de un documento  (B4)
+#
+# Va al final y no junto al panel por el orden de resolución de FastAPI: es la
+# única ruta paramétrica de segundo nivel de este módulo. Hoy no compite con
+# ninguna hermana —`/documentos/panel`, `/categorias`, `/clasificaciones` y
+# `/flujos` son de un solo tramo, y `/flujos/{flow_id}/pasos` de tres—, pero
+# declararla después de las literales es lo que garantiza que siga siendo así
+# cuando alguien añada `/documentos/algo`: si la paramétrica fuera antes, se
+# comería la literal nueva y `"algo"` llegaría como `document_id`.
+# ==========================================================================
+
+@router.get("/documentos/{document_id}/tareas")
+async def document_tasks_page(
+    request: Request,
+    document_id: int,
+    user: dict = Depends(require_page_app("adhoc", perms=["adhoc.tasks.page.list"])),
+    db: Session = Depends(get_db),
+):
+    """Avance por pasos del flujo de aprobación de un documento.
+
+    Es la **gemela** de ``/adhoc/incidencias/{id}/tareas`` y
+    ``/adhoc/programas/{id}/tareas``: mismo permiso de página
+    (``adhoc.tasks.page.list``), mismo template (``adhoc/work/tasks.html``) y el
+    mismo ``tasks_page_context``, que es lo que impide que las tres diverjan.
+
+    Lo propio del documento lo pone ese contexto, no esta ruta: la identidad del
+    expediente (``code`` + ``version``, porque un documento no tiene ``folio``) y
+    la bandera ``show_step_column``, que enciende la columna "Paso" —el nombre y
+    el orden del paso al que pertenece cada tarea— y es lo que convierte la
+    pantalla en "ver el avance del flujo" en vez de una lista suelta de tareas.
+
+    Se llega por una acción de fila de ``/adhoc/documentos/panel``, junto a
+    sellar / historial / editar / eliminar, y ahí vuelve el botón "Volver": es
+    la pantalla desde la que se administra el ciclo documental. La lista de
+    consulta (``/adhoc/documentos``) no tiene acciones de administración.
+    """
+    from itcj2.apps.adhoc.pages._work_context import tasks_page_context
+    from itcj2.apps.adhoc.services.document_service import AdhocDocumentService
+
+    try:
+        documento = AdhocDocumentService.get(db, document_id)
+    except LookupError as exc:
+        # El service lanza LookupError; el contrato de la app lo traduce a 404.
+        raise HTTPException(
+            status_code=404, detail=f"No existe el documento {document_id}"
+        ) from exc
+
+    return render_adhoc(
+        request,
+        "adhoc/work/tasks.html",
+        tasks_page_context(
+            db,
+            user,
+            parent=documento,
+            parent_type="document",
+            back_url="/adhoc/documentos/panel",
+            parent_label="documento",
+        ),
+    )

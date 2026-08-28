@@ -1,13 +1,15 @@
 /**
- * work/tasks.js — tareas de una incidencia O de un evento de programa.
+ * work/tasks.js — tareas de una incidencia, de un evento de programa O de un
+ * documento.
  *
  * Expone SOLO `window.AdhocTasks` (IIFE, sin globales sueltas).
  *
- * UN SOLO módulo para las dos pantallas, como el template: lo que cambia
- * (`parent_type`, `parent_id`, a dónde vuelve el botón "Volver") llega en
- * `page_data`. El legacy también compartía el JS —`incidents/tasks.js`, clase
- * global `TareasExpedienteManager`— pero la URL de asignación se decidía en el
- * TEMPLATE con un `{% set ruta_base = ... %}` y viajaba en `data-url` por fila.
+ * UN SOLO módulo para las TRES pantallas, como el template: lo que cambia
+ * (`parent_type`, `parent_id`, a dónde vuelve el botón "Volver", si hay columna
+ * "Paso") llega en `page_data`. El legacy también compartía el JS
+ * —`incidents/tasks.js`, clase global `TareasExpedienteManager`— pero la URL de
+ * asignación se decidía en el TEMPLATE con un `{% set ruta_base = ... %}` y
+ * viajaba en `data-url` por fila.
  *
  * QUÉ ARREGLA
  * -----------
@@ -26,6 +28,20 @@
  *  · La columna "Notas" pintaba un contador MUERTO: el hilo de la tarea solo se
  *    podía abrir desde el tablero, que únicamente lista las tareas abiertas del
  *    usuario → el contador es ahora el botón que abre el hilo en modo lectura.
+ *
+ * QUÉ AÑADE B4 (pantalla de documento)
+ * ------------------------------------
+ *  · Columna "Paso": el nombre y el orden del paso del flujo al que pertenece
+ *    cada tarea. Es lo que convierte esta lista en "el avance del documento por
+ *    pasos" en vez de nueve tareas sueltas. Solo en documentos, porque solo sus
+ *    tareas cuelgan de un `flow_step`.
+ *  · Aviso de atasco: una tarea de aprobación cuyos responsables ya no pueden
+ *    entrar a Calidad no la puede atender nadie, y el documento se queda a
+ *    medias sin que nada lo diga. Es el caso vivo del documento 202: su tarea
+ *    del paso 1 tiene un solo responsable y ese responsable no entra.
+ *    Quién tiene acceso lo calcula el SERVIDOR (`assignees_without_access`, con
+ *    el MISMO `users_with_assignment_select` que llena el desplegable de
+ *    asignación): aquí no se vuelve a decidir, solo se pinta.
  *
  * Requiere en la página (ver `commentsControl`): el partial
  * `adhoc/partials/_workflow_modal.html` en su `{% block modals %}`, la hoja
@@ -53,6 +69,20 @@
         'Alta': 'adhoc-prio-urgente',
         'Urgente': 'adhoc-prio-urgente'
     };
+
+    // Estatus en los que la tarea ya NO espera a nadie. Es uno solo: en esta app
+    // 'Rechazada' significa "hay que corregir y volver" —el tablero la lista
+    // entre las abiertas (`TASK_OPEN_STATUSES`) y la tarea de correccion de un
+    // documento rechazado nace justamente asi—, y 'En Espera' es un paso del
+    // flujo que todavia no ha llegado.
+    //
+    // Lo usa el aviso de atasco, y es la diferencia entre una senal util y una
+    // pared de rojo: de las 123 tareas de documento ya 'Completada', 60 tienen
+    // hoy a TODOS sus responsables sin acceso a la app. Son diez anios de
+    // aprobaciones firmadas por gente que ya no trabaja aqui; marcarlas
+    // "bloqueada" seria mentir sobre trabajo terminado y taparia las dos filas
+    // que si estan paradas.
+    var CLOSED_STATUSES = { 'Completada': true };
 
     // ==================== HELPERS ====================
 
@@ -109,6 +139,24 @@
         this.can = this.data.can || {};
         this.parentType = this.data.parent_type;
         this.parentId = this.data.parent_id;
+
+        //: Columna "Paso". La decide el SERVIDOR
+        //: (`_work_context.tasks_page_context`), igual que la plantilla, y por
+        //: eso no se lee aqui `parent_type === 'document'`: la plantilla emite
+        //: los <th> a partir de la misma bandera, asi que encabezado y celdas
+        //: no pueden descuadrarse.
+        this.showStep = !!this.data.show_step_column;
+
+        //: Aviso de atasco. QUIEN tiene acceso lo dice el servidor en cada fila
+        //: (`assignees_without_access`); esto solo decide en que PANTALLA se
+        //: pinta, que es una decision de producto: hoy solo la de documento,
+        //: donde una tarea de aprobacion parada deja el documento a medias.
+        //: Incidencias y programas reciben la misma clave del API y quedan para
+        //: B5 —ahi hay diez anios de tareas cerradas y el aviso necesita su
+        //: propio criterio de ruido antes de encenderse—.
+        //: Cuando B5 llegue, esto pasa a ser una bandera mas de `page_data`
+        //: (`show_access_warning`) y esta linea desaparece.
+        this.showAccessWarning = this.parentType === 'document';
 
         this.table = root.querySelector('table[data-adhoc-table]');
         this.body = this.table ? this.table.querySelector('[data-adhoc-table-body]') : null;
@@ -174,6 +222,12 @@
 
         tr.appendChild(this.clampCell('description', task.description || ''));
 
+        // El <td> del paso va JUSTO detras de la descripcion, en la misma
+        // posicion en que la plantilla emite su <th>. Las dos salen de
+        // `show_step_column`, asi que o estan las dos o no esta ninguna: son
+        // 9 celdas en incidencias y programas, 10 en documentos.
+        if (this.showStep) tr.appendChild(this.stepCell(task));
+
         var responsables = assigneeNames(task);
         var tdUsers = this.cell('assignees', responsables || 'Sin asignar');
         if (!responsables) tdUsers.classList.add('adhoc-muted-cell');
@@ -224,6 +278,50 @@
         box.textContent = text;
         if (text) td.title = text;
         td.appendChild(box);
+        return td;
+    };
+
+    /**
+     * Columna "Paso" — solo en la pantalla de un documento.
+     *
+     * Es lo que convierte esta lista en el AVANCE del documento: las tareas de
+     * aprobacion se crean todas de golpe al arrancar el flujo (una por paso,
+     * la primera 'En Revision' y el resto 'En Espera'), asi que sin el paso la
+     * pantalla es un monton de filas casi identicas y no se ve por donde va.
+     *
+     * `flow_step` lo emite `serialize_task` SIEMPRE, tambien como `null`, y ese
+     * null es informacion, no un hueco: una tarea de documento sin paso existe
+     * de verdad —la de correccion que se crea al rechazar ("Corregir Documento
+     * Rechazado: …"), o cualquiera dada de alta a mano desde esta misma
+     * pantalla— y no pertenece al flujo de aprobacion. Por eso dice "Fuera del
+     * flujo" y no un guion: un guion se lee como "no hay dato".
+     *
+     * Y por eso mismo NO usa `.adhoc-muted-cell`, que es el gris de placeholder
+     * de "Sin asignar" (`--adhoc-disabled`, 1.9:1 sobre la tarjeta): si el
+     * texto es informacion, tiene que leerse. Va con su propia clase en el gris
+     * de texto atenuado, el mismo del contador apagado de esta pantalla.
+     */
+    Tasks.prototype.stepCell = function (task) {
+        var step = task.flow_step;
+
+        if (!step) {
+            var vacio = this.cell('flow_step', 'Fuera del flujo', 'adhoc-step-empty');
+            vacio.title = 'Esta tarea cuelga del documento pero no de un paso de ' +
+                'su flujo de aprobación: se dio de alta a mano o es la tarea de ' +
+                'corrección de un rechazo.';
+            return vacio;
+        }
+
+        var nombre = step.name || ('Paso #' + step.id);
+        var orden = (typeof step.step_order === 'number') ? step.step_order : null;
+        var td = this.cell('flow_step', '');
+
+        // El numero de orden va en su propio <span> para poder atenuarlo, pero
+        // dentro de la MISMA celda: el filtro de la columna lee el textContent
+        // completo, asi que teclear "2" o "Autorizacion" encuentra lo mismo.
+        if (orden !== null) td.appendChild(el('span', 'adhoc-step-order', orden + '.'));
+        td.appendChild(document.createTextNode(orden !== null ? ' ' + nombre : nombre));
+        td.title = td.textContent;
         return td;
     };
 
@@ -306,8 +404,102 @@
         if (!abierto) toast('No se pudo abrir el historial de la tarea.', 'error');
     };
 
+    /**
+     * Aviso de ATASCO: los responsables de esta tarea no pueden entrar a la app.
+     *
+     * El SGC arranca el flujo de un documento copiando los validadores del paso
+     * a los asignados de la tarea —un snapshot deliberado—, asi que si a esa
+     * persona le quitan el acceso a Calidad despues, la tarea se queda sin nadie
+     * que pueda abrirla y el documento se para en ese paso para siempre. Nada lo
+     * decia: la tarea seguia diciendo "En Revision", que es exactamente lo que
+     * pasa con la tarea 683 del documento 202.
+     *
+     * DOS ESTADOS, porque no significan lo mismo:
+     *
+     *  · TODOS los asignados sin acceso → la tarea esta parada de verdad; no
+     *    hay nadie que pueda aprobarla y el flujo no avanza solo. Tono de
+     *    peligro, rotulo "Bloqueada".
+     *  · ALGUNOS → degradado: la aprobacion de documento exige que aprueben
+     *    TODOS los asignados (`_record_decision` cuenta contra `len(assignees)`),
+     *    asi que con uno de dos fuera tampoco se completa el paso, pero el
+     *    expediente sigue teniendo quien lo mire. Tono de aviso, con el conteo.
+     *
+     * QUIEN tiene acceso NO se decide aqui. Viene en `assignees_without_access`,
+     * que el servidor calcula una vez por peticion con
+     * `users_with_assignment_select(db, "adhoc")` —las cuatro vias de
+     * `require_app`—, el MISMO criterio con el que se llena el desplegable de
+     * `/adhoc/asignaciones`. Si el aviso se calculara aqui con otra regla,
+     * podria marcar como inalcanzable a alguien que la pantalla de asignacion si
+     * ofrece. La clave puede no venir (un payload serializado sin ese contexto):
+     * ausente cuenta como cero y la fila se calla, que es el defecto honesto.
+     *
+     * El texto dice QUE HACER, y lo que hay que hacer depende de si esta persona
+     * puede reasignar: con `can.assign` el boton esta ahi al lado; sin el, lo
+     * unico accionable es avisar a quien si puede.
+     *
+     * ACCESIBILIDAD: no es un control —no se pulsa, no recibe foco—, asi que
+     * `role="img"` + `aria-label` es lo que hace que un lector de pantalla lea
+     * la frase entera en vez de deletrear "Bloqueada"; el `title` es la misma
+     * frase para quien pasa el raton. El icono va `aria-hidden`. Que al
+     * pulsarlo no pase NADA lo garantiza el guard de `.adhoc-task-stuck` en
+     * `bind()`: sin el, este `<span>` sin `data-adhoc-task-action` caia en el
+     * atajo de fila y abria el modal de edicion de la tarea, que es justo el
+     * fallo que ese guard ya arreglaba para el contador apagado.
+     *
+     * @returns {HTMLElement|null} null si esta fila no tiene nada que avisar
+     */
+    Tasks.prototype.stuckNotice = function (task) {
+        if (!this.showAccessWarning) return null;
+        if (CLOSED_STATUSES[task.status]) return null;
+
+        var sin = (task.assignees_without_access || []).length;
+        if (!sin) return null;
+
+        var total = (task.assignees || []).length;
+        var todos = sin >= total;
+        var salida = this.can.assign
+            ? (todos ? ' Reasígnala con el botón Asignar de esta fila.'
+                     : ' Revisa la asignación con el botón Asignar de esta fila.')
+            : ' Pide a un supervisor del SGC que revise la asignación.';
+
+        var texto;
+        if (todos) {
+            texto = (total === 1
+                     ? 'Bloqueada: su único responsable no puede entrar a Calidad'
+                     : 'Bloqueada: ninguno de sus ' + total +
+                       ' responsables puede entrar a Calidad') +
+                    ', así que nadie puede atenderla.' + salida;
+        } else {
+            texto = (sin === 1
+                     ? '1 de los ' + total + ' responsables no puede'
+                     : sin + ' de los ' + total + ' responsables no pueden') +
+                    ' entrar a Calidad. El paso solo se completa cuando aprueban' +
+                    ' todos, así que tampoco avanzará.' + salida;
+        }
+
+        var aviso = el('span', 'adhoc-task-stuck adhoc-badge ' +
+                       (todos ? 'adhoc-badge-danger' : 'adhoc-badge-warning'));
+        aviso.setAttribute('role', 'img');
+        aviso.setAttribute('title', texto);
+        aviso.setAttribute('aria-label', texto);
+
+        var icono = iconEl(todos ? 'fa-solid fa-user-lock' : 'fa-solid fa-user-slash');
+        icono.setAttribute('aria-hidden', 'true');
+        aviso.appendChild(icono);
+        // Rotulo VISIBLE, y distinto en cada estado: los dos casos tienen que
+        // distinguirse sin pasar el raton por encima. "Bloqueada" no lleva
+        // numero a proposito —con un solo asignado, "1 sin acceso" se veria
+        // igual que el caso degradado—.
+        aviso.appendChild(el('span', null, todos ? 'Bloqueada' : sin + ' sin acceso'));
+        return aviso;
+    };
+
     Tasks.prototype.buildActions = function (task) {
         var box = el('div', 'adhoc-actions');
+        // Primero el aviso: es el contexto de los botones que vienen detras, y
+        // el primero de ellos es justo el que lo resuelve.
+        var atasco = this.stuckNotice(task);
+        if (atasco) box.appendChild(atasco);
         if (this.can.assign) {
             box.appendChild(actionButton('assign', 'fa-solid fa-user-plus', 'Asignar Usuarios', 'adhoc-icon-users'));
             box.appendChild(actionButton('notify', 'fa-solid fa-bell', 'Notificar Atraso', 'adhoc-icon-bell'));
@@ -629,19 +821,22 @@
                 return;
             }
 
-            // El contador APAGADO es un `<span>`, no un control: sin
-            // `data-adhoc-task-action` el clic seguia de largo hasta el atajo
-            // de fila de abajo y abria el modal de EDICION. O sea que la
-            // pastilla que dice "solo puedes abrir el historial de las tareas
-            // en las que participas", con su cursor de ayuda, terminaba
-            // abriendo el formulario de la tarea.
+            // Los DOS rotulos inertes de esta fila. Ninguno es un control:
+            // son `<span>` sin `data-adhoc-task-action`, asi que el clic seguia
+            // de largo hasta el atajo de fila de abajo y abria el modal de
+            // EDICION. O sea que la pastilla que dice "solo puedes abrir el
+            // historial de las tareas en las que participas" y la que dice
+            // "bloqueada: nadie puede atenderla", las dos con su cursor de
+            // ayuda, terminaban abriendo el formulario de la tarea.
             //
-            // Se queda como `<span>` a proposito: un `<button disabled>` no
+            // Se quedan como `<span>` a proposito: un `<button disabled>` no
             // despacharia el clic, pero los navegadores tampoco muestran el
             // `title` de un control deshabilitado, y ese texto es TODO lo que
-            // esa pastilla tiene que decir. Asi que el control se queda inerte
-            // por markup y aqui se le corta el paso al atajo.
-            if (evt.target.closest('.adhoc-count-off')) return;
+            // tienen que decir. Asi que son inertes por markup y aqui se les
+            // corta el paso al atajo. Cualquier rotulo nuevo con `cursor: help`
+            // entra en esta lista: prometer un tooltip y abrir un formulario es
+            // la peor combinacion posible.
+            if (evt.target.closest('.adhoc-count-off, .adhoc-task-stuck')) return;
 
             if (self.can.update) self.openEdit(task);
         });

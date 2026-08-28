@@ -92,7 +92,59 @@
             });
             return;
         }
+
+        // Quien ya no entra a la app viene MARCADO desde el servidor
+        // (`picker_users` → `without_access`), así que guardar conservándolo es
+        // una decisión, no un descuido. Sin este aviso lo era: el supervisor
+        // llegaba aquí desde la fila "Bloqueada", marcaba un sustituto, guardaba
+        // — y el payload seguía llevando al que no entra, así que la tarea
+        // volvía marcada. La regla no se recalcula aquí: solo se lee la marca.
+        var sinAcceso = (typeof instance.selectionWithoutAccess === 'function')
+            ? instance.selectionWithoutAccess() : [];
+        if (sinAcceso.length) {
+            this.confirmWithoutAccess(button, ids, sinAcceso);
+            return;
+        }
+
         this.send(button, ids);
+    };
+
+    /**
+     * Pregunta antes de guardar una selección que conserva a alguien sin acceso.
+     *
+     * Dice los NOMBRES, no cuántos: la ficha que hay que quitar se reconoce por
+     * el nombre, y el número obligaría a volver a buscarla. Y no quita a nadie
+     * por su cuenta —guardar sin ellos sería desasignar a alguien que el usuario
+     * no ha tocado—: la acción sigue siendo suya, con la ✕ de su ficha.
+     */
+    Assignments.prototype.confirmWithoutAccess = function (button, ids, sinAcceso) {
+        var self = this;
+        var picker = window.AdhocUserPicker;
+        var nombres = [];
+        for (var i = 0; i < sinAcceso.length; i++) {
+            nombres.push(picker && typeof picker.displayName === 'function'
+                ? picker.displayName(sinAcceso[i])
+                : ('#' + sinAcceso[i].id));
+        }
+        var lista = nombres.join(', ');
+        var uno = sinAcceso.length === 1;
+
+        U.confirmDialog({
+            title: uno ? 'Hay alguien que ya no entra a Calidad'
+                       : 'Hay personas que ya no entran a Calidad',
+            message: (uno ? lista + ' sigue en la selección y ya no puede entrar a Calidad.'
+                          : 'Siguen en la selección y ya no pueden entrar a Calidad: ' +
+                            lista + '.') +
+                     ' Quien no entra no puede atender la tarea, así que guardar así la ' +
+                     'deja igual de parada. ' +
+                     (uno ? 'Puedes quitarlo con la ✕ de su ficha.'
+                          : 'Puedes quitarlos con la ✕ de sus fichas.'),
+            confirmText: 'Guardar de todos modos',
+            cancelText: 'Volver a la lista',
+            variant: 'warning'
+        }).then(function (ok) {
+            if (ok) self.send(button, ids);
+        });
     };
 
     Assignments.prototype.send = function (button, ids) {

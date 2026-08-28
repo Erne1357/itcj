@@ -1,8 +1,15 @@
 {# ===========================================================================
-   work/tasks.html — tareas de una incidencia O de un evento de programa.
+   work/tasks.html — tareas de una incidencia, de un evento de programa O de
+   un documento.
      /adhoc/incidencias/{id}/tareas
      /adhoc/programas/{id}/tareas
-   Permiso de página (las dos): adhoc.tasks.page.list
+     /adhoc/documentos/{id}/tareas          (B4; el legacy no la tenía)
+   Permiso de página (las tres): adhoc.tasks.page.list
+
+   TRES pantallas, un solo template: todo lo que se añada aquí tiene que ser
+   condicional o valer para las tres. Hoy solo hay una diferencia —la columna
+   "Paso" del documento— y va por bandera del servidor, no por un
+   `parent_type == 'document'` escrito en la plantilla.
 
    UN SOLO template parametrizado por `parent_type`, como pedía el plan. El
    legacy también reusaba `incidents/tasks.html` desde la ruta de programas,
@@ -10,7 +17,7 @@
    programas, y sin usarse) y el template resolvía la URL de asignación con un
    `{% raw %}{% set ruta_base = ... if parent_type == 'incident' else ... %}{% endraw %}`
    embebido. Aquí las URLs salen de `page_data`, que arma
-   `pages/_work_context.py::tasks_page_context` — la misma función para los dos.
+   `pages/_work_context.py::tasks_page_context` — la misma función para los tres.
 
    ASPECTO — porte de `templates/app_prueba/incidents/tasks.html`:
      · UNA tarjeta blanca con todo dentro (`.table-container`);
@@ -45,7 +52,7 @@
 
 {% block content %}
 {# El id lleva el tipo de expediente: la misma plantilla pinta las tareas de
-   una incidencia y las de un evento de programa. #}
+   una incidencia, las de un evento de programa y las de un documento. #}
 <section id="adhoc-page-worktasks-{{ parent_type }}" class="adhoc-worktasks" data-adhoc-tasks>
   <div class="adhoc-card adhoc-worktasks-card">
 
@@ -76,10 +83,33 @@
       </button>
     {% endcall %}
 
+    {# — COLUMNA "PASO", SOLO EN LA PANTALLA DE DOCUMENTO —
+       La bandera la decide el servidor (`_work_context.tasks_page_context`),
+       porque la respuesta es del dominio y no de la plantilla: solo las tareas
+       de documento cuelgan de un paso del flujo (`AdhocTask.flow_step`), y para
+       las otras dos `serialize_task` emite `flow_step: null`. Una columna con
+       diez guiones no es una columna.
+
+       Va como LISTA que se concatena, no como un `{% raw %}{% if %}{% endraw %}` alrededor de un
+       `<th>`: la macro `data_table()` deriva de la misma lista el encabezado,
+       la fila de filtros y el `colspan` de "sin resultados", así que aquí los
+       tres no pueden descuadrarse. Con un `<th>` suelto habría que acordarse de
+       tocar los tres sitios, que es el fallo clásico de este template —ya lo
+       comparten tres pantallas—. Son 9 columnas en incidencias y programas y
+       10 en documentos.
+
+       El ORDEN importa y es contrato con `work/tasks.js::buildRow`, que inserta
+       su `<td>` en esta misma posición: justo detrás de "Tarea", porque el paso
+       es parte de la identidad de la tarea (la describe: "Aprobar Documento: X
+       (Paso: Y)"), no un atributo más de su seguimiento. #}
+    {%- set _col_paso = [
+          {'key': 'flow_step', 'label': 'Paso', 'filter': true, 'placeholder': 'Paso del flujo'}
+        ] if show_step_column else [] -%}
     {{ data_table(
          page_data.table_id,
          [
-           {'key': 'description', 'label': 'Tarea', 'filter': true, 'placeholder': 'Buscar Tarea'},
+           {'key': 'description', 'label': 'Tarea', 'filter': true, 'placeholder': 'Buscar Tarea'}
+         ] + _col_paso + [
            {'key': 'assignees', 'label': 'Responsable(s)', 'filter': true, 'placeholder': 'Responsable'},
            {'key': 'status', 'label': 'Estatus', 'filter': true, 'placeholder': 'Estatus'},
            {'key': 'priority', 'label': 'Prioridad'},

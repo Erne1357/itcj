@@ -13,9 +13,15 @@ Aquí ese contexto se calcula **una sola vez**, se devuelve como estructuras de
 datos planas y viaja al navegador dentro del bloque ``page_data_script()``
 (``|tojson``), nunca como markup.
 
+Desde B4 hay una séptima página y un tercer padre para
+:func:`tasks_page_context`: ``/adhoc/documentos/{id}/tareas``
+(``pages/documents.py``), que el legacy nunca tuvo. Vive aquí y no en su módulo
+por lo mismo que las otras dos: es el MISMO template.
+
 Este módulo **no expone ``router``** a propósito: no es un módulo de páginas,
-es la capa de contexto que consumen ``pages/incidents.py`` y
-``pages/programs.py``. La fase de cableado no tiene que incluirlo.
+es la capa de contexto que consumen ``pages/incidents.py``,
+``pages/programs.py`` y ``pages/documents.py``. La fase de cableado no tiene que
+incluirlo.
 """
 from __future__ import annotations
 
@@ -34,8 +40,10 @@ __all__ = [
     "TASK_WRITE_PERMS",
     "catalog_options",
     "assignable_users",
+    "picker_users",
     "granted",
     "page_context",
+    "parent_folio",
     "tasks_page_context",
     "task_assignee_ids",
     "task_notified_ids",
@@ -104,27 +112,22 @@ def catalog_options(db: Session, *, category_model: str) -> dict[str, list[dict]
 # Usuarios asignables
 # ==========================================================================
 
-def assignable_users(db: Session) -> list[dict]:
-    """Usuarios que pueden ser responsables o validadores dentro de Calidad.
+def _picker_rows(db: Session, criterios: Sequence[Any], *,
+                 limite: Optional[int] = None) -> list[dict]:
+    """Usuarios con la forma que consume ``shared/user-picker.js``.
 
-    El criterio es **el mismo que deja entrar a la app**
-    (``users_with_assignment_select``, las cuatro vías de ``require_app``:
-    rol o permiso directo, rol o permiso heredado de un puesto vigente), no
-    ``User.query.all()`` como hacía el legacy — que ofrecía los ~20 000 usuarios
-    del padrón, alumnado incluido, para ser responsable de una incidencia del
-    SGC.
-
-    No se usa ``UserAdminService.list_users`` aquí a propósito: aquella solo ve
-    los accesos **directos** (``core_user_app_roles``) porque su pantalla
-    escribe en esa tabla, y dejaría fuera a quien entra por puesto.
-
-    Devuelve dicts planos con la forma que consume ``shared/user-picker.js``
-    (``id``, ``full_name``, ``email``, ``position``, ``department``).
+    ``criterios`` es lo ÚNICO que separa a los dos conjuntos que la pantalla de
+    asignación maneja: quién puede ser responsable hoy (:func:`assignable_users`)
+    y quién ya lo es sin poder serlo (:func:`picker_users`). El resto —el nombre
+    compuesto, el puesto vigente, el departamento y la deduplicación del join—
+    sale de aquí para los dos, y tiene que salir del mismo sitio: si al usuario
+    marcado "sin acceso" se le resolviera el nombre con otra query, la única
+    ficha de la lista que exige una decisión sería también la que se ve
+    distinta.
     """
     from itcj2.core.models.department import Department
     from itcj2.core.models.position import Position, UserPosition
     from itcj2.core.models.user import User
-    from itcj2.core.services.authz_service import users_with_assignment_select
 
     rows = (
         db.query(
@@ -145,10 +148,7 @@ def assignable_users(db: Session) -> list[dict]:
             (Position.id == UserPosition.position_id) & (Position.is_active.is_(True)),
         )
         .outerjoin(Department, Department.id == Position.department_id)
-        .filter(
-            User.is_active.is_(True),
-            User.id.in_(users_with_assignment_select(db, APP_KEY)),
-        )
+        .filter(*criterios)
         .order_by(User.last_name.asc(), User.first_name.asc(), User.id.asc())
         .all()
     )
@@ -170,9 +170,96 @@ def assignable_users(db: Session) -> list[dict]:
             "position": row.position_title,
             "department": row.department_name,
         })
-        if len(out) >= MAX_USERS:
+        if limite is not None and len(out) >= limite:
             break
     return out
+
+
+def assignable_users(db: Session) -> list[dict]:
+    """Usuarios que pueden ser responsables o validadores dentro de Calidad.
+
+    El criterio es **el mismo que deja entrar a la app**
+    (``users_with_assignment_select``, las cuatro vías de ``require_app``:
+    rol o permiso directo, rol o permiso heredado de un puesto vigente), no
+    ``User.query.all()`` como hacía el legacy — que ofrecía los ~20 000 usuarios
+    del padrón, alumnado incluido, para ser responsable de una incidencia del
+    SGC.
+
+    No se usa ``UserAdminService.list_users`` aquí a propósito: aquella solo ve
+    los accesos **directos** (``core_user_app_roles``) porque su pantalla
+    escribe en esa tabla, y dejaría fuera a quien entra por puesto.
+
+    Devuelve dicts planos con la forma que consume ``shared/user-picker.js``
+    (``id``, ``full_name``, ``email``, ``position``, ``department``).
+    """
+    from itcj2.core.models.user import User
+    from itcj2.core.services.authz_service import users_with_assignment_select
+
+    return _picker_rows(
+        db,
+        (
+            User.is_active.is_(True),
+            User.id.in_(users_with_assignment_select(db, APP_KEY)),
+        ),
+        limite=MAX_USERS,
+    )
+
+
+def picker_users(db: Session,
+                 selected_ids: Optional[Sequence[int]] = None) -> list[dict]:
+    """Lo asignable **más** lo ya asignado que dejó de serlo, marcado.
+
+    Las dos listas de la pantalla de asignación —a quién se puede marcar y a
+    quién ya está marcado— salen del MISMO criterio de acceso, y esa es
+    justamente la razón por la que se cruzan mal: al responsable que perdió el
+    acceso lo excluye ``assignable_users`` por el mismo motivo por el que el
+    aviso de atasco lo señala en la pantalla anterior. El picker no lo
+    encontraba en ``users`` y caía a su respaldo, así que el supervisor que
+    acababa de leer un nombre en la fila "Bloqueada" llegaba aquí y veía la
+    ficha ``#24055``: un número, sin nombre ni departamento, en la pantalla que
+    el propio aviso le decía que usara para arreglarlo. Y como
+    ``getSelection()`` no distingue una ficha de otra, marcar un sustituto y
+    guardar mandaba ``user_ids: [24055, nuevo]`` — la tarea volvía con el aviso
+    puesto, degradado a "1 de los 2 responsables no puede entrar".
+
+    Aquí los dos conjuntos los concilia el servidor, que es quien conoce los
+    dos: los seleccionados que ``assignable_users`` no trae se resuelven con su
+    nombre real y viajan con ``without_access: True``. El JS **no vuelve a
+    decidir** quién tiene acceso: pinta la marca que recibe, y con ella quitar a
+    esa persona pasa a ser una acción evidente en vez de un descubrimiento.
+
+    Van al PRINCIPIO de la lista a propósito. La lista está ordenada por
+    apellido y se recorre buscando a quien añadir; el que ya no puede entrar no
+    se busca —se retira—, así que es lo único de esta pantalla que pide una
+    decisión antes de cualquier otra cosa.
+
+    No se les aplica el tope de ``MAX_USERS``: ese límite es de cuánto se
+    serializa al HTML, no una regla de acceso, y son como mucho tantos como
+    responsables tenga la tarea.
+    """
+    from itcj2.core.models.user import User
+
+    asignables = assignable_users(db)
+    conocidos = {fila["id"] for fila in asignables}
+    faltantes = [
+        uid for uid in dict.fromkeys(selected_ids or []) if uid not in conocidos
+    ]
+    if not faltantes:
+        return asignables
+
+    por_id = {fila["id"]: fila for fila in _picker_rows(db, (User.id.in_(faltantes),))}
+    extras: list[dict] = []
+    for uid in faltantes:
+        # Un id sin fila en `core_users` no debería existir (la asociación es
+        # FK), pero si existiera, la ficha con su número es mejor que perderlo
+        # en silencio de la selección al guardar.
+        fila = por_id.get(uid) or {
+            "id": uid, "full_name": f"#{uid}", "email": None,
+            "position": None, "department": None,
+        }
+        fila["without_access"] = True
+        extras.append(fila)
+    return extras + asignables
 
 
 # ==========================================================================
@@ -208,6 +295,46 @@ def granted(db: Session, user: Optional[dict], codes: Sequence[str]) -> dict[str
 
 
 # ==========================================================================
+# Identidad del expediente
+# ==========================================================================
+
+def parent_folio(parent: Any, parent_type: str) -> Optional[str]:
+    """Cómo se identifica el expediente en la cabecera de sus tareas.
+
+    Incidencia y evento de programa tienen una columna ``folio`` y se devuelve
+    tal cual (nullable: ``adhoc/work/tasks.html`` ya cae al título con
+    ``parent.folio or parent.title``).
+
+    **Un documento no tiene folio.** Tiene ``code`` —nullable— y ``version``, y
+    su identidad en el SGC son los dos juntos: ``code`` nombra la *cadena* de
+    versiones y el flujo de aprobación corre sobre **una** de ellas. El caso que
+    destapó esto es el documento 202: código ``052``, versión ``4.0``, y hay dos
+    documentos más con el mismo ``052`` (v2.0 y v3.0, ya obsoletos). Una
+    cabecera que dijera solo "052" nombraría igual las tres pantallas de tareas.
+    Se pinta ``"052 v4.0"``, con el mismo token ``v{version}`` que ya usan las
+    dos listas de documentos y el historial de versiones.
+
+    Sin ``code`` se emite ``"Sin código v4.0"`` y no ``None``: dejar caer el
+    fallback del template pondría el título del documento en el hueco del folio
+    **y** en el subtítulo, repetido, y de paso perdería la versión, que es el
+    único dato que aquí sí distingue un expediente de otro. "Sin código" es la
+    misma palabra que ya usa ``documents-panel.js`` cuando le falta el código.
+    Hoy los 203 documentos traen código, así que es una rama defensiva —pero la
+    columna es nullable y el alta no lo exige, así que puede darse mañana.
+
+    Se resuelve aquí y no en la ruta llamante para que las tres pantallas de
+    tareas sigan compartiendo un solo contexto, que es la razón de ser de este
+    módulo.
+    """
+    if parent_type != "document":
+        return getattr(parent, "folio", None)
+
+    codigo = (getattr(parent, "code", None) or "").strip() or "Sin código"
+    version = (getattr(parent, "version", None) or "").strip()
+    return f"{codigo} v{version}" if version else codigo
+
+
+# ==========================================================================
 # Contexto base de página
 # ==========================================================================
 
@@ -216,7 +343,7 @@ def page_context(db: Session, user: Optional[dict], **extra: Any) -> dict:
 
     Hoy es el ``nav`` filtrado por permisos (regla 6 de las de templates), más
     lo que aporte cada página. Existe para que añadir algo transversal al shell
-    no obligue a tocar las seis páginas.
+    no obligue a tocar las siete páginas.
     """
     from itcj2.apps.adhoc.pages.nav import nav_for_user
 
@@ -234,16 +361,28 @@ def tasks_page_context(
     back_url: str,
     parent_label: str,
 ) -> dict:
-    """Contexto de ``adhoc/work/tasks.html`` — **idéntico para los dos padres**.
+    """Contexto de ``adhoc/work/tasks.html`` — **idéntico para los tres padres**.
 
     En el legacy los dos consumidores del mismo template pasaban contextos
     distintos: la ruta de programas añadía un ``notified_map`` que la plantilla
     nunca leía, y la de incidencias no lo pasaba. Aquí hay una sola función, así
-    que las dos pantallas no pueden divergir.
+    que las pantallas no pueden divergir.
+
+    El tercer padre es el **documento** (``/adhoc/documentos/{id}/tareas``), que
+    hasta hoy no tenía pantalla: las tareas de aprobación de un documento solo
+    se veían en el tablero personal de cada validador, así que nadie podía mirar
+    el avance del flujo ni destrabar un paso cuyos asignados ya no entran a la
+    app. Dos cosas suyas se resuelven aquí para no partir el contexto en dos:
+
+    * su identidad no es un ``folio`` sino ``code`` + ``version``
+      (:func:`parent_folio`), y
+    * es el único de los tres cuyas tareas pertenecen a un **paso** del flujo,
+      de donde sale ``show_step_column``.
     """
     from itcj2.apps.adhoc.utils.constants import PRIORITIES, TASK_STATUSES
 
     permisos = granted(db, user, TASK_WRITE_PERMS)
+    folio = parent_folio(parent, parent_type)
 
     page_data = {
         "statuses": list(TASK_STATUSES),
@@ -251,13 +390,21 @@ def tasks_page_context(
         "parent_type": parent_type,
         "parent_id": parent.id,
         "parent_title": parent.title,
-        "parent_folio": parent.folio,
+        "parent_folio": folio,
         "parent_status": parent.status,
         "api": "/api/adhoc/v2/tasks",
         "table_id": "adhoc-table-tasks",
         "assign_url": "/adhoc/asignaciones",
         "back_url": back_url,
         "users": assignable_users(db),
+        # Bandera explícita, no un `parent_type === 'document'` suelto repetido
+        # en la plantilla y en el JS: la columna "Paso" existe porque SOLO las
+        # tareas de documento cuelgan de un `flow_step` (`AdhocTask.flow_step`;
+        # `serialize_task` emite `flow_step: null` para las otras dos). Quién
+        # pinta la columna lo decide el servidor una vez, igual que quién puede
+        # leer el hilo o quién tiene acceso a la app: la regla se escribe una
+        # sola vez y la UI la obedece.
+        "show_step_column": parent_type == "document",
         "can": {
             "create": permisos["adhoc.tasks.api.create"],
             "update": permisos["adhoc.tasks.api.update"],
@@ -275,14 +422,19 @@ def tasks_page_context(
         "page_title": f"Tareas de {articulo} {parent_label}",
         "parent": {
             "id": parent.id,
-            "folio": parent.folio,
+            "folio": folio,
             "title": parent.title,
             "status": parent.status,
         },
         "parent_type": parent_type,
         "parent_label": parent_label,
         "back_url": back_url,
+        # Las dos banderas que la PLANTILLA lee con `{% if %}` se repiten aquí
+        # arriba por comodidad de Jinja, pero derivadas de `page_data`, nunca
+        # recalculadas: un `{% if %}` que dijera una cosa y el JS otra es
+        # exactamente la divergencia que este módulo existe para impedir.
         "can_create": page_data["can"]["create"],
+        "show_step_column": page_data["show_step_column"],
     }
 
 

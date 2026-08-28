@@ -56,6 +56,62 @@ def _actor_context(db, user: dict) -> tuple[int, bool]:
     return actor_id, has_read_all
 
 
+def _app_user_ids(db) -> set[int] | None:
+    """Ids de quienes pueden **entrar** a Calidad. Una vez por petición.
+
+    Cuesta dos queries —la fila de ``core_apps`` que resuelve el ``app_key`` y
+    el ``SELECT`` de ids—, y son dos fijas: no dependen de cuántas tareas ni de
+    cuántos asignados traiga el listado.
+
+    La regla no se reimplementa: es ``users_with_assignment_select(db, "adhoc")``
+    —las cuatro vías de ``require_app``: rol o permiso directo, rol o permiso
+    heredado de un puesto vigente— con el mismo filtro ``is_active`` que le
+    añade ``pages/_work_context.assignable_users``, que es quien llena el
+    desplegable de la pantalla de asignación.
+
+    **Tienen que ser el mismo conjunto.** El aviso de "esta tarea está
+    atascada" y el desplegable que la desatasca son las dos mitades de la misma
+    pregunta; si divergieran, el aviso marcaría a alguien que el desplegable sí
+    ofrece —o, peor, se callaría sobre alguien a quien no ofrece— y el
+    supervisor no tendría forma de arreglar lo que la pantalla le señala. La
+    diferencia no es teórica: hoy hay 14 usuarios que conservan un rol de la
+    app pero están dados de baja, y entre ellos suman 82 asignaciones de tarea;
+    sin el ``is_active`` esas 82 se declararían "con acceso" mientras el picker
+    no ofrece a ninguno de ellos.
+
+    Lo único de ``assignable_users`` que NO se replica es su tope de 500
+    usuarios: ese es un límite de cuánto se serializa al HTML, no una regla de
+    acceso, y aplicarlo aquí convertiría al usuario 501 en un falso "sin
+    acceso".
+
+    Devuelve ``None`` si la app ni siquiera está registrada en ``core_apps``
+    (``users_with_assignment_select`` resuelve esa fila y, si falta, lanza
+    404). Solo un admin global puede llegar ahí: ``require_perms`` lo deja
+    pasar **antes** de tocar la fila de la app, mientras que a cualquier otro
+    actor ``cached_has_assignment`` ya le habría dado 403 —y la página ni
+    siquiera se abre—. Es decir, este es el único endpoint de tareas que puede
+    tropezarse con esa fila ausente, y una lista no se cae por no poder
+    calcular un aviso: sin conjunto, ``serialize_task`` **omite** la clave en
+    lugar de afirmar que todo el mundo tiene acceso.
+    """
+    from itcj2.core.models.user import User
+    from itcj2.core.services.authz_service import users_with_assignment_select
+
+    try:
+        filas = (
+            db.query(User.id)
+            .filter(
+                User.is_active.is_(True),
+                User.id.in_(users_with_assignment_select(db, "adhoc")),
+            )
+            .all()
+        )
+    except HTTPException:
+        logger.warning("adhoc: no se pudo resolver el conjunto de usuarios con acceso")
+        return None
+    return {row[0] for row in filas}
+
+
 # ==========================================================================
 # Lectura
 # ==========================================================================
@@ -118,6 +174,19 @@ def list_tasks(
     **número** de comentarios. El hilo lo sigue guardando ``puede_leer_hilo``
     fila por fila, así que ``consult`` ve el expediente completo con la pastilla
     clicable solo donde participa.
+
+    Cada fila lleva además ``flow_step`` (el paso del flujo del que nació, o
+    ``None``) y ``assignees_without_access``. Esta última sale **solo aquí**:
+    el conjunto de usuarios con acceso se calcula una vez por petición
+    (:func:`_app_user_ids`, dos queries fijas) y se reparte a todas las filas. Los
+    demás endpoints no lo pagan. ``/mine`` es el tablero personal —quien lo
+    mira es el asignado, y el aviso es para quien supervisa a los asignados—.
+    Y los de escritura devuelven la tarea para el toast y poco más: la pantalla
+    de tareas cierra cada alta, parche, borrado o reasignación con un
+    ``load()`` que vuelve a pedir **esta** lista (``work/tasks.js``;
+    ``/adhoc/asignaciones`` es una página aparte que redirige de vuelta), así
+    que el aviso se recalcula entero y de una sola vez en lugar de costar una
+    query por escritura.
     """
     from itcj2.apps.adhoc.schemas.tasks import serialize_task
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
@@ -125,10 +194,12 @@ def list_tasks(
     actor_id, has_read_all = _actor_context(db, user)
 
     tasks = AdhocTaskService.list_by_parent(db, parent_type, parent_id)
+    app_user_ids = _app_user_ids(db)
     return {
         "success": True,
         "data": [
-            serialize_task(t, actor_id=actor_id, has_read_all=has_read_all)
+            serialize_task(t, actor_id=actor_id, has_read_all=has_read_all,
+                           app_user_ids=app_user_ids)
             for t in tasks
         ],
         "total": len(tasks),

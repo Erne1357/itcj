@@ -50,6 +50,7 @@ __all__ = [
     "serialize_user",
     "parent_type_of",
     "puede_leer_hilo",
+    "serialize_flow_step",
     "serialize_task",
     "serialize_comment_file",
     "serialize_comment",
@@ -301,9 +302,31 @@ def puede_leer_hilo(task: Any, *, actor_id: Optional[int], has_read_all: bool) -
     return False
 
 
+def serialize_flow_step(step: Any) -> Optional[dict]:
+    """El paso del flujo al que pertenece la tarea, o ``None``.
+
+    Solo las tareas de documento nacen de un paso: ``start_flow`` crea una por
+    cada uno del flujo y les copia el ``flow_step_id``. Las de incidencia y de
+    evento de programa no cuelgan de ningún flujo y aquí valen ``None``.
+
+    ``step_order`` viaja junto al nombre porque la pantalla de tareas de un
+    documento es un **avance por pasos**: sin el orden, "Autorización" no dice
+    si va antes o después de "Revisión y liberación", y el nombre de cada paso
+    lo escribe a mano quien define el flujo.
+    """
+    if step is None:
+        return None
+    return {
+        "id": getattr(step, "id", None),
+        "name": getattr(step, "name", None),
+        "step_order": getattr(step, "step_order", None),
+    }
+
+
 def serialize_task(task: Any, *, with_parent: bool = False,
                    actor_id: Optional[int] = None,
-                   has_read_all: bool = False) -> dict:
+                   has_read_all: bool = False,
+                   app_user_ids: Optional[set[int]] = None) -> dict:
     """Forma canónica de una tarea en la API.
 
     Asume ``selectinload`` de ``assignees`` y ``comments``; ``comments_count``
@@ -319,6 +342,33 @@ def serialize_task(task: Any, *, with_parent: bool = False,
     que el actor está leyendo en ese preciso momento). Ausente, el JS lo lee
     como ``undefined``, que es falsy: misma prudencia en la UI, sin mentir en
     el JSON.
+
+    ``flow_step`` se emite **siempre**, también como ``None``. Es la columna
+    "Paso" de la pantalla de tareas de un documento —lo que la convierte en un
+    avance por pasos y no en una lista suelta—, y una clave que a veces está y
+    a veces no obligaría al JS a comprobar dos cosas (que exista y que valga
+    algo) para pintar una celda que, sin flujo detrás, simplemente va vacía.
+    Asume ``selectinload(AdhocTask.flow_step)``, que ya hacen las tres rutas de
+    lectura del service. Medido contra la base real, el listado de un padre
+    cuesta las mismas 7 queries con 2, con 3 y con 12 tareas; sin ese
+    ``selectinload`` sube a 8 con solo dos filas —una por tarea con paso: el
+    N+1 clásico—. En las rutas de escritura la relación es *many-to-one* y se
+    resuelve al vuelo: una query para una tarea con paso, ninguna cuando
+    ``flow_step_id`` es ``None``, que es el caso de **toda** tarea creada por
+    esta API, porque ese id solo lo pone ``start_flow``.
+
+    ``app_user_ids`` es el conjunto de usuarios que pueden **entrar** a la app.
+    Lo calcula quien llama, una vez por petición (``_app_user_ids`` en
+    ``api/tasks.py``), y nunca este serializador: resolverlo por tarea sería
+    una query por fila para responder siempre lo mismo. Con él se emite
+    ``assignees_without_access``, los ids de asignados que no pueden abrir
+    Calidad; si están **todos** los asignados, la tarea está atascada —sigue
+    viva y nadie de los suyos puede entrar a atenderla—. **Sin el conjunto la
+    clave no se emite**, misma regla que ``thread_readable``: una lista vacía
+    afirmaría "todos los asignados tienen acceso" y eso no se ha comprobado.
+    Ausente, ``(fila.assignees_without_access || []).length`` da 0 en el JS,
+    así que la UI se calla igual que con la lista vacía, pero el JSON no ha
+    afirmado nada que no supiera.
     """
     data = {
         "id": task.id,
@@ -333,6 +383,7 @@ def serialize_task(task: Any, *, with_parent: bool = False,
         "program_id": task.program_id,
         "document_id": task.document_id,
         "flow_step_id": task.flow_step_id,
+        "flow_step": serialize_flow_step(getattr(task, "flow_step", None)),
         "parent_type": parent_type_of(task),
         "assignees": [serialize_user(u) for u in (task.assignees or [])],
         "comments_count": len(task.comments or []),
@@ -342,6 +393,12 @@ def serialize_task(task: Any, *, with_parent: bool = False,
         data["thread_readable"] = puede_leer_hilo(
             task, actor_id=actor_id, has_read_all=has_read_all
         )
+    if app_user_ids is not None:
+        data["assignees_without_access"] = [
+            uid
+            for uid in (getattr(u, "id", None) for u in (task.assignees or []))
+            if uid is not None and uid not in app_user_ids
+        ]
     if with_parent:
         data["parent"] = serialize_parent(task)
     return data

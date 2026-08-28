@@ -1040,3 +1040,295 @@ def test_las_cuatro_puertas_del_hilo_dan_el_mismo_veredicto(tasks_client, db_ses
 
     assert set(del_ajeno.values()) == {True}, del_ajeno
     assert set(del_autor.values()) == {False}, del_autor
+
+
+# ==========================================================================
+# `flow_step` y `assignees_without_access` — lo que B4 añadió al listado
+#
+# El flujo documental se rompía por la mitad: `parent_type='document'` lo
+# soportaban la API y el service, pero la pantalla que lo pinta no existía, así
+# que las tareas de aprobación de un documento solo asomaban en el tablero
+# personal de cada validador. Nadie —ni un supervisor documental ni un admin—
+# veía el avance por pasos ni podía destrabar un paso cuyos asignados ya no
+# entran a Calidad.
+#
+# Las dos claves que hacen posible esa pantalla salen de aquí:
+#
+# * `flow_step` — el paso del que nació la tarea, con su `step_order`. Es lo que
+#   convierte la lista en un avance por pasos: sin el orden, "Autorización" no
+#   dice si va antes o después de "Revisión y liberación", y esos nombres los
+#   escribe a mano quien define el flujo.
+# * `assignees_without_access` — los asignados que NO pueden entrar a la app.
+#   El conjunto lo calcula el SERVIDOR una vez por petición (`_app_user_ids` →
+#   `users_with_assignment_select`, el mismo criterio que llena el desplegable
+#   de `/adhoc/asignaciones`) y viaja en el payload; el JS no vuelve a decidir
+#   quién tiene acceso. Si el aviso y el desplegable divergieran, la pantalla
+#   marcaría a alguien que el picker sí ofrece —o se callaría sobre alguien a
+#   quien no ofrece— y el supervisor no tendría con qué arreglar lo que se le
+#   está señalando.
+# ==========================================================================
+
+def _con_acceso(*users):
+    """Parchea el conjunto de usuarios que pueden ENTRAR a Calidad.
+
+    Se parchea el **módulo fuente** (``authz_service``) porque ``_app_user_ids``
+    importa la función dentro del cuerpo. Devolver una lista de ids en vez del
+    ``SELECT`` real basta: el endpoint la mete en un ``User.id.in_(...)``.
+    """
+    return patch(
+        "itcj2.core.services.authz_service.users_with_assignment_select",
+        return_value=[u.id for u in users],
+    )
+
+
+def _documento_con_dos_pasos(db):
+    """Documento con flujo de dos pasos, la forma que deja ``start_flow``."""
+    autor = make_user(db, "AUTOR")
+    flow, steps = make_flow(db)
+    doc = make_document(db, author=autor, flow=flow, current_step=steps[0])
+    return doc, steps
+
+
+def test_flow_step_sale_poblado_en_una_tarea_de_documento(tasks_client, db_session):
+    """El paso viaja entero —id, nombre y orden—, no solo su id.
+
+    ``flow_step_id`` ya estaba, pero un número no se puede pintar en una
+    columna: obligaría al JS a pedir el flujo aparte para traducirlo, o a la
+    pantalla a enseñar "9" donde el usuario espera "Revisión y liberación".
+    """
+    doc, steps = _documento_con_dos_pasos(db_session)
+    val = make_user(db_session, "VALIDADOR")
+    primera = make_task(db_session, document=doc, flow_step=steps[0],
+                        status="En Revisión", assignees=[val])
+    segunda = make_task(db_session, document=doc, flow_step=steps[1],
+                        status="En Espera", assignees=[val])
+
+    with _con_acceso(val):
+        resp = tasks_client.get(
+            f"{PREFIX}?parent_type=document&parent_id={doc.id}",
+            headers=headers_for(val),
+        )
+
+    assert resp.status_code == 200
+    filas = {row["id"]: row for row in resp.json()["data"]}
+    assert filas[primera.id]["flow_step"] == {
+        "id": steps[0].id, "name": steps[0].name, "step_order": 1,
+    }
+    assert filas[segunda.id]["flow_step"] == {
+        "id": steps[1].id, "name": steps[1].name, "step_order": 2,
+    }
+    # La clave nueva no sustituye a la vieja: el id sigue viajando.
+    assert filas[primera.id]["flow_step_id"] == steps[0].id
+
+
+def test_flow_step_es_none_en_las_otras_dos_formas_de_padre(tasks_client, db_session):
+    """Se emite SIEMPRE, también como ``None`` — las tres formas de padre.
+
+    Una clave que a veces está y a veces no obligaría al JS a comprobar dos
+    cosas (que exista y que valga algo) para pintar una celda que, sin flujo
+    detrás, simplemente va vacía. Solo las tareas de documento cuelgan de un
+    paso: las de incidencia y las de evento de programa no nacen de un flujo.
+    """
+    u = make_user(db_session)
+    inc = make_incident(db_session)
+    ev = make_program_event(db_session)
+    de_incidencia = make_task(db_session, incident=inc)
+    de_programa = make_task(db_session, program=ev)
+
+    with _con_acceso(u):
+        una = tasks_client.get(f"{PREFIX}?parent_type=incident&parent_id={inc.id}",
+                               headers=headers_for(u))
+        otra = tasks_client.get(f"{PREFIX}?parent_type=program&parent_id={ev.id}",
+                                headers=headers_for(u))
+
+    for resp, tid in ((una, de_incidencia.id), (otra, de_programa.id)):
+        fila = next(f for f in resp.json()["data"] if f["id"] == tid)
+        assert "flow_step" in fila, fila
+        assert fila["flow_step"] is None
+        assert fila["flow_step_id"] is None
+
+
+def test_sin_asignados_sin_acceso_la_lista_va_vacia(tasks_client, db_session):
+    """Todos los asignados pueden entrar: la lista sale vacía, no ausente.
+
+    Vacía es una afirmación —"lo comprobé y no falta nadie"— que aquí sí se
+    sostiene, porque el conjunto se calculó. La UI no pinta nada.
+    """
+    u = make_user(db_session, "CON")
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[u])
+
+    with _con_acceso(u):
+        resp = tasks_client.get(f"{PREFIX}?parent_type=incident&parent_id={inc.id}",
+                                headers=headers_for(u))
+
+    fila = next(f for f in resp.json()["data"] if f["id"] == t.id)
+    assert fila["assignees_without_access"] == []
+
+
+def test_la_tarea_atascada_marca_a_todos_sus_asignados(tasks_client, db_session):
+    """El caso vivo: la tarea 683 del documento 202 en la base real.
+
+    Un único responsable, y ese responsable no puede entrar a Calidad. La tarea
+    sigue "En Revisión" y nadie de los suyos puede atenderla: el paso está
+    atascado y hasta B4 no había ninguna pantalla donde se viera.
+    """
+    sin = make_user(db_session, "SIN")
+    otro = make_user(db_session, "OTRO")   # tiene acceso, pero no está asignado
+    doc, steps = _documento_con_dos_pasos(db_session)
+    t = make_task(db_session, document=doc, flow_step=steps[0],
+                  status="En Revisión", assignees=[sin])
+
+    with _con_acceso(otro):
+        resp = tasks_client.get(f"{PREFIX}?parent_type=document&parent_id={doc.id}",
+                                headers=headers_for(otro))
+
+    fila = next(f for f in resp.json()["data"] if f["id"] == t.id)
+    assert fila["assignees_without_access"] == [sin.id]
+    # "Bloqueada" es *todos*; el JS lo decide comparando con `assignees`.
+    assert [a["id"] for a in fila["assignees"]] == [sin.id]
+
+
+def test_el_caso_mixto_distingue_bloqueada_de_degradada(tasks_client, db_session):
+    """Uno sí y otro no: la tarea NO está atascada, pero cojea.
+
+    Es el caso que separa los dos estados del aviso. Si el payload solo dijera
+    "hay alguien sin acceso" (un booleano), la pantalla no podría distinguir
+    "nadie puede atenderla" de "queda quien la atienda", que son dos urgencias
+    distintas para el supervisor. Por eso viajan los **ids**, no un flag.
+    """
+    dentro = make_user(db_session, "DENTRO")
+    fuera = make_user(db_session, "FUERA")
+    doc, steps = _documento_con_dos_pasos(db_session)
+    t = make_task(db_session, document=doc, flow_step=steps[0],
+                  status="En Revisión", assignees=[dentro, fuera])
+
+    with _con_acceso(dentro):
+        resp = tasks_client.get(f"{PREFIX}?parent_type=document&parent_id={doc.id}",
+                                headers=headers_for(dentro))
+
+    fila = next(f for f in resp.json()["data"] if f["id"] == t.id)
+    assert fila["assignees_without_access"] == [fuera.id]
+    assert len(fila["assignees"]) == 2
+
+
+def test_un_asignado_dado_de_baja_cuenta_como_sin_acceso(tasks_client, db_session):
+    """Conservar el rol no es poder entrar: el ``is_active`` decide.
+
+    En la base real hay 14 usuarios que mantienen un rol de la app pero están
+    dados de baja, y entre ellos suman 82 asignaciones de tarea. Sin el filtro
+    las 82 se declararían "con acceso" mientras el desplegable de asignación no
+    ofrece a ninguno de ellos — o sea, el aviso callaría justo donde el
+    supervisor no tiene a quién reasignar.
+    """
+    activo = make_user(db_session, "ACTIVO")
+    baja = make_user(db_session, "BAJA")
+    baja.is_active = False
+    db_session.flush()
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[activo, baja])
+
+    with _con_acceso(activo, baja):
+        resp = tasks_client.get(f"{PREFIX}?parent_type=incident&parent_id={inc.id}",
+                                headers=headers_for(activo))
+
+    fila = next(f for f in resp.json()["data"] if f["id"] == t.id)
+    assert fila["assignees_without_access"] == [baja.id]
+
+
+def test_el_aviso_y_el_desplegable_miran_el_mismo_conjunto(db_session):
+    """La invariante de B4, escrita como tal: una regla, dos consumidores.
+
+    ``_app_user_ids`` marca a quién avisar y ``assignable_users`` llena el
+    desplegable que desatasca la tarea. Son las dos mitades de la misma
+    pregunta —"¿quién puede entrar a Calidad?"— y por eso las dos llaman a
+    ``users_with_assignment_select`` con el mismo filtro de ``is_active``. Si
+    divergieran, la pantalla señalaría un problema que su propio botón no puede
+    resolver.
+    """
+    from itcj2.apps.adhoc.api.tasks import _app_user_ids
+    from itcj2.apps.adhoc.pages._work_context import assignable_users
+
+    dentro = make_user(db_session, "DENTRO")
+    baja = make_user(db_session, "BAJA")
+    baja.is_active = False
+    db_session.flush()
+
+    with _con_acceso(dentro, baja):
+        con_acceso = _app_user_ids(db_session)
+        ofrecidos = {u["id"] for u in assignable_users(db_session)}
+
+    assert dentro.id in con_acceso
+    assert baja.id not in con_acceso
+    assert con_acceso == ofrecidos
+
+
+def test_sin_el_conjunto_la_clave_no_afirma_que_nadie_tiene_acceso(db_session):
+    """El default honesto, mismo criterio que ``thread_readable`` en B3.
+
+    Una lista vacía afirmaría "comprobé y todos los asignados tienen acceso", y
+    sin conjunto eso no se ha comprobado. Ausente, el JS lee
+    ``(fila.assignees_without_access || []).length`` y da 0: la UI se calla
+    igual, pero el JSON no ha afirmado nada que no supiera.
+
+    ``flow_step`` va al revés y por eso se comprueba aquí al lado: esa sí se
+    emite siempre, porque el paso es un dato de la tarea y no depende de ningún
+    contexto que el llamante pueda no haber calculado.
+    """
+    from itcj2.apps.adhoc.schemas.tasks import serialize_task
+
+    inc = make_incident(db_session)
+    u = make_user(db_session)
+    t = make_task(db_session, incident=inc, assignees=[u])
+
+    data = serialize_task(t)
+
+    assert "assignees_without_access" not in data
+    assert "thread_readable" not in data
+    assert "flow_step" in data and data["flow_step"] is None
+
+
+def test_si_el_conjunto_no_se_puede_calcular_la_lista_no_se_cae(tasks_client, db_session):
+    """Sin fila de ``core_apps`` no hay aviso, pero sí hay lista.
+
+    ``users_with_assignment_select`` resuelve la fila de la app y lanza 404 si
+    falta. Solo un admin global puede llegar ahí (a cualquier otro
+    ``cached_has_assignment`` ya le habría dado 403), y una lista de tareas no
+    se cae por no poder calcular un aviso: se omite la clave.
+    """
+    from fastapi import HTTPException
+
+    u = make_user(db_session)
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[u])
+
+    with patch("itcj2.core.services.authz_service.users_with_assignment_select",
+               side_effect=HTTPException(status_code=404, detail="App inexistente")):
+        resp = tasks_client.get(f"{PREFIX}?parent_type=incident&parent_id={inc.id}",
+                                headers=headers_for(u))
+
+    assert resp.status_code == 200
+    fila = next(f for f in resp.json()["data"] if f["id"] == t.id)
+    assert "assignees_without_access" not in fila
+    assert "flow_step" in fila
+
+
+def test_el_tablero_personal_no_paga_el_aviso(tasks_client, db_session):
+    """``/tasks/mine`` no emite la clave, y es deliberado.
+
+    El aviso es para quien SUPERVISA a los asignados; el tablero lo mira el
+    asignado, que por definición sí pudo entrar. Calcular ahí el conjunto sería
+    pagar dos queries por carga de la landing para no pintar nada.
+    """
+    u = make_user(db_session, "YO")
+    inc = make_incident(db_session)
+    make_task(db_session, incident=inc, status="Pendiente", assignees=[u])
+
+    with _con_acceso(u):
+        resp = tasks_client.get(f"{PREFIX}/mine", headers=headers_for(u))
+
+    assert resp.status_code == 200
+    fila = resp.json()["data"][0]
+    assert "assignees_without_access" not in fila
+    # `flow_step` sí, porque no depende del contexto de la petición.
+    assert "flow_step" in fila
