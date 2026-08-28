@@ -668,3 +668,375 @@ def test_descarga_de_adjunto_con_ruta_envenenada_es_404(tasks_client, db_session
     resp = tasks_client.get(f"{PREFIX}/comments/files/{f.id}/download", headers=headers_for(u))
 
     assert resp.status_code == 404
+
+
+# ==========================================================================
+# `thread_readable` — el flag por fila que B3 añadió al listado
+#
+# La lista de tareas de un expediente pinta el contador de la columna "Notas"
+# como botón que abre el hilo, o apagado si el actor no lo alcanza. Quien
+# decide es el servidor, con la MISMA función que levanta el 403 de
+# `GET /tasks/{id}/workflow` (`puede_leer_hilo`); si las dos frases
+# divergieran, la fila ofrecería un botón que el detalle contesta con un error.
+# ==========================================================================
+
+def test_get_tasks_emite_thread_readable_en_cada_fila(tasks_client, db_session):
+    """Ninguna fila puede llegar sin el flag: sin él el contador se apaga."""
+    admin = make_user(db_session, "ADMIN")
+    otro = make_user(db_session, "OTRO")
+    inc = make_incident(db_session)
+    mia = make_task(db_session, incident=inc, description="Mía", assignees=[admin])
+    ajena = make_task(db_session, incident=inc, description="Ajena", assignees=[otro])
+    sin_nadie = make_task(db_session, incident=inc, description="Sin asignar")
+
+    resp = tasks_client.get(
+        f"{PREFIX}?parent_type=incident&parent_id={inc.id}", headers=headers_for(admin)
+    )
+
+    assert resp.status_code == 200
+    filas = {row["id"]: row for row in resp.json()["data"]}
+    assert set(filas) == {mia.id, ajena.id, sin_nadie.id}
+    for tid, fila in filas.items():
+        assert "thread_readable" in fila, tid
+    # El admin global tiene `read.all` por bypass: alcanza los tres hilos.
+    assert all(f["thread_readable"] is True for f in filas.values())
+
+
+def test_el_listado_por_padre_admite_los_dos_alcances(tasks_client, db_session):
+    """El listado acepta ``read.own``, y es lo que hace util al flag.
+
+    Mientras solo admitio ``read.all``, la pastilla apagada no la podia ver
+    ningun actor real: todo el que lograba cargar la lista tenia alcance
+    completo y ``thread_readable`` salia siempre en ``True``. Y el destinatario
+    del estado apagado —``consult``, 10 usuarios, con ``adhoc.tasks.page.list``
+    y ``read.own``— abria la pagina y recibia 403 en la tabla, o sea que A6
+    quedaba cerrado solo para quien ya tenia alcance completo.
+
+    Con los dos alcances (``require_perms`` es OR) la lista se carga entera y la
+    que decide fila por fila es ``puede_leer_hilo``: la pastilla queda clicable
+    donde el actor participa y apagada en el resto, que es la decision 3 de B3.
+    """
+    u = make_user(db_session, "CONSULT")
+    otro = make_user(db_session, "OTRO")
+    inc = make_incident(db_session)
+    mia = make_task(db_session, incident=inc, description="Mia", assignees=[u])
+    ajena = make_task(db_session, incident=inc, description="Ajena", assignees=[otro])
+
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True),          patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.tasks.api.read.own"}):
+        resp = tasks_client.get(
+            f"{PREFIX}?parent_type=incident&parent_id={inc.id}",
+            headers=headers_for(u, role="staff"),
+        )
+
+    assert resp.status_code == 200
+    filas = {row["id"]: row for row in resp.json()["data"]}
+    # Ve el expediente completo: la fila no es contenido del hilo.
+    assert set(filas) == {mia.id, ajena.id}
+    # Pero el hilo, solo el suyo.
+    assert filas[mia.id]["thread_readable"] is True
+    assert filas[ajena.id]["thread_readable"] is False
+
+
+def test_el_listado_por_padre_sigue_exigiendo_uno_de_los_dos(tasks_client, db_session):
+    """Abrirlo a ``read.own`` no es abrirlo: sin ninguno de los dos, 403."""
+    u = make_user(db_session)
+    inc = make_incident(db_session)
+    make_task(db_session, incident=inc)
+
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True),          patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.tasks.api.comment"}):
+        resp = tasks_client.get(
+            f"{PREFIX}?parent_type=incident&parent_id={inc.id}",
+            headers=headers_for(u, role="staff"),
+        )
+
+    assert resp.status_code == 403
+    assert "adhoc.tasks.api.read" in resp.json()["error"]
+
+
+def test_get_mine_emite_thread_readable_y_el_tablero_nunca_trae_un_hilo_cerrado(
+        tasks_client, db_session):
+    """Invariante del tablero: toda tarjeta que lista puede abrir su modal.
+
+    ``get_dashboard_tasks`` selecciona por "asignado" o "responsable del
+    padre", que son los mismos predicados de :func:`puede_leer_hilo`. Si
+    alguien añadiera una quinta rama al tablero sin tocar el predicado, este
+    test lo cazaría: el usuario vería una tarjeta que al pulsarla da 403.
+    """
+    u = make_user(db_session, "YO")
+    ejecutor = make_user(db_session, "EJECUTOR")
+    inc = make_incident(db_session, "Inc propia", responsible=u)
+    ev = make_program_event(db_session, "Evt propio", responsible=u)
+    autor = make_user(db_session, "AUTOR")
+    flow, steps = make_flow(db_session)
+    doc = make_document(db_session, author=autor, flow=flow, current_step=steps[0])
+
+    # Una tarjeta por cada uno de los 4 predicados del tablero.
+    mia = make_task(db_session, incident=inc, status="Pendiente", assignees=[u])
+    revisar_inc = make_task(db_session, incident=inc, status="En Revisión",
+                            assignees=[ejecutor])
+    revisar_ev = make_task(db_session, program=ev, status="En Revisión",
+                           assignees=[ejecutor])
+    validar = make_task(db_session, document=doc, flow_step=steps[0],
+                        status="En Revisión", assignees=[u])
+
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.tasks.api.read.own"}):
+        resp = tasks_client.get(f"{PREFIX}/mine", headers=headers_for(u, role="staff"))
+
+    assert resp.status_code == 200
+    filas = resp.json()["data"]
+    assert {f["id"] for f in filas} == {mia.id, revisar_inc.id, revisar_ev.id, validar.id}
+    assert all(f["thread_readable"] is True for f in filas), filas
+
+
+def test_el_flag_y_el_403_del_detalle_coinciden_sobre_http(tasks_client, db_session):
+    """La coherencia de B3, extremo a extremo y por los dos caminos.
+
+    Misma tarea ajena, dos actores con distinto alcance, y las dos mitades
+    —listado y detalle— viajando por HTTP de verdad:
+
+    * con ``read.all`` (aqui por el bypass de admin global) el listado la trae
+      con ``thread_readable=True`` **y** el detalle responde 200;
+    * con solo ``read.own`` el listado la trae con ``thread_readable=False``
+      **y** el detalle responde 403.
+
+    Es la invariante que ninguna de las dos mitades puede romper sola: si
+    divergieran, la fila ofreceria un boton que el servidor contesta con un
+    error, o apagaria un hilo que si se puede leer. El segundo camino solo se
+    puede recorrer entero desde que el listado admite ``read.own``; antes habia
+    que llamar al serializador a mano porque ``GET /tasks`` contestaba 403.
+    """
+    admin = make_user(db_session, "ADMIN")
+    ajeno = make_user(db_session, "AJENO")
+    asignado = make_user(db_session, "ASIGNADO")
+    inc = make_incident(db_session)
+    ajena = make_task(db_session, incident=inc, assignees=[asignado])
+
+    # --- camino "si": read.all -> flag True y detalle 200 -------------------
+    listado = tasks_client.get(
+        f"{PREFIX}?parent_type=incident&parent_id={inc.id}", headers=headers_for(admin)
+    )
+    fila = next(f for f in listado.json()["data"] if f["id"] == ajena.id)
+    detalle = tasks_client.get(f"{PREFIX}/{ajena.id}/workflow", headers=headers_for(admin))
+
+    assert fila["thread_readable"] is True
+    assert detalle.status_code == 200
+
+    # --- camino "no": solo read.own -> flag False y detalle 403 -------------
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True),          patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.tasks.api.read.own"}):
+        listado_ajeno = tasks_client.get(
+            f"{PREFIX}?parent_type=incident&parent_id={inc.id}",
+            headers=headers_for(ajeno, role="staff"),
+        )
+        cerrado = tasks_client.get(f"{PREFIX}/{ajena.id}/workflow",
+                                   headers=headers_for(ajeno, role="staff"))
+
+    fila_ajena = next(f for f in listado_ajeno.json()["data"] if f["id"] == ajena.id)
+    assert fila_ajena["thread_readable"] is False
+    assert cerrado.status_code == 403
+
+
+def test_actor_context_solo_da_read_all_a_quien_lo_tiene(tasks_client, db_session):
+    """El contexto del actor es UN camino: si diverge, divergen flag y 403.
+
+    Tres orígenes posibles del alcance completo y solo dos lo conceden: el
+    permiso explícito y el bypass del admin global.
+    """
+    from itcj2.apps.adhoc.api.tasks import _actor_context
+
+    u = make_user(db_session)
+
+    with patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.tasks.api.read.all"}):
+        assert _actor_context(db_session, {"sub": str(u.id), "role": "staff"}) == (u.id, True)
+
+    with patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.tasks.api.read.own"}):
+        assert _actor_context(db_session, {"sub": str(u.id), "role": "staff"}) == (u.id, False)
+        # El admin global no paga siquiera la consulta de permisos.
+        assert _actor_context(db_session, {"sub": str(u.id), "role": "admin"}) == (u.id, True)
+
+
+# ==========================================================================
+# Las CUATRO puertas del hilo
+#
+# El hilo de una tarea se alcanza por cuatro rutas: el detalle, los dos
+# adjuntos y el alta de comentario. Hasta la auditoria de B3 solo la primera
+# preguntaba por la pertenencia; las otras tres se conformaban con
+# `adhoc.tasks.api.comment`, que el rol `consult` tiene. El mismo actor recibia
+# 403 en el hilo y 200 en su contenido, y con 533 adjuntos de ids correlativos
+# desde 1 enumerar bajaba el expediente entero del SGC.
+#
+# Ahora las cuatro pasan por `_exigir_acceso_al_hilo` -> `puede_leer_hilo`.
+# ==========================================================================
+
+def _consult():
+    """Los permisos reales del rol `consult`: comenta y lee, pero sin `read.all`."""
+    return patch(
+        "itcj2.core.services.authz_cache.cached_perms",
+        return_value={"adhoc.tasks.api.read.own", "adhoc.tasks.api.comment",
+                      "adhoc.tasks.api.workflow"},
+    )
+
+
+def test_el_adjunto_heredado_exige_pertenencia_al_hilo(tasks_client, db_session):
+    """`GET /tasks/comments/{id}/download` sobre una tarea ajena: 403.
+
+    El permiso dice "puedes ver adjuntos de comentarios"; la pertenencia dice
+    "puedes ver los de ESTE". Sin lo segundo, tener `adhoc.tasks.api.comment`
+    bastaba para bajarse el adjunto de cualquier comentario del sistema.
+    """
+    autor = make_user(db_session, "AUTOR")
+    ajeno = make_user(db_session, "AJENO")
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[autor])
+    c = add_comment(db_session, t, autor, file_path=f"{t.id}/evidencia.txt")
+
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         _consult():
+        resp = tasks_client.get(f"{PREFIX}/comments/{c.id}/download",
+                                headers=headers_for(ajeno, role="staff"))
+
+    assert resp.status_code == 403
+
+
+def test_el_adjunto_por_file_id_exige_pertenencia_al_hilo(tasks_client, db_session):
+    """Igual sobre `adhoc_task_comment_files`, que es la tabla enumerable.
+
+    533 filas, ids correlativos desde 1 y una ruta que solo pedia un permiso
+    que tienen los 10 usuarios del rol `consult`.
+    """
+    autor = make_user(db_session, "AUTOR")
+    ajeno = make_user(db_session, "AJENO")
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[autor])
+    c = add_comment(db_session, t, autor)
+    f = add_comment_file(db_session, c, file_path=f"{t.id}/anexo.pdf")
+
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         _consult():
+        resp = tasks_client.get(f"{PREFIX}/comments/files/{f.id}/download",
+                                headers=headers_for(ajeno, role="staff"))
+
+    assert resp.status_code == 403
+
+
+def test_el_403_del_adjunto_va_antes_que_el_404_de_no_hay_binario(tasks_client, db_session):
+    """El orden importa: primero autorizar, luego mirar si hay archivo.
+
+    Al reves, el 404 de "este comentario no tiene adjunto" le contaria a un
+    extranno que comentarios del expediente llevan archivo y cuales no.
+    """
+    autor = make_user(db_session, "AUTOR")
+    ajeno = make_user(db_session, "AJENO")
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[autor])
+    sin_binario = add_comment(db_session, t, autor)          # file_path NULL
+    f = add_comment_file(db_session, sin_binario, file_path=None)
+
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         _consult():
+        heredado = tasks_client.get(f"{PREFIX}/comments/{sin_binario.id}/download",
+                                    headers=headers_for(ajeno, role="staff"))
+        por_id = tasks_client.get(f"{PREFIX}/comments/files/{f.id}/download",
+                                  headers=headers_for(ajeno, role="staff"))
+
+    assert heredado.status_code == 403
+    assert por_id.status_code == 403
+
+
+def test_comentar_una_tarea_ajena_es_403_y_no_escribe_nada(tasks_client, db_session):
+    """Escribir en el hilo no puede ser mas facil que leerlo.
+
+    `consult` tiene `adhoc.tasks.api.comment`, asi que sin gate de pertenencia
+    podia inyectar comentarios en el expediente de cualquier no conformidad del
+    SGC —y disparar la notificacion a sus asignados—.
+    """
+    from itcj2.apps.adhoc.models import AdhocTaskComment
+
+    autor = make_user(db_session, "AUTOR")
+    ajeno = make_user(db_session, "AJENO")
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[autor])
+
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         _consult():
+        resp = tasks_client.post(f"{PREFIX}/{t.id}/comments",
+                                 headers=headers_for(ajeno, role="staff"),
+                                 data={"comment": "sonda"})
+
+    assert resp.status_code == 403
+    assert db_session.query(AdhocTaskComment).filter_by(task_id=t.id).count() == 0
+
+
+def test_el_responsable_del_padre_alcanza_las_cuatro_puertas(tasks_client, db_session):
+    """El otro lado del gate: quien SI participa entra por las cuatro.
+
+    Y participa sin estar asignado — es el responsable de la incidencia, la
+    tercera rama de `puede_leer_hilo`. Si el gate se hubiera escrito a mano en
+    cada ruta en vez de reusar el predicado, este es el caso que se habria
+    caido en alguna de ellas.
+    """
+    ejecutor = make_user(db_session, "EJECUTOR")
+    jefe = make_user(db_session, "JEFE")
+    inc = make_incident(db_session, "Inc con jefe", responsible=jefe)
+    t = make_task(db_session, incident=inc, assignees=[ejecutor])
+    c = add_comment(db_session, t, ejecutor, file_path="ruta/inexistente.pdf")
+    f = add_comment_file(db_session, c, file_path="ruta/inexistente.pdf")
+
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         _consult():
+        h = headers_for(jefe, role="staff")
+        detalle = tasks_client.get(f"{PREFIX}/{t.id}/workflow", headers=h)
+        heredado = tasks_client.get(f"{PREFIX}/comments/{c.id}/download", headers=h)
+        por_id = tasks_client.get(f"{PREFIX}/comments/files/{f.id}/download", headers=h)
+        nuevo = tasks_client.post(f"{PREFIX}/{t.id}/comments", headers=h,
+                                  data={"comment": "revisado"})
+
+    assert detalle.status_code == 200
+    assert nuevo.status_code == 200
+    # Los dos adjuntos pasan el gate y mueren despues, en `safe_join`: lo que
+    # se prueba aqui es que NINGUNO contesta 403.
+    assert heredado.status_code == 404
+    assert por_id.status_code == 404
+
+
+def test_las_cuatro_puertas_del_hilo_dan_el_mismo_veredicto(tasks_client, db_session):
+    """La invariante, escrita como tal: mismo actor, misma tarea, mismo si/no.
+
+    Es la leccion de B1 y B2 llevada a su forma final. Una regla escrita cuatro
+    veces diverge; escrita una y consultada cuatro, no puede. Este test es el
+    que se rompe si alguien anade una quinta puerta al hilo y se olvida del
+    gate.
+    """
+    autor = make_user(db_session, "AUTOR")
+    ajeno = make_user(db_session, "AJENO")
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[autor])
+    c = add_comment(db_session, t, autor, file_path="ruta/inexistente.pdf")
+    f = add_comment_file(db_session, c, file_path="ruta/inexistente.pdf")
+
+    def veredictos(usuario):
+        with patch("itcj2.core.services.authz_cache.cached_has_assignment",
+                   return_value=True), _consult():
+            h = headers_for(usuario, role="staff")
+            return {
+                "workflow": tasks_client.get(f"{PREFIX}/{t.id}/workflow",
+                                             headers=h).status_code == 403,
+                "heredado": tasks_client.get(f"{PREFIX}/comments/{c.id}/download",
+                                             headers=h).status_code == 403,
+                "por_id": tasks_client.get(f"{PREFIX}/comments/files/{f.id}/download",
+                                           headers=h).status_code == 403,
+                "comentar": tasks_client.post(f"{PREFIX}/{t.id}/comments", headers=h,
+                                              data={"comment": "x"}).status_code == 403,
+            }
+
+    del_ajeno = veredictos(ajeno)
+    del_autor = veredictos(autor)
+
+    assert set(del_ajeno.values()) == {True}, del_ajeno
+    assert set(del_autor.values()) == {False}, del_autor

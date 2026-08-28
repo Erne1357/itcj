@@ -68,6 +68,21 @@ TEMPLATE = APP_ROOT / "templates" / "adhoc" / "dashboard" / "dashboard.html"
 CSS = APP_ROOT / "static" / "css" / "dashboard" / "dashboard.css"
 JS = APP_ROOT / "static" / "js" / "dashboard" / "dashboard.js"
 
+#: El modal de workflow salió del tablero en B3: era el ÚNICO visor del hilo de
+#: una tarea, y como el tablero solo lista las tareas ABIERTAS del usuario, los
+#: 930 comentarios que cuelgan de tareas ya completadas —el 85 % del histórico
+#: del SGC— no se podían leer desde ninguna URL. Ahora su markup y su módulo son
+#: un partial y un estático compartidos por tres pantallas: este tablero (modo
+#: COMPLETO) y las dos listas de tareas de un expediente (modo LECTURA).
+#:
+#: Sus reglas duras se prueban AQUÍ, donde nacieron y donde estaba escrito el
+#: XSS que las motiva; los tests de las otras dos pantallas comprueban el
+#: cableado (que lo incluyen, en solo lectura y en el orden correcto) y no
+#: repiten estos lints.
+WF_TEMPLATE = APP_ROOT / "templates" / "adhoc" / "partials" / "_workflow_modal.html"
+WF_CSS = APP_ROOT / "static" / "css" / "work" / "workflow-modal.css"
+WF_JS = APP_ROOT / "static" / "js" / "work" / "workflow-modal.js"
+
 TODAY = date(2026, 8, 25)
 
 
@@ -581,6 +596,35 @@ class TestPaginaDashboard:
             assert f'data-adhoc-wf-action="{accion}"' in html
         assert "data-adhoc-wf-comment-save" in html
 
+    def test_el_pie_del_modal_sigue_ahi_para_quien_puede_actuar(self, client,
+                                                                admin_headers, board):
+        """Regresion del TABLERO: el pie se escondio, no se borro.
+
+        B3 metio el `<div class="modal-footer">` dentro de las capacidades para
+        que las pantallas de solo lectura no pintaran una raya y 46 px de hueco
+        bajo un hilo sin controles. Aqui, donde SI hay controles, tiene que
+        seguir existiendo: sin el, las tres acciones irreversibles del SGC —y
+        el aviso de la regla de calidad— se quedarian sin caja.
+        """
+        with board([]):
+            html = client.get("/adhoc/dashboard", headers=admin_headers).text
+        assert "adhoc-wf-footer" in html
+        assert 'id="adhoc-wf-notice"' in html
+
+    def test_sin_capacidades_el_pie_del_modal_no_se_pinta(self, client, staff_headers,
+                                                          board, authz):
+        """Y sin ellos no queda un pie vacio: el contenedor tampoco se emite.
+
+        Es el mismo caso de las dos listas de tareas, alcanzado desde aqui: un
+        usuario del tablero sin `comment` ni `workflow` abre el modal y el
+        dialogo termina en el hilo, no en un separador que no separa nada.
+        """
+        authz["perms"] = {DASHBOARD_PERM}
+        with board([]):
+            html = client.get("/adhoc/dashboard", headers=staff_headers).text
+        assert "adhoc-wf-footer" not in html
+        assert 'id="adhoc-wf-notice"' not in html
+
     def test_nav_inyectado(self, client, admin_headers, board):
         with board([]):
             html = client.get("/adhoc/dashboard", headers=admin_headers).text
@@ -719,11 +763,57 @@ class TestReglasDuras:
         assert "bi bi-" not in text
 
     def test_template_declara_el_modal_en_su_bloque(self):
-        """El legacy los dejaba inline al final del contenido, con .modal-overlay."""
+        """El legacy los dejaba inline al final del contenido, con .modal-overlay.
+
+        Desde B3 el markup ya no está aquí: se incluye el partial compartido.
+        Lo que no cambia es dónde va —el bloque `modals`, a nivel `<body>`—,
+        porque fuera de él cae dentro de un contenedor con `transform` y eso
+        crea un containing block nuevo que rompe el `position:fixed` del
+        overlay.
+        """
         text = _strip_jinja_comments(TEMPLATE.read_text(encoding="utf-8"))
         bloque = text.index("{% block modals %}")
         fin = text.index("{% endblock %}", bloque)
-        assert bloque < text.index('id="adhoc-wf-modal"') < fin
+        assert bloque < text.index("_workflow_modal.html") < fin
+        assert 'id="adhoc-wf-modal"' not in text, "el markup duplicado del partial"
+
+    def test_template_declara_las_dos_capacidades_del_modo_completo(self):
+        """El tablero es la ÚNICA pantalla que puede actuar sobre la tarea.
+
+        El partial emite la caja de comentario y las tres acciones de flujo
+        solo si quien lo incluye declara `wf_can_comment` / `wf_can_workflow`.
+        Una pantalla que no las declare recibe el diálogo de solo lectura: el
+        defecto es no poder actuar, nunca al revés.
+        """
+        text = _strip_jinja_comments(TEMPLATE.read_text(encoding="utf-8"))
+        assert "wf_can_comment = page_data.can_comment" in text
+        assert "wf_can_workflow = page_data.can_workflow" in text
+
+    def test_template_carga_el_modulo_del_modal_antes_que_el_suyo(self):
+        """`dashboard.js` consume `window.AdhocWorkflowModal`; tiene que existir.
+
+        Y con ESE id: idiomorph empareja los `<script>` por `id`, así que al ir
+        del tablero a una lista de tareas (y al revés) el nodo se conserva, el
+        módulo NO se re-ejecuta y `window.AdhocWorkflowModal` sigue siendo el
+        mismo. Con otro id habría dos copias con dos estados distintos.
+        """
+        text = _strip_jinja_comments(TEMPLATE.read_text(encoding="utf-8"))
+        modal = text.index('id="adhoc-mod-work-workflow-modal"')
+        pantalla = text.index('id="adhoc-mod-dashboard-dashboard"')
+        assert modal < pantalla
+        assert "/static/adhoc/css/work/workflow-modal.css?v=" in text
+
+    def test_js_delega_el_modal_en_vez_de_reimplementarlo(self):
+        """El tablero abre el diálogo compartido en modo COMPLETO y nada más.
+
+        Si volviera a pintar comentarios por su cuenta habría dos visores del
+        mismo hilo divergiendo, que es justo lo que B3 vino a deshacer.
+        """
+        text = _strip_js_comments(JS.read_text(encoding="utf-8"))
+        assert "window.AdhocWorkflowModal" in text
+        assert "wf.MODE_FULL" in text
+        assert "innerHTML" not in text
+        assert "/workflow" not in text
 
     def test_js_es_iife_estricto(self):
         text = JS.read_text(encoding="utf-8")
@@ -749,32 +839,6 @@ class TestReglasDuras:
         text = _strip_js_comments(JS.read_text(encoding="utf-8"))
         assert "`" not in text
         assert "${" not in text
-
-    def test_js_escapa_los_comentarios_y_sus_autores(self):
-        """dashboard.html:395 volcaba ${c.texto} y ${c.usuario} sin escapar."""
-        text = _strip_js_comments(JS.read_text(encoding="utf-8"))
-        assert "escapeHtml(c.comment" in text
-        assert "escapeHtml(userName(c.user" in text
-        assert "escapeHtml(c.file_name" in text
-
-    def test_js_escapa_los_datos_del_padre_y_de_las_validaciones(self):
-        text = _strip_js_comments(JS.read_text(encoding="utf-8"))
-        assert "escapeHtml(parent.title" in text
-        assert "escapeHtml(userName(a.user))" in text
-        # El helper de celda escapa etiqueta Y valor: es el que pinta el padre.
-        assert text.count("U.escapeHtml") >= 10
-
-    def test_js_usa_iconos_font_awesome(self):
-        """Los iconos que inyecta el modal siguen la misma regla que el template."""
-        text = JS.read_text(encoding="utf-8")
-        assert "fa-solid" in text
-        assert "bi bi-" not in text
-
-    def test_js_apunta_a_la_api_v2(self):
-        text = _strip_js_comments(JS.read_text(encoding="utf-8"))
-        assert "/tasks/' + encodeURIComponent(state.taskId) + '/workflow'" in text
-        assert "/app_prueba/" not in text
-        assert "/api/tasks/" not in text
 
     def test_css_no_redefine_clases_de_bootstrap(self):
         css = CSS.read_text(encoding="utf-8")
@@ -804,6 +868,196 @@ class TestReglasDuras:
 
     def test_css_prefija_todas_sus_clases(self):
         css = re.sub(r"/\*.*?\*/", "", CSS.read_text(encoding="utf-8"), flags=re.S)
+        for selector in re.findall(r"^\s*([.#][^{\n]+?)\s*\{", css, re.M):
+            for parte in re.findall(r"\.[A-Za-z][\w-]*", selector):
+                assert parte.startswith((".adhoc-", ".is-")), parte
+
+
+# ==========================================================================
+# Reglas duras del modal de workflow compartido
+#
+# Los cuatro lints de escapado, iconos y URL que vivían arriba siguen siendo
+# los mismos: lo que cambió en B3 es el archivo donde está el código. El markup
+# es `partials/_workflow_modal.html` y el módulo `js/work/workflow-modal.js`,
+# compartidos por este tablero y las dos listas de tareas de un expediente.
+#
+# Se quedan en este archivo porque aquí nació el modal y aquí estaba el XSS que
+# los motiva (`dashboard.html:395` volcaba `${c.texto}` y `${c.usuario}` a
+# innerHTML). Repetirlos en los tests de las otras dos pantallas solo
+# multiplicaría el sitio donde hay que acordarse de cambiarlos.
+# ==========================================================================
+
+class TestReglasDurasDelModalCompartido:
+    def test_template_sin_css_inline(self):
+        text = _strip_jinja_comments(WF_TEMPLATE.read_text(encoding="utf-8"))
+        assert "<style" not in text
+        assert 'style="' not in text
+
+    def test_template_sin_handlers_inline(self):
+        text = _strip_jinja_comments(WF_TEMPLATE.read_text(encoding="utf-8"))
+        for needle in ("onclick=", "onchange=", "onsubmit=", "oninput="):
+            assert needle not in text, needle
+
+    def test_template_sin_scripts(self):
+        """El partial es esqueleto: ni siquiera el bloque de constantes.
+
+        Lo carga quien lo incluye, con su propio `page_data`.
+        """
+        text = _strip_jinja_comments(WF_TEMPLATE.read_text(encoding="utf-8"))
+        assert "<script" not in text
+
+    def test_template_usa_iconos_font_awesome(self):
+        text = WF_TEMPLATE.read_text(encoding="utf-8")
+        assert "fa-solid" in text
+        assert "fa-regular" in text
+        assert "bi bi-" not in text
+
+    def test_template_esconde_actuar_detras_de_las_capacidades(self):
+        """Todo control de ESCRITURA vive dentro de su `{% if %}`.
+
+        Sin el `{% with %}` de quien incluye, las dos variables llegan
+        `Undefined` —falso— y el markup **no se emite**. No es CSS: esconder
+        los botones con una clase los deja en el DOM y a un clic de
+        `POST /workflow-action`.
+        """
+        text = _strip_jinja_comments(WF_TEMPLATE.read_text(encoding="utf-8"))
+
+        def guardado_por(variable):
+            bloques = re.findall(
+                r"\{%\s*if " + variable + r"\s*%\}(.*?)\{%\s*endif\s*%\}", text, re.S)
+            assert bloques, variable
+            return "\n".join(bloques)
+
+        comentar = guardado_por("wf_can_comment")
+        actuar = guardado_por("wf_can_workflow")
+
+        for marcador in ("data-adhoc-wf-comment-new", "data-adhoc-wf-comment-save",
+                         'id="adhoc-wf-comment-form"'):
+            assert text.count(marcador) == comentar.count(marcador) == 1, marcador
+        for marcador in ("data-adhoc-wf-actions", 'data-adhoc-wf-action="terminar"',
+                         'data-adhoc-wf-action="rechazar"',
+                         'data-adhoc-wf-action="aprobar"'):
+            assert text.count(marcador) == actuar.count(marcador) == 1, marcador
+
+    def test_el_pie_entero_va_detras_de_las_capacidades(self):
+        """Un `.modal-footer` vacio no es invisible.
+
+        `adhoc.css` le pone `margin-top: 25px`, `padding-top: 20px` y un
+        `border-top`. Si el contenedor se emitiera siempre, una pantalla de
+        solo lectura —donde el aviso nunca se enciende porque `showNotice()`
+        solo se llama tras `isFull()`— cerraria cada hilo con un separador que
+        no separa nada y ~46 px de hueco muerto.
+        """
+        text = _strip_jinja_comments(WF_TEMPLATE.read_text(encoding="utf-8"))
+        apertura = text.index('<div class="modal-footer')
+        condicion = text.rindex("{% if ", 0, apertura)
+        assert "wf_can_workflow" in text[condicion:apertura]
+        assert "wf_can_comment" in text[condicion:apertura]
+        # Y el aviso vive dentro de ese pie, no suelto en el cuerpo.
+        assert text.index('id="adhoc-wf-notice"') > apertura
+
+    def test_js_sella_cada_carga_con_el_testigo_de_apertura(self):
+        """El modal es UNO y las cargas son asincronas: hace falta un testigo.
+
+        `openWorkflow` resetea el DOM de forma sincrona, pero `loadWorkflow`
+        escribe cuando llega la respuesta. Sin sellarla, abrir la fila A,
+        cerrar y abrir la B antes de que responda A pinta el hilo de A —y su
+        `hasComments`— dentro del dialogo rotulado con B. El descarte va en el
+        camino feliz Y en el de error: pintar "No se pudo cargar la tarea"
+        sobre el hilo de otra es el mismo bug al reves.
+        """
+        text = _strip_js_comments(WF_JS.read_text(encoding="utf-8"))
+        assert "state.seq += 1" in text
+        assert "var mio = state.seq" in text
+        assert text.count("if (mio !== state.seq) return;") == 2
+
+    def test_js_es_iife_estricto(self):
+        text = WF_JS.read_text(encoding="utf-8")
+        assert "'use strict'" in text
+        assert text.lstrip().startswith("/**")
+
+    def test_js_solo_expone_su_namespace(self):
+        text = WF_JS.read_text(encoding="utf-8")
+        assert set(re.findall(r"^\s*(window\.\w+)\s*=", text, re.M)) == {
+            "window.AdhocWorkflowModal"}
+
+    def test_js_sin_dialogos_nativos(self):
+        text = _strip_js_comments(WF_JS.read_text(encoding="utf-8"))
+        for needle in ("alert(", "confirm(", "prompt("):
+            hits = [
+                m.start() for m in re.finditer(re.escape(needle), text)
+                if not re.search(r"[\w.]$", text[:m.start()])
+            ]
+            assert not hits, f"workflow-modal.js usa {needle}"
+
+    def test_js_sin_template_literals(self):
+        """Sin backticks no puede existir el `${c.texto}` que causó el XSS."""
+        text = _strip_js_comments(WF_JS.read_text(encoding="utf-8"))
+        assert "`" not in text
+        assert "${" not in text
+
+    def test_js_escapa_los_comentarios_y_sus_autores(self):
+        """dashboard.html:395 volcaba ${c.texto} y ${c.usuario} sin escapar."""
+        text = _strip_js_comments(WF_JS.read_text(encoding="utf-8"))
+        assert "escapeHtml(c.comment" in text
+        assert "escapeHtml(userName(c.user" in text
+        assert "escapeHtml(c.file_name" in text
+
+    def test_js_escapa_los_datos_del_padre_y_de_las_validaciones(self):
+        text = _strip_js_comments(WF_JS.read_text(encoding="utf-8"))
+        assert "escapeHtml(parent.title" in text
+        assert "escapeHtml(userName(a.user))" in text
+        # El helper de celda escapa etiqueta Y valor: es el que pinta el padre.
+        assert text.count("U.escapeHtml") >= 10
+
+    def test_js_usa_iconos_font_awesome(self):
+        """Los iconos que inyecta el modal siguen la misma regla que el template."""
+        text = WF_JS.read_text(encoding="utf-8")
+        assert "fa-solid" in text
+        assert "bi bi-" not in text
+
+    def test_js_apunta_a_la_api_v2(self):
+        text = _strip_js_comments(WF_JS.read_text(encoding="utf-8"))
+        assert "/tasks/' + encodeURIComponent(state.taskId) + '/workflow'" in text
+        assert "/app_prueba/" not in text
+        assert "/api/tasks/" not in text
+
+    def test_js_ofrece_los_dos_modos(self):
+        """Lectura y completo: la diferencia entre leer el histórico y actuar.
+
+        El modo por defecto es LECTURA. Que el defecto sea el prudente es lo
+        mismo que hace el template con las capacidades `Undefined`.
+        """
+        text = _strip_js_comments(WF_JS.read_text(encoding="utf-8"))
+        assert "MODE_READ" in text
+        assert "MODE_FULL" in text
+
+    def test_css_no_redefine_clases_de_bootstrap(self):
+        css = WF_CSS.read_text(encoding="utf-8")
+        selectores = re.findall(r"^\s*([.#][^{\n]+?)\s*\{", css, re.M)
+        prohibidas = re.compile(
+            r"(^|[\s,>])\.(form-control|form-group|form-row|form-label|form-select|"
+            r"card|badge-|alert-|bg-)"
+        )
+        for selector in selectores:
+            for parte in selector.split(","):
+                parte = parte.strip()
+                if not parte.startswith("."):
+                    continue
+                assert not prohibidas.search(" " + parte), parte
+
+    def test_css_comentarios_balanceados_y_sin_cierre_sobre_token(self):
+        css = WF_CSS.read_text(encoding="utf-8")
+        assert "-*/" not in css
+        assert css.count("/*") == css.count("*/")
+
+    def test_css_usa_tokens_no_hex_sueltos(self):
+        css = re.sub(r"/\*.*?\*/", "", WF_CSS.read_text(encoding="utf-8"), flags=re.S)
+        assert "var(--adhoc-primary)" in css
+        assert "#4834d4" not in css
+
+    def test_css_prefija_todas_sus_clases(self):
+        css = re.sub(r"/\*.*?\*/", "", WF_CSS.read_text(encoding="utf-8"), flags=re.S)
         for selector in re.findall(r"^\s*([.#][^{\n]+?)\s*\{", css, re.M):
             for parte in re.findall(r"\.[A-Za-z][\w-]*", selector):
                 assert parte.startswith((".adhoc-", ".is-")), parte

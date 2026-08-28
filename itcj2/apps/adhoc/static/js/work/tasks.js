@@ -23,6 +23,14 @@
  *    silenciosamente a "Pendiente" → aquí salen los seis de `page_data`.
  *  · La "fila hija" de detalle decía SIEMPRE "Pendiente de cierre", con el
  *    texto cableado → se sustituye por el estatus real y los responsables.
+ *  · La columna "Notas" pintaba un contador MUERTO: el hilo de la tarea solo se
+ *    podía abrir desde el tablero, que únicamente lista las tareas abiertas del
+ *    usuario → el contador es ahora el botón que abre el hilo en modo lectura.
+ *
+ * Requiere en la página (ver `commentsControl`): el partial
+ * `adhoc/partials/_workflow_modal.html` en su `{% block modals %}`, la hoja
+ * `css/work/workflow-modal.css` y el `<script id="adhoc-mod-work-workflow-modal">`
+ * cargado ANTES que este módulo.
  *
  * API consumida:
  *   GET    /api/adhoc/v2/tasks?parent_type=&parent_id=   → {success, data, total}
@@ -185,7 +193,7 @@
         tr.appendChild(this.cell('completed_at', task.completed_at || '—', 'adhoc-cell-nowrap'));
 
         var tdComments = this.cell('comments', '', 'adhoc-col-center');
-        tdComments.appendChild(el('span', 'adhoc-count-pill', String(task.comments_count || 0)));
+        tdComments.appendChild(this.commentsControl(task));
         tr.appendChild(tdComments);
 
         var tdActions = this.cell('actions', '', 'adhoc-col-end');
@@ -217,6 +225,85 @@
         if (text) td.title = text;
         td.appendChild(box);
         return td;
+    };
+
+    /**
+     * Columna "Notas": el contador de comentarios, que desde aqui es la UNICA
+     * puerta al hilo de la tarea.
+     *
+     * Hasta ahora era una pastilla muerta. El unico visor del hilo era el modal
+     * del tablero, y el tablero solo lista las tareas ABIERTAS del usuario, asi
+     * que los 930 comentarios que cuelgan de tareas ya cerradas —el 85 % del
+     * historico del SGC, diez anios de como se resolvio cada no conformidad— no
+     * se podian leer desde ninguna URL. La pastilla pasa a abrir ese mismo
+     * modal en modo LECTURA: hilo, adjuntos y validaciones, sin caja de
+     * comentario y sin acciones de flujo aunque la tarea siga abierta.
+     *
+     * Tres estados, y los tres dicen algo distinto:
+     *
+     *  · SIN comentarios → un guion, como las fechas vacias de esta misma fila
+     *    y como la columna "Archivos" de programas cuando no hay nada que
+     *    ofrecer. Un boton que abre un hilo vacio es peor que no tenerlo, y una
+     *    pastilla apagada con un «0» se veria IGUAL que la del tercer caso: dos
+     *    cosas distintas con el mismo dibujo. El guion dice "no hay nada"; la
+     *    pastilla apagada, "hay algo que tu no alcanzas".
+     *  · Con comentarios y alcanzables → un <button> de verdad, no un <span>
+     *    con listener: se llega con el tabulador y responde a Enter.
+     *  · Con comentarios FUERA de alcance → la misma pastilla, apagada y sin
+     *    envolver, con un title que explica por que. Sigue siendo un `<span>`
+     *    y no un `<button disabled>` porque ese title es lo unico que el
+     *    estado apagado tiene que decir, y los navegadores no muestran el
+     *    tooltip de un control deshabilitado. Que no abra nada al pulsarlo lo
+     *    garantiza el guard de `.adhoc-count-off` en `bind()`.
+     *
+     * `thread_readable` lo calcula `puede_leer_hilo()` en el servidor, la MISMA
+     * funcion con la que `GET /tasks/{id}/workflow` decide su 403: por eso esta
+     * fila no puede ofrecer un boton que acabe en un error. `undefined` —un
+     * payload serializado sin contexto de actor— es falso, asi que el defecto
+     * es apagar. El estado apagado es el del rol `consult`, que carga esta
+     * lista con `adhoc.tasks.api.read.own` y solo alcanza los hilos de las
+     * tareas en las que participa.
+     */
+    Tasks.prototype.commentsControl = function (task) {
+        var count = task.comments_count || 0;
+        if (!count) return document.createTextNode('—');
+
+        var plural = count === 1 ? 'comentario' : 'comentarios';
+
+        if (!task.thread_readable) {
+            var off = el('span', 'adhoc-count-pill adhoc-count-off', String(count));
+            off.setAttribute('title', count + ' ' + plural + '. Solo puedes abrir el ' +
+                'historial de las tareas en las que participas.');
+            return off;
+        }
+
+        var label = 'Ver ' +
+            (count === 1 ? 'el comentario' : 'los ' + count + ' comentarios') +
+            ' de esta tarea';
+        var btn = el('button', 'adhoc-count-btn');
+        btn.type = 'button';
+        btn.setAttribute('data-adhoc-task-action', 'thread');
+        btn.setAttribute('title', label);
+        btn.setAttribute('aria-label', label);
+        btn.appendChild(el('span', 'adhoc-count-pill', String(count)));
+        return btn;
+    };
+
+    /**
+     * Abre el hilo de la tarea en el modal compartido, en modo LECTURA.
+     *
+     * El modo va explicito aunque `MODE_READ` sea el defecto del modulo: el
+     * unico modo que puede tocar el SGC es el otro, y aqui se lee en la llamada
+     * cual de los dos se pidio. `status` solo adelanta trabajo (el estatus real
+     * del servidor manda sobre el) y no se pasa `onAction`: en lectura no hay
+     * accion que aplicar ni tabla que recargar.
+     */
+    Tasks.prototype.openThread = function (task) {
+        var wf = window.AdhocWorkflowModal;
+        // `open()` devuelve el nodo del dialogo, o null si la pantalla no trae
+        // el partial. Sin ese aviso el boton se quedaria mudo.
+        var abierto = wf ? wf.open(task.id, { mode: wf.MODE_READ, status: task.status }) : null;
+        if (!abierto) toast('No se pudo abrir el historial de la tarea.', 'error');
     };
 
     Tasks.prototype.buildActions = function (task) {
@@ -534,12 +621,27 @@
                 evt.preventDefault();
                 evt.stopPropagation();
                 var name = action.getAttribute('data-adhoc-task-action');
-                if (name === 'edit') self.openEdit(task);
+                if (name === 'thread') self.openThread(task);
+                else if (name === 'edit') self.openEdit(task);
                 else if (name === 'delete') self.remove(task);
                 else if (name === 'assign') self.goToAssign(task, 'assign');
                 else if (name === 'notify') self.goToAssign(task, 'notify');
                 return;
             }
+
+            // El contador APAGADO es un `<span>`, no un control: sin
+            // `data-adhoc-task-action` el clic seguia de largo hasta el atajo
+            // de fila de abajo y abria el modal de EDICION. O sea que la
+            // pastilla que dice "solo puedes abrir el historial de las tareas
+            // en las que participas", con su cursor de ayuda, terminaba
+            // abriendo el formulario de la tarea.
+            //
+            // Se queda como `<span>` a proposito: un `<button disabled>` no
+            // despacharia el clic, pero los navegadores tampoco muestran el
+            // `title` de un control deshabilitado, y ese texto es TODO lo que
+            // esa pastilla tiene que decir. Asi que el control se queda inerte
+            // por markup y aqui se le corta el paso al atajo.
+            if (evt.target.closest('.adhoc-count-off')) return;
 
             if (self.can.update) self.openEdit(task);
         });

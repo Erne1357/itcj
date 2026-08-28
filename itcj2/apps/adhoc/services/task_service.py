@@ -140,6 +140,44 @@ def _email(fn, *args, **kwargs) -> None:
                          getattr(fn, "__name__", fn))
 
 
+#: Mensaje único del 403 de las cuatro puertas del hilo. Uno solo porque el
+#: motivo es uno solo: no participas en esta tarea. Cuatro textos distintos
+#: para el mismo veredicto solo le dirían al de fuera por qué puerta entró.
+_SIN_ACCESO_AL_HILO = "No tienes acceso al historial de esta tarea"
+
+
+def _exigir_acceso_al_hilo(task, *, actor_id: Optional[int], has_read_all: bool) -> None:
+    """403 si el actor no alcanza el hilo de ``task``. **Único gate del hilo.**
+
+    El hilo de una tarea tiene CUATRO puertas y todas pasan por aquí:
+
+    * ``GET /tasks/{id}/workflow`` — el hilo entero;
+    * ``GET /tasks/comments/{id}/download`` — el adjunto heredado;
+    * ``GET /tasks/comments/files/{id}/download`` — los adjuntos 0..N;
+    * ``POST /tasks/{id}/comments`` — escribir en él.
+
+    Hasta la auditoría de B3 solo la primera preguntaba por la pertenencia: las
+    otras tres se conformaban con ``adhoc.tasks.api.comment``, que el rol
+    ``consult`` tiene, así que el mismo actor recibía **403** en el hilo y
+    **200** en su contenido. Con 533 adjuntos de ids correlativos desde 1,
+    enumerar bajaba el expediente entero del SGC.
+
+    La regla no se escribe aquí: es
+    :func:`~itcj2.apps.adhoc.schemas.tasks.puede_leer_hilo`, la misma con la que
+    ``serialize_task`` emite ``thread_readable``. Una función pura, un veredicto,
+    cuatro puertas — o vuelven a divergir.
+
+    Escribir es *participar*, así que el gate de ``add_comment`` no puede ser
+    más ancho que el de leer; que sea exactamente el mismo es deliberado: quien
+    tiene ``read.all`` (supervisores y admin) comenta hoy sobre cualquier tarea
+    del SGC y estrecharlo sería un cambio de producto, no un arreglo.
+    """
+    from itcj2.apps.adhoc.schemas.tasks import puede_leer_hilo
+
+    if not puede_leer_hilo(task, actor_id=actor_id, has_read_all=has_read_all):
+        raise HTTPException(status_code=403, detail=_SIN_ACCESO_AL_HILO)
+
+
 def _assignee_flags(db: Session, task_id: int) -> dict[int, bool]:
     """``{user_id: notified_overdue}`` de la tabla de asociación."""
     from itcj2.apps.adhoc.models import adhoc_task_assignees
@@ -164,7 +202,19 @@ class AdhocTaskService:
 
     @staticmethod
     def list_by_parent(db: Session, parent_type: str, parent_id: int) -> list:
-        """Tareas de un padre concreto, con asignados y comentarios precargados."""
+        """Tareas de un padre concreto, con asignados y comentarios precargados.
+
+        ``incident`` y ``program`` entran en el *eager loading* porque el
+        serializador evalúa
+        :func:`~itcj2.apps.adhoc.schemas.tasks.puede_leer_hilo` sobre cada fila
+        y el predicado los toca. Medido contra la base real (la incidencia con
+        más tareas, 12 filas) el coste sin ellos ya era **una** query y no una
+        por fila: son *many-to-one*, así que SQLAlchemy las resuelve por el
+        identity map después de la primera. Es decir, esto no arregla un N+1
+        —cuesta lo mismo, una query—, sino que deja de depender de esa
+        optimización para que el N+1 siga sin existir el día que alguien
+        cambie el predicado.
+        """
         from itcj2.apps.adhoc.models import AdhocTask
 
         model, column = _parent_model(parent_type)
@@ -176,6 +226,8 @@ class AdhocTaskService:
             .options(
                 selectinload(AdhocTask.assignees),
                 selectinload(AdhocTask.comments),
+                selectinload(AdhocTask.incident),
+                selectinload(AdhocTask.program),
                 selectinload(AdhocTask.flow_step),
             )
             .filter(getattr(AdhocTask, column) == parent_id)
@@ -253,24 +305,22 @@ class AdhocTaskService:
         fix, tener solo ``adhoc.tasks.api.read.own`` (p.ej. el rol ``consult``)
         alcanzaba para leer el detalle completo de cualquier tarea del sistema:
         comentarios, aprobaciones, todo.
+
+        La regla no se escribe aquí: es
+        :func:`~itcj2.apps.adhoc.schemas.tasks.puede_leer_hilo`, la **misma**
+        función con la que ``serialize_task`` emite ``thread_readable``. Este
+        403 y el flag con el que la lista de tareas decide si el contador de
+        comentarios es clicable tienen que ser la misma frase, o la UI termina
+        ofreciendo un botón que el servidor contesta con 403.
+
+        Se aplica por :func:`_exigir_acceso_al_hilo`, que es también el gate de
+        las otras tres puertas del hilo (los dos adjuntos y el alta de
+        comentario).
         """
         from itcj2.apps.adhoc.schemas.tasks import serialize_workflow_details
 
         task = _load_task(db, task_id, eager=True)
-
-        if not has_read_all:
-            asignado = any(u.id == actor_id for u in task.assignees)
-            responsable_incidencia = (
-                task.incident is not None and task.incident.responsible_id == actor_id
-            )
-            responsable_programa = (
-                task.program is not None and task.program.responsible_id == actor_id
-            )
-            if not (asignado or responsable_incidencia or responsable_programa):
-                raise HTTPException(
-                    status_code=403,
-                    detail="No tienes acceso al detalle de esta tarea",
-                )
+        _exigir_acceso_al_hilo(task, actor_id=actor_id, has_read_all=has_read_all)
 
         return serialize_workflow_details(task)
 
@@ -479,12 +529,20 @@ class AdhocTaskService:
 
     @staticmethod
     def add_comment(db: Session, task_id: int, user_id: Optional[int],
-                    comment: Optional[str], upload: Any = None):
+                    comment: Optional[str], upload: Any = None, *,
+                    has_read_all: bool):
         """Agrega un comentario, con adjunto opcional.
 
         ``comment`` y ``user_id`` son NOT NULL en ``adhoc_task_comments``: el
         legacy no validaba ninguno de los dos y el ``IntegrityError`` salía como
         500. Aquí son **400** con mensaje.
+
+        ``has_read_all`` es obligatorio y sin defecto a propósito: es la mitad
+        del contexto del actor que este service no puede deducir, y un defecto
+        —cualquiera de los dos— convertiría un olvido en el call site en una
+        puerta abierta o en un 403 falso. Con él, :func:`_exigir_acceso_al_hilo`
+        aplica el mismo veredicto que el resto del hilo: escribir en un
+        expediente ajeno no puede ser más fácil que leerlo.
         """
         from itcj2.apps.adhoc.models import AdhocTaskComment
         from itcj2.apps.adhoc.services import notify
@@ -493,11 +551,18 @@ class AdhocTaskService:
 
         task = _load_task(db, task_id)
 
+        # Identificar al actor → autorizarlo → validar lo que manda, en ese
+        # orden. Es el mismo que sigue `task_workflow_service`: la pertenencia
+        # se comprueba antes que la validez del cuerpo para no contarle nada
+        # del expediente a quien no participa en él.
+        if not user_id:
+            raise HTTPException(status_code=400, detail="No se pudo identificar al autor del comentario")
+
+        _exigir_acceso_al_hilo(task, actor_id=user_id, has_read_all=has_read_all)
+
         texto = (comment or "").strip()
         if not texto:
             raise HTTPException(status_code=400, detail="El comentario no puede estar vacío")
-        if not user_id:
-            raise HTTPException(status_code=400, detail="No se pudo identificar al autor del comentario")
 
         nuevo = AdhocTaskComment(task_id=task.id, user_id=int(user_id), comment=texto)
 
@@ -522,12 +587,20 @@ class AdhocTaskService:
         return nuevo
 
     @staticmethod
-    def get_comment_download(db: Session, comment_id: int):
+    def get_comment_download(db: Session, comment_id: int, *, actor_id: Optional[int],
+                             has_read_all: bool):
         """``(comentario, ruta absoluta verificada)`` para el endpoint de descarga.
 
         ``open_stored`` aplica ``safe_join``: una fila envenenada con
         ``../../etc/passwd`` da **404**, no una lectura fuera de la raíz. El
         legacy servía estos adjuntos **sin autenticación** (IDOR).
+
+        Tener ``adhoc.tasks.api.comment`` no basta —lo tiene el rol
+        ``consult``—: el adjunto pertenece al hilo de su tarea y se sirve con el
+        mismo veredicto que el hilo (:func:`_exigir_acceso_al_hilo`). El orden
+        es resolver la fila (**404**), autorizar (**403**) y solo entonces mirar
+        si hay binario (**404**): al revés, el 404 de "no tiene adjunto" le
+        contaría a un extraño qué comentarios llevan archivo.
         """
         from itcj2.apps.adhoc.models import AdhocTaskComment
         from itcj2.apps.adhoc.services.upload_service import open_stored
@@ -535,6 +608,9 @@ class AdhocTaskService:
         comment = db.get(AdhocTaskComment, comment_id)
         if comment is None:
             raise HTTPException(status_code=404, detail="Comentario no encontrado")
+
+        _exigir_acceso_al_hilo(comment.task, actor_id=actor_id, has_read_all=has_read_all)
+
         if not comment.file_path:
             raise HTTPException(status_code=404, detail="El comentario no tiene archivo adjunto")
 
@@ -547,13 +623,19 @@ class AdhocTaskService:
         return comment, path
 
     @staticmethod
-    def get_comment_file_download(db: Session, file_id: int):
+    def get_comment_file_download(db: Session, file_id: int, *, actor_id: Optional[int],
+                                  has_read_all: bool):
         """``(archivo, ruta absoluta verificada)`` para el archivo de un comentario.
 
         Espejo de :meth:`get_comment_download`, pero sobre
         ``adhoc_task_comment_files``: un comentario puede tener más de un
         adjunto (85 comentarios del histórico migrado, uno con 14), algo que
         ``AdhocTaskComment.file_path`` nunca pudo representar.
+
+        Mismo gate y mismo orden que su espejo. Aquí importaba todavía más: son
+        533 filas con ids correlativos desde 1, así que servirlas solo contra el
+        permiso ``adhoc.tasks.api.comment`` dejaba bajar el expediente completo
+        del SGC enumerando.
 
         ``file_path`` es NULLABLE en esta tabla — hay adjuntos migrados cuyo
         binario ya no está en el servidor del proveedor. Ese caso también da
@@ -565,6 +647,10 @@ class AdhocTaskService:
         file_row = db.get(AdhocTaskCommentFile, file_id)
         if file_row is None:
             raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+        _exigir_acceso_al_hilo(file_row.comment.task, actor_id=actor_id,
+                               has_read_all=has_read_all)
+
         if not file_row.file_path:
             raise HTTPException(
                 status_code=404,

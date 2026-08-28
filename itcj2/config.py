@@ -23,7 +23,16 @@ class Settings(BaseSettings):
     # Sin bump la URL es byte a byte la misma y el navegador ni revalida: quien
     # ya había abierto el panel seguiría ejecutando el JS anterior —sin el botón
     # "Editar"— hasta un ctrl+F5 que nadie sabe que hace falta.
-    STATIC_VERSION: str = "1.0.1111528"
+    # Bump 2026-08-28: flujo de trabajo de tareas (adhoc, B3) — dashboard.js y
+    # tasks.js pierden ~760 líneas que se mudaron al módulo nuevo
+    # work/workflow-modal.{js,css}, más dashboard.css y tasks.css. Archivos
+    # nuevos y archivos adelgazados en el mismo commit: sin bump el navegador
+    # ejecuta el dashboard viejo pidiendo funciones que ya no existen ahí.
+    # Bump 2026-08-28: revisión de B3 (adhoc) — workflow-modal.js sella cada
+    # carga con un testigo de apertura (respuesta vieja pintada en el diálogo
+    # nuevo) y tasks.js deja inerte el contador apagado, que hasta ahora caía en
+    # el atajo de fila y abría el modal de edición.
+    STATIC_VERSION: str = "1.0.1111530"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

@@ -1,0 +1,223 @@
+{# ===========================================================================
+   partials/_workflow_modal.html — modal "Gestión y Validación de Tarea".
+
+   Es el ÚNICO visor del hilo de una tarea: comentarios con autor y fecha, sus
+   adjuntos y las validaciones de `adhoc_task_approvals`. Vivía dentro de
+   `dashboard/dashboard.html`, y como el tablero solo lista las tareas ABIERTAS
+   del usuario, los 930 comentarios que cuelgan de tareas 'Completada' —el 85 %
+   del histórico del SGC— no se podían leer desde ninguna URL de la app. Sacarlo
+   a un partial es lo que permite que las pantallas de tareas de una incidencia
+   o de un evento lo abran desde el contador de la columna "Comentarios".
+
+   CÓMO SE INCLUYE
+   ---------------
+   Desde `{% block modals %}`, declarando SIEMPRE las dos capacidades:
+
+     {% block modals %}
+     {% with wf_can_comment = page_data.can_comment,
+             wf_can_workflow = page_data.can_workflow %}
+       {% include "adhoc/partials/_workflow_modal.html" %}
+     {% endwith %}
+     {% endblock %}
+
+   Una pantalla de SOLO LECTURA no declara nada: sin el `{% with %}` las dos
+   variables llegan `Undefined`, que es falso, y ni la caja de comentario ni los
+   botones de acción se emiten. El defecto es no poder actuar, nunca al revés.
+
+   Y en sus bloques `extra_css` / `extra_js`, en este orden:
+
+     <link rel="stylesheet" href="/static/adhoc/css/work/workflow-modal.css?v=…">
+     <script id="adhoc-mod-work-workflow-modal"
+             src="/static/adhoc/js/work/workflow-modal.js?v=…"></script>
+     <script id="adhoc-mod-…" src="…el módulo de la pantalla…"></script>
+
+   (la versión siempre con `sv('css/work/workflow-modal.css')` y
+   `sv('js/work/workflow-modal.js')`, como cualquier estático de la app.)
+
+   El módulo del modal va ANTES que el de la pantalla y con ESE id: idiomorph
+   empareja los <script> por `id`, así que al ir del tablero a una lista de
+   tareas (y al revés) el nodo se conserva, el módulo NO se re-ejecuta y
+   `window.AdhocWorkflowModal` sigue siendo el mismo. Con otro id el nodo se
+   sustituiría y habría dos copias del módulo con dos estados distintos.
+
+   FAMILIA DE MODAL: la LEGACY de Bootstrap (`modal fade` + `data-bs-dismiss`,
+   abierto por `bootstrap.Modal`), no `.adhoc-modal`. Se conserva tal cual venía
+   del tablero: mover el markup Y cambiarlo de familia a la vez haría imposible
+   saber cuál de las dos cosas rompió el workflow, que es el núcleo de la app.
+   `adhoc.css` viste las dos familias igual, así que se ve idéntico. Migrarlo es
+   un encargo aparte: cambiar las clases a `.adhoc-modal…`, el cierre a
+   `data-adhoc-modal-close` y el JS a `AdhocUtils.openModal()`.
+
+   IDS: todos bajo `adhoc-wf-…` y únicos en cualquier pantalla — solo hay una
+   copia del modal por página. (`work/work-items.js` fabrica ids
+   `adhoc-wf-{índice}-{campo}` para su formulario dinámico; llevan índice
+   siempre, así que no colisionan con estos.)
+
+   Todo el contenido dinámico lo pinta `js/work/workflow-modal.js` con
+   `AdhocUtils.escapeHtml()`: aquí solo va el esqueleto y los textos de carga.
+   El legacy volcaba `${c.texto}` y `${c.usuario}` a innerHTML sin escapar — el
+   XSS almacenado más grave de la app (`dashboard.html:395`).
+
+   `modal-lg` = 850 px, el ancho exacto de `.modal-wf-content` del original.
+   =========================================================================== #}
+<div class="modal fade" id="adhoc-wf-modal" tabindex="-1"
+     aria-labelledby="adhoc-wf-modal-title" aria-hidden="true"
+     data-adhoc-wf-modal>
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <div class="modal-header">
+        {# El rótulo lo reescribe el JS según el modo: en modo lectura no hay
+           nada que gestionar ni que validar, y titular así un diálogo sin
+           controles promete algo que la pantalla no da. #}
+        <h2 class="modal-title adhoc-wf-modal-title" id="adhoc-wf-modal-title">
+          <i class="fa-solid fa-list-check me-2" aria-hidden="true"></i>
+          <span data-adhoc-wf-heading>Gestión y Validación de Tarea</span>
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+
+      <div class="modal-body">
+
+        {# — Origen de la tarea (documento / incidencia / evento) — #}
+        <button type="button" class="adhoc-wf-banner" data-adhoc-wf-parent-toggle
+                aria-expanded="false" aria-controls="adhoc-wf-parent">
+          <span>
+            <i class="fa-solid fa-sitemap me-2" aria-hidden="true"></i>
+            Tarea perteneciente a: <span id="adhoc-wf-parent-type">Cargando...</span>
+          </span>
+          <i class="fa-solid fa-chevron-down" id="adhoc-wf-parent-icon" aria-hidden="true"></i>
+        </button>
+        <div class="adhoc-wf-parent d-none" id="adhoc-wf-parent"></div>
+
+        {# — La tarea — #}
+        <section class="adhoc-wf-task">
+          {# h3: cuelga del h2 del titulo del dialogo. Iba en h6 —tres niveles de
+             golpe— y su clase ya fija el tamano, asi que no cambia nada visual. #}
+          <h3 class="adhoc-wf-task-title" id="adhoc-wf-title">Cargando Tarea...</h3>
+
+          <dl class="adhoc-wf-grid">
+            <div class="adhoc-wf-cell">
+              <dt class="adhoc-wf-label">Responsable(s)</dt>
+              <dd class="adhoc-wf-value" id="adhoc-wf-assignees">…</dd>
+            </div>
+            <div class="adhoc-wf-cell">
+              <dt class="adhoc-wf-label">Fecha Inicio</dt>
+              <dd class="adhoc-wf-value" id="adhoc-wf-start">…</dd>
+            </div>
+            <div class="adhoc-wf-cell">
+              <dt class="adhoc-wf-label">Fecha Compromiso</dt>
+              <dd class="adhoc-wf-value" id="adhoc-wf-due">…</dd>
+            </div>
+            <div class="adhoc-wf-cell">
+              <dt class="adhoc-wf-label">Estatus</dt>
+              <dd class="adhoc-wf-value" id="adhoc-wf-status">…</dd>
+            </div>
+          </dl>
+
+          {# Quién ya validó y quién falta. Información que el legacy destruía:
+             modelaba la aprobación borrando al usuario de los asignados. #}
+          <div class="adhoc-wf-approvals d-none" id="adhoc-wf-approvals"></div>
+        </section>
+
+        {# — Comentarios — #}
+        <section class="adhoc-wf-comments">
+          <div class="adhoc-wf-comments-head">
+            <h3 class="adhoc-wf-comments-title">
+              <i class="fa-regular fa-comments me-2" aria-hidden="true"></i>Historial de Comentarios
+            </h3>
+            {% if wf_can_comment %}
+            <button type="button" class="btn btn-sm btn-primary" data-adhoc-wf-comment-new>
+              <i class="fa-solid fa-comment-medical" aria-hidden="true"></i>
+              <span class="d-none d-sm-inline">Agregar Comentario</span>
+            </button>
+            {% endif %}
+          </div>
+
+          {% if wf_can_comment %}
+          <div class="adhoc-wf-comment-form d-none" id="adhoc-wf-comment-form">
+            <label class="visually-hidden" for="adhoc-wf-comment-text">Comentario o justificación</label>
+            <textarea class="form-control" id="adhoc-wf-comment-text" rows="3"
+                      placeholder="Escribe tu comentario o justificación aquí…"></textarea>
+            <div class="adhoc-wf-comment-actions">
+              <input type="file" class="form-control form-control-sm adhoc-wf-comment-file" id="adhoc-wf-comment-file">
+              <button type="button" class="btn btn-sm btn-primary" data-adhoc-wf-comment-save>
+                <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Guardar Comentario
+              </button>
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="adhoc-table-wrap" data-adhoc-table-wrap>
+            <table class="adhoc-table adhoc-wf-comments-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="adhoc-col-start">Fecha</th>
+                  <th scope="col" class="adhoc-col-start">Comentario</th>
+                  <th scope="col" class="adhoc-col-center">Adjuntos</th>
+                </tr>
+              </thead>
+              <tbody id="adhoc-wf-comments">
+                <tr><td colspan="3" class="adhoc-wf-muted">Consultando historial...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      {# El pie ENTERO va detrás de las capacidades, no solo las acciones.
+         Su único hijo incondicional es el aviso, que nace `d-none` y solo lo
+         enciende `showNotice()` —y showNotice solo se llama desde caminos que
+         antes pasan por `isFull()`—, así que en una pantalla de solo lectura
+         está garantizado vacío. Y un `.modal-footer` vacío no es invisible:
+         `adhoc.css` le da `margin-top: 25px`, `padding-top: 20px` y un
+         `border-top`, o sea una raya que no separa nada y ~46 px de hueco
+         muerto bajo el hilo de cualquiera de las 453 tareas con comentarios.
+
+         La condición incluye `wf_can_comment` porque el aviso también sirve a
+         quien puede comentar sin poder actuar: la pantalla que declare esa
+         combinación tendrá dónde pintarlo. #}
+      {% if wf_can_workflow or wf_can_comment %}
+      <div class="modal-footer adhoc-wf-footer">
+        <p class="adhoc-wf-notice d-none" id="adhoc-wf-notice" role="status"></p>
+        {% if wf_can_workflow %}
+        {# Las tres acciones irreversibles del SGC. Dos detalles que no se
+           tocan aunque el vocabulario general diga otra cosa:
+
+             · La etiqueta NUNCA se envuelve en `d-none d-sm-inline`. En móvil
+               quedarían tres botones de icono para "terminar", "rechazar" y
+               "aprobar" —y un pulgar y una paloma son el mismo gesto a 24px—.
+               Un acierto de lectura por casualidad aquí cierra un documento del
+               SGC o rechaza el trabajo de otro; el texto se queda.
+             · "¡Terminé esta tarea!" va en `btn-primary`, no en `btn-secondary`,
+               porque nunca convive con "Aprobar y Validar": renderActionButtons()
+               (workflow-modal.js) enseña `terminar` solo si el estatus es
+               FINISHABLE y el par rechazar/aprobar solo si es REVIEWABLE. Cuando
+               se ve, se ve SOLA, y pintar de gris la única acción de la pantalla
+               la haría parecer deshabilitada.
+
+           `me-auto` tampoco entra: el vocabulario lo pide para el "eliminar"
+           anclado a la izquierda del pie, y estos tres viven dentro de
+           `.adhoc-wf-actions`, que los centra como grupo.
+
+           Emitirlos no es todavía el permiso de actuar: el modo `lectura` los
+           esconde, y `POST /tasks/{id}/workflow-action` exige además que el
+           actor esté en `assignees`. #}
+        <div class="adhoc-wf-actions" data-adhoc-wf-actions>
+          <button type="button" class="btn btn-sm btn-primary d-none" data-adhoc-wf-action="terminar">
+            <i class="fa-solid fa-circle-check" aria-hidden="true"></i> ¡Terminé esta tarea!
+          </button>
+          <button type="button" class="btn btn-sm btn-danger d-none" data-adhoc-wf-action="rechazar">
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i> Rechazar
+          </button>
+          <button type="button" class="btn btn-sm btn-primary d-none" data-adhoc-wf-action="aprobar">
+            <i class="fa-solid fa-thumbs-up" aria-hidden="true"></i> Aprobar y Validar
+          </button>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>

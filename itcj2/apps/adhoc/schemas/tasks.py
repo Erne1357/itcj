@@ -49,6 +49,7 @@ __all__ = [
     "TaskCommentCreate",
     "serialize_user",
     "parent_type_of",
+    "puede_leer_hilo",
     "serialize_task",
     "serialize_comment_file",
     "serialize_comment",
@@ -247,11 +248,77 @@ def _parent_of(task: Any) -> Any:
     return None
 
 
-def serialize_task(task: Any, *, with_parent: bool = False) -> dict:
+def puede_leer_hilo(task: Any, *, actor_id: Optional[int], has_read_all: bool) -> bool:
+    """¿Este actor puede leer el hilo de comentarios de esta tarea?
+
+    **Fuente única de la regla.** La consumen las dos mitades que están
+    obligadas a decir lo mismo:
+
+    * ``AdhocTaskService.get_workflow_details``, para decidir el **403** de
+      ``GET /tasks/{id}/workflow``.
+    * :func:`serialize_task`, para emitir ``thread_readable``, el flag con el
+      que la lista de tareas pinta el contador de comentarios clicable o
+      apagado.
+
+    Si cada mitad escribiera su propia versión, la divergencia tendría una
+    forma concreta y fea: un contador que invita a abrir un hilo que el
+    endpoint contesta con 403.
+
+    Vive en este módulo y no en ``task_service`` por la dirección de los
+    imports: la que ya existe es *service → schemas*
+    (``get_workflow_details`` importa ``serialize_workflow_details``). Ponerlo
+    en el service obligaría al serializador a importar hacia atrás y dejaría a
+    los dos módulos a un import de nivel superior de distancia de un ciclo.
+    Aquí no hay dirección nueva: el service lo trae en el **mismo** import
+    local que ya hacía.
+
+    El criterio es el que decide si la tarea aparece en el tablero del usuario
+    (``get_dashboard_tasks``): con ``adhoc.tasks.api.read.all`` se lee
+    cualquier hilo; sin él hay que estar asignado a la tarea o ser el
+    responsable de la incidencia/evento padre. Una tarea de documento, por
+    tanto, solo la alcanzan sus validadores.
+
+    Función **pura**: no toca la sesión y asume que quien llama ya cargó
+    ``assignees``, ``incident`` y ``program`` (ver ``list_by_parent``).
+    """
+    if has_read_all:
+        return True
+    if actor_id is None:
+        return False
+
+    uid = int(actor_id)
+    if any(getattr(u, "id", None) == uid for u in (task.assignees or [])):
+        return True
+
+    incidencia = getattr(task, "incident", None)
+    if incidencia is not None and incidencia.responsible_id == uid:
+        return True
+
+    programa = getattr(task, "program", None)
+    if programa is not None and programa.responsible_id == uid:
+        return True
+
+    return False
+
+
+def serialize_task(task: Any, *, with_parent: bool = False,
+                   actor_id: Optional[int] = None,
+                   has_read_all: bool = False) -> dict:
     """Forma canónica de una tarea en la API.
 
     Asume ``selectinload`` de ``assignees`` y ``comments``; ``comments_count``
     saldría en un N+1 si el service no cargó la colección.
+
+    ``actor_id`` y ``has_read_all`` son el **contexto del actor**. Con contexto
+    se emite ``thread_readable`` (:func:`puede_leer_hilo`), que es lo que le
+    dice a la lista de tareas si el contador de comentarios abre el hilo o se
+    pinta apagado. **Sin contexto la clave no se emite**: un ``False`` por
+    omisión sería una afirmación —"este actor no puede leer el hilo"— que el
+    serializador no tiene con qué sostener, y sería falsa justo donde más
+    aparecería (dentro de ``serialize_workflow_details``, o sea en el payload
+    que el actor está leyendo en ese preciso momento). Ausente, el JS lo lee
+    como ``undefined``, que es falsy: misma prudencia en la UI, sin mentir en
+    el JSON.
     """
     data = {
         "id": task.id,
@@ -271,6 +338,10 @@ def serialize_task(task: Any, *, with_parent: bool = False) -> dict:
         "comments_count": len(task.comments or []),
         "created_at": _iso(task.created_at),
     }
+    if actor_id is not None:
+        data["thread_readable"] = puede_leer_hilo(
+            task, actor_id=actor_id, has_read_all=has_read_all
+        )
     if with_parent:
         data["parent"] = serialize_parent(task)
     return data

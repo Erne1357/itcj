@@ -298,7 +298,8 @@ def test_add_comment_persiste(db_session):
     u = make_user(db_session)
     t = make_task(db_session, incident=inc, assignees=[u])
 
-    c = AdhocTaskService.add_comment(db_session, t.id, u.id, "Listo", upload=None)
+    c = AdhocTaskService.add_comment(db_session, t.id, u.id, "Listo", upload=None,
+                                     has_read_all=False)
 
     assert c.id is not None
     assert c.comment == "Listo"
@@ -315,7 +316,8 @@ def test_add_comment_vacio_es_400(db_session, texto):
     t = make_task(db_session, incident=inc)
 
     with pytest.raises(HTTPException) as exc:
-        AdhocTaskService.add_comment(db_session, t.id, u.id, texto, upload=None)
+        AdhocTaskService.add_comment(db_session, t.id, u.id, texto, upload=None,
+                                     has_read_all=True)
 
     assert exc.value.status_code == 400
 
@@ -328,7 +330,8 @@ def test_add_comment_sin_usuario_es_400(db_session):
     t = make_task(db_session, incident=inc)
 
     with pytest.raises(HTTPException) as exc:
-        AdhocTaskService.add_comment(db_session, t.id, None, "Hola", upload=None)
+        AdhocTaskService.add_comment(db_session, t.id, None, "Hola", upload=None,
+                                     has_read_all=True)
 
     assert exc.value.status_code == 400
 
@@ -342,7 +345,8 @@ def test_comment_download_sin_adjunto_es_404(db_session):
     c = add_comment(db_session, t, u)
 
     with pytest.raises(HTTPException) as exc:
-        AdhocTaskService.get_comment_download(db_session, c.id)
+        AdhocTaskService.get_comment_download(db_session, c.id, actor_id=u.id,
+                                             has_read_all=True)
 
     assert exc.value.status_code == 404
 
@@ -357,7 +361,8 @@ def test_comment_download_con_traversal_es_404(db_session):
     c = add_comment(db_session, t, u, file_path="../../../etc/passwd")
 
     with pytest.raises(HTTPException) as exc:
-        AdhocTaskService.get_comment_download(db_session, c.id)
+        AdhocTaskService.get_comment_download(db_session, c.id, actor_id=u.id,
+                                             has_read_all=True)
 
     assert exc.value.status_code == 404
 
@@ -377,7 +382,8 @@ def test_comment_file_download_ok(db_session, uploads_root):
     meta = upload_service.save_upload("task_comments", t.id, _FakeUpload("evidencia.pdf"))
     f = add_comment_file(db_session, c, original_name="evidencia.pdf", file_path=meta["file_path"])
 
-    row, path = AdhocTaskService.get_comment_file_download(db_session, f.id)
+    row, path = AdhocTaskService.get_comment_file_download(
+        db_session, f.id, actor_id=u.id, has_read_all=True)
 
     assert row.id == f.id
     assert path.is_file()
@@ -388,7 +394,8 @@ def test_comment_file_download_inexistente_es_404(db_session):
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
 
     with pytest.raises(HTTPException) as exc:
-        AdhocTaskService.get_comment_file_download(db_session, 99_999_999)
+        AdhocTaskService.get_comment_file_download(db_session, 99_999_999,
+                                                  actor_id=1, has_read_all=True)
 
     assert exc.value.status_code == 404
 
@@ -404,7 +411,8 @@ def test_comment_file_download_sin_binario_es_404(db_session):
     f = add_comment_file(db_session, c, file_path=None)
 
     with pytest.raises(HTTPException) as exc:
-        AdhocTaskService.get_comment_file_download(db_session, f.id)
+        AdhocTaskService.get_comment_file_download(db_session, f.id, actor_id=u.id,
+                                                  has_read_all=True)
 
     assert exc.value.status_code == 404
 
@@ -420,7 +428,8 @@ def test_comment_file_download_con_traversal_es_404(db_session):
     f = add_comment_file(db_session, c, file_path="../../../etc/passwd")
 
     with pytest.raises(HTTPException) as exc:
-        AdhocTaskService.get_comment_file_download(db_session, f.id)
+        AdhocTaskService.get_comment_file_download(db_session, f.id, actor_id=u.id,
+                                                  has_read_all=True)
 
     assert exc.value.status_code == 404
 
@@ -620,3 +629,197 @@ def test_dashboard_excluye_lo_ajeno(db_session):
     ids = {t.id for t in AdhocTaskService.get_dashboard_tasks(db_session, yo.id)}
 
     assert ajena.id not in ids
+
+
+# ==========================================================================
+# `puede_leer_hilo` — la fuente única de B3
+#
+# El predicado vive en ``schemas/tasks.py`` (ver su docstring: es la dirección
+# de los imports la que lo puso ahí), pero lo que decide es de este dominio:
+# quién alcanza el hilo de comentarios de una tarea. Se prueba junto al service
+# porque las dos mitades obligadas a decir lo mismo son ``get_workflow_details``
+# —que levanta el 403— y ``serialize_task`` —que emite ``thread_readable``, el
+# flag con el que la lista de tareas pinta el contador clicable o apagado.
+#
+# El criterio: con ``adhoc.tasks.api.read.all`` se lee cualquier hilo; sin él
+# hay que estar asignado a la tarea o ser el responsable de la incidencia o del
+# evento padre.
+# ==========================================================================
+
+def test_puede_leer_hilo_con_read_all_alcanza_cualquier_hilo(db_session):
+    """``has_read_all`` corta antes que todo lo demás: ni asignado ni responsable."""
+    from itcj2.apps.adhoc.schemas.tasks import puede_leer_hilo
+
+    ajeno = make_user(db_session, "AJENO")
+    asignado = make_user(db_session, "ASIGNADO")
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[asignado])
+
+    assert puede_leer_hilo(t, actor_id=ajeno.id, has_read_all=True) is True
+
+
+def test_puede_leer_hilo_del_asignado_sin_read_all(db_session):
+    from itcj2.apps.adhoc.schemas.tasks import puede_leer_hilo
+
+    asignado = make_user(db_session, "ASIGNADO")
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[asignado])
+
+    assert puede_leer_hilo(t, actor_id=asignado.id, has_read_all=False) is True
+
+
+def test_puede_leer_hilo_del_responsable_de_la_incidencia(db_session):
+    """El responsable del expediente no suele estar asignado a sus propias tareas."""
+    from itcj2.apps.adhoc.schemas.tasks import puede_leer_hilo
+
+    resp = make_user(db_session, "RESP")
+    ejecutor = make_user(db_session, "EJECUTOR")
+    inc = make_incident(db_session, "Inc con responsable", responsible=resp)
+    t = make_task(db_session, incident=inc, assignees=[ejecutor])
+
+    assert puede_leer_hilo(t, actor_id=resp.id, has_read_all=False) is True
+
+
+def test_puede_leer_hilo_del_responsable_del_evento_de_programa(db_session):
+    from itcj2.apps.adhoc.schemas.tasks import puede_leer_hilo
+
+    resp = make_user(db_session, "RESP")
+    ejecutor = make_user(db_session, "EJECUTOR")
+    ev = make_program_event(db_session, "Evento con responsable", responsible=resp)
+    t = make_task(db_session, program=ev, assignees=[ejecutor])
+
+    assert puede_leer_hilo(t, actor_id=resp.id, has_read_all=False) is True
+
+
+def test_puede_leer_hilo_del_ajeno_es_false(db_session):
+    from itcj2.apps.adhoc.schemas.tasks import puede_leer_hilo
+
+    ajeno = make_user(db_session, "AJENO")
+    asignado = make_user(db_session, "ASIGNADO")
+    resp = make_user(db_session, "RESP")
+    inc = make_incident(db_session, responsible=resp)
+    t = make_task(db_session, incident=inc, assignees=[asignado])
+
+    assert puede_leer_hilo(t, actor_id=ajeno.id, has_read_all=False) is False
+
+
+def test_puede_leer_hilo_en_tarea_documental_solo_alcanza_a_sus_asignados(db_session):
+    """Un documento no tiene ``responsible_id``: la única vía es estar asignado.
+
+    Es además el caso que deja ``task.incident`` y ``task.program`` en ``None``
+    **a la vez**; el predicado tiene que resolverlo sin reventar. Las tareas de
+    documento no tienen todavía pantalla propia (la trae B4), y cuando la tengan
+    heredarán este mismo criterio sin trabajo extra.
+    """
+    from itcj2.apps.adhoc.schemas.tasks import puede_leer_hilo
+
+    autor = make_user(db_session, "AUTOR")
+    validador = make_user(db_session, "VALIDADOR")
+    ajeno = make_user(db_session, "AJENO")
+    flow, steps = make_flow(db_session)
+    doc = make_document(db_session, author=autor, flow=flow, current_step=steps[0])
+    t = make_task(db_session, document=doc, flow_step=steps[0],
+                  status="En Revisión", assignees=[validador])
+
+    assert t.incident is None and t.program is None
+    assert puede_leer_hilo(t, actor_id=validador.id, has_read_all=False) is True
+    assert puede_leer_hilo(t, actor_id=ajeno.id, has_read_all=False) is False
+    # Ni siquiera el autor del documento: no está asignado al paso.
+    assert puede_leer_hilo(t, actor_id=autor.id, has_read_all=False) is False
+
+
+def test_puede_leer_hilo_sin_actor_es_false(db_session):
+    """Nunca ``True`` por omisión: sin actor no hay nada que afirmar."""
+    from itcj2.apps.adhoc.schemas.tasks import puede_leer_hilo
+
+    asignado = make_user(db_session, "ASIGNADO")
+    inc = make_incident(db_session, responsible=asignado)
+    t = make_task(db_session, incident=inc, assignees=[asignado])
+
+    assert puede_leer_hilo(t, actor_id=None, has_read_all=False) is False
+
+
+def test_serialize_task_sin_contexto_no_emite_el_flag(db_session):
+    """Sin ``actor_id`` la clave **no sale**, en vez de salir en ``False``.
+
+    Un ``False`` por omisión sería una afirmación que el serializador no tiene
+    con qué sostener, y sería falsa justo donde más aparecería: dentro de
+    ``serialize_workflow_details``, o sea en el payload que el actor está
+    leyendo en ese preciso momento. Ausente, el JS lo lee como ``undefined``,
+    que es falsy: misma prudencia en la UI, sin mentir en el JSON.
+    """
+    from itcj2.apps.adhoc.schemas.tasks import serialize_task
+
+    u = make_user(db_session)
+    inc = make_incident(db_session)
+    t = make_task(db_session, incident=inc, assignees=[u])
+
+    assert "thread_readable" not in serialize_task(t)
+    assert serialize_task(t, actor_id=u.id)["thread_readable"] is True
+
+
+def test_el_flag_y_el_403_nunca_se_contradicen(db_session):
+    """**El test que impide el botón roto.**
+
+    Matriz de las tres formas que tiene una tarea de tener padre, cruzada con
+    las cinco relaciones que un actor puede guardar con ella y con los dos
+    valores de ``has_read_all``. En cada celda se preguntan las dos mitades:
+    qué ``thread_readable`` emite ``serialize_task`` —lo que la lista usa para
+    decidir si el contador de comentarios es un botón— y qué contesta
+    ``get_workflow_details``, que es quien levanta el 403. Tienen que coincidir
+    SIEMPRE y en los dos sentidos: si el flag dice que sí, el detalle no puede
+    negarse; si dice que no, no puede abrirse.
+
+    Con una sola función el resultado es una tautología —y por eso el test es
+    barato de mantener—; deja de serlo en cuanto alguien reimplemente el
+    criterio en la mitad que le toque, que es exactamente lo que pasó en B1 con
+    ``DOCUMENT_STATUSES_STARTABLE``.
+    """
+    from itcj2.apps.adhoc.schemas.tasks import serialize_task
+    from itcj2.apps.adhoc.services.task_service import AdhocTaskService
+
+    asignado = make_user(db_session, "ASIGNADO")
+    resp_inc = make_user(db_session, "RESPINC")
+    resp_prog = make_user(db_session, "RESPPRG")
+    validador = make_user(db_session, "VALIDADOR")
+    ajeno = make_user(db_session, "AJENO")
+
+    inc = make_incident(db_session, "Inc matriz", responsible=resp_inc)
+    ev = make_program_event(db_session, "Evt matriz", responsible=resp_prog)
+    flow, steps = make_flow(db_session)
+    doc = make_document(db_session, author=ajeno, flow=flow, current_step=steps[0])
+
+    tareas = {
+        "incidencia": make_task(db_session, incident=inc, assignees=[asignado]),
+        "evento": make_task(db_session, program=ev, assignees=[asignado]),
+        "documento": make_task(db_session, document=doc, flow_step=steps[0],
+                               status="En Revisión", assignees=[validador]),
+    }
+    actores = {"asignado": asignado, "resp_inc": resp_inc, "resp_prog": resp_prog,
+               "validador": validador, "ajeno": ajeno}
+
+    vistos = set()
+    for nombre_tarea, tarea in tareas.items():
+        for nombre_actor, actor in actores.items():
+            for has_read_all in (False, True):
+                caso = (nombre_tarea, nombre_actor, has_read_all)
+
+                flag = serialize_task(
+                    tarea, actor_id=actor.id, has_read_all=has_read_all
+                )["thread_readable"]
+
+                try:
+                    AdhocTaskService.get_workflow_details(
+                        db_session, tarea.id, actor_id=actor.id,
+                        has_read_all=has_read_all,
+                    )
+                    alcanzable = True
+                except HTTPException as exc:
+                    assert exc.status_code == 403, caso
+                    alcanzable = False
+
+                assert flag is alcanzable, caso
+                vistos.add(alcanzable)
+
+    # Los dos caminos recorridos: una matriz que solo viera 200 no probaría nada.
+    assert vistos == {True, False}

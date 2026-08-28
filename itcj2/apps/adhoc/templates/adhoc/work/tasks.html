@@ -38,6 +38,9 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/adhoc/css/work/tasks.css?v={{ sv('css/work/tasks.css') }}">
+{# El diálogo del hilo de una tarea se viste aparte: su markup y su hoja los
+   comparten esta pantalla y el tablero. #}
+<link rel="stylesheet" href="/static/adhoc/css/work/workflow-modal.css?v={{ sv('css/work/workflow-modal.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -145,10 +148,27 @@
     </div>
   </div>
 </div>
+
+{# — HILO DE LA TAREA (solo lectura) —
+   El mismo diálogo del tablero, incluido SIN el `{% raw %}{% with %}{% endraw %}` de las dos
+   capacidades: así `wf_can_comment` y `wf_can_workflow` llegan `Undefined`, ni
+   la caja de comentario ni las tres acciones de flujo se emiten, y esta
+   pantalla solo puede LEER el expediente — también cuando la tarea sigue
+   abierta. Actuar sobre una tarea sigue siendo cosa del tablero.
+
+   Sus ids van todos bajo `adhoc-wf-…` y no chocan con los del modal de edición
+   de arriba (`adhoc-tasks-…`) ni con los campos que fabrica tasks.js
+   (`adhoc-tf-{índice}-{campo}`). #}
+{% include "adhoc/partials/_workflow_modal.html" %}
 {% endblock %}
 
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
+{# El modal PRIMERO: tasks.js lo consume por `window.AdhocWorkflowModal` al
+   pulsar el contador de la columna "Notas". El id es el mismo que en el
+   tablero, así que idiomorph conserva el nodo al navegar entre las dos
+   pantallas y el módulo no se re-ejecuta. #}
+<script id="adhoc-mod-work-workflow-modal" src="/static/adhoc/js/work/workflow-modal.js?v={{ sv('js/work/workflow-modal.js') }}"></script>
 <script id="adhoc-mod-work-tasks" src="/static/adhoc/js/work/tasks.js?v={{ sv('js/work/tasks.js') }}"></script>
 {% endblock %}

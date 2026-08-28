@@ -538,6 +538,148 @@ class TestPaginasDeTareas:
 
 
 # ==========================================================================
+# El hilo de la tarea en estas dos pantallas (B3)
+#
+# El modal de workflow era el ÚNICO visor del hilo de comentarios de una tarea
+# y solo se abría desde el tablero, que lista únicamente las tareas ABIERTAS
+# del usuario: los 930 comentarios que cuelgan de tareas ya completadas —el
+# 85 % del histórico del SGC— no se podían leer desde ninguna URL. Aquí el
+# contador de la columna "Notas", que antes era un número muerto, lo abre.
+#
+# En SOLO LECTURA: el markup compartido se incluye sin el `{% with %}` de las
+# capacidades, así que `wf_can_comment` y `wf_can_workflow` llegan `Undefined`
+# —falso— y ni la caja de comentario ni las tres acciones de flujo se emiten,
+# también cuando la tarea sigue abierta. Actuar sigue siendo cosa del tablero.
+# ==========================================================================
+
+class TestHiloDeLaTarea:
+    @pytest.fixture()
+    def htmls(self, pages_client, headers, grant, incident, event):
+        """El HTML de las dos pantallas: comparten template, comparten modal."""
+        with grant():
+            return {
+                "incident": pages_client.get(
+                    f"/adhoc/incidencias/{incident.id}/tareas", headers=headers).text,
+                "program": pages_client.get(
+                    f"/adhoc/programas/{event.id}/tareas", headers=headers).text,
+            }
+
+    def test_las_dos_pantallas_traen_el_modal_y_su_hoja(self, htmls):
+        for parent_type, html in htmls.items():
+            assert 'id="adhoc-wf-modal"' in html, parent_type
+            assert 'id="adhoc-wf-comments"' in html, parent_type
+            assert "/static/adhoc/css/work/workflow-modal.css?v=" in html, parent_type
+            assert "/static/adhoc/js/work/workflow-modal.js?v=" in html, parent_type
+
+    def test_el_modal_es_de_solo_lectura(self, htmls):
+        """Sin caja de comentario y sin las tres acciones irreversibles.
+
+        No es una decisión de CSS: el markup **no se emite**. Esconder los
+        botones con una clase deja el control en el DOM y a un clic de
+        distancia de `POST /workflow-action`.
+        """
+        for parent_type, html in htmls.items():
+            for marcador in ("data-adhoc-wf-comment-new", "data-adhoc-wf-comment-save",
+                             'id="adhoc-wf-comment-form"', "data-adhoc-wf-actions",
+                             'data-adhoc-wf-action="aprobar"',
+                             'data-adhoc-wf-action="rechazar"',
+                             'data-adhoc-wf-action="terminar"'):
+                assert marcador not in html, (parent_type, marcador)
+
+    def test_el_modal_de_solo_lectura_no_pinta_pie(self, htmls):
+        """Sin controles no hay pie, y sin pie no hay hueco muerto.
+
+        El `<div class="modal-footer">` se emitia siempre y su unico hijo
+        incondicional es el aviso, que nace `d-none` y solo lo enciende
+        `showNotice()` —al que en modo lectura no llega nadie: sus tres
+        llamadas pasan antes por `isFull()`—. `adhoc.css` le da al pie
+        `margin-top: 25px`, `padding-top: 20px` y un `border-top`, asi que
+        cada uno de los 453 hilos con comentarios terminaba en un separador
+        que no separa nada y ~46 px de vacio.
+        """
+        for parent_type, html in htmls.items():
+            assert "adhoc-wf-footer" not in html, parent_type
+            assert 'id="adhoc-wf-notice"' not in html, parent_type
+
+    def test_el_contador_apagado_no_cae_en_el_atajo_de_edicion(self):
+        """La pastilla apagada tiene que ser inerte, no solo parecerlo.
+
+        Se emite como `<span>` sin `data-adhoc-task-action` —a proposito: un
+        `<button disabled>` no despacharia el clic, pero los navegadores
+        tampoco muestran el `title` de un control deshabilitado, y ese texto es
+        todo lo que el estado apagado tiene que decir—. Sin el guard, el clic
+        seguia burbujeando hasta el atajo de fila y abria el modal de EDICION:
+        el usuario pulsaba un control con cursor de ayuda que le decia "solo
+        puedes abrir el historial de las tareas en las que participas" y le
+        salia el formulario de la tarea.
+
+        El guard va ANTES del atajo, o no sirve de nada.
+        """
+        text = _strip_js_comments(
+            (STATIC_DIR / "js" / "work" / "tasks.js").read_text(encoding="utf-8"))
+        guard = text.index("closest('.adhoc-count-off')")
+        atajo = text.index("if (self.can.update) self.openEdit(task);")
+        assert guard < atajo
+
+    def test_el_modulo_del_modal_se_carga_antes_que_el_de_la_pantalla(self, htmls):
+        """`tasks.js` consume `window.AdhocWorkflowModal` al pulsar el contador.
+
+        Y con ESE id: idiomorph empareja los `<script>` por `id`, así que al ir
+        del tablero a esta lista el nodo se conserva y el módulo no se
+        re-ejecuta. Con otro id habría dos copias con dos estados distintos.
+        """
+        for parent_type, html in htmls.items():
+            modal = html.index('id="adhoc-mod-work-workflow-modal"')
+            pantalla = html.index('id="adhoc-mod-work-tasks"')
+            assert modal < pantalla, parent_type
+
+    def test_los_ids_del_modal_no_chocan_con_los_del_modal_de_edicion(self, htmls):
+        """Dos diálogos en la misma página: `adhoc-wf-…` y `adhoc-tasks-…`.
+
+        Un id repetido rompe `getElementById` en silencio y el modal empieza a
+        pintar en el nodo equivocado.
+        """
+        for parent_type, html in htmls.items():
+            ids = re.findall(r'\bid="([^"]+)"', html)
+            repetidos = {i for i in ids if ids.count(i) > 1}
+            assert not repetidos, (parent_type, repetidos)
+            assert any(i.startswith("adhoc-wf-") for i in ids), parent_type
+            assert any(i.startswith("adhoc-tasks-") for i in ids), parent_type
+
+    def test_el_modal_va_en_el_bloque_de_modales_del_template(self):
+        """Fuera de cualquier contenedor con `transform`, que rompe el overlay."""
+        text = _strip_jinja_comments(
+            (TEMPLATES_DIR / "work" / "tasks.html").read_text(encoding="utf-8"))
+        bloque = text.index("{% block modals %}")
+        fin = text.index("{% endblock %}", bloque)
+        assert bloque < text.index("_workflow_modal.html") < fin
+
+    def test_el_template_incluye_el_partial_sin_declarar_capacidades(self):
+        """El `{% with %}` de las capacidades es lo que separa leer de actuar.
+
+        Si alguien lo copiara del tablero, esta pantalla emitiría los botones
+        de flujo sin haberlo decidido. El defecto es no poder actuar.
+        """
+        text = _strip_jinja_comments(
+            (TEMPLATES_DIR / "work" / "tasks.html").read_text(encoding="utf-8"))
+        assert "wf_can_comment" not in text
+        assert "wf_can_workflow" not in text
+
+    def test_el_contador_de_notas_lo_pinta_el_js_con_el_flag_del_servidor(self):
+        """`thread_readable` decide botón o pastilla apagada, no el navegador.
+
+        Es la lección de B1 y B2 aplicada al pie de la letra: la regla que la
+        UI usa para pintar el control y la que el servidor usa para permitirlo
+        son la misma función (`puede_leer_hilo`), o divergen.
+        """
+        text = _strip_js_comments(
+            (STATIC_DIR / "js" / "work" / "tasks.js").read_text(encoding="utf-8"))
+        assert "thread_readable" in text
+        assert "AdhocWorkflowModal" in text
+        assert "adhoc-count-off" in text
+
+
+# ==========================================================================
 # /adhoc/asignaciones — la consolidación de las dos rutas del legacy
 # ==========================================================================
 

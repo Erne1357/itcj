@@ -476,7 +476,7 @@ _ESTATICOS = RAIZ / "static"
 #: tocar un CSS/JS de adhoc se sube la constante en ``itcj2/config.py`` y se
 #: pega aquí la huella nueva que imprime el fallo. Son dos líneas, y son la
 #: diferencia entre desplegar el cambio y creer que se desplegó.
-_ULTIMO_BUMP = ("1.0.1111528", "89aa62fa6015e944")
+_ULTIMO_BUMP = ("1.0.1111530", "b14c97795b256401")
 
 
 def _huella_estaticos() -> str:

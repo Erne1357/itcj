@@ -1,7 +1,8 @@
 /* ---------------------------------------------------------------------------
    PAGINA   /adhoc/incidencias/{id}/tareas y /adhoc/programas/{id}/tareas
-   CONTIENE compactado de la tabla, separacion de los iconos de la columna Acciones
-            y los dos colores de icono propios (usuarios y campana)
+   CONTIENE compactado de la tabla, separacion de los iconos de la columna Acciones,
+            los dos colores de icono propios (usuarios y campana) y los dos
+            estados del contador de la columna Notas (clicable y apagado)
    EN BASE  prioridad de fila, icono de fila, contador, barra inferior y la caja
             del selector de cantidad
    --------------------------------------------------------------------------- */
@@ -84,6 +85,54 @@
 .adhoc-worktasks .adhoc-muted-cell {
   color: var(--adhoc-disabled);
   font-style: normal;
+}
+
+/* ---------- columna Notas: el contador del hilo ---------- */
+
+/* La pastilla la pinta adhoc.css (`.adhoc-count-pill`). Aqui solo van sus dos
+   ESTADOS, que son propios de esta pantalla porque es la unica donde el
+   contador abre algo.
+
+   `.adhoc-count-btn` es la caja del boton, no la pastilla: sin fondo, sin
+   borde y sin relleno, para que lo que se ve siga siendo exactamente la misma
+   pastilla de antes. Lo que cambia al pulsarla no es su forma, es que ahora
+   hay algo detras. */
+.adhoc-worktasks .adhoc-count-btn {
+  display: inline-flex;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+/* El realce va en la PASTILLA, no en el boton: el boton no tiene superficie
+   propia. Se sube el tinte al escalon fuerte, que es el mismo salto que usa el
+   resto de la app para "esto responde". */
+.adhoc-worktasks .adhoc-count-btn:hover .adhoc-count-pill,
+.adhoc-worktasks .adhoc-count-btn:focus-visible .adhoc-count-pill {
+  background: var(--adhoc-primary-tint-strong);
+}
+
+/* El anillo de foco es el de `.btn` y el de la barra de filtros: quien tabula
+   por la tabla ve el mismo dibujo que en el resto de la pantalla. */
+.adhoc-worktasks .adhoc-count-btn:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 2px;
+  border-radius: var(--adhoc-radius-pill);
+}
+
+/* Contador APAGADO: hay comentarios, pero este usuario no alcanza ese hilo.
+   Tiene que VERSE apagado, no solo comportarse como tal —el cursor no existe en
+   una pantalla tactil y no lo ve nadie que no pase el raton por encima—, asi
+   que pierde el violeta de la marca y se va al gris, y baja de semibold a
+   normal. Se queda legible a proposito (4.7:1 sobre su propio fondo, AA para
+   texto normal): el numero de comentarios que no puedes abrir sigue siendo
+   informacion, no ruido que tachar. */
+.adhoc-worktasks .adhoc-count-off {
+  background: var(--adhoc-surface-400);
+  color: var(--adhoc-muted);
+  font-weight: var(--adhoc-fw-normal);
+  cursor: help;
 }
 
 /* ---------- controles inferiores (legacy `.bottom-controls`) ---------- */

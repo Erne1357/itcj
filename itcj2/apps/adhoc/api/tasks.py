@@ -32,6 +32,30 @@ router = APIRouter(tags=["adhoc-tasks"])
 logger = logging.getLogger(__name__)
 
 
+def _actor_context(db, user: dict) -> tuple[int, bool]:
+    """``(actor_id, has_read_all)``: el contexto que decide qué ve el actor.
+
+    Un **solo** camino para las dos preguntas que dependen de
+    ``adhoc.tasks.api.read.all``: el detalle lo usa para saber si el service
+    exige pertenencia (403) y los listados para emitir ``thread_readable`` en
+    cada fila. Si cada uno lo calculara a su manera, la lista podría pintar un
+    contador clicable sobre un hilo que el detalle contesta con 403.
+
+    ``is_global_admin`` va primero, así que el admin global no paga la consulta
+    de permisos —``require_perms`` ya lo dejó pasar por el mismo bypass—. El
+    import es local a propósito: los tests parchean
+    ``itcj2.core.services.authz_cache.cached_perms`` y un import de nivel de
+    módulo se habría quedado con la referencia original.
+    """
+    from itcj2.core.services.authz_cache import cached_perms
+
+    actor_id = int(user["sub"])
+    has_read_all = is_global_admin(user) or (
+        "adhoc.tasks.api.read.all" in cached_perms(db, actor_id, "adhoc")
+    )
+    return actor_id, has_read_all
+
+
 # ==========================================================================
 # Lectura
 # ==========================================================================
@@ -51,10 +75,16 @@ def list_my_tasks(
     from itcj2.apps.adhoc.schemas.tasks import serialize_task
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
 
-    tasks = AdhocTaskService.get_dashboard_tasks(db, int(user["sub"]))
+    actor_id, has_read_all = _actor_context(db, user)
+
+    tasks = AdhocTaskService.get_dashboard_tasks(db, actor_id)
     return {
         "success": True,
-        "data": [serialize_task(t, with_parent=True) for t in tasks],
+        "data": [
+            serialize_task(t, with_parent=True, actor_id=actor_id,
+                           has_read_all=has_read_all)
+            for t in tasks
+        ],
         "total": len(tasks),
     }
 
@@ -64,17 +94,43 @@ def list_tasks(
     request: Request,
     parent_type: str = Query(..., description="incident | program | document"),
     parent_id: int = Query(..., gt=0),
-    user: dict = require_perms("adhoc", ["adhoc.tasks.api.read.all"]),
+    user: dict = require_perms(
+        "adhoc", ["adhoc.tasks.api.read.own", "adhoc.tasks.api.read.all"]
+    ),
     db: DbSession = None,
 ):
-    """Tareas colgadas de un padre concreto."""
+    """Tareas colgadas de un padre concreto.
+
+    Cada fila lleva ``thread_readable``: si este actor puede abrir el hilo de
+    comentarios de **esa** tarea. La lista es el único sitio donde se puede
+    responder eso por fila, y la UI lo necesita para pintar el contador de
+    comentarios clicable o apagado en vez de mandar al usuario a un 403.
+
+    Los **dos** alcances entran (``require_perms`` es OR), y eso es lo que hace
+    que el flag sirva de algo. Mientras solo se admitió ``read.all``, todo el
+    que lograba cargar la lista tenía alcance completo, ``thread_readable``
+    salía siempre en ``True`` y el contador apagado era código que no alcanzaba
+    ningún actor real — justo el rol al que estaba destinado, ``consult``
+    (10 usuarios, con ``read.own`` y ``adhoc.tasks.page.list``), recibía 403 y
+    veía la tabla vacía en una página que sí se le abre.
+
+    La fila no es contenido del hilo: descripción, fechas, asignados y el
+    **número** de comentarios. El hilo lo sigue guardando ``puede_leer_hilo``
+    fila por fila, así que ``consult`` ve el expediente completo con la pastilla
+    clicable solo donde participa.
+    """
     from itcj2.apps.adhoc.schemas.tasks import serialize_task
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
+
+    actor_id, has_read_all = _actor_context(db, user)
 
     tasks = AdhocTaskService.list_by_parent(db, parent_type, parent_id)
     return {
         "success": True,
-        "data": [serialize_task(t) for t in tasks],
+        "data": [
+            serialize_task(t, actor_id=actor_id, has_read_all=has_read_all)
+            for t in tasks
+        ],
         "total": len(tasks),
     }
 
@@ -100,12 +156,8 @@ def get_task_workflow(
     responsable del padre — si no, 403 (D4).
     """
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
-    from itcj2.core.services.authz_cache import cached_perms
 
-    actor_id = int(user["sub"])
-    has_read_all = is_global_admin(user) or (
-        "adhoc.tasks.api.read.all" in cached_perms(db, actor_id, "adhoc")
-    )
+    actor_id, has_read_all = _actor_context(db, user)
 
     data = AdhocTaskService.get_workflow_details(
         db, task_id, actor_id=actor_id, has_read_all=has_read_all
@@ -128,10 +180,15 @@ def create_tasks(
     from itcj2.apps.adhoc.schemas.tasks import serialize_task
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
 
-    created = AdhocTaskService.bulk_create(db, payload, created_by_id=int(user["sub"]))
+    actor_id, has_read_all = _actor_context(db, user)
+
+    created = AdhocTaskService.bulk_create(db, payload, created_by_id=actor_id)
     return {
         "success": True,
-        "data": [serialize_task(t) for t in created],
+        "data": [
+            serialize_task(t, actor_id=actor_id, has_read_all=has_read_all)
+            for t in created
+        ],
         "total": len(created),
     }
 
@@ -152,8 +209,13 @@ def update_task(
     if not changes:
         raise HTTPException(status_code=400, detail="No se envió ningún campo a modificar")
 
-    task = AdhocTaskService.update(db, task_id, changes, actor_id=int(user["sub"]))
-    return {"success": True, "data": serialize_task(task)}
+    actor_id, has_read_all = _actor_context(db, user)
+
+    task = AdhocTaskService.update(db, task_id, changes, actor_id=actor_id)
+    return {
+        "success": True,
+        "data": serialize_task(task, actor_id=actor_id, has_read_all=has_read_all),
+    }
 
 
 @router.delete("/{task_id}")
@@ -182,10 +244,15 @@ def set_task_assignees(
     from itcj2.apps.adhoc.schemas.tasks import serialize_task
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
 
+    actor_id, has_read_all = _actor_context(db, user)
+
     task = AdhocTaskService.set_assignees(
-        db, task_id, payload.user_ids, actor_id=int(user["sub"])
+        db, task_id, payload.user_ids, actor_id=actor_id
     )
-    return {"success": True, "data": serialize_task(task)}
+    return {
+        "success": True,
+        "data": serialize_task(task, actor_id=actor_id, has_read_all=has_read_all),
+    }
 
 
 @router.put("/{task_id}/overdue-notifications")
@@ -205,10 +272,15 @@ def set_task_overdue_notifications(
     from itcj2.apps.adhoc.schemas.tasks import serialize_task
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
 
+    actor_id, has_read_all = _actor_context(db, user)
+
     task = AdhocTaskService.set_overdue_notifications(
-        db, task_id, payload.user_ids, actor_id=int(user["sub"])
+        db, task_id, payload.user_ids, actor_id=actor_id
     )
-    return {"success": True, "data": serialize_task(task)}
+    return {
+        "success": True,
+        "data": serialize_task(task, actor_id=actor_id, has_read_all=has_read_all),
+    }
 
 
 @router.post("/{task_id}/workflow-action")
@@ -247,12 +319,20 @@ def add_task_comment(
     user: dict = require_perms("adhoc", ["adhoc.tasks.api.comment"]),
     db: DbSession = None,
 ):
-    """Agrega un comentario a la tarea, con adjunto opcional (``multipart``)."""
+    """Agrega un comentario a la tarea, con adjunto opcional (``multipart``).
+
+    ``adhoc.tasks.api.comment`` dice "puedes comentar tareas"; la pertenencia
+    dice "puedes comentar *esta*". El service exige además lo segundo, con el
+    mismo predicado que decide el 403 del hilo: escribir en un expediente no
+    puede ser más fácil que leerlo, y ``consult`` tiene este permiso.
+    """
     from itcj2.apps.adhoc.schemas.tasks import serialize_comment
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
 
+    actor_id, has_read_all = _actor_context(db, user)
+
     nuevo = AdhocTaskService.add_comment(
-        db, task_id, int(user["sub"]), comment, upload=file
+        db, task_id, actor_id, comment, upload=file, has_read_all=has_read_all
     )
     return {"success": True, "data": serialize_comment(nuevo)}
 
@@ -275,13 +355,21 @@ def download_task_comment_file_by_id(
     Un comentario puede tener varios adjuntos (85 del histórico migrado, uno
     con 14) — ``file_path`` en ``adhoc_task_comments`` solo admitía uno. Esta
     ruta es la única forma de bajarse los adjuntos que no entraron ahí.
+
+    El permiso no alcanza: el service pide además pertenencia al hilo dueño del
+    archivo. Son 533 filas con ids correlativos desde 1, así que sin ese gate
+    bastaba enumerar para bajarse el expediente entero del SGC.
     """
     from fastapi.responses import FileResponse
 
     from itcj2.apps.adhoc.services import upload_service
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
 
-    file_row, path = AdhocTaskService.get_comment_file_download(db, file_id)
+    actor_id, has_read_all = _actor_context(db, user)
+
+    file_row, path = AdhocTaskService.get_comment_file_download(
+        db, file_id, actor_id=actor_id, has_read_all=has_read_all
+    )
     return FileResponse(
         str(path),
         media_type=file_row.mime_type or "application/octet-stream",
@@ -299,13 +387,17 @@ def download_task_comment_file(
 ):
     """Descarga el adjunto **heredado** de un comentario (``file_path``).
 
-    Con permiso obligatorio y ``safe_join`` en el service: el legacy servía
-    estos archivos de forma anónima y bastaba enumerar ids para bajarse los
-    adjuntos de todo el sistema de calidad.
+    Con permiso obligatorio, pertenencia al hilo y ``safe_join`` en el service:
+    el legacy servía estos archivos de forma anónima y bastaba enumerar ids
+    para bajarse los adjuntos de todo el sistema de calidad.
     """
     from fastapi.responses import FileResponse
 
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService
 
-    comment, path = AdhocTaskService.get_comment_download(db, comment_id)
+    actor_id, has_read_all = _actor_context(db, user)
+
+    comment, path = AdhocTaskService.get_comment_download(
+        db, comment_id, actor_id=actor_id, has_read_all=has_read_all
+    )
     return FileResponse(path, filename=path.name)
