@@ -56,7 +56,9 @@ from itcj2.apps.adhoc.schemas.documents import (
 from itcj2.apps.adhoc.services import upload_service
 from itcj2.apps.adhoc.utils.constants import (
     DOCUMENT_EXPIRY_SOON_DAYS,
-    DOCUMENT_STATUS_DEFAULT, DOCUMENT_STATUS_OBSOLETE, DOCUMENT_STATUSES_VIA_PATCH,
+    DOCUMENT_STATUS_DEFAULT, DOCUMENT_STATUS_OBSOLETE,
+    DOCUMENT_STATUSES_EDITABLE, DOCUMENT_STATUSES_FILE_REPLACEABLE,
+    DOCUMENT_STATUSES_VIA_PATCH,
     TASK_STATUS_IN_REVIEW, TASK_STATUS_WAITING,
 )
 from itcj2.models.base import paginate
@@ -124,6 +126,47 @@ def _validate_fks(db: Session, payloads: Sequence[dict]) -> None:
 def _has_filename(upload: Any) -> bool:
     """Un ``<input type=file>`` sin elegir manda una parte con filename vacío."""
     return bool(upload is not None and (getattr(upload, "filename", "") or "").strip())
+
+
+def _ha_circulado(doc: AdhocDocument) -> bool:
+    """¿Este documento entró alguna vez a un flujo de aprobación?
+
+    ``flow_id`` y ``current_step_id`` los escribe ``start_flow`` y **nadie los
+    limpia después**: rechazar deja los dos puestos (``task_workflow_service``
+    solo toca ``status``). Son, por tanto, la marca de que *ese* binario circuló
+    y de que hay validadores que opinaron por escrito sobre él.
+
+    El gate del archivo mira esto **además** del ``status`` porque el ``status``
+    es un valor que el propio ``PATCH`` puede escribir, y eso abría la puerta
+    de atrás: ``'Rechazado'`` está en :data:`DOCUMENT_STATUSES_EDITABLE` y
+    ``'Borrador'`` en :data:`DOCUMENT_STATUSES_VIA_PATCH`, así que con un solo
+    permiso (``adhoc.documents.api.update``) bastaban dos llamadas seguidas
+    —``{"status": "Borrador"}`` y luego el archivo— para sustituir el adjunto
+    que los validadores habían rechazado, dejando las filas de
+    ``adhoc_task_approvals`` apuntando a un contenido que ya nadie puede ver.
+    Un gate que se salta repitiéndolo no es un gate.
+    """
+    return doc.flow_id is not None or doc.current_step_id is not None
+
+
+def _por_que_no_se_edita(status: str) -> str:
+    """La causa real del 409, que no es la misma para todos los estados.
+
+    El mensaje es lo único que la UI enseña (``documents-panel.js`` pinta el
+    ``detail`` tal cual), así que no puede inventar historia. ``'Obsoleto'`` se
+    alcanza también **sin flujo ninguno**: está en
+    :data:`DOCUMENT_STATUSES_VIA_PATCH` justamente porque retirar un documento
+    es una decisión legítima de Calidad, y hoy ya hay filas obsoletas con
+    ``flow_id IS NULL``. Decirle a quien abre una de ellas que "ya pasó por el
+    flujo de aprobación" es una explicación falsa: el motivo es que el estado es
+    terminal.
+    """
+    if status == DOCUMENT_STATUS_OBSOLETE:
+        return "es un estado terminal, un documento retirado no vuelve a edición"
+    return (
+        "lo escribe el flujo de aprobación, y un documento que está en él o que "
+        "ya pasó por él no se reescribe"
+    )
 
 
 class AdhocDocumentService:
@@ -379,10 +422,82 @@ class AdhocDocumentService:
         ``parent_id`` —no están en :class:`DocumentUpdate` y ``AdhocSchema``
         ignora los extras—: la cadena de versiones solo la mueve
         ``bulk_create``, que cambia punta y estado de todas las filas a la vez.
+
+        **El documento tiene que estar en un estado que admita edición**, y ese
+        gate vive aquí, en el service. Tres reglas, comprobadas antes de aplicar
+        nada:
+
+        1. una **versión superada** (``is_current=False``) no se edita nunca:
+           es histórico, y en un SGC ISO 9001 el histórico es la evidencia de
+           qué decía el documento cuando alguien lo firmó;
+        2. solo se edita desde :data:`DOCUMENT_STATUSES_EDITABLE`
+           (``'Borrador'`` y ``'Rechazado'``). Lo que ya pasó por el flujo de
+           aprobación es inmutable: corregirlo es **anexar una versión nueva**,
+           no reescribir la aprobada. Hoy eso deja editables 4 de los 202
+           documentos migrados, y es la cifra correcta;
+        3. el **archivo** solo se reemplaza desde
+           :data:`DOCUMENT_STATUSES_FILE_REPLACEABLE` (solo ``'Borrador'``) **y**
+           mientras el documento no haya entrado nunca a un flujo
+           (:func:`_ha_circulado`). Es más estrecho que (2) a propósito: un
+           ``'Rechazado'`` sí acepta que le corrijan los metadatos, pero no que
+           le cambien el PDF debajo, porque sus validadores rechazaron *ese*
+           archivo y la decisión quedó escrita en ``adhoc_task_approvals``.
+           Además, el reemplazo borra el binario anterior del disco sin vuelta
+           atrás. Las dos condiciones hacen falta: con solo la del ``status``,
+           dos ``PATCH`` seguidos —uno que devuelve el documento a
+           ``'Borrador'``, otro con el archivo— recuperaban el reemplazo, porque
+           el estado de entrada es justo lo que este endpoint puede escribir.
+
+        Los tres son :class:`AdhocConflict` (→ 409), no ``ValueError``: el
+        documento existe y el payload es válido; lo que impide la operación es
+        su **estado**. Ese es el contrato de errores que declara el módulo.
+
+        Y va en el service, no en el JS, por el precedente que dejó B1: la
+        misma regla de estados de ``start_flow`` (``DOCUMENT_STATUSES_STARTABLE``)
+        existía desde la migración y **solo la respetaba ``documents-panel.js``**
+        —escondía el botón del sello—, así que un POST a mano arrancaba un flujo
+        sobre un documento obsoleto. Una regla que solo vive en el navegador no
+        es una regla: el botón deshabilitado del panel es comodidad, esto es el
+        gate.
         """
         doc = db.get(AdhocDocument, document_id)
         if doc is None:
             raise LookupError("Documento no encontrado")
+
+        # (1) El histórico no se edita, aunque su `status` estuviera en la lista.
+        if not doc.is_current:
+            raise AdhocConflict(
+                "No se puede editar una versión superada: este documento ya fue "
+                "sustituido por una versión más nueva y el historial del SGC no "
+                "se edita. Edite la versión vigente de la cadena."
+            )
+        # (2) Lo aprobado es inmutable; se corrige anexando una versión nueva.
+        if doc.status not in DOCUMENT_STATUSES_EDITABLE:
+            raise AdhocConflict(
+                f"No se puede editar un documento en estado '{doc.status}': "
+                f"{_por_que_no_se_edita(doc.status)}. Para corregirlo, anexe una "
+                f"versión nueva. Solo se edita desde: "
+                f"{', '.join(DOCUMENT_STATUSES_EDITABLE)}."
+            )
+        # (3) Gate aparte del (2): 'Rechazado' admite metadatos, no archivo.
+        if _has_filename(upload):
+            if doc.status not in DOCUMENT_STATUSES_FILE_REPLACEABLE:
+                raise AdhocConflict(
+                    f"No se puede reemplazar el archivo de un documento en estado "
+                    f"'{doc.status}': los demás campos sí se pueden corregir, pero el "
+                    f"adjunto solo se sustituye en "
+                    f"{', '.join(DOCUMENT_STATUSES_FILE_REPLACEABLE)}. Para cambiar el "
+                    f"archivo, anexe una versión nueva."
+                )
+            # El `status` de arriba no basta: es un valor que este mismo PATCH
+            # puede escribir. Ver `_ha_circulado`.
+            if _ha_circulado(doc):
+                raise AdhocConflict(
+                    "No se puede reemplazar el archivo de un documento que ya "
+                    "circuló por un flujo de aprobación: sus validadores leyeron "
+                    "ESE archivo y su decisión quedó escrita en el expediente. "
+                    "Para cambiar el archivo, anexe una versión nueva."
+                )
 
         changes = data.model_dump(exclude_unset=True)
 

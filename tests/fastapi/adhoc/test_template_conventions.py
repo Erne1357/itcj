@@ -26,6 +26,7 @@ falla, el que la lea tiene que poder arreglarla sin abrir este archivo.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 
@@ -416,3 +417,109 @@ def test_el_modal_de_versiones_separa_el_vacio_de_la_version_unica():
     )
     for rama in ("items.length === 0", "items.length === 1"):
         assert rama in fuente, f"Falta la rama `{rama}` en el modal del historial."
+
+
+def test_los_selects_del_modal_de_documentos_conservan_el_valor_guardado():
+    """Gotcha 22: un ``<select>`` lleno de un catálogo FILTRADO borra lo que falte.
+
+    Es el mismo defecto que se arregló en ``work-items.js`` con
+    ``fillSelect``, y volvió a aparecer en el modal de documentos en cuanto se
+    le conectó la edición: ``_document_catalogs`` solo manda las áreas con
+    ``is_active``, la relación del documento no filtra nada, y en este PATCH un
+    ``''`` **limpia la columna**. Con el valor guardado fuera de las opciones, el
+    desplegable abría en el placeholder y guardar un cambio de título borraba el
+    área del documento sin que nadie la hubiera tocado.
+
+    Dos condiciones, y ninguna sirve sola: el prefill tiene que llevar el objeto
+    anidado (el id pelado no da con qué rotular la opción) y
+    ``makeCatalogSelect`` tiene que conservar el valor que no case con ninguna
+    entrada del catálogo.
+    """
+    fuente = _js("documents-panel.js")
+
+    reincidencia = [c for c in ("category", "area", "process", "classification")
+                    if f"doc.{c} ? doc.{c}.id" in fuente]
+    assert not reincidencia, (
+        "El prefill del modal vuelve a mandar el id pelado en "
+        f"{', '.join(reincidencia)}: sin el objeto anidado de `document_out` no "
+        "hay nombre con el que conservar un valor que ya no está en el catálogo."
+    )
+    for campo in ("category", "area", "process", "classification"):
+        assert f"{campo}: doc.{campo}" in fuente, (
+            f"`openEdit`/`openNewVersion` no le pasan `doc.{campo}` al prefill."
+        )
+
+    cuerpo = fuente[fuente.index("function makeCatalogSelect"):]
+    cuerpo = cuerpo[:cuerpo.index("\n    }\n")]
+    assert "!matched" in cuerpo and "kept.selected = true" in cuerpo, (
+        "`makeCatalogSelect` ya no conserva el valor guardado cuando no está "
+        "entre las opciones: el select cae al placeholder y el PATCH manda '', "
+        "que en este endpoint significa borrar la columna."
+    )
+
+
+# ── 10. el bump de estáticos ───────────────────────────────────────────────
+#
+# En este repo NO hay `static-manifest.json`, así que `load_static_manifest()`
+# devuelve `{}` y el `sv()` de todos los estáticos de adhoc cae siempre al
+# fallback: la constante `STATIC_VERSION` de `itcj2/config.py`. Y nginx sirve
+# /static/adhoc/ con `expires 1y` + `Cache-Control: immutable`
+# (docker/nginx/nginx.prod.conf), que significa que el navegador ni siquiera
+# revalida. Un cambio de CSS/JS sin bump se despliega para nadie: quien ya tenía
+# la pantalla abierta sigue ejecutando la versión anterior hasta un ctrl+F5 que
+# no sabe que hace falta. Pasó con la edición de documentos (A14): el JS del
+# panel creció 450 líneas y la URL del `<script>` quedó idéntica.
+
+_ESTATICOS = RAIZ / "static"
+
+#: ``(STATIC_VERSION, huella)`` del último bump. **Se actualizan juntos**: al
+#: tocar un CSS/JS de adhoc se sube la constante en ``itcj2/config.py`` y se
+#: pega aquí la huella nueva que imprime el fallo. Son dos líneas, y son la
+#: diferencia entre desplegar el cambio y creer que se desplegó.
+_ULTIMO_BUMP = ("1.0.1111528", "89aa62fa6015e944")
+
+
+def _huella_estaticos() -> str:
+    """SHA-256 de los CSS/JS de adhoc (ruta + contenido), normalizando CRLF.
+
+    El salto de línea se normaliza porque ``core.autocrlf`` está activo en las
+    máquinas Windows del ITCJ: un clon nuevo trae CRLF y la huella no puede
+    depender de eso.
+    """
+    h = hashlib.sha256()
+    for ruta in sorted(q for q in _ESTATICOS.rglob("*")
+                       if q.is_file() and q.suffix in (".css", ".js")):
+        h.update(ruta.relative_to(_ESTATICOS).as_posix().encode("utf8"))
+        h.update(ruta.read_bytes().replace(b"\r\n", b"\n"))
+    return h.hexdigest()[:16]
+
+
+def test_los_estaticos_de_adhoc_no_cambian_sin_bump_de_static_version():
+    """Gotcha #4 del CLAUDE.md raíz, con un tripwire en vez de buena memoria."""
+    from itcj2.config import get_settings
+
+    if (Path(__file__).resolve().parents[3] / "static-manifest.json").exists():
+        pytest.skip("Hay manifest: `sv()` versiona por archivo y el fallback no manda.")
+
+    version = get_settings().STATIC_VERSION
+    huella = _huella_estaticos()
+    esperada_version, esperada_huella = _ULTIMO_BUMP
+
+    if huella == esperada_huella:
+        assert version == esperada_version, (
+            "STATIC_VERSION cambió sin que cambiara ningún estático de adhoc. "
+            f"Actualiza `_ULTIMO_BUMP` a ('{version}', '{huella}')."
+        )
+        return
+
+    assert version != esperada_version, (
+        "Cambiaron los estáticos de adhoc y STATIC_VERSION sigue en "
+        f"'{version}'. Sin bump, nginx sirve el archivo viejo con `immutable` "
+        "durante un año y el cambio no le llega a quien ya abrió la pantalla.\n"
+        f"  1) sube STATIC_VERSION en itcj2/config.py\n"
+        f"  2) pon aquí `_ULTIMO_BUMP = (\"<version nueva>\", \"{huella}\")`"
+    )
+    pytest.fail(
+        "Bump correcto, falta cerrar el par: "
+        f"`_ULTIMO_BUMP = (\"{version}\", \"{huella}\")`"
+    )

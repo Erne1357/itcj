@@ -369,6 +369,17 @@ async def documents_panel_page(
             "flows": flows,
             "accept": [f".{ext}" for ext in extensions],
             "can_create": _can(perms, "adhoc.documents.api.create"),
+            # `can_update` solo viaja en el PANEL, no en la lista de consulta:
+            # el botón "Editar" es una acción de administración y
+            # `/adhoc/documentos` no tiene ninguna. Que el permiso exista no lo
+            # convierte en algo que pintar en una pantalla de lectura.
+            #
+            # Enciende el botón; NO decide si esa fila concreta se puede editar.
+            # Eso lo dicen `is_editable` / `file_replaceable` de cada documento
+            # (`document_out`), que es la regla de producto ya resuelta por el
+            # servidor: sin `is_current` y sin un estatus de
+            # DOCUMENT_STATUSES_EDITABLE no se edita ni con el permiso puesto.
+            "can_update": _can(perms, "adhoc.documents.api.update"),
             "can_delete": _can(perms, "adhoc.documents.api.delete"),
             "can_start_flow": _can(perms, "adhoc.documents.api.start_flow"),
         },

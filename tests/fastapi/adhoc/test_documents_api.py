@@ -876,3 +876,289 @@ def test_validadores_con_usuario_inexistente_es_400(client, admin_cookies, db_se
 def test_detalle_de_paso_inexistente_es_404(client, admin_cookies):
     resp = client.get(f"{FLOWS}/steps/99999999", cookies=admin_cookies)
     assert resp.status_code == 404
+
+
+# ==========================================================================
+# A14 — el gate de edición visto desde HTTP
+# ==========================================================================
+#
+# El hallazgo que cierra este bloque: ``PATCH /documents/{id}`` existía, tenía
+# permiso propio (``adhoc.documents.api.update``, concedido a admin y
+# supervisor_doc) y **no lo invocaba ni un solo archivo JS**. Corregir un título
+# mal escrito pasaba por borrar el documento y volver a subirlo, llevándose por
+# delante sus tareas y su archivo.
+#
+# Al conectarlo, la regla de producto quedó estrecha a propósito: solo se edita
+# lo que todavía no pasó por el flujo ('Borrador' y 'Rechazado'), nunca una
+# versión superada, y el archivo solo se sustituye en 'Borrador'. Aquí se prueba
+# lo que ve el cliente: el **409 con sobre estándar** y los dos flags que el
+# panel usa para pintar el botón.
+
+
+def test_patch_sobre_un_documento_aprobado_es_409_con_el_sobre_estandar(
+    client, admin_cookies, db_session,
+):
+    """Lo aprobado es inmutable: se corrige anexando una versión nueva.
+
+    El sobre importa tanto como el código: ``AdhocConflict`` lleva un mensaje que
+    explica qué hacer, y ``_domain_errors`` lo pasa como ``detail`` **string**.
+    Un ``detail`` dict saldría como ``{"error": {...}, "status": 409}`` anidado y
+    el ``extractError`` del panel enseñaría "[object Object]" en el toast.
+    """
+    doc = make_document(db_session, title="Aprobado intocable", status="Aprobado")
+
+    resp = client.patch(
+        f"{DOCS}/{doc.id}", data={"title": "Editado a la fuerza"}, cookies=admin_cookies,
+    )
+    assert resp.status_code == 409, resp.text
+    body = resp.json()
+    assert body["status"] == 409
+    assert isinstance(body["error"], str)
+    assert "Aprobado" in body["error"]
+    assert "detail" not in body
+
+    # `flush` antes de `expire_all`: si el service hubiera mutado la fila antes
+    # de rechazar, el cambio seguiría pendiente en la sesión del request y
+    # `expire_all` lo descartaría en silencio, tapando el fallo.
+    db_session.flush()
+    db_session.expire_all()
+    assert db_session.get(AdhocDocument, doc.id).title == "Aprobado intocable"
+
+
+@pytest.mark.parametrize("status", ["En Revisión", "Obsoleto"])
+def test_patch_sobre_los_demas_estados_cerrados_tambien_es_409(
+    client, admin_cookies, db_session, status,
+):
+    """'En Revisión' está en manos del motor de flujo; 'Obsoleto' es terminal."""
+    doc = make_document(db_session, status=status)
+    resp = client.patch(f"{DOCS}/{doc.id}", data={"title": "x"}, cookies=admin_cookies)
+    assert resp.status_code == 409, resp.text
+    assert status in resp.json()["error"]
+
+
+@pytest.mark.parametrize("status", ["Borrador", "Rechazado"])
+def test_patch_sobre_un_documento_editable_es_200(
+    client, admin_cookies, db_session, status,
+):
+    """No regresión: el gate no puede cerrar los que sí se editan."""
+    doc = make_document(db_session, code="E2E-A14", title="Antes", status=status)
+    resp = client.patch(
+        f"{DOCS}/{doc.id}", data={"title": "Después"}, cookies=admin_cookies,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["title"] == "Después"
+    assert data["code"] == "E2E-A14"
+    assert data["status"] == status      # editar no mueve el estado
+
+
+def test_patch_sobre_una_version_superada_es_409_aunque_este_en_borrador(
+    client, admin_cookies, db_session,
+):
+    """El cruce que separa las dos reglas del gate.
+
+    ``('Borrador', is_current=False)`` pasaría si solo existiera el gate de
+    ``status``. Es histórico del SGC: 58 filas de la base están así, y las dos
+    listas ya las ocultan —editarlas sería reescribir en silencio lo que decía un
+    documento cuando alguien lo firmó—.
+    """
+    raiz = make_document(db_session, code="E2E-A14-VER", title="Versión vieja",
+                         status="Borrador", is_current=False)
+    make_document(db_session, code="E2E-A14-VER", parent_id=raiz.id, is_current=True)
+
+    resp = client.patch(
+        f"{DOCS}/{raiz.id}", data={"title": "Reescrita"}, cookies=admin_cookies,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "superada" in resp.json()["error"]
+
+    db_session.flush()
+    db_session.expire_all()
+    assert db_session.get(AdhocDocument, raiz.id).title == "Versión vieja"
+
+
+def test_patch_con_archivo_sobre_un_rechazado_es_409_y_el_adjunto_sigue_ahi(
+    client, admin_cookies, uploads_root, db_session,
+):
+    """El gate del archivo es más estrecho que el de la edición, también por HTTP.
+
+    Un ``'Rechazado'`` acepta que le corrijan el código o el título, pero no que
+    le cambien el PDF debajo: sus validadores rechazaron *ese* archivo y la
+    decisión quedó escrita en ``adhoc_task_approvals``. El 409 llega antes de
+    ``save_upload``, así que en disco no aparece ni desaparece nada.
+    """
+    doc = make_document(db_session, title="Original", status="Rechazado")
+    carpeta = Path(uploads_root) / "documents" / str(doc.id)
+    carpeta.mkdir(parents=True)
+    (carpeta / "rechazado.pdf").write_bytes(b"%PDF-1.4 original")
+    doc.file_url = f"{doc.id}/rechazado.pdf"
+    db_session.flush()
+
+    resp = client.patch(
+        f"{DOCS}/{doc.id}",
+        data={"title": "Editado"},
+        files={"file": ("colado.pdf", BytesIO(b"%PDF-1.4 colado"), "application/pdf")},
+        cookies=admin_cookies,
+    )
+    assert resp.status_code == 409, resp.text
+    assert isinstance(resp.json()["error"], str)
+
+    assert [p.name for p in carpeta.iterdir()] == ["rechazado.pdf"]
+    assert (carpeta / "rechazado.pdf").read_bytes() == b"%PDF-1.4 original"
+    db_session.flush()
+    db_session.expire_all()
+    recargado = db_session.get(AdhocDocument, doc.id)
+    assert recargado.file_url == f"{doc.id}/rechazado.pdf"
+    assert recargado.title == "Original"
+
+
+def test_los_dos_vocabularios_de_status_del_patch_son_independientes(
+    client, admin_cookies, db_session,
+):
+    """``DOCUMENT_STATUSES_EDITABLE`` y ``DOCUMENT_STATUSES_VIA_PATCH`` no son la
+    misma lista, y este test fija en qué se traduce eso para el cliente.
+
+    * *En qué estado tiene que estar* el documento para que el PATCH lo toque:
+      'Borrador' y 'Rechazado' (gate de A14, 409 si no).
+    * *Qué valores de ``status`` puede escribir* ese PATCH: 'Borrador' y
+      'Obsoleto' (400 si no; los demás los produce el motor de flujo).
+
+    Su intersección deja un solo camino vivo para retirar algo a mano —marcar
+    'Obsoleto' un 'Borrador'—, y **desde 'Aprobado' ya no se puede**: es el 409
+    de A14, igual que para cualquier otro campo. Retirar un documento aprobado
+    pasa hoy por anexarle una versión nueva, que es lo que deja obsoleta la
+    cadena entera. Queda escrito aquí para que nadie lo tome por un descuido.
+    """
+    borrador = make_document(db_session, status="Borrador")
+    retirado = client.patch(
+        f"{DOCS}/{borrador.id}", data={"status": "Obsoleto"}, cookies=admin_cookies,
+    )
+    assert retirado.status_code == 200, retirado.text
+    assert retirado.json()["data"]["status"] == "Obsoleto"
+    # Y 'Obsoleto' es terminal: acaba de cerrarse su propia puerta.
+    assert retirado.json()["data"]["is_editable"] is False
+
+    aprobado = make_document(db_session, status="Aprobado")
+    resp = client.patch(
+        f"{DOCS}/{aprobado.id}", data={"status": "Obsoleto"}, cookies=admin_cookies,
+    )
+    assert resp.status_code == 409, resp.text
+
+    # El otro lado de la asimetría: un estado del motor de flujo es 400, no 409,
+    # aunque el documento sí fuera editable. Son dos preguntas distintas.
+    otro = make_document(db_session, status="Borrador")
+    invalido = client.patch(
+        f"{DOCS}/{otro.id}", data={"status": "Aprobado"}, cookies=admin_cookies,
+    )
+    assert invalido.status_code == 400, invalido.text
+    assert "flujo de aprobación" in invalido.json()["error"]
+
+
+def test_patch_sin_el_permiso_de_edicion_es_403(client, db_session):
+    """``role="staff"`` no bypasea: editar exige ``adhoc.documents.api.update``.
+
+    Se le dan todos los demás permisos de documentos (leer, crear, borrar) menos
+    ese, que es la forma de comprobar que el 403 sale del permiso correcto y no
+    de un conjunto vacío.
+    """
+    doc = make_document(db_session)
+    cookies = {"itcj_token": make_jwt(user_id=1, role="staff")}
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.documents.api.read",
+                             "adhoc.documents.api.create",
+                             "adhoc.documents.api.delete"}):
+        resp = client.patch(f"{DOCS}/{doc.id}", data={"title": "x"}, cookies=cookies)
+    assert resp.status_code == 403
+    assert "error" in resp.json()
+
+
+def test_patch_con_el_permiso_exacto_pasa(client, db_session):
+    doc = make_document(db_session, title="Antes")
+    cookies = {"itcj_token": make_jwt(user_id=1, role="staff")}
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.documents.api.update"}):
+        resp = client.patch(f"{DOCS}/{doc.id}", data={"title": "Después"}, cookies=cookies)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["title"] == "Después"
+
+
+# --------------------------------------------------------------------------
+# is_editable / file_replaceable — lo que el panel lee para pintar el botón
+# --------------------------------------------------------------------------
+#
+# El botón "Editar" se pinta SIEMPRE (con el permiso puesto) y se deshabilita
+# desde estos dos flags, con un `title` que explica por qué. Por eso viajan en
+# cada fila y no se recalculan en JS: la regla es del servidor, y el navegador
+# que la reimplementara acabaría discrepando en cuanto cambiara la lista de
+# estados editables.
+
+#: ``(status, is_current)`` -> ``(is_editable, file_replaceable)``. Los cuatro
+#: cruces de "estado editable o no" por "vigente o superada", más el
+#: ``'Rechazado'`` que separa un flag del otro.
+CRUCES_DE_EDICION = [
+    ("Borrador",  True,  True,  True),
+    ("Rechazado", True,  True,  False),   # editable, pero el archivo no se toca
+    ("Aprobado",  True,  False, False),
+    ("Borrador",  False, False, False),   # superada: ni con estado editable
+    ("Aprobado",  False, False, False),
+]
+
+
+@pytest.mark.parametrize(
+    "status,is_current,editable,archivo",
+    CRUCES_DE_EDICION,
+    ids=[f"{s}-{'vigente' if c else 'superada'}" for s, c, _, _ in CRUCES_DE_EDICION],
+)
+def test_el_detalle_publica_los_dos_flags_de_edicion(
+    client, admin_cookies, db_session, status, is_current, editable, archivo,
+):
+    doc = make_document(db_session, status=status, is_current=is_current)
+    data = client.get(f"{DOCS}/{doc.id}", cookies=admin_cookies).json()["data"]
+
+    assert data["is_editable"] is editable
+    assert data["file_replaceable"] is archivo
+
+
+@pytest.mark.parametrize(
+    "status,is_current,editable,archivo",
+    CRUCES_DE_EDICION,
+    ids=[f"{s}-{'vigente' if c else 'superada'}" for s, c, _, _ in CRUCES_DE_EDICION],
+)
+def test_el_listado_tambien_publica_los_dos_flags(
+    client, admin_cookies, db_session, status, is_current, editable, archivo,
+):
+    """El botón vive en la TABLA, así que los flags tienen que venir en la fila.
+
+    Si solo los trajera el detalle, el panel tendría que pedir 25 documentos uno
+    a uno para saber cuáles habilitar.
+    """
+    code = f"E2E-A14-{uuid.uuid4().hex[:8]}"
+    make_document(db_session, code=code, status=status, is_current=is_current)
+    fila = client.get(
+        DOCS, params={"q": code, "only_current": "false"}, cookies=admin_cookies,
+    ).json()["data"][0]
+
+    assert fila["is_editable"] is editable
+    assert fila["file_replaceable"] is archivo
+
+
+def test_los_flags_predicen_lo_que_hara_el_patch(client, admin_cookies, db_session):
+    """La coherencia que sostiene todo: lo que el panel pinta es lo que pasa.
+
+    Fila a fila, ``is_editable`` tiene que valer exactamente "el PATCH responde
+    200". Si divergieran, el usuario vería el botón encendido, rellenaría el
+    formulario del modal y se llevaría un 409 al guardar —o al revés: el botón
+    apagado sobre un documento que sí se podía corregir, que es justo el estado
+    del que veníamos—.
+    """
+    for status, is_current, _, _ in CRUCES_DE_EDICION:
+        doc = make_document(db_session, title="Original",
+                            status=status, is_current=is_current)
+        flags = client.get(f"{DOCS}/{doc.id}", cookies=admin_cookies).json()["data"]
+        resp = client.patch(
+            f"{DOCS}/{doc.id}", data={"title": "Editado"}, cookies=admin_cookies,
+        )
+        assert (resp.status_code == 200) is flags["is_editable"], (status, is_current)
+        assert resp.status_code in (200, 409), resp.text

@@ -340,6 +340,16 @@ def update_document(
 
     ``is_current`` y ``parent_id`` **no** son campos del PATCH: la cadena de
     versiones se mueve solo al anexar una versión nueva (``POST``).
+
+    **409 si el estado del documento no admite la edición.** El gate lo impone
+    ``AdhocDocumentService.update`` —una versión superada no se edita, y solo
+    se edita desde 'Borrador' y 'Rechazado'; el archivo, solo desde
+    'Borrador'—, y llega aquí como :class:`AdhocConflict`, que
+    :func:`_domain_errors` traduce a un 409 con ``detail`` **string**. Es un
+    conflicto de estado, no un error de entrada: por eso 409 y no 400. El panel
+    pinta el botón "Editar" deshabilitado usando ``is_editable`` /
+    ``file_replaceable`` de ``document_out``, pero eso es comodidad; quien
+    decide es el service.
     """
     from itcj2.apps.adhoc.schemas.common import ok_item
     from itcj2.apps.adhoc.schemas.documents import DocumentUpdate, document_out

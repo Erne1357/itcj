@@ -38,6 +38,12 @@ las dos o no están. Un solo test parametrizado por URL lo dice mejor que dos
 copias, y sobre todo impide que una pantalla se quede atrás: si la consulta
 oculta por defecto las 58 versiones superadas y no ofrece dónde verlas, esas
 filas no tienen ninguna pantalla en toda la app.
+
+Lo que añadió A14 (el botón "Editar") va justo al revés y por eso **no** está
+parametrizado sobre las dos: ``can_update`` viaja solo en el panel. Editar es una
+acción de administración y ``/adhoc/documentos`` no tiene ninguna —su permiso de
+página lo tiene el rol ``consult``—, así que aquí la asimetría es la prueba, no
+un olvido.
 """
 import json
 import re
@@ -392,6 +398,18 @@ class TestConsulta:
         assert data["can_download"] is True
         assert data["per_page"] == 25
 
+    def test_la_consulta_no_lleva_la_capacidad_de_editar(self, html):
+        """A14: ``can_update`` viaja solo en el PANEL, y esta es la otra pantalla.
+
+        Las dos pintan la misma tabla (``document-list.js``), así que la
+        tentación es darle a las dos las mismas capacidades. Pero "Editar" es una
+        acción de administración y ``/adhoc/documentos`` no tiene ninguna: su
+        permiso de página es ``documents.page.list``, que el rol ``consult``
+        tiene. Que un usuario posea ``adhoc.documents.api.update`` no convierte
+        el botón en algo que pintar en una pantalla de lectura.
+        """
+        assert "can_update" not in page_data(html)
+
     def test_estaticos_versionados(self, html):
         assert "/static/adhoc/css/documents/documents.css?v=" in html
         assert "/static/adhoc/js/documents/document-list.js?v=" in html
@@ -439,6 +457,33 @@ class TestPanel:
         data = page_data(html)
         for key in ("can_create", "can_delete", "can_download", "can_start_flow"):
             assert data[key] is True
+
+    def test_page_data_lleva_la_capacidad_de_editar(self, html):
+        """A14: ``can_update`` es lo que enciende el botón "Editar" del panel.
+
+        Sin esta clave el panel no tenía forma de saber si pintar la acción, y
+        por eso ``PATCH /documents/{id}`` llevaba desde la migración con permiso
+        propio y **cero llamantes**: corregir un título pasaba por borrar el
+        documento y volver a subirlo.
+
+        Enciende el botón; **no** decide si esa fila concreta se puede editar
+        —eso lo dicen ``is_editable`` / ``file_replaceable`` de cada documento,
+        que llegan por la API—. Son dos preguntas distintas: "¿este usuario puede
+        editar algo?" y "¿este documento admite edición?".
+        """
+        assert page_data(html)["can_update"] is True
+
+    def test_sin_permiso_de_edicion_can_update_es_false(self, client, staff_headers, authz):
+        """El permiso que falta apaga el botón, no la pantalla.
+
+        Con solo ``documents.page.manage`` el panel sigue abriéndose —sella,
+        arranca flujos y consulta el historial son acciones distintas— pero sin
+        ``adhoc.documents.api.update`` no se ofrece editar.
+        """
+        res = get_as_staff(client, staff_headers, "/adhoc/documentos/panel",
+                           {"adhoc.documents.page.manage"}, authz)
+        assert res.status_code == 200
+        assert page_data(res.text)["can_update"] is False
 
     def test_las_extensiones_permitidas_llegan_al_input_de_archivo(self, html):
         accept = page_data(html)["accept"]

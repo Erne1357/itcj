@@ -19,6 +19,14 @@ el ``expiry_state`` que pinta el badge —el filtro SQL y la aritmética de
 ``schemas.documents._expiry`` son dos implementaciones del mismo criterio, y una
 auditoría ISO 9001 no perdona que discrepen.
 
+El último bloque es el de A14, el **gate de edición**: hasta entonces el
+``PATCH`` no lo llamaba nadie y corregir una errata pasaba por borrar el
+documento y volverlo a subir. Al conectarlo hubo que decidir qué es editable, y
+la decisión —solo 'Borrador' y 'Rechazado', nunca una versión superada, el
+archivo solo en 'Borrador'— se prueba **en el service**, que es donde se impone:
+``document_out`` publica los mismos flags para que el panel pinte el botón, pero
+un botón deshabilitado no es un gate.
+
 ``db_session`` es la sesión transaccional de ``tests/fastapi/conftest.py``.
 """
 import uuid
@@ -29,6 +37,8 @@ from pathlib import Path
 import pytest
 
 from itcj2.apps.adhoc.models import (
+    AdhocApprovalFlow,
+    AdhocApprovalFlowStep,
     AdhocArea,
     AdhocDocument,
     AdhocDocumentCategory,
@@ -754,3 +764,503 @@ def test_update_sin_expiration_date_no_borra_la_que_ya_tenia(db_session):
     SVC.update(db_session, doc.id, DocumentUpdate(title="Solo el título"))
     db_session.refresh(doc)
     assert doc.expiration_date == vence
+
+
+# ==========================================================================
+# A14 — el gate de edición: qué documento se puede tocar y cuándo
+# ==========================================================================
+#
+# Hasta A14 el ``PATCH`` existía, tenía permiso propio y **no lo llamaba nadie**:
+# los 202 documentos del SGC no se podían editar desde ninguna pantalla, así que
+# un título mal escrito solo se arreglaba borrando el documento y volviéndolo a
+# subir —perdiendo por el camino sus tareas y su archivo—. Al conectarlo hubo
+# que decidir qué es editable, y la respuesta ISO es estrecha: **lo que ya pasó
+# por el flujo de aprobación es inmutable**; se corrige anexando una versión
+# nueva, no reescribiendo la aprobada.
+#
+# Tres reglas, y las tres viven en el SERVICE. Es la lección que dejó B1:
+# `DOCUMENT_STATUSES_STARTABLE` existía desde la migración y solo la respetaba
+# `documents-panel.js`, así que un POST a mano arrancaba un flujo sobre un
+# documento obsoleto. Un botón deshabilitado no es un gate; esto sí.
+
+def con_estado(db, doc, status, *, is_current=True):
+    """Deja ``doc`` en el estado que interesa probar, sin pasar por ``update``.
+
+    Se escribe a pelo a propósito: el motor de flujo hace exactamente eso
+    (``document_flow_service`` y ``task_workflow_service`` asignan ``doc.status``
+    directamente, nunca por el service), así que este atajo reproduce cómo llegan
+    de verdad a la BD los 138 'Aprobado' y los 60 'Obsoleto' migrados.
+    """
+    doc.status = status
+    doc.is_current = is_current
+    db.flush()
+    return doc
+
+
+#: ``(status, is_current)`` -> ``(is_editable, file_replaceable)``. Es la tabla
+#: de verdad completa del gate, y la comparte el serializador: ``document_out``
+#: publica los dos flags para que el panel pinte el botón, pero quien manda es
+#: ``update``. Están juntas en un solo sitio porque el riesgo real no es que una
+#: de las dos se equivoque, sino que **divergan**: el panel ofrecería un
+#: formulario que el servidor rechaza entero.
+_MATRIZ_DE_EDICION = [
+    # Editables: la punta de la cadena que aún no ha sido aprobada.
+    ("Borrador",    True,  True,  True),
+    # 'Rechazado' admite metadatos pero NO archivo: sus validadores rechazaron
+    # *ese* PDF y la decisión quedó escrita en `adhoc_task_approvals`.
+    ("Rechazado",   True,  True,  False),
+    # Ya pasó (o está pasando) por el flujo: inmutable.
+    ("Aprobado",    True,  False, False),
+    ("En Revisión", True,  False, False),
+    ("Obsoleto",    True,  False, False),
+    # Versión superada: histórico del SGC. Ni siquiera un 'Borrador' se salva —
+    # es el cruce que separa las dos reglas, porque con solo el gate de `status`
+    # esta fila pasaría.
+    ("Borrador",    False, False, False),
+    ("Rechazado",   False, False, False),
+    ("Aprobado",    False, False, False),
+    ("Obsoleto",    False, False, False),
+]
+
+
+# --------------------------------------------------------------------------
+# Regla 2 — solo se edita desde 'Borrador' y 'Rechazado'
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("status", ["Borrador", "Rechazado"])
+def test_update_sobre_un_documento_editable_y_vigente_pasa(db_session, status):
+    """La otra mitad del contrato: el gate no puede cerrar los 4 que sí se editan.
+
+    Hoy son 4 de 202 documentos (los 4 en 'Borrador'; cero en 'Rechazado'). Es la
+    cifra correcta, no un efecto colateral —lo aprobado se corrige anexando—,
+    pero justamente por lo estrecha que es, cerrar de más aquí dejaría la app
+    otra vez sin ninguna forma de arreglar una errata.
+    """
+    doc = SVC.bulk_create(
+        db_session, [item(code="A14-OK", title="Original")], author_id=None,
+    )[0]
+    con_estado(db_session, doc, status)
+
+    SVC.update(db_session, doc.id, DocumentUpdate(title="Corregido"))
+
+    db_session.refresh(doc)
+    assert doc.title == "Corregido"
+    assert doc.status == status          # editar no mueve el estado
+    assert doc.code == "A14-OK"
+
+
+@pytest.mark.parametrize("status", ["Aprobado", "En Revisión", "Obsoleto"])
+def test_update_sobre_un_estado_no_editable_es_conflicto_y_no_escribe_nada(
+    db_session, status,
+):
+    """409 **y** la fila intacta. Un gate que lanza después de mutar no sirve.
+
+    La relectura es la mitad que importa: si los guards estuvieran detrás del
+    ``model_dump``, los ``setattr`` ya habrían ensuciado la sesión y el primer
+    ``autoflush`` posterior —cualquier query del mismo request— escribiría el
+    título nuevo en un documento que la API acaba de declarar inmutable.
+    """
+    doc = SVC.bulk_create(db_session, [item(title="Original")], author_id=None)[0]
+    con_estado(db_session, doc, status)
+    doc_id = doc.id
+
+    with pytest.raises(AdhocConflict) as exc:
+        SVC.update(db_session, doc_id, DocumentUpdate(title="Editado a la fuerza"))
+    assert status in str(exc.value)      # el mensaje dice POR QUÉ, no "conflicto"
+
+    # Ni en memoria: la sesión no puede quedar sucia. `expire_all` por sí solo no
+    # bastaría —descarta los cambios pendientes en lugar de escribirlos, así que
+    # taparía justo el fallo que se busca—, por eso primero se fuerza el flush.
+    assert db_session.is_modified(doc) is False
+    assert doc.title == "Original"
+
+    db_session.flush()                   # lo que estuviera sucio se escribiría AQUÍ
+    db_session.expire_all()
+    recargado = db_session.query(AdhocDocument).filter_by(id=doc_id).one()
+    assert recargado.title == "Original"
+    assert recargado.status == status
+
+
+# --------------------------------------------------------------------------
+# Regla 1 — el histórico no se edita, aunque su estado lo permitiera
+# --------------------------------------------------------------------------
+
+def test_update_sobre_una_version_superada_es_conflicto_aunque_este_en_borrador(db_session):
+    """El cruce que demuestra que hacen falta las DOS reglas, no una.
+
+    ``('Borrador', is_current=False)`` es el único caso en el que el gate de
+    ``status`` diría que sí: es la fila que pasaría si solo existiera la lista de
+    estados editables. Y es histórico del SGC —alguien la sustituyó por una
+    versión más nueva—, así que en una auditoría ISO 9001 tiene que seguir
+    diciendo exactamente lo que decía cuando se firmó.
+
+    Se llega a él por el camino normal del panel: anexar una versión deja la
+    cadena anterior superada y obsoleta; aquí se le devuelve el 'Borrador' a mano
+    para que el ÚNICO motivo de rechazo posible sea ``is_current=False``.
+    """
+    raiz = SVC.bulk_create(
+        db_session, [item(code="A14-VER", title="Versión vieja")], author_id=None,
+    )[0]
+    anexar(db_session, raiz, code="A14-VER")
+    db_session.expire_all()
+
+    raiz = db_session.query(AdhocDocument).filter_by(id=raiz.id).one()
+    assert raiz.is_current is False
+    con_estado(db_session, raiz, "Borrador", is_current=False)
+
+    with pytest.raises(AdhocConflict) as exc:
+        SVC.update(db_session, raiz.id, DocumentUpdate(title="Reescribiendo el histórico"))
+    assert "superada" in str(exc.value)
+
+    assert db_session.is_modified(raiz) is False
+    db_session.flush()
+    db_session.expire_all()
+    recargado = db_session.query(AdhocDocument).filter_by(id=raiz.id).one()
+    assert recargado.title == "Versión vieja"
+
+
+# --------------------------------------------------------------------------
+# Regla 3 — el archivo solo se reemplaza en 'Borrador'
+# --------------------------------------------------------------------------
+
+def test_update_con_archivo_sobre_un_borrador_sustituye_el_adjunto(db_session, uploads_root):
+    """La mitad permitida del gate de archivo: en 'Borrador' sí se reemplaza."""
+    doc = SVC.bulk_create(
+        db_session, [item()], author_id=None, uploads=[_FakeUpload("borrador.pdf")],
+    )[0]
+    con_estado(db_session, doc, "Borrador")
+    viejo = uploads_root / "documents" / str(doc.id) / "borrador.pdf"
+
+    SVC.update(db_session, doc.id, DocumentUpdate(), upload=_FakeUpload("corregido.pdf"))
+
+    db_session.refresh(doc)
+    assert doc.file_url == f"{doc.id}/corregido.pdf"
+    assert (uploads_root / "documents" / str(doc.id) / "corregido.pdf").is_file()
+    assert not viejo.exists()            # el reemplazo sí borra el anterior
+
+
+def test_update_con_archivo_sobre_un_rechazado_es_conflicto_y_no_toca_el_disco(
+    db_session, uploads_root,
+):
+    """El rechazo no puede dejar basura ni borrar nada.
+
+    ``'Rechazado'`` es editable pero su archivo no: el reemplazo borra el binario
+    anterior sin vuelta atrás y sus validadores rechazaron *ese* archivo por
+    escrito. El guard corre **antes** de ``save_upload``, así que el directorio
+    tiene que quedar exactamente como estaba: ni el nuevo escrito, ni el viejo
+    borrado. Y como el 409 tumba la petición entera, el título tampoco cambia.
+    """
+    doc = SVC.bulk_create(
+        db_session, [item(title="Original")], author_id=None,
+        uploads=[_FakeUpload("rechazado.pdf")],
+    )[0]
+    con_estado(db_session, doc, "Rechazado")
+    carpeta = uploads_root / "documents" / str(doc.id)
+
+    with pytest.raises(AdhocConflict) as exc:
+        SVC.update(
+            db_session, doc.id,
+            DocumentUpdate(title="Editado"),
+            upload=_FakeUpload("colado.pdf"),
+        )
+    assert "Rechazado" in str(exc.value)
+
+    assert [p.name for p in carpeta.iterdir()] == ["rechazado.pdf"]
+    assert db_session.is_modified(doc) is False
+    db_session.flush()
+    db_session.expire_all()
+    recargado = db_session.query(AdhocDocument).filter_by(id=doc.id).one()
+    assert recargado.file_url == f"{doc.id}/rechazado.pdf"
+    assert recargado.title == "Original"
+
+
+def test_update_sin_archivo_sobre_un_rechazado_si_corrige_los_metadatos(
+    db_session, uploads_root,
+):
+    """Los dos gates son independientes: metadatos sí, adjunto no.
+
+    Es el caso de uso real del rechazo —el validador escribe "el código está
+    mal", el autor lo arregla y lo vuelve a mandar a flujo—, y sería imposible si
+    el gate de archivo se hubiera escrito como parte del gate de estado.
+    """
+    doc = SVC.bulk_create(
+        db_session, [item(code="A14-MAL", title="Original")], author_id=None,
+        uploads=[_FakeUpload("rechazado.pdf")],
+    )[0]
+    con_estado(db_session, doc, "Rechazado")
+
+    SVC.update(db_session, doc.id, DocumentUpdate(code="A14-BIEN", title="Corregido"))
+
+    db_session.refresh(doc)
+    assert doc.code == "A14-BIEN"
+    assert doc.title == "Corregido"
+    assert doc.file_url == f"{doc.id}/rechazado.pdf"     # el adjunto, intacto
+    assert (uploads_root / "documents" / str(doc.id) / "rechazado.pdf").is_file()
+
+
+# --------------------------------------------------------------------------
+# Coherencia — los flags que publica document_out y el gate que impone update
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "status,is_current,editable,archivo",
+    _MATRIZ_DE_EDICION,
+    ids=[f"{s}-{'vigente' if c else 'superada'}" for s, c, _, _ in _MATRIZ_DE_EDICION],
+)
+def test_document_out_publica_los_flags_que_el_service_impone(
+    db_session, uploads_root, status, is_current, editable, archivo,
+):
+    """Mismo documento, mismo veredicto por los dos caminos.
+
+    La regla está escrita dos veces —el gate de ``update`` y ``_editable`` de
+    ``schemas.documents``— por la misma razón que la vigencia: el servidor la
+    impone y el panel la pinta. Que **divergan** es el fallo caro, no que una se
+    equivoque: el usuario vería el botón "Editar" encendido, rellenaría el
+    formulario y recibiría un 409 al guardar.
+    """
+    doc = SVC.bulk_create(
+        db_session, [item(title="Original")], author_id=None,
+        uploads=[_FakeUpload("adjunto.pdf")],
+    )[0]
+    con_estado(db_session, doc, status, is_current=is_current)
+
+    serializado = document_out(doc)
+    assert serializado["is_editable"] is editable
+    assert serializado["file_replaceable"] is archivo
+
+    # Y lo prometido se cumple: `is_editable` predice si el PATCH de metadatos
+    # pasa, y `file_replaceable` si además admite reemplazo de archivo.
+    def intenta(**kw):
+        try:
+            SVC.update(db_session, doc.id, DocumentUpdate(title="Editado"), **kw)
+            return True
+        except AdhocConflict:
+            return False
+
+    assert intenta() is editable
+    assert intenta(upload=_FakeUpload("otro.pdf")) is archivo
+
+
+def test_file_replaceable_implica_is_editable():
+    """La implicación de la que depende el panel.
+
+    Sin ella ofrecería un ``<input type=file>`` dentro de un formulario que el
+    servidor va a rechazar entero, que es la peor forma de enterarse.
+    """
+    for status, is_current, editable, archivo in _MATRIZ_DE_EDICION:
+        assert not archivo or editable, (status, is_current)
+
+
+# --------------------------------------------------------------------------
+# El 409 explica la causa REAL, y la causa no es la misma para todos
+# --------------------------------------------------------------------------
+#
+# El mensaje es lo único que la pantalla enseña: `documents-panel.js` pinta el
+# `detail` del 409 tal cual. Si el texto inventa una historia, el usuario no
+# tiene forma de saber qué le pasa de verdad a su documento.
+
+def test_el_409_de_un_obsoleto_retirado_no_habla_de_una_aprobacion_que_no_hubo(
+    db_session,
+):
+    """'Obsoleto' se alcanza también SIN flujo, por el camino que la app ofrece.
+
+    ``DOCUMENT_STATUSES_VIA_PATCH`` incluye 'Obsoleto' justamente porque retirar
+    un documento es una decisión legítima de Calidad, y ese PATCH no exige flujo
+    ninguno. En los datos reales ya hay filas así (obsoletas con ``flow_id IS
+    NULL``), y la población crece con cada borrador que Calidad retire.
+
+    Aquí se recorre ese camino entero —dar de alta, retirar, intentar editar—
+    sin tocar el motor de flujo, y se comprueba que el 409 no le achaca el
+    bloqueo a una aprobación que nunca existió.
+    """
+    doc = SVC.bulk_create(
+        db_session, [item(code="A14-RET", title="Borrador retirado")], author_id=None,
+    )[0]
+
+    # El retiro por PATCH: es lo que la constante declara como legítimo.
+    SVC.update(db_session, doc.id, DocumentUpdate(status="Obsoleto"))
+    db_session.refresh(doc)
+    assert doc.status == "Obsoleto"
+    assert doc.flow_id is None and doc.current_step_id is None   # nunca hubo flujo
+
+    with pytest.raises(AdhocConflict) as exc:
+        SVC.update(db_session, doc.id, DocumentUpdate(title="Recuperar"))
+
+    mensaje = str(exc.value)
+    assert "flujo de aprobación" not in mensaje, (
+        "El 409 le achaca el bloqueo a una aprobación inexistente: este "
+        f"documento nunca entró a un flujo. Mensaje: {mensaje}"
+    )
+    assert "terminal" in mensaje                 # la causa real, comprobable
+    assert "Obsoleto" in mensaje
+    assert "anexe una versión nueva" in mensaje  # y la salida, que sí funciona
+
+
+def test_el_409_de_un_aprobado_si_habla_del_flujo(db_session):
+    """La otra mitad: donde el flujo SÍ es la causa, el mensaje la nombra.
+
+    Sin esta prueba, "arreglar" el mensaje anterior borrando la frase de todas
+    partes pasaría desapercibido, y el 409 más frecuente —138 de 202 documentos
+    están 'Aprobado'— dejaría de decir por qué lo aprobado no se reescribe.
+    """
+    doc = SVC.bulk_create(db_session, [item(title="Aprobado")], author_id=None)[0]
+    con_estado(db_session, doc, "Aprobado")
+
+    with pytest.raises(AdhocConflict) as exc:
+        SVC.update(db_session, doc.id, DocumentUpdate(title="Editando lo aprobado"))
+    assert "flujo de aprobación" in str(exc.value)
+
+
+# --------------------------------------------------------------------------
+# El gate del archivo mira la evidencia, no un `status` que él mismo escribe
+# --------------------------------------------------------------------------
+
+def con_flujo(db, doc):
+    """Deja ``doc`` con ``flow_id``/``current_step_id`` puestos, como start_flow.
+
+    Es el estado en que ``task_workflow_service`` deja un documento rechazado:
+    escribe ``status='Rechazado'`` y **no limpia** ninguno de los dos, así que la
+    fila sigue apuntando al paso que rechazó su archivo.
+    """
+    flow = AdhocApprovalFlow(name=f"e2e_flow_{uuid.uuid4().hex[:8]}")
+    db.add(flow)
+    db.flush()
+    paso = AdhocApprovalFlowStep(
+        flow_id=flow.id, name="Revisión", days_limit=3, step_order=1,
+    )
+    db.add(paso)
+    db.flush()
+    doc.flow_id = flow.id
+    doc.current_step_id = paso.id
+    db.flush()
+    return doc
+
+
+def test_el_rechazado_no_recupera_el_reemplazo_de_archivo_pasando_por_borrador(
+    db_session, uploads_root,
+):
+    """El gate no se puede saltar repitiéndolo: dos PATCH no valen más que uno.
+
+    Con el gate mirando solo el ``status`` de entrada bastaban dos llamadas, un
+    solo actor y un solo permiso (``adhoc.documents.api.update``, que tienen
+    admin y supervisor_doc): la primera escribe ``status='Borrador'``
+    —permitido, porque 'Rechazado' es editable y 'Borrador' está en
+    ``DOCUMENT_STATUSES_VIA_PATCH``—, la segunda manda el archivo y ya pasa. El
+    resultado es exactamente lo que la constante dice impedir: filas de
+    ``adhoc_task_approvals`` registrando por escrito el rechazo de un archivo que
+    ya nadie puede ver, con ``flow_id``/``current_step_id`` intactos apuntando al
+    paso que lo rechazó.
+    """
+    doc = SVC.bulk_create(
+        db_session, [item(title="Rechazado")], author_id=None,
+        uploads=[_FakeUpload("rechazado.pdf")],
+    )[0]
+    con_estado(db_session, doc, "Rechazado")
+    con_flujo(db_session, doc)
+    carpeta = uploads_root / "documents" / str(doc.id)
+
+    # Paso 1: el lavado de estado. Sigue permitido —es una transición que el
+    # endpoint declara— y por eso el gate del archivo no puede apoyarse en él.
+    SVC.update(db_session, doc.id, DocumentUpdate(status="Borrador"))
+    db_session.refresh(doc)
+    assert doc.status == "Borrador"
+    assert doc.flow_id is not None and doc.current_step_id is not None
+
+    # Paso 2: el reemplazo. Aquí es donde tiene que cerrarse.
+    with pytest.raises(AdhocConflict) as exc:
+        SVC.update(db_session, doc.id, DocumentUpdate(), upload=_FakeUpload("colado.pdf"))
+    assert "circuló" in str(exc.value)
+
+    assert [q.name for q in carpeta.iterdir()] == ["rechazado.pdf"]
+    db_session.expire_all()
+    recargado = db_session.query(AdhocDocument).filter_by(id=doc.id).one()
+    assert recargado.file_url == f"{doc.id}/rechazado.pdf"
+
+
+def test_el_borrador_que_nunca_entro_a_flujo_si_reemplaza_su_archivo(
+    db_session, uploads_root,
+):
+    """La otra mitad: el gate nuevo no puede cerrarle la puerta al caso normal.
+
+    Un borrador recién dado de alta —y el que nace al anexar una versión, que
+    tampoco lleva flujo— es justo el documento que la pantalla deja corregir.
+    """
+    doc = SVC.bulk_create(
+        db_session, [item()], author_id=None, uploads=[_FakeUpload("borrador.pdf")],
+    )[0]
+    assert doc.flow_id is None and doc.current_step_id is None
+
+    SVC.update(db_session, doc.id, DocumentUpdate(), upload=_FakeUpload("corregido.pdf"))
+
+    db_session.refresh(doc)
+    assert doc.file_url == f"{doc.id}/corregido.pdf"
+
+
+def test_document_out_tampoco_le_ofrece_el_archivo_al_que_ya_circulo(
+    db_session, uploads_root,
+):
+    """Las dos copias de la regla siguen coincidiendo con la condición nueva.
+
+    ``is_editable`` no cambia —un 'Borrador' se edita— pero ``file_replaceable``
+    sí: si el serializador no mirara el flujo, el panel pintaría el
+    ``<input type=file>`` de un formulario cuyo envío el servidor rechaza
+    entero, que es la peor forma de enterarse.
+    """
+    doc = SVC.bulk_create(
+        db_session, [item(title="Con flujo")], author_id=None,
+        uploads=[_FakeUpload("adjunto.pdf")],
+    )[0]
+    con_estado(db_session, doc, "Borrador")
+    con_flujo(db_session, doc)
+
+    serializado = document_out(doc)
+    assert serializado["is_editable"] is True
+    assert serializado["file_replaceable"] is False
+
+    SVC.update(db_session, doc.id, DocumentUpdate(title="Corregido"))   # metadatos, sí
+    with pytest.raises(AdhocConflict):
+        SVC.update(db_session, doc.id, DocumentUpdate(), upload=_FakeUpload("otro.pdf"))
+
+
+# --------------------------------------------------------------------------
+# La divergencia que el <select> del modal tiene que sobrevivir
+# --------------------------------------------------------------------------
+
+def test_el_area_dada_de_baja_sale_del_catalogo_pero_sigue_en_el_documento(db_session):
+    """Las dos mitades del gotcha 22, medidas contra la BD.
+
+    El panel llena sus desplegables con ``_document_catalogs``, que **filtra las
+    áreas por ``is_active``**; la relación del documento no filtra nada —dar de
+    baja un área no la desengancha de sus documentos—, así que ``document_out``
+    sigue trayendo la suya. Esa asimetría es correcta en las dos puntas: un área
+    retirada no debe ofrecerse para documentos nuevos, y el histórico no puede
+    perder la que ya tenía.
+
+    Lo que la hace peligrosa es la tercera pieza, la de abajo: en este PATCH un
+    ``''`` **limpia la columna**. Un ``<select>`` que no encuentre su valor cae
+    al placeholder y manda exactamente eso, así que corregir una errata del
+    título borraría el área. Por eso ``makeCatalogSelect`` conserva el valor
+    guardado como opción propia; este test es la razón de que exista.
+    """
+    from itcj2.apps.adhoc.pages.documents import _document_catalogs
+
+    area = make_area(db_session)
+    doc = SVC.bulk_create(
+        db_session, [item(title="Con área", area_id=area.id)], author_id=None,
+    )[0]
+
+    area.is_active = False
+    db_session.flush()
+
+    catalogo = [fila["id"] for fila in _document_catalogs(db_session)["areas"]]
+    assert area.id not in catalogo          # el desplegable ya no la ofrece
+
+    serializado = document_out(doc)
+    assert serializado["area"]["id"] == area.id
+    assert serializado["area"]["name"] == area.name     # y trae el nombre: el
+    #                                                     rótulo de la opción
+
+    # La tercera pieza: el vacío no es "no la toques", es "bórrala".
+    SVC.update(db_session, doc.id, DocumentUpdate(area_id=""))
+    db_session.refresh(doc)
+    assert doc.area_id is None

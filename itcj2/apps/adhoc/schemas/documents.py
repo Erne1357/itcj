@@ -34,6 +34,8 @@ from itcj2.apps.adhoc.schemas.common import (
 )
 from itcj2.apps.adhoc.utils.constants import (
     DOCUMENT_EXPIRY_SOON_DAYS,
+    DOCUMENT_STATUSES_EDITABLE,
+    DOCUMENT_STATUSES_FILE_REPLACEABLE,
     DocumentExpiryFilter,
     DocumentStatus,
 )
@@ -304,6 +306,54 @@ def _expiry(doc: Any, today: Optional[date] = None) -> tuple[bool, Optional[int]
     return False, dias, "vigente"
 
 
+def _editable(doc: Any) -> tuple[bool, bool]:
+    """``(is_editable, file_replaceable)`` de un documento.
+
+    La regla de edición vive en **un solo sitio del módulo**, igual que la
+    aritmética de vigencia vive en :func:`_expiry`, y por el mismo motivo: son
+    dos capas las que la necesitan —el service, que la impone, y el panel, que
+    pinta o deshabilita el botón "Editar"— y una regla escrita dos veces es una
+    regla que acaba divergiendo. Aquí se calcula; el JS solo la lee.
+
+    Los dos flags espejan exactamente los tres guards de
+    ``AdhocDocumentService.update``:
+
+    * ``is_editable`` = la fila es la **punta** de su cadena (``is_current``)
+      **y** su ``status`` está en
+      :data:`~itcj2.apps.adhoc.utils.constants.DOCUMENT_STATUSES_EDITABLE`. Una
+      versión superada no se edita nunca, aunque su estado sí estuviera en la
+      lista: es histórico del SGC.
+    * ``file_replaceable`` = además, el ``status`` admite **cambiar el
+      adjunto** **y** el documento no ha entrado nunca a un flujo (``flow_id`` /
+      ``current_step_id`` vacíos: los escribe ``start_flow`` y nadie los limpia,
+      así que son la marca de que *ese* binario circuló). Es estrictamente más
+      estrecho: un ``'Rechazado'`` es editable pero su archivo no se toca,
+      porque sus validadores rechazaron *ese* archivo por escrito. La condición
+      del flujo no es un cinturón de más: el ``status`` de entrada lo puede
+      escribir el propio ``PATCH`` —``'Rechazado'`` es editable y ``'Borrador'``
+      es un valor permitido—, así que sin ella dos llamadas seguidas devolvían
+      el reemplazo que este flag dice negar.
+
+    El ``and is_editable`` del segundo no es redundante defensiva: mantiene la
+    implicación ``file_replaceable ⇒ is_editable``, de la que depende el panel
+    para no ofrecer un ``<input type=file>`` dentro de un formulario que el
+    servidor va a rechazar entero.
+    """
+    is_current = bool(getattr(doc, "is_current", False))
+    status = getattr(doc, "status", None)
+    ha_circulado = (
+        getattr(doc, "flow_id", None) is not None
+        or getattr(doc, "current_step_id", None) is not None
+    )
+    is_editable = is_current and status in DOCUMENT_STATUSES_EDITABLE
+    file_replaceable = (
+        is_editable
+        and status in DOCUMENT_STATUSES_FILE_REPLACEABLE
+        and not ha_circulado
+    )
+    return is_editable, file_replaceable
+
+
 def _named(obj: Any, *extra: str) -> Optional[dict]:
     if obj is None:
         return None
@@ -335,9 +385,18 @@ def document_out(doc: Any, *, detail: bool = False, today: Optional[date] = None
     hacer aritmética de fechas —que además la haría contra el reloj del cliente,
     y el navegador de un usuario con la zona horaria mal puesta cambiaría de
     color un documento vencido.
+
+    Y por la misma razón viajan ``is_editable`` y ``file_replaceable`` (ver
+    :func:`_editable`): son la regla de edición ya resuelta por el servidor, que
+    es quien la impone en ``AdhocDocumentService.update``. Si el panel la
+    reimplementara —"``status`` es Borrador o Rechazado y además
+    ``is_current``"—, habría dos copias de la misma decisión de producto en dos
+    lenguajes, y la del navegador se quedaría atrás el día que cambie la lista
+    de estados.
     """
     hoy = today or date.today()
     is_expired, days_to_expire, expiry_state = _expiry(doc, hoy)
+    is_editable, file_replaceable = _editable(doc)
     data = {
         "id": doc.id,
         "code": doc.code,
@@ -352,6 +411,8 @@ def document_out(doc: Any, *, detail: bool = False, today: Optional[date] = None
         "expiry_state": expiry_state,
         "is_current": bool(doc.is_current),
         "parent_id": doc.parent_id,
+        "is_editable": is_editable,
+        "file_replaceable": file_replaceable,
         "file_url": doc.file_url,
         "has_file": bool(doc.file_url),
         "category": _named(doc.category),

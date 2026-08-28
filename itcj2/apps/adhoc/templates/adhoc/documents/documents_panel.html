@@ -33,6 +33,15 @@
      que hace falta un interruptor para volver a verlas.
    * El arranque de flujo ya no vive en una fila hija con un select por
      documento: es un modal único que se rellena con el documento pulsado.
+   * La fila lleva "Editar" (hallazgo A14): hasta ahora los 202 documentos del
+     SGC no se podían corregir desde ninguna pantalla —el PATCH existía y no lo
+     llamaba nadie— y una errata en el título solo se arreglaba borrando el
+     documento con sus tareas y su archivo. Se edita SOLO en 'Borrador' y
+     'Rechazado', y nunca una versión superada: lo aprobado se corrige anexando
+     una versión. Quién puede editar qué lo dice el servidor en cada fila
+     (`is_editable` / `file_replaceable`) y lo impone
+     `AdhocDocumentService.update` con un 409; el botón deshabilitado de la
+     fila es solo la parte visible.
    * El filtrado es de SERVIDOR, así que la fila de filtros se escribe a mano
      con data-adhoc-doc-filter en vez de con el `filter` de data_table().
 
@@ -225,7 +234,14 @@
 {% block modals %}
 {# — Alta masiva de documentos (multipart) —
    Los campos de cada registro los construye documents-panel.js a partir de los
-   catálogos JSON: el número de bloques lo elige el usuario en el select. #}
+   catálogos JSON: el número de bloques lo elige el usuario en el select.
+
+   Este MISMO nodo sirve para los tres modos —alta masiva, anexar versión y
+   editar—, y por eso aquí no hay ni título ni botón definitivos: el JS cambia
+   el encabezado, esconde el selector de cantidad y reescribe el rótulo de
+   guardar (el disquete se conserva, que es el icono de "guardar" en toda la
+   app). Tres modales separados habrían sido tres rejillas de campos que se
+   desincronizan en cuanto se añada uno. #}
 <div class="modal fade" id="adhoc-doc-modal" tabindex="-1"
      aria-labelledby="adhoc-doc-modal-title" aria-hidden="true" data-adhoc-doc-modal>
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
@@ -263,6 +279,13 @@
            listas PARALELAS por índice. Un input de tipo file sin elegir manda su
            parte con filename vacío, así que el hueco de esa fila se conserva y
            la alineación no se rompe. #}
+        {# En modo edición este mismo <form> se manda con `fetch` a
+           PATCH /documents/{id} con los nombres en SINGULAR, no como listas
+           paralelas: el traductor está en `PATCH_FIELDS` del JS. El campo de
+           archivo solo se pinta si el servidor dijo `file_replaceable`, y
+           entonces lleva encima el aviso de que el anterior se borra del
+           disco; si no, en su hueco va la nota de que ahí no se sustituye
+           nada. Los dos avisos los construye el JS con textContent. #}
         <form data-adhoc-doc-form novalidate>
           <div data-adhoc-doc-fields></div>
         </form>

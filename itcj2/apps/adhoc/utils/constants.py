@@ -30,6 +30,7 @@ __all__ = [
     "DOCUMENT_STATUS_APPROVED", "DOCUMENT_STATUS_REJECTED",
     "DOCUMENT_STATUS_OBSOLETE",
     "DOCUMENT_STATUSES_STARTABLE", "DOCUMENT_STATUSES_VIA_PATCH",
+    "DOCUMENT_STATUSES_EDITABLE", "DOCUMENT_STATUSES_FILE_REPLACEABLE",
     # Vigencia documental
     "DocumentExpiryFilter", "DOCUMENT_EXPIRY_FILTERS", "DOCUMENT_EXPIRY_SOON_DAYS",
     # Incidencias
@@ -105,6 +106,51 @@ DOCUMENT_STATUSES_STARTABLE: Final[tuple[str, ...]] = (
 #: ``adhoc_task_approvals`` vacío y ``current_step_id`` colgando.
 DOCUMENT_STATUSES_VIA_PATCH: Final[tuple[str, ...]] = (
     DOCUMENT_STATUS_DRAFT, DOCUMENT_STATUS_OBSOLETE,
+)
+
+#: Estados en los que el documento todavía se puede **editar**. Un documento que
+#: ya pasó por el flujo de aprobación es inmutable: en un SGC ISO 9001 lo
+#: aprobado no se corrige en sitio —se anexa una versión nueva y la anterior
+#: queda como histórico—, porque el aprobado es justo lo que la auditoría viene
+#: a comparar contra la evidencia. Hoy eso deja editables 4 de 202 documentos
+#: (138 'Aprobado', 60 'Obsoleto', 4 'Borrador'); es la cifra correcta, no un
+#: efecto colateral.
+#:
+#: **No confundir con** :data:`DOCUMENT_STATUSES_VIA_PATCH`. Son hermanas y
+#: responden a preguntas distintas; las dos siguen haciendo falta::
+#:
+#:     DOCUMENT_STATUSES_EDITABLE  -> en qué ESTADO tiene que estar el
+#:                                    documento para que el PATCH pueda
+#:                                    tocarle algo.
+#:     DOCUMENT_STATUSES_VIA_PATCH -> qué VALORES de `status` puede escribir
+#:                                    ese PATCH.
+#:
+#: Ninguna implica la otra, y el caso que lo demuestra es 'Obsoleto': se puede
+#: **escribir** por PATCH (retirar un documento es una decisión legítima de
+#: Calidad) pero un documento ya obsoleto **no se edita**.
+DOCUMENT_STATUSES_EDITABLE: Final[tuple[str, ...]] = (
+    DOCUMENT_STATUS_DRAFT, DOCUMENT_STATUS_REJECTED,
+)
+#: Estados en los que además se puede **reemplazar el archivo adjunto**. Es más
+#: estrecho que :data:`DOCUMENT_STATUSES_EDITABLE` a propósito: sustituir el
+#: binario borra el anterior del disco y no se recupera
+#: (``AdhocDocumentService.update``), y un 'Rechazado' ya circuló por el flujo
+#: —sus validadores leyeron *ese* PDF y lo rechazaron por escrito en
+#: ``adhoc_task_approvals``—. Corregirle una errata al título no toca esa
+#: evidencia; cambiarle el archivo debajo deja la decisión registrada apuntando
+#: a un contenido que ya nadie puede ver.
+#:
+#: **Es condición necesaria, no suficiente**, y conviene leerlo aquí antes de
+#: apoyarse en ella: el estado que mira el gate es el de entrada, y este mismo
+#: PATCH puede escribirlo ('Borrador' está en
+#: :data:`DOCUMENT_STATUSES_VIA_PATCH`). Con solo esta lista, dos llamadas
+#: seguidas —una que devuelve el documento rechazado a 'Borrador' y otra con el
+#: archivo— reponían el reemplazo. Por eso ``update`` exige además que el
+#: documento no haya entrado nunca a un flujo (``document_service._ha_circulado``:
+#: ``flow_id``/``current_step_id`` vacíos), que es lo que de verdad distingue un
+#: borrador nuevo de uno que ya fue evidencia de algo.
+DOCUMENT_STATUSES_FILE_REPLACEABLE: Final[tuple[str, ...]] = (
+    DOCUMENT_STATUS_DRAFT,
 )
 
 

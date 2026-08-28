@@ -2,8 +2,10 @@
    PAGINA   /adhoc/documentos/panel
    CONTIENE ancho y compactado de la tabla de 12 columnas, techo de las dos
             columnas de texto libre, colapso de "Notas" en pantalla estrecha,
-            hover azul de la fila, aviso de version superada del modal de alta y
-            la ficha del documento dentro del modal de arranque de flujo
+            hover azul de la fila, accion de fila deshabilitada, aviso de
+            version superada y avisos del campo de archivo del modal de alta y
+            edicion, y la ficha del documento dentro del modal de arranque de
+            flujo
    EN BASE  todo lo demas, via documents/documents.css + adhoc.css
    --------------------------------------------------------------------------- */
 
@@ -73,6 +75,26 @@
   background: transparent;
 }
 
+/* ── Accion de fila deshabilitada ──────────────────────────────────────
+   "Editar" se pinta en TODAS las filas, tambien en los 198 documentos que la
+   regla del SGC no deja editar: escondido, el usuario lo busca y nadie le
+   cuenta por que no esta. Deshabilitado tiene que verse deshabilitado sin
+   pasar el raton por encima, asi que no basta con el cursor: pierde el color
+   de marca y se queda en el gris de "no disponible", que es la unica accion
+   apagada de una botonera de cinco iconos de color.
+
+   `pointer-events` vuelve a `auto` a proposito. La base lo anula
+   (adhoc.css), y con eso el navegador tampoco muestra el `title` del boton
+   — que aqui es justo lo unico que explica POR QUE no se puede editar. Un
+   boton `disabled` no dispara `click` aunque reciba el raton, asi que
+   devolverle los eventos no habilita nada; el JS ademas lo comprueba. */
+.adhoc-doc-panel .adhoc-actions .adhoc-icon-action:disabled {
+  opacity: 1;
+  color: var(--adhoc-disabled);
+  pointer-events: auto;
+  cursor: not-allowed;
+}
+
 /* ── Aviso de la version que se supera ─────────────────────────────────
    Lo enciende documents-panel.js solo al anexar una version. Es el unico sitio
    de la pantalla donde se avisa de que un documento del SGC deja de ser el
@@ -98,6 +120,49 @@
   flex: 0 0 auto;
   margin-top: var(--adhoc-space-2xs);
   font-size: var(--adhoc-fs-lg);
+}
+
+/* ── Avisos del campo de archivo (modo edicion) ────────────────────────
+   Dos estados y un solo sitio donde se leen: encima del control, dentro de su
+   propio campo. Comparten forma con el aviso de version superada de arriba
+   —barra lateral, icono que no se encoge, misma escala de texto— porque son la
+   misma clase de mensaje: la consecuencia de lo que estas a punto de guardar.
+   Lo que cambia es el tono, y el tono es la diferencia real entre los dos: uno
+   avisa de algo irreversible que TU puedes provocar, el otro explica una regla
+   del SGC que no depende de ti. */
+.adhoc-doc-file-warning,
+.adhoc-doc-file-locked {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--adhoc-space-md);
+  padding: var(--adhoc-space-lg) var(--adhoc-space-xl);
+  border-radius: calc(var(--adhoc-radius) - 6px);
+  font-size: var(--adhoc-fs-md);
+  line-height: 1.45;
+}
+
+.adhoc-doc-file-warning > i,
+.adhoc-doc-file-locked > i {
+  flex: 0 0 auto;
+  margin-top: var(--adhoc-space-2xs);
+}
+
+/* Reemplazar el binario lo borra del disco y no se recupera: es el rojo, no el
+   ambar del anexado. Anexar una version deja las dos; esto no deja ninguna. */
+.adhoc-doc-file-warning {
+  margin: 0 0 var(--adhoc-space-md);
+  background: var(--adhoc-danger-soft);
+  border-left: 3px solid var(--adhoc-danger);
+  color: var(--adhoc-danger-ink);
+}
+
+/* Aqui no hay nada que el usuario pueda hacer mal: ocupa el hueco del input
+   que no se pinta y explica la regla. Tono apagado, sin alarma. */
+.adhoc-doc-file-locked {
+  margin: 0;
+  background: var(--adhoc-soft);
+  border-left: 3px solid var(--adhoc-border-mid);
+  color: var(--adhoc-muted);
 }
 
 /* ── Modal de arranque de flujo ────────────────────────────────────────── */

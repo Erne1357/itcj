@@ -15,7 +15,15 @@ class Settings(BaseSettings):
     # Bump 2026-08-27: adjuntos de incidencias (adhoc) — modal de archivos en
     # incidents.js/incidents.html y la clase .adhoc-file-none compartida en
     # work-items.css.
-    STATIC_VERSION: str = "1.0.1111527"
+    # Bump 2026-08-28: edición de documentos (adhoc, A14) — documents-panel.js
+    # (el modal del alta en modo edición) y documents-panel.css. Va en el mismo
+    # commit que el cambio, no después: no hay `static-manifest.json` en el
+    # repo, así que `sv()` cae SIEMPRE a esta constante, y nginx sirve
+    # /static/adhoc/ con `immutable` a un año (docker/nginx/nginx.prod.conf).
+    # Sin bump la URL es byte a byte la misma y el navegador ni revalida: quien
+    # ya había abierto el panel seguiría ejecutando el JS anterior —sin el botón
+    # "Editar"— hasta un ctrl+F5 que nadie sabe que hace falta.
+    STATIC_VERSION: str = "1.0.1111528"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
