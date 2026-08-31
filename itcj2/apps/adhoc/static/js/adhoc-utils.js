@@ -12,6 +12,24 @@
 (function () {
     'use strict';
 
+    // Este archivo se carga UNA vez, desde el <head> de base_adhoc.html, y ese
+    // es el sitio que garantiza que no se ejecute dos veces: HTMX repone el
+    // historial sobre `document.body`, asi que cualquier <script> de dentro del
+    // <body> se vuelve a crear —y a ejecutar— en cada ATRAS.
+    //
+    // Esta guarda es el cinturon por si alguien lo devuelve al <body>: una
+    // segunda ejecucion no debe SUSTITUIR a la primera. Si lo hiciera, el
+    // `window.AdhocUtils` nuevo traeria su propio registro de modulos vacio
+    // mientras los listeners de HTMX que siguen vivos son los de la copia
+    // vieja, y los modulos que se registrasen a partir de ahi no se montarian
+    // en ninguna navegacion posterior. Devolviendo el control aqui, la copia
+    // que manda es siempre la primera: la que tiene los listeners.
+    //
+    // Mismo patron que ya usaban `reports/reports.js` y `reports/report-view.js`
+    // (`if (window.AdhocReports) return;`), que son modulos de pagina y por
+    // tanto SI viven dentro de la caja.
+    if (window.AdhocUtils) return;
+
     var API_BASE = '/api/adhoc/v2';
     var TOAST_CONTAINER_ID = 'adhoc-toast-container';
     var LOADER_ID = 'adhoc-loader';
@@ -370,14 +388,12 @@
     // ==================== LISTENERS GLOBALES ====================
 
     /**
-     * Se instalan UNA sola vez sobre `document`: cierre de modales propios
-     * (botón, velo y Escape) y el botón "Salir" de la cabecera. Al colgar de
-     * `document` no hay que re-enganchar nada tras un swap de HTMX.
+     * Cierre de modales propios (botón, velo y Escape) y botón "Salir" de la
+     * cabecera. Al colgar de `document` no hay que re-enganchar nada tras un
+     * swap de HTMX. Lo llama `arrancar()`, que es quien pone la guarda de
+     * "una sola vez por documento".
      */
     function bindGlobal() {
-        if (document.documentElement.dataset.adhocGlobalBound === '1') return;
-        document.documentElement.dataset.adhocGlobalBound = '1';
-
         document.addEventListener('click', function (evt) {
             var t = evt.target;
             if (!t || !t.closest) return;
@@ -530,6 +546,61 @@
         document.addEventListener('htmx:responseError', fin);
     }
 
+    // ==================== NAVEGACION QUE FALLA ====================
+
+    /*
+     * Una navegacion boosted que responde 4xx/5xx no intercambia NADA. El
+     * `hx-select="#adhoc-root"` de la caja busca esa caja en la respuesta, y una
+     * pagina de error no la trae: HTMX descarta la respuesta y deja la pantalla
+     * exactamente como estaba. Hasta ahora lo unico que escuchaba
+     * `htmx:responseError` era el contador de la barra de progreso, asi que el
+     * usuario sin permiso para una pantalla pulsaba el enlace y NO PASABA NADA:
+     * ni error, ni pantalla nueva, ni pista de que el clic hubiera llegado al
+     * servidor. Un control que no responde se lee como una app rota, y encima
+     * invita a volver a pulsarlo.
+     *
+     * El aviso dice que fallo, en terminos de lo que el usuario intentaba hacer
+     * ("abrir la pantalla"), y arrastra el codigo entre parentesis para que
+     * quien reporte la incidencia pueda decirlo. No lleva nada del cuerpo de la
+     * respuesta: en una navegacion es HTML, no el JSON de la API.
+     */
+
+    var AVISOS_HTTP = {
+        401: 'Tu sesión expiró. Vuelve a entrar para seguir trabajando.',
+        403: 'No tienes permiso para abrir esa pantalla. Pídeselo al administrador de Calidad.',
+        404: 'Esa pantalla ya no existe.'
+    };
+
+    /**
+     * Texto del aviso para un fallo de navegación.
+     * @param {*} status código HTTP de la respuesta
+     * @returns {string}
+     */
+    function avisoDeNavegacion(status) {
+        var codigo = Number(status) || 0;
+        var texto = AVISOS_HTTP[codigo];
+        if (!texto) {
+            texto = (codigo >= 500)
+                ? 'Falló el servidor al abrir esa pantalla. Vuelve a intentarlo; si sigue igual, avisa a Sistemas.'
+                : 'No se pudo abrir esa pantalla.';
+        }
+        return texto + ' (error ' + (codigo || 'sin código') + ')';
+    }
+
+    /** Avisos de las peticiones de HTMX que no llegan a intercambiar nada. */
+    function bindAvisosDeRed() {
+        document.addEventListener('htmx:responseError', function (evt) {
+            var xhr = (evt && evt.detail) ? evt.detail.xhr : null;
+            showToast(avisoDeNavegacion(xhr && xhr.status), 'error');
+        });
+
+        // Mismo agujero por el otro lado: sin red la peticion ni sale, y el
+        // clic tampoco hacia nada.
+        document.addEventListener('htmx:sendError', function () {
+            showToast('No se pudo contactar con el servidor. Revisa tu conexión y vuelve a intentarlo.', 'error');
+        });
+    }
+
     // ==================== CICLO DE VIDA DE LOS MODULOS ====================
 
     /*
@@ -554,7 +625,7 @@
      * cambia, el nodo se sustituye y se ejecuta; si es el mismo (los cinco
      * catalogos comparten shared/catalog-crud.js), el nodo se conserva y NO se
      * re-ejecuta -- para eso esta `onReady`, que vuelve a correr en cada
-     * `htmx:afterSettle`.
+     * `htmx:afterSettle` y en cada `htmx:historyRestore`.
      *
      * Dos consecuencias que hay que sostener a mano:
      *
@@ -598,10 +669,38 @@
 
     function registro(clave) {
         if (!_registros[clave]) {
-            _registros[clave] = { ready: [], teardown: [], marca: 'r' + _orden.length };
+            _registros[clave] = {
+                ready: [], teardown: [], marca: 'r' + _orden.length, nodo: undefined
+            };
             _orden.push(clave);
         }
-        return _registros[clave];
+        var reg = _registros[clave];
+
+        // El registro de un modulo se SUSTITUYE cuando el modulo se re-ejecuta,
+        // no se acumula. Es la promesa del comentario de arriba y hasta aqui no
+        // la cumplia nadie: `reg.ready.push(run)` iba anadiendo.
+        //
+        // Los <script> de `{% block extra_js %}` viven DENTRO de #adhoc-root y
+        // por tanto dentro del elemento de historial, asi que cada ATRAS los
+        // vuelve a crear y a ejecutar. Antes eso no se notaba porque este
+        // archivo tambien se re-ejecutaba y el registro nacia vacio otra vez;
+        // ahora que vive en el <head> el registro es el mismo de toda la sesion,
+        // y sin esto la lista de callbacks de una pantalla crecia en uno por
+        // cada ATRAS —cada `montar()` recorriendo N copias del mismo init, con N
+        // marcas de idempotencia distintas escritas sobre el mismo nodo—.
+        //
+        // Se distingue "ejecucion nueva" de "el modulo llama a onReady dos veces
+        // seguidas" por la IDENTIDAD del <script>: `document.currentScript` es
+        // un nodo distinto en cada ejecucion y el mismo dentro de una. Fuera de
+        // la ejecucion sincrona es null, y ahi `claveDeModulo()` ya devuelve una
+        // clave propia (`anon-N`), asi que ese caso no entra por aqui.
+        var nodo = document.currentScript || null;
+        if (reg.nodo !== nodo) {
+            reg.nodo = nodo;
+            reg.ready.length = 0;
+            reg.teardown.length = 0;
+        }
+        return reg;
     }
 
     /**
@@ -616,7 +715,9 @@
      *
      * Se ejecuta una vez por nodo y por generacion de intercambio. Enganchar dos
      * veces el MISMO elemento sigue siendo responsabilidad del modulo (guarda
-     * `dataset.*Bound` sobre ese elemento).
+     * `dataset.*Bound` sobre ese elemento). Esa guarda no hay que cambiarla: el
+     * morph la retira sola en cada navegacion, y en el ATRAS —donde vuelve
+     * puesta desde el cache del historial— la retira `limpiarGuardas()`.
      *
      * @param {string|Function} selector enganche obligatorio, o el propio callback
      * @param {Function} [fn] callback; recibe el elemento raiz
@@ -662,7 +763,8 @@
 
     /**
      * Registra el desmontaje del modulo. Corre en `htmx:beforeSwap`, ANTES de
-     * que el intercambio se lleve el DOM de la pantalla actual.
+     * que el intercambio se lleve el DOM de la pantalla actual, y tambien en
+     * `htmx:historyRestore`, que es el ATRAS del navegador.
      *
      *   AdhocUtils.onTeardown(function () { clearTimeout(t); controlador.abort(); });
      *
@@ -723,11 +825,77 @@
         document.body.style.removeProperty('padding-right');
     }
 
+    //: La marca con la que un modulo se declara montado sobre un nodo. Quince
+    //: modulos la escriben con esta forma exacta (`root.dataset.adhocXxxBound`,
+    //: que en el HTML es `data-adhoc-xxx-bound`): documents, documents-panel,
+    //: flows, flow-steps, board, tracking, years, color-catalog, mail, users,
+    //: catalog-crud, user-picker, tasks, assignments y work-items. Todos ellos
+    //: se registran ademas con `onReady`, que es lo que los vuelve a levantar.
+    var RE_GUARDA = /^data-adhoc-.+-bound$/;
+
+    /**
+     * Borra esas marcas del arbol indicado.
+     *
+     * Solo tiene sentido llamarla cuando el DOM se ha REPUESTO desde fuera del
+     * ciclo normal —es decir, al restaurar del historial—, y ahi es obligatoria:
+     * ver el comentario de `htmx:historyRestore` en `bindHtmxOnce`.
+     *
+     * No hay selector CSS que case por NOMBRE de atributo, asi que se recorre el
+     * arbol mirando los atributos de cada nodo. Es un paseo por unos pocos miles
+     * de elementos y ocurre solo al pulsar ATRAS o ADELANTE.
+     *
+     * Nunca toca `<html>`: las banderas de "una sola vez por documento"
+     * (`data-adhoc-global-bound`, `data-adhoc-tasks-htmx`...) viven ahi
+     * precisamente porque ningun intercambio ni ninguna restauracion las alcanza,
+     * y borrarlas duplicaria listeners globales.
+     *
+     * @param {Element} [raiz] por defecto `<body>`, que es lo que repone HTMX
+     * @returns {number} cuantas marcas se quitaron
+     */
+    function limpiarGuardas(raiz) {
+        var caja = raiz || document.body;
+        if (!caja || !caja.querySelectorAll) return 0;
+        var nodos = caja.querySelectorAll('*');
+        var quitadas = 0;
+        for (var i = -1; i < nodos.length; i++) {
+            var nodo = (i < 0) ? caja : nodos[i];       // la propia raiz tambien
+            var attrs = nodo.attributes;
+            if (!attrs) continue;
+            // Hacia atras: `attributes` es una lista VIVA y quitar uno la acorta.
+            for (var j = attrs.length - 1; j >= 0; j--) {
+                var nombre = attrs[j].name;
+                if (RE_GUARDA.test(nombre)) {
+                    nodo.removeAttribute(nombre);
+                    quitadas++;
+                }
+            }
+        }
+        return quitadas;
+    }
+
     /**
      * Un unico par de listeners para todos los modulos, sobre `document`, que
      * sobrevive a cualquier intercambio.
      */
     function bindHtmxOnce() {
+        // Bandera de MODULO, y ahora si es suficiente. Lo fue siempre en
+        // intencion y nunca en la practica: mientras este archivo se cargaba
+        // desde el <body> —dentro del elemento de historial de HTMX— cada ATRAS
+        // creaba una copia entera del modulo con sus variables a cero, la
+        // bandera nacia en false y se sumaba OTRO juego de
+        // `beforeSwap`/`afterSettle`/`historyRestore` sobre `document`. Medido:
+        // tres idas y vueltas dejaban cuatro registros de cada uno, cuatro
+        // contadores `_generacion` independientes y `limpiarModales()` corriendo
+        // cuatro veces por navegacion, sin techo.
+        //
+        // Las dos patas que lo sostienen hoy, en este orden: el <script> vive en
+        // el <head> (ver base_adhoc.html), asi que no hay re-ejecucion; y si
+        // alguien lo devolviera al <body>, el `if (window.AdhocUtils) return;`
+        // del principio del archivo corta la copia nueva antes de llegar aqui.
+        // No se cuelga de `<html>` a proposito: una guarda a nivel de documento
+        // frenaria a la copia nueva DESPUES de que se hubiera adueniado de
+        // `window.AdhocUtils`, dejandola sin listeners y con un registro de
+        // modulos que nadie monta.
         if (_htmxBound) return;
         _htmxBound = true;
 
@@ -741,33 +909,102 @@
             }
         }
 
-        document.addEventListener('htmx:beforeSwap', desmontar);
-
-        // El boton ATRAS no pasa por `beforeSwap`: HTMX restaura la pantalla
-        // desde su cache de historial y solo emite `htmx:historyRestore`. Sin
-        // esto, abrir un modal y darle a atras dejaba el `<body>` con la clase
-        // de bloqueo y la pantalla siguiente sin poder desplazarse — que es
-        // ademas el camino mas comun: abrir el alta, cambiar de idea y volver.
-        document.addEventListener('htmx:historyRestore', desmontar);
-
-        document.addEventListener('htmx:afterSettle', function (evt) {
+        /**
+         * Vuelve a correr los `onReady` de todos los modulos registrados.
+         * @param {Element} [target] raiz del intercambio
+         */
+        function montar(target) {
             _generacion++;
-            var target = (evt && evt.target && evt.target.dataset) ? evt.target : document.body;
+            var scope = (target && target.dataset) ? target : document.body;
             for (var i = 0; i < _orden.length; i++) {
                 var lista = _registros[_orden[i]].ready;
                 for (var j = 0; j < lista.length; j++) {
-                    lista[j](target);
-                    if (target !== document.body) lista[j](document.body);
+                    lista[j](scope);
+                    if (scope !== document.body) lista[j](document.body);
                 }
             }
+        }
+
+        document.addEventListener('htmx:beforeSwap', desmontar);
+        document.addEventListener('htmx:afterSettle', function (evt) {
+            montar(evt && evt.target);
+        });
+
+        // ── EL BOTON ATRAS ──────────────────────────────────────────────────
+        //
+        // El historial de HTMX no pasa por `beforeSwap` ni por `afterSettle`:
+        // `restoreHistory()` mete el HTML del cache con `swapInnerHTML` y emite
+        // un unico evento, `htmx:historyRestore`. Por eso aqui se desmonta Y se
+        // vuelve a MONTAR — es lo mismo que hacen las otras dos apps con morph
+        // del repo, que repiten su `activate()` en los dos eventos
+        // (helpdesk/static/js/shared/base.js, core/static/js/config/shared/config-page.js).
+        //
+        // Mientras esto solo desmontaba, volver ATRAS dejaba muertas TODAS las
+        // listas: la pantalla se pintaba entera —viene del cache— pero ningun
+        // modulo arrancaba, asi que no habia filtros, ni paginacion, ni un solo
+        // boton que abriera. El desmontaje si hacia falta y se conserva: sin el,
+        // abrir un modal y darle a atras dejaba el `<body>` con la clase de
+        // bloqueo y la pantalla restaurada sin poder desplazarse.
+        //
+        // Y antes de montar hay que BORRAR LAS MARCAS de los modulos. El cache
+        // de historial es `body.cloneNode(true).innerHTML` guardado en
+        // localStorage, asi que se lleva tal cual los `data-adhoc-*-bound` con
+        // los que cada modulo se declara montado sobre un nodo. Al restaurar
+        // vuelven puestos sobre nodos RECIEN CREADOS, cuyos objetos JS (la
+        // instancia, el AbortController, los listeners) ya no existen: la marca
+        // miente y el `init()` del modulo se cree hecho. Se limpia aqui, y no al
+        // guardar el cache, por dos razones: es el unico momento que no depende
+        // de que HTMX llegue a emitir `htmx:beforeHistorySave`, y cura tambien
+        // las entradas que ya estaban en localStorage desde antes de este
+        // arreglo (el cache sobrevive a la recarga y al despliegue).
+        //
+        // Las dos mitades son necesarias: HTMX re-ejecuta los <script> del HTML
+        // restaurado (`htmx.config.allowScriptTags`), asi que los modulos SI
+        // vuelven a llamar a su `init()` al restaurar... y salen por la marca.
+        //
+        // `limpiarGuardas` corre UNA sola vez por restauracion, con la bandera
+        // puesta en el propio evento. Hoy solo hay un juego de listeners —el
+        // archivo se carga desde el <head> y no se re-ejecuta—, asi que la
+        // bandera es redundante; se conserva porque lo que protege es barato y
+        // el fallo que evitaba era feo: con dos oyentes, una segunda limpieza
+        // DESPUES de que la primera ya monto volveria a abrir la puerta y el
+        // modulo se montaria dos veces sobre el mismo nodo.
+        document.addEventListener('htmx:historyRestore', function (evt) {
+            desmontar();
+            if (!evt || !evt._adhocGuardasLimpias) {
+                if (evt) evt._adhocGuardasLimpias = true;
+                limpiarGuardas();
+            }
+            montar(document.body);
         });
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () { bindGlobal(); bindIndicador(); });
-    } else {
+    /**
+     * Los listeners que se cuelgan de `document` y valen para toda la sesion.
+     *
+     * La guarda vive en el dataset de `<html>`, que es el unico nodo que no
+     * entra ni en el intercambio ni en la restauracion del historial. Se puso
+     * cuando este archivo se cargaba desde el `<body>` y cada ATRAS creaba una
+     * copia nueva del modulo con las variables a cero: una bandera de modulo no
+     * lo veia y cada ATRAS sumaba otro juego de listeners globales (otro cierre
+     * de modal, otro aviso de error por cada fallo).
+     *
+     * Desde que el <script> vive en el `<head>` no hay copias, asi que valdria
+     * una bandera de modulo; se deja en `<html>` porque tambien cubre el caso de
+     * dos <script> distintos apuntando al mismo archivo, y no cuesta nada.
+     */
+    function arrancar() {
+        if (document.documentElement.dataset.adhocGlobalBound === '1') return;
+        document.documentElement.dataset.adhocGlobalBound = '1';
         bindGlobal();
         bindIndicador();
+        bindAvisosDeRed();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', arrancar);
+    } else {
+        arrancar();
     }
 
     // ==================== EXPORT ====================

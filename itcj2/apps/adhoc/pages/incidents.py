@@ -103,8 +103,10 @@ def incidents_page(
 ):
     """Listado de incidencias con alta masiva, edición y filtros de servidor."""
     from itcj2.apps.adhoc.pages._work_context import (
+        TASKS_PAGE_PERM,
         assignable_users,
         catalog_options,
+        columns_without_tasks,
         granted,
         page_context,
     )
@@ -112,14 +114,23 @@ def incidents_page(
     from itcj2.apps.adhoc.utils.constants import INCIDENT_STATUSES, PRIORITIES
 
     catalogos = catalog_options(db, category_model="AdhocIncidentCategory")
-    permisos = granted(db, user, _WRITE_PERMS)
+    permisos = granted(db, user, _WRITE_PERMS + (TASKS_PAGE_PERM,))
     ctx = page_context(db, user)
+
+    # El botón "Tareas" de la fila lleva a una página que exige
+    # `adhoc.tasks.page.list`, así que la decisión de pintarlo la toma quien
+    # sabe si esa puerta se abre. Es el gate que B4 puso en el panel de
+    # documentos y que estas dos listas se quedaron sin poner: hoy ningún rol
+    # del DML separa `incidents.page.list` de `tasks.page.list`, pero un
+    # permiso directo o un override de puesto sí, y entonces el icono sale en
+    # las 25 filas y ninguna lleva a ningún sitio.
+    ver_tareas = permisos[TASKS_PAGE_PERM]
 
     page_data = {
         "kind": "incident",
         "api": "/api/adhoc/v2/incidents",
         "table_id": "adhoc-table-incidents",
-        "tasks_url": "/adhoc/incidencias/{id}/tareas",
+        "tasks_url": "/adhoc/incidencias/{id}/tareas" if ver_tareas else None,
         "statuses": list(INCIDENT_STATUSES),
         "priorities": list(PRIORITIES),
         "users": assignable_users(db),
@@ -155,7 +166,10 @@ def incidents_page(
         {
             **ctx,
             "page_data": page_data,
-            "columns": _COLUMNS,
+            # Sin permiso no hay columna: `work-items.js` rellena la celda
+            # "Tareas" siempre, así que apagar solo `tasks_url` dejaría el botón
+            # puesto y mudo (ver `columns_without_tasks`).
+            "columns": columns_without_tasks(_COLUMNS, can_open=ver_tareas),
             # Textos e iconos del legacy (`incidents/incidents.html`): título
             # "Gestión de Incidencias" con el extintor, sin subtítulo.
             "page_title": "Gestión de Incidencias",

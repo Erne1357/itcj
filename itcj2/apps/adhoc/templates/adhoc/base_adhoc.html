@@ -51,6 +51,12 @@
    el intercambio no se re-ejecutan, y adhoc-utils.js deja de reinstalar sus
    listeners globales en cada navegación (eran 15 listeners de `click` sobre
    `document` en la carga inicial y 54 tras tres navegaciones).
+
+   Y por la misma razón van en el <head>, no al principio del <body>: estar
+   fuera de #adhoc-root los salva del INTERCAMBIO, pero no de la RESTAURACIÓN
+   del historial, que HTMX hace sobre `document.body` entero. Con ellos dentro
+   del <body>, cada ATRÁS creaba otra copia de HTMX, de Bootstrap y de
+   AdhocUtils. El razonamiento completo está donde viven ahora.
    =========================================================================== #}
 <!doctype html>
 <html lang="es">
@@ -72,40 +78,38 @@
      Bootstrap. NO hay hoja de Bootstrap detrás. #}
   <link rel="stylesheet" href="/static/adhoc/css/adhoc.css?v={{ sv('css/adhoc.css') }}">
 
-  {% block extra_css %}{% endblock %}
-</head>
-<body class="adhoc-shell" hx-ext="morph,head-support">
+  {# ── LOS SCRIPTS DE LA BASE VAN EN EL <head>, NO EN EL <body> ───────
+     Y no es preferencia de estilo: es lo que impide que el botón ATRÁS se
+     coma la sesión.
 
-  {# Indicador de carga de la navegación. Vive FUERA de la caja porque tiene que
-     seguir en pantalla justo mientras la caja se sustituye.
-     No aparece en cada clic: el retardo lo pone el `animation-delay` de
-     adhoc.css, así que en una respuesta rápida —lo normal en la red del ITCJ—
-     no llega a pintarse. Lo enciende y lo apaga AdhocUtils con la clase
-     `adhoc-loading` del <body>. #}
-  <div class="adhoc-progress" id="adhoc-progress" aria-hidden="true"></div>
+     HTMX guarda y repone el HISTORIAL sobre el "elemento de historial", que es
+     el que lleve `hx-history-elt` o, si nadie lo lleva —nuestro caso—,
+     `document.body`. Cachea su `innerHTML` en localStorage y al pulsar ATRÁS
+     hace `swapInnerHTML(body, …)`, que vuelve a CREAR cada <script> del
+     fragmento y por tanto a EJECUTARLO (`htmx.config.allowScriptTags`).
 
-  {# Overlay de "cerrando sesión" (los dos engranes del legacy). Lo enciende
-     AdhocUtils al pulsar "Salir". Vive FUERA de #adhoc-root: si la navegación
-     y el cierre de sesión se pisan, el overlay no debe irse con el intercambio. #}
-  <div class="adhoc-loading-overlay" id="adhoc-loader">
-    <div class="adhoc-gears">
-      <i class="fa-solid fa-gear adhoc-gear adhoc-gear-1"></i>
-      <i class="fa-solid fa-gear adhoc-gear adhoc-gear-2"></i>
-    </div>
-    <div class="adhoc-loading-text">CERRANDO SESIÓN...</div>
-  </div>
+     Con estos siete dentro del <body> eso significaba una copia nueva de HTMX,
+     de Bootstrap y de AdhocUtils por cada ATRÁS. Medido en Chromium con tres
+     idas y vueltas: los listeners de `document` pasaban de 43 a 118, y dos
+     runtimes de HTMX se peleaban por `currentPathForHistory` —el segundo ATRÁS
+     guardaba el DOM de la pantalla actual bajo la URL de la ANTERIOR y a partir
+     de ahí esa URL quedaba corrupta en localStorage para el resto de la sesión:
+     volvías a /adhoc/documentos y veías el tablero—.
 
-  {# ── LOS SCRIPTS DE LA BASE VAN AQUI, ANTES DE LA CAJA ─────────────────
-     No es estetica: `{% block extra_js %}` vive DENTRO de #adhoc-root (tiene
-     que entrar y salir con la pagina), y un <script> se ejecuta en cuanto el
-     parser lo encuentra. Si estos fueran despues, cada modulo de pagina
-     correria con `window.AdhocUtils` todavia sin definir: `U.onReady` no
-     existiria, el modulo no se inicializaria y la pantalla quedaria pintada
-     pero muerta (el modal de alta "no abre").
-     Estar fuera de la caja tambien es deliberado: al no entrar en el
-     intercambio no se re-ejecutan, y adhoc-utils.js deja de reinstalar sus
-     listeners globales en cada navegacion.
-     ────────────────────────────────────────────────────────────────────── #}
+     En el <head> no entran en el elemento de historial, así que se ejecutan una
+     sola vez por documento. Van SIN `defer` (menos el último, ver abajo) porque
+     el orden importa: `{% block extra_js %}` vive DENTRO de #adhoc-root y sus
+     <script> corren mientras el parser recorre el <body>; si estos fueran
+     `defer` correrían DESPUÉS y cada módulo de página arrancaría con
+     `window.AdhocUtils` sin definir —la pantalla se pintaría y quedaría muerta—.
+     Bloqueantes en el <head> el orden es el mismo de siempre, solo que antes.
+
+     Y la extensión `head-support` no los re-ejecuta en cada navegación: compara
+     el <head> nuevo con el actual por `outerHTML` exacto, y estos siete son
+     idénticos en las 30 pantallas (el `?v=` sale del mismo manifiesto), así que
+     los CONSERVA. Lo único que entra y sale es el <link> de `extra_css`.
+     Regresión cubierta por tests/e2e/adhoc/navigation-integrity.spec.js.
+     ─────────────────────────────────────────────────────────────── #}
   {# HTMX + Idiomorph (morph, sin parpadeo). Idiomorph SIEMPRE después de HTMX. #}
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
   <script src="https://unpkg.com/idiomorph@0.7.3/dist/idiomorph-ext.min.js"></script>
@@ -143,8 +147,36 @@
   <script id="adhoc-mod-shared-table-filter" src="/static/adhoc/js/shared/table-filter.js?v={{ sv('js/shared/table-filter.js') }}"></script>
 
   {# Detecta iframe → marca body.in-mobile-iframe y enlaza el botón "volver"
-     (postMessage CLOSE_APP al parent). #}
-  <script src="/static/core/js/apps/mobile-app-shell.js?v={{ sv_core('js/apps/mobile-app-shell.js') }}"></script>
+     (postMessage CLOSE_APP al parent). Único de los siete con `defer`: es un
+     archivo del CORE que en su primera línea hace
+     `document.body.classList.add(...)`, y en un <head> bloqueante `document.body`
+     todavía es null. Con `defer` corre al terminar el parseo, con el <body> ya
+     puesto, y sigue fuera del elemento de historial. No exporta nada que los
+     módulos de página necesiten, así que correr el último no le molesta a nadie. #}
+  <script defer src="/static/core/js/apps/mobile-app-shell.js?v={{ sv_core('js/apps/mobile-app-shell.js') }}"></script>
+
+  {% block extra_css %}{% endblock %}
+</head>
+<body class="adhoc-shell" hx-ext="morph,head-support">
+
+  {# Indicador de carga de la navegación. Vive FUERA de la caja porque tiene que
+     seguir en pantalla justo mientras la caja se sustituye.
+     No aparece en cada clic: el retardo lo pone el `animation-delay` de
+     adhoc.css, así que en una respuesta rápida —lo normal en la red del ITCJ—
+     no llega a pintarse. Lo enciende y lo apaga AdhocUtils con la clase
+     `adhoc-loading` del <body>. #}
+  <div class="adhoc-progress" id="adhoc-progress" aria-hidden="true"></div>
+
+  {# Overlay de "cerrando sesión" (los dos engranes del legacy). Lo enciende
+     AdhocUtils al pulsar "Salir". Vive FUERA de #adhoc-root: si la navegación
+     y el cierre de sesión se pisan, el overlay no debe irse con el intercambio. #}
+  <div class="adhoc-loading-overlay" id="adhoc-loader">
+    <div class="adhoc-gears">
+      <i class="fa-solid fa-gear adhoc-gear adhoc-gear-1"></i>
+      <i class="fa-solid fa-gear adhoc-gear adhoc-gear-2"></i>
+    </div>
+    <div class="adhoc-loading-text">CERRANDO SESIÓN...</div>
+  </div>
 
   {# ── LA CAJA QUE SE INTERCAMBIA ──────────────────────────────────────────
      hx-boost   → todo <a> de dentro navega por HTMX, no solo los cuatro de la

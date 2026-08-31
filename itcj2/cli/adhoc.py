@@ -12,6 +12,7 @@ _DML_FILES = [
     "03_insert_role_permission.sql",
     "04_grant_adhoc_access.sql",
     "05_seed_catalogs.sql",
+    "06_repair_document_202_flow.sql",
 ]
 
 
@@ -26,6 +27,12 @@ def init_adhoc_command():
       03_insert_role_permission.sql — asigna permisos a roles (aditivo)
       04_grant_adhoc_access.sql     — espeja acceso desde itcj (has_any_assignment)
       05_seed_catalogs.sql          — mail config singleton y catálogos base
+      06_repair_document_202_flow.sql — sanea el documento 202 (flujo a medio arrancar)
+
+    El 06 es el único que repara DATOS en vez de sembrar configuración, y por eso
+    va el último: además de las tablas necesita que el historial del SGC esté
+    cargado (``adhoc import-legacy``). En una base sin ese historial no encuentra
+    la fila y es un no-op limpio, no un fallo.
     """
     dml_dir = PROJECT_ROOT / "database" / "DML" / "adhoc" / "init"
     click.echo(f"Inicializando app adhoc (DML: {dml_dir})\n")

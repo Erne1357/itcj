@@ -37,7 +37,12 @@ class Settings(BaseSettings):
     # el acceso (user-picker.js + assignments.js + adhoc.css), tasks.js deja
     # inerte el aviso de atasco y sube el contraste de "Fuera del flujo", y
     # documents-panel.js documenta el gate real del botón "Tareas".
-    STATIC_VERSION: str = "1.0.1111532"
+    # Bump 2026-08-31: revisión de B5 (adhoc) — los <script> de la base salen del
+    # <body> al <head> (fuera del elemento de historial de HTMX, que es el
+    # <body>), y adhoc-utils.js + shared/table-filter.js estrenan guarda de
+    # instancia única. Sin bump, un navegador con el adhoc-utils.js anterior en
+    # caché sigue registrando un juego de listeners por cada ATRÁS.
+    STATIC_VERSION: str = "1.0.1111534"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

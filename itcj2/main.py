@@ -213,16 +213,24 @@ def _register_error_handlers(app: FastAPI):
 
     _DASHBOARD_URL = "/itcj/dashboard"
 
-    # Prefijo de ruta → app_key (orden no relevante: prefijos son únicos)
+    # Prefijo de ruta → app_key. El orden no importa MIENTRAS ningún prefijo
+    # sea prefijo de otro: `_app_for` recorre la tupla con `startswith` y se
+    # queda con el primero que case. Los prefijos de página registrados hoy son
+    # /itcj, /help-desk, /agendatec, /vistetec, /maint, /titulatec, /directory y
+    # /adhoc — todos disjuntos, así que "/adhoc" no puede robarle una ruta a
+    # nadie ni que se la roben. Si algún día se añade uno que sea prefijo de
+    # otro (p. ej. "/adhoc" y "/adhoc-legacy"), el más largo va PRIMERO.
     _APP_BY_PREFIX = (
         ("/maint", "maint"),
         ("/help-desk", "helpdesk"),
         ("/agendatec", "agendatec"),
+        ("/adhoc", "adhoc"),
     )
     _APP_TEMPLATE = {
         "maint": "maint/errors/error.html",
         "helpdesk": "helpdesk/errors/error.html",
         "agendatec": "agendatec/errors/error.html",
+        "adhoc": "adhoc/errors/error.html",
         "core": "core/errors/core_error.html",
     }
     # Home de cada app (botón "Ir al inicio" en 404/500). core → dashboard hub.
@@ -230,6 +238,7 @@ def _register_error_handlers(app: FastAPI):
         "maint": "/maint",
         "helpdesk": "/help-desk/",
         "agendatec": "/agendatec/",
+        "adhoc": "/adhoc/",
         "core": _DASHBOARD_URL,
     }
 
@@ -295,10 +304,16 @@ def _register_error_handlers(app: FastAPI):
                 "button_exits_app": exits_app,
             }
 
+            # ── Apps con instancia Jinja2 PROPIA ──────────────────────────
+            # `itcj2.templates.render` renderiza con el loader GLOBAL, que NO ve
+            # las carpetas de plantillas de maint ni de adhoc: cada una monta su
+            # propio `Jinja2Templates`. Pedirle una de esas plantillas al global
+            # da `TemplateNotFound`, y aquí eso no se nota — el `except` de abajo
+            # se lo traga, `_render_error_page` devuelve None y el handler cae a
+            # JSON. Es decir: el error se serviría en crudo sin que nadie viera
+            # un fallo. Por eso cada una se despacha con SU renderizador.
+            # Los imports son lazy a propósito (circular en el arranque).
             if app_key == "maint":
-                # maint usa su propia instancia de Jinja2 (no el loader global
-                # de itcj2/templates.py). Import lazy: evita el circular en el
-                # arranque y respeta el aislamiento de maint_templates.
                 from itcj2.apps.maint.pages.nav import (
                     maint_templates,
                     sv as maint_sv,
@@ -315,6 +330,21 @@ def _register_error_handlers(app: FastAPI):
                 return maint_templates.TemplateResponse(
                     request, template, ctx_maint, status_code=status_code
                 )
+
+            if app_key == "adhoc":
+                # `render_adhoc` ya inyecta request, current_user, current_route
+                # y el `sv`/`sv_core` de UN solo argumento que esperan las
+                # plantillas de Calidad (el `sv` global toma dos: app y ruta).
+                #
+                # NO se calcula el nav (`pages/nav.py::nav_for_user`): pide una
+                # sesión de BD, y una página de error que necesita la BD para
+                # pintarse es justo la que no se pinta cuando la BD es la que ha
+                # fallado — un 500 reventando al renderizar el 500. El partial
+                # `_nav.html` hace `nav|default([])`, así que sin nav sale el
+                # shell de Calidad sin las cuatro tarjetas, y sin reventar.
+                from itcj2.apps.adhoc.pages.render import render_adhoc
+
+                return render_adhoc(request, template, ctx, status_code=status_code)
 
             from itcj2.templates import render
             return render(request, template, ctx, status_code=status_code)

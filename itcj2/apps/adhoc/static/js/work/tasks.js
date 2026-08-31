@@ -43,6 +43,17 @@
  *    el MISMO `users_with_assignment_select` que llena el desplegable de
  *    asignación): aquí no se vuelve a decidir, solo se pinta.
  *
+ * QUÉ CAMBIA B5 (el aviso, en las tres pantallas)
+ * -----------------------------------------------
+ *  · El aviso deja de ser cosa de la pantalla de documento. Son 57 las tareas
+ *    abiertas sin un solo responsable que pueda entrar a la app, y 56 cuelgan
+ *    de una incidencia o de un evento: las dos pantallas que se callaban.
+ *  · CUÁNDO se pinta ya no se decide aquí. Las tres reglas —si esta pantalla
+ *    lo lleva, en qué estados tiene sentido y si perder a algunos ya para la
+ *    tarea— llegan en `page_data` desde `pages/_work_context.py`
+ *    (`show_access_warning`, `unfinished_statuses`, `all_assignees_required`),
+ *    que es donde ya viven el vocabulario de estados y la máquina de flujo.
+ *
  * Requiere en la página (ver `commentsControl`): el partial
  * `adhoc/partials/_workflow_modal.html` en su `{% block modals %}`, la hoja
  * `css/work/workflow-modal.css` y el `<script id="adhoc-mod-work-workflow-modal">`
@@ -70,21 +81,21 @@
         'Urgente': 'adhoc-prio-urgente'
     };
 
-    // Estatus en los que la tarea ya NO espera a nadie. Es uno solo: en esta app
-    // 'Rechazada' significa "hay que corregir y volver" —el tablero la lista
-    // entre las abiertas (`TASK_OPEN_STATUSES`) y la tarea de correccion de un
-    // documento rechazado nace justamente asi—, y 'En Espera' es un paso del
-    // flujo que todavia no ha llegado.
-    //
-    // Lo usa el aviso de atasco, y es la diferencia entre una senal util y una
-    // pared de rojo: de las 123 tareas de documento ya 'Completada', 60 tienen
-    // hoy a TODOS sus responsables sin acceso a la app. Son diez anios de
-    // aprobaciones firmadas por gente que ya no trabaja aqui; marcarlas
-    // "bloqueada" seria mentir sobre trabajo terminado y taparia las dos filas
-    // que si estan paradas.
-    var CLOSED_STATUSES = { 'Completada': true };
-
     // ==================== HELPERS ====================
+
+    /**
+     * `['a','b']` → `{a: true, b: true}`, para consultar por estatus sin
+     * recorrer. Sin prototipo: con `{}` la consulta por una clave heredada
+     * ('constructor', 'toString') saldria verdadera. Hoy el estatus viene de un
+     * CheckConstraint y no puede valer eso, pero el helper no tiene por que
+     * saberlo.
+     */
+    function asSet(list) {
+        var out = Object.create(null);
+        var items = list || [];
+        for (var i = 0; i < items.length; i++) out[items[i]] = true;
+        return out;
+    }
 
     function el(tag, className, text) {
         var node = document.createElement(tag);
@@ -147,16 +158,23 @@
         //: no pueden descuadrarse.
         this.showStep = !!this.data.show_step_column;
 
-        //: Aviso de atasco. QUIEN tiene acceso lo dice el servidor en cada fila
-        //: (`assignees_without_access`); esto solo decide en que PANTALLA se
-        //: pinta, que es una decision de producto: hoy solo la de documento,
-        //: donde una tarea de aprobacion parada deja el documento a medias.
-        //: Incidencias y programas reciben la misma clave del API y quedan para
-        //: B5 —ahi hay diez anios de tareas cerradas y el aviso necesita su
-        //: propio criterio de ruido antes de encenderse—.
-        //: Cuando B5 llegue, esto pasa a ser una bandera mas de `page_data`
-        //: (`show_access_warning`) y esta linea desaparece.
-        this.showAccessWarning = this.parentType === 'document';
+        //: Aviso de atasco: las TRES reglas las manda el servidor
+        //: (`_work_context.tasks_page_context`), igual que la columna "Paso".
+        //: Aqui no se mira `parent_type` para ninguna de ellas.
+        //:
+        //:  · `show_access_warning` — si esta pantalla lleva el aviso.
+        //:  · `unfinished_statuses` — los estatus en los que la tarea todavia
+        //:    espera a alguien. Es el criterio de ruido: una 'Completada' cuyo
+        //:    responsable ya se fue del Tec no esta atascada, esta hecha, y hay
+        //:    184 asi —pintarlas ahogaria las 57 reales—.
+        //:  · `all_assignees_required` — si perder a ALGUNOS ya para la tarea.
+        //:
+        //: Sin las claves el aviso se calla, que es el mismo defecto honesto
+        //: que ya tiene `assignees_without_access` cuando el API no la emite:
+        //: callarse no afirma nada; encenderse sin saber, si.
+        this.showAccessWarning = !!this.data.show_access_warning;
+        this.unfinishedStatuses = asSet(this.data.unfinished_statuses);
+        this.allAssigneesRequired = !!this.data.all_assignees_required;
 
         this.table = root.querySelector('table[data-adhoc-table]');
         this.body = this.table ? this.table.querySelector('[data-adhoc-table-body]') : null;
@@ -418,11 +436,22 @@
      *
      *  · TODOS los asignados sin acceso → la tarea esta parada de verdad; no
      *    hay nadie que pueda aprobarla y el flujo no avanza solo. Tono de
-     *    peligro, rotulo "Bloqueada".
-     *  · ALGUNOS → degradado: la aprobacion de documento exige que aprueben
-     *    TODOS los asignados (`_record_decision` cuenta contra `len(assignees)`),
-     *    asi que con uno de dos fuera tampoco se completa el paso, pero el
-     *    expediente sigue teniendo quien lo mire. Tono de aviso, con el conteo.
+     *    peligro, rotulo "Bloqueada". Vale para los tres padres.
+     *  · ALGUNOS → degradado, y SOLO donde `all_assignees_required`: la
+     *    aprobacion de un documento exige que aprueben TODOS los asignados
+     *    (`_record_decision` cuenta contra `len(assignees)`), asi que con uno de
+     *    dos fuera tampoco se completa el paso, pero el expediente sigue
+     *    teniendo quien lo mire. Tono de aviso, con el conteo. En una
+     *    incidencia o un evento cualquiera de sus responsables la cierra el
+     *    solo, asi que mientras quede uno operativo la tarea NO esta parada:
+     *    ahi el caso degradado no se pinta —serian 32 filas afirmando que algo
+     *    no va a avanzar cuando si va a avanzar—.
+     *
+     * Y solo sobre tareas que siguen esperando a alguien
+     * (`unfinished_statuses`): una 'Completada' cuyos responsables ya no entran
+     * es trabajo terminado por gente que se fue, no un atasco. Son 184 filas;
+     * sin ese filtro el aviso saldria en 273 y las 57 paradas de verdad
+     * quedarian dentro de la pared de rojo.
      *
      * QUIEN tiene acceso NO se decide aqui. Viene en `assignees_without_access`,
      * que el servidor calcula una vez por peticion con
@@ -450,13 +479,16 @@
      */
     Tasks.prototype.stuckNotice = function (task) {
         if (!this.showAccessWarning) return null;
-        if (CLOSED_STATUSES[task.status]) return null;
+        if (!this.unfinishedStatuses[task.status]) return null;
 
         var sin = (task.assignees_without_access || []).length;
         if (!sin) return null;
 
         var total = (task.assignees || []).length;
         var todos = sin >= total;
+        // Queda alguien que puede atenderla y con uno basta: no hay atasco.
+        if (!todos && !this.allAssigneesRequired) return null;
+
         var salida = this.can.assign
             ? (todos ? ' Reasígnala con el botón Asignar de esta fila.'
                      : ' Revisa la asignación con el botón Asignar de esta fila.')

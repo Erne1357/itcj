@@ -2,7 +2,7 @@
 
 Es la pieza más delicada de la migración. Todo lo de aquí sale de
 ``api_docs.py`` (`save_flow_steps`, `assign_step_users`, `notify_step_users`,
-`iniciar_flujo_doc`), reescrito según el plan §7 y §10.b. Los cuatro arreglos
+`iniciar_flujo_doc`), reescrito según el plan §7 y §10.b. Los cinco arreglos
 que justifican el módulo:
 
 1. **Upsert por ``step_order``, no delete-all** (:meth:`upsert_flow_steps`).
@@ -28,6 +28,16 @@ que justifican el módulo:
    ``doc.flow_id = flow_id`` con el valor crudo del JSON y solo se enteraba de
    que no existía porque la consulta de pasos salía vacía (mensaje engañoso:
    "el flujo no tiene pasos configurados").
+
+5. **`start_flow` mira las tareas DE FLUJO, no el `status`.** El guard de "ya
+   iniciado" preguntaba `status == 'En Revisión' and flow_id`, y el documento 202
+   llegó de la migración en `'Borrador'` con `flow_id` y dos tareas vivas: no
+   disparaba, y volver a sellar duplicaba el juego completo de tareas. Ahora lo
+   decide :meth:`AdhocDocumentFlowService._assert_sin_flujo_vivo`, que busca
+   tareas de ESTE documento con `flow_step_id IS NOT NULL` —la marca que solo
+   pone `start_flow`— en `'En Revisión'` o `'En Espera'`, y el conflicto es un
+   409, no un 400. El seguimiento manual del documento no cuenta: es trabajo,
+   no flujo.
 
 Contrato de errores idéntico al de ``document_service``: ``LookupError`` → 404,
 :class:`AdhocConflict` → 409, ``ValueError`` → 400. Ningún método lanza
@@ -374,6 +384,62 @@ class AdhocDocumentFlowService:
     # Arranque y avance del flujo (plan §10.b)
     # ==================================================================
     @staticmethod
+    def _assert_sin_flujo_vivo(db: Session, doc: AdhocDocument) -> None:
+        """409 si el documento ya tiene un flujo de aprobación a medias.
+
+        Lo que impide sellar un documento no es lo que diga ``status`` —el guard
+        anterior preguntaba ``status == 'En Revisión' and flow_id``, y por eso
+        no protegía nada:
+
+        * hacia arriba era redundante, porque ``'En Revisión'`` ya no está en
+          ``DOCUMENT_STATUSES_STARTABLE`` y el gate de justo debajo lo rechaza
+          igual (con 409 en vez de 400);
+        * hacia abajo no cubría el caso real: el documento 202 llegó de la
+          migración del SGC en ``status='Borrador'`` con ``flow_id=5``,
+          ``current_step_id=NULL`` y **dos tareas de flujo vivas**. La condición
+          no disparaba, el panel pintaba el botón del sello (``'Borrador'`` sí es
+          startable) y volver a pulsarlo duplicaba el juego completo de tareas,
+          con dos *"Aprobar Documento: …"* por paso en el tablero de cada
+          validador.
+
+        Son las **tareas de flujo** vivas. Y solo esas: el predicado exige
+        ``flow_step_id IS NOT NULL``, que es la marca que ``start_flow`` —y nadie
+        más— pone al crearlas.
+
+        Por qué no se reutiliza :meth:`AdhocDocumentService._assert_sin_flujo_vivo`,
+        que responde a una pregunta parecida: esa mira **cualquier** tarea de la
+        cadena de versiones, y hace bien, porque lo que va a marcar ``'Obsoleto'``
+        es la cadena entera. Aquí ese alcance es dañino en las dos direcciones:
+
+        * cuenta el seguimiento manual. Un documento puede tener tareas propias
+          que no son de flujo —la pantalla ``/adhoc/documentos/{id}/tareas`` deja
+          crearlas y su ``<select>`` ofrece ``'En Revisión'`` y ``'En Espera'``
+          entre los seis estados—, y con ellas el sellado contestaba un 409 que
+          nombraba un flujo inexistente y pedía terminar o rechazar una tarea de
+          trabajo legítima. Comprobado sobre el documento 2 (``'Borrador'``,
+          ``flow_id`` nulo, cero tareas): una sola tarea manual en cualquiera de
+          esos dos estados lo dejaba imposible de sellar;
+        * y el alcance de cadena no aporta nada: una versión solo se anexa si la
+          cadena no tiene flujo vivo (``_supersede_chain``), y medido sobre la
+          base real hay 0 documentos startables cuya cadena tenga tareas de flujo
+          vivas en otra versión.
+        """
+        viva = (
+            db.query(AdhocTask.id)
+            .filter(
+                AdhocTask.document_id == doc.id,
+                AdhocTask.flow_step_id.isnot(None),
+                AdhocTask.status.in_((TASK_STATUS_IN_REVIEW, TASK_STATUS_WAITING)),
+            )
+            .first()
+        )
+        if viva is not None:
+            raise AdhocConflict(
+                "El documento ya tiene un flujo de aprobación en curso. Termine o "
+                "rechace las tareas del flujo pendientes antes de iniciar otro."
+            )
+
+    @staticmethod
     def start_flow(
         db: Session,
         document_id: int,
@@ -392,11 +458,13 @@ class AdhocDocumentFlowService:
             ``{"document", "flow", "first_step", "tasks", "email_sent", "message"}``.
 
         Raises:
-            ValueError: sin ``flow_id``, flujo sin pasos, o documento ya iniciado.
+            ValueError: sin ``flow_id``, o flujo sin pasos.
             LookupError: documento o flujo inexistentes.
-            AdhocConflict: el estado del documento no admite arrancar un flujo
-                (``DOCUMENT_STATUSES_STARTABLE``): una versión superada está en
-                ``'Obsoleto'``, que es terminal.
+            AdhocConflict: el documento ya tiene un flujo vivo —tareas **de
+                flujo** en ``'En Revisión'`` o ``'En Espera'``, se comprueba con
+                :meth:`_assert_sin_flujo_vivo`—, o su estado no admite arrancar
+                uno (``DOCUMENT_STATUSES_STARTABLE``): una versión superada está
+                en ``'Obsoleto'``, que es terminal.
         """
         if not flow_id:
             raise ValueError("Debe enviar flow_id.")
@@ -405,8 +473,7 @@ class AdhocDocumentFlowService:
         if doc is None:
             raise LookupError("Documento no encontrado")
 
-        if doc.status == DOCUMENT_STATUS_IN_REVIEW and doc.flow_id:
-            raise ValueError("El documento ya tiene un flujo iniciado.")
+        AdhocDocumentFlowService._assert_sin_flujo_vivo(db, doc)
 
         # `DOCUMENT_STATUSES_STARTABLE` existía desde la migración y hasta ahora
         # solo lo respetaba el navegador (`documents-panel.js` esconde el botón

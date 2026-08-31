@@ -534,6 +534,90 @@ class TestCategorias:
 
 
 # ==========================================================================
+# La puerta a las tareas — el botón de la fila y su permiso  (B5)
+#
+# `/adhoc/{incidencias|programas}/{id}/tareas` exige `adhoc.tasks.page.list`, y
+# estas dos listas ofrecían el botón que lleva allí sin mirar ese permiso. Hoy
+# ningún rol del DML separa `incidents.page.list` de `tasks.page.list`, pero un
+# permiso directo o un override de puesto sí pueden, y entonces el icono sale en
+# las 25 filas de la página y ninguna lleva a ningún sitio.
+#
+# Lo que se retira NO es solo la URL: `work-items.js` rellena la celda "Tareas"
+# siempre (`renderCell` → `tasksButton`), así que apagar `tasks_url` a secas
+# dejaría el botón puesto y mudo. Se quita la COLUMNA entera
+# (`columns_without_tasks`), y como el JS lee las claves del `<thead>`, eso se
+# lleva encabezado, fila de filtros y celda de una vez. Por eso aquí se miden las
+# dos cosas: el JSON y el markup.
+#
+# El panel de documentos hace lo propio desde B4 con su `if (this.tasksUrl)`, así
+# que esa pantalla no entra en este bloque.
+# ==========================================================================
+
+class TestBotonDeTareas:
+    #: URL de la lista → plantilla de destino que emite su `page_data`.
+    LISTAS = {
+        "/adhoc/incidencias": "/adhoc/incidencias/{id}/tareas",
+        "/adhoc/programas": "/adhoc/programas/{id}/tareas",
+    }
+
+    @pytest.mark.parametrize("url", sorted(LISTAS))
+    def test_con_el_permiso_se_ofrece_la_columna_y_su_url(
+        self, pages_client, headers, grant, catalogs, url
+    ):
+        with grant():
+            html = pages_client.get(url, headers=headers).text
+        assert page_data(html)["tasks_url"] == self.LISTAS[url]
+        assert 'data-adhoc-filter-key="tasks"' in html
+
+    @pytest.mark.parametrize("url", sorted(LISTAS))
+    def test_sin_el_permiso_no_hay_url_ni_columna(
+        self, pages_client, headers, grant, catalogs, url
+    ):
+        """Con todo lo demás concedido: lo único que falta es la página destino."""
+        with grant(perms=ALL_PERMS - {"adhoc.tasks.page.list"}):
+            res = pages_client.get(url, headers=headers)
+        assert res.status_code == 200, res.text[:300]
+        html = res.text
+        assert page_data(html)["tasks_url"] is None
+        assert 'data-adhoc-filter-key="tasks"' not in html
+
+    @pytest.mark.parametrize("url", sorted(LISTAS))
+    def test_la_tabla_sigue_cuadrada_al_quitar_la_columna(
+        self, pages_client, headers, grant, catalogs, url
+    ):
+        """Quitar una columna a mano descuadra el `colspan` del "sin resultados".
+
+        No puede pasar —la macro `data_table()` deriva cabecera, filtros y
+        colspan de la MISMA lista—, y esto lo certifica sobre el HTML: una
+        columna menos en los tres sitios a la vez.
+        """
+        def medidas(html):
+            # La clave de columna se emite DOS veces —en el rotulo y en su
+            # celda de filtro—, que es justo lo que tiene que seguir cuadrando:
+            # se cuentan por separado, como en `tabla_de_tareas`.
+            thead = re.search(r"<thead>(.*?)</thead>", html, re.S)
+            assert thead, "la pagina no pinto la tabla"
+            filas = re.findall(r"<tr[^>]*>(.*?)</tr>", thead.group(1), re.S)
+            assert len(filas) == 2, "el thead son dos filas: rotulos y filtros"
+            claves = re.findall(r'data-adhoc-filter-key="([^"]+)"', filas[0])
+            filtros = re.findall(r'data-adhoc-filter-key="([^"]+)"', filas[1])
+            assert claves == filtros
+            colspan = re.search(r'<td colspan="(\d+)"', html)
+            assert colspan, "la tabla no declara la fila de 'sin resultados'"
+            return claves, int(colspan.group(1))
+
+        with grant():
+            con, con_span = medidas(pages_client.get(url, headers=headers).text)
+        with grant(perms=ALL_PERMS - {"adhoc.tasks.page.list"}):
+            sin, sin_span = medidas(pages_client.get(url, headers=headers).text)
+
+        assert con_span == len(con)
+        assert sin_span == len(sin)
+        assert con_span - sin_span == 1
+        assert [c for c in con if c != "tasks"] == sin
+
+
+# ==========================================================================
 # Páginas de tareas — UN template, dos padres
 # ==========================================================================
 
@@ -764,6 +848,191 @@ class TestColumnaPaso:
             assert 'data-adhoc-filter-key="flow_step"' not in pantallas[tipo], tipo
             assert ">Paso<" not in pantallas[tipo], tipo
         assert 'data-adhoc-filter-key="flow_step"' in pantallas["document"]
+
+
+# ==========================================================================
+# El aviso de atasco — TRES pantallas, un solo criterio  (B5 · A17)
+#
+# Una tarea cuyos responsables ya no pueden entrar a Calidad no la puede atender
+# nadie: no la termina el asignado (`workflow_action` exige pertenencia) y el
+# flujo no avanza solo. Son 57 abiertas —43 de incidencia, 13 de programa, 1 de
+# documento—, y hasta B4 el aviso solo se encendía en la de documento, con un
+# `parentType === 'document'` escrito en el JS: 56 de las 57 vivían justo en las
+# dos pantallas que se callaban.
+#
+# Lo que se prueba aquí es el REPARTO de la decisión, que es lo que hace que el
+# aviso pueda ser correcto en las tres a la vez:
+#
+#   · QUIÉN no tiene acceso → cada fila del API (`assignees_without_access`,
+#     resuelto con `users_with_assignment_select`). No es de este archivo.
+#   · CUÁNDO esa lista significa algo → dos reglas de negocio en el `page_data`,
+#     emitidas por `_work_context.tasks_page_context` para las tres pantallas.
+#   · CÓMO se pinta → `work/tasks.js`, que ya no decide nada: lee las reglas.
+#
+# La evaluación por fila ocurre necesariamente en el cliente (el `status` viaja
+# por fila y la tabla la pinta el JS), así que el comportamiento visible se cubre
+# en E2E; lo que se congela aquí es que la REGLA sale del servidor y que el
+# módulo no vuelve a escribirla por su cuenta. Dos frases sobre lo mismo en dos
+# sitios es exactamente la divergencia que este reparto existe para impedir.
+# ==========================================================================
+
+class TestAvisoDeAtasco:
+    @pytest.fixture()
+    def documento(self, db_session):
+        from itcj2.apps.adhoc.models.documents import AdhocDocument
+
+        row = AdhocDocument(code="e2e_DOC-atasco", title="e2e documento atascado",
+                            version="1.0", status="En Revisión")
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    @pytest.fixture()
+    def datos(self, pages_client, headers, grant, incident, event, documento):
+        """El `page_data` de las tres pantallas de tareas, pedido por HTTP."""
+        with grant():
+            res = {
+                "incident": pages_client.get(
+                    f"/adhoc/incidencias/{incident.id}/tareas", headers=headers),
+                "program": pages_client.get(
+                    f"/adhoc/programas/{event.id}/tareas", headers=headers),
+                "document": pages_client.get(
+                    f"/adhoc/documentos/{documento.id}/tareas", headers=headers),
+            }
+        for tipo, r in res.items():
+            assert r.status_code == 200, (tipo, r.text[:300])
+        return {tipo: page_data(r.text) for tipo, r in res.items()}
+
+    def test_las_tres_pantallas_llevan_el_aviso(self, datos):
+        """Incluidas las dos de esta sección, que es lo que cambia en B5."""
+        assert set(datos) == {"incident", "program", "document"}
+        apagadas = [tipo for tipo, d in datos.items()
+                    if d["show_access_warning"] is not True]
+        assert not apagadas, apagadas
+
+    def test_el_criterio_de_ruido_deja_fuera_la_tarea_terminada(self, datos):
+        """Una 'Completada' no está atascada aunque su responsable ya no entre.
+
+        Está hecha. Y no es un matiz: de las 684 tareas de la base, 453 están
+        'Completada' y 184 de ellas tienen hoy algún responsable sin acceso —diez
+        años de aprobaciones firmadas por gente que ya no trabaja aquí—. Sin este
+        filtro el aviso saldría en 273 filas y las 57 que de verdad están paradas
+        se perderían dentro.
+
+        El resto del vocabulario SÍ cuenta, incluidos los dos estados en los que
+        vive una tarea de flujo documental ('En Revisión' y 'En Espera'): son los
+        de la tarea 683 del documento 202, la que destapó todo esto. Cablear aquí
+        `TASK_OPEN_STATUSES` —el filtro del tablero, que los deja fuera— habría
+        apagado el aviso justo donde nació.
+        """
+        from itcj2.apps.adhoc.utils.constants import TASK_STATUSES
+
+        for tipo, d in datos.items():
+            abiertos = d["unfinished_statuses"]
+            assert "Completada" not in abiertos, tipo
+            assert set(abiertos) == set(TASK_STATUSES) - {"Completada"}, tipo
+            assert "En Revisión" in abiertos and "En Espera" in abiertos, tipo
+            assert "Rechazada" in abiertos, tipo   # "corrige y vuelve", sigue viva
+
+    def test_perder_a_algunos_solo_para_al_documento(self, datos):
+        """La segunda regla, la que distingue a los tres padres.
+
+        En un documento el paso solo avanza cuando aprueban TODOS los asignados
+        (`task_workflow_service._record_decision` cuenta contra `len(assignees)`),
+        así que con uno de dos fuera tampoco se completa. En una incidencia o un
+        evento cualquiera de sus responsables la cierra él solo (rama A de
+        `workflow_action`): mientras quede uno operativo la tarea no está parada
+        y pintarla afirmaría algo falso — son 32 filas hoy.
+        """
+        assert datos["document"]["all_assignees_required"] is True
+        assert datos["incident"]["all_assignees_required"] is False
+        assert datos["program"]["all_assignees_required"] is False
+
+    def test_las_tres_reciben_exactamente_las_mismas_reglas(self, datos):
+        """Salvo la que depende del padre: un solo contexto para las tres.
+
+        `tasks_page_context` es una sola función precisamente para que las
+        pantallas no puedan divergir; esto lo comprueba sobre el JSON que llega
+        al navegador.
+        """
+        comunes = [(d["show_access_warning"], d["unfinished_statuses"])
+                   for d in datos.values()]
+        assert comunes.count(comunes[0]) == len(comunes)
+
+    def test_la_fila_terminada_y_la_abierta_solo_se_distinguen_por_la_regla(
+        self, pages_client, db_session, incident, usuario_sin_acceso, datos
+    ):
+        """Las dos mitades juntas: el DATO es idéntico, la REGLA es la que separa.
+
+        Se montan dos tareas de la misma incidencia con el MISMO responsable sin
+        acceso, una ``'Pendiente'`` y otra ``'Completada'``. El API emite
+        ``assignees_without_access`` en las dos —no es él quien decide si eso es
+        un atasco—, así que sin el criterio de ruido el aviso saldría igual en la
+        terminada. En la base son 184 filas así, y taparían las 57 que de verdad
+        están paradas.
+
+        El JWT de la llamada al API es de admin (bypasea ``require_perms``): aquí
+        se mide lo que el endpoint emite, no la autorización.
+        """
+        from itcj2.apps.adhoc.models.tasks import AdhocTask
+
+        creadas = {}
+        for estado in ("Pendiente", "Completada"):
+            tarea = AdhocTask(description=f"e2e tarea de atasco {estado}",
+                              incident_id=incident.id, status=estado)
+            tarea.assignees.append(usuario_sin_acceso)
+            db_session.add(tarea)
+            creadas[estado] = tarea
+        db_session.flush()
+
+        admin = {"Cookie": f"itcj_token={make_jwt(user_id=4102, role='admin')}"}
+        res = pages_client.get(
+            f"/api/adhoc/v2/tasks?parent_type=incident&parent_id={incident.id}",
+            headers=admin,
+        )
+        assert res.status_code == 200, res.text[:300]
+        filas = {f["description"]: f for f in res.json()["data"]}
+
+        # El dato: las dos filas traen al mismo responsable sin acceso.
+        for estado, tarea in creadas.items():
+            fila = filas[tarea.description]
+            assert fila["assignees_without_access"] == [usuario_sin_acceso.id], estado
+
+        # La regla: solo una de las dos sigue esperando a alguien.
+        abiertos = datos["incident"]["unfinished_statuses"]
+        assert "Pendiente" in abiertos
+        assert "Completada" not in abiertos
+
+    def test_el_modulo_ya_no_escribe_su_propia_lista_de_estatus(self):
+        """El JS obedece las reglas; no las reescribe.
+
+        Antes de B5 el criterio de ruido vivía en `work/tasks.js` como
+        `var CLOSED_STATUSES = { 'Completada': true }`: el vocabulario de estados
+        de la app, copiado a mano en un módulo de pantalla y a un `git grep` de
+        distancia de quedarse atrás del `CheckConstraint`. Y la decisión de qué
+        pantalla llevaba el aviso era un `parentType === 'document'` suelto.
+        """
+        js = _strip_js_comments(
+            (STATIC_DIR / "js" / "work" / "tasks.js").read_text(encoding="utf-8"))
+
+        assert "CLOSED_STATUSES" not in js, (
+            "vuelve a haber una lista de estatus escrita a mano en el módulo; "
+            "el criterio de ruido es `unfinished_statuses`, del servidor"
+        )
+        # Las tres banderas se leen del page_data…
+        for clave in ("show_access_warning", "unfinished_statuses",
+                      "all_assignees_required"):
+            assert f"this.data.{clave}" in js, clave
+        # …y son las que consulta el aviso, no `parent_type`.
+        aviso = js[js.index("Tasks.prototype.stuckNotice"):]
+        aviso = aviso[:aviso.index("\n    };")]
+        assert "this.showAccessWarning" in aviso
+        assert "this.unfinishedStatuses[task.status]" in aviso
+        assert "this.allAssigneesRequired" in aviso
+        assert "parentType" not in aviso, (
+            "el aviso vuelve a decidir por el tipo de padre; esa decisión es de "
+            "`_work_context.tasks_page_context`"
+        )
 
 
 # ==========================================================================

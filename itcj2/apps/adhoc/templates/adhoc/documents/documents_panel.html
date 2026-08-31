@@ -286,7 +286,28 @@
            entonces lleva encima el aviso de que el anterior se borra del
            disco; si no, en su hueco va la nota de que ahí no se sustituye
            nada. Los dos avisos los construye el JS con textContent. #}
-        <form data-adhoc-doc-form novalidate>
+        {# `hx-boost="false"` NO es decorativo: es lo que impide que HTMX se lleve
+           por delante el boton ATRAS de toda la app. `#adhoc-root` declara
+           `hx-boost="true"` y el atributo lo HEREDA todo descendiente, modales
+           incluidos; al procesar un <form> boosted, htmx 2.0.3 hace
+           (`boostElement`):
+
+               path = getRawAttribute(elt, 'action')
+               if (verb === 'get' && path.includes('?')) ...
+
+           Sin `action`, `path` es null y eso es un TypeError. En la carga normal
+           la excepcion aborta el `ready()` de htmx ANTES de instalar
+           `window.onpopstate`, asi que el ATRAS deja de hacer nada; y si se
+           llega a esta pantalla navegando, la excepcion sube dentro de
+           `restoreHistory()` y `htmx:historyRestore` no se emite nunca, con lo
+           que la lista vuelve pintada del cache y MUERTA.
+
+           Darle `action` seria mentir: este formulario no se manda nunca al
+           servidor por si mismo —documents-panel.js lo lee con `new FormData(form)` y llama a
+           la API con `fetch`—. Lo correcto es sacarlo del boost.
+           Regresion cubierta por tests/e2e/adhoc/navigation-integrity.spec.js
+           ("ningun <form> de dentro de #adhoc-root se queda sin action"). #}
+        <form data-adhoc-doc-form novalidate hx-boost="false">
           <div data-adhoc-doc-fields></div>
         </form>
       </div>

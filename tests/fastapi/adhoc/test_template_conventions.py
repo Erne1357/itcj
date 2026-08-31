@@ -458,6 +458,174 @@ def test_los_selects_del_modal_de_documentos_conservan_el_valor_guardado():
     )
 
 
+# ── 11. ningún <form> boosted sin `action` ─────────────────────────────────
+#
+# `#adhoc-root` lleva `hx-boost="true"` y el atributo lo HEREDA todo
+# descendiente, `{% block modals %}` incluido. Al procesar un <form> boosted,
+# htmx 2.0.3 hace (`boostElement`):
+#
+#     path = getRawAttribute(elt, 'action')
+#     if (verb === 'get' && path.includes('?')) ...
+#
+# Sin `action`, `path` es null y eso es un TypeError. No es cosmético:
+#
+#   · en la carga completa la excepción aborta el `ready()` de htmx ANTES de la
+#     línea que instala `window.onpopstate`, así que en esa pantalla el botón
+#     ATRÁS deja de hacer nada — y envenena el resto de la sesión, porque el
+#     runtime a medio arrancar ya no actualiza `currentPathForHistory`;
+#   · si se llega navegando, la excepción sube dentro de `restoreHistory()` y
+#     `htmx:historyRestore` no llega a emitirse: la lista vuelve pintada del
+#     caché, con sus marcas `data-adhoc-*-bound` rancias, y MUERTA.
+#
+# Tres plantillas lo tenían (`work/_work_item_page.html`, `work/tasks.html`,
+# `documents/documents_panel.html`), que son los modales de alta y edición de
+# incidencias, programas, tareas y documentos: las listas más usadas de la app.
+#
+# La regla vive aquí y no solo en el E2E porque el E2E únicamente ve las
+# pantallas que visita y solo si tienen datos; esto recorre las 34 plantillas.
+
+RE_FORM = re.compile(r"<form\b(?P<attrs>[^>]*)>", re.I)
+
+#: Comentario de Jinja o de HTML. Se vacían antes de buscar: los comentarios de
+#: estas mismas plantillas —y el que acompaña a cada `hx-boost="false"`— citan
+#: `<form>` para explicar por qué llevan lo que llevan, y un lint que se
+#: denuncia a sí mismo no lo arregla nadie. Se sustituyen por sus saltos de
+#: línea para que el número del mensaje siga apuntando a la línea de verdad.
+RE_COMENTARIO = re.compile(r"\{#.*?#\}|<!--.*?-->", re.S)
+
+
+def _sin_comentarios(html: str) -> str:
+    return RE_COMENTARIO.sub(lambda m: "\n" * m.group(0).count("\n"), html)
+
+
+def test_ningun_form_se_queda_sin_action_dentro_del_boost():
+    """Un <form> sin `action` dentro de #adhoc-root revienta el ATRÁS de la app."""
+    culpables = []
+    for nombre, html_crudo in _plantillas():
+        html = _sin_comentarios(html_crudo)
+        for m in RE_FORM.finditer(html):
+            attrs = m.group("attrs")
+            if re.search(r"\baction\s*=", attrs, re.I):
+                continue
+            if re.search(r'\bhx-boost\s*=\s*"false"', attrs, re.I):
+                continue
+            if re.search(r'\bmethod\s*=\s*"dialog"', attrs, re.I):
+                continue
+            linea = html[: m.start()].count("\n") + 1
+            culpables.append(f"{nombre}:{linea}  <form{attrs.rstrip()}>")
+
+    assert not culpables, (
+        "<form> sin `action` heredando `hx-boost` de #adhoc-root:\n  "
+        + "\n  ".join(culpables)
+        + "\n\nhtmx 2.0.3 hace `getRawAttribute(form,'action').includes('?')` al "
+        "boostearlo, y sin `action` eso es un TypeError que se lleva por delante "
+        "el botón ATRÁS de toda la app.\n"
+        "Si el formulario se manda con `fetch` desde su módulo —que es el caso "
+        'de todos los de Calidad— la respuesta es `hx-boost="false"` en el '
+        "propio <form>, no inventarle un `action` al que no se envía nunca."
+    )
+
+
+# ── 12. los <script> de la base viven en el <head> ─────────────────────────
+#
+# HTMX guarda y repone el historial sobre el "elemento de historial", que es el
+# que lleve `hx-history-elt` o, si nadie lo lleva —el caso de esta app—,
+# `document.body`. Repone con `swapInnerHTML`, que vuelve a CREAR cada <script>
+# del fragmento y por tanto a EJECUTARLO (`htmx.config.allowScriptTags`).
+#
+# Con los <script> de la base dentro del <body> eso significaba una copia nueva
+# de HTMX, de Bootstrap, de AdhocUtils y de table-filter.js por CADA ATRÁS:
+# medido en Chromium con tres idas y vueltas, los listeners de `document`
+# pasaban de 43 a 118, y dos runtimes de HTMX peleándose por
+# `currentPathForHistory` dejaban el caché de historial corrupto (volvías a
+# /adhoc/documentos y veías el tablero).
+#
+# En el <head> quedan fuera del elemento de historial. Y bloqueantes (sin
+# `defer`), porque `{% block extra_js %}` vive dentro de #adhoc-root y sus
+# <script> corren durante el parseo del <body>: con `defer` estos correrían
+# DESPUÉS y cada módulo de página arrancaría sin `window.AdhocUtils`.
+
+_BASE = PLANTILLAS / "base_adhoc.html"
+
+#: Los que TIENEN que cargarse desde el <head>, por un trozo único de su `src`.
+_SCRIPTS_DE_LA_BASE = (
+    "htmx.org@2.0.3",
+    "idiomorph",
+    "head-support",
+    "bootstrap.bundle.min.js",
+    "js/adhoc-utils.js",
+    "js/shared/table-filter.js",
+    "js/apps/mobile-app-shell.js",
+)
+
+#: Los `src` de los <script> de un trozo de HTML. Se miran los `src` y no el
+#: texto crudo para no confundir un <script> con una mención suya dentro de un
+#: comentario `{# ... #}` — que las hay, y muchas.
+RE_SCRIPT_SRC = re.compile(r'<script\b[^>]*\bsrc="([^"]+)"', re.I)
+
+
+def _head_y_body(html: str) -> tuple[str, str]:
+    """Parte la plantilla por la etiqueta <body> DE VERDAD.
+
+    No vale `html.index("<body")`: el comentario de cabecera de base_adhoc.html
+    menciona `<body>` varias veces al explicar por qué las clases de página van
+    en #adhoc-root y no ahí, y el corte caería dentro del comentario.
+    """
+    m = re.search(r"(?m)^<body\b", html)
+    assert m, "base_adhoc.html no tiene una etiqueta <body> a principio de línea"
+    return html[: m.start()], html[m.start():]
+
+
+@pytest.mark.parametrize("marca", _SCRIPTS_DE_LA_BASE)
+def test_los_scripts_de_la_base_van_en_el_head(marca):
+    """En el <body> se re-ejecutan en cada ATRÁS; en el <head> no."""
+    head, body = _head_y_body(_BASE.read_text(encoding="utf8"))
+    en_head = [s for s in RE_SCRIPT_SRC.findall(head) if marca in s]
+    en_body = [s for s in RE_SCRIPT_SRC.findall(body) if marca in s]
+
+    assert en_head, (
+        f"El <script> de '{marca}' ya no se carga desde el <head> de "
+        "base_adhoc.html.\nDentro del <body> entra en el elemento de historial "
+        "de HTMX, y cada ATRÁS crea otra copia del archivo: otro juego de "
+        "listeners globales, otro runtime de HTMX y el caché de historial "
+        "corrupto a partir del segundo ATRÁS."
+    )
+    assert not en_body, (
+        f"'{marca}' se carga TAMBIÉN desde el <body> ({en_body}): dos copias "
+        "del mismo módulo es peor que una en el sitio malo."
+    )
+
+
+def test_solo_el_shell_movil_lleva_defer():
+    """`defer` invierte el orden con los módulos de página.
+
+    `mobile-app-shell.js` es del CORE y en su primera línea hace
+    `document.body.classList.add(...)`; en un <head> bloqueante `document.body`
+    todavía es null, así que es el único que necesita `defer` — y puede
+    permitírselo porque no exporta nada que los módulos de página usen.
+
+    Los otros seis NO pueden llevarlo: los <script> de `{% block extra_js %}`
+    corren durante el parseo del <body>, así que con `defer` estos correrían
+    después y cada módulo de página arrancaría con `window.AdhocUtils` sin
+    definir — la pantalla se pintaría y quedaría muerta.
+    """
+    head, _ = _head_y_body(_BASE.read_text(encoding="utf8"))
+    con_defer = re.findall(
+        r'<script\b(?=[^>]*\bdefer\b)[^>]*\bsrc="([^"]+)"', head, re.I
+    )
+    sobran = [s for s in con_defer if "mobile-app-shell.js" not in s]
+    assert not sobran, (
+        f"Estos <script> del <head> llevan `defer` y no deben: {sobran}. "
+        "Correrían después de los módulos de página, que arrancarían sin "
+        "window.AdhocUtils."
+    )
+    assert con_defer, (
+        "mobile-app-shell.js perdió el `defer`: en un <head> bloqueante su "
+        "`document.body.classList.add(...)` de la primera línea revienta "
+        "porque `document.body` todavía no existe."
+    )
+
+
 # ── 10. el bump de estáticos ───────────────────────────────────────────────
 #
 # En este repo NO hay `static-manifest.json`, así que `load_static_manifest()`
@@ -476,7 +644,7 @@ _ESTATICOS = RAIZ / "static"
 #: tocar un CSS/JS de adhoc se sube la constante en ``itcj2/config.py`` y se
 #: pega aquí la huella nueva que imprime el fallo. Son dos líneas, y son la
 #: diferencia entre desplegar el cambio y creer que se desplegó.
-_ULTIMO_BUMP = ("1.0.1111532", "a3664a03ecbdfc76")
+_ULTIMO_BUMP = ("1.0.1111534", "647efd1a8eb255e3")
 
 
 def _huella_estaticos() -> str:

@@ -1,0 +1,85 @@
+{# ===========================================================================
+   errors/error.html — la página de error de Calidad.
+
+   Sirve 400, 403, 404, 422 y 500 con el MISMO molde: quien la renderiza es
+   `_render_error_page` de itcj2/main.py, que elige la plantilla por el prefijo
+   de la ruta y le pasa siempre el mismo contrato:
+
+     error_code · error_title · error_message · button_url · button_label
+     button_exits_app  → True solo en el 403 de quien NO tiene acceso a la app
+
+   Por qué existe: hasta hoy `_APP_BY_PREFIX` no incluía "/adhoc", así que
+   `_app_for()` devolvía "core" y CUALQUIER error dentro de Calidad —incluido el
+   403 de una pantalla sin permiso— salía con el shell del core y un "Ir al
+   inicio" que apuntaba al hub de apps. El usuario se veía expulsado de la app
+   por pulsar un enlace de la propia app.
+
+   ─── Las tres hermanas y en qué se aparta esta ─────────────────────────────
+   maint, helpdesk y agendatec tienen su `errors/error.html` como documento
+   suelto: su propio <head>, su propio CSS y su propio <script> inline para el
+   postMessage CLOSE_APP del botón de salida. Aquí no vale ninguna de las tres
+   cosas:
+
+     · Esta EXTIENDE `adhoc/base_adhoc.html`. El encargo es precisamente que el
+       error se vea DENTRO de Calidad, y el shell (cabecera, contenedor de
+       1200px, tipografía) es el shell.
+     · CERO hoja propia. Todo el molde sale de clases que `adhoc.css` ya
+       declara —`.adhoc-page-head`, `.adhoc-card`, `.adhoc-empty`, `.btn`—, que
+       es la regla de vocabulario que vigila
+       tests/fastapi/adhoc/test_template_conventions.py. Un CSS nuevo aquí
+       obligaría además a bumpear STATIC_VERSION por una pantalla que se ve una
+       vez al mes.
+     · CERO <script> inline (regla dura §6.2 del app). El botón que SALE de la
+       app usa `target="_top"` en vez del postMessage de las hermanas: dentro
+       del iframe móvil del dashboard rompe el marco en lugar de anidar el hub
+       dentro de sí mismo, y fuera del iframe es una navegación normal. Se
+       pierde el matiz de "cerrar solo esta ventana sin recargar el escritorio";
+       a cambio no hay JS. El botón de volver del appbar (`mobileBackToDashboard`,
+       que engancha el shell móvil del core) sigue ahí para ese caso.
+
+   El nav NO llega en el contexto a propósito (ver el comentario de
+   `_render_error_page`): calcularlo pide BD, y esta plantilla tiene que poder
+   pintarse justo cuando la BD es lo que ha fallado. `_nav.html` hace
+   `nav|default([])`, así que la fila de tarjetas simplemente no aparece.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+
+{% block title %}Error {{ error_code }} · Calidad · ITCJ{% endblock %}
+
+{% block content %}
+<div class="adhoc-page-head">
+  <div class="adhoc-page-head-main">
+    <h1 class="adhoc-page-title">
+      <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+      Error {{ error_code }}
+    </h1>
+    <p class="adhoc-page-subtitle">{{ error_title }}</p>
+  </div>
+</div>
+
+<div class="adhoc-card">
+  <div class="adhoc-empty">
+    <i class="fa-solid fa-circle-exclamation adhoc-empty-icon" aria-hidden="true"></i>
+
+    <p class="adhoc-empty-text mb-3">{{ error_message }}</p>
+
+    {# La referencia es lo que el usuario le dicta a quien administra el
+       sistema. Sin ella el parte de incidencia es "no me deja entrar". #}
+    <p class="adhoc-empty-text mb-3">
+      Si el problema continúa, avisa a la administración del sistema con esta
+      referencia: HTTP {{ error_code }} · {{ error_title|upper|replace(' ', '_') }}
+    </p>
+
+    {% if button_url %}
+    {# hx-boost="false" SIEMPRE: el enlace vive dentro de #adhoc-root, que boostea
+       todo lo que cuelga de él, y `hx-select="#adhoc-root"` no encontraría nada
+       en la respuesta del hub del core (`/itcj/dashboard`) — el clic no haría
+       nada. Una navegación de documento es lo correcto para salir de aquí. #}
+    <a class="btn btn-sm btn-primary" href="{{ button_url }}"
+       hx-boost="false"{% if button_exits_app %} target="_top"{% endif %}>
+      <i class="fa-solid fa-arrow-left me-1" aria-hidden="true"></i>{{ button_label }}
+    </a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

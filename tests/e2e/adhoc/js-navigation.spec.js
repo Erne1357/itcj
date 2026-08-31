@@ -21,10 +21,30 @@
  * llegar a verse.
  */
 const { test, expect } = require('@playwright/test');
-const { gotoAdhoc, ADHOC_SHELL, newApiContext, cleanupAdhoc, E2E_YEAR_MIN } = require('./_helpers');
+const {
+  gotoAdhoc,
+  ADHOC_SHELL,
+  newApiContext,
+  cleanupAdhoc,
+  E2E,
+  E2E_YEAR_MIN,
+} = require('./_helpers');
 
 /** Año del rango reservado (2090-2099) que `cleanupAdhoc()` barre al terminar. */
 const ANIO = E2E_YEAR_MIN + 3;
+
+// Incidencias de la suite del ATRAS (al final del archivo). El listado pagina
+// de 25 en 25 EN EL SERVIDOR, asi que para comprobar que el pager responde hace
+// falta que haya mas de una pagina, y para comprobar que el filtro responde
+// hace falta una fila que se pueda aislar por titulo. Con los datos reales de
+// la base eso saldria o no segun cuantas incidencias hubiera ese dia, que es
+// justo lo que no puede decidir si un caso de regresion pasa.
+const TITULO_UNICO = `${E2E}atras_solo_esta_incidencia`;
+const LOTE_ATRAS = [{ title: TITULO_UNICO }].concat(
+  Array.from({ length: 26 }, (_, i) => ({
+    title: `${E2E}atras_lote_${String(i + 1).padStart(2, '0')}`,
+  }))
+);
 
 // El tablero de indicadores necesita un año para tener filas. Antes los dos
 // casos hacían `test.skip` si no había ninguno — y en una base recién sembrada
@@ -35,6 +55,7 @@ test.beforeAll(async () => {
   const api = await newApiContext();
   try {
     await api.post('/indicator-years', { years: [ANIO] }, [200, 201]);
+    await api.post('/incidents', { items: LOTE_ATRAS }, [200, 201]);
   } finally {
     await api.dispose();
   }
@@ -245,5 +266,178 @@ test.describe('indicador de carga', () => {
         })
       )
       .toBeLessThan(0.05);
+  });
+});
+
+
+// ============================================================================
+// EL BOTÓN ATRÁS
+// ============================================================================
+//
+// Los tres casos de "atrás" que ya existían —dos aquí arriba y uno en
+// `navigation-integrity.spec.js`— navegan SIEMPRE a `/adhoc/panel`, que es una
+// rejilla de tarjetas y un `<a>`: no tiene un solo módulo de JS. Comprobaban
+// que el HTML se pintaba, y el HTML se pinta SIEMPRE porque sale del caché de
+// historial de HTMX (`body.cloneNode(true).innerHTML` guardado en
+// localStorage). Por eso llevaban toda la vida del proyecto en verde encima de
+// un defecto que dejaba MUERTA cada lista de la app en cuanto pulsabas atrás:
+// `restoreHistory()` no emite `htmx:afterSettle` —solo `htmx:historyRestore`—,
+// que era el único evento al que `adhoc-utils.js` ataba los `onReady`; y las
+// marcas `data-adhoc-*-bound` volvían PUESTAS desde el caché, así que aunque el
+// módulo se re-ejecutara salía por su propia guarda de idempotencia.
+//
+// Estos casos hacen el viaje cotidiano de verdad —lista de incidencias → tareas
+// de una incidencia → ATRÁS— y luego USAN la pantalla. Que el HTML esté no
+// prueba nada; lo que se comprueba es que el pager mueve la tabla, que escribir
+// en el filtro cambia las filas y que los modales abren.
+
+/** Filas pintadas por `work/work-items.js` en la lista de incidencias. */
+const FILAS = '#adhoc-table-incidents-body tr[data-id]';
+
+/** La sección que el módulo marca con `data-adhoc-work-bound` al montarse. */
+const SECCION = '#adhoc-page-work-incident';
+
+/**
+ * El viaje cotidiano: panel → lista de incidencias → tareas de la primera →
+ * ATRÁS.
+ *
+ * SE ENTRA POR EL PANEL A PROPÓSITO, no con un `goto` directo a la lista: HTMX
+ * solo restaura del caché las entradas de historial que empujó él mismo
+ * (`popstate` con `state.htmx`). Cargando la lista a pulso, la entrada la crea
+ * el navegador y el ATRÁS ni siquiera intenta restaurar: cambia la URL y deja
+ * la pantalla anterior puesta. Eso es otro defecto, pero no es el que estos
+ * casos persiguen — y además NO es el camino del usuario, que llega a la lista
+ * por la tarjeta del panel.
+ *
+ * Antes de salir sella las filas ya pintadas con `data-e2e-huella`. Ese
+ * atributo VIAJA en el caché del historial (es un atributo, y el caché es
+ * `innerHTML`), así que al volver está de nuevo ahí; solo desaparece si el
+ * módulo se remontó y `render()` reconstruyó el `<tbody>`. Es la diferencia
+ * exacta entre "pintado" y "vivo".
+ */
+async function idaYVuelta(page) {
+  await gotoAdhoc(page, '/adhoc/panel');
+  await page.click('a.adhoc-tile[href="/adhoc/incidencias"]');
+  await expect(page).toHaveURL(/\/adhoc\/incidencias$/);
+  await expect(page.locator(FILAS).first(), 'la lista no llegó a pintarse').toBeVisible();
+
+  await page.evaluate((sel) => {
+    document.querySelectorAll(sel).forEach((tr) => tr.setAttribute('data-e2e-huella', '1'));
+  }, FILAS);
+
+  await page.locator(FILAS).first().locator('[data-adhoc-row-action="tasks"]').click();
+  await expect(page).toHaveURL(/\/adhoc\/incidencias\/\d+\/tareas$/);
+  await asentar(page);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/adhoc\/incidencias$/);
+  await expect(page.locator(ADHOC_SHELL)).toBeVisible();
+  // Si el ATRÁS hubiera recargado el documento, los módulos arrancarían solos y
+  // estos casos pasarían sin probar nada: el defecto vive precisamente en la
+  // restauración desde el caché, así que hay que exigirla.
+  expect(
+    await sinRecarga(page),
+    'el ATRÁS recargó el documento entero: no hubo restauración del caché y el caso no prueba nada'
+  ).toBe(true);
+  // Margen para el remontaje y para la carga que dispara.
+  await page.waitForTimeout(900);
+}
+
+test.describe('tras el ATRÁS la lista sigue VIVA, no solo pintada', () => {
+  test('las filas se vuelven a pintar (no son las del caché)', async ({ page }) => {
+    await idaYVuelta(page);
+
+    await expect(
+      page.locator('[data-e2e-huella]'),
+      'las filas son las mismas que se guardaron en el caché: el módulo no volvió a montarse'
+    ).toHaveCount(0);
+    await expect(page.locator(FILAS).first()).toBeVisible();
+    await expect(
+      page.locator(SECCION),
+      'la sección no quedó marcada como montada'
+    ).toHaveAttribute('data-adhoc-work-bound', '1');
+  });
+
+  test('el pager responde y la tabla CAMBIA de contenido', async ({ page }) => {
+    await idaYVuelta(page);
+
+    const info = page.locator('[data-adhoc-work-pageinfo]');
+    const paginas = Number(((await info.innerText()).match(/de\s+(\d+)/) || [])[1] || 0);
+    expect(
+      paginas,
+      `hacen falta al menos 2 páginas para probar el pager (el beforeAll siembra ${LOTE_ATRAS.length} incidencias)`
+    ).toBeGreaterThan(1);
+    await expect(info).toHaveText(/^Página 1 de /);
+
+    // La identidad de la fila es su `data-id`, no el folio: el folio es
+    // OPCIONAL en `adhoc_incidents` y con los datos reales del SGC hay páginas
+    // enteras cuya celda pinta el guion largo del vacío, así que comparándolo
+    // la página 1 y la 2 salen "iguales" aunque la tabla sí se haya movido.
+    const ids = () => page.locator(FILAS).evaluateAll((trs) =>
+      trs.map((tr) => tr.getAttribute('data-id'))
+    );
+    const antes = await ids();
+    expect(antes.length, 'la página 1 llegó vacía').toBeGreaterThan(0);
+
+    await page.click('[data-adhoc-work-page="next"]');
+
+    // No basta con que el botón exista: la tabla tiene que MOVERSE.
+    await expect(info, 'el pager no hizo nada: la paginación está muerta').toHaveText(
+      /^Página 2 de /
+    );
+    await expect
+      .poll(ids, { message: 'la página 2 trae exactamente las mismas filas' })
+      .not.toEqual(antes);
+  });
+
+  test('escribir en el filtro cambia las filas', async ({ page }) => {
+    await idaYVuelta(page);
+
+    const filas = page.locator(FILAS);
+    await expect(filas).toHaveCount(25); // per_page del servidor
+
+    await page.fill('#adhoc-work-f-search', TITULO_UNICO);
+    await expect(filas, 'el filtro no filtró nada: el listener de búsqueda no existe').toHaveCount(
+      1
+    );
+    await expect(filas.first().locator('[data-adhoc-cell="title"]')).toContainText(TITULO_UNICO);
+
+    // Y "Limpiar" deshace el filtro, que es otro listener distinto.
+    await page.click('[data-adhoc-work-clear]');
+    await expect(filas, '"Limpiar" no repuso la lista').toHaveCount(25);
+    await expect(page.locator('#adhoc-work-f-search')).toHaveValue('');
+  });
+
+  test('el alta abre su modal', async ({ page }) => {
+    await idaYVuelta(page);
+
+    const modal = page.locator('#adhoc-work-modal');
+    await expect(modal).toBeHidden();
+
+    await page.click('[data-adhoc-work-new]');
+    await expect(modal, 'el botón de añadir no abrió nada').toBeVisible();
+    await expect(
+      modal.locator('[data-adhoc-record]'),
+      'el modal abrió vacío: el formulario lo pinta el módulo'
+    ).toHaveCount(1);
+  });
+
+  test('el clic en una fila abre su edición', async ({ page }) => {
+    await idaYVuelta(page);
+
+    const modal = page.locator('#adhoc-work-modal');
+    await expect(modal).toBeHidden();
+
+    const celda = page.locator(FILAS).first().locator('[data-adhoc-cell="title"]');
+    const titulo = (await celda.innerText()).trim();
+    await celda.click();
+
+    await expect(modal, 'el clic en la fila no abrió la edición').toBeVisible();
+    await expect(
+      modal.locator('[data-adhoc-work-delete]'),
+      'se abrió el alta en vez de la edición'
+    ).toBeVisible();
+    // El formulario llega relleno con la fila en la que se hizo clic.
+    await expect(modal.locator('[data-adhoc-field="title"]')).toHaveValue(titulo);
   });
 });

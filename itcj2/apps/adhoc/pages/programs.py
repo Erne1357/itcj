@@ -95,8 +95,10 @@ def programs_page(
 ):
     """Listado de eventos de programa, con adjuntos y duplicado."""
     from itcj2.apps.adhoc.pages._work_context import (
+        TASKS_PAGE_PERM,
         assignable_users,
         catalog_options,
+        columns_without_tasks,
         granted,
         page_context,
     )
@@ -104,14 +106,20 @@ def programs_page(
     from itcj2.apps.adhoc.utils.constants import PRIORITIES, PROGRAM_EVENT_STATUSES
 
     catalogos = catalog_options(db, category_model="AdhocProgramCategory")
-    permisos = granted(db, user, _WRITE_PERMS)
+    permisos = granted(db, user, _WRITE_PERMS + (TASKS_PAGE_PERM,))
     ctx = page_context(db, user)
+
+    # Mismo gate que en incidencias y que en el panel de documentos: el botón
+    # "Tareas" lleva a una página que exige `adhoc.tasks.page.list`, así que sin
+    # el permiso no se ofrece en vez de ser un callejón a la pantalla de
+    # prohibido.
+    ver_tareas = permisos[TASKS_PAGE_PERM]
 
     page_data = {
         "kind": "program",
         "api": "/api/adhoc/v2/program-events",
         "table_id": "adhoc-table-programs",
-        "tasks_url": "/adhoc/programas/{id}/tareas",
+        "tasks_url": "/adhoc/programas/{id}/tareas" if ver_tareas else None,
         "statuses": list(PROGRAM_EVENT_STATUSES),
         "priorities": list(PRIORITIES),
         "users": assignable_users(db),
@@ -145,7 +153,9 @@ def programs_page(
         {
             **ctx,
             "page_data": page_data,
-            "columns": _COLUMNS,
+            # La celda "Tareas" la rellena `work-items.js` siempre: sin permiso
+            # se retira la columna entera, no solo su URL.
+            "columns": columns_without_tasks(_COLUMNS, can_open=ver_tareas),
             # Textos e iconos del legacy (`programs/programs.html`): título
             # "Gestión de Programas" con el calendario, sin subtítulo.
             "page_title": "Gestión de Programas",

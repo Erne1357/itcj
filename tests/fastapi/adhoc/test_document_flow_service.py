@@ -359,11 +359,205 @@ def test_start_flow_rechaza_flujo_sin_pasos(db_session):
 
 
 def test_start_flow_rechaza_documento_ya_iniciado(db_session):
+    """409, no 400: el documento existe, es su estado el que impide la operación.
+
+    Antes esto era un ``ValueError`` → 400, y solo cuando además había
+    ``flow_id``: el mismo documento 'En Revisión' contestaba 400 con flujo y 409
+    sin él, según una columna que ni siquiera es la que bloquea. Ahora las dos
+    puertas —el gate de ``DOCUMENT_STATUSES_STARTABLE`` y el de tareas vivas—
+    hablan el mismo idioma que el resto del contrato: ``AdhocConflict`` → 409.
+    """
     flow = make_flow(db_session)
     doc = make_document(db_session, flow_id=flow.id, status="En Revisión",
                         current_step_id=flow.steps[0].id)
-    with pytest.raises(ValueError):
+    with pytest.raises(AdhocConflict):
         SVC.start_flow(db_session, doc.id, flow.id, actor_id=None)
+
+
+def test_start_flow_no_duplica_las_tareas_de_un_flujo_ya_vivo(db_session):
+    """El guard mira las TAREAS, no ``status`` (documento 202 de la migración).
+
+    202 llegó del SGC legacy en ``status='Borrador'`` con ``flow_id=5``,
+    ``current_step_id=NULL`` y **dos tareas vivas** (pasos 1 y 2). El guard viejo
+    exigía ``status == 'En Revisión'``, así que no disparaba; y 'Borrador' sí
+    está en ``DOCUMENT_STATUSES_STARTABLE``, así que el panel pintaba el botón
+    del sello y volver a pulsarlo creaba un segundo juego completo de tareas: dos
+    "Aprobar Documento: …" por paso en el tablero de cada validador.
+    """
+    flow = make_flow(db_session)
+    doc = make_document(db_session, flow_id=flow.id, status="Borrador")
+    for step, estado in zip(flow.steps, ("En Revisión", "En Espera")):
+        db_session.add(AdhocTask(
+            description=f"Aprobar Documento: {doc.title} (Paso: {step.name})",
+            status=estado, priority="Alta",
+            document_id=doc.id, flow_step_id=step.id,
+        ))
+    db_session.flush()
+
+    with pytest.raises(AdhocConflict) as exc:
+        SVC.start_flow(db_session, doc.id, flow.id, actor_id=None)
+    assert "en curso" in str(exc.value)
+
+    assert db_session.query(AdhocTask).filter_by(document_id=doc.id).count() == 2
+    db_session.refresh(doc)
+    assert doc.status == "Borrador"
+    assert doc.current_step_id is None
+
+
+def test_start_flow_no_lo_bloquea_una_tarea_de_seguimiento_del_documento(db_session):
+    """Una tarea de trabajo NO es un flujo. El guard exige ``flow_step_id``.
+
+    Este es el falso positivo que costó el primer intento del guard: se reutilizó
+    ``AdhocDocumentService._assert_sin_flujo_vivo``, que cuenta CUALQUIER tarea
+    en ``'En Revisión'`` o ``'En Espera'``, y con eso una tarea de seguimiento
+    creada a mano dejaba el documento imposible de sellar, con un 409 que
+    afirmaba un flujo inexistente y pedía cerrar trabajo legítimo.
+
+    No es hipotético: la pantalla ``/adhoc/documentos/{id}/tareas`` que entregó
+    B4 deja crear tareas de documento y su ``<select>`` ofrece esos dos estados
+    entre los seis. Medido contra la base real sobre el documento 2
+    (``'Borrador'``, sin flujo y sin tareas): una sola tarea manual en
+    ``'En Espera'`` o en ``'En Revisión'`` producía el 409.
+
+    ``flow_step_id`` es la marca que distingue las dos cosas, y solo la pone
+    ``start_flow``.
+    """
+    flow = make_flow(db_session)
+    doc = make_document(db_session, status="Borrador")
+    for estado in ("En Revisión", "En Espera", "Pendiente"):
+        db_session.add(AdhocTask(
+            description=f"Revisión de redacción ({estado})",
+            status=estado, priority="Media", document_id=doc.id,
+        ))
+    db_session.flush()
+
+    SVC.start_flow(db_session, doc.id, flow.id, actor_id=None)
+
+    db_session.refresh(doc)
+    assert doc.status == "En Revisión"
+    assert doc.current_step_id == flow.steps[0].id
+    # Las 3 de seguimiento + una por paso del flujo.
+    assert db_session.query(AdhocTask).filter_by(document_id=doc.id).count() == 5
+
+
+def test_start_flow_ignora_el_flujo_vivo_de_otra_version_de_la_cadena(db_session):
+    """El alcance es ESTE documento, no la cadena de versiones.
+
+    La otra puerta que mide "flujo vivo" —``_supersede_chain`` antes de anexar—
+    sí mira la cadena entera, y hace bien: lo que va a marcar ``'Obsoleto'`` es
+    la cadena. Aquí la pregunta es otra ("¿puedo sellar ESTA versión?") y copiar
+    aquel alcance sería un cepo:
+
+    * una versión solo se anexa si la cadena no tiene flujo vivo, así que por la
+      app este estado no se alcanza (medido sobre la base real: 0 documentos
+      startables con tareas de flujo vivas en otra versión de su cadena);
+    * y si se alcanzara —una tarea huérfana sobre una versión superada—, el
+      alcance de cadena dejaría la versión nueva imposible de sellar PARA
+      SIEMPRE, porque la tarea que habría que cerrar cuelga de un documento que
+      las dos listas ocultan (``is_current=False``) y al que no lleva ninguna
+      pantalla.
+    """
+    flow = make_flow(db_session)
+    raiz = make_document(db_session, status="Obsoleto", is_current=False)
+    punta = make_document(db_session, status="Borrador", parent_id=raiz.id)
+    db_session.add(AdhocTask(
+        description="Aprobar Documento: huérfana", status="En Revisión",
+        priority="Alta", document_id=raiz.id, flow_step_id=flow.steps[0].id,
+    ))
+    db_session.flush()
+
+    SVC.start_flow(db_session, punta.id, flow.id, actor_id=None)
+
+    db_session.refresh(punta)
+    assert punta.status == "En Revisión"
+    # Una tarea por paso, solo para la punta: la huérfana de la raíz no se toca.
+    assert db_session.query(AdhocTask).filter_by(document_id=punta.id).count() == 2
+    assert db_session.query(AdhocTask).filter_by(document_id=raiz.id).count() == 1
+
+
+def test_start_flow_arranca_un_borrador_cuyas_tareas_ya_estan_cerradas(db_session):
+    """No regresión: "flujo vivo" son DOS estatus, no "el documento tiene tareas".
+
+    El guard nuevo mira ``'En Revisión'`` y ``'En Espera'``, que es la misma
+    definición que usa el anexado de versión. Un borrador cuyo intento anterior
+    acabó —aprobado o rechazado, que es como se cierra un flujo en el SGC— tiene
+    tareas y no tiene flujo: sellarlo otra vez es exactamente lo que se espera
+    del botón, y ensanchar el guard a "no tiene ninguna tarea" dejaría sin
+    reintento a todo documento rechazado.
+    """
+    flow = make_flow(db_session)
+    doc = make_document(db_session, status="Borrador")
+    for step, estado in zip(flow.steps, ("Completada", "Rechazada")):
+        db_session.add(AdhocTask(
+            description=f"Aprobar Documento: {doc.title} (Paso: {step.name})",
+            status=estado, priority="Alta",
+            document_id=doc.id, flow_step_id=step.id,
+        ))
+    db_session.flush()
+
+    SVC.start_flow(db_session, doc.id, flow.id, actor_id=None)
+
+    db_session.refresh(doc)
+    assert doc.status == "En Revisión"
+    assert doc.flow_id == flow.id
+    assert doc.current_step_id == flow.steps[0].id
+    # Las dos viejas siguen ahí y se suma una por paso: el arranque no borra
+    # historial, y por eso el guard tiene que mirar el ESTATUS y no el conteo.
+    assert db_session.query(AdhocTask).filter_by(document_id=doc.id).count() == 4
+
+
+def test_start_flow_por_http_contesta_409_sobre_un_borrador_con_flujo_vivo(
+    app_client, db_session, auth_headers
+):
+    """El código de la frontera, fijado donde lo ve el navegador.
+
+    El service habla en excepciones (``AdhocConflict``) y quien las traduce es
+    el ``_domain_errors()`` de ``api/documents.py``. Es la mitad que le importa a
+    ``documents-panel.js``: con A13 haciendo visibles los errores de Calidad, un
+    409 con su frase pinta el aviso de "ya hay un flujo en curso", mientras que
+    un 500 —o el 400 genérico que daba el guard viejo— deja al supervisor
+    pulsando el sello sin saber por qué no pasa nada.
+
+    El JWT es de admin, que bypasea ``require_perms``: aquí lo que se mide es el
+    guard, no la autorización.
+    """
+    from itcj2.database import get_db
+
+    app = app_client.app
+
+    def _override():
+        yield db_session
+
+    app.dependency_overrides[get_db] = _override
+    try:
+        flow = make_flow(db_session)
+        doc = make_document(db_session, flow_id=flow.id, status="Borrador")
+        db_session.add(AdhocTask(
+            description="Aprobar Documento: el que ya está en curso",
+            status="En Revisión", priority="Alta",
+            document_id=doc.id, flow_step_id=flow.steps[0].id,
+        ))
+        db_session.flush()
+
+        res = app_client.post(
+            f"/api/adhoc/v2/documents/{doc.id}/start-flow",
+            json={"flow_id": flow.id},
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+    assert res.status_code == 409, res.text[:300]
+    cuerpo = res.json()
+    # Forma del error de la app: {"error": <string>, "status": N}. Nunca "detail".
+    assert cuerpo["status"] == 409
+    assert "en curso" in cuerpo["error"]
+    assert "detail" not in cuerpo
+
+    # Y no se creó nada: el 409 es un rechazo, no un arranque a medias.
+    assert db_session.query(AdhocTask).filter_by(document_id=doc.id).count() == 1
+    db_session.refresh(doc)
+    assert doc.status == "Borrador"
 
 
 @pytest.mark.parametrize("status", ["Obsoleto", "Aprobado"])

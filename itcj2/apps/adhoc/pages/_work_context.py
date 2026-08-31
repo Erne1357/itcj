@@ -31,13 +31,21 @@ from typing import Any, Iterable, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
-from itcj2.apps.adhoc.utils.constants import APP_KEY
+from itcj2.apps.adhoc.utils.constants import (
+    APP_KEY,
+    PRIORITIES,
+    TASK_STATUS_COMPLETED,
+    TASK_STATUSES,
+)
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "APP_KEY",
     "TASK_WRITE_PERMS",
+    "TASK_UNFINISHED_STATUSES",
+    "TASKS_PAGE_PERM",
+    "columns_without_tasks",
     "catalog_options",
     "assignable_users",
     "picker_users",
@@ -58,6 +66,35 @@ TASK_WRITE_PERMS = (
     "adhoc.tasks.api.delete",
     "adhoc.tasks.api.assign",
 )
+
+#: Estados en los que la tarea **todavía espera a alguien**. Es el criterio de
+#: ruido del aviso de atasco (B5): una tarea que ya se terminó no está atascada
+#: aunque su responsable ya no entre a Calidad —está hecha—, y marcarla
+#: bloqueada sería mentir sobre trabajo cerrado. Medido contra la base real:
+#: 684 tareas, 453 ``'Completada'``; de esas, 184 tienen hoy algún responsable
+#: sin acceso. Sin este filtro el aviso saldría en 273 filas y las 57 que de
+#: verdad están paradas se perderían dentro.
+#:
+#: Se deriva del vocabulario (:data:`TASK_STATUSES` menos el único estado
+#: terminal, :data:`TASK_STATUS_COMPLETED`) y no se escribe a mano: es la misma
+#: fuente que llena el ``<select>`` de estatus de esta pantalla, así que un
+#: estado nuevo entra en los dos sitios a la vez.
+#:
+#: ⚠️ **No es :data:`TASK_OPEN_STATUSES`**, y la diferencia importa: aquella son
+#: las tareas abiertas *para su ejecutor* (``Pendiente``, ``Rechazada``,
+#: ``En Proceso``) y es el filtro del tablero del dashboard. Deja fuera
+#: ``En Revisión`` y ``En Espera``, que son exactamente los dos estados de las
+#: tareas de un flujo documental —la tarea 683 del documento 202, la que
+#: destapó todo esto, está ``'En Revisión'``—. Cablear aquella aquí apagaría el
+#: aviso justo donde nació.
+TASK_UNFINISHED_STATUSES: tuple[str, ...] = tuple(
+    estado for estado in TASK_STATUSES if estado != TASK_STATUS_COMPLETED
+)
+
+#: Permiso de la PÁGINA de tareas. No es de escritura y por eso no está en
+#: :data:`TASK_WRITE_PERMS`: aquí sirve de gate del botón "Tareas" de la fila,
+#: cuyo destino (``/adhoc/{incidencias|programas}/{id}/tareas``) sí lo exige.
+TASKS_PAGE_PERM = "adhoc.tasks.page.list"
 
 #: Tope de usuarios que se serializan al ``page_data``. El picker filtra en
 #: cliente, así que la lista entera viaja en el HTML; sin tope, una plantilla de
@@ -294,6 +331,26 @@ def granted(db: Session, user: Optional[dict], codes: Sequence[str]) -> dict[str
     return {code: code in efectivos for code in codigos}
 
 
+def columns_without_tasks(columns: Sequence[dict], *, can_open: bool) -> list[dict]:
+    """Las columnas de la tabla de trabajo, sin la de "Tareas" si no se abre.
+
+    ``pages/documents.py`` cierra el mismo callejón emitiendo ``tasks_url`` solo
+    con permiso, y con eso basta allí porque ``documents-panel.js`` pinta el
+    botón dentro de un ``if (this.tasksUrl)``. Aquí no: en las dos listas de
+    trabajo "Tareas" es una COLUMNA entera y ``work/work-items.js`` la rellena
+    siempre (``renderCell`` → ``tasksButton``), así que apagar solo la URL
+    dejaría el icono en las 25 filas de la página y el clic no haría nada
+    —``goToTasks`` sale sin navegar—. Un botón mudo no es mejor que uno que
+    lleva a la pantalla de prohibido: en los dos casos el usuario se queda
+    esperando algo que no va a pasar.
+
+    El JS lee las claves de columna del ``<thead>`` (``readColumns``), que se
+    pinta desde esta misma lista, así que quitarla aquí quita encabezado, fila
+    de filtros y celda a la vez, sin tocar el módulo.
+    """
+    return [col for col in columns if can_open or col.get("key") != "tasks"]
+
+
 # ==========================================================================
 # Identidad del expediente
 # ==========================================================================
@@ -378,9 +435,11 @@ def tasks_page_context(
       (:func:`parent_folio`), y
     * es el único de los tres cuyas tareas pertenecen a un **paso** del flujo,
       de donde sale ``show_step_column``.
-    """
-    from itcj2.apps.adhoc.utils.constants import PRIORITIES, TASK_STATUSES
 
+    El aviso de atasco (``show_access_warning`` y sus dos reglas) sale también
+    de aquí, y por eso lo ven las tres pantallas: ver el comentario del
+    ``page_data``.
+    """
     permisos = granted(db, user, TASK_WRITE_PERMS)
     folio = parent_folio(parent, parent_type)
 
@@ -405,6 +464,37 @@ def tasks_page_context(
         # leer el hilo o quién tiene acceso a la app: la regla se escribe una
         # sola vez y la UI la obedece.
         "show_step_column": parent_type == "document",
+        # Aviso de atasco: la tarea cuyos responsables ya no pueden entrar a
+        # Calidad no la puede atender nadie. B4 lo encendió solo en la pantalla
+        # de documento con un `parent_type === 'document'` escrito en el JS;
+        # aquí pasa a ser lo que dice el servidor, y lo dice para las TRES: el
+        # atasco no es un problema del ciclo documental, es de la tarea. Las
+        # paradas de verdad son 57 —43 de incidencia, 13 de programa, 1 de
+        # documento— y 56 de ellas viven justo en las dos pantallas que hasta
+        # hoy se callaban.
+        #
+        # QUIÉN no tiene acceso lo dice cada fila del API
+        # (`assignees_without_access`, con `users_with_assignment_select`); esto
+        # son las dos reglas que deciden CUÁNDO esa lista significa algo:
+        #
+        #  · `unfinished_statuses` — el criterio de ruido. Solo una tarea que
+        #    sigue esperando a alguien puede estar atascada (ver
+        #    `TASK_UNFINISHED_STATUSES`).
+        #  · `all_assignees_required` — si perder a ALGUNOS ya la para. En un
+        #    documento sí: el paso solo avanza cuando aprueban todos los
+        #    asignados (`task_workflow_service._record_decision` cuenta contra
+        #    `len(assignees)`). En una incidencia o un evento **no**: cualquiera
+        #    de sus responsables puede terminarla o cerrarla él solo (rama A de
+        #    `workflow_action`), así que mientras quede uno operativo la tarea
+        #    no está parada y pintarla en ámbar afirmaría algo falso — son 32
+        #    filas hoy. Ahí el aviso se reserva al caso en que no queda ninguno.
+        #
+        # Las dos van en el `page_data` y no en el JS por lo mismo que
+        # `show_step_column`: son reglas de negocio, y el sitio donde ya viven
+        # el vocabulario de estados y la máquina de flujo es el servidor.
+        "show_access_warning": True,
+        "unfinished_statuses": list(TASK_UNFINISHED_STATUSES),
+        "all_assignees_required": parent_type == "document",
         "can": {
             "create": permisos["adhoc.tasks.api.create"],
             "update": permisos["adhoc.tasks.api.update"],

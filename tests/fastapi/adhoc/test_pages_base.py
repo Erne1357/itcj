@@ -655,3 +655,175 @@ class TestPaginaBase:
         res = client.get("/adhoc/dashboard", follow_redirects=False)
         assert res.status_code in (302, 307)
         assert "/itcj/login" in res.headers["location"]
+
+
+# ==========================================================================
+# Páginas de error — la plantilla de Calidad, no la del core  (B5 · A13)
+#
+# `_register_error_handlers` (itcj2/main.py) elige el template por el PREFIJO
+# de la ruta, y "/adhoc" no estaba en la tabla: `_app_for()` devolvía "core", así
+# que cualquier error dentro de Calidad —incluido el 403 de una pantalla sin
+# permiso, que es el que ve a diario el rol `consult`— salía con el shell del
+# core y un "Ir al inicio" que apuntaba al hub de apps. El usuario quedaba
+# expulsado de la app por pulsar un enlace de la propia app.
+#
+# Por eso las comprobaciones miran el HTML y no solo el código de estado: el 403
+# ya se daba antes, y era exactamente el mismo 403; lo que cambia es con qué
+# shell se pinta y a dónde lleva el botón.
+#
+# La otra mitad de este bloque es la de NO REGRESIÓN: tocar `_APP_BY_PREFIX` es
+# tocar el despacho de errores de TODA la plataforma, y un prefijo mal puesto se
+# lleva por delante la página de error de otra app sin que nada más falle. Aquí
+# se comprueba que maint, helpdesk, agendatec y el core siguen sirviendo la suya.
+# ==========================================================================
+
+#: Marcas del shell de Calidad. `adhoc-appbar` y `#adhoc-root` los pone
+#: `base_adhoc.html`, del que la plantilla de error hereda: si el error se
+#: renderizara con otra plantilla, ninguna de las tres podría estar.
+SHELL_ADHOC = ("adhoc-appbar", 'id="adhoc-root"', "/static/adhoc/css/adhoc.css")
+
+
+@pytest.fixture()
+def staff_headers():
+    """Cookie de un usuario staff: sin bypass, su acceso depende del parche.
+
+    El admin global del JWT no sirve para llegar a un 403 de página:
+    ``require_page_app`` consulta ``cached_has_assignment``/``cached_perms``
+    siempre (el bypass del rol es cosa de ``require_perms``, en la API).
+    """
+    return {"Cookie": f"itcj_token={make_jwt(user_id=4200, role='staff')}"}
+
+
+@pytest.fixture()
+def acceso():
+    """Finge las dos consultas del gate de página, en el MÓDULO FUENTE."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _acceso(*, assigned=True, perms=()):
+        with patch(
+            "itcj2.core.services.authz_cache.cached_has_assignment",
+            return_value=assigned,
+        ), patch(
+            "itcj2.core.services.authz_cache.cached_perms", return_value=set(perms)
+        ):
+            yield
+
+    return _acceso
+
+
+class TestPaginaDeError:
+    def test_el_403_de_calidad_se_pinta_con_el_shell_de_calidad(
+        self, client, staff_headers, acceso
+    ):
+        """El caso vivo: acceso a la app, sin el permiso de ESTA pantalla.
+
+        Es lo que le pasa al rol `consult` en `/adhoc/panel`, y hasta hoy le
+        contestaba con el shell del core.
+        """
+        with acceso(perms=set()):
+            res = client.get("/adhoc/dashboard", headers=staff_headers,
+                             follow_redirects=False)
+        assert res.status_code == 403
+        assert "text/html" in res.headers["content-type"]
+        html = res.text
+        assert "Error 403" in html
+        assert "Acceso Prohibido" in html
+        for marca in SHELL_ADHOC:
+            assert marca in html, marca
+        # …y NADA de la del core, que es la que servía antes.
+        assert "core/css/error.css" not in html
+
+    def test_el_404_de_calidad_tambien(self, client):
+        """Una URL inexistente bajo /adhoc no es "de la app" para el router…
+
+        …pero sí lo es para quien la pulsó: el despacho va por el prefijo de la
+        ruta, no por si hay un endpoint detrás.
+        """
+        res = client.get("/adhoc/esta-pantalla-no-existe")
+        assert res.status_code == 404
+        assert "text/html" in res.headers["content-type"]
+        html = res.text
+        assert "Error 404" in html
+        for marca in SHELL_ADHOC:
+            assert marca in html, marca
+        assert "core/css/error.css" not in html
+
+    def test_el_boton_vuelve_al_inicio_de_calidad_y_no_al_hub(self, client):
+        html = client.get("/adhoc/esta-pantalla-no-existe").text
+        assert 'href="/adhoc/"' in html
+        assert "Ir al inicio" in html
+        assert "/itcj/dashboard" not in html
+        # Sale por navegación de documento: dentro de #adhoc-root todo enlace
+        # está boosteado y `hx-select="#adhoc-root"` no encontraría nada en la
+        # respuesta del destino.
+        assert 'hx-boost="false"' in html
+
+    def test_el_403_de_quien_no_tiene_la_app_si_sale_al_hub(
+        self, client, staff_headers, acceso
+    ):
+        """La excepción DELIBERADA a la regla de arriba.
+
+        Sin acceso a la app no hay "inicio de la app" al que volver: el botón
+        lleva al panel del core y rompe el marco (``target="_top"``) para no
+        anidar el hub dentro del iframe móvil. El shell sigue siendo el de
+        Calidad —el mensaje se lee dentro de la app que lo produjo—, y eso es lo
+        que este test protege junto con el destino.
+        """
+        with acceso(assigned=False):
+            res = client.get("/adhoc/dashboard", headers=staff_headers,
+                             follow_redirects=False)
+        assert res.status_code == 403
+        html = res.text
+        assert "adhoc-appbar" in html
+        assert 'href="/itcj/dashboard"' in html
+        assert 'target="_top"' in html
+        assert "Ir al panel principal" in html
+
+    def test_la_plantilla_aguanta_sin_nav(self, client):
+        """El 500 que reventaría al renderizar el 500.
+
+        `_render_error_page` NO calcula el nav a propósito: pide una sesión de
+        BD, y la página de error tiene que poder pintarse justo cuando la BD es
+        lo que ha fallado. `_nav.html` hace `nav|default([])`, así que la fila de
+        tarjetas simplemente no sale — y el resto del shell sí.
+        """
+        html = client.get("/adhoc/esta-pantalla-no-existe").text
+        assert "adhoc-appbar" in html          # el shell, entero
+        assert "adhoc-nav-list" not in html    # la fila de tarjetas, no
+        for _label, _icon, url, _perms in NAV_SECTIONS:
+            assert f'href="{url}"' not in html, url
+
+    @pytest.mark.parametrize("url,marca", [
+        ("/help-desk/no-existe-jamas", "helpdesk/css/errors/error.css"),
+        ("/maint/no-existe-jamas", "/static/maint/css/errors/error.css"),
+        ("/agendatec/no-existe-jamas", "agendatec/css/errors/error.css"),
+        ("/no-existe-en-ninguna-app", "core/css/error.css"),
+    ], ids=["helpdesk", "maint", "agendatec", "core"])
+    def test_las_demas_apps_conservan_su_propia_plantilla(self, client, url, marca):
+        """La entrada nueva de `_APP_BY_PREFIX` no le roba la ruta a nadie.
+
+        `_app_for` recorre la tupla con `startswith` y se queda con el primero
+        que case, así que el orden solo sería un problema si un prefijo fuera
+        prefijo de otro. Hoy los ocho prefijos de página son disjuntos; esto lo
+        certifica por el único camino que importa —qué plantilla sale— en vez de
+        releer la tupla.
+        """
+        res = client.get(url)
+        assert res.status_code == 404
+        assert marca in res.text
+        assert "adhoc-appbar" not in res.text
+
+    def test_la_api_de_calidad_sigue_contestando_json(self, client):
+        """`_is_page_request` manda: bajo /api/ nunca se renderiza HTML.
+
+        Es la otra mitad del riesgo de tocar el despacho: si el prefijo nuevo
+        alcanzara a la API, el JS de las 30 pantallas recibiría una página
+        entera donde espera ``{"error": …, "status": …}``.
+        """
+        res = client.get("/api/adhoc/v2/documents")
+        assert res.status_code == 401
+        cuerpo = res.json()
+        assert cuerpo["status"] == 401
+        assert cuerpo["error"]
+        assert "adhoc-appbar" not in res.text

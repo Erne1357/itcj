@@ -42,6 +42,24 @@
 (function () {
     'use strict';
 
+    // Misma guarda que `reports/reports.js` y `reports/report-view.js`, y por la
+    // misma razon: los cuatro listeners de `bindGlobal()` cuelgan de `document`
+    // y sobreviven a cualquier intercambio, asi que una segunda ejecucion del
+    // archivo solo sirve para duplicarlos.
+    //
+    // La bandera `_bound` de aqui abajo no bastaba: es una variable de modulo, y
+    // una re-ejecucion la trae en false. Este archivo se cargaba desde el <body>
+    // de base_adhoc.html, es decir DENTRO del elemento de historial de HTMX, asi
+    // que cada ATRAS lo volvia a ejecutar: medido en /adhoc/documentos con tres
+    // idas y vueltas, cuatro listeners de `input`, cuatro de `search`, cuatro de
+    // `change` y cuatro de `click`, cierres distintos (por eso
+    // `addEventListener` no los deduplica) y todos disparando — cada tecla
+    // pulsada en un filtro recorria el filtrado cuatro veces.
+    //
+    // La cura de raiz fue mover los <script> de la base al <head>; esto es el
+    // cinturon por si alguien los devuelve al <body>.
+    if (window.AdhocTableFilter) return;
+
     var SEL_TABLE = 'table[data-adhoc-table]';
     var SEL_INPUT = '[data-adhoc-filter-input]';
     var SEL_CLEAR = '[data-adhoc-filter-clear]';
