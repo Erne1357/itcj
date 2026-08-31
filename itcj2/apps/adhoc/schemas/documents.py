@@ -55,6 +55,7 @@ __all__ = [
     "FlowStepsUpsert",
     "StepUsersIn",
     # Salida
+    "acknowledgement_panel_out",
     "document_out",
     "flow_out",
     "step_out",
@@ -249,6 +250,39 @@ def _iso(value: Any) -> Optional[str]:
     return None
 
 
+def _recipient_brief(user: Any) -> Optional[dict]:
+    """``{"id", "name"}`` de un destinatario de la difusión. **Sin ``email``.**
+
+    Deliberadamente más pobre que :func:`user_brief`, y no por ahorro de bytes.
+    ``GET /documents/{id}/acknowledgements`` se sirve con
+    ``adhoc.documents.api.read``, que también tiene ``consult``. Con el correo
+    dentro, recorrer los 202 ids de documento enumera las **55 personas** de
+    ``adhoc_document_visibility`` con su dirección —entre ellas 30 que ya no
+    tienen acceso a la app, con direcciones personales de gente que se fue—.
+    Lo que ese mismo rol podía enumerar por sus otros permisos es otro orden de
+    magnitud: 3 autores distintos en ``adhoc_documents`` y 8 validadores en
+    ``adhoc_flow_step_assignees``, 11 en total. Y ``consult`` no tiene
+    ``adhoc.documents.page.manage``, así que ni siquiera puede abrir el panel
+    donde vive el modal: la exposición sería solo por API, sin pantalla que la
+    acompañe.
+
+    Quitar la columna no le cuesta nada a la pantalla: la propia hoja de la
+    sección ya la escondía en móvil por ser "la única que no participa en
+    ninguna lectura" —no dice si acusó, ni cuándo, ni si conserva el acceso— y
+    la app **no registra acuses nuevos**, así que tampoco hay un flujo que
+    necesite escribirle a nadie desde aquí. El nombre completo identifica a la
+    persona, que es lo que la evidencia ISO pide.
+
+    Si algún día hace falta el correo aquí, lo que toca es un permiso propio
+    (``adhoc.documents.api.diffusion``) para admin y ``supervisor_doc``, no
+    devolver :func:`user_brief`.
+    """
+    if user is None:
+        return None
+    name = getattr(user, "full_name", None) or getattr(user, "username", None)
+    return {"id": getattr(user, "id", None), "name": name or "Sin nombre"}
+
+
 def user_brief(user: Any) -> Optional[dict]:
     """``{"id", "name", "email"}`` de un ``core_users`` (o ``None``)."""
     if user is None:
@@ -429,6 +463,74 @@ def document_out(doc: Any, *, detail: bool = False, today: Optional[date] = None
         data["flow"] = _named(doc.flow, "description")
         data["current_step"] = step_out(doc.current_step) if doc.current_step else None
     return data
+
+
+def acknowledgement_panel_out(panel: dict) -> dict:
+    """``GET /documents/{id}/acknowledgements`` — la difusión ya cruzada.
+
+    Recibe lo que devuelve
+    :meth:`~itcj2.apps.adhoc.services.document_service.AdhocDocumentService.acknowledgement_panel`
+    y le da forma JSON. Tres bloques y ni uno más:
+
+    * ``document`` — un **brief** (``id``, ``code``, ``title``, ``version``,
+      ``status``, ``is_current``), no un :func:`document_out` completo. El modal
+      se abre desde una fila del panel de gestión que ya trae el documento
+      entero, y ``document_out`` arrastraría los cinco catálogos: cinco
+      ``SELECT`` perezosos por abrir una ventana que solo necesita el
+      encabezado.
+    * ``summary`` — los cuatro números ya sumados por el servidor, que es quien
+      tiene la colección completa. ``coverage_pct`` va aquí y no en el JS
+      porque una división en el navegador es también una división entre cero el
+      día que un documento no tenga destinatarios (4 de los 202).
+    * ``recipients`` — un destinatario por fila, con ``acknowledged`` como
+      booleano además de la fecha: la tabla pinta un badge, y ``acknowledged_at
+      !== null`` es una comprobación que el JS no tiene por qué repetir. El
+      usuario va con :func:`_recipient_brief`, **sin correo** — ver ahí el
+      porqué.
+
+    ``has_app_access`` y ``without_access`` **se omiten cuando el service no
+    pudo resolver el conjunto de usuarios con acceso** (``None``), igual que
+    ``serialize_task`` omite ``thread_readable`` y ``assignees_without_access``
+    sin contexto. Ausente, el JS lo lee como ``undefined`` —falsy, así que la
+    UI se calla— sin que el JSON haya afirmado que esa persona sí puede entrar.
+    Un ``False`` de verdad sí viaja: es la marca, y es el dato.
+    """
+    doc = panel["document"]
+    resumen = panel["summary"]
+
+    salida_resumen = {
+        "assigned": resumen["assigned"],
+        "acknowledged": resumen["acknowledged"],
+        "pending": resumen["pending"],
+        "coverage_pct": resumen["coverage_pct"],
+    }
+    if resumen.get("without_access") is not None:
+        salida_resumen["without_access"] = resumen["without_access"]
+
+    destinatarios = []
+    for fila in panel["recipients"]:
+        acusado_el = fila.get("acknowledged_at")
+        out = {
+            "user": _recipient_brief(fila["user"]),
+            "acknowledged": acusado_el is not None,
+            "acknowledged_at": _iso(acusado_el),
+        }
+        if fila.get("has_app_access") is not None:
+            out["has_app_access"] = fila["has_app_access"]
+        destinatarios.append(out)
+
+    return {
+        "document": {
+            "id": doc.id,
+            "code": doc.code,
+            "title": doc.title,
+            "version": doc.version,
+            "status": doc.status,
+            "is_current": bool(doc.is_current),
+        },
+        "summary": salida_resumen,
+        "recipients": destinatarios,
+    }
 
 
 def step_out(step: Any, *, assignee_count: Optional[int] = None) -> dict:

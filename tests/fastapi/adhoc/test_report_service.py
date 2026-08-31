@@ -21,10 +21,18 @@ afirmar "carga en lote" sin cablear un número mágico de consultas.
 
 Un cuarto bug, más sutil, también cubierto: ``app_id = 4`` hardcodeado
 (``api_reports.py:29``), que en la BD de itcj2 es *warehouse*.
+
+Y un quinto, que no era del legacy sino de la migración: ``usuarios_documentos``
+se titulaba "Usuarios y Documentos" y contaba **autorías**, mientras las dos
+tablas con la evidencia de difusión (``adhoc_document_visibility``,
+``adhoc_document_acknowledgements``) no tenían ninguna pantalla. Los tests de
+:class:`TestDifusionDocumental` fijan lo que el reporte mide hoy: qué documentos
+se le difundieron a cada persona, cuáles acusó y **cuándo**.
 """
 import uuid
 from contextlib import contextmanager
 from datetime import date, datetime
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import event
@@ -34,7 +42,8 @@ from itcj2.apps.adhoc.models import (
     AdhocApprovalFlowStep,
     AdhocArea,
     AdhocDocument,
-    AdhocDocumentCategory,
+    AdhocDocumentAcknowledgement,
+    AdhocDocumentVisibility,
     AdhocIncident,
     AdhocTask,
     adhoc_flow_step_assignees,
@@ -140,6 +149,29 @@ def _make_document(db, title="Doc", author=None, area=None, code=None,
     return doc
 
 
+def _grant_visibility(db, doc, *users):
+    """Difunde un documento a N usuarios (``adhoc_document_visibility``)."""
+    for user in users:
+        db.add(AdhocDocumentVisibility(document_id=doc.id, user_id=user.id))
+    db.flush()
+
+
+def _acknowledge(db, doc, user, when=None):
+    """Acuse de recibo con fecha REAL.
+
+    ``acknowledged_at`` es NOT NULL a propósito en el modelo: un acuse sin fecha
+    no sostiene una auditoría. Aquí se siembra siempre con una.
+    """
+    ack = AdhocDocumentAcknowledgement(
+        document_id=doc.id,
+        user_id=user.id,
+        acknowledged_at=when or datetime(2023, 6, 21, 9, 30),
+    )
+    db.add(ack)
+    db.flush()
+    return ack
+
+
 def _make_flow(db, name=None, description=None):
     flow = AdhocApprovalFlow(name=name or f"e2e_flow_{_tag()}", description=description)
     db.add(flow)
@@ -206,6 +238,11 @@ def count_queries(db_session):
 
 def _rows(report):
     return report["rows"]
+
+
+def _full(user) -> str:
+    """El nombre tal y como lo compone el reporte (``_full_name``)."""
+    return f"{user.first_name or ''} {user.last_name or ''}".strip()
 
 
 def _col_keys(report):
@@ -503,71 +540,539 @@ class TestUsuariosTareas:
 
 
 # ---------------------------------------------------------------------------
-# usuarios_documentos
+# usuarios_documentos — difusión documental (ISO 9001:2015 §7.5.3)
+#
+# El reporte se reescribió: contaba documentos por AUTORÍA (``author_id``, 3
+# autores distintos en toda la base) y hoy sale de ``adhoc_document_visibility``
+# cruzada con ``adhoc_document_acknowledgements`` por ``(document_id, user_id)``.
 # ---------------------------------------------------------------------------
 
-class TestUsuariosDocumentos:
-    def test_cuenta_documentos_de_los_que_es_autor(self, db_session, adhoc_app, adhoc_role):
-        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"AUTOR{_tag()}")
-        otro = _make_user(db_session, adhoc_app, adhoc_role, first=f"AJENO{_tag()}")
-        _make_document(db_session, title="Mio 1", author=user)
-        _make_document(db_session, title="Mio 2", author=user)
-        _make_document(db_session, title="Suyo", author=otro)
+class TestDifusionDocumental:
+    def test_la_coleccion_sale_de_la_difusion_no_de_la_autoria(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """El defecto que cerró esta reescritura, fijado como regresión.
 
-        report = ReportService.build_report(
-            db_session, "usuarios_documentos", nombre=user.first_name
-        )
-        assert [r["total_documents"] for r in _rows(report)] == [2]
+        El autor de dos documentos a quien nadie difundió nada **no** está en un
+        reporte de difusión; quien tiene una fila de visibilidad, sí.
+        """
+        tag = _tag()
+        autor = _make_user(db_session, adhoc_app, adhoc_role, first=f"AUTOR{tag}")
+        receptor = _make_user(db_session, adhoc_app, adhoc_role, first=f"RECEPTOR{tag}")
+        _make_document(db_session, title="Mio 1", author=autor)
+        _make_document(db_session, title="Mio 2", author=autor)
+        difundido = _make_document(db_session, title="Difundido", author=autor)
+        _grant_visibility(db_session, difundido, receptor)
 
-    def test_completo_detalla_cada_documento(self, db_session, adhoc_app, adhoc_role):
-        cat = AdhocDocumentCategory(name=f"e2e_cat_{_tag()}")
-        db_session.add(cat)
-        db_session.flush()
-        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"AUTOR{_tag()}")
-        _make_document(db_session, title="Manual de calidad", author=user,
-                       code="MC-01", version="2.1", status="Aprobado", category=cat)
+        report = ReportService.build_report(db_session, "usuarios_documentos",
+                                            nombre=tag)
+        filas = _rows(report)
+        assert [f["user"] for f in filas] == [_full(receptor)]
+        assert filas[0]["assigned"] == 1
 
-        report = ReportService.build_report(
-            db_session, "usuarios_documentos", nombre=user.first_name, formato="completo"
-        )
+    def test_cuenta_asignados_acusados_y_porcentaje(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"DIF{tag}")
+        docs = [_make_document(db_session, title=f"Doc {i} {tag}") for i in range(4)]
+        _grant_visibility(db_session, docs[0], user)
+        _grant_visibility(db_session, docs[1], user)
+        _grant_visibility(db_session, docs[2], user)
+        _grant_visibility(db_session, docs[3], user)
+        _acknowledge(db_session, docs[0], user)
+
+        fila = _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"DIF{tag}"))[0]
+        assert fila["assigned"] == 4
+        assert fila["acknowledged"] == 1
+        assert fila["coverage"] == 25
+
+    def test_sin_documentos_difundidos_no_divide_entre_cero(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """Toda su difusión apunta a versiones superadas: fila sí, ``0 %`` sin reventar."""
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"VACIO{tag}")
+        superada = _make_document(db_session, title=f"Superada {tag}", is_current=False)
+        _grant_visibility(db_session, superada, user)
+
+        fila = _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"VACIO{tag}",
+            formato="completo"))[0]
+        assert fila["assigned"] == 0
+        assert fila["coverage"] == 0
+        assert fila["code"] == "Sin documentos difundidos"
+
+    def test_completo_una_fila_por_documento_con_la_fecha_del_acuse(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """La fecha es el dato que un auditor pide primero."""
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"FECHA{tag}")
+        acusado = _make_document(db_session, title="Manual de calidad", code="MC-01",
+                                 version="2.1", status="Aprobado")
+        pendiente = _make_document(db_session, title="Procedimiento", code="PR-02",
+                                   version="1.0", status="Aprobado")
+        _grant_visibility(db_session, acusado, user)
+        _grant_visibility(db_session, pendiente, user)
+        _acknowledge(db_session, acusado, user, when=datetime(2019, 11, 15, 8, 0))
+
+        filas = _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"FECHA{tag}", formato="completo"))
+        por_codigo = {f["code"]: f for f in filas}
+
+        assert len(filas) == 2
+        assert por_codigo["MC-01"]["title"] == "Manual de calidad"
+        assert por_codigo["MC-01"]["version"] == "2.1"
+        assert por_codigo["MC-01"]["doc_status"] == "Aprobado"
+        assert por_codigo["MC-01"]["ack_date"] == "15/11/2019"
+        assert por_codigo["PR-02"]["ack_date"] == "Sin acuse"
+
+    def test_el_acuse_es_por_par_documento_usuario(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """Que un compañero acuse el documento no acusa por mí."""
+        tag = _tag()
+        acusa = _make_user(db_session, adhoc_app, adhoc_role, first=f"ACUSA{tag}",
+                           last="AAA")
+        calla = _make_user(db_session, adhoc_app, adhoc_role, first=f"CALLA{tag}",
+                           last="BBB")
+        doc = _make_document(db_session, title=f"Compartido {tag}", code=f"CP-{tag[:5]}")
+        _grant_visibility(db_session, doc, acusa, calla)
+        _acknowledge(db_session, doc, acusa)
+
+        filas = _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=tag, formato="completo"))
+        por_usuario = {f["user"]: f for f in filas}
+
+        assert por_usuario[_full(acusa)]["acknowledged"] == 1
+        assert por_usuario[_full(acusa)]["ack_date"] == "21/06/2023"
+        assert por_usuario[_full(calla)]["acknowledged"] == 0
+        assert por_usuario[_full(calla)]["ack_date"] == "Sin acuse"
+
+    def test_quien_ya_no_puede_entrar_a_la_app_sale_marcado(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """La difusión de 2019-2025 se hizo a gente que hoy está de baja.
+
+        Esconderla falsearía la evidencia: sale, con la marca. En la base real
+        son 30 de los 55 usuarios con difusión.
+        """
+        tag = _tag()
+        dentro = _make_user(db_session, adhoc_app, adhoc_role, first=f"ACC{tag}",
+                            last="AAA")
+        baja = _make_user(db_session, adhoc_app, adhoc_role, first=f"ACC{tag}",
+                          last="BBB", active=False)
+        doc = _make_document(db_session, title=f"Politica {tag}")
+        _grant_visibility(db_session, doc, dentro, baja)
+
+        filas = _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"ACC{tag}"))
+        por_usuario = {f["user"]: f for f in filas}
+
+        assert len(filas) == 2, "el usuario de baja tiene que salir, no desaparecer"
+        assert por_usuario[_full(dentro)]["access"] == "Con acceso"
+        assert por_usuario[_full(baja)]["access"] == "Sin acceso"
+
+    def test_la_marca_es_texto_en_columna_propia(self, db_session, adhoc_app, adhoc_role):
+        """Sobrevive al .xlsx.
+
+        La exportación es ``XLSX.utils.table_to_book``, que lee el ``<table>``
+        del DOM: lo único que llega al archivo es el texto de la celda. Una
+        marca hecha con una clase de CSS o un icono se quedaría en pantalla.
+        Y va en columna propia para poder filtrar por ella en Excel sin
+        ensuciar la columna "Usuario".
+        """
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"MARCA{tag}")
+        doc = _make_document(db_session, title=f"Doc {tag}")
+        _grant_visibility(db_session, doc, user)
+
+        report = ReportService.build_report(db_session, "usuarios_documentos",
+                                            nombre=f"MARCA{tag}")
         fila = _rows(report)[0]
-        assert fila["code"] == "MC-01"
-        assert fila["title"] == "Manual de calidad"
-        assert fila["version"] == "2.1"
-        assert fila["doc_status"] == "Aprobado"
-        assert fila["category"] == cat.name
-        assert fila["created_at"]
+        assert "access" in _col_keys(report)
+        assert isinstance(fila["access"], str)
+        assert fila["access"] in ("Con acceso", "Sin acceso")
+        # El nombre queda limpio: la marca no se cuela como sufijo.
+        assert fila["user"] == _full(user)
 
-    def test_completo_usuario_sin_documentos(self, db_session, adhoc_app, adhoc_role):
-        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"NADA{_tag()}")
-        report = ReportService.build_report(
-            db_session, "usuarios_documentos", nombre=user.first_name, formato="completo"
-        )
-        fila = _rows(report)[0]
-        assert fila["total_documents"] == 0
-        assert fila["code"] == "Sin documentos asignados como autor"
+    def test_el_porcentaje_redondea_al_entero_mas_cercano(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """El contrato es entero y redondeado, no truncado.
+
+        Con 3 documentos difundidos, 1 acuse es 33 (de 33.33) y 2 son 67 (de
+        66.66): truncar daría 66 y le quitaría un punto a la única columna del
+        papel que un auditor mira dos veces. Entero y no ``"67 %"`` porque en la
+        hoja de Excel un texto ordena ``"100 %" < "67 %"``, justo al revés de lo
+        que se quiere leer en un reporte de difusión.
+        """
+        tag = _tag()
+        poco = _make_user(db_session, adhoc_app, adhoc_role, first=f"PCT{tag}",
+                          last="AAA")
+        mucho = _make_user(db_session, adhoc_app, adhoc_role, first=f"PCT{tag}",
+                           last="BBB")
+        docs = [_make_document(db_session, title=f"Doc {i} {tag}") for i in range(3)]
+        for doc in docs:
+            _grant_visibility(db_session, doc, poco, mucho)
+        _acknowledge(db_session, docs[0], poco)
+        _acknowledge(db_session, docs[0], mucho)
+        _acknowledge(db_session, docs[1], mucho)
+
+        filas = _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"PCT{tag}"))
+        por_usuario = {f["user"]: f for f in filas}
+
+        assert por_usuario[_full(poco)]["coverage"] == 33
+        assert por_usuario[_full(mucho)]["coverage"] == 67
+        # Número, no cadena: la unidad ya está en el encabezado de la columna.
+        assert isinstance(por_usuario[_full(poco)]["coverage"], int)
+
+    def test_el_acuse_de_una_version_superada_no_infla_el_porcentaje(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """Los acuses se piden por usuario; el cruce lo hace el par.
+
+        ``_acknowledged_at_by_pair`` no filtra por documento —pedir un segundo
+        ``IN`` de ids no ahorra nada y añade un sitio donde desincronizar el
+        criterio de vigencia—, así que quien recorta es
+        ``_visibility_by_user``. Si el cruce se hiciera por usuario en vez de
+        por par, este caso daría 1 acuse sobre 1 documento: 100 % de cobertura
+        para alguien que no ha acusado el documento vigente. Y no es teórico:
+        2 679 de las 9 390 filas de visibilidad apuntan a versiones superadas.
+        """
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"SUP{tag}")
+        raiz = _make_document(db_session, title=f"Manual {tag}", code=f"MC-{tag[:6]}",
+                              version="1.0", is_current=False, status="Obsoleto")
+        vigente = _make_document(db_session, title=f"Manual {tag}", code=raiz.code,
+                                 version="2.0", is_current=True, parent=raiz)
+        _grant_visibility(db_session, raiz, user)
+        _grant_visibility(db_session, vigente, user)
+        # Acusó la vieja y nunca la nueva: es exactamente el hueco de difusión
+        # que el reporte tiene que enseñar.
+        _acknowledge(db_session, raiz, user)
+
+        fila = _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"SUP{tag}"))[0]
+
+        assert fila["assigned"] == 1
+        assert fila["acknowledged"] == 0
+        assert fila["coverage"] == 0
+        # Pero el acuse NO se pierde: sale en su propia columna. Es la mitad que
+        # faltaba —contarlo como 0 a secas dejaba en el papel "esta persona no
+        # acusó nada", que es falso—.
+        assert fila["prior_acks"] == 1
+
+    def test_el_acuse_de_una_version_superada_no_se_pierde_del_papel(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """Un 0 a secas era una afirmación falsa; ahora el papel lo dice todo.
+
+        El caso vive en la base: 6 personas cuyo ÚNICO acuse está sobre una
+        versión superada imprimían "Documentos Acusados: 0 · % de Difusión: 0"
+        sin nada que lo matizara, mientras el modal de difusión del panel
+        enseñaba ese mismo acuse con su fecha. Dos superficies de la misma app
+        contando distinto, y la que se lleva el auditor era la que callaba.
+
+        Lo que NO se hace es cruzar por raíz de cadena para "recuperar" el
+        acuse: eso imprimiría que acusó el documento en vigor, y lo fija
+        ``test_el_acuse_previo_no_cuenta_como_acuse_del_vigente``.
+        """
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"PREV{tag}")
+        raiz = _make_document(db_session, title=f"Manual {tag}", code=f"PV-{tag[:6]}",
+                              version="1.0", is_current=False, status="Obsoleto")
+        vigente = _make_document(db_session, title=f"Manual {tag}", code=raiz.code,
+                                 version="2.0", is_current=True, parent=raiz)
+        _grant_visibility(db_session, raiz, user)
+        _grant_visibility(db_session, vigente, user)
+        _acknowledge(db_session, raiz, user, when=datetime(2019, 12, 6, 14, 8))
+
+        detalle = _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"PREV{tag}", formato="completo"))
+        fila = next(f for f in detalle if f["code"] == raiz.code)
+
+        # La versión que se lista es la vigente...
+        assert fila["version"] == "2.0"
+        # ...la celda de fecha no dice "Sin acuse" a secas...
+        assert fila["ack_date"] == "Sin acuse (acusó una versión anterior)"
+        # ...y NO se cuela la fecha del acuse viejo como si fuera del vigente.
+        assert "2019" not in fila["ack_date"]
+
+    def test_el_acuse_previo_no_cuenta_como_acuse_del_vigente(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """La cadena NO es la unidad del acuse, y esto es lo que lo impide.
+
+        Es la corrección que parecía obvia y habría sido peor: contar por
+        ``coalesce(parent_id, id)`` imprimiría "acusó recibo del documento en
+        vigor" con la fecha de un acuse anterior a que esa versión existiera.
+        En la base real es el usuario 7650: acusó ``046`` v2.0 el 2019-12-06 y
+        la versión en vigor es la v3.0 aprobada en 2022. Dar eso por bueno es
+        justo lo que la cláusula 7.5.3 existe para impedir.
+        """
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"CAD{tag}")
+        raiz = _make_document(db_session, title=f"Guia {tag}", code=f"CD-{tag[:6]}",
+                              version="1.0", is_current=False, status="Obsoleto")
+        vigente = _make_document(db_session, title=f"Guia {tag}", code=raiz.code,
+                                 version="3.0", is_current=True, parent=raiz)
+        _grant_visibility(db_session, raiz, user)
+        _grant_visibility(db_session, vigente, user)
+        _acknowledge(db_session, raiz, user, when=datetime(2019, 12, 6, 14, 8))
+
+        fila = _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"CAD{tag}"))[0]
+
+        assert fila["acknowledged"] == 0, "el acuse de la v1.0 no acusa la v3.0"
+        assert fila["coverage"] == 0
+
+    def test_acusar_las_dos_versiones_no_cuenta_dos_veces(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """Quien acusó la vieja Y la nueva no arrastra una nota al pie.
+
+        De los 84 acuses sobre versiones superadas de la base, 51 son este caso:
+        la misma persona acusó también la vigente. Sumarlos en la columna de
+        acuses previos inflaría el papel con evidencia duplicada.
+        """
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"DOS{tag}")
+        raiz = _make_document(db_session, title=f"Proc {tag}", code=f"DS-{tag[:6]}",
+                              version="1.0", is_current=False, status="Obsoleto")
+        vigente = _make_document(db_session, title=f"Proc {tag}", code=raiz.code,
+                                 version="2.0", is_current=True, parent=raiz)
+        _grant_visibility(db_session, raiz, user)
+        _grant_visibility(db_session, vigente, user)
+        _acknowledge(db_session, raiz, user, when=datetime(2019, 1, 1, 8, 0))
+        _acknowledge(db_session, vigente, user, when=datetime(2022, 5, 4, 10, 0))
+
+        fila = _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"DOS{tag}"))[0]
+
+        assert fila["acknowledged"] == 1
+        assert fila["coverage"] == 100
+        assert fila["prior_acks"] == 0, "acusó la vigente: no hay nada que anotar"
+
+    def test_los_rotulos_declaran_el_alcance_porque_el_excel_solo_lleva_la_tabla(
+        self, db_session
+    ):
+        """El .xlsx no tiene cabecera: el rótulo es el único sitio donde cabe.
+
+        La exportación es ``XLSX.utils.table_to_book``, que copia **solo el
+        ``<table>``**. Si el alcance viviera solo en la cabecera de la hoja, el
+        archivo que se lleva el auditor saldría con dos columnas llamadas
+        "Documentos Asignados" y "Documentos Acusados" sin decir sobre qué
+        conjunto se contaron.
+        """
+        report = ReportService.build_report(db_session, "usuarios_documentos")
+        etiquetas = {c["key"]: c["label"] for c in report["columns"]}
+
+        assert etiquetas["assigned"] == "Documentos Asignados (versión vigente)"
+        assert etiquetas["acknowledged"] == "Documentos Acusados (versión vigente)"
+        assert etiquetas["prior_acks"] == "Acuses en Versiones Superadas"
+        # Y la hoja impresa además lo explica en palabras.
+        assert "versión en vigor" in report["scope_note"]
+
+    def test_solo_este_reporte_declara_alcance(self, db_session):
+        """Los otros cuatro no tienen nada que declarar y no imprimen la línea."""
+        for tipo in REPORT_META:
+            nota = ReportService.build_report(db_session, tipo)["scope_note"]
+            if tipo == "usuarios_documentos":
+                assert nota
+            else:
+                assert nota is None, tipo
+
+    def test_sin_poder_resolver_el_acceso_la_marca_es_na(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """Sin fila de ``adhoc`` en ``core_apps`` no se acusa a nadie de nada.
+
+        ``_users_with_app_access`` devuelve ``None`` y la columna sale en
+        ``N/A``: es el equivalente al fail-closed de ``_fetch_users`` —allí no se
+        lista a nadie; aquí no se afirma que alguien perdió el acceso—. Escribir
+        "Sin acceso" por no haber podido comprobarlo pondría en el papel de una
+        auditoría una acusación que el servidor no sostiene.
+        """
+        from fastapi import HTTPException
+
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"NA{tag}")
+        doc = _make_document(db_session, title=f"Doc {tag}")
+        _grant_visibility(db_session, doc, user)
+
+        with patch("itcj2.core.services.authz_service.users_with_assignment_select",
+                   side_effect=HTTPException(status_code=404, detail="App inexistente")):
+            filas = _rows(ReportService.build_report(
+                db_session, "usuarios_documentos", nombre=f"NA{tag}"))
+
+        assert filas[0]["access"] == "N/A"
+        # Lo que sí se sabe se sigue contando.
+        assert filas[0]["assigned"] == 1
+
+    def test_el_meta_habla_de_difusion_pero_la_clave_no_se_toca(self):
+        """El rótulo cambió; la URL no podía cambiar.
+
+        ``usuarios_documentos`` está en ``REPORT_TYPES`` y es
+        ``/adhoc/reportes/usuarios_documentos``, una URL viva que se comparte por
+        correo. Lo que se corrigió es lo que el papel dice que mide: un reporte
+        titulado "Usuarios y Documentos" que contaba autorías salía en blanco
+        —3 autores en toda la base— y no es lo que pide la §7.5.3.
+        """
+        from itcj2.apps.adhoc.utils.constants import REPORT_TYPES
+
+        meta = REPORT_META["usuarios_documentos"]
+        assert "usuarios_documentos" in REPORT_TYPES
+        assert "Difusión" in meta["title"]
+        assert "Difusion" in meta["file_prefix"]
+        assert meta["subject"] == "users"
 
     def test_carga_en_lote_no_n_mas_uno(self, db_session, adhoc_app, adhoc_role):
+        """55 usuarios y 9 390 pares: un N+1 aquí son 55 consultas."""
         tag = _tag()
-        primero = _make_user(db_session, adhoc_app, adhoc_role, first=f"DOCS{tag}")
-        _make_document(db_session, author=primero)
+        doc = _make_document(db_session, title=f"Comun {tag}")
+        primero = _make_user(db_session, adhoc_app, adhoc_role, first=f"DIFN{tag}")
+        _grant_visibility(db_session, doc, primero)
+        _acknowledge(db_session, doc, primero)
 
         with count_queries(db_session) as una:
             ReportService.build_report(db_session, "usuarios_documentos",
-                                       nombre=f"DOCS{tag}", formato="completo")
+                                       nombre=f"DIFN{tag}", formato="completo")
         con_uno = len(una)
 
         for i in range(3):
             extra = _make_user(db_session, adhoc_app, adhoc_role,
-                               first=f"DOCS{tag}", last=f"APELLIDO{i}")
-            _make_document(db_session, author=extra)
+                               first=f"DIFN{tag}", last=f"APELLIDO{i}")
+            _grant_visibility(db_session, doc, extra)
+            _acknowledge(db_session, doc, extra)
 
         with count_queries(db_session) as cuatro:
             report = ReportService.build_report(db_session, "usuarios_documentos",
-                                                nombre=f"DOCS{tag}", formato="completo")
+                                                nombre=f"DIFN{tag}", formato="completo")
 
         assert len({r["user"] for r in _rows(report)}) == 4
         assert len(cuatro) == con_uno, (con_uno, len(cuatro))
+
+
+# ---------------------------------------------------------------------------
+# Los otros cuatro reportes NO se movieron
+#
+# La reescritura de `usuarios_documentos` tocó un solo constructor, pero comparte
+# con los demás `_fetch_users`, `_areas_by_user`, `_fetch_documents` y el techo
+# de `MAX_ROWS`. Lo que estos tests fijan es que cada reporte sigue midiendo lo
+# suyo, y sobre todo que `documentos_usuarios` —cuyo nombre es el de este del
+# revés— siga siendo otra cosa: mide los VALIDADORES del flujo de aprobación,
+# no la lista de distribución.
+# ---------------------------------------------------------------------------
+
+class TestNoRegresionDeLosOtrosCuatro:
+    #: Las cuatro claves que solo tiene el reporte de difusión.
+    COLUMNAS_DE_DIFUSION = {"access", "assigned", "acknowledged", "coverage"}
+
+    @pytest.mark.parametrize("report_type", [
+        "area_usuarios", "usuarios_tareas", "documentos_usuarios", "documentos_notas",
+    ])
+    @pytest.mark.parametrize("formato", ["sencillo", "completo"])
+    def test_ninguno_publica_las_columnas_de_difusion(
+        self, db_session, report_type, formato
+    ):
+        report = ReportService.build_report(
+            db_session, report_type, formato=formato, nombre=f"zz{_tag()}"
+        )
+        assert set(_col_keys(report)) & self.COLUMNAS_DE_DIFUSION == set()
+
+    def test_documentos_usuarios_sigue_midiendo_validadores_no_destinatarios(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """Los dos nombres se parecen; los conceptos no tienen nada que ver.
+
+        ``documentos_usuarios`` responde "quién tiene que APROBAR este
+        documento" —los validadores de los pasos de su flujo—, y
+        ``usuarios_documentos`` responde "a quién se le DISTRIBUYÓ". Una persona
+        puede estar en una lista y no en la otra, que es justo lo que se siembra
+        aquí.
+        """
+        tag = _tag()
+        validador = _make_user(db_session, adhoc_app, adhoc_role,
+                               first="Vale", last=f"Validador{tag}")
+        destinatario = _make_user(db_session, adhoc_app, adhoc_role,
+                                  first="Desi", last=f"Destinatario{tag}")
+        flow = _make_flow(db_session)
+        _make_step(db_session, flow, name="Revisión", order=1, assignees=[validador])
+        titulo = f"Procedimiento {tag}"
+        doc = _make_document(db_session, title=titulo, flow=flow)
+        _grant_visibility(db_session, doc, destinatario)
+        _acknowledge(db_session, doc, destinatario)
+
+        fila = _rows(ReportService.build_report(
+            db_session, "documentos_usuarios", nombre=titulo))[0]
+
+        assert f"Vale Validador{tag}" in fila["assigned_users"]
+        assert f"Desi Destinatario{tag}" not in fila["assigned_users"]
+        assert fila["total_steps"] == 1
+
+    def test_usuarios_tareas_no_cuenta_documentos_difundidos(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """Difundir un documento no le crea trabajo a nadie.
+
+        Los dos reportes parten de usuarios y comparten ``_fetch_users``; lo que
+        cambia es la colección que se les cruza.
+        """
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"TAR{tag}")
+        doc = _make_document(db_session, title=f"Doc {tag}")
+        _grant_visibility(db_session, doc, user)
+        _acknowledge(db_session, doc, user)
+
+        fila = _rows(ReportService.build_report(
+            db_session, "usuarios_tareas", nombre=f"TAR{tag}", formato="completo"))[0]
+
+        assert fila["total_tasks"] == 0
+        assert fila["description"] == "Sin tareas asignadas"
+
+    def test_area_usuarios_sigue_partiendo_de_quien_tiene_acceso(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """Las dos colecciones son distintas **a propósito**, y en los dos sentidos.
+
+        ``area_usuarios`` lista a quien puede entrar a Calidad (29 personas);
+        ``usuarios_documentos`` lista a quien tiene difusión (55, de las que 26
+        ya no entran). Intersecarlas habría borrado del papel a esas 26 —y con
+        ellas buena parte de las 9 390 filas de evidencia—, pero tampoco vale lo
+        contrario: quien tiene acceso y ninguna difusión sigue teniendo que salir
+        en el reporte de áreas.
+        """
+        tag = _tag()
+        sin_difusion = _make_user(db_session, adhoc_app, adhoc_role,
+                                  first=f"AMB{tag}", last="AAA")
+        con_difusion = _make_user(db_session, adhoc_app, adhoc_role,
+                                  first=f"AMB{tag}", last="BBB")
+        doc = _make_document(db_session, title=f"Doc {tag}")
+        _grant_visibility(db_session, doc, con_difusion)
+
+        areas = {r["first_name"] + r["last_name"]
+                 for r in _rows(ReportService.build_report(
+                     db_session, "area_usuarios", nombre=f"AMB{tag}"))}
+        difusion = {r["user"] for r in _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"AMB{tag}"))}
+
+        assert areas == {f"AMB{tag}AAA", f"AMB{tag}BBB"}
+        assert difusion == {_full(con_difusion)}
+
+    def test_documentos_notas_ignora_por_completo_la_difusion(self, db_session,
+                                                              adhoc_app, adhoc_role):
+        """Un documento sin destinatarios sale igual: mide notas, no difusión."""
+        tag = _tag()
+        _make_document(db_session, title=f"Sin difundir {tag}", notes="Revisar anexo")
+
+        fila = _rows(ReportService.build_report(
+            db_session, "documentos_notas", nombre=tag))[0]
+
+        assert fila["has_notes"] == "Sí"
 
 
 # ---------------------------------------------------------------------------
@@ -801,32 +1306,34 @@ class TestSoloVersionesVigentes:
         assert len(filas) == 1
         assert filas[0]["doc_status"] == "Obsoleto"
 
-    def test_el_reporte_por_autor_tampoco_cuenta_las_superadas(
+    def test_el_reporte_de_difusion_tampoco_cuenta_las_superadas(
         self, db_session, adhoc_app, adhoc_role
     ):
         """``usuarios_documentos`` es el único que no pasa por ``_fetch_documents``.
 
-        Parte de usuarios y agrupa por autor (``_documents_by_author``), así que
-        el filtro de control documental hay que repetirlo ahí. Sin él, la
-        columna "Total Documentos" contaba las versiones superadas y el formato
-        completo las imprimía una por una, con el mismo ``code`` que la vigente
-        y sin ninguna columna que las distinga.
+        Parte de la lista de difusión (``_visibility_by_user``), así que el
+        filtro de control documental hay que repetirlo ahí. Sin él la persona
+        sale con dos filas del mismo ``code``, dos versiones y dos porcentajes.
+        No es teórico: 2 679 de las 9 390 filas de ``adhoc_document_visibility``
+        apuntan a una versión superada (58 documentos).
         """
         tag = _tag()
-        autor = _make_user(db_session, adhoc_app, adhoc_role, first=f"AUTORVER{tag}")
+        lector = _make_user(db_session, adhoc_app, adhoc_role, first=f"DIFVER{tag}")
         raiz = _make_document(db_session, title=f"Manual {tag}", code=f"MC-{tag[:6]}",
-                              version="1.0", author=autor, is_current=False,
-                              status="Obsoleto")
-        _make_document(db_session, title=f"Manual {tag}", code=raiz.code, version="2.0",
-                       author=autor, is_current=True, parent=raiz)
+                              version="1.0", is_current=False, status="Obsoleto")
+        vigente = _make_document(db_session, title=f"Manual {tag}", code=raiz.code,
+                                 version="2.0", is_current=True, parent=raiz)
+        # La difusión histórica apunta a las DOS filas de la cadena.
+        _grant_visibility(db_session, raiz, lector)
+        _grant_visibility(db_session, vigente, lector)
 
         report = ReportService.build_report(
-            db_session, "usuarios_documentos", nombre=autor.first_name,
+            db_session, "usuarios_documentos", nombre=lector.first_name,
             formato="completo",
         )
         filas = _rows(report)
 
-        assert [f["total_documents"] for f in filas] == [1]
+        assert [f["assigned"] for f in filas] == [1]
         assert [f["version"] for f in filas] == ["2.0"]
         assert "Obsoleto" not in {f["doc_status"] for f in filas}
 
@@ -877,6 +1384,53 @@ class TestLimiteDefensivo:
         monkeypatch.setattr(ReportService, "MAX_ROWS", 2)
         report = ReportService.build_report(db_session, "documentos_notas", nombre=tag)
         assert report["truncated"] is True
+
+    def test_la_difusion_tiene_techo_de_FILAS_no_solo_de_personas(
+        self, db_session, adhoc_app, adhoc_role, monkeypatch
+    ):
+        """``MAX_ROWS`` cuenta personas; en este reporte lo que crece son filas.
+
+        Desde que el formato completo abre una fila por par (usuario,
+        documento), las dos cosas dejaron de ser la misma: en la base real son
+        55 personas —muy por debajo del techo de 5 000— y **6 711 filas**, unos
+        8,7 MB de HTML, con ``truncated`` apagado. El aviso de la página era
+        literalmente veraz e inalcanzable: para que saltara harían falta 5 000
+        personas con difusión, o sea ~600 000 filas emitidas antes de que el
+        seguro mirase.
+        """
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"FILA{tag}")
+        for i in range(4):
+            doc = _make_document(db_session, title=f"Masa {tag} {i}")
+            _grant_visibility(db_session, doc, user)
+
+        # Una sola persona: MAX_ROWS ni se acerca, y aun así hay que cortar.
+        monkeypatch.setattr(ReportService, "MAX_ROWS", 5000)
+        monkeypatch.setattr(ReportService, "MAX_DETAIL_ROWS", 3)
+        report = ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"FILA{tag}", formato="completo")
+
+        assert len(_rows(report)) == 3
+        assert report["truncated"] is True
+        assert report["max_detail_rows"] == 3
+
+    def test_el_techo_de_filas_no_recorta_el_formato_sencillo(
+        self, db_session, adhoc_app, adhoc_role, monkeypatch
+    ):
+        """Una fila por persona: ahí el techo de detalle no tiene nada que hacer."""
+        tag = _tag()
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"SENC{tag}")
+        for i in range(4):
+            doc = _make_document(db_session, title=f"Simple {tag} {i}")
+            _grant_visibility(db_session, doc, user)
+
+        monkeypatch.setattr(ReportService, "MAX_DETAIL_ROWS", 3)
+        report = ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"SENC{tag}")
+
+        assert len(_rows(report)) == 1
+        assert report["truncated"] is False
+        assert _rows(report)[0]["assigned"] == 4
 
 
 # ---------------------------------------------------------------------------
@@ -937,3 +1491,55 @@ class TestSelectionData:
             assert card["icon"].startswith("fa-")
             assert card["icon_overlay"].startswith("fa-")
             assert card["subject"] in ("users", "documents")
+            # `preview` dice de qué colección salen las filas de la previa;
+            # `subject`, qué panel se enseña. No son la misma clave.
+            assert card["preview"] in ("users", "users_diffusion", "documents")
+
+    def test_la_previa_de_difusion_sale_de_la_lista_de_difusion(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """La previa tiene que enseñar la MISMA colección que el reporte lista.
+
+        Es el fallo que este test fija: ``usuarios_documentos`` dejó de partir
+        de ``_fetch_users`` (29 personas con acceso) y pasó a partir de
+        ``_fetch_users_with_visibility`` (55 con difusión), pero la previa
+        siguió saliendo de la primera. Resultado: filtrar por alguien que SÍ
+        sale en el reporte —30 personas están en ese hueco— contestaba "0
+        coincidencias", y quien usaba la previa para comprobar si una persona
+        tiene evidencia de difusión concluía que no la tiene.
+
+        Aquí el usuario NO tiene acceso a la app (sin ``app``/``role``) pero sí
+        difusión: tiene que estar en ``users_diffusion`` y no en ``users``.
+        """
+        tag = _tag()
+        sin_acceso = _make_user(db_session, first=f"PREVIA{tag}")
+        doc = _make_document(db_session, title=f"Difundido {tag}")
+        _grant_visibility(db_session, doc, sin_acceso)
+
+        data = ReportService.get_selection_data(db_session)
+        nombres_previa = {u["first_name"] for u in data["users"]}
+        nombres_difusion = {u["first_name"] for u in data["users_diffusion"]}
+
+        assert sin_acceso.first_name in nombres_difusion
+        assert sin_acceso.first_name not in nombres_previa
+        # Y el reporte lo lista: previa y reporte ya coinciden.
+        filas = _rows(ReportService.build_report(
+            db_session, "usuarios_documentos", nombre=f"PREVIA{tag}"))
+        assert [f["user"] for f in filas] == [_full(sin_acceso)]
+
+    def test_la_previa_de_difusion_trae_las_mismas_columnas_que_la_de_usuarios(
+        self, db_session, adhoc_app, adhoc_role
+    ):
+        """Comparten panel en el modal, así que tienen que compartir forma."""
+        area = _make_area(db_session)
+        user = _make_user(db_session, adhoc_app, adhoc_role, first=f"FORMA{_tag()}")
+        _assign_area(db_session, user, area)
+        doc = _make_document(db_session, title=f"Doc {_tag()}")
+        _grant_visibility(db_session, doc, user)
+
+        data = ReportService.get_selection_data(db_session)
+        fila = next(u for u in data["users_diffusion"]
+                    if u["first_name"] == user.first_name)
+
+        assert set(fila) == {"first_name", "last_name", "areas"}
+        assert fila["areas"] == area.name

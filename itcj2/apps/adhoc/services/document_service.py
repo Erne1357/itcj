@@ -37,14 +37,16 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
-from sqlalchemy import case, or_
+from sqlalchemy import and_, case, or_
 from sqlalchemy.orm import Session, joinedload
 
 from itcj2.apps.adhoc.models import (
     AdhocArea,
     AdhocDocument,
+    AdhocDocumentAcknowledgement,
     AdhocDocumentCategory,
     AdhocDocumentClassification,
+    AdhocDocumentVisibility,
     AdhocProcess,
     AdhocTask,
 )
@@ -301,6 +303,129 @@ class AdhocDocumentService:
             )
             .all()
         )
+
+    @staticmethod
+    def acknowledgement_panel(
+        db: Session,
+        document_id: int,
+        *,
+        app_user_ids: Optional[set[int]] = None,
+    ) -> dict:
+        """Difusión del documento: a quién se le asignó y quién acusó recibo.
+
+        Es la evidencia que la ISO 9001:2015 §7.5.3 exige controlar —la
+        *distribución* de la información documentada— y hasta hoy no tenía
+        ninguna pantalla: ``adhoc_document_visibility`` (9 390 filas, 55
+        usuarios, 198 de los 202 documentos) y
+        ``adhoc_document_acknowledgements`` (987 filas con fecha real, de
+        2019-11-15 a 2025-02-12) llegaron con el ETL del SGC y se quedaron sin
+        una sola lectura en la app.
+
+        **La colección sale de la visibilidad**, no de los acuses: la lista de
+        distribución es la pregunta ("a quién le tocaba conocer este
+        documento") y el acuse es la respuesta. Partir de los acuses
+        contestaría solo por los 61 documentos que tienen alguno y dejaría
+        invisible justo lo que una auditoría viene a mirar: el 89.5 % de los
+        pares (documento, usuario) que **no** acusaron.
+
+        El cruce es un ``LEFT JOIN`` por ``(document_id, user_id)``, el par que
+        las dos tablas declaran ``UNIQUE``, así que cada destinatario sale una
+        vez y con un acuse como mucho. Va en **una sola query** —hay documentos
+        con 51 destinatarios y resolver el acuse fila a fila es el N+1 de
+        siempre—, más la del documento, que hace falta para distinguir el 404
+        de "existe pero no se le asignó a nadie" (4 de los 202 están así).
+
+        ⚠️ La invariante que sostiene ese ``LEFT JOIN`` es que **todo acuse
+        tiene su fila de visibilidad**. Hoy se cumple —0 de 987 quedan fuera— y
+        es coherente con el origen, porque el SGC legacy solo difundía a quien
+        tenía el documento asignado, pero **no la garantiza ninguna FK**. El día
+        que se implemente el registro de acuses nuevos, un acuse escrito sin su
+        fila de visibilidad no aparecería aquí y ``acknowledged`` contaría de
+        menos: o el alta crea las dos filas, o esta consulta pasa a partir de la
+        unión de ambas tablas.
+
+        ``app_user_ids`` es el conjunto de quienes pueden **entrar** a Calidad y
+        lo calcula quien llama (``_app_user_ids`` de ``api/tasks.py``:
+        ``users_with_assignment_select`` + ``is_active``, exactamente el mismo
+        criterio con el que ``pages/_work_context.assignable_users`` llena los
+        pickers). No se reimplementa aquí a propósito: una regla de acceso ya
+        escrita en dos sitios no admite un tercero sin acabar divergiendo, y lo
+        que se necesita es un ``set`` de ids, no una query propia.
+
+        Con el conjunto, cada destinatario viaja con ``has_app_access`` y el
+        resumen con ``without_access``; **sin él las dos claves quedan en
+        ``None``** y el serializador las omite, la misma prudencia que
+        ``serialize_task`` con ``assignees_without_access``: un ``False`` por
+        omisión afirmaría algo que no se ha comprobado.
+
+        A quien ya no puede entrar **no se le filtra**: de los 55 usuarios con
+        visibilidad, 26 no tienen acceso hoy. La difusión de 2019-2025 se hizo a
+        esas 55 personas y ocultar a 26 falsearía la evidencia. Se les marca,
+        que es lo que separa "no acusó" de "no acusó y hoy ya ni siquiera
+        podría".
+
+        404 (``LookupError``) si el documento no existe.
+        """
+        from itcj2.core.models.user import User
+
+        doc = db.get(AdhocDocument, document_id)
+        if doc is None:
+            raise LookupError("Documento no encontrado")
+
+        filas = (
+            db.query(User, AdhocDocumentAcknowledgement.acknowledged_at)
+            .select_from(AdhocDocumentVisibility)
+            .join(User, User.id == AdhocDocumentVisibility.user_id)
+            .outerjoin(
+                AdhocDocumentAcknowledgement,
+                and_(
+                    AdhocDocumentAcknowledgement.document_id
+                    == AdhocDocumentVisibility.document_id,
+                    AdhocDocumentAcknowledgement.user_id
+                    == AdhocDocumentVisibility.user_id,
+                ),
+            )
+            .filter(AdhocDocumentVisibility.document_id == document_id)
+            # El mismo orden que los pickers y que el selector de validadores
+            # (`_picker_rows`, `pages/documents.py`): la lista de destinatarios
+            # se lee buscando un nombre, y ordenar por acuse movería de sitio a
+            # una persona cada vez que alguien acusa.
+            .order_by(User.last_name.asc(), User.first_name.asc(), User.id.asc())
+            .all()
+        )
+
+        recipients: list[dict] = []
+        acusados = 0
+        sin_acceso = 0
+        for user, acknowledged_at in filas:
+            tiene_acceso = None if app_user_ids is None else user.id in app_user_ids
+            if acknowledged_at is not None:
+                acusados += 1
+            if tiene_acceso is False:
+                sin_acceso += 1
+            recipients.append({
+                "user": user,
+                "acknowledged_at": acknowledged_at,
+                "has_app_access": tiene_acceso,
+            })
+
+        asignados = len(recipients)
+        return {
+            "document": doc,
+            "recipients": recipients,
+            # El resumen se calcula aquí y no en el navegador: es el número que
+            # se enseña como cobertura de difusión, y sumarlo en el JS lo dejaría
+            # dependiendo de que la UI haya recibido la lista entera.
+            "summary": {
+                "assigned": asignados,
+                "acknowledged": acusados,
+                "pending": asignados - acusados,
+                "coverage_pct": (
+                    round(acusados * 100 / asignados, 1) if asignados else 0.0
+                ),
+                "without_access": None if app_user_ids is None else sin_acceso,
+            },
+        }
 
     # ------------------------------------------------------------------
     # Escritura

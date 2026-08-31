@@ -30,7 +30,7 @@ un botón deshabilitado no es un gate.
 ``db_session`` es la sesión transaccional de ``tests/fastapi/conftest.py``.
 """
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -41,7 +41,9 @@ from itcj2.apps.adhoc.models import (
     AdhocApprovalFlowStep,
     AdhocArea,
     AdhocDocument,
+    AdhocDocumentAcknowledgement,
     AdhocDocumentCategory,
+    AdhocDocumentVisibility,
     AdhocTask,
 )
 from itcj2.apps.adhoc.schemas.documents import (
@@ -1264,3 +1266,235 @@ def test_el_area_dada_de_baja_sale_del_catalogo_pero_sigue_en_el_documento(db_se
     SVC.update(db_session, doc.id, DocumentUpdate(area_id=""))
     db_session.refresh(doc)
     assert doc.area_id is None
+
+# ==========================================================================
+# B6 — acknowledgement_panel: la difusión del documento y sus acuses
+# ==========================================================================
+#
+# Hallazgo A9. Dos tablas con datos y cero lecturas: ``adhoc_document_visibility``
+# (9 390 filas, 55 usuarios, 198 de los 202 documentos) y
+# ``adhoc_document_acknowledgements`` (987 acuses con fecha real, de 2019-11-15 a
+# 2025-02-12). La ISO 9001:2015 §7.5.3 exige controlar la **distribución** de la
+# información documentada; esto es esa evidencia, y solo eso: aquí no se
+# registran acuses nuevos.
+#
+# Lo que se prueba en el service —y no en la API— son las tres decisiones que
+# hacen que el número signifique algo: de dónde sale la colección (de la
+# visibilidad, no de los acuses), cómo se cruza el par y qué se dice cuando el
+# llamante no pudo resolver quién tiene acceso hoy.
+
+def difundir(db, doc, *users):
+    """Lista de distribución: a quién le tocaba conocer el documento."""
+    for u in users:
+        db.add(AdhocDocumentVisibility(document_id=doc.id, user_id=u.id))
+    db.flush()
+
+
+def acusar(db, doc, user, when=datetime(2020, 2, 3, 8, 45)):
+    """Acuse con fecha REAL.
+
+    ``acknowledged_at`` es NOT NULL a propósito en el modelo: un acuse sin fecha
+    no sostiene una auditoría, así que aquí tampoco se siembra ninguno sin ella.
+    """
+    db.add(AdhocDocumentAcknowledgement(
+        document_id=doc.id, user_id=user.id, acknowledged_at=when,
+    ))
+    db.flush()
+
+
+def persona(db, first, last):
+    """Usuario con apellido controlado: el orden del panel es por apellido."""
+    tag = uuid.uuid4().hex[:10]
+    u = User(
+        first_name=first, last_name=last,
+        username=f"e2e_adhoc_dif_{tag}",
+        email=f"e2e_adhoc_dif_{tag}@test.local",
+    )
+    db.add(u)
+    db.flush()
+    return u
+
+
+def documento(db, **kw):
+    return SVC.bulk_create(db, [item(**kw)], author_id=None)[0]
+
+
+def test_panel_de_difusion_inexistente_es_404(db_session):
+    with pytest.raises(LookupError):
+        SVC.acknowledgement_panel(db_session, 99999999)
+
+
+def test_la_coleccion_sale_de_la_visibilidad_no_de_los_acuses(db_session):
+    """Partir de los acuses contestaría solo por los 61 documentos que tienen alguno.
+
+    La lista de distribución es la **pregunta** ("a quién le tocaba conocer este
+    documento") y el acuse es la respuesta. Con la colección al revés, el 89.5 %
+    de los pares que no acusaron —justo lo que una auditoría viene a mirar—
+    quedaría invisible.
+    """
+    doc = documento(db_session)
+    acusa = persona(db_session, "Ana", "AAA")
+    calla = persona(db_session, "Beto", "BBB")
+    difundir(db_session, doc, acusa, calla)
+    acusar(db_session, doc, acusa)
+
+    panel = SVC.acknowledgement_panel(db_session, doc.id)
+
+    assert [f["user"].id for f in panel["recipients"]] == [acusa.id, calla.id]
+    assert panel["summary"]["assigned"] == 2
+    assert panel["summary"]["acknowledged"] == 1
+    assert panel["summary"]["pending"] == 1
+
+
+def test_un_acuse_sin_fila_de_visibilidad_no_aparece(db_session):
+    """La invariante documentada del ``LEFT JOIN``, fijada como test.
+
+    Hoy se cumple —0 de 987 acuses quedan fuera de la visibilidad— y es coherente
+    con el origen, porque el SGC legacy solo difundía a quien tenía el documento
+    asignado; pero **no la garantiza ninguna FK**. Este test es lo que hará
+    ruido el día que se implemente el registro de acuses nuevos: o el alta crea
+    las dos filas, o esta consulta pasa a partir de la unión de ambas tablas.
+    """
+    doc = documento(db_session)
+    en_la_lista = persona(db_session, "Ana", "AAA")
+    fuera_de_la_lista = persona(db_session, "Beto", "BBB")
+    difundir(db_session, doc, en_la_lista)
+    acusar(db_session, doc, fuera_de_la_lista)
+
+    panel = SVC.acknowledgement_panel(db_session, doc.id)
+
+    assert [f["user"].id for f in panel["recipients"]] == [en_la_lista.id]
+    assert panel["summary"]["acknowledged"] == 0
+
+
+def test_cada_destinatario_sale_una_vez_y_con_un_acuse_como_mucho(db_session):
+    """El par ``(document_id, user_id)`` es ``UNIQUE`` en las dos tablas.
+
+    Es lo que sostiene el ``LEFT JOIN``: sin esa unicidad, un documento con
+    varias filas de visibilidad por persona duplicaría destinatarios y el
+    denominador de la cobertura dejaría de ser el número de personas.
+    """
+    doc = documento(db_session)
+    otro = documento(db_session)
+    ana = persona(db_session, "Ana", "AAA")
+    difundir(db_session, doc, ana)
+    difundir(db_session, otro, ana)
+    acusar(db_session, doc, ana)
+    acusar(db_session, otro, ana, when=datetime(2024, 9, 9, 12, 0))
+
+    panel = SVC.acknowledgement_panel(db_session, doc.id)
+
+    assert len(panel["recipients"]) == 1
+    assert panel["recipients"][0]["acknowledged_at"] == datetime(2020, 2, 3, 8, 45)
+
+
+def test_el_orden_es_el_de_los_pickers(db_session):
+    """``last_name, first_name, id`` — el mismo de ``_picker_rows``.
+
+    La lista de destinatarios se lee buscando un nombre; ordenar por acuse
+    movería de sitio a una persona cada vez que alguien acusa.
+    """
+    doc = documento(db_session)
+    zeta = persona(db_session, "Ana", "ZZZ")
+    alfa_b = persona(db_session, "Beto", "AAA")
+    alfa_a = persona(db_session, "Ana", "AAA")
+    difundir(db_session, doc, zeta, alfa_b, alfa_a)
+    acusar(db_session, doc, zeta)
+
+    panel = SVC.acknowledgement_panel(db_session, doc.id)
+
+    assert [f["user"].id for f in panel["recipients"]] == [alfa_a.id, alfa_b.id, zeta.id]
+
+
+def test_el_resumen_redondea_la_cobertura_a_un_decimal(db_session):
+    """1 de 3 es 33.3, no 33 ni 33.333333333333336.
+
+    El porcentaje lo calcula el servidor porque es el número que se enseña como
+    cobertura de difusión, y una división en el navegador es también una
+    división entre cero el día que el documento no tenga destinatarios.
+    """
+    doc = documento(db_session)
+    uno = persona(db_session, "Ana", "AAA")
+    dos = persona(db_session, "Beto", "BBB")
+    tres = persona(db_session, "Cruz", "CCC")
+    difundir(db_session, doc, uno, dos, tres)
+    acusar(db_session, doc, uno)
+
+    assert SVC.acknowledgement_panel(db_session, doc.id)["summary"]["coverage_pct"] == 33.3
+
+
+def test_sin_destinatarios_no_hay_division_entre_cero(db_session):
+    """4 de los 202 documentos no tienen lista de distribución. No es un error."""
+    doc = documento(db_session)
+
+    panel = SVC.acknowledgement_panel(db_session, doc.id)
+
+    assert panel["recipients"] == []
+    assert panel["summary"]["assigned"] == 0
+    assert panel["summary"]["pending"] == 0
+    assert panel["summary"]["coverage_pct"] == 0.0
+
+
+def test_con_el_conjunto_de_acceso_se_marca_y_se_cuenta(db_session):
+    """La marca no filtra: los 26 de 55 que ya no entran siguen en la lista."""
+    doc = documento(db_session)
+    dentro = persona(db_session, "Ana", "AAA")
+    fuera = persona(db_session, "Beto", "BBB")
+    difundir(db_session, doc, dentro, fuera)
+
+    panel = SVC.acknowledgement_panel(db_session, doc.id, app_user_ids={dentro.id})
+
+    por_usuario = {f["user"].id: f for f in panel["recipients"]}
+    assert por_usuario[dentro.id]["has_app_access"] is True
+    assert por_usuario[fuera.id]["has_app_access"] is False
+    assert panel["summary"]["without_access"] == 1
+    assert panel["summary"]["assigned"] == 2
+
+
+def test_sin_el_conjunto_no_se_afirma_nada_sobre_el_acceso(db_session):
+    """``None``, no ``False``: la misma prudencia que ``serialize_task``.
+
+    Quien llama es ``api/documents``, que resuelve el conjunto con
+    ``_app_user_ids``; si no hay fila de ``adhoc`` en ``core_apps`` devuelve
+    ``None`` y el panel se sirve igual —un acuse de 2021 no deja de ser
+    evidencia porque el servidor no pueda decir quién entra hoy—. El
+    serializador omite las dos claves cuando valen ``None``.
+    """
+    doc = documento(db_session)
+    ana = persona(db_session, "Ana", "AAA")
+    difundir(db_session, doc, ana)
+
+    panel = SVC.acknowledgement_panel(db_session, doc.id)
+
+    assert panel["recipients"][0]["has_app_access"] is None
+    assert panel["summary"]["without_access"] is None
+    # Lo que sí se sabe no se calla.
+    assert panel["summary"]["assigned"] == 1
+
+
+def test_el_panel_no_recorta_la_cadena_de_versiones(db_session):
+    """Aquí no aplica el filtro de control documental de las dos listas.
+
+    Se entra por un documento concreto y lo que se pregunta es a quién se le
+    distribuyó **ese**. 2 679 de las 9 390 filas de visibilidad apuntan a una
+    versión superada: si el panel las escondiera, esa evidencia volvería a no
+    tener ninguna pantalla, que es el hallazgo del que venimos.
+    """
+    raiz = documento(db_session, title="Manual")
+    nueva = anexar(db_session, raiz, title="Manual")
+    ana = persona(db_session, "Ana", "AAA")
+    difundir(db_session, raiz, ana)
+    acusar(db_session, raiz, ana)
+
+    # `_supersede_chain` actualiza en lote con `synchronize_session=False` y la
+    # sesión del harness es `expire_on_commit=False`: sin releer, el objeto de
+    # la raíz seguiría diciendo `is_current=True` en Python.
+    db_session.expire_all()
+    superada = SVC.acknowledgement_panel(db_session, raiz.id)
+    vigente = SVC.acknowledgement_panel(db_session, nueva.id)
+
+    assert superada["document"].is_current is False
+    assert superada["summary"]["assigned"] == 1
+    assert superada["summary"]["acknowledged"] == 1
+    # Y la vigente no hereda la difusión de su raíz.
+    assert vigente["summary"]["assigned"] == 0

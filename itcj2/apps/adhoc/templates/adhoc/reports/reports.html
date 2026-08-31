@@ -62,7 +62,14 @@
             class="adhoc-report-card"
             data-adhoc-report="{{ card.type }}"
             data-adhoc-report-label="{{ card.label }}"
-            data-adhoc-report-subject="{{ card.subject }}">
+            data-adhoc-report-subject="{{ card.subject }}"
+            {# `subject` dice qué panel de vista previa se enseña; `preview`, de
+               qué colección salen sus filas. Eran lo mismo hasta que
+               "Difusión Documental" dejó de partir de los usuarios con acceso
+               (29) y pasó a partir de los usuarios con difusión (55): con una
+               sola clave, filtrar por alguien que SÍ sale en el reporte
+               previsualizaba "0 coincidencias". #}
+            data-adhoc-report-preview="{{ card.preview }}">
       <span class="adhoc-report-icon">
         <i class="{{ card.icon }} adhoc-report-icon-base"></i>
         <i class="{{ card.icon_overlay }} adhoc-report-icon-overlay" aria-hidden="true"></i>
@@ -147,7 +154,9 @@
             </select>
           </div>
 
-          {# Dos vistas previas; el JS enseña la que corresponda al reporte.
+          {# Dos PANELES de vista previa —personas y documentos— para tres
+             colecciones: `users` y `users_diffusion` comparten columnas, así
+             que comparten panel y solo cambian las filas que el JS le mete.
              Escritas a mano (no con la macro data_table) porque la fila de
              filtros de la macro trae su propio hook `data-adhoc-filter-input`,
              que dispararía TAMBIÉN el filtrado genérico de table-filter.js

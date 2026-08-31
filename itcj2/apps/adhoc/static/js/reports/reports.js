@@ -22,12 +22,26 @@
  *
  * page_data esperado (lo emite pages/reports.py con ReportService.get_selection_data):
  *   { reports: [...], areas: [...],
- *     users:     [{first_name, last_name, areas}],
- *     documents: [{code, title, author, area, status, version, created_at, notes}] }
+ *     users:            [{first_name, last_name, areas}],
+ *     users_diffusion:  [{first_name, last_name, areas}],
+ *     documents:        [{code, title, author, area, status, version, created_at, notes}] }
+ *
+ * DOS EJES, NO UNO
+ * ----------------
+ * `subject` ("users" | "documents") dice qué PANEL se enseña y con qué columnas
+ * y filtros. `preview` ("users" | "users_diffusion" | "documents") dice de qué
+ * COLECCIÓN salen las filas. Eran la misma clave hasta que "Difusión
+ * Documental" dejó de partir de `_fetch_users` (29 personas con acceso) y pasó
+ * a partir de `_fetch_users_with_visibility` (55 con difusión): 30 personas
+ * están en el reporte y no en aquella lista, así que la previa contestaba "0
+ * coincidencias" a filtros que en el reporte devuelven filas. Como las dos
+ * colecciones de personas tienen la misma forma, comparten panel: lo único que
+ * cambia es de dónde se leen las filas.
  *
  * MARCADO
  * -------
- *   <button data-adhoc-report="{tipo}" data-adhoc-report-label data-adhoc-report-subject>
+ *   <button data-adhoc-report="{tipo}" data-adhoc-report-label data-adhoc-report-subject
+ *           data-adhoc-report-preview>
  *   <form id="adhoc-report-form">                 action = /adhoc/reportes/{tipo}
  *   <input|select data-adhoc-report-filter="nombre|apellidos|area">
  *   <button data-adhoc-report-clear>            "Limpiar" del legacy
@@ -196,7 +210,11 @@
         if (!modal) return;
 
         var subject = modal.getAttribute('data-adhoc-subject') || 'users';
-        var all = data()[subject] || [];
+        // De dónde salen las filas. Cae a `subject` si el atributo falta, que
+        // es el comportamiento de antes y sigue siendo correcto para los cuatro
+        // reportes cuya colección sí es la de su panel.
+        var source = modal.getAttribute('data-adhoc-preview-source') || subject;
+        var all = data()[source] || [];
         var matched = filterRows(subject, all, currentFilters());
         var shown = matched.slice(0, PREVIEW_LIMIT);
 
@@ -231,14 +249,24 @@
      * Abre el modal de filtros para un tipo de reporte.
      * @param {string} type  p. ej. "documentos_notas"
      * @param {string} label título de la tarjeta
-     * @param {string} subject "users" | "documents"
+     * @param {string} subject "users" | "documents" — panel, columnas y filtros
+     * @param {string} preview "users" | "users_diffusion" | "documents" — colección
      */
-    function open(type, label, subject) {
+    function open(type, label, subject, preview) {
         var modal = modalEl();
         var form = formEl();
         if (!modal || !form) return;
 
         modal.setAttribute('data-adhoc-subject', subject === 'documents' ? 'documents' : 'users');
+        // Whitelist, no el atributo tal cual: `data()[source]` con una clave
+        // inventada devolvería `undefined` y la previa saldría vacía sin decir
+        // por qué. Lo desconocido cae a la colección del panel.
+        modal.setAttribute(
+            'data-adhoc-preview-source',
+            (preview === 'users_diffusion' || preview === 'documents' || preview === 'users')
+                ? preview
+                : (subject === 'documents' ? 'documents' : 'users')
+        );
         form.setAttribute('action', BASE_URL + encodeURIComponent(type));
 
         var title = modal.querySelector('[data-adhoc-report-title]');
@@ -267,7 +295,8 @@
                 open(
                     card.getAttribute('data-adhoc-report'),
                     card.getAttribute('data-adhoc-report-label'),
-                    card.getAttribute('data-adhoc-report-subject')
+                    card.getAttribute('data-adhoc-report-subject'),
+                    card.getAttribute('data-adhoc-report-preview')
                 );
                 return;
             }

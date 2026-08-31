@@ -122,6 +122,18 @@
   font-weight: var(--adhoc-fw-bold);
 }
 
+/* Alcance de lo que se contó, debajo de la rejilla de metadatos. Es una nota
+   de criterio, no un aviso: va en el gris del texto apagado y con un filete
+   lateral, no en el ámbar de las alertas —lo que dice no es que algo vaya mal,
+   es qué se midió—. Se imprime: forma parte del documento que se entrega. */
+.adhoc-report-scope {
+  margin: var(--adhoc-space-lg) 0 0;
+  padding: var(--adhoc-space-md) var(--adhoc-space-2xl);
+  color: var(--adhoc-muted);
+  font-size: var(--adhoc-fs-md);
+  border-left: 3px solid var(--adhoc-border-mid);
+}
+
 @media (max-width: 767.98px) {
   .adhoc-report-sheet { padding: var(--adhoc-space-3xl); }
   .adhoc-report-meta { grid-template-columns: 1fr; }

@@ -861,6 +861,137 @@ class TestFiltrosDeLaUrl:
 
 
 # ==========================================================================
+# B6 — Difusión y acuses de recibo (solo el PANEL de gestión)
+#
+# Hallazgo A9: `adhoc_document_visibility` (9 390 filas, 55 usuarios, 198 de los
+# 202 documentos) y `adhoc_document_acknowledgements` (987 acuses con fecha real
+# entre 2019 y 2025) llegaron con el ETL del SGC y no las leía NINGUNA pantalla.
+# La ISO 9001:2015 §7.5.3 exige controlar la distribución de la información
+# documentada, así que esa evidencia estaba en la base y en ningún sitio más.
+#
+# Va en `/adhoc/documentos/panel` y **no** en `/adhoc/documentos`, igual que el
+# botón "Editar" de A14 y por la misma razón: la lista de consulta no tiene ni
+# una acción de administración —su permiso de página lo tiene `consult`— y ver a
+# quién se le distribuyó un documento lo es. Por eso esta clase NO está
+# parametrizada sobre `LISTAS`: aquí la asimetría es la prueba.
+# ==========================================================================
+
+def element_ids(html):
+    """Todos los ``id="…"`` del documento, en orden de aparición."""
+    return re.findall(r'\sid="([^"]+)"', html)
+
+
+class TestPanelDeDifusion:
+    @pytest.fixture()
+    def html(self, client, admin_headers):
+        return client.get("/adhoc/documentos/panel", headers=admin_headers).text
+
+    def test_el_panel_monta_el_modal(self, html):
+        assert 'id="adhoc-doc-diffusion-modal"' in html
+        assert "data-adhoc-diffusion-modal" in html
+        assert "data-adhoc-diffusion-body" in html
+        assert "data-adhoc-diffusion-summary" in html
+        assert "Difusión y acuses de recibo" in html
+
+    def test_el_panel_carga_el_modulo_que_lo_rellena(self, html):
+        """Sin ``document-diffusion.js`` la acción de fila no abre nada.
+
+        El ``id`` estable del ``<script>`` es contrato del shell: sin él
+        idiomorph reescribe el ``src`` al navegar y el módulo no vuelve a
+        ejecutarse (mismo motivo que en ``document-versions.js``).
+        """
+        assert "/static/adhoc/js/documents/document-diffusion.js?v=" in html
+        assert 'id="adhoc-mod-documents-document-diffusion"' in html
+
+    def test_el_modal_es_de_la_familia_de_la_app_no_de_bootstrap(self, html):
+        """Lo abre ``AdhocUtils.openModal()``; ``data-bs-*`` no lo tocaría."""
+        bloque = html.split('id="adhoc-doc-diffusion-modal"')[1][:2500]
+        assert "adhoc-modal-dialog" in bloque
+        assert "data-adhoc-modal-close" in bloque
+        assert "data-bs-dismiss" not in bloque
+
+    def test_el_include_va_dentro_del_bloque_modals(self):
+        """A nivel de ``<body>``, fuera del contenido.
+
+        Un ancestro con ``transform``/``filter``/``perspective`` crea un
+        containing block nuevo y el ``position: fixed`` del velo deja de cubrir
+        la pantalla.
+        """
+        text = _strip_jinja_comments(
+            (TEMPLATES_DIR / "documents_panel.html").read_text(encoding="utf-8")
+        )
+        inicio = text.index("{% block modals %}")
+        fin = text.index("{% endblock %}", inicio)
+        assert inicio < text.index("_document_diffusion_modal.html") < fin
+
+    def test_la_lista_de_consulta_no_lo_monta(self, client, admin_headers):
+        """La otra mitad de la decisión: consulta no administra.
+
+        Si algún día se decide que sí, es un ``{% include %}`` —la hoja ya vive
+        en ``documents.css``, que la sección entera carga—; mientras tanto, que
+        el partial exista no basta para darlo por montado en las dos pantallas.
+        """
+        html = client.get("/adhoc/documentos", headers=admin_headers).text
+        assert "adhoc-doc-diffusion-modal" not in html
+        assert "document-diffusion.js" not in html
+
+    def test_el_pie_de_tabla_vacia_habla_de_la_lista_de_distribucion(self, html):
+        """4 de los 202 documentos no tienen destinatario, y eso es un dato.
+
+        El estado vacío afirma algo concreto del SGC —"a este documento no se le
+        asignó ningún destinatario"— en vez del "no hay resultados" genérico,
+        que se leería como un fallo de la consulta.
+        """
+        bloque = html.split('id="adhoc-doc-diffusion-modal"')[1][:3500]
+        assert "data-adhoc-diffusion-empty" in bloque
+        assert "no se le asignó ningún destinatario" in bloque
+
+    # ----------------------------------------------------------------
+    # Los cuatro diálogos de la pantalla
+    # ----------------------------------------------------------------
+
+    def test_los_cuatro_modales_de_la_pantalla_estan(self, html):
+        """El de difusión es el CUARTO, y los otros tres siguen ahí.
+
+        Se comprueba sobre el HTML renderizado, no sobre el ``{% include %}``:
+        lo que rompe ``querySelector`` es lo que llega al DOM.
+        """
+        for modal_id in ("adhoc-doc-modal", "adhoc-doc-flow-modal",
+                         "adhoc-doc-versions-modal", "adhoc-doc-diffusion-modal"):
+            assert f'id="{modal_id}"' in html, modal_id
+
+    def test_ningun_id_de_la_pantalla_se_repite(self, html):
+        """Con un ``id`` repetido ``querySelector`` devuelve el primero.
+
+        Es el modo de fallo concreto de meter un cuarto diálogo en una pantalla
+        que ya tenía tres: el módulo rellenaría un nodo y el usuario estaría
+        mirando otro, sin ningún error en consola. Se cuenta sobre el HTML de
+        verdad —el ``id`` puede venir de un ``{% include %}``, de una macro o de
+        la plantilla base, y ninguna de las tres se ve leyendo un solo archivo—.
+        """
+        ids = element_ids(html)
+        # Que la extracción tenga materia: si el patrón dejara de casar, la
+        # comprobación de abajo pasaría sobre una lista vacía sin decir nada.
+        assert "adhoc-doc-diffusion-modal" in ids
+        assert "adhoc-doc-versions-modal" in ids
+        repetidos = sorted({i for i in ids if ids.count(i) > 1})
+        assert repetidos == [], repetidos
+
+    def test_los_ganchos_del_modal_de_difusion_no_colisionan_con_los_otros(self, html):
+        """Los ``data-*`` tampoco: el JS de cada diálogo busca por atributo.
+
+        ``document-versions.js`` y ``document-diffusion.js`` hacen los dos un
+        ``document.querySelector`` global sobre su propio gancho; si el
+        vocabulario se solapara, el segundo módulo en cargar escribiría dentro
+        del primer diálogo.
+        """
+        difusion = set(re.findall(r"data-adhoc-diffusion-[a-z-]+", html))
+        versiones = set(re.findall(r"data-adhoc-versions-[a-z-]+", html))
+        assert difusion, "el panel no trae ningún gancho de difusión"
+        assert difusion & versiones == set()
+
+
+# ==========================================================================
 # Catálogos de documento — macro compartida, cero JS propio
 # ==========================================================================
 
@@ -1217,12 +1348,21 @@ VERSIONS_PARTIAL = (
     APP_ROOT / "templates" / "adhoc" / "partials" / "_document_versions_modal.html"
 )
 
-#: Todo el markup del que responde esta sección: las seis pantallas más el
-#: partial que dos de ellas incluyen.
-MARKUP = TEMPLATES + [VERSIONS_PARTIAL]
+#: El de difusión (B6) vive al lado y por el mismo motivo —es un diálogo, no una
+#: pantalla—, aunque hoy lo incluya **una sola** lista: la de gestión. Que sea de
+#: una no lo exime de las reglas de markup; al contrario, es el markup más nuevo
+#: de la sección y el único que ninguna otra suite mira.
+DIFFUSION_PARTIAL = (
+    APP_ROOT / "templates" / "adhoc" / "partials" / "_document_diffusion_modal.html"
+)
+
+#: Todo el markup del que responde esta sección: las seis pantallas más los dos
+#: partials que incluyen.
+MARKUP = TEMPLATES + [VERSIONS_PARTIAL, DIFFUSION_PARTIAL]
 
 JS_NAMESPACES = {
     "document-list.js": "window.AdhocDocumentList",
+    "document-diffusion.js": "window.AdhocDocumentDiffusion",
     "document-versions.js": "window.AdhocDocumentVersions",
     "documents.js": "window.AdhocDocuments",
     "documents-panel.js": "window.AdhocDocumentsPanel",
@@ -1241,6 +1381,10 @@ class TestReglasDuras:
         # El modal de historial no es una pantalla, pero sin él las dos listas
         # esconden las versiones superadas y no ofrecen dónde verlas.
         assert VERSIONS_PARTIAL.exists(), VERSIONS_PARTIAL
+        # Y sin el de difusión, `adhoc_document_visibility` (9 390 filas) y
+        # `adhoc_document_acknowledgements` (987 acuses) vuelven a no tener
+        # ninguna pantalla, que es el hallazgo A9 tal cual.
+        assert DIFFUSION_PARTIAL.exists(), DIFFUSION_PARTIAL
 
     @pytest.mark.parametrize("path", MARKUP, ids=lambda p: p.name)
     def test_templates_sin_css_inline(self, path):

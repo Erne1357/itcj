@@ -1,0 +1,175 @@
+{# ===========================================================================
+   partials/_document_diffusion_modal.html — modal "Difusión y acuses de recibo".
+
+   Lo incluye desde su `{% block modals %}` el PANEL de gestión:
+
+     {% block modals %}
+       {% include "adhoc/partials/_document_diffusion_modal.html" %}
+     {% endblock %}
+
+   POR QUÉ UN PARTIAL Y NO UNA MACRO
+   ---------------------------------
+   No recibe parámetros: el modal es siempre el mismo y lo rellena
+   `js/documents/document-diffusion.js` con la respuesta de
+   GET /api/adhoc/v2/documents/{id}/acknowledgements. Es además hermano de
+   `_document_versions_modal.html`, que ya resolvió lo mismo así, y dos
+   diálogos que se abren igual desde la misma botonera no pueden montarse de
+   dos maneras distintas.
+
+   QUÉ RESUELVE
+   ------------
+   `adhoc_document_visibility` (9 390 filas, 55 usuarios, 198 documentos) y
+   `adhoc_document_acknowledgements` (987 acuses con fecha real, 2019-2025)
+   llegaron con el ETL del SGC y no las leía NINGUNA pantalla. La ISO 9001:2015
+   §7.5.3 exige controlar la distribución de la información documentada. Esto
+   es esa evidencia, y solo eso: aquí no se registran acuses nuevos.
+
+   Va en el panel de gestión y no en `/adhoc/documentos`: consultar a quién se
+   le distribuyó un documento es administración del ciclo documental, y la
+   lista de consulta no tiene ninguna acción de administración. Si algún día la
+   necesita, es un `{% include %}` — la hoja ya vive en documents.css, que la
+   sección entera carga.
+
+   POR QUÉ IDS PROPIOS
+   -------------------
+   Esta pantalla monta TRES diálogos (#adhoc-doc-modal, #adhoc-doc-flow-modal,
+   #adhoc-doc-versions-modal). Todo lo de aquí va bajo `adhoc-doc-diffusion-` y
+   `data-adhoc-diffusion-*`, que no aparecen en ninguno de los otros dos: con un
+   id repetido `querySelector` devuelve el primero y el modal que se rellena no
+   es el que se abre.
+
+   REGLAS QUE CUMPLE
+   -----------------
+   * Familia de modal PROPIA (`.adhoc-modal > .adhoc-modal-dialog >
+     .adhoc-modal-content`), no la de Bootstrap: lo abre
+     `AdhocUtils.openModal()` y lo cierra el `data-adhoc-modal-close` delegado.
+   * Va en `{% block modals %}`, al final de #adhoc-root (la caja que HTMX
+     intercambia) y fuera de cualquier contenedor con `transform`/`filter`/
+     `perspective` — esos crean un containing block nuevo y rompen el
+     `position: fixed` del velo.
+   * Un solo pie, con el par del vocabulario de la app; todo botón con `btn-sm`.
+   * Cero CSS en línea y cero manejadores en línea.
+   * La tabla va dentro de `.adhoc-table-wrap` (eje X: con el diálogo
+     estrechado en un móvil las columnas se desplazan en horizontal en vez de
+     desbordar) Y el eje Y lo acota el CUERPO del diálogo, con
+     `overflow-y: auto` sobre `.adhoc-doc-diffusion-dialog .adhoc-modal-body`
+     (documents.css). Las dos cosas hacen falta: `.adhoc-modal-body` es
+     `flex: 1 1 auto; min-height: 0` dentro de un contenido de `max-height: 90vh`,
+     así que se ENCOGE al tamaño disponible mientras su contenido sigue
+     midiendo lo que mida; con overflow visible, una lista de 11 destinatarios
+     —la más corta que existe en la base— ya se pinta fuera de su caja, por
+     debajo del pie del diálogo y cortada a media fila en el borde. Es el
+     primer modal de esta pantalla con una colección de largo variable (198 de
+     los 202 documentos tienen lista de distribución), por eso no había salido
+     antes.
+
+   El `<tbody>` arranca solo con la fila de "sin destinatarios"; el JS inserta
+   los destinatarios ANTES de ella y la esconde cuando hay filas. Esa fila NO
+   es el estado de error: afirma algo concreto del SGC —que a nadie se le
+   asignó este documento, cosa que le pasa a 4 de los 202— y el módulo la deja
+   escondida cuando lo que falla es la petición.
+   =========================================================================== #}
+<div class="adhoc-modal" id="adhoc-doc-diffusion-modal" role="dialog" aria-modal="true"
+     aria-labelledby="adhoc-doc-diffusion-modal-title" aria-hidden="true"
+     data-adhoc-diffusion-modal>
+  <div class="adhoc-modal-dialog adhoc-doc-diffusion-dialog">
+    <div class="adhoc-modal-content">
+
+      <div class="adhoc-modal-header">
+        <h2 class="adhoc-modal-title" id="adhoc-doc-diffusion-modal-title">
+          <i class="fa-solid fa-share-nodes me-2"></i>Difusión y acuses de recibo
+        </h2>
+        <button type="button" class="btn-close" data-adhoc-modal-close aria-label="Cerrar"></button>
+      </div>
+
+      <div class="adhoc-modal-body">
+        {# Código, título, versión y estatus del documento. Lo escribe el JS con
+           textContent; nace vacío y oculto. #}
+        <p class="adhoc-doc-diffusion-doc" data-adhoc-diffusion-doc hidden></p>
+
+        {# Tira de cifras. Nace OCULTA y sigue oculta cuando el documento no
+           tiene lista de distribución: sin denominador no hay porcentaje, y un
+           "0 %" ahí se leería como "nadie acusó" cuando lo que pasa es que a
+           nadie se le asignó el documento. Con lista y sin acuses —141 de los
+           198— el mismo "0 %" significa exactamente lo que dice y sí se enseña.
+           Es una <dl> porque cada cifra es un par rótulo/valor, no una tabla. #}
+        <dl class="adhoc-diffusion-summary" data-adhoc-diffusion-summary hidden>
+          <div class="adhoc-diffusion-stat">
+            <dt class="adhoc-diffusion-stat-label">Destinatarios</dt>
+            <dd class="adhoc-diffusion-stat-value" data-adhoc-diffusion-assigned>0</dd>
+          </div>
+          <div class="adhoc-diffusion-stat">
+            <dt class="adhoc-diffusion-stat-label">Acusaron</dt>
+            <dd class="adhoc-diffusion-stat-value adhoc-diffusion-stat-done"
+                data-adhoc-diffusion-acknowledged>0</dd>
+          </div>
+          <div class="adhoc-diffusion-stat">
+            <dt class="adhoc-diffusion-stat-label">Pendientes</dt>
+            <dd class="adhoc-diffusion-stat-value" data-adhoc-diffusion-pending>0</dd>
+          </div>
+          {# El porcentaje lo calcula el SERVIDOR: es el número que se enseña
+             como cobertura de difusión y una división en el navegador es
+             también una división entre cero el día que el documento no tenga
+             destinatarios. Aquí no lleva color: un umbral de "buena cobertura"
+             sería un criterio de auditoría inventado, y la norma no lo da. #}
+          <div class="adhoc-diffusion-stat">
+            <dt class="adhoc-diffusion-stat-label">Cobertura</dt>
+            <dd class="adhoc-diffusion-stat-value" data-adhoc-diffusion-coverage>0 %</dd>
+          </div>
+        </dl>
+
+        {# Línea de estado: "Cargando difusión…", el resumen en palabras o el
+           error. Es `polite` porque el contenido del modal cambia sin que el
+           usuario navegue. #}
+        <p class="adhoc-doc-diffusion-note" data-adhoc-diffusion-note aria-live="polite" hidden></p>
+
+        {# Aviso de destinatarios que ya no entran a Calidad. Solo con un número
+           mayor que cero: es una MARCA, y una marca que dice "0" es ruido. Si
+           el servidor no pudo resolver quién entra hoy, omite la clave y esto
+           no se enciende — el cliente no lo deduce por su cuenta. #}
+        <p class="adhoc-diffusion-noaccess" data-adhoc-diffusion-noaccess hidden>
+          <i class="fa-solid fa-user-slash" aria-hidden="true"></i>
+          <span data-adhoc-diffusion-noaccess-text></span>
+        </p>
+
+        <div class="adhoc-table-wrap">
+          <table class="adhoc-table adhoc-table-auto adhoc-doc-diffusion-table">
+            <thead>
+              <tr>
+                <th scope="col" class="adhoc-col-start">Destinatario</th>
+                {# Sin columna de correo, y es una decisión de exposición, no de
+                   espacio: este endpoint se sirve con `documents.api.read`, que
+                   también tiene `consult`, y con el correo dentro recorrer los
+                   202 documentos enumeraba las 55 personas de la lista de
+                   distribución con su dirección. La columna tampoco participaba
+                   en ninguna lectura de la pantalla —no dice si acusó, ni
+                   cuándo, ni si conserva el acceso—, tanto que la hoja ya la
+                   escondía entera en móvil. #}
+                <th scope="col" class="adhoc-col-start">Acuse</th>
+                <th scope="col" class="adhoc-col-start">Fecha</th>
+              </tr>
+            </thead>
+            <tbody data-adhoc-diffusion-body>
+              <tr class="adhoc-table-empty" data-adhoc-empty data-adhoc-diffusion-empty>
+                <td colspan="3">
+                  <div class="adhoc-empty">
+                    <i class="fa-solid fa-user-slash adhoc-empty-icon"></i>
+                    <p class="adhoc-empty-text mb-0">
+                      A este documento no se le asignó ningún destinatario: no hay
+                      lista de distribución que consultar.
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="adhoc-modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-adhoc-modal-close>Cerrar</button>
+      </div>
+
+    </div>
+  </div>
+</div>

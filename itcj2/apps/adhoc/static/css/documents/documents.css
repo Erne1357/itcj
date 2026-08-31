@@ -4,7 +4,8 @@
    CONTIENE saludo de la vista de consulta, margen superior de la barra de botones,
             filtro de servidor dentro de la tabla (campos y casilla), celda
             version/estatus, celda de vigencia, marca de version superada, celda
-            de archivo, paginador y el modal del historial de versiones
+            de archivo, paginador, el modal del historial de versiones y el modal
+            de difusion y acuses de recibo
    EN BASE  la barra de botones (.adhoc-toolbar, via la macro toolbar()), iconos de
             fila (.adhoc-icon-action…), barra inferior, caja del selector de
             cantidad y encabezado dentro de la tarjeta
@@ -339,6 +340,186 @@
   font-weight: var(--adhoc-fw-semibold);
 }
 
+/* ── Modal "Difusion y acuses de recibo" ────────────────────────────────
+   Markup en partials/_document_diffusion_modal.html, contenido en
+   js/documents/document-diffusion.js.
+
+   Vive en la hoja de la SECCION y no en la del panel aunque hoy solo lo monte
+   /adhoc/documentos/panel, por lo mismo que el historial de versiones: es una
+   pieza de la seccion, no de una pantalla, y la difusion es una lectura pura
+   —el endpoint pide `documents.api.read`, que tambien tiene `consult`—, asi que
+   el dia que la lista de consulta la quiera es un include y ni una regla que
+   mover. Son ~60 lineas que las otras tres pantallas de la seccion cargan sin
+   usar; el reparto contrario deja el CSS de un partial compartido escondido en
+   la hoja de una sola pagina, que es peor de encontrar. */
+
+/* Tres columnas, la primera con nombre completo mas la pastilla de "Sin
+   acceso": con los 600px del dialogo base "Destinatario" se parte en dos
+   lineas. El max-width del 95% lo sigue poniendo la hoja base, asi que en un
+   movil no se desborda. */
+.adhoc-doc-diffusion-dialog {
+  width: 780px;
+}
+
+/* EL SCROLL VERTICAL DE ESTE DIALOGO VIVE AQUI. Sin esta regla la tabla se
+   pinta FUERA de su caja y el pie del dialogo queda ENCIMA de las filas.
+
+   El porque, que no es evidente: `.adhoc-modal-content` es un flex en columna
+   con `max-height: 90vh`, y `.adhoc-modal-body` es `flex: 1 1 auto` con
+   `min-height: 0`. Esa combinacion hace que el cuerpo se ENCOJA hasta el hueco
+   disponible (616px en una ventana de 900) mientras su contenido sigue midiendo
+   lo que mida (852px con 11 destinatarios, 2 767px con 43); como el cuerpo no
+   recorta, lo que sobra se pinta por debajo, sobre el pie. Medido: con 11
+   filas —la lista MAS CORTA de la base— `elementFromPoint` en el centro del pie
+   devolvia un `TD`, y la ultima fila quedaba seccionada por el borde.
+
+   Va en el CUERPO y no en `.adhoc-table-wrap`: el wrap tiene tres hermanos
+   encima (encabezado del documento, tira de cifras y avisos) que suman ~200px,
+   asi que acotarlo a el —con `adhoc-table-sticky`, 70vh— seguiria sumando mas
+   que el hueco del cuerpo y el desbordamiento volveria. Con el scroll en el
+   cuerpo el pie se queda fijo y siempre alcanzable, que es lo que se rompia.
+
+   Consecuencia asumida: el `thead` no queda pegajoso. `.adhoc-table-wrap` es
+   contenedor de scroll por su `overflow-x` y se come el `position: sticky` de
+   las cabeceras (gotcha 20 del CLAUDE.md del app), asi que para que se pegaran
+   habria que anidar un segundo scroll dentro de este. Tres columnas rotuladas
+   "Destinatario / Acuse / Fecha" se siguen leyendo sin cabecera a la vista;
+   un pie inalcanzable, no. */
+.adhoc-doc-diffusion-dialog .adhoc-modal-body {
+  overflow-y: auto;
+}
+
+/* Codigo, titulo, version y estatus del documento. */
+.adhoc-doc-diffusion-doc {
+  margin: 0 0 var(--adhoc-space-2xl);
+  color: var(--adhoc-dark);
+  font-size: var(--adhoc-fs-lg);
+  font-weight: var(--adhoc-fw-semibold);
+}
+
+/* La version, con el hueco a los dos lados: la clase base la separa solo por la
+   derecha porque en la tabla abre la celda, y aqui va detras del titulo. */
+.adhoc-diffusion-version {
+  margin-left: var(--adhoc-space-lg);
+}
+
+/* ── Tira de cifras ──
+   Cuatro pares rotulo/valor en fila. Es lo primero que se lee del modal, asi
+   que va sobre la superficie apagada: se separa de la tabla sin necesitar un
+   borde mas. */
+.adhoc-diffusion-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--adhoc-space-4xl);
+  margin: 0 0 var(--adhoc-space-2xl);
+  padding: var(--adhoc-space-2xl) var(--adhoc-space-3xl);
+  background: var(--adhoc-soft);
+  border-radius: var(--adhoc-radius-lg);
+}
+
+.adhoc-diffusion-stat {
+  min-width: 6rem;
+}
+
+.adhoc-diffusion-stat-label {
+  margin: 0;
+  color: var(--adhoc-muted);
+  font-size: var(--adhoc-fs-xs);
+  font-weight: var(--adhoc-fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+/* El <dd> trae sangria del navegador; aqui se alinea con su rotulo. */
+.adhoc-diffusion-stat-value {
+  margin: var(--adhoc-space-2xs) 0 0;
+  color: var(--adhoc-dark);
+  font-size: var(--adhoc-fs-2xl);
+  font-weight: var(--adhoc-fw-bold);
+  line-height: 1.1;
+}
+
+/* Solo los que YA acusaron llevan color: es la unica cifra que dice que algo
+   consta. Las otras tres son recuento, y teñir "Pendientes" de rojo o la
+   cobertura de verde a partir de un umbral seria inventarse un criterio de
+   auditoria que la norma no da. */
+.adhoc-diffusion-stat-done {
+  color: var(--adhoc-success-ink);
+}
+
+/* Linea de estado: cargando, el resumen en palabras o el error. */
+.adhoc-doc-diffusion-note {
+  margin: 0 0 var(--adhoc-space-2xl);
+  color: var(--adhoc-muted);
+  font-size: var(--adhoc-fs-md);
+}
+
+/* Aviso de destinatarios que ya no entran a Calidad. Misma forma que los avisos
+   del panel —barra lateral, icono que no se encoge— y el tono apagado: no es
+   una alarma que atender hoy, es el contexto que hace falta para leer la
+   columna de pendientes de una difusion de 2019. */
+.adhoc-diffusion-noaccess {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--adhoc-space-md);
+  margin: 0 0 var(--adhoc-space-2xl);
+  padding: var(--adhoc-space-lg) var(--adhoc-space-xl);
+  background: var(--adhoc-soft);
+  border-left: 3px solid var(--adhoc-border-mid);
+  border-radius: calc(var(--adhoc-radius) - 6px);
+  color: var(--adhoc-muted);
+  font-size: var(--adhoc-fs-md);
+  line-height: 1.45;
+}
+
+.adhoc-diffusion-noaccess > i {
+  flex: 0 0 auto;
+  margin-top: var(--adhoc-space-2xs);
+}
+
+/* Atenua la tabla mientras vuela el fetch, igual que las dos listas y que el
+   historial. */
+.adhoc-modal.is-loading .adhoc-doc-diffusion-table {
+  opacity: .55;
+  pointer-events: none;
+  transition: opacity .15s ease-in-out;
+}
+
+.adhoc-diffusion-name {
+  color: var(--adhoc-dark);
+  font-weight: var(--adhoc-fw-semibold);
+}
+
+/* Un dato que no esta (sin correo, sin fecha de acuse). Va en el gris de texto
+   apagado y NO en el de deshabilitado, que sobre fondo blanco se queda en 2:1 y
+   deja de leerse. */
+.adhoc-diffusion-none {
+  color: var(--adhoc-muted);
+  font-style: italic;
+}
+
+.adhoc-diffusion-noaccess-badge {
+  margin-left: var(--adhoc-space-md);
+  font-size: var(--adhoc-fs-xs);
+  font-weight: var(--adhoc-fw-semibold);
+}
+
+/* El nombre de quien ya no puede entrar se apaga: la pastilla dice por que y el
+   nombre deja de competir con los de las personas a las que todavia se les
+   puede pedir el acuse. */
+.adhoc-doc-diffusion-table tbody tr.adhoc-diffusion-stale .adhoc-diffusion-name {
+  color: var(--adhoc-muted);
+  font-weight: var(--adhoc-fw-normal);
+}
+
+/* La linea donde acaba lo que falta y empieza lo que consta. El modulo la pone
+   en la primera fila de los acusados, y solo si delante hubo alguna pendiente.
+   Es un borde y no un fondo: teñir 25 filas de verde convierte el bloque
+   cerrado en lo mas llamativo de una pantalla que va de lo que falta. */
+.adhoc-doc-diffusion-table tbody tr.adhoc-diffusion-cut > td {
+  border-top: 2px solid var(--adhoc-border-mid);
+}
+
 /* ── Móvil ─────────────────────────────────────────────────────────────── */
 @media (max-width: 575.98px) {
   .adhoc-pager-info {
@@ -358,8 +539,20 @@
   }
 
   /* El pie del historial es un solo boton: a lo ancho se pulsa con el pulgar
-     sin apuntar. */
-  .adhoc-doc-versions-dialog .adhoc-modal-footer .btn {
+     sin apuntar. Lo mismo el de la difusion. */
+  .adhoc-doc-versions-dialog .adhoc-modal-footer .btn,
+  .adhoc-doc-diffusion-dialog .adhoc-modal-footer .btn {
     width: 100%;
+  }
+
+  /* Las cuatro cifras de la difusion en dos y dos: en fila piden ~26rem y el
+     dialogo tiene ~20 en un telefono, asi que la cuarta caia sola en una
+     tercera linea. */
+  .adhoc-diffusion-summary {
+    gap: var(--adhoc-space-2xl) var(--adhoc-space-3xl);
+  }
+
+  .adhoc-diffusion-stat {
+    min-width: 40%;
   }
 }

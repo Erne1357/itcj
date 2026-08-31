@@ -131,7 +131,8 @@ def _selection_data():
     }
 
 
-def _report(report_type="area_usuarios", rows=None, formato="sencillo", truncated=False):
+def _report(report_type="area_usuarios", rows=None, formato="sencillo", truncated=False,
+            scope_note=None):
     meta = REPORT_META[report_type]
     return {
         "report_type": report_type,
@@ -153,6 +154,8 @@ def _report(report_type="area_usuarios", rows=None, formato="sencillo", truncate
         "subjects": 1,
         "truncated": truncated,
         "max_rows": 5000,
+        "max_detail_rows": 20000,
+        "scope_note": scope_note,
         "filters": {"nombre": "", "apellidos": "", "area": ""},
     }
 
@@ -411,9 +414,39 @@ class TestReporteRender:
         assert "adhoc-empty" not in tabla
 
     def test_avisa_cuando_el_reporte_se_recorto(self, client, admin_headers):
+        """El aviso nombra los DOS techos, porque hay dos.
+
+        Decía "los primeros 5000 registros de origen", que desde que
+        ``usuarios_documentos`` emite una fila por par (usuario, documento) era
+        veraz e inalcanzable: 55 personas y 6 711 filas nunca activaban nada.
+        """
         with patch(f"{SERVICE}.build_report", return_value=_report(truncated=True)):
             html = client.get("/adhoc/reportes/area_usuarios", headers=admin_headers).text
-        assert "se recortó a los primeros 5000" in html
+        assert "se recortó al llegar a su techo" in html
+        assert "5000 registros de origen" in html
+        assert "20000 filas de detalle" in html
+
+    def test_la_linea_de_alcance_se_imprime_cuando_el_reporte_la_trae(
+        self, client, admin_headers
+    ):
+        """Lo que se contó, en la hoja que se entrega.
+
+        Es la mitad impresa del arreglo de ``usuarios_documentos``: la otra son
+        los rótulos de columna, que son los únicos que viajan al .xlsx —
+        ``XLSX.utils.table_to_book`` copia solo el ``<table>``—.
+        """
+        nota = "Alcance: solo la versión en vigor de cada documento."
+        with patch(f"{SERVICE}.build_report", return_value=_report(scope_note=nota)):
+            html = client.get("/adhoc/reportes/area_usuarios", headers=admin_headers).text
+
+        assert "adhoc-report-scope" in html
+        assert "Alcance: solo la versi" in html
+
+    def test_sin_alcance_que_declarar_no_se_pinta_la_linea(self, client, admin_headers):
+        """Cuatro de los cinco reportes no tienen nada que declarar."""
+        with patch(f"{SERVICE}.build_report", return_value=_report()):
+            html = client.get("/adhoc/reportes/area_usuarios", headers=admin_headers).text
+        assert "adhoc-report-scope" not in html
 
     @pytest.mark.parametrize("report_type", REPORT_TYPES)
     def test_las_cinco_formas_reales_del_service_caben_en_el_template(

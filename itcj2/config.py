@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     # <body>), y adhoc-utils.js + shared/table-filter.js estrenan guarda de
     # instancia única. Sin bump, un navegador con el adhoc-utils.js anterior en
     # caché sigue registrando un juego de listeners por cada ATRÁS.
-    STATIC_VERSION: str = "1.0.1111534"
+    STATIC_VERSION: str = "1.0.1111536"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

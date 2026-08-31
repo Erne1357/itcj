@@ -358,11 +358,23 @@
    No recibe parámetros: lo rellena document-versions.js con la respuesta de
    GET /documents/{id}/versions. Las dos pantallas montan el MISMO nodo. #}
 {% include "adhoc/partials/_document_versions_modal.html" %}
+
+{# — Difusión y acuses de recibo (hallazgo A9) —
+   Solo en el PANEL, no en la lista de consulta: ver a quién se le distribuyó un
+   documento es administración del ciclo documental. Lo rellena
+   document-diffusion.js con GET /documents/{id}/acknowledgements.
+
+   Sus ids y sus `data-adhoc-diffusion-*` no coinciden con los de los otros tres
+   diálogos de esta pantalla (#adhoc-doc-modal, #adhoc-doc-flow-modal,
+   #adhoc-doc-versions-modal): con un id repetido `querySelector` devuelve el
+   primero y el modal que se rellena no es el que se abre. #}
+{% include "adhoc/partials/_document_diffusion_modal.html" %}
 {% endblock %}
 
 {% block extra_js %}
 {{ page_data_script(page_data) }}
 <script id="adhoc-mod-documents-document-list" src="/static/adhoc/js/documents/document-list.js?v={{ sv('js/documents/document-list.js') }}"></script>
 <script id="adhoc-mod-documents-document-versions" src="/static/adhoc/js/documents/document-versions.js?v={{ sv('js/documents/document-versions.js') }}"></script>
+<script id="adhoc-mod-documents-document-diffusion" src="/static/adhoc/js/documents/document-diffusion.js?v={{ sv('js/documents/document-diffusion.js') }}"></script>
 <script id="adhoc-mod-documents-documents-panel" src="/static/adhoc/js/documents/documents-panel.js?v={{ sv('js/documents/documents-panel.js') }}"></script>
 {% endblock %}

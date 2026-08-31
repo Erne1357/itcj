@@ -223,6 +223,62 @@ def list_document_versions(
     return ok_list([document_out(d, today=hoy) for d in versions])
 
 
+@router.get("/{document_id}/acknowledgements")
+def list_document_acknowledgements(
+    request: Request,
+    document_id: int,
+    user: dict = require_perms("adhoc", ["adhoc.documents.api.read"]),
+    db: DbSession = None,
+):
+    """Difusión del documento: destinatarios, quién acusó recibo y cuándo.
+
+    Es el panel que le da salida a las dos tablas que el ETL del SGC trajo con
+    datos y la app no leía en ningún sitio: ``adhoc_document_visibility`` (la
+    lista de distribución, 9 390 filas) y ``adhoc_document_acknowledgements``
+    (los acuses con fecha real, 987 filas entre 2019 y 2025). La ISO 9001:2015
+    §7.5.3 exige controlar la **distribución** de la información documentada;
+    hasta hoy esa evidencia estaba en la base y en ninguna pantalla.
+
+    Es **consulta histórica y nada más**: aquí no se registran acuses nuevos.
+    Esa función es otra decisión de producto y va con su propio plan; lo que
+    esta ruta hace es enseñar lo que ya ocurrió.
+
+    Sin permiso propio, igual que ``/versions``: exige el mismo
+    ``adhoc.documents.api.read`` que el detalle —lo tienen ``admin``,
+    ``consult`` y ``supervisor_doc``—. Lo que añade sobre el detalle es **a
+    quién se le distribuyó**, y eso sí es información nueva: por sus otros
+    permisos ``consult`` podía enumerar 3 autores distintos y 8 validadores de
+    paso, y aquí aparecen las 55 personas de ``adhoc_document_visibility``. Que
+    el permiso baste se sostiene sobre lo que la respuesta **no** lleva: el
+    destinatario viaja con ``id`` y ``name``, sin correo
+    (:func:`~itcj2.apps.adhoc.schemas.documents._recipient_brief`), así que lo
+    que se expone son nombres de personal del SGC —los mismos que ya salen en
+    los desplegables de asignación— y no un directorio de direcciones
+    enumerable documento a documento. Si alguna vez hace falta el correo aquí,
+    lo que toca es un permiso propio, no ampliar este.
+
+    ``_app_user_ids`` se importa de ``api/tasks.py`` en vez de reescribir la
+    regla: es ``users_with_assignment_select`` + ``is_active``, el criterio con
+    el que ``/adhoc/asignaciones`` llena sus pickers, y ya vivía duplicado en
+    dos módulos. Cuesta dos queries fijas y es lo que permite marcar a los 26
+    de 55 destinatarios históricos que hoy ya no pueden entrar a Calidad. Si
+    devuelve ``None`` (sin fila de ``adhoc`` en ``core_apps``) el panel se sirve
+    igual, sin la marca — un acuse de 2021 no deja de ser evidencia porque el
+    servidor no pueda decir quién entra hoy.
+    """
+    from itcj2.apps.adhoc.api.tasks import _app_user_ids
+    from itcj2.apps.adhoc.schemas.common import ok_item
+    from itcj2.apps.adhoc.schemas.documents import acknowledgement_panel_out
+    from itcj2.apps.adhoc.services.document_service import AdhocDocumentService
+
+    con_acceso = _app_user_ids(db)
+    with _domain_errors():
+        panel = AdhocDocumentService.acknowledgement_panel(
+            db, document_id, app_user_ids=con_acceso,
+        )
+    return ok_item(acknowledgement_panel_out(panel))
+
+
 # ==========================================================================
 # Alta masiva
 # ==========================================================================

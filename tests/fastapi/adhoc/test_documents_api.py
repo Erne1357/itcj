@@ -18,7 +18,7 @@ Dos particularidades del harness que conviene tener presentes:
    de la función.
 """
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -30,6 +30,8 @@ from itcj2.apps.adhoc.models import (
     AdhocApprovalFlow,
     AdhocApprovalFlowStep,
     AdhocDocument,
+    AdhocDocumentAcknowledgement,
+    AdhocDocumentVisibility,
     AdhocTask,
 )
 from itcj2.apps.adhoc.services import upload_service
@@ -126,6 +128,7 @@ def make_document(db, **kw):
     ("post", DOCS),
     ("get", f"{DOCS}/1"),
     ("get", f"{DOCS}/1/versions"),
+    ("get", f"{DOCS}/1/acknowledgements"),
     ("patch", f"{DOCS}/1"),
     ("delete", f"{DOCS}/1"),
     ("get", f"{DOCS}/1/download"),
@@ -1162,3 +1165,451 @@ def test_los_flags_predicen_lo_que_hara_el_patch(client, admin_cookies, db_sessi
         )
         assert (resp.status_code == 200) is flags["is_editable"], (status, is_current)
         assert resp.status_code in (200, 409), resp.text
+
+# ==========================================================================
+# B6 — GET /documents/{id}/acknowledgements (difusión y acuses)
+#
+# Hallazgo A9: `adhoc_document_visibility` (9 390 filas, 55 usuarios, 198 de los
+# 202 documentos) y `adhoc_document_acknowledgements` (987 acuses con fecha real
+# entre 2019 y 2025) llegaron con el ETL del SGC y no las leía NINGUNA pantalla.
+# Esta ruta es su única salida, y es de CONSULTA: aquí no se registran acuses
+# nuevos.
+#
+# El sobre es `ok_item`, con tres bloques —`document` (un brief, no
+# `document_out`), `summary` (los cuatro números ya sumados en el servidor) y
+# `recipients`—. `has_app_access`/`without_access` se OMITEN cuando el servidor
+# no pudo resolver quién entra hoy: un `false` afirmaría algo no comprobado.
+# ==========================================================================
+
+def make_recipient(db, first, last):
+    """Usuario con apellido controlado: el orden de la lista es por apellido."""
+    tag = uuid.uuid4().hex[:10]
+    u = User(
+        first_name=first, last_name=last,
+        username=f"e2e_adhoc_dif_{tag}",
+        email=f"e2e_adhoc_dif_{tag}@test.local",
+    )
+    db.add(u)
+    db.flush()
+    return u
+
+
+def difundir(db, doc, *users):
+    """Lista de distribución: a quién le tocaba conocer el documento."""
+    for u in users:
+        db.add(AdhocDocumentVisibility(document_id=doc.id, user_id=u.id))
+    db.flush()
+
+
+def acusar(db, doc, user, when=datetime(2021, 4, 8, 10, 15)):
+    """Acuse con fecha real: ``acknowledged_at`` es NOT NULL a propósito."""
+    db.add(AdhocDocumentAcknowledgement(
+        document_id=doc.id, user_id=user.id, acknowledged_at=when,
+    ))
+    db.flush()
+
+
+def _con_acceso(*users):
+    """Parchea el conjunto de quienes pueden ENTRAR a Calidad.
+
+    Módulo **fuente** (``authz_service``), porque ``_app_user_ids`` importa la
+    función dentro del cuerpo. Devolver ids en vez del ``SELECT`` basta: el
+    endpoint los mete en un ``User.id.in_(...)``.
+    """
+    return patch(
+        "itcj2.core.services.authz_service.users_with_assignment_select",
+        return_value=[u.id for u in users],
+    )
+
+
+def test_panel_de_difusion_devuelve_el_sobre_estandar(client, admin_cookies, db_session):
+    """Camino feliz: tres destinatarios, uno acusó.
+
+    El resumen lo suma el SERVIDOR —incluido el porcentaje—: es el número que se
+    enseña como cobertura y una división en el navegador es también una división
+    entre cero el día que el documento no tenga destinatarios.
+    """
+    doc = make_document(db_session, code="E2E-DIF-1", title="Manual de calidad",
+                        version="2.1", status="Aprobado")
+    ana = make_recipient(db_session, "Ana", "AAA")
+    beto = make_recipient(db_session, "Beto", "BBB")
+    cruz = make_recipient(db_session, "Cruz", "CCC")
+    difundir(db_session, doc, ana, beto, cruz)
+    acusar(db_session, doc, beto)
+
+    with _con_acceso(ana, beto, cruz):
+        resp = client.get(f"{DOCS}/{doc.id}/acknowledgements", cookies=admin_cookies)
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["success"] is True
+    data = body["data"]
+    assert data["document"] == {
+        "id": doc.id, "code": "E2E-DIF-1", "title": "Manual de calidad",
+        "version": "2.1", "status": "Aprobado", "is_current": True,
+    }
+    assert data["summary"] == {
+        "assigned": 3, "acknowledged": 1, "pending": 2,
+        # 1 de 3 con un decimal: el redondeo lo hace el servidor.
+        "coverage_pct": 33.3,
+        "without_access": 0,
+    }
+    acuso = next(r for r in data["recipients"] if r["user"]["id"] == beto.id)
+    assert acuso["acknowledged"] is True
+    assert acuso["acknowledged_at"] == "2021-04-08T10:15:00"
+    assert acuso["has_app_access"] is True
+    pendiente = next(r for r in data["recipients"] if r["user"]["id"] == ana.id)
+    assert pendiente["acknowledged"] is False
+    assert pendiente["acknowledged_at"] is None
+
+
+def test_el_documento_viaja_como_brief_no_como_document_out(
+    client, admin_cookies, db_session,
+):
+    """Seis claves y ni una más.
+
+    ``document_out`` arrastraría los cinco catálogos —cinco ``SELECT`` perezosos
+    por abrir una ventana que solo necesita el encabezado—, y el modal se abre
+    desde una fila que ya trae el documento entero.
+    """
+    doc = make_document(db_session)
+    difundir(db_session, doc, make_recipient(db_session, "Ana", "AAA"))
+
+    with _con_acceso():
+        data = client.get(f"{DOCS}/{doc.id}/acknowledgements",
+                          cookies=admin_cookies).json()["data"]
+
+    assert set(data["document"]) == {"id", "code", "title", "version",
+                                     "status", "is_current"}
+    assert set(data) == {"document", "summary", "recipients"}
+
+
+def test_el_destinatario_no_lleva_correo(client, admin_cookies, db_session):
+    """``id`` y ``name``, y nada más: el correo NO sale por esta ruta.
+
+    Es una decisión de exposición, no de ancho de tabla. El endpoint se sirve
+    con ``adhoc.documents.api.read``, que también tiene ``consult``; con el
+    correo dentro, recorrer los 202 ids de documento enumeraba las 55 personas
+    de ``adhoc_document_visibility`` con su dirección —entre ellas 30 que ya no
+    entran a la app, con direcciones personales de gente que se fue—. Lo que ese
+    mismo rol podía enumerar por sus otros permisos es otro orden de magnitud:
+    3 autores distintos en ``adhoc_documents`` y 8 validadores de paso, 11 en
+    total. Y ``consult`` no tiene ``documents.page.manage``, así que ni siquiera
+    puede abrir el panel donde vive el modal.
+
+    La pantalla no lo echa de menos: la columna del correo no decía si acusó, ni
+    cuándo, ni si conserva el acceso, y la app no registra acuses nuevos, así
+    que tampoco hay a quién escribirle desde esa ventana.
+    """
+    doc = make_document(db_session)
+    ana = make_recipient(db_session, "Ana", "AAA")
+    difundir(db_session, doc, ana)
+
+    with _con_acceso(ana):
+        data = client.get(f"{DOCS}/{doc.id}/acknowledgements",
+                          cookies=admin_cookies).json()["data"]
+
+    destinatario = data["recipients"][0]["user"]
+    assert set(destinatario) == {"id", "name"}
+    assert "email" not in destinatario
+    # Y el nombre sigue identificando a la persona, que es lo que pide la
+    # evidencia ISO.
+    assert destinatario["name"]
+
+
+def test_el_autor_del_documento_si_conserva_su_correo(client, admin_cookies, db_session):
+    """Lo que se recortó es ESTE serializador, no ``user_brief`` entero.
+
+    ``document_out`` y los validadores de paso siguen emitiendo ``email``: son
+    superficies con otro alcance —un autor por documento, no la lista de
+    distribución completa— y tocarlas habría cambiado tres endpoints para
+    arreglar uno.
+    """
+    autor = make_recipient(db_session, "Autora", "AAA")
+    doc = make_document(db_session)
+    doc.author_id = autor.id
+    db_session.flush()
+
+    data = client.get(f"{DOCS}/{doc.id}", cookies=admin_cookies).json()["data"]
+
+    assert data["author"]["email"] == autor.email
+
+
+def test_los_destinatarios_van_por_apellido_y_nombre(client, admin_cookies, db_session):
+    """El mismo orden que los pickers, y **no** el del acuse.
+
+    La lista se lee buscando un nombre; ordenar por acuse movería de sitio a una
+    persona cada vez que alguien acusa.
+    """
+    doc = make_document(db_session)
+    cruz = make_recipient(db_session, "Cruz", "ZZZ")
+    ana = make_recipient(db_session, "Ana", "AAA")
+    beto = make_recipient(db_session, "Beto", "MMM")
+    difundir(db_session, doc, cruz, ana, beto)
+    # El último de la lista es el único que acusó: si el orden fuera por acuse,
+    # subiría al principio.
+    acusar(db_session, doc, cruz)
+
+    with _con_acceso(ana, beto, cruz):
+        data = client.get(f"{DOCS}/{doc.id}/acknowledgements",
+                          cookies=admin_cookies).json()["data"]
+
+    assert [r["user"]["id"] for r in data["recipients"]] == [ana.id, beto.id, cruz.id]
+
+
+def test_el_acuse_es_por_par_documento_usuario(client, admin_cookies, db_session):
+    """Que un compañero acuse el documento no acusa por mí.
+
+    Y el acuse de OTRO documento tampoco: el cruce es
+    ``(document_id, user_id)``, el par que las dos tablas declaran ``UNIQUE``.
+    """
+    doc = make_document(db_session)
+    otro = make_document(db_session)
+    ana = make_recipient(db_session, "Ana", "AAA")
+    beto = make_recipient(db_session, "Beto", "BBB")
+    difundir(db_session, doc, ana, beto)
+    difundir(db_session, otro, ana)
+    acusar(db_session, doc, beto)
+    acusar(db_session, otro, ana)
+
+    with _con_acceso(ana, beto):
+        data = client.get(f"{DOCS}/{doc.id}/acknowledgements",
+                          cookies=admin_cookies).json()["data"]
+
+    por_usuario = {r["user"]["id"]: r for r in data["recipients"]}
+    assert por_usuario[beto.id]["acknowledged"] is True
+    assert por_usuario[ana.id]["acknowledged"] is False
+    assert data["summary"]["acknowledged"] == 1
+
+
+def test_documento_inexistente_es_404(client, admin_cookies):
+    resp = client.get(f"{DOCS}/99999999/acknowledgements", cookies=admin_cookies)
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "Documento no encontrado", "status": 404}
+
+
+def test_difusion_sin_el_permiso_de_lectura_es_403(client, db_session):
+    """``role="staff"`` no bypasea: la difusión exige ``adhoc.documents.api.read``."""
+    doc = make_document(db_session)
+    cookies = {"itcj_token": make_jwt(user_id=1, role="staff")}
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.documents.api.update"}):
+        resp = client.get(f"{DOCS}/{doc.id}/acknowledgements", cookies=cookies)
+    assert resp.status_code == 403
+    assert "error" in resp.json()
+
+
+def test_difusion_con_el_permiso_exacto_pasa(client, db_session):
+    """Sin permiso propio: el mismo ``read`` que el detalle, como ``/versions``.
+
+    No revela nada que ``GET /documents/{id}`` no revelara ya; lo que añade es a
+    quién se le distribuyó.
+    """
+    doc = make_document(db_session)
+    cookies = {"itcj_token": make_jwt(user_id=1, role="staff")}
+    with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True), \
+         patch("itcj2.core.services.authz_cache.cached_perms",
+               return_value={"adhoc.documents.api.read"}), \
+         _con_acceso():
+        resp = client.get(f"{DOCS}/{doc.id}/acknowledgements", cookies=cookies)
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+
+# --------------------------------------------------------------------------
+# Los DOS vacíos, que no son el mismo
+# --------------------------------------------------------------------------
+
+def test_documento_sin_lista_de_distribucion(client, admin_cookies, db_session):
+    """4 de los 202 están así, y **no** es un 404.
+
+    "A nadie se le asignó este documento" es una afirmación sobre el SGC, no un
+    error: el documento existe y su lista de distribución está vacía.
+    """
+    doc = make_document(db_session)
+
+    with _con_acceso():
+        resp = client.get(f"{DOCS}/{doc.id}/acknowledgements", cookies=admin_cookies)
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["recipients"] == []
+    assert data["summary"] == {
+        "assigned": 0, "acknowledged": 0, "pending": 0,
+        # Sin denominador no hay porcentaje: 0.0, y ninguna división.
+        "coverage_pct": 0.0, "without_access": 0,
+    }
+
+
+def test_documento_difundido_que_nadie_acuso(client, admin_cookies, db_session):
+    """141 de los 198 documentos con lista están así.
+
+    El otro vacío, y dice algo distinto: aquí sí había a quién avisar y nadie
+    contestó. El ``0 %`` significa exactamente lo que dice.
+    """
+    doc = make_document(db_session)
+    ana = make_recipient(db_session, "Ana", "AAA")
+    beto = make_recipient(db_session, "Beto", "BBB")
+    difundir(db_session, doc, ana, beto)
+
+    with _con_acceso(ana, beto):
+        data = client.get(f"{DOCS}/{doc.id}/acknowledgements",
+                          cookies=admin_cookies).json()["data"]
+
+    assert len(data["recipients"]) == 2
+    assert [r["acknowledged"] for r in data["recipients"]] == [False, False]
+    assert [r["acknowledged_at"] for r in data["recipients"]] == [None, None]
+    assert data["summary"] == {
+        "assigned": 2, "acknowledged": 0, "pending": 2,
+        "coverage_pct": 0.0, "without_access": 0,
+    }
+
+
+def test_los_dos_vacios_no_devuelven_la_misma_forma(client, admin_cookies, db_session):
+    """La comparación explícita, porque la UI los pinta distinto.
+
+    Sin destinatarios el modal esconde la tira de cifras —un "0 %" ahí se leería
+    como "nadie acusó" cuando lo que pasa es que a nadie se le asignó el
+    documento—; con destinatarios y sin acuses la enseña. Si las dos respuestas
+    fueran iguales, esa distinción no se podría hacer en el cliente.
+    """
+    sin_lista = make_document(db_session)
+    con_lista = make_document(db_session)
+    ana = make_recipient(db_session, "Ana", "AAA")
+    difundir(db_session, con_lista, ana)
+
+    with _con_acceso(ana):
+        vacio = client.get(f"{DOCS}/{sin_lista.id}/acknowledgements",
+                           cookies=admin_cookies).json()["data"]
+        pendiente = client.get(f"{DOCS}/{con_lista.id}/acknowledgements",
+                               cookies=admin_cookies).json()["data"]
+
+    assert vacio["summary"]["assigned"] == 0
+    assert pendiente["summary"]["assigned"] == 1
+    assert vacio["recipients"] == []
+    assert pendiente["recipients"] != []
+    # Los dos tienen 0 acuses y 0 % — lo que los separa es el denominador.
+    assert vacio["summary"]["acknowledged"] == pendiente["summary"]["acknowledged"] == 0
+    assert vacio["summary"] != pendiente["summary"]
+
+
+# --------------------------------------------------------------------------
+# La marca de "ya no puede entrar a Calidad"
+# --------------------------------------------------------------------------
+
+def test_a_quien_ya_no_entra_se_le_marca_pero_no_se_le_filtra(
+    client, admin_cookies, db_session,
+):
+    """26 de los 55 usuarios con difusión no tienen acceso hoy.
+
+    La difusión de 2019-2025 se hizo a esas 55 personas: ocultar a 26 falsearía
+    la evidencia. Se les marca, que es lo que separa "no acusó" de "no acusó y
+    hoy ya ni siquiera podría".
+    """
+    doc = make_document(db_session)
+    dentro = make_recipient(db_session, "Ana", "AAA")
+    fuera = make_recipient(db_session, "Beto", "BBB")
+    difundir(db_session, doc, dentro, fuera)
+
+    with _con_acceso(dentro):
+        data = client.get(f"{DOCS}/{doc.id}/acknowledgements",
+                          cookies=admin_cookies).json()["data"]
+
+    por_usuario = {r["user"]["id"]: r for r in data["recipients"]}
+    assert por_usuario[dentro.id]["has_app_access"] is True
+    assert por_usuario[fuera.id]["has_app_access"] is False
+    assert data["summary"]["without_access"] == 1
+    assert data["summary"]["assigned"] == 2
+
+
+def test_sin_conjunto_de_acceso_las_dos_claves_se_omiten(client, admin_cookies, db_session):
+    """Sin fila de ``adhoc`` en ``core_apps`` no hay marca, pero sí hay panel.
+
+    Un acuse de 2021 no deja de ser evidencia porque el servidor no pueda decir
+    quién entra hoy. Y ausente ≠ ``false``: un ``false`` afirmaría algo no
+    comprobado, la misma prudencia que ``serialize_task`` con
+    ``assignees_without_access``.
+    """
+    from fastapi import HTTPException
+
+    doc = make_document(db_session)
+    ana = make_recipient(db_session, "Ana", "AAA")
+    difundir(db_session, doc, ana)
+
+    with patch("itcj2.core.services.authz_service.users_with_assignment_select",
+               side_effect=HTTPException(status_code=404, detail="App inexistente")):
+        resp = client.get(f"{DOCS}/{doc.id}/acknowledgements", cookies=admin_cookies)
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert "without_access" not in data["summary"]
+    assert "has_app_access" not in data["recipients"][0]
+    # Lo que sí se sabe sigue viajando.
+    assert data["summary"]["assigned"] == 1
+
+
+# --------------------------------------------------------------------------
+# Orden de rutas
+# --------------------------------------------------------------------------
+
+def test_la_ruta_de_acuses_no_la_atrapa_la_de_un_solo_tramo(
+    client, admin_cookies, db_session,
+):
+    """``/{document_id}`` y ``/{document_id}/acknowledgements`` son dos rutas.
+
+    Es el mismo cuidado que exigen ``/incidents/files/{id}`` y
+    ``/program-events/files/{id}``: el convertidor por defecto de FastAPI es
+    ``str``, así que un tramo de más casa con lo que no debe si el orden de
+    declaración se tuerce. Aquí se comprueba por el resultado —cada URL devuelve
+    SU forma— y no leyendo el módulo, que es lo que un reordenamiento rompería.
+    """
+    doc = make_document(db_session, code="E2E-RUTA", title="Con difusión")
+    ana = make_recipient(db_session, "Ana", "AAA")
+    difundir(db_session, doc, ana)
+
+    with _con_acceso(ana):
+        panel = client.get(f"{DOCS}/{doc.id}/acknowledgements", cookies=admin_cookies)
+    detalle = client.get(f"{DOCS}/{doc.id}", cookies=admin_cookies)
+
+    assert panel.status_code == 200 and detalle.status_code == 200
+    assert set(panel.json()["data"]) == {"document", "summary", "recipients"}
+    # El detalle es el documento pelado: ni resumen ni destinatarios.
+    assert "summary" not in detalle.json()["data"]
+    assert detalle.json()["data"]["code"] == "E2E-RUTA"
+
+
+def test_una_version_superada_conserva_su_propia_difusion(
+    client, admin_cookies, db_session,
+):
+    """El panel no recorta la cadena de versiones, y es deliberado.
+
+    Las dos listas ocultan lo superado porque enseñar dos filas del mismo
+    ``code`` entrega documentación vencida como si estuviera en vigor. Aquí no
+    aplica: se entra por un documento concreto y lo que se pregunta es a quién
+    se le distribuyó **ese**. 2 679 de las 9 390 filas de visibilidad apuntan a
+    una versión superada; si el panel las escondiera, esa evidencia volvería a
+    no tener pantalla.
+    """
+    code, raiz, nueva = make_version_chain(db_session)
+    ana = make_recipient(db_session, "Ana", "AAA")
+    beto = make_recipient(db_session, "Beto", "BBB")
+    difundir(db_session, raiz, ana, beto)
+    difundir(db_session, nueva, ana)
+    acusar(db_session, raiz, ana)
+
+    with _con_acceso(ana, beto):
+        vieja = client.get(f"{DOCS}/{raiz.id}/acknowledgements",
+                           cookies=admin_cookies).json()["data"]
+        vigente = client.get(f"{DOCS}/{nueva.id}/acknowledgements",
+                             cookies=admin_cookies).json()["data"]
+
+    assert vieja["document"]["is_current"] is False
+    assert vieja["summary"]["assigned"] == 2
+    assert vieja["summary"]["acknowledged"] == 1
+    # La difusión de la versión vigente es otra: ni hereda ni presta acuses.
+    assert vigente["document"]["is_current"] is True
+    assert vigente["summary"] == {
+        "assigned": 1, "acknowledged": 0, "pending": 1,
+        "coverage_pct": 0.0, "without_access": 0,
+    }

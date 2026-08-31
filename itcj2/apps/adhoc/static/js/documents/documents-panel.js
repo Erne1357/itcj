@@ -34,6 +34,9 @@
  *   GET    /documents/{id}             detalle (incluye current_step)
  *   GET    /documents/{id}/versions    la cadena entera (lo pide el modal
  *                                      compartido document-versions.js)
+ *   GET    /documents/{id}/acknowledgements
+ *                                      difusión y acuses (lo pide el modal
+ *                                      document-diffusion.js)
  *   POST   /documents/{id}/start-flow  {"flow_id": N}
  *
  * LO QUE AÑADE LA CADENA DE VERSIONES
@@ -85,6 +88,19 @@
  * Va en el PANEL y no en `/adhoc/documentos`: ver el avance de un flujo y
  * reasignar un paso atascado es administración del ciclo documental, y la lista
  * de consulta no tiene ninguna acción de administración.
+ *
+ * LO QUE AÑADE LA DIFUSIÓN (hallazgo A9)
+ * --------------------------------------
+ * El ETL del SGC trajo dos tablas con datos reales que la app no leía en
+ * ninguna pantalla: `adhoc_document_visibility` (9 390 filas, 55 usuarios, 198
+ * de los 202 documentos) y `adhoc_document_acknowledgements` (987 acuses con
+ * fecha, de 2019 a 2025). La ISO 9001:2015 §7.5.3 exige controlar la
+ * DISTRIBUCIÓN de la información documentada, y esa evidencia estaba en la base
+ * y en ninguna ventana. La acción de fila "Difusión" la abre, con el mismo
+ * patrón que el historial de versiones: un modal compartido en `{% block
+ * modals %}` y su propio módulo (`document-diffusion.js`).
+ *
+ * Es consulta y nada más: no se registran acuses nuevos desde aquí.
  */
 (function () {
     'use strict';
@@ -457,6 +473,46 @@
         // ella es hija) y averiguarlo por fila serían 25 peticiones por página.
         // Es el propio modal el que dice "es la única versión" cuando toca.
         box.appendChild(H.versionButton(doc));
+
+        // "Difusión" cierra el grupo de las acciones que LEEN, justo antes de
+        // las que escriben. Las cuatro van de lo más puntual a lo más amplio:
+        // en qué paso está hoy → sus tareas → sus versiones → a quién se le
+        // distribuyó. Y es la última porque es la única que mira fuera del
+        // documento: habla de personas.
+        //
+        // La séptima acción CABE, y entra como un icono más en vez de plegar
+        // nada en un menú. Dos razones. La primera, aritmética: 'start-flow' y
+        // 'flow-info' son excluyentes por estatus (STARTABLE es Borrador y
+        // Rechazado, la otra solo en 'En Revisión'), así que a los cuatro que se
+        // pintan siempre para un admin —tareas, historial, editar, anexar
+        // versión— más 'delete' y uno de esos dos, la botonera más larga posible
+        // pasa de SEIS iconos a SIETE: de 165px a 195px medidos en el panel real
+        // (con el hueco de 10px), en una columna que la tabla reparte en 215px.
+        // Y es la última de una tabla que ya se recorre en horizontal. La
+        // segunda razón, de vocabulario: en `adhoc` no hay
+        // NI UN menú desplegable (cero coincidencias de dropdown/kebab en las
+        // 34 plantillas y los 40 módulos), así que agrupar aquí significaría
+        // inventar un componente nuevo, con su apertura, su cierre al pulsar
+        // fuera y su foco, para una sola tabla. Un icono más es el patrón que
+        // ya existe; un menú sería la primera excepción de la app.
+        //
+        // Se pinta SIEMPRE y sin gate propio de permiso, igual que el
+        // historial: la fila no sabe cuántos destinatarios tiene —`document_out`
+        // no trae contador y pedirlo por fila serían 25 peticiones por página—,
+        // y 4 de los 202 documentos no tienen ninguno. Un botón que a veces
+        // lleva a un modal que dice "a este documento no se le asignó ningún
+        // destinatario" es mejor que un botón que a veces no está: lo primero
+        // se responde solo, lo segundo deja al usuario buscando.
+        //
+        // Sobre el permiso: el endpoint pide `adhoc.documents.api.read` y a
+        // esta pantalla solo se llega con `adhoc.documents.page.manage`, que en
+        // el DML solo tienen `admin` (todos los permisos) y `supervisor_doc`
+        // (que lista `documents.api.read` explícitamente). No hay ningún rol
+        // que pueda abrir el panel y comerse un 403 aquí, así que no hace falta
+        // una bandera nueva en `page_data` — a diferencia de 'tasks', donde la
+        // clave es el gate porque el destino es OTRA página con OTRO permiso.
+        box.appendChild(H.iconButton('diffusion', 'fa-solid fa-share-nodes',
+                                     'Ver difusión y acuses de recibo'));
 
         // "Editar" va ANTES de "Anexar versión" porque es la acción menor de
         // las dos: corregir una errata no cambia cuál es el documento vigente,
@@ -1069,6 +1125,25 @@
         mod.open(doc.id);
     };
 
+    /**
+     * Abre el panel de difusión del documento (`document-diffusion.js`).
+     *
+     * Misma forma que `openVersions`, y por lo mismo: el módulo del modal es
+     * OTRO <script>, así que puede no estar —una plantilla que se olvide de
+     * incluirlo, un 404 del estático tras un despliegue a medias— y el clic
+     * tiene que decirlo en vez de reventar en consola.
+     *
+     * @param {Object} doc fila de `document_out()`
+     */
+    Panel.prototype.openDiffusion = function (doc) {
+        var mod = window.AdhocDocumentDiffusion;
+        if (!mod || typeof mod.open !== 'function') {
+            U.showToast('No se pudo abrir la difusión del documento.', 'error');
+            return;
+        }
+        mod.open(doc.id);
+    };
+
     // ---------- borrado ----------
 
     Panel.prototype.remove = function (doc) {
@@ -1160,6 +1235,7 @@
             else if (action === 'flow-info') self.showFlowInfo(doc);
             else if (action === 'tasks') self.goToTasks(doc);
             else if (action === 'versions') self.openVersions(doc);
+            else if (action === 'diffusion') self.openDiffusion(doc);
             else if (action === 'edit') self.openEdit(doc);
             else if (action === 'new-version') self.openNewVersion(doc);
             else if (action === 'delete') self.remove(doc);

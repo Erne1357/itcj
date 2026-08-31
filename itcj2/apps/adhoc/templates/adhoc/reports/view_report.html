@@ -96,12 +96,25 @@
         <p><strong>{{ label }}:</strong> {{ value }}</p>
         {% endfor %}
       </div>
+
+      {# Alcance de lo que se contó, cuando el reporte tiene uno que declarar
+         (hoy solo "Difusión Documental"). Va en la CABECERA y no junto a la
+         tabla porque esto es lo que sale impreso en el PDF que se entrega, y
+         un criterio de conteo que no acompaña a la cifra deja de ser evidencia.
+
+         Ojo con la otra salida: `XLSX.utils.table_to_book` copia SOLO el
+         <table>, así que esta línea NO llega al .xlsx. Por eso el alcance va
+         además en el rótulo de las columnas, que sí viaja. #}
+      {% if report.scope_note %}
+      <p class="adhoc-report-scope">{{ report.scope_note }}</p>
+      {% endif %}
     </header>
 
     {% if report.truncated %}
     <p class="alert alert-warning adhoc-no-print" role="alert">
       <i class="fa-solid fa-triangle-exclamation"></i>
-      El reporte se recortó a los primeros {{ report.max_rows }} registros de origen.
+      El reporte se recortó al llegar a su techo
+      ({{ report.max_rows }} registros de origen · {{ report.max_detail_rows }} filas de detalle).
       Acote los filtros para verlo completo.
     </p>
     {% endif %}
