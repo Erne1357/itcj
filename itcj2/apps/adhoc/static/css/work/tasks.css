@@ -1,7 +1,8 @@
 /* ---------------------------------------------------------------------------
    PAGINA   /adhoc/incidencias/{id}/tareas, /adhoc/programas/{id}/tareas y
             /adhoc/documentos/{id}/tareas
-   CONTIENE compactado de la tabla, separacion de los iconos de la columna Acciones,
+   CONTIENE suelo de ancho de la tabla, compactado de la tabla, separacion de los
+            iconos de la columna Acciones,
             los dos colores de icono propios (usuarios y campana), los dos
             estados del contador de la columna Notas (clicable y apagado), la
             columna "Paso" y el aviso de atasco (los dos ultimos solo se ven en
@@ -24,7 +25,7 @@
    Equivalencias:
      .table-container    → .adhoc-card (adhoc.css)
      .controls-top       → macro toolbar() → .adhoc-toolbar (adhoc.css)
-     .doc-table          → .adhoc-table .adhoc-table-lg (adhoc.css, 1200px)
+     .doc-table          → .adhoc-table (suelo de 1140px, en esta hoja)
      .icon-btn-group     → .adhoc-actions (adhoc.css) con 12px de separación
      .btn-icon-small     → .adhoc-icon-btn
      .ic-users/-bell/…   → .adhoc-icon-users / -bell / -trash
@@ -61,11 +62,46 @@
 
 /* ---------- tabla ---------- */
 
+/* SUELO DE ANCHO: 1140px, medido, no heredado.
+   La plantilla pide `width='auto'` a la macro `data_table()` (min-width: 0) y
+   el suelo lo pone esta regla, porque es propio de esta pantalla.
+
+   Antes venia del escalon compartido `.adhoc-table-lg` (1200px) y desbordaba:
+   a 1280 —la resolucion de los equipos del ITCJ— el envoltorio mide 1164px
+   (98% de 1280, menos 2x20 del contenedor y 2x25 de la tarjeta), asi que
+   sobraban 36px EXACTOS. Y 36px sobre 1200 dejan el pulgar de la barra al 97%
+   del riel: la ultima columna, "Acciones", quedaba fuera de la vista sin
+   ninguna senal de que estuviera ahi. Se perdia "Eliminar" en las tres
+   pantallas (medido: 36px ocultos en incidencia, programa y documento).
+
+   Por que 1140 y no 1164: en un equipo real con barra de scroll vertical
+   clasica el envoltorio baja a ~1150px, y el suelo tiene que caber tambien
+   ahi. Por debajo de eso la tabla vuelve a desplazarse lateralmente, que es
+   para lo que existe `.adhoc-table-wrap`; lo que no puede es desbordarse en la
+   resolucion en la que se trabaja todos los dias.
+
+   No lleva media query: la escala de cortes de la app es 575.98 / 767.98 /
+   991.98 y `test_los_cortes_responsive_son_los_de_la_escala` existe para que
+   nadie invente un cuarto. Un corte a 1280 no arreglaria nada, ademas: el
+   problema esta por ENCIMA del ultimo corte. */
+.adhoc-worktasks .adhoc-table {
+  min-width: 1140px;
+}
+
 /* El legacy aprieta esta tabla a 10px de relleno y 0.9rem, un punto más grande
-   que la de incidencias. */
+   que la de incidencias.
+
+   El relleno HORIZONTAL baja a 8px, y es lo que hace que bajar el suelo no le
+   cueste ancho a ninguna columna: son 4px menos por celda, es decir 36px en las
+   9 columnas de incidencia/programa —los mismos 36px que se recortan del
+   suelo— y 40px en las 10 de documento. Medido a 1280: el ancho de contenido
+   de cada columna queda igual (o 4px mejor en documento) que con los 1200px
+   viejos, y la altura de fila no se mueve —en la pantalla de programa incluso
+   baja: la fila mas alta pasa de 315px a 294px—. El vertical se queda en 10px:
+   es el que da el aire de la fila. */
 .adhoc-worktasks .adhoc-table th,
 .adhoc-worktasks .adhoc-table td {
-  padding: var(--adhoc-space-lg);
+  padding: var(--adhoc-space-lg) var(--adhoc-space-md);
   font-size: var(--adhoc-fs-lg);
 }
 

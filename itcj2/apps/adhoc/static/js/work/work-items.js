@@ -36,6 +36,16 @@
  * El contrato de datos llega en `page_data` (bloque `<script type="application/json">`):
  *   kind · api · table_id · tasks_url · statuses · priorities · categories ·
  *   areas · processes · users · can{} · labels{} · today · per_page · query_map
+ *
+ * PAGINACIÓN Y URL
+ * ----------------
+ * Los NÚMEROS de página y el volcado del estado en la barra de direcciones los
+ * pone `shared/pager.js` (`window.AdhocPager`), compartido con la lista de
+ * documentos: el defecto era el mismo en las dos —solo anterior/siguiente, y
+ * doce páginas de incidencias— y la solución también. Aquí solo se le dice qué
+ * pintar y se recogen sus clics (`[data-adhoc-goto-page]`) con la delegación
+ * que ya había. Si el módulo no estuviera cargado, la pantalla se queda con el
+ * paginador de dos botones de siempre en vez de romperse.
  */
 (function () {
     'use strict';
@@ -150,6 +160,9 @@
         this.editing = null;
         this.loading = false;
         this.searchTimer = null;
+        //: `true` cuando la lista ya pintó una vez, que es cuando puede empezar
+        //: a escribir en la URL. Ver `syncUrl()`.
+        this.urlLista = false;
     }
 
     /** Claves de columna, leídas del <thead> (nunca índices cableados a mano). */
@@ -168,7 +181,10 @@
             console.error('[adhoc] work-items: falta la tabla de', this.kind);
             return;
         }
+        // El orden importa: `applyUrlState` asigna valores a los <select>, y un
+        // <select> vacío no acepta ninguno. Primero se llenan las opciones.
         this.fillFilterOptions();
+        this.applyUrlState();
         this.bind();
         this.load();
     };
@@ -205,6 +221,84 @@
         }
     };
 
+    /**
+     * Las claves de filtro que declara el MARCADO de la pantalla, sin repetir.
+     *
+     * Son los nombres LÓGICOS (`search`, `date_from`), no los de la API (`q`,
+     * `commitment_from`): `query_map` existe precisamente porque el vocabulario
+     * de la pantalla y el de la API no son el mismo, y la URL del navegador es
+     * de la pantalla. Además así el viaje de vuelta es una asignación directa al
+     * control, sin mapa inverso que mantener.
+     *
+     * @returns {string[]}
+     */
+    WorkItems.prototype.filterKeys = function () {
+        var inputs = this.root.querySelectorAll('[data-adhoc-param]');
+        var out = [];
+        for (var i = 0; i < inputs.length; i++) {
+            var clave = inputs[i].getAttribute('data-adhoc-param');
+            if (clave && out.indexOf(clave) === -1) out.push(clave);
+        }
+        return out;
+    };
+
+    /**
+     * Vuelca en la barra de filtros lo que venga en la URL, ANTES de la primera
+     * consulta. Es lo que hace que un enlace a "las incidencias urgentes de
+     * Mantenimiento, página 3" se pueda pegar en un correo y abrirse tal cual.
+     *
+     * Aquí la URL es el único origen —a diferencia de la lista de documentos,
+     * donde `pages/documents.py` valida en el servidor dos claves y esas mandan.
+     * Que no haga falta validarlas aquí no es descuido: un valor que no case con
+     * ninguna opción deja el `<select>` en su placeholder, una fecha absurda la
+     * descarta el `<input type="date">`, y la API vuelve a validar todo cuando
+     * el JS le pide los datos. Lo peor que puede hacer una URL manipulada es
+     * abrir la lista sin filtrar.
+     */
+    WorkItems.prototype.applyUrlState = function () {
+        var P = window.AdhocPager;
+        if (!P) return this;
+
+        var deLaUrl = P.leerFiltros(this.filterKeys());
+        var inputs = this.root.querySelectorAll('[data-adhoc-param]');
+        for (var i = 0; i < inputs.length; i++) {
+            var clave = inputs[i].getAttribute('data-adhoc-param');
+            if (!Object.prototype.hasOwnProperty.call(deLaUrl, clave)) continue;
+            inputs[i].value = deLaUrl[clave];
+        }
+        this.page = P.leerPagina();
+        return this;
+    };
+
+    /** Los filtros que hay puestos ahora mismo, tal como viajan por la URL. */
+    WorkItems.prototype.urlFilters = function () {
+        var inputs = this.root.querySelectorAll('[data-adhoc-param]');
+        var out = {};
+        for (var i = 0; i < inputs.length; i++) {
+            var clave = inputs[i].getAttribute('data-adhoc-param');
+            var valor = (inputs[i].value || '').trim();
+            if (clave && valor) out[clave] = valor;
+        }
+        return out;
+    };
+
+    /**
+     * Refleja página y filtros en la barra de direcciones, con `replaceState`
+     * (el porqué, con el historial de HTMX de por medio, está en
+     * `shared/pager.js::sincronizar`).
+     *
+     * NO se llama en el primer pintado: ese primer estado es justo el que trae
+     * la URL con la que se llegó, así que reescribirla no añadiría nada y sí
+     * quitaría —normalizaría bajo sus pies el enlace que el usuario acaba de
+     * abrir—. Se arma al terminar `render()`.
+     */
+    WorkItems.prototype.syncUrl = function () {
+        var P = window.AdhocPager;
+        if (!P) return this;
+        P.sincronizar(this.filterKeys(), this.urlFilters(), this.page);
+        return this;
+    };
+
     /** Estado de los filtros → query string, ya traducido con `query_map`. */
     WorkItems.prototype.queryString = function () {
         var parts = ['page=' + this.page, 'per_page=' + this.perPage];
@@ -234,6 +328,11 @@
         if (this.loading) return Promise.resolve();
         this.loading = true;
         this.root.classList.add('is-loading');
+
+        // Con la página PEDIDA, para que la URL cambie a la vez que la lista y
+        // no al final de la consulta. Si el servidor la recorta (se pidió la 40
+        // de 12), `render()` vuelve a sincronizar con la que de verdad llegó.
+        if (this.urlLista) this.syncUrl();
 
         return U.fetchJson(this.api + '?' + this.queryString())
             .then(function (payload) {
@@ -270,6 +369,11 @@
         else this.body.appendChild(frag);
 
         this.renderPager();
+
+        // El primer pintado solo ARMA la sincronización; los siguientes la
+        // ejecutan. Ver `syncUrl()`.
+        if (this.urlLista) this.syncUrl();
+        else this.urlLista = true;
     };
 
     WorkItems.prototype.renderPager = function () {
@@ -287,6 +391,18 @@
         var next = this.root.querySelector('[data-adhoc-work-page="next"]');
         if (prev) prev.disabled = this.page <= 1;
         if (next) next.disabled = this.page >= (this.totalPages || 1);
+
+        // Los números, entre "anterior" y "siguiente". La caja es la del propio
+        // paginador de la plantilla, que se localiza por el botón y no por su
+        // clase: el hook de esta pantalla son los `data-adhoc-*`, no el CSS.
+        var caja = next ? next.parentNode : (prev ? prev.parentNode : null);
+        if (caja && window.AdhocPager) {
+            window.AdhocPager.pintar(caja, {
+                pagina: this.page,
+                totalPaginas: this.totalPages || 1,
+                antesDe: next
+            });
+        }
     };
 
     WorkItems.prototype.buildRow = function (item) {
@@ -774,6 +890,22 @@
             if (evt.target.closest('[data-adhoc-work-filter]')) {
                 evt.preventDefault();
                 self.page = 1;
+                self.load();
+                return;
+            }
+
+            // Un número del paginador (`shared/pager.js`). Se resuelve aquí, en
+            // la misma delegación que el resto del pager, para que no haya dos
+            // sitios donde mirar cuando un clic no mueve la tabla.
+            var salto = evt.target.closest('[data-adhoc-goto-page]');
+            if (salto) {
+                evt.preventDefault();
+                var pedida = parseInt(salto.getAttribute('data-adhoc-goto-page'), 10);
+                // El botón de la página actual va habilitado (para no sacarlo
+                // del tabulador), así que es aquí donde pulsarlo no hace nada.
+                if (!pedida || pedida === self.page) return;
+                if (pedida < 1 || pedida > (self.totalPages || 1)) return;
+                self.page = pedida;
                 self.load();
                 return;
             }

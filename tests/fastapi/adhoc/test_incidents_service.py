@@ -685,3 +685,115 @@ def test_file_to_dict_marca_is_available_segun_el_binario(db_session):
     assert file_to_dict(con_archivo)["is_available"] is True
     assert file_to_dict(sin_archivo)["is_available"] is False
     assert file_to_dict(sin_archivo)["original_name"] == "NOTIFICACION VR-01"
+
+
+# ==========================================================================
+# A22/A23 — borrar la incidencia también limpia el disco
+#
+# `adhoc_incident_files` cae por el CASCADE de Postgres, pero los binarios de
+# `instance/apps/adhoc/incidents/{id}/` sobrevivían a la incidencia y quedaban
+# huérfanos para siempre: es el mismo bug #18 que `program_event_service` ya
+# arreglaba para los eventos de programa. Los 11 huérfanos que quedan hoy en
+# disco no se tocan; lo que se arregla es que no se generen más.
+#
+# El orden es la mitad importante del arreglo, y por eso el test que manda aquí
+# es el del commit fallido: si el disco se limpiara ANTES del commit, una
+# transacción que no cuaja deja la fila viva apuntando a un binario que ya no
+# existe. Eso es peor que el huérfano —el expediente ISO se queda sin su
+# evidencia y la UI sigue ofreciendo la descarga—, así que el caso feliz no
+# basta para demostrar que está bien hecho.
+#
+# Estos tests van al final del bloque de adjuntos porque necesitan
+# `uploads_root` y `_FakeUpload`, que se declaran ahí arriba.
+# ==========================================================================
+
+def test_delete_borra_los_binarios_y_el_directorio(db_session, uploads_root):
+    inc = _create(db_session, title="Con evidencia")
+    guardado = IncidentService.add_files(
+        db_session, inc.id, [_FakeUpload("evidencia.pdf")], uploaded_by_id=None
+    )[0]
+    en_disco = upload_service.open_stored("incidents", guardado.file_path)
+    directorio = en_disco.parent
+    assert en_disco.is_file()
+
+    assert IncidentService.delete(db_session, inc.id) is True
+
+    assert not en_disco.exists()
+    assert not directorio.exists()
+
+
+def test_delete_no_toca_el_disco_si_el_commit_falla(db_session, uploads_root, monkeypatch):
+    """**El caso que justifica el orden.** Si el commit revienta, los ficheros
+    tienen que seguir donde estaban: la fila sigue viva y su evidencia también.
+
+    Es lo único que distingue "borra el disco después de commitear" de "borra el
+    disco y luego commitea", que en el camino feliz se ven idénticos.
+    """
+    inc = _create(db_session, title="Commit fallido")
+    guardado = IncidentService.add_files(
+        db_session, inc.id, [_FakeUpload("evidencia.pdf")], uploaded_by_id=None
+    )[0]
+    en_disco = upload_service.open_stored("incidents", guardado.file_path)
+    directorio = en_disco.parent
+
+    def _revienta():
+        raise RuntimeError("la transacción no cuajó")
+
+    monkeypatch.setattr(db_session, "commit", _revienta)
+
+    with pytest.raises(RuntimeError):
+        IncidentService.delete(db_session, inc.id)
+
+    assert en_disco.is_file(), "el binario se borró antes de que la BD confirmara"
+    assert directorio.is_dir()
+
+
+def test_delete_de_una_incidencia_sin_archivos_no_revienta(db_session, uploads_root):
+    """El caso mayoritario: ni fila de adjunto ni directorio en disco.
+
+    `resolve_dir` devuelve una ruta que no existe y el borrado no puede
+    tropezar con ella.
+    """
+    inc = _create(db_session, title="Sin adjuntos")
+    directorio = upload_service.resolve_dir("incidents", inc.id)
+    assert not directorio.exists()
+
+    assert IncidentService.delete(db_session, inc.id) is True
+
+
+def test_delete_tolera_el_adjunto_migrado_sin_binario(db_session, uploads_root):
+    """51 de los 351 adjuntos del SGC llegaron con ``file_path`` NULL.
+
+    Sus filas caen con el CASCADE; el borrado del disco tiene que saltárselas
+    en vez de intentar resolver una ruta que no existe.
+    """
+    inc = _create(db_session, title="Con hueco")
+    _sin_binario(db_session, inc.id)
+
+    assert IncidentService.delete(db_session, inc.id) is True
+
+
+def test_delete_conserva_un_fichero_que_no_tiene_fila(db_session, uploads_root):
+    """Un binario sin registro —el ETL a medias, una subida interrumpida— se
+    queda, y con él su directorio. Perder evidencia de una auditoría ISO es más
+    caro que dejar un huérfano en disco, así que el ``rmdir`` solo entra si el
+    directorio quedó vacío."""
+    inc = _create(db_session, title="Con intruso")
+    guardado = IncidentService.add_files(
+        db_session, inc.id, [_FakeUpload("evidencia.pdf")], uploaded_by_id=None
+    )[0]
+    en_disco = upload_service.open_stored("incidents", guardado.file_path)
+    directorio = en_disco.parent
+    intruso = directorio / "sin_fila.pdf"
+    intruso.write_bytes(b"reliquia del ETL")
+
+    assert IncidentService.delete(db_session, inc.id) is True
+
+    assert not en_disco.exists()          # lo que sí tenía fila, fuera
+    assert intruso.is_file()              # lo que no, se queda
+    assert directorio.is_dir()
+
+
+def test_delete_de_inexistente_no_toca_nada_del_disco(db_session, uploads_root):
+    """El contrato de ``False`` es anterior a todo esto y no cambia."""
+    assert IncidentService.delete(db_session, 987_654_321) is False

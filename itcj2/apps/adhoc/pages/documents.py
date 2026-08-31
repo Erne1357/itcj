@@ -280,6 +280,61 @@ def _document_catalogs(db: Session) -> dict[str, list[dict]]:
     }
 
 
+def _flow_document_counts(db: Session) -> dict[str, int]:
+    """``{id de flujo: cuántos documentos lo usan}``, en **una sola** consulta.
+
+    Es el dato que decide si la papelera de la fila se puede pulsar, y por eso
+    lo cuenta el servidor: replica el guard **principal** de
+    ``AdhocDocumentFlowService.delete_flow`` —documentos con ese ``flow_id``, en
+    CUALQUIER estado, incluidos los aprobados hace diez años—, así que contar
+    otra cosa (solo los activos, solo los de la página visible) volvería a
+    ofrecer una papelera que responde 409. Medido hoy: 21 de los 43 flujos
+    tienen documentos colgando, o sea que son indeletables para siempre y hasta
+    ahora la pantalla los ofrecía igual, con su diálogo de confirmación incluido.
+
+    **No es el guard entero, y eso es deliberado.** ``delete_flow`` llama además
+    a ``_assert_steps_unreferenced``, que rechaza si algún documento está
+    *posicionado* en uno de sus pasos (``current_step_id``) o si alguna tarea
+    los referencia (``flow_step_id``). Esos dos casos siguen resolviéndose con
+    el 409 del servidor, que el JS ya recoge y enseña como aviso. Medido sobre
+    los 43 flujos reales: **0** caen solo por ellos —un documento posicionado en
+    un paso trae el ``flow_id`` de ese flujo, y las tareas del documento mueren
+    con él por ``ON DELETE CASCADE``—, así que ampliar la consulta añadiría dos
+    predicados que hoy no apagan ni un botón y volvería mentira la línea "en uso
+    por N documentos" de la fila, que cuenta documentos y no tareas.
+
+    Un ``GROUP BY``, no un ``count()`` por flujo: la tabla pinta los 43 de una
+    vez y la versión por fila serían 43 consultas para decorar una pantalla.
+
+    Las claves salen como **string** porque así viajan en el JSON de todas
+    formas (``json.dumps`` convierte las numéricas) y así el JS busca con
+    ``String(flow.id)`` sin depender de esa coacción.
+
+    Si la consulta falla, el mapa sale vacío y la pantalla se porta como hasta
+    hoy: la papelera se ofrece y el 409 del servidor explica el resto. Apagar un
+    botón es una cortesía de la UI —el guard de verdad está en el service, y no
+    se relaja—, y no vale tumbar el listado de flujos por una cortesía.
+    """
+    from sqlalchemy import func
+
+    from itcj2.apps.adhoc.models import AdhocDocument
+
+    try:
+        filas = (
+            db.query(AdhocDocument.flow_id, func.count(AdhocDocument.id))
+            .filter(AdhocDocument.flow_id.isnot(None))
+            .group_by(AdhocDocument.flow_id)
+            .all()
+        )
+    except Exception as exc:  # pragma: no cover - defensivo
+        logger.warning(
+            "adhoc/flujos: no se pudieron contar los documentos por flujo: %s", exc
+        )
+        return {}
+
+    return {str(flow_id): int(total) for flow_id, total in filas}
+
+
 # ==========================================================================
 # 1. Consulta de documentos
 # ==========================================================================
@@ -467,7 +522,19 @@ async def flows_page(
     user: dict = Depends(require_page_app("adhoc", perms=["adhoc.flows.page.list"])),
     db: Session = Depends(get_db),
 ):
-    """Listado de flujos de aprobación con su número de pasos."""
+    """Listado de flujos con su número de pasos y cuántos documentos los usan.
+
+    Lo segundo no es adorno: es lo que decide si la papelera de la fila se
+    ofrece. ``delete_flow`` rechaza con 409 cualquier flujo que tenga
+    documentos, y como cuenta los de **cualquier** estado, un flujo que se usó
+    una vez en 2016 ya no se borra nunca. La pantalla pintaba la papelera en los
+    43 igual, así que en 21 de ellos el camino era pulsar, confirmar en el
+    diálogo y comerse el error.
+
+    El conteo viaja en ``page_data`` y no lo deduce el JS —no hay de dónde: la
+    fila de flujo no sabe nada de documentos— ni lo trae ``GET /approval-flows``.
+    Es **una** consulta agregada de más en toda la pantalla.
+    """
     perms = _effective_perms(db, user)
     return render_adhoc(request, "adhoc/documents/flows.html", {
         "nav": nav_for_user(db, user),
@@ -477,6 +544,12 @@ async def flows_page(
             "can_create": _can(perms, "adhoc.flows.api.create"),
             "can_update": _can(perms, "adhoc.flows.api.update"),
             "can_delete": _can(perms, "adhoc.flows.api.delete"),
+            # Cuántos documentos usa cada flujo. La tabla la pinta el JS con la
+            # lista de `GET /approval-flows`, que NO trae este dato; el mapa se
+            # arma aquí una vez y la fila lo busca por su id. Un flujo que se
+            # cree después de esta petición no está en el mapa: cuenta como
+            # cero, que es exactamente lo que es.
+            "document_counts": _flow_document_counts(db),
         },
     })
 

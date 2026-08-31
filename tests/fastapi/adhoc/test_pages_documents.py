@@ -152,6 +152,9 @@ class _FakeQuery:
     def limit(self, n):
         return self
 
+    def group_by(self, *a, **k):
+        return self
+
     def all(self):
         return list(self._rows)
 
@@ -165,13 +168,43 @@ class _FakeQuery:
         return len(self._rows)
 
 
+def _entity_key(entity):
+    """Nombre con el que ``FakeDB`` indexa lo que se le pide en un ``query()``.
+
+    Un modelo se pide por su clase (``query(AdhocArea)``) y se indexa por
+    ``AdhocArea``. Una **agregación** se pide por columnas
+    (``query(AdhocDocument.flow_id, func.count(...))``) y se indexa por
+    ``AdhocDocument.flow_id``: son dos consultas distintas contra la misma
+    tabla y el doble tiene que poder responderlas por separado.
+
+    Esto no es decoración del harness. Sin resolver la columna, la sesión falsa
+    devolvía la lista de documentos para el conteo agrupado —y como
+    ``_FakeQuery`` tampoco tenía ``group_by``, la llamada moría con un
+    ``AttributeError`` que ``_flow_document_counts`` se tragaba por diseño (su
+    ``except`` está ahí para no tumbar el listado si la BD falla). Resultado: el
+    conteo salía ``{}`` en todos los tests y ninguno lo notaba.
+    """
+    nombre = getattr(entity, "__name__", None)
+    if nombre:
+        return nombre
+    modelo = getattr(entity, "class_", None)
+    clave = getattr(entity, "key", None)
+    if modelo is not None and clave:
+        return modelo.__name__ + "." + clave
+    return str(entity)
+
+
 class FakeDB:
     """Sesión falsa: devuelve filas por nombre de modelo, sin tocar Postgres."""
 
     def __init__(self):
+        #: Toda clave pedida a ``query()``, en orden. Es como se cuentan las
+        #: consultas de una pantalla sin levantar Postgres.
+        self.queries = []
         self.reset()
 
     def reset(self):
+        self.queries = []
         self.rows = {
             "AdhocDocumentCategory": [SimpleNamespace(id=1, name="Manual de calidad")],
             "AdhocDocumentClassification": [SimpleNamespace(id=4, name="Procedimiento")],
@@ -179,6 +212,9 @@ class FakeDB:
             "AdhocProcess": [SimpleNamespace(id=3, name="Gestión académica")],
             "AdhocApprovalFlow": [SimpleNamespace(id=7, name="Revisión de calidad",
                                                   description="Dos pasos")],
+            # Conteo agrupado de `_flow_document_counts`: filas
+            # `(flow_id, total)` tal como las devuelve el GROUP BY.
+            "AdhocDocument.flow_id": [],
             "User": [SimpleNamespace(id=11, first_name="Ana", last_name="Ríos",
                                      middle_name=None, full_name="Ríos Ana",
                                      email="ana@itcj.edu.mx", username="arios",
@@ -191,8 +227,9 @@ class FakeDB:
         }
 
     def query(self, *entities):
-        name = getattr(entities[0], "__name__", str(entities[0]))
-        return _FakeQuery(self.rows.get(name, []))
+        clave = _entity_key(entities[0])
+        self.queries.append(clave)
+        return _FakeQuery(self.rows.get(clave, []))
 
     def get(self, model, pk):
         return self.entities.get((getattr(model, "__name__", str(model)), pk))
@@ -1062,7 +1099,13 @@ class TestFlujos:
 
     def test_page_data_lleva_las_capacidades(self, html):
         data = page_data(html)
-        assert data == {"can_create": True, "can_update": True, "can_delete": True}
+        assert data == {
+            "can_create": True, "can_update": True, "can_delete": True,
+            # A30: sin flujos usados, el mapa viene vacío (no ausente). Es un
+            # dato de la pantalla, no un extra opcional: `flows.js` distingue
+            # "cero documentos" de "no llegó el dato" y pinta la fila distinto.
+            "document_counts": {},
+        }
 
     def test_filtra_por_clave_de_columna_no_por_indice(self, html):
         assert 'data-adhoc-filter-key="name"' in html
@@ -1074,7 +1117,276 @@ class TestFlujos:
         assert "data-adhoc-flow-new" not in res.text
         assert page_data(res.text) == {
             "can_create": False, "can_update": False, "can_delete": False,
+            "document_counts": {},
         }
+
+
+# ==========================================================================
+# A30 — la papelera que solo llevaba al 409
+#
+# `delete_flow` rechaza cualquier flujo que tenga documentos, y los cuenta en
+# CUALQUIER estado: un flujo usado una vez en 2016 ya no se borra nunca. Son 21
+# de los 43 de la base real, y la pantalla pintaba la papelera viva en los 43,
+# con su diálogo de confirmación incluido. El guard del servidor NO se relaja
+# (el histórico documental del SGC no se borra en cascada): lo que se retira es
+# la oferta, y para eso la pantalla necesita saber el número.
+#
+# Lo cuenta el servidor porque no hay de dónde deducirlo en el cliente: la fila
+# de flujo no sabe nada de documentos y `GET /approval-flows` tampoco lo trae.
+# ==========================================================================
+
+class TestConteoDeDocumentosPorFlujo:
+    @pytest.fixture()
+    def con_conteos(self, fake_db):
+        """Dos flujos usados, tal como los devuelve el GROUP BY."""
+        fake_db.rows["AdhocDocument.flow_id"] = [(7, 3), (9, 1)]
+        return fake_db
+
+    def test_el_listado_emite_el_conteo(self, client, admin_headers, con_conteos):
+        data = page_data(
+            client.get("/adhoc/documentos/flujos", headers=admin_headers).text
+        )
+        assert data["document_counts"] == {"7": 3, "9": 1}
+
+    def test_las_claves_son_strings(self, client, admin_headers, con_conteos):
+        """Contrato con `flows.js`, que busca con `String(flow.id)`.
+
+        Un objeto JSON solo tiene claves string, así que el número se convertía
+        igual al serializar; emitirlo ya convertido es lo que permite que el JS
+        no dependa de esa coacción.
+        """
+        data = page_data(
+            client.get("/adhoc/documentos/flujos", headers=admin_headers).text
+        )
+        assert all(isinstance(k, str) for k in data["document_counts"])
+
+    def test_un_flujo_sin_documentos_no_aparece_en_el_mapa(
+        self, client, admin_headers, con_conteos
+    ):
+        """Ausencia = cero. El GROUP BY solo emite filas con al menos un
+        documento, y `flows.js` trata lo que falta como cero: por eso un flujo
+        recién creado en esta misma pantalla sale con la papelera viva."""
+        data = page_data(
+            client.get("/adhoc/documentos/flujos", headers=admin_headers).text
+        )
+        assert "11" not in data["document_counts"]
+
+    def test_sale_de_UNA_sola_consulta(self, client, admin_headers, con_conteos):
+        """43 flujos, un `GROUP BY`. La versión por fila serían 43 consultas
+        para decorar una pantalla, que es exactamente el N+1 que esta app
+        arrastró del legacy en el tablero y en la lista de años."""
+        con_conteos.queries.clear()
+        client.get("/adhoc/documentos/flujos", headers=admin_headers)
+        assert con_conteos.queries.count("AdhocDocument.flow_id") == 1
+
+    def test_si_la_consulta_falla_la_pantalla_sigue_en_pie(
+        self, client, admin_headers, fake_db
+    ):
+        """Apagar un botón es una cortesía; el guard de verdad está en el
+        service. No vale tumbar el listado de flujos por una cortesía."""
+        # `group_by` solo lo llama el conteo, así que reventarlo simula que
+        # esa consulta —y solo esa— se cae, sin tocar el resto de la pantalla.
+        with patch.object(_FakeQuery, "group_by",
+                          side_effect=RuntimeError("la BD se cayó")):
+            res = client.get("/adhoc/documentos/flujos", headers=admin_headers)
+
+        assert res.status_code == 200
+        assert page_data(res.text)["document_counts"] == {}
+
+    def test_el_modulo_js_declara_el_mismo_contrato(self):
+        """`flows.js` lee la clave y apaga la papelera; si una de las dos mitades
+        se renombra, la otra deja de encontrarla en silencio."""
+        js = (JS_DIR / "flows.js").read_text(encoding="utf-8")
+        assert "document_counts" in js
+        assert "btn.disabled = true" in js
+        assert "aria-disabled" in js
+
+
+# ==========================================================================
+# A30 contra Postgres: el conteo y el guard tienen que decir lo mismo
+#
+# El doble de sesión fija el contrato del payload; esto fija que el número que
+# apaga la papelera sale del predicado PRINCIPAL del guard que rechaza el
+# borrado —documentos con ese `flow_id`—. Si los dos se separan —el conteo mira
+# solo los activos, pongamos— vuelve el callejón: papelera viva, confirmación,
+# 409. Y al revés, una papelera apagada en un flujo que sí se podía borrar es
+# una función perdida sin aviso.
+#
+# El guard tiene DOS condiciones más (`_assert_steps_unreferenced`) que el
+# conteo no replica a propósito; el último test de la clase las fabrica y deja
+# escrito qué pasa cuando se dan.
+# ==========================================================================
+
+class TestConteoContraLaBaseReal:
+    @pytest.fixture()
+    def real_client(self, app_client, db_session):
+        """Cliente sobre el cableado real, con la sesión transaccional del test."""
+        from itcj2.database import get_db
+
+        app = app_client.app
+        existentes = {getattr(r, "path", None) for r in app.routes}
+        if "/adhoc/documentos/flujos" not in existentes:
+            app.include_router(documents_router, prefix="/adhoc")
+
+        def _override():
+            yield db_session
+
+        app.dependency_overrides[get_db] = _override
+        yield app_client
+        app.dependency_overrides.pop(get_db, None)
+
+    @pytest.fixture()
+    def flujos(self, db_session):
+        """Dos flujos: uno con un documento colgando y otro sin nada.
+
+        El documento va **Aprobado**, no en revisión, porque ese es justo el
+        caso que el informe destapó: los flujos que ya no se pueden borrar lo
+        son por documentos cerrados hace años, no por trabajo en curso.
+        """
+        from itcj2.apps.adhoc.models import AdhocApprovalFlow, AdhocDocument
+
+        usado = AdhocApprovalFlow(name="b7 flujo en uso")
+        libre = AdhocApprovalFlow(name="b7 flujo sin uso")
+        db_session.add_all([usado, libre])
+        db_session.flush()
+        db_session.add(AdhocDocument(
+            code="b7_flujo", title="b7 documento del flujo", version="1.0",
+            status="Aprobado", flow_id=usado.id,
+        ))
+        db_session.flush()
+        return usado, libre
+
+    def _counts(self, real_client, staff_headers):
+        html = real_client.get("/adhoc/documentos/flujos", headers=staff_headers).text
+        return page_data(html)["document_counts"]
+
+    def test_el_flujo_con_documentos_sale_marcado(self, real_client, staff_headers,
+                                                  flujos):
+        usado, _libre = flujos
+        assert self._counts(real_client, staff_headers)[str(usado.id)] == 1
+
+    def test_el_flujo_sin_documentos_no_sale_en_el_mapa(self, real_client,
+                                                        staff_headers, flujos):
+        _usado, libre = flujos
+        assert str(libre.id) not in self._counts(real_client, staff_headers)
+
+    def test_el_conteo_es_UNA_sentencia_contra_adhoc_documents(
+        self, real_client, staff_headers, flujos, db_session
+    ):
+        """Se cuentan las sentencias reales, no las llamadas al ORM.
+
+        Es la comprobación que el doble de sesión no puede hacer: ahí un
+        ``query()`` es una llamada; aquí es el SQL que Postgres ejecuta de
+        verdad, con sus 43 flujos y su único ``GROUP BY``.
+        """
+        from sqlalchemy import event
+
+        sentencias = []
+
+        def _anotar(conn, cursor, statement, params, context, executemany):
+            if "adhoc_documents" in statement:
+                sentencias.append(statement)
+
+        conexion = db_session.connection()
+        event.listen(conexion, "before_cursor_execute", _anotar)
+        try:
+            real_client.get("/adhoc/documentos/flujos", headers=staff_headers)
+        finally:
+            event.remove(conexion, "before_cursor_execute", _anotar)
+
+        assert len(sentencias) == 1, sentencias
+        assert "GROUP BY" in sentencias[0].upper()
+
+    def test_el_servidor_sigue_rechazando_el_borrado_del_flujo_en_uso(
+        self, real_client, admin_headers, flujos
+    ):
+        """No regresión: apagar el botón NO relajó el guard.
+
+        Es lo que hace que la cortesía de la UI sea solo eso. El 409 es la
+        garantía de que un cliente viejo, un `curl` o un flujo que ganó
+        documentos entre el render y el clic siguen chocando contra el service.
+        """
+        usado, _libre = flujos
+        res = real_client.delete(
+            f"/api/adhoc/v2/approval-flows/{usado.id}", headers=admin_headers
+        )
+        assert res.status_code == 409
+        assert isinstance(res.json()["error"], str)
+        assert "documento" in res.json()["error"]
+
+    def test_y_el_flujo_libre_si_se_borra(self, real_client, admin_headers, flujos):
+        """La otra mitad: la papelera apagada tiene que ser la excepción, no la
+        norma. Si esto fallara, el conteo estaría apagando botones que servían."""
+        from itcj2.apps.adhoc.models import AdhocApprovalFlow
+
+        _usado, libre = flujos
+        res = real_client.delete(
+            f"/api/adhoc/v2/approval-flows/{libre.id}", headers=admin_headers
+        )
+        assert res.status_code == 200
+
+    def test_un_documento_POSICIONADO_en_un_paso_no_entra_en_el_conteo(
+        self, real_client, staff_headers, admin_headers, db_session
+    ):
+        """El hueco conocido entre el conteo y el guard, escrito para que se vea.
+
+        `delete_flow` rechaza además por `AdhocDocument.current_step_id` y por
+        `AdhocTask.flow_step_id` (`_assert_steps_unreferenced`). El conteo no
+        replica esas dos: mide DOCUMENTOS por `flow_id`, que es exactamente lo
+        que dice la línea "en uso por N documentos" de la fila. Un flujo que
+        cayera SOLO por las otras dos saldría con la papelera viva y respondería
+        409 al confirmar.
+
+        Hoy no le pasa a ninguno de los 43 flujos reales —un documento
+        posicionado en un paso trae el `flow_id` de ese flujo, y las tareas de un
+        documento caen con él por `ON DELETE CASCADE`—, así que el caso hay que
+        FABRICARLO. Queda fijado para que quien amplíe el conteo sepa qué está
+        cerrando, y para que nadie lea el mapa como "aquí está el guard entero".
+        """
+        from itcj2.apps.adhoc.models import (
+            AdhocApprovalFlow,
+            AdhocApprovalFlowStep,
+            AdhocDocument,
+        )
+
+        flujo = AdhocApprovalFlow(name="b7 flujo solo con posicionados")
+        db_session.add(flujo)
+        db_session.flush()
+        paso = AdhocApprovalFlowStep(flow_id=flujo.id, name="Único", step_order=1)
+        db_session.add(paso)
+        db_session.flush()
+        db_session.add(AdhocDocument(
+            code="b7_pos", title="b7 documento posicionado", version="1.0",
+            status="En Revisión", flow_id=None, current_step_id=paso.id,
+        ))
+        db_session.flush()
+
+        # La pantalla lo da por borrable...
+        assert str(flujo.id) not in self._counts(real_client, staff_headers)
+
+        # ...y el servidor no. El 409 es lo que sostiene el hueco.
+        res = real_client.delete(
+            f"/api/adhoc/v2/approval-flows/{flujo.id}", headers=admin_headers
+        )
+        assert res.status_code == 409
+        assert "posicionados" in res.json()["error"]
+
+    def test_el_conteo_y_el_guard_miran_la_misma_columna(self):
+        """El predicado principal es ``AdhocDocument.flow_id``, sin filtro de estado.
+
+        Se lee del código porque es lo único que los ata: son dos consultas en
+        dos módulos distintos y nada impide que una crezca un ``WHERE status``
+        que la otra no tenga. Lo que el conteo NO replica —las dos condiciones
+        de ``_assert_steps_unreferenced``— lo fija el test de arriba.
+        """
+        from itcj2.apps.adhoc.services import document_flow_service
+
+        guard = Path(document_flow_service.__file__).read_text(encoding="utf-8")
+        assert "AdhocDocument.flow_id == flow.id" in guard
+
+        pagina = (APP_ROOT / "pages" / "documents.py").read_text(encoding="utf-8")
+        assert "AdhocDocument.flow_id.isnot(None)" in pagina
+        assert "AdhocDocument.status" not in pagina
 
 
 # ==========================================================================

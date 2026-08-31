@@ -163,6 +163,59 @@ test.describe('los diálogos se comportan con el teclado', () => {
   });
 });
 
+test.describe('paginar con el teclado', () => {
+  // La lista de incidencias es la única pantalla con paginación real y datos de
+  // sobra (277 filas del SGC a 25 por página). Si algún día se queda con una
+  // sola página, estos dos casos fallan con un mensaje que lo dice.
+  const TIRA = '[data-adhoc-pager-pages]';
+  const ROTULO = '[data-adhoc-work-pageinfo]';
+
+  async function listaPaginada(page) {
+    await gotoAdhoc(page, '/adhoc/incidencias');
+    await expect(page.locator(ROTULO)).toHaveText(/^Página 1 de /);
+    const total = Number(((await page.locator(ROTULO).innerText()).match(/de\s+(\d+)/) || [])[1] || 0);
+    expect(total, 'hacen falta al menos 2 páginas para probar el paginador').toBeGreaterThan(1);
+    await expect(page.locator(TIRA)).toBeVisible();
+  }
+
+  test('activar un número con el teclado no tira el foco al <body>', async ({ page }) => {
+    await listaPaginada(page);
+
+    await page.locator('[data-adhoc-goto-page="2"]').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator(ROTULO)).toHaveText(/^Página 2 de /);
+
+    // `pintar()` vacía la tira y crea botones nuevos, así que el botón que
+    // tenía el foco deja de existir. Sin devolverlo, el activo pasa a ser el
+    // <body> y el siguiente Tab arranca en "Saltar al contenido": recorrer la
+    // lista con teclado costaba tabular el documento entero por cada página.
+    const donde = await page.evaluate((sel) => {
+      const tira = document.querySelector(sel);
+      const activo = document.activeElement;
+      return {
+        dentro: !!tira && tira.contains(activo),
+        actual: activo ? activo.getAttribute('aria-current') : null,
+        texto: activo ? (activo.textContent || '').trim() : '(nada)',
+      };
+    }, TIRA);
+
+    expect(donde.dentro, `tras paginar el foco quedó en "${donde.texto}"`).toBe(true);
+    expect(donde.actual, 'el foco no volvió al número de la página actual').toBe('page');
+  });
+
+  test('el rótulo de página es región viva y cambia al paginar', async ({ page }) => {
+    await listaPaginada(page);
+
+    // El conteo de al lado también es región viva, pero su texto ("25 de 277
+    // incidencias") es el mismo en todas las páginas completas: no anuncia nada.
+    // El rótulo es lo único que cambia, así que es el que tiene que hablar.
+    await expect(page.locator(ROTULO)).toHaveAttribute('aria-live', 'polite');
+
+    await page.locator('[data-adhoc-goto-page="2"]').click();
+    await expect(page.locator(ROTULO)).toHaveText(/^Página 2 de /);
+  });
+});
+
 test('el contenedor de avisos es una región viva desde el principio', async ({ page }) => {
   await gotoAdhoc(page, '/adhoc/panel');
 

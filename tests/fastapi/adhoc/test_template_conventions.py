@@ -398,6 +398,38 @@ def test_el_volcado_de_los_filtros_de_la_url_vive_en_un_solo_sitio():
         )
 
 
+def test_las_listas_paginadas_anuncian_el_cambio_de_pagina():
+    """El rótulo "Página N de M" es región viva en las TRES, o en ninguna.
+
+    Las tres pantallas paginadas comparten `shared/pager.js` pero cada una trae
+    su propio marcado, y ahí se separaron: `documents.html` y
+    `documents_panel.html` declaraban `aria-live="polite"` en su
+    `[data-adhoc-page-info]` y `_work_item_page.html` no. El único `aria-live`
+    del paginador de incidencias y programas era el del CONTEO, cuyo texto ("25
+    de 277 incidencias") es idéntico en todas las páginas completas: no cambia,
+    así que no anuncia nada. Resultado: con lector de pantalla, paginar en
+    documentos se oía y paginar en incidencias no.
+    """
+    ROTULOS = {
+        "documents/documents.html": "data-adhoc-page-info",
+        "documents/documents_panel.html": "data-adhoc-page-info",
+        "work/_work_item_page.html": "data-adhoc-work-pageinfo",
+    }
+    mudos = []
+    for nombre, marca in ROTULOS.items():
+        fuente = (PLANTILLAS / nombre).read_text(encoding="utf8")
+        etiqueta = re.search(r"<span[^>]*" + marca + r"[^>]*>", fuente)
+        assert etiqueta, f"{nombre} ya no declara {marca}"
+        if 'aria-live="polite"' not in etiqueta.group(0):
+            mudos.append(f"{nombre} ({marca})")
+
+    assert mudos == [], (
+        "El rótulo de página no es región viva en: " + ", ".join(mudos) +
+        ". Es lo único que cambia al paginar; sin aria-live=polite el lector "
+        "de pantalla no anuncia que la tabla se movió."
+    )
+
+
 def test_el_modal_de_versiones_separa_el_vacio_de_la_version_unica():
     """Cero filas y una fila son casos distintos, no ``length <= 1``.
 
@@ -644,7 +676,7 @@ _ESTATICOS = RAIZ / "static"
 #: tocar un CSS/JS de adhoc se sube la constante en ``itcj2/config.py`` y se
 #: pega aquí la huella nueva que imprime el fallo. Son dos líneas, y son la
 #: diferencia entre desplegar el cambio y creer que se desplegó.
-_ULTIMO_BUMP = ("1.0.1111536", "2ea36354d67bc636")
+_ULTIMO_BUMP = ("1.0.1111543", "9173a1aad8fa3a6a")
 
 
 def _huella_estaticos() -> str:

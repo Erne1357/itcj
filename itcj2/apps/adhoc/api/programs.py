@@ -198,14 +198,20 @@ def list_program_events(
     Query params: ``search``, ``status``, ``priority``, ``category_id``,
     ``area_id``, ``process_id``, ``responsible_id``, ``date_from``, ``date_to``,
     ``page``, ``per_page``.
+
+    Incluye ``task_count`` por fila —la pastilla del botón "Ver Tareas" de la
+    tabla—, resuelto en una sola query agrupada sobre el lote de la página,
+    igual que en ``GET /incidents``. Contarlo dentro de ``event_to_dict`` con
+    un ``len(event.tasks)`` daría el mismo JSON y un SELECT por evento.
     """
     from itcj2.apps.adhoc.schemas.common import ok_page
     from itcj2.apps.adhoc.schemas.programs import event_to_dict
     from itcj2.apps.adhoc.services import program_event_service as svc
 
     page = svc.list_events(db, filters, page=pagination.page, per_page=pagination.per_page)
+    conteos = svc.task_counts(db, [e.id for e in page.items])
     return ok_page(
-        [event_to_dict(e) for e in page.items],
+        [event_to_dict(e, task_count=conteos.get(e.id, 0)) for e in page.items],
         page,
         pagination.page,
         pagination.per_page,
@@ -264,7 +270,26 @@ def get_program_event(
     user: dict = require_perms("adhoc", ["adhoc.programs.api.read"]),
     db: DbSession = None,
 ):
-    """Detalle de un evento, con sus adjuntos."""
+    """Detalle de un evento, con sus adjuntos.
+
+    ⚠️ **Sin consumidor en el front, y se conserva.** El modal de edición de
+    ``programs/programs.js`` no lo llama: rellena el formulario con el ítem que
+    ya trajo ``GET /program-events`` (la lista precarga ``files`` y expone
+    ``files_count``), y tras cada escritura recarga la lista entera. Deuda
+    simple, no código muerto — razones para no borrarlo:
+
+    * Es la lectura de UNO del recurso, y su ausencia es lo que ya duele en
+      incidencias: ``/incidents`` **no** tiene detalle, y por eso cualquier
+      refresco de una sola ficha allí obliga a repaginar la lista. Quitarlo aquí
+      propagaría esa asimetría en vez de corregirla.
+    * Está probado (``tests/fastapi/adhoc/test_programs_api.py``: el 404 del
+      evento inexistente y que el detalle incluye los adjuntos) y lo cubre el
+      permiso ``adhoc.programs.api.read``, el mismo de la lista: no amplía
+      superficie de ataque.
+
+    Si un día el modal deja de recargar la lista completa tras guardar, este es
+    el endpoint que ya está esperando.
+    """
     from itcj2.apps.adhoc.schemas.common import ok_item
     from itcj2.apps.adhoc.schemas.programs import event_to_dict
     from itcj2.apps.adhoc.services import program_event_service as svc

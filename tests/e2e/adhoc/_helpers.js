@@ -82,8 +82,9 @@ function dbRows(sql) {
 }
 
 /**
- * Borra TODO lo que la suite pudo crear. Idempotente: se puede llamar en
- * `beforeAll` (para limpiar restos de una corrida abortada) y en `afterAll`.
+ * Borra TODO lo que la suite pudo crear, **en la base y en el disco**.
+ * Idempotente: se puede llamar en `beforeAll` (para limpiar restos de una
+ * corrida abortada) y en `afterAll`.
  *
  * El orden importa:
  *   1. Las tareas antes que sus padres y que los pasos de flujo
@@ -124,16 +125,54 @@ function cleanupAdhoc() {
     `DELETE FROM adhoc_areas WHERE name LIKE '${E2E}%'`,
   ];
 
+  // `{kind de upload: SELECT de los ids que van a caer}`.
+  //
+  // El SQL crudo de arriba se lleva las filas de adjuntos por `ON DELETE
+  // CASCADE`, pero NUNCA el disco: `instance/apps/adhoc/{kind}/{id}/` sobrevivía
+  // a cada corrida y quedaba huérfano para siempre. Medido: 15 ficheros
+  // `e2e_adjunto_disponible.pdf` acumulados, uno más por corrida de
+  // `incidents-tasks.spec.js`. Es el mismo defecto que `IncidentService.delete`
+  // acaba de cerrar en la app —el borrado de verdad sí limpia el disco—, solo
+  // que aquí lo reintroducía el propio harness al saltarse el service.
+  //
+  // Los ids se leen ANTES de borrar (después ya no hay de dónde) y el disco se
+  // toca DESPUÉS del commit, que es el orden del service: al revés, un fallo del
+  // commit deja la fila viva apuntando a un binario que ya no existe.
+  const arboles = {
+    incidents: `SELECT id FROM adhoc_incidents WHERE title LIKE '${E2E}%'`,
+    program_events: `SELECT id FROM adhoc_program_events WHERE title LIKE '${E2E}%'`,
+    documents: `SELECT id FROM adhoc_documents WHERE title LIKE '${E2E}%'`,
+    // Los adjuntos de comentario cuelgan del id de la TAREA, así que aquí van
+    // las mismas cuatro condiciones con las que se borran las tareas.
+    task_comments: `SELECT t.id FROM adhoc_tasks t
+       LEFT JOIN adhoc_documents d ON d.id = t.document_id
+       LEFT JOIN adhoc_incidents i ON i.id = t.incident_id
+       LEFT JOIN adhoc_program_events p ON p.id = t.program_id
+      WHERE t.description LIKE '%${E2E}%' OR d.title LIKE '${E2E}%'
+         OR i.title LIKE '${E2E}%' OR p.title LIKE '${E2E}%'`,
+  };
+
   const src = [
+    'import shutil',
     'from itcj2.database import SessionLocal',
+    'from itcj2.apps.adhoc.services import upload_service',
     'from sqlalchemy import text',
     'db = SessionLocal()',
+    'dirs = []',
     'try:',
+    `    for kind, sql in ${JSON.stringify(arboles)}.items():`,
+    '        for fila in db.execute(text(sql)):',
+    '            try:',
+    '                dirs.append(upload_service.resolve_dir(kind, fila[0]))',
+    '            except ValueError:',
+    '                pass',
     `    for s in ${JSON.stringify(stmts)}:`,
     '        db.execute(text(s))',
     '    db.commit()',
     'finally:',
     '    db.close()',
+    'for d in dirs:',
+    '    shutil.rmtree(d, ignore_errors=True)',
   ].join('\n');
   runPy(src);
 }

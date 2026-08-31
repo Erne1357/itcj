@@ -47,6 +47,7 @@ __all__ = [
     "UPLOAD_KIND",
     "get_event",
     "list_events",
+    "task_counts",
     "bulk_create",
     "update_event",
     "delete_event",
@@ -231,6 +232,36 @@ def list_events(db: Session, filters: Any = None, *, page: int = 1, per_page: in
 
     query = query.order_by(AdhocProgramEvent.id.desc())
     return paginate(query, page, per_page)
+
+
+def task_counts(db: Session, event_ids: Iterable[int]) -> dict[int, int]:
+    """``{event_id: nº de tareas}`` en UNA query agrupada.
+
+    Es la pastilla del botón "Ver Tareas" de la tabla de ``/adhoc/programas``.
+    El conteo vive aquí y no dentro de ``event_to_dict`` a propósito: un
+    ``len(event.tasks)`` en el serializador daría el mismo JSON y un SELECT por
+    fila —el N+1 que el legacy tenía en su plantilla— mientras que esto es un
+    ``GROUP BY`` sobre el lote de la página, se pinten 20 eventos o 200.
+
+    Los eventos sin tareas simplemente no aparecen en el dict; el ``0`` lo pone
+    quien serializa. Espejo exacto de :meth:`IncidentService.task_counts`, que
+    es el molde de esta app para el mismo problema.
+    """
+    from sqlalchemy import func
+
+    from itcj2.apps.adhoc.models.tasks import AdhocTask
+
+    ids = [int(i) for i in event_ids or []]
+    if not ids:
+        return {}
+
+    filas = (
+        db.query(AdhocTask.program_id, func.count(AdhocTask.id))
+        .filter(AdhocTask.program_id.in_(ids))
+        .group_by(AdhocTask.program_id)
+        .all()
+    )
+    return {event_id: total for event_id, total in filas}
 
 
 # ==========================================================================
@@ -580,6 +611,7 @@ class AdhocProgramEventService:
 
     get_event = staticmethod(get_event)
     list_events = staticmethod(list_events)
+    task_counts = staticmethod(task_counts)
     bulk_create = staticmethod(bulk_create)
     update_event = staticmethod(update_event)
     delete_event = staticmethod(delete_event)

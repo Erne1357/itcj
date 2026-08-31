@@ -22,11 +22,13 @@ Qué cambia aquí, punto por punto:
   responsable (todos ``many-to-one``, así que no multiplican filas ni falsean
   el ``count()``), y el conteo de tareas sale de **una** query agrupada
   (:meth:`IncidentService.task_counts`).
-* **Borrar cascadea.** ``adhoc_tasks.incident_id`` es ``ON DELETE CASCADE`` en
-  la BD y ``AdhocIncident`` no declara relationship inverso, así que
-  ``db.delete()`` emite un DELETE pelado y Postgres arrastra tareas,
-  asignados, comentarios y aprobaciones. El legacy dejaba huérfanas las tareas
-  (o reventaba con ``IntegrityError``, tragado).
+* **Borrar cascadea, y también limpia el disco.** ``adhoc_tasks.incident_id``
+  es ``ON DELETE CASCADE`` en la BD y ``AdhocIncident`` no declara relationship
+  inverso, así que ``db.delete()`` emite un DELETE pelado y Postgres arrastra
+  tareas, asignados, comentarios y aprobaciones. El legacy dejaba huérfanas las
+  tareas (o reventaba con ``IntegrityError``, tragado). Lo que Postgres no
+  puede arrastrar son los ficheros: :meth:`IncidentService.delete` borra
+  ``instance/apps/adhoc/incidents/{id}/`` a mano, **después** del commit.
 
 Vocabularios: ``status ∈ {No Iniciada, Iniciada, Cerrada}`` y
 ``priority ∈ {Baja, Media, Alta, Urgente}`` los garantizan los schemas
@@ -287,20 +289,75 @@ class IncidentService:
 
     @staticmethod
     def delete(db: Session, incident_id: int) -> bool:
-        """Borra la incidencia. ``False`` si no existía.
+        """Borra la incidencia, sus filas de adjuntos y sus ficheros del disco.
+
+        ``False`` si no existía.
 
         Las tareas hijas (y con ellas sus asignados, comentarios y
-        aprobaciones) las arrastra el ``ON DELETE CASCADE`` de Postgres.
+        aprobaciones) las arrastra el ``ON DELETE CASCADE`` de Postgres, igual
+        que las filas de ``adhoc_incident_files``. Lo que la BD **no** puede
+        arrastrar es el disco: hasta aquí ``instance/apps/adhoc/incidents/{id}/``
+        sobrevivía a la incidencia y quedaba huérfano para siempre. Es el mismo
+        bug #18 que ``program_event_service.delete_event`` ya arreglaba para los
+        eventos de programa, y este método es su espejo.
+
+        **El orden importa y es deliberado**: primero se anotan las rutas,
+        después se commitea el borrado y *solo entonces* se toca el disco. Al
+        revés —borrar ficheros y luego commitear— un fallo del commit deja la
+        fila viva apuntando a binarios que ya no existen, que es peor que el
+        huérfano: el expediente ISO se queda sin su evidencia y la UI sigue
+        ofreciendo la descarga.
         """
-        from itcj2.apps.adhoc.models.incidents import AdhocIncident
+        from itcj2.apps.adhoc.models.incidents import AdhocIncident, AdhocIncidentFile
+        from itcj2.apps.adhoc.services import upload_service
 
         incidencia = db.get(AdhocIncident, incident_id)
         if incidencia is None:
             return False
 
+        # `AdhocIncident` no declara relationship hacia sus adjuntos (el
+        # unidireccional vive en `AdhocIncidentFile.incident`), así que las
+        # rutas se piden explícitamente. `file_path` es NULLABLE: los adjuntos
+        # migrados sin binario aportan `None` y se descartan aquí.
+        rutas = [
+            fila[0]
+            for fila in db.query(AdhocIncidentFile.file_path)
+            .filter(AdhocIncidentFile.incident_id == incident_id)
+            .all()
+            if fila[0]
+        ]
+
+        try:
+            directorio: Optional[Path] = upload_service.resolve_dir(UPLOAD_KIND, incident_id)
+        except ValueError:
+            directorio = None
+
         db.delete(incidencia)
         db.commit()
-        logger.info("[adhoc] Incidencia %s eliminada", incident_id)
+
+        # Solo después de que la BD confirmó el borrado se toca el disco.
+        for relativa in rutas:
+            upload_service.delete_file(UPLOAD_KIND, relativa)
+        if directorio is not None and directorio.is_dir():
+            # Se borra el directorio únicamente si quedó vacío: si el ETL o una
+            # subida a medias dejaron ahí un fichero sin fila, se conserva —
+            # perder evidencia es más caro que un huérfano.
+            try:
+                next(directorio.iterdir())
+            except StopIteration:
+                try:
+                    directorio.rmdir()
+                except OSError:
+                    logger.warning(
+                        "[adhoc] No se pudo borrar el directorio %s", directorio
+                    )
+            except OSError:
+                pass
+
+        logger.info(
+            "[adhoc] Incidencia %s eliminada (%d adjunto(s) en disco)",
+            incident_id, len(rutas),
+        )
         return True
 
     # ----------------------------------------------------------------------
@@ -309,9 +366,9 @@ class IncidentService:
     #
     # Espejo literal de ``program_event_service.{list_files, add_files,
     # get_file, open_file, delete_file}``. Única diferencia real: aquí
-    # ``AdhocIncidentFile.file_path`` es NULLABLE (351 adjuntos migrados del
-    # SGC legacy, 51 de ellos sin binario en el servidor del proveedor), así
-    # que ``open_file`` puede fallar con :class:`IncidentFileNotFound` por un
+    # ``AdhocIncidentFile.file_path`` es NULLABLE —hay adjuntos migrados del SGC
+    # legacy cuyo binario ya no estaba en el servidor del proveedor—, así que
+    # ``open_file`` puede fallar con :class:`IncidentFileNotFound` por un
     # registro perfectamente válido, no solo por un archivo borrado a mano.
 
     @staticmethod

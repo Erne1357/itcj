@@ -1658,6 +1658,250 @@ class TestPickerUsers:
 
 
 # ==========================================================================
+# A26 — el rango de fechas y la columna que lo rotula
+#
+# La fila de filtros pinta cada control en SU columna, y el rango de fechas
+# estaba escrito a fuego bajo `commitment_date` con el rótulo "Compromiso".
+# En incidencias eso es correcto —`_QUERY_MAP` traduce el rango a
+# `commitment_from`/`commitment_to` e `IncidentService.list` lo aplica sobre
+# `commitment_date`—, pero en programas `date_from`/`date_to` viajan tal cual y
+# `list_events` los aplica sobre `start_date`: el usuario ponía el rango bajo
+# "Cierre" y el servidor le filtraba por la fecha de INICIO, dos columnas más a
+# la izquierda y sin ninguna señal de que el resultado no era el que pidió.
+#
+# Contrato elegido: el servidor manda la columna (`date_filter_key`) y su
+# rótulo (`date_filter_label`); el template los usa con `commitment_date` /
+# "Compromiso" por defecto, que es lo correcto en incidencias. Los `id` de los
+# dos inputs NO cambian: son contrato con `work-items.js` y con los E2E.
+# ==========================================================================
+
+def filter_cells(html: str) -> dict:
+    """``{clave de columna: HTML de su celda}`` de la fila de filtros."""
+    fila = re.search(r'<tr class="adhoc-filter-row">(.*?)</tr>', html, re.S)
+    assert fila, "la página no pintó la fila de filtros"
+    celdas = re.findall(
+        r'<th data-adhoc-filter-key="([^"]+)">(.*?)</th>', fila.group(1), re.S
+    )
+    assert celdas, "la fila de filtros no tiene celdas con clave"
+    return dict(celdas)
+
+
+def date_range_column(html: str):
+    """Clave de la columna bajo la que se pinta el rango de fechas, o ``None``."""
+    for clave, cuerpo in filter_cells(html).items():
+        if 'id="adhoc-work-f-from"' in cuerpo:
+            return clave
+    return None
+
+
+def header_labels(html: str) -> dict:
+    """``{clave de columna: rótulo}`` de la cabecera de la tabla."""
+    return dict(re.findall(
+        r'<th scope="col" data-adhoc-filter-key="([^"]+)"[^>]*>([^<]*)</th>', html
+    ))
+
+
+class TestRangoDeFechas:
+    @pytest.fixture()
+    def programas(self, pages_client, headers, grant, catalogs):
+        with grant():
+            res = pages_client.get("/adhoc/programas", headers=headers)
+        assert res.status_code == 200, res.text[:400]
+        return res.text
+
+    @pytest.fixture()
+    def incidencias(self, pages_client, headers, grant, catalogs):
+        with grant():
+            res = pages_client.get("/adhoc/incidencias", headers=headers)
+        assert res.status_code == 200, res.text[:400]
+        return res.text
+
+    def test_en_programas_el_rango_vive_bajo_inicio(self, programas):
+        """`date_from`/`date_to` filtran `start_date`: ahí va el control."""
+        assert date_range_column(programas) == "start_date"
+
+    def test_y_su_rotulo_dice_inicio(self, programas):
+        """El `aria-label` es lo único que el usuario de lector de pantalla oye:
+        si dijera "Compromiso" seguiría mintiendo aunque el control ya esté en
+        su columna."""
+        celda = filter_cells(programas)["start_date"]
+        assert 'aria-label="Inicio desde"' in celda
+        assert 'aria-label="Inicio hasta"' in celda
+        assert "Compromiso" not in celda
+
+    def test_y_la_columna_donde_cae_se_llama_igual(self, programas):
+        """El rótulo del control y el de su columna tienen que ser el mismo
+        nombre: es lo que hace que el filtro se lea sin adivinar."""
+        assert header_labels(programas)["start_date"] == "Inicio"
+
+    def test_el_control_no_quedo_ademas_bajo_cierre(self, programas):
+        """Un solo rango en toda la fila: el service solo sabe filtrar una de
+        las tres fechas, así que ofrecer dos sería prometer lo que no hay."""
+        celdas = filter_cells(programas)
+        assert 'id="adhoc-work-f-from"' not in celdas["commitment_date"]
+        assert programas.count('id="adhoc-work-f-from"') == 1
+
+    def test_los_ids_de_los_inputs_no_cambiaron(self, programas):
+        """Contrato con `work-items.js` (que los lee por id) y con los E2E."""
+        celda = filter_cells(programas)["start_date"]
+        assert 'id="adhoc-work-f-from"' in celda
+        assert 'id="adhoc-work-f-to"' in celda
+        assert 'data-adhoc-param="date_from"' in celda
+        assert 'data-adhoc-param="date_to"' in celda
+
+    def test_incidencias_se_queda_donde_estaba(self, incidencias):
+        """Ahí el default es el correcto: `_QUERY_MAP` traduce el rango a
+        `commitment_from`/`commitment_to` y el service lo aplica sobre
+        `commitment_date`. Mover el control también aquí habría creado el mismo
+        bug al revés."""
+        assert date_range_column(incidencias) == "commitment_date"
+        celda = filter_cells(incidencias)["commitment_date"]
+        assert 'aria-label="Compromiso desde"' in celda
+
+    def test_la_pagina_de_programas_declara_las_dos_claves(
+        self, pages_client, headers, grant, catalogs
+    ):
+        """El valor sale del servidor, no de un `if` en la plantilla compartida:
+        es él quien sabe qué columna filtra de verdad cada pantalla."""
+        from itcj2.apps.adhoc.pages.programs import (
+            _DATE_FILTER_KEY,
+            _DATE_FILTER_LABEL,
+        )
+
+        assert (_DATE_FILTER_KEY, _DATE_FILTER_LABEL) == ("start_date", "Inicio")
+
+    def test_y_el_service_filtra_esa_columna_y_no_otra(self):
+        """La mitad que cierra el círculo: si mañana `list_events` pasara a
+        filtrar `commitment_date`, el rótulo volvería a mentir y nadie lo vería
+        —el control seguiría pintándose, solo que sobre la columna equivocada."""
+        from pathlib import Path as _Path
+
+        from itcj2.apps.adhoc.services import program_event_service
+
+        fuente = _Path(program_event_service.__file__).read_text(encoding="utf-8")
+        assert "AdhocProgramEvent.start_date >= date_from" in fuente
+        assert "AdhocProgramEvent.start_date <= date_to" in fuente
+
+
+# ==========================================================================
+# A26 (b) — la columna "Responsable" de la tabla de programas
+#
+# `ProgramEventFilters` y `list_events` soportan `responsible_id` desde el
+# primer día, pero la tabla no tenía columna de responsable y la fila de
+# filtros pinta cada control EN SU COLUMNA: sin columna no había dónde pintar
+# el `<select>`, así que era el único filtro de la API de eventos que no se
+# podía usar desde la pantalla. Y justo el que contesta la pregunta con la que
+# se abre: "¿qué me toca a mí?".
+# ==========================================================================
+
+class TestColumnaResponsableEnProgramas:
+    @pytest.fixture()
+    def html(self, pages_client, headers, grant, catalogs):
+        with grant():
+            res = pages_client.get("/adhoc/programas", headers=headers)
+        assert res.status_code == 200, res.text[:400]
+        return res.text
+
+    def test_la_columna_existe_y_se_llama_responsable(self, html):
+        assert header_labels(html)["responsible"] == "Responsable"
+
+    def test_va_en_el_mismo_hueco_que_en_incidencias(self, html):
+        """Detrás de "Proceso". Las dos pantallas comparten template y módulo:
+        una tabla con las mismas columnas en otro orden se lee peor por nada."""
+        claves = list(header_labels(html))
+        assert claves[claves.index("process") + 1] == "responsible"
+
+    def test_y_ahora_hay_donde_pintar_su_filtro(self, html):
+        celda = filter_cells(html)["responsible"]
+        assert 'id="adhoc-work-f-responsible"' in celda
+        assert 'data-adhoc-param="responsible_id"' in celda
+        # Los usuarios se cargan del catálogo por JS, nunca como <option> desde
+        # Jinja (los 7 vectores de XSS del legacy).
+        assert 'data-adhoc-options="users"' in celda
+
+    def test_la_cabecera_sale_de__COLUMNS_y_no_de_la_plantilla(self, html):
+        """La lista de columnas es del servidor: `work-items.js` pinta la celda
+        por `key` y el template solo la recorre. Si la columna se hubiera
+        añadido a mano en el HTML, la fila de datos no tendría celda que
+        rellenar y la tabla saldría descuadrada."""
+        from itcj2.apps.adhoc.pages.programs import _COLUMNS
+
+        declaradas = [c["key"] for c in _COLUMNS]
+        assert "responsible" in declaradas
+        assert list(header_labels(html)) == declaradas
+
+    def test_incidencias_la_sigue_teniendo(self, pages_client, headers, grant, catalogs):
+        """No es una columna nueva del sistema: es la que a programas le
+        faltaba."""
+        with grant():
+            html = pages_client.get("/adhoc/incidencias", headers=headers).text
+        assert header_labels(html)["responsible"] == "Responsable"
+
+
+# ==========================================================================
+# Código muerto: lo que se revisó y se decidió CONSERVAR
+#
+# La auditoría marcó como huérfanas las dos acciones de paso de
+# `/adhoc/asignaciones` (`step_assign` / `notify_step`): no las enlaza ninguna
+# pantalla porque la configuración de pasos resuelve validadores y avisos en un
+# modal de la propia página (`documents/flow-steps.js`). Se conservan como
+# entrada de pantalla completa al MISMO par de endpoints —un paso con muchos
+# validadores se marca mejor en la pantalla ancha— y se llega tecleando la URL.
+#
+# Este test fija el inventario para que la decisión sea explícita en las dos
+# direcciones: si alguien las borra, se entera de que también hay que quitar la
+# rama `_step_target` y estos tests; y si alguien inventa una quinta acción,
+# tiene que declararla aquí.
+# ==========================================================================
+
+class TestInventarioDeAcciones:
+    def test_las_acciones_de_asignaciones_son_exactamente_estas_cuatro(self):
+        from itcj2.apps.adhoc.pages.incidents import _ASSIGN_ACTIONS
+
+        assert set(_ASSIGN_ACTIONS) == {
+            "assign", "notify", "step_assign", "notify_step",
+        }
+
+    def test_dos_operan_sobre_una_tarea_y_dos_sobre_un_paso(self):
+        """`target` decide de dónde sale la selección inicial y a dónde vuelve
+        el botón "Volver": una acción sin `target` correcto aterriza en el
+        dashboard, que fue el bug que B4 tuvo que arreglar para documentos."""
+        from itcj2.apps.adhoc.pages.incidents import _ASSIGN_ACTIONS
+
+        por_destino = {}
+        for nombre, spec in _ASSIGN_ACTIONS.items():
+            por_destino.setdefault(spec["target"], set()).add(nombre)
+
+        assert por_destino == {
+            "task": {"assign", "notify"},
+            "step": {"step_assign", "notify_step"},
+        }
+
+    def test_cada_una_apunta_a_un_endpoint_vivo_de_la_api_v2(self):
+        """Las cuatro son PUT sobre `/api/adhoc/v2/…/{id}/…`. Si una apunta a
+        una ruta que ya no existe, la pantalla se ve entera y falla al guardar:
+        el peor sitio para enterarse."""
+        from itcj2.apps.adhoc.pages.incidents import _ASSIGN_ACTIONS
+
+        for nombre, spec in _ASSIGN_ACTIONS.items():
+            assert spec["method"] == "PUT", nombre
+            assert spec["endpoint"].startswith("/api/adhoc/v2/"), nombre
+            assert "{id}" in spec["endpoint"], nombre
+
+    def test_las_dos_de_paso_atacan_los_mismos_endpoints_que_el_modal(self):
+        """Es la razón por la que se conservan: son otra puerta a lo mismo, no
+        una segunda implementación que pueda divergir."""
+        from itcj2.apps.adhoc.pages.incidents import _ASSIGN_ACTIONS
+
+        js = (STATIC_DIR / "js" / "documents" / "flow-steps.js").read_text(
+            encoding="utf-8"
+        )
+        for nombre in ("step_assign", "notify_step"):
+            cola = _ASSIGN_ACTIONS[nombre]["endpoint"].rsplit("/", 1)[-1]
+            assert cola in js, (nombre, cola)
+
+
+# ==========================================================================
 # Reglas duras del plan §6.2/§6.3 sobre los archivos de ESTA sección
 # ==========================================================================
 

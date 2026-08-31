@@ -144,10 +144,14 @@
 }
 
 /* Conteo y paginación: el legacy no paginaba, así que esto va discreto y
-   empujado a la derecha para no competir con el botón de alta. */
+   empujado a la derecha para no competir con el botón de alta.
+   `flex-wrap` porque desde A29 la fila lleva además la tira de números: con las
+   276 incidencias reales son doce páginas, y en un teléfono no caben en una
+   sola línea. */
 .adhoc-work-pager {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: .5rem;
   margin-left: auto;
 }
@@ -162,6 +166,70 @@
   font-size: var(--adhoc-fs-md);
   min-width: 8rem;
   text-align: center;
+}
+
+/* ── Los números de página ──────────────────────────────────────────────
+   Los pinta `shared/pager.js` dentro del propio paginador de la plantilla,
+   entre "anterior" y "siguiente". Con las 276 incidencias del SGC a 25 por
+   página son doce, y antes de esto llegar a la última eran once clics.
+
+   El bloque está ESPEJADO en documents/documents.css, con las mismas clases: la
+   única hoja que cargan las dos pantallas es la base, y esto es un componente
+   de pantalla, no del shell. Si algún día el paginador se usa en una tercera,
+   el bloque se sube a la hoja base y estos dos se borran. */
+.adhoc-pager-pages {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--adhoc-space-2xs);
+}
+
+/* La tira se oculta con `tira.hidden = true`; quien lo aplica es
+   `.adhoc-shell [hidden] { display: none !important }` de la hoja base, que
+   gana a cualquier regla normal de aquí. No hace falta repetirla. */
+
+.adhoc-pager-page {
+  min-width: 2.1rem;
+  padding: var(--adhoc-space-2xs) var(--adhoc-space-sm);
+  border: 1px solid var(--adhoc-border);
+  border-radius: var(--adhoc-radius-md);
+  background: var(--adhoc-surface);
+  color: var(--adhoc-slate);
+  font-family: inherit;
+  font-size: var(--adhoc-fs-md);
+  font-weight: var(--adhoc-fw-medium);
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.adhoc-pager-page:hover {
+  background: var(--adhoc-primary-soft);
+  border-color: var(--adhoc-primary);
+  color: var(--adhoc-primary);
+}
+
+/* El resalte cuelga de `aria-current` y no de una clase paralela: así es
+   imposible que haya un botón pintado como "estás aquí" que el lector de
+   pantalla no anuncie. */
+.adhoc-pager-page[aria-current="page"] {
+  background: var(--adhoc-primary);
+  border-color: var(--adhoc-primary);
+  color: var(--adhoc-surface);
+  font-weight: var(--adhoc-fw-semibold);
+  cursor: default;
+}
+
+.adhoc-pager-page:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 1px;
+}
+
+.adhoc-pager-gap {
+  min-width: 1.25rem;
+  text-align: center;
+  color: var(--adhoc-muted);
+  font-size: var(--adhoc-fs-md);
 }
 
 /* ---------- celdas ---------- */
@@ -298,5 +366,18 @@
     margin-left: 0;
     width: 100%;
     justify-content: space-between;
+  }
+
+  /* El rótulo deja de reservar 8rem: con la tira de números al lado, ese hueco
+     empujaba "siguiente" fuera de la pantalla. */
+  .adhoc-work-pageinfo {
+    min-width: 0;
+  }
+
+  /* Doce números no caben en 360px ni con la fila partida: se aprieta el botón
+     para que quepan siete y el resto pase a la segunda línea. */
+  .adhoc-pager-page {
+    min-width: 1.9rem;
+    padding: var(--adhoc-space-2xs) var(--adhoc-space-xs);
   }
 }

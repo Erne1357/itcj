@@ -101,7 +101,14 @@
        El ORDEN importa y es contrato con `work/tasks.js::buildRow`, que inserta
        su `<td>` en esta misma posición: justo detrás de "Tarea", porque el paso
        es parte de la identidad de la tarea (la describe: "Aprobar Documento: X
-       (Paso: Y)"), no un atributo más de su seguimiento. #}
+       (Paso: Y)"), no un atributo más de su seguimiento.
+
+       `width='auto'` (min-width: 0) y NO el `'lg'` de antes: el suelo de ancho
+       de esta tabla lo pone su propia hoja (`work/tasks.css`, regla
+       `.adhoc-worktasks .adhoc-table`) porque es un valor MEDIDO sobre estas
+       tres pantallas, no el escalón compartido de 1200px. Ese escalón
+       desbordaba el envoltorio en 36px a 1280 —la resolución de los equipos del
+       ITCJ— y los 36px que se comía eran justo la columna "Acciones". #}
     {%- set _col_paso = [
           {'key': 'flow_step', 'label': 'Paso', 'filter': true, 'placeholder': 'Paso del flujo'}
         ] if show_step_column else [] -%}
@@ -121,7 +128,7 @@
          ],
          'No hay tareas registradas para este expediente aún.',
          'fa-regular fa-folder-open',
-         width='lg') }}
+         width='auto') }}
 
     {# — CONTROLES INFERIORES (legacy `.bottom-controls`) — #}
     {% if can_create %}

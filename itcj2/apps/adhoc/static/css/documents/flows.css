@@ -1,7 +1,8 @@
 /* ---------------------------------------------------------------------------
    PAGINA   /adhoc/documentos/flujos
-   CONTIENE nombre del flujo, ancho de la columna Configuracion, recorte de la
-            descripcion a una linea y el contador de pasos
+   CONTIENE nombre del flujo, linea de uso bajo el nombre, ancho de la columna
+            Configuracion, recorte de la descripcion a una linea, el contador de
+            pasos y la papelera deshabilitada
    EN BASE  iconos de fila, tabla, tarjeta y barra inferior
    --------------------------------------------------------------------------- */
 
@@ -26,6 +27,27 @@
    El 600 que habia aqui era un realce inventado, no un porte. */
 .adhoc-flow-name {
   color: var(--adhoc-dark);
+}
+
+/* El nombre pasa a ser un bloque porque debajo va la linea de uso. */
+.adhoc-flow-name-text {
+  display: block;
+}
+
+/* Linea de uso: cuantos documentos del SGC usan este flujo. Es el numero que
+   decide si la papelera de la fila se puede pulsar, asi que se lee en la fila
+   y no solo en el tooltip del boton apagado.
+
+   Va en el gris de texto atenuado y NO en el de placeholder, tambien cuando
+   dice "Sin documentos": los dos estados son informacion —uno explica una
+   papelera apagada, el otro explica una viva— y la informacion tiene que
+   leerse. Mismo criterio que la columna "Paso" de work/tasks.js. */
+.adhoc-flow-usage {
+  display: block;
+  margin-top: var(--adhoc-space-2xs);
+  color: var(--adhoc-muted);
+  font-size: var(--adhoc-fs-sm);
+  font-weight: var(--adhoc-fw-normal);
 }
 
 /* Legacy `.icon-btn`: un punto más grandes que los del panel de documentos. */
@@ -63,4 +85,25 @@
   color: var(--adhoc-disabled);
   font-size: var(--adhoc-fs-md);
   font-weight: var(--adhoc-fw-semibold);
+}
+
+/* Papelera deshabilitada: el flujo ya lo usan documentos del SGC y el guard del
+   servidor no se relaja, asi que la fila deja de ofrecer lo que no se puede.
+
+   Mismo tratamiento que la accion "Editar" del panel de documentos y por la
+   misma razon: deshabilitado tiene que VERSE deshabilitado sin pasar el raton
+   por encima, asi que pierde el rojo de la accion destructiva y se queda en el
+   gris de "no disponible"; la opacidad vuelve a 1 porque el .4 de la base sobre
+   ese gris deja el icono en un fantasma.
+
+   `pointer-events` vuelve a `auto` a proposito. La base lo anula (adhoc.css) y
+   con eso el navegador tampoco muestra el `title` del boton, que aqui es lo
+   unico que dice CUANTOS documentos lo usan y que hacer en su lugar. Un boton
+   `disabled` no dispara `click` aunque reciba el raton, y flows.js ademas lo
+   comprueba en su listener delegado. */
+.adhoc-flows .adhoc-actions .adhoc-icon-action:disabled {
+  opacity: 1;
+  color: var(--adhoc-disabled);
+  pointer-events: auto;
+  cursor: not-allowed;
 }

@@ -146,6 +146,15 @@
      user-picker.js) sí son opt-in: solo los carga quien los usa. #}
   <script id="adhoc-mod-shared-table-filter" src="/static/adhoc/js/shared/table-filter.js?v={{ sv('js/shared/table-filter.js') }}"></script>
 
+  {# Paginador con números de página + el estado de la lista en la URL. Va en el
+     base por la MISMA razón que table-filter.js: lo usan las dos listas
+     paginadas en el servidor (documentos y su panel, incidencias y programas)
+     y si cada una tuviera que acordarse de incluirlo el fallo sería silencioso
+     —la lista seguiría paginando de una en una—. Es una biblioteca pura: no
+     registra `onReady`, no instala listeners y no toca el ciclo de HTMX, así
+     que en una pantalla sin lista paginada no hace absolutamente nada. #}
+  <script id="adhoc-mod-shared-pager" src="/static/adhoc/js/shared/pager.js?v={{ sv('js/shared/pager.js') }}"></script>
+
   {# Detecta iframe → marca body.in-mobile-iframe y enlaza el botón "volver"
      (postMessage CLOSE_APP al parent). Único de los siete con `defer`: es un
      archivo del CORE que en su primera línea hace

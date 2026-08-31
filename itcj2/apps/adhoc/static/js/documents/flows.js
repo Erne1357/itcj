@@ -24,6 +24,19 @@
  *   PATCH  /approval-flows/{id}   → {success, data}
  *   DELETE /approval-flows/{id}   → {success, message} · 409 si hay documentos
  *                                    o tareas que usan sus pasos
+ *
+ * CONTRATO DE `page_data`
+ * -----------------------
+ *   {can_create, can_update, can_delete, document_counts: {"<id de flujo>": N}}
+ *
+ * `document_counts` lo cuenta el SERVIDOR (`pages/documents.py`) con el guard
+ * PRINCIPAL de `delete_flow` (documentos con ese `flow_id`). Aquí no se deduce:
+ * la lista de `GET /approval-flows` no sabe nada de documentos, así que sin
+ * este mapa la papelera se pintaba viva en los 43 flujos y en 21 de ellos el
+ * único camino era pulsar, confirmar y recibir un 409. Los otros dos motivos de
+ * rechazo del servidor (un documento posicionado en un paso, una tarea colgando
+ * de él) NO viajan en el mapa: hoy no le pasan a ningún flujo real y se siguen
+ * resolviendo con el 409 que `remove()` recoge.
  */
 (function () {
     'use strict';
@@ -67,6 +80,10 @@
         this.canCreate = !!this.data.can_create;
         this.canUpdate = !!this.data.can_update;
         this.canDelete = !!this.data.can_delete;
+        // {"<id de flujo>": nº de documentos que lo usan}. Ausente = {}, y un
+        // flujo que no está en el mapa cuenta como cero: es el caso del que se
+        // acaba de crear en esta misma pantalla, que documentos no tiene.
+        this.documentCounts = this.data.document_counts || {};
 
         this.table = root.querySelector('#' + TABLE_ID);
         this.body = root.querySelector('#' + TABLE_ID + '-body');
@@ -132,10 +149,21 @@
         var tr = document.createElement('tr');
         tr.setAttribute('data-id', String(flow.id));
 
+        var nombre = flow.name || '';
         var tdName = document.createElement('td');
         tdName.setAttribute('data-adhoc-cell', 'name');
+        // El filtro de la columna se queda con el NOMBRE y nada más. Sin este
+        // override `cellText()` lee el textContent entero de la celda, así que
+        // teclear "documento" en "Buscar flujo..." dejaría en pie las 21 filas
+        // que llevan la línea de uso y ninguna se llama así.
+        tdName.setAttribute('data-adhoc-value', nombre);
         tdName.className = 'adhoc-flow-name';
-        tdName.textContent = flow.name || '';       // textContent, nunca innerHTML
+
+        var etiqueta = document.createElement('span');
+        etiqueta.className = 'adhoc-flow-name-text';
+        etiqueta.textContent = nombre;              // textContent, nunca innerHTML
+        tdName.appendChild(etiqueta);
+        tdName.appendChild(this.usageLine(flow));
         tr.appendChild(tdName);
 
         var tdDescription = document.createElement('td');
@@ -170,6 +198,86 @@
         return tr;
     };
 
+    /**
+     * Cuántos documentos del SGC usan este flujo, según el servidor.
+     *
+     * El mapa llega por `page_data` y las claves son strings (así viaja un
+     * objeto en JSON), de ahí el `String(flow.id)`. Lo que no está en el mapa
+     * es un cero de verdad: el servidor emite una entrada por cada flujo que
+     * tenga al menos un documento, así que la ausencia significa "ninguno", no
+     * "no se sabe". Un valor raro (null, texto) también acaba en cero: el
+     * defecto es dejar la papelera viva y que el servidor decida, nunca apagar
+     * un botón por un dato que no se entendió.
+     */
+    Flows.prototype.usage = function (flow) {
+        var total = parseInt(this.documentCounts[String(flow.id)], 10);
+        return total > 0 ? total : 0;
+    };
+
+    /**
+     * Línea bajo el nombre del flujo con su uso real.
+     *
+     * Va en la celda del nombre y no en una columna nueva porque es un dato
+     * DEL flujo, como su descripción, y porque la cabecera de la tabla la
+     * declara la plantilla: una columna más obligaría a tocarla.
+     *
+     * Los dos estados se pintan, también el vacío. El de al lado hace lo mismo
+     * ("Sin pasos"), y una fila muda no se distingue de una fila cuyo dato no
+     * llegó — que es justo lo que hay que poder distinguir cuando la papelera
+     * de la fila está apagada por ese número.
+     */
+    Flows.prototype.usageLine = function (flow) {
+        var total = this.usage(flow);
+        var linea = document.createElement('span');
+        linea.className = 'adhoc-flow-usage';
+        if (!total) {
+            linea.textContent = 'Sin documentos';
+        } else {
+            linea.textContent = total === 1
+                ? 'En uso por 1 documento'
+                : 'En uso por ' + total + ' documentos';
+        }
+        return linea;
+    };
+
+    /**
+     * Papelera de la fila, deshabilitada cuando el flujo ya está en uso.
+     *
+     * `delete_flow` cuenta los documentos con este `flow_id` en CUALQUIER
+     * estado, así que un flujo que se usó una vez hace diez años no se borra
+     * nunca: son 21 de los 43 de hoy. Ofrecer la papelera en esas filas era
+     * ofrecer un diálogo de confirmación que sólo lleva a un 409, y el guard
+     * del servidor no se toca —el histórico documental del SGC no se borra en
+     * cascada—, así que lo que se retira es la oferta.
+     *
+     * Deshabilitada de verdad (`disabled` + `aria-disabled`) y no sólo
+     * apagada con CSS, y con el motivo en `title` y `aria-label` a la vez: un
+     * botón `disabled` no recibe foco, así que el `title` no le llega nunca a
+     * un lector de pantalla. Mismo patrón que "Editar documento"
+     * (`documents-panel.js`) y que el aviso de atasco de `work/tasks.js`.
+     *
+     * El texto dice el número y qué hacer en su lugar. "No se puede eliminar"
+     * a secas deja al usuario probando otra vez desde otro navegador.
+     */
+    Flows.prototype.deleteButton = function (flow) {
+        var total = this.usage(flow);
+        if (!total) {
+            return iconButton('delete', 'fa-solid fa-trash', 'Eliminar flujo',
+                              'adhoc-icon-danger');
+        }
+
+        var motivo = 'No se puede eliminar: ' +
+                     (total === 1 ? '1 documento usa este flujo'
+                                  : total + ' documentos usan este flujo') +
+                     '. Edítalo (nombre, descripción y pasos) o deja de elegirlo ' +
+                     'al arrancar flujos nuevos.';
+
+        var btn = iconButton('delete', 'fa-solid fa-trash', motivo, 'adhoc-icon-muted');
+        btn.disabled = true;
+        btn.setAttribute('aria-disabled', 'true');
+        return btn;
+    };
+
     Flows.prototype.buildActions = function (flow) {
         var box = document.createElement('div');
         box.className = 'adhoc-actions';
@@ -190,8 +298,7 @@
             box.appendChild(iconButton('edit', 'fa-solid fa-pen-to-square', 'Editar flujo'));
         }
         if (this.canDelete) {
-            box.appendChild(iconButton('delete', 'fa-solid fa-trash', 'Eliminar flujo',
-                                       'adhoc-icon-danger'));
+            box.appendChild(this.deleteButton(flow));
         }
         return box;
     };
@@ -259,12 +366,22 @@
 
     // ---------- borrado ----------
 
+    /**
+     * Sólo se llega aquí desde una papelera VIVA, o sea desde un flujo sin
+     * documentos: el aviso de "no se puede si alguno lo usa" se cae del
+     * diálogo porque ya lo dice el botón de las filas donde pasa, y un aviso
+     * que sale siempre —también cuando no aplica— se deja de leer.
+     *
+     * El `catch` del 409 se queda: el servidor rechaza además si alguna tarea
+     * cuelga de un paso de este flujo (`_assert_steps_unreferenced`), y eso no
+     * viaja en `document_counts`.
+     */
     Flows.prototype.remove = function (flow) {
         var self = this;
         U.confirmDialog({
             title: 'Eliminar flujo',
             message: '¿Eliminar "' + (flow.name || '') + '" y todos sus pasos? ' +
-                     'No se puede si algún documento ya lo está usando.',
+                     'Ningún documento lo está usando.',
             confirmText: 'Eliminar',
             variant: 'danger'
         }).then(function (ok) {
@@ -317,6 +434,13 @@
             }
             var btn = evt.target.closest('[data-adhoc-flow-action]');
             if (!btn) return;
+            // La papelera se pinta en TODAS las filas, deshabilitada donde el
+            // flujo ya está en uso. Un botón `disabled` no dispara `click` en
+            // ningún navegador, pero la hoja de esta pantalla le devuelve los
+            // eventos de ratón para que se pueda leer su `title` —el motivo—,
+            // así que la guarda se escribe en vez de darse por supuesta (mismo
+            // criterio que `documents-panel.js`).
+            if (btn.disabled) return;
             var tr = btn.closest('tr[data-id]');
             if (!tr) return;
             evt.preventDefault();

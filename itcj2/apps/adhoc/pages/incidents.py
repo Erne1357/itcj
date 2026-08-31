@@ -261,6 +261,27 @@ def incident_tasks_page(
 #: una y de dónde sale la selección inicial. ``assign``/``notify`` operan sobre
 #: una TAREA; ``step_assign``/``notify_step`` sobre un PASO de flujo de
 #: aprobación (el legacy llegaba aquí desde la configuración de flujos).
+#:
+#: ⚠️ **Las dos de paso no las enlaza ninguna pantalla, y es a propósito.** A
+#: ``assign``/``notify`` se llega desde ``work/tasks.js`` (``goToAssign``); a
+#: ``step_assign``/``notify_step`` no se llega desde ningún ``href`` ni ningún
+#: ``navigate()`` del app, porque la configuración de pasos resuelve validadores
+#: y avisos de atraso en un modal de la propia página
+#: (``static/js/documents/flow-steps.js``, ``openUsers`` → ``PUT
+#: /approval-flows/steps/{id}/{validators,overdue-notifications}``), que es la
+#: misma pareja de endpoints que ataca esta pantalla.
+#:
+#: Se conservan como **entrada de pantalla completa** al mismo par de endpoints:
+#: son rutas vivas, con su permiso (``adhoc.tasks.page.assign``), su contrato
+#: probado (``test_pages_incidents_programs.py``, clase de ``step_*``) y su
+#: utilidad real —un paso con muchos validadores se marca mejor en la pantalla
+#: ancha que en el modal—. Se llega tecleando la URL:
+#: ``/adhoc/asignaciones?action=step_assign&step_id=N``.
+#:
+#: Si algún día se decide matarlas, borrar aquí sus dos entradas, la rama
+#: ``_step_target`` con su ``get_step_details``, el bloque de ``notify_step`` de
+#: esa función y los tests que las cubren. **No** basta con quitar el enlace:
+#: ya no hay ninguno.
 _ASSIGN_ACTIONS = {
     "assign": {
         "target": "task",

@@ -971,6 +971,36 @@ class TestReglasDurasDelModalCompartido:
         assert "var mio = state.seq" in text
         assert text.count("if (mio !== state.seq) return;") == 2
 
+    def test_js_apaga_los_botones_de_flujo_mientras_esta_ocupado(self):
+        """`state.busy` tiene que VERSE, o el clic rechazado no se explica.
+
+        El testigo cubre desde que sale una peticion hasta que el modal repinto
+        la respuesta, y `runAction` se va de vacio mientras esta puesto. Guardar
+        un comentario lo pone y NO lo quita al contestar el POST: despues viene
+        la recarga del hilo, y en esa ventana "Aprobar" se veia igual de vivo,
+        se dejaba pulsar y no pasaba nada —ni dialogo, ni aviso, ni peticion—.
+        Quien encadenaba comentario y accion pulsaba dos veces sin entender por
+        que.
+
+        Dos reglas, y la segunda es la que se olvida: el testigo se escribe solo
+        desde `setBusy`, y `renderActionButtons` —que corre DENTRO de esa
+        recarga— lo COPIA en vez de poner `false`, o volveria a encender los
+        botones justo en la ventana que hay que cubrir.
+        """
+        text = _strip_js_comments(WF_JS.read_text(encoding="utf-8"))
+
+        assert re.search(r"function setBusy\(value\) \{", text)
+
+        # Nadie escribe el testigo a mano por fuera de `setBusy`.
+        assert text.count("state.busy =") == 1, "state.busy se escribe fuera de setBusy"
+        assert "state.busy = !!value;" in text
+
+        # Y `renderActionButtons` no lo pisa con un `false` fijo.
+        cuerpo = text[text.index("function renderActionButtons("):]
+        cuerpo = cuerpo[:cuerpo.index(chr(10) + "    }")]
+        assert "btn.disabled = state.busy;" in cuerpo
+        assert "btn.disabled = false" not in cuerpo
+
     def test_js_es_iife_estricto(self):
         text = WF_JS.read_text(encoding="utf-8")
         assert "'use strict'" in text

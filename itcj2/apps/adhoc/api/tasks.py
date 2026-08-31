@@ -127,6 +127,28 @@ def list_my_tasks(
     Misma fuente que la landing ``/adhoc/dashboard`` (que la renderiza
     server-side llamando al service directamente); este endpoint existe para
     refrescar el tablero sin recargar la página.
+
+    ⚠️ **Hoy no lo llama nadie, y se conserva a propósito. No lo borres ni lo
+    cablees "para que sirva de algo".**
+
+    El tablero se pinta en el servidor: ``pages/dashboard.py`` invoca
+    ``AdhocTaskService.get_dashboard_tasks`` y manda el HTML ya montado, así que
+    el JS del dashboard no necesita pedir esto. Lo que queda aquí es el **mismo
+    payload en JSON**, que es deuda deliberada y no código muerto:
+
+    * Es el contrato JSON del tablero. El día que el dashboard pase a refrescar
+      sin recarga —o que el shell móvil quiera el conteo de tareas propias— este
+      es el endpoint, ya con su permiso (``adhoc.tasks.api.read.own``, que
+      ``consult`` tiene) y su serialización alineada con la de la página.
+    * Está cubierto: ``tests/fastapi/adhoc/test_tasks_api.py`` prueba su gate de
+      permisos, su alcance por actor y que **no** emite
+      ``assignees_without_access`` (ver ``list_tasks``: ese aviso es para quien
+      supervisa, y aquí el que mira es el asignado). El smoke E2E
+      (``tests/e2e/adhoc/smoke.spec.js``) lo pega para que un 500 en el service
+      del tablero salte aunque la página siga renderizando de su caché.
+
+    Cablearlo desde el dashboard sin más lo haría pedir dos veces lo mismo por
+    carga: una en el servidor para el HTML y otra en el cliente para tirarla.
     """
     from itcj2.apps.adhoc.schemas.tasks import serialize_task
     from itcj2.apps.adhoc.services.task_service import AdhocTaskService

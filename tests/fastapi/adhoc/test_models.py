@@ -246,7 +246,7 @@ def test_visibility_is_separate_from_acknowledgements():
 
 
 def test_legacy_file_paths_are_nullable():
-    """51 adjuntos del legacy existen como registro sin binario en el servidor."""
+    """Hay adjuntos del legacy que existen como registro sin binario en el servidor."""
     for model in (AdhocIncidentFile, AdhocTaskCommentFile, AdhocProgramEventFile):
         cols = model.__table__.columns
         assert cols["file_path"].nullable is True, model.__name__

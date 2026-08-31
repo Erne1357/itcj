@@ -171,6 +171,120 @@ def test_listado_rechaza_un_status_fuera_del_vocabulario(client, headers):
 
 
 # --------------------------------------------------------------------------
+# task_count — la pastilla del botón "Ver Tareas" de la tabla
+#
+# La columna "Tareas" existe en `/adhoc/programas` desde el porte, y
+# `work-items.js::tasksButton` solo pinta el número si el campo llega como
+# número: sin `task_count` el botón sale mudo y la pantalla no dice cuántas
+# tareas cuelgan de cada evento. Incidencias lo resuelve desde el primer día
+# (`IncidentService.task_counts` + `serialize_incident(task_count=…)`); eventos
+# de programa se quedó a medias.
+#
+# El conteo entra desde FUERA del serializador, en UNA query agrupada sobre el
+# lote de la página. Un `len(event.tasks)` dentro de `event_to_dict` daría el
+# mismo JSON y un SELECT por fila: exactamente el N+1 que el legacy tenía en el
+# template y que esta app lleva evitando en todas sus listas.
+# --------------------------------------------------------------------------
+
+def _tarea(db, event_id, descripcion="tarea del evento"):
+    from itcj2.apps.adhoc.models.tasks import AdhocTask
+
+    row = AdhocTask(description=descripcion, program_id=event_id)
+    db.add(row)
+    db.flush()
+    return row
+
+
+def test_event_to_dict_emite_task_count_cuando_alguien_lo_cuenta(client, headers,
+                                                                 db_session):
+    from itcj2.apps.adhoc.schemas.programs import event_to_dict
+
+    event = _make_event(db_session, title="Con conteo")
+    assert event_to_dict(event, task_count=3)["task_count"] == 3
+
+
+def test_y_omite_la_clave_cuando_nadie_lo_cuenta(client, headers, db_session):
+    """Omitida, no ``0``: `tasksButton` solo pinta la pastilla si es un número,
+    así que un cero por defecto diría "este evento no tiene tareas" en las
+    pantallas donde el conteo simplemente no se pidió."""
+    from itcj2.apps.adhoc.schemas.programs import event_to_dict
+
+    event = _make_event(db_session, title="Sin conteo")
+    assert "task_count" not in event_to_dict(event)
+
+
+def test_el_listado_trae_el_conteo_por_evento(client, headers, db_session):
+    con = _make_event(db_session, title="e2e_tc_con", folio="e2e_tc_con")
+    sin = _make_event(db_session, title="e2e_tc_sin", folio="e2e_tc_sin")
+    _tarea(db_session, con.id, "una")
+    _tarea(db_session, con.id, "otra")
+
+    filas = client.get(BASE, headers=headers, params={"search": "e2e_tc_"}).json()["data"]
+    por_id = {f["id"]: f for f in filas}
+
+    assert por_id[con.id]["task_count"] == 2
+    # El evento sin tareas trae un CERO explícito, no la clave ausente: en el
+    # listado el conteo sí se pidió, así que "ninguna" es una respuesta.
+    assert por_id[sin.id]["task_count"] == 0
+
+
+def test_el_conteo_del_listado_no_dispara_una_consulta_por_evento(client, headers,
+                                                                  db_session):
+    """5 eventos con tareas, UNA consulta a ``adhoc_tasks``.
+
+    Se cuentan las sentencias que Postgres ejecuta de verdad, no las llamadas
+    al ORM: un `len(event.tasks)` en el serializador emitiría cinco SELECT sin
+    que cambie ni una línea del JSON, y eso es justo lo que hay que impedir que
+    vuelva.
+    """
+    from sqlalchemy import event as sa_event
+
+    eventos = [
+        _make_event(db_session, title=f"e2e_n1_{i}", folio=f"e2e_n1_{i}")
+        for i in range(5)
+    ]
+    for uno in eventos:
+        _tarea(db_session, uno.id)
+
+    sentencias = []
+
+    def _anotar(conn, cursor, statement, params, context, executemany):
+        if "adhoc_tasks" in statement:
+            sentencias.append(statement)
+
+    conexion = db_session.connection()
+    sa_event.listen(conexion, "before_cursor_execute", _anotar)
+    try:
+        filas = client.get(
+            BASE, headers=headers, params={"search": "e2e_n1_"}
+        ).json()["data"]
+    finally:
+        sa_event.remove(conexion, "before_cursor_execute", _anotar)
+
+    assert len(filas) == 5
+    assert all(f["task_count"] == 1 for f in filas)
+    assert len(sentencias) == 1, sentencias
+    assert "GROUP BY" in sentencias[0].upper()
+
+
+def test_task_counts_agrupa_y_tolera_el_lote_vacio(db_session):
+    """Espejo exacto de ``IncidentService.task_counts``: lo que no tiene tareas
+    no aparece en el dict, y el serializador pone el ``0``."""
+    from itcj2.apps.adhoc.services import program_event_service as svc
+
+    con = _make_event(db_session, title="e2e_tcs_con")
+    sin = _make_event(db_session, title="e2e_tcs_sin")
+    _tarea(db_session, con.id, "a")
+    _tarea(db_session, con.id, "b")
+
+    conteos = svc.task_counts(db_session, [con.id, sin.id])
+
+    assert conteos[con.id] == 2
+    assert sin.id not in conteos
+    assert svc.task_counts(db_session, []) == {}
+
+
+# --------------------------------------------------------------------------
 # POST  (alta masiva multipart)
 # --------------------------------------------------------------------------
 

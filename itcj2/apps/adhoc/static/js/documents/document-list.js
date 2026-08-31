@@ -28,6 +28,9 @@
  *   #{tableId}-body                                    tbody a pintar
  *   [data-adhoc-doc-count]                             "N documento(s)"
  *   [data-adhoc-pager] [data-adhoc-page="prev|next"] [data-adhoc-page-info]
+ *   [data-adhoc-goto-page="N"]                         los NÚMEROS de página,
+ *       que no vienen de la plantilla: los pinta `shared/pager.js` dentro del
+ *       [data-adhoc-pager], justo antes del botón "siguiente".
  *
  * Ninguna celda se llena con innerHTML de datos del servidor: `helpers.cell`
  * usa textContent y el único innerHTML es markup estático de iconos.
@@ -309,6 +312,9 @@
         this.total = 0;
         this.loading = false;
         this.debounce = null;
+        //: `true` cuando la lista ya pintó una vez, que es cuando puede empezar
+        //: a escribir en la URL. Ver `syncUrl()`.
+        this.urlLista = false;
     }
 
     DocumentList.prototype.init = function () {
@@ -352,8 +358,45 @@
     }
 
     /**
+     * Las claves de filtro que declara el MARCADO de esta pantalla, sin
+     * repetir. Es la lista de lo que la lista "gestiona": lo que se lee de la
+     * URL al arrancar y lo único que se le escribe al cambiar.
+     *
+     * Sale del DOM y no de una constante para que un filtro nuevo en la
+     * plantilla entre solo, igual que ya pasa con `filters()`.
+     *
+     * @returns {string[]}
+     */
+    DocumentList.prototype.filterKeys = function () {
+        var nodes = this.root.querySelectorAll('[data-adhoc-doc-filter]');
+        var out = [];
+        for (var i = 0; i < nodes.length; i++) {
+            var key = nodes[i].getAttribute('data-adhoc-doc-filter');
+            if (key && out.indexOf(key) === -1) out.push(key);
+        }
+        return out;
+    };
+
+    /**
      * Vuelca `page_data.initial_filters` sobre la barra de filtros, ANTES de la
-     * primera consulta.
+     * primera consulta, y completa lo que ese bloque no cubre leyendo la propia
+     * URL.
+     *
+     * ─── UN SOLO MECANISMO, CON UNA REGLA DE PRECEDENCIA ────────────────────
+     * `initial_filters` es el canal VALIDADO: `pages/documents.py` lee de la
+     * URL las claves que entiende (`expiring`, `only_current`), descarta en
+     * silencio lo que no case con el vocabulario y manda el string que el
+     * control volverá a enviar. Ese canal manda, y por eso una clave que él
+     * declara se resuelve SIEMPRE con su valor —incluido el `null`, que
+     * significa "no venía, o venía inventada: deja el control como está"—.
+     *
+     * El resto de filtros de la barra (`q`, `status`, los cuatro catálogos) el
+     * servidor no los mira, así que para esos se lee la URL aquí. No es un
+     * segundo mecanismo en paralelo: es el MISMO volcado, sobre los mismos
+     * nodos y en el mismo momento, con dos orígenes ordenados. Si mañana la
+     * página aprende a validar una clave más, esa clave cambia de origen sola
+     * sin tocar este bucle.
+     * ────────────────────────────────────────────────────────────────────────
      *
      * Vive aquí y no en cada pantalla porque el resto del contrato de la barra
      * —qué nodos son filtros, cómo se lee una casilla, cómo se limpia— ya vive
@@ -380,19 +423,27 @@
      * completa antes de la que pidió.
      */
     DocumentList.prototype.applyInitialFilters = function () {
-        var initial = this.initialFilters;
-        if (!initial) return this;
+        var initial = this.initialFilters || {};
+        var P = window.AdhocPager;
+        var deLaUrl = P ? P.leerFiltros(this.filterKeys()) : {};
 
         var nodes = this.root.querySelectorAll('[data-adhoc-doc-filter]');
         for (var i = 0; i < nodes.length; i++) {
             var node = nodes[i];
             var key = node.getAttribute('data-adhoc-doc-filter');
-            if (!Object.prototype.hasOwnProperty.call(initial, key)) continue;
+            var value;
 
-            var value = initial[key];
-            // `null` es "el parámetro no venía en la URL": el servidor manda
-            // siempre las dos claves para que el JS no tenga que preguntar si
-            // existen.
+            if (Object.prototype.hasOwnProperty.call(initial, key)) {
+                // `null` es "el parámetro no venía en la URL, o venía mal": el
+                // servidor manda siempre sus claves para que el JS no tenga que
+                // preguntar si existen.
+                value = initial[key];
+            } else if (Object.prototype.hasOwnProperty.call(deLaUrl, key)) {
+                value = deLaUrl[key];
+            } else {
+                continue;
+            }
+
             if (value === null || value === undefined) continue;
             value = String(value);
 
@@ -400,9 +451,62 @@
                 var marcado = node.getAttribute('data-adhoc-checked-value');
                 node.checked = (marcado !== null) ? (value === marcado) : (value === 'true');
             } else {
+                // Un `<select>` al que se le asigna un valor sin opción se
+                // queda en el placeholder. Es lo correcto: significa que la URL
+                // trae un id de un catálogo que ya no existe.
                 node.value = value;
             }
         }
+
+        if (P) this.page = P.leerPagina();
+        return this;
+    };
+
+    /**
+     * Los filtros que hay puestos AHORA MISMO, en la forma en que viajan por la
+     * URL del navegador (que no es exactamente la de `filters()`).
+     *
+     * La diferencia está en las casillas: `filters()` emite el valor de la
+     * casilla esté marcada o no, porque la API necesita el `only_current=true`
+     * explícito. En la URL basta con anotar la DESVIACIÓN respecto al estado de
+     * partida de la pantalla —la casilla sin marcar—, porque al volver a
+     * cargarla el control nace desmarcado por sí solo. Escribir el estado por
+     * defecto solo alargaría un enlace pensado para pegarse en un correo.
+     *
+     * @returns {Object<string,string>}
+     */
+    DocumentList.prototype.urlFilters = function () {
+        var nodes = this.root.querySelectorAll('[data-adhoc-doc-filter]');
+        var out = {};
+        for (var i = 0; i < nodes.length; i++) {
+            var node = nodes[i];
+            var key = node.getAttribute('data-adhoc-doc-filter');
+            if (!key) continue;
+            if (esCasilla(node)) {
+                if (node.checked) out[key] = valorDeCasilla(node);
+            } else {
+                var value = (node.value || '').trim();
+                if (value) out[key] = value;
+            }
+        }
+        return out;
+    };
+
+    /**
+     * Refleja página y filtros en la barra de direcciones, con `replaceState`
+     * (el porqué, largo y con el historial de HTMX de por medio, está en
+     * `shared/pager.js::sincronizar`).
+     *
+     * NO se llama en el primer pintado. Ese primer estado es justo el que trae
+     * la URL con la que se llegó, así que reescribirla no añadiría nada y sí
+     * quitaría: normalizaría el enlace que el usuario acaba de abrir bajo sus
+     * pies. Se arma al terminar `render()`, y a partir de ahí toda consulta
+     * —paginar, filtrar, limpiar— deja su rastro.
+     */
+    DocumentList.prototype.syncUrl = function () {
+        var P = window.AdhocPager;
+        if (!P) return this;
+        P.sincronizar(this.filterKeys(), this.urlFilters(), this.page);
         return this;
     };
 
@@ -462,6 +566,11 @@
         this.loading = true;
         this.root.classList.add('is-loading');
 
+        // Con la página PEDIDA, para que la URL cambie a la vez que la lista y
+        // no al final de la consulta. Si el servidor la recorta (se pidió la 40
+        // de 12), `render()` vuelve a sincronizar con la que de verdad llegó.
+        if (this.urlLista) this.syncUrl();
+
         return U.fetchJson('/documents?' + this.query())
             .then(function (payload) {
                 self.render(payload || {});
@@ -498,6 +607,11 @@
         this.total = parseInt(payload.total, 10) || 0;
         this.renderPager();
 
+        // El primer pintado solo ARMA la sincronización; los siguientes la
+        // ejecutan. Ver `syncUrl()`.
+        if (this.urlLista) this.syncUrl();
+        else this.urlLista = true;
+
         if (this.afterRender) this.afterRender(this.items);
     };
 
@@ -517,6 +631,17 @@
         var next = this.pager.querySelector('[data-adhoc-page="next"]');
         if (prev) prev.disabled = this.page <= 1;
         if (next) next.disabled = this.page >= this.totalPages;
+
+        // Los números, entre "anterior" y "siguiente". Los pinta el módulo
+        // compartido; si por lo que sea no está cargado, la pantalla se queda
+        // con el paginador de dos botones de siempre en vez de romperse.
+        if (window.AdhocPager) {
+            window.AdhocPager.pintar(this.pager, {
+                pagina: this.page,
+                totalPaginas: this.totalPages,
+                antesDe: next
+            });
+        }
     };
 
     /** El documento de una fila, por su `data-id`. */
@@ -543,6 +668,22 @@
                 self.clearFilters();
                 return;
             }
+            // Un número del paginador. Va ANTES que [data-adhoc-page] porque
+            // son atributos distintos y el orden da igual, pero leerlos juntos
+            // ahorra buscar dónde se resuelve un clic en el pager.
+            var salto = evt.target.closest('[data-adhoc-goto-page]');
+            if (salto) {
+                evt.preventDefault();
+                var pedida = parseInt(salto.getAttribute('data-adhoc-goto-page'), 10);
+                // El botón de la página actual va habilitado (para no sacarlo
+                // del tabulador), así que es aquí donde pulsarlo no hace nada.
+                if (!pedida || pedida === self.page) return;
+                if (pedida < 1 || pedida > self.totalPages) return;
+                self.page = pedida;
+                self.load();
+                return;
+            }
+
             var pageBtn = evt.target.closest('[data-adhoc-page]');
             if (!pageBtn) return;
             evt.preventDefault();

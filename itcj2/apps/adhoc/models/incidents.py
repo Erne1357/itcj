@@ -79,10 +79,12 @@ class AdhocIncidentFile(Base):
     legacy guardaba 409 archivos en ``inci_files`` y el esquema nuevo no tenía
     dónde ponerlos. Espejo de :class:`AdhocProgramEventFile`.
 
-    ``file_path`` es nullable a propósito: 51 de los adjuntos del legacy existen
-    como registro pero su binario ya no está en el servidor del proveedor. Se
-    conserva el rastro (qué se adjuntó y quién) marcando el archivo como no
-    disponible, en vez de perder la fila entera.
+    ``file_path`` es nullable a propósito: parte de los adjuntos del legacy
+    existen como registro pero su binario ya no está en el servidor del
+    proveedor. Se conserva el rastro (qué se adjuntó y quién) marcando el
+    archivo como no disponible, en vez de perder la fila entera. (Cuántos son
+    exactamente es un dato de la base, no del modelo: escribirlo aquí lo
+    convierte en una cifra que caduca sin que nada lo note.)
     """
     __tablename__ = "adhoc_incident_files"
 

@@ -168,8 +168,22 @@ def file_to_dict(file: Any) -> dict:
     }
 
 
-def event_to_dict(event: Any, *, include_files: bool = False) -> dict:
-    """Serializa un ``AdhocProgramEvent`` para la API y para las páginas."""
+def event_to_dict(
+    event: Any, *, include_files: bool = False, task_count: Optional[int] = None
+) -> dict:
+    """Serializa un ``AdhocProgramEvent`` para la API y para las páginas.
+
+    ``task_count`` es la pastilla del botón "Ver Tareas" de la tabla, y **entra
+    desde fuera** igual que en ``incidents.serialize_incident``: lo resuelve
+    quien tiene la sesión, en UNA query agrupada sobre el lote de la página
+    (``IncidentService.task_counts`` es el molde), nunca aquí con un
+    ``len(event.tasks)`` que dispararía un SELECT por fila.
+
+    Se omite la clave cuando nadie cuenta —en vez de emitir un ``0``— a
+    propósito: ``work-items.js::tasksButton`` solo pinta la pastilla si el campo
+    es un número, así que un ``0`` por defecto le diría al usuario "este evento
+    no tiene tareas" en pantallas donde el conteo simplemente no se pidió.
+    """
     category = getattr(event, "category", None)
     area = getattr(event, "area", None)
     process = getattr(event, "process", None)
@@ -201,6 +215,8 @@ def event_to_dict(event: Any, *, include_files: bool = False) -> dict:
         "created_at": _iso(getattr(event, "created_at", None)),
         "updated_at": _iso(getattr(event, "updated_at", None)),
     }
+    if task_count is not None:
+        data["task_count"] = task_count
     if include_files:
         data["files"] = [file_to_dict(f) for f in files]
     return data

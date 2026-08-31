@@ -42,6 +42,8 @@ from fastapi.testclient import TestClient
 
 from itcj2.apps.adhoc.pages.indicators import (
     MODE_CONFIG,
+    MODE_PAGE_PERM,
+    MODE_PATH_SUFFIX,
     MODE_TRACKING,
     PERIODS_FALLBACK,
     _tracking_cards,
@@ -75,6 +77,17 @@ ALL_PERMS = {
     "adhoc.indicators.api.delete",
     "adhoc.indicators.api.download",
     "adhoc.indicators.api.tracking",
+}
+
+#: El paquete de **lectura** de indicadores: lo que el DML da a ``consult`` y,
+#: desde B7, también a los tres supervisores. Ni ``page.manage`` (editar la
+#: ficha del indicador sigue siendo de admin) ni ``api.tracking`` (capturar el
+#: color de la celda). Es exactamente el perfil que destapó A27/A28.
+READ_ONLY_PERMS = {
+    "adhoc.indicators.page.list",
+    "adhoc.indicators.page.tracking",
+    "adhoc.indicators.api.read",
+    "adhoc.indicators.api.download",
 }
 
 
@@ -472,6 +485,230 @@ class TestPaginaTablero:
         with as_user({"adhoc.indicators.page.manage", "adhoc.indicators.page.tracking"}):
             html = client.get(URL_BOARD, headers=staff_headers).text
         assert 'href="/adhoc/indicadores/7/seguimiento"' in html
+
+
+# ==========================================================================
+# A27/A28 — el callejón sin salida del módulo de indicadores
+#
+# Las tres pantallas se enlazan entre sí y hasta B7 dos de esos enlaces se
+# pintaban sin mirar el permiso del destino: el tablero ofrecía "Seguimiento" a
+# quien no puede entrar al seguimiento, y el seguimiento ofrecía "Tablero" a
+# quien no puede entrar al tablero. Con `hx-boost` un 403 no intercambia nada,
+# así que el botón simplemente no hacía nada al pulsarlo: el peor 403 posible,
+# el que no se ve.
+#
+# El agujero era más ancho de lo que decía el informe. `page.manage` y
+# `page.tracking` los tenía SOLO `admin`, así que el callejón no era cosa de
+# `consult`: también se lo comían los tres supervisores. La decisión de producto
+# (cerrada por el usuario) es que el seguimiento por colores es la vista de
+# LECTURA del indicador —lo reciben `consult` y los tres supervisores— mientras
+# que `manage` (editar la ficha) sigue siendo de admin. `TestElDmlRepartelaLectura`
+# fija esa matriz contra el SQL, que es su única fuente.
+# ==========================================================================
+
+class TestCallejonDeIndicadores:
+    def test_lectura_sin_manage_aterriza_en_el_seguimiento(
+        self, client, staff_headers, data_ok
+    ):
+        """El perfil de `consult` y de los tres supervisores, tal cual."""
+        with as_user(READ_ONLY_PERMS):
+            data = page_data(client.get(URL_YEARS, headers=staff_headers).text)
+        assert data["mode"] == MODE_TRACKING
+        assert data["target_suffix"] == "/seguimiento"
+
+    def test_y_sus_filas_son_clicables(self, client, staff_headers, data_ok):
+        """`target_base` vacía = filas muertas: `years.js` no les ata el click.
+
+        Es la mitad que conmutar el modo no arregla por sí sola. Elegir el
+        destino correcto no sirve de nada si la fila no lleva a ninguna parte, y
+        en esta pantalla la fila **es** el enlace: no hay ningún otro botón.
+        """
+        with as_user(READ_ONLY_PERMS):
+            data = page_data(client.get(URL_YEARS, headers=staff_headers).text)
+        assert data["target_base"] == "/adhoc/indicadores/"
+
+    def test_y_ese_destino_abre_de_verdad(self, client, staff_headers, data_ok):
+        """Lo que ofrece la fila responde 200. Es la comprobación que cierra el
+        círculo: sin ella el test anterior solo diría que hay un enlace."""
+        with as_user(READ_ONLY_PERMS):
+            res = client.get(URL_TRACKING, headers=staff_headers)
+        assert res.status_code == 200
+
+    def test_el_tablero_le_sigue_estando_vedado(self, client, staff_headers, data_ok):
+        """Leer el seguimiento no es editar la ficha: `manage` no se regala."""
+        with as_user(READ_ONLY_PERMS):
+            res = client.get(URL_BOARD, headers=staff_headers)
+        assert res.status_code == 403
+
+    def test_el_tablero_no_ofrece_el_seguimiento_sin_ese_permiso(
+        self, client, staff_headers, data_ok
+    ):
+        with as_user({"adhoc.indicators.page.manage"}):
+            html = client.get(URL_BOARD, headers=staff_headers).text
+        data = page_data(html)
+        # La URL se cae del JSON, no solo su `can_`: dejarla puesta invitaba a
+        # que el módulo la usara por su cuenta el día que navegue solo.
+        assert data["tracking_url"] == ""
+        assert data["can_track"] is False
+        assert 'href="/adhoc/indicadores/7/seguimiento"' not in html
+
+    def test_el_tablero_lo_ofrece_a_quien_si_entra(self, client, staff_headers, data_ok):
+        with as_user({"adhoc.indicators.page.manage", "adhoc.indicators.page.tracking"}):
+            html = client.get(URL_BOARD, headers=staff_headers).text
+        data = page_data(html)
+        assert data["tracking_url"] == "/adhoc/indicadores/7/seguimiento"
+        assert data["can_track"] is True
+        assert 'href="/adhoc/indicadores/7/seguimiento"' in html
+
+    def test_el_seguimiento_no_ofrece_el_tablero_sin_manage(
+        self, client, staff_headers, data_ok
+    ):
+        """El otro lado del espejo, y el que más gente se comía: los cuatro roles
+        no-admin llegan al seguimiento y ninguno de ellos tiene `manage`."""
+        with as_user(READ_ONLY_PERMS):
+            html = client.get(URL_TRACKING, headers=staff_headers).text
+        assert 'href="/adhoc/indicadores/7/tablero"' not in html
+
+    def test_el_seguimiento_lo_ofrece_a_quien_si_entra(
+        self, client, staff_headers, data_ok
+    ):
+        with as_user({"adhoc.indicators.page.tracking", "adhoc.indicators.page.manage"}):
+            html = client.get(URL_TRACKING, headers=staff_headers).text
+        assert 'href="/adhoc/indicadores/7/tablero"' in html
+
+    def test_la_lista_no_ofrece_conmutar_a_un_modo_vedado(
+        self, client, staff_headers, data_ok
+    ):
+        """El TERCER enlace cruzado, el que se quedó fuera del arreglo de B7.
+
+        La lista de años pinta un "Ir a configuración / Ir a seguimiento" en su
+        línea de ayuda. La plantilla lo decidía mirando `mode` y nada más, así
+        que a los cuatro roles no-admin se les ofrecía "Ir a configuración" y
+        pulsarlo devolvía la MISMA pantalla: `indicator_years_page` reconmuta el
+        modo al no encontrar `page.manage`, y el enlace volvía a salir igual.
+        """
+        with as_user(READ_ONLY_PERMS):
+            html = client.get(URL_YEARS, headers=staff_headers).text
+        assert "adhoc-years-mode-swap" not in html
+        assert 'href="/adhoc/indicadores?mode=config"' not in html
+
+    def test_y_tampoco_pulsando_el_modo_que_no_puede(
+        self, client, staff_headers, data_ok
+    ):
+        """Ni llegando a la URL del modo vedado: la conmutación no lo resucita."""
+        with as_user(READ_ONLY_PERMS):
+            html = client.get(URL_YEARS + "?mode=config", headers=staff_headers).text
+        assert "adhoc-years-mode-swap" not in html
+
+    def test_la_lista_lo_ofrece_a_quien_si_entra(self, client, staff_headers, data_ok):
+        """Con los dos permisos el conmutador sigue ahí, y lleva al otro modo."""
+        with as_user({"adhoc.indicators.page.list", *MODE_PAGE_PERM.values()}):
+            en_config = client.get(URL_YEARS, headers=staff_headers).text
+            en_tracking = client.get(
+                URL_YEARS + "?mode=tracking", headers=staff_headers
+            ).text
+        assert 'href="/adhoc/indicadores?mode=tracking"' in en_config
+        assert 'href="/adhoc/indicadores?mode=config"' in en_tracking
+
+    def test_sin_ningun_destino_no_hay_conmutador(self, client, staff_headers, data_ok):
+        """Ni filas clicables ni conmutador: no queda nada a donde llevar."""
+        with as_user({"adhoc.indicators.page.list"}):
+            html = client.get(URL_YEARS, headers=staff_headers).text
+        assert page_data(html)["target_base"] == ""
+        assert "adhoc-years-mode-swap" not in html
+
+    def test_los_dos_enlaces_salen_del_mismo_par_de_mapas(self):
+        """`MODE_PAGE_PERM` × `MODE_PATH_SUFFIX`: una sola copia de la regla.
+
+        Los tests de arriba prueban el comportamiento de los tres enlaces
+        cruzados; este fija que el par sigue siendo el par, que es de donde salen las dos mitades del
+        enlace —a dónde lleva y quién entra— y la razón de que no puedan
+        desincronizarse otra vez.
+        """
+        assert MODE_PAGE_PERM == {
+            MODE_CONFIG: "adhoc.indicators.page.manage",
+            MODE_TRACKING: "adhoc.indicators.page.tracking",
+        }
+        assert MODE_PATH_SUFFIX == {
+            MODE_CONFIG: "/tablero",
+            MODE_TRACKING: "/seguimiento",
+        }
+
+
+#: Variable del DML → nombre del rol. El bloque de `admin` no se parsea: es un
+#: `SELECT ... WHERE app_id = v_app_id` sin lista de códigos.
+DML_ROLES = {
+    "v_role_consult": "consult",
+    "v_role_sup_doc": "supervisor_doc",
+    "v_role_sup_inc": "supervisor_inc",
+    "v_role_sup_prog": "supervisor_prog",
+}
+
+DML_ROLE_NAMES = sorted(DML_ROLES.values())
+
+
+def _dml_matrix():
+    """`{rol: {códigos de permiso}}` leídos de `03_insert_role_permission.sql`.
+
+    Se lee el SQL y no la BD porque el SQL **es** la fuente —los permisos nunca
+    van en una migración de Alembic— y porque la base de tests no lleva la fila
+    de `adhoc` en `core_apps`. Se salta si `database/` no está en el árbol: está
+    gitignored, así que en un clon limpio no existe.
+    """
+    sql = (
+        Path(__file__).resolve().parents[3]
+        / "database" / "DML" / "adhoc" / "init" / "03_insert_role_permission.sql"
+    )
+    if not sql.exists():
+        pytest.skip("el DML de adhoc no está en este árbol")
+
+    texto = sql.read_text(encoding="utf-8")
+    matriz = {}
+    for var, nombre in DML_ROLES.items():
+        bloque = re.search(
+            r"SELECT\s+" + var + r",.*?ON CONFLICT", texto, re.S,
+        )
+        assert bloque, "el DML no tiene bloque de permisos para " + nombre
+        matriz[nombre] = set(re.findall(r"'(adhoc\.[a-z_.]+)'", bloque.group(0)))
+    return matriz
+
+
+class TestElDmlRepartelaLectura:
+    """La otra mitad de A27/A28: el permiso tiene que existir en algún rol.
+
+    Arreglar los enlaces no sirve de nada si `page.tracking` sigue siendo
+    exclusivo de `admin`: la pantalla del seguimiento seguiría sin un solo
+    usuario real, y el callejón se habría cerrado dejando dentro a todo el
+    mundo. Medido antes de B7: `page.list` lo tenían admin y consult;
+    `page.manage` y `page.tracking`, solo admin.
+    """
+
+    @pytest.mark.parametrize("rol", DML_ROLE_NAMES)
+    def test_los_cuatro_roles_reciben_el_seguimiento(self, rol):
+        assert "adhoc.indicators.page.tracking" in _dml_matrix()[rol]
+
+    @pytest.mark.parametrize("rol", DML_ROLE_NAMES)
+    def test_y_tambien_la_lista_de_anios(self, rol):
+        """Sin `page.list` la tarjeta del nav se enciende y su URL da 403.
+
+        `NAV_SECTIONS` muestra "Indicadores" con *any-of* `{page.list,
+        page.tracking}` pero apunta a `/adhoc/indicadores?mode=tracking`, que
+        exige `page.list`. Dar solo `tracking` habría cambiado un callejón por
+        otro peor: el que ni siquiera deja llegar a la lista.
+        """
+        assert "adhoc.indicators.page.list" in _dml_matrix()[rol]
+
+    @pytest.mark.parametrize("rol", DML_ROLE_NAMES)
+    def test_ninguno_recibe_manage_ni_la_captura(self, rol):
+        """Leer el seguimiento no es editar la ficha ni pintar la celda.
+
+        `page.manage` abre el tablero (alta y edición del indicador) y
+        `api.tracking` es lo que `TestSeguridadDeSeguimiento` exige para que la
+        rejilla sea escribible. Los dos siguen siendo de admin.
+        """
+        perms = _dml_matrix()[rol]
+        assert "adhoc.indicators.page.manage" not in perms
+        assert "adhoc.indicators.api.tracking" not in perms
 
 
 # ==========================================================================

@@ -54,12 +54,20 @@
     <p class="adhoc-years-hint">
       <i class="fa-solid fa-circle-info"></i>
       Seleccione el año de seguimiento o registre uno nuevo.
-      {% if mode == 'tracking' %}
-      <a class="adhoc-years-mode-swap" href="/adhoc/indicadores?mode=config"
-         title="Ahora cada año abre la rejilla de captura por colores">Ir a configuración</a>
-      {% else %}
-      <a class="adhoc-years-mode-swap" href="/adhoc/indicadores?mode=tracking"
-         title="Ahora cada año abre las fichas de indicador">Ir a seguimiento</a>
+      {# El conmutador se pinta SOLO si el usuario puede entrar en el modo
+         contrario: `swap_url` sale vacío si no, con el mismo criterio que
+         `target_base`. Preguntar aquí por `mode` y nada más era ofrecerle a
+         todo el que no es admin un enlace que recarga esta misma pantalla,
+         porque la ruta reconmuta el modo al no tener su permiso. Y el `title`
+         describe el DESTINO, no lo que ya se está viendo. #}
+      {% if swap_url %}
+        {% if mode == 'tracking' %}
+      <a class="adhoc-years-mode-swap" href="{{ swap_url }}"
+         title="Cada año abrirá las fichas de indicador">Ir a configuración</a>
+        {% else %}
+      <a class="adhoc-years-mode-swap" href="{{ swap_url }}"
+         title="Cada año abrirá la rejilla de captura por colores">Ir a seguimiento</a>
+        {% endif %}
       {% endif %}
     </p>
 

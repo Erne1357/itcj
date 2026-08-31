@@ -42,7 +42,11 @@ class Settings(BaseSettings):
     # <body>), y adhoc-utils.js + shared/table-filter.js estrenan guarda de
     # instancia única. Sin bump, un navegador con el adhoc-utils.js anterior en
     # caché sigue registrando un juego de listeners por cada ATRÁS.
-    STATIC_VERSION: str = "1.0.1111536"
+    # Bump 2026-08-31: revisión de B7 (adhoc) — shared/pager.js devuelve el foco
+    # al número de la página tras repintar la tira (con la versión anterior en
+    # caché, cada cambio de página sigue tirando el foco al <body>) y las dos
+    # hojas del paginador pierden una regla `[hidden]` que nunca se aplicaba.
+    STATIC_VERSION: str = "1.0.1111543"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

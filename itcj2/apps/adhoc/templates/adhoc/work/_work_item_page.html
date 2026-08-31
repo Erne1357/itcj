@@ -28,6 +28,8 @@
      new_label        texto del botón de alta masiva
      can_create       oculta el botón de alta (el gate real es require_perms)
      page_data        bloque JSON que lee el módulo JS (AdhocUtils.pageData)
+     date_filter_key    columna bajo la que se pinta el rango de fechas
+     date_filter_label  cómo se llama esa fecha en el aria-label del rango
 
    Bloques que puede sobrescribir el hijo:
      extra_css / extra_js   sus estáticos propios (SIEMPRE con ?v={{ sv(...) }})
@@ -109,6 +111,24 @@
           </tr>
           {# Fila de filtros: cada control se pinta en SU columna, como en el
              legacy. Los que no tienen filtro dejan la celda vacía. #}
+          {# — DÓNDE VA EL RANGO DE FECHAS —
+             Lo decide el servidor porque es él quien sabe qué columna filtra de
+             verdad `date_from`/`date_to`, y no es la misma en las dos pantallas:
+             incidencias los traduce a `commitment_from`/`commitment_to`
+             (`pages/incidents.py::_QUERY_MAP`) y `IncidentService.list` los
+             aplica sobre `commitment_date`; programas los manda tal cual y
+             `program_event_service.list_events` los aplica sobre `start_date`.
+
+             Estaba escrito a fuego bajo `commitment_date` con el rótulo
+             "Compromiso", así que en programas el usuario ponía el rango bajo
+             "Cierre" y el servidor le filtraba por la fecha de INICIO: dos
+             columnas más a la izquierda, y sin ninguna señal de que el
+             resultado no era el que pidió. El control se pinta ahora en la
+             columna que corresponde, que es la única forma de que el rótulo no
+             mienta. Los `id` no cambian: son contrato con work-items.js y con
+             los E2E. #}
+          {%- set _date_key = date_filter_key|default('commitment_date', true) -%}
+          {%- set _date_label = date_filter_label|default('Compromiso', true) -%}
           <tr class="adhoc-filter-row">
             {%- for col in columns %}
             <th data-adhoc-filter-key="{{ col.key }}">
@@ -140,12 +160,12 @@
                       aria-label="Filtrar por responsable">
                 <option value="">Todos</option>
               </select>
-              {%- elif col.key == 'commitment_date' %}
+              {%- elif col.key == _date_key %}
               <span class="adhoc-work-daterange">
                 <input type="date" class="adhoc-filter-input" id="adhoc-work-f-from"
-                       data-adhoc-param="date_from" aria-label="Compromiso desde">
+                       data-adhoc-param="date_from" aria-label="{{ _date_label }} desde">
                 <input type="date" class="adhoc-filter-input" id="adhoc-work-f-to"
-                       data-adhoc-param="date_to" aria-label="Compromiso hasta">
+                       data-adhoc-param="date_to" aria-label="{{ _date_label }} hasta">
               </span>
               {%- elif col.key == 'priority' %}
               <select class="adhoc-filter-input" id="adhoc-work-f-priority"
@@ -201,7 +221,14 @@
                 data-adhoc-work-page="prev" aria-label="Página anterior">
           <i class="fa-solid fa-chevron-left"></i>
         </button>
-        <span class="adhoc-work-pageinfo" data-adhoc-work-pageinfo></span>
+        {# Región viva: al paginar, este rótulo es lo ÚNICO que cambia. El
+           conteo de al lado también lo es, pero su texto ("25 de 277
+           incidencias") es idéntico en todas las páginas completas, así que no
+           dispara ningún anuncio. Sin esto, quien pagina con lector de pantalla
+           no recibía señal alguna de que la tabla se había movido. La otra lista
+           paginada de la app (documents.html) ya lo declaraba: las dos comparten
+           `shared/pager.js` y ahora también este contrato. #}
+        <span class="adhoc-work-pageinfo" data-adhoc-work-pageinfo aria-live="polite"></span>
         <button type="button" class="btn btn-sm btn-secondary"
                 data-adhoc-work-page="next" aria-label="Página siguiente">
           <i class="fa-solid fa-chevron-right"></i>

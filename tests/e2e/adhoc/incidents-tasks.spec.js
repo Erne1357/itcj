@@ -242,7 +242,24 @@ function insertUnavailableIncidentFile(incidentId, originalName) {
 
 // `.serial`: la segunda prueba depende del adjunto que sube la primera (sigue
 // visible con su enlace de descarga tras insertar el registro sin binario).
-test.describe.serial('adjuntos de la incidencia (351 reales migrados del SGC legacy, 51 sin binario)', () => {
+/**
+ * ¿Sigue en el disco del backend el directorio de adjuntos de una incidencia?
+ * Devuelve la cadena que imprime Python: 'True' o 'False'.
+ *
+ * Se pregunta por `upload_service.resolve_dir` y no por una ruta escrita a
+ * mano: es el mismo helper con el que la app decide dónde guarda, así que si
+ * el contrato de la ruta cambiara, la comprobación cambia con él.
+ * @param {number} incidentId
+ * @returns {string}
+ */
+function enDisco(incidentId) {
+  return runPy([
+    'from itcj2.apps.adhoc.services import upload_service',
+    `print(upload_service.resolve_dir('incidents', ${incidentId}).is_dir())`,
+  ].join('\n')).trim();
+}
+
+test.describe.serial('adjuntos de la incidencia (351 reales migrados del SGC legacy, algunos sin binario)', () => {
   const UPLOADED_NAME = `${E2E}adjunto_disponible.pdf`;
   const MISSING_NAME = `${E2E}adjunto_sin_binario.pdf`;
 
@@ -326,5 +343,26 @@ test.describe.serial('adjuntos de la incidencia (351 reales migrados del SGC leg
     // la ausencia de descarga es por archivo, no por incidencia entera.
     const available = modal.locator('.adhoc-files-item', { hasText: UPLOADED_NAME });
     await expect(available.locator('a[href*="/download"]')).toHaveCount(1);
+  });
+
+  // Va el ÚLTIMO del archivo a propósito: llama a `cleanupAdhoc()`, que es
+  // justo lo que se prueba, y deja la incidencia de este describe borrada.
+  test('el barrido del harness se lleva también el fichero del disco', async () => {
+    expect(ctx.incidentId).toBeGreaterThan(0);
+
+    // El SQL crudo de `cleanupAdhoc` arrastra `adhoc_incident_files` por
+    // CASCADE pero NO el disco, así que cada corrida dejaba un
+    // `e2e_adjunto_disponible.pdf` huérfano en
+    // `instance/apps/adhoc/incidents/{id}/`. Eran 15 acumulados, uno por
+    // corrida: la basura que el guard nuevo de `IncidentService.delete` viene a
+    // evitar, reintroducida por el propio harness al saltarse el service.
+    expect(enDisco(ctx.incidentId), 'la prueba anterior no dejó nada en disco').toBe('True');
+
+    cleanupAdhoc();
+
+    expect(
+      enDisco(ctx.incidentId),
+      'cleanupAdhoc borró la fila pero dejó el directorio del adjunto en disco'
+    ).toBe('False');
   });
 });

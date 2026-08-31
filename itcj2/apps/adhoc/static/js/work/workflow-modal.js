@@ -208,7 +208,7 @@
         state.mode = (o.mode === MODE_FULL) ? MODE_FULL : MODE_READ;
         state.status = o.status || null;
         state.hasComments = false;
-        state.busy = false;
+        setBusy(false);
         state.onAction = (typeof o.onAction === 'function') ? o.onAction : null;
 
         applyMode();
@@ -523,7 +523,7 @@
         if (file && file.files && file.files[0]) data.append('file', file.files[0]);
 
         var original = btn.innerHTML;
-        state.busy = true;
+        setBusy(true);
         btn.disabled = true;
         btn.textContent = 'Guardando…';
 
@@ -539,13 +539,35 @@
         } catch (err) {
             U.showToast(err.message, 'error');
         } finally {
-            state.busy = false;
+            setBusy(false);
             btn.disabled = false;
             btn.innerHTML = original;
         }
     }
 
     // ==================== ACCIONES DE WORKFLOW ====================
+
+    /**
+     * Escribe el testigo de ocupado Y lo deja VER en los botones de flujo.
+     *
+     * `state.busy` cubre desde que sale una peticion hasta que el modal ya
+     * repinto lo que contesto, y `runAction` se va de vacio mientras esta
+     * puesto. Cuando el unico sitio donde vivia era la variable, ese rechazo no
+     * se notaba en ninguna parte: al guardar un comentario el testigo sigue
+     * puesto durante la RECARGA del hilo que viene despues del POST, y en esa
+     * ventana "Aprobar" se veia normal, aceptaba el clic y no hacia nada —ni
+     * dialogo, ni aviso, ni peticion—. Quien iba deprisa tenia que volver a
+     * pulsar sin saber por que. Ahora el boton se apaga mientras dura, que es
+     * lo que un boton apagado significa: todavia no.
+     *
+     * @param {boolean} value
+     */
+    function setBusy(value) {
+        state.busy = !!value;
+        document.querySelectorAll('[data-adhoc-wf-action]').forEach(function (btn) {
+            btn.disabled = state.busy;
+        });
+    }
 
     function renderActionButtons(status) {
         var completo = isFull();
@@ -555,7 +577,11 @@
                 ? FINISHABLE.indexOf(status) !== -1
                 : REVIEWABLE.indexOf(status) !== -1);
             btn.classList.toggle('d-none', !visible);
-            btn.disabled = false;
+            // Ojo: NO es `false` fijo. Esto corre tambien dentro de la recarga
+            // que dispara `saveComment`, con el testigo aun puesto; ponerlo a
+            // `false` ahi volveria a encender los botones en mitad de la
+            // peticion y devolveria el clic que no hace nada.
+            btn.disabled = state.busy;
         });
     }
 
@@ -575,7 +601,7 @@
         hide(el);
     }
 
-    async function runAction(accion, btn) {
+    async function runAction(accion) {
         if (!isFull() || state.busy || !state.taskId) return;
 
         // Regla de calidad del SGC: sin comentario no hay acción. El servidor
@@ -599,8 +625,7 @@
         });
         if (!ok) return;
 
-        state.busy = true;
-        if (btn) btn.disabled = true;
+        setBusy(true);
 
         try {
             var body = await U.fetchJson('/tasks/' + encodeURIComponent(state.taskId) + '/workflow-action', {
@@ -616,8 +641,7 @@
             if (state.onAction) state.onAction(accion, body);
         } catch (err) {
             U.showToast(err.message, 'error');
-            state.busy = false;
-            if (btn) btn.disabled = false;
+            setBusy(false);
         }
     }
 
@@ -645,7 +669,7 @@
 
         var action = target.closest('[data-adhoc-wf-action]');
         if (action) {
-            runAction(action.getAttribute('data-adhoc-wf-action'), action);
+            runAction(action.getAttribute('data-adhoc-wf-action'));
         }
     }
 

@@ -60,12 +60,22 @@ _CAT_PERMS = (
 
 #: Columnas de la tabla. Respecto de incidencias añade ``location`` y
 #: ``files``; el resto es el mismo contrato de ``key`` → ``data-adhoc-cell``.
+#:
+#: ``responsible`` va en el mismo hueco que en incidencias (detrás de
+#: ``process``) y no es cosmético: la fila de filtros de
+#: ``work/_work_item_page.html`` pinta cada control **en su columna**, así que
+#: sin la columna no había dónde pintar el ``<select>`` de responsable y el
+#: filtro no existía en la pantalla —aunque ``ProgramEventFilters`` y
+#: ``list_events`` lo soportan desde el primer día—. Era el único filtro de la
+#: API de eventos que no se podía usar, y justo el que contesta la pregunta con
+#: la que se abre esta pantalla: "¿qué me toca a mí?".
 _COLUMNS = [
     {"key": "folio", "label": "Folio"},
     {"key": "title", "label": "Evento"},
     {"key": "category", "label": "Categoría"},
     {"key": "area", "label": "Área"},
     {"key": "process", "label": "Proceso"},
+    {"key": "responsible", "label": "Responsable"},
     {"key": "location", "label": "Ubicación"},
     {"key": "start_date", "label": "Inicio"},
     {"key": "commitment_date", "label": "Cierre"},
@@ -81,6 +91,25 @@ _COLUMNS = [
 #: llama ``q``, y sus fechas son ``date_from``/``date_to`` (que filtran por
 #: ``start_date``). El template usa nombres lógicos y este mapa los traduce.
 _QUERY_MAP = {"search": "search"}
+
+#: Columna bajo la que se pinta el rango de fechas, y cómo se llama esa fecha.
+#:
+#: **No es ``commitment_date``** —el default del template, que es lo correcto en
+#: incidencias porque allí ``_QUERY_MAP`` traduce el rango a
+#: ``commitment_from``/``commitment_to``—. Aquí ``date_from``/``date_to`` viajan
+#: tal cual y ``program_event_service.list_events`` los aplica sobre
+#: ``AdhocProgramEvent.start_date``, así que el rango pertenece a la columna
+#: "Inicio". Estaba bajo "Cierre" y rotulado "Compromiso desde/hasta": quien
+#: filtraba por fecha de cierre obtenía un filtro por fecha de inicio.
+#:
+#: Se mueve el control en vez de cambiar el parámetro porque el servicio
+#: **solo sabe filtrar por una** de las tres fechas (no existe un
+#: ``commitment_from`` en ``ProgramEventFilters`` que se pudiera mandar): con
+#: un solo rango disponible, lo honesto es ponerlo donde de verdad opera.
+#: Ofrecer además el rango por fecha de cierre es trabajo de
+#: ``services/program_event_service.py``, no de esta pantalla.
+_DATE_FILTER_KEY = "start_date"
+_DATE_FILTER_LABEL = "Inicio"
 
 
 # ==========================================================================
@@ -156,6 +185,10 @@ def programs_page(
             # La celda "Tareas" la rellena `work-items.js` siempre: sin permiso
             # se retira la columna entera, no solo su URL.
             "columns": columns_without_tasks(_COLUMNS, can_open=ver_tareas),
+            # El rango de fechas se pinta bajo "Inicio", que es la columna que
+            # `list_events` filtra de verdad con `date_from`/`date_to`.
+            "date_filter_key": _DATE_FILTER_KEY,
+            "date_filter_label": _DATE_FILTER_LABEL,
             # Textos e iconos del legacy (`programs/programs.html`): título
             # "Gestión de Programas" con el calendario, sin subtítulo.
             "page_title": "Gestión de Programas",
