@@ -183,10 +183,11 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
 .tt-dropzone:hover { border-color: var(--tt-accent); background: var(--tt-amber-soft); }
 
 /* ============================ SHELL MÓVIL ============================== */
-.tt-mobile {
-  max-width: 430px; margin: 0 auto; min-height: 100vh;
-  background: var(--tt-mist); display: flex; flex-direction: column;
-}
+/* Aquí vivía `.tt-mobile { max-width: 430px }`, con CERO usos en templates y JS
+   de la app (solo la usa design_handoff_titulatec/, que tiene su propia copia
+   de este CSS). Se elimina porque invitaba a producir justo lo que el contrato
+   responsive prohíbe: una columna angosta centrada en una pantalla vacía.
+   El shell real del alumno es `.tt-shell`, que a >=992px abre a rail + canvas. */
 .tt-appbar {
   background: var(--tt-paper); border-bottom: 1px solid var(--tt-line);
   padding: 10px 18px 14px; display: flex; align-items: center; gap: 10px;
@@ -524,3 +525,194 @@ body.in-mobile-iframe .tt-standalone-only { display: none !important; }
 .tt-cal .daynum { font-size: .8rem; font-weight: 600; }
 .tt-cal .count { display: inline-block; margin-top: 4px; font-size: .68rem; font-weight: 700; color: var(--tt-navy); }
 .tt-kanban-card { display: block; background: var(--tt-paper); border: 1px solid var(--tt-line); border-radius: var(--tt-r); padding: 10px 12px; margin-bottom: 8px; text-decoration: none; color: inherit; }
+
+/* ===========================================================================
+   PRIMITIVAS QUE FALTABAN
+   ---------------------------------------------------------------------------
+   Las clases de abajo YA se escribían en los templates y no tenían ni una sola
+   regla: el markup se construyó contra un design system que nunca se terminó de
+   escribir. Sin ellas, /admin/processes pintaba los KPIs como enlaces azules
+   apilados en la esquina, el embudo de fases como guiones de 10px, las pestañas
+   de convocatoria como texto subrayado sin estado activo, y el visor de PDF sin
+   altura. Se nota MÁS en pantalla grande, donde estos bloques deberían
+   desplegarse en horizontal.
+
+   Regla al tocar esto: usar SOLO tokens --tt-* ya definidos arriba.
+   =========================================================================== */
+
+/* --- utilidad compartida ------------------------------------------------- */
+/* 14 templates la escriben y no existía en ningún lado (tampoco en Bootstrap
+   5.3). Es la regla 3 del contrato responsive (docs/design/responsive.md): un
+   hijo ancho dentro de un flex necesita min-width:0 o desborda la página. */
+.min-w-0 { min-width: 0; }
+
+/* --- KPIs (bandeja, procesos, convocatorias) ----------------------------- */
+.tt-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.tt-kpi {
+  display: block; background: var(--tt-paper); border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r-lg); padding: 12px 14px; box-shadow: var(--tt-shadow-card);
+  text-decoration: none; color: inherit;
+}
+.tt-kpi .num {
+  font-family: var(--tt-display); font-size: 1.6rem; font-weight: 600;
+  line-height: 1.1; letter-spacing: -.5px;
+}
+.tt-kpi .num small { font-size: .8rem; font-weight: 500; color: var(--tt-mute); margin-left: 3px; }
+a.tt-kpi { transition: transform .16s var(--tt-ease-out), box-shadow .16s var(--tt-ease-out); }
+a.tt-kpi.is-active { border-color: var(--tt-accent); box-shadow: inset 0 0 0 1px var(--tt-accent); }
+.tt-kpi--stuck.is-on { border-color: rgba(220,38,38,.35); background: var(--tt-danger-soft); }
+.tt-kpi--stuck.is-on .num { color: var(--tt-danger); }
+@media (hover: hover) and (pointer: fine) {
+  a.tt-kpi:hover { transform: translateY(-1px); box-shadow: 0 8px 24px -10px rgba(15,23,42,.15); }
+}
+
+/* --- Embudo de distribución por fase ------------------------------------- */
+/* OJO: no declarar flex-grow ni la shorthand flex aquí. El template pone
+   flex-grow inline con el conteo de cada fase y debe ganar. */
+.tt-funnel {
+  display: flex; align-items: stretch; gap: 2px; height: 26px; min-width: 0;
+  border-radius: var(--tt-r-sm); overflow: hidden; background: var(--tt-line-soft);
+}
+.tt-funnel > .seg {
+  flex-basis: 0; flex-shrink: 1; min-width: 10px; border: 0; padding: 0; color: #fff;
+  font-family: var(--tt-mono); font-size: .68rem; font-weight: 700;
+  line-height: 26px; text-align: center; cursor: pointer;
+}
+.tt-funnel > .seg.is-empty { min-width: 6px; opacity: .35; }
+.tt-funnel-legend { flex: 0 0 auto; font-size: .72rem; color: var(--tt-mute); white-space: nowrap; }
+/* En móvil los segmentos son además el filtro por fase: 10px no es tocable. */
+@media (max-width: 991.98px) {
+  .tt-funnel { height: 40px; }
+  .tt-funnel > .seg { min-width: 24px; line-height: 40px; }
+}
+
+/* --- Pestañas (detalle de convocatoria, segmentado de citas) ------------- */
+.tt-tabs {
+  display: flex; gap: 4px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  border-bottom: 1px solid var(--tt-line); scrollbar-width: none;
+}
+.tt-tabs::-webkit-scrollbar { display: none; }
+.tt-tab {
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; min-height: 40px;
+  padding: 8px 14px; border-radius: var(--tt-r-sm) var(--tt-r-sm) 0 0; font-size: .82rem;
+  font-weight: 600; color: var(--tt-slate); text-decoration: none; white-space: nowrap;
+  border-bottom: 2px solid transparent;
+}
+.tt-tab.is-active { color: var(--tt-ink); border-bottom-color: var(--tt-accent); background: var(--tt-paper); }
+
+/* --- Buscador ------------------------------------------------------------ */
+.tt-search {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0; height: 38px;
+  padding: 0 12px; background: var(--tt-paper); border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r);
+}
+.tt-search > i { color: var(--tt-mute); flex: 0 0 auto; }
+.tt-search input {
+  flex: 1 1 auto; min-width: 0; border: 0; outline: 0; background: transparent;
+  font-size: .875rem; color: var(--tt-ink);
+}
+.tt-search:focus-within { border-color: var(--tt-accent); box-shadow: 0 0 0 3px rgba(245,158,11,.18); }
+/* 16px evita el zoom automático de iOS al enfocar el campo. */
+@media (max-width: 991.98px) { .tt-search { width: 100%; height: 44px; } .tt-search input { font-size: 16px; } }
+
+/* --- Señales de la tabla de procesos ------------------------------------- */
+.tt-progress {
+  display: inline-block; width: 64px; height: 5px; flex: 0 0 auto; overflow: hidden;
+  border-radius: 999px; background: var(--tt-line); vertical-align: middle;
+}
+.tt-progress > i { display: block; height: 100%; border-radius: inherit; background: var(--tt-accent); }
+/* Sin estos modificadores, la columna "Días en fase" —que existe justamente
+   para señalar atorados por color— salía idéntica en gris en los 3 niveles. */
+.tt-pill--idle-ok   { background: var(--tt-success-soft); color: #166534; border-color: rgba(22,163,74,.25); }
+.tt-pill--idle-warn { background: var(--tt-amber-soft); color: var(--tt-amber-ink); border-color: rgba(245,158,11,.3); }
+.tt-pill--idle-crit { background: var(--tt-danger-soft); color: #991B1B; border-color: rgba(220,38,38,.25); }
+.tt-pill--neutral   { background: var(--tt-mist); color: var(--tt-slate); border-color: var(--tt-line); }
+tr.is-stuck > td:first-child { box-shadow: inset 3px 0 0 var(--tt-danger); }
+th.sortable { cursor: pointer; user-select: none; }
+
+/* --- Affordance de scroll en tablas anchas ------------------------------- */
+/* .tt-table-wrap ya evitaba el desborde de PÁGINA, pero no daba ninguna pista
+   de que hubiera contenido oculto: a 1280 la píldora de fase se partía a media
+   palabra y la acción primaria ("Abrir") quedaba fuera de vista.
+   Las capas `local` tapan la sombra cuando ya no hay nada que revelar. */
+.tt-table-wrap {
+  background:
+    linear-gradient(to right, var(--tt-paper) 30%, rgba(255,255,255,0)) left / 40px 100% no-repeat local,
+    linear-gradient(to left,  var(--tt-paper) 30%, rgba(255,255,255,0)) right / 40px 100% no-repeat local,
+    linear-gradient(to right, rgba(15,23,42,.10), rgba(15,23,42,0)) left / 14px 100% no-repeat scroll,
+    linear-gradient(to left,  rgba(15,23,42,.10), rgba(15,23,42,0)) right / 14px 100% no-repeat scroll;
+}
+/* La columna de acción queda anclada: "Abrir" siempre alcanzable. */
+.tt-table-wrap > table > thead > tr > th:last-child,
+.tt-table-wrap > table > tbody > tr > td:last-child { position: sticky; right: 0; background: var(--tt-paper); }
+/* Las columnas de texto largo no heredan el nowrap global. */
+.tt-table-wrap > table td.tt-td-wrap, .tt-table-wrap > table th.tt-td-wrap { white-space: normal; min-width: 11ch; }
+
+/* --- Tabla como tarjetas en móvil ---------------------------------------- */
+/* El markup ya venía preparado (class="tt-table-cards" + data-label en cada td)
+   y la regla nunca se escribió: los nombres se cortaban a media palabra. */
+@media (max-width: 767.98px) {
+  .tt-table-cards thead { display: none; }
+  .tt-table-cards tr { display: block; border-bottom: 1px solid var(--tt-line); padding: 6px 0; }
+  .tt-table-cards td {
+    display: flex; justify-content: space-between; gap: 12px;
+    white-space: normal; border: 0; padding: 4px 12px;
+  }
+  .tt-table-cards td::before {
+    content: attr(data-label); flex: 0 0 auto; color: var(--tt-mute);
+    font-family: var(--tt-mono); font-size: .68rem; text-transform: uppercase;
+  }
+  .tt-table-cards td:last-child { justify-content: flex-end; }
+}
+
+/* --- Kanban: columnas con scroll propio ---------------------------------- */
+/* El JS de processes.html fija board.style.height al viewport dando por hecho
+   un scroll por columna que .col-scroll no proveía. */
+.tt-kanban-col { display: flex; flex-direction: column; }
+.tt-kanban-col .col-scroll { position: relative; flex: 1 1 auto; min-height: 0; }
+.tt-kanban-col .col-scroll > .body { height: 100%; overflow-y: auto; }
+.tt-kanban-col .health { height: 4px; border-radius: 2px; background: var(--tt-line); overflow: hidden; margin-bottom: 8px; }
+.tt-kanban-col .health > i { display: block; height: 100%; background: var(--tt-danger); }
+.tt-kanban-card .meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+
+/* --- Visor de documentos (cotejo y revisión) ----------------------------- */
+/* Sin max-height, un PDF de N páginas se apilaba a página completa dentro de
+   la tarjeta y empujaba todo lo demás fuera de la vista. */
+.tt-doc-stage {
+  max-height: 70vh; overflow: auto; background: var(--tt-mist);
+  border: 1px solid var(--tt-line); border-radius: var(--tt-r); padding: 10px;
+}
+.tt-doc-stage--modal { max-height: 78vh; }
+.tt-doc-img, .tt-pdf-page {
+  display: block; width: 100%; height: auto; margin: 0 auto 10px;
+  border-radius: var(--tt-r-sm); box-shadow: var(--tt-shadow-card);
+}
+.tt-doc-loading, .tt-doc-empty {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 32px 16px; color: var(--tt-mute); font-size: .85rem;
+}
+.tt-spinner {
+  width: 16px; height: 16px; border: 2px solid var(--tt-line);
+  border-top-color: var(--tt-accent); border-radius: 50%; animation: tt-spin .6s linear infinite;
+}
+
+/* --- Objetivos táctiles en móvil (contrato: >= 40x40) -------------------- */
+/* .tt-iconbtn mide 34px. En móvil eso incluye el botón de ELIMINAR documento
+   del alumno y los chevrones de mes del calendario, que son el único control
+   para cambiar de mes. */
+@media (max-width: 991.98px) {
+  .tt-iconbtn { width: 40px; height: 40px; }
+  .tt-iconbtn-sm { min-width: 40px; min-height: 40px; }
+}
+
+/* --- Ancho de lectura del admin en pantallas grandes --------------------- */
+/* No existía equivalente admin de .tt-canvas-inner: a 1920 el contenido se
+   estiraba de borde a borde (nombre de fase a la izquierda, píldora a 1500px).
+   Breakpoint nuevo de 1280 para admin, decidido como parte del design system
+   (regla 5 del contrato responsive). */
+@media (min-width: 1280px) {
+  .tt-admin .main > #tt-admin-content { max-width: 1240px; margin-inline: auto; }
+}
+/* Sustituye los style="max-width:520px" inline, que además no centraban. */
+.tt-pane { max-width: 520px; }
+@media (min-width: 992px) { .tt-pane { max-width: min(100%, 720px); } }
