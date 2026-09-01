@@ -29,10 +29,12 @@ stateDiagram-v2
     in_review --> approved: admin aprueba
     in_review --> rejected: admin rechaza (con motivo)
     in_progress --> approved: admin aprueba directo (ej. fase 2 tras cotejo)
-    rejected --> in_progress: alumno corrige / admin reabre
+    rejected --> in_review: alumno reenvía (fases 1 y 3)
     approved --> [*]
     pending --> skipped: modalidad salta la fase (ej. EGEL salta 4 y 5)
 ```
+
+> **Ojo:** una fase `rejected` **no** regresa a `in_progress` cuando el alumno corrige. El reenvío la manda directo a `in_review`: fase 1 en `pages/student.py:556` (`phase.status = "in_review"`) y fase 3 en `services/format_b_service.py:91` (`FormatBService.submit()`). El único código que escribe `in_progress` sobre una fase `rejected` es `services/phase_service.py:92-93`, y solo cuando esa fase resulta ser la **siguiente aplicable** al aprobarse otra (regla de abajo), no como «reapertura» de la fase rechazada.
 
 **Reglas (las implementa [`PhaseService`](engine_approve_advance_phase.md)):**
 - Aprobar fase N → `N.status=approved` → activa la **siguiente aplicable** (`in_progress`,

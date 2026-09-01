@@ -40,7 +40,9 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 ## Índice de flujos
 
 ### Fase 0 — Convocatoria / intake
-- [Servicios Escolares importa alumnos por CSV](phase0_school_services_import_csv.md) 🏛️🤖
+- [Detalle de convocatoria: 4 sub-pestañas HTMX](phase0_school_services_cohort_detail.md) 🏛️ ⤵ compone las dos altas — el hub por convocatoria: resumen, alumnos, días de cotejo, importar.
+- [Servicios Escolares importa alumnos por CSV](phase0_school_services_import_csv.md) 🏛️🤖 — asistente de 3 pasos: subir → mapear/validar → confirmar.
+- [Alta manual de un alumno suelto](phase0_school_services_add_student_manual.md) 🏛️ ⤵ reusa `ImportService` — el que no venía en el CSV, por nº de control.
 
 ### Fase 1 — Documentos iniciales
 - [El alumno sube sus documentos iniciales](phase1_student_upload_initial_docs.md) 👤
@@ -57,6 +59,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 ### Transversales (building blocks)
 - [Motor de avance de fase: aprobar / rechazar](engine_approve_advance_phase.md) 🤖 — invocado por casi todos.
 - [Alcance por carrera + asignación delegada de encargados](engine_officer_scope.md) 🏛️ — `officer_programs` acota bandeja/kanban/citas; el jefe da de alta encargados.
+- [Bandeja administrativa de procesos](xcut_admin_process_inbox.md) 🏛️🎓 ⤵ scope — tabla y kanban del mismo dataset, `idle_days` y filtro de atorados.
 - [El alumno consulta el detalle de una fase](xcut_student_phase_detail.md) 👤 — estado, instrucciones, CTA y timeline.
 - [El alumno usa TitulaTec dentro del shell mobile del core](xcut_student_shell_embed.md) 👤 — embebido vs standalone, drawer/rail, notificaciones por Avisos, mini-perfil.
 
@@ -64,6 +67,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [Máquina de estados (fases + citas + documentos)](00_state_machine.md)
 - [Glosario: entidades, tablas, roles, permisos](_glossary.md)
 - [Plantilla para un flujo nuevo](_TEMPLATE.md)
+- Decisiones de UI: [shell del alumno](../design/student_shell.md) · [animaciones y skeletons](../design/ui_motion.md)
 
 ---
 

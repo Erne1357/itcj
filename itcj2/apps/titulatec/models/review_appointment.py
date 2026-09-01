@@ -13,7 +13,7 @@ class ReviewAppointment(Base):
     process_id = Column(Integer, ForeignKey("titulatec_processes.id"), nullable=False, index=True)
     scheduled_at = Column(DateTime, nullable=False)
     location = Column(String(120), nullable=True)                   # 'Edificio A · Servicios Escolares'
-    status = Column(String(20), nullable=False, server_default=text("'scheduled'"))  # scheduled|confirmed|attended|rescheduled|no_show
+    status = Column(String(20), nullable=False, server_default=text("'scheduled'"))  # scheduled|confirmed|in_progress|attended|no_show
     created_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=False)
     confirmed_at = Column(DateTime, nullable=True)
     note = Column(Text, nullable=True)

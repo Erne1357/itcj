@@ -113,7 +113,10 @@ class PhaseService:
 
     @staticmethod
     def reject_phase(db: Session, process, phase_number: int, reviewer_id: int, reason: str) -> None:
-        """Rechaza una fase: el alumno debe corregir; vuelve a in_progress."""
+        """Rechaza una fase: la deja en 'rejected' con motivo y fija current_phase en ella.
+
+        El alumno corrige y reenvía; ese reenvío la pasa a 'in_review', no a 'in_progress'.
+        """
         ph = PhaseService._ensure_phase(db, process.id, phase_number)
         ph.status = "rejected"
         ph.reviewed_by_id = reviewer_id

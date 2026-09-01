@@ -2,9 +2,15 @@
 
 End-to-end suite for ITCJ, covering **helpdesk** (HTMX-boosted navigation
 migration: head-support CSS injection, teardown safety, nav active-state,
-removed/redirected routes, inventory/tickets pilots) and **core config**
+removed/redirected routes, inventory/tickets pilots), **core config**
 (`/itcj/config` — HTMX+idiomorph shell, ConfigPage registry, org tree,
-authz/permissions, notifications/presence, DB-driven app badges).
+authz/permissions, notifications/presence, DB-driven app badges) and
+**agendatec** (split de horarios con cita reservada + scope por carrera, con
+escenario sembrado y limpiado dentro del contenedor).
+
+`playwright.config.js` usa `testDir: __dirname`, así que **cada subcarpeta con
+`*.spec.js` entra a la corrida completa automáticamente**; no hay lista de apps
+que mantener en la config.
 
 This is an **isolated Node project**. It does NOT touch the existing pytest suite.
 
@@ -28,11 +34,12 @@ npx playwright install chromium
 
 ```bash
 cd tests/e2e
-npx playwright test                          # whole suite (helpdesk + core)
-npx playwright test helpdesk/                 # only helpdesk specs
-npx playwright test core/                     # only core config specs
-npx playwright test helpdesk/nav.spec.js      # one file
-npx playwright test --headed                  # watch the browser
+npx playwright test                            # whole suite (helpdesk + core + agendatec)
+npx playwright test helpdesk/                  # only helpdesk specs
+npx playwright test core/                      # only core config specs
+npx playwright test agendatec/                 # only agendatec specs
+npx playwright test helpdesk/nav.spec.js       # one file
+npx playwright test --headed                   # watch the browser
 npx playwright show-report                     # open the HTML report
 ```
 
@@ -130,9 +137,59 @@ authenticated without driving the login UI.
 | `core/user-detail-request-budget.spec.js` | Regresión BUG A: `user_detail` carga con ≤3 fetch/XHR a `/api/core/v2/*` (batch de asignaciones, no N+1 por app). |
 | `core/users-create-student.spec.js` | Regresión BUG B: crear un estudiante desde el modal `#newUserModal` dispara el POST y muestra la fila (sin bloquear por `required` oculto). |
 
+## Specs — agendatec
+
+Esta suite **no usa el `storageState` global** (es un admin de helpdesk y no
+sirve aquí): `agendatec/split-scope.spec.js:26` declara
+`test.use({ storageState: undefined })` y arma sus propios contextos a partir de
+los tokens que devuelve el sembrado. `agendatec/_helpers.js` corre Python
+**dentro** del contenedor (`docker exec -i <E2E_BACKEND_CONTAINER> python -c`)
+para crear el escenario — coordinador con varias carreras, alumno, rango con
+cita reservada — y lo borra en `afterAll`; todo lo que crea lleva el marcador
+`E2E_AGENDATEC` (`_helpers.js:25`) para poder limpiarlo sin tocar datos reales.
+Exporta `seedScenario`, `cleanupScenario`, `stateFor` y `E2E_TAG`.
+
+| File | What it checks |
+|---|---|
+| `agendatec/split-scope.spec.js` | Pantalla de horarios del coordinador (multi-select de carreras, duración personalizada, rechazo en cliente fuera de 5-60); split sobre un rango **con cita reservada** (cancelar el modal no aplica nada / confirmar muestra al alumno afectado y le acorta la cita); split desalineado (15→10 con cita en 09:15 respeta su hora); scope por carrera en la vista del alumno. |
+
+## Specs — titulatec (PENDIENTE)
+
+**No existe `tests/e2e/titulatec/` todavía.** Queda planeado, y la app lo pide
+más que ninguna otra: TitulaTec es **pages-only HTMX** (`itcj2/apps/titulatec/api/`
+y `schemas/` están vacíos), su superficie HTTP entera son parciales Jinja
+servidos desde `pages/*.py`, y la navegación de admin es un **morph de
+`#tt-admin-content`**, no del `<body>`. Nada de eso se cubre con tests de API.
+
+Cuando se escriba, dos cosas la separan de las suites existentes:
+
+- **El token global no sirve.** TitulaTec autoriza 100% con
+  `require_page_app("titulatec", perms=[...])`, que **no tiene bypass de admin
+  global**: resuelve contra BD. Hará falta mintear tokens por rol
+  (`titulatec_school_services_head`, `titulatec_school_services`,
+  `titulatec_titulaciones`, `titulatec_vinculacion`, `titulatec_sinodal`,
+  `student`), al estilo de `agendatec/_helpers.js`.
+- **Hay un segundo eje de authz**: el alcance por carrera
+  (`scope_service.officer_programs` → `"ALL" | set[int]`), que necesita un
+  encargado con `ProgramPosition` sembrado para poder verificarse.
+
+Además, el menú de admin es data-driven por permiso (`_ADMIN_NAV` /
+`admin_nav_items()` en `itcj2/apps/titulatec/pages/nav.py`), así que una spec de
+navegación tiene que afirmar sobre las entradas que ese rol sí ve, no sobre una
+lista fija.
+
 ## Notes
 
 - `.auth/` and `node_modules/` are gitignored (see `.gitignore`).
+- **`package.json` sigue diciendo `"name": "itcj-helpdesk-e2e"`** (y su
+  `description` habla solo del helpdesk) para una suite que hoy cubre helpdesk,
+  core y agendatec. Es solo el nombre del paquete Node privado — nada lo
+  resuelve por nombre, así que renombrarlo es cosmético y queda como pendiente
+  anotado, no hecho aquí.
+- Las tablas de specs de arriba **no son un inventario completo**: hoy hay 37
+  `*.spec.js` en `helpdesk/` y la tabla lista 22. Las de `core/` (16) y
+  `agendatec/` (1) sí están completas. Al agregar una spec, agregar también su
+  renglón.
 - Secretary/Department dashboards require an **organizational position**
   (`department_head` role / a current department) that the global-admin token
   does not carry, so they legitimately return `403` for this token. The smoke

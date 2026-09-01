@@ -22,8 +22,23 @@ la vista haga nada: misma plantilla para los tres modos.
 {% block student_body %}
   <div class="p-3 p-lg-4"> … contenido … </div>
 {% endblock %}
-{% block student_scripts %}<script> … HTMX listeners … </script>{% endblock %}
+{% block student_scripts %}                          {# JS externo, NUNCA inline #}
+  <script src="/static/titulatec/js/student/mi-vista.js?v={{ sv('js/student/mi-vista.js') }}"></script>
+{% endblock %}
 ```
+
+> **`sv()` de TitulaTec es de UN argumento** — `sv('js/student/mi-vista.js')`, no el `sv('app', path)`
+> global del monorepo (`pages/nav.py:24`). Para estáticos del core: `sv_core('js/...')` (`pages/nav.py:37`).
+> Patrón de referencia ya escrito así: `base.html:45` (titulatec-utils.js) y
+> `student/base_student.html:114-117` (shell core + FAB).
+
+> **Deuda conocida — no la copies.** Hoy el bloque se llena con `<script>` inline en
+> `student/cita.html:39-45` y `student/documents.html:51-57` (ambos, el mismo listener de
+> `htmx:responseError`), y `student/base_student.html:118-135` trae inline el FAB de
+> notificaciones + el logout que ya están extraídos en `static/js/student/shell.js` — archivo que
+> **ningún template carga** (`grep -rn "script src" templates/` sólo devuelve titulatec-utils.js y
+> tres estáticos del core). El inline **no** es una excepción deliberada de esta app: es deuda
+> pendiente de cablear. Vista nueva → archivo externo.
 
 ## Qué da el shell (no lo repliques)
 
