@@ -136,19 +136,32 @@ def test_execute_sql_command_can_skip_invalidation(tmp_path):
 # ---------------------------------------------------------------------------
 # Una de las puertas que estaban abiertas antes del chokepoint
 # ---------------------------------------------------------------------------
-def test_init_directory_goes_through_the_chokepoint():
+def test_init_directory_goes_through_the_chokepoint(tmp_path):
     """`directory init-directory` carga permisos y role_permissions de directory.
 
     No invalidaba nada. No se le añade una llamada propia: se comprueba que sus
     cargas pasan por `execute_sql_file` SIN optar por salirse, que es de donde
     hereda la invalidación.
-    """
-    from itcj2.cli.directory import init_directory_command
 
-    with patch("itcj2.cli.directory.execute_sql_file") as run_sql:
-        result = CliRunner().invoke(init_directory_command, [])
+    El `PROJECT_ROOT` se apunta a un árbol de mentira porque `database/` está
+    gitignored (trae PII real) y NUNCA llega al checkout de CI: el comando
+    verifica que cada .sql exista antes de ejecutarlo, así que contra el runner
+    abortaba con "archivo no encontrado" y el test moría por el entorno, no por
+    lo que afirma. Lo que se prueba aquí es el WIRING —qué se le pasa a
+    `execute_sql_file`—, no el contenido del DML.
+    """
+    from itcj2.cli import directory as directory_cli_mod
+
+    dml_dir = tmp_path / "database" / "DML" / "directory"
+    dml_dir.mkdir(parents=True)
+    for name in directory_cli_mod._DML_FILES:
+        (dml_dir / name).write_text("SELECT 1;", encoding="utf-8")
+
+    with patch.object(directory_cli_mod, "PROJECT_ROOT", tmp_path), \
+         patch("itcj2.cli.directory.execute_sql_file") as run_sql:
+        result = CliRunner().invoke(directory_cli_mod.init_directory_command, [])
 
     assert result.exit_code == 0, result.output
-    assert run_sql.call_count >= 1
+    assert run_sql.call_count == len(directory_cli_mod._DML_FILES)
     for call in run_sql.call_args_list:
         assert call.kwargs.get("invalidate_authz", True) is True, call
