@@ -1,0 +1,129 @@
+/* Period Days Calendar Styles */
+
+/* Reset y estilos base para el contenedor */
+#calendarContainer {
+  width: 100%;
+  position: relative;
+}
+
+/* Estilos específicos para Flatpickr */
+#calendarContainer .flatpickr-calendar.inline {
+  width: 100%;
+  max-width: none;
+  box-shadow: none;
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+}
+
+#calendarContainer .flatpickr-months {
+  padding: 15px;
+  background-color: #f8f9fa;
+}
+
+#calendarContainer .flatpickr-current-month {
+  font-size: 1.1rem;
+  padding: 10px 0;
+}
+
+#calendarContainer .flatpickr-current-month .flatpickr-monthDropdown-months {
+  font-size: 1rem;
+  padding: 5px 10px;
+}
+
+#calendarContainer .flatpickr-current-month input.cur-year {
+  font-size: 1rem;
+  padding: 5px;
+  width: 80px;
+}
+
+#calendarContainer .flatpickr-weekdays {
+  margin-top: 10px;
+  background-color: #fff;
+  padding: 0 15px;
+}
+
+#calendarContainer .flatpickr-weekday {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #212529;
+  text-align: center;
+  padding: 10px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+#calendarContainer .flatpickr-days {
+  padding: 15px;
+}
+
+#calendarContainer .dayContainer {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+#calendarContainer .flatpickr-day {
+  min-height: 45px;
+  font-size: 0.95rem;
+  border-radius: 0.375rem;
+  border: 1px solid #e9ecef;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background-color: #fff;
+}
+
+#calendarContainer .flatpickr-day.selected {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+  color: white;
+  font-weight: 600;
+}
+
+#calendarContainer .flatpickr-day.today {
+  border-color: #0d6efd;
+  font-weight: 600;
+}
+
+/* Hover mejorado - fondo azul claro y efecto de escala */
+#calendarContainer .flatpickr-day:hover:not(.selected):not(.flatpickr-disabled):not(.prevMonthDay):not(.nextMonthDay) {
+  background-color: #e7f1ff;
+  border-color: #0d6efd;
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(13, 110, 253, 0.15);
+}
+
+#calendarContainer .flatpickr-day.selected:hover {
+  background-color: #0b5ed7;
+  border-color: #0b5ed7;
+  transform: scale(1.05);
+}
+
+/* Días de otros meses - sin hover */
+#calendarContainer .flatpickr-day.prevMonthDay,
+#calendarContainer .flatpickr-day.nextMonthDay {
+  color: #adb5bd;
+  background-color: #f8f9fa;
+  cursor: default;
+}
+
+#calendarContainer .flatpickr-day.prevMonthDay:hover,
+#calendarContainer .flatpickr-day.nextMonthDay:hover {
+  background-color: #f8f9fa;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Días deshabilitados */
+#calendarContainer .flatpickr-day.flatpickr-disabled {
+  color: #dee2e6;
+  cursor: not-allowed;
+  background-color: #f8f9fa;
+  opacity: 0.5;
+}
+
+#calendarContainer .flatpickr-day.flatpickr-disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+

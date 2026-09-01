@@ -148,6 +148,7 @@ services:
       - ../../itcj2/apps/maint/static:/www/static/maint:ro
       - ../../itcj2/apps/titulatec/static:/www/static/titulatec:ro
       - ../../itcj2/apps/directory/static:/www/static/directory:ro
+      - ../../itcj2/apps/prorrogas_tec/static:/www/static/prorrogas_tec:ro
     depends_on:
       # nginx resuelve los nombres de upstream al arrancar: ambos deben existir.
       - backend

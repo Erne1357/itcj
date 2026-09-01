@@ -45,6 +45,16 @@ class AcademicPeriod(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    # Espejo de agendatec_config para prórrogas. Es obligatorio: el
+    # `back_populates="prorrogas_config"` de ProrrogasPeriodConfig apunta aquí,
+    # y sin el otro extremo los mappers no configuran.
+    prorrogas_config = relationship(
+        "ProrrogasPeriodConfig",
+        back_populates="period",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     requests = relationship(
         "Request",
         back_populates="period",

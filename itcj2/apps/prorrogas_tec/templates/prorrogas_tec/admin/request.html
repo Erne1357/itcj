@@ -1,0 +1,421 @@
+{% extends "prorrogas_tec/base.html" %}
+{% block title %}Admin · Dashboard{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='prorrogas_tec/css/admin/home.css') }}?v={{ sv('prorrogas_tec', 'css/admin/home.css') }}">
+{% endblock %}
+
+{% block content %}
+
+<h1>Prorrogas</H1>
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>ID</th>
+          <th>Num.Control</th>
+          <th>Nombre Completo</th>
+          <th>Periodo</th>
+          <th>Estado</th>
+          <th>Programa</th>
+          <th># Pagos</th>
+          <th>Fecha Solicitud</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tblReqBody">
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer d-flex justify-content-between align-items-center">
+     <div><small id="lblTotal"></small></div>
+    <div class="d-flex gap-2">
+      <button id="btnPrev" class="btn btn-outline-secondary btn-sm">Anterior</button>
+      <button id="btnNext" class="btn btn-outline-secondary btn-sm">Siguiente</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal Nuevo/Editar solicitud prorroga -->
+<!-- Modal Editar -->
+<div class="modal fade" id="mdlRequest" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+
+      <!-- HEADER -->
+      <div class="modal-header">
+        <h5 id="mdlTitle" class="modal-title">Datos Solicitud</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- BODY -->
+      <div class="modal-body">
+        <div class="row g-3">
+
+          <!--No de Control-->
+          <div class="col-md-4">
+    <div class="info-box">
+        <label class="form-label">
+            <strong>No de Control:</strong>
+        </label>
+        <br>
+        <label class="form-label" id="fNocontrol"></label>
+    </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="info-box">
+            <label class="form-label">
+                <strong>Nombre:</strong>
+            </label>
+            <br>
+            <label class="form-label" id="fAlumno"></label>
+        </div>
+    </div>
+
+          <div class="col-12">
+            <hr>
+            <h5 class="modal-title">Información</h5>
+          </div>
+
+          <!-- START DATE -->
+          <div class="col-md-4">
+    <div class="info-box">
+        <label class="form-label">
+            <strong>Carrera:</strong>
+        </label>
+        <br>
+        <label class="form-label" id="fcareer"></label>
+    </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="info-box">
+            <label class="form-label">
+                <strong>Cantidad de Pagos:</strong>
+            </label>
+            <br>
+            <label class="form-label" id="fpayments"></label>
+        </div>
+    </div>
+
+          <div class="col-12">
+            <hr>
+            <h5 class="modal-title">Carta</h5>
+            <br/>
+            <textarea rows="8" cols="85" class="form-label" id="fletter" readonly ></textarea >
+          </div>
+
+          <div class="col-md-12">
+            <hr>
+            <h5 class="modal-title">Opciones</h5>
+            <br>
+            
+            <center>
+                <button type="button" class="btn btn-success" id="btnApprove">
+                    Aprobar
+                </button>
+
+                <button type="button" class="btn btn-danger" id="btnDeny">
+                    Negar
+                </button>
+
+                <button type="button" class="btn btn-warning" id="btnPending">
+                    Pendiente
+                </button>
+            </center>
+
+            <br>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- FOOTER -->
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Modal Nuevo/Editar pagos prorroga -->
+<!-- Modal Nuevo/Editar -->
+<div class="modal fade" id="mdlPayments" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+
+      <!-- HEADER -->
+      <div class="modal-header">
+        <h5 id="mdlTitle" class="modal-title">Datos Pagos</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- BODY -->
+      <div class="modal-body">
+        <div class="row g-3">
+
+          <!--No de Control-->
+          <div class="col-md-4">
+    <div class="info-box">
+        <label class="form-label">
+            <strong>No de Control:</strong>
+        </label>
+        <br>
+        <label class="form-label" id="fNocontrol2"></label>
+    </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="info-box">
+            <label class="form-label">
+                <strong>Nombre:</strong>
+            </label>
+            <br>
+            <label class="form-label" id="fAlumno2"></label>
+        </div>
+    </div>
+
+          <div class="col-12">
+            <hr>
+            <h5 class="modal-title">Información</h5>
+          </div>
+
+          <!-- START DATE -->
+          <div class="col-md-4">
+    <div class="info-box">
+        <label class="form-label">
+            <strong>Carrera:</strong>
+        </label>
+        <br>
+        <label class="form-label" id="fcareer2"></label>
+    </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="info-box">
+            <label class="form-label">
+                <strong>Cantidad de Pagos:</strong>
+            </label>
+            <br>
+            <label class="form-label" id="fpayments2"></label>
+        </div>
+    </div>
+
+     <div class="col-12">
+        <hr>
+        <h5 class="modal-title">Pagos</h5>
+        <br/>
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>ID</th>
+            <!-- <th>Periodo</th> -->
+            <th>Estado</th>
+            <th>Cantidad</th>
+            <th>Fecha Expiración</th>
+            <th>Fecha Actualización</th>
+            <th>Opciones</th>
+          </tr>
+        </thead>
+        <tbody id="tblpayments">
+        </tbody>
+    </table>
+      </div>
+
+  </div>
+</div>
+
+      <!-- FOOTER -->
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- Modal Nuevo/Editar validar pagos prorroga -->
+<!-- Modal Nuevo/Editar -->
+<div class="modal fade" id="mdlAprovepay" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+
+      <!-- HEADER -->
+      <div class="modal-header">
+        <h5 id="mdlTitle" class="modal-title">Datos Pago</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- BODY -->
+      <div class="modal-body">
+        <div class="row g-3">
+
+          <!--No de Control-->
+    <div class="col-md-4">
+      <div class="info-box">
+        <label class="form-label">
+            <strong>Cantidad:</strong>
+        </label>
+        <br>
+        <label class="form-label" id="famount"></label>
+        <!-- <input id="famount" type="text" class="form-control"> -->
+      </div>
+    </div>
+
+    
+
+    <div class="col-md-4">
+        <div class="info-box">
+            <label class="form-label">
+                <strong>Estatus:</strong>
+            </label>
+            <br>
+            <!-- <label class="form-label" id="fstatus"></label> -->
+            <select id="fstatus" class="form-select" required>
+            <option value="">Selecciona un estatus</option>
+            
+            <option value="PENDING">Pendiente</option>
+            <option value="APPROVED">Aprobado</option>
+            <option value="MIDDLE">Parcial</option>
+            <option value="NOPAID">No pagado</option>
+
+            </select>
+        </div>
+    </div>
+    <br>
+    <div class="col-md-4">
+        <div class="info-box">
+            <label class="form-label">
+                <strong>Comentario:</strong>
+            </label>
+            <br>
+            <textarea rows="4" cols="80" class="form-label" id="fcoment" ></textarea >
+        </div>
+    </div>
+    
+    </div>
+
+  </div>
+  <!-- FOOTER -->
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-warning" id="btnConfirmAction2">Confirmar</button>
+      </div>
+</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Modal de Confirmación -->
+<div class="modal fade" id="mdlConfirm" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title" id="mdlConfirmTitle">Confirmar acción</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex align-items-start gap-3">
+          <div class="fs-1"><i class="bi bi-question-circle-fill text-warning"></i></div>
+          <div id="mdlConfirmBody" class="flex-grow-1"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-warning" id="btnConfirmAction">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<style>
+    /* Cabecera */
+
+    #mdlRequest .btn-close{
+        filter: invert(1);
+    }
+
+    /* Cuerpo */
+    #mdlRequest .modal-body{
+        background:#f8f9fa;
+    }
+
+    /* Titulos de sección */
+    #mdlRequest h5.modal-title{
+        color:#0d6efd;
+        font-weight:600;
+    }
+
+    /* Tarjetas informativas */
+    .info-box{
+        background:#fff;
+        border-radius:10px;
+        padding:12px;
+        box-shadow:0 2px 8px rgba(0,0,0,.08);
+        height:100%;
+    }
+
+    .info-box label:first-child{
+        color:#6c757d;
+        margin-bottom:5px;
+    }
+
+    /* Carta */
+    #fletter{
+        width:100%;
+        resize:none;
+        padding:12px;
+        border-radius:10px;
+        border:1px solid #dee2e6;
+        background:#fff;
+    }
+
+    /* Botones */
+    #mdlRequest .btn{
+        min-width:130px;
+    }
+
+    /* Footer */
+    #mdlRequest .modal-footer{
+        background:#f8f9fa;
+        border-top:1px solid #dee2e6;
+    }
+
+    hr{
+        opacity:.15;
+    }
+</style>
+
+  <script>
+window.adminRequest = {
+    // ✅ LISTAR
+    listUrl: "{{ url_for('prorrogas_tec_api.api_admin.list_requests_admin') }}",
+    // academicPeriods: "{{ url_for('prorrogas_tec_api.api_periods.list_academic_periods') }}",
+    // ✅ CREAR
+    // createUrl: "{{ url_for('prorrogas_tec_api.api_periods.create_period2') }}",
+
+    // // ✅ DETALLE (GET por id)
+    // detail: "{{ url_for('prorrogas_tec_api.api_periods.get_period', period_id=999999) }}".replace("999999", "{id}"),
+
+    // ✅ ACTUALIZAR (PATCH)
+    update: "{{ url_for('prorrogas_tec_api.api_admin.update_request', request_id=999999) }}".replace("999999", "{id}"),
+
+    // // ✅ ELIMINAR (si lo agregas)
+    // delete: "{{ url_for('prorrogas_tec_api.api_periods.delete_period2', period_id=999999) }}".replace("999999", "{id}")
+
+    payments: "{{ url_for('prorrogas_tec_api.api_admin.get_request_payments', request_id=999999) }}".replace("999999", "{id}"),
+    update_payment:"{{ url_for('prorrogas_tec_api.api_admin.update_payment', payment_id=999999) }}".replace("999999", "{id}")
+    };
+</script>
+
+<script src="{{ url_for('static', filename='prorrogas_tec/js/admin/requests.js') }}?v={{ sv('prorrogas_tec', 'js/admin/requests.js') }}"></script>
+{% endblock %}

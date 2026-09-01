@@ -51,3 +51,14 @@ from itcj2.apps.maint.models import (  # noqa: F401
     MaintMaintenanceType, MaintServiceOrigin,
     MaintNotificationTemplate,
 )
+
+# Prórrogas
+# Va AQUÍ y no como import suelto en el CI (como titulatec/directory) porque
+# `AcademicPeriod.prorrogas_config` referencia a `ProrrogasPeriodConfig` por
+# nombre: si la clase no está registrada cuando se configuran los mappers, el
+# back_populates truena. `Notifications` (plural) es de esta app y no tiene que
+# ver con la `Notification` de core.
+from itcj2.apps.prorrogas_tec.models import (  # noqa: F401
+    ProrrogasPeriodConfig, Notifications, Payments_options,
+    Payments_pro, Request_pro,
+)

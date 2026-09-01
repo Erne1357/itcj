@@ -1,0 +1,63 @@
+.metric-card {
+    min-height: 110px;
+}
+
+.metric-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+}
+
+.metric-sub {
+    color: #6c757d;
+}
+
+.card-scroll {
+    max-height: 380px;
+    overflow: auto;
+}
+
+.pieHost {
+    position: relative;
+    height: 260px;
+}
+
+.miniPieBox {
+    position: relative;
+    height: 180px;
+}
+
+/* Alturas estables para charts dentro de tabs ocultos */
+#panePieGlobal .pieHost {
+    position: relative;
+    height: 260px;
+}
+
+#panePieMini .miniPieBox {
+    position: relative;
+    height: 180px;
+}
+
+#paneSeries .seriesHost {
+    position: relative;
+    height: 260px;
+}
+
+.actHost {
+    position: relative;
+    height: 280px;
+    /* alto base móvil */
+}
+
+@media (min-width: 992px) {
+    .actHost {
+        height: 320px;
+    }
+
+    /* un poco más alto en desktop */
+}
+
+.actHost>canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+}

@@ -1,0 +1,218 @@
+{% extends "prorrogas_tec/base.html" %}
+{% block title %}Admin · Períodos Académicos{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+  <h1 class="h5 h4-md mb-0">Períodos<span class="d-none d-sm-inline">  </span></h1>
+  <div class="d-flex flex-wrap gap-2">
+    <button id="btnReload" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-repeat"></i></button>
+    <button id="btnNew" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i><span class="d-none d-sm-inline"> Nuevo Período</span></button>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>ID</th>
+          <th>Código</th>
+          <th>Inicio</th>
+          <th>Fin</th>
+          <th>Pago 1</th>
+          <th>Pago 2</th>
+          <th>Pago 3</th>
+          <th style="width: 200px;">Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tblPeriod">
+        <!-- filas vía JS -->
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer d-flex justify-content-between align-items-center">
+    <div><small id="lblTotal"></small></div>
+    <div class="d-flex gap-2">
+      <button id="btnPrev" class="btn btn-outline-secondary btn-sm">Anterior</button>
+      <button id="btnNext" class="btn btn-outline-secondary btn-sm">Siguiente</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal Nuevo/Editar Período -->
+<!-- Modal Crear / Editar -->
+<div class="modal fade" id="mdlPeriod" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+
+      <!-- HEADER -->
+      <div class="modal-header">
+        <h5 id="mdlTitle" class="modal-title">Nueva Prórroga</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- BODY -->
+      <div class="modal-body">
+        <div class="row g-3">
+
+          <!-- PERIOD ID -->
+          <div class="col-md-4">
+            <label class="form-label">Period ID *</label>
+
+            
+            <select id="fPeriodId" class="form-select" required>
+            <option value="">Selecciona un período</option>
+            </select>
+
+          </div>
+
+          <div class="col-12">
+            <hr>
+            <h6 class="text-muted">Fechas</h6>
+          </div>
+
+          <!-- START DATE -->
+          <div class="col-md-6">
+            <label class="form-label">Fecha Inicio *</label>
+            <input id="fAdmissionStartDate" type="date" class="form-control">
+          </div>
+
+          <!-- START TIME -->
+          <div class="col-md-6">
+            <label class="form-label">Hora Inicio *</label>
+            <input id="fAdmissionStartTime" type="time" class="form-control" value="00:00">
+          </div>
+
+          <!-- DEADLINE DATE -->
+          <div class="col-md-6">
+            <label class="form-label">Fecha Límite *</label>
+            <input id="fDeadlineDate" type="date" class="form-control">
+          </div>
+
+          <!-- DEADLINE TIME -->
+          <div class="col-md-6">
+            <label class="form-label">Hora Límite *</label>
+            <input id="fDeadlineTime" type="time" class="form-control" value="18:00">
+          </div>
+
+          <div class="col-12">
+            <hr>
+            <h6 class="text-muted">Pagos (Opcional)</h6>
+          </div>
+
+          <!-- PAYMENT 1 -->
+          <div class="col-md-4">
+            <label class="form-label">Pago 1</label>
+            <input id="fPayment1" type="date" class="form-control">
+          </div>
+
+          <!-- PAYMENT 2 -->
+          <div class="col-md-4">
+            <label class="form-label">Pago 2</label>
+            <input id="fPayment2" type="date" class="form-control">
+          </div>
+
+          <!-- PAYMENT 3 -->
+          <div class="col-md-4">
+            <label class="form-label">Pago 3</label>
+            <input id="fPayment3" type="date" class="form-control">
+          </div>
+
+        </div>
+      </div>
+
+      <!-- FOOTER -->
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button id="btnSavePeriod" class="btn btn-primary">Guardar</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Modal Ver Detalles -->
+<div class="modal fade" id="mdlDetails" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Detalles del Período</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="detailsContent">
+          <!-- contenido dinámico -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de Confirmación -->
+<div class="modal fade" id="mdlConfirm" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title" id="mdlConfirmTitle">Confirmar acción</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex align-items-start gap-3">
+          <div class="fs-1"><i class="bi bi-question-circle-fill text-warning"></i></div>
+          <div id="mdlConfirmBody" class="flex-grow-1"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-warning" id="btnConfirmAction">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Endpoints a usar desde JS:
+
+//   window.__adminPeriodsCfg = {
+//     listUrl: "{{ url_for('prorrogas_tec_api.api_periods.list_periods2') }}",
+
+
+//     // createUrl: "{{ url_for('agendatec_api.api_periods.create_period') }}",
+//     // detail: "{{ url_for('agendatec_api.api_periods.get_period', period_id=999999) }}".replace('999999', '{id}'),
+//     // update: "{{ url_for('agendatec_api.api_periods.update_period', period_id=999999) }}".replace('999999', '{id}'),
+//     // delete: "{{ url_for('agendatec_api.api_periods.delete_period', period_id=999999) }}".replace('999999', '{id}'),
+//     // activate: "{{ url_for('agendatec_api.api_periods.activate_period', period_id=999999) }}".replace('999999', '{id}'),
+//     // stats: "{{ url_for('agendatec_api.api_periods.get_period_stats', period_id=999999) }}".replace('999999', '{id}'),
+//     // daysPage: "{{ url_for('agendatec_pages.admin_pages.admin_period_days', period_id=999999) }}".replace('999999', '{id}')
+//   };
+</script>
+
+<script>
+window.adminPeriods = {
+    // ✅ LISTAR
+    listUrl: "{{ url_for('prorrogas_tec_api.api_periods.list_periods2') }}",
+    academicPeriods: "{{ url_for('prorrogas_tec_api.api_periods.list_academic_periods') }}",
+    // ✅ CREAR
+    createUrl: "{{ url_for('prorrogas_tec_api.api_periods.create_period2') }}",
+
+    // // ✅ DETALLE (GET por id)
+    // detail: "{{ url_for('prorrogas_tec_api.api_periods.get_period', period_id=999999) }}".replace("999999", "{id}"),
+
+    // ✅ ACTUALIZAR (PATCH)
+    update: "{{ url_for('prorrogas_tec_api.api_periods.update_period2', period_id=999999) }}".replace("999999", "{id}"),
+
+    // // ✅ ELIMINAR (si lo agregas)
+    delete: "{{ url_for('prorrogas_tec_api.api_periods.delete_period2', period_id=999999) }}".replace("999999", "{id}")
+    };
+</script>
+
+<!-- <script src="{{ url_for('static', filename='agendatec/js/admin/periods.js') }}?v={{ sv('agendatec', 'js/admin/periods.js') }}"></script> -->
+<script src="{{ url_for('static', filename='prorrogas_tec/js/admin/periods.js') }}?v={{ sv('prorrogas_tec', 'js/admin/periods.js') }}"></script>
+{% endblock %}

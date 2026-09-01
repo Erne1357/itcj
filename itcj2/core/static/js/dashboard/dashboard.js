@@ -12,6 +12,7 @@ class WindowsDesktop {
       { id: 'titulatec', name: 'TitulaTec', icon: 'graduation-cap', customImage: true },
       { id: 'vistetec', name: 'VisteTec', icon: 'shirt', customImage: true },
       { id: 'directory', name: 'Extensiones', icon: 'book' },
+      { id: 'prorrogas_tec', name: 'Prórrogas', icon: 'credit-card', customImage: true },
       //{ id: 'compras', name: 'Compras', icon: 'shopping-cart' },
 
       // anclados:
@@ -371,6 +372,13 @@ class WindowsDesktop {
         url: "/directory/",
         iframeSrc: "/directory/",
         icon: "book",
+      },
+      // El id es la key de core_apps (`prorrogas_tec`); la URL es `/prorrogas`.
+      prorrogas_tec: {
+        name: "Prórrogas",
+        url: "/prorrogas/",
+        iframeSrc: "/prorrogas/",
+        icon: "credit-card",
       },
       papelera: {
         name: "Papelera",

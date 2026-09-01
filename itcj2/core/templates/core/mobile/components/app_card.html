@@ -3,8 +3,9 @@
 {# Íconos raster personalizados por app-key (espejo del dashboard desktop). Si
    la app tiene imagen, se muestra en tile blanco; el resto usa icono bootstrap. #}
 {% set icon_img = {
-     'agendatec': 'agendatec/icon/agendatec.ico',
-     'helpdesk':  'helpdesk/images/help-desk.png',
+     'agendatec':     'agendatec/icon/agendatec.ico',
+     'helpdesk':      'helpdesk/images/help-desk.png',
+     'prorrogas_tec': 'prorrogas_tec/images/prorrogas.png',
    }.get(app.key) %}
 <a href="{{ app.mobile_url or '#' }}"
     class="mobile-app-card"
