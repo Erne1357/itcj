@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+  # El gate de calidad tambien corre en los PRs contra main: sin esto, un PR
+  # se revisa a ciegas (compile/lint/tests solo se ejecutaban DESPUES del
+  # merge) y no hay status check que se pueda exigir en el ruleset de main.
+  # El job `deploy` se salta en este evento — ver su `if`.
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:  # Permite ejecutar manualmente
 
 jobs:
@@ -125,6 +132,9 @@ jobs:
   deploy:
     name: Deploy to Server (Zero-Downtime)
     needs: test
+    # Un PR NO despliega: solo valida. Sin esta guarda, abrir un PR contra
+    # main mandaria el codigo del PR a produccion.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: production
     steps:
