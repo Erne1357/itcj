@@ -17,6 +17,7 @@ from itcj2.apps.titulatec.models.review_appointment import ReviewAppointment
 from itcj2.apps.titulatec.models.ceremony import Ceremony, CeremonyProcess
 from itcj2.apps.titulatec.models.process_event import ProcessEvent
 from itcj2.apps.titulatec.models.cohort_review_day import CohortReviewDay  # noqa: F401
+from itcj2.apps.titulatec.models.cotejo_requirement import CotejoRequirement  # noqa: F401
 
 __all__ = [
     "Modality",
@@ -35,4 +36,5 @@ __all__ = [
     "CeremonyProcess",
     "ProcessEvent",
     "CohortReviewDay",
+    "CotejoRequirement",
 ]
