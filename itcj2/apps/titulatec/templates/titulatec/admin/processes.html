@@ -42,7 +42,7 @@
        class="btn btn-sm {{ 'tt-btn-ink' if status==f else 'tt-btn-ghost' }}">{{ lbl }}</a>
     {% endfor %}
 
-    <div class="ms-auto d-flex align-items-center gap-2">
+    <div class="ms-auto d-flex flex-wrap align-items-center gap-2 min-w-0">
       {% if (view|default('table')) == 'table' %}
       <label class="tt-search" aria-label="Buscar proceso">
         <i class="bi bi-search"></i>

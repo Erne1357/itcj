@@ -1,5 +1,5 @@
 {# Calendario mensual de citas de cotejo. Swap en #appt-body. #}
-<div id="tt-appt-cal" class="tt-card" style="max-width:680px">
+<div id="tt-appt-cal" class="tt-card tt-pane">
   <div class="d-flex align-items-center justify-content-between mb-2">
     <a class="btn btn-sm tt-btn-ghost" hx-get="/titulatec/admin/appointments/calendar?month={{ prev_month }}"
        hx-target="#appt-body" hx-swap="innerHTML" hx-indicator="#appt-skel"><i class="bi bi-chevron-left"></i></a>

@@ -71,16 +71,34 @@ que produce las regresiones).
   ancho reviente el flex.
 - El kanban tiene su propio scroll horizontal.
 
-**Deuda conocida:**
+**Saldado el 2026-09-01** (auditoría de 156 combinaciones vista x viewport, 25 vistas):
 
-1. **`.tt-mobile` (`titulatec.css:186-189`) es CSS muerto**: `max-width: 430px` y **cero** usos en
-   templates o JS. Borrarlo — mientras exista, invita a que alguien lo aplique y produzca exactamente
-   la columna angosta centrada que este contrato prohíbe.
-2. **Tres tablas sin `.tt-table-wrap`**: `partials/import_preview.html` (la más ancha de la app: 6
+- El invariante duro **se cumple en las 156**: 0 desbordes de página. Los 5 que había estaban todos en
+  admin a 360/390 (`div.ms-auto` de la barra de filtros de procesos, `div.text-end` del detalle) y su
+  causa raíz era `.min-w-0`, una clase escrita en **14 templates que no existía en ningún lado** — la
+  regla 3 de este documento como clase fantasma. Ahora existe, y esos contenedores llevan `flex-wrap`.
+- **`.tt-mobile` eliminado.** Era `max-width: 430px` con cero usos (solo la usa
+  `design_handoff_titulatec/`, que tiene su propia copia de este CSS).
+- **Seis primitivas del design system se usaban sin tener una sola regla CSS**: `tt-kpis`/`tt-kpi`,
+  `tt-funnel`, `tt-tabs`, `tt-search`, `tt-doc-stage`, más `tt-progress`, `tt-table-cards`,
+  `tt-pill--idle-*`, `col-scroll` y `health`. Se notaba sobre todo **en pantalla grande**, donde los
+  KPIs debían desplegarse en horizontal y salían como enlaces azules apilados en la esquina. Escritas.
+- **Nuevo breakpoint de 1280 para admin**: `#tt-admin-content` se limita a 1240px y se centra. Antes no
+  existía equivalente admin de `.tt-canvas-inner` y el contenido se estiraba de borde a borde.
+- **`.tt-table-cards`**: el markup móvil (con `data-label` por celda) ya estaba escrito en 2 templates y
+  la regla nunca; los nombres se cortaban a media palabra. Escrita bajo 768px.
+- **`.tt-pane`** sustituye los `style="max-width:520px"` inline, que además no centraban.
+
+**Deuda que queda:**
+
+1. **Tres tablas sin `.tt-table-wrap`**: `partials/import_preview.html` (la más ancha de la app: 6
    inputs por fila), `partials/appointments_calendar.html` y `partials/cohort_days_calendar.html`.
-   Solo lo usan `admin/cohorts.html`, `admin/processes.html` y `partials/cohort_students_table.html`.
-3. **Un solo breakpoint** (992px, más el ajuste de 1280 para el canvas del alumno). No hay nada
-   pensado entre 360 y 992 (el rango de tablet y móvil grande) ni por encima de 1280.
+   Hoy no desbordan, pero dependen de que su contenido no crezca.
+2. **Nada pensado entre 768 y 992** (el rango de tablet apaisada y móvil grande): ahí el admin sigue en
+   drawer y el alumno en columna, sin layout propio.
+3. **El FAB de notificaciones del alumno** se pinta con `#0F172A`, el mismo `--tt-ink` de `.tt-btn-ink`,
+   y se superpone al CTA en `student_formato_b`. Requiere decisión de diseño (recolorear, o mover la
+   campana al appbar en standalone y eliminar el FAB).
 
 ---
 

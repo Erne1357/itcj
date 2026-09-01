@@ -23,7 +23,10 @@
        href="/titulatec/admin/cohorts/{{ cohort_id }}?tab={{ key }}"
        hx-get="/titulatec/admin/cohorts/{{ cohort_id }}?tab={{ key }}"
        hx-target="#cohort-pane" hx-select="#cohort-pane" hx-swap="outerHTML"
-       hx-push-url="true"><i class="bi {{ icon }} me-1"></i><span class="d-none d-sm-inline">{{ lbl }}</span></a>
+       {# La etiqueta NO se oculta bajo 576px: sin ella el objetivo táctil era el
+          glifo de ~21px. `.tt-tabs` scrollea en horizontal por su cuenta, así que
+          las 4 pestañas caben sin empujar la página. #}
+       hx-push-url="true"><i class="bi {{ icon }} me-1"></i><span>{{ lbl }}</span></a>
     {% endfor %}
   </div>
   <div id="cohort-tab-body" class="tt-anim-in">

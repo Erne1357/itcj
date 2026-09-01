@@ -7,8 +7,8 @@
 
 {# — Header del alumno — #}
 <div class="tt-card mb-3">
-  <div class="d-flex justify-content-between align-items-start">
-    <div>
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+    <div class="min-w-0">
       <span class="tt-kicker">{{ cohort_period }} · {{ process.folio }}</span>
       <div class="tt-display" style="font-size:1.4rem;font-weight:600">{{ student.name }}</div>
       <div class="d-flex gap-3 mt-1" style="font-size:.8rem;color:var(--tt-slate)">
@@ -16,7 +16,7 @@
         {% if student.email %}<span class="tt-mono">{{ student.email }}</span>{% endif %}
       </div>
     </div>
-    <div class="text-end">
+    <div class="text-end min-w-0">
       <div>{{ estado_pill(process.status) if process.status != 'active' else '' }}</div>
       <div class="mt-1" style="font-size:.78rem;color:var(--tt-slate)">
         {{ program_name or 'Sin carrera' }}<br>{{ modality_name or 'Sin modalidad' }}
