@@ -520,8 +520,10 @@ def remove_perm_from_position(
         position_id=position_id, app_id=app.id, perm_id=perm.id
     ).delete()
     db.commit()
-    from itcj2.core.services.authz_cache import invalidate_all
-    invalidate_all()  # position-wide: afecta a todos los usuarios del puesto
+    # Solo los OCUPANTES del puesto, y solo en ESTA app: el cambio no toca a
+    # nadie más. Ver positions_service._bust_position.
+    from itcj2.core.services.positions_service import _bust_position
+    _bust_position(db, position_id, app_key)
 
 
 @router.get("/{position_id}/effective-perms/{app_key}")
