@@ -155,30 +155,37 @@ else
     exit 1
 fi
 
-# -- 4. Ejecutar migraciones (paso único y explícito; el entrypoint ya NO migra) --
-echo ">>> Ejecutando migraciones de base de datos..."
-# Si hay un backend activo, ejecutar migraciones en él
-if docker compose -f "$COMPOSE_FILE" --profile "$ACTIVE" ps -q "backend-$ACTIVE" 2>/dev/null | grep -q .; then
-    echo "    Ejecutando alembic upgrade head en backend-$ACTIVE (activo)..."
-    if ! docker compose -f "$COMPOSE_FILE" --profile "$ACTIVE" exec -T "backend-$ACTIVE" \
-        alembic -c migrations/alembic.ini upgrade head; then
-        echo "    WARN: alembic en backend activo retornó error (puede ser normal si ya están aplicadas)."
-    fi
-else
-    # Si no hay backend activo (primer deploy), construir y ejecutar en el nuevo
-    echo ">>> Primer deploy detectado, construyendo imagen para migraciones..."
-    docker compose -f "$COMPOSE_FILE" --profile "$NEW" build "backend-$NEW"
-    docker compose -f "$COMPOSE_FILE" --profile "$NEW" run --rm \
-        --entrypoint "" \
-        -e PYTHONPATH=/app \
-        "backend-$NEW" \
-        bash -c "cd /app && alembic -c migrations/alembic.ini upgrade head"
-fi
-
-# -- 5. Construir y levantar nuevo backend --
+# -- 4. Construir la imagen nueva y migrar EN ELLA (el entrypoint ya NO migra) --
+#
+# SIEMPRE en la imagen NUEVA, nunca en el contenedor activo. Desde 334d2b6
+# (`feat(infra): imagen inmutable con código horneado`) `migrations/` va horneada
+# en la imagen y NO se bind-montea: el contenedor activo corre la imagen del
+# deploy ANTERIOR, así que no contiene las revisiones que se acaban de traer con
+# el `git reset --hard` de arriba. Un `alembic upgrade head` ahí no ve nada nuevo
+# y sale con 0 — la migración queda SIN APLICAR y el backend nuevo se promueve
+# contra el esquema viejo.
+#
+# Con una tabla nueva eso solo rompe la feature; con una COLUMNA nueva sobre una
+# tabla existente rompe la app entera, porque SQLAlchemy hace SELECT de todas las
+# columnas mapeadas: `authenticate()` y cualquier `db.get(User, ...)` tiran
+# UndefinedColumn y nadie puede iniciar sesión. Y el health check no lo ataja:
+# /ready solo hace `SELECT 1` y un ping a Redis, no toca ninguna tabla del
+# dominio, así que el backend roto pasa y nginx conmuta hacia él.
+#
+# `run --rm` levanta un contenedor desechable con la imagen nueva y migra ANTES
+# de que exista tráfico sobre ella. El build va aquí (no en el paso 5) porque la
+# migración lo necesita; el `up -d` de abajo reusa esa misma imagen.
 echo ">>> Construyendo imagen del nuevo backend ($NEW)..."
 docker compose -f "$COMPOSE_FILE" --profile "$NEW" build "backend-$NEW"
 
+echo ">>> Ejecutando migraciones de base de datos (en la imagen $NEW)..."
+docker compose -f "$COMPOSE_FILE" --profile "$NEW" run --rm \
+    --entrypoint "" \
+    -e PYTHONPATH=/app \
+    "backend-$NEW" \
+    bash -c "cd /app && alembic -c migrations/alembic.ini upgrade head"
+
+# -- 5. Levantar nuevo backend (la imagen ya se construyó en el paso 4) --
 echo ">>> Levantando backend-$NEW..."
 docker compose -f "$COMPOSE_FILE" --profile "$NEW" up -d "backend-$NEW"
 
