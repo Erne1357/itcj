@@ -40,6 +40,61 @@ from tests.conftest import make_jwt
 DEFAULT_DAY = date(2026, 9, 1)
 
 
+@pytest.fixture()
+def freeze_app_clock():
+    """Congela `now_app` en TODOS los módulos de agendatec que lo tengan.
+
+    `from ...helpers import now_app` COPIA la referencia en el módulo que
+    importa, así que parchear solo el origen no congela a nadie más. Cuatro
+    fixtures de esta suite hacían eso a mano y cada una listaba un subconjunto
+    DISTINTO de módulos; los huecos que dejaban —`api.availability` y
+    `api.admin.requests`— son exactamente los que reventaron el CI el
+    2026-09-01, en cuanto el reloj real pasó de las horas que fijan los tests.
+
+    Por eso los módulos se DESCUBREN recorriendo `sys.modules` en vez de
+    escribirse a mano: el que mañana importe `now_app` queda congelado sin que
+    nadie se acuerde de venir a esta lista.
+
+    `request_service` importa `now_app` DENTRO de la función, así que resuelve
+    contra `helpers` en cada llamada y queda cubierto por el parche del origen.
+
+    Uso:
+
+        def test_algo(client, freeze_app_clock):
+            with freeze_app_clock(time(8, 0)):
+                ...
+
+    `at` puede ser un `time` (se combina con `day`, por defecto `DEFAULT_DAY`)
+    o un `datetime` aware ya listo.
+    """
+    import sys
+    from contextlib import ExitStack, contextmanager
+    from unittest.mock import patch
+
+    @contextmanager
+    def _freeze(at, day=DEFAULT_DAY):
+        # El orden importa: `itcj2.models` primero, porque importar el router de
+        # agendatec en frío entra por `helpers` -> `core.models` a medio
+        # inicializar y truena por import circular.
+        import itcj2.models  # noqa: F401
+        import itcj2.apps.agendatec.router  # noqa: F401
+        from itcj2.apps.agendatec.helpers import app_dt
+
+        frozen = app_dt(day, at) if isinstance(at, time) else at
+        targets = [
+            name for name, mod in list(sys.modules.items())
+            if name.startswith("itcj2.apps.agendatec")
+            and mod is not None
+            and getattr(mod, "now_app", None) is not None
+        ]
+        with ExitStack() as stack:
+            for name in targets:
+                stack.enter_context(patch(f"{name}.now_app", return_value=frozen))
+            yield frozen
+
+    return _freeze
+
+
 # ---------------------------------------------------------------------------
 # Cliente atado a la sesión de las fixtures
 # ---------------------------------------------------------------------------

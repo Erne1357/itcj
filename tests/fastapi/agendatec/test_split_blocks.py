@@ -16,7 +16,6 @@ cita del rango, lo que rechazaba 15→10 con una cita en 9:15. Ahora eso es
 válido: la cita conserva su 9:15 y solo se acorta a 9:15–9:25.
 """
 from datetime import date, time
-from unittest.mock import patch
 
 import pytest
 
@@ -32,9 +31,15 @@ def _at(t):
 
 
 @pytest.fixture()
-def temprano():
-    with patch("itcj2.apps.agendatec.services.slot_service.now_app",
-               return_value=_at(time(8, 0))):
+def temprano(freeze_app_clock):
+    """Las 08:00 de DAY, en TODOS los módulos que copiaron `now_app`.
+
+    Antes solo congelaba `slot_service`. Los tests que pegan a la API pasan
+    además por `api.availability` (que filtra lo que ya pasó) y por
+    `api.admin.requests`, y esos seguían leyendo el reloj real: en cuanto la
+    corrida caía después de las 09:00 el endpoint devolvía cero slots.
+    """
+    with freeze_app_clock(time(8, 0), day=DAY):
         yield
 
 

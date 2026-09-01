@@ -14,6 +14,23 @@ import pytest
 from itcj2.core.models.notification import Notification
 
 
+@pytest.fixture(autouse=True)
+def _reloj_congelado(freeze_app_clock):
+    """Las 08:00 del día de las factories, para todo el módulo.
+
+    Los escenarios de aquí montan slots a las 09:00–10:00 de `DEFAULT_DAY` y
+    algunos pegan a endpoints con guard de hora (`admin/requests` rechaza con
+    `slot_time_passed` lo que ya pasó). Sin congelar, el resultado depende de a
+    qué hora corra el CI —y a partir del día siguiente a `DEFAULT_DAY` falla
+    siempre, porque el guard compara datetimes absolutos.
+
+    Autouse a propósito: que el próximo test de notificaciones que toque un
+    endpoint con guard nazca determinista sin que nadie se acuerde de pedirlo.
+    """
+    with freeze_app_clock(time(8, 0)):
+        yield
+
+
 @pytest.fixture()
 def scenario(coord_setup, make_grid, make_user, make_booking):
     """Coordinador con una cita reservada por un alumno."""
