@@ -465,8 +465,8 @@ def replace_role_perms(
         )
 
     db.commit()
-    from itcj2.core.services.authz_cache import invalidate_all
-    invalidate_all()  # role-wide: afecta a todos los usuarios con este rol
+    from itcj2.core.services.authz_cache import invalidate_app
+    invalidate_app(app_key)  # role-wide dentro de esta app
     return {"success": True, "data": None}
 
 
@@ -495,8 +495,8 @@ def add_role_perm(
     if not db.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).first():
         db.add(RolePermission(role_id=role.id, perm_id=perm.id))
         db.commit()
-        from itcj2.core.services.authz_cache import invalidate_all
-        invalidate_all()  # role-wide
+        from itcj2.core.services.authz_cache import invalidate_app
+        invalidate_app(app_key)  # role-wide dentro de esta app
     return {"success": True, "data": None}
 
 
@@ -524,8 +524,8 @@ def remove_role_perm(
 
     db.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).delete()
     db.commit()
-    from itcj2.core.services.authz_cache import invalidate_all
-    invalidate_all()  # role-wide
+    from itcj2.core.services.authz_cache import invalidate_app
+    invalidate_app(app_key)  # role-wide dentro de esta app
 
 
 # ── Usuario ⇄ Rol / Permiso por App ──────────────────────────────────────────

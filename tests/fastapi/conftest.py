@@ -17,46 +17,66 @@ from sqlalchemy.orm import sessionmaker
 import itcj2.models  # noqa: F401
 
 
+def _flush_authz_cache():
+    """Vacía SOLO el caché de authz (y rate-limit y estilos de app).
+
+    NO toca `session:v1:ver:*` — la época de sesión canónica, caché de
+    `core_users.session_epoch` — ni el `authz:v1:sessionver:*` histórico del
+    incidente del 2026-08-20, ni ningún otro namespace de sesión: barrer eso
+    desloguearía a los usuarios reales si la suite corre contra un Redis
+    compartido — es el segundo vector de ese incidente. Los tests que necesiten
+    una época de sesión limpia deben borrar SU uid, no un glob.
+
+    El mapa de descendientes de departamentos (`authz:v1:deptmap`) merece mención
+    especial: es GLOBAL y los tests crean departamentos dentro de una transacción
+    que se revierte, así que una entrada cacheada sobrevive a las filas que la
+    originaron. El `scan_iter` por kinds (roles/perms/has) no lo alcanza, por lo
+    que `invalidate_dept_map()` es ahora la ÚNICA forma de limpiarlo. Esto fue
+    origen de fallos intermitentes en los tests de scope. Se invalida tanto antes
+    como después de cada test.
+
+    Best-effort: si Redis no está disponible, no rompe el test (fail-open).
+    """
+    try:
+        from itcj2.core.services.authz_cache import invalidate_dept_map
+        invalidate_dept_map()
+    except Exception:
+        pass
+    try:
+        from itcj2.core.services.authz_cache import _KINDS, _PREFIX
+        from itcj2.core.utils.redis_conn import get_redis
+        r = get_redis()
+        if r is not None:
+            keys = []
+            # `_KINDS` se importa en vez de copiarse: una segunda copia de la
+            # tupla haría que un kind nuevo quedara sin limpiar aquí en silencio,
+            # y volvería el HIT stale no-determinista que este fixture existe
+            # para evitar (ver docstring).
+            for kind in _KINDS:
+                keys += list(r.scan_iter(match=f"{_PREFIX}:{kind}:*", count=1000))
+            keys += list(r.scan_iter(match="rl:*", count=1000))
+            keys += list(r.scan_iter(match="appstyle:*", count=100))
+            if keys:
+                r.delete(*keys)
+    except Exception:
+        pass
+
+
 @pytest.fixture(autouse=True)
 def _clear_authz_cache():
-    """Limpia el caché de authz en Redis ANTES de cada test.
+    """Limpia el caché de authz en Redis ANTES y DESPUÉS de cada test.
 
     Muchos tests parchean get_user_permissions_for_app / user_roles_in_app /
     has_any_assignment esperando que se llamen. Pero cached_* leen Redis primero;
     si un test previo dejó una entrada (kind, app, user), el patch se saltea por un
-    HIT stale y el test falla de forma no-determinista. Vaciar authz:v1:* antes de
-    cada test hace que cada uno vea un MISS y ejecute la función parcheada.
+    HIT stale y el test falla de forma no-determinista.
 
-    El mapa de descendientes de departamentos (`authz:v1:deptmap`) merece mención
-    aparte: es GLOBAL y los tests crean departamentos dentro de una transacción que
-    se revierte, así que una entrada cacheada sobrevive a las filas que la
-    originaron. Se invalida explícitamente (no solo por el `scan_iter`, que es
-    best-effort) y también DESPUÉS del test, para no dejarle un mapa fantasma al
-    siguiente — era el origen de fallos intermitentes en los tests de scope.
-
-    Best-effort: si Redis no está disponible, no rompe el test (fail-open).
+    Ver _flush_authz_cache() para los detalles sobre por qué el mapa de
+    departamentos requiere invalidación explícita y doble.
     """
-    def _flush():
-        try:
-            from itcj2.core.services.authz_cache import invalidate_dept_map
-            invalidate_dept_map()
-        except Exception:
-            pass
-        try:
-            from itcj2.core.utils.redis_conn import get_redis
-            r = get_redis()
-            if r is not None:
-                keys = list(r.scan_iter(match="authz:v1:*", count=1000))
-                keys += list(r.scan_iter(match="rl:*", count=1000))
-                keys += list(r.scan_iter(match="appstyle:*", count=100))
-                if keys:
-                    r.delete(*keys)
-        except Exception:
-            pass
-
-    _flush()
+    _flush_authz_cache()
     yield
-    _flush()
+    _flush_authz_cache()
 
 
 _DIRECT_PG_URL = "postgresql+psycopg2://postgres:password@postgres:5432/itcj"

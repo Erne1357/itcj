@@ -192,20 +192,61 @@ def invalidate_user(user_id: int) -> None:
         logger.warning("authz_cache: invalidate_user(%s) err (%s)", user_id, e)
 
 
-def invalidate_all() -> None:
-    """Borra TODO el caché de authz.
+def _delete_matching(r, patterns: list[str], extra: list[str] | None = None) -> None:
+    """Borra por lotes las claves que matcheen los patrones dados.
 
-    Para cambios role/position-wide que afectan a muchos usuarios:
-    RolePermission (perms de un rol), PositionAppRole / PositionAppPerm
-    (config de un puesto), activar/desactivar un puesto. Son operaciones de
-    admin poco frecuentes; el SCAN sobre un keyspace pequeño es aceptable.
+    UNLINK en vez de DELETE: libera la memoria en un hilo aparte y no bloquea el
+    hilo único de Redis, que aquí es compartido con Socket.IO, Celery, el
+    rate-limit de login y los holds de AgendaTec. Se borra en chunks para no
+    materializar todo el keyspace en memoria del proceso.
+    """
+    batch = list(extra or [])
+    for pattern in patterns:
+        for key in r.scan_iter(match=pattern, count=1000):
+            batch.append(key)
+            if len(batch) >= 500:
+                r.unlink(*batch)
+                batch = []
+    if batch:
+        r.unlink(*batch)
+
+
+def invalidate_app(app_key: str) -> None:
+    """Borra el caché de authz de UNA app, para todos sus usuarios.
+
+    Para cambios role-wide acotables a una app: agregar/quitar/reemplazar los
+    permisos de un rol dentro de esa app. Evita tirar el caché de las otras cinco
+    apps, que no se han enterado del cambio.
     """
     r = _redis()
     if r is None:
         return
     try:
-        keys = list(r.scan_iter(match=f"{_PREFIX}:*", count=1000))
-        if keys:
-            r.delete(*keys)
+        _delete_matching(r, [f"{_PREFIX}:{k}:{app_key}:*" for k in _KINDS])
+    except Exception as e:
+        logger.warning("authz_cache: invalidate_app(%s) err (%s)", app_key, e)
+
+
+def invalidate_all() -> None:
+    """Borra TODO el caché de authz — y SOLO el caché.
+
+    Para cambios role/position-wide que afectan a muchos usuarios:
+    RolePermission (perms de un rol), PositionAppRole / PositionAppPerm
+    (config de un puesto), activar/desactivar un puesto.
+
+    NUNCA usar el glob ``authz:v1:*``. La época de sesión canónica es hoy
+    ``session:v1:ver:{uid}`` (session_service, respaldada por
+    ``core_users.session_epoch``) y vive FUERA de este prefijo; pero en el
+    incidente del 2026-08-20 vivía en ``authz:v1:sessionver:{uid}`` y el comodín
+    la barría: ``current_version`` caía a 0 para todos, deslogueaba a cuantos
+    tuvieran ``sv >= 1`` y resucitaba tokens ya revocados. La regla sigue vigente
+    porque cualquier vecino futuro bajo este prefijo sería igual de vulnerable:
+    enumerar los kinds, jamás comodín.
+    """
+    r = _redis()
+    if r is None:
+        return
+    try:
+        _delete_matching(r, [f"{_PREFIX}:{k}:*" for k in _KINDS], extra=[_DEPTMAP_KEY])
     except Exception as e:
         logger.warning("authz_cache: invalidate_all err (%s)", e)

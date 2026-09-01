@@ -29,8 +29,29 @@ def _get_session():
     return SessionLocal()
 
 
-def execute_sql_file(file_path):
-    """Ejecuta un archivo SQL específico."""
+def execute_sql_file(file_path, invalidate_authz: bool = True):
+    """Ejecuta un archivo SQL específico.
+
+    CHOKEPOINT de toda la carga de DML del proyecto: `core init-db`,
+    `core init-tasks`, `core init-config-2026-07`, `directory init-directory`,
+    `helpdesk._run_sql_files`, `maint._run_sql_files` / `_seed_config_files`,
+    `titulatec`, `warehouse`… todos terminan aquí, y esta función abre su propia
+    conexión y COMMITEA por dentro.
+
+    Por eso `invalidate_authz` vive aquí y no en cada comando: el requisito
+    "cargar permisos por DML invalida el caché de authz" tenía ~14 puertas y solo
+    4 cerradas, y cada comando nuevo nacía abierto. Además este es el único punto
+    que está DESPUÉS del commit — invalidar antes deja que un lector repueble el
+    caché con los permisos viejos, y esa entrada le sobrevive el TTL completo
+    (300s).
+
+    Pasar `invalidate_authz=False` solo para SQL que con certeza no toca
+    permisos, roles ni puestos (catálogos, imports masivos de datos).
+
+    Devuelve `True` si el caché quedó efectivamente invalidado. Casi todos los
+    callers lo ignoran; existe para que `core execute-sql` no anuncie una
+    invalidación que en realidad falló.
+    """
     engine = _get_engine()
     try:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -65,6 +86,23 @@ def execute_sql_file(file_path):
 
     except Exception as e:
         raise Exception(f"Error ejecutando {file_path}: {str(e)}")
+
+    if not invalidate_authz:
+        return False
+
+    # Best-effort y DESPUÉS del commit: el SQL ya está aplicado, así que un
+    # Redis caído no puede tumbar la carga. Sin invalidar, un DML que revoca
+    # un permiso deja hasta 300s de autorización obsoleta tras el despliegue.
+    try:
+        from itcj2.core.services.authz_cache import invalidate_all
+        invalidate_all()
+        return True
+    except Exception as e:  # pragma: no cover - depende de Redis
+        click.echo(
+            f"⚠️  No se pudo invalidar el caché de authz ({e}). "
+            "Aplicará en ≤5 min por TTL."
+        )
+        return False
 
 
 @click.command("init-db")
@@ -357,7 +395,12 @@ def check_database_command():
 
 @click.command("execute-sql")
 @click.argument("sql_file")
-def execute_single_sql_command(sql_file):
+@click.option(
+    "--invalidate-authz/--no-invalidate-authz",
+    default=True,
+    help="Invalida el caché de authz al terminar (necesario si el SQL toca permisos/roles).",
+)
+def execute_single_sql_command(sql_file, invalidate_authz):
     """Ejecuta un archivo SQL específico."""
     click.echo(f"🔄 Ejecutando archivo: {sql_file}")
 
@@ -366,8 +409,16 @@ def execute_single_sql_command(sql_file):
     try:
         if not file_path.exists():
             raise FileNotFoundError(f"Archivo no encontrado: {file_path}")
-        execute_sql_file(str(file_path))
+        # El flag se DELEGA, no se resuelve aquí: `execute_sql_file` invalida por
+        # su cuenta (es el chokepoint de toda la carga de DML), así que hacerlo
+        # en este cuerpo dejaría el `--no-invalidate-authz` silenciosamente
+        # derrotado — el usuario pide no invalidar y se invalida igual.
+        invalidated = execute_sql_file(str(file_path), invalidate_authz=invalidate_authz)
         click.echo(f"✅ Archivo ejecutado exitosamente: {sql_file}")
+        # Solo se anuncia si de verdad ocurrió: si Redis falló, `execute_sql_file`
+        # ya imprimió el ⚠️ y anunciar aquí "invalidado" lo contradiría.
+        if invalidated:
+            click.echo("🧹 Caché de authz invalidado.")
     except Exception as e:
         click.echo(f"❌ Error ejecutando {sql_file}: {str(e)}")
         raise
@@ -703,6 +754,176 @@ def mundial_refresh_command(hard: bool):
     click.echo("\n🎉 Cache refrescado.")
 
 
+# Prefijos de la época de sesión, en el orden en que se escanean.
+#
+# `authz:v1:sessionver:` es el HISTÓRICO y el único que producción tiene hoy:
+# vivía dentro del prefijo del caché de authz, y ese solapamiento es el incidente
+# del 2026-08-20. `session:v1:ver:` es el namespace propio al que se movió, que
+# solo existió en un commit intermedio de la rama — si nadie lo desplegó, en prod
+# está vacío. Se escanean los DOS para que el backfill sea correcto en cualquier
+# caso.
+#
+# OJO: son prefijos CONCRETOS. Jamás escanear `authz:v1:*` aquí ni en ningún
+# sitio: bajo ese comodín conviven caché y dato de sesión.
+_SESSION_EPOCH_PREFIXES = (
+    "authz:v1:sessionver:",
+    "session:v1:ver:",
+)
+
+
+@click.command("backfill-session-epoch")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Solo reporta lo que haría; no escribe en core_users.")
+def backfill_session_epoch_command(dry_run: bool):
+    """Copia a Postgres las épocas de sesión que todavía viven en Redis.
+
+    CORRER UNA VEZ, entre `alembic upgrade head` y el rollout del código nuevo.
+
+    La migración `s1e2s3s4v001` siembra `core_users.session_epoch = 0` para todos.
+    Pero producción tiene claves `authz:v1:sessionver:{uid}` y JWTs vivos con
+    `sv = N` acuñado desde ellas, así que sin este paso el cutover reproduce el
+    incidente del 2026-08-20 entero:
+
+      - todo token con `sv >= 1` falla `sv != 0` y queda DESLOGUEADO, y
+      - todo token YA REVOCADO que quedó en `sv == 0` y sigue dentro de sus 12h
+        vuelve a cuadrar `0 == 0` y AUTENTICA otra vez — cuentas desactivadas
+        incluidas.
+
+    El UPDATE es monótono (`WHERE session_epoch < :v`): nunca baja una época y
+    por tanto nunca resucita una sesión revocada. Eso lo hace idempotente y
+    re-ejecutable — el runbook manda correrlo otra vez después del rolling
+    restart, porque mientras conviven workers viejos y nuevos un logout servido
+    por uno viejo bumpea la clave de Redis y el worker nuevo no lo ve.
+
+    Tras commitear, invalida `session:v1:ver:{uid}` (Redis) para cada fila que
+    el UPDATE tocó de verdad. Sin esto, la re-corrida tras el rolling restart
+    sube Postgres pero un worker nuevo que ya cacheó la época vieja con TTL de
+    1h la sigue sirviendo desde caché — el recovery que promete el runbook se
+    demora hasta 1h en vez de ser inmediato.
+    """
+    from sqlalchemy import text as _text
+
+    from itcj2.core.utils.redis_conn import get_redis
+
+    click.echo("🔎 Backfill de época de sesión (Redis → Postgres)")
+    if dry_run:
+        click.echo("⚠️  Modo DRY-RUN: no se escribirá nada.")
+
+    r = get_redis()
+    if r is None:
+        click.echo("❌ Redis no disponible: no hay de dónde leer las épocas.")
+        raise SystemExit(1)
+
+    updated = unchanged = missing = unreadable = non_positive = 0
+    # uids realmente escritos por el UPDATE (rowcount > 0), NUNCA en dry-run.
+    # Se invalida su caché de Redis después del commit — ver comentario junto
+    # al `forget_cached_version` más abajo para el porqué del orden.
+    updated_uids: set[int] = set()
+    db = _get_session()
+    try:
+        for prefix in _SESSION_EPOCH_PREFIXES:
+            scanned = 0
+            for key in r.scan_iter(match=f"{prefix}*", count=1000):
+                scanned += 1
+                raw_uid = key[len(prefix):]
+                raw_val = r.get(key)
+                # Un dato roto (uid o valor no numérico, clave borrada entre el
+                # scan y el get) se cuenta y se salta: no puede llevarse por
+                # delante el resto del lote.
+                try:
+                    uid = int(raw_uid)
+                    val = int(raw_val)
+                except (TypeError, ValueError):
+                    unreadable += 1
+                    click.echo(f"   ⚠️  Ilegible, se omite: {key} = {raw_val!r}")
+                    continue
+
+                if val <= 0:
+                    # 0 ya es el default de la migración y un negativo no es una
+                    # época: ninguno aporta información.
+                    non_positive += 1
+                    continue
+
+                if dry_run:
+                    row = db.execute(
+                        _text("SELECT session_epoch FROM core_users WHERE id = :u"),
+                        {"u": uid},
+                    ).fetchone()
+                    if row is None:
+                        missing += 1
+                    elif int(row[0]) < val:
+                        updated += 1
+                    else:
+                        unchanged += 1
+                    continue
+
+                res = db.execute(
+                    _text(
+                        "UPDATE core_users SET session_epoch = :v "
+                        "WHERE id = :u AND session_epoch < :v"
+                    ),
+                    {"v": val, "u": uid},
+                )
+                if res.rowcount:
+                    updated += 1
+                    updated_uids.add(uid)
+                else:
+                    # rowcount 0 son dos casos distintos y el reporte los separa:
+                    # la fila no existe, o su época ya iba por delante.
+                    exists = db.execute(
+                        _text("SELECT 1 FROM core_users WHERE id = :u"), {"u": uid}
+                    ).fetchone()
+                    if exists is None:
+                        missing += 1
+                    else:
+                        unchanged += 1
+
+            click.echo(f"   📥 claves escaneadas en {prefix}*: {scanned}")
+
+        if not dry_run:
+            db.commit()
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        click.echo(f"💥 Error durante el backfill: {e}")
+        raise
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+    # Invalidar la caché de Redis DESPUÉS del commit, nunca dentro del loop:
+    # borrar la clave antes de commitear abre la misma carrera que esta rama ya
+    # cerró tres veces (Tarea 5/6, agendatec sync-students) — un lector la
+    # repuebla desde Postgres con el valor viejo aún no commiteado, y como
+    # escribir sobre una clave ausente es una subida legítima, la guarda
+    # monótona no puede rechazarla. Solo uids con rowcount > 0 (updated_uids
+    # está vacío en dry-run: nunca llega a ese branch).
+    if updated_uids:
+        from itcj2.core.services.session_service import forget_cached_version
+        for uid in updated_uids:
+            forget_cached_version(uid)
+
+    # Las etiquetas son IDÉNTICAS en dry-run y en la corrida real, a propósito:
+    # el operador compara los dos reportes línea a línea, y el banner de arriba
+    # más el sufijo `(simulado)` dejan claro cuál es cuál.
+    sim = " (simulado)" if dry_run else ""
+    click.echo(f"   ✅ filas actualizadas: {updated}{sim}")
+    click.echo(f"   ⏭️  sin cambio (epoch ya >= valor): {unchanged}")
+    click.echo(f"   🚫 sin fila en core_users: {missing}")
+    click.echo(f"   ⚠️  valores ilegibles: {unreadable}")
+    click.echo(f"   ⏭️  valores <= 0 omitidos: {non_positive}")
+    if dry_run:
+        click.echo("")
+        click.echo("🎉 Dry-run completado (no se escribió nada).")
+    else:
+        click.echo("")
+        click.echo("🎉 Backfill completado.")
+
+
 @click.group("core")
 def core_cli():
     """Comandos CLI del módulo core."""
@@ -713,6 +934,7 @@ core_cli.add_command(seed_reference_data_command)
 core_cli.add_command(reset_database_command)
 core_cli.add_command(check_database_command)
 core_cli.add_command(execute_single_sql_command)
+core_cli.add_command(backfill_session_epoch_command)
 core_cli.add_command(init_themes_command)
 core_cli.add_command(init_tasks_command)
 core_cli.add_command(init_config_2026_07_command)

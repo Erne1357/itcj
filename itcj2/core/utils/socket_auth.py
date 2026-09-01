@@ -18,20 +18,15 @@ def current_user_from_environ(environ):
     data = decode_jwt(token)
     if not data:
         return None
-    # Revocación de sesión (espejo de itcj2/middleware.py:60-69): si el token
-    # trae claim `sv` y no coincide con la versión vigente del usuario, está
-    # revocado (logout/desactivación/cambio de rol). Tokens viejos SIN `sv` no
-    # se revisan (compat pre-9ee70d5). OJO: esto NO es fail-open ante una caída
-    # real de Redis — session_service.current_version() atrapa la excepción y
-    # devuelve 0, así que un token con `sv` != 0 (ya tuvo al menos un bump) deja
-    # de matchear y se rechaza (fail-CLOSED). Solo sobreviven sin verse
-    # afectados los tokens con sv==0 (nunca bumpeados). Es el mismo
-    # comportamiento de middleware.py — herencia intencional, no un bug propio
-    # de este módulo.
+    # Revocación de sesión (espejo de itcj2/middleware.py): si el token trae claim
+    # `sv` y no coincide con la versión vigente, está revocado. Tokens viejos SIN
+    # `sv` no se revisan (compat pre-9ee70d5). `current_version` devuelve None si no
+    # pudo consultar el almacén: en ese caso NO se revoca (fail-open real).
     if "sv" in data:
         try:
             from itcj2.core.services.session_service import current_version
-            if int(data.get("sv", 0)) != current_version(int(data["sub"])):
+            cur = current_version(int(data["sub"]))
+            if cur is not None and int(data.get("sv", 0)) != cur:
                 return None
         except Exception:
             pass

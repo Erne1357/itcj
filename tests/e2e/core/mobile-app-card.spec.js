@@ -23,13 +23,45 @@ function appColor(key) {
   }).trim();
 }
 
+// Las apps con ícono ráster propio (agendatec, helpdesk) pintan el tile de
+// BLANCO a propósito desde bb62f49 — `.mobile-app-card-icon.has-img` — para que
+// el logo se lea como app-icon en vez de forzarlo sobre el color de marca. El
+// color de `core_apps.color` sigue viniendo de la BD en ambos casos, solo que
+// en esas tarjetas viaja en la custom property y no en el `background`.
+// Por eso el aserto se parte en dos y ninguno hardcodea una app: qué app tiene
+// ícono ráster es una decisión de diseño que cambia sin avisar a este test.
 test.describe('mobile app card — DB-driven badge (F7)', () => {
   test('el fondo del icono de la tarjeta viene de core_apps.color', async ({ page }) => {
-    const expected = hexToRgb(appColor('helpdesk'));
     await page.goto('/itcj/m/', { waitUntil: 'domcontentloaded' });
-    const icon = page.locator('.mobile-app-card[data-app-key="helpdesk"] .mobile-app-card-icon');
-    await expect(icon).toBeVisible();
-    const bg = await icon.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(bg).toBe(expected);
+    await expect(page.locator('.mobile-app-card').first()).toBeVisible();
+
+    const cards = await page.locator('.mobile-app-card').evaluateAll((els) =>
+      els.map((el) => {
+        const icon = el.querySelector('.mobile-app-card-icon');
+        return {
+          key: el.getAttribute('data-app-key'),
+          hasImg: icon.classList.contains('has-img'),
+          bg: getComputedStyle(icon).backgroundColor,
+          badgeVar: getComputedStyle(icon).getPropertyValue('--app-badge-color').trim(),
+        };
+      }),
+    );
+    expect(cards.length).toBeGreaterThan(0);
+
+    for (const card of cards) {
+      const expected = hexToRgb(appColor(card.key));
+      // La custom property siempre sale de core_apps.color, tenga o no ráster.
+      expect(hexToRgb(card.badgeVar), `--app-badge-color de ${card.key}`).toBe(expected);
+      if (card.hasImg) {
+        // Tile blanco deliberado: el logo se lee mejor que sobre el color.
+        expect(card.bg, `tile de ${card.key} (ícono ráster)`).toBe('rgb(255, 255, 255)');
+      } else {
+        expect(card.bg, `fondo de ${card.key}`).toBe(expected);
+      }
+    }
+
+    // El test pierde su razón de ser si TODAS las apps tuvieran ráster: nadie
+    // estaría comprobando que `background: var(--app-badge-color)` resuelve.
+    expect(cards.some((c) => !c.hasImg), 'ninguna app sin ícono ráster que validar').toBe(true);
   });
 });

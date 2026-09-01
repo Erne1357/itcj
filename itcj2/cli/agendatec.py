@@ -16,7 +16,26 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 def _execute_sql_scripts(db, scripts_dir: str) -> int:
-    """Ejecuta todos los scripts SQL de un directorio en orden alfabético."""
+    """Ejecuta todos los scripts SQL de un directorio en orden alfabético.
+
+    Invalida el caché de authz al final, incondicionalmente. Este helper es
+    compartido por todos los comandos de agendatec que cargan DML por
+    directorio (`seed-periods`, `load-help`, `load-split-scope-2026-08`, y
+    cualquiera futuro): varios de esos directorios SÍ tocan permisos/roles
+    (p.ej. `database/DML/agendatec/periods/`, `.../help/`), y dejarlo a
+    criterio de cada comando es exactamente el tipo de decisión que alguien
+    olvida. El costo de invalidar de más en un comando que solo corre en
+    deploy (un refill de caché) es aceptable frente al de dejar un permiso
+    revocado autorizando hasta AUTHZ_CACHE_TTL (300s).
+
+    Este `db` es del CALLER y no se commitea aquí, así que esta invalidación
+    corre ANTES de ese commit. Cada llamador debe invalidar OTRA VEZ después
+    de su propio `db.commit()` (ver el comentario en `load_help_command`) —
+    sin eso, un lector que caiga en la ventana pre-commit repuebla el caché
+    con el estado viejo aún no commiteado y esa entrada sobrevive el TTL
+    completo, el mismo patrón que `bump_version`/`forget_cached_version`
+    (Tareas 5/6) tuvieron que cerrar para la época de sesión.
+    """
     scripts_path = Path(scripts_dir)
     if not scripts_path.exists():
         click.echo(f"   ⚠️  Directorio no encontrado: {scripts_dir}")
@@ -37,6 +56,15 @@ def _execute_sql_scripts(db, scripts_dir: str) -> int:
         except Exception as e:
             click.echo(f"   ❌ Error en {sql_file.name}: {str(e)}")
             raise
+
+    try:
+        from itcj2.core.services.authz_cache import invalidate_all
+        invalidate_all()
+        click.echo("   🧹 Caché de authz invalidado.")
+    except Exception as e:
+        click.echo(f"   ⚠️  No se pudo invalidar el caché de authz ({e}). "
+                   "Aplicará en ≤5 min por TTL.")
+
     return executed
 
 
@@ -137,6 +165,11 @@ def seed_periods_command():
             click.echo(f"   ✓ Período creado (ID: {period2.id}) — ACTIVO")
 
             db.commit()
+            # Segunda invalidación, ya con el commit hecho: ver el comentario en
+            # load_help_command para el porqué (no es redundante con la de
+            # _execute_sql_scripts).
+            from itcj2.core.services.authz_cache import invalidate_all
+            invalidate_all()
 
             click.echo("\n✅ Períodos académicos creados exitosamente")
 
@@ -407,7 +440,43 @@ def _parse_student_row_v2(row: dict) -> Tuple[dict, list]:
     return payload, warnings
 
 
-def _upsert_student_v2(db, payload: dict, app_id: int, role_id: int, dry_run: bool = False) -> Tuple[str, Optional[int]]:
+def _flush_grant_invalidations(granted_ids: list) -> None:
+    """Reinvalida el caché de authz de los alumnos cuyo rol ACABA de commitearse.
+
+    `_upsert_student_v2` ya invalida junto al `db.add(UserAppRole(...))`, pero
+    ese add no se commitea hasta `commit_every` filas después (500 por defecto)
+    o al final del CSV. Un lector que golpee un guard de agendatec en esa
+    ventana repuebla el caché leyendo Postgres —que TODAVÍA no tiene el rol— y
+    esa entrada `has: False` le sobrevive el TTL completo (300s) PASADO el
+    commit. Misma Carrera A6 que cierran con una segunda invalidación
+    post-commit los otros cuatro call sites de este fix; aquí la dirección es
+    stale-DENY (403 al alumno recién importado, no acceso indebido), pero el
+    invariante es el mismo y dejarlo a medias es lo que se copia después.
+
+    Vacía la lista: hay que llamarla tras CADA commit parcial, no solo al final.
+    """
+    if not granted_ids:
+        return
+    from itcj2.core.services.authz_cache import invalidate_user_app
+    for uid in granted_ids:
+        invalidate_user_app(uid, "agendatec")
+    granted_ids.clear()
+
+
+def _upsert_student_v2(
+    db,
+    payload: dict,
+    app_id: int,
+    role_id: int,
+    dry_run: bool = False,
+    granted_ids: Optional[list] = None,
+) -> Tuple[str, Optional[int]]:
+    """Crea/actualiza un alumno y le asegura el rol `student` de agendatec.
+
+    `granted_ids`: lista de salida. Se le anexa el id de cada alumno al que se
+    le CREÓ el UserAppRole, para que el caller pueda reinvalidar su caché
+    después del commit (ver `_flush_grant_invalidations`).
+    """
     from itcj2.core.models import User, UserAppRole
 
     username = payload.get("username")
@@ -474,6 +543,16 @@ def _upsert_student_v2(db, payload: dict, app_id: int, role_id: int, dry_run: bo
         ).first()
         if not existing_role:
             db.add(UserAppRole(user_id=user_id, app_id=app_id, role_id=role_id))
+            # El caché es read-through: si el alumno ya golpeó un guard de agendatec
+            # antes (periodo anterior), su entrada `has` dice False y le daría 403
+            # hasta que expire el TTL.
+            from itcj2.core.services.authz_cache import invalidate_user_app
+            invalidate_user_app(user_id, "agendatec")
+            # Pero esta invalidación es PRE-commit y por tanto insuficiente por
+            # sí sola: el caller debe reinvalidar tras el commit que incluya
+            # este add. Ver `_flush_grant_invalidations`.
+            if granted_ids is not None:
+                granted_ids.append(user_id)
 
     return status, user_id
 
@@ -567,6 +646,10 @@ def sync_students_agendatec_command(csv_paths, dry_run, commit_every, deactivate
     processed_usernames: set = set()
     duplicados = 0
     deactivated = 0
+    # Alumnos con rol recién concedido y todavía sin commitear. Se vacía tras
+    # CADA commit (parcial y final), no solo al terminar: con lotes de 500 el
+    # "solo al final" deja la ventana de caché stale abierta casi todo el import.
+    pending_grants: list = []
 
     with SessionLocal() as db:
         app_id, role_id = _get_or_create_student_role(db)
@@ -612,7 +695,10 @@ def sync_students_agendatec_command(csv_paths, dry_run, commit_every, deactivate
                         if payload.get("username"):
                             processed_usernames.add(payload["username"])
 
-                        status, _ = _upsert_student_v2(db, payload, app_id, role_id, dry_run=dry_run)
+                        status, _ = _upsert_student_v2(
+                            db, payload, app_id, role_id, dry_run=dry_run,
+                            granted_ids=pending_grants,
+                        )
                         if status == "created":
                             created += 1
                             f_created += 1
@@ -628,10 +714,15 @@ def sync_students_agendatec_command(csv_paths, dry_run, commit_every, deactivate
                         if not dry_run and to_commit >= commit_every:
                             db.commit()
                             to_commit = 0
+                            _flush_grant_invalidations(pending_grants)
 
                     if not dry_run and to_commit > 0:
                         db.commit()
                         to_commit = 0
+                    # También fuera del `if`: en dry-run la lista está vacía y esto
+                    # es un no-op, pero deja el invariante “ninguna concesión
+                    # sobrevive a su archivo sin reinvalidar” sin excepciones.
+                    _flush_grant_invalidations(pending_grants)
 
                 click.echo(
                     f"   • {full_path.name}: {f_rows} filas — "
@@ -668,6 +759,8 @@ def sync_students_agendatec_command(csv_paths, dry_run, commit_every, deactivate
                     .distinct()
                 }
                 con_otros_roles = []
+                revoked_ids = []
+                failed_revocations = 0
                 for student in students:
                     in_csv = (
                         (student.control_number and student.control_number in processed_control_numbers)
@@ -675,15 +768,47 @@ def sync_students_agendatec_command(csv_paths, dry_run, commit_every, deactivate
                     )
                     if in_csv:
                         continue
-                    if student.id in ids_con_otros_roles:
-                        con_otros_roles.append(student.control_number or student.username)
                     if not dry_run:
+                        # bump_version(db=db) es atómico con is_active=False (misma
+                        # transacción): sin esto, desactivar sin revocar deja la
+                        # sesión del alumno viva hasta 12h. Es un import batch de
+                        # muchos alumnos, no una acción admin de uno solo, así que
+                        # un fallo de revocación NO aborta todo el batch (a
+                        # diferencia de users_admin.toggle_user_status) — pero
+                        # tampoco se desactiva en silencio sin haber revocado:
+                        # ese es justo el modo de falla que este plan busca
+                        # eliminar. Se omite ese alumno (sigue activo) y se
+                        # reporta al final.
+                        from itcj2.core.services.session_service import bump_version
+                        if bump_version(student.id, db=db) is None:
+                            failed_revocations += 1
+                            click.echo(
+                                f"   ⚠️  No se pudo revocar la sesión de {student.id}; "
+                                "se deja activo (no se desactiva sin revocar)."
+                            )
+                            continue
                         student.is_active = False
                         db.add(student)
+                        revoked_ids.append(student.id)
+                    # Se anota DESPUÉS de la revocación: el reporte enumera a los
+                    # que de verdad se dieron de baja, no a los omitidos por
+                    # fallo de revocación.
+                    if student.id in ids_con_otros_roles:
+                        con_otros_roles.append(student.control_number or student.username)
                     deactivated += 1
                 if not dry_run and deactivated > 0:
                     db.commit()
+                    # bump_version(db=db) ya borró la caché de cada época antes de
+                    # este commit; ese borrado puede perder la carrera contra un
+                    # lector que repueble con la época vieja aún no commiteada
+                    # (Carrera A6, Tarea 5/6). Este segundo borrado, YA con el
+                    # commit hecho, cierra esa ventana.
+                    from itcj2.core.services.session_service import forget_cached_version
+                    for uid in revoked_ids:
+                        forget_cached_version(uid)
                 click.echo(f"   🚫 Desactivados: {deactivated}")
+                if failed_revocations:
+                    click.echo(f"   ⚠️  Omitidos por fallo de revocación (siguen activos): {failed_revocations}")
                 if con_otros_roles:
                     click.echo(
                         f"   ⚠️  {len(con_otros_roles)} de ellos tenían roles adicionales "
@@ -723,6 +848,17 @@ def load_help_command():
         try:
             executed = _execute_sql_scripts(db, str(scripts_dir))
             db.commit()
+            # `_execute_sql_scripts` ya invalidó una vez, pero ANTES de este
+            # commit (recibe un `db` que no le pertenece y no lo commitea). Un
+            # lector que caiga justo en esa ventana repuebla el caché leyendo
+            # Postgres todavía sin el DML aplicado, y esa entrada le sobrevive
+            # el TTL completo (300s) — Race A6 una vez más, ahora en el caché
+            # de authz en vez de en la época de sesión. Esta segunda llamada,
+            # YA con el commit hecho, cierra esa ventana. NO es redundante con
+            # la de _execute_sql_scripts: quitar cualquiera de las dos reabre
+            # una ventana distinta.
+            from itcj2.core.services.authz_cache import invalidate_all
+            invalidate_all()
             click.echo(f"\n✅ {executed} script(s) ejecutado(s) correctamente")
         except Exception as e:
             db.rollback()
@@ -766,6 +902,10 @@ def load_split_scope_command(dry_run):
         try:
             executed = _execute_sql_scripts(db, str(scripts_dir))
             db.commit()
+            # Segunda invalidación post-commit: ver el comentario en
+            # load_help_command para el porqué (no es redundante).
+            from itcj2.core.services.authz_cache import invalidate_all
+            invalidate_all()
             click.echo(f"\n✅ {executed} script(s) ejecutado(s) correctamente")
         except Exception as e:
             db.rollback()

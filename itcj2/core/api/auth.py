@@ -4,6 +4,8 @@ Auth API v2 - Login, logout, me.
 Comparte la misma cookie (itcj_token) con Flask para que la sesión
 sea transparente entre ambos servidores.
 """
+import logging
+
 from fastapi import APIRouter, Request, Response, HTTPException
 from sqlalchemy.orm import Session
 
@@ -13,6 +15,8 @@ from itcj2.middleware import _decode_jwt, _encode_jwt
 from itcj2.core.schemas.auth import LoginRequest, LoginResponse, MeResponse, UserInfo
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+logger = logging.getLogger(__name__)
 
 _settings = get_settings()
 
@@ -52,13 +56,19 @@ def login(body: LoginRequest, request: Request, response: Response, db: DbSessio
     rate_limit.reset_login_failures(client_ip, raw_id)
 
     from itcj2.core.services.session_service import current_version
+    _sv = current_version(user["id"])
+    if _sv is None:
+        # Redis inalcanzable al emitir: se acuña 0. Si la versión real era mayor, el
+        # token morirá cuando Redis vuelva y el usuario volverá a entrar — es la
+        # dirección segura del error.
+        _sv = 0
     token = _encode_jwt(
         {
             "sub": str(user["id"]),
             "role": user["role"],
             "cn": user.get("control_number"),
             "name": user["full_name"],
-            "sv": current_version(user["id"]),
+            "sv": _sv,
         },
         hours=_settings.JWT_EXPIRES_HOURS,
     )
@@ -96,13 +106,30 @@ def me(user: CurrentUser):
 
 
 @router.post("/logout", status_code=204)
-def logout(user: CurrentUser, response: Response):
+def logout(user: CurrentUser, request: Request, response: Response):
     """Cierra la sesión: elimina la cookie y revoca todos los tokens del usuario."""
     from itcj2.core.services.session_service import bump_version
+    # El middleware podría estar en la ventana de refresh y re-emitir la cookie con
+    # el `sv` recién bumpeado, dejando el logout sin efecto.
+    request.state.suppress_refresh = True
+    # El 204 se devuelve pase lo que pase: el usuario pidió salir y fallar su
+    # logout con un 500 es peor UX que dejarlo salir. Pero un bump fallido deja
+    # el token VIVO hasta que expire (12h), así que no puede quedar mudo — es el
+    # único sitio de revocación que no aborta la operación (toggle_user_status
+    # lanza 500; el batch de agendatec omite al alumno y reporta).
     try:
-        bump_version(int(user["sub"]))
+        if bump_version(int(user["sub"])) is None:
+            logger.error(
+                "logout: no se pudo revocar la sesion del usuario %s; "
+                "la cookie se borra pero su token sigue siendo valido hasta expirar",
+                user.get("sub"),
+            )
     except Exception:
-        pass
+        logger.exception(
+            "logout: bump_version lanzo para el usuario %s; "
+            "la cookie se borra pero su token sigue siendo valido hasta expirar",
+            user.get("sub"),
+        )
     response.delete_cookie(
         "itcj_token",
         httponly=True,

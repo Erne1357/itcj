@@ -26,8 +26,15 @@ def make_jwt(
     cn: str | None = None,
     name: str = "Test User",
     hours: int = 12,
+    sv: int | None = None,
 ) -> str:
-    """Genera un JWT válido para tests."""
+    """Genera un JWT válido para tests.
+
+    `sv` (versión/época de sesión) se omite por defecto: sin el claim, el middleware
+    salta el chequeo de revocación (`middleware.py:63`) y el test no depende de Redis
+    ni de Postgres. Pásalo cuando quieras ejercitar la rama real de producción, que
+    SÍ lleva el claim (`auth.py:54`).
+    """
     now = int(time.time())
     payload = {
         "sub": str(user_id),
@@ -37,6 +44,8 @@ def make_jwt(
         "iat": now,
         "exp": now + hours * 3600,
     }
+    if sv is not None:
+        payload["sv"] = sv
     return jwt.encode(payload, TEST_SECRET, algorithm=JWT_ALGO)
 
 

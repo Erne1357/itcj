@@ -26,12 +26,73 @@ def _bust_user(user_id: int) -> None:
 
 
 def _bust_all() -> None:
-    """Invalida TODO el caché de authz (cambios de puesto role/position-wide)."""
+    """Invalida TODO el caché de authz. Último recurso, no la vía normal.
+
+    Un cambio de configuración de un puesto afecta SOLO a quienes lo ocupan, así
+    que la ruta normal es `_bust_position`. Esto queda como fallback: si no se
+    puede resolver la lista de ocupantes, es preferible enfriar caché de más que
+    dejar un permiso revocado autorizando hasta AUTHZ_CACHE_TTL.
+    """
     try:
         from itcj2.core.services.authz_cache import invalidate_all
         invalidate_all()
     except Exception:
         pass
+
+
+def position_user_ids(db: Session, position_id: int) -> List[int]:
+    """Usuarios con asignación viva al puesto.
+
+    Filtra SOLO por `is_active`, sin las cotas de fecha de
+    `authz_service._active_position_filter()`: aquí no se decide autorización
+    sino a quién hay que enfriar el caché, y la red ancha es la barata. Un
+    ocupante futuro (start_date por venir) tiene cacheado un "no" que el cambio
+    no altera; uno cuyo end_date acaba de pasar puede tener una entrada tibia
+    que conviene tirar igual.
+    """
+    return [
+        uid
+        for (uid,) in db.query(UserPosition.user_id)
+        .filter(UserPosition.position_id == position_id, UserPosition.is_active == True)  # noqa: E712
+        .distinct()
+    ]
+
+
+def _bust_position(db: Session, position_id: int, app_key: str = None,
+                   user_ids: List[int] = None) -> None:
+    """Invalida el caché de authz de los OCUPANTES del puesto, no del mundo.
+
+    Cambiar la config de un puesto no cambia los permisos de nadie más, así que
+    barrer `authz:v1:{kind}:*` tiraba la caché de las seis apps y de miles de
+    usuarios ajenos para propagar un cambio que toca a un puñado. Peor: el
+    scan_iter sobre todo el keyspace corre en el hilo único de Redis, compartido
+    con Socket.IO, Celery y los holds de AgendaTec.
+
+    - `app_key` dado (assign/remove de rol o permiso EN una app) → se acota
+      también a esa app; las otras cinco no se enteraron del cambio.
+    - `app_key` None (activar/desactivar/eliminar el puesto) → el puesto puede
+      conceder en varias apps, así que se tira el usuario entero.
+    - `user_ids` permite capturar a los ocupantes ANTES de una mutación que los
+      desasigna (deactivate_position, delete_position); leerlos después
+      devolvería la lista vacía y no se invalidaría a nadie.
+
+    Fallback a `_bust_all()` si la lista no se pudo resolver: enfriar de más es
+    aceptable; servir un permiso revocado hasta el TTL no lo es.
+    """
+    try:
+        from itcj2.core.services.authz_cache import invalidate_user, invalidate_user_app
+        uids = user_ids if user_ids is not None else position_user_ids(db, position_id)
+        for uid in uids:
+            if app_key:
+                invalidate_user_app(uid, app_key)
+            else:
+                invalidate_user(uid)
+    except Exception:
+        logger.warning(
+            "positions_service: no se pudo acotar la invalidacion del puesto %s; "
+            "se cae a invalidate_all()", position_id, exc_info=True,
+        )
+        _bust_all()
 
 
 # ---------------------------
@@ -101,9 +162,11 @@ def update_position(db: Session, position_id: int, **kwargs) -> Position:
             setattr(position, key, value)
 
     db.commit()
-    # Cambiar is_active de un puesto afecta el acceso de sus usuarios.
+    # Cambiar is_active de un puesto afecta el acceso de sus usuarios. Las
+    # asignaciones siguen vivas, así que los ocupantes se pueden leer después
+    # del commit. Sin app_key: el puesto puede conceder en varias apps.
     if 'is_active' in kwargs:
-        _bust_all()
+        _bust_position(db, position_id)
     return position
 
 def deactivate_position(db: Session, position_id: int) -> bool:
@@ -114,6 +177,10 @@ def deactivate_position(db: Session, position_id: int) -> bool:
 
     position.is_active = False
 
+    # ANTES del UPDATE: en cuanto is_active pase a False la consulta de
+    # ocupantes devuelve vacío y no se invalidaría a nadie.
+    afectados = position_user_ids(db, position_id)
+
     db.query(UserPosition).filter_by(
         position_id=position_id,
         is_active=True
@@ -123,7 +190,7 @@ def deactivate_position(db: Session, position_id: int) -> bool:
     })
 
     db.commit()
-    _bust_all()  # afecta a todos los usuarios del puesto
+    _bust_position(db, position_id, user_ids=afectados)
     return True
 
 def delete_position(db: Session, position_id: int) -> bool:
@@ -132,9 +199,12 @@ def delete_position(db: Session, position_id: int) -> bool:
     if not position:
         return False
 
+    # ANTES del delete: el CASCADE se lleva las filas de UserPosition.
+    afectados = position_user_ids(db, position_id)
+
     db.delete(position)
     db.commit()
-    _bust_all()  # afecta a todos los usuarios del puesto
+    _bust_position(db, position_id, user_ids=afectados)
     return True
 
 def get_position_by_id(db: Session, position_id: int) -> Optional[Position]:
@@ -314,7 +384,7 @@ def assign_role_to_position(db: Session, position_id: int, app_key: str, role_na
 
     db.add(assignment)
     db.commit()
-    _bust_all()  # todos los usuarios del puesto ganan el rol
+    _bust_position(db, position_id, app_key)  # los ocupantes ganan el rol en ESTA app
     return True
 
 def remove_role_from_position(db: Session, position_id: int, app_key: str, role_name: str) -> bool:
@@ -335,7 +405,7 @@ def remove_role_from_position(db: Session, position_id: int, app_key: str, role_
 
     db.commit()
     if deleted:
-        _bust_all()  # todos los usuarios del puesto pierden el rol
+        _bust_position(db, position_id, app_key)  # los ocupantes pierden el rol en ESTA app
     return deleted > 0
 
 def assign_permission_to_position(
@@ -363,7 +433,7 @@ def assign_permission_to_position(
     if existing:
         existing.allow = allow
         db.commit()
-        _bust_all()  # todos los usuarios del puesto cambian permiso
+        _bust_position(db, position_id, app_key)  # cambia el permiso en ESTA app
         return True
 
     assignment = PositionAppPerm(
@@ -375,7 +445,7 @@ def assign_permission_to_position(
 
     db.add(assignment)
     db.commit()
-    _bust_all()  # todos los usuarios del puesto ganan el permiso
+    _bust_position(db, position_id, app_key)  # los ocupantes ganan el permiso en ESTA app
     return True
 
 def get_position_effective_permissions(db: Session, user_id: int, app_key: str) -> Set[str]:
