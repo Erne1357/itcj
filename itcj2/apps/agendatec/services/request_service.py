@@ -151,6 +151,20 @@ class RequestService:
                 extra_data={"enabled_days": [d.isoformat() for d in sorted(enabled_days)]},
             )
 
+        # TODO(retirar tras 20263): candado de modalidad — el sábado 29-ago es
+        # exclusivo de EAD y los días entre semana son exclusivos del resto.
+        # Va aquí y no solo en la UI: ocultar el botón del día es cosmético si
+        # un POST con un slot_id de ese día se acepta igual.
+        from itcj2.apps.agendatec.config.ead_day_gate import day_allowed_for_program
+
+        _prog = db.get(Program, program_id)
+        if not day_allowed_for_program(slot.day, _prog.name if _prog else None):
+            return ValidationResult(
+                is_valid=False,
+                error="day_not_allowed_for_program",
+                message="Ese día no está disponible para tu carrera",
+            )
+
         # Aware, en la zona de la app: el proceso corre en UTC dentro del
         # contenedor, así que un datetime.now() naive desplazaba este guard
         # 6 o 7 horas según el horario de verano.

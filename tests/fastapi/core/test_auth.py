@@ -51,6 +51,20 @@ class TestLogin:
         # Debe setear la cookie itcj_token
         assert "itcj_token" in resp.cookies
 
+    @patch("itcj2.core.services.auth_service.authenticate")
+    def test_login_student_alnum_control_number(self, mock_auth, app_client):
+        """Reingreso/posgrado (B*/C*/D*/M*) autentica por control_number, no por username."""
+        mock_auth.return_value = FAKE_STUDENT
+
+        resp = app_client.post(
+            "/api/core/v2/auth/login",
+            json={"control_number": "m23111964", "nip": "mypassword"},
+        )
+
+        assert resp.status_code == 200
+        # El no. de control se normaliza a mayúsculas antes de buscarlo en BD.
+        assert mock_auth.call_args.args[1] == "M23111964"
+
     @patch("itcj2.core.services.auth_service.authenticate_by_username")
     def test_login_staff_success(self, mock_auth, app_client):
         """Login exitoso con username (staff)."""

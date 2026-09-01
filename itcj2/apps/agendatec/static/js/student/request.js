@@ -1,7 +1,7 @@
 /**
  * AgendaTec — Student / request.js
  * Wizard de nueva solicitud: tipo → carrera → detalles → horario.
- * Usa .at-slot, .at-stepper, Skeleton.cards(), at-empty, ARIA, hold countdown.
+ * Usa .at-slot, .at-stepper, Skeleton.slots(), at-empty, ARIA, hold countdown.
  */
 
 (() => {
@@ -13,6 +13,12 @@
 
   // === ESTADO ===
   let enabledDays = [];
+  // Dias que el alumno puede REALMENTE elegir: los del periodo que ademas
+  // tienen horario libre para SU carrera. Se llena al elegir carrera; hasta
+  // entonces la tira de dias no puede pintarse (no se sabe de quien es).
+  let availableDays = [];
+  let daysReqToken = 0;
+  let daysLoading = false;
 
   const state = {
     type        : null,   // DROP | APPOINTMENT | BOTH
@@ -220,11 +226,17 @@
         c.setAttribute("aria-pressed", "false");
       });
       if (typeHint) typeHint.textContent = "";
+      availableDays = [];
+      daysReqToken++;
+      daysLoading = false;
     } else if (targetId === "program") {
       state.program_id  = null;
       state.description = null;
       state.day         = null;
       state.slot_id     = null;
+      availableDays = [];
+      daysReqToken++;
+      daysLoading = false;
       if (programSelect) programSelect.value = "";
       if (coordCard) coordCard.hidden = true;
     } else if (targetId === "forms") {
@@ -499,6 +511,8 @@
       const data = await r.json();
       enabledDays = (data.enabled_days || []).sort();
       state.periodLoaded = true;
+      // NO se pintan los dias aqui: dependen de la carrera, que en este punto
+      // del wizard todavia no se ha elegido. Los pinta loadProgramDays().
       renderDayButtons();
     } catch (error) {
       console.error("Error al cargar período activo:", error);
@@ -507,17 +521,70 @@
     }
   }
 
+  // === CARGA DE DÍAS DE LA CARRERA ===
+  // Los días que se ofrecen dependen de la carrera: el backend solo devuelve
+  // aquellos en los que /slots daría al menos un horario libre para ella. Sin
+  // esto se pintaban los días del período tal cual y el alumno los abría para
+  // encontrarlos vacíos.
+  async function loadProgramDays() {
+    const programId = state.program_id;
+    if (!programId) { availableDays = []; daysLoading = false; renderDayButtons(); return; }
+
+    // Token de carrera: si el alumno cambia de carrera antes de que llegue la
+    // respuesta anterior, la vieja no debe pisar a la nueva.
+    const token = ++daysReqToken;
+    // Sin este estado la tira mostraria "tu carrera no tiene horarios" durante
+    // el viaje de red, que es un mensaje falso y alarmante.
+    daysLoading = true;
+    renderDayButtons();
+    try {
+      const r = await fetch(
+        `/api/agendatec/v2/availability/program/${programId}/days`,
+        { credentials: "include" }
+      );
+      if (!r.ok) throw new Error("days_fetch_failed");
+      const data = await r.json();
+      if (token !== daysReqToken) return;
+      availableDays = (data.days || []).slice().sort();
+      if (Array.isArray(data.enabled_days)) enabledDays = data.enabled_days.slice().sort();
+    } catch (error) {
+      if (token !== daysReqToken) return;
+      console.error("Error al cargar días de la carrera:", error);
+      // Vacío y no "todos": ofrecer días sin saber si aplican es justo el
+      // comportamiento que este cambio elimina.
+      availableDays = [];
+      showToast("No se pudieron cargar los días disponibles.", "error");
+    }
+    daysLoading = false;
+    renderDayButtons();
+  }
+
   // === RENDER BOTONES DE DÍAS ===
   function renderDayButtons() {
     const container = document.querySelector(".day-buttons-container");
     if (!container) return;
 
-    if (!enabledDays.length) {
-      container.innerHTML = '<p class="text-muted text-center">No hay días habilitados en el período actual.</p>';
+    if (!state.program_id) {
+      container.innerHTML = '<p class="text-muted text-center">Selecciona tu carrera para ver los días disponibles.</p>';
       return;
     }
 
-    container.innerHTML = enabledDays.map((day) => {
+    if (daysLoading) {
+      container.innerHTML = '<p class="text-muted text-center">Cargando días disponibles…</p>';
+      return;
+    }
+
+    if (!availableDays.length) {
+      // Se distinguen los dos casos porque el alumno no puede hacer lo mismo en
+      // cada uno: si el periodo no tiene dias, no hay nada que esperar; si los
+      // tiene pero ninguno es de su carrera, su coordinador aun no publica.
+      container.innerHTML = enabledDays.length
+        ? '<p class="text-muted text-center">Tu carrera todavía no tiene horarios publicados en este período. Consulta con tu coordinador.</p>'
+        : '<p class="text-muted text-center">No hay días habilitados en el período actual.</p>';
+      return;
+    }
+
+    container.innerHTML = availableDays.map((day) => {
       const d = new Date(day + "T00:00:00");
       const dayName  = d.toLocaleDateString("es-MX", { weekday: "short" });
       const dayNum   = d.getDate();
@@ -539,7 +606,7 @@
     container.querySelectorAll(".day-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const day = btn.getAttribute("data-day");
-        if (!enabledDays.includes(day)) return;
+        if (!availableDays.includes(day)) return;
 
         // Actualizar aria-pressed
         container.querySelectorAll(".day-btn").forEach((b) => {
@@ -554,7 +621,7 @@
         registerSocketEvents();
 
         // Mostrar skeleton mientras espera el join (500ms)
-        slotGrid.innerHTML = Skeleton.cards(2);
+        showSlotsSkeleton();
         slotsWrap.hidden = false;
 
         setTimeout(() => loadSlots(), 500);
@@ -628,7 +695,26 @@
     state.program_id = Number.isFinite(id) && id > 0 ? id : null;
     coordCard.hidden = true;
 
-    if (!state.program_id) { updateSubmitDisabled(); return; }
+    // La tira de días es por carrera: invalidar lo anterior antes de nada.
+    availableDays = [];
+    state.day = null;
+    state.slot_id = null;
+
+    if (!state.program_id) {
+      daysReqToken++;
+      daysLoading = false;
+      renderDayButtons();
+      updateSubmitDisabled();
+      return;
+    }
+
+    // Solo el flujo con cita tiene stage de calendario; DROP no lo usa.
+    if (state.type && state.type !== "DROP") {
+      loadProgramDays();
+    } else {
+      daysLoading = false;
+      renderDayButtons();
+    }
 
     // Capturar nombre legible de la carrera para mostrar en paso 3 + resumen.
     const programLabel = e.target.options[e.target.selectedIndex]?.textContent?.trim() || "";
@@ -699,6 +785,7 @@
     state.day    = null;
     state.slot_id = null;
     slotsWrap.hidden = true;
+    slotGrid.removeAttribute("aria-busy");
     slotGrid.innerHTML = "";
 
     // Resetear aria-pressed de día
@@ -713,7 +800,7 @@
   let _firstSlotsLoad = true;
   async function loadSlots() {
     if (!state.program_id || !state.day) return;
-    slotGrid.innerHTML = Skeleton.cards(2);
+    showSlotsSkeleton();
 
     // 1.2 anti-herd: jitter SOLO en la primera carga. Al abrir las citas,
     // miles de alumnos cargan la página en el mismo segundo; esparcir el primer
@@ -735,6 +822,7 @@
     } catch (error) {
       console.error(error);
       showToast("No se pudieron cargar los horarios.", "error");
+      slotGrid.removeAttribute("aria-busy");
       slotGrid.innerHTML = renderEmptySlots();
     }
   }
@@ -760,6 +848,7 @@
     updateSubmitDisabled();
 
     const hourTabs = document.getElementById("hourTabs");
+    slotGrid.removeAttribute("aria-busy");
     slotGrid.innerHTML = "";
     hourTabs.innerHTML = "";
     btnById.clear();
@@ -847,7 +936,24 @@
     }
   }
 
+  /** Placeholder de carga del grid de horarios.
+   *
+   * `Skeleton.cards()` era lo que habia aqui y no encaja: el grid es
+   * `d-flex flex-wrap gap-2`, asi que cada tarjeta se volvia un flex item
+   * encogido a su contenido y sus lineas internas se veian como palitos.
+   * `Skeleton.slots()` usa la silueta del chip real.
+   *
+   * `aria-busy` va en el contenedor porque los placeholders son
+   * `aria-hidden`: sin el, un lector de pantalla anunciaria el grupo "Slots
+   * disponibles" como vacio mientras carga.
+   */
+  function showSlotsSkeleton(n = 6) {
+    slotGrid.setAttribute("aria-busy", "true");
+    slotGrid.innerHTML = Skeleton.slots(n);
+  }
+
   function renderHourSlots(slots) {
+    slotGrid.removeAttribute("aria-busy");
     slotGrid.innerHTML = "";
     btnById.clear();
 
