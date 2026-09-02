@@ -60,6 +60,12 @@ Ver [máquina de estados](00_state_machine.md).
 la fase). Tabla de eventos en
 [integración del alumno en el shell](xcut_student_shell_embed.md#notificaciones-regla-general-de-toda-app).
 
+> **Ojo con «link a la fase»: ya no abre una pantalla.** Ese link es
+> `/titulatec/student/fase/{n}` y desde 2026-09-02 responde **302** a
+> `/titulatec/student/dashboard?fase={n}` — el acordeón de esa fase, ya abierto y resaltado en el
+> HTML de la respuesta. La ruta **no se puede borrar**: esas URLs están escritas dentro de filas de
+> `core_notifications` que ya existen. Ver [acordeón de fases](xcut_student_phase_detail.md).
+
 ## Guarda de transición (desde 2026-09)
 
 `approve_phase` y `reject_phase` empiezan llamando a `PhaseService.assert_can_transition`

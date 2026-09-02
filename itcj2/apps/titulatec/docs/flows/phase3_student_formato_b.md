@@ -7,13 +7,14 @@
 |---|---|
 | **Actor(es)** | 👤 Alumno (`student`) |
 | **Permiso(s)** | `format_b.page.fill` · `format_b.api.save` · `format_b.api.submit` |
-| **Trigger** | El alumno entra al Formato B (fase 3 activa) |
+| **Trigger** | El alumno toca **«Llenar Formato B»** en la tarjeta «Tu proceso» del dashboard ([acordeón de fases](xcut_student_phase_detail.md)); el CTA solo aparece con la fase 3 activa |
 | **Precondiciones** | Proceso `active`, fase 2 aprobada / fase 3 `in_progress` |
 | **Estado final** | `FormatB.status=submitted` + fase 3 `in_review` |
 
 ## Ruta en la app (UI)
 
-1. `/titulatec/student/formato-b` (shell, arranca en paso 1).
+1. Dashboard → tarjeta «Tu proceso» → «Llenar Formato B» (o directo
+   `/titulatec/student/formato-b`). Arranca en el paso 1.
 2. Stepper **Personal → Escolar → Proyecto** (parcial `partials/formato_b_step.html`,
    swap `outerHTML` de `#formato-b-body`). Guarda al pasar de paso; permite back nav.
 3. En el paso 3, "Enviar" → confirma → pantalla de éxito.
@@ -67,3 +68,7 @@ sequenceDiagram
 
 - ← Previo: [cita de cotejo](phase2_appointment_loop.md).
 - ⤵ Aprobación de fase: [motor de avance](engine_approve_advance_phase.md).
+- 🖥️ Entrada y seguimiento: [acordeón de fases del dashboard](xcut_student_phase_detail.md) — el
+  panel de la fase 3 dice **en qué paso va** (1/3, 2/3, 3/3) y si ya está enviado. El paso se
+  deriva de campos que llenó el alumno, no de los que `get_or_create` precarga: si contaran, el
+  paso 2 se vería completo desde el minuto cero.

@@ -1,7 +1,20 @@
+{# ===========================================================================
+   dashboard.html — pantalla principal del alumno.
+
+   Desde 2026-09-02 aquí vive TODO el proceso: se eliminó la pantalla intermedia
+   /student/fase/{n} (ahora redirige a `?fase=N`).
+     · Columna A = la fase ACTUAL en grande, con su sub-progreso y su CTA. Es la
+       única fase que acciona.
+     · Columna B = acordeón de las 9. Las anteriores y las siguientes se
+       despliegan; la actual NO (su sitio es la columna A, y en móvil la columna
+       A va ANTES en el DOM, así que "arriba" es literal).
+   Contexto: pages/student.py::_phases_ctx. JS: static/js/student/dashboard.js.
+   =========================================================================== #}
 {% extends "titulatec/student/base_student.html" %}
-{% from "titulatec/_macros.html" import pill %}
+{% from "titulatec/_macros.html" import pill, estado_pill %}
 {% block student_title %}Mi proceso · TitulaTec{% endblock %}
 {% block student_active %}home{% endblock %}
+{% block student_page %}student_dashboard{% endblock %}
 {% block student_appbar_title %}Mi proceso{% endblock %}
 
 {# Raíz del alumno: el botón "volver" sale al shell (solo embebido, lo muestra el core). #}
@@ -39,41 +52,199 @@
   <div class="tt-dash-rise px-3 px-lg-0 position-relative" style="z-index:2">
     <div class="tt-dash-grid">
 
-      {# Col A — fase actual #}
+      {# ================= Col A — la fase ACTUAL, en grande ================= #}
       <div>
-        <div class="tt-card tt-card--hero tt-anim-in">
-          <div class="d-flex justify-content-between align-items-center">
-            <span class="tt-kicker">Tu proceso</span>
-            {{ pill('En construcción', 'amber', 'cone-striped') }}
+        {% if current %}
+        <div class="tt-card tt-card--hero tt-anim-in" id="tt-fase-actual" data-tt-now
+             tabindex="-1" style="scroll-margin-top:84px">
+          <div class="d-flex justify-content-between align-items-center gap-2">
+            <span class="tt-kicker">Tu proceso · Fase {{ '%02d'|format(current.number) }}</span>
+            {{ estado_pill(current.status) }}
           </div>
-          <div class="tt-display mt-2" style="font-size:1.4rem;font-weight:600;line-height:1.1">
-            {{ phase_name or 'Bienvenido a TitulaTec' }}
+
+          <div class="tt-now-head mt-2">
+            <span class="tt-now-icon"><i class="bi {{ current.icon or 'bi-flag' }}"></i></span>
+            <div class="min-w-0">
+              <div class="tt-now-title">{{ current.name }}</div>
+              <div style="font-size:.72rem;color:var(--tt-mute);margin-top:3px">
+                {% if current.responsible == 'student' %}Te toca a ti{% else %}A cargo de {{ current.responsible_label }}{% endif %}
+              </div>
+            </div>
           </div>
-          <p class="mt-2 mb-0" style="font-size:.85rem;color:var(--tt-slate)">
-            Aquí llevarás tu titulación de principio a fin. Toca una fase para ver qué necesitas y dónde accionar.
+
+          {% if current.desc %}
+          <p class="tt-prose mt-3 mb-0" style="font-size:.86rem;color:var(--tt-slate);line-height:1.55">{{ current.desc }}</p>
+          {% endif %}
+
+          {% if current.status == 'rejected' and current.rejection_reason %}
+          <div class="mt-3 p-3" style="border-radius:var(--tt-r);background:var(--tt-danger-soft);border:1px solid rgba(220,38,38,.2)">
+            <span class="tt-pill tt-pill--danger"><i class="bi bi-exclamation-triangle"></i> Necesita corrección</span>
+            <p class="tt-prose mb-0 mt-2" style="font-size:.83rem;color:#7F1D1D">{{ current.rejection_reason }}</p>
+          </div>
+          {% endif %}
+
+          {% if current.progress %}
+          <div class="mt-3">
+            {% with p = current.progress, detail = True %}
+              {% include "titulatec/partials/phase_progress.html" %}
+            {% endwith %}
+          </div>
+          {% endif %}
+
+          {% if current.cta %}
+          <div class="d-grid mt-3">
+            <a class="btn tt-btn-ink tt-now-cta d-inline-flex align-items-center justify-content-center"
+               href="{{ current.cta.url }}" data-tt-cta>
+              <i class="bi bi-{{ current.cta.icon }} me-2"></i>{{ current.cta.label }}
+            </a>
+          </div>
+          {% elif current.status == 'skipped' %}
+          <div class="mt-3">{{ pill('No aplica a tu modalidad', 'neutral', 'dash-circle') }}</div>
+          {% else %}
+          <p class="tt-prose mt-3 mb-0" style="font-size:.82rem;color:var(--tt-mute)">
+            <i class="bi bi-hourglass-split me-1"></i>En proceso por {{ current.responsible_label }}.
+            Te avisaremos aquí cuando avance.
           </p>
+          {% endif %}
+
+          {# El historial de la fase actual no cabe en ningún acordeón (su fila no
+             se despliega), así que vive aquí — debajo del CTA, para no empujar la
+             acción fuera de pantalla en móvil. #}
+          {% if current.events %}
+          <div class="mt-3 pt-3" style="border-top:1px solid var(--tt-line-soft)">
+            <div class="tt-acc-block-title"><i class="bi bi-clock-history"></i>Historial</div>
+            {% for e in current.events %}
+            <div class="tt-timeline-item">
+              <span class="dot"></span>
+              <div class="min-w-0">
+                <div class="label">{{ e.label }}</div>
+                <div class="when">{{ e.when }}</div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
         </div>
+        {% else %}
+        <div class="tt-card tt-card--hero tt-anim-in" id="tt-fase-actual" tabindex="-1">
+          <div class="tt-empty">
+            <div class="ico"><i class="bi bi-mortarboard"></i></div>
+            <h6>Aún no tienes proceso activo</h6>
+            <p>Servicios Escolares te dará de alta en una convocatoria y tu proceso aparecerá aquí.
+               Mientras tanto puedes desplegar cada fase para ver qué te va a pedir.</p>
+          </div>
+        </div>
+        {% endif %}
       </div>
 
-      {# Col B — lista de las 9 fases #}
+      {# ================= Col B — acordeón de las 9 fases ================= #}
       <div>
         <div class="tt-kicker mt-4 mt-lg-0 mb-2 px-1">El proceso (9 fases)</div>
-        <div class="tt-card p-0 overflow-hidden tt-stagger">
-          {% for ph in phases %}
-          {% set _cur = ph.number == current_phase %}
-          <a href="/titulatec/student/fase/{{ ph.number }}"
-             class="d-flex align-items-center gap-3 p-3 tt-hover-lift text-decoration-none"
-             style="color:inherit;{% if not loop.last %}border-bottom:1px solid var(--tt-line-soft);{% endif %}{% if _cur %}background:var(--tt-mist);{% endif %}">
-            <div class="d-flex align-items-center justify-content-center tt-mono"
-                 style="width:28px;height:28px;border-radius:8px;font-size:.66rem;font-weight:700;border:1px solid var(--tt-line);
-                 {% if _cur %}background:var(--tt-accent);color:#1F1300;border-color:var(--tt-accent){% else %}background:var(--tt-mist);color:var(--tt-mute){% endif %}">
-              {{ '%02d'|format(ph.number) }}
+        <div class="tt-card p-0 overflow-hidden">
+          <div class="tt-acc" data-tt-acc-root>
+            {% for ph in phases %}
+            <div class="tt-acc-item{% if ph.is_current %} is-current{% endif %}{% if ph.is_open %} is-open{% endif %}{% if ph.is_target %} is-target{% endif %}{% if ph.rel == 'past' and ph.status == 'approved' %} is-done{% endif %}"
+                 id="tt-fase-{{ ph.number }}" data-tt-phase="{{ ph.number }}"
+                 style="scroll-margin-top:84px">
+
+              {% if ph.can_expand %}
+              {# — Fases anteriores y siguientes: desplegables — #}
+              <h3 class="tt-acc-h">
+                <button type="button" class="tt-acc-btn" id="tt-acc-btn-{{ ph.number }}"
+                        data-tt-acc="{{ ph.number }}"
+                        aria-expanded="{{ 'true' if ph.is_open else 'false' }}"
+                        aria-controls="tt-acc-panel-{{ ph.number }}">
+                  <span class="tt-acc-num">{{ '%02d'|format(ph.number) }}</span>
+                  <span class="tt-acc-name">{{ ph.name }}
+                    {% if ph.progress %}<span class="tt-acc-sub">{{ ph.progress.label }}</span>{% endif %}
+                  </span>
+                  {% if ph.status != 'pending' %}{{ estado_pill(ph.status) }}{% endif %}
+                  <i class="bi bi-chevron-right tt-acc-chev" aria-hidden="true"></i>
+                </button>
+              </h3>
+
+              <div class="tt-acc-panel" id="tt-acc-panel-{{ ph.number }}" role="region"
+                   aria-labelledby="tt-acc-btn-{{ ph.number }}" {% if not ph.is_open %}hidden{% endif %}>
+                <div class="tt-acc-panel-in tt-anim-in">
+
+                  {% if ph.desc %}
+                  <p class="tt-prose mb-0" style="font-size:.82rem;color:var(--tt-slate);line-height:1.55">{{ ph.desc }}</p>
+                  {% endif %}
+
+                  {% if ph.progress %}
+                  <div>
+                    <div class="tt-acc-block-title"><i class="bi bi-activity"></i>Cómo va</div>
+                    {% with p = ph.progress, detail = True %}
+                      {% include "titulatec/partials/phase_progress.html" %}
+                    {% endwith %}
+                  </div>
+                  {% endif %}
+
+                  {% if ph.rejection_reason %}
+                  <div class="p-3" style="border-radius:var(--tt-r);background:var(--tt-danger-soft);border:1px solid rgba(220,38,38,.2)">
+                    <span class="tt-pill tt-pill--danger"><i class="bi bi-exclamation-triangle"></i> Observaciones</span>
+                    <p class="tt-prose mb-0 mt-2" style="font-size:.8rem;color:#7F1D1D">{{ ph.rejection_reason }}</p>
+                  </div>
+                  {% endif %}
+
+                  {% if ph.rel == 'future' and ph.needs %}
+                  <div>
+                    <div class="tt-acc-block-title"><i class="bi bi-list-check"></i>Qué vas a necesitar</div>
+                    <ul class="tt-needs">
+                      {% for n in ph.needs %}<li>{{ n }}</li>{% endfor %}
+                    </ul>
+                  </div>
+                  {% endif %}
+
+                  {% if ph.events %}
+                  <div>
+                    <div class="tt-acc-block-title"><i class="bi bi-clock-history"></i>Historial</div>
+                    {% for e in ph.events %}
+                    <div class="tt-timeline-item">
+                      <span class="dot"></span>
+                      <div class="min-w-0">
+                        <div class="label">{{ e.label }}</div>
+                        <div class="when">{{ e.when }}</div>
+                      </div>
+                    </div>
+                    {% endfor %}
+                  </div>
+                  {% endif %}
+
+                  {# — Cierre: qué se puede accionar aquí (spoiler: nada) — #}
+                  <div>
+                    {% if ph.status == 'skipped' %}
+                      {{ pill('No aplica a tu modalidad', 'neutral', 'dash-circle') }}
+                    {% elif ph.rel == 'past' %}
+                      {{ pill('Fase cerrada · ya no requiere acción', 'neutral', 'lock') }}
+                    {% else %}
+                      {{ pill('Se habilitará cuando llegues a esta fase', 'neutral', 'hourglass-split') }}
+                      {% if ph.who %}
+                      <p class="tt-prose mb-0 mt-2" style="font-size:.78rem;color:var(--tt-mute)">{{ ph.who }}</p>
+                      {% endif %}
+                    {% endif %}
+                  </div>
+
+                </div>
+              </div>
+
+              {% else %}
+              {# — Fase ACTUAL: no se despliega. Su contenido vive en la columna A. — #}
+              <div class="tt-acc-row">
+                <span class="tt-acc-num">{{ '%02d'|format(ph.number) }}</span>
+                <span class="tt-acc-name">{{ ph.name }}
+                  {% if ph.progress %}<span class="tt-acc-sub">{{ ph.progress.label }}</span>{% endif %}
+                </span>
+                {{ pill('Actual', 'amber') }}
+              </div>
+              <a class="tt-acc-hint" href="#tt-fase-actual" data-tt-acc-goto>
+                <i class="bi bi-arrow-up-circle"></i> Lo que tienes que hacer está en «Tu proceso»
+              </a>
+              {% endif %}
+
             </div>
-            <div class="flex-grow-1" style="font-size:.875rem;font-weight:{{ '600' if _cur else '500' }}">{{ ph.name }}</div>
-            {% if _cur %}<span class="tt-pill tt-pill--amber" style="font-size:.6rem">Actual</span>{% endif %}
-            <i class="bi bi-chevron-right" style="color:var(--tt-mute);font-size:.8rem"></i>
-          </a>
-          {% endfor %}
+            {% endfor %}
+          </div>
         </div>
       </div>
 

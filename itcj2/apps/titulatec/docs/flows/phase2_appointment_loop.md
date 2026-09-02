@@ -37,7 +37,9 @@
 - **🏛️ Encargado:** sidebar admin → **Citas de cotejo** (`/titulatec/admin/appointments`).
   Agenda master-detail: izquierda lista (**Por agendar** = procesos elegibles sin cita ·
   **Agenda** = citas), derecha detalle. Filtros carrera / estado / "solo mías".
-- **👤 Alumno:** menú del alumno (drawer/rail) → **Cita de cotejo** (`/titulatec/student/cita`):
+- **👤 Alumno:** tarjeta «Tu proceso» del dashboard → **«Ver mi cita»** (camino principal desde
+  2026-09-02, [acordeón de fases](xcut_student_phase_detail.md)), o menú del alumno (drawer/rail)
+  → **Cita de cotejo** (`/titulatec/student/cita`):
   tarjeta de estado + checklist físico fijo (actas, CURP cert., e.Firma, encuesta, no-adeudo,
   12 fotos, IMSS, $1,900). Chrome del alumno: ver [integración en el shell](xcut_student_shell_embed.md).
 
@@ -115,7 +117,8 @@ sequenceDiagram
 ## Notificaciones al alumno
 
 Agendar (1) y reagendar (4b) avisan al alumno (`APPOINTMENT_SCHEDULED` / `APPOINTMENT_RESCHEDULED`,
-con fecha+lugar, link a la fase 2) vía `services/notify.notify_student` → tab **Avisos** del shell
+con fecha+lugar, link a la fase 2 — que **redirige** al
+[acordeón del dashboard](xcut_student_phase_detail.md)) vía `services/notify.notify_student` → tab **Avisos** del shell
 (`appointment_service.py:135-149`, llamadas en `:182` y `:199`). La confirmación del alumno (2) no
 se auto-notifica. Ver
 [integración del alumno en el shell](xcut_student_shell_embed.md#notificaciones-regla-general-de-toda-app).
@@ -195,6 +198,9 @@ presente al leer el modelo ni al escribir código nuevo:
 ## Flujos relacionados
 
 - ← Previo: [revisión de docs iniciales (pestaña Documentos)](phase1_school_services_review_docs.md).
+- 🖥️ Entrada y seguimiento: [acordeón de fases del dashboard](xcut_student_phase_detail.md) — el
+  panel de la fase 2 resume fecha, lugar y si falta confirmar, **sin** dejar confirmar desde ahí:
+  confirmar y pedir cambio siguen viviendo solo en `/student/cita`.
 - ⤵ Motor: [aprobar/avanzar fase](engine_approve_advance_phase.md).
 - ⤵ Alcance: [días/encargados por carrera](engine_officer_scope.md).
 - → Siguiente: [Formato B](phase3_student_formato_b.md).

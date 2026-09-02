@@ -14,6 +14,7 @@ la vista haga nada: misma plantilla para los tres modos.
 {% extends "titulatec/student/base_student.html" %}
 {% block student_title %}Mi vista · TitulaTec{% endblock %}
 {% block student_active %}docs{% endblock %}          {# home | docs | cita | perfil #}
+{% block student_page %}student_mi_vista{% endblock %}  {# → <main data-tt-page>, ancla de los E2E #}
 {% block student_appbar_title %}Título corto{% endblock %}
 {% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">Subtítulo</div>{% endblock %}
 {% block student_appbar_left %}                         {# sub-página: chevron al dashboard #}
@@ -42,6 +43,11 @@ la vista haga nada: misma plantilla para los tres modos.
 
 ## Qué da el shell (no lo repliques)
 
+- **`data-tt-page`** en el `<main>`: marcador **estable** de vista para los E2E (el equivalente del
+  `data-hd-page` de helpdesk). Lo rellena el bloque `student_page`; una vista sin él no tiene a qué
+  anclarse un test. Claves vivas: `student_dashboard`, `student_documents`, `student_cita`,
+  `student_formato_b`, `student_perfil`.
+
 - **Appbar** sticky con safe-area. Slot izquierdo (`student_appbar_left`), título/subtítulo, hamburguesa.
 - **Drawer** (móvil) y **rail** (desktop ≥992px) con la misma `student_nav` (macro en `_macros.html`),
   tematizados con `--app-primary*` (ink/ámbar). Footer con usuario + cerrar sesión.
@@ -60,3 +66,10 @@ la vista haga nada: misma plantilla para los tres modos.
 4. Notificación in-app → `services/notify.notify_student(...)` (no toques el shell ni el FAB).
 5. Animación/skeletons → primitivas existentes ([ui_motion.md](ui_motion.md)). Estado vacío → `.tt-empty`.
 6. Al tocar CSS/JS, bumpear `STATIC_VERSION` en `itcj2/config.py` (gotcha #4).
+7. **Escritorio = pantalla completa** (desde 2026-09-02): la caja no se topa, la **prosa** sí
+   (`.tt-prose`, ~70ch; los `p` del canvas lo heredan ≥992px). No vuelvas a poner un `max-width`
+   en `.tt-shell` ni en `.tt-canvas-inner`. Contrato en
+   [responsive.md](responsive.md); breakpoints del alumno: **992 · 1280 · 1600**.
+8. JS de una vista de alumno → módulo externo en `static/js/student/`, cargado **una vez** desde
+   `base_student.html` (no dentro de un parcial), delegado en `document` y con guarda de doble
+   carga. Referencia: `static/js/student/dashboard.js` (acordeón de fases).

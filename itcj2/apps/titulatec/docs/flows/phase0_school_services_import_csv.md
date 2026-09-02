@@ -149,7 +149,8 @@ Por cada fila incluida (`ImportService.import_rows`, `import_service.py:394-528`
   (`:433-442`, `:504-513`).
 - `titulatec_process_phases`: 9 filas, `phase_number` 0..8 — la 0 `approved` (intake), la 1
   `in_progress`, 2..8 `pending` (`:310-312`).
-- Notificación `PROCESS_CREATED` al alumno, con link a la fase 1
+- Notificación `PROCESS_CREATED` al alumno, con link a la fase 1 — `/student/fase/1`, que
+  **redirige (302)** al [acordeón del dashboard](xcut_student_phase_detail.md) abierto en esa fase
   (`:315-319` → `services/notify.notify_student`). Se ve en el tab **Avisos** del shell; ver
   [integración del alumno en el shell](xcut_student_shell_embed.md#notificaciones-regla-general-de-toda-app).
 - El alumno ya puede entrar a su [flujo de documentos iniciales](phase1_student_upload_initial_docs.md).

@@ -17,6 +17,15 @@ STEP_FIELDS = {
 _INT_FIELDS = {"age", "program_id"}
 _MONTH_FIELDS = {"admission_date", "graduation_date"}
 
+# Etiqueta de cada paso (la misma del stepper de `partials/formato_b_step.html`).
+STEP_LABELS = {1: "Personales", 2: "Escolares", 3: "Proyecto"}
+
+# Campos que `get_or_create` PRECARGA del alumno/proceso. No sirven como señal de
+# "el alumno pasó por este paso": están llenos desde el minuto cero. Sin excluirlos,
+# el paso 2 (program_id + titulation_type precargados) se vería completo siempre.
+PRELOADED_FIELDS = {"first_name", "last_name", "middle_name",
+                    "control_number", "program_id", "titulation_type"}
+
 
 def _to_month_str(d) -> str:
     """Date → 'YYYY-MM' para <input type=month>."""
@@ -103,6 +112,41 @@ class FormatBService:
         else:
             fb.rejection_reason = note or None
         db.commit()
+
+    @staticmethod
+    def progress(fb) -> dict:
+        """En qué paso va el Formato B y si ya se envió. Sin tocar la BD.
+
+        No hay campos `required` en `partials/formato_b_step.html` (verificado:
+        cero ocurrencias), así que "paso completo" no se puede derivar de una
+        lista de obligatorios que no existe. La señal real y honesta es **si el
+        alumno dejó datos suyos en ese paso**: `save_step` escribe en cada
+        "Siguiente", así que un paso con datos propios es un paso por el que ya
+        pasó. De ahí la resta de `PRELOADED_FIELDS`.
+
+        Devuelve ``{"status", "submitted", "step", "total_steps", "steps",
+        "rejection_reason"}``; `step` es el primer paso sin datos propios (3 si
+        todos los tienen).
+        """
+        steps, first_open = [], None
+        for n in sorted(STEP_FIELDS):
+            fields = [f for f in STEP_FIELDS[n] if f not in PRELOADED_FIELDS]
+            done = any(
+                getattr(fb, f, None) not in (None, "") for f in fields
+            ) if fb is not None else False
+            if not done and first_open is None:
+                first_open = n
+            steps.append({"n": n, "label": STEP_LABELS.get(n, f"Paso {n}"), "done": done})
+
+        status = getattr(fb, "status", None) or "draft"
+        return {
+            "status": status,
+            "submitted": status in ("submitted", "approved"),
+            "step": first_open or max(STEP_FIELDS),
+            "total_steps": len(STEP_FIELDS),
+            "steps": steps,
+            "rejection_reason": getattr(fb, "rejection_reason", None),
+        }
 
     @staticmethod
     def to_ctx(fb) -> dict:

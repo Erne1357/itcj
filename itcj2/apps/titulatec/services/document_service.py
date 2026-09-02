@@ -17,6 +17,55 @@ class DocumentService:
         return True
 
     @staticmethod
+    def initial_docs_summary(db, process_id: int) -> dict:
+        """Resumen de los 3 documentos iniciales en **dos** consultas fijas.
+
+        Lo consume el acordeón del dashboard del alumno, que se pinta 9 veces por
+        carga: `initial_docs_all_approved` haría una consulta por código (y no
+        distingue rechazado de faltante), así que ahí sería un N+1 en la pantalla
+        más visitada de la app.
+
+        `status` por documento: ``approved|rejected|pending|missing`` — ``missing``
+        es el pseudo-estado de la UI cuando no hay fila (mismo criterio que
+        `pages/documents.py:31`), no un valor de `Document.review_status`.
+        """
+        from itcj2.apps.titulatec.models import Document, DocumentType
+
+        codes = DocumentService.INITIAL_DOC_TYPES
+        docs = {
+            d.type_code: d for d in
+            db.query(Document)
+            .filter(Document.process_id == process_id, Document.type_code.in_(codes))
+            .all()
+        }
+        # Sin `is_active`: si un tipo se desactiva, el documento ya subido debe
+        # seguir mostrándose con su nombre, no con el código crudo.
+        names = {
+            t.code: t.name for t in
+            db.query(DocumentType).filter(DocumentType.code.in_(codes)).all()
+        }
+
+        items, counts = [], {"approved": 0, "rejected": 0, "pending": 0, "missing": 0}
+        for code in codes:
+            doc = docs.get(code)
+            status = doc.review_status if doc else "missing"
+            if status not in counts:          # valor inesperado en BD: no lo perdemos
+                counts[status] = 0
+            counts[status] += 1
+            items.append({
+                "code": code,
+                "name": names.get(code, code),
+                "status": status,
+                "note": (doc.review_note if doc else None),
+            })
+        return {
+            "total": len(codes),
+            "uploaded": len(codes) - counts["missing"],
+            "counts": counts,
+            "items": items,
+        }
+
+    @staticmethod
     def get_active_process(db: Session, student_id: int):
         """Proceso activo más reciente del alumno (o None)."""
         from itcj2.apps.titulatec.models import TitulationProcess

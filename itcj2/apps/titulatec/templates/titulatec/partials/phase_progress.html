@@ -1,0 +1,78 @@
+{# ===========================================================================
+   phase_progress.html — sub-progreso de una fase con sub-pasos (alumno).
+
+   Lo usan la tarjeta protagonista del dashboard (fase actual) y los paneles
+   del acordeón. Recibe:
+     p       dict de `progress` que arma pages/student.py (`kind`, `label`,
+             `tone` + el detalle propio de cada tipo). Nunca None: el llamador
+             comprueba antes.
+     detail  bool — False pinta solo la píldora resumen (cabeceras/listas).
+
+   `kind` soportados: documents (fase 1) · appointment (fase 2) · format_b (fase 3).
+   Un `kind` desconocido degrada a la píldora: una fase nueva con sub-pasos no
+   rompe la pantalla más visitada del alumno mientras no se escriba su detalle.
+   =========================================================================== #}
+{% from "titulatec/_macros.html" import pill %}
+
+{{ pill(p.label, p.tone or 'neutral') }}
+
+{% if detail %}
+  {% if p.kind == 'documents' %}
+    <div class="mt-2">
+      {% for it in p['items'] %}
+        {% set _ico = {'approved': ('is-done', 'check-lg'),
+                       'rejected': ('is-bad', 'exclamation-triangle'),
+                       'pending':  ('is-wait', 'clock'),
+                       'missing':  ('', 'dash')}.get(it.status, ('', 'dash')) %}
+        <div class="tt-substep">
+          <span class="ico {{ _ico[0] }}"><i class="bi bi-{{ _ico[1] }}"></i></span>
+          <span class="txt">
+            {{ it.name }}
+            <span style="color:var(--tt-mute)">·
+              {%- if it.status == 'approved' %} aprobado
+              {%- elif it.status == 'rejected' %} por corregir
+              {%- elif it.status == 'pending' %} en revisión
+              {%- else %} sin subir{% endif %}</span>
+            {% if it.status == 'rejected' and it.note %}<div class="note">{{ it.note }}</div>{% endif %}
+          </span>
+        </div>
+      {% endfor %}
+    </div>
+
+  {% elif p.kind == 'appointment' %}
+    {% if p.scheduled_label and p.scheduled_label != '—' %}
+      <div class="mt-2">
+        <div class="tt-substep">
+          <span class="ico is-wait"><i class="bi bi-calendar-event"></i></span>
+          <span class="txt">{{ p.scheduled_label }}</span>
+        </div>
+        {% if p.location %}
+        <div class="tt-substep">
+          <span class="ico"><i class="bi bi-geo-alt"></i></span>
+          <span class="txt">{{ p.location }}</span>
+        </div>
+        {% endif %}
+        <div class="tt-substep">
+          <span class="ico {{ 'is-done' if p.confirmed else '' }}">
+            <i class="bi bi-{{ 'check-lg' if p.confirmed else 'dash' }}"></i></span>
+          <span class="txt">{{ 'Asistencia confirmada' if p.confirmed else 'Falta que confirmes tu asistencia' }}</span>
+        </div>
+      </div>
+    {% endif %}
+
+  {% elif p.kind == 'format_b' %}
+    <div class="mt-2">
+      {% for s in p['steps'] %}
+      <div class="tt-substep">
+        <span class="ico {{ 'is-done' if s.done else '' }}">
+          <i class="bi bi-{{ 'check-lg' if s.done else 'dash' }}"></i></span>
+        <span class="txt">Paso {{ s.n }} · {{ s.label }}
+          <span style="color:var(--tt-mute)">· {{ 'listo' if s.done else 'pendiente' }}</span></span>
+      </div>
+      {% endfor %}
+    </div>
+    {% if p.rejection_reason %}
+      <p class="tt-prose mt-2 mb-0" style="font-size:.78rem;color:#991B1B">{{ p.rejection_reason }}</p>
+    {% endif %}
+  {% endif %}
+{% endif %}

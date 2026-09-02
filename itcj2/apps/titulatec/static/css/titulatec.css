@@ -77,6 +77,10 @@ body {
 .tt-mono    { font-family: var(--tt-mono); }
 .tt-kicker  { font-family: var(--tt-mono); font-size: .6875rem; font-weight: 600;
               letter-spacing: 1.2px; text-transform: uppercase; color: var(--tt-mute); }
+/* Tope de LECTURA. Desde 2026-09-02 la caja del alumno ocupa toda la ventana
+   (ver bloque DESKTOP abajo): sin este tope, a 1920 un párrafo sale con líneas
+   de ~200 caracteres, que es ilegible. La caja se estira; la prosa no. */
+.tt-prose   { max-width: 48ch; }
 
 /* — Superficies — */
 .tt-paper { background: var(--tt-paper); }
@@ -327,6 +331,9 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
     transform: none !important;
   }
   .tt-skel::after { animation: none !important; }   /* sin shimmer en movimiento */
+  /* El chevron del acordeón SIGUE rotando (es el indicador de estado, no adorno);
+     lo que se elimina es la interpolación: cambia de golpe. */
+  .tt-acc-chev { transition: none !important; }
 }
 
 /* ============================ TEMA OSCURO (opcional) =================== */
@@ -424,13 +431,21 @@ body.in-mobile-iframe .tt-standalone-only { display: none !important; }
 .tt-empty p  { font-size: .85rem; color: var(--tt-mute); margin: 0 auto; max-width: 34ch; line-height: 1.5; }
 
 /* ============================ DESKTOP (≥992px) ======================== */
-/* El canvas mobile-first se vuelve intencional: rail lateral + contenido
-   centrado con ancho cómodo. No es un móvil estirado. */
+/* Rail lateral fijo a la izquierda + canvas A PANTALLA COMPLETA.
+   Hasta 2026-09-01 la shell se topaba a 1180px y el canvas a 920/1000px: a 1920
+   eso dejaba ~370px de franja muerta a cada lado. Decisión del usuario
+   (2026-09-02): la CAJA ocupa toda la ventana.
+   El tope se mueve de la caja a la PROSA (`.tt-prose` y los `p` del canvas,
+   48ch): estirar la caja sin topar el párrafo produce líneas ilegibles.
+   OJO: `ch` es el ancho del glifo "0", MUCHO más ancho que la letra media, así que
+   70ch daban 103 caracteres por línea, no 70. El valor se ajustó MIDIENDO caracteres
+   reales por línea en el navegador, no píxeles. Si cambias el font-size, re-mide.
+   Contrato actualizado en docs/design/responsive.md. */
 @media (min-width: 992px) {
   .tt-shell {
     flex-direction: row; align-items: stretch;
-    max-width: 1180px; margin: 0 auto;
-    box-shadow: 0 0 0 1px var(--tt-line); background: var(--tt-paper);
+    max-width: none; margin: 0;
+    background: var(--tt-paper);
   }
   .tt-rail {
     display: flex; flex-direction: column; width: 256px; flex: 0 0 256px;
@@ -441,8 +456,16 @@ body.in-mobile-iframe .tt-standalone-only { display: none !important; }
   .tt-burger { display: none; }
   /* En desktop el drawer no aplica (lo cubre el rail). */
   body.tt-stu .app-sidebar, body.tt-stu .app-sidebar-overlay { display: none !important; }
-  .tt-appbar { background: var(--tt-paper); }
-  .tt-canvas-inner { max-width: 920px; margin: 0 auto; padding: 24px 28px; }
+  /* El gutter crece con la ventana en vez de convertirse en franja muerta.
+     Appbar y canvas comparten el mismo padding para que todo quede a plomo. */
+  .tt-appbar { background: var(--tt-paper); padding-inline: clamp(20px, 2.4vw, 44px); }
+  .tt-canvas-inner { max-width: none; margin: 0; padding: 24px clamp(20px, 2.4vw, 44px); }
+
+  /* Tope de lectura por defecto dentro del canvas del alumno. */
+  .tt-stu .tt-canvas-inner p { max-width: 48ch; }
+  /* El estado vacío conserva su medida propia (34ch centrado). */
+  .tt-stu .tt-canvas-inner .tt-empty p { max-width: 34ch; }
+
   /* Hero contenido (no banda full-bleed) + columnas debajo, sin solape oscuro. */
   .tt-dash-hero { padding: 26px 30px 30px; border-radius: var(--tt-r-xl); box-shadow: var(--tt-shadow-hero); }
   .tt-dash-rise { margin-top: 20px; }
@@ -450,7 +473,19 @@ body.in-mobile-iframe .tt-standalone-only { display: none !important; }
   .tt-dash-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 20px; align-items: start; }
 }
 @media (min-width: 1280px) {
-  .tt-canvas-inner { max-width: 1000px; }
+  .tt-dash-grid { gap: 24px; }
+}
+/* — Tercer breakpoint del alumno (NUEVO 2026-09-02): monitor grande —
+   Decisión de design system, no parche local (regla 5 del contrato responsive).
+   A pantalla completa, 1.05/.95 dejaba la columna A en ~810px para un contenido
+   cuya prosa se topa a 48ch (~420px): media tarjeta vacía. Desde 1600 las dos
+   columnas valen lo mismo, el gutter crece y el aire se reparte FUERA de las
+   tarjetas, no dentro. */
+@media (min-width: 1600px) {
+  .tt-canvas-inner { padding: 30px clamp(36px, 3.2vw, 76px); }
+  .tt-appbar { padding-inline: clamp(36px, 3.2vw, 76px); }
+  .tt-dash-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; }
+  .tt-now-title { font-size: 1.6rem; }
 }
 
 /* ===========================================================================
@@ -716,3 +751,131 @@ th.sortable { cursor: pointer; user-select: none; }
 /* Sustituye los style="max-width:520px" inline, que además no centraban. */
 .tt-pane { max-width: 520px; }
 @media (min-width: 992px) { .tt-pane { max-width: min(100%, 720px); } }
+
+/* ===========================================================================
+   ACORDEÓN DE FASES + TARJETA "AHORA" (dashboard del alumno)
+   ---------------------------------------------------------------------------
+   Sustituye a la pantalla intermedia /student/fase/{n} (2026-09-02). Reglas de
+   la decisión, que el CSS refleja:
+     · la fase ACTUAL no se despliega: es `.tt-acc-row` (div, sin botón) y su
+       contenido vive en grande en `.tt-now` (columna A);
+     · las anteriores y las siguientes SÍ se despliegan: `.tt-acc-btn` es un
+       <button> real con aria-expanded/aria-controls;
+     · el panel cerrado lleva el atributo `hidden` (display:none de Reboot), así
+       que no queda contenido de 0px de alto navegable por lector de pantalla ni
+       enlaces alcanzables con Tab. La animación de apertura la pone `tt-anim-in`
+       sobre el contenido, que ya respeta prefers-reduced-motion.
+   =========================================================================== */
+.tt-acc { display: flex; flex-direction: column; }
+.tt-acc-item + .tt-acc-item { border-top: 1px solid var(--tt-line-soft); }
+
+/* Cabecera: botón (desplegable) o fila estática (fase actual). Mismo esqueleto.
+   El <h3> existe por el patrón APG (cada cabecera de acordeón es un encabezado
+   real, navegable por lector de pantalla); visualmente no debe pesar nada. */
+.tt-acc-h { margin: 0; font-size: 1rem; font-weight: 400; line-height: 1; }
+.tt-acc-btn, .tt-acc-row {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  min-height: 56px; padding: 12px 14px; margin: 0; text-align: left;
+  background: transparent; border: 0; color: inherit;
+  font-family: inherit; font-size: 1rem; line-height: 1.3;
+}
+.tt-acc-btn { cursor: pointer; transition: background .15s ease; }
+.tt-acc-btn:focus-visible { outline: 2px solid var(--tt-accent); outline-offset: -3px; }
+@media (hover: hover) and (pointer: fine) {
+  .tt-acc-btn:hover { background: var(--tt-mist); }
+}
+.tt-acc-btn:active { background: var(--tt-line-soft); }
+
+/* Número de fase */
+.tt-acc-num {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 28px; height: 28px; border-radius: 8px;
+  font-family: var(--tt-mono); font-size: .66rem; font-weight: 700;
+  background: var(--tt-mist); color: var(--tt-mute); border: 1px solid var(--tt-line);
+}
+.tt-acc-item.is-done  .tt-acc-num { background: var(--tt-success-soft); color: #166534; border-color: rgba(22,163,74,.25); }
+.tt-acc-item.is-current .tt-acc-num { background: var(--tt-accent); color: #1F1300; border-color: var(--tt-accent); }
+
+.tt-acc-name { flex: 1 1 auto; min-width: 0; font-size: .875rem; font-weight: 500; }
+.tt-acc-item.is-current .tt-acc-name { font-weight: 600; }
+.tt-acc-sub  { display: block; font-size: .72rem; font-weight: 400; color: var(--tt-mute); margin-top: 2px; }
+.tt-acc-chev { flex: 0 0 auto; color: var(--tt-mute); font-size: .8rem;
+  transition: transform .22s var(--tt-ease-out); }
+.tt-acc-item.is-open .tt-acc-chev { transform: rotate(90deg); }
+
+/* Fila de la fase actual: no se despliega, remite a la tarjeta de arriba. */
+.tt-acc-item.is-current { background: var(--tt-mist); }
+.tt-acc-hint {
+  display: inline-flex; align-items: center; gap: 6px;
+  /* 40px: es un enlace real (lleva a la tarjeta grande), así que cumple el
+     mínimo táctil del contrato responsive. Va en la regla BASE y no en el
+     @media de objetivos táctiles porque esta sección se carga después y, a
+     igual especificidad, ganaría esta. */
+  margin: 0 14px 12px 54px; padding: 6px 12px; min-height: 40px;
+  border-radius: 999px; background: var(--tt-paper); border: 1px solid var(--tt-line);
+  font-size: .72rem; font-weight: 600; color: var(--tt-slate); text-decoration: none;
+}
+.tt-acc-hint i { color: var(--tt-accent); }
+
+/* Panel desplegado: alineado bajo el nombre, no bajo el número. */
+.tt-acc-panel { padding: 2px 14px 16px 54px; }
+/* Móvil chico: 54px de sangría dejarían la prosa en ~38 caracteres por línea.
+   El panel y la pista se alinean juntos, no uno a 54 y el otro a 16. */
+@media (max-width: 400px) {
+  .tt-acc-panel { padding-left: 16px; }
+  .tt-acc-hint  { margin-left: 16px; }
+}
+/* El ritmo va en el envoltorio interno, no en `.tt-acc-panel > *`: el panel
+   tiene UN solo hijo (el `.tt-anim-in` que re-dispara la entrada al abrir), así
+   que la regla de hermanos aplicada al panel no separaba nada. */
+.tt-acc-panel-in > * + * { margin-top: 14px; }
+/* Con el panel abierto, el resumen del encabezado se repetiría bajo "Cómo va". */
+.tt-acc-item.is-open .tt-acc-sub { display: none; }
+.tt-acc-block-title {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--tt-mono); font-size: .66rem; font-weight: 600;
+  letter-spacing: 1px; text-transform: uppercase; color: var(--tt-mute); margin-bottom: 6px;
+}
+
+/* Resaltado del deep-link ?fase=N (lo pinta el servidor, no el JS). */
+.tt-acc-item.is-target { box-shadow: inset 3px 0 0 var(--tt-accent); background: #FFFCF4; }
+.tt-acc-item.is-target.is-current { background: var(--tt-amber-soft); }
+
+/* Lista "qué vas a necesitar" */
+.tt-needs { margin: 0; padding-left: 1.1rem; max-width: 48ch;
+  font-size: .82rem; color: var(--tt-slate); line-height: 1.55; }
+.tt-needs li + li { margin-top: 5px; }
+.tt-needs li::marker { color: var(--tt-mute); }
+
+/* Sub-progreso (documentos, cita, Formato B) */
+.tt-substep { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; font-size: .82rem; }
+.tt-substep + .tt-substep { border-top: 1px solid var(--tt-line-soft); }
+.tt-substep .ico {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 22px; height: 22px; border-radius: 7px; font-size: .7rem; margin-top: 1px;
+  background: var(--tt-mist); color: var(--tt-mute); border: 1px solid var(--tt-line);
+}
+.tt-substep .ico.is-done { background: var(--tt-success-soft); color: #166534; border-color: rgba(22,163,74,.25); }
+.tt-substep .ico.is-bad  { background: var(--tt-danger-soft);  color: #991B1B; border-color: rgba(220,38,38,.25); }
+.tt-substep .ico.is-wait { background: var(--tt-amber-soft);   color: var(--tt-amber-ink); border-color: rgba(245,158,11,.3); }
+.tt-substep .txt { flex: 1 1 auto; min-width: 0; }
+.tt-substep .note { font-size: .74rem; color: var(--tt-mute); margin-top: 2px; }
+
+/* Historial de eventos de la fase (vive DENTRO del acordeón). */
+.tt-timeline-item { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; }
+.tt-timeline-item + .tt-timeline-item { border-top: 1px solid var(--tt-line-soft); }
+.tt-timeline-item .dot { width: 8px; height: 8px; flex: 0 0 auto; margin-top: 6px;
+  border-radius: 50%; background: var(--tt-accent); }
+.tt-timeline-item .label { font-size: .82rem; font-weight: 500; }
+.tt-timeline-item .when  { font-family: var(--tt-mono); font-size: .7rem; color: var(--tt-mute); }
+
+/* — Tarjeta protagonista de la fase actual (columna A) — */
+.tt-now-head { display: flex; align-items: flex-start; gap: 12px; }
+.tt-now-icon {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 44px; height: 44px; border-radius: 13px;
+  background: var(--tt-mist); border: 1px solid var(--tt-line); color: var(--tt-slate); font-size: 1.2rem;
+}
+.tt-now-title { font-family: var(--tt-display); font-size: 1.35rem; font-weight: 600;
+  line-height: 1.15; letter-spacing: -.4px; }
+.tt-now-cta { min-height: 48px; }
