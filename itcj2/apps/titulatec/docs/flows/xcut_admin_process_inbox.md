@@ -21,8 +21,8 @@
    toggle **Tabla / Tablero**, buscador (solo tabla) y funnel de fases (solo tabla).
 3. Tabla → última columna **Abrir** → `/titulatec/admin/processes/{id}`.
    Tablero → la card entera es el enlace al mismo detalle (`partials/processes_board.html:16`).
-4. El menú lateral navega por HTMX (`hx-target="#tt-admin-content"`, `hx-swap="morph:innerHTML"`,
-   `templates/titulatec/admin/base_admin.html:38-39`); **los controles internos de esta página son
+4. El menú lateral navega por HTMX (`hx-target="#tt-admin-content"`, `hx-swap="morph:outerHTML"`,
+   `templates/titulatec/admin/base_admin.html:47-48`); **los controles internos de esta página son
    `<a href>` planos** (`processes.html:11-59`), es decir navegación completa del documento.
 
 ## Secuencia
@@ -174,13 +174,14 @@ del funnel. Son estado del cliente y se pierden en cada navegación.
 
 ## Dónde se aplica el scope por carrera (y dónde no)
 
-`officer_programs(db, user_id)` (`services/scope_service.py:32-36`) devuelve `"ALL"` si el usuario
-tiene `titulatec.process.api.read.all`, si no un `set[int]` de `program_id`.
+`officer_programs(db, user_id)` (`services/scope_service.py:96`) devuelve `"ALL"` si el usuario
+tiene `titulatec.process.api.read.all`, si no un `set[int]` de `program_id`. El detalle usa el mismo
+predicado por proceso (`assert_process_in_scope`, `:139`), que devuelve **404** fuera del alcance.
 
 | Ruta | ¿Scope? | Evidencia |
 |---|---|---|
 | `GET /admin/processes` | ✅ sí, sobre `TitulationProcess.program_id` | `pages/admin.py:652-657` |
-| `GET /admin/processes/{id}` (detalle) | ❌ **no** | `pages/admin.py:737-752` y `_detail_ctx` (`:555-611`) no llaman `officer_programs` |
+| `GET /admin/processes/{id}` (detalle) | ✅ sí, guard → 404 | `pages/admin.py:744-751` (`assert_process_in_scope`) |
 | `GET /admin/` (home) | ❌ **no** | `pages/admin.py:302-309`, `COUNT` sin filtro |
 | `GET /admin/documents` | ✅ sí | `pages/documents.py:50-58` |
 

@@ -106,18 +106,18 @@ diseño deseado.
    es el `username` (`import_service.py:286`). Usuario y contraseña son el mismo dato, y es un dato
    público. `must_change_password = true` obliga al cambio en el primer login, pero **hasta ese momento
    la cuenta es adivinable por cualquiera que conozca el número de control**.
-   Nótese además la asimetría con el import por CSV: ahí `password_hash` se queda en `NULL`
-   (`import_service.py:285-291` no lo asigna; la columna es nullable, `core/models/user.py:22`).
-   Dos caminos de alta, dos políticas de credencial distintas.
+   Desde 2026-09-01 es **la misma política en los dos caminos de alta**: `import_rows` la aplica
+   con `set_initial_credential()` (`import_service.py:35-49`), así que el alta manual y el import
+   por CSV dejan al alumno igual. El bloque `if not existed` de `_add_student` quedó **redundante**
+   (re-hashea el mismo valor); se conserva por ahora, pero la política vive en el service.
 
-2. **La contraseña se escribe en una transacción aparte y posterior.**
-   `ImportService.import_rows` cierra con su propio `db.commit()` (`import_service.py:321`), y
-   `grant_role` ya había hecho otro commit dentro del bucle (`core/services/authz_service.py:81`).
-   Sólo *después* de ese commit `_add_student` asigna la credencial y hace un **segundo** `db.commit()`
-   (`admin.py:136-139`). No hay `try/except` ni rollback compensatorio: si ese segundo commit falla,
-   el alumno queda creado, con rol, con proceso y con la notificación ya enviada, pero con
-   **`password_hash = NULL`** y sin poder entrar hasta que alguien le reponga la contraseña a mano.
-   El endpoint devolvería igualmente la tabla actualizada, sin señal del fallo.
+2. **`_add_student` sigue escribiendo la contraseña en una transacción aparte y posterior.**
+   `ImportService.import_rows` cierra con su propio `db.commit()`, y `grant_role` ya había hecho
+   otro commit dentro del bucle (`core/services/authz_service.py:81`). Sólo *después* de ese commit
+   `_add_student` re-asigna la credencial y hace un **segundo** `db.commit()` (`admin.py:136-139`),
+   sin `try/except` ni rollback compensatorio. Ya **no** es un riesgo de bloqueo: si ese segundo
+   commit falla, el hash que `import_rows` escribió en el mismo INSERT del usuario sigue en pie y el
+   alumno puede entrar. Es código redundante, no una ventana de fallo.
 
 ## Flujos relacionados
 

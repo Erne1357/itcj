@@ -6,9 +6,9 @@
 | | |
 |---|---|
 | **Actor(es)** | 🏛️ Servicios Escolares (revisa docs) · 🎓 Titulaciones (también puede) |
-| **Permiso(s)** | ver el detalle: cualquiera de `_PROCESS_VIEW_PERMS` (`pages/admin.py:23-27`) · dictaminar doc: `document.api.approve` / `...reject` (`pages/admin.py:763-764`) · fase: `process.api.approve_phase` / `...reject_phase` (`pages/admin.py:812,833`) |
+| **Permiso(s)** | ver el detalle: cualquiera de `_PROCESS_VIEW_PERMS` (`pages/admin.py:23-27`) · dictaminar doc: `document.api.approve` / `...reject` (`pages/admin.py:763-764`) · fase: `process.api.approve_phase` / `...reject_phase` (`pages/admin.py:812,837`) |
 | **Trigger** | La fase 1 quedó `in_review` ([flujo del alumno](phase1_student_upload_initial_docs.md)) |
-| **Precondiciones** | Proceso `active` (único guard real, `partials/admin_process_detail.html:105`). Que la fase 1 esté `in_review` y los 3 docs subidos es la expectativa del proceso, **no** una validación del código |
+| **Precondiciones** | Proceso `active` **y** que `n` sea `current_phase`: desde 2026-09 lo valida el motor (`PhaseService.assert_can_transition`), no solo el render del botón (`partials/admin_process_detail.html:105`). Que la fase 1 esté `in_review` y los 3 docs subidos sigue siendo expectativa del proceso, **no** una validación del código |
 | **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) |
 | **Estado final** | Docs `approved`; fase 1 `approved`; fase 2 `in_progress` |
 
@@ -22,9 +22,9 @@
 > **Cuál de los dos disparadores describe cada documento.** La fase 1 tiene **dos** caminos de
 > avance y este documento describe **solo el B (manual)**: el detalle del proceso, donde aprobar los
 > documentos NO avanza nada y hace falta pulsar además "Aprobar fase 01"
-> (`pages/admin.py:758-779` vs `pages/admin.py:807-825`).
+> (`pages/admin.py:758-779` vs `pages/admin.py:807-830`).
 > El camino **A (auto-avance)** es la pestaña **Documentos** (`/titulatec/admin/documents`), donde
-> aprobar el 3.er documento avanza la fase por sí solo (`pages/documents.py:131-134`) — ese está en
+> aprobar el 3.er documento avanza la fase por sí solo (`pages/documents.py:135-137`) — ese está en
 > [revisión de documentos iniciales (pestaña Documentos)](phase1_school_services_review_docs.md),
 > que además documenta la **asimetría** entre ambos como defecto conocido. Los dos dictámenes de
 > documento piden exactamente los mismos permisos, así que la misma persona ve los dos caminos.
@@ -84,18 +84,20 @@ dispara `PHASE_APPROVED` (vía el motor). Llegan al tab **Avisos** del shell. Ve
   ([pestaña Documentos](phase1_school_services_review_docs.md)).
 - Rechazar un doc no bloquea por sí solo el botón de fase; el criterio de aprobar la fase es del
   admin. El botón "Aprobar fase NN" solo se esconde si el proceso no está `active`
-  (`partials/admin_process_detail.html:105`), y ni el endpoint ni `PhaseService.approve_phase`
-  validan el dictamen de los documentos ni que `n == current_phase`
-  (`pages/admin.py:818-823`, `services/phase_service.py:69-112`). Se puede dejar el proceso en fase 2
-  con documentos `pending`/`rejected`.
+  (`partials/admin_process_detail.html:105`). Desde 2026-09 el endpoint **sí** valida que `n` sea la
+  fase en curso de un proceso `active` (`PhaseService.assert_can_transition`, →
+  [motor de avance](engine_approve_advance_phase.md#guarda-de-transición-desde-2026-09)); lo que
+  **sigue sin validar** es el dictamen de los documentos, así que aprobar la fase 1 con documentos
+  `pending`/`rejected` deja el proceso en fase 2 con documentos sin aprobar.
 - Rechazar un doc desde aquí **no exige motivo** (`pages/admin.py:772` pasa `note` tal cual, sin
   validar): la notificación sale con el texto genérico. En la pestaña Documentos el motivo sí es
   obligatorio (`pages/documents.py:125-126`).
 - Rechazar la fase (input motivo + "Rechazar fase") → fase 1 `rejected` con `rejection_reason`, el
-  alumno corrige; `reject_phase` fija `current_phase = n` (`services/phase_service.py:115-133`).
-- El detalle del proceso **no** está acotado por carrera: `process_detail` y `_detail_ctx` no llaman
-  `officer_programs` (`pages/admin.py:737-751`, `:555`). El alcance solo filtra la bandeja/kanban
-  (`pages/admin.py:652`). Ver [alcance por carrera](engine_officer_scope.md).
+  alumno corrige; `reject_phase` fija `current_phase = n` (`services/phase_service.py:200-218`), y `n` solo puede ser la fase en curso.
+- El detalle y las dos rutas de dictamen **sí** están acotados por carrera: `process_detail`
+  (`pages/admin.py:737`), `doc_review` (`:761`) y `fb_review` (`:787`) arrancan con
+  `assert_process_in_scope`, que responde **404** si el proceso no cae en el alcance del usuario
+  (mismo predicado que filtra la bandeja/kanban). Ver [alcance por carrera](engine_officer_scope.md).
 
 ## Flujos relacionados
 

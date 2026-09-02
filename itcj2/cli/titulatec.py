@@ -3,7 +3,8 @@
 Comandos CLI de TitulaTec para itcj2.
 
 Comandos:
-    titulatec init-titulatec    Registra la app, roles, permisos, puestos y catálogos base.
+    titulatec init-titulatec              Registra la app, roles, permisos, puestos y catálogos base.
+    titulatec fix-missing-credentials     Repone la credencial inicial de alumnos sin password_hash.
 """
 from pathlib import Path
 
@@ -90,3 +91,45 @@ def init_titulatec_command():
     except Exception as e:
         click.echo(f"\n💥 Error durante init-titulatec: {e}")
         raise
+
+
+@titulatec_cli.command("fix-missing-credentials")
+@click.option("--cohort-id", type=int, default=None,
+              help="Limita el barrido a una convocatoria.")
+@click.option("--dry-run", is_flag=True, help="Solo reporta a quién repararía.")
+def fix_missing_credentials_command(cohort_id, dry_run):
+    """Repone la credencial inicial (= número de control) a los alumnos sin contraseña.
+
+    Remedia a los que dio de alta el importador de CSV antes de 2026-09, cuando
+    creaba el `User` sin `password_hash`: `auth_service` rechaza el login con ese
+    campo NULL y el reset del core está prohibido para quien tiene `control_number`
+    (`core/api/users_admin.py:427`), así que no había forma de desbloquearlos.
+
+    Idempotente: nunca sobrescribe una contraseña existente, y no crea procesos,
+    folios ni notificaciones. Los alumnos quedan con `must_change_password`.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.import_service import ImportService
+
+    with SessionLocal() as db:
+        if dry_run:
+            from itcj2.core.models.user import User
+            from itcj2.apps.titulatec.models import TitulationProcess
+            q = (db.query(User)
+                 .join(TitulationProcess, TitulationProcess.student_id == User.id)
+                 .filter(User.password_hash.is_(None), User.control_number.isnot(None)))
+            if cohort_id is not None:
+                q = q.filter(TitulationProcess.cohort_id == cohort_id)
+            pendientes = q.distinct().all()
+            click.echo(f"🔎 {len(pendientes)} alumno(s) sin contraseña (dry-run, nada escrito):")
+            for u in pendientes:
+                click.echo(f"   · {u.control_number}")
+            return
+
+        n = ImportService.repair_missing_credentials(db, cohort_id=cohort_id)
+
+    if n:
+        click.echo(f"✅ {n} alumno(s) con credencial inicial repuesta "
+                   f"(contraseña = número de control, deben cambiarla al entrar).")
+    else:
+        click.echo("✅ Nada que reparar: ningún alumno de TitulaTec sin contraseña.")

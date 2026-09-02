@@ -14,8 +14,13 @@
 | **Estado final** | Cita `attended`; fase 2 `approved`; fase 3 `in_progress` |
 
 > **Por carrera:** cada encargado de Servicios Escolares maneja su agenda; el filtro por
-> carrera en la página separa las agendas (`officer_programs` en `pages/appointments.py:140`
-> y `:199`). El alumno **solicita** cambios pero **el encargado asigna/reagenda**.
+> carrera en la página separa las agendas (`officer_programs` en `pages/appointments.py:147`
+> y `:213`). Las **6 acciones con `{process_id}`** (schedule, reschedule, start, attended,
+> no-show, ver documento) arrancan con `assert_process_in_scope` → **404** fuera del alcance,
+> y el `?selected=` del querystring se resuelve **dentro de las filas ya acotadas**: antes
+> devolvía la ficha completa (nombre, control, correo, `view_url` de los 3 documentos) de
+> cualquier alumno del padrón. Ver [alcance por carrera](engine_officer_scope.md).
+> El alumno **solicita** cambios pero **el encargado asigna/reagenda**.
 > Estados de la cita: ver [máquina de estados](00_state_machine.md).
 
 > **Elegibilidad — corrección (jun-2026).** Este documento decía antes que "Por agendar"

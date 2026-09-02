@@ -110,9 +110,9 @@ async def review(process_id: int, request: Request,
     """Aprueba/rechaza un doc; si quedan los 3 aprobados y la fase es 1, auto-avanza a fase 2.
     El tipo de documento llega en el form (type_code), no en la URL (panel de dictamen único)."""
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     form = dict(await request.form())
     type_code = form.get("type_code") or ""
@@ -126,11 +126,16 @@ async def review(process_id: int, request: Request,
         return Response(status_code=400, headers={"X-Tt-Error": "Indica el motivo del rechazo y la corrección esperada."})
     db = SessionLocal()
     try:
+        # El guard sustituye al `db.get` de mas abajo: dictaminar y, peor, auto-avanzar
+        # la fase de un proceso de otra carrera pasaba sin que nada lo mirara.
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
         DocumentService.review(db, process_id, type_code, status=new_status, note=note,
                                reviewer_id=int(user["sub"]))
-        proc = db.get(TitulationProcess, process_id)
-        if (proc and proc.current_phase == 1
-                and DocumentService.initial_docs_all_approved(db, process_id)):
+        # El auto-avance pasa por la MISMA guarda que el botón manual: `can_transition`
+        # incluye `current_phase == 1` y además exige `status == 'active'`, que este
+        # camino no miraba (dictaminar un doc empujaba de fase a un proceso cancelado).
+        if (proc and DocumentService.initial_docs_all_approved(db, process_id)
+                and PhaseService.can_transition(db, proc, 1)):
             PhaseService.approve_phase(db, proc, 1, int(user["sub"]))
         ctx = _body_ctx(db, user_id=int(user["sub"]), status_filter=status_filter,
                         selected_id=process_id)
@@ -144,9 +149,12 @@ async def document_file(process_id: int, type_code: str, request: Request, downl
                         user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.read.all"]))):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
     from itcj2.apps.titulatec.utils import storage
     db = SessionLocal()
     try:
+        # Antes de tocar disco: esta ruta admite `?download=1` sobre acta/CURP.
+        assert_process_in_scope(db, int(user["sub"]), process_id)
         doc = DocumentService.get_document(db, process_id, type_code)
         if not doc:
             return Response(status_code=404)

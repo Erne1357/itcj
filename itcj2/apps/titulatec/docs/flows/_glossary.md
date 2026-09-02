@@ -146,7 +146,7 @@ Quién los tiene en BD hoy (los de puerta):
   `titulatec_school_services_head`), exigido en `pages/admin.py:244, 257, 399`.
 - Pestaña **Documentos** (perm `titulatec.document.page.list`): bandeja de revisión. Al aprobar los 3
   iniciales (`birth_certificate`, `high_school_cert`, `curp` — `pages/documents.py:13`) con la fase en
-  1, `pages/documents.py:132-134` llama `PhaseService.approve_phase(db, proc, 1, ...)` y auto-avanza
+  1, `pages/documents.py:135-137` llama `PhaseService.approve_phase(db, proc, 1, ...)` y auto-avanza
   1→2. Elegibilidad de cotejo = `DocumentService.initial_docs_all_approved`.
 
 ## UI / convenciones front

@@ -2,7 +2,7 @@
 import logging
 import secrets
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Path, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
 from itcj2.dependencies import require_page_app
@@ -416,9 +416,11 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
 # Importación de alumnos (CSV del Forms, flexible)
 # ===========================================================================
 
-def _preview_ctx(db, cohort_id, token, headers, mapping, rows):
+def _preview_ctx(db, cohort_id, token, headers, mapping, rows, *,
+                 overrides=None, excluded=None):
     from itcj2.apps.titulatec.services.import_service import ImportService, TARGET_FIELDS
-    preview = ImportService.build_preview(db, rows, mapping)
+    preview = ImportService.build_preview(db, rows, mapping,
+                                          overrides=overrides, excluded=excluded)
     importable = sum(1 for r in preview if r["status"] != "error")
     return {
         "cohort_id": cohort_id, "token": token, "headers": headers,
@@ -427,7 +429,47 @@ def _preview_ctx(db, cohort_id, token, headers, mapping, rows):
         "total": len(preview), "importable": importable,
         "warnings": sum(1 for r in preview if r["status"] == "warning"),
         "errors": sum(1 for r in preview if r["status"] == "error"),
+        # Estado editable del wizard, re-emitido tal cual en dos campos ocultos:
+        # el navegador NO reenvía las filas (ver `import_preview.html`).
+        "excluded_value": ",".join(str(r["idx"]) for r in preview if not r["include"]),
+        "overrides_value": _overrides_json(preview),
     }
+
+
+def _overrides_json(preview) -> str:
+    """Re-serializa las celdas que difieren del CSV, para el campo oculto.
+
+    Sin esto una corrección manual se perdería en cuanto el admin cambiara un
+    select de mapeo: el servidor reconstruye el preview desde el CSV en cada
+    revalidación, y lo editado solo sobrevive si vuelve a viajar.
+    """
+    import json as _json
+    out = {}
+    for r in preview:
+        diff = {k: r[k] for k in ("control_number", "full_name", "email",
+                                  "program_id", "modality_id")
+                if r[k] != r["base"][k]}
+        if diff:
+            out[str(r["idx"])] = diff
+    return _json.dumps(out, ensure_ascii=False) if out else ""
+
+
+def _wizard_state(form):
+    """(token, mapping, overrides, excluded) del formulario del wizard.
+
+    Son ~8 campos pase lo que pase: el preview no viaja de vuelta. Con 6 inputs
+    por fila, un CSV de 166 filas ya superaba el `max_fields=1000` de Starlette
+    y `await request.form()` levantaba `MultiPartException` → 400.
+    """
+    from itcj2.apps.titulatec.services.import_service import ImportService, TARGET_FIELDS
+    token = form.get("token", "")
+    mapping = {f: form.get(f"map_{f}", "") for f in TARGET_FIELDS}
+    overrides = ImportService.parse_overrides(form.get("overrides"))
+    # `None` (campo ausente) ≠ "" (nada desmarcado): sin el campo se aplica el
+    # default de la primera carga, que excluye las filas con error.
+    excluded = (ImportService.parse_excluded(form.get("excluded"))
+                if "excluded" in form else None)
+    return token, mapping, overrides, excluded
 
 
 @router.get("/cohorts/{cohort_id}/import", name="titulatec.pages.admin.import_page")
@@ -482,19 +524,19 @@ async def import_revalidate(
 ):
     """Reaplica el mapeo (ajuste manual) y devuelve preview actualizado (HTMX)."""
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.import_service import ImportService, TARGET_FIELDS
+    from itcj2.apps.titulatec.services.import_service import ImportService
 
     form = dict(await request.form())
-    token = form.get("token", "")
+    token, mapping, overrides, excluded = _wizard_state(form)
     raw = ImportService.read_temp(token)
     if not raw:
         return Response(status_code=409)
     headers, rows = ImportService.parse(raw)
-    mapping = {f: form.get(f"map_{f}", "") for f in TARGET_FIELDS}
 
     db = SessionLocal()
     try:
-        ctx = _preview_ctx(db, cohort_id, token, headers, mapping, rows)
+        ctx = _preview_ctx(db, cohort_id, token, headers, mapping, rows,
+                           overrides=overrides, excluded=excluded)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/partials/import_preview.html", ctx)
@@ -509,33 +551,31 @@ async def import_commit(
     """Crea usuarios/procesos a partir de las filas editadas del preview (HTMX)."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
-    from itcj2.apps.titulatec.services.import_service import ImportService, TARGET_FIELDS
+    from itcj2.apps.titulatec.services.import_service import ImportService
 
     form = dict(await request.form())
-    token = form.get("token", "")
+    token, mapping, overrides, excluded = _wizard_state(form)
 
-    # Reconstruye las filas desde los inputs editables: row-{idx}-{campo}
-    idxs = sorted({int(k.split("-")[1]) for k in form if k.startswith("row-") and k.split("-")[1].isdigit()})
-    rows = []
-    for i in idxs:
-        if form.get(f"row-{i}-include") != "on":
-            continue
-        rows.append({
-            "control_number": form.get(f"row-{i}-control_number", ""),
-            "full_name": form.get(f"row-{i}-full_name", ""),
-            "email": form.get(f"row-{i}-email", ""),
-            "program_id": int(form[f"row-{i}-program_id"]) if form.get(f"row-{i}-program_id") else None,
-            "modality_id": int(form[f"row-{i}-modality_id"]) if form.get(f"row-{i}-modality_id") else None,
-        })
+    # Las filas NO vienen del formulario: se releen del CSV temporal y se les
+    # aplica el mapeo + lo que el admin corrigió/desmarcó. Reenviar el preview
+    # entero (6 inputs por fila) topaba con el `max_fields=1000` de Starlette a
+    # partir de la fila 166, y una convocatoria real son cientos de alumnos.
+    raw = ImportService.read_temp(token)
+    if not raw:
+        return Response(status_code=409)
+    _headers, csv_rows = ImportService.parse(raw)
 
     db = SessionLocal()
     try:
         cohort = db.get(Cohort, cohort_id)
         if not cohort:
             return Response(status_code=404)
+        preview = ImportService.build_preview(db, csv_rows, mapping,
+                                              overrides=overrides, excluded=excluded)
         # guarda el mapeo usado para reusarlo la próxima vez
-        ImportService.save_mapping({f: form.get(f"map_{f}", "") for f in TARGET_FIELDS})
-        summary = ImportService.import_rows(db, cohort, rows)
+        ImportService.save_mapping(mapping)
+        summary = ImportService.import_rows(db, cohort,
+                                            ImportService.rows_to_import(preview))
     finally:
         db.close()
     if token:
@@ -741,11 +781,14 @@ async def process_detail(
     user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)),
 ):
     from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
     db = SessionLocal()
     try:
+        # 404 uniforme: "no existe" y "no es de tus carreras" son indistinguibles.
+        # El guard ya cubre el proceso inexistente, asi que `_detail_ctx` no
+        # puede devolver None a partir de aqui.
+        assert_process_in_scope(db, int(user["sub"]), process_id)
         ctx = _detail_ctx(db, process_id)
-        if not ctx:
-            return Response(status_code=404)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/process_detail.html", ctx)
@@ -766,6 +809,7 @@ async def doc_review(
     """Aprueba/rechaza un documento. Devuelve el detalle re-renderizado (HTMX)."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     form = dict(await request.form())
     action = form.get("action")
@@ -773,6 +817,7 @@ async def doc_review(
     status = "approved" if action == "approve" else "rejected"
     db = SessionLocal()
     try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
         DocumentService.review(db, process_id, type_code, status=status, note=note, reviewer_id=int(user["sub"]))
         return _render_detail_body(request, db, process_id)
     finally:
@@ -789,6 +834,7 @@ async def fb_review(
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import FormatB
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     form = dict(await request.form())
     action = form.get("action")
@@ -796,6 +842,7 @@ async def fb_review(
     status = "approved" if action == "approve" else "rejected"
     db = SessionLocal()
     try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
         fb = db.get(FormatB, process_id)
         if fb:
             FormatBService.review(db, fb, status=status, note=note, reviewer_id=int(user["sub"]))
@@ -807,19 +854,23 @@ async def fb_review(
 @router.post("/processes/{process_id}/phase/{n}/approve", name="titulatec.pages.admin.phase_approve")
 async def phase_approve(
     process_id: int,
-    n: int,
     request: Request,
+    n: int = Path(ge=0),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.process.api.approve_phase"])),
 ):
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     db = SessionLocal()
     try:
-        proc = db.get(TitulationProcess, process_id)
-        if proc:
+        # El guard sustituye al `db.get` + 404: devuelve el proceso ya cargado y
+        # ademas comprueba que sea de una carrera del usuario.
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+        try:
             PhaseService.approve_phase(db, proc, n, int(user["sub"]))
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": str(exc)})
         return _render_detail_body(request, db, process_id)
     finally:
         db.close()
@@ -828,21 +879,23 @@ async def phase_approve(
 @router.post("/processes/{process_id}/phase/{n}/reject", name="titulatec.pages.admin.phase_reject")
 async def phase_reject(
     process_id: int,
-    n: int,
     request: Request,
+    n: int = Path(ge=0),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.process.api.reject_phase"])),
 ):
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     form = dict(await request.form())
     reason = form.get("reason", "")
     db = SessionLocal()
     try:
-        proc = db.get(TitulationProcess, process_id)
-        if proc:
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+        try:
             PhaseService.reject_phase(db, proc, n, int(user["sub"]), reason)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": str(exc)})
         return _render_detail_body(request, db, process_id)
     finally:
         db.close()

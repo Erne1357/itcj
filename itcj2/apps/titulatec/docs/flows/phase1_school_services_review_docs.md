@@ -9,7 +9,7 @@
 | **Actor(es)** | 🏛️ Servicios Escolares (`titulatec_school_services` / `_head`) · 🎓 Titulaciones |
 | **Permiso(s)** | ver: cualquiera de `titulatec.document.page.list`, `...dashboard.school_services`, `...dashboard.titulaciones`, `...dashboard.admin` (`_VIEW_PERMS`, `pages/documents.py:14-15`) · dictaminar: `titulatec.document.api.approve` **o** `...reject` (`_REVIEW_PERMS`, `pages/documents.py:16`) · ver el archivo: `titulatec.document.api.read.all` (`pages/documents.py:144`) |
 | **Trigger** | El alumno subió documentos (fase 1); aparecen en la pestaña **Documentos**. |
-| **Precondiciones** | Proceso `status='active'` con **al menos un archivo subido** (`pages/documents.py:54,61`). El auto-avance además exige `current_phase == 1` (`pages/documents.py:132`). |
+| **Precondiciones** | Proceso `status='active'` con **al menos un archivo subido** (`pages/documents.py:54,61`). El auto-avance además exige que la fase 1 sea la transición legal del proceso: `PhaseService.can_transition(db, proc, 1)` (`pages/documents.py:136`), o sea proceso `active` **y** `current_phase == 1`. |
 | **Sub-flujos** | ⤵ al 3.º aprobado invoca el [motor de avance de fase](engine_approve_advance_phase.md). |
 | **Estado final** | 3 docs `approved` → fase 1 `approved`, `current_phase=2` → elegible para [cita de cotejo](phase2_appointment_loop.md). |
 
@@ -20,7 +20,9 @@
    además los tres `dashboard.*` de `_VIEW_PERMS`).
 2. Bandeja master-detail acotada por carrera (`officer_programs`, `pages/documents.py:53`): izquierda
    lista de procesos con pill de pendientes (o ✓ si los 3 están aprobados); derecha visor + dictamen
-   del documento activo.
+   del documento activo. El dictamen (`:107`) y el servido del archivo (`:147`) arrancan con
+   `assert_process_in_scope` → **404** fuera del alcance, así que el dictamen y su auto-avance de
+   fase no pueden tocar un proceso de otra carrera. Ver [alcance por carrera](engine_officer_scope.md).
 3. Filtros: Todos / Por evaluar / Con rechazo / Completos (`partials/documents_body.html:8`).
    Encabezado "N por evaluar" = suma de pendientes de las **filas ya filtradas**, no del scope
    completo (`pages/documents.py:62-68`).
@@ -43,7 +45,7 @@ sequenceDiagram
     DS->>DB: COMMIT (1.º)
     API->>DB: SELECT process.current_phase
     API->>DS: initial_docs_all_approved(pid)?
-    alt las 3 approved y current_phase==1
+    alt las 3 approved y can_transition(proc, 1)
         API->>PS: approve_phase(proc, 1, reviewer)
         PS->>DB: fase1=approved, current_phase=2, ProcessEvent
         PS->>DB: COMMIT (2.º)
@@ -58,7 +60,7 @@ sequenceDiagram
 | 1 | 🏛️ | `/admin/documents` | Selecciona proceso | `GET …/documents/body?selected=` | `_body_ctx` (scoped, `pages/documents.py:50-71`) | (lectura) |
 | 2 | 🏛️ | panel derecho (doc activo) | Aprueba/rechaza doc | `POST …/{pid}/document/review` (`type_code`+`note` en form; reject exige `note`) | `DocumentService.review` (`services/document_service.py:118-138`) | `Document.review_status`, `review_note`, `reviewed_by_id` · commit en `:137` |
 | 2b | 🏛️ | visor | Ve PDF (PDF.js→canvas) / lo expande al modal `#tt-doc-modal` | `GET …/{pid}/document/{code}` (`?download=1` descarga) | `DocumentService.get_document` | (lectura) |
-| 3 | 🤖 | — | Auto-avance si las 3 aprobadas | (mismo POST) | `DocumentService.initial_docs_all_approved` + `PhaseService.approve_phase` (`pages/documents.py:131-134`) | fase1→`approved`, `current_phase=2`, `ProcessEvent` · commit en `services/phase_service.py:111` |
+| 3 | 🤖 | — | Auto-avance si las 3 aprobadas | (mismo POST) | `DocumentService.initial_docs_all_approved` + `PhaseService.can_transition` + `...approve_phase` (`pages/documents.py:135-137`) | fase1→`approved`, `current_phase=2`, `ProcessEvent` · commit en `services/phase_service.py:196` |
 
 ### De dónde sale el visor (ojo con los parciales muertos)
 
@@ -88,13 +90,13 @@ La fase 1 puede avanzar por dos caminos distintos, y **hoy no son simétricos**:
 | Botones | Aprobar/Rechazar del dictamen (`partials/documents_body.html:103-112`) | ✔/✕ por documento (`partials/admin_process_detail.html:62-67`) y **"Aprobar fase NN"** (`partials/admin_process_detail.html:114-116`) |
 | Endpoint de dictamen | `POST /admin/documents/{pid}/document/review` (`pages/documents.py:107`) | `POST /admin/processes/{pid}/documents/{type}/review` (`pages/admin.py:758`) |
 | Permisos del dictamen | `document.api.approve` / `.reject` (`pages/documents.py:16`) | `document.api.approve` / `.reject` (`pages/admin.py:763-764`) — **los mismos** |
-| ¿Auto-avanza al 3.º aprobado? | **Sí** (`pages/documents.py:131-134`) | **No**: `doc_review` solo llama `DocumentService.review` y re-renderiza (`pages/admin.py:766-779`) |
-| Avance de fase | implícito | explícito: `POST …/phase/{n}/approve` → `titulatec.process.api.approve_phase` (`pages/admin.py:807-825`) |
+| ¿Auto-avanza al 3.º aprobado? | **Sí** (`pages/documents.py:135-137`) | **No**: `doc_review` solo llama `DocumentService.review` y re-renderiza (`pages/admin.py:766-779`) |
+| Avance de fase | implícito | explícito: `POST …/phase/{n}/approve` → `titulatec.process.api.approve_phase` (`pages/admin.py:807-830`) |
 
 **DEFECTO CONOCIDO (asimetría).** Dos endpoints con **el mismo par de permisos** producen efectos
 distintos sobre la misma transición:
 
-- `pages/documents.py:131-134` avanza la fase 1 solo por haber aprobado el último documento.
+- `pages/documents.py:135-137` avanza la fase 1 solo por haber aprobado el último documento.
 - `pages/admin.py:770-777` no avanza nada; hay que pulsar además "Aprobar fase 01".
 
 Los tres roles operativos (`titulatec_school_services`, `..._head`, `titulatec_titulaciones`) tienen
@@ -107,19 +109,20 @@ Agravantes verificados del botón manual:
 - Su **único** guard de render es `process.status == 'active'`
   (`partials/admin_process_detail.html:105`); no mira el estado de la fase ni si los documentos están
   aprobados.
-- El endpoint tampoco valida: `phase_approve` toma `n` de la URL y llama `PhaseService.approve_phase`
-  sin comprobar `n == process.current_phase` ni el dictamen de los documentos
-  (`pages/admin.py:818-823`; `services/phase_service.py:69-112` tampoco valida).
+- El endpoint valida la **transición** pero no el **dictamen**: desde 2026-09 `phase_approve` exige
+  que `n` sea la fase en curso de un proceso `active` (`PhaseService.assert_can_transition`, →
+  [motor de avance](engine_approve_advance_phase.md#guarda-de-transición-desde-2026-09)), y responde
+  `400` + `X-Tt-Error` si no. Lo que no mira es el estado de los documentos.
 - Consecuencia: se puede aprobar la fase 1 con documentos `pending` o `rejected` y dejar el proceso en
   fase 2 con documentos sin aprobar. La bandeja lo seguiría mostrando como "Por evaluar" mientras
   `AppointmentService.list_pending_processes` sigue exigiendo las 3 aprobadas.
 
 **El auto-avance no es atómico.** Son dos transacciones separadas con una lectura en medio:
 `DocumentService.review` hace `db.commit()` (`services/document_service.py:137`); después
-`pages/documents.py:131` relee `process.current_phase` y `PhaseService.approve_phase` hace su propio
-`db.commit()` (`services/phase_service.py:111`). Si el segundo commit falla —o dos revisores aprueban
+`pages/documents.py:135` relee `process.current_phase` y `PhaseService.approve_phase` hace su propio
+`db.commit()` (`services/phase_service.py:196`). Si el segundo commit falla —o dos revisores aprueban
 el último documento a la vez— el documento queda `approved` y la fase no avanza: hay que empujarla
-con el botón manual. No hay bloqueo de fila ni guard de idempotencia más allá de `current_phase == 1`.
+con el botón manual. No hay bloqueo de fila; la idempotencia la da `can_transition` (la segunda pasada ya no encuentra el proceso en la fase 1).
 
 ## Estado resultante
 

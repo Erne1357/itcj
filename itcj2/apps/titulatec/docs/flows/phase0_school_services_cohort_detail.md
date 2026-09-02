@@ -49,7 +49,7 @@ el submit del alta manual de alumno (`cohort_student_addform.html:6`,
 `hx-target="#cohort-tab-body" hx-swap="innerHTML"`).
 
 Todo esto vive dentro de `#tt-admin-content`, el área que el sidebar swappea con
-`hx-swap="morph:innerHTML"` (`admin/base_admin.html:38,54`): son dos niveles de swap
+`hx-swap="morph:outerHTML"` (`admin/base_admin.html:48,63`): son dos niveles de swap
 independientes.
 
 ```mermaid

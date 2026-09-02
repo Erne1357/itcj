@@ -85,15 +85,22 @@ def _appt_dict(appt) -> dict | None:
     }
 
 
-def _detail_ctx(db, process_id: int) -> dict | None:
-    """Detalle de la cita de un proceso (panel derecho)."""
+def _detail_ctx(db, process_id: int, *, user_id: int) -> dict | None:
+    """Detalle de la cita de un proceso (panel derecho), acotado al alcance.
+
+    Devuelve nombre, numero de control y correo del alumno, mas las `view_url` de
+    sus 3 documentos iniciales: es la ficha completa. Resuelve el proceso por el
+    predicado de alcance y no por `db.get`, como segunda linea de defensa — lo
+    llaman `_body_ctx` y, a traves de `_render_body`, las 5 acciones.
+    """
     from itcj2.core.models.user import User
     from itcj2.core.models.program import Program
-    from itcj2.apps.titulatec.models import TitulationProcess, Modality, Cohort, DocumentType
+    from itcj2.apps.titulatec.models import Modality, Cohort, DocumentType
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.scope_service import process_in_scope
 
-    proc = db.get(TitulationProcess, process_id)
+    proc = process_in_scope(db, user_id, process_id)
     if not proc:
         return None
     student = db.get(User, proc.student_id)
@@ -171,7 +178,14 @@ def _body_ctx(db, *, selected_id, program_id, status, mine, user_id) -> dict:
             "program": prog.name if prog else "—",
         })
 
-    detail = _detail_ctx(db, selected_id) if selected_id else None
+    # El `?selected=` del querystring es un FILTRO, no una AMPLIACION del alcance:
+    # se resuelve DENTRO de las filas ya acotadas, igual que en `documents.py`. Si
+    # no esta entre ellas se descarta tambien el `selected_id`, para que un id
+    # ajeno no quede pegado en los `hx-get` del parcial.
+    visible_ids = {r["process_id"] for r in rows} | {p["process_id"] for p in pending}
+    if selected_id is not None and selected_id not in visible_ids:
+        selected_id = None
+    detail = _detail_ctx(db, selected_id, user_id=user_id) if selected_id else None
     return {
         "rows": rows, "pending": pending, "detail": detail,
         "selected_id": selected_id,
@@ -334,6 +348,7 @@ async def schedule(
 ):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     form = dict(await request.form())
     date_raw = form.get("appt_date")
@@ -342,9 +357,8 @@ async def schedule(
     db = SessionLocal()
     try:
         from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
-        from itcj2.apps.titulatec.models import TitulationProcess
-        proc = db.get(TitulationProcess, process_id)
-        if dt and proc and not ReviewDayService.is_allowed(db, proc.cohort_id, dt.date()):
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+        if dt and not ReviewDayService.is_allowed(db, proc.cohort_id, dt.date()):
             return Response(status_code=400, headers={"X-Tt-Error": "Esa fecha no está habilitada para cotejo."})
         if dt:
             AppointmentService.create(
@@ -363,6 +377,7 @@ async def reschedule(
 ):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     form = dict(await request.form())
     date_raw = form.get("appt_date")
@@ -371,9 +386,8 @@ async def reschedule(
     db = SessionLocal()
     try:
         from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
-        from itcj2.apps.titulatec.models import TitulationProcess
-        proc = db.get(TitulationProcess, process_id)
-        if dt and proc and not ReviewDayService.is_allowed(db, proc.cohort_id, dt.date()):
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+        if dt and not ReviewDayService.is_allowed(db, proc.cohort_id, dt.date()):
             return Response(status_code=400, headers={"X-Tt-Error": "Esa fecha no está habilitada para cotejo."})
         appt = AppointmentService.get_for_process(db, process_id)
         if appt and dt:
@@ -393,9 +407,11 @@ async def start(
 ):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     db = SessionLocal()
     try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
         appt = AppointmentService.get_for_process(db, process_id)
         if appt:
             AppointmentService.start(db, appt, int(user["sub"]))
@@ -412,9 +428,11 @@ async def attended(
 ):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     db = SessionLocal()
     try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
         appt = AppointmentService.get_for_process(db, process_id)
         if appt:
             AppointmentService.mark_attended(db, appt, int(user["sub"]))
@@ -431,9 +449,11 @@ async def no_show(
 ):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     db = SessionLocal()
     try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
         appt = AppointmentService.get_for_process(db, process_id)
         if appt:
             AppointmentService.mark_no_show(db, appt, int(user["sub"]))
@@ -456,10 +476,13 @@ async def document_file(
     """Sirve el archivo del documento (inline) para cotejarlo."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
     from itcj2.apps.titulatec.utils import storage
 
     db = SessionLocal()
     try:
+        # Antes de tocar disco: aqui viaja el acta de nacimiento / la CURP.
+        assert_process_in_scope(db, int(user["sub"]), process_id)
         doc = DocumentService.get_document(db, process_id, type_code)
         if not doc:
             return Response(status_code=404)
