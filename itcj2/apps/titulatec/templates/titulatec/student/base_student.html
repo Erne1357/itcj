@@ -137,6 +137,10 @@
     document.getElementById('sidebarLogout')?.addEventListener('click', ttLogout);
     document.querySelectorAll('[data-tt-logout]').forEach(function (b) { b.addEventListener('click', ttLogout); });
   </script>
+  {# — Errores de HTMX para TODA vista del alumno. Va en la base a propósito: si
+     cada página trae el suyo, alguna se queda sin él y el alumno pulsa un botón
+     que no hace nada (le pasaba a formato_b.html). — #}
+  <script src="/static/titulatec/js/student/errors.js?v={{ sv('js/student/errors.js') }}"></script>
   {# — Acordeón de fases del dashboard. Se carga una sola vez desde la base:
      es delegado en `document` y no hace nada si la vista no tiene acordeón. — #}
   <script src="/static/titulatec/js/student/dashboard.js?v={{ sv('js/student/dashboard.js') }}"></script>

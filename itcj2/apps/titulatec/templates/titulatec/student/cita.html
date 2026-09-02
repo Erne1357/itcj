@@ -37,10 +37,6 @@
   </div>
 {% endblock %}
 
-{% block student_scripts %}
-<script>
-  document.body.addEventListener('htmx:responseError', function () {
-    if (window.TitulaTecUtils) TitulaTecUtils.showToast('No se pudo completar la acción.', 'danger');
-  });
-</script>
-{% endblock %}
+{# Los errores de HTMX los maneja `static/js/student/errors.js`, cargado desde
+   base_student.html para TODAS las vistas del alumno. No dupliques el listener
+   aquí: se mostrarían dos toasts. #}

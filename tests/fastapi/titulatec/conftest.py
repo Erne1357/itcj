@@ -68,6 +68,7 @@ Ninguna fixture depende de gbarron/fleon/ahernandez ni del alumno 23110952.
 from __future__ import annotations
 
 import itertools
+import os
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -84,10 +85,19 @@ APP_KEY = "titulatec"
 # Roles FICTICIOS. Nunca uses aqui los reales (`titulatec_school_services_head`,
 # etc.): en la BD de dev ya existen con sus permisos, el helper los reutilizaria
 # por nombre y el actor "sin permisos" heredaria 27 permisos de verdad.
-ROLE_HEAD = "tt_test_head"
-ROLE_OFFICER = "tt_test_officer"
-ROLE_STUDENT = "tt_test_student"
-ROLE_NOPERMS = "tt_test_noperms"
+#
+# El sufijo por PROCESO no es cosmetico. `core_roles.name` es UNIQUE y la BD de
+# test se comparte, asi que dos `pytest` a la vez (dos personas, o un agente y su
+# CI) chocaban insertando el MISMO nombre dentro de sus respectivas transacciones:
+# la segunda se quedaba esperando el lock de la primera hasta que Postgres cortaba
+# con `DeadlockDetected`, y los fallos salian en tests que no tenian nada que ver
+# y solo al correr la suite entera. Con el sufijo, cada proceso vive en su propio
+# espacio de nombres y las corridas concurrentes dejan de interferir.
+_RUN = os.getpid()
+ROLE_HEAD = f"tt_test_head_{_RUN}"
+ROLE_OFFICER = f"tt_test_officer_{_RUN}"
+ROLE_STUDENT = f"tt_test_student_{_RUN}"
+ROLE_NOPERMS = f"tt_test_noperms_{_RUN}"
 
 # Sets por defecto de cada actor. Son subconjuntos de los 66 codigos reales
 # (`database/DML/titulatec/02_insert_permissions.sql`); que esos codigos existan
