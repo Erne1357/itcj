@@ -1,6 +1,9 @@
-<div class="tt-kanban">
+{# Ids estables: Idiomorph empareja por id, asi que un filtro que no cambia el
+   tablero reutiliza EXACTAMENTE las mismas tarjetas (nada se re-anima) y uno
+   que si lo cambia deja identificables las tarjetas realmente nuevas. #}
+<div class="tt-kanban" id="proc-board">
   {% for col in columns %}
-  <div class="tt-kanban-col">
+  <div class="tt-kanban-col" id="proc-col-{{ col.number }}">
     <div class="head">
       <span class="tt-kicker">{{ '%02d'|format(col.number) }} · {{ col.name }}</span>
       <span class="count">{{ col.count }}</span>
@@ -13,7 +16,7 @@
     <div class="col-scroll">
       <div class="body">
         {% for c in col.cards %}
-        <a class="tt-kanban-card tt-hover-lift {{ 'is-stuck' if c.idle_level=='crit' }}" href="/titulatec/admin/processes/{{ c.id }}">
+        <a id="proc-card-{{ c.id }}" class="tt-kanban-card tt-hover-lift {{ 'is-stuck' if c.idle_level=='crit' }}" href="/titulatec/admin/processes/{{ c.id }}">
           <div class="d-flex align-items-center justify-content-between gap-2">
             <div class="fw-semibold text-truncate" style="font-size:.82rem">{{ c.student }}</div>
             <span class="tt-pill tt-pill--idle-{{ c.idle_level }}" style="flex:0 0 auto">{{ c.idle_days }} d</span>

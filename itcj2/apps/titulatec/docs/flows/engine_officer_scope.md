@@ -5,8 +5,8 @@
 > SQL. Pieza transversal: la usan la bandeja de procesos, el tablero kanban y la agenda de citas.
 
 > ✅ **Alcance real del mecanismo:** el scope por carrera se aplica en **dos capas**: el filtro SQL
-> de los 5 listados (`pages/admin.py:652`, `pages/appointments.py:147`, `:213`, `:291`,
-> `pages/documents.py:53`) **y** el guard `assert_process_in_scope` en las **13 rutas con
+> de los listados (`pages/admin.py:652`, `pages/appointments.py:307`, `pages/documents.py:53`)
+> **y** el guard `assert_process_in_scope` en las **13 rutas con
 > `{process_id}`** (§ *Scope en escritura*). Mismo predicado en ambas: si un proceso no sale en tu
 > listado, sus rutas de detalle y de mutación responden **404**.
 
@@ -149,10 +149,16 @@ La regla 3 es deliberada: `read.all` lo tienen **dos** roles (jefe y titulacione
 | Archivo:línea | Ruta | Qué acota |
 |---|---|---|
 | `pages/admin.py:652` | `GET /titulatec/admin/processes` | `TitulationProcess.program_id.in_(scope)` (`:657`); scope vacío → contexto `_empty()` (`:655-656`) |
-| `pages/appointments.py:147` | `GET /admin/appointments` y `/body` (vía `_body_ctx`) | `allowed_program_ids` a `list_appointments` (`:150`) y `list_pending_processes` (`:170`) |
-| `pages/appointments.py:213` | `GET /admin/appointments/day` (vía `_day_ctx`) | `list_for_day(..., allowed_program_ids=allowed)` |
-| `pages/appointments.py:291` | `GET /admin/appointments/calendar` | `counts_by_day(..., allowed_program_ids=allowed)` |
+| `pages/appointments.py:307` | `GET /admin/appointments` y `/body` (vía `_shell_ctx`) | **una** resolución de `officer_programs` alimenta **cinco** consultas: `list_for_day` (`:324`), `list_appointments` (`:328`), `list_pending_processes` (`:343`), `agenda_process_ids` (`:363`) y `counts_by_day` (`:249`, vía `_calendar_ctx`) |
 | `pages/documents.py:53` | `GET /admin/documents` y `/body` (vía `_body_ctx`) | `program_id.in_(scope)` (`:59`); scope vacío → `rows: []` (`:56-58`) |
+
+> ⚠️ **Las rutas `/admin/appointments/calendar` y `/day` ya no existen** (2026-09-02): se plegaron
+> dentro de `/body`, que ahora renderiza el shell de tres zonas completo. Eso concentra el riesgo:
+> una sola petición resuelve las cinco consultas de arriba, y **las cinco tienen default abierto**
+> (`allowed_program_ids: set | None = None`). Olvidar una filtra de menos **en silencio**, sin
+> excepción ni log. Lo cubre `tests/fastapi/titulatec/test_appointments_scope_day.py`, con un test
+> por superficie más un regresor estructural que lee el fuente de `_shell_ctx` y falla si aparece
+> una llamada nueva sin acotar.
 
 **Las 13 rutas con `{process_id}` — todas llaman al guard, como primera sentencia del `try`:**
 
@@ -163,12 +169,12 @@ La regla 3 es deliberada: `read.all` lo tienen **dos** roles (jefe y titulacione
 | `pages/admin.py:787` | `POST /admin/processes/{process_id}/format-b/review` | `format_b.api.approve` / `.reject` | |
 | `pages/admin.py:814` | `POST /admin/processes/{process_id}/phase/{n}/approve` | `process.api.approve_phase` | usa el proceso que devuelve el guard (ya no hay `db.get`) |
 | `pages/admin.py:839` | `POST /admin/processes/{process_id}/phase/{n}/reject` | `process.api.reject_phase` | ídem |
-| `pages/appointments.py:343` | `POST /admin/appointments/{process_id}/schedule` | `appointment.api.create` | ídem (lo usa para `ReviewDayService.is_allowed`) |
-| `pages/appointments.py:372` | `POST /admin/appointments/{process_id}/reschedule` | `appointment.api.reschedule` | ídem |
-| `pages/appointments.py:402` | `POST /admin/appointments/{process_id}/start` | `appointment.api.update` | |
-| `pages/appointments.py:423` | `POST /admin/appointments/{process_id}/attended` | `appointment.api.mark_attended` | |
-| `pages/appointments.py:444` | `POST /admin/appointments/{process_id}/no-show` | `appointment.api.update` | |
-| `pages/appointments.py:469` | `GET /admin/appointments/{process_id}/document/{type_code}` | `document.api.read.all` | guard **antes** de tocar disco (`FileResponse`) |
+| `pages/appointments.py:501` | `POST /admin/appointments/{process_id}/schedule` | `appointment.api.create` | ídem (lo usa para `ReviewDayService.is_allowed`) |
+| `pages/appointments.py:531` | `POST /admin/appointments/{process_id}/reschedule` | `appointment.api.reschedule` | ídem |
+| `pages/appointments.py:557` | `POST /admin/appointments/{process_id}/start` | `appointment.api.update` | |
+| `pages/appointments.py:579` | `POST /admin/appointments/{process_id}/attended` | `appointment.api.mark_attended` | |
+| `pages/appointments.py:601` | `POST /admin/appointments/{process_id}/no-show` | `appointment.api.update` | |
+| `pages/appointments.py:615` | `GET /admin/appointments/{process_id}/document/{type_code}` | `document.api.read.all` | guard **antes** de tocar disco (`FileResponse`) |
 | `pages/documents.py:107` | `POST /admin/documents/{process_id}/document/review` | `document.api.approve` / `.reject` | corta también el auto-avance de fase 1 (`:135-139`) |
 | `pages/documents.py:147` | `GET /admin/documents/{process_id}/document/{type_code}` | `document.api.read.all` | guard **antes** de tocar disco; admite `?download=1` |
 
@@ -190,12 +196,16 @@ sus 3 documentos iniciales. Enumeración del padrón con un incremento de entero
 
 Cerrado en dos capas, ambas vigentes:
 
-1. **`_body_ctx` (`appointments.py:181-188`)** resuelve el detalle **dentro de las filas ya
-   acotadas** — el patrón que `documents.py:69` ya usaba bien — y pone `selected_id = None` cuando no
-   pasa el filtro, para que un id ajeno no quede pegado en los `hx-get` del parcial.
-2. **`_detail_ctx` (`appointments.py:88-105`)** ahora es `_detail_ctx(db, process_id, *, user_id)` y
-   arranca con `process_in_scope`. Defensa en profundidad barata: lo llaman `_body_ctx` y, vía
-   `_render_body`, las 5 acciones.
+1. **`_shell_ctx` (`appointments.py:358-369`)** descarta el `selected_id` que no esté en el
+   **universo acotado** del usuario y lo pone a `None`, para que un id ajeno no quede pegado en los
+   `hx-get` del parcial. Ese universo es `agenda_process_ids(allowed) | {pendientes}`: **toda** la
+   agenda del usuario más **toda** su cola, nunca las filas de la vista. Estrecharlo al día o a los
+   filtros rompería dos casos legítimos —abrir a un alumno de «Por agendar», que por definición no
+   tiene cita, y abrir a uno cuya cita cae otro día— y los dos están cubiertos por
+   `test_appointments_scope_day.py::TestDetalle`.
+2. **`_detail_ctx` (`appointments.py:165-180`)** es `_detail_ctx(db, process_id, *, user_id)` y
+   arranca con `process_in_scope`. Es la guarda DURA, no una comodidad: la capa 1 es una lista de
+   ids y ésta es el predicado. Lo llaman `_shell_ctx` y, vía `_render_body`, las 5 acciones.
 
 **Citas y documentos se direccionan siempre por `(process_id, …)`, nunca por su propio id** —
 `AppointmentService.get_for_process`, `DocumentService.get_document(db, process_id, type_code)`.

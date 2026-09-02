@@ -129,7 +129,7 @@ Quién los tiene en BD hoy (los de puerta):
 | `DocumentService` | `services/document_service.py` | Guardar/leer/borrar documentos y `review()`; además las consultas de elegibilidad `initial_docs_all_approved` y `list_phase_document_types` |
 | `FormatBService` | `services/format_b_service.py` | Formato B multi-step: `get_or_create`, `save_step`, `submit(db, fb, process)` (reaplica la guarda de fase), `review`, `to_ctx` |
 | `ImportService` | `services/import_service.py` | Import CSV de la convocatoria: `parse` → `autodetect_mapping` → `build_preview` → `import_rows` (crea/empata usuario, otorga rol `student`, crea proceso + sus 9 `ProcessPhase`) |
-| `AppointmentService` | `services/appointment_service.py` | Cita de cotejo (fase 2): `create`, `reschedule`, `start`, `mark_attended`, `mark_no_show`, `confirm`, `request_change`; y los agregados de calendario `counts_by_day`, `list_for_day`, `list_pending_processes` |
+| `AppointmentService` | `services/appointment_service.py` | Cita de cotejo (fase 2): `create`, `reschedule`, `start`, `mark_attended`, `mark_no_show`, `confirm`, `request_change`; y las lecturas de la agenda `list_appointments`, `counts_by_day`, `list_for_day`, `list_pending_processes`, `agenda_process_ids` (universo acotado contra el que se valida el `?selected=`). **Las cinco lecturas tienen `allowed_program_ids` con default ABIERTO** |
 | `ReviewDayService` | `services/review_day_service.py` | Días de cotejo por convocatoria: `list_days`, `is_allowed`, `set_days`, `toggle`, `months_with_days` |
 | `CotejoRequirementService` | `services/cotejo_requirement_service.py` | Requisitos "qué llevar a la cita" por convocatoria: `list_or_seed` (siembra DEFAULTS si la cohorte no tiene), `create`, `update`, `delete` |
 | `OfficerService` | `services/officer_service.py` | Alta delegada de encargados: `create_officer` (Position + rol + usuarios del depto + carreras), `set_users`, `set_programs`, `list_officers`, `deactivate_officer` |
@@ -159,6 +159,10 @@ Quién los tiene en BD hoy (los de puerta):
   sub-routers. HTMX devuelve **parciales HTML**; las acciones que mutan re-renderizan su sección.
 - Toasts/confirm: `window.TitulaTecUtils` (`static/js/shared/titulatec-utils.js:91` expone
   `showToast`, `confirmDialog`, `escapeHtml`); prohibido `alert/confirm/prompt` nativos.
-- **Movimiento/skeletons/micro-interacciones**: primitivas reutilizables del design system
-  (`tt-anim-in`, `tt-stagger`, `tt-hover-lift`, skeletons `skel_rows`, spinner automático en
-  botones HTMX). Toda vista nueva las reutiliza. Ver [docs/design/ui_motion.md](../design/ui_motion.md).
+- **Movimiento/indicadores/micro-interacciones**: primitivas reutilizables del design system
+  (`tt-anim-in`, `tt-stagger`, `tt-enter`, `tt-hover-lift`, indicador de carga
+  `tt-ind-host`+`tt-ind--overlay`, spinner automático en botones HTMX). Toda vista nueva las
+  reutiliza. Ver [docs/design/ui_motion.md](../design/ui_motion.md).
+- **Indicador de carga**: dos reglas, no una. No aparece antes de `--tt-ind-delay` (300 ms) y,
+  cuando aparece, es overlay: **reserva 0 px**. Antes empujaba 24 px en Documentos y 341.8 px en
+  Citas.

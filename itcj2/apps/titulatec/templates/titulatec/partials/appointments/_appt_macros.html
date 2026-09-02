@@ -1,0 +1,31 @@
+{# ===========================================================================
+   _appt_macros.html — el contrato de navegación de la agenda de citas.
+
+   Vive aquí y NO en `titulatec/_macros.html` a propósito: aquel lo importan
+   tres plantillas del alumno y es territorio compartido. Esto es solo de Citas.
+
+   `appt_nav(url)` emite los atributos de UN control de la agenda. La misma URL
+   va en `href` y en `hx-get` (una sola fuente: no pueden divergir) y apunta a la
+   URL de PÁGINA, no a `/body`:
+
+     · `hx-select="#appt-shell"` recorta el shell de la respuesta completa, así
+       que `hx-push-url="true"` empuja la URL real y F5 / Atrás reconstruyen el
+       estado exacto. Con `hx-get` a `/body` el push habría dejado el parcial
+       desnudo en la barra de direcciones.
+     · `hx-select == hx-target` OBLIGA a un swap de la familia `outerHTML`
+       (invariante de la app, `tests/fastapi/titulatec/test_admin_nav_swap.py`):
+       el nodo recortado trae el mismo id que el destino y con `innerHTML`
+       acabaría dentro de sí mismo.
+     · `morph` (Idiomorph, heredado de `#ttAdmin`) conserva los nodos que no
+       cambiaron: cambiar de mes no repinta "Por agendar" ni la ficha abierta.
+   =========================================================================== #}
+
+{% macro appt_nav(url) -%}
+href="{{ url }}" hx-get="{{ url }}" hx-target="#appt-shell" hx-select="#appt-shell" hx-swap="morph:outerHTML" hx-push-url="true" hx-indicator="#appt-skel"
+{%- endmacro %}
+
+{# Igual, pero para formularios (selector de fecha, barra de filtros): la URL la
+   compone htmx con los campos, así que aquí no va query string. #}
+{% macro appt_nav_form() -%}
+hx-target="#appt-shell" hx-select="#appt-shell" hx-swap="morph:outerHTML" hx-push-url="true" hx-indicator="#appt-skel"
+{%- endmacro %}

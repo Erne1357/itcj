@@ -1,0 +1,180 @@
+{# ZONA C · ficha del alumno abierto — AL LADO de la zona A (apilada en móvil).
+
+   Solo se abre UNO, y siempre pasa por el guard de alcance: `_detail_ctx` resuelve
+   el proceso con `process_in_scope`, no con `db.get`, y `_shell_ctx` además
+   descarta el `?selected=` que no esté en el universo acotado del usuario. El
+   `?selected=` crudo fue un IDOR (`docs/flows/engine_officer_scope.md`).
+
+   Las 5 acciones POST reenvían el estado de la zona A en su querystring
+   (`_action_ctx`), así que tras agendar o marcar asistencia la agenda no salta.
+   Contexto: `detail`, `q_zone`, `page_url`, `body_url`. #}
+{% from "titulatec/_macros.html" import appt_pill, estado_pill %}
+{% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav %}
+{% set BASE = '/titulatec/admin/appointments/' ~ detail.process.id %}
+{% set AQS = ('?' ~ q_zone) if q_zone else '' %}
+{% set U_CLOSE = page_url ~ (('?' ~ q_zone) if q_zone else '') %}
+{% set first_doc = (detail.docs | selectattr('doc') | list | first) %}
+
+<section class="tt-appt-detail" id="appt-detail" aria-label="Ficha del alumno"
+         data-tt-fade-key="detail:{{ detail.process.id }}">
+
+  {# — Cabecera del alumno —
+     `flex-wrap` + `min-width:0` en los dos hijos: sin eso el bloque de la
+     derecha (carrera/modalidad) llegaba a x=401 px y desbordaba la PÁGINA a 360
+     y 390. Hoy no se veía porque el `hx-trigger="load"` destruía la ficha a los
+     pocos ms de abrirla. #}
+  <div class="tt-card mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+      <div class="min-w-0">
+        <span class="tt-kicker">{{ detail.cohort_period }} · {{ detail.process.folio }}</span>
+        <div class="tt-display tt-appt-name">{{ detail.student.name }}</div>
+        <div class="d-flex flex-wrap gap-3 mt-1 tt-appt-ids">
+          <span class="tt-mono">{{ detail.student.control }}</span>
+          {% if detail.student.email %}<span class="tt-mono tt-appt-email">{{ detail.student.email }}</span>{% endif %}
+        </div>
+      </div>
+      <div class="d-flex align-items-start gap-2 min-w-0">
+        <div class="tt-appt-meta min-w-0">
+          {{ detail.program_name or 'Sin carrera' }}<br>{{ detail.modality_name or 'Sin modalidad' }}
+        </div>
+        {# Cerrar la ficha = volver a la agenda. Es también lo que hace el botón
+           Atrás del navegador, porque cada selección empuja su URL. #}
+        <a class="btn btn-sm tt-btn-ghost tt-appt-close" title="Cerrar ficha"
+           aria-label="Cerrar ficha y volver a la agenda" {{ appt_nav(U_CLOSE) }}>
+          <i class="bi bi-arrow-left d-lg-none"></i><i class="bi bi-x-lg d-none d-lg-inline"></i>
+          <span class="d-lg-none ms-1">Volver a la agenda</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  {# — Solicitud de cambio del alumno — #}
+  {% if detail.appt and detail.appt.change_request %}
+  <div class="tt-card tt-card--accent tt-appt-chgcard mb-3">
+    <span class="tt-pill tt-pill--amber"><i class="bi bi-arrow-repeat"></i> El alumno solicitó un cambio</span>
+    <p class="mb-0 mt-2 tt-appt-note">{{ detail.appt.change_request }}</p>
+  </div>
+  {% endif %}
+
+  {# — Estado de la cita / agendar — #}
+  <div class="tt-card mb-3">
+    {% if detail.appt %}
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <span class="tt-kicker">Cita de cotejo</span>
+        {{ appt_pill(detail.appt.status) }}
+      </div>
+      <div class="d-flex flex-wrap gap-4 mt-2 tt-appt-when">
+        <div><i class="bi bi-calendar-event me-1"></i>{{ detail.appt.scheduled_label }}</div>
+        <div><i class="bi bi-geo-alt me-1"></i>{{ detail.appt.location or 'Sin lugar' }}</div>
+        {% if detail.day %}
+        <a class="tt-appt-daylink" {{ appt_nav(page_url ~ '?date=' ~ detail.day ~ '&selected=' ~ detail.process.id) }}>
+          <i class="bi bi-calendar-day me-1"></i>Ver ese día</a>
+        {% endif %}
+      </div>
+
+      {% if detail.appt.status not in ('attended',) %}
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        {% if detail.appt.status in ('scheduled','confirmed') %}
+        <button class="btn btn-sm tt-btn-ink" hx-post="{{ BASE }}/start{{ AQS }}"
+                hx-target="#appt-shell" hx-swap="morph:outerHTML" hx-indicator="#appt-skel">
+          <i class="bi bi-hourglass-split me-1"></i>Atender (en proceso)</button>
+        {% endif %}
+        {% if detail.appt.status == 'in_progress' %}
+        <button class="btn btn-sm tt-btn-ink" hx-post="{{ BASE }}/attended{{ AQS }}"
+                hx-target="#appt-shell" hx-swap="morph:outerHTML" hx-indicator="#appt-skel">
+          <i class="bi bi-check-lg me-1"></i>Marcar asistió</button>
+        {% endif %}
+        <button class="btn btn-sm tt-btn-ghost" type="button"
+                data-tt-toggle="appt-resched" aria-expanded="false" aria-controls="appt-resched">
+          <i class="bi bi-arrow-repeat me-1"></i>Reagendar</button>
+        <button class="btn btn-sm tt-btn-ghost" hx-post="{{ BASE }}/no-show{{ AQS }}"
+                hx-target="#appt-shell" hx-swap="morph:outerHTML" hx-indicator="#appt-skel">
+          <i class="bi bi-x-circle me-1"></i>No se presentó</button>
+      </div>
+      {% else %}
+      <div class="mt-3 d-flex flex-wrap align-items-center gap-2">
+        <span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Cotejo concluido</span>
+        <a class="btn btn-sm tt-btn-ink" href="/titulatec/admin/processes/{{ detail.process.id }}">
+          <i class="bi bi-arrow-right me-1"></i>Ir al proceso a aprobar fase 02</a>
+      </div>
+      {% endif %}
+
+      <form id="appt-resched" class="d-none mt-3 d-flex flex-wrap align-items-end gap-2"
+            hx-post="{{ BASE }}/reschedule{{ AQS }}" hx-target="#appt-shell"
+            hx-swap="morph:outerHTML" hx-indicator="#appt-skel">
+        <div>
+          <label class="tt-kicker d-block mb-1" for="appt-resched-date">Nueva fecha (habilitada)</label>
+          <select id="appt-resched-date" name="appt_date" class="form-select form-select-sm" required>
+            {% for d in detail.allowed_days %}<option value="{{ d }}" {{ 'selected' if d == detail.appt.scheduled_input[:10] }}>{{ d }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="tt-kicker d-block mb-1" for="appt-resched-time">Hora</label>
+          <input type="time" id="appt-resched-time" name="appt_time" class="form-control form-control-sm" required>
+        </div>
+        <div>
+          <label class="tt-kicker d-block mb-1" for="appt-resched-loc">Lugar</label>
+          <input type="text" id="appt-resched-loc" name="location" class="form-control form-control-sm"
+                 value="{{ detail.appt.location or '' }}" placeholder="Edificio A · Servicios Escolares">
+        </div>
+        <button class="btn btn-sm tt-btn-ink" type="submit">Reagendar</button>
+      </form>
+    {% else %}
+      <span class="tt-kicker">Agendar cita de cotejo</span>
+      {% if detail.allowed_days %}
+      <form class="mt-2 d-flex flex-wrap align-items-end gap-2"
+            hx-post="{{ BASE }}/schedule{{ AQS }}" hx-target="#appt-shell"
+            hx-swap="morph:outerHTML" hx-indicator="#appt-skel">
+        <div>
+          <label class="tt-kicker d-block mb-1" for="appt-sched-date">Fecha (habilitada)</label>
+          <select id="appt-sched-date" name="appt_date" class="form-select form-select-sm" required>
+            {% for d in detail.allowed_days %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="tt-kicker d-block mb-1" for="appt-sched-time">Hora</label>
+          <input type="time" id="appt-sched-time" name="appt_time" class="form-control form-control-sm" required>
+        </div>
+        <div>
+          <label class="tt-kicker d-block mb-1" for="appt-sched-loc">Lugar</label>
+          <input type="text" id="appt-sched-loc" name="location" class="form-control form-control-sm"
+                 placeholder="Edificio A · Servicios Escolares">
+        </div>
+        <button class="btn btn-sm tt-btn-ink" type="submit"><i class="bi bi-calendar-plus me-1"></i>Agendar</button>
+      </form>
+      {% else %}
+      <p class="mb-0 mt-2 tt-appt-warn">
+        <i class="bi bi-exclamation-triangle me-1"></i>La jefa aún no configura días de cotejo para esta convocatoria.</p>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {# — Visor de documentos del alumno (cotejo) —
+     Los botones no llevan `onclick`: exponen `data-tt-doc` y los atiende
+     `js/admin/appointments.js` por delegación (una sola carga, morph-safe). #}
+  <div class="tt-card">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+      <span class="tt-kicker"><i class="bi bi-file-earmark-text me-1"></i>Documentos del alumno (cotejo)</span>
+      {% if first_doc %}
+      <button type="button" class="btn btn-sm tt-btn-ghost" data-bs-toggle="modal"
+              data-bs-target="#tt-appt-doc-modal" title="Expandir" aria-label="Ver a pantalla completa">
+        <i class="bi bi-arrows-fullscreen"></i></button>
+      {% endif %}
+    </div>
+    <div class="d-flex flex-wrap gap-2 mt-2 mb-2" id="appt-docbar">
+      {% for d in detail.docs %}
+      <button type="button" class="btn btn-sm {{ 'tt-btn-soft' if d.doc else 'tt-btn-ghost' }}{{ ' is-active' if first_doc and d.type_code == first_doc.type_code }}"
+              {% if d.doc %}data-tt-doc="{{ d.view_url }}" data-tt-doc-name="{{ d.name }}"{% else %}disabled{% endif %}>
+        {{ d.name }}
+        {% if d.doc %}{{ estado_pill(d.doc.review_status) }}{% else %}<span class="tt-pill tt-pill--neutral ms-1">Falta</span>{% endif %}
+      </button>
+      {% endfor %}
+    </div>
+    {% if first_doc %}
+    <iframe id="tt-appt-doc-frame" class="tt-appt-frame" title="Documento del alumno"
+            src="{{ first_doc.view_url }}"></iframe>
+    {% else %}
+    <p class="tt-appt-empty mb-0">El alumno aún no sube documentos.</p>
+    {% endif %}
+  </div>
+</section>

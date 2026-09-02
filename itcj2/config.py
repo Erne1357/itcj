@@ -6,11 +6,17 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
+    # Bump 2026-09-02: la revisión del admin de TitulaTec tocó `titulatec.css`
+    # (retardo e indicador-overlay, `.tt-enter`, las tres zonas de Citas) y tres
+    # módulos JS que además pasaron a cargarse desde la base admin
+    # (`shared/titulatec-utils.js`, `admin/processes.js`, `admin/appointments.js`).
+    # Sin este bump el navegador con caché caliente serviría el CSS/JS viejo
+    # contra el HTML nuevo: los filtros de Procesos re-animarían la página, el
+    # indicador volvería a parpadear y las Citas se verían sin su rejilla.
+    #
     # Bump 2026-08-10: la revisión de helpdesk tocó 55 archivos CSS/JS (registro
-    # de orígenes, sockets, filtros, detalle de equipo, asignación, home). Sin
-    # este bump el navegador serviría los assets viejos desde caché y los
-    # cambios no se verían hasta un refresh forzado.
-    STATIC_VERSION: str = "1.0.1111510"
+    # de orígenes, sockets, filtros, detalle de equipo, asignación, home).
+    STATIC_VERSION: str = "1.0.1111511"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

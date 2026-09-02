@@ -56,6 +56,15 @@
   --tt-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);   /* movimiento en pantalla */
   --tt-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);    /* tipo iOS */
 
+  /* — Indicadores de carga: retardo antes de mostrarse —
+     Una peticion de la red local se resuelve en 60-190 ms. Mostrar el skeleton
+     o el spinner al instante producia un parpadeo (aparece y desaparece) y,
+     peor, reservaba alto: 24 px en Documentos y 341.8 px en Citas. Por debajo
+     del retardo el usuario percibe la respuesta como instantanea y no necesita
+     indicador ninguno; por encima, si. */
+  --tt-ind-delay: 300ms;   /* cuanto tarda un indicador en aparecer */
+  --tt-ind-fade: 160ms;    /* cuanto dura su fundido de entrada */
+
   /* Remapeo de variables Bootstrap para que sus componentes hereden la marca */
   --bs-primary: #0F172A;
   --bs-body-font-family: var(--tt-ui);
@@ -274,17 +283,37 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
     border-color: var(--tt-line); }
 }
 
-/* Botón ocupado durante una petición HTMX (htmx añade .htmx-request al emisor) */
-.btn.htmx-request, button.htmx-request { pointer-events: none; opacity: .72; }
-.btn.htmx-request::before, button.htmx-request::before {
+/* Botón ocupado durante una petición HTMX (htmx añade .htmx-request al emisor).
+   `pointer-events: none` es INMEDIATO — es la defensa contra el doble clic y no
+   se puede retrasar. Lo que se retrasa es lo que se VE (spinner y atenuado), y
+   eso lo abre la clase `.tt-ind-on`. */
+.btn.htmx-request, button.htmx-request { pointer-events: none; }
+.btn.htmx-request.tt-ind-on, button.htmx-request.tt-ind-on { opacity: .72; }
+.btn.htmx-request.tt-ind-on::before, button.htmx-request.tt-ind-on::before {
   content: ""; display: inline-block; width: .9em; height: .9em; margin-right: .45em;
   border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
   vertical-align: -.1em; animation: tt-spin .6s linear infinite;
 }
 
-/* Indicador HTMX genérico: visible sólo mientras dura la petición */
+/* ---- Indicador HTMX genérico: nada aparece antes de --tt-ind-delay ---------
+   Una petición de la red local se resuelve en 60-190 ms; mostrar el skeleton al
+   instante producía un parpadeo (aparece y desaparece) y encima reservaba alto.
+   Por debajo del retardo la respuesta se percibe instantánea y el indicador
+   sobra; por encima, hace falta.
+
+   La puerta es la clase `.tt-ind-on`, que pone `titulatec-utils.js` cuando el
+   retardo vence (y quita al terminar la petición). NO se puede hacer en CSS
+   puro: la única forma de no reservar alto es `display: none`, y un elemento en
+   `display: none` tiene TERMINADAS sus animaciones (CSS Animations 1), así que
+   una animación retrasada nunca llega a devolverlo a `block`. Medido en
+   Chromium 149: el indicador se quedaba oculto para siempre.
+
+   El retardo lo lee el JS de --tt-ind-delay: este token es la fuente única. */
 .htmx-indicator { display: none; }
-.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { display: block; }
+.tt-ind-on.htmx-indicator, .tt-ind-on .htmx-indicator {
+  display: block;
+  animation: tt-fade-in var(--tt-ind-fade) var(--tt-ease-out) both;
+}
 
 /* ============================ SKELETONS =============================== */
 .tt-skel { position: relative; overflow: hidden; background: var(--tt-mist); border-radius: var(--tt-r); }
@@ -879,3 +908,251 @@ th.sortable { cursor: pointer; user-select: none; }
 .tt-now-title { font-family: var(--tt-display); font-size: 1.35rem; font-weight: 600;
   line-height: 1.15; letter-spacing: -.4px; }
 .tt-now-cta { min-height: 48px; }
+
+
+/* ===========================================================================
+   ADMIN - morph e indicadores (bloque C, 2026-09-02)
+   ---------------------------------------------------------------------------
+   Se anade al final a proposito: varias manos tocan este archivo a la vez.
+   =========================================================================== */
+
+/* Entrada de UNA fila/tarjeta recien aparecida tras un filtro.
+   Solo opacidad: sin desplazamiento, sin stagger y sin animacion de salida.
+   Lo aplica processes.js exactamente a los nodos cuyo id NO existia antes del
+   swap; las filas supervivientes no la reciben y por tanto no se mueven. */
+.tt-enter { animation: tt-fade-in .18s var(--tt-ease-out) both; }
+
+/* Barra de filtros: cero spinner.
+   Cambiar de filtro es una operacion de 60-90 ms; el spinner del boton solo
+   alcanzaba a parpadear. El retardo de --tt-ind-delay ya lo evita donde
+   `display` es animable, y esta regla lo cierra tambien donde no lo es. */
+.tt-filterbar .btn.tt-ind-on::before,
+.tt-filterbar button.tt-ind-on::before { content: none; }
+/* El atenuado del boton SI se conserva: es feedback sobre el elemento que el
+   usuario acaba de pulsar, no movimiento en la pagina, y con --tt-ind-delay solo
+   llega a verse cuando la peticion de verdad tarda. */
+
+
+/* ===========================================================================
+   INDICADOR DE CARGA COMO OVERLAY (bloque B, 2026-09-02)
+   ---------------------------------------------------------------------------
+   PRIMITIVA del design system, no un parche de Documentos: la usan Documentos,
+   Citas y cualquier region que recargue por HTMX (Procesos la querra en cuanto
+   tenga indicador). Ver docs/design/ui_motion.md.
+
+   Son DOS problemas distintos y hacen falta las dos mitades:
+     1. que el indicador no aparezca cuando no hace falta -> lo resuelve el
+        retardo --tt-ind-delay (bloque A, arriba).
+     2. que cuando SI aparece no empuje nada -> lo resuelve esto.
+
+   Medido antes de este bloque, con 900 ms de latencia artificial: Documentos
+   reservaba 24 px (CLS 0.024) y Citas 341.8 px (CLS 0.318, categoria "mala").
+   El indicador nacia en el flujo, encima de la region, asi que el contenido
+   entero bajaba de golpe justo cuando el usuario lo estaba mirando.
+
+   Uso:
+     <div class="tt-ind-host">                        (ancla de posicionamiento)
+       <div id="x-skel" class="tt-ind tt-ind--overlay htmx-indicator"
+            role="status" aria-live="polite">
+         <span class="tt-ind-badge"><span class="tt-spinner"></span>Cargando...</span>
+       </div>
+       <div id="x-body">...</div>                     (la region que recarga)
+     </div>
+
+   `display` NO se declara aqui a proposito: lo gobierna el par
+   `.htmx-indicator` / `.tt-ind-on.htmx-indicator` de mas arriba, que ademas
+   trae el fundido. Este bloque solo cambia DONDE se pinta, no CUANDO.
+   =========================================================================== */
+.tt-ind-host { position: relative; }
+
+.tt-ind { font-size: .82rem; color: var(--tt-slate); }
+
+.tt-ind--overlay {
+  position: absolute; inset: 0; z-index: 4;
+  padding-top: .75rem; text-align: center; pointer-events: auto;
+  border-radius: var(--tt-r);
+  /* Velo del propio fondo de la pagina (--tt-mist al 72%): la region sigue
+     insinuandose debajo, asi que no "se apaga y se enciende" — que es
+     exactamente lo que el usuario pidio evitar. Y al cubrirla, tampoco se puede
+     pulsar una fila rancia mientras llega la nueva. */
+  background: rgba(248, 250, 252, .72);
+}
+
+/* Distintivo compacto. Sirve para CUALQUIER forma de region (tabla, kanban,
+   calendario, dos columnas), que es justo lo que un skeleton no puede hacer:
+   por eso es esto y no `skel_rows` lo que se reutiliza. `sticky` lo mantiene a
+   la vista si la region es mas alta que la ventana. */
+.tt-ind-badge {
+  position: sticky; top: .75rem;
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .35rem .75rem; border-radius: 999px;
+  background: var(--tt-paper); border: 1px solid var(--tt-line);
+  box-shadow: 0 6px 18px -8px rgba(15, 23, 42, .25);
+  font-size: .78rem; font-weight: 500; color: var(--tt-slate);
+}
+
+
+/* ===========================================================================
+   ADMIN - CITAS DE COTEJO: las tres zonas (bloque D, 2026-09-02)
+   ---------------------------------------------------------------------------
+   Se anade al final a proposito: varias manos tocan este archivo a la vez.
+
+   Decision del usuario: el CALENDARIO es la vista principal, "Por agendar" queda
+   FIJO a su lado (debajo en movil) siempre visible y con contador, y al elegir un
+   alumno se abre SOLO ese en un panel de detalle JUNTO a la lista del dia.
+
+   Movil (<992px): apilado. Con ficha abierta el orden pasa a detalle - agenda -
+   por agendar, porque el usuario acaba de tocar a un alumno y lo que quiere ver
+   es su ficha; la vuelta es el boton "Volver a la agenda" del propio detalle (y
+   el boton Atras del navegador, porque cada seleccion empuja su URL).
+
+   NO es una hoja `position: fixed`: `.tt-admin` usa `transform` para el drawer,
+   asi que un fixed dentro se ancla al contenedor y no a la ventana. Apilar
+   ademas conserva el requisito de "Por agendar siempre visible".
+   =========================================================================== */
+.tt-appt {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "agenda" "pending";
+}
+.tt-appt.has-detail { grid-template-areas: "detail" "agenda" "pending"; }
+.tt-appt-agenda { grid-area: agenda;  min-width: 0; }
+.tt-appt-side   { grid-area: pending; min-width: 0; }
+.tt-appt-detail { grid-area: detail;  min-width: 0; }
+
+@media (min-width: 992px) {
+  .tt-appt {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+    grid-template-areas: "agenda pending";
+    align-items: start;
+  }
+  /* Con ficha abierta la agenda se vuelve el carril de contexto (la lista del
+     dia) y el detalle ocupa el espacio grande, a su lado. "Por agendar" queda
+     debajo del carril, nunca oculto. */
+  .tt-appt.has-detail {
+    grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+    grid-template-areas: "agenda detail" "pending detail";
+    /* `auto 1fr`, no `auto auto`: la ficha ocupa las DOS filas y con dos pistas
+       de contenido el navegador reparte su alto entre ambas — la agenda crecia
+       y dejaba un hueco muerto de media pantalla antes de "Por agendar". Un
+       item que cruza una pista FLEXIBLE no aporta a las de contenido (CSS Grid
+       12.5), asi que el sobrante cae entero en la fila 2. */
+    grid-template-rows: auto 1fr;
+    align-content: start;
+  }
+}
+
+/* --- Cabecera de la pagina (sustituye a los style= inline) ---------------- */
+.tt-h-page { font-size: 1.5rem; font-weight: 600; margin: .15rem 0 0; }
+.tt-sub    { font-size: .82rem; color: var(--tt-slate); }
+
+/* --- Segmento Calendario / Lista ----------------------------------------- */
+/* Dos opciones, con activo REAL. "Del dia" se elimino: sin fecha aterrizaba en
+   HOY, que fuera de la semana de cotejo son 0 citas. */
+.tt-appt-seg {
+  display: inline-flex; gap: 2px; padding: 3px;
+  background: var(--tt-mist); border: 1px solid var(--tt-line); border-radius: 999px;
+}
+.tt-appt-seg .seg {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 34px; padding: 0 14px; border-radius: 999px;
+  font-size: .8rem; font-weight: 600; color: var(--tt-slate); text-decoration: none;
+  transition: background .15s ease, color .15s ease;
+}
+.tt-appt-seg .seg.is-active {
+  background: var(--tt-paper); color: var(--tt-ink); box-shadow: var(--tt-shadow-card);
+}
+.tt-appt-seg .seg:focus-visible { outline: 2px solid var(--tt-accent); outline-offset: -2px; }
+@media (hover: hover) and (pointer: fine) {
+  .tt-appt-seg .seg:hover { color: var(--tt-ink); }
+}
+
+/* --- Calendario ---------------------------------------------------------- */
+.tt-appt-calhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
+/* El dia habilitado es un <a> que llena la celda: alcanzable con Tab, no solo
+   con el raton. La celda pierde su padding para no sumarlo dos veces. */
+.tt-cal td.on { padding: 0; }
+.tt-cal td.on > .cell {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  height: 100%; padding: 4px; color: inherit; text-decoration: none; border-radius: 6px;
+}
+.tt-cal td.on > .cell:focus-visible { outline: 2px solid var(--tt-accent); outline-offset: -2px; }
+/* Contador como pastilla de un solo numero: "3 citas" no cabe cuando la agenda
+   se estrecha a 320px con la ficha abierta (celda de ~45px, la misma que a 360). */
+.tt-cal .count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px; margin-top: 0;
+  border-radius: 999px; background: var(--tt-navy-soft); color: var(--tt-navy);
+  font-size: .66rem; font-weight: 700;
+}
+
+/* --- Cabecera del dia ---------------------------------------------------- */
+.tt-appt-dayhead { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
+.tt-appt-datepick { display: flex; align-items: center; gap: .4rem; margin: 0; }
+.tt-appt-datepick .form-control { width: auto; }
+
+/* --- Fila de alumno (dia, lista y "por agendar") ------------------------- */
+/* El activo va por CLASE + barra de acento, no por `style="background:..."`
+   inline: a un metro de la pantalla el fondo gris claro no se distinguia. */
+.tt-appt-item {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  min-height: 44px; padding: 8px 10px 8px 12px;
+  border: 1px solid var(--tt-line-soft); border-radius: 9px;
+  color: inherit; text-decoration: none;
+  transition: transform .16s var(--tt-ease-out), box-shadow .16s var(--tt-ease-out), border-color .16s ease, background .15s ease;
+}
+.tt-appt-item .who  { font-size: .85rem; font-weight: 600; color: var(--tt-ink); }
+.tt-appt-item .meta { font-size: .7rem; color: var(--tt-mute); }
+.tt-appt-item .time { flex: 0 0 auto; font-size: .82rem; font-weight: 600; color: var(--tt-ink); }
+.tt-appt-item:active { transform: scale(.985); }
+.tt-appt-item:focus-visible { outline: 2px solid var(--tt-accent); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .tt-appt-item:hover { border-color: var(--tt-line); box-shadow: 0 8px 24px -10px rgba(15,23,42,.18); }
+}
+.tt-appt-item.is-active { background: var(--tt-mist); border-color: var(--tt-line); }
+.tt-appt-item.is-active::before {
+  content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--tt-accent);
+}
+.tt-appt-chg { color: var(--tt-amber-ink); }
+
+/* --- "Por agendar" (zona B) ---------------------------------------------- */
+.tt-appt-sidehead { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+/* Vacio con mensaje, no seccion desaparecida: el encargado necesita ver que no
+   le queda nada pendiente tanto como ver que si. */
+.tt-appt-empty { font-size: .82rem; color: var(--tt-mute); }
+
+/* --- Detalle (zona C) ---------------------------------------------------- */
+.tt-appt-name  { font-size: 1.25rem; font-weight: 600; }
+.tt-appt-ids   { font-size: .78rem; color: var(--tt-slate); }
+/* Un correo largo era lo que empujaba la pagina a 360/390. */
+.tt-appt-email { overflow-wrap: anywhere; }
+.tt-appt-meta  { font-size: .78rem; color: var(--tt-slate); text-align: right; overflow-wrap: anywhere; }
+.tt-appt-close { flex: 0 0 auto; }
+.tt-appt-when  { font-size: .9rem; }
+.tt-appt-when i { color: var(--tt-mute); }
+.tt-appt-note  { font-size: .84rem; color: var(--tt-slate); }
+.tt-appt-warn  { font-size: .82rem; color: var(--tt-amber-ink); }
+.tt-appt-hint  { font-size: .74rem; color: var(--tt-mute); margin-top: .6rem; }
+.tt-appt-check { font-size: .82rem; }
+.tt-appt-fselect { min-width: 200px; }
+.tt-appt-chgcard { border-left-color: var(--tt-amber-ink); }
+.tt-appt-daylink { font-size: .82rem; font-weight: 600; color: var(--tt-navy); text-decoration: none; }
+.tt-appt-daylink:hover { text-decoration: underline; }
+/* El visor no lleva `style=` inline: `min()` evita que un PDF alto empuje la
+   ficha entera fuera de la pantalla. */
+.tt-appt-frame {
+  width: 100%; height: min(60vh, 520px);
+  border: 1px solid var(--tt-line); border-radius: var(--tt-r); background: var(--tt-mist);
+}
+.tt-appt-frame--modal { height: 78vh; border: 0; border-radius: 0; }
+#appt-docbar .btn.is-active { border-color: var(--tt-accent); }
+
+/* --- Objetivos tactiles en movil (contrato: >= 40x40) -------------------- */
+@media (max-width: 991.98px) {
+  .tt-appt-seg .seg { min-height: 40px; padding: 0 16px; }
+  .tt-appt-item { min-height: 48px; }
+  .tt-appt-datepick .form-control { min-height: 40px; }
+  .tt-appt-meta { text-align: left; }
+}

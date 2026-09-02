@@ -175,7 +175,18 @@ def test_ningun_template_selecciona_su_propio_destino_con_innerHTML():
                     % (path.relative_to(TEMPLATES), select, target, attr(tag, "hx-swap"))
                 )
 
-    assert revisados >= 4, "el censo de hx-select encogio a %d: revisa el regex" % revisados
+    # Censo real hoy: 14 etiquetas (base_admin 1, cohort_detail 1, cohort_students 1,
+    # cohort_days_calendar 3 y processes 8 -- los filtros HTMX de la bandeja de
+    # Procesos). Son 8 y no 12 porque el bucle de chips de status emite 5 anclas
+    # desde UNA sola etiqueta del fuente, y este censo lee el fuente. El umbral
+    # deja 2 de margen, como antes, para que no se caiga por una edicion menor.
+    #
+    # PUNTO CIEGO CONOCIDO: Citas de cotejo emite sus `hx-select` desde un macro
+    # (`partials/appointments/_appt_macros.html`), o sea sin `<tag` delante, y
+    # este regex no los ve. El mismo invariante se fija ahi con una asercion
+    # directa sobre el macro, en `test_appointments_scope_day.py`. Cualquier
+    # vista nueva que centralice sus atributos en un macro necesita lo mismo.
+    assert revisados >= 12, "el censo de hx-select encogio a %d: revisa el regex" % revisados
     assert not ofensores, (
         "hx-select == hx-target con swap innerHTML (el nodo se anida en si mismo):\n"
         + "\n".join(ofensores)

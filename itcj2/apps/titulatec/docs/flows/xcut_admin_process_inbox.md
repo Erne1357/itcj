@@ -22,8 +22,45 @@
 3. Tabla → última columna **Abrir** → `/titulatec/admin/processes/{id}`.
    Tablero → la card entera es el enlace al mismo detalle (`partials/processes_board.html:16`).
 4. El menú lateral navega por HTMX (`hx-target="#tt-admin-content"`, `hx-swap="morph:outerHTML"`,
-   `templates/titulatec/admin/base_admin.html:47-48`); **los controles internos de esta página son
-   `<a href>` planos** (`processes.html:11-59`), es decir navegación completa del documento.
+   `templates/titulatec/admin/base_admin.html`), y **desde 2026-09-02 los controles internos de
+   esta página también**: los 12 anclas (5 KPIs, 5 chips de status, 2 de vista) conservan su
+   `href` y añaden el mismo contrato de swap. Ver «Los filtros no recargan la página».
+
+## Los filtros no recargan la página (2026-09-02)
+
+Antes cada KPI, chip o botón de vista era un `<a href>` pelado: **recarga completa del documento**.
+El resultado visible era el que reportó el usuario — *«si el contenido de la petición no cambia,
+aun así recarga todo con las animaciones y se ve raro que se muevan cosas sin haber cambiado
+nada»* — porque pulsar **Activos** con 34/34 procesos activos repintaba una pantalla idéntica.
+
+Contrato de los 12 controles (`processes.html`), el mismo del menú lateral:
+
+```html
+href="{{ u_chip }}" hx-get="{{ u_chip }}"
+hx-target="#tt-admin-content" hx-select="#tt-admin-content"
+hx-swap="morph:outerHTML" hx-push-url="true"
+```
+
+- **`href` y `hx-get` salen de la MISMA variable Jinja** (`u_total`, `u_active`, `u_chip`, `u_table`…,
+  `processes.html:12-18` y `:80`). No pueden divergir, y el enlace sigue siendo un enlace de verdad
+  (rueda del ratón, «abrir en pestaña nueva», deep link, auditoría responsive por URL).
+- **`hx-select` == `hx-target` obliga a `outerHTML`**: es el invariante de la app
+  (`CLAUDE.md` §4), fijado por `tests/fastapi/titulatec/test_admin_nav_swap.py`.
+- **`hx-ext="morph"` vive en `#ttAdmin`**, no en `#tt-admin-content`: si viviera en el destino se
+  perdería al primer `morph:outerHTML` (la respuesta no trae el atributo) y htmx caería en silencio
+  a `innerHTML`, anidando el contenedor dentro de sí mismo.
+- **Ids estables** en filas (`proc-row-{id}`), tarjetas (`proc-card-{id}`), columnas
+  (`proc-col-{n}`), paneles (`proc-table-pane` / `proc-board-pane`) y en cada control. Sin ellos
+  Idiomorph empareja por posición y reescribe filas que no han cambiado.
+
+Qué se anima ahora (ver [`docs/design/ui_motion.md`](../design/ui_motion.md)):
+
+| Acción | Movimiento |
+|---|---|
+| Filtro cuyo resultado **no cambia** | ninguno. Verificado en Chromium: 34/34 filas son los **mismos nodos** DOM, cero `animationstart`, `getAnimations()` devuelve los **mismos 6 objetos** de siempre (todos `finished`) |
+| Filtro que **sí** cambia | solo las filas/tarjetas nuevas reciben `.tt-enter` (fundido de opacidad .18 s). Las supervivientes no se mueven |
+| Cambio de pestaña por el sidebar | `tt-anim-in` sobre `#tt-admin-content`, como siempre (`data-tt-view` pasa de `documents` a `processes`) |
+| Pulsar la pestaña en la que ya estás | ninguno |
 
 ## Secuencia
 
@@ -133,13 +170,23 @@ y uno en fase 8 muestra 100 % **aunque la fase 8 no esté aprobada todavía**.
 - Bloque `{% else %}` de `processes.html:124-245`: 9 columnas (Folio, Alumno + control, Carrera,
   Modalidad, Progreso, Fase actual, Días en fase, Estado, acción **Abrir**).
 - Buscador cliente (`#proc-search`) sobre `data-search` = `alumno control folio` en minúsculas
-  (`processes.html:142`) y ordenamiento cliente por `progress` / `phase` / `idle`
-  (`th.sortable`, `processes.html:134-136`; JS en `processes.html:173-245`).
+  y ordenamiento cliente por `progress` / `phase` / `idle` (`th.sortable`). El JS vive en
+  **`static/js/admin/processes.js`**, cargado una sola vez por `base_admin.html`.
 - **Funnel de fases** (`processes.html:63-80`, solo en esta vista): una franja por columna con
   `flex-grow` = número de procesos y un `hue` interpolado; clic en una franja filtra las filas por
   fase **en el cliente**, sin volver al servidor.
-- Ese JS es un IIFE idempotente que opera sobre el DOM ya renderizado, para sobrevivir al morph
-  del menú admin (comentario en `processes.html:173-174`).
+- Ese módulo es morph-safe: **todos** sus listeners están delegados en `document` (nunca
+  `data-tt-bound`, que Idiomorph borraría al sincronizar atributos, duplicando listeners) y el
+  estado de las tres lentes vive en el módulo, no en el DOM. Consecuencia buena: el texto del
+  buscador, el orden y la fase seleccionada **sobreviven** a un cambio de filtro del servidor.
+  Hasta 2026-09-02 este archivo existía pero **ningún template lo cargaba**, y su lógica estaba
+  duplicada inline dentro del fragmento que el morph reemplaza.
+- ⚠️ El buscador guarda **dos** copias de la consulta: `estado.q` (recortada y en minúsculas, que
+  es contra lo que se compara `data-search`) y `estado.qTexto` (lo que el usuario escribió, tal
+  cual). Al `<input>` solo puede volver `qTexto`: el morph le borra el `value` porque la respuesta
+  del servidor no trae ninguno, así que el módulo lo repone — y reponer la normalizada convertía
+  "ANDREA" en "andrea" delante del usuario en cuanto pulsaba un filtro. **Filtrar y mostrar son
+  cosas distintas**; cualquier lente futura que normalice su entrada necesita el mismo par.
 
 ### Tablero (`view=board`)
 
@@ -155,8 +202,8 @@ y uno en fase 8 muestra 100 % **aunque la fase 8 no esté aprobada todavía**.
 - Las cards son **solo lectura**: un `<a href>` al detalle (`partials/processes_board.html:16`).
   **No hay drag & drop** ni endpoint que cambie de fase desde el tablero; eso solo ocurre en el
   detalle vía [motor de avance](engine_approve_advance_phase.md).
-- JS propio para fijar el alto del tablero al viewport y las sombras de "hay más"
-  (`processes.html:87-123`).
+- El alto del tablero al viewport y las sombras de "hay más" los fija el mismo módulo
+  (`static/js/admin/processes.js`), en `htmx:afterSettle` y en `resize`.
 
 ### Conservación de parámetros al alternar
 
@@ -164,13 +211,15 @@ No hay estado de sesión: **cada control reconstruye el querystring a mano** en 
 
 | Control | Href | Qué conserva |
 |---|---|---|
-| Botones Tabla / Tablero (`processes.html:52-59`) | `?view=table\|board` + `&status=` + `&stuck=1` | `status` y `stuck` |
-| Chips de status (`processes.html:40-43`) | `?view=` + `&status=` + `&stuck=1` | `view` y `stuck` |
-| KPIs Total / Activos / Completados / En espera (`processes.html:11-30`) | `?view=` (+ `&status=`) | solo `view`; **pierden `stuck`** |
-| KPI Atorados (`processes.html:31-36`) | `?view=` + `&status=` + `&stuck=1` | `view` y `status` |
+| Botones Tabla / Tablero (`u_table` / `u_board`) | `?view=table\|board` + `&status=` + `&stuck=1` | `status` y `stuck` |
+| Chips de status (`u_chip`) | `?view=` + `&status=` + `&stuck=1` | `view` y `stuck` |
+| KPIs Total / Activos / Completados / En espera (`u_total`, `u_active`, `u_completed`, `u_hold`) | `?view=` (+ `&status=`) | solo `view`; **pierden `stuck`** |
+| KPI Atorados (`u_stuck`) | `?view=` + `&status=` + `&stuck=1` | `view` y `status` |
 
 Lo que **no** viaja en la URL: el texto del buscador, el orden de la tabla y el filtro por franja
-del funnel. Son estado del cliente y se pierden en cada navegación.
+del funnel. Siguen siendo estado de cliente, pero desde 2026-09-02 los guarda
+`static/js/admin/processes.js` y **sobreviven a los filtros del servidor** (que ya no recargan
+la página). Se pierden en una recarga real (F5, deep link, `Abrir` → detalle → Atrás).
 
 ## Dónde se aplica el scope por carrera (y dónde no)
 
@@ -232,20 +281,17 @@ contexto `_empty()` — 0 filas, 0 columnas, KPIs en cero, umbrales igual
    crea las 9 filas `ProcessPhase` sin `started_at`; solo `services/phase_service.py:93` lo llena
    al activar una fase. Durante toda la fase 1 recién importada el `idle_days` cae al fallback del
    punto 5.
-7. **Faltan estilos de la bandeja.** `static/css/titulatec.css` (526 líneas, el único stylesheet
-   de la app — `templates/titulatec/base.html:23`) **no define** `.tt-kpis`, `.tt-kpi`,
-   `.tt-search`, `.tt-funnel`, `.tt-progress`, `.tt-pill--idle-ok/warn/crit`, `.tt-pill--neutral`,
-   `th.sortable`, `.col-scroll` ni `.health`. Los KPIs, el funnel, las barras de progreso y —lo
-   más grave— las pills de días **no tienen color por nivel**: `ok`, `warn` y `crit` se ven
-   idénticas (solo el `.tt-pill` base, `titulatec.css:109-122`), y la señal de atoro en la tabla
-   queda en la clase `is-stuck`, también sin CSS. Sí existen `.tt-kanban*`
-   (`titulatec.css:510-526`) y `.tt-table-wrap` (`titulatec.css:468-469`).
+7. ~~**Faltan estilos de la bandeja.**~~ **Saldado.** `.tt-kpis`, `.tt-kpi`, `.tt-search`,
+   `.tt-funnel`, `.tt-progress`, `.tt-pill--idle-ok/warn/crit`, `th.sortable`, `.col-scroll`,
+   `.health` y `tr.is-stuck` existen hoy en `static/css/titulatec.css` (verificado 2026-09-02).
 8. **N+1 al armar las filas.** `pages/admin.py:692-693` hace `db.get(User, …)` y
    `db.get(Program, …)` por proceso dentro del loop, a diferencia de `Modality` y
    `PhaseDefinition` que sí se precargan en diccionario (`pages/admin.py:675`, `:687`). Y no hay
    paginación: se listan **todos** los procesos del scope.
-9. **`qbase` es código muerto.** `processes.html:5` define la variable y ningún href la usa; cada
-   enlace repite la concatenación a mano (de ahí el `stuck` que pierden los 4 primeros KPIs).
+9. ~~**`qbase` es código muerto.**~~ **Saldado.** La variable desapareció; ahora cada control sale
+   de una variable Jinja propia (`u_total`…`u_board`) que alimenta a la vez `href` y `hx-get`.
+   El `stuck` que pierden los 4 primeros KPIs **se conserva tal cual**: es la semántica de
+   siempre, no un descuido de la migración a HTMX.
 
 ## Flujos relacionados
 

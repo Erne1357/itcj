@@ -113,15 +113,41 @@ canvas a `clamp(36px, 3.2vw, 76px)`: el aire se reparte **fuera** de las tarjeta
 alumno hoy: **992 · 1280 · 1600**. El admin conserva el suyo (1280, `#tt-admin-content` a 1240px):
 ahí la audiencia y el problema son otros — densidad de tabla, no lectura.
 
+**Citas de cotejo — vista de tres zonas (2026-09-02).** El rediseño de la agenda (calendario
+principal + «Por agendar» fijo + ficha al lado) es el caso más denso del admin, y su contrato
+responsive es:
+
+| Ancho | Layout |
+|---|---|
+| < 992 | apilado. Sin ficha: `agenda` → `por agendar`. Con ficha: **`detalle` → `agenda` → `por agendar`** (acabas de tocar a un alumno; lo que quieres ver es su ficha), con «Volver a la agenda» dentro del detalle |
+| ≥ 992 | dos columnas. Sin ficha: `agenda` + `por agendar` (calendario grande + carril de 240–300 px). Con ficha: fila 1 `agenda` + `detalle`, fila 2 `por agendar` + `detalle` — la agenda se vuelve un carril de 340 px y la ficha ocupa el resto, a su lado |
+
+Dos decisiones que conviene no deshacer:
+
+- **No es una hoja `position: fixed`.** `.tt-admin` usa `transform` para el drawer del sidebar, y un
+  `fixed` dentro de un ancestro transformado se ancla a ese ancestro, no a la ventana. Apilar además
+  conserva el requisito del usuario de que «Por agendar» esté **siempre** visible.
+- **`grid-template-rows: auto 1fr` en el estado con ficha.** La ficha ocupa las dos filas; con dos
+  pistas de contenido el navegador reparte su alto entre ambas y la agenda crecía dejando medio
+  viewport muerto antes de «Por agendar». Un ítem que cruza una pista **flexible** no aporta a las de
+  contenido (CSS Grid §12.5), así que el sobrante cae entero en la fila 2.
+
 **Verificado en navegador (2026-09-02)**: 30 combinaciones (5 vistas de alumno × los 6 viewports),
 0 desbordes; y el caso **embebido** (iframe del shell mobile del core) a 390/1440/1920, también sin
 desbordes, con `body.in-mobile-iframe` puesto, Perfil oculto y FAB suprimido.
 
 **Deuda que queda:**
 
-1. **Tres tablas sin `.tt-table-wrap`**: `partials/import_preview.html` (la más ancha de la app: 6
-   inputs por fila), `partials/appointments_calendar.html` y `partials/cohort_days_calendar.html`.
-   Hoy no desbordan, pero dependen de que su contenido no crezca.
+1. **Dos tablas sin `.tt-table-wrap`**: `partials/import_preview.html` (la más ancha de la app: 6
+   inputs por fila) y `partials/cohort_days_calendar.html`. Hoy no desbordan, pero dependen de que
+   su contenido no crezca.
+   `partials/appointments_calendar.html` **sale de la lista** (2026-09-02): un calendario mensual
+   no es una tabla de datos, es una rejilla de 7 columnas al `14.28%` sin `min-width`, así que es
+   fluida por construcción — y envolverla en `.tt-table-wrap` habría sido contraproducente,
+   porque esa clase impone `white-space: nowrap` a la tabla. Lo que sí se endureció es su celda:
+   el conteo de citas pasó de «3 citas» a una pastilla con el número, que es lo único que cabe
+   cuando la agenda se estrecha a 340 px con la ficha abierta (celda de ~45 px, la misma anchura
+   que a 360 de viewport).
 2. **Nada pensado entre 768 y 992** (el rango de tablet apaisada y móvil grande): ahí el admin sigue en
    drawer y el alumno en columna, sin layout propio.
 3. **El FAB de notificaciones del alumno** se pinta con `#0F172A`, el mismo `--tt-ink` de `.tt-btn-ink`,
@@ -157,8 +183,10 @@ desbordes, con `body.in-mobile-iframe` puesto, Perfil oculto y FAB suprimido.
 **Hoy (manual).** El invariante se comprueba a mano con Playwright contra el entorno de dev,
 recorriendo la matriz de seis viewports y evaluando `document.documentElement.scrollWidth <=
 window.innerWidth` en cada vista. Es lo que se hizo el 2026-09-01 (156 combinaciones, admin +
-alumno) y el 2026-09-02 (30 del alumno + el caso embebido). **Manual significa que caduca**: vale
-para el commit en el que se corrió y para ninguno más.
+alumno) y el 2026-09-02 (30 del alumno + el caso embebido, y después **180 combinaciones** al
+cerrar el rediseño de Citas: la matriz subió de 25 a 30 vistas, con las cuatro nuevas de la agenda
+—calendario, día, ficha abierta y lista— más la del encargado con ficha abierta). **Manual significa
+que caduca**: vale para el commit en el que se corrió y para ninguno más.
 
 **Lo que sí está automatizado** son las anclas y las reglas que no necesitan navegador, en
 `tests/fastapi/titulatec/`:

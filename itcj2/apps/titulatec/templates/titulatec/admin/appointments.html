@@ -1,24 +1,55 @@
 {% extends "titulatec/admin/base_admin.html" %}
 {% block title %}Citas de cotejo · TitulaTec{% endblock %}
 
-{% from "titulatec/_macros.html" import skel_rows %}
+{% block admin_view %}appointments{% endblock %}
 {% block admin_main %}
 <div class="px-4 pt-4 pb-2">
   <span class="tt-kicker">Fase 02 · Servicios Escolares</span>
-  <h1 class="tt-display" style="font-size:1.5rem;font-weight:600;margin:.15rem 0 0">Citas de cotejo</h1>
-  <p class="mb-0" style="font-size:.82rem;color:var(--tt-slate)">
-    Agenda y atiende el cotejo de documentos físicos por carrera.</p>
+  <h1 class="tt-display tt-h-page">Citas de cotejo</h1>
+  <p class="tt-sub mb-0">Agenda y atiende el cotejo de documentos físicos por carrera.</p>
 </div>
 <div class="px-4 pb-4">
-  <div class="d-flex gap-2 mb-3">
-    <button class="btn btn-sm tt-btn-ghost" type="button" hx-get="/titulatec/admin/appointments/calendar" hx-target="#appt-body" hx-swap="innerHTML" hx-indicator="#appt-skel"><i class="bi bi-calendar3 me-1"></i>Calendario</button>
-    <button class="btn btn-sm tt-btn-ghost" type="button" hx-get="/titulatec/admin/appointments/day" hx-target="#appt-body" hx-swap="innerHTML" hx-indicator="#appt-skel"><i class="bi bi-calendar-day me-1"></i>Del día</button>
-    <button class="btn btn-sm tt-btn-ghost" type="button" hx-get="/titulatec/admin/appointments/body" hx-target="#appt-body" hx-swap="innerHTML" hx-indicator="#appt-skel"><i class="bi bi-list-ul me-1"></i>Lista</button>
-  </div>
-  {# Skeleton mientras se recarga la agenda (visible sólo durante la petición HTMX) #}
-  <div id="appt-skel" class="htmx-indicator">{{ skel_rows(5) }}</div>
-  <div id="appt-body" hx-get="/titulatec/admin/appointments/calendar" hx-trigger="load" hx-swap="innerHTML">
+  {# El host envuelve el indicador Y el shell, pero el indicador queda FUERA del
+     nodo que se reemplaza: `morph:outerHTML` sustituye `#appt-shell` y el
+     `.tt-ind-host` + `#appt-skel` sobreviven, así que el ancla de posicionamiento
+     no se pierde a media petición ni se destruye el indicador estando visible.
+     El overlay reserva 0 px (antes el esqueleto en flujo empujaba la agenda
+     341.8 px al aparecer, CLS 0.318) — ver docs/design/ui_motion.md. #}
+  <div class="tt-ind-host">
+    <div id="appt-skel" class="tt-ind tt-ind--overlay htmx-indicator"
+         role="status" aria-live="polite">
+      <span class="tt-ind-badge"><span class="tt-spinner"></span>Cargando…</span>
+    </div>
+    {# Render en el SERVIDOR, sin `hx-trigger="load"`: antes la pestaña pintaba
+       la lista y a los pocos ms se repintaba entera con el calendario. #}
     {% include "titulatec/partials/appointments_body.html" %}
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+{# Visor grande del cotejo. Vive en `modals` (nivel <body>) y NO dentro del
+   parcial: `.tt-admin` usa `transform` para el drawer y rompería el
+   `position:fixed` de Bootstrap. Consecuencia: NO entra al morph, así que es
+   genérico — las pestañas y el src los pone `js/admin/appointments.js` al
+   abrirlo, leyendo la barra de documentos de la ficha viva.
+   Id propio (`tt-appt-doc-modal`): `admin/documents.html` ya usa `tt-doc-modal`
+   y dos páginas con el mismo id acabarían conviviendo. #}
+<div class="modal fade" id="tt-appt-doc-modal" tabindex="-1" aria-hidden="true"
+     aria-label="Documentos del alumno">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <div class="d-flex flex-wrap gap-2" id="tt-appt-doc-modal-tabs"></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-0">
+        {# Sin `src`: el iframe se puebla al abrir (perezoso) y se vacía al
+           cerrar, para no dejar un PDF cargándose detrás del backdrop. #}
+        <iframe id="tt-appt-doc-modal-frame" class="tt-appt-frame tt-appt-frame--modal"
+                title="Documento del alumno"></iframe>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}

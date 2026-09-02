@@ -102,6 +102,30 @@ class AppointmentService:
         return q.order_by(ReviewAppointment.scheduled_at).all()
 
     @staticmethod
+    def agenda_process_ids(db: Session, *, allowed_program_ids: set | None = None) -> set:
+        """`{process_id}` de TODA la agenda del usuario, sin filtros de vista.
+
+        Es el universo acotado contra el que la pagina valida el `?selected=`:
+        una sola consulta de una sola columna, para no tener que materializar la
+        agenda entera solo por comprobar si un id es alcanzable. Deliberadamente
+        NO acepta `status`/`owner_id`/`program_id`: si se estrechara con los
+        filtros de la vista, abrir a un alumno dejaria de funcionar en cuanto el
+        usuario tuviera un filtro puesto.
+
+        allowed_program_ids: None = sin restriccion; set vacio = devuelve set().
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
+        if allowed_program_ids is not None and len(allowed_program_ids) == 0:
+            return set()
+        q = (
+            db.query(ReviewAppointment.process_id)
+            .join(TitulationProcess, ReviewAppointment.process_id == TitulationProcess.id)
+        )
+        if allowed_program_ids is not None:
+            q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
+        return {pid for (pid,) in q.distinct()}
+
+    @staticmethod
     def list_pending_processes(db: Session, *, program_id: int | None = None,
                                allowed_program_ids: set | None = None) -> list:
         """Procesos activos, sin cita, con los 3 documentos iniciales aprobados."""

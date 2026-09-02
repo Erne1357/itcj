@@ -196,7 +196,7 @@ El parcial `import_success.html` reporta `processes_created`, `created_users`, `
    (`import_service.py:211-212,229`) y el proceso queda invisible para cualquier usuario con alcance
    por carrera, porque todos los filtros usan `program_id.in_(scope)` y `NULL` nunca matchea:
    bandeja/kanban (`admin.py:657`), documentos (`documents.py:59`) y citas
-   (`appointments.py:140-145,199-202,277-283`). Peor: si la columna de carrera viene **vacía** no se
+   (`appointments.py:307-308`, una sola resolucion de alcance para las cinco consultas de la vista). Peor: si la columna de carrera viene **vacía** no se
    genera ni el warning (la condición es `if career_raw and not program`), así que el preview la marca
    `ok`. Ver [alcance por carrera](engine_officer_scope.md).
 4. ~~**El usuario creado no puede iniciar sesión.**~~ **Corregido el 2026-09-01.** `import_rows`

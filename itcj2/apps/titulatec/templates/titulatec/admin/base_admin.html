@@ -19,7 +19,13 @@
 {% set _section = 'Bandeja' if _is_inbox else 'Procesos' if _is_proc else 'Convocatorias' if _is_coh else 'Citas de cotejo' if _is_appt else 'Actos protocolarios' if _is_cer else 'TitulaTec · Admin' %}
 
 {% block content %}
-<div class="tt-admin" id="ttAdmin">
+{# `hx-ext="morph"` va AQUI, en un contenedor que nunca entra a ningun swap.
+   Si viviera en `#tt-admin-content` se perderia al primer `morph:outerHTML`
+   (la respuesta no trae el atributo) y htmx caeria en silencio a `innerHTML`,
+   anidando el contenedor dentro de si mismo. La extension solo interviene si
+   `hx-swap` empieza por `morph`, asi que heredarla en todo el subarbol admin
+   no cambia nada para los swaps normales. #}
+<div class="tt-admin" id="ttAdmin" hx-ext="morph">
   <div class="tt-admin-overlay" id="ttAdminOverlay"></div>
   {# Navegación "estilo wire:navigate": cada item swappea SOLO #tt-admin-content
      (morph), nunca el sidebar ni el <body> → el menú queda quieto, sin parpadeo,
@@ -33,7 +39,7 @@
      idiom que ya usan los otros tres `hx-select` de la app (`cohort_detail.html:25`,
      `cohort_students.html:8`, `cohort_days_calendar.html:6,9,23`).
      Invariante cubierto por tests/fastapi/titulatec/test_admin_nav_swap.py. #}
-  <aside class="side" id="ttSide" hx-ext="morph">
+  <aside class="side" id="ttSide">
     <div class="d-flex align-items-center justify-content-between mb-4">
       <div class="d-flex align-items-center gap-2">
         <div class="d-flex align-items-center justify-content-center tt-display"
@@ -60,7 +66,14 @@
       <button type="button" class="tt-burger" id="ttAdminBurger" aria-label="Abrir menú"><i class="bi bi-list"></i></button>
       <div class="tt-display" style="font-size:1rem;font-weight:600">{{ _section }}</div>
     </header>
-    <div class="tt-anim-in" id="tt-admin-content">{% block admin_main %}{% endblock %}</div>
+    {# `data-tt-view` es la IDENTIDAD DE VISTA que lee titulatec-utils.js para
+       decidir si re-anima la entrada tras un swap: mismo valor antes y despues
+       = no se movio de vista = no se re-anima (filtros de la propia pagina);
+       valor distinto = navegacion entre pestanas = si se anima. Cada plantilla
+       admin declara el suyo en {% block admin_view %}. Sin declararlo queda
+       vacio, que equivale a "sin identidad" y conserva el comportamiento viejo. #}
+    <div class="tt-anim-in" id="tt-admin-content"
+         data-tt-view="{% block admin_view %}{% endblock %}">{% block admin_main %}{% endblock %}</div>
   </main>
 </div>
 {% endblock %}
@@ -69,6 +82,14 @@
 {# Wizard de importación CSV: se carga UNA vez aquí (el bloque `scripts` no entra
    al morph de #tt-admin-content) y se auto-enlaza por delegación en `document`. #}
 <script src="/static/titulatec/js/admin/import.js?v={{ sv('js/admin/import.js') }}"></script>
+{# Bandeja de Procesos: buscar / ordenar / funnel / alto del kanban + marcado de
+   filas nuevas tras un filtro. Mismo contrato que import.js: una sola carga,
+   listeners delegados en `document` y estado en el modulo (sobrevive al morph). #}
+<script src="/static/titulatec/js/admin/processes.js?v={{ sv('js/admin/processes.js') }}"></script>
+{# Citas de cotejo: visor de documentos, modal grande (que vive fuera del morph,
+   en `block modals`, y por eso se puebla al abrirlo) y marcado de la zona que sí
+   cambió tras un swap. Mismo contrato: una sola carga y delegación en `document`. #}
+<script src="/static/titulatec/js/admin/appointments.js?v={{ sv('js/admin/appointments.js') }}"></script>
 <script>
   // Toast genérico para errores de acciones HTMX (usa X-Tt-Error si viene).
   document.body.addEventListener('htmx:responseError', function (e) {
