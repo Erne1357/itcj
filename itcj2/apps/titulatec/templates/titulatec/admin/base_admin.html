@@ -23,7 +23,16 @@
   <div class="tt-admin-overlay" id="ttAdminOverlay"></div>
   {# Navegación "estilo wire:navigate": cada item swappea SOLO #tt-admin-content
      (morph), nunca el sidebar ni el <body> → el menú queda quieto, sin parpadeo,
-     y funciona igual embebido en iframe. El activo se actualiza por JS (ttSetActive). #}
+     y funciona igual embebido en iframe. El activo se actualiza por JS (ttSetActive).
+
+     El swap es `morph:outerHTML`, NO `innerHTML`: `hx-select` conserva el elemento
+     coincidente (no sus hijos), así que el nodo recortado trae el mismo id que el
+     destino. Con `innerHTML` acaba DENTRO de sí mismo y la página queda con dos
+     `#tt-admin-content` anidados en cada navegación (verificado en Chromium con
+     htmx 2.0.3 + Idiomorph 0.7.3). Con `outerHTML` lo REEMPLAZA, que es el mismo
+     idiom que ya usan los otros tres `hx-select` de la app (`cohort_detail.html:25`,
+     `cohort_students.html:8`, `cohort_days_calendar.html:6,9,23`).
+     Invariante cubierto por tests/fastapi/titulatec/test_admin_nav_swap.py. #}
   <aside class="side" id="ttSide" hx-ext="morph">
     <div class="d-flex align-items-center justify-content-between mb-4">
       <div class="d-flex align-items-center gap-2">
@@ -36,7 +45,7 @@
     {% for it in admin_nav|default([]) %}
     <a href="{{ it.url }}"
        hx-get="{{ it.url }}" hx-target="#tt-admin-content" hx-select="#tt-admin-content"
-       hx-swap="morph:innerHTML" hx-push-url="true"
+       hx-swap="morph:outerHTML" hx-push-url="true"
        class="{{ 'active' if (it.url.rstrip('/') == current_route.rstrip('/')) or (it.url not in ('/titulatec/admin/', '#') and it.url in current_route) }}"><i class="bi {{ it.icon }}"></i> {{ it.label }}</a>
     {% endfor %}
     {# "Volver a ITCJ": solo desktop admin standalone. Oculto en móvil (d-none) y
@@ -57,6 +66,9 @@
 {% endblock %}
 
 {% block scripts %}
+{# Wizard de importación CSV: se carga UNA vez aquí (el bloque `scripts` no entra
+   al morph de #tt-admin-content) y se auto-enlaza por delegación en `document`. #}
+<script src="/static/titulatec/js/admin/import.js?v={{ sv('js/admin/import.js') }}"></script>
 <script>
   // Toast genérico para errores de acciones HTMX (usa X-Tt-Error si viene).
   document.body.addEventListener('htmx:responseError', function (e) {
