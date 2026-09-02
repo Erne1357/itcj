@@ -133,6 +133,12 @@ se auto-notifica. Ver
   (`pages/appointments.py:347-348` y `:376-377`).
 - Filtro de carrera vacío llega como `program_id=` → los params se parsean como `str`
   (no `int|None`) para evitar 422 (gotcha conocido).
+- **Las 3 rutas del alumno solo responden con la fase 2 en curso**
+  ([guarda de fase](engine_student_phase_lock.md)): `GET /student/cita` da `302` a
+  `/student/dashboard?fase=2`, y `confirmar` / `solicitar-cambio` dan `400` +
+  `X-Tt-Error`. La guarda mira `process.current_phase`, **no** el `status` de la cita:
+  el loop completo de arriba (confirmar, pedir cambio tras una reagenda, volver a
+  confirmar) sigue intacto mientras la 2 sea su fase.
 
 ## Días configurables + calendario (jun-2026)
 

@@ -89,13 +89,33 @@ class FormatBService:
         db.commit()
 
     @staticmethod
-    def submit(db: Session, fb) -> None:
-        """Envía el Formato B a revisión y marca la fase 3 in_review."""
+    def submit(db: Session, fb, process) -> None:
+        """Envía el Formato B a revisión y marca su fase in_review.
+
+        **Guarda propia, no solo en la ruta.** Este es uno de los tres puntos que
+        mueven el estado de una fase desde el lado del alumno, y el que peor
+        fallaba: sin comprobar `current_phase` metía el proceso en la cola de
+        Titulaciones desde la fase 1, saltándose los documentos iniciales y la
+        cita de cotejo. Va aquí por lo mismo que `approve_phase` lleva
+        `assert_can_transition` dentro: el siguiente llamador la hereda gratis.
+
+        `process` es parámetro nuevo (antes solo recibía `fb`): la guarda necesita
+        `current_phase` y `status`, que viven en el proceso, no en el Formato B.
+
+        El número de fase sale del CATÁLOGO (`format_b`), no del literal `3` que
+        estaba escrito aquí: era el tercer sitio del código con el dominio de
+        fases a mano.
+        """
         from itcj2.apps.titulatec.models import ProcessPhase
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        n = PhaseService.phase_number_for_code(db, "format_b")
+        PhaseService.assert_student_can_act(db, process, n)
+
         fb.status = "submitted"
-        phase = db.query(ProcessPhase).filter_by(process_id=fb.process_id, phase_number=3).first()
+        phase = db.query(ProcessPhase).filter_by(process_id=fb.process_id, phase_number=n).first()
         if not phase:
-            phase = ProcessPhase(process_id=fb.process_id, phase_number=3)
+            phase = ProcessPhase(process_id=fb.process_id, phase_number=n)
             db.add(phase)
         phase.status = "in_review"
         db.commit()

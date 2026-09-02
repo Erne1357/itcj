@@ -31,6 +31,15 @@
 `_cta_for()` (`pages/student.py`) aplica 2 y 3 en un solo sitio: devuelve `None` salvo para la
 fase actual. `_PHASE_CTA` sigue siendo la única fuente de los enlaces.
 
+> **Y el servidor lo respalda (desde 2026-09-02).** Estas tres reglas eran solo de pintado:
+> las 13 rutas del alumno estaban gateadas **solo por permiso** y el rol `student` tiene los
+> 21, así que quitar el CTA no impedía nada — bastaba escribir la URL para llenar el Formato
+> B desde la fase 1 o borrar un documento aprobado de una fase cerrada. Hoy lo hace cumplir
+> [`PhaseService.assert_student_can_act`](engine_student_phase_lock.md): las páginas de una
+> fase que no es la actual responden **302 a este mismo acordeón** (`?fase=N`), y las acciones
+> `400` + `X-Tt-Error`. Esta pantalla ES la vista de solo lectura de las otras fases, por eso
+> es el destino del redirect: no hay una segunda plantilla que se pueda desincronizar.
+
 ## Ruta en la app (UI)
 
 1. `/titulatec/student/dashboard` → hero + **columna A** (fase actual en grande) + **columna B**

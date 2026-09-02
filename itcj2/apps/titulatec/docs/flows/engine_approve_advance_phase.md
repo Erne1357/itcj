@@ -88,6 +88,11 @@ proceso (`n=8` desde la fase 1), inventar fases (`n=99`), retroceder (`n=0` desd
 `current_phase` negativo vía `reject` o reabrir un proceso ya `completed`. Cubierto por
 `tests/fastapi/titulatec/test_phase_guard.py`.
 
+> **Tiene gemela.** Esta guarda protege el **dictamen** (🏛️🎓 aprobar / rechazar). La ejecución
+> del 👤 alumno la protege [`assert_student_can_act`](engine_student_phase_lock.md), en el mismo
+> service y con las mismas tres reglas. Si tocas una, mira la otra: entre las dos son las únicas
+> puertas por las que una fase cambia de estado.
+
 ## Caminos alternos / errores ❗
 
 - Rechazo NO baja `current_phase` a otra fase: la deja en `n` para que el alumno corrija — y `n`

@@ -42,6 +42,23 @@ stateDiagram-v2
 - Una fase ya `in_review`/`approved` **no** se rebaja al activarse (solo `pending`/`rejected`→`in_progress`).
 - Cada transición escribe `ProcessEvent`.
 
+### Quién puede mover qué, y cuándo — las dos guardas
+
+Ninguna transición del diagrama es libre: **solo se actúa sobre `current_phase`, y solo
+si `process.status == 'active'`**. Es la misma regla escrita dos veces, una por cada lado
+de la mesa, y las dos viven en `PhaseService`:
+
+| Lado | Qué protege | Función | Fuera de regla |
+|---|---|---|---|
+| 🏛️🎓 **admin** | el **dictamen** (aprobar / rechazar) | [`assert_can_transition`](engine_approve_advance_phase.md#guarda-de-transición-desde-2026-09) | `400` + `X-Tt-Error` |
+| 👤 **alumno** | la **ejecución** (subir, borrar, llenar, enviar, confirmar) | [`assert_student_can_act`](engine_student_phase_lock.md) | `400` + `X-Tt-Error` (acciones) · `302` al acordeón (páginas) |
+
+Para el alumno eso significa: las fases **siguientes** son informativas (las lee en el
+acordeón del dashboard, sin poder ejecutarlas) y las **anteriores** quedan cerradas e
+**inmutables** — no puede reabrir una fase aprobada ni borrar evidencia ya dictaminada.
+La fase `rejected` sigue abierta porque `reject_phase` deja `current_phase` apuntando a
+ella; es corrección, no reapertura.
+
 ## Estado de un documento (`Document.review_status`)
 
 ```mermaid

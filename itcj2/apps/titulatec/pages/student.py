@@ -166,6 +166,78 @@ _EVENT_LABELS = {
 }
 
 
+_DASHBOARD_URL = "/titulatec/student/dashboard"
+
+
+# ===========================================================================
+# Guarda de fase del alumno (traducción HTTP de PhaseService)
+# ===========================================================================
+# La regla la decide `PhaseService.assert_student_can_act` (gemela de
+# `assert_can_transition`, la del admin). Aquí solo se traduce al canal que
+# corresponde, que son DOS porque las rutas del alumno son de dos naturalezas:
+#
+#   * mutación o parcial HTMX  -> `_phase_guard`      -> 400 + `X-Tt-Error`
+#   * página completa          -> `_phase_guard_page` -> 302 al acordeón
+#
+# **Por qué 400 y no 409.** Los 14 `X-Tt-Error` del árbol viajan en 400 —incluida
+# la guarda gemela del admin, fijada por `tests/.../test_phase_guard.py`— mientras
+# que el 409 pelado ya significa otra cosa en ESTAS MISMAS rutas ("no tienes
+# proceso": abajo, 4 sitios). Reusar 409 haría indistinguibles dos condiciones
+# distintas sobre la misma URL.
+#
+# **Por qué 302 y no 404 en las páginas.** El alumno que llega por un enlace viejo
+# —una notificación que sigue viva en `core_notifications`, un marcador, el
+# historial del shell— tiene que aterrizar donde SE LE EXPLICA la fase. Eso es
+# exactamente el acordeón del dashboard: `_phases_ctx` emite `desc`/`needs`/`who`
+# de las 9 fases y `_cta_for` no emite ninguna acción fuera de la actual, así que
+# ya ES la vista de solo lectura — no hace falta una segunda plantilla que se
+# desincronice. Un 404 sería un callejón sin salida y además mentiría: la página
+# existe, no es su turno. Mismo mecanismo, mismo 302 y mismo motivo que
+# `/student/fase/{n}` (ver su docstring: un 301/308 lo cachearía el navegador
+# para siempre).
+#
+# **Por qué las páginas NO usan 400.** Y al revés: los parciales NO usan 302. htmx
+# sigue el redirect de forma transparente y metería el dashboard entero dentro de
+# `#formato-b-body`.
+
+
+def _phase_of(db, code: str) -> int | None:
+    """Número de la fase de este código, desde el catálogo. None = fallo cerrado."""
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    return PhaseService.phase_number_for_code(db, code)
+
+
+def _phase_guard(db, process, phase_number) -> Response | None:
+    """400 + `X-Tt-Error` si el alumno no puede actuar en esa fase, o None.
+
+    Sin proceso devuelve None a propósito: "no tienes proceso" ya tiene su propia
+    respuesta en cada ruta (409, o el estado vacío de la página) y no hay fase que
+    guardar. La guarda solo opina cuando hay un proceso con `current_phase`.
+    """
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    if process is None:
+        return None
+    try:
+        PhaseService.assert_student_can_act(db, process, phase_number)
+    except ValueError as exc:
+        return Response(status_code=400, headers={"X-Tt-Error": str(exc)})
+    return None
+
+
+def _phase_guard_page(db, process, phase_number) -> Response | None:
+    """302 al acordeón de esa fase si la página no es la fase en curso, o None."""
+    from fastapi.responses import RedirectResponse
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    if process is None or PhaseService.can_student_act(db, process, phase_number):
+        return None
+    destino = _DASHBOARD_URL
+    if isinstance(phase_number, int) and not isinstance(phase_number, bool):
+        destino += f"?fase={phase_number}"
+    return RedirectResponse(destino, status_code=302)
+
+
 def _slot_ctx(dtype, doc, *, error: str | None = None) -> dict:
     """Contexto autónomo de un slot de documento para el parcial."""
     return {
@@ -600,6 +672,9 @@ async def documents(
     db = SessionLocal()
     try:
         process = DocumentService.get_active_process(db, int(user["sub"]))
+        fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "initial_docs"))
+        if fuera_de_fase:
+            return fuera_de_fase
         slots = []
         if process:
             for code in _INITIAL_DOC_TYPES:
@@ -641,6 +716,12 @@ async def document_upload(
         process = DocumentService.get_active_process(db, int(user["sub"]))
         if not process:
             return Response(status_code=409)
+        # La fase la manda el TIPO, no la URL: `DocumentService.save` escribe
+        # `phase_number=dtype.phase_number`. Sin esto, un alumno de la fase 1
+        # podía sembrar `anexo_iii` (fase 6) o `final_project` (fase 8).
+        fuera_de_fase = _phase_guard(db, process, dtype.phase_number)
+        if fuera_de_fase:
+            return fuera_de_fase
 
         raw = await archivo.read()
         error = None
@@ -680,6 +761,12 @@ async def document_delete(
         if not dtype:
             return Response(status_code=404)
         process = DocumentService.get_active_process(db, int(user["sub"]))
+        # `DocumentService.delete` borra la fila Y el fichero
+        # (`storage.delete_document_file`): fuera de su fase esto destruía
+        # evidencia ya dictaminada de una fase cerrada.
+        fuera_de_fase = _phase_guard(db, process, dtype.phase_number)
+        if fuera_de_fase:
+            return fuera_de_fase
         if process:
             DocumentService.delete(db, process.id, type_code)
         return render_titulatec(request, "titulatec/partials/document_slot.html", _slot_ctx(dtype, None))
@@ -705,6 +792,11 @@ async def formato_b(
     db = SessionLocal()
     try:
         process = DocumentService.get_active_process(db, int(user["sub"]))
+        # ANTES de `get_or_create`, que hace `db.commit()`: sin la guarda, el mero
+        # GET desde otra fase ya creaba la fila `titulatec_format_b`.
+        fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "format_b"))
+        if fuera_de_fase:
+            return fuera_de_fase
         ctx = {"process": process.to_dict() if process else None}
         if process:
             fb = FormatBService.get_or_create(db, process)
@@ -733,6 +825,11 @@ async def formato_b_step(
         process = DocumentService.get_active_process(db, int(user["sub"]))
         if not process:
             return Response(status_code=409)
+        # Parcial HTMX, no página: error por `X-Tt-Error`, nunca un 302 (htmx lo
+        # seguiría y metería el dashboard entero dentro de `#formato-b-body`).
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "format_b"))
+        if fuera_de_fase:
+            return fuera_de_fase
         fb = FormatBService.get_or_create(db, process)
         ctx = {"step": n, "datos": FormatBService.to_ctx(fb), "programs": _programs(db)}
     finally:
@@ -760,13 +857,16 @@ async def formato_b_save(
         process = DocumentService.get_active_process(db, int(user["sub"]))
         if not process:
             return Response(status_code=409)
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "format_b"))
+        if fuera_de_fase:
+            return fuera_de_fase
         fb = FormatBService.get_or_create(db, process)
         FormatBService.save_step(db, fb, n, form)
 
         if n < 3:
             ctx = {"step": n + 1, "datos": FormatBService.to_ctx(fb), "programs": _programs(db)}
         else:
-            FormatBService.submit(db, fb)
+            FormatBService.submit(db, fb, process)
             ctx = {"step": "done", "datos": FormatBService.to_ctx(fb), "programs": []}
     finally:
         db.close()
@@ -827,9 +927,16 @@ async def cita(
 ):
     """Página de la cita de cotejo del alumno: estado + checklist físico."""
     from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+
     db = SessionLocal()
     try:
-        ctx = _cita_card_ctx(db, int(user["sub"]))
+        user_id = int(user["sub"])
+        process = DocumentService.get_active_process(db, user_id)
+        fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "review_appointment"))
+        if fuera_de_fase:
+            return fuera_de_fase
+        ctx = _cita_card_ctx(db, user_id)
         ctx["checklist"] = _COTEJO_CHECKLIST
     finally:
         db.close()
@@ -849,6 +956,9 @@ async def cita_confirm(
     db = SessionLocal()
     try:
         process = DocumentService.get_active_process(db, int(user["sub"]))
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "review_appointment"))
+        if fuera_de_fase:
+            return fuera_de_fase
         appt = AppointmentService.get_for_process(db, process.id) if process else None
         if appt and appt.status in ("scheduled",):
             AppointmentService.confirm(db, appt, int(user["sub"]))
@@ -873,6 +983,9 @@ async def cita_request_change(
     db = SessionLocal()
     try:
         process = DocumentService.get_active_process(db, int(user["sub"]))
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "review_appointment"))
+        if fuera_de_fase:
+            return fuera_de_fase
         appt = AppointmentService.get_for_process(db, process.id) if process else None
         if appt:
             AppointmentService.request_change(db, appt, int(user["sub"]), reason)
@@ -897,6 +1010,14 @@ async def submit_initial_docs(
         process = DocumentService.get_active_process(db, int(user["sub"]))
         if not process:
             return Response(status_code=409)
+        # La guarda va ANTES del conteo: una fase cerrada no discute documentos.
+        # `n` sale del catálogo y es el mismo número que se escribe abajo, para
+        # que la guarda y la escritura no puedan desincronizarse (el `1` del path
+        # es histórico: lo conservan los enlaces de la UI).
+        n = _phase_of(db, "initial_docs")
+        fuera_de_fase = _phase_guard(db, process, n)
+        if fuera_de_fase:
+            return fuera_de_fase
         count = db.query(Document).filter(
             Document.process_id == process.id,
             Document.type_code.in_(_INITIAL_DOC_TYPES),
@@ -904,9 +1025,9 @@ async def submit_initial_docs(
         if count < len(_INITIAL_DOC_TYPES):
             return Response(status_code=400, headers={"X-Tt-Error": "Faltan documentos por subir."})
 
-        phase = db.query(ProcessPhase).filter_by(process_id=process.id, phase_number=1).first()
+        phase = db.query(ProcessPhase).filter_by(process_id=process.id, phase_number=n).first()
         if not phase:
-            phase = ProcessPhase(process_id=process.id, phase_number=1)
+            phase = ProcessPhase(process_id=process.id, phase_number=n)
             db.add(phase)
         phase.status = "in_review"
         db.commit()

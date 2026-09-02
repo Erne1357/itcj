@@ -605,6 +605,7 @@ def test_cada_cabecera_desplegable_cumple_el_patron_apg(
 
 def test_toda_vista_de_alumno_lleva_su_ancla_data_tt_page(
     client_as, make_student, make_process, seed_phase_defs, seed_document_types,
+    db_session,
 ):
     """`main[data-tt-page="clave"]`, una sola, no vacia y distinta en cada vista.
 
@@ -615,27 +616,38 @@ def test_toda_vista_de_alumno_lleva_su_ancla_data_tt_page(
 
     El fallo tipico no es que falte, sino que dos vistas repitan clave al
     copiar-pegar la plantilla — por eso se afirma que son 5 claves DISTINTAS.
+
+    **Cada vista se pide con el proceso EN SU FASE.** Antes bastaba un unico
+    `current_phase=3` para las cinco; desde la guarda de fase del alumno
+    (`test_student_phase_guard.py`) las tres vistas de modulo solo responden 200
+    cuando esa es la fase en curso, y fuera de ella devuelven un 302 al acordeon
+    —que el TestClient sigue por defecto, asi que el fallo se veia como "la
+    ancla de /documents dice student_dashboard". Mover la fase mantiene este
+    test hablando de MARKUP y no de autorizacion, que es lo suyo.
     """
-    from itcj2.apps.titulatec.models import FormatB
     from tests.fastapi.titulatec.conftest import STUDENT_PERMS
 
     seed_phase_defs()
     seed_document_types()
     # `formato-b` pide un permiso que el set por defecto del alumno no trae.
     student = make_student(perm_codes=tuple(STUDENT_PERMS) + ("titulatec.format_b.page.fill",))
-    make_process(student, current_phase=3)
+    proc = make_process(student, current_phase=3)
     cli = client_as(student)
 
+    # url -> (ancla esperada, fase que hay que tener en curso; None = cualquiera)
     vistas = {
-        "/titulatec/student/dashboard": "student_dashboard",
-        "/titulatec/student/documents": "student_documents",
-        "/titulatec/student/cita": "student_cita",
-        "/titulatec/student/formato-b": "student_formato_b",
-        "/titulatec/student/perfil": "student_perfil",
+        "/titulatec/student/dashboard": ("student_dashboard", None),
+        "/titulatec/student/documents": ("student_documents", 1),
+        "/titulatec/student/cita": ("student_cita", 2),
+        "/titulatec/student/formato-b": ("student_formato_b", 3),
+        "/titulatec/student/perfil": ("student_perfil", None),
     }
 
     vistos = []
-    for url, esperado in vistas.items():
+    for url, (esperado, fase) in vistas.items():
+        if fase is not None:
+            proc.current_phase = fase
+            db_session.flush()
         resp = cli.get(url)
         assert resp.status_code == 200, "%s -> %s\n%s" % (url, resp.status_code, resp.text[:400])
         mains = lxml.html.fromstring(resp.text).xpath('//main[@data-tt-page]')
