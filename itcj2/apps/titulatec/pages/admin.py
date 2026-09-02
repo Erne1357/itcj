@@ -13,11 +13,20 @@ logger = logging.getLogger("itcj2.apps.titulatec.pages.admin")
 
 router = APIRouter(prefix="/admin", tags=["titulatec-pages-admin"])
 
-# Permiso para gestionar convocatorias / importar (Servicios Escolares + admin).
-_COHORT_PERMS = [
-    "titulatec.cohort.api.import_csv", "titulatec.cohort.page.list",
-    "titulatec.dashboard.admin", "titulatec.dashboard.school_services",
-]
+# Convocatorias: SOLO la jefatura de Servicios Escolares.
+#
+# OJO CON LA FORMA DE LA LISTA: `require_page_app` la evalúa como **OR**
+# (`itcj2/dependencies.py:131` → `_perms_set & cached_perms(...)`), no como AND.
+# Aquí figuraban además `dashboard.admin` y `dashboard.school_services`, y como
+# el rol operativo tiene el segundo, los permisos `cohort.*` eran DECORATIVOS:
+# un encargado de carrera entraba a la lista, al detalle y al asistente de
+# importación (medido con su JWT: 200 en `/cohorts`, `/cohorts/{id}` y
+# `/cohorts/{id}/import`) aunque el DML no le concediera nada de cohort.
+#
+# Por eso quitarle los permisos en el DML no basta y hay que dejar aquí SOLO el
+# permiso específico: cualquier `dashboard.*` que se vuelva a colar reabre el
+# agujero en silencio, porque basta con que UNO de la lista coincida.
+_COHORT_PERMS = ["titulatec.cohort.page.list"]
 
 # Ver procesos (bandeja/detalle): cualquier rol admin de la app.
 _PROCESS_VIEW_PERMS = [
