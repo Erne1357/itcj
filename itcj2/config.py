@@ -116,9 +116,20 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
+    def _extra_cors_origins(self) -> list[str]:
+        """Orígenes de `CORS_ORIGINS`, sin vacíos ni duplicados de orden."""
+        if not self.CORS_ORIGINS:
+            return []
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
     def get_cors_origins(self) -> list[str]:
         if self.FLASK_ENV == "development":
-            return [
+            # En dev, `CORS_ORIGINS` SE SUMA a los locales en vez de ignorarse.
+            # Antes esta rama devolvía la lista fija y salía, así que poner la
+            # variable en el .env no tenía ningún efecto en desarrollo: es justo
+            # donde hace falta al exponer el entorno por un túnel para que alguien
+            # pruebe desde fuera.
+            base = [
                 "http://localhost:8080",
                 "http://127.0.0.1:8080",
                 "http://localhost:8000",
@@ -126,6 +137,7 @@ class Settings(BaseSettings):
                 "http://localhost:8001",
                 "http://127.0.0.1:8001",
             ]
+            return base + [o for o in self._extra_cors_origins() if o not in base]
         if self.CORS_ORIGINS:
             return [o.strip() for o in self.CORS_ORIGINS.split(",")]
         return [

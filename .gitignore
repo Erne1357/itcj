@@ -88,3 +88,5 @@ graphify-out/
 .graphifyignore
 
 template/
+# Credencial del tunel de dev (bcrypt): no va al repo
+docker/nginx/tunnel.htpasswd
