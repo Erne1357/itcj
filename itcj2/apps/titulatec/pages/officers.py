@@ -85,8 +85,13 @@ async def update(position_id: int, request: Request,
     program_ids = {int(x) for x in form.getlist("program_ids") if x}
     user_ids = {int(x) for x in form.getlist("user_ids") if x}
     dep = _managed_department_id(int(user["sub"]))
+    if dep is None:
+        return Response(status_code=400, headers={"X-Tt-Error": "No gestionas ningun departamento."})
     db = SessionLocal()
     try:
+        # 404 y no 403: fuera del alcance del jefe no confirmamos que el id exista.
+        if OfficerService.get_manageable_position(db, position_id, dep) is None:
+            return Response(status_code=404)
         try:
             OfficerService.set_users(db, position_id, user_ids, department_id=dep, assigned_role=ROLE_ASSIGNED)
             OfficerService.set_programs(db, position_id, program_ids)
@@ -104,8 +109,14 @@ async def deactivate(position_id: int, request: Request,
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.officer_service import OfficerService
     dep = _managed_department_id(int(user["sub"]))
+    if dep is None:
+        return Response(status_code=400, headers={"X-Tt-Error": "No gestionas ningun departamento."})
     db = SessionLocal()
     try:
+        # Conjunto B: solo puestos que ESTA app creo. `deactivate_position` toca
+        # `core_positions`, compartida con las demas apps del organigrama.
+        if OfficerService.get_deletable_position(db, position_id, dep) is None:
+            return Response(status_code=404)
         OfficerService.deactivate_officer(db, position_id)
         ctx = _body_ctx(db, dep)
     finally:
