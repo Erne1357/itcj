@@ -1,18 +1,19 @@
 {% extends "titulatec/admin/base_admin.html" %}
-{% block title %}{{ process.folio }} · TitulaTec{% endblock %}
-
+{% block title %}{{ student.name }} · {{ process.folio }} · TitulaTec{% endblock %}
 {% block admin_view %}process-detail{% endblock %}
+
 {% block admin_main %}
-<div class="px-4 pt-4">
-  <nav class="d-flex align-items-center gap-2 mb-1" style="font-size:.75rem;color:var(--tt-mute)">
-    <a href="/titulatec/admin/processes" style="color:inherit;text-decoration:none">Procesos</a>
-    <i class="bi bi-chevron-right" style="font-size:.6rem"></i>
-    <span class="fw-semibold" style="color:var(--tt-ink)">{{ process.folio }}</span>
-  </nav>
-</div>
-<div class="px-4 pt-2 pb-4">
-  <div id="process-detail">
-    {% include "titulatec/partials/admin_process_detail.html" %}
-  </div>
+{# El expediente entero vive en `_exp_shell.html`, que es también lo que
+   devuelven las acciones: una sola verdad para la carga inicial y para el swap.
+
+   El JS del acordeón NO se carga aquí: la navegación del admin trae solo
+   `#tt-admin-content` (`hx-select`), así que un `<script>` de esta plantilla no
+   llegaría al llegar desde otra pestaña. Va en `base_admin`, como los otros
+   módulos de página.
+
+   El título del navegador lleva el nombre del alumno y no «Detalle»: en una
+   mañana de revisión se acaban con seis pestañas abiertas del mismo sitio. #}
+<div class="px-4 py-4">
+  {% include "titulatec/partials/processes/_exp_shell.html" %}
 </div>
 {% endblock %}

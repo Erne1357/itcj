@@ -6,6 +6,11 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
+    # Bump 2026-09-03: el expediente del alumno añade `admin/expediente.js` (que
+    # carga la base admin) y un bloque nuevo en `titulatec.css` (`.tt-exp-*` y
+    # los tonos del historial). Con caché caliente, el acordeón de las 9 fases
+    # se serviría sin CSS ni JS: todo abierto, sin poder plegar nada.
+    #
     # Bump 2026-09-02: la revisión del admin de TitulaTec tocó `titulatec.css`
     # (retardo e indicador-overlay, `.tt-enter`, las tres zonas de Citas) y tres
     # módulos JS que además pasaron a cargarse desde la base admin
@@ -16,7 +21,7 @@ class Settings(BaseSettings):
     #
     # Bump 2026-08-10: la revisión de helpdesk tocó 55 archivos CSS/JS (registro
     # de orígenes, sockets, filtros, detalle de equipo, asignación, home).
-    STATIC_VERSION: str = "1.0.1111512"
+    STATIC_VERSION: str = "1.0.1111513"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

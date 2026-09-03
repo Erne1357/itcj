@@ -30,12 +30,22 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
+from tests.fastapi.titulatec.conftest import OFFICER_PERMS
+
 URL = "/titulatec/admin/processes"
+# Enlace al expediente desde otra pestana, con su query de vuelta.
+PAT = r'href="(/titulatec/admin/processes/%d\?[^"]*)"'
 
 
 # ---------------------------------------------------------------------------
 # Utilidades
 # ---------------------------------------------------------------------------
+def _msg(resp) -> str:
+    """El `X-Tt-Error` ya decodificado (el servidor lo percent-codifica)."""
+    from urllib.parse import unquote
+    return unquote(resp.headers.get("X-Tt-Error", ""))
+
+
 def _events(db, process_id, tipo=None):
     from itcj2.apps.titulatec.models import ProcessEvent
     q = db.query(ProcessEvent).filter_by(process_id=process_id)
@@ -65,15 +75,37 @@ def sin_disco(monkeypatch):
 
 
 @pytest.fixture()
+def en_disco(monkeypatch):
+    """Hace que todo `file_path` exista.
+
+    `make_document` NO escribe en disco (lo dice su docstring), y el expediente
+    resuelve `missing` mirando el disco de verdad: sin esto, cada documento de
+    prueba sale como «Archivo perdido» y el visor nunca aparece.
+    """
+    from pathlib import Path
+    from itcj2.apps.titulatec.utils import storage
+    monkeypatch.setattr(storage, "abs_path", lambda _rel: Path("/app/pytest.ini"))
+
+
+# El encargado del expediente ve y ADEMAS mueve de fase: es la unica accion que
+# queda en esta pagina, y sin el permiso las pruebas de «mover de fase» darian
+# 403 y pasarian por buenas negativas que no prueban nada.
+EXPEDIENTE_PERMS = OFFICER_PERMS + (
+    "titulatec.process.api.approve_phase",
+    "titulatec.process.api.reject_phase",
+)
+
+
+@pytest.fixture()
 def expediente(seed_phase_defs, seed_document_types, make_program, make_cohort,
                make_officer, make_student, make_process):
-    """Un proceso en fase 2 con encargado que puede verlo."""
+    """Un proceso en fase 2 con encargado que puede verlo y moverlo de fase."""
     def _build(current_phase=2, status="active"):
         seed_phase_defs()
         seed_document_types()
         prog = make_program("Ingenieria del Expediente")
         cohort = make_cohort()
-        officer, _pos = make_officer([prog])
+        officer, _pos = make_officer([prog], perm_codes=EXPEDIENTE_PERMS)
         student = make_student(first_name="ANA", last_name="EXPEDIENTE")
         proc = make_process(student, cohort=cohort, program=prog,
                             current_phase=current_phase, status=status)
@@ -252,18 +284,38 @@ def test_el_historial_nombra_a_quien_lo_hizo(expediente, client_as, db_session,
 
 
 def test_los_documentos_se_ven_pero_no_se_dictaminan(expediente, client_as,
-                                                     make_document):
+                                                     make_document, en_disco):
     """Decision del usuario: aqui solo se ven. El dictamen vive en la bandeja de
-    Documentos, que exige motivo al rechazar y auto-avanza la fase; tener dos
-    caminos con dos reglas era la razon de quitarlo."""
+    Documentos, que exige motivo al rechazar y auto-avanza la fase al aprobar el
+    tercero; tener dos caminos con dos reglas era la razon de quitarlo.
+
+    La asercion se acota AL PANEL DE LA FASE 1: buscar «action: approve» en toda
+    la pagina la haria depender de si el alumno tiene Formato B enviado, que no
+    tiene nada que ver con lo que este test afirma.
+    """
     esc = expediente(current_phase=1)
     make_document(esc["proc"], type_code="birth_certificate")
 
     html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}?fase=1").text
-    assert "/document/" in html, "no se puede abrir el documento"
-    assert "documents/birth_certificate/review" not in html
-    assert '"action":"approve"' not in html.replace(" ", ""), (
-        "quedo un boton de dictamen de documento en el expediente")
+    panel = html.split('id="exp-panel-1"')[1].split('id="exp-fase-2"')[0]
+
+    assert "/document/birth_certificate" in panel, "no se puede abrir el documento"
+    assert "review" not in panel, "quedo un camino de dictamen en el panel de la fase 1"
+    assert '"action":"approve"' not in panel.replace(" ", "")
+    assert "Dictaminar en la bandeja" in panel, (
+        "se quito el dictamen sin dejar por donde se hace")
+
+
+def test_un_archivo_perdido_lo_dice_en_vez_de_ofrecer_verlo(expediente, client_as,
+                                                            make_document):
+    """La fila existe en la base y el archivo no esta en disco. Ofrecer «Ver»
+    manda a un 404; callarlo hace pensar que el alumno no subio nada."""
+    esc = expediente(current_phase=1)
+    make_document(esc["proc"], type_code="curp", file_path="no/existe/curp.pdf")
+
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}?fase=1").text
+    panel = html.split('id="exp-panel-1"')[1].split('id="exp-fase-2"')[0]
+    assert "Archivo perdido" in panel
 
 
 def test_las_fases_sin_implementar_lo_dicen(expediente, client_as):
@@ -293,6 +345,58 @@ def test_mover_de_fase_no_usa_confirm_nativo(expediente, client_as):
     assert "confirm(" not in html and "alert(" not in html
 
 
+def test_rechazar_una_fase_sin_motivo_no_pasa(expediente, client_as):
+    """El alumno solo ve lo que se escribe aqui. «Fase rechazada» a secas lo
+    manda a preguntar en ventanilla, que es el viaje que esta app viene a
+    quitar. La bandeja de Documentos ya lo exigia; este era el otro camino.
+    """
+    esc = expediente(current_phase=2)
+    cli = client_as(esc["officer"])
+    url = f"{URL}/{esc['proc'].id}/phase/2/reject"
+
+    vacio = cli.post(url, data={"reason": "   "})
+    assert vacio.status_code == 400
+    assert "motivo" in _msg(vacio)
+
+    # La positiva del mismo actor sobre la MISMA ruta: sin ella, una guarda que
+    # dijera que no SIEMPRE pasaria por buena.
+    bueno = cli.post(url, data={"reason": "Falta la firma del asesor"})
+    assert bueno.status_code == 200
+
+
+def test_un_error_con_acentos_llega_legible(expediente, client_as, make_head):
+    """Los headers HTTP son latin-1: un mensaje con acentos SIN percent-codificar
+    llega al cliente como bytes que no son UTF-8 validos y revienta al
+    decodificarlos. `pages/admin.py` escribia «Falta el número de control» a
+    pelo desde que existe, y ninguna prueba pasaba por esa rama.
+
+    Se prueba contra el alta manual porque es la rama con acento de verdad; el
+    mensaje del rechazo de fase no lleva ninguno y no probaria nada.
+    """
+    esc = expediente()
+    jefa = make_head()
+    r = client_as(jefa).post(f"/titulatec/admin/cohorts/{esc['cohort'].id}/students",
+                             data={"control_number": ""})
+    assert r.status_code == 400
+    assert _msg(r) == "Falta el número de control.", (
+        "el mensaje llego roto: se perdio la codificacion del header")
+
+
+def test_las_acciones_conservan_la_zona(expediente, client_as):
+    """Aprobar una fase devuelve el expediente ENTERO. Si `fase`, `doc` y `from`
+    no viajaran con la accion, al volver estarias en otra fase, con otro
+    documento abierto y con el Regresar apuntando a Procesos."""
+    from urllib.parse import quote
+    esc = expediente(current_phase=2)
+    origen = "/titulatec/admin/appointments?v=atender&date=2029-05-07"
+    r = client_as(esc["officer"]).post(
+        f"{URL}/{esc['proc'].id}/phase/2/reject?fase=1&from={quote(origen, safe='')}",
+        data={"reason": "Falta el sello"})
+    assert r.status_code == 200
+    assert "hidden" not in re.search(r'id="exp-panel-1"[^>]*', r.text).group(0)
+    assert "Citas de cotejo" in r.text
+
+
 # ===========================================================================
 # 3. La vuelta al sitio del que se vino
 # ===========================================================================
@@ -303,13 +407,17 @@ def test_mover_de_fase_no_usa_confirm_nativo(expediente, client_as):
     ("/titulatec/admin/processes?view=board&stuck=1", "Procesos"),
 ])
 def test_regresar_vuelve_al_origen_con_sus_filtros(expediente, client_as, origen, etiqueta):
+    """El `href` se compara DESESCAPADO: Jinja escribe `&amp;` en los atributos,
+    que es HTML correcto y el navegador resuelve a `&`. Compararlo crudo haria
+    fallar justo los origenes con mas de un filtro, que son los que importan."""
+    import html as _html
     from urllib.parse import quote
     esc = expediente()
-    html = client_as(esc["officer"]).get(
+    pagina = client_as(esc["officer"]).get(
         f"{URL}/{esc['proc'].id}?from={quote(origen, safe='')}").text
-    fila = re.search(r'id="exp-back"[^>]*href="([^"]*)"[^>]*>(.*?)</a>', html, re.S)
+    fila = re.search(r'id="exp-back"[^>]*href="([^"]*)"[^>]*>(.*?)</a>', pagina, re.S)
     assert fila, "no hay boton de regresar"
-    assert fila.group(1) == origen
+    assert _html.unescape(fila.group(1)) == origen
     assert etiqueta in fila.group(2)
 
 
@@ -344,15 +452,20 @@ def test_sin_from_regresa_a_procesos(expediente, client_as):
 def test_la_bandeja_de_procesos_enlaza_con_su_filtro(expediente, client_as):
     esc = expediente()
     html = client_as(esc["officer"]).get("/titulatec/admin/processes?view=board").text
-    assert f"/titulatec/admin/processes/{esc['proc'].id}?from=" in html
+    enlace = re.search(PAT % esc["proc"].id, html)
+    assert enlace and "view%3Dboard" in enlace.group(1), (
+        "el enlace no lleva la vista actual: volver caeria en la tabla")
 
 
 def test_la_bandeja_de_documentos_enlaza(expediente, client_as, make_document):
+    """Y entra directo a la fase 1, que es la que se estaba dictaminando."""
     esc = expediente(current_phase=1)
     make_document(esc["proc"], type_code="birth_certificate")
     html = client_as(esc["officer"]).get(
         f"/titulatec/admin/documents?selected={esc['proc'].id}").text
-    assert f"/titulatec/admin/processes/{esc['proc'].id}?from=" in html
+    enlace = re.search(PAT % esc["proc"].id, html)
+    assert enlace, "la bandeja de Documentos no enlaza al expediente"
+    assert "from=" in enlace.group(1) and "fase=1" in enlace.group(1)
 
 
 def test_las_citas_enlazan(expediente, client_as, make_appointment, make_review_day):
@@ -364,14 +477,20 @@ def test_las_citas_enlazan(expediente, client_as, make_appointment, make_review_
     html = client_as(esc["officer"]).get(
         f"/titulatec/admin/appointments?v=atender&date={dia.isoformat()}"
         f"&selected={esc['proc'].id}").text
-    assert f"/titulatec/admin/processes/{esc['proc'].id}?from=" in html
+    enlace = re.search(PAT % esc["proc"].id, html)
+    assert enlace, "la ficha de Atender no enlaza al expediente"
+    assert dia.isoformat() in enlace.group(1), (
+        "el enlace no lleva el dia: volver caeria en otra fecha")
 
 
 def test_la_convocatoria_enlaza(expediente, client_as, make_head):
     esc = expediente()
     jefa = make_head()
-    html = client_as(jefa).get(f"/titulatec/admin/cohorts/{esc['cohort'].id}").text
-    assert f"/titulatec/admin/processes/{esc['proc'].id}?from=" in html
+    html = client_as(jefa).get(
+        f"/titulatec/admin/cohorts/{esc['cohort'].id}?tab=alumnos").text
+    enlace = re.search(PAT % esc["proc"].id, html)
+    assert enlace, "la lista de alumnos de la convocatoria no enlaza al expediente"
+    assert "from=" in enlace.group(1)
 
 
 # ===========================================================================
@@ -379,13 +498,25 @@ def test_la_convocatoria_enlaza(expediente, client_as, make_head):
 # ===========================================================================
 def test_la_ruta_de_dictamen_de_documentos_del_expediente_ya_no_existe():
     """Habia DOS endpoints para dictaminar el mismo documento, con reglas
-    distintas: el de la bandeja exige motivo al rechazar, este no lo pedia.
+    distintas: el de la bandeja de Documentos exige motivo al rechazar y
+    auto-avanza la fase cuando quedan los tres aprobados; este no pedia motivo
+    ni avanzaba nada. Queda el de la bandeja.
+
+    El censo se hace sobre el router de paginas APLANADO: `create_app().routes`
+    devuelve envoltorios de `include_router` sin `path` ni `name`, asi que una
+    asercion negativa contra esa lista pasa SIEMPRE (verificado: 22 rutas, cero
+    de titulatec). De ahi que la negativa venga con su positiva.
     """
-    from itcj2.main import create_app
-    rutas = {getattr(r, "name", "") for r in create_app().routes}
-    assert "titulatec.pages.admin.doc_review" not in rutas
+    from itcj2.apps.titulatec.pages.router import titulatec_pages_router
+    from tests.fastapi.titulatec.test_scope_guard import _rutas
 
-
+    nombres = {getattr(r, "name", "") for r in _rutas(titulatec_pages_router)}
+    assert "titulatec.pages.admin.process_detail" in nombres, (
+        "el censo no ve las rutas del expediente: la negativa de abajo seria falsa")
+    assert "titulatec.pages.admin.doc_review" not in nombres
+    assert "titulatec.pages.documents.review" in nombres, (
+        "se quito el dictamen del expediente Y el de la bandeja: nadie puede "
+        "aprobar un documento")
 def test_el_expediente_no_hace_una_consulta_por_documento(expediente, client_as,
                                                           make_document, db_session):
     """`_detail_ctx` consultaba `DocumentType` UNA VEZ POR CODIGO. Con el

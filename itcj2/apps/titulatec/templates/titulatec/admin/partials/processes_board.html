@@ -1,3 +1,7 @@
+{# `VOLVER` lo define `admin/processes.html`, que es quien incluye esto; se
+   redefine aqui para que el parcial no dependa de quien lo incluya. #}
+{% set VOLVER = ('/titulatec/admin/processes?view=board&status=' ~ (status or '')
+                 ~ ('&stuck=1' if stuck else '')) | urlencode %}
 {# Ids estables: Idiomorph empareja por id, asi que un filtro que no cambia el
    tablero reutiliza EXACTAMENTE las mismas tarjetas (nada se re-anima) y uno
    que si lo cambia deja identificables las tarjetas realmente nuevas. #}
@@ -16,7 +20,7 @@
     <div class="col-scroll">
       <div class="body">
         {% for c in col.cards %}
-        <a id="proc-card-{{ c.id }}" class="tt-kanban-card tt-hover-lift {{ 'is-stuck' if c.idle_level=='crit' }}" href="/titulatec/admin/processes/{{ c.id }}">
+        <a id="proc-card-{{ c.id }}" class="tt-kanban-card tt-hover-lift {{ 'is-stuck' if c.idle_level=='crit' }}" href="/titulatec/admin/processes/{{ c.id }}?from={{ VOLVER }}">
           <div class="d-flex align-items-center justify-content-between gap-2">
             <div class="fw-semibold text-truncate" style="font-size:.82rem">{{ c.student }}</div>
             <span class="tt-pill tt-pill--idle-{{ c.idle_level }}" style="flex:0 0 auto">{{ c.idle_days }} d</span>

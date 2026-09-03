@@ -211,7 +211,10 @@ class TestGuardaEnLaRuta:
         # header lo escribe Starlette en latin-1 pero su TestClient lo lee como
         # UTF-8, y un byte >127 tumba el request entero (ver `_transition_error`).
         assert "99" in resp.headers.get("X-Tt-Error", "")
-        assert "fuera de rango" in resp.headers.get("X-Tt-Error", "")
+        # El header llega percent-codificado (`_hdr`): los valores de header son
+        # latin-1 y un mensaje con acentos sin codificar llega roto al cliente.
+        from urllib.parse import unquote
+        assert "fuera de rango" in unquote(resp.headers.get("X-Tt-Error", ""))
         db_session.refresh(proc)
         assert proc.status == "active"
         assert 99 not in _phases(db_session, proc.id)

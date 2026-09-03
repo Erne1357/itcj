@@ -10,6 +10,11 @@
    URL) y el swap HTMX no pueden divergir nunca. El querystring es identico al que
    habia antes de HTMX, para no cambiar la semantica de los filtros. #}
 {% set u_total = '/titulatec/admin/processes?view=' ~ V %}
+{# A donde vuelve el boton Regresar del expediente: la URL CANONICA de
+   esta pestana con sus filtros, no la del parcial HTMX. Sin esto, volver
+   dejaba al revisor en la lista sin filtrar y sin el alumno abierto. #}
+{% set VOLVER = ('/titulatec/admin/processes?view=' ~ V ~ '&status=' ~ (status or '')
+                 ~ ('&stuck=1' if stuck else '')) | urlencode %}
 {% set u_active = '/titulatec/admin/processes?view=' ~ V ~ '&status=active' %}
 {% set u_completed = '/titulatec/admin/processes?view=' ~ V ~ '&status=completed' %}
 {% set u_hold = '/titulatec/admin/processes?view=' ~ V ~ '&status=on_hold' %}
@@ -169,7 +174,7 @@
           <td><span class="tt-pill tt-pill--navy">{{ '%02d'|format(r.phase) }} · {{ r.phase_name }}</span></td>
           <td><span class="tt-pill tt-pill--idle-{{ r.idle_level }}">{{ r.idle_days }} d</span></td>
           <td><span class="tt-pill tt-pill--{{ 'success' if r.status=='completed' else ('neutral' if r.status in ('cancelled','on_hold') else 'amber') }}">{{ r.status }}</span></td>
-          <td class="text-end"><a href="/titulatec/admin/processes/{{ r.id }}" class="btn btn-sm tt-btn-soft">Abrir <i class="bi bi-arrow-right ms-1"></i></a></td>
+          <td class="text-end"><a href="/titulatec/admin/processes/{{ r.id }}?from={{ VOLVER }}" class="btn btn-sm tt-btn-soft">Abrir <i class="bi bi-arrow-right ms-1"></i></a></td>
         </tr>
         {% else %}
         <tr id="proc-row-empty"><td colspan="9" class="text-center py-4" style="color:var(--tt-mute)">Sin procesos.</td></tr>

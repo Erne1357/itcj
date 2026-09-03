@@ -1389,3 +1389,104 @@ button.tt-seat--libre { pointer-events: auto; }
   .tt-appt-seg .seg { min-height: 44px; }
   .btn-sm, .form-control-sm, .form-select-sm { min-height: 44px; }
 }
+
+
+/* ===========================================================================
+   EXPEDIENTE DEL ALUMNO (/admin/processes/{id}, 2026-09-03)
+   ---------------------------------------------------------------------------
+   Una sola columna acotada y un acordeon: al desplegar una fase, ninguna otra
+   seccion se encoge ni cambia de sitio. Es la misma regla que gobierna Citas.
+
+   Reusa `.tt-acc*` (el acordeon del panel del alumno) y `.tt-timeline-item`,
+   que ya existian y no estaban atados a la vista del alumno. Lo que se anade
+   aqui es la cabecera, los paneles por fase y los tonos del historial.
+   =========================================================================== */
+.tt-exp { display: flex; flex-direction: column; gap: var(--tt-sp-4);
+  max-width: 980px; margin-inline: auto; }
+
+/* — Cabecera — */
+.tt-exp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2);
+  margin-bottom: var(--tt-sp-3); }
+.tt-exp-id { min-width: 0; }
+.tt-exp-name {
+  font-family: var(--tt-display); font-size: var(--tt-fs-600); font-weight: 600;
+  line-height: 1.15; letter-spacing: -.4px; color: var(--tt-text-1);
+  margin: 2px 0 0; text-wrap: balance;
+}
+/* Los datos van en fila y se parten solos; sin `gap` vertical se juntaban al
+   envolver en movil. */
+.tt-exp-meta { display: flex; flex-wrap: wrap; gap: 4px var(--tt-sp-4);
+  margin: var(--tt-sp-2) 0 0; font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
+.tt-exp-prog { display: flex; align-items: center; gap: var(--tt-sp-3);
+  margin-top: var(--tt-sp-4); }
+.tt-exp-prog .tt-progress { flex: 1 1 auto; }
+.tt-exp-prog-txt { flex: 0 0 auto; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+@media (max-width: 575.98px) {
+  .tt-exp-prog { flex-direction: column; align-items: stretch; gap: var(--tt-sp-2); }
+}
+
+/* — Contenido de un panel de fase — */
+.tt-exp-fechas { display: flex; flex-wrap: wrap; gap: 4px var(--tt-sp-3); margin: 0;
+  font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-exp-fechas span + span::before { content: "·"; margin-right: var(--tt-sp-3); }
+
+.tt-exp-vacio { margin: 0; font-size: var(--tt-fs-200); color: var(--tt-text-3);
+  max-width: 62ch; }
+
+.tt-exp-nota { padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r-sm);
+  font-size: var(--tt-fs-200); }
+.tt-exp-nota--mal { background: var(--tt-danger-soft); color: #991B1B; }
+.tt-exp-nota--ojo { background: var(--tt-amber-soft); color: var(--tt-amber-ink); }
+
+/* Datos del alta: pares etiqueta/valor que se acomodan solos, sin breakpoints. */
+.tt-exp-datos { display: grid; gap: var(--tt-sp-3);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin: 0; }
+.tt-exp-datos dt { font-size: var(--tt-fs-100); color: var(--tt-text-3); font-weight: 400; }
+.tt-exp-datos dd { margin: 2px 0 0; font-size: var(--tt-fs-200); color: var(--tt-text-1);
+  font-weight: 500; }
+
+/* Documentos: alto FIJO por fila. Si la fila con nota fuera mas alta que la de
+   al lado, abrir un documento movería las de abajo. */
+.tt-exp-docs { display: flex; flex-direction: column; }
+.tt-exp-doc { display: flex; align-items: center; gap: var(--tt-sp-3);
+  padding: var(--tt-sp-2) 0; }
+.tt-exp-doc + .tt-exp-doc { border-top: 1px solid var(--tt-line-soft); }
+.tt-exp-doc .nombre { display: block; font-size: var(--tt-fs-200); font-weight: 500;
+  color: var(--tt-text-1); }
+.tt-exp-doc .meta { display: block; font-size: var(--tt-fs-100); color: var(--tt-text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-exp-doc.is-open { box-shadow: inset 3px 0 0 var(--tt-accent); padding-left: var(--tt-sp-2); }
+
+/* Visor: alto util de verdad. Un acta escaneada a 240 px no se coteja. */
+.tt-exp-frame { width: 100%; height: 480px; border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r-sm); background: var(--tt-mist); }
+@media (max-width: 767.98px) { .tt-exp-frame { height: 340px; } }
+
+.tt-exp-cita { display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--tt-sp-2) var(--tt-sp-4); font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+.tt-exp-acciones { display: flex; flex-wrap: wrap; gap: var(--tt-sp-2); }
+
+.tt-exp-modal-help { font-size: var(--tt-fs-200); color: var(--tt-text-2); max-width: 60ch; }
+.tt-exp-modal-req { color: var(--tt-text-3); font-weight: 400; }
+
+/* — Historial — */
+.tt-exp-hist { padding-top: var(--tt-sp-2); border-top: 1px solid var(--tt-line-soft); }
+/* El icono sustituye al punto de color: dice QUE paso, no solo que paso algo.
+   Los tonos son los mismos que las pildoras de estado. */
+.tt-timeline-item .ico {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 24px; height: 24px; margin-top: 1px; border-radius: 8px;
+  font-size: var(--tt-fs-100);
+  background: var(--tt-mist); color: var(--tt-text-3); border: 1px solid var(--tt-line);
+}
+.tt-timeline-item .ico.tone-success { background: var(--tt-success-soft); color: #166534;
+  border-color: rgba(22, 163, 74, .3); }
+.tt-timeline-item .ico.tone-danger  { background: var(--tt-danger-soft); color: #991B1B;
+  border-color: rgba(220, 38, 38, .3); }
+.tt-timeline-item .ico.tone-amber   { background: var(--tt-amber-soft); color: var(--tt-amber-ink);
+  border-color: rgba(245, 158, 11, .35); }
+.tt-timeline-item .when { font-family: var(--tt-mono); font-size: var(--tt-fs-100);
+  color: var(--tt-text-3); }
+.tt-timeline-item .detalle { font-size: var(--tt-fs-100); color: var(--tt-text-2);
+  margin-top: 2px; max-width: 62ch; }

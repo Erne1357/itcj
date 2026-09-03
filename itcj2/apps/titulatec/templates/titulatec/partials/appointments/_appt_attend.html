@@ -68,6 +68,13 @@
       <p class="tt-appt-note mt-2 mb-0">
         {{ detail.program_name or 'Sin carrera' }} · {{ detail.modality_name or 'Sin modalidad' }}
       </p>
+      {# Antes de cotejar conviene saber si este alumno ya falto otra vez o si su
+         acta viene de un rechazo. El `from` trae el dia y el alumno abiertos,
+         asi que el Regresar del expediente devuelve a esta misma ficha. #}
+      {% set VOLVER = (page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ detail.process.id) | urlencode %}
+      <a class="btn btn-sm tt-btn-ghost mt-3"
+         href="/titulatec/admin/processes/{{ detail.process.id }}?from={{ VOLVER }}">
+        <i class="bi bi-clock-history me-1" aria-hidden="true"></i>Ver expediente</a>
     </div>
 
     {% if detail.appt and detail.appt.change_request %}
