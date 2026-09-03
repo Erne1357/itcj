@@ -130,7 +130,8 @@ def _students_ctx(db, cohort_id, *, q, phase, page):
             "programs": _programs(db), "modalities": _modalities(db)}
 
 
-def _add_student(db, cohort, *, control, full_name, email, program_id, modality_id):
+def _add_student(db, cohort, *, control, full_name, email, program_id, modality_id,
+                 actor_id=None):
     """Crea/adjunta un alumno a la convocatoria. Si es nuevo, le pone password=control."""
     from itcj2.core.models.user import User
     from itcj2.apps.titulatec.services.import_service import ImportService
@@ -138,7 +139,7 @@ def _add_student(db, cohort, *, control, full_name, email, program_id, modality_
     ImportService.import_rows(db, cohort, [{
         "control_number": control, "full_name": full_name, "email": email,
         "program_id": program_id, "modality_id": modality_id,
-    }])
+    }], actor_id=actor_id, source="manual")
     if not existed:
         user = db.query(User).filter_by(control_number=control).first()
         if user:
@@ -241,7 +242,7 @@ async def student_add(cohort_id: int, request: Request,
         program_id = int(form["program_id"]) if form.get("program_id") else None
         modality_id = int(form["modality_id"]) if form.get("modality_id") else None
         _add_student(db, cohort, control=control, full_name=full_name, email=(form.get("email") or None),
-                     program_id=program_id, modality_id=modality_id)
+                     program_id=program_id, modality_id=modality_id, actor_id=int(user["sub"]))
         ctx = _students_ctx(db, cohort_id, q="", phase=None, page=1)
     finally:
         db.close()
@@ -584,7 +585,8 @@ async def import_commit(
         # guarda el mapeo usado para reusarlo la próxima vez
         ImportService.save_mapping(mapping)
         summary = ImportService.import_rows(db, cohort,
-                                            ImportService.rows_to_import(preview))
+                                            ImportService.rows_to_import(preview),
+                                            actor_id=int(user["sub"]), source="csv")
     finally:
         db.close()
     if token:

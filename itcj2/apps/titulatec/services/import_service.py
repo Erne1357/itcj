@@ -391,7 +391,8 @@ class ImportService:
 
     # ---------- importación ----------
     @staticmethod
-    def import_rows(db: Session, cohort, rows: list[dict]) -> dict:
+    def import_rows(db: Session, cohort, rows: list[dict], *,
+                    actor_id: int | None = None, source: str = "csv") -> dict:
         """Crea User (merge por control_number) + Process + phases + rol student.
 
         `rows` = lista de dicts ya resueltos (del preview/override del admin):
@@ -416,7 +417,7 @@ class ImportService:
         from itcj2.core.models.user import User
         from itcj2.core.models.role import Role
         from itcj2.core.models.user_app_role import UserAppRole
-        from itcj2.apps.titulatec.models import TitulationProcess, ProcessPhase
+        from itcj2.apps.titulatec.models import TitulationProcess, ProcessPhase, ProcessEvent
         from itcj2.apps.titulatec.services.phase_service import PhaseService
         from itcj2.core.services.authz_service import get_or_404_app
 
@@ -524,6 +525,14 @@ class ImportService:
                           else "in_progress" if n == proc.current_phase else "pending")
                     db.add(ProcessPhase(process_id=proc.id, phase_number=n, status=st))
                 processes_created += 1
+
+                # Alta del alumno = el unico suceso de la fase 0. Sin el, el
+                # expediente empieza en blanco y no dice ni como entro.
+                db.add(ProcessEvent(
+                    process_id=proc.id, actor_id=actor_id,
+                    event_type="process_created", phase_number=0,
+                    payload={"source": source, "folio": proc.folio},
+                ))
 
                 from itcj2.apps.titulatec.services.notify import notify_student
                 notify_student(db, user.id, type="PROCESS_CREATED",

@@ -768,7 +768,7 @@ async def document_delete(
         if fuera_de_fase:
             return fuera_de_fase
         if process:
-            DocumentService.delete(db, process.id, type_code)
+            DocumentService.delete(db, process.id, type_code, actor_id=int(user["sub"]))
         return render_titulatec(request, "titulatec/partials/document_slot.html", _slot_ctx(dtype, None))
     finally:
         db.close()
