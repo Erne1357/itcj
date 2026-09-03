@@ -67,7 +67,11 @@
 
   {# ===================== SUB-VISTA ===================== #}
   {% if v == 'atender' %}
+    {% if detail %}
     {% include "titulatec/partials/appointments/_appt_attend.html" %}
+    {% else %}
+    {% include "titulatec/partials/appointments/_appt_attend_empty.html" %}
+    {% endif %}
   {% elif v == 'espacios' %}
     {% include "titulatec/partials/appointments/_appt_spaces.html" %}
   {% else %}

@@ -542,8 +542,9 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
               if selected_id else None)
     if detail is None:
         selected_id = None
-    if vista == "atender" and detail is None:
-        vista = "agenda"          # sin alumno, «Atender» no tiene contenido propio
+    # «Atender» SIN alumno ya no cae de vuelta a Agenda: es la sala de espera
+    # del dia. Antes era un destino falso, solo alcanzable eligiendo a alguien
+    # primero, asi que la pestana existia pero no se podia pulsar.
 
     # --- el modo del area de trabajo ----------------------------------------
     buscando = bool((q or "").strip() or estado or mias or program_id)
@@ -579,6 +580,7 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
                                       cohort_id=cohort_id)
     elif vista == "atender":
         ctx["pager"] = _pager_ctx(db, day, allowed, selected_id)
+        # Sin alumno tambien: la sala de espera es la lista del dia.
     elif vista == "espacios":
         ctx["espacios"] = _espacios_ctx(db, day, user_id=user_id,
                                         cohort_id=cohort_id, editando=w)

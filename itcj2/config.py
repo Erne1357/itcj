@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     #
     # Bump 2026-08-10: la revisión de helpdesk tocó 55 archivos CSS/JS (registro
     # de orígenes, sockets, filtros, detalle de equipo, asignación, home).
-    STATIC_VERSION: str = "1.0.1111511"
+    STATIC_VERSION: str = "1.0.1111512"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

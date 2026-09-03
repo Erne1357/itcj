@@ -63,7 +63,12 @@
       <div class="hora">{{ f.hhmm }}</div>
       <div class="pista">
         {% for o in f.ocupantes %}
+        {# `draggable` es un AÑADIDO al clic, nunca el único camino: el arrastre
+           nativo del navegador no existe en táctil ni con teclado. Quien no
+           pueda arrastrar sigue usando «Mover de franja» en la ficha. #}
         <a class="tt-seat" id="appt-seat-p{{ o.process_id }}"
+           draggable="true" data-tt-drag="{{ o.process_id }}"
+           data-tt-drag-name="{{ o.student }}"
            {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ o.process_id) }}
            aria-label="{{ f.hhmm }}, {{ o.student }}, {{ o.control }}">
           <span class="who">{{ o.student }}
@@ -74,22 +79,24 @@
         {% endfor %}
 
         {% for i in range(f.libres) %}
+          {% set DROP = 'data-tt-drop="' ~ g.id ~ '|' ~ f.hhmm ~ '" data-tt-drop-url="'
+                        ~ page_url ~ '/@PID@/move' ~ QZ ~ AMP ~ 'window_id=' ~ g.id
+                        ~ '&slot=' ~ f.hhmm ~ '"' %}
+          {% set SID = 'appt-seat-' ~ g.id ~ '-' ~ f.hhmm|replace(':','') ~ '-' ~ i %}
           {% if mover %}
-          <button type="button" class="tt-seat tt-seat--libre"
-                  id="appt-seat-{{ g.id }}-{{ f.hhmm|replace(':','') }}-{{ i }}"
+          <button type="button" class="tt-seat tt-seat--libre" id="{{ SID }}" {{ DROP|safe }}
                   {{ appt_action(page_url ~ '/' ~ mover ~ '/move' ~ QZ ~ AMP ~ 'window_id=' ~ g.id ~ '&slot=' ~ f.hhmm) }}>
             <span class="who"><i class="bi bi-arrow-right-short" aria-hidden="true"></i>Mover aquí</span>
           </button>
           {% elif seleccion %}
-          <button type="button" class="tt-seat tt-seat--libre"
-                  id="appt-seat-{{ g.id }}-{{ f.hhmm|replace(':','') }}-{{ i }}"
+          <button type="button" class="tt-seat tt-seat--libre" id="{{ SID }}" {{ DROP|safe }}
                   {{ appt_action(page_url ~ '/' ~ seleccion[0] ~ '/move' ~ QZ ~ AMP ~ 'window_id=' ~ g.id ~ '&slot=' ~ f.hhmm) }}>
             <span class="who"><i class="bi bi-plus-lg" aria-hidden="true"></i>Poner aquí</span>
           </button>
           {% else %}
-          {# Sin repetir la hora: ya esta a la izquierda de la fila. #}
-          <div class="tt-seat tt-seat--libre"
-               id="appt-seat-{{ g.id }}-{{ f.hhmm|replace(':','') }}-{{ i }}">
+          {# Sin repetir la hora: ya está a la izquierda de la fila. Es destino
+             de arrastre SIEMPRE, no solo cuando hay algo «armado». #}
+          <div class="tt-seat tt-seat--libre" id="{{ SID }}" {{ DROP|safe }}>
             <span class="who">Lugar libre</span>
           </div>
           {% endif %}

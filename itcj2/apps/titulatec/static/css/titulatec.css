@@ -1352,6 +1352,35 @@ button.tt-seat--libre { border-color: var(--tt-accent-ink); border-style: solid;
 /* --- El dia sin espacios no pesa lo mismo que uno con trabajo ------------ */
 .tt-day .ocup { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* --- Arrastrar un alumno a un lugar libre -------------------------------- */
+/* Es un ANADIDO al camino de clic, no un sustituto: el arrastre nativo no
+   existe en tactil ni con teclado, asi que la senal visual tampoco puede ser la
+   unica forma de saber que algo es soltable. La pista escrita vive en la
+   cabecera de la cola. */
+[data-tt-drag] { cursor: grab; }
+[data-tt-drag]:active { cursor: grabbing; }
+[data-tt-drag].is-dragging { opacity: .45; }
+
+/* Mientras se arrastra, TODOS los huecos se anuncian. Sin esto hay que adivinar
+   donde se puede soltar, que es el defecto clasico del arrastre. */
+body.tt-dragging .tt-seat--libre {
+  border-style: dashed; border-color: var(--tt-accent-ink);
+  background: var(--tt-accent-soft);
+}
+body.tt-dragging .tt-seat--libre .who { color: var(--tt-accent-ink); font-weight: 600; }
+.tt-seat--libre.is-drop-over {
+  border-style: solid; border-color: var(--tt-focus);
+  box-shadow: inset 0 0 0 2px var(--tt-focus);
+}
+/* El texto no debe capturar el `dragover`: sin esto el evento salta entre el
+   hijo y el padre y el resaltado parpadea. */
+.tt-seat--libre > * { pointer-events: none; }
+button.tt-seat--libre { pointer-events: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-tt-drag].is-dragging { opacity: .6; }
+}
+
 /* --- Objetivos tactiles ------------------------------------------------- */
 /* Desacoplado del umbral de layout: Agenda apila hasta 1279, asi que atarlo a
    991.98 dejaba la banda 992-1279 con controles pequenos en un layout apilado. */

@@ -170,4 +170,96 @@
       e.target.classList.remove('tt-enter');
     }
   }, true);
+
+  // ————————————————————————————————— 4. arrastrar un alumno a un lugar libre
+  //
+  // Es un AÑADIDO al camino de clic, nunca el único: el arrastre nativo del
+  // navegador no existe en táctil y no se puede hacer con teclado. Quien no
+  // pueda arrastrar sigue teniendo «Mover de franja» en la ficha y «pulsar el
+  // alumno, luego picar el lugar» en la cola, que son los caminos que ya
+  // funcionaban y que los tests cubren.
+  //
+  // Todo por delegación en `document`, como el resto del módulo: el tablero se
+  // reemplaza entero en cada swap, así que enlazar nodos concretos duraría
+  // hasta la primera acción.
+  var _arrastrando = null;   // { pid, nombre }
+
+  function _drop(el) { return el && el.closest ? el.closest('[data-tt-drop]') : null; }
+
+  document.addEventListener('dragstart', function (e) {
+    var origen = e.target.closest ? e.target.closest('[data-tt-drag]') : null;
+    if (!origen) return;
+    _arrastrando = {
+      pid: origen.getAttribute('data-tt-drag'),
+      nombre: origen.getAttribute('data-tt-drag-name') || 'el alumno'
+    };
+    origen.classList.add('is-dragging');
+    document.body.classList.add('tt-dragging');
+    try {
+      // Firefox exige que se escriba ALGO en el dataTransfer o no arranca.
+      e.dataTransfer.setData('text/plain', _arrastrando.pid);
+      e.dataTransfer.effectAllowed = 'move';
+    } catch (_) { /* navegador sin dataTransfer utilizable */ }
+  });
+
+  document.addEventListener('dragend', function (e) {
+    var origen = e.target.closest ? e.target.closest('[data-tt-drag]') : null;
+    if (origen) origen.classList.remove('is-dragging');
+    document.body.classList.remove('tt-dragging');
+    _marcar(null);
+    _arrastrando = null;
+  });
+
+  // El resaltado se lleva en UNA variable, no quitando la clase en `dragleave`.
+  //
+  // `dragenter`/`dragleave` se disparan tambien al cruzar entre los HIJOS del
+  // destino, asi que quitar la clase en cada `dragleave` la hace parpadear y, en
+  // la practica, desaparecer justo cuando el cursor esta encima. Medido: al
+  // soltar, `.is-drop-over` estaba en cero elementos.
+  var _sobre = null;
+
+  function _marcar(destino) {
+    if (_sobre === destino) return;
+    if (_sobre) _sobre.classList.remove('is-drop-over');
+    _sobre = destino;
+    if (_sobre) _sobre.classList.add('is-drop-over');
+  }
+
+  document.addEventListener('dragover', function (e) {
+    if (!_arrastrando) return;
+    var destino = _drop(e.target);
+    if (!destino) { _marcar(null); return; }
+    // Sin `preventDefault` el navegador NO considera el elemento un destino
+    // válido y el cursor sigue diciendo "prohibido".
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch (_) { /* nada */ }
+    _marcar(destino);
+  });
+
+  document.addEventListener('drop', function (e) {
+    if (!_arrastrando) return;
+    var destino = _drop(e.target);
+    if (!destino) return;
+    e.preventDefault();
+    _marcar(null);
+
+    // La URL viene con un hueco para el id, porque el destino no sabe a quién
+    // va a recibir hasta que alguien lo suelta encima.
+    var url = (destino.getAttribute('data-tt-drop-url') || '')
+                .replace('@PID@', encodeURIComponent(_arrastrando.pid));
+    var quien = _arrastrando.nombre;
+    _arrastrando = null;
+    document.body.classList.remove('tt-dragging');
+    if (!url || !window.htmx) return;
+
+    // Mismo contrato que el clic: POST que devuelve el shell entero. Así el
+    // arrastre y el clic no pueden divergir en lo que hacen.
+    htmx.ajax('POST', url, {
+      target: '#appt-shell',
+      swap: 'morph:outerHTML',
+      indicator: '#appt-skel'
+    });
+    var say = document.getElementById('appt-say');
+    if (say) say.textContent = 'Moviendo a ' + quien + '…';
+  });
 })();
