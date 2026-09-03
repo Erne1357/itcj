@@ -218,5 +218,45 @@
     t.classList.add('tt-anim-in');
   });
 
-  window.TitulaTecUtils = { showToast, confirmDialog, escapeHtml };
+  // ————————————————————————————————— mensajes que llegan por header
+  //
+  // Los valores de header HTTP son latin-1 por especificación, así que el
+  // servidor los percent-codifica (`pages/appointments.py::_hdr`) y aquí se
+  // decodifican. Sin eso, cualquier mensaje con acentos —o sea, todos— llegaba
+  // como bytes rotos.
+  function decodeHeaderMsg(raw) {
+    if (!raw) return '';
+    try { return decodeURIComponent(raw); } catch (_) { return raw; }
+  }
+
+  // `X-Tt-Notice` viaja en respuestas 200. Es para las COLISIONES DE ESTADO:
+  // otro encargado ganó la franja, o la cita ya cambió. Con un 4xx htmx no
+  // swappea y el usuario se quedaría mirando una pantalla que miente, así que
+  // el servidor manda el cuerpo fresco Y el aviso.
+  document.body.addEventListener('htmx:afterRequest', function (e) {
+    var xhr = e.detail && e.detail.xhr;
+    if (!xhr || xhr.status < 200 || xhr.status >= 300) return;
+    var msg = decodeHeaderMsg(xhr.getResponseHeader('X-Tt-Notice'));
+    if (msg) showToast(msg, 'warning');
+  });
+
+  // ————————————————————————————————— puente `hx-confirm` -> confirmDialog
+  //
+  // `confirmDialog` existía pero NADIE lo enganchaba a htmx, así que un
+  // `hx-confirm` caía al `confirm()` nativo del navegador, que este proyecto
+  // prohíbe. Mismo patrón que `apps/directory/static/js/index.js`.
+  document.body.addEventListener('htmx:confirm', function (e) {
+    if (!e.detail || !e.detail.question) return;   // sin hx-confirm: request normal
+    e.preventDefault();
+    var partes = String(e.detail.question).split('|');
+    var titulo = partes.length > 1 ? partes[0].trim() : 'Confirmar';
+    var cuerpo = (partes.length > 1 ? partes.slice(1).join('|') : partes[0]).trim();
+    var elt = e.detail.elt;
+    var ok = (elt && elt.getAttribute('data-tt-confirm-ok')) || 'Confirmar';
+    confirmDialog(titulo, cuerpo, ok, 'Cancelar').then(function (si) {
+      if (si) e.detail.issueRequest(true);
+    });
+  });
+
+  window.TitulaTecUtils = { showToast, confirmDialog, escapeHtml, decodeHeaderMsg };
 })();

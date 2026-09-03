@@ -315,7 +315,7 @@ def _appt_progress(appt) -> dict:
                 "status": None, "scheduled_label": None, "location": None,
                 "confirmed": False, "change_requested": False}
 
-    change_requested = AppointmentService.has_change_request(appt)
+    change_requested = bool(appt and appt.change_request)
     label, tone = _APPT_STUDENT_LABEL.get(appt.status, (appt.status, "neutral"))
     if change_requested:
         label, tone = "Solicitaste un cambio de fecha", "amber"
@@ -912,7 +912,7 @@ def _cita_card_ctx(db, user_id: int) -> dict:
             "location": appt.location,
             "status": appt.status,
             "confirmed": appt.confirmed_at is not None,
-            "change_requested": AppointmentService.has_change_request(appt),
+            "change_requested": bool(appt and appt.change_request),
         }
     return {
         "process": process.to_dict() if process else None,

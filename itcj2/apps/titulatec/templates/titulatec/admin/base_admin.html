@@ -93,8 +93,11 @@
 <script>
   // Toast genérico para errores de acciones HTMX (usa X-Tt-Error si viene).
   document.body.addEventListener('htmx:responseError', function (e) {
-    var msg = (e.detail && e.detail.xhr && e.detail.xhr.getResponseHeader('X-Tt-Error'))
-              || 'No se pudo completar la acción.';
+    var crudo = e.detail && e.detail.xhr && e.detail.xhr.getResponseHeader('X-Tt-Error');
+    // El servidor percent-codifica el mensaje: los headers HTTP son latin-1 y
+    // sin codificar, cualquier acento llegaba roto.
+    var msg = (window.TitulaTecUtils && TitulaTecUtils.decodeHeaderMsg(crudo))
+              || crudo || 'No se pudo completar la acción.';
     if (window.TitulaTecUtils) TitulaTecUtils.showToast(msg, 'danger');
   });
 

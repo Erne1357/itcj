@@ -511,7 +511,7 @@ class TestLaCitaSigueViva:
 
         assert resp.status_code == 200, resp.text[:300]
         db_session.refresh(esc.appt)
-        assert AppointmentService.has_change_request(esc.appt)
+        assert esc.appt.change_request == "tengo examen ese dia"
 
     def test_no_confirma_la_cita_desde_la_fase_1(self, escenario, client_as, db_session):
         """El negativo del MISMO par: la cita existe pero aun no es su fase."""

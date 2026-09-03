@@ -94,8 +94,9 @@ def _call(cli, method, url, form):
 
 @pytest.fixture()
 def escenario(seed_phase_defs, seed_document_types, make_program, make_cohort,
-              make_review_day, make_student, make_process, make_document,
-              make_appointment, make_officer, make_head, tmp_path, monkeypatch):
+              make_review_day, make_review_window, make_student, make_process,
+              make_document, make_appointment, make_officer, make_head,
+              tmp_path, monkeypatch):
     """Tres procesos gemelos —carrera A, carrera B y SIN carrera— y dos actores.
 
     Los tres traen los 3 documentos iniciales **en disco** a proposito: si el
@@ -110,9 +111,15 @@ def escenario(seed_phase_defs, seed_document_types, make_program, make_cohort,
         prog_a = make_program("Ingenieria Ficticia A")
         prog_b = make_program("Ingenieria Ficticia B")
         cohort = make_cohort()
-        make_review_day(cohort, day=date.fromisoformat(_DAY))
+        dia = make_review_day(cohort, day=date.fromisoformat(_DAY))
         officer, officer_pos = make_officer([prog_a], perm_codes=SCOPED_PERMS)
         head = make_head(perm_codes=HEAD_WRITE_PERMS)
+        # Desde el rediseno de franjas, agendar exige una VENTANA: la hora ya no
+        # es texto libre. Se abre una por actor porque cada encargado configura
+        # las suyas (el dueno es el usuario, no el puesto).
+        for actor in (officer, head):
+            make_review_window(dia, actor, start="09:00", end="14:00",
+                               slot=30, cap=4)
 
         procs, students = {}, {}
         for key, program, control in (("a", prog_a, "99000301"),

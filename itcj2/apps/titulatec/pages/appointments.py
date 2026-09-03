@@ -158,7 +158,7 @@ def _appt_dict(appt) -> dict | None:
         "location": appt.location,
         "status": appt.status,
         "confirmed": appt.confirmed_at is not None,
-        "change_request": AppointmentService.change_request_text(appt),
+        "change_request": appt.change_request,
     }
 
 
@@ -292,7 +292,7 @@ def _appt_rows(db, appts):
             "scheduled_label": _label(a.scheduled_at),
             "day": a.scheduled_at.date().isoformat() if a.scheduled_at else None,
             "status": a.status,
-            "change_request": AppointmentService.has_change_request(a),
+            "change_request": bool(a.change_request),
         })
     return rows
 
@@ -407,6 +407,105 @@ def _shell_ctx(db, *, user_id, view="", month="", date_raw="", selected_id=None,
     }
 
 
+def _hdr(msg: str) -> str:
+    """Codifica un mensaje para que quepa en un header HTTP.
+
+    Los valores de header son latin-1 por especificacion, y Starlette los
+    codifica asi. Un mensaje con acentos —o sea, todos los nuestros— llega al
+    cliente como bytes que no son UTF-8 validos y revienta al decodificarlos.
+
+    Nunca habia saltado porque la unica rama que ponia `X-Tt-Error` con acentos
+    era la de fecha no habilitada, que ningun test alcanzaba.
+
+    Se percent-codifica aqui y `titulatec-utils.js` lo decodifica al mostrarlo.
+    """
+    from urllib.parse import quote
+    return quote(str(msg), safe="")
+
+
+def _window_y_franja(db, form, proc, user_id):
+    """(window_id, franja) a partir de lo que mande el formulario.
+
+    Acepta las DOS formas mientras dure la transicion:
+
+      * la nueva, que es la que de verdad respeta el cupo: `window_id` y
+        `slot_start` (HH:MM) salen de picar una franja del tablero;
+      * la vieja, `appt_date` + `appt_time`, que se resuelve contra las
+        ventanas del dia con `SlotService.resolve`. Sirve para que las citas
+        heredadas y cualquier enlace viejo sigan funcionando.
+
+    Devuelve `(None, None)` si no hay datos: el service lo traduce a
+    `MissingSchedule`, que es 400 con mensaje. Antes esto era un `if dt:` que
+    respondia 200 sin escribir nada y sin decir una palabra.
+    """
+    from itcj2.apps.titulatec.services.slot_service import SlotService
+
+    wid = _to_int(form.get("window_id"))
+    slot = _parse_time(form.get("slot_start"))
+    if wid and slot:
+        return wid, slot
+
+    dia = _parse_date(form.get("appt_date"))
+    hhmm = _parse_time(form.get("appt_time"))
+    if not dia or not hhmm or not proc.cohort_id:
+        return None, None
+    window, franja = SlotService.resolve(db, proc.cohort_id, dia, hhmm,
+                                         owner_id=user_id)
+    return (window.id if window else None), franja
+
+
+def _parse_time(raw):
+    """'09:30' -> time(9,30), o None. Un valor basura NO revienta la pagina."""
+    from datetime import datetime as _dt
+    if not raw:
+        return None
+    for fmt in ("%H:%M", "%H:%M:%S"):
+        try:
+            return _dt.strptime(str(raw), fmt).time()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _accion(request, db, *, selected_id, user_id, fn):
+    """Ejecuta una accion de la agenda y traduce sus errores de dominio.
+
+    Dos familias, y la diferencia importa:
+
+    * **Entrada del usuario** (falta la franja, el dia no esta habilitado, la
+      hora no cae en la rejilla) -> 400 + `X-Tt-Error`. htmx NO swappea en 4xx,
+      y esta bien: lo que hay en pantalla sigue siendo verdad.
+    * **Colision de estado** (otro encargado gano la franja, la cita ya cambio)
+      -> **200 con el cuerpo re-renderizado**, que ya trae la realidad nueva,
+      mas el mensaje en `X-Tt-Notice`. Con un 4xx el encargado se quedaria
+      mirando un tablero rancio que sigue pintando libre el asiento que otro
+      acaba de ocupar: el error se ve, pero la pantalla miente.
+    """
+    from itcj2.apps.titulatec.services.appointment_errors import (
+        AppointmentError, SlotLockTimeout,
+    )
+    try:
+        fn()
+    except AppointmentError as e:
+        # Casi todos estos errores se levantan ANTES de escribir nada, asi que
+        # no hay nada que deshacer. El unico que envenena la transaccion es el
+        # timeout del lock, porque nace de un error de Postgres.
+        #
+        # Y el rollback no es gratis: bajo el `join_transaction_mode` del harness
+        # de tests descarta tambien las filas que sembraron las factories, asi
+        # que hacerlo "por si acaso" rompe pruebas que no tienen nada que ver.
+        if isinstance(e, SlotLockTimeout):
+            db.rollback()
+        if not e.refresca_la_vista:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(e)})
+        resp = _render_body(request, db, selected_id=selected_id,
+                            user_id=user_id, **_action_ctx(request))
+        resp.headers["X-Tt-Notice"] = _hdr(e)
+        return resp
+    return _render_body(request, db, selected_id=selected_id,
+                        user_id=user_id, **_action_ctx(request))
+
+
 def _render_body(request, db, *, selected_id, user_id, **kw):
     ctx = _shell_ctx(db, user_id=user_id, selected_id=selected_id, **kw)
     return render_titulatec(request, "titulatec/partials/appointments_body.html", ctx)
@@ -491,22 +590,19 @@ async def schedule(
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
+    from itcj2.apps.titulatec.services.slot_service import SlotService
+
     form = dict(await request.form())
-    date_raw = form.get("appt_date")
-    time_raw = form.get("appt_time")
-    dt = _parse_dt(f"{date_raw}T{time_raw}") if date_raw and time_raw else None
+    uid = int(user["sub"])
     db = SessionLocal()
     try:
-        from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
-        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
-        if dt and not ReviewDayService.is_allowed(db, proc.cohort_id, dt.date()):
-            return Response(status_code=400, headers={"X-Tt-Error": "Esa fecha no está habilitada para cotejo."})
-        if dt:
-            AppointmentService.create(
-                db, process_id, scheduled_at=dt, location=(form.get("location") or None),
-                created_by_id=int(user["sub"]), note=(form.get("note") or None))
-        return _render_body(request, db, selected_id=process_id,
-                            user_id=int(user["sub"]), **_action_ctx(request))
+        proc = assert_process_in_scope(db, uid, process_id)
+        window_id, slot = _window_y_franja(db, form, proc, uid)
+        return _accion(request, db, selected_id=process_id, user_id=uid,
+                       fn=lambda: AppointmentService.create(
+                           db, process_id, window_id=window_id, slot_start=slot,
+                           created_by_id=uid,
+                           location=(form.get("location") or None)))
     finally:
         db.close()
 
@@ -522,22 +618,19 @@ async def reschedule(
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     form = dict(await request.form())
-    date_raw = form.get("appt_date")
-    time_raw = form.get("appt_time")
-    dt = _parse_dt(f"{date_raw}T{time_raw}") if date_raw and time_raw else None
+    uid = int(user["sub"])
     db = SessionLocal()
     try:
-        from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
-        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
-        if dt and not ReviewDayService.is_allowed(db, proc.cohort_id, dt.date()):
-            return Response(status_code=400, headers={"X-Tt-Error": "Esa fecha no está habilitada para cotejo."})
+        proc = assert_process_in_scope(db, uid, process_id)
         appt = AppointmentService.get_for_process(db, process_id)
-        if appt and dt:
-            AppointmentService.reschedule(
-                db, appt, scheduled_at=dt, location=(form.get("location") or None),
-                actor_id=int(user["sub"]), note=(form.get("note") or None))
-        return _render_body(request, db, selected_id=process_id,
-                            user_id=int(user["sub"]), **_action_ctx(request))
+        if appt is None:
+            return Response(status_code=400,
+                            headers={"X-Tt-Error": _hdr("Ese alumno todavía no tiene cita.")})
+        window_id, slot = _window_y_franja(db, form, proc, uid)
+        return _accion(request, db, selected_id=process_id, user_id=uid,
+                       fn=lambda: AppointmentService.reschedule(
+                           db, appt, window_id=window_id, slot_start=slot,
+                           actor_id=uid, location=(form.get("location") or None)))
     finally:
         db.close()
 
@@ -554,12 +647,14 @@ async def start(
 
     db = SessionLocal()
     try:
-        assert_process_in_scope(db, int(user["sub"]), process_id)
+        uid = int(user["sub"])
+        assert_process_in_scope(db, uid, process_id)
         appt = AppointmentService.get_for_process(db, process_id)
-        if appt:
-            AppointmentService.start(db, appt, int(user["sub"]))
-        return _render_body(request, db, selected_id=process_id,
-                            user_id=int(user["sub"]), **_action_ctx(request))
+        if appt is None:
+            return Response(status_code=400,
+                            headers={"X-Tt-Error": _hdr("Ese alumno todavía no tiene cita.")})
+        return _accion(request, db, selected_id=process_id, user_id=uid,
+                       fn=lambda: AppointmentService.start(db, appt, uid))
     finally:
         db.close()
 
@@ -576,12 +671,14 @@ async def attended(
 
     db = SessionLocal()
     try:
-        assert_process_in_scope(db, int(user["sub"]), process_id)
+        uid = int(user["sub"])
+        assert_process_in_scope(db, uid, process_id)
         appt = AppointmentService.get_for_process(db, process_id)
-        if appt:
-            AppointmentService.mark_attended(db, appt, int(user["sub"]))
-        return _render_body(request, db, selected_id=process_id,
-                            user_id=int(user["sub"]), **_action_ctx(request))
+        if appt is None:
+            return Response(status_code=400,
+                            headers={"X-Tt-Error": _hdr("Ese alumno todavía no tiene cita.")})
+        return _accion(request, db, selected_id=process_id, user_id=uid,
+                       fn=lambda: AppointmentService.mark_attended(db, appt, uid))
     finally:
         db.close()
 
@@ -598,12 +695,14 @@ async def no_show(
 
     db = SessionLocal()
     try:
-        assert_process_in_scope(db, int(user["sub"]), process_id)
+        uid = int(user["sub"])
+        assert_process_in_scope(db, uid, process_id)
         appt = AppointmentService.get_for_process(db, process_id)
-        if appt:
-            AppointmentService.mark_no_show(db, appt, int(user["sub"]))
-        return _render_body(request, db, selected_id=process_id,
-                            user_id=int(user["sub"]), **_action_ctx(request))
+        if appt is None:
+            return Response(status_code=400,
+                            headers={"X-Tt-Error": _hdr("Ese alumno todavía no tiene cita.")})
+        return _accion(request, db, selected_id=process_id, user_id=uid,
+                       fn=lambda: AppointmentService.mark_no_show(db, appt, uid))
     finally:
         db.close()
 

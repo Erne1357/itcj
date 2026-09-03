@@ -5,21 +5,55 @@ from unittest.mock import MagicMock, patch
 
 import itcj2.models  # noqa: F401
 
-from itcj2.apps.titulatec.services.appointment_service import (
-    AppointmentService, CHANGE_REQUEST_PREFIX,
-)
+from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
 
 class TestSolicitudDeCambio:
-    def test_detecta_solicitud_por_prefijo(self):
-        appt = SimpleNamespace(note=CHANGE_REQUEST_PREFIX + "tengo examen")
-        assert AppointmentService.has_change_request(appt) is True
-        assert AppointmentService.change_request_text(appt) == "tengo examen"
+    """La solicitud del alumno vive en columna propia, no en un prefijo mágico.
 
-    def test_sin_solicitud(self):
-        assert AppointmentService.has_change_request(SimpleNamespace(note=None)) is False
-        assert AppointmentService.has_change_request(SimpleNamespace(note="Edificio A")) is False
-        assert AppointmentService.change_request_text(SimpleNamespace(note="x")) is None
+    Con el prefijo dentro de `note`, tanto `create` como `reschedule` hacían
+    `appt.note = note` y **la pisaban**: la petición se perdía justo al
+    atenderla. Y una nota operativa que empezara con «[CAMBIO] » se leía como
+    solicitud del alumno.
+    """
+
+    def test_solicitar_cambio_escribe_la_columna_y_su_fecha(self, db_session,
+                                                            make_student, make_process,
+                                                            make_appointment,
+                                                            seed_phase_defs):
+        seed_phase_defs()
+        proc = make_process(make_student(), current_phase=2)
+        appt = make_appointment(proc, status="scheduled")
+
+        AppointmentService.request_change(db_session, appt, actor_id=proc.student_id,
+                                          reason="tengo examen")
+
+        assert appt.change_request == "tengo examen"
+        assert appt.change_requested_at is not None
+        assert appt.note is None, "la solicitud ya no invade `note`"
+
+    def test_sin_motivo_queda_un_texto_util(self, db_session, make_student,
+                                            make_process, make_appointment,
+                                            seed_phase_defs):
+        seed_phase_defs()
+        proc = make_process(make_student(), current_phase=2)
+        appt = make_appointment(proc, status="scheduled")
+
+        AppointmentService.request_change(db_session, appt, actor_id=proc.student_id,
+                                          reason=None)
+
+        assert appt.change_request == "Sin motivo"
+
+    def test_una_nota_operativa_no_se_confunde_con_una_solicitud(self, db_session,
+                                                                 make_student,
+                                                                 make_process,
+                                                                 make_appointment,
+                                                                 seed_phase_defs):
+        seed_phase_defs()
+        proc = make_process(make_student(), current_phase=2)
+        appt = make_appointment(proc, status="scheduled", note="[CAMBIO] de edificio")
+
+        assert appt.change_request is None
 
 
 class TestConfirm:

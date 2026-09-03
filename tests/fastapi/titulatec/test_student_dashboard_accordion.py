@@ -331,13 +331,13 @@ def test_subprogreso_fase_2_solicitud_de_cambio_manda_sobre_el_estado(
     db_session, make_student, make_process, make_appointment,
     seed_phase_defs, seed_document_types,
 ):
-    """`scheduled` + nota con el prefijo marcador = el alumno pidio otro dia."""
-    from itcj2.apps.titulatec.services.appointment_service import CHANGE_REQUEST_PREFIX
-
+    """`scheduled` + solicitud de cambio = el alumno pidio otro dia."""
     seed_phase_defs()
     seed_document_types()
     proc = make_process(make_student(), current_phase=2)
-    make_appointment(proc, status="scheduled", note=CHANGE_REQUEST_PREFIX + "Trabajo ese dia")
+    appt = make_appointment(proc, status="scheduled")
+    appt.change_request = "Trabajo ese dia"
+    db_session.flush()
 
     prog = _card(_phases_ctx(db_session, proc), 2)["progress"]
 
