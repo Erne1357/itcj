@@ -11,7 +11,36 @@
   --tt-ink: #0F172A;
   --tt-ink-soft: #1F2937;
   --tt-slate: #475569;
+  /* PROHIBIDO PARA TEXTO: 2.56:1 sobre --tt-paper y 2.45:1 sobre --tt-mist,
+     contra los 4.5 que pide WCAG. Queda solo para bordes reforzados e iconos
+     decorativos. Para texto: --tt-text-3. */
   --tt-mute: #94A3B8;
+
+  /* — Texto: los tres unicos colores permitidos, con su ratio medido — */
+  --tt-text-1: var(--tt-ink);      /* 17.85 : 1  primario */
+  --tt-text-2: var(--tt-slate);    /*  7.58 : 1  secundario */
+  --tt-text-3: #5B6B82;            /*  5.43 : 1  el mas claro que se puede leer */
+
+  /* Anillo de foco. El acento (#F59E0B) da 2.15:1 y WCAG 1.4.11 pide 3 para
+     elementos no textuales, asi que el foco NO puede ser ambar. */
+  --tt-focus: #B45309;             /*  5.02 : 1 */
+
+  /* — Escala tipografica: seis pasos, razon ~1.125-1.25, PISO 12.64 px —
+     Sustituye a los once tamanos que habia entre 10.88 y 20 px con pasos de
+     0.2 px, que es la razon por la que "se veia todo desalineado". */
+  --tt-fs-100: .79rem;    /* 12.64  meta, control + carrera, ayudas, etiquetas */
+  --tt-fs-200: .889rem;   /* 14.22  nombres de fila, botones, cuerpo pequeno */
+  --tt-fs-300: 1rem;      /* 16.00  dato clave: fecha, franja, lugar, ocupacion */
+  --tt-fs-400: 1.125rem;  /* 18.00  titulos de seccion */
+  --tt-fs-500: 1.266rem;  /* 20.25  nombre del alumno en Atender */
+  --tt-fs-600: 1.602rem;  /* 25.60  h1 de pagina */
+
+  /* — Espaciado de 4 pt — */
+  --tt-sp-1: 4px;  --tt-sp-2: 8px;  --tt-sp-3: 12px;
+  --tt-sp-4: 16px; --tt-sp-5: 24px; --tt-sp-6: 32px;
+
+  /* — Duraciones — */
+  --tt-dur-1: .14s; --tt-dur-2: .18s; --tt-dur-3: .24s;
   --tt-line: #E2E8F0;
   --tt-line-soft: #EEF2F7;
   --tt-mist: #F8FAFC;
@@ -85,7 +114,7 @@ body {
 .tt-serif   { font-family: var(--tt-serif); font-style: italic; }
 .tt-mono    { font-family: var(--tt-mono); }
 .tt-kicker  { font-family: var(--tt-mono); font-size: .6875rem; font-weight: 600;
-              letter-spacing: 1.2px; text-transform: uppercase; color: var(--tt-mute); }
+              letter-spacing: 1.2px; text-transform: uppercase; color: var(--tt-text-3); }
 /* Tope de LECTURA. Desde 2026-09-02 la caja del alumno ocupa toda la ventana
    (ver bloque DESKTOP abajo): sin este tope, a 1920 un párrafo sale con líneas
    de ~200 caracteres, que es ilegible. La caja se estira; la prosa no. */
@@ -105,10 +134,13 @@ body {
   box-shadow: var(--tt-shadow-card);
 }
 .tt-card--hero { border-radius: var(--tt-r-xl); box-shadow: var(--tt-shadow-hero); }
-.tt-card--accent { border-left: 3px solid var(--tt-accent); }
-.tt-card--success { border-left: 3px solid var(--tt-success); }
-.tt-card--danger { border-left: 3px solid var(--tt-danger); }
-.tt-card--violet { border-left: 3px solid var(--tt-violet); }
+/* Fondo tenido + borde COMPLETO, no un borde lateral de 3 px.
+   El borde lateral desplazaba el contenido 2 px respecto a la lista de al lado
+   (medido: nombres a x=294 y x=296 en dos listas contiguas del mismo ancho). */
+.tt-card--accent  { background: var(--tt-accent-soft);  border-color: rgba(245,158,11,.38); }
+.tt-card--success { background: var(--tt-success-soft); border-color: rgba(22,163,74,.32); }
+.tt-card--danger  { background: var(--tt-danger-soft);  border-color: rgba(220,38,38,.32); }
+.tt-card--violet  { background: var(--tt-violet-soft);  border-color: rgba(109,40,217,.32); }
 a.tt-card, button.tt-card { display: block; width: 100%; text-align: left; cursor: pointer;
   text-decoration: none; color: inherit;
   transition: transform .15s var(--tt-ease-out), box-shadow .15s var(--tt-ease-out); }
@@ -579,13 +611,17 @@ body.in-mobile-iframe .tt-standalone-only { display: none !important; }
 
 /* ============================ CALENDARIO =============================== */
 .tt-cal { width: 100%; border-collapse: collapse; }
-.tt-cal th { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--tt-mute); padding: 6px 0; text-align: center; font-weight: 700; }
+.tt-cal th { font-size: var(--tt-fs-100); letter-spacing: .01em; color: var(--tt-text-3); padding: 6px 0; text-align: center; font-weight: 700; }
 .tt-cal td { width: 14.28%; height: 64px; vertical-align: top; border: 1px solid var(--tt-line); padding: 4px; }
-.tt-cal .out { background: var(--tt-mist); color: var(--tt-mute); }
-.tt-cal .off { background: repeating-linear-gradient(45deg, var(--tt-mist), var(--tt-mist) 6px, var(--tt-paper) 6px, var(--tt-paper) 12px); color: var(--tt-mute); }
+.tt-cal .out { background: var(--tt-mist); color: var(--tt-text-3); }
+/* Fondo plano, no trama diagonal. Con las rayas, los 24 dias INHABILITADOS
+   eran lo mas ruidoso de la pantalla y los 6 utiles pasaban desapercibidos:
+   jerarquia invertida. Esta regla la comparte el calendario de Convocatorias,
+   asi que arreglarla aqui cura las dos pantallas. */
+.tt-cal .off { background: var(--tt-mist); color: var(--tt-text-3); }
 .tt-cal .on { cursor: pointer; }
 .tt-cal .on:hover { background: var(--tt-mist); }
-.tt-cal .sel { background: #FFF3D6; }
+.tt-cal .sel { background: var(--tt-accent-soft); box-shadow: inset 0 0 0 2px var(--tt-focus); }
 .tt-cal .daynum { font-size: .8rem; font-weight: 600; }
 .tt-cal .count { display: inline-block; margin-top: 4px; font-size: .68rem; font-weight: 700; color: var(--tt-navy); }
 .tt-kanban-card { display: block; background: var(--tt-paper); border: 1px solid var(--tt-line); border-radius: var(--tt-r); padding: 10px 12px; margin-bottom: 8px; text-decoration: none; color: inherit; }
@@ -991,168 +1027,286 @@ th.sortable { cursor: pointer; user-select: none; }
   font-size: .78rem; font-weight: 500; color: var(--tt-slate);
 }
 
-
 /* ===========================================================================
-   ADMIN - CITAS DE COTEJO: las tres zonas (bloque D, 2026-09-02)
-   ---------------------------------------------------------------------------
-   Se anade al final a proposito: varias manos tocan este archivo a la vez.
+   ADMIN - CITAS DE COTEJO  (rediseno del 2026-09-03)
 
-   Decision del usuario: el CALENDARIO es la vista principal, "Por agendar" queda
-   FIJO a su lado (debajo en movil) siempre visible y con contador, y al elegir un
-   alumno se abre SOLO ese en un panel de detalle JUNTO a la lista del dia.
+   LA REGLA QUE SOSTIENE TODO ESTE BLOQUE
+   --------------------------------------
+   Cada sub-vista declara su rejilla UNA vez por breakpoint, y NINGUNA clase de
+   estado la reescribe. Lo que cambia al abrir un alumno es QUE sub-vista se
+   renderiza, nunca cuanto mide una columna.
 
-   Movil (<992px): apilado. Con ficha abierta el orden pasa a detalle - agenda -
-   por agendar, porque el usuario acaba de tocar a un alumno y lo que quiere ver
-   es su ficha; la vuelta es el boton "Volver a la agenda" del propio detalle (y
-   el boton Atras del navegador, porque cada seleccion empuja su URL).
+   Lo que habia antes, medido en Chromium a 1280 px:
 
-   NO es una hoja `position: fixed`: `.tt-admin` usa `transform` para el drawer,
-   asi que un fixed dentro se ancla al contenedor y no a la ventana. Apilar
-   ademas conserva el requisito de "Por agendar siempre visible".
+       agenda            676 px  ->  340 px      (-50%)
+       celda calendario  91.6    ->  43.6        (-52%)
+       "Por agendar"     x=956,y=107 -> x=264,y=634
+
+   y a 390 px la ficha, de 1204 px de alto, se insertaba ARRIBA y empujaba
+   agenda y cola 1220 px. En el carril de 340 px los nombres quedaban en
+   "RODRIGO PEN...": la lista con la que se trabaja se volvia ilegible justo al
+   usarla. La regla culpable era `.tt-appt.has-detail`, que ya no existe.
+
+   Lo fija `tests/fastapi/titulatec/test_citas_layout_contract.py`.
+
+   AREAS NOMBRADAS, NO SOLO COLUMNAS
+   ---------------------------------
+   `#appt-agenda` tiene cuatro hijos y dos columnas: con auto-colocacion, el
+   carril de dias -unica forma de cambiar de dia desde que murio el calendario
+   mensual- caia en la pista de 320 px, donde caben 2.3 chips en un monitor de
+   1920.
+
+   UMBRALES DISTINTOS A PROPOSITO
+   ------------------------------
+   Agenda abre a dos columnas en 1280 y Atender en 992. Con la cola de 320, la
+   segunda columna de Agenda necesita >=600 px para un tablero legible; a 992
+   caeria a 364, peor que los 43.6 que se rechazaron. Atender, en cambio, es
+   sujeto + visor: a 992 da 300 + 380 y ya es util, y 992-1279 es justo donde
+   estan los portatiles del personal.
    =========================================================================== */
-.tt-appt {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "agenda" "pending";
-}
-.tt-appt.has-detail { grid-template-areas: "detail" "agenda" "pending"; }
-.tt-appt-agenda { grid-area: agenda;  min-width: 0; }
-.tt-appt-side   { grid-area: pending; min-width: 0; }
-.tt-appt-detail { grid-area: detail;  min-width: 0; }
 
+/* --- Zona fija: cabecera y segmento ------------------------------------- */
+.tt-appt-head { padding: var(--tt-sp-4) var(--tt-sp-4) 0; }
+.tt-h-page    { font-family: var(--tt-display); font-size: var(--tt-fs-600);
+                font-weight: 600; letter-spacing: -.02em; margin: .15rem 0 0;
+                color: var(--tt-text-1); text-wrap: balance; }
+.tt-sub       { font-size: var(--tt-fs-200); color: var(--tt-text-2); margin: 0; }
+
+/* Titulo de SECCION: `h2`, no un eyebrow. Antes cada seccion se rotulaba con
+   `.tt-kicker` (mono, mayusculas, 11 px, 2.56:1), asi que el dato mas
+   importante del dia era lo menos legible de la pantalla, y ademas la vista
+   entera tenia un solo `h1` y cero encabezados intermedios: para un lector de
+   pantalla era un bloque unico sin estructura. */
+.tt-h-sec { font-family: var(--tt-ui); font-size: var(--tt-fs-400); font-weight: 600;
+            color: var(--tt-text-1); margin: 0; letter-spacing: -.01em; }
+.tt-h-sec .n { font-family: var(--tt-mono); font-variant-numeric: tabular-nums;
+               color: var(--tt-text-3); font-weight: 500; margin-left: 6px; }
+
+/* Etiqueta de FORMULARIO. Antes tambien era `.tt-kicker`, y al ser mas ancha
+   que su campo, "FECHA (HABILITADA)" y "HORA" se pegaban en la misma linea y se
+   leian como un solo rotulo. */
+.tt-label { display: block; font-family: var(--tt-ui); font-size: var(--tt-fs-100);
+            font-weight: 600; color: var(--tt-text-2); margin-bottom: var(--tt-sp-1);
+            letter-spacing: 0; text-transform: none; }
+
+.tt-appt-seg { display: inline-flex; gap: 2px; padding: 3px; margin-bottom: var(--tt-sp-4);
+               background: var(--tt-mist); border: 1px solid var(--tt-line);
+               border-radius: 999px; max-width: 100%; overflow-x: auto;
+               scrollbar-width: none; }
+.tt-appt-seg::-webkit-scrollbar { display: none; }
+.tt-appt-seg .seg { display: inline-flex; align-items: center; gap: 6px;
+                    min-height: 40px; padding: 0 16px; border-radius: 999px;
+                    font-size: var(--tt-fs-200); font-weight: 600;
+                    color: var(--tt-text-2); text-decoration: none;
+                    white-space: nowrap; flex: 0 0 auto;
+                    transition: background var(--tt-dur-1) ease, color var(--tt-dur-1) ease; }
+.tt-appt-seg .seg.is-active { background: var(--tt-paper); color: var(--tt-text-1);
+                              box-shadow: var(--tt-shadow-card); }
+.tt-appt-seg .seg:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+@media (hover: hover) and (pointer: fine) { .tt-appt-seg .seg:hover { color: var(--tt-text-1); } }
+
+/* Insignia del segmento. `tabular-nums` y ancho minimo para que pasar de 9 a
+   10 no mueva la etiqueta de al lado. */
+.tt-badge { display: inline-flex; align-items: center; justify-content: center;
+            min-width: 24px; height: 20px; padding: 0 6px; border-radius: 999px;
+            background: var(--tt-accent-soft); color: var(--tt-accent-ink);
+            font-size: var(--tt-fs-100); font-weight: 700;
+            font-variant-numeric: tabular-nums; }
+.tt-badge--cero { background: var(--tt-mist); color: var(--tt-text-3); }
+
+/* --- Las tres sub-vistas: una rejilla por breakpoint, y ya -------------- */
+#appt-agenda, #appt-attend, #appt-spaces {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--tt-sp-5);
+  padding: 0 var(--tt-sp-4) var(--tt-sp-4);
+}
+#appt-agenda { grid-template-areas: "filters" "days" "board" "queue"; }
+#appt-attend { grid-template-areas: "pager" "subject" "viewer"; }
+#appt-spaces { grid-template-areas: "days" "list" "editor"; }
+
+#appt-filters      { grid-area: filters; min-width: 0; }
+#appt-days         { grid-area: days;    min-width: 0; }
+#appt-board        { grid-area: board;   min-width: 0; }
+#appt-queue        { grid-area: queue;   min-width: 0; }
+#appt-pager        { grid-area: pager;   min-width: 0; }
+#appt-subject      { grid-area: subject; min-width: 0; }
+#appt-viewer       { grid-area: viewer;  min-width: 0; }
+#appt-space-list   { grid-area: list;    min-width: 0; }
+#appt-space-editor { grid-area: editor;  min-width: 0; }
+
+/* Atender abre a dos columnas antes que Agenda: es sujeto mas visor, y a 992 ya
+   da 300 + 380. La banda 992-1279 es la de los portatiles del personal. */
 @media (min-width: 992px) {
-  .tt-appt {
-    grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
-    grid-template-areas: "agenda pending";
-    align-items: start;
-  }
-  /* Con ficha abierta la agenda se vuelve el carril de contexto (la lista del
-     dia) y el detalle ocupa el espacio grande, a su lado. "Por agendar" queda
-     debajo del carril, nunca oculto. */
-  .tt-appt.has-detail {
-    grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
-    grid-template-areas: "agenda detail" "pending detail";
-    /* `auto 1fr`, no `auto auto`: la ficha ocupa las DOS filas y con dos pistas
-       de contenido el navegador reparte su alto entre ambas — la agenda crecia
-       y dejaba un hueco muerto de media pantalla antes de "Por agendar". Un
-       item que cruza una pista FLEXIBLE no aporta a las de contenido (CSS Grid
-       12.5), asi que el sobrante cae entero en la fila 2. */
-    grid-template-rows: auto 1fr;
-    align-content: start;
-  }
+  #appt-attend { grid-template-areas: "pager pager" "subject viewer";
+                 grid-template-columns: 300px minmax(0, 1fr);
+                 align-items: start; }
+}
+@media (min-width: 1280px) {
+  #appt-agenda { grid-template-areas: "filters filters" "days days" "board queue";
+                 grid-template-columns: minmax(0, 1fr) 320px;
+                 /* La tercera pista `1fr` no es decorativa: con `align-items:
+                    start`, el area de la cola tiene que ser mas alta que su
+                    contenido o el `position: sticky` no tiene recorrido. */
+                 grid-template-rows: auto auto 1fr;
+                 align-items: start; }
+  #appt-attend { grid-template-columns: 380px minmax(0, 1fr); }
+  #appt-spaces { grid-template-areas: "days days" "list editor";
+                 grid-template-columns: 320px minmax(0, 1fr);
+                 align-items: start; }
 }
 
-/* --- Cabecera de la pagina (sustituye a los style= inline) ---------------- */
-.tt-h-page { font-size: 1.5rem; font-weight: 600; margin: .15rem 0 0; }
-.tt-sub    { font-size: .82rem; color: var(--tt-slate); }
+/* --- Carril de dias ----------------------------------------------------- */
+/* Sustituye al calendario mensual: 29 de sus 35 celdas eran inertes. El trabajo
+   son seis mananas concretas, y a 852 px caben las seis enteras (6*132 + 5*8). */
+.tt-days { display: flex; gap: var(--tt-sp-2); overflow-x: auto;
+           /* `proximity` y no `mandatory`: con mandatory los ultimos chips no
+              se pueden alinear a 360/390 y el carril rebota. */
+           scroll-snap-type: x proximity; overscroll-behavior-x: contain;
+           padding-bottom: var(--tt-sp-1); scrollbar-width: thin; }
+.tt-day { flex: 0 0 132px; scroll-snap-align: start;
+          display: flex; flex-direction: column; gap: 2px; min-width: 0;
+          padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r);
+          border: 1px solid var(--tt-line); background: var(--tt-paper);
+          color: inherit; text-decoration: none;
+          transition: border-color var(--tt-dur-1) ease, background var(--tt-dur-1) ease; }
+.tt-day .dow  { font-size: var(--tt-fs-100); color: var(--tt-text-3); text-transform: capitalize; }
+.tt-day .num  { font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1);
+                font-variant-numeric: tabular-nums; }
+.tt-day .ocup { font-family: var(--tt-mono); font-size: var(--tt-fs-100);
+                font-variant-numeric: tabular-nums; color: var(--tt-text-3); }
+.tt-day.is-active { background: var(--tt-accent-soft); border-color: var(--tt-accent-ink); }
+.tt-day.is-active .ocup { color: var(--tt-accent-ink); }
+/* Hoy va con anillo, no con relleno: el relleno ya significa "el dia abierto". */
+.tt-day.is-today { box-shadow: inset 0 0 0 2px var(--tt-focus); }
+.tt-day.is-full .ocup { color: var(--tt-danger); font-weight: 700; }
+/* Dentro de un contenedor con scroll, un anillo por fuera se recorta. */
+.tt-day:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+@media (hover: hover) and (pointer: fine) { .tt-day:hover { border-color: var(--tt-text-3); } }
 
-/* --- Segmento Calendario / Lista ----------------------------------------- */
-/* Dos opciones, con activo REAL. "Del dia" se elimino: sin fecha aterrizaba en
-   HOY, que fuera de la semana de cotejo son 0 citas. */
-.tt-appt-seg {
-  display: inline-flex; gap: 2px; padding: 3px;
-  background: var(--tt-mist); border: 1px solid var(--tt-line); border-radius: 999px;
-}
-.tt-appt-seg .seg {
-  display: inline-flex; align-items: center; gap: 6px;
-  min-height: 34px; padding: 0 14px; border-radius: 999px;
-  font-size: .8rem; font-weight: 600; color: var(--tt-slate); text-decoration: none;
-  transition: background .15s ease, color .15s ease;
-}
-.tt-appt-seg .seg.is-active {
-  background: var(--tt-paper); color: var(--tt-ink); box-shadow: var(--tt-shadow-card);
-}
-.tt-appt-seg .seg:focus-visible { outline: 2px solid var(--tt-accent); outline-offset: -2px; }
+/* --- Tablero del dia ---------------------------------------------------- */
+.tt-slotrow { display: flex; align-items: stretch; gap: var(--tt-sp-2);
+              padding: var(--tt-sp-1) 0; border-top: 1px solid var(--tt-line-soft); }
+.tt-slotrow:first-of-type { border-top: 0; }
+.tt-slotrow > .hora { flex: 0 0 56px; padding-top: 14px;
+                      font-family: var(--tt-mono); font-size: var(--tt-fs-200);
+                      font-variant-numeric: tabular-nums; color: var(--tt-text-2); }
+.tt-slotrow > .pista { flex: 1 1 auto; display: flex; flex-wrap: wrap;
+                       gap: var(--tt-sp-2); min-width: 0; }
+
+/* ALTO FIJO, no minimo. Un nombre largo en mayusculas envolveria y el asiento
+   ocupado quedaria mas alto que el libre, o sea que llenar un lugar MOVERIA la
+   fila: justo lo que este rediseno viene a quitar. */
+.tt-seat { flex: 1 1 220px; min-width: 0; height: 56px;
+           display: grid; grid-template-rows: auto auto; align-content: center;
+           padding: 0 var(--tt-sp-3); border-radius: var(--tt-r-sm);
+           border: 1px solid var(--tt-line-soft); background: var(--tt-paper);
+           color: inherit; text-decoration: none;
+           transition: border-color var(--tt-dur-1) ease, background var(--tt-dur-1) ease; }
+.tt-seat .who  { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+.tt-seat .meta { font-size: var(--tt-fs-100); color: var(--tt-text-3);
+                 font-family: var(--tt-mono); }
+.tt-seat .who, .tt-seat .meta { min-width: 0; overflow: hidden;
+                                text-overflow: ellipsis; white-space: nowrap; }
+.tt-seat--libre { border-style: dashed; background: var(--tt-mist); }
+.tt-seat--libre .who { color: var(--tt-text-3); font-weight: 500; }
+.tt-seat.is-active { background: var(--tt-accent-soft); border-color: var(--tt-accent-ink); }
+.tt-seat:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
 @media (hover: hover) and (pointer: fine) {
-  .tt-appt-seg .seg:hover { color: var(--tt-ink); }
+  a.tt-seat:hover, button.tt-seat:hover { border-color: var(--tt-text-3); }
 }
 
-/* --- Calendario ---------------------------------------------------------- */
-.tt-appt-calhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; }
-/* El dia habilitado es un <a> que llena la celda: alcanzable con Tab, no solo
-   con el raton. La celda pierde su padding para no sumarlo dos veces. */
-.tt-cal td.on { padding: 0; }
-.tt-cal td.on > .cell {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
-  height: 100%; padding: 4px; color: inherit; text-decoration: none; border-radius: 6px;
-}
-.tt-cal td.on > .cell:focus-visible { outline: 2px solid var(--tt-accent); outline-offset: -2px; }
-/* Contador como pastilla de un solo numero: "3 citas" no cabe cuando la agenda
-   se estrecha a 320px con la ficha abierta (celda de ~45px, la misma que a 360). */
-.tt-cal .count {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 18px; height: 18px; padding: 0 5px; margin-top: 0;
-  border-radius: 999px; background: var(--tt-navy-soft); color: var(--tt-navy);
-  font-size: .66rem; font-weight: 700;
-}
-
-/* --- Cabecera del dia ---------------------------------------------------- */
-.tt-appt-dayhead { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
-.tt-appt-datepick { display: flex; align-items: center; gap: .4rem; margin: 0; }
-.tt-appt-datepick .form-control { width: auto; }
-
-/* --- Fila de alumno (dia, lista y "por agendar") ------------------------- */
-/* El activo va por CLASE + barra de acento, no por `style="background:..."`
-   inline: a un metro de la pantalla el fondo gris claro no se distinguia. */
-.tt-appt-item {
-  position: relative; display: flex; align-items: center; gap: 10px;
-  min-height: 44px; padding: 8px 10px 8px 12px;
-  border: 1px solid var(--tt-line-soft); border-radius: 9px;
-  color: inherit; text-decoration: none;
-  transition: transform .16s var(--tt-ease-out), box-shadow .16s var(--tt-ease-out), border-color .16s ease, background .15s ease;
-}
-.tt-appt-item .who  { font-size: .85rem; font-weight: 600; color: var(--tt-ink); }
-.tt-appt-item .meta { font-size: .7rem; color: var(--tt-mute); }
-.tt-appt-item .time { flex: 0 0 auto; font-size: .82rem; font-weight: 600; color: var(--tt-ink); }
-.tt-appt-item:active { transform: scale(.985); }
-.tt-appt-item:focus-visible { outline: 2px solid var(--tt-accent); outline-offset: 2px; }
+/* --- Fila de alumno (cola y resultados) --------------------------------- */
+.tt-appt-item { position: relative; display: flex; align-items: center;
+                gap: var(--tt-sp-3); min-height: 44px;
+                padding: var(--tt-sp-2) var(--tt-sp-3);
+                border: 1px solid var(--tt-line-soft); border-radius: var(--tt-r-sm);
+                color: inherit; text-decoration: none; cursor: pointer;
+                transition: border-color var(--tt-dur-2) ease, background var(--tt-dur-1) ease; }
+.tt-appt-item .who  { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+.tt-appt-item .meta { font-size: var(--tt-fs-100); color: var(--tt-text-3);
+                      font-family: var(--tt-mono); }
+.tt-appt-item .time { flex: 0 0 52px; font-family: var(--tt-mono);
+                      font-size: var(--tt-fs-200); font-weight: 600;
+                      font-variant-numeric: tabular-nums; color: var(--tt-text-1); }
+/* Anillo por dentro, no barra lateral: la barra de 3 px desplazaba el contenido
+   y dejaba dos listas contiguas desalineadas 2 px. */
+.tt-appt-item.is-active { background: var(--tt-mist);
+                          box-shadow: inset 0 0 0 1.5px var(--tt-accent-ink); }
+.tt-appt-item:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
 @media (hover: hover) and (pointer: fine) {
-  .tt-appt-item:hover { border-color: var(--tt-line); box-shadow: 0 8px 24px -10px rgba(15,23,42,.18); }
+  .tt-appt-item:hover { border-color: var(--tt-text-3); }
 }
-.tt-appt-item.is-active { background: var(--tt-mist); border-color: var(--tt-line); }
-.tt-appt-item.is-active::before {
-  content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
-  border-radius: 0 3px 3px 0; background: var(--tt-accent);
+/* La fila ENTERA es el objetivo tactil, no la casilla de 20 px. */
+label.tt-appt-item { cursor: pointer; }
+label.tt-appt-item .form-check-input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; }
+
+/* --- Cola de trabajo ---------------------------------------------------- */
+.tt-queue-head { display: flex; align-items: center; justify-content: space-between;
+                 gap: var(--tt-sp-2); margin-bottom: var(--tt-sp-2); }
+.tt-queue-list { display: flex; flex-direction: column; gap: var(--tt-sp-1); }
+.tt-appt-empty { font-size: var(--tt-fs-100); color: var(--tt-text-3); margin: 0; }
+@media (min-width: 1280px) {
+  /* Sticky para no abandonar la cola al bajar por el tablero. Idiomorph
+     conserva el nodo, asi que su scroll sobrevive a los swaps. */
+  #appt-queue { position: sticky; top: 16px;
+                max-height: calc(100vh - 32px); overflow-y: auto;
+                overscroll-behavior: contain; }
 }
-.tt-appt-chg { color: var(--tt-amber-ink); }
 
-/* --- "Por agendar" (zona B) ---------------------------------------------- */
-.tt-appt-sidehead { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
-/* Vacio con mensaje, no seccion desaparecida: el encargado necesita ver que no
-   le queda nada pendiente tanto como ver que si. */
-.tt-appt-empty { font-size: .82rem; color: var(--tt-mute); }
+/* --- Atender ------------------------------------------------------------ */
+.tt-pager { display: flex; align-items: center; flex-wrap: wrap;
+            gap: var(--tt-sp-2) var(--tt-sp-3); }
+.tt-pager .pos { font-family: var(--tt-mono); font-size: var(--tt-fs-200);
+                 font-variant-numeric: tabular-nums; color: var(--tt-text-2); }
+.tt-pager-strip { display: flex; gap: var(--tt-sp-2); overflow-x: auto;
+                  overscroll-behavior-x: contain; padding-bottom: var(--tt-sp-1);
+                  scroll-snap-type: x proximity; }
+.tt-pager-strip .tt-seat { flex: 0 0 200px; scroll-snap-align: start; }
 
-/* --- Detalle (zona C) ---------------------------------------------------- */
-.tt-appt-name  { font-size: 1.25rem; font-weight: 600; }
-.tt-appt-ids   { font-size: .78rem; color: var(--tt-slate); }
-/* Un correo largo era lo que empujaba la pagina a 360/390. */
-.tt-appt-email { overflow-wrap: anywhere; }
-.tt-appt-meta  { font-size: .78rem; color: var(--tt-slate); text-align: right; overflow-wrap: anywhere; }
-.tt-appt-close { flex: 0 0 auto; }
-.tt-appt-when  { font-size: .9rem; }
-.tt-appt-when i { color: var(--tt-mute); }
-.tt-appt-note  { font-size: .84rem; color: var(--tt-slate); }
-.tt-appt-warn  { font-size: .82rem; color: var(--tt-amber-ink); }
-.tt-appt-hint  { font-size: .74rem; color: var(--tt-mute); margin-top: .6rem; }
-.tt-appt-check { font-size: .82rem; }
-.tt-appt-fselect { min-width: 200px; }
-.tt-appt-chgcard { border-left-color: var(--tt-amber-ink); }
-.tt-appt-daylink { font-size: .82rem; font-weight: 600; color: var(--tt-navy); text-decoration: none; }
-.tt-appt-daylink:hover { text-decoration: underline; }
-/* El visor no lleva `style=` inline: `min()` evita que un PDF alto empuje la
-   ficha entera fuera de la pantalla. */
-.tt-appt-frame {
-  width: 100%; height: min(60vh, 520px);
-  border: 1px solid var(--tt-line); border-radius: var(--tt-r); background: var(--tt-mist);
-}
-.tt-appt-frame--modal { height: 78vh; border: 0; border-radius: 0; }
-#appt-docbar .btn.is-active { border-color: var(--tt-accent); }
+.tt-appt-name { font-family: var(--tt-display); font-size: var(--tt-fs-500);
+                font-weight: 600; color: var(--tt-text-1); letter-spacing: -.01em;
+                text-wrap: balance; }
+.tt-appt-ids  { font-size: var(--tt-fs-100); color: var(--tt-text-2);
+                font-family: var(--tt-mono); overflow-wrap: anywhere; }
+.tt-appt-when { font-size: var(--tt-fs-300); color: var(--tt-text-1); }
+.tt-appt-when i { color: var(--tt-text-3); }
+.tt-appt-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+.tt-appt-warn { font-size: var(--tt-fs-200); color: var(--tt-amber-ink); }
 
-/* --- Objetivos tactiles en movil (contrato: >= 40x40) -------------------- */
-@media (max-width: 991.98px) {
-  .tt-appt-seg .seg { min-height: 40px; padding: 0 16px; }
-  .tt-appt-item { min-height: 48px; }
-  .tt-appt-datepick .form-control { min-height: 40px; }
-  .tt-appt-meta { text-align: left; }
+/* El visor es la razon de ser de la pantalla: cotejar un acta escaneada contra
+   el papel que el alumno trae en la mano. Antes eran 470 px de alto en una
+   columna de 600, o sea que habia que abrir el modal por cada documento. */
+.tt-appt-frame { width: 100%; height: min(72vh, 760px); border: 1px solid var(--tt-line);
+                 border-radius: var(--tt-r); background: var(--tt-mist); }
+.tt-appt-frame--modal { height: 82vh; border: 0; border-radius: 0; }
+#appt-docbar { display: flex; flex-wrap: wrap; gap: var(--tt-sp-2); }
+#appt-docbar .btn.is-active { border-color: var(--tt-focus);
+                              box-shadow: inset 0 0 0 1px var(--tt-focus); }
+
+/* --- Espacios ----------------------------------------------------------- */
+.tt-space-row { display: flex; align-items: center; gap: var(--tt-sp-3);
+                min-height: 44px; padding: var(--tt-sp-2) var(--tt-sp-3);
+                border: 1px solid var(--tt-line-soft); border-radius: var(--tt-r-sm);
+                color: inherit; text-decoration: none; }
+.tt-space-row.is-active { background: var(--tt-mist);
+                          box-shadow: inset 0 0 0 1.5px var(--tt-accent-ink); }
+.tt-space-row:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+.tt-space-row .horario { font-family: var(--tt-mono); font-size: var(--tt-fs-200);
+                         font-variant-numeric: tabular-nums; color: var(--tt-text-1); }
+.tt-space-row .detalle { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+/* Rejilla declarada, no `flex-wrap` con contenido implicito: asi ningun campo
+   cae solo en otra linea ni corta su valor ("Edificio A - Servicios Escolare"). */
+.tt-form-grid { display: grid; gap: var(--tt-sp-3);
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.tt-form-grid .full { grid-column: 1 / -1; }
+.tt-derivada { font-size: var(--tt-fs-200); color: var(--tt-text-2);
+               background: var(--tt-mist); border-radius: var(--tt-r-sm);
+               padding: var(--tt-sp-2) var(--tt-sp-3); }
+
+/* --- Objetivos tactiles ------------------------------------------------- */
+/* Desacoplado del umbral de layout: Agenda apila hasta 1279, asi que atarlo a
+   991.98 dejaba la banda 992-1279 con controles pequenos en un layout apilado. */
+@media (pointer: coarse), (max-width: 1279.98px) {
+  .tt-appt-item, .tt-space-row { min-height: 48px; }
+  .tt-appt-seg .seg { min-height: 44px; }
+  .btn-sm, .form-control-sm, .form-select-sm { min-height: 44px; }
 }
