@@ -480,7 +480,13 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
         if "assert_process_in_scope" not in src:
             sin_guard.append(str(sorted(getattr(route, "methods", []))) + " " + path)
 
-    assert revisadas == 13, "cambio el inventario de rutas con process_id: " + str(revisadas)
+    assert revisadas == 13, (
+        "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
+        "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
+        "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"
+        "OJO: este censo solo ve rutas que llevan el id EN LA RUTA. Una ruta que\n"
+        "reciba ids en el CUERPO (p. ej. el reparto masivo) le es invisible y tiene\n"
+        "que validar cada id contra `process_in_scope` por su cuenta." % revisadas)
     assert not sin_guard, "rutas con process_id sin guard de carrera:\n" + "\n".join(sin_guard)
 
 

@@ -191,3 +191,46 @@ def test_ningun_template_selecciona_su_propio_destino_con_innerHTML():
         "hx-select == hx-target con swap innerHTML (el nodo se anida en si mismo):\n"
         + "\n".join(ofensores)
     )
+
+
+# ---------------------------------------------------------------------------
+# Punto ciego: los atributos que salen de un MACRO
+# ---------------------------------------------------------------------------
+def test_los_macros_de_citas_tambien_cumplen_el_invariante_de_swap():
+    """El barrido de este archivo mira etiquetas `<a ... hx-select=...>` del HTML.
+
+    Citas de cotejo NO emite sus atributos en la etiqueta: los emite desde
+    `partials/appointments/_appt_macros.html`, asi que hasta hoy la pestana con
+    MAS destinos de swap de la app quedaba fuera del invariante que este archivo
+    defiende. Aqui se leen los macros directamente.
+
+    Nace en verde a proposito: es la red que protege a los macros NUEVOS del
+    rediseno (`appt_nav_filter`, `appt_action`), no un defecto que arreglar.
+    """
+    macros = TEMPLATES / "partials" / "appointments" / "_appt_macros.html"
+    texto = macros.read_text(encoding="utf-8")
+
+    cuerpos = re.findall(
+        r"{%-?\s*macro\s+(\w+)\([^)]*\)\s*-?%}(.*?){%-?\s*endmacro", texto, re.S)
+    assert cuerpos, "no se encontro ningun macro en _appt_macros.html"
+
+    revisados = []
+    for nombre, cuerpo in cuerpos:
+        sel = re.search(r'hx-select="([^"]+)"', cuerpo)
+        if not sel:
+            continue                      # p. ej. `appt_action`: POST sin hx-select
+        tgt = re.search(r'hx-target="([^"]+)"', cuerpo)
+        assert tgt, f"{nombre}: hx-select sin hx-target"
+        assert sel.group(1) == tgt.group(1), (
+            f"{nombre}: hx-select ({sel.group(1)}) != hx-target ({tgt.group(1)})")
+        swap = re.search(r'hx-swap="([^"]+)"', cuerpo)
+        familia = _swap_family(swap.group(1) if swap else None)
+        assert familia in _OUTER, (
+            f"{nombre}: hx-select == hx-target OBLIGA a la familia outerHTML. "
+            f"Con innerHTML el nodo recortado trae el mismo id que el destino y "
+            f"acaba DENTRO de si mismo. Tiene: {swap.group(1) if swap else 'nada'}")
+        revisados.append(nombre)
+
+    assert len(revisados) >= 1, (
+        f"solo se revisaron {len(revisados)} macros con hx-select; "
+        f"si los renombraste, actualiza este censo")

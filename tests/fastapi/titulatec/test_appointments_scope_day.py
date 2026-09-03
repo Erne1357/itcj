@@ -350,14 +350,19 @@ def test_el_indicador_no_entra_al_nodo_que_se_reemplaza():
     assert re.search(r'id="appt-skel"[^>]*style=', html) is None
 
 
-def test_el_segmento_tiene_dos_opciones_y_ninguna_es_del_dia():
-    """Decision del usuario: "Del dia" sale. Sin fecha aterrizaba en HOY, que
-    fuera de la semana de cotejo son 0 citas."""
+def test_el_segmento_tiene_tres_subvistas():
+    """Rediseno del 2026-09-03: Agenda - Atender - Espacios.
+
+    Antes eran dos (Calendario - Lista) y la vista de dia no tenia
+    representacion propia: estando en un dia, "Calendario" salia activo. El
+    calendario mensual desaparece porque 29 de sus 35 celdas eran inertes; los
+    dias de cotejo reales viven ahora en un carril horizontal.
+    """
     shell = _sin_comentarios(
         (TEMPLATES / "partials" / "appointments_body.html").read_text(encoding="utf-8"))
 
-    segs = re.findall(r'class="seg\{\{', shell)
-    assert len(segs) == 2, "el segmento deberia tener 2 opciones, tiene %d" % len(segs)
+    for etiqueta in ("Agenda", "Atender", "Espacios"):
+        assert etiqueta in shell, "falta la sub-vista %s en el segmento" % etiqueta
     assert "Del día" not in shell and "Del dia" not in shell
     assert "aria-current" in shell, "el activo del segmento no se anuncia"
 
@@ -367,14 +372,15 @@ def test_los_parciales_de_citas_no_llevan_js_ni_css_inline():
     El parcial traia 12 lineas de `<script>` con dos funciones globales y ocho
     `style=` inline; hoy todo vive en `js/admin/appointments.js` y `titulatec.css`."""
     ofensores = []
+    # Se barre TODO lo que exista bajo partials/appointments/ mas los dos hosts,
+    # en vez de una lista fija: el rediseno crea y borra parciales, y una lista
+    # fija se queda obsoleta en silencio (o revienta con FileNotFoundError).
     archivos = [TEMPLATES / "admin" / "appointments.html",
-                TEMPLATES / "partials" / "appointments_body.html",
-                TEMPLATES / "partials" / "appointments_calendar.html",
-                TEMPLATES / "partials" / "appointments_day.html",
-                TEMPLATES / "partials" / "appointments_list.html",
-                TEMPLATES / "partials" / "appointments" / "_appt_pending.html",
-                TEMPLATES / "partials" / "appointments" / "_appt_detail.html"]
+                TEMPLATES / "partials" / "appointments_body.html"]
+    archivos += sorted((TEMPLATES / "partials" / "appointments").glob("*.html"))
     for path in archivos:
+        if not path.exists():
+            continue
         sin_comentarios = _sin_comentarios(path.read_text(encoding="utf-8"))
         if "<script" in sin_comentarios:
             ofensores.append(str(path.name) + ": <script> inline")
@@ -403,8 +409,7 @@ def test_la_navegacion_de_citas_empuja_la_url_de_pagina_no_la_del_parcial():
     assert 'hx-swap="morph:outerHTML"' in macros
 
 
-@pytest.mark.parametrize("nombre", ["appointments_body.html", "appointments_calendar.html",
-                                    "appointments_day.html", "appointments_list.html"])
+@pytest.mark.parametrize("nombre", ["appointments_body.html"])
 def test_ningun_parcial_de_citas_apunta_al_viejo_appt_body(nombre):
     """`#appt-body` y las rutas `/calendar` y `/day` desaparecieron al plegarse
     en `/body`. Un `hx-target` huerfano no falla: no hace NADA, en silencio."""
