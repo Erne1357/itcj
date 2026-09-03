@@ -55,13 +55,13 @@ def _declared_models() -> dict[str, str]:
     return found
 
 
-def test_hay_17_modelos_declarados():
+def test_hay_18_modelos_declarados():
     """Guarda del propio test: si el AST deja de ver clases, lo de abajo pasaria
     en verde sin verificar nada."""
     declared = _declared_models()
 
-    assert len(declared) == 17, (
-        f"se esperaban 17 modelos titulatec, el AST vio {len(declared)}: "
+    assert len(declared) == 18, (
+        f"se esperaban 18 modelos titulatec, el AST vio {len(declared)}: "
         f"{sorted(declared)}"
     )
 
