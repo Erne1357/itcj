@@ -27,9 +27,16 @@
 
       {% if process.status == 'active' %}
       {# Discreto y siempre en el mismo sitio: mover de fase es lo raro, no lo
-         que se viene a hacer aquí. #}
+         que se viene a hacer aquí.
+
+         El modal vive FUERA del shell (en `block modals`, a nivel <body>) y se
+         puebla al abrirlo leyendo estos `data-*`. Ver el porqué abajo. #}
       <button type="button" id="exp-acciones" class="btn btn-sm tt-btn-soft ms-auto"
-              data-bs-toggle="modal" data-bs-target="#exp-modal-fase">
+              data-bs-toggle="modal" data-bs-target="#exp-modal-fase"
+              data-tt-fase="{{ '%02d'|format(current_phase) }}"
+              data-tt-fase-nombre="{% for f in fases if f.is_current %}{{ f.name }}{% endfor %}"
+              data-tt-aprobar="{{ BASE }}/phase/{{ current_phase }}/approve{{ Q }}"
+              data-tt-rechazar="{{ BASE }}/phase/{{ current_phase }}/reject{{ Q }}">
         <i class="bi bi-arrow-left-right me-1" aria-hidden="true"></i>Mover de fase</button>
       {% else %}
       <span class="ms-auto">{{ estado_pill(process.status) }}</span>
@@ -110,45 +117,4 @@
   </section>
   {% endif %}
 
-  {# --------------------------------------------------- modal: mover de fase #}
-  {% if process.status == 'active' %}
-  {# Va DENTRO del shell, no en `block modals`, porque su contenido depende de
-     la fase actual y tiene que viajar con cada swap. Bootstrap lo posiciona
-     bien igualmente: `.tt-exp` no crea contexto de apilamiento (el drawer del
-     admin sí, y por eso los modales de las otras páginas viven fuera). #}
-  <div class="modal fade" id="exp-modal-fase" tabindex="-1" aria-hidden="true"
-       aria-labelledby="exp-modal-fase-t">
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3 class="modal-title tt-h-sec" id="exp-modal-fase-t">
-            Fase {{ '%02d'|format(current_phase) }} ·
-            {% for f in fases if f.is_current %}{{ f.name }}{% endfor %}</h3>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-        </div>
-        <form id="exp-form-fase" class="modal-body">
-          <p class="tt-exp-modal-help">
-            Aprobar cierra esta fase y pasa al alumno a la siguiente. Rechazar se
-            la devuelve con el motivo, que él lee en su panel.</p>
-          <label class="tt-label" for="exp-motivo">
-            Motivo <span class="tt-exp-modal-req">(obligatorio para rechazar)</span></label>
-          <textarea class="tt-field" id="exp-motivo" name="reason" rows="3"
-                    placeholder="Qué falta y qué se espera que corrija…"></textarea>
-        </form>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-sm tt-btn-ghost tt-btn-danger-ghost"
-                  id="exp-rechazar"
-                  hx-post="{{ BASE }}/phase/{{ current_phase }}/reject{{ Q }}"
-                  hx-include="#exp-form-fase" hx-target="#exp-shell"
-                  hx-swap="morph:outerHTML">
-            <i class="bi bi-x-lg me-1" aria-hidden="true"></i>Rechazar fase</button>
-          <button type="button" class="btn btn-sm tt-btn-ink" id="exp-aprobar"
-                  hx-post="{{ BASE }}/phase/{{ current_phase }}/approve{{ Q }}"
-                  hx-target="#exp-shell" hx-swap="morph:outerHTML">
-            <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Aprobar fase</button>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endif %}
 </div>

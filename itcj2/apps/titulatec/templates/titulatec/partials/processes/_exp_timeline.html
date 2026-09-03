@@ -16,7 +16,10 @@
     <span class="ico tone-{{ e.tone }}"><i class="bi bi-{{ e.icon }}" aria-hidden="true"></i></span>
     <div class="min-w-0 flex-grow-1">
       <div class="label">{{ e.label }}</div>
-      <div class="when tt-mono">{{ e.when }}{% if e.actor %} · {{ e.actor }}{% endif %}</div>
+      {# La fecha en mono (alinea entre filas) y el nombre en texto normal: un
+         nombre completo en versalitas monoespaciadas grita y ocupa el doble. #}
+      <div class="when"><span class="tt-mono">{{ e.when }}</span>
+        {%- if e.actor %} · <span class="quien">{{ e.actor }}</span>{% endif %}</div>
       {% if e.detail %}<div class="detalle">{{ e.detail }}</div>{% endif %}
     </div>
   </div>

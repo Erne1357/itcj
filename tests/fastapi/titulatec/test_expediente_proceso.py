@@ -25,12 +25,18 @@ Decisiones del usuario (2026-09-03) que estos tests fijan:
 """
 from __future__ import annotations
 
+import pathlib
 import re
 from datetime import date, datetime, timedelta
+
+import itcj2.apps.titulatec as _tt_pkg
 
 import pytest
 
 from tests.fastapi.titulatec.conftest import OFFICER_PERMS
+
+JS = (pathlib.Path(_tt_pkg.__file__).resolve().parent
+      / "static" / "js" / "admin" / "expediente.js")
 
 URL = "/titulatec/admin/processes"
 # Enlace al expediente desde otra pestana, con su query de vuelta.
@@ -395,6 +401,76 @@ def test_las_acciones_conservan_la_zona(expediente, client_as):
     assert r.status_code == 200
     assert "hidden" not in re.search(r'id="exp-panel-1"[^>]*', r.text).group(0)
     assert "Citas de cotejo" in r.text
+
+
+def test_el_modal_de_fase_vive_fuera_del_expediente(expediente, client_as):
+    """Dentro de `#exp-shell` el dialogo salia CORTADO.
+
+    Medido en Chromium a 1280x900: el `.modal-dialog` daba 1630 px de alto y su
+    mitad inferior —el motivo y los dos botones— quedaba fuera de la ventana.
+
+    La causa no es `.tt-admin` (que a >=992 no lleva transform, que es lo que
+    dice el comentario de `base.html`), sino `#tt-admin-content`: tiene
+    `tt-anim-in` con `animation-fill-mode: both`, asi que al terminar conserva
+    `transform: matrix(1,0,0,1,0,0)`. Identidad, pero transform al fin, y eso
+    crea bloque contenedor para los descendientes `position: fixed`: el
+    `height:100%` del `.modal` pasaba a resolverse contra los 1686 px del
+    contenido en vez de contra la ventana.
+    """
+    esc = expediente()
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
+
+    shell = html.split('id="exp-shell"')[1].split('{% endblock %}')[0]
+    fin_shell = shell.rfind('id="exp-modal-fase"')
+    assert 'id="exp-modal-fase"' in html, "desaparecio el modal de mover de fase"
+    # El modal aparece DESPUES del cierre del contenedor del contenido admin.
+    i_shell = html.index('id="exp-shell"')
+    i_modal = html.index('id="exp-modal-fase"')
+    i_cierre = html.index('id="tt-admin-content"')
+    assert i_modal > i_shell, "orden inesperado"
+    assert 'id="exp-modal-fase"' not in html[i_shell:html.index('id="exp-fases"')], (
+        "el modal volvio a la cabecera del expediente")
+
+
+def test_el_boton_le_pasa_al_modal_lo_que_necesita(expediente, client_as):
+    """El modal no entra al swap, asi que no puede venir renderizado con la fase
+    actual: se puebla al abrirlo desde los `data-*` del boton, que si se
+    re-renderiza con cada accion."""
+    from urllib.parse import quote
+    esc = expediente(current_phase=2)
+    origen = "/titulatec/admin/appointments?v=atender"
+    html = client_as(esc["officer"]).get(
+        f"{URL}/{esc['proc'].id}?fase=1&from={quote(origen, safe='')}").text
+
+    boton = re.search(r'<button[^>]*id="exp-acciones"[^>]*>', html).group(0)
+    for attr in ("data-tt-fase=", "data-tt-fase-nombre=", "data-tt-aprobar=", "data-tt-rechazar="):
+        assert attr in boton, f"al modal le falta {attr}"
+    assert "/phase/2/approve" in boton and "/phase/2/reject" in boton
+    assert "fase=1" in boton, "las URL de accion pierden la zona"
+
+
+def test_el_modal_se_cierra_solo_al_acertar():
+    """Estructural. Si no, el modal se queda tapando un expediente que YA cambio
+    detras, y hay que cerrarlo a mano para enterarse de que la accion funciono.
+    Al fallar SI se queda abierto: el motivo escrito sigue ahi."""
+    src = JS.read_text(encoding="utf-8")
+    assert "htmx:afterRequest" in src
+    assert "detail.successful" in src
+    assert "bootstrap.Modal.getInstance" in src
+
+
+def test_el_acordeon_recuerda_lo_desplegado():
+    """Aprobar una fase devuelve el expediente ENTERO. Sin memoria, el revisor
+    perdia en cada accion todo lo que habia desplegado para comparar."""
+    src = JS.read_text(encoding="utf-8")
+    assert "htmx:afterSettle" in src
+    assert "abiertas" in src, "el estado del acordeon no vive en el modulo"
+    # Solo el CODIGO: el encabezado del modulo nombra `data-tt-bound` justo para
+    # explicar por que NO se usa, y una busqueda en texto plano se acusaba sola.
+    codigo = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    codigo = re.sub(r"^\s*//.*$", "", codigo, flags=re.M)
+    assert "data-tt-bound" not in codigo, (
+        "guarda en el DOM: Idiomorph la borra y los listeners se duplican")
 
 
 # ===========================================================================

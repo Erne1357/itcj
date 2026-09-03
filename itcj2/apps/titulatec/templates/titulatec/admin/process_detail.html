@@ -17,3 +17,48 @@
   {% include "titulatec/partials/processes/_exp_shell.html" %}
 </div>
 {% endblock %}
+
+{% block modals %}
+{# Mover de fase. Vive AQUÍ, a nivel <body>, y no dentro del expediente.
+
+   Medido en Chromium: dentro de `#exp-shell` el diálogo salía de 1630 px en una
+   ventana de 900 y quedaba cortado por abajo. La causa no es `.tt-admin` (que a
+   ≥992 no lleva transform) sino `#tt-admin-content`, que tiene `tt-anim-in` con
+   `animation-fill-mode: both`: al terminar conserva `transform: matrix(1,0,0,1,0,0)`
+   —identidad, pero transform al fin— y eso crea bloque contenedor para los
+   descendientes `position: fixed`. El `height:100%` del `.modal` pasó a resolverse
+   contra los 1686 px del contenido en vez de contra la ventana.
+
+   Como no entra al swap, su contenido dependiente de la fase (nombre y las dos
+   URL) se copia al abrirlo desde los `data-*` del botón que lo dispara, que sí
+   se re-renderiza con cada acción. Mismo patrón que el modal grande de Citas. #}
+<div class="modal fade" id="exp-modal-fase" tabindex="-1" aria-hidden="true"
+     aria-labelledby="exp-modal-fase-t">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title tt-h-sec" id="exp-modal-fase-t">Mover de fase</h3>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <form id="exp-form-fase" class="modal-body">
+        <p class="tt-exp-modal-help">
+          Aprobar cierra esta fase y pasa al alumno a la siguiente. Rechazar se la
+          devuelve con el motivo, que él lee en su panel.</p>
+        <label class="tt-label" for="exp-motivo">
+          Motivo <span class="tt-exp-modal-req">(obligatorio para rechazar)</span></label>
+        <textarea class="tt-field" id="exp-motivo" name="reason" rows="3"
+                  placeholder="Qué falta y qué se espera que corrija…"></textarea>
+      </form>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm tt-btn-ghost tt-btn-danger-ghost"
+                id="exp-rechazar" hx-include="#exp-form-fase"
+                hx-target="#exp-shell" hx-swap="morph:outerHTML">
+          <i class="bi bi-x-lg me-1" aria-hidden="true"></i>Rechazar fase</button>
+        <button type="button" class="btn btn-sm tt-btn-ink" id="exp-aprobar"
+                hx-target="#exp-shell" hx-swap="morph:outerHTML">
+          <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Aprobar fase</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

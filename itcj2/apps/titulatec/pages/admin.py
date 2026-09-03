@@ -712,7 +712,15 @@ def _evento_detalle(ev, doc_names: dict) -> str | None:
     if p.get("version"):
         partes.append(f"v{p['version']}")
     if p.get("scheduled_at"):
-        partes.append(str(p["scheduled_at"]).replace("T", " ")[:16])
+        # El payload la guarda en ISO. Enseñarla asi («2026-09-07 09:30») rompe
+        # la lectura justo en la linea donde el resto de la pantalla dice
+        # «7 sep 2026 · 09:30».
+        crudo = str(p["scheduled_at"])
+        try:
+            from datetime import datetime
+            partes.append(_fecha_larga(datetime.fromisoformat(crudo)))
+        except ValueError:
+            partes.append(crudo.replace("T", " ")[:16])
     if p.get("source"):
         partes.append("importación CSV" if p["source"] == "csv" else "alta manual")
     texto = " · ".join(partes)

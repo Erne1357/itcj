@@ -61,6 +61,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [Guarda de fase del alumno: solo la fase en curso se ejecuta](engine_student_phase_lock.md) 👤🤖 — gemela de la anterior: siguientes = informativas, anteriores = inmutables.
 - [Alcance por carrera + asignación delegada de encargados](engine_officer_scope.md) 🏛️ — `officer_programs` acota bandeja/kanban/citas; el jefe da de alta encargados.
 - [Bandeja administrativa de procesos](xcut_admin_process_inbox.md) 🏛️🎓 ⤵ scope — tabla y kanban del mismo dataset, `idle_days` y filtro de atorados.
+- [Expediente del alumno](xcut_admin_process_expediente.md) 🏛️ ⤵ scope — acordeón de las 9 fases con el historial de cada una; documentos de solo lectura, mover de fase en modal, y el `?from=` que devuelve a la pestaña de origen con sus filtros.
 - [El alumno consulta el detalle de una fase](xcut_student_phase_detail.md) 👤 — **acordeón en el dashboard** (la pantalla `/fase/{n}` ya no existe: redirige): estado, instrucciones, sub-progreso, CTA y timeline.
 - [El alumno usa TitulaTec dentro del shell mobile del core](xcut_student_shell_embed.md) 👤 — embebido vs standalone, drawer/rail, notificaciones por Avisos, mini-perfil.
 

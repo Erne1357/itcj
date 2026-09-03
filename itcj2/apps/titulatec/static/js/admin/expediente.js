@@ -101,6 +101,49 @@
     }
   }, true);   // captura: hay que llegar ANTES que htmx al botón de rechazar
 
+  // El modal vive a nivel <body> (fuera del swap), así que no puede venir
+  // renderizado con la fase actual: se puebla al abrirlo desde los `data-*` del
+  // botón, que sí se re-renderiza con cada acción.
+  //
+  // Está fuera porque dentro del expediente salía roto: `#tt-admin-content`
+  // lleva `tt-anim-in` con `animation-fill-mode: both` y conserva un transform
+  // identidad al terminar, que crea bloque contenedor para `position: fixed`.
+  // El `height:100%` del `.modal` se resolvía contra los 1686 px del contenido
+  // en vez de contra la ventana y el diálogo quedaba cortado por abajo.
+  document.addEventListener('show.bs.modal', function (e) {
+    if (!e.target || e.target.id !== 'exp-modal-fase') return;
+    var boton = document.getElementById('exp-acciones');
+    if (!boton) return;
+    var titulo = document.getElementById('exp-modal-fase-t');
+    if (titulo) {
+      titulo.textContent = 'Fase ' + boton.getAttribute('data-tt-fase') + ' · ' +
+                           (boton.getAttribute('data-tt-fase-nombre') || '');
+    }
+    [['exp-aprobar', 'data-tt-aprobar'], ['exp-rechazar', 'data-tt-rechazar']]
+      .forEach(function (par) {
+        var btn = document.getElementById(par[0]);
+        if (!btn) return;
+        btn.setAttribute('hx-post', boton.getAttribute(par[1]) || '');
+        // htmx lee los atributos al procesar el nodo, no en cada clic.
+        if (window.htmx) htmx.process(btn);
+      });
+  });
+
+  // La acción salió bien: el modal se cierra solo. Si no, se queda tapando un
+  // expediente que YA cambió detrás, y hay que cerrarlo a mano para descubrirlo.
+  // Si salió mal (400 con X-Tt-Error) se queda abierto a propósito: el motivo
+  // escrito sigue ahí y el toast dice qué corregir.
+  document.addEventListener('htmx:afterRequest', function (e) {
+    var origen = e.target;
+    if (!origen || (origen.id !== 'exp-aprobar' && origen.id !== 'exp-rechazar')) return;
+    if (!e.detail || !e.detail.successful) return;
+    var modal = document.getElementById('exp-modal-fase');
+    if (modal && window.bootstrap) {
+      var inst = bootstrap.Modal.getInstance(modal);
+      if (inst) inst.hide();
+    }
+  });
+
   // Al cerrar el modal, el motivo no se queda escrito para la siguiente fase.
   document.addEventListener('hidden.bs.modal', function (e) {
     if (!e.target || e.target.id !== 'exp-modal-fase') return;
