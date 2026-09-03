@@ -69,7 +69,7 @@ from __future__ import annotations
 
 import itertools
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 import pytest
 
@@ -880,3 +880,103 @@ def titulatec_scenario(seed_phase_defs, seed_document_types, make_program,
         }
 
     return _build
+
+
+# ===========================================================================
+# Rediseno de Citas de cotejo (2026-09-03)
+# ===========================================================================
+# La jefatura pone los DIAS; cada encargado abre en ellos sus propias VENTANAS
+# con su horario, la duracion de sus franjas y cuantas personas caben en cada
+# una. El dueno es el USUARIO y no el puesto: `aux_school_services` tiene
+# `allows_multiple = TRUE` y nueve ocupantes en la BD real, asi que con
+# dueno = puesto esas nueve personas compartirian una sola ventana.
+
+def _hhmm(v):
+    """'09:30' | time(9,30) -> time(9,30). Azucar para las factories."""
+    if isinstance(v, time):
+        return v
+    h, m = str(v).split(":")
+    return time(int(h), int(m))
+
+
+@pytest.fixture()
+def make_review_window(db_session):
+    """Ventana de atencion de un encargado dentro de un dia de cotejo."""
+    from itcj2.apps.titulatec.models import ReviewWindow
+
+    def _make(day, owner, *, start="09:00", end="14:00", slot=30, cap=1,
+              location=None, status="open", position=None, created_by=None):
+        row = ReviewWindow(
+            review_day_id=day.id,
+            owner_user_id=getattr(owner, "id", owner),
+            owner_position_id=getattr(position, "id", position),
+            start_time=_hhmm(start),
+            end_time=_hhmm(end),
+            slot_minutes=slot,
+            capacity=cap,
+            location=location,
+            status=status,
+            created_by_id=(getattr(created_by, "id", created_by)
+                           or getattr(owner, "id", owner)),
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def set_cohort_defaults(db_session):
+    """Defaults de franja de una convocatoria, que la ventana hereda si no los pisa."""
+    def _set(cohort, *, start="09:00", end="14:00", slot=30, cap=1, location=None):
+        cohort.default_start_time = _hhmm(start)
+        cohort.default_end_time = _hhmm(end)
+        cohort.default_slot_minutes = slot
+        cohort.default_capacity = cap
+        cohort.default_location = location
+        db_session.flush()
+        return cohort
+
+    return _set
+
+
+@pytest.fixture()
+def agenda_slots(seed_phase_defs, seed_document_types, make_program, make_cohort,
+                 make_review_day, make_officer, make_student, make_process,
+                 make_review_window):
+    """Escenario minimo de franjas: 1 carrera, 1 dia, 1 ventana, 2 procesos.
+
+    La ventana es 09:00-11:00 en franjas de 30 con capacidad 1, o sea CUATRO
+    lugares. Basta para probar cupo duro, colision y rejilla.
+    """
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria de Franjas")
+    cohort = make_cohort()
+    dia = make_review_day(cohort, day=date(2029, 5, 7))
+    officer, pos = make_officer([prog])
+    ventana = make_review_window(dia, officer, start="09:00", end="11:00",
+                                 slot=30, cap=1, position=pos)
+    p1 = make_process(make_student(), cohort=cohort, program=prog, current_phase=2)
+    p2 = make_process(make_student(), cohort=cohort, program=prog, current_phase=2)
+    return {"prog": prog, "cohort": cohort, "dia": dia, "off": officer,
+            "pos": pos, "w": ventana, "p1": p1, "p2": p2}
+
+
+@pytest.fixture()
+def agenda_slots_lleno(agenda_slots, make_student, make_process):
+    """El mismo escenario pero con MAS procesos que lugares.
+
+    Ventana de 09:00 a 10:00 en franjas de 30 con capacidad 1 = DOS lugares,
+    contra CUATRO procesos. Es el caso de D4: el reparto se detiene y dice
+    cuantos quedaron fuera.
+    """
+    esc = dict(agenda_slots)
+    esc["w"].end_time = time(10, 0)          # 09:00 y 09:30, nada mas
+    procesos = [esc["p1"], esc["p2"]]
+    procesos += [make_process(make_student(), cohort=esc["cohort"],
+                              program=esc["prog"], current_phase=2)
+                 for _ in range(2)]
+    esc["procesos"] = procesos
+    return esc
