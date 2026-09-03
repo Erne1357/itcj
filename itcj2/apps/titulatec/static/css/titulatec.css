@@ -176,6 +176,12 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
 .tt-btn-ghost   { background: transparent; color: var(--tt-ink); border: 1px solid var(--tt-line); }
 .tt-btn-ghost:hover { background: var(--tt-mist); }
 .tt-btn-soft    { background: var(--tt-mist); color: var(--tt-ink); border: 1px solid var(--tt-line); }
+/* Accion destructiva: pesa distinto que sus vecinas. Marcar que un egresado no
+   se presento le dispara notificacion y hasta ahora era un boton fantasma
+   identico a "Reagendar", sin confirmacion y sin deshacer. */
+.tt-btn-danger-soft { background: var(--tt-danger-soft); color: #991B1B;
+                      border: 1px solid rgba(220,38,38,.35); }
+.tt-btn-danger-soft:hover { background: #FECACA; color: #7F1D1D; }
 
 /* ============================ INPUTS / FORM ============================ */
 .tt-label { font-size: .75rem; font-weight: 600; color: var(--tt-slate); margin-bottom: 6px; display: block; }
@@ -1301,6 +1307,50 @@ label.tt-appt-item .form-check-input { flex: 0 0 auto; width: 20px; height: 20px
 .tt-derivada { font-size: var(--tt-fs-200); color: var(--tt-text-2);
                background: var(--tt-mist); border-radius: var(--tt-r-sm);
                padding: var(--tt-sp-2) var(--tt-sp-3); }
+
+/* --- Barra de filtros: UNA fila, no un bloque --------------------------- */
+/* La primera version ocupaba 180 px de alto antes de que empezara el trabajo
+   del dia: buscador a ancho completo, dos selectores debajo y una casilla
+   suelta. Aqui el buscador manda y el resto acompana en la misma linea, con la
+   etiqueta dentro del propio control. */
+#appt-filters {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2);
+  padding: var(--tt-sp-3); background: var(--tt-paper);
+  border: 1px solid var(--tt-line); border-radius: var(--tt-r-lg);
+  box-shadow: var(--tt-shadow-card);
+}
+#appt-filters .tt-search { flex: 1 1 260px; height: 40px; }
+#appt-filters .tt-search > i { color: var(--tt-text-3); }
+#appt-filters .form-select { flex: 0 1 auto; width: auto; min-height: 40px;
+                             font-size: var(--tt-fs-200); }
+#appt-filters .tt-search:focus-within { border-color: var(--tt-focus);
+                                        box-shadow: 0 0 0 3px rgba(180,83,9,.18); }
+.tt-chk { display: inline-flex; align-items: center; gap: var(--tt-sp-2);
+          min-height: 40px; padding: 0 var(--tt-sp-2); margin: 0;
+          font-size: var(--tt-fs-200); color: var(--tt-text-2); cursor: pointer;
+          white-space: nowrap; }
+.tt-chk .form-check-input { width: 18px; height: 18px; margin: 0; flex: 0 0 auto; }
+.tt-chk:focus-within { outline: 2px solid var(--tt-focus); outline-offset: 2px;
+                       border-radius: var(--tt-r-sm); }
+
+/* --- Densidad del tablero ------------------------------------------------ */
+/* Diez franjas a 65 px eran 650 px de scroll para una manana de trabajo. El
+   asiento baja a 48, que sigue por encima del minimo tactil de 44. */
+.tt-seat { height: 48px; }
+.tt-slotrow { padding: 2px 0; }
+.tt-slotrow > .hora { padding-top: 12px; }
+/* El lugar libre no compite con el ocupado: es un hueco, no una tarjeta. */
+.tt-seat--libre { border-style: dashed; background: transparent; }
+.tt-seat--libre .who { color: var(--tt-text-3); font-weight: 500;
+                       font-size: var(--tt-fs-100); }
+button.tt-seat--libre { cursor: pointer; }
+button.tt-seat--libre .who { color: var(--tt-accent-ink); font-weight: 600;
+                             font-size: var(--tt-fs-200); }
+button.tt-seat--libre { border-color: var(--tt-accent-ink); border-style: solid;
+                        background: var(--tt-accent-soft); }
+
+/* --- El dia sin espacios no pesa lo mismo que uno con trabajo ------------ */
+.tt-day .ocup { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* --- Objetivos tactiles ------------------------------------------------- */
 /* Desacoplado del umbral de layout: Agenda apila hasta 1279, asi que atarlo a

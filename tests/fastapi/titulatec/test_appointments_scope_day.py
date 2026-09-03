@@ -161,39 +161,53 @@ class TestCalendario:
         assert AppointmentService.counts_by_day(db_session, start, end,
                                                 allowed_program_ids=set()) == {}
 
-    def test_el_rotulo_del_mes_va_en_espanol(self, agenda, client_as):
-        """`calendar.month_name` sale en el locale del proceso (C en el
-        contenedor) y escribia "May 2029" en una UI en espanol."""
+    def test_las_fechas_van_en_espanol(self, agenda, client_as):
+        """`calendar.month_name` y `day_abbr` salen en el locale del proceso, que
+        en el contenedor es C: escribian "May" y "Thu" en una UI en espanol.
+
+        El calendario MENSUAL murio en el rediseno del 2026-09-03 (29 de sus 35
+        celdas eran inertes), asi que lo que se comprueba ahora es el carril de
+        dias y el rotulo largo del dia abierto.
+        """
         esc = agenda()
-        resp = client_as(esc["head"]).get(URL + "?month=2029-05")
+        resp = client_as(esc["head"]).get(URL + "?date=" + _D1.isoformat())
 
         assert resp.status_code == 200
-        assert "Mayo 2029" in resp.text
-        assert "May 2029" not in resp.text
+        assert "lunes 07 de mayo" in resp.text.lower()
+        assert "Monday" not in resp.text and "May 2029" not in resp.text
 
-    def test_el_calendario_aterriza_donde_hay_trabajo(self, agenda, client_as):
-        """Sin `?month=`, si la convocatoria no tiene dias en el mes de hoy se
-        aterriza en el mes del proximo dia habilitado. Sin esto, abrir Citas
-        fuera de la semana de cotejo daba un mes vacio y ninguna pista — el mismo
-        callejon sin salida por el que se elimino el boton "Del dia"."""
+    def test_la_agenda_aterriza_donde_hay_trabajo(self, agenda, client_as):
+        """Sin `?date=`, aterriza en el dia CON TRABAJO: hoy si es dia de cotejo,
+        si no el proximo que tenga citas.
+
+        Abrir Citas fuera de la semana de cotejo daba una pantalla vacia y
+        ninguna pista de donde esta el trabajo, que es el mismo callejon sin
+        salida por el que murio el boton "Del dia".
+        """
         esc = agenda()
         resp = client_as(esc["head"]).get(URL)
 
         assert resp.status_code == 200
-        assert "Mayo 2029" in resp.text
+        assert _D1.isoformat() in resp.text or _D2.isoformat() in resp.text
+        assert esc["students"]["a1"].control_number in resp.text
 
 
 # ---------------------------------------------------------------------------
 # 3. "Por agendar" (zona B)
 # ---------------------------------------------------------------------------
 class TestPorAgendar:
-    def test_esta_en_las_tres_vistas_y_acotado(self, agenda, client_as):
-        """Fijo al lado del calendario: no puede vivir solo en la pestana Lista
-        (antes desde el calendario no habia forma de llegar a un alumno sin cita)."""
+    def test_esta_en_todas_las_vistas_de_agenda_y_acotado(self, agenda, client_as):
+        """La cola vive al lado del tablero en TODOS los modos.
+
+        No puede depender de estar en una pestana concreta: antes solo existia
+        en «Lista», asi que desde el calendario no habia forma de llegar a un
+        alumno sin cita. `?view=list` es la URL vieja y se traduce al modo
+        resultados en vez de romperse.
+        """
         esc = agenda()
-        for qs in ("", "?date=" + _D1.isoformat(), "?view=list"):
+        for qs in ("", "?date=" + _D1.isoformat(), "?view=list", "?q=alumno"):
             propio = client_as(esc["officer"]).get(URL + qs)
-            assert 'id="appt-pending"' in propio.text, "falta 'Por agendar' en " + (qs or "/")
+            assert 'id="appt-queue"' in propio.text, "falta la cola en " + (qs or "/")
             assert esc["students"]["ap"].control_number in propio.text, qs
             assert esc["students"]["bp"].control_number not in propio.text, qs
 
@@ -216,8 +230,8 @@ class TestPorAgendar:
         resp = client_as(officer).get(URL)
 
         assert resp.status_code == 200
-        assert 'id="appt-pending"' in resp.text
-        assert 'id="appt-pending-count">0<' in resp.text
+        assert 'id="appt-queue"' in resp.text
+        assert "Por agendar" in resp.text
         assert "Nadie pendiente de agendar" in resp.text
 
     def test_el_contador_no_lo_tocan_los_filtros_de_la_lista(self, agenda, client_as):
@@ -243,22 +257,23 @@ class TestDetalle:
         estrechara a las filas del dia, este deep link dejaria de abrir la ficha."""
         esc = agenda()
         resp = client_as(esc["officer"]).get(
-            URL + "?date=" + _D1.isoformat() + "&selected=" + str(esc["procs"]["a2"].id))
+            URL + "?v=atender&date=" + _D1.isoformat()
+            + "&selected=" + str(esc["procs"]["a2"].id))
 
         assert resp.status_code == 200
         assert esc["students"]["a2"].control_number in resp.text
-        assert 'id="appt-detail"' in resp.text
+        assert 'id="appt-subject"' in resp.text
 
     def test_abre_a_un_alumno_de_por_agendar_que_no_tiene_cita(self, agenda, client_as):
         """Un pendiente no esta en NINGUNA lista de citas: si el universo se
         calculara solo sobre la agenda, "Por agendar" no podria abrirse."""
         esc = agenda()
         resp = client_as(esc["officer"]).get(
-            URL + "?selected=" + str(esc["procs"]["ap"].id))
+            URL + "?v=atender&selected=" + str(esc["procs"]["ap"].id))
 
         assert resp.status_code == 200
         assert esc["students"]["ap"].control_number in resp.text
-        assert "Agendar cita de cotejo" in resp.text
+        assert "Sin cita todavía" in resp.text
 
     @pytest.mark.parametrize("url", [URL, BODY])
     def test_un_selected_ajeno_no_filtra_la_ficha(self, url, agenda, client_as):
@@ -322,12 +337,15 @@ def test_toda_consulta_de_listado_recibe_el_alcance():
 
     from itcj2.apps.titulatec.pages import appointments as mod
 
-    src = inspect.getsource(mod._shell_ctx)
+    # `_shell_ctx` delega en tres ayudantes; se barren los cuatro juntos, o una
+    # consulta que se mude de sitio se escaparia del regresor sin avisar.
+    src = "\n".join(inspect.getsource(f) for f in
+                    (mod._shell_ctx, mod._board_ctx, mod._pager_ctx, mod._dias_ctx))
     sin_alcance = []
-    for metodo in ("list_for_day", "list_appointments", "counts_by_day",
-                   "list_pending_processes", "agenda_process_ids"):
-        # `counts_by_day` vive en `_calendar_ctx`, al que `_shell_ctx` delega.
-        cuerpo = src if metodo != "counts_by_day" else inspect.getsource(mod._calendar_ctx)
+    for metodo in ("list_for_day", "list_appointments",
+                   "list_pending_processes", "list_reschedule_processes",
+                   "agenda_process_ids"):
+        cuerpo = src
         for llamada in re.findall(re.escape(metodo) + r"\((?:[^()]|\([^()]*\))*\)", cuerpo):
             if "allowed_program_ids" not in llamada and "allowed" not in llamada:
                 sin_alcance.append(metodo + ": " + " ".join(llamada.split()))

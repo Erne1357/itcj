@@ -4,28 +4,45 @@
    Vive aquí y NO en `titulatec/_macros.html` a propósito: aquel lo importan
    tres plantillas del alumno y es territorio compartido. Esto es solo de Citas.
 
-   `appt_nav(url)` emite los atributos de UN control de la agenda. La misma URL
-   va en `href` y en `hx-get` (una sola fuente: no pueden divergir) y apunta a la
-   URL de PÁGINA, no a `/body`:
+   TRES contratos, no uno, porque hacen tres cosas distintas:
 
-     · `hx-select="#appt-shell"` recorta el shell de la respuesta completa, así
-       que `hx-push-url="true"` empuja la URL real y F5 / Atrás reconstruyen el
-       estado exacto. Con `hx-get` a `/body` el push habría dejado el parcial
-       desnudo en la barra de direcciones.
+   1. `appt_nav(url)` — navegación de verdad: cambiar de sub-vista, de día o de
+      alumno. Empuja historial, así que Atrás y F5 reconstruyen el estado exacto.
+
+   2. `appt_nav_filter()` — buscador y chips. Usa `hx-replace-url`, NO
+      `hx-push-url`: con el debounce del buscador, cada ráfaga metía una entrada
+      en el historial y el botón Atrás quedaba inservible (había que pulsarlo una
+      vez por letra tecleada).
+
+   3. `appt_action(url)` — POST. Sin `hx-select` y sin `hx-push-url`. Un
+      `<form method="post">` pelado navegaría de verdad y pintaría el parcial
+      desnudo en la ventana.
+
+   Invariantes que los tres respetan:
+
+     · La misma URL va en `href` y en `hx-get` (una sola fuente: no pueden
+       divergir) y apunta a la URL de PÁGINA, no a `/body`. Con `hx-get` a
+       `/body` el push habría dejado el parcial desnudo en la barra de
+       direcciones y F5 devolvería un fragmento sin `<head>`.
      · `hx-select == hx-target` OBLIGA a un swap de la familia `outerHTML`
-       (invariante de la app, `tests/fastapi/titulatec/test_admin_nav_swap.py`):
-       el nodo recortado trae el mismo id que el destino y con `innerHTML`
-       acabaría dentro de sí mismo.
+       (invariante de la app): el nodo recortado trae el mismo id que el destino
+       y con `innerHTML` acabaría dentro de sí mismo.
      · `morph` (Idiomorph, heredado de `#ttAdmin`) conserva los nodos que no
-       cambiaron: cambiar de mes no repinta "Por agendar" ni la ficha abierta.
+       cambiaron: cambiar de día no repinta la cola ni pierde su scroll.
+
+   Lo vigila `tests/fastapi/titulatec/test_admin_nav_swap.py`, que desde el
+   2026-09-03 lee ESTE archivo: su barrido miraba etiquetas `<a ... hx-select>`
+   del HTML y no veía los atributos que salen de un macro.
    =========================================================================== #}
 
 {% macro appt_nav(url) -%}
 href="{{ url }}" hx-get="{{ url }}" hx-target="#appt-shell" hx-select="#appt-shell" hx-swap="morph:outerHTML" hx-push-url="true" hx-indicator="#appt-skel"
 {%- endmacro %}
 
-{# Igual, pero para formularios (selector de fecha, barra de filtros): la URL la
-   compone htmx con los campos, así que aquí no va query string. #}
-{% macro appt_nav_form() -%}
-hx-target="#appt-shell" hx-select="#appt-shell" hx-swap="morph:outerHTML" hx-push-url="true" hx-indicator="#appt-skel"
+{% macro appt_nav_filter() -%}
+hx-target="#appt-shell" hx-select="#appt-shell" hx-swap="morph:outerHTML" hx-replace-url="true" hx-indicator="#appt-skel"
+{%- endmacro %}
+
+{% macro appt_action(url) -%}
+hx-post="{{ url }}" hx-target="#appt-shell" hx-swap="morph:outerHTML" hx-indicator="#appt-skel"
 {%- endmacro %}

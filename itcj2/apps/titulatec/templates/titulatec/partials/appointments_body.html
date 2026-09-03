@@ -1,57 +1,76 @@
 {# ===========================================================================
-   appointments_body.html — `#appt-shell`: las TRES zonas de la agenda de citas.
+   appointments_body.html — `#appt-shell`: la zona fija y la sub-vista que toque.
 
-     A · agenda      calendario del mes (principal) | día concreto | lista filtrada
-     B · por agendar SIEMPRE visible, con contador
-     C · detalle     ficha del alumno abierto, AL LADO de la zona A
+   TRES SUB-VISTAS HERMANAS, no tres zonas peleándose por el ancho:
 
-   Es el único nodo que se swappea (`morph:outerHTML`), tanto por los enlaces de
-   navegación como por las 5 acciones POST. Contexto: `_shell_ctx(...)`.
+       Agenda     dónde está el trabajo: carril de días, tablero y cola
+       Atender    un alumno a la vez, a ancho completo
+       Espacios   el horario propio del encargado dentro de los días de la jefa
 
-   `data-tt-view` es CONSTANTE a propósito: identifica la región para
-   `titulatec-utils.js`, y al no cambiar nunca entre swaps de la propia página el
-   shell entero NO se re-anima («si algo no cambia, que no se mueva»). Lo que sí
-   se anima es lo que de verdad cambió, vía `data-tt-fade-key`
-   (`js/admin/appointments.js`).
+   Cada una declara su rejilla UNA vez por breakpoint y ninguna clase de estado
+   la reescribe. Lo que cambia al elegir un alumno es QUÉ sub-vista se renderiza,
+   nunca cuánto mide una columna: por eso ya nada se encoge ni salta.
+
+   Antes, abrir un alumno pasaba la agenda de 676 a 340 px, la celda del
+   calendario de 91.6 a 43.6, y mandaba «Por agendar» 692 px a la izquierda y
+   527 hacia abajo. A 390 px la ficha se insertaba ARRIBA y empujaba todo
+   1220 px.
+
+   Es el ÚNICO nodo que se swappea (`morph:outerHTML`). `data-tt-view` es
+   CONSTANTE a propósito: identifica la región para `titulatec-utils.js` y, al
+   no cambiar nunca, el shell entero no se re-anima en sus propios swaps. Lo que
+   sí se anima es la zona cuya `data-tt-fade-key` cambió, y esas claves van en
+   las HOJAS: puesta en la raíz de una sub-vista, el padre se anima y arrastra
+   en el fundido a la cola y al visor.
    =========================================================================== #}
 {% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav %}
 
-{% set U_CAL  = page_url ~ '?' ~ (('month=' ~ cal.month_value ~ '&') if cal else '') ~ q_sel %}
-{% set U_LIST = page_url ~ '?view=list' ~ (('&' ~ q_sel) if q_sel else '') %}
+{% set U_BASE = page_url %}
+{% set QS_DIA = ('?date=' ~ day) if day else '' %}
+{% set U_AGENDA = U_BASE ~ QS_DIA %}
+{% set U_ATENDER = U_BASE ~ '?v=atender' ~ (('&date=' ~ day) if day else '')
+                   ~ (('&selected=' ~ selected_id) if selected_id else '') %}
+{% set U_ESPACIOS = U_BASE ~ '?v=espacios' ~ (('&date=' ~ day) if day else '') %}
 
-<div id="appt-shell" class="tt-appt{{ ' has-detail' if detail }}"
-     data-tt-view="appointments-shell">
+<div id="appt-shell" data-tt-view="appointments-shell">
 
-  {# ================= ZONA A · agenda ================= #}
-  <section class="tt-appt-agenda" id="appt-agenda" aria-label="Agenda"
-           data-tt-fade-key="{{ zone }}|{{ day }}|{{ cal.month_value if cal else '' }}|{{ f_program }}|{{ f_status }}|{{ 1 if f_mine else 0 }}">
+  {# ===================== ZONA FIJA ===================== #}
+  {# Byte-idéntica entre sub-vistas, así que Idiomorph la conserva y la cabecera
+     no se mueve un píxel al cambiar de pestaña. #}
+  <div class="tt-appt-head">
+    <span class="tt-kicker">Fase 02 · Servicios Escolares</span>
+    <h1 class="tt-h-page">Citas de cotejo</h1>
+    <p class="tt-sub">Agenda y atiende el cotejo de documentos físicos por carrera.</p>
 
-    {# Segmento de DOS opciones con estado activo real. "Del día" ya no existe:
-       sin fecha aterrizaba en HOY, que fuera de la semana de cotejo son 0 citas
-       — un callejón sin salida. Al día se llega picando una celda del calendario. #}
-    <div class="tt-appt-seg mb-3" role="group" aria-label="Vista de la agenda">
-      <a class="seg{{ ' is-active' if zone in ('calendar', 'day') }}"
-         {% if zone in ('calendar', 'day') %}aria-current="true"{% endif %}
-         {{ appt_nav(U_CAL) }}><i class="bi bi-calendar3"></i>Calendario</a>
-      <a class="seg{{ ' is-active' if zone == 'list' }}"
-         {% if zone == 'list' %}aria-current="true"{% endif %}
-         {{ appt_nav(U_LIST) }}><i class="bi bi-list-ul"></i>Lista</a>
-    </div>
+    <nav class="tt-appt-seg mt-3" aria-label="Secciones de citas de cotejo">
+      <a class="seg{{ ' is-active' if v == 'agenda' }}"
+         {% if v == 'agenda' %}aria-current="page"{% endif %}
+         {{ appt_nav(U_AGENDA) }}>
+        <i class="bi bi-calendar3" aria-hidden="true"></i>Agenda
+        {% if pending_count or reagendar_count %}
+        <span class="tt-badge" aria-hidden="true">{{ pending_count + reagendar_count }}</span>
+        <span class="visually-hidden">, {{ pending_count + reagendar_count }} por atender</span>
+        {% endif %}
+      </a>
+      <a class="seg{{ ' is-active' if v == 'atender' }}"
+         {% if v == 'atender' %}aria-current="page"{% endif %}
+         {{ appt_nav(U_ATENDER) }}>
+        <i class="bi bi-person-check" aria-hidden="true"></i>Atender
+      </a>
+      <a class="seg{{ ' is-active' if v == 'espacios' }}"
+         {% if v == 'espacios' %}aria-current="page"{% endif %}
+         {{ appt_nav(U_ESPACIOS) }}>
+        <i class="bi bi-clock" aria-hidden="true"></i>Espacios
+      </a>
+    </nav>
+  </div>
 
-    {% if zone == 'list' %}
-    {% include "titulatec/partials/appointments_list.html" %}
-    {% elif zone == 'day' %}
-    {% include "titulatec/partials/appointments_day.html" %}
-    {% else %}
-    {% include "titulatec/partials/appointments_calendar.html" %}
-    {% endif %}
-  </section>
-
-  {# ================= ZONA B · por agendar ================= #}
-  {% include "titulatec/partials/appointments/_appt_pending.html" %}
-
-  {# ================= ZONA C · detalle ================= #}
-  {% if detail %}
-  {% include "titulatec/partials/appointments/_appt_detail.html" %}
+  {# ===================== SUB-VISTA ===================== #}
+  {% if v == 'atender' %}
+    {% include "titulatec/partials/appointments/_appt_attend.html" %}
+  {% elif v == 'espacios' %}
+    {% include "titulatec/partials/appointments/_appt_spaces.html" %}
+  {% else %}
+    {% include "titulatec/partials/appointments/_appt_agenda.html" %}
   {% endif %}
 </div>

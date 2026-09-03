@@ -237,7 +237,16 @@
     var xhr = e.detail && e.detail.xhr;
     if (!xhr || xhr.status < 200 || xhr.status >= 300) return;
     var msg = decodeHeaderMsg(xhr.getResponseHeader('X-Tt-Notice'));
-    if (msg) showToast(msg, 'warning');
+    if (!msg) return;
+    // `success` cuando la accion salio bien; `warning` cuando fue una colision
+    // de estado (otro encargado gano la franja, la cita ya cambio).
+    var kind = xhr.getResponseHeader('X-Tt-Notice-Kind') === 'success' ? 'success' : 'warning';
+    showToast(msg, kind);
+    // Y al lector de pantalla, por la region viva persistente que sobrevive al
+    // swap: el toast se pinta y se va, y aria-live sobre un nodo recien
+    // insertado no se anuncia de forma fiable.
+    var say = document.getElementById('appt-say');
+    if (say) say.textContent = msg;
   });
 
   // ————————————————————————————————— puente `hx-confirm` -> confirmDialog

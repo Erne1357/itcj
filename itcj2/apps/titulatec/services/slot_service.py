@@ -85,6 +85,38 @@ class SlotService:
         return salida
 
     @staticmethod
+    def slots_from(start, end, minutes) -> list:
+        """Las mismas franjas, pero a partir de valores sueltos.
+
+        La usa el editor de espacios para calcular la linea derivada («10 franjas
+        de 2 personas, 20 citas en total») ANTES de que exista la ventana. Acepta
+        `time` o "HH:MM" indistintamente, que es lo que llega de un formulario.
+        """
+        def _t(v):
+            if isinstance(v, time):
+                return v
+            try:
+                h, m = str(v).split(":")[:2]
+                return time(int(h), int(m))
+            except (ValueError, TypeError):
+                return None
+
+        ini, fin = _t(start), _t(end)
+        try:
+            paso = timedelta(minutes=int(minutes))
+        except (TypeError, ValueError):
+            return []
+        if ini is None or fin is None or paso <= timedelta(0):
+            return []
+        base = date(2000, 1, 1)
+        actual, tope = datetime.combine(base, ini), datetime.combine(base, fin)
+        salida = []
+        while actual + paso <= tope:
+            salida.append(actual.time())
+            actual += paso
+        return salida
+
+    @staticmethod
     def day_defaults(db: Session, review_day) -> dict:
         """Valores efectivos de un día: override del día, o el de la convocatoria.
 
