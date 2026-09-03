@@ -175,17 +175,44 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_66_permisos_conocidos():
+def test_el_dml_declara_los_69_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    66 es el numero verificado en BD tras `titulatec init-titulatec`
-    (CLAUDE.md de la app, §9). Si baja, alguien recorto el 02; si sube, el
-    numero de esta asercion se actualiza junto con la doc.
+    69 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 66
+    hasta el 2026-09-03, cuando el rediseno de Citas anadio los tres de
+    `review_window.*` en su propio archivo 08 (aparte del 03, que lleva DELETE
+    que se re-aplican en cada corrida).
+
+    Si baja, alguien recorto un seeder; si sube, este numero se actualiza junto
+    con la doc.
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 66, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 66. "
+    assert len(declared) == 69, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 69. "
         "Actualiza este numero SOLO si el cambio en database/DML/titulatec/ es "
         f"intencional. Declarados: {sorted(declared)}"
     )
+
+
+@requires_dml
+def test_los_permisos_de_espacios_estan_en_su_propio_archivo():
+    """No pueden vivir en el 03.
+
+    `03_insert_role_permissions.sql` lleva dos DELETE que se re-aplican en CADA
+    corrida de `init-titulatec`. Un permiso concedido ahi puede quedar revocado
+    por una re-siembra, y el sintoma es un 403 que aparece solo despues de
+    sembrar.
+    """
+    ocho = (DML_DIR / "08_insert_review_window_perms.sql")
+    assert ocho.exists(), "falta 08_insert_review_window_perms.sql"
+    cuerpo = ocho.read_text(encoding="utf-8")
+    for codigo in ("titulatec.review_window.page.manage",
+                   "titulatec.review_window.api.manage",
+                   "titulatec.review_window.api.manage.all"):
+        assert codigo in cuerpo, f"{codigo} no esta en el archivo 08"
+
+    tres = (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8")
+    assert "review_window" not in tres, (
+        "los permisos de espacios NO pueden vivir en el 03: sus DELETE se "
+        "re-aplican en cada corrida y pueden revocarlos")

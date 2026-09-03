@@ -32,6 +32,7 @@ SEED_FILES = [
     "05_insert_position_app_roles.sql",   # Mapeo puestos→roles (escolares, titulaciones, vinculación)
     "06_seed_catalogs.sql",               # Modalidades, fases (0-8) y tipos de documento
     "07_insert_cotejo_reqs_perm.sql",     # Permiso de requisitos de cotejo (rol head)
+    "08_insert_review_window_perms.sql",  # Espacios de cotejo por encargado (ventanas)
 ]
 
 
