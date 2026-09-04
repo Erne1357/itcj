@@ -25,8 +25,10 @@ TASK_DEFINITIONS = [
         "task_name": "itcj2.tasks.helpdesk_tasks.cleanup_attachments",
         "display_name": "Limpieza de Adjuntos Expirados",
         "description": (
-            "Marca adjuntos de tickets resueltos/cerrados para auto-eliminación (7 días) "
-            "y elimina los que ya pasaron su fecha de expiración del disco y la base de datos."
+            "Marca adjuntos de tickets CERRADOS para auto-eliminación (7 días) y borra "
+            "del disco y de la base los que ya vencieron. Los tickets CANCELADOS se "
+            "limpian de inmediato, sin periodo de gracia. Los comentarios no se borran: "
+            "solo sus archivos."
         ),
         "app_name": "helpdesk",
         "category": "maintenance",
@@ -79,8 +81,13 @@ def cleanup_attachments(self, task_run_id: int | None = None, dry_run: bool = Fa
     Paso 1 — Marcar para borrado: recorre tickets en status CLOSED sin fecha
               de auto-delete y asigna auto_delete_at = ticket.updated_at + 7 días
               (updated_at es la fecha de cierre, ya que un ticket cerrado no cambia más).
-    Paso 2 — Eliminar expirados: borra archivos del disco y registros de DB
-              donde auto_delete_at <= ahora Y el ticket lleva >= 7 días cerrado.
+              Los CANCELADOS no se marcan: no lo necesitan (ver paso 2).
+    Paso 2 — Eliminar: borra archivos del disco y registros de DB. Dos caminos,
+              uno por estado terminal (el criterio vive en `_attachments_a_borrar`):
+                · CLOSED   — con marca vencida Y >= 7 días cerrado.
+                · CANCELED — de inmediato, sin gracia y sin marca previa.
+              Se borran los ARCHIVOS, nunca los comentarios: el texto de la
+              conversación es como se sabe por qué se canceló el ticket.
 
     Args:
         task_run_id: ID del TaskRun creado por la API antes de encolar esta tarea.
@@ -143,27 +150,11 @@ def cleanup_attachments(self, task_run_id: int | None = None, dry_run: bool = Fa
             if not dry_run:
                 deleted, freed_bytes, by_ticket = _cleanup_with_metrics(db, errors)
             else:
-                from itcj2.apps.helpdesk.models.attachment import Attachment
-                from itcj2.apps.helpdesk.models.ticket import Ticket
-                from itcj2.apps.helpdesk.services.attachment_cleanup import AUTO_DELETE_DAYS
-                from sqlalchemy.orm import joinedload
-                from datetime import datetime, timedelta
-                _now = db_now()
-                _cutoff = _now - timedelta(days=AUTO_DELETE_DAYS)
-                expired = (
-                    db.query(Attachment)
-                    .options(joinedload(Attachment.ticket))
-                    .join(Ticket, Ticket.id == Attachment.ticket_id)
-                    .filter(
-                        Attachment.auto_delete_at.isnot(None),
-                        Attachment.auto_delete_at <= _now,
-                        Ticket.status == "CLOSED",
-                        Ticket.updated_at <= _cutoff,
-                    )
-                    .all()
-                )
-                deleted = len(expired)
+                # MISMO predicado que el borrado real, no una copia: ver
+                # `_attachments_a_borrar`.
                 import os
+                expired = _attachments_a_borrar(db)
+                deleted = len(expired)
                 freed_bytes = sum(
                     os.path.getsize(a.filepath)
                     for a in expired
@@ -235,36 +226,68 @@ def _push_user_notification(user_id: int, title: str, body: str, link: str | Non
         logger.error(f"[helpdesk_tasks] Error creando notificación para user {user_id}: {e}")
 
 
-def _cleanup_with_metrics(db, errors: list) -> tuple:
-    """Elimina adjuntos expirados y devuelve (deleted_count, freed_bytes, by_ticket).
+def _attachments_a_borrar(db) -> list:
+    """Los adjuntos que toca borrar en esta pasada. **Única** fuente del criterio.
 
-    Doble condición de seguridad:
-      1. auto_delete_at está fijado y ya venció.
-      2. El ticket está CLOSED y ticket.updated_at tiene >= 7 días (guarda
-         contra fechas mal calculadas que pudieran adelantar el borrado).
+    Dos caminos, uno por estado terminal del ticket:
+
+    * **CLOSED** — doble condición de seguridad: `auto_delete_at` fijado y ya
+      vencido, Y el ticket lleva >= AUTO_DELETE_DAYS cerrado. La segunda guarda
+      protege contra una fecha mal calculada que adelantara el borrado.
+    * **CANCELED** — sin periodo de gracia y sin necesidad de marca previa. Un
+      ticket cancelado no vuelve (`CANCELED` es terminal: no hay ninguna fila
+      que salga de él en `helpdesk_status_transition`), así que sus archivos no
+      le sirven ya a nadie. Antes ni se marcaban ni se borraban, y como no podían
+      llegar nunca a CLOSED se quedaban en disco para siempre.
+
+    El resto de estados NO entra, RESOLVED_* incluido: resuelto no es final —
+    pasa a CLOSED cuando el solicitante califica— y hasta entonces sus archivos
+    todavía se pueden necesitar.
+
+    Existe como función y no como dos consultas copiadas porque el conteo del
+    `dry_run` y el borrado real las tenían duplicadas: dos copias de un `filter`
+    es una que se queda atrás, y el modo que existe para *no* sorprenderte sería
+    justo el que mintiera.
     """
-    import os
-    from datetime import datetime, timedelta
+    from datetime import timedelta
+    from sqlalchemy import and_, or_
+    from sqlalchemy.orm import joinedload
+
     from itcj2.apps.helpdesk.models.attachment import Attachment
     from itcj2.apps.helpdesk.models.ticket import Ticket
     from itcj2.apps.helpdesk.services.attachment_cleanup import AUTO_DELETE_DAYS
-    from sqlalchemy.orm import joinedload
 
     now = db_now()
     cutoff = now - timedelta(days=AUTO_DELETE_DAYS)
 
-    expired = (
+    return (
         db.query(Attachment)
         .options(joinedload(Attachment.ticket))
         .join(Ticket, Ticket.id == Attachment.ticket_id)
         .filter(
-            Attachment.auto_delete_at.isnot(None),
-            Attachment.auto_delete_at <= now,
-            Ticket.status == "CLOSED",
-            Ticket.updated_at <= cutoff,
+            or_(
+                and_(
+                    Ticket.status == "CLOSED",
+                    Attachment.auto_delete_at.isnot(None),
+                    Attachment.auto_delete_at <= now,
+                    Ticket.updated_at <= cutoff,
+                ),
+                Ticket.status == "CANCELED",
+            )
         )
         .all()
     )
+
+
+def _cleanup_with_metrics(db, errors: list) -> tuple:
+    """Elimina los adjuntos que marca `_attachments_a_borrar` y mide el resultado.
+
+    Devuelve (deleted_count, freed_bytes, by_ticket).
+    """
+    import os
+    from datetime import datetime
+
+    expired = _attachments_a_borrar(db)
 
     deleted = 0
     freed_bytes = 0
