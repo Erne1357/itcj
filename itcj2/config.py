@@ -6,6 +6,11 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
+    # Bump 2026-09-04: el icono de Extensiones (directory.png) entra al dashboard
+    # de escritorio y al card movil, y cambia `dashboard.js`. Sin bump, el navegador
+    # con cache caliente serviria el JS viejo, que genera el tile con el icono
+    # lucide en vez de reusar el de la plantilla.
+    #
     # Bump 2026-09-03: el expediente del alumno añade `admin/expediente.js` (que
     # carga la base admin) y un bloque nuevo en `titulatec.css` (`.tt-exp-*` y
     # los tonos del historial). Con caché caliente, el acordeón de las 9 fases
@@ -21,7 +26,7 @@ class Settings(BaseSettings):
     #
     # Bump 2026-08-10: la revisión de helpdesk tocó 55 archivos CSS/JS (registro
     # de orígenes, sockets, filtros, detalle de equipo, asignación, home).
-    STATIC_VERSION: str = "1.0.1111516"
+    STATIC_VERSION: str = "1.0.1111517"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
