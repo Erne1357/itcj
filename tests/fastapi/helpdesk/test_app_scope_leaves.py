@@ -39,6 +39,7 @@ from itcj2.core.models.department import Department
 from itcj2.core.models.permission import Permission
 from itcj2.core.models.position import Position, PositionAppPerm, PositionAppRole, UserPosition
 from itcj2.core.models.role import Role
+from itcj2.core.models.role_permission import RolePermission
 from itcj2.core.models.user import User
 from itcj2.core.models.user_app_perm import UserAppPerm
 
@@ -84,13 +85,38 @@ def _perm(db, app, code) -> Permission:
     return p
 
 
+# Lo que el DML le da a estos roles en producción, y sin lo cual el andamiaje
+# construye un usuario que no existe en ninguna instalación real.
+_PERMS_POR_ROL = {
+    "department_head": ("helpdesk.tickets.api.read.department",),
+    "secretary": ("helpdesk.tickets.api.read.department",),
+}
+
+
 def _role(db, name) -> Role:
+    """El rol, con los permisos que el DML le da EN PRODUCCIÓN.
+
+    Ojo con el entorno: en la base de dev los roles ya vienen sembrados desde
+    `database/DML/`, pero CI arranca de un `create_all` VACÍO — el DML tiene PII
+    y nunca llega al checkout. Un `Role(name=...)` pelado es un rol que en
+    ninguna instalación real existe, y desde que el scope departamental se abre
+    por PERMISO (`helpdesk.tickets.api.read.department`) y no por el nombre del
+    rol, montar el andamiaje así hacía que estos tests probaran un usuario
+    imposible: con la etiqueta de jefe y sin ninguno de sus permisos.
+    """
     r = db.query(Role).filter_by(name=name).first()
     if not r:
         r = Role(name=name)
         db.add(r)
         db.commit()
         db.refresh(r)
+    for code in _PERMS_POR_ROL.get(name, ()):
+        perm = _perm(db, _helpdesk(db), code)
+        ya = (db.query(RolePermission)
+              .filter_by(role_id=r.id, perm_id=perm.id).first())
+        if not ya:
+            db.add(RolePermission(role_id=r.id, perm_id=perm.id))
+            db.commit()
     return r
 
 
@@ -273,8 +299,13 @@ class TestResolveStatsScope:
 
 
 class TestDepartmentStatsEndpoint:
-    """`get_department_stats` (`GET /stats/department/{id}`): mismo bug, con
-    `department_head` como rol que habilita la rama."""
+    """`get_department_stats` (`GET /stats/department/{id}`): mismo bug.
+
+    La rama la habilita el PERMISO `helpdesk.tickets.api.read.department`, que es
+    lo que el DML le da al rol `department_head` (y también a `secretary`, que es
+    por lo que una secretaría dejó de recibir 403 en sus KPIs). El andamiaje lo
+    siembra en `_role`.
+    """
 
     def test_leak_older_foreign_position_is_excluded(self, db_session):
         from itcj2.apps.helpdesk.api.stats import get_department_stats

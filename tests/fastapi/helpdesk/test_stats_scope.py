@@ -39,6 +39,7 @@ from itcj2.core.models.department import Department
 from itcj2.core.models.permission import Permission
 from itcj2.core.models.position import Position, PositionAppPerm, PositionAppRole, UserPosition
 from itcj2.core.models.role import Role
+from itcj2.core.models.role_permission import RolePermission
 from itcj2.core.models.user import User
 from itcj2.database import get_db
 from itcj2.main import create_app
@@ -89,13 +90,38 @@ def _perm(db, app, code) -> Permission:
     return p
 
 
+# Lo que el DML le da a estos roles en producción, y sin lo cual el andamiaje
+# construye un usuario que no existe en ninguna instalación real.
+_PERMS_POR_ROL = {
+    "department_head": ("helpdesk.tickets.api.read.department",),
+    "secretary": ("helpdesk.tickets.api.read.department",),
+}
+
+
 def _role(db, name) -> Role:
+    """El rol, con los permisos que el DML le da EN PRODUCCIÓN.
+
+    Ojo con el entorno: en la base de dev los roles ya vienen sembrados desde
+    `database/DML/`, pero CI arranca de un `create_all` VACÍO — el DML tiene PII
+    y nunca llega al checkout. Un `Role(name=...)` pelado es un rol que en
+    ninguna instalación real existe, y desde que el scope departamental se abre
+    por PERMISO (`helpdesk.tickets.api.read.department`) y no por el nombre del
+    rol, montar el andamiaje así hacía que estos tests probaran un usuario
+    imposible: con la etiqueta de jefe y sin ninguno de sus permisos.
+    """
     r = db.query(Role).filter_by(name=name).first()
     if not r:
         r = Role(name=name)
         db.add(r)
         db.commit()
         db.refresh(r)
+    for code in _PERMS_POR_ROL.get(name, ()):
+        perm = _perm(db, _helpdesk(db), code)
+        ya = (db.query(RolePermission)
+              .filter_by(role_id=r.id, perm_id=perm.id).first())
+        if not ya:
+            db.add(RolePermission(role_id=r.id, perm_id=perm.id))
+            db.commit()
     return r
 
 
@@ -168,8 +194,13 @@ def _grant(db, user, department, *, code, start_date=None, end_date=None) -> Pos
 
 
 def _grant_head(db, user, department, *, code, start_date=None, end_date=None) -> Position:
-    """Como `_grant`, pero además otorga el ROL `department_head` (necesario
-    para `/stats/department/{id}`, que gatea por rol además del permiso)."""
+    """Como `_grant`, pero además otorga el ROL `department_head`.
+
+    Lo que abre la rama de `/stats/department/{id}` es el PERMISO
+    `helpdesk.tickets.api.read.department`; el rol importa porque es quien lo
+    lleva (lo siembra `_role`, replicando el DML). Antes gateaba por el nombre
+    del rol, y ahí se caían las secretarías, que tienen el permiso y no el rol.
+    """
     pos = _grant(db, user, department, code=code, start_date=start_date, end_date=end_date)
     app = _helpdesk(db)
     role = _role(db, "department_head")
