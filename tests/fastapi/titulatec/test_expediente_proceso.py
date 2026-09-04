@@ -87,10 +87,15 @@ def en_disco(monkeypatch):
     `make_document` NO escribe en disco (lo dice su docstring), y el expediente
     resuelve `missing` mirando el disco de verdad: sin esto, cada documento de
     prueba sale como «Archivo perdido» y el visor nunca aparece.
+
+    Se apunta a ESTE archivo de test y no a una ruta absoluta del contenedor
+    (`/app/pytest.ini`): existe en el contenedor de dev y no en el runner de CI,
+    así que el test pasaba aquí y fallaba allí.
     """
     from pathlib import Path
     from itcj2.apps.titulatec.utils import storage
-    monkeypatch.setattr(storage, "abs_path", lambda _rel: Path("/app/pytest.ini"))
+    aqui = Path(__file__).resolve()
+    monkeypatch.setattr(storage, "abs_path", lambda _rel: aqui)
 
 
 # El encargado del expediente ve y ADEMAS mueve de fase: es la unica accion que

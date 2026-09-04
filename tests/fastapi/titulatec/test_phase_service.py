@@ -10,6 +10,8 @@ prueba en `test_phase_guard.py`.
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 import itcj2.models  # noqa: F401
 
 from itcj2.apps.titulatec.services.phase_service import PhaseService
@@ -17,6 +19,19 @@ from itcj2.apps.titulatec.services.phase_service import PhaseService
 # Ultima fase del catalogo real (`06_seed_catalogs.sql`: 0-8). Las pruebas puras
 # la pasan explicita porque `_next_applicable` ya no la lleva escrita a mano.
 LAST_PHASE = 8
+
+
+@pytest.fixture()
+def revisor(make_user):
+    """Un revisor que EXISTE en `core_users`.
+
+    Antes era el id 200 a pelo. En la base de dev ese usuario existe y el test
+    pasaba; CI arranca de un `create_all` vacío y el FK de
+    `titulatec_process_phases.reviewed_by_id` (y el de
+    `titulatec_process_events.actor_id`) reventaba. Un id inventado solo prueba
+    que la base de quien corre el test tiene a alguien con ese número.
+    """
+    return make_user(first_name="REVISOR", last_name="DE PRUEBA")
 
 
 # ───────────────────────────── helpers puros ─────────────────────────────
@@ -51,11 +66,11 @@ class TestSkipsYSiguiente:
 class TestApprovePhase:
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
     def test_avanza_a_la_siguiente_fase(self, mock_notify, db_session, seed_phase_defs,
-                                        make_student, make_process):
+                                        make_student, make_process, revisor):
         seed_phase_defs()
         process = make_process(make_student(), current_phase=1)
 
-        result = PhaseService.approve_phase(db_session, process, 1, reviewer_id=200)
+        result = PhaseService.approve_phase(db_session, process, 1, reviewer_id=revisor.id)
 
         assert result == {"next_phase": 2, "completed": False}
         assert process.current_phase == 2
@@ -65,11 +80,11 @@ class TestApprovePhase:
 
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
     def test_ultima_fase_completa_el_proceso(self, mock_notify, db_session, seed_phase_defs,
-                                             make_student, make_process):
+                                             make_student, make_process, revisor):
         seed_phase_defs()
         process = make_process(make_student(), current_phase=8)
 
-        result = PhaseService.approve_phase(db_session, process, 8, reviewer_id=200)
+        result = PhaseService.approve_phase(db_session, process, 8, reviewer_id=revisor.id)
 
         assert result == {"next_phase": None, "completed": True}
         assert process.status == "completed"
@@ -78,7 +93,8 @@ class TestApprovePhase:
 
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
     def test_salta_las_fases_de_la_modalidad(self, mock_notify, db_session, seed_phase_defs,
-                                             make_student, make_process, make_modality):
+                                             make_student, make_process, make_modality,
+                                             revisor):
         """EGEL salta 4 y 5: aprobar la 3 lleva a la 6 y deja las saltadas en 'skipped'."""
         from itcj2.apps.titulatec.models import ProcessPhase
 
@@ -86,7 +102,7 @@ class TestApprovePhase:
         modality = make_modality(name="Modalidad que salta", skips_phases=[4, 5])
         process = make_process(make_student(), modality=modality, current_phase=3)
 
-        result = PhaseService.approve_phase(db_session, process, 3, reviewer_id=200)
+        result = PhaseService.approve_phase(db_session, process, 3, reviewer_id=revisor.id)
 
         assert result == {"next_phase": 6, "completed": False}
         assert process.current_phase == 6
@@ -102,7 +118,7 @@ class TestApprovePhase:
 class TestRejectPhase:
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
     def test_rechaza_y_notifica_con_motivo(self, mock_notify, db_session, seed_phase_defs,
-                                           make_student, make_process):
+                                           make_student, make_process, revisor):
         """Rechazar la fase ACTUAL la deja en 'rejected' para que el alumno corrija.
 
         Hasta 2026-09 este test rechazaba la fase 2 de un proceso parado en la 3 y
@@ -115,7 +131,7 @@ class TestRejectPhase:
         seed_phase_defs()
         process = make_process(make_student(), current_phase=2)
 
-        PhaseService.reject_phase(db_session, process, 2, reviewer_id=200,
+        PhaseService.reject_phase(db_session, process, 2, reviewer_id=revisor.id,
                                   reason="Faltan firmas")
 
         assert process.current_phase == 2
