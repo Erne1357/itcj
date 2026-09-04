@@ -6,6 +6,9 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
+    # Bump 2026-09-04 (2): Mantenimiento cambia su icono bootstrap por maint.png
+    # en el dashboard de escritorio y en el card movil.
+    #
     # Bump 2026-09-04: el icono de Extensiones (directory.png) entra al dashboard
     # de escritorio y al card movil, y cambia `dashboard.js`. Sin bump, el navegador
     # con cache caliente serviria el JS viejo, que genera el tile con el icono
@@ -26,7 +29,7 @@ class Settings(BaseSettings):
     #
     # Bump 2026-08-10: la revisión de helpdesk tocó 55 archivos CSS/JS (registro
     # de orígenes, sockets, filtros, detalle de equipo, asignación, home).
-    STATIC_VERSION: str = "1.0.1111517"
+    STATIC_VERSION: str = "1.0.1111518"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
