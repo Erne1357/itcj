@@ -60,7 +60,9 @@ flowchart TD
   (`window.self !== window.top`): en móvil la superficie única es el tab **Avisos** del shell (lista
   todas las apps). Standalone/desktop sí muestran el FAB (scope de la app).
 - TitulaTec enruta sus eventos por `NotificationService.create(app_name='titulatec')` con
-  `data={'url','process_id','phase_number'}` (helper `services/notify.py`). El `action_url` lo lee el
+  `data={'url','process_id','phase_number'}` (helper `services/notify.py`). Ese `url` sigue siendo
+  `/titulatec/student/fase/{n}`, que desde 2026-09-02 **redirige (302)** a
+  `/titulatec/student/dashboard?fase={n}` y deja ese acordeón abierto y resaltado. El `action_url` lo lee el
   shell; se añadió `titulatec` a `getAppInfoFromUrl` (`mobile-app.js`) → el click **abre la app en el
   iframe** (no rompe el shell). Iconos/colores de titulatec en `core/models/notification.py`.
 
@@ -91,6 +93,6 @@ contraseña aquí (el endpoint core es solo staff).
 
 ## Flujos relacionados
 
-- Vistas que viven en este shell: [dashboard/detalle de fase](xcut_student_phase_detail.md),
+- Vistas que viven en este shell: [dashboard con el acordeón de fases](xcut_student_phase_detail.md),
   [documentos](phase1_student_upload_initial_docs.md), [cita](phase2_appointment_loop.md),
   [Formato B](phase3_student_formato_b.md).

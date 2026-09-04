@@ -1,0 +1,59 @@
+{# Visor de documentos para el cotejo contra el papel.
+
+   El documento abierto es ESTADO DE SERVIDOR (`?doc=`), no del DOM. Idiomorph
+   conserva el nodo del `<iframe>` pero SINCRONIZA SUS ATRIBUTOS, y `src` es uno:
+   sin esto, marcar asistencia recargaba el PDF desde cero.
+
+   `id="appt-docbar"` y los `data-tt-doc` / `data-tt-doc-name` son API que
+   consume `js/admin/appointments.js` y el modal grande. No se renombran.
+
+   Un documento que falta va con `aria-disabled`, NO con `disabled`: un control
+   `disabled` no es enfocable, así que un lector de pantalla no podía descubrir
+   tabulando que faltaba la CURP. #}
+{% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav %}
+{% from "titulatec/_macros.html" import estado_pill %}
+
+<div id="appt-viewer" class="tt-card" data-tt-fade-key="viewer:{{ detail.process.id }}|{{ detail.doc_abierto or '' }}">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+    <h3 class="tt-h-sec">Documentos del alumno</h3>
+    {% if detail.doc_src %}
+    <button type="button" class="btn btn-sm tt-btn-ghost" data-bs-toggle="modal"
+            data-bs-target="#tt-appt-doc-modal" aria-label="Ver a pantalla completa">
+      <i class="bi bi-arrows-fullscreen" aria-hidden="true"></i>
+      <span class="d-none d-sm-inline ms-1">Pantalla completa</span></button>
+    {% endif %}
+  </div>
+
+  <div id="appt-docbar" class="mb-2">
+    {% for d in detail.docs %}
+    {% if d.doc and not d.missing %}
+    <a class="btn btn-sm {{ 'tt-btn-soft is-active' if d.type_code == detail.doc_abierto else 'tt-btn-ghost' }}"
+       data-tt-doc="{{ d.view_url }}" data-tt-doc-name="{{ d.name }}"
+       {% if d.type_code == detail.doc_abierto %}aria-current="true"{% endif %}
+       {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ detail.process.id ~ '&doc=' ~ d.type_code) }}>
+      {{ d.name }} {{ estado_pill(d.doc.review_status) }}</a>
+    {% else %}
+    <button type="button" class="btn btn-sm tt-btn-ghost" aria-disabled="true">
+      {{ d.name }}
+      <span class="tt-pill tt-pill--neutral ms-1">
+        {{- 'Archivo perdido' if d.missing else 'Falta' -}}</span></button>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if detail.doc_src %}
+  <iframe id="tt-appt-doc-frame" class="tt-appt-frame" src="{{ detail.doc_src }}"
+          title="{{ detail.doc_abierto }} de {{ detail.student.name }}"></iframe>
+  {% else %}
+  {# Antes esto era una caja gris de 460-520 px sin una sola palabra. #}
+  <div class="tt-derivada">
+    {% set perdidos = detail.docs | selectattr('missing') | list %}
+    {% if perdidos %}
+    <p class="mb-1"><strong>El archivo ya no está en el servidor.</strong></p>
+    <p class="mb-0">Pídele al alumno que lo vuelva a subir desde su portal.</p>
+    {% else %}
+    <p class="mb-0">El alumno todavía no sube sus documentos, así que no hay nada que cotejar.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>

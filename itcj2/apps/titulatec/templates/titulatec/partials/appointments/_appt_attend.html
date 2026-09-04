@@ -1,0 +1,154 @@
+{# SUB-VISTA ATENDER — un alumno a la vez, a ancho completo.
+
+   Rejilla constante: sujeto (300 px a 992, 380 desde 1280) + visor (1fr). Abre a
+   dos columnas antes que Agenda a propósito: es sujeto más visor, a 992 ya da
+   300 + 380, y esa banda es la de los portátiles del personal.
+
+   El visor es la razón de ser de la pantalla. Antes eran 470 px de alto en una
+   columna de 600, así que para leer un acta escaneada había que abrir el modal
+   por cada documento y por cada alumno. #}
+{% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav, appt_action %}
+{% from "titulatec/_macros.html" import appt_pill, estado_pill %}
+
+{% set BASE = page_url ~ '/' ~ detail.process.id %}
+{% set QZ = ('?' ~ q_zone) if q_zone else '' %}
+
+<section id="appt-attend" aria-label="Atender a {{ detail.student.name }}">
+
+  {# --- Pager: recorrer el día sin volver a la agenda ---------------------- #}
+  <div id="appt-pager" class="tt-card tt-pager"
+       data-tt-fade-key="pager:{{ day }}|{{ selected_id }}">
+    <a class="btn btn-sm tt-btn-ghost" {{ appt_nav(page_url ~ '?date=' ~ day) }}>
+      <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Volver a la agenda</a>
+
+    {% if pager and pager.pos %}
+    <a class="btn btn-sm tt-btn-ghost{{ ' disabled' if not pager.anterior }}"
+       {% if pager.anterior %}{{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ pager.anterior) }}
+       {% else %}aria-disabled="true" tabindex="-1"{% endif %}>
+      <i class="bi bi-chevron-left" aria-hidden="true"></i>
+      <span class="d-none d-sm-inline ms-1">Anterior</span></a>
+
+    <span class="pos">{{ pager.pos }} de {{ pager.total }} · {{ day_largo }}</span>
+
+    <a class="btn btn-sm tt-btn-ghost{{ ' disabled' if not pager.siguiente }}"
+       {% if pager.siguiente %}{{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ pager.siguiente) }}
+       {% else %}aria-disabled="true" tabindex="-1"{% endif %}>
+      <span class="d-none d-sm-inline me-1">Siguiente</span>
+      <i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+    {% endif %}
+
+    {% if pager and pager.filas %}
+    {# Tira con NOMBRE Y APELLIDO, no iniciales: cuando alguien llega fuera de
+       orden hay que poder encontrarlo de un vistazo. #}
+    <div class="tt-pager-strip w-100 mt-2" role="list" aria-label="Citas del día">
+      {% for f in pager.filas %}
+      <a class="tt-seat{{ ' is-active' if f.process_id == selected_id }}" role="listitem"
+         id="appt-strip-{{ f.process_id }}"
+         {% if f.process_id == selected_id %}aria-current="true"{% endif %}
+         {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ f.process_id) }}>
+        <span class="who">{{ f.student }}</span>
+        <span class="meta">{{ f.time_label }} · {{ f.control }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  {# --- Sujeto: identidad, cita y acciones --------------------------------- #}
+  <div id="appt-subject" class="d-flex flex-column gap-3"
+       data-tt-fade-key="subject:{{ detail.process.id }}|{{ detail.appt.status if detail.appt else 'sin' }}">
+
+    <div class="tt-card">
+      <span class="tt-kicker">{{ detail.cohort_period }} · {{ detail.process.folio }}</span>
+      <h2 class="tt-appt-name">{{ detail.student.name }}</h2>
+      <div class="tt-appt-ids mt-1">
+        <span>{{ detail.student.control }}</span>
+        {% if detail.student.email %}<br><span>{{ detail.student.email }}</span>{% endif %}
+      </div>
+      <p class="tt-appt-note mt-2 mb-0">
+        {{ detail.program_name or 'Sin carrera' }} · {{ detail.modality_name or 'Sin modalidad' }}
+      </p>
+      {# Antes de cotejar conviene saber si este alumno ya falto otra vez o si su
+         acta viene de un rechazo. El `from` trae el dia y el alumno abiertos,
+         asi que el Regresar del expediente devuelve a esta misma ficha. #}
+      {% set VOLVER = (page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ detail.process.id) | urlencode %}
+      <a class="btn btn-sm tt-btn-ghost mt-3"
+         href="/titulatec/admin/processes/{{ detail.process.id }}?from={{ VOLVER }}">
+        <i class="bi bi-clock-history me-1" aria-hidden="true"></i>Ver expediente</a>
+    </div>
+
+    {% if detail.appt and detail.appt.change_request %}
+    <div class="tt-card tt-card--accent">
+      <h3 class="tt-h-sec">El alumno solicitó un cambio</h3>
+      <p class="tt-appt-note mb-0 mt-1">{{ detail.appt.change_request }}</p>
+    </div>
+    {% endif %}
+
+    <div class="tt-card">
+      {% if detail.appt %}
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <h3 class="tt-h-sec">Cita de cotejo</h3>
+        {{ appt_pill(detail.appt.status) }}
+      </div>
+      <p class="tt-appt-when mt-2 mb-0">
+        <i class="bi bi-calendar-event me-1" aria-hidden="true"></i>{{ detail.appt.scheduled_label }}
+      </p>
+      <p class="tt-appt-note mb-0">
+        <i class="bi bi-geo-alt me-1" aria-hidden="true"></i>{{ detail.appt.location or 'Sin lugar' }}
+      </p>
+
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        {% if detail.appt.status in ('scheduled', 'confirmed') %}
+        <button type="button" class="btn btn-sm tt-btn-ink" {{ appt_action(BASE ~ '/start' ~ QZ) }}>
+          <i class="bi bi-play-fill me-1" aria-hidden="true"></i>Iniciar cotejo</button>
+        {% endif %}
+
+        {% if detail.appt.status == 'in_progress' %}
+        <button type="button" class="btn btn-sm tt-btn-ink" {{ appt_action(BASE ~ '/attended' ~ QZ) }}>
+          <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Marcar asistió</button>
+        {% endif %}
+
+        {% if detail.appt.status != 'attended' %}
+        {# Reagendar = picar una franja en el tablero. Sin formulario que se
+           despliegue y empuje lo que acabas de leer, y sin campo de hora vacío
+           que haya que volver a teclear. #}
+        <a class="btn btn-sm tt-btn-ghost"
+           {{ appt_nav(page_url ~ '?date=' ~ day ~ '&mover=' ~ detail.process.id) }}>
+          <i class="bi bi-arrows-move me-1" aria-hidden="true"></i>Mover de franja</a>
+        {% endif %}
+
+        {% if detail.appt.status == 'no_show' %}
+        <button type="button" class="btn btn-sm tt-btn-ghost" {{ appt_action(BASE ~ '/undo-no-show' ~ QZ) }}>
+          <i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i>Deshacer no se presentó</button>
+        {% elif detail.appt.status != 'attended' %}
+        <button type="button" class="btn btn-sm tt-btn-danger-soft"
+                hx-confirm="No se presentó|¿Marcar que {{ detail.student.name }} no se presentó? Su lugar queda registrado como ausencia y no se libera."
+                data-tt-confirm-ok="Sí, no se presentó"
+                {{ appt_action(BASE ~ '/no-show' ~ QZ) }}>
+          <i class="bi bi-x-circle me-1" aria-hidden="true"></i>No se presentó</button>
+        {% endif %}
+      </div>
+
+      {% if detail.appt.status == 'attended' %}
+      <div class="mt-3 d-flex flex-wrap align-items-center gap-2">
+        <span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Cotejo concluido</span>
+        <a class="btn btn-sm tt-btn-ink" href="/titulatec/admin/processes/{{ detail.process.id }}">
+          <i class="bi bi-arrow-right me-1" aria-hidden="true"></i>Ir al proceso a aprobar fase 02</a>
+      </div>
+      {% endif %}
+
+      {% else %}
+      <h3 class="tt-h-sec">Sin cita todavía</h3>
+      <p class="tt-appt-note mt-2 mb-2">
+        Elige un día en el carril y pica un lugar libre del tablero para darle cita.
+      </p>
+      <a class="btn btn-sm tt-btn-ink"
+         {{ appt_nav(page_url ~ '?date=' ~ day ~ '&p=' ~ detail.process.id) }}>
+        <i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Agendar a este alumno</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {# --- Visor de documentos ------------------------------------------------ #}
+  {% include "titulatec/partials/appointments/_appt_viewer.html" %}
+</section>

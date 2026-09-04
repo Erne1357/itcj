@@ -191,6 +191,19 @@ def init_database_command():
         raise
 
 
+def _titulatec_seed_files() -> list[str]:
+    """Rutas (relativas a database/DML/) de los seeders de TitulaTec.
+
+    Se derivan de `itcj2.cli.titulatec.SEED_FILES` en vez de copiarse: hasta
+    2026-09 este comando corría 00/04/06/07 y `init-titulatec` corría 00-06, así
+    que NINGUNO de los dos dejaba la app usable — faltaban roles y permisos y todas
+    las páginas devolvían 404. Una sola fuente hace imposible que vuelvan a divergir.
+    """
+    from itcj2.cli.titulatec import SEED_FILES
+
+    return [f"titulatec/{name}" for name in SEED_FILES]
+
+
 @click.command("seed-reference-data")
 def seed_reference_data_command():
     """Carga TODO el catálogo de referencia (apps, roles, permisos, posiciones,
@@ -304,10 +317,7 @@ def seed_reference_data_command():
         "maint/config/04_seed_service_origins.sql",
         "maint/config/05_seed_areas.sql",
         "maint/config/06_seed_notification_templates.sql",
-        "titulatec/00_insert_app.sql",
-        "titulatec/04_insert_vinculacion_positions.sql",
-        "titulatec/06_seed_catalogs.sql",
-        "titulatec/07_insert_cotejo_reqs_perm.sql",
+        *_titulatec_seed_files(),
         "directory/00_insert_app.sql",
         "directory/01_insert_permissions.sql",
         "directory/02_insert_role_permission.sql",

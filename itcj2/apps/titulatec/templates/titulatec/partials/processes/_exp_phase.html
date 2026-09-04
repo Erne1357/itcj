@@ -1,0 +1,158 @@
+{# ===========================================================================
+   _exp_phase.html — el contenido propio de UNA fase dentro del acordeón.
+
+   Recibe `f` (la fase del bucle) y el contexto del expediente. Las fases sin
+   panel propio DICEN que todavía no están: un panel vacío se lee como «no ha
+   pasado nada», que es una afirmación distinta y falsa.
+
+   Aquí no se dictamina nada de la fase 1: los documentos son de SOLO LECTURA.
+   El dictamen vive en la bandeja de Documentos, que exige motivo al rechazar y
+   auto-avanza la fase al aprobar el tercero; tener dos caminos con dos reglas
+   era la razón de quitarlo de aquí.
+   =========================================================================== #}
+{% from "titulatec/_macros.html" import estado_pill, appt_pill %}
+{% set VOLVER = '&from=' ~ (back.url | urlencode) %}
+
+{# — Datos de la fase, comunes a todas — #}
+{% if f.started or f.completed or f.reviewed_by %}
+<p class="tt-exp-fechas">
+  {%- if f.started %}<span>Empezó el {{ f.started }}</span>{% endif -%}
+  {%- if f.completed %}<span>Se cerró el {{ f.completed }}</span>{% endif -%}
+  {%- if f.reviewed_by %}<span>Revisó {{ f.reviewed_by }}</span>{% endif -%}
+</p>
+{% endif %}
+
+{% if f.status == 'rejected' and f.rejection_reason %}
+<div class="tt-exp-nota tt-exp-nota--mal">
+  <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>{{ f.rejection_reason }}
+</div>
+{% endif %}
+
+{# ------------------------------------------------- 00 · alta del alumno -- #}
+{% if f.number == 0 %}
+  <dl class="tt-exp-datos">
+    <div><dt>Convocatoria</dt><dd>{{ cohort_period or '—' }}</dd></div>
+    <div><dt>Carrera</dt><dd>{{ program_name or 'Sin carrera' }}</dd></div>
+    <div><dt>Modalidad</dt><dd>{{ modality_name or 'Sin modalidad' }}</dd></div>
+    <div><dt>Folio</dt><dd class="tt-mono">{{ process.folio }}</dd></div>
+  </dl>
+  {% if cohort_id %}
+  <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/cohorts/{{ cohort_id }}">
+    <i class="bi bi-people me-1" aria-hidden="true"></i>Ver la convocatoria</a>
+  {% endif %}
+
+{# --------------------------------------------- 01 · documentos iniciales -- #}
+{% elif f.number == 1 %}
+  <div class="tt-exp-docs">
+    {% for d in docs %}
+    <div class="tt-exp-doc{{ ' is-open' if d.type_code == doc_abierto }}">
+      <div class="min-w-0">
+        <span class="nombre">{{ d.name }}</span>
+        {% if d.doc %}
+        <span class="meta tt-mono">
+          {{ d.doc.original_name }} · {{ (d.doc.size_bytes / 1024) | round | int }} KB
+          {%- if d.doc.version and d.doc.version > 1 %} · v{{ d.doc.version }}{% endif %}</span>
+        {% if d.doc.review_note %}<span class="meta">{{ d.doc.review_note }}</span>{% endif %}
+        {% else %}
+        <span class="meta">Sin subir</span>
+        {% endif %}
+      </div>
+      {% if d.doc %}{{ estado_pill(d.doc.review_status) }}{% endif %}
+      {% if d.missing %}
+      <span class="tt-pill tt-pill--neutral">Archivo perdido</span>
+      {% elif d.doc %}
+      {# Abrir un documento es ESTADO DE SERVIDOR (`?doc=`): Idiomorph conserva
+         el nodo del iframe pero sincroniza sus atributos, y `src` es uno. Con
+         el documento en el DOM, aprobar una fase lo recargaba desde cero. #}
+      <a class="btn btn-sm {{ 'tt-btn-soft' if d.type_code == doc_abierto else 'tt-btn-ghost' }}"
+         href="/titulatec/admin/processes/{{ process.id }}?fase=1&doc={{ d.type_code }}{{ VOLVER }}"
+         hx-get="/titulatec/admin/processes/{{ process.id }}?fase=1&doc={{ d.type_code }}{{ VOLVER }}"
+         hx-target="#exp-shell" hx-select="#exp-shell" hx-swap="morph:outerHTML"
+         hx-push-url="true"
+         {% if d.type_code == doc_abierto %}aria-current="true"{% endif %}>
+        <i class="bi bi-eye me-1" aria-hidden="true"></i>Ver</a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if doc_src %}
+  <iframe id="exp-doc-frame" class="tt-exp-frame" src="{{ doc_src }}"
+          title="{{ doc_abierto }} de {{ student.name }}"></iframe>
+  {% endif %}
+
+  <div class="tt-exp-acciones">
+    <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/documents?selected={{ process.id }}">
+      <i class="bi bi-pencil-square me-1" aria-hidden="true"></i>Dictaminar en la bandeja</a>
+  </div>
+
+{# ------------------------------------------------- 02 · cita de cotejo --- #}
+{% elif f.number == 2 %}
+  {% if appt %}
+  <div class="tt-exp-cita">
+    {{ appt_pill(appt.status) }}
+    <span><i class="bi bi-calendar-event me-1" aria-hidden="true"></i>{{ appt.scheduled_label }}</span>
+    <span><i class="bi bi-geo-alt me-1" aria-hidden="true"></i>{{ appt.location or 'Sin lugar' }}</span>
+  </div>
+  {% if appt.change_request %}
+  <div class="tt-exp-nota tt-exp-nota--ojo">
+    <i class="bi bi-chat-left-dots me-1" aria-hidden="true"></i>
+    Pidió otro día{% if appt.change_requested_at %} el {{ appt.change_requested_at }}{% endif %}:
+    {{ appt.change_request }}
+  </div>
+  {% endif %}
+  {% if appt.note %}<p class="tt-exp-fechas"><span>{{ appt.note }}</span></p>{% endif %}
+  {% else %}
+  <p class="tt-exp-vacio">Todavía no tiene cita de cotejo.</p>
+  {% endif %}
+  <div class="tt-exp-acciones">
+    <a class="btn btn-sm tt-btn-ghost"
+       href="/titulatec/admin/appointments?v=atender&selected={{ process.id }}">
+      <i class="bi bi-calendar-check me-1" aria-hidden="true"></i>Gestionar la cita</a>
+  </div>
+
+{# ---------------------------------------------------- 03 · Formato B ----- #}
+{% elif f.number == 3 %}
+  {% if formato_b %}
+  {# Bloque trasladado LITERAL del detalle anterior. Decisión del 2026-09-03:
+     de la fase 3 en adelante no se toca mientras el trabajo sea la parte de
+     Servicios Escolares (fases 0 a 2). #}
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <span class="tt-kicker">Formato B</span>
+    {{ estado_pill(formato_b.status) }}
+  </div>
+  <div class="row g-2" style="font-size:.82rem">
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Nombre:</span> {{ formato_b.datos.first_name }} {{ formato_b.datos.last_name }}</div>
+    <div class="col-md-3"><span style="color:var(--tt-mute)">Edad:</span> {{ formato_b.datos.age }}</div>
+    <div class="col-md-3"><span style="color:var(--tt-mute)">Celular:</span> {{ formato_b.datos.mobile_phone }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Carrera:</span> {{ formato_b.program_name or '—' }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Plan:</span> {{ formato_b.datos.study_plan }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Ingreso:</span> {{ formato_b.datos.admission_date }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Egreso:</span> {{ formato_b.datos.graduation_date }}</div>
+    <div class="col-12"><span style="color:var(--tt-mute)">Proyecto:</span> {{ formato_b.datos.project_name }}</div>
+  </div>
+  {% if formato_b.status == 'submitted' %}
+  <div class="d-flex gap-2 mt-3">
+    <button class="btn btn-sm tt-btn-ink"
+            hx-post="/titulatec/admin/processes/{{ process.id }}/format-b/review{{ ('?' ~ zona) if zona }}"
+            hx-vals='{"action":"approve"}'
+            hx-target="#exp-shell" hx-swap="morph:outerHTML">
+      <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Aprobar Formato B</button>
+    <button class="btn btn-sm tt-btn-ghost"
+            hx-post="/titulatec/admin/processes/{{ process.id }}/format-b/review{{ ('?' ~ zona) if zona }}"
+            hx-vals='{"action":"reject"}'
+            hx-target="#exp-shell" hx-swap="morph:outerHTML">
+      <i class="bi bi-x-lg me-1" aria-hidden="true"></i>Rechazar</button>
+  </div>
+  {% endif %}
+  {% else %}
+  <p class="tt-exp-vacio">El alumno todavía no envía su Formato B.</p>
+  {% endif %}
+
+{# ------------------------------------------- 04..08 · aún no existen ----- #}
+{% else %}
+  <p class="tt-exp-vacio">
+    Esta fase todavía no está en la app: sinodales, anexo, entrega final y acto
+    protocolario tienen tabla en la base y ninguna pantalla. Lo que se ve aquí es
+    su estado, no su contenido.</p>
+{% endif %}

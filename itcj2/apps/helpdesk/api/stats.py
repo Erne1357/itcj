@@ -346,6 +346,7 @@ def get_department_stats(
     from itcj2.core.services.departments_service import app_departments
     from itcj2.core.services.scope_service import subtree_scope_for
     from itcj2.apps.helpdesk.models.ticket import Ticket
+    from itcj2.apps.helpdesk.services.ticket_service import _tiene_scope_departamental
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
@@ -354,7 +355,16 @@ def get_department_stats(
     can_view = False
     if "admin" in user_roles or user_id in secretary_comp_center:
         can_view = True
-    elif "department_head" in user_roles:
+    elif _tiene_scope_departamental(db, user_id):
+        # Por PERMISO (`helpdesk.tickets.api.read.department`), no por rol: con
+        # el rol, una secretaría —que lo tiene— nunca entraba aquí y los cuatro
+        # KPIs de su dashboard salían con «-» y un 403 en consola. Llevaba así
+        # desde siempre para las 28 secretarías; solo se hizo visible al corregir
+        # el departamento que la página pedía.
+        #
+        # El subárbol sigue saliendo del permiso PROPIO de stats
+        # (`helpdesk.stats.api.read.subtree`), que no es el de tickets.
+        #
         # Canónico (respeta start_date/end_date y desempata determinista) en
         # vez del resolver ad-hoc viejo: `filter_by(is_active=True).first()`
         # ignoraba la ventana de vigencia y no ordenaba, así que un puesto

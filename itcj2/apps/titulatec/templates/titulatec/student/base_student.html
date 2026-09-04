@@ -11,6 +11,7 @@
    Bloques para hijos:
      student_title · student_active (home|docs|cita|perfil) · student_appbar_left
      student_appbar_title · student_appbar_sub · student_body · student_scripts
+     student_page  (clave estable de la vista → <main data-tt-page>, para E2E)
    =========================================================================== #}
 {% extends "titulatec/base.html" %}
 {% from "titulatec/_macros.html" import student_nav %}
@@ -73,7 +74,10 @@
       </button>
     </header>
 
-    <main class="tt-canvas">
+    {# `data-tt-page`: marcador ESTABLE de vista para los E2E (equivalente al
+       data-hd-page de helpdesk). Cada vista del alumno declara su clave en el
+       bloque `student_page`; sin él el test no tiene a qué anclarse. #}
+    <main class="tt-canvas" data-tt-page="{% block student_page %}{% endblock %}">
       <div class="tt-canvas-inner">
         {% block student_body %}{% endblock %}
       </div>
@@ -133,5 +137,12 @@
     document.getElementById('sidebarLogout')?.addEventListener('click', ttLogout);
     document.querySelectorAll('[data-tt-logout]').forEach(function (b) { b.addEventListener('click', ttLogout); });
   </script>
+  {# — Errores de HTMX para TODA vista del alumno. Va en la base a propósito: si
+     cada página trae el suyo, alguna se queda sin él y el alumno pulsa un botón
+     que no hace nada (le pasaba a formato_b.html). — #}
+  <script src="/static/titulatec/js/student/errors.js?v={{ sv('js/student/errors.js') }}"></script>
+  {# — Acordeón de fases del dashboard. Se carga una sola vez desde la base:
+     es delegado en `document` y no hace nada si la vista no tiene acordeón. — #}
+  <script src="/static/titulatec/js/student/dashboard.js?v={{ sv('js/student/dashboard.js') }}"></script>
   {% block student_scripts %}{% endblock %}
 {% endblock %}

@@ -1,6 +1,7 @@
 {% extends "titulatec/student/base_student.html" %}
 {% block student_title %}Documentos · TitulaTec{% endblock %}
 {% block student_active %}docs{% endblock %}
+{% block student_page %}student_documents{% endblock %}
 {% block student_appbar_title %}Documentos iniciales{% endblock %}
 {% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">Fase 01 · Acta · Certificado · CURP</div>{% endblock %}
 {% block student_appbar_left %}
@@ -48,11 +49,6 @@
   </div>
 {% endblock %}
 
-{% block student_scripts %}
-<script>
-  document.body.addEventListener('htmx:responseError', function (e) {
-    const msg = e.detail.xhr.getResponseHeader('X-Tt-Error') || 'No se pudo procesar el archivo.';
-    if (window.TitulaTecUtils) TitulaTecUtils.showToast(msg, 'danger');
-  });
-</script>
-{% endblock %}
+{# Los errores de HTMX los maneja `static/js/student/errors.js`, cargado desde
+   base_student.html para TODAS las vistas del alumno. No dupliques el listener
+   aquí: se mostrarían dos toasts. #}

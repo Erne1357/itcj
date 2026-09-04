@@ -1,6 +1,7 @@
 {% extends "titulatec/student/base_student.html" %}
 {% block student_title %}Cita de cotejo · TitulaTec{% endblock %}
 {% block student_active %}cita{% endblock %}
+{% block student_page %}student_cita{% endblock %}
 {% block student_appbar_title %}Cita de cotejo{% endblock %}
 {% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">Fase 02 · Servicios Escolares</div>{% endblock %}
 {% block student_appbar_left %}
@@ -36,10 +37,6 @@
   </div>
 {% endblock %}
 
-{% block student_scripts %}
-<script>
-  document.body.addEventListener('htmx:responseError', function () {
-    if (window.TitulaTecUtils) TitulaTecUtils.showToast('No se pudo completar la acción.', 'danger');
-  });
-</script>
-{% endblock %}
+{# Los errores de HTMX los maneja `static/js/student/errors.js`, cargado desde
+   base_student.html para TODAS las vistas del alumno. No dupliques el listener
+   aquí: se mostrarían dos toasts. #}

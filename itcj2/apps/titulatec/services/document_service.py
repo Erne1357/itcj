@@ -7,6 +7,27 @@ from sqlalchemy.orm import Session
 class DocumentService:
     INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
 
+    # ----------------------------------------------------------------- bitacora
+    @staticmethod
+    def _log(db: Session, process_id: int, actor_id: int | None, event_type: str,
+             phase_number: int | None, payload: dict | None = None) -> None:
+        """Escribe un `ProcessEvent`. Gemelo del de `appointment_service`.
+
+        **No commitea**: se llama dentro de los metodos que ya son duenos de su
+        transaccion, justo antes de su `commit()`.
+
+        Existe porque de un documento no quedaba ABSOLUTAMENTE NADA de lo
+        anterior: `save()` pisa la fila y `storage.save_document` pisa el archivo
+        (nombre fijo `{type_code}.{ext}`), y `review()` pisa `review_note`. Un
+        acta rechazada por falta de sello y vuelta a subir no dejaba ni el motivo
+        ni la fecha ni quien la rechazo.
+        """
+        from itcj2.apps.titulatec.models import ProcessEvent
+        db.add(ProcessEvent(
+            process_id=process_id, actor_id=actor_id,
+            event_type=event_type, phase_number=phase_number, payload=payload,
+        ))
+
     @staticmethod
     def initial_docs_all_approved(db, process_id: int) -> bool:
         """True si los 3 documentos iniciales están en review_status='approved'."""
@@ -15,6 +36,55 @@ class DocumentService:
             if not doc or doc.review_status != "approved":
                 return False
         return True
+
+    @staticmethod
+    def initial_docs_summary(db, process_id: int) -> dict:
+        """Resumen de los 3 documentos iniciales en **dos** consultas fijas.
+
+        Lo consume el acordeón del dashboard del alumno, que se pinta 9 veces por
+        carga: `initial_docs_all_approved` haría una consulta por código (y no
+        distingue rechazado de faltante), así que ahí sería un N+1 en la pantalla
+        más visitada de la app.
+
+        `status` por documento: ``approved|rejected|pending|missing`` — ``missing``
+        es el pseudo-estado de la UI cuando no hay fila (mismo criterio que
+        `pages/documents.py:31`), no un valor de `Document.review_status`.
+        """
+        from itcj2.apps.titulatec.models import Document, DocumentType
+
+        codes = DocumentService.INITIAL_DOC_TYPES
+        docs = {
+            d.type_code: d for d in
+            db.query(Document)
+            .filter(Document.process_id == process_id, Document.type_code.in_(codes))
+            .all()
+        }
+        # Sin `is_active`: si un tipo se desactiva, el documento ya subido debe
+        # seguir mostrándose con su nombre, no con el código crudo.
+        names = {
+            t.code: t.name for t in
+            db.query(DocumentType).filter(DocumentType.code.in_(codes)).all()
+        }
+
+        items, counts = [], {"approved": 0, "rejected": 0, "pending": 0, "missing": 0}
+        for code in codes:
+            doc = docs.get(code)
+            status = doc.review_status if doc else "missing"
+            if status not in counts:          # valor inesperado en BD: no lo perdemos
+                counts[status] = 0
+            counts[status] += 1
+            items.append({
+                "code": code,
+                "name": names.get(code, code),
+                "status": status,
+                "note": (doc.review_note if doc else None),
+            })
+        return {
+            "total": len(codes),
+            "uploaded": len(codes) - counts["missing"],
+            "counts": counts,
+            "items": items,
+        }
 
     @staticmethod
     def get_active_process(db: Session, student_id: int):
@@ -110,6 +180,13 @@ class DocumentService:
             )
             db.add(doc)
 
+        db.flush()
+        DocumentService._log(
+            db, process.id, uploaded_by_id, "document_uploaded",
+            dtype.phase_number,
+            {"type_code": type_code, "original_name": doc.original_name,
+             "version": doc.version},
+        )
         db.commit()
         db.refresh(doc)
         return doc
@@ -123,6 +200,15 @@ class DocumentService:
         doc.review_status = status
         doc.review_note = note or None
         doc.reviewed_by_id = reviewer_id
+
+        # El evento guarda el motivo porque `review_note` es un solo hueco: la
+        # siguiente revision lo pisa y el «por que» del rechazo anterior se va.
+        DocumentService._log(
+            db, process_id, reviewer_id,
+            "document_approved" if status == "approved" else "document_rejected",
+            doc.phase_number,
+            {"type_code": type_code, "note": note or None},
+        )
 
         if status == "rejected":
             from itcj2.apps.titulatec.models import TitulationProcess
@@ -138,12 +224,18 @@ class DocumentService:
         return True
 
     @staticmethod
-    def delete(db: Session, process_id: int, type_code: str) -> bool:
+    def delete(db: Session, process_id: int, type_code: str,
+               *, actor_id: int | None = None) -> bool:
+        """Borra la fila Y el archivo. Deja evento: un hueco sin explicacion en el
+        expediente se lee como «nunca lo subio»."""
         from itcj2.apps.titulatec.utils import storage
         doc = DocumentService.get_document(db, process_id, type_code)
         if not doc:
             return False
+        phase_number = doc.phase_number
         storage.delete_document_file(doc.file_path)
         db.delete(doc)
+        DocumentService._log(db, process_id, actor_id, "document_deleted",
+                             phase_number, {"type_code": type_code})
         db.commit()
         return True

@@ -1,0 +1,89 @@
+{# «Atender» SIN alumno elegido.
+
+   Antes esta combinación caía de vuelta a la Agenda, así que la pestaña era un
+   destino falso: solo se podía llegar a ella eligiendo a alguien primero. Ahora
+   es la sala de espera del día: quién viene, en qué orden, y en quién te
+   quedaste.
+
+   El que sigue va destacado y con el foco de la acción: en una mañana de treinta
+   alumnos, lo que se necesita al volver a esta pantalla es «¿por quién iba?». #}
+{% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav %}
+{% from "titulatec/_macros.html" import appt_pill %}
+
+<section id="appt-attend" aria-label="Atender">
+  <div id="appt-pager" class="tt-card tt-pager"
+       data-tt-fade-key="pager:{{ day }}|vacio">
+    <a class="btn btn-sm tt-btn-ghost" {{ appt_nav(page_url ~ '?date=' ~ day) }}>
+      <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Volver a la agenda</a>
+    {% if pager %}
+    <span class="pos">{{ pager.total }} cita{{ 's' if pager.total != 1 }} · {{ day_largo }}</span>
+    {% else %}
+    <span class="pos">{{ day_largo or 'Sin día elegido' }}</span>
+    {% endif %}
+  </div>
+
+  <div id="appt-subject" class="tt-card" data-tt-fade-key="subject:vacio|{{ day }}">
+    {% if pager and pager.filas %}
+      {% set siguiente = (pager.filas | rejectattr('status', 'equalto', 'attended')
+                                      | rejectattr('status', 'equalto', 'no_show')
+                                      | list | first) %}
+      {% if siguiente %}
+      {# El nombre en su propia línea y a tamaño de dato clave: en la columna de
+         380 px, con la pastilla al lado, se truncaba a «TADEO LOZANO OLIV…», y
+         el nombre es justo lo que se coteja contra la persona que está enfrente. #}
+      <h2 class="tt-h-sec">El que sigue</h2>
+      <p class="tt-appt-when mt-2 mb-1">
+        <i class="bi bi-clock me-1" aria-hidden="true"></i>{{ siguiente.time_label }}
+        {{ appt_pill(siguiente.status) }}
+      </p>
+      <p class="tt-appt-name mb-1">{{ siguiente.student }}</p>
+      <p class="tt-appt-ids mb-3">{{ siguiente.control }} · {{ siguiente.program }}</p>
+      <a class="btn btn-sm tt-btn-ink" id="appt-next-{{ siguiente.process_id }}"
+         {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ siguiente.process_id) }}>
+        <i class="bi bi-play-fill me-1" aria-hidden="true"></i>Atender a {{ siguiente.student.split()[0] }}</a>
+      {% else %}
+      <h2 class="tt-h-sec">Terminaste el día</h2>
+      <p class="tt-appt-empty mt-2 mb-0">
+        {{ pager.total }} de {{ pager.total }} atendidas. No queda nadie por cotejar
+        el {{ day_largo }}.
+      </p>
+      {% endif %}
+    {% elif day %}
+      <h2 class="tt-h-sec">Sin citas este día</h2>
+      <p class="tt-appt-empty mt-2 mb-2">
+        Nadie tiene cita el {{ day_largo }} en tus carreras.
+      </p>
+      <a class="btn btn-sm tt-btn-ink" {{ appt_nav(page_url ~ '?date=' ~ day) }}>
+        <i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Ir a la agenda a agendar</a>
+    {% else %}
+      <h2 class="tt-h-sec">Elige un día</h2>
+      <p class="tt-appt-empty mt-2 mb-0">
+        Esta convocatoria aún no tiene días de cotejo. Pídele a la jefatura de
+        Servicios Escolares que los configure en Convocatorias.
+      </p>
+    {% endif %}
+  </div>
+
+  <div id="appt-viewer" class="tt-card" data-tt-fade-key="viewer:vacio|{{ day }}">
+    <h2 class="tt-h-sec">Citas del día <span class="n">{{ pager.total if pager else 0 }}</span></h2>
+    {% if pager and pager.filas %}
+    <div class="tt-queue-list mt-2">
+      {% for f in pager.filas %}
+      <a class="tt-appt-item" id="appt-espera-{{ f.process_id }}"
+         {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ f.process_id) }}>
+        <span class="time">{{ f.time_label }}</span>
+        <span class="flex-grow-1 min-w-0">
+          <span class="who d-block text-truncate">{{ f.student }}
+            {%- if f.change_request %}<i class="bi bi-arrow-repeat ms-1" title="Solicitó un cambio"></i>{% endif %}
+          </span>
+          <span class="meta d-block text-truncate">{{ f.control }} · {{ f.program }}</span>
+        </span>
+        {{ appt_pill(f.status) }}
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="tt-appt-empty mt-2 mb-0">Aquí aparecerán las citas del día que elijas.</p>
+    {% endif %}
+  </div>
+</section>

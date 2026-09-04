@@ -1,0 +1,82 @@
+{# SUB-VISTA ESPACIOS — el horario propio del encargado.
+
+   La jefatura pone los DÍAS de cotejo; cada encargado abre en ellos sus propias
+   ventanas, con su horario, la duración de sus franjas y cuántas personas caben
+   en cada una.
+
+   El dueño es el USUARIO y no el puesto: `aux_school_services` tiene
+   `allows_multiple = TRUE` y nueve ocupantes, así que con dueño = puesto esas
+   nueve personas compartirían un solo horario.
+
+   Reusa el MISMO carril de días que la Agenda: el día viaja entre sub-vistas y
+   ninguna es un callejón sin salida. #}
+{% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav, appt_action %}
+
+<section id="appt-spaces" aria-label="Mis espacios de cotejo">
+
+  {% include "titulatec/partials/appointments/_appt_days.html" %}
+
+  <div id="appt-space-list" class="tt-card"
+       data-tt-fade-key="spacelist:{{ day }}|{{ espacios.mios|length }}">
+    <div class="tt-queue-head">
+      <h2 class="tt-h-sec">Mis espacios</h2>
+      {% if espacios.dia_id %}
+      <a class="btn btn-sm tt-btn-ink"
+         {{ appt_nav(page_url ~ '?v=espacios&date=' ~ day ~ '&w=nuevo') }}>
+        <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Abrir un espacio</a>
+      {% endif %}
+    </div>
+
+    {% if not espacios.dia_id %}
+    <p class="tt-appt-empty mb-0">
+      Esta convocatoria aún no tiene días de cotejo. Pídele a la jefatura de
+      Servicios Escolares que los configure en Convocatorias.
+    </p>
+
+    {% elif espacios.mios %}
+    <div class="tt-queue-list mt-2">
+      {% for e in espacios.mios %}
+      <a class="tt-space-row{{ ' is-active' if e.is_active }}" id="appt-space-{{ e.id }}"
+         {{ appt_nav(page_url ~ '?v=espacios&date=' ~ day ~ '&w=' ~ e.id) }}>
+        <span class="flex-grow-1 min-w-0">
+          <span class="horario d-block">{{ e.horario }}</span>
+          <span class="detalle d-block text-truncate">
+            franjas de {{ e.slot_minutes }} min ·
+            {{ e.capacity }} lugar{{ 'es' if e.capacity != 1 }} ·
+            {{ e.ocupados }}/{{ e.capacidad }} ocupados
+            {%- if e.location %} · {{ e.location }}{% endif %}
+          </span>
+        </span>
+        {% if e.pausada %}<span class="tt-pill tt-pill--neutral">En pausa</span>{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+
+    {% else %}
+    <p class="tt-appt-empty mt-2 mb-0">
+      Todavía no abres espacios el {{ day_largo }}. Sin un espacio no hay franjas
+      donde agendar, así que este día no te acepta citas.
+    </p>
+    {% endif %}
+
+    {% if espacios.ajenos %}
+    {# Solo conteos y horario: NUNCA nombres de alumno, que pueden ser de
+       carreras fuera del alcance de este usuario. #}
+    <p class="tt-appt-empty mt-3 mb-0">
+      <i class="bi bi-people me-1" aria-hidden="true"></i>Otros encargados este día:
+      {% for a in espacios.ajenos %}{{ a.horario }} ({{ a.ocupados }}/{{ a.capacidad }}){{ ', ' if not loop.last }}{% endfor %}
+    </p>
+    {% endif %}
+  </div>
+
+  {% if espacios.editor %}
+  {% include "titulatec/partials/appointments/_appt_space_editor.html" %}
+  {% else %}
+  <div id="appt-space-editor" class="tt-card" data-tt-fade-key="spaceed:vacio">
+    <h2 class="tt-h-sec">Editor</h2>
+    <p class="tt-appt-empty mt-2 mb-0">
+      Elige un espacio de la lista para cambiar su horario, o abre uno nuevo.
+    </p>
+  </div>
+  {% endif %}
+</section>

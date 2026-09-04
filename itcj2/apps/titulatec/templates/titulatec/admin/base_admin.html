@@ -19,12 +19,27 @@
 {% set _section = 'Bandeja' if _is_inbox else 'Procesos' if _is_proc else 'Convocatorias' if _is_coh else 'Citas de cotejo' if _is_appt else 'Actos protocolarios' if _is_cer else 'TitulaTec · Admin' %}
 
 {% block content %}
-<div class="tt-admin" id="ttAdmin">
+{# `hx-ext="morph"` va AQUI, en un contenedor que nunca entra a ningun swap.
+   Si viviera en `#tt-admin-content` se perderia al primer `morph:outerHTML`
+   (la respuesta no trae el atributo) y htmx caeria en silencio a `innerHTML`,
+   anidando el contenedor dentro de si mismo. La extension solo interviene si
+   `hx-swap` empieza por `morph`, asi que heredarla en todo el subarbol admin
+   no cambia nada para los swaps normales. #}
+<div class="tt-admin" id="ttAdmin" hx-ext="morph">
   <div class="tt-admin-overlay" id="ttAdminOverlay"></div>
   {# Navegación "estilo wire:navigate": cada item swappea SOLO #tt-admin-content
      (morph), nunca el sidebar ni el <body> → el menú queda quieto, sin parpadeo,
-     y funciona igual embebido en iframe. El activo se actualiza por JS (ttSetActive). #}
-  <aside class="side" id="ttSide" hx-ext="morph">
+     y funciona igual embebido en iframe. El activo se actualiza por JS (ttSetActive).
+
+     El swap es `morph:outerHTML`, NO `innerHTML`: `hx-select` conserva el elemento
+     coincidente (no sus hijos), así que el nodo recortado trae el mismo id que el
+     destino. Con `innerHTML` acaba DENTRO de sí mismo y la página queda con dos
+     `#tt-admin-content` anidados en cada navegación (verificado en Chromium con
+     htmx 2.0.3 + Idiomorph 0.7.3). Con `outerHTML` lo REEMPLAZA, que es el mismo
+     idiom que ya usan los otros tres `hx-select` de la app (`cohort_detail.html:25`,
+     `cohort_students.html:8`, `cohort_days_calendar.html:6,9,23`).
+     Invariante cubierto por tests/fastapi/titulatec/test_admin_nav_swap.py. #}
+  <aside class="side" id="ttSide">
     <div class="d-flex align-items-center justify-content-between mb-4">
       <div class="d-flex align-items-center gap-2">
         <div class="d-flex align-items-center justify-content-center tt-display"
@@ -36,7 +51,7 @@
     {% for it in admin_nav|default([]) %}
     <a href="{{ it.url }}"
        hx-get="{{ it.url }}" hx-target="#tt-admin-content" hx-select="#tt-admin-content"
-       hx-swap="morph:innerHTML" hx-push-url="true"
+       hx-swap="morph:outerHTML" hx-push-url="true"
        class="{{ 'active' if (it.url.rstrip('/') == current_route.rstrip('/')) or (it.url not in ('/titulatec/admin/', '#') and it.url in current_route) }}"><i class="bi {{ it.icon }}"></i> {{ it.label }}</a>
     {% endfor %}
     {# "Volver a ITCJ": solo desktop admin standalone. Oculto en móvil (d-none) y
@@ -51,17 +66,44 @@
       <button type="button" class="tt-burger" id="ttAdminBurger" aria-label="Abrir menú"><i class="bi bi-list"></i></button>
       <div class="tt-display" style="font-size:1rem;font-weight:600">{{ _section }}</div>
     </header>
-    <div class="tt-anim-in" id="tt-admin-content">{% block admin_main %}{% endblock %}</div>
+    {# `data-tt-view` es la IDENTIDAD DE VISTA que lee titulatec-utils.js para
+       decidir si re-anima la entrada tras un swap: mismo valor antes y despues
+       = no se movio de vista = no se re-anima (filtros de la propia pagina);
+       valor distinto = navegacion entre pestanas = si se anima. Cada plantilla
+       admin declara el suyo en {% block admin_view %}. Sin declararlo queda
+       vacio, que equivale a "sin identidad" y conserva el comportamiento viejo. #}
+    <div class="tt-anim-in" id="tt-admin-content"
+         data-tt-view="{% block admin_view %}{% endblock %}">{% block admin_main %}{% endblock %}</div>
   </main>
 </div>
 {% endblock %}
 
 {% block scripts %}
+{# Wizard de importación CSV: se carga UNA vez aquí (el bloque `scripts` no entra
+   al morph de #tt-admin-content) y se auto-enlaza por delegación en `document`. #}
+<script src="/static/titulatec/js/admin/import.js?v={{ sv('js/admin/import.js') }}"></script>
+{# Bandeja de Procesos: buscar / ordenar / funnel / alto del kanban + marcado de
+   filas nuevas tras un filtro. Mismo contrato que import.js: una sola carga,
+   listeners delegados en `document` y estado en el modulo (sobrevive al morph). #}
+<script src="/static/titulatec/js/admin/processes.js?v={{ sv('js/admin/processes.js') }}"></script>
+{# Citas de cotejo: visor de documentos, modal grande (que vive fuera del morph,
+   en `block modals`, y por eso se puebla al abrirlo) y marcado de la zona que sí
+   cambió tras un swap. Mismo contrato: una sola carga y delegación en `document`. #}
+<script src="/static/titulatec/js/admin/appointments.js?v={{ sv('js/admin/appointments.js') }}"></script>
+{# Expediente del alumno: acordeón de fases (con memoria de lo desplegado, que
+   un swap no debe cerrar) y la guarda de motivo al rechazar una fase. Se carga
+   aquí y no en `process_detail.html` porque la navegación del admin trae solo
+   `#tt-admin-content` (`hx-select`): un <script> de la plantilla de página no
+   llegaría al entrar desde otra pestaña. #}
+<script src="/static/titulatec/js/admin/expediente.js?v={{ sv('js/admin/expediente.js') }}"></script>
 <script>
   // Toast genérico para errores de acciones HTMX (usa X-Tt-Error si viene).
   document.body.addEventListener('htmx:responseError', function (e) {
-    var msg = (e.detail && e.detail.xhr && e.detail.xhr.getResponseHeader('X-Tt-Error'))
-              || 'No se pudo completar la acción.';
+    var crudo = e.detail && e.detail.xhr && e.detail.xhr.getResponseHeader('X-Tt-Error');
+    // El servidor percent-codifica el mensaje: los headers HTTP son latin-1 y
+    // sin codificar, cualquier acento llegaba roto.
+    var msg = (window.TitulaTecUtils && TitulaTecUtils.decodeHeaderMsg(crudo))
+              || crudo || 'No se pudo completar la acción.';
     if (window.TitulaTecUtils) TitulaTecUtils.showToast(msg, 'danger');
   });
 

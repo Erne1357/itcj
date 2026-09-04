@@ -1,0 +1,160 @@
+{# El tablero de un día: una fila por franja, con quién la ocupa.
+
+   Con capacidad 1 —lo normal— cada franja es una fila simple. Con capacidad
+   mayor la fila crece a N asientos de la MISMA caja, de alto FIJO: si el
+   asiento ocupado fuera más alto que el libre, llenar un lugar movería la fila,
+   que es justo lo que este rediseño vino a quitar.
+
+   Reagendar se hace picando una franja libre, no rellenando un formulario: con
+   `?mover=`, los lugares libres se convierten en «Mover aquí». Así se ve la
+   ocupación real mientras se decide, y desaparece el `<input type="time">` que
+   ni siquiera traía la hora actual. #}
+{% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav, appt_action %}
+{% from "titulatec/_macros.html" import appt_pill %}
+
+{% set QZ = ('?' ~ q_zone) if q_zone else '' %}
+{% set AMP = '&' if q_zone else '?' %}
+
+{% if not day %}
+  <p class="tt-appt-empty mb-0">Elige un día de cotejo en el carril de arriba.</p>
+
+{% elif board.sin_espacio and not board.sueltas %}
+  <div class="d-flex flex-column gap-2">
+    <h2 class="tt-h-sec">{{ day_largo|capitalize }}</h2>
+    <p class="tt-appt-empty mb-0">
+      Todavía no abres espacios este día, así que no hay franjas donde agendar.
+    </p>
+    <div>
+      <a class="btn btn-sm tt-btn-ink"
+         {{ appt_nav(page_url ~ '?v=espacios&date=' ~ day) }}>
+        <i class="bi bi-clock me-1" aria-hidden="true"></i>Configurar mis espacios</a>
+    </div>
+  </div>
+
+{% else %}
+  {% if mover %}
+  <div class="tt-card tt-card--accent mb-3" role="status">
+    <span class="tt-appt-note">
+      <i class="bi bi-arrows-move me-1" aria-hidden="true"></i>
+      Elige el lugar al que quieres mover la cita.
+    </span>
+    <a class="btn btn-sm tt-btn-ghost ms-2"
+       {{ appt_nav(page_url ~ '?date=' ~ day ~ '&selected=' ~ mover ~ '&v=atender') }}>Cancelar</a>
+  </div>
+  {% endif %}
+
+  {% for g in board.grupos %}
+  <section class="mb-4" aria-label="Espacio de {{ g.horario }}">
+    <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-2">
+      <h2 class="tt-h-sec">
+        {{ day_largo|capitalize }}
+        <span class="n">{{ g.ocupados }}/{{ g.capacidad }}</span>
+      </h2>
+      <span class="tt-appt-note">
+        {{ g.horario }} · franjas de {{ g.slot_minutes }} min ·
+        {{ g.capacity }} lugar{{ 'es' if g.capacity != 1 }}
+        {%- if g.location %} · {{ g.location }}{% endif %}
+        {% if g.pausada %}<span class="tt-pill tt-pill--neutral ms-1">En pausa</span>{% endif %}
+      </span>
+    </div>
+
+    {% for f in g.franjas %}
+    <div class="tt-slotrow" id="appt-slot-{{ g.id }}-{{ f.hhmm|replace(':','') }}">
+      <div class="hora">{{ f.hhmm }}</div>
+      <div class="pista">
+        {% for o in f.ocupantes %}
+        {# `draggable` es un AÑADIDO al clic, nunca el único camino: el arrastre
+           nativo del navegador no existe en táctil ni con teclado. Quien no
+           pueda arrastrar sigue usando «Mover de franja» en la ficha. #}
+        <a class="tt-seat" id="appt-seat-p{{ o.process_id }}"
+           draggable="true" data-tt-drag="{{ o.process_id }}"
+           data-tt-drag-name="{{ o.student }}"
+           {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ o.process_id) }}
+           aria-label="{{ f.hhmm }}, {{ o.student }}, {{ o.control }}">
+          <span class="who">{{ o.student }}
+            {%- if o.change_request %}<i class="bi bi-arrow-repeat ms-1" title="Solicitó un cambio"></i>{% endif %}
+          </span>
+          <span class="meta">{{ o.control }} · {{ o.program }}</span>
+        </a>
+        {% endfor %}
+
+        {% for i in range(f.libres) %}
+          {% set DROP = 'data-tt-drop="' ~ g.id ~ '|' ~ f.hhmm ~ '" data-tt-drop-url="'
+                        ~ page_url ~ '/@PID@/move' ~ QZ ~ AMP ~ 'window_id=' ~ g.id
+                        ~ '&slot=' ~ f.hhmm ~ '"' %}
+          {% set SID = 'appt-seat-' ~ g.id ~ '-' ~ f.hhmm|replace(':','') ~ '-' ~ i %}
+          {% if mover %}
+          <button type="button" class="tt-seat tt-seat--libre" id="{{ SID }}" {{ DROP|safe }}
+                  {{ appt_action(page_url ~ '/' ~ mover ~ '/move' ~ QZ ~ AMP ~ 'window_id=' ~ g.id ~ '&slot=' ~ f.hhmm) }}>
+            <span class="who"><i class="bi bi-arrow-right-short" aria-hidden="true"></i>Mover aquí</span>
+          </button>
+          {% elif seleccion %}
+          <button type="button" class="tt-seat tt-seat--libre" id="{{ SID }}" {{ DROP|safe }}
+                  {{ appt_action(page_url ~ '/' ~ seleccion[0] ~ '/move' ~ QZ ~ AMP ~ 'window_id=' ~ g.id ~ '&slot=' ~ f.hhmm) }}>
+            <span class="who"><i class="bi bi-plus-lg" aria-hidden="true"></i>Poner aquí</span>
+          </button>
+          {% else %}
+          {# Sin repetir la hora: ya está a la izquierda de la fila. Es destino
+             de arrastre SIEMPRE, no solo cuando hay algo «armado». #}
+          <div class="tt-seat tt-seat--libre" id="{{ SID }}" {{ DROP|safe }}>
+            <span class="who">Lugar libre</span>
+          </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+
+    {% if g.fuera %}
+    {# Citas que dejaron de caer en la rejilla al cambiar la duración de la
+       franja. Se enseñan: esconderlas sería peor que mostrarlas. #}
+    <div class="mt-3">
+      <h3 class="tt-h-sec">Fuera de la rejilla <span class="n">{{ g.fuera|length }}</span></h3>
+      <p class="tt-appt-empty">Su hora ya no coincide con las franjas de este espacio.</p>
+      <div class="tt-queue-list mt-2">
+        {% for o in g.fuera %}
+        <a class="tt-appt-item" id="appt-fuera-{{ o.process_id }}"
+           {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ o.process_id) }}>
+          <span class="time">{{ o.time_label }}</span>
+          <span class="flex-grow-1 min-w-0">
+            <span class="who d-block text-truncate">{{ o.student }}</span>
+            <span class="meta d-block text-truncate">{{ o.control }}</span>
+          </span>
+          {{ appt_pill(o.status) }}
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  {% if board.sueltas %}
+  <section class="mb-3" aria-label="Otras citas de este día">
+    <h2 class="tt-h-sec">Otras citas de este día <span class="n">{{ board.sueltas|length }}</span></h2>
+    <p class="tt-appt-empty">Se agendaron antes de que existieran los espacios.</p>
+    <div class="tt-queue-list mt-2">
+      {% for o in board.sueltas %}
+      <a class="tt-appt-item" id="appt-suelta-{{ o.process_id }}"
+         {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ o.process_id) }}>
+        <span class="time">{{ o.time_label }}</span>
+        <span class="flex-grow-1 min-w-0">
+          <span class="who d-block text-truncate">{{ o.student }}</span>
+          <span class="meta d-block text-truncate">{{ o.control }} · {{ o.program }}</span>
+        </span>
+        {{ appt_pill(o.status) }}
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if board.ajenas %}
+  {# Solo conteos y horario. NUNCA nombres: pueden ser de carreras que este
+     usuario no tiene en su alcance. #}
+  <p class="tt-appt-empty mb-0">
+    <i class="bi bi-people me-1" aria-hidden="true"></i>Otros encargados este día:
+    {% for a in board.ajenas %}{{ a.horario }} ({{ a.ocupados }}/{{ a.capacidad }}){{ ', ' if not loop.last }}{% endfor %}
+  </p>
+  {% endif %}
+{% endif %}

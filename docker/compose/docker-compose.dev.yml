@@ -140,6 +140,9 @@ services:
       TZ: America/Ciudad_Juarez
     volumes:
       - ../nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+      # Credencial del tunel de dev (gitignored). Solo se exige cuando el Host
+      # es de un tunel; localhost entra sin contrasena. Ver el map en nginx.dev.conf.
+      - ../nginx/tunnel.htpasswd:/etc/nginx/tunnel.htpasswd:ro
       # Archivos estáticos de las apps
       - ../../itcj2/core/static:/www/static/core:ro
       - ../../itcj2/apps/agendatec/static:/www/static/agendatec:ro

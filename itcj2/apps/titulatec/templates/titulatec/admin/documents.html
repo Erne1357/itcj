@@ -1,5 +1,6 @@
 {% extends "titulatec/admin/base_admin.html" %}
 {% block title %}Documentos · TitulaTec{% endblock %}
+{% block admin_view %}documents{% endblock %}
 {% block admin_main %}
 <div class="px-4 pt-4 pb-2">
   <span class="tt-kicker">Fase 01 · Servicios Escolares</span>
@@ -7,9 +8,21 @@
   <p class="mb-0" style="font-size:.82rem;color:var(--tt-slate)">
     Aprueba o rechaza los documentos iniciales. Al aprobar los 3, el alumno queda listo para agendar cotejo.</p>
 </div>
-<div class="px-4 pb-4">
-  <div id="docs-skel" class="htmx-indicator" style="opacity:.5">Cargando…</div>
-  <div id="docs-body">
+<div class="px-4 pb-4 tt-ind-host">
+  {# Indicador de recarga. Es OVERLAY (primitiva `tt-ind--overlay`, ver
+     docs/design/ui_motion.md): fuera del flujo, asi que reserva 0 px. Antes
+     nacia en el flujo y al aparecer empujaba la bandeja entera 24 px hacia
+     abajo. Ademas vela la lista rancia mientras llega la nueva. Por debajo de
+     --tt-ind-delay (300 ms) no llega a verse nunca. #}
+  <div id="docs-skel" class="tt-ind tt-ind--overlay htmx-indicator"
+       role="status" aria-live="polite">
+    <span class="tt-ind-badge"><span class="tt-spinner"></span>Cargando…</span>
+  </div>
+  {# El swap de esta region es `innerHTML`: el contenedor NO se reemplaza, asi que
+     su `data-tt-view` es constante y titulatec-utils.js deja de re-disparar la
+     animacion de entrada en cada recarga del listado (el contenido cambia de
+     contenido, no de vista). #}
+  <div id="docs-body" data-tt-view="documents-body">
     {% include "titulatec/partials/documents_body.html" %}
   </div>
 </div>

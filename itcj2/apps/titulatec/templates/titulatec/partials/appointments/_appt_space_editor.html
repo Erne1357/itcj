@@ -1,0 +1,79 @@
+{# Editor de un espacio.
+
+   Rejilla declarada (`repeat(auto-fit, minmax(180px, 1fr))`), no `flex-wrap`
+   con contenido implícito: así ningún campo cae solo en otra línea, «Lugar» no
+   se corta a mitad ("Edificio A - Servicios Escolare") y las etiquetas no se
+   pegan entre sí como pasaba con «FECHA (HABILITADA)» y «HORA».
+
+   La línea derivada la calcula el SERVIDOR y se re-renderiza al cambiar
+   cualquier campo: es la única forma de que diga la verdad sin duplicar el
+   algoritmo de franjas en JavaScript. #}
+{% from "titulatec/partials/appointments/_appt_macros.html" import appt_action, appt_nav_filter %}
+
+{% set E = espacios.editor %}
+{% set U_GUARDA = page_url ~ '/espacios/' ~ (E.id or 'nuevo') ~ '?v=espacios&date=' ~ day %}
+
+<div id="appt-space-editor" class="tt-card" data-tt-fade-key="spaceed:{{ E.id or 'nuevo' }}">
+  <div class="tt-queue-head">
+    <h2 class="tt-h-sec">{{ 'Editar espacio' if E.id else 'Abrir un espacio' }}</h2>
+    <span class="tt-appt-note">{{ day_largo }}</span>
+  </div>
+
+  <form class="tt-form-grid mt-2" {{ appt_action(U_GUARDA) }}>
+    <div>
+      <label class="tt-label" for="esp-start">Desde</label>
+      <input type="time" id="esp-start" name="start_time" value="{{ E.start }}"
+             class="form-control form-control-sm" required>
+    </div>
+    <div>
+      <label class="tt-label" for="esp-end">Hasta</label>
+      <input type="time" id="esp-end" name="end_time" value="{{ E.end }}"
+             class="form-control form-control-sm" required>
+    </div>
+    <div>
+      <label class="tt-label" for="esp-slot">Cada cuánto</label>
+      <select id="esp-slot" name="slot_minutes" class="form-select form-select-sm">
+        {% for m in [10, 15, 20, 30, 45, 60] %}
+        <option value="{{ m }}" {{ 'selected' if E.slot_minutes == m }}>{{ m }} minutos</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="tt-label" for="esp-cap">Personas por franja</label>
+      <input type="number" id="esp-cap" name="capacity" value="{{ E.capacity }}"
+             min="1" max="20" class="form-control form-control-sm">
+    </div>
+    <div class="full">
+      <label class="tt-label" for="esp-loc">Lugar</label>
+      <input type="text" id="esp-loc" name="location" value="{{ E.location }}"
+             class="form-control form-control-sm"
+             placeholder="Edificio A · Servicios Escolares">
+    </div>
+
+    <p class="tt-derivada full mb-0">{{ E.derivada }}</p>
+
+    <div class="full d-flex flex-wrap gap-2">
+      <button type="submit" class="btn btn-sm tt-btn-ink">
+        <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Guardar espacio</button>
+
+      {% if E.id %}
+      <button type="button" class="btn btn-sm tt-btn-ghost"
+              {{ appt_action(page_url ~ '/espacios/' ~ E.id ~ '/pausa?v=espacios&date=' ~ day) }}>
+        <i class="bi bi-pause me-1" aria-hidden="true"></i>
+        {{ 'Reanudar' if E.pausada else 'Poner en pausa' }}</button>
+
+      <button type="button" class="btn btn-sm tt-btn-ghost"
+              hx-confirm="Copiar horario|¿Copiar este horario a los demás días de cotejo? Los días donde ya tengas un espacio no se tocan."
+              data-tt-confirm-ok="Copiar"
+              {{ appt_action(page_url ~ '/espacios/' ~ E.id ~ '/copiar?v=espacios&date=' ~ day) }}>
+        <i class="bi bi-files me-1" aria-hidden="true"></i>Copiar a los demás días</button>
+
+      <button type="button" class="btn btn-sm tt-btn-danger-soft"
+              hx-confirm="Eliminar espacio|¿Eliminar este espacio? Solo se puede si no tiene ninguna cita."
+              data-tt-confirm-ok="Eliminar"
+              {{ appt_action(page_url ~ '/espacios/' ~ E.id ~ '/eliminar?v=espacios&date=' ~ day) }}>
+        <i class="bi bi-trash me-1" aria-hidden="true"></i>Eliminar</button>
+      {% endif %}
+    </div>
+  </form>
+</div>

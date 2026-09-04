@@ -6,11 +6,30 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
+    # Bump 2026-09-04 (2): Mantenimiento cambia su icono bootstrap por maint.png
+    # en el dashboard de escritorio y en el card movil.
+    #
+    # Bump 2026-09-04: el icono de Extensiones (directory.png) entra al dashboard
+    # de escritorio y al card movil, y cambia `dashboard.js`. Sin bump, el navegador
+    # con cache caliente serviria el JS viejo, que genera el tile con el icono
+    # lucide en vez de reusar el de la plantilla.
+    #
+    # Bump 2026-09-03: el expediente del alumno añade `admin/expediente.js` (que
+    # carga la base admin) y un bloque nuevo en `titulatec.css` (`.tt-exp-*` y
+    # los tonos del historial). Con caché caliente, el acordeón de las 9 fases
+    # se serviría sin CSS ni JS: todo abierto, sin poder plegar nada.
+    #
+    # Bump 2026-09-02: la revisión del admin de TitulaTec tocó `titulatec.css`
+    # (retardo e indicador-overlay, `.tt-enter`, las tres zonas de Citas) y tres
+    # módulos JS que además pasaron a cargarse desde la base admin
+    # (`shared/titulatec-utils.js`, `admin/processes.js`, `admin/appointments.js`).
+    # Sin este bump el navegador con caché caliente serviría el CSS/JS viejo
+    # contra el HTML nuevo: los filtros de Procesos re-animarían la página, el
+    # indicador volvería a parpadear y las Citas se verían sin su rejilla.
+    #
     # Bump 2026-08-10: la revisión de helpdesk tocó 55 archivos CSS/JS (registro
-    # de orígenes, sockets, filtros, detalle de equipo, asignación, home). Sin
-    # este bump el navegador serviría los assets viejos desde caché y los
-    # cambios no se verían hasta un refresh forzado.
-    STATIC_VERSION: str = "1.0.1111506"
+    # de orígenes, sockets, filtros, detalle de equipo, asignación, home).
+    STATIC_VERSION: str = "1.0.1111518"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -116,9 +135,20 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
+    def _extra_cors_origins(self) -> list[str]:
+        """Orígenes de `CORS_ORIGINS`, sin vacíos ni duplicados de orden."""
+        if not self.CORS_ORIGINS:
+            return []
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
     def get_cors_origins(self) -> list[str]:
         if self.FLASK_ENV == "development":
-            return [
+            # En dev, `CORS_ORIGINS` SE SUMA a los locales en vez de ignorarse.
+            # Antes esta rama devolvía la lista fija y salía, así que poner la
+            # variable en el .env no tenía ningún efecto en desarrollo: es justo
+            # donde hace falta al exponer el entorno por un túnel para que alguien
+            # pruebe desde fuera.
+            base = [
                 "http://localhost:8080",
                 "http://127.0.0.1:8080",
                 "http://localhost:8000",
@@ -126,6 +156,7 @@ class Settings(BaseSettings):
                 "http://localhost:8001",
                 "http://127.0.0.1:8001",
             ]
+            return base + [o for o in self._extra_cors_origins() if o not in base]
         if self.CORS_ORIGINS:
             return [o.strip() for o in self.CORS_ORIGINS.split(",")]
         return [

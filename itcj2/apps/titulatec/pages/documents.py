@@ -16,23 +16,62 @@ _VIEW_PERMS = ["titulatec.document.page.list", "titulatec.dashboard.school_servi
 _REVIEW_PERMS = ["titulatec.document.api.approve", "titulatec.document.api.reject"]
 
 
-def _doc_row(db, proc):
+def _doc_rows(db, procs):
+    """Filas de la bandeja en **4 consultas fijas**, no 4 por fila.
+
+    Antes esto era `_doc_row(db, proc)` dentro de una comprension, y cada fila
+    hacia: `db.get(User)`, `db.get(Program)` y — en un segundo bucle sobre los 3
+    tipos de documento — un `DocumentType` por codigo mas un
+    `DocumentService.get_document`. Medido sobre los datos de dev con el cache
+    de authz caliente: **273 consultas para 28 filas** (1 de procesos + 102
+    tipos + 102 documentos + 34 usuarios + 34 carreras). Hoy son 5, y el tiempo
+    de servidor baja de 112.5 ms a 3.8 ms (mediana de 7 corridas).
+
+    Las dos consultas por lote son EXACTAMENTE equivalentes a las de antes:
+    `DocumentType.code` es UNIQUE y `Document` tiene
+    `UNIQUE(process_id, type_code)`, asi que el `.first()` de cada fila no podia
+    devolver mas de un candidato y el `IN` no depende del orden de Postgres.
+    El orden de las filas lo sigue fijando el `order_by` de `_body_ctx`.
+    """
     from itcj2.core.models.user import User
     from itcj2.core.models.program import Program
-    from itcj2.apps.titulatec.models import DocumentType
-    from itcj2.apps.titulatec.services.document_service import DocumentService
-    u = db.get(User, proc.student_id)
-    prog = db.get(Program, proc.program_id) if proc.program_id else None
-    docs = []
+    from itcj2.apps.titulatec.models import Document, DocumentType
+
+    if not procs:
+        return []
+    proc_ids = [p.id for p in procs]
+    user_ids = {p.student_id for p in procs if p.student_id}
+    prog_ids = {p.program_id for p in procs if p.program_id}
+
+    # Sin filtro `is_active`: si un tipo se desactiva, el documento ya subido
+    # debe seguir mostrandose con su nombre y no con el codigo crudo (mismo
+    # criterio que `DocumentService.initial_docs_summary`).
+    names = {t.code: t.name for t in db.query(DocumentType)
+             .filter(DocumentType.code.in_(_INITIAL_DOC_TYPES)).all()}
+    docs = {(d.process_id, d.type_code): d for d in db.query(Document)
+            .filter(Document.process_id.in_(proc_ids),
+                    Document.type_code.in_(_INITIAL_DOC_TYPES)).all()}
+    users = ({u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()}
+             if user_ids else {})
+    progs = ({g.id: g for g in db.query(Program).filter(Program.id.in_(prog_ids)).all()}
+             if prog_ids else {})
+
+    return [_doc_row(p, users=users, progs=progs, names=names, docs=docs) for p in procs]
+
+
+def _doc_row(proc, *, users, progs, names, docs):
+    """Fila de la bandeja. Sin `db`: los catalogos llegan ya resueltos (`_doc_rows`)."""
+    u = users.get(proc.student_id)
+    prog = progs.get(proc.program_id) if proc.program_id else None
+    docs_out = []
     pending = 0
     for code in _INITIAL_DOC_TYPES:
-        dt = db.query(DocumentType).filter_by(code=code).first()
-        doc = DocumentService.get_document(db, proc.id, code)
+        doc = docs.get((proc.id, code))
         status = doc.review_status if doc else "missing"
         if status in ("pending", "missing", "in_review"):
             pending += 1
-        docs.append({
-            "type_code": code, "name": dt.name if dt else code, "status": status,
+        docs_out.append({
+            "type_code": code, "name": names.get(code, code), "status": status,
             "has_file": doc is not None,
             "mime": (doc.mime_type if doc else None) or "application/pdf",
             "note": doc.review_note if doc else None,
@@ -42,8 +81,8 @@ def _doc_row(db, proc):
         "process_id": proc.id, "folio": proc.folio,
         "student": u.full_name if u else "—", "control": u.control_number if u else "—",
         "program": prog.name if prog else "—",
-        "docs": docs, "pending": pending,
-        "all_approved": all(d["status"] == "approved" for d in docs),
+        "docs": docs_out, "pending": pending,
+        "all_approved": all(d["status"] == "approved" for d in docs_out),
     }
 
 
@@ -57,7 +96,14 @@ def _body_ctx(db, *, user_id, status_filter, selected_id):
             return {"rows": [], "total_pending": 0, "status_filter": status_filter or "",
                     "detail": None, "selected_id": None}
         q = q.filter(TitulationProcess.program_id.in_(scope))
-    rows = [_doc_row(db, p) for p in q.order_by(TitulationProcess.created_at.desc()).all()]
+    # Desempate por `id`: `created_at` es `server_default NOW()` y en Postgres
+    # NOW() es la hora de INICIO DE LA TRANSACCION, asi que varios procesos
+    # creados en la misma (una importacion, por ejemplo) empatan y el orden lo
+    # decidiria el planificador -> la lista se re-barajaria sola entre filtros.
+    # Sobre los datos de hoy, con 34 `created_at` distintos, no cambia nada:
+    # comprobado byte a byte contra el HTML de antes.
+    rows = _doc_rows(db, q.order_by(TitulationProcess.created_at.desc(),
+                                    TitulationProcess.id.desc()).all())
     rows = [r for r in rows if any(d["has_file"] for d in r["docs"])]
     if status_filter == "pending":
         rows = [r for r in rows if r["pending"] > 0]
@@ -110,9 +156,9 @@ async def review(process_id: int, request: Request,
     """Aprueba/rechaza un doc; si quedan los 3 aprobados y la fase es 1, auto-avanza a fase 2.
     El tipo de documento llega en el form (type_code), no en la URL (panel de dictamen único)."""
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     form = dict(await request.form())
     type_code = form.get("type_code") or ""
@@ -126,11 +172,16 @@ async def review(process_id: int, request: Request,
         return Response(status_code=400, headers={"X-Tt-Error": "Indica el motivo del rechazo y la corrección esperada."})
     db = SessionLocal()
     try:
+        # El guard sustituye al `db.get` de mas abajo: dictaminar y, peor, auto-avanzar
+        # la fase de un proceso de otra carrera pasaba sin que nada lo mirara.
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
         DocumentService.review(db, process_id, type_code, status=new_status, note=note,
                                reviewer_id=int(user["sub"]))
-        proc = db.get(TitulationProcess, process_id)
-        if (proc and proc.current_phase == 1
-                and DocumentService.initial_docs_all_approved(db, process_id)):
+        # El auto-avance pasa por la MISMA guarda que el botón manual: `can_transition`
+        # incluye `current_phase == 1` y además exige `status == 'active'`, que este
+        # camino no miraba (dictaminar un doc empujaba de fase a un proceso cancelado).
+        if (proc and DocumentService.initial_docs_all_approved(db, process_id)
+                and PhaseService.can_transition(db, proc, 1)):
             PhaseService.approve_phase(db, proc, 1, int(user["sub"]))
         ctx = _body_ctx(db, user_id=int(user["sub"]), status_filter=status_filter,
                         selected_id=process_id)
@@ -144,9 +195,12 @@ async def document_file(process_id: int, type_code: str, request: Request, downl
                         user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.read.all"]))):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
     from itcj2.apps.titulatec.utils import storage
     db = SessionLocal()
     try:
+        # Antes de tocar disco: esta ruta admite `?download=1` sobre acta/CURP.
+        assert_process_in_scope(db, int(user["sub"]), process_id)
         doc = DocumentService.get_document(db, process_id, type_code)
         if not doc:
             return Response(status_code=404)

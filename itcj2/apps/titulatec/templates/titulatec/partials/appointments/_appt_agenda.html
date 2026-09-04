@@ -1,0 +1,74 @@
+{# SUB-VISTA AGENDA — dónde está el trabajo.
+
+   Rejilla constante: tablero (1fr) + cola (320px) desde 1280, apilado debajo.
+   Nada de esto cambia de tamaño al elegir un alumno: elegirlo lleva a «Atender»,
+   que es otra sub-vista de ancho completo. #}
+{% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav, appt_nav_filter %}
+{% from "titulatec/_macros.html" import appt_pill %}
+
+<section id="appt-agenda" aria-label="Agenda de cotejo">
+
+  {# --- Filtros y búsqueda ------------------------------------------------- #}
+  {# Presentes en los dos modos: buscar deja de costar un cambio de pestaña.
+     Usan `appt_nav_filter`, que REEMPLAZA la URL en vez de empujarla: con el
+     debounce, cada letra tecleada metía una entrada en el historial y el botón
+     Atrás quedaba inservible. #}
+  {# UNA fila, no un bloque. En la primera versión ocupaba 180 px de alto antes
+     de que empezara el trabajo del día: un buscador a ancho completo, dos
+     selectores debajo y una casilla suelta. Aquí el buscador manda y el resto
+     acompaña, con las etiquetas dentro del propio control. #}
+  <form id="appt-filters" class="tt-filterbar" hx-get="{{ page_url }}"
+        hx-trigger="input changed delay:350ms from:#appt-q, change, submit"
+        {{ appt_nav_filter() }} role="search">
+    <input type="hidden" name="date" value="{{ day }}">
+
+    <label class="tt-search" for="appt-q">
+      <i class="bi bi-search" aria-hidden="true"></i>
+      <span class="visually-hidden">Buscar alumno por nombre o número de control</span>
+      <input type="search" id="appt-q" name="q" value="{{ q }}" hx-preserve="true"
+             placeholder="Buscar por nombre o número de control" autocomplete="off">
+    </label>
+
+    <select id="appt-f-estado" name="estado" class="form-select form-select-sm"
+            aria-label="Filtrar por estado de la cita">
+      <option value="">Cualquier estado</option>
+      {% for s, lbl in [('scheduled','Agendada'),('confirmed','Confirmada'),
+                        ('in_progress','En proceso'),('attended','Asistió'),
+                        ('no_show','No se presentó')] %}
+      <option value="{{ s }}" {{ 'selected' if f_estado == s }}>{{ lbl }}</option>
+      {% endfor %}
+    </select>
+
+    {% if programs|length > 1 %}
+    <select id="appt-f-program" name="program_id" class="form-select form-select-sm"
+            aria-label="Filtrar por carrera">
+      <option value="">Todas las carreras</option>
+      {% for p in programs %}
+      <option value="{{ p.id }}" {{ 'selected' if f_program|string == p.id|string }}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+
+    <label class="tt-chk" for="appt-f-mias">
+      <input class="form-check-input" type="checkbox" name="mias" value="1"
+             id="appt-f-mias" {{ 'checked' if f_mias }}>
+      <span>Solo las mías</span>
+    </label>
+  </form>
+
+  {# --- Carril de días ----------------------------------------------------- #}
+  {% include "titulatec/partials/appointments/_appt_days.html" %}
+
+  {# --- Área de trabajo ---------------------------------------------------- #}
+  <div id="appt-board" class="tt-card"
+       data-tt-fade-key="board:{{ modo }}|{{ day }}|{{ q }}|{{ f_estado }}|{{ 1 if f_mias else 0 }}|{{ f_program }}|{{ mover or '' }}">
+    {% if modo == 'resultados' %}
+      {% include "titulatec/partials/appointments/_appt_results.html" %}
+    {% else %}
+      {% include "titulatec/partials/appointments/_appt_board.html" %}
+    {% endif %}
+  </div>
+
+  {# --- Cola de trabajo ---------------------------------------------------- #}
+  {% include "titulatec/partials/appointments/_appt_queue.html" %}
+</section>

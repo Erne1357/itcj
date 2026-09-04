@@ -331,6 +331,50 @@ _SORT_CLAUSES = {
 
 
 # ==================== LISTAR TICKETS ====================
+def department_scope_ids(db, user_id: int) -> set[int]:
+    """Los departamentos cuyos tickets alcanza este usuario. Aditivo.
+
+      * `read.department` -> sus departamentos por PROCEDENCIA (los de los puestos
+        que le otorgan helpdesk), en plural.
+      * `read.subtree`    -> además, sus sub-departamentos.
+
+    Es el ÚNICO sitio donde se decide esto. Lo consumen la visibilidad de
+    `list_tickets`, `can_user_view_ticket` y el filtro del dashboard de
+    secretaría. Cuando el dashboard calculaba su propio conjunto por su cuenta
+    —el subárbol del departamento agnóstico— filtraba por un conjunto distinto
+    del que la visibilidad permitía: a una secretaría le sobraba anchura muerta,
+    y a un jefe con `read.subtree` un filtro exacto le habría borrado sus
+    sub-departamentos (medido: 486 tickets -> 20).
+    """
+    from itcj2.core.services.departments_service import app_departments
+    from itcj2.core.services.scope_service import subtree_scope_for
+
+    dept_ids: set[int] = set()
+    if _tiene_scope_departamental(db, user_id):
+        dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
+    dept_ids |= subtree_scope_for(db, user_id, "helpdesk",
+                                  "helpdesk.tickets.api.read.subtree")
+    return dept_ids
+
+
+def _tiene_scope_departamental(db, user_id: int) -> bool:
+    """¿Puede leer los tickets de SU departamento?
+
+    Se pregunta por el PERMISO (`helpdesk.tickets.api.read.department`), no por
+    el rol. Antes era `'department_head' in user_roles`, y ahí se caían las
+    secretarías: tienen el permiso y nunca entraban a la rama, así que solo veían
+    los tickets donde eran solicitantes o asignadas. No saltaba a la vista porque
+    la secretaría levanta casi todos los tickets de su departamento — una veía 20
+    de los 21 del suyo, y el que faltaba era el que había creado otra persona.
+
+    Comprobado sobre la base antes de cambiarlo: 0 personas tienen el rol
+    `department_head` sin este permiso, así que nadie pierde alcance; lo ganan
+    las 28 secretarías a las que el DML ya se lo había concedido.
+    """
+    from itcj2.core.services.authz_service import effective_perm_set
+    return "helpdesk.tickets.api.read.department" in effective_perm_set(db, user_id, "helpdesk")
+
+
 def list_tickets(
     db: Session,
     user_id: int,
@@ -368,20 +412,9 @@ def list_tickets(
     elif 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
         pass
     else:
-        # Scope departamental/subárbol: jefe de depto (su depto) + cualquiera que
-        # tenga helpdesk.tickets.api.read.subtree (su depto + sub-departamentos, por
-        # procedencia). Aditivo: sin .subtree, el jefe de depto ve su depto como antes.
-        from itcj2.core.services.departments_service import app_departments
-        from itcj2.core.services.scope_service import subtree_scope_for
-
-        dept_ids: set[int] = set()
-        if 'department_head' in user_roles:
-            # TODOS los departamentos que le dan acceso a helpdesk, no uno solo:
-            # una secretaria de dos departamentos veía los tickets de uno nada más,
-            # y con un puesto en un departamento ajeno a la app podía ver el
-            # equivocado (el desempate por antigüedad no miraba la app).
-            dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
-        dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+        # Scope departamental/subárbol. El criterio vive en `department_scope_ids`,
+        # que es también el que usa el dashboard de secretaría para su filtro.
+        dept_ids = department_scope_ids(db, user_id)
 
         # La propiedad NUNCA se pierde: el scope departamental SUMA sobre "soy el
         # solicitante / me lo asignaron", no lo reemplaza. `requester_department_id`
@@ -901,14 +934,10 @@ def can_user_view_ticket(db: Session, ticket: Ticket, user_id: int) -> bool:
         if is_collaborator:
             return True
 
-    # Scope departamental/subárbol (debe seguir en sync con list_tickets).
-    from itcj2.core.services.departments_service import app_departments
-    from itcj2.core.services.scope_service import subtree_scope_for
-
-    dept_ids: set[int] = set()
-    if 'department_head' in user_roles:
-        dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
-    dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+    # Scope departamental/subárbol: el MISMO conjunto que `list_tickets`, por
+    # construcción y no por disciplina — antes eran dos copias que había que
+    # acordarse de mover juntas.
+    dept_ids = department_scope_ids(db, user_id)
 
     if ticket.requester_department_id in dept_ids:
         return True

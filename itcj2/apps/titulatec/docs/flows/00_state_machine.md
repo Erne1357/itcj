@@ -29,16 +29,35 @@ stateDiagram-v2
     in_review --> approved: admin aprueba
     in_review --> rejected: admin rechaza (con motivo)
     in_progress --> approved: admin aprueba directo (ej. fase 2 tras cotejo)
-    rejected --> in_progress: alumno corrige / admin reabre
+    rejected --> in_review: alumno reenvía (fases 1 y 3)
     approved --> [*]
     pending --> skipped: modalidad salta la fase (ej. EGEL salta 4 y 5)
 ```
+
+> **Ojo:** una fase `rejected` **no** regresa a `in_progress` cuando el alumno corrige. El reenvío la manda directo a `in_review`: fase 1 en `pages/student.py:556` (`phase.status = "in_review"`) y fase 3 en `services/format_b_service.py:91` (`FormatBService.submit()`). El único código que escribe `in_progress` sobre una fase `rejected` es `services/phase_service.py:92-93`, y solo cuando esa fase resulta ser la **siguiente aplicable** al aprobarse otra (regla de abajo), no como «reapertura» de la fase rechazada.
 
 **Reglas (las implementa [`PhaseService`](engine_approve_advance_phase.md)):**
 - Aprobar fase N → `N.status=approved` → activa la **siguiente aplicable** (`in_progress`,
   saltando `modality.skips_phases`). Si no hay siguiente → `process.status=completed`.
 - Una fase ya `in_review`/`approved` **no** se rebaja al activarse (solo `pending`/`rejected`→`in_progress`).
 - Cada transición escribe `ProcessEvent`.
+
+### Quién puede mover qué, y cuándo — las dos guardas
+
+Ninguna transición del diagrama es libre: **solo se actúa sobre `current_phase`, y solo
+si `process.status == 'active'`**. Es la misma regla escrita dos veces, una por cada lado
+de la mesa, y las dos viven en `PhaseService`:
+
+| Lado | Qué protege | Función | Fuera de regla |
+|---|---|---|---|
+| 🏛️🎓 **admin** | el **dictamen** (aprobar / rechazar) | [`assert_can_transition`](engine_approve_advance_phase.md#guarda-de-transición-desde-2026-09) | `400` + `X-Tt-Error` |
+| 👤 **alumno** | la **ejecución** (subir, borrar, llenar, enviar, confirmar) | [`assert_student_can_act`](engine_student_phase_lock.md) | `400` + `X-Tt-Error` (acciones) · `302` al acordeón (páginas) |
+
+Para el alumno eso significa: las fases **siguientes** son informativas (las lee en el
+acordeón del dashboard, sin poder ejecutarlas) y las **anteriores** quedan cerradas e
+**inmutables** — no puede reabrir una fase aprobada ni borrar evidencia ya dictaminada.
+La fase `rejected` sigue abierta porque `reject_phase` deja `current_phase` apuntando a
+ella; es corrección, no reapertura.
 
 ## Estado de un documento (`Document.review_status`)
 

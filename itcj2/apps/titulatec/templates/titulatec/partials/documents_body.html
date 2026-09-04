@@ -46,10 +46,21 @@
     {% else %}
     {% set viewable = detail.docs | selectattr('has_file') | list %}
     <div id="tt-doc-review" data-process="{{ detail.process_id }}">
-      <div class="tt-card mb-3">
-        <span class="tt-kicker">{{ detail.folio }}</span>
-        <div class="tt-display" style="font-size:1.1rem;font-weight:600">{{ detail.student }}</div>
-        <div class="tt-mono" style="font-size:.72rem;color:var(--tt-mute)">{{ detail.control }} · {{ detail.program }}</div>
+      {# El expediente contesta lo que esta bandeja no puede: si este documento
+         ya se habia rechazado antes y por que. El `from` lleva la URL CANONICA
+         de la pestana (no la del parcial `/body`) con su filtro y su alumno,
+         para que el Regresar del expediente devuelva aqui mismo. #}
+      {% set VOLVER = ('/titulatec/admin/documents?status=' ~ (status_filter or '')
+                       ~ '&selected=' ~ detail.process_id) | urlencode %}
+      <div class="tt-card mb-3 d-flex flex-wrap align-items-start justify-content-between gap-2">
+        <div class="min-w-0">
+          <span class="tt-kicker">{{ detail.folio }}</span>
+          <div class="tt-display" style="font-size:1.1rem;font-weight:600">{{ detail.student }}</div>
+          <div class="tt-mono" style="font-size:.72rem;color:var(--tt-mute)">{{ detail.control }} · {{ detail.program }}</div>
+        </div>
+        <a class="btn btn-sm tt-btn-ghost"
+           href="/titulatec/admin/processes/{{ detail.process_id }}?fase=1&from={{ VOLVER }}">
+          <i class="bi bi-clock-history me-1" aria-hidden="true"></i>Expediente</a>
       </div>
 
       <div class="tt-card mb-3">

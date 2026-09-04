@@ -88,3 +88,12 @@ graphify-out/
 .graphifyignore
 
 template/
+# Credencial del tunel de dev (bcrypt): no va al repo
+docker/nginx/tunnel.htpasswd
+
+# TitulaTec: specs, plan y hi-fi son LOCALES a proposito (decision del usuario,
+# 2026-09-01: "los specs tampoco los quiero en el repo"). Del app solo se
+# commitean docs/flows/ y docs/design/, que documentan el codigo que existe.
+itcj2/apps/titulatec/plan/
+itcj2/apps/titulatec/design_handoff_titulatec/
+itcj2/apps/titulatec/README.md

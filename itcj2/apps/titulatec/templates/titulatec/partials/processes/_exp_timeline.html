@@ -1,0 +1,30 @@
+{# ===========================================================================
+   _exp_timeline.html — la línea de tiempo de un bloque del expediente.
+
+   Recibe `eventos` (lista de {label, icon, tone, when, actor, detail}) y `vacio`
+   (el texto de cuando no hay ninguno; None lo omite).
+
+   Cada entrada nombra a quien la provocó. «Documento rechazado» sin autor obliga
+   a preguntar por el pasillo quién fue, que es exactamente el trabajo que esta
+   pantalla venía a quitar.
+   =========================================================================== #}
+{% if eventos %}
+<div class="tt-exp-hist">
+  <div class="tt-acc-block-title"><i class="bi bi-clock-history" aria-hidden="true"></i>Historial</div>
+  {% for e in eventos %}
+  <div class="tt-timeline-item">
+    <span class="ico tone-{{ e.tone }}"><i class="bi bi-{{ e.icon }}" aria-hidden="true"></i></span>
+    <div class="min-w-0 flex-grow-1">
+      <div class="label">{{ e.label }}</div>
+      {# La fecha en mono (alinea entre filas) y el nombre en texto normal: un
+         nombre completo en versalitas monoespaciadas grita y ocupa el doble. #}
+      <div class="when"><span class="tt-mono">{{ e.when }}</span>
+        {%- if e.actor %} · <span class="quien">{{ e.actor }}</span>{% endif %}</div>
+      {% if e.detail %}<div class="detalle">{{ e.detail }}</div>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% elif vacio %}
+<p class="tt-exp-vacio">{{ vacio }}</p>
+{% endif %}

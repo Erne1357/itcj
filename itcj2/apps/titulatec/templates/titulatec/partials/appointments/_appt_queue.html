@@ -1,0 +1,86 @@
+{# La cola de trabajo del encargado. DOS cubos, no uno:
+
+   «Por agendar»  procesos elegibles que nunca han tenido cita.
+   «Reagendar»    alumnos que no se presentaron.
+
+   No se mezclan a propósito. Su lugar NO se libera cuando alguien no llega
+   («si no se presentó es que ya pasó», decisión del usuario), así que conservan
+   su cita y no pueden aparecer entre quienes nunca tuvieron una. Mezclarlos
+   haría que el contador dejara de significar una sola cosa.
+
+   El contador NO lo tocan los filtros del área de trabajo: es la cola del
+   encargado y tiene que ser estable para poder decidir con ella.
+
+   La FILA ENTERA es el objetivo táctil (`<label>` de 44 px), no la casilla de
+   20 px que había que acertar con el pulgar. #}
+{% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav %}
+{% from "titulatec/_macros.html" import appt_pill %}
+
+<aside id="appt-queue" aria-label="Cola de trabajo"
+       data-tt-fade-key="queue:{{ pending_count }}|{{ reagendar_count }}|{{ seleccion|join(',') }}">
+
+  <div class="tt-card">
+    <div class="tt-queue-head">
+      <h2 class="tt-h-sec">Por agendar
+        <span class="n">{{ pending_count }}</span>
+      </h2>
+    </div>
+
+    {% if pending %}
+    <p class="tt-appt-empty mb-2 d-none d-lg-block">
+      <i class="bi bi-arrows-move me-1" aria-hidden="true"></i>
+      Arrastra a un alumno hasta un lugar libre, o púlsalo y luego pica el lugar.
+    </p>
+    <div class="tt-queue-list">
+      {% for r in pending %}
+      <a class="tt-appt-item{{ ' is-active' if r.process_id in seleccion }}"
+         id="appt-queue-{{ r.process_id }}"
+         draggable="true" data-tt-drag="{{ r.process_id }}"
+         data-tt-drag-name="{{ r.student }}"
+         {{ appt_nav(page_url ~ '?date=' ~ day ~ '&p=' ~ r.process_id) }}>
+        <span class="flex-grow-1 min-w-0">
+          <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
+          <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
+        </span>
+        <i class="bi bi-chevron-right" aria-hidden="true"></i>
+      </a>
+      {% endfor %}
+    </div>
+    {% if seleccion %}
+    <p class="tt-appt-empty mt-2 mb-0">
+      <i class="bi bi-hand-index-thumb me-1" aria-hidden="true"></i>
+      Ahora pica un lugar libre del tablero para darle cita.
+    </p>
+    {% endif %}
+    {% else %}
+    <p class="tt-appt-empty mb-0">Nadie pendiente de agendar en tus carreras.</p>
+    {% endif %}
+  </div>
+
+  {% if reagendar_count %}
+  <div class="tt-card mt-3">
+    <div class="tt-queue-head">
+      <h2 class="tt-h-sec">Reagendar
+        <span class="n">{{ reagendar_count }}</span>
+      </h2>
+    </div>
+    <p class="tt-appt-empty mb-2">Tuvieron cita y no se presentaron.</p>
+    <div class="tt-queue-list">
+      {% for r in reagendar %}
+      <a class="tt-appt-item" id="appt-requeue-{{ r.process_id }}"
+         draggable="true" data-tt-drag="{{ r.process_id }}"
+         data-tt-drag-name="{{ r.student }}"
+         {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ r.process_id) }}>
+        {# La pastilla va DEBAJO, no al lado: en la columna de 320 px competia con
+           el nombre y lo truncaba a "RODRIGO PENA N...". El nombre es el dato
+           con el que se busca a alguien. #}
+        <span class="flex-grow-1 min-w-0">
+          <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
+          <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</aside>

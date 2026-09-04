@@ -68,19 +68,26 @@ def has_full_inventory_access(
     return False
 
 
+def _es_centro_de_computo(dept) -> bool:
+    """Un solo sitio con el criterio, que antes estaba copiado en dos."""
+    return bool(dept and (dept.code == "comp_center" or dept.name == "CENTRO DE COMPUTO"))
+
+
 def is_comp_center_user(db, user_id: int) -> bool:
     """
     Determina si el usuario pertenece actualmente al Centro de Cómputo.
 
-    Equivalente al check is_comp_center en pages/inventory.py:
-      dept.code == 'comp_center' or dept.name == 'CENTRO DE COMPUTO'
+    Mira TODOS sus puestos vigentes, no el departamento "primario". Antes usaba
+    `user.get_current_department()`, que desempata por el puesto MÁS ANTIGUO:
+    quien tuviera un puesto viejo en otro sitio y otro en Centro de Cómputo
+    recibía «no» y perdía en silencio la edición de inventario. Hoy no le pasa a
+    nadie (comprobado en la base), pero está a un alta de distancia.
+
+    El resolver agnóstico es el correcto AQUÍ: pertenecer a Cómputo no depende de
+    que ese puesto otorgue helpdesk. Lo que estaba mal era el singular.
     """
-    from itcj2.core.models.user import User
-    user = db.get(User, user_id)
-    if not user:
-        return False
-    dept = user.get_current_department()
-    return bool(dept and (dept.code == "comp_center" or dept.name == "CENTRO DE COMPUTO"))
+    from itcj2.core.services.departments_service import get_user_departments
+    return any(_es_centro_de_computo(d) for d in get_user_departments(db, user_id) or [])
 
 
 def has_dept_inventory_access(

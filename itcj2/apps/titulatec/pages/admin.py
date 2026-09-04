@@ -2,7 +2,7 @@
 import logging
 import secrets
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Path, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
 from itcj2.dependencies import require_page_app
@@ -13,11 +13,20 @@ logger = logging.getLogger("itcj2.apps.titulatec.pages.admin")
 
 router = APIRouter(prefix="/admin", tags=["titulatec-pages-admin"])
 
-# Permiso para gestionar convocatorias / importar (Servicios Escolares + admin).
-_COHORT_PERMS = [
-    "titulatec.cohort.api.import_csv", "titulatec.cohort.page.list",
-    "titulatec.dashboard.admin", "titulatec.dashboard.school_services",
-]
+# Convocatorias: SOLO la jefatura de Servicios Escolares.
+#
+# OJO CON LA FORMA DE LA LISTA: `require_page_app` la evalúa como **OR**
+# (`itcj2/dependencies.py:131` → `_perms_set & cached_perms(...)`), no como AND.
+# Aquí figuraban además `dashboard.admin` y `dashboard.school_services`, y como
+# el rol operativo tiene el segundo, los permisos `cohort.*` eran DECORATIVOS:
+# un encargado de carrera entraba a la lista, al detalle y al asistente de
+# importación (medido con su JWT: 200 en `/cohorts`, `/cohorts/{id}` y
+# `/cohorts/{id}/import`) aunque el DML no le concediera nada de cohort.
+#
+# Por eso quitarle los permisos en el DML no basta y hay que dejar aquí SOLO el
+# permiso específico: cualquier `dashboard.*` que se vuelva a colar reabre el
+# agujero en silencio, porque basta con que UNO de la lista coincida.
+_COHORT_PERMS = ["titulatec.cohort.page.list"]
 
 # Ver procesos (bandeja/detalle): cualquier rol admin de la app.
 _PROCESS_VIEW_PERMS = [
@@ -121,7 +130,8 @@ def _students_ctx(db, cohort_id, *, q, phase, page):
             "programs": _programs(db), "modalities": _modalities(db)}
 
 
-def _add_student(db, cohort, *, control, full_name, email, program_id, modality_id):
+def _add_student(db, cohort, *, control, full_name, email, program_id, modality_id,
+                 actor_id=None):
     """Crea/adjunta un alumno a la convocatoria. Si es nuevo, le pone password=control."""
     from itcj2.core.models.user import User
     from itcj2.apps.titulatec.services.import_service import ImportService
@@ -129,7 +139,7 @@ def _add_student(db, cohort, *, control, full_name, email, program_id, modality_
     ImportService.import_rows(db, cohort, [{
         "control_number": control, "full_name": full_name, "email": email,
         "program_id": program_id, "modality_id": modality_id,
-    }])
+    }], actor_id=actor_id, source="manual")
     if not existed:
         user = db.query(User).filter_by(control_number=control).first()
         if user:
@@ -224,15 +234,15 @@ async def student_add(cohort_id: int, request: Request,
     try:
         cohort = db.get(Cohort, cohort_id)
         if not cohort or not control:
-            return Response(status_code=400, headers={"X-Tt-Error": "Falta el número de control."})
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr("Falta el número de control.")})
         existed = db.query(User).filter_by(control_number=control).first()
         full_name = (form.get("full_name") or (existed.full_name if existed else "")).strip()
         if not full_name:
-            return Response(status_code=400, headers={"X-Tt-Error": "Falta el nombre del alumno."})
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr("Falta el nombre del alumno.")})
         program_id = int(form["program_id"]) if form.get("program_id") else None
         modality_id = int(form["modality_id"]) if form.get("modality_id") else None
         _add_student(db, cohort, control=control, full_name=full_name, email=(form.get("email") or None),
-                     program_id=program_id, modality_id=modality_id)
+                     program_id=program_id, modality_id=modality_id, actor_id=int(user["sub"]))
         ctx = _students_ctx(db, cohort_id, q="", phase=None, page=1)
     finally:
         db.close()
@@ -416,9 +426,11 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
 # Importación de alumnos (CSV del Forms, flexible)
 # ===========================================================================
 
-def _preview_ctx(db, cohort_id, token, headers, mapping, rows):
+def _preview_ctx(db, cohort_id, token, headers, mapping, rows, *,
+                 overrides=None, excluded=None):
     from itcj2.apps.titulatec.services.import_service import ImportService, TARGET_FIELDS
-    preview = ImportService.build_preview(db, rows, mapping)
+    preview = ImportService.build_preview(db, rows, mapping,
+                                          overrides=overrides, excluded=excluded)
     importable = sum(1 for r in preview if r["status"] != "error")
     return {
         "cohort_id": cohort_id, "token": token, "headers": headers,
@@ -427,7 +439,47 @@ def _preview_ctx(db, cohort_id, token, headers, mapping, rows):
         "total": len(preview), "importable": importable,
         "warnings": sum(1 for r in preview if r["status"] == "warning"),
         "errors": sum(1 for r in preview if r["status"] == "error"),
+        # Estado editable del wizard, re-emitido tal cual en dos campos ocultos:
+        # el navegador NO reenvía las filas (ver `import_preview.html`).
+        "excluded_value": ",".join(str(r["idx"]) for r in preview if not r["include"]),
+        "overrides_value": _overrides_json(preview),
     }
+
+
+def _overrides_json(preview) -> str:
+    """Re-serializa las celdas que difieren del CSV, para el campo oculto.
+
+    Sin esto una corrección manual se perdería en cuanto el admin cambiara un
+    select de mapeo: el servidor reconstruye el preview desde el CSV en cada
+    revalidación, y lo editado solo sobrevive si vuelve a viajar.
+    """
+    import json as _json
+    out = {}
+    for r in preview:
+        diff = {k: r[k] for k in ("control_number", "full_name", "email",
+                                  "program_id", "modality_id")
+                if r[k] != r["base"][k]}
+        if diff:
+            out[str(r["idx"])] = diff
+    return _json.dumps(out, ensure_ascii=False) if out else ""
+
+
+def _wizard_state(form):
+    """(token, mapping, overrides, excluded) del formulario del wizard.
+
+    Son ~8 campos pase lo que pase: el preview no viaja de vuelta. Con 6 inputs
+    por fila, un CSV de 166 filas ya superaba el `max_fields=1000` de Starlette
+    y `await request.form()` levantaba `MultiPartException` → 400.
+    """
+    from itcj2.apps.titulatec.services.import_service import ImportService, TARGET_FIELDS
+    token = form.get("token", "")
+    mapping = {f: form.get(f"map_{f}", "") for f in TARGET_FIELDS}
+    overrides = ImportService.parse_overrides(form.get("overrides"))
+    # `None` (campo ausente) ≠ "" (nada desmarcado): sin el campo se aplica el
+    # default de la primera carga, que excluye las filas con error.
+    excluded = (ImportService.parse_excluded(form.get("excluded"))
+                if "excluded" in form else None)
+    return token, mapping, overrides, excluded
 
 
 @router.get("/cohorts/{cohort_id}/import", name="titulatec.pages.admin.import_page")
@@ -482,19 +534,19 @@ async def import_revalidate(
 ):
     """Reaplica el mapeo (ajuste manual) y devuelve preview actualizado (HTMX)."""
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.import_service import ImportService, TARGET_FIELDS
+    from itcj2.apps.titulatec.services.import_service import ImportService
 
     form = dict(await request.form())
-    token = form.get("token", "")
+    token, mapping, overrides, excluded = _wizard_state(form)
     raw = ImportService.read_temp(token)
     if not raw:
         return Response(status_code=409)
     headers, rows = ImportService.parse(raw)
-    mapping = {f: form.get(f"map_{f}", "") for f in TARGET_FIELDS}
 
     db = SessionLocal()
     try:
-        ctx = _preview_ctx(db, cohort_id, token, headers, mapping, rows)
+        ctx = _preview_ctx(db, cohort_id, token, headers, mapping, rows,
+                           overrides=overrides, excluded=excluded)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/partials/import_preview.html", ctx)
@@ -509,33 +561,32 @@ async def import_commit(
     """Crea usuarios/procesos a partir de las filas editadas del preview (HTMX)."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
-    from itcj2.apps.titulatec.services.import_service import ImportService, TARGET_FIELDS
+    from itcj2.apps.titulatec.services.import_service import ImportService
 
     form = dict(await request.form())
-    token = form.get("token", "")
+    token, mapping, overrides, excluded = _wizard_state(form)
 
-    # Reconstruye las filas desde los inputs editables: row-{idx}-{campo}
-    idxs = sorted({int(k.split("-")[1]) for k in form if k.startswith("row-") and k.split("-")[1].isdigit()})
-    rows = []
-    for i in idxs:
-        if form.get(f"row-{i}-include") != "on":
-            continue
-        rows.append({
-            "control_number": form.get(f"row-{i}-control_number", ""),
-            "full_name": form.get(f"row-{i}-full_name", ""),
-            "email": form.get(f"row-{i}-email", ""),
-            "program_id": int(form[f"row-{i}-program_id"]) if form.get(f"row-{i}-program_id") else None,
-            "modality_id": int(form[f"row-{i}-modality_id"]) if form.get(f"row-{i}-modality_id") else None,
-        })
+    # Las filas NO vienen del formulario: se releen del CSV temporal y se les
+    # aplica el mapeo + lo que el admin corrigió/desmarcó. Reenviar el preview
+    # entero (6 inputs por fila) topaba con el `max_fields=1000` de Starlette a
+    # partir de la fila 166, y una convocatoria real son cientos de alumnos.
+    raw = ImportService.read_temp(token)
+    if not raw:
+        return Response(status_code=409)
+    _headers, csv_rows = ImportService.parse(raw)
 
     db = SessionLocal()
     try:
         cohort = db.get(Cohort, cohort_id)
         if not cohort:
             return Response(status_code=404)
+        preview = ImportService.build_preview(db, csv_rows, mapping,
+                                              overrides=overrides, excluded=excluded)
         # guarda el mapeo usado para reusarlo la próxima vez
-        ImportService.save_mapping({f: form.get(f"map_{f}", "") for f in TARGET_FIELDS})
-        summary = ImportService.import_rows(db, cohort, rows)
+        ImportService.save_mapping(mapping)
+        summary = ImportService.import_rows(db, cohort,
+                                            ImportService.rows_to_import(preview),
+                                            actor_id=int(user["sub"]), source="csv")
     finally:
         db.close()
     if token:
@@ -551,17 +602,153 @@ async def import_commit(
 
 _INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
 
+# Cómo se lee cada suceso del expediente. La voz es la del PERSONAL, no la del
+# alumno: en `pages/student.py` el mismo evento dice «Confirmaste tu asistencia»
+# y aquí «El alumno confirmó». Un evento sin entrada aquí se pinta con su código
+# crudo en vez de desaparecer: un historial que se calla no es un historial.
+_EVENT_UI = {
+    "process_created":              ("Alta en la convocatoria",   "person-plus",            "neutral"),
+    "document_uploaded":            ("Subió un documento",        "cloud-arrow-up",         "neutral"),
+    "document_approved":            ("Documento aprobado",        "check-lg",               "success"),
+    "document_rejected":            ("Documento rechazado",       "x-lg",                   "danger"),
+    "document_deleted":             ("Documento eliminado",       "trash",                  "danger"),
+    "phase_approved":               ("Fase aprobada",             "check-circle",           "success"),
+    "phase_rejected":               ("Fase rechazada",            "exclamation-triangle",   "danger"),
+    "process_completed":            ("Proceso completado",        "trophy",                 "success"),
+    "appointment_scheduled":        ("Cita agendada",             "calendar-plus",          "neutral"),
+    "appointment_confirmed":        ("El alumno confirmó",        "check2-circle",          "success"),
+    "appointment_rescheduled":      ("Cita reagendada",           "arrow-repeat",           "amber"),
+    "appointment_change_requested": ("El alumno pidió otro día",  "chat-left-dots",         "amber"),
+    "appointment_in_progress":      ("Cotejo iniciado",           "play-circle",            "neutral"),
+    "appointment_attended":         ("Cotejo atendido",           "check-circle",           "success"),
+    "appointment_no_show":          ("No se presentó",            "person-x",               "danger"),
+    "appointment_undo_no_show":     ("Se deshizo la falta",       "arrow-counterclockwise", "amber"),
+}
 
-def _detail_ctx(db, process_id: int) -> dict | None:
+# Fases con contenido propio en el expediente. El resto tiene modelo y tabla y
+# nada más (sinodales, anexo, entrega final, ceremonia): se pintan diciéndolo,
+# porque un panel vacío se lee como «no ha pasado nada» y no como «esto todavía
+# no existe en la app».
+_FASES_CON_PANEL = (0, 1, 2, 3)
+
+_MESES = ["", "ene", "feb", "mar", "abr", "may", "jun",
+          "jul", "ago", "sep", "oct", "nov", "dic"]
+
+# Etiqueta del botón Regresar, por prefijo de ruta.
+_BACK_LABELS = (
+    ("/titulatec/admin/documents", "Documentos"),
+    ("/titulatec/admin/appointments", "Citas de cotejo"),
+    ("/titulatec/admin/cohorts", "Convocatoria"),
+    ("/titulatec/admin/processes", "Procesos"),
+)
+_BACK_DEFAULT = "/titulatec/admin/processes"
+
+
+def _hdr(msg: str) -> str:
+    """Codifica un mensaje para que quepa en un header HTTP.
+
+    Gemelo del de `pages/appointments.py`. Los valores de header son latin-1 por
+    especificación y Starlette los codifica así: un mensaje con acentos —o sea,
+    todos los nuestros— llega al cliente como bytes que no son UTF-8 válidos y
+    revienta al decodificarlos. `titulatec-utils.js` lo decodifica al mostrarlo.
+
+    En este módulo llevaba puesto desde siempre («Falta el número de control»);
+    no había saltado porque ninguna prueba llegaba a esas ramas.
+    """
+    from urllib.parse import quote
+    return quote(msg or "", safe="")
+
+
+def _fecha_larga(dt) -> str:
+    """`3 sep 2026 · 14:05`. Sin año no se distingue una convocatoria de otra."""
+    if not dt:
+        return ""
+    return f"{dt.day} {_MESES[dt.month]} {dt.year} · {dt:%H:%M}"
+
+
+def _back_ctx(raw: str | None) -> dict:
+    """Valida el `?from=` y devuelve a dónde vuelve el botón Regresar.
+
+    `from` llega del cliente y acaba dentro de un `href`, así que sin validar
+    esto es un redirector abierto con la marca de la escuela: bastaría un enlace
+    `…/processes/7?from=https://…` para que el salto saliera de un dominio de
+    confianza. Tres cosas lo cierran:
+
+      * tiene que empezar por `/titulatec/admin/` — descarta esquemas
+        (`javascript:`, `https:`) y el resto de apps del ITCJ;
+      * no puede empezar por `//` — el navegador lee `//host/x` como URL
+        externa aunque parezca una ruta;
+      * no puede traer `..` ni barra invertida — normalizaciones que se salen
+        del prefijo.
+
+    Lo que no pasa cae a Procesos, que es de donde se llegaba históricamente.
+    """
+    url = (raw or "").strip()
+    valido = (
+        url.startswith("/titulatec/admin/")
+        and not url.startswith("//")
+        and ".." not in url
+        and "\\" not in url
+    )
+    if not valido:
+        url = _BACK_DEFAULT
+    ruta = url.split("?", 1)[0]
+    etiqueta = next((lab for pre, lab in _BACK_LABELS if ruta.startswith(pre)), "Procesos")
+    return {"url": url, "label": etiqueta}
+
+
+def _evento_detalle(ev, doc_names: dict) -> str | None:
+    """La línea de abajo del suceso: lo que el payload sepa contar.
+
+    Es lo que separa «Documento rechazado» de «Documento rechazado · CURP
+    certificada — Falta el sello». Un payload viejo o incompleto no rompe: cada
+    trozo se añade solo si está.
+    """
+    p = ev.payload or {}
+    partes = []
+    code = p.get("type_code")
+    if code:
+        partes.append(doc_names.get(code, code))
+    if p.get("version"):
+        partes.append(f"v{p['version']}")
+    if p.get("scheduled_at"):
+        # El payload la guarda en ISO. Enseñarla asi («2026-09-07 09:30») rompe
+        # la lectura justo en la linea donde el resto de la pantalla dice
+        # «7 sep 2026 · 09:30».
+        crudo = str(p["scheduled_at"])
+        try:
+            from datetime import datetime
+            partes.append(_fecha_larga(datetime.fromisoformat(crudo)))
+        except ValueError:
+            partes.append(crudo.replace("T", " ")[:16])
+    if p.get("source"):
+        partes.append("importación CSV" if p["source"] == "csv" else "alta manual")
+    texto = " · ".join(partes)
+    motivo = p.get("note") or p.get("reason")
+    if motivo:
+        texto = f"{texto} — {motivo}" if texto else str(motivo)
+    return texto or None
+
+
+def _detail_ctx(db, process_id: int, *, open_phase=None, back_raw=None,
+                doc_abierto=None) -> dict | None:
+    """El expediente completo en un número FIJO de consultas.
+
+    Antes esto pedía un `DocumentType` por cada código dentro de un bucle, y no
+    leía un solo `ProcessEvent`: la página decía cómo estaba el proceso y no qué
+    le había pasado. Ahora trae catálogo de fases, fases del proceso, documentos,
+    tipos, eventos y los usuarios que los provocaron por lote, así que añadir el
+    historial no multiplica el coste por fase.
+    """
     from itcj2.core.models.user import User
     from itcj2.core.models.program import Program
     from itcj2.apps.titulatec.models import (
-        TitulationProcess, Modality, Cohort, DocumentType, PhaseDefinition,
+        TitulationProcess, Modality, Cohort, Document, DocumentType,
+        PhaseDefinition, ProcessEvent, ProcessPhase, FormatB,
     )
-    from itcj2.apps.titulatec.services.phase_service import PhaseService
-    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
-    from itcj2.apps.titulatec.models import FormatB
+    from itcj2.apps.titulatec.utils import storage
 
     proc = db.get(TitulationProcess, process_id)
     if not proc:
@@ -571,21 +758,92 @@ def _detail_ctx(db, process_id: int) -> dict | None:
     modality = db.get(Modality, proc.modality_id) if proc.modality_id else None
     program = db.get(Program, proc.program_id) if proc.program_id else None
 
-    defs = {d.number: d.name for d in db.query(PhaseDefinition).all()}
-    phases = [
-        {"number": ph.phase_number, "name": defs.get(ph.phase_number, f"Fase {ph.phase_number}"),
-         "status": ph.status, "rejection_reason": ph.rejection_reason}
-        for ph in PhaseService.get_phases(db, process_id)
-    ]
+    # ---- catálogos y filas del proceso, por lote ----
+    pdefs = (db.query(PhaseDefinition).filter_by(is_active=True)
+             .order_by(PhaseDefinition.order_index).all())
+    fases_db = {ph.phase_number: ph for ph in
+                db.query(ProcessPhase).filter_by(process_id=process_id).all()}
+    # Sin `is_active`: si un tipo se desactiva, el documento ya subido tiene que
+    # seguir mostrándose con su nombre y no con el código crudo.
+    tipos = {t.code: t.name for t in db.query(DocumentType)
+             .filter(DocumentType.code.in_(_INITIAL_DOC_TYPES)).all()}
+    doc_names = {code: tipos.get(code, code) for code in _INITIAL_DOC_TYPES}
+    docs_db = {d.type_code: d for d in db.query(Document)
+               .filter(Document.process_id == process_id,
+                       Document.type_code.in_(_INITIAL_DOC_TYPES)).all()}
 
-    initial_docs = []
+    eventos = (db.query(ProcessEvent).filter_by(process_id=process_id)
+               .order_by(ProcessEvent.created_at, ProcessEvent.id).all())
+    actor_ids = {e.actor_id for e in eventos if e.actor_id}
+    actor_ids |= {ph.reviewed_by_id for ph in fases_db.values() if ph.reviewed_by_id}
+    actor_ids |= {d.reviewed_by_id for d in docs_db.values() if d.reviewed_by_id}
+    actores = ({u.id: u.full_name for u in db.query(User).filter(User.id.in_(actor_ids)).all()}
+               if actor_ids else {})
+
+    # ---- documentos de la fase 1 (solo lectura) ----
+    docs = []
     for code in _INITIAL_DOC_TYPES:
-        dt = db.query(DocumentType).filter_by(code=code).first()
-        doc = DocumentService.get_document(db, process_id, code)
-        initial_docs.append({
-            "type_code": code, "name": dt.name if dt else code,
+        doc = docs_db.get(code)
+        # `missing` se resuelve EN EL SERVIDOR: un archivo que ya no está en
+        # disco tiene que decirlo, no dejar un visor mudo.
+        falta = True
+        if doc:
+            try:
+                falta = not storage.abs_path(doc.file_path).exists()
+            except Exception:
+                falta = True
+        docs.append({
+            "type_code": code, "name": doc_names[code],
             "doc": ({"original_name": doc.original_name, "review_status": doc.review_status,
-                     "size_bytes": doc.size_bytes or 0, "review_note": doc.review_note} if doc else None),
+                     "size_bytes": doc.size_bytes or 0, "review_note": doc.review_note,
+                     "version": doc.version or 1,
+                     "reviewed_by": actores.get(doc.reviewed_by_id)} if doc else None),
+            "missing": bool(doc) and falta,
+            "view_url": f"/titulatec/admin/documents/{process_id}/document/{code}",
+        })
+    legibles = [d for d in docs if d["doc"] and not d["missing"]]
+    abierto = next((d for d in legibles if d["type_code"] == doc_abierto),
+                   legibles[0] if legibles else None)
+
+    # ---- eventos repartidos por fase ----
+    por_fase, sin_fase = {}, []
+    for ev in eventos:
+        etiqueta, icono, tono = _EVENT_UI.get(ev.event_type,
+                                              (ev.event_type, "dot", "neutral"))
+        fila = {"label": etiqueta, "icon": icono, "tone": tono,
+                "when": _fecha_larga(ev.created_at),
+                "actor": actores.get(ev.actor_id),
+                "detail": _evento_detalle(ev, doc_names)}
+        # Un evento sin fase no se cuelga de una arbitraria: va a su propio
+        # bloque al final, que no se pinta si está vacío.
+        if ev.phase_number is None:
+            sin_fase.append(fila)
+        else:
+            por_fase.setdefault(ev.phase_number, []).append(fila)
+
+    # ---- las 9 fases ----
+    current = proc.current_phase
+    max_phase = max((pd.number for pd in pdefs), default=0) or 1
+    numeros = {pd.number for pd in pdefs}
+    if open_phase is None or open_phase not in numeros:
+        open_phase = current
+    fases = []
+    for pd in pdefs:
+        ph = fases_db.get(pd.number)
+        eventos_fase = por_fase.get(pd.number, [])
+        fases.append({
+            "number": pd.number, "code": pd.code, "name": pd.name,
+            "status": ph.status if ph else "pending",
+            "started": _fecha_larga(ph.started_at) if ph else "",
+            "completed": _fecha_larga(ph.completed_at) if ph else "",
+            "reviewed_by": actores.get(ph.reviewed_by_id) if ph else None,
+            "rejection_reason": ph.rejection_reason if ph else None,
+            "is_current": pd.number == current,
+            "is_open": pd.number == open_phase,
+            "is_done": ph is not None and ph.status == "approved",
+            "tiene_panel": pd.number in _FASES_CON_PANEL,
+            "events": eventos_fase,
+            "n_events": len(eventos_fase),
         })
 
     fb_row = db.get(FormatB, process_id)
@@ -594,6 +852,7 @@ def _detail_ctx(db, process_id: int) -> dict | None:
         formato_b = {"status": fb_row.status, "datos": FormatBService.to_ctx(fb_row),
                      "program_name": program.name if program else None}
 
+    appt = AppointmentService.get_for_process(db, process_id)
     return {
         "process": proc.to_dict(),
         "student": {
@@ -602,12 +861,25 @@ def _detail_ctx(db, process_id: int) -> dict | None:
             "email": student.email if student else None,
         },
         "cohort_period": cohort.period_code if cohort else None,
+        "cohort_id": proc.cohort_id,
         "program_name": program.name if program else None,
         "modality_name": modality.name if modality else None,
-        "phases": phases,
-        "current_phase": proc.current_phase,
-        "initial_docs": initial_docs,
+        "current_phase": current,
+        "progress_pct": max(0, min(100, round(current / max_phase * 100))),
+        "fases": fases,
+        "open_phase": open_phase,
+        "back": _back_ctx(back_raw),
+        "docs": docs,
+        "doc_abierto": abierto["type_code"] if abierto else None,
+        "doc_src": abierto["view_url"] if abierto else None,
+        "appt": ({"status": appt.status,
+                  "scheduled_label": _fecha_larga(appt.scheduled_at),
+                  "location": appt.location, "note": appt.note,
+                  "change_request": appt.change_request,
+                  "change_requested_at": _fecha_larga(appt.change_requested_at)}
+                 if appt else None),
         "formato_b": formato_b,
+        "otros_eventos": sin_fase,
     }
 
 
@@ -734,49 +1006,65 @@ async def processes(
     })
 
 
+def _exp_params(request) -> dict:
+    """Los tres parámetros de zona del expediente, leídos del query string.
+
+    Viajan igual en el GET de la página y en los POST de las acciones, porque el
+    cuerpo que devuelven las acciones es la MISMA página: si no viajaran, aprobar
+    una fase te devolvería al expediente sin el documento abierto y sin el
+    botón Regresar apuntando a donde estabas.
+    """
+    qp = request.query_params
+    crudo = qp.get("fase") or ""
+    try:
+        fase = int(crudo)
+    except (TypeError, ValueError):
+        fase = None
+    return {"open_phase": fase, "back_raw": qp.get("from"), "doc_abierto": qp.get("doc")}
+
+
+def _exp_query(params: dict) -> str:
+    """Reconstruye el query string de zona para las URL de las acciones."""
+    from urllib.parse import urlencode
+    pares = []
+    if params.get("open_phase") is not None:
+        pares.append(("fase", params["open_phase"]))
+    if params.get("doc_abierto"):
+        pares.append(("doc", params["doc_abierto"]))
+    if params.get("back_raw"):
+        pares.append(("from", params["back_raw"]))
+    return urlencode(pares)
+
+
 @router.get("/processes/{process_id}", name="titulatec.pages.admin.process_detail")
 async def process_detail(
     process_id: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)),
 ):
+    """El expediente del alumno: cabecera + acordeón de las 9 fases con su historial."""
     from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
     db = SessionLocal()
     try:
-        ctx = _detail_ctx(db, process_id)
-        if not ctx:
-            return Response(status_code=404)
+        # 404 uniforme: "no existe" y "no es de tus carreras" son indistinguibles.
+        # El guard ya cubre el proceso inexistente, asi que `_detail_ctx` no
+        # puede devolver None a partir de aqui.
+        assert_process_in_scope(db, int(user["sub"]), process_id)
+        params = _exp_params(request)
+        ctx = _detail_ctx(db, process_id, **params)
+        ctx["zona"] = _exp_query(params)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/process_detail.html", ctx)
 
 
 def _render_detail_body(request, db, process_id):
-    return render_titulatec(request, "titulatec/partials/admin_process_detail.html", _detail_ctx(db, process_id))
-
-
-@router.post("/processes/{process_id}/documents/{type_code}/review", name="titulatec.pages.admin.doc_review")
-async def doc_review(
-    process_id: int,
-    type_code: str,
-    request: Request,
-    user: dict = Depends(require_page_app("titulatec", perms=[
-        "titulatec.document.api.approve", "titulatec.document.api.reject"])),
-):
-    """Aprueba/rechaza un documento. Devuelve el detalle re-renderizado (HTMX)."""
-    from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.document_service import DocumentService
-
-    form = dict(await request.form())
-    action = form.get("action")
-    note = form.get("note")
-    status = "approved" if action == "approve" else "rejected"
-    db = SessionLocal()
-    try:
-        DocumentService.review(db, process_id, type_code, status=status, note=note, reviewer_id=int(user["sub"]))
-        return _render_detail_body(request, db, process_id)
-    finally:
-        db.close()
+    """El cuerpo del expediente re-renderizado tras una acción (swap HTMX)."""
+    params = _exp_params(request)
+    ctx = _detail_ctx(db, process_id, **params)
+    ctx["zona"] = _exp_query(params)
+    return render_titulatec(request, "titulatec/partials/processes/_exp_shell.html", ctx)
 
 
 @router.post("/processes/{process_id}/format-b/review", name="titulatec.pages.admin.fb_review")
@@ -789,6 +1077,7 @@ async def fb_review(
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import FormatB
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     form = dict(await request.form())
     action = form.get("action")
@@ -796,6 +1085,7 @@ async def fb_review(
     status = "approved" if action == "approve" else "rejected"
     db = SessionLocal()
     try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
         fb = db.get(FormatB, process_id)
         if fb:
             FormatBService.review(db, fb, status=status, note=note, reviewer_id=int(user["sub"]))
@@ -807,19 +1097,23 @@ async def fb_review(
 @router.post("/processes/{process_id}/phase/{n}/approve", name="titulatec.pages.admin.phase_approve")
 async def phase_approve(
     process_id: int,
-    n: int,
     request: Request,
+    n: int = Path(ge=0),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.process.api.approve_phase"])),
 ):
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     db = SessionLocal()
     try:
-        proc = db.get(TitulationProcess, process_id)
-        if proc:
+        # El guard sustituye al `db.get` + 404: devuelve el proceso ya cargado y
+        # ademas comprueba que sea de una carrera del usuario.
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+        try:
             PhaseService.approve_phase(db, proc, n, int(user["sub"]))
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         return _render_detail_body(request, db, process_id)
     finally:
         db.close()
@@ -828,21 +1122,29 @@ async def phase_approve(
 @router.post("/processes/{process_id}/phase/{n}/reject", name="titulatec.pages.admin.phase_reject")
 async def phase_reject(
     process_id: int,
-    n: int,
     request: Request,
+    n: int = Path(ge=0),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.process.api.reject_phase"])),
 ):
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     form = dict(await request.form())
-    reason = form.get("reason", "")
+    reason = (form.get("reason") or "").strip()
+    # Sin motivo, al alumno le llega «Fase rechazada» a secas en su panel y tiene
+    # que venir a preguntar qué falta. La bandeja de Documentos ya lo exige desde
+    # que existe (`pages/documents.py`); esto cierra el otro camino.
+    if not reason:
+        return Response(status_code=400, headers={
+            "X-Tt-Error": _hdr("Escribe el motivo del rechazo: es lo que el alumno lee.")})
     db = SessionLocal()
     try:
-        proc = db.get(TitulationProcess, process_id)
-        if proc:
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+        try:
             PhaseService.reject_phase(db, proc, n, int(user["sub"]), reason)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         return _render_detail_body(request, db, process_id)
     finally:
         db.close()

@@ -1,0 +1,39 @@
+{# Carril de días de cotejo.
+
+   Sustituye al calendario mensual, del que 29 de sus 35 celdas eran inertes: el
+   trabajo son seis mañanas concretas de la convocatoria, no un mes entero.
+
+   El scroll vive DENTRO del carril (`overflow-x` + `overscroll-behavior`), así
+   que el cuerpo de la página nunca hace scroll horizontal. A 852 px caben los
+   seis días completos sin scroll; a 328, dos y pico con snap.
+
+   La ocupación sale de la misma función que la cabecera del tablero, y NO se
+   acota por carrera: la carrera decide qué nombres se ven, nunca los conteos. #}
+{% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav %}
+
+<div id="appt-days" data-tt-fade-key="days:{{ day }}|{{ dias|length }}">
+  {% if dias %}
+  <div class="tt-days" role="list" aria-label="Días de cotejo">
+    {% for d in dias %}
+    <a class="tt-day{{ ' is-active' if d.is_active }}{{ ' is-today' if d.is_today }}{{ ' is-full' if d.lleno }}"
+       id="appt-day-{{ d.date }}" role="listitem"
+       {% if d.is_active %}aria-current="date"{% endif %}
+       aria-label="{{ d.largo }}{% if d.sin_espacio %}, sin espacios configurados{% else %}, {{ d.ocupados }} de {{ d.capacidad }} lugares ocupados{% endif %}{% if d.is_today %}, hoy{% endif %}"
+       {{ appt_nav(page_url ~ '?date=' ~ d.date ~ (('&v=' ~ v) if v != 'agenda' else '')) }}>
+      <span class="dow" aria-hidden="true">{{ d.dow }}</span>
+      <span class="num" aria-hidden="true">{{ d.day }} {{ d.mes }}</span>
+      <span class="ocup" aria-hidden="true">
+        {%- if d.sin_espacio -%}sin espacio
+        {%- elif d.lleno -%}lleno
+        {%- else -%}{{ d.ocupados }}/{{ d.capacidad }}{%- endif -%}
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="tt-appt-empty mb-0">
+    Esta convocatoria aún no tiene días de cotejo. Pídele a la jefatura de
+    Servicios Escolares que los configure en Convocatorias.
+  </p>
+  {% endif %}
+</div>

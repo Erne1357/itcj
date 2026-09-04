@@ -1,0 +1,120 @@
+{# ===========================================================================
+   _exp_shell.html — el expediente entero. Es la unidad de swap.
+
+   Por qué el swap es el shell completo y no cada trozo: aprobar una fase cambia
+   la cabecera (progreso), el acordeón (dos fases de estado) y el historial a la
+   vez. Devolver el conjunto es una sola verdad; tres swaps parciales serían tres
+   oportunidades de quedar descuadrado.
+
+   Los parámetros de zona (`fase`, `doc`, `from`) viajan en `zona` y se pegan a
+   toda URL de acción: sin ellos, aprobar una fase te devolvía el expediente con
+   otro documento abierto y con el botón Regresar apuntando a Procesos aunque
+   hubieras llegado desde Citas.
+   =========================================================================== #}
+{% from "titulatec/_macros.html" import estado_pill %}
+{% set BASE = '/titulatec/admin/processes/' ~ process.id %}
+{% set Q = ('?' ~ zona) if zona else '' %}
+
+<div id="exp-shell" class="tt-exp">
+
+  {# ------------------------------------------------------------ cabecera #}
+  <header id="exp-head" class="tt-card">
+    <div class="tt-exp-bar">
+      {# El regreso es a la pestaña de la que se vino, CON sus filtros. La URL
+         la valida el servidor (`_back_ctx`); aquí ya llega limpia. #}
+      <a id="exp-back" class="btn btn-sm tt-btn-ghost" href="{{ back.url }}">
+        <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>{{ back.label }}</a>
+
+      {% if process.status == 'active' %}
+      {# Discreto y siempre en el mismo sitio: mover de fase es lo raro, no lo
+         que se viene a hacer aquí.
+
+         El modal vive FUERA del shell (en `block modals`, a nivel <body>) y se
+         puebla al abrirlo leyendo estos `data-*`. Ver el porqué abajo. #}
+      <button type="button" id="exp-acciones" class="btn btn-sm tt-btn-soft ms-auto"
+              data-bs-toggle="modal" data-bs-target="#exp-modal-fase"
+              data-tt-fase="{{ '%02d'|format(current_phase) }}"
+              data-tt-fase-nombre="{% for f in fases if f.is_current %}{{ f.name }}{% endfor %}"
+              data-tt-aprobar="{{ BASE }}/phase/{{ current_phase }}/approve{{ Q }}"
+              data-tt-rechazar="{{ BASE }}/phase/{{ current_phase }}/reject{{ Q }}">
+        <i class="bi bi-arrow-left-right me-1" aria-hidden="true"></i>Mover de fase</button>
+      {% else %}
+      <span class="ms-auto">{{ estado_pill(process.status) }}</span>
+      {% endif %}
+    </div>
+
+    <div class="tt-exp-id">
+      <span class="tt-kicker">{{ cohort_period or 'Sin convocatoria' }} · {{ process.folio }}</span>
+      <h1 class="tt-exp-name">{{ student.name }}</h1>
+      <p class="tt-exp-meta">
+        <span class="tt-mono">{{ student.control }}</span>
+        {% if student.email %}<span class="tt-mono">{{ student.email }}</span>{% endif %}
+        <span>{{ program_name or 'Sin carrera' }}</span>
+        <span>{{ modality_name or 'Sin modalidad' }}</span>
+      </p>
+    </div>
+
+    <div class="tt-exp-prog">
+      <div class="tt-progress" role="img"
+           aria-label="Fase {{ current_phase }} de 8, {{ progress_pct }} por ciento">
+        <i style="width:{{ progress_pct }}%"></i>
+      </div>
+      <span class="tt-exp-prog-txt">
+        Fase {{ '%02d'|format(current_phase) }} de 08 ·
+        {% for f in fases if f.is_current %}{{ f.name }}{% endfor %}
+      </span>
+    </div>
+  </header>
+
+  {# ------------------------------------------------- acordeón de las fases #}
+  <section id="exp-fases" class="tt-card tt-acc" aria-label="Fases del proceso">
+    {% for f in fases %}
+    <div class="tt-acc-item{{ ' is-current' if f.is_current }}{{ ' is-open' if f.is_open }}{{ ' is-done' if f.is_done }}"
+         id="exp-fase-{{ f.number }}" data-tt-phase="{{ f.number }}">
+      <h2 class="tt-acc-h">
+        <button type="button" class="tt-acc-btn" id="exp-btn-{{ f.number }}"
+                data-tt-acc="{{ f.number }}"
+                aria-expanded="{{ 'true' if f.is_open else 'false' }}"
+                aria-controls="exp-panel-{{ f.number }}">
+          <span class="tt-acc-num">{{ '%02d'|format(f.number) }}</span>
+          <span class="tt-acc-name">{{ f.name }}
+            <span class="tt-acc-sub">
+              {%- if f.n_events -%}
+                {{ f.n_events }} movimiento{{ 's' if f.n_events != 1 }}
+              {%- elif f.completed -%}
+                Cerrada el {{ f.completed }}
+              {%- else -%}
+                Sin movimientos
+              {%- endif -%}
+            </span>
+          </span>
+          {{ estado_pill(f.status) }}
+          <i class="bi bi-chevron-right tt-acc-chev" aria-hidden="true"></i>
+        </button>
+      </h2>
+
+      <div class="tt-acc-panel" id="exp-panel-{{ f.number }}" role="region"
+           aria-labelledby="exp-btn-{{ f.number }}" {% if not f.is_open %}hidden{% endif %}>
+        <div class="tt-acc-panel-in tt-anim-in">
+          {% include "titulatec/partials/processes/_exp_phase.html" %}
+          {% with eventos = f.events, vacio = 'Aquí aparecerá lo que vaya pasando en esta fase.' %}
+            {% include "titulatec/partials/processes/_exp_timeline.html" %}
+          {% endwith %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+
+  {# Movimientos que no cuelgan de ninguna fase. No se reparten a una fase
+     arbitraria y el bloque no existe si no hay ninguno. #}
+  {% if otros_eventos %}
+  <section id="exp-otros" class="tt-card" aria-label="Otros movimientos">
+    <h2 class="tt-h-sec">Otros movimientos</h2>
+    {% with eventos = otros_eventos, vacio = None %}
+      {% include "titulatec/partials/processes/_exp_timeline.html" %}
+    {% endwith %}
+  </section>
+  {% endif %}
+
+</div>
