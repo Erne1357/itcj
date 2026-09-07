@@ -1,8 +1,12 @@
 .dir-anim-in { animation: dirIn .24s cubic-bezier(.22,.61,.36,1) both; }
 @keyframes dirIn { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
 
-.dir-skel { display:none; }
-.dir-skel.htmx-request { display:block; }
+/* El skeleton se superpone: en flujo empujaba la lista ~106px en cada busqueda. */
+.dir-listwrap{ position:relative; }
+.dir-listwrap:has(#dir-skel.htmx-request){ min-height:8rem; }
+#dir-skel{ position:absolute; inset:0; z-index:4; display:none; padding:1rem;
+  background:rgba(255,255,255,.72); }
+#dir-skel.htmx-request{ display:block; }
 .dir-skel-line {
   height:14px; border-radius:6px; margin:.5rem 0;
   background:linear-gradient(90deg,#eee 25%,#f5f5f5 37%,#eee 63%);
@@ -15,42 +19,195 @@
   .dir-skel-line { animation:none; }
 }
 
-/* ── Rail Directory redesign ────────────────────────────────────────────── */
-.dir-wrap{ --dir-ink:#0F172A; --dir-slate:#475569; --dir-mute:#94A3B8; --dir-line:#E2E8F0; --dir-mist:#F8FAFC; --dir-r:12px; --dir-head-h:2.5rem; }
-.dir-table{ --dir-cols: 6rem minmax(0,1.4fr) minmax(0,1.4fr) minmax(0,1fr); border:1px solid var(--dir-line); border-radius:var(--dir-r); background:#fff; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,.04),0 10px 30px -20px rgba(15,23,42,.18); }
-.dir-table--manage{ --dir-cols: 6rem minmax(0,1.4fr) minmax(0,1.4fr) minmax(0,1fr) 5rem; }
-.dir-head,.dir-row{ display:grid; grid-template-columns:var(--dir-cols); align-items:center; column-gap:1rem; padding:.55rem .75rem; }
-.dir-head{ position:sticky; top:0; z-index:3; height:var(--dir-head-h); font-size:.7rem; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--dir-mute); background:#fff; border-bottom:1px solid var(--dir-line); }
+/* ── Tokens ──────────────────────────────────────────────────────────────── */
+.dir-wrap{
+  --dir-ink:#0F172A;          /* 17.85:1 sobre blanco */
+  --dir-slate:#475569;        /*  7.58:1 */
+  --dir-line:#E2E8F0;
+  --dir-mist:#F8FAFC;
+  --dir-rail:#64748B;         /*  4.42:1 — bordes y estados, no texto pequeno */
+  --dir-rail-line:#E2E8F0;    /* la linea del rail: decoracion, no texto */
+  --dir-accent:#1D4ED8;       /*  6.70:1 */
+  --dir-accent-hover:#1E40AF; /*  8.60:1 */
+  --dir-focus:#1D4ED8;
+  --dir-tap:2.5rem;           /* 40px */
+  --dir-r:12px;
+  --dir-head-h:2.5rem;
+  --bs-link-color-rgb:29,78,216;
+}
+/* Bootstrap compila .btn-primary con literales: hay que remapear por variables
+   de componente, no por --bs-primary a secas. */
+.dir-wrap .btn-primary{
+  --bs-btn-bg:var(--dir-accent); --bs-btn-border-color:var(--dir-accent);
+  --bs-btn-hover-bg:var(--dir-accent-hover); --bs-btn-hover-border-color:var(--dir-accent-hover);
+  --bs-btn-active-bg:var(--dir-accent-hover); --bs-btn-active-border-color:var(--dir-accent-hover);
+}
+
+/* ── Tabla ───────────────────────────────────────────────────────────────── */
+/* overflow:clip y NO hidden: `hidden` crea un scrollport que nunca scrollea y
+   mata los dos position:sticky de abajo (medido: top -583 en vez de 0). */
+.dir-table{
+  --dir-cols: 6rem minmax(0,1.3fr) minmax(0,1.1fr) minmax(0,1.5fr);
+  border:1px solid var(--dir-line); border-radius:var(--dir-r); background:#fff;
+  overflow:clip; box-shadow:0 1px 2px rgba(15,23,42,.06);
+}
+.dir-table--manage{ --dir-cols: 6rem minmax(0,1.3fr) minmax(0,1.1fr) minmax(0,1.5fr) 5rem; }
+.dir-head,.dir-row{
+  display:grid; grid-template-columns:var(--dir-cols);
+  align-items:center; column-gap:1rem; padding:.55rem .75rem;
+}
+.dir-head{
+  position:sticky; top:0; z-index:3; height:var(--dir-head-h);
+  font-size:.75rem; font-weight:500; color:var(--dir-slate);
+  background:#fff; border-bottom:1px solid var(--dir-line);
+}
 .dir-head .dir-h-act{ text-align:right; }
-.dir-dept{ position:sticky; top:var(--dir-head-h); z-index:2; margin:0; padding:.4rem .75rem .4rem calc(.75rem + var(--dir-depth,0) * 1rem); font-size:.72rem; font-weight:600; line-height:1.4; letter-spacing:.06em; text-transform:uppercase; color:var(--dir-slate); background:rgba(248,250,252,.92); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px); border-top:1px solid var(--dir-line); border-bottom:1px solid var(--dir-line); }
+
+/* ── Jerarquia ───────────────────────────────────────────────────────────── */
+/* La PROFUNDIDAD la codifican sangria y rail; la tipografia codifica contenedor
+   vs contenido. Invariante: la banda nunca es mas chica, mas ligera ni mas clara
+   que el titulo de las filas que agrupa. */
+.dir-dept{
+  position:sticky; top:var(--dir-head-h); z-index:2; margin:0;
+  padding:.5rem .75rem .5rem calc(.75rem + min(var(--dir-depth,0), 3) * 20px);
+  font-size:1rem; font-weight:700; line-height:1.4; color:var(--dir-ink);
+  text-transform:none; letter-spacing:0;
+  background:var(--dir-mist);
+  border-top:1px solid var(--dir-line); border-bottom:1px solid var(--dir-line);
+}
+.dir-group[data-dir-tramo] .dir-dept{ font-size:1.125rem; }
 .dir-group:first-child .dir-dept{ border-top:0; }
-.dir-dept-count{ font-size:.66rem; color:var(--dir-mute); font-variant-numeric:tabular-nums; border:1px solid var(--dir-line); border-radius:999px; padding:0 .4rem; margin-left:.35rem; }
-.dir-row{ border-bottom:1px solid var(--dir-line); transition:background .12s ease,box-shadow .12s ease; }
+/* El ancestro contesta «de que subdireccion cuelga esto», que la profundidad no
+   contesta: 21 de 26 bandas comparten nivel. */
+.dir-anc{ font-size:.75rem; font-weight:500; color:var(--dir-slate); white-space:nowrap; }
+.dir-badge-unofficial{ font-size:.75rem; font-weight:500; color:var(--dir-slate); margin-left:.4rem; }
+.dir-dept-count{
+  font-size:.75rem; font-weight:500; color:var(--dir-slate);
+  font-variant-numeric:tabular-nums; border:1px solid var(--dir-line);
+  border-radius:999px; padding:0 .4rem; margin-left:.5rem;
+}
+
+/* Rail: una linea vertical por nivel de ancestro, pintada con gradiente. Las
+   secciones son HERMANAS planas: no hay anidacion de la que colgar N border-left,
+   y anidar el DOM romperia el ancla #dir-group-{id} y los dos sticky. */
+.dir-group{
+  background-image: repeating-linear-gradient(
+    to right, var(--dir-rail-line) 0 1px, transparent 1px 20px);
+  background-repeat:no-repeat;
+  background-size: calc(min(var(--dir-depth,0), 3) * 20px) 100%;
+  background-position:.75rem 0;
+}
+.dir-group[data-dir-unofficial]{
+  background-image: repeating-linear-gradient(
+    to bottom, var(--dir-rail) 0 3px, transparent 3px 6px);
+  background-size:2px 100%;
+  background-position: calc(.75rem + max(min(var(--dir-depth,0), 3) - 1, 0) * 20px) 0;
+}
+
+/* ── Filas ───────────────────────────────────────────────────────────────── */
+.dir-row{ border-bottom:1px solid var(--dir-line); transition:background .12s ease; }
 .dir-group:last-child .dir-row:last-child{ border-bottom:0; }
-.dir-row:hover{ background:var(--dir-mist); box-shadow:inset 2px 0 0 var(--dir-slate); }
-.dir-title,.dir-holder,.dir-notes{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.dir-title{ font-weight:600; color:var(--dir-ink); }
-.dir-holder{ color:var(--dir-slate); font-size:.875rem; }
-.dir-ext-chip{ display:inline-flex; align-items:center; justify-content:center; min-width:3.75rem; padding:.12rem .5rem; font-family:var(--bs-font-monospace,ui-monospace,SFMono-Regular,Menlo,monospace); font-variant-numeric:tabular-nums; font-weight:600; font-size:.85rem; color:var(--dir-ink); background:var(--dir-mist); border:1px solid var(--dir-line); border-radius:8px; }
-.dir-ext-empty{ color:var(--dir-mute); }
+.dir-row:hover{ background:var(--dir-mist); }
+.dir-holder{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* .dir-title deja de ser la caja de elipsis: al anidar .dir-notes como bloque el
+   texto del puesto cae en una caja anonima que NO hereda text-overflow. */
+.dir-title{ min-width:0; }
+.dir-title-main{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:.875rem; font-weight:600; color:var(--dir-ink); }
+.dir-notes{ display:block; font-size:.75rem; font-weight:500; color:var(--dir-slate); }
+.dir-holder,.dir-mail{ font-size:.875rem; font-weight:400; color:var(--dir-slate); }
+.dir-ext-empty{ color:var(--dir-slate); }
+.dir-empty-inline{ grid-column:1 / -1; font-size:.875rem; color:var(--dir-slate); }
+
+/* ── Controles de copiado: el dato ES el boton ───────────────────────────── */
+.dir-ext-chip{
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:3.75rem; min-height:1.75rem; padding:.12rem .5rem;
+  font-family:var(--bs-font-monospace,ui-monospace,SFMono-Regular,Menlo,monospace);
+  font-variant-numeric:tabular-nums; font-weight:600; font-size:.875rem;
+  color:var(--dir-ink); background:var(--dir-mist);
+  border:1px solid var(--dir-line); border-radius:8px; cursor:pointer;
+}
+.dir-mail-btn{
+  border:0; background:none; padding:0; text-align:left; min-width:0;
+  min-height:1.75rem; color:var(--dir-ink); cursor:pointer; overflow-wrap:anywhere;
+  font:inherit;
+}
+.dir-row:hover .dir-ext-chip,.dir-row:hover .dir-mail-btn{ border-color:var(--dir-rail); }
+.dir-mail-btn{ border:1px solid transparent; border-radius:6px; padding:0 .2rem; }
+.dir-ext-chip:focus-visible,.dir-mail-btn:focus-visible,
+.dir-actions .btn:focus-visible,.dir-empty .btn:focus-visible{
+  outline:2px solid var(--dir-focus); outline-offset:2px;
+}
+@media (min-width:992px){
+  .dir-mail{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+}
+
+/* Los botones de accion son iconicos y llevan `p-0` (padding:0!important de
+   Bootstrap gana a cualquier padding sin !important): sin min-WIDTH el objetivo
+   mide el ancho del glifo (~16px). Se dimensionan en las DOS direcciones. */
 .dir-actions{ display:flex; gap:.25rem; justify-content:flex-end; }
-.dir-actions .btn{ color:var(--dir-mute); } .dir-actions .btn:hover{ color:var(--dir-ink); }
-@media (hover:hover){ .dir-actions{ opacity:0; transition:opacity .12s ease; } .dir-row:hover .dir-actions,.dir-actions:focus-within{ opacity:1; } }
+.dir-actions .btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:1.75rem; min-height:1.75rem; color:var(--dir-slate);
+}
+.dir-actions .btn:hover{ color:var(--dir-ink); }
+
+/* ── Ajuste global ───────────────────────────────────────────────────────── */
+.dir-setting{ margin-bottom:.75rem; }
+.dir-switch-help{ font-size:.75rem; color:var(--dir-slate); }
+
+/* ── Estados vacios ──────────────────────────────────────────────────────── */
+.dir-empty{ padding:2.5rem 1rem; text-align:center; }
+.dir-empty-title{ font-size:.9375rem; font-weight:600; color:var(--dir-ink); margin-bottom:.25rem; }
+.dir-empty-hint{ font-size:.8125rem; color:var(--dir-slate); margin-bottom:1rem; }
+.dir-count{ font-size:.75rem; color:var(--dir-slate); margin:.5rem 0 0; }
+
+/* ── 576-991px: 3 pistas (4 con manage), el correo baja a 2a linea ────────── */
+/* CINCO lineas explicitas: con solo .dir-mail posicionada, el auto-placement
+   (CSS Grid 8.5 paso 2) mete .dir-actions en la pista 2 y la fila sale
+   «Ext | Acciones | Puesto | Persona». */
+@media (min-width:576px) and (max-width:991.98px){
+  .dir-table       { --dir-cols: 5.5rem minmax(0,1.4fr) minmax(0,1fr); }
+  .dir-table--manage{ --dir-cols: 5.5rem minmax(0,1.4fr) minmax(0,1fr) 4.5rem; }
+  .dir-ext    { grid-column:1; grid-row:1 / 3; align-self:center; }
+  .dir-title  { grid-column:2; grid-row:1 / 3; align-self:center; }
+  .dir-holder { grid-column:3; grid-row:1; }
+  .dir-mail   { grid-column:3; grid-row:2; min-width:0; overflow-wrap:anywhere; }
+  .dir-actions{ grid-column:4; grid-row:1 / 3; align-self:center; }
+  /* La cabecera comparte --dir-cols pero conserva 4-5 columnheaders contra 3-4
+     pistas: sin esto «Correo» cae a una segunda fila dentro de una caja de
+     altura fija y los rotulos dejan de corresponder a sus columnas. */
+  .dir-head .dir-h-mail{ display:none; }
+}
+
+/* ── <=575px: 3 pistas, LINEAS EXPLICITAS (nunca span) ───────────────────── */
+/* .dir-actions solo existe con can_manage y .dir-notes ya no es item de rejilla
+   (va dentro de .dir-title): un span calibrado para una combinacion se
+   desalinea en la otra. */
 @media (max-width:575.98px){
-  .dir-head{ display:none; }
-  .dir-dept{ position:static; top:auto; }
-  .dir-table,.dir-table--manage{ --dir-cols:3.75rem 1fr auto; border-radius:14px; }
-  .dir-row{ column-gap:.75rem; row-gap:.1rem; padding:.7rem .85rem; align-items:start; }
-  .dir-row:hover{ background:#fff; box-shadow:none; }              /* touch: sin hover */
-  .dir-ext{ grid-column:1; grid-row:1 / span 3; align-self:center; }
-  .dir-ext-chip{ min-width:3.25rem; }
-  /* En móvil dejamos que el texto fluya (no ellipsis) para leer nombres largos. */
-  .dir-title{ grid-column:2; white-space:normal; }
-  .dir-holder{ grid-column:2; white-space:normal; font-size:.85rem; }
-  .dir-notes{ grid-column:2; white-space:normal; }
-  .dir-notes:empty{ display:none; }
-  .dir-actions{ grid-column:3; grid-row:1 / span 3; align-self:center; justify-content:flex-end; opacity:1; }
-  .dir-actions .btn{ padding:.4rem !important; font-size:1.05rem; }  /* tap targets ≥40px */
+  .dir-head{ position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .dir-dept{ position:static; top:auto;
+    padding-left: calc(.75rem + min(var(--dir-depth,0), 3) * 8px); }
+  .dir-group{ background-size: calc(min(var(--dir-depth,0), 3) * 8px) 100%; }
+  .dir-table,.dir-table--manage{ --dir-cols: 3.75rem minmax(0,1fr) auto; border-radius:14px; }
+  .dir-row{ align-items:start; column-gap:.75rem; row-gap:.15rem; padding:.7rem .85rem; }
+  .dir-row:hover{ background:#fff; }                       /* touch: sin hover */
+  .dir-ext    { grid-column:1;      grid-row:1 / 3; align-self:center; }
+  .dir-title  { grid-column:2;      grid-row:1; }
+  .dir-holder { grid-column:2;      grid-row:2; white-space:normal; }
+  .dir-actions{ grid-column:3;      grid-row:1 / 3; align-self:center; }
+  /* El correo a todo lo ancho y envolviendo: a 375px en la pista central la fila
+     medía scrollWidth 496 vs clientWidth 349 y el boton de eliminar quedaba
+     fuera del recorte, sin que documentElement.scrollWidth lo delatara. */
+  .dir-mail   { grid-column:1 / -1; grid-row:3; min-width:0;
+                white-space:normal; overflow:visible; text-overflow:clip;
+                overflow-wrap:anywhere; }
+  .dir-title-main{ white-space:normal; overflow:visible; text-overflow:clip; }
+  .dir-anc{ display:block; font-size:.6875rem; overflow:hidden;
+            text-overflow:ellipsis; white-space:nowrap; }
+  .dir-actions .btn{ min-width:var(--dir-tap); min-height:var(--dir-tap); font-size:1.05rem; }
+  .dir-ext-chip,.dir-mail-btn{ min-height:var(--dir-tap); }
 }
 @media (prefers-reduced-motion:reduce){ .dir-row{ transition:none; } }
 

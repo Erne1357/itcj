@@ -1,0 +1,21 @@
+{# Cuatro ramas por CAUSA. Sin iconografia: un icono de bandeja no ensena nada.
+   El boton de limpiar NO puede llevar hx-include="#dir-filters" (reenviaria los
+   mismos filtros): va sin include y un handler delegado limpia los controles. #}
+<div class="dir-empty">
+  {% if source == 'entry' %}
+    <p class="dir-empty-title">No hay extensiones extra capturadas.</p>
+    <p class="dir-empty-hint">Las extensiones de puestos siguen visibles en «Todas».</p>
+    <button class="btn btn-sm btn-primary" data-dir-action="reset-source"
+            hx-get="/directory/list" hx-target="#dir-list" hx-swap="morph:innerHTML">Ver todas</button>
+  {% elif q or filter_dept %}
+    <p class="dir-empty-title">Sin coincidencias{% if q %} para «{{ q }}»{% endif %}{% if dept_label %} en {{ dept_label }}{% endif %}.</p>
+    <button class="btn btn-sm btn-primary" data-dir-action="clear-filters"
+            hx-get="/directory/list" hx-target="#dir-list" hx-swap="morph:innerHTML">Quitar filtros</button>
+  {% else %}
+    <p class="dir-empty-title">Aún no hay extensiones capturadas.</p>
+    {% if can_manage %}
+    <button class="btn btn-sm btn-primary" data-dir-action="new-entry"
+            data-bs-toggle="modal" data-bs-target="#dirEntryModal">Agregar extensión</button>
+    {% endif %}
+  {% endif %}
+</div>
