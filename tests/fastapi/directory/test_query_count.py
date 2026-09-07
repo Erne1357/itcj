@@ -18,8 +18,8 @@ def test_list_directory_query_budget(db_session):
 
     event.listen(engine, "before_cursor_execute", _count)
     try:
-        svc.list_directory(db_session, include_unofficial=False)
+        groups = svc.list_directory(db_session, include_unofficial=False)
     finally:
         event.remove(engine, "before_cursor_execute", _count)
 
-    assert counter["n"] <= MAX_QUERIES, f"{counter['n']} queries (presupuesto {MAX_QUERIES})"
+    assert counter["n"] <= MAX_QUERIES, f"{counter['n']} queries (presupuesto {MAX_QUERIES}); grupos={len(groups)}"
