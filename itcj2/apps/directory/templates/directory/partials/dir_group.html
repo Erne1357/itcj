@@ -1,11 +1,17 @@
-{# El <h2> NO sale del DOM: es el bloque contenedor de su position:sticky. Sale
-   del arbol de ACCESIBILIDAD y el nombre lo lleva el rowgroup. #}
+{# Macro RECURSIVA: las secciones se anidan para que el sticky sea en cascada.
+   position:sticky se despega al terminar su bloque contenedor, asi que con
+   secciones hermanas la banda del padre desaparecia en cuanto acababan sus
+   propias filas. Anidada, sobrevive todo el subarbol. #}
+{% macro dir_group(group, can_manage) %}
 <section class="dir-group dir-anim-in" role="rowgroup"
          id="dir-group-{{ group.department_id }}"
-         style="--dir-depth: {{ group.depth }}"
+         style="--dir-depth: {{ group.depth }}; --dir-sticky-offset: {{ group.sticky_offset }}px"
          {% if group.depth <= 1 %}data-dir-tramo{% endif %}
          {% if not group.is_official %}data-dir-unofficial{% endif %}
+         {% if group.nested %}data-dir-nested{% endif %}
          aria-label="{{ group.department }}{% if not group.is_official %} (no oficial){% endif %} · {{ group.rows | length }} extensiones">
+  {# El <h2> NO sale del DOM: es el bloque contenedor de su position:sticky. Sale
+     del arbol de ACCESIBILIDAD y el nombre lo lleva el rowgroup. #}
   <h2 class="dir-dept" aria-hidden="true"
       title="{% for a in group.ancestors %}{{ a.name }} › {% endfor %}{{ group.department }}">
     {% if group.ancestors %}<span class="dir-anc">{{ group.ancestors[-1].name }} › </span>{% endif %}{{ group.department }}{% if not group.is_official %}<span class="dir-badge-unofficial">no oficial</span>{% endif %}<span class="dir-dept-count">{{ group.rows | length }}</span>
@@ -73,4 +79,7 @@
     {% endif %}
   </div>
   {% endfor %}
+
+  {% for child in group.children %}{{ dir_group(child, can_manage) }}{% endfor %}
 </section>
+{% endmacro %}

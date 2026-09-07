@@ -184,6 +184,9 @@ def _render_list(request: Request, db: Session, user: dict, *, q=None, departmen
     )
     ctx = {
         "groups": groups,
+        # El arbol es lo que se renderiza (sticky en cascada); la lista plana se
+        # conserva para el conteo, el estado vacio y los tests.
+        "groups_tree": directory_service.nest_groups(groups),
         "q": q or "",
         "filter_dept": department_id,
         "effective_filter_dept": department_id,

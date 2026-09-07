@@ -57,7 +57,7 @@
   align-items:center; column-gap:1rem; padding:.55rem .75rem;
 }
 .dir-head{
-  position:sticky; top:0; z-index:3; height:var(--dir-head-h);
+  position:sticky; top:0; z-index:5; height:var(--dir-head-h);
   font-size:.75rem; font-weight:500; color:var(--dir-slate);
   background:#fff; border-bottom:1px solid var(--dir-line);
 }
@@ -67,19 +67,35 @@
 /* La PROFUNDIDAD la codifican sangria y rail; la tipografia codifica contenedor
    vs contenido. Invariante: la banda nunca es mas chica, mas ligera ni mas clara
    que el titulo de las filas que agrupa. */
+/* Sticky en CASCADA: cada banda se pega DEBAJO de las de sus ancestros, que el
+   servidor suma en --dir-sticky-offset. Requiere el DOM anidado (ver
+   nest_groups): con secciones hermanas la banda del padre se despega en cuanto
+   acaban sus propias filas, porque su bloque contenedor termina ahi.
+   La altura es fija por nivel para que el offset sea determinista. */
 .dir-dept{
-  position:sticky; top:var(--dir-head-h); z-index:2; margin:0;
-  padding:.5rem .75rem .5rem calc(.75rem + min(var(--dir-depth,0), 3) * 20px);
-  font-size:1rem; font-weight:700; line-height:1.4; color:var(--dir-ink);
+  position:sticky; top:calc(var(--dir-head-h) + var(--dir-sticky-offset, 0px));
+  z-index:2; margin:0; box-sizing:border-box; height:2.25rem;
+  display:flex; align-items:center; gap:0;
+  padding:0 .75rem 0 calc(.75rem + min(var(--dir-depth,0), 3) * 20px);
+  font-size:1rem; font-weight:700; line-height:1.2; color:var(--dir-ink);
   text-transform:none; letter-spacing:0;
   background:var(--dir-mist);
   border-top:1px solid var(--dir-line); border-bottom:1px solid var(--dir-line);
 }
-.dir-group[data-dir-tramo] .dir-dept{ font-size:1.125rem; }
-.dir-group:first-child .dir-dept{ border-top:0; }
+.dir-group[data-dir-tramo] > .dir-dept{ font-size:1.125rem; height:2.5rem; }
+/* El ancestro pinta ENCIMA del descendiente mientras se cruzan. */
+.dir-group[data-dir-tramo] > .dir-dept{ z-index:3; }
+.dir-group:first-child > .dir-dept{ border-top:0; }
 /* El ancestro contesta «de que subdireccion cuelga esto», que la profundidad no
    contesta: 21 de 26 bandas comparten nivel. */
 .dir-anc{ font-size:.75rem; font-weight:500; color:var(--dir-slate); white-space:nowrap; }
+/* Donde hay cascada, la banda del padre esta SIEMPRE encima: el prefijo seria la
+   misma informacion dos veces. Se conserva en el DOM (title y lectores) y en
+   movil, donde no hay sticky y es la unica pista. Un grupo filtrado se pinta como
+   raiz (sin data-dir-nested), asi que ahi el prefijo si aparece. */
+@media (min-width:576px){
+  .dir-group[data-dir-nested] > .dir-dept > .dir-anc{ display:none; }
+}
 .dir-badge-unofficial{ font-size:.75rem; font-weight:500; color:var(--dir-slate); margin-left:.4rem; }
 .dir-dept-count{
   font-size:.75rem; font-weight:500; color:var(--dir-slate);
@@ -106,7 +122,7 @@
 
 /* ── Filas ───────────────────────────────────────────────────────────────── */
 .dir-row{ border-bottom:1px solid var(--dir-line); transition:background .12s ease; }
-.dir-group:last-child .dir-row:last-child{ border-bottom:0; }
+.dir-group:last-child > .dir-row:last-child{ border-bottom:0; }
 .dir-row:hover{ background:var(--dir-mist); }
 .dir-holder{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* .dir-title deja de ser la caja de elipsis: al anidar .dir-notes como bloque el
@@ -187,8 +203,8 @@
    desalinea en la otra. */
 @media (max-width:575.98px){
   .dir-head{ position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
-  .dir-dept{ position:static; top:auto;
-    padding-left: calc(.75rem + min(var(--dir-depth,0), 3) * 8px); }
+  .dir-dept{ position:static; top:auto; height:auto; display:block;
+    padding:.5rem .85rem .5rem calc(.85rem + min(var(--dir-depth,0), 3) * 8px); }
   .dir-group{ background-size: calc(min(var(--dir-depth,0), 3) * 8px) 100%; }
   .dir-table,.dir-table--manage{ --dir-cols: 3.75rem minmax(0,1fr) auto; border-radius:14px; }
   .dir-row{ align-items:start; column-gap:.75rem; row-gap:.15rem; padding:.7rem .85rem; }

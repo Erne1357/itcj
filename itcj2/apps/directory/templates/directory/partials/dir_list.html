@@ -1,3 +1,4 @@
+{% from "directory/partials/dir_group.html" import dir_group with context %}
 <div class="dir-table{% if can_manage %} dir-table--manage{% endif %}" role="table" aria-label="Directorio">
   {% if not groups %}
     {% include "directory/partials/dir_empty.html" %}
@@ -9,7 +10,7 @@
       <span role="columnheader" class="dir-h-mail">Correo</span>
       {% if can_manage %}<span role="columnheader" class="dir-h-act">Acciones</span>{% endif %}
     </div>
-    {% for group in groups %}{% include "directory/partials/dir_group.html" %}{% endfor %}
+    {% for group in groups_tree %}{{ dir_group(group, can_manage) }}{% endfor %}
   {% endif %}
 </div>
 <p class="dir-count" role="status" data-dir-empty="{{ 0 if groups else 1 }}">
