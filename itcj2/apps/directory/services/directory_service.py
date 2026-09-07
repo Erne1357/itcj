@@ -54,6 +54,20 @@ _TITLE_CONNECTORS = {
     "depto", "departamento", "division", "coordinacion", "coord", "subdireccion",
 }
 
+# El titular de una subdireccion o direccion se titula con la forma AGENTE del
+# nombre del area («Subdireccion Academica» -> «Subdirector Academico»), asi que
+# la cola del titulo nunca coincide literalmente con el nombre del departamento y
+# el recorte por sufijo no aplica. Tabla explicita y corta: NO es fuzzy matching,
+# es el vocabulario institucional del organigrama.
+_HEAD_NOUN_AGENTS = {
+    "direccion": "director",
+    "subdireccion": "subdirector",
+    "coordinacion": "coordinador",
+    "jefatura": "jefe",
+}
+
+_TRAILING_PUNCT = " ,.;:·—–-|/·"
+
 _MAX = {"label": 120, "holder_name": 120, "extension": 10, "notes": 200, "email": 150}
 
 _KEEP = object()   # centinela: "no toques el correo" ("" y None significan BORRARLO)
@@ -109,6 +123,9 @@ def short_title(title: str, department_name: str) -> str:
     """
     if not title or not department_name:
         return title
+    agent = _agent_title(title, department_name)
+    if agent:
+        return agent
     n_title, n_dept = _norm(title), _norm(department_name)
     if not n_dept or not n_title.endswith(n_dept):
         return title
@@ -117,8 +134,33 @@ def short_title(title: str, department_name: str) -> str:
     kept = words[: max(0, len(words) - len(n_dept.split()))]
     while kept and _norm(kept[-1]).rstrip(".") in _TITLE_CONNECTORS:
         kept.pop()
-    result = " ".join(kept).strip(" ,.;:")
+    # Los separadores tambien se recortan: «Coordinador de Área — Mantenimiento de
+    # Equipo» dentro de «Mantenimiento de Equipo» dejaba un guion colgando.
+    result = " ".join(kept).strip(_TRAILING_PUNCT)
     return result if len(result) >= 3 else title
+
+
+def _stem(word: str) -> str:
+    """Quita la vocal final para comparar genero: academico/academica -> academic."""
+    return word[:-1] if len(word) > 3 and word[-1] in "oa" else word
+
+
+def _agent_title(title: str, department_name: str):
+    """«Subdirector Académico» dentro de «Subdirección Académica» -> «Subdirector».
+
+    Devuelve None si el titulo no es la forma agente del nombre del area. Se exige
+    que el RESTO coincida palabra a palabra (ignorando genero), asi que un
+    «Subdirector Académico» colgado de otra subdireccion NO se recorta.
+    """
+    t_words = title.split()
+    d_words = department_name.split()
+    if not t_words or not d_words:
+        return None
+    if _HEAD_NOUN_AGENTS.get(_norm(d_words[0])) != _norm(t_words[0]):
+        return None
+    t_rest = [_stem(_norm(w)) for w in t_words[1:]]
+    d_rest = [_stem(_norm(w)) for w in d_words[1:]]
+    return t_words[0] if t_rest == d_rest else None
 
 
 def _position_holders(db: Session, position_ids) -> dict[int, dict]:
@@ -268,6 +310,50 @@ def group_by_department(rows, dept_meta, *, include_empty_unofficial: bool = Fal
     return out
 
 
+# Alturas de banda por nivel (deben cuadrar con .dir-dept del CSS). El sticky en
+# cascada necesita saber cuanto cromo hay ENCIMA de cada banda para fijar su
+# `top`: nivel 0-1 miden 2.5rem, nivel 2+ 2.25rem.
+_BAND_H = {0: 40, 1: 40}
+_BAND_H_DEEP = 36
+_STICKY_MAX_DEPTH = 3
+
+
+def _sticky_offset(depth: int) -> int:
+    """Suma de las alturas de las bandas ancestro que quedan pegadas encima."""
+    return sum(_BAND_H.get(d, _BAND_H_DEEP) for d in range(min(depth, _STICKY_MAX_DEPTH)))
+
+
+def nest_groups(groups):
+    """Convierte la lista plana DFS en un arbol con `children`.
+
+    El sticky en CASCADA (que al estar en Ciencias Basicas sigan pegadas Direccion
+    y Subdireccion Academica) exige anidar el DOM: `position:sticky` se despega al
+    terminar su BLOQUE CONTENEDOR, asi que con secciones hermanas la banda del
+    padre desaparece en cuanto acaban sus propias filas. Anidando, la seccion del
+    padre envuelve a las de sus hijos y su banda sobrevive todo el subarbol.
+
+    Los ids siguen siendo unicos (`dir-group-{id}`), asi que el ancla y el morph
+    no cambian.
+    """
+    roots = []
+    stack = []   # [(depth, group)]
+    for g in groups:
+        node = dict(g, children=[], sticky_offset=_sticky_offset(g["depth"]),
+                    nested=False)
+        while stack and stack[-1][0] >= node["depth"]:
+            stack.pop()
+        if stack:
+            # `nested` = su padre SI se esta pintando encima, asi que el prefijo de
+            # ancestro es redundante donde hay cascada. Con un filtro por depto solo
+            # se pinta ese grupo: ahi es raiz y el prefijo es la unica pista.
+            node["nested"] = True
+            stack[-1][1]["children"].append(node)
+        else:
+            roots.append(node)
+        stack.append((node["depth"], node))
+    return roots
+
+
 def list_directory(db: Session, *, q=None, department_id=None, source="all",
                    include_unofficial: bool, include_empty_unofficial: bool = False):
     """Lista unificada agrupada por departamento, en orden jerárquico.
@@ -279,6 +365,7 @@ def list_directory(db: Session, *, q=None, department_id=None, source="all",
     Este módulo NO conoce settings_service: el ajuste se resuelve una sola vez por
     request, en la capa de pages.
     """
+    from sqlalchemy.orm import joinedload
     from itcj2.core.models.position import Position
     from itcj2.apps.directory.models import DirectoryEntry
 
@@ -300,7 +387,11 @@ def list_directory(db: Session, *, q=None, department_id=None, source="all",
 
     rows = []
     if source in ("all", "position"):
-        pos_query = db.query(Position).filter(
+        # joinedload OBLIGATORIO: _position_row lee position.department y sin esto
+        # el coste depende de si build_tree dejo el identity map poblado — medido
+        # 6 queries en aislado contra 31 despues de otra suite. El eager load lo
+        # vuelve determinista.
+        pos_query = db.query(Position).options(joinedload(Position.department)).filter(
             Position.phone_extension.isnot(None),
             Position.is_active == True,  # noqa: E712
         )
@@ -311,7 +402,11 @@ def list_directory(db: Session, *, q=None, department_id=None, source="all",
         rows.extend(_position_row(p, holders.get(p.id)) for p in positions)
 
     if source in ("all", "entry"):
-        ent_query = db.query(DirectoryEntry).filter(DirectoryEntry.is_active == True)  # noqa: E712
+        ent_query = (
+            db.query(DirectoryEntry)
+            .options(joinedload(DirectoryEntry.department))
+            .filter(DirectoryEntry.is_active == True)  # noqa: E712
+        )
         if department_id:
             ent_query = ent_query.filter(DirectoryEntry.department_id == department_id)
         rows.extend(_entry_row(e) for e in ent_query.all())
