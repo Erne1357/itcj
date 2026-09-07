@@ -51,3 +51,6 @@ from itcj2.apps.maint.models import (  # noqa: F401
     MaintMaintenanceType, MaintServiceOrigin,
     MaintNotificationTemplate,
 )
+
+# Directory
+from itcj2.apps.directory.models import DirectoryEntry, DirectorySettings  # noqa: F401
