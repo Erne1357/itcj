@@ -191,6 +191,17 @@ def init_database_command():
         raise
 
 
+def _directory_seed_files():
+    """Rutas del DML de directory, desde su UNICA fuente (cli/directory.py).
+
+    Import local: cli/directory.py importa de este modulo, asi que a nivel de
+    top-level seria circular. Copiar la lista aqui es lo que dejo fuera a las
+    subcarpetas nuevas en otras apps.
+    """
+    from itcj2.cli.directory import directory_seed_files
+    return directory_seed_files()
+
+
 def _titulatec_seed_files() -> list[str]:
     """Rutas (relativas a database/DML/) de los seeders de TitulaTec.
 
@@ -318,10 +329,7 @@ def seed_reference_data_command():
         "maint/config/05_seed_areas.sql",
         "maint/config/06_seed_notification_templates.sql",
         *_titulatec_seed_files(),
-        "directory/00_insert_app.sql",
-        "directory/01_insert_permissions.sql",
-        "directory/02_insert_role_permission.sql",
-        "directory/03_grant_directory_access.sql",
+        *_directory_seed_files(),
         "core/config_2026_07/subtree/01_insert_subtree_perms.sql",
         "core/config_2026_07/subtree/02_assign_subtree_perms.sql",
         "core/config_2026_07/subtree/03_fix_subdirector_head_codes.sql",
