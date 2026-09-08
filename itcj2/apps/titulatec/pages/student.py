@@ -980,14 +980,19 @@ async def cita_confirm(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.confirm.own"])),
 ):
-    """El alumno confirma asistencia. Devuelve la tarjeta re-renderizada (HTMX)."""
+    """El alumno confirma asistencia. Devuelve la tarjeta re-renderizada (HTMX).
+
+    Mismo selector que la página que aloja este botón (`_cita_card_ctx`): si la
+    guarda mirara otro proceso, el alumno vería la cita del suyo y el POST le
+    contestaría 400 por el estado de uno distinto.
+    """
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
     db = SessionLocal()
     try:
-        process = DocumentService.get_active_process(db, int(user["sub"]))
+        process = ProcessService.creditable_process(db, int(user["sub"]))
         fuera_de_fase = _phase_guard(db, process, _phase_of(db, "review_appointment"))
         if fuera_de_fase:
             return fuera_de_fase
@@ -1005,16 +1010,20 @@ async def cita_request_change(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.confirm.own"])),
 ):
-    """El alumno solicita un cambio de cita (el encargado decide). Devuelve la tarjeta."""
+    """El alumno solicita un cambio de cita (el encargado decide). Devuelve la tarjeta.
+
+    Mismo selector que `cita_confirm` y que la página, por lo mismo: los dos
+    botones de la tarjeta tienen que hablar del proceso que la tarjeta pinta.
+    """
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
     form = dict(await request.form())
     reason = form.get("reason", "")
     db = SessionLocal()
     try:
-        process = DocumentService.get_active_process(db, int(user["sub"]))
+        process = ProcessService.creditable_process(db, int(user["sub"]))
         fuera_de_fase = _phase_guard(db, process, _phase_of(db, "review_appointment"))
         if fuera_de_fase:
             return fuera_de_fase

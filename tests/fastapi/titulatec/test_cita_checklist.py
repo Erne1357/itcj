@@ -206,3 +206,90 @@ class TestChecklistEnLaPagina:
         from itcj2.apps.titulatec.pages import student as student_pages
 
         assert not hasattr(student_pages, "_COTEJO_CHECKLIST")
+
+
+class TestLaPaginaYSusBotonesHablanDelMismoProceso:
+    """La cita que el alumno VE y la que sus botones tocan tienen que ser UNA.
+
+    Si la pagina y sus dos POST resuelven el proceso por su cuenta, un alumno con
+    un proceso `completed` MAS NUEVO que su `active` ve su cita bien y recibe 400
+    al confirmarla, sin nada en pantalla que lo explique: callejon sin salida.
+
+    Se prueba por COMPORTAMIENTO —abre y confirma— y no por que selector usa cada
+    ruta, para que siga significando lo mismo si el selector se renombra o se
+    muda de service.
+    """
+
+    @pytest.fixture()
+    def con_un_completed_mas_nuevo(self, db_session, seed_phase_defs, make_student,
+                                   make_cohort, make_process, make_appointment):
+        """Su proceso vivo con cita agendada, y un tramite cerrado POSTERIOR.
+
+        Escenario propio y no `alumno_en_cita` por los permisos: el `STUDENT_PERMS`
+        de conftest solo trae `appointment.page.my`, y los dos POST exigen
+        `appointment.api.confirm.own`. Sin el, la peticion muere en 403 antes de
+        llegar a la guarda de fase, que es justo lo que se quiere medir.
+        """
+        from datetime import timedelta
+
+        seed_phase_defs()
+        student = make_student(perm_codes=(
+            "titulatec.dashboard.student",
+            "titulatec.process.page.my",
+            "titulatec.process.api.read.own",
+            "titulatec.appointment.page.my",
+            "titulatec.appointment.api.confirm.own",
+        ))
+        cohort = make_cohort()
+        process = make_process(student, cohort=cohort, current_phase=2)
+        appt = make_appointment(process)
+        # UNIQUE(student_id, cohort_id) obliga a otra convocatoria. Y el
+        # `created_at` se adelanta A MANO: es `server_default NOW()`, que en
+        # Postgres es la marca de la TRANSACCION, asi que las dos filas nacerian
+        # empatadas y no habria un "mas nuevo" que provoque la discrepancia.
+        posterior = make_process(student, cohort=make_cohort(),
+                                 current_phase=8, status="completed")
+        posterior.created_at = process.created_at + timedelta(days=1)
+        db_session.flush()
+        return {"student": student, "process": process, "appt": appt,
+                "posterior": posterior}
+
+    def test_el_escenario_es_de_verdad_ambiguo(self, db_session, con_un_completed_mas_nuevo):
+        """Premisa: sin esto los dos tests de abajo pasarian por vacios."""
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+
+        esc = con_un_completed_mas_nuevo
+        assert DocumentService.get_active_process(
+            db_session, esc["student"].id).id == esc["posterior"].id, (
+            "el escenario deja de enfrentar a los dos selectores; si "
+            "get_active_process se arreglo, este archivo necesita otro montaje")
+
+    def test_ve_la_pagina_y_puede_confirmar_la_cita(self, db_session,
+                                                    con_un_completed_mas_nuevo, client_as):
+        from itcj2.apps.titulatec.models import ReviewAppointment
+
+        esc = con_un_completed_mas_nuevo
+        cli = client_as(esc["student"])
+
+        assert cli.get(URL, follow_redirects=False).status_code == 200
+
+        resp = cli.post(f"{URL}/confirmar", follow_redirects=False)
+
+        assert resp.status_code == 200, (
+            f"la pagina abre pero el boton no responde: "
+            f"{resp.headers.get('X-Tt-Error')}")
+        assert db_session.get(ReviewAppointment, esc["appt"].id).confirmed_at is not None
+
+    def test_ve_la_pagina_y_puede_pedir_cambio_de_cita(self, db_session,
+                                                       con_un_completed_mas_nuevo, client_as):
+        from itcj2.apps.titulatec.models import ReviewAppointment
+
+        esc = con_un_completed_mas_nuevo
+        cli = client_as(esc["student"])
+
+        resp = cli.post(f"{URL}/solicitar-cambio", data={"reason": "Choca con mi examen"},
+                        follow_redirects=False)
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        assert db_session.get(ReviewAppointment,
+                              esc["appt"].id).change_request == "Choca con mi examen"
