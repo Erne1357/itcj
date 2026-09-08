@@ -1,0 +1,187 @@
+{# ===========================================================================
+   survey_form.html — formulario COMPLETO, re-renderizable en cada POST.
+
+   El servidor conserva los valores porque htmx SI swappea en 200 (spec 6.1):
+   si aqui no se re-imprimen, un fallo de validacion borra el cuestionario
+   entero y el visitante lo abandona.
+
+   La raiz `#tt-survey-form` es a la vez el `hx-target`, asi que el swap es
+   `outerHTML` (invariante: si no coincidieran, htmx anidaria el formulario
+   dentro de si mismo en cada envio fallido).
+
+   Los valores llegan ya normalizados por `_display_values` (pages/public.py):
+   un `yesno` como booleano, un `scale` como texto y un `multiselect` como lista
+   de texto, vengan del borrador de BD o del envio que acaba de fallar.
+   =========================================================================== #}
+
+{% macro tt_field(f, values, errors, first_error_key) %}
+  {% set v = values.get(f.key) %}
+  {% set err = errors.get(f.key) %}
+  {% set fid = 'f-' ~ f.key %}
+  {% set foco = (first_error_key == f.key) %}
+  <div class="tt-q" data-tt-field="{{ f.key }}"{% if f.visible_when %} data-tt-when='{{ f.visible_when|tojson }}'{% endif %}>
+    <span class="tt-label" id="{{ fid }}-lbl">
+      {{ f.label }}{% if f.required %} <span class="tt-req" aria-hidden="true">*</span>{% endif %}
+    </span>
+
+    {% if f.type == 'text' %}
+      <input class="tt-field form-control" type="text" id="{{ fid }}" name="{{ f.key }}"
+             value="{{ v if v is not none else '' }}"
+             {% if f.validation and f.validation.maxLength %}maxlength="{{ f.validation.maxLength }}"{% endif %}
+             {% if err %}aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}
+             {% if foco %}autofocus data-tt-focus="1"{% endif %}>
+
+    {% elif f.type == 'textarea' %}
+      <textarea class="tt-field form-control" id="{{ fid }}" name="{{ f.key }}" rows="4"
+                {% if f.validation and f.validation.maxLength %}maxlength="{{ f.validation.maxLength }}"{% endif %}
+                {% if err %}aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}
+                {% if foco %}autofocus data-tt-focus="1"{% endif %}>{{ v if v is not none else '' }}</textarea>
+
+    {% elif f.type == 'select' %}
+      <select class="tt-field form-select" id="{{ fid }}" name="{{ f.key }}"
+              {% if err %}aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}
+              {% if foco %}autofocus data-tt-focus="1"{% endif %}>
+        <option value="">Selecciona una opción…</option>
+        {% for opt in f.options %}
+        <option value="{{ opt.value }}"{% if v == opt.value %} selected{% endif %}>{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+
+    {% elif f.type == 'radio' %}
+      <div role="radiogroup" aria-labelledby="{{ fid }}-lbl"
+           {% if err %}aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+        {% for opt in f.options %}
+        <div class="form-check">
+          <input class="form-check-input" type="radio" id="{{ fid }}-{{ loop.index }}"
+                 name="{{ f.key }}" value="{{ opt.value }}"{% if v == opt.value %} checked{% endif %}
+                 {% if foco and loop.first %}autofocus data-tt-focus="1"{% endif %}>
+          <label class="form-check-label" for="{{ fid }}-{{ loop.index }}">{{ opt.label }}</label>
+        </div>
+        {% endfor %}
+      </div>
+
+    {% elif f.type == 'multiselect' %}
+      <div role="group" aria-labelledby="{{ fid }}-lbl"
+           {% if err %}aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+        {% for opt in f.options %}
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="{{ fid }}-{{ loop.index }}"
+                 name="{{ f.key }}" value="{{ opt.value }}"{% if opt.value in (v or []) %} checked{% endif %}
+                 {% if foco and loop.first %}autofocus data-tt-focus="1"{% endif %}>
+          <label class="form-check-label" for="{{ fid }}-{{ loop.index }}">{{ opt.label }}</label>
+        </div>
+        {% endfor %}
+      </div>
+
+    {% elif f.type == 'checkbox' %}
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="{{ fid }}"
+               name="{{ f.key }}" value="1"{% if v %} checked{% endif %}
+               {% if err %}aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}
+               {% if foco %}autofocus data-tt-focus="1"{% endif %}>
+        <label class="form-check-label" for="{{ fid }}">{{ f.hint or f.label }}</label>
+      </div>
+
+    {% elif f.type == 'yesno' %}
+      <div role="radiogroup" aria-labelledby="{{ fid }}-lbl"
+           {% if err %}aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" id="{{ fid }}-si"
+                 name="{{ f.key }}" value="si"{% if v is sameas true %} checked{% endif %}
+                 {% if foco %}autofocus data-tt-focus="1"{% endif %}>
+          <label class="form-check-label" for="{{ fid }}-si">Sí</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" id="{{ fid }}-no"
+                 name="{{ f.key }}" value="no"{% if v is sameas false %} checked{% endif %}>
+          <label class="form-check-label" for="{{ fid }}-no">No</label>
+        </div>
+      </div>
+
+    {% elif f.type == 'scale' %}
+      {# Los rotulos de los extremos NO son decoracion: sin ellos un 1 y un 5 no
+         significan nada y el visitante no sabe que punta es cual. #}
+      <div class="tt-scale" role="radiogroup" aria-labelledby="{{ fid }}-lbl"
+           {% if err %}aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+        <span class="tt-scale-end">{{ f.scale.min_label }}</span>
+        {% for n in range(f.scale.min, f.scale.max + 1) %}
+        <label class="tt-scale-opt">
+          <input class="form-check-input" type="radio" name="{{ f.key }}" value="{{ n }}"{% if v == n|string %} checked{% endif %}
+                 {% if foco and loop.first %}autofocus data-tt-focus="1"{% endif %}>
+          <span>{{ n }}</span>
+        </label>
+        {% endfor %}
+        <span class="tt-scale-end">{{ f.scale.max_label }}</span>
+      </div>
+    {% endif %}
+
+    {% if f.hint and f.type != 'checkbox' %}
+      <div class="tt-hint">{{ f.hint }}</div>
+    {% endif %}
+    {% if err %}
+      <div class="tt-err" id="{{ fid }}-err" data-tt-error="{{ f.key }}" role="alert">{{ err }}</div>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+<form id="tt-survey-form"
+      method="post" action="{{ survey_url }}"
+      hx-post="{{ survey_url }}"
+      hx-target="#tt-survey-form" hx-swap="outerHTML"
+      data-tt-survey="{{ form.code }}"
+      data-tt-version="{{ form.version }}"
+      data-tt-auth="{{ '1' if is_authenticated else '0' }}"
+      data-tt-draft-url="{{ draft_url }}"
+      data-tt-draft-updated="{{ draft_updated_at }}">
+
+  {% if is_authenticated %}
+    <div class="tt-card tt-card--success mb-4" role="status">
+      <p class="mb-0">Iniciaste sesión: al enviarla, esta encuesta <strong>sí acredita</strong> el requisito en tu expediente de titulación.</p>
+    </div>
+  {% else %}
+    {# Aviso PERSISTENTE del spec 6.1, no un toast: quien contesta sin sesion
+       tiene que poder verlo mientras decide, no medio segundo al entrar. #}
+    <div class="tt-card tt-card--accent mb-4" role="status" data-tt-anon-notice>
+      <p class="mb-2">No iniciaste sesión. Esta respuesta cuenta para la estadística del Tec, pero NO quedará en tu expediente de titulación.</p>
+      <a class="btn btn-sm tt-btn-ink tt-pressable" data-tt-login
+         href="{{ login_url }}">Iniciar sesión y continuar</a>
+    </div>
+  {% endif %}
+
+  {% if errors %}
+    {% set faltantes = errors|length - (1 if form_error else 0) %}
+    <div class="tt-card tt-card--danger mb-4" role="alert" data-tt-errors tabindex="-1"
+         {% if not first_error_key %}autofocus data-tt-focus="1"{% endif %}>
+      {% if form_error %}
+        {# El error de tamano no cuelga de ningun campo (llave `__form__`): si
+           solo se pintaran los errores en linea, seria INVISIBLE y la pagina se
+           re-dibujaria igual sin nada que leer. #}
+        <p class="{{ 'mb-2' if faltantes else 'mb-0' }}">{{ form_error }}</p>
+      {% endif %}
+      {% if faltantes %}
+        <p class="mb-0">Revisa lo marcado en rojo: hay {{ faltantes }} respuesta(s) por corregir.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {# Trampa (E3): invisible por posicion, nunca por `display:none` ni
+     `type=hidden` (un bot serio salta los dos). La clase es la que public.css
+     ya define desde la Tarea 11; una clase nueva sin regla dejaria el campo a
+     la vista en medio del cuestionario. #}
+  <div class="tt-public-hp" aria-hidden="true">
+    <label for="tt-website">No llenar este campo</label>
+    <input type="text" id="tt-website" name="website" value="" tabindex="-1" autocomplete="off">
+  </div>
+
+  {% for sec in sections %}
+  <section class="tt-section" data-tt-section="{{ sec.key }}"
+           {% if sec.title %}aria-labelledby="sec-{{ sec.key }}"{% endif %}>
+    {% if sec.title %}<h2 class="tt-display h5" id="sec-{{ sec.key }}">{{ sec.title }}</h2>{% endif %}
+    {% for f in sec.fields %}{{ tt_field(f, values, errors, first_error_key) }}{% endfor %}
+  </section>
+  {% endfor %}
+
+  <div class="tt-survey-actions mt-4">
+    <button type="submit" class="btn tt-btn-accent tt-pressable">Enviar respuestas</button>
+  </div>
+</form>

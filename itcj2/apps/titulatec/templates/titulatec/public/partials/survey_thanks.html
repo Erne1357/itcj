@@ -1,0 +1,42 @@
+{# ===========================================================================
+   survey_thanks.html — tarjeta de agradecimiento.
+
+   Sustituye al formulario por `outerHTML`, sin redirect: el visitante ve que su
+   respuesta llego sin perder la pagina.
+
+   La copia CAMBIA con `credit_status`, y los CINCO valores del dominio tienen
+   su rama. Si `no_requirement` —que es un fallo de configuracion de la
+   convocatoria, no del alumno— se leyera igual que `credited`, ese fallo seria
+   invisible para todo el mundo: el alumno se iria convencido de que ya acredito
+   y Servicios Escolares no se enteraria hasta el cotejo.
+
+   `anonymous` va en el `{% else %}` a proposito: es el unico caso sin sesion y
+   ademas el relleno que devuelve `submit` en su rama de error, asi que un valor
+   inesperado cae en el mensaje mas conservador —«quedo registrada, no acredita»—
+   y nunca en una tarjeta en blanco.
+   =========================================================================== #}
+<div id="tt-survey-thanks" class="tt-card tt-card--hero tt-anim-in"
+     role="status" data-tt-credit="{{ credit_status }}">
+  <span class="tt-kicker"><i class="bi bi-check2-circle me-1" aria-hidden="true"></i>Listo</span>
+
+  {% if credit_status == 'credited' %}
+    <h2 class="tt-display h5 mt-1 mb-2">Gracias, ya quedó acreditado</h2>
+    <p class="mb-0">Tu respuesta quedó registrada y acreditamos el requisito de la encuesta en tu proceso de titulación. Ya no tienes que llevar el comprobante impreso a Servicios Escolares.</p>
+
+  {% elif credit_status == 'already' %}
+    <h2 class="tt-display h5 mt-1 mb-2">Gracias, ya lo teníamos</h2>
+    <p class="mb-0">Tu respuesta quedó registrada. El requisito de la encuesta ya estaba acreditado en tu proceso de titulación, así que no cambia nada en tu expediente.</p>
+
+  {% elif credit_status == 'no_process' %}
+    <h2 class="tt-display h5 mt-1 mb-2">Gracias por contestar</h2>
+    <p class="mb-0">Tu respuesta quedó registrada y cuenta para la estadística del Tec. No encontramos un proceso de titulación activo a tu nombre, así que no acredita ningún requisito.</p>
+
+  {% elif credit_status == 'no_requirement' %}
+    <h2 class="tt-display h5 mt-1 mb-2">Gracias, avísale a Servicios Escolares</h2>
+    <p class="mb-0">Tu respuesta quedó registrada, pero tu convocatoria todavía no tiene configurado el requisito de la encuesta, así que no pudimos acreditártelo. Menciónalo en Servicios Escolares para que lo revisen.</p>
+
+  {% else %}
+    <h2 class="tt-display h5 mt-1 mb-2">Gracias por contestar</h2>
+    <p class="mb-0">Tu respuesta quedó registrada y cuenta para la estadística del Tec. Como no iniciaste sesión, NO quedará en tu expediente de titulación.</p>
+  {% endif %}
+</div>

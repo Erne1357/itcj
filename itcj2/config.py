@@ -41,7 +41,12 @@ class Settings(BaseSettings):
     # constante: sin el bump, un navegador con caché caliente sirve un 404
     # cacheado de ambos y la página pública sale sin tope de ancho y con el
     # botón mudo ante cualquier error de HTMX.
-    STATIC_VERSION: str = "1.0.1111522"
+    #
+    # Bump 2026-09-08 (c): `titulatec/css/public.css` gana la capa de la encuesta
+    # pública (escala 1-5, errores en línea, secciones). Sin el bump, quien ya
+    # abrió una página pública tiene la hoja anterior en caché y el cuestionario
+    # sale sin la escala y con la trampa a la vista.
+    STATIC_VERSION: str = "1.0.1111523"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

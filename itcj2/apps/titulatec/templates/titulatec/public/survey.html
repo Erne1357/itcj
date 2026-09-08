@@ -1,0 +1,29 @@
+{# ===========================================================================
+   survey.html — encuesta de egresados, pagina completa.
+
+   Extiende la base PUBLICA, nunca `base_student.html`: aquella instancia el
+   shell movil del core, el FAB de notificaciones y el drawer de perfil, que
+   asumen sesion y le renderizarian un chrome roto al visitante anonimo.
+
+   Solo se sobreescriben los bloques `public_*`. Tocar `content` o `scripts`
+   sin `super()` se lleva por delante el shell entero o el modulo de errores
+   (`js/shared/tt-errors.js`), que la base carga para TODA pagina publica.
+   =========================================================================== #}
+{% extends "titulatec/public/base_public.html" %}
+
+{% block public_title %}{% if no_form %}Encuesta de egresados{% else %}{{ form.title }}{% endif %} · TitulaTec{% endblock %}
+{% block public_page %}public_survey{% endblock %}
+
+{% block public_body %}
+  <header class="mb-4">
+    <span class="tt-kicker">Instituto Tecnológico de Ciudad Juárez</span>
+    <h1 class="tt-display h3 mt-1 mb-2">{% if no_form %}Encuesta de egresados{% else %}{{ form.title }}{% endif %}</h1>
+    {% if not no_form and form.description %}<p class="mb-0">{{ form.description }}</p>{% endif %}
+  </header>
+
+  {% if no_form %}
+    {% include "titulatec/public/partials/notice_card.html" %}
+  {% else %}
+    {% include "titulatec/public/partials/survey_form.html" %}
+  {% endif %}
+{% endblock %}

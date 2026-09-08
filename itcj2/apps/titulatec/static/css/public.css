@@ -126,3 +126,67 @@
   .tt-public-bar-inner { padding-block: var(--tt-sp-2); }
   .tt-public-main.tt-prose { padding-top: var(--tt-sp-5); }
 }
+
+/* ======================= Encuesta publica ================================ */
+/* La trampa (.tt-public-hp) NO se redefine aqui: ya vive arriba, en la capa de
+   la base publica, y hay un test que mide ESE bloque. Una segunda clase para lo
+   mismo (`.tt-hp`) dejaria el campo a la vista si el markup apuntara a la que
+   se quedara sin regla. */
+
+.tt-q { margin-bottom: 22px; }
+.tt-req  { color: var(--tt-danger); }
+.tt-hint { font-size: .76rem; color: var(--tt-mute); margin-top: 4px; }
+.tt-err  { font-size: .78rem; color: #991B1B; margin-top: 4px; font-weight: 600; }
+
+/* La etiqueta de una pregunta es una frase, no un rotulo de campo: hereda el
+   cuerpo del texto en vez de los .75rem de `.tt-label`. */
+.tt-q > .tt-label { font-size: var(--tt-fs-200); color: var(--tt-text-1); }
+
+.tt-section + .tt-section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--tt-line-soft);
+}
+
+/* El boton de envio se queda a la vista: el cuestionario mide varias pantallas
+   y en movil el visitante contesta la ultima pregunta sin nada que pulsar cerca.
+   Lleva fondo y borde propios porque un sticky transparente se solapa con el
+   texto que pasa por debajo. */
+.tt-survey-actions {
+  position: sticky;
+  bottom: 0;
+  padding: var(--tt-sp-3) 0;
+  background: linear-gradient(to bottom, transparent, var(--tt-mist) 32%);
+}
+
+/* Escala 1-5. Las etiquetas de los extremos ocupan la fila entera en movil
+   (donde no cabrian al lado) y se recogen a los lados a partir de `sm`. */
+.tt-scale { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tt-scale-end { font-size: .74rem; color: var(--tt-mute); flex: 1 1 100%; }
+.tt-scale-opt {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 44px;                 /* objetivo tactil */
+  padding: 6px 8px;
+  border: 1px solid var(--tt-line);
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: .8rem;
+  transition: transform .14s var(--tt-ease-out), border-color .16s ease;
+}
+.tt-scale-opt:active { transform: scale(.985); }
+.tt-scale-opt:has(input:checked) {
+  border-color: var(--tt-accent);
+  background: var(--tt-amber-soft);
+}
+
+@media (min-width: 576px) {
+  .tt-scale-end { flex: 0 0 auto; max-width: 9rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-scale-opt { transition: none; }
+  .tt-scale-opt:active { transform: none; }
+}
