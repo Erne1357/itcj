@@ -844,6 +844,82 @@ def make_appointment(db_session):
     return _make
 
 
+# Copia sintetica del `schema` que siembra `11_seed_survey_form.sql`, mas un
+# `multiselect` y un `textarea` para ejercitar el renderizador COMPLETO: la CI
+# corre con `create_all` y sin DML, asi que nada de esto existe alli.
+SURVEY_SCHEMA_V1 = {
+    "enabled": True,
+    "sections": [
+        {"key": "empleo", "title": "Situacion laboral"},
+        {"key": "opinion", "title": "Tu opinion del Tec"},
+    ],
+    "fields": [
+        {"key": "situacion_laboral", "section": "empleo", "type": "radio",
+         "label": "Cual es tu situacion laboral actual?", "required": True,
+         "options": [{"value": "empleado", "label": "Trabajando"},
+                     {"value": "buscando", "label": "Buscando empleo"},
+                     {"value": "estudiando", "label": "Estudiando"}]},
+        {"key": "relacion_carrera", "section": "empleo", "type": "scale",
+         "label": "Que tanto se relaciona tu empleo con tu carrera?", "required": True,
+         "scale": {"min": 1, "max": 5,
+                   "min_label": "Nada relacionado",
+                   "max_label": "Totalmente relacionado"},
+         "visible_when": {"situacion_laboral": "empleado"}},
+        {"key": "areas_fuertes", "section": "opinion", "type": "multiselect",
+         "label": "Que areas sentiste mas fuertes?", "required": False,
+         "options": [{"value": "tecnica", "label": "Formacion tecnica"},
+                     {"value": "practicas", "label": "Practicas profesionales"},
+                     {"value": "idiomas", "label": "Idiomas"}]},
+        {"key": "comentarios", "section": "opinion", "type": "textarea",
+         "label": "Que le cambiarias al Tec?", "required": False,
+         "validation": {"maxLength": 2000}},
+    ],
+}
+
+
+@pytest.fixture()
+def make_survey_form(db_session):
+    """`titulatec_survey_forms`. Una fila = una VERSION del cuestionario.
+
+    1. `code` NO es unique por si sola: el unique es `(code, version)`.
+    2. El indice PARCIAL `uq_titulatec_survey_forms_open` (`code` WHERE
+       status='open') SI existe en la BD de dev migrada — lo declara
+       `__table_args__` (Tarea 1), asi que `create_all` tambien lo crea. Por eso
+       esta fabrica CIERRA las abiertas del mismo `code` antes de insertar: sin
+       ese barrido, en cuanto alguien corra `titulatec load-survey-2026-09` en su
+       BD de dev toda llamada por omision reventaria con IntegrityError.
+
+    El `schema` por defecto es `SURVEY_SCHEMA_V1`: los dos campos del v1 del
+    diseno mas un multiselect y un textarea, para ejercer el renderizador entero.
+    """
+    from itcj2.apps.titulatec.models import SurveyForm
+
+    def _make(code="egresados", version=1, status="open", schema=None,
+              title=None, description=None, is_anonymous=False,
+              opens_at=None, closes_at=None):
+        if status == "open":
+            (db_session.query(SurveyForm)
+             .filter(SurveyForm.code == code, SurveyForm.status == "open")
+             .update({"status": "closed"}, synchronize_session=False))
+            db_session.flush()
+        row = SurveyForm(
+            code=code,
+            version=version,
+            status=status,
+            title=title or f"Encuesta de prueba {code} v{version}",
+            description=description or "Cuestionario para egresados del ITCJ.",
+            schema=schema if schema is not None else SURVEY_SCHEMA_V1,
+            is_anonymous=is_anonymous,
+            opens_at=opens_at,
+            closes_at=closes_at,
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
 # ---------------------------------------------------------------------------
 # Escenario listo para usar
 # ---------------------------------------------------------------------------
