@@ -13,7 +13,7 @@ Comandos disponibles:
     vistetec init-vistetec
     warehouse init-warehouse, warehouse-helpdesk, warehouse-maint
     maint init-maint
-    directory init-directory
+    directory init-directory, directory load-config-2026-09
     celery sync-tasks, celery run <task-slug>, celery status
 """
 import click

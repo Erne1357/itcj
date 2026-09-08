@@ -3,47 +3,65 @@
 {% block body %}
 <div class="dir-wrap container-fluid py-3" id="dir-shell" hx-ext="morph">
   <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3 dir-page-head">
-    <h1 class="h4 mb-0 dir-page-title"><i class="bi bi-telephone-fill me-2"></i>Directorio de Extensiones</h1>
+    <h1 class="h4 mb-0 dir-page-title"><i class="bi bi-telephone-fill me-2" aria-hidden="true"></i>Directorio de Extensiones</h1>
     {% if can_manage %}
     <button class="btn btn-primary btn-sm" data-dir-action="new-entry"
             data-bs-toggle="modal" data-bs-target="#dirEntryModal">
-      <i class="bi bi-plus-lg"></i> <span class="d-none d-sm-inline">Agregar extensión</span>
+      <i class="bi bi-plus-lg" aria-hidden="true"></i> <span class="d-none d-sm-inline">Agregar extensión</span>
     </button>
     {% endif %}
   </div>
 
-  <form class="row g-2 mb-3" id="dir-filters" onsubmit="return false;">
+  <form class="row g-2 mb-2" id="dir-filters" onsubmit="return false;">
     <div class="col-12 col-md">
-      <input type="search" class="form-control" name="q" placeholder="Buscar persona, puesto, extensión…"
+      <label for="dir-q" class="visually-hidden">Buscar en el directorio</label>
+      <input type="search" class="form-control" name="q" id="dir-q"
+             placeholder="Buscar persona, puesto, extensión, correo…"
+             value="{{ q }}"
              hx-get="/directory/list" hx-target="#dir-list" hx-swap="morph:innerHTML"
              hx-trigger="keyup changed delay:400ms, search" hx-include="#dir-filters"
              hx-indicator="#dir-skel">
     </div>
     <div class="col-6 col-md-auto">
-      <select class="form-select" name="filter_dept"
+      <label for="dir-filter-dept" class="visually-hidden">Filtrar por departamento</label>
+      <select class="form-select" name="filter_dept" id="dir-filter-dept"
               hx-get="/directory/list" hx-target="#dir-list" hx-swap="morph:innerHTML"
               hx-include="#dir-filters" hx-indicator="#dir-skel">
         <option value="">Todos los departamentos</option>
-        {% for d in departments %}<option value="{{ d.id }}">{{ d.dir_label }}</option>{% endfor %}
+        {% for d in departments %}
+        <option value="{{ d.id }}"{% if effective_filter_dept == d.id %} selected{% endif %}>{{ d.dir_label }}</option>
+        {% endfor %}
       </select>
     </div>
     <div class="col-6 col-md-auto">
-      <select class="form-select" name="source"
+      <label for="dir-source" class="visually-hidden">Filtrar por origen</label>
+      <select class="form-select" name="source" id="dir-source"
               hx-get="/directory/list" hx-target="#dir-list" hx-swap="morph:innerHTML"
               hx-include="#dir-filters" hx-indicator="#dir-skel">
-        <option value="all">Todas</option>
-        <option value="position">De puesto</option>
-        <option value="entry">Extras</option>
+        <option value="all"{% if source == 'all' %} selected{% endif %}>Todas</option>
+        <option value="position"{% if source == 'position' %} selected{% endif %}>De puesto</option>
+        <option value="entry"{% if source == 'entry' %} selected{% endif %}>Extras</option>
       </select>
     </div>
   </form>
 
-  <div id="dir-skel" class="dir-skel htmx-indicator mb-3" aria-hidden="true">
-    <div class="dir-skel-line"></div><div class="dir-skel-line"></div><div class="dir-skel-line"></div>
+  {# El switch vive FUERA de #dir-filters: es un ajuste institucional, no un
+     filtro de la vista. El toggle lo re-emite por OOB desde el valor persistido. #}
+  <div id="dir-unofficial-panel" class="dir-setting">
+    {% include "directory/partials/dir_setting_switch.html" %}
   </div>
 
-  <div id="dir-list">
-    {% include "directory/partials/dir_list.html" %}
+  {# El skeleton se queda FUERA de #dir-list a proposito: dir_list.html no lo
+     emite y todos los swaps son morph:innerHTML sobre #dir-list, asi que
+     idiomorph lo borraria en el primer swap y hx-indicator quedaria muerto.
+     El wrapper posicionado lo saca del flujo (antes empujaba la lista ~106px). #}
+  <div class="dir-listwrap">
+    <div id="dir-skel" class="dir-skel htmx-indicator" aria-hidden="true">
+      <div class="dir-skel-line"></div><div class="dir-skel-line"></div><div class="dir-skel-line"></div>
+    </div>
+    <div id="dir-list">
+      {% include "directory/partials/dir_list.html" %}
+    </div>
   </div>
 </div>
 
@@ -53,21 +71,27 @@
  <div class="modal-dialog"><div class="modal-content">
   <form id="dirEntryForm" hx-target="#dir-list" hx-swap="morph:innerHTML" hx-include="#dir-filters">
    <div class="modal-header"><h5 class="modal-title" id="dirEntryTitle">Agregar extensión</h5>
-     <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
    <div class="modal-body">
-     <div class="mb-2"><label class="form-label">Departamento</label>
-       <select class="form-select" name="department_id" required>
+     <div class="mb-2"><label class="form-label" for="dir-entry-dept">Departamento</label>
+       {# entry_departments, NO departments: el de filtro incluye los ocultos
+          marcados «(oculto)» y con el toggle apagado no debe poder crearse nada
+          nuevo ahi. #}
+       <select class="form-select" name="department_id" id="dir-entry-dept" required>
          <option value="">Selecciona…</option>
-         {% for d in departments %}<option value="{{ d.id }}">{{ d.dir_label }}</option>{% endfor %}
+         {% for d in entry_departments %}<option value="{{ d.id }}">{{ d.dir_label }}</option>{% endfor %}
        </select></div>
-     <div class="mb-2"><label class="form-label">Etiqueta / Puesto</label>
-       <input class="form-control" name="label" maxlength="120" required></div>
-     <div class="mb-2"><label class="form-label">Responsable (opcional)</label>
-       <input class="form-control" name="holder_name" maxlength="120"></div>
-     <div class="mb-2"><label class="form-label">Extensión</label>
-       <input class="form-control" name="extension" maxlength="10" required></div>
-     <div class="mb-2"><label class="form-label">Notas (opcional)</label>
-       <input class="form-control" name="notes" maxlength="200"></div>
+     <div class="mb-2"><label class="form-label" for="dirEntryLabel">Etiqueta / Puesto</label>
+       <input class="form-control" id="dirEntryLabel" name="label" maxlength="120" required></div>
+     <div class="mb-2"><label class="form-label" for="dirEntryHolder">Responsable (opcional)</label>
+       <input class="form-control" id="dirEntryHolder" name="holder_name" maxlength="120"></div>
+     <div class="mb-2"><label class="form-label" for="dirEntryExt">Extensión</label>
+       <input class="form-control" id="dirEntryExt" name="extension" maxlength="10" required></div>
+     <div class="mb-2"><label class="form-label" for="dirEntryEmail">Correo (opcional)</label>
+       <input class="form-control" id="dirEntryEmail" name="email" type="email" maxlength="150">
+       <div class="invalid-feedback"></div></div>
+     <div class="mb-2"><label class="form-label" for="dirEntryNotes">Notas (opcional)</label>
+       <input class="form-control" id="dirEntryNotes" name="notes" maxlength="200"></div>
    </div>
    <div class="modal-footer">
      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -77,17 +101,22 @@
  </div></div>
 </div>
 
-<!-- Modal: editar extensión de un puesto -->
+<!-- Modal: editar contacto de un puesto -->
 <div class="modal fade" id="dirPosModal" tabindex="-1" aria-hidden="true">
  <div class="modal-dialog"><div class="modal-content">
   <form id="dirPosForm" hx-target="#dir-list" hx-swap="morph:innerHTML" hx-include="#dir-filters">
-   <div class="modal-header"><h5 class="modal-title" id="dirPosTitle">Extensión</h5>
-     <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+   <div class="modal-header"><h5 class="modal-title" id="dirPosTitle">Contacto del puesto</h5>
+     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
    <div class="modal-body">
-     <div class="mb-2"><label class="form-label">Extensión</label>
-       <input class="form-control" name="extension" maxlength="10"></div>
-     <div class="mb-2"><label class="form-label">Notas (opcional)</label>
-       <input class="form-control" name="notes" maxlength="200"></div>
+     <div class="mb-2"><label class="form-label" for="dirPosExt">Extensión</label>
+       <input class="form-control" id="dirPosExt" name="extension" maxlength="10"></div>
+     <div class="mb-2"><label class="form-label" for="dirPosEmail">Correo</label>
+       <input class="form-control" id="dirPosEmail" name="email" type="email" maxlength="150"
+              aria-describedby="dirPosEmailHelp">
+       <div id="dirPosEmailHelp" class="form-text">El correo es único por puesto.</div>
+       <div class="invalid-feedback"></div></div>
+     <div class="mb-2"><label class="form-label" for="dirPosNotes">Notas (opcional)</label>
+       <input class="form-control" id="dirPosNotes" name="notes" maxlength="200"></div>
    </div>
    <div class="modal-footer">
      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -101,7 +130,7 @@
 <div class="modal fade" id="dirConfirmModal" tabindex="-1" aria-hidden="true">
  <div class="modal-dialog"><div class="modal-content">
   <div class="modal-header"><h5 class="modal-title" data-dir-confirm-title>Confirmar</h5>
-    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
   <div class="modal-body" data-dir-confirm-body></div>
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-dir-confirm-cancel>Cancelar</button>

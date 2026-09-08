@@ -52,7 +52,89 @@
     });
   }
 
-  window.DirectoryUtils = { showToast: showToast, confirmDialog: confirmDialog };
+  // ── Portapapeles ───────────────────────────────────────────────────────────
+  // La rama se elige de forma SINCRONA: dentro del iframe del shell movil y en
+  // origen inseguro (http://IP-LAN:8080 en dev) navigator.clipboard no existe o
+  // rechaza con NotAllowedError / "Document is not focused".
+  function copyToClipboard(text) {
+    if (!text) return Promise.resolve(false);
+    if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).then(
+        function () { return true; },
+        function () { return legacyCopy(text); }
+      );
+    }
+    return Promise.resolve(legacyCopy(text));
+  }
+
+  function legacyCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    // Dentro del viewport a proposito: fuera de pantalla iOS no copia. font-size
+    // 16px evita el zoom automatico de Safari al enfocar.
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;';
+    document.body.appendChild(ta);
+    var ok = false;
+    try {
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);   // rodeo iOS
+      ok = document.execCommand('copy');
+    } catch (e) {
+      ok = false;
+    }
+    ta.remove();
+    return ok;
+  }
+
+  window.DirectoryUtils = {
+    showToast: showToast,
+    confirmDialog: confirmDialog,
+    copyToClipboard: copyToClipboard
+  };
+
+  // ── Delegacion global ──────────────────────────────────────────────────────
+  // Todos los listeners cuelgan de document.body al nivel del IIFE: nunca guardas
+  // data-*-bound dentro de lo que morphea.
+
+  // Copiar: el dato se lee de data-dir-copy, nunca de textContent.
+  document.body.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('[data-dir-copy]');
+    if (!btn) return;
+    var value = btn.getAttribute('data-dir-copy');
+    copyToClipboard(value).then(function (ok) {
+      showToast(ok ? 'Copiado: ' + value : 'No se pudo copiar. Selecciónalo a mano.',
+                ok ? 'success' : 'warning');
+      btn.focus();
+    });
+  });
+
+  // Limpiar filtros / ver todas: el boton NO puede llevar hx-include="#dir-filters"
+  // (reenviaria los mismos filtros), asi que los controles se limpian aqui.
+  document.body.addEventListener('click', function (e) {
+    var btn = e.target.closest &&
+      e.target.closest('[data-dir-action="clear-filters"], [data-dir-action="reset-source"]');
+    if (!btn) return;
+    var form = document.getElementById('dir-filters');
+    if (!form) return;
+    if (btn.getAttribute('data-dir-action') === 'clear-filters') {
+      var q = form.querySelector('[name=q]');
+      var dept = form.querySelector('[name=filter_dept]');
+      if (q) q.value = '';
+      if (dept) dept.value = '';
+    }
+    var source = form.querySelector('[name=source]');
+    if (source) source.value = 'all';
+  });
+
+  // El servidor percent-encodea X-Dir-Error: los headers HTTP no transportan
+  // acentos de forma fiable (Starlette los codifica en latin-1 y el cliente los
+  // lee como UTF-8). ASCII puro en el cable, texto intacto en pantalla.
+  function dirError(xhr) {
+    var raw = xhr && xhr.getResponseHeader('X-Dir-Error');
+    if (!raw) return null;
+    try { return decodeURIComponent(raw); } catch (e) { return raw; }
+  }
 
   // ── hx-confirm → modal Bootstrap (no confirm nativo) ───────────────────────
   document.body.addEventListener('htmx:confirm', function (e) {
@@ -65,24 +147,37 @@
 
   // ── Errores HTMX → toast (header X-Dir-Error) ──────────────────────────────
   document.body.addEventListener('htmx:responseError', function (e) {
-    var msg = (e.detail.xhr && e.detail.xhr.getResponseHeader('X-Dir-Error')) || 'Ocurrió un error.';
-    showToast(msg, 'danger');
+    showToast(dirError(e.detail.xhr) || 'Ocurrió un error.', 'danger');
   });
   document.body.addEventListener('htmx:afterRequest', function (e) {
     var xhr = e.detail.xhr;
     if (xhr && xhr.status >= 200 && xhr.status < 300) {
-      var err = xhr.getResponseHeader('X-Dir-Error');
-      if (err) showToast(err, 'warning');
+      var err = dirError(xhr);
+      // Si el error viene anclado a un campo, lo pinta el handler del modal.
+      if (err && !xhr.getResponseHeader('X-Dir-Field')) showToast(err, 'warning');
     }
   });
 
-  // ── Re-disparo de animación de entrada en cada swap ────────────────────────
-  document.body.addEventListener('htmx:afterSwap', function (e) {
-    var scope = e.target || document;
-    scope.querySelectorAll('.dir-anim-in').forEach(function (n) {
-      n.classList.remove('dir-anim-in');
-      void n.offsetWidth;                       // reflow para reiniciar
-      n.classList.add('dir-anim-in');
+  // ── Animacion acotada ──────────────────────────────────────────────────────
+  // Antes se re-animaban los 26 grupos en CADA swap: una rafaga de tecleo
+  // convertia la lista en un parpadeo. Solo animan los grupos que NO estaban en
+  // el DOM antes del swap.
+  //
+  // Se fotografian los NODOS en htmx:beforeSwap, no ids en un Set global: un Set
+  // que nace vacio deja el PRIMER swap re-animando todo (los grupos del render
+  // inicial nunca pasan por afterSwap). Y WeakSet de nodos porque idiomorph
+  // conserva el mismo objeto DOM cuando el id sobrevive, asi que «sobrevivio al
+  // morph» == «ya estaba antes del swap». Un grupo que sale del filtro y vuelve
+  // es un nodo NUEVO, y debe animar.
+  var preSwapGroups = new WeakSet();
+
+  document.body.addEventListener('htmx:beforeSwap', function () {
+    document.querySelectorAll('.dir-group').forEach(function (n) { preSwapGroups.add(n); });
+  });
+
+  document.body.addEventListener('htmx:afterSwap', function () {
+    document.querySelectorAll('.dir-group').forEach(function (n) {
+      if (preSwapGroups.has(n)) n.classList.remove('dir-anim-in');
     });
   });
 
@@ -90,6 +185,38 @@
   function init() {
     bindEntryModal();
     bindPositionModal();
+  }
+
+  function clearFieldErrors(form) {
+    form.querySelectorAll('.is-invalid').forEach(function (el) {
+      el.classList.remove('is-invalid');
+    });
+    form.querySelectorAll('.invalid-feedback').forEach(function (el) {
+      el.textContent = '';
+    });
+  }
+
+  /** Error anclado a un campo: marca el input y deja el modal ABIERTO. */
+  function handleModalResponse(modalEl, form, e, successMessage) {
+    var xhr = e.detail.xhr;
+    var err = dirError(xhr);
+    var field = xhr && xhr.getResponseHeader('X-Dir-Field');
+    if (field) {
+      var input = form.querySelector('[name=' + field + ']');
+      if (input) {
+        input.classList.add('is-invalid');
+        var fb = input.parentElement.querySelector('.invalid-feedback');
+        if (fb) fb.textContent = err || '';
+        input.focus();
+      } else {
+        showToast(err || 'Ocurrió un error.', 'warning');
+      }
+      return;
+    }
+    if (e.detail.successful && !err) {
+      bootstrap.Modal.getInstance(modalEl).hide();
+      showToast(successMessage, 'success');
+    }
   }
 
   function bindEntryModal() {
@@ -102,6 +229,7 @@
     modalEl.addEventListener('show.bs.modal', function (ev) {
       var t = ev.relatedTarget;
       var action = t ? t.getAttribute('data-dir-action') : 'new-entry';
+      clearFieldErrors(form);
       form.removeAttribute('hx-post');
       form.removeAttribute('hx-patch');
       if (action === 'edit-entry') {
@@ -111,21 +239,21 @@
         form.querySelector('[name=label]').value = t.getAttribute('data-dir-label') || '';
         form.querySelector('[name=holder_name]').value = t.getAttribute('data-dir-holder') || '';
         form.querySelector('[name=extension]').value = t.getAttribute('data-dir-ext') || '';
+        form.querySelector('[name=email]').value = t.getAttribute('data-dir-email') || '';
         form.querySelector('[name=notes]').value = t.getAttribute('data-dir-notes') || '';
       } else {
         title.textContent = 'Agregar extensión';
         form.setAttribute('hx-post', '/directory/entries');
         form.reset();
+        // Alta desde el hueco de un grupo vacio: preselecciona ese departamento.
+        var preDept = t && t.getAttribute('data-dir-dept');
+        if (preDept) form.querySelector('[name=department_id]').value = preDept;
       }
       if (window.htmx) window.htmx.process(form);
     });
 
     form.addEventListener('htmx:afterRequest', function (e) {
-      var xhr = e.detail.xhr;
-      if (e.detail.successful && !(xhr && xhr.getResponseHeader('X-Dir-Error'))) {
-        bootstrap.Modal.getInstance(modalEl).hide();
-        showToast('Guardado.', 'success');
-      }
+      handleModalResponse(modalEl, form, e, 'Guardado.');
     });
   }
 
@@ -139,19 +267,17 @@
     modalEl.addEventListener('show.bs.modal', function (ev) {
       var t = ev.relatedTarget;
       if (!t) return;
-      title.textContent = 'Extensión · ' + (t.getAttribute('data-dir-title') || '');
+      clearFieldErrors(form);
+      title.textContent = 'Contacto · ' + (t.getAttribute('data-dir-title') || '');
       form.setAttribute('hx-patch', '/directory/positions/' + t.getAttribute('data-dir-pos') + '/extension');
       form.querySelector('[name=extension]').value = t.getAttribute('data-dir-ext') || '';
+      form.querySelector('[name=email]').value = t.getAttribute('data-dir-email') || '';
       form.querySelector('[name=notes]').value = t.getAttribute('data-dir-notes') || '';
       if (window.htmx) window.htmx.process(form);
     });
 
     form.addEventListener('htmx:afterRequest', function (e) {
-      var xhr = e.detail.xhr;
-      if (e.detail.successful && !(xhr && xhr.getResponseHeader('X-Dir-Error'))) {
-        bootstrap.Modal.getInstance(modalEl).hide();
-        showToast('Extensión actualizada.', 'success');
-      }
+      handleModalResponse(modalEl, form, e, 'Contacto actualizado.');
     });
   }
 
