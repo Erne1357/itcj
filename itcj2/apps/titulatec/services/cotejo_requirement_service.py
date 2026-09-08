@@ -30,8 +30,15 @@ class CotejoRequirementService:
         return q.order_by(CotejoRequirement.order_index, CotejoRequirement.id).all()
 
     @staticmethod
-    def seed_defaults(db: Session, cohort_id: int) -> int:
-        """Crea los requisitos por defecto si la convocatoria no tiene ninguno."""
+    def seed_defaults(db: Session, cohort_id: int, *, commit: bool = True) -> int:
+        """Crea los requisitos por defecto si la convocatoria no tiene ninguno.
+
+        `commit=False` es para los llamadores que YA son dueños de su
+        transacción: `RequirementService.auto_requirement` (§4.4 del diseño exige
+        un solo commit al enviar la encuesta) y `cohort_create`, que siembra en
+        la misma transacción en que crea la convocatoria. Con `commit=True` (el
+        valor de siempre) el comportamiento no cambia.
+        """
         from itcj2.apps.titulatec.models import CotejoRequirement
         exists = db.query(CotejoRequirement).filter_by(cohort_id=cohort_id).first()
         if exists:
@@ -39,7 +46,10 @@ class CotejoRequirementService:
         for i, (icon, label, hint) in enumerate(DEFAULTS):
             db.add(CotejoRequirement(cohort_id=cohort_id, icon=icon, label=label,
                                      hint=hint, order_index=i))
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
         return len(DEFAULTS)
 
     @staticmethod
