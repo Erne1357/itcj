@@ -233,6 +233,44 @@ class PhaseService:
         pdef = db.query(PhaseDefinition).filter_by(number=phase_number).first()
         return f"Fase {phase_number:02d}" + (f" · {pdef.name}" if pdef else "")
 
+    # La cita de cotejo es la fase 2 del catálogo. Se nombra aquí y no como
+    # literal en el `if` para que grep la encuentre desde el otro lado.
+    PHASE_COTEJO = 2
+
+    @staticmethod
+    def _cotejo_gate_error(db: Session, process) -> str | None:
+        """Motivo por el que la fase 2 NO puede liberarse, o None.
+
+        Espejo de `DocumentService.initial_docs_all_approved`, que ya hace esto
+        mismo para la fase 1: los requisitos ACTIVOS y OBLIGATORIOS de la
+        convocatoria del proceso, menos los que tienen cumplimiento
+        `fulfilled` o `waived`.
+
+        Tres cosas deliberadas:
+
+        * **Nombra lo que falta.** Un «faltan requisitos» a secas obliga al
+          oficial a adivinar cuál, con el alumno enfrente.
+        * **`waived` cuenta.** Es la dispensa con nota; sin ella un caso legítimo
+          dejaría la fase trabada para siempre.
+        * **Lee el estado ACTUAL de la convocatoria.** Un proceso creado antes de
+          que se añadiera un requisito queda igualmente sujeto a él: el requisito
+          es del trámite, no del momento del alta. No es un descuido.
+
+        Nunca siembra: una convocatoria sin lista configurada no bloquea a nadie.
+        """
+        from itcj2.apps.titulatec.services.requirement_service import RequirementService
+
+        faltantes = RequirementService.missing_required(db, process.id)
+        if not faltantes:
+            return None
+        nombres = ", ".join(r.label for r in faltantes)
+        # Texto fijo SIN acentos, igual que `_transition_error`. Las etiquetas
+        # vienen de la BD y sí los llevan, pero el único llamador que alcanza la
+        # fase 2 (`pages/admin.py::phase_approve`) pasa el mensaje por `_hdr()`,
+        # que hace percent-encode y deja el header en ASCII.
+        return (f"No se puede liberar la fase 02: al alumno le faltan requisitos "
+                f"de cotejo ({nombres}).")
+
     @staticmethod
     def approve_phase(db: Session, process, phase_number: int, reviewer_id: int) -> dict:
         """Aprueba una fase, activa la siguiente aplicable (o completa el proceso).
@@ -241,6 +279,18 @@ class PhaseService:
         (la ruta lo traduce a 400 + `X-Tt-Error`).
         """
         _first, last = PhaseService.assert_can_transition(db, process, phase_number)
+
+        # D9: la encuesta de egresados (y el resto del checklist físico) BLOQUEA
+        # el dictamen de la fase 2. El alumno sí puede agendar y presentarse; lo
+        # que no se puede es cerrarle la fase sin haber entregado.
+        #
+        # Va aquí y no en `assert_can_transition` porque esa guarda la comparten
+        # `reject_phase` y `can_transition`: rechazar la fase 2, o preguntar si se
+        # puede actuar en ella, no dependen del checklist.
+        if phase_number == PhaseService.PHASE_COTEJO:
+            falta = PhaseService._cotejo_gate_error(db, process)
+            if falta:
+                raise ValueError(falta)
 
         ph = PhaseService._ensure_phase(db, process.id, phase_number)
         ph.status = "approved"
