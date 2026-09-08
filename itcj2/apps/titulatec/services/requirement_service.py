@@ -139,11 +139,23 @@ class RequirementService:
                 status: str = "fulfilled", commit: bool = True):
         """Marca el requisito como cumplido/dispensado. Idempotente.
 
-        Si ya existe la fila con ESE mismo estado no escribe ni vuelve a
-        registrar el evento: `UNIQUE (process_id, requirement_id)` haría reventar
-        el insert, y un segundo evento idéntico ensuciaría la bitácora sin
-        aportar nada. Cambiar de `fulfilled` a `waived` sí es un suceso y sí deja
-        evento.
+        Idempotente en lo que importa: el `UNIQUE (process_id, requirement_id)`
+        garantiza que nunca haya dos filas, y una llamada que no cambia NADA no
+        escribe ni deja evento, para no ensuciar la bitácora. Pero repetir la
+        llamada CON algo nuevo —otra nota, otro `external_ref`, otro estado— sí
+        actualiza y sí deja evento: el `mark` del encargado manda la nota en cada
+        envío, y tragársela en silencio (sin dato, sin evento y sin error) es
+        peor que un renglón de más en la bitácora.
+
+        `note`, `external_ref` y `checked_by_id` en `None` significan "el
+        llamador no los manda", NO "bórralos": una segunda pasada sin nota no
+        debe borrar la que ya estaba. Para vaciar una nota hay que `unfulfill()`
+        y volver a `fulfill()`.
+
+        `fulfilled_at` es *cuándo quedó acreditado ASÍ*: se sella al dar de alta
+        y se vuelve a sellar cuando cambia el estado, porque esa fecha se le
+        muestra al encargado y "dispensado el <día en que se marcó como traído>"
+        sería mentira. Corregir solo la nota no la mueve.
 
         `label_snapshot` y `requirement_code` se copian a propósito: si mañana
         Servicios Escolares renombra el requisito, la bitácora debe seguir
@@ -155,31 +167,44 @@ class RequirementService:
         row = (db.query(RequirementFulfillment)
                .filter_by(process_id=process_id, requirement_id=requirement_id)
                .first())
-        if row is not None and row.status == status:
-            return row
 
-        nuevo = row is None
-        if nuevo:
+        # Solo lo que el llamador mandó de verdad (ver docstring).
+        opcionales = {campo: valor for campo, valor in (
+            ("note", note), ("external_ref", external_ref),
+            ("checked_by_id", checked_by_id)) if valor is not None}
+
+        if row is None:
+            cambia_estado = True
             row = RequirementFulfillment(process_id=process_id,
                                          requirement_id=requirement_id)
             db.add(row)
-            row.fulfilled_at = db_now()
+        else:
+            cambia_estado = row.status != status
+            if not cambia_estado and all(getattr(row, campo) == valor
+                                         for campo, valor in opcionales.items()):
+                return row
+
         row.status = status
         row.source = source
-        row.checked_by_id = checked_by_id
-        row.external_ref = external_ref
-        row.note = note
+        for campo, valor in opcionales.items():
+            setattr(row, campo, valor)
         row.requirement_code = getattr(req, "code", None)
         row.label_snapshot = (req.label[:120] if req is not None else None)
+        if cambia_estado:
+            row.fulfilled_at = db_now()
         db.flush()
 
+        # El payload describe el estado RESULTANTE, no solo los argumentos: si la
+        # encuesta acreditó y el encargado luego anota, el evento debe seguir
+        # trayendo el `external_ref` de la encuesta.
         RequirementService._log(db, process_id, checked_by_id, "requirement_fulfilled", {
             "requirement_id": requirement_id,
             "code": row.requirement_code,
             "label": row.label_snapshot,
             "status": status,
             "source": source,
-            "external_ref": external_ref,
+            "external_ref": row.external_ref,
+            "note": row.note,
         })
         if commit:
             db.commit()
