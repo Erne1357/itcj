@@ -251,6 +251,44 @@ def test_multiselect_no_requerido_y_vacio_no_es_error_ni_llega_a_cleaned():
     assert (ok, errors, cleaned) == (True, {}, {})
 
 
+def test_multiselect_opcional_AUSENTE_no_es_error():
+    """La llave NO viaja cuando no se marca ninguna casilla del grupo.
+
+    Es distinto de `{"idiomas": []}` (el caso de arriba, con la llave presente):
+    un navegador que envia un `multiselect` sin ninguna casilla marcada NO manda
+    la llave, asi que el cuerpo llega SIN ella. Es el caso MAYORITARIO de todo
+    campo opcional, y `_is_empty` lo tomaba por "no vacio" —`isinstance(None,
+    list)` es falso— y lo mandaba a `_validate_multiselect`, que lo rechazaba
+    con "se esperaba una lista de opciones". Resultado: un formulario entero
+    invalidado por un campo que nadie estaba obligado a contestar, y sin manera
+    de que el alumno adivine cual.
+    """
+    opcional = dict(F_MULTI, required=False)
+    ok, errors, cleaned = validate_answers(_schema(opcional), {})
+    assert (ok, errors, cleaned) == (True, {}, {})
+
+
+def test_multiselect_REQUERIDO_y_ausente_sigue_fallando():
+    """Contraparte de la de arriba: tratar el ausente como vacio no puede
+    convertir un obligatorio en opcional. La rama de obligatoriedad corre ANTES
+    de `_is_empty`, y este test es lo que lo mantiene asi."""
+    ok, errors, cleaned = validate_answers(_schema(F_MULTI), {})
+    assert ok is False
+    assert "idiomas" in errors
+    assert cleaned == {}
+
+
+def test_multiselect_escalar_presente_SIGUE_siendo_error():
+    """Guarda del delta 3. Tratar el ausente como vacio no debe abrir la puerta
+    a que un no-lista se cuele: `"en"` presente sigue siendo un error, no un
+    descarte silencioso."""
+    opcional = dict(F_MULTI, required=False)
+    ok, errors, cleaned = validate_answers(_schema(opcional), {"idiomas": "en"})
+    assert ok is False
+    assert "idiomas" in errors
+    assert cleaned == {}
+
+
 # --------------------------------------------------------------------------
 # visible_when en el SERVIDOR
 # --------------------------------------------------------------------------

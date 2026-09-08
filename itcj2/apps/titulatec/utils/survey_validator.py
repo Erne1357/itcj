@@ -98,6 +98,15 @@ def _is_empty(field_type: str, value) -> bool:
     un error, y por eso cae al validador.
     """
     if field_type == "multiselect":
+        # AUSENTE es vacio, y no es lo mismo que un no-lista PRESENTE. Un grupo
+        # de casillas sin ninguna marcada no manda la llave, asi que el cuerpo
+        # llega sin ella: tomarlo por "no vacio" lo mandaba a
+        # `_validate_multiselect`, que lo rechazaba por no ser lista, e
+        # invalidaba el formulario entero por un campo OPCIONAL que nadie
+        # estaba obligado a contestar. Un `"en"` presente si sigue siendo error
+        # (delta 3): eso es un cliente mal formado, no una omision.
+        if value is None:
+            return True
         return isinstance(value, list) and not value
     if field_type in ("checkbox", "yesno"):
         return value is None
