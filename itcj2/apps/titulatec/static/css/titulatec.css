@@ -1283,6 +1283,21 @@ label.tt-appt-item .form-check-input { flex: 0 0 auto; width: 20px; height: 20px
 .tt-appt-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
 .tt-appt-warn { font-size: var(--tt-fs-200); color: var(--tt-amber-ink); }
 
+/* --- Checklist de requisitos de cotejo (fase 02, dentro de Atender) ------
+   El expediente pinta el mismo checklist con `style=` inline; aqui NO se puede:
+   los parciales de Citas tienen prohibido el CSS inline y lo vigila
+   `test_appointments_scope_day.py::test_los_parciales_de_citas_no_llevan_js_ni_css_inline`.
+   Estas cuatro clases son la traduccion a tokens de aquellos ocho `style=`. */
+.tt-req-ico   { display: flex; align-items: center; justify-content: center;
+                width: 32px; height: 32px; flex: 0 0 auto;
+                border-radius: 9px; background: var(--tt-mist);
+                border: 1px solid var(--tt-line); }
+.tt-req-ico i { color: var(--tt-text-3); }
+.tt-req-label { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+.tt-req-meta  { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+/* La nota no debe empujar los botones a otra linea en el panel estrecho. */
+.tt-req-note  { max-width: 180px; }
+
 /* El visor es la razon de ser de la pantalla: cotejar un acta escaneada contra
    el papel que el alumno trae en la mano. Antes eran 470 px de alto en una
    columna de 600, o sea que habia que abrir el modal por cada documento. */

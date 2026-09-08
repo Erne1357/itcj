@@ -102,14 +102,29 @@ sequenceDiagram
 | 4 | 🏛️ | detalle cita | marcar asistió | `POST /admin/appointments/{pid}/attended` | `AppointmentService.mark_attended` | `status=attended` | `appointment_attended` |
 | 4b| 🏛️ | detalle cita | reagendar | `POST /admin/appointments/{pid}/reschedule` | `ReviewDayService.is_allowed` → `AppointmentService.reschedule` | `scheduled_at`/`location` nuevos, `status=scheduled`, `confirmed_at=NULL`, `note` ← la del form | `appointment_rescheduled` + notif `APPOINTMENT_RESCHEDULED` |
 | 4c| 🏛️ | detalle cita | no se presentó | `POST /admin/appointments/{pid}/no-show` | `AppointmentService.mark_no_show` | `status=no_show` | `appointment_no_show` |
-| 5 | 🏛️/🎓 | detalle **proceso** | **aprobar fase 02** | `POST /admin/processes/{pid}/phase/2/approve` | `PhaseService.approve_phase` ⤵ | fase2=`approved`, fase3=`in_progress`, `current_phase=3` | `phase_approved` |
+| 4d| 🏛️ | detalle cita · checklist | marcar / dispensar / desmarcar requisito | `POST /admin/appointments/{pid}/requisitos/{rid}` (form `action`, `note`) | `RequirementService.fulfill` / `.unfulfill` | `RequirementFulfillment(status=fulfilled\|waived)` o borrada | `requirement_fulfilled` / `requirement_unfulfilled` |
+| 5 | 🏛️/🎓 | detalle cita | **aprobar fase 02** | `POST /admin/appointments/{pid}/fase2/aprobar` | `PhaseService.approve_phase` ⤵ | fase2=`approved`, fase3=`in_progress`, `current_phase=3` | `phase_approved` |
+| 5b| 🏛️ | detalle cita | **rechazar fase 02** (motivo obligatorio) | `POST /admin/appointments/{pid}/fase2/rechazar` (form `reason`) | `PhaseService.reject_phase` | fase2=`rejected` + `rejection_reason`, `current_phase=2` | `phase_rejected` + notif `PHASE_REJECTED` |
 
-> Acciones 1–4 re-renderizan **`#appt-shell` entero** (`partials/appointments_body.html`),
+> **Desde el 2026-09-07 el dictamen de la fase 02 se hace AQUÍ.** Antes, con la cita en
+> `attended`, el panel solo ofrecía un enlace «Ir al proceso a aprobar fase 02» que mandaba al
+> oficial al expediente con el alumno esperando enfrente. El checklist (4d) va al lado de los dos
+> botones porque `approve_phase` se niega mientras falte un requisito obligatorio
+> (`PhaseService._cotejo_gate_error`): sin él, «Aprobar» contestaría «faltan: e.firma» y
+> obligaría justo al viaje que esta pantalla elimina. Las rutas 4d, 5 y 5b son **hermanas** de las
+> del expediente, no las mismas: aquellas terminan en `_render_detail_body` →
+> `hx-target="#exp-shell"` y cableadas aquí meterían el expediente dentro de `#appt-shell`.
+>
+> «Rechazar» es una **navegación** con `&rechazar={pid}` (el mismo idiom que «Mover de franja»
+> usa con `&mover=`), que re-renderiza el panel con el textarea abierto: `hx-confirm` es sí/no y
+> `prompt()` está prohibido en el proyecto.
+>
+> Acciones 1–5b re-renderizan **`#appt-shell` entero** (`partials/appointments_body.html`),
 > conservando el alumno abierto **y la zona A**: cada botón manda el estado de la agenda en su
-> propio querystring y `_action_ctx` (`pages/appointments.py:475-481`) lo devuelve al contexto,
-> así que marcar asistencia desde el día 7 deja la vista en el día 7 y no salta al calendario.
-> El paso 5 ocurre en el **detalle del proceso** (botón "Ir al proceso a aprobar fase 02"
-> cuando la cita está `attended`).
+> propio querystring y `_action_ctx` lo devuelve al contexto, así que marcar asistencia desde el
+> día 7 deja la vista en el día 7 y no salta al calendario. `mover` y `rechazar` son la excepción:
+> `_action_ctx` los pone a `None` porque son estados de «estoy a mitad de una acción» y la acción
+> ya terminó.
 >
 > El paso 2 es el único con guarda de estado previo: `pages/student.py:498` solo confirma si el
 > status de la cita es `scheduled`; la guarda vive en la página, no en `confirm()`.

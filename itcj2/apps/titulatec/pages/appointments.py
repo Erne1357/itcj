@@ -168,7 +168,12 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     Devuelve nombre, numero de control y correo del alumno, mas las `view_url` de
     sus 3 documentos iniciales: es la ficha completa. Resuelve el proceso por el
     predicado de alcance y no por `db.get`, como segunda linea de defensa — lo
-    llaman `_shell_ctx` y, a traves de `_render_body`, las 5 acciones.
+    llaman `_shell_ctx` y, a traves de `_render_body`, las acciones.
+
+    Desde el 2026-09-07 trae tambien el CHECKLIST de requisitos de cotejo
+    (`requisitos`, `can_mark_reqs`), con las mismas claves que el expediente: el
+    oficial dictamina la fase 2 aqui mismo y sin eso «Aprobar» contestaria
+    «faltan: e.firma» sin ofrecer donde palomearlo.
     """
     from itcj2.core.models.user import User
     from itcj2.core.models.program import Program
@@ -216,6 +221,58 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     abierto = next((d for d in legibles if d["type_code"] == doc_abierto),
                    legibles[0] if legibles else None)
 
+    # ---- requisitos de cotejo de la fase 2 (§5.4) ----
+    #
+    # Replica LITERAL de `pages/admin.py::_detail_ctx`, y por las mismas dos
+    # razones:
+    #
+    # * Lectura NO SEMBRADORA. `RequirementService.list_with_status` enruta a
+    #   `CotejoRequirementService.list_or_seed` -> `seed_defaults(commit=True)`:
+    #   un simple GET del panel COMMITEARIA ocho filas en la convocatoria del
+    #   alumno. Se copia la forma de consulta de `missing_required`, que ya es
+    #   la no sembradora, y la siembra se queda donde pertenece.
+    # * Diccionarios PLANOS, no objetos ORM. La ruta renderiza DESPUES de su
+    #   `db.close()` y un atributo expirado sobre una instancia desanclada
+    #   lanzaria `DetachedInstanceError`. En los tests NO se ve: el `close()`
+    #   del harness es un no-op deliberado, asi que el invariante se afirma
+    #   sobre la FORMA del contexto (`test_appt_fase2.py`).
+    from itcj2.apps.titulatec.models import CotejoRequirement, RequirementFulfillment
+    from itcj2.apps.titulatec.services.requirement_service import DONE_STATUSES
+
+    req_rows = (db.query(CotejoRequirement)
+                .filter_by(cohort_id=proc.cohort_id, is_active=True)
+                .order_by(CotejoRequirement.order_index, CotejoRequirement.id)
+                .all())
+    cumplidos = {
+        f.requirement_id: f for f in
+        db.query(RequirementFulfillment).filter_by(process_id=process_id).all()
+    }
+    requisitos = []
+    for r in req_rows:
+        ful = cumplidos.get(r.id)
+        requisitos.append({
+            "id": r.id,
+            "icon": r.icon or "check2-square",
+            "label": r.label,
+            "hint": r.hint or "",
+            "required": bool(r.is_required),
+            "auto_source": r.auto_source,
+            "done": bool(ful is not None and ful.status in DONE_STATUSES),
+            "status": (ful.status if ful else None),
+            "source": (ful.source if ful else None),
+            "note": (ful.note if ful else None),
+            "when": (f"{ful.fulfilled_at:%d/%m/%Y}" if ful and ful.fulfilled_at else None),
+        })
+
+    # Los controles se pintan solo para quien puede usarlos: un boton que
+    # contesta 403 es peor que no estar. Con `user_id=None` el checklist sale
+    # apagado, no roto.
+    can_mark_reqs = False
+    if user_id is not None:
+        from itcj2.core.services.authz_service import get_user_permissions_for_app
+        can_mark_reqs = ("titulatec.process.api.requirement.mark"
+                         in get_user_permissions_for_app(db, user_id, "titulatec"))
+
     appt = AppointmentService.get_for_process(db, process_id)
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
     allowed_days = [d.isoformat() for d in ReviewDayService.list_days(db, proc.cohort_id)] if proc.cohort_id else []
@@ -235,6 +292,10 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
         "allowed_days": allowed_days,
         # Dia de SU cita: el detalle ofrece "ver ese dia" sin teclear la fecha.
         "day": appt.scheduled_at.date().isoformat() if appt and appt.scheduled_at else None,
+        # MISMAS claves que el expediente: la fila del checklist es un contrato
+        # compartido entre las dos plantillas.
+        "requisitos": requisitos,
+        "can_mark_reqs": can_mark_reqs,
     }
 
 
@@ -488,7 +549,7 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
 
 def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
                estado="", mias=False, program_id=None, mover=None, w=None,
-               seleccion=None, doc="", **_legacy) -> dict:
+               seleccion=None, doc="", rechazar=None, **_legacy) -> dict:
     """Contexto de `#appt-shell`: la zona fija mas la sub-vista que toque.
 
     Tres sub-vistas hermanas, no tres zonas peleandose por el ancho:
@@ -558,6 +619,10 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         "dias": _dias_ctx(db, cohort_id, abierto=day, today=today),
         "detail": detail, "selected_id": selected_id,
         "mover": mover,
+        # Modo «estoy escribiendo el motivo del rechazo de la fase 02». Viaja
+        # por querystring como `mover`, no por un `prompt()` (prohibido) ni por
+        # `hx-confirm` (que es si/no y no recoge texto).
+        "rechazar": rechazar,
         "q": q or "", "f_estado": estado or "", "f_mias": mias,
         "f_program": program_id or "",
         "programs": _programs(db),
@@ -785,6 +850,7 @@ def _params(request):
         "mias": bool(_to_int(q.get("mias")) or 0),
         "program_id": _to_int(q.get("program_id")),
         "mover": _to_int(q.get("mover")),
+        "rechazar": _to_int(q.get("rechazar")),
         "w": (q.get("w") if q.get("w") == "nuevo" else _to_int(q.get("w"))),
         "seleccion": {int(x) for x in q.getlist("p") if str(x).isdigit()},
         "doc": q.get("doc", ""),
@@ -832,13 +898,15 @@ def _action_ctx(request):
     """Estado de la vista que las acciones mandan en su propio querystring, para
     que tras agendar o marcar asistencia la pantalla NO salte de sitio.
 
-    `mover` y la seleccion se DESCARTAN a proposito: son estados de «estoy a
-    mitad de una accion», y la accion ya termino. Si sobrevivieran, el tablero
-    seguiria ofreciendo «Mover aqui» despues de haber movido.
+    `mover`, `rechazar` y la seleccion se DESCARTAN a proposito: son estados de
+    «estoy a mitad de una accion», y la accion ya termino. Si sobrevivieran, el
+    tablero seguiria ofreciendo «Mover aqui» despues de haber movido, y el panel
+    seguiria pidiendo el motivo despues de haber rechazado.
     """
     p = _params(request)
     p.pop("selected_id", None)
     p["mover"] = None
+    p["rechazar"] = None
     p["seleccion"] = set()
     return p
 
@@ -969,6 +1037,170 @@ async def no_show(
         return _accion(request, db, selected_id=process_id, user_id=uid,
                        fn=lambda: AppointmentService.mark_no_show(db, appt, uid),
                        exito="Quedó registrado que no se presentó. Su lugar no se libera.")
+    finally:
+        db.close()
+
+
+# ===========================================================================
+# Dictamen de la fase 02, aqui mismo (§5.4-5.5, D9)
+# ===========================================================================
+# Tres rutas HERMANAS de las del expediente, no las mismas. Las de `admin.py`
+# (`process_requirement`, `phase_approve`, `phase_reject`) terminan en
+# `_render_detail_body`, que renderiza `partials/processes/_exp_shell.html`
+# apuntando a `hx-target="#exp-shell"`: cableadas desde Citas, el swap meteria
+# el expediente ENTERO dentro de `#appt-shell`. Estas devuelven `_render_body`,
+# que es el shell de Citas, igual que `attended` y `no_show`.
+#
+# El checklist va al lado de los botones a proposito: la Tarea 7 hizo que
+# `approve_phase(proc, 2)` se niegue mientras falte un requisito obligatorio, asi
+# que dos botones a secas contestarian «faltan: e.firma» y mandarian al oficial
+# al expediente a palomearlo — el viaje que esta pantalla elimina.
+#
+# Un solo codigo de permiso por ruta: `require_page_app(perms=[...])` es un OR, y
+# un segundo codigo regalaria la feature a quien lo tenga.
+
+@router.post("/{process_id}/requisitos/{rid}",
+             name="titulatec.pages.appointments.req_mark")
+async def req_mark(
+    process_id: int,
+    rid: int,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.process.api.requirement.mark"])),
+):
+    """El oficial marca, dispensa o desmarca un requisito de cotejo del alumno.
+
+    Gemela de `pages/admin.py::process_requirement` salvo por el shell que
+    devuelve. Repite sus dos guardas:
+
+    * el requisito tiene que ser de la convocatoria del alumno (si no, un `rid`
+      de otra convocatoria acreditaria algo que su lista ni pide);
+    * los que llevan `auto_source` son de SOLO LECTURA: los acredita el sistema
+      (hoy, la encuesta de egresados) y marcarlos a mano romperia la
+      trazabilidad de `external_ref`.
+
+    Contrato de `note`: AUSENTE conserva la que hubiera, PRESENTE Y VACIO la
+    borra. `RequirementService.fulfill` lee `None` como «el llamador no lo
+    manda», asi que normalizar el vacio a `None` dejaria al oficial sin forma de
+    corregir una nota equivocada.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import CotejoRequirement
+    from itcj2.apps.titulatec.services.requirement_service import RequirementService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    form = dict(await request.form())
+    accion = (form.get("action") or "mark").strip()
+    nota = form["note"].strip() if "note" in form else None
+
+    uid = int(user["sub"])
+    db = SessionLocal()
+    try:
+        proc = assert_process_in_scope(db, uid, process_id)
+
+        req = (db.query(CotejoRequirement)
+               .filter_by(id=rid, cohort_id=proc.cohort_id).first())
+        if req is None:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "Ese requisito no es de la convocatoria del alumno.")})
+        if req.auto_source:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "Ese requisito lo acredita el sistema; no se marca a mano.")})
+
+        if accion == "unmark":
+            RequirementService.unfulfill(db, process_id, rid, actor_id=uid)
+        else:
+            RequirementService.fulfill(
+                db, process_id, rid, source="officer", checked_by_id=uid,
+                note=nota,
+                status=("waived" if accion == "waive" else "fulfilled"),
+            )
+        return _render_body(request, db, selected_id=process_id, user_id=uid,
+                            **_action_ctx(request))
+    finally:
+        db.close()
+
+
+@router.post("/{process_id}/fase2/aprobar",
+             name="titulatec.pages.appointments.fase2_approve")
+async def fase2_approve(
+    process_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.process.api.approve_phase"])),
+):
+    """Libera la fase 02 sin salir del panel.
+
+    La fase va FIJA (`PHASE_COTEJO`) y no por path: esta pantalla es la de la
+    fase 2 y aceptar un `{n}` cualquiera convertiria la agenda de citas en un
+    dictaminador universal de fases.
+
+    El `ValueError` del service —fase que no toca, proceso cerrado, o el checklist
+    incompleto de la Tarea 7, que NOMBRA lo que falta— sale como 400 +
+    `X-Tt-Error`: htmx no swappea en 4xx, asi que el checklist sigue en pantalla
+    con el alumno enfrente.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    uid = int(user["sub"])
+    db = SessionLocal()
+    try:
+        proc = assert_process_in_scope(db, uid, process_id)
+        try:
+            PhaseService.approve_phase(db, proc, PhaseService.PHASE_COTEJO, uid)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        resp = _render_body(request, db, selected_id=process_id, user_id=uid,
+                            **_action_ctx(request))
+        resp.headers["X-Tt-Notice"] = _hdr("Fase 02 aprobada. El alumno avanza.")
+        resp.headers["X-Tt-Notice-Kind"] = "success"
+        return resp
+    finally:
+        db.close()
+
+
+@router.post("/{process_id}/fase2/rechazar",
+             name="titulatec.pages.appointments.fase2_reject")
+async def fase2_reject(
+    process_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.process.api.reject_phase"])),
+):
+    """Rechaza la fase 02 con motivo obligatorio.
+
+    Sin motivo, al alumno le llega «Fase rechazada» a secas en su panel y tiene
+    que venir a preguntar que falta; la exigencia es la misma que ya hacen la
+    bandeja de Documentos y el expediente.
+
+    Se valida ANTES de abrir sesion: un motivo vacio no debe costar ni una
+    consulta. `reject_phase` NO consulta el checklist a proposito (Tarea 7):
+    rechazar es justamente lo que se hace cuando falta algo.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    form = dict(await request.form())
+    reason = (form.get("reason") or "").strip()
+    if not reason:
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+            "Escribe el motivo del rechazo: es lo que el alumno lee.")})
+
+    uid = int(user["sub"])
+    db = SessionLocal()
+    try:
+        proc = assert_process_in_scope(db, uid, process_id)
+        try:
+            PhaseService.reject_phase(db, proc, PhaseService.PHASE_COTEJO, uid, reason)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        resp = _render_body(request, db, selected_id=process_id, user_id=uid,
+                            **_action_ctx(request))
+        resp.headers["X-Tt-Notice"] = _hdr("Fase 02 rechazada. Se le aviso al alumno.")
+        return resp
     finally:
         db.close()
 
