@@ -1,10 +1,23 @@
-"""Rate limit de login backed por Redis.
+"""Rate limit backed por Redis.
 
-Cuenta FALLOS de autenticación por IP y por cuenta en una ventana móvil. Si se
-excede el umbral, el login responde 429 hasta que la ventana expira. Fail-open:
-si Redis no está disponible NO bloquea (peor caso = sin rate limit, no caída).
+Dos cosas viven aqui:
 
-Claves: ``rl:login:ip:{ip}`` y ``rl:login:acct:{account}``.
+1. El limitador de LOGIN (`check_login_allowed` / `note_login_failure` /
+   `reset_login_failures`). Cuenta FALLOS de autenticacion por IP y por cuenta
+   en una ventana movil; si se excede el umbral, el login responde 429 hasta que
+   la ventana expira. Falla ABIERTO a proposito: si Redis no responde NO bloquea
+   (peor caso = sin rate limit, no caida). Claves: ``rl:login:ip:{ip}`` y
+   ``rl:login:acct:{account}``.
+
+2. `check_and_count`, un contador por ventana REUSABLE para cualquier accion.
+   Clave ``rl:{scope}:{key}``. Devuelve tambien los segundos que faltan para
+   reintentar, que es lo que va en la cabecera `Retry-After`.
+
+`fail_open` es parametro y no constante porque el intercambio no es el mismo en
+los dos casos: en el login, fallar abierto cambia seguridad por disponibilidad a
+sabiendas; en una escritura ANONIMA que dispara correos, fallar abierto
+significa que una caida de Redis elimina el unico control que hay. Las rutas
+publicas pasan `fail_open=False`.
 """
 from __future__ import annotations
 
@@ -78,3 +91,37 @@ def reset_login_failures(ip: str, account: str) -> None:
         r.delete(_ip_key(ip), _acct_key(account))
     except Exception as e:  # pragma: no cover
         logger.warning("rate_limit: reset err (%s)", e)
+
+
+def check_and_count(scope: str, key: str, *, limit: int, window: int,
+                    fail_open: bool = True) -> tuple[bool, int]:
+    """Cuenta un intento en ``rl:{scope}:{key}`` y dice si se permite.
+
+    Devuelve ``(permitido, segundos_para_reintentar)``. Cuando permite, el
+    segundo elemento es 0; cuando niega, es el TTL real de la clave (o la
+    ventana completa si no hay TTL que consultar), listo para la cabecera
+    ``Retry-After``.
+
+    El intento se cuenta SIEMPRE, tambien el que rebasa el limite: si no, un
+    atacante en bucle mantendria el contador clavado justo en el tope y la
+    ventana nunca terminaria de correr.
+
+    ``fail_open=False`` NIEGA si Redis no responde (E2 del spec).
+    """
+    r = _redis()
+    if r is None:
+        return (True, 0) if fail_open else (False, window)
+
+    redis_key = f"rl:{scope}:{key}"
+    try:
+        count = int(r.incr(redis_key))
+        if count == 1:
+            r.expire(redis_key, window)
+        if count <= limit:
+            return True, 0
+        ttl = int(r.ttl(redis_key) or 0)
+        return False, ttl if ttl > 0 else window
+    except Exception as e:  # pragma: no cover
+        logger.warning("rate_limit: check_and_count %s err (%s); fail-%s",
+                       redis_key, e, "open" if fail_open else "closed")
+        return (True, 0) if fail_open else (False, window)
