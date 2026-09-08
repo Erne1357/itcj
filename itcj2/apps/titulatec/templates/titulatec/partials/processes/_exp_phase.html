@@ -128,7 +128,10 @@
     {% if requisitos %}
     <div class="d-flex flex-column gap-2 mt-2">
       {% for r in requisitos %}
-      <div class="tt-card d-flex align-items-start gap-3">
+      {# id estable por fila: el swap es `morph:outerHTML` de #exp-shell y sin id
+         Idiomorph empareja por POSICION y reescribe lo que no cambio —incluida
+         la nota a medio teclear de otra fila— (CLAUDE.md de la app, §4). #}
+      <div class="tt-card d-flex align-items-start gap-3" id="exp-req-{{ r.id }}">
         <span class="d-flex align-items-center justify-content-center"
               style="width:32px;height:32px;border-radius:9px;background:var(--tt-mist);border:1px solid var(--tt-line);flex:0 0 auto">
           <i class="bi bi-{{ r.icon }}" style="color:var(--tt-slate)" aria-hidden="true"></i></span>
