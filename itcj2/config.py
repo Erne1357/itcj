@@ -29,7 +29,12 @@ class Settings(BaseSettings):
     #
     # Bump 2026-08-10: la revisión de helpdesk tocó 55 archivos CSS/JS (registro
     # de orígenes, sockets, filtros, detalle de equipo, asignación, home).
-    STATIC_VERSION: str = "1.0.1111520"
+    #
+    # Bump 2026-09-08: `titulatec.css` estrena las clases `.tt-win-*` del editor
+    # de ventana de la convocatoria. Sin el bump, un navegador con caché caliente
+    # sirve el CSS viejo contra el parcial nuevo y el formulario sale con los tres
+    # controles estirados a toda la fila.
+    STATIC_VERSION: str = "1.0.1111521"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

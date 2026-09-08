@@ -1,13 +1,14 @@
-# Detalle de convocatoria: 4 sub-pestañas HTMX (Fase 0)
+# Detalle de convocatoria: 5 sub-pestañas HTMX (Fase 0)
 
 > **Objetivo:** dar a Servicios Escolares una sola pantalla por convocatoria donde ve el
 > avance del padrón, da de alta alumnos (uno a uno o por CSV) y —si es la jefa— configura
-> los días habilitados para el cotejo.
+> los días habilitados para el cotejo, los requisitos de cotejo y **la ventana de
+> inscripción pública** (fechas + `status`).
 
 | | |
 |---|---|
 | **Actor(es)** | 🏛️ Servicios Escolares (encargado) · 🏛️ Jefa de Servicios Escolares (solo ella toca *Días de cotejo*) |
-| **Permiso(s)** | Página: **cualquiera** de `titulatec.cohort.api.import_csv` · `titulatec.cohort.page.list` · `titulatec.dashboard.admin` · `titulatec.dashboard.school_services` (`_COHORT_PERMS`, `pages/admin.py:17-21`). Acciones: `titulatec.cohort.api.import_csv` (alta manual + wizard CSV) · `titulatec.cohort.api.review_days` (calendario editable) |
+| **Permiso(s)** | Página: `titulatec.cohort.page.list` a secas (`_COHORT_PERMS`; los `dashboard.*` se quitaron tras el incidente documentado en `pages/admin.py:16-29`). Acciones: `titulatec.cohort.api.import_csv` (alta manual + wizard CSV) · `titulatec.cohort.api.review_days` (calendario editable) · `titulatec.cohort.api.cotejo_reqs` (requisitos) · `titulatec.cohort.api.update` (ventana de inscripción) |
 | **Trigger** | Clic en el nombre / botón **Detalles** de una fila de `/titulatec/admin/cohorts` (`admin/cohorts.html:55,60`) |
 | **Precondiciones** | Existe el `Cohort` (creado en la lista; uno por `core_academic_periods.id`) |
 | **Sub-flujos** | ⤵ [importación por CSV](phase0_school_services_import_csv.md) · ⤵ [cita de cotejo](phase2_appointment_loop.md) (consume los días) |
@@ -23,14 +24,16 @@
 
 | Tab | `?tab=` | Parcial incluido | Qué muestra |
 |---|---|---|---|
-| **Resumen** | `resumen` (default) | `partials/cohort_summary.html` | 4 KPIs + embudo por fase |
+| **Resumen** | `resumen` (default) | `partials/cohort_summary.html` | 4 KPIs + **editor de ventana** (`cohort/cohort_window.html`) + embudo por fase |
 | **Alumnos** | `alumnos` | `partials/cohort_students.html` | alta manual + buscador + tabla paginada |
 | **Días de cotejo** | `dias` | `partials/cohort_days_calendar.html` | calendario mensual toggle (o solo lectura) |
 | **Importar** | `importar` | `partials/cohort_import.html` | dropzone del wizard CSV |
+| **Requisitos** | `cotejo` | `partials/cohort/cohort_cotejo_reqs.html` | alta/edición/baja de requisitos de cotejo |
 
-> Son **4**, no más. `cohort_detail()` normaliza `tab` contra la tupla
-> `("resumen", "dias", "alumnos", "importar")` y cae a `"resumen"` con cualquier otro valor
-> (`pages/admin.py:391`).
+> Son **5**. `cohort_detail()` normaliza `tab` contra la tupla
+> `("resumen", "dias", "alumnos", "importar", "cotejo")` y cae a `"resumen"` con cualquier otro
+> valor. Ánclate por el nombre `cohort_detail`, no por número de línea: cinco tareas han editado
+> `pages/admin.py`.
 
 ## Patrón de navegación entre tabs
 
@@ -83,6 +86,7 @@ Prefijos: router de páginas `/titulatec` (`pages/router.py:18`) + router admin 
 | 6 | 🏛️ | Importar | subir CSV | `POST /cohorts/{id}/import/upload` | `ImportService.save_temp` + `parse` + `autodetect_mapping` | — (CSV temporal por token) | `titulatec.cohort.api.import_csv` |
 | 7 | 🏛️ | Importar | ajustar mapeo | `POST /cohorts/{id}/import/revalidate` | `ImportService.read_temp` + `build_preview` | — | `titulatec.cohort.api.import_csv` |
 | 8 | 🏛️ | Importar | confirmar | `POST /cohorts/{id}/import/commit` | `ImportService.save_mapping` + `import_rows` + `delete_temp` | igual que el paso 2, en lote; notif `PROCESS_CREATED` por proceso creado | `titulatec.cohort.api.import_csv` |
+| 9 | 🏛️ jefa | Resumen | guardar ventana | `POST /cohorts/{id}/ventana` (`status`, `opens_at`, `closes_at`) | `CohortService.set_window` | UPDATE de `opens_at`/`closes_at`/`status` en `titulatec_cohorts` **+ el flip de procesos**: al cerrar, los `active` de esa convocatoria pasan a `on_hold`; al abrir, los `on_hold` de convocatorias cerradas vuelven a `active`. Un `ProcessEvent` (`process_paused`/`process_resumed`) por proceso tocado | `titulatec.cohort.api.update` |
 
 ### Targets HTMX (no todo swappea el tab)
 
@@ -94,6 +98,7 @@ Prefijos: router de páginas `/titulatec` (`pages/router.py:18`) + router admin 
 | Buscador, filtro de fase, paginación | `#students-body` (`innerHTML`) → `cohort_students_table.html` | `cohort_students.html:16,20` · `cohort_students_table.html:30,33` |
 | Flechas de mes y toggle del calendario | `#tt-cal-wrap` (`outerHTML` + `hx-select="#tt-cal-wrap"`) | `cohort_days_calendar.html:6,9,23` |
 | Upload / revalidate / commit del CSV | `#import-body` (`innerHTML`) | `cohort_import.html:11` · `import_preview.html:32,92` |
+| Guardar la ventana de inscripción | `#cohort-window` (`outerHTML`) | `cohort/cohort_window.html` |
 
 ## Detalle por sub-pestaña
 
@@ -110,8 +115,31 @@ y agrega en memoria:
 - Con `total == 0` el embudo se sustituye por un texto que apunta a los tabs *Importar* y
   *Alumnos* (`cohort_summary.html:33`).
 
-`ReviewDayService.list_days` va dentro de un `try/except` que degrada a `review_days = 0`
-(`pages/admin.py:74-77`): el KPI nunca tumba la página.
+`ReviewDayService.list_days` va dentro de un `try/except` que degrada a `review_days = 0`: el KPI
+nunca tumba la página.
+
+#### Editor de ventana de inscripción
+
+Entre los KPIs y el embudo va `partials/cohort/cohort_window.html`, raíz `#cohort-window`. Es lo
+único **accionable** del tab, y es lo que decide si el formulario **público** de auto-inscripción
+está abierto (`CohortService.is_public_enrollment_open`). El personal nunca queda bloqueado por
+esto: importar CSV y dar de alta a mano siguen funcionando con la convocatoria `closed` o `draft`.
+
+- **Editabilidad por contexto, igual que el calendario**: `_window_ctx(db, cohort, can_edit=...)`
+  resuelve `can_edit_window = "titulatec.cohort.api.update" in get_user_permissions_for_app(...)`
+  dentro de la rama `resumen` de `cohort_detail`. Sin el permiso, la tarjeta se pinta en solo
+  lectura (fechas y estado, sin `<form>`).
+- **El POST lleva UN SOLO código en `perms`**, `titulatec.cohort.api.update`, y es deliberado:
+  `require_page_app` evalúa la lista como **OR**, así que un `dashboard.*` de más entregaría a
+  cualquier oficial el interruptor que pausa los procesos de toda una convocatoria. Es el mismo
+  incidente que documenta `_COHORT_PERMS`.
+- **Las fechas se entregan precargadas en ISO**, porque `set_window` escribe SIEMPRE las dos con lo
+  que reciba: no existe "conservar lo anterior". Un `<input>` vacío **borra** esa fecha, así que un
+  editor sin precarga se llevaría la ventana por delante de quien solo venía a cambiar el estado.
+- Éxito → 200 con el parcial re-renderizado + `X-Tt-Notice` («Ventana guardada: N proceso(s) en
+  pausa.»). Rechazo → **400 + `X-Tt-Error`** percent-codificado, porque htmx no swappea en 4xx.
+- El flip de procesos lo hace **`CohortService.set_window`, no la ruta**: es el actor único de esa
+  transición y hace su propio `commit`. Duplicarlo en la ruta descuadraría los `ProcessEvent`.
 
 ### Alumnos (`tab=alumnos`)
 
@@ -164,8 +192,10 @@ y agrega en memoria:
 
 ## Estado resultante
 
-- `titulatec_cohorts` **no se modifica** desde esta pantalla (alta y `status` viven en
-  `/admin/cohorts` + `POST /cohorts`).
+- `titulatec_cohorts` **sí se modifica** desde esta pantalla desde 2026-09-08: el editor de ventana
+  del tab *Resumen* escribe `opens_at`, `closes_at` y `status`. (El **alta** sigue viviendo en
+  `/admin/cohorts` + `POST /cohorts`, que crea la convocatoria en `draft`.) Ese mismo POST puede
+  además mover `titulatec_processes.status` (`active` ↔ `on_hold`) y escribir `ProcessEvent`.
 - Tras *Alumnos* / *Importar*: N `titulatec_processes` (`current_phase=1`, `status=active`,
   `is_app_active=true`) + 9 `titulatec_process_phases` c/u + rol `student` en la app.
 - Tras *Días de cotejo*: filas en `titulatec_cohort_review_days` que habilitan el agendado de la
@@ -200,14 +230,14 @@ y agrega en memoria:
 - Las rutas de este flujo abren su propia `SessionLocal()` con `try/finally: db.close()`; ninguna
   usa `DbSession`. La única sesión inyectada es la de `require_page_app` (gate).
 - `_cohort_summary_ctx` construye un dict `defs` (`pages/admin.py:61`) que no usa.
-- De los permisos `cohort.*` seedeados, solo 4 gatean código: `page.list`, `api.create`,
-  `api.import_csv`, `api.review_days`. `titulatec.cohort.page.detail`, `titulatec.cohort.api.read`,
-  `titulatec.cohort.api.update` y `titulatec.cohort.api.cotejo_reqs` están asignados a roles pero no
-  aparecen en ningún `require_page_app` de la app.
-- Existe `titulatec_cotejo_requirements` (modelo + `CotejoRequirementService` + parcial
-  `partials/cohort/cohort_cotejo_reqs.html` + permiso `titulatec.cohort.api.cotejo_reqs` ya seedeado
-  y asignado a la jefa). **No está cableado**: no hay ruta `/cotejo-reqs` en `pages/admin.py` ni
-  ningún template lo incluye, así que **no** es una quinta pestaña.
+- De los permisos `cohort.*` seedeados ya gatean código 6: `page.list`, `api.create`,
+  `api.import_csv`, `api.review_days`, `api.cotejo_reqs` y —desde 2026-09-08—
+  `api.update` (el editor de ventana; llevaba sembrado desde el primer DML sin gatear nada).
+  Siguen decorativos `titulatec.cohort.page.detail` y `titulatec.cohort.api.read`: están asignados a
+  roles pero no aparecen en ningún `require_page_app`.
+- `titulatec_cotejo_requirements` **sí está cableado**: cuatro rutas `/cohorts/{id}/cotejo-reqs*` en
+  `pages/admin.py` y la quinta pestaña *Requisitos*, que incluye
+  `partials/cohort/cohort_cotejo_reqs.html`. `CotejoRequirementService` ya no revienta al importar.
 
 ## Flujos relacionados
 

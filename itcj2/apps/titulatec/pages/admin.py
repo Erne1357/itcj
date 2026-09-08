@@ -59,6 +59,37 @@ def _month_arg(raw: str):
     return today.year, today.month
 
 
+def _parse_day(raw: str | None):
+    """'YYYY-MM-DD' → `date`, o `None`. Vacío y basura dan `None`, no 500."""
+    from datetime import datetime
+    if not raw or not str(raw).strip():
+        return None
+    try:
+        return datetime.strptime(str(raw).strip(), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _window_ctx(db, cohort, *, can_edit: bool) -> dict:
+    """Contexto del parcial `cohort/cohort_window.html`.
+
+    Las fechas se entregan ya en ISO porque `<input type="date">` solo acepta
+    ese formato: cualquier otro lo deja en blanco y el editor parecería vacío
+    sobre una convocatoria que sí tiene ventana. No es cosmético —
+    `CohortService.set_window` escribe SIEMPRE las dos fechas con lo que reciba,
+    sin conservar lo anterior, así que un input en blanco las borra.
+    """
+    return {
+        "cohort_id": cohort.id,
+        "window": {
+            "status": cohort.status,
+            "opens_at": cohort.opens_at.isoformat() if cohort.opens_at else "",
+            "closes_at": cohort.closes_at.isoformat() if cohort.closes_at else "",
+        },
+        "can_edit_window": can_edit,
+    }
+
+
 def _cohort_summary_ctx(db, cohort) -> dict:
     from itcj2.apps.titulatec.models import TitulationProcess, ReviewAppointment, PhaseDefinition
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
@@ -428,6 +459,8 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
                "can_edit_days": "titulatec.cohort.api.review_days" in perms}
         if tab == "resumen":
             ctx["summary"] = _cohort_summary_ctx(db, cohort)
+            ctx.update(_window_ctx(
+                db, cohort, can_edit="titulatec.cohort.api.update" in perms))
         elif tab == "importar":
             pass  # el wizard de importación se sirve con el cohort ya en ctx
         elif tab == "dias":
@@ -622,6 +655,85 @@ async def cotejo_req_delete(
         return render_titulatec(request, _TT_COTEJO_PARTIAL, ctx)
     finally:
         db.close()
+
+
+@router.post("/cohorts/{cohort_id}/ventana", name="titulatec.pages.admin.cohort_window")
+async def cohort_window(
+    cohort_id: int,
+    request: Request,
+    status: str = Form(...),
+    opens_at: str = Form(""),
+    closes_at: str = Form(""),
+    user: dict = Depends(require_page_app("titulatec",
+                                          perms=["titulatec.cohort.api.update"])),
+):
+    """Escribe la ventana de inscripción pública y aplica la pausa/reanudación.
+
+    UN SOLO código en `perms`, y el específico. `require_page_app` evalúa la
+    lista como OR (`dependencies.py:131`): un `dashboard.*` de más abriría el
+    interruptor que pausa los procesos de toda una convocatoria a cualquier
+    oficial (es el incidente documentado en `_COHORT_PERMS`, arriba).
+
+    `titulatec.cohort.api.update` lleva sembrado desde el primer DML
+    (`02_insert_permissions.sql:44`) y hasta ahora no gateaba nada.
+
+    El flip de procesos NO se replica aquí: `CohortService.set_window` es el
+    actor único de D5 y hace su propio `commit`. Esta ruta llama y pinta.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.apps.titulatec.models import Cohort
+
+    db = SessionLocal()
+    try:
+        if db.get(Cohort, cohort_id) is None:
+            return Response(status_code=404)
+        try:
+            res = CohortService.set_window(
+                db, cohort_id,
+                opens_at=_parse_day(opens_at), closes_at=_parse_day(closes_at),
+                status=(status or "").strip(), actor_id=int(user["sub"]),
+            )
+        except ValueError as exc:
+            # htmx NO swappea en 4xx: el mensaje viaja en el header y lo pinta el
+            # escucha de `base_admin.html:100-108`. `_hdr` lo percent-codifica
+            # porque los headers son latin-1 y todos nuestros textos van con
+            # acentos.
+            #
+            # SIN `db.rollback()`, a propósito. `CohortService.set_window` lanza
+            # sus tres ValueError —estado desconocido, convocatoria inexistente y
+            # `closes_at < opens_at`— ANTES de su primera escritura, así que no
+            # hay nada que deshacer. Y un rollback "por si acaso" no es gratis:
+            # bajo el `join_transaction_mode="create_savepoint"` del harness
+            # emite ROLLBACK TO SAVEPOINT y descarta también las filas que
+            # sembraron las fábricas —la jefa, su rol, sus permisos y la
+            # convocatoria—, con lo que el `db_session.refresh(cohort)` de
+            # `test_el_cierre_anterior_a_la_apertura_se_rechaza` reventaría con
+            # `ObjectDeletedError`. El repo ya escarmentó en
+            # `pages/appointments.py`: si algún día hiciera falta un rollback
+            # aquí, va gateado por la clase de error que de verdad envenena la
+            # transacción de Postgres, nunca en el `except` entero.
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+
+        cohort = db.get(Cohort, cohort_id)
+        perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
+        ctx = _window_ctx(db, cohort,
+                          can_edit="titulatec.cohort.api.update" in perms)
+    finally:
+        db.close()
+
+    partes = []
+    if res["paused"]:
+        partes.append(f"{res['paused']} proceso(s) en pausa")
+    if res["resumed"]:
+        partes.append(f"{res['resumed']} proceso(s) reanudado(s)")
+    aviso = "Ventana guardada" + (f": {', '.join(partes)}." if partes else ".")
+
+    resp = render_titulatec(request, "titulatec/partials/cohort/cohort_window.html", ctx)
+    resp.headers["X-Tt-Notice"] = _hdr(aviso)
+    resp.headers["X-Tt-Notice-Kind"] = "success"
+    return resp
 
 
 # ===========================================================================

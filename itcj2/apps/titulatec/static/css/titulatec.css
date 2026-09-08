@@ -1535,3 +1535,19 @@ button.tt-seat--libre { pointer-events: auto; }
   .tt-exp-meta > span + span::before,
   .tt-exp-fechas span + span::before { content: none; }
 }
+
+/* ————————————————————————— Ventana de la convocatoria —————————————————————
+   Del parcial `partials/cohort/cohort_window.html`. Existen para que ese
+   parcial no lleve ni un `style=` inline: es la regla del proyecto y ya hay un
+   barrido que la exige en los parciales de Citas
+   (`test_appointments_scope_day.py::test_los_parciales_de_citas_no_llevan_js_ni_css_inline`).
+
+   El ancho tope es el mismo para los dos `<input type="date">` y el `<select>`:
+   con el `d-flex flex-wrap` del formulario, sin tope se estiran a toda la fila y
+   los tres controles dejan de leerse como un grupo. */
+.tt-win-field { max-width: 170px; }
+/* La nota explica QUÉ apaga y QUÉ enciende el botón, así que es texto de lectura,
+   no adorno: `--tt-text-2` (7.58:1). `--tt-mute` está marcado PROHIBIDO PARA
+   TEXTO en el `:root` de este mismo archivo (2.56:1 sobre `--tt-paper`). */
+.tt-win-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+.tt-win-ro   { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
