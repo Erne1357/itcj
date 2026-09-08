@@ -417,7 +417,7 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.core.services.authz_service import get_user_permissions_for_app
-    tab = tab if tab in ("resumen", "dias", "alumnos", "importar") else "resumen"
+    tab = tab if tab in ("resumen", "dias", "alumnos", "importar", "cotejo") else "resumen"
     db = SessionLocal()
     try:
         cohort = db.get(Cohort, cohort_id)
@@ -436,9 +436,192 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
             ctx["days"] = _review_days_ctx(db, cohort_id, today.year, today.month)
         elif tab == "alumnos":
             ctx.update(_students_ctx(db, cohort_id, q="", phase=None, page=1))
+        elif tab == "cotejo":
+            # `_cotejo_reqs_ctx` vuelve a pedir los permisos (ya están en `perms`
+            # de arriba), pero `get_user_permissions_for_app` va por el caché de
+            # authz y la ruta suelta necesita el helper autocontenido: se deja la
+            # llamada tal cual para que el editor tenga UNA sola forma de armarse.
+            ctx.update(_cotejo_reqs_ctx(db, cohort_id, int(user["sub"])))
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/cohort_detail.html", ctx)
+
+
+# ===========================================================================
+# Requisitos de cotejo por convocatoria
+# ===========================================================================
+# Las URL las dicta el parcial `partials/cohort/cohort_cotejo_reqs.html`, que
+# existe desde el rediseño de Citas y posteaba a tres rutas inexistentes
+# (`:15`, `:36`, `:50`). Su raíz es `id="cotejo-reqs-body"` y TODOS sus controles
+# usan `hx-target="#cotejo-reqs-body" hx-swap="outerHTML"`, así que las cuatro
+# rutas devuelven el parcial COMPLETO, nunca una fila.
+#
+# UN SOLO permiso en la lista, y a propósito: `require_page_app` la evalúa como
+# OR (`itcj2/dependencies.py:131`). Cualquier `dashboard.*` que se cuele aquí
+# abre el editor de la convocatoria al encargado de carrera, igual que pasó con
+# `_COHORT_PERMS`. La pestaña de `cohort_detail` tampoco es motivo para ensanchar
+# esta lista: esa página va por `_COHORT_PERMS` y el parcial se pinta en solo
+# lectura cuando `can_edit_reqs` es False.
+_COTEJO_REQ_PERMS = ["titulatec.cohort.api.cotejo_reqs"]
+
+_TT_COTEJO_PARTIAL = "titulatec/partials/cohort/cohort_cotejo_reqs.html"
+
+
+def _cotejo_reqs_ctx(db, cohort_id: int, user_id: int) -> dict:
+    """Contexto del parcial. `active_only=False`: el editor sí lista los inactivos.
+
+    Desactivar es la vía soportada en vez de borrar (un requisito con
+    cumplimientos NO se puede borrar), así que ocultarlos aquí dejaría al usuario
+    sin forma de reactivarlos. El parcial ya los pinta con `opacity-50`.
+
+    `CotejoRequirementService.list`, NO `list_or_seed`: un GET jamás siembra. La
+    convocatoria nace con sus requisitos (Tarea 4, `cohort_create`), y si alguna
+    vieja no los tiene, el editor muestra el vacío y la jefa los agrega.
+    """
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+    from itcj2.core.services.authz_service import get_user_permissions_for_app
+
+    perms = get_user_permissions_for_app(db, user_id, "titulatec")
+    return {
+        "reqs": CotejoRequirementService.list(db, cohort_id, active_only=False),
+        "cohort_id": cohort_id,
+        "can_edit_reqs": "titulatec.cohort.api.cotejo_reqs" in perms,
+    }
+
+
+@router.get("/cohorts/{cohort_id}/cotejo-reqs", name="titulatec.pages.admin.cotejo_reqs")
+async def cotejo_reqs(
+    cohort_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
+):
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        ctx = _cotejo_reqs_ctx(db, cohort_id, int(user["sub"]))
+        return render_titulatec(request, _TT_COTEJO_PARTIAL, ctx)
+    finally:
+        db.close()
+
+
+@router.post("/cohorts/{cohort_id}/cotejo-reqs", name="titulatec.pages.admin.cotejo_req_create")
+async def cotejo_req_create(
+    cohort_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
+):
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+
+    form = dict(await request.form())
+    label = (form.get("label") or "").strip()
+    if not label:
+        return Response(status_code=400,
+                        headers={"X-Tt-Error": _hdr("Escribe el nombre del requisito.")})
+    db = SessionLocal()
+    try:
+        CotejoRequirementService.create(
+            db, cohort_id, label=label,
+            hint=((form.get("hint") or "").strip() or None),
+            icon=((form.get("icon") or "").strip() or None),
+            is_required=bool(form.get("is_required")),
+        )
+        ctx = _cotejo_reqs_ctx(db, cohort_id, int(user["sub"]))
+        return render_titulatec(request, _TT_COTEJO_PARTIAL, ctx)
+    finally:
+        db.close()
+
+
+@router.post("/cohorts/{cohort_id}/cotejo-reqs/{rid}/update",
+             name="titulatec.pages.admin.cotejo_req_update")
+async def cotejo_req_update(
+    cohort_id: int,
+    rid: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
+):
+    """Actualiza etiqueta, detalle, ícono y las dos casillas.
+
+    `code`/`auto_source` NO son editables: los siembra `seed_defaults` y son la
+    identidad estable del requisito. Y **no hay input de `order_index`** en el
+    parcial, así que aquí no se toca: pasarlo como `None` lo dejaría igual, pero
+    ni siquiera se menciona para que nadie lo añada sin cambiar el formulario.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+
+    form = dict(await request.form())
+    label = (form.get("label") or "").strip()
+    if not label:
+        return Response(status_code=400,
+                        headers={"X-Tt-Error": _hdr("Escribe el nombre del requisito.")})
+    db = SessionLocal()
+    try:
+        # Las casillas ausentes son False, no "sin cambio": un checkbox que el
+        # navegador no envía es exactamente el usuario desmarcándolo.
+        CotejoRequirementService.update(
+            db, rid, cohort_id,
+            label=label,
+            hint=((form.get("hint") or "").strip() or None),
+            icon=((form.get("icon") or "").strip() or None),
+            is_required=bool(form.get("is_required")),
+            is_active=bool(form.get("is_active")),
+        )
+        ctx = _cotejo_reqs_ctx(db, cohort_id, int(user["sub"]))
+        return render_titulatec(request, _TT_COTEJO_PARTIAL, ctx)
+    finally:
+        db.close()
+
+
+@router.post("/cohorts/{cohort_id}/cotejo-reqs/{rid}/delete",
+             name="titulatec.pages.admin.cotejo_req_delete")
+async def cotejo_req_delete(
+    cohort_id: int,
+    rid: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
+):
+    """Borra el requisito, con dos negativas.
+
+    * Un requisito con `auto_source` no se borra desde la UI: `create()` no puede
+      fijar ese campo, así que borrarlo dejaría a la encuesta sin nada que
+      acreditar en esa convocatoria y sin forma de restaurarlo.
+    * Un requisito que alguien ya cumplió tampoco: la FK de los cumplimientos es
+      `ON DELETE RESTRICT`, y borrarlo destruiría el crédito dejando la bitácora
+      contradiciendo el estado.
+
+    `not_found` NO es error: el `delete` de la Tarea 4 devuelve `(False,
+    "not_found")` y aquí se re-renderiza la lista, que es lo correcto para htmx
+    (la fila ya no está; el swap deja al usuario viendo el estado real).
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import CotejoRequirement
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+
+    db = SessionLocal()
+    try:
+        item = db.query(CotejoRequirement).filter_by(id=rid, cohort_id=cohort_id).first()
+        if item is not None and item.auto_source:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "Ese requisito lo acredita el sistema: desactívalo en vez de borrarlo.")})
+        ok, motivo = CotejoRequirementService.delete(db, rid, cohort_id)
+        if not ok and motivo.startswith("fulfilled:"):
+            n = motivo.split(":", 1)[1]
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                f"Ese requisito ya lo cumplieron {n} alumnos; "
+                f"desactívalo en vez de borrarlo.")})
+        ctx = _cotejo_reqs_ctx(db, cohort_id, int(user["sub"]))
+        return render_titulatec(request, _TT_COTEJO_PARTIAL, ctx)
+    finally:
+        db.close()
 
 
 # ===========================================================================

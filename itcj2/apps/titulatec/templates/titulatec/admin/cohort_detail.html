@@ -19,14 +19,14 @@
    swappea TODO #cohort-pane (estado activo + URL correctos, sin IDs duplicados). #}
 <div id="cohort-pane" class="px-4 pt-3 pb-4">
   <div class="tt-tabs mb-3">
-    {% for key, lbl, icon in [('resumen','Resumen','bi-info-circle'),('alumnos','Alumnos','bi-people'),('dias','Días de cotejo','bi-calendar-check'),('importar','Importar','bi-upload')] %}
+    {% for key, lbl, icon in [('resumen','Resumen','bi-info-circle'),('alumnos','Alumnos','bi-people'),('dias','Días de cotejo','bi-calendar-check'),('importar','Importar','bi-upload'),('cotejo','Requisitos','bi-check2-square')] %}
     <a class="tt-tab {{ 'is-active' if tab==key else '' }}"
        href="/titulatec/admin/cohorts/{{ cohort_id }}?tab={{ key }}"
        hx-get="/titulatec/admin/cohorts/{{ cohort_id }}?tab={{ key }}"
        hx-target="#cohort-pane" hx-select="#cohort-pane" hx-swap="outerHTML"
        {# La etiqueta NO se oculta bajo 576px: sin ella el objetivo táctil era el
           glifo de ~21px. `.tt-tabs` scrollea en horizontal por su cuenta, así que
-          las 4 pestañas caben sin empujar la página. #}
+          las 5 pestañas caben sin empujar la página. #}
        hx-push-url="true"><i class="bi {{ icon }} me-1"></i><span>{{ lbl }}</span></a>
     {% endfor %}
   </div>
@@ -35,6 +35,7 @@
     {% elif tab == 'alumnos' %}{% include "titulatec/partials/cohort_students.html" %}
     {% elif tab == 'dias' %}{% include "titulatec/partials/cohort_days_calendar.html" %}
     {% elif tab == 'importar' %}{% include "titulatec/partials/cohort_import.html" %}
+    {% elif tab == 'cotejo' %}{% include "titulatec/partials/cohort/cohort_cotejo_reqs.html" %}
     {% endif %}
   </div>
 </div>
