@@ -20,7 +20,9 @@ Delta sobre el original, punto por punto (seccion 4.3 del diseno):
      existen (`scale` lleva sus propios min/max en su bloque).
   5. `visible_when` corre en el SERVIDOR. Un requerido oculto en el cliente
      sigue siendo requerido cuando su condicion se cumple, y un campo con
-     condicion falsa se DESCARTA en vez de guardarse.
+     condicion falsa se DESCARTA en vez de guardarse. Solo `select` y `radio`
+     pueden ser FUENTE de una condicion: `validate_schema` rechaza al resto
+     porque su forma en el cable no coincide con su forma en el schema.
   6. Llave desconocida -> se descarta en silencio (el schema pudo cambiar) y no
      llega a `cleaned`.
 
@@ -112,8 +114,14 @@ def is_visible(field: dict, submitted: dict) -> bool:
 
     Portado de `_check_visibility` (`custom_fields_validator.py:68-74`). Compara
     contra el valor CRUDO enviado, que es lo que emite el radio/select fuente.
-    Un `multiselect` nunca puede ser fuente (la comparacion es escalar y jamas
-    casaria con una lista); `validate_schema` lo rechaza al sembrar.
+
+    Por eso `validate_schema` solo admite `select`/`radio` como FUENTE: un tipo
+    cuya codificacion en el navegador difiere de su codificacion en el schema
+    jamas puede satisfacer una igualdad exacta. Un `multiselect` manda una lista;
+    un `checkbox` manda `"on"` y el schema declara `true`; un `yesno` igual. En
+    los tres casos la condicion nunca casa, el dependiente se toma por invisible
+    y su respuesta se descarta EN SILENCIO — justo el fallo que evaluar
+    `visible_when` en el servidor existe para evitar.
     """
     visible_when = field.get("visible_when")
     if not visible_when:
@@ -284,8 +292,16 @@ def validate_schema(schema: dict) -> tuple[bool, list[str]]:
       · todo `text`/`textarea` DEBE declarar `validation.maxLength` (seccion 4.1);
         sin eso no hay cota contra una columna `Text`;
       · `validation` solo admite `minLength`/`maxLength` (delta 4);
-      · un `multiselect` no puede ser fuente de `visible_when` (la comparacion
-        es escalar y jamas casaria con una lista).
+      · solo `select`/`radio` pueden ser FUENTE de un `visible_when`. Se rechaza
+        `multiselect`, `checkbox` y `yesno` por la MISMA razon: su forma en el
+        cable no coincide con su forma en el schema (una lista contra un escalar;
+        un `"on"` contra un `true`), asi que la igualdad exacta nunca casaria y
+        el campo dependiente se descartaria en silencio, sin error, en cada
+        envio real. Rechazarlo AQUI es ruidoso y gratis —salta al sembrar, con
+        el autor delante y el arreglo a la vista—; descubrirlo al recibir
+        respuestas es silencioso y caro: se pierde la respuesta de un alumno y
+        nadie se entera. Quien quiera "muestra esto solo si marcan aquello"
+        expresa la fuente como un `radio`/`select` de dos opciones.
     """
     errors: list[str] = []
 
@@ -381,5 +397,13 @@ def validate_schema(schema: dict) -> tuple[bool, list[str]]:
                         errors.append(
                             f"'{key}': `visible_when` no puede depender del multiselect "
                             f"'{source}': la comparacion es escalar y nunca casaria.")
+                    elif by_key[source].get("type") in ("checkbox", "yesno"):
+                        errors.append(
+                            f"'{key}': `visible_when` no puede depender del "
+                            f"{by_key[source].get('type')} '{source}': el navegador lo "
+                            f"envia como \"on\"/\"true\" y el schema lo declara como "
+                            f"booleano, asi que la igualdad exacta nunca casaria y "
+                            f"'{key}' se descartaria en silencio. Usa un radio/select "
+                            f"de dos opciones como fuente.")
 
     return not errors, errors

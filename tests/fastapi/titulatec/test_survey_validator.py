@@ -367,6 +367,57 @@ def test_un_multiselect_no_puede_ser_fuente_de_visible_when():
     assert any("idiomas" in e for e in errors)
 
 
+def test_un_checkbox_no_puede_ser_fuente_de_visible_when():
+    """El navegador manda `"on"`; el schema declara `true`. Nunca casan.
+
+    Sin este rechazo el dependiente se descarta EN SILENCIO en cada envio real
+    (verificado: `validate_answers` devolvia `ok=True` y `detalle` no aparecia
+    en `cleaned`). Se caza al sembrar, con el autor delante, no al recibir.
+    """
+    ok, errors = validate_schema({
+        "enabled": True,
+        "fields": [
+            F_CHECK,
+            {"key": "detalle", "type": "text", "label": "Cuentanos mas",
+             "validation": {"maxLength": 60}, "visible_when": {"aviso": True}},
+        ],
+    })
+    assert ok is False
+    assert any("aviso" in e for e in errors)
+
+
+def test_un_yesno_no_puede_ser_fuente_de_visible_when():
+    """Mismo desajuste cable/schema que el checkbox, misma resolucion."""
+    ok, errors = validate_schema({
+        "enabled": True,
+        "fields": [
+            F_YESNO,
+            {"key": "por_que", "type": "text", "label": "Por que?",
+             "validation": {"maxLength": 60}, "visible_when": {"recomendarias": True}},
+        ],
+    })
+    assert ok is False
+    assert any("recomendarias" in e for e in errors)
+
+
+@pytest.mark.parametrize("tipo", ["radio", "select"])
+def test_un_radio_o_select_si_puede_ser_fuente_de_visible_when(tipo):
+    """La regla NO es "sin fuentes": `select`/`radio` mandan la cadena de
+    `options`, que es exactamente lo que el `visible_when` declara.
+
+    Esta prueba existe para que el rechazo no se ensanche por un edit posterior
+    hasta dejar `visible_when` inservible.
+    """
+    ok, errors = validate_schema({
+        "enabled": True,
+        "fields": [
+            dict(F_RADIO, type=tipo),
+            dict(F_SCALE),
+        ],
+    })
+    assert ok is True, errors
+
+
 def test_visible_when_hacia_una_llave_inexistente_se_rechaza():
     ok, errors = validate_schema({
         "enabled": True,
