@@ -112,9 +112,18 @@ def _parse_month(raw: str | None):
 
 
 def _active_cohort_id(db):
+    """La convocatoria que manda en la agenda: la `open` más nueva y, si no hay,
+    la `closed` más nueva. NUNCA una `draft`.
+
+    El respaldo era `order_by(id.desc()).first()` sin mirar el status. Daba igual
+    mientras toda convocatoria naciera `open`; ahora que se crean en `draft` y se
+    abren desde el editor de ventana, ese respaldo aterrizaba justo en la que
+    todavía no existe para nadie — la agenda del encargado se quedaba en blanco
+    con la convocatoria de verdad a un id de distancia.
+    """
     from itcj2.apps.titulatec.models import Cohort
     c = (db.query(Cohort).filter_by(status="open").order_by(Cohort.id.desc()).first()
-         or db.query(Cohort).order_by(Cohort.id.desc()).first())
+         or db.query(Cohort).filter_by(status="closed").order_by(Cohort.id.desc()).first())
     return c.id if c else None
 
 

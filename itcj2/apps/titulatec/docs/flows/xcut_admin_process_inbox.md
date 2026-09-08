@@ -263,12 +263,15 @@ contexto `_empty()` — 0 filas, 0 columnas, KPIs en cero, umbrales igual
 2. **"Procesos activos" y "Pendientes de revisar" son la misma query.** `pages/admin.py:305-306`
    ejecuta dos veces `filter_by(status="active").count()`; las dos tarjetas
    (`dashboard.html:16-17`) siempre muestran el mismo número.
-3. **`on_hold` y `cancelled` siempre son 0.** El comentario del modelo dice
-   `active|completed|cancelled|on_hold` (`models/process.py:23`), pero los únicos valores que el
-   código escribe son `"active"` al crear el proceso (`services/import_service.py:305`) y
-   `"completed"` al aprobar la última fase (`services/phase_service.py:87`). No hay endpoint ni
-   servicio que ponga `on_hold` o `cancelled`: el KPI "En espera" (`processes.html:26-30`) y los
-   chips `on_hold` / `cancelled` (`processes.html:40`) son cascarones vacíos.
+3. **`cancelled` siempre es 0; `on_hold` ya no.** El comentario del modelo dice
+   `active|completed|cancelled|on_hold` (`models/process.py:23`). Se escribe `"active"` al crear
+   el proceso (`services/import_service.py:305`), `"completed"` al aprobar la última fase
+   (`services/phase_service.py:87`) y —desde 2026-09-07— `"on_hold"` ↔ `"active"` en
+   `CohortService.set_window` (`services/cohort_service.py`), que pausa los procesos `active` de
+   una convocatoria al cerrarla y reanuda los `on_hold` de convocatorias cerradas al abrir otra
+   (regla D5). Cada flip deja un `ProcessEvent` `process_paused` / `process_resumed`. El KPI
+   "En espera" (`processes.html:26-30`) y el chip `on_hold` (`processes.html:40`) ya cuentan algo;
+   el chip `cancelled` sigue siendo un cascarón vacío.
 4. **El detalle no valida el alcance.** Un encargado scoped que no ve un proceso en la lista sí
    puede abrirlo —y actuar sobre él— escribiendo `/titulatec/admin/processes/{id}`: el gate es
    solo `_PROCESS_VIEW_PERMS`.
