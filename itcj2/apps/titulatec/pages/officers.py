@@ -89,8 +89,14 @@ async def update(position_id: int, request: Request,
         return Response(status_code=400, headers={"X-Tt-Error": "No gestionas ningun departamento."})
     db = SessionLocal()
     try:
+        # Conjunto B (propio), NO el amplio: `set_users`/`set_programs` escriben
+        # sobre `core_positions`, compartida con las demas apps del organigrama.
+        # Un puesto compartido del mismo depto (secretaria, jefatura, division)
+        # cumple el conjunto amplio y la UI no lo lista: colgarle carreras amplia
+        # en silencio el alcance de su ocupante, y colgarle usuarios les arrastra
+        # sus `PositionAppRole` en TODAS las apps.
         # 404 y no 403: fuera del alcance del jefe no confirmamos que el id exista.
-        if OfficerService.get_manageable_position(db, position_id, dep) is None:
+        if OfficerService.get_owned_position(db, position_id, dep) is None:
             return Response(status_code=404)
         try:
             OfficerService.set_users(db, position_id, user_ids, department_id=dep, assigned_role=ROLE_ASSIGNED)
@@ -115,7 +121,7 @@ async def deactivate(position_id: int, request: Request,
     try:
         # Conjunto B: solo puestos que ESTA app creo. `deactivate_position` toca
         # `core_positions`, compartida con las demas apps del organigrama.
-        if OfficerService.get_deletable_position(db, position_id, dep) is None:
+        if OfficerService.get_owned_position(db, position_id, dep) is None:
             return Response(status_code=404)
         OfficerService.deactivate_officer(db, position_id)
         ctx = _body_ctx(db, dep)

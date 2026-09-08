@@ -59,13 +59,19 @@ class OfficerService:
     @staticmethod
     def get_manageable_position(db: Session, position_id: int, department_id: int | None,
                                 *, app_key: str = "titulatec"):
-        """Conjunto A (administrable): puesto del depto, activo y con rol en la app.
+        """Conjunto A (amplio): puesto del depto, activo y con rol en la app.
 
-        Devuelve el `Position` o None; nunca lanza. `core_positions` es el
-        organigrama COMPARTIDO: sin este filtro un `position_id` cualquiera del
-        path acaba en `set_users`, y ocupar un puesto arrastra sus
-        `PositionAppRole` en todas las apps. Sin departamento gestionado no hay
-        nada administrable (fail-closed).
+        USO INTERNO. Es el conjunto BASE sobre el que `get_owned_position`
+        estrecha, y no debe volver a guardar una ruta jamas: A contiene puestos
+        COMPARTIDOS que esta app no creo ni lista (`secretary_school_services`,
+        `head_school_services`, `aux_school_services`, los de division). Guardar
+        `update` con A dejaba que un `position_id` escrito a mano llegara a
+        `set_users` + `set_programs` sobre uno de ellos: las carreras amplian en
+        silencio el alcance de su ocupante y ocupar el puesto arrastra sus
+        `PositionAppRole` en TODAS las apps.
+
+        Devuelve el `Position` o None; nunca lanza. Sin departamento gestionado
+        no hay nada administrable (fail-closed).
         """
         if department_id is None:
             return None
@@ -83,13 +89,17 @@ class OfficerService:
         )
 
     @staticmethod
-    def get_deletable_position(db: Session, position_id: int, department_id: int | None,
-                               *, code_prefix: str = "se_officer_", app_key: str = "titulatec"):
-        """Conjunto B (destruible) = A ∩ (code LIKE prefix%). None si no procede.
+    def get_owned_position(db: Session, position_id: int, department_id: int | None,
+                           *, code_prefix: str = "se_officer_", app_key: str = "titulatec"):
+        """Conjunto B (propio) = A ∩ (code LIKE prefix%). None si no procede.
 
-        Más estrecho que A a propósito: `deactivate_position` apaga el puesto y
-        cierra todas sus `UserPosition`. El prefijo que pone `create_officer` es
-        la marca de propiedad — esta app solo destruye lo que ella creó.
+        Es la guarda de TODA ruta que muta un puesto: `update` y `deactivate`.
+        Más estrecho que A a propósito, porque ambas operaciones tocan
+        `core_positions`, compartida con las demás apps del organigrama:
+        `deactivate_position` apaga el puesto y cierra todas sus `UserPosition`,
+        y `set_users`/`set_programs` le cambian ocupantes y carreras. El prefijo
+        que pone `create_officer` es la marca de propiedad — esta app solo
+        edita y destruye lo que ella creó.
         """
         pos = OfficerService.get_manageable_position(
             db, position_id, department_id, app_key=app_key)
