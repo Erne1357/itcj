@@ -8,15 +8,31 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 # Lista por defecto (la que estaba hardcodeada en la vista del alumno).
+#
+# 5-tuplas: (icon, label, hint, code, auto_source).
+#   * `code` da identidad ESTABLE al requisito: la etiqueta la reescribe
+#     Servicios Escolares cuando quiere, el código no.
+#   * `auto_source` marca los que acredita el SISTEMA. Es la única fuente de ese
+#     valor: `create()` no puede fijarlo desde la UI a propósito, porque un
+#     requisito automático borrado a media convocatoria dejaría a la encuesta sin
+#     nada que acreditar y sin forma de restaurarlo.
 DEFAULTS = [
-    ("file-earmark-text", "Actas de nacimiento", "Original + copias."),
-    ("card-text", "CURP certificada", "Impresión certificada (no la simple)."),
-    ("shield-check", "e.Firma (SAT)", "Constancia de situación fiscal con e.Firma vigente."),
-    ("clipboard-check", "Encuesta de egresados", "Comprobante de haberla contestado."),
-    ("book", "No-adeudo de biblioteca", "Constancia de no adeudo vigente."),
-    ("camera", "12 fotografías", "Tamaño credencial, ovaladas, B/N, fondo blanco, papel mate."),
-    ("heart-pulse", "Vigencia de derechos IMSS", "Documento que acredite vigencia."),
-    ("cash-coin", "$1,900 en efectivo", "Pago del proceso de titulación (efectivo)."),
+    ("file-earmark-text", "Actas de nacimiento", "Original + copias.",
+     "birth_certificates", None),
+    ("card-text", "CURP certificada", "Impresión certificada (no la simple).",
+     "curp", None),
+    ("shield-check", "e.Firma (SAT)", "Constancia de situación fiscal con e.Firma vigente.",
+     "efirma", None),
+    ("clipboard-check", "Encuesta de egresados", "Comprobante de haberla contestado.",
+     "graduate_survey", "graduate_survey"),
+    ("book", "No-adeudo de biblioteca", "Constancia de no adeudo vigente.",
+     "library_clearance", None),
+    ("camera", "12 fotografías", "Tamaño credencial, ovaladas, B/N, fondo blanco, papel mate.",
+     "photos", None),
+    ("heart-pulse", "Vigencia de derechos IMSS", "Documento que acredite vigencia.",
+     "imss", None),
+    ("cash-coin", "$1,900 en efectivo", "Pago del proceso de titulación (efectivo).",
+     "payment", None),
 ]
 
 
@@ -36,16 +52,18 @@ class CotejoRequirementService:
         `commit=False` es para los llamadores que YA son dueños de su
         transacción: `RequirementService.auto_requirement` (§4.4 del diseño exige
         un solo commit al enviar la encuesta) y `cohort_create`, que siembra en
-        la misma transacción en que crea la convocatoria. Con `commit=True` (el
-        valor de siempre) el comportamiento no cambia.
+        la misma transacción en que crea la convocatoria.
+
+        Es la ÚNICA escritura de `code`/`auto_source`.
         """
         from itcj2.apps.titulatec.models import CotejoRequirement
         exists = db.query(CotejoRequirement).filter_by(cohort_id=cohort_id).first()
         if exists:
             return 0
-        for i, (icon, label, hint) in enumerate(DEFAULTS):
+        for i, (icon, label, hint, code, auto_source) in enumerate(DEFAULTS):
             db.add(CotejoRequirement(cohort_id=cohort_id, icon=icon, label=label,
-                                     hint=hint, order_index=i))
+                                     hint=hint, code=code, auto_source=auto_source,
+                                     order_index=i))
         if commit:
             db.commit()
         else:
@@ -91,11 +109,26 @@ class CotejoRequirementService:
         return item
 
     @staticmethod
-    def delete(db: Session, req_id: int, cohort_id: int) -> bool:
-        from itcj2.apps.titulatec.models import CotejoRequirement
+    def delete(db: Session, req_id: int, cohort_id: int) -> tuple[bool, str]:
+        """Borra el requisito. Devuelve `(ok, motivo)`.
+
+        `motivo` ∈ ``"ok"`` | ``"not_found"`` | ``"fulfilled:{N}"``.
+
+        La comprobación de cumplimientos va ANTES del `db.delete`: la FK de
+        `titulatec_requirement_fulfillments.requirement_id` es `ON DELETE
+        RESTRICT` (a propósito, para que borrar la lista no destruya el crédito
+        de quien ya cumplió), así que sin esto Postgres contestaría con un
+        `IntegrityError` crudo a mitad de un POST de la UI. La vía soportada es
+        `is_active = False`, que ya existe en modelo, ruta y parcial.
+        """
+        from itcj2.apps.titulatec.models import CotejoRequirement, RequirementFulfillment
         item = db.query(CotejoRequirement).filter_by(id=req_id, cohort_id=cohort_id).first()
         if not item:
-            return False
+            return False, "not_found"
+        usados = (db.query(RequirementFulfillment)
+                  .filter_by(requirement_id=req_id).count())
+        if usados:
+            return False, f"fulfilled:{usados}"
         db.delete(item)
         db.commit()
-        return True
+        return True, "ok"

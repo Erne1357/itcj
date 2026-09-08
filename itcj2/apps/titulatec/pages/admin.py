@@ -373,19 +373,38 @@ async def cohort_create(
     period_id: int = Form(...),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.create"])),
 ):
+    """Alta de convocatoria: nace en `draft` y con su lista de requisitos.
+
+    Dos cambios respecto a la versión anterior, ambos deliberados:
+
+    * **`status='draft'`, no `'open'`.** Toda convocatoria nacía abierta con
+      `opens_at`/`closes_at` en NULL, así que el predicado de "convocatoria
+      pública abierta" era verdadero para TODAS y el formulario público no
+      habría sabido a cuál inscribir. La abre el editor de ventana.
+    * **Siembra los requisitos de cotejo en la MISMA transacción.** `list_or_seed`
+      es perezoso y solo se dispararía desde una página gateada por la fase 2:
+      un alumno en fase 1 que contesta la encuesta no tendría requisito que
+      acreditar y el crédito se perdería en silencio.
+    """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
     from itcj2.core.models.academic_period import AcademicPeriod
 
     db = SessionLocal()
     try:
         if not db.query(Cohort).filter_by(period_id=period_id).first():
             period = db.get(AcademicPeriod, period_id)
-            db.add(Cohort(
+            cohort = Cohort(
                 period_id=period_id,
                 name=f"Convocatoria Titulación {period.code if period else period_id}",
-                status="open", created_by_id=int(user["sub"]),
-            ))
+                status="draft", created_by_id=int(user["sub"]),
+            )
+            db.add(cohort)
+            db.flush()          # hace falta el id para sembrar
+            CotejoRequirementService.seed_defaults(db, cohort.id, commit=False)
             db.commit()
     finally:
         db.close()

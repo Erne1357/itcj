@@ -63,7 +63,7 @@ sequenceDiagram
 
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Notas |
 |---|---|---|---|---|---|---|---|
-| 0 | 🏛️ | `/admin/cohorts` | crear convocatoria | `POST /admin/cohorts` | (inline, `admin.py:360-382`) | `Cohort(status="open", created_by_id)` | no duplica período: `filter_by(period_id)` previo |
+| 0 | 🏛️ | `/admin/cohorts` | crear convocatoria | `POST /admin/cohorts` | (inline) · `CotejoRequirementService.seed_defaults(commit=False)` | `Cohort(status="draft", created_by_id)` + sus 8 `CotejoRequirement` en la MISMA transacción | no duplica período: `filter_by(period_id)` previo. Nace `draft` (la abre el editor de ventana), no `open`: con fechas NULL toda convocatoria daba por buena la pregunta "¿cuál está abierta al público?" |
 | 1 | 🏛️ | detalle → tab **Importar** | abrir wizard | `GET /admin/cohorts/{id}?tab=importar` | — | — | `tab` se sanea contra `("resumen","dias","alumnos","importar")` (`admin.py:391`) |
 | 2 | 🏛️ | dropzone | subir CSV | `POST /admin/cohorts/{id}/import/upload` | `ImportService.save_temp` · `parse` · `autodetect_mapping` · `build_preview` | — (CSV temporal `instance/apps/titulatec/_imports/{token}.csv`) | token = `secrets.token_hex(8)` (`admin.py:464`); delimitador `,`/`;` por conteo en los primeros 2 KB (`import_service.py:118-119`); mapeo por keywords sin acentos, con prioridad al mapeo guardado (`import_service.py:126-144`) |
 | 3 | 🏛️ | selects de mapeo | revalidar | `POST /admin/cohorts/{id}/import/revalidate` | `ImportService.read_temp` · `parse` · `build_preview(overrides, excluded)` | — | dispara en `change` de cualquier `map_*`; token inválido/expirado → `409` (`admin.py:527-529`) |
