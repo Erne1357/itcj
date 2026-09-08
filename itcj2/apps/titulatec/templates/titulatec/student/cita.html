@@ -14,23 +14,35 @@
       {% include "titulatec/partials/cita_card.html" %}
     </div>
 
-    {# — Checklist físico (informativo, fijo) — #}
+    {# — Requisitos de cotejo de SU convocatoria (los edita Servicios Escolares) — #}
     <div class="tt-card mt-3 tt-anim-in">
       <span class="tt-kicker"><i class="bi bi-bag-check me-1"></i>Qué llevar a tu cita</span>
       <p class="mb-2 mt-1" style="font-size:.8rem;color:var(--tt-slate)">
         Lleva todo físico el día de tu cita. No se suben aquí.</p>
       <div class="d-flex flex-column">
-        {% for icon, title, hint in checklist %}
+        {% for it in checklist %}
         <div class="d-flex align-items-start gap-3 py-2"
              {% if not loop.last %}style="border-bottom:1px solid var(--tt-line-soft)"{% endif %}>
           <span class="d-flex align-items-center justify-content-center"
                 style="width:34px;height:34px;border-radius:9px;background:var(--tt-mist);border:1px solid var(--tt-line);flex:0 0 auto">
-            <i class="bi bi-{{ icon }}" style="color:var(--tt-slate)"></i></span>
+            <i class="bi bi-{{ it.icon }}" style="color:var(--tt-slate)"></i></span>
           <div class="flex-grow-1 min-w-0">
-            <div style="font-size:.86rem;font-weight:600">{{ title }}</div>
-            <div style="font-size:.76rem;color:var(--tt-mute)">{{ hint }}</div>
+            <div style="font-size:.86rem;font-weight:600">{{ it.title }}
+              {% if not it.required %}<span class="tt-pill tt-pill--neutral">opcional</span>{% endif %}
+            </div>
+            {% if it.hint %}<div style="font-size:.76rem;color:var(--tt-mute)">{{ it.hint }}</div>{% endif %}
+            {% if it.survey_url and not it.done %}
+            <a href="{{ it.survey_url }}" class="btn btn-sm tt-btn-soft mt-2">
+              <i class="bi bi-pencil-square me-1"></i>Contestar la encuesta</a>
+            {% endif %}
           </div>
+          {% if it.done %}
+          <span class="tt-pill tt-pill--success" style="flex:0 0 auto">{{ 'Dispensado' if it.status == 'waived' else 'Listo' }}{% if it.when %} · {{ it.when }}{% endif %}</span>
+          {% endif %}
         </div>
+        {% else %}
+        <p class="mb-0" style="font-size:.8rem;color:var(--tt-mute)">
+          Servicios Escolares aún no publica los requisitos de tu convocatoria.</p>
         {% endfor %}
       </div>
     </div>

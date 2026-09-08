@@ -1,0 +1,208 @@
+"""El checklist de la cita sale de la BD, no de una constante.
+
+`_COTEJO_CHECKLIST` (pages/student.py:884-893) era un duplicado byte a byte de
+`CotejoRequirementService.DEFAULTS`: la jefa de Servicios Escolares podia editar
+la lista por convocatoria y el alumno seguia viendo la fija. Cambio visible
+aceptado por el usuario (D10).
+
+Ademas fija el invariante de §5.3: el proceso que el alumno VE aqui es el mismo
+que devuelve `ProcessService.creditable_process`, que es el que la encuesta
+ACREDITA. `DocumentService.get_active_process` no sirve: no filtra por status.
+"""
+from __future__ import annotations
+
+import pytest
+
+import itcj2.models  # noqa: F401
+
+from itcj2.apps.titulatec.services.process_service import ProcessService
+
+URL = "/titulatec/student/cita"
+
+
+@pytest.fixture()
+def alumno_en_cita(db_session, seed_phase_defs, make_student, make_cohort, make_process):
+    """Alumno en la fase 2 (la de la cita) con su convocatoria."""
+    seed_phase_defs()
+    cohort = make_cohort()
+    student = make_student()
+    process = make_process(student, cohort=cohort, current_phase=2)
+    return {"student": student, "cohort": cohort, "process": process}
+
+
+class TestCreditableProcess:
+    def test_toma_el_activo(self, db_session, alumno_en_cita):
+        esc = alumno_en_cita
+
+        assert ProcessService.creditable_process(
+            db_session, esc["student"].id).id == esc["process"].id
+
+    def test_toma_tambien_on_hold(self, db_session, alumno_en_cita):
+        esc = alumno_en_cita
+        esc["process"].status = "on_hold"
+        db_session.flush()
+
+        assert ProcessService.creditable_process(
+            db_session, esc["student"].id).id == esc["process"].id
+
+    def test_ignora_completed_y_cancelled(self, db_session, alumno_en_cita):
+        """El delta con `DocumentService.get_active_process`, que SI lo devolveria."""
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+
+        esc = alumno_en_cita
+        esc["process"].status = "completed"
+        db_session.flush()
+
+        assert ProcessService.creditable_process(db_session, esc["student"].id) is None
+        assert DocumentService.get_active_process(
+            db_session, esc["student"].id) is not None, (
+            "si esto cambia, el aviso de la docstring de creditable_process ya "
+            "no aplica y hay que reescribirlo")
+
+    def test_sin_proceso_devuelve_none(self, db_session, make_student):
+        assert ProcessService.creditable_process(db_session, make_student().id) is None
+
+    def test_desempata_por_id_cuando_created_at_empata(self, db_session, alumno_en_cita,
+                                                       make_cohort, make_process):
+        """El orden tiene que ser TOTAL, no depender del plan de Postgres.
+
+        `created_at` es `server_default NOW()` y en Postgres `now()` es la marca
+        de la TRANSACCION: dos procesos dados de alta en la misma transaccion
+        —justo lo que hace el importador de una convocatoria— traen el mismo
+        `created_at` al milisegundo. Sin el desempate por `id` el ganador lo
+        elige el plan de ejecucion y el credito de la encuesta puede aterrizar
+        en un proceso distinto del que el alumno esta viendo.
+        """
+        esc = alumno_en_cita
+        # UNIQUE(student_id, cohort_id): el segundo proceso necesita otra
+        # convocatoria (y `make_cohort` levanta su propio periodo).
+        segundo = make_process(esc["student"], cohort=make_cohort(), current_phase=1)
+        db_session.flush()
+
+        assert segundo.created_at == esc["process"].created_at, (
+            "el empate es la premisa de esta prueba; si NOW() dejo de ser el de "
+            "la transaccion hay que forzar el created_at a mano")
+        assert segundo.id > esc["process"].id
+
+        ganador = ProcessService.creditable_process(db_session, esc["student"].id)
+        assert ganador.id == segundo.id
+
+
+class TestChecklistEnLaPagina:
+    def test_muestra_los_requisitos_de_su_convocatoria(self, db_session, alumno_en_cita,
+                                                       client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        esc = alumno_en_cita
+        CotejoRequirementService.create(db_session, esc["cohort"].id,
+                                        label="Constancia inventada por la jefa",
+                                        hint="Original y dos copias", icon="book")
+
+        resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert "Constancia inventada por la jefa" in resp.text
+        assert "Original y dos copias" in resp.text
+
+    def test_ya_no_pinta_la_lista_hardcodeada(self, db_session, alumno_en_cita, client_as):
+        """Una convocatoria con UN requisito no puede mostrar los ocho de antes."""
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        esc = alumno_en_cita
+        CotejoRequirementService.create(db_session, esc["cohort"].id, label="Unico",
+                                        hint=None, icon=None)
+
+        resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+
+        assert "Unico" in resp.text
+        assert "Vigencia de derechos IMSS" not in resp.text
+
+    def test_marca_lo_que_ya_cumplio(self, db_session, alumno_en_cita, client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        from itcj2.apps.titulatec.services.requirement_service import RequirementService
+
+        esc = alumno_en_cita
+        item = CotejoRequirementService.create(db_session, esc["cohort"].id,
+                                               label="Actas de nacimiento",
+                                               hint=None, icon=None)
+        RequirementService.fulfill(db_session, esc["process"].id, item.id,
+                                   source="officer", commit=False)
+
+        resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+
+        assert "Listo" in resp.text
+
+    def test_dispensado_se_ve_distinto_de_entregado(self, db_session, alumno_en_cita,
+                                                    client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        from itcj2.apps.titulatec.services.requirement_service import RequirementService
+
+        esc = alumno_en_cita
+        item = CotejoRequirementService.create(db_session, esc["cohort"].id,
+                                               label="e.Firma", hint=None, icon=None)
+        RequirementService.fulfill(db_session, esc["process"].id, item.id,
+                                   source="officer", status="waived", commit=False)
+
+        resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+
+        assert "Dispensado" in resp.text
+
+    def test_la_encuesta_trae_su_enlace_y_lo_pierde_al_cumplirse(self, db_session,
+                                                                 alumno_en_cita, client_as):
+        """El unico requisito que el alumno puede resolver desde aqui mismo.
+
+        La convocatoria nace sin requisitos, asi que `list_or_seed` siembra los 8
+        por defecto y solo uno trae `auto_source='graduate_survey'`. La URL es la
+        del contrato (§3) y NO existe hasta la Tarea 12: entre esta tarea y
+        aquella el enlace da 404 dentro de la rama, y se escribe ya a proposito.
+        """
+        from itcj2.apps.titulatec.services.requirement_service import RequirementService
+
+        esc = alumno_en_cita
+
+        resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+        assert "/titulatec/encuesta-egresados" in resp.text
+
+        req = RequirementService.auto_requirement(db_session, esc["cohort"].id,
+                                                  "graduate_survey")
+        RequirementService.fulfill(db_session, esc["process"].id, req.id,
+                                   source="survey", commit=False)
+
+        resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+        assert "/titulatec/encuesta-egresados" not in resp.text, (
+            "ya acreditada, la invitacion a contestarla sobra")
+
+    def test_el_ctx_no_lleva_objetos_orm(self, db_session, alumno_en_cita):
+        """La plantilla se pinta DESPUES del `db.close()` de la ruta.
+
+        Si algo del contexto fuera una instancia del ORM, la plantilla tocaria
+        un atributo posiblemente expirado —`list_with_status` puede commitear al
+        sembrar— sobre un objeto ya desanclado y reventaria con
+        `DetachedInstanceError`. En el harness eso NO se ve: el `_TestSession`
+        de conftest ignora el `close()` para que el test siga vivo, asi que la
+        sesion nunca se cierra de verdad y el fallo de produccion pasa en verde.
+        Por eso el invariante se fija por la FORMA del contexto: diccionarios de
+        valores planos, cero objetos mapeados.
+        """
+        from itcj2.apps.titulatec.pages.student import _checklist_ctx
+
+        ctx = _checklist_ctx(db_session, alumno_en_cita["process"])
+
+        assert ctx, "la convocatoria sin requisitos siembra los 8 por defecto"
+        for it in ctx:
+            assert isinstance(it, dict), f"{it!r} no es un dict plano"
+            for campo, valor in it.items():
+                assert not hasattr(valor, "_sa_instance_state"), (
+                    f"'{campo}' lleva un objeto ORM hasta la plantilla")
+
+    def test_la_constante_ya_no_existe_en_el_modulo(self):
+        """Guarda contra el 'lo dejo por si acaso': el duplicado tiene que morir."""
+        from itcj2.apps.titulatec.pages import student as student_pages
+
+        assert not hasattr(student_pages, "_COTEJO_CHECKLIST")

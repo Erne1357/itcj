@@ -880,17 +880,46 @@ async def formato_b_save(
 _MONTHS_ES = ["", "ene", "feb", "mar", "abr", "may", "jun",
               "jul", "ago", "sep", "oct", "nov", "dic"]
 
-# Checklist físico (fijo) que el alumno debe llevar a la cita de cotejo.
-_COTEJO_CHECKLIST = [
-    ("file-earmark-text", "Actas de nacimiento", "Original + copias."),
-    ("card-text", "CURP certificada", "Impresión certificada (no la simple)."),
-    ("shield-check", "e.Firma (SAT)", "Constancia de situación fiscal con e.Firma vigente."),
-    ("clipboard-check", "Encuesta de egresados", "Comprobante de haberla contestado."),
-    ("book", "No-adeudo de biblioteca", "Constancia de no adeudo vigente."),
-    ("camera", "12 fotografías", "Tamaño credencial, ovaladas, B/N, fondo blanco, papel mate."),
-    ("heart-pulse", "Vigencia de derechos IMSS", "Documento que acredite vigencia."),
-    ("cash-coin", "$1,900 en efectivo", "Pago del proceso de titulación (efectivo)."),
-]
+def _checklist_ctx(db, process) -> list[dict]:
+    """Requisitos de cotejo de SU convocatoria, cruzados con lo que ya acreditó.
+
+    Sustituye a `_COTEJO_CHECKLIST`, que era un duplicado byte a byte de
+    `CotejoRequirementService.DEFAULTS`: la jefa de Servicios Escolares editaba
+    la lista por convocatoria y el alumno seguía viendo la fija.
+
+    Devuelve DICCIONARIOS PLANOS, no objetos ORM: la plantilla se renderiza
+    después del `db.close()` de la ruta y un atributo expirado sobre una
+    instancia ya desanclada lanzaría `DetachedInstanceError`.
+
+    ATENCION, y es deliberado: `list_with_status` enruta a `list_or_seed`, que
+    en una convocatoria sin requisitos configurados SIEMBRA los 8 por defecto y
+    COMMITEA. Es decir, este GET puede escribir. Se conserva a proposito porque
+    el spec 5.3 lo pide asi y porque toda convocatoria creada antes de este
+    trabajo tiene cero requisitos: una lectura no sembradora le mostraria al
+    alumno un checklist VACIO. La lectura NO sembradora es la del expediente
+    del oficial (Tarea 8), donde navegar no debe crear configuracion.
+    """
+    if process is None:
+        return []
+    from itcj2.apps.titulatec.services.requirement_service import RequirementService
+
+    out = []
+    for it in RequirementService.list_with_status(db, process.id):
+        req, ful = it["requirement"], it["fulfillment"]
+        out.append({
+            "icon": req.icon or "check2-square",
+            "title": req.label,
+            "hint": req.hint or "",
+            "required": bool(req.is_required),
+            "done": it["is_done"],
+            "status": (ful.status if ful else None),
+            "source": (ful.source if ful else None),
+            "when": (f"{ful.fulfilled_at:%d/%m/%Y}" if ful and ful.fulfilled_at else None),
+            # El único requisito que el alumno puede resolver desde aquí mismo.
+            "survey_url": ("/titulatec/encuesta-egresados"
+                           if req.auto_source == "graduate_survey" else None),
+        })
+    return out
 
 
 def _cita_label(dt) -> str:
@@ -900,10 +929,13 @@ def _cita_label(dt) -> str:
 
 
 def _cita_card_ctx(db, user_id: int) -> dict:
-    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
-    process = DocumentService.get_active_process(db, user_id)
+    # `ProcessService.creditable_process` y NO `DocumentService.get_active_process`:
+    # aquel no filtra por status pese al nombre, y esta tarjeta tiene que hablar
+    # del MISMO proceso que acredita la encuesta (§5.3 del diseño).
+    process = ProcessService.creditable_process(db, user_id)
     appt = AppointmentService.get_for_process(db, process.id) if process else None
     appt_ctx = None
     if appt:
@@ -925,19 +957,19 @@ async def cita(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.page.my"])),
 ):
-    """Página de la cita de cotejo del alumno: estado + checklist físico."""
+    """Página de la cita de cotejo del alumno: estado + requisitos de SU convocatoria."""
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.process_service import ProcessService
 
     db = SessionLocal()
     try:
         user_id = int(user["sub"])
-        process = DocumentService.get_active_process(db, user_id)
+        process = ProcessService.creditable_process(db, user_id)
         fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "review_appointment"))
         if fuera_de_fase:
             return fuera_de_fase
         ctx = _cita_card_ctx(db, user_id)
-        ctx["checklist"] = _COTEJO_CHECKLIST
+        ctx["checklist"] = _checklist_ctx(db, process)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/student/cita.html", ctx)
