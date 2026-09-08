@@ -19,6 +19,13 @@ from itcj2.apps.titulatec.models.process_event import ProcessEvent
 from itcj2.apps.titulatec.models.cohort_review_day import CohortReviewDay  # noqa: F401
 from itcj2.apps.titulatec.models.cotejo_requirement import CotejoRequirement  # noqa: F401
 from itcj2.apps.titulatec.models.review_window import ReviewWindow  # noqa: F401
+from itcj2.apps.titulatec.models.survey import (  # noqa: F401
+    SurveyForm, SurveyResponse, SurveyAnswer, SurveyDraft,
+)
+from itcj2.apps.titulatec.models.requirement_fulfillment import (  # noqa: F401
+    RequirementFulfillment,
+)
+from itcj2.apps.titulatec.models.enrollment_request import EnrollmentRequest  # noqa: F401
 
 __all__ = [
     "Modality",
@@ -39,4 +46,10 @@ __all__ = [
     "CohortReviewDay",
     "CotejoRequirement",
     "ReviewWindow",
+    "SurveyForm",
+    "SurveyResponse",
+    "SurveyAnswer",
+    "SurveyDraft",
+    "RequirementFulfillment",
+    "EnrollmentRequest",
 ]
