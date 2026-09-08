@@ -34,7 +34,14 @@ class Settings(BaseSettings):
     # de ventana de la convocatoria. Sin el bump, un navegador con caché caliente
     # sirve el CSS viejo contra el parcial nuevo y el formulario sale con los tres
     # controles estirados a toda la fila.
-    STATIC_VERSION: str = "1.0.1111521"
+    #
+    # Bump 2026-09-08 (b): la base pública de TitulaTec estrena DOS estáticos,
+    # `titulatec/css/public.css` y `titulatec/js/shared/tt-errors.js`. Como no
+    # existe `static-manifest.json` en la raíz, `sv()` cae siempre a esta
+    # constante: sin el bump, un navegador con caché caliente sirve un 404
+    # cacheado de ambos y la página pública sale sin tope de ancho y con el
+    # botón mudo ante cualquier error de HTMX.
+    STATIC_VERSION: str = "1.0.1111522"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

@@ -1,0 +1,78 @@
+{# ===========================================================================
+   base_public.html — base de las paginas PUBLICAS de TitulaTec.
+   ---------------------------------------------------------------------------
+   Extiende `titulatec/base.html` DIRECTAMENTE, no `student/base_student.html`:
+   esa instancia el shell movil del core (base_student.html:26-27, :118-121), el
+   FAB de notificaciones (:120-125) y el drawer con `current_user.name` (:31) —
+   todos asumen sesion y le renderizarian un chrome roto a un anonimo (un nombre
+   "Alumno" inventado, un boton de cerrar sesion que no tiene que cerrar y un FAB
+   pidiendo notificaciones sin token).
+
+   `base.html` renderiza `{% block content %}` DESNUDO dentro de <body> (:29):
+   esta base aporta las tres cosas que le faltan a una pagina publica.
+
+     1. Tope de ancho de lectura. `.tt-stu .tt-canvas-inner p` (titulatec.css:532)
+        esta atado a una clase que solo pone la base del alumno, asi que aqui se
+        opta por `.tt-prose` (titulatec.css:121). Sin esto, a 1920 px una
+        pregunta sale con lineas de ~200 caracteres.
+     2. Su PROPIO escucha de `htmx:responseError` y `htmx:sendError`. htmx no
+        swappea en 4xx y el escucha es por base: sin el, el boton queda mudo. Va
+        como modulo externo `js/shared/tt-errors.js` (CSS/JS inline prohibido) y
+        DECODIFICA `X-Tt-Error`, a diferencia de `student/errors.js`.
+     3. Ancla estable `<main data-tt-page="...">` para los E2E, mismo contrato
+        que `base_student.html:80`.
+
+   Bloques para hijos:
+     public_title · public_head · public_page · public_body · public_scripts
+   =========================================================================== #}
+{% extends "titulatec/base.html" %}
+
+{% block title %}{% block public_title %}TitulaTec{% endblock %}{% endblock %}
+{% block body_class %}tt-public tt-mist{% endblock %}
+
+{% block head_extra %}
+  <link rel="stylesheet"
+        href="/static/titulatec/css/public.css?v={{ sv('css/public.css') }}">
+  {% block public_head %}{% endblock %}
+{% endblock %}
+
+{% block content %}
+{# `hx-ext="morph"` va AQUI, en un contenedor que nunca entra a un swap. Si
+   viviera en el nodo que se reemplaza, la respuesta no traeria el atributo y
+   htmx caeria en silencio a `innerHTML`, anidando el destino dentro de si mismo
+   (mismo razonamiento que `admin/base_admin.html:22-28`). #}
+<div class="tt-public-shell" hx-ext="morph">
+
+  <header class="tt-public-bar">
+    <div class="tt-public-bar-inner">
+      <span class="tt-public-logo" aria-hidden="true">TT</span>
+      <div class="min-w-0">
+        <div class="tt-public-brand tt-display">TitulaTec</div>
+        <div class="tt-kicker">Instituto Tecnológico de Ciudad Juárez</div>
+      </div>
+    </div>
+  </header>
+
+  {# `.tt-prose` es el tope de LECTURA del design system; `public.css` lo eleva
+     a 60ch SOLO en este contenedor (un cuestionario lleva controles, no solo
+     párrafos) y devuelve los 48ch a los <p>, que es donde el tope importa. #}
+  <main class="tt-public-main tt-prose"
+        data-tt-page="{% block public_page %}{% endblock %}">
+    {% block public_body %}{% endblock %}
+  </main>
+
+  <footer class="tt-public-foot">
+    <p class="tt-public-foot-text">
+      ¿Dudas? Escribe a Servicios Escolares del Instituto Tecnológico de Ciudad Juárez.
+    </p>
+  </footer>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+  {# Errores de HTMX para TODA pagina publica. Al vivir en la base, cualquier
+     vista nueva lo hereda sin acordarse. #}
+  <script src="/static/titulatec/js/shared/tt-errors.js?v={{ sv('js/shared/tt-errors.js') }}"></script>
+  {% block public_scripts %}{% endblock %}
+{% endblock %}

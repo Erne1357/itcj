@@ -1,0 +1,128 @@
+/* ===========================================================================
+   public.css — capa de la base publica de TitulaTec.
+   Carga DESPUES de titulatec.css y solo usa sus tokens; no redefine ninguno.
+   Motion: nunca ease-in, nunca transition all, solo transform/opacity, <300ms.
+   =========================================================================== */
+
+.tt-public-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--tt-mist);
+}
+
+/* ------------------------------- barra ---------------------------------- */
+.tt-public-bar {
+  background: var(--tt-paper);
+  border-bottom: 1px solid var(--tt-line);
+}
+
+.tt-public-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-sp-3);
+  max-width: 72rem;
+  margin-inline: auto;
+  padding: var(--tt-sp-3) clamp(16px, 4vw, 44px);
+}
+
+.tt-public-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: var(--tt-r-sm);
+  background: var(--tt-ink);
+  color: #fff;
+  font-family: var(--tt-display);
+  font-size: var(--tt-fs-100);
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+
+.tt-public-brand {
+  font-size: var(--tt-fs-300);
+  font-weight: 600;
+  color: var(--tt-text-1);
+  line-height: 1.2;
+}
+
+/* ------------------------- columna de contenido -------------------------- */
+/* La base opta por `.tt-prose` (titulatec.css:121, max-width 48ch), que es el
+   tope de LECTURA del design system. Un cuestionario, ademas de parrafos, lleva
+   controles: radios en fila, selects, un input de correo con su etiqueta. A
+   48ch quedan apretados, asi que aqui el tope sube a 60ch —sigue siendo prosa,
+   no una caja de 1920 px— y los parrafos recuperan sus 48ch, que es donde el
+   tope de lectura de verdad importa. Con esto se cumple el criterio 13: a 1440
+   y 1920 el texto no se estira. */
+.tt-public-main.tt-prose {
+  max-width: 60ch;
+  width: 100%;
+  margin-inline: auto;
+  padding: clamp(20px, 4vw, 40px) clamp(16px, 4vw, 24px);
+  flex: 1 0 auto;
+}
+
+.tt-public-main p {
+  max-width: 48ch;
+}
+
+/* Ningun control puede desbordar la columna: el invariante duro del proyecto es
+   documentElement.scrollWidth <= window.innerWidth en los 6 viewports. */
+.tt-public-main img,
+.tt-public-main input,
+.tt-public-main select,
+.tt-public-main textarea {
+  max-width: 100%;
+}
+
+/* --------------------------- aviso de anonimo ---------------------------- */
+/* AQUI NO VA NINGUNA REGLA, y es deliberado. El banner persistente de la
+   seccion 6.1 (sin sesion la respuesta cuenta para la estadistica pero NO
+   entra al expediente) lo pinta la tarea de la encuesta publica con
+   `tt-card tt-card--accent`, y `titulatec.css:140` ya le da EXACTAMENTE ese
+   fondo (var con el ambar suave) y ese borde. Una clase propia
+   `.tt-public-notice` aqui seria CSS muerto —nadie la aplica— y duplicaria el
+   token ambar en dos archivos. Si algun dia hace falta ajustar el banner, se
+   ajusta la tarjeta, no se abre una segunda clase. */
+
+/* ------------------------------ honeypot --------------------------------- */
+/* Campo trampa (E3). Fuera del flujo y fuera del arbol de accesibilidad: un
+   `display:none` lo saltan mas bots que esto, y un lector de pantalla no debe
+   anunciarlo jamas.
+
+   PROHIBIDO cambiar esto por `display:none` o por el atributo `hidden`. El E2E
+   de la trampa lo mide con `boundingBox()` (`x + width < 0`), NO con
+   `toBeHidden()`, precisamente porque para Playwright una caja de 1x1 en
+   `left:-9999px` sigue siendo VISIBLE. Esconderlo de verdad rompe esa spec y
+   ademas anula la trampa. */
+.tt-public-hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* --------------------------------- pie ----------------------------------- */
+.tt-public-foot {
+  border-top: 1px solid var(--tt-line);
+  background: var(--tt-paper);
+  padding: var(--tt-sp-4) clamp(16px, 4vw, 44px);
+}
+
+.tt-public-foot-text {
+  max-width: 72rem;
+  margin: 0 auto;
+  font-size: var(--tt-fs-100);
+  color: var(--tt-text-3);
+}
+
+/* ------------------------------ movil ------------------------------------ */
+@media (max-width: 575.98px) {
+  .tt-public-bar-inner { padding-block: var(--tt-sp-2); }
+  .tt-public-main.tt-prose { padding-top: var(--tt-sp-5); }
+}
