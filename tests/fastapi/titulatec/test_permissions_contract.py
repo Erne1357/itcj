@@ -22,8 +22,17 @@ Como se extrae cada lado
   Se usa AST y no regex para no confundir codigos de permiso con los `name=`
   de las rutas, que tienen la misma forma (`titulatec.pages.admin.home`).
 - **DML**: los `('codigo', ...)` de los `INSERT INTO core_permissions` de
-  `database/DML/titulatec/*.sql` (02 los declara todos; 07 anade
-  `cohort.api.cotejo_reqs`).
+  `database/DML/titulatec/**/*.sql` (02 los declara todos; 07 anade
+  `cohort.api.cotejo_reqs`; 08 anade los tres de `review_window.*`; el delta
+  `survey_2026_09/09_insert_survey_perms.sql` anade los ocho de la campana de
+  encuesta de egresados). `_declared_by_dml()` usa `DML_DIR.rglob("*.sql")`,
+  no `glob("*.sql")`, precisamente para alcanzar los archivos dentro de
+  subcarpetas de delta como `survey_2026_09/` — es el patron establecido para
+  no tocar `03_insert_role_permissions.sql` (sus DELETE se re-aplican en cada
+  corrida y revocarian cualquier permiso agregado ahi). Si alguien "simplifica"
+  el `rglob` de vuelta a `glob`, los codigos de cualquier delta futuro en su
+  propia subcarpeta se vuelven invisibles para este contrato sin que nadie lo
+  note: NO LO HAGAS.
 
 `database/` esta gitignored a proposito y NUNCA llega al checkout de CI: si no
 esta, el test hace SKIP con motivo, no falla.
@@ -126,7 +135,7 @@ def _declared_by_dml() -> dict[str, str]:
     # Filas de la forma: (v_app_id, 'titulatec.x.y.z', 'Nombre', 'Desc')
     row_re = re.compile(r"\(\s*v_app_id\s*,\s*'([^']+)'")
 
-    for path in sorted(DML_DIR.glob("*.sql")):
+    for path in sorted(DML_DIR.rglob("*.sql")):
         sql = path.read_text(encoding="utf-8")
         if not insert_re.search(sql):
             continue
@@ -169,27 +178,31 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
     assert not faltantes, (
         "Permisos exigidos por el codigo que NINGUN seeder inserta -> 403 "
-        "permanente. Agregalos a database/DML/titulatec/02_insert_permissions.sql "
-        f"y asignalos en 03_insert_role_permissions.sql:\n{faltantes}"
+        "permanente. Para esta campana van en su propio delta: agregalos a "
+        "database/DML/titulatec/survey_2026_09/09_insert_survey_perms.sql "
+        "y asignalos en survey_2026_09/10_insert_survey_role_permissions.sql "
+        f"(NUNCA en 03_insert_role_permissions.sql, ver docstring del modulo):\n{faltantes}"
     )
 
 
 @requires_dml
-def test_el_dml_declara_los_69_permisos_conocidos():
+def test_el_dml_declara_los_77_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    69 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 66
-    hasta el 2026-09-03, cuando el rediseno de Citas anadio los tres de
-    `review_window.*` en su propio archivo 08 (aparte del 03, que lleva DELETE
-    que se re-aplican en cada corrida).
+    77 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 69
+    hasta el 2026-09-07, cuando la campana de encuesta de egresados anadio
+    ocho codigos en su propio delta `survey_2026_09/09_insert_survey_perms.sql`
+    (aparte del 03, que lleva DELETE que se re-aplican en cada corrida). Antes
+    de eso eran 66 hasta el 2026-09-03, cuando el rediseno de Citas anadio los
+    tres de `review_window.*` en su propio archivo 08.
 
     Si baja, alguien recorto un seeder; si sube, este numero se actualiza junto
     con la doc.
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 69, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 69. "
+    assert len(declared) == 77, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 77. "
         "Actualiza este numero SOLO si el cambio en database/DML/titulatec/ es "
         f"intencional. Declarados: {sorted(declared)}"
     )
