@@ -105,6 +105,84 @@
   {% else %}
   <p class="tt-exp-vacio">Todavía no tiene cita de cotejo.</p>
   {% endif %}
+  {# ---- checklist de requisitos de cotejo (§5.4) --------------------------
+     Los requisitos SIN `auto_source` los marca el oficial aquí; es el único
+     camino que abre la guarda de la fase 2. Los que TIENEN `auto_source` los
+     acredita el sistema (hoy, la encuesta de egresados) y van en SOLO LECTURA
+     con su origen: marcarlos a mano rompería la trazabilidad de `external_ref`
+     y la ruta los rechaza con 400.
+
+     La URL de acción lleva `zona` como todas las de este shell: sin ella el
+     swap vuelve con otro documento abierto y con Regresar apuntando a Procesos
+     (lo documenta la cabecera de `_exp_shell.html`).
+
+     Por qué `hx-post` está en el form Y en cada botón: htmx 2 no hereda los
+     verbos, así que un botón dentro del form no dispara nada por sí mismo; el
+     del form cubre el Enter dentro de la nota (la ruta toma `mark` por
+     omisión) y el de cada botón lleva su `hx-vals` con la acción. La nota se
+     serializa sola: htmx incluye el form contenedor en toda petición que no
+     sea GET. #}
+  <div class="tt-exp-reqs mt-3">
+    <span class="tt-kicker">
+      <i class="bi bi-check2-square me-1" aria-hidden="true"></i>Requisitos de cotejo</span>
+    {% if requisitos %}
+    <div class="d-flex flex-column gap-2 mt-2">
+      {% for r in requisitos %}
+      <div class="tt-card d-flex align-items-start gap-3">
+        <span class="d-flex align-items-center justify-content-center"
+              style="width:32px;height:32px;border-radius:9px;background:var(--tt-mist);border:1px solid var(--tt-line);flex:0 0 auto">
+          <i class="bi bi-{{ r.icon }}" style="color:var(--tt-slate)" aria-hidden="true"></i></span>
+        <div class="flex-grow-1">
+          <div style="font-size:.86rem;font-weight:600">
+            {{ r.label }}
+            {% if not r.required %}<span class="tt-pill tt-pill--neutral">opcional</span>{% endif %}
+            {% if r.status == 'waived' %}<span class="tt-pill tt-pill--neutral">dispensado</span>
+            {% elif r.done %}<span class="tt-pill tt-pill--success">acreditado</span>{% endif %}
+          </div>
+          {% if r.hint %}
+          <div style="font-size:.76rem;color:var(--tt-mute)">{{ r.hint }}</div>
+          {% endif %}
+          {% if r.when %}
+          <div style="font-size:.76rem;color:var(--tt-mute)">
+            {{ r.when }}{% if r.source %} · {{ r.source }}{% endif %}{% if r.note %} — {{ r.note }}{% endif %}
+          </div>
+          {% endif %}
+          {% if r.auto_source %}
+          <div style="font-size:.76rem;color:var(--tt-mute)">
+            Lo acredita el sistema ({{ r.auto_source }}); no se marca a mano.</div>
+          {% endif %}
+        </div>
+        {% if can_mark_reqs and not r.auto_source %}
+        <form class="d-flex flex-wrap align-items-center gap-2"
+              hx-post="/titulatec/admin/processes/{{ process.id }}/requisitos/{{ r.id }}{{ ('?' ~ zona) if zona }}"
+              hx-target="#exp-shell" hx-swap="morph:outerHTML">
+          <input name="note" class="form-control form-control-sm" style="max-width:180px"
+                 value="{{ r.note or '' }}" placeholder="Nota (opcional)"
+                 aria-label="Nota del requisito {{ r.label }}">
+          {% if r.done %}
+          <button type="button" class="btn btn-sm tt-btn-ghost"
+                  hx-post="/titulatec/admin/processes/{{ process.id }}/requisitos/{{ r.id }}{{ ('?' ~ zona) if zona }}"
+                  hx-vals='{"action":"unmark"}'>
+            <i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i>Desmarcar</button>
+          {% else %}
+          <button type="button" class="btn btn-sm tt-btn-ink"
+                  hx-post="/titulatec/admin/processes/{{ process.id }}/requisitos/{{ r.id }}{{ ('?' ~ zona) if zona }}"
+                  hx-vals='{"action":"mark"}'>
+            <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Marcar</button>
+          <button type="button" class="btn btn-sm tt-btn-soft"
+                  hx-post="/titulatec/admin/processes/{{ process.id }}/requisitos/{{ r.id }}{{ ('?' ~ zona) if zona }}"
+                  hx-vals='{"action":"waive"}'>
+            <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>Dispensar</button>
+          {% endif %}
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="tt-exp-vacio">Esta convocatoria todavía no tiene requisitos configurados.</p>
+    {% endif %}
+  </div>
   <div class="tt-exp-acciones">
     <a class="btn btn-sm tt-btn-ghost"
        href="/titulatec/admin/appointments?v=atender&selected={{ process.id }}">

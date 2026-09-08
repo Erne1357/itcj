@@ -816,6 +816,8 @@ _EVENT_UI = {
     "document_deleted":             ("Documento eliminado",       "trash",                  "danger"),
     "phase_approved":               ("Fase aprobada",             "check-circle",           "success"),
     "phase_rejected":               ("Fase rechazada",            "exclamation-triangle",   "danger"),
+    "requirement_fulfilled":        ("Requisito acreditado",      "check2-square",          "success"),
+    "requirement_unfulfilled":      ("Requisito desmarcado",      "square",                 "amber"),
     "process_completed":            ("Proceso completado",        "trophy",                 "success"),
     "appointment_scheduled":        ("Cita agendada",             "calendar-plus",          "neutral"),
     "appointment_confirmed":        ("El alumno confirmó",        "check2-circle",          "success"),
@@ -907,6 +909,16 @@ def _evento_detalle(ev, doc_names: dict) -> str | None:
     trozo se añade solo si está.
     """
     p = ev.payload or {}
+    # Los sucesos de requisito traen `label` (la etiqueta congelada al
+    # acreditar) y un `source` que aqui significa QUIEN acredito
+    # (officer|system|self_service), no el origen del alta. `unfulfill` guarda
+    # ese dato como `source_previo`, que es lo unico que sobrevive al borrado.
+    if ev.event_type in ("requirement_fulfilled", "requirement_unfulfilled"):
+        etiqueta = p.get("label") or p.get("code")
+        origen = {"officer": "en ventanilla", "system": "por el sistema",
+                  "self_service": "por el alumno"}.get(
+                      p.get("source") or p.get("source_previo"))
+        return " · ".join([x for x in (etiqueta, origen) if x]) or None
     partes = []
     code = p.get("type_code")
     if code:
@@ -932,8 +944,8 @@ def _evento_detalle(ev, doc_names: dict) -> str | None:
     return texto or None
 
 
-def _detail_ctx(db, process_id: int, *, open_phase=None, back_raw=None,
-                doc_abierto=None) -> dict | None:
+def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=None,
+                back_raw=None, doc_abierto=None) -> dict | None:
     """El expediente completo en un número FIJO de consultas.
 
     Antes esto pedía un `DocumentType` por cada código dentro de un bucle, y no
@@ -1054,6 +1066,55 @@ def _detail_ctx(db, process_id: int, *, open_phase=None, back_raw=None,
         formato_b = {"status": fb_row.status, "datos": FormatBService.to_ctx(fb_row),
                      "program_name": program.name if program else None}
 
+    # ---- requisitos de cotejo de la fase 2 (§5.4) ----
+    #
+    # Lectura NO SEMBRADORA a proposito. `RequirementService.list_with_status`
+    # enruta a `CotejoRequirementService.list_or_seed` -> `seed_defaults(
+    # commit=True)`: un simple GET del expediente COMMITEARIA ocho filas en la
+    # convocatoria del alumno. Aqui se copia la forma de consulta de
+    # `RequirementService.missing_required`, que ya es la no sembradora, y se
+    # deja la siembra donde pertenece (crear la convocatoria y acreditar la
+    # encuesta).
+    from itcj2.apps.titulatec.models import CotejoRequirement, RequirementFulfillment
+    from itcj2.apps.titulatec.services.requirement_service import DONE_STATUSES
+
+    req_rows = (db.query(CotejoRequirement)
+                .filter_by(cohort_id=proc.cohort_id, is_active=True)
+                .order_by(CotejoRequirement.order_index, CotejoRequirement.id)
+                .all())
+    cumplidos = {
+        f.requirement_id: f for f in
+        db.query(RequirementFulfillment).filter_by(process_id=process_id).all()
+    }
+    # Diccionarios PLANOS, no objetos ORM: `process_detail` renderiza DESPUES de
+    # su `db.close()` y un atributo expirado sobre una instancia desanclada
+    # lanzaria `DetachedInstanceError` (misma razon que `_checklist_ctx` del
+    # alumno en `pages/student.py`).
+    requisitos = []
+    for r in req_rows:
+        ful = cumplidos.get(r.id)
+        requisitos.append({
+            "id": r.id,
+            "icon": r.icon or "check2-square",
+            "label": r.label,
+            "hint": r.hint or "",
+            "required": bool(r.is_required),
+            "auto_source": r.auto_source,
+            "done": bool(ful is not None and ful.status in DONE_STATUSES),
+            "status": (ful.status if ful else None),
+            "source": (ful.source if ful else None),
+            "note": (ful.note if ful else None),
+            "when": (f"{ful.fulfilled_at:%d/%m/%Y}" if ful and ful.fulfilled_at else None),
+        })
+
+    # Los controles se pintan solo para quien puede usarlos: un boton que
+    # contesta 403 es peor que no estar. Mismo patron que `cohort_detail`.
+    can_mark_reqs = False
+    if user_id is not None:
+        from itcj2.core.services.authz_service import get_user_permissions_for_app
+        can_mark_reqs = ("titulatec.process.api.requirement.mark"
+                         in get_user_permissions_for_app(db, user_id, "titulatec"))
+
     appt = AppointmentService.get_for_process(db, process_id)
     return {
         "process": proc.to_dict(),
@@ -1082,6 +1143,8 @@ def _detail_ctx(db, process_id: int, *, open_phase=None, back_raw=None,
                  if appt else None),
         "formato_b": formato_b,
         "otros_eventos": sin_fase,
+        "requisitos": requisitos,
+        "can_mark_reqs": can_mark_reqs,
     }
 
 
@@ -1254,17 +1317,17 @@ async def process_detail(
         # puede devolver None a partir de aqui.
         assert_process_in_scope(db, int(user["sub"]), process_id)
         params = _exp_params(request)
-        ctx = _detail_ctx(db, process_id, **params)
+        ctx = _detail_ctx(db, process_id, user_id=int(user["sub"]), **params)
         ctx["zona"] = _exp_query(params)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/process_detail.html", ctx)
 
 
-def _render_detail_body(request, db, process_id):
+def _render_detail_body(request, db, process_id, user_id: int | None = None):
     """El cuerpo del expediente re-renderizado tras una acción (swap HTMX)."""
     params = _exp_params(request)
-    ctx = _detail_ctx(db, process_id, **params)
+    ctx = _detail_ctx(db, process_id, user_id=user_id, **params)
     ctx["zona"] = _exp_query(params)
     return render_titulatec(request, "titulatec/partials/processes/_exp_shell.html", ctx)
 
@@ -1291,7 +1354,7 @@ async def fb_review(
         fb = db.get(FormatB, process_id)
         if fb:
             FormatBService.review(db, fb, status=status, note=note, reviewer_id=int(user["sub"]))
-        return _render_detail_body(request, db, process_id)
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
     finally:
         db.close()
 
@@ -1316,7 +1379,7 @@ async def phase_approve(
             PhaseService.approve_phase(db, proc, n, int(user["sub"]))
         except ValueError as exc:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
-        return _render_detail_body(request, db, process_id)
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
     finally:
         db.close()
 
@@ -1347,6 +1410,85 @@ async def phase_reject(
             PhaseService.reject_phase(db, proc, n, int(user["sub"]), reason)
         except ValueError as exc:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
-        return _render_detail_body(request, db, process_id)
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
+    finally:
+        db.close()
+
+
+@router.post("/processes/{process_id}/requisitos/{rid}",
+             name="titulatec.pages.admin.process_requirement")
+async def process_requirement(
+    process_id: int,
+    rid: int,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.process.api.requirement.mark"])),
+):
+    """El oficial marca, dispensa o desmarca un requisito de cotejo del alumno.
+
+    `action` ∈ ``mark`` | ``waive`` | ``unmark``; `note` es libre y es lo que se
+    guarda como justificación de la dispensa.
+
+    **Permiso NUEVO** (`titulatec.process.api.requirement.mark`). El
+    `titulatec.process.api.review` que se había supuesto NO existe en el repo:
+    como `require_page_app` resuelve el código contra `core_permissions` y no
+    tiene bypass de admin global, exigirlo habría dado 403 a todo el mundo y
+    dejado la fase 2 permanentemente inaprobable. Se otorga a
+    `titulatec_school_services` y a `titulatec_school_services_head`: quien usa
+    el checklist en ventanilla es el encargado operativo, no solo la jefa.
+
+    Quién acreditó queda en `checked_by_id`, que es el campo donde `fulfill`
+    escribe la identidad del oficial.
+
+    Los requisitos con `auto_source` son de SOLO LECTURA aquí: los acredita el
+    sistema (hoy, la encuesta de egresados) y marcarlos a mano rompería la
+    trazabilidad de `external_ref`.
+
+    Devuelve el cuerpo del expediente re-renderizado, igual que aprobar/rechazar
+    fase: el checklist se pinta en `_exp_phase.html` (rama de la fase 2), que
+    `_exp_shell.html` incluye por fase, y el swap es del shell entero, no de la
+    fila.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import CotejoRequirement
+    from itcj2.apps.titulatec.services.requirement_service import RequirementService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    form = dict(await request.form())
+    accion = (form.get("action") or "mark").strip()
+    # `note` AUSENTE = «no lo mandes, conserva lo que haya»; `note` VACÍO =
+    # «borra la nota». La distinción es deliberada: `RequirementService.fulfill`
+    # lee `None` como "el llamador no lo manda" y conserva el valor anterior,
+    # así que normalizar el campo vacío a `None` dejaría al oficial sin forma de
+    # corregir una nota equivocada salvo desmarcando y volviendo a marcar. El
+    # formulario del checklist SIEMPRE envía el input, así que vaciarlo borra.
+    nota = form["note"].strip() if "note" in form else None
+
+    db = SessionLocal()
+    try:
+        # El guard sustituye al `db.get` + 404 y ademas comprueba que el proceso
+        # sea de una carrera del usuario. 404 uniforme, sin `X-Tt-Error`: el id
+        # es secuencial y un 403 convertiria la ruta en un contador del padron.
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+
+        req = (db.query(CotejoRequirement)
+               .filter_by(id=rid, cohort_id=proc.cohort_id).first())
+        if req is None:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "Ese requisito no es de la convocatoria del alumno.")})
+        if req.auto_source:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "Ese requisito lo acredita el sistema; no se marca a mano.")})
+
+        if accion == "unmark":
+            RequirementService.unfulfill(db, process_id, rid,
+                                         actor_id=int(user["sub"]))
+        else:
+            RequirementService.fulfill(
+                db, process_id, rid, source="officer",
+                checked_by_id=int(user["sub"]), note=nota,
+                status=("waived" if accion == "waive" else "fulfilled"),
+            )
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
     finally:
         db.close()
