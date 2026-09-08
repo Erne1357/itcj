@@ -957,14 +957,27 @@ async def cita(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.page.my"])),
 ):
-    """Página de la cita de cotejo del alumno: estado + requisitos de SU convocatoria."""
+    """Página de la cita de cotejo del alumno: estado + requisitos de SU convocatoria.
+
+    Sin proceso acreditable se redirige al dashboard. `_phase_guard_page` deja
+    pasar el `None` a propósito, y antes eso nunca ocurría porque el selector
+    viejo devolvía un proceso pasara lo que pasara; `creditable_process` sí puede
+    no devolver ninguno, y entonces el alumno caía en la página vacía con una
+    copia que le decía que faltaba configurar su convocatoria. Todo el alumno
+    tiene un solo contrato —solo la fase en curso, solo con el proceso `active`—
+    y quien no tiene trámite vivo no tiene fase en curso: ninguna página del
+    alumno es suya. Es lo que ya hacen `/student/documents` y sus hermanas.
+    """
     from itcj2.database import SessionLocal
+    from fastapi.responses import RedirectResponse
     from itcj2.apps.titulatec.services.process_service import ProcessService
 
     db = SessionLocal()
     try:
         user_id = int(user["sub"])
         process = ProcessService.creditable_process(db, user_id)
+        if process is None:
+            return RedirectResponse(_DASHBOARD_URL, status_code=302)
         fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "review_appointment"))
         if fuera_de_fase:
             return fuera_de_fase

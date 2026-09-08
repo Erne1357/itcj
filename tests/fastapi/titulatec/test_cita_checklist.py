@@ -208,6 +208,66 @@ class TestChecklistEnLaPagina:
         assert not hasattr(student_pages, "_COTEJO_CHECKLIST")
 
 
+class TestSinTramiteVivoNoHayPagina:
+    """Sin proceso acreditable, `/student/cita` manda al dashboard.
+
+    `_phase_guard_page` deja pasar el `None` a proposito, y con el selector viejo
+    eso jamas ocurria: devolvia un proceso hubiera lo que hubiera, asi que la
+    guarda siempre tenia algo que rechazar. `creditable_process` si puede no
+    devolver ninguno, y sin este redirect el egresado aterrizaba en la pagina
+    vacia leyendo que «Servicios Escolares aun no publica los requisitos de tu
+    convocatoria», que para el es falso. Un solo contrato en todo el alumno:
+    quien no tiene tramite vivo no tiene fase en curso y no le toca ninguna
+    pagina, que es lo que ya hace `/student/documents`.
+    """
+
+    @pytest.mark.parametrize("status", ["completed", "cancelled"])
+    def test_un_tramite_cerrado_no_abre_la_pagina(self, status, db_session, seed_phase_defs,
+                                                  make_student, make_cohort, make_process,
+                                                  client_as):
+        seed_phase_defs()
+        student = make_student()
+        make_process(student, cohort=make_cohort(), current_phase=2, status=status)
+        db_session.flush()
+
+        resp = client_as(student).get(URL, follow_redirects=False)
+
+        assert resp.status_code == 302, (
+            f"[{status}] la pagina se pinto vacia en vez de redirigir")
+        assert resp.headers["location"] == "/titulatec/student/dashboard"
+
+    def test_sin_ningun_proceso_tampoco(self, db_session, seed_phase_defs, make_student,
+                                        client_as):
+        seed_phase_defs()
+
+        resp = client_as(make_student()).get(URL, follow_redirects=False)
+
+        assert resp.status_code == 302
+        assert resp.headers["location"] == "/titulatec/student/dashboard"
+
+    def test_on_hold_va_al_acordeon_de_su_fase(self, db_session, seed_phase_defs,
+                                               make_student, make_cohort, make_process,
+                                               client_as):
+        """Otro redirect y por otro motivo: aqui SI hay proceso, pero congelado.
+
+        `on_hold` es acreditable (D5: conserva folio, cohorte y rutas, y la
+        encuesta puede darle credito) pero no accionable —`assert_student_can_act`
+        exige `active`—, asi que lo atiende `_phase_guard_page` y manda al
+        acordeon de SU fase, con `?fase=`. No lo pineaba ningun test.
+        """
+        seed_phase_defs()
+        student = make_student()
+        make_process(student, cohort=make_cohort(), current_phase=2, status="on_hold")
+        db_session.flush()
+
+        resp = client_as(student).get(URL, follow_redirects=False)
+
+        assert resp.status_code == 302
+        assert resp.headers["location"] == "/titulatec/student/dashboard?fase=2", (
+            "un proceso congelado NO es un proceso ausente: conserva su fase y el "
+            "redirect tiene que llevar al acordeon de esa fase")
+
+
 class TestLaPaginaYSusBotonesHablanDelMismoProceso:
     """La cita que el alumno VE y la que sus botones tocan tienen que ser UNA.
 
