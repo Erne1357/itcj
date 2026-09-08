@@ -14,6 +14,7 @@ Tres cosas que estaban a medio cablear:
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 import itcj2.models  # noqa: F401
 
@@ -83,6 +84,14 @@ class TestDelete:
 
     def test_se_niega_si_alguien_ya_lo_cumplio(self, db_session, make_cohort,
                                                make_student, make_process):
+        """Sin la guarda esto NO es un `(False, ...)`: es un 500 en la cara del usuario.
+
+        El `except` no es defensivo ni afloja la prueba —por el camino bueno
+        `delete()` vuelve antes de tocar la tabla y nunca se ejecuta—: convierte
+        el `IntegrityError` que la FK `ON DELETE RESTRICT` escupe cuando se quita
+        la guarda en una asercion sobre el valor devuelto. Asi, quien rompa esto
+        lee "falta la guarda" en vez de un traceback de Postgres.
+        """
         from itcj2.apps.titulatec.services.requirement_service import RequirementService
 
         cohort = make_cohort()
@@ -92,11 +101,22 @@ class TestDelete:
         RequirementService.fulfill(db_session, process.id, item.id,
                                    source="officer", commit=False)
 
-        ok, motivo = CotejoRequirementService.delete(db_session, item.id, cohort.id)
+        try:
+            resultado = CotejoRequirementService.delete(db_session, item.id, cohort.id)
+        except IntegrityError:
+            db_session.rollback()   # deja la sesion usable para las aserciones
+            resultado = ("BORRO A CIEGAS -> IntegrityError de la FK "
+                         "titulatec_requirement_fulfillments.requirement_id")
 
-        assert ok is False
-        assert motivo == "fulfilled:1"
-        assert [r.id for r in CotejoRequirementService.list(db_session, cohort.id)] == [item.id]
+        assert resultado == (False, "fulfilled:1"), (
+            "`delete()` debe CONTAR los cumplimientos antes del `db.delete` y "
+            "negarse. La FK es ON DELETE RESTRICT a proposito (borrar la lista "
+            "no puede destruir el credito de quien ya cumplio), asi que sin esa "
+            "guarda la UI recibe un IntegrityError crudo, es decir un 500."
+        )
+        assert [r.id for r in CotejoRequirementService.list(db_session, cohort.id)] == [item.id], (
+            "El requisito cumplido sobrevive al intento de borrado."
+        )
 
     def test_inexistente(self, db_session, make_cohort):
         cohort = make_cohort()
@@ -122,3 +142,59 @@ class TestCohortCreate:
         cohort = db_session.query(Cohort).filter_by(period_id=periodo.id).one()
         assert cohort.status == "draft"
         assert len(CotejoRequirementService.list(db_session, cohort.id)) == len(DEFAULTS)
+
+    def test_la_ruta_es_duena_de_la_transaccion_y_seed_no_commitea(
+            self, db_session, client_as, make_head, make_period, monkeypatch):
+        """Quien cierra la transaccion es `cohort_create`, no `seed_defaults`.
+
+        El test de arriba NO ve esto: hoy no hay ni una sentencia entre el
+        `seed_defaults` y el `commit()` final, asi que con `commit=True` el
+        estado final en BD es identico —el commit del callee persiste todo y el
+        del caller es un no-op— y los 511 tests de la app siguen verdes. La
+        atomicidad se sostiene por accidente del hueco vacio, no por estructura.
+
+        En cuanto alguien meta algo en ese hueco (otra consulta, una
+        notificacion, una validacion mas), un fallo ahi dejaria COMMITEADA una
+        convocatoria a medias: el `Cohort(status='draft')` y sus 8 requisitos en
+        disco, todo lo posterior revertido y un 500 para el usuario. Datos
+        huerfanos en silencio, no un crash. Por eso aqui no se fija el estado
+        final sino QUIEN llama a `commit()`.
+        """
+        import sys
+
+        jefa = make_head(perm_codes=("titulatec.cohort.api.create",))
+        periodo = make_period()
+
+        commit_real = db_session.commit
+        pilas: list[list[str]] = []
+
+        def commit_espiado():
+            pila, marco = [], sys._getframe(1)
+            while marco is not None:
+                pila.append(marco.f_code.co_name)
+                marco = marco.f_back
+            pilas.append(pila)
+            return commit_real()
+
+        # Mismo idiom que `test_sin_commit_no_commitea`: el handler recibe un
+        # proxy de ESTA sesion (`_TestSession.__getattr__`), asi que el parche
+        # sobre la instancia lo alcanza.
+        monkeypatch.setattr(db_session, "commit", commit_espiado)
+
+        resp = client_as(jefa).post("/titulatec/admin/cohorts",
+                                    data={"period_id": periodo.id},
+                                    follow_redirects=False)
+
+        assert resp.status_code == 303, resp.text[:300]
+        assert [p for p in pilas if "seed_defaults" in p] == [], (
+            "`seed_defaults` commiteo por su cuenta dentro de `cohort_create`. "
+            "Debe llamarse con commit=False: la ruta es la duena de la "
+            "transaccion, y devolverle esa frontera al callee hace que un fallo "
+            "posterior deje media convocatoria persistida."
+        )
+        # Contraparte positiva: si nadie commiteara, la asercion de arriba
+        # pasaria vacia y no probaria nada.
+        assert [p for p in pilas if "cohort_create" in p], (
+            "Nadie commiteo la creacion de la convocatoria; el espia no vio la "
+            "transaccion que se pretende fijar."
+        )
