@@ -52,7 +52,14 @@ class Settings(BaseSettings):
     # bump, quien ya tenía la página pública abierta en caché sirve un 404
     # cacheado del script y se queda sin autoguardado ni fusión del borrador
     # local, en silencio -sin ningún error visible en pantalla-.
-    STATIC_VERSION: str = "1.0.1111524"
+    #
+    # Bump 2026-09-10 (b): la Tarea 14 hace que `auth.js` honre `?next=` (login
+    # a media encuesta de egresados, TitulaTec) y `login.html` estrena el
+    # atributo `data-next`. Sin el bump, quien ya tiene `/itcj/login` en caché
+    # sigue sirviendo el `auth.js` viejo, que ignora `data-next` y manda
+    # siempre a la home por rol: el `?next=` del banner de la encuesta se ve
+    # en el HTML pero no se usa.
+    STATIC_VERSION: str = "1.0.1111525"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
