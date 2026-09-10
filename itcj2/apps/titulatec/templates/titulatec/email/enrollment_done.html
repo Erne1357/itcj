@@ -1,0 +1,21 @@
+{% extends "titulatec/email/_base_email.html" %}
+{% block titulo %}Tu inscripción quedó registrada — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ user.full_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  Confirmaste tu correo y quedaste inscrito al proceso de titulación. Este es tu folio:
+</p>
+<p style="margin:0 0 24px;text-align:center;">
+  <span style="display:inline-block;border:1px solid #CFD8DC;border-radius:6px;padding:14px 28px;font-size:20px;font-weight:700;color:#1F3D7A;letter-spacing:1px;">
+    {{ process.folio|e }}</span>
+</p>
+<p style="margin:0 0 24px;">
+  Entra a la plataforma con tu número de control <strong>{{ req.control_number|e }}</strong>
+  y empieza subiendo tus documentos iniciales.
+</p>
+<p style="margin:0 0 8px;text-align:center;">
+  <a href="{{ app_url|e }}"
+     style="display:inline-block;background-color:#1F3D7A;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:6px;font-weight:700;">
+    Ir a mi proceso</a>
+</p>
+{% endblock %}
