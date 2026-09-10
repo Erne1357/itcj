@@ -224,3 +224,36 @@ def test_una_plantilla_rota_no_tumba_nada(db_session, solicitud, correo_falso,
 
     assert email_helper.TitulaTecEmailHelper.send_enrollment_rejected(db_session, req) is False
     assert correo_falso == []
+
+
+def test_already_enrolled_lleva_el_folio(db_session, make_student, make_process,
+                                         correo_falso):
+    """El alumno ya tiene proceso abierto: su folio viaja en el correo."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    alumno = make_student(control_number="99123458")
+    proceso = make_process(student=alumno)
+
+    ok = TitulaTecEmailHelper.send_already_enrolled(db_session, alumno, proceso)
+
+    assert ok is True
+    _asunto, _dest, html = correo_falso[0]
+    assert proceso.folio in html
+    assert "proceso de titulación" in html.lower()
+
+
+def test_enrollment_done_lleva_el_folio(db_session, make_student, make_process,
+                                        solicitud, correo_falso):
+    """Tras verificación: el folio del nuevo proceso."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    alumno = make_student(control_number="99123459")
+    proceso = make_process(student=alumno)
+    req = solicitud(control_number="99123459", kind="known", status="verified")
+
+    ok = TitulaTecEmailHelper.send_enrollment_done(db_session, req, proceso)
+
+    assert ok is True
+    _asunto, _dest, html = correo_falso[0]
+    assert proceso.folio in html
+    assert "inscrito" in html.lower()
