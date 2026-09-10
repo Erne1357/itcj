@@ -467,3 +467,31 @@ def test_un_campo_con_seccion_inexistente_igual_se_pinta(client, make_survey_for
     assert 'data-tt-field="situacion_laboral"' in cuerpo
     assert 'data-tt-field="comentarios"' in cuerpo, \
         "la pregunta con la seccion mal escrita se perdio del formulario"
+
+
+def test_los_campos_escalares_tienen_nombre_accesible(client, make_survey_form):
+    """La pregunta es un `<span>`, no un `<label for>`: hay que apuntarla.
+
+    Los tipos agrupados (`radio`, `multiselect`, `yesno`, `scale`) ya la
+    referencian desde su `role="radiogroup"`/`role="group"`. Los tres escalares
+    —`text`, `textarea`, `select`— no emitian `<label for>`, ni
+    `aria-labelledby`, ni `aria-label`: un lector de pantalla anuncia
+    "cuadro de edicion, en blanco" y la pregunta no se oye. WCAG 1.3.1 y 4.1.2,
+    en una pagina publica para una generacion entera.
+    """
+    make_survey_form(schema=SCHEMA_OCHO_TIPOS)
+    client.cookies.clear()
+
+    cuerpo = client.get(SURVEY_URL, follow_redirects=False).text
+
+    for llave in ("nombre_corto", "comentarios", "turno"):
+        control = re.search(
+            r'<(input|textarea|select)\b[^>]*id="f-%s"[^>]*>' % llave, cuerpo)
+        assert control, "no se encontro el control de " + llave
+        etiqueta = control.group(0)
+        tiene_nombre = ('aria-labelledby="f-%s-lbl"' % llave in etiqueta
+                        or "aria-label=" in etiqueta)
+        assert tiene_nombre, (
+            "%s no tiene nombre accesible: %r" % (llave, etiqueta))
+        # Y el id al que apunta existe de verdad en la pagina.
+        assert 'id="f-%s-lbl"' % llave in cuerpo

@@ -93,6 +93,43 @@ def reset_login_failures(ip: str, account: str) -> None:
         logger.warning("rate_limit: reset err (%s)", e)
 
 
+def check_only(scope: str, key: str, *, limit: int, window: int,
+               fail_open: bool = True) -> tuple[bool, int]:
+    """Igual que `check_and_count` pero SIN contar: solo lee ``rl:{scope}:{key}``.
+
+    Existe para el patrón «cobrar solo lo que se consumió». `check_and_count`
+    hace `INCR` **antes** de comparar, así que todo intento gasta presupuesto,
+    también el que falla la validación y no llegó a escribir nada. En una puerta
+    pública eso convierte al usuario torpe en indistinguible de un atacante:
+    diez erratas en un formulario obligatorio lo dejan fuera durante la ventana
+    entera. Quien quiera esa semántica lee con esta función antes de trabajar y
+    cuenta con `check_and_count` después, solo si hubo escritura.
+
+    Devuelve ``(permitido, segundos_para_reintentar)``, igual que su gemela. La
+    comparación es ``count < limit`` —y no ``<=``— justamente porque aquí no se
+    suma el intento en curso: con el contador ya en ``limit`` el presupuesto
+    está agotado.
+
+    Honra ``fail_open`` en los dos modos de fallo (sin cliente y con el cliente
+    reventando a mitad), como `check_and_count`.
+    """
+    r = _redis()
+    if r is None:
+        return (True, 0) if fail_open else (False, window)
+
+    redis_key = f"rl:{scope}:{key}"
+    try:
+        count = int(r.get(redis_key) or 0)
+        if count < limit:
+            return True, 0
+        ttl = int(r.ttl(redis_key) or 0)
+        return False, ttl if ttl > 0 else window
+    except Exception as e:
+        logger.warning("rate_limit: check_only %s err (%s); fail-%s",
+                       redis_key, e, "open" if fail_open else "closed")
+        return (True, 0) if fail_open else (False, window)
+
+
 def check_and_count(scope: str, key: str, *, limit: int, window: int,
                     fail_open: bool = True) -> tuple[bool, int]:
     """Cuenta un intento en ``rl:{scope}:{key}`` y dice si se permite.

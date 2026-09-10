@@ -26,6 +26,7 @@
 
     {% if f.type == 'text' %}
       <input class="tt-field form-control" type="text" id="{{ fid }}" name="{{ f.key }}"
+             aria-labelledby="{{ fid }}-lbl"
              value="{{ v if v is not none else '' }}"
              {% if f.validation and f.validation.maxLength %}maxlength="{{ f.validation.maxLength }}"{% endif %}
              {% if err %}aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}
@@ -33,12 +34,14 @@
 
     {% elif f.type == 'textarea' %}
       <textarea class="tt-field form-control" id="{{ fid }}" name="{{ f.key }}" rows="4"
+                aria-labelledby="{{ fid }}-lbl"
                 {% if f.validation and f.validation.maxLength %}maxlength="{{ f.validation.maxLength }}"{% endif %}
                 {% if err %}aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}
                 {% if foco %}autofocus data-tt-focus="1"{% endif %}>{{ v if v is not none else '' }}</textarea>
 
     {% elif f.type == 'select' %}
       <select class="tt-field form-select" id="{{ fid }}" name="{{ f.key }}"
+              aria-labelledby="{{ fid }}-lbl"
               {% if err %}aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}
               {% if foco %}autofocus data-tt-focus="1"{% endif %}>
         <option value="">Selecciona una opción…</option>
@@ -133,6 +136,16 @@
       data-tt-auth="{{ '1' if is_authenticated else '0' }}"
       data-tt-draft-url="{{ draft_url }}"
       data-tt-draft-updated="{{ draft_updated_at }}">
+
+  {# El aviso (hoy: presupuesto agotado) se pinta DENTRO del formulario, no
+     como hermano suyo. El destino del swap es `#tt-survey-form`, asi que una
+     tarjeta hermana no volveria a tocarse nunca: se quedaria clavada sobre el
+     cuestionario hasta que el visitante recargara. Aqui desaparece sola en el
+     siguiente render, y —lo importante— el formulario NO se sustituye por la
+     tarjeta: lo que el visitante escribio sigue en pantalla. #}
+  {% if notice_key %}
+    <div class="mb-4">{% include "titulatec/public/partials/notice_card.html" %}</div>
+  {% endif %}
 
   {% if is_authenticated %}
     <div class="tt-card tt-card--success mb-4" role="status">

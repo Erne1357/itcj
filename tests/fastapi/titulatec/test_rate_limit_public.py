@@ -1,4 +1,5 @@
-"""Contrato del limitador por ventana reusable (`rate_limit.check_and_count`).
+"""Contrato del limitador por ventana reusable (`rate_limit.check_and_count`
+y su lectura sin contar, `rate_limit.check_only`).
 
 Por qué existe
 --------------
@@ -8,6 +9,12 @@ falla ABIERTO a propósito: que una caída de Redis deje sin login a todo el
 instituto es peor que quedarse sin rate limit un rato. En una escritura anónima
 ese mismo intercambio significa que una caída de Redis elimina el único control
 que hay — de ahí `fail_open=False` (E2 del spec).
+
+`check_only` (Tarea 12, ronda 2) nació por copia de `check_and_count` para el
+patrón «cobrar solo lo que se escribió»: lee `rl:{scope}:{key}` sin `INCR`.
+Comparte la guardia `_redis()` y el `try/except` alrededor del cliente, así
+que hereda los mismos DOS modos de fallo de abajo — ver la sección final del
+archivo.
 
 Cómo se simula que Redis falla
 ------------------------------
@@ -193,3 +200,95 @@ def test_el_login_sigue_fallando_abierto_sin_redis(monkeypatch):
     assert rate_limit.check_login_allowed("10.0.0.1", "cuenta_prueba") is True
     rate_limit.note_login_failure("10.0.0.1", "cuenta_prueba")     # no lanza
     rate_limit.reset_login_failures("10.0.0.1", "cuenta_prueba")   # no lanza
+
+
+# ---------------------------------------------------------------------------
+# `check_only` — la misma guardia, sin `INCR` (Tarea 12, ronda 2)
+# ---------------------------------------------------------------------------
+# La encuesta pública (`itcj2/apps/titulatec/pages/public.py::_puede_enviar`)
+# llama a `check_only` con `fail_open=False` para leer el presupuesto ANTES de
+# escribir, y a `check_and_count` después, solo si hubo escritura. Ese uso real
+# siempre pasa `fail_open=False`, pero el contrato de la función cubre los dos
+# valores — igual que su gemela arriba — y hasta esta ronda ninguno de los dos
+# modos de fallo (sin cliente, cliente que revienta a mitad) tenía test.
+
+
+class _RedisQueRevientaAlLeer:
+    """Cliente VIVO cuyo `get` lanza, para ejercitar el `except` de `check_only`.
+
+    Equivalente a `_RedisQueRevientaAlContar`, pero `check_only` nunca llama a
+    `incr`: lee con `get` y, si hace falta comparar TTL, con `ttl`. Un fake sin
+    `get` no ejercitaría nada a propósito — reventaría por `AttributeError`,
+    que el `except Exception` de `check_only` igual atraparía, pero por el
+    motivo equivocado.
+    """
+
+    def __init__(self):
+        self.get_llamado = False
+
+    def get(self, key):
+        self.get_llamado = True
+        raise RuntimeError("conexion perdida al leer")
+
+    def ttl(self, key):  # pragma: no cover
+        raise AssertionError("inalcanzable: get revienta antes")
+
+    def incr(self, key):  # pragma: no cover
+        raise AssertionError("check_only no cuenta")
+
+    def expire(self, key, window):  # pragma: no cover
+        raise AssertionError("check_only no cuenta")
+
+
+def test_check_only_fail_open_permite_cuando_redis_no_responde(monkeypatch):
+    """Rama 1 de `check_only`: sin cliente (`_redis()` devuelve `None`)."""
+    monkeypatch.setattr("itcj2.core.utils.redis_conn.get_redis", _redis_caido())
+
+    allowed, retry_after = rate_limit.check_only(
+        "survey:ip", _key(), limit=1, window=3600, fail_open=True)
+
+    assert allowed is True
+    assert retry_after == 0
+
+
+def test_check_only_fail_closed_niega_cuando_redis_no_responde(monkeypatch):
+    """E2 también para la lectura: `_puede_enviar` llama con `fail_open=False`,
+    así que sin Redis la encuesta pública se queda sin la única puerta que
+    tiene antes de escribir."""
+    monkeypatch.setattr("itcj2.core.utils.redis_conn.get_redis", _redis_caido())
+
+    allowed, retry_after = rate_limit.check_only(
+        "survey:ip", _key(), limit=1, window=3600, fail_open=False)
+
+    assert allowed is False
+    assert retry_after == 3600
+
+
+def test_check_only_fail_open_permite_si_el_cliente_revienta_al_leer(monkeypatch):
+    """Rama 2: SÍ hay cliente, y `get` revienta a mitad."""
+    fake = _RedisQueRevientaAlLeer()
+    monkeypatch.setattr("itcj2.core.utils.redis_conn.get_redis", lambda: fake)
+
+    allowed, retry_after = rate_limit.check_only(
+        "survey:ip", _key(), limit=1, window=3600, fail_open=True)
+
+    assert fake.get_llamado, "se colo por la guardia r is None: el except no se probo"
+    assert allowed is True
+    assert retry_after == 0
+
+
+def test_check_only_fail_closed_niega_si_el_cliente_revienta_al_leer(monkeypatch):
+    """El caso que protege de verdad a `_puede_enviar`: Redis acepta la
+    conexión pero falla en cada comando. Si alguien simplifica el `except` de
+    `check_only` a fallar siempre abierto, la encuesta pública se queda sin
+    presupuesto que negar antes de escribir y ningún otro test se entera.
+    """
+    fake = _RedisQueRevientaAlLeer()
+    monkeypatch.setattr("itcj2.core.utils.redis_conn.get_redis", lambda: fake)
+
+    allowed, retry_after = rate_limit.check_only(
+        "survey:ip", _key(), limit=1, window=3600, fail_open=False)
+
+    assert fake.get_llamado, "se colo por la guardia r is None: el except no se probo"
+    assert allowed is False
+    assert retry_after == 3600
