@@ -73,6 +73,13 @@
   // con un Blob JSON: el endpoint hace `await request.form()` como los otros 15
   // POST de la app y no sabría parsear `application/json`. `keepalive` sobrevive
   // a la navegación igual que sendBeacon y sí permite tipo de formulario.
+  //
+  // `fetch()` SOLO rechaza (dispara el `.catch`) ante un fallo de RED: un 4xx o
+  // un 5xx del servidor resuelve la promesa igual que un 204, así que sin mirar
+  // `response.ok` un error de escritura (413, o un 500 si `save_draft` revienta
+  // del otro lado) se daba por guardado. El siguiente ciclo de autoguardado no
+  // reintentaba nada, y el borrador de ese tramo se perdia en silencio si el
+  // alumno retomaba en otro dispositivo antes de su proxima edicion.
   function send(f, keepalive) {
     lastSentAt = Date.now();
     dirty = false;
@@ -83,6 +90,8 @@
       body: body,
       credentials: 'same-origin',
       keepalive: !!keepalive
+    }).then(function (resp) {
+      if (!resp.ok) dirty = true;   // no se guardo: que el siguiente ciclo reintente
     }).catch(function () { dirty = true; });
   }
 

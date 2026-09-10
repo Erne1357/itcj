@@ -591,22 +591,44 @@ async def survey_draft(
     data = await request.form()
     db = SessionLocal()
     try:
-        form = SurveyService.open_form(db, SURVEY_CODE)
-        if form is None:
-            return Response(status_code=204)
+        try:
+            form = SurveyService.open_form(db, SURVEY_CODE)
+            if form is None:
+                return Response(status_code=204)
 
-        answers = _draft_answers(form.schema or {}, data)
+            answers = _draft_answers(form.schema or {}, data)
 
-        # 3) Segunda cota, sobre la proyección YA FILTRADA: un cuerpo que cabe
-        #    holgado bajo `MAX_PUBLIC_BODY_BYTES` puede traer un solo campo de
-        #    texto que por sí solo exceda `MAX_ANSWERS_JSON_BYTES` al
-        #    serializarse. Se RECHAZA, nunca se trunca: un borrador recortado
-        #    en silencio le borra respuestas al alumno sin que lo note.
-        if len(json.dumps(answers, ensure_ascii=False).encode("utf-8")) > MAX_ANSWERS_JSON_BYTES:
-            return Response(status_code=413,
-                            headers={"X-Tt-Error": _hdr("El borrador es demasiado grande.")})
+            # 3) Segunda cota, sobre la proyección YA FILTRADA: un cuerpo que
+            #    cabe holgado bajo `MAX_PUBLIC_BODY_BYTES` puede traer un solo
+            #    campo de texto que por sí solo exceda `MAX_ANSWERS_JSON_BYTES`
+            #    al serializarse. Se RECHAZA, nunca se trunca: un borrador
+            #    recortado en silencio le borra respuestas al alumno sin que
+            #    lo note.
+            if (len(json.dumps(answers, ensure_ascii=False).encode("utf-8"))
+                    > MAX_ANSWERS_JSON_BYTES):
+                return Response(status_code=413, headers={
+                    "X-Tt-Error": _hdr("El borrador es demasiado grande.")})
 
-        SurveyService.save_draft(db, form.id, int(user["sub"]), answers)
+            SurveyService.save_draft(db, form.id, int(user["sub"]), answers)
+        except Exception:
+            # Segunda capa contra el 500 (mismo principio del docstring del
+            # módulo -"Ninguna entrada del visitante puede producir un 500"-
+            # y mismo patrón que el `except` de `survey_submit`): un
+            # deadlock, una conexión caída o una violación de constraint en
+            # `save_draft` -o incluso en `open_form`- no tienen nada que ver
+            # con las dos guardas de tamaño de arriba, así que ninguna de
+            # ellas lo cubre. A diferencia de `survey_submit`, aquí no hay
+            # formulario que re-renderizar -es un autosave de fondo- ni el
+            # cliente puede reaccionar a un error de verdad: el contrato de
+            # esta ruta es "204 siempre (con y sin sesión)" (ver Interfaces
+            # del brief), así que el fallo se registra y se responde IGUAL
+            # que un éxito, nunca un 500 pelado.
+            logger.exception("survey_draft: fallo al guardar el borrador (user=%s)",
+                             user["sub"])
+            try:
+                db.rollback()
+            except Exception:      # pragma: no cover - sesión ya inservible
+                logger.warning("survey_draft: rollback fallido tras el error de escritura")
     finally:
         db.close()
     return Response(status_code=204)

@@ -170,6 +170,37 @@ def test_dos_alumnos_con_borrador_en_el_mismo_formulario_no_se_mezclan(
         "los borradores de dos alumnos distintos se mezclaron o se pisaron")
 
 
+def test_si_save_draft_revienta_la_ruta_responde_204_y_no_escribe(
+    client_as, make_student, make_survey_form, db_session, monkeypatch,
+):
+    """El fallo de escritura no es de la incumbencia de quien autoguarda.
+
+    Un deadlock, una conexion caida o una violacion de constraint en
+    `SurveyService.save_draft` no tienen nada que ver con las guardas de
+    tamano de la ruta -esas ya pasaron- y hoy revientan sin capturar: rompe el
+    contrato de la interfaz ("204 siempre, con y sin sesion") con un 500
+    pelado, justo lo que el docstring del modulo promete que no puede pasar
+    ("Ninguna entrada del visitante puede producir un 500"). Mismo patron que
+    `test_si_la_escritura_revienta_el_visitante_recupera_su_cuestionario` de
+    `test_survey_submit_routes.py`, adaptado: aqui no hay formulario que
+    re-renderizar, asi que la respuesta correcta es 204 y cero filas, no un
+    parcial de error.
+    """
+    from itcj2.apps.titulatec.services.survey_service import SurveyService
+
+    def _revienta(*a, **kw):
+        raise RuntimeError("conexion caida a mitad del commit")
+
+    make_survey_form()
+    monkeypatch.setattr(SurveyService, "save_draft", staticmethod(_revienta))
+
+    resp = client_as(make_student()).post(
+        DRAFT_URL, data={"situacion_laboral": "empleado"}, follow_redirects=False)
+
+    assert resp.status_code == 204, resp.text[:300]
+    assert _drafts(db_session) == []
+
+
 def test_answers_por_encima_del_tope_serializado_se_rechaza_sin_truncar(
     client_as, make_student, make_survey_form, db_session,
 ):
