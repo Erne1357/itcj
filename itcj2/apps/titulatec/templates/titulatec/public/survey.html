@@ -27,3 +27,11 @@
     {% include "titulatec/public/partials/survey_form.html" %}
   {% endif %}
 {% endblock %}
+
+{% block public_scripts %}
+  {# Se carga UNA vez desde el bloque `scripts` de la base, no desde el parcial:
+     el parcial vuelve en cada POST fallido (`hx-target="#tt-survey-form"`) y
+     un <script> ahi dentro se re-ejecutaria en cada envio invalido, duplicando
+     los escuchas del modulo y con ellos las escrituras del borrador. #}
+  <script src="/static/titulatec/js/public/survey.js?v={{ sv('js/public/survey.js') }}"></script>
+{% endblock %}

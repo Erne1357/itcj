@@ -22,6 +22,7 @@ de seguridad, pero sí pierde el cuestionario entero —htmx tampoco swappea en
 """
 from __future__ import annotations
 
+import json
 import logging
 from urllib.parse import quote
 
@@ -514,3 +515,98 @@ async def survey_submit(
     for nombre, valor in cabeceras.items():
         resp.headers[nombre] = valor
     return resp
+
+
+# ---------------------------------------------------------------------------
+# 5. Borrador automático (Tarea 13, spec 6.4)
+# ---------------------------------------------------------------------------
+def _draft_answers(schema: dict, data) -> dict:
+    """`FormData` -> respuestas del borrador, restringidas a llaves del `schema`.
+
+    Delega en `_submitted_from_form` (limpieza de NUL y de tipos de cable) y le
+    suma el filtro que ese puente NO hace: una llave que el `schema` no declara
+    se descarta en silencio, igual que la "llave desconocida" de
+    `validate_answers` (delta 6, `utils/survey_validator.py:26`).
+
+    Es la única diferencia real de fondo con el envío. `survey_submit` nunca
+    necesitó este filtro explícito porque `validate_answers` ya construye
+    `cleaned` recorriendo `schema['fields']` uno por uno -una llave ajena
+    simplemente nunca se lee-. El borrador NO pasa por ese validador (es
+    intencionalmente parcial: nada de obligatoriedad todavía), así que sin este
+    filtro la trampa (`website`) y cualquier campo retirado del formulario se
+    guardarían tal cual en la columna JSON del borrador.
+    """
+    claves = {f.get("key") for f in ((schema or {}).get("fields") or [])
+              if isinstance(f, dict) and f.get("key")}
+    return {k: v for k, v in _submitted_from_form(schema, data).items() if k in claves}
+
+
+@router.post("/encuesta-egresados/borrador", name="titulatec.pages.public.survey_draft",
+             response_model=None)
+async def survey_draft(
+    request: Request,
+    user: dict | None = Depends(get_current_user_optional),
+):
+    """Autosave del borrador. Exige SESIÓN, no acceso a la app.
+
+    A propósito **no** usa `require_page_app` (§7.2): un egresado con cuenta pero
+    sin proceso puede contestar la encuesta, y `require_page_app` le devolvería
+    un 302 al login que el `fetch` de salida no puede aprovechar. Sin sesión:
+    `204` y no se escribe nada -ni siquiera se lee el cuerpo-: ninguna escritura
+    a BD ocurre antes de que exista la sesión (§6.5).
+
+    Una sola fila `(form_id, user_id)`, UPDATE en sitio, sin historial y sin
+    `ProcessEvent`: el techo de D3 son 2 escrituras por minuto por alumno. Por
+    eso esta ruta a propósito NO toca el limitador `survey` (§4 de este módulo):
+    ese cubo lo gasta el envío (`_puede_enviar`/`_contar_envio`), y un autosave
+    cada 30 s compartiendo cubo lo vaciaría en minutos.
+
+    Misma frontera de tamaño que `survey_submit`, con `_declared_body_size`
+    (revisión 2026-09-08 de este módulo): un `Content-Length` ausente, no
+    numérico o negativo responde `411` en vez de dejar pasar el cuerpo sin
+    tope; por encima de `MAX_PUBLIC_BODY_BYTES` responde `413`. Las dos rutas
+    quedan idénticas en esa frontera de entrada.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.survey_service import (
+        MAX_ANSWERS_JSON_BYTES, MAX_PUBLIC_BODY_BYTES, SURVEY_CODE, SurveyService,
+    )
+
+    # 1) Tamaño ANTES de `request.form()`, igual que en `survey_submit`: esa
+    #    llamada bufferea el cuerpo ENTERO en memoria.
+    tamano = _declared_body_size(request.headers)
+    if tamano is None:
+        return Response(status_code=411, headers={
+            "X-Tt-Error": _hdr("No pudimos leer el tamaño de tu borrador. "
+                               "Recarga la página e inténtalo de nuevo.")})
+    if tamano > MAX_PUBLIC_BODY_BYTES:
+        return Response(status_code=413,
+                        headers={"X-Tt-Error": _hdr("El borrador es demasiado grande.")})
+
+    # 2) Sesión. Sin ella no hay a quién atribuirle el borrador -ver el
+    #    docstring- y el cuerpo ni siquiera se lee.
+    if not user:
+        return Response(status_code=204)
+
+    data = await request.form()
+    db = SessionLocal()
+    try:
+        form = SurveyService.open_form(db, SURVEY_CODE)
+        if form is None:
+            return Response(status_code=204)
+
+        answers = _draft_answers(form.schema or {}, data)
+
+        # 3) Segunda cota, sobre la proyección YA FILTRADA: un cuerpo que cabe
+        #    holgado bajo `MAX_PUBLIC_BODY_BYTES` puede traer un solo campo de
+        #    texto que por sí solo exceda `MAX_ANSWERS_JSON_BYTES` al
+        #    serializarse. Se RECHAZA, nunca se trunca: un borrador recortado
+        #    en silencio le borra respuestas al alumno sin que lo note.
+        if len(json.dumps(answers, ensure_ascii=False).encode("utf-8")) > MAX_ANSWERS_JSON_BYTES:
+            return Response(status_code=413,
+                            headers={"X-Tt-Error": _hdr("El borrador es demasiado grande.")})
+
+        SurveyService.save_draft(db, form.id, int(user["sub"]), answers)
+    finally:
+        db.close()
+    return Response(status_code=204)

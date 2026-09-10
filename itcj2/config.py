@@ -46,7 +46,13 @@ class Settings(BaseSettings):
     # pública (escala 1-5, errores en línea, secciones). Sin el bump, quien ya
     # abrió una página pública tiene la hoja anterior en caché y el cuestionario
     # sale sin la escala y con la trampa a la vista.
-    STATIC_VERSION: str = "1.0.1111523"
+    #
+    # Bump 2026-09-10: la Tarea 13 estrena `titulatec/js/public/survey.js`
+    # (borrador local + autosave). El archivo no existía antes de hoy: sin el
+    # bump, quien ya tenía la página pública abierta en caché sirve un 404
+    # cacheado del script y se queda sin autoguardado ni fusión del borrador
+    # local, en silencio -sin ningún error visible en pantalla-.
+    STATIC_VERSION: str = "1.0.1111524"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
