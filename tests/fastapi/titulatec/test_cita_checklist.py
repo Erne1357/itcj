@@ -353,3 +353,29 @@ class TestLaPaginaYSusBotonesHablanDelMismoProceso:
         assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
         assert db_session.get(ReviewAppointment,
                               esc["appt"].id).change_request == "Choca con mi examen"
+
+    def test_la_pagina_ensena_el_folio_del_proceso_correcto_no_el_mas_nuevo(
+        self, db_session, con_un_completed_mas_nuevo, client_as,
+    ):
+        """El hueco que las dos pruebas de arriba NO cubren (Tarea 15).
+
+        Abrir en 200 y poder confirmar no prueba que la PAGINA hable del
+        proceso correcto: `cita_confirm` resuelve su propio `process` con
+        `ProcessService.creditable_process` de forma independiente de
+        `_cita_card_ctx` (ver `pages/student.py`), asi que confirma bien
+        AUNQUE `_cita_card_ctx` estuviera pintando los datos de `posterior`.
+        Sin el ancla `#tt-cita-process[data-tt-process]` (Tarea 15,
+        `cita.html`) no habia forma de ver esa diferencia desde HTTP.
+
+        Verificado con mutacion (Tarea 15): revertir `_cita_card_ctx` a
+        `DocumentService.get_active_process` deja en VERDE toda la suite de
+        titulatec sin este test — 796 passed, incluidas las dos pruebas de
+        arriba de esta misma clase. Este test es el que cierra ese hueco.
+        """
+        esc = con_un_completed_mas_nuevo
+
+        resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert 'data-tt-process="{}"'.format(esc["process"].folio) in resp.text
+        assert esc["posterior"].folio not in resp.text
