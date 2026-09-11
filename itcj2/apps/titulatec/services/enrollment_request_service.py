@@ -30,6 +30,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
@@ -54,6 +55,15 @@ PUBLIC_BASE_URL = "https://enlinea.cdjuarez.tecnm.mx"
 # La clave es el propio hash, así que una entrada rancia jamás puede aplicarse a
 # otra solicitud.
 _TOKEN_CACHE_PREFIX = "tt:enroll:tok:"
+
+# Namespace del advisory lock que serializa `verify()` por SOLICITUD (Ronda de
+# arreglos 1, Important 2). Mismo mecanismo que `_FOLIO_LOCK_NS` de
+# `import_service.py` (transacción-scoped, lo único compatible con PgBouncer
+# en modo transaction) pero un valor DISTINTO: comparten proceso pero no deben
+# compartir namespace, o un `key` que coincida por accidente (un id de
+# cohorte y un id de solicitud del mismo número) se bloquearía entre sí sin
+# necesidad.
+_VERIFY_LOCK_NS = 0x7456  # "tV"
 
 
 def _sha256(raw: str) -> str:
@@ -281,6 +291,27 @@ class EnrollmentRequestService:
         la fuente: un comparador en tiempo constante calcula la MISMA igualdad
         que `==` (nada más deja de filtrarla por temporización), así que ningún
         test de comportamiento puede detectar una regresión aquí.
+
+        RONDA DE ARREGLOS 1, IMPORTANT 2. El único gate era antes un `SELECT`
+        plano (`if req.status == "converted": ...`), sin lock: dos peticiones
+        concurrentes con el MISMO token —el prefetch de un escáner de correo
+        corporativo en paralelo con el clic humano es el caso NORMAL, no el
+        raro— podían las dos pasar el gate antes de que ninguna escribiera
+        "converted", duplicando el `ProcessEvent` y el correo de
+        `send_enrollment_done` (reproducido por el revisor llamando a
+        `_convert` dos veces seguidas). Se serializa por `req.id` con
+        `pg_advisory_xact_lock`, mismo mecanismo que usa `import_rows` para los
+        folios. El `db.refresh(req)` INMEDIATAMENTE DESPUÉS es la mitad que
+        hace que el lock sirva de algo: bajo READ COMMITTED, una transacción
+        que esperó el lock puede seguir teniendo en memoria el `req.status` de
+        ANTES de esperarlo —adquirir el lock no hace que SQLAlchemy relea el
+        objeto solo porque Postgres se lo permitió—, así que sin el refresh la
+        segunda pasada evaluaría el `if` de abajo contra un valor viejo y
+        duplicaría igual. Ver `test_verify_toma_lock_advisory_por_solicitud_y_refresca_antes_de_leer_status`
+        (estructural: fija la presencia Y el orden de las tres piezas, porque
+        tampoco esto es detectable por comportamiento dentro de una sola
+        sesión — ver el reporte de la Tarea 20 para qué SÍ y qué NO se pudo
+        probar de la concurrencia real).
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest
 
@@ -293,6 +324,10 @@ class EnrollmentRequestService:
                .filter(EnrollmentRequest.verify_token_hash == digest).first())
         if req is None or not hmac.compare_digest(req.verify_token_hash or "", digest):
             return None, "invalid"
+
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns, :key)"),
+                   {"ns": _VERIFY_LOCK_NS, "key": int(req.id)})
+        db.refresh(req)
 
         if req.status == "converted":
             return req, "already_converted"
@@ -326,11 +361,27 @@ class EnrollmentRequestService:
         """Convierte una solicitud verificada en proceso (§6.9).
 
         Devuelve `(ok, detalle)`; en éxito `detalle` es el folio. Todo lo que
-        puede haber cambiado en las 48 h se revisa ANTES de `import_rows`, que
-        commitea por su cuenta: abortar después no revierte nada. `_convert` es
-        dueño de su propia transacción — nada de lo que llama aquí (
-        `StudentProfileService.set_fields`) commitea por su cuenta; el commit
-        final lo hace `verify()`, no este método.
+        puede haber cambiado en las 48 h se revisa ANTES de `import_rows`.
+
+        RONDA DE ARREGLOS 1, IMPORTANT 1 — CORRECCIÓN SOBRE EL DOCSTRING
+        ORIGINAL. La versión anterior de este docstring decía «`import_rows`
+        commitea por su cuenta: abortar después no revierte nada» y, dos
+        líneas más abajo, «`_convert` es dueño de su propia transacción» — las
+        dos afirmaciones NO podían ser ciertas a la vez, y la llamada de abajo
+        de verdad omitía `commit=False`. El revisor lo reprodujo: un fallo real
+        en `StudentProfileService.set_fields` (la única escritura entre el
+        `import_rows` de abajo y el final) dejaba un `User` y un
+        `TitulationProcess` REALES y COMMITEADOS, con la solicitud congelada en
+        `status="verified"` para siempre —un estado fuera del contrato de seis
+        salidas— y sin bandeja en `pages/admin.py` que lo expusiera. Con
+        `commit=False`, `import_rows` solo hace `flush()` (`import_service.py`,
+        parámetro `commit`): AHORA SÍ, `_convert` es el dueño único de su
+        transacción — nada de lo que se ejecuta aquí commitea por su cuenta, y
+        el commit final (`verify()`, líneas de arriba) cubre la operación
+        entera. Un fallo en cualquier punto —antes, DENTRO de `import_rows`, o
+        después— se deshace completo con el `rollback()` de
+        `enroll_verify` (`pages/public.py`). Ver
+        `test_fallo_entre_import_rows_y_el_commit_final_no_deja_usuario_ni_proceso_huerfanos`.
         """
         from itcj2.core.models.user import User
         from itcj2.core.services.student_profile_service import StudentProfileService
@@ -382,6 +433,7 @@ class EnrollmentRequestService:
             [{"control_number": control, "full_name": full_name, "email": None,
               "program_id": req.program_id, "modality_id": None}],
             actor_id=None, source="self_service", repair_credentials=False,
+            commit=False,
         )
 
         # NO se ramifica sobre `processes_created`: si un CSV del personal creó

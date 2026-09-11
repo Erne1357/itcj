@@ -1,8 +1,17 @@
 """Verificación de la liga de inscripción y conversión a proceso (§6.9).
 
-`import_rows` HACE COMMIT POR SU CUENTA (`import_service.py:543`), así que todo
-lo que pueda invalidar la conversión se revisa ANTES de llamarlo, y lo que se
-comprueba DESPUÉS es la existencia del proceso, nunca un contador.
+`import_rows` COMMITEA POR SU CUENTA POR OMISIÓN (`import_service.py:558-561`,
+parámetro `commit: bool = True`), así que todo lo que pueda invalidar la
+conversión se revisa ANTES de llamarlo, y lo que se comprueba DESPUÉS es la
+existencia del proceso, nunca un contador.
+
+RONDA DE ARREGLOS 1, IMPORTANT 1: la llamada de `_convert`
+(`enrollment_request_service.py`) SÍ pasa `commit=False` -corregido tras la
+revisión, que encontró que faltaba y que sin él un fallo real después de
+`import_rows` dejaba un `User`/`TitulationProcess` huérfanos y commiteados.
+`_convert` es entonces dueño único de su transacción; el `import_rows` interno
+del importador CSV admin (`pages/admin.py`) sigue commiteando por su cuenta,
+sin cambios.
 """
 from __future__ import annotations
 
@@ -419,3 +428,178 @@ def test_un_error_inesperado_al_verificar_no_produce_500(
                       follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:400]
+
+
+# ---------------------------------------------------------------------------
+# Ronda de arreglos 1: Important 1 (falta commit=False) e Important 2 (falta
+# guarda de idempotencia con lock). Ver task-20-report.md §6-7.
+# ---------------------------------------------------------------------------
+
+def test_fallo_entre_import_rows_y_el_commit_final_no_deja_usuario_ni_proceso_huerfanos(
+    client, db_session, make_cohort, seed_phase_defs, titulatec_app, monkeypatch,
+):
+    """Important 1. Sin `commit=False` en la llamada a `import_rows` dentro de
+    `_convert`, `import_rows` commitea por su cuenta ANTES de que `_convert`
+    llegue a `req.status="converted"`. Un fallo real en lo único que queda
+    entre ese commit y el final (`StudentProfileService.set_fields`, que aquí
+    se rompe con monkeypatch) deja un `User` y un `TitulationProcess` REALES y
+    COMMITEADOS, con la solicitud congelada en `status="verified"` -un estado
+    fuera del contrato de seis salidas- y sin bandeja en `pages/admin.py` que
+    lo exponga a Servicios Escolares. `_convert` DEBE ser dueño único de su
+    transacción para que esto no pueda pasar.
+
+    `kind="known"` con un `control_number` que NO corresponde a ningún `User`
+    existente reproduce el caso exacto del revisor: `import_rows` es quien
+    CREA al usuario dentro de esta misma llamada, así que la exposición es
+    máxima (usuario Y proceso nuevos, no solo uno reparado).
+    """
+    import itcj2.core.services.student_profile_service as sps_mod
+
+    def _boom(db, user_id, **fields):
+        raise RuntimeError("mutación deliberada: fallo tras import_rows")
+
+    monkeypatch.setattr(sps_mod.StudentProfileService, "set_fields", staticmethod(_boom))
+
+    seed_phase_defs()
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    req, token = _make_req(db_session, cohort, control="99770070", kind="known")
+    client.cookies.clear()
+
+    resp = client.get(f"/titulatec/inscripcion/verificar?t={token}",
+                      follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+
+    from itcj2.core.models.user import User
+    from itcj2.apps.titulatec.models import TitulationProcess
+    assert db_session.query(User).filter_by(control_number="99770070").first() is None, (
+        "no debe quedar un usuario huerfano si la conversion no termino")
+    assert db_session.query(TitulationProcess).filter_by(cohort_id=cohort.id).count() == 0, (
+        "no debe quedar un proceso huerfano si la conversion no termino")
+
+
+def test_verify_toma_lock_advisory_por_solicitud_y_refresca_antes_de_leer_status():
+    """Important 2, mitad estructural. El lock POR SÍ SOLO no basta: bajo READ
+    COMMITTED, el `req` en memoria de una transacción que esperó el lock puede
+    seguir mostrando el estado de ANTES de esperarlo -SQLAlchemy no relee un
+    atributo solo porque el lock se liberó del lado de Postgres-. El
+    `db.refresh(req)` DESPUÉS del lock y ANTES de la primera lectura de
+    `req.status` es la mitad que hace que el lock sirva de algo. No es
+    reproducible con una prueba de comportamiento (el arnés de pruebas no
+    puede montar dos transacciones reales concurrentes sobre la misma fila de
+    prueba, ver el reporte), así que se fija leyendo la fuente y el ORDEN de
+    las tres piezas, mismo patrón que `test_verify_usa_comparacion_en_tiempo_constante`.
+    """
+    import inspect
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    src = inspect.getsource(EnrollmentRequestService.verify)
+    # El docstring del método MENCIONA estas mismas piezas en prosa (para
+    # explicar el porqué) — buscar la primera aparición sin cortarlo encuentra
+    # esa mención, no el código. Se corta el docstring partiendo en las dos
+    # primeras comillas triples y se busca solo en lo que queda.
+    _, _, cuerpo = src.partition('"""')
+    _, _, cuerpo = cuerpo.partition('"""')
+    assert "pg_advisory_xact_lock" in cuerpo
+    assert "db.refresh(req)" in cuerpo
+    lock_pos = cuerpo.index("pg_advisory_xact_lock")
+    refresh_pos = cuerpo.index("db.refresh(req)")
+    status_pos = cuerpo.index('req.status == "converted"')
+    assert lock_pos < refresh_pos < status_pos, (
+        "orden obligatorio: primero el lock, luego el refresh, y solo hasta "
+        "entonces la primera lectura de req.status")
+
+
+def test_dos_llamadas_seguidas_a_verify_no_duplican_evento_ni_correo(
+    db_session, make_cohort, make_student, seed_phase_defs, titulatec_app,
+):
+    """Important 2, mitad de comportamiento — AL NIVEL DEL SERVICIO, sin pasar
+    por `client` (que fuerza una sola sesión compartida entre las dos
+    peticiones HTTP, y por eso no distingue "el gate de verify() funciona" de
+    "es la misma sesión, claro que ve lo que ella misma escribió"). Esta
+    prueba llama a `EnrollmentRequestService.verify` DIRECTO, dos veces
+    seguidas, con el `db_session` del test.
+
+    Aun así, ambas llamadas comparten esa MISMA sesión/transacción: NO es una
+    prueba de concurrencia real (dos conexiones separadas compitiendo por el
+    lock) — el arnés de pruebas no puede montarla, porque los datos de
+    `db_session` viven en un SAVEPOINT que una segunda conexión de verdad no
+    vería. Es la propiedad de idempotencia bajo re-invocación SECUENCIAL, que
+    sí es reproducible al 100%. La concurrencia real queda como hueco
+    declarado (ver el reporte) y se sostiene solo por el razonamiento sobre
+    READ COMMITTED + lock transaccional + refresh, no por un test.
+    """
+    from itcj2.apps.titulatec.models import ProcessEvent, TitulationProcess
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    student = make_student(control_number="99770080")
+    student.password_hash = "hash-que-ya-existe"
+    db_session.flush()
+    req, token = _make_req(db_session, cohort, control="99770080", kind="known")
+
+    _, outcome1 = EnrollmentRequestService.verify(db_session, token)
+    _, outcome2 = EnrollmentRequestService.verify(db_session, token)
+
+    assert outcome1 == "converted"
+    assert outcome2 == "already_converted"
+
+    procs = (db_session.query(TitulationProcess)
+             .filter_by(student_id=student.id, cohort_id=cohort.id).all())
+    assert len(procs) == 1
+    events = (db_session.query(ProcessEvent)
+              .filter_by(process_id=procs[0].id, event_type="enrollment_self_service")
+              .all())
+    assert len(events) == 1
+
+
+def test_convert_directo_dos_veces_sigue_sin_guarda_propia_por_diseno(
+    db_session, make_cohort, make_student, seed_phase_defs, titulatec_app,
+):
+    """Documenta el LÍMITE del arreglo de Important 2, para que no se confunda
+    con un hueco sin cerrar la próxima vez que alguien lea este archivo.
+
+    El ruling de la Ronda 1 puso el lock en `verify()` (su único llamador en
+    producción), NO dentro de `_convert()` -que sigue con guion bajo, sigue
+    siendo un detalle de implementación privado-. Llamar a `_convert(db, req)`
+    DIRECTO, dos veces, saltándose `verify()` -exactamente como hizo el
+    revisor para diagnosticar el hallazgo original- SIGUE duplicando el
+    `ProcessEvent` y el intento de correo. Es el comportamiento ESPERADO, no
+    una regresión: en producción no hay ningún camino que llegue a `_convert`
+    sin pasar por `verify()` primero.
+    """
+    from itcj2.apps.titulatec.models import ProcessEvent, TitulationProcess
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    student = make_student(control_number="99770081")
+    student.password_hash = "hash-que-ya-existe"
+    db_session.flush()
+    req, _ = _make_req(db_session, cohort, control="99770081", kind="known")
+
+    ok1, _ = EnrollmentRequestService._convert(db_session, req)
+    ok2, _ = EnrollmentRequestService._convert(db_session, req)
+
+    assert ok1 is True and ok2 is True
+    procs = (db_session.query(TitulationProcess)
+             .filter_by(student_id=student.id, cohort_id=cohort.id).all())
+    assert len(procs) == 1, "import_rows ya es idempotente por (student_id, cohort_id)"
+    events = (db_session.query(ProcessEvent)
+              .filter_by(process_id=procs[0].id, event_type="enrollment_self_service")
+              .all())
+    assert len(events) == 2, (
+        "esto SÍ se duplica llamando _convert directo -por diseño, la guarda "
+        "vive en verify(), no aquí. Si esto empieza a dar 1, alguien blindó "
+        "_convert() por su cuenta: actualiza este test para reflejarlo.")
