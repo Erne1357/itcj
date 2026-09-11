@@ -52,6 +52,19 @@ DML_DIR = REPO_ROOT / "database" / "DML" / "titulatec"
 # Codigo de permiso: 'titulatec.' + al menos dos segmentos mas.
 PERM_RE = re.compile(r"^titulatec\.[a-z0-9_]+\.[a-z0-9_.]+$")
 
+# Los 8 codigos del delta de 2026-09 (encuesta de egresados + convocatoria
+# abierta). Viven en database/DML/titulatec/survey_2026_09/, NO en el 02/03.
+NUEVOS_2026_09 = (
+    "titulatec.survey.page.list",
+    "titulatec.survey.api.read",
+    "titulatec.survey.api.export",
+    "titulatec.survey.api.manage",
+    "titulatec.enrollment_request.page.list",
+    "titulatec.enrollment_request.api.approve",
+    "titulatec.enrollment_request.api.reject",
+    "titulatec.process.api.requirement.mark",
+)
+
 
 def _module_string_lists(tree: ast.Module) -> dict[str, list[str]]:
     """Constantes de modulo que son listas/tuplas/sets de strings.
@@ -229,3 +242,44 @@ def test_los_permisos_de_espacios_estan_en_su_propio_archivo():
     assert "review_window" not in tres, (
         "los permisos de espacios NO pueden vivir en el 03: sus DELETE se "
         "re-aplican en cada corrida y pueden revocarlos")
+
+
+@requires_dml
+def test_el_delta_de_encuesta_e_inscripcion_vive_en_su_subcarpeta():
+    """Los 8 permisos de 2026-09 van en survey_2026_09/, nunca en el 03.
+
+    `03_insert_role_permissions.sql` lleva tres DELETE (lineas 109, 123 y 131)
+    que se re-aplican en CADA corrida de `titulatec init-titulatec`. Un permiso
+    concedido ahi puede quedar revocado por una re-siembra, y el sintoma es un
+    403 que aparece solo despues de sembrar. Es la misma regla que ya vigila
+    `test_los_permisos_de_espacios_estan_en_su_propio_archivo` para el 08.
+    """
+    delta = DML_DIR / "survey_2026_09"
+    assert delta.is_dir(), (
+        "falta database/DML/titulatec/survey_2026_09/. `database/` esta "
+        "gitignored: recuperala del respaldo o crea el delta."
+    )
+
+    nueve = delta / "09_insert_survey_perms.sql"
+    assert nueve.exists(), "falta 09_insert_survey_perms.sql"
+    cuerpo = nueve.read_text(encoding="utf-8")
+    for codigo in NUEVOS_2026_09:
+        assert codigo in cuerpo, f"{codigo} no esta en 09_insert_survey_perms.sql"
+
+    diez = delta / "10_insert_survey_role_permissions.sql"
+    assert diez.exists(), "falta 10_insert_survey_role_permissions.sql"
+    grants = diez.read_text(encoding="utf-8")
+    assert "titulatec_school_services_head" in grants, (
+        "el 10 no concede nada a la jefatura de Servicios Escolares")
+    assert "titulatec_school_services'" in grants, (
+        "titulatec.process.api.requirement.mark tambien va al rol OPERATIVO "
+        "(spec 5.4): el encargado es quien usa el checklist de cotejo")
+
+    for nombre in ("11_seed_survey_form.sql", "12_seed_cotejo_codes.sql"):
+        assert (delta / nombre).exists(), f"falta {nombre}"
+
+    tres = (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8")
+    for codigo in NUEVOS_2026_09:
+        assert codigo not in tres, (
+            f"{codigo} no puede vivir en el 03: sus DELETE se re-aplican en "
+            "cada corrida de init-titulatec y pueden revocarlo")
