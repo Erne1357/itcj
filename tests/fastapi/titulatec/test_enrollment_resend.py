@@ -302,3 +302,211 @@ def test_token_de_contacto_invalido_muestra_error(client, db_session, make_cohor
 
     assert resp.status_code == 200, resp.text[:400]
     assert "no pudimos confirmar" in resp.text.lower()
+
+
+# ---------------------------------------------------------------------------
+# RULING R4 — 'sent'/'noop'/trampa se prueban byte a byte (contenido Y cabeceras)
+# ---------------------------------------------------------------------------
+# El brief trae `test_reenvio_que_no_casa_da_salida_identica_al_que_si_casa`
+# (arriba), que solo compara `.content` y no incluye la trampa como tercera
+# rama. R4 exige más: los MISMOS bytes Y las MISMAS cabeceras, y la trampa del
+# formulario de reenvío es una tercera salida que también debe ser idéntica.
+# Se replica el mecanismo de `test_e8_las_tres_ramas_son_identicas_byte_a_byte`
+# y `test_la_trampa_no_escribe_nada_y_devuelve_la_tarjeta_generica`
+# (`tests/fastapi/titulatec/test_enrollment_public.py:297,255`): capturar las
+# respuestas en la MISMA corrida, con IP y control distintos por petición para
+# que el limitador (R3) no contamine la comparación.
+def _h(resp):
+    """Cabeceras normalizadas, sin `date` (puede saltar de segundo entre peticiones)."""
+    return {k.lower(): v for k, v in resp.headers.items() if k.lower() != "date"}
+
+
+def test_sent_noop_y_trampa_del_reenvio_son_identicos_byte_a_byte(
+    client, db_session, make_cohort,
+):
+    """R4: 'sent', 'noop' y la trampa del formulario de reenvío -tercera salida-
+    tienen que devolver los MISMOS bytes y las MISMAS cabeceras. Si se
+    distinguen en algo -una coma, un `Content-Length`- el endpoint es un
+    oráculo anónimo de "¿existe este número de control en el ITCJ?".
+    """
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    req, _tok = _make_req(db_session, cohort, control="99660020")
+    client.cookies.clear()
+
+    r_sent = client.post("/titulatec/inscripcion/reenviar",
+                         data={"control_number": "99660020",
+                               "contact_email": "alguien@example.invalid"},
+                         headers={"X-Real-IP": "203.0.113.50"},
+                         follow_redirects=False)
+    r_noop = client.post("/titulatec/inscripcion/reenviar",
+                         data={"control_number": "00000000",
+                               "contact_email": "nadie@example.invalid"},
+                         headers={"X-Real-IP": "203.0.113.51"},
+                         follow_redirects=False)
+    r_trampa = client.post("/titulatec/inscripcion/reenviar",
+                           data={"control_number": "99660021",
+                                 "contact_email": "otro@example.invalid",
+                                 "website": "http://spam.example"},
+                           headers={"X-Real-IP": "203.0.113.52"},
+                           follow_redirects=False)
+
+    assert r_sent.status_code == r_noop.status_code == r_trampa.status_code == 200, (
+        r_sent.text[:200], r_noop.text[:200], r_trampa.text[:200])
+
+    # Cuerpo idéntico BYTE A BYTE, no "parecido".
+    assert r_sent.content == r_noop.content
+    assert r_sent.content == r_trampa.content
+    # Cabeceras idénticas también (lo que el test del brief NO comprueba).
+    assert _h(r_sent) == _h(r_noop)
+    assert _h(r_sent) == _h(r_trampa)
+
+    db_session.refresh(req)
+    assert req.verify_send_count == 2, "el envio que SI casa debio escribir"
+
+
+def test_los_presupuestos_del_reenvio_son_los_acordados():
+    """R3: 10/hora por IP (no 3 como traía el borrador del brief)."""
+    from itcj2.apps.titulatec.pages import public as mod
+
+    assert mod.ENROLL_RESEND_RL_LIMIT_IP == 10
+    assert mod.ENROLL_RESEND_RL_WINDOW_IP == 3600
+
+
+def test_el_presupuesto_por_ip_se_cobra_aunque_el_envio_sea_noop(
+    client, db_session, make_cohort, monkeypatch,
+):
+    """R3: el cubo se cobra EN LA PUERTA, siempre -nunca solo cuando `resend`
+    manda de verdad-. Si solo cobrara el envío real, el tiempo de vaciado del
+    cubo delataría si un número de control existe: dos 'noop' seguidos NUNCA
+    agotarían un límite de 2 si el cobro dependiera del resultado.
+    """
+    from itcj2.apps.titulatec.pages import public as mod
+
+    monkeypatch.setattr(mod, "ENROLL_RESEND_RL_LIMIT_IP", 2)
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+    headers = {"X-Real-IP": "203.0.113.53"}
+
+    for _ in range(2):
+        r = client.post("/titulatec/inscripcion/reenviar",
+                        data={"control_number": "00000000",
+                              "contact_email": "nadie@example.invalid"},
+                        headers=headers, follow_redirects=False)
+        assert r.status_code == 200
+
+    r3 = client.post("/titulatec/inscripcion/reenviar",
+                     data={"control_number": "00000000",
+                           "contact_email": "nadie@example.invalid"},
+                     headers=headers, follow_redirects=False)
+    assert r3.headers.get("Retry-After") is not None, (
+        "el cubo de IP no se agoto con puros 'noop': el presupuesto no se esta "
+        "cobrando en la puerta (R3)")
+
+
+# ---------------------------------------------------------------------------
+# RULING R1 y refuerzo de cobertura de `confirm_contact`
+# ---------------------------------------------------------------------------
+def test_confirm_contact_usa_comparacion_en_tiempo_constante():
+    """R1: `_compare` no existe, nunca existió. Mismo criterio que
+    `test_verify_usa_comparacion_en_tiempo_constante`
+    (`tests/fastapi/titulatec/test_enrollment_verify.py:337`): mutar esto a
+    `==` no cambia ningún resultado observable -la query SQL ya filtró por
+    igualdad exacta antes de llegar aquí-, así que ningún test de
+    comportamiento puede detectar la regresión. Se lee la fuente.
+    """
+    import inspect
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    src = inspect.getsource(EnrollmentRequestService.confirm_contact)
+    assert "hmac.compare_digest(" in src
+    assert "_compare(" not in src
+
+
+def test_confirmar_dos_veces_con_el_mismo_token_sigue_funcionando(
+    client, db_session, make_cohort, make_student,
+):
+    """Idempotente A PROPÓSITO, igual que `verify()` (mismo riesgo: un cliente
+    de correo puede prefetchear la liga GET antes del clic humano -ver el
+    docstring de `EnrollmentRequestService.verify`-). El token de contacto NO
+    se invalida tras usarse una vez: dos aperturas de la MISMA liga deben
+    confirmar las dos, no fallar la segunda.
+    """
+    from itcj2.core.models.student_profile import StudentProfile
+
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    student = make_student(control_number="99660013")
+    req, _tok = _make_req(db_session, cohort, control="99660013",
+                          email="personal4@example.invalid")
+    raw = _con_token_de_contacto(db_session, req)
+    client.cookies.clear()
+
+    r1 = client.get(f"/titulatec/inscripcion/correo?t={raw}", follow_redirects=False)
+    r2 = client.get(f"/titulatec/inscripcion/correo?t={raw}", follow_redirects=False)
+
+    assert r1.status_code == r2.status_code == 200
+    assert "no pudimos confirmar" not in r1.text.lower()
+    assert "no pudimos confirmar" not in r2.text.lower()
+    perfil = db_session.get(StudentProfile, student.id)
+    assert perfil is not None
+    assert perfil.contact_email_verified_at is not None
+
+
+def test_token_de_contacto_vencido_no_se_acepta(
+    client, db_session, make_cohort, make_student,
+):
+    """Un token de contacto VENCIDO no se acepta aunque el hash coincida.
+
+    Distinto de la reutilización idempotente de arriba (que es intencional):
+    esta es la guarda real contra una liga vieja. Sin `contact_expires_at`, una
+    liga de confirmación de hace meses seguiría marcando el perfil como
+    verificado hoy.
+    """
+    from itcj2.core.models.student_profile import StudentProfile
+
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    student = make_student(control_number="99660012")
+    req, _tok = _make_req(db_session, cohort, control="99660012",
+                          email="personal3@example.invalid")
+    raw = _con_token_de_contacto(db_session, req)
+    req.contact_expires_at = datetime.now() - timedelta(hours=1)
+    db_session.flush()
+    client.cookies.clear()
+
+    resp = client.get(f"/titulatec/inscripcion/correo?t={raw}", follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert "no pudimos confirmar" in resp.text.lower()
+    perfil = db_session.get(StudentProfile, student.id)
+    assert perfil is None or perfil.contact_email_verified_at is None
+
+
+def test_una_excepcion_en_confirm_contact_no_produce_500(client, db_session, monkeypatch):
+    """Ninguna entrada del visitante puede producir un 500 (docstring del
+    módulo). Se fuerza con `monkeypatch` porque el objetivo es "cualquier
+    excepción", igual que
+    `test_una_excepcion_en_create_no_produce_500_y_devuelve_la_tarjeta_generica`
+    (`test_enrollment_public.py`).
+    """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    def _revienta(*a, **kw):
+        raise ValueError("fallo simulado")
+
+    client.cookies.clear()
+    monkeypatch.setattr(EnrollmentRequestService, "confirm_contact",
+                        staticmethod(_revienta))
+
+    resp = client.get("/titulatec/inscripcion/correo?t=cualquier-cosa",
+                      follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert "no pudimos confirmar" in resp.text.lower()
