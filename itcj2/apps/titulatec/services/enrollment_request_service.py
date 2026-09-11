@@ -566,3 +566,134 @@ class EnrollmentRequestService:
         StudentProfileService.mark_contact_verified(db, user.id)
         db.commit()
         return True
+
+    @staticmethod
+    def approve(db: Session, req_id: int, *, nip: str, program_id: int | None,
+                actor_id: int):
+        """Aprueba una solicitud de bandeja (§6.10). Devuelve `(ok, detalle)`.
+
+        En éxito `detalle` es el folio; en fallo, el motivo que ve el oficial.
+        EL NIP NUNCA SALE DE AQUÍ: no se registra en logs, no viaja en
+        `X-Tt-Error` y no entra al payload del `ProcessEvent`. Es la contraseña
+        del alumno (D15), y `detalle` se emite tal cual en una cabecera.
+        """
+        import re
+
+        from itcj2.core.models.role import Role
+        from itcj2.core.models.user import User
+        from itcj2.core.services.student_profile_service import StudentProfileService
+        from itcj2.core.utils.security import hash_nip
+        from itcj2.apps.titulatec.models import (
+            Cohort, EnrollmentRequest, ProcessEvent, TitulationProcess,
+        )
+        from itcj2.apps.titulatec.services.cohort_service import CohortService
+        from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+        from itcj2.apps.titulatec.services.import_service import ImportService
+
+        req = db.get(EnrollmentRequest, req_id)
+        if req is None:
+            return False, "La solicitud ya no existe."
+        if req.status in ("converted", "rejected"):
+            return False, "Esa solicitud ya se resolvió."
+        if not re.fullmatch(r"\d{4}", nip or ""):
+            return False, "El NIP debe ser exactamente 4 dígitos."
+
+        cohort = db.get(Cohort, req.cohort_id)
+        if cohort is None:
+            return False, "La convocatoria ya no existe."
+        if not CohortService.is_public_enrollment_open(cohort):
+            return False, "Esa convocatoria está cerrada; abre su ventana primero."
+
+        control = (req.control_number or "").strip()
+        full_name = " ".join(
+            x for x in (req.last_name, req.middle_name, req.first_name) if x).strip()
+        if not CONTROL_NUMBER_RE.fullmatch(control) or not full_name:
+            return False, "El número de control o el nombre no tienen formato válido."
+
+        resolved_program_id = program_id if program_id else req.program_id
+        user = db.query(User).filter_by(control_number=control).first()
+        if user is None:
+            student_role = db.query(Role).filter_by(name="student").first()
+            user = User(
+                username=control, control_number=control,
+                first_name=req.first_name, last_name=req.last_name,
+                middle_name=req.middle_name or None,
+                email=None,
+                role_id=student_role.id if student_role else None,
+                is_active=True, must_change_password=True,
+            )
+            user.password_hash = hash_nip(nip)   # nunca `set_initial_credential`
+            db.add(user)
+            db.flush()
+        else:
+            otro = (db.query(TitulationProcess)
+                    .filter(TitulationProcess.student_id == user.id,
+                            TitulationProcess.cohort_id != req.cohort_id,
+                            TitulationProcess.status.in_(("active", "on_hold")))
+                    .first())
+            if otro is not None:
+                return False, "Esa persona ya tiene un proceso en otra convocatoria."
+            if not user.password_hash:
+                user.password_hash = hash_nip(nip)
+            user.must_change_password = True
+            user.is_active = True
+            db.flush()
+
+        ya_existia = (db.query(TitulationProcess)
+                      .filter_by(student_id=user.id, cohort_id=req.cohort_id)
+                      .first()) is not None
+
+        ImportService.import_rows(
+            db, cohort,
+            [{"control_number": control, "full_name": full_name, "email": None,
+              "program_id": resolved_program_id, "modality_id": None}],
+            actor_id=actor_id, source="enrollment_request", repair_credentials=False,
+        )
+
+        # Igual que §6.9: se busca el proceso, no se ramifica sobre el contador.
+        proc = (db.query(TitulationProcess)
+                .filter_by(student_id=user.id, cohort_id=req.cohort_id).first())
+        if proc is None:
+            return False, "No se pudo crear el proceso; revisa los datos de la solicitud."
+
+        StudentProfileService.set_fields(
+            db, user.id,
+            contact_email=req.contact_email, phone=req.phone,
+            has_efirma=req.has_efirma, program_text=req.program_text,
+            program_id=resolved_program_id,
+        )
+
+        req.status = "converted"
+        req.program_id = resolved_program_id
+        req.reviewed_by_id = actor_id
+        req.reviewed_at = datetime.now()
+        req.converted_process_id = proc.id
+        # El payload se muestra en el expediente: aquí NO va el NIP.
+        db.add(ProcessEvent(
+            process_id=proc.id, actor_id=actor_id,
+            event_type="enrollment_self_service", phase_number=0,
+            payload={"request_id": req.id, "folio": proc.folio,
+                     "preexisting_process": ya_existia, "reviewed": True},
+        ))
+        db.commit()
+        TitulaTecEmailHelper.send_enrollment_approved(db, req, user, nip=nip)
+        return True, proc.folio
+
+    @staticmethod
+    def reject(db: Session, req_id: int, *, note: str, actor_id: int) -> bool:
+        """Rechaza con motivo obligatorio. El índice parcial deja re-intentar."""
+        from itcj2.apps.titulatec.models import EnrollmentRequest
+        from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+        req = db.get(EnrollmentRequest, req_id)
+        if req is None or req.status in ("converted", "rejected"):
+            return False
+        if not (note or "").strip():
+            return False
+        req.status = "rejected"
+        req.review_note = note.strip()[:2000]
+        req.reviewed_by_id = actor_id
+        req.reviewed_at = datetime.now()
+        db.commit()
+        TitulaTecEmailHelper.send_enrollment_rejected(db, req)
+        return True

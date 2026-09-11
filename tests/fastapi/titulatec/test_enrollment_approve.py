@@ -94,3 +94,123 @@ def test_el_menu_admin_ofrece_solicitudes_y_encuestas_con_su_solo_codigo():
     filas = {url: need for _label, _icon, url, need in _ADMIN_NAV}
     assert filas["/titulatec/admin/solicitudes"] == {"titulatec.enrollment_request.page.list"}
     assert filas["/titulatec/admin/encuestas"] == {"titulatec.survey.page.list"}
+
+
+NIP = "4917"
+
+
+def test_aprobar_sin_nip_o_con_formato_invalido_se_rechaza(
+    client_as, db_session, make_head, make_cohort, seed_phase_defs, titulatec_app,
+):
+    seed_phase_defs()
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550010")
+    c = client_as(head)
+
+    sin_nip = c.post(f"{URL}/{req.id}/aprobar", data={"nip": "", "program_id": ""})
+    corto = c.post(f"{URL}/{req.id}/aprobar", data={"nip": "12", "program_id": ""})
+    letras = c.post(f"{URL}/{req.id}/aprobar", data={"nip": "abcd", "program_id": ""})
+
+    assert sin_nip.status_code == 400
+    assert corto.status_code == 400
+    assert letras.status_code == 400
+    db_session.refresh(req)
+    assert req.status == "pending_review"
+
+
+def test_aprobar_crea_al_usuario_con_hash_nip_y_cambio_obligatorio(
+    client_as, db_session, make_head, make_cohort, make_program,
+    seed_phase_defs, titulatec_app,
+):
+    """D15: usuario = número de control, contraseña = NIP, `must_change_password`.
+
+    NUNCA se llama `set_initial_credential`, que pondría el número de control
+    (dato público) como contraseña.
+    """
+    from itcj2.core.models.user import User
+    from itcj2.core.utils.security import verify_nip
+
+    seed_phase_defs()
+    head = make_head(perm_codes=LIST_PERMS)
+    program = make_program("Ingenieria Ficticia B")
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550011")
+
+    resp = client_as(head).post(f"{URL}/{req.id}/aprobar",
+                                data={"nip": NIP, "program_id": str(program.id)})
+
+    assert resp.status_code == 200, resp.text[:500]
+    user = db_session.query(User).filter_by(control_number="99550011").first()
+    assert user is not None
+    assert user.username == "99550011"
+    assert verify_nip(NIP, user.password_hash)
+    assert not verify_nip("99550011", user.password_hash)
+    assert user.must_change_password is True
+
+    db_session.refresh(req)
+    assert req.status == "converted"
+    assert req.converted_process_id is not None
+
+    from itcj2.apps.titulatec.models import TitulationProcess
+    proc = db_session.get(TitulationProcess, req.converted_process_id)
+    assert proc.student_id == user.id
+    assert proc.program_id == program.id
+
+    # La bandeja que vuelve del swap imprime el folio del proceso creado: es lo
+    # que el oficial necesita ver para saber que la aprobacion aterrizo, y lo que
+    # `admin-requests.spec.js` (Tarea 27) localiza con `getByText(folio)`.
+    assert proc.folio in resp.text
+
+
+def test_el_nip_no_aparece_en_el_process_event_ni_en_la_respuesta(
+    client_as, db_session, make_head, make_cohort, seed_phase_defs, titulatec_app, caplog,
+):
+    """El NIP es la contraseña del alumno: fuera de logs, X-Tt-Error y payload."""
+    import json
+    import logging
+
+    seed_phase_defs()
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550012")
+
+    with caplog.at_level(logging.DEBUG):
+        resp = client_as(head).post(f"{URL}/{req.id}/aprobar",
+                                    data={"nip": NIP, "program_id": ""})
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert NIP not in resp.text
+    assert NIP not in "".join(resp.headers.values())
+    assert NIP not in caplog.text
+
+    from itcj2.apps.titulatec.models import ProcessEvent
+    eventos = (db_session.query(ProcessEvent)
+               .filter_by(process_id=req.converted_process_id).all())
+    assert eventos
+    for ev in eventos:
+        assert NIP not in json.dumps(ev.payload or {})
+
+
+def test_rechazar_exige_motivo_y_deja_reintentar(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550013")
+    c = client_as(head)
+
+    sin_motivo = c.post(f"{URL}/{req.id}/rechazar", data={"note": "   "})
+    assert sin_motivo.status_code == 400
+
+    con_motivo = c.post(f"{URL}/{req.id}/rechazar",
+                        data={"note": "No aparece en el padrón de 2005."})
+    assert con_motivo.status_code == 200, con_motivo.text[:500]
+    db_session.refresh(req)
+    assert req.status == "rejected"
+    assert req.review_note == "No aparece en el padrón de 2005."
+    assert req.reviewed_by_id == head.id
+
+    # El índice parcial deja re-intentar tras un rechazo.
+    otra = _make_req(db_session, cohort, control="99550013")
+    assert otra.id != req.id
