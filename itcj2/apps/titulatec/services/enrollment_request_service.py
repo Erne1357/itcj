@@ -514,3 +514,55 @@ class EnrollmentRequestService:
             return "noop"
 
         return "sent" if EnrollmentRequestService._send_verify(db, req) else "noop"
+
+    @staticmethod
+    def confirm_contact(db: Session, token: str) -> bool:
+        """Confirma el correo PERSONAL declarado (D17).
+
+        Es independiente de la inscripción: no la bloquea ni cambia su estado.
+        Solo se emite para `kind='known'`, cuyo usuario ya existe en
+        `core_users`; para el desconocido el token de verificación ya fue a ese
+        mismo buzón y una segunda liga sería redundante.
+
+        `core_users.email` NO se toca (D12): el correo personal vive en
+        `core_student_profile`.
+
+        IDEMPOTENTE A PROPÓSITO, mismo criterio que `verify()` (arriba en este
+        módulo): esta liga también es un GET plano que un escáner de correo
+        corporativo puede prefetchear antes del clic humano, y `set_fields` /
+        `mark_contact_verified` son upserts inocuos de repetir (mismo valor
+        cada vez). NO se invalida `contact_token_hash` tras un uso exitoso: la
+        guarda real contra una liga vieja es `contact_expires_at`, de abajo.
+
+        RULING R1 (Tarea 21): la comparación decisiva usa `hmac.compare_digest`
+        de la librería estándar, DIRECTO — no existe un `_compare` en este
+        módulo (se omitió a propósito en la Tarea 19; ver el docstring de
+        `verify()`, arriba, para el porqué completo). Mismo motivo aquí: el
+        token es una credencial al portador y un `==` filtraría por temporización
+        cuántos bytes acertó quien lo intenta.
+        """
+        from itcj2.core.models.user import User
+        from itcj2.core.services.student_profile_service import StudentProfileService
+        from itcj2.apps.titulatec.models import EnrollmentRequest
+
+        if not token:
+            return False
+        digest = _sha256(token)
+        # Búsqueda por índice (O(1)); la comparación en tiempo constante decide.
+        req = (db.query(EnrollmentRequest)
+               .filter(EnrollmentRequest.contact_token_hash == digest).first())
+        if req is None or not hmac.compare_digest(req.contact_token_hash or "", digest):
+            return False
+        if req.contact_expires_at is not None and req.contact_expires_at < datetime.now():
+            return False
+
+        user = db.query(User).filter_by(control_number=req.control_number).first()
+        if user is None:
+            return False
+
+        # Ninguno de los dos commitea (docstring de `StudentProfileService`):
+        # esta llamada es dueña de su propia transacción y la única que commitea.
+        StudentProfileService.set_fields(db, user.id, contact_email=req.contact_email)
+        StudentProfileService.mark_contact_verified(db, user.id)
+        db.commit()
+        return True

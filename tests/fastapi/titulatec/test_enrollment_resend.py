@@ -234,3 +234,71 @@ def test_tras_tres_envios_sin_verificar_un_conocido_cae_a_revision(
     db_session.refresh(req)
     assert req.verify_send_count == 3      # no consumió un cuarto
     assert req.status == "pending_review"
+
+
+def _con_token_de_contacto(db_session, req):
+    """Le pone a `req` un token de contacto y devuelve el claro."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import CONTACT_TTL_HOURS
+
+    raw = secrets.token_urlsafe(32)
+    req.contact_token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    req.contact_expires_at = datetime.now() + timedelta(hours=CONTACT_TTL_HOURS)
+    db_session.flush()
+    return raw
+
+
+def test_confirmar_el_correo_personal_marca_el_perfil_sin_tocar_core_users(
+    client, db_session, make_cohort, make_student,
+):
+    """D12: `core_users.email` NO se toca; el correo personal vive en el perfil."""
+    from itcj2.core.models.student_profile import StudentProfile
+
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    student = make_student(control_number="99660010")
+    email_original = student.email
+    req, _tok = _make_req(db_session, cohort, control="99660010",
+                          email="personal@example.invalid")
+    raw = _con_token_de_contacto(db_session, req)
+    client.cookies.clear()
+
+    resp = client.get(f"/titulatec/inscripcion/correo?t={raw}", follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    perfil = db_session.get(StudentProfile, student.id)
+    assert perfil is not None
+    assert perfil.contact_email == "personal@example.invalid"
+    assert perfil.contact_email_verified_at is not None
+
+    db_session.refresh(student)
+    assert student.email == email_original
+
+
+def test_confirmar_el_correo_no_bloquea_ni_cambia_el_estado_de_la_inscripcion(
+    client, db_session, make_cohort, make_student,
+):
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    make_student(control_number="99660011")
+    req, _tok = _make_req(db_session, cohort, control="99660011",
+                          email="personal2@example.invalid")
+    raw = _con_token_de_contacto(db_session, req)
+    client.cookies.clear()
+
+    resp = client.get(f"/titulatec/inscripcion/correo?t={raw}", follow_redirects=False)
+
+    assert resp.status_code == 200
+    db_session.refresh(req)
+    assert req.status == "unverified"      # la inscripción sigue su curso aparte
+    assert req.verify_send_count == 1
+
+
+def test_token_de_contacto_invalido_muestra_error(client, db_session, make_cohort):
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.get("/titulatec/inscripcion/correo?t=no-existe", follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert "no pudimos confirmar" in resp.text.lower()
