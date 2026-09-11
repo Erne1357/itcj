@@ -612,6 +612,14 @@ class EnrollmentRequestService:
 
         resolved_program_id = program_id if program_id else req.program_id
         user = db.query(User).filter_by(control_number=control).first()
+        # Finding 3 (ronda 1 de revisión): si la persona YA tenía password_hash
+        # (p. ej. de un CSV de otra convocatoria), ese NIP capturado aquí NO es
+        # su contraseña — se preserva el hash existente (romperlo sería un
+        # vector de secuestro de cuenta: el formulario público de inscripción
+        # deja que cualquiera declare un número de control ajeno). Pero
+        # entonces el correo de "acceso con NIP" mentiría, así que se rastrea
+        # si de verdad se escribió la credencial para decidir qué correo mandar.
+        credential_set = False
         if user is None:
             student_role = db.query(Role).filter_by(name="student").first()
             user = User(
@@ -623,6 +631,7 @@ class EnrollmentRequestService:
                 is_active=True, must_change_password=True,
             )
             user.password_hash = hash_nip(nip)   # nunca `set_initial_credential`
+            credential_set = True
             db.add(user)
             db.flush()
         else:
@@ -635,6 +644,7 @@ class EnrollmentRequestService:
                 return False, "Esa persona ya tiene un proceso en otra convocatoria."
             if not user.password_hash:
                 user.password_hash = hash_nip(nip)
+                credential_set = True
             user.must_change_password = True
             user.is_active = True
             db.flush()
@@ -643,11 +653,20 @@ class EnrollmentRequestService:
                       .filter_by(student_id=user.id, cohort_id=req.cohort_id)
                       .first()) is not None
 
+        # Finding 2 (ronda 1 de revisión): `commit=False`, mismo arreglo que
+        # `_convert` (ver su docstring, arriba) — sin esto `import_rows`
+        # commitea por su cuenta ANTES de `StudentProfileService.set_fields` y
+        # del resto de este método, y un fallo real ahí deja un `User`/
+        # `TitulationProcess` huérfanos y ya commiteados. `approve` es dueña
+        # única de su transacción; el rollback ante excepción lo hace la ruta
+        # (`pages/requests_admin.py`), igual que `enroll_verify` hace por
+        # `_convert`.
         ImportService.import_rows(
             db, cohort,
             [{"control_number": control, "full_name": full_name, "email": None,
               "program_id": resolved_program_id, "modality_id": None}],
             actor_id=actor_id, source="enrollment_request", repair_credentials=False,
+            commit=False,
         )
 
         # Igual que §6.9: se busca el proceso, no se ramifica sobre el contador.
@@ -676,7 +695,16 @@ class EnrollmentRequestService:
                      "preexisting_process": ya_existia, "reviewed": True},
         ))
         db.commit()
-        TitulaTecEmailHelper.send_enrollment_approved(db, req, user, nip=nip)
+        if credential_set:
+            TitulaTecEmailHelper.send_enrollment_approved(db, req, user, nip=nip)
+        else:
+            # Finding 3: el hash existente se preservó — el NIP capturado aquí
+            # NO abre esta cuenta. Mandar `send_enrollment_approved` de todas
+            # formas prometería un acceso falso al correo PERSONAL (que además
+            # puede ser el que escribió un desconocido, no la persona dueña de
+            # la cuenta). Se avisa el folio al institucional en su lugar —
+            # mismo correo que usa la conversión automática (`_convert`).
+            TitulaTecEmailHelper.send_enrollment_done(db, req, proc)
         return True, proc.folio
 
     @staticmethod

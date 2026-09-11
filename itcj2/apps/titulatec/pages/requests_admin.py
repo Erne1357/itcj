@@ -39,27 +39,67 @@ def _to_int(raw):
         return None
 
 
+def _officer_scope(db, user_id: int):
+    """Alcance del actor ('ALL' o `set[int]`). Import local, evita ciclos."""
+    from itcj2.apps.titulatec.services.scope_service import officer_programs
+    return officer_programs(db, user_id)
+
+
+def _program_in_scope(scope, program_id) -> bool:
+    """Mismo criterio que `scope_service.process_in_scope`: 'ALL' pasa todo; un
+    set vacío o parcial solo deja pasar un `program_id` que esté en él. `None`
+    NUNCA pasa para un actor acotado — coincide con el `IN (...)` del listado,
+    que ya descarta NULLs con UNKNOWN (la solicitud sin carrera solo la
+    resuelve quien tiene alcance total).
+    """
+    return scope == "ALL" or (program_id is not None and program_id in scope)
+
+
+def _load_scoped_request(db, scope, req_id: int):
+    """Carga la solicitud solo si `scope` alcanza su `program_id`.
+
+    Devuelve `None` tanto si no existe como si existe pero está fuera de
+    alcance (Finding 1, ronda 1 de revisión): la ausencia es indistinguible
+    del rechazo, para que la ruta no sea oráculo de existencia — mismo
+    criterio que `scope_service.assert_process_in_scope`, pero en 404 liso,
+    sin detalle.
+    """
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+
+    req = db.get(EnrollmentRequest, req_id)
+    if req is None:
+        return None
+    return req if _program_in_scope(scope, req.program_id) else None
+
+
 def _body_ctx(db, *, user_id: int, status: str, cohort_id):
     """Contexto del parcial. Distingue los DOS vacíos (riesgo 3 del diseño)."""
     from itcj2.core.models.program import Program
     from itcj2.core.models.user import User
     from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
-    from itcj2.apps.titulatec.services.scope_service import officer_programs
 
     cohorts = [{"id": c.id, "name": c.name}
                for c in db.query(Cohort).order_by(Cohort.id.desc()).all()]
-    programs = [{"id": p.id, "name": p.name}
-                for p in db.query(Program).order_by(Program.name).all()]
+
+    scope = _officer_scope(db, user_id)
     ctx = {"rows": [], "status": status or "", "cohort_id": cohort_id,
-           "cohorts": cohorts, "programs": programs, "no_programs": False,
+           "cohorts": cohorts, "programs": [], "no_programs": False,
            "statuses": _STATUSES}
 
-    scope = officer_programs(db, user_id)
     if scope != "ALL" and not scope:
         # Conjunto vacío = no ve nada, EN SILENCIO. Se marca explícitamente para
         # que la plantilla no muestre "no hay solicitudes".
         ctx["no_programs"] = True
         return ctx
+
+    # El <select> del formulario de aprobar solo puede ofrecer carreras que la
+    # ruta vaya a aceptar (Finding 1, ronda 1 de revisión): si no, el
+    # formulario promete algo que `_program_in_scope` rechazaría en el POST.
+    programs_q = db.query(Program).order_by(Program.name)
+    if scope != "ALL":
+        programs_q = programs_q.filter(Program.id.in_(scope))
+    programs = [{"id": p.id, "name": p.name} for p in programs_q.all()]
+    ctx["programs"] = programs
 
     q = db.query(EnrollmentRequest)
     if scope != "ALL":
@@ -161,12 +201,37 @@ async def approve(req_id: int, request: Request,
 
     db = SessionLocal()
     try:
-        ok, detail = EnrollmentRequestService.approve(
-            db, req_id, nip=nip, program_id=program_id, actor_id=int(user["sub"]))
+        uid = int(user["sub"])
+        # Alcance por carrera (Finding 1, ronda 1 de revisión): antes de esto,
+        # `api.approve` por sí solo aprobaba cualquier `req_id`, aunque la
+        # bandeja ya lo hubiera ocultado por carrera. 404 liso, sin
+        # `X-Tt-Error`, para que "no existe" y "no es tuya" sean indistinguibles.
+        scope = _officer_scope(db, uid)
+        if _load_scoped_request(db, scope, req_id) is None:
+            return Response(status_code=404)
+        if program_id and not _program_in_scope(scope, program_id):
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "Esa carrera no está en tu alcance.")})
+        try:
+            ok, detail = EnrollmentRequestService.approve(
+                db, req_id, nip=nip, program_id=program_id, actor_id=uid)
+        except Exception:
+            # `approve` es dueña de su transacción end-to-end (Finding 2, ronda
+            # 1 de revisión: `import_rows` ya no commitea por su cuenta) — un
+            # fallo real en cualquier punto se deshace entero aquí, mismo
+            # patrón que `enroll_verify` (`pages/public.py`). El NIP NUNCA se
+            # loguea, ni aquí ni en el mensaje que sigue.
+            logger.exception("aprobar: fallo inesperado al aprobar la solicitud")
+            try:
+                db.rollback()
+            except Exception:      # pragma: no cover - sesión ya inservible
+                logger.warning("aprobar: rollback fallido tras el error")
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "No pudimos completar la aprobación; intenta de nuevo.")})
         if not ok:
             # `detail` nunca contiene el NIP: `approve` solo devuelve motivos.
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
-        ctx = _body_ctx(db, user_id=int(user["sub"]), status="", cohort_id=None)
+        ctx = _body_ctx(db, user_id=uid, status="", cohort_id=None)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -187,11 +252,14 @@ async def reject(req_id: int, request: Request,
 
     db = SessionLocal()
     try:
-        if not EnrollmentRequestService.reject(db, req_id, note=note,
-                                               actor_id=int(user["sub"])):
+        uid = int(user["sub"])
+        scope = _officer_scope(db, uid)
+        if _load_scoped_request(db, scope, req_id) is None:
+            return Response(status_code=404)
+        if not EnrollmentRequestService.reject(db, req_id, note=note, actor_id=uid):
             return Response(status_code=400, headers={
                 "X-Tt-Error": _hdr("Esa solicitud ya se resolvió.")})
-        ctx = _body_ctx(db, user_id=int(user["sub"]), status="", cohort_id=None)
+        ctx = _body_ctx(db, user_id=uid, status="", cohort_id=None)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -203,17 +271,18 @@ async def resend(req_id: int, request: Request,
     """Reenvío desde la bandeja: aquí SÍ se identifica por id, porque el actor ya
     está autenticado y autorizado — el veto al id es del endpoint PÚBLICO."""
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import EnrollmentRequest
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
     db = SessionLocal()
     try:
-        req = db.get(EnrollmentRequest, req_id)
+        uid = int(user["sub"])
+        scope = _officer_scope(db, uid)
+        req = _load_scoped_request(db, scope, req_id)
         if req is None:
             return Response(status_code=404)
         EnrollmentRequestService._send_verify(db, req)
-        ctx = _body_ctx(db, user_id=int(user["sub"]), status="", cohort_id=None)
+        ctx = _body_ctx(db, user_id=uid, status="", cohort_id=None)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
