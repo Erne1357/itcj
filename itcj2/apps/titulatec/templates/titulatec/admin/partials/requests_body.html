@@ -1,0 +1,91 @@
+{# Bandeja de solicitudes. Raíz `#tt-requests-body`; todos los controles apuntan
+   a ella con `hx-swap="outerHTML"`, así que TODOS los handlers devuelven este
+   parcial completo, nunca una fila. #}
+<div id="tt-requests-body" data-tt-view="requests-body">
+
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    {% for f, lbl in [('', 'Todas'), ('pending_review', 'Por revisar'), ('converted', 'Inscritas'), ('rejected', 'Rechazadas')] %}
+    <button class="btn btn-sm {{ 'tt-btn-ink' if status == f else 'tt-btn-ghost' }}" type="button"
+            hx-get="/titulatec/admin/solicitudes/body?status={{ f }}{{ '&cohort_id=' ~ cohort_id if cohort_id }}"
+            hx-target="#tt-requests-body" hx-swap="outerHTML">{{ lbl }}</button>
+    {% endfor %}
+  </div>
+
+  {% if no_programs %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-signpost-split me-1"></i>Sin alcance</span>
+    <p class="mb-0">No tienes carreras asignadas, así que esta bandeja no te muestra
+       ninguna solicitud. Pídele a la jefatura de Servicios Escolares que te asigne
+       carreras en <strong>Encargados</strong>.</p>
+  </div>
+  {% elif not rows %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-inbox me-1"></i>Bandeja limpia</span>
+    <p class="mb-0">No hay solicitudes con ese filtro.</p>
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead><tr>
+        <th>Control</th><th>Nombre</th><th>Carrera</th><th>Contacto</th>
+        <th>Estado</th><th>Convocatoria</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="tt-mono">{{ r.control }}</td>
+        <td>{{ r.name }}</td>
+        <td>{{ r.program }}</td>
+        <td>
+          {{ r.email }}<br>
+          {% if r.contact_verified %}
+          <span class="tt-pill tt-pill--success">correo personal verificado</span>
+          {% else %}
+          <span class="tt-pill tt-pill--amber">correo personal sin verificar</span>
+          {% endif %}
+          {% if not r.mail_sent %}
+          <span class="tt-pill tt-pill--neutral">correo no enviado</span>
+          {% endif %}
+        </td>
+        <td><span class="tt-pill tt-pill--neutral">{{ r.status }}</span></td>
+        <td>{{ r.cohort }}</td>
+        <td>
+          {% if r.status in ('pending_review', 'verified', 'unverified') %}
+          <form class="d-flex flex-wrap gap-1 align-items-center"
+                hx-post="/titulatec/admin/solicitudes/{{ r.id }}/aprobar"
+                hx-target="#tt-requests-body" hx-swap="outerHTML">
+            <input class="tt-field tt-field--xs" name="nip" required
+                   inputmode="numeric" pattern="\d{4}" maxlength="4"
+                   placeholder="NIP" aria-label="NIP de 4 dígitos"
+                   autocomplete="off">
+            <select class="tt-field tt-field--xs" name="program_id" aria-label="Carrera">
+              <option value="">Carrera…</option>
+              {% for p in programs %}
+              <option value="{{ p.id }}"{% if r.program_id == p.id %} selected{% endif %}>{{ p.name }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-sm tt-btn-ink">Aprobar</button>
+          </form>
+          <form class="d-flex gap-1 mt-1"
+                hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
+                hx-target="#tt-requests-body" hx-swap="outerHTML">
+            <input class="tt-field tt-field--xs" name="note" required
+                   placeholder="Motivo del rechazo" aria-label="Motivo del rechazo">
+            <button type="submit" class="btn btn-sm tt-btn-ghost">Rechazar</button>
+          </form>
+          <button type="button" class="btn btn-sm tt-btn-ghost mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reenviar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML">
+            Reenviar liga ({{ r.sends }}/3)</button>
+          {% else %}
+            {% if r.folio %}<span class="tt-mono">{{ r.folio }}</span>{% endif %}
+            {% if r.note %}<span class="tt-mono">{{ r.note }}</span>{% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>

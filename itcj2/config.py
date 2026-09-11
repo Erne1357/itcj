@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     # Sin el bump, quien ya tenía una página pública abierta en caché sirve un
     # 404 cacheado del script nuevo y la hoja vieja: el campo de "carrera no
     # aparece" no alterna y los errores en línea salen sin estilo.
-    STATIC_VERSION: str = "1.0.1111526"
+    STATIC_VERSION: str = "1.0.1111527"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

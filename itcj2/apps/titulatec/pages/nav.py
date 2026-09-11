@@ -99,6 +99,10 @@ _ADMIN_NAV = [
     ("Convocatorias",       "bi-award",       "/titulatec/admin/cohorts",      {"titulatec.cohort.page.list"}),
     ("Citas de cotejo",     "bi-calendar",    "/titulatec/admin/appointments", {"titulatec.appointment.page.list"}),
     ("Encargados",          "bi-people-fill", "/titulatec/admin/officers",     {"titulatec.officers.page.list"}),
+    # Un solo código por fila: `admin_nav_items` (:118) hace `perms & need`, que
+    # es OR — un `dashboard.*` de más abriría el item a todos los oficiales.
+    ("Solicitudes",         "bi-person-plus", "/titulatec/admin/solicitudes",  {"titulatec.enrollment_request.page.list"}),
+    ("Encuestas",           "bi-clipboard-data", "/titulatec/admin/encuestas", {"titulatec.survey.page.list"}),
     ("Actos protocolarios", "bi-mortarboard", "#",                             {"titulatec.ceremony.page.list"}),
 ]
 

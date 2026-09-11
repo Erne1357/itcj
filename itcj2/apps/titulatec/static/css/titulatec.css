@@ -1551,3 +1551,6 @@ button.tt-seat--libre { pointer-events: auto; }
    TEXTO en el `:root` de este mismo archivo (2.56:1 sobre `--tt-paper`). */
 .tt-win-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
 .tt-win-ro   { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
+/* Campos compactos de la bandeja de solicitudes. */
+.tt-field--xs { padding: .2rem .45rem; font-size: .78rem; width: auto; }
