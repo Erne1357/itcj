@@ -902,6 +902,17 @@ def make_survey_form(db_session):
              .filter(SurveyForm.code == code, SurveyForm.status == "open")
              .update({"status": "closed"}, synchronize_session=False))
             db_session.flush()
+        # El barrido de arriba solo protege el indice PARCIAL (un solo 'open'
+        # por code). Si YA existe una fila real con este mismo (code, version)
+        # -- la que siembra `titulatec load-survey-2026-09` en la BD de dev
+        # es justo ('egresados', 1) -- el unique (code, version) sigue
+        # colisionando con el INSERT de abajo aunque esa fila ya haya quedado
+        # 'closed'. Se borra dentro de esta misma transaccion de test
+        # (rollback al final: no toca el dato real sembrado fuera de pytest).
+        (db_session.query(SurveyForm)
+         .filter(SurveyForm.code == code, SurveyForm.version == version)
+         .delete(synchronize_session=False))
+        db_session.flush()
         row = SurveyForm(
             code=code,
             version=version,
