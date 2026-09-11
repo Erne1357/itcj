@@ -888,11 +888,26 @@ def make_survey_form(db_session):
        esta fabrica CIERRA las abiertas del mismo `code` antes de insertar: sin
        ese barrido, en cuanto alguien corra `titulatec load-survey-2026-09` en su
        BD de dev toda llamada por omision reventaria con IntegrityError.
+    3. GUARDA CONTRA FILAS EXTERNAS, no contra las que la propia fabrica creo:
+       `load-survey-2026-09` deja una fila real `('egresados', 1)` committeada
+       de forma PERMANENTE en la BD de dev (fuera de cualquier transaccion de
+       test), y las suites de Playwright (Tareas 25-27) manejan el navegador
+       real contra esa MISMA base, asi que pueden dejarle respuestas y
+       borradores reales encima. `SurveyResponse.form_id` NO lleva
+       `ondelete='CASCADE'` (a diferencia de `SurveyDraft.form_id`, que si lo
+       lleva), asi que un DELETE de `SurveyForm` sin purgar antes sus
+       respuestas revienta con un IntegrityError de FK — no con el unique que
+       veniamos a evitar. Se purga en orden seguro (answers -> responses ->
+       drafts -> form) DENTRO de esta misma transaccion de test: el
+       `rollback()` final de `db_session` deshace el purgado tambien, asi que
+       el dato real sembrado fuera de pytest nunca se pierde de verdad.
 
     El `schema` por defecto es `SURVEY_SCHEMA_V1`: los dos campos del v1 del
     diseno mas un multiselect y un textarea, para ejercer el renderizador entero.
     """
-    from itcj2.apps.titulatec.models import SurveyForm
+    from itcj2.apps.titulatec.models import (
+        SurveyAnswer, SurveyDraft, SurveyForm, SurveyResponse,
+    )
 
     def _make(code="egresados", version=1, status="open", schema=None,
               title=None, description=None, is_anonymous=False,
@@ -904,15 +919,32 @@ def make_survey_form(db_session):
             db_session.flush()
         # El barrido de arriba solo protege el indice PARCIAL (un solo 'open'
         # por code). Si YA existe una fila real con este mismo (code, version)
-        # -- la que siembra `titulatec load-survey-2026-09` en la BD de dev
-        # es justo ('egresados', 1) -- el unique (code, version) sigue
-        # colisionando con el INSERT de abajo aunque esa fila ya haya quedado
-        # 'closed'. Se borra dentro de esta misma transaccion de test
-        # (rollback al final: no toca el dato real sembrado fuera de pytest).
-        (db_session.query(SurveyForm)
-         .filter(SurveyForm.code == code, SurveyForm.version == version)
-         .delete(synchronize_session=False))
-        db_session.flush()
+        # se purga entera, respuestas/borradores incluidos (ver punto 3 del
+        # docstring), antes de insertar la nueva: el unique (code, version)
+        # colisionaria igual aunque la fila ya haya quedado 'closed', y el
+        # DELETE de abajo por si solo reventaria con FK si alguien le dejo una
+        # respuesta real encima.
+        existente_id = (
+            db_session.query(SurveyForm.id)
+            .filter(SurveyForm.code == code, SurveyForm.version == version)
+            .scalar()
+        )
+        if existente_id is not None:
+            (db_session.query(SurveyAnswer)
+             .filter(SurveyAnswer.response_id.in_(
+                 db_session.query(SurveyResponse.id)
+                 .filter(SurveyResponse.form_id == existente_id)))
+             .delete(synchronize_session=False))
+            (db_session.query(SurveyResponse)
+             .filter(SurveyResponse.form_id == existente_id)
+             .delete(synchronize_session=False))
+            (db_session.query(SurveyDraft)
+             .filter(SurveyDraft.form_id == existente_id)
+             .delete(synchronize_session=False))
+            (db_session.query(SurveyForm)
+             .filter(SurveyForm.id == existente_id)
+             .delete(synchronize_session=False))
+            db_session.flush()
         row = SurveyForm(
             code=code,
             version=version,

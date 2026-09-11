@@ -242,6 +242,60 @@ def test_borrador_es_unico_por_formulario_y_usuario(db_session, make_user):
             db_session.flush()
 
 
+def test_make_survey_form_purga_una_respuesta_real_antes_de_reinsertar(
+        db_session, make_survey_form, make_user):
+    """Regresion (review de Tarea 24, ronda 1): una fila EXTERNA al fixture
+    (p.ej. la que deja una corrida real de Playwright de las Tareas 25-27
+    contra la misma BD de dev) no debe tumbar la siguiente llamada a
+    `make_survey_form()` con el mismo (code, version).
+
+    `SurveyResponse.form_id` NO lleva `ondelete='CASCADE'` (a diferencia de
+    `SurveyDraft.form_id`, que si lo lleva): sin purgar antes las respuestas y
+    sus `SurveyAnswer`, el DELETE de `SurveyForm` que hace el fixture revienta
+    con un IntegrityError de FK, no con el unique (code, version) que el
+    fixture ya sabia evitar. Se ejercitan las tres tablas dependientes
+    (answers, responses, drafts) para no dejar ninguna sin cubrir.
+    """
+    from itcj2.apps.titulatec.models import SurveyAnswer, SurveyDraft, SurveyResponse
+
+    code, version = f"prueba_{_uniq()}", 1
+    form = make_survey_form(code=code, version=version)
+    student = make_user(control_number=f"99{_uniq()[:6]}")
+
+    resp = SurveyResponse(
+        form_id=form.id, form_version=form.version, identity_source="anonymous",
+        answers={"situacion_laboral": "empleado"},
+    )
+    db_session.add(resp)
+    db_session.flush()
+    answer = SurveyAnswer(response_id=resp.id, field_key="situacion_laboral",
+                          field_type="radio", value_text="empleado")
+    draft = SurveyDraft(form_id=form.id, user_id=student.id,
+                        answers={"situacion_laboral": "buscando"})
+    db_session.add_all([answer, draft])
+    db_session.flush()
+    resp_id, answer_id, draft_id = resp.id, answer.id, draft.id
+
+    # Sin el purgado, esta segunda llamada con el MISMO (code, version)
+    # revienta con IntegrityError de FK al intentar borrar `form` con la
+    # respuesta real todavia apuntandole. Que no reviente ya es la prueba
+    # fuerte: si el DELETE no hubiera llegado a la BD, este INSERT chocaria
+    # con el unique (code, version) o con el FK de la respuesta.
+    segunda = make_survey_form(code=code, version=version)
+    assert segunda.id != form.id
+
+    # `Session.get()` NO sirve aqui: el `.delete(synchronize_session=False)`
+    # deja adrede sin tocar el identity map, asi que devolveria el objeto
+    # Python ya cacheado sin volver a consultar la BD. Una Query normal si
+    # hace el roundtrip.
+    assert db_session.query(SurveyResponse).filter_by(id=resp_id).first() is None, (
+        "la respuesta vieja debia purgarse junto con el formulario que reemplaza")
+    assert db_session.query(SurveyAnswer).filter_by(id=answer_id).first() is None, (
+        "la respuesta desglosada (answer) debia purgarse en cascada con su response")
+    assert db_session.query(SurveyDraft).filter_by(id=draft_id).first() is None, (
+        "el borrador viejo debia purgarse junto con el formulario que reemplaza")
+
+
 # ---------------------------------------------------------------------------
 # titulatec_cotejo_requirements (columnas nuevas) + cumplimientos
 # ---------------------------------------------------------------------------
