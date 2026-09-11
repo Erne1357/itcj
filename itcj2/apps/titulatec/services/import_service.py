@@ -392,7 +392,8 @@ class ImportService:
     # ---------- importación ----------
     @staticmethod
     def import_rows(db: Session, cohort, rows: list[dict], *,
-                    actor_id: int | None = None, source: str = "csv") -> dict:
+                    actor_id: int | None = None, source: str = "csv",
+                    commit: bool = True, repair_credentials: bool = True) -> dict:
         """Crea User (merge por control_number) + Process + phases + rol student.
 
         `rows` = lista de dicts ya resueltos (del preview/override del admin):
@@ -408,6 +409,19 @@ class ImportService:
         lote que reventaba a media pasada dejaba medio alta escrita y sin
         rollback posible. Por eso el rol de app se inserta aquí a mano (mismo
         efecto, sin commit) y el caché de authz se invalida DESPUÉS del commit.
+
+        `repair_credentials=False` apaga `set_initial_credential` en LOS DOS
+        caminos (alta nueva y reparación del que venía con `password_hash` NULL).
+        La credencial inicial ES el número de control, que es dato público: la
+        auto-inscripción y la aprobación de bandeja fijan la contraseña con el
+        NIP que captura Servicios Escolares (D15) y por eso apagan esto. El
+        llamador que lo apague es dueño de la credencial.
+
+        `commit=False` deja la transacción en manos del llamador: se hace
+        `flush()` en vez de `commit()`, así que el `pg_advisory_xact_lock` de la
+        emisión de folios sigue tomado hasta que el llamador cierre. Ambos
+        parámetros nacen con el valor del comportamiento de hoy, para no tocar a
+        `pages/admin.py:139` ni a `pages/admin.py:587`.
 
         Devuelve summary con created_users / matched_users / repaired_users /
         processes_created / skipped.
@@ -475,7 +489,7 @@ class ImportService:
                 # alumno quedaba sin ninguna forma de entrar. Re-importarlo lo
                 # desbloquea. Los que ya no se re-importan: comando CLI
                 # `titulatec fix-missing-credentials`.
-                if not user.password_hash:
+                if repair_credentials and not user.password_hash:
                     set_initial_credential(user)
                     repaired_users += 1
             else:
@@ -490,7 +504,8 @@ class ImportService:
                     role_id=student_role.id if student_role else None,
                     is_active=True, must_change_password=True,
                 )
-                set_initial_credential(user)
+                if repair_credentials:
+                    set_initial_credential(user)
                 db.add(user)
                 db.flush()
                 created_users += 1
@@ -540,7 +555,10 @@ class ImportService:
                                body="Servicios Escolares te dio de alta. Empieza subiendo tus documentos iniciales.",
                                process_id=proc.id, phase_number=1)
 
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
 
         # Después del commit: si el caché se tirara antes, una lectura
         # concurrente lo repoblaría con el estado viejo. Best-effort, igual que
