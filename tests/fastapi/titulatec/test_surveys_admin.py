@@ -110,9 +110,61 @@ def test_el_detalle_muestra_las_respuestas_de_una_fila(
     assert "Me faltó orientación laboral" in resp.text
 
 
+def test_una_respuesta_totalmente_anonima_se_ve_en_lista_y_detalle(
+    client_as, db_session, make_head,
+):
+    """La encuesta se promueve en público y no exige sesión: un anónimo puro
+    (sin usuario, sin proceso, sin convocatoria, sin número de control) es el
+    caso MÁS común en producción, no el raro — al revés de lo que cubrían los
+    demás tests de este archivo, que siempre traen `control_number`.
+
+    Ninguna columna de identidad puede tumbar la plantilla: si alguien
+    simplifica `u.full_name if u else "Anónimo"` a `u.full_name`, o quita la
+    guarda `if row.user_id` antes de buscar al usuario, esta fila hace que la
+    lista y el detalle truenen en vez de mostrar "Anónimo".
+    """
+    head = make_head(perm_codes=SURVEY_PERMS)
+    form = _make_form(db_session)
+    r = _make_response(db_session, form, answers={"comentarios": "Nada que reportar"})
+    # Verifica que la fixture de verdad produce las CUATRO columnas en NULL,
+    # no solo `control_number` (que ya cubrían los demás tests).
+    assert r.user_id is None
+    assert r.process_id is None
+    assert r.cohort_id is None
+    assert r.control_number is None
+
+    lista = client_as(head).get(f"{URL}?form_id={form.id}")
+    detalle = client_as(head).get(f"{URL}/{r.id}")
+
+    assert lista.status_code == 200, lista.text[:500]
+    assert "Anónimo" in lista.text
+    assert detalle.status_code == 200, detalle.text[:500]
+    assert "Anónimo" in detalle.text
+
+
 def test_sin_el_permiso_de_la_pagina_no_se_abre(
     client_as, make_app_user_without_perms,
 ):
     resp = client_as(make_app_user_without_perms()).get(URL)
+
+    assert resp.status_code == 403, resp.text[:300]
+
+
+def test_ver_el_detalle_sin_el_permiso_de_lectura_se_rechaza(
+    client_as, db_session, make_head,
+):
+    """`perms=[...]` es OR, pero la ruta de detalle trae un SOLO código
+    (`survey.api.read`, distinto de `survey.page.list`): quien solo puede ver
+    la bandeja NO puede abrir una fila individual. Espejo de
+    `test_exportar_sin_el_permiso_de_exportacion_se_rechaza`
+    (`test_survey_export_route.py`), mismo principio para el otro código
+    exclusivo de este módulo.
+    """
+    head = make_head(perm_codes=("titulatec.survey.page.list",))
+    form = _make_form(db_session)
+    r = _make_response(db_session, form, answers={"comentarios": "x"},
+                       control="99440004")
+
+    resp = client_as(head).get(f"{URL}/{r.id}")
 
     assert resp.status_code == 403, resp.text[:300]
