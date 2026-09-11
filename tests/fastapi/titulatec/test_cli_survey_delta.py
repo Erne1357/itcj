@@ -15,13 +15,41 @@ modulo FUENTE `itcj2.cli.core`, no sobre `itcj2.cli.titulatec`.
 """
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from itcj2.cli.titulatec import (
+    DML_TITULATEC,
     SEED_FILES,
+    _DML_SURVEY_2026_09_DIR,
     _DML_SURVEY_2026_09_FILES,
     _SURVEY_2026_09_PERMS,
     load_survey_2026_09_command,
+)
+
+# `load_survey_2026_09_command` exige el directorio EN DISCO (comprueba
+# `dml_dir.is_dir()` antes de llegar a cualquier mock: itcj2/cli/titulatec.py,
+# guarda al inicio de `load_survey_2026_09_command`). `database/` esta
+# gitignored y el workflow de deploy nunca lo hace checkout (trae PII real),
+# asi que en CI ese directorio no existe: sin este guard,
+# `test_dry_run_no_ejecuta_sql_ni_verifica`,
+# `test_corre_los_cuatro_archivos_del_delta_y_ninguno_mas` y
+# `test_aborta_si_la_verificacion_reporta_un_permiso_sin_aterrizar` abortan
+# ANTES de que sus mocks entren en juego, y el "Tests (BLOQUEANTE — suite
+# completa)" del deploy sale rojo en cada push a main. Mismo patron que
+# `requires_dml` en test_permissions_contract.py:148-155. Las dos pruebas que
+# solo verifican las constantes de Python (`SEED_FILES`, `_SURVEY_2026_09_PERMS`)
+# NO necesitan el directorio: se quedan sin guard para que CI las siga
+# ejerciendo.
+requires_dml = pytest.mark.skipif(
+    not (DML_TITULATEC / _DML_SURVEY_2026_09_DIR).is_dir(),
+    reason=(
+        "database/DML/titulatec/survey_2026_09/ no esta en el checkout "
+        "(gitignored a proposito: trae PII real y nunca llega a CI). Esta "
+        "prueba invoca el comando de verdad, que exige el directorio en "
+        "disco antes de que los mocks de execute_sql_file/_verify_survey_2026_09 "
+        "entren en juego."
+    ),
 )
 
 
@@ -50,6 +78,7 @@ def test_los_ocho_codigos_del_delta_son_los_del_contrato():
     }
 
 
+@requires_dml
 def test_dry_run_no_ejecuta_sql_ni_verifica():
     with patch("itcj2.cli.core.execute_sql_file") as ejecutar, \
          patch("itcj2.cli.titulatec._verify_survey_2026_09") as verificar:
@@ -61,6 +90,7 @@ def test_dry_run_no_ejecuta_sql_ni_verifica():
     assert "[dry-run]" in res.output
 
 
+@requires_dml
 def test_corre_los_cuatro_archivos_del_delta_y_ninguno_mas():
     with patch("itcj2.cli.core.execute_sql_file", return_value=True) as ejecutar, \
          patch("itcj2.cli.titulatec._verify_survey_2026_09", return_value=[]):
@@ -75,6 +105,7 @@ def test_corre_los_cuatro_archivos_del_delta_y_ninguno_mas():
     assert not any("03_insert_role_permissions" in r for r in corridos), corridos
 
 
+@requires_dml
 def test_aborta_si_la_verificacion_reporta_un_permiso_sin_aterrizar():
     with patch("itcj2.cli.core.execute_sql_file", return_value=True), \
          patch("itcj2.cli.titulatec._verify_survey_2026_09",
