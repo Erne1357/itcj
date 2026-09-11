@@ -1036,3 +1036,118 @@ async def enroll_verify(request: Request, t: str = ""):
         db.close()
     ctx["notice"] = True
     return render_titulatec(request, "titulatec/public/enroll.html", ctx)
+
+
+# ---------------------------------------------------------------------------
+# 8. Reenvío de la liga y confirmación del correo personal (Tarea 21, §6.8, D17)
+# ---------------------------------------------------------------------------
+# Contexto de `notice_card.html` (T12): `notice_key`, `notice_icon` SIN el
+# prefijo `bi-`, `notice_title`, `notice_body` y el opcional `notice_class`.
+#
+# §6.8 exige que 'sent' y 'noop' sean INDISTINGUIBLES: la misma tarjeta para el
+# control+correo que sí casan con una solicitud viva, para el que no casa, para
+# el tope agotado, para la ventana cerrada Y para la trampa. Cualquier tarjeta
+# propia para alguno de esos casos es un oráculo anónimo de "¿existe este
+# número de control?" (RULING R4, Tarea 21).
+_RESEND_CARD = {
+    "notice_key": "generic",
+    "notice_icon": "envelope-check",
+    "notice_title": "Listo",
+    "notice_body": ("Si esos datos corresponden a una solicitud pendiente, ya te "
+                    "reenviamos la liga. Revisa también el correo no deseado."),
+}
+
+# — Presupuesto del limitador de reenvío (RULING R3, Tarea 21) —
+#
+# El brief original traía `enroll_resend:ip` a 3/hora. Sube a 10/hora por el
+# mismo motivo que ya subieron `SURVEY_RL_LIMIT_IP` y `ENROLL_RL_LIMIT_IP` más
+# arriba en este módulo: el ITCJ entero sale a internet por UNA sola dirección
+# pública, así que 3/hora deja al cuarto egresado que necesita un reenvío desde
+# el campus sin poder pedirlo.
+#
+# A DIFERENCIA de `ENROLL_RL_LIMIT_IP`/`SURVEY_RL_LIMIT_IP`, este cubo se queda
+# EN LA PUERTA (`check_and_count`, no `check_only` + cobro condicionado): en las
+# Tareas 12 y 19 el patrón leer-antes/cobrar-después existe para no dejar fuera
+# de un trámite obligatorio a quien se equivoca de campo. Aquí NO aplica, y
+# aplicarlo sería un fallo de seguridad — §6.8 exige que 'sent' y 'noop' cuesten
+# EXACTAMENTE lo mismo. Si el cobro solo ocurriera cuando `resend()` manda de
+# verdad, cualquiera podría enviar N intentos con un número de control candidato
+# y medir a qué velocidad se agota su propio cubo de IP para saber si ese
+# control existe — un oráculo por temporización, la misma familia de fuga que
+# `hmac.compare_digest` (R1) existe para cerrar en la comparación de tokens.
+# Los dos resultados ('sent' y 'noop') tienen que costar lo mismo: se cobra
+# SIEMPRE, antes de llamar a `EnrollmentRequestService.resend`, y una excepción
+# dentro de `resend` tampoco cambia el cobro ni la tarjeta de vuelta.
+ENROLL_RESEND_RL_LIMIT_IP = 10
+ENROLL_RESEND_RL_WINDOW_IP = 3600
+
+
+@router.post("/inscripcion/reenviar", name="titulatec.pages.public.enroll_resend")
+async def enroll_resend(request: Request):
+    """Reenvía la liga de verificación. Salida idéntica case o no case (§6.8).
+
+    Orden: tamaño declarado → trampa → presupuesto por IP (cobrado SIEMPRE,
+    RULING R3) → escritura. Ninguna entrada del visitante puede producir un
+    500 (docstring del módulo): la llamada al service va protegida igual que
+    `enroll_submit`/`survey_submit`, arriba en este archivo.
+
+    RULING R2: usa `_declared_body_size` (§1 de este módulo) en vez de un
+    parser nuevo — `_enroll_too_big` no existe, nunca existió.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.core.utils.client_ip import client_ip
+    from itcj2.core.utils.rate_limit import check_and_count
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        MAX_PUBLIC_BODY_BYTES, EnrollmentRequestService,
+    )
+
+    # 1) Tamaño ANTES de `request.form()`, que bufferea el cuerpo ENTERO en
+    #    memoria. Mismo patrón que `enroll_submit`/`survey_submit`.
+    tamano = _declared_body_size(request.headers)
+    if tamano is None:
+        return Response(status_code=411, headers={
+            "X-Tt-Error": _hdr("No pudimos leer el tamaño de tu envío. "
+                               "Recarga la página e inténtalo de nuevo.")})
+    if tamano > MAX_PUBLIC_BODY_BYTES:
+        return Response(status_code=413,
+                        headers={"X-Tt-Error": _hdr("El formulario es demasiado grande.")})
+
+    form = await request.form()
+    if (form.get("website") or "").strip():
+        # Trampa (E3): tercera salida indistinguible (RULING R4). MISMA tarjeta,
+        # cero escritura, cero cobro — igual que la trampa de `enroll_submit`.
+        return render_titulatec(
+            request, "titulatec/public/partials/notice_card.html", dict(_RESEND_CARD))
+
+    # 2) Presupuesto por IP. Se cobra AQUÍ, SIEMPRE, antes de saber si el
+    #    control+correo van a casar con algo (RULING R3): es lo que hace que
+    #    'sent' y 'noop' cuesten lo mismo.
+    ip = client_ip(request)
+    ok, retry = check_and_count("enroll_resend:ip", ip,
+                                limit=ENROLL_RESEND_RL_LIMIT_IP,
+                                window=ENROLL_RESEND_RL_WINDOW_IP, fail_open=False)
+    if not ok:
+        return _enroll_wait_card(request, retry)
+
+    control = (form.get("control_number") or "").strip()
+    email = (form.get("contact_email") or "").strip()
+
+    db = SessionLocal()
+    try:
+        EnrollmentRequestService.resend(db, control, email)
+    except Exception:
+        # Ninguna entrada del visitante puede producir un 500. El presupuesto
+        # de arriba YA se cobró (RULING R3): una excepción no debe cambiar ni
+        # el cobro ni la tarjeta de vuelta, o la excepción misma se volvería
+        # una señal distinguible.
+        logger.exception("enroll_resend: fallo al reenviar (ip=%s)", ip)
+        try:
+            db.rollback()
+        except Exception:      # pragma: no cover - sesión ya inservible
+            logger.warning("enroll_resend: rollback fallido tras el error de escritura")
+    finally:
+        db.close()
+
+    # 'sent', 'noop' y la excepción devuelven lo MISMO a propósito (§6.8, R4).
+    return render_titulatec(
+        request, "titulatec/public/partials/notice_card.html", dict(_RESEND_CARD))

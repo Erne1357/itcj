@@ -463,3 +463,54 @@ class EnrollmentRequestService:
         ))
         TitulaTecEmailHelper.send_enrollment_done(db, req, proc)
         return True, proc.folio
+
+    @staticmethod
+    def resend(db: Session, control_number: str, contact_email: str) -> str:
+        """Reenvía la liga. Devuelve `'sent'` o `'noop'`.
+
+        `'noop'` cubre TODO lo que no manda correo: no casa, tope alcanzado,
+        muy pronto, ventana cerrada, estado terminal y la falta del claro en el
+        caché (§6.8: sin él NO se rota, se falla cerrado). La respuesta HTTP es
+        la misma en todos los casos, así que el endpoint no es oráculo de
+        existencia; darle tarjeta propia a la falta de caché lo convertiría en
+        uno.
+
+        La llave es (control_number, contact_email) y nunca el `id`: el `id` es
+        un BigInteger secuencial y cualquiera enumeraría 1..N para disparar
+        correos a buzones ajenos desde el buzón del instituto.
+        """
+        from sqlalchemy import func
+        from itcj2.core.utils.email_tools import normalize_email
+        from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
+        from itcj2.apps.titulatec.services.cohort_service import CohortService
+
+        control = (control_number or "").strip()
+        email = normalize_email(contact_email) or ""
+        if not control or not email:
+            return "noop"
+
+        # `converted` y `rejected` no entran al filtro: se rechazan SIN consumir
+        # un envío, que es justo lo que pide §6.8.
+        req = (db.query(EnrollmentRequest)
+               .filter(EnrollmentRequest.control_number == control,
+                       func.lower(EnrollmentRequest.contact_email) == email.lower(),
+                       EnrollmentRequest.status.in_(("unverified", "verified")))
+               .order_by(EnrollmentRequest.id.desc())
+               .first())
+        if req is None:
+            return "noop"
+
+        cohort = db.get(Cohort, req.cohort_id)
+        if cohort is None or not CohortService.is_public_enrollment_open(cohort):
+            return "noop"
+
+        if (req.verify_send_count or 0) >= MAX_VERIFY_SENDS:
+            # Presupuesto agotado. Un `known` cuyo institucional no responde pasa
+            # a la bandeja: el token NUNCA se manda al correo personal (D17).
+            if req.kind == "known" and req.verified_at is None:
+                req.status = "pending_review"
+                req.review_note = "El correo institucional no respondió tras 3 envíos."
+                db.commit()
+            return "noop"
+
+        return "sent" if EnrollmentRequestService._send_verify(db, req) else "noop"
