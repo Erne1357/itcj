@@ -25,13 +25,14 @@ lo fijan.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 import secrets
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE  # noqa: F401
+from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
 
 logger = logging.getLogger("itcj2.apps.titulatec.enrollment_request")
 
@@ -255,3 +256,158 @@ class EnrollmentRequestService:
         db.commit()
         TitulaTecEmailHelper.send_verify_enrollment(db, req, to=to, link=_verify_link(raw))
         return True
+
+    @staticmethod
+    def verify(db: Session, token: str):
+        """Abre la liga de verificación. Devuelve `(req|None, outcome)`.
+
+        `outcome ∈ 'converted' | 'pending_review' | 'already_converted' |
+        'already_pending' | 'invalid' | 'expired'`.
+
+        ES IDEMPOTENTE a propósito: Outlook Safe Links y los escáneres de correo
+        corporativos prefetchean la liga en cuanto llega. Si el token se marcara
+        "usado" y la segunda visita diera error, la persona vería un fallo
+        estando ya inscrita y gastaría sus 3 reenvíos intentando arreglarlo.
+
+        DESVIACIÓN DEL BORRADOR DEL BRIEF: la comparación decisiva usa
+        `hmac.compare_digest` de la librería estándar, DIRECTO — no existe un
+        `_compare` en este módulo. La Tarea 19 lo omitió a propósito (no estaba
+        en su "Produces" y no tenía un solo test que lo ejerciera; ver su
+        reporte). Es una credencial al portador: un `==` de Python sale en el
+        primer byte distinto, así que el tiempo de respuesta filtraría cuántos
+        bytes acertó quien lo intenta. `hmac.compare_digest` tarda lo mismo
+        acierte o falle. `test_verify_usa_comparacion_en_tiempo_constante`
+        (`tests/fastapi/titulatec/test_enrollment_verify.py`) fija esto leyendo
+        la fuente: un comparador en tiempo constante calcula la MISMA igualdad
+        que `==` (nada más deja de filtrarla por temporización), así que ningún
+        test de comportamiento puede detectar una regresión aquí.
+        """
+        from itcj2.apps.titulatec.models import EnrollmentRequest
+
+        if not token:
+            return None, "invalid"
+        digest = _sha256(token)
+        # La búsqueda por índice es lo que la hace O(1); la comparación en
+        # tiempo constante es la que decide (E7).
+        req = (db.query(EnrollmentRequest)
+               .filter(EnrollmentRequest.verify_token_hash == digest).first())
+        if req is None or not hmac.compare_digest(req.verify_token_hash or "", digest):
+            return None, "invalid"
+
+        if req.status == "converted":
+            return req, "already_converted"
+        if req.status == "pending_review":
+            return req, "already_pending"
+        if req.status == "rejected":
+            return req, "invalid"
+        if req.verify_expires_at is not None and req.verify_expires_at < datetime.now():
+            return req, "expired"
+
+        if req.verified_at is None:
+            req.verified_at = datetime.now()
+
+        if req.kind == "unknown":
+            req.status = "pending_review"
+            db.commit()
+            return req, "pending_review"
+
+        req.status = "verified"
+        ok, detail = EnrollmentRequestService._convert(db, req)
+        if not ok:
+            req.status = "pending_review"
+            req.review_note = detail
+            db.commit()
+            return req, "pending_review"
+        db.commit()
+        return req, "converted"
+
+    @staticmethod
+    def _convert(db: Session, req):
+        """Convierte una solicitud verificada en proceso (§6.9).
+
+        Devuelve `(ok, detalle)`; en éxito `detalle` es el folio. Todo lo que
+        puede haber cambiado en las 48 h se revisa ANTES de `import_rows`, que
+        commitea por su cuenta: abortar después no revierte nada. `_convert` es
+        dueño de su propia transacción — nada de lo que llama aquí (
+        `StudentProfileService.set_fields`) commitea por su cuenta; el commit
+        final lo hace `verify()`, no este método.
+        """
+        from itcj2.core.models.user import User
+        from itcj2.core.services.student_profile_service import StudentProfileService
+        from itcj2.apps.titulatec.models import Cohort, ProcessEvent, TitulationProcess
+        from itcj2.apps.titulatec.services.cohort_service import CohortService
+        from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+        from itcj2.apps.titulatec.services.import_service import ImportService
+
+        # 1. La ventana se revisa sobre la convocatoria GUARDADA en la solicitud.
+        #    Re-derivarla podría mandar al solicitante a otro periodo del que se
+        #    le mostró, y el periodo va dentro del folio y de la ruta en disco.
+        cohort = db.get(Cohort, req.cohort_id)
+        if cohort is None or not CohortService.is_public_enrollment_open(cohort):
+            return False, "La convocatoria se cerró antes de que confirmaras."
+
+        control = (req.control_number or "").strip()
+        full_name = " ".join(
+            x for x in (req.last_name, req.middle_name, req.first_name) if x).strip()
+
+        # 3. Las dos causas por las que `import_rows` salta filas EN SILENCIO.
+        if not CONTROL_NUMBER_RE.fullmatch(control) or not full_name:
+            return False, "Tus datos necesitan revisión manual."
+
+        user = db.query(User).filter_by(control_number=control).first()
+        ya_existia = False
+        if user is not None:
+            # 2. D5 EXCEPTUANDO la convocatoria de esta solicitud: D5 impide
+            #    entrar a una SEGUNDA convocatoria, no atender la propia.
+            otro = (db.query(TitulationProcess)
+                    .filter(TitulationProcess.student_id == user.id,
+                            TitulationProcess.cohort_id != req.cohort_id,
+                            TitulationProcess.status.in_(("active", "on_hold")))
+                    .first())
+            if otro is not None:
+                return False, "Ya tienes un proceso de titulación en otra convocatoria."
+
+            # 4. `import_rows` le pondría de contraseña su número de control, que
+            #    es dato público. Bajo D15 la fija Servicios Escolares con un NIP.
+            if not user.password_hash:
+                return False, ("Tu cuenta no tiene contraseña; Servicios Escolares "
+                               "la dará de alta.")
+
+            ya_existia = (db.query(TitulationProcess)
+                          .filter_by(student_id=user.id, cohort_id=req.cohort_id)
+                          .first()) is not None
+
+        ImportService.import_rows(
+            db, cohort,
+            [{"control_number": control, "full_name": full_name, "email": None,
+              "program_id": req.program_id, "modality_id": None}],
+            actor_id=None, source="self_service", repair_credentials=False,
+        )
+
+        # NO se ramifica sobre `processes_created`: si un CSV del personal creó
+        # el proceso mientras la persona no daba clic, la conversión es igual de
+        # exitosa. Solo la AUSENCIA de proceso es un error.
+        user = db.query(User).filter_by(control_number=control).first()
+        proc = (db.query(TitulationProcess)
+                .filter_by(student_id=user.id, cohort_id=req.cohort_id).first()
+                if user is not None else None)
+        if proc is None:
+            return False, "No pudimos crear tu proceso; Servicios Escolares lo revisará."
+
+        # `contact_email_verified_at` sigue NULL hasta que abra su segunda liga (D17).
+        StudentProfileService.set_fields(
+            db, user.id,
+            contact_email=req.contact_email, phone=req.phone,
+            has_efirma=req.has_efirma, program_text=req.program_text,
+        )
+
+        req.status = "converted"
+        req.converted_process_id = proc.id
+        db.add(ProcessEvent(
+            process_id=proc.id, actor_id=None,
+            event_type="enrollment_self_service", phase_number=0,
+            payload={"request_id": req.id, "folio": proc.folio,
+                     "preexisting_process": ya_existia},
+        ))
+        TitulaTecEmailHelper.send_enrollment_done(db, req, proc)
+        return True, proc.folio

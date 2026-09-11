@@ -928,3 +928,111 @@ async def enroll_submit(request: Request):
         db.close()
 
     return _enroll_generic_card(request)
+
+
+# ---------------------------------------------------------------------------
+# 7. Verificación de la liga de inscripción y conversión (Tarea 20, §6.9)
+# ---------------------------------------------------------------------------
+def _verify_card(outcome: str, folio: str) -> dict:
+    """Tarjeta por resultado de la verificación.
+
+    `converted` y `already_converted` comparten tarjeta, y `pending_review` con
+    `already_pending`: es lo que hace idempotente el GET frente al prefetch de
+    Outlook Safe Links (§6.8).
+
+    El contexto es el del parcial `notice_card.html` (Tarea 12): `notice_key`,
+    `notice_icon` SIN el prefijo `bi-` (la plantilla ya escribe
+    `class="bi bi-{{ notice_icon }}"`, así que pasarlo lo duplicaría),
+    `notice_title` y `notice_body`. Los cuatro `notice_key` salen del
+    vocabulario cerrado del contrato §8, que `notice_card.html` ya declara en
+    su propio comentario: `verified`, `pending`, `expired`, `invalid`.
+    """
+    if outcome in ("converted", "already_converted"):
+        # Dice «ya estás inscrito» y no «te inscribimos» porque le sirve igual
+        # al que se inscribió aquí y al que ya venía de un CSV del personal (§6.9).
+        return {"notice_key": "verified", "notice_icon": "check-circle",
+                "notice_title": "Listo, ya estás inscrito",
+                "notice_body": (f"Tu folio es {folio}. Si ya estabas inscrito, este "
+                                "es el mismo folio de siempre. Entra a TitulaTec con "
+                                "tu número de control y tu NIP para subir tus "
+                                "documentos.")}
+    if outcome in ("pending_review", "already_pending"):
+        return {"notice_key": "pending", "notice_icon": "inbox",
+                "notice_title": "Recibimos tu solicitud",
+                "notice_body": ("Servicios Escolares la va a revisar y te contactará "
+                                "por correo. No necesitas hacer nada más.")}
+    if outcome == "expired":
+        return {"notice_key": "expired", "notice_icon": "clock-history",
+                "notice_title": "Esa liga ya venció",
+                "notice_body": ("Vuelve a llenar el formulario de inscripción para "
+                                "que te enviemos una nueva.")}
+    # Catch-all: "invalid" declarado Y cualquier outcome que no se reconozca
+    # (ver el `except` de `enroll_verify`, abajo): NUNCA se distingue "token mal
+    # formado" de "algo se rompió en el servidor" — sería un oráculo nuevo.
+    return {"notice_key": "invalid", "notice_icon": "x-circle",
+            "notice_title": "No pudimos validar tu liga",
+            "notice_body": ("Puede que esté incompleta. Vuelve a llenar el formulario "
+                            "de inscripción para recibir una nueva.")}
+
+
+@router.get("/inscripcion/verificar", name="titulatec.pages.public.enroll_verify")
+async def enroll_verify(request: Request, t: str = ""):
+    """Abre la liga de verificación. IDEMPOTENTE (§6.8).
+
+    DESVIACIÓN DEL BORRADOR DEL BRIEF: el cuerpo va en un `try/except` que el
+    borrador no traía. Esta ruta la abre un clic real de correo, sin htmx de
+    por medio: un 500 aquí no es un stack trace invisible en un log, es la
+    pantalla que ve un egresado que ya demostró quién es (docstring del módulo,
+    "Ninguna entrada del visitante puede producir un 500"). Mismo criterio que
+    `survey_submit`/`survey_draft`/`enroll_submit`, arriba en este archivo:
+    `except Exception` + `db.rollback()` + una tarjeta en vez de una excepción
+    que escapa. Ante cualquier fallo se cae a la MISMA tarjeta que un token que
+    no existe ("invalid"), para no abrir un oráculo nuevo ("este token era
+    válido pero algo se rompió" vs "este token no existe"). El token NUNCA se
+    loguea — ni aquí ni en el `except`: es una credencial al portador que viaja
+    en la URL.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.core.utils.client_ip import client_ip
+    from itcj2.core.utils.rate_limit import check_and_count
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    ok, retry = check_and_count("enroll_verify:ip", client_ip(request),
+                                limit=30, window=3600, fail_open=False)
+    if not ok:
+        resp = render_titulatec(request, "titulatec/public/enroll.html", {
+            "notice": True, "notice_key": "rate_limited",
+            "notice_icon": "hourglass-split",
+            "notice_class": "tt-card--accent",
+            "notice_title": "Demasiados intentos",
+            "notice_body": f"Espera {max(1, retry // 60)} minutos e inténtalo de nuevo.",
+        })
+        resp.headers["Retry-After"] = str(max(1, retry))
+        return resp
+
+    db = SessionLocal()
+    try:
+        try:
+            req, outcome = EnrollmentRequestService.verify(db, t)
+            folio = ""
+            if req is not None and req.converted_process_id:
+                proc = db.get(TitulationProcess, req.converted_process_id)
+                folio = proc.folio if proc is not None else ""
+            ctx = _verify_card(outcome, folio)
+        except Exception:
+            # Ver el docstring de arriba: ninguna entrada del visitante puede
+            # producir un 500, y el token NUNCA va en el log (ni en el mensaje
+            # ni en la traza — no se interpola `t` en ningún argumento de abajo).
+            logger.exception("enroll_verify: fallo inesperado al verificar la liga")
+            try:
+                db.rollback()
+            except Exception:      # pragma: no cover - sesión ya inservible
+                logger.warning("enroll_verify: rollback fallido tras el error")
+            ctx = _verify_card("invalid", "")
+    finally:
+        db.close()
+    ctx["notice"] = True
+    return render_titulatec(request, "titulatec/public/enroll.html", ctx)
