@@ -8,8 +8,12 @@
  * gatea sus 67 rutas con `require_page_app`, que **no tiene bypass de admin
  * global** (`itcj2/dependencies.py:104-139`): ese usuario recibe
  * `PageForbidden` en cualquier página de titulatec. Cada spec de esta carpeta
- * declara `test.use({ storageState: undefined })` y, si necesita sesión, usa
- * `stateFor('student' | 'head')`.
+ * declara `test.use({ storageState: { cookies: [], origins: [] } })` —
+ * NUNCA `storageState: undefined`: en Playwright 1.61 un valor `undefined` es
+ * un no-op (`_combinedContextOptions` en node_modules/playwright/lib/index.js
+ * solo copia `storageState` cuando es distinto de `undefined`), así que el
+ * contexto heredaría la cookie del admin de helpdesk en vez de quedar sin
+ * sesión — y, si necesita sesión, usa `stateFor('student' | 'head')`.
  *
  * Todo lo que crea esta suite lleva el marcador E2E_TITULATEC para poder
  * borrarlo con precisión al terminar, igual que hace `agendatec/_helpers.js`.
@@ -240,14 +244,23 @@ finally:
     db.close()
 `;
 
-function cleanupPy(ctx) {
+// Task 25 ronda 1, hallazgo CRÍTICO de revisión: la restauración de abajo
+// (`restorePy`) vive en su PROPIO script/sesión/transacción, separada de los
+// ~15 DELETE de `deletePy`. Antes ambas cosas compartían una sola transacción
+// con la restauración al final: si CUALQUIER DELETE fallaba (p.ej. una FK
+// desde una tabla que esta lista todavía no contempla, conforme las Tareas 26
+// y 27 ejerzan más superficie de la app), nada de esa transacción se
+// comprometía —ni siquiera la restauración— y la convocatoria o la encuesta
+// pública ('egresados') que `seedScenario()` cerró se quedaba cerrada para
+// TODO dev hasta que alguien lo notara. `cleanupScenario` llama a
+// `restorePy` desde un `finally`, así que corre siempre, incluso si
+// `runInContainer(deletePy(...))` lanza.
+function deletePy(ctx) {
   return `
 from itcj2.database import SessionLocal
 from sqlalchemy import text
 
 TAG = "${E2E_TAG}"
-PREV_COHORTS = ${JSON.stringify(ctx.prevOpenCohorts || [])}
-PREV_FORM = ${ctx.prevOpenFormId === null || ctx.prevOpenFormId === undefined ? 'None' : ctx.prevOpenFormId}
 
 db = SessionLocal()
 try:
@@ -298,7 +311,55 @@ try:
     db.execute(text("DELETE FROM core_roles WHERE name LIKE :t"), {"t": TAG + "%"})
     db.execute(text("DELETE FROM core_programs WHERE name LIKE :t"), {"t": TAG + "%"})
 
-    # Restaurar lo que la suite cerró para tener un escenario determinista.
+    db.commit()
+    print("E2E titulatec cleanup OK (deletes)")
+finally:
+    db.close()
+`;
+}
+
+/**
+ * Restaura lo que `seedScenario()` cerró (la convocatoria previa y/o la
+ * versión del DML) para tener un escenario determinista. INDEPENDIENTE de
+ * `deletePy`: proceso, sesión y transacción propios, y su propio `db.commit()`
+ * — ver la nota arriba de `deletePy`. Sin `PREV_COHORTS`/`PREV_FORM` que
+ * restaurar, los `if` de abajo simplemente no ejecutan ningún UPDATE.
+ *
+ * Cierra PRIMERO la convocatoria y el formulario DEL PROPIO escenario
+ * (`SCENARIO_COHORT` / `SCENARIO_FORM`) antes de reabrir los previos. Esto no
+ * es cosmético: se descubrió al PROBAR el hallazgo crítico de revisión
+ * (Task 25 ronda 1) forzando un fallo en `deletePy` a propósito. Si
+ * `deletePy` falla ANTES de borrar el formulario del escenario, esa fila
+ * sigue 'open' cuando `restorePy` corre, y el `UPDATE ... SET status='open'`
+ * sobre `PREV_FORM` viola `uq_titulatec_survey_forms_open` (a lo sumo UNA
+ * fila 'open' por `code`) — la restauración misma lanzaba, dejando la
+ * encuesta pública real cerrada Y la del escenario abierta, que es PEOR que
+ * el problema original. El UPDATE condicionado a `status='open'` es
+ * idempotente: si `deletePy` sí alcanzó a borrar esas filas, no afecta a
+ * ninguna. Ídem para la convocatoria (sin índice único, pero
+ * `public_enrollment_cohort` FALLA CERRADO con 503 si hay más de una
+ * abierta).
+ */
+function restorePy(ctx) {
+  return `
+from itcj2.database import SessionLocal
+from sqlalchemy import text
+
+PREV_COHORTS = ${JSON.stringify(ctx.prevOpenCohorts || [])}
+PREV_FORM = ${ctx.prevOpenFormId === null || ctx.prevOpenFormId === undefined ? 'None' : ctx.prevOpenFormId}
+SCENARIO_COHORT = ${ctx.cohortId}
+SCENARIO_FORM = ${ctx.formId}
+
+db = SessionLocal()
+try:
+    # Idempotente y primero: si deletePy ya borró estas filas, 0 filas
+    # afectadas; si deletePy falló antes de llegar a ellas, las cierra para
+    # que reabrir PREV_COHORTS/PREV_FORM abajo no choque con ellas.
+    db.execute(text("UPDATE titulatec_cohorts SET status='closed' "
+                    "WHERE id = :c AND status='open'"), {"c": SCENARIO_COHORT})
+    db.execute(text("UPDATE titulatec_survey_forms SET status='closed' "
+                    "WHERE id = :f AND status='open'"), {"f": SCENARIO_FORM})
+
     if PREV_COHORTS:
         db.execute(text("UPDATE titulatec_cohorts SET status='open' WHERE id = ANY(:ids)"),
                    {"ids": PREV_COHORTS})
@@ -306,7 +367,7 @@ try:
         db.execute(text("UPDATE titulatec_survey_forms SET status='open' WHERE id = :f"),
                    {"f": PREV_FORM})
     db.commit()
-    print("E2E titulatec cleanup OK")
+    print("E2E titulatec cleanup OK (restore)")
 finally:
     db.close()
 `;
@@ -320,11 +381,23 @@ function seedScenario() {
   return _ctx;
 }
 
+/**
+ * Borra el escenario sembrado y SIEMPRE restaura lo que `seedScenario()`
+ * cerró, incluso si el borrado de datos falla a medias (hallazgo crítico de
+ * revisión, Task 25 ronda 1: ver la nota junto a `deletePy`). Si
+ * `runInContainer(deletePy(c))` lanza, el `finally` corre `restorePy` de
+ * todos modos y luego el error original se re-lanza (JS no lo traga: un
+ * `throw` dentro de `try` sobrevive a un `finally` que no lanza ni retorna).
+ */
 function cleanupScenario(ctx) {
   const c = ctx || _ctx;
   if (!c || !c.cohortId) return;
-  runInContainer(cleanupPy(c));
   _ctx = null;
+  try {
+    runInContainer(deletePy(c));
+  } finally {
+    runInContainer(restorePy(c));
+  }
 }
 
 /**
