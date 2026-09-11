@@ -59,7 +59,14 @@ class Settings(BaseSettings):
     # sigue sirviendo el `auth.js` viejo, que ignora `data-next` y manda
     # siempre a la home por rol: el `?next=` del banner de la encuesta se ve
     # en el HTML pero no se usa.
-    STATIC_VERSION: str = "1.0.1111525"
+    #
+    # Bump 2026-09-10 (c): la Tarea 19 estrena el formulario público de
+    # inscripción — `titulatec/js/public/enroll.js` (nuevo) y una capa nueva en
+    # `titulatec/css/public.css` (`.tt-field-error`, `.tt-enroll*`, `.tt-h1`).
+    # Sin el bump, quien ya tenía una página pública abierta en caché sirve un
+    # 404 cacheado del script nuevo y la hoja vieja: el campo de "carrera no
+    # aparece" no alterna y los errores en línea salen sin estilo.
+    STATIC_VERSION: str = "1.0.1111526"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

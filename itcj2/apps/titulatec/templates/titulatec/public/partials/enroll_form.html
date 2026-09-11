@@ -1,0 +1,96 @@
+{# Formulario de auto-inscripción. Se re-renderiza COMPLETO en cada error
+   (§6.1): los valores capturados viajan en `values` y los mensajes en `errors`.
+   htmx sí swappea en 200, así que conservar el estado es del servidor.
+
+   La trampa usa `.tt-public-hp` (RULING R4, Tarea 19): esa es la clase
+   CANÓNICA, ya definida en `public.css` desde la base pública (T11/T12). NO se
+   crea una segunda clase para esto — el propio `public.css` advierte por
+   escrito que dos clases para lo mismo dejan el campo a la vista en cuanto un
+   markup apunte a la que se quede sin regla. #}
+<form id="tt-enroll-form" class="tt-card tt-enroll"
+      hx-post="/titulatec/inscripcion"
+      hx-target="#tt-enroll-form" hx-swap="outerHTML">
+
+  {# Campo trampa (E3). Oculto por CSS (.tt-public-hp), nunca con `hidden` ni
+     `display:none`: un bot que lea el atributo lo saltaría, y el E2E de la
+     Tarea 27 la mide por posición (`box.x + box.width < 0`), no por
+     visibilidad. #}
+  <div class="tt-public-hp" aria-hidden="true">
+    <label for="tt-website">No llenes este campo</label>
+    <input type="text" id="tt-website" name="website" tabindex="-1" autocomplete="off">
+  </div>
+
+  <label class="tt-kicker" for="tt-control">Número de control</label>
+  <input class="tt-field" id="tt-control" name="control_number" required
+         inputmode="numeric" maxlength="20"
+         value="{{ values.control_number|default('') }}"
+         {% if errors.control_number %}aria-invalid="true" aria-describedby="tt-control-err"{% endif %}>
+  {% if errors.control_number %}
+  <p class="tt-field-error" id="tt-control-err" data-tt-error="control_number">{{ errors.control_number }}</p>
+  {% endif %}
+
+  <label class="tt-kicker" for="tt-first">Nombre(s)</label>
+  <input class="tt-field" id="tt-first" name="first_name" required maxlength="80"
+         value="{{ values.first_name|default('') }}"
+         {% if errors.first_name %}aria-invalid="true" aria-describedby="tt-first-err"{% endif %}>
+  {% if errors.first_name %}
+  <p class="tt-field-error" id="tt-first-err" data-tt-error="first_name">{{ errors.first_name }}</p>
+  {% endif %}
+
+  <label class="tt-kicker" for="tt-last">Apellido paterno</label>
+  <input class="tt-field" id="tt-last" name="last_name" required maxlength="80"
+         value="{{ values.last_name|default('') }}"
+         {% if errors.last_name %}aria-invalid="true" aria-describedby="tt-last-err"{% endif %}>
+  {% if errors.last_name %}
+  <p class="tt-field-error" id="tt-last-err" data-tt-error="last_name">{{ errors.last_name }}</p>
+  {% endif %}
+
+  <label class="tt-kicker" for="tt-middle">Apellido materno</label>
+  <input class="tt-field" id="tt-middle" name="middle_name" maxlength="80"
+         value="{{ values.middle_name|default('') }}">
+
+  <label class="tt-kicker" for="tt-program">Carrera</label>
+  <select class="tt-field" id="tt-program" name="program_id" data-tt-enroll="program"
+          {% if errors.program_id %}aria-invalid="true" aria-describedby="tt-program-err"{% endif %}>
+    <option value="">Elige tu carrera…</option>
+    {% for p in programs %}
+    <option value="{{ p.id }}"{% if values.program_id == p.id|string %} selected{% endif %}>{{ p.name }}</option>
+    {% endfor %}
+    <option value="__other__"{% if values.program_id == '__other__' %} selected{% endif %}>Mi carrera no aparece en la lista</option>
+  </select>
+  {% if errors.program_id %}
+  <p class="tt-field-error" id="tt-program-err" data-tt-error="program_id">{{ errors.program_id }}</p>
+  {% endif %}
+
+  <div data-tt-enroll="program-text-wrap"{% if values.program_id != '__other__' %} hidden{% endif %}>
+    <label class="tt-kicker" for="tt-program-text">Escribe tu carrera</label>
+    <input class="tt-field" id="tt-program-text" name="program_text" maxlength="160"
+           value="{{ values.program_text|default('') }}">
+  </div>
+
+  <label class="tt-kicker" for="tt-phone">Teléfono</label>
+  <input class="tt-field" id="tt-phone" name="phone" required maxlength="20"
+         inputmode="tel" value="{{ values.phone|default('') }}"
+         {% if errors.phone %}aria-invalid="true" aria-describedby="tt-phone-err"{% endif %}>
+  {% if errors.phone %}
+  <p class="tt-field-error" id="tt-phone-err" data-tt-error="phone">{{ errors.phone }}</p>
+  {% endif %}
+
+  <label class="tt-kicker" for="tt-email">Correo personal</label>
+  <input class="tt-field" id="tt-email" name="contact_email" required type="email" maxlength="150"
+         value="{{ values.contact_email|default('') }}"
+         {% if errors.contact_email %}aria-invalid="true" aria-describedby="tt-email-err"{% endif %}>
+  {% if errors.contact_email %}
+  <p class="tt-field-error" id="tt-email-err" data-tt-error="contact_email">{{ errors.contact_email }}</p>
+  {% endif %}
+
+  <span class="tt-kicker">¿Ya tienes tu e.firma vigente?</span>
+  <div class="tt-enroll-radio">
+    <label><input type="radio" name="has_efirma" value="1"
+                  {% if values.has_efirma == '1' %}checked{% endif %}> Sí</label>
+    <label><input type="radio" name="has_efirma" value="0"
+                  {% if values.has_efirma != '1' %}checked{% endif %}> Todavía no</label>
+  </div>
+
+  <button type="submit" class="btn btn-sm tt-btn-ink">Enviar solicitud</button>
+</form>

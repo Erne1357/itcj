@@ -632,3 +632,294 @@ async def survey_draft(
     finally:
         db.close()
     return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# 6. Inscripción pública (Tarea 19, §6.8)
+# ---------------------------------------------------------------------------
+# Contexto de `notice_card.html` (T12): `notice_key`, `notice_icon` SIN el
+# prefijo `bi-` -la plantilla escribe `class="bi bi-{{ notice_icon }}"`, así que
+# pasarlo con prefijo produce `bi bi-bi-envelope-check`-, `notice_title`,
+# `notice_body` y el opcional `notice_class`.
+#
+# E8: la MISMA tarjeta para las tres ramas indistinguibles ("ok", "ya existe
+# solicitud viva", "ya tiene proceso"). Sin nombre de convocatoria ni botón de
+# reenvío condicional -cualquiera de los dos es el mismo oráculo anónimo que E8
+# existe para evitar-.
+_ENROLL_CARD = {
+    "notice_key": "generic",
+    "notice_icon": "envelope-check",
+    "notice_title": "Revisa tu correo",
+    "notice_body": ("Si tus datos son correctos, te enviamos un correo con el siguiente "
+                    "paso. Revisa también la carpeta de correo no deseado."),
+}
+
+# — Presupuestos del limitador de inscripción (revisión 2026-09-10, RULING R1/R2) —
+#
+# El diseño original (§8.1) traía `enroll:ip` en 5/hora con `check_and_count`
+# EN LA PUERTA: los mismos dos defectos que ya se corrigieron arriba en
+# `SURVEY_RL_LIMIT_IP`.
+#
+#  1. El ITCJ entero sale a internet por UNA sola dirección pública: 5/hora
+#     deja sin poder inscribirse a una generación entera de egresados que lo
+#     intenten desde el campus, y la inscripción es la puerta a un requisito
+#     de titulación -eso no es una defensa, es una caída-.
+#  2. `check_and_count` hace `INCR` ANTES de comparar, así que una errata de
+#     formulario (falta el nombre, el correo mal escrito) gasta presupuesto
+#     igual que un envío bueno. Cinco erratas y la persona se queda fuera una
+#     hora.
+#
+# Se sube a 30/hora y se pasa al patrón leer-antes/cobrar-después: `check_only`
+# ANTES de trabajar (no cuenta el intento), `check_and_count` solo DESPUÉS de
+# que `EnrollmentRequestService.create` termine SIN EXCEPCIÓN -mismo patrón que
+# `_puede_enviar`/`_contar_envio` de la encuesta, arriba en este módulo-.
+#
+# El límite por número de control se queda en 3/día -es el control anti-abuso
+# de verdad, porque va por identidad y no por IP compartida-, pero TAMBIÉN pasa
+# a leer-antes/cobrar-después: para que un `create` que falle (una excepción de
+# escritura, no un rechazo de validación) no queme uno de los tres intentos del
+# egresado.
+ENROLL_RL_LIMIT_IP = 30
+ENROLL_RL_WINDOW_IP = 3600
+ENROLL_RL_LIMIT_CN = 3
+ENROLL_RL_WINDOW_CN = 86400
+
+
+def _enroll_ip_ok(ip: str) -> tuple[bool, int]:
+    """LEE el cubo de IP sin cobrarlo. `fail_open=False`: E2 del spec."""
+    from itcj2.core.utils.rate_limit import check_only
+    return check_only("enroll:ip", ip, limit=ENROLL_RL_LIMIT_IP,
+                      window=ENROLL_RL_WINDOW_IP, fail_open=False)
+
+
+def _enroll_charge_ip(ip: str) -> None:
+    """Cobra UNA unidad del cubo de IP. Solo se llama tras un `create` exitoso."""
+    from itcj2.core.utils.rate_limit import check_and_count
+    check_and_count("enroll:ip", ip, limit=ENROLL_RL_LIMIT_IP,
+                    window=ENROLL_RL_WINDOW_IP, fail_open=False)
+
+
+def _enroll_cn_ok(control: str) -> tuple[bool, int]:
+    """LEE el cubo del número de control sin cobrarlo."""
+    from itcj2.core.utils.rate_limit import check_only
+    return check_only("enroll:cn", control, limit=ENROLL_RL_LIMIT_CN,
+                      window=ENROLL_RL_WINDOW_CN, fail_open=False)
+
+
+def _enroll_charge_cn(control: str) -> None:
+    """Cobra UNA unidad del cubo del número de control."""
+    from itcj2.core.utils.rate_limit import check_and_count
+    check_and_count("enroll:cn", control, limit=ENROLL_RL_LIMIT_CN,
+                    window=ENROLL_RL_WINDOW_CN, fail_open=False)
+
+
+def _enroll_generic_card(request):
+    """La ÚNICA salida de las tres ramas indistinguibles de E8.
+
+    Mismo contexto siempre ⇒ mismos bytes y mismas cabeceras. No lleva el nombre
+    de la convocatoria ni un botón de reenvío condicional: cualquiera de los dos
+    convertiría el endpoint en un oráculo anónimo de "¿existe este control?".
+    """
+    return render_titulatec(
+        request, "titulatec/public/partials/notice_card.html", dict(_ENROLL_CARD))
+
+
+def _enroll_wait_card(request, retry: int):
+    resp = render_titulatec(request, "titulatec/public/partials/notice_card.html", {
+        "notice_key": "rate_limited",
+        "notice_icon": "hourglass-split",
+        "notice_class": "tt-card--accent",
+        "notice_title": "Demasiados intentos",
+        "notice_body": f"Espera {max(1, retry // 60)} minutos e inténtalo de nuevo.",
+    })
+    resp.headers["Retry-After"] = str(max(1, retry))   # E4
+    return resp
+
+
+def _enroll_programs(db):
+    from itcj2.core.models.program import Program
+    return [{"id": p.id, "name": p.name}
+            for p in db.query(Program).order_by(Program.name).all()]
+
+
+def _enroll_form_ctx(db, *, values=None, errors=None):
+    return {"programs": _enroll_programs(db),
+            "values": values or {}, "errors": errors or {}, "notice": False}
+
+
+@router.get("/inscripcion", name="titulatec.pages.public.enroll")
+async def enroll(request: Request):
+    """Formulario público, gateado por la ventana de la convocatoria (§6.6)."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+
+    db = SessionLocal()
+    try:
+        cohort, err = CohortService.public_enrollment_cohort(db)
+        if err == "ambiguous":
+            # Falla CERRADO. Los nombres que chocan van al log del operador, no
+            # a una pantalla pública.
+            logger.error("Más de una convocatoria abierta: la inscripción pública "
+                         "queda deshabilitada hasta que quede una sola.")
+            return render_titulatec(request, "titulatec/public/enroll.html", {
+                "notice": True, "notice_key": "unavailable",
+                "notice_icon": "exclamation-octagon",
+                "notice_title": "La inscripción no está disponible",
+                "notice_body": "Inténtalo más tarde. Ya avisamos a Servicios Escolares.",
+            }, status_code=503)
+        if err == "closed" or cohort is None:
+            return render_titulatec(request, "titulatec/public/enroll.html", {
+                "notice": True, "notice_key": "closed",
+                "notice_icon": "calendar-x",
+                "notice_title": "La inscripción está cerrada",
+                "notice_body": ("Ahora mismo no hay una convocatoria abierta. Consulta "
+                                "las fechas con Servicios Escolares."),
+            })
+        ctx = _enroll_form_ctx(db)
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/public/enroll.html", ctx)
+
+
+@router.post("/inscripcion", name="titulatec.pages.public.enroll_submit")
+async def enroll_submit(request: Request):
+    """Alta de solicitud.
+
+    Orden: tamaño declarado → trampa → límite por IP → ventana → validación →
+    límite por número de control → escritura → cobro. Ninguna entrada del
+    visitante puede producir un 500 (ver el docstring del módulo): la escritura
+    va protegida con el mismo criterio que `survey_submit` (`try/except`
+    alrededor de la llamada al service, `rollback` en el `except`).
+
+    Todas las salidas desde la ventana abierta en adelante son la MISMA tarjeta
+    (E8): el handler ignora A PROPÓSITO el valor de retorno de
+    `EnrollmentRequestService.create` -lo que distingue cada rama viaja por
+    correo, nunca por esta respuesta-.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.core.utils.client_ip import client_ip
+    from itcj2.core.utils.email_tools import is_valid_email, normalize_email
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        CONTROL_NUMBER_RE, MAX_PUBLIC_BODY_BYTES, EnrollmentRequestService,
+    )
+
+    # 1) Tamaño ANTES de `request.form()`, que bufferea el cuerpo ENTERO en
+    #    memoria. RULING R3: se reutiliza `_declared_body_size` (§1 de este
+    #    módulo) en vez de un parser nuevo -el que traía el brief no comprobaba
+    #    el signo (`Content-Length: -1` pasaba como "no es grande") y devolvía
+    #    `False` sin cabecera, así que un cuerpo `chunked` se leía SIN TOPE-.
+    tamano = _declared_body_size(request.headers)
+    if tamano is None:
+        return Response(status_code=411, headers={
+            "X-Tt-Error": _hdr("No pudimos leer el tamaño de tu envío. "
+                               "Recarga la página e inténtalo de nuevo.")})
+    if tamano > MAX_PUBLIC_BODY_BYTES:
+        return Response(status_code=413,
+                        headers={"X-Tt-Error": _hdr("El formulario es demasiado grande.")})
+
+    form = await request.form()
+    if (form.get("website") or "").strip():
+        # Trampa (E3). RULING R4: usa `.tt-public-hp`, ya definida; ver la
+        # plantilla. Misma tarjeta genérica, cero escritura, cero cobro.
+        return _enroll_generic_card(request)
+
+    ip = client_ip(request)   # nunca `request.client.host`: detrás de nginx es
+                              # siempre nginx y mete a todo internet en un cubo.
+    ok_ip, retry_ip = _enroll_ip_ok(ip)
+    if not ok_ip:
+        return _enroll_wait_card(request, retry_ip)
+
+    values = {k: (form.get(k) or "").strip() for k in (
+        "control_number", "first_name", "last_name", "middle_name",
+        "program_id", "program_text", "phone", "contact_email")}
+    values["has_efirma"] = "1" if (form.get("has_efirma") or "") == "1" else "0"
+
+    db = SessionLocal()
+    try:
+        cohort, err = CohortService.public_enrollment_cohort(db)
+        if err == "ambiguous":
+            logger.error("Más de una convocatoria abierta: POST de inscripción rechazado.")
+            return render_titulatec(request, "titulatec/public/partials/notice_card.html", {
+                "notice_key": "unavailable",
+                "notice_icon": "exclamation-octagon",
+                "notice_title": "La inscripción no está disponible",
+                "notice_body": "Inténtalo más tarde. Ya avisamos a Servicios Escolares.",
+            }, status_code=503)
+        if err == "closed" or cohort is None:
+            return render_titulatec(request, "titulatec/public/partials/notice_card.html", {
+                "notice_key": "closed",
+                "notice_icon": "calendar-x",
+                "notice_title": "La inscripción está cerrada",
+                "notice_body": ("Ahora mismo no hay una convocatoria abierta. Consulta "
+                                "las fechas con Servicios Escolares."),
+            })
+
+        errors: dict[str, str] = {}
+        control = values["control_number"]
+        if not CONTROL_NUMBER_RE.fullmatch(control):
+            errors["control_number"] = ("Escribe tu número de control tal como "
+                                        "aparece en tu credencial.")
+        email = normalize_email(values["contact_email"])
+        if not is_valid_email(email):
+            errors["contact_email"] = "Escribe un correo personal válido."
+        if not values["first_name"]:
+            errors["first_name"] = "Escribe tu nombre."
+        if not values["last_name"]:
+            errors["last_name"] = "Escribe tu apellido paterno."
+        if not values["phone"]:
+            errors["phone"] = "Escribe un teléfono donde podamos localizarte."
+
+        prog_raw = values["program_id"]
+        program_id = int(prog_raw) if prog_raw.isdigit() else None
+        program_text = values["program_text"][:160] or None
+        if program_id is None and not program_text:
+            errors["program_id"] = "Elige tu carrera o escríbela si no aparece."
+
+        if errors:
+            # 200 con el formulario re-renderizado: es un resultado que el
+            # visitante debe VER y CORREGIR, y un formulario puede fallar en
+            # varios campos a la vez (§6.1). Ni el cubo de IP ni el de control
+            # se tocan: una errata no es un ataque.
+            return render_titulatec(
+                request, "titulatec/public/partials/enroll_form.html",
+                _enroll_form_ctx(db, values=values, errors=errors))
+
+        # El presupuesto por control va DESPUÉS de la regex: keyear Redis con
+        # entrada sin validar convierte el contador en un sumidero de
+        # cardinalidad. RULING R2: se LEE aquí y se COBRA solo tras un `create`
+        # exitoso -mismo patrón que el de IP, arriba-.
+        ok_cn, retry_cn = _enroll_cn_ok(control)
+        if not ok_cn:
+            return _enroll_wait_card(request, retry_cn)
+
+        try:
+            EnrollmentRequestService.create(db, cohort, {
+                "control_number": control,
+                "first_name": values["first_name"][:80],
+                "last_name": values["last_name"][:80],
+                "middle_name": values["middle_name"][:80] or None,
+                "program_id": program_id,
+                "program_text": program_text,
+                "phone": values["phone"][:20],
+                "contact_email": email,
+                "has_efirma": values["has_efirma"] == "1",
+            }, client_ip=ip)
+        except Exception:
+            # Ninguna entrada del visitante puede producir un 500 (docstring
+            # del módulo). La tarjeta de abajo es la MISMA que la de éxito -ni
+            # aquí se distingue la respuesta- y ninguno de los dos cubos se
+            # cobra: un `create` que falla no debe quemar uno de los tres
+            # intentos del egresado (RULING R1/R2).
+            logger.exception("enroll: fallo al crear la solicitud (ip=%s)", ip)
+            try:
+                db.rollback()
+            except Exception:      # pragma: no cover - sesión ya inservible
+                logger.warning("enroll: rollback fallido tras el error de escritura")
+        else:
+            _enroll_charge_ip(ip)
+            _enroll_charge_cn(control)
+    finally:
+        db.close()
+
+    return _enroll_generic_card(request)

@@ -1,0 +1,32 @@
+{# Inscripción pública. Una sola plantilla para los estados de PÁGINA COMPLETA:
+   formulario, cierre de ventana y tarjetas de verificación. El POST no pasa por
+   aquí: responde con los parciales sueltos, que es lo que htmx swappea.
+
+   Los nombres de bloque son los que `base_public.html` REALMENTE declara. Jinja
+   descarta EN SILENCIO un bloque hijo que el padre no define, así que un
+   `public_main` inventado dejaría la página en blanco sin un solo error. Y no se
+   abre un `<main>` propio: la base ya emite
+   `<main class="tt-public-main tt-prose" data-tt-page="…">`; anidar otro deja el
+   de fuera con `data-tt-page=""` y viola el modo estricto del locator de T27.
+
+   `public_page` es un bloque SEPARADO de `public_body`: se declara "public_enroll"
+   siempre, sea cual sea la rama (formulario, cerrada, no disponible) que
+   `public_body` termine pintando -- por eso `data-tt-page="public_enroll"` sale
+   incluso cuando no hay convocatoria abierta (test_public_routes.py lo exige). #}
+{% extends "titulatec/public/base_public.html" %}
+{% block public_title %}Inscripción · TitulaTec{% endblock %}
+{% block public_page %}public_enroll{% endblock %}
+{% block public_body %}
+  <span class="tt-kicker">Titulación</span>
+  <h1 class="tt-display tt-h1">Inscripción a titulación</h1>
+  {% if notice %}
+    {% include "titulatec/public/partials/notice_card.html" %}
+  {% else %}
+  <p>Llena tus datos y te enviaremos un correo con el siguiente paso. Sin ese
+     clic la inscripción no queda registrada.</p>
+    {% include "titulatec/public/partials/enroll_form.html" %}
+  {% endif %}
+{% endblock %}
+{% block public_scripts %}
+<script src="/static/titulatec/js/public/enroll.js?v={{ sv('js/public/enroll.js') }}"></script>
+{% endblock %}

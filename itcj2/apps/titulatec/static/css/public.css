@@ -190,3 +190,28 @@
   .tt-scale-opt { transition: none; }
   .tt-scale-opt:active { transform: none; }
 }
+
+/* ======================= Inscripción pública (Tarea 19) =================== */
+/* La trampa NO se redefine aquí. `.tt-public-hp` ya vive más arriba en ESTE
+   mismo archivo (capa de la base pública, Tarea 11) con exactamente estas
+   reglas, y hay un test que mide ESE bloque
+   (`test_la_base_publica_...honeypot...` en `test_public_routes.py`, más
+   `test_la_inscripcion_no_agrega_una_segunda_clase_de_trampa_en_css` en
+   `test_enrollment_public.py`). Una segunda clase para lo mismo deja el campo
+   A LA VISTA en cuanto un markup apunte a la que se quede sin regla; el propio
+   `public.css` lo advierte por escrito.
+
+   RULING DEL CONTROLADOR (Tarea 19): la clase canónica de la trampa es
+   `.tt-public-hp`, la que este CSS define de verdad y la que la Tarea 12 ya
+   usa en producción. No se añade nada aquí para la trampa. */
+
+.tt-field-error {
+  margin: .2rem 0 .6rem;
+  font-size: .78rem;
+  color: var(--tt-danger);
+}
+
+.tt-enroll .tt-kicker { display: block; margin-top: .9rem; }
+.tt-enroll .tt-field { width: 100%; max-width: 30rem; }
+.tt-enroll-radio { display: flex; gap: 1.25rem; margin: .35rem 0 1rem; }
+.tt-h1 { font-size: 1.5rem; font-weight: 600; margin: .15rem 0 .75rem; }
