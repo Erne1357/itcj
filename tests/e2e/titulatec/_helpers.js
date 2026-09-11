@@ -190,7 +190,7 @@ try:
     db.add(UserAppRole(user_id=student.id, app_id=app.id, role_id=rol_alumno.id))
 
     head = User(first_name=TAG, last_name="JEFATURA", username=TAG + "_head",
-               is_active=True)
+                is_active=True)
     db.add(head); db.flush()
     db.add(UserAppRole(user_id=head.id, app_id=app.id, role_id=rol_head.id))
 
