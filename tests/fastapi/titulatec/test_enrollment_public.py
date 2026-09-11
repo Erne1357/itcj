@@ -53,9 +53,20 @@ def _form(**kw):
     return base
 
 
-def _count(db_session):
+def _count(db_session, control_number):
+    """Filas de `EnrollmentRequest` para UN número de control.
+
+    A propósito SIN default ni variante "cuenta todo": la BD de dev compartida
+    acumula filas de QA manual de otras tareas (misma advertencia que las
+    restricciones del plan hacen sobre `database/`), y un `count()` sin filtro
+    pasaba HOY solo porque nadie más escribía en esta tabla todavía. El primer
+    QA manual contra el mismo contenedor deja una fila y las aserciones fallan
+    por un motivo que no tiene nada que ver con lo que cada test comprueba.
+    Cada llamada se acota por el número de control que ESE test mandó.
+    """
     from itcj2.apps.titulatec.models import EnrollmentRequest
-    return db_session.query(EnrollmentRequest).count()
+    return (db_session.query(EnrollmentRequest)
+            .filter_by(control_number=control_number).count())
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +146,7 @@ def test_control_invalido_devuelve_200_con_el_formulario_y_error_inline(
     assert "número de control" in resp.text
     assert 'aria-invalid="true"' in resp.text
     assert 'value="abc"' in resp.text              # el servidor conserva lo capturado
-    assert _count(db_session) == 0
+    assert _count(db_session, "abc") == 0
 
 
 def test_correo_invalido_devuelve_200_con_el_formulario_y_error_inline(
@@ -153,7 +164,7 @@ def test_correo_invalido_devuelve_200_con_el_formulario_y_error_inline(
     assert resp.status_code == 200, resp.text[:400]
     assert 'id="tt-enroll-form"' in resp.text
     assert "correo personal válido" in resp.text
-    assert _count(db_session) == 0
+    assert _count(db_session, "99880002") == 0
 
 
 def test_sin_nombre_devuelve_200_con_error_inline_en_ese_campo(
@@ -170,7 +181,7 @@ def test_sin_nombre_devuelve_200_con_error_inline_en_ese_campo(
 
     assert resp.status_code == 200, resp.text[:400]
     assert 'data-tt-error="first_name"' in resp.text
-    assert _count(db_session) == 0
+    assert _count(db_session, "99880002") == 0
 
 
 def test_sin_carrera_y_sin_texto_libre_devuelve_error_de_programa(
@@ -187,7 +198,7 @@ def test_sin_carrera_y_sin_texto_libre_devuelve_error_de_programa(
 
     assert resp.status_code == 200, resp.text[:400]
     assert 'data-tt-error="program_id"' in resp.text
-    assert _count(db_session) == 0
+    assert _count(db_session, "99880002") == 0
 
 
 def test_ventana_cerrada_en_el_post_no_escribe_y_muestra_cerrada(
@@ -204,7 +215,38 @@ def test_ventana_cerrada_en_el_post_no_escribe_y_muestra_cerrada(
 
     assert resp.status_code == 200, resp.text[:400]
     assert "inscripción está cerrada" in resp.text
-    assert _count(db_session) == 0
+    assert _count(db_session, "99880002") == 0
+
+
+def test_post_con_mas_de_una_convocatoria_abierta_manda_el_mensaje_en_la_cabecera(
+    client, db_session, make_cohort,
+):
+    """§6.6, rama POST. Ronda de arreglos 1, Important 2.
+
+    `enroll_form.html` manda este POST con `hx-post` + `hx-swap="outerHTML"`, y
+    htmx NO hace swap en un 5xx: un `render_titulatec(..., status_code=503)`
+    con el aviso en el CUERPO se descarta en silencio y el visitante ve en su
+    lugar el toast genérico de `tt-errors.js` ("No se pudo completar la
+    acción..."), porque no hay `X-Tt-Error` que le dé el texto bueno. Mismo
+    patrón que el 411/413 de arriba: `Response` SIN formulario, con el mensaje
+    en la CABECERA, no en un cuerpo que nadie va a pintar.
+    """
+    from itcj2.apps.titulatec.models import Cohort
+    db_session.query(Cohort).update({"status": "closed"}, synchronize_session=False)
+    db_session.flush()
+    make_cohort(status="open")
+    make_cohort(status="open")
+    client.cookies.clear()
+
+    resp = client.post(ENROLL_URL, data=_form(control_number="99885701"),
+                       headers={"X-Real-IP": "203.0.113.81"}, follow_redirects=False)
+
+    assert resp.status_code == 503, resp.text[:300]
+    assert "X-Tt-Error" in resp.headers, (
+        "sin esta cabecera htmx descarta la respuesta y el visitante nunca ve "
+        "el aviso: no hace swap en un 5xx"
+    )
+    assert _count(db_session, "99885701") == 0
 
 
 # ---------------------------------------------------------------------------
@@ -213,18 +255,43 @@ def test_ventana_cerrada_en_el_post_no_escribe_y_muestra_cerrada(
 def test_la_trampa_no_escribe_nada_y_devuelve_la_tarjeta_generica(
     client, db_session, make_cohort,
 ):
+    """La trampa es la CUARTA salida indistinguible, no solo la de E8 (item 2
+    de "lo que no puede fallar" en el despacho de la Tarea 19): un bot que la
+    llena tiene que recibir una respuesta idéntica BYTE A BYTE a la de un
+    envío legítimo, no solo "algo que también diga Revisa tu correo". Si se
+    distinguiera aunque fuera por una coma, un bot sabría que fue detectado —
+    exactamente la señal que la trampa existe para no dar.
+    """
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
     client.cookies.clear()
 
-    resp = client.post(ENROLL_URL,
-                       data=_form(website="http://spam.example"),
+    r_ok = client.post(ENROLL_URL,
+                       data=_form(control_number="99885601"),
                        headers={"X-Real-IP": "203.0.113.16"},
                        follow_redirects=False)
+    r_trampa = client.post(ENROLL_URL,
+                           data=_form(control_number="99885602",
+                                     website="http://spam.example"),
+                           headers={"X-Real-IP": "203.0.113.17"},
+                           follow_redirects=False)
 
-    assert resp.status_code == 200, resp.text[:400]
-    assert "Revisa tu correo" in resp.text
-    assert _count(db_session) == 0
+    assert r_ok.status_code == r_trampa.status_code == 200, r_trampa.text[:400]
+    assert "Revisa tu correo" in r_trampa.text
+
+    # Cuerpo idéntico BYTE A BYTE contra un envío legítimo real, no "parecido".
+    assert r_trampa.content == r_ok.content
+
+    def _h(resp):
+        # `date` se excluye porque puede saltar de segundo entre peticiones; es
+        # lo único que el servidor no controla. Mismo criterio que el test de
+        # las otras tres ramas de E8, abajo.
+        return {k.lower(): v for k, v in resp.headers.items() if k.lower() != "date"}
+
+    assert _h(r_trampa) == _h(r_ok)
+
+    assert _count(db_session, "99885601") == 1, "el envio legitimo SI debe escribir"
+    assert _count(db_session, "99885602") == 0, "la trampa NO debe escribir nada"
 
 
 def test_e8_las_tres_ramas_son_identicas_byte_a_byte(
@@ -295,7 +362,7 @@ def test_una_excepcion_en_create_no_produce_500_y_devuelve_la_tarjeta_generica(
 
     assert resp.status_code == 200, resp.text[:400]
     assert "Revisa tu correo" in resp.text
-    assert _count(db_session) == 0
+    assert _count(db_session, "99885001") == 0
 
 
 # ---------------------------------------------------------------------------
@@ -480,7 +547,7 @@ def test_con_redis_caido_el_envio_se_niega_y_no_escribe(
 
     assert resp.status_code == 200, resp.text[:300]
     assert "Demasiados intentos" in resp.text
-    assert _count(db_session) == 0
+    assert _count(db_session, "99885401") == 0
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +576,7 @@ def test_un_cuerpo_sin_content_length_se_rechaza_con_411(client, db_session, mak
 
     assert resp.status_code == 411, resp.text[:300]
     assert "X-Tt-Error" in resp.headers
-    assert _count(db_session) == 0
+    assert _count(db_session, "99885501") == 0
 
 
 def test_cuerpo_por_encima_del_tope_se_rechaza_con_413(client, db_session, make_cohort):
@@ -527,7 +594,7 @@ def test_cuerpo_por_encima_del_tope_se_rechaza_con_413(client, db_session, make_
 
     assert resp.status_code == 413, resp.text[:200]
     assert "X-Tt-Error" in resp.headers
-    assert _count(db_session) == 0
+    assert _count(db_session, "99880002") == 0
 
 
 def test_enroll_submit_no_define_su_propio_parser_de_tamano():

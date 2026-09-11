@@ -839,13 +839,18 @@ async def enroll_submit(request: Request):
     try:
         cohort, err = CohortService.public_enrollment_cohort(db)
         if err == "ambiguous":
+            # Ronda de arreglos 1, Important 2. Este POST SIEMPRE llega por htmx
+            # (`enroll_form.html`: hx-post + hx-swap="outerHTML"), y htmx NO hace
+            # swap en un 5xx: un `render_titulatec(..., status_code=503)` con el
+            # aviso en el CUERPO se descarta en silencio, y el visitante ve el
+            # toast genérico de `tt-errors.js` en vez del mensaje real. Mismo
+            # patrón que el 411/413 de arriba (§1 de este módulo): `Response`
+            # SIN formulario, con el mensaje en la CABECERA, que es lo único que
+            # el escucha de `htmx:responseError` sí lee en un error.
             logger.error("Más de una convocatoria abierta: POST de inscripción rechazado.")
-            return render_titulatec(request, "titulatec/public/partials/notice_card.html", {
-                "notice_key": "unavailable",
-                "notice_icon": "exclamation-octagon",
-                "notice_title": "La inscripción no está disponible",
-                "notice_body": "Inténtalo más tarde. Ya avisamos a Servicios Escolares.",
-            }, status_code=503)
+            return Response(status_code=503, headers={
+                "X-Tt-Error": _hdr("La inscripción no está disponible por el momento. "
+                                   "Inténtalo más tarde.")})
         if err == "closed" or cohort is None:
             return render_titulatec(request, "titulatec/public/partials/notice_card.html", {
                 "notice_key": "closed",
