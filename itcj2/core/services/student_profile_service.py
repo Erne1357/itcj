@@ -30,8 +30,23 @@ class StudentProfileService:
         """Upsert de columnas del perfil. NO hace commit.
 
         Nunca toca `core_users.email` (D12): el correo personal vive aquí.
+
+        CAMBIAR `contact_email` LIMPIA `contact_email_verified_at`. El sello
+        habla de UNA dirección concreta, no del perfil: sin esto sobrevivía al
+        correo que certificaba, y la bandeja de solicitudes pintaba en verde una
+        dirección nueva que nadie confirmó jamás —basta con que la persona haya
+        verificado otra en una convocatoria anterior—. Escribir el MISMO correo
+        no lo limpia: `confirm_contact` es idempotente a propósito (un escáner
+        de correo corporativo prefetchea la liga antes del clic humano) y hace
+        `set_fields` seguido de `mark_contact_verified`; limpiar ahí tampoco
+        rompería nada, pero reescribir el mismo valor no es un cambio.
         """
         row = StudentProfileService.get_or_create(db, user_id)
+        if "contact_email" in fields:
+            antes = (row.contact_email or "").strip().lower()
+            ahora = (fields["contact_email"] or "").strip().lower()
+            if antes != ahora:
+                row.contact_email_verified_at = None
         for k, v in fields.items():
             setattr(row, k, v)
         db.flush()

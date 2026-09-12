@@ -72,6 +72,54 @@ def test_set_fields_crea_la_fila_perezosa_y_no_toca_core_users_email(
     assert db_session.get(StudentProfile, user.id) is not None
 
 
+def test_cambiar_el_correo_borra_el_sello_de_verificacion(db_session, make_user):
+    """El sello habla de UNA direccion, no del perfil.
+
+    Sin esto sobrevivia al correo que certificaba: una persona que verifico su
+    correo en la convocatoria A y se reinscribe en la B con otro aparecia en la
+    bandeja de solicitudes con el correo NUEVO y la palomita verde, sin que
+    nadie hubiera confirmado nunca esa direccion.
+    """
+    from itcj2.core.services.student_profile_service import StudentProfileService
+
+    user = make_user(control_number=_control())
+    StudentProfileService.set_fields(
+        db_session, user.id, contact_email="el.viejo@example.invalid")
+    sellado = StudentProfileService.mark_contact_verified(db_session, user.id)
+    assert sellado.contact_email_verified_at is not None
+
+    row = StudentProfileService.set_fields(
+        db_session, user.id, contact_email="el.nuevo@example.invalid")
+
+    assert row.contact_email == "el.nuevo@example.invalid"
+    assert row.contact_email_verified_at is None, (
+        "el sello sobrevivio al correo que certificaba")
+
+
+def test_reescribir_el_mismo_correo_conserva_el_sello(db_session, make_user):
+    """No es un cambio, asi que no se limpia.
+
+    `confirm_contact` es idempotente A PROPOSITO (un escaner de correo
+    corporativo prefetchea la liga antes del clic humano) y hace `set_fields`
+    seguido de `mark_contact_verified`; y `_convert` / `approve` reescriben el
+    mismo correo de la solicitud. Ninguno de esos caminos puede desverificar lo
+    que ya se verifico. La comparacion ignora mayusculas y espacios.
+    """
+    from itcj2.core.services.student_profile_service import StudentProfileService
+
+    user = make_user(control_number=_control())
+    StudentProfileService.set_fields(
+        db_session, user.id, contact_email="mismo@example.invalid")
+    StudentProfileService.mark_contact_verified(db_session, user.id)
+
+    row = StudentProfileService.set_fields(
+        db_session, user.id, contact_email="  MISMO@Example.invalid  ",
+        phone="6560000000")
+
+    assert row.contact_email_verified_at is not None
+    assert row.phone == "6560000000"
+
+
 def test_mark_contact_verified_sella_la_fecha(db_session, make_user):
     """Solo la liga de confirmacion pone `contact_email_verified_at` (D17)."""
     from itcj2.core.services.student_profile_service import StudentProfileService

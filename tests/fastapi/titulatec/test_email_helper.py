@@ -226,9 +226,19 @@ def test_una_plantilla_rota_no_tumba_nada(db_session, solicitud, correo_falso,
     assert correo_falso == []
 
 
-def test_already_enrolled_lleva_el_folio(db_session, make_student, make_process,
-                                         correo_falso):
-    """El alumno ya tiene proceso abierto: su folio viaja en el correo."""
+def test_already_enrolled_lleva_el_folio_al_institucional(
+        db_session, make_student, make_process, correo_falso):
+    """El alumno ya tiene proceso abierto: su folio viaja en el correo.
+
+    Y viaja AL INSTITUCIONAL. Este módulo mezcla las dos convenciones —tres
+    helpers resuelven el destinatario con `student_email(user)` y tres lo toman
+    de `req.contact_email`—, así que el destinatario de cada uno tiene que estar
+    fijado por un test o una futura "unificación" lo cambia sin poner nada en
+    rojo. Este correo confirma una inscripción que ya existe: mandarlo a una
+    dirección que declaró un desconocido sería contarle a un extraño que esa
+    persona se está titulando (E8).
+    """
+    from itcj2.core.utils.email_tools import student_email
     from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
 
     alumno = make_student(control_number="99123458")
@@ -237,23 +247,37 @@ def test_already_enrolled_lleva_el_folio(db_session, make_student, make_process,
     ok = TitulaTecEmailHelper.send_already_enrolled(db_session, alumno, proceso)
 
     assert ok is True
-    _asunto, _dest, html = correo_falso[0]
+    _asunto, dest, html = correo_falso[0]
     assert proceso.folio in html
     assert "proceso de titulación" in html.lower()
+    assert dest == [student_email(alumno)], (
+        "el folio de un proceso vivo solo puede ir al buzón institucional")
 
 
-def test_enrollment_done_lleva_el_folio(db_session, make_student, make_process,
-                                        solicitud, correo_falso):
-    """Tras verificación: el folio del nuevo proceso."""
+def test_enrollment_done_lleva_el_folio_al_institucional(
+        db_session, make_student, make_process, solicitud, correo_falso):
+    """Tras verificación: el folio del nuevo proceso, AL INSTITUCIONAL.
+
+    Mismo motivo que el test de arriba, y aquí más agudo: este correo lleva el
+    folio Y la invitación a entrar a la plataforma. `req.contact_email` es el
+    valor crudo de un formulario público, así que el destinatario NO puede salir
+    de ahí. La solicitud de este test trae a propósito un `contact_email`
+    distinto del institucional para que el `assert` tenga algo que distinguir.
+    """
+    from itcj2.core.utils.email_tools import student_email
     from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
 
     alumno = make_student(control_number="99123459")
     proceso = make_process(student=alumno)
-    req = solicitud(control_number="99123459", kind="known", status="verified")
+    req = solicitud(control_number="99123459", kind="known", status="verified",
+                    contact_email="otro.personal@example.invalid")
 
     ok = TitulaTecEmailHelper.send_enrollment_done(db_session, req, proceso)
 
     assert ok is True
-    _asunto, _dest, html = correo_falso[0]
+    _asunto, dest, html = correo_falso[0]
     assert proceso.folio in html
     assert "inscrito" in html.lower()
+    assert dest == [student_email(alumno)], (
+        "el folio y la invitación a entrar solo pueden ir al buzón institucional")
+    assert req.contact_email not in dest
