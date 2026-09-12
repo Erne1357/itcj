@@ -440,6 +440,32 @@ def test_una_excepcion_en_create_no_gasta_presupuesto_de_ip_ni_de_cn(
 
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
+    # Checkpoint OBLIGATORIO antes de forzar el fallo (hallazgo de la Tarea 27,
+    # ronda de arreglos contra base vacía). `make_cohort` y
+    # `_solo_esta_convocatoria` solo hacen `flush()`, nunca `commit()` -viven
+    # sin confirmar en la MISMA transacción que el resto del test-. Esta
+    # prueba, a diferencia de sus vecinas, dispara un `db.rollback()` REAL de
+    # la aplicación (`pages/public.py`, correcto y necesario en producción)
+    # a mitad del test: bajo `join_transaction_mode="create_savepoint"`
+    # (`tests/fastapi/conftest.py`), ese rollback deshace TODO lo no
+    # confirmado desde el último `commit()`, y sin este `commit()` explícito
+    # eso incluye la convocatoria recién creada y el cierre de las demás.
+    # Contra una base vacía (`itcj_ci`, sin DML) el segundo POST no encontraba
+    # NINGUNA convocatoria abierta y caía en la tarjeta de "cerrada"; contra
+    # el `itcj` de dev el mismo rollback también reabría la convocatoria REAL
+    # del DML, y el segundo POST pasaba igual pero usando esa convocatoria
+    # ajena -la prueba pasaba por la razón equivocada, enmascarada por datos
+    # sembrados que nada tienen que ver con lo que aquí se afirma-. El
+    # `commit()` de abajo libera el SAVEPOINT de la fixture (queda protegido
+    # incluso de un `rollback()` posterior en la MISMA sesión) sin comprometer
+    # nada fuera de la transacción del test: `trans.rollback()` al final del
+    # fixture `db_session` sigue limpiando todo. Deliberadamente NO se mueve
+    # este `commit()` a `make_cohort`/`_solo_esta_convocatoria`: son fábricas
+    # compartidas por decenas de pruebas de este archivo y de otros, y
+    # commitear ahí de forma general cambiaría el punto de rollback de
+    # CUALQUIER prueba que las use, no solo de la que aquí fuerza un fallo de
+    # escritura real.
+    db_session.commit()
     client.cookies.clear()
     monkeypatch.setattr(mod, "ENROLL_RL_LIMIT_IP", 1)
     monkeypatch.setattr(mod, "ENROLL_RL_LIMIT_CN", 1)
