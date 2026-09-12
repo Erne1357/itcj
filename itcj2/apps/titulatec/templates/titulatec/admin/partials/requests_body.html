@@ -46,11 +46,31 @@
           {% if not r.mail_sent %}
           <span class="tt-pill tt-pill--neutral">correo no enviado</span>
           {% endif %}
+          {# Prueba de identidad, separada de la del correo personal: es lo que
+             decide qué puede escribir `approve()` sobre una cuenta que ya
+             existe. Sin este renglón el oficial no tenía forma de distinguir
+             una solicitud confirmada por su dueño de una que escribió
+             cualquiera con un número de control ajeno. #}
+          {% if r.institutional_proof %}
+          <span class="tt-pill tt-pill--success">liga institucional abierta</span>
+          {% elif r.kind == 'known' %}
+          <span class="tt-pill tt-pill--amber">liga institucional sin abrir</span>
+          {% elif r.verified %}
+          <span class="tt-pill tt-pill--neutral">sin cuenta; liga del formulario abierta</span>
+          {% else %}
+          <span class="tt-pill tt-pill--amber">sin cuenta; liga sin abrir</span>
+          {% endif %}
         </td>
         <td><span class="tt-pill tt-pill--neutral">{{ r.status }}</span></td>
         <td>{{ r.cohort }}</td>
         <td>
           {% if r.status in ('pending_review', 'verified', 'unverified') %}
+          {# El formulario de aprobar SOLO donde `approve()` acepta. `unverified`
+             significa que nadie abrió ninguna liga: el servicio lo rechaza, así
+             que ofrecerlo sería prometer una acción que devuelve 400. Rechazar
+             y reenviar sí siguen disponibles ahí — son justo lo que el oficial
+             puede hacer con una solicitud sin confirmar. #}
+          {% if r.status in ('pending_review', 'verified') %}
           <form class="d-flex flex-wrap gap-1 align-items-center"
                 hx-post="/titulatec/admin/solicitudes/{{ r.id }}/aprobar"
                 hx-target="#tt-requests-body" hx-swap="outerHTML">
@@ -66,6 +86,14 @@
             </select>
             <button type="submit" class="btn btn-sm tt-btn-ink">Aprobar</button>
           </form>
+          {% if not r.nip_aplica %}
+          {# `approve()` preserva la credencial que ya exista y avisa por folio
+             al institucional. Sin este aviso el oficial creía haber fijado una
+             contraseña que nunca se escribió. #}
+          <span class="tt-pill tt-pill--amber">el NIP no se aplica: esa cuenta ya
+            existe y conserva su contraseña; se avisará el folio al institucional</span>
+          {% endif %}
+          {% endif %}
           <form class="d-flex gap-1 mt-1"
                 hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
                 hx-target="#tt-requests-body" hx-swap="outerHTML">

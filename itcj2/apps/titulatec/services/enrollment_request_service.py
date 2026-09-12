@@ -206,17 +206,57 @@ class EnrollmentRequestService:
             req.verify_sent_at = datetime.now()
         req.verify_send_count = 1
 
-        # Segunda liga, SOLO para el conocido: confirma su correo personal (D17).
-        # Para el desconocido sería redundante — el token ya fue a ese buzón.
-        if kind == "known":
-            craw = secrets.token_urlsafe(32)
-            req.contact_token_hash = _sha256(craw)
-            req.contact_expires_at = datetime.now() + timedelta(hours=CONTACT_TTL_HOURS)
-            TitulaTecEmailHelper.send_confirm_contact(
-                db, req, to=req.contact_email, link=_contact_link(craw))
+        # AQUÍ NO SE EMITE LA SEGUNDA LIGA (B1 de la revisión final). Ver
+        # `_issue_contact_token`, abajo, para el razonamiento completo: para un
+        # `known`, `req.contact_email` es el valor CRUDO DEL CABLE y mandarle un
+        # token canjeable contra `core_student_profile` antes de que nadie
+        # pruebe el número de control convertía dos peticiones anónimas en una
+        # reescritura del correo verificado de un tercero. La liga de contacto
+        # se emite cuando se ABRE la institucional (`verify()`), que es el único
+        # punto del flujo que exige poseer ese buzón.
 
         db.commit()
         return req, "created"
+
+    @staticmethod
+    def _issue_contact_token(req) -> str | None:
+        """Emite el token de la segunda liga (D17). Devuelve el claro, o `None`.
+
+        SOLO para `kind='known'`, y SOLO desde `verify()` — es decir, después de
+        que se abrió la liga que llegó al buzón INSTITUCIONAL. Para el
+        desconocido es redundante: su token de verificación ya fue a ese mismo
+        correo personal.
+
+        POR QUÉ AQUÍ Y NO EN `create()` (B1, revisión final). Las dos ligas
+        prueban cosas distintas y el diseño original las confundió:
+
+        - la de VERIFICACIÓN sale de `verify_recipient` (RULING R5) y prueba
+          posesión del NÚMERO DE CONTROL;
+        - la de CONTACTO va al correo personal que se tecleó en un formulario
+          PÚBLICO y prueba posesión de ESE BUZÓN, nada más.
+
+        `confirm_contact` escribe en `core_student_profile` —una tabla del core,
+        compartida con las demás apps— usando el `control_number` de la
+        solicitud como llave. Emitirla en `create()` la mandaba al correo que
+        escribió quien llenó el formulario, así que cualquiera que tecleara un
+        número de control ajeno (8 dígitos impresos en la credencial) recibía un
+        token canjeable contra el perfil de esa persona. La liga institucional
+        sí iba a la víctima — pero nada esperaba a que la abriera.
+
+        Emitirla aquí invierte la dependencia: sin abrir la institucional no hay
+        token de contacto, y un token que no existe no se puede canjear. La
+        guarda de redención (`confirm_contact`, `req.verified_at`) es la
+        segunda mitad, por si una fila vieja ya lo trae.
+
+        NO commitea ni manda correo: solo sella la fila. El llamador decide
+        cuándo commitear y manda el correo DESPUÉS, fuera de los locks.
+        """
+        if req.kind != "known":
+            return None
+        craw = secrets.token_urlsafe(32)
+        req.contact_token_hash = _sha256(craw)
+        req.contact_expires_at = datetime.now() + timedelta(hours=CONTACT_TTL_HOURS)
+        return craw
 
     @staticmethod
     def _send_verify(db: Session, req) -> bool:
@@ -338,12 +378,22 @@ class EnrollmentRequestService:
         if req.verify_expires_at is not None and req.verify_expires_at < datetime.now():
             return req, "expired"
 
+        craw = None
         if req.verified_at is None:
             req.verified_at = datetime.now()
+            # B1: ABRIR ESTA LIGA es lo que emite la de contacto, y este `if` es
+            # lo que la emite UNA sola vez. Está dentro del lock + refresh de
+            # arriba, así que el prefetch de Outlook Safe Links en paralelo con
+            # el clic humano no puede emitir dos tokens ni mandar dos correos:
+            # el segundo pase ve `verified_at` ya escrito. Ver
+            # `_issue_contact_token` para por qué la emisión pertenece aquí.
+            craw = EnrollmentRequestService._issue_contact_token(req)
 
         if req.kind == "unknown":
             req.status = "pending_review"
             db.commit()
+            # `craw` es None por construcción: la segunda liga es solo del
+            # conocido (su token de verificación ya fue al correo personal).
             return req, "pending_review"
 
         req.status = "verified"
@@ -352,9 +402,36 @@ class EnrollmentRequestService:
             req.status = "pending_review"
             req.review_note = detail
             db.commit()
+            EnrollmentRequestService._send_contact_link(db, req, craw)
             return req, "pending_review"
         db.commit()
+        EnrollmentRequestService._send_contact_link(db, req, craw)
         return req, "converted"
+
+    @staticmethod
+    def _send_contact_link(db: Session, req, craw: str | None) -> None:
+        """Manda la segunda liga al correo personal. DESPUÉS del commit.
+
+        Dos motivos para que sea después, y no junto con la emisión:
+
+        1. Es el patrón del propio módulo: `approve`, `reject` y `_send_verify`
+           commitean y luego mandan. Los dos que lo hacen al revés (`create` y
+           `_convert`) son deuda conocida, no un ejemplo a seguir.
+        2. `verify()` sostiene DOS advisory locks de transacción hasta su commit
+           —`_VERIFY_LOCK_NS` por solicitud y el de folios por convocatoria que
+           toma `import_rows`—. `msgraph_mail` es un `requests.post(timeout=30)`
+           SÍNCRONO: meterlo dentro serializaría toda la emisión de folios de la
+           convocatoria detrás de un Graph lento, justo en la ventana de
+           inscripción, que es cuando esto genera ráfagas de correo.
+
+        `send_confirm_contact` nunca lanza (contrato del helper), así que un
+        fallo de buzón no puede revertir una conversión ya commiteada.
+        """
+        if not craw:
+            return
+        from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+        TitulaTecEmailHelper.send_confirm_contact(
+            db, req, to=req.contact_email, link=_contact_link(craw))
 
     @staticmethod
     def _convert(db: Session, req):
@@ -524,6 +601,24 @@ class EnrollmentRequestService:
         `core_users`; para el desconocido el token de verificación ya fue a ese
         mismo buzón y una segunda liga sería redundante.
 
+        EXIGE `req.verified_at` (B1 de la revisión final). Esta función escribe
+        en `core_student_profile` —tabla del CORE, compartida con helpdesk,
+        agendatec y maint— buscando al usuario por el `control_number` DE LA
+        SOLICITUD. Es decir: el efecto recae sobre quien posee ese número de
+        control, mientras que el token solo prueba posesión del buzón que
+        alguien tecleó en un formulario público. Sin esta guarda, dos peticiones
+        anónimas —enviar el formulario con un control ajeno, abrir la liga que
+        llega al correo propio— reescribían el correo de contacto de un tercero
+        y lo sellaban como verificado. Lo ÚNICO que prueba el número de control
+        es haber abierto la liga institucional, y eso es exactamente
+        `req.verified_at`.
+
+        Es la segunda de dos guardas, no la única: desde este arreglo el token
+        ni siquiera se emite antes de tiempo (`_issue_contact_token`). Esta
+        cubre las filas emitidas antes y cualquier camino futuro que emita de
+        más. Un `rejected` tampoco se acepta: si Servicios Escolares repudió la
+        solicitud, su correo no puede seguir sellando un perfil del core.
+
         `core_users.email` NO se toca (D12): el correo personal vive en
         `core_student_profile`.
 
@@ -555,6 +650,13 @@ class EnrollmentRequestService:
             return False
         if req.contact_expires_at is not None and req.contact_expires_at < datetime.now():
             return False
+        # B1: sin la liga institucional abierta, nadie probó el número de
+        # control y este canje no puede tocar el perfil de su dueño. Se
+        # devuelve el MISMO `False` que un token inexistente o vencido — la
+        # ruta ya pinta una sola tarjeta para los tres, así que esto no abre
+        # ningún oráculo nuevo.
+        if req.verified_at is None or req.status == "rejected":
+            return False
 
         user = db.query(User).filter_by(control_number=req.control_number).first()
         if user is None:
@@ -576,6 +678,45 @@ class EnrollmentRequestService:
         EL NIP NUNCA SALE DE AQUÍ: no se registra en logs, no viaja en
         `X-Tt-Error` y no entra al payload del `ProcessEvent`. Es la contraseña
         del alumno (D15), y `detalle` se emite tal cual en una cabecera.
+
+        QUÉ PRUEBA CADA COSA (B2 de la revisión final). El formulario público
+        deja declarar un número de control ajeno, así que la pregunta de esta
+        función no es "¿el oficial aprobó?" sino "¿sobre qué cuenta va a caer
+        esto y qué está probado de ella?". Dos guardas, con dominios distintos:
+
+        1. `status == 'unverified'` se RECHAZA, sea cual sea el `kind`. Ese
+           estado significa que nadie abrió ninguna liga: del conocido no está
+           probado el número de control y del desconocido no está probado ni el
+           buzón que se tecleó. Mandar ahí un NIP es mandarlo a ciegas. Se sale
+           de ese estado abriendo la liga, o con `resend()` —que tras 3 envíos
+           al institucional sin respuesta mueve al conocido a `pending_review`,
+           que sí es aprobable—. La bandeja no ofrece el botón en ese estado.
+
+        2. Sobre una cuenta que YA EXISTE en `core_users` no se escribe nada
+           sensible sin PRUEBA DEL BUZÓN INSTITUCIONAL, que es
+           `kind == 'known' and verified_at is not None`. Ni credencial, ni
+           `is_active`, ni `must_change_password`, ni los campos del perfil. Sin
+           eso, una solicitud anónima con el control de un egresado real
+           terminaba con contraseña = NIP y usuario = su número de control, y el
+           NIP viajaba al correo personal QUE ESCRIBIÓ EL ATACANTE. La población
+           con `password_hash` NULL es real: `repair_missing_credentials` existe
+           por ella.
+
+        EL DESCONOCIDO SIN CUENTA NO SE TOCA, y es deliberado: no hay fila que
+        secuestrar, el correo personal es la única dirección que existe en el
+        mundo para esa persona (D16: un egresado de 2005 no tiene institucional
+        vivo) y su liga de verificación ya fue a ese mismo buzón. Ahí la
+        autenticación es el juicio del oficial, fuera de banda — que es
+        exactamente para lo que existe esta bandeja. Se le crea el usuario, se
+        le fija el NIP y se le manda, igual que antes.
+
+        El caso intermedio —cuenta preexistente sin prueba institucional— NO se
+        rechaza: es el camino del buzón institucional muerto, y rechazarlo
+        dejaría sin salida a la solicitud que `resend()` acaba de mandar a la
+        bandeja. Se aprueba DEGRADADO: se crea el proceso y se avisa el folio al
+        institucional (`send_enrollment_done`, la misma rama que ya existía para
+        el hash preservado), sin credencial y sin tocar el perfil. La bandeja
+        avisa al oficial que el NIP que teclee no se va a aplicar.
         """
         import re
 
@@ -595,6 +736,11 @@ class EnrollmentRequestService:
             return False, "La solicitud ya no existe."
         if req.status in ("converted", "rejected"):
             return False, "Esa solicitud ya se resolvió."
+        if req.status == "unverified":
+            # Guarda 1 del docstring. El mensaje dice qué hacer, no quién es
+            # quién: el oficial ya está autenticado y acotado por carrera.
+            return False, ("Nadie ha abierto la liga de confirmación de esa "
+                           "solicitud. Reenvíasela o recházala.")
         if not re.fullmatch(r"\d{4}", nip or ""):
             return False, "El NIP debe ser exactamente 4 dígitos."
 
@@ -612,6 +758,15 @@ class EnrollmentRequestService:
 
         resolved_program_id = program_id if program_id else req.program_id
         user = db.query(User).filter_by(control_number=control).first()
+        cuenta_preexistente = user is not None
+        # Guarda 2 del docstring. Lo único que ata esta solicitud al dueño del
+        # número de control es haber abierto la liga que salió de
+        # `verify_recipient` (D17 / RULING R5). Se mira el `kind` además de
+        # `verified_at` a propósito: en un `unknown` la liga fue al correo
+        # personal, así que su `verified_at` prueba ese buzón y NADA sobre el
+        # control — y un `unknown` puede tener cuenta hoy aunque no la tuviera
+        # al enviarse el formulario (un CSV del personal la creó entretanto).
+        prueba_institucional = req.kind == "known" and req.verified_at is not None
         # Finding 3 (ronda 1 de revisión): si la persona YA tenía password_hash
         # (p. ej. de un CSV de otra convocatoria), ese NIP capturado aquí NO es
         # su contraseña — se preserva el hash existente (romperlo sería un
@@ -642,11 +797,20 @@ class EnrollmentRequestService:
                     .first())
             if otro is not None:
                 return False, "Esa persona ya tiene un proceso en otra convocatoria."
-            if not user.password_hash:
-                user.password_hash = hash_nip(nip)
-                credential_set = True
-            user.must_change_password = True
-            user.is_active = True
+            if prueba_institucional:
+                if not user.password_hash:
+                    user.password_hash = hash_nip(nip)
+                    credential_set = True
+                user.must_change_password = True
+                user.is_active = True
+            # else: B2. Cuenta preexistente sin prueba del buzón institucional
+            # — no se le escribe NADA. Ni la credencial (el NIP acabaría en el
+            # correo personal que escribió quien llenó el formulario, y con él
+            # la cuenta entera), ni `is_active` (reactivaría una cuenta que
+            # alguien desactivó a propósito), ni `must_change_password` (solo
+            # tiene sentido acompañando a una credencial recién puesta).
+            # `credential_set` sigue False, así que abajo se manda el folio al
+            # INSTITUCIONAL en vez del NIP al personal.
             db.flush()
 
         ya_existia = (db.query(TitulationProcess)
@@ -675,12 +839,19 @@ class EnrollmentRequestService:
         if proc is None:
             return False, "No se pudo crear el proceso; revisa los datos de la solicitud."
 
-        StudentProfileService.set_fields(
-            db, user.id,
-            contact_email=req.contact_email, phone=req.phone,
-            has_efirma=req.has_efirma, program_text=req.program_text,
-            program_id=resolved_program_id,
-        )
+        # B2: sobre un perfil que ya existía, los datos de una solicitud sin
+        # prueba institucional no entran. TODOS salen del cable (correo
+        # personal, teléfono, e.firma, carrera en texto libre) y el correo es
+        # justamente el que la bandeja muestra al oficial para decidir. El
+        # perfil de un usuario recién creado aquí sí se llena: esos datos son lo
+        # único que se sabe de él y no pisan nada de nadie.
+        if prueba_institucional or not cuenta_preexistente:
+            StudentProfileService.set_fields(
+                db, user.id,
+                contact_email=req.contact_email, phone=req.phone,
+                has_efirma=req.has_efirma, program_text=req.program_text,
+                program_id=resolved_program_id,
+            )
 
         req.status = "converted"
         req.program_id = resolved_program_id
@@ -692,18 +863,25 @@ class EnrollmentRequestService:
             process_id=proc.id, actor_id=actor_id,
             event_type="enrollment_self_service", phase_number=0,
             payload={"request_id": req.id, "folio": proc.folio,
-                     "preexisting_process": ya_existia, "reviewed": True},
+                     "preexisting_process": ya_existia, "reviewed": True,
+                     # Queda en el expediente si esta alta se apoyó en la prueba
+                     # del buzón institucional o solo en el juicio del oficial.
+                     "institutional_proof": prueba_institucional},
         ))
         db.commit()
         if credential_set:
             TitulaTecEmailHelper.send_enrollment_approved(db, req, user, nip=nip)
         else:
-            # Finding 3: el hash existente se preservó — el NIP capturado aquí
-            # NO abre esta cuenta. Mandar `send_enrollment_approved` de todas
-            # formas prometería un acceso falso al correo PERSONAL (que además
-            # puede ser el que escribió un desconocido, no la persona dueña de
-            # la cuenta). Se avisa el folio al institucional en su lugar —
-            # mismo correo que usa la conversión automática (`_convert`).
+            # No se escribió credencial, por una de dos razones: el hash
+            # existente se preservó (Finding 3, ronda 1) o la cuenta es
+            # preexistente y la solicitud no trae prueba del buzón
+            # institucional (B2). En ambas, el NIP capturado aquí NO abre esta
+            # cuenta, y `send_enrollment_approved` prometería un acceso falso al
+            # correo PERSONAL — que es exactamente el que un desconocido puede
+            # haber escrito por la persona dueña de la cuenta. Se avisa el folio
+            # al INSTITUCIONAL en su lugar, mismo correo que usa la conversión
+            # automática (`_convert`), a un buzón cuya posesión no depende de
+            # esta solicitud.
             TitulaTecEmailHelper.send_enrollment_done(db, req, proc)
         return True, proc.folio
 

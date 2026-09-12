@@ -119,10 +119,16 @@ def _body_ctx(db, *, user_id: int, status: str, cohort_id):
     controls = {r.control_number for r in reqs if r.control_number}
     users = ({u.control_number: u for u in db.query(User)
               .filter(User.control_number.in_(controls)).all()} if controls else {})
-    verified = set()
+    # {user_id -> correo que TIENE SELLO}. Antes era un set de "este perfil
+    # tiene sello", sin mirar la dirección: una persona que verificó un correo
+    # en la convocatoria A y se reinscribe con otro en la B veía su correo
+    # NUEVO —jamás confirmado— con la palomita verde. La palomita tiene que
+    # hablar del correo que está a su lado (B2 de la revisión final).
+    verified = {}
     if users:
         from itcj2.core.models.student_profile import StudentProfile
-        verified = {p.user_id for p in db.query(StudentProfile)
+        verified = {p.user_id: (p.contact_email or "").strip().lower()
+                    for p in db.query(StudentProfile)
                     .filter(StudentProfile.user_id.in_([u.id for u in users.values()]),
                             StudentProfile.contact_email_verified_at.isnot(None)).all()}
 
@@ -139,6 +145,16 @@ def _body_ctx(db, *, user_id: int, status: str, cohort_id):
     coh_names = {c["id"]: c["name"] for c in cohorts}
     for r in reqs:
         u = users.get(r.control_number)
+        # Prueba del buzón INSTITUCIONAL: el mismo predicado que usa
+        # `EnrollmentRequestService.approve` para decidir qué puede escribir
+        # sobre una cuenta preexistente. Si los dos se separan, la bandeja
+        # vuelve a prometer lo que el servicio no hace.
+        prueba_institucional = r.kind == "known" and r.verified_at is not None
+        # ¿El NIP que teclee el oficial será de verdad la contraseña? Solo si no
+        # hay cuenta todavía, o si la hay sin `password_hash` Y con prueba
+        # institucional. En los demás casos `approve` preserva lo que exista y
+        # avisa por folio: el oficial tiene que saberlo ANTES de teclearlo.
+        nip_aplica = u is None or (not u.password_hash and prueba_institucional)
         ctx["rows"].append({
             "id": r.id,
             "control": r.control_number,
@@ -153,7 +169,12 @@ def _body_ctx(db, *, user_id: int, status: str, cohort_id):
             "has_efirma": r.has_efirma,
             "sends": r.verify_send_count or 0,
             "mail_sent": r.verify_sent_at is not None,
-            "contact_verified": bool(u is not None and u.id in verified),
+            "contact_verified": bool(
+                u is not None and (r.contact_email or "").strip()
+                and verified.get(u.id) == (r.contact_email or "").strip().lower()),
+            "verified": r.verified_at is not None,
+            "institutional_proof": prueba_institucional,
+            "nip_aplica": nip_aplica,
             "folio": folios.get(r.converted_process_id, ""),
             "note": r.review_note or "",
         })

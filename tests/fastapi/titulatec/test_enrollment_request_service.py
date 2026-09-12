@@ -174,18 +174,29 @@ def test_create_conocido_manda_el_token_al_institucional_no_al_del_formulario(
         "verificacion-"
     )
 
-    assert len(correo_falso) == 2, "verify_enrollment + confirm_contact (conocido)"
+    # CAMBIO DELIBERADO (B1 de la revision final). Este assert decia
+    # `len(correo_falso) == 2` -- "verify_enrollment + confirm_contact
+    # (conocido)" -- y fijaba que `create()` mandara TAMBIEN la liga de contacto
+    # a `req.contact_email`. Esa expectativa era la vulnerabilidad escrita como
+    # contrato: el correo de este test lo escribio un DESCONOCIDO por la alumna
+    # 99880001, y esa segunda liga es canjeable contra el
+    # `core_student_profile` de ella. La liga de contacto ahora se emite al
+    # ABRIR la institucional (`verify()`), asi que aqui sale UN solo correo.
+    # Que la de contacto si vaya al personal -su unico trabajo, D17- lo fija
+    # ahora `test_al_abrir_la_liga_institucional_sale_la_liga_de_contacto...`
+    # (tests/fastapi/titulatec/test_enrollment_identity_chain.py).
+    assert len(correo_falso) == 1, (
+        "solo la liga de VERIFICACION; la de contacto no se emite hasta que se "
+        "abra esta")
     asunto_verify, dest_verify, _h1 = correo_falso[0]
-    asunto_contact, dest_contact, _h2 = correo_falso[1]
     assert dest_verify == [institucional], (
         "la liga de VERIFICACION (la que convierte la solicitud) debe ir al "
         "institucional, nunca al correo del formulario"
     )
     assert "Confirma tu inscripci" in asunto_verify
-    assert dest_contact == ["otro.correo@example.invalid"], (
-        "confirm_contact SI va al personal -es su unico trabajo, D17-"
-    )
-    assert "correo de contacto" in asunto_contact
+    assert req.contact_token_hash is None, (
+        "ni siquiera se emite el token: un token que no existe no se puede "
+        "canjear contra el perfil de la duena del numero de control")
 
 
 def test_create_con_solicitud_viva_reenvia_y_no_duplica(

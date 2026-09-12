@@ -237,9 +237,23 @@ def test_tras_tres_envios_sin_verificar_un_conocido_cae_a_revision(
 
 
 def _con_token_de_contacto(db_session, req):
-    """Le pone a `req` un token de contacto y devuelve el claro."""
+    """Le pone a `req` un token de contacto y devuelve el claro.
+
+    EXIGE `req.verified_at` (B1 de la revision final). Desde ese arreglo el
+    token de contacto solo nace en `verify()` --al abrirse la liga que fue al
+    buzon INSTITUCIONAL-- y `confirm_contact` rechaza el canje de cualquier
+    solicitud sin verificar. Una solicitud `unverified` con token de contacto es
+    un estado que ya no produce el sistema, y montar una prueba sobre el la
+    dejaria pasando en verde por el motivo equivocado. El `assert` esta aqui,
+    en el helper, para que ninguna prueba futura lo reintroduzca sin darse
+    cuenta. El caso adversario -- token forjado sobre una solicitud sin
+    verificar -- se cubre a proposito en
+    `tests/fastapi/titulatec/test_enrollment_identity_chain.py`.
+    """
     from itcj2.apps.titulatec.services.enrollment_request_service import CONTACT_TTL_HOURS
 
+    assert req.verified_at is not None, (
+        "solo una solicitud verificada llega a tener token de contacto")
     raw = secrets.token_urlsafe(32)
     req.contact_token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     req.contact_expires_at = datetime.now() + timedelta(hours=CONTACT_TTL_HOURS)
@@ -250,7 +264,15 @@ def _con_token_de_contacto(db_session, req):
 def test_confirmar_el_correo_personal_marca_el_perfil_sin_tocar_core_users(
     client, db_session, make_cohort, make_student,
 ):
-    """D12: `core_users.email` NO se toca; el correo personal vive en el perfil."""
+    """D12: `core_users.email` NO se toca; el correo personal vive en el perfil.
+
+    CAMBIO DELIBERADO (B1): la solicitud nace VERIFICADA. Antes era
+    `unverified` --el estado en el que `create()` emitia el token de contacto--
+    y ese era justamente el agujero: el canje escribia en el perfil de la duena
+    del numero de control sin que nadie hubiera probado poseerlo. Lo que este
+    test comprueba (D12: el correo personal va al perfil, no a
+    `core_users.email`) no cambia.
+    """
     from itcj2.core.models.student_profile import StudentProfile
 
     cohort = make_cohort(status="open")
@@ -258,7 +280,8 @@ def test_confirmar_el_correo_personal_marca_el_perfil_sin_tocar_core_users(
     student = make_student(control_number="99660010")
     email_original = student.email
     req, _tok = _make_req(db_session, cohort, control="99660010",
-                          email="personal@example.invalid")
+                          email="personal@example.invalid",
+                          status="pending_review", verified_at=datetime.now())
     raw = _con_token_de_contacto(db_session, req)
     client.cookies.clear()
 
@@ -277,11 +300,19 @@ def test_confirmar_el_correo_personal_marca_el_perfil_sin_tocar_core_users(
 def test_confirmar_el_correo_no_bloquea_ni_cambia_el_estado_de_la_inscripcion(
     client, db_session, make_cohort, make_student,
 ):
+    """CAMBIO DELIBERADO (B1): el estado de partida es `pending_review`.
+
+    Antes era `unverified`, que desde el arreglo ya no puede traer token de
+    contacto. Lo que el test comprueba --que confirmar el correo personal NO
+    mueve la inscripción-- es lo mismo, solo que ahora sobre un estado que el
+    sistema de verdad produce.
+    """
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
     make_student(control_number="99660011")
     req, _tok = _make_req(db_session, cohort, control="99660011",
-                          email="personal2@example.invalid")
+                          email="personal2@example.invalid",
+                          status="pending_review", verified_at=datetime.now())
     raw = _con_token_de_contacto(db_session, req)
     client.cookies.clear()
 
@@ -289,7 +320,7 @@ def test_confirmar_el_correo_no_bloquea_ni_cambia_el_estado_de_la_inscripcion(
 
     assert resp.status_code == 200
     db_session.refresh(req)
-    assert req.status == "unverified"      # la inscripción sigue su curso aparte
+    assert req.status == "pending_review"  # la inscripción sigue su curso aparte
     assert req.verify_send_count == 1
 
 
@@ -441,8 +472,11 @@ def test_confirmar_dos_veces_con_el_mismo_token_sigue_funcionando(
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
     student = make_student(control_number="99660013")
+    # CAMBIO DELIBERADO (B1): verificada. La idempotencia que este test fija es
+    # la misma; lo que cambia es que el token de contacto ya solo existe ahi.
     req, _tok = _make_req(db_session, cohort, control="99660013",
-                          email="personal4@example.invalid")
+                          email="personal4@example.invalid",
+                          status="pending_review", verified_at=datetime.now())
     raw = _con_token_de_contacto(db_session, req)
     client.cookies.clear()
 
@@ -472,8 +506,12 @@ def test_token_de_contacto_vencido_no_se_acepta(
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
     student = make_student(control_number="99660012")
+    # CAMBIO DELIBERADO (B1): verificada, para que lo ÚNICO que pueda hacer
+    # fallar este canje sea el vencimiento. Sin `verified_at` el test pasaría
+    # por la guarda nueva y dejaría de ejercer la guarda que dice ejercer.
     req, _tok = _make_req(db_session, cohort, control="99660012",
-                          email="personal3@example.invalid")
+                          email="personal3@example.invalid",
+                          status="pending_review", verified_at=datetime.now())
     raw = _con_token_de_contacto(db_session, req)
     req.contact_expires_at = datetime.now() - timedelta(hours=1)
     db_session.flush()
