@@ -42,14 +42,28 @@ SEED_FILES = [
     "survey_2026_09/10_insert_survey_role_permissions.sql",# grants (head + operativo en requirement.mark)
     "survey_2026_09/11_seed_survey_form.sql",              # formulario 'egresados' v1, status open
     "survey_2026_09/12_seed_cotejo_codes.sql",             # auto_source del requisito de la encuesta
+    # El 13 es lo que ARMA la guarda de la fase 2 en las convocatorias que ya
+    # existían. `cohort_create` siembra el checklist desde 2026-09-08, así que
+    # sin este archivo toda convocatoria anterior queda con CERO requisitos y
+    # `RequirementService.missing_required` devuelve `[]`: la guarda no falla,
+    # simplemente nunca dispara, sin error ni aviso. Solo se auto-corrige por
+    # accidente, si algún alumno de esa convocatoria abre su checklist antes que
+    # el oficial (`list_or_seed` siembra al leer). Idempotente: solo inserta
+    # donde hay cero.
+    "survey_2026_09/13_seed_cotejo_reqs_all_cohorts.sql",  # checklist en convocatorias previas
 ]
 
 _DML_SURVEY_2026_09_DIR = "survey_2026_09"
+# Debe listar TODOS los .sql del directorio: lo fija
+# `test_todo_sql_del_delta_esta_en_la_lista_del_comando`
+# (tests/fastapi/titulatec/test_cli_survey_delta.py). Un archivo que se cae de
+# aquí no lo corre nadie y nada se pone rojo — así se perdió el 13.
 _DML_SURVEY_2026_09_FILES = [
     "09_insert_survey_perms.sql",
     "10_insert_survey_role_permissions.sql",
     "11_seed_survey_form.sql",
     "12_seed_cotejo_codes.sql",
+    "13_seed_cotejo_reqs_all_cohorts.sql",
 ]
 
 _SURVEY_2026_09_PERMS = (
@@ -103,7 +117,7 @@ def titulatec_cli():
 def init_titulatec_command():
     """Inicializa la app de TitulaTec completamente.
 
-    Ejecuta en orden los 8 seeders de database/DML/titulatec/ (ver SEED_FILES).
+    Ejecuta en orden los seeders de database/DML/titulatec/ (ver SEED_FILES).
     Idempotentes, pero el 03 revoca `cohort.*` a `titulatec_titulaciones` en cada
     corrida (política: las convocatorias son de Servicios Escolares).
 
@@ -244,8 +258,15 @@ def load_survey_2026_09_command(dry_run):
     tres DELETE que se re-aplican en cada corrida y revocarían permisos
     concedidos a mano. En producción eso es justo lo que no se quiere.
 
-    Idempotente: los cuatro archivos llevan `ON CONFLICT DO NOTHING` o un
-    `ON CONFLICT DO UPDATE` acotado.
+    Idempotente: los archivos llevan `ON CONFLICT DO NOTHING`, un
+    `ON CONFLICT DO UPDATE` acotado, o —el 13— un `WHERE NOT EXISTS` que solo
+    siembra donde hay cero.
+
+    OJO CON EL 13: sembrar el checklist ARMA la guarda de la fase 2 en las
+    convocatorias que hoy no lo tienen. A partir de esa corrida, liberar la fase
+    2 exige palomear el checklist desde Citas o desde el expediente. Es el
+    comportamiento buscado —la guarda es el encabezado de la campaña— pero no es
+    invisible: avísale a Servicios Escolares antes de correrlo en producción.
 
     Al terminar VERIFICA contra la base que los 8 permisos existen, que están
     concedidos (los 8 a la jefatura, `requirement.mark` también al encargado

@@ -275,7 +275,13 @@ def test_el_delta_de_encuesta_e_inscripcion_vive_en_su_subcarpeta():
         "titulatec.process.api.requirement.mark tambien va al rol OPERATIVO "
         "(spec 5.4): el encargado es quien usa el checklist de cotejo")
 
-    for nombre in ("11_seed_survey_form.sql", "12_seed_cotejo_codes.sql"):
+    # El 13 siembra el checklist de cotejo en las convocatorias anteriores al
+    # 2026-09-08. Sin el, la guarda de la fase 2 nunca dispara en ninguna de
+    # ellas (B3): `missing_required` devuelve `[]` con cero requisitos.
+    # `tests/fastapi/titulatec/test_cli_survey_delta.py` fija ademas que algun
+    # comando lo corra.
+    for nombre in ("11_seed_survey_form.sql", "12_seed_cotejo_codes.sql",
+                   "13_seed_cotejo_reqs_all_cohorts.sql"):
         assert (delta / nombre).exists(), f"falta {nombre}"
 
     tres = (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8")

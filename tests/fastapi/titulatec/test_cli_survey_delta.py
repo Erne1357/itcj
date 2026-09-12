@@ -33,7 +33,8 @@ from itcj2.cli.titulatec import (
 # gitignored y el workflow de deploy nunca lo hace checkout (trae PII real),
 # asi que en CI ese directorio no existe: sin este guard,
 # `test_dry_run_no_ejecuta_sql_ni_verifica`,
-# `test_corre_los_cuatro_archivos_del_delta_y_ninguno_mas` y
+# `test_todo_sql_del_delta_esta_en_la_lista_del_comando`,
+# `test_corre_todos_los_archivos_del_delta_y_ninguno_mas` y
 # `test_aborta_si_la_verificacion_reporta_un_permiso_sin_aterrizar` abortan
 # ANTES de que sus mocks entren en juego, y el "Tests (BLOQUEANTE — suite
 # completa)" del deploy sale rojo en cada push a main. Mismo patron que
@@ -91,14 +92,49 @@ def test_dry_run_no_ejecuta_sql_ni_verifica():
 
 
 @requires_dml
-def test_corre_los_cuatro_archivos_del_delta_y_ninguno_mas():
+def test_todo_sql_del_delta_esta_en_la_lista_del_comando():
+    """Membresia: ningun .sql del directorio puede quedarse sin comando.
+
+    Asi se perdio el 13 (B3 de la revision final). El archivo existia en disco,
+    no lo referenciaba NADA --ni `SEED_FILES` ni `_DML_SURVEY_2026_09_FILES` ni
+    `itcj2/` ni `scripts/`-- y por tanto ni `init-titulatec` ni
+    `load-survey-2026-09` lo corrian. El sintoma no era un error: era que la
+    guarda de la fase 2 no disparaba NUNCA en ninguna convocatoria anterior al
+    2026-09-08, porque `RequirementService.missing_required` devuelve `[]`
+    cuando la convocatoria tiene cero requisitos.
+
+    Se compara contra el disco, no contra una lista escrita a mano, para que el
+    delta siguiente no pueda repetirlo: agregar un .sql sin agregarlo aqui sale
+    rojo. La direccion contraria la cubre el `assert` de abajo.
+    """
+    en_disco = sorted(p.name for p in
+                      (DML_TITULATEC / _DML_SURVEY_2026_09_DIR).glob("*.sql"))
+
+    assert en_disco == sorted(_DML_SURVEY_2026_09_FILES), (
+        "el directorio del delta y la lista del comando divergen: "
+        f"en disco {en_disco}, en la lista {sorted(_DML_SURVEY_2026_09_FILES)}. "
+        "Un .sql que no este en la lista NO lo corre ningun comando, y nada mas "
+        "se pone rojo.")
+
+    # Piso explicito: comparar disco contra lista no detecta que se borren los
+    # dos lados a la vez. Estos cinco son el delta tal como se diseno.
+    for nombre in ("09_insert_survey_perms.sql",
+                   "10_insert_survey_role_permissions.sql",
+                   "11_seed_survey_form.sql",
+                   "12_seed_cotejo_codes.sql",
+                   "13_seed_cotejo_reqs_all_cohorts.sql"):
+        assert nombre in en_disco, f"falta {nombre} en el directorio del delta"
+
+
+@requires_dml
+def test_corre_todos_los_archivos_del_delta_y_ninguno_mas():
     with patch("itcj2.cli.core.execute_sql_file", return_value=True) as ejecutar, \
          patch("itcj2.cli.titulatec._verify_survey_2026_09", return_value=[]):
         res = CliRunner().invoke(load_survey_2026_09_command, [])
 
     assert res.exit_code == 0, res.output
     corridos = [str(c.args[0]) for c in ejecutar.call_args_list]
-    assert len(corridos) == 4, corridos
+    assert len(corridos) == len(_DML_SURVEY_2026_09_FILES), corridos
     for nombre in _DML_SURVEY_2026_09_FILES:
         assert any(r.endswith(nombre) for r in corridos), f"no corrio {nombre}"
     # NUNCA el DML base: el 03 revocaria permisos concedidos a mano.
