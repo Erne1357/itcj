@@ -66,7 +66,13 @@ class Settings(BaseSettings):
     # Sin el bump, quien ya tenía una página pública abierta en caché sirve un
     # 404 cacheado del script nuevo y la hoja vieja: el campo de "carrera no
     # aparece" no alterna y los errores en línea salen sin estilo.
-    STATIC_VERSION: str = "1.0.1111527"
+    #
+    # Bump 2026-09-11: Tarea 27 relocaliza `.tt-field--xs` dentro de
+    # `titulatec.css` (de una regla suelta al final del archivo a modificador
+    # de `.tt-field` en INPUTS/FORM), para que `test_citas_sistema_visual.py`
+    # deje de contarla como parte del bloque de Citas. El selector y el estilo
+    # computado no cambian, pero el archivo sí, así que se bumpea igual.
+    STATIC_VERSION: str = "1.0.1111528"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

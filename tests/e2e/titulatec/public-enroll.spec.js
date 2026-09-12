@@ -17,6 +17,7 @@
  * (`.auth/state.json`, admin de HELPDESK) en vez de quedar sin sesión.
  */
 const { test, expect } = require('@playwright/test');
+const { execFileSync } = require('child_process');
 const { seedScenario, cleanupScenario, setCohortStatus } = require('./_helpers');
 
 let ctx;
@@ -27,6 +28,37 @@ test.afterAll(() => { cleanupScenario(ctx); });
 test.use({ storageState: { cookies: [], origins: [] } });
 
 const ENROLL_URL = '/titulatec/inscripcion';
+
+const BACKEND_CONTAINER = process.env.E2E_BACKEND_CONTAINER || 'itcj-backend-1';
+
+/** Corre Python dentro del contenedor (mismo mecanismo que `_helpers.js` y
+ * `public-survey.spec.js`; no está exportado por `_helpers.js`, así que cada
+ * spec que necesita una consulta ad hoc trae su propia copia mínima). */
+function runInContainer(py, { timeout = 60_000 } = {}) {
+  return execFileSync(
+    'docker',
+    ['exec', '-i', BACKEND_CONTAINER, 'python', '-c', py],
+    { stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8', timeout }
+  );
+}
+
+/** Cuántas `EnrollmentRequest` existen para un número de control (finding 2,
+ * ronda 1 de revisión de la Tarea 27). */
+function enrollmentRequestCountFor(controlNumber) {
+  const out = runInContainer(`
+from itcj2.database import SessionLocal
+from sqlalchemy import text
+db = SessionLocal()
+try:
+    n = db.execute(text(
+        "SELECT count(*) FROM titulatec_enrollment_requests WHERE control_number = :cn"),
+        {"cn": "${controlNumber}"}).scalar()
+    print(n)
+finally:
+    db.close()
+`).trim();
+  return parseInt(out, 10);
+}
 
 test.describe('ventana abierta', () => {
   test.beforeAll(() => { setCohortStatus(ctx, 'open'); });
@@ -84,6 +116,14 @@ test.describe('ventana abierta', () => {
   test('el honeypot lleno devuelve la tarjeta genérica y no escribe nada', async ({ page }) => {
     await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
 
+    // A propósito NO se llena `program_id`: `pages/public.py:878-882` exige
+    // `program_id` o `program_text`, así que si el corto-circuito de la trampa
+    // desapareciera del todo, este envío caería en la validación normal y
+    // re-renderizaría `enroll_form.html` con `errors.program_id` — un parcial
+    // que NO trae ningún `data-tt-notice` (ese atributo solo lo pinta
+    // `notice_card.html`). Por eso la aserción de abajo no es vacua: si la
+    // trampa dejara de disparar, no habría NINGÚN `[data-tt-notice]` en la
+    // página, ni "generic" ni ningún otro valor del vocabulario cerrado.
     await page.fill('[name="control_number"]', '29990888');
     await page.fill('[name="first_name"]', 'Bot');
     await page.fill('[name="last_name"]', 'Automático');
@@ -95,6 +135,18 @@ test.describe('ventana abierta', () => {
     // `notice_key` del `_ENROLL_CARD` de la Tarea 19: la MISMA tarjeta que ven
     // el alta buena y el control inexistente (E8, tres ramas indistinguibles).
     await expect(page.locator('[data-tt-notice="generic"]')).toBeVisible();
+
+    // Lo anterior prueba "se ve la tarjeta correcta"; NO prueba "no escribió
+    // nada" (finding 2, ronda 1 de revisión). Un regresivo que moviera el
+    // corto-circuito de la trampa a DESPUÉS de
+    // `EnrollmentRequestService.create(...)` -- sin tocar el valor de
+    // retorno ni la tarjeta-- dejaría esta prueba en verde mientras el bot
+    // escribe basura en la bandeja del oficial. Se lee directo de la base,
+    // no del `EnrollmentRequestService` (mismo criterio que `processFolioFor`
+    // en `admin-requests.spec.js`: la aserción de pantalla no depende de
+    // cómo esté hecha la escritura).
+    expect(enrollmentRequestCountFor('29990888'), 'la trampa no debe escribir en la tabla')
+      .toBe(0);
   });
 });
 

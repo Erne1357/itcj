@@ -189,6 +189,17 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
   border: 1px solid var(--tt-line); border-radius: var(--tt-r);
   padding: 12px 14px; font-size: .875rem; background: var(--tt-paper); color: var(--tt-ink);
 }
+/* Campos compactos de la bandeja de solicitudes y de encuestas (Tareas 22/24).
+   Modificador de `.tt-field` de arriba: mismo idioma que su base (literal, no
+   token) -- la escala `--tt-fs-*` es de la Tarea 11/redisenio de Citas y solo
+   aplica a ese bloque, no a esta seccion. Vivia al final del archivo, despues
+   del encabezado de seccion de Citas de cotejo; `test_citas_sistema_visual.py`
+   ubica ese encabezado con `str.find()` y escanea desde ahi hasta EOF
+   asumiendo que Citas es lo ultimo del archivo, asi que una regla ajena
+   colgada ahi se contaba como si fuera de Citas (y, ojo, por eso este mismo
+   comentario evita citar el texto exacto de ese encabezado). Se relocaliza
+   junto a su base real. */
+.tt-field--xs { padding: .2rem .45rem; font-size: .78rem; width: auto; }
 .tt-field:focus, .form-control:focus, .form-select:focus {
   border-color: var(--tt-accent); box-shadow: 0 0 0 3px rgba(245,158,11,.18);
 }
@@ -1551,6 +1562,3 @@ button.tt-seat--libre { pointer-events: auto; }
    TEXTO en el `:root` de este mismo archivo (2.56:1 sobre `--tt-paper`). */
 .tt-win-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
 .tt-win-ro   { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
-
-/* Campos compactos de la bandeja de solicitudes. */
-.tt-field--xs { padding: .2rem .45rem; font-size: .78rem; width: auto; }
