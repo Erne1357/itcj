@@ -119,25 +119,38 @@ def _is_empty(field_type: str, value) -> bool:
 # Visibilidad (delta 5)
 # ---------------------------------------------------------------------------
 def is_visible(field: dict, submitted: dict) -> bool:
-    """Evalua `visible_when` en el SERVIDOR: igualdad exacta, conjuncion (AND).
+    """Evalua `visible_when` en el SERVIDOR: igualdad exacta o pertenencia, conjuncion (AND).
 
     Portado de `_check_visibility` (`custom_fields_validator.py:68-74`). Compara
     contra el valor CRUDO enviado, que es lo que emite el radio/select fuente.
 
+    Si el valor esperado es una LISTA o TUPLA, la condicion se cumple cuando el
+    valor ENVIADO pertenece a ella (membership). Si es un ESCALAR, se mantiene
+    la igualdad exacta del comportamiento original.
+
     Por eso `validate_schema` solo admite `select`/`radio` como FUENTE: un tipo
     cuya codificacion en el navegador difiere de su codificacion en el schema
-    jamas puede satisfacer una igualdad exacta. Un `multiselect` manda una lista;
-    un `checkbox` manda `"on"` y el schema declara `true`; un `yesno` igual. En
-    los tres casos la condicion nunca casa, el dependiente se toma por invisible
-    y su respuesta se descarta EN SILENCIO — justo el fallo que evaluar
-    `visible_when` en el servidor existe para evitar.
+    jamas puede satisfacer una igualdad exacta (escalar) ni una pertenencia
+    (lista contra lista). Un `multiselect` manda una lista; un `checkbox` manda
+    `"on"` y el schema declara `true`; un `yesno` igual. En los tres casos la
+    condicion nunca casa, el dependiente se toma por invisible y su respuesta se
+    descarta EN SILENCIO — justo el fallo que evaluar `visible_when` en el
+    servidor existe para evitar. Una lista en `visible_when` no relaja esta
+    restriccion: la fuente sigue siendo `select`/`radio`, que manda un escalar.
     """
     visible_when = field.get("visible_when")
     if not visible_when:
         return True
     for key, expected in visible_when.items():
-        if submitted.get(key) != expected:
-            return False
+        submitted_value = submitted.get(key)
+        # Si expected es una lista o tupla, verificar membership
+        if isinstance(expected, (list, tuple)):
+            if submitted_value not in expected:
+                return False
+        # Si es un escalar, mantener igualdad exacta
+        else:
+            if submitted_value != expected:
+                return False
     return True
 
 
@@ -405,13 +418,14 @@ def validate_schema(schema: dict) -> tuple[bool, list[str]]:
                     elif by_key[source].get("type") == "multiselect":
                         errors.append(
                             f"'{key}': `visible_when` no puede depender del multiselect "
-                            f"'{source}': la comparacion es escalar y nunca casaria.")
+                            f"'{source}': un multiselect manda lista y la comparacion "
+                            f"(escalar o lista) nunca casaria.")
                     elif by_key[source].get("type") in ("checkbox", "yesno"):
                         errors.append(
                             f"'{key}': `visible_when` no puede depender del "
                             f"{by_key[source].get('type')} '{source}': el navegador lo "
                             f"envia como \"on\"/\"true\" y el schema lo declara como "
-                            f"booleano, asi que la igualdad exacta nunca casaria y "
+                            f"booleano, asi que la comparacion nunca casaria y "
                             f"'{key}' se descartaria en silencio. Usa un radio/select "
                             f"de dos opciones como fuente.")
 

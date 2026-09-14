@@ -476,3 +476,53 @@ def test_llaves_repetidas_se_rechazan():
     ok, errors = validate_schema({"enabled": True, "fields": [F_RADIO, F_RADIO]})
     assert ok is False
     assert any("situacion_laboral" in e for e in errors)
+
+
+# ===========================================================================
+# visible_when con lista de valores — TASK 1
+# ===========================================================================
+def test_visible_when_con_lista_casa_con_cualquiera_de_los_valores():
+    campo = {"key": "empresa", "type": "text",
+             "visible_when": {"actividad": ["Trabaja", "Estudia y trabaja"]}}
+    assert is_visible(campo, {"actividad": "Trabaja"})
+    assert is_visible(campo, {"actividad": "Estudia y trabaja"})
+
+
+def test_visible_when_con_lista_no_casa_con_un_valor_fuera():
+    campo = {"key": "empresa", "type": "text",
+             "visible_when": {"actividad": ["Trabaja", "Estudia y trabaja"]}}
+    assert not is_visible(campo, {"actividad": "Estudia"})
+    assert not is_visible(campo, {"actividad": None})
+    assert not is_visible(campo, {})
+
+
+def test_visible_when_con_un_solo_valor_se_comporta_igual_que_antes():
+    """Guarda de no-regresion: los esquemas ya sembrados no cambian de conducta."""
+    campo = {"key": "nombre_org", "type": "text", "visible_when": {"pertenece": "Si"}}
+    assert is_visible(campo, {"pertenece": "Si"})
+    assert not is_visible(campo, {"pertenece": "No"})
+
+
+def test_una_lista_vacia_deja_el_campo_siempre_invisible():
+    """No es un caso util, pero el comportamiento tiene que ser definido y no un crash."""
+    campo = {"key": "x", "type": "text", "visible_when": {"a": []}}
+    assert not is_visible(campo, {"a": "lo que sea"})
+
+
+def test_validate_schema_rechaza_una_lista_cuya_fuente_no_es_select_ni_radio():
+    """La restriccion de fuente existe porque un multiselect manda lista y un
+    checkbox manda 'on': la condicion nunca casaria y el dependiente se
+    descartaria EN SILENCIO. La lista no la relaja."""
+    schema = {
+        "sections": [{"key": "s1", "title": "S1"}],
+        "fields": [
+            {"key": "idiomas", "type": "multiselect", "label": "Idiomas",
+             "section": "s1", "options": [{"value": "a"}, {"value": "b"}]},
+            {"key": "cual", "type": "text", "label": "Cual", "section": "s1",
+             "validation": {"maxLength": 60},
+             "visible_when": {"idiomas": ["a", "b"]}},
+        ],
+    }
+    ok, errores = validate_schema(schema)
+    assert not ok
+    assert any("idiomas" in e for e in errores)
