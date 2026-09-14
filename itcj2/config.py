@@ -72,7 +72,16 @@ class Settings(BaseSettings):
     # de `.tt-field` en INPUTS/FORM), para que `test_citas_sistema_visual.py`
     # deje de contarla como parte del bloque de Citas. El selector y el estilo
     # computado no cambian, pero el archivo sí, así que se bumpea igual.
-    STATIC_VERSION: str = "1.0.1111528"
+    #
+    # Bump 2026-09-14: Tarea 3 de la encuesta de egresados convierte
+    # `survey_form.html` en un asistente por pasos — `public.css` estrena
+    # `.tt-steps*` (indicador de progreso) y `.tt-survey-actions--steps`
+    # (Atrás/Siguiente), y `titulatec/js/public/survey.js` gana el manejo de
+    # `tt_step` y el foco al cambiar de paso. Sin el bump, quien ya tenía la
+    # encuesta en caché sigue viendo el JS/CSS viejos: los botones nuevos
+    # postearían al formulario completo en vez de a `/paso`, y el localStorage
+    # arrastraría un `tt_step` que el HTML nuevo ya no espera ahí.
+    STATIC_VERSION: str = "1.0.1111529"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

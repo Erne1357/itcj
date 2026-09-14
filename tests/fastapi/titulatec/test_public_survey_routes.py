@@ -15,6 +15,7 @@ import re
 from urllib.parse import unquote
 
 SURVEY_URL = "/titulatec/encuesta-egresados"
+STEP_URL = f"{SURVEY_URL}/paso"     # Tarea 3: avanza/retrocede un paso
 
 # Copia EXACTA del aviso persistente del spec 6.1: ambas frases van en el MISMO
 # <p> y contiguas, asi que el corte en dos constantes es defensivo (aguanta un
@@ -179,6 +180,12 @@ def test_el_formulario_publica_los_ganchos_de_dom_del_contrato(client, make_surv
     Tarea 2: dos de estos ganchos (`data-tt-auth="0"`, `data-tt-login`) SOLO
     existen en el render anonimo -> `is_anonymous=True` explicito. No es
     comodidad: es lo que este test mide.
+
+    Tarea 3: la carga inicial ahora es el PASO 0 -"empleo", la primera de las
+    dos secciones de `SURVEY_SCHEMA_V1`-, no el formulario entero. Con dos
+    secciones, ese primer paso ya no es el ultimo: el boton que ofrece es
+    "Siguiente", y "Enviar respuestas" -que sigue siendo la etiqueta exacta,
+    ver `test_survey_steps.py`- solo aparece en la seccion "opinion".
     """
     make_survey_form(is_anonymous=True)
     client.cookies.clear()
@@ -198,8 +205,9 @@ def test_el_formulario_publica_los_ganchos_de_dom_del_contrato(client, make_surv
     # el formulario dentro de si mismo en cada envio fallido.
     assert 'hx-target="#tt-survey-form"' in cuerpo
     assert 'hx-swap="outerHTML"' in cuerpo
-    # Etiqueta EXACTA del boton: la tecla de las E2E de las Tareas 25 y 26.
-    assert "Enviar respuestas" in cuerpo
+    # Paso 0 de 2: el boton de avance, no el de envio (Tarea 3).
+    assert "Siguiente" in cuerpo
+    assert "Enviar respuestas" not in cuerpo
 
 
 def test_el_campo_condicional_publica_su_visible_when(
@@ -497,13 +505,24 @@ def test_un_campo_con_seccion_inexistente_igual_se_pinta(
     de los 400 egresados.
 
     Tarea 2: sesion real (irrelevante para el agrupado por seccion).
+
+    Tarea 3: el grupo suelto ("_") es su PROPIO paso, distinto del de
+    "empleo" -son dos secciones, y el asistente pinta una a la vez-, asi que
+    `comentarios` ya no esta en la misma pantalla que `situacion_laboral`.
+    Se comprueba que sigue existiendo AVANZANDO un paso, no en el HTML de la
+    carga inicial: la pregunta no se perdio, vive en el paso siguiente.
     """
     make_survey_form(schema=SCHEMA_SECCION_FANTASMA)
+    c = client_as(make_student())
 
-    cuerpo = client_as(make_student()).get(SURVEY_URL, follow_redirects=False).text
+    primero = c.get(SURVEY_URL, follow_redirects=False).text
+    assert 'data-tt-field="situacion_laboral"' in primero
+    assert 'data-tt-field="comentarios"' not in primero   # esta en el paso 2, no en este
 
-    assert 'data-tt-field="situacion_laboral"' in cuerpo
-    assert 'data-tt-field="comentarios"' in cuerpo, \
+    # Los dos campos son opcionales: avanzar sin contestar nada es valido.
+    segundo = c.post(STEP_URL, data={"tt_step": "0", "tt_next": "1"},
+                     follow_redirects=False).text
+    assert 'data-tt-field="comentarios"' in segundo, \
         "la pregunta con la seccion mal escrita se perdio del formulario"
 
 

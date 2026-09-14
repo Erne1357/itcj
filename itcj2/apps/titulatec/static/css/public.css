@@ -148,6 +148,27 @@
   border-top: 1px solid var(--tt-line-soft);
 }
 
+/* Tarea 3: indicador de progreso del asistente por pasos. Solo aparece en modo
+   paginado (`step_index` no es none); el envio final -que revalida y muestra
+   TODAS las secciones- nunca lo pinta. */
+.tt-steps { margin-bottom: var(--tt-sp-5); }
+.tt-steps-count {
+  margin: 0 0 6px;
+  font-size: var(--tt-fs-100);
+  font-weight: 600;
+  color: var(--tt-text-3);
+}
+.tt-steps-bar { display: flex; gap: 4px; }
+.tt-steps-bar .seg {
+  flex: 1 1 0;
+  height: 4px;
+  min-width: 12px;
+  border-radius: 2px;
+  background: var(--tt-line);
+}
+.tt-steps-bar .seg.is-done,
+.tt-steps-bar .seg.is-current { background: var(--tt-accent); }
+
 /* El boton de envio se queda a la vista: el cuestionario mide varias pantallas
    y en movil el visitante contesta la ultima pregunta sin nada que pulsar cerca.
    Lleva fondo y borde propios porque un sticky transparente se solapa con el
@@ -158,6 +179,15 @@
   padding: var(--tt-sp-3) 0;
   background: linear-gradient(to bottom, transparent, var(--tt-mist) 32%);
 }
+
+/* Paso "Atras" + "Siguiente"/"Enviar" uno junto al otro. El de avance siempre
+   queda a la derecha -tambien cuando "Atras" no existe (primer paso)-, para
+   que no salte de lado según el paso; de ahi el `margin-inline-start:auto` en
+   vez de `justify-content:space-between` (que con UN solo boton lo pegaria a
+   la izquierda). Modificador aparte -no se toca `.tt-survey-actions` a secas-
+   para que el envio final (una sola accion) no cambie ni un pixel. */
+.tt-survey-actions--steps { display: flex; align-items: center; gap: var(--tt-sp-3); }
+.tt-survey-actions--steps > .tt-btn-accent { margin-inline-start: auto; }
 
 /* Escala 1-5. Las etiquetas de los extremos ocupan la fila entera en movil
    (donde no cabrian al lado) y se recogen a los lados a partir de `sm`. */

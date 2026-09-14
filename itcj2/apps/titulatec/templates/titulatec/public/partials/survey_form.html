@@ -1,5 +1,5 @@
 {# ===========================================================================
-   survey_form.html — formulario COMPLETO, re-renderizable en cada POST.
+   survey_form.html — formulario re-renderizable en cada POST.
 
    El servidor conserva los valores porque htmx SI swappea en 200 (spec 6.1):
    si aqui no se re-imprimen, un fallo de validacion borra el cuestionario
@@ -7,11 +7,26 @@
 
    La raiz `#tt-survey-form` es a la vez el `hx-target`, asi que el swap es
    `outerHTML` (invariante: si no coincidieran, htmx anidaria el formulario
-   dentro de si mismo en cada envio fallido).
+   dentro de si mismo en cada envio fallido). El id es ademas lo que permite
+   a Idiomorph no reescribir el arbol en cada swap (contrato de `survey.js`).
 
    Los valores llegan ya normalizados por `_display_values` (pages/public.py):
    un `yesno` como booleano, un `scale` como texto y un `multiselect` como lista
    de texto, vengan del borrador de BD o del envio que acaba de fallar.
+
+   Tarea 3 — dos modos, decididos por `step_index` (ver `_form_ctx`):
+
+     * `step_index` es `none` (envio final fallido, `SURVEY_URL`): `sections`
+       trae TODAS las secciones, apiladas, como siempre -el envio final
+       revalida el formulario entero y un error puede caer en cualquiera-.
+     * `step_index` es un numero (GET y `STEP_URL`): `sections` trae UNA sola
+       -la del paso actual-, con un indicador de progreso arriba y, al pie,
+       "Atras"/"Siguiente" en vez del envio directo (salvo en el ultimo paso,
+       que si ofrece "Enviar respuestas"). Los campos de las demas secciones
+       viajan en `other_fields`, pintados como ocultos por `tt_hidden`: es asi
+       como el estado del recorrido sobrevive el swap sin sesion de servidor
+       (spec 3.3) -y por que el envio final, cuando se hace desde el ultimo
+       paso, ya trae la foto completa sin nada especial de por medio-.
    =========================================================================== #}
 
 {% macro tt_field(f, values, errors, first_error_key) %}
@@ -127,6 +142,30 @@
   </div>
 {% endmacro %}
 
+{# Tarea 3: lo capturado en OTRAS secciones no se pierde al mostrar solo la
+   actual -viaja oculto, no se descarta-. Sin control visible que lo porte,
+   cada tipo necesita su propia forma de cable (la misma que emitiria su
+   control real): N ocultos con el mismo `name` para `multiselect` (como N
+   casillas marcadas), uno solo si `checkbox`/`yesno` tienen valor, y el texto
+   crudo para el resto. Un valor vacio o `none` no imprime nada -ausente en el
+   cable es exactamente "todavia sin contestar", igual que un control real sin
+   tocar-. #}
+{% macro tt_hidden(f, values) %}
+  {% set v = values.get(f.key) %}
+  {% if f.type == 'multiselect' %}
+    {% for item in (v or []) %}
+    <input type="hidden" name="{{ f.key }}" value="{{ item }}">
+    {% endfor %}
+  {% elif f.type == 'checkbox' %}
+    {% if v %}<input type="hidden" name="{{ f.key }}" value="1">{% endif %}
+  {% elif f.type == 'yesno' %}
+    {% if v is sameas true %}<input type="hidden" name="{{ f.key }}" value="si">
+    {% elif v is sameas false %}<input type="hidden" name="{{ f.key }}" value="no">{% endif %}
+  {% else %}
+    {% if v is not none and v != '' %}<input type="hidden" name="{{ f.key }}" value="{{ v }}">{% endif %}
+  {% endif %}
+{% endmacro %}
+
 <form id="tt-survey-form"
       method="post" action="{{ survey_url }}"
       hx-post="{{ survey_url }}"
@@ -186,15 +225,44 @@
     <input type="text" id="tt-website" name="website" value="" tabindex="-1" autocomplete="off">
   </div>
 
+  {% if step_index is not none %}
+    {# El indice viaja de vuelta en cada avance/retroceso: es lo que le dice a
+       `STEP_URL` desde cual seccion se esta saliendo (y por tanto cual valida
+       si el boton pulsado fue "Siguiente"). No es un dato del cuestionario:
+       `survey.js` lo excluye a proposito de lo que guarda en `localStorage`. #}
+    <input type="hidden" name="tt_step" value="{{ step_index }}">
+    {% for f in other_fields %}{{ tt_hidden(f, values) }}{% endfor %}
+
+    <nav class="tt-steps" data-tt-steps aria-label="Progreso de la encuesta">
+      <p class="tt-steps-count">Paso {{ step_number }} de {{ step_count }}</p>
+      <div class="tt-steps-bar" aria-hidden="true">
+        {% for s in steps %}<span class="seg{{ ' is-done' if s.index < step_index else '' }}{{ ' is-current' if s.current else '' }}"></span>{% endfor %}
+      </div>
+    </nav>
+  {% endif %}
+
   {% for sec in sections %}
   <section class="tt-section" data-tt-section="{{ sec.key }}"
            {% if sec.title %}aria-labelledby="sec-{{ sec.key }}"{% endif %}>
-    {% if sec.title %}<h2 class="tt-display h5" id="sec-{{ sec.key }}">{{ sec.title }}</h2>{% endif %}
+    {% if sec.title %}<h2 class="tt-display h5" id="sec-{{ sec.key }}" tabindex="-1">{{ sec.title }}</h2>{% endif %}
     {% for f in sec.fields %}{{ tt_field(f, values, errors, first_error_key) }}{% endfor %}
   </section>
   {% endfor %}
 
-  <div class="tt-survey-actions mt-4">
-    <button type="submit" class="btn tt-btn-accent tt-pressable">Enviar respuestas</button>
+  <div class="tt-survey-actions{{ ' tt-survey-actions--steps' if step_index is not none else '' }} mt-4">
+    {% if step_index is not none %}
+      {% if not is_first_step %}
+      <button type="submit" name="tt_back" value="1" class="btn tt-btn-ghost tt-pressable"
+              hx-post="{{ step_url }}" hx-target="#tt-survey-form" hx-swap="outerHTML">Atrás</button>
+      {% endif %}
+      {% if is_last_step %}
+      <button type="submit" class="btn tt-btn-accent tt-pressable">Enviar respuestas</button>
+      {% else %}
+      <button type="submit" name="tt_next" value="1" class="btn tt-btn-accent tt-pressable"
+              hx-post="{{ step_url }}" hx-target="#tt-survey-form" hx-swap="outerHTML">Siguiente</button>
+      {% endif %}
+    {% else %}
+      <button type="submit" class="btn tt-btn-accent tt-pressable">Enviar respuestas</button>
+    {% endif %}
   </div>
 </form>

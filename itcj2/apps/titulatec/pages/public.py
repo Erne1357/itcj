@@ -38,6 +38,10 @@ router = APIRouter(tags=["titulatec-pages-public"])
 
 SURVEY_URL = "/titulatec/encuesta-egresados"
 SURVEY_DRAFT_URL = f"{SURVEY_URL}/borrador"
+# Tarea 3: avanza o retrocede UN paso. Nunca escribe nada -ni borrador ni
+# respuesta-, así que vive fuera del limitador `survey` (§4 más abajo) y no
+# exige el presupuesto que sí gastan `SURVEY_URL`/`SURVEY_DRAFT_URL`.
+SURVEY_STEP_URL = f"{SURVEY_URL}/paso"
 
 # `next` construido sobre la propia encuesta. Viaja tal cual al validador que ya
 # existe en el login (`safe_next`, `itcj2/core/pages/auth.py`): es una ruta
@@ -247,15 +251,27 @@ def _display_values(schema: dict, values: dict) -> dict:
     return out
 
 
-def _sections(schema: dict) -> list[dict]:
+def _sections(schema: dict, submitted: dict | None = None) -> list[dict]:
     """Agrupa los campos por sección conservando el orden del `schema`.
 
-    Las secciones solo AGRUPAN visualmente y marcan los puntos de flush del
-    borrador: la encuesta es UNA página, no un asistente por pasos (§4.1). Un
-    campo sin `section` (o con una que no existe) cae en un grupo suelto al
+    Un campo sin `section` (o con una que no existe) cae en un grupo suelto al
     final en vez de desaparecer del formulario — perder una pregunta por una
     llave mal escrita en el seeder sería invisible hasta el export.
+
+    Tarea 3: la encuesta pasó de UNA página a un asistente por pasos, y cada
+    grupo aquí es un PASO candidato. Por eso cada dict trae ahora `visible`:
+    `True` si alguno de sus campos es visible con las respuestas de
+    `submitted` (vía `is_visible`, el mismo evaluador de `visible_when` que ya
+    usa la validación). Una sección con todos sus campos condicionados a una
+    respuesta que no se dio (o que apunta a "no") cuenta como paso INVISIBLE:
+    quien arma la lista de pasos navegables la descarta, en los dos sentidos
+    (spec 3.3). El agrupado en sí -qué campo cae en qué sección- no cambia, y
+    `submitted=None` (values vacíos) no rompe nada: simplemente ningún campo
+    condicional resulta visible todavía, que es la realidad de una encuesta
+    recién abierta.
     """
+    from itcj2.apps.titulatec.utils.survey_validator import is_visible
+
     declaradas = (schema or {}).get("sections") or []
     grupos = [{"key": s.get("key"), "title": s.get("title") or "", "fields": []}
               for s in declaradas if isinstance(s, dict)]
@@ -267,7 +283,11 @@ def _sections(schema: dict) -> list[dict]:
         (indice.get(field.get("section")) or sueltos)["fields"].append(field)
     if sueltos["fields"]:
         grupos.append(sueltos)
-    return [g for g in grupos if g["fields"]]
+    grupos = [g for g in grupos if g["fields"]]
+    datos = submitted or {}
+    for g in grupos:
+        g["visible"] = any(is_visible(f, datos) for f in g["fields"])
+    return grupos
 
 
 def _form_meta(form) -> dict:
@@ -285,14 +305,36 @@ def _form_meta(form) -> dict:
 
 
 def _form_ctx(meta: dict, schema: dict, *, values, errors, is_authenticated,
-              draft_updated_at="", notice=None):
-    """Contexto del parcial re-renderizable. Idéntico en el GET y en el POST fallido."""
-    orden = [f.get("key") for f in ((schema or {}).get("fields") or [])
-             if isinstance(f, dict)]
+              draft_updated_at="", notice=None, step=None):
+    """Contexto del parcial re-renderizable. Idéntico en el GET y en el POST fallido.
+
+    Tarea 3: `step` decide el modo de paginado, y es lo único nuevo del
+    contrato (el resto de parámetros no cambió de forma).
+
+      * `step=None` (envío final, `survey_submit`): el contexto sigue siendo
+        el de SIEMPRE -TODAS las secciones, una detrás de otra- porque el
+        envío final revalida el formulario ENTERO (spec 5) y un error puede
+        caer en cualquier sección, no solo en la que el visitante tenía
+        abierta. Partir esa vista en un solo paso le escondería al visitante
+        errores que sí existen pero que no vería en pantalla.
+      * `step` es un índice hacia `_sections(schema, values)` (GET y la ruta
+        `SURVEY_STEP_URL`): el contexto trae UNA sola sección -la de ese
+        índice, ajustado a la sección VISIBLE más cercana si la pedida no lo
+        es (spec 3.3, "se salta en los dos sentidos")-, más el índice, la
+        lista de pasos visibles (para el indicador de progreso) y si es el
+        último. Los demás campos del `schema` viajan en `other_fields`, que
+        la plantilla pinta como ocultos: es como NO se pierde lo capturado en
+        otros pasos al hacer swap, sin inventar sesión de servidor (el estado
+        completo ya viaja en las respuestas acumuladas de cada envío).
+    """
+    campos = [f for f in ((schema or {}).get("fields") or []) if isinstance(f, dict)]
+    orden = [f.get("key") for f in campos]
+    values = values or {}
+    grupos = _sections(schema, values)
     ctx = {
         "form": meta,
-        "sections": _sections(schema),
-        "values": _display_values(schema, values or {}),
+        "sections": grupos,
+        "values": _display_values(schema, values),
         "errors": errors or {},
         "form_error": (errors or {}).get(FORM_ERROR_KEY),
         "first_error_key": next((k for k in orden if k in (errors or {})), None),
@@ -300,9 +342,41 @@ def _form_ctx(meta: dict, schema: dict, *, values, errors, is_authenticated,
         "draft_url": SURVEY_DRAFT_URL,
         "draft_updated_at": draft_updated_at,
         "survey_url": SURVEY_URL,
+        "step_url": SURVEY_STEP_URL,
         "login_url": SURVEY_LOGIN_URL,
         "no_form": False,
+        # Modo "formulario entero" por omisión; el bloque de abajo lo
+        # sobreescribe cuando `step` pide el modo paginado.
+        "step_index": None,
+        "steps": [],
+        "step_number": None,
+        "step_count": None,
+        "is_first_step": True,
+        "is_last_step": True,
+        "other_fields": [],
     }
+    if step is not None and grupos:
+        visibles = [i for i, g in enumerate(grupos) if g["visible"]] or list(range(len(grupos)))
+        if step not in visibles:
+            # Se pidió un paso que hoy no es navegable (invisible, o ya fuera
+            # de rango): se ajusta hacia adelante -y si no hay nada después,
+            # al último visible-, nunca se revienta con un IndexError.
+            posteriores = [i for i in visibles if i > step]
+            step = posteriores[0] if posteriores else visibles[-1]
+        pos = visibles.index(step)
+        actual = grupos[step]
+        propios = {f.get("key") for f in actual["fields"]}
+        ctx.update(
+            sections=[actual],
+            step_index=step,
+            steps=[{"key": grupos[i]["key"], "title": grupos[i]["title"],
+                    "index": i, "current": i == step} for i in visibles],
+            step_number=pos + 1,
+            step_count=len(visibles),
+            is_first_step=(pos == 0),
+            is_last_step=(pos == len(visibles) - 1),
+            other_fields=[f for f in campos if f.get("key") not in propios],
+        )
     if notice:
         # El aviso se pinta DENTRO del formulario a propósito (ver la plantilla):
         # así desaparece solo en el siguiente render en vez de quedarse colgado.
@@ -399,7 +473,7 @@ async def survey(
     request: Request,
     user: dict | None = Depends(get_current_user_optional),
 ):
-    """Encuesta de egresados: UNA página con secciones, nunca un asistente.
+    """Encuesta de egresados: un asistente por pasos, uno por sección (Tarea 3).
 
     Anónimo (formulario con `is_anonymous=True`): banner persistente de §6.1 y
     borrador solo en `localStorage`. Con sesión: aviso de que sí acredita y
@@ -409,6 +483,13 @@ async def survey(
     al login con `next` apuntando a esta misma encuesta -antes de construir
     nada del contexto, ni siquiera para un visitante que ya tiene un borrador
     guardado de una sesión anterior expirada-.
+
+    Tarea 3: la carga inicial siempre pide el paso 0 -la primera sección
+    declarada en el `schema`-. No se intenta "reanudar" en el paso donde el
+    visitante iba: eso exigiría guardar el índice en algún lado (sesión de
+    servidor, que el spec prohíbe) o adivinarlo a partir del borrador, y con
+    el borrador ya precargado en `values` avanzar de nuevo toma como mucho un
+    click por sección ya contestada -ninguno vuelve a teclear nada-.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_service import SURVEY_CODE, SurveyService
@@ -434,7 +515,7 @@ async def survey(
             ctx = _form_ctx(_form_meta(form), form.schema or {},
                             values=values, errors={},
                             is_authenticated=bool(user),
-                            draft_updated_at=draft_updated)
+                            draft_updated_at=draft_updated, step=0)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/public/survey.html", ctx)
@@ -566,6 +647,135 @@ async def survey_submit(
     for nombre, valor in cabeceras.items():
         resp.headers[nombre] = valor
     return resp
+
+
+# ---------------------------------------------------------------------------
+# 4c. Avance/retroceso de un paso (Tarea 3, spec 3.3). Nunca escribe nada.
+# ---------------------------------------------------------------------------
+def _parse_step_index(raw, tope: int) -> int:
+    """Índice de paso a partir de lo posteado. Nunca revienta ni sale de rango.
+
+    `raw` es lo que trae `tt_step` -texto, o `None` si el cliente lo omitió-.
+    Cualquier cosa que no sea un entero válido, o uno negativo, cae a `0`: es
+    el mismo criterio defensivo que `_declared_body_size` (fallar a un valor
+    seguro, no a una excepción) para una entrada que el visitante no debería
+    poder forjar desde la UI real, pero que sí puede desde un POST directo.
+    """
+    try:
+        n = int(str(raw))
+    except (TypeError, ValueError):
+        return 0
+    if n < 0:
+        return 0
+    if tope and n >= tope:
+        return tope - 1
+    return n
+
+
+@router.post("/encuesta-egresados/paso", name="titulatec.pages.public.survey_step",
+             response_model=None)
+async def survey_step(
+    request: Request,
+    user: dict | None = Depends(get_current_user_optional),
+):
+    """Avanza o retrocede UN paso del cuestionario. Nunca escribe en BD.
+
+    Una sola ruta para las dos direcciones (spec 3.3), distinguidas por CUÁL
+    botón se pulsó -`tt_next` o `tt_back`, el `name` del control de envío-, no
+    por una URL distinta cada una: es la misma idea que ya usa `_form_ctx`
+    para no duplicar el camino de re-render entre el GET y el envío.
+
+    Hacia adelante es ESTRICTO: se valida `validate_answers` sobre un
+    "mini-schema" con SOLO los campos de la sección actual (`tt_step`) -nunca
+    se reimplementa la validación, se le pasa un `schema` recortado-, y si hay
+    error se re-pinta el MISMO paso. Si pasa, avanza al siguiente paso
+    VISIBLE, saltándose cualquiera que se haya quedado sin campos visibles
+    (spec 3.3) y sin mirar lo que el cliente haya pedido en `tt_next`: no hay
+    forma de "saltarse" una sección sin pasar por su validación.
+
+    Hacia atrás es LIBRE: no valida nada, y se mueve al paso VISIBLE anterior
+    -otra vez saltándose los que no lo son-. Repetir "Atrás" alcanza cualquier
+    sección ya visitada, que es el "volver a cualquier sección" del spec.
+
+    El estado del recorrido es el propio `submitted`: `_submitted_from_form`
+    ya reconstruye TODAS las respuestas acumuladas -las de esta sección, en
+    controles vivos, más las de las demás, en los ocultos que pinta
+    `other_fields`-, así que no hace falta fusionar nada a mano ni inventar
+    una sesión de servidor (spec 3.3, brief). Por lo mismo, un `_cleaned` de
+    `validate_answers` no se usa para "guardar": lo que viaja de vuelta en
+    `values` es siempre `submitted`, crudo, para que un texto que todavía no
+    pasa su propia validación (por ejemplo, uno que excede `maxLength`) no
+    desaparezca del paso si el visitante retrocede sin corregirlo.
+
+    Misma frontera de tamaño que `survey_submit`/`survey_draft`: un
+    `Content-Length` ausente, no numérico o negativo responde 411; por
+    encima de `MAX_PUBLIC_BODY_BYTES`, 413. Y la misma guarda de sesión que
+    `survey_submit` (Tarea 2): un formulario NO anónimo sin sesión corta con
+    401 sin cuerpo -este visitante nunca debería llegar aquí por la UI real,
+    porque el GET ya lo mandó al login antes de mostrarle nada que avanzar-.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.survey_service import (
+        MAX_PUBLIC_BODY_BYTES, SURVEY_CODE, SurveyService,
+    )
+    from itcj2.apps.titulatec.utils.survey_validator import validate_answers
+
+    tamano = _declared_body_size(request.headers)
+    if tamano is None:
+        return Response(status_code=411, headers={
+            "X-Tt-Error": _hdr("No pudimos leer el tamaño de tu respuesta. "
+                               "Recarga la página e inténtalo de nuevo.")})
+    if tamano > MAX_PUBLIC_BODY_BYTES:
+        return Response(status_code=413, headers={
+            "X-Tt-Error": _hdr("Tu respuesta es demasiado grande. Acórtala e "
+                               "inténtalo de nuevo.")})
+
+    data = await request.form()
+
+    db = SessionLocal()
+    try:
+        form = SurveyService.open_form(db, SURVEY_CODE)
+        if form is None:
+            return Response(status_code=400, headers={
+                "X-Tt-Error": _hdr("La encuesta ya no está disponible. "
+                                   "Recarga la página.")})
+        if _requiere_sesion(form) and user is None:
+            return Response(status_code=401)
+
+        meta, schema = _form_meta(form), (form.schema or {})
+        submitted = _submitted_from_form(schema, data)
+        grupos = _sections(schema, submitted)
+
+        if not grupos:
+            ctx = _form_ctx(meta, schema, values=submitted, errors={},
+                            is_authenticated=bool(user), step=0)
+        else:
+            visibles = ([i for i, g in enumerate(grupos) if g["visible"]]
+                       or list(range(len(grupos))))
+            actual = _parse_step_index(data.get("tt_step"), len(grupos))
+            if actual not in visibles:
+                posteriores = [i for i in visibles if i > actual]
+                actual = posteriores[0] if posteriores else visibles[-1]
+            pos = visibles.index(actual)
+
+            if data.get("tt_back") and pos > 0:
+                objetivo, errores = visibles[pos - 1], {}
+            else:
+                seccion = grupos[actual]
+                mini_schema = {"enabled": bool(schema.get("enabled", True)),
+                               "fields": seccion["fields"]}
+                ok, errores, _cleaned = validate_answers(mini_schema, submitted)
+                if ok and pos < len(visibles) - 1:
+                    objetivo = visibles[pos + 1]
+                else:
+                    objetivo = actual        # error, o ya es el último paso
+
+            ctx = _form_ctx(meta, schema, values=submitted, errors=errores,
+                            is_authenticated=bool(user), step=objetivo)
+    finally:
+        db.close()
+
+    return render_titulatec(request, "titulatec/public/partials/survey_form.html", ctx)
 
 
 # ---------------------------------------------------------------------------

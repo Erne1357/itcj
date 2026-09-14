@@ -16,6 +16,14 @@
        ninguna prueba de servidor — por eso el presupuesto se mide en E2E;
      · PROHIBIDO `data-tt-bound`: Idiomorph sincroniza atributos y lo borraría,
        con lo que el guard dejaría de guardar nada.
+
+   Tarea 3 (asistente por pasos): un avance/retroceso hace el MISMO
+   `outerHTML` de `#tt-survey-form` que ya hacía un envío fallido -no un swap
+   nuevo con reglas propias-, así que el contrato de arriba ya lo cubre: como
+   TODO escucha delega en `document`, ninguno queda "desenganchado" al
+   reemplazar el `<form>`. Lo único que sí distingue un swap de paso es el
+   foco (`hydrate(viaSwap)` más abajo): sin ancla, cada avance deja el foco
+   donde estaba el botón que ya no existe.
    =========================================================================== */
 (function () {
   'use strict';
@@ -36,10 +44,16 @@
   }
 
   // — Instantánea del formulario ———————————————————————————————————————
+  // `tt_step` (Tarea 3) es el indice del PASO que esta mirando el formulario
+  // ahora mismo, no una respuesta: si se guardara en el borrador local, un
+  // GET fresco (que siempre abre en el paso 0) se veria pisado por un indice
+  // viejo al fusionar (`applyValues` no distingue "dato del cuestionario" de
+  // "control de navegacion") y el recorrido arrancaria en la seccion
+  // equivocada. Misma razon por la que la trampa nunca se guarda.
   function snapshot(f) {
     var out = {};
     new FormData(f).forEach(function (value, key) {
-      if (key === 'website') return;              // la trampa nunca se guarda
+      if (key === 'website' || key === 'tt_step') return;
       if (Object.prototype.hasOwnProperty.call(out, key)) {
         if (!Array.isArray(out[key])) out[key] = [out[key]];
         out[key].push(value);
@@ -85,6 +99,7 @@
     dirty = false;
     var body = new FormData(f);
     body.delete('website');
+    body.delete('tt_step');      // control de navegacion (Tarea 3), no respuesta
     fetch(f.dataset.ttDraftUrl, {
       method: 'POST',
       body: body,
@@ -166,19 +181,42 @@
     clearLocal(f);
   }
 
+  // Devuelve si encontro algo que enfocar, para que `hydrate` sepa si le toca
+  // al titulo del paso (ver `focusStepHeading`) en vez de pisarle el foco.
   function focusFirstInvalid(f) {
     var el = f.querySelector('[data-tt-focus]');
-    if (el && typeof el.focus === 'function') el.focus();
+    if (el && typeof el.focus === 'function') { el.focus(); return true; }
+    return false;
+  }
+
+  // Tarea 3: cada avance/retroceso hace un swap ENTERO de `#tt-survey-form`
+  // (contrato de registro: nada que "re-enganchar" en los escuchas, que ya
+  // delegan en `document`, pero el foco del navegador SI se pierde -Chromium
+  // lo manda al `<body>`- y sin nada que lo recupere un lector de pantalla no
+  // se entera de que aparecio una seccion nueva). Sin error que atender
+  // (`focusFirstInvalid` ya cubre ese caso, y con prioridad), el titulo de la
+  // seccion actual es el ancla mas util: es lo primero que un lector de
+  // pantalla anuncia y no cambia el scroll de forma brusca.
+  function focusStepHeading(f) {
+    var h = f.querySelector('.tt-section h2');
+    if (h && typeof h.focus === 'function') h.focus();
   }
 
   // `hydrate` solo LEE el DOM. No registra ni un escucha: es lo que la hace
   // segura de llamar en cada `htmx:afterSettle`.
-  function hydrate() {
+  //
+  // `viaSwap` distingue la carga inicial (falso: el visitante todavia no hizo
+  // nada, robarle el foco a la barra de direcciones no le sirve a nadie) de
+  // un swap real -avance, retroceso o un envio que volvio con error- donde SI
+  // hay que anclar el foco a algo (`focusFirstInvalid` primero; si no hubo
+  // error, `focusStepHeading`).
+  function hydrate(viaSwap) {
     var f = formEl();
     if (!f) return;
     mergeLocalDraft(f);
     applyVisibility(f);
-    focusFirstInvalid(f);
+    var enfocoError = focusFirstInvalid(f);
+    if (!enfocoError && viaSwap) focusStepHeading(f);
     lastSection = null;
   }
 
@@ -228,10 +266,10 @@
     if (f) saveLocal(f);
   });
 
-  document.addEventListener('htmx:afterSettle', hydrate);
+  document.addEventListener('htmx:afterSettle', function () { hydrate(true); });
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', hydrate);
+    document.addEventListener('DOMContentLoaded', function () { hydrate(false); });
   } else {
-    hydrate();
+    hydrate(false);
   }
 })();
