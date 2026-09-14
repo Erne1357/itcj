@@ -10,6 +10,16 @@ igual que ya asumen `test_public_routes.py:86-89` y
 `test_public_survey_routes.py`, que documentan que "la BD de dev puede traer
 ya la v1 sembrada por su seeder".
 
+GUARDA `requires_dml` (patron de `test_permissions_contract.py` y
+`test_cli_survey_delta.py`): `.github/workflows/deploy.yml` corre
+`pytest tests/fastapi -q` como gate BLOQUEANTE contra un esquema construido
+con `create_all`, sin ningun seeder -- `database/` nunca llega al checkout de
+CI. Sin la guarda, `_form_egresados_v1` truena con `NoResultFound` en vez de
+saltarse, y tumba el gate por una razon que no tiene nada que ver con un
+defecto real. La guarda mira el ARCHIVO en disco, no "hay formulario en la
+base": si alguien tiene `database/` completo y aun asi el formulario no esta
+sembrado, eso SI es un fallo real que se quiere ver, no un skip.
+
 Referencia: spec `docs/superpowers/specs/2026-09-14-titulatec-encuesta-egresados-design.md`,
 seccion 4 (el instrumento). El mapa condicional exacto vive en la seccion 4.3;
 la obligatoriedad en la 4.4.
@@ -21,7 +31,10 @@ from __future__ import annotations
 
 from collections import Counter
 
+import pytest
+
 from itcj2.apps.titulatec.utils.survey_validator import validate_schema
+from itcj2.cli.titulatec import DML_TITULATEC, _DML_SURVEY_2026_09_DIR
 
 TRABAJA = ["Trabaja", "Estudia y trabaja"]
 ESTUDIA = ["Estudia", "Estudia y trabaja"]
@@ -30,6 +43,22 @@ ESTUDIA = ["Estudia", "Estudia y trabaja"]
 # Ahora ese trabajo lo hace `visible_when`, asi que ninguna debe sobrevivir en
 # ninguna lista de `options` del instrumento sembrado.
 MULETAS = {"No trabajo", "No estudio", "Desempleado (a)", "Ninguno", "Ninguno/otro"}
+
+# El archivo concreto que este modulo verifica -- no solo el directorio -- para
+# que el motivo del skip apunte exactamente a lo que hace falta recuperar.
+_SEED_FILE = DML_TITULATEC / _DML_SURVEY_2026_09_DIR / "11_seed_survey_form.sql"
+
+requires_dml = pytest.mark.skipif(
+    not _SEED_FILE.exists(),
+    reason=(
+        "database/DML/titulatec/survey_2026_09/11_seed_survey_form.sql no esta "
+        "en el checkout (gitignored a proposito: database/ lleva PII real y "
+        "nunca llega a CI, que construye el esquema con create_all y sin "
+        "seeders). Sin el archivo, nadie pudo correr "
+        "`titulatec load-survey-2026-09` en esta base: 'egresados' v1 no "
+        "existe y estas pruebas no tienen que leer."
+    ),
+)
 
 
 def _form_egresados_v1(db_session):
@@ -42,6 +71,7 @@ def _form_egresados_v1(db_session):
     )
 
 
+@requires_dml
 def test_el_esquema_sembrado_pasa_el_validador(db_session):
     """`validate_schema` devuelve ok y lista de errores vacia."""
     form = _form_egresados_v1(db_session)
@@ -52,6 +82,7 @@ def test_el_esquema_sembrado_pasa_el_validador(db_session):
     assert errores == []
 
 
+@requires_dml
 def test_tiene_siete_secciones_en_el_orden_del_instrumento(db_session):
     form = _form_egresados_v1(db_session)
     secciones = form.schema["sections"]
@@ -77,6 +108,7 @@ def test_tiene_siete_secciones_en_el_orden_del_instrumento(db_session):
     ]
 
 
+@requires_dml
 def test_tiene_las_55_preguntas_mas_las_nueve_escalas_de_la_49(db_session):
     """La 49 es una matriz y el motor no tiene matrices: son 9 campos scale
     bajo un encabezado comun. Nueve y no diez: la fila 'No trabajo' se fue."""
@@ -104,6 +136,7 @@ def test_tiene_las_55_preguntas_mas_las_nueve_escalas_de_la_49(db_session):
     assert len(keys) == len(set(keys))
 
 
+@requires_dml
 def test_las_obligatorias_son_las_que_dice_el_spec(db_session):
     """1-50, 52, 54 y 55 obligatorias; 51 y 53 no marcadas required pero
     condicionadas."""
@@ -135,6 +168,7 @@ def test_las_obligatorias_son_las_que_dice_el_spec(db_session):
     assert by_key["comentario_sugerencia"]["required"] is True    # 55
 
 
+@requires_dml
 def test_el_bloque_laboral_cuelga_de_la_26_con_lista(db_session):
     """Las preguntas del mapa condicional del spec (seccion 4.3) apuntan a la
     26 con listas: ['Trabaja', 'Estudia y trabaja'] y ['Estudia', 'Estudia y
@@ -174,6 +208,7 @@ def test_el_bloque_laboral_cuelga_de_la_26_con_lista(db_session):
     assert "visible_when" not in by_key["utilidad_residencias"]
 
 
+@requires_dml
 def test_ninguna_pregunta_conserva_la_opcion_muleta(db_session):
     """Ninguna opcion de ningun campo dice 'No trabajo', 'No estudio' ni
     'Desempleado': eso lo hace ahora la condicion (D7)."""
@@ -198,6 +233,7 @@ def test_ninguna_pregunta_conserva_la_opcion_muleta(db_session):
     assert len(by_key["nivel_jerarquico"]["options"]) == 11   # 12 - "No trabajo"
 
 
+@requires_dml
 def test_el_formulario_esta_abierto_y_no_es_anonimo(db_session):
     """version 1, status open, is_anonymous False: lo que la Tarea 2 necesita
     para exigir sesion."""
