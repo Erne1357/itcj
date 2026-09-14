@@ -198,3 +198,113 @@ def test_corregir_la_seccion_1_no_toca_core_student_profile(
         f"El teléfono del perfil no debe cambiar: era {phone_before}, ahora es {profile_after.phone}"
     assert profile_after.contact_email == email_before, \
         f"El correo del perfil no debe cambiar: era {email_before}, ahora es {profile_after.contact_email}"
+
+
+def test_carrera_normaliza_y_siembra_el_value_literal(
+    client_as, db_session, make_student, make_survey_form, make_program
+):
+    """Un programa que casa tras normalizar siembra el value LITERAL de la opción.
+
+    Caso: programa en BD es "Ing. Sistemas computacionales" (sin mayúsculas)
+    Opción en esquema es "Ing. Sistemas Computacionales" (con mayúsculas)
+    Tras normalizar ambas, casan, y se siembra el value literal.
+    """
+    from itcj2.core.services.student_profile_service import StudentProfileService
+
+    # Crear programa con nombre sin mayúsculas / sin acento
+    program = make_program(name="Ing. Sistemas computacionales")
+
+    # Crear alumno con esa carrera
+    user = make_student(control_number="2020004")
+    profile = StudentProfileService.get_or_create(db_session, user.id)
+    profile.program_id = program.id
+    db_session.commit()
+
+    # Esquema con opción que casa tras normalizar (mayúsculas distintas)
+    schema_with_match = {
+        "enabled": True,
+        "sections": [{"key": "perfil", "title": "Perfil"}],
+        "fields": [
+            {"key": "nombre_completo", "section": "perfil", "type": "text", "label": "Nombre", "required": True},
+            {"key": "no_control", "section": "perfil", "type": "text", "label": "Control", "required": True},
+            {"key": "correo_personal", "section": "perfil", "type": "text", "label": "Correo", "required": True},
+            {"key": "telefono", "section": "perfil", "type": "text", "label": "Teléfono", "required": True},
+            {
+                "key": "carrera_egreso",
+                "section": "perfil",
+                "type": "radio",
+                "label": "Carrera",
+                "options": [
+                    {"value": "Ing. Sistemas Computacionales", "label": "Ing. Sistemas Computacionales"},
+                ],
+                "required": True,
+            },
+        ],
+    }
+
+    make_survey_form(is_anonymous=False, schema=schema_with_match)
+
+    # Cargar la encuesta
+    resp = client_as(user).get(SURVEY_URL, follow_redirects=False)
+    assert resp.status_code == 200
+    html = resp.text
+
+    # Afirmar que se siembra el value LITERAL (con mayúsculas), no el del programa
+    assert 'value="Ing. Sistemas Computacionales"' in html, \
+        "Debe sembrarse el value literal de la opción, normalizado durante búsqueda"
+
+
+def test_carrera_sin_coincidencia_no_se_siembra(
+    client_as, db_session, make_student, make_survey_form, make_program
+):
+    """Un programa que NO casa tras normalizar deja el campo sin sembrar.
+
+    Esto previene que valores inválidos se cuelen en un radio,
+    que luego el validador rechazaría.
+    """
+    from itcj2.core.services.student_profile_service import StudentProfileService
+
+    # Crear programa que NO existe como opción en el esquema
+    program = make_program(name="Ing. Electrónica")
+
+    user = make_student(control_number="2020005")
+    profile = StudentProfileService.get_or_create(db_session, user.id)
+    profile.program_id = program.id
+    db_session.commit()
+
+    # Esquema SIN "Ing. Electrónica"
+    schema_no_match = {
+        "enabled": True,
+        "sections": [{"key": "perfil", "title": "Perfil"}],
+        "fields": [
+            {"key": "nombre_completo", "section": "perfil", "type": "text", "label": "Nombre", "required": True},
+            {"key": "no_control", "section": "perfil", "type": "text", "label": "Control", "required": True},
+            {"key": "correo_personal", "section": "perfil", "type": "text", "label": "Correo", "required": True},
+            {"key": "telefono", "section": "perfil", "type": "text", "label": "Teléfono", "required": True},
+            {
+                "key": "carrera_egreso",
+                "section": "perfil",
+                "type": "radio",
+                "label": "Carrera",
+                "options": [
+                    {"value": "Lic. Administración", "label": "Lic. Administración"},
+                ],
+                "required": True,
+            },
+        ],
+    }
+
+    make_survey_form(is_anonymous=False, schema=schema_no_match)
+
+    # Cargar la encuesta
+    resp = client_as(user).get(SURVEY_URL, follow_redirects=False)
+    assert resp.status_code == 200
+    html = resp.text
+
+    # Afirmar que "Ing. Electrónica" NO aparece en el HTML
+    # (el campo quedó sin valor preseleccionado)
+    assert 'value="Ing. Electrónica"' not in html, \
+        "No debe sembrarse un valor que no existe en las opciones del esquema"
+
+    # El campo sigue presente pero sin opción marcada
+    assert 'name="carrera_egreso"' in html

@@ -558,6 +558,37 @@ async def survey(
                 student_profile = StudentProfileService.get_or_create(db, user_id)
 
                 if db_user:
+                    import unicodedata
+
+                    def _normalize_string(s: str | None) -> str:
+                        """Normaliza sin acentos y sin distinguir mayúsculas para búsqueda."""
+                        if not s:
+                            return ""
+                        s = s.lower()
+                        return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+
+                    def _find_matching_option(program_name: str, schema: dict) -> str | None:
+                        """Busca una opción en carrera_egreso que case con el nombre normalizado.
+
+                        Si hay coincidencia, retorna el value LITERAL de la opción.
+                        Si no hay coincidencia, retorna None.
+                        """
+                        program_normalized = _normalize_string(program_name)
+                        if not program_normalized:
+                            return None
+
+                        # Buscar el campo carrera_egreso en el esquema
+                        for field in (schema or {}).get("fields", []):
+                            if field.get("key") == "carrera_egreso":
+                                # Comparar contra cada opción normalizada
+                                for option in field.get("options", []):
+                                    option_value = option.get("value", "")
+                                    option_normalized = _normalize_string(option_value)
+                                    if program_normalized == option_normalized:
+                                        # Retornar el value LITERAL, no el normalizado
+                                        return option_value
+                        return None
+
                     values = {
                         "nombre_completo": db_user.full_name or "",
                         "no_control": db_user.control_number or "",
@@ -566,11 +597,19 @@ async def survey(
                     }
 
                     # Para carrera_egreso, mapear program_id al nombre de la carrera
+                    # Normalizar la búsqueda pero sembrar el value literal de la opción
                     if student_profile.program_id:
                         from itcj2.core.models.program import Program
                         program = db.get(Program, student_profile.program_id)
-                        if program:
-                            values["carrera_egreso"] = program.name
+                        if program and program.name:
+                            matching_option = _find_matching_option(
+                                program.name, form.schema or {}
+                            )
+                            if matching_option:
+                                # Solo sembrar si hay coincidencia exacta (normalizada)
+                                values["carrera_egreso"] = matching_option
+                            # Si no hay coincidencia, dejar el campo sin sembrar
+                            # para evitar valores inválidos
 
                 # El borrador guardado va por (form_id, user_id). Con solo `form_id`, el
                 # de quien contestó primero se le pintaría a toda la generación.
