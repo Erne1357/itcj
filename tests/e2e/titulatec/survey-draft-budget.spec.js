@@ -1,6 +1,7 @@
 // @ts-check
 /**
- * Presupuesto de escrituras del autosave — criterio 7 del spec.
+ * Presupuesto de escrituras del autosave — criterio 7 del spec (Tarea 6:
+ * reescrito para el asistente por pasos).
  *
  * Modelado sobre `tests/e2e/core/user-detail-request-budget.spec.js`: se
  * cuentan las peticiones con `page.on('request')` y se asierta un TECHO, no un
@@ -12,75 +13,74 @@
  * (DRAFT_DEBOUNCE_MS / DRAFT_MIN_INTERVAL_MS del contrato §5). El límite
  * derivado es <= 2 escrituras por minuto por alumno.
  *
- * POR QUÉ ESTO ES E2E Y NO pytest: el fallo que persigue es un LISTENER
- * RE-REGISTRADO en `htmx:afterSettle`. Multiplica las escrituras del navegador
- * sin romper una sola prueba de servidor — cada petición que llega es
- * perfectamente válida. Por eso la medición se REPITE después de un swap de
- * htmx: es el único momento en que el bug se manifiesta.
+ * QUÉ CAMBIÓ (Tarea 6) Y POR QUÉ ESTE ARCHIVO SE REESCRIBIÓ ENTERO. La
+ * versión anterior escribía directo en `empresa`/`comentarios` justo tras el
+ * `goto` y disparaba el "swap de htmx" con un ENVÍO FINAL inválido
+ * (`SURVEY_URL`). Las dos premisas cambiaron:
  *
- * El tiempo se simula con `page.clock`, que falsea temporizadores y Date sin
- * tocar la red: las peticiones que salen son reales y se cuentan de verdad.
+ *   1. El cuestionario se recorre por pasos: `empresa`/`puesto`/`comentarios`
+ *      viven en la sección "detalle" (paso 2 de 3), no en la única pantalla
+ *      que existía antes. Hay que llegar ahí con "Siguiente" primero.
+ *   2. Con el paginado, el SWAP más común -y el que de verdad hay que
+ *      vigilar- ya no es un envío final fallido: es un cambio de paso. Cada
+ *      render paginado omite `draft_updated_at` (`_form_ctx` en
+ *      `pages/public.py`, rama `step is not None`: nunca pasa
+ *      `draft_updated_at`, así que en el cliente `serverAt` da `0`), y
+ *      `mergeLocalDraft` (`survey.js`) lee eso como "el borrador local es más
+ *      nuevo" en TODO cambio de paso, con o sin borrador local real. Por
+ *      construcción, cambiar de paso con algo sin autoguardar SIEMPRE llama a
+ *      `flush()` -nunca a `send()` directo: ese era justamente el bug que
+ *      este archivo perseguía en la ronda anterior, y ya está arreglado
+ *      (`survey.js`, `mergeLocalDraft` llama `flush(f, false)`, no `send()`)-,
+ *      así que el disparador natural del swap a vigilar es un cambio de paso
+ *      real ("Siguiente"/"Atrás"), no un envío final fabricado a propósito.
+ *      Se prefiere ese disparador porque es el que de verdad ocurre en el
+ *      recorrido normal, no una construcción artificial para forzar un swap.
  *
- * DESVIACIONES VERIFICADAS frente al borrador de la Tarea 26 (las cuatro
- * probadas contra la app real en `itcj-backend-1`, no supuestas):
+ * DESVIACIONES VERIFICADAS contra la app real (Tarea 6):
  *
  *  1. `lastSentAt` arranca en `0` (epoch) y `page.clock.install()` sin
- *     argumento arranca el Date falso en la hora real actual (verificado:
- *     `Date.now()` justo tras `install()` ≈ hora real de la máquina, NO 0).
- *     Por tanto, en CUALQUIER página recién cargada, la primera vez que algo
- *     dispara `flush()`, `Date.now() - lastSentAt` ya es enorme y el techo de
- *     30 s se lee como "vencido": el PRIMER envío de la sesión sale de
- *     inmediato, no 30 s después. Esto es intencional (comentario de
- *     `mergeLocalDraft` en `survey.js`: "lastSentAt sigue en 0 y el techo ya
- *     está vencido"), pero cambia CUÁNDO cae la 2ª escritura del minuto.
- *  2. Un cambio de sección llama `flush()`, que si el techo de 30 s SIGUE
- *     vigente no manda nada de inmediato: programa el envío para cuando el
- *     techo expire, que puede ser hasta 30 s después. `page.clock.runFor(1000)`
- *     del borrador original casi nunca alcanza a ver esa escritura (medido:
- *     con exactamente la secuencia de este archivo, la escritura del cambio de
- *     sección no aparece antes de +8 s virtuales). Se usa
- *     `runFor(MIN_INTERVAL_MS + 1000)` para cubrir el peor caso (el techo
- *     recién reiniciado un instante antes del cambio de sección) sin
- *     depender de en qué punto exacto del ciclo de 30 s cae la interacción.
- *  3. La sección "cambio de sección" dispara con toda intención el radio
- *     `situacion_laboral=empleado` para poder entrar a esa sección del
- *     formulario (es la única forma: `relacion_carrera` vive ahí pero está
- *     oculto hasta que se marca esa opción). Eso hace que el AUTOSAVE
- *     persista `situacion_laboral=empleado` en el borrador de servidor antes
- *     del envío inválido de más abajo. Cuando la página se recarga, el
- *     formulario vuelve con esa opción ya marcada, así que `situacion_laboral`
- *     deja de estar vacío — el campo que de verdad queda sin llenar (y sin el
- *     cual la validación falla) es `relacion_carrera`, que `visible_when`
- *     revela justo por esa marca. Verificado contra la app real: tras esta
- *     misma secuencia, `[data-tt-error="situacion_laboral"]` NO aparece;
- *     `[data-tt-error="relacion_carrera"]` sí. El envío sigue siendo inválido
- *     (200, formulario re-renderizado, 1 error) — solo cambia CUÁL campo.
- *  4. Los DOS tests de este archivo comparten un solo `ctx`/escenario
- *     (`beforeAll` a nivel de archivo, como en el borrador): el borrador de
- *     servidor que el PRIMER test deja escrito (`situacion_laboral=empleado`,
- *     desviación 3) es visible para el SEGUNDO test si ambos corren juntos
- *     (mismo `form_id`+`user_id`). Corriendo solo el segundo test (`-g`), en
- *     cambio, arranca con el borrador vacío y el campo inválido vuelve a ser
- *     `situacion_laboral`. Ninguno de los dos nombres de campo es estable
- *     entre esos dos modos de ejecución, así que el segundo test verifica la
- *     tarjeta genérica `[data-tt-errors]` en vez de un campo puntual — ver el
- *     comentario junto a `envioFallido()`, más abajo.
+ *     argumento arranca el Date falso en la hora real actual. Por tanto, la
+ *     PRIMERA vez que algo dispara `flush()` en una página recién cargada, el
+ *     techo de 30 s se lee como "vencido" y ese primer envío sale de
+ *     inmediato. El primer cambio de paso (paso 1 -> 2, más abajo) es
+ *     justamente ese envío "gratis": se deja pasar sin contarlo contra el
+ *     presupuesto de ninguna medición.
+ *  2. Un cambio de paso llama `flush()`, que si el techo de 30 s SIGUE
+ *     vigente no manda nada de inmediato: programa el envío para cuando
+ *     expire, hasta 30 s después. Por eso "cambio de sección: AL MENOS una
+ *     escritura" espera `MIN_INTERVAL_MS + margen`, no unos pocos ms.
+ *  3. Un cambio de paso que NO tiene nada nuevo que autoguardar (ningún
+ *     campo tocado desde el último flush/clear) no dispara ninguna escritura:
+ *     `mergeLocalDraft` solo actúa si `readLocal()` encuentra algo, y
+ *     `clearLocal()` corre siempre que lo encontró. Por eso cada transición
+ *     que se quiere medir va precedida de un toque fresco a un campo.
+ *  4. "buscando" (no "empleado") como respuesta a `situacion_laboral` en todo
+ *     este archivo: deja `relacion_carrera` (visible_when
+ *     situacion_laboral=empleado) invisible, así que el paso 1 se completa
+ *     con un solo campo y el recorrido no depende de contestar la escala.
  */
 const { test, expect } = require('@playwright/test');
 const { seedScenario, cleanupScenario, stateFor } = require('./_helpers');
 
 let ctx;
 
-test.beforeAll(() => { ctx = seedScenario(); });
-test.afterAll(() => { cleanupScenario(ctx); });
+// `beforeEach`/`afterEach`: los dos tests de este archivo navegan el
+// cuestionario de punta a punta y dejan un borrador de servidor bastante
+// avanzado; compartir un solo escenario haría que el segundo test arrancara
+// en un paso distinto al que espera, dependiendo de qué dejó el primero
+// (mismo hallazgo que forzó el mismo cambio en `public-survey.spec.js`).
+test.beforeEach(() => { ctx = seedScenario(); });
+test.afterEach(() => { cleanupScenario(ctx); });
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
 const SURVEY_URL = '/titulatec/encuesta-egresados';
 const DRAFT_URL = '/titulatec/encuesta-egresados/borrador';
+const STEP_URL = '/titulatec/encuesta-egresados/paso';
 const BUDGET = 2;               // spec §6.4: cota superior de 2 escrituras / minuto
 const MIN_INTERVAL_MS = 30000;  // DRAFT_MIN_INTERVAL_MS del contrato (survey.js)
-const CAMPOS = ['empresa', 'puesto', 'comentarios'];
+const CAMPOS = ['empresa', 'puesto', 'comentarios']; // los tres viven en "detalle" (paso 2)
 
 /** Devuelve un array vivo con una entrada por POST al endpoint de borrador. */
 function contarBorradores(page) {
@@ -93,7 +93,20 @@ function contarBorradores(page) {
   return calls;
 }
 
-/** 60 s simulados de tecleo continuo repartido entre varios campos. */
+/** Avanza del paso 1 ("empleo") al 2 ("detalle"). Es el envío "gratis" de la
+ *  desviación 1: el primer flush de una página recién cargada no respeta el
+ *  techo porque `lastSentAt` sigue en `0`. */
+async function irAPasoDetalle(page) {
+  await page.locator('input[name="situacion_laboral"][value="buscando"]').check();
+  const paso = page.waitForResponse(
+    (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === STEP_URL
+  );
+  await page.getByRole('button', { name: 'Siguiente' }).click();
+  await paso;
+  await expect(page.getByText('Paso 2 de 3')).toBeVisible();
+}
+
+/** 60 s simulados de tecleo continuo repartido entre los tres campos de "detalle". */
 async function teclearUnMinuto(page) {
   for (let i = 0; i < 10; i++) {
     const campo = CAMPOS[i % CAMPOS.length];
@@ -103,7 +116,7 @@ async function teclearUnMinuto(page) {
   await page.waitForTimeout(500);  // margen REAL para los POST en vuelo
 }
 
-test('60 s de tecleo continuo producen a lo más 2 escrituras, también tras un swap de htmx',
+test('60 s de tecleo continuo producen a lo más 2 escrituras, también tras un cambio de paso',
   async ({ browser }) => {
     const c = await browser.newContext({ storageState: stateFor('student') });
     const page = await c.newPage();
@@ -113,54 +126,52 @@ test('60 s de tecleo continuo producen a lo más 2 escrituras, también tras un 
     await page.goto(SURVEY_URL, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('main[data-tt-page="public_survey"]')).toBeVisible();
 
+    await irAPasoDetalle(page); // envío "gratis" (desviación 1), fuera de cualquier medición
+
     const calls = contarBorradores(page);
 
-    // --- medición 1: página recién cargada -------------------------------
+    // --- medición 1: recién llegado al paso "detalle" ---------------------
     await teclearUnMinuto(page);
     expect(
       calls.length,
-      `presupuesto excedido en carga limpia (${calls.length} > ${BUDGET})`
+      `presupuesto excedido en el paso "detalle" (${calls.length} > ${BUDGET})`
     ).toBeLessThanOrEqual(BUDGET);
 
-    // --- cambio de sección: AL MENOS una escritura ------------------------
-    // "Al menos", no "exactamente": el flush de sección puede coincidir con el
-    // techo de 30 s y una igualdad sería inestable (spec §11.2).
+    // --- cambio de paso: AL MENOS una escritura ---------------------------
+    // "Al menos", no "exactamente": el flush del cambio de paso puede coincidir
+    // con el techo de 30 s y una igualdad sería inestable (spec §11.2). Un
+    // toque fresco antes de avanzar asegura que SÍ hay algo que autoguardar
+    // (desviación 3): sin él, si `teclearUnMinuto` ya vació el "dirty" con su
+    // último flush, el cambio de paso no tendría nada que fusionar.
     calls.length = 0;
-    await page.locator('input[name="situacion_laboral"][value="empleado"]').check(); // sección "empleo"
-    await page.locator('[name="comentarios"]').click();                              // sección "detalle"
-    // MIN_INTERVAL_MS + margen, no 1000: `flush()` en cambio de sección NO
-    // manda de inmediato si el techo de 30 s sigue vigente — programa el envío
-    // para cuando expire. 1000 ms verificado insuficiente contra la app real
-    // (ver el comentario de cabecera, desviación 2); esto cubre el peor caso.
+    await page.fill('[name="puesto"]', 'Puesto fresco antes de avanzar');
+    await page.getByRole('button', { name: 'Siguiente' }).click(); // detalle -> seguimiento
+    await expect(page.getByText('Paso 3 de 3')).toBeVisible();
+    // MIN_INTERVAL_MS + margen, no unos pocos ms: `flush()` en un cambio de
+    // paso NO manda de inmediato si el techo de 30 s sigue vigente -programa
+    // el envío para cuando expire- (desviación 2).
     await page.clock.runFor(MIN_INTERVAL_MS + 1000);
     await page.waitForTimeout(700);
     expect(
       calls.length,
-      'cambiar de sección debe hacer flush (al expirar el techo si sigue vigente) del borrador'
+      'cambiar de paso debe hacer flush (al expirar el techo si sigue vigente) del borrador'
     ).toBeGreaterThanOrEqual(1);
 
-    // --- swap de htmx: envío inválido re-renderiza el formulario ----------
-    // Es la parte que atrapa un listener re-registrado en htmx:afterSettle.
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    const post = page.waitForResponse(
-      (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === SURVEY_URL
-    );
-    await page.getByRole('button', { name: 'Enviar respuestas' }).click();
-    expect((await post).status(), 'htmx no swappea en 4xx: el re-render debe ser 200').toBe(200);
-    // `relacion_carrera`, NO `situacion_laboral`: el cambio de sección de
-    // arriba ya autoguardó `situacion_laboral=empleado` en el borrador de
-    // servidor, así que al recargar ese campo llega marcado y deja de estar
-    // vacío. El campo que la validación rechaza es `relacion_carrera`, que
-    // `visible_when` revela justo por esa marca y que este flujo nunca llenó
-    // (ver la desviación 3 en el comentario de cabecera).
-    await expect(page.locator('[data-tt-error="relacion_carrera"]')).toBeVisible();
+    // --- swap: "Atrás" regresa a "detalle" ---------------------------------
+    // Es el disparador que de verdad usa el recorrido normal (ver el
+    // encabezado del archivo): la parte que atraparía un listener
+    // re-registrado en `htmx:afterSettle` sigue siendo un swap completo de
+    // `#tt-survey-form`, solo que ahora es un cambio de paso, no un envío
+    // final fabricado.
+    await page.getByRole('button', { name: 'Atrás' }).click();
+    await expect(page.getByText('Paso 2 de 3')).toBeVisible();
 
-    // --- medición 2: mismo presupuesto DESPUÉS del swap ------------------
+    // --- medición 2: mismo presupuesto DESPUÉS del swap --------------------
     calls.length = 0;
     await teclearUnMinuto(page);
     expect(
       calls.length,
-      `presupuesto excedido DESPUÉS del swap de htmx (${calls.length} > ${BUDGET}): ` +
+      `presupuesto excedido DESPUÉS del swap (${calls.length} > ${BUDGET}): ` +
         'el listener de autosave se está re-registrando en htmx:afterSettle. Debe ' +
         'cargarse UNA vez desde el bloque scripts y delegar en document.'
     ).toBeLessThanOrEqual(BUDGET);
@@ -168,45 +179,7 @@ test('60 s de tecleo continuo producen a lo más 2 escrituras, también tras un 
     await c.close();
   });
 
-// ---------------------------------------------------------------------------
-// AÑADIDO POR EL CONTROLADOR (2026-09-10), tras la revisión de la Tarea 13.
-//
-// Por qué hace falta un test aparte, si arriba ya hay una "medición 2" que
-// teclea DESPUÉS de un swap: porque esa medición **no puede ver este fallo**.
-// El contador se pone a cero DESPUÉS de que el swap asiente, así que la
-// escritura que dispara la re-hidratación queda fuera de la cuenta; y una vez
-// disparada, deja `lastSentAt` fresco, con lo que el minuto de tecleo que sigue
-// vuelve a caber en el presupuesto. El test de arriba sale VERDE con el fallo
-// dentro. Lo comprobamos leyendo el orden de las líneas, no suponiéndolo.
-//
-// El fallo real, encontrado en la Tarea 13: `mergeLocalDraft` llamaba a `send()`
-// directo en la rama "gana el borrador local", saltándose el techo de 30 s. Y
-// esa rama se toma CASI SIEMPRE tras un envío fallido, porque `_form_ctx` no
-// arrastra `draft_updated_at` en la rama de error de validación: llega vacío,
-// `Date.parse('') || 0` da 0, y cualquier borrador local es "más nuevo". O sea:
-// un POST de borrador sin throttle por cada envío fallido, que es exactamente
-// el presupuesto que esta tarea existe para defender.
-//
-// La invariante que se fija aquí: **la re-hidratación tras un swap no puede
-// saltarse el techo de 30 s.** Se mide con DOS envíos fallidos seguidos dentro
-// de una ventana simulada más corta que el techo. Con `flush()` el segundo no
-// escribe; con `send()` escribe uno por swap.
-//
-// DESVIACIÓN VERIFICADA frente al borrador de la Tarea 26 (probada contra la
-// app real, alternando `flush()`/`send()` en `mergeLocalDraft` para confirmar
-// el poder de discriminación del test — ver el reporte, prueba R5): tal como
-// estaba escrito el borrador, `clearLocal()` se ejecuta SIEMPRE al final de
-// `mergeLocalDraft` (gane o no la rama local), así que el ÚNICO borrador local
-// de la precondición se consume en el PRIMER `envioFallido()` y ya no queda
-// nada que fusionar en el segundo — ni con el bug ni sin él. Medido: con
-// `send()` (el bug) el total daba 1, no 2, y `1 <= 1` pasaba igual que con
-// `flush()` (que da 0): el test no distinguía nada. Se agrega un
-// `page.fill()` fresco antes de CADA `envioFallido()` para que
-// `mergeLocalDraft` tenga un borrador local "más nuevo que el del servidor"
-// que fusionar en los DOS swaps, no solo en el primero. Con ese ajuste,
-// medido: `flush()` -> 0 escrituras; `send()` -> 2. Ahora sí discrimina.
-// ---------------------------------------------------------------------------
-test('la re-hidratación tras un swap respeta el techo de 30 s',
+test('la re-hidratación tras un cambio de paso respeta el techo de 30 s',
   async ({ browser }) => {
     const c = await browser.newContext({ storageState: stateFor('student') });
     const page = await c.newPage();
@@ -215,51 +188,42 @@ test('la re-hidratación tras un swap respeta el techo de 30 s',
     await page.goto(SURVEY_URL, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('main[data-tt-page="public_survey"]')).toBeVisible();
 
-    // Un borrador local más nuevo que el del servidor es la precondición: es lo
-    // que hace que `mergeLocalDraft` tome la rama que tenía el fallo.
-    await page.fill('[name="comentarios"]', 'algo escrito antes de enviar');
-    await page.clock.runFor(6000);
-    await page.waitForTimeout(300);
+    await irAPasoDetalle(page); // envío "gratis" (desviación 1): deja el techo vigente
 
     const calls = contarBorradores(page);
 
-    async function envioFallido() {
-      // Borrador local fresco ANTES de cada swap (ver la desviación de
-      // cabecera): sin esto, `clearLocal()` ya vació localStorage en el swap
-      // anterior y `mergeLocalDraft` no tiene nada que fusionar la segunda
-      // vez, sea cual sea el código — el test no distinguiría nada.
-      await page.fill('[name="comentarios"]', 'texto fresco ' + Date.now());
-      const post = page.waitForResponse(
-        (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === SURVEY_URL
-      );
-      await page.getByRole('button', { name: 'Enviar respuestas' }).click();
-      expect((await post).status(), 'htmx no swappea en 4xx: el re-render debe ser 200').toBe(200);
-      // Tarjeta genérica `[data-tt-errors]`, NO un campo puntual: este test
-      // comparte `ctx`/borrador de servidor con el test anterior del mismo
-      // archivo (mismo `beforeAll`), así que CUÁL campo queda inválido
-      // depende de si ese test ya corrió antes (dejó `situacion_laboral`
-      // marcado) o no (queda vacío, y entonces el inválido es
-      // `situacion_laboral` en vez de `relacion_carrera`). Verificado
-      // corriendo el archivo completo vs. este test en aislamiento (`-g`):
-      // el campo cambia, pero SIEMPRE hay error — es lo único estable.
-      await expect(page.locator('[data-tt-errors]')).toBeVisible();
-      await page.waitForTimeout(400);   // margen REAL para un POST en vuelo
-    }
+    // Dos cambios de paso SEGUIDOS, cada uno con un toque fresco antes (
+    // desviación 3), dentro de una ventana simulada MUCHO más corta que el
+    // techo de 30 s. El invariante que se fija aquí: la re-hidratación de
+    // CUALQUIERA de los dos NO puede saltarse el techo. Con `flush()`
+    // (correcto) el segundo cambio programa su envío para cuando el techo
+    // expire, sin mandar nada de inmediato; con un eventual `send()` directo
+    // (el bug que este archivo perseguía en la ronda anterior, ya arreglado)
+    // cada swap mandaría una escritura inmediata, sin importar el techo.
+    await page.fill('[name="empresa"]', 'valor fresco antes del primer cambio');
+    await page.getByRole('button', { name: 'Siguiente' }).click(); // detalle -> seguimiento
+    await expect(page.getByText('Paso 3 de 3')).toBeVisible();
 
-    calls.length = 0;
-    await envioFallido();
-    // 5 s simulados: MUY por debajo del techo de 30 s, así que el segundo swap
-    // no tiene derecho a escribir nada aunque su borrador local sea el mas nuevo.
-    await page.clock.runFor(5000);
-    await envioFallido();
+    await page.clock.runFor(5000); // muy por debajo del techo de 30 s
+    await page.locator('input[name="interes_bolsa_trabajo"][value="si"]').check(); // toque fresco
+    await page.getByRole('button', { name: 'Atrás' }).click(); // seguimiento -> detalle
+    await expect(page.getByText('Paso 2 de 3')).toBeVisible();
 
+    await page.waitForTimeout(300); // margen REAL para un POST en vuelo, si lo hubiera
     expect(
       calls.length,
-      `la re-hidratacion se salta el techo de 30 s (${calls.length} escrituras en ` +
-        '5 s simulados). `mergeLocalDraft` debe llamar a `flush()`, no a `send()`: ' +
-        '`send()` escribe una vez por swap y `_form_ctx` no arrastra ' +
-        '`draft_updated_at` en la rama de error, asi que la rama "gana el local" ' +
-        'se toma en CADA envio fallido.'
+      `los dos cambios de paso ya escribieron ${calls.length} vez/veces sin que expirara ` +
+        'el techo: la re-hidratación se está saltando el techo de 30 s (`send()` en vez ' +
+        'de `flush()` dentro de `mergeLocalDraft`).'
+    ).toBe(0);
+
+    // Ahora sí deja correr el reloj lo suficiente para que el envío
+    // PROGRAMADO por el primer cambio de paso salga.
+    await page.clock.runFor(MIN_INTERVAL_MS + 1000);
+    await page.waitForTimeout(700);
+    expect(
+      calls.length,
+      'debe haber salido exactamente el envío programado por el primer cambio de paso'
     ).toBeLessThanOrEqual(1);
 
     await c.close();

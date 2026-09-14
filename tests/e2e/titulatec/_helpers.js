@@ -58,11 +58,32 @@ function mintTokenFor(userId) {
   return out;
 }
 
-// La v1 del DML trae DOS preguntas; el escenario E2E siembra un SUPERSET con
-// las mismas dos primero (para que public-survey y responsive funcionen contra
-// cualquiera de las dos versiones abiertas) más una segunda sección con campos
-// de texto, que es lo que hace medibles el autosave y el cambio de sección.
-// `validation.maxLength` es OBLIGATORIO en todo campo de texto (spec §4.1).
+// Tarea 6: la v1 del DML ya NO es un maniquí de dos preguntas -es el
+// instrumento real (63 campos, 7 secciones)-, así que este escenario deja de
+// perseguir "repetir sus dos primeras preguntas" (`public-survey`/`responsive`
+// ya no dependen de este seed: usan sesión propia o el instrumento real
+// directamente). Lo que este SUPERSET sí necesita seguir siendo es un
+// formulario SINTÉTICO pequeño para probar el MECANISMO de pasos sin la
+// fragilidad de recorrer 63 campos en un navegador:
+//   - TRES secciones (no dos): la mínima forma de distinguir "Atrás" (paso
+//     adyacente) de un salto NO adyacente en el indicador de progreso -saltar
+//     de la 3a a la 1a sin pasar por la 2a-, que es justo el mecanismo nuevo
+//     de la Tarea 3 (ronda 2).
+//   - `nombre_completo` es NUEVO en "empleo": es el campo que
+//     `pages/public.py:survey()` prellena desde `User.full_name` para
+//     CUALQUIER formulario que lo declare (Tarea 4), así que con sesión llega
+//     siempre contestado -nunca bloquea el paso 0- y sirve para probar
+//     "sección 1 prellenada y editable" sin arrastrar los 63 campos reales.
+//   - "detalle" y sus tres campos (`empresa`/`puesto`/`comentarios`) se
+//     conservan EXACTOS -mismas llaves, mismo `required: False`-: son la
+//     superficie de la que ya dependen `survey-draft.spec.js` y
+//     `survey-draft-budget.spec.js`.
+//   - "seguimiento" es NUEVA y OPCIONAL a propósito: solo existe para que haya
+//     un tercer paso al que saltar; un campo obligatorio ahí cambiaría a qué
+//     paso "reanuda" `_start_step` en los otros dos specs (que SÍ recargan la
+//     página) y eso no es lo que esta tarea vino a tocar.
+// `validation.maxLength` sigue siendo OBLIGATORIO en todo campo de texto
+// (spec §4.1).
 const SEED_PY = `
 import json, sys
 from datetime import date, timedelta
@@ -114,8 +135,12 @@ SCHEMA = {
     "sections": [
         {"key": "empleo", "title": "Situación laboral"},
         {"key": "detalle", "title": "Detalle de tu empleo"},
+        {"key": "seguimiento", "title": "Seguimiento"},
     ],
     "fields": [
+        {"key": "nombre_completo", "section": "empleo", "type": "text",
+         "label": "Nombre completo", "required": True,
+         "validation": {"maxLength": 200}},
         {"key": "situacion_laboral", "section": "empleo", "type": "radio",
          "label": "¿Cuál es tu situación laboral actual?", "required": True,
          "options": [{"value": "empleado", "label": "Trabajando"},
@@ -136,6 +161,11 @@ SCHEMA = {
         {"key": "comentarios", "section": "detalle", "type": "textarea",
          "label": "Comentarios adicionales", "required": False,
          "validation": {"maxLength": 2000}},
+        {"key": "interes_bolsa_trabajo", "section": "seguimiento", "type": "radio",
+         "label": "¿Te interesa recibir vacantes de la bolsa de trabajo?",
+         "required": False,
+         "options": [{"value": "si", "label": "Sí"},
+                     {"value": "no", "label": "No"}]},
     ],
 }
 
@@ -441,6 +471,38 @@ finally:
 `);
 }
 
+/**
+ * Cambia `is_anonymous` del formulario del escenario (Tarea 6, añadido).
+ *
+ * `_requiere_sesion` (`pages/public.py`) es el único lector de esta columna:
+ * con `False` (como siembra `SEED_PY`) un visitante SIN sesión rebota al
+ * login antes de ver nada, que es lo que necesita `public-survey.spec.js`
+ * para probar el redirect. El camino anónimo -banner persistente + borrador
+ * SOLO en `localStorage`- sigue existiendo en el código para un formulario
+ * que sí declare `is_anonymous=True`, y `survey-draft.spec.js` sigue
+ * necesitando probarlo: sin este toggle, un anónimo contra el escenario de
+ * `SEED_PY` rebotaría al login igual que uno autenticado a medias, y esa
+ * spec nunca llegaría a ver el banner ni a escribir en `localStorage`.
+ * Ninguna otra spec depende de `is_anonymous`: para un visitante CON sesión
+ * (`stateFor('student')`/`stateFor('head')`) el valor de esta columna es
+ * indiferente -`_requiere_sesion(form) and user is None` nunca es cierto si
+ * `user` no es `None`-, así que este toggle no le mueve el piso a nadie más.
+ */
+function setFormAnonymous(ctx, isAnonymous) {
+  runInContainer(`
+from itcj2.database import SessionLocal
+from sqlalchemy import text
+db = SessionLocal()
+try:
+    db.execute(text("UPDATE titulatec_survey_forms SET is_anonymous = :a WHERE id = :f"),
+               {"a": ${isAnonymous ? 'True' : 'False'}, "f": ${ctx.formId}})
+    db.commit()
+    print("form ${ctx.formId} is_anonymous -> ${isAnonymous ? 'True' : 'False'}")
+finally:
+    db.close()
+`);
+}
+
 /** Crea una solicitud de egresado desconocido lista para aprobar. Devuelve su id. */
 function seedPendingRequest(ctx) {
   const out = runInContainer(`
@@ -489,6 +551,7 @@ module.exports = {
   cleanupScenario,
   stateFor,
   setCohortStatus,
+  setFormAnonymous,
   seedPendingRequest,
   processFolioFor,
   E2E_TAG,
