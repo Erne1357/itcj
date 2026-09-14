@@ -10,22 +10,41 @@ igual que ya asumen `test_public_routes.py:86-89` y
 `test_public_survey_routes.py`, que documentan que "la BD de dev puede traer
 ya la v1 sembrada por su seeder".
 
-GUARDA `requires_dml` (patron de `test_permissions_contract.py` y
-`test_cli_survey_delta.py`): `.github/workflows/deploy.yml` corre
-`pytest tests/fastapi -q` como gate BLOQUEANTE contra un esquema construido
-con `create_all`, sin ningun seeder -- `database/` nunca llega al checkout de
-CI. Sin la guarda, `_form_egresados_v1` truena con `NoResultFound` en vez de
-saltarse, y tumba el gate por una razon que no tiene nada que ver con un
-defecto real. La guarda mira el ARCHIVO en disco, no "hay formulario en la
-base": si alguien tiene `database/` completo y aun asi el formulario no esta
-sembrado, eso SI es un fallo real que se quiere ver, no un skip.
+GUARDA: por el FORMULARIO EN LA BASE, no por el archivo en disco. Version
+anterior de este modulo guardaba con un `pytest.mark.skipif` sobre
+`(DML_TITULATEC / "survey_2026_09" / "11_seed_survey_form.sql").exists()`,
+razonando que `database/` nunca llega al checkout de CI. Eso es cierto para
+el CI real, pero es la senal equivocada: en una base con FORMA de CI
+reproducida a mano (`create_all`, sin seeders, sobre un checkout que SI tiene
+`database/` porque es una copia de trabajo, no un clon de CI) el archivo
+esta presente en disco y el `skipif` no saltaba, mientras que el formulario
+seguia sin existir en esa base -- `.one()` tronaba con `NoResultFound` en vez
+de saltar, exactamente el fallo que la guarda debia evitar. Verificado por el
+controlador reproduciendo esa base a mano: `7 failed` con la guarda vieja.
+
+Por eso `_form_egresados_v1` pregunta a la BASE, no al disco: si no hay
+`SurveyForm(code='egresados', version=1)`, salta con un motivo ACCIONABLE (que
+seeder correr) en vez de fallar. Esto es correcto en los tres entornos: en CI
+real no hay formulario (ni archivo) y salta; en un checkout con los seeders
+pero sin cargarlos tampoco hay formulario y salta, con instrucciones; en la
+base de dev, sembrada, corre de verdad.
+
+Lo que se pierde a proposito: si alguien SI cargo los seeders pero con un
+defecto (el DML no declara el codigo esperado, por ejemplo), esta guarda por
+base no lo distingue de "nadie ha sembrado nada" -- ambos casos saltan igual.
+Ese hueco ya lo cubre `test_todo_sql_del_delta_esta_en_la_lista_del_comando`
+(`test_cli_survey_delta.py`), que verifica la membresia disco->lista SIN
+tocar la base (su propio `requires_dml` es correcto ahi porque esa prueba de
+verdad solo necesita el archivo, nunca una conexion): que el `.sql` se le
+caiga a `SEED_FILES`/`_DML_SURVEY_2026_09_FILES` es el fallo grave -- que
+alguien no haya corrido el seeder en su copia de trabajo no lo es.
 
 Referencia: spec `docs/superpowers/specs/2026-09-14-titulatec-encuesta-egresados-design.md`,
 seccion 4 (el instrumento). El mapa condicional exacto vive en la seccion 4.3;
 la obligatoriedad en la 4.4.
 
 `(code, version)` es unico (`uq_titulatec_survey_forms_code_version`), asi que
-`_form_egresados_v1` puede pedir `.one()` sin riesgo de ambiguedad.
+`_form_egresados_v1` puede pedir `.one_or_none()` sin riesgo de ambiguedad.
 """
 from __future__ import annotations
 
@@ -34,7 +53,6 @@ from collections import Counter
 import pytest
 
 from itcj2.apps.titulatec.utils.survey_validator import validate_schema
-from itcj2.cli.titulatec import DML_TITULATEC, _DML_SURVEY_2026_09_DIR
 
 TRABAJA = ["Trabaja", "Estudia y trabaja"]
 ESTUDIA = ["Estudia", "Estudia y trabaja"]
@@ -44,34 +62,31 @@ ESTUDIA = ["Estudia", "Estudia y trabaja"]
 # ninguna lista de `options` del instrumento sembrado.
 MULETAS = {"No trabajo", "No estudio", "Desempleado (a)", "Ninguno", "Ninguno/otro"}
 
-# El archivo concreto que este modulo verifica -- no solo el directorio -- para
-# que el motivo del skip apunte exactamente a lo que hace falta recuperar.
-_SEED_FILE = DML_TITULATEC / _DML_SURVEY_2026_09_DIR / "11_seed_survey_form.sql"
-
-requires_dml = pytest.mark.skipif(
-    not _SEED_FILE.exists(),
-    reason=(
-        "database/DML/titulatec/survey_2026_09/11_seed_survey_form.sql no esta "
-        "en el checkout (gitignored a proposito: database/ lleva PII real y "
-        "nunca llega a CI, que construye el esquema con create_all y sin "
-        "seeders). Sin el archivo, nadie pudo correr "
-        "`titulatec load-survey-2026-09` en esta base: 'egresados' v1 no "
-        "existe y estas pruebas no tienen que leer."
-    ),
+_SIN_SEMBRAR = (
+    "No hay SurveyForm(code='egresados', version=1) en esta base. Corre "
+    "`python -m itcj2.cli.main titulatec init-titulatec` (base nueva, siembra "
+    "todo) o `python -m itcj2.cli.main titulatec load-survey-2026-09` (base "
+    "que ya tiene el resto, solo falta el delta de la encuesta) antes de "
+    "correr este modulo."
 )
 
 
 def _form_egresados_v1(db_session):
+    """El formulario real, o SALTA la prueba (nunca la revienta) si no esta
+    sembrado. Guarda en tiempo de EJECUCION, no en la coleccion: necesita
+    `db_session`, que solo existe dentro de un test."""
     from itcj2.apps.titulatec.models import SurveyForm
 
-    return (
+    form = (
         db_session.query(SurveyForm)
         .filter(SurveyForm.code == "egresados", SurveyForm.version == 1)
-        .one()
+        .one_or_none()
     )
+    if form is None:
+        pytest.skip(_SIN_SEMBRAR)
+    return form
 
 
-@requires_dml
 def test_el_esquema_sembrado_pasa_el_validador(db_session):
     """`validate_schema` devuelve ok y lista de errores vacia."""
     form = _form_egresados_v1(db_session)
@@ -82,7 +97,6 @@ def test_el_esquema_sembrado_pasa_el_validador(db_session):
     assert errores == []
 
 
-@requires_dml
 def test_tiene_siete_secciones_en_el_orden_del_instrumento(db_session):
     form = _form_egresados_v1(db_session)
     secciones = form.schema["sections"]
@@ -108,7 +122,6 @@ def test_tiene_siete_secciones_en_el_orden_del_instrumento(db_session):
     ]
 
 
-@requires_dml
 def test_tiene_las_55_preguntas_mas_las_nueve_escalas_de_la_49(db_session):
     """La 49 es una matriz y el motor no tiene matrices: son 9 campos scale
     bajo un encabezado comun. Nueve y no diez: la fila 'No trabajo' se fue."""
@@ -136,7 +149,6 @@ def test_tiene_las_55_preguntas_mas_las_nueve_escalas_de_la_49(db_session):
     assert len(keys) == len(set(keys))
 
 
-@requires_dml
 def test_las_obligatorias_son_las_que_dice_el_spec(db_session):
     """1-50, 52, 54 y 55 obligatorias; 51 y 53 no marcadas required pero
     condicionadas."""
@@ -168,7 +180,6 @@ def test_las_obligatorias_son_las_que_dice_el_spec(db_session):
     assert by_key["comentario_sugerencia"]["required"] is True    # 55
 
 
-@requires_dml
 def test_el_bloque_laboral_cuelga_de_la_26_con_lista(db_session):
     """Las preguntas del mapa condicional del spec (seccion 4.3) apuntan a la
     26 con listas: ['Trabaja', 'Estudia y trabaja'] y ['Estudia', 'Estudia y
@@ -208,7 +219,6 @@ def test_el_bloque_laboral_cuelga_de_la_26_con_lista(db_session):
     assert "visible_when" not in by_key["utilidad_residencias"]
 
 
-@requires_dml
 def test_ninguna_pregunta_conserva_la_opcion_muleta(db_session):
     """Ninguna opcion de ningun campo dice 'No trabajo', 'No estudio' ni
     'Desempleado': eso lo hace ahora la condicion (D7)."""
@@ -233,7 +243,6 @@ def test_ninguna_pregunta_conserva_la_opcion_muleta(db_session):
     assert len(by_key["nivel_jerarquico"]["options"]) == 11   # 12 - "No trabajo"
 
 
-@requires_dml
 def test_el_formulario_esta_abierto_y_no_es_anonimo(db_session):
     """version 1, status open, is_anonymous False: lo que la Tarea 2 necesita
     para exigir sesion."""
