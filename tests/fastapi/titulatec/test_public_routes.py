@@ -81,12 +81,19 @@ def _sin_comentarios_jinja(fuente: str) -> str:
 
 @pytest.fixture()
 def encuesta_publica(db_session, make_survey_form):
-    """UNA encuesta `egresados` abierta, dentro de la transaccion del test.
+    """UNA encuesta `egresados` abierta y ANONIMA, dentro de la transaccion del test.
 
     La BD de dev puede traer ya la v1 sembrada por su seeder, y el indice
     parcial `uq_titulatec_survey_forms_open` (una sola version `open` por
     `code`) rechazaria el insert. Se cierran las abiertas primero y se crea una
     version alta. Bajo la CI de base vacia el UPDATE no toca nada y da igual.
+
+    `is_anonymous=True` (Tarea 2 de la encuesta de egresados): los cinco tests
+    que consumen este fixture no tratan de la politica de sesion -describen la
+    FORMA de la pagina publica (el banner, el modulo de errores compartido, la
+    ausencia del shell del alumno, el tope de lectura)-, y esa forma sigue
+    existiendo para un formulario anonimo. Sin esto, `client.cookies.clear()`
+    los manda al login en vez de a la pagina que quieren medir.
     """
     from itcj2.apps.titulatec.models import SurveyForm
 
@@ -94,7 +101,8 @@ def encuesta_publica(db_session, make_survey_form):
      .filter(SurveyForm.code == "egresados", SurveyForm.status == "open")
      .update({"status": "closed"}, synchronize_session=False))
     db_session.flush()
-    return make_survey_form(code="egresados", version=99, status="open")
+    return make_survey_form(code="egresados", version=99, status="open",
+                            is_anonymous=True)
 
 
 @pytest.fixture()
