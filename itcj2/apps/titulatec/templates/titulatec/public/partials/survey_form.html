@@ -233,11 +233,27 @@
     <input type="hidden" name="tt_step" value="{{ step_index }}">
     {% for f in other_fields %}{{ tt_hidden(f, values) }}{% endfor %}
 
+    {# Ronda 2 (pedido del controlador): el indicador es tambien la forma de
+       volver DIRECTO a cualquier paso ya visitado -un solo click, no uno por
+       seccion-. Un paso "is-done" (indice < el actual) es un <button> real
+       que postea `tt_goto`; el actual y los que faltan son texto, no control:
+       adelante sigue siendo estricto y no hay forma de saltar a un paso que
+       todavia no se visito. Mismo componente que ya existia, sin superficie
+       nueva. #}
     <nav class="tt-steps" data-tt-steps aria-label="Progreso de la encuesta">
       <p class="tt-steps-count">Paso {{ step_number }} de {{ step_count }}</p>
-      <div class="tt-steps-bar" aria-hidden="true">
-        {% for s in steps %}<span class="seg{{ ' is-done' if s.index < step_index else '' }}{{ ' is-current' if s.current else '' }}"></span>{% endfor %}
-      </div>
+      <ol class="tt-steps-list">
+        {% for s in steps %}
+        <li class="tt-steps-item{{ ' is-current' if s.current else (' is-done' if s.index < step_index else ' is-upcoming') }}">
+          {% if s.index < step_index %}
+          <button type="submit" name="tt_goto" value="{{ s.index }}" class="tt-steps-link"
+                  hx-post="{{ step_url }}" hx-target="#tt-survey-form" hx-swap="outerHTML">{{ s.title or s.key }}</button>
+          {% else %}
+          <span{% if s.current %} aria-current="step"{% endif %}>{{ s.title or s.key }}</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
     </nav>
   {% endif %}
 
@@ -252,7 +268,10 @@
   <div class="tt-survey-actions{{ ' tt-survey-actions--steps' if step_index is not none else '' }} mt-4">
     {% if step_index is not none %}
       {% if not is_first_step %}
-      <button type="submit" name="tt_back" value="1" class="btn tt-btn-ghost tt-pressable"
+      {# Atajo del paso VISIBLE inmediato anterior. Mismo `tt_goto` que usa el
+         indicador de arriba -no es un mecanismo aparte-, asi que "libre hacia
+         atras" es una sola regla del servidor con dos entradas en el DOM. #}
+      <button type="submit" name="tt_goto" value="{{ prev_step_index }}" class="btn tt-btn-ghost tt-pressable"
               hx-post="{{ step_url }}" hx-target="#tt-survey-form" hx-swap="outerHTML">Atrás</button>
       {% endif %}
       {% if is_last_step %}

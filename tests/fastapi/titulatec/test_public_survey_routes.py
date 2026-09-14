@@ -75,13 +75,24 @@ def test_encuesta_con_sesion_cambia_el_banner_por_el_aviso_de_que_si_acredita(
 def test_encuesta_precarga_el_borrador_del_servidor(
     client_as, make_student, make_survey_form, db_session,
 ):
-    """Con sesion, lo ya capturado vuelve marcado (criterio de aceptacion 5)."""
+    """Con sesion, lo ya capturado vuelve marcado (criterio de aceptacion 5).
+
+    Tarea 3 (ronda 2): la GET ahora reanuda con `_start_step` -el primer paso
+    con un obligatorio VISIBLE sin contestar-, no siempre en el paso 0. Con
+    `situacion_laboral="buscando"`, `relacion_carrera` (el otro obligatorio de
+    "empleo") queda INVISIBLE -su `visible_when` pide "empleado"- y "opinion"
+    no tiene ningun obligatorio, asi que `_start_step` aterrizaria en
+    "opinion", donde `situacion_laboral` ya no es un control vivo. Se usa
+    "empleado" en vez de "buscando": deja `relacion_carrera` visible y sin
+    contestar, que es lo que mantiene a "empleo" -y por tanto al radio que
+    esta prueba mide- como el paso de arranque.
+    """
     from itcj2.apps.titulatec.models import SurveyDraft
 
     form = make_survey_form()
     student = make_student()
     db_session.add(SurveyDraft(form_id=form.id, user_id=student.id,
-                               answers={"situacion_laboral": "buscando"}))
+                               answers={"situacion_laboral": "empleado"}))
     db_session.flush()
 
     resp = client_as(student).get(SURVEY_URL, follow_redirects=False)
@@ -89,7 +100,7 @@ def test_encuesta_precarga_el_borrador_del_servidor(
     assert resp.status_code == 200, resp.text[:500]
     # El `checked` tiene que estar en EL MISMO control que lleva ese `value`,
     # no en cualquier sitio de la pagina: por eso el regex y no dos `in`.
-    assert re.search(r'value="buscando"[^>]*\schecked', resp.text), \
+    assert re.search(r'value="empleado"[^>]*\schecked', resp.text), \
         "la opcion del borrador no vuelve marcada"
 
 
@@ -483,8 +494,14 @@ SCHEMA_SECCION_FANTASMA = {
     "enabled": True,
     "sections": [{"key": "empleo", "title": "Situacion laboral"}],
     "fields": [
+        # `required=True` (Tarea 3, ronda 2): con las dos preguntas opcionales,
+        # `_start_step` no encontraria ningun obligatorio sin contestar en
+        # NINGUNA seccion y la carga inicial aterrizaria de una vez en el
+        # grupo suelto -justo lo que esta prueba no quiere medir-. Obligatoria
+        # mantiene a "empleo" como el paso de arranque, que es lo que hace
+        # que `situacion_laboral` siga siendo el control vivo que se compara.
         {"key": "situacion_laboral", "section": "empleo", "type": "radio",
-         "label": "Situacion laboral", "required": False,
+         "label": "Situacion laboral", "required": True,
          "options": [{"value": "empleado", "label": "Trabajando"}]},
         # Apunta a una seccion que NO esta declarada: erratas asi las escribe
         # el seeder a mano y no hay quien las valide al vuelo.
@@ -519,8 +536,10 @@ def test_un_campo_con_seccion_inexistente_igual_se_pinta(
     assert 'data-tt-field="situacion_laboral"' in primero
     assert 'data-tt-field="comentarios"' not in primero   # esta en el paso 2, no en este
 
-    # Los dos campos son opcionales: avanzar sin contestar nada es valido.
-    segundo = c.post(STEP_URL, data={"tt_step": "0", "tt_next": "1"},
+    # `comentarios` es opcional: avanzar contestando solo el obligatorio de
+    # "empleo" es valido.
+    segundo = c.post(STEP_URL, data={"tt_step": "0", "tt_next": "1",
+                                     "situacion_laboral": "empleado"},
                      follow_redirects=False).text
     assert 'data-tt-field="comentarios"' in segundo, \
         "la pregunta con la seccion mal escrita se perdio del formulario"

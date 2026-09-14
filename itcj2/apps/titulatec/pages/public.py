@@ -353,6 +353,7 @@ def _form_ctx(meta: dict, schema: dict, *, values, errors, is_authenticated,
         "step_count": None,
         "is_first_step": True,
         "is_last_step": True,
+        "prev_step_index": None,
         "other_fields": [],
     }
     if step is not None and grupos:
@@ -375,6 +376,9 @@ def _form_ctx(meta: dict, schema: dict, *, values, errors, is_authenticated,
             step_count=len(visibles),
             is_first_step=(pos == 0),
             is_last_step=(pos == len(visibles) - 1),
+            # Valor del botón "Atrás" (plantilla): el paso VISIBLE inmediato
+            # anterior, o `None` en el primero (ahí no se pinta el botón).
+            prev_step_index=(visibles[pos - 1] if pos > 0 else None),
             other_fields=[f for f in campos if f.get("key") not in propios],
         )
     if notice:
@@ -382,6 +386,45 @@ def _form_ctx(meta: dict, schema: dict, *, values, errors, is_authenticated,
         # así desaparece solo en el siguiente render en vez de quedarse colgado.
         ctx.update(notice)
     return ctx
+
+
+def _start_step(schema: dict, values: dict) -> int:
+    """Paso de arranque del GET: el primero con un obligatorio VISIBLE sin
+    contestar; si no queda ninguno, el ÚLTIMO paso visible.
+
+    Ronda 2 de la Tarea 3 (pedido del controlador): un borrador a medias tiene
+    que reanudar donde se quedó, no forzar "Siguiente" por secciones que ya se
+    contestaron. La posición se DERIVA de lo que ya existe -`values` (el
+    borrador de BD, o `{}` si no hay ninguno) y el mapa de visibilidad que ya
+    calcula `_sections`- en vez de guardarse en algún lado: sigue sin haber
+    sesión de servidor, solo se lee con más cuidado lo que ya se tenía.
+
+    Con `values={}` (visitante nuevo, sin borrador) el primer paso SIEMPRE
+    tiene sus obligatorios vacíos, así que esto devuelve `0` exactamente como
+    antes -sin regresión para quien arranca de cero-. Con un borrador que ya
+    cubre todos los obligatorios visibles, no hay nada que reanudar: aterriza
+    en el último paso, a un click de "Enviar respuestas".
+
+    Mismo criterio de "contestado" que `validate_answers` (`_as_bool` antes de
+    `_is_empty` para `checkbox`/`yesno`): un criterio distinto aquí marcaría
+    "incompleta" una sección que el envío real consideraría válida, o al
+    revés.
+    """
+    from itcj2.apps.titulatec.utils.survey_validator import _as_bool, _is_empty, is_visible
+
+    grupos = _sections(schema, values)
+    if not grupos:
+        return 0
+    visibles = [i for i, g in enumerate(grupos) if g["visible"]] or list(range(len(grupos)))
+    for i in visibles:
+        for f in grupos[i]["fields"]:
+            if not f.get("required") or not is_visible(f, values):
+                continue
+            raw = (values or {}).get(f.get("key"))
+            valor = _as_bool(raw) if f.get("type") in ("checkbox", "yesno") else raw
+            if _is_empty(f.get("type"), valor):
+                return i
+    return visibles[-1]
 
 
 _CLOSED_CARD = {
@@ -484,12 +527,11 @@ async def survey(
     nada del contexto, ni siquiera para un visitante que ya tiene un borrador
     guardado de una sesión anterior expirada-.
 
-    Tarea 3: la carga inicial siempre pide el paso 0 -la primera sección
-    declarada en el `schema`-. No se intenta "reanudar" en el paso donde el
-    visitante iba: eso exigiría guardar el índice en algún lado (sesión de
-    servidor, que el spec prohíbe) o adivinarlo a partir del borrador, y con
-    el borrador ya precargado en `values` avanzar de nuevo toma como mucho un
-    click por sección ya contestada -ninguno vuelve a teclear nada-.
+    Tarea 3 (ronda 2): la carga inicial reanuda con `_start_step` -el primer
+    paso con un obligatorio VISIBLE sin contestar, o el último si ya no queda
+    ninguno- en vez de fijar siempre el paso 0. Sigue sin haber sesión de
+    servidor: la posición sale de `values` (el borrador de BD, ya precargado
+    aquí mismo) y del mapa de visibilidad, nunca de un índice guardado aparte.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_service import SURVEY_CODE, SurveyService
@@ -515,7 +557,8 @@ async def survey(
             ctx = _form_ctx(_form_meta(form), form.schema or {},
                             values=values, errors={},
                             is_authenticated=bool(user),
-                            draft_updated_at=draft_updated, step=0)
+                            draft_updated_at=draft_updated,
+                            step=_start_step(form.schema or {}, values))
     finally:
         db.close()
     return render_titulatec(request, "titulatec/public/survey.html", ctx)
@@ -680,22 +723,31 @@ async def survey_step(
 ):
     """Avanza o retrocede UN paso del cuestionario. Nunca escribe en BD.
 
-    Una sola ruta para las dos direcciones (spec 3.3), distinguidas por CUÁL
-    botón se pulsó -`tt_next` o `tt_back`, el `name` del control de envío-, no
-    por una URL distinta cada una: es la misma idea que ya usa `_form_ctx`
-    para no duplicar el camino de re-render entre el GET y el envío.
+    Una sola ruta para las dos direcciones (spec 3.3): "Siguiente" postea
+    `tt_next`, y tanto el botón "Atrás" como el indicador de progreso postean
+    `tt_goto=<índice>` -el paso VISIBLE al que apuntan, calculado al pintar el
+    paso actual-. No hay URL distinta por dirección: es la misma idea que ya
+    usa `_form_ctx` para no duplicar el camino de re-render entre el GET y el
+    envío.
 
-    Hacia adelante es ESTRICTO: se valida `validate_answers` sobre un
+    Hacia adelante es ESTRICTO: sin `tt_goto` (o con uno que pide un paso por
+    DELANTE del actual, que no es un movimiento legítimo y se ignora en vez de
+    festejarlo con un error), se valida `validate_answers` sobre un
     "mini-schema" con SOLO los campos de la sección actual (`tt_step`) -nunca
     se reimplementa la validación, se le pasa un `schema` recortado-, y si hay
     error se re-pinta el MISMO paso. Si pasa, avanza al siguiente paso
     VISIBLE, saltándose cualquiera que se haya quedado sin campos visibles
-    (spec 3.3) y sin mirar lo que el cliente haya pedido en `tt_next`: no hay
-    forma de "saltarse" una sección sin pasar por su validación.
+    (spec 3.3): no hay forma de "saltarse" una sección sin pasar por su
+    validación, ni siquiera pidiendo un `tt_goto` más adelante -el destino de
+    un avance lo decide SIEMPRE el servidor, nunca el cliente-.
 
-    Hacia atrás es LIBRE: no valida nada, y se mueve al paso VISIBLE anterior
-    -otra vez saltándose los que no lo son-. Repetir "Atrás" alcanza cualquier
-    sección ya visitada, que es el "volver a cualquier sección" del spec.
+    Hacia atrás es LIBRE y DIRECTO (ronda 2, pedido del controlador): un
+    `tt_goto` que apunta a un paso YA VISITADO -su posición en la lista de
+    visibles es <= la del actual- no valida nada y salta ahí de un solo golpe,
+    sea el inmediato anterior ("Atrás") o cualquier otro más atrás (un click
+    en el indicador de progreso). Un paso que hoy no es visible tampoco es un
+    destino válido -mismo criterio que un `tt_goto` hacia adelante-: se ignora
+    y se re-pinta el actual, porque saltar ahí mostraría una sección vacía.
 
     El estado del recorrido es el propio `submitted`: `_submitted_from_form`
     ya reconstruye TODAS las respuestas acumuladas -las de esta sección, en
@@ -758,8 +810,18 @@ async def survey_step(
                 actual = posteriores[0] if posteriores else visibles[-1]
             pos = visibles.index(actual)
 
-            if data.get("tt_back") and pos > 0:
-                objetivo, errores = visibles[pos - 1], {}
+            goto_crudo = data.get("tt_goto")
+            if goto_crudo not in (None, ""):
+                # "Atrás" y el indicador de progreso comparten este camino:
+                # LIBRE, pero acotado a lo YA VISITADO (destino <= actual en
+                # la lista de visibles). Un paso mas adelante, o uno que ya no
+                # es visible, no es un destino legitimo -no se corrige con un
+                # error, simplemente no se mueve-.
+                destino = _parse_step_index(goto_crudo, len(grupos))
+                if destino in visibles and visibles.index(destino) <= pos:
+                    objetivo, errores = destino, {}
+                else:
+                    objetivo, errores = actual, {}
             else:
                 seccion = grupos[actual]
                 mini_schema = {"enabled": bool(schema.get("enabled", True)),

@@ -5,9 +5,14 @@ secciones una detras de otra; esta tarea convierte cada seccion en un PASO
 navegable, con una ruta nueva (`STEP_URL`) que avanza o retrocede.
 
 Reglas del spec (3.3 y 5) que estas pruebas miden:
-  * Hacia adelante es ESTRICTO: no se avanza con errores en la seccion actual.
-  * Hacia atras es LIBRE: se puede volver a cualquier seccion ya visitada, sin
-    validar, y sin borrar lo capturado en secciones posteriores.
+  * Hacia adelante es ESTRICTO: no se avanza con errores en la seccion actual,
+    y ni siquiera un `tt_goto` hacia un paso por delante lo salta (el servidor
+    decide el destino de un avance, nunca el cliente).
+  * Hacia atras es LIBRE y DIRECTO (ronda 2, pedido del controlador): un
+    `tt_goto=<indice>` alcanza cualquier seccion YA VISITADA de un solo golpe
+    -no hace falta retroceder de a un paso-, sin validar, y sin borrar lo
+    capturado en secciones posteriores (ni siquiera en las que el salto
+    "pasa de largo").
   * Una seccion cuyos campos quedan TODOS invisibles se salta, en los dos
     sentidos.
   * El envio final (`SURVEY_URL`, la ruta que ya existia) revalida el
@@ -15,9 +20,15 @@ Reglas del spec (3.3 y 5) que estas pruebas miden:
   * El estado del recorrido viaja en las respuestas acumuladas -que ya viajan
     completas en cada envio, como ocultos por cada campo que no es del paso
     actual- mas el indice del paso (`tt_step`). Nada de sesion de servidor.
+  * La carga inicial (GET) reanuda en el primer paso con un obligatorio
+    VISIBLE sin contestar (`_start_step`), o en el ultimo si el borrador ya
+    los cubre todos -tambien derivado de lo que ya existe, sin sesion nueva-.
 
 `SCHEMA_TRES_PASOS` (propio de este archivo, no `SURVEY_SCHEMA_V1` de
-`conftest.py`) declara TRES secciones:
+`conftest.py`, y tampoco el instrumento real de 63 preguntas que ya vive
+sembrado en la base de dev bajo el mismo `code="egresados"`: cada prueba
+siembra su PROPIO esquema via `make_survey_form(schema=...)`, que cierra y
+sustituye cualquier version abierta) declara TRES secciones:
   * `uno`    -> nombre, estudia, trabaja (siempre visibles; son las FUENTES).
   * `dos`    -> escuela (visible solo si `estudia == "si"`).
   * `tres`   -> empresa (visible solo si `trabaja == "si"`) + comentario
@@ -178,7 +189,7 @@ def test_una_seccion_sin_campos_visibles_se_salta_hacia_atras(
                     follow_redirects=False)
     assert 'data-tt-section="tres"' in avance.text
 
-    resp = c.post(STEP_URL, data={"tt_step": "2", "tt_back": "1",
+    resp = c.post(STEP_URL, data={"tt_step": "2", "tt_goto": "0",
                                   "nombre": "Ana", "estudia": "no", "trabaja": "si"},
                  follow_redirects=False)
 
@@ -206,8 +217,8 @@ def test_retroceder_no_borra_lo_capturado_en_pasos_posteriores(
               follow_redirects=False)
     assert 'data-tt-section="tres"' in r.text
 
-    # Retrocede dos veces: de 'tres' a 'dos', y de 'dos' a 'uno'.
-    r = c.post(STEP_URL, data={"tt_step": "2", "tt_back": "1",
+    # Retrocede dos veces, de a un paso: de 'tres' a 'dos', y de 'dos' a 'uno'.
+    r = c.post(STEP_URL, data={"tt_step": "2", "tt_goto": "1",
                                "nombre": "Ana", "estudia": "si", "trabaja": "si",
                                "escuela": "ITCJ"},
               follow_redirects=False)
@@ -215,7 +226,7 @@ def test_retroceder_no_borra_lo_capturado_en_pasos_posteriores(
     assert re.search(r'name="escuela"[^>]*\bvalue="ITCJ"', r.text), \
         "lo capturado en 'dos' se perdio al volver un paso"
 
-    r = c.post(STEP_URL, data={"tt_step": "1", "tt_back": "1",
+    r = c.post(STEP_URL, data={"tt_step": "1", "tt_goto": "0",
                                "nombre": "Ana", "estudia": "si", "trabaja": "si",
                                "escuela": "ITCJ"},
               follow_redirects=False)
@@ -258,7 +269,7 @@ def test_el_envio_final_revalida_todo_no_solo_el_ultimo_paso(
     assert "Enviar respuestas" in r.text
 
     # 3) Retrocede a la primera seccion (salta 'dos', que sigue invisible).
-    r = c.post(STEP_URL, data={"tt_step": "2", "tt_back": "1",
+    r = c.post(STEP_URL, data={"tt_step": "2", "tt_goto": "0",
                                "nombre": "Ana", "estudia": "no", "trabaja": "no",
                                "comentario": "Todo bien"},
               follow_redirects=False)
@@ -315,3 +326,155 @@ def test_un_campo_condicional_obligatorio_no_se_exige_cuando_no_lo_es(
     assert resp.status_code == 200, resp.text[:400]
     assert 'data-tt-error="empresa"' not in resp.text
     assert "data-tt-errors" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Ronda 2 (pedido del controlador): la GET reanuda donde se quedo, y el
+# retroceso es directo -no de a un paso- via `tt_goto`.
+# ---------------------------------------------------------------------------
+def test_un_borrador_a_medias_abre_en_el_primer_paso_incompleto(
+    client_as, make_student, make_survey_form, db_session,
+):
+    """No en el paso 0: en el primero cuyo obligatorio VISIBLE sigue vacio.
+
+    `uno` esta completo (nombre/estudia/trabaja contestados). Con
+    `estudia=si`, `escuela` (en 'dos') es visible y obligatoria, y el
+    borrador no la trae -> `_start_step` tiene que aterrizar ahi, no en 'uno'.
+    `trabaja=no` deja 'empresa' invisible (no obligatoria todavia), asi que
+    'tres' no compite por ser el paso incompleto.
+    """
+    from itcj2.apps.titulatec.models import SurveyDraft
+
+    form = make_survey_form(schema=SCHEMA_TRES_PASOS)
+    student = make_student()
+    db_session.add(SurveyDraft(form_id=form.id, user_id=student.id, answers={
+        "nombre": "Ana", "estudia": "si", "trabaja": "no",
+    }))
+    db_session.flush()
+
+    cuerpo = client_as(student).get(SURVEY_URL, follow_redirects=False).text
+
+    assert 'data-tt-section="dos"' in cuerpo, \
+        "tenia que reanudar en 'dos', el primer paso con un obligatorio vacio"
+    assert 'data-tt-section="uno"' not in cuerpo
+
+
+def test_un_borrador_completo_abre_en_el_ultimo_paso(
+    client_as, make_student, make_survey_form, db_session,
+):
+    """Si el borrador ya cubre todos los obligatorios visibles, al ultimo paso.
+
+    `estudia=si` y `trabaja=si` hacen visibles las TRES secciones, y el
+    borrador contesta los tres obligatorios (`escuela`, `empresa` incluidos):
+    no hay nada que reanudar, asi que aterriza en 'tres' -a un click de
+    "Enviar respuestas"-.
+    """
+    from itcj2.apps.titulatec.models import SurveyDraft
+
+    form = make_survey_form(schema=SCHEMA_TRES_PASOS)
+    student = make_student()
+    db_session.add(SurveyDraft(form_id=form.id, user_id=student.id, answers={
+        "nombre": "Ana", "estudia": "si", "trabaja": "si",
+        "escuela": "ITCJ", "empresa": "ITCJ Corp",
+    }))
+    db_session.flush()
+
+    cuerpo = client_as(student).get(SURVEY_URL, follow_redirects=False).text
+
+    assert 'data-tt-section="tres"' in cuerpo
+    assert 'data-tt-section="uno"' not in cuerpo
+    assert 'data-tt-section="dos"' not in cuerpo
+    assert "Enviar respuestas" in cuerpo
+
+
+def test_un_paso_ya_visitado_es_alcanzable_de_un_solo_salto(
+    client_as, make_student, make_survey_form,
+):
+    """El indicador de progreso llega directo: no hace falta un click por paso.
+
+    Las tres secciones quedan visibles (`estudia=si`, `trabaja=si`), asi que
+    el salto de 'tres' a 'uno' cruza 'dos' de un solo golpe -no es un salto de
+    seccion invisible, que ya cubre otra prueba-.
+    """
+    make_survey_form(schema=SCHEMA_TRES_PASOS)
+    c = client_as(make_student())
+
+    r = c.post(STEP_URL, data={"tt_step": "0", "tt_next": "1",
+                               "nombre": "Ana", "estudia": "si", "trabaja": "si"},
+              follow_redirects=False)
+    assert 'data-tt-section="dos"' in r.text
+
+    r = c.post(STEP_URL, data={"tt_step": "1", "tt_next": "1",
+                               "nombre": "Ana", "estudia": "si", "trabaja": "si",
+                               "escuela": "ITCJ"},
+              follow_redirects=False)
+    assert 'data-tt-section="tres"' in r.text
+
+    resp = c.post(STEP_URL, data={"tt_step": "2", "tt_goto": "0",
+                                  "nombre": "Ana", "estudia": "si", "trabaja": "si",
+                                  "escuela": "ITCJ"},
+                 follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'data-tt-section="uno"' in resp.text, \
+        "'uno' (visitado) tenia que alcanzarse de un solo salto desde 'tres'"
+
+
+def test_un_paso_por_delante_no_es_alcanzable_de_un_salto(
+    client_as, make_student, make_survey_form,
+):
+    """El salto directo es SOLO hacia atras: adelante sigue siendo estricto.
+
+    Se pide `tt_goto=2` (un paso por delante del actual, `tt_step=0`) con los
+    obligatorios de 'uno' vacios a proposito: si el salto se concediera sin
+    mas, 'tres' se veria aunque 'uno' ni siquiera pasara su propia validacion.
+    """
+    make_survey_form(schema=SCHEMA_TRES_PASOS)
+
+    resp = client_as(make_student()).post(
+        STEP_URL, data={"tt_step": "0", "tt_goto": "2",
+                        "nombre": "", "estudia": "", "trabaja": ""},
+        follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'data-tt-section="uno"' in resp.text, \
+        "un tt_goto hacia adelante no deberia mover el paso"
+    assert 'data-tt-section="tres"' not in resp.text
+
+
+def test_saltar_hacia_atras_de_un_golpe_no_pierde_lo_de_en_medio(
+    client_as, make_student, make_survey_form,
+):
+    """El invariante mas facil de romper al tocar navegacion: tambien aguanta
+    un salto directo, no solo el retroceso de a un paso.
+    """
+    make_survey_form(schema=SCHEMA_TRES_PASOS)
+    c = client_as(make_student())
+
+    r = c.post(STEP_URL, data={"tt_step": "0", "tt_next": "1",
+                               "nombre": "Ana", "estudia": "si", "trabaja": "si"},
+              follow_redirects=False)
+    assert 'data-tt-section="dos"' in r.text
+
+    r = c.post(STEP_URL, data={"tt_step": "1", "tt_next": "1",
+                               "nombre": "Ana", "estudia": "si", "trabaja": "si",
+                               "escuela": "ITCJ"},
+              follow_redirects=False)
+    assert 'data-tt-section="tres"' in r.text
+
+    # Salto DIRECTO de 'tres' (indice 2) a 'uno' (indice 0): cruza 'dos' sin
+    # detenerse ahi en el camino de vuelta.
+    r = c.post(STEP_URL, data={"tt_step": "2", "tt_goto": "0",
+                               "nombre": "Ana", "estudia": "si", "trabaja": "si",
+                               "escuela": "ITCJ"},
+              follow_redirects=False)
+    assert 'data-tt-section="uno"' in r.text
+
+    # Avanza de nuevo: lo de 'dos' -por donde el salto paso de largo- sigue ahi.
+    r = c.post(STEP_URL, data={"tt_step": "0", "tt_next": "1",
+                               "nombre": "Ana", "estudia": "si", "trabaja": "si",
+                               "escuela": "ITCJ"},
+              follow_redirects=False)
+    assert 'data-tt-section="dos"' in r.text
+    assert re.search(r'name="escuela"[^>]*\bvalue="ITCJ"', r.text), \
+        "el salto directo hacia atras borro lo capturado en la seccion que salto"

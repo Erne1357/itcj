@@ -81,7 +81,14 @@ class Settings(BaseSettings):
     # encuesta en caché sigue viendo el JS/CSS viejos: los botones nuevos
     # postearían al formulario completo en vez de a `/paso`, y el localStorage
     # arrastraría un `tt_step` que el HTML nuevo ya no espera ahí.
-    STATIC_VERSION: str = "1.0.1111529"
+    #
+    # Bump 2026-09-14 (b): ronda 2 de la Tarea 3 — el indicador de progreso
+    # deja de ser decorativo (`.tt-steps-list`/`.tt-steps-item`/`.tt-steps-link`
+    # nuevas en `public.css`, reemplazan a `.tt-steps-bar`/`.seg`) para poder
+    # saltar directo a cualquier paso ya visitado. Sin el bump, la hoja vieja
+    # en caché no trae ninguna regla para `.tt-steps-link` y el paso ya
+    # visitado se ve como texto plano sin pista de que es clicable.
+    STATIC_VERSION: str = "1.0.1111530"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

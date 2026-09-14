@@ -150,7 +150,14 @@
 
 /* Tarea 3: indicador de progreso del asistente por pasos. Solo aparece en modo
    paginado (`step_index` no es none); el envio final -que revalida y muestra
-   TODAS las secciones- nunca lo pinta. */
+   TODAS las secciones- nunca lo pinta.
+
+   Ronda 2 (pedido del controlador): dejo de ser decorativo. Cada paso YA
+   VISITADO (`.is-done`) es un `<button>` real -el unico salto directo hacia
+   atras que existe, ver `survey_form.html`-, asi que `flex-wrap` es
+   obligatorio: con 7 secciones (el instrumento real) la lista no cabe en una
+   sola linea a 400px y el invariante duro del proyecto es CERO scroll
+   horizontal del documento. */
 .tt-steps { margin-bottom: var(--tt-sp-5); }
 .tt-steps-count {
   margin: 0 0 6px;
@@ -158,16 +165,35 @@
   font-weight: 600;
   color: var(--tt-text-3);
 }
-.tt-steps-bar { display: flex; gap: 4px; }
-.tt-steps-bar .seg {
-  flex: 1 1 0;
-  height: 4px;
-  min-width: 12px;
-  border-radius: 2px;
-  background: var(--tt-line);
+.tt-steps-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--tt-fs-100);
 }
-.tt-steps-bar .seg.is-done,
-.tt-steps-bar .seg.is-current { background: var(--tt-accent); }
+.tt-steps-item { color: var(--tt-mute); }
+.tt-steps-item.is-current > span { color: var(--tt-text-1); font-weight: 700; }
+.tt-steps-item.is-done > .tt-steps-link {
+  color: var(--tt-text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* Boton des-estilizado: se ve como el resto de la lista, no como un boton de
+   navegador, pero SIGUE siendo un control real (foco, teclado, lector). */
+.tt-steps-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+.tt-steps-link:hover { color: var(--tt-accent-ink); }
+.tt-steps-link:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
 
 /* El boton de envio se queda a la vista: el cuestionario mide varias pantallas
    y en movil el visitante contesta la ultima pregunta sin nada que pulsar cerca.
