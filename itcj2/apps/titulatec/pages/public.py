@@ -27,7 +27,7 @@ import logging
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
 
 from itcj2.apps.titulatec.pages.nav import render_titulatec
 from itcj2.dependencies import get_current_user_optional
@@ -38,6 +38,14 @@ router = APIRouter(tags=["titulatec-pages-public"])
 
 SURVEY_URL = "/titulatec/encuesta-egresados"
 SURVEY_DRAFT_URL = f"{SURVEY_URL}/borrador"
+
+# `next` construido sobre la propia encuesta. Viaja tal cual al validador que ya
+# existe en el login (`safe_next`, `itcj2/core/pages/auth.py`): es una ruta
+# relativa de una sola pieza, sin esquema ni `//host`, así que sobrevive esa
+# validación sin quitarle nada. Un solo literal, reutilizado por el redirect del
+# GET (Tarea 2) y por el enlace "Iniciar sesión y continuar" del banner anónimo
+# (`_form_ctx`, más abajo) para que los dos no puedan divergir.
+SURVEY_LOGIN_URL = f"/itcj/login?next={SURVEY_URL}"
 
 # — Presupuestos del limitador (revisión 2026-09-08) —
 #
@@ -292,7 +300,7 @@ def _form_ctx(meta: dict, schema: dict, *, values, errors, is_authenticated,
         "draft_url": SURVEY_DRAFT_URL,
         "draft_updated_at": draft_updated_at,
         "survey_url": SURVEY_URL,
-        "login_url": f"/itcj/login?next={SURVEY_URL}",
+        "login_url": SURVEY_LOGIN_URL,
         "no_form": False,
     }
     if notice:
@@ -365,6 +373,24 @@ def _contar_envio(user, ip) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 4b. Sesión requerida (Tarea 2): `SurveyForm.is_anonymous` decide, no la ruta
+# ---------------------------------------------------------------------------
+def _requiere_sesion(form) -> bool:
+    """True si ESTE formulario exige sesión para verlo/contestarlo.
+
+    Único lector de `SurveyForm.is_anonymous` en todo el repo (`models/
+    survey.py:47`): la columna existía desde antes y nadie la consultaba, así
+    que hasta hoy la encuesta se abría sin sesión sin importar su valor. El
+    banner anónimo, el origen `anonymous` y el borrador en `localStorage`
+    siguen existiendo: un formulario futuro con `is_anonymous=True` los sigue
+    usando tal cual. Vive suelta -no inline en cada ruta- para que las tres
+    lean la MISMA condición; repetirla en `survey`, `survey_submit` y
+    `survey_draft` es la forma en la que un día se desincronizarían.
+    """
+    return not form.is_anonymous
+
+
+# ---------------------------------------------------------------------------
 # Rutas
 # ---------------------------------------------------------------------------
 @router.get("/encuesta-egresados", name="titulatec.pages.public.survey",
@@ -375,8 +401,14 @@ async def survey(
 ):
     """Encuesta de egresados: UNA página con secciones, nunca un asistente.
 
-    Anónimo: banner persistente de §6.1 y borrador solo en `localStorage`.
-    Con sesión: aviso de que sí acredita y precarga del borrador de BD.
+    Anónimo (formulario con `is_anonymous=True`): banner persistente de §6.1 y
+    borrador solo en `localStorage`. Con sesión: aviso de que sí acredita y
+    precarga del borrador de BD.
+
+    Tarea 2: un formulario que NO es anónimo exige sesión. Sin ella, redirige
+    al login con `next` apuntando a esta misma encuesta -antes de construir
+    nada del contexto, ni siquiera para un visitante que ya tiene un borrador
+    guardado de una sesión anterior expirada-.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_service import SURVEY_CODE, SurveyService
@@ -386,6 +418,8 @@ async def survey(
         form = SurveyService.open_form(db, SURVEY_CODE)
         if form is None:
             ctx = dict(_CLOSED_CARD, no_form=True)
+        elif _requiere_sesion(form) and user is None:
+            return RedirectResponse(SURVEY_LOGIN_URL, status_code=302)
         else:
             values: dict = {}
             draft_updated = ""
@@ -414,11 +448,17 @@ async def survey_submit(
 ):
     """Envío de la encuesta.
 
-    Orden: tamaño declarado → trampa → formulario abierto → presupuesto →
-    escritura → cobro. El presupuesto se lee antes de escribir y se cobra
-    después, y ninguno de los dos pasos puede dejar al visitante sin
+    Orden: tamaño declarado → trampa → formulario abierto → sesión (Tarea 2) →
+    presupuesto → escritura → cobro. El presupuesto se lee antes de escribir y
+    se cobra después, y ninguno de los dos pasos puede dejar al visitante sin
     cuestionario: todo lo que devuelve esta ruta con contenido re-imprime lo que
     el visitante escribió.
+
+    Tarea 2: si el formulario abierto NO es anónimo (`_requiere_sesion`) y no
+    hay usuario en la petición, corta con 401 antes de leer el presupuesto o
+    llamar a `SurveyService.submit` -no se escribe nada-. Un formulario con
+    `is_anonymous=True` sigue aceptando el envío sin sesión, exactamente igual
+    que hoy.
     """
     from itcj2.database import SessionLocal
     from itcj2.core.utils.client_ip import client_ip
@@ -461,6 +501,17 @@ async def survey_submit(
             return Response(status_code=400, headers={
                 "X-Tt-Error": _hdr("La encuesta ya no está disponible. "
                                    "Recarga la página.")})
+
+        # Tarea 2: formulario NO anónimo sin sesión -> corta AQUÍ, antes de
+        # tocar `submitted`, el presupuesto o `SurveyService.submit`. Ni
+        # rate-limit ni validación corren para una petición que ni siquiera
+        # puede escribir; un 401 sin cuerpo ni `X-Tt-Error` no revela nada del
+        # formulario (ni que existe, ni si está abierto). Este visitante no
+        # debería llegar aquí nunca por la UI real -el GET ya lo mandó al
+        # login antes de mostrarle nada que enviar-; es la defensa para quien
+        # postea directo, o cuya sesión murió entre el GET y este POST.
+        if _requiere_sesion(form) and user is None:
+            return Response(status_code=401)
 
         # Instantánea plana ANTES de escribir: el camino de recuperación hace
         # `rollback()` y ahí toda instancia ORM queda expirada.
@@ -566,6 +617,16 @@ async def survey_draft(
     numérico o negativo responde `411` en vez de dejar pasar el cuerpo sin
     tope; por encima de `MAX_PUBLIC_BODY_BYTES` responde `413`. Las dos rutas
     quedan idénticas en esa frontera de entrada.
+
+    Tarea 2 (`_requiere_sesion`, `SurveyForm.is_anonymous`) NO se consulta
+    aquí, y no es un olvido: `SurveyDraft.user_id` es `nullable=False`
+    (`models/survey.py:137`), así que un borrador de servidor es estructuralmente
+    imposible sin sesión, sea o no anónimo el formulario. El `if not user`
+    de arriba ya corta ANTES de tocar nada para los dos valores de
+    `is_anonymous` -para uno porque la Tarea 2 lo exige, para el otro porque
+    ya lo exigía la propia tabla-, que es exactamente "las tres rutas se
+    comportan igual" del brief. El anónimo sigue teniendo su borrador, solo
+    que vive en `localStorage` y nunca toca esta ruta de verdad (§6.4/D3).
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_service import (

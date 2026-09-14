@@ -25,8 +25,13 @@ BANNER_2 = "NO quedará en tu expediente de titulación."
 
 
 def test_encuesta_anonima_devuelve_200_con_el_formulario(client, make_survey_form):
-    """Sin cookie: 200 de verdad, no un 302 al login seguido por el cliente."""
-    make_survey_form()
+    """Sin cookie: 200 de verdad, no un 302 al login seguido por el cliente.
+
+    Tarea 2: la apertura sin sesion ahora depende de `is_anonymous=True`
+    explicito -la fabrica por omision ya es `False`, que es la realidad que
+    tendra el instrumento real-. Este test SI es el camino anonimo de verdad.
+    """
+    make_survey_form(is_anonymous=True)
     client.cookies.clear()
 
     resp = client.get(SURVEY_URL, follow_redirects=False)
@@ -37,8 +42,11 @@ def test_encuesta_anonima_devuelve_200_con_el_formulario(client, make_survey_for
 
 
 def test_encuesta_anonima_muestra_el_banner_de_que_no_acredita(client, make_survey_form):
-    """El aviso del spec 6.1 es persistente, no un toast que se va."""
-    make_survey_form()
+    """El aviso del spec 6.1 es persistente, no un toast que se va.
+
+    Tarea 2: banner exclusivo del camino anonimo -> `is_anonymous=True` explicito.
+    """
+    make_survey_form(is_anonymous=True)
     client.cookies.clear()
 
     resp = client.get(SURVEY_URL, follow_redirects=False)
@@ -167,8 +175,12 @@ def test_el_formulario_publica_los_ganchos_de_dom_del_contrato(client, make_surv
     Se miden juntos y no uno por test porque son un solo contrato: si el
     formulario deja de emitir cualquiera de ellos, lo que se rompe es la tarea
     que lo consume (el autoguardado, el E2E), no esta.
+
+    Tarea 2: dos de estos ganchos (`data-tt-auth="0"`, `data-tt-login`) SOLO
+    existen en el render anonimo -> `is_anonymous=True` explicito. No es
+    comodidad: es lo que este test mide.
     """
-    make_survey_form()
+    make_survey_form(is_anonymous=True)
     client.cookies.clear()
 
     cuerpo = client.get(SURVEY_URL, follow_redirects=False).text
@@ -190,16 +202,20 @@ def test_el_formulario_publica_los_ganchos_de_dom_del_contrato(client, make_surv
     assert "Enviar respuestas" in cuerpo
 
 
-def test_el_campo_condicional_publica_su_visible_when(client, make_survey_form):
+def test_el_campo_condicional_publica_su_visible_when(
+    client_as, make_student, make_survey_form,
+):
     """`relacion_carrera` solo aplica a quien trabaja: el JSON viaja al cliente.
 
     El servidor lo re-evalua igual (`is_visible`), asi que esto es para que la
     pregunta no se vea cuando no toca — no es la defensa.
+
+    Tarea 2: esto no prueba el camino anonimo, asi que en vez de anonimizar el
+    formulario se le da sesion (la fabrica ya es no-anonima por omision).
     """
     make_survey_form()
-    client.cookies.clear()
 
-    cuerpo = client.get(SURVEY_URL, follow_redirects=False).text
+    cuerpo = client_as(make_student()).get(SURVEY_URL, follow_redirects=False).text
 
     m = re.search(r'data-tt-field="relacion_carrera"[^>]*data-tt-when=\'([^\']+)\'', cuerpo)
     assert m, "el campo condicional no publica su `visible_when`"
@@ -207,17 +223,18 @@ def test_el_campo_condicional_publica_su_visible_when(client, make_survey_form):
 
 
 def test_la_escala_se_pinta_como_grupo_de_radios_con_sus_etiquetas(
-    client, make_survey_form,
+    client_as, make_student, make_survey_form,
 ):
     """Un `scale` 1-5 son cinco radios con el mismo `name` y sus dos extremos.
 
     Sin las etiquetas de los extremos, un 1 y un 5 no significan nada: el
     visitante no sabe cual punta es "nada" y cual es "totalmente".
+
+    Tarea 2: sesion real, no el camino anonimo (irrelevante para este render).
     """
     make_survey_form()
-    client.cookies.clear()
 
-    cuerpo = client.get(SURVEY_URL, follow_redirects=False).text
+    cuerpo = client_as(make_student()).get(SURVEY_URL, follow_redirects=False).text
 
     bloque = re.search(r'data-tt-field="relacion_carrera".*?</div>\s*</div>',
                        cuerpo, flags=re.S)
@@ -231,17 +248,22 @@ def test_la_escala_se_pinta_como_grupo_de_radios_con_sus_etiquetas(
     assert 'role="radiogroup"' in trozo
 
 
-def test_la_trampa_va_fuera_de_pantalla_y_nunca_es_hidden(client, make_survey_form):
+def test_la_trampa_va_fuera_de_pantalla_y_nunca_es_hidden(
+    client_as, make_student, make_survey_form,
+):
     """`type=hidden` y `display:none` los salta un bot serio; `left:-9999px` no.
 
     La clase es `tt-public-hp`, la que public.css define desde la Tarea 11 —no
     una nueva—: una clase sin regla dejaria la trampa VISIBLE en medio del
     cuestionario, que es peor que no tenerla.
+
+    Tarea 2: el campo trampa se renderiza igual con o sin sesion (esta fuera
+    del `{% if is_authenticated %}`); se usa sesion real por no ser esto una
+    prueba del camino anonimo.
     """
     make_survey_form()
-    client.cookies.clear()
 
-    cuerpo = client.get(SURVEY_URL, follow_redirects=False).text
+    cuerpo = client_as(make_student()).get(SURVEY_URL, follow_redirects=False).text
 
     m = re.search(r'<input[^>]*name="website"[^>]*>', cuerpo)
     assert m, "no hay campo trampa"
@@ -250,16 +272,19 @@ def test_la_trampa_va_fuera_de_pantalla_y_nunca_es_hidden(client, make_survey_fo
     assert "tt-public-hp" in cuerpo, "la trampa usa una clase que public.css no define"
 
 
-def test_el_formulario_no_pide_numero_de_control(client, make_survey_form):
+def test_el_formulario_no_pide_numero_de_control(
+    client_as, make_student, make_survey_form,
+):
     """D1: jamas se acredita por numero de control auto-declarado.
 
     El servicio lo COPIA del usuario en sesion. Un campo asi en la pagina invita
     a escribirlo, y quien lo escriba creera que su respuesta acredita.
+
+    Tarea 2: sesion real -no es este el test del camino anonimo-.
     """
     make_survey_form()
-    client.cookies.clear()
 
-    resp = client.get(SURVEY_URL, follow_redirects=False)
+    resp = client_as(make_student()).get(SURVEY_URL, follow_redirects=False)
 
     # Las dos aserciones de fondo son `not in` y pasarian EN VACIO mientras la
     # ruta no exista (un 404 tampoco pide numero de control). Primero se exige
@@ -272,7 +297,7 @@ def test_el_formulario_no_pide_numero_de_control(client, make_survey_form):
 
 
 def test_la_pagina_no_pasa_objetos_orm_a_la_plantilla(
-    client, make_survey_form, monkeypatch,
+    client_as, make_student, make_survey_form, monkeypatch,
 ):
     """Un objeto ORM en el contexto renderiza VERDE aqui y revienta en produccion.
 
@@ -280,12 +305,15 @@ def test_la_pagina_no_pasa_objetos_orm_a_la_plantilla(
     la ruta nunca se cierra de verdad y nada se desasocia: un `DetachedInstance
     Error` es INVISIBLE para este arnes. Por eso no se mide el render, se mide
     la FORMA del contexto.
+
+    Tarea 2: sesion real. La fuga de ORM que este test vigila puede colarse por
+    el camino del borrador (`SurveyService.get_draft`), que solo se ejercita
+    con `user` presente -anonimo lo dejaria sin probar, no solo "sin sesion".
     """
     from itcj2.apps.titulatec.pages import public as mod
     from tests.fastapi.titulatec.test_survey_submit_routes import orm_en
 
     make_survey_form()
-    client.cookies.clear()
     visto = {}
     real = mod.render_titulatec
 
@@ -295,7 +323,7 @@ def test_la_pagina_no_pasa_objetos_orm_a_la_plantilla(
 
     monkeypatch.setattr(mod, "render_titulatec", espia)
 
-    resp = client.get(SURVEY_URL, follow_redirects=False)
+    resp = client_as(make_student()).get(SURVEY_URL, follow_redirects=False)
 
     assert resp.status_code == 200
     sucios = orm_en(visto["ctx"])
@@ -344,12 +372,16 @@ SCHEMA_OCHO_TIPOS = {
 }
 
 
-def test_el_formulario_pinta_los_ocho_tipos_de_campo(client, make_survey_form):
-    """Cada tipo declarado en `FIELD_TYPES` tiene que salir con SU control."""
-    make_survey_form(schema=SCHEMA_OCHO_TIPOS)
-    client.cookies.clear()
+def test_el_formulario_pinta_los_ocho_tipos_de_campo(
+    client_as, make_student, make_survey_form,
+):
+    """Cada tipo declarado en `FIELD_TYPES` tiene que salir con SU control.
 
-    cuerpo = client.get(SURVEY_URL, follow_redirects=False).text
+    Tarea 2: sesion real (irrelevante para el render de tipos de campo).
+    """
+    make_survey_form(schema=SCHEMA_OCHO_TIPOS)
+
+    cuerpo = client_as(make_student()).get(SURVEY_URL, follow_redirects=False).text
 
     assert 'type="text" id="f-nombre_corto"' in cuerpo
     assert 'id="f-comentarios"' in cuerpo and "<textarea" in cuerpo
@@ -368,7 +400,7 @@ def test_el_formulario_pinta_los_ocho_tipos_de_campo(client, make_survey_form):
 
 
 def test_el_re_render_conserva_el_yesno_la_casilla_y_el_select(
-    client, make_survey_form, db_session,
+    client_as, make_student, make_survey_form, db_session,
 ):
     """El `yesno` es el que rompe si nadie normaliza para pintar.
 
@@ -377,11 +409,13 @@ def test_el_re_render_conserva_el_yesno_la_casilla_y_el_select(
     `answers`), asi que sin el puente de `_display_values` los dos radios vuelven
     VACIOS: el visitante corrige el texto y descubre que se le borro la pregunta
     de al lado. Falla en silencio y solo en el camino de error.
+
+    Tarea 2: sesion real -esto prueba el re-render en el error de validacion,
+    no el camino anonimo-.
     """
     from itcj2.apps.titulatec.models import SurveyResponse
 
     make_survey_form(schema=SCHEMA_OCHO_TIPOS)
-    client.cookies.clear()
     payload = {
         "website": "",
         "nombre_corto": "n" * 120,          # maxLength 80 -> falla aqui
@@ -391,8 +425,9 @@ def test_el_re_render_conserva_el_yesno_la_casilla_y_el_select(
         "relacion_carrera": "3",
     }
 
-    resp = client.post(SURVEY_URL, data=payload,
-                       headers={"X-Real-IP": "203.0.113.41"}, follow_redirects=False)
+    resp = client_as(make_student()).post(
+        SURVEY_URL, data=payload,
+        headers={"X-Real-IP": "203.0.113.41"}, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:300]
     assert db_session.query(SurveyResponse).count() == 0
@@ -452,24 +487,29 @@ SCHEMA_SECCION_FANTASMA = {
 }
 
 
-def test_un_campo_con_seccion_inexistente_igual_se_pinta(client, make_survey_form):
+def test_un_campo_con_seccion_inexistente_igual_se_pinta(
+    client_as, make_student, make_survey_form,
+):
     """Una llave mal escrita en el seeder NO puede tragarse una pregunta.
 
     Si el campo desapareciera del formulario, nadie lo notaria: la encuesta se
     veria bien, se contestaria entera y la columna saldria vacia en el export
     de los 400 egresados.
+
+    Tarea 2: sesion real (irrelevante para el agrupado por seccion).
     """
     make_survey_form(schema=SCHEMA_SECCION_FANTASMA)
-    client.cookies.clear()
 
-    cuerpo = client.get(SURVEY_URL, follow_redirects=False).text
+    cuerpo = client_as(make_student()).get(SURVEY_URL, follow_redirects=False).text
 
     assert 'data-tt-field="situacion_laboral"' in cuerpo
     assert 'data-tt-field="comentarios"' in cuerpo, \
         "la pregunta con la seccion mal escrita se perdio del formulario"
 
 
-def test_los_campos_escalares_tienen_nombre_accesible(client, make_survey_form):
+def test_los_campos_escalares_tienen_nombre_accesible(
+    client_as, make_student, make_survey_form,
+):
     """La pregunta es un `<span>`, no un `<label for>`: hay que apuntarla.
 
     Los tipos agrupados (`radio`, `multiselect`, `yesno`, `scale`) ya la
@@ -478,11 +518,12 @@ def test_los_campos_escalares_tienen_nombre_accesible(client, make_survey_form):
     `aria-labelledby`, ni `aria-label`: un lector de pantalla anuncia
     "cuadro de edicion, en blanco" y la pregunta no se oye. WCAG 1.3.1 y 4.1.2,
     en una pagina publica para una generacion entera.
+
+    Tarea 2: sesion real (irrelevante para el nombre accesible del control).
     """
     make_survey_form(schema=SCHEMA_OCHO_TIPOS)
-    client.cookies.clear()
 
-    cuerpo = client.get(SURVEY_URL, follow_redirects=False).text
+    cuerpo = client_as(make_student()).get(SURVEY_URL, follow_redirects=False).text
 
     for llave in ("nombre_corto", "comentarios", "turno"):
         control = re.search(
@@ -495,3 +536,54 @@ def test_los_campos_escalares_tienen_nombre_accesible(client, make_survey_form):
             "%s no tiene nombre accesible: %r" % (llave, etiqueta))
         # Y el id al que apunta existe de verdad en la pagina.
         assert 'id="f-%s-lbl"' % llave in cuerpo
+
+
+# ---------------------------------------------------------------------------
+# Tarea 2: `SurveyForm.is_anonymous` decide si la encuesta exige sesion
+# ---------------------------------------------------------------------------
+def test_sin_sesion_un_formulario_no_anonimo_manda_al_login_con_next(
+    client, db_session, make_survey_form,
+):
+    make_survey_form(is_anonymous=False)
+    resp = client.get("/titulatec/encuesta-egresados", follow_redirects=False)
+    assert resp.status_code in (302, 303), resp.text[:300]
+    destino = resp.headers["location"]
+    assert destino.startswith("/itcj/login")
+    assert "next=" in destino
+    assert "encuesta-egresados" in destino
+
+
+def test_sin_sesion_un_formulario_anonimo_sigue_abriendo(
+    client, db_session, make_survey_form,
+):
+    """La capacidad anonima se conserva: la columna decide, no la ruta."""
+    make_survey_form(is_anonymous=True)
+    resp = client.get("/titulatec/encuesta-egresados")
+    assert resp.status_code == 200
+
+
+def test_el_envio_sin_sesion_a_un_formulario_no_anonimo_no_escribe(
+    client, db_session, make_survey_form,
+):
+    from itcj2.apps.titulatec.models import SurveyResponse
+    form = make_survey_form(is_anonymous=False)
+    antes = db_session.query(SurveyResponse).filter_by(form_id=form.id).count()
+    resp = client.post("/titulatec/encuesta-egresados",
+                       data={"situacion_laboral": "empleado"},
+                       follow_redirects=False)
+    assert resp.status_code in (302, 303, 401, 403)
+    db_session.expire_all()
+    assert db_session.query(SurveyResponse).filter_by(form_id=form.id).count() == antes
+
+
+def test_el_borrador_sin_sesion_a_un_formulario_no_anonimo_no_escribe(
+    client, db_session, make_survey_form,
+):
+    from itcj2.apps.titulatec.models import SurveyDraft
+    form = make_survey_form(is_anonymous=False)
+    resp = client.post("/titulatec/encuesta-egresados/borrador",
+                       data={"situacion_laboral": "empleado"},
+                       follow_redirects=False)
+    assert resp.status_code in (302, 303, 401, 403, 204)
+    db_session.expire_all()
+    assert db_session.query(SurveyDraft).filter_by(form_id=form.id).count() == 0

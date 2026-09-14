@@ -24,18 +24,21 @@ def _drafts(db_session):
     return db_session.query(SurveyDraft).all()
 
 
-def test_la_pagina_carga_el_modulo_de_autosave(client, make_survey_form):
+def test_la_pagina_carga_el_modulo_de_autosave(client_as, make_student, make_survey_form):
     """Paso 6: el script se carga UNA vez desde `public_scripts`, no del parcial.
 
     Si el bloque se perdiera -o el `<script>` quedara dentro del parcial que
     htmx reemplaza en cada envio fallido- el autoguardado dejaria de arrancar,
     o se duplicaria, sin que ninguna otra prueba de este archivo lo note: las
     demas hablan HTTP directo con la ruta del borrador y nunca miran el GET.
+
+    Tarea 2: sesion real -este test solo mira el `<script>` del GET, que se
+    emite igual con o sin sesion; no es el camino anonimo lo que se prueba
+    aqui, y la fabrica ya es no-anonima por omision-.
     """
     make_survey_form()
-    client.cookies.clear()
 
-    cuerpo = client.get(SURVEY_URL, follow_redirects=False).text
+    cuerpo = client_as(make_student()).get(SURVEY_URL, follow_redirects=False).text
 
     assert '<script src="/static/titulatec/js/public/survey.js?v=' in cuerpo
 

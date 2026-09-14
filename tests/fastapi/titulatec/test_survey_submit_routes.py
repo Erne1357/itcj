@@ -92,8 +92,12 @@ def requisito_de_encuesta(db_session):
 # Escritura
 # ---------------------------------------------------------------------------
 def test_anonimo_escribe_respuesta_sin_user_id(client, make_survey_form, db_session):
-    """Criterio 1: fila con `user_id` NULL e `identity_source='anonymous'`."""
-    make_survey_form()
+    """Criterio 1: fila con `user_id` NULL e `identity_source='anonymous'`.
+
+    Tarea 2: camino anonimo de verdad -> `is_anonymous=True` explicito (la
+    fabrica ya es no-anonima por omision, que es la realidad de produccion).
+    """
+    make_survey_form(is_anonymous=True)
     client.cookies.clear()
 
     resp = client.post(SURVEY_URL, data=OK_PAYLOAD,
@@ -126,7 +130,7 @@ def test_con_sesion_escribe_respuesta_con_user_id(
 
 
 def test_el_multiselect_guarda_TODAS_las_opciones_marcadas(
-    client, make_survey_form, db_session,
+    client_as, make_student, make_survey_form, db_session,
 ):
     """La trampa medida de la Tarea 10, en el nivel donde de verdad ocurre.
 
@@ -138,14 +142,16 @@ def test_el_multiselect_guarda_TODAS_las_opciones_marcadas(
     llave marcada dos veces, guardaria una sola opcion. El puente
     (`form_to_dict`) usa `getlist()` para las llaves que el schema declara
     `multiselect`.
+
+    Tarea 2: sesion real -el mapeo de multiselect no depende de la identidad-.
     """
     from itcj2.apps.titulatec.models import SurveyAnswer
 
     make_survey_form()
-    client.cookies.clear()
 
-    resp = client.post(SURVEY_URL, data=OK_PAYLOAD,
-                       headers={"X-Real-IP": "203.0.113.27"}, follow_redirects=False)
+    resp = client_as(make_student()).post(
+        SURVEY_URL, data=OK_PAYLOAD,
+        headers={"X-Real-IP": "203.0.113.27"}, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:500]
     assert 'id="tt-survey-thanks"' in resp.text, "un multiselect valido fue rechazado"
@@ -157,22 +163,24 @@ def test_el_multiselect_guarda_TODAS_las_opciones_marcadas(
 
 
 def test_una_pregunta_opcional_en_blanco_no_rechaza_el_envio(
-    client, make_survey_form, db_session,
+    client_as, make_student, make_survey_form, db_session,
 ):
     """Un grupo de casillas sin marcar NO manda su llave, y eso es legitimo.
 
     Es el caso mayoritario de la encuesta real —dos de los cuatro campos son
     opcionales— y el que se rompe en silencio: si el envio se rechaza, el error
     aparece colgado de una pregunta que nadie estaba obligado a contestar.
+
+    Tarea 2: sesion real (irrelevante para la validacion de opcionales).
     """
     make_survey_form()
-    client.cookies.clear()
     # Sin `areas_fuertes` y sin `comentarios`. `relacion_carrera` no viaja
     # porque su `visible_when` no se cumple: quien busca empleo no la ve.
     payload = {"website": "", "situacion_laboral": "buscando"}
 
-    resp = client.post(SURVEY_URL, data=payload,
-                       headers={"X-Real-IP": "203.0.113.28"}, follow_redirects=False)
+    resp = client_as(make_student()).post(
+        SURVEY_URL, data=payload,
+        headers={"X-Real-IP": "203.0.113.28"}, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:500]
     assert 'id="tt-survey-thanks"' in resp.text, (
@@ -312,10 +320,15 @@ def test_un_envio_invalido_no_gasta_presupuesto(
 
     El limite se baja a 2 con `monkeypatch` para no mandar 60 cuestionarios: lo
     que se mide es la SEMANTICA del contador, no su valor.
+
+    Tarea 2: este test mide especificamente el cubo por IP
+    (`SURVEY_RL_LIMIT_IP`) -> tiene que seguir siendo anonimo de verdad
+    (`is_anonymous=True`); con sesion mediria el cubo por usuario y el
+    `monkeypatch` de abajo dejaria de tener efecto.
     """
     from itcj2.apps.titulatec.pages import public as mod
 
-    make_survey_form()
+    make_survey_form(is_anonymous=True)
     client.cookies.clear()
     monkeypatch.setattr(mod, "SURVEY_RL_LIMIT_IP", 2)
     cabeceras = {"X-Real-IP": "203.0.113.51"}
@@ -353,10 +366,13 @@ def test_al_agotar_el_presupuesto_no_se_borra_el_cuestionario(
     llevaba escrito, sin mas salida que recargar y empezar de cero. En un
     cuestionario de varias pantallas eso es perder la respuesta entera por haber
     pulsado Enviar una vez de mas.
+
+    Tarea 2: mide el cubo por IP (`SURVEY_RL_LIMIT_IP` via `monkeypatch`) ->
+    se queda anonimo de verdad (`is_anonymous=True`).
     """
     from itcj2.apps.titulatec.pages import public as mod
 
-    make_survey_form()
+    make_survey_form(is_anonymous=True)
     client.cookies.clear()
     monkeypatch.setattr(mod, "SURVEY_RL_LIMIT_IP", 1)
     cabeceras = {"X-Real-IP": "203.0.113.52"}
@@ -386,10 +402,14 @@ def test_el_alumno_con_sesion_no_comparte_cubo_con_su_IP(
     Todo el instituto sale por la misma direccion publica. Si quien inicia
     sesion cayera en el cubo de la IP, bastaria con que la sala de computo de al
     lado contestara la encuesta para dejarlo sin poder entregar la suya.
+
+    Tarea 2: compara el cubo anonimo por IP contra el cubo por usuario, asi
+    que necesita las dos patas de verdad -> `is_anonymous=True` (si no, las dos
+    llamadas anonimas de abajo se cortarian con 401 antes de tocar Redis).
     """
     from itcj2.apps.titulatec.pages import public as mod
 
-    make_survey_form()
+    make_survey_form(is_anonymous=True)
     student = make_student()
     monkeypatch.setattr(mod, "SURVEY_RL_LIMIT_IP", 1)
     cabeceras = {"X-Real-IP": "203.0.113.53"}
@@ -420,10 +440,12 @@ def test_dos_IPs_anonimas_no_comparten_cubo(
 
     Usarlo en vez de `client_ip()` mete a todo internet en un solo cubo:
     inservible como defensa y trivial de agotar para los demas.
+
+    Tarea 2: las dos IPs prueban el cubo anonimo -> `is_anonymous=True`.
     """
     from itcj2.apps.titulatec.pages import public as mod
 
-    make_survey_form()
+    make_survey_form(is_anonymous=True)
     client.cookies.clear()
     monkeypatch.setattr(mod, "SURVEY_RL_LIMIT_IP", 1)
 
@@ -468,11 +490,15 @@ def test_con_redis_caido_el_envio_se_niega_y_no_escribe(
 
     Se parchea el modulo ORIGEN (`redis_conn.get_redis`), que es donde
     `rate_limit._redis()` resuelve el nombre en cada llamada.
+
+    Tarea 2: el punto del test es la escritura ANONIMA (el docstring de arriba
+    lo dice desde antes de esta tarea) -> `is_anonymous=True` explicito, no
+    sesion.
     """
     def _boom():
         raise RuntimeError("redis caido")
 
-    make_survey_form()
+    make_survey_form(is_anonymous=True)
     client.cookies.clear()
     monkeypatch.setattr("itcj2.core.utils.redis_conn.get_redis", _boom)
 
@@ -488,16 +514,19 @@ def test_con_redis_caido_el_envio_se_niega_y_no_escribe(
 # Validacion fallida: 200 con el formulario re-renderizado
 # ---------------------------------------------------------------------------
 def test_validacion_fallida_devuelve_200_con_el_formulario_re_renderizado(
-    client, make_survey_form, db_session,
+    client_as, make_student, make_survey_form, db_session,
 ):
-    """htmx SI swappea en 200: conservar lo capturado es del servidor (spec 6.1)."""
+    """htmx SI swappea en 200: conservar lo capturado es del servidor (spec 6.1).
+
+    Tarea 2: sesion real -este test es del re-render en error, no del anonimo-.
+    """
     make_survey_form()
-    client.cookies.clear()
     payload = {"website": "", "situacion_laboral": "",
                "comentarios": "Sigo buscando trabajo."}
 
-    resp = client.post(SURVEY_URL, data=payload,
-                       headers={"X-Real-IP": "203.0.113.24"}, follow_redirects=False)
+    resp = client_as(make_student()).post(
+        SURVEY_URL, data=payload,
+        headers={"X-Real-IP": "203.0.113.24"}, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:500]
     assert 'id="tt-survey-form"' in resp.text          # formulario, no tarjeta
@@ -509,7 +538,7 @@ def test_validacion_fallida_devuelve_200_con_el_formulario_re_renderizado(
 
 
 def test_el_re_render_conserva_radio_escala_y_multiselect(
-    client, make_survey_form, db_session,
+    client_as, make_student, make_survey_form, db_session,
 ):
     """Conservar solo el texto libre es la mitad del trabajo.
 
@@ -517,13 +546,15 @@ def test_el_re_render_conserva_radio_escala_y_multiselect(
     contestarlo entero otra vez, y el abandono se lo lleva completo. Se falla a
     proposito por `comentarios` (excede su `maxLength`) para que TODO lo demas
     sea valido y tenga que volver marcado.
+
+    Tarea 2: sesion real (irrelevante para que se conserve o no el re-render).
     """
     make_survey_form()
-    client.cookies.clear()
     payload = dict(OK_PAYLOAD, comentarios="y" * 2100)   # maxLength = 2000
 
-    resp = client.post(SURVEY_URL, data=payload,
-                       headers={"X-Real-IP": "203.0.113.33"}, follow_redirects=False)
+    resp = client_as(make_student()).post(
+        SURVEY_URL, data=payload,
+        headers={"X-Real-IP": "203.0.113.33"}, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:300]
     assert _responses(db_session) == []
@@ -538,23 +569,25 @@ def test_el_re_render_conserva_radio_escala_y_multiselect(
 
 
 def test_cada_campo_invalido_lleva_su_error_inline_con_su_llave(
-    client, make_survey_form, db_session,
+    client_as, make_student, make_survey_form, db_session,
 ):
     """Un cuestionario largo falla en VARIOS campos a la vez.
 
     Un mensaje de cabecera no puede nombrarlos, y por eso el error va colgado de
     su campo con `data-tt-error="<llave>"` y `aria-invalid` en el control (o en
     su `role="radiogroup"`, cuando el campo es un grupo y no un input suelto).
+
+    Tarea 2: sesion real (irrelevante para el marcado de errores por campo).
     """
     make_survey_form()
-    client.cookies.clear()
     # Dos errores a la vez: falta el obligatorio y la escala esta fuera de rango
     # (visible, porque `situacion_laboral` si dice "empleado").
     payload = {"website": "", "situacion_laboral": "empleado",
                "relacion_carrera": "9", "areas_fuertes": ["inventada"]}
 
-    resp = client.post(SURVEY_URL, data=payload,
-                       headers={"X-Real-IP": "203.0.113.34"}, follow_redirects=False)
+    resp = client_as(make_student()).post(
+        SURVEY_URL, data=payload,
+        headers={"X-Real-IP": "203.0.113.34"}, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:300]
     assert _responses(db_session) == []
@@ -569,19 +602,21 @@ def test_cada_campo_invalido_lleva_su_error_inline_con_su_llave(
 
 
 def test_el_foco_va_al_primer_campo_invalido_y_a_uno_solo(
-    client, make_survey_form, db_session,
+    client_as, make_student, make_survey_form, db_session,
 ):
     """Con dos errores, el foco va al PRIMERO en el orden del cuestionario.
 
     Dos `data-tt-focus` significan que el navegador se queda con el ultimo, que
     es justo el que esta mas lejos de donde el visitante dejo de mirar.
+
+    Tarea 2: sesion real (irrelevante para el orden del foco).
     """
     make_survey_form()
-    client.cookies.clear()
     payload = {"website": "", "situacion_laboral": "", "areas_fuertes": ["inventada"]}
 
-    resp = client.post(SURVEY_URL, data=payload,
-                       headers={"X-Real-IP": "203.0.113.35"}, follow_redirects=False)
+    resp = client_as(make_student()).post(
+        SURVEY_URL, data=payload,
+        headers={"X-Real-IP": "203.0.113.35"}, follow_redirects=False)
 
     cuerpo = resp.text
     assert cuerpo.count('data-tt-focus="1"') == 1, "el foco no es unico"
@@ -603,7 +638,7 @@ SCHEMA_TEXTO_ENORME = {
 
 
 def test_un_error_de_formulario_completo_se_pinta_aunque_no_cuelgue_de_un_campo(
-    client, make_survey_form, db_session,
+    client_as, make_student, make_survey_form, db_session,
 ):
     """`submit` devuelve el error de tamano bajo la llave `__form__`.
 
@@ -615,13 +650,15 @@ def test_un_error_de_formulario_completo_se_pinta_aunque_no_cuelgue_de_un_campo(
     saldria por el 413— y el `maxLength` del schema es enorme para que tampoco
     lo pare la validacion de texto: lo unico que sobra es la proyeccion
     serializada contra `MAX_ANSWERS_JSON_BYTES` (128 KB).
+
+    Tarea 2: sesion real (irrelevante para el error `__form__`).
     """
     make_survey_form(schema=SCHEMA_TEXTO_ENORME)
-    client.cookies.clear()
     payload = {"website": "", "comentarios": "z" * 140_000}
 
-    resp = client.post(SURVEY_URL, data=payload,
-                       headers={"X-Real-IP": "203.0.113.36"}, follow_redirects=False)
+    resp = client_as(make_student()).post(
+        SURVEY_URL, data=payload,
+        headers={"X-Real-IP": "203.0.113.36"}, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:300]
     assert _responses(db_session) == []
@@ -632,18 +669,20 @@ def test_un_error_de_formulario_completo_se_pinta_aunque_no_cuelgue_de_un_campo(
 
 
 def test_el_post_no_pasa_objetos_orm_a_la_plantilla(
-    client, make_survey_form, monkeypatch,
+    client_as, make_student, make_survey_form, monkeypatch,
 ):
     """Mismo motivo que en el GET, en los DOS caminos del POST.
 
     El de exito pinta la tarjeta y el de error re-pinta el formulario: si el
     segundo mete el `SurveyForm` en el contexto, el arnes no se entera (ver
     `orm_en`).
+
+    Tarea 2: sesion real (irrelevante para la fuga de ORM en el contexto).
     """
     from itcj2.apps.titulatec.pages import public as mod
 
     make_survey_form()
-    client.cookies.clear()
+    c = client_as(make_student())
     vistos = []
     real = mod.render_titulatec
 
@@ -653,10 +692,10 @@ def test_el_post_no_pasa_objetos_orm_a_la_plantilla(
 
     monkeypatch.setattr(mod, "render_titulatec", espia)
 
-    malo = client.post(SURVEY_URL, data={"website": "", "situacion_laboral": ""},
-                       headers={"X-Real-IP": "203.0.113.37"}, follow_redirects=False)
-    bueno = client.post(SURVEY_URL, data=OK_PAYLOAD,
-                        headers={"X-Real-IP": "203.0.113.38"}, follow_redirects=False)
+    malo = c.post(SURVEY_URL, data={"website": "", "situacion_laboral": ""},
+                 headers={"X-Real-IP": "203.0.113.37"}, follow_redirects=False)
+    bueno = c.post(SURVEY_URL, data=OK_PAYLOAD,
+                  headers={"X-Real-IP": "203.0.113.38"}, follow_redirects=False)
 
     assert malo.status_code == 200 and bueno.status_code == 200
     assert len(vistos) == 2
@@ -674,7 +713,7 @@ def test_el_post_no_pasa_objetos_orm_a_la_plantilla(
 # de archivo donde se esperaba texto, un cuerpo sin `Content-Length`—, y ninguno
 # necesita mas que un `curl`.
 def test_un_NUL_en_una_respuesta_no_revienta_y_queda_limpio(
-    client, make_survey_form, db_session,
+    client_as, make_student, make_survey_form, db_session,
 ):
     """`U+0000` es urlencodeable, invisible, y Postgres lo prohibe en `text`.
 
@@ -685,13 +724,15 @@ def test_un_NUL_en_una_respuesta_no_revienta_y_queda_limpio(
     pasar a este formulario: htmx tampoco swappea en 5xx, asi que el visitante
     ve un toast generico sobre una pantalla que no se movio y su cuestionario no
     esta en ningun sitio.
+
+    Tarea 2: sesion real (la limpieza del NUL no depende de la identidad).
     """
     make_survey_form()
-    client.cookies.clear()
     payload = dict(OK_PAYLOAD, comentarios="hola\x00mundo")
 
-    resp = client.post(SURVEY_URL, data=payload,
-                       headers={"X-Real-IP": "203.0.113.61"}, follow_redirects=False)
+    resp = client_as(make_student()).post(
+        SURVEY_URL, data=payload,
+        headers={"X-Real-IP": "203.0.113.61"}, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:300]
     assert 'id="tt-survey-thanks"' in resp.text
@@ -702,7 +743,7 @@ def test_un_NUL_en_una_respuesta_no_revienta_y_queda_limpio(
 
 
 def test_si_la_escritura_revienta_el_visitante_recupera_su_cuestionario(
-    client, make_survey_form, db_session, monkeypatch,
+    client_as, make_student, make_survey_form, db_session, monkeypatch,
 ):
     """Segunda capa: la que para el caracter que TODAVIA no conocemos.
 
@@ -714,6 +755,9 @@ def test_si_la_escritura_revienta_el_visitante_recupera_su_cuestionario(
     Se fuerza con `monkeypatch` sobre `submit` porque el objetivo es «cualquier
     excepcion», no una en particular; provocar una de verdad exigiria un valor
     que pasara validacion Y reventara en la BD, o sea el agujero siguiente.
+
+    Tarea 2: sesion real (la recuperacion tras el fallo no depende de la
+    identidad; `SurveyService.submit` esta parchado para reventar siempre).
     """
     from itcj2.apps.titulatec.services.survey_service import SurveyService
 
@@ -721,12 +765,12 @@ def test_si_la_escritura_revienta_el_visitante_recupera_su_cuestionario(
         raise ValueError("A string literal cannot contain NUL (0x00) characters")
 
     make_survey_form()
-    client.cookies.clear()
     monkeypatch.setattr(SurveyService, "submit", staticmethod(_revienta))
     payload = dict(OK_PAYLOAD, comentarios="Tres anos de practicas.")
 
-    resp = client.post(SURVEY_URL, data=payload,
-                       headers={"X-Real-IP": "203.0.113.62"}, follow_redirects=False)
+    resp = client_as(make_student()).post(
+        SURVEY_URL, data=payload,
+        headers={"X-Real-IP": "203.0.113.62"}, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:300]
     assert 'id="tt-survey-form"' in resp.text, "no hay formulario que recuperar"
@@ -737,7 +781,7 @@ def test_si_la_escritura_revienta_el_visitante_recupera_su_cuestionario(
 
 
 def test_una_parte_de_archivo_no_entra_a_la_BD_como_repr(
-    client, make_survey_form, db_session,
+    client_as, make_student, make_survey_form, db_session,
 ):
     """Un cuerpo multipart puede mandar CUALQUIER campo como archivo.
 
@@ -745,13 +789,16 @@ def test_una_parte_de_archivo_no_entra_a_la_BD_como_repr(
     `str(value)`: en la columna quedaba
     `UploadFile(filename='evil.txt', size=100, headers=...)`, que ademas es lo
     que veria quien abra el export.
+
+    Tarea 2: sesion real. La trampa (`website=""`, string vacio) no dispara, asi
+    que este envio SI llega al gate de sesion de la Tarea 2 -no es el foco del
+    test, asi que se le da sesion en vez de anonimizar el formulario-.
     """
     import json
 
     make_survey_form()
-    client.cookies.clear()
 
-    resp = client.post(
+    resp = client_as(make_student()).post(
         SURVEY_URL,
         data={"website": "", "situacion_laboral": "empleado",
               "relacion_carrera": "4"},
@@ -770,7 +817,7 @@ def test_una_parte_de_archivo_no_entra_a_la_BD_como_repr(
 
 
 def test_un_archivo_vacio_llamado_website_no_dispara_la_trampa(
-    client, make_survey_form, db_session,
+    client_as, make_student, make_survey_form, db_session,
 ):
     """El fallo mas caro de los dos que causaba el `str()` sobre un `UploadFile`.
 
@@ -779,11 +826,13 @@ def test_un_archivo_vacio_llamado_website_no_dispara_la_trampa(
     archivo vacia llamada `website`: la respuesta de un egresado se tiraba a la
     basura y el se iba con una tarjeta de exito. Silencioso por diseno —esa es
     la gracia de la trampa— y por tanto imposible de detectar desde fuera.
+
+    Tarea 2: sesion real, mismo motivo que la prueba hermana de arriba -este
+    envio si llega al gate de sesion y no es lo que el test mide-.
     """
     make_survey_form()
-    client.cookies.clear()
 
-    resp = client.post(
+    resp = client_as(make_student()).post(
         SURVEY_URL,
         data={"situacion_laboral": "empleado", "relacion_carrera": "4"},
         files={"website": ("vacio.txt", b"", "text/plain")},
