@@ -547,11 +547,37 @@ async def survey(
             values: dict = {}
             draft_updated = ""
             if user:
-                # El borrador va por (form_id, user_id). Con solo `form_id`, el
+                # Tarea 4: prellenar la sección 1 con datos del usuario y perfil
+                user_id = int(user["sub"])
+                from itcj2.core.models.user import User
+                from itcj2.core.models.student_profile import StudentProfile
+                from itcj2.core.services.student_profile_service import StudentProfileService
+
+                # Prellenar los cinco campos de identidad desde el usuario y su perfil
+                db_user = db.get(User, user_id)
+                student_profile = StudentProfileService.get_or_create(db, user_id)
+
+                if db_user:
+                    values = {
+                        "nombre_completo": db_user.full_name or "",
+                        "no_control": db_user.control_number or "",
+                        "correo_personal": student_profile.contact_email or "",
+                        "telefono": student_profile.phone or "",
+                    }
+
+                    # Para carrera_egreso, mapear program_id al nombre de la carrera
+                    if student_profile.program_id:
+                        from itcj2.core.models.program import Program
+                        program = db.get(Program, student_profile.program_id)
+                        if program:
+                            values["carrera_egreso"] = program.name
+
+                # El borrador guardado va por (form_id, user_id). Con solo `form_id`, el
                 # de quien contestó primero se le pintaría a toda la generación.
-                draft = SurveyService.get_draft(db, form.id, int(user["sub"]))
+                # El borrador MANDA sobre el prellenado: sus valores sobrescriben (D8).
+                draft = SurveyService.get_draft(db, form.id, user_id)
                 if draft:
-                    values = dict(draft.answers or {})
+                    values.update(dict(draft.answers or {}))
                     draft_updated = (draft.updated_at.isoformat()
                                      if draft.updated_at else "")
             ctx = _form_ctx(_form_meta(form), form.schema or {},
