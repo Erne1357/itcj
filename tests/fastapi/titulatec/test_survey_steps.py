@@ -329,6 +329,88 @@ def test_un_campo_condicional_obligatorio_no_se_exige_cuando_no_lo_es(
 
 
 # ---------------------------------------------------------------------------
+# Fix B1: `visible_when` tambien acepta una LISTA de valores ("alguna de
+# estas"), no solo un escalar -delta que ya sabia `is_visible` pero que el
+# cliente (`survey.js::applyVisibility`) no replicaba (ver el reporte del
+# fix). Mismo par de pruebas que arriba (obligatorio exigido/no exigido segun
+# visibilidad), pero con `visible_when: {"trabaja": [...]}`.
+#
+# Schema propio -no se reutiliza `SCHEMA_TRES_PASOS`- para no acoplar estas
+# dos pruebas a las de arriba: aqui `trabaja` tiene TRES opciones, y la lista
+# de `empresa` solo cubre dos.
+# ---------------------------------------------------------------------------
+SCHEMA_TRES_PASOS_LISTA = {
+    "enabled": True,
+    "sections": [
+        {"key": "uno", "title": "Datos generales"},
+        {"key": "dos", "title": "Escuela"},
+        {"key": "tres", "title": "Empleo"},
+    ],
+    "fields": [
+        {"key": "nombre", "section": "uno", "type": "text",
+         "label": "Tu nombre completo", "required": True,
+         "validation": {"maxLength": 80}},
+        {"key": "estudia", "section": "uno", "type": "radio",
+         "label": "Sigues estudiando actualmente?", "required": True,
+         "options": [{"value": "si", "label": "Si"}, {"value": "no", "label": "No"}]},
+        {"key": "trabaja", "section": "uno", "type": "radio",
+         "label": "Cual es tu situacion laboral?", "required": True,
+         "options": [{"value": "si", "label": "Si, tiempo completo"},
+                     {"value": "medio_tiempo", "label": "Si, medio tiempo"},
+                     {"value": "no", "label": "No"}]},
+        {"key": "escuela", "section": "dos", "type": "text",
+         "label": "Nombre de tu escuela", "required": True,
+         "validation": {"maxLength": 120},
+         "visible_when": {"estudia": "si"}},
+        {"key": "empresa", "section": "tres", "type": "text",
+         "label": "Nombre de tu empresa", "required": True,
+         "validation": {"maxLength": 120},
+         # "medio_tiempo" es el SEGUNDO elemento de la lista, a proposito: una
+         # implementacion que solo mirara el primero no lo detectaria.
+         "visible_when": {"trabaja": ["si", "medio_tiempo"]}},
+        {"key": "comentario", "section": "tres", "type": "textarea",
+         "label": "Algo mas que quieras contarnos?", "required": False,
+         "validation": {"maxLength": 500}},
+    ],
+}
+
+
+def test_un_campo_condicional_con_lista_se_exige_cuando_el_valor_pertenece(
+    client_as, make_student, make_survey_form,
+):
+    """`trabaja="medio_tiempo"` pertenece a `["si", "medio_tiempo"]`: `empresa`
+    se vuelve visible Y obligatoria, igual que con una condicion escalar."""
+    make_survey_form(schema=SCHEMA_TRES_PASOS_LISTA)
+
+    resp = client_as(make_student()).post(
+        STEP_URL, data={"tt_step": "2", "tt_next": "1",
+                        "nombre": "Ana", "estudia": "no", "trabaja": "medio_tiempo",
+                        "empresa": "", "comentario": ""},
+        follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'data-tt-error="empresa"' in resp.text
+    assert 'data-tt-section="tres"' in resp.text        # se quedo en el mismo paso
+
+
+def test_un_campo_condicional_con_lista_no_se_exige_si_el_valor_no_pertenece(
+    client_as, make_student, make_survey_form,
+):
+    """Simetrico: `trabaja="no"` no esta en la lista -> `empresa` sigue invisible."""
+    make_survey_form(schema=SCHEMA_TRES_PASOS_LISTA)
+
+    resp = client_as(make_student()).post(
+        STEP_URL, data={"tt_step": "2", "tt_next": "1",
+                        "nombre": "Ana", "estudia": "no", "trabaja": "no",
+                        "empresa": "", "comentario": ""},
+        follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'data-tt-error="empresa"' not in resp.text
+    assert "data-tt-errors" not in resp.text
+
+
+# ---------------------------------------------------------------------------
 # Ronda 2 (pedido del controlador): la GET reanuda donde se quedo, y el
 # retroceso es directo -no de a un paso- via `tt_goto`.
 # ---------------------------------------------------------------------------

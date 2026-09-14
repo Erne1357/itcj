@@ -88,7 +88,16 @@ class Settings(BaseSettings):
     # saltar directo a cualquier paso ya visitado. Sin el bump, la hoja vieja
     # en caché no trae ninguna regla para `.tt-steps-link` y el paso ya
     # visitado se ve como texto plano sin pista de que es clicable.
-    STATIC_VERSION: str = "1.0.1111530"
+    #
+    # Bump 2026-09-14 (c): fix B1 — `survey.js::applyVisibility` comparaba
+    # `values[k] === cond[k]` sin importar que `cond[k]` ahora puede ser una
+    # LISTA (`visible_when` con semantica "alguna de estas", ya soportada por
+    # `survey_validator.py::is_visible`). Un texto nunca es `===` a un arreglo,
+    # así que toda seccion condicionada por una lista quedaba oculta para
+    # siempre y el envío final la reportaba "por corregir" sin un solo campo
+    # visible en pantalla. Sin el bump, quien ya tenía la encuesta en caché
+    # sigue atascado con el JS viejo.
+    STATIC_VERSION: str = "1.0.1111531"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

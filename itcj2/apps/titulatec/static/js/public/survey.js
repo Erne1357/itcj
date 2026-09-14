@@ -131,12 +131,23 @@
   }
 
   // — visible_when en cliente ——————————————————————————————————————————
+  // Misma semantica que `is_visible` del validador de Python (servidor,
+  // `survey_validator.py`): igualdad exacta si `cond[k]` es un escalar,
+  // pertenencia ("alguna de estas") si es una lista, y conjuncion (AND)
+  // entre llaves. Divergir de esa semantica fue el defecto B1: contra un
+  // `cond[k]` de arreglo, `values[k] === cond[k]` da SIEMPRE falso -un texto
+  // nunca es `===` a un arreglo, sin importar su contenido-, asi que `hidden`
+  // quedaba SIEMPRE verdadero para toda condicion de lista y la seccion
+  // dependiente jamas se mostraba.
   function applyVisibility(f) {
     var values = snapshot(f);
     f.querySelectorAll('[data-tt-when]').forEach(function (box) {
       var cond;
       try { cond = JSON.parse(box.getAttribute('data-tt-when')); } catch (e) { return; }
-      box.hidden = !Object.keys(cond).every(function (k) { return values[k] === cond[k]; });
+      box.hidden = !Object.keys(cond).every(function (k) {
+        var esperado = cond[k];
+        return Array.isArray(esperado) ? esperado.indexOf(values[k]) !== -1 : values[k] === esperado;
+      });
     });
   }
 

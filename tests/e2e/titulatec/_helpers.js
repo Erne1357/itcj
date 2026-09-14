@@ -82,6 +82,16 @@ function mintTokenFor(userId) {
 //     un tercer paso al que saltar; un campo obligatorio ahí cambiaría a qué
 //     paso "reanuda" `_start_step` en los otros dos specs (que SÍ recargan la
 //     página) y eso no es lo que esta tarea vino a tocar.
+//   - Fix B1 (2026-09-14): `relacion_carrera` pasa su `visible_when` de
+//     escalar ("empleado") a LISTA (["empleado", "otro"]), y
+//     `situacion_laboral` gana la opcion "otro" que esa lista necesita para
+//     tener un SEGUNDO valor real que probar (no un arreglo de uno solo).
+//     Ningun spec existente selecciona "empleado" ni "otro" -"buscando" y
+//     "estudiando" son las unicas respuestas que usan public-survey,
+//     survey-draft y survey-draft-budget, y ambas siguen fuera de la lista-,
+//     asi que este cambio no les mueve el piso: `relacion_carrera` sigue
+//     invisible en los tres. `survey-visible-when-list.spec.js` es el unico
+//     consumidor nuevo de "otro".
 // `validation.maxLength` sigue siendo OBLIGATORIO en todo campo de texto
 // (spec §4.1).
 const SEED_PY = `
@@ -145,13 +155,17 @@ SCHEMA = {
          "label": "¿Cuál es tu situación laboral actual?", "required": True,
          "options": [{"value": "empleado", "label": "Trabajando"},
                      {"value": "buscando", "label": "Buscando empleo"},
-                     {"value": "estudiando", "label": "Estudiando"}]},
+                     {"value": "estudiando", "label": "Estudiando"},
+                     {"value": "otro", "label": "Otra situación"}]},
         {"key": "relacion_carrera", "section": "empleo", "type": "scale",
          "label": "¿Qué tanto se relaciona tu empleo con tu carrera?",
          "required": True,
          "scale": {"min": 1, "max": 5, "min_label": "Nada relacionado",
                    "max_label": "Totalmente relacionado"},
-         "visible_when": {"situacion_laboral": "empleado"}},
+         # Lista, no escalar (fix B1): pertenencia, no igualdad. "otro" es el
+         # SEGUNDO elemento a proposito -detecta una implementacion que solo
+         # mirara el primero-.
+         "visible_when": {"situacion_laboral": ["empleado", "otro"]}},
         {"key": "empresa", "section": "detalle", "type": "text",
          "label": "¿En qué empresa trabajas?", "required": False,
          "validation": {"maxLength": 120}},
