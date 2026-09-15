@@ -1636,3 +1636,130 @@ button.tt-seat--libre { pointer-events: auto; }
    TEXTO en el `:root` de este mismo archivo (2.56:1 sobre `--tt-paper`). */
 .tt-win-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
 .tt-win-ro   { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
+/* ——————————— Requisitos de cotejo: «Información para el alumno» ———————————
+   Editor del admin (`partials/cohort/cohort_cotejo_reqs.html` +
+   `js/admin/cotejo-info-editor.js`) y botón «i» + modal del alumno
+   (`student/cita.html`). Existen para que ninguna de las dos plantillas lleve
+   un `style=` nuevo.
+
+   Quill 2 carga su hoja DESPUÉS que esta (perezosa, desde el módulo), así que
+   toda regla que la pisa lleva `.tt-reqinfo` delante: una clase más de
+   especificidad, no `!important`. Tamaños de letra SOLO con `--tt-fs-*`: este
+   tramo cae dentro del barrido de `test_citas_sistema_visual.py`, que va del
+   encabezado de Citas hasta el final del archivo. */
+
+/* — Admin: bloque plegable dentro del formulario de cada requisito — */
+.tt-reqinfo { flex: 1 1 100%; min-width: 0; padding-top: var(--tt-sp-1);
+  border-top: 1px dashed var(--tt-line); }
+.tt-reqinfo-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--tt-sp-2);
+  min-height: 44px; cursor: pointer; list-style: none; border-radius: var(--tt-r-sm);
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-2); }
+.tt-reqinfo-sum::-webkit-details-marker { display: none; }
+.tt-reqinfo-sum:hover { color: var(--tt-text-1); }
+.tt-reqinfo-sum:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-reqinfo-estado { font-size: var(--tt-fs-100); font-weight: 400; color: var(--tt-text-3); }
+.tt-reqinfo-chev { margin-left: auto; transition: transform var(--tt-dur-2) var(--tt-ease-out); }
+.tt-reqinfo[open] .tt-reqinfo-chev { transform: rotate(180deg); }
+.tt-reqinfo-panel { display: flex; flex-direction: column; gap: var(--tt-sp-2);
+  padding-bottom: var(--tt-sp-1); }
+.tt-reqinfo-msg { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-reqinfo-msg.is-error { color: #991B1B; }
+.tt-reqinfo-pie { display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: var(--tt-sp-2); }
+.tt-reqinfo-ayuda { margin: 0; max-width: 62ch; font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
+/* — Quill (tema snow) con los tokens de la app — */
+.tt-reqinfo .ql-toolbar.ql-snow { padding: 4px; border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r-sm) var(--tt-r-sm) 0 0; background: var(--tt-mist);
+  font-family: var(--tt-ui); }
+.tt-reqinfo .ql-toolbar.ql-snow .ql-formats { margin-right: var(--tt-sp-2); }
+.tt-reqinfo .ql-toolbar.ql-snow button { width: 36px; height: 36px; padding: 8px;
+  border-radius: 6px; }
+.tt-reqinfo .ql-toolbar.ql-snow button:focus-visible { outline: 2px solid var(--tt-focus);
+  outline-offset: -2px; }
+.tt-reqinfo .ql-toolbar.ql-snow button:hover,
+.tt-reqinfo .ql-toolbar.ql-snow button:focus,
+.tt-reqinfo .ql-toolbar.ql-snow button.ql-active { color: var(--tt-focus); background: var(--tt-paper); }
+.tt-reqinfo .ql-toolbar.ql-snow button:hover .ql-stroke,
+.tt-reqinfo .ql-toolbar.ql-snow button:focus .ql-stroke,
+.tt-reqinfo .ql-toolbar.ql-snow button.ql-active .ql-stroke { stroke: var(--tt-focus); }
+.tt-reqinfo .ql-toolbar.ql-snow button:hover .ql-fill,
+.tt-reqinfo .ql-toolbar.ql-snow button:focus .ql-fill,
+.tt-reqinfo .ql-toolbar.ql-snow button.ql-active .ql-fill { fill: var(--tt-focus); }
+.tt-reqinfo .ql-container.ql-snow { border: 1px solid var(--tt-line); border-top: 0;
+  border-radius: 0 0 var(--tt-r-sm) var(--tt-r-sm); background: var(--tt-paper);
+  font-family: var(--tt-ui); font-size: var(--tt-fs-200); }
+.tt-reqinfo .ql-container.ql-snow:focus-within { box-shadow: inset 0 0 0 2px var(--tt-focus); }
+.tt-reqinfo .ql-editor { min-height: 120px; max-height: 360px; overflow-y: auto;
+  line-height: 1.55; color: var(--tt-text-1); }
+.tt-reqinfo .ql-editor.ql-blank::before { color: var(--tt-text-3); font-style: normal; }
+.tt-reqinfo .ql-editor a { color: var(--tt-navy); }
+/* Tooltip de ligas en español: Quill escribe sus rótulos con `content:`. */
+.tt-reqinfo .ql-snow .ql-tooltip { z-index: 3; border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r-sm); box-shadow: 0 8px 24px -8px rgba(15, 23, 42, .25);
+  color: var(--tt-text-1); font-family: var(--tt-ui); }
+.tt-reqinfo .ql-snow .ql-tooltip::before { content: "Abrir liga:"; }
+.tt-reqinfo .ql-snow .ql-tooltip[data-mode=link]::before { content: "Escribe la liga:"; }
+.tt-reqinfo .ql-snow .ql-tooltip a.ql-action::after { content: "Editar"; }
+.tt-reqinfo .ql-snow .ql-tooltip a.ql-remove::before { content: "Quitar"; }
+.tt-reqinfo .ql-snow .ql-tooltip.ql-editing a.ql-action::after { content: "Guardar"; }
+.tt-reqinfo .ql-snow .ql-tooltip input[type=text] { border: 1px solid var(--tt-line);
+  border-radius: 6px; font-size: var(--tt-fs-200); }
+.tt-reqinfo .ql-snow .ql-tooltip a { color: var(--tt-navy); }
+
+/* — Lectura: vista sin permiso de edición (admin) y cuerpo del modal (alumno) —
+   `overflow-wrap: anywhere`: una liga larga no puede empujar el ancho de la
+   página (invariante `scrollWidth <= innerWidth`). */
+.tt-reqinfo-vista, .tt-reqinfo-body { line-height: 1.55; color: var(--tt-text-1);
+  overflow-wrap: anywhere; }
+.tt-reqinfo-vista { max-width: 70ch; margin-top: var(--tt-sp-2);
+  padding: var(--tt-sp-2) var(--tt-sp-3); font-size: var(--tt-fs-200);
+  background: var(--tt-mist); border: 1px solid var(--tt-line-soft); border-radius: var(--tt-r-sm); }
+.tt-reqinfo-body { font-size: var(--tt-fs-300); }
+.tt-reqinfo-vista p, .tt-reqinfo-body p { margin: 0 0 var(--tt-sp-2); }
+.tt-reqinfo-vista ul, .tt-reqinfo-vista ol,
+.tt-reqinfo-body ul, .tt-reqinfo-body ol { margin: 0 0 var(--tt-sp-2); padding-left: 1.25rem; }
+.tt-reqinfo-vista li + li, .tt-reqinfo-body li + li { margin-top: 2px; }
+.tt-reqinfo-vista > :last-child, .tt-reqinfo-body > :last-child { margin-bottom: 0; }
+.tt-reqinfo-vista a, .tt-reqinfo-body a { color: var(--tt-navy); text-decoration: underline;
+  text-underline-offset: 2px; }
+
+/* — Alumno: botón «i» junto al título del requisito —
+   Objetivo táctil de 44 × 44 px sin engordar la línea del título: los márgenes
+   negativos devuelven el alto sobrante y el círculo visible (`::before`) mide
+   26 px. `position` + `z-index` lo ponen ENCIMA del renglón del detalle, en el
+   que invade 12 px: sin eso esa franja la gana el texto de abajo y el objetivo
+   real se queda en 32 px. */
+.tt-reqinfo-btn { position: relative; z-index: 1; display: inline-flex; align-items: center;
+  justify-content: center; vertical-align: middle; width: 44px; height: 44px;
+  margin: -12px -8px -12px -4px; padding: 0; border: 0; background: transparent;
+  color: var(--tt-text-2); font-size: var(--tt-fs-300); line-height: 1; cursor: pointer; }
+.tt-reqinfo-btn::before { content: ""; position: absolute; inset: 9px; z-index: -1;
+  border-radius: 999px;
+  transition: background-color var(--tt-dur-1) var(--tt-ease-out),
+              box-shadow var(--tt-dur-1) var(--tt-ease-out); }
+.tt-reqinfo-btn:active::before { background: var(--tt-line); }
+.tt-reqinfo-btn:focus-visible { outline: none; }
+.tt-reqinfo-btn:focus-visible::before { box-shadow: 0 0 0 2px var(--tt-focus); }
+@media (hover: hover) and (pointer: fine) {
+  .tt-reqinfo-btn:hover { color: var(--tt-text-1); }
+  .tt-reqinfo-btn:hover::before { background: var(--tt-line-soft); }
+}
+
+/* — Alumno: el modal — */
+.tt-reqinfo-modal .modal-content { border: 1px solid var(--tt-line); border-radius: var(--tt-r-lg); }
+.tt-reqinfo-modal .modal-header { align-items: flex-start; gap: var(--tt-sp-2); }
+.tt-reqinfo-modal .modal-title { display: flex; align-items: center; gap: var(--tt-sp-2);
+  min-width: 0; margin: 0; font-family: var(--tt-display); font-size: var(--tt-fs-400);
+  font-weight: 600; letter-spacing: -.2px; line-height: 1.25; color: var(--tt-text-1); }
+.tt-reqinfo-modal .modal-title i { flex: 0 0 auto; color: var(--tt-text-2); }
+/* El cierre de Bootstrap mide 24 px: se lleva a 44 sin mover la cabecera. */
+.tt-reqinfo-modal .btn-close { box-sizing: border-box; flex: 0 0 auto; width: 44px; height: 44px;
+  padding: 0; margin: -10px -10px -10px auto; }
+.tt-reqinfo-modal .btn-close:focus-visible { box-shadow: 0 0 0 2px var(--tt-focus); }
+.tt-reqinfo-ok { min-height: 44px; min-width: 128px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-reqinfo-chev, .tt-reqinfo-btn::before { transition: none; }
+}

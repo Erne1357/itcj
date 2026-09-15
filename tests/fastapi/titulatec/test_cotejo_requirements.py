@@ -10,6 +10,9 @@ Tres cosas que estaban a medio cablear:
 3. Toda convocatoria nacia `status='open'` con fechas NULL, asi que el predicado
    de "convocatoria publica abierta" era verdadero para TODAS. Ahora nace
    `draft` y la abre el editor de ventana.
+4. `info_html` (2026-09-15): la «Informacion para el alumno» con formato. El
+   servicio la guarda SANITIZADA, vaciar el editor la borra, excederse del tope
+   no escribe nada y el candado del requisito automatico sigue en pie.
 """
 from __future__ import annotations
 
@@ -21,26 +24,63 @@ import itcj2.models  # noqa: F401
 from itcj2.apps.titulatec.services.cotejo_requirement_service import (
     CotejoRequirementService, DEFAULTS,
 )
+from itcj2.apps.titulatec.utils.rich_text import (
+    MAX_INFO_HTML_LEN, InfoHtmlTooLong, sanitize_info_html,
+)
 
 AUTO_SURVEY = "graduate_survey"
 
+# Copia APROBADA por el usuario (diseno 2026-09-15). Se fija aqui a proposito y no
+# se importa del servicio: cambiarla es una decision de producto, no un refactor.
+INFO_ACTA = ("<p>Debe ser el <strong>mismo documento que subiste en TitulaTec</strong> "
+             "(fase 1). Llévalo en original.</p>")
+INFO_CURP = ("<p>Debe ser la <strong>misma CURP certificada que subiste en TitulaTec"
+             "</strong> (fase 1), impresa.</p>")
+
 
 class TestDefaults:
-    def test_son_5_tuplas_con_code_y_auto_source(self):
-        assert all(len(t) == 5 for t in DEFAULTS), (
-            "DEFAULTS pasa a (icon, label, hint, code, auto_source): `code` da "
-            "identidad estable y `auto_source` marca lo que acredita el sistema."
+    def test_son_6_tuplas_con_code_auto_source_e_info(self):
+        assert all(len(t) == 6 for t in DEFAULTS), (
+            "DEFAULTS es (icon, label, hint, code, auto_source, info_html): `code` "
+            "da identidad estable, `auto_source` marca lo que acredita el sistema "
+            "e `info_html` es la informacion enriquecida por defecto."
         )
 
     def test_solo_la_encuesta_trae_auto_source(self):
-        autos = {code: auto for (_i, _l, _h, code, auto) in DEFAULTS if auto}
+        autos = {code: auto for (_i, _l, _h, code, auto, _info) in DEFAULTS if auto}
 
         assert autos == {AUTO_SURVEY: AUTO_SURVEY}
 
     def test_todos_los_codes_son_unicos_y_no_vacios(self):
-        codes = [code for (_i, _l, _h, code, _a) in DEFAULTS]
+        codes = [code for (_i, _l, _h, code, _a, _info) in DEFAULTS]
 
         assert all(codes) and len(set(codes)) == len(codes)
+
+
+class TestInfoPorDefecto:
+    def test_solo_acta_y_curp_traen_informacion_y_es_la_aprobada(self):
+        infos = {code: info for (_i, _l, _h, code, _a, info) in DEFAULTS if info}
+
+        assert infos == {"birth_certificates": INFO_ACTA, "curp": INFO_CURP}, (
+            "los demas —biblioteca incluida— quedan vacios a proposito: Servicios "
+            "Escolares escribe los datos reales, no se siembran placeholders")
+
+    def test_la_informacion_por_defecto_ya_es_canonica(self):
+        """Si no lo fuera, lo sembrado y lo que ve el alumno (re-sanitizado al
+        pintar) serian dos cadenas distintas."""
+        for (_i, _l, _h, code, _a, info) in DEFAULTS:
+            if info:
+                assert sanitize_info_html(info) == info, code
+
+    def test_seed_defaults_siembra_la_informacion(self, db_session, make_cohort):
+        cohort = make_cohort()
+
+        CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+
+        con_info = {r.code: r.info_html
+                    for r in CotejoRequirementService.list(db_session, cohort.id)
+                    if r.info_html}
+        assert con_info == {"birth_certificates": INFO_ACTA, "curp": INFO_CURP}
 
 
 class TestSeedDefaults:
@@ -166,6 +206,124 @@ class TestUpdateCandadoAutomatico:
             "el candado es SOLO para auto_source: un requisito normal sigue "
             "pudiendo quedar opcional e inactivo"
         )
+
+
+class TestInfoHtmlEnEscritura:
+    """El servicio es la primera de las DOS sanitizaciones (la otra es al pintar)."""
+
+    SUCIO = ('<p onclick="alert(1)">Trae <strong>original</strong>'
+             '<script>alert(2)</script> <a href="javascript:alert(3)">x</a> '
+             '<a href="https://www.itcj.edu.mx">itcj</a></p><img src=x onerror=alert(4)>')
+
+    @staticmethod
+    def _assert_limpio(valor):
+        assert valor is not None
+        for veneno in ("<script", "onclick", "onerror", "javascript:", "<img"):
+            assert veneno not in valor.lower(), veneno
+        assert "<strong>original</strong>" in valor
+        assert 'href="https://www.itcj.edu.mx"' in valor
+
+    def test_create_guarda_sanitizado(self, db_session, make_cohort):
+        cohort = make_cohort()
+
+        item = CotejoRequirementService.create(db_session, cohort.id, label="Actas",
+                                               hint=None, icon=None, info_html=self.SUCIO)
+
+        db_session.refresh(item)
+        self._assert_limpio(item.info_html)
+
+    def test_create_sin_informacion_queda_null(self, db_session, make_cohort):
+        cohort = make_cohort()
+
+        item = CotejoRequirementService.create(db_session, cohort.id, label="Actas",
+                                               hint=None, icon=None)
+
+        assert item.info_html is None
+
+    def test_update_guarda_sanitizado(self, db_session, make_cohort):
+        cohort = make_cohort()
+        item = CotejoRequirementService.create(db_session, cohort.id, label="Actas",
+                                               hint=None, icon=None)
+
+        item = CotejoRequirementService.update(db_session, item.id, cohort.id,
+                                               info_html=self.SUCIO)
+
+        db_session.refresh(item)
+        self._assert_limpio(item.info_html)
+
+    def test_update_sin_la_llave_no_toca_la_informacion(self, db_session, make_cohort):
+        """Un formulario viejo (o cualquier llamador) que no manda `info_html` no la borra."""
+        cohort = make_cohort()
+        item = CotejoRequirementService.create(db_session, cohort.id, label="Actas",
+                                               hint=None, icon=None,
+                                               info_html="<p>previa</p>")
+
+        CotejoRequirementService.update(db_session, item.id, cohort.id, label="Renombrado")
+
+        db_session.refresh(item)
+        assert (item.label, item.info_html) == ("Renombrado", "<p>previa</p>")
+
+    @pytest.mark.parametrize("vacio", [None, "", "<p><br></p>", "   "])
+    def test_update_con_vacio_borra_la_informacion(self, db_session, make_cohort, vacio):
+        """A diferencia de `hint`, aqui `None` SI se escribe: vaciar el editor es
+        exactamente la jefa quitando la informacion."""
+        cohort = make_cohort()
+        item = CotejoRequirementService.create(db_session, cohort.id, label="Actas",
+                                               hint=None, icon=None,
+                                               info_html="<p>previa</p>")
+
+        CotejoRequirementService.update(db_session, item.id, cohort.id, info_html=vacio)
+
+        db_session.refresh(item)
+        assert item.info_html is None
+
+    def test_el_automatico_conserva_el_candado_y_si_admite_informacion(
+            self, db_session, make_cohort):
+        cohort = make_cohort()
+        CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+        encuesta = [r for r in CotejoRequirementService.list(db_session, cohort.id)
+                    if r.auto_source == AUTO_SURVEY][0]
+
+        item = CotejoRequirementService.update(
+            db_session, encuesta.id, cohort.id, is_required=False, is_active=False,
+            info_html='<p>Contesta <em>antes</em> <script>x()</script></p>')
+
+        assert (item.is_required, item.is_active) == (True, True), (
+            "la informacion no puede ser la puerta trasera del candado D9")
+        assert item.info_html == "<p>Contesta <em>antes</em> </p>"
+
+    def test_update_demasiado_largo_no_escribe_nada(self, db_session, make_cohort):
+        """Se sanitiza ANTES de cualquier `setattr`: nada queda a medias en la sesion."""
+        cohort = make_cohort()
+        item = CotejoRequirementService.create(db_session, cohort.id, label="Original",
+                                               hint=None, icon=None,
+                                               info_html="<p>previa</p>")
+
+        with pytest.raises(InfoHtmlTooLong):
+            CotejoRequirementService.update(
+                db_session, item.id, cohort.id, label="Cambiado",
+                info_html="<p>" + "a" * MAX_INFO_HTML_LEN + "</p>")
+
+        assert not db_session.dirty, "quedaron cambios a medias en la sesion"
+        assert (item.label, item.info_html) == ("Original", "<p>previa</p>")
+
+    def test_create_demasiado_largo_no_crea(self, db_session, make_cohort):
+        cohort = make_cohort()
+
+        with pytest.raises(InfoHtmlTooLong):
+            CotejoRequirementService.create(db_session, cohort.id, label="X", hint=None,
+                                            icon=None,
+                                            info_html="a" * (MAX_INFO_HTML_LEN + 1))
+
+        assert CotejoRequirementService.list(db_session, cohort.id, active_only=False) == []
+
+    def test_to_dict_incluye_info_html(self, db_session, make_cohort):
+        cohort = make_cohort()
+        item = CotejoRequirementService.create(db_session, cohort.id, label="Actas",
+                                               hint=None, icon=None,
+                                               info_html="<p>hola</p>")
+
+        assert item.to_dict()["info_html"] == "<p>hola</p>"
 
 
 class TestCohortCreate:

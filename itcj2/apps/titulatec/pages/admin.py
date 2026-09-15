@@ -510,17 +510,27 @@ def _cotejo_reqs_ctx(db, cohort_id: int, user_id: int) -> dict:
     `CotejoRequirementService.list`, NO `list_or_seed`: un GET jamás siembra. La
     convocatoria nace con sus requisitos (Tarea 4, `cohort_create`), y si alguna
     vieja no los tiene, el editor muestra el vacío y la jefa los agrega.
+
+    `info_by_req` es la «Información para el alumno» de cada requisito YA
+    re-sanitizada: la segunda sanitización del diseño, al PINTAR (la primera es
+    al guardar, en el servicio), para que una fila escrita por fuera del editor
+    —un UPDATE a mano, un DML— tampoco inyecte. Sin tope (`max_len=None`): una
+    fila vieja nunca tumba la página. El parcial pinta con `|safe` SOLO este
+    mapa, nunca `r.info_html`.
     """
     from itcj2.apps.titulatec.services.cotejo_requirement_service import (
         CotejoRequirementService,
     )
+    from itcj2.apps.titulatec.utils.rich_text import sanitize_info_html
     from itcj2.core.services.authz_service import get_user_permissions_for_app
 
     perms = get_user_permissions_for_app(db, user_id, "titulatec")
+    reqs = CotejoRequirementService.list(db, cohort_id, active_only=False)
     return {
-        "reqs": CotejoRequirementService.list(db, cohort_id, active_only=False),
+        "reqs": reqs,
         "cohort_id": cohort_id,
         "can_edit_reqs": "titulatec.cohort.api.cotejo_reqs" in perms,
+        "info_by_req": {r.id: sanitize_info_html(r.info_html, max_len=None) for r in reqs},
     }
 
 
@@ -545,24 +555,37 @@ async def cotejo_req_create(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
 ):
+    """Agrega un requisito, con su «Información para el alumno» si la trae.
+
+    `info_html` llega CRUDO del editor (input oculto del formulario de alta) y lo
+    sanitiza el servicio. Excederse del tope es 400 + `X-Tt-Error` sin escribir
+    nada: htmx no swappea en 4xx, así que el editor conserva lo escrito.
+    """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.cotejo_requirement_service import (
         CotejoRequirementService,
     )
+    from itcj2.apps.titulatec.utils.rich_text import InfoHtmlTooLong
 
     form = dict(await request.form())
     label = (form.get("label") or "").strip()
     if not label:
         return Response(status_code=400,
                         headers={"X-Tt-Error": _hdr("Escribe el nombre del requisito.")})
+    info = form.get("info_html")
     db = SessionLocal()
     try:
-        CotejoRequirementService.create(
-            db, cohort_id, label=label,
-            hint=((form.get("hint") or "").strip() or None),
-            icon=((form.get("icon") or "").strip() or None),
-            is_required=bool(form.get("is_required")),
-        )
+        try:
+            CotejoRequirementService.create(
+                db, cohort_id, label=label,
+                hint=((form.get("hint") or "").strip() or None),
+                icon=((form.get("icon") or "").strip() or None),
+                is_required=bool(form.get("is_required")),
+                # Un campo que no es texto (un archivo con ese nombre) se ignora.
+                info_html=(info if isinstance(info, str) else None),
+            )
+        except InfoHtmlTooLong as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         ctx = _cotejo_reqs_ctx(db, cohort_id, int(user["sub"]))
         return render_titulatec(request, _TT_COTEJO_PARTIAL, ctx)
     finally:
@@ -577,35 +600,47 @@ async def cotejo_req_update(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
 ):
-    """Actualiza etiqueta, detalle, ícono y las dos casillas.
+    """Actualiza etiqueta, detalle, ícono, las dos casillas y la información.
 
     `code`/`auto_source` NO son editables: los siembra `seed_defaults` y son la
     identidad estable del requisito. Y **no hay input de `order_index`** en el
     parcial, así que aquí no se toca: pasarlo como `None` lo dejaría igual, pero
     ni siquiera se menciona para que nadie lo añada sin cambiar el formulario.
+
+    `info_html` se pasa SOLO si el formulario lo trae: para el servicio su
+    presencia es la intención (ausente = no se toca; vacío = se borra). Un
+    formulario sin editor —una pestaña abierta antes de este cambio— no borra la
+    información. Excederse del tope es 400 + `X-Tt-Error` sin escribir nada.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.cotejo_requirement_service import (
         CotejoRequirementService,
     )
+    from itcj2.apps.titulatec.utils.rich_text import InfoHtmlTooLong
 
     form = dict(await request.form())
     label = (form.get("label") or "").strip()
     if not label:
         return Response(status_code=400,
                         headers={"X-Tt-Error": _hdr("Escribe el nombre del requisito.")})
+    # Las casillas ausentes son False, no "sin cambio": un checkbox que el
+    # navegador no envía es exactamente el usuario desmarcándolo.
+    campos = {
+        "label": label,
+        "hint": ((form.get("hint") or "").strip() or None),
+        "icon": ((form.get("icon") or "").strip() or None),
+        "is_required": bool(form.get("is_required")),
+        "is_active": bool(form.get("is_active")),
+    }
+    info = form.get("info_html")
+    if isinstance(info, str):
+        campos["info_html"] = info
     db = SessionLocal()
     try:
-        # Las casillas ausentes son False, no "sin cambio": un checkbox que el
-        # navegador no envía es exactamente el usuario desmarcándolo.
-        CotejoRequirementService.update(
-            db, rid, cohort_id,
-            label=label,
-            hint=((form.get("hint") or "").strip() or None),
-            icon=((form.get("icon") or "").strip() or None),
-            is_required=bool(form.get("is_required")),
-            is_active=bool(form.get("is_active")),
-        )
+        try:
+            CotejoRequirementService.update(db, rid, cohort_id, **campos)
+        except InfoHtmlTooLong as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         ctx = _cotejo_reqs_ctx(db, cohort_id, int(user["sub"]))
         return render_titulatec(request, _TT_COTEJO_PARTIAL, ctx)
     finally:

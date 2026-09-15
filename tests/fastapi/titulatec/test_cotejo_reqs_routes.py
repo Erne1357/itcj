@@ -349,3 +349,210 @@ class TestPestana:
         assert f'hx-post="{_url(cid)}"' not in resp.text, (
             "sin `titulatec.cohort.api.cotejo_reqs` el parcial no debe emitir "
             "ningun formulario: `can_edit_reqs` es False")
+
+
+class TestInformacionParaElAlumno:
+    """`info_html` (2026-09-15): la «Informacion para el alumno» con formato.
+
+    El editor visual (Quill) la manda CRUDA en un `<input type="hidden"
+    name="info_html">` del mismo formulario de la fila (y del de alta). La ruta
+    la guarda limpia, y el parcial la PINTA limpia aunque la fila venga sucia de
+    fuera del editor: son las dos sanitizaciones del diseno.
+
+    Las pruebas de la pestana NO usan `escenario`: `make_head` escribe siempre en
+    `ROLE_HEAD` y `make_role` solo anade (ver el docstring de `escenario`), asi
+    que mezclarlas regalaria el permiso de edicion a la jefa de solo lectura.
+    """
+
+    SUCIO = ('<p onclick="alert(1)">Trae <strong>original</strong>'
+             '<script>alert(2)</script> <a href="javascript:alert(3)">x</a></p>'
+             '<img src=x onerror=alert(4)><iframe src="https://evil.example"></iframe>')
+    VENENOS = ("<script", "onclick", "onerror", "javascript:", "<img", "<iframe", "alert(")
+
+    @classmethod
+    def _assert_limpio(cls, valor):
+        assert valor is not None
+        for veneno in cls.VENENOS:
+            assert veneno not in valor.lower(), veneno
+        assert "<strong>original</strong>" in valor
+
+    def test_update_con_informacion_maliciosa_guarda_limpio(self, db_session, escenario,
+                                                            client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        cid = escenario["cohort"].id
+        item = CotejoRequirementService.create(db_session, cid, label="Actas",
+                                               hint=None, icon=None)
+
+        resp = client_as(escenario["jefa"]).post(
+            _url(cid, f"/{item.id}/update"),
+            data={"icon": "book", "label": "Actas", "hint": "", "is_required": "1",
+                  "is_active": "1", "info_html": self.SUCIO},
+            follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        db_session.refresh(item)
+        self._assert_limpio(item.info_html)
+
+    def test_create_con_informacion_maliciosa_guarda_limpio(self, db_session, escenario,
+                                                            client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        cid = escenario["cohort"].id
+
+        resp = client_as(escenario["jefa"]).post(
+            _url(cid),
+            data={"icon": "book", "label": "No-adeudo de biblioteca", "is_required": "1",
+                  "info_html": self.SUCIO},
+            follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        filas = CotejoRequirementService.list(db_session, cid)
+        assert [r.label for r in filas] == ["No-adeudo de biblioteca"]
+        self._assert_limpio(filas[0].info_html)
+
+    def test_update_sin_el_campo_no_borra_la_informacion(self, db_session, escenario,
+                                                         client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        cid = escenario["cohort"].id
+        item = CotejoRequirementService.create(db_session, cid, label="Actas", hint=None,
+                                               icon=None, info_html="<p>previa</p>")
+
+        resp = client_as(escenario["jefa"]).post(
+            _url(cid, f"/{item.id}/update"),
+            data={"icon": "book", "label": "Actas", "is_active": "1"},
+            follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        db_session.refresh(item)
+        assert item.info_html == "<p>previa</p>"
+
+    def test_update_con_el_editor_vacio_borra_la_informacion(self, db_session, escenario,
+                                                             client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        cid = escenario["cohort"].id
+        item = CotejoRequirementService.create(db_session, cid, label="Actas", hint=None,
+                                               icon=None, info_html="<p>previa</p>")
+
+        resp = client_as(escenario["jefa"]).post(
+            _url(cid, f"/{item.id}/update"),
+            data={"icon": "book", "label": "Actas", "is_active": "1",
+                  "info_html": "<p><br></p>"},
+            follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        db_session.refresh(item)
+        assert item.info_html is None
+
+    def test_update_demasiado_larga_da_400_con_x_tt_error_y_no_escribe(
+            self, db_session, escenario, client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        from itcj2.apps.titulatec.utils.rich_text import MAX_INFO_HTML_LEN
+        cid = escenario["cohort"].id
+        item = CotejoRequirementService.create(db_session, cid, label="Actas", hint=None,
+                                               icon=None, info_html="<p>previa</p>")
+
+        resp = client_as(escenario["jefa"]).post(
+            _url(cid, f"/{item.id}/update"),
+            data={"icon": "book", "label": "Cambiado", "is_active": "1",
+                  "info_html": "<p>" + "a" * MAX_INFO_HTML_LEN + "</p>"},
+            follow_redirects=False)
+
+        assert resp.status_code == 400, resp.text[:300]
+        assert "larga" in _msg(resp), _msg(resp)
+        db_session.refresh(item)
+        assert (item.label, item.info_html) == ("Actas", "<p>previa</p>"), (
+            "un 400 no puede dejar escrito NADA, ni la etiqueta")
+
+    def test_create_demasiado_larga_da_400_y_no_crea(self, db_session, escenario,
+                                                      client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        from itcj2.apps.titulatec.utils.rich_text import MAX_INFO_HTML_LEN
+        cid = escenario["cohort"].id
+
+        resp = client_as(escenario["jefa"]).post(
+            _url(cid),
+            data={"label": "Biblioteca", "info_html": "a" * (MAX_INFO_HTML_LEN + 1)},
+            follow_redirects=False)
+
+        assert resp.status_code == 400, resp.text[:300]
+        assert "larga" in _msg(resp), _msg(resp)
+        assert CotejoRequirementService.list(db_session, cid, active_only=False) == []
+
+    def test_el_parcial_pinta_limpio_aunque_la_fila_venga_sucia(self, db_session,
+                                                               escenario, client_as):
+        """Segunda sanitizacion, al PINTAR: un UPDATE a mano o un DML no inyecta."""
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        cid = escenario["cohort"].id
+        item = CotejoRequirementService.create(db_session, cid, label="Actas",
+                                               hint=None, icon=None)
+        item.info_html = self.SUCIO          # directo al ORM, saltandose el servicio
+        db_session.flush()
+
+        resp = client_as(escenario["jefa"]).get(_url(cid), follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        for veneno in self.VENENOS:
+            assert veneno not in resp.text.lower(), veneno
+        fila = _row_html(resp.text, item.id)
+        assert "<strong>original</strong>" in fila, (
+            "el montaje del editor lleva la informacion YA sanitizada")
+        assert "&lt;strong&gt;original&lt;/strong&gt;" in fila, (
+            "y el input oculto la lleva escapada, para reenviarla tal cual")
+
+    def test_con_permiso_cada_formulario_trae_su_editor(self, db_session, make_head,
+                                                       make_cohort, client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        jefa = make_head(perm_codes=(PAGE_PERM, PERM))
+        cid = make_cohort().id
+        item = CotejoRequirementService.create(db_session, cid, label="Actas", hint=None,
+                                               icon=None,
+                                               info_html="<p>Trae el <strong>original</strong></p>")
+
+        resp = client_as(jefa).get(_tab_url(cid, "cotejo"), follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        fila = _row_html(resp.text, item.id)
+        assert "data-tt-reqinfo-editor" in fila
+        assert 'name="info_html"' in fila, (
+            "el HTML viaja en un input oculto del MISMO form de la fila")
+        alta = resp.text.split(f'hx-post="{_url(cid)}"', 1)[1].split("</form>", 1)[0]
+        assert "data-tt-reqinfo-editor" in alta and 'name="info_html"' in alta, (
+            "el formulario de alta tambien lleva su editor")
+        assert resp.text.count("js/admin/cotejo-info-editor.js") == 1, (
+            "el modulo se carga UNA vez, desde base_admin.html")
+        assert "cdn.jsdelivr.net/npm/quill" not in resp.text, (
+            "Quill se carga PEREZOSAMENTE desde el modulo, no en cada pagina admin")
+
+    def test_sin_permiso_no_hay_editor_pero_si_la_informacion(self, db_session, make_head,
+                                                              make_cohort, client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        mirona = make_head(perm_codes=(PAGE_PERM,))
+        cid = make_cohort().id
+        CotejoRequirementService.create(db_session, cid, label="Actas", hint=None,
+                                        icon=None,
+                                        info_html="<p>Trae el <strong>original</strong></p>")
+
+        resp = client_as(mirona).get(_tab_url(cid, "cotejo"), follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert "data-tt-reqinfo-editor" not in resp.text
+        assert 'name="info_html"' not in resp.text
+        assert "Trae el <strong>original</strong>" in resp.text, (
+            "sin permiso de edicion se MUESTRA la informacion ya sanitizada")
