@@ -10,7 +10,7 @@
    auto-avanza la fase al aprobar el tercero; tener dos caminos con dos reglas
    era la razón de quitarlo de aquí.
    =========================================================================== #}
-{% from "titulatec/_macros.html" import estado_pill, appt_pill %}
+{% from "titulatec/_macros.html" import estado_pill, appt_pill, survey_review_pill %}
 {% set VOLVER = '&from=' ~ (back.url | urlencode) %}
 
 {# — Datos de la fase, comunes a todas — #}
@@ -150,7 +150,20 @@
             {{ r.when }}{% if r.source %} · {{ r.source }}{% endif %}{% if r.note %} — {{ r.note }}{% endif %}
           </div>
           {% endif %}
-          {% if r.auto_source %}
+          {% if r.auto_source == 'graduate_survey' %}
+          {# D3: aqui ya NO manda "lo acredita el sistema" -- el requisito lo
+             libera GTV, no el envio de la encuesta. `survey` es el dict plano
+             de `SurveyReviewService.summary_for_process`, igual que en el
+             panel de atender (`_appt_attend.html`, Tarea 4). #}
+          <div class="tt-req-meta">
+            {{ survey_review_pill(survey.status) }}
+            {%- if survey.status == 'rejected' and survey.reason %}
+              — {{ survey.reason }}
+            {%- elif survey.status == 'approved' %}
+              — Liberada por GTV · {{ survey.reviewed_at }}
+            {%- endif %}
+          </div>
+          {% elif r.auto_source %}
           <div style="font-size:.76rem;color:var(--tt-mute)">
             Lo acredita el sistema ({{ r.auto_source }}); no se marca a mano.</div>
           {% endif %}

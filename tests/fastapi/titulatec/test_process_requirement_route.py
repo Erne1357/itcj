@@ -325,7 +325,40 @@ class TestChecklistEnElExpediente:
         assert auto.label in resp.text
         assert f"/requisitos/{manual.id}" in resp.text
         assert f"/requisitos/{auto.id}" not in resp.text
+
+    def test_un_requisito_no_encuesta_se_pinta_con_el_mensaje_generico(
+            self, db_session, esc, client_as):
+        """El "lo acredita el sistema" generico sigue vivo para OTROS
+        `auto_source`; solo `graduate_survey` cambia de mensaje (Tarea 5,
+        spec 2026-09-15-titulatec-liberacion-gtv D3)."""
+        from itcj2.apps.titulatec.models import CotejoRequirement
+
+        proc = esc["process"]
+        otro = CotejoRequirement(cohort_id=esc["cohort"].id, label="Otro automatico",
+                                 icon="check2-square", auto_source="other_source",
+                                 order_index=0)
+        db_session.add(otro)
+        db_session.flush()
+
+        resp = self._get(client_as(esc["oficial"]), proc)
+
+        assert resp.status_code == 200, resp.text[:300]
         assert "Lo acredita el sistema" in resp.text
+
+    def test_la_encuesta_se_pinta_con_el_estatus_de_gtv_no_generico(
+            self, db_session, esc, client_as):
+        """La fila `graduate_survey` sustituye "Lo acredita el sistema" por el
+        estatus real de la solicitud de liberacion de GTV (D3)."""
+        proc = esc["process"]
+        esc["req"](label="Encuesta de egresados", auto_source="graduate_survey",
+                  order_index=1)
+
+        resp = self._get(client_as(esc["oficial"]), proc)
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert "Encuesta pendiente" in resp.text, (
+            "sin SurveyReview el pseudo-estado es 'missing' -> 'Encuesta pendiente'")
+        assert "Lo acredita el sistema (graduate_survey)" not in resp.text
 
     def test_ver_el_expediente_no_siembra_requisitos(self, db_session, esc, client_as):
         """Un GET no CONFIGURA nada.

@@ -153,30 +153,33 @@ class TestChecklistEnLaPagina:
 
         assert "Dispensado" in resp.text
 
-    def test_la_encuesta_trae_su_enlace_y_lo_pierde_al_cumplirse(self, db_session,
-                                                                 alumno_en_cita, client_as):
+    def test_la_encuesta_trae_su_enlace_y_lo_pierde_al_enviarla(self, db_session,
+                                                                alumno_en_cita, client_as,
+                                                                make_survey_review):
         """El unico requisito que el alumno puede resolver desde aqui mismo.
 
         La convocatoria nace sin requisitos, asi que `list_or_seed` siembra los 8
         por defecto y solo uno trae `auto_source='graduate_survey'`. La URL es la
-        del contrato (§3) y NO existe hasta la Tarea 12: entre esta tarea y
-        aquella el enlace da 404 dentro de la rama, y se escribe ya a proposito.
-        """
-        from itcj2.apps.titulatec.services.requirement_service import RequirementService
+        del contrato (§3).
 
+        Cambio de la Tarea 5 (spec 2026-09-15-titulatec-liberacion-gtv, D3): el
+        enlace ya NO depende de `RequirementFulfillment` (eso lo decide GTV, no
+        el envio) sino de si existe una `SurveyReview` para el proceso
+        (`SurveyReviewService.summary_for_process`, pseudo-estado `missing` =
+        sin fila). Antes de esta tarea, marcar el requisito a mano con
+        `RequirementService.fulfill` bastaba para esconder el enlace; ahora hace
+        falta la solicitud de verdad (`make_survey_review`, Tarea 2).
+        """
         esc = alumno_en_cita
 
         resp = client_as(esc["student"]).get(URL, follow_redirects=False)
         assert "/titulatec/encuesta-egresados" in resp.text
 
-        req = RequirementService.auto_requirement(db_session, esc["cohort"].id,
-                                                  "graduate_survey")
-        RequirementService.fulfill(db_session, esc["process"].id, req.id,
-                                   source="survey", commit=False)
+        make_survey_review(esc["process"])
 
         resp = client_as(esc["student"]).get(URL, follow_redirects=False)
         assert "/titulatec/encuesta-egresados" not in resp.text, (
-            "ya acreditada, la invitacion a contestarla sobra")
+            "ya envio la encuesta, la invitacion a contestarla sobra")
 
     def test_el_ctx_no_lleva_objetos_orm(self, db_session, alumno_en_cita):
         """La plantilla se pinta DESPUES del `db.close()` de la ruta.

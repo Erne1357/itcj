@@ -11,7 +11,7 @@
    Contexto: pages/student.py::_phases_ctx. JS: static/js/student/dashboard.js.
    =========================================================================== #}
 {% extends "titulatec/student/base_student.html" %}
-{% from "titulatec/_macros.html" import pill, estado_pill %}
+{% from "titulatec/_macros.html" import pill, estado_pill, survey_review_pill %}
 {% block student_title %}Mi proceso · TitulaTec{% endblock %}
 {% block student_active %}home{% endblock %}
 {% block student_page %}student_dashboard{% endblock %}
@@ -59,7 +59,10 @@
              tabindex="-1" style="scroll-margin-top:84px">
           <div class="d-flex justify-content-between align-items-center gap-2">
             <span class="tt-kicker">Tu proceso · Fase {{ '%02d'|format(current.number) }}</span>
-            {{ estado_pill(current.status) }}
+            <div class="d-flex align-items-center gap-2">
+              {% if current.survey %}{{ survey_review_pill(current.survey.status) }}{% endif %}
+              {{ estado_pill(current.status) }}
+            </div>
           </div>
 
           <div class="tt-now-head mt-2">
@@ -158,6 +161,7 @@
                   <span class="tt-acc-name">{{ ph.name }}
                     {% if ph.progress %}<span class="tt-acc-sub">{{ ph.progress.label }}</span>{% endif %}
                   </span>
+                  {% if ph.survey %}{{ survey_review_pill(ph.survey.status) }}{% endif %}
                   {% if ph.status != 'pending' %}{{ estado_pill(ph.status) }}{% endif %}
                   <i class="bi bi-chevron-right tt-acc-chev" aria-hidden="true"></i>
                 </button>
@@ -184,6 +188,27 @@
                   <div class="p-3" style="border-radius:var(--tt-r);background:var(--tt-danger-soft);border:1px solid rgba(220,38,38,.2)">
                     <span class="tt-pill tt-pill--danger"><i class="bi bi-exclamation-triangle"></i> Observaciones</span>
                     <p class="tt-prose mb-0 mt-2" style="font-size:.8rem;color:#7F1D1D">{{ ph.rejection_reason }}</p>
+                  </div>
+                  {% endif %}
+
+                  {% if ph.survey %}
+                  {# D3 (spec §6.1): excepción deliberada a "Se habilitará cuando
+                     llegues a esta fase" -- la encuesta de egresados no está
+                     sujeta a la guarda de fase del alumno, así que se pinta con
+                     su estatus real aunque `ph.rel == 'future'`. Aditivo: el
+                     aviso genérico de más abajo sigue saliendo igual. #}
+                  <div>
+                    <div class="tt-acc-block-title"><i class="bi bi-clipboard-check"></i>Encuesta de egresados</div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      {{ survey_review_pill(ph.survey.status) }}
+                    </div>
+                    {% if ph.survey.status == 'rejected' and ph.survey.reason %}
+                    <p class="tt-prose mb-0 mt-2">{{ ph.survey.reason }}</p>
+                    {% endif %}
+                    {% if ph.survey.status == 'missing' and ph.survey.url %}
+                    <a class="btn btn-sm tt-btn-soft mt-2" href="{{ ph.survey.url }}">
+                      <i class="bi bi-pencil-square me-1"></i>Contestar la encuesta</a>
+                    {% endif %}
                   </div>
                   {% endif %}
 
@@ -235,6 +260,7 @@
                 <span class="tt-acc-name">{{ ph.name }}
                   {% if ph.progress %}<span class="tt-acc-sub">{{ ph.progress.label }}</span>{% endif %}
                 </span>
+                {% if ph.survey %}{{ survey_review_pill(ph.survey.status) }}{% endif %}
                 {{ pill('Actual', 'amber') }}
               </div>
               <a class="tt-acc-hint" href="#tt-fase-actual" data-tt-acc-goto>

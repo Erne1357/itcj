@@ -105,7 +105,7 @@ def _acciones(el) -> list[str]:
 @pytest.mark.parametrize("current_phase", list(range(9)))
 def test_ninguna_fase_del_acordeon_ofrece_una_accion(
     client_as, make_student, make_process, make_document, make_appointment,
-    seed_phase_defs, seed_document_types, current_phase,
+    make_survey_review, seed_phase_defs, seed_document_types, current_phase,
 ):
     """En las 9 posiciones posibles del alumno, el acordeon NO acciona nada.
 
@@ -126,6 +126,15 @@ def test_ninguna_fase_del_acordeon_ofrece_una_accion(
     make_document(proc, type_code="high_school_cert", review_status="rejected",
                   note="Se ve borrosa")
     make_appointment(proc, status="scheduled")
+    # La UNICA excepcion deliberada a "el acordeon no acciona nada" es la liga
+    # "Contestar la encuesta" cuando la solicitud de liberacion de GTV esta en
+    # el pseudo-estado "missing" (spec 2026-09-15-titulatec-liberacion-gtv, D3):
+    # la encuesta no esta sujeta a la guarda de fase, asi que vive en el panel
+    # aunque la fase 2 no sea la actual. Esa excepcion la prueba aparte
+    # `test_student_survey_badge.py`; aqui se cierra sembrando una solicitud YA
+    # enviada para que este barrido siga afirmando "cero acciones nuevas o
+    # accidentales" en las 9 posiciones.
+    make_survey_review(proc)
 
     doc = _dash(client_as(student))
     root = _acc_root(doc)
@@ -444,7 +453,7 @@ def test_un_documento_rechazado_muestra_el_motivo_en_el_panel(
 
 
 def test_el_panel_de_la_cita_dice_fecha_lugar_y_si_falta_confirmar(
-    client_as, make_student, make_process, make_appointment,
+    client_as, make_student, make_process, make_appointment, make_survey_review,
     seed_phase_defs, seed_document_types,
 ):
     seed_phase_defs()
@@ -452,6 +461,11 @@ def test_el_panel_de_la_cita_dice_fecha_lugar_y_si_falta_confirmar(
     student = make_student()
     proc = make_process(student, current_phase=3)
     make_appointment(proc, status="scheduled", location="Edificio K, planta baja")
+    # Igual que en `test_ninguna_fase_del_acordeon_ofrece_una_accion`: sin esto
+    # el panel trae la liga "Contestar la encuesta" (D3; "missing" es el
+    # pseudo-estado por omision sin solicitud) y este test dejaria de afirmar
+    # "cero acciones" por la razon correcta.
+    make_survey_review(proc)
 
     txt = _text(_panel(_dash(client_as(student)), 2))
 

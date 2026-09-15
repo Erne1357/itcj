@@ -1263,6 +1263,15 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
                          in get_user_permissions_for_app(db, user_id, "titulatec"))
 
     appt = AppointmentService.get_for_process(db, process_id)
+
+    # Estatus de la solicitud de liberación de GTV para la encuesta de
+    # egresados (D3, spec 2026-09-15-titulatec-liberacion-gtv §6.2). Dict
+    # plano de `summary_for_process`, MISMA fuente que el panel de atender
+    # (`pages/appointments.py::_detail_ctx`): el expediente también renderiza
+    # DESPUÉS de su `db.close()`.
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    survey = SurveyReviewService.summary_for_process(db, process_id)
+
     return {
         "process": proc.to_dict(),
         "student": {
@@ -1292,6 +1301,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "otros_eventos": sin_fase,
         "requisitos": requisitos,
         "can_mark_reqs": can_mark_reqs,
+        "survey": survey,
     }
 
 

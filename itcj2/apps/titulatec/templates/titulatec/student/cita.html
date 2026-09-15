@@ -1,4 +1,5 @@
 {% extends "titulatec/student/base_student.html" %}
+{% from "titulatec/_macros.html" import survey_review_pill %}
 {% block student_title %}Cita de cotejo · TitulaTec{% endblock %}
 {% block student_active %}cita{% endblock %}
 {% block student_page %}student_cita{% endblock %}
@@ -41,7 +42,17 @@
               {% if not it.required %}<span class="tt-pill tt-pill--neutral">opcional</span>{% endif %}
             </div>
             {% if it.hint %}<div style="font-size:.76rem;color:var(--tt-mute)">{{ it.hint }}</div>{% endif %}
-            {% if it.survey_url and not it.done %}
+            {% if it.survey %}
+            {# D3: la libera GTV, no el envío -- el estatus real de la
+               solicitud sustituye al "Listo"/"Dispensado" genérico de abajo. #}
+            <div class="mt-1">
+              {{ survey_review_pill(it.survey.status) }}
+              {%- if it.survey.status == 'rejected' and it.survey.reason %}
+                — {{ it.survey.reason }}
+              {%- endif %}
+            </div>
+            {% endif %}
+            {% if it.survey_url %}
             <a href="{{ it.survey_url }}" class="btn btn-sm tt-btn-soft mt-2">
               <i class="bi bi-pencil-square me-1"></i>Contestar la encuesta</a>
             {% endif %}

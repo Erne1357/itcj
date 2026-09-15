@@ -163,10 +163,22 @@ _EVENT_LABELS = {
     "appointment_change_requested":"Solicitaste un cambio de cita",
     "appointment_no_show":         "No te presentaste a la cita",
     "process_completed":           "Proceso completado",
+    # Solicitud de liberación de GTV para la encuesta de egresados (D3, spec
+    # 2026-09-15-titulatec-liberacion-gtv §6.1). Mismos `event_type` que
+    # escribe `SurveyReviewService._log`.
+    "survey_review_submitted":     "Enviaste la encuesta de egresados",
+    "survey_review_approved":      "Gestión Tecnológica y Vinculación liberó tu encuesta",
+    "survey_review_rejected":      "Gestión Tecnológica y Vinculación dejó observaciones",
+    "survey_review_revoked":       "Se revocó la liberación de tu encuesta",
 }
 
 
 _DASHBOARD_URL = "/titulatec/student/dashboard"
+
+# Encuesta de egresados: mismo path que `pages/public.py::SURVEY_URL` (Tarea 3).
+# Literal propio y no un import de ese módulo (en edición paralela en este
+# checkout) para no acoplar dos archivos que dos tareas tocan a la vez.
+_SURVEY_URL = "/titulatec/encuesta-egresados"
 
 
 # ===========================================================================
@@ -408,6 +420,9 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         rejection_reason  str | None
         events            [{label, when}]   historial de ESTA fase
         progress          dict | None       sub-progreso (fases 1, 2 y 3)
+        survey            dict | None       SOLO en la card `review_appointment`
+                                             (dict plano de `summary_for_process`
+                                             + `url`, D3, spec §6.1)
     """
     from itcj2.apps.titulatec.models import (
         FormatB, PhaseDefinition, ProcessEvent, ProcessPhase,
@@ -444,6 +459,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             "rejection_reason": None,
             "events": [],
             "progress": None,
+            "survey": None,
         }
         card.update(over)
         return card
@@ -455,6 +471,16 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
                 "phases": [_base_card(pd) for pd in pdefs]}
 
     current_phase = process.current_phase
+
+    # Estatus de la solicitud de liberación de GTV para la encuesta de
+    # egresados (D3, spec §6.1). UNA sola consulta fija, igual que el resto de
+    # este contexto: no una por fase. Se cuelga solo de la card
+    # `review_appointment` (nunca por número) y es visible desde la fase 0:
+    # a diferencia del resto de esta pantalla, la encuesta NO está sujeta a la
+    # guarda de fase del alumno.
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    survey = SurveyReviewService.summary_for_process(db, process.id)
+    survey["url"] = _SURVEY_URL if survey["status"] == "missing" else None
 
     ph_by_number = {
         ph.phase_number: ph for ph in
@@ -504,6 +530,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             rejection_reason=(ph.rejection_reason if ph else None),
             events=events_by_phase.get(pd.number, []),
             progress=progress,
+            survey=(survey if pd.code == "review_appointment" else None),
         ))
 
     total = len(pdefs) or 9
@@ -902,11 +929,18 @@ def _checklist_ctx(db, process) -> list[dict]:
     if process is None:
         return []
     from itcj2.apps.titulatec.services.requirement_service import RequirementService
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
     from itcj2.apps.titulatec.utils.rich_text import sanitize_info_html
+
+    # Estatus de la solicitud de liberación de GTV (D3, spec §6.1): una sola
+    # consulta fija, igual que `_phases_ctx`, aunque solo la use la fila con
+    # `auto_source == "graduate_survey"`.
+    survey = SurveyReviewService.summary_for_process(db, process.id)
 
     out = []
     for it in RequirementService.list_with_status(db, process.id):
         req, ful = it["requirement"], it["fulfillment"]
+        es_encuesta = req.auto_source == "graduate_survey"
         out.append({
             # Ancla del botón «i» con SU modal (`#tt-reqinfo-modal-{id}`).
             "id": req.id,
@@ -924,9 +958,15 @@ def _checklist_ctx(db, process) -> list[dict]:
             "status": (ful.status if ful else None),
             "source": (ful.source if ful else None),
             "when": (f"{ful.fulfilled_at:%d/%m/%Y}" if ful and ful.fulfilled_at else None),
-            # El único requisito que el alumno puede resolver desde aquí mismo.
-            "survey_url": ("/titulatec/encuesta-egresados"
-                           if req.auto_source == "graduate_survey" else None),
+            # La libera GTV, no el alumno (D3): el estatus real de la
+            # solicitud sustituye al "Listo"/"Dispensado" genérico en la
+            # plantilla. `None` en cualquier otro requisito.
+            "survey": (survey if es_encuesta else None),
+            # El único requisito que el alumno puede resolver desde aquí mismo,
+            # y SOLO si de verdad no ha enviado nada todavía (pseudo-estado
+            # "missing" = sin fila en `titulatec_survey_reviews`).
+            "survey_url": (_SURVEY_URL if es_encuesta and survey["status"] == "missing"
+                           else None),
         })
     return out
 
