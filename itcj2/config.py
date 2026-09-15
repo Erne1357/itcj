@@ -113,7 +113,10 @@ class Settings(BaseSettings):
     # información de requisitos), `js/admin/cotejo-info-editor.js` (nuevo) y
     # `js/shared/titulatec-utils.js` (guarda del puente `htmx:confirm`). Sin el
     # bump, el editor de requisitos y la nota de guardado llegan sin su JS.
-    STATIC_VERSION: str = "1.0.1111533"
+    #
+    # Bump 2026-09-15 (3): `public.css` gana `.tt-public-bar-back`, el botón
+    # «Volver a TitulaTec» de la barra de la encuesta.
+    STATIC_VERSION: str = "1.0.1111534"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
