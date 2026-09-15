@@ -1,13 +1,34 @@
 {# Bandeja de solicitudes. Raíz `#tt-requests-body`; todos los controles apuntan
    a ella con `hx-swap="outerHTML"`, así que TODOS los handlers devuelven este
-   parcial completo, nunca una fila. #}
+   parcial completo, nunca una fila.
+
+   `status` es la pestaña activa (`_body_ctx` la normaliza: nunca un filtro
+   arbitrario). Cada formulario de fila la manda de vuelta, junto con la
+   convocatoria, en campos ocultos: aprobar, rechazar o reenviar vuelven a pintar
+   la pestaña donde estaba el oficial.
+
+   Lo que ofrece cada fila sale de su estado y de si el número de control tiene
+   cuenta HOY en `core_users`, que es la misma pregunta que se hace `approve()`:
+   - por revisar, sin cuenta: NIP + carrera, «Aprobar y crear acceso»;
+   - por revisar, con cuenta: carrera, «Aprobar y enviar liga», con el aviso de a
+     dónde va la liga (el riesgo aceptado de docs/flows/xcut_public_enrollment.md);
+   - liga enviada: envíos, «Reenviar liga» (rota la liga) y «Cancelar solicitud»;
+   - inscrita: folio; rechazada: motivo.
+   Sin hx-confirm (no hay puente) y sin JS ni CSS en línea. #}
+{% macro tab_fields(tab, cohort) -%}
+<input type="hidden" name="status" value="{{ tab }}">
+<input type="hidden" name="cohort_id" value="{{ cohort or '' }}">
+{%- endmacro %}
+{%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
 <div id="tt-requests-body" data-tt-view="requests-body">
 
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-    {% for f, lbl in [('', 'Todas'), ('pending_review', 'Por revisar'), ('converted', 'Inscritas'), ('rejected', 'Rechazadas')] %}
-    <button class="btn btn-sm {{ 'tt-btn-ink' if status == f else 'tt-btn-ghost' }}" type="button"
-            hx-get="/titulatec/admin/solicitudes/body?status={{ f }}{{ '&cohort_id=' ~ cohort_id if cohort_id }}"
-            hx-target="#tt-requests-body" hx-swap="outerHTML">{{ lbl }}</button>
+    {% for key, label in tabs %}
+    <button id="tt-req-tab-{{ key }}" type="button"
+            class="btn btn-sm {{ 'tt-btn-ink' if status == key else 'tt-btn-ghost' }}"
+            {% if status == key %}aria-current="true"{% endif %}
+            hx-get="/titulatec/admin/solicitudes/body?status={{ key }}{{ qs_cohort }}"
+            hx-target="#tt-requests-body" hx-swap="outerHTML">{{ label }}</button>
     {% endfor %}
   </div>
 
@@ -28,86 +49,89 @@
     <table class="table table-sm align-middle">
       <thead><tr>
         <th>Control</th><th>Nombre</th><th>Carrera</th><th>Contacto</th>
-        <th>Estado</th><th>Convocatoria</th><th></th>
+        <th>Convocatoria</th><th>Fecha</th><th>Cuenta</th><th></th>
       </tr></thead>
       <tbody>
       {% for r in rows %}
-      <tr>
+      <tr id="tt-req-{{ r.id }}">
         <td class="tt-mono">{{ r.control }}</td>
-        <td>{{ r.name }}</td>
-        <td>{{ r.program }}</td>
         <td>
-          {{ r.email }}<br>
-          {% if r.contact_verified %}
-          <span class="tt-pill tt-pill--success">correo personal verificado</span>
+          {{ r.name }}
+          {% if status == 'all' %}<br><span class="tt-pill tt-pill--neutral">{{ r.status_label }}</span>{% endif %}
+        </td>
+        <td>{{ r.program }}</td>
+        <td>{{ r.email }}<br><span class="tt-mono">{{ r.phone }}</span></td>
+        <td>{{ r.cohort }}</td>
+        <td class="tt-mono">{{ r.created }}</td>
+        <td>
+          {% if r.has_account %}
+          <span class="tt-pill tt-pill--neutral">Con cuenta</span>
+          {% if not r.has_password %}<span class="tt-pill tt-pill--danger">sin contraseña</span>{% endif %}
           {% else %}
-          <span class="tt-pill tt-pill--amber">correo personal sin verificar</span>
-          {% endif %}
-          {% if not r.mail_sent %}
-          <span class="tt-pill tt-pill--neutral">correo no enviado</span>
-          {% endif %}
-          {# Prueba de identidad, separada de la del correo personal: es lo que
-             decide qué puede escribir `approve()` sobre una cuenta que ya
-             existe. Sin este renglón el oficial no tenía forma de distinguir
-             una solicitud confirmada por su dueño de una que escribió
-             cualquiera con un número de control ajeno. #}
-          {% if r.institutional_proof %}
-          <span class="tt-pill tt-pill--success">liga institucional abierta</span>
-          {% elif r.kind == 'known' %}
-          <span class="tt-pill tt-pill--amber">liga institucional sin abrir</span>
-          {% elif r.verified %}
-          <span class="tt-pill tt-pill--neutral">sin cuenta; liga del formulario abierta</span>
-          {% else %}
-          <span class="tt-pill tt-pill--amber">sin cuenta; liga sin abrir</span>
+          <span class="tt-pill tt-pill--amber">Sin cuenta</span>
           {% endif %}
         </td>
-        <td><span class="tt-pill tt-pill--neutral">{{ r.status }}</span></td>
-        <td>{{ r.cohort }}</td>
         <td>
-          {% if r.status in ('pending_review', 'verified', 'unverified') %}
-          {# El formulario de aprobar SOLO donde `approve()` acepta. `unverified`
-             significa que nadie abrió ninguna liga: el servicio lo rechaza, así
-             que ofrecerlo sería prometer una acción que devuelve 400. Rechazar
-             y reenviar sí siguen disponibles ahí — son justo lo que el oficial
-             puede hacer con una solicitud sin confirmar. #}
-          {% if r.status in ('pending_review', 'verified') %}
-          <form class="d-flex flex-wrap gap-1 align-items-center"
-                hx-post="/titulatec/admin/solicitudes/{{ r.id }}/aprobar"
-                hx-target="#tt-requests-body" hx-swap="outerHTML">
-            <input class="tt-field tt-field--xs" name="nip" required
-                   inputmode="numeric" pattern="\d{4}" maxlength="4"
-                   placeholder="NIP" aria-label="NIP de 4 dígitos"
-                   autocomplete="off">
-            <select class="tt-field tt-field--xs" name="program_id" aria-label="Carrera">
-              <option value="">Carrera…</option>
-              {% for p in programs %}
-              <option value="{{ p.id }}"{% if r.program_id == p.id %} selected{% endif %}>{{ p.name }}</option>
-              {% endfor %}
-            </select>
-            <button type="submit" class="btn btn-sm tt-btn-ink">Aprobar</button>
-          </form>
-          {% if not r.nip_aplica %}
-          {# `approve()` preserva la credencial que ya exista y avisa por folio
-             al institucional. Sin este aviso el oficial creía haber fijado una
-             contraseña que nunca se escribió. #}
-          <span class="tt-pill tt-pill--amber">el NIP no se aplica: esa cuenta ya
-            existe y conserva su contraseña; se avisará el folio al institucional</span>
-          {% endif %}
-          {% endif %}
-          <form class="d-flex gap-1 mt-1"
-                hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
-                hx-target="#tt-requests-body" hx-swap="outerHTML">
-            <input class="tt-field tt-field--xs" name="note" required
-                   placeholder="Motivo del rechazo" aria-label="Motivo del rechazo">
-            <button type="submit" class="btn btn-sm tt-btn-ghost">Rechazar</button>
-          </form>
-          <button type="button" class="btn btn-sm tt-btn-ghost mt-1"
+          {% if r.reviewable %}
+            {% if r.note %}<p class="small mb-1">Nota: {{ r.note }}</p>{% endif %}
+            <form class="d-flex flex-wrap gap-1 align-items-center"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/aprobar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              {% if not r.has_account %}
+              <input class="tt-field tt-field--xs" name="nip" required
+                     inputmode="numeric" pattern="\d{4}" maxlength="4"
+                     placeholder="NIP" aria-label="NIP de 4 dígitos"
+                     autocomplete="off">
+              {% endif %}
+              <select class="tt-field tt-field--xs" name="program_id" aria-label="Carrera">
+                <option value="">Carrera…</option>
+                {% for p in programs %}
+                <option value="{{ p.id }}"{% if r.program_id == p.id %} selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn btn-sm tt-btn-ink">
+                {{ 'Aprobar y enviar liga' if r.has_account else 'Aprobar y crear acceso' }}</button>
+            </form>
+            {% if r.has_account %}
+            <p class="small mt-1 mb-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>La
+               liga de activación irá a este correo, que escribió el solicitante. Confirma su
+               identidad antes de aprobar.</p>
+            {% endif %}
+            <form class="d-flex gap-1 mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <input class="tt-field tt-field--xs" name="note" required
+                     placeholder="Motivo del rechazo" aria-label="Motivo del rechazo">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Rechazar</button>
+            </form>
+          {% elif r.status == 'approved' %}
+            <p class="small mb-1">Liga enviada {{ r.sends }} {{ 'vez' if r.sends == 1 else 'veces' }}{% if r.last_sent %}
+               · última {{ r.last_sent }}{% endif %} · {{ 'abierta' if r.opened else 'sin abrir' }}</p>
+            {% if not r.last_sent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+            <form class="d-flex gap-1 mt-1"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reenviar"
-                  hx-target="#tt-requests-body" hx-swap="outerHTML">
-            Reenviar liga ({{ r.sends }}/3)</button>
-          {% else %}
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Reenviar liga</button>
+            </form>
+            <form class="d-flex gap-1 mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <input class="tt-field tt-field--xs" name="note" required
+                     placeholder="Motivo de la cancelación" aria-label="Motivo de la cancelación">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Cancelar solicitud</button>
+            </form>
+          {% elif r.status == 'converted' %}
             {% if r.folio %}<span class="tt-mono">{{ r.folio }}</span>{% endif %}
-            {% if r.note %}<span class="tt-mono">{{ r.note }}</span>{% endif %}
+          {% elif r.status == 'rejected' %}
+            {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}
           {% endif %}
         </td>
       </tr>
