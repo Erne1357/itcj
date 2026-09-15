@@ -246,9 +246,35 @@ def _display_values(schema: dict, values: dict) -> dict:
             out[key] = [str(v) for v in raw] if isinstance(raw, list) else [str(raw)]
         elif ftype in ("checkbox", "yesno"):
             out[key] = _as_bool(raw)
+        elif ftype == "date":
+            out[key] = _fecha_para_pintar(raw)
         else:
             out[key] = "" if raw is None else str(raw)
     return out
+
+
+def _fecha_para_pintar(raw) -> str:
+    """Valor de un `date` en la unica forma que acepta `<input type="date">`: ISO.
+
+    Ese control DESCARTA en silencio cualquier otro valor: pinta el campo vacio y
+    el formulario vuelve a mandar `""`. Hasta el 2026-09-15 la fecha de
+    nacimiento era un `text` cuyo rotulo pedia «d/M/yyyy», y hay borradores
+    guardados asi: sin convertirlos, el alumno perderia sin aviso una fecha que
+    ya habia escrito. Solo se convierte lo que es una fecha REAL en esa forma
+    (dia primero, como pedia el rotulo); lo demas se deja tal cual y es el
+    validador quien lo marca en linea.
+    """
+    import re
+    from datetime import date
+
+    texto = "" if raw is None else str(raw).strip()
+    m = re.fullmatch(r"([0-9]{1,2})[/.\-]([0-9]{1,2})[/.\-]([0-9]{4})", texto)
+    if not m:
+        return texto
+    try:
+        return date(int(m.group(3)), int(m.group(2)), int(m.group(1))).isoformat()
+    except ValueError:
+        return texto
 
 
 def _sections(schema: dict, submitted: dict | None = None) -> list[dict]:
@@ -327,6 +353,8 @@ def _form_ctx(meta: dict, schema: dict, *, values, errors, is_authenticated,
         otros pasos al hacer swap, sin inventar sesión de servidor (el estado
         completo ya viaja en las respuestas acumuladas de cada envío).
     """
+    from itcj2.apps.titulatec.utils.survey_validator import date_bounds
+
     campos = [f for f in ((schema or {}).get("fields") or []) if isinstance(f, dict)]
     orden = [f.get("key") for f in campos]
     values = values or {}
@@ -335,6 +363,11 @@ def _form_ctx(meta: dict, schema: dict, *, values, errors, is_authenticated,
         "form": meta,
         "sections": grupos,
         "values": _display_values(schema, values),
+        # `min`/`max` de cada `<input type="date">` con edad acotada (2026-09-15),
+        # calculados AQUI con la misma aritmetica que la validacion: la plantilla
+        # no sabe que dia es hoy.
+        "date_bounds": {f.get("key"): date_bounds(f) for f in campos
+                        if f.get("type") == "date"},
         "errors": errors or {},
         "form_error": (errors or {}).get(FORM_ERROR_KEY),
         "first_error_key": next((k for k in orden if k in (errors or {})), None),

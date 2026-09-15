@@ -9,8 +9,13 @@ Mapeo tipo -> columna de `titulatec_survey_answers`, exhaustivo:
     scale                          -> 1 fila, `value_num`
     yesno, checkbox                -> 1 fila, `value_bool`
     text, textarea, select, radio  -> 1 fila, `value_text`
+    date                           -> 1 fila, `value_text` en ISO `AAAA-MM-DD`
+                                      (2026-09-15; el export la deja igual)
     multiselect                    -> N filas, `value_text` = valor de la opcion
                                       y `value_bool = True`
+
+Un `text` con `validation.format` guarda el valor NORMALIZADO que devuelve el
+validador (el telefono en digitos, la coma decimal como punto), no el crudo.
 
 `multiselect` es un tipo APARTE de `checkbox` justamente por esto: si compartieran
 tipo, las filas de `survey_answers` serian indistinguibles y esa tabla existe
@@ -241,6 +246,7 @@ class SurveyService:
                 db.add(SurveyAnswer(response_id=response.id, field_key=key,
                                     field_type=field_type, value_bool=bool(value)))
             else:
+                # text, textarea, select, radio y date (ISO `AAAA-MM-DD`).
                 db.add(SurveyAnswer(response_id=response.id, field_key=key,
                                     field_type=field_type, value_text=str(value)))
 

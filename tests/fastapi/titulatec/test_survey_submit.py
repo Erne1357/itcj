@@ -107,6 +107,25 @@ def test_una_fila_por_campo_salvo_multiselect_que_escribe_N(
     assert all(f.field_type == "multiselect" for f in por_llave["idiomas"])
 
 
+def test_una_fecha_se_guarda_en_value_text_como_iso(db_session, make_survey_form):
+    """`date` (2026-09-15) cae en `value_text`, igual que los demas escalares de texto."""
+    schema = {"enabled": True,
+              "fields": [{"key": "fecha_nacimiento", "type": "date",
+                          "label": "Fecha de nacimiento",
+                          "validation": {"minAge": 15, "maxAge": 90}}]}
+    form = make_survey_form(code="tt_test_fecha", schema=schema)
+
+    response, errors, _credit = SurveyService.submit(
+        db_session, form, {"fecha_nacimiento": " 1998-03-07 "},
+        user_id=None, client_ip=None, user_agent=None)
+
+    assert errors == {}
+    assert response.answers == {"fecha_nacimiento": "1998-03-07"}
+    filas = [(f.field_key, f.field_type, f.value_text, f.value_num, f.value_bool)
+             for f in _answers(db_session, response)]
+    assert filas == [("fecha_nacimiento", "date", "1998-03-07", None, None)]
+
+
 def test_form_version_queda_congelada_y_answers_guarda_cleaned(
     db_session, make_survey_form,
 ):

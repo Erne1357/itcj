@@ -131,9 +131,10 @@ def test_tiene_las_55_preguntas_mas_las_nueve_escalas_de_la_49(db_session):
     assert len(fields) == 63
 
     # 55 preguntas - 1 (la 49, que se reparte) + 9 (sus escalas) = 63.
-    # Por tipo (spec 4.2): 17 text, 36 radio, 9 scale (todas de la 49), 1 textarea.
+    # Por tipo (spec 4.2): 17 de texto, 36 radio, 9 scale (todas de la 49) y 1
+    # textarea. Desde 2026-09-15 uno de los 17 -la fecha de nacimiento- es `date`.
     tipos = Counter(f["type"] for f in fields)
-    assert tipos == {"text": 17, "radio": 36, "scale": 9, "textarea": 1}
+    assert tipos == {"text": 16, "date": 1, "radio": 36, "scale": 9, "textarea": 1}
 
     escalas = [f for f in fields if f["type"] == "scale"]
     assert len(escalas) == 9
@@ -147,6 +148,34 @@ def test_tiene_las_55_preguntas_mas_las_nueve_escalas_de_la_49(db_session):
     # no un campo repetido por accidente de copy-paste.
     keys = [f["key"] for f in fields]
     assert len(keys) == len(set(keys))
+
+
+def test_los_campos_de_texto_con_forma_conocida_declaran_su_formato(db_session):
+    """Validaciones por formato (2026-09-15): la tabla del diseno, campo por campo."""
+    form = _form_egresados_v1(db_session)
+    by_key = {f["key"]: f for f in form.schema["fields"]}
+
+    def validation(key):
+        return by_key[key].get("validation") or {}
+
+    assert validation("no_control") == {"format": "digits", "length": 8, "maxLength": 8}
+    assert by_key["fecha_nacimiento"]["type"] == "date"
+    assert by_key["fecha_nacimiento"]["label"] == "Fecha de nacimiento"
+    assert validation("fecha_nacimiento") == {"minAge": 15, "maxAge": 90}
+    for key in ("telefono", "telefono_encargado_rh"):
+        assert validation(key)["format"] == "phone", key
+    # El telefono de RH es de OTRA persona: el navegador no debe autollenarlo.
+    assert by_key["telefono_encargado_rh"].get("autocomplete") == "off"
+    for key in ("anio_ingreso", "anio_egreso", "anio_residencias"):
+        v = validation(key)
+        assert (v["format"], v["min"], v["max"]) == ("year", 1950, "current"), key
+    assert validation("anio_egreso")["gte_field"] == "anio_ingreso"
+    v = validation("promedio_final")
+    assert (v["format"], v["min"], v["max"]) == ("decimal", 70, 100)
+    assert validation("correo_personal")["format"] == "email"
+    assert validation("nombre_completo")["format"] == "person_name"
+    # Ningun rotulo sigue pidiendo el formato viejo.
+    assert not any("d/M/yyyy" in f["label"] for f in form.schema["fields"])
 
 
 def test_las_obligatorias_son_las_que_dice_el_spec(db_session):

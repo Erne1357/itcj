@@ -80,7 +80,47 @@
   {%- endif -%}
 {%- endmacro %}
 
-{% macro tt_field(f, values, errors, first_error_key) %}
+{# Atributos de un <input> de texto o de fecha segun su formato (2026-09-15).
+   El servidor es la fuente de verdad (`utils/survey_validator.py`); esto solo
+   pone el teclado, el largo y el autollenado que evitan el error:
+     · `digits`/`year` -> `inputmode="numeric"`, sin volver el control
+       `type="number"` (que cambia con la rueda del raton y acepta "e");
+     · `decimal` -> `inputmode="decimal"`: el teclado numerico de iOS no trae
+       punto;
+     · `phone` -> `type="tel"`, `email` -> `type="email"` y `date` ->
+       `type="date"` con el `min`/`max` de `date_bounds` (la misma aritmetica
+       que la validacion). Los tres los pinta `tt_field`;
+     · `autocomplete` sale del formato y el campo puede pisarlo con uno del
+       vocabulario cerrado del validador (el telefono del encargado de RH
+       declara `off`: no es el del egresado).
+   `type` va en `tt_field`, pegado a `id`: las pruebas buscan
+   `type="text" id="f-..."` contiguos. #}
+{% macro tt_input_extra(f, fmt, bounds) -%}
+  {%- set val = f.validation or {} -%}
+  {%- set ac = f.autocomplete or '' -%}
+  {%- if f.type == 'date' -%}
+    {%- if not ac and (val.get('minAge') is not none or val.get('maxAge') is not none) %}{% set ac = 'bday' %}{% endif -%}
+    {%- if bounds and bounds.get('min') %} min="{{ bounds.get('min') }}"{% endif -%}
+    {%- if bounds and bounds.get('max') %} max="{{ bounds.get('max') }}"{% endif -%}
+  {%- elif fmt in ('digits', 'year') -%}
+    {%- set ac = ac or 'off' %} inputmode="numeric"
+  {%- elif fmt == 'decimal' -%}
+    {%- set ac = ac or 'off' %} inputmode="decimal"
+  {%- elif fmt == 'phone' -%}
+    {%- set ac = ac or 'tel-national' -%}
+  {%- elif fmt == 'email' -%}
+    {%- set ac = ac or 'email' %} autocapitalize="none" spellcheck="false"
+  {%- elif fmt == 'person_name' -%}
+    {%- set ac = ac or 'name' %} autocapitalize="words" spellcheck="false"
+  {%- endif -%}
+  {%- if ac %} autocomplete="{{ ac }}"{% endif -%}
+  {%- if f.type == 'text' -%}
+    {%- set tope = 4 if fmt == 'year' else (val.get('length') if (fmt == 'digits' and val.get('length')) else val.get('maxLength')) -%}
+    {%- if tope %} maxlength="{{ tope }}"{% endif -%}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro tt_field(f, values, errors, first_error_key, bounds=none) %}
   {% set v = values.get(f.key) %}
   {% set err = errors.get(f.key) %}
   {% set fid = 'f-' ~ f.key %}
@@ -103,11 +143,12 @@
     </span>
     {% if hint %}<p class="tt-hint" id="{{ fid }}-hint">{{ hint }}</p>{% endif %}
 
-    {% if f.type == 'text' %}
-      <input class="tt-field form-control" type="text" id="{{ fid }}" name="{{ f.key }}"
+    {% if f.type in ('text', 'date') %}
+      {% set fmt = (f.validation or {}).get('format') if f.type == 'text' else none %}
+      {% set itype = 'date' if f.type == 'date' else {'phone': 'tel', 'email': 'email'}.get(fmt, 'text') %}
+      <input class="tt-field form-control"{{ tt_input_extra(f, fmt, bounds) }} type="{{ itype }}" id="{{ fid }}" name="{{ f.key }}"
              aria-labelledby="{{ fid }}-lbl"{{ tt_aria(err, desc) }}
              value="{{ v if v is not none else '' }}"
-             {% if f.validation and f.validation.maxLength %}maxlength="{{ f.validation.maxLength }}"{% endif %}
              {% if foco %}autofocus data-tt-focus="1"{% endif %}>
 
     {% elif f.type == 'textarea' %}
@@ -233,7 +274,11 @@
   {% endif %}
 {% endmacro %}
 
-<form id="tt-survey-form" class="tt-survey-form"
+{# `novalidate`: `type="email"` y un `type="date"` con `min`/`max` activan la
+   validacion NATIVA, y «Enviar respuestas» es un submit nativo que el navegador
+   detendria con su burbuja ANTES de que htmx lo mande. El error que cuenta es
+   el que pinta el servidor en linea, bajo su pregunta. #}
+<form id="tt-survey-form" class="tt-survey-form" novalidate
       method="post" action="{{ survey_url }}"
       hx-post="{{ survey_url }}"
       hx-target="#tt-survey-form" hx-swap="outerHTML"
@@ -350,7 +395,7 @@
     <section class="tt-section tt-anim-in" data-tt-section="{{ sec.key }}"
              {% if sec.title %}aria-labelledby="sec-{{ sec.key }}"{% endif %}>
       {% if sec.title %}<h2 class="tt-display tt-section-title" id="sec-{{ sec.key }}" tabindex="-1">{{ sec.title }}</h2>{% endif %}
-      {% for f in sec.fields %}{{ tt_field(f, values, errors, first_error_key) }}{% endfor %}
+      {% for f in sec.fields %}{{ tt_field(f, values, errors, first_error_key, (date_bounds or {}).get(f.key)) }}{% endfor %}
     </section>
     {% endfor %}
 

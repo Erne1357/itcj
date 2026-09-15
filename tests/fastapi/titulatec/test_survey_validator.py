@@ -12,9 +12,12 @@ verifica aqui es el de la seccion 4.3 del diseno:
   3. `multiselect` exige LISTA, valida cada elemento y "requerido" significa
      lista no vacia (NO se reutiliza el `field_value is not True` de checkbox,
      que da verdadero para cualquier lista);
-  4. solo sobreviven `minLength`/`maxLength`;
+  4. `validation` es un vocabulario CERRADO: sin `pattern` ni regex libre;
   5. `visible_when` se evalua en el SERVIDOR;
-  6. llave desconocida -> se descarta en silencio y NO llega a `cleaned`.
+  6. llave desconocida -> se descarta en silencio y NO llega a `cleaned`;
+  7. (2026-09-15) formatos por campo -`digits`, `phone`, `year`, `decimal`,
+     `email`, `person_name`-, el tipo `date` con edad acotada y la regla
+     cruzada `gte_field`. Al final del archivo.
 """
 from __future__ import annotations
 
@@ -78,11 +81,12 @@ F_YESNO = {"key": "recomendarias", "type": "yesno", "required": True,
 # --------------------------------------------------------------------------
 # Superficie del modulo
 # --------------------------------------------------------------------------
-def test_los_ocho_tipos_soportados_son_exactamente_los_del_diseno():
-    """Tabla de 4.1: los cinco de helpdesk (sin `file`) + scale/yesno/multiselect."""
+def test_los_nueve_tipos_soportados_son_exactamente_los_del_diseno():
+    """Tabla de 4.1: los cinco de helpdesk (sin `file`) + scale/yesno/multiselect,
+    y `date` desde el delta 7 (2026-09-15)."""
     assert FIELD_TYPES == {
         "text", "textarea", "select", "radio", "checkbox",
-        "scale", "yesno", "multiselect",
+        "scale", "yesno", "multiselect", "date",
     }
     assert TYPES_WITH_OPTIONS == {"select", "radio", "multiselect"}
 
@@ -375,8 +379,12 @@ def test_un_texto_sin_maxlength_se_rechaza():
     assert any("maxLength" in e for e in errors)
 
 
-def test_validation_solo_admite_minlength_y_maxlength():
-    """Delta 4: `pattern`, `min` y `max` no existen en este dialecto."""
+def test_validation_sigue_sin_admitir_pattern_ni_regex_libre():
+    """Delta 4, revisado en el 7: el vocabulario de `validation` es CERRADO.
+
+    Volvieron `min`/`max`, pero solo como parametros de un `format`; `pattern`
+    -una regex escrita a mano en un seeder- sigue sin existir.
+    """
     ok, errors = validate_schema(
         {"enabled": True,
          "fields": [{"key": "libre", "type": "text", "label": "Nombre",
@@ -526,3 +534,417 @@ def test_validate_schema_rechaza_una_lista_cuya_fuente_no_es_select_ni_radio():
     ok, errores = validate_schema(schema)
     assert not ok
     assert any("idiomas" in e for e in errores)
+
+
+# ===========================================================================
+# Delta 7 (2026-09-15): formatos por campo, tipo `date` y regla cruzada
+# ===========================================================================
+# Todo lo que depende de "hoy" recibe `today` explicito: la edad de una fecha
+# de nacimiento y el `max: "current"` de un ano cambian con el calendario, y
+# una prueba que dependiera del reloj real se pondria roja sola un 1 de enero.
+from datetime import date  # noqa: E402
+
+from itcj2.apps.titulatec.utils.survey_validator import date_bounds  # noqa: E402
+
+HOY = date(2026, 9, 15)
+
+F_CONTROL = {"key": "no_control", "type": "text", "required": True, "label": "No. Control:",
+             "validation": {"format": "digits", "length": 8, "maxLength": 8}}
+F_TEL = {"key": "telefono", "type": "text", "required": True,
+         "label": "Número telefónico (10 dígitos):",
+         "validation": {"format": "phone", "maxLength": 20}}
+F_INGRESO = {"key": "anio_ingreso", "type": "text", "required": True,
+             "label": "Año de INGRESO (EJ. 1999)",
+             "validation": {"format": "year", "min": 1950, "max": "current", "maxLength": 4}}
+F_EGRESO = {"key": "anio_egreso", "type": "text", "required": True,
+            "label": "Año de EGRESO (EJ. 1999)",
+            "validation": {"format": "year", "min": 1950, "max": "current", "maxLength": 4,
+                           "gte_field": "anio_ingreso"}}
+F_PROMEDIO = {"key": "promedio_final", "type": "text", "required": True,
+              "label": "Promedio final obtenido (Ej. 93 u 87.5)",
+              "validation": {"format": "decimal", "min": 70, "max": 100, "maxLength": 6}}
+F_CORREO = {"key": "correo_personal", "type": "text", "required": True,
+            "label": "Correo Personal: (Cuenta electrónica que sea utilizada de forma continua)",
+            "validation": {"format": "email", "maxLength": 150}}
+F_NOMBRE = {"key": "nombre_completo", "type": "text", "required": True,
+            "label": "Nombre (s) y Apellidos completos: (Sino escribe de forma correcta su información)",
+            "validation": {"format": "person_name", "maxLength": 200}}
+F_NACIMIENTO = {"key": "fecha_nacimiento", "type": "date", "required": True,
+                "label": "Fecha de nacimiento", "validation": {"minAge": 15, "maxAge": 90}}
+
+
+def _uno(campo, valor, today=HOY):
+    """Valida UN campo con `valor`: `(ok, su_error_o_None, su_valor_limpio_o_None)`."""
+    ok, errors, cleaned = validate_answers(_schema(campo), {campo["key"]: valor}, today=today)
+    return ok, errors.get(campo["key"]), cleaned.get(campo["key"])
+
+
+# --------------------------------------------------------------------------
+# El mensaje lleva el rotulo del campo, sin la pista de formato del rotulo
+# --------------------------------------------------------------------------
+def test_el_mensaje_usa_el_rotulo_sin_lo_que_sigue_a_los_dos_puntos_ni_el_parentesis_final():
+    """El instrumento trae rotulos de FORMULARIO («No. Control:», «Año de INGRESO
+    (EJ. 1999)»). Pegados tal cual a «debe tener…» meten el ejemplo en medio del
+    error; el rotulo recortado sigue diciendo de que campo se habla."""
+    assert _uno(F_CONTROL, "123")[1] == "No. Control debe tener exactamente 8 dígitos"
+    assert _uno(F_INGRESO, "12")[1] == "Año de INGRESO debe ser un año de 4 dígitos entre 1950 y 2026"
+
+
+# --------------------------------------------------------------------------
+# digits
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("valor", ["90200001", " 90200001 "])
+def test_digits_acepta_exactamente_length_digitos_sin_espacios_alrededor(valor):
+    assert _uno(F_CONTROL, valor) == (True, None, "90200001")
+
+
+@pytest.mark.parametrize("valor", [
+    "9020001",          # 7: el caso del alumno que se come un digito
+    "902000011",        # 9: el mensaje es el del formato, no el de maxLength
+    "9020000A",
+    "9020 0001",
+    "-9020000",
+    "٩٠٢٠٠٠٠١",         # ocho digitos arabigo-indicos: `isdigit()` los aceptaria
+])
+def test_digits_rechaza_otro_largo_o_lo_que_no_son_digitos_ascii(valor):
+    ok, error, limpio = _uno(F_CONTROL, valor)
+    assert (ok, limpio) == (False, None), valor
+    assert error == "No. Control debe tener exactamente 8 dígitos", valor
+
+
+# --------------------------------------------------------------------------
+# phone
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("valor", ["6561234567", "656 123 4567", "(656) 123-4567", "656.123.4567"])
+def test_phone_acepta_diez_digitos_con_separadores_comunes_y_guarda_solo_digitos(valor):
+    """Quien escribe «656 123 4567» SI escribio diez digitos: rechazarlo culpa al
+    visitante de un formato que nadie le pidio. Se guarda normalizado."""
+    assert _uno(F_TEL, valor) == (True, None, "6561234567")
+
+
+@pytest.mark.parametrize("valor", ["656123456", "65612345678", "+52 656 123 4567", "656-123-45ab"])
+def test_phone_rechaza_lo_que_no_son_exactamente_diez_digitos(valor):
+    ok, error, limpio = _uno(F_TEL, valor)
+    assert (ok, limpio) == (False, None), valor
+    assert error == "Número telefónico debe tener exactamente 10 dígitos", valor
+
+
+# --------------------------------------------------------------------------
+# year
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("valor", ["1950", "1999", "2026"])
+def test_year_acepta_los_bordes_del_rango(valor):
+    assert _uno(F_INGRESO, valor) == (True, None, valor)
+
+
+@pytest.mark.parametrize("valor", ["1949", "2027", "99", "20155", "20a5", "2015.0"])
+def test_year_rechaza_fuera_de_rango_o_lo_que_no_es_un_anio_de_4_digitos(valor):
+    ok, error, limpio = _uno(F_INGRESO, valor)
+    assert (ok, limpio) == (False, None), valor
+    assert error == "Año de INGRESO debe ser un año de 4 dígitos entre 1950 y 2026", valor
+
+
+def test_year_max_current_se_resuelve_contra_hoy():
+    assert _uno(F_INGRESO, "2027", today=date(2027, 1, 1))[0] is True
+    assert _uno(F_INGRESO, "2027", today=date(2026, 12, 31))[0] is False
+
+
+# --------------------------------------------------------------------------
+# decimal
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("valor,limpio", [
+    ("93", "93"), ("87.5", "87.5"), ("87.50", "87.50"),
+    ("87,5", "87.5"),          # coma decimal: se acepta y se guarda con punto
+    ("70", "70"), ("100", "100"), ("100.00", "100.00"), (" 90 ", "90"),
+])
+def test_decimal_acepta_hasta_dos_decimales_con_punto_o_coma(valor, limpio):
+    assert _uno(F_PROMEDIO, valor) == (True, None, limpio)
+
+
+@pytest.mark.parametrize("valor", ["69.99", "100.01", "0"])
+def test_decimal_fuera_de_rango(valor):
+    ok, error, limpio = _uno(F_PROMEDIO, valor)
+    assert (ok, limpio) == (False, None), valor
+    assert error == "Promedio final obtenido debe estar entre 70 y 100", valor
+
+
+@pytest.mark.parametrize("valor", ["87.555", "abc", "-80", "1e2", ".5", "87.", "8 7"])
+def test_decimal_con_forma_invalida(valor):
+    ok, error, limpio = _uno(F_PROMEDIO, valor)
+    assert (ok, limpio) == (False, None), valor
+    assert error == ("Promedio final obtenido debe ser un número con hasta 2 decimales "
+                     "(por ejemplo 93 u 87.5)"), valor
+
+
+# --------------------------------------------------------------------------
+# email
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("valor", ["andrea@example.com", " andrea.r+egresados@correo.mx "])
+def test_email_acepta_un_correo_valido_sin_espacios_alrededor(valor):
+    assert _uno(F_CORREO, valor) == (True, None, valor.strip())
+
+
+@pytest.mark.parametrize("valor", ["andrea@", "andrea example.com", "a@b", "@example.com"])
+def test_email_rechaza_un_correo_invalido(valor):
+    ok, error, limpio = _uno(F_CORREO, valor)
+    assert (ok, limpio) == (False, None), valor
+    assert error == "Correo Personal no es un correo válido (por ejemplo, nombre@dominio.com)"
+
+
+def test_email_delega_en_is_valid_email_del_core_y_no_copia_su_regex(monkeypatch):
+    """Una copia de la regex aqui divergiria de la del core en silencio."""
+    from itcj2.core.utils import email_tools
+
+    monkeypatch.setattr(email_tools, "is_valid_email", lambda value: value == "SOLO-ESTE")
+    assert _uno(F_CORREO, "SOLO-ESTE")[0] is True
+    assert _uno(F_CORREO, "andrea@example.com")[0] is False
+
+
+# --------------------------------------------------------------------------
+# person_name
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("valor,limpio", [
+    ("María José Núñez", "María José Núñez"),
+    ("Ana-Lucía O'Connor", "Ana-Lucía O'Connor"),
+    ("Günther Müller", "Günther Müller"),
+    ("D’Angelo Peña", "D’Angelo Peña"),
+    ("  Ana   María  ", "Ana María"),
+    ("José Pérez", "José Pérez"),     # descompuesto (NFD) -> NFC
+    ("Li", "Li"),
+])
+def test_person_name_acepta_letras_unicode_espacios_guion_y_apostrofo(valor, limpio):
+    assert _uno(F_NOMBRE, valor) == (True, None, limpio)
+
+
+@pytest.mark.parametrize("valor", ["Ana2", "Ma. Guadalupe", "Ana_María", "<b>Ana</b>", "Ana@"])
+def test_person_name_rechaza_digitos_y_signos(valor):
+    """El punto tambien: el diseno cierra el conjunto en letras, espacios, guion y
+    apostrofo. Medido en dev: 0 de los 37 alumnos con proceso llevan uno."""
+    ok, error, limpio = _uno(F_NOMBRE, valor)
+    assert (ok, limpio) == (False, None), valor
+    assert error == ("Nombre (s) y Apellidos completos solo puede llevar letras, espacios, "
+                     "guion y apóstrofo"), valor
+
+
+@pytest.mark.parametrize("valor", ["A", "-", "--", "'-"])
+def test_person_name_exige_al_menos_dos_letras(valor):
+    ok, error, limpio = _uno(F_NOMBRE, valor)
+    assert (ok, limpio) == (False, None), valor
+    assert error == "Nombre (s) y Apellidos completos debe tener al menos 2 letras", valor
+
+
+def test_un_campo_con_formato_opcional_y_vacio_no_es_error_ni_llega_a_cleaned():
+    opcional = dict(F_TEL, required=False)
+    assert validate_answers(_schema(opcional), {"telefono": "  "}, today=HOY) == (True, {}, {})
+
+
+# --------------------------------------------------------------------------
+# date
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("valor", [
+    "2000-01-01",
+    "2011-09-15",       # cumple 15 HOY: ya entra
+    "1935-09-16",       # tiene 90 y cumple 91 manana: todavia entra
+    "2000-02-29",       # bisiesto
+])
+def test_date_acepta_una_fecha_real_dentro_de_la_edad(valor):
+    assert _uno(F_NACIMIENTO, valor) == (True, None, valor)
+
+
+@pytest.mark.parametrize("valor", [
+    "2000-02-30", "2001-02-29", "2000-13-01",
+    "01/01/2000",       # la forma que pedia el rotulo viejo
+    "20000101",         # `date.fromisoformat` de 3.11 SI la aceptaria
+    "2000-1-1", "hoy", "0000-01-01",
+])
+def test_date_rechaza_lo_que_no_es_una_fecha_iso_real(valor):
+    ok, error, limpio = _uno(F_NACIMIENTO, valor)
+    assert (ok, limpio) == (False, None), valor
+    assert error == "Fecha de nacimiento no es una fecha válida", valor
+
+
+def test_date_respeta_min_age_contra_hoy():
+    ok, error, _ = _uno(F_NACIMIENTO, "2011-09-16")          # cumple 15 manana
+    assert (ok, error) == (False, "Fecha de nacimiento indica una edad menor a 15 años")
+
+
+def test_date_respeta_max_age_contra_hoy():
+    ok, error, _ = _uno(F_NACIMIENTO, "1935-09-15")          # cumple 91 hoy
+    assert (ok, error) == (False, "Fecha de nacimiento indica una edad mayor a 90 años")
+
+
+def test_date_con_edad_acotada_no_admite_una_fecha_futura():
+    ok, error, _ = _uno(F_NACIMIENTO, "2026-09-16")
+    assert (ok, error) == (False, "Fecha de nacimiento no puede ser una fecha futura")
+
+
+def test_date_sin_edad_admite_cualquier_fecha_real():
+    libre = {"key": "fecha_evento", "type": "date", "required": True, "label": "Fecha del evento"}
+    assert _uno(libre, "2030-01-01") == (True, None, "2030-01-01")
+
+
+def test_date_opcional_vacia_no_es_error_ni_llega_a_cleaned():
+    opcional = dict(F_NACIMIENTO, required=False)
+    assert validate_answers(_schema(opcional), {"fecha_nacimiento": ""}, today=HOY) == (True, {}, {})
+
+
+def test_date_bounds_usa_la_misma_aritmetica_que_la_validacion():
+    """El `min`/`max` del `<input type="date">` sale de aqui: si divergiera de la
+    validacion, el selector ofreceria fechas que el servidor rechaza."""
+    assert date_bounds(F_NACIMIENTO, today=HOY) == {"min": "1935-09-16", "max": "2011-09-15"}
+    assert _uno(F_NACIMIENTO, "1935-09-16")[0] and _uno(F_NACIMIENTO, "2011-09-15")[0]
+    assert not _uno(F_NACIMIENTO, "1935-09-15")[0]
+    assert not _uno(F_NACIMIENTO, "2011-09-16")[0]
+
+
+def test_date_bounds_un_29_de_febrero_no_revienta_y_sus_bordes_validan():
+    hoy = date(2028, 2, 29)
+    limites = date_bounds(F_NACIMIENTO, today=hoy)
+    assert limites == {"min": "1937-03-01", "max": "2013-02-28"}
+    for borde in limites.values():
+        assert _uno(F_NACIMIENTO, borde, today=hoy)[0] is True, borde
+
+
+def test_date_bounds_sin_edad_no_acota():
+    assert date_bounds({"key": "f", "type": "date", "label": "F"}, today=HOY) == {}
+
+
+# --------------------------------------------------------------------------
+# gte_field: anio_egreso >= anio_ingreso
+# --------------------------------------------------------------------------
+def _anios(ingreso, egreso):
+    return validate_answers(_schema(F_INGRESO, F_EGRESO),
+                            {"anio_ingreso": ingreso, "anio_egreso": egreso}, today=HOY)
+
+
+def test_gte_field_acepta_egreso_igual_o_posterior_al_ingreso():
+    assert _anios("2015", "2020") == (True, {}, {"anio_ingreso": "2015", "anio_egreso": "2020"})
+    assert _anios("2015", "2015")[0] is True
+
+
+def test_gte_field_rechaza_egreso_anterior_y_marca_el_campo_que_declara_la_regla():
+    ok, errors, cleaned = _anios("2020", "2015")
+    assert ok is False
+    assert errors == {"anio_egreso": "Año de EGRESO no puede ser anterior a Año de INGRESO (2020)"}
+    assert cleaned == {"anio_ingreso": "2020"}
+
+
+def test_gte_field_no_compara_contra_un_valor_invalido():
+    """El error ya es del otro campo: repetirlo aqui culparia al equivocado."""
+    ok, errors, _ = _anios("20a0", "2015")
+    assert ok is False
+    assert set(errors) == {"anio_ingreso"}
+
+
+def test_gte_field_con_la_referencia_fuera_del_schema_no_revienta():
+    """Un mini-schema de paso sin la referencia no tiene regla que evaluar."""
+    ok, errors, cleaned = validate_answers(
+        _schema(F_EGRESO), {"anio_ingreso": "2020", "anio_egreso": "2015"}, today=HOY)
+    assert (ok, errors, cleaned) == (True, {}, {"anio_egreso": "2015"})
+
+
+def test_gte_field_con_la_referencia_invisible_no_se_evalua():
+    fuente = {"key": "egresado", "type": "radio", "required": True, "label": "Egresaste?",
+              "options": [{"value": "si", "label": "Si"}, {"value": "no", "label": "No"}]}
+    ingreso = dict(F_INGRESO, visible_when={"egresado": "si"})
+    ok, errors, cleaned = validate_answers(
+        _schema(fuente, ingreso, F_EGRESO),
+        {"egresado": "no", "anio_ingreso": "2020", "anio_egreso": "2015"}, today=HOY)
+    assert (ok, errors) == (True, {})
+    assert "anio_ingreso" not in cleaned and cleaned["anio_egreso"] == "2015"
+
+
+# --------------------------------------------------------------------------
+# validate_schema: el vocabulario cerrado del lado de la DEFINICION
+# --------------------------------------------------------------------------
+SCHEMA_FORMATOS = {
+    "enabled": True,
+    "sections": [{"key": "perfil", "title": "Perfil del egresado"}],
+    "fields": [dict(f, section="perfil") for f in (
+        F_NOMBRE, F_CONTROL, F_NACIMIENTO, F_CORREO, F_TEL, F_INGRESO, F_EGRESO, F_PROMEDIO)],
+}
+
+
+def test_validate_schema_acepta_los_seis_formatos_date_y_gte_field():
+    ok, errors = validate_schema(SCHEMA_FORMATOS)
+    assert ok is True, errors
+
+
+def _con_validation(tipo, validation):
+    campo = {"key": "x", "type": tipo, "label": "X", "validation": validation}
+    return {"enabled": True, "fields": [campo]}
+
+
+@pytest.mark.parametrize("tipo,validation,pista", [
+    ("text", {"maxLength": 20, "format": "regex"}, "regex"),
+    ("text", {"maxLength": 20, "pattern": "^[0-9]+$"}, "pattern"),
+    ("textarea", {"maxLength": 20, "format": "email"}, "format"),
+    ("yesno", {"format": "email"}, "format"),
+    ("text", {"maxLength": 20, "length": 8}, "length"),          # length sin format
+    ("text", {"maxLength": 20, "min": 1}, "min"),                # min sin format
+    ("text", {"maxLength": 8, "format": "digits"}, "length"),    # digits sin length
+    ("text", {"maxLength": 8, "format": "digits", "length": 0}, "length"),
+    ("text", {"maxLength": 8, "format": "digits", "length": True}, "length"),
+    ("text", {"maxLength": 7, "format": "digits", "length": 8}, "maxLength"),
+    ("text", {"maxLength": 20, "format": "phone", "length": 10}, "length"),
+    ("text", {"maxLength": 9, "format": "phone"}, "maxLength"),
+    ("text", {"maxLength": 4, "format": "year", "max": "current"}, "min"),
+    ("text", {"maxLength": 4, "format": "year", "min": 1950}, "max"),
+    ("text", {"maxLength": 4, "format": "year", "min": 1950, "max": "tomorrow"}, "max"),
+    ("text", {"maxLength": 4, "format": "year", "min": 2000, "max": 1990}, "min"),
+    ("text", {"maxLength": 3, "format": "year", "min": 1950, "max": "current"}, "maxLength"),
+    ("text", {"maxLength": 6, "format": "decimal", "min": 100, "max": 70}, "min"),
+    ("text", {"maxLength": 6, "format": "decimal", "min": "70", "max": 100}, "min"),
+    ("text", {"maxLength": 6, "format": "decimal", "min": 70, "max": 100, "gte_field": "y"},
+     "gte_field"),
+    ("text", {"maxLength": 20, "minAge": 15}, "minAge"),
+    ("date", {"maxLength": 10}, "maxLength"),
+    ("date", {"format": "digits"}, "format"),
+    ("date", {"minAge": 90, "maxAge": 15}, "minAge"),
+    ("date", {"minAge": -1}, "minAge"),
+])
+def test_validate_schema_rechaza_combinaciones_invalidas(tipo, validation, pista):
+    ok, errors = validate_schema(_con_validation(tipo, validation))
+    assert ok is False, validation
+    assert any(pista in e for e in errors), errors
+
+
+def test_gte_field_debe_apuntar_a_un_year_existente_de_la_misma_seccion():
+    """Misma seccion: el paso valida un mini-schema con SOLO los campos de su
+    seccion, y una regla cuya referencia viviera en otro paso no se evaluaria
+    nunca al avanzar."""
+    base = {"enabled": True, "sections": [{"key": "a", "title": "A"}, {"key": "b", "title": "B"}]}
+    egreso = dict(F_EGRESO, section="a")
+
+    def definicion(*fields):
+        return validate_schema(dict(base, fields=list(fields)))
+
+    ok, errors = definicion(egreso)
+    assert not ok and any("anio_ingreso" in e for e in errors), errors
+
+    a_si_mismo = dict(egreso, validation=dict(egreso["validation"], gte_field="anio_egreso"))
+    ok, errors = definicion(a_si_mismo)
+    assert not ok and any("si mismo" in e for e in errors), errors
+
+    no_year = {"key": "anio_ingreso", "section": "a", "type": "text", "label": "Ingreso",
+               "validation": {"maxLength": 4}}
+    ok, errors = definicion(egreso, no_year)
+    assert not ok and any("year" in e for e in errors), errors
+
+    ok, errors = definicion(egreso, dict(F_INGRESO, section="b"))
+    assert not ok and any("seccion" in e for e in errors), errors
+
+    ok, errors = definicion(egreso, dict(F_INGRESO, section="a"))
+    assert ok, errors
+
+
+def test_autocomplete_es_un_vocabulario_cerrado_y_solo_para_text_o_date():
+    """El telefono del encargado de RH no es el del egresado: sin poder decir
+    `off`, el navegador ofreceria autollenarlo con el suyo."""
+    assert validate_schema({"enabled": True, "fields": [dict(F_TEL, autocomplete="off")]})[0]
+
+    ok, errors = validate_schema({"enabled": True, "fields": [dict(F_TEL, autocomplete="telefono")]})
+    assert not ok and any("autocomplete" in e for e in errors), errors
+
+    ok, errors = validate_schema({"enabled": True, "fields": [dict(F_RADIO, autocomplete="off")]})
+    assert not ok and any("autocomplete" in e for e in errors), errors

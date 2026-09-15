@@ -105,8 +105,28 @@ const MAX_PROSA_PX = 800;
 // extra (ver el encabezado). Puro cálculo en JS sobre el JSON del esquema:
 // nada de esto escribe en la base todavía.
 // ---------------------------------------------------------------------------
+// Desde 2026-09-15 los campos de texto con forma conocida declaran
+// `validation.format` y la fecha de nacimiento es `date`. `_start_step` solo mira
+// que un obligatorio NO este vacio -un `date` sin rama aqui devolvia '' y el GET
+// se quedaba en el paso 1 para siempre-, pero el relleno se siembra VALIDO igual:
+// un paso que aterriza con valores que el propio formulario rechaza no es el
+// paso real que esta spec dice medir.
+function valorConFormato(field) {
+  const v = field.validation || {};
+  switch (v.format) {
+    case 'digits': return '7'.repeat(v.length || 8);
+    case 'phone': return '6561234567';
+    case 'year': return '2015';
+    case 'decimal': return '90';
+    case 'email': return 'e2e.responsive@example.com';
+    case 'person_name': return 'Prueba Responsive';
+    default: return null;
+  }
+}
+
 function elegirValor(field, avoid) {
   const t = field.type;
+  if (t === 'date') return '2000-01-01';
   if (t === 'radio' || t === 'select') {
     const opciones = (field.options || []).map((o) => String(o.value));
     const evitar = avoid.get(field.key) || new Set();
@@ -118,6 +138,8 @@ function elegirValor(field, avoid) {
     return String(bloque.min != null ? bloque.min : 1);
   }
   if (t === 'text' || t === 'textarea') {
+    const conFormato = valorConFormato(field);
+    if (conFormato !== null) return conFormato;
     const maxLen = (field.validation && field.validation.maxLength) || 50;
     return 'E2E prueba responsive'.slice(0, maxLen);
   }

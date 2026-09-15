@@ -64,6 +64,24 @@ def test_el_escapado_alcanza_a_las_columnas_FIJAS_no_solo_a_las_respuestas(
     assert rows[0][columna] == "'=1+1"
 
 
+def test_una_fecha_sale_en_iso_en_el_export(db_session, make_survey_form):
+    """`date` (2026-09-15) viaja como `AAAA-MM-DD` de punta a punta: sin reformatear
+    a la configuracion regional de nadie, que es lo que ordena bien en Excel."""
+    schema = {"enabled": True,
+              "fields": [{"key": "fecha_nacimiento", "type": "date",
+                          "label": "Fecha de nacimiento",
+                          "validation": {"minAge": 15, "maxAge": 90}}]}
+    form = make_survey_form(code="tt_test_csv_fecha", schema=schema)
+    _resp, errors, _credit = SurveyService.submit(
+        db_session, form, {"fecha_nacimiento": "1998-03-07"},
+        user_id=None, client_ip=None, user_agent=None)
+    assert errors == {}
+
+    headers, rows = SurveyService.export_rows(db_session, form.id)
+
+    assert rows[0][headers.index("fecha_nacimiento")] == "1998-03-07"
+
+
 def test_el_export_de_un_formulario_sin_respuestas_trae_encabezados_y_cero_filas(
     db_session, make_survey_form,
 ):
