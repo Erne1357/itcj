@@ -30,6 +30,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 | 👤 | Acción del **alumno** (rol `graduate` desde 2026-09-15; antes `student`), mobile |
 | 🏛️ | Acción de **Servicios Escolares** (`titulatec_school_services`) |
 | 🎓 | Acción de **Titulaciones / DEP** (`titulatec_titulaciones`) |
+| 🛠️ | Acción de **Gestión Tecnológica y Vinculación** (`titulatec_tech_management`, GTV — desde 2026-09-15) |
 | 🔗 | Jefe de **Vinculación** (`titulatec_vinculacion`) · 🧑‍⚖️ **Sinodal** (`titulatec_sinodal`) |
 | 🤖 | Paso automático del sistema (sin humano) |
 | ⤵ | Compone/invoca otro flujo |
@@ -53,6 +54,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 ### Fase 2 — Cita de cotejo
 - [Cita de cotejo (loop completo)](phase2_appointment_loop.md) 🏛️👤 ⤵ engine
 - [Información para el alumno de un requisito de cotejo](phase2_school_services_requirement_info.md) 🏛️👤 — la jefa escribe una nota enriquecida por requisito (editor Quill, sanitizada con `utils/rich_text.py`); el alumno la abre con el botón «i» en su cita.
+- [Liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md) 🛠️👤 — Gestión Tecnológica y Vinculación revisa lo que el egresado ya envió y decide si libera el requisito de cotejo `graduate_survey` o le deja observaciones; el egresado no vuelve a tocar la encuesta desde el sistema, lo resuelve físicamente en su ventanilla.
 
 ### Fase 3 — Formato B
 - [El alumno llena y envía el Formato B](phase3_student_formato_b.md) 👤

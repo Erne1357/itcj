@@ -93,3 +93,36 @@ stateDiagram-v2
 ## Estado del Formato B (`FormatB.status`) — Fase 3
 
 `draft` → (alumno envía) → `submitted` → 🎓 `approved` | `rejected` → (corrige) → `submitted`.
+
+## Estado de una solicitud de liberación de GTV para la encuesta de egresados (`SurveyReview.status`) — Fase 2
+
+Nace cuando el egresado envía la encuesta de egresados (una solicitud por proceso,
+`UNIQUE(process_id)`); desde ahí el egresado **no vuelve a tocarla**. El requisito de cotejo
+`graduate_survey` ya NO se acredita al enviarla (retirado de `SurveyService.submit`,
+2026-09-15): se acredita cuando **Gestión Tecnológica y Vinculación** (GTV,
+`titulatec_tech_management`) la libera desde su bandeja. Detalle completo, permisos y
+pantallas: [liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md).
+
+```mermaid
+stateDiagram-v2
+    [*] --> in_review: 👤 envía la encuesta (abre la solicitud, una vez por proceso)
+    in_review --> approved: 🛠️ GTV libera
+    in_review --> rejected: 🛠️ GTV observa (motivo obligatorio)
+    rejected --> approved: 🛠️ GTV libera (sin acción del egresado)
+    rejected --> rejected: 🛠️ GTV observa de nuevo (actualiza el motivo)
+    approved --> rejected: 🛠️ GTV revoca (motivo) — solo si la fase 2 no está `approved`
+    approved --> [*]
+```
+
+> **Pseudo-estado `missing`**: no es un valor de la columna, es la AUSENCIA de fila (el
+> egresado todavía no envía la encuesta) — mismo idioma que "ausencia de fila = pendiente" en
+> `RequirementFulfillment`. Lo calcula `SurveyReviewService.summary_for_process`.
+>
+> **Liberar acredita, revocar desacredita; observar no toca nada.** `approve` llama a
+> `RequirementService.fulfill` sobre `graduate_survey`; `revoke` llama a `unfulfill`. Ni
+> `in_review` ni `rejected` tienen cumplimiento que tocar, así que "Observar" (`reject`) nunca
+> toca el requisito.
+>
+> **El egresado no mueve ningún estado.** Todas las transiciones de arriba las escribe GTV desde
+> `pages/survey_reviews_admin.py`; lo único que hace el egresado (enviar la encuesta) crea la
+> fila inicial en `in_review`, vía `SurveyReviewService.open_for_submission`.

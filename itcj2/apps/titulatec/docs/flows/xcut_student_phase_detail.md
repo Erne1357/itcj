@@ -31,6 +31,15 @@
 `_cta_for()` (`pages/student.py`) aplica 2 y 3 en un solo sitio: devuelve `None` salvo para la
 fase actual. `_PHASE_CTA` sigue siendo la única fuente de los enlaces.
 
+> **Excepción deliberada a la regla 3 (D3, 2026-09-15).** El bloque "Encuesta de egresados" de
+> la fase 2 (`review_appointment`) trae un enlace real, «Contestar la encuesta», incluso cuando
+> esa fase todavía es **futura** (el alumno va en la fase 0 o 1) y aunque `status == 'missing'`.
+> La encuesta de egresados NO está sujeta a la guarda de fase del alumno
+> (`PhaseService.assert_student_can_act`): es visible **desde la fase 0**. Es aditivo, no
+> sustituye el aviso genérico "se habilitará cuando llegues a esta fase" de las demás fases
+> futuras, que sigue apareciendo igual junto a él. Detalle completo de quién libera ese
+> requisito: [liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md).
+
 > **Y el servidor lo respalda (desde 2026-09-02).** Estas tres reglas eran solo de pintado:
 > las 13 rutas del alumno estaban gateadas **solo por permiso** y el rol del alumno de
 > titulación (hoy `graduate`) tiene los 21, así que quitar el CTA no impedía nada — bastaba
@@ -71,7 +80,14 @@ phases    [card × 9]       orden de catálogo
 
 Cada `card`: `number, code, name, icon, responsible, responsible_label, status, rel
 ("past"|"current"|"future"), is_current, can_expand, is_open, is_target, desc, needs[], who,
-cta{url,label,icon}|None, rejection_reason, events[{label,when}], progress|None`.
+cta{url,label,icon}|None, rejection_reason, events[{label,when}], progress|None, survey|None`.
+
+`survey` (D3, 2026-09-15, spec §6.1): dict plano de `SurveyReviewService.summary_for_process`
+(`status|reason|reviewed_by|reviewed_at|review_id|response_id`) + `url` (solo si
+`status == 'missing'`) — colgado ÚNICAMENTE de la card con `code == 'review_appointment'`
+(fase 2), sea `past`, `current` o `future`; `None` en las otras ocho. Es UNA consulta fija más
+(no una por fase), y se pinta con la píldora `survey_review_pill(status)` (`_macros.html`, NO
+`estado_pill`: vocabulario "libera/observa", no "aprueba/rechaza") + el motivo si `rejected`.
 
 `progress` (sub-pasos, decisión 4) trae `kind`, `label` ya en lenguaje del alumno y `tone`
 (vocabulario de `pill()`), más su detalle:
@@ -148,6 +164,8 @@ aviso emitido hasta hoy apunta ahí.
 
 - Desde la columna A el alumno entra a: [documentos](phase1_student_upload_initial_docs.md),
   [cita](phase2_appointment_loop.md), [Formato B](phase3_student_formato_b.md).
+- El badge y el bloque "Encuesta de egresados" de la fase 2: [liberación GTV de la encuesta de
+  egresados](phase2_tech_management_survey_release.md).
 - Chrome y modo embebido: [shell del alumno](xcut_student_shell_embed.md).
 - Contrato responsive (el alumno va **a pantalla completa** en escritorio desde 2026-09-02):
   [`docs/design/responsive.md`](../design/responsive.md).

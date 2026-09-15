@@ -9,7 +9,7 @@
 | **Actor(es)** | 🏛️ Servicios Escolares (encargado de la carrera) · 👤 Alumno |
 | **Permiso(s)** | `appointment.page.list` \| `dashboard.school_services` \| `dashboard.admin` (ver agenda, `pages/appointments.py:62`) · `appointment.api.create` (:484) · `.reschedule` (:514) · `.update` (start/no-show, :545/:589) · `.mark_attended` (:567) · `appointment.page.my` (👤, `pages/student.py:471`) · `appointment.api.confirm.own` (👤, confirmar y solicitar cambio, `student.py:487,509`) · `process.api.approve_phase` |
 | **Trigger** | Los 3 documentos iniciales quedaron aprobados → el proceso aparece en "Por agendar" |
-| **Precondiciones** | Proceso `status == "active"`, **sin cita registrada**, y `DocumentService.initial_docs_all_approved(db, process_id) == True` (`services/appointment_service.py:127-144`) |
+| **Precondiciones** | Proceso `status == "active"`, **sin cita registrada**, `DocumentService.initial_docs_all_approved(db, process_id) == True`, y —desde 2026-09-15 (D2)— la **encuesta de egresados ya ENVIADA**: `AppointmentService.create` exige que exista una `SurveyReview` para el proceso (`SurveyReviewService.get_for_process`) ANTES de cualquier otra validación, o levanta `SurveyNotSubmitted` (`services/appointment_service.py:307-330`) |
 | **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) (paso final, separado) |
 | **Estado final** | Cita `attended`; fase 2 `approved`; fase 3 `in_progress` |
 
@@ -32,6 +32,42 @@
 > (`birth_certificate`, `high_school_cert`, `curp`; `services/document_service.py:8-17`).
 > En la práctica coinciden —aprobar el 3.er documento aprueba la fase 1 y deja
 > `current_phase=2`—, pero **la fase ya no se consulta** en el service.
+
+> **Puerta de la encuesta de egresados + cubo "Sin encuesta" (2026-09-15, D2).** Desde la
+> liberación GTV de la encuesta (⤵ [flujo dedicado](phase2_tech_management_survey_release.md)),
+> "Por agendar" exige un cuarto requisito: la encuesta de egresados ya **ENVIADA** (no
+> liberada — GTV puede seguir revisando en paralelo mientras Servicios Escolares agenda).
+> `AppointmentService.list_pending_processes` agrega un `EXISTS(SurveyReview)` sobre la misma
+> base compartida (`_unscheduled_query`: activos, sin cita, 3 documentos aprobados) que usa el
+> nuevo `AppointmentService.list_missing_survey_processes` — el ÚNICO predicado que cambia entre
+> los dos es "existe `SurveyReview`" contra "no existe". Quien tiene los 3 documentos pero no ha
+> enviado la encuesta cae en el segundo cubo, **"Sin encuesta"**
+> (`templates/titulatec/partials/appointments/_appt_queue.html`): filas **sin arrastre, sin
+> selección y sin navegación** —no hay nada que hacer con ellas todavía, solo informan
+> ("Documentos aprobados; falta que envíe la encuesta de egresados.")— y **no suman** al
+> contador "por atender" de la pestaña Agenda. La guarda dura vive en `AppointmentService.create`
+> (`SurveyNotSubmitted`, `services/appointment_errors.py`), NO en la página: aplica a **todo**
+> `create`, incluido el re-agendar desde `no_show`.
+>
+> ⚠️ **`SlotService.assign_batch` (`services/slot_service.py:269`, motor de reparto masivo, hoy
+> sin llamadores en producción) NO pasa por `AppointmentService.create`**: inserta
+> `ReviewAppointment` directamente, así que **se saltaría esta puerta** si alguna vista futura lo
+> invoca sobre un proceso sin `SurveyReview`. Quien cablee esa vista debe tomar los candidatos de
+> `list_pending_processes` (que ya exige la solicitud) o duplicar la guarda dentro de
+> `assign_batch`.
+
+> **Aviso de vigencia de este documento (Tarea 9, GTV, 2026-09-15).** Esta actualización cubrió
+> SOLO la puerta de la encuesta y el cubo "Sin encuesta" de arriba. El resto de este archivo
+> —"Pasos detallados", "La agenda de tres zonas", "Limitaciones conocidas" y "Cambio planeado
+> (aún no implementado)"— describe la agenda como un `datetime` libre por `fecha`/`hora`/`lugar`
+> con una vista de tres zonas (`?view=list`/`date=`/`selected=`); el código de
+> `pages/appointments.py` y `services/appointment_service.py` YA usa en su lugar
+> `ReviewWindow`/`SlotService` (franjas con cupo, `window_id` + `slot_start`, bloqueo
+> `FOR UPDATE`) y una navegación con cuatro `vista` (`agenda`, `atender`, `espacios`, `reparto`).
+> En otras palabras: la sección "Cambio planeado" de más abajo **YA ESTÁ IMPLEMENTADA**. No se
+> reescribieron aquí esas secciones —documentar ese rediseño completo es trabajo aparte, fuera
+> del alcance de la liberación GTV— así que no asumas que siguen describiendo el código tal cual
+> hasta que alguien las actualice.
 
 ## Ruta en la app (UI)
 
@@ -305,4 +341,6 @@ presente al leer el modelo ni al escribir código nuevo:
   confirmar y pedir cambio siguen viviendo solo en `/student/cita`.
 - ⤵ Motor: [aprobar/avanzar fase](engine_approve_advance_phase.md).
 - ⤵ Alcance: [días/encargados por carrera](engine_officer_scope.md).
+- ⤵ Puerta previa a agendar: [liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md)
+  — quién libera el requisito `graduate_survey` que aparece en el checklist de la ficha del alumno.
 - → Siguiente: [Formato B](phase3_student_formato_b.md).

@@ -4,7 +4,10 @@
 > ("qué es, dónde se tramita, qué tan vigente debe estar…") y el alumno la consulta desde su
 > propia página de cita con el botón «i». Es **solo informativo**: no cambia si el requisito
 > cuenta como cumplido (eso lo sigue haciendo el encargado en la cita, ⤵ ver
-> [cita de cotejo](phase2_appointment_loop.md)).
+> [cita de cotejo](phase2_appointment_loop.md)) — **excepto** el de la encuesta de egresados
+> (`auto_source='graduate_survey'`), que desde 2026-09-15 ya no se acredita solo ni lo marca el
+> encargado: lo libera Gestión Tecnológica y Vinculación desde su propia bandeja, ⤵ ver
+> [liberación GTV de la encuesta](phase2_tech_management_survey_release.md).
 
 | | |
 |---|---|
@@ -146,7 +149,12 @@ módulo admin del CLAUDE.md §4):
   las dos vistas — nunca se sirve HTML sin pasar por la lista blanca.
 - **Requisito automático** (`auto_source`, hoy solo `graduate_survey`): su información **sí** es
   editable — el candado de D9 (`update()`) solo fuerza `is_required`/`is_active`, nunca toca
-  `info_html`.
+  `info_html`. Lo que sí cambió (2026-09-15, D6 de la liberación GTV): el **envío** de la
+  encuesta ya no acredita el requisito por sí solo (antes sí, vía `SurveyService._credit`,
+  retirado) — abre una solicitud de liberación (`SurveyReview`) que decide Gestión Tecnológica y
+  Vinculación desde su propia bandeja, ⤵ ver
+  [liberación GTV de la encuesta](phase2_tech_management_survey_release.md). Este flujo (la nota
+  informativa del requisito) no cambia por eso: sigue siendo edición de texto, no de crédito.
 - **Alumno fuera de la fase 2** → `/student/cita` ni siquiera llega a construir el checklist:
   `_phase_guard_page` redirige **302** al acordeón del dashboard (ver
   [guarda de fase](engine_student_phase_lock.md)).
@@ -162,4 +170,6 @@ módulo admin del CLAUDE.md §4):
   mecanismo **distinto** al de este flujo.
 - ← [Guarda de fase del alumno](engine_student_phase_lock.md) — por qué `/student/cita` puede
   redirigir antes de mostrar el botón «i».
+- ⤵ [Liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md) —
+  quién acredita hoy el requisito `graduate_survey` (D6, 2026-09-15).
 - ← [Glosario: `CotejoRequirement`](_glossary.md).
