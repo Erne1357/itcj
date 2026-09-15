@@ -902,11 +902,20 @@ def _checklist_ctx(db, process) -> list[dict]:
     if process is None:
         return []
     from itcj2.apps.titulatec.services.requirement_service import RequirementService
+    from itcj2.apps.titulatec.utils.rich_text import sanitize_info_html
 
     out = []
     for it in RequirementService.list_with_status(db, process.id):
         req, ful = it["requirement"], it["fulfillment"]
         out.append({
+            # Ancla del botón «i» con SU modal (`#tt-reqinfo-modal-{id}`).
+            "id": req.id,
+            # «Información para el alumno», re-sanitizada AL PINTAR (la primera
+            # sanitización es al guardar): una fila escrita por fuera del editor
+            # —un UPDATE a mano, un DML— tampoco inyecta. La plantilla la pinta
+            # con `|safe` y SOLO este campo; `None` = sin botón «i». Sin tope
+            # (`max_len=None`): una fila ya guardada nunca tumba la página.
+            "info_html": sanitize_info_html(req.info_html, max_len=None),
             "icon": req.icon or "check2-square",
             "title": req.label,
             "hint": req.hint or "",

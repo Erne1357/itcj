@@ -35,6 +35,9 @@
             <i class="bi bi-{{ it.icon }}" style="color:var(--tt-slate)"></i></span>
           <div class="flex-grow-1 min-w-0">
             <div style="font-size:.86rem;font-weight:600">{{ it.title }}
+              {% if it.info_html %}<button type="button" class="tt-reqinfo-btn"
+                      data-bs-toggle="modal" data-bs-target="#tt-reqinfo-modal-{{ it.id }}"
+                      aria-haspopup="dialog" aria-label="Información sobre {{ it.title }}"><i class="bi bi-info-circle" aria-hidden="true"></i></button>{% endif %}
               {% if not it.required %}<span class="tt-pill tt-pill--neutral">opcional</span>{% endif %}
             </div>
             {% if it.hint %}<div style="font-size:.76rem;color:var(--tt-mute)">{{ it.hint }}</div>{% endif %}
@@ -54,6 +57,37 @@
       </div>
     </div>
   </div>
+{% endblock %}
+
+{# «Información para el alumno»: UN modal por requisito que la tenga, a nivel
+   <body> (fuera de `.tt-shell`). Uno por requisito y no uno solo poblado desde
+   el disparador, a propósito:
+     · cero JS propio: lo abre el data-API de Bootstrap (foco atrapado, Esc y
+       regreso del foco al botón «i»), así que no hay módulo que cargar ni que
+       pueda fallar;
+     · el HTML se pinta UNA vez en el servidor, ya sanitizado: no hay `innerHTML`
+       en el cliente ni una copia del contenido escondida en un `data-*`;
+     · la lista es corta (unos 8 requisitos) y solo se emiten los que tienen
+       información, así que el costo en DOM es despreciable.
+   El contenido sale de `_checklist_ctx`, que re-sanitiza al pintar. #}
+{% block modals %}
+{% for it in (checklist or []) if it.info_html %}
+<div class="modal fade tt-reqinfo-modal" id="tt-reqinfo-modal-{{ it.id }}" tabindex="-1"
+     aria-labelledby="tt-reqinfo-modal-{{ it.id }}-t" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="tt-reqinfo-modal-{{ it.id }}-t"><i class="bi bi-{{ it.icon }}" aria-hidden="true"></i><span>{{ it.title }}</span></h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body tt-reqinfo-body">{{ it.info_html|safe }}</div>
+      <div class="modal-footer">
+        <button type="button" class="btn tt-btn-ink tt-reqinfo-ok" data-bs-dismiss="modal">Entendido</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
 {% endblock %}
 
 {# Los errores de HTMX los maneja `static/js/student/errors.js`, cargado desde

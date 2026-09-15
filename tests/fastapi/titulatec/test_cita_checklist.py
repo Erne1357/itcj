@@ -379,3 +379,119 @@ class TestLaPaginaYSusBotonesHablanDelMismoProceso:
         assert resp.status_code == 200, resp.text[:300]
         assert 'data-tt-process="{}"'.format(esc["process"].folio) in resp.text
         assert esc["posterior"].folio not in resp.text
+
+
+class TestInformacionDeCadaRequisito:
+    """El boton «i» junto al requisito y su modal (2026-09-15).
+
+    Un modal POR requisito con informacion, en `{% block modals %}` (nivel
+    <body>): cero JS propio —lo abre el data-API de Bootstrap—, el HTML se pinta
+    una sola vez en el servidor ya sanitizado y no hay `innerHTML` en el cliente.
+    La vista sanitiza AL PINTAR aunque la fila venga sucia de fuera del editor.
+    """
+
+    SUCIO = ('<p onclick="alert(1)">Trae el <strong>original</strong></p>'
+             '<script>alert(2)</script><img src=x onerror=alert(3)>'
+             '<p><a href="javascript:alert(4)">liga mala</a> '
+             '<a href="https://www.itcj.edu.mx/biblioteca">liga buena</a></p>')
+
+    @staticmethod
+    def _doc(resp):
+        import lxml.html
+        return lxml.html.fromstring(resp.text)
+
+    def test_el_boton_i_solo_aparece_en_los_requisitos_con_informacion(
+            self, db_session, alumno_en_cita, client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        esc = alumno_en_cita
+        con = CotejoRequirementService.create(
+            db_session, esc["cohort"].id, label="Actas de nacimiento", hint=None,
+            icon=None, info_html="<p>Trae el <strong>original</strong></p>")
+        sin = CotejoRequirementService.create(db_session, esc["cohort"].id,
+                                              label="Fotografias", hint=None, icon=None)
+
+        resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        doc = self._doc(resp)
+        botones = doc.xpath('//button[contains(concat(" ", @class, " "), " tt-reqinfo-btn ")]')
+        assert len(botones) == 1, "solo el requisito CON informacion lleva boton «i»"
+        boton = botones[0]
+        assert boton.get("aria-label") == "Información sobre Actas de nacimiento"
+        assert boton.get("type") == "button"
+        assert boton.get("data-bs-toggle") == "modal"
+        assert boton.get("data-bs-target") == f"#tt-reqinfo-modal-{con.id}"
+        assert boton.xpath('.//i[contains(@class, "bi-info-circle")]')
+        assert doc.xpath(f'//*[@id="tt-reqinfo-modal-{con.id}"]')
+        assert not doc.xpath(f'//*[@id="tt-reqinfo-modal-{sin.id}"]')
+
+    def test_el_modal_trae_el_titulo_y_html_limpio_nunca_script(
+            self, db_session, alumno_en_cita, client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        esc = alumno_en_cita
+        item = CotejoRequirementService.create(db_session, esc["cohort"].id,
+                                               label="No-adeudo de biblioteca",
+                                               hint=None, icon="book")
+        item.info_html = self.SUCIO          # directo al ORM, saltandose el servicio
+        db_session.flush()
+
+        resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        doc = self._doc(resp)
+        [modal] = doc.xpath(f'//*[@id="tt-reqinfo-modal-{item.id}"]')
+        assert "No-adeudo de biblioteca" in modal.text_content()
+        assert modal.get("aria-labelledby") and doc.xpath(
+            f'//*[@id="{modal.get("aria-labelledby")}"]'), "el modal se rotula con su titulo"
+        [cuerpo] = modal.xpath('.//*[contains(@class, "modal-body")]')
+        assert cuerpo.xpath(".//strong") and "original" in cuerpo.text_content()
+        assert not modal.xpath(".//script|.//img|.//iframe|.//svg"), (
+            "el modal no puede traer <script> ni nada ejecutable")
+        for el in modal.iter("*"):
+            for attr, valor in el.attrib.items():
+                assert not attr.lower().startswith("on"), (el.tag, attr)
+                assert "javascript:" not in valor.lower(), (el.tag, attr)
+        ligas = cuerpo.xpath(".//a")
+        assert [a.get("href") for a in ligas] == [None, "https://www.itcj.edu.mx/biblioteca"]
+        assert all(a.get("rel") == "noopener noreferrer" and a.get("target") == "_blank"
+                   for a in ligas)
+        assert not modal.xpath('ancestor::*[contains(@class, "tt-shell")]'), (
+            "el modal vive en {% block modals %}, a nivel <body>, fuera del shell")
+
+    @pytest.mark.parametrize("info", [None, "<p><br></p>", "<script>alert(1)</script>"])
+    def test_sin_informacion_legible_no_hay_ni_boton_ni_modal(
+            self, db_session, alumno_en_cita, client_as, info):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        esc = alumno_en_cita
+        item = CotejoRequirementService.create(db_session, esc["cohort"].id,
+                                               label="Unico", hint=None, icon=None)
+        item.info_html = info
+        db_session.flush()
+
+        resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert "tt-reqinfo-btn" not in resp.text
+        assert "tt-reqinfo-modal-" not in resp.text
+
+    def test_el_ctx_lleva_id_e_informacion_sanitizada(self, db_session, alumno_en_cita):
+        from itcj2.apps.titulatec.pages.student import _checklist_ctx
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        esc = alumno_en_cita
+        item = CotejoRequirementService.create(db_session, esc["cohort"].id,
+                                               label="Actas", hint=None, icon=None)
+        item.info_html = "<p>ok<script>x()</script></p>"
+        db_session.flush()
+
+        ctx = _checklist_ctx(db_session, esc["process"])
+
+        [it] = [c for c in ctx if c.get("id") == item.id]
+        assert it["info_html"] == "<p>ok</p>"
