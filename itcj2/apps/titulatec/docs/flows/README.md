@@ -52,6 +52,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 
 ### Fase 2 — Cita de cotejo
 - [Cita de cotejo (loop completo)](phase2_appointment_loop.md) 🏛️👤 ⤵ engine
+- [Información para el alumno de un requisito de cotejo](phase2_school_services_requirement_info.md) 🏛️👤 — la jefa escribe una nota enriquecida por requisito (editor Quill, sanitizada con `utils/rich_text.py`); el alumno la abre con el botón «i» en su cita.
 
 ### Fase 3 — Formato B
 - [El alumno llena y envía el Formato B](phase3_student_formato_b.md) 👤
