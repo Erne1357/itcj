@@ -8,7 +8,7 @@
    columna de 600, así que para leer un acta escaneada había que abrir el modal
    por cada documento y por cada alumno. #}
 {% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav, appt_action %}
-{% from "titulatec/_macros.html" import appt_pill, estado_pill %}
+{% from "titulatec/_macros.html" import appt_pill, estado_pill, survey_review_pill %}
 
 {% set BASE = page_url ~ '/' ~ detail.process.id %}
 {% set QZ = ('?' ~ q_zone) if q_zone else '' %}
@@ -174,7 +174,19 @@
                 {{ r.when }}{% if r.source %} · {{ r.source }}{% endif %}{% if r.note %} — {{ r.note }}{% endif %}
               </div>
               {% endif %}
-              {% if r.auto_source %}
+              {% if r.auto_source == 'graduate_survey' %}
+              {# D3: aqui ya NO manda "lo acredita el sistema" — el requisito lo
+                 libera GTV, no el envio de la encuesta. `detail.survey` es el
+                 dict plano de `SurveyReviewService.summary_for_process`. #}
+              <div class="tt-req-meta">
+                {{ survey_review_pill(detail.survey.status) }}
+                {%- if detail.survey.status == 'rejected' and detail.survey.reason %}
+                  — {{ detail.survey.reason }}
+                {%- elif detail.survey.status == 'approved' %}
+                  — Liberada por GTV · {{ detail.survey.reviewed_at }}
+                {%- endif %}
+              </div>
+              {% elif r.auto_source %}
               <div class="tt-req-meta">
                 Lo acredita el sistema ({{ r.auto_source }}); no se marca a mano.</div>
               {% endif %}

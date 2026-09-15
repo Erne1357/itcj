@@ -53,7 +53,7 @@ _D2 = date(2029, 5, 8)
 @pytest.fixture()
 def agenda(seed_phase_defs, seed_document_types, make_program, make_cohort,
            make_review_day, make_student, make_process, make_document,
-           make_appointment, make_officer, make_head):
+           make_appointment, make_officer, make_head, make_survey_review):
     """Dos carreras, dos dias de cotejo, cuatro procesos y dos actores.
 
         proc_a1  carrera A · cita el dia 1       -> el encargado SI lo ve
@@ -61,6 +61,12 @@ def agenda(seed_phase_defs, seed_document_types, make_program, make_cohort,
         proc_a2  carrera A · cita el dia 2       -> sirve para el deep link cruzado
         proc_ap  carrera A · SIN cita, 3 docs aprobados -> cae en "Por agendar"
         proc_bp  carrera B · SIN cita, 3 docs aprobados -> "Por agendar" del jefe
+
+    `ap` y `bp` llevan ADEMAS la encuesta de egresados ya enviada (Tarea 4,
+    D2): `list_pending_processes` exige la solicitud para contar como "Por
+    agendar"; sin sembrarla caerian en el cubo nuevo "Sin encuesta" y estos
+    tests, que miden el alcance por carrera de "Por agendar", dejarian de
+    medir lo que dicen medir.
     """
     def _build():
         seed_phase_defs()
@@ -90,6 +96,8 @@ def agenda(seed_phase_defs, seed_document_types, make_program, make_cohort,
                 make_document(proc, type_code=code, review_status="approved")
             if day is not None:
                 make_appointment(proc, when=datetime.combine(day, datetime.min.time()).replace(hour=hour))
+            else:
+                make_survey_review(proc)
         return {"officer": officer, "officer_position": officer_pos, "head": head,
                 "programs": {"a": prog_a, "b": prog_b}, "cohort": cohort,
                 "procs": procs, "students": students}

@@ -83,6 +83,20 @@ class DuplicateWindowStart(AppointmentError):
         super().__init__(msg)
 
 
+class SurveyNotSubmitted(AppointmentError):
+    """El alumno no ha enviado la encuesta de egresados (D2).
+
+    Guarda dura de `AppointmentService.create`, ANTES que cualquier otra
+    validación: hace falta la solicitud (`SurveyReview`), no que GTV ya la
+    haya liberado. Servicios Escolares puede agendar mientras GTV sigue
+    revisando en paralelo; lo único que bloquea es no haberla enviado.
+    """
+
+    def __init__(self, msg="El alumno todavía no envía la encuesta de egresados. "
+                           "Sin ella no se puede agendar."):
+        super().__init__(msg)
+
+
 # --------------------------------------------------------------------------
 # Colisión de estado: 200 con el cuerpo fresco
 # --------------------------------------------------------------------------

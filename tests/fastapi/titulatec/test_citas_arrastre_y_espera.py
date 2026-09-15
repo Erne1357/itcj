@@ -30,8 +30,15 @@ _D = date(2029, 5, 7)
 @pytest.fixture()
 def dia_con_citas(seed_phase_defs, seed_document_types, make_program, make_cohort,
                   make_review_day, make_officer, make_student, make_process,
-                  make_document, make_review_window, make_appointment):
-    """Un día con espacio, dos citas y un pendiente en la cola."""
+                  make_document, make_review_window, make_appointment,
+                  make_survey_review):
+    """Un día con espacio, dos citas y un pendiente en la cola.
+
+    "pend" lleva la encuesta de egresados ya enviada (Tarea 4, D2): sin
+    solicitud, `AppointmentService.list_pending_processes` ya no lo cuenta
+    como "Por agendar" y estos tests de arrastre — que necesitan una fila
+    arrastrable en la cola — dejarian de tener con que medir.
+    """
     def _build():
         seed_phase_defs()
         seed_document_types()
@@ -50,6 +57,8 @@ def dia_con_citas(seed_phase_defs, seed_document_types, make_program, make_cohor
             if hora is not None:
                 make_appointment(proc, when=datetime.combine(
                     _D, datetime.min.time()).replace(hour=hora))
+            else:
+                make_survey_review(proc)
             procs[key] = proc
         return {"officer": officer, "cohort": cohort, "dia": dia, "procs": procs}
     return _build

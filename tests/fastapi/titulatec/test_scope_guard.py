@@ -97,13 +97,19 @@ def _call(cli, method, url, form):
 def escenario(seed_phase_defs, seed_document_types, make_program, make_cohort,
               make_review_day, make_review_window, make_student, make_process,
               make_document, make_appointment, make_officer, make_head,
-              tmp_path, monkeypatch):
+              make_survey_review, tmp_path, monkeypatch):
     """Tres procesos gemelos —carrera A, carrera B y SIN carrera— y dos actores.
 
     Los tres traen los 3 documentos iniciales **en disco** a proposito: si el
     archivo no existiera, las dos rutas de `FileResponse` devolverian 404 por
     "no existe el archivo" y el test negativo pasaria por la razon equivocada,
     tapando justo la fuga mas grave (descarga de acta/CURP ajenas).
+
+    Los tres traen ADEMAS la encuesta de egresados ya enviada (Tarea 4, D2):
+    `appt_schedule` en `ROUTES` re-agenda la cita que `make_appointment` ya les
+    dejo (pasa por `AppointmentService.create`, que ahora exige la solicitud
+    ANTES que cualquier guarda de alcance), y `test_el_guard_no_estorba_a_la_jefa`
+    la ejercita sobre los tres procesos con la jefa (alcance "ALL").
     """
     def _build():
         monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
@@ -135,6 +141,7 @@ def escenario(seed_phase_defs, seed_document_types, make_program, make_cohort,
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(b"%PDF-1.4 documento de prueba")
             make_appointment(proc)
+            make_survey_review(proc)
             procs[key] = proc
             students[key] = student
 

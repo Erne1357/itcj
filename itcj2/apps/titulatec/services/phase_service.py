@@ -237,6 +237,36 @@ class PhaseService:
     # literal en el `if` para que grep la encuentre desde el otro lado.
     PHASE_COTEJO = 2
 
+    # Sufijo del requisito de la encuesta de egresados en el mensaje de la
+    # guarda de fase 2 (D3), por estatus de la solicitud de liberación de GTV.
+    # En ASCII, SIN acentos, por la misma razón que el resto de esta guarda
+    # (ver docstring de `_cotejo_gate_error`): viaja al toast por `X-Tt-Error`.
+    # `approved` no aparece: si GTV liberó, el requisito ya está `fulfilled` y
+    # `missing_required` ni siquiera lo trae aquí.
+    _SUFIJO_ENCUESTA = {
+        "missing": "sin enviar",
+        "in_review": "en revision por GTV",
+        "rejected": "con observaciones de GTV",
+    }
+
+    @staticmethod
+    def _requirement_label(db: Session, process, requirement) -> str:
+        """Nombre de un requisito de cotejo para el mensaje de la guarda.
+
+        El de la encuesta de egresados (`auto_source == 'graduate_survey'`)
+        lleva además el estatus de SU solicitud de liberación: sin esto,
+        «al alumno le faltan requisitos (Encuesta de egresados)» no dice si ya
+        la envió y está en revisión, o si ni siquiera la ha contestado — la
+        diferencia entre "avisa a Escolares" y "avisa al alumno".
+        """
+        if requirement.auto_source != "graduate_survey":
+            return requirement.label
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        estatus = SurveyReviewService.summary_for_process(db, process.id)["status"]
+        sufijo = PhaseService._SUFIJO_ENCUESTA.get(estatus)
+        return f"{requirement.label} ({sufijo})" if sufijo else requirement.label
+
     @staticmethod
     def _cotejo_gate_error(db: Session, process) -> str | None:
         """Motivo por el que la fase 2 NO puede liberarse, o None.
@@ -263,7 +293,8 @@ class PhaseService:
         faltantes = RequirementService.missing_required(db, process.id)
         if not faltantes:
             return None
-        nombres = ", ".join(r.label for r in faltantes)
+        nombres = ", ".join(
+            PhaseService._requirement_label(db, process, r) for r in faltantes)
         # Texto fijo SIN acentos, igual que `_transition_error`. Las etiquetas
         # vienen de la BD y sí los llevan, pero el único llamador que alcanza la
         # fase 2 (`pages/admin.py::phase_approve`) pasa el mensaje por `_hdr()`,

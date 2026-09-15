@@ -17,7 +17,7 @@
 {% from "titulatec/_macros.html" import appt_pill %}
 
 <aside id="appt-queue" aria-label="Cola de trabajo"
-       data-tt-fade-key="queue:{{ pending_count }}|{{ reagendar_count }}|{{ seleccion|join(',') }}">
+       data-tt-fade-key="queue:{{ pending_count }}|{{ reagendar_count }}|{{ sin_encuesta_count }}|{{ seleccion|join(',') }}">
 
   <div class="tt-card">
     <div class="tt-queue-head">
@@ -79,6 +79,32 @@
           <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
         </span>
       </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# «Sin encuesta» (D2): documentos aprobados, pero el alumno todavía no
+     envía la encuesta de egresados — sin ella `AppointmentService.create`
+     rechaza la cita. Filas SIN arrastre, SIN selección y SIN `appt_nav`: no
+     hay nada que hacer con ellas todavía, solo informan. No suman al badge de
+     la pestaña Agenda (contador "por atender"). #}
+  {% if sin_encuesta_count %}
+  <div class="tt-card mt-3">
+    <div class="tt-queue-head">
+      <h2 class="tt-h-sec">Sin encuesta
+        <span class="n">{{ sin_encuesta_count }}</span>
+      </h2>
+    </div>
+    <p class="tt-appt-empty mb-2">Documentos aprobados; falta que envíe la encuesta de egresados.</p>
+    <div class="tt-queue-list">
+      {% for r in sin_encuesta %}
+      <div class="tt-appt-item" id="appt-nosurvey-{{ r.process_id }}">
+        <span class="flex-grow-1 min-w-0">
+          <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
+          <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
+        </span>
+      </div>
       {% endfor %}
     </div>
   </div>

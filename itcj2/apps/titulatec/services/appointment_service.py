@@ -177,19 +177,21 @@ class AppointmentService:
         return {pid for (pid,) in q.distinct()}
 
     @staticmethod
-    def list_pending_processes(db: Session, *, program_id: int | None = None,
-                               allowed_program_ids: set | None = None) -> list:
-        """Procesos activos, SIN cita, con los 3 documentos iniciales aprobados.
+    def _unscheduled_query(db: Session, *, program_id: int | None,
+                           allowed_program_ids: set | None):
+        """Base compartida de `list_pending_processes` y
+        `list_missing_survey_processes`: procesos activos, SIN cita, acotados
+        por carrera. Cada llamador le agrega su propio predicado de la
+        solicitud (existe / no existe) y el filtro de documentos, para no
+        arriesgarse a que los dos cubos se desincronicen del universo que
+        comparten.
 
-        Los `no_show` NO entran aquí: conservan su cita y su lugar (decisión del
-        usuario, «si no se presentó es que ya pasó»). Viven en su propio cubo,
-        `list_reschedule_processes`, para que nadie se pierda sin mezclar dos
-        cosas distintas.
+        `None` si `allowed_program_ids` cerró el alcance (set vacío): el
+        llamador debe leerlo así y devolver `[]` sin más consultas.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
-        from itcj2.apps.titulatec.services.document_service import DocumentService
         if allowed_program_ids is not None and len(allowed_program_ids) == 0:
-            return []
+            return None
         with_appt = [pid for (pid,) in db.query(ReviewAppointment.process_id).distinct()]
         q = db.query(TitulationProcess).filter(TitulationProcess.status == "active")
         if with_appt:
@@ -198,6 +200,57 @@ class AppointmentService:
             q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
         if program_id:
             q = q.filter(TitulationProcess.program_id == program_id)
+        return q
+
+    @staticmethod
+    def list_pending_processes(db: Session, *, program_id: int | None = None,
+                               allowed_program_ids: set | None = None) -> list:
+        """Procesos activos, SIN cita, con los 3 documentos iniciales aprobados
+        y con la SOLICITUD de liberación de la encuesta de egresados ya abierta
+        (D2: hace falta que la haya enviado, no que GTV ya la haya liberado).
+
+        Los `no_show` NO entran aquí: conservan su cita y su lugar (decisión del
+        usuario, «si no se presentó es que ya pasó»). Viven en su propio cubo,
+        `list_reschedule_processes`, para que nadie se pierda sin mezclar dos
+        cosas distintas. Y quien SÍ tiene los 3 documentos pero todavía no
+        envía la encuesta vive en `list_missing_survey_processes`: por eso el
+        filtro va aquí, con una subconsulta `exists`, y no reescribiendo el de
+        documentos.
+        """
+        from itcj2.apps.titulatec.models import SurveyReview, TitulationProcess
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        q = AppointmentService._unscheduled_query(
+            db, program_id=program_id, allowed_program_ids=allowed_program_ids)
+        if q is None:
+            return []
+        q = q.filter(db.query(SurveyReview.id)
+                    .filter(SurveyReview.process_id == TitulationProcess.id)
+                    .exists())
+        candidates = q.order_by(TitulationProcess.created_at).all()
+        return [p for p in candidates if DocumentService.initial_docs_all_approved(db, p.id)]
+
+    @staticmethod
+    def list_missing_survey_processes(db: Session, *, program_id: int | None = None,
+                                      allowed_program_ids: set | None = None) -> list:
+        """Procesos activos, SIN cita, con los 3 documentos aprobados, pero
+        SIN la solicitud de liberación de la encuesta de egresados (D2).
+
+        Mismo universo y alcance que `list_pending_processes` — misma base
+        (`_unscheduled_query`) y mismo filtro de documentos — con el ÚNICO
+        predicado invertido: aquí la solicitud NO existe. Alimenta el cubo
+        «Sin encuesta» de la cola: nadie se agenda sin haberla enviado, así
+        que a este grupo no le sirve un lugar libre, le sirve saber que falta
+        la encuesta.
+        """
+        from itcj2.apps.titulatec.models import SurveyReview, TitulationProcess
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        q = AppointmentService._unscheduled_query(
+            db, program_id=program_id, allowed_program_ids=allowed_program_ids)
+        if q is None:
+            return []
+        q = q.filter(~db.query(SurveyReview.id)
+                    .filter(SurveyReview.process_id == TitulationProcess.id)
+                    .exists())
         candidates = q.order_by(TitulationProcess.created_at).all()
         return [p for p in candidates if DocumentService.initial_docs_all_approved(db, p.id)]
 
@@ -256,14 +309,25 @@ class AppointmentService:
                location: str | None = None):
         """Agenda la cita en una franja concreta. Dueña de la transacción.
 
-        Valida, en este orden: que haya ventana y franja (`MissingSchedule`),
-        que el día siga habilitado (`DayNotAllowed`), que la hora sea una franja
-        real (`InvalidSlot`) y que quede lugar (`SlotFull`).
+        Valida, en este orden: que el alumno YA HAYA ENVIADO la encuesta de
+        egresados (`SurveyNotSubmitted`, D2 — sirve cualquier estado de
+        revisión; GTV puede seguir revisando en paralelo), que haya ventana y
+        franja (`MissingSchedule`), que el día siga habilitado
+        (`DayNotAllowed`), que la hora sea una franja real (`InvalidSlot`) y
+        que quede lugar (`SlotFull`). La guarda de la encuesta va PRIMERO y
+        aplica a todo `create`, incluido el re-agendar desde `no_show`: sin
+        ella no hay nada más que validar.
         """
         from itcj2.apps.titulatec.models import ReviewWindow
-        from itcj2.apps.titulatec.services.appointment_errors import MissingSchedule
+        from itcj2.apps.titulatec.services.appointment_errors import (
+            MissingSchedule, SurveyNotSubmitted,
+        )
         from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
         from itcj2.apps.titulatec.services.slot_service import SlotService
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        if SurveyReviewService.get_for_process(db, process_id) is None:
+            raise SurveyNotSubmitted()
 
         if not window_id or slot_start is None:
             raise MissingSchedule()

@@ -20,6 +20,20 @@ import pytest
 from itcj2.apps.titulatec.services import appointment_errors as err
 from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
+
+@pytest.fixture()
+def agenda_slots_survey(agenda_slots, make_survey_review):
+    """`agenda_slots`, con la encuesta de egresados YA ENVIADA para `p1`.
+
+    Tarea 4 (D2): `AppointmentService.create` exige una solicitud
+    (`SurveyReview`) para agendar. Este archivo mide transiciones y guardas de
+    horario, no la puerta de la encuesta, así que se siembra aquí para que
+    cada `create(...)` de la matriz siga probando lo que probaba.
+    """
+    make_survey_review(agenda_slots["p1"])
+    return agenda_slots
+
+
 LEGALES = [
     ("scheduled", "confirmed"), ("scheduled", "in_progress"), ("scheduled", "no_show"),
     ("confirmed", "in_progress"), ("confirmed", "no_show"),
@@ -67,8 +81,8 @@ def test_el_error_de_transicion_refresca_la_vista():
 
 
 # ---------------------------------------------------------------- integración
-def test_marcar_asistio_desde_no_show_se_rechaza(db_session, agenda_slots):
-    esc = agenda_slots
+def test_marcar_asistio_desde_no_show_se_rechaza(db_session, agenda_slots_survey):
+    esc = agenda_slots_survey
     ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
                                    slot_start=time(9, 0), created_by_id=esc["off"].id)
     AppointmentService.mark_no_show(db_session, ap, esc["off"].id)
@@ -78,10 +92,10 @@ def test_marcar_asistio_desde_no_show_se_rechaza(db_session, agenda_slots):
     assert ap.status == "no_show"
 
 
-def test_deshacer_no_se_presento_devuelve_la_cita_a_en_proceso(db_session, agenda_slots):
+def test_deshacer_no_se_presento_devuelve_la_cita_a_en_proceso(db_session, agenda_slots_survey):
     """Marcar una ausencia le dispara notificación al egresado. Un clic de más
     en una mañana de prisa tenía que poder corregirse."""
-    esc = agenda_slots
+    esc = agenda_slots_survey
     ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
                                    slot_start=time(9, 0), created_by_id=esc["off"].id)
     AppointmentService.start(db_session, ap, esc["off"].id)
@@ -94,8 +108,8 @@ def test_deshacer_no_se_presento_devuelve_la_cita_a_en_proceso(db_session, agend
     assert ap.status == "attended"
 
 
-def test_no_se_puede_reagendar_una_cita_atendida(db_session, agenda_slots):
-    esc = agenda_slots
+def test_no_se_puede_reagendar_una_cita_atendida(db_session, agenda_slots_survey):
+    esc = agenda_slots_survey
     ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
                                    slot_start=time(9, 0), created_by_id=esc["off"].id)
     AppointmentService.start(db_session, ap, esc["off"].id)
@@ -106,9 +120,9 @@ def test_no_se_puede_reagendar_una_cita_atendida(db_session, agenda_slots):
                                       slot_start=time(9, 30), actor_id=esc["off"].id)
 
 
-def test_agendar_encima_de_una_cita_atendida_tampoco(db_session, agenda_slots):
+def test_agendar_encima_de_una_cita_atendida_tampoco(db_session, agenda_slots_survey):
     """`create` sobre un proceso que ya tiene cita es un movimiento disfrazado."""
-    esc = agenda_slots
+    esc = agenda_slots_survey
     ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
                                    slot_start=time(9, 0), created_by_id=esc["off"].id)
     AppointmentService.start(db_session, ap, esc["off"].id)
@@ -120,16 +134,16 @@ def test_agendar_encima_de_una_cita_atendida_tampoco(db_session, agenda_slots):
 
 
 # ---------------------------------------------------- guards que estaban fuera
-def test_sin_franja_es_error_explicito_y_no_un_200_mudo(db_session, agenda_slots):
-    esc = agenda_slots
+def test_sin_franja_es_error_explicito_y_no_un_200_mudo(db_session, agenda_slots_survey):
+    esc = agenda_slots_survey
     with pytest.raises(err.MissingSchedule):
         AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
                                   slot_start=None, created_by_id=esc["off"].id)
 
 
-def test_el_guard_de_dia_vive_en_el_service(db_session, agenda_slots):
+def test_el_guard_de_dia_vive_en_el_service(db_session, agenda_slots_survey):
     """Vivía en `pages/`, así que cualquier otro llamador escribía sin validar."""
-    esc = agenda_slots
+    esc = agenda_slots_survey
     esc["dia"].is_closed = True
     db_session.flush()
 
@@ -138,10 +152,10 @@ def test_el_guard_de_dia_vive_en_el_service(db_session, agenda_slots):
                                   slot_start=time(9, 0), created_by_id=esc["off"].id)
 
 
-def test_reagendar_no_pisa_la_solicitud_de_cambio(db_session, agenda_slots):
+def test_reagendar_no_pisa_la_solicitud_de_cambio(db_session, agenda_slots_survey):
     """Defecto (a): `reschedule` hacía `appt.note = note` y borraba la petición
     del alumno justo cuando el encargado la estaba atendiendo."""
-    esc = agenda_slots
+    esc = agenda_slots_survey
     ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
                                    slot_start=time(9, 0), created_by_id=esc["off"].id)
     AppointmentService.request_change(db_session, ap, esc["p1"].student_id,
@@ -155,8 +169,8 @@ def test_reagendar_no_pisa_la_solicitud_de_cambio(db_session, agenda_slots):
     assert ap.status == "scheduled"
 
 
-def test_reagendar_limpia_la_confirmacion(db_session, agenda_slots):
-    esc = agenda_slots
+def test_reagendar_limpia_la_confirmacion(db_session, agenda_slots_survey):
+    esc = agenda_slots_survey
     ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
                                    slot_start=time(9, 0), created_by_id=esc["off"].id)
     AppointmentService.confirm(db_session, ap, esc["p1"].student_id)
@@ -170,10 +184,10 @@ def test_reagendar_limpia_la_confirmacion(db_session, agenda_slots):
 
 
 # ------------------------------------------------------------------ los cubos
-def test_el_no_show_no_vuelve_a_por_agendar(db_session, agenda_slots):
+def test_el_no_show_no_vuelve_a_por_agendar(db_session, agenda_slots_survey):
     """Decisión del usuario: su lugar no se libera. Y como conserva su cita,
     tampoco puede aparecer entre los que nunca tuvieron una."""
-    esc = agenda_slots
+    esc = agenda_slots_survey
     ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
                                    slot_start=time(9, 0), created_by_id=esc["off"].id)
     AppointmentService.mark_no_show(db_session, ap, esc["off"].id)
@@ -183,11 +197,11 @@ def test_el_no_show_no_vuelve_a_por_agendar(db_session, agenda_slots):
     assert esc["p1"].id not in [p.id for p in pendientes]
 
 
-def test_el_no_show_sale_en_su_propio_cubo(db_session, agenda_slots):
+def test_el_no_show_sale_en_su_propio_cubo(db_session, agenda_slots_survey):
     """«Reagendar (N)», separado de «Por agendar (N)»: en uno el alumno ya tuvo
     su lugar y no llegó; en el otro nunca lo tuvo. Mezclarlos haría que el
     contador dejara de significar una sola cosa."""
-    esc = agenda_slots
+    esc = agenda_slots_survey
     ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
                                    slot_start=time(9, 0), created_by_id=esc["off"].id)
     AppointmentService.mark_no_show(db_session, ap, esc["off"].id)
@@ -197,8 +211,8 @@ def test_el_no_show_sale_en_su_propio_cubo(db_session, agenda_slots):
     assert esc["p1"].id in [p.id for p in reagendar]
 
 
-def test_la_busqueda_encuentra_por_control_y_por_nombre(db_session, agenda_slots):
-    esc = agenda_slots
+def test_la_busqueda_encuentra_por_control_y_por_nombre(db_session, agenda_slots_survey):
+    esc = agenda_slots_survey
     AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
                               slot_start=time(9, 0), created_by_id=esc["off"].id)
     from itcj2.core.models.user import User

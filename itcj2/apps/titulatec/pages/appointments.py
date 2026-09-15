@@ -285,6 +285,13 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     appt = AppointmentService.get_for_process(db, process_id)
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
     allowed_days = [d.isoformat() for d in ReviewDayService.list_days(db, proc.cohort_id)] if proc.cohort_id else []
+
+    # Estatus de la solicitud de liberación de GTV para la encuesta de
+    # egresados (D3). Dict plano de `summary_for_process`: esta ruta renderiza
+    # DESPUÉS de su `db.close()`, igual que `requisitos` arriba.
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    survey = SurveyReviewService.summary_for_process(db, process_id)
+
     return {
         "process": {"id": proc.id, "folio": proc.folio, "current_phase": proc.current_phase,
                     "status": proc.status},
@@ -305,6 +312,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
         # compartido entre las dos plantillas.
         "requisitos": requisitos,
         "can_mark_reqs": can_mark_reqs,
+        "survey": survey,
     }
 
 
@@ -604,6 +612,11 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     # alguien de otro dia dejaria de funcionar.
     pendientes = AppointmentService.list_pending_processes(db, allowed_program_ids=allowed)
     reagendar = AppointmentService.list_reschedule_processes(db, allowed_program_ids=allowed)
+    # D2: documentos aprobados pero SIN la encuesta enviada. No se puede
+    # agendar a nadie de este cubo (la guarda de `AppointmentService.create`
+    # lo rechazaría), así que sus filas no llevan navegación ni arrastre — ver
+    # `_appt_queue.html`. No entran a `visibles`: no hay ficha que abrirles.
+    sin_encuesta = AppointmentService.list_missing_survey_processes(db, allowed_program_ids=allowed)
     visibles = (AppointmentService.agenda_process_ids(db, allowed_program_ids=allowed)
                 | {p.id for p in pendientes})
     if selected_id is not None and selected_id not in visibles:
@@ -639,6 +652,11 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         "pending_count": len(pendientes),
         "reagendar": _proc_rows(db, reagendar),
         "reagendar_count": len(reagendar),
+        # No se suma al badge de la pestaña (`appointments_body.html`): ese
+        # contador es "por atender" (agendar + reagendar) y este cubo no se
+        # puede atender todavía — solo informa.
+        "sin_encuesta": _proc_rows(db, sin_encuesta),
+        "sin_encuesta_count": len(sin_encuesta),
         "seleccion": sorted(seleccion or []),
         "page_url": PAGE_URL, "body_url": BODY_URL,
     }
