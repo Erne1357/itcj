@@ -1,21 +1,32 @@
 """Solicitud de auto-inscripcion a una convocatoria (convocatoria abierta).
 
-Estados:
-  conocido:     unverified -> verified -> converted
-  desconocido:  unverified -> pending_review -> approved -> converted | rejected
-  conocido cuyo correo institucional no responde tras 3 envios:
-                unverified -> pending_review
+Estados (2026-09-15: toda solicitud pasa por la bandeja de Servicios Escolares
+y el acceso llega solo por correo; el flujo completo esta en
+`services/enrollment_request_service.py` y `docs/flows/xcut_public_enrollment.md`):
 
-Dos buzones, dos tokens, a proposito (D17):
-  `verify_token_hash`  decide la INSCRIPCION. Para un alumno conocido viaja a su
-                       correo institucional (`student_email(user)`), que es lo
-                       unico que prueba que es el; para un desconocido, al
-                       correo personal que escribio, que es el unico que hay.
-  `contact_token_hash` confirma el correo PERSONAL. No bloquea nada; solo pone
-                       `core_student_profile.contact_email_verified_at`.
+  pending_review --aprobar, SIN cuenta en core_users--> converted  (usuario + NIP por correo)
+  pending_review --aprobar, CON cuenta--------------> approved   (liga de activacion por correo)
+  approved --abrir la liga--------------------------> converted
+  approved --la liga falla una revalidacion---------> pending_review (review_note = motivo)
+  pending_review | approved | legado --rechazar-----> rejected
 
-Los tokens se guardan HASHEADOS (sha256) y se comparan con `hmac.compare_digest`
-(E7): un token en claro en BD es una credencial en claro.
+  `unverified` y `verified` son LEGADO del flujo con liga previa: ya no se
+  escriben, pero sus filas se pueden aprobar o rechazar. Por eso el
+  `server_default` sigue en 'unverified'; `create()` escribe 'pending_review'.
+
+`kind` (known|unknown) se guarda al crear SOLO para mostrar: "tiene cuenta?" se
+decide contra `core_users` al aprobar.
+
+`verify_token_hash` es la liga de ACTIVACION de una cuenta que ya existe: la
+emite la bandeja al aprobar (y la rota al reenviar) y viaja al correo personal
+del formulario (`contact_email`). Fuera del legado solo hay hash mientras la
+solicitud esta `approved` o ya `converted` (la liga convertida sigue resolviendo
+para que el prefetch de un escaner de correo no la gaste). Se guarda HASHEADA
+(sha256) y se compara con `hmac.compare_digest` (E7): un token en claro en BD es
+una credencial en claro.
+
+`contact_token_hash`/`contact_expires_at` son legado: ya no se emiten ligas de
+contacto; las que se mandaron antes siguen canjeables hasta vencer.
 """
 from sqlalchemy import (
     BigInteger, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text,

@@ -1,15 +1,19 @@
-"""El helper de correo de TitulaTec: destinatario correcto y fallo tolerante.
+"""El helper de correo de TitulaTec: destinatario de cada correo y fallo tolerante.
 
 Lo que se prueba de verdad
 --------------------------
-1. D17 — el token de un alumno CONOCIDO sale a su correo institucional, que sale
-   de la BD, no de la petición. El control son 8 dígitos públicos: si el token
-   viajara al buzón tecleado, cualquiera inscribiría a un tercero y —por D5— lo
-   dejaría bloqueado para inscribirse de verdad.
-2. Que sin token de Graph el helper devuelve False SIN lanzar. El correo de
-   titulatec no está dado de alta (`instance/apps/titulatec/email/` vacío): si
-   una excepción escapara, tumbaría la inscripción entera por un problema de
-   correo, y la solicitud es justo lo que no se puede perder.
+1. A qué buzón va cada correo. El módulo mezcla dos destinos a propósito, así
+   que cada uno tiene que estar fijado por un test o una futura "unificación"
+   lo cambia sin poner nada en rojo:
+   - al correo PERSONAL de la solicitud (`req.contact_email`): la liga de
+     activación, el usuario + NIP de una cuenta nueva y el rechazo;
+   - al INSTITUCIONAL de la cuenta (`student_email(user)`): "ya tienes un
+     proceso" y el aviso con folio al activarse la inscripción, que es la
+     alarma de la dueña de la cuenta.
+   El destinatario lo decide el helper, no el llamador: ningún método recibe
+   un `to` que alguien pueda llenar con el correo equivocado.
+2. Que sin token de Graph el helper devuelve False SIN lanzar. Si una excepción
+   escapara, tumbaría la acción entera por un problema de correo.
 3. E9 — la liga al log en dev, nunca en producción.
 
 Parcheo
@@ -17,9 +21,12 @@ Parcheo
 `_send` y `_acquire_token` importan de `itcj2.core.utils.msgraph_mail` DENTRO de
 la función, así que el patch va en el módulo FUENTE, no en el consumidor.
 """
+import inspect
 import logging
 
 import pytest
+
+LIGA = "https://enlinea.cdjuarez.tecnm.mx/titulatec/inscripcion/verificar?t=abc"
 
 
 @pytest.fixture()
@@ -58,7 +65,7 @@ def solicitud(db_session, make_cohort):
     from itcj2.apps.titulatec.models import EnrollmentRequest
 
     def _make(*, control_number, kind, cohort=None,
-              contact_email="personal@example.invalid", status="unverified"):
+              contact_email="personal@example.invalid", status="pending_review"):
         cohort = cohort if cohort is not None else make_cohort()
         req = EnrollmentRequest(
             cohort_id=cohort.id, control_number=control_number,
@@ -74,60 +81,46 @@ def solicitud(db_session, make_cohort):
 
 
 # ---------------------------------------------------------------------------
-# D17: a qué buzón va el token
+# Correo PERSONAL de la solicitud
 # ---------------------------------------------------------------------------
-def test_el_conocido_recibe_el_token_en_su_institucional(db_session, make_student,
-                                                         solicitud):
+def test_la_liga_de_activacion_va_al_correo_personal_de_la_solicitud(
+    db_session, make_student, solicitud, correo_falso,
+):
+    """Riesgo aceptado: la liga de una cuenta existente viaja al correo que se
+    tecleó. La contención vive en el servicio (ver
+    `test_enrollment_identity_chain.py`); aquí se fija que el helper no la mande
+    a otro lado, ni siquiera al institucional."""
     from itcj2.core.utils.email_tools import student_email
     from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
 
-    alumno = make_student(control_number="99123456")
-    req = solicitud(control_number="99123456", kind="known",
-                    contact_email="cualquiera@example.invalid")
+    alumno = make_student(control_number="99123457")
+    req = solicitud(control_number="99123457", kind="known", status="approved",
+                    contact_email="personal.real@example.invalid")
 
-    destino = TitulaTecEmailHelper.verify_recipient(db_session, req)
-
-    assert destino == student_email(alumno), (
-        "El token de un CONOCIDO sale de la BD (institucional), nunca del correo "
-        "que se tecleó en el formulario público."
-    )
-    assert destino != req.contact_email
-
-
-def test_el_desconocido_recibe_el_token_en_el_que_declaro(db_session, solicitud):
-    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
-
-    req = solicitud(control_number="90000001", kind="unknown",
-                    contact_email="egresado2005@example.invalid")
-
-    assert TitulaTecEmailHelper.verify_recipient(db_session, req) == \
-        "egresado2005@example.invalid"
-
-
-def test_un_conocido_sin_usuario_en_la_bd_no_tiene_destino(db_session, solicitud):
-    """`kind='known'` cuyo usuario desapareció: cae a la bandeja, no al personal."""
-    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
-
-    req = solicitud(control_number="99999998", kind="known")
-
-    assert TitulaTecEmailHelper.verify_recipient(db_session, req) is None
-
-
-def test_send_verify_enrollment_manda_al_buzon_que_se_le_da(db_session, solicitud,
-                                                            correo_falso):
-    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
-
-    req = solicitud(control_number="99123457", kind="known")
-    ok = TitulaTecEmailHelper.send_verify_enrollment(
-        db_session, req, to="99123457@cdjuarez.tecnm.mx",
-        link="https://enlinea.cdjuarez.tecnm.mx/titulatec/inscripcion/verificar?t=abc",
-    )
+    ok = TitulaTecEmailHelper.send_verify_enrollment(db_session, req, link=LIGA)
 
     assert ok is True
-    asunto, destinatarios, html = correo_falso[0]
-    assert destinatarios == ["99123457@cdjuarez.tecnm.mx"]
+    (_asunto, destinatarios, html), = correo_falso
+    assert destinatarios == ["personal.real@example.invalid"]
+    assert destinatarios != [student_email(alumno)]
     assert "verificar?t=abc" in html
-    assert "TitulaTec" in asunto
+
+
+def test_ningun_correo_de_la_solicitud_acepta_un_destinatario_del_llamador():
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    for nombre in [n for n in dir(TitulaTecEmailHelper) if n.startswith("send_")]:
+        params = inspect.signature(getattr(TitulaTecEmailHelper, nombre)).parameters
+        assert "to" not in params, f"{nombre} deja que el llamador elija el destinatario"
+
+
+def test_el_helper_ya_no_resuelve_destinatarios_ni_manda_ligas_de_contacto():
+    """`verify_recipient` resolvía el institucional para la liga de un alumno
+    conocido: esa regla ya no aplica. La liga de contacto ya no se emite."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    assert not hasattr(TitulaTecEmailHelper, "verify_recipient")
+    assert not hasattr(TitulaTecEmailHelper, "send_confirm_contact")
 
 
 def test_el_correo_de_alta_lleva_usuario_y_nip(db_session, make_student, solicitud,
@@ -137,7 +130,7 @@ def test_el_correo_de_alta_lleva_usuario_y_nip(db_session, make_student, solicit
 
     alumno = make_student(control_number="90000002")
     req = solicitud(control_number="90000002", kind="unknown",
-                    contact_email="egresado@example.invalid", status="approved")
+                    contact_email="egresado@example.invalid", status="converted")
 
     ok = TitulaTecEmailHelper.send_enrollment_approved(db_session, req, alumno,
                                                        nip="4821")
@@ -149,16 +142,29 @@ def test_el_correo_de_alta_lleva_usuario_y_nip(db_session, make_student, solicit
     assert "4821" in html
 
 
+def test_el_rechazo_va_al_correo_personal_con_el_motivo(db_session, solicitud, correo_falso):
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    req = solicitud(control_number="90000008", kind="unknown", status="rejected",
+                    contact_email="rechazada@example.invalid")
+    req.review_note = "No aparece en el padrón."
+    db_session.flush()
+
+    assert TitulaTecEmailHelper.send_enrollment_rejected(db_session, req) is True
+    (_asunto, destinatarios, html), = correo_falso
+    assert destinatarios == ["rechazada@example.invalid"]
+    assert "No aparece en el padrón." in html
+
+
 def test_el_nombre_del_solicitante_va_escapado(db_session, solicitud, correo_falso):
     """Un anónimo escribe `first_name`. En un correo HTML eso es inyección."""
     from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
 
-    req = solicitud(control_number="90000003", kind="unknown")
+    req = solicitud(control_number="90000003", kind="unknown", status="approved")
     req.first_name = '<script>alert(1)</script>'
     db_session.flush()
 
-    TitulaTecEmailHelper.send_confirm_contact(
-        db_session, req, to=req.contact_email, link="https://example.invalid/x")
+    TitulaTecEmailHelper.send_verify_enrollment(db_session, req, link=LIGA)
 
     _asunto, _dest, html = correo_falso[0]
     assert "<script>" not in html
@@ -173,10 +179,10 @@ def test_sin_token_devuelve_false_y_no_lanza(db_session, solicitud, sin_token,
     from itcj2.apps.titulatec.services import email_helper
     monkeypatch.setattr(email_helper, "_is_production", lambda: True)
 
-    req = solicitud(control_number="90000004", kind="unknown")
+    req = solicitud(control_number="90000004", kind="unknown", status="approved")
 
     assert email_helper.TitulaTecEmailHelper.send_verify_enrollment(
-        db_session, req, to=req.contact_email, link="https://example.invalid/x") is False
+        db_session, req, link=LIGA) is False
 
 
 def test_en_dev_sin_token_la_liga_queda_en_el_log(db_session, solicitud, sin_token,
@@ -185,13 +191,12 @@ def test_en_dev_sin_token_la_liga_queda_en_el_log(db_session, solicitud, sin_tok
     from itcj2.apps.titulatec.services import email_helper
     monkeypatch.setattr(email_helper, "_is_production", lambda: False)
 
-    req = solicitud(control_number="90000005", kind="unknown")
+    req = solicitud(control_number="90000005", kind="unknown", status="approved")
     liga = "https://enlinea.cdjuarez.tecnm.mx/titulatec/inscripcion/verificar?t=zzz"
 
     with caplog.at_level(logging.WARNING,
                          logger="itcj2.apps.titulatec.services.email_helper"):
-        email_helper.TitulaTecEmailHelper.send_verify_enrollment(
-            db_session, req, to=req.contact_email, link=liga)
+        email_helper.TitulaTecEmailHelper.send_verify_enrollment(db_session, req, link=liga)
 
     assert "[TT-VERIFY-LINK]" in caplog.text
     assert liga in caplog.text
@@ -203,13 +208,12 @@ def test_en_produccion_la_liga_no_se_escribe_jamas(db_session, solicitud, sin_to
     from itcj2.apps.titulatec.services import email_helper
     monkeypatch.setattr(email_helper, "_is_production", lambda: True)
 
-    req = solicitud(control_number="90000006", kind="unknown")
+    req = solicitud(control_number="90000006", kind="unknown", status="approved")
     liga = "https://enlinea.cdjuarez.tecnm.mx/titulatec/inscripcion/verificar?t=secreto"
 
     with caplog.at_level(logging.DEBUG,
                          logger="itcj2.apps.titulatec.services.email_helper"):
-        email_helper.TitulaTecEmailHelper.send_verify_enrollment(
-            db_session, req, to=req.contact_email, link=liga)
+        email_helper.TitulaTecEmailHelper.send_verify_enrollment(db_session, req, link=liga)
 
     assert "secreto" not in caplog.text
     assert "[TT-VERIFY-LINK]" not in caplog.text
@@ -226,18 +230,14 @@ def test_una_plantilla_rota_no_tumba_nada(db_session, solicitud, correo_falso,
     assert correo_falso == []
 
 
+# ---------------------------------------------------------------------------
+# Correo INSTITUCIONAL de la cuenta
+# ---------------------------------------------------------------------------
 def test_already_enrolled_lleva_el_folio_al_institucional(
         db_session, make_student, make_process, correo_falso):
-    """El alumno ya tiene proceso abierto: su folio viaja en el correo.
-
-    Y viaja AL INSTITUCIONAL. Este módulo mezcla las dos convenciones —tres
-    helpers resuelven el destinatario con `student_email(user)` y tres lo toman
-    de `req.contact_email`—, así que el destinatario de cada uno tiene que estar
-    fijado por un test o una futura "unificación" lo cambia sin poner nada en
-    rojo. Este correo confirma una inscripción que ya existe: mandarlo a una
+    """Este correo confirma una inscripción que ya existe: mandarlo a una
     dirección que declaró un desconocido sería contarle a un extraño que esa
-    persona se está titulando (E8).
-    """
+    persona se está titulando (E8)."""
     from itcj2.core.utils.email_tools import student_email
     from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
 
@@ -256,20 +256,19 @@ def test_already_enrolled_lleva_el_folio_al_institucional(
 
 def test_enrollment_done_lleva_el_folio_al_institucional(
         db_session, make_student, make_process, solicitud, correo_falso):
-    """Tras verificación: el folio del nuevo proceso, AL INSTITUCIONAL.
+    """Al abrirse la liga de activación: el folio, AL INSTITUCIONAL.
 
-    Mismo motivo que el test de arriba, y aquí más agudo: este correo lleva el
-    folio Y la invitación a entrar a la plataforma. `req.contact_email` es el
-    valor crudo de un formulario público, así que el destinatario NO puede salir
-    de ahí. La solicitud de este test trae a propósito un `contact_email`
-    distinto del institucional para que el `assert` tenga algo que distinguir.
+    Es la alarma de la dueña de la cuenta: la liga viajó al correo que tecleó el
+    solicitante, así que el aviso NO puede salir de `req.contact_email`. La
+    solicitud trae a propósito un `contact_email` distinto del institucional
+    para que el `assert` tenga algo que distinguir.
     """
     from itcj2.core.utils.email_tools import student_email
     from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
 
     alumno = make_student(control_number="99123459")
     proceso = make_process(student=alumno)
-    req = solicitud(control_number="99123459", kind="known", status="verified",
+    req = solicitud(control_number="99123459", kind="known", status="converted",
                     contact_email="otro.personal@example.invalid")
 
     ok = TitulaTecEmailHelper.send_enrollment_done(db_session, req, proceso)
@@ -277,7 +276,7 @@ def test_enrollment_done_lleva_el_folio_al_institucional(
     assert ok is True
     _asunto, dest, html = correo_falso[0]
     assert proceso.folio in html
-    assert "inscrito" in html.lower()
+    assert "inscri" in html.lower()
     assert dest == [student_email(alumno)], (
         "el folio y la invitación a entrar solo pueden ir al buzón institucional")
     assert req.contact_email not in dest

@@ -10,15 +10,29 @@ metería todos los tests en el MISMO cubo de `rl:enroll:ip:*` (mismo motivo que
 documenta `test_survey_submit_routes.py`). El autouse `_clear_authz_cache`
 (`tests/fastapi/conftest.py`) barre `rl:*` antes y después de cada test.
 
-El nivel SERVICIO (outcomes de `create()`, destinatario del token, presupuesto
-de `_send_verify`) vive en `test_enrollment_request_service.py`; aquí todo pasa
-por HTTP, que es donde viven las defensas que el servicio no ve: la ventana de
-la convocatoria, la trampa, el tope de tamaño y el limitador.
+Desde 2026-09-15 TODA solicitud pasa por la bandeja de Servicios Escolares: el
+alta no manda correo ni emite liga, y la tarjeta lo dice. El nivel SERVICIO
+(outcomes de `create()`, sin token, sin correo) vive en
+`test_enrollment_request_service.py`; aquí todo pasa por HTTP, que es donde
+viven las defensas que el servicio no ve: la ventana de la convocatoria, la
+confirmación del correo, la trampa, el tope de tamaño y el limitador.
 """
 from __future__ import annotations
 
+import pytest
 
 ENROLL_URL = "/titulatec/inscripcion"
+
+TITULO_TARJETA = "Recibimos tu solicitud"
+CUERPO_TARJETA = ("Servicios Escolares la revisará. Si se aprueba, te llegará un correo "
+                  "con tu acceso. Revisa también la carpeta de correo no deseado.")
+INTRO_PAGINA = ("Llena tus datos. Servicios Escolares revisará tu solicitud y, si se "
+                "aprueba, te enviará tu acceso por correo.")
+
+
+def _plano(html: str) -> str:
+    """El texto de una plantilla viene partido en renglones: se compara plano."""
+    return " ".join(html.split())
 
 
 def _solo_esta_convocatoria(db_session, cohort):
@@ -46,6 +60,7 @@ def _form(**kw):
         "program_text": "Ingenieria Ficticia",
         "phone": "6561234567",
         "contact_email": "alguien@example.invalid",
+        "contact_email_confirm": "alguien@example.invalid",
         "has_efirma": "0",
         "website": "",
     }
@@ -57,16 +72,28 @@ def _count(db_session, control_number):
     """Filas de `EnrollmentRequest` para UN número de control.
 
     A propósito SIN default ni variante "cuenta todo": la BD de dev compartida
-    acumula filas de QA manual de otras tareas (misma advertencia que las
-    restricciones del plan hacen sobre `database/`), y un `count()` sin filtro
-    pasaba HOY solo porque nadie más escribía en esta tabla todavía. El primer
-    QA manual contra el mismo contenedor deja una fila y las aserciones fallan
+    acumula filas de QA manual de otras tareas, y un `count()` sin filtro falla
     por un motivo que no tiene nada que ver con lo que cada test comprueba.
-    Cada llamada se acota por el número de control que ESE test mandó.
     """
     from itcj2.apps.titulatec.models import EnrollmentRequest
     return (db_session.query(EnrollmentRequest)
             .filter_by(control_number=control_number).count())
+
+
+@pytest.fixture()
+def sin_correo(monkeypatch):
+    """Falla la prueba si algo intenta salir por Graph; devuelve los intentos
+    de los métodos públicos del helper, que aquí no deberían ocurrir."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    intentos = []
+    for nombre in ("send_verify_enrollment", "send_already_enrolled",
+                   "send_enrollment_done", "send_enrollment_approved",
+                   "send_enrollment_rejected"):
+        monkeypatch.setattr(
+            TitulaTecEmailHelper, nombre,
+            staticmethod(lambda *a, _n=nombre, **k: intentos.append(_n) or False))
+    return intentos
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +133,37 @@ def test_get_con_ventana_abierta_muestra_el_formulario_y_la_trampa(
     assert 'value="__other__"' in resp.text        # "mi carrera no aparece"
     assert "Inglés" not in resp.text               # el inglés NO se pregunta (D11)
     assert cohort.name not in resp.text            # sin nombre de convocatoria
+
+
+def test_la_pagina_explica_que_la_solicitud_se_revisa_antes_de_dar_acceso(
+    client, db_session, make_cohort,
+):
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.get(ENROLL_URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert INTRO_PAGINA in _plano(resp.text)
+    assert "Sin ese clic" not in resp.text, "el texto de la liga de confirmación ya no aplica"
+
+
+def test_el_formulario_pide_confirmar_el_correo_personal(client, db_session, make_cohort):
+    import re
+
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.get(ENROLL_URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    campo = re.search(r"<input[^>]*name=\"contact_email_confirm\"[^>]*>", resp.text)
+    assert campo, "falta el campo de confirmación del correo personal"
+    for atributo in ('type="email"', 'maxlength="150"', 'autocomplete="off"', "required"):
+        assert atributo in campo.group(0), atributo
+    assert "Confirma tu correo personal" in resp.text
 
 
 def test_get_con_mas_de_una_convocatoria_abierta_falla_cerrado_503(
@@ -157,14 +215,66 @@ def test_correo_invalido_devuelve_200_con_el_formulario_y_error_inline(
     client.cookies.clear()
 
     resp = client.post(ENROLL_URL,
-                       data=_form(contact_email="no-es-correo"),
+                       data=_form(contact_email="no-es-correo",
+                                  contact_email_confirm="no-es-correo"),
                        headers={"X-Real-IP": "203.0.113.12"},
                        follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:400]
     assert 'id="tt-enroll-form"' in resp.text
     assert "correo personal válido" in resp.text
+    assert 'data-tt-error="contact_email_confirm"' not in resp.text, (
+        "dos correos iguales no se marcan como distintos aunque los dos estén mal")
     assert _count(db_session, "99880002") == 0
+
+
+def test_correos_distintos_devuelven_200_con_el_error_en_la_confirmacion(
+    client, db_session, make_cohort,
+):
+    """Una letra de más en el correo es la diferencia entre recibir el acceso y
+    no recibirlo nunca: la persona no se entera de que se equivocó hasta que
+    nadie le escribe. Por eso se teclea dos veces y el servidor lo compara."""
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.post(ENROLL_URL,
+                       data=_form(control_number="99885801",
+                                  contact_email="alguien@example.invalid",
+                                  contact_email_confirm="alguien@exmple.invalid"),
+                       headers={"X-Real-IP": "203.0.113.18"},
+                       follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'id="tt-enroll-form"' in resp.text
+    assert 'data-tt-error="contact_email_confirm"' in resp.text
+    assert "Los dos correos no coinciden." in resp.text
+    assert 'aria-describedby="tt-email-confirm-err"' in resp.text
+    assert 'data-tt-error="contact_email"' not in resp.text
+    assert 'value="alguien@example.invalid"' in resp.text   # lo capturado se conserva
+    assert _count(db_session, "99885801") == 0
+
+
+def test_la_confirmacion_no_distingue_mayusculas_ni_espacios(
+    client, db_session, make_cohort,
+):
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.post(ENROLL_URL,
+                       data=_form(control_number="99885802",
+                                  contact_email="Alguien@Example.invalid",
+                                  contact_email_confirm="  alguien@EXAMPLE.invalid "),
+                       headers={"X-Real-IP": "203.0.113.19"},
+                       follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert TITULO_TARJETA in resp.text
+    fila = db_session.query(EnrollmentRequest).filter_by(control_number="99885802").one()
+    assert fila.contact_email == "Alguien@Example.invalid"
 
 
 def test_sin_nombre_devuelve_200_con_error_inline_en_ese_campo(
@@ -221,16 +331,8 @@ def test_ventana_cerrada_en_el_post_no_escribe_y_muestra_cerrada(
 def test_post_con_mas_de_una_convocatoria_abierta_manda_el_mensaje_en_la_cabecera(
     client, db_session, make_cohort,
 ):
-    """§6.6, rama POST. Ronda de arreglos 1, Important 2.
-
-    `enroll_form.html` manda este POST con `hx-post` + `hx-swap="outerHTML"`, y
-    htmx NO hace swap en un 5xx: un `render_titulatec(..., status_code=503)`
-    con el aviso en el CUERPO se descarta en silencio y el visitante ve en su
-    lugar el toast genérico de `tt-errors.js` ("No se pudo completar la
-    acción..."), porque no hay `X-Tt-Error` que le dé el texto bueno. Mismo
-    patrón que el 411/413 de arriba: `Response` SIN formulario, con el mensaje
-    en la CABECERA, no en un cuerpo que nadie va a pintar.
-    """
+    """§6.6, rama POST. htmx NO hace swap en un 5xx: el aviso tiene que viajar
+    en la CABECERA, no en un cuerpo que nadie va a pintar."""
     from itcj2.apps.titulatec.models import Cohort
     db_session.query(Cohort).update({"status": "closed"}, synchronize_session=False)
     db_session.flush()
@@ -250,17 +352,40 @@ def test_post_con_mas_de_una_convocatoria_abierta_manda_el_mensaje_en_la_cabecer
 
 
 # ---------------------------------------------------------------------------
+# Alta válida: queda en revisión, sin liga ni correo
+# ---------------------------------------------------------------------------
+def test_un_alta_valida_queda_en_revision_sin_liga_ni_correo(
+    client, db_session, make_cohort, sin_correo,
+):
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.post(ENROLL_URL, data=_form(control_number="99885803"),
+                       headers={"X-Real-IP": "203.0.113.20"}, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'data-tt-notice="generic"' in resp.text
+    assert TITULO_TARJETA in resp.text
+    assert CUERPO_TARJETA in _plano(resp.text)
+    fila = db_session.query(EnrollmentRequest).filter_by(control_number="99885803").one()
+    assert fila.status == "pending_review"
+    assert fila.verify_token_hash is None
+    assert sin_correo == [], "el alta ya no manda nada: el acceso llega tras la revisión"
+
+
+# ---------------------------------------------------------------------------
 # Trampa (E3) y E8 — las salidas indistinguibles
 # ---------------------------------------------------------------------------
 def test_la_trampa_no_escribe_nada_y_devuelve_la_tarjeta_generica(
     client, db_session, make_cohort,
 ):
-    """La trampa es la CUARTA salida indistinguible, no solo la de E8 (item 2
-    de "lo que no puede fallar" en el despacho de la Tarea 19): un bot que la
-    llena tiene que recibir una respuesta idéntica BYTE A BYTE a la de un
-    envío legítimo, no solo "algo que también diga Revisa tu correo". Si se
-    distinguiera aunque fuera por una coma, un bot sabría que fue detectado —
-    exactamente la señal que la trampa existe para no dar.
+    """La trampa es la CUARTA salida indistinguible: un bot que la llena tiene
+    que recibir una respuesta idéntica BYTE A BYTE a la de un envío legítimo.
+    Si se distinguiera aunque fuera por una coma, un bot sabría que fue
+    detectado — exactamente la señal que la trampa existe para no dar.
     """
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
@@ -277,15 +402,13 @@ def test_la_trampa_no_escribe_nada_y_devuelve_la_tarjeta_generica(
                            follow_redirects=False)
 
     assert r_ok.status_code == r_trampa.status_code == 200, r_trampa.text[:400]
-    assert "Revisa tu correo" in r_trampa.text
+    assert TITULO_TARJETA in r_trampa.text
 
     # Cuerpo idéntico BYTE A BYTE contra un envío legítimo real, no "parecido".
     assert r_trampa.content == r_ok.content
 
     def _h(resp):
-        # `date` se excluye porque puede saltar de segundo entre peticiones; es
-        # lo único que el servidor no controla. Mismo criterio que el test de
-        # las otras tres ramas de E8, abajo.
+        # `date` se excluye porque puede saltar de segundo entre peticiones.
         return {k.lower(): v for k, v in resp.headers.items() if k.lower() != "date"}
 
     assert _h(r_trampa) == _h(r_ok)
@@ -297,7 +420,7 @@ def test_la_trampa_no_escribe_nada_y_devuelve_la_tarjeta_generica(
 def test_e8_las_tres_ramas_son_identicas_byte_a_byte(
     client, db_session, make_cohort, make_student, make_process, seed_phase_defs,
 ):
-    """'ok', 'ya hay solicitud' y 'ya tiene proceso' no se distinguen (E8).
+    """'nueva', 'ya hay solicitud viva' y 'ya tiene proceso' no se distinguen (E8).
 
     Si se distinguieran, el endpoint sería un oráculo anónimo de "¿existe este
     número de control?" y "¿esta persona se está titulando?".
@@ -327,24 +450,21 @@ def test_e8_las_tres_ramas_son_identicas_byte_a_byte(
     assert r_ok.content == r_proc.content
 
     def _h(resp):
-        # `date` se excluye porque puede saltar de segundo entre peticiones; es
-        # lo único que el servidor no controla.
         return {k.lower(): v for k, v in resp.headers.items() if k.lower() != "date"}
 
     assert _h(r_ok) == _h(r_dup)
     assert _h(r_ok) == _h(r_proc)
     assert cohort.name not in r_ok.text
+    assert 'data-tt-notice="generic"' in r_ok.text
+    assert TITULO_TARJETA in r_ok.text
+    assert CUERPO_TARJETA in _plano(r_ok.text)
+    assert _count(db_session, "99880002") == 1, "la segunda vuelta no crea otra fila"
 
 
 def test_una_excepcion_en_create_no_produce_500_y_devuelve_la_tarjeta_generica(
     client, db_session, make_cohort, monkeypatch,
 ):
-    """Ninguna entrada del visitante puede producir un 500 (docstring del módulo).
-
-    Se fuerza con `monkeypatch` sobre `create` porque el objetivo es «cualquier
-    excepción», igual que el equivalente de la encuesta
-    (`test_si_la_escritura_revienta_el_visitante_recupera_su_cuestionario`).
-    """
+    """Ninguna entrada del visitante puede producir un 500 (docstring del módulo)."""
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
@@ -354,6 +474,9 @@ def test_una_excepcion_en_create_no_produce_500_y_devuelve_la_tarjeta_generica(
 
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
+    # El `except` de la ruta hace `db.rollback()`: sin este checkpoint el
+    # rollback se llevaría también la convocatoria y el cierre de las demás.
+    db_session.commit()
     client.cookies.clear()
     monkeypatch.setattr(EnrollmentRequestService, "create", staticmethod(_revienta))
 
@@ -361,7 +484,7 @@ def test_una_excepcion_en_create_no_produce_500_y_devuelve_la_tarjeta_generica(
                        headers={"X-Real-IP": "203.0.113.24"}, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:400]
-    assert "Revisa tu correo" in resp.text
+    assert TITULO_TARJETA in resp.text
     assert _count(db_session, "99885001") == 0
 
 
@@ -369,13 +492,7 @@ def test_una_excepcion_en_create_no_produce_500_y_devuelve_la_tarjeta_generica(
 # RULING R1/R2 — leer antes / cobrar después, presupuestos y Retry-After
 # ---------------------------------------------------------------------------
 def test_los_presupuestos_del_limitador_son_los_acordados():
-    """R1/R2 del controlador: 30/hora por IP (no 5), 3/día por control.
-
-    Este test no defiende un número mágico: defiende que bajarlo del brief
-    original (5/hora) sea una decisión visible en la revisión y no un
-    descuido — el brief traía 5/hora, que deja fuera a una generación entera
-    de egresados saliendo por la única IP pública del ITCJ.
-    """
+    """R1/R2 del controlador: 30/hora por IP (no 5), 3/día por control."""
     from itcj2.apps.titulatec.pages import public as mod
 
     assert mod.ENROLL_RL_LIMIT_IP == 30
@@ -384,8 +501,12 @@ def test_los_presupuestos_del_limitador_son_los_acordados():
     assert mod.ENROLL_RL_WINDOW_CN == 86400
 
 
+@pytest.mark.parametrize("errata", [
+    {"control_number": "abc"},
+    {"contact_email_confirm": "otro@example.invalid"},
+], ids=["control-invalido", "correos-distintos"])
 def test_un_envio_invalido_no_gasta_presupuesto_de_ip(
-    client, db_session, make_cohort, monkeypatch,
+    client, db_session, make_cohort, monkeypatch, errata,
 ):
     """R1: `check_only` antes de trabajar, `check_and_count` solo tras éxito.
 
@@ -402,34 +523,26 @@ def test_un_envio_invalido_no_gasta_presupuesto_de_ip(
     headers = {"X-Real-IP": "203.0.113.31"}
 
     for _ in range(3):
-        r = client.post(ENROLL_URL, data=_form(control_number="abc"),
+        r = client.post(ENROLL_URL, data=_form(**errata),
                         headers=headers, follow_redirects=False)
         assert r.status_code == 200
         assert 'id="tt-enroll-form"' in r.text
 
     ok = client.post(ENROLL_URL, data=_form(control_number="99885002"),
                      headers=headers, follow_redirects=False)
-    assert "Revisa tu correo" in ok.text, "las erratas previas gastaron presupuesto de IP"
+    assert TITULO_TARJETA in ok.text, "las erratas previas gastaron presupuesto de IP"
 
 
 def test_una_excepcion_en_create_no_gasta_presupuesto_de_ip_ni_de_cn(
     client, db_session, make_cohort, monkeypatch,
 ):
-    """R1/R2: "que un create que falle no queme uno de los tres intentos".
-
-    Se fuerza UNA excepción en `create` con los cubos en 1 (IP) y 1 (CN). Si el
-    intento fallido hubiera cobrado, el reintento —MISMOS ip y control— se
-    encontraria el cubo agotado y veria la tarjeta de "demasiados intentos" en
-    vez de la generica.
-    """
+    """R1/R2: "que un create que falle no queme uno de los tres intentos"."""
     from itcj2.apps.titulatec.pages import public as mod
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
 
     llamadas = {"n": 0}
-    # `create` es un @staticmethod: leído desde la CLASE ya es la función
-    # plana (sin `self`/`cls`), así que no lleva `__func__` que desenvolver.
     original = EnrollmentRequestService.create
 
     def _falla_una_vez(db, cohort, data, *, client_ip):
@@ -440,31 +553,10 @@ def test_una_excepcion_en_create_no_gasta_presupuesto_de_ip_ni_de_cn(
 
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
-    # Checkpoint OBLIGATORIO antes de forzar el fallo (hallazgo de la Tarea 27,
-    # ronda de arreglos contra base vacía). `make_cohort` y
-    # `_solo_esta_convocatoria` solo hacen `flush()`, nunca `commit()` -viven
-    # sin confirmar en la MISMA transacción que el resto del test-. Esta
-    # prueba, a diferencia de sus vecinas, dispara un `db.rollback()` REAL de
-    # la aplicación (`pages/public.py`, correcto y necesario en producción)
-    # a mitad del test: bajo `join_transaction_mode="create_savepoint"`
-    # (`tests/fastapi/conftest.py`), ese rollback deshace TODO lo no
-    # confirmado desde el último `commit()`, y sin este `commit()` explícito
-    # eso incluye la convocatoria recién creada y el cierre de las demás.
-    # Contra una base vacía (`itcj_ci`, sin DML) el segundo POST no encontraba
-    # NINGUNA convocatoria abierta y caía en la tarjeta de "cerrada"; contra
-    # el `itcj` de dev el mismo rollback también reabría la convocatoria REAL
-    # del DML, y el segundo POST pasaba igual pero usando esa convocatoria
-    # ajena -la prueba pasaba por la razón equivocada, enmascarada por datos
-    # sembrados que nada tienen que ver con lo que aquí se afirma-. El
-    # `commit()` de abajo libera el SAVEPOINT de la fixture (queda protegido
-    # incluso de un `rollback()` posterior en la MISMA sesión) sin comprometer
-    # nada fuera de la transacción del test: `trans.rollback()` al final del
-    # fixture `db_session` sigue limpiando todo. Deliberadamente NO se mueve
-    # este `commit()` a `make_cohort`/`_solo_esta_convocatoria`: son fábricas
-    # compartidas por decenas de pruebas de este archivo y de otros, y
-    # commitear ahí de forma general cambiaría el punto de rollback de
-    # CUALQUIER prueba que las use, no solo de la que aquí fuerza un fallo de
-    # escritura real.
+    # Checkpoint OBLIGATORIO antes de forzar el fallo: la ruta hace un
+    # `db.rollback()` REAL, y bajo `join_transaction_mode="create_savepoint"`
+    # eso deshace todo lo no confirmado desde el último `commit()` —la
+    # convocatoria recién creada y el cierre de las demás incluidos—.
     db_session.commit()
     client.cookies.clear()
     monkeypatch.setattr(mod, "ENROLL_RL_LIMIT_IP", 1)
@@ -475,12 +567,12 @@ def test_una_excepcion_en_create_no_gasta_presupuesto_de_ip_ni_de_cn(
     primero = client.post(ENROLL_URL, data=_form(control_number="99885003"),
                           headers=headers, follow_redirects=False)
     assert primero.status_code == 200, primero.text[:400]
-    assert "Revisa tu correo" in primero.text
+    assert TITULO_TARJETA in primero.text
 
     segundo = client.post(ENROLL_URL, data=_form(control_number="99885003"),
                           headers=headers, follow_redirects=False)
 
-    assert "Revisa tu correo" in segundo.text, (
+    assert TITULO_TARJETA in segundo.text, (
         "el intento fallido gasto presupuesto: el reintento legitimo se topo "
         "con el limite"
     )
@@ -502,7 +594,7 @@ def test_limite_por_ip_corta_y_devuelve_retry_after(
         r = client.post(ENROLL_URL, data=_form(control_number=f"9988510{i}"),
                         headers=headers, follow_redirects=False)
         assert r.status_code == 200, r.text[:300]
-        assert "Revisa tu correo" in r.text
+        assert TITULO_TARJETA in r.text
 
     r4 = client.post(ENROLL_URL, data=_form(control_number="99885109"),
                      headers=headers, follow_redirects=False)
@@ -529,7 +621,7 @@ def test_limite_por_numero_de_control_corta_al_cuarto_intento(
                         headers={"X-Real-IP": f"203.0.113.{40 + i}"},
                         follow_redirects=False)
         assert r.status_code == 200, r.text[:300]
-        assert "Revisa tu correo" in r.text
+        assert TITULO_TARJETA in r.text
 
     r4 = client.post(ENROLL_URL, data=_form(control_number=control),
                      headers={"X-Real-IP": "203.0.113.49"}, follow_redirects=False)
@@ -553,7 +645,7 @@ def test_dos_IPs_anonimas_no_comparten_cubo(client, db_session, make_cohort, mon
     otra = client.post(ENROLL_URL, data=_form(control_number="99885302"),
                        headers={"X-Real-IP": "203.0.113.52"}, follow_redirects=False)
 
-    assert "Revisa tu correo" in otra.text, "otra IP arrastrada por el cubo ajeno"
+    assert TITULO_TARJETA in otra.text, "otra IP arrastrada por el cubo ajeno"
 
 
 def test_con_redis_caido_el_envio_se_niega_y_no_escribe(
@@ -581,12 +673,7 @@ def test_con_redis_caido_el_envio_se_niega_y_no_escribe(
 # ---------------------------------------------------------------------------
 def test_un_cuerpo_sin_content_length_se_rechaza_con_411(client, db_session, make_cohort):
     """Sin `Content-Length` (cuerpo `chunked`) el tope no puede aplicarse ANTES
-    de leer el cuerpo, así que se rechaza en vez de dejarlo pasar SIN TOPE.
-
-    Es el hueco concreto que R3 cierra: `_enroll_too_big` del brief devolvía
-    `False` (no toca el límite) cuando la cabecera faltaba, y entonces
-    `await request.form()` bufferaba el cuerpo entero sin ningún tope.
-    """
+    de leer el cuerpo, así que se rechaza en vez de dejarlo pasar SIN TOPE."""
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
     client.cookies.clear()
@@ -637,12 +724,8 @@ def test_enroll_submit_no_define_su_propio_parser_de_tamano():
 # RULING R4 — la trampa es `.tt-public-hp`, sin una segunda clase CSS
 # ---------------------------------------------------------------------------
 def test_la_inscripcion_no_agrega_una_segunda_clase_de_trampa_en_css():
-    """El propio `public.css` advierte por escrito: dos clases para lo mismo
-    dejan el campo A LA VISTA en cuanto un markup apunte a la que se quede sin
-    regla. Esta tarea NO debe añadir `.tt-honeypot`, `.tt-enroll-hp` ni
-    ninguna otra; el honeypot del formulario de inscripción usa la MISMA
-    `.tt-public-hp` que ya vive en la capa de la base pública (T11/T12).
-    """
+    """Dos clases para lo mismo dejan el campo A LA VISTA en cuanto un markup
+    apunte a la que se quede sin regla."""
     import itcj2
     from pathlib import Path
 

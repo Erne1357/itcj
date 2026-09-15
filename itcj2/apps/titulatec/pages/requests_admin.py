@@ -289,8 +289,11 @@ async def reject(req_id: int, request: Request,
 @router.post("/{req_id}/reenviar", name="titulatec.pages.requests.resend")
 async def resend(req_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_APPROVE))):
-    """Reenvío desde la bandeja: aquí SÍ se identifica por id, porque el actor ya
-    está autenticado y autorizado — el veto al id es del endpoint PÚBLICO."""
+    """Reenvío desde la bandeja: ROTA la liga de una solicitud aprobada.
+
+    Aquí SÍ se identifica por id y se rota, porque el actor ya está autenticado
+    y acotado por carrera; el veto al id y a rotar es del endpoint PÚBLICO.
+    """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -299,10 +302,11 @@ async def resend(req_id: int, request: Request,
     try:
         uid = int(user["sub"])
         scope = _officer_scope(db, uid)
-        req = _load_scoped_request(db, scope, req_id)
-        if req is None:
+        if _load_scoped_request(db, scope, req_id) is None:
             return Response(status_code=404)
-        EnrollmentRequestService._send_verify(db, req)
+        ok, detail = EnrollmentRequestService.resend_link(db, req_id)
+        if not ok:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
         ctx = _body_ctx(db, user_id=uid, status="", cohort_id=None)
     finally:
         db.close()

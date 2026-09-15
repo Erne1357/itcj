@@ -1,32 +1,37 @@
 """Helper de correo de TitulaTec. Calcado de `apps/maint/services/email_helper.py`.
 
 Contrato, idéntico al de maint: **ningún método lanza**. Todos devuelven `bool`.
-Un fallo de correo no puede tumbar una inscripción — la solicitud queda escrita
-con `verify_sent_at = NULL`, la bandeja muestra "correo no enviado" y ofrece
-reenvío. Nunca se pierde el registro por un problema de buzón.
+Un fallo de correo no puede tumbar una acción: quien llama commitea primero y
+manda después, así que un buzón caído no revierte nada. Cuando la liga de
+activación no sale, la bandeja lo muestra como "correo no enviado" y ofrece
+reenviarla.
 
 == Cómo habilitarlo ==
 1. Ir a /itcj/config/email, localizar la app "titulatec" y "Conectar".
 2. Completar el OAuth delegado con la cuenta institucional que enviará.
 3. El token queda en instance/apps/titulatec/email/msal_cache.json.
 
-Hoy ese directorio está VACÍO: en producción la verificación no llegaría aunque
-todo lo demás funcione. Mientras tanto rige E9 (abajo).
+Mientras no esté conectado rige E9 (abajo).
 
-== D17: a qué buzón va el token ==
-`verify_recipient` es el único lugar donde vive la regla. Alumno **conocido**:
-su correo institucional, que sale de la BD (`student_email`) y NUNCA de la
-petición. El número de control son 8 dígitos adivinables y públicos: si el token
-saliera al buzón tecleado en el formulario, cualquiera inscribiría a un tercero
-y —por D5— lo dejaría bloqueado para inscribirse de verdad. Alumno
-**desconocido**: el personal que declaró, porque no existe ninguna otra
-dirección suya en el mundo. Un conocido cuyo institucional no responde tras 3
-envíos cae a la bandeja de Servicios Escolares; su token jamás se redirige.
+== A qué buzón va cada correo (2026-09-15) ==
+El destinatario lo decide CADA MÉTODO, nunca el llamador: ninguno recibe `to`.
+
+  send_verify_enrollment    liga de activación              correo PERSONAL (req.contact_email)
+  send_enrollment_approved  usuario + NIP de cuenta nueva   correo PERSONAL
+  send_enrollment_rejected  motivo del rechazo              correo PERSONAL
+  send_already_enrolled     "ya tienes un proceso"          INSTITUCIONAL (student_email(user))
+  send_enrollment_done      folio al activarse la cuenta    INSTITUCIONAL
+
+La liga de una cuenta existente viaja al correo que se tecleó en el formulario
+público. Es un riesgo aceptado, y la contención vive en `EnrollmentRequestService`:
+la cuenta no se toca, y el aviso con folio va al institucional como alarma. Los
+dos correos al institucional nunca pueden salir de `req.contact_email`: le
+contarían a un extraño quién se está titulando (E8).
 
 == E9: fallback de desarrollo ==
 Sin token de Graph y con `FLASK_ENV != "production"`, la liga se escribe al log
 con la marca `[TT-VERIFY-LINK]`. Sin esto el flujo es imposible de probar a mano
-en local. En producción, jamás: un token de un solo uso en el log es una
+en local. En producción, jamás: una liga de activación en el log es una
 credencial en texto claro.
 """
 import logging
@@ -52,7 +57,7 @@ def _is_production() -> bool:
     """`True` salvo que el entorno diga explícitamente que no lo es.
 
     Ante la duda NO se filtra la liga: fallar hacia "esto es producción" es la
-    única dirección segura para un secreto de un solo uso.
+    única dirección segura para un secreto.
     """
     try:
         from itcj2.config import get_settings
@@ -129,59 +134,26 @@ def _deliver(*, template: str, context: dict, subject: str, to: str | None,
 
 
 class TitulaTecEmailHelper:
-    """Correos transaccionales de la convocatoria abierta. Ninguno lanza."""
+    """Correos transaccionales de la inscripción. Ninguno lanza y ninguno deja que
+    el llamador elija el destinatario."""
 
     @staticmethod
-    def verify_recipient(db: Session, req) -> str | None:
-        """Buzón al que va el token de verificación de `req` (D17).
-
-        `kind='known'` → institucional del usuario, resuelto contra la BD.
-        `kind='unknown'` → el personal que declaró.
-        `None` si es `known` y no hay usuario con ese control: ese caso es de
-        bandeja, y el token NO se redirige al personal.
-        """
+    def send_verify_enrollment(db: Session, req, *, link: str) -> bool:
+        """Liga de ACTIVACIÓN de una cuenta que ya existe, al correo PERSONAL de la
+        solicitud. La emite la bandeja al aprobar o al reenviar; abrirla inscribe
+        a la cuenta (`EnrollmentRequestService.verify`)."""
         try:
-            if req.kind == "unknown":
-                return req.contact_email or None
-            from itcj2.core.models.user import User
-            from itcj2.core.utils.email_tools import student_email
-            user = (db.query(User)
-                    .filter(User.control_number == req.control_number).first())
-            if user is None:
-                return None
-            return student_email(user) or None
-        except Exception:
-            logger.exception("[titulatec] Error resolviendo destinatario de %s",
-                             getattr(req, "control_number", "?"))
-            return None
-
-    @staticmethod
-    def send_verify_enrollment(db: Session, req, *, to: str, link: str) -> bool:
-        """Liga que CONVIERTE la solicitud. El destinatario lo resuelve el
-        llamador con `verify_recipient` (D17)."""
-        try:
+            from itcj2.apps.titulatec.services.enrollment_request_service import (
+                VERIFY_TTL_HOURS,
+            )
             return _deliver(
                 template="verify_enrollment.html",
-                context={"req": req, "link": link, "horas": 48},
+                context={"req": req, "link": link, "horas": VERIFY_TTL_HOURS},
                 subject="[TitulaTec ITCJ] Confirma tu inscripción",
-                to=to, que="verify_enrollment", link=link,
+                to=req.contact_email, que="verify_enrollment", link=link,
             )
         except Exception:
             logger.exception("[titulatec] Error inesperado en send_verify_enrollment")
-            return False
-
-    @staticmethod
-    def send_confirm_contact(db: Session, req, *, to: str, link: str) -> bool:
-        """Segunda liga, al correo PERSONAL. No bloquea la inscripción (D17)."""
-        try:
-            return _deliver(
-                template="confirm_contact.html",
-                context={"req": req, "link": link},
-                subject="[TitulaTec ITCJ] Confirma tu correo de contacto",
-                to=to, que="confirm_contact", link=link,
-            )
-        except Exception:
-            logger.exception("[titulatec] Error inesperado en send_confirm_contact")
             return False
 
     @staticmethod
@@ -206,7 +178,10 @@ class TitulaTecEmailHelper:
 
     @staticmethod
     def send_enrollment_done(db: Session, req, process) -> bool:
-        """Conocido, tras verificar: su folio. Al institucional."""
+        """Cuenta existente, al abrir la liga de activación: su folio, AL
+        INSTITUCIONAL. Es la alarma de la dueña de la cuenta: la liga viajó al
+        correo que tecleó el solicitante, así que este aviso no puede salir de
+        ahí."""
         try:
             from itcj2.core.models.user import User
             from itcj2.core.utils.email_tools import student_email
@@ -226,7 +201,7 @@ class TitulaTecEmailHelper:
 
     @staticmethod
     def send_enrollment_approved(db: Session, req, user, *, nip: str) -> bool:
-        """Alta del egresado aprobado: usuario + NIP + cambio obligatorio (D16).
+        """Alta de una cuenta NUEVA aprobada: usuario + NIP + cambio obligatorio (D16).
 
         Al correo PERSONAL: un egresado de 2005 no tiene institucional vivo. El
         NIP viaja SOLO aquí — nunca al log, ni a `X-Tt-Error`, ni al payload de

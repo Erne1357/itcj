@@ -1,31 +1,28 @@
-"""`EnrollmentRequestService` a nivel de servicio: alta, outcomes y reenvío.
+"""`EnrollmentRequestService` a nivel de servicio: alta, rechazo, tokens e índice.
 
-El nivel HTTP (ventana pública, trampa, límite por IP/CN, tamaño del cuerpo, E8
-sobre bytes) vive en `test_enrollment_public.py`. Aquí se prueba el CONTRATO del
-servicio en aislamiento: qué `outcome` devuelve cada rama, a qué buzón va cada
-correo (RULING R5 del controlador) y el presupuesto de `_send_verify` (§6.8).
+Desde 2026-09-15 TODA solicitud pasa por la bandeja de Servicios Escolares:
+`create()` deja la fila en `pending_review` sin token y sin correo, y el acceso
+llega solo por correo tras la revisión (NIP para una cuenta nueva, liga de
+activación para una que ya existe). Este archivo fija el alta, el rechazo y las
+piezas de token que comparten `approve()`, `verify()` y los reenvíos.
 
-RULING R5, el motivo de que este archivo exista antes que la ruta:
-`send_verify_enrollment(db, req, *, to, link)` recibe el destinatario como
-parámetro, así que nada dentro del helper impide pasarle `req.contact_email`
-directo. Es exactamente la fuga que D17 existe para evitar: la liga de
-verificación de un egresado CONOCIDO llegando a la dirección que otra persona
-escribió en el formulario público. El destinatario SIEMPRE tiene que salir de
-`TitulaTecEmailHelper.verify_recipient(db, req)`, nunca calculado a mano en el
-servicio. `test_create_conocido_manda_el_token_al_institucional_no_al_del_formulario`
-y `test_send_verify_conocido_sin_usuario_en_bd_falla_cerrado_sin_mutar` son los
-que fijan esto en rojo si un refactor futuro reintroduce el atajo.
+El nivel HTTP (ventana pública, confirmación del correo, trampa, límites, E8
+sobre bytes) vive en `test_enrollment_public.py`; la aprobación en
+`test_enrollment_approve.py`; la liga en `test_enrollment_verify.py`; los
+reenvíos en `test_enrollment_resend.py`.
 """
 from __future__ import annotations
 
+import hashlib
+import secrets
 from datetime import datetime, timedelta
 
 import pytest
 
 
 # ---------------------------------------------------------------------------
-# Captura de correo, calcada de test_email_helper.py::correo_falso (Tarea 18).
-# Local a este archivo a propósito: no se importa de un módulo de otra tarea.
+# Captura de correo. Local a este archivo a propósito (mismo patrón que el resto
+# de la suite): no se importa de otro módulo de pruebas.
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def correo_falso(monkeypatch):
@@ -50,24 +47,93 @@ def correo_falso(monkeypatch):
     return enviados
 
 
+@pytest.fixture()
+def espia_helper(monkeypatch):
+    """Sustituye TODOS los `send_*` del helper por un registro de llamadas.
+
+    Se enumeran con `dir()` en vez de una lista fija: un correo nuevo que alguien
+    agregue al alta tiene que salir en rojo aquí sin que nadie actualice la lista.
+    """
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    llamadas = []
+    for nombre in [n for n in dir(TitulaTecEmailHelper) if n.startswith("send_")]:
+        monkeypatch.setattr(
+            TitulaTecEmailHelper, nombre,
+            staticmethod(lambda *a, _n=nombre, **k: llamadas.append(_n) or True))
+    return llamadas
+
+
+@pytest.fixture()
+def orden_commit_correo(db_session, monkeypatch):
+    """Registra, en orden, cada `db_session.commit()` y cada envío por Graph.
+
+    Es la forma de probar "el correo sale DESPUÉS del commit" dentro de una sola
+    sesión: si el envío apareciera antes del primer commit, un fallo al
+    commitear dejaría un correo que habla de algo que no existe.
+    """
+    orden, enviados = [], []
+    commit_real = db_session.commit
+
+    def _commit():
+        orden.append("commit")
+        return commit_real()
+
+    class _Resp:
+        status_code = 202
+        text = ""
+
+    def _fake_send(access_token, subject, content_html, to_list, save_to_sent=True):
+        orden.append("correo")
+        enviados.append((subject, list(to_list), content_html))
+        return _Resp()
+
+    monkeypatch.setattr(db_session, "commit", _commit)
+    monkeypatch.setattr("itcj2.core.utils.msgraph_mail.acquire_token_silent",
+                        lambda app_key: "token-de-prueba")
+    monkeypatch.setattr("itcj2.core.utils.msgraph_mail.graph_send_mail", _fake_send)
+    return orden, enviados
+
+
 def _data(**kw):
     base = dict(control_number="99000001", first_name="EGRESADA", last_name="FICTICIA",
-               middle_name="", program_id=None, program_text="Ingenieria Ficticia",
-               phone="6561234567", contact_email="personal@example.invalid",
-               has_efirma=False)
+                middle_name="", program_id=None, program_text="Ingenieria Ficticia",
+                phone="6561234567", contact_email="personal@example.invalid",
+                has_efirma=False)
     base.update(kw)
     return base
 
 
+def _fila(db_session, cohort, *, control, status="pending_review",
+          email="personal@example.invalid", con_token=False, **kw):
+    """Solicitud a mano. Con `con_token` trae liga emitida; devuelve `(req, token)`."""
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+
+    token = secrets.token_urlsafe(32) if con_token else None
+    row = EnrollmentRequest(
+        cohort_id=cohort.id, control_number=control,
+        first_name="EGRESADA", last_name="FICTICIA", phone="6560000000",
+        contact_email=email, has_efirma=False, kind="unknown", status=status,
+        verify_token_hash=(hashlib.sha256(token.encode("utf-8")).hexdigest()
+                           if token else None),
+        verify_expires_at=(datetime.now() + timedelta(days=7)) if token else None,
+        verify_send_count=1 if token else 0,
+    )
+    for k, v in kw.items():
+        setattr(row, k, v)
+    db_session.add(row)
+    db_session.flush()
+    return row, token
+
+
 # ---------------------------------------------------------------------------
-# Constantes del contrato (interfaz que consumen T20/T21/T22)
+# Constantes y piezas de token
 # ---------------------------------------------------------------------------
 def test_constantes_del_contrato():
     from itcj2.apps.titulatec.services import enrollment_request_service as mod
     from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE as re_original
 
-    assert mod.VERIFY_TTL_HOURS == 48
-    assert mod.CONTACT_TTL_HOURS == 168
+    assert mod.VERIFY_TTL_HOURS == 168, "la liga de activación vive 7 días"
     assert mod.MAX_VERIFY_SENDS == 3
     assert mod.MIN_SECONDS_BETWEEN_SENDS == 300
     assert mod.MAX_PUBLIC_BODY_BYTES == 256 * 1024
@@ -80,28 +146,38 @@ def test_constantes_del_contrato():
     )
 
 
-def test_links_usan_public_base_url_y_query_t():
+def test_ya_no_se_emite_ninguna_liga_de_contacto():
+    """La segunda liga ("confirma tu correo de contacto") desaparece: el correo
+    personal ya se prueba al abrir la liga de activación, que viaja justo ahí.
+    `confirm_contact` sigue vivo solo para las ligas que ya se mandaron."""
+    from itcj2.apps.titulatec.services import enrollment_request_service as mod
+
+    for nombre in ("CONTACT_TTL_HOURS", "_contact_link"):
+        assert not hasattr(mod, nombre), nombre
+    for nombre in ("_issue_contact_token", "_send_contact_link"):
+        assert not hasattr(mod.EnrollmentRequestService, nombre), nombre
+    assert hasattr(mod.EnrollmentRequestService, "confirm_contact")
+
+
+def test_la_liga_de_activacion_usa_public_base_url_y_query_t():
     from itcj2.apps.titulatec.services.enrollment_request_service import (
-        PUBLIC_BASE_URL, _contact_link, _verify_link,
+        PUBLIC_BASE_URL, _verify_link,
     )
 
     assert _verify_link("abc") == f"{PUBLIC_BASE_URL}/titulatec/inscripcion/verificar?t=abc"
-    assert _contact_link("xyz") == f"{PUBLIC_BASE_URL}/titulatec/inscripcion/correo?t=xyz"
 
 
-def test_token_cache_put_get_redondea():
+def test_el_claro_del_token_vive_en_redis_lo_mismo_que_la_liga_y_se_puede_borrar():
     """E7: la BD solo guarda el sha256; el claro vive en Redis con la MISMA llave.
 
-    `raw` lleva un `uuid4` a propósito: la llave de Redis es `sha256(raw)` y el
-    TTL es de `VERIFY_TTL_HOURS` (48h), así que un literal fijo sobrevive entre
-    corridas de la suite -esta prueba paso SOLA y fallo dentro de la suite
-    completa la primera vez que la escribi, precisamente por eso- y la primera
-    asercion ("no deberia haber nada cacheado aun") deja de ser cierta.
+    `raw` lleva un `uuid4`: la llave es `sha256(raw)` y un literal fijo sobrevive
+    entre corridas de la suite.
     """
     import uuid
 
     from itcj2.apps.titulatec.services.enrollment_request_service import (
-        _sha256, _token_cache_get, _token_cache_put,
+        VERIFY_TTL_HOURS, _TOKEN_CACHE_PREFIX, _redis, _sha256, _token_cache_delete,
+        _token_cache_get, _token_cache_put,
     )
 
     raw = f"token-de-prueba-{uuid.uuid4().hex}"
@@ -110,137 +186,104 @@ def test_token_cache_put_get_redondea():
     assert _token_cache_get(digest) is None, "no deberia haber nada cacheado aun"
     _token_cache_put(raw)
     assert _token_cache_get(digest) == raw
+    ttl = _redis().ttl(_TOKEN_CACHE_PREFIX + digest)
+    assert VERIFY_TTL_HOURS * 3600 - 120 < ttl <= VERIFY_TTL_HOURS * 3600
+
+    _token_cache_delete(digest)
+    assert _token_cache_get(digest) is None
+    _token_cache_delete(None)          # best-effort: nunca revienta
 
 
 # ---------------------------------------------------------------------------
-# create(): outcome 'created'
+# create(): toda solicitud nueva queda en revisión, sin token y sin correo
 # ---------------------------------------------------------------------------
-def test_create_desconocido_crea_fila_unverified_y_manda_al_correo_declarado(
-    db_session, make_cohort, correo_falso,
+@pytest.mark.parametrize("con_cuenta", [False, True], ids=["sin-cuenta", "con-cuenta"])
+def test_create_deja_la_solicitud_en_revision_sin_token_ni_correo(
+    db_session, make_cohort, make_student, espia_helper, correo_falso, con_cuenta,
 ):
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
 
+    control = "99880001" if con_cuenta else "99000001"
+    if con_cuenta:
+        make_student(control_number=control)
     cohort = make_cohort()
 
     req, outcome = EnrollmentRequestService.create(
-        db_session, cohort, _data(control_number="99000001"), client_ip="203.0.113.1")
+        db_session, cohort, _data(control_number=control), client_ip="203.0.113.1")
 
     assert outcome == "created"
-    assert req is not None
-    assert req.kind == "unknown"
-    assert req.status == "unverified"
-    assert req.verify_sent_to == "personal@example.invalid"
-    assert req.verify_send_count == 1
-    assert req.verify_sent_at is not None
-    asunto, destinatarios, _html = correo_falso[0]
-    assert destinatarios == ["personal@example.invalid"]
-    assert "Confirma tu inscripci" in asunto
+    assert req.status == "pending_review"
+    assert req.kind == ("known" if con_cuenta else "unknown"), "`kind` se guarda para mostrar"
+    assert req.verify_token_hash is None
+    assert req.verify_expires_at is None
+    assert req.verify_send_count == 0
+    assert req.verify_sent_to is None and req.verify_sent_at is None
+    assert req.verified_at is None
+    assert req.contact_token_hash is None
+    assert espia_helper == [], "el alta no puede mandar ningún correo"
+    assert correo_falso == []
 
 
-def test_create_conocido_manda_el_token_al_institucional_no_al_del_formulario(
-    db_session, make_cohort, make_student, correo_falso,
+@pytest.mark.parametrize("status", ["pending_review", "approved", "unverified", "verified"])
+def test_create_con_una_solicitud_viva_no_hace_nada(
+    db_session, make_cohort, espia_helper, status,
 ):
-    """RULING R5. Es el test central de esta tarea.
-
-    `alumno` YA existe en `core_users` (control "99880001"). El formulario
-    público trae un `contact_email` DISTINTO al institucional. La liga de
-    VERIFICACION tiene que llegar al institucional -lo unico que prueba que es
-    el-, nunca al correo que se tecleo: ese numero de control son 8 digitos
-    publicos y adivinables, y por D5 inscribir a un tercero lo deja bloqueado
-    para inscribirse de verdad.
-    """
-    from itcj2.core.utils.email_tools import student_email
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
-
-    alumno = make_student(control_number="99880001")
-    cohort = make_cohort()
-    institucional = student_email(alumno)
-
-    req, outcome = EnrollmentRequestService.create(
-        db_session, cohort,
-        _data(control_number="99880001", contact_email="otro.correo@example.invalid"),
-        client_ip="203.0.113.2")
-
-    assert outcome == "created"
-    assert req.kind == "known"
-    assert req.verify_sent_to == institucional
-    assert req.verify_sent_to != "otro.correo@example.invalid"
-    assert req.contact_email == "otro.correo@example.invalid", (
-        "el correo personal SI se guarda en la fila -solo no recibe el token de "
-        "verificacion-"
-    )
-
-    # CAMBIO DELIBERADO (B1 de la revision final). Este assert decia
-    # `len(correo_falso) == 2` -- "verify_enrollment + confirm_contact
-    # (conocido)" -- y fijaba que `create()` mandara TAMBIEN la liga de contacto
-    # a `req.contact_email`. Esa expectativa era la vulnerabilidad escrita como
-    # contrato: el correo de este test lo escribio un DESCONOCIDO por la alumna
-    # 99880001, y esa segunda liga es canjeable contra el
-    # `core_student_profile` de ella. La liga de contacto ahora se emite al
-    # ABRIR la institucional (`verify()`), asi que aqui sale UN solo correo.
-    # Que la de contacto si vaya al personal -su unico trabajo, D17- lo fija
-    # ahora `test_al_abrir_la_liga_institucional_sale_la_liga_de_contacto...`
-    # (tests/fastapi/titulatec/test_enrollment_identity_chain.py).
-    assert len(correo_falso) == 1, (
-        "solo la liga de VERIFICACION; la de contacto no se emite hasta que se "
-        "abra esta")
-    asunto_verify, dest_verify, _h1 = correo_falso[0]
-    assert dest_verify == [institucional], (
-        "la liga de VERIFICACION (la que convierte la solicitud) debe ir al "
-        "institucional, nunca al correo del formulario"
-    )
-    assert "Confirma tu inscripci" in asunto_verify
-    assert req.contact_token_hash is None, (
-        "ni siquiera se emite el token: un token que no existe no se puede "
-        "canjear contra el perfil de la duena del numero de control")
-
-
-def test_create_con_solicitud_viva_reenvia_y_no_duplica(
-    db_session, make_cohort, correo_falso,
-):
+    """Rama (b). Se dispara con SOLO el número de control, que cualquiera puede
+    teclear: no puede reenviar, rotar, redirigir ni reescribir nada de la
+    solicitud de otra persona."""
     from itcj2.apps.titulatec.models import EnrollmentRequest
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
 
     cohort = make_cohort()
+    viva, _tok = _fila(db_session, cohort, control="99000002", status=status,
+                       email="primero@example.invalid", con_token=(status == "approved"))
+    hash_antes, envios_antes = viva.verify_token_hash, viva.verify_send_count
 
-    primero, outcome1 = EnrollmentRequestService.create(
-        db_session, cohort, _data(control_number="99000002"), client_ip="203.0.113.3")
-    assert outcome1 == "created"
-    correo_falso.clear()
-    # El presupuesto de _send_verify exige >=300s entre envios; sin esto el
-    # reenvio de abajo se negaria por el techo, no por logica de negocio.
-    primero.verify_sent_at = datetime.now() - timedelta(seconds=400)
-    db_session.flush()
-
-    segundo, outcome2 = EnrollmentRequestService.create(
+    req, outcome = EnrollmentRequestService.create(
         db_session, cohort,
         _data(control_number="99000002", contact_email="otro@example.invalid"),
         client_ip="203.0.113.4")
 
-    assert outcome2 == "existing_request"
-    assert segundo is not None and segundo.id == primero.id
+    assert outcome == "existing_request"
+    assert req is not None and req.id == viva.id
     assert (db_session.query(EnrollmentRequest)
-            .filter_by(cohort_id=cohort.id, control_number="99000002").count()) == 1, (
-        "no debe crear una segunda fila"
-    )
-    assert len(correo_falso) == 1, "el reenvio SI escribe correo (el token seguia vivo)"
-    assert correo_falso[0][1] == ["personal@example.invalid"], (
-        "reenvia al buzon YA GUARDADO en la solicitud, no al 'otro@' que trae "
-        "este segundo intento -ese es justo el vector que D17 cierra"
-    )
+            .filter_by(cohort_id=cohort.id, control_number="99000002").count()) == 1
+    db_session.refresh(viva)
+    assert viva.status == status
+    assert viva.contact_email == "primero@example.invalid"
+    assert viva.verify_token_hash == hash_antes
+    assert viva.verify_send_count == envios_antes
+    assert espia_helper == []
 
 
-def test_create_con_proceso_activo_avisa_y_no_crea_fila(
+def test_create_tras_un_rechazo_abre_una_solicitud_nueva(db_session, make_cohort):
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    cohort = make_cohort()
+    viejo, _ = _fila(db_session, cohort, control="99000003", status="rejected")
+
+    req, outcome = EnrollmentRequestService.create(
+        db_session, cohort, _data(control_number="99000003"), client_ip=None)
+
+    assert outcome == "created"
+    assert req.id != viejo.id and req.status == "pending_review"
+    assert (db_session.query(EnrollmentRequest)
+            .filter_by(cohort_id=cohort.id, control_number="99000003").count()) == 2
+
+
+def test_create_con_proceso_vivo_avisa_al_institucional_y_no_crea_fila(
     db_session, make_cohort, make_student, make_process, seed_phase_defs,
     correo_falso,
 ):
     """D5: proceso vivo en CUALQUIER convocatoria bloquea, sin crear solicitud."""
+    from itcj2.core.utils.email_tools import student_email
     from itcj2.apps.titulatec.models import EnrollmentRequest
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -253,16 +296,19 @@ def test_create_con_proceso_activo_avisa_y_no_crea_fila(
     make_process(alumno, cohort=otra)
 
     req, outcome = EnrollmentRequestService.create(
-        db_session, cohort, _data(control_number="99880002"), client_ip="203.0.113.5")
+        db_session, cohort,
+        _data(control_number="99880002", contact_email="extrano@example.invalid"),
+        client_ip="203.0.113.5")
 
     assert outcome == "existing_process"
     assert req is None
     assert (db_session.query(EnrollmentRequest)
             .filter_by(control_number="99880002").count()) == 0
-    assert len(correo_falso) == 1, "send_already_enrolled, al institucional"
+    assert [dest for _a, dest, _h in correo_falso] == [[student_email(alumno)]], (
+        "el aviso va al buzón institucional, nunca al que se tecleó")
 
 
-def test_created_ip_hash_nunca_guarda_la_ip_en_claro(db_session, make_cohort, correo_falso):
+def test_created_ip_hash_nunca_guarda_la_ip_en_claro(db_session, make_cohort):
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
@@ -277,7 +323,7 @@ def test_created_ip_hash_nunca_guarda_la_ip_en_claro(db_session, make_cohort, co
     assert len(req.created_ip_hash) == 64  # hexdigest sha256
 
 
-def test_created_ip_hash_es_none_sin_ip(db_session, make_cohort, correo_falso):
+def test_created_ip_hash_es_none_sin_ip(db_session, make_cohort):
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
@@ -291,138 +337,131 @@ def test_created_ip_hash_es_none_sin_ip(db_session, make_cohort, correo_falso):
 
 
 # ---------------------------------------------------------------------------
-# _send_verify(): presupuesto y no-rotación (§6.8)
+# reject(): desde revisión, aprobada o legado; mata la liga; correo tras commit
 # ---------------------------------------------------------------------------
-def _req_pelado(db_session, cohort, *, control_number, kind, token_hash,
-                verify_send_count=0, verify_sent_at=None,
-                contact_email="personal@example.invalid"):
-    from itcj2.apps.titulatec.models import EnrollmentRequest
-
-    req = EnrollmentRequest(
-        cohort_id=cohort.id, control_number=control_number,
-        first_name="X", last_name="Y", phone="6560000000",
-        contact_email=contact_email, has_efirma=False,
-        kind=kind, status="unverified",
-        verify_token_hash=token_hash,
-        verify_expires_at=datetime.now() + timedelta(hours=1),
-        verify_send_count=verify_send_count,
-        verify_sent_at=verify_sent_at,
-    )
-    db_session.add(req)
-    db_session.flush()
-    return req
-
-
-def test_send_verify_sin_claro_en_cache_falla_cerrado_sin_mutar(db_session, make_cohort):
-    """§6.8: sin el texto claro en Redis, NO hay reenvio posible. Nada se toca."""
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService, _sha256,
-    )
-
-    cohort = make_cohort()
-    req = _req_pelado(db_session, cohort, control_number="99000003", kind="unknown",
-                      token_hash=_sha256("token-que-nunca-se-cacheo"))
-    hash_antes, expira_antes = req.verify_token_hash, req.verify_expires_at
-
-    ok = EnrollmentRequestService._send_verify(db_session, req)
-
-    assert ok is False
-    assert req.verify_send_count == 0
-    assert req.verify_sent_at is None
-    assert req.verify_token_hash == hash_antes, "NUNCA debe rotar el token"
-    assert req.verify_expires_at == expira_antes, "NUNCA debe extender la ventana"
-
-
-def test_send_verify_con_claro_en_cache_reenvia_sin_rotar_el_hash(
-    db_session, make_cohort, correo_falso,
+def test_rechazar_una_en_revision_la_cierra_y_avisa_despues_del_commit(
+    db_session, make_cohort, make_user, orden_commit_correo,
 ):
     from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService, _sha256, _token_cache_put,
+        EnrollmentRequestService,
     )
 
+    orden, enviados = orden_commit_correo
+    actor = make_user()
     cohort = make_cohort()
-    raw = "raw-token-de-prueba-reenvio"
-    _token_cache_put(raw)
-    req = _req_pelado(db_session, cohort, control_number="99000004", kind="unknown",
-                      token_hash=_sha256(raw), verify_send_count=1,
-                      verify_sent_at=datetime.now() - timedelta(seconds=400))
-    hash_antes = req.verify_token_hash
+    req, _ = _fila(db_session, cohort, control="99000010")
 
-    ok = EnrollmentRequestService._send_verify(db_session, req)
+    ok = EnrollmentRequestService.reject(db_session, req.id,
+                                         note="  No aparece en el padrón.  ",
+                                         actor_id=actor.id)
 
     assert ok is True
-    assert req.verify_token_hash == hash_antes, "el reenvio NUNCA rota el token"
-    assert req.verify_send_count == 2
-    assert req.verify_sent_at is not None
-    assert correo_falso[0][1] == ["personal@example.invalid"]
+    assert req.status == "rejected"
+    assert req.review_note == "No aparece en el padrón."
+    assert req.reviewed_by_id == actor.id and req.reviewed_at is not None
+    assert orden == ["commit", "correo"], "el aviso salió antes de commitear el rechazo"
+    (_asunto, destinatarios, html), = enviados
+    assert destinatarios == ["personal@example.invalid"]
+    assert "No aparece en el padrón." in html
 
 
-def test_send_verify_respeta_el_tope_de_reenvios(db_session, make_cohort):
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        MAX_VERIFY_SENDS, EnrollmentRequestService, _sha256, _token_cache_put,
-    )
-
-    cohort = make_cohort()
-    raw = "raw-token-tope-de-reenvios"
-    _token_cache_put(raw)
-    req = _req_pelado(db_session, cohort, control_number="99000007", kind="unknown",
-                      token_hash=_sha256(raw), verify_send_count=MAX_VERIFY_SENDS,
-                      verify_sent_at=datetime.now() - timedelta(seconds=400))
-
-    ok = EnrollmentRequestService._send_verify(db_session, req)
-
-    assert ok is False
-    assert req.verify_send_count == MAX_VERIFY_SENDS, "no debe seguir subiendo"
-
-
-def test_send_verify_respeta_el_minimo_entre_envios(db_session, make_cohort):
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService, _sha256, _token_cache_put,
-    )
-
-    cohort = make_cohort()
-    raw = "raw-token-minimo-entre-envios"
-    _token_cache_put(raw)
-    req = _req_pelado(db_session, cohort, control_number="99000008", kind="unknown",
-                      token_hash=_sha256(raw), verify_send_count=1,
-                      verify_sent_at=datetime.now())  # recien mandado
-
-    ok = EnrollmentRequestService._send_verify(db_session, req)
-
-    assert ok is False
-    assert req.verify_send_count == 1, "no debe cobrar un envio que no ocurrio"
-
-
-def test_send_verify_conocido_sin_usuario_en_bd_falla_cerrado_sin_mutar(
-    db_session, make_cohort,
+def test_rechazar_una_aprobada_deja_su_liga_muerta(
+    db_session, make_cohort, make_user, correo_falso,
 ):
-    """RULING R5, la otra mitad. Sin `correo_falso`: si esto llegara a intentar
-    mandar, `send_verify_enrollment` fallaria por falta de token de Graph, pero
-    lo que se prueba aqui es que NUNCA debe llegar a intentarlo -el guard de
-    `verify_recipient` devolviendo `None` tiene que cortar ANTES-, y por tanto
-    tampoco debe mutar nada. Si algun dia el codigo cae de vuelta a
-    `req.verify_sent_to or req.contact_email`, este `kind='known'` con usuario
-    inexistente ya no fallaria cerrado: mandaria (intentaria mandar) al
-    `contact_email` de la fila, que es EXACTAMENTE la fuga de D17.
-    """
     from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService, _sha256, _token_cache_put,
+        EnrollmentRequestService, _token_cache_get, _token_cache_put,
     )
 
+    actor = make_user()
     cohort = make_cohort()
-    raw = "raw-token-conocido-sin-user"
-    _token_cache_put(raw)
-    req = _req_pelado(db_session, cohort, control_number="99999997", kind="known",
-                      token_hash=_sha256(raw), verify_send_count=0,
-                      contact_email="personal@example.invalid")
-    hash_antes = req.verify_token_hash
+    req, token = _fila(db_session, cohort, control="99000011", status="approved",
+                       con_token=True)
+    digest = req.verify_token_hash
+    _token_cache_put(token)
 
-    ok = EnrollmentRequestService._send_verify(db_session, req)
+    ok = EnrollmentRequestService.reject(db_session, req.id, note="Cancelada",
+                                         actor_id=actor.id)
 
-    assert ok is False
-    assert req.verify_send_count == 0
-    assert req.verify_sent_at is None
-    assert req.verify_token_hash == hash_antes
+    assert ok is True
+    assert req.status == "rejected"
+    assert req.verify_token_hash is None and req.verify_expires_at is None
+    assert _token_cache_get(digest) is None, "el texto claro de la liga sigue en Redis"
+    _, outcome = EnrollmentRequestService.verify(db_session, token)
+    assert outcome == "invalid"
+
+
+@pytest.mark.parametrize("status", ["unverified", "verified"])
+def test_rechazar_una_solicitud_legado_tambien_aplica(
+    db_session, make_cohort, make_user, correo_falso, status,
+):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    actor = make_user()
+    cohort = make_cohort()
+    req, _ = _fila(db_session, cohort, control="99000012", status=status, con_token=True)
+
+    assert EnrollmentRequestService.reject(db_session, req.id, note="Legado",
+                                           actor_id=actor.id) is True
+    assert req.status == "rejected" and req.verify_token_hash is None
+
+
+@pytest.mark.parametrize("status", ["converted", "rejected"])
+def test_rechazar_una_resuelta_no_hace_nada(
+    db_session, make_cohort, make_user, correo_falso, status,
+):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    actor = make_user()
+    cohort = make_cohort()
+    req, _ = _fila(db_session, cohort, control="99000013", status=status,
+                   review_note="nota original")
+
+    assert EnrollmentRequestService.reject(db_session, req.id, note="Otra",
+                                           actor_id=actor.id) is False
+    db_session.refresh(req)
+    assert req.status == status and req.review_note == "nota original"
+    assert correo_falso == []
+
+
+def test_rechazar_sin_motivo_no_hace_nada(db_session, make_cohort, make_user, correo_falso):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    actor = make_user()
+    cohort = make_cohort()
+    req, _ = _fila(db_session, cohort, control="99000014")
+
+    assert EnrollmentRequestService.reject(db_session, req.id, note="   ",
+                                           actor_id=actor.id) is False
+    assert req.status == "pending_review"
+    assert correo_falso == []
+
+
+def _cuerpo_sin_docstring(func):
+    import inspect
+
+    src = inspect.getsource(func)
+    _, _, cuerpo = src.partition('"""')
+    _, _, cuerpo = cuerpo.partition('"""')
+    return cuerpo
+
+
+def test_reject_toma_lock_y_refresca_antes_de_leer_status():
+    """Mismo patrón que `verify()`: sin lock + refresh, un rechazo concurrente con
+    la apertura de la liga podía leer `approved` ya convertido."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    cuerpo = _cuerpo_sin_docstring(EnrollmentRequestService.reject)
+    lock_pos = cuerpo.index("pg_advisory_xact_lock")
+    refresh_pos = cuerpo.index("db.refresh(req)")
+    assert lock_pos < refresh_pos < cuerpo.index("req.status")
 
 
 # ---------------------------------------------------------------------------

@@ -1040,16 +1040,17 @@ async def survey_draft(
 # pasarlo con prefijo produce `bi bi-bi-envelope-check`-, `notice_title`,
 # `notice_body` y el opcional `notice_class`.
 #
-# E8: la MISMA tarjeta para las tres ramas indistinguibles ("ok", "ya existe
+# E8: la MISMA tarjeta para las tres ramas indistinguibles ("nueva", "ya existe
 # solicitud viva", "ya tiene proceso"). Sin nombre de convocatoria ni botón de
 # reenvío condicional -cualquiera de los dos es el mismo oráculo anónimo que E8
-# existe para evitar-.
+# existe para evitar-. Desde 2026-09-15 el alta ya no manda correo: toda
+# solicitud la revisa Servicios Escolares, y la tarjeta dice eso y nada más.
 _ENROLL_CARD = {
     "notice_key": "generic",
-    "notice_icon": "envelope-check",
-    "notice_title": "Revisa tu correo",
-    "notice_body": ("Si tus datos son correctos, te enviamos un correo con el siguiente "
-                    "paso. Revisa también la carpeta de correo no deseado."),
+    "notice_icon": "inbox",
+    "notice_title": "Recibimos tu solicitud",
+    "notice_body": ("Servicios Escolares la revisará. Si se aprueba, te llegará un correo "
+                    "con tu acceso. Revisa también la carpeta de correo no deseado."),
 }
 
 # — Presupuestos del limitador de inscripción (revisión 2026-09-10, RULING R1/R2) —
@@ -1181,7 +1182,7 @@ async def enroll(request: Request):
 
 @router.post("/inscripcion", name="titulatec.pages.public.enroll_submit")
 async def enroll_submit(request: Request):
-    """Alta de solicitud.
+    """Alta de solicitud: queda en la bandeja de Servicios Escolares.
 
     Orden: tamaño declarado → trampa → límite por IP → ventana → validación →
     límite por número de control → escritura → cobro. Ninguna entrada del
@@ -1189,10 +1190,15 @@ async def enroll_submit(request: Request):
     va protegida con el mismo criterio que `survey_submit` (`try/except`
     alrededor de la llamada al service, `rollback` en el `except`).
 
+    El correo personal se teclea dos veces (`contact_email_confirm`) y se compara
+    sin distinguir mayúsculas ni espacios: el acceso llega SOLO a ese buzón. Si
+    no coinciden es una errata más: 200 con el formulario y el error en la
+    confirmación, sin tocar presupuestos.
+
     Todas las salidas desde la ventana abierta en adelante son la MISMA tarjeta
     (E8): el handler ignora A PROPÓSITO el valor de retorno de
-    `EnrollmentRequestService.create` -lo que distingue cada rama viaja por
-    correo, nunca por esta respuesta-.
+    `EnrollmentRequestService.create`. Ninguna rama le dice a la pantalla si el
+    número de control existe o si esa persona se está titulando.
     """
     from itcj2.database import SessionLocal
     from itcj2.core.utils.client_ip import client_ip
@@ -1230,7 +1236,8 @@ async def enroll_submit(request: Request):
 
     values = {k: (form.get(k) or "").strip() for k in (
         "control_number", "first_name", "last_name", "middle_name",
-        "program_id", "program_text", "phone", "contact_email")}
+        "program_id", "program_text", "phone", "contact_email",
+        "contact_email_confirm")}
     values["has_efirma"] = "1" if (form.get("has_efirma") or "") == "1" else "0"
 
     db = SessionLocal()
@@ -1266,6 +1273,9 @@ async def enroll_submit(request: Request):
         email = normalize_email(values["contact_email"])
         if not is_valid_email(email):
             errors["contact_email"] = "Escribe un correo personal válido."
+        confirmacion = normalize_email(values["contact_email_confirm"])
+        if (confirmacion or "").lower() != (email or "").lower():
+            errors["contact_email_confirm"] = "Los dos correos no coinciden."
         if not values["first_name"]:
             errors["first_name"] = "Escribe tu nombre."
         if not values["last_name"]:
@@ -1329,41 +1339,39 @@ async def enroll_submit(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# 7. Verificación de la liga de inscripción y conversión (Tarea 20, §6.9)
+# 7. Liga de activación de una cuenta existente (2026-09-15)
 # ---------------------------------------------------------------------------
 def _verify_card(outcome: str, folio: str) -> dict:
-    """Tarjeta por resultado de la verificación.
+    """Tarjeta por resultado de la liga de activación.
 
-    `converted` y `already_converted` comparten tarjeta, y `pending_review` con
-    `already_pending`: es lo que hace idempotente el GET frente al prefetch de
-    Outlook Safe Links (§6.8).
+    `converted` y `already_converted` comparten tarjeta: es lo que hace
+    idempotente el GET frente al prefetch de Outlook Safe Links (§6.8).
+    `pending_review` solo sale en la apertura que devolvió la solicitud a la
+    bandeja; desde ahí la liga está muerta y vuelve a abrir como `invalid`.
 
     El contexto es el del parcial `notice_card.html` (Tarea 12): `notice_key`,
     `notice_icon` SIN el prefijo `bi-` (la plantilla ya escribe
     `class="bi bi-{{ notice_icon }}"`, así que pasarlo lo duplicaría),
     `notice_title` y `notice_body`. Los cuatro `notice_key` salen del
-    vocabulario cerrado del contrato §8, que `notice_card.html` ya declara en
-    su propio comentario: `verified`, `pending`, `expired`, `invalid`.
+    vocabulario cerrado que `notice_card.html` declara en su propio
+    comentario: `verified`, `pending`, `expired`, `invalid`.
     """
     if outcome in ("converted", "already_converted"):
-        # Dice «ya estás inscrito» y no «te inscribimos» porque le sirve igual
-        # al que se inscribió aquí y al que ya venía de un CSV del personal (§6.9).
+        # «Tu NIP de siempre»: esta liga solo existe para cuentas que ya tenían
+        # contraseña. Una cuenta nueva recibe su NIP por correo al aprobarse.
         return {"notice_key": "verified", "notice_icon": "check-circle",
-                "notice_title": "Listo, ya estás inscrito",
-                "notice_body": (f"Tu folio es {folio}. Si ya estabas inscrito, este "
-                                "es el mismo folio de siempre. Entra a TitulaTec con "
-                                "tu número de control y tu NIP para subir tus "
-                                "documentos.")}
-    if outcome in ("pending_review", "already_pending"):
+                "notice_title": "Listo, ya tienes acceso",
+                "notice_body": (f"Tu folio es {folio}. Entra a TitulaTec con tu número "
+                                "de control y tu NIP de siempre. Si no lo recuerdas, "
+                                "acude a Servicios Escolares.")}
+    if outcome == "pending_review":
         return {"notice_key": "pending", "notice_icon": "inbox",
-                "notice_title": "Recibimos tu solicitud",
-                "notice_body": ("Servicios Escolares la va a revisar y te contactará "
-                                "por correo. No necesitas hacer nada más.")}
+                "notice_title": "Tu solicitud necesita revisión",
+                "notice_body": "Servicios Escolares la revisará y te escribirá por correo."}
     if outcome == "expired":
         return {"notice_key": "expired", "notice_icon": "clock-history",
-                "notice_title": "Esa liga ya venció",
-                "notice_body": ("Vuelve a llenar el formulario de inscripción para "
-                                "que te enviemos una nueva.")}
+                "notice_title": "Esa liga venció",
+                "notice_body": "Pide a Servicios Escolares que te la reenvíe."}
     # Catch-all: "invalid" declarado Y cualquier outcome que no se reconozca
     # (ver el `except` de `enroll_verify`, abajo): NUNCA se distingue "token mal
     # formado" de "algo se rompió en el servidor" — sería un oráculo nuevo.
@@ -1375,7 +1383,7 @@ def _verify_card(outcome: str, folio: str) -> dict:
 
 @router.get("/inscripcion/verificar", name="titulatec.pages.public.enroll_verify")
 async def enroll_verify(request: Request, t: str = ""):
-    """Abre la liga de verificación. IDEMPOTENTE (§6.8).
+    """Abre la liga de activación. IDEMPOTENTE (§6.8).
 
     DESVIACIÓN DEL BORRADOR DEL BRIEF: el cuerpo va en un `try/except` que el
     borrador no traía. Esta ruta la abre un clic real de correo, sin htmx de
@@ -1437,22 +1445,23 @@ async def enroll_verify(request: Request, t: str = ""):
 
 
 # ---------------------------------------------------------------------------
-# 8. Reenvío de la liga y confirmación del correo personal (Tarea 21, §6.8, D17)
+# 8. Reenvío público de la liga y ligas de contacto ya enviadas (§6.8)
 # ---------------------------------------------------------------------------
 # Contexto de `notice_card.html` (T12): `notice_key`, `notice_icon` SIN el
 # prefijo `bi-`, `notice_title`, `notice_body` y el opcional `notice_class`.
 #
 # §6.8 exige que 'sent' y 'noop' sean INDISTINGUIBLES: la misma tarjeta para el
-# control+correo que sí casan con una solicitud viva, para el que no casa, para
-# el tope agotado, para la ventana cerrada Y para la trampa. Cualquier tarjeta
-# propia para alguno de esos casos es un oráculo anónimo de "¿existe este
-# número de control?" (RULING R4, Tarea 21).
+# control+correo que sí casan con una solicitud aprobada, para el que no casa,
+# para el tope agotado, para la ventana cerrada Y para la trampa. Cualquier
+# tarjeta propia para alguno de esos casos es un oráculo anónimo de "¿existe
+# este número de control?" (RULING R4, Tarea 21). Hoy ninguna pantalla ofrece
+# este reenvío: la ruta conserva su contrato, y la bandeja reenvía rotando.
 _RESEND_CARD = {
     "notice_key": "generic",
     "notice_icon": "envelope-check",
     "notice_title": "Listo",
-    "notice_body": ("Si esos datos corresponden a una solicitud pendiente, ya te "
-                    "reenviamos la liga. Revisa también el correo no deseado."),
+    "notice_body": ("Si esos datos corresponden a una solicitud aprobada, te reenviamos "
+                    "la liga. Revisa también el correo no deseado."),
 }
 
 # — Presupuesto del limitador de reenvío (RULING R3, Tarea 21) —
@@ -1482,7 +1491,8 @@ ENROLL_RESEND_RL_WINDOW_IP = 3600
 
 @router.post("/inscripcion/reenviar", name="titulatec.pages.public.enroll_resend")
 async def enroll_resend(request: Request):
-    """Reenvía la liga de verificación. Salida idéntica case o no case (§6.8).
+    """Reenvía, sin rotarla, la liga de una solicitud aprobada. Salida idéntica
+    case o no case (§6.8).
 
     Orden: tamaño declarado → trampa → presupuesto por IP (cobrado SIEMPRE,
     RULING R3) → escritura. Ninguna entrada del visitante puede producir un
@@ -1553,7 +1563,9 @@ async def enroll_resend(request: Request):
 
 @router.get("/inscripcion/correo", name="titulatec.pages.public.contact_confirm")
 async def contact_confirm(request: Request, t: str = ""):
-    """Confirma el correo personal. NO bloquea la inscripción (D17).
+    """Confirma el correo personal con una liga de contacto enviada ANTES del
+    2026-09-15. Ya no se emiten ligas nuevas: la ruta sigue viva, con la misma
+    guarda, hasta que venzan las que ya salieron. NO bloquea la inscripción.
 
     A diferencia del reenvío, aquí 'confirmado' y 'no confirmado' SÍ se
     distinguen (`contact_ok` vs `contact_invalid`, notice_key distintos): no es

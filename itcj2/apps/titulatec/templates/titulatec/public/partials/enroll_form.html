@@ -84,6 +84,18 @@
   <p class="tt-field-error" id="tt-email-err" data-tt-error="contact_email">{{ errors.contact_email }}</p>
   {% endif %}
 
+  {# Se teclea dos veces a propósito: el acceso llega SOLO a este correo, y una
+     letra de más es la diferencia entre recibirlo y no enterarse nunca. El
+     servidor compara sin distinguir mayúsculas ni espacios (`enroll_submit`). #}
+  <label class="tt-kicker" for="tt-email-confirm">Confirma tu correo personal</label>
+  <input class="tt-field" id="tt-email-confirm" name="contact_email_confirm" required
+         type="email" maxlength="150" autocomplete="off"
+         value="{{ values.contact_email_confirm|default('') }}"
+         {% if errors.contact_email_confirm %}aria-invalid="true" aria-describedby="tt-email-confirm-err"{% endif %}>
+  {% if errors.contact_email_confirm %}
+  <p class="tt-field-error" id="tt-email-confirm-err" data-tt-error="contact_email_confirm">{{ errors.contact_email_confirm }}</p>
+  {% endif %}
+
   <span class="tt-kicker">¿Ya tienes tu e.firma vigente?</span>
   <div class="tt-enroll-radio">
     <label><input type="radio" name="has_efirma" value="1"
