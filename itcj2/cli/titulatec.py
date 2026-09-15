@@ -26,7 +26,7 @@ DML_TITULATEC = PROJECT_ROOT / "database" / "DML" / "titulatec"
 # política declarada, no un accidente.
 SEED_FILES = [
     "00_insert_app.sql",                  # Registra la app en core_apps
-    "01_insert_roles.sql",                # 6 roles nuevos, incluido 'graduate' (el alumno)
+    "01_insert_roles.sql",                # 7 roles nuevos: incl. 'graduate' (alumno) y titulatec_tech_management (GTV)
     "02_insert_permissions.sql",          # Permisos titulatec.*
     "03_insert_role_permissions.sql",     # Asignación rol→permisos (incl. 'graduate') + revocaciones
     "04_insert_vinculacion_positions.sql",# Puestos nuevos coord_vinculacion_* por depto
@@ -39,8 +39,8 @@ SEED_FILES = [
     # DELETE se re-aplican). El prefijo `survey_2026_09/` es parte del nombre:
     # `_run_sql_files` hace `DML_TITULATEC / filename` y `_titulatec_seed_files`
     # (cli/core.py:205) hace `f"titulatec/{name}"`; ambas rutas resuelven bien.
-    "survey_2026_09/09_insert_survey_perms.sql",           # 8 permisos nuevos
-    "survey_2026_09/10_insert_survey_role_permissions.sql",# grants (head + operativo en requirement.mark)
+    "survey_2026_09/09_insert_survey_perms.sql",           # 11 permisos (8 encuesta/solicitudes + 3 liberacion GTV)
+    "survey_2026_09/10_insert_survey_role_permissions.sql",# grants (GTV 9; jefatura recortada a enrollment_request+requirement.mark; operativo requirement.mark)
     "survey_2026_09/11_seed_survey_form.sql",              # formulario 'egresados' v1, status open
     "survey_2026_09/12_seed_cotejo_codes.sql",             # auto_source del requisito de la encuesta
     # El 13 es lo que ARMA la guarda de la fase 2 en las convocatorias que ya
@@ -81,9 +81,58 @@ _SURVEY_2026_09_PERMS = (
     "titulatec.enrollment_request.api.approve",
     "titulatec.enrollment_request.api.reject",
     "titulatec.process.api.requirement.mark",
+    # 2026-09-15 (spec 2026-09-15-titulatec-liberacion-gtv): liberacion de la
+    # encuesta de egresados por Gestion Tecnologica y Vinculacion (GTV).
+    "titulatec.survey_review.page.list",
+    "titulatec.survey_review.api.approve",
+    "titulatec.survey_review.api.reject",
 )
 
 _PERM_MARCA_REQUISITO = "titulatec.process.api.requirement.mark"
+
+# ---------------------------------------------------------------------------
+# Reparto de GTV (2026-09-15): rol nuevo `titulatec_tech_management`, puesto
+# de ventanilla `external_service_tech_management` (el de jefatura,
+# `head_tech_management`, ya existe en el organigrama del core). Ver spec
+# 2026-09-15-titulatec-liberacion-gtv-design.md, seccion 7.
+# ---------------------------------------------------------------------------
+_ROL_GTV = "titulatec_tech_management"
+_PUESTO_GTV_VENTANILLA = "external_service_tech_management"
+
+# Los 2 de notificaciones no son parte del delta (`_SURVEY_2026_09_PERMS`,
+# arriba): ya existian desde 02_insert_permissions.sql. Se listan aparte para
+# no inflar el contrato de "codigos que este delta declara" con permisos que
+# ya declaraba otro archivo.
+_PERMISOS_NOTIFICACIONES = (
+    "titulatec.notifications.api.read.own",
+    "titulatec.notifications.api.mark_read",
+)
+
+# Los 9 que debe tener GTV en titulatec: los 3 nuevos de liberacion + los 4
+# `survey.*` (bandeja/detalle/exportar/administrar, que la jefatura pierde) +
+# los 2 de notificaciones que ya tiene el resto de los roles de la app.
+_PERMISOS_GTV = (
+    "titulatec.survey_review.page.list",
+    "titulatec.survey_review.api.approve",
+    "titulatec.survey_review.api.reject",
+    "titulatec.survey.page.list",
+    "titulatec.survey.api.read",
+    "titulatec.survey.api.export",
+    "titulatec.survey.api.manage",
+) + _PERMISOS_NOTIFICACIONES
+
+# La jefatura de Servicios Escolares pierde `titulatec.survey.%` (pasa a GTV,
+# spec D12) pero conserva estos 4: las 3 solicitudes de auto-inscripcion y el
+# marcado de requisitos de cotejo.
+_ROL_JEFATURA_ESCOLARES = "titulatec_school_services_head"
+_PERMISOS_JEFATURA_CONSERVA = (
+    "titulatec.enrollment_request.page.list",
+    "titulatec.enrollment_request.api.approve",
+    "titulatec.enrollment_request.api.reject",
+    _PERM_MARCA_REQUISITO,
+)
+
+_ROL_OPERATIVO_ESCOLARES = "titulatec_school_services"
 
 
 def _run_sql_files(files: list[str]) -> None:
@@ -130,9 +179,15 @@ def init_titulatec_command():
 
     Aborta si falta cualquier archivo: sembrar a medias deja la app en 404.
 
+    El 10 (dentro de `survey_2026_09/`) también revoca en cada corrida
+    `titulatec.survey.%` a la jefatura de Servicios Escolares: esa bandeja
+    pasó a Gestión Tecnológica y Vinculación (GTV, rol `titulatec_tech_management`)
+    desde 2026-09-15 (spec 2026-09-15-titulatec-liberacion-gtv).
+
     Prerequisitos:
       - Tablas titulatec_* existen (alembic upgrade head).
-      - 04 antes que 05: el mapeo puesto→rol necesita los puestos ya creados.
+      - 04 antes que 05: el mapeo puesto→rol necesita los puestos ya creados
+        (incluido el nuevo `external_service_tech_management` de GTV).
     """
     click.echo("🎓 Inicializando app de TitulaTec...")
     click.echo()
@@ -195,6 +250,19 @@ def _verify_survey_2026_09() -> list[str]:
     `INSERT ... SELECT` de grants haya insertado cero filas — que es justo lo
     que pasa si el rol todavía no existe. Mismo patrón que
     `itcj2/cli/directory.py::_verify_settings_permission`.
+
+    2026-09-15: además del set original (8 permisos + grants a la jefatura y
+    al operativo) verifica el reparto de la liberación de GTV (spec
+    2026-09-15-titulatec-liberacion-gtv, sección 7):
+      - el rol nuevo `titulatec_tech_management` con sus 9 permisos
+        (3 `survey_review.*` + 4 `survey.*` + 2 `notifications.*`);
+      - la jefatura de Servicios Escolares se quedó SIN ningún
+        `titulatec.survey.%` (el DELETE de 10 se re-aplica en cada corrida)
+        mientras conserva `enrollment_request.*` y `requirement.mark`;
+      - el encargado operativo conserva `requirement.mark`;
+      - el puesto de ventanilla (`external_service_tech_management`) existe y
+        el mapeo puesto→rol de GTV tiene exactamente 2 filas (jefatura +
+        ventanilla).
     """
     from sqlalchemy import text
 
@@ -202,6 +270,9 @@ def _verify_survey_2026_09() -> list[str]:
 
     problemas: list[str] = []
     codigos = list(_SURVEY_2026_09_PERMS)
+    # Para el chequeo de grants a GTV hace falta ademas los 2 de notificaciones,
+    # que no son parte del delta (ya existian) pero si del reparto de GTV.
+    codigos_grants = sorted(set(codigos) | set(_PERMISOS_NOTIFICACIONES))
 
     with _get_engine().connect() as conn:
         existentes = {
@@ -230,15 +301,63 @@ def _verify_survey_2026_09() -> list[str]:
                     "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
                     " WHERE p.code = ANY(:codes)"
                 ),
-                {"codes": codigos},
+                {"codes": codigos_grants},
             )
         }
-        for code in codigos:
-            if ("titulatec_school_services_head", code) not in concedidos:
+        for code in _PERMISOS_JEFATURA_CONSERVA:
+            if (_ROL_JEFATURA_ESCOLARES, code) not in concedidos:
                 problemas.append(f"sin grant a la jefatura: {code}")
-        if ("titulatec_school_services", _PERM_MARCA_REQUISITO) not in concedidos:
+        if (_ROL_OPERATIVO_ESCOLARES, _PERM_MARCA_REQUISITO) not in concedidos:
             problemas.append(
                 f"sin grant al encargado operativo: {_PERM_MARCA_REQUISITO}"
+            )
+
+        for code in _PERMISOS_GTV:
+            if (_ROL_GTV, code) not in concedidos:
+                problemas.append(f"sin grant a GTV ({_ROL_GTV}): {code}")
+
+        # La jefatura NO debe conservar ningun titulatec.survey.% (paso a GTV,
+        # spec D12). LIKE con punto literal tras "survey": no alcanza a
+        # titulatec.survey_review.* (llevan '_' ahi, no '.').
+        supervivientes = [
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT p.code FROM core_role_permissions rp "
+                    "  JOIN core_roles r ON r.id = rp.role_id "
+                    "  JOIN core_permissions p ON p.id = rp.perm_id "
+                    "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                    " WHERE r.name = :rol AND p.code LIKE 'titulatec.survey.%'"
+                ),
+                {"rol": _ROL_JEFATURA_ESCOLARES},
+            )
+        ]
+        if supervivientes:
+            problemas.append(
+                "la jefatura de Servicios Escolares todavía tiene "
+                f"titulatec.survey.%: {supervivientes} "
+                "(el DELETE de 10_insert_survey_role_permissions.sql no aterrizó)"
+            )
+
+        puesto_id = conn.execute(
+            text("SELECT id FROM core_positions WHERE code = :code"),
+            {"code": _PUESTO_GTV_VENTANILLA},
+        ).scalar()
+        if puesto_id is None:
+            problemas.append(f"puesto ausente: {_PUESTO_GTV_VENTANILLA}")
+
+        n_mapeo = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM core_position_app_roles par "
+                "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
+                "  JOIN core_roles r ON r.id = par.role_id "
+                " WHERE r.name = :rol"
+            ),
+            {"rol": _ROL_GTV},
+        ).scalar()
+        if n_mapeo != 2:
+            problemas.append(
+                f"mapeo puesto→rol de GTV ({_ROL_GTV}): se esperaban 2 filas, hay {n_mapeo}"
             )
 
         abiertos = conn.execute(
@@ -261,6 +380,12 @@ def _verify_survey_2026_09() -> list[str]:
 def load_survey_2026_09_command(dry_run):
     """Carga SOLO el delta de septiembre 2026 (encuesta de egresados + convocatoria).
 
+    Incluye desde 2026-09-15 los 3 permisos y el reparto de la liberación de
+    la encuesta por Gestión Tecnológica y Vinculación (GTV): rol
+    `titulatec_tech_management`, puesto `external_service_tech_management` y
+    el recorte de `titulatec.survey.%` a la jefatura de Servicios Escolares
+    (spec 2026-09-15-titulatec-liberacion-gtv).
+
     NO re-ejecuta el DML base de la app: `03_insert_role_permissions.sql` lleva
     tres DELETE que se re-aplican en cada corrida y revocarían permisos
     concedidos a mano. En producción eso es justo lo que no se quiere.
@@ -282,11 +407,22 @@ def load_survey_2026_09_command(dry_run):
     nadie si faltan. No toca permisos de rol. En producción hoy no hay procesos:
     ahí es un no-op.
 
-    Al terminar VERIFICA contra la base que los 8 permisos existen, que están
-    concedidos (los 8 a la jefatura, `requirement.mark` también al encargado
-    operativo) y que queda exactamente un formulario `egresados` abierto. Sin
-    esa verificación el comando saldría 0 aunque no hubiera hecho nada: los
-    `RAISE NOTICE` del SQL no se ven por ningún lado.
+    OJO CON EL 10 (2026-09-15): el DELETE que le quita `titulatec.survey.%` a
+    la jefatura de Servicios Escolares se re-aplica en cada corrida de este
+    comando —igual que los DELETE del 03 en `init-titulatec`—. Una concesión
+    manual posterior de esos 4 códigos a la jefatura no sobrevive a una
+    re-siembra: es la política declarada (spec D12), no un accidente.
+
+    Al terminar VERIFICA contra la base que los 11 permisos existen; que GTV
+    (`titulatec_tech_management`) tiene sus 9 (los 3 nuevos de liberación +
+    los 4 `survey.*` + los 2 de notificaciones); que la jefatura de Servicios
+    Escolares conserva sus otros 4 (`enrollment_request.*` +
+    `requirement.mark`) y quedó SIN ningún `titulatec.survey.%`; que el
+    encargado operativo conserva `requirement.mark`; que el puesto de
+    ventanilla existe con sus 2 filas puesto→rol; y que queda exactamente un
+    formulario `egresados` abierto. Sin esa verificación el comando saldría 0
+    aunque no hubiera hecho nada: los `RAISE NOTICE` del SQL no se ven por
+    ningún lado.
     """
     from itcj2.cli.core import execute_sql_file
 
@@ -330,8 +466,10 @@ def load_survey_2026_09_command(dry_run):
 
     click.echo(
         click.style(
-            "OK: 8 permisos, sus grants y el formulario 'egresados' v1 "
-            "verificados en la base.",
+            "OK: 11 permisos (8 encuesta/solicitudes + 3 liberación GTV), sus "
+            "grants (GTV 9, jefatura recortada a 4, operativo 1), el puesto de "
+            "ventanilla con sus 2 filas puesto→rol y el formulario 'egresados' "
+            "v1 verificados en la base.",
             fg="green",
         )
     )

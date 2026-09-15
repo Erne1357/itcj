@@ -24,8 +24,10 @@ Como se extrae cada lado
 - **DML**: los `('codigo', ...)` de los `INSERT INTO core_permissions` de
   `database/DML/titulatec/**/*.sql` (02 los declara todos; 07 anade
   `cohort.api.cotejo_reqs`; 08 anade los tres de `review_window.*`; el delta
-  `survey_2026_09/09_insert_survey_perms.sql` anade los ocho de la campana de
-  encuesta de egresados). `_declared_by_dml()` usa `DML_DIR.rglob("*.sql")`,
+  `survey_2026_09/09_insert_survey_perms.sql` anade los once de la campana de
+  encuesta de egresados: ocho de encuesta/solicitudes mas tres de la
+  liberacion de GTV agregados el 2026-09-15). `_declared_by_dml()` usa
+  `DML_DIR.rglob("*.sql")`,
   no `glob("*.sql")`, precisamente para alcanzar los archivos dentro de
   subcarpetas de delta como `survey_2026_09/` — es el patron establecido para
   no tocar `03_insert_role_permissions.sql` (sus DELETE se re-aplican en cada
@@ -52,8 +54,9 @@ DML_DIR = REPO_ROOT / "database" / "DML" / "titulatec"
 # Codigo de permiso: 'titulatec.' + al menos dos segmentos mas.
 PERM_RE = re.compile(r"^titulatec\.[a-z0-9_]+\.[a-z0-9_.]+$")
 
-# Los 8 codigos del delta de 2026-09 (encuesta de egresados + convocatoria
-# abierta). Viven en database/DML/titulatec/survey_2026_09/, NO en el 02/03.
+# Los 11 codigos del delta de 2026-09 (encuesta de egresados + convocatoria
+# abierta + liberacion de GTV, esta ultima agregada el 2026-09-15). Viven en
+# database/DML/titulatec/survey_2026_09/, NO en el 02/03.
 NUEVOS_2026_09 = (
     "titulatec.survey.page.list",
     "titulatec.survey.api.read",
@@ -63,6 +66,9 @@ NUEVOS_2026_09 = (
     "titulatec.enrollment_request.api.approve",
     "titulatec.enrollment_request.api.reject",
     "titulatec.process.api.requirement.mark",
+    "titulatec.survey_review.page.list",
+    "titulatec.survey_review.api.approve",
+    "titulatec.survey_review.api.reject",
 )
 
 
@@ -199,23 +205,27 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_77_permisos_conocidos():
+def test_el_dml_declara_los_80_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    77 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 69
-    hasta el 2026-09-07, cuando la campana de encuesta de egresados anadio
-    ocho codigos en su propio delta `survey_2026_09/09_insert_survey_perms.sql`
-    (aparte del 03, que lleva DELETE que se re-aplican en cada corrida). Antes
-    de eso eran 66 hasta el 2026-09-03, cuando el rediseno de Citas anadio los
-    tres de `review_window.*` en su propio archivo 08.
+    80 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 77
+    hasta el 2026-09-15, cuando la liberacion de la encuesta de egresados por
+    Gestion Tecnologica y Vinculacion (GTV) anadio tres codigos
+    `titulatec.survey_review.*` en el mismo delta
+    `survey_2026_09/09_insert_survey_perms.sql`. Antes de eso eran 69 hasta el
+    2026-09-07, cuando esa misma campana anadio los ocho de
+    encuesta/solicitudes (aparte del 03, que lleva DELETE que se re-aplican en
+    cada corrida). Antes de eso eran 66 hasta el 2026-09-03, cuando el
+    rediseno de Citas anadio los tres de `review_window.*` en su propio
+    archivo 08.
 
     Si baja, alguien recorto un seeder; si sube, este numero se actualiza junto
     con la doc.
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 77, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 77. "
+    assert len(declared) == 80, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 80. "
         "Actualiza este numero SOLO si el cambio en database/DML/titulatec/ es "
         f"intencional. Declarados: {sorted(declared)}"
     )
@@ -289,6 +299,102 @@ def test_el_delta_de_encuesta_e_inscripcion_vive_en_su_subcarpeta():
         assert codigo not in tres, (
             f"{codigo} no puede vivir en el 03: sus DELETE se re-aplican en "
             "cada corrida de init-titulatec y pueden revocarlo")
+
+
+def _like_to_regex(patron_like: str) -> re.Pattern:
+    """Traduce un patron SQL LIKE (solo `%` y `_`) a una regex anclada.
+
+    Caracter por caracter y no `re.escape(...).replace(r"\\%", ...)`: desde
+    Python 3.7 `re.escape` YA NO escapa `%` ni `_` (no son especiales para
+    regex), asi que ese `.replace` nunca encuentra nada que reemplazar y el
+    patron resultante busca un '%' literal en vez de traducirlo a `.*`.
+    """
+    partes = []
+    for ch in patron_like:
+        if ch == "%":
+            partes.append(".*")
+        elif ch == "_":
+            partes.append(".")
+        else:
+            partes.append(re.escape(ch))
+    return re.compile("^" + "".join(partes) + "$")
+
+
+def _grants_de_rol_in(sql: str, rol: str) -> set[str]:
+    """Codigos de un `WHERE r.name = '<rol>' AND p.code IN (...)`.
+
+    Es el estilo de `survey_2026_09/10_insert_survey_role_permissions.sql`
+    (usa `p.code IN (...)`, no `ARRAY[...]` como el 03 — por eso no se
+    reutiliza `_grants_de_rol`).
+    """
+    patron = (r"WHERE\s+r\.name\s*=\s*'" + re.escape(rol)
+              + r"'\s+AND\s+p\.code\s+IN\s*\(([^)]*)\)")
+    return {c for bloque in re.findall(patron, sql)
+            for c in re.findall(r"'([^']+)'", bloque)}
+
+
+@requires_dml
+def test_el_reparto_de_gtv_libera_encuesta_y_recorta_a_la_jefatura():
+    """Spec 2026-09-15-titulatec-liberacion-gtv, seccion 7.
+
+    GTV (`titulatec_tech_management`, rol nuevo) recibe los 3
+    `survey_review.*` nuevos mas los 4 `survey.*` y los 2 `notifications.*`
+    (9 en total: "Verificacion en BD... con 9 permisos en titulatec"). La
+    jefatura de Servicios Escolares (`titulatec_school_services_head`) pierde
+    `survey.*` -pasa a GTV, spec D12- pero conserva sus otros 4:
+    `enrollment_request.*` y `requirement.mark`.
+    """
+    diez = (DML_DIR / "survey_2026_09"
+            / "10_insert_survey_role_permissions.sql").read_text(encoding="utf-8")
+    sin_comentarios = re.sub(r"--[^\n]*", "", diez)
+
+    assert _grants_de_rol_in(sin_comentarios, "titulatec_tech_management") == {
+        "titulatec.survey_review.page.list",
+        "titulatec.survey_review.api.approve",
+        "titulatec.survey_review.api.reject",
+        "titulatec.survey.page.list",
+        "titulatec.survey.api.read",
+        "titulatec.survey.api.export",
+        "titulatec.survey.api.manage",
+        "titulatec.notifications.api.read.own",
+        "titulatec.notifications.api.mark_read",
+    }, "GTV (titulatec_tech_management) no tiene exactamente los 9 permisos del reparto"
+
+    conservados = _grants_de_rol_in(sin_comentarios, "titulatec_school_services_head")
+    for codigo in ("titulatec.enrollment_request.page.list",
+                   "titulatec.enrollment_request.api.approve",
+                   "titulatec.enrollment_request.api.reject",
+                   "titulatec.process.api.requirement.mark"):
+        assert codigo in conservados, (
+            f"la jefatura deberia conservar {codigo} (spec D12: solo pierde survey.*)")
+
+    assert re.search(
+        r"DELETE\s+FROM\s+core_role_permissions[^;]*"
+        r"r\.name\s*=\s*'titulatec_school_services_head'[^;]*"
+        r"LIKE\s*'titulatec\.survey\.%'",
+        sin_comentarios,
+    ), ("falta el DELETE que le quita 'titulatec.survey.%' a la jefatura "
+        "(patron acotado como 03_insert_role_permissions.sql:150-155)")
+
+
+@requires_dml
+def test_el_patron_like_de_survey_no_alcanza_a_survey_review():
+    """El DELETE de arriba usa `LIKE 'titulatec.survey.%'`: el punto literal
+    tras "survey" no casa con el `_` de `titulatec.survey_review.*`, asi que
+    GTV no pierde los 3 permisos que acaba de recibir. Si alguien "simplifica"
+    el patron a `titulatec.survey%` (sin el punto), este test lo detecta."""
+    diez = (DML_DIR / "survey_2026_09"
+            / "10_insert_survey_role_permissions.sql").read_text(encoding="utf-8")
+
+    m = re.search(r"LIKE\s*'([^']+)'", diez)
+    assert m, "no se encontro ningun patron LIKE en el archivo 10"
+    patron = _like_to_regex(m.group(1))
+
+    assert patron.match("titulatec.survey.page.list")
+    assert patron.match("titulatec.survey.api.manage")
+    assert not patron.match("titulatec.survey_review.page.list")
+    assert not patron.match("titulatec.survey_review.api.approve")
+    assert not patron.match("titulatec.survey_review.api.reject")
 
 
 # Los 21 permisos del alumno de titulacion. Hasta 2026-09-15 colgaban de

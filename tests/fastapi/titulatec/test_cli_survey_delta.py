@@ -66,7 +66,7 @@ def test_el_delta_esta_en_seed_files_con_su_prefijo_de_subcarpeta():
             f"{nombre} no esta en SEED_FILES con el prefijo survey_2026_09/")
 
 
-def test_los_ocho_codigos_del_delta_son_los_del_contrato():
+def test_los_once_codigos_del_delta_son_los_del_contrato():
     assert set(_SURVEY_2026_09_PERMS) == {
         "titulatec.survey.page.list",
         "titulatec.survey.api.read",
@@ -76,6 +76,11 @@ def test_los_ocho_codigos_del_delta_son_los_del_contrato():
         "titulatec.enrollment_request.api.approve",
         "titulatec.enrollment_request.api.reject",
         "titulatec.process.api.requirement.mark",
+        # 2026-09-15: liberacion de la encuesta por GTV (spec
+        # 2026-09-15-titulatec-liberacion-gtv).
+        "titulatec.survey_review.page.list",
+        "titulatec.survey_review.api.approve",
+        "titulatec.survey_review.api.reject",
     }
 
 
