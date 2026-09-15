@@ -1,7 +1,7 @@
 # Servicios Escolares importa alumnos por CSV (Fase 0)
 
 > **Objetivo:** dar de alta a los alumnos de una convocatoria a partir del CSV del Forms:
-> crear `User` (si falta) + `TitulationProcess` + sus 9 fases + activar rol `student`.
+> crear `User` (si falta) + `TitulationProcess` + sus 9 fases + activar rol `graduate`.
 
 | | |
 |---|---|
@@ -10,7 +10,7 @@
 | **Trigger** | Pestaña **Importar** del detalle de una convocatoria (`?tab=importar`) |
 | **Precondiciones** | Existe un `Cohort` (uno por período académico) |
 | **Sub-flujos** | ⤵ alternativa fila por fila: [alta manual de un alumno](phase0_school_services_add_student_manual.md) |
-| **Estado final** | N procesos con `current_phase=1`, fase 0 `approved` y fase 1 `in_progress`; alumnos con rol `student` en la app |
+| **Estado final** | N procesos con `current_phase=1`, fase 0 `approved` y fase 1 `in_progress`; alumnos con rol `graduate` en la app (revocado `student`) |
 
 ## Ruta en la app (UI)
 
@@ -54,7 +54,7 @@ sequenceDiagram
     FE->>API: POST /import/commit (los mismos ~8 campos)
     API->>IS: read_temp + parse + build_preview + rows_to_import
     API->>IS: save_mapping + import_rows(db, cohort, rows)
-    IS->>DB: User (merge por control) · Process + 9 ProcessPhase · grant_role student · notif
+    IS->>DB: User (merge por control) · Process + 9 ProcessPhase · sync roles graduate (fuera student) · notif
     API->>IS: delete_temp(token)
     API-->>FE: parcial import_success
 ```
@@ -130,19 +130,22 @@ ocultos salen de `_preview_ctx` (`admin.py:419-436`).
 
 ## Estado resultante
 
-Por cada fila incluida (`ImportService.import_rows`, `import_service.py:394-528`):
+Por cada fila incluida (`ImportService.import_rows`, `import_service.py:455-663`):
 
 - `core_users`: merge por `control_number`. Si existe, solo rellena `email` cuando estaba vacío.
   Si no existe, crea `User(username=control, control_number=control, first_name/last_name` por split
-  del último token`, role_id=student, is_active=True, must_change_password=True)`.
+  del último token`, role_id=graduate, is_active=True, must_change_password=True)`.
 - **Credencial inicial**: `set_initial_credential()` (`import_service.py:35-49`) le pone
   `password_hash = hash_nip(control_number)` y `must_change_password = True` — la misma política del
   [alta manual](phase0_school_services_add_student_manual.md). Al usuario que ya existía **no** se le
   toca la contraseña, salvo que la tenga en `NULL`: ese caso se **repara** (contador `repaired_users`),
   porque NULL no es una contraseña sino una cuenta que no puede entrar.
-- Rol de app: `UserAppRole(user, titulatec, student)` insertado con `flush()` (`:494-502`) — no con
-  `authz_service.grant_role`, que commitearía dentro del bucle; el caché de authz se invalida tras el
-  commit final (`:521-522`).
+- **Rol de app (2026-09-15)**: `_sync_graduate_roles()` (`import_service.py:81-123`) otorga `graduate`
+  en `itcj`/`titulatec`, revoca `student` en `itcj`/`titulatec`/`agendatec` y mueve el alias legado
+  `core_users.role_id` a `graduate` solo si era `student` o NULL. Se llama por fila (`:608-611`) y hace
+  `flush()`, no `commit()` — no con `authz_service.grant_role`, que commitearía dentro del bucle; el
+  caché de authz se invalida tras el commit final (`:648-652`). Detalle completo del rol:
+  [`xcut_public_enrollment.md#rol-graduate-egresado`](xcut_public_enrollment.md#rol-graduate-egresado).
 - `titulatec_processes`: uno por (alumno, cohort) si no existía, con
   `folio = TT-{period_code}-{seq:04d}` continuando desde el último folio emitido de la convocatoria
   y bajo `pg_advisory_xact_lock`, `current_phase=1`, `status="active"`, `is_app_active=True`

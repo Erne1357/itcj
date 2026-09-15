@@ -79,7 +79,7 @@ Prefijos: router de páginas `/titulatec` (`pages/router.py:18`) + router admin 
 | 0 | 🏛️ | lista | abrir detalle | `GET /cohorts/{id}[?tab=]` | `_cohort_summary_ctx` / `_students_ctx` / `_review_days_ctx` | — (lectura) | `_COHORT_PERMS` |
 | 1 | 🏛️ | Alumnos | desplegar alta | `GET /cohorts/{id}/students/lookup?control=` | (inline, `User.control_number`) | — | `_COHORT_PERMS` |
 | 1b | 🏛️ | Alumnos | cancelar alta | `GET /cohorts/{id}/students/cancel` | — | — | `_COHORT_PERMS` |
-| 2 | 🏛️ | Alumnos | crear/adjuntar alumno | `POST /cohorts/{id}/students` | `_add_student` → `ImportService.import_rows` | `core_users` (UPSERT por `control_number`) + `titulatec_processes` + 9 `titulatec_process_phases` + rol `student`; si el user es nuevo: `password_hash=hash_nip(control)`, `must_change_password=True` | `titulatec.cohort.api.import_csv` |
+| 2 | 🏛️ | Alumnos | crear/adjuntar alumno | `POST /cohorts/{id}/students` | `_add_student` → `ImportService.import_rows` | `core_users` (UPSERT por `control_number`) + `titulatec_processes` + 9 `titulatec_process_phases` + rol `graduate` (fuera `student`); si el user es nuevo: `password_hash=hash_nip(control)`, `must_change_password=True` | `titulatec.cohort.api.import_csv` |
 | 3 | 🏛️ | Alumnos | buscar / filtrar fase / paginar | `GET /cohorts/{id}/students?q=&phase=&page=` | `_students_ctx` | — | `_COHORT_PERMS` |
 | 4 | 🏛️ jefa | Días de cotejo | navegar de mes | `GET /cohorts/{id}/review-days?month=YYYY-MM` | `ReviewDayService.list_days` | — | `titulatec.cohort.api.review_days` |
 | 5 | 🏛️ jefa | Días de cotejo | marcar/desmarcar día | `POST /cohorts/{id}/review-days/toggle` (`date`, `month`) | `ReviewDayService.toggle` | INSERT o DELETE en `titulatec_cohort_review_days` | `titulatec.cohort.api.review_days` |
@@ -197,7 +197,7 @@ esto: importar CSV y dar de alta a mano siguen funcionando con la convocatoria `
   `/admin/cohorts` + `POST /cohorts`, que crea la convocatoria en `draft`.) Ese mismo POST puede
   además mover `titulatec_processes.status` (`active` ↔ `on_hold`) y escribir `ProcessEvent`.
 - Tras *Alumnos* / *Importar*: N `titulatec_processes` (`current_phase=1`, `status=active`,
-  `is_app_active=true`) + 9 `titulatec_process_phases` c/u + rol `student` en la app.
+  `is_app_active=true`) + 9 `titulatec_process_phases` c/u + rol `graduate` en la app (fuera `student`).
 - Tras *Días de cotejo*: filas en `titulatec_cohort_review_days` que habilitan el agendado de la
   fase 2.
 

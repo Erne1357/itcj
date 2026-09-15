@@ -12,8 +12,8 @@
 
 | | |
 |---|---|
-| **Actor(es)** | 👤 Alumno (`student`) |
-| **Permiso(s)** | `titulatec.dashboard.student` (dashboard) · `titulatec.process.page.my` / `titulatec.process.api.read.own` (la ruta `/fase/{n}` que redirige) |
+| **Actor(es)** | 👤 Alumno (`graduate`) |
+| **Permiso(s)** | `titulatec.dashboard.student` (dashboard — código del permiso; no se renombró con el rol) · `titulatec.process.page.my` / `titulatec.process.api.read.own` (la ruta `/fase/{n}` que redirige) |
 | **Trigger** | Entrar al dashboard, desplegar una fase, o abrir una notificación |
 | **Precondiciones** | Sesión iniciada. **No** hace falta proceso activo: sin él las 9 fases salen informativas |
 | **Estado final** | — (vista de lectura; no muta nada) |
@@ -32,8 +32,9 @@
 fase actual. `_PHASE_CTA` sigue siendo la única fuente de los enlaces.
 
 > **Y el servidor lo respalda (desde 2026-09-02).** Estas tres reglas eran solo de pintado:
-> las 13 rutas del alumno estaban gateadas **solo por permiso** y el rol `student` tiene los
-> 21, así que quitar el CTA no impedía nada — bastaba escribir la URL para llenar el Formato
+> las 13 rutas del alumno estaban gateadas **solo por permiso** y el rol del alumno de
+> titulación (hoy `graduate`) tiene los 21, así que quitar el CTA no impedía nada — bastaba
+> escribir la URL para llenar el Formato
 > B desde la fase 1 o borrar un documento aprobado de una fase cerrada. Hoy lo hace cumplir
 > [`PhaseService.assert_student_can_act`](engine_student_phase_lock.md): las páginas de una
 > fase que no es la actual responden **302 a este mismo acordeón** (`?fase=N`), y las acciones

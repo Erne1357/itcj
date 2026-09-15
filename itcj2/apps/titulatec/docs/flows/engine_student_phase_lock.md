@@ -6,8 +6,8 @@
 
 | | |
 |---|---|
-| **Actor(es)** | 👤 Alumno (`student`) — 🤖 lógica |
-| **Permiso(s)** | Ninguno nuevo. Es **ortogonal** al permiso: el rol `student` tiene los 21 y aun así solo actúa en su fase |
+| **Actor(es)** | 👤 Alumno (`graduate`) — 🤖 lógica |
+| **Permiso(s)** | Ninguno nuevo. Es **ortogonal** al permiso: el rol `graduate` tiene los 21 y aun así solo actúa en su fase |
 | **Trigger** | Toda ruta de `pages/student.py` atada a una fase (10 de las 13) |
 | **Precondiciones** | El alumno tiene un `TitulationProcess` (sin proceso la guarda no opina) |
 | **Estado final** | Sin cambios: la guarda corta **antes** de escribir |
@@ -119,9 +119,10 @@ tumba el request entero en cualquier test de ruta que caiga en este camino.
 
 ## Qué pasaba antes (2026-09-02)
 
-Las 13 rutas del alumno estaban gateadas **solo por permiso**, y el rol `student` tiene los
-21 permisos de la app: no había **ni una** comprobación de `current_phase` en todo
-`pages/student.py`. Reproducido en dev:
+Las 13 rutas del alumno estaban gateadas **solo por permiso**, y el rol del alumno de
+titulación (entonces `student`; hoy `graduate` desde el 2026-09-15) tiene los 21 permisos
+de la app: no había **ni una** comprobación de `current_phase` en todo `pages/student.py`.
+Reproducido en dev:
 
 | Exploit | Efecto |
 |---|---|

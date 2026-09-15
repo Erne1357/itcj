@@ -13,7 +13,7 @@
 |---|---|---|---|
 | `Cohort` | `titulatec_cohorts` | Convocatoria por período académico | `period_id`, `name`, `opens_at`, `closes_at` (cierre de **inscripción**), `status` (`draft`/`open`/`closed`) |
 | `CohortReviewDay` | `titulatec_cohort_review_days` | Días habilitados para cotejo, por convocatoria | `cohort_id`, `date` · `UNIQUE(cohort_id, date)` |
-| `CotejoRequirement` | `titulatec_cotejo_requirements` | Requisitos "qué llevar a la cita", configurables por convocatoria | `cohort_id`, `label`, `hint`, `icon`, `order_index`, `is_required` |
+| `CotejoRequirement` | `titulatec_cotejo_requirements` | Requisitos "qué llevar a la cita", configurables por convocatoria | `cohort_id`, `label`, `hint`, `icon`, `order_index`, `is_required`, `info_html` (HTML sanitizado con `utils/rich_text.py`, 2026-09-15) |
 | `Modality` | `titulatec_modalities` | Catálogo de modalidades (4 sembradas) | `code`, `requires_synodals`, `signature_rule` (`president_only`/`all_synodals`), `skips_phases` (JSON) |
 | `TitulationProcess` | `titulatec_processes` | Proceso raíz, `UNIQUE(student_id, cohort_id)` | `folio` (`TT-{period}-{NNNN}`), `student_id`, `cohort_id`, `program_id`, `modality_id`, `current_phase` (0–8), `status` (`active`/`completed`/`cancelled`/`on_hold`), `is_app_active` |
 | `ProcessPhase` | `titulatec_process_phases` | Instancia de cada fase del proceso | `phase_number` (0–8), `status` (`pending`/`in_progress`/`in_review`/`approved`/`rejected`/`skipped`), `completed_at`, `reviewed_by_id`, `rejection_reason` |
@@ -40,7 +40,8 @@ de la app `titulatec` que el rol tiene hoy en `core_role_permissions`.
 
 | Rol (`core_roles.name`) | Cómo se asigna hoy | Perms titulatec | Emoji |
 |---|---|---|---|
-| `student` (global reciclado) | **directa** al importar el CSV: `grant_role(db, user.id, "titulatec", "student")` (`services/import_service.py:296`) | 21 | 👤 |
+| `graduate` (egresado, desde 2026-09-15) | **directa** en cada alta: `ImportService.import_rows` → `_sync_graduate_roles` (`services/import_service.py:81`) — CSV, alta manual, aprobación de bandeja y liga de activación son los cuatro caminos | 21 (+2 de `itcj`) | 👤 |
+| `student` (global — **ya NO** es el alumno de titulación) | rol de **AgendaTec**; `03_insert_role_permissions.sql` le revoca en cada corrida todo lo de `titulatec` que le quedara; `core_users.role_id` conserva el alias en filas viejas que no han pasado por el backfill | 0 | — |
 | `titulatec_school_services` | por puesto: `aux_school_services`, `secretary_school_services`. Es también el rol que reciben los **encargados** dados de alta desde la pestaña Encargados (`pages/officers.py:13`, `ROLE_ASSIGNED`) | 22 | 🏛️ |
 | `titulatec_school_services_head` | por puesto: `head_school_services` | 27 | 🏛️ |
 | `titulatec_titulaciones` | por puesto: `head_prof_studies_div`, `secretary_prof_studies_div`, `aux_prof_studies_div` | 20 | 🎓 |
@@ -128,7 +129,7 @@ Quién los tiene en BD hoy (los de puerta):
 | `PhaseService` | `services/phase_service.py` | Motor de fases: `approve_phase`/`reject_phase`, salto de fases según la modalidad (`_skips`/`_next_applicable`) y log de `ProcessEvent`. **Y las dos guardas**: `assert_can_transition` (dictamen 🏛️🎓) y `assert_student_can_act` (ejecución 👤) — [guarda de fase del alumno](engine_student_phase_lock.md) |
 | `DocumentService` | `services/document_service.py` | Guardar/leer/borrar documentos y `review()`; además las consultas de elegibilidad `initial_docs_all_approved` y `list_phase_document_types` |
 | `FormatBService` | `services/format_b_service.py` | Formato B multi-step: `get_or_create`, `save_step`, `submit(db, fb, process)` (reaplica la guarda de fase), `review`, `to_ctx` |
-| `ImportService` | `services/import_service.py` | Import CSV de la convocatoria: `parse` → `autodetect_mapping` → `build_preview` → `import_rows` (crea/empata usuario, otorga rol `student`, crea proceso + sus 9 `ProcessPhase`) |
+| `ImportService` | `services/import_service.py` | Import CSV de la convocatoria: `parse` → `autodetect_mapping` → `build_preview` → `import_rows` (crea/empata usuario, otorga rol `graduate` y revoca `student` vía `_sync_graduate_roles`, crea proceso + sus 9 `ProcessPhase`) |
 | `AppointmentService` | `services/appointment_service.py` | Cita de cotejo (fase 2): `create`, `reschedule`, `start`, `mark_attended`, `mark_no_show`, `confirm`, `request_change`; y las lecturas de la agenda `list_appointments`, `counts_by_day`, `list_for_day`, `list_pending_processes`, `agenda_process_ids` (universo acotado contra el que se valida el `?selected=`). **Las cinco lecturas tienen `allowed_program_ids` con default ABIERTO** |
 | `ReviewDayService` | `services/review_day_service.py` | Días de cotejo por convocatoria: `list_days`, `is_allowed`, `set_days`, `toggle`, `months_with_days` |
 | `CotejoRequirementService` | `services/cotejo_requirement_service.py` | Requisitos "qué llevar a la cita" por convocatoria: `list_or_seed` (siembra DEFAULTS si la cohorte no tiene), `create`, `update`, `delete` |
