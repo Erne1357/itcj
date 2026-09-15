@@ -254,18 +254,27 @@
   // `confirmDialog` existía pero NADIE lo enganchaba a htmx, así que un
   // `hx-confirm` caía al `confirm()` nativo del navegador, que este proyecto
   // prohíbe. Mismo patrón que `apps/directory/static/js/index.js`.
-  document.body.addEventListener('htmx:confirm', function (e) {
-    if (!e.detail || !e.detail.question) return;   // sin hx-confirm: request normal
-    e.preventDefault();
-    var partes = String(e.detail.question).split('|');
-    var titulo = partes.length > 1 ? partes[0].trim() : 'Confirmar';
-    var cuerpo = (partes.length > 1 ? partes.slice(1).join('|') : partes[0]).trim();
-    var elt = e.detail.elt;
-    var ok = (elt && elt.getAttribute('data-tt-confirm-ok')) || 'Confirmar';
-    confirmDialog(titulo, cuerpo, ok, 'Cancelar').then(function (si) {
-      if (si) e.detail.issueRequest(true);
+  //
+  // Guarda de doble carga: `base.html` inyecta este script en TODAS las
+  // páginas (hoy, una sola vez por documento), pero si algún fragmento
+  // morpheado llegara a incluirlo de nuevo -la app ya tiene ese historial,
+  // ver CLAUDE.md §4/§10- un segundo registro duplicaría el listener y el
+  // modal se abriría dos veces por cada hx-confirm.
+  if (!window.__ttHtmxConfirmBound) {
+    window.__ttHtmxConfirmBound = true;
+    document.body.addEventListener('htmx:confirm', function (e) {
+      if (!e.detail || !e.detail.question) return;   // sin hx-confirm: request normal
+      e.preventDefault();
+      var partes = String(e.detail.question).split('|');
+      var titulo = partes.length > 1 ? partes[0].trim() : 'Confirmar';
+      var cuerpo = (partes.length > 1 ? partes.slice(1).join('|') : partes[0]).trim();
+      var elt = e.detail.elt;
+      var ok = (elt && elt.getAttribute('data-tt-confirm-ok')) || 'Confirmar';
+      confirmDialog(titulo, cuerpo, ok, 'Cancelar').then(function (si) {
+        if (si) e.detail.issueRequest(true);
+      });
     });
-  });
+  }
 
   window.TitulaTecUtils = { showToast, confirmDialog, escapeHtml, decodeHeaderMsg };
 })();
