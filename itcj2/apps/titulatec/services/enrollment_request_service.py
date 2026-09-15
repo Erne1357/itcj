@@ -6,7 +6,7 @@ pasa por la bandeja de Servicios Escolares y el acceso llega SOLO por correo:
     create()  ─► pending_review                          sin token, sin correo
     approve() ─┬─ SIN cuenta en core_users ─► converted   usuario + NIP al correo personal
                └─ CON cuenta ───────────────► approved    liga de activación al correo personal
-    verify()  ─── approved y liga vigente ──► converted   proceso + rol; folio al institucional
+    verify()  ─── approved y liga vigente ──► converted   proceso + rol graduate; folio al institucional
                └─ falla una revalidación ───► pending_review  (review_note = motivo)
     reject()  ─── pending_review | approved | legado ─► rejected  (la liga muere)
 
@@ -25,7 +25,8 @@ dejar inscrita a esa persona. Para que no escale:
   1. Sobre una cuenta existente JAMÁS se escribe `password_hash`, `is_active`,
      `must_change_password` ni `core_student_profile` a partir de la solicitud,
      ni en `approve()` ni en `verify()`/`_convert()`. Lo único que recibe es el
-     proceso y el rol de la app.
+     proceso y los roles de egresado (`graduate`, que desplaza a `student`; ver
+     `ImportService.import_rows`).
   2. Una cuenta existente sin `password_hash` no recibe liga: se da de alta
      desde la convocatoria.
   3. El aviso con folio de `verify()` va al buzón INSTITUCIONAL de la cuenta:
@@ -271,8 +272,10 @@ class EnrollmentRequestService:
         legado `unverified`/`verified`.
 
         - SIN cuenta en `core_users`: NIP obligatorio -> usuario con
-          `hash_nip(nip)`, `must_change_password` y rol `student` -> proceso ->
-          perfil -> `converted`; usuario + NIP al correo personal.
+          `hash_nip(nip)`, `must_change_password` y el alias legado `graduate`
+          -> proceso y roles de egresado (`import_rows`) -> perfil ->
+          `converted`; usuario + NIP al correo personal. El caché de authz de
+          esos roles se tira DESPUÉS del commit (`ImportService.invalidate_authz`).
         - CON cuenta: el NIP se ignora -> liga de activación de 7 días al correo
           personal -> `approved`. La cuenta no se toca (invariante 1 del módulo);
           sin `password_hash` no hay liga (invariante 2).
@@ -345,13 +348,16 @@ class EnrollmentRequestService:
 
         savepoint = db.begin_nested()
         try:
-            student_role = db.query(Role).filter_by(name="student").first()
+            # El alias legado nace `graduate`: el mismo que `import_rows` le deja
+            # a una cuenta que ya existía (`_sync_graduate_roles`).
+            from itcj2.apps.titulatec.services.import_service import GRADUATE_ROLE
+            graduate_role = db.query(Role).filter_by(name=GRADUATE_ROLE).first()
             user = User(
                 username=control, control_number=control,
                 first_name=req.first_name, last_name=req.last_name,
                 middle_name=req.middle_name or None,
                 email=None,
-                role_id=student_role.id if student_role else None,
+                role_id=graduate_role.id if graduate_role else None,
                 is_active=True, must_change_password=True,
             )
             user.password_hash = hash_nip(nip)   # nunca `set_initial_credential`
@@ -360,7 +366,9 @@ class EnrollmentRequestService:
 
             # `commit=False`: `import_rows` solo hace `flush` y esta función es
             # dueña única de su transacción (Finding 2, ronda 1 de revisión).
-            ImportService.import_rows(
+            # Por lo mismo, el caché de authz de los roles que deja lo tira ESTA
+            # función después de su commit, con los pares del summary.
+            summary = ImportService.import_rows(
                 db, cohort,
                 [{"control_number": control, "full_name": full_name, "email": None,
                   "program_id": resolved_program_id, "modality_id": None}],
@@ -401,6 +409,9 @@ class EnrollmentRequestService:
                 savepoint.rollback()
             raise
         db.commit()
+        # Después del commit: antes, una lectura concurrente repoblaría el caché
+        # de authz con los roles de antes de aprobar.
+        ImportService.invalidate_authz((summary or {}).get("authz_touched"))
         TitulaTecEmailHelper.send_enrollment_approved(db, req, user, nip=nip)
         return True, folio
 
@@ -470,9 +481,10 @@ class EnrollmentRequestService:
             db.commit()
             return req, "expired"
 
+        touched: list = []
         savepoint = db.begin_nested()
         try:
-            ok, detail = EnrollmentRequestService._convert(db, req)
+            ok, detail = EnrollmentRequestService._convert(db, req, authz_touched=touched)
         except Exception:
             if savepoint.is_active:
                 savepoint.rollback()
@@ -494,13 +506,17 @@ class EnrollmentRequestService:
 
         savepoint.commit()
         db.commit()
+        # Después del commit, con los pares que dejó `import_rows` dentro de
+        # `_convert` (ver `ImportService.invalidate_authz`).
+        from itcj2.apps.titulatec.services.import_service import ImportService
+        ImportService.invalidate_authz(touched)
         proc = db.get(TitulationProcess, req.converted_process_id)
         if proc is not None:
             TitulaTecEmailHelper.send_enrollment_done(db, req, proc)
         return req, "converted"
 
     @staticmethod
-    def _convert(db: Session, req):
+    def _convert(db: Session, req, *, authz_touched: list | None = None):
         """Inscribe la CUENTA EXISTENTE de una solicitud aprobada. `(ok, detalle)`.
 
         En éxito `detalle` es el folio; en fallo, la `review_note` para la bandeja.
@@ -508,11 +524,13 @@ class EnrollmentRequestService:
         `import_rows`: ventana de la convocatoria, formato de los datos, que la
         cuenta siga existiendo, D5 y la contraseña.
 
-        Solo escribe proceso y rol (vía `import_rows` con `commit=False` y
-        `repair_credentials=False`, que no toca credencial, `is_active` ni
-        `must_change_password` de una cuenta que ya existe), la solicitud y el
-        `ProcessEvent`. NADA del perfil (invariante 1 del módulo). No commitea ni
-        manda correo: eso es de `verify()`.
+        Solo escribe proceso y roles de egresado (vía `import_rows` con
+        `commit=False` y `repair_credentials=False`, que no toca credencial,
+        `is_active` ni `must_change_password` de una cuenta que ya existe: le deja
+        `graduate` y le quita `student`), la solicitud y el `ProcessEvent`. NADA
+        del perfil (invariante 1 del módulo). No commitea, no tira el caché de
+        authz ni manda correo: eso es de `verify()`, que recibe en
+        `authz_touched` los pares que `import_rows` cambió.
 
         No se ramifica sobre `processes_created`: si un CSV creó el proceso
         mientras la persona no abría la liga, la conversión es igual de exitosa.
@@ -546,13 +564,15 @@ class EnrollmentRequestService:
                       .filter_by(student_id=user.id, cohort_id=req.cohort_id)
                       .first()) is not None
 
-        ImportService.import_rows(
+        summary = ImportService.import_rows(
             db, cohort,
             [{"control_number": control, "full_name": full_name, "email": None,
               "program_id": req.program_id, "modality_id": None}],
             actor_id=None, source="self_service", repair_credentials=False,
             commit=False,
         )
+        if authz_touched is not None:
+            authz_touched.extend((summary or {}).get("authz_touched") or ())
 
         proc = (db.query(TitulationProcess)
                 .filter_by(student_id=user.id, cohort_id=req.cohort_id).first())

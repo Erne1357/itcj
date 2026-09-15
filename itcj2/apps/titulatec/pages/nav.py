@@ -59,7 +59,8 @@ _ROLE_DASHBOARD = [
     ("titulatec_school_services",      "/titulatec/admin/"),
     ("titulatec_vinculacion",     "/titulatec/vinculacion/"),
     ("titulatec_sinodal",         "/titulatec/sinodal/"),
-    ("student",                   "/titulatec/student/dashboard"),  # rol global reciclado
+    ("graduate",                  "/titulatec/student/dashboard"),  # egresado: el alumno (2026-09-15)
+    ("student",                   "/titulatec/student/dashboard"),  # legado: filas que el backfill 14 no movió
 ]
 
 

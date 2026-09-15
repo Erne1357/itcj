@@ -19,15 +19,16 @@ DML_TITULATEC = PROJECT_ROOT / "database" / "DML" / "titulatec"
 # ninguno de los dos cargaba el set completo).
 #
 # Todos son idempotentes, pero OJO con el 03: además de los INSERT ... ON CONFLICT
-# lleva dos DELETE que revocan `cohort.*` al rol `titulatec_titulaciones` (las
-# convocatorias son de Servicios Escolares). Eso se aplica EN CADA CORRIDA: una
+# lleva DELETE que revocan `cohort.*` a `titulatec_titulaciones` (las
+# convocatorias son de Servicios Escolares) y TODO lo de titulatec a `student`
+# (desde 2026-09-15 el alumno es `graduate`). Eso se aplica EN CADA CORRIDA: una
 # concesión manual posterior de esos permisos se pierde al re-sembrar. Es la
 # política declarada, no un accidente.
 SEED_FILES = [
     "00_insert_app.sql",                  # Registra la app en core_apps
-    "01_insert_roles.sql",                # 5 roles nuevos (alumno recicla 'student' global)
+    "01_insert_roles.sql",                # 6 roles nuevos, incluido 'graduate' (el alumno)
     "02_insert_permissions.sql",          # Permisos titulatec.*
-    "03_insert_role_permissions.sql",     # Asignación rol→permisos (incl. 'student') + revocaciones
+    "03_insert_role_permissions.sql",     # Asignación rol→permisos (incl. 'graduate') + revocaciones
     "04_insert_vinculacion_positions.sql",# Puestos nuevos coord_vinculacion_* por depto
     "05_insert_position_app_roles.sql",   # Mapeo puestos→roles (escolares, titulaciones, vinculación)
     "06_seed_catalogs.sql",               # Modalidades, fases (0-8) y tipos de documento
@@ -51,6 +52,10 @@ SEED_FILES = [
     # el oficial (`list_or_seed` siembra al leer). Idempotente: solo inserta
     # donde hay cero.
     "survey_2026_09/13_seed_cotejo_reqs_all_cohorts.sql",  # checklist en convocatorias previas
+    # El 14 mueve a `graduate` a quien ya tenía proceso antes del 2026-09-15.
+    # Exige el rol CON sus permisos (el 01 y el 03, que corren antes en esta
+    # lista) y aborta sin mover a nadie si faltan. No toca permisos de rol.
+    "survey_2026_09/14_graduate_role_backfill.sql",        # rol graduate a alumnos con proceso
 ]
 
 _DML_SURVEY_2026_09_DIR = "survey_2026_09"
@@ -64,6 +69,7 @@ _DML_SURVEY_2026_09_FILES = [
     "11_seed_survey_form.sql",
     "12_seed_cotejo_codes.sql",
     "13_seed_cotejo_reqs_all_cohorts.sql",
+    "14_graduate_role_backfill.sql",
 ]
 
 _SURVEY_2026_09_PERMS = (
@@ -118,8 +124,9 @@ def init_titulatec_command():
     """Inicializa la app de TitulaTec completamente.
 
     Ejecuta en orden los seeders de database/DML/titulatec/ (ver SEED_FILES).
-    Idempotentes, pero el 03 revoca `cohort.*` a `titulatec_titulaciones` en cada
-    corrida (política: las convocatorias son de Servicios Escolares).
+    Idempotentes, pero el 03 revoca en cada corrida `cohort.*` a
+    `titulatec_titulaciones` (las convocatorias son de Servicios Escolares) y todo
+    lo de titulatec a `student` (el alumno es `graduate` desde 2026-09-15).
 
     Aborta si falta cualquier archivo: sembrar a medias deja la app en 404.
 
@@ -267,6 +274,13 @@ def load_survey_2026_09_command(dry_run):
     2 exige palomear el checklist desde Citas o desde el expediente. Es el
     comportamiento buscado —la guarda es el encabezado de la campaña— pero no es
     invisible: avísale a Servicios Escolares antes de correrlo en producción.
+
+    OJO CON EL 14: mueve a `graduate` a todo usuario con proceso (`graduate` en
+    `itcj` y `titulatec`, fuera `student` en itcj/titulatec/agendatec, alias
+    legado desde `student` o NULL). Exige el rol `graduate` CON sus permisos, que
+    llegan por el 01 y el 03 del DML base (`init-titulatec`), y aborta sin mover a
+    nadie si faltan. No toca permisos de rol. En producción hoy no hay procesos:
+    ahí es un no-op.
 
     Al terminar VERIFICA contra la base que los 8 permisos existen, que están
     concedidos (los 8 a la jefatura, `requirement.mark` también al encargado

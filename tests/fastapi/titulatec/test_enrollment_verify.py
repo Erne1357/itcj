@@ -202,6 +202,58 @@ def test_abrir_la_liga_inscribe_a_la_cuenta_y_muestra_el_folio(
         "abrir la liga debe dar el rol de la app, no solo el proceso")
 
 
+def test_abrir_la_liga_deja_a_la_cuenta_como_graduate_y_tira_el_cache_tras_el_commit(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+    monkeypatch,
+):
+    """`_convert` pasa por `import_rows(commit=False)`: la cuenta existente queda
+    `graduate` (alias legado incluido) y pierde `student`. `verify()` es dueño de
+    la transacción, así que el caché de authz lo tira él tras su commit."""
+    from itcj2.core.models.app import App
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.user_app_role import UserAppRole
+    from itcj2.core.services import authz_cache
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    cohort = make_cohort(status="open")
+    cuenta = _cuenta(make_user, db_session, "99770090")
+    student = db_session.query(Role).filter_by(name="student").one()
+    cuenta.role_id = student.id
+    db_session.add(UserAppRole(user_id=cuenta.id, app_id=titulatec_app.id,
+                               role_id=student.id))
+    db_session.flush()
+    _req, token = _aprobada(db_session, cohort, control="99770090")
+
+    orden = []
+    commit_real = db_session.commit
+
+    def _commit():
+        orden.append("commit")
+        return commit_real()
+
+    monkeypatch.setattr(db_session, "commit", _commit)
+    monkeypatch.setattr(authz_cache, "invalidate_user_app",
+                        lambda user_id, app_key: orden.append((user_id, app_key)))
+
+    _, outcome = EnrollmentRequestService.verify(db_session, token)
+
+    assert outcome == "converted"
+    db_session.refresh(cuenta)
+    assert cuenta.role_id == db_session.query(Role.id).filter_by(name="graduate").scalar()
+    roles = {(k, n) for k, n in (db_session.query(App.key, Role.name)
+                                 .join(UserAppRole, UserAppRole.app_id == App.id)
+                                 .join(Role, Role.id == UserAppRole.role_id)
+                                 .filter(UserAppRole.user_id == cuenta.id).all())}
+    assert roles == {("itcj", "graduate"), ("titulatec", "graduate")}
+    invalidaciones = [i for i, x in enumerate(orden) if isinstance(x, tuple)]
+    assert invalidaciones and min(invalidaciones) > orden.index("commit"), orden
+    assert {orden[i] for i in invalidaciones} == {(cuenta.id, "itcj"),
+                                                  (cuenta.id, "titulatec")}
+
+
 def test_la_liga_es_idempotente(
     client, db_session, make_cohort, make_user, seed_phase_defs, titulatec_app,
     correo_falso,

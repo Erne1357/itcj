@@ -117,13 +117,44 @@ def test_todo_sql_del_delta_esta_en_la_lista_del_comando():
         "se pone rojo.")
 
     # Piso explicito: comparar disco contra lista no detecta que se borren los
-    # dos lados a la vez. Estos cinco son el delta tal como se diseno.
+    # dos lados a la vez. Estos seis son el delta tal como se diseno (el 14 entro
+    # el 2026-09-15 con el rol `graduate`).
     for nombre in ("09_insert_survey_perms.sql",
                    "10_insert_survey_role_permissions.sql",
                    "11_seed_survey_form.sql",
                    "12_seed_cotejo_codes.sql",
-                   "13_seed_cotejo_reqs_all_cohorts.sql"):
+                   "13_seed_cotejo_reqs_all_cohorts.sql",
+                   "14_graduate_role_backfill.sql"):
         assert nombre in en_disco, f"falta {nombre} en el directorio del delta"
+
+
+def test_el_backfill_de_graduate_corre_despues_del_13_y_de_los_roles():
+    """El 14 mueve cuentas a `graduate`: sin el 01 (crea el rol) y el 03 (le da los
+    permisos) aborta, y va justo despues del 13 para que el orden del delta siga
+    siendo el de su numeracion."""
+    catorce = SEED_FILES.index("survey_2026_09/14_graduate_role_backfill.sql")
+
+    assert catorce == SEED_FILES.index("survey_2026_09/13_seed_cotejo_reqs_all_cohorts.sql") + 1
+    assert catorce > SEED_FILES.index("01_insert_roles.sql")
+    assert catorce > SEED_FILES.index("03_insert_role_permissions.sql")
+
+
+@requires_dml
+def test_el_backfill_de_graduate_no_toca_permisos_de_rol():
+    """`load-survey-2026-09` existe para NO correr el 03 en produccion, y el 14 viaja
+    en ese comando: no puede conceder ni revocar permisos de rol. Solo mueve
+    asignaciones de usuario y el alias legado `core_users.role_id`."""
+    import re
+
+    cuerpo = (DML_TITULATEC / _DML_SURVEY_2026_09_DIR
+              / "14_graduate_role_backfill.sql").read_text(encoding="utf-8")
+    sin_comentarios = re.sub(r"--[^\n]*", "", cuerpo)
+
+    assert not re.search(r"(INSERT\s+INTO|DELETE\s+FROM|UPDATE)\s+core_role_permissions",
+                         sin_comentarios, re.IGNORECASE)
+    for pieza in ("titulatec_processes", "'graduate'", "'student'", "'agendatec'",
+                  "RAISE NOTICE"):
+        assert pieza in sin_comentarios, pieza
 
 
 @requires_dml

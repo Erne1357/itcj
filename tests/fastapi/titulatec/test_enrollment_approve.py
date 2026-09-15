@@ -276,6 +276,46 @@ def test_aprobar_sin_cuenta_manda_usuario_y_nip_al_correo_personal_despues_del_c
     assert "/inscripcion/verificar" not in html, "una cuenta nueva no recibe liga"
 
 
+def test_aprobar_sin_cuenta_nace_graduate_y_tira_el_cache_tras_el_commit(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app,
+    orden_commit_correo, monkeypatch,
+):
+    """La cuenta nueva nace con el alias legado `graduate` y con los roles de app
+    que deja `import_rows`. `approve` es dueña de la transacción (`commit=False`),
+    así que el caché de authz lo tira ELLA, después de su commit."""
+    from itcj2.core.models.app import App
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.user import User
+    from itcj2.core.models.user_app_role import UserAppRole
+    from itcj2.core.services import authz_cache
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    orden, _enviados = orden_commit_correo
+    monkeypatch.setattr(authz_cache, "invalidate_user_app",
+                        lambda user_id, app_key: orden.append((user_id, app_key)))
+    seed_phase_defs()
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550070")
+
+    ok, _folio = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert ok is True
+    user = db_session.query(User).filter_by(control_number="99550070").one()
+    assert user.role_id == db_session.query(Role.id).filter_by(name="graduate").scalar()
+    roles = {(k, n) for k, n in (db_session.query(App.key, Role.name)
+                                 .join(UserAppRole, UserAppRole.app_id == App.id)
+                                 .join(Role, Role.id == UserAppRole.role_id)
+                                 .filter(UserAppRole.user_id == user.id).all())}
+    assert roles == {("itcj", "graduate"), ("titulatec", "graduate")}
+    invalidaciones = [i for i, x in enumerate(orden) if isinstance(x, tuple)]
+    assert invalidaciones and min(invalidaciones) > orden.index("commit"), orden
+    assert {orden[i] for i in invalidaciones} == {(user.id, "itcj"), (user.id, "titulatec")}
+
+
 def test_el_nip_no_aparece_en_el_process_event_ni_en_la_respuesta(
     client_as, db_session, make_head, make_cohort, seed_phase_defs, titulatec_app, caplog,
 ):

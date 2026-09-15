@@ -156,8 +156,11 @@ def _seed_minimal_reference_data(_pg_engine):
                 ('maint', 'Mantenimiento', true, false, true)
             ON CONFLICT (key) DO NOTHING
         """))
+        # `graduate` (egresado): desde 2026-09-15 `ImportService.import_rows`
+        # exige el rol para dar de alta a CUALQUIER alumno de TitulaTec, y en
+        # una BD de CI no existe hasta que alguien lo siembre.
         conn.execute(text("""
-            INSERT INTO core_roles (name) VALUES ('student')
+            INSERT INTO core_roles (name) VALUES ('student'), ('graduate')
             ON CONFLICT (name) DO NOTHING
         """))
     yield

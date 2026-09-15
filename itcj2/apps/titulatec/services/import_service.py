@@ -62,6 +62,67 @@ def set_initial_credential(user) -> None:
     user.must_change_password = True
 
 
+# — Rol del alumno de titulación (2026-09-15) —
+#
+# El alumno dejó de reciclar el rol global `student`: ese es el que AgendaTec
+# exige LITERALMENTE (`apps/agendatec/pages/student.py:27`) y el `role_id` de
+# miles de cuentas, así que "alumno de AgendaTec" y "se está titulando" eran lo
+# mismo para la autorización. `import_rows` es el ÚNICO punto de alta de roles de
+# esta app (CSV, alta manual, aprobación de bandeja y liga de activación): el
+# cambio vive aquí y no en cada llamador. Se leen en cada llamada, no al importar.
+GRADUATE_ROLE = "graduate"
+LEGACY_STUDENT_ROLE = "student"
+# Dónde se asegura `graduate`: la plataforma (shell móvil y `role_home`) y la app.
+GRADUATE_APP_KEYS = ("itcj", "titulatec")
+# Dónde se revoca `student`. Una app que no exista en la BD se salta en silencio.
+STUDENT_REVOKE_APP_KEYS = ("itcj", "titulatec", "agendatec")
+
+
+def _sync_graduate_roles(db, user, *, graduate_role, student_role, app_ids) -> set[str]:
+    """Deja a `user` como egresado. Devuelve las claves de las apps cuyas filas cambió.
+
+    - `graduate` en cada app de `GRADUATE_APP_KEYS` (el llamador ya comprobó que
+      existen);
+    - fuera `student` en cada app de `STUDENT_REVOKE_APP_KEYS` que exista;
+    - el alias legado `core_users.role_id` pasa a `graduate` SOLO desde `student`
+      o NULL: pisar otro rol global (`staff`) le cambiaría el `role` del JWT en
+      el siguiente refresco de sesión.
+
+    Una consulta por usuario y `flush()` solo si algo cambió; nunca `commit()`
+    (ver ATOMICIDAD en `import_rows`). `role_id` no cuenta como cambio para el
+    caché: el de authz sale de `core_user_app_roles` y de los puestos.
+    """
+    from itcj2.core.models.user_app_role import UserAppRole
+
+    grant_ids = {app_ids[k] for k in GRADUATE_APP_KEYS}
+    revoke_ids = {app_ids[k] for k in STUDENT_REVOKE_APP_KEYS if k in app_ids}
+    role_ids = [graduate_role.id] + ([student_role.id] if student_role is not None else [])
+
+    filas = (db.query(UserAppRole)
+             .filter(UserAppRole.user_id == user.id,
+                     UserAppRole.app_id.in_(grant_ids | revoke_ids),
+                     UserAppRole.role_id.in_(role_ids))
+             .all())
+    tocadas: set[int] = set()
+    ya_graduate = {f.app_id for f in filas if f.role_id == graduate_role.id}
+    for fila in filas:
+        if (student_role is not None and fila.role_id == student_role.id
+                and fila.app_id in revoke_ids):
+            db.delete(fila)
+            tocadas.add(fila.app_id)
+    for app_id in sorted(grant_ids - ya_graduate):
+        db.add(UserAppRole(user_id=user.id, app_id=app_id, role_id=graduate_role.id))
+        tocadas.add(app_id)
+    if tocadas:
+        db.flush()
+
+    if user.role_id is None or (student_role is not None and user.role_id == student_role.id):
+        user.role_id = graduate_role.id
+
+    clave = {app_id: key for key, app_id in app_ids.items()}
+    return {clave[app_id] for app_id in tocadas}
+
+
 def _norm(s: str) -> str:
     """Normaliza: minúsculas, sin acentos, sin puntuación, espacios colapsados."""
     s = (s or "").strip().lower()
@@ -394,7 +455,7 @@ class ImportService:
     def import_rows(db: Session, cohort, rows: list[dict], *,
                     actor_id: int | None = None, source: str = "csv",
                     commit: bool = True, repair_credentials: bool = True) -> dict:
-        """Crea User (merge por control_number) + Process + phases + rol student.
+        """Crea User (merge por control_number) + Process + phases + rol `graduate`.
 
         `rows` = lista de dicts ya resueltos (del preview/override del admin):
         {control_number, full_name, email, program_id, modality_id}.
@@ -403,12 +464,27 @@ class ImportService:
         asigna la inicial y al que venía con `password_hash` NULL se le repara
         (ver `set_initial_credential`). Nunca se sobrescribe una existente.
 
+        ROL (2026-09-15): todo alumno del lote queda como egresado —`graduate`
+        en `itcj` y `titulatec`, fuera `student` en `itcj`/`titulatec`/
+        `agendatec`, y el alias legado `core_users.role_id` en `graduate` si era
+        `student` o NULL (ver `_sync_graduate_roles`). Si falta el rol `graduate`
+        o la app `itcj`, 400 con el motivo: un alta sin rol es un alumno que no
+        puede entrar.
+
         ATOMICIDAD: un solo `commit()`, al final. Antes `grant_role` commiteaba
         DENTRO del bucle (`core/services/authz_service.py:81`) sobre esta misma
         sesión, así que cada vuelta persistía lo pendiente de las anteriores: un
         lote que reventaba a media pasada dejaba medio alta escrita y sin
-        rollback posible. Por eso el rol de app se inserta aquí a mano (mismo
-        efecto, sin commit) y el caché de authz se invalida DESPUÉS del commit.
+        rollback posible. Por eso los roles de app se escriben aquí a mano (mismo
+        efecto, sin commit).
+
+        CACHÉ DE AUTHZ, SIEMPRE DESPUÉS DEL COMMIT: si se tirara antes, una
+        lectura concurrente lo repoblaría con el estado viejo y esa entrada
+        viviría el TTL completo. Con `commit=True` lo tira esta función tras su
+        commit. Con `commit=False` todavía no hay nada commiteado: los pares
+        `(user_id, app_key)` que cambiaron viajan en `summary["authz_touched"]` y
+        el llamador llama a `ImportService.invalidate_authz` DESPUÉS de su propio
+        commit (`EnrollmentRequestService.approve` y `.verify` lo hacen).
 
         `repair_credentials=False` apaga `set_initial_credential` en LOS DOS
         caminos (alta nueva y reparación del que venía con `password_hash` NULL).
@@ -424,19 +500,26 @@ class ImportService:
         `pages/admin.py:139` ni a `pages/admin.py:587`.
 
         Devuelve summary con created_users / matched_users / repaired_users /
-        processes_created / skipped.
+        processes_created / skipped / authz_touched.
         """
         from fastapi import HTTPException
         from sqlalchemy import text
+        from itcj2.core.models.app import App
         from itcj2.core.models.user import User
         from itcj2.core.models.role import Role
-        from itcj2.core.models.user_app_role import UserAppRole
         from itcj2.apps.titulatec.models import TitulationProcess, ProcessPhase, ProcessEvent
         from itcj2.apps.titulatec.services.phase_service import PhaseService
         from itcj2.core.services.authz_service import get_or_404_app
 
-        app = get_or_404_app(db, "titulatec")
-        student_role = db.query(Role).filter_by(name="student").first()
+        get_or_404_app(db, "titulatec")
+        graduate_role = db.query(Role).filter_by(name=GRADUATE_ROLE).first()
+        student_role = db.query(Role).filter_by(name=LEGACY_STUDENT_ROLE).first()
+        # Las apps de los roles en UNA consulta y sin filtrar `is_active`: una app
+        # desactivada conserva filas que igual hay que limpiar.
+        app_ids = dict(
+            db.query(App.key, App.id)
+            .filter(App.key.in_(set(GRADUATE_APP_KEYS) | set(STUDENT_REVOKE_APP_KEYS)))
+            .all())
         period_code = cohort.period_code or str(cohort.period_id)
 
         # Serializa la emisión de folios de ESTA convocatoria. `folio` es UNIQUE
@@ -462,7 +545,7 @@ class ImportService:
 
         created_users = matched_users = processes_created = skipped = 0
         repaired_users = 0
-        granted_user_ids: list[int] = []
+        touched: set[tuple[int, str]] = set()
 
         for r in rows:
             control = (r.get("control_number") or "").strip()
@@ -477,6 +560,15 @@ class ImportService:
             if not CONTROL_NUMBER_RE.fullmatch(control):
                 skipped += 1
                 continue
+
+            # Antes de tocar la cuenta. Un lote sin filas válidas no llega aquí.
+            if graduate_role is None:
+                raise HTTPException(status_code=400,
+                                    detail=f"Rol '{GRADUATE_ROLE}' no existe.")
+            faltan = [k for k in GRADUATE_APP_KEYS if k not in app_ids]
+            if faltan:
+                raise HTTPException(status_code=400,
+                                    detail=f"App '{faltan[0]}' no existe.")
 
             user = db.query(User).filter_by(control_number=control).first()
             if user:
@@ -501,7 +593,7 @@ class ImportService:
                     username=control, control_number=control,
                     first_name=first, last_name=last,
                     email=r.get("email") or None,
-                    role_id=student_role.id if student_role else None,
+                    role_id=graduate_role.id,
                     is_active=True, must_change_password=True,
                 )
                 if repair_credentials:
@@ -510,16 +602,13 @@ class ImportService:
                 db.flush()
                 created_users += 1
 
-            # Rol `student` en la app. Equivalente a `authz_service.grant_role`
-            # pero con `flush()` en vez de `commit()`: ver ATOMICIDAD arriba.
-            if student_role is None:
-                raise HTTPException(status_code=400, detail="Rol 'student' no existe.")
-            has_role = db.query(UserAppRole).filter_by(
-                user_id=user.id, app_id=app.id, role_id=student_role.id).first()
-            if has_role is None:
-                db.add(UserAppRole(user_id=user.id, app_id=app.id, role_id=student_role.id))
-                db.flush()
-                granted_user_ids.append(user.id)
+            # Roles de egresado. Equivalente a `grant_role`/`revoke_role` de
+            # `authz_service`, pero con `flush()` en vez de `commit()`: ver
+            # ATOMICIDAD arriba.
+            for app_key in _sync_graduate_roles(db, user, graduate_role=graduate_role,
+                                                student_role=student_role,
+                                                app_ids=app_ids):
+                touched.add((user.id, app_key))
 
             proc = db.query(TitulationProcess).filter_by(student_id=user.id, cohort_id=cohort.id).first()
             if not proc:
@@ -555,21 +644,14 @@ class ImportService:
                                body="Servicios Escolares te dio de alta. Empieza subiendo tus documentos iniciales.",
                                process_id=proc.id, phase_number=1)
 
+        authz_touched = sorted(touched)
         if commit:
             db.commit()
+            # Después del commit (ver CACHÉ DE AUTHZ en el docstring). Con
+            # `commit=False` ese momento es del llamador.
+            ImportService.invalidate_authz(authz_touched)
         else:
             db.flush()
-
-        # Después del commit: si el caché se tirara antes, una lectura
-        # concurrente lo repoblaría con el estado viejo. Best-effort, igual que
-        # el `_bust_user_app` que hacía `grant_role`.
-        if granted_user_ids:
-            try:
-                from itcj2.core.services.authz_cache import invalidate_user_app
-                for user_id in granted_user_ids:
-                    invalidate_user_app(user_id, "titulatec")
-            except Exception:  # nunca romper la importación por el caché
-                pass
 
         return {
             "created_users": created_users,
@@ -577,7 +659,32 @@ class ImportService:
             "repaired_users": repaired_users,
             "processes_created": processes_created,
             "skipped": skipped,
+            "authz_touched": authz_touched,
         }
+
+    @staticmethod
+    def invalidate_authz(touched) -> None:
+        """Tira el caché de authz de los pares `(user_id, app_key)` de un summary.
+
+        Llamar SOLO después del commit que persiste esos cambios: antes, una
+        lectura concurrente repoblaría el caché con el estado viejo y esa entrada
+        viviría el TTL completo. Best-effort, igual que el `_bust_user_app` de
+        `grant_role`: un Redis caído nunca tumba un alta ya commiteada.
+
+        `None` o vacío no hace nada: los dobles de `import_rows` de las pruebas
+        devuelven summaries sin la llave.
+        """
+        if not touched:
+            return
+        try:
+            from itcj2.core.services.authz_cache import invalidate_user_app
+        except Exception:  # pragma: no cover - sin el módulo no hay caché que tirar
+            return
+        for user_id, app_key in touched:
+            try:
+                invalidate_user_app(user_id, app_key)
+            except Exception:  # nunca romper el alta por el caché
+                pass
 
     # ---------- remediación ----------
     @staticmethod

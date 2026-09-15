@@ -225,7 +225,7 @@ def test_el_dml_declara_los_77_permisos_conocidos():
 def test_los_permisos_de_espacios_estan_en_su_propio_archivo():
     """No pueden vivir en el 03.
 
-    `03_insert_role_permissions.sql` lleva dos DELETE que se re-aplican en CADA
+    `03_insert_role_permissions.sql` lleva DELETE que se re-aplican en CADA
     corrida de `init-titulatec`. Un permiso concedido ahi puede quedar revocado
     por una re-siembra, y el sintoma es un 403 que aparece solo despues de
     sembrar.
@@ -248,7 +248,7 @@ def test_los_permisos_de_espacios_estan_en_su_propio_archivo():
 def test_el_delta_de_encuesta_e_inscripcion_vive_en_su_subcarpeta():
     """Los 8 permisos de 2026-09 van en survey_2026_09/, nunca en el 03.
 
-    `03_insert_role_permissions.sql` lleva tres DELETE (lineas 109, 123 y 131)
+    `03_insert_role_permissions.sql` lleva DELETE (cuatro desde el 2026-09-15)
     que se re-aplican en CADA corrida de `titulatec init-titulatec`. Un permiso
     concedido ahi puede quedar revocado por una re-siembra, y el sintoma es un
     403 que aparece solo despues de sembrar. Es la misma regla que ya vigila
@@ -289,3 +289,57 @@ def test_el_delta_de_encuesta_e_inscripcion_vive_en_su_subcarpeta():
         assert codigo not in tres, (
             f"{codigo} no puede vivir en el 03: sus DELETE se re-aplican en "
             "cada corrida de init-titulatec y pueden revocarlo")
+
+
+# Los 21 permisos del alumno de titulacion. Hasta 2026-09-15 colgaban de
+# `student`; desde entonces son de `graduate`.
+PERMISOS_ALUMNO = (
+    "titulatec.dashboard.student",
+    "titulatec.process.page.my", "titulatec.process.api.read.own",
+    "titulatec.process.api.advance",
+    "titulatec.document.api.upload.own", "titulatec.document.api.read.own",
+    "titulatec.document.api.delete.own",
+    "titulatec.format_b.page.fill", "titulatec.format_b.api.save",
+    "titulatec.format_b.api.submit", "titulatec.format_b.api.read.own",
+    "titulatec.chat.page.view", "titulatec.chat.api.read", "titulatec.chat.api.send",
+    "titulatec.chat.api.upload",
+    "titulatec.appointment.page.my", "titulatec.appointment.api.confirm.own",
+    "titulatec.ceremony.page.my", "titulatec.ceremony.api.upload.own",
+    "titulatec.notifications.api.read.own", "titulatec.notifications.api.mark_read",
+)
+# Lo minimo de la plataforma (app `itcj`) que ya tenia `student`.
+PERMISOS_PLATAFORMA_ALUMNO = ("core.general.read", "core.general.api.read")
+
+
+def _grants_de_rol(sql: str, rol: str) -> set[str]:
+    """Codigos de los `ARRAY[...]) WHERE r.name = '<rol>'` de un DML de grants.
+
+    `[^\\]]*` y no `.*?`: un comodin no-greedy arrancaria en el ARRAY del bloque
+    anterior y se tragaria sus codigos.
+    """
+    patron = (r"ARRAY\[([^\]]*)\]\)\s*WHERE\s+r\.name\s*=\s*'"
+              + re.escape(rol) + "'")
+    return {c for bloque in re.findall(patron, sql)
+            for c in re.findall(r"'([^']+)'", bloque)}
+
+
+@requires_dml
+def test_el_alumno_de_titulacion_es_graduate_y_student_ya_no_recibe_nada_de_titulatec():
+    """2026-09-15: el alumno deja de reciclar `student` (el de AgendaTec y el
+    `role_id` de miles de cuentas). El 01 crea `graduate`; el 03 le da lo que tenia
+    `student` en titulatec mas lo minimo de la plataforma, y le REVOCA a `student`
+    todo lo de titulatec con un DELETE que se re-aplica en cada corrida (misma
+    politica que los otros DELETE del 03)."""
+    uno = re.sub(r"--[^\n]*", "",
+                 (DML_DIR / "01_insert_roles.sql").read_text(encoding="utf-8"))
+    assert "('graduate')" in uno, "el 01 no crea el rol graduate"
+
+    tres = re.sub(r"--[^\n]*", "",
+                  (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8"))
+    assert _grants_de_rol(tres, "graduate") == (
+        set(PERMISOS_ALUMNO) | set(PERMISOS_PLATAFORMA_ALUMNO))
+    assert _grants_de_rol(tres, "student") == set(), "student ya no recibe permisos en el 03"
+    assert re.search(
+        r"DELETE\s+FROM\s+core_role_permissions[^;]*r\.name\s*=\s*'student'"
+        r"[^;]*p\.app_id\s*=\s*v_app_id\s*;", tres), (
+        "falta el DELETE que revoca a student los permisos de titulatec")
