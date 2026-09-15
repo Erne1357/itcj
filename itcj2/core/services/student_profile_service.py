@@ -1,8 +1,13 @@
 """Perfil de alumno: fila PEREZOSA de `core_student_profile` (§3.1 del spec).
 
-Ninguno de los tres métodos hace commit. Los tres consumidores (T20 `_convert`,
-T21 `confirm_contact`, T22 `approve`) escriben dentro de su propia transacción y
-commitean ellos; un commit aquí partiría esa transacción a la mitad.
+Ninguno de los tres métodos hace commit: el llamador escribe dentro de su propia
+transacción y commitea él; un commit aquí la partiría a la mitad. Hoy el único
+consumidor externo es `EnrollmentRequestService.approve()` (rama SIN cuenta:
+`set_fields` justo después de crear el `User` nuevo), más el prellenado de la
+encuesta de egresados (`pages/public.py`, solo `get_or_create`). `_convert()`
+—la rama CON cuenta— no toca este service a propósito (su propio docstring lo
+llama invariante 1): una cuenta que ya existía no debe heredar el perfil de una
+solicitud que pudo llenar cualquiera.
 """
 from sqlalchemy.orm import Session
 
@@ -35,11 +40,13 @@ class StudentProfileService:
         habla de UNA dirección concreta, no del perfil: sin esto sobrevivía al
         correo que certificaba, y la bandeja de solicitudes pintaba en verde una
         dirección nueva que nadie confirmó jamás —basta con que la persona haya
-        verificado otra en una convocatoria anterior—. Escribir el MISMO correo
-        no lo limpia: `confirm_contact` es idempotente a propósito (un escáner
-        de correo corporativo prefetchea la liga antes del clic humano) y hace
-        `set_fields` seguido de `mark_contact_verified`; limpiar ahí tampoco
-        rompería nada, pero reescribir el mismo valor no es un cambio.
+        verificado otra en una convocatoria anterior—. Reescribir el MISMO
+        correo NO lo limpia (se compara antes/después, sin distinguir
+        mayúsculas): cualquier llamador que vuelva a guardar la misma dirección
+        no debe tirar una verificación ya hecha. Hoy el único llamador
+        (`EnrollmentRequestService.approve`, rama sin cuenta) escribe una sola
+        vez, al crear el perfil, así que este caso no se ejerce en producción
+        — la guarda queda lista para cuando exista una segunda escritura.
         """
         row = StudentProfileService.get_or_create(db, user_id)
         if "contact_email" in fields:
@@ -54,7 +61,15 @@ class StudentProfileService:
 
     @staticmethod
     def mark_contact_verified(db: Session, user_id: int) -> StudentProfile:
-        """Sella `contact_email_verified_at`. NO hace commit."""
+        """Sella `contact_email_verified_at`. NO hace commit.
+
+        Sin llamadores hoy: la liga que lo invocaba (`confirm_contact`, de
+        `EnrollmentRequestService`) se retiró el 2026-09-15 junto con su ruta
+        (`GET /titulatec/inscripcion/correo`) y su plantilla. Se conserva
+        porque `contact_email_verified_at` sigue siendo una columna real de
+        `core_student_profile` que un futuro flujo de verificación de correo
+        puede necesitar sellar.
+        """
         from datetime import datetime
 
         row = StudentProfileService.get_or_create(db, user_id)
