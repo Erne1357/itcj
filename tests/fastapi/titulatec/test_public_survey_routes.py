@@ -643,3 +643,99 @@ def test_el_borrador_sin_sesion_a_un_formulario_no_anonimo_no_escribe(
     assert resp.status_code in (302, 303, 401, 403, 204)
     db_session.expire_all()
     assert db_session.query(SurveyDraft).filter_by(form_id=form.id).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Tarea F: la encuesta ofrece volver a TitulaTec (barra + tarjeta de gracias)
+# ---------------------------------------------------------------------------
+# `situacion_laboral="buscando"` dejar `relacion_carrera` INVISIBLE (su
+# `visible_when` pide "empleado"), asi que el envio es valido sin contestarla
+# -el mismo criterio de `is_visible` que ya usa `validate_answers`
+# (`survey_validator.py:531`)-. Copiado de `test_survey_submit_routes.py::
+# OK_PAYLOAD` a proposito: los dos archivos son independientes.
+OK_PAYLOAD_TAREA_F = {
+    "website": "",
+    "situacion_laboral": "buscando",
+    "areas_fuertes": ["tecnica"],
+    "comentarios": "Ninguno.",
+}
+
+
+def test_usuario_con_acceso_ve_volver_a_titulatec_en_la_barra(
+    client_as, make_student, make_survey_form,
+):
+    """Con asignacion en titulatec (`make_student`, rol DIRECTO), la barra
+    ofrece volver A LA APP, no a la raiz. Misma verificacion que
+    `require_page_app`: `cached_has_assignment`.
+    """
+    make_survey_form()
+
+    cuerpo = client_as(make_student()).get(SURVEY_URL, follow_redirects=False).text
+
+    assert 'href="/titulatec/"' in cuerpo
+    assert "data-tt-bar-back" in cuerpo
+    assert "Volver a TitulaTec" in cuerpo
+    assert "Volver al inicio" not in cuerpo
+
+
+def test_usuario_sin_acceso_ve_volver_al_inicio_en_la_barra(
+    client_as, make_outsider, make_survey_form,
+):
+    """Con sesion pero SIN ninguna asignacion en titulatec (`make_outsider`),
+    el enlace cae a la raiz de la plataforma: no hay app a la que volver.
+    """
+    make_survey_form()
+
+    cuerpo = client_as(make_outsider()).get(SURVEY_URL, follow_redirects=False).text
+
+    assert 'href="/"' in cuerpo
+    assert "Volver al inicio" in cuerpo
+    assert "Volver a TitulaTec" not in cuerpo
+
+
+def test_sin_sesion_no_se_pinta_el_enlace_de_volver(client, make_survey_form):
+    """Anonimo de verdad (formulario `is_anonymous=True`, sin cookie):
+    `_back_link` devuelve `None` y ni la barra ni el enlace aparecen.
+    """
+    make_survey_form(is_anonymous=True)
+    client.cookies.clear()
+
+    cuerpo = client.get(SURVEY_URL, follow_redirects=False).text
+
+    assert "data-tt-bar-back" not in cuerpo
+    assert "Volver a TitulaTec" not in cuerpo
+    assert "Volver al inicio" not in cuerpo
+
+
+def test_la_tarjeta_de_gracias_trae_el_enlace_de_retorno(
+    client_as, make_student, make_survey_form,
+):
+    """Tras un envio VALIDO, la tarjeta de gracias tambien ofrece volver:
+    mismo helper `_back_link`, con la sesion de BD que `survey_submit` ya
+    tiene abierta para escribir la respuesta.
+    """
+    make_survey_form()
+
+    resp = client_as(make_student()).post(
+        SURVEY_URL, data=OK_PAYLOAD_TAREA_F,
+        headers={"X-Real-IP": "203.0.113.201"}, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert 'id="tt-survey-thanks"' in resp.text
+    assert "data-tt-thanks-back" in resp.text
+    assert 'href="/titulatec/"' in resp.text
+    assert "Volver a TitulaTec" in resp.text
+
+
+def test_la_inscripcion_no_ofrece_volver_a_titulatec(client_as, make_student):
+    """`enroll.html` no llena `public_bar_actions`: nada de esto aparece ahi,
+    ni siquiera con sesion CON acceso a titulatec.
+    """
+    resp = client_as(make_student()).get(
+        "/titulatec/inscripcion", follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert 'data-tt-page="public_enroll"' in resp.text
+    assert "data-tt-bar-back" not in resp.text
+    assert "Volver a TitulaTec" not in resp.text
+    assert "Volver al inicio" not in resp.text

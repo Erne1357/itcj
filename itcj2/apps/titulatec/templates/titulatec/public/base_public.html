@@ -21,10 +21,17 @@
         DECODIFICA `X-Tt-Error`, a diferencia de `student/errors.js`.
      3. Ancla estable `<main data-tt-page="...">` para los E2E, mismo contrato
         que `base_student.html:80`.
+     4. Un hueco a la derecha de la barra (`public_bar_actions`), VACIO por
+        omision: la inscripcion no lo llena y se queda igual que antes. La
+        encuesta (Tarea F) lo usa para el enlace "Volver a TitulaTec"/"Volver
+        al inicio" -solo con sesion, lo decide `pages/public.py::_back_link`
+        con la MISMA verificacion que `require_page_app`-. Vive FUERA de
+        `#tt-survey-form` a proposito: ese es el nodo que reemplaza cada swap
+        htmx de la encuesta, y la barra no tiene por que parpadear entre pasos.
 
    Bloques para hijos:
      public_title · public_head · public_page · public_main_class ·
-     public_body · public_scripts
+     public_bar_actions · public_body · public_scripts
    =========================================================================== #}
 {% extends "titulatec/base.html" %}
 
@@ -51,6 +58,7 @@
         <div class="tt-public-brand tt-display">TitulaTec</div>
         <div class="tt-kicker">Instituto Tecnológico de Ciudad Juárez</div>
       </div>
+      {% block public_bar_actions %}{% endblock %}
     </div>
   </header>
 

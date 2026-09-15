@@ -294,4 +294,56 @@ test.describe('con sesión: entra por el login y recorre los pasos', () => {
 
     await c.close();
   });
+
+  test('el enlace "Volver a TitulaTec" existe en la barra y en la tarjeta de gracias (Tarea F)', async ({ browser }) => {
+    // Determinismo verificado ANTES de escribir esta prueba (pedido del
+    // controlador): el alumno sintético de este escenario tiene el rol
+    // "E2E_TITULATEC_student" (`_helpers.js`, `_role(TAG + "_student", ...)`
+    // con `TAG = "E2E_TITULATEC"`), que no aparece en `_ROLE_DASHBOARD`
+    // (`pages/nav.py`) -ni "student" a secas, que sí estaría ahí: el nombre es
+    // el TAG completo más el sufijo, y `role_name in roles` compara por
+    // igualdad exacta de set, no por sufijo-. Por eso `resolve_dashboard_url`
+    // cae a su rama de respaldo y `/titulatec/` rebota a `/itcj/dashboard`,
+    // FUERA de titulatec, para ESTE actor. Eso no es un defecto de
+    // `_back_link` -que solo promete el `href` `/titulatec/`; a dónde esa ruta
+    // decide mandar a cada quien es contrato de `resolve_dashboard_url`, ajeno
+    // a esta tarea-, pero sí significa que seguir el enlace de verdad (click +
+    // esperar la navegación) NO aterriza en una URL de titulatec con este
+    // escenario sintético. Por eso esta prueba se queda en el `href` y el
+    // nombre accesible -lo que de verdad emite el servidor- y no hace click.
+    const c = await browser.newContext({ storageState: stateFor('student') });
+    const page = await c.newPage();
+    await page.goto(SURVEY_URL, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('Paso 1 de 3')).toBeVisible();
+
+    // Barra: persiste fuera del swap de `#tt-survey-form`. El nombre accesible
+    // es el completo vía `aria-label`, sin importar qué texto esté VISIBLE
+    // (`d-none d-sm-inline`/`d-sm-none`) al ancho por omisión de este proyecto.
+    const barra = page.locator('[data-tt-bar-back]');
+    await expect(barra).toHaveAttribute('href', '/titulatec/');
+    await expect(barra).toHaveAccessibleName('Volver a TitulaTec');
+
+    await page.locator('input[name="situacion_laboral"][value="estudiando"]').check();
+    await page.getByRole('button', { name: 'Siguiente' }).click();
+    await expect(page.getByText('Paso 2 de 3')).toBeVisible();
+    await page.getByRole('button', { name: 'Siguiente' }).click();
+    await expect(page.getByText('Paso 3 de 3')).toBeVisible();
+
+    const envio = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === SURVEY_URL
+    );
+    await page.getByRole('button', { name: 'Enviar respuestas' }).click();
+    expect((await envio).status()).toBe(200);
+    await expect(page.locator('#tt-survey-thanks')).toBeVisible();
+
+    // Tarjeta de gracias: la barra sigue viva a la vez (no entró al swap), así
+    // que hay DOS enlaces "Volver a TitulaTec" en la página -de ahí el gancho
+    // propio en vez de `getByRole('link', {name: ...})`, que violaría el modo
+    // estricto con dos coincidencias-.
+    const tarjeta = page.locator('[data-tt-thanks-back]');
+    await expect(tarjeta).toHaveAttribute('href', '/titulatec/');
+    await expect(tarjeta).toHaveAccessibleName('Volver a TitulaTec');
+
+    await c.close();
+  });
 });

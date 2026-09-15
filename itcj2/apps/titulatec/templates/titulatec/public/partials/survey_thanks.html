@@ -14,6 +14,13 @@
    ademas el relleno que devuelve `submit` en su rama de error, asi que un valor
    inesperado cae en el mensaje mas conservador —«quedo registrada, no acredita»—
    y nunca en una tarjeta en blanco.
+
+   `back_link` (Tarea F): CTA de salida, independiente de `credit_status` -las
+   cinco ramas la comparten, no solo `credited`-. `None` sin sesion (incluida
+   la trampa E3, que nunca abre una sesion de BD para calcularla) y con la
+   MISMA verificacion que `require_page_app`: con asignacion en titulatec va a
+   `/titulatec/`, sin ella a `/`. Reusa el boton existente (`tt-btn-ink`), no
+   inventa uno nuevo.
    =========================================================================== #}
 <div id="tt-survey-thanks" class="tt-card tt-card--hero tt-anim-in"
      role="status" data-tt-credit="{{ credit_status }}">
@@ -38,5 +45,11 @@
   {% else %}
     <h2 class="tt-display h5 mt-1 mb-2">Gracias por contestar</h2>
     <p class="mb-0">Tu respuesta quedó registrada y cuenta para la estadística del Tec. Como no iniciaste sesión, NO quedará en tu expediente de titulación.</p>
+  {% endif %}
+
+  {% if back_link %}
+  <a class="btn btn-sm tt-btn-ink tt-pressable mt-3" href="{{ back_link.url }}" data-tt-thanks-back>
+    <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>{{ back_link.label }}
+  </a>
   {% endif %}
 </div>

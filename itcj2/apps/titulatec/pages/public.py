@@ -541,6 +541,45 @@ def _requiere_sesion(form) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# 4d. Enlace de retorno a TitulaTec (Tarea F: la barra publica y la tarjeta
+#     de gracias ofrecen volver)
+# ---------------------------------------------------------------------------
+def _back_link(db, user: dict | None) -> dict | None:
+    """Destino de "volver" para la barra publica y la tarjeta de gracias.
+
+    `None` sin sesion: un visitante anonimo (el del banner de §6.1) no tiene
+    sesion de la que volver, y ni `base_public.html` ni `survey_thanks.html`
+    pintan nada si esto es `None`.
+
+    Con sesion, la MISMA verificacion que usa `require_page_app` para decidir
+    si deja entrar a la app: `cached_has_assignment(db, user_id, "titulatec")`
+    (`itcj2/dependencies.py:126-128`). Con asignacion el destino es
+    `/titulatec/` -`pages/landing.py` ya resuelve por rol: el egresado a su
+    dashboard, el personal a su bandeja-. Sin asignacion (alguien con sesion
+    en la plataforma que solo vino a contestar la encuesta, sin puesto ni rol
+    en titulatec) el destino es la raiz `/`, que decide movil/escritorio.
+
+    Fail-safe: `cached_has_assignment` ya cae a BD si Redis falla (fail-open
+    de LECTURA, ver el docstring de `authz_cache.py`); si aun asi revienta
+    -sesion de BD caida, por ejemplo- esto no debe tirar la pagina completa
+    por un boton secundario, asi que degrada al destino mas conservador (`/`)
+    en vez de propagar la excepcion.
+    """
+    if not user:
+        return None
+    try:
+        from itcj2.core.services.authz_cache import cached_has_assignment
+        tiene_acceso = cached_has_assignment(db, int(user["sub"]), "titulatec")
+    except Exception:
+        logger.warning("survey: fallo comprobando acceso a titulatec (user=%s)",
+                       user.get("sub"))
+        tiene_acceso = False
+    if tiene_acceso:
+        return {"url": "/titulatec/", "label": "Volver a TitulaTec", "short_label": "Volver"}
+    return {"url": "/", "label": "Volver al inicio", "short_label": "Volver"}
+
+
+# ---------------------------------------------------------------------------
 # Rutas
 # ---------------------------------------------------------------------------
 @router.get("/encuesta-egresados", name="titulatec.pages.public.survey",
@@ -573,8 +612,13 @@ async def survey(
     db = SessionLocal()
     try:
         form = SurveyService.open_form(db, SURVEY_CODE)
+        # Tarea F: UNA sola vez, antes de cualquier rama -la barra lo necesita
+        # tanto si hay formulario abierto como si no-. Sin sesion no cuesta
+        # nada (`_back_link` devuelve `None` sin tocar Redis ni BD), asi que
+        # calcularlo antes del redirect de abajo no desperdicia nada.
+        back_link = _back_link(db, user)
         if form is None:
-            ctx = dict(_CLOSED_CARD, no_form=True)
+            ctx = dict(_CLOSED_CARD, no_form=True, back_link=back_link)
         elif _requiere_sesion(form) and user is None:
             return RedirectResponse(SURVEY_LOGIN_URL, status_code=302)
         else:
@@ -658,6 +702,7 @@ async def survey(
                             is_authenticated=bool(user),
                             draft_updated_at=draft_updated,
                             step=_start_step(form.schema or {}, values))
+            ctx["back_link"] = back_link
     finally:
         db.close()
     return render_titulatec(request, "titulatec/public/survey.html", ctx)
@@ -711,9 +756,14 @@ async def survey_submit(
     #    se escribe nada: sin respuesta distinta, no hay señal que optimizar.
     if _trampa_llena(data):
         logger.info("survey: trampa llena desde %s", ip)
+        # Tarea F: `back_link` explicito en `None`, no calculado. Esta rama es
+        # a proposito minima -ni abre sesion de BD- y la misma para cualquiera
+        # que llene la trampa; abrir una sesion aqui solo para `cached_has_
+        # assignment` le suma una consulta a un camino que existe para no
+        # costar nada.
         return render_titulatec(
             request, "titulatec/public/partials/survey_thanks.html",
-            {"credit_status": "anonymous"})
+            {"credit_status": "anonymous", "back_link": None})
 
     cabeceras: dict[str, str] = {}
     db = SessionLocal()
@@ -780,7 +830,9 @@ async def survey_submit(
                                     is_authenticated=bool(user))
                 else:
                     _contar_envio(user, ip)
-                    ctx = {"credit_status": credit_status}
+                    # Tarea F: misma sesion de BD que ya esta abierta aqui.
+                    ctx = {"credit_status": credit_status,
+                           "back_link": _back_link(db, user)}
                     plantilla = "titulatec/public/partials/survey_thanks.html"
     finally:
         db.close()
