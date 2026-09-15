@@ -186,19 +186,25 @@ def test_commitea_UNA_sola_vez_y_la_solicitud_va_DENTRO(
     assert commits == [True], commits
 
 
-def test_race_de_dos_envios_simultaneos_cae_a_already_submitted(
+def test_race_de_dos_envios_simultaneos_cae_a_already_submitted_por_integrity_error(
     db_session, make_survey_form, make_student, make_cohort, make_process,
     make_survey_review, monkeypatch,
 ):
-    """Defensa en profundidad (spec 5.3): si dos envios pasaran los dos la
-    comprobacion inicial -carrera real, aqui FORZADA parcheando `get_for_
-    process` para que nunca la encuentre-, el `UNIQUE(process_id)` frena al
-    perdedor en el `flush()` de `open_for_submission`, y `submit` lo resuelve
-    con `rollback` + `already_submitted`, nunca con un 500.
+    """Defensa en profundidad (spec 5.3), mitad 1 de 2: si dos envios pasaran
+    los dos la comprobacion inicial -carrera real, aqui FORZADA parcheando
+    `get_for_process` para que NUNCA la encuentre, en las DOS llamadas- el
+    `UNIQUE(process_id)` frena al perdedor en el `flush()` de `open_for_
+    submission` (la fila "ganadora" SI existe en BD, asi que Postgres
+    rechaza el `INSERT` duplicado), y `submit` lo resuelve con `rollback` +
+    `already_submitted`, nunca con un 500.
 
     El setup se COMMITEA antes de forzar la carrera: el `rollback()` de
     `submit` desanda hasta el ultimo commit (arnes de tests, `db_session`
     bajo savepoints) y no debe llevarse la solicitud "ganadora".
+
+    Hermana de `test_race_de_dos_envios_simultaneos_cae_a_already_submitted_
+    por_value_error`, mas abajo: esa fuerza la OTRA mitad de la misma carrera
+    (ronda 1 de revision, hallazgo Important #2).
     """
     from itcj2.apps.titulatec.models import SurveyResponse, SurveyReview
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
@@ -222,6 +228,61 @@ def test_race_de_dos_envios_simultaneos_cae_a_already_submitted(
     assert credit == "already_submitted"
     assert [r.id for r in _reviews(db_session, process_id=proc.id)] == [ganador.id]
     assert len(_responses(db_session, process_id=proc.id)) == 1
+
+
+def test_race_de_dos_envios_simultaneos_cae_a_already_submitted_por_value_error(
+    db_session, make_survey_form, make_student, make_cohort, make_process,
+    monkeypatch,
+):
+    """Defensa en profundidad (spec 5.3), mitad 2 de 2 (hallazgo Important #2
+    de la ronda 1 de revision): si el envio "ganador" commitea justo ENTRE la
+    comprobacion propia de `submit` (linea ~238, ve `None`: todavia no hay
+    solicitud) y la comprobacion INTERNA de `open_for_submission` (que
+    entonces SI la encuentra), esa segunda comprobacion levanta `ValueError`
+    -nunca llega a intentar el `INSERT`, asi que Postgres no interviene y no
+    hay `IntegrityError`-. Antes de esta correccion, `submit` solo atrapaba
+    `IntegrityError`: este `ValueError` se colaba hasta el `except Exception`
+    generico de la ruta, que lo convertia en la tarjeta de error generica
+    ("No pudimos guardar tu respuesta...") en vez de la de "ya la enviaste".
+
+    Se fuerza la carrera con un `get_for_process` que responde `None` la
+    PRIMERA vez que se le llama (el chequeo de `submit`) y algo verdadero la
+    SEGUNDA (el de `open_for_submission`) -sin necesidad de una fila real en
+    BD: lo que se prueba es que `submit` atrape el `ValueError` que la propia
+    defensa de `open_for_submission` levanta, no el mecanismo de Postgres-.
+
+    Sin fila "ganadora" real esta vez, no hace falta el `db_session.commit()`
+    de la hermana `_por_integrity_error`: nada se escribe fuera de esta
+    llamada a `submit`, y su propio `rollback` deshace unicamente lo que el
+    intento fallido alcanzo a escribir (la `SurveyResponse`/`SurveyAnswer` de
+    este mismo envio).
+    """
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    form = make_survey_form(code="tt_test_race_ve")
+    student = make_student()
+    cohort = make_cohort()
+    proc = make_process(student, cohort=cohort)
+
+    llamadas = {"n": 0}
+
+    def _get_for_process_carrera(db, process_id):
+        llamadas["n"] += 1
+        return None if llamadas["n"] == 1 else object()
+
+    monkeypatch.setattr(SurveyReviewService, "get_for_process",
+                        staticmethod(_get_for_process_carrera))
+
+    response, errors, credit = SurveyService.submit(
+        db_session, form, ENVIO_OK, user_id=student.id,
+        client_ip=None, user_agent=None)
+
+    assert response is None
+    assert errors == {}
+    assert credit == "already_submitted"
+    assert llamadas["n"] == 2
+    assert _reviews(db_session, process_id=proc.id) == []
+    assert len(_responses(db_session, process_id=proc.id)) == 0
 
 
 def test_el_desempate_por_id_hace_total_el_orden_de_creditable_process(
@@ -396,3 +457,57 @@ def test_POST_submit_con_solicitud_no_consume_presupuesto_ni_reescribe(
     assert 'data-tt-credit="already_submitted"' in resp.text
     assert llamados == {"puede": 0, "cuenta": 0}
     assert len(_responses(db_session, process_id=proc.id)) == 1
+
+
+def test_fallo_transitorio_en_solicitud_existente_no_produce_500(
+    client_as, make_student, make_process, make_cohort, make_survey_form,
+    monkeypatch,
+):
+    """Hallazgo Important #1 de la ronda 1 de revision: `_solicitud_existente`
+    (pages/public.py) llamaba a `ProcessService.creditable_process` /
+    `SurveyReviewService.get_for_process` sin try/except -al reves de lo que
+    el propio modulo declara como ley ("Ninguna entrada del visitante puede
+    producir un 500") y de lo que ya hace `_back_link` para el MISMO tipo de
+    riesgo (un gate que consulta BD/Redis y puede fallar)-. Antes de la
+    correccion, un fallo transitorio ahi tiraba las CUATRO rutas publicas de
+    la encuesta con un 500 -peor todavia en las tres POST, que van por htmx:
+    "htmx no swappea en 4xx" (docstring del modulo) tampoco swappea en 5xx, y
+    el formulario del visitante se queda a medias sin ningun aviso-.
+
+    Se parchea `ProcessService.creditable_process` -la PRIMERA llamada dentro
+    de `_solicitud_existente`- para que reviente siempre, y se comprueba que
+    ninguna de las cuatro rutas responda 500. `SurveyService.submit` hace la
+    MISMA comprobacion por su cuenta (fuera del alcance de este hallazgo: no
+    es el gate de la ruta, es la defensa del propio `submit`), asi que el
+    envio real (ultima asercion) sigue sin poder escribir con la BD "caida" -
+    pero lo dice con la tarjeta de error de siempre (200), nunca con un
+    stack trace.
+    """
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+
+    make_survey_form()
+    student = make_student()
+    make_process(student, cohort=make_cohort())
+
+    def _revienta(db, user_id):
+        raise RuntimeError("BD/Redis caidos (simulado)")
+
+    monkeypatch.setattr(ProcessService, "creditable_process", staticmethod(_revienta))
+    c = client_as(student)
+
+    get_resp = c.get(SURVEY_URL, follow_redirects=False)
+    assert get_resp.status_code == 200, get_resp.text[:300]
+    assert 'id="tt-survey-form"' in get_resp.text          # degrado a "sin solicitud"
+
+    paso_resp = c.post(SURVEY_STEP_URL, data={"tt_step": "0"}, follow_redirects=False)
+    assert paso_resp.status_code == 200, paso_resp.text[:300]
+    assert 'id="tt-survey-form"' in paso_resp.text
+
+    draft_resp = c.post(SURVEY_DRAFT_URL, data={"situacion_laboral": "empleado"},
+                        follow_redirects=False)
+    assert draft_resp.status_code == 204, draft_resp.text[:300]
+    assert draft_resp.headers.get("X-Tt-Draft-Saved") == "1"   # siguio el camino normal
+
+    submit_resp = c.post(SURVEY_URL, data=OK_PAYLOAD,
+                         headers={"X-Real-IP": "203.0.113.70"}, follow_redirects=False)
+    assert submit_resp.status_code == 200, submit_resp.text[:300]   # nunca 500

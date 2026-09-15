@@ -211,13 +211,26 @@ class SurveyService:
 
         UN SOLO `commit`, al final (seccion 4.4 paso 7). Dos envios
         simultaneos del mismo proceso pueden pasar los dos la comprobacion de
-        arriba (la carrera real): el perdedor del `UNIQUE(process_id)`
-        revienta con `IntegrityError` al escribir la solicitud -inmediata en
-        Postgres, no diferida al commit-, y se resuelve igual que si se
-        hubiera visto venir: `rollback` de TODO lo de este envio (la
-        respuesta recien escrita incluida -segun el paso 7, o se guarda junto
-        con la solicitud o no se guarda nada-) y `already_submitted`, nunca un
-        500.
+        arriba (la carrera real) y manifestarse de DOS formas distintas segun
+        en que momento exacto commitea el ganador, y las dos se resuelven
+        igual: `rollback` de TODO lo de este envio (la respuesta recien
+        escrita incluida -segun el paso 7, o se guarda junto con la
+        solicitud o no se guarda nada-) y `already_submitted`, nunca un 500.
+
+          1. El ganador ya commiteo ANTES de que el perdedor llegue a
+             `open_for_submission`: esa llamada hace su PROPIA comprobacion
+             de "ya existe" (defensa en profundidad, `survey_review_
+             service.py`) y levanta `ValueError` -nunca llega a intentar el
+             `INSERT`-.
+          2. El ganador commitea justo ENTRE la comprobacion de `open_for_
+             submission` y su propio `INSERT`: el `UNIQUE(process_id)` de
+             `titulatec_survey_reviews` revienta con `IntegrityError` -
+             inmediata en Postgres (no es DEFERRABLE), asi que puede saltar
+             en el `flush()` de `open_for_submission` y no solo en el
+             `db.commit()` de aqui abajo-.
+
+        Por eso el `except` de mas abajo atrapa las dos: nada mas en este
+        bloque puede levantar ninguna de las dos por su cuenta.
         """
         from sqlalchemy.exc import IntegrityError
 
@@ -298,7 +311,7 @@ class SurveyService:
                 else:
                     credit_status = "no_process"
             db.commit()
-        except IntegrityError:
+        except (IntegrityError, ValueError):
             db.rollback()
             return None, {}, "already_submitted"
         db.refresh(response)

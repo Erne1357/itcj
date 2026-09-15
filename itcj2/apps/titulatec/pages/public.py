@@ -584,8 +584,9 @@ def _back_link(db, user: dict | None) -> dict | None:
 # ---------------------------------------------------------------------------
 def _solicitud_existente(db, user: dict | None) -> dict | None:
     """Foto de la solicitud de liberacion vigente del alumno en sesion, o
-    `None` si no aplica -sin sesion, sin proceso acreditable, o proceso sin
-    solicitud (el egresado nunca envio la encuesta)-.
+    `None` si no aplica -sin sesion, sin proceso acreditable, proceso sin
+    solicitud (el egresado nunca envio la encuesta), o un fallo al
+    comprobarlo-.
 
     Mismo selector que `SurveyService.submit` (`ProcessService.
     creditable_process`): si estos dos lados no llamaran al mismo helper, un
@@ -602,18 +603,35 @@ def _solicitud_existente(db, user: dict | None) -> dict | None:
     su lugar; `survey_submit` lo usa para no volver a escribir ni cobrar el
     limitador (spec 5.3). La encuesta queda CONGELADA (D6): solo GTV cambia
     su estatus desde su bandeja de Liberaciones.
+
+    Fail-safe (ronda 1 de revision, Tarea 3): mismo patron que `_back_link`
+    -que resuelve exactamente el mismo tipo de riesgo, un gate de sesion de
+    BD/Redis que puede fallar-. El docstring del modulo lo declara ley:
+    "Ninguna entrada del visitante puede producir un 500" (arriba, seccion
+    de encabezado), y las CUATRO rutas publicas de la encuesta dependen hoy
+    de este chequeo. Un fallo transitorio (BD/Redis caidos) degrada a `None`
+    -"no hay solicitud"- y sigue el camino normal, en vez de reventar: no es
+    una puerta trasera para saltarse la congelacion, porque la MISMA
+    comprobacion (contra la MISMA BD) la vuelve a hacer `SurveyService.
+    submit` antes de escribir, asi que una BD caida de verdad tambien frena
+    la escritura ahi, solo que sin tirar la pagina completa por el camino.
     """
     if not user:
         return None
-    from itcj2.apps.titulatec.services.process_service import ProcessService
-    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    try:
+        from itcj2.apps.titulatec.services.process_service import ProcessService
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
-    process = ProcessService.creditable_process(db, int(user["sub"]))
-    if process is None:
+        process = ProcessService.creditable_process(db, int(user["sub"]))
+        if process is None:
+            return None
+        if SurveyReviewService.get_for_process(db, process.id) is None:
+            return None
+        return SurveyReviewService.summary_for_process(db, process.id)
+    except Exception:
+        logger.warning("survey: fallo comprobando la solicitud existente (user=%s)",
+                       user.get("sub"))
         return None
-    if SurveyReviewService.get_for_process(db, process.id) is None:
-        return None
-    return SurveyReviewService.summary_for_process(db, process.id)
 
 
 # ---------------------------------------------------------------------------
