@@ -14,6 +14,7 @@ def role_home(roles) -> str:
         "coordinator",
         "social_service",
         "student",
+        "graduate",
     ]
 
     ROLE_ROUTES = {
@@ -22,6 +23,10 @@ def role_home(roles) -> str:
         "coordinator": "/itcj/dashboard",
         "social_service": "/itcj/dashboard",
         "student": "/itcj/m/",
+        # Egresado de TitulaTec (2026-09-15): `import_rows` le da este rol en la
+        # app `itcj`. Mismo shell móvil que el alumno, sin pasar por el rebote de
+        # `/itcj/dashboard` a quien no tiene rol de escritorio.
+        "graduate": "/itcj/m/",
     }
 
     if isinstance(roles, str):
