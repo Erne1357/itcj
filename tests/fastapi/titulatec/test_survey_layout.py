@@ -406,3 +406,47 @@ def test_la_hoja_publica_no_usa_mute_para_texto_ni_transition_all():
 
     assert not re.search(r"(?<![-\w])color\s*:\s*var\(--tt-mute\)", css)
     assert not re.search(r"transition\s*:\s*all\b", css)
+
+
+# ---------------------------------------------------------------------------
+# Movil compacto (2026-09-15): lo que se oculta sigue siendo alcanzable
+# ---------------------------------------------------------------------------
+def test_la_cabecera_no_repite_el_kicker_de_la_barra(
+    client_as, make_student, make_survey_form,
+):
+    """La barra publica ya dice «Instituto Tecnológico de Ciudad Juárez»."""
+    make_survey_form(schema=SCHEMA_TRES)
+
+    cuerpo = client_as(make_student()).get(SURVEY_URL, follow_redirects=False).text
+
+    cabecera = re.search(r'<header class="tt-survey-head">(.*?)</header>', cuerpo, flags=re.S)
+    assert cabecera, "no se pinto la cabecera de la encuesta"
+    assert "tt-kicker" not in cabecera.group(1)
+    assert "tt-survey-title" in cabecera.group(1)
+
+
+def test_el_titulo_del_paso_sigue_en_el_dom_como_ancla_de_foco(
+    client_as, make_student, make_survey_form,
+):
+    """Bajo 992 px el h2 se oculta a la VISTA (el titulo ya va en «Paso N de M ·
+    titulo»), pero `survey.js` le da el foco tras cada swap."""
+    make_survey_form(schema=SCHEMA_TRES)
+
+    cuerpo = _al_paso_dos(client_as(make_student()))
+
+    h2 = re.search(r'<h2\b[^>]*\bclass="[^"]*\btt-section-title\b[^"]*"[^>]*>', cuerpo)
+    assert h2 and 'tabindex="-1"' in h2.group(0), h2 and h2.group(0)
+
+
+def test_lo_que_el_movil_oculta_sigue_en_el_arbol_de_accesibilidad():
+    """El titulo de cada circulo es su nombre accesible y el h2 es el ancla de
+    foco: `display:none` o `visibility:hidden` los sacarian de los dos."""
+    css = re.sub(r"/\*.*?\*/", " ", CSS_PUBLICO.read_text(encoding="utf-8"), flags=re.S)
+
+    reglas = [(sel, cuerpo) for sel, cuerpo in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+              if re.search(r"\.tt-(?:section|steps)-title\b", sel)]
+
+    assert reglas, "la hoja ya no estiliza los titulos de paso ni de seccion"
+    for selector, cuerpo in reglas:
+        assert not re.search(r"display\s*:\s*none|visibility\s*:\s*hidden", cuerpo), \
+            selector.strip()

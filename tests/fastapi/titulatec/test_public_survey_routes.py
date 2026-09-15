@@ -56,12 +56,23 @@ def test_encuesta_anonima_muestra_el_banner_de_que_no_acredita(client, make_surv
     assert BANNER_2 in resp.text
     assert "data-tt-anon-notice" in resp.text
     assert 'href="/itcj/login?next=/titulatec/encuesta-egresados"' in resp.text
+    # Sin sesion el borrador vive en `localStorage`: no hay guardado de servidor
+    # que anunciar, asi que tampoco hay nota de guardado.
+    assert "data-tt-save" not in resp.text
 
 
-def test_encuesta_con_sesion_cambia_el_banner_por_el_aviso_de_que_si_acredita(
+def test_encuesta_con_sesion_muestra_la_nota_de_guardado_y_no_el_banner_de_anonimo(
     client_as, make_student, make_survey_form,
 ):
-    """Con sesion no hay banner de anonimo: hay aviso de que SI acredita."""
+    """Con sesion: ni banner de anonimo ni el de "si acredita" (2026-09-15).
+
+    Ese banner ocupaba media pantalla de un telefono antes de la primera
+    pregunta y repetia lo que ya explica la tarjeta de gracias. En su lugar va
+    una nota de una linea con el estado del autoguardado, que `survey.js`
+    actualiza. Vive en la cabecera, FUERA de `#tt-survey-form`: el formulario
+    se reemplaza entero en cada paso, y una region `aria-live` recien insertada
+    no anuncia nada.
+    """
     make_survey_form()
 
     resp = client_as(make_student()).get(SURVEY_URL, follow_redirects=False)
@@ -69,7 +80,14 @@ def test_encuesta_con_sesion_cambia_el_banner_por_el_aviso_de_que_si_acredita(
     assert resp.status_code == 200, resp.text[:500]
     assert BANNER_1 not in resp.text
     assert "data-tt-anon-notice" not in resp.text   # el gancho, no solo la copia
-    assert "sí acredita" in resp.text
+    assert "sí acredita" not in resp.text
+    nota = re.search(r"<p\b[^>]*\bdata-tt-save\b[^>]*>(.*?)</p>", resp.text, flags=re.S)
+    assert nota, "falta la nota de guardado"
+    assert 'aria-live="polite"' in nota.group(0)
+    assert "Tu avance se guarda automáticamente" in nota.group(1)
+    formulario = re.search(r'<form\b[^>]*id="tt-survey-form".*?</form>', resp.text, flags=re.S)
+    assert formulario and "data-tt-save" not in formulario.group(0), \
+        "la nota quedo dentro del formulario que se reemplaza en cada paso"
 
 
 def test_encuesta_precarga_el_borrador_del_servidor(

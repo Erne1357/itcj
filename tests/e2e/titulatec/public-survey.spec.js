@@ -122,8 +122,14 @@ test.describe('con sesión: entra por el login y recorre los pasos', () => {
     await expect(page.locator('main[data-tt-page="public_survey"]')).toBeVisible();
     await expect(page.getByText('Paso 1 de 3')).toBeVisible();
 
-    // Ya no es anónimo: el banner persistente de "no acredita" desaparece.
+    // Ya no es anónimo: el banner persistente de "no acredita" desaparece, y en
+    // su lugar va la nota de una línea del autoguardado (2026-09-15), fuera del
+    // formulario que se reemplaza en cada paso.
     await expect(page.locator('[data-tt-anon-notice]')).toHaveCount(0);
+    const nota = page.locator('[data-tt-save]');
+    await expect(nota).toBeVisible();
+    await expect(nota).toHaveAttribute('aria-live', 'polite');
+    await expect(page.locator('[data-tt-save-text]')).toHaveText('Tu avance se guarda automáticamente');
 
     // Sección 1 prellenada desde `User.full_name` (Tarea 4) y EDITABLE, no de
     // solo lectura: el alumno sembrado es "<TAG> ALUMNO".
@@ -205,6 +211,59 @@ test.describe('con sesión: entra por el login y recorre los pasos', () => {
     await c.close();
   });
 
+  test('móvil (360): los pasos son círculos en una línea y el título del paso sale de la vista pero conserva el foco', async ({ browser }) => {
+    const c = await browser.newContext({
+      storageState: stateFor('student'),
+      viewport: { width: 360, height: 740 },
+    });
+    const page = await c.newPage();
+    await page.goto(SURVEY_URL, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('Paso 1 de 3')).toBeVisible();
+
+    // Cabecera compacta (2026-09-15): sin el kicker que ya dice la barra y sin la
+    // descripción larga; la nota de guardado sí, con su texto inicial.
+    await expect(page.locator('.tt-survey-head .tt-kicker')).toHaveCount(0);
+    await expect(page.locator('.tt-survey-lede')).toBeHidden();
+    await expect(page.locator('[data-tt-save-text]')).toHaveText('Tu avance se guarda automáticamente');
+
+    await page.locator('input[name="situacion_laboral"][value="buscando"]').check();
+    await page.getByRole('button', { name: 'Siguiente' }).click();
+    await expect(page.getByText('Paso 2 de 3')).toBeVisible();
+
+    // UNA sola línea, sin scroll propio.
+    const fila = await page.locator('.tt-steps-list').evaluate((lista) => ({
+      scrollWidth: lista.scrollWidth,
+      clientWidth: lista.clientWidth,
+      tops: Array.from(lista.children, (li) => Math.round(li.getBoundingClientRect().top)),
+    }));
+    expect(fila.scrollWidth, 'la fila de pasos hace scroll propio').toBeLessThanOrEqual(fila.clientWidth);
+    expect(new Set(fila.tops).size, 'los círculos no caben en una sola línea').toBe(1);
+
+    // El visitado es un botón tocable cuyo nombre accesible es el título del
+    // paso; el actual lleva aria-current; el que falta no es control.
+    const visitado = page.getByRole('button', { name: 'Situación laboral' });
+    await expect(visitado).toBeVisible();
+    const circulo = await visitado.boundingBox();
+    expect(circulo.width).toBeGreaterThanOrEqual(40);
+    expect(circulo.height).toBeGreaterThanOrEqual(40);
+    await expect(page.locator('.tt-steps-item.is-current [aria-current="step"]')).toHaveCount(1);
+    await expect(page.locator('.tt-steps-item.is-upcoming button')).toHaveCount(0);
+
+    // El h2 del paso: en el DOM y con el foco tras el swap, pero fuera de la vista.
+    const h2 = page.locator('.tt-section h2');
+    await expect(h2).toBeFocused();
+    const caja = await h2.boundingBox();
+    expect(caja.width, 'el h2 del paso sigue a la vista en móvil').toBeLessThanOrEqual(1);
+
+    const medida = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(medida.scrollWidth).toBeLessThanOrEqual(medida.innerWidth);
+
+    await c.close();
+  });
+
   test('completa los tres pasos y envía: tarjeta de gracias, credita el requisito, sin redirect', async ({ browser }) => {
     const c = await browser.newContext({ storageState: stateFor('student') });
     const page = await c.newPage();
@@ -225,6 +284,8 @@ test.describe('con sesión: entra por el login y recorre los pasos', () => {
     expect((await envio).status()).toBe(200);
 
     await expect(page.locator('#tt-survey-thanks')).toBeVisible();
+    // Ya no hay avance que guardar: la nota no puede seguir encima de la tarjeta.
+    await expect(page.locator('[data-tt-save]')).toBeHidden();
     // Con sesión, el crédito del requisito NO es el genérico "anonymous" del
     // camino público sin sesión (spec §6.7/D-crédito).
     const credito = await page.locator('#tt-survey-thanks').getAttribute('data-tt-credit');

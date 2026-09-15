@@ -214,6 +214,50 @@ def test_si_save_draft_revienta_la_ruta_responde_204_y_no_escribe(
     assert db_session.query(SurveyDraft).filter_by(user_id=alumno_id).all() == []
 
 
+def test_un_guardado_real_se_confirma_con_la_cabecera_x_tt_draft_saved(
+    client_as, make_student, make_survey_form,
+):
+    """El 204 es el MISMO con y sin escritura (sin sesion, sin formulario o si
+    `save_draft` revienta). La nota «Guardado hh:mm» de `survey.js` no puede
+    fiarse del status: solo esta cabecera dice que la fila se escribio."""
+    make_survey_form()
+
+    resp = client_as(make_student()).post(
+        DRAFT_URL, data={"situacion_laboral": "empleado"}, follow_redirects=False)
+
+    assert resp.status_code == 204, resp.text[:300]
+    assert resp.headers.get("X-Tt-Draft-Saved") == "1"
+
+
+def test_sin_sesion_el_204_no_confirma_ningun_guardado(client, make_survey_form):
+    make_survey_form()
+    client.cookies.clear()
+
+    resp = client.post(DRAFT_URL, data={"situacion_laboral": "empleado"},
+                       headers={"X-Real-IP": "203.0.113.34"}, follow_redirects=False)
+
+    assert resp.status_code == 204, resp.text[:300]
+    assert "X-Tt-Draft-Saved" not in resp.headers
+
+
+def test_si_save_draft_revienta_el_204_no_confirma_ningun_guardado(
+    client_as, make_student, make_survey_form, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.survey_service import SurveyService
+
+    def _revienta(*a, **kw):
+        raise RuntimeError("conexion caida a mitad del commit")
+
+    make_survey_form()
+    monkeypatch.setattr(SurveyService, "save_draft", staticmethod(_revienta))
+
+    resp = client_as(make_student()).post(
+        DRAFT_URL, data={"situacion_laboral": "empleado"}, follow_redirects=False)
+
+    assert resp.status_code == 204, resp.text[:300]
+    assert "X-Tt-Draft-Saved" not in resp.headers
+
+
 def test_answers_por_encima_del_tope_serializado_se_rechaza_sin_truncar(
     client_as, make_student, make_survey_form, db_session,
 ):

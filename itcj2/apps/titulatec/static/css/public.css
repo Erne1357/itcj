@@ -167,10 +167,19 @@
 .tt-public-main--survey p { max-width: 70ch; }
 
 /* ---- 1. Cabecera de la pagina -------------------------------------------- */
-.tt-survey-head { margin-bottom: var(--tt-sp-5); min-width: 0; }
-.tt-survey-head .tt-kicker { display: block; }
+/* Sin kicker desde 2026-09-15: la barra de la base ya dice «Instituto
+   Tecnológico de Ciudad Juárez» y repetirlo solo empujaba la primera pregunta.
+   Titulo, descripcion y nota de guardado van en columna, con el mismo hueco que
+   antes separaba el titulo de la descripcion. */
+.tt-survey-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-sp-2);
+  margin-bottom: var(--tt-sp-5);
+  min-width: 0;
+}
 .tt-survey-title {
-  margin: var(--tt-sp-1) 0 var(--tt-sp-2);
+  margin: 0;
   font-size: var(--tt-fs-500);
   font-weight: 600;
   line-height: 1.15;
@@ -183,7 +192,25 @@
   color: var(--tt-text-2);
 }
 
-/* ---- 2. Avisos: sesion, presupuesto y errores ---------------------------- */
+/* Nota de guardado (solo con sesion): una linea, sin tarjeta. Sustituye al
+   banner «Iniciaste sesión… sí acredita…», que en un telefono ocupaba ~90 px
+   antes de la primera pregunta; la acreditacion la explica la tarjeta de
+   gracias. El texto y `data-tt-save-state` los cambia `survey.js`. */
+.tt-survey-save {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-sp-2);
+  margin: 0;
+  font-size: var(--tt-fs-100);
+  line-height: 1.4;
+  color: var(--tt-text-2);
+}
+.tt-survey-save > .bi { flex: 0 0 auto; font-size: var(--tt-fs-200); color: var(--tt-text-3); }
+.tt-survey-save[data-tt-save-state="saved"] > .bi { color: #166534; }
+.tt-survey-save[data-tt-save-state="error"],
+.tt-survey-save[data-tt-save-state="error"] > .bi { color: #991B1B; }
+
+/* ---- 2. Avisos: anonimo, presupuesto y errores --------------------------- */
 .tt-survey-top {
   display: flex;
   flex-direction: column;
@@ -204,16 +231,15 @@
   color: var(--tt-text-1);
 }
 .tt-survey-note > .bi { font-size: var(--tt-fs-400); line-height: 1.25; }
-.tt-card--success.tt-survey-note > .bi { color: #166534; }
 .tt-card--accent.tt-survey-note > .bi  { color: var(--tt-accent-ink); }
 .tt-card--danger.tt-survey-note > .bi  { color: #991B1B; }
 .tt-survey-body > .tt-survey-note { margin-bottom: var(--tt-sp-5); }
 
-/* ---- 3. Indicador de pasos: chips en movil, riel en escritorio ----------- */
-/* UN solo nodo para las dos formas (ver `survey_form.html`). Bajo 992 px es
-   una cabecera compacta: "Paso N de M · titulo", la barra y los pasos como
-   chips en fila con scroll PROPIO -el documento nunca desborda-. `survey.js`
-   deja el chip actual a la vista al pintar el paso. */
+/* ---- 3. Indicador de pasos: circulos en movil, riel en escritorio -------- */
+/* UN solo nodo para las dos formas (ver `survey_form.html`). Aqui va lo que
+   comparten: "Paso N de M · titulo", la barra y la lista con su contador. Los
+   circulos numerados en una sola linea viven en el bloque 8 (bajo 992 px) y el
+   riel en el 9. */
 .tt-steps { margin-bottom: var(--tt-sp-5); min-width: 0; }
 .tt-steps-head { margin-bottom: var(--tt-sp-3); }
 .tt-steps-count {
@@ -242,43 +268,26 @@
 .tt-steps-bar::-moz-progress-bar      { background-color: var(--tt-accent); border-radius: 999px; }
 
 .tt-steps-list {
-  display: flex;
-  gap: var(--tt-sp-2);
   margin: 0;
-  padding: 0 0 var(--tt-sp-1);
+  padding: 0;
   list-style: none;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  /* `proximity`, no `mandatory`: con mandatory los ultimos chips no se pueden
-     alinear y la fila rebota (mismo hallazgo que `.tt-days` en Citas). */
-  scroll-snap-type: x proximity;
-  scrollbar-width: thin;
   counter-reset: tt-step;
 }
-/* 90 % y no menos: a 360 px, con 80 % el titulo mas largo del instrumento real
-   ("Pertinencia y disponibilidad de medios y recursos para el aprendizaje")
-   partia en 3 lineas y estiraba TODOS los chips de la fila a 59 px. */
 .tt-steps-item {
   display: flex;
-  flex: 0 0 auto;
-  max-width: min(20rem, 90%);
-  scroll-snap-align: start;
   counter-increment: tt-step;
 }
+/* El paso visitado es un <button>. Aqui va lo que comparten las dos formas; el
+   borde, el relleno y el fondo los pone cada una (bloques 8 y 9), que tambien
+   es donde se le quita el cromo del agente de usuario. */
 .tt-steps-link,
 .tt-steps-label {
   display: flex;
   align-items: center;
-  gap: var(--tt-sp-2);
   width: 100%;
   min-height: 44px;
   margin: 0;
-  padding: var(--tt-sp-1) var(--tt-sp-3) var(--tt-sp-1) var(--tt-sp-2);
-  border: 1px solid var(--tt-line);
-  border-radius: var(--tt-r);
-  background-color: var(--tt-paper);
   font: inherit;
-  font-size: var(--tt-fs-100);
   line-height: 1.3;
   text-align: left;
   color: var(--tt-text-2);
@@ -302,7 +311,7 @@
 }
 .tt-steps-label > .tt-steps-mark::before { content: counter(tt-step); }
 
-/* Visitado: control real, con palomita. */
+/* Visitado: control real. En el riel lleva palomita; en movil, su numero. */
 .tt-steps-link {
   cursor: pointer;
   color: var(--tt-text-1);
@@ -317,15 +326,9 @@
 .tt-steps-link:active { transform: scale(.985); }
 /* Dentro de un contenedor con scroll un anillo por fuera se recorta. */
 .tt-steps-link:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
-@media (hover: hover) and (pointer: fine) {
-  .tt-steps-link:hover { border-color: var(--tt-text-3); }
-  .tt-steps-link:hover .tt-steps-title { text-decoration: underline; text-underline-offset: 2px; }
-}
 
 /* Actual. */
 .tt-steps-item.is-current > .tt-steps-label {
-  border-color: var(--tt-ink);
-  box-shadow: inset 0 0 0 1px var(--tt-ink);
   font-weight: 600;
   color: var(--tt-text-1);
 }
@@ -336,11 +339,7 @@
 }
 
 /* Por venir: atenuado pero legible (`--tt-text-3`, 5.43:1), y sin control. */
-.tt-steps-item.is-upcoming > .tt-steps-label {
-  border-style: dashed;
-  background-color: transparent;
-  color: var(--tt-text-3);
-}
+.tt-steps-item.is-upcoming > .tt-steps-label { color: var(--tt-text-3); }
 
 /* ---- 4. Seccion y preguntas ---------------------------------------------- */
 .tt-survey-body { min-width: 0; }
@@ -650,7 +649,93 @@
   }
 }
 
-/* ---- 8. Escritorio: riel + columna de contenido -------------------------- */
+/* ---- 8. Movil y tablet: encuesta compacta (< 992 px) --------------------- */
+/* Medido ANTES (2026-09-15, paso 1 del instrumento real): 412 px entre el tope
+   del <main> y la primera pregunta a 360 y a 390 -barra, kicker repetido,
+   titulo, descripcion, banner de sesion, chips con scroll y el h2 repetido-.
+   Aqui la cabecera se queda en titulo + nota de guardado, el indicador en
+   "Paso N de M · titulo" + barra + circulos numerados en UNA linea, el h2 sale
+   de la vista y las tarjetas pierden relleno. El escritorio no cambia. */
+@media (max-width: 991.98px) {
+  .tt-public-main.tt-prose.tt-public-main--survey { padding-top: var(--tt-sp-4); }
+  .tt-survey-head { margin-bottom: var(--tt-sp-4); }
+  .tt-survey-lede { display: none; }
+  .tt-survey-top { margin-bottom: var(--tt-sp-4); }
+  .tt-steps { margin-bottom: var(--tt-sp-4); }
+  /* Sin el h2 a la vista, este renglon ES el titulo de la seccion. */
+  .tt-steps-count { font-size: var(--tt-fs-200); }
+
+  /* Columnas iguales de al menos 44 px: los 7 pasos del instrumento caben en
+     los 328 px utiles de 360 (46.8 px cada uno). Con mas pasos de los que
+     caben, la fila hace scroll PROPIO -el documento nunca desborda- y
+     `survey.js` deja el actual a la vista. */
+  .tt-steps-list {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(44px, 1fr);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .tt-steps-item { position: relative; min-width: 0; }
+  .tt-steps-link,
+  .tt-steps-label {
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: var(--tt-r-sm);
+    background-color: transparent;
+  }
+  .tt-steps-mark {
+    width: 32px;
+    height: 32px;
+    font-size: var(--tt-fs-200);
+  }
+  /* El visitado lleva su numero y no la palomita del riel: en una fila de
+     circulos la palomita no dice cual paso es. */
+  .tt-steps-link > .tt-steps-mark::before { content: counter(tt-step); }
+  .tt-steps-link > .tt-steps-mark > .bi { display: none; }
+  .tt-steps-item.is-upcoming .tt-steps-mark {
+    border-style: dashed;
+    background-color: transparent;
+  }
+
+  /* Fuera de la VISTA y dentro del arbol de accesibilidad (nunca `display:none`,
+     lo fija `test_survey_layout.py`):
+       · el titulo de cada paso, que queda como nombre accesible de su circulo;
+       · el h2 de la seccion en modo paso (hay `.tt-steps`): su titulo ya va en
+         "Paso N de M · titulo", pero `survey.js` le da el foco tras cada swap y
+         el lector de pantalla lo anuncia. El envio final fallido no trae
+         indicador, y ahi las secciones apiladas SI necesitan su titulo. */
+  .tt-steps-title,
+  .tt-steps ~ .tt-survey-body .tt-section-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+  /* Un anillo de foco sobre una caja de 1 px no senala nada. */
+  .tt-steps ~ .tt-survey-body .tt-section-title:focus-visible { outline: 0; }
+
+  .tt-section { gap: var(--tt-sp-3); }
+  .tt-q { padding: var(--tt-sp-3) var(--tt-sp-4); }
+  /* ~15 px: a medio camino entre `--tt-fs-200` (14.2) y `--tt-fs-300` (16). */
+  .tt-q > .tt-label {
+    margin-bottom: var(--tt-sp-2);
+    font-size: calc((var(--tt-fs-200) + var(--tt-fs-300)) / 2);
+  }
+}
+@media (max-width: 991.98px) and (hover: hover) and (pointer: fine) {
+  .tt-steps-link:hover .tt-steps-mark { border-color: var(--tt-text-3); }
+}
+
+/* ---- 9. Escritorio: riel + columna de contenido -------------------------- */
 /* El <main> es una rejilla de dos columnas y tres filas (cabecera · avisos ·
    cuerpo). El formulario es `display: contents`: sus tres bloques entran a la
    rejilla del <main>, y asi el riel ocupa la columna izquierda de arriba abajo
@@ -693,34 +778,32 @@
   .tt-steps-now { display: none; }
   .tt-steps-head { margin-bottom: var(--tt-sp-4); }
   .tt-steps-list {
+    display: flex;
     flex-direction: column;
     gap: var(--tt-sp-1);
-    padding: 0;
-    overflow: visible;
-    scroll-snap-type: none;
   }
-  .tt-steps-item { max-width: none; }
+  .tt-steps-item { flex: 0 0 auto; }
   .tt-steps-link,
   .tt-steps-label {
+    gap: var(--tt-sp-2);
     padding: var(--tt-sp-2);
-    border-color: transparent;
+    border: 1px solid transparent;
     border-radius: var(--tt-r-sm);
     background-color: transparent;
     font-size: var(--tt-fs-200);
   }
   .tt-steps-item.is-current > .tt-steps-label {
     border-color: var(--tt-line);
-    box-shadow: none;
     background-color: var(--tt-mist);
   }
-  .tt-steps-item.is-upcoming > .tt-steps-label { border-style: solid; border-color: transparent; }
 
   .tt-survey-title { font-size: var(--tt-fs-600); }
   .tt-survey-lede { font-size: var(--tt-fs-300); }
   .tt-q { padding: var(--tt-sp-5); }
 }
 @media (min-width: 992px) and (hover: hover) and (pointer: fine) {
-  .tt-steps-link:hover { border-color: transparent; background-color: var(--tt-mist); }
+  .tt-steps-link:hover { background-color: var(--tt-mist); }
+  .tt-steps-link:hover .tt-steps-title { text-decoration: underline; text-underline-offset: 2px; }
 }
 @media (min-width: 1280px) {
   .tt-public-main--survey { --tt-survey-gap: calc(2 * var(--tt-sp-5)); }

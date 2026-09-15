@@ -552,8 +552,9 @@ async def survey(
     """Encuesta de egresados: un asistente por pasos, uno por sección (Tarea 3).
 
     Anónimo (formulario con `is_anonymous=True`): banner persistente de §6.1 y
-    borrador solo en `localStorage`. Con sesión: aviso de que sí acredita y
-    precarga del borrador de BD.
+    borrador solo en `localStorage`. Con sesión: nota de guardado automático en
+    la cabecera (el banner de "sí acredita" se quitó el 2026-09-15; lo explica
+    la tarjeta de gracias) y precarga del borrador de BD.
 
     Tarea 2: un formulario que NO es anónimo exige sesión. Sin ella, redirige
     al login con `next` apuntando a esta misma encuesta -antes de construir
@@ -997,6 +998,14 @@ async def survey_draft(
     ya lo exigía la propia tabla-, que es exactamente "las tres rutas se
     comportan igual" del brief. El anónimo sigue teniendo su borrador, solo
     que vive en `localStorage` y nunca toca esta ruta de verdad (§6.4/D3).
+
+    Desde 2026-09-15 la escritura REAL lleva además `X-Tt-Draft-Saved: 1`. El
+    204 no cambia -sigue siendo el mismo con sesión, sin ella, sin formulario
+    abierto y cuando la escritura revienta-, así que ningún consumidor se rompe;
+    pero la nota de guardado de la cabecera (`survey.js`) necesita distinguir
+    una fila escrita de un fallo tragado. Pintar «Guardado hh:mm» sobre una
+    escritura que no ocurrió sería la misma pérdida silenciosa de la que el
+    `except` de abajo protege al visitante del otro lado.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_service import (
@@ -1020,6 +1029,7 @@ async def survey_draft(
         return Response(status_code=204)
 
     data = await request.form()
+    guardado = False
     db = SessionLocal()
     try:
         try:
@@ -1041,6 +1051,7 @@ async def survey_draft(
                     "X-Tt-Error": _hdr("El borrador es demasiado grande.")})
 
             SurveyService.save_draft(db, form.id, int(user["sub"]), answers)
+            guardado = True
         except Exception:
             # Segunda capa contra el 500 (mismo principio del docstring del
             # módulo -"Ninguna entrada del visitante puede producir un 500"-
@@ -1049,11 +1060,12 @@ async def survey_draft(
             # `save_draft` -o incluso en `open_form`- no tienen nada que ver
             # con las dos guardas de tamaño de arriba, así que ninguna de
             # ellas lo cubre. A diferencia de `survey_submit`, aquí no hay
-            # formulario que re-renderizar -es un autosave de fondo- ni el
-            # cliente puede reaccionar a un error de verdad: el contrato de
-            # esta ruta es "204 siempre (con y sin sesión)" (ver Interfaces
-            # del brief), así que el fallo se registra y se responde IGUAL
-            # que un éxito, nunca un 500 pelado.
+            # formulario que re-renderizar -es un autosave de fondo-: el
+            # contrato de esta ruta es "204 siempre (con y sin sesión)" (ver
+            # Interfaces del brief), así que el fallo se registra y se
+            # responde con el MISMO 204, nunca un 500 pelado. Lo único que
+            # lo distingue es que sale SIN `X-Tt-Draft-Saved`: el cliente lo
+            # dice en la nota de guardado y reintenta.
             logger.exception("survey_draft: fallo al guardar el borrador (user=%s)",
                              user["sub"])
             try:
@@ -1062,7 +1074,8 @@ async def survey_draft(
                 logger.warning("survey_draft: rollback fallido tras el error de escritura")
     finally:
         db.close()
-    return Response(status_code=204)
+    return Response(status_code=204,
+                    headers={"X-Tt-Draft-Saved": "1"} if guardado else None)
 
 
 # ---------------------------------------------------------------------------

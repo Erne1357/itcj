@@ -18,6 +18,14 @@
    el <h1> sobrevive al envio y la tarjeta cae en la misma columna.
    Sin formulario abierto no hay riel que pintar: la pagina es una tarjeta de
    aviso y se queda en la columna de lectura de la base, como la inscripcion.
+
+   Movil compacto (2026-09-15, segunda ronda): la cabecera ya no repite el
+   kicker «Instituto Tecnológico de Ciudad Juárez» -la barra de la base lo
+   dice- y bajo 992 px la descripcion se oculta (`public.css`, bloque 8).
+   Aqui vive tambien la nota de guardado, FUERA de `#tt-survey-form`: el
+   formulario se reemplaza entero en cada paso, y una region `aria-live`
+   recien insertada no anuncia nada. En la cabecera es UNA sola region toda la
+   visita y `survey.js` solo le cambia el texto cuando cambia el estado.
    =========================================================================== #}
 {% extends "titulatec/public/base_public.html" %}
 
@@ -27,9 +35,19 @@
 
 {% block public_body %}
   <header class="tt-survey-head">
-    <span class="tt-kicker">Instituto Tecnológico de Ciudad Juárez</span>
     <h1 class="tt-display tt-survey-title">{% if no_form %}Encuesta de egresados{% else %}{{ form.title }}{% endif %}</h1>
     {% if not no_form and form.description %}<p class="tt-survey-lede">{{ form.description }}</p>{% endif %}
+    {% if not no_form and is_authenticated %}
+      {# Solo con sesion: sin ella el borrador vive en `localStorage` y no hay
+         guardado de servidor que anunciar (lo explica el aviso anonimo). Los
+         estados -«Guardando…», «Guardado hh:mm», «No se pudo guardar; lo
+         reintentamos»- los escribe `survey.js`; el icono va `aria-hidden` para
+         que el lector lea solo el texto. #}
+      <p class="tt-survey-save" data-tt-save data-tt-save-state="idle" role="status" aria-live="polite">
+        <i class="bi bi-cloud-check" data-tt-save-icon aria-hidden="true"></i>
+        <span data-tt-save-text>Tu avance se guarda automáticamente</span>
+      </p>
+    {% endif %}
   </header>
 
   {% if no_form %}

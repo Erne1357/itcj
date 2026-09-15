@@ -32,11 +32,14 @@
 
      form#tt-survey-form.tt-survey-form
        ocultos (tt_step + otras secciones) · trampa
-       .tt-survey-top    avisos: presupuesto, sesion/anonimo
+       .tt-survey-top    avisos: presupuesto y anonimo (no se emite si no hay)
        nav.tt-steps      indicador de pasos (solo en modo paso)
        .tt-survey-body   errores · seccion(es) con sus tarjetas · acciones
 
-   Bajo 992 px es una sola columna en ese orden. Desde 992 px el formulario es
+   Bajo 992 px es una sola columna en ese orden, compacta (segunda ronda del
+   2026-09-15): los pasos son circulos numerados en una linea y el h2 de la
+   seccion sale de la VISTA -no del DOM: `survey.js` le da el foco- porque su
+   titulo ya va en "Paso N de M · titulo". Desde 992 px el formulario es
    `display: contents` y esos tres bloques se colocan en la rejilla del <main>
    (`tt-public-main--survey`): el riel ocupa la columna izquierda de arriba
    abajo -tambien junto a la cabecera de `survey.html`, que no esta dentro del
@@ -307,6 +310,11 @@
     <input type="text" id="tt-website" name="website" value="" tabindex="-1" autocomplete="off">
   </div>
 
+  {# Con sesion este bloque suele quedar vacio: el banner de "si acredita" se
+     quito el 2026-09-15 -la nota de guardado vive en la cabecera de
+     `survey.html` y la acreditacion la explica la tarjeta de gracias-. Sin
+     nada que pintar no se emite, para no dejar un hueco encima de los pasos. #}
+  {% if notice_key or not is_authenticated %}
   <div class="tt-survey-top">
     {# El aviso (hoy: presupuesto agotado) se pinta DENTRO del formulario, no
        como hermano suyo. El destino del swap es `#tt-survey-form`, asi que una
@@ -318,14 +326,11 @@
       {% include "titulatec/public/partials/notice_card.html" %}
     {% endif %}
 
-    {% if is_authenticated %}
-      <div class="tt-card tt-card--success tt-survey-note" role="status">
-        <i class="bi bi-patch-check" aria-hidden="true"></i>
-        <p class="mb-0">Iniciaste sesión: al enviarla, esta encuesta <strong>sí acredita</strong> el requisito en tu expediente de titulación.</p>
-      </div>
-    {% else %}
+    {% if not is_authenticated %}
       {# Aviso PERSISTENTE del spec 6.1, no un toast: quien contesta sin sesion
-         tiene que poder verlo mientras decide, no medio segundo al entrar. #}
+         tiene que poder verlo mientras decide, no medio segundo al entrar.
+         Solo lo ve quien abre SIN sesion un formulario `is_anonymous`: uno que
+         no lo es manda al login antes de pintar nada (`_requiere_sesion`). #}
       <div class="tt-card tt-card--accent tt-survey-note" role="status" data-tt-anon-notice>
         <i class="bi bi-info-circle" aria-hidden="true"></i>
         <div class="min-w-0">
@@ -336,6 +341,7 @@
       </div>
     {% endif %}
   </div>
+  {% endif %}
 
   {% if step_index is not none %}
     {# Ronda 2 (pedido del controlador): el indicador es tambien la forma de

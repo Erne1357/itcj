@@ -98,8 +98,13 @@ test('con sesión: lo escrito sobrevive a un cambio de paso y a una recarga', as
   await page.fill('[name="comentarios"]', 'Sigo en la misma empresa desde 2027.');
   await page.clock.runFor(35_000); // debounce (5 s) + techo de 30 s, con margen
   // 204, no 200: la ruta de borrador (Tarea 13) responde 204 en TODOS sus
-  // caminos de éxito, con sesión y sin ella.
-  expect((await guardado).status()).toBe(204);
+  // caminos, con sesión y sin ella. Por eso el 204 solo no confirma nada: la
+  // escritura real la confirma `X-Tt-Draft-Saved: 1`, que es lo que lleva la
+  // nota de la cabecera a «Guardado hh:mm» (2026-09-15).
+  const respuesta = await guardado;
+  expect(respuesta.status()).toBe(204);
+  expect(respuesta.headers()['x-tt-draft-saved']).toBe('1');
+  await expect(page.locator('[data-tt-save-text]')).toHaveText(/^Guardado \d{2}:\d{2}$/);
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   // `_start_step` NO repone "el último paso que viste": repone el PRIMER paso
@@ -132,6 +137,8 @@ test('anónimo (formulario is_anonymous=True): iniciar sesión desde el banner r
   await page.goto(SURVEY_URL, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('main[data-tt-page="public_survey"]')).toBeVisible();
   await expect(page.getByText(/no quedará en tu expediente de titulación/i)).toBeVisible();
+  // Sin sesión no hay guardado de servidor que anunciar: no hay nota de guardado.
+  await expect(page.locator('[data-tt-save]')).toHaveCount(0);
 
   // Sin sesión no se escribe NADA en la base: el borrador es solo localStorage.
   let escrituras = 0;
@@ -161,8 +168,9 @@ test('anónimo (formulario is_anonymous=True): iniciar sesión desde el banner r
   await expect(
     page.locator('input[name="situacion_laboral"][value="buscando"]')
   ).toBeChecked();
-  // Ya con sesión, desaparece el aviso de que no acredita.
+  // Ya con sesión, desaparece el aviso de que no acredita y aparece la nota de guardado.
   await expect(page.getByText(/no quedará en tu expediente de titulación/i)).toBeHidden();
+  await expect(page.locator('[data-tt-save]')).toBeVisible();
 
   await c.close();
 });

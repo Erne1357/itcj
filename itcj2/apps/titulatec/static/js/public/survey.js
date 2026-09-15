@@ -1,12 +1,15 @@
 /* ===========================================================================
    TitulaTec — encuesta pública: borrador local + autosave al servidor.
    ---------------------------------------------------------------------------
-   Tres trabajos:
+   Cuatro trabajos:
      1. `localStorage` en cada cambio. Coste de red: cero.
      2. Autosave al servidor SOLO con sesión: debounce de 5 s, techo duro de una
         petición cada 30 s, flush al cambiar de sección y al salir de la página.
      3. `visible_when` en cliente. El servidor lo vuelve a evaluar (§4.3.5): el
         cliente de un formulario público está bajo control de quien lo abre.
+     4. (2026-09-15) La nota de guardado de la cabecera (`[data-tt-save]`):
+        «Guardando…» al salir el autosave, «Guardado hh:mm» cuando el servidor
+        CONFIRMA la escritura y «No se pudo guardar; lo reintentamos» si no.
 
    CONTRATO DE REGISTRO — leerlo antes de tocar nada:
      · el módulo se carga UNA vez desde el bloque `scripts` de la página;
@@ -82,32 +85,80 @@
     try { localStorage.removeItem(storageKey(f)); } catch (e) {}
   }
 
+  // — Nota de guardado (2026-09-15) ——————————————————————————————————————
+  // Vive en la CABECERA de `survey.html`, fuera de `#tt-survey-form`: el
+  // formulario se reemplaza entero en cada paso y una region `aria-live` recien
+  // insertada no anuncia nada. Fuera del swap es UNA sola region toda la
+  // visita, y aqui solo se reescribe el texto cuando de verdad cambia: un
+  // `textContent` identico reasignado se vuelve a anunciar en algunos lectores.
+  // Los textos van con escapes para no depender de como se sirva el archivo.
+  var SAVE_STATES = {
+    idle: { icon: 'bi-cloud-check', text: 'Tu avance se guarda automáticamente' },
+    saving: { icon: 'bi-arrow-repeat', text: 'Guardando…' },
+    saved: { icon: 'bi-cloud-check', text: 'Guardado ' },
+    error: { icon: 'bi-cloud-slash', text: 'No se pudo guardar; lo reintentamos' }
+  };
+
+  function hhmm(d) {
+    var h = d.getHours();
+    var m = d.getMinutes();
+    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+  }
+
+  function paintSave(state) {
+    var box = document.querySelector('[data-tt-save]');
+    var spec = SAVE_STATES[state];
+    if (!box || !spec) return;
+    var text = state === 'saved' ? spec.text + hhmm(new Date()) : spec.text;
+    var label = box.querySelector('[data-tt-save-text]');
+    if (label && label.textContent !== text) label.textContent = text;
+    box.setAttribute('data-tt-save-state', state);
+    var icon = box.querySelector('[data-tt-save-icon]');
+    if (icon) icon.className = 'bi ' + spec.icon;
+  }
+
   // — Escritura al servidor ———————————————————————————————————————————
   // `fetch(..., {keepalive:true})` con `FormData`, NUNCA `navigator.sendBeacon`
   // con un Blob JSON: el endpoint hace `await request.form()` como los otros 15
   // POST de la app y no sabría parsear `application/json`. `keepalive` sobrevive
   // a la navegación igual que sendBeacon y sí permite tipo de formulario.
   //
-  // `fetch()` SOLO rechaza (dispara el `.catch`) ante un fallo de RED: un 4xx o
-  // un 5xx del servidor resuelve la promesa igual que un 204, así que sin mirar
-  // `response.ok` un error de escritura (413, o un 500 si `save_draft` revienta
-  // del otro lado) se daba por guardado. El siguiente ciclo de autoguardado no
-  // reintentaba nada, y el borrador de ese tramo se perdia en silencio si el
-  // alumno retomaba en otro dispositivo antes de su proxima edicion.
+  // `fetch()` SOLO rechaza (dispara el `.catch`) ante un fallo de RED, y un 204
+  // tampoco confirma nada: la ruta responde 204 también sin sesión, sin
+  // formulario abierto y cuando `save_draft` revienta (su contrato es "204
+  // siempre"). Dar eso por guardado dejaba el borrador de ese tramo perdido en
+  // silencio, y ahora además pintaría «Guardado» sobre una escritura que no
+  // ocurrió. Solo `X-Tt-Draft-Saved: 1` confirma que la fila se escribió.
   function send(f, keepalive) {
     lastSentAt = Date.now();
     dirty = false;
     var body = new FormData(f);
     body.delete('website');
     body.delete('tt_step');      // control de navegacion (Tarea 3), no respuesta
+    paintSave('saving');
     fetch(f.dataset.ttDraftUrl, {
       method: 'POST',
       body: body,
       credentials: 'same-origin',
       keepalive: !!keepalive
     }).then(function (resp) {
-      if (!resp.ok) dirty = true;   // no se guardo: que el siguiente ciclo reintente
-    }).catch(function () { dirty = true; });
+      if (resp.ok && resp.headers.get('X-Tt-Draft-Saved') === '1') {
+        paintSave('saved');
+      } else {
+        sendFailed();
+      }
+    }).catch(sendFailed);
+  }
+
+  // No se guardó. `dirty` hace que el siguiente ciclo lo reintente, y el
+  // `flush` de aquí es lo que vuelve verdad el «lo reintentamos» aunque el
+  // alumno ya no teclee: agenda el reintento para cuando venza el techo de
+  // 30 s -no manda de inmediato-, así que una caída sostenida sigue dentro de
+  // las 2 escrituras por minuto de D3.
+  function sendFailed() {
+    dirty = true;
+    paintSave('error');
+    flush(formEl(), false);
   }
 
   function flush(f, keepalive) {
@@ -207,19 +258,22 @@
   // se entera de que aparecio una seccion nueva). Sin error que atender
   // (`focusFirstInvalid` ya cubre ese caso, y con prioridad), el titulo de la
   // seccion actual es el ancla mas util: es lo primero que un lector de
-  // pantalla anuncia y no cambia el scroll de forma brusca.
+  // pantalla anuncia y no cambia el scroll de forma brusca. Bajo 992 px el h2
+  // esta oculto a la VISTA, no al foco (`public.css`, bloque 8): sigue siendo
+  // el ancla.
   function focusStepHeading(f) {
     var h = f.querySelector('.tt-section h2');
     if (h && typeof h.focus === 'function') h.focus();
   }
 
-  // Rediseño 2026-09-15: bajo 992 px la lista de pasos es una fila de chips
-  // con scroll PROPIO, y en el paso 5 de 7 el chip actual nacía fuera de la
-  // vista. Solo lee el DOM y mueve `scrollLeft` DE LA LISTA -nunca
-  // `scrollIntoView`, que también desplazaría la página en vertical y le
-  // robaría el sitio a `focusStepHeading`-. En el riel de escritorio la lista
-  // es vertical y no desborda, así que no hace nada. Sin animación: es la
-  // posición de partida del paso, no un desplazamiento.
+  // Bajo 992 px los pasos son circulos en una sola linea y los 7 del
+  // instrumento caben a 360 px, asi que normalmente esto sale en la primera
+  // guarda. Queda para un formulario con mas pasos de los que caben, donde la
+  // fila hace scroll PROPIO y el actual podria nacer fuera de la vista. Solo
+  // mueve `scrollLeft` DE LA LISTA -nunca `scrollIntoView`, que tambien
+  // desplazaria la pagina en vertical y le robaria el sitio a
+  // `focusStepHeading`-. En el riel de escritorio la lista es vertical y no
+  // desborda. Sin animacion: es la posicion de partida del paso.
   function revealCurrentStep(f) {
     var list = f.querySelector('.tt-steps-list');
     if (!list || list.scrollWidth <= list.clientWidth) return;
@@ -241,7 +295,14 @@
   // error, `focusStepHeading`).
   function hydrate(viaSwap) {
     var f = formEl();
-    if (!f) return;
+    if (!f) {
+      // Sin formulario ya no hay avance que guardar: el envio lo sustituyo por
+      // la tarjeta de gracias y el servidor borro el borrador. Una nota que
+      // siguiera diciendo «Guardado 10:42» encima de esa tarjeta mentiria.
+      var nota = document.querySelector('[data-tt-save]');
+      if (nota) nota.hidden = true;
+      return;
+    }
     mergeLocalDraft(f);
     applyVisibility(f);
     revealCurrentStep(f);
