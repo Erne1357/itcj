@@ -156,6 +156,42 @@ desbordes, con `body.in-mobile-iframe` puesto, Perfil oculto y FAB suprimido.
 
 ---
 
+## Encuesta de egresados (página pública, 2026-09-15)
+
+La encuesta (`/titulatec/encuesta-egresados`) no usa el shell del alumno: extiende
+`public/base_public.html` y opta por su propio layout con la clase
+`tt-public-main--survey` (`static/css/public.css`, bloques 8 y 9). La contesta el
+egresado, así que sigue el contrato del alumno: **mobile-first, con layout de
+escritorio propio**.
+
+| Ancho | Layout |
+|---|---|
+| < 992 | Una columna de hasta 820 px. Cabecera = título + nota de guardado (la descripción larga se oculta; el kicker ya no existe en ningún tamaño porque lo dice la barra). Indicador = «Paso N de M · título» + barra de progreso + los pasos como **círculos numerados en una sola línea**: visitados tocables, el actual con `aria-current`, los que faltan atenuados. El `h2` de la sección sale de la vista. Tarjetas con relleno `--tt-sp-3`/`--tt-sp-4` y enunciado a ~15 px |
+| ≥ 992 | Rejilla centrada en 1180 px: **riel de pasos sticky de 260 px** a la izquierda, de arriba abajo, y columna de preguntas de hasta 820 px a la derecha (hueco de 32 px, 48 px desde 1280). Cabecera con título, descripción y nota de guardado |
+
+Reglas que no se deshacen:
+
+- **Una sola lista de pasos en el DOM.** Riel y círculos son el mismo `nav.tt-steps`
+  restilizado por CSS; duplicarlo rompe el modo estricto de los E2E
+  (`locator('.tt-steps-item .tt-steps-link')`). Desde 992 px el formulario es
+  `display: contents` para que el riel entre a la rejilla del `<main>`.
+- **Ocultar a la vista, nunca al árbol de accesibilidad.** Bajo 992 px el título de
+  cada paso queda como nombre accesible de su círculo y el `h2` del paso se oculta
+  con el patrón *visually hidden* (clip): `survey.js` le da el foco tras cada swap.
+  `display: none` o `visibility: hidden` en `.tt-steps-title` o `.tt-section-title`
+  están prohibidos (lo fija `test_survey_layout.py`). En el envío final fallido
+  -todas las secciones apiladas, sin indicador- los `h2` sí se ven.
+- **Anchos.** Columna de preguntas ≤ 820 px y enunciado ≤ 70ch
+  (`responsive.spec.js` exige ≤ 800 px a 1440 y 1920). Los círculos son columnas
+  iguales de al menos 44 px: los 7 pasos caben en los 328 px útiles de 360; con más
+  pasos, la fila hace scroll **propio** y el documento sigue sin desbordar.
+- **Objetivo táctil.** Cada círculo visitado es un botón de al menos 44 × 44 px.
+- **La nota de guardado vive fuera de `#tt-survey-form`**, en la cabecera: el
+  formulario se reemplaza entero en cada paso y una región `aria-live` recién
+  insertada no anuncia nada.
+
+---
+
 ## Al construir
 
 1. Empieza por el viewport donde vive la audiencia de la vista, pero **no cierres la vista** sin
@@ -179,6 +215,21 @@ desbordes, con `body.in-mobile-iframe` puesto, Perfil oculto y FAB suprimido.
 > archivo no existe** — `tests/e2e/` tiene `core/`, `helpdesk/` y `agendatec/`, no `titulatec/`.
 > El documento se estaba apoyando en una red que nunca se tendió, que es la peor forma de
 > erosionarse: la de creer que algo está cubierto. Esto es lo que hay de verdad.
+>
+> **Actualizado el 2026-09-15.** `tests/e2e/titulatec/` ya existe, y
+> `responsive.spec.js` recorre la matriz de seis viewports **solo para la encuesta
+> pública**: sus 7 pasos, contra el instrumento real (invariante duro + tope del
+> enunciado). `public-survey.spec.js` fija además a 360 px los círculos en una línea,
+> el botón de al menos 40 px y el foco del `h2` oculto. El resto de las vistas del
+> alumno y del admin se sigue verificando a mano, como se describe abajo.
+>
+> Medido al cerrar el móvil compacto (paso 1 del instrumento real, con sesión):
+> distancia del tope del `<main>` a la primera pregunta **412 → 189 px** a 360 y a 390
+> (a 1440, 259 → 194 px, por el kicker y el banner); alto del documento 4240 → 3680 px
+> a 360 y 4176 → 3639 px a 390. A 1440 el riel y las tarjetas no cambiaron: mismos
+> estilos computados, y capturas de elemento idénticas en el paso 2 (en el paso 1
+> difieren 18 y 14 píxeles del borde derecho en 1/255, antialiasing de un borde
+> redondeado que cambió de altura en la página).
 
 **Hoy (manual).** El invariante se comprueba a mano con Playwright contra el entorno de dev,
 recorriendo la matriz de seis viewports y evaluando `document.documentElement.scrollWidth <=
