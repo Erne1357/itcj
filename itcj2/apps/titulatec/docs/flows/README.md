@@ -43,6 +43,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [Detalle de convocatoria: 4 sub-pestañas HTMX](phase0_school_services_cohort_detail.md) 🏛️ ⤵ compone las dos altas — el hub por convocatoria: resumen, alumnos, días de cotejo, importar.
 - [Servicios Escolares importa alumnos por CSV](phase0_school_services_import_csv.md) 🏛️🤖 — asistente de 3 pasos: subir → mapear/validar → confirmar.
 - [Alta manual de un alumno suelto](phase0_school_services_add_student_manual.md) 🏛️ ⤵ reusa `ImportService` — el que no venía en el CSV, por nº de control.
+- [Inscripción pública con revisión previa](xcut_public_enrollment.md) 👤🏛️🤖 ⤵ reusa `ImportService` — formulario público → bandeja de Solicitudes → usuario + NIP por correo (cuenta nueva) o liga de activación (cuenta existente); riesgo aceptado y su contención.
 
 ### Fase 1 — Documentos iniciales
 - [El alumno sube sus documentos iniciales](phase1_student_upload_initial_docs.md) 👤
