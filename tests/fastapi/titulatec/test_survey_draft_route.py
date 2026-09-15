@@ -194,14 +194,24 @@ def test_si_save_draft_revienta_la_ruta_responde_204_y_no_escribe(
     def _revienta(*a, **kw):
         raise RuntimeError("conexion caida a mitad del commit")
 
+    from itcj2.apps.titulatec.models import SurveyDraft
+
     make_survey_form()
     monkeypatch.setattr(SurveyService, "save_draft", staticmethod(_revienta))
+    alumno = make_student()
+    # El id se toma ANTES del POST y la cuenta se acota a ESTE alumno, que es el
+    # único al que la ruta le puede escribir. El `rollback()` de la ruta regresa
+    # la sesión al último commit: expira los objetos del arnés y, contra la base
+    # de dev, resucita los borradores REALES que `make_survey_form()` había
+    # borrado dentro de la transacción. Contarlos todos hacía fallar el test por
+    # datos ajenos, no por una escritura.
+    alumno_id = alumno.id
 
-    resp = client_as(make_student()).post(
+    resp = client_as(alumno).post(
         DRAFT_URL, data={"situacion_laboral": "empleado"}, follow_redirects=False)
 
     assert resp.status_code == 204, resp.text[:300]
-    assert _drafts(db_session) == []
+    assert db_session.query(SurveyDraft).filter_by(user_id=alumno_id).all() == []
 
 
 def test_answers_por_encima_del_tope_serializado_se_rechaza_sin_truncar(
