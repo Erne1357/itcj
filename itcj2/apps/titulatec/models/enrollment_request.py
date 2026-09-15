@@ -24,18 +24,26 @@ from sqlalchemy.sql import text
 
 from itcj2.models.base import Base
 
+# Estados VIVOS: una solicitud en cualquiera de ellos ocupa el lugar del par
+# (convocatoria, numero de control). `approved` entra el 2026-09-15: es la liga
+# de activacion en camino, y otra solicitud viva del mismo control abriria una
+# segunda liga (o un NIP) para la misma persona. `unverified` y `verified` son
+# estados legado que ya no se escriben, pero siguen protegiendo filas viejas.
+OPEN_STATUSES = ("unverified", "verified", "pending_review", "approved")
+_OPEN_PREDICATE = "status IN (" + ",".join(f"'{s}'" for s in OPEN_STATUSES) + ")"
+
 
 class EnrollmentRequest(Base):
     __tablename__ = "titulatec_enrollment_requests"
     # Un UniqueConstraint normal no sirve: impediria reintentar despues de un
     # rechazo. El indice PARCIAL deja fuera 'rejected' y 'converted' y solo
-    # prohibe duplicados VIVOS. Se declara aqui ademas de en la migracion porque
-    # el `create_all` del CI no pasa por Alembic.
+    # prohibe duplicados VIVOS. Se declara aqui ademas de en la migracion
+    # (`tt20260915a`) porque el `create_all` del CI no pasa por Alembic; los dos
+    # predicados los amarra `test_el_modelo_y_la_migracion_declaran_el_mismo_predicado`.
     __table_args__ = (
         Index("uq_titulatec_enrollment_req_open", "cohort_id", "control_number",
               unique=True,
-              postgresql_where=text(
-                  "status IN ('unverified','verified','pending_review')")),
+              postgresql_where=text(_OPEN_PREDICATE)),
     )
 
     id = Column(BigInteger, primary_key=True)

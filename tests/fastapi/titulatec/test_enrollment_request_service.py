@@ -423,3 +423,73 @@ def test_send_verify_conocido_sin_usuario_en_bd_falla_cerrado_sin_mutar(
     assert req.verify_send_count == 0
     assert req.verify_sent_at is None
     assert req.verify_token_hash == hash_antes
+
+
+# ---------------------------------------------------------------------------
+# Índice parcial de solicitud VIVA: `approved` también cuenta (2026-09-15)
+# ---------------------------------------------------------------------------
+# `approved` significa "la liga de activación va en camino". Si otra solicitud
+# del mismo control pudiera nacer viva en la misma convocatoria, la bandeja
+# podría aprobarla también y la misma persona recibiría dos ligas (o una liga y
+# un NIP). La regla vive en la BD, no solo en `create()`: dos altas simultáneas
+# no pasan por el mismo `if`.
+_PREDICADO_VIVO = "status IN ('unverified','verified','pending_review','approved')"
+_PREDICADO_ANTERIOR = "status IN ('unverified','verified','pending_review')"
+
+
+def _fila_viva(cohort, control, status):
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+
+    return EnrollmentRequest(
+        cohort_id=cohort.id, control_number=control,
+        first_name="EGRESADA", last_name="FICTICIA", phone="6560000000",
+        contact_email="personal@example.invalid", has_efirma=False,
+        kind="known", status=status,
+    )
+
+
+def test_una_solicitud_approved_bloquea_otra_viva_del_mismo_control(db_session, make_cohort):
+    from sqlalchemy.exc import IntegrityError
+
+    cohort = make_cohort()
+    db_session.add(_fila_viva(cohort, "99000090", "approved"))
+    db_session.flush()
+
+    for viva in ("pending_review", "approved"):
+        with pytest.raises(IntegrityError):
+            with db_session.begin_nested():
+                db_session.add(_fila_viva(cohort, "99000090", viva))
+                db_session.flush()
+
+    # El historial no estorba: `rejected` y `converted` siguen fuera del índice.
+    db_session.add(_fila_viva(cohort, "99000090", "rejected"))
+    db_session.add(_fila_viva(cohort, "99000090", "converted"))
+    db_session.flush()
+
+
+def test_el_modelo_y_la_migracion_declaran_el_mismo_predicado():
+    """El CI arma el esquema con `create_all` (sin Alembic) y producción con la
+    migración: si el `__table_args__` y la migración divergen, las dos bases
+    aplican reglas distintas y ningún test de comportamiento lo nota en ambas.
+    """
+    import re
+    from pathlib import Path
+
+    import itcj2
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+
+    def _norm(s):
+        return re.sub(r"\s+", "", s)
+
+    indice = next(i for i in EnrollmentRequest.__table__.indexes
+                  if i.name == "uq_titulatec_enrollment_req_open")
+    assert indice.unique
+    assert _norm(str(indice.dialect_options["postgresql"]["where"])) == _norm(_PREDICADO_VIVO)
+
+    migracion = (Path(itcj2.__file__).resolve().parent.parent / "migrations" / "versions"
+                 / "tt20260915a_titulatec_enrollment_open_approved.py")
+    src = migracion.read_text(encoding="utf-8")
+    assert 'revision = "tt20260915a"' in src
+    assert 'down_revision = "tt20260908a"' in src
+    assert _norm(_PREDICADO_VIVO) in _norm(src), "el upgrade debe crear el predicado nuevo"
+    assert _norm(_PREDICADO_ANTERIOR) in _norm(src), "el downgrade debe restaurar el anterior"
