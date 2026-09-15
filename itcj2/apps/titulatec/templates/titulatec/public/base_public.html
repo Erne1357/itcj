@@ -23,7 +23,8 @@
         que `base_student.html:80`.
 
    Bloques para hijos:
-     public_title · public_head · public_page · public_body · public_scripts
+     public_title · public_head · public_page · public_main_class ·
+     public_body · public_scripts
    =========================================================================== #}
 {% extends "titulatec/base.html" %}
 
@@ -55,8 +56,15 @@
 
   {# `.tt-prose` es el tope de LECTURA del design system; `public.css` lo eleva
      a 60ch SOLO en este contenedor (un cuestionario lleva controles, no solo
-     párrafos) y devuelve los 48ch a los <p>, que es donde el tope importa. #}
-  <main class="tt-public-main tt-prose"
+     párrafos) y devuelve los 48ch a los <p>, que es donde el tope importa.
+
+     `public_main_class` deja que UNA página cambie de layout sin mover a las
+     demás: la encuesta lo llena con ` tt-public-main--survey` (riel de pasos +
+     columna de preguntas) y la inscripción no lo toca, así que sigue en su
+     columna de 60ch. Quien lo llena pone el espacio inicial. `tt-prose` y
+     `data-tt-page` se quedan en su sitio: los asertan `test_public_routes.py`
+     y los E2E. #}
+  <main class="tt-public-main tt-prose{% block public_main_class %}{% endblock %}"
         data-tt-page="{% block public_page %}{% endblock %}">
     {% block public_body %}{% endblock %}
   </main>

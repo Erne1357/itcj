@@ -8,17 +8,28 @@
    Solo se sobreescriben los bloques `public_*`. Tocar `content` o `scripts`
    sin `super()` se lleva por delante el shell entero o el modulo de errores
    (`js/shared/tt-errors.js`), que la base carga para TODA pagina publica.
+
+   Layout (rediseno 2026-09-15): con cuestionario, el <main> opta por
+   `tt-public-main--survey` -riel de pasos a la izquierda y columna de
+   preguntas de 820 px a la derecha desde 992 px; una sola columna debajo-.
+   La cabecera vive AQUI y no en el parcial a proposito: el parcial se
+   reemplaza en cada paso y en el envio (`#tt-survey-form`, `outerHTML`), y la
+   tarjeta de gracias que lo sustituye no trae el titulo del formulario. Asi
+   el <h1> sobrevive al envio y la tarjeta cae en la misma columna.
+   Sin formulario abierto no hay riel que pintar: la pagina es una tarjeta de
+   aviso y se queda en la columna de lectura de la base, como la inscripcion.
    =========================================================================== #}
 {% extends "titulatec/public/base_public.html" %}
 
 {% block public_title %}{% if no_form %}Encuesta de egresados{% else %}{{ form.title }}{% endif %} · TitulaTec{% endblock %}
 {% block public_page %}public_survey{% endblock %}
+{% block public_main_class %}{% if not no_form %} tt-public-main--survey{% endif %}{% endblock %}
 
 {% block public_body %}
-  <header class="mb-4">
+  <header class="tt-survey-head">
     <span class="tt-kicker">Instituto Tecnológico de Ciudad Juárez</span>
-    <h1 class="tt-display h3 mt-1 mb-2">{% if no_form %}Encuesta de egresados{% else %}{{ form.title }}{% endif %}</h1>
-    {% if not no_form and form.description %}<p class="mb-0">{{ form.description }}</p>{% endif %}
+    <h1 class="tt-display tt-survey-title">{% if no_form %}Encuesta de egresados{% else %}{{ form.title }}{% endif %}</h1>
+    {% if not no_form and form.description %}<p class="tt-survey-lede">{{ form.description }}</p>{% endif %}
   </header>
 
   {% if no_form %}

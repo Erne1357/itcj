@@ -9,8 +9,11 @@
  *     viewports de la matriz del proyecto (`itcj2/apps/titulatec/docs/design/
  *     responsive.md`). Detecta desbordamiento horizontal.
  *  2. A 1440 y 1920, el ancho del TEXTO de la primera pregunta del paso. El
- *     invariante de (1) no detecta el estiramiento; `.tt-public-main.tt-prose`
- *     (Tarea 11) es lo que lo evita.
+ *     invariante de (1) no detecta el estiramiento. Desde el rediseño del
+ *     2026-09-15 la encuesta abre a riel de pasos + columna de 820 px, así que
+ *     lo que acota el texto ya no es el 60ch de `.tt-public-main.tt-prose`
+ *     (que conserva la inscripción) sino el tope de lectura del enunciado de
+ *     cada pregunta (`.tt-q > .tt-label`, 70ch en `public.css`).
  *
  * QUÉ CAMBIÓ (Tarea 6) y POR QUÉ ESTE ARCHIVO YA NO USA `seedScenario()`.
  * Antes la encuesta era una sola pantalla y esta prueba corría sin sesión
@@ -90,9 +93,10 @@ const MATRIZ = [
   { w: 1920, h: 1080, perfil: 'monitor grande' },
 ];
 
-// El tope real es 60ch (`.tt-public-main.tt-prose`, public.css), que con la
-// tipografía de la app ronda 600 px. 800 deja holgura y sigue reprobando
-// cualquier caja full-bleed (>=1300).
+// El tope real es el del enunciado (`.tt-q > .tt-label`, 70ch en public.css,
+// dentro de la columna de 820 px del rediseño del 2026-09-15): medido, 765 px
+// a 1440 y a 1920. 800 deja holgura y sigue reprobando cualquier caja
+// full-bleed (>=1300).
 const MAX_PROSA_PX = 800;
 
 // ---------------------------------------------------------------------------
@@ -324,7 +328,7 @@ PASOS.forEach((paso, k) => {
       expect(
         Math.round(caja.width),
         `la pregunta mide ${Math.round(caja.width)}px a ${w}px de ventana (paso "${paso.title}"): ` +
-          'la base pública no está optando por .tt-prose (max-width: 48ch)'
+          'el enunciado perdió su tope de lectura (.tt-q > .tt-label, max-width: 70ch en public.css)'
       ).toBeLessThanOrEqual(MAX_PROSA_PX);
     }
   });

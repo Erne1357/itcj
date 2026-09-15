@@ -133,118 +133,602 @@
    mismo (`.tt-hp`) dejaria el campo a la vista si el markup apuntara a la que
    se quedara sin regla. */
 
-.tt-q { margin-bottom: 22px; }
-.tt-req  { color: var(--tt-danger); }
-.tt-hint { font-size: .76rem; color: var(--tt-mute); margin-top: 4px; }
-.tt-err  { font-size: .78rem; color: #991B1B; margin-top: 4px; font-weight: 600; }
+/* Rediseno 2026-09-15 (aprobado por el usuario). Medido ANTES a 1440: la
+   columna era de 636 px (44 % de la ventana), 16 preguntas apiladas a 22 px sin
+   agrupar, `especialidad` era una columna de 48 radios, cada fila de opcion
+   medía 24 px en movil con un radio de 16 px, y `.tt-hint` usaba `--tt-mute`
+   (2.56:1). Estructura del marcado en la cabecera de `survey_form.html`.
 
-/* La etiqueta de una pregunta es una frase, no un rotulo de campo: hereda el
-   cuerpo del texto en vez de los .75rem de `.tt-label`. */
-.tt-q > .tt-label { font-size: var(--tt-fs-200); color: var(--tt-text-1); }
+   Reglas de este bloque: espaciado solo con `--tt-sp-*`, tipografia solo con
+   `--tt-fs-*`, texto nunca en `--tt-mute`, y movimiento solo de transform,
+   opacity, border-color y background-color, <300 ms y respetando
+   `prefers-reduced-motion` (lo fija `test_survey_layout.py`). */
 
-.tt-section + .tt-section {
-  margin-top: 28px;
-  padding-top: 24px;
-  border-top: 1px solid var(--tt-line-soft);
+/* ---- 0. Medidas del layout ----------------------------------------------- */
+/* Tres medidas de diseno, no de espaciado: ancho de la columna de preguntas,
+   del riel de pasos y de la caja que los centra. Viven en el <main> de la
+   encuesta para que cambiar una sea UNA linea. */
+.tt-public-main--survey {
+  --tt-survey-col: 820px;
+  --tt-survey-rail: 260px;
+  --tt-survey-max: 1180px;
+  --tt-survey-gap: var(--tt-sp-6);
 }
 
-/* Tarea 3: indicador de progreso del asistente por pasos. Solo aparece en modo
-   paginado (`step_index` no es none); el envio final -que revalida y muestra
-   TODAS las secciones- nunca lo pinta.
+/* Movil y tablet: una columna de a lo sumo 820 px. `.tt-public-main.tt-prose`
+   (arriba) la dejaria en 60ch, que es lo que conserva la inscripcion. */
+.tt-public-main.tt-prose.tt-public-main--survey {
+  max-width: calc(var(--tt-survey-col) + 2 * clamp(16px, 4vw, 24px));
+}
 
-   Ronda 2 (pedido del controlador): dejo de ser decorativo. Cada paso YA
-   VISITADO (`.is-done`) es un `<button>` real -el unico salto directo hacia
-   atras que existe, ver `survey_form.html`-, asi que `flex-wrap` es
-   obligatorio: con 7 secciones (el instrumento real) la lista no cabe en una
-   sola linea a 400px y el invariante duro del proyecto es CERO scroll
-   horizontal del documento. */
-.tt-steps { margin-bottom: var(--tt-sp-5); }
+/* Avisos, descripcion y gracias: a los 48ch de la base, un aviso de dos lineas
+   dejaba media tarjeta vacia en una columna de 820. 70ch es el mismo tope que
+   el enunciado de cada pregunta. */
+.tt-public-main--survey p { max-width: 70ch; }
+
+/* ---- 1. Cabecera de la pagina -------------------------------------------- */
+.tt-survey-head { margin-bottom: var(--tt-sp-5); min-width: 0; }
+.tt-survey-head .tt-kicker { display: block; }
+.tt-survey-title {
+  margin: var(--tt-sp-1) 0 var(--tt-sp-2);
+  font-size: var(--tt-fs-500);
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--tt-text-1);
+  text-wrap: balance;
+}
+.tt-survey-lede {
+  margin: 0;
+  font-size: var(--tt-fs-200);
+  color: var(--tt-text-2);
+}
+
+/* ---- 2. Avisos: sesion, presupuesto y errores ---------------------------- */
+.tt-survey-top {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-sp-3);
+  margin-bottom: var(--tt-sp-5);
+  min-width: 0;
+}
+/* Icono + texto, el mismo idioma que `notice_card.html`. */
+.tt-survey-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--tt-sp-3);
+  padding: var(--tt-sp-3) var(--tt-sp-4);
+  border-radius: var(--tt-r);
+  box-shadow: none;
+  font-size: var(--tt-fs-200);
+  color: var(--tt-text-1);
+}
+.tt-survey-note > .bi { font-size: var(--tt-fs-400); line-height: 1.25; }
+.tt-card--success.tt-survey-note > .bi { color: #166534; }
+.tt-card--accent.tt-survey-note > .bi  { color: var(--tt-accent-ink); }
+.tt-card--danger.tt-survey-note > .bi  { color: #991B1B; }
+.tt-survey-body > .tt-survey-note { margin-bottom: var(--tt-sp-5); }
+
+/* ---- 3. Indicador de pasos: chips en movil, riel en escritorio ----------- */
+/* UN solo nodo para las dos formas (ver `survey_form.html`). Bajo 992 px es
+   una cabecera compacta: "Paso N de M · titulo", la barra y los pasos como
+   chips en fila con scroll PROPIO -el documento nunca desborda-. `survey.js`
+   deja el chip actual a la vista al pintar el paso. */
+.tt-steps { margin-bottom: var(--tt-sp-5); min-width: 0; }
+.tt-steps-head { margin-bottom: var(--tt-sp-3); }
 .tt-steps-count {
-  margin: 0 0 6px;
+  margin: 0 0 var(--tt-sp-2);
   font-size: var(--tt-fs-100);
   font-weight: 600;
-  color: var(--tt-text-3);
+  line-height: 1.4;
+  color: var(--tt-text-2);
 }
+.tt-steps-now { color: var(--tt-text-1); }
+
+/* Barra nativa: el ancho sale de `value`/`max`, sin `style=` inline. */
+.tt-steps-bar {
+  display: block;
+  width: 100%;
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background-color: var(--tt-line);
+  overflow: hidden;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.tt-steps-bar::-webkit-progress-bar   { background-color: var(--tt-line); border-radius: 999px; }
+.tt-steps-bar::-webkit-progress-value { background-color: var(--tt-accent); border-radius: 999px; }
+.tt-steps-bar::-moz-progress-bar      { background-color: var(--tt-accent); border-radius: 999px; }
+
 .tt-steps-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
+  gap: var(--tt-sp-2);
   margin: 0;
-  padding: 0;
+  padding: 0 0 var(--tt-sp-1);
   list-style: none;
-  font-size: var(--tt-fs-100);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  /* `proximity`, no `mandatory`: con mandatory los ultimos chips no se pueden
+     alinear y la fila rebota (mismo hallazgo que `.tt-days` en Citas). */
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  counter-reset: tt-step;
 }
-.tt-steps-item { color: var(--tt-mute); }
-.tt-steps-item.is-current > span { color: var(--tt-text-1); font-weight: 700; }
-.tt-steps-item.is-done > .tt-steps-link {
-  color: var(--tt-text-2);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+/* 90 % y no menos: a 360 px, con 80 % el titulo mas largo del instrumento real
+   ("Pertinencia y disponibilidad de medios y recursos para el aprendizaje")
+   partia en 3 lineas y estiraba TODOS los chips de la fila a 59 px. */
+.tt-steps-item {
+  display: flex;
+  flex: 0 0 auto;
+  max-width: min(20rem, 90%);
+  scroll-snap-align: start;
+  counter-increment: tt-step;
 }
-/* Boton des-estilizado: se ve como el resto de la lista, no como un boton de
-   navegador, pero SIGUE siendo un control real (foco, teclado, lector). */
-.tt-steps-link {
-  background: none;
-  border: none;
-  padding: 0;
+.tt-steps-link,
+.tt-steps-label {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-sp-2);
+  width: 100%;
+  min-height: 44px;
   margin: 0;
+  padding: var(--tt-sp-1) var(--tt-sp-3) var(--tt-sp-1) var(--tt-sp-2);
+  border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r);
+  background-color: var(--tt-paper);
   font: inherit;
-  cursor: pointer;
-  color: inherit;
+  font-size: var(--tt-fs-100);
+  line-height: 1.3;
+  text-align: left;
+  color: var(--tt-text-2);
 }
-.tt-steps-link:hover { color: var(--tt-accent-ink); }
-.tt-steps-link:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-steps-title { min-width: 0; overflow-wrap: anywhere; }
+.tt-steps-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--tt-line);
+  border-radius: 999px;
+  background-color: var(--tt-paper);
+  font-size: var(--tt-fs-100);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--tt-text-3);
+}
+.tt-steps-label > .tt-steps-mark::before { content: counter(tt-step); }
 
-/* El boton de envio se queda a la vista: el cuestionario mide varias pantallas
-   y en movil el visitante contesta la ultima pregunta sin nada que pulsar cerca.
-   Lleva fondo y borde propios porque un sticky transparente se solapa con el
-   texto que pasa por debajo. */
+/* Visitado: control real, con palomita. */
+.tt-steps-link {
+  cursor: pointer;
+  color: var(--tt-text-1);
+  transition: border-color var(--tt-dur-1) ease, background-color var(--tt-dur-1) ease,
+              transform var(--tt-dur-1) var(--tt-ease-out);
+}
+.tt-steps-item.is-done .tt-steps-mark {
+  border-color: rgba(22, 163, 74, .3);
+  background-color: var(--tt-success-soft);
+  color: #166534;
+}
+.tt-steps-link:active { transform: scale(.985); }
+/* Dentro de un contenedor con scroll un anillo por fuera se recorta. */
+.tt-steps-link:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+@media (hover: hover) and (pointer: fine) {
+  .tt-steps-link:hover { border-color: var(--tt-text-3); }
+  .tt-steps-link:hover .tt-steps-title { text-decoration: underline; text-underline-offset: 2px; }
+}
+
+/* Actual. */
+.tt-steps-item.is-current > .tt-steps-label {
+  border-color: var(--tt-ink);
+  box-shadow: inset 0 0 0 1px var(--tt-ink);
+  font-weight: 600;
+  color: var(--tt-text-1);
+}
+.tt-steps-item.is-current .tt-steps-mark {
+  border-color: var(--tt-ink);
+  background-color: var(--tt-ink);
+  color: #fff;
+}
+
+/* Por venir: atenuado pero legible (`--tt-text-3`, 5.43:1), y sin control. */
+.tt-steps-item.is-upcoming > .tt-steps-label {
+  border-style: dashed;
+  background-color: transparent;
+  color: var(--tt-text-3);
+}
+
+/* ---- 4. Seccion y preguntas ---------------------------------------------- */
+.tt-survey-body { min-width: 0; }
+.tt-section { display: flex; flex-direction: column; gap: var(--tt-sp-4); }
+.tt-section + .tt-section {
+  margin-top: var(--tt-sp-6);
+  padding-top: var(--tt-sp-5);
+  border-top: 1px solid var(--tt-line);
+}
+.tt-section-title {
+  margin: 0;
+  font-size: var(--tt-fs-500);
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--tt-text-1);
+  text-wrap: balance;
+  scroll-margin-top: var(--tt-sp-5);
+}
+.tt-section-title:focus-visible {
+  outline: 2px solid var(--tt-focus);
+  outline-offset: var(--tt-sp-1);
+  border-radius: var(--tt-r-sm);
+}
+
+/* Cada pregunta es una tarjeta, y a la vez el CONTENEDOR contra el que se
+   decide la distribucion de sus opciones: el ancho de la tarjeta no sigue al
+   de la ventana (a 991 px deja 786 px utiles y a 992, con el riel, 602), asi
+   que una media query se equivocaria justo en la banda de los portatiles. */
+.tt-q {
+  container: tt-q / inline-size;
+  min-width: 0;
+  padding: var(--tt-sp-4);
+  border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r);
+  background-color: var(--tt-paper);
+  transition: border-color var(--tt-dur-2) ease;
+}
+.tt-q:has([aria-invalid="true"]) { border-color: var(--tt-danger); }
+
+/* El enunciado es una frase, no un rotulo de campo. 70ch es el tope de
+   lectura; `responsive.spec.js` exige <= 800 px a 1440 y 1920. */
+.tt-q > .tt-label {
+  max-width: 70ch;
+  margin: 0 0 var(--tt-sp-3);
+  font-size: var(--tt-fs-300);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--tt-text-1);
+  overflow-wrap: anywhere;
+}
+.tt-req { color: var(--tt-danger); }
+.tt-hint {
+  max-width: 70ch;
+  margin: calc(-1 * var(--tt-sp-2)) 0 var(--tt-sp-3);
+  font-size: var(--tt-fs-100);
+  color: var(--tt-text-3);
+}
+.tt-err {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tt-sp-2);
+  margin-top: var(--tt-sp-2);
+  font-size: var(--tt-fs-200);
+  font-weight: 600;
+  line-height: 1.4;
+  color: #991B1B;
+}
+.tt-err > .bi { flex: 0 0 auto; line-height: 1.4; }
+
+/* Texto, parrafo y lista: ancho completo de la tarjeta y 44 px de alto. 16 px
+   de letra evita el zoom automatico de iOS al enfocar. `titulatec.css` pisa
+   `.form-select` con el atajo `background:`, que borra la flecha: se repone. */
+.tt-q .form-control,
+.tt-q .form-select {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  border-radius: var(--tt-r-sm);
+  font-size: var(--tt-fs-300);
+  line-height: 1.5;
+}
+.tt-q textarea.form-control { min-height: 7.5rem; resize: vertical; }
+.tt-q .form-select {
+  padding-right: calc(var(--tt-sp-3) + var(--tt-sp-5));
+  background-image: var(--bs-form-select-bg-img);
+  background-repeat: no-repeat;
+  background-position: right var(--tt-sp-3) center;
+  background-size: 16px 12px;
+}
+.tt-q .form-control:focus,
+.tt-q .form-select:focus {
+  border-color: var(--tt-focus);
+  box-shadow: 0 0 0 3px rgba(180, 83, 9, .18);
+}
+.tt-q .form-control[aria-invalid="true"],
+.tt-q .form-select[aria-invalid="true"] { border-color: var(--tt-danger); }
+
+/* ---- 5. Opciones como tiles ---------------------------------------------- */
+/* La tile ES el <label>: toda su superficie marca el input nativo, que sigue
+   a la vista y operable con teclado. Movil: una columna, salvo las parejas
+   cortas. Tarjeta ancha (34rem): la clase que eligio la plantilla. */
+.tt-opts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--tt-sp-2);
+}
+.tt-opts--pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container tt-q (min-width: 34rem) {
+  .tt-opts--row {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+  .tt-opts--cols2 {
+    grid-template-columns: repeat(auto-fill, minmax(max(13rem, calc((100% - var(--tt-sp-2)) / 2)), 1fr));
+  }
+  .tt-opts--cols3 {
+    grid-template-columns: repeat(auto-fill, minmax(max(10rem, calc((100% - 2 * var(--tt-sp-2)) / 3)), 1fr));
+  }
+}
+
+.tt-opt {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-sp-3);
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r-sm);
+  background-color: var(--tt-paper);
+  font-size: var(--tt-fs-200);
+  line-height: 1.35;
+  color: var(--tt-text-1);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--tt-dur-1) ease, background-color var(--tt-dur-1) ease,
+              transform var(--tt-dur-1) var(--tt-ease-out);
+}
+.tt-opt-text { min-width: 0; overflow-wrap: anywhere; }
+/* El borde gris por omision de Bootstrap da 1.3:1: el control no se veia. */
+.tt-opt > .form-check-input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-color: var(--tt-text-3);
+  cursor: pointer;
+}
+.tt-opt > .form-check-input:checked {
+  border-color: var(--tt-ink);
+  background-color: var(--tt-ink);
+}
+/* El foco lo dibuja la tile entera (abajo); el halo azul de Bootstrap sobra. */
+.tt-opt > .form-check-input:focus { border-color: var(--tt-ink); box-shadow: none; }
+@media (hover: hover) and (pointer: fine) {
+  .tt-opt:hover { border-color: var(--tt-text-3); background-color: var(--tt-mist); }
+}
+.tt-opt:active { transform: scale(.985); }
+.tt-opt:has(input:checked) {
+  border-color: var(--tt-accent);
+  background-color: var(--tt-amber-soft);
+  box-shadow: inset 0 0 0 1px var(--tt-accent);
+}
+.tt-opt:has(input:focus-visible) { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+
+/* ---- 6. Escala ------------------------------------------------------------ */
+/* Movil: los chips en fila y los rotulos debajo, cada uno bajo su extremo.
+   Tarjeta ancha: rotulo, chips y rotulo en una sola linea. */
+.tt-scale {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-areas: "track track" "min max";
+  justify-content: start;
+  align-items: center;
+  gap: var(--tt-sp-2) var(--tt-sp-3);
+}
+.tt-scale-track { grid-area: track; display: flex; flex-wrap: wrap; gap: var(--tt-sp-2); }
+.tt-scale-end {
+  max-width: 12rem;
+  font-size: var(--tt-fs-100);
+  line-height: 1.3;
+  color: var(--tt-text-3);
+}
+.tt-scale-end--min { grid-area: min; }
+.tt-scale-end--max { grid-area: max; justify-self: end; text-align: right; }
+@container tt-q (min-width: 34rem) {
+  .tt-scale { grid-template-columns: auto auto auto; grid-template-areas: "min track max"; }
+  .tt-scale-end--max { justify-self: start; text-align: left; }
+}
+
+.tt-scale-opt {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r-sm);
+  background-color: var(--tt-paper);
+  font-size: var(--tt-fs-300);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--tt-text-1);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--tt-dur-1) ease, background-color var(--tt-dur-1) ease,
+              transform var(--tt-dur-1) var(--tt-ease-out);
+}
+/* El radio nativo cubre el chip entero y es transparente: sigue siendo el
+   control real (foco, flechas, `checked`, `.check()` de Playwright). */
+.tt-scale-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tt-scale-opt:hover { border-color: var(--tt-text-3); background-color: var(--tt-mist); }
+}
+.tt-scale-opt:active { transform: scale(.96); }
+.tt-scale-opt:has(input:checked) {
+  border-color: var(--tt-accent);
+  background-color: var(--tt-amber-soft);
+  box-shadow: inset 0 0 0 1px var(--tt-accent);
+}
+.tt-scale-opt:has(input:focus-visible) { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+
+/* ---- 7. Barra de acciones ------------------------------------------------- */
+/* Se queda a la vista: el cuestionario mide varias pantallas y en movil el
+   visitante contesta la ultima pregunta sin nada que pulsar cerca. Fondo
+   solido y filo arriba, porque un sticky transparente se solapa con el texto
+   que pasa por debajo. El boton de avance siempre queda a la derecha, tambien
+   cuando "Atras" no existe (primer paso), para que no salte de lado. */
 .tt-survey-actions {
   position: sticky;
   bottom: 0;
-  padding: var(--tt-sp-3) 0;
-  background: linear-gradient(to bottom, transparent, var(--tt-mist) 32%);
-}
-
-/* Paso "Atras" + "Siguiente"/"Enviar" uno junto al otro. El de avance siempre
-   queda a la derecha -tambien cuando "Atras" no existe (primer paso)-, para
-   que no salte de lado según el paso; de ahi el `margin-inline-start:auto` en
-   vez de `justify-content:space-between` (que con UN solo boton lo pegaria a
-   la izquierda). Modificador aparte -no se toca `.tt-survey-actions` a secas-
-   para que el envio final (una sola accion) no cambie ni un pixel. */
-.tt-survey-actions--steps { display: flex; align-items: center; gap: var(--tt-sp-3); }
-.tt-survey-actions--steps > .tt-btn-accent { margin-inline-start: auto; }
-
-/* Escala 1-5. Las etiquetas de los extremos ocupan la fila entera en movil
-   (donde no cabrian al lado) y se recogen a los lados a partir de `sm`. */
-.tt-scale { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.tt-scale-end { font-size: .74rem; color: var(--tt-mute); flex: 1 1 100%; }
-.tt-scale-opt {
-  display: inline-flex;
-  flex-direction: column;
+  z-index: 5;
+  display: flex;
   align-items: center;
-  gap: 4px;
-  min-width: 44px;                 /* objetivo tactil */
-  padding: 6px 8px;
-  border: 1px solid var(--tt-line);
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: .8rem;
-  transition: transform .14s var(--tt-ease-out), border-color .16s ease;
+  gap: var(--tt-sp-3);
+  margin-top: var(--tt-sp-5);
+  padding: var(--tt-sp-3) 0 calc(var(--tt-sp-3) + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--tt-line);
+  background-color: var(--tt-mist);
+  box-shadow: 0 -12px 16px -16px rgba(15, 23, 42, .25);
 }
-.tt-scale-opt:active { transform: scale(.985); }
-.tt-scale-opt:has(input:checked) {
-  border-color: var(--tt-accent);
-  background: var(--tt-amber-soft);
+.tt-survey-actions > .tt-btn-accent { margin-inline-start: auto; }
+.tt-survey-actions > .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tt-sp-2);
+  min-height: 44px;
+  padding: var(--tt-sp-2) var(--tt-sp-5);
+  font-size: var(--tt-fs-200);
 }
 
-@media (min-width: 576px) {
-  .tt-scale-end { flex: 0 0 auto; max-width: 9rem; }
+/* Estados de los botones. Bootstrap 5.3.3 pinta `.btn:hover`, `:focus-visible`
+   y `:active` con `--bs-btn-hover-bg`/`--bs-btn-active-bg`, que un `.btn` sin
+   variante no define, y con especificidad mayor que `.tt-btn-accent`: al pasar
+   el cursor, pulsar o enfocar con teclado, "Siguiente" se quedaba SIN fondo
+   (medido en el navegador) y sin anillo de foco, porque esa misma regla pone
+   `outline: 0` y su sombra depende de otra variable indefinida. El defecto es
+   de `titulatec.css` para todas las vistas; aqui se ataja solo en lo que pinta
+   la encuesta, incluido el enlace del aviso anonimo (texto blanco sobre fondo
+   claro al enfocarlo). */
+.tt-survey-actions > .tt-btn-accent:hover,
+.tt-survey-actions > .tt-btn-accent:focus-visible,
+.tt-survey-actions > .tt-btn-accent:active {
+  border-color: var(--tt-accent);
+  background-color: var(--tt-accent);
+  color: #1F1300;
+}
+.tt-survey-actions > .tt-btn-ghost:hover,
+.tt-survey-actions > .tt-btn-ghost:focus-visible,
+.tt-survey-actions > .tt-btn-ghost:active {
+  border-color: var(--tt-text-3);
+  background-color: var(--tt-paper);
+  color: var(--tt-text-1);
+}
+.tt-survey-note .tt-btn-ink:hover,
+.tt-survey-note .tt-btn-ink:focus-visible,
+.tt-survey-note .tt-btn-ink:active {
+  border-color: var(--tt-ink);
+  background-color: var(--tt-ink-soft);
+  color: #fff;
+}
+.tt-survey-actions > .btn:focus-visible,
+.tt-survey-note .btn:focus-visible {
+  outline: 2px solid var(--tt-focus);
+  outline-offset: 2px;
+}
+@media (max-width: 575.98px) {
+  .tt-survey-actions > .btn {
+    flex: 1 1 0;
+    min-height: 48px;
+    padding-inline: var(--tt-sp-3);
+    font-size: var(--tt-fs-300);
+  }
+}
+
+/* ---- 8. Escritorio: riel + columna de contenido -------------------------- */
+/* El <main> es una rejilla de dos columnas y tres filas (cabecera · avisos ·
+   cuerpo). El formulario es `display: contents`: sus tres bloques entran a la
+   rejilla del <main>, y asi el riel ocupa la columna izquierda de arriba abajo
+   -tambien junto a la cabecera, que vive fuera del formulario- sin duplicar el
+   indicador. Tras el envio, la tarjeta de gracias cae en la misma columna que
+   el cuestionario, sin saltar de sitio. */
+@media (min-width: 992px) {
+  .tt-public-main.tt-prose.tt-public-main--survey {
+    display: grid;
+    max-width: calc(var(--tt-survey-max) + 2 * clamp(16px, 4vw, 24px));
+    grid-template-columns:
+      [rail-start] var(--tt-survey-rail)
+      [rail-end content-start] minmax(0, var(--tt-survey-col))
+      [content-end];
+    grid-template-rows: auto auto 1fr;
+    column-gap: var(--tt-survey-gap);
+    justify-content: center;
+    align-items: start;
+  }
+  .tt-public-main--survey > .tt-survey-head { grid-column: content; grid-row: 1; }
+  .tt-public-main--survey > #tt-survey-thanks { grid-column: content; grid-row: 2; }
+  .tt-public-main--survey > .tt-survey-form { display: contents; }
+  .tt-survey-form > .tt-survey-top  { grid-column: content; grid-row: 2; }
+  .tt-survey-form > .tt-survey-body { grid-column: content; grid-row: 3; }
+
+  .tt-survey-form > .tt-steps {
+    grid-column: rail;
+    grid-row: 1 / -1;
+    position: sticky;
+    top: var(--tt-sp-5);
+    max-height: calc(100vh - 2 * var(--tt-sp-5));
+    max-height: calc(100dvh - 2 * var(--tt-sp-5));
+    margin: 0;
+    padding: var(--tt-sp-4);
+    overflow-y: auto;
+    border: 1px solid var(--tt-line);
+    border-radius: var(--tt-r-lg);
+    background-color: var(--tt-paper);
+  }
+  .tt-steps-now { display: none; }
+  .tt-steps-head { margin-bottom: var(--tt-sp-4); }
+  .tt-steps-list {
+    flex-direction: column;
+    gap: var(--tt-sp-1);
+    padding: 0;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+  .tt-steps-item { max-width: none; }
+  .tt-steps-link,
+  .tt-steps-label {
+    padding: var(--tt-sp-2);
+    border-color: transparent;
+    border-radius: var(--tt-r-sm);
+    background-color: transparent;
+    font-size: var(--tt-fs-200);
+  }
+  .tt-steps-item.is-current > .tt-steps-label {
+    border-color: var(--tt-line);
+    box-shadow: none;
+    background-color: var(--tt-mist);
+  }
+  .tt-steps-item.is-upcoming > .tt-steps-label { border-style: solid; border-color: transparent; }
+
+  .tt-survey-title { font-size: var(--tt-fs-600); }
+  .tt-survey-lede { font-size: var(--tt-fs-300); }
+  .tt-q { padding: var(--tt-sp-5); }
+}
+@media (min-width: 992px) and (hover: hover) and (pointer: fine) {
+  .tt-steps-link:hover { border-color: transparent; background-color: var(--tt-mist); }
+}
+@media (min-width: 1280px) {
+  .tt-public-main--survey { --tt-survey-gap: calc(2 * var(--tt-sp-5)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tt-scale-opt { transition: none; }
-  .tt-scale-opt:active { transform: none; }
+  .tt-q, .tt-opt, .tt-scale-opt, .tt-steps-link { transition: none; }
+  .tt-opt:active, .tt-scale-opt:active, .tt-steps-link:active { transform: none; }
 }
 
 /* ======================= Inscripción pública (Tarea 19) =================== */

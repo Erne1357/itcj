@@ -97,7 +97,16 @@ class Settings(BaseSettings):
     # siempre y el envío final la reportaba "por corregir" sin un solo campo
     # visible en pantalla. Sin el bump, quien ya tenía la encuesta en caché
     # sigue atascado con el JS viejo.
-    STATIC_VERSION: str = "1.0.1111531"
+    #
+    # Bump 2026-09-15: rediseño de la pantalla de la encuesta de egresados —
+    # `public.css` reescribe su bloque (riel de pasos en escritorio y chips en
+    # móvil, preguntas en tarjetas, opciones como tiles, escala en chips, barra
+    # de acciones) y `titulatec/js/public/survey.js` gana `revealCurrentStep`
+    # (deja el chip del paso actual a la vista en móvil). Sin el bump, quien ya
+    # tenía la encuesta en caché ve el marcado nuevo con la hoja vieja: sin
+    # reglas para `.tt-opt`/`.tt-steps-mark` las opciones salen como casillas
+    # sueltas y el indicador de pasos como una lista cruda.
+    STATIC_VERSION: str = "1.0.1111532"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

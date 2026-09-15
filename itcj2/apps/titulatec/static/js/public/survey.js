@@ -213,6 +213,24 @@
     if (h && typeof h.focus === 'function') h.focus();
   }
 
+  // Rediseño 2026-09-15: bajo 992 px la lista de pasos es una fila de chips
+  // con scroll PROPIO, y en el paso 5 de 7 el chip actual nacía fuera de la
+  // vista. Solo lee el DOM y mueve `scrollLeft` DE LA LISTA -nunca
+  // `scrollIntoView`, que también desplazaría la página en vertical y le
+  // robaría el sitio a `focusStepHeading`-. En el riel de escritorio la lista
+  // es vertical y no desborda, así que no hace nada. Sin animación: es la
+  // posición de partida del paso, no un desplazamiento.
+  function revealCurrentStep(f) {
+    var list = f.querySelector('.tt-steps-list');
+    if (!list || list.scrollWidth <= list.clientWidth) return;
+    var cur = list.querySelector('[aria-current="step"]');
+    var item = cur && cur.closest('.tt-steps-item');
+    if (!item) return;
+    var caja = list.getBoundingClientRect();
+    var chip = item.getBoundingClientRect();
+    list.scrollLeft += (chip.left - caja.left) - (caja.width - chip.width) / 2;
+  }
+
   // `hydrate` solo LEE el DOM. No registra ni un escucha: es lo que la hace
   // segura de llamar en cada `htmx:afterSettle`.
   //
@@ -226,6 +244,7 @@
     if (!f) return;
     mergeLocalDraft(f);
     applyVisibility(f);
+    revealCurrentStep(f);
     var enfocoError = focusFirstInvalid(f);
     if (!enfocoError && viaSwap) focusStepHeading(f);
     lastSection = null;
