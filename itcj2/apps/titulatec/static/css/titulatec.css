@@ -170,18 +170,92 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
 /* Se apoyan en .btn de Bootstrap; sólo redefinen color/forma. */
 .btn { border-radius: var(--tt-r); font-weight: 600; letter-spacing: -.1px; }
 .tt-btn-ink     { background: var(--tt-ink); color: #fff; border: 1px solid var(--tt-ink); }
-.tt-btn-ink:hover { background: #1e293b; color: #fff; }
 .tt-btn-accent  { background: var(--tt-accent); color: #1F1300; border: 1px solid var(--tt-accent); }
-.tt-btn-accent:hover { filter: brightness(.96); color: #1F1300; }
 .tt-btn-ghost   { background: transparent; color: var(--tt-ink); border: 1px solid var(--tt-line); }
-.tt-btn-ghost:hover { background: var(--tt-mist); }
 .tt-btn-soft    { background: var(--tt-mist); color: var(--tt-ink); border: 1px solid var(--tt-line); }
 /* Accion destructiva: pesa distinto que sus vecinas. Marcar que un egresado no
    se presento le dispara notificacion y hasta ahora era un boton fantasma
    identico a "Reagendar", sin confirmacion y sin deshacer. */
 .tt-btn-danger-soft { background: var(--tt-danger-soft); color: #991B1B;
                       border: 1px solid rgba(220,38,38,.35); }
-.tt-btn-danger-soft:hover { background: #FECACA; color: #7F1D1D; }
+/* Modificador de `.tt-btn-ghost` (siempre van juntas en el markup, p.ej.
+   "btn btn-sm tt-btn-ghost tt-btn-danger-ghost" en el Rechazar del expediente
+   y del visor de documentos): mismo fondo transparente, tono danger en texto
+   y borde. No tenia NI la regla base: el boton salia identico a un ghost
+   neutro, sin ninguna senal de que la accion es destructiva. */
+.tt-btn-danger-ghost { color: #991B1B; border-color: rgba(220,38,38,.35); }
+
+/* --- Estados: hover / focus-visible / pulsado / disabled -----------------
+   Bootstrap 5.3.3 pinta :hover, :focus-visible, :active, `.btn-check:checked
+   + .btn` y `.btn.show` leyendo variables --bs-btn-hover-* y --bs-btn-active-*,
+   y :disabled con --bs-btn-disabled-*; un `.btn` sin variante de Bootstrap
+   (btn-primary y demas) no las define. Resultado medido: estos botones se
+   quedaban TRANSPARENTES y sin anillo al pulsar o enfocar con teclado (arriba
+   solo `:hover` tenia parche, y no en las 6 variantes: `.tt-btn-soft` no
+   tenia ninguno y `.tt-btn-danger-ghost` no tenia ni color). Se definen las
+   variables UNA vez por variante para que las reglas nativas de Bootstrap
+   -que ya cubren las 5 formas de "activo" de golpe- las hereden solas.
+   Mismo diagnostico que el parche local de `public.css` (seccion de la
+   encuesta, comentario en la linea ~609); esto lo generaliza a las 6
+   variantes reales en uso, dentro y fuera de esa pantalla.
+
+   Hover y pulsado comparten tono a proposito, como ya hacia `.tt-btn-ink`
+   antes de este cambio: la señal de "pulsado" ya la da
+   `.btn:active { transform: scale(.97) }` (mas abajo en este archivo), asi
+   que no hace falta inventar un segundo tono por variante. El foco de
+   teclado usa SIEMPRE `--tt-focus` -nunca el acento: da 2.15:1, menos de los
+   3:1 que pide WCAG 1.4.11 para un anillo no-textual- con `outline` hacia
+   ADENTRO (-2px), igual que el resto de los `:focus-visible` de este archivo
+   (`.tt-day`, `.tt-seat`, `.tt-appt-item`...), para no recortarse dentro de
+   una `.tt-table-wrap` o una barra de acciones angosta. No se usa
+   `--bs-btn-focus-shadow-rgb`: apilaria un resplandor de color sobre el
+   anillo y ninguno de los otros focus-visible del archivo lo hace. */
+.tt-btn-ink:focus-visible, .tt-btn-accent:focus-visible, .tt-btn-ghost:focus-visible,
+.tt-btn-soft:focus-visible, .tt-btn-danger-soft:focus-visible, .tt-btn-danger-ghost:focus-visible {
+  outline: 2px solid var(--tt-focus); outline-offset: -2px; box-shadow: none;
+}
+
+.tt-btn-ink {
+  --bs-btn-hover-color: #fff; --bs-btn-hover-bg: var(--tt-ink-soft); --bs-btn-hover-border-color: var(--tt-ink);
+  --bs-btn-active-color: #fff; --bs-btn-active-bg: var(--tt-ink-soft); --bs-btn-active-border-color: var(--tt-ink);
+}
+.tt-btn-accent {
+  /* #D97706 es amber-600 (escala Tailwind, un paso mas oscuro que --tt-accent
+     = amber-500). No se reutiliza --tt-focus (= amber-700, #B45309): con el
+     texto #1F1300 encima da 3.6:1, por debajo de 4.5. */
+  --bs-btn-hover-color: #1F1300; --bs-btn-hover-bg: #D97706; --bs-btn-hover-border-color: #D97706;
+  --bs-btn-active-color: #1F1300; --bs-btn-active-bg: #D97706; --bs-btn-active-border-color: #D97706;
+}
+.tt-btn-ghost {
+  --bs-btn-hover-color: var(--tt-ink); --bs-btn-hover-bg: var(--tt-mist); --bs-btn-hover-border-color: var(--tt-text-3);
+  --bs-btn-active-color: var(--tt-ink); --bs-btn-active-bg: var(--tt-line); --bs-btn-active-border-color: var(--tt-text-3);
+}
+.tt-btn-soft {
+  --bs-btn-hover-color: var(--tt-ink); --bs-btn-hover-bg: var(--tt-line); --bs-btn-hover-border-color: var(--tt-text-3);
+  --bs-btn-active-color: var(--tt-ink); --bs-btn-active-bg: var(--tt-line); --bs-btn-active-border-color: var(--tt-text-3);
+}
+.tt-btn-danger-soft {
+  --bs-btn-hover-color: #7F1D1D; --bs-btn-hover-bg: #FECACA; --bs-btn-hover-border-color: rgba(220,38,38,.5);
+  --bs-btn-active-color: #7F1D1D; --bs-btn-active-bg: #FECACA; --bs-btn-active-border-color: rgba(220,38,38,.5);
+}
+.tt-btn-danger-ghost {
+  --bs-btn-hover-color: #7F1D1D; --bs-btn-hover-bg: var(--tt-danger-soft); --bs-btn-hover-border-color: rgba(220,38,38,.5);
+  --bs-btn-active-color: #7F1D1D; --bs-btn-active-bg: var(--tt-danger-soft); --bs-btn-active-border-color: rgba(220,38,38,.5);
+}
+
+/* Disabled: UN solo tratamiento neutro para las 6 variantes -perder el color
+   de marca es, ademas, la propia señal de "no accionable". `opacity: 1` a
+   proposito: a los .65 por defecto de Bootstrap, texto y fondo se diluyen
+   juntos hacia el blanco y el contraste medido cae por debajo de 4.5:1; aqui
+   el color ya sale calculado (--tt-text-3 sobre --tt-mist ≈ 5.2:1, contra los
+   4.5 que pide WCAG), asi que diluirlo de mas solo lo estropea. */
+.tt-btn-ink, .tt-btn-accent, .tt-btn-ghost, .tt-btn-soft,
+.tt-btn-danger-soft, .tt-btn-danger-ghost {
+  --bs-btn-disabled-color: var(--tt-text-3);
+  --bs-btn-disabled-bg: var(--tt-mist);
+  --bs-btn-disabled-border-color: var(--tt-line);
+  --bs-btn-disabled-opacity: 1;
+}
 
 /* ============================ INPUTS / FORM ============================ */
 .tt-label { font-size: .75rem; font-weight: 600; color: var(--tt-slate); margin-bottom: 6px; display: block; }
