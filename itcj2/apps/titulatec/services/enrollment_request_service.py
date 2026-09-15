@@ -22,11 +22,19 @@ D17). La liga de una cuenta existente viaja al correo que TECLEÓ el solicitante
 quien escriba un número de control ajeno con su correo y pase la revisión puede
 dejar inscrita a esa persona. Para que no escale:
 
-  1. Sobre una cuenta existente JAMÁS se escribe `password_hash`, `is_active`,
+  1. Sobre una cuenta existente JAMÁS se escribe `password_hash`,
      `must_change_password` ni `core_student_profile` a partir de la solicitud,
      ni en `approve()` ni en `verify()`/`_convert()`. Lo único que recibe es el
      proceso y los roles de egresado (`graduate`, que desplaza a `student`; ver
      `ImportService.import_rows`).
+     EXCEPCIÓN APROBADA (2026-09-15): abrir la liga pasa `is_active` de False a
+     True. Sin eso la persona quedaba inscrita sin poder entrar. El riesgo es
+     reactivar una cuenta que alguien desactivó a propósito, y se contiene así:
+     solo lo hace la liga de una solicitud APROBADA (nunca `approve()`, que
+     únicamente la emite); la bandeja pinta «Cuenta desactivada: se reactiva al
+     abrir la liga» antes de aprobar; la contraseña no cambia, así que quien
+     tecleó un control ajeno sigue sin poder entrar; el aviso con folio va al
+     institucional (3), y el `ProcessEvent` registra `reactivated: true`.
   2. Una cuenta existente sin `password_hash` no recibe liga: se da de alta
      desde la convocatoria.
   3. El aviso con folio de `verify()` va al buzón INSTITUCIONAL de la cuenta:
@@ -277,8 +285,9 @@ class EnrollmentRequestService:
           `converted`; usuario + NIP al correo personal. El caché de authz de
           esos roles se tira DESPUÉS del commit (`ImportService.invalidate_authz`).
         - CON cuenta: el NIP se ignora -> liga de activación de 7 días al correo
-          personal -> `approved`. La cuenta no se toca (invariante 1 del módulo);
-          sin `password_hash` no hay liga (invariante 2).
+          personal -> `approved`. La cuenta no se toca, ni siquiera se reactiva:
+          eso lo hace abrir la liga (invariante 1 del módulo). Sin
+          `password_hash` no hay liga (invariante 2).
 
         EL NIP NUNCA SALE DE AQUÍ: no se loguea, no va en `X-Tt-Error` (`detalle`
         se emite tal cual en una cabecera) ni en el payload del `ProcessEvent`.
@@ -528,8 +537,10 @@ class EnrollmentRequestService:
         `commit=False` y `repair_credentials=False`, que no toca credencial,
         `is_active` ni `must_change_password` de una cuenta que ya existe: le deja
         `graduate` y le quita `student`), la solicitud y el `ProcessEvent`. NADA
-        del perfil (invariante 1 del módulo). No commitea, no tira el caché de
-        authz ni manda correo: eso es de `verify()`, que recibe en
+        del perfil (invariante 1 del módulo). Su ÚNICA escritura propia sobre la
+        cuenta es reactivarla si estaba desactivada, con `reactivated` en el
+        payload: la excepción aprobada del invariante 1. No commitea, no tira el
+        caché de authz ni manda correo: eso es de `verify()`, que recibe en
         `authz_touched` los pares que `import_rows` cambió.
 
         No se ramifica sobre `processes_created`: si un CSV creó el proceso
@@ -579,6 +590,15 @@ class EnrollmentRequestService:
         if proc is None:
             return False, _NOTE_LINK_NO_PROCESS
 
+        # EXCEPCIÓN APROBADA al invariante 1 (2026-09-15): la liga de una
+        # solicitud aprobada reactiva la cuenta desactivada. Es la única
+        # escritura sobre la cuenta además de roles y proceso, y va aquí, con el
+        # proceso ya creado: una revalidación fallida no llega, y cualquier
+        # fallo posterior la deshace con el savepoint de `verify`.
+        reactivada = not user.is_active
+        if reactivada:
+            user.is_active = True
+
         req.status = "converted"
         req.converted_process_id = proc.id
         db.add(ProcessEvent(
@@ -587,7 +607,10 @@ class EnrollmentRequestService:
             payload={"request_id": req.id, "folio": proc.folio,
                      "preexisting_process": ya_existia,
                      "activation": "personal_email_link",
-                     "approved_by_id": req.reviewed_by_id},
+                     "approved_by_id": req.reviewed_by_id,
+                     # Rastro de la excepción: la bandeja la anuncia antes de
+                     # aprobar y el expediente la conserva después.
+                     "reactivated": reactivada},
         ))
         return True, proc.folio
 

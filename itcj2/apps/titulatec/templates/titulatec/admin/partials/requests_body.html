@@ -14,6 +14,10 @@
      dónde va la liga (el riesgo aceptado de docs/flows/xcut_public_enrollment.md);
    - liga enviada: envíos, «Reenviar liga» (rota la liga) y «Cancelar solicitud»;
    - inscrita: folio; rechazada: motivo.
+   Una cuenta desactivada lleva la píldora «Cuenta desactivada: se reactiva al
+   abrir la liga» mientras la liga puede abrirse (por revisar o liga enviada):
+   abrirla la reactiva, la única escritura sobre la cuenta además de roles y
+   proceso.
    Sin hx-confirm (no hay puente) y sin JS ni CSS en línea. #}
 {% macro tab_fields(tab, cohort) -%}
 <input type="hidden" name="status" value="{{ tab }}">
@@ -67,6 +71,7 @@
           {% if r.has_account %}
           <span class="tt-pill tt-pill--neutral">Con cuenta</span>
           {% if not r.has_password %}<span class="tt-pill tt-pill--danger">sin contraseña</span>{% endif %}
+          {% if r.account_inactive and (r.reviewable or r.status == 'approved') %}<span class="tt-pill tt-pill--amber">Cuenta desactivada: se reactiva al abrir la liga</span>{% endif %}
           {% else %}
           <span class="tt-pill tt-pill--amber">Sin cuenta</span>
           {% endif %}

@@ -254,6 +254,85 @@ def test_abrir_la_liga_deja_a_la_cuenta_como_graduate_y_tira_el_cache_tras_el_co
                                                   (cuenta.id, "titulatec")}
 
 
+# ---------------------------------------------------------------------------
+# Reactivación: la ÚNICA escritura sobre la cuenta además de roles y proceso
+# ---------------------------------------------------------------------------
+def test_abrir_la_liga_reactiva_una_cuenta_desactivada_y_lo_registra(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+):
+    """Excepción aprobada al invariante 1 (2026-09-15): `is_active` pasa de False
+    a True al abrir la liga. Sin esto la persona quedaba inscrita sin poder
+    entrar. Contención: solo la liga de una solicitud APROBADA lo hace, la
+    bandeja lo avisa antes de aprobar y el `ProcessEvent` lo deja escrito."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    cohort = make_cohort(status="open")
+    cuenta = _cuenta(make_user, db_session, "99770091", is_active=False)
+    hash_antes = cuenta.password_hash
+    req, token = _aprobada(db_session, cohort, control="99770091")
+
+    _, outcome = EnrollmentRequestService.verify(db_session, token)
+
+    assert outcome == "converted"
+    db_session.refresh(cuenta)
+    assert cuenta.is_active is True
+    assert cuenta.password_hash == hash_antes
+    assert cuenta.must_change_password is False
+    evento = (db_session.query(ProcessEvent)
+              .filter_by(process_id=req.converted_process_id,
+                         event_type="enrollment_self_service").one())
+    assert evento.payload["reactivated"] is True
+
+
+def test_una_cuenta_activa_no_se_marca_como_reactivada(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+):
+    from itcj2.apps.titulatec.models import ProcessEvent
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    cohort = make_cohort(status="open")
+    cuenta = _cuenta(make_user, db_session, "99770092")
+    req, token = _aprobada(db_session, cohort, control="99770092")
+
+    EnrollmentRequestService.verify(db_session, token)
+
+    db_session.refresh(cuenta)
+    assert cuenta.is_active is True
+    evento = (db_session.query(ProcessEvent)
+              .filter_by(process_id=req.converted_process_id,
+                         event_type="enrollment_self_service").one())
+    assert evento.payload["reactivated"] is False
+
+
+def test_si_la_liga_vuelve_a_revision_la_cuenta_sigue_desactivada(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+):
+    """Una revalidación fallida no inscribe, así que tampoco reactiva."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    cohort = make_cohort(status="open")
+    cuenta = _cuenta(make_user, db_session, "99770093", is_active=False)
+    _req, token = _aprobada(db_session, cohort, control="99770093")
+    cohort.status = "closed"
+    db_session.flush()
+
+    _, outcome = EnrollmentRequestService.verify(db_session, token)
+
+    assert outcome == "pending_review"
+    db_session.refresh(cuenta)
+    assert cuenta.is_active is False
+
+
 def test_la_liga_es_idempotente(
     client, db_session, make_cohort, make_user, seed_phase_defs, titulatec_app,
     correo_falso,

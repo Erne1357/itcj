@@ -415,6 +415,28 @@ def test_aprobar_con_cuenta_no_pide_nip(
     assert req.status == "approved"
 
 
+def test_aprobar_una_cuenta_desactivada_no_la_reactiva(
+    db_session, make_cohort, make_user, correo_falso,
+):
+    """El acceso llega SOLO por la liga: aprobar la emite y nada más. La
+    reactivación es de `verify()` (`test_enrollment_verify.py`)."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    cuenta = _cuenta(db_session, "99550071", is_active=False)
+    req = _make_req(db_session, cohort, control="99550071", kind="known")
+
+    ok, _ = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert ok is True and req.status == "approved"
+    db_session.refresh(cuenta)
+    assert cuenta.is_active is False
+
+
 def test_aprobar_con_cuenta_sin_contrasena_devuelve_el_error_sin_cambios(
     client_as, db_session, make_head, make_cohort, correo_falso,
 ):

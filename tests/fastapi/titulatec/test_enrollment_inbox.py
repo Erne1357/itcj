@@ -215,6 +215,53 @@ def test_una_cuenta_sin_contrasena_se_marca_antes_de_intentar_aprobar(
     assert "sin contraseña" in fila
 
 
+PILDORA_DESACTIVADA = "Cuenta desactivada: se reactiva al abrir la liga"
+
+
+@pytest.mark.parametrize("estado,control", [("pending_review", "99551040"),
+                                            ("approved", "99551041")])
+def test_una_cuenta_desactivada_se_avisa_en_la_fila(
+    client_as, db_session, make_head, make_cohort, estado, control,
+):
+    """Abrir la liga reactiva la cuenta (excepción aprobada, 2026-09-15): el
+    oficial tiene que saberlo ANTES de aprobar y mientras la liga va en camino."""
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    cuenta = _cuenta(db_session, control)
+    cuenta.is_active = False
+    db_session.flush()
+    extra = ({"verify_send_count": 1, "verify_token_hash": "5" * 64,
+              "verify_expires_at": datetime.now() + timedelta(days=1)}
+             if estado == "approved" else {})
+    req = _make_req(db_session, cohort, control=control, status=estado, **extra)
+
+    fila = _fila(client_as(head).get(f"{URL}/body?status={estado}").text, req)
+
+    assert PILDORA_DESACTIVADA in _plano(fila)
+
+
+@pytest.mark.parametrize("estado,control,activa", [
+    ("pending_review", "99551042", True),
+    ("converted", "99551043", False),
+    ("rejected", "99551044", False),
+])
+def test_la_pildora_de_desactivada_no_sale_si_no_aplica(
+    client_as, db_session, make_head, make_cohort, estado, control, activa,
+):
+    """Cuenta activa, o solicitud cuya liga ya no está en camino: la píldora
+    prometería una reactivación que no va a ocurrir."""
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    cuenta = _cuenta(db_session, control)
+    cuenta.is_active = activa
+    db_session.flush()
+    req = _make_req(db_session, cohort, control=control, status=estado)
+
+    fila = _fila(client_as(head).get(f"{URL}/body?status={estado}").text, req)
+
+    assert PILDORA_DESACTIVADA not in _plano(fila)
+
+
 def test_la_fila_legado_se_revisa_igual_que_una_nueva(
     client_as, db_session, make_head, make_cohort,
 ):

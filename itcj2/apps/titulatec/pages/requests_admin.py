@@ -179,6 +179,10 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
             "reviewable": r.status in _TAB_STATUSES["pending_review"],
             "has_account": u is not None,
             "has_password": bool(u is not None and u.password_hash),
+            # Abrir la liga la reactiva (excepción aprobada, 2026-09-15): el
+            # oficial tiene que verlo ANTES de aprobar. La plantilla solo lo pinta
+            # donde la liga todavía puede abrirse.
+            "account_inactive": bool(u is not None and not u.is_active),
             "sends": r.verify_send_count or 0,
             "last_sent": (r.verify_sent_at.strftime("%d/%m/%Y %H:%M")
                           if r.verify_sent_at else ""),

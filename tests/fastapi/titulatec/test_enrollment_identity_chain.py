@@ -9,9 +9,10 @@ inscrita a esa persona.
 
 CONTENCIÓN QUE FIJA ESTE ARCHIVO, para que ese riesgo no escale:
 - nada sale por correo antes de que un oficial revise;
-- sobre una cuenta existente jamás se escribe `password_hash`, `is_active`,
+- sobre una cuenta existente jamás se escribe `password_hash`,
   `must_change_password` ni `core_student_profile` a partir de la solicitud,
-  ni al aprobar ni al abrir la liga;
+  ni al aprobar ni al abrir la liga. `is_active` es la única excepción aprobada
+  (2026-09-15): abrir la liga la reactiva, aprobar no;
 - una cuenta sin contraseña no recibe liga;
 - al abrirse la liga, el aviso con folio va al buzón INSTITUCIONAL de la cuenta
   (la alarma), nunca al correo que se tecleó;
@@ -60,8 +61,8 @@ def _solo_esta_convocatoria(db_session, cohort):
 
 
 def _victima(db_session, control, *, password=True, is_active=False):
-    """Cuenta real de otra persona: con perfil propio y desactivada a propósito
-    (reactivarla sería uno de los efectos prohibidos)."""
+    """Cuenta real de otra persona: con perfil propio y desactivada a propósito.
+    Aprobar no la reactiva; abrir la liga sí (única excepción aprobada, 2026-09-15)."""
     from itcj2.core.models.user import User
     from itcj2.core.services.student_profile_service import StudentProfileService
     from itcj2.core.utils.security import hash_nip
@@ -181,7 +182,11 @@ def test_la_cuenta_ajena_solo_recibe_proceso_y_rol_y_el_aviso_va_a_su_institucio
     _, outcome = EnrollmentRequestService.verify(db_session, token)
 
     assert outcome == "converted"
-    assert _foto(db_session, victima) == antes, "abrir la liga escribió sobre la cuenta ajena"
+    despues = _foto(db_session, victima)
+    assert despues["is_active"] is True, (
+        "abrir la liga reactiva la cuenta: es la única excepción aprobada")
+    assert dict(despues, is_active=antes["is_active"]) == antes, (
+        "abrir la liga escribió sobre la cuenta ajena algo más que `is_active`")
     assert (db_session.query(TitulationProcess)
             .filter_by(student_id=victima.id, cohort_id=cohort.id).count()) == 1
     assert [d for _a, d, _h in correo_falso] == [[student_email(victima)]], (
