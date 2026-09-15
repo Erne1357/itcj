@@ -580,6 +580,43 @@ def _back_link(db, user: dict | None) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# 4e. Encuesta CONGELADA tras el primer envio (Tarea 3, D6, spec 5.3)
+# ---------------------------------------------------------------------------
+def _solicitud_existente(db, user: dict | None) -> dict | None:
+    """Foto de la solicitud de liberacion vigente del alumno en sesion, o
+    `None` si no aplica -sin sesion, sin proceso acreditable, o proceso sin
+    solicitud (el egresado nunca envio la encuesta)-.
+
+    Mismo selector que `SurveyService.submit` (`ProcessService.
+    creditable_process`): si estos dos lados no llamaran al mismo helper, un
+    alumno podria ver "ya la enviaste" en una pantalla y el formulario vacio
+    en otra.
+
+    Con solicitud, el dict que devuelve `SurveyReviewService.
+    summary_for_process` (llaves `status`, `reason`, `reviewed_by`,
+    `reviewed_at`, `review_id`, `response_id`) es SIEMPRE verdadero -nunca
+    vacio-, asi que las rutas de abajo lo usan directo como condicion. Es el
+    UNICO punto que consultan `survey` (GET), `survey_step` y `survey_draft`
+    para cortar ANTES del presupuesto y de la validacion, y pintar la
+    tarjeta de estatus (`partials/survey_status.html`) o el "no escribe" en
+    su lugar; `survey_submit` lo usa para no volver a escribir ni cobrar el
+    limitador (spec 5.3). La encuesta queda CONGELADA (D6): solo GTV cambia
+    su estatus desde su bandeja de Liberaciones.
+    """
+    if not user:
+        return None
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    process = ProcessService.creditable_process(db, int(user["sub"]))
+    if process is None:
+        return None
+    if SurveyReviewService.get_for_process(db, process.id) is None:
+        return None
+    return SurveyReviewService.summary_for_process(db, process.id)
+
+
+# ---------------------------------------------------------------------------
 # Rutas
 # ---------------------------------------------------------------------------
 @router.get("/encuesta-egresados", name="titulatec.pages.public.survey",
@@ -617,10 +654,23 @@ async def survey(
         # nada (`_back_link` devuelve `None` sin tocar Redis ni BD), asi que
         # calcularlo antes del redirect de abajo no desperdicia nada.
         back_link = _back_link(db, user)
+        # Tarea 3 (D6): la encuesta queda CONGELADA tras el primer envio.
+        # Junto a `back_link` -mismo principio: barato de calcular sin
+        # sesion o sin proceso, y evita repetir la consulta si mas de una
+        # rama lo necesitara- y ANTES de cualquiera que arme el prellenado,
+        # el borrador o `_start_step`, que no tienen caso para un
+        # cuestionario que ya no se puede volver a enviar.
+        review = _solicitud_existente(db, user)
         if form is None:
             ctx = dict(_CLOSED_CARD, no_form=True, back_link=back_link)
         elif _requiere_sesion(form) and user is None:
             return RedirectResponse(SURVEY_LOGIN_URL, status_code=302)
+        elif review is not None:
+            # `form` viaja igual que en la rama de abajo -mismo titulo en la
+            # cabecera de `survey.html`- y la tarjeta de estatus ocupa el
+            # lugar del formulario.
+            ctx = {"form": _form_meta(form), "review": review,
+                  "back_link": back_link, "no_form": False}
         else:
             values: dict = {}
             draft_updated = ""
@@ -717,16 +767,26 @@ async def survey_submit(
     """Envío de la encuesta.
 
     Orden: tamaño declarado → trampa → formulario abierto → sesión (Tarea 2) →
-    presupuesto → escritura → cobro. El presupuesto se lee antes de escribir y
-    se cobra después, y ninguno de los dos pasos puede dejar al visitante sin
-    cuestionario: todo lo que devuelve esta ruta con contenido re-imprime lo que
-    el visitante escribió.
+    encuesta congelada (Tarea 3) → presupuesto → escritura → cobro. El
+    presupuesto se lee antes de escribir y se cobra después, y ninguno de los
+    dos pasos puede dejar al visitante sin cuestionario: todo lo que devuelve
+    esta ruta con contenido re-imprime lo que el visitante escribió.
 
     Tarea 2: si el formulario abierto NO es anónimo (`_requiere_sesion`) y no
     hay usuario en la petición, corta con 401 antes de leer el presupuesto o
     llamar a `SurveyService.submit` -no se escribe nada-. Un formulario con
     `is_anonymous=True` sigue aceptando el envío sin sesión, exactamente igual
     que hoy.
+
+    Tarea 3 (D6, spec 5.3): con sesión y una solicitud YA abierta para el
+    proceso acreditable del visitante (`_solicitud_existente`), la encuesta
+    está CONGELADA -no vuelve a escribir, ni gasta presupuesto (nunca llama a
+    `_puede_enviar`/`_contar_envio`), ni llama a `SurveyService.submit`- y
+    responde la MISMA tarjeta de gracias de siempre, con
+    `credit_status="already_submitted"`. `SurveyService.submit` comprueba lo
+    mismo por su cuenta (defensa en profundidad para dos envíos simultáneos
+    que pasen los dos esta comprobación antes de que el primero termine de
+    escribir), así que ese valor también puede llegar desde ahí.
     """
     from itcj2.database import SessionLocal
     from itcj2.core.utils.client_ip import client_ip
@@ -785,6 +845,15 @@ async def survey_submit(
         # postea directo, o cuya sesión murió entre el GET y este POST.
         if _requiere_sesion(form) and user is None:
             return Response(status_code=401)
+
+        # Tarea 3 (D6): la encuesta queda CONGELADA tras el primer envío.
+        # Corta AQUÍ -antes de armar `submitted`, el presupuesto o
+        # `SurveyService.submit`- y responde la tarjeta de gracias de
+        # siempre con `already_submitted`, sin cobrar el limitador.
+        if _solicitud_existente(db, user) is not None:
+            return render_titulatec(
+                request, "titulatec/public/partials/survey_thanks.html",
+                {"credit_status": "already_submitted", "back_link": _back_link(db, user)})
 
         # Instantánea plana ANTES de escribir: el camino de recuperación hace
         # `rollback()` y ahí toda instancia ORM queda expirada.
@@ -916,6 +985,12 @@ async def survey_step(
     `survey_submit` (Tarea 2): un formulario NO anónimo sin sesión corta con
     401 sin cuerpo -este visitante nunca debería llegar aquí por la UI real,
     porque el GET ya lo mandó al login antes de mostrarle nada que avanzar-.
+
+    Tarea 3 (D6, spec 5.3): con una solicitud YA abierta (`_solicitud_
+    existente`), corta antes de `_sections`/`validate_answers` y pinta la
+    tarjeta de estatus (`partials/survey_status.html`) en vez de mover el
+    paso: la encuesta está CONGELADA, no hay paso al que avanzar ni
+    retroceder.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_service import (
@@ -944,6 +1019,15 @@ async def survey_step(
                                    "Recarga la página.")})
         if _requiere_sesion(form) and user is None:
             return Response(status_code=401)
+
+        # Tarea 3 (D6): la encuesta queda CONGELADA tras el primer envío.
+        # Corta AQUÍ -antes de leer `_sections`/`validate_answers`- y pinta
+        # la tarjeta de estatus en vez de avanzar o retroceder un paso.
+        review = _solicitud_existente(db, user)
+        if review is not None:
+            return render_titulatec(
+                request, "titulatec/public/partials/survey_status.html",
+                {"review": review, "back_link": _back_link(db, user)})
 
         meta, schema = _form_meta(form), (form.schema or {})
         submitted = _submitted_from_form(schema, data)
@@ -1058,6 +1142,11 @@ async def survey_draft(
     una fila escrita de un fallo tragado. Pintar «Guardado hh:mm» sobre una
     escritura que no ocurrió sería la misma pérdida silenciosa de la que el
     `except` de abajo protege al visitante del otro lado.
+
+    Tarea 3 (D6, spec 5.3): con sesión y una solicitud YA abierta
+    (`_solicitud_existente`), el 204 también sale SIN `X-Tt-Draft-Saved` -el
+    MISMO camino "no escribe" de la rama sin sesión-: la encuesta está
+    CONGELADA y no hay nada que autoguardar.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_service import (
@@ -1080,10 +1169,19 @@ async def survey_draft(
     if not user:
         return Response(status_code=204)
 
-    data = await request.form()
-    guardado = False
     db = SessionLocal()
     try:
+        # Tarea 3 (D6, spec 5.3): la encuesta queda CONGELADA tras el primer
+        # envío. Mismo camino "no escribe" que la rama sin sesión de arriba
+        # -204, sin `X-Tt-Draft-Saved`, sin siquiera leer el cuerpo-: un
+        # autosave para un cuestionario que ya no se puede volver a enviar
+        # no tiene destino. Aquí sí hace falta abrir la sesión para
+        # comprobarlo.
+        if _solicitud_existente(db, user) is not None:
+            return Response(status_code=204)
+
+        data = await request.form()
+        guardado = False
         try:
             form = SurveyService.open_form(db, SURVEY_CODE)
             if form is None:

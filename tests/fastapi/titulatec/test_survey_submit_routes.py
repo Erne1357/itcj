@@ -188,12 +188,18 @@ def test_una_pregunta_opcional_en_blanco_no_rechaza_el_envio(
     assert len(_responses(db_session)) == 1
 
 
-def test_el_envio_de_un_alumno_con_proceso_acredita_y_lo_dice(
+def test_el_envio_de_un_alumno_con_proceso_deja_la_solicitud_en_revision(
     client_as, make_student, make_survey_form, make_cohort, make_process,
     requisito_de_encuesta, db_session,
 ):
-    """`credit_status='credited'`: la tarjeta lo dice y el cumplimiento existe."""
-    from itcj2.apps.titulatec.models import RequirementFulfillment
+    """`credit_status='in_review'`: la tarjeta lo dice, SIN acreditar nada.
+
+    Tarea 3 (D6): el envio ya no acredita `graduate_survey` -eso ahora
+    depende de que GTV libere la solicitud desde su bandeja-, asi que la
+    tarjeta pasa de 'credited' a 'in_review' y no debe existir ningun
+    `RequirementFulfillment`.
+    """
+    from itcj2.apps.titulatec.models import RequirementFulfillment, SurveyReview
 
     make_survey_form()
     student = make_student()
@@ -206,15 +212,17 @@ def test_el_envio_de_un_alumno_con_proceso_acredita_y_lo_dice(
                                    follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:500]
-    assert 'data-tt-credit="credited"' in resp.text
+    assert 'data-tt-credit="in_review"' in resp.text
+    assert (db_session.query(SurveyReview)
+            .filter_by(process_id=proc.id, status="in_review").count() == 1)
     assert (db_session.query(RequirementFulfillment)
-            .filter_by(process_id=proc.id, requirement_id=req.id).count() == 1)
+            .filter_by(process_id=proc.id, requirement_id=req.id).count() == 0)
 
 
 def test_el_envio_de_un_alumno_sin_proceso_lo_dice_distinto(
     client_as, make_student, make_survey_form,
 ):
-    """`no_process` no puede leerse igual que `credited`: uno acredita y otro no."""
+    """`no_process` no puede leerse igual que `in_review`: uno abre solicitud y otro no."""
     make_survey_form()
 
     resp = client_as(make_student()).post(SURVEY_URL, data=OK_PAYLOAD,
@@ -225,13 +233,13 @@ def test_el_envio_de_un_alumno_sin_proceso_lo_dice_distinto(
     assert 'data-tt-credit="no_process"' in resp.text
 
 
-def test_la_tarjeta_de_gracias_tiene_copy_propio_para_los_cinco_creditos():
-    """Los cinco valores del dominio, con texto distinto cada uno.
+def test_la_tarjeta_de_gracias_tiene_copy_propio_para_los_cuatro_creditos():
+    """Los cuatro valores del dominio (Tarea 3), con texto distinto cada uno.
 
     Un `credit_status` sin rama renderiza un mensaje en blanco —o el de otro
-    caso—, y entonces un fallo de configuracion (`no_requirement`) se vuelve
-    indistinguible de un exito. Se renderiza el parcial directo porque provocar
-    los cinco por HTTP costaria cinco escenarios de BD para medir cinco cadenas.
+    caso—, y entonces `already_submitted` se volveria indistinguible de un
+    envio normal. Se renderiza el parcial directo porque provocar los cuatro
+    por HTTP costaria varios escenarios de BD para medir cuatro cadenas.
     """
     from itcj2.apps.titulatec.pages.nav import titulatec_templates
 
@@ -239,14 +247,14 @@ def test_la_tarjeta_de_gracias_tiene_copy_propio_para_los_cinco_creditos():
         "titulatec/public/partials/survey_thanks.html")
 
     textos = {}
-    for estado in ("anonymous", "no_process", "no_requirement", "already", "credited"):
+    for estado in ("anonymous", "no_process", "already_submitted", "in_review"):
         html = tpl.render(credit_status=estado)
         assert f'data-tt-credit="{estado}"' in html
         plano = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
         assert len(plano) > 40, f"{estado}: mensaje vacio o de relleno ({plano!r})"
         textos[estado] = plano
 
-    assert len(set(textos.values())) == 5, (
+    assert len(set(textos.values())) == 4, (
         "dos estados de credito se leen igual: "
         + repr({k: v[:60] for k, v in textos.items()}))
 

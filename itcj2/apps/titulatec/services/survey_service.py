@@ -1,8 +1,19 @@
 """Motor de la encuesta de egresados: formulario abierto, borradores, envio y export.
 
 Contrato de escritura (seccion 4.4 del diseno): validar -> `SurveyResponse` ->
-filas de `SurveyAnswer` -> borrar el borrador -> acreditar el requisito -> UN
-SOLO `commit` al final. Si la validacion falla no se escribe NADA.
+filas de `SurveyAnswer` -> borrar el borrador -> abrir la solicitud de
+liberacion -> UN SOLO `commit` al final. Si la validacion falla no se escribe
+NADA.
+
+Tarea 3 (spec `2026-09-15-titulatec-liberacion-gtv-design.md` 5.3, D6): el
+envio de la encuesta YA NO acredita nada por si solo. Lo que antes hacia
+`SurveyService._credit` -sembrar/leer el `CotejoRequirement` con
+`auto_source='graduate_survey'` y `fulfill`-lo de una vez- desaparecio de este
+modulo: ahora un envio con proceso acreditable abre una solicitud de
+liberacion (`SurveyReviewService.open_for_submission`) para que Gestion
+Tecnologica y Vinculacion decida despues, desde su bandeja, si libera el
+requisito o deja observaciones. La encuesta queda CONGELADA tras ese primer
+envio -quien ya tiene solicitud no puede volver a enviarla-.
 
 Mapeo tipo -> columna de `titulatec_survey_answers`, exhaustivo:
 
@@ -182,15 +193,52 @@ class SurveyService:
                ) -> tuple[object | None, dict[str, str], str]:
         """Escribe una respuesta completa. Devuelve `(response, errors, credit_status)`.
 
-        `credit_status` en {'credited','no_process','no_requirement','already',
-        'anonymous'}. En la rama de error `response` es None y `credit_status`
-        vale 'anonymous': el llamador no debe leerlo cuando no hay respuesta.
+        `credit_status` en {'in_review','already_submitted','no_process',
+        'anonymous'}. En cualquier rama sin respuesta escrita (incluida
+        `already_submitted`) `response` es `None`: el llamador no debe leerlo.
 
-        UN SOLO `commit`, al final (seccion 4.4 paso 7). Por eso el cumplimiento
-        se escribe con `commit=False`.
+        Tarea 3 (spec 5.3, D6): el proceso se resuelve ANTES de validar el
+        formulario. Si el alumno tiene proceso acreditable y ESE proceso ya
+        tiene una solicitud de liberacion (`SurveyReviewService.
+        get_for_process`), se corta ahi mismo sin escribir nada -ni siquiera
+        se gasta el trabajo de validar una respuesta que de todas formas no
+        se va a guardar-: la encuesta queda CONGELADA tras el primer envio.
+
+        Sin solicitud previa, el flujo de siempre -validar, `SurveyResponse`,
+        filas de `SurveyAnswer`, borrar el borrador- y al final, en vez de
+        `_credit` (retirado de este modulo), `SurveyReviewService.
+        open_for_submission(..., commit=False)` abre la solicitud para GTV.
+
+        UN SOLO `commit`, al final (seccion 4.4 paso 7). Dos envios
+        simultaneos del mismo proceso pueden pasar los dos la comprobacion de
+        arriba (la carrera real): el perdedor del `UNIQUE(process_id)`
+        revienta con `IntegrityError` al escribir la solicitud -inmediata en
+        Postgres, no diferida al commit-, y se resuelve igual que si se
+        hubiera visto venir: `rollback` de TODO lo de este envio (la
+        respuesta recien escrita incluida -segun el paso 7, o se guarda junto
+        con la solicitud o no se guarda nada-) y `already_submitted`, nunca un
+        500.
         """
+        from sqlalchemy.exc import IntegrityError
+
         from itcj2.apps.titulatec.models import SurveyAnswer, SurveyDraft, SurveyResponse
+        from itcj2.apps.titulatec.services.process_service import ProcessService
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
         from itcj2.apps.titulatec.utils.survey_validator import validate_answers
+
+        process = None
+        control_number = None
+        if user_id is not None:
+            from itcj2.core.models import User
+            # Mismo selector que renderiza el checklist del alumno (seccion 5.3):
+            # si los dos lados no llaman a este helper, la solicitud aterriza
+            # en un proceso distinto del que el alumno ve.
+            process = ProcessService.creditable_process(db, user_id)
+            if (process is not None
+                    and SurveyReviewService.get_for_process(db, process.id) is not None):
+                return None, {}, "already_submitted"
+            user = db.get(User, user_id)
+            control_number = getattr(user, "control_number", None)
 
         ok, errors, cleaned = validate_answers(form.schema or {}, submitted or {})
         if not ok:
@@ -200,18 +248,6 @@ class SurveyService:
             # Se RECHAZA, no se trunca: una respuesta a medias es peor que un no.
             return None, {"__form__": "Tu respuesta es demasiado larga. "
                                       "Acortala e intentalo de nuevo."}, "anonymous"
-
-        process = None
-        control_number = None
-        if user_id is not None:
-            from itcj2.core.models import User
-            from itcj2.apps.titulatec.services.process_service import ProcessService
-            # Mismo selector que renderiza el checklist del alumno (seccion 5.3):
-            # si los dos lados no llaman a este helper, el cumplimiento aterriza
-            # en un proceso distinto del que el alumno ve.
-            process = ProcessService.creditable_process(db, user_id)
-            user = db.get(User, user_id)
-            control_number = getattr(user, "control_number", None)
 
         response = SurveyResponse(
             form_id=form.id,
@@ -251,42 +287,22 @@ class SurveyService:
                                     field_type=field_type, value_text=str(value)))
 
         credit_status = "anonymous"
-        if user_id is not None:
-            db.query(SurveyDraft).filter_by(
-                form_id=form.id, user_id=user_id).delete(synchronize_session=False)
-            credit_status = SurveyService._credit(db, process, response)
-
-        db.commit()
+        try:
+            if user_id is not None:
+                db.query(SurveyDraft).filter_by(
+                    form_id=form.id, user_id=user_id).delete(synchronize_session=False)
+                if process is not None:
+                    SurveyReviewService.open_for_submission(db, process, response,
+                                                            commit=False)
+                    credit_status = "in_review"
+                else:
+                    credit_status = "no_process"
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            return None, {}, "already_submitted"
         db.refresh(response)
         return response, {}, credit_status
-
-    @staticmethod
-    def _credit(db: Session, process, response) -> str:
-        """Reglas 2-4 de la seccion 6.3. NO commitea: lo hace `submit`."""
-        from itcj2.apps.titulatec.models import RequirementFulfillment
-        from itcj2.apps.titulatec.services.requirement_service import RequirementService
-
-        if process is None:
-            return "no_process"
-
-        requirement = RequirementService.auto_requirement(
-            db, process.cohort_id, AUTO_SOURCE_SURVEY)
-        if requirement is None:
-            return "no_requirement"
-
-        ya = (db.query(RequirementFulfillment)
-              .filter_by(process_id=process.id, requirement_id=requirement.id)
-              .first())
-        if ya is not None:
-            return "already"
-
-        RequirementService.fulfill(
-            db, process.id, requirement.id,
-            source="system",
-            external_ref=f"survey_response:{response.id}",
-            commit=False,
-        )
-        return "credited"
 
     # -----------------------------------------------------------------
     # Export

@@ -29,20 +29,29 @@
 
    Enlace de retorno (Tarea F): `public_bar_actions` (base_public.html) se
    llena SOLO si `back_link` viene en el contexto -`pages/public.py::survey`
-   lo calcula con la sesion viva y lo manda en las dos ramas (con y sin
-   formulario abierto)-, nunca inventado aqui. El nombre accesible es SIEMPRE
-   el completo ("Volver a TitulaTec"/"Volver al inicio") via `aria-label`; lo
-   que cambia con el viewport es solo el texto VISIBLE (`d-none d-sm-inline` /
-   `d-sm-none`, el mismo idioma responsivo que ya usan `admin/cohorts.html` y
-   `partials/appointments/_appt_attend.html`). No se llama "Atras": esa
-   etiqueta ya es el boton de paso anterior del formulario (`survey_form.html`)
-   y los E2E lo buscan por ese nombre exacto.
+   lo calcula con la sesion viva y lo manda en las tres ramas (formulario,
+   tarjeta de estatus y cierre)-, nunca inventado aqui. El nombre accesible es
+   SIEMPRE el completo ("Volver a TitulaTec"/"Volver al inicio") via
+   `aria-label`; lo que cambia con el viewport es solo el texto VISIBLE
+   (`d-none d-sm-inline` / `d-sm-none`, el mismo idioma responsivo que ya usan
+   `admin/cohorts.html` y `partials/appointments/_appt_attend.html`). No se
+   llama "Atras": esa etiqueta ya es el boton de paso anterior del formulario
+   (`survey_form.html`) y los E2E lo buscan por ese nombre exacto.
+
+   Encuesta CONGELADA (Tarea 3, D6, spec 5.3): con `review` en el contexto
+   -el alumno ya envio la encuesta y `pages/public.py::_solicitud_existente`
+   encontro su solicitud- el cuerpo pinta `partials/survey_status.html` en
+   vez del formulario, la cabecera oculta la descripcion y la nota de
+   autoguardado (no hay nada que seguir contestando ni que autoguardar), y el
+   `<main>` NO usa `tt-public-main--survey`: sin riel de pasos que pintar, es
+   la misma columna de lectura de la base que usan el cierre (`no_form`) y la
+   inscripcion.
    =========================================================================== #}
 {% extends "titulatec/public/base_public.html" %}
 
 {% block public_title %}{% if no_form %}Encuesta de egresados{% else %}{{ form.title }}{% endif %} · TitulaTec{% endblock %}
 {% block public_page %}public_survey{% endblock %}
-{% block public_main_class %}{% if not no_form %} tt-public-main--survey{% endif %}{% endblock %}
+{% block public_main_class %}{% if not no_form and not review %} tt-public-main--survey{% endif %}{% endblock %}
 
 {% block public_bar_actions %}
   {% if back_link %}
@@ -58,8 +67,8 @@
 {% block public_body %}
   <header class="tt-survey-head">
     <h1 class="tt-display tt-survey-title">{% if no_form %}Encuesta de egresados{% else %}{{ form.title }}{% endif %}</h1>
-    {% if not no_form and form.description %}<p class="tt-survey-lede">{{ form.description }}</p>{% endif %}
-    {% if not no_form and is_authenticated %}
+    {% if not no_form and not review and form.description %}<p class="tt-survey-lede">{{ form.description }}</p>{% endif %}
+    {% if not no_form and not review and is_authenticated %}
       {# Solo con sesion: sin ella el borrador vive en `localStorage` y no hay
          guardado de servidor que anunciar (lo explica el aviso anonimo). Los
          estados -«Guardando…», «Guardado hh:mm», «No se pudo guardar; lo
@@ -74,6 +83,8 @@
 
   {% if no_form %}
     {% include "titulatec/public/partials/notice_card.html" %}
+  {% elif review %}
+    {% include "titulatec/public/partials/survey_status.html" %}
   {% else %}
     {% include "titulatec/public/partials/survey_form.html" %}
   {% endif %}

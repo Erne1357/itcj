@@ -1,0 +1,48 @@
+{# ===========================================================================
+   survey_status.html — tarjeta de estatus de la solicitud de liberacion GTV.
+
+   Tarea 3 (spec 5.3, D6): la encuesta de egresados queda CONGELADA tras el
+   primer envio. Esta tarjeta ocupa el lugar del formulario -o del cuerpo
+   completo de `survey.html`, cuando la pinta el GET- para quien YA la envio:
+   `GET /encuesta-egresados`, `POST /encuesta-egresados/paso` y
+   `POST /encuesta-egresados/borrador` la usan (via `pages/public.py::
+   _solicitud_existente`) para cortar ANTES del presupuesto y de la
+   validacion. El envio (`POST /encuesta-egresados`) NO la usa: ese responde
+   con la tarjeta de gracias de siempre (`survey_thanks.html`,
+   `credit_status="already_submitted"`), porque para el visitante es la
+   respuesta natural a un intento de envio.
+
+   No hay ninguna accion que el egresado pueda tomar aqui -ni un boton para
+   volver a contestar-: unicamente Gestion Tecnologica y Vinculacion cambia
+   el estatus de una solicitud, desde su bandeja de Liberaciones.
+
+   Raiz `#tt-survey-status`, ctx {"review": <SurveyReviewService.
+   summary_for_process>, "back_link": ...}. `review.status` es SIEMPRE uno
+   de `in_review|rejected|approved` -esta plantilla nunca se pinta para el
+   pseudo-estado `missing` (ausencia de solicitud), que es justo el caso en
+   el que se pinta el formulario en su lugar-.
+   =========================================================================== #}
+<div id="tt-survey-status" class="tt-card tt-card--hero tt-anim-in"
+     role="status" data-tt-review-status="{{ review.status }}">
+  <span class="tt-kicker"><i class="bi bi-clipboard-check me-1" aria-hidden="true"></i>Encuesta de egresados</span>
+
+  {% if review.status == 'approved' %}
+    <h2 class="tt-display h5 mt-1 mb-2">Tu encuesta ya fue liberada</h2>
+    <p class="mb-0">Gestión Tecnológica y Vinculación revisó tu encuesta y la liberó{% if review.reviewed_at %} el {{ review.reviewed_at }}{% endif %}. No tienes nada más que hacer aquí; continúa con tu proceso de titulación en TitulaTec.</p>
+
+  {% elif review.status == 'rejected' %}
+    <h2 class="tt-display h5 mt-1 mb-2">Tienes observaciones de Gestión Tecnológica y Vinculación</h2>
+    {% if review.reason %}<p class="mb-2" data-tt-review-reason>{{ review.reason }}</p>{% endif %}
+    <p class="mb-0">Resuélvelo directamente en su ventanilla (Residencias, Prácticas o Servicio Social); no necesitas volver a contestar esta encuesta, ya quedó registrada.</p>
+
+  {% else %}
+    <h2 class="tt-display h5 mt-1 mb-2">Tu encuesta está en revisión</h2>
+    <p class="mb-0">Ya la enviaste y quedó en revisión por el Departamento de Gestión Tecnológica y Vinculación. Ya pueden agendarte la cita de cotejo; si hay algún pendiente te lo diremos aquí.</p>
+  {% endif %}
+
+  {% if back_link %}
+  <a class="btn btn-sm tt-btn-ink tt-pressable mt-3" href="{{ back_link.url }}" data-tt-status-back>
+    <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>{{ back_link.label }}
+  </a>
+  {% endif %}
+</div>
