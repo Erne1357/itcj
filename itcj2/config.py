@@ -106,7 +106,14 @@ class Settings(BaseSettings):
     # tenía la encuesta en caché ve el marcado nuevo con la hoja vieja: sin
     # reglas para `.tt-opt`/`.tt-steps-mark` las opciones salen como casillas
     # sueltas y el indicador de pasos como una lista cruda.
-    STATIC_VERSION: str = "1.0.1111532"
+    #
+    # Bump 2026-09-15 (2): `public.css` (encuesta compacta en móvil),
+    # `js/public/survey.js` (nota «Guardando… / Guardado hh:mm»),
+    # `titulatec.css` (estados hover/foco/pulsado de `.tt-btn-*` y la sección de
+    # información de requisitos), `js/admin/cotejo-info-editor.js` (nuevo) y
+    # `js/shared/titulatec-utils.js` (guarda del puente `htmx:confirm`). Sin el
+    # bump, el editor de requisitos y la nota de guardado llegan sin su JS.
+    STATIC_VERSION: str = "1.0.1111533"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
