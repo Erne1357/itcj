@@ -125,6 +125,49 @@ class TestDelete:
             False, "not_found")
 
 
+class TestUpdateCandadoAutomatico:
+    """El requisito automatico (`auto_source`) no puede volverse opcional ni
+    inactivo desde el editor (D9): si se pudiera, `RequirementService.
+    missing_required` (que solo mira `is_active=TRUE AND is_required=TRUE`)
+    dejaria de exigirlo y la guarda de la fase 2 se desarma en silencio.
+    """
+
+    def test_el_automatico_ignora_is_required_e_is_active_en_false(
+            self, db_session, make_cohort):
+        cohort = make_cohort()
+        CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+        encuesta = [r for r in CotejoRequirementService.list(db_session, cohort.id)
+                    if r.auto_source == AUTO_SURVEY][0]
+
+        item = CotejoRequirementService.update(
+            db_session, encuesta.id, cohort.id,
+            is_required=False, is_active=False, label="Encuesta (editada)",
+            hint="nuevo hint", icon="stars")
+
+        assert (item.is_required, item.is_active) == (True, True), (
+            "un requisito con auto_source debe quedar SIEMPRE required+active, "
+            "sin importar lo que llegue del formulario"
+        )
+        assert (item.label, item.hint, item.icon) == (
+            "Encuesta (editada)", "nuevo hint", "stars"), (
+            "label/hint/icon si deben seguir siendo editables en el automatico"
+        )
+
+    def test_un_requisito_normal_si_puede_quedar_opcional_e_inactivo(
+            self, db_session, make_cohort):
+        cohort = make_cohort()
+        item = CotejoRequirementService.create(db_session, cohort.id, label="Normal",
+                                               hint=None, icon=None)
+
+        item = CotejoRequirementService.update(
+            db_session, item.id, cohort.id, is_required=False, is_active=False)
+
+        assert (item.is_required, item.is_active) == (False, False), (
+            "el candado es SOLO para auto_source: un requisito normal sigue "
+            "pudiendo quedar opcional e inactivo"
+        )
+
+
 class TestCohortCreate:
     def test_nace_en_draft_y_con_su_lista_de_requisitos(
             self, db_session, client_as, make_head, make_period):

@@ -43,6 +43,21 @@ def _tab_url(cohort_id, tab):
     return f"/titulatec/admin/cohorts/{cohort_id}?tab={tab}"
 
 
+def _row_html(html: str, req_id: int) -> str:
+    """Aisla el `<form>` de UNA fila por su input `id="req-{req_id}"`.
+
+    Sustring exacto: `req_id` termina en `"` en el HTML, asi que `req-1` nunca
+    empata dentro de `req-12` (buscar el marcador completo entrecomillado).
+    Sin esto, comprobar `disabled`/el boton de borrar por fila se vuelve un
+    grep sobre el documento entero y una fila contamina la asercion de otra.
+    """
+    marker = f'id="req-{req_id}"'
+    i = html.index(marker)
+    start = html.rindex("<form", 0, i)
+    end = html.index("</form>", i) + len("</form>")
+    return html[start:end]
+
+
 @pytest.fixture()
 def escenario(db_session, make_head, make_officer, make_program, make_cohort):
     """La jefa CON el permiso, un encargado sin el, y una convocatoria vacia.
@@ -195,6 +210,62 @@ class TestEscritura:
         assert resp.status_code == 400, resp.text[:300]
         assert "sistema" in _msg(resp).lower()
         assert db_session.get(type(encuesta), encuesta.id) is not None
+
+
+class TestCandadoAutomatico:
+    """D9: el requisito automatico no puede volverse opcional ni inactivo
+    desde el editor, ni por la ruta ni por el parcial que la sirve."""
+
+    def test_update_sobre_el_automatico_sin_casillas_marcadas_sigue_true(
+            self, db_session, escenario, client_as):
+        """Checkboxes `disabled` -> el navegador NO los manda: la ruta/servicio
+        deben sostener `True` igual, sin depender de que lleguen marcados."""
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        cohort = escenario["cohort"]
+        CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+        encuesta = [r for r in CotejoRequirementService.list(db_session, cohort.id)
+                    if r.auto_source == "graduate_survey"][0]
+
+        resp = client_as(escenario["jefa"]).post(
+            _url(cohort.id, f"/{encuesta.id}/update"),
+            data={"icon": encuesta.icon, "label": encuesta.label,
+                  "hint": encuesta.hint or ""},   # sin is_required ni is_active
+            follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        db_session.refresh(encuesta)
+        assert (encuesta.is_required, encuesta.is_active) == (True, True)
+
+    def test_el_parcial_deshabilita_las_casillas_del_automatico_y_oculta_eliminar(
+            self, db_session, escenario, client_as):
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        cohort = escenario["cohort"]
+        CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+        encuesta = [r for r in CotejoRequirementService.list(db_session, cohort.id)
+                    if r.auto_source == "graduate_survey"][0]
+        normal = CotejoRequirementService.create(db_session, cohort.id, label="Normal",
+                                                  hint=None, icon=None)
+
+        resp = client_as(escenario["jefa"]).get(_url(cohort.id), follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        fila_encuesta = _row_html(resp.text, encuesta.id)
+        assert "disabled" in fila_encuesta, (
+            "las casillas Obligatorio/Activo del automatico deben salir disabled")
+        assert _url(cohort.id, f"/{encuesta.id}/delete") not in fila_encuesta, (
+            "el automatico no debe pintar boton Eliminar")
+        assert "acredita el sistema" in fila_encuesta.lower(), (
+            "falta la nota visible de que lo acredita el sistema")
+
+        fila_normal = _row_html(resp.text, normal.id)
+        assert "disabled" not in fila_normal, (
+            "un requisito normal no debe salir con las casillas deshabilitadas")
+        assert _url(cohort.id, f"/{normal.id}/delete") in fila_normal, (
+            "un requisito normal si debe conservar el boton Eliminar")
 
 
 class TestAutorizacion:

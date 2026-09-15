@@ -97,10 +97,24 @@ class CotejoRequirementService:
 
     @staticmethod
     def update(db: Session, req_id: int, cohort_id: int, **fields):
+        """Actualiza el requisito. Candado para el automático (D9).
+
+        Un requisito con `auto_source` (hoy solo 'graduate_survey') es el que
+        ACREDITA el sistema, y `RequirementService.missing_required` —la
+        guarda que bloquea el dictamen de la fase 2— solo mira filas
+        `is_active=True AND is_required=True`. Si el editor pudiera volverlo
+        opcional o inactivo, esa guarda se desarmaría en silencio (pasó en
+        dev: alguien corrió un UPDATE manual mientras la encuesta no existía
+        y nunca se revirtió). Por eso aquí `is_required`/`is_active` se fuerzan
+        a `True` para estos SIN importar lo que traiga `fields` — `label`,
+        `hint`, `icon` y `order_index` sí se siguen pudiendo editar.
+        """
         from itcj2.apps.titulatec.models import CotejoRequirement
         item = db.query(CotejoRequirement).filter_by(id=req_id, cohort_id=cohort_id).first()
         if not item:
             return None
+        if item.auto_source:
+            fields = {**fields, "is_required": True, "is_active": True}
         for k in ("label", "hint", "icon", "is_required", "is_active", "order_index"):
             if k in fields and fields[k] is not None:
                 setattr(item, k, fields[k])
