@@ -148,8 +148,8 @@ class TitulaTecEmailHelper:
             )
             return _deliver(
                 template="verify_enrollment.html",
-                context={"req": req, "link": link, "horas": VERIFY_TTL_HOURS},
-                subject="[TitulaTec ITCJ] Confirma tu inscripción",
+                context={"req": req, "link": link, "dias": VERIFY_TTL_HOURS // 24},
+                subject="[TitulaTec ITCJ] Activa tu acceso a titulación",
                 to=req.contact_email, que="verify_enrollment", link=link,
             )
         except Exception:

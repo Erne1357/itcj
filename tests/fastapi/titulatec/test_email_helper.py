@@ -156,6 +156,57 @@ def test_el_rechazo_va_al_correo_personal_con_el_motivo(db_session, solicitud, c
     assert "No aparece en el padrón." in html
 
 
+def _texto(html: str) -> str:
+    """Texto plano del correo: sin etiquetas y con los espacios colapsados."""
+    import re
+
+    return " ".join(re.sub(r"<[^>]+>", "", html).split())
+
+
+def test_la_liga_de_activacion_dice_quien_aprobo_cuanto_dura_y_que_hacer_si_no_fuiste(
+    db_session, solicitud, correo_falso,
+):
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    req = solicitud(control_number="90000010", kind="known", status="approved")
+
+    assert TitulaTecEmailHelper.send_verify_enrollment(db_session, req, link=LIGA) is True
+
+    (asunto, _dest, html), = correo_falso
+    assert asunto == "[TitulaTec ITCJ] Activa tu acceso a titulación"
+    texto = _texto(html)
+    assert "Hola JUAN PEREZ," in texto
+    assert ("Servicios Escolares aprobó tu solicitud de inscripción al proceso de "
+            "titulación con el número de control 90000010.") in texto
+    assert "Activar mi acceso" in texto
+    assert f'href="{LIGA}"' in html
+    assert ("La liga vence en 7 días. Al abrirla quedas inscrito y entras con tu número "
+            "de control y tu NIP de siempre.") in texto
+    assert ("Si no solicitaste esta inscripción, no abras la liga y avisa a Servicios "
+            "Escolares.") in texto
+    assert "Confirmar mi inscripción" not in texto
+    assert "horas" not in texto
+
+
+def test_el_aviso_de_folio_dice_que_se_activo_y_sirve_de_alarma(
+    db_session, make_student, make_process, solicitud, correo_falso,
+):
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    alumno = make_student(control_number="99123460")
+    proceso = make_process(student=alumno)
+    req = solicitud(control_number="99123460", kind="known", status="converted")
+
+    assert TitulaTecEmailHelper.send_enrollment_done(db_session, req, proceso) is True
+
+    (_asunto, _dest, html), = correo_falso
+    texto = _texto(html)
+    assert "Se activó tu inscripción al proceso de titulación." in texto
+    assert proceso.folio in texto
+    assert "Si no fuiste tú, avisa de inmediato a Servicios Escolares." in texto
+    assert "Confirmaste tu correo" not in texto
+
+
 def test_el_nombre_del_solicitante_va_escapado(db_session, solicitud, correo_falso):
     """Un anónimo escribe `first_name`. En un correo HTML eso es inyección."""
     from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
