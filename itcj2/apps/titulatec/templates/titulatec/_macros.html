@@ -34,6 +34,19 @@
   {% else %}{{ pill(estado, "neutral") }}{% endif %}
 {% endmacro %}
 
+{# — Mapea el estado de la solicitud de liberación GTV de la encuesta de
+   egresados (`SurveyReviewService`) a (texto, tono, icono). Incluye el
+   PSEUDO-estado "missing" (el egresado todavía no envía la encuesta).
+   NO reusa `estado_pill`: esa dice "Rechazado"/"Aprobado", y aquí GTV
+   "libera" u "observa" — vocabulario distinto para la misma forma visual. #}
+{% macro survey_review_pill(status) %}
+  {% if status == "missing" %}{{ pill("Encuesta pendiente", "neutral", "clipboard") }}
+  {% elif status == "in_review" %}{{ pill("En revisión", "amber", "clock") }}
+  {% elif status == "rejected" %}{{ pill("Con observaciones", "danger", "exclamation-triangle") }}
+  {% elif status == "approved" %}{{ pill("Liberada", "success", "check-lg") }}
+  {% else %}{{ pill(status, "neutral") }}{% endif %}
+{% endmacro %}
+
 {# — SKELETON de carga — úsalo en regiones que cargan vía HTMX (clase htmx-indicator) #}
 {% macro skel_line(w="") %}<div class="tt-skel tt-skel-line {{ w }}"></div>{% endmacro %}
 {% macro skel_card() %}<div class="tt-skel tt-skel-card"></div>{% endmacro %}

@@ -963,6 +963,58 @@ def make_survey_form(db_session):
     return _make
 
 
+@pytest.fixture()
+def make_survey_review(db_session, make_survey_form):
+    """`SurveyReview` ya en el estado pedido, con una `SurveyResponse` minima detras.
+
+    Crea SOLO la solicitud (y la respuesta que la respalda, via `make_survey_form`
+    con una VERSION propia por llamada -- `version=_n()` -- para no disparar el
+    purgado por colision de `(code, version)` de esa fabrica: dos llamadas en el
+    mismo test con la version por omision borrarian la respuesta de la primera
+    al crear la segunda). NO acredita el requisito `graduate_survey` aunque
+    `status="approved"`: eso es un EFECTO de `SurveyReviewService.approve`, no
+    un dato que se pueda sembrar por separado sin mentir sobre quien lo hizo.
+    El test que necesite la puerta de la fase 2 realmente abierta debe llamar
+    el mismo a `SurveyReviewService.approve(db_session, review.id, actor_id)`.
+
+    `reviewed_by_id`/`reviewed_at` solo se llenan si se pasa `reviewer`: sin
+    el, quedan en `None` sin importar `status` (fabrica minima, sin inferencias).
+    """
+    from itcj2.core.utils.timezone import db_now
+    from itcj2.apps.titulatec.models import SurveyResponse, SurveyReview
+
+    def _make(process, status="in_review", reason=None, reviewer=None):
+        form = make_survey_form(version=_n())
+        response = SurveyResponse(
+            form_id=form.id,
+            form_version=form.version,
+            user_id=process.student_id,
+            process_id=process.id,
+            cohort_id=process.cohort_id,
+            identity_source="session",
+            answers={},
+        )
+        db_session.add(response)
+        db_session.flush()
+
+        reviewer_id = getattr(reviewer, "id", reviewer)
+        review = SurveyReview(
+            process_id=process.id,
+            response_id=response.id,
+            status=status,
+            rejection_reason=reason,
+            reviewed_by_id=reviewer_id,
+            reviewed_at=(db_now() if reviewer_id is not None else None),
+            submitted_at=db_now(),
+            updated_at=db_now(),
+        )
+        db_session.add(review)
+        db_session.flush()
+        return review
+
+    return _make
+
+
 # ---------------------------------------------------------------------------
 # Escenario listo para usar
 # ---------------------------------------------------------------------------
