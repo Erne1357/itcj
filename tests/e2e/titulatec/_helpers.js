@@ -517,20 +517,37 @@ finally:
 `);
 }
 
-/** Crea una solicitud de egresado desconocido lista para aprobar. Devuelve su id. */
-function seedPendingRequest(ctx) {
+/**
+ * Crea una solicitud en revisión, tal como la deja el formulario público.
+ * Devuelve su id.
+ *
+ * Sin opciones (lo que ya usaban los specs): el número de control 29990777 NO
+ * tiene cuenta, así que la bandeja pide NIP para crear el acceso.
+ * `{ withAccount: true }`: crea antes una cuenta con contraseña para 29990778,
+ * así que la bandeja la aprueba emitiendo la liga de activación, sin NIP. Las
+ * dos filas caen en el borrado del escenario (`first_name = E2E_TAG` y
+ * `username LIKE '2999%'`).
+ */
+function seedPendingRequest(ctx, { withAccount = false } = {}) {
+  const control = withAccount ? '29990778' : '29990777';
   const out = runInContainer(`
-from datetime import datetime
 from itcj2.database import SessionLocal
+from itcj2.core.models.user import User
+from itcj2.core.utils.security import hash_nip
 from itcj2.apps.titulatec.models import EnrollmentRequest
 db = SessionLocal()
 try:
+    if ${withAccount ? 'True' : 'False'}:
+        db.add(User(first_name="${E2E_TAG}", last_name="CON CUENTA",
+                    username="${control}", control_number="${control}",
+                    password_hash=hash_nip("${E2E_NIP}"), is_active=True))
+        db.flush()
     req = EnrollmentRequest(
-        cohort_id=${ctx.cohortId}, control_number="29990777",
+        cohort_id=${ctx.cohortId}, control_number="${control}",
         first_name="EGRESADO", last_name="${E2E_TAG}",
         program_text="Ingeniería en Sistemas", phone="6560000000",
         contact_email="e2e.titulatec@example.com", has_efirma=False,
-        kind="unknown", status="pending_review", verified_at=datetime.utcnow())
+        kind="${withAccount ? 'known' : 'unknown'}", status="pending_review")
     db.add(req); db.flush()
     rid = req.id
     db.commit()
