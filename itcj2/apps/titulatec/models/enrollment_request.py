@@ -25,8 +25,11 @@ para que el prefetch de un escaner de correo no la gaste). Se guarda HASHEADA
 (sha256) y se compara con `hmac.compare_digest` (E7): un token en claro en BD es
 una credencial en claro.
 
-`contact_token_hash`/`contact_expires_at` son legado: ya no se emiten ligas de
-contacto; las que se mandaron antes siguen canjeables hasta vencer.
+`contact_token_hash`/`contact_expires_at` son LEGADO SIN USO: la liga de
+contacto dejo de emitirse y el 2026-09-15 se retiro tambien su canje
+(`confirm_contact`, `GET /titulatec/inscripcion/correo` y su plantilla). Ningun
+codigo las lee ni las escribe; se quedan en la BD para no migrar dos columnas
+que siempre valen NULL en las filas nuevas.
 """
 from sqlalchemy import (
     BigInteger, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text,
@@ -80,6 +83,8 @@ class EnrollmentRequest(Base):
     verify_sent_to = Column(String(150), nullable=True)        # a que buzon se mando
     verified_at = Column(DateTime, nullable=True)
 
+    # LEGADO SIN USO desde 2026-09-15 (ver el docstring del modulo): nada las lee
+    # ni las escribe. Quitarlas exige una migracion que hoy no aporta nada.
     contact_token_hash = Column(String(64), nullable=True, index=True)
     contact_expires_at = Column(DateTime, nullable=True)
 

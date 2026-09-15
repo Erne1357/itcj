@@ -40,8 +40,9 @@ dejar inscrita a esa persona. Para que no escale:
   3. El aviso con folio de `verify()` va al buzón INSTITUCIONAL de la cuenta:
      es la alarma de su dueña, y no depende de nada que se tecleó.
   4. No hay segunda liga. La de contacto canjeaba contra el perfil con la sola
-     prueba del buzón tecleado; ya no se emite y `confirm_contact` vive solo
-     para las que se mandaron antes.
+     prueba del buzón tecleado: dejó de emitirse y el 2026-09-15 se retiró
+     también su canje (`confirm_contact`, `GET /titulatec/inscripcion/correo` y
+     la plantilla). Sus columnas quedan en la BD como legado sin uso.
 
 Una cuenta NUEVA solo conoce su NIP por el correo que manda `approve()`.
 
@@ -780,44 +781,3 @@ class EnrollmentRequestService:
                 except Exception:      # pragma: no cover - sesión ya inservible
                     pass
         return ok
-
-    @staticmethod
-    def confirm_contact(db: Session, token: str) -> bool:
-        """Confirma el correo PERSONAL con una liga de contacto ENVIADA ANTES del
-        2026-09-15. Ya no se emiten nuevas; la ruta sigue viva hasta que venzan.
-
-        EXIGE `req.verified_at` (B1 de la revisión final): escribe en
-        `core_student_profile` —tabla del core, compartida con las demás apps—
-        buscando al usuario por el `control_number` DE LA SOLICITUD, mientras que
-        el token solo prueba posesión del buzón que alguien tecleó. Una solicitud
-        `rejected` tampoco se acepta. `core_users.email` NO se toca (D12).
-
-        IDEMPOTENTE, mismo motivo que `verify()`; la guarda contra una liga vieja
-        es `contact_expires_at`. La comparación decisiva usa `hmac.compare_digest`.
-        """
-        from itcj2.core.models.user import User
-        from itcj2.core.services.student_profile_service import StudentProfileService
-        from itcj2.apps.titulatec.models import EnrollmentRequest
-
-        if not token:
-            return False
-        digest = _sha256(token)
-        req = (db.query(EnrollmentRequest)
-               .filter(EnrollmentRequest.contact_token_hash == digest).first())
-        if req is None or not hmac.compare_digest(req.contact_token_hash or "", digest):
-            return False
-        if req.contact_expires_at is not None and req.contact_expires_at < datetime.now():
-            return False
-        # Se devuelve el MISMO `False` que un token inexistente o vencido: la ruta
-        # pinta una sola tarjeta para los tres.
-        if req.verified_at is None or req.status == "rejected":
-            return False
-
-        user = db.query(User).filter_by(control_number=req.control_number).first()
-        if user is None:
-            return False
-
-        StudentProfileService.set_fields(db, user.id, contact_email=req.contact_email)
-        StudentProfileService.mark_contact_verified(db, user.id)
-        db.commit()
-        return True

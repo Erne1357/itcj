@@ -246,15 +246,16 @@ def test_ninguna_etapa_emite_una_liga_de_contacto(
 
 
 # ===========================================================================
-# Ligas de contacto que ya se mandaron: la guarda de canje sigue viva
+# La liga de contacto ya no se puede canjear (retirada el 2026-09-15)
 # ===========================================================================
-def test_confirmar_el_contacto_de_una_solicitud_sin_verificar_no_toca_el_perfil(
+def test_un_token_de_contacto_vivo_ya_no_tiene_donde_canjearse(
     client, db_session, make_cohort, make_student,
 ):
-    """Filas anteriores a este cambio pueden traer un token de contacto vivo.
-    Canjearlo sobre una solicitud cuya liga nunca se abrió no puede escribir en
-    `core_student_profile` —tabla del core, compartida con las demás apps— ni
-    sellarla como verificada."""
+    """Filas anteriores pueden traer un `contact_token_hash` vivo. Su canje
+    escribía en `core_student_profile` —tabla del core, compartida con las demás
+    apps— con la sola prueba de un buzón tecleado, así que se retiró con su ruta.
+    La fila es la que ANTES sí canjeaba (liga ya abierta, no rechazada): ahora es
+    un 404 y el perfil no se entera."""
     from itcj2.core.models.student_profile import StudentProfile
     from itcj2.apps.titulatec.models import EnrollmentRequest
 
@@ -264,19 +265,18 @@ def test_confirmar_el_contacto_de_una_solicitud_sin_verificar_no_toca_el_perfil(
     req = EnrollmentRequest(
         cohort_id=cohort.id, control_number="99884012",
         first_name="ALUMNA", last_name="INVENTADA", phone="6561234567",
-        contact_email=ATACANTE, has_efirma=False, kind="known", status="unverified",
+        contact_email=ATACANTE, has_efirma=False, kind="known", status="pending_review",
+        verified_at=datetime.now() - timedelta(days=1),
         contact_token_hash=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
         contact_expires_at=datetime.now() + timedelta(days=7),
     )
     db_session.add(req)
     db_session.flush()
-    assert req.verified_at is None
     client.cookies.clear()
 
     resp = client.get(f"{ENROLL_URL}/correo?t={raw}", follow_redirects=False)
 
-    assert resp.status_code == 200, resp.text[:400]
-    assert "no pudimos confirmar" in resp.text.lower()
+    assert resp.status_code == 404, resp.text[:400]
     perfil = db_session.get(StudentProfile, victima.id)
     assert perfil is None or perfil.contact_email != ATACANTE
     assert perfil is None or perfil.contact_email_verified_at is None

@@ -1,4 +1,8 @@
-"""Reenvío de la liga de activación (público y de bandeja) y ligas de contacto viejas.
+"""Reenvío de la liga de activación: público y de bandeja.
+
+La liga de contacto ("confirma tu correo") se retiró el 2026-09-15 con su ruta,
+su método y su plantilla; lo que la fija ahora vive en
+`test_enrollment_identity_chain.py` y `test_enrollment_request_service.py`.
 
 Dos reenvíos con reglas opuestas, a propósito:
 
@@ -426,111 +430,3 @@ def test_resend_link_toma_lock_y_refresca_antes_de_leer_status():
     lock_pos = cuerpo.index("pg_advisory_xact_lock")
     refresh_pos = cuerpo.index("db.refresh(req)")
     assert lock_pos < refresh_pos < cuerpo.index("req.status")
-
-
-# ===========================================================================
-# Ligas de contacto que ya se mandaron (ya no se emiten nuevas)
-# ===========================================================================
-def _legado_con_contacto(db_session, cohort, *, control, email, vence=timedelta(days=7)):
-    """Fila del flujo anterior: verificada y con token de contacto vivo."""
-    from itcj2.apps.titulatec.models import EnrollmentRequest
-
-    raw = secrets.token_urlsafe(32)
-    req = EnrollmentRequest(
-        cohort_id=cohort.id, control_number=control,
-        first_name="ALUMNA", last_name="INVENTADA", phone="6561234567",
-        contact_email=email, has_efirma=False, kind="known",
-        status="pending_review", verified_at=datetime.now() - timedelta(days=1),
-        verify_send_count=1,
-        contact_token_hash=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
-        contact_expires_at=datetime.now() + vence,
-    )
-    db_session.add(req)
-    db_session.flush()
-    return req, raw
-
-
-def test_una_liga_de_contacto_vieja_sigue_confirmando_sin_tocar_core_users(
-    client, db_session, make_cohort, make_student,
-):
-    """D12: `core_users.email` NO se toca; el correo personal vive en el perfil."""
-    from itcj2.core.models.student_profile import StudentProfile
-
-    cohort = make_cohort(status="open")
-    student = make_student(control_number="99660010")
-    email_original = student.email
-    req, raw = _legado_con_contacto(db_session, cohort, control="99660010",
-                                    email="personal@example.invalid")
-    client.cookies.clear()
-
-    r1 = client.get(f"/titulatec/inscripcion/correo?t={raw}", follow_redirects=False)
-    r2 = client.get(f"/titulatec/inscripcion/correo?t={raw}", follow_redirects=False)
-
-    assert r1.status_code == r2.status_code == 200
-    assert "no pudimos confirmar" not in r1.text.lower()
-    assert "no pudimos confirmar" not in r2.text.lower(), "idempotente: el prefetch no la gasta"
-    perfil = db_session.get(StudentProfile, student.id)
-    assert perfil.contact_email == "personal@example.invalid"
-    assert perfil.contact_email_verified_at is not None
-    db_session.refresh(student)
-    assert student.email == email_original
-    db_session.refresh(req)
-    assert req.status == "pending_review", "confirmar el correo no mueve la inscripción"
-
-
-def test_token_de_contacto_vencido_no_se_acepta(client, db_session, make_cohort, make_student):
-    from itcj2.core.models.student_profile import StudentProfile
-
-    cohort = make_cohort(status="open")
-    student = make_student(control_number="99660012")
-    _req, raw = _legado_con_contacto(db_session, cohort, control="99660012",
-                                     email="personal3@example.invalid",
-                                     vence=-timedelta(hours=1))
-    client.cookies.clear()
-
-    resp = client.get(f"/titulatec/inscripcion/correo?t={raw}", follow_redirects=False)
-
-    assert resp.status_code == 200, resp.text[:400]
-    assert "no pudimos confirmar" in resp.text.lower()
-    perfil = db_session.get(StudentProfile, student.id)
-    assert perfil is None or perfil.contact_email_verified_at is None
-
-
-def test_token_de_contacto_invalido_muestra_error(client):
-    client.cookies.clear()
-
-    resp = client.get("/titulatec/inscripcion/correo?t=no-existe", follow_redirects=False)
-
-    assert resp.status_code == 200, resp.text[:400]
-    assert "no pudimos confirmar" in resp.text.lower()
-
-
-def test_confirm_contact_usa_comparacion_en_tiempo_constante():
-    import inspect
-
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
-
-    src = inspect.getsource(EnrollmentRequestService.confirm_contact)
-    assert "hmac.compare_digest(" in src
-    assert "_compare(" not in src
-
-
-def test_una_excepcion_en_confirm_contact_no_produce_500(client, monkeypatch):
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
-
-    def _revienta(*a, **kw):
-        raise ValueError("fallo simulado")
-
-    client.cookies.clear()
-    monkeypatch.setattr(EnrollmentRequestService, "confirm_contact",
-                        staticmethod(_revienta))
-
-    resp = client.get("/titulatec/inscripcion/correo?t=cualquier-cosa",
-                      follow_redirects=False)
-
-    assert resp.status_code == 200, resp.text[:400]
-    assert "no pudimos confirmar" in resp.text.lower()

@@ -123,6 +123,20 @@ def test_el_helper_ya_no_resuelve_destinatarios_ni_manda_ligas_de_contacto():
     assert not hasattr(TitulaTecEmailHelper, "send_confirm_contact")
 
 
+def test_la_plantilla_de_la_liga_de_contacto_ya_no_existe():
+    """Se quedó sin llamadores cuando dejó de emitirse la liga y se retiró el
+    2026-09-15 junto con su canje: una plantilla huérfana invita a volver a
+    cablear la segunda liga."""
+    from pathlib import Path
+
+    import itcj2
+
+    plantillas = (Path(itcj2.__file__).resolve().parent / "apps" / "titulatec"
+                  / "templates" / "titulatec" / "email")
+    assert plantillas.is_dir()
+    assert not (plantillas / "confirm_contact.html").exists()
+
+
 def test_el_correo_de_alta_lleva_usuario_y_nip(db_session, make_student, solicitud,
                                                correo_falso):
     """D16. Va al PERSONAL: el egresado de 2005 no tiene institucional vivo."""

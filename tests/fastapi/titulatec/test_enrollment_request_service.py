@@ -146,17 +146,19 @@ def test_constantes_del_contrato():
     )
 
 
-def test_ya_no_se_emite_ninguna_liga_de_contacto():
+def test_ya_no_existe_ninguna_liga_de_contacto():
     """La segunda liga ("confirma tu correo de contacto") desaparece: el correo
     personal ya se prueba al abrir la liga de activación, que viaja justo ahí.
-    `confirm_contact` sigue vivo solo para las ligas que ya se mandaron."""
+    El 2026-09-15 se retiró también su canje (`confirm_contact`, la ruta
+    `GET /titulatec/inscripcion/correo` y su plantilla): canjeaba contra
+    `core_student_profile` con la sola prueba de un buzón tecleado. Las columnas
+    `contact_token_hash`/`contact_expires_at` quedan en BD como legado sin uso."""
     from itcj2.apps.titulatec.services import enrollment_request_service as mod
 
     for nombre in ("CONTACT_TTL_HOURS", "_contact_link"):
         assert not hasattr(mod, nombre), nombre
-    for nombre in ("_issue_contact_token", "_send_contact_link"):
+    for nombre in ("_issue_contact_token", "_send_contact_link", "confirm_contact"):
         assert not hasattr(mod.EnrollmentRequestService, nombre), nombre
-    assert hasattr(mod.EnrollmentRequestService, "confirm_contact")
 
 
 def test_la_liga_de_activacion_usa_public_base_url_y_query_t():

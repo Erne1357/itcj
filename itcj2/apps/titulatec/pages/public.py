@@ -1445,7 +1445,11 @@ async def enroll_verify(request: Request, t: str = ""):
 
 
 # ---------------------------------------------------------------------------
-# 8. Reenvío público de la liga y ligas de contacto ya enviadas (§6.8)
+# 8. Reenvío público de la liga (§6.8)
+#
+# La liga de contacto ("confirma tu correo") y su ruta `GET /inscripcion/correo`
+# se retiraron el 2026-09-15: su canje escribía en `core_student_profile` con la
+# sola prueba de un buzón tecleado. Detalle en `docs/flows/xcut_public_enrollment.md`.
 # ---------------------------------------------------------------------------
 # Contexto de `notice_card.html` (T12): `notice_key`, `notice_icon` SIN el
 # prefijo `bi-`, `notice_title`, `notice_body` y el opcional `notice_class`.
@@ -1559,78 +1563,3 @@ async def enroll_resend(request: Request):
     # 'sent', 'noop' y la excepción devuelven lo MISMO a propósito (§6.8, R4).
     return render_titulatec(
         request, "titulatec/public/partials/notice_card.html", dict(_RESEND_CARD))
-
-
-@router.get("/inscripcion/correo", name="titulatec.pages.public.contact_confirm")
-async def contact_confirm(request: Request, t: str = ""):
-    """Confirma el correo personal con una liga de contacto enviada ANTES del
-    2026-09-15. Ya no se emiten ligas nuevas: la ruta sigue viva, con la misma
-    guarda, hasta que venzan las que ya salieron. NO bloquea la inscripción.
-
-    A diferencia del reenvío, aquí 'confirmado' y 'no confirmado' SÍ se
-    distinguen (`contact_ok` vs `contact_invalid`, notice_key distintos): no es
-    un oráculo de existencia porque la llave es el propio token —un
-    `secrets.token_urlsafe(32)` que solo posee quien recibió el correo—, no un
-    número de control adivinable como en `enroll_resend`. §6.8/E8 no aplican
-    aquí; el vocabulario cerrado de `notice_card.html` ya preveía estas dos
-    llaves (Tarea 12).
-
-    Comparte el cubo `enroll_verify:ip` (30/hora) con `enroll_verify`
-    (Tarea 20) a propósito: las dos son clics de liga y ese presupuesto es
-    holgado para ese uso.
-
-    Ninguna entrada del visitante puede producir un 500 (docstring del
-    módulo): mismo criterio que `enroll_verify`, arriba — `except Exception` +
-    `db.rollback()` + la tarjeta de "no pudimos confirmar" en vez de una
-    excepción que escapa. El token NUNCA se loguea, ni aquí ni en el `except`.
-    """
-    from itcj2.database import SessionLocal
-    from itcj2.core.utils.client_ip import client_ip
-    from itcj2.core.utils.rate_limit import check_and_count
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
-
-    ok, retry = check_and_count("enroll_verify:ip", client_ip(request),
-                                limit=30, window=3600, fail_open=False)
-    if not ok:
-        # `notice` es la bandera de PÁGINA que `enroll.html` mira para incluir el
-        # parcial; no forma parte del contexto de `notice_card.html`.
-        resp = render_titulatec(request, "titulatec/public/enroll.html", {
-            "notice": True, "notice_key": "rate_limited",
-            "notice_icon": "hourglass-split",
-            "notice_class": "tt-card--accent",
-            "notice_title": "Demasiados intentos",
-            "notice_body": f"Espera {max(1, retry // 60)} minutos e inténtalo de nuevo.",
-        })
-        resp.headers["Retry-After"] = str(max(1, retry))
-        return resp
-
-    db = SessionLocal()
-    try:
-        try:
-            confirmado = EnrollmentRequestService.confirm_contact(db, t)
-        except Exception:
-            # Ver el docstring de arriba: el token NUNCA va en el log (ni en el
-            # mensaje ni en la traza — no se interpola `t` en ningún argumento).
-            logger.exception("contact_confirm: fallo inesperado al confirmar el correo")
-            try:
-                db.rollback()
-            except Exception:      # pragma: no cover - sesión ya inservible
-                logger.warning("contact_confirm: rollback fallido tras el error")
-            confirmado = False
-    finally:
-        db.close()
-
-    if confirmado:
-        ctx = {"notice_key": "contact_ok", "notice_icon": "check-circle",
-               "notice_title": "Correo personal confirmado",
-               "notice_body": ("Ya podemos escribirte ahí. Tu inscripción sigue su curso "
-                               "por separado: no necesitas hacer nada más aquí.")}
-    else:
-        ctx = {"notice_key": "contact_invalid", "notice_icon": "x-circle",
-               "notice_title": "No pudimos confirmar ese correo",
-               "notice_body": ("La liga puede estar incompleta o vencida. Esto no afecta "
-                               "tu inscripción.")}
-    ctx["notice"] = True
-    return render_titulatec(request, "titulatec/public/enroll.html", ctx)
