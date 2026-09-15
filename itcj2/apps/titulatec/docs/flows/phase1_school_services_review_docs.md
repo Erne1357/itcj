@@ -73,10 +73,12 @@ Existen copias en `partials/documents/_doc_viewer.html` y `partials/documents/_d
 
 - `_doc_modal.html` **no lo incluye ningún template** (grep sobre `itcj2/`: solo aparece en su propia
   cabecera y citado en un comentario de `_doc_viewer.html:11`).
-- `_doc_viewer.html` solo se incluye desde `partials/processes/_process_phase_panel.html:34`, y ese
-  panel tampoco lo incluye ningún template.
-- `static/js/partials/doc-viewer.js` dice ser cargado por `base_admin`, pero
-  `admin/base_admin.html` no carga ningún `<script src=…>` (`:59-102`).
+- `_doc_viewer.html` **tampoco lo incluye ningún template**: su único includer,
+  `partials/processes/_process_phase_panel.html`, se borró con el rediseño del Expediente
+  (2026-09-03). Verificado el 2026-09-15.
+- `static/js/partials/doc-viewer.js` dice ser cargado por `base_admin`, pero `admin/base_admin.html`
+  no lo carga: carga `admin/import.js`, `processes.js`, `appointments.js`, `expediente.js` y
+  `cotejo-info-editor.js`, y ninguno de ellos es el visor.
 
 O sea: la bandeja **no** usa esos parciales. Si tocas el visor, edita `documents_body.html`.
 
