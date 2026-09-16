@@ -295,3 +295,82 @@ def test_mover_una_cita_VIVA_sigue_siendo_una_reagenda(alumno_atendido, client_a
         "mover una cita viva tiene que superarla, no dejarla como estaba")
     assert vieja.is_current is False
     assert nueva.is_current is True and nueva.scheduled_at.hour == 10
+
+
+# ---------------------------------------------------------------------------
+# 4. El distintivo «El alumno agendo» en el asiento (D11)
+# ---------------------------------------------------------------------------
+# D11 dice que el encargado se entera de un auto-agendado POR SU TABLERO, sin
+# notificacion ni correo: el distintivo ES el aviso. Y el asiento es de ALTO
+# FIJO, asi que el distintivo tiene que caber DENTRO de la linea `.meta` — una
+# tercera linea lo haria crecer y llenar un lugar moveria la fila, que es el
+# defecto que el rediseno del 2026-09-03 cerro.
+#
+# Se comprueba contra el markup que emite el SERVIDOR. Medir la regla CSS sobre
+# un nodo fabricado a mano prueba que la hoja aplica, no que la pagina lo pinte.
+
+
+@pytest.fixture()
+def dia_con_autoagendado(seed_phase_defs, seed_document_types, make_program,
+                         make_cohort, make_review_day, make_officer, make_student,
+                         make_process, make_document, make_review_window,
+                         make_appointment, make_survey_review, db_session):
+    """Dos asientos en la misma ventana: uno lo agendo el ALUMNO y otro el encargado."""
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria de Distintivo")
+    cohort = make_cohort()
+    dia = make_review_day(cohort, day=_D)
+    officer, pos = make_officer([prog])
+    ventana = make_review_window(dia, officer, start="09:00", end="12:00",
+                                 slot=30, cap=1, position=pos)
+
+    procs = {}
+    for clave, hora, quien in (("alumno", 9, "student"), ("oficial", 10, "officer")):
+        st = make_student(last_name="DISTINTIVO" + clave.upper())
+        proc = make_process(st, cohort=cohort, program=prog, current_phase=2)
+        for code in ("birth_certificate", "high_school_cert", "curp"):
+            make_document(proc, type_code=code, review_status="approved")
+        make_survey_review(proc)
+        appt = make_appointment(proc, when=datetime.combine(
+            _D, datetime.min.time()).replace(hour=hora), booked_by=quien)
+        # El tablero agrupa por `(window_id, hora)`: sin esto la cita existe
+        # pero no cae en ninguna franja y no se pinta ningun asiento.
+        appt.window_id = ventana.id
+        procs[clave] = proc
+    db_session.flush()
+    return {"officer": officer, "w": ventana, "procs": procs}
+
+
+def _asiento(html, process_id):
+    """El markup del asiento de ese proceso, de su `id=` a su `</a>`."""
+    import re
+    m = re.search(r'id="appt-seat-p%d"(.*?)</a>' % process_id, html, re.S)
+    assert m, "no se pinto el asiento del proceso %d" % process_id
+    return m.group(1)
+
+
+def test_el_asiento_del_autoagendado_lleva_el_distintivo_dentro_de_meta(
+        dia_con_autoagendado, client_as):
+    esc = dia_con_autoagendado
+    html = client_as(esc["officer"]).get(URL + "?date=" + _D.isoformat()).text
+    bloque = _asiento(html, esc["procs"]["alumno"].id)
+
+    assert "El alumno agendó" in bloque, "el tablero no distingue el auto-agendado"
+    # UNA sola `.meta`: si el distintivo hubiera abierto una linea nueva, el
+    # asiento crece y llenar un lugar mueve la fila.
+    assert bloque.count('class="who"') == 1
+    assert bloque.count('class="meta"') == 1, (
+        "el distintivo abrio una linea nueva en el asiento, que es de ALTO FIJO")
+    assert "El alumno agendó" in bloque[bloque.index('class="meta"'):], (
+        "el distintivo no va DENTRO de la linea .meta")
+
+
+def test_el_asiento_que_agendo_el_encargado_no_lleva_distintivo(
+        dia_con_autoagendado, client_as):
+    """Sin esta negativa, la positiva seguiria siendo cierta con un distintivo
+    pegado a TODOS los asientos — que es no distinguir nada."""
+    esc = dia_con_autoagendado
+    html = client_as(esc["officer"]).get(URL + "?date=" + _D.isoformat()).text
+
+    assert "El alumno agendó" not in _asiento(html, esc["procs"]["oficial"].id)

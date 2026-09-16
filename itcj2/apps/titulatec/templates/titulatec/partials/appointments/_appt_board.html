@@ -75,8 +75,10 @@
             {%- if o.change_request %}<i class="bi bi-arrow-repeat ms-1" title="Solicitó un cambio"></i>{% endif %}
           </span>
           {# D11: el distintivo del auto-agendado va DENTRO de `.meta`, jamás
-             como línea nueva — el asiento es de alto FIJO (56px) y una tercera
-             fila lo haría crecer, o sea que llenar un lugar movería la fila.
+             como línea nueva — el asiento es de ALTO FIJO (el número vive en la
+             hoja, y ahí se redefine: no lo repito aquí para no envejecerlo) y
+             una tercera fila lo haría crecer, o sea que llenar un lugar movería
+             la fila.
              Y va PRIMERO en la línea porque `.meta` trunca con elipsis: así lo
              que se pierde en un asiento estrecho es la carrera, no el aviso de
              que este alumno se sentó solo. #}

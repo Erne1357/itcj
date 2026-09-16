@@ -94,10 +94,23 @@ def cola(seed_phase_defs, seed_document_types, make_program, make_cohort,
     for code in _INITIAL_DOCS:
         make_document(p_sin_encuesta, type_code=code, review_status="approved")
 
+    # --- el UNICO cruce plausible: no_show vigente Y 3 cancelaciones propias --
+    # Es el solape real que puede darse entre «Reagendar» y «Requieren que les
+    # agendes», y sin el en el fixture la prueba de disjuncion nunca lo mira.
+    # Tiene que caer SOLO en «Reagendar»: conserva una cita vigente, asi que
+    # `_unscheduled_query` lo saca del universo del que salen los cubos 1 y 2.
+    p_ambos = _con_docs_y_encuesta(_proc("AMBOS"), make_document, make_survey_review)
+    for n in range(1, 4):
+        appt = make_appointment(p_ambos, status="cancelled", is_current=False,
+                                attempt_no=n)
+        appt.cancelled_by_id = p_ambos.student_id
+    make_appointment(p_ambos, status="no_show", is_current=True, attempt_no=4)
+
     db_session.flush()
     return {"prog": prog, "cohort": cohort, "off": officer, "pos": pos,
             "pendiente": p_pendiente, "bloqueado": p_bloqueado,
-            "reagendar": p_reagendar, "sin_encuesta": p_sin_encuesta}
+            "reagendar": p_reagendar, "sin_encuesta": p_sin_encuesta,
+            "ambos": p_ambos}
 
 
 def _cubos(db_session, allowed):
@@ -126,6 +139,8 @@ def test_cada_proceso_cae_en_exactamente_un_cubo(cola, db_session):
         cola["bloqueado"].id: "bloqueados",
         cola["reagendar"].id: "reagendar",
         cola["sin_encuesta"].id: "sin_encuesta",
+        # Cancelo 3 veces PERO tiene cita vigente: manda la cita.
+        cola["ambos"].id: "reagendar",
     }
     for pid, cubo in esperado.items():
         donde = sorted(nombre for nombre, ids in cubos.items() if pid in ids)
@@ -157,6 +172,21 @@ def test_el_bloqueado_sale_de_por_agendar_y_entra_al_suyo(cola, db_session):
     # La asercion positiva que impide que un fixture roto deje esto en verde:
     # el cubo 1 sigue teniendo a quien SI puede agendar solo.
     assert cola["pendiente"].id in cubos["por_agendar"]
+
+
+def test_tener_una_cita_vigente_gana_al_tope_de_cancelaciones(cola, db_session):
+    """Quien no se presento Y ademas cancelo 3 veces sale SOLO en «Reagendar».
+
+    El cubo de D10 es para quien esta esperando que le agenden; este ya tiene
+    lugar (un `no_show` conserva su franja, D10), asi que ponerlo tambien ahi le
+    diria al encargado que agende a alguien que no lo necesita.
+    """
+    cubos = _cubos(db_session, {cola["prog"].id})
+    pid = cola["ambos"].id
+
+    assert pid in cubos["reagendar"]
+    assert pid not in cubos["bloqueados"]
+    assert pid not in cubos["por_agendar"]
 
 
 def test_el_criterio_del_cubo_es_el_mismo_que_ve_el_alumno(cola, db_session):
@@ -219,9 +249,12 @@ def test_en_la_pantalla_el_bloqueado_esta_en_un_solo_cubo(cola, client_as):
     html = resp.text
     pid = cola["bloqueado"].id
 
-    assert ("appt-blocked-%d" % pid) in html, "el bloqueado no tiene fila en su cubo"
-    assert ("appt-queue-%d" % pid) not in html, (
+    # Las anclas cierran la COMILLA final. Sin ella la negativa es una
+    # subcadena: con el bloqueado en el id 12 y un 123 en «Por agendar»,
+    # "appt-queue-12" existe en el HTML y el test falla sin que nada este roto.
+    assert ('appt-blocked-%d"' % pid) in html, "el bloqueado no tiene fila en su cubo"
+    assert ('appt-queue-%d"' % pid) not in html, (
         "el bloqueado sigue saliendo en «Por agendar»: los cubos dejaron de ser "
         "mutuamente excluyentes")
     # Positiva al lado: quien SI puede agendar solo conserva su fila del cubo 1.
-    assert ("appt-queue-%d" % cola["pendiente"].id) in html
+    assert ('appt-queue-%d"' % cola["pendiente"].id) in html

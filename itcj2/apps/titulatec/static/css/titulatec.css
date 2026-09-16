@@ -1303,10 +1303,15 @@ th.sortable { cursor: pointer; user-select: none; }
 .tt-seat .who, .tt-seat .meta { min-width: 0; overflow: hidden;
                                 text-overflow: ellipsis; white-space: nowrap; }
 /* Distintivo «El alumno agendo» (D11). Vive DENTRO de `.meta`, nunca como una
-   linea nueva: el asiento es de alto FIJO (56px, arriba) y una tercera fila lo
-   haria crecer, o sea que llenar un lugar moveria la fila — el defecto exacto
-   que el rediseno del 2026-09-03 cerro. Va PRIMERO en la linea para que el
-   truncado se coma la carrera y no el distintivo. */
+   linea nueva: el asiento es de ALTO FIJO y una tercera fila lo haria crecer, o
+   sea que llenar un lugar moveria la fila — el defecto exacto que el rediseno
+   del 2026-09-03 cerro. Va PRIMERO en la linea para que el truncado se coma la
+   carrera y no el distintivo.
+
+   SIN numero a proposito: el alto se declara arriba y se REDEFINE mas abajo en
+   este mismo archivo, asi que cualquier cifra escrita aqui nace de segunda mano
+   y caduca sin avisar. Lo que protege este comentario es el invariante -que el
+   asiento no crezca-, no un valor concreto. */
 .tt-seat .meta .selfbook { font-family: var(--tt-ui); font-weight: 600;
                            color: var(--tt-text-2); }
 .tt-seat--libre { border-style: dashed; background: var(--tt-mist); }

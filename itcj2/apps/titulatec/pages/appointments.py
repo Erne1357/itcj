@@ -601,8 +601,13 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
         # arriba. Dicen la verdad sobre ESTE espacio («tus 10 franjas libres»),
         # no una frase generica: duplicar el calculo de franjas en JavaScript es
         # justo lo que el editor evita desde su rediseno.
+        # FRANJAS libres, no CITAS libres: `free_slots` devuelve `list[time]`
+        # (una entrada por franja con lugar), asi que la rama del espacio nuevo
+        # tiene que contar `n` a secas. Con `n * capacity` la frase decia «20
+        # franjas libres» para 10 franjas de 2 personas — con cupo 1 coinciden,
+        # que es justo lo que hacia pasar al test sin que el numero fuera cierto.
         libres = (len(SlotService.free_slots(db, editor_w)) if editor_w is not None
-                  else n * int(editor["capacity"]))
+                  else n)
         lugar = editor["location"] or "el lugar que pongas arriba"
         editor["vis_lineas"] = {
             "private": "Solo tú agendas en este espacio. El egresado no lo ve.",

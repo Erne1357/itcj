@@ -190,3 +190,128 @@ def test_el_editor_ofrece_los_tres_modos_con_su_linea_derivada(editor, client_as
     assert "10 franjas libres" in html, (
         "la linea de «Agendable» no cuenta las franjas reales de esta ventana")
     assert "llega sin cita" in html
+
+
+def test_la_linea_de_agendable_cuenta_FRANJAS_no_CITAS(editor, client_as,
+                                                       set_cohort_defaults, db_session):
+    """Un espacio NUEVO no tiene ventana de la que sacar `free_slots`, asi que la
+    cuenta se deriva del horario — y ahi se colaba `n * capacity`, que son CITAS.
+
+    Con cupo 1 los dos numeros coinciden, y por eso el test de arriba pasaba sin
+    que la frase fuera cierta. Con cupo 2 y 10 franjas, «20 franjas libres» es
+    falso: el egresado ve DIEZ horas para elegir, no veinte.
+    """
+    esc = editor
+    set_cohort_defaults(esc["cohort"], start="09:00", end="14:00", slot=30, cap=2)
+    db_session.flush()
+
+    html = client_as(esc["off"]).get(
+        "/titulatec/admin/appointments?v=espacios&date=%s&w=nuevo" % _D.isoformat()).text
+
+    # Sin esto el test pasaria en falso: si el cupo por omision no llegara a 2,
+    # los dos calculos volverian a coincidir y no se estaria midiendo nada.
+    assert "de 2 personas" in html, "el espacio nuevo no heredo el cupo 2 de la convocatoria"
+    assert "10 franjas libres" in html
+    assert "20 franjas libres" not in html, "la linea cuenta citas, no franjas"
+
+
+# ---------------------------------------------------------------------------
+# Las otras dos acciones de Espacios, que tampoco tenian prueba de RUTA
+# ---------------------------------------------------------------------------
+# El defecto que encontraron los tests de arriba (`_accion_espacio` llamaba a
+# `_render_body` sin `selected_id`, obligatorio -> 500 en TODA accion que salia
+# bien) afectaba a las cuatro: guardar, copiar, pausar y eliminar. Guardar y
+# copiar ya quedaron cubiertas; estas dos son las que faltaban, y sin ellas
+# `space_pause` y `space_delete` seguirian tan desprotegidas como antes.
+
+def test_pausar_el_espacio_responde_200_y_cambia_la_fila(editor, client_as, db_session):
+    """Y vuelve: el boton es un interruptor, no un viaje de ida."""
+    esc = editor
+    assert esc["w"].status == "open"
+
+    resp = client_as(esc["off"]).post(_url(esc, "/pausa"))
+    assert resp.status_code == 200, resp.text[:300]
+    db_session.expire_all()
+    assert esc["w"].status == "paused"
+
+    resp = client_as(esc["off"]).post(_url(esc, "/pausa"))
+    assert resp.status_code == 200, resp.text[:300]
+    db_session.expire_all()
+    assert esc["w"].status == "open"
+
+
+def test_eliminar_el_espacio_responde_200_y_borra_la_fila(editor, client_as, db_session):
+    """El espacio del fixture no tiene ninguna cita, asi que si se puede borrar.
+
+    (Con citas vivas el service levanta `WindowInUse`, que es otro camino y ya
+    tiene prueba propia en `test_review_window_service.py`.)
+    """
+    from itcj2.apps.titulatec.models import ReviewWindow
+
+    esc = editor
+    wid = esc["w"].id
+
+    resp = client_as(esc["off"]).post(_url(esc, "/eliminar"))
+    assert resp.status_code == 200, resp.text[:300]
+
+    db_session.expire_all()
+    assert db_session.query(ReviewWindow).filter_by(id=wid).first() is None
+
+
+# ---------------------------------------------------------------------------
+# Publicar sin carreras asignadas: se guarda, pero no lo ve NADIE
+# ---------------------------------------------------------------------------
+# `SelfBookingService.offer` resuelve la carrera con el predicado de alcance del
+# encargado y es fail-closed (Ruling 14), asi que quien no tiene carreras puede
+# publicar un `bookable` invisible. Se mantiene el predicado; lo que no se
+# mantiene es el silencio.
+
+@pytest.fixture()
+def editor_sin_carreras(make_cohort, make_review_day, make_officer, make_review_window):
+    """Un encargado que puede editar espacios pero NO atiende ninguna carrera."""
+    from tests.fastapi.titulatec.conftest import OFFICER_PERMS
+
+    cohort = make_cohort()
+    dia = make_review_day(cohort, day=_D)
+    officer, pos = make_officer([], perm_codes=OFFICER_PERMS + (_ESPACIO_PERM,),
+                                first_name="JEFA", last_name="SINCARRERAS")
+    w = make_review_window(dia, officer, start="09:00", end="14:00", slot=30,
+                           cap=1, location="Edificio A", position=pos)
+    return {"cohort": cohort, "dia": dia, "off": officer, "pos": pos, "w": w}
+
+
+def test_el_editor_avisa_a_quien_no_tiene_carreras(editor_sin_carreras, client_as):
+    esc = editor_sin_carreras
+    html = client_as(esc["off"]).get(
+        "/titulatec/admin/appointments?v=espacios&date=%s&w=%d"
+        % (_D.isoformat(), esc["w"].id)).text
+
+    assert "tt-vis-aviso" in html, "no se avisa de que nadie vera el espacio"
+    assert "ningún egresado lo verá" in html
+
+
+def test_el_encargado_CON_carreras_no_ve_ese_aviso(editor, client_as):
+    """La negativa que impide que el aviso salga siempre y deje de significar algo."""
+    esc = editor
+    html = client_as(esc["off"]).get(
+        "/titulatec/admin/appointments?v=espacios&date=%s&w=%d"
+        % (_D.isoformat(), esc["w"].id)).text
+
+    assert "tt-vis-aviso" not in html
+
+
+def test_la_lista_repite_el_aviso_si_ya_hay_un_espacio_agendable(
+        editor_sin_carreras, client_as, db_session):
+    """El toast del guardado se va; el espacio publicado se queda.
+
+    Sin `w=` no hay editor abierto, asi que este texto solo puede venir de la
+    LISTA — que es justo lo que se quiere fijar.
+    """
+    esc = editor_sin_carreras
+    esc["w"].visibility = "bookable"
+    db_session.flush()
+
+    html = client_as(esc["off"]).get(
+        "/titulatec/admin/appointments?v=espacios&date=" + _D.isoformat()).text
+
+    assert "ningún egresado los verá" in html
