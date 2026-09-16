@@ -126,9 +126,10 @@ HEAD_PERMS = [
     "titulatec.cohort.page.list",
     "titulatec.cohort.api.update",
     "titulatec.cohort.api.cotejo_reqs",
-    "titulatec.survey.page.list",
-    "titulatec.survey.api.read",
-    "titulatec.survey.api.export",
+    # NO "titulatec.survey.*" (2026-09-15): esos permisos se le REVOCARON a la
+    # jefatura de Servicios Escolares y pasaron a GTV (ver GTV_PERMS abajo) --
+    # spec 2026-09-15-titulatec-liberacion-gtv §7,
+    # survey_2026_09/10_insert_survey_role_permissions.sql (DELETE al 03).
     "titulatec.enrollment_request.page.list",
     "titulatec.enrollment_request.api.approve",
     "titulatec.enrollment_request.api.reject",
@@ -138,6 +139,16 @@ STUDENT_PERMS = [
     "titulatec.process.page.my",
     "titulatec.process.api.read.own",
     "titulatec.appointment.page.my",
+]
+# GTV (Gestión Tecnológica y Vinculación): bandeja de liberaciones de la
+# encuesta de egresados (Tarea 8, spec 2026-09-15-titulatec-liberacion-gtv
+# §6.3/§7). Mínimo necesario para operar /titulatec/admin/liberaciones; no
+# se agregan los titulatec.survey.* reales de GTV porque ningún spec de
+# esta carpeta necesita "Ver respuestas".
+GTV_PERMS = [
+    "titulatec.survey_review.page.list",
+    "titulatec.survey_review.api.approve",
+    "titulatec.survey_review.api.reject",
 ]
 
 SCHEMA = {
@@ -203,6 +214,7 @@ try:
 
     rol_head = _role(TAG + "_head", HEAD_PERMS)
     rol_alumno = _role(TAG + "_student", STUDENT_PERMS)
+    rol_gtv = _role(TAG + "_gtv", GTV_PERMS)
 
     program = db.query(Program).filter_by(name=TAG + " Sistemas").first()
     if program is None:
@@ -242,6 +254,11 @@ try:
     db.add(head); db.flush()
     db.add(UserAppRole(user_id=head.id, app_id=app.id, role_id=rol_head.id))
 
+    gtv = User(first_name=TAG, last_name="GTV", username=TAG + "_gtv",
+               is_active=True)
+    db.add(gtv); db.flush()
+    db.add(UserAppRole(user_id=gtv.id, app_id=app.id, role_id=rol_gtv.id))
+
     proc = TitulationProcess(folio="TT-29991-9001", student_id=student.id,
                              cohort_id=cohort.id, program_id=program.id,
                              current_phase=1, status="active")
@@ -274,6 +291,9 @@ try:
         "headId": head.id,
         "headToken": _encode_jwt({"sub": str(head.id), "role": "",
                                   "name": TAG + " JEFATURA", "cn": ""}, 12),
+        "gtvId": gtv.id,
+        "gtvToken": _encode_jwt({"sub": str(gtv.id), "role": "",
+                                 "name": TAG + " GTV", "cn": ""}, 12),
         "cohortId": cohort.id,
         "periodId": period.id,
         "programId": program.id,
@@ -308,6 +328,16 @@ TAG = "${E2E_TAG}"
 
 db = SessionLocal()
 try:
+    # titulatec_survey_reviews PRIMERO: referencia tanto a
+    # titulatec_survey_responses (mas abajo) como a titulatec_processes
+    # (via cohort_id), y NINGUNA de las dos FK lleva ondelete=CASCADE --
+    # borrar cualquiera de esos dos padres antes reventaria con
+    # IntegrityError. Cubre tanto las solicitudes reales (public-survey.spec.js)
+    # como las sembradas directo con seedSurveyReview (admin-releases.spec.js).
+    db.execute(text("DELETE FROM titulatec_survey_reviews WHERE process_id IN "
+                    "(SELECT id FROM titulatec_processes WHERE cohort_id = :c)"),
+               {"c": ${ctx.cohortId}})
+
     # Hijos -> padres. Todo cuelga del proceso, la convocatoria o el formulario.
     db.execute(text("DELETE FROM titulatec_survey_answers WHERE response_id IN "
                     "(SELECT id FROM titulatec_survey_responses WHERE form_id = :f)"),
@@ -452,7 +482,9 @@ function stateFor(role) {
   const url = new URL(process.env.E2E_BASE_URL || 'http://localhost:8080');
   if (role === 'anon') return { cookies: [], origins: [] };
   if (!_ctx) throw new Error('stateFor() antes de seedScenario()');
-  const token = role === 'head' ? _ctx.headToken : _ctx.studentToken;
+  const token = role === 'head' ? _ctx.headToken
+    : role === 'gtv' ? _ctx.gtvToken
+    : _ctx.studentToken;
   if (!token) throw new Error(`stateFor("${role}"): rol desconocido`);
   return {
     cookies: [{
@@ -558,6 +590,51 @@ finally:
   return parseInt(out, 10);
 }
 
+/**
+ * Crea una solicitud de liberación (`SurveyReview`) para el PROCESO del
+ * escenario (`ctx.processId`), sin recorrer el asistente de la encuesta
+ * pública en el navegador -el mecanismo de pasos/prellenado/congelamiento ya
+ * lo cubre `public-survey.spec.js`-: `admin-releases.spec.js` solo necesita
+ * partir de una solicitud "En revisión" ya sembrada. La respalda con una
+ * `SurveyResponse` mínima (mismo patrón que la fixture `make_survey_review`
+ * de `tests/fastapi/titulatec/conftest.py`) contra el FORMULARIO del propio
+ * escenario (`ctx.formId`/`ctx.formVersion`), nunca el 'egresados' real.
+ *
+ * Cae en el borrado del escenario: `deletePy` borra `titulatec_survey_reviews`
+ * por `process_id` ANTES que `titulatec_survey_responses`/`titulatec_processes`
+ * (ninguna de las dos FK tiene `ondelete=CASCADE`).
+ *
+ * Devuelve el id de la solicitud creada.
+ */
+function seedSurveyReview(ctx, { status = 'in_review', reason = null } = {}) {
+  const motivo = reason === null ? 'None' : JSON.stringify(reason);
+  const out = runInContainer(`
+from itcj2.database import SessionLocal
+from itcj2.core.utils.timezone import db_now
+from itcj2.apps.titulatec.models import SurveyResponse, SurveyReview
+db = SessionLocal()
+try:
+    response = SurveyResponse(
+        form_id=${ctx.formId}, form_version=${ctx.formVersion},
+        user_id=${ctx.studentId}, process_id=${ctx.processId},
+        cohort_id=${ctx.cohortId}, identity_source="session", answers={})
+    db.add(response)
+    db.flush()
+    review = SurveyReview(
+        process_id=${ctx.processId}, response_id=response.id,
+        status="${status}", rejection_reason=${motivo},
+        submitted_at=db_now(), updated_at=db_now())
+    db.add(review)
+    db.flush()
+    rid = review.id
+    db.commit()
+    print(rid)
+finally:
+    db.close()
+`).trim();
+  return parseInt(out, 10);
+}
+
 /** Folio del proceso de un número de control, o cadena vacía si no hay. */
 function processFolioFor(ctx, controlNumber) {
   return runInContainer(`
@@ -584,6 +661,7 @@ module.exports = {
   setCohortStatus,
   setFormAnonymous,
   seedPendingRequest,
+  seedSurveyReview,
   processFolioFor,
   E2E_TAG,
   E2E_NIP,

@@ -75,7 +75,7 @@ function esperarPost(page, ruta) {
   );
 }
 
-test('las dos filas nuevas del menú admin existen y llevan a su bandeja', async ({ browser }) => {
+test('la fila "Solicitudes" del menú admin existe y lleva a su bandeja; "Encuestas" ya no es de la jefatura', async ({ browser }) => {
   const c = await browser.newContext({ storageState: stateFor('head') });
   const page = await c.newPage();
 
@@ -83,9 +83,14 @@ test('las dos filas nuevas del menú admin existen y llevan a su bandeja', async
   await expect(page.locator('#ttSide')).toBeVisible();
 
   const solicitudes = page.locator('#ttSide a[hx-get="/titulatec/admin/solicitudes"]');
-  const encuestas = page.locator('#ttSide a[hx-get="/titulatec/admin/encuestas"]');
   await expect(solicitudes, 'falta la fila "Solicitudes" en _ADMIN_NAV').toBeVisible();
-  await expect(encuestas, 'falta la fila "Encuestas" en _ADMIN_NAV').toBeVisible();
+  // Tarea 8 (liberación GTV, 2026-09-15): `titulatec.survey.page.list` se le
+  // REVOCÓ a la jefatura de Servicios Escolares y pasó a GTV
+  // (`_helpers.js::HEAD_PERMS`); `_ADMIN_NAV` gatea "Encuestas" solo con ese
+  // código, así que ahora debe estar invisible para este rol -no un item más
+  // a reclamar, sino la prueba de que el reparto de permisos cambió de verdad.
+  const encuestas = page.locator('#ttSide a[hx-get="/titulatec/admin/encuestas"]');
+  await expect(encuestas, '"Encuestas" ya no debe ser visible para la jefatura de Escolares').toHaveCount(0);
 
   await solicitudes.click();
   // hx-push-url="true" en cada item del menú (base_admin.html).

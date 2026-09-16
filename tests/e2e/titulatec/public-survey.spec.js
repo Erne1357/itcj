@@ -286,11 +286,52 @@ test.describe('con sesión: entra por el login y recorre los pasos', () => {
     await expect(page.locator('#tt-survey-thanks')).toBeVisible();
     // Ya no hay avance que guardar: la nota no puede seguir encima de la tarjeta.
     await expect(page.locator('[data-tt-save]')).toBeHidden();
-    // Con sesión, el crédito del requisito NO es el genérico "anonymous" del
-    // camino público sin sesión (spec §6.7/D-crédito).
-    const credito = await page.locator('#tt-survey-thanks').getAttribute('data-tt-credit');
-    expect(credito).not.toBe('anonymous');
+    // Con sesión y proceso activo, el envío abre la solicitud de liberación de
+    // GTV y el crédito es "in_review" -ya NO "credited"/"already"/
+    // "no_requirement" (esos desaparecieron con la Tarea 2 de la liberación
+    // GTV: el envío ya no acredita nada por sí solo), ni el genérico
+    // "anonymous" del camino público sin sesión (spec 2026-09-15-titulatec-
+    // liberacion-gtv §5.3/§6.1).
+    await expect(page.locator('#tt-survey-thanks')).toHaveAttribute('data-tt-credit', 'in_review');
     expect(page.url(), 'el envío swappea, no redirige').toBe(urlAntes);
+
+    await c.close();
+  });
+
+  test('al volver a la encuesta tras enviarla, ve la tarjeta de estatus -congelada- y no el formulario', async ({ browser }) => {
+    // Tarea 8 (E2E liberación GTV): la solicitud abierta por el envío
+    // (`SurveyReviewService.open_for_submission`) congela la encuesta -D6,
+    // spec 2026-09-15-titulatec-liberacion-gtv §5.3-. Un GET posterior a
+    // `SURVEY_URL` ya no debe pintar `#tt-survey-form`: `pages/public.py::
+    // survey` encuentra la solicitud (`_solicitud_existente`) y pinta
+    // `partials/survey_status.html` (`#tt-survey-status`) en su lugar.
+    const c = await browser.newContext({ storageState: stateFor('student') });
+    const page = await c.newPage();
+    await page.goto(SURVEY_URL, { waitUntil: 'domcontentloaded' });
+
+    await page.locator('input[name="situacion_laboral"][value="estudiando"]').check();
+    await page.getByRole('button', { name: 'Siguiente' }).click();
+    await expect(page.getByText('Paso 2 de 3')).toBeVisible();
+    await page.getByRole('button', { name: 'Siguiente' }).click();
+    await expect(page.getByText('Paso 3 de 3')).toBeVisible();
+
+    const envio = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === SURVEY_URL
+    );
+    await page.getByRole('button', { name: 'Enviar respuestas' }).click();
+    expect((await envio).status()).toBe(200);
+    await expect(page.locator('#tt-survey-thanks')).toHaveAttribute('data-tt-credit', 'in_review');
+
+    // Vuelve a la misma URL -navegación real, no el swap del envío-: la
+    // solicitud ya existe para este proceso, así que el GET corta antes del
+    // formulario.
+    await page.goto(SURVEY_URL, { waitUntil: 'domcontentloaded' });
+    const estatus = page.locator('#tt-survey-status');
+    await expect(estatus).toBeVisible();
+    await expect(estatus).toHaveAttribute('data-tt-review-status', 'in_review');
+    await expect(page.getByText('Tu encuesta está en revisión')).toBeVisible();
+    await expect(page.locator('#tt-survey-form')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Enviar respuestas' })).toHaveCount(0);
 
     await c.close();
   });
