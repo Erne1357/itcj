@@ -205,6 +205,66 @@ def test_con_una_cita_viva_el_segundo_clic_responde_con_el_panel_fresco(
     assert len(_citas(db_session, escena["p1"])) == 1, "no debio abrirse un segundo intento"
 
 
+def test_el_choque_de_cita_activa_le_habla_al_ALUMNO_no_al_encargado(
+        db_session, escena, client_as, make_appointment, monkeypatch):
+    """El copy del camino de CARRERA, que es el que ningun test miraba.
+
+    `eligibility` corre FUERA de los locks, asi que dos clics concurrentes en
+    «Agendar» la pasan los dos y el segundo choca contra la guarda de D4 —la de
+    `create`, o la de `_open_new_attempt` ya dentro del advisory lock, segun los
+    tiempos—. Las dos levantan `AppointmentConflict`, cuyo texto esta escrito
+    para el ENCARGADO: «Ese alumno ya tiene una cita activa». Como
+    `refresca_la_vista` es True, eso sale 200 + `X-Tt-Notice` y se le pinta al
+    propio egresado, que se lee a si mismo en tercera persona.
+
+    Se reproduce la lectura RANCIA que hace posible el choque: `eligibility`
+    dice que si puede (respondio antes de que existiera la cita) mientras la
+    cita viva ya esta en la base. El camino secuencial de la misma pantalla ya
+    daba el copy correcto —por eso el otro paso desapercibido—, asi que la
+    asercion que manda es la NEGATIVA.
+    """
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    make_appointment(escena["p1"])            # la cita viva que dejo el otro clic
+
+    monkeypatch.setattr(
+        sb_mod.SelfBookingService, "eligibility",
+        staticmethod(lambda db, process_id: {
+            "can_book": True, "can_walkin": True, "reason": None,
+            "cancellations": 0, "blocked_by_cancellations": False, "current": None}))
+
+    # ESPIA OBLIGATORIO, y no es adorno: sin el, este test seria VERDE CON Y SIN
+    # EL ARREGLO. Si el parche de `eligibility` no tomara efecto, la regla 4 de
+    # §3 levantaria `SelfBookingNotAllowed("tiene_cita")` con EXACTAMENTE el
+    # mismo texto que se afirma abajo, sin haber llegado nunca a `create` ni,
+    # por tanto, al `AppointmentConflict` que este test existe para medir. El
+    # unico modo de distinguir los dos caminos es comprobar que se entro al
+    # segundo.
+    llamadas = []
+    original_create = AppointmentService.create
+
+    def _spy(*a, **kw):
+        llamadas.append(1)
+        return original_create(*a, **kw)
+
+    monkeypatch.setattr(AppointmentService, "create", staticmethod(_spy))
+
+    resp = client_as(escena["alumno"]).post(
+        AGENDAR, data={"window_id": str(escena["w"].id), "slot": "09:30"})
+
+    assert llamadas, (
+        "no se llego a `AppointmentService.create`, asi que el mensaje medido "
+        "sale de la regla 4 y no del choque: este test pasaria igual sin el "
+        "arreglo. Revisa que el parche de `eligibility` siga aplicandose")
+    aviso = unquote(resp.headers.get("X-Tt-Notice", ""))
+    assert resp.status_code == 200, _msg(resp) or resp.text[:300]
+    assert "Ese alumno" not in aviso, (
+        "el copy del ENCARGADO llego al egresado: le habla de si mismo en "
+        "tercera persona. Mensaje recibido: %r" % aviso)
+    assert "Ya tienes una cita" in aviso, aviso
+    assert len(_citas(db_session, escena["p1"])) == 1, "no debio abrirse un segundo intento"
+
+
 def test_sin_el_permiso_de_agendar_no_pasa_el_gate(db_session, agenda_slots,
                                                     make_survey_review, client_as):
     """Sin `appointment.api.book.own` -> `PageForbidden`.

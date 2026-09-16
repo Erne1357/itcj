@@ -422,7 +422,9 @@ class SelfBookingService:
            encargado porque D11 dice que se entera por su tablero.
         """
         from itcj2.apps.titulatec.models import TitulationProcess
-        from itcj2.apps.titulatec.services.appointment_errors import MissingSchedule
+        from itcj2.apps.titulatec.services.appointment_errors import (
+            AppointmentConflict, MissingSchedule,
+        )
         from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
         # Que el proceso sea SUYO, antes que nada. Paridad con `cancel`: la
@@ -458,9 +460,33 @@ class SelfBookingService:
         if cuando < SelfBookingService._min_bookable_at():
             raise SlotTooSoon(minutos)
 
-        return AppointmentService.create(
-            db, process_id, window_id=ventana.id, slot_start=slot_start,
-            created_by_id=actor_id, booked_by="student")
+        # El conflicto de D4 puede llegar TAMBIÉN por debajo de `eligibility`, y
+        # cuando llega trae el mensaje equivocado. `eligibility` corre fuera de
+        # los locks, así que dos clics concurrentes en «Agendar» la pasan los
+        # dos y el segundo choca contra la guarda de D4 de `create` —o, si la
+        # esquiva por tiempos, contra la de `_open_new_attempt`, ya dentro del
+        # `pg_advisory_xact_lock`—. Las dos levantan `AppointmentConflict`, cuyo
+        # texto está escrito para el ENCARGADO: «Ese alumno ya tiene una cita
+        # activa. Muévela o cancélala antes de agendar otra.» Y como
+        # `refresca_la_vista` es True, eso sale 200 + `X-Tt-Notice` y se le
+        # pinta al propio egresado, que se lee a sí mismo en tercera persona.
+        #
+        # Se re-lanza como la regla 4 de §3 —que es lo que ese choque SIGNIFICA
+        # en la capa del alumno— con el mismo texto que ya daba el camino
+        # secuencial. Los dos caminos dicen ahora lo mismo; que el secuencial ya
+        # estuviera bien es justo por lo que este otro pasó desapercibido.
+        #
+        # El comportamiento HTTP no cambia: `SelfBookingNotAllowed` enciende
+        # `refresca_la_vista` para `tiene_cita`, igual que `AppointmentConflict`,
+        # así que la ruta sigue respondiendo 200 con el panel fresco — que es lo
+        # correcto, porque la pantalla del alumno SÍ está rancia.
+        try:
+            return AppointmentService.create(
+                db, process_id, window_id=ventana.id, slot_start=slot_start,
+                created_by_id=actor_id, booked_by="student")
+        except AppointmentConflict:
+            raise SelfBookingNotAllowed(
+                "tiene_cita", SelfBookingService.message_for("tiene_cita"))
 
     # ----------------------------------------------------------- §4.1: cancelar
     @staticmethod
