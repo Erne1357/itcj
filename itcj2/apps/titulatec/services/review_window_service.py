@@ -103,7 +103,13 @@ class ReviewWindowService:
     @staticmethod
     def create(db: Session, review_day_id: int, owner_id: int, *, start_time,
                end_time, slot_minutes, capacity, location=None,
-               position_id=None, actor_id=None):
+               position_id=None, actor_id=None, visibility="private"):
+        """`visibility` nace `private` (D1): publicar es un acto deliberado.
+
+        El default del parámetro repite el `server_default` de la columna a
+        propósito — así un llamador que no lo pase (el alta desde otro punto de
+        la app) no publica un espacio sin querer.
+        """
         from itcj2.apps.titulatec.models import ReviewWindow
 
         inicio, fin = _t(start_time), _t(end_time)
@@ -116,6 +122,7 @@ class ReviewWindowService:
             owner_position_id=position_id, start_time=inicio, end_time=fin,
             slot_minutes=int(slot_minutes or 30), capacity=int(capacity or 1),
             location=(location or None), status="open",
+            visibility=visibility or "private",
             created_by_id=actor_id or owner_id,
         )
         db.add(w)
@@ -128,7 +135,12 @@ class ReviewWindowService:
 
     @staticmethod
     def update(db: Session, window, *, start_time, end_time, slot_minutes,
-               capacity, location=None):
+               capacity, location=None, visibility=None):
+        """`visibility=None` CONSERVA el modo actual, no lo devuelve a privado.
+
+        La distinción importa: los llamadores que no saben del modo (o que solo
+        tocan el horario) no pueden despublicar un espacio por omisión.
+        """
         inicio, fin = _t(start_time), _t(end_time)
         if inicio is None or fin is None or fin <= inicio:
             raise InvalidSlot("La hora de fin tiene que ser posterior a la de inicio.")
@@ -147,6 +159,8 @@ class ReviewWindowService:
         window.slot_minutes = int(slot_minutes or 30)
         window.capacity = int(capacity or 1)
         window.location = location or None
+        if visibility is not None:
+            window.visibility = visibility
         try:
             db.flush()
         except IntegrityError:
@@ -197,6 +211,11 @@ class ReviewWindowService:
 
         Los días donde el dueño YA tiene un espacio no se tocan: copiar no puede
         pisar una configuración que alguien hizo a mano.
+
+        **Copia también el MODO** (`visibility`). Sin eso, el encargado publica
+        el lunes como «Agendable», copia a los demás días y el martes nace
+        privado: espacios gemelos con visibilidad distinta y nada que se lo
+        diga. El horario y el modo son la misma decisión.
         """
         from itcj2.apps.titulatec.models import ReviewWindow
         creados, saltados = [], []
@@ -215,7 +234,7 @@ class ReviewWindowService:
                 start_time=window.start_time, end_time=window.end_time,
                 slot_minutes=window.slot_minutes, capacity=window.capacity,
                 location=window.location, position_id=window.owner_position_id,
-                actor_id=window.created_by_id))
+                actor_id=window.created_by_id, visibility=window.visibility))
         return creados, saltados
 
     @staticmethod

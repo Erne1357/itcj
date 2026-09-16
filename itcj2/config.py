@@ -122,7 +122,14 @@ class Settings(BaseSettings):
     # franjas, walk-in) y `js/student/errors.js` pasa a DECODIFICAR
     # `X-Tt-Error`. Sin el bump, el alumno recibe el CSS viejo (las franjas
     # salen sin rejilla) y los mensajes nuevos llegan percent-codificados.
-    STATIC_VERSION: str = "1.0.1111536"
+    #
+    # Bump 2026-09-16 (5): UI del encargado del auto-agendado — `titulatec.css`
+    # gana los tres modos de visibilidad del espacio (`.tt-vis*`), el
+    # distintivo «El alumno agendó» dentro de `.tt-seat .meta` y el historial
+    # de intentos (`.tt-attempts`). Sin el bump, el editor de espacios pinta
+    # los tres radios sin rejilla (caen como una lista cruda de casillas), el
+    # distintivo del asiento sale sin contraste y el historial sin separación.
+    STATIC_VERSION: str = "1.0.1111537"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

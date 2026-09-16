@@ -1,12 +1,23 @@
-{# La cola de trabajo del encargado. DOS cubos, no uno:
+{# La cola de trabajo del encargado. CUATRO cubos, MUTUAMENTE EXCLUYENTES —
+   un proceso aparece en exactamente uno (spec 2026-09-15 §6):
 
-   «Por agendar»  procesos elegibles que nunca han tenido cita.
-   «Reagendar»    alumnos que no se presentaron.
+   «Por agendar»               sin cita vigente, y todavía puede agendarse solo.
+   «Requieren que les agendes» bloqueados por D9: cancelaron tantas veces que
+                               perdieron el auto-agendado. SOLO el encargado
+                               puede sacarlos de ahí, y por eso son un cubo
+                               propio y no una fila más del montón: nadie los
+                               va a agendar si nadie sabe que están esperando.
+   «Reagendar»                 alumnos que no se presentaron.
+   «Sin encuesta»              falta que envíen la encuesta de egresados.
 
    No se mezclan a propósito. Su lugar NO se libera cuando alguien no llega
    («si no se presentó es que ya pasó», decisión del usuario), así que conservan
    su cita y no pueden aparecer entre quienes nunca tuvieron una. Mezclarlos
    haría que el contador dejara de significar una sola cosa.
+
+   La exclusión NO se resuelve aquí: la resta la hace `list_pending_processes`,
+   que excluye a los del cubo 2. Filtrar en la plantilla dejaría los CONTADORES
+   mintiendo, que es peor que la lista duplicada.
 
    El contador NO lo tocan los filtros del área de trabajo: es la cola del
    encargado y tiene que ser estable para poder decidir con ella.
@@ -17,7 +28,7 @@
 {% from "titulatec/_macros.html" import appt_pill %}
 
 <aside id="appt-queue" aria-label="Cola de trabajo"
-       data-tt-fade-key="queue:{{ pending_count }}|{{ reagendar_count }}|{{ sin_encuesta_count }}|{{ seleccion|join(',') }}">
+       data-tt-fade-key="queue:{{ pending_count }}|{{ bloqueados_count }}|{{ reagendar_count }}|{{ sin_encuesta_count }}|{{ seleccion|join(',') }}">
 
   <div class="tt-card">
     <div class="tt-queue-head">
@@ -56,6 +67,51 @@
     <p class="tt-appt-empty mb-0">Nadie pendiente de agendar en tus carreras.</p>
     {% endif %}
   </div>
+
+  {# «Requieren que les agendes» (D10) — el cubo que el usuario pidió con todas
+     las letras. Son los que agotaron el tope de cancelaciones (D9): ya NO
+     pueden agendarse solos, así que si el encargado no los ve, se quedan
+     esperando indefinidamente a que pase algo que no puede pasar.
+
+     Filas CON arrastre y CON selección, al revés que «Sin encuesta»: aquí sí
+     hay algo que hacer, y es exactamente lo que el cubo pide. Sus procesos
+     entran a `visibles` en `_shell_ctx`, o el `?selected=` los descartaría y
+     el encargado vería el cubo sin poder abrirle la ficha a nadie. #}
+  {% if bloqueados_count %}
+  <div class="tt-card mt-3">
+    <div class="tt-queue-head">
+      <h2 class="tt-h-sec">Requieren que les agendes
+        <span class="n">{{ bloqueados_count }}</span>
+      </h2>
+    </div>
+    <p class="tt-appt-empty mb-2">
+      <i class="bi bi-person-exclamation me-1" aria-hidden="true"></i>
+      Agotaron sus cancelaciones: solo tú puedes darles cita.
+    </p>
+    <div class="tt-queue-list">
+      {% for r in bloqueados %}
+      <a class="tt-appt-item{{ ' is-active' if r.process_id in seleccion }}"
+         id="appt-blocked-{{ r.process_id }}"
+         draggable="true" data-tt-drag="{{ r.process_id }}"
+         data-tt-drag-name="{{ r.student }}"
+         {{ appt_nav(page_url ~ '?date=' ~ day ~ '&p=' ~ r.process_id) }}>
+        <span class="flex-grow-1 min-w-0">
+          <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
+          <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
+          {# El conteo es lo que convierte una lista más en una instrucción:
+             sin él, el encargado no sabe si esto es urgente o si el alumno
+             simplemente no ha entrado a la página. #}
+          <span class="meta d-block text-truncate">
+            {{ r.cancelaciones }} cancelacion{{ 'es' if r.cancelaciones != 1 }}
+            · ya no puede agendar solo
+          </span>
+        </span>
+        <i class="bi bi-chevron-right" aria-hidden="true"></i>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 
   {% if reagendar_count %}
   <div class="tt-card mt-3">

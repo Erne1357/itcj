@@ -59,7 +59,12 @@ HEAD_WRITE_PERMS = HEAD_PERMS + SCOPED_PERMS
 _DAY = (date.today() + timedelta(days=7)).isoformat()
 _INITIAL_DOCS = ("birth_certificate", "high_school_cert", "curp")
 
-# (alias, metodo, plantilla de URL, form). Las 13 rutas con `{process_id}`.
+# (alias, metodo, plantilla de URL, form). Las 13 rutas que la matriz ejercita
+# de punta a punta. NO son todas las que llevan `{process_id}`: el censo por AST
+# de `test_toda_ruta_con_process_id_invoca_el_guard` cuenta 19, y las que faltan
+# aqui (las de requisitos, dictamen de fase 02, mover y deshacer no-show) quedan
+# cubiertas por ese censo estructural. El comentario decia "las 13 rutas" cuando
+# la lista tenia 12 y el censo 18: dos numeros de segunda mano en una linea.
 ROUTES = [
     ("process_detail", "GET",
      "/titulatec/admin/processes/{pid}", None),
@@ -78,6 +83,10 @@ ROUTES = [
     ("appt_start", "POST", "/titulatec/admin/appointments/{pid}/start", {}),
     ("appt_attended", "POST", "/titulatec/admin/appointments/{pid}/attended", {}),
     ("appt_no_show", "POST", "/titulatec/admin/appointments/{pid}/no-show", {}),
+    # Cancelar la cita de un alumno (spec 2026-09-15 §5). Lleva `{process_id}`,
+    # asi que entra al censo por AST igual que sus hermanas.
+    ("appt_cancel", "POST", "/titulatec/admin/appointments/{pid}/cancelar",
+     {"motivo": "el alumno aviso que no puede"}),
     ("appt_document", "GET",
      "/titulatec/admin/appointments/{pid}/document/curp", None),
     ("doc_review", "POST",
@@ -608,7 +617,7 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
             tardio.append(etiqueta + " (toca la sesion en la linea relativa "
                           + str(antes[0].lineno) + ", antes del guard)")
 
-    assert revisadas == 18, (
+    assert revisadas == 19, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
         "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
         "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"

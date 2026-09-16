@@ -31,6 +31,13 @@
   {% elif estado == "in_progress" %}{{ pill("En proceso", "amber", "hourglass-split") }}
   {% elif estado == "attended" %}{{ pill("Asistió", "success", "check-lg") }}
   {% elif estado == "no_show" %}{{ pill("No se presentó", "danger", "x-circle") }}
+  {# Los dos estados del HISTORIAL de intentos. Sin ellos, el respaldo de abajo
+     imprime el codigo crudo en ingles en cuanto una pantalla lista intentos no
+     vigentes — que es justo lo que hace la ficha de Atender. `cancelled` NO es
+     `danger`: cancelar a tiempo no es un fallo del alumno, y teñirlo de rojo
+     lo pondria al mismo nivel que no presentarse. #}
+  {% elif estado == "cancelled" %}{{ pill("Cancelada", "neutral", "slash-circle") }}
+  {% elif estado == "superseded" %}{{ pill("Reagendada", "neutral", "arrow-repeat") }}
   {% else %}{{ pill(estado, "neutral") }}{% endif %}
 {% endmacro %}
 

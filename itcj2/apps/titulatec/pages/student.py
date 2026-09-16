@@ -291,6 +291,13 @@ _APPT_STUDENT_LABEL = {
     "in_progress": ("Cotejo en proceso", "amber"),
     "attended":    ("Asististe al cotejo", "success"),
     "no_show":     ("No te presentaste a la cita", "danger"),
+    # Los dos estados del historial de intentos (spec 2026-09-15 §2.3). Una
+    # cita `cancelled` o `superseded` nunca es la VIGENTE, así que hoy no se
+    # alcanzan por `get_for_process`; van aquí porque el respaldo del `.get()`
+    # imprime el codigo crudo en ingles, y basta con que alguien pinte el
+    # historial en el panel del alumno para que se vuelva visible.
+    "cancelled":   ("Cita cancelada", "neutral"),
+    "superseded":  ("Cita reagendada", "neutral"),
 }
 
 

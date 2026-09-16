@@ -70,11 +70,20 @@
            draggable="true" data-tt-drag="{{ o.process_id }}"
            data-tt-drag-name="{{ o.student }}"
            {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ o.process_id) }}
-           aria-label="{{ f.hhmm }}, {{ o.student }}, {{ o.control }}">
+           aria-label="{{ f.hhmm }}, {{ o.student }}, {{ o.control }}{% if o.booked_by == 'student' %}, el alumno agendó{% endif %}">
           <span class="who">{{ o.student }}
             {%- if o.change_request %}<i class="bi bi-arrow-repeat ms-1" title="Solicitó un cambio"></i>{% endif %}
           </span>
-          <span class="meta">{{ o.control }} · {{ o.program }}</span>
+          {# D11: el distintivo del auto-agendado va DENTRO de `.meta`, jamás
+             como línea nueva — el asiento es de alto FIJO (56px) y una tercera
+             fila lo haría crecer, o sea que llenar un lugar movería la fila.
+             Y va PRIMERO en la línea porque `.meta` trunca con elipsis: así lo
+             que se pierde en un asiento estrecho es la carrera, no el aviso de
+             que este alumno se sentó solo. #}
+          <span class="meta">
+            {%- if o.booked_by == 'student' %}<span class="selfbook">El alumno agendó</span> · {% endif -%}
+            {{ o.control }} · {{ o.program }}
+          </span>
         </a>
         {% endfor %}
 

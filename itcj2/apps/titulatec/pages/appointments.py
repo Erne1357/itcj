@@ -283,6 +283,21 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
                          in get_user_permissions_for_app(db, user_id, "titulatec"))
 
     appt = AppointmentService.get_for_process(db, process_id)
+
+    # Historial de INTENTOS (spec 2026-09-15 §2.2). Es el unico sitio de la app
+    # donde el encargado puede ver que esta es la tercera vez que se le agenda a
+    # alguien: `get_for_process` devuelve solo la vigente, asi que sin esto los
+    # intentos superados, cancelados y las ausencias viejas son invisibles.
+    # Diccionarios PLANOS, por la misma razon que `requisitos` arriba: la ruta
+    # renderiza DESPUES de su `db.close()`.
+    intentos = [{
+        "n": a.attempt_no,
+        "when": _label(a.scheduled_at),
+        "status": a.status,
+        "by_student": a.booked_by == "student",
+        "is_current": bool(a.is_current),
+    } for a in AppointmentService.list_attempts(db, process_id)]
+
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
     allowed_days = [d.isoformat() for d in ReviewDayService.list_days(db, proc.cohort_id)] if proc.cohort_id else []
 
@@ -302,6 +317,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
         "modality_name": modality.name if modality else None,
         "cohort_period": cohort.period_code if cohort else None,
         "appt": _appt_dict(appt),
+        "attempts": intentos,
         "docs": docs,
         "doc_abierto": abierto["type_code"] if abierto else None,
         "doc_src": abierto["view_url"] if abierto else None,
@@ -451,6 +467,10 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
             "status": a.status,
             "time_label": _time_label(a.scheduled_at),
             "change_request": bool(a.change_request),
+            # D11: el encargado se entera del auto-agendado por su tablero, con
+            # distintivo. No hay notificacion ni correo, asi que este dato ES
+            # el aviso.
+            "booked_by": a.booked_by,
         }
 
     grupos = []
@@ -503,10 +523,20 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
     from itcj2.apps.titulatec.services.slot_service import SlotService
 
+    from itcj2.apps.titulatec.services.scope_service import _program_ids_for_user
+
     fila_dia = ReviewDayService.get(db, cohort_id, day) if (cohort_id and day) else None
     if fila_dia is None:
         return {"dia_id": None, "mios": [], "ajenos": [], "editor": None,
-                "defaults": None}
+                "defaults": None, "sin_alcance": False}
+
+    # Ruling 14 de la ejecucion: `SelfBookingService.offer` resuelve la carrera
+    # con ESTE mismo predicado, asi que quien no tenga carreras asignadas puede
+    # publicar un espacio `bookable` que NINGUN egresado vera. Se mantiene
+    # fail-closed (`read.all` es un permiso de lectura, no una declaracion de
+    # que esa persona atiende presencialmente a todo el instituto), pero la UI
+    # tiene que decirlo con todas sus letras: sin esto es un bug silencioso.
+    sin_alcance = not _program_ids_for_user(db, user_id)
 
     mios = []
     for w in SlotService.windows_for_day(db, fila_dia.id, owner_id=user_id,
@@ -521,6 +551,7 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
             "capacity": w.capacity,
             "location": w.location,
             "pausada": w.status == "paused",
+            "visibility": w.visibility,
             "ocupados": ocupados,
             "capacidad": capacidad,
             "is_active": editando is not None and editando == w.id,
@@ -536,6 +567,7 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
 
     defaults = SlotService.day_defaults(db, fila_dia)
     editor = None
+    editor_w = None
     if editando == "nuevo":
         editor = {"id": None,
                   "start": defaults["start_time"].strftime("%H:%M"),
@@ -543,14 +575,18 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
                   "slot_minutes": defaults["slot_minutes"],
                   "capacity": defaults["capacity"],
                   "location": defaults["location"] or "",
+                  # D1: todo espacio nace PRIVADO. Publicar es deliberado.
+                  "visibility": "private",
                   "pausada": False}
     elif editando:
         w = db.get(ReviewWindow, editando)
         if w is not None and w.review_day_id == fila_dia.id:
+            editor_w = w
             editor = {"id": w.id, "start": w.start_time.strftime("%H:%M"),
                       "end": w.end_time.strftime("%H:%M"),
                       "slot_minutes": w.slot_minutes, "capacity": w.capacity,
                       "location": w.location or "", "pausada": w.status == "paused",
+                      "visibility": w.visibility,
                       "propio": w.owner_user_id == user_id}
     if editor is not None:
         n = len(SlotService.slots_from(editor["start"], editor["end"],
@@ -560,8 +596,24 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
             f"{editor['slot_minutes']} minutos: {n} franja{'s' if n != 1 else ''} "
             f"de {editor['capacity']} persona{'s' if editor['capacity'] != 1 else ''} "
             f"— {n * int(editor['capacity'])} citas en total.")
+
+        # Las tres lineas de §6, calculadas EN EL SERVIDOR igual que la de
+        # arriba. Dicen la verdad sobre ESTE espacio («tus 10 franjas libres»),
+        # no una frase generica: duplicar el calculo de franjas en JavaScript es
+        # justo lo que el editor evita desde su rediseno.
+        libres = (len(SlotService.free_slots(db, editor_w)) if editor_w is not None
+                  else n * int(editor["capacity"]))
+        lugar = editor["location"] or "el lugar que pongas arriba"
+        editor["vis_lineas"] = {
+            "private": "Solo tú agendas en este espacio. El egresado no lo ve.",
+            "bookable": (f"El egresado ve tus {libres} "
+                         f"franja{'s' if libres != 1 else ''} libre"
+                         f"{'s' if libres != 1 else ''} y elige una."),
+            "walkin": (f"El egresado ve «{_dia_largo(day)}, {editor['start']} a "
+                       f"{editor['end']}, {lugar}» y llega sin cita."),
+        }
     return {"dia_id": fila_dia.id, "mios": mios, "ajenos": ajenos,
-            "editor": editor, "defaults": defaults}
+            "editor": editor, "defaults": defaults, "sin_alcance": sin_alcance}
 
 
 def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
@@ -617,8 +669,16 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     # lo rechazaría), así que sus filas no llevan navegación ni arrastre — ver
     # `_appt_queue.html`. No entran a `visibles`: no hay ficha que abrirles.
     sin_encuesta = AppointmentService.list_missing_survey_processes(db, allowed_program_ids=allowed)
+    # D10: los que agotaron su tope de cancelaciones (D9) y ya NO pueden
+    # agendarse solos. Cubo propio y mutuamente excluyente con «Por agendar»:
+    # la resta la hace `list_pending_processes`, no esta vista.
+    bloqueados = AppointmentService.list_self_blocked_processes(db, allowed_program_ids=allowed)
+    # Los bloqueados ENTRAN a `visibles`, y no es un detalle: `?selected=` se
+    # descarta si el proceso no esta aqui, asi que sin esta union el encargado
+    # veria el cubo pero no podria abrirle la ficha a nadie de el — o sea, no
+    # podria agendarle, que es lo unico que ese cubo existe para pedirle.
     visibles = (AppointmentService.agenda_process_ids(db, allowed_program_ids=allowed)
-                | {p.id for p in pendientes})
+                | {p.id for p in pendientes} | {p.id for p in bloqueados})
     if selected_id is not None and selected_id not in visibles:
         selected_id = None
     detail = (_detail_ctx(db, selected_id, user_id=user_id, doc_abierto=doc)
@@ -650,6 +710,8 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         "programs": _programs(db),
         "pending": _proc_rows(db, pendientes),
         "pending_count": len(pendientes),
+        "bloqueados": _proc_rows_bloqueados(db, bloqueados),
+        "bloqueados_count": len(bloqueados),
         "reagendar": _proc_rows(db, reagendar),
         "reagendar_count": len(reagendar),
         # No se suma al badge de la pestaña (`appointments_body.html`): ese
@@ -712,6 +774,27 @@ def _proc_rows(db, procs):
                        "control": u.control_number if u else "—",
                        "program": prog.name if prog else "Sin carrera"})
     return salida
+
+
+def _proc_rows_bloqueados(db, procs):
+    """Filas del cubo de D10, con el conteo que EXPLICA por que estan ahi.
+
+    «3 cancelaciones · ya no puede agendar solo» es lo que convierte una lista
+    mas en una instruccion: sin el numero, el encargado no sabe si mirar el
+    cubo es urgente o si el alumno simplemente no ha entrado a la pagina.
+
+    El conteo sale de `SelfBookingService.cancellations`, el MISMO predicado
+    que decide el cubo y que ve el alumno en su pantalla. Es un COUNT por fila,
+    y se acepta a proposito: este cubo solo tiene a quien cancelo tres veces,
+    asi que N es de un digito.
+    """
+    from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+    por_id = {p.id: p for p in procs}
+    filas = _proc_rows(db, procs)
+    for fila in filas:
+        fila["cancelaciones"] = SelfBookingService.cancellations(
+            db, por_id[fila["process_id"]])
+    return filas
 
 
 def _pager_ctx(db, day, allowed, selected_id):
@@ -1068,6 +1151,50 @@ async def no_show(
         db.close()
 
 
+@router.post("/{process_id}/cancelar", name="titulatec.pages.appointments.cancel")
+def cancel(
+    process_id: int,
+    request: Request,
+    motivo: str = Form(""),
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.update"])),
+):
+    """El encargado cancela la cita de un alumno (spec 2026-09-15 §5).
+
+    D12: cancelar LIBERA la franja en el acto, al reves que el no-show. Son dos
+    botones distintos a proposito y no dos nombres de lo mismo: «no se presento»
+    registra una ausencia y conserva el lugar consumido; «cancelar» dice que la
+    cita no va a ocurrir y devuelve el lugar al pozo.
+
+    **No consume el cupo de D9.** El contador del alumno solo cuenta las que
+    cancelo EL (`cancelled_by_id == student_id`, `SelfBookingService.cancellations`),
+    asi que el encargado no puede dejarlo bloqueado sin querer.
+
+    El `motivo` es opcional y viaja por `Form`: la ruta es `def` —como sus
+    hermanas `move` y `space_save`— y en una `def` no se puede
+    `await request.form()`. Se normaliza ANTES de abrir la sesion, para que el
+    guard de alcance siga siendo la primera sentencia del `try` (lo vigila el
+    censo por AST de `test_scope_guard.py`).
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    uid = int(user["sub"])
+    razon = (motivo or "").strip() or None
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, uid, process_id)
+        appt = AppointmentService.get_for_process(db, process_id)
+        if appt is None:
+            return Response(status_code=400,
+                            headers={"X-Tt-Error": _hdr("Ese alumno todavía no tiene cita.")})
+        return _accion(request, db, selected_id=process_id, user_id=uid,
+                       fn=lambda: AppointmentService.cancel(db, appt, uid, razon),
+                       exito="Cita cancelada. El lugar queda libre para otro egresado.")
+    finally:
+        db.close()
+
+
 # ===========================================================================
 # Dictamen de la fase 02, aqui mismo (§5.4-5.5, D9)
 # ===========================================================================
@@ -1253,7 +1380,9 @@ def move(
     worker entero. En `def`, FastAPI la corre en el threadpool.
     """
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.appointment_service import (
+        AppointmentService, _ESTADOS_ACTIVOS,
+    )
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     q = request.query_params
@@ -1265,7 +1394,16 @@ def move(
         window_id = _to_int(q.get("window_id"))
         slot = _parse_time(q.get("slot"))
         cuando = slot.strftime("%H:%M") if slot else "esa hora"
-        if appt is None:
+        # `appt is None` NO basta como proxy de «no hay cita que mover».
+        # `get_for_process` devuelve la VIGENTE, y una `attended` sigue siendo
+        # la vigente: caia en `reschedule` -> `InvalidTransition`, asi que el
+        # encargado no podia re-sentar desde el tablero a quien atendio y le
+        # faltaron papeles — que es literalmente D5. El criterio correcto es el
+        # complemento exacto de la guarda de `create` (`previa.status in
+        # _ESTADOS_ACTIVOS`): hay cita VIVA que mover, o se abre un intento
+        # nuevo. Asi los dos no pueden divergir. `cancelled`/`superseded` ni
+        # llegan aqui: dejan de ser vigentes, asi que `appt` ya es None.
+        if appt is None or appt.status not in _ESTADOS_ACTIVOS:
             return _accion(request, db, selected_id=process_id, user_id=uid,
                            fn=lambda: AppointmentService.create(
                                db, process_id, window_id=window_id, slot_start=slot,
@@ -1352,6 +1490,10 @@ async def document_file(
 _ESPACIO_PERMS = ["titulatec.review_window.api.manage",
                   "titulatec.review_window.api.manage.all"]
 
+# Los tres modos de un espacio (D1). Espejo del `CheckConstraint` del modelo:
+# si alguna vez divergen, gana la BD y el usuario se lleva un 500.
+_VISIBILIDADES = ("private", "bookable", "walkin")
+
 
 def _puede_todo(db, user_id: int) -> bool:
     """Si el usuario puede editar los espacios de CUALQUIERA (jefatura)."""
@@ -1376,8 +1518,13 @@ def _espacio_en_alcance(db, window_id, user_id: int):
     return w
 
 
-def _accion_espacio(request, db, *, user_id, fn, exito=None):
-    """Como `_accion`, pero para Espacios: no hay alumno seleccionado."""
+def _accion_espacio(request, db, *, user_id, fn, exito=None, kind="success"):
+    """Como `_accion`, pero para Espacios: no hay alumno seleccionado.
+
+    `kind` decide el tono del aviso. No todo lo que sale bien sale BIEN del
+    todo: publicar un espacio sin carreras asignadas se guarda, pero no lo vera
+    nadie, y anunciarlo en verde seria mentir con el color.
+    """
     from itcj2.apps.titulatec.services.appointment_errors import (
         AppointmentError, SlotLockTimeout,
     )
@@ -1389,13 +1536,20 @@ def _accion_espacio(request, db, *, user_id, fn, exito=None):
             db.rollback()
         if not e.refresca_la_vista:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(e)})
-        resp = _render_body(request, db, user_id=user_id, **_action_ctx(request))
+        resp = _render_body(request, db, selected_id=None, user_id=user_id,
+                            **_action_ctx(request))
         resp.headers["X-Tt-Notice"] = _hdr(e)
         return resp
-    resp = _render_body(request, db, user_id=user_id, **_action_ctx(request))
+    # `selected_id` es OBLIGATORIO en `_render_body` y aqui no hay alumno
+    # abierto, asi que va explicito en None. Sin el, TODA accion de Espacios que
+    # salia bien (guardar, pausar, borrar, copiar) reventaba con un `TypeError`
+    # -> 500: la sub-vista no tenia ni una sola prueba de ruta, solo de servicio,
+    # asi que el fallo vivia justo en el hueco entre las dos capas.
+    resp = _render_body(request, db, selected_id=None, user_id=user_id,
+                        **_action_ctx(request))
     if exito:
         resp.headers["X-Tt-Notice"] = _hdr(exito)
-        resp.headers["X-Tt-Notice-Kind"] = "success"
+        resp.headers["X-Tt-Notice-Kind"] = kind
     return resp
 
 
@@ -1408,6 +1562,7 @@ def space_save(
     slot_minutes: str = Form("30"),
     capacity: str = Form("1"),
     location: str = Form(""),
+    visibility: str = Form("private"),
     user: dict = Depends(require_page_app("titulatec", perms=_ESPACIO_PERMS)),
 ):
     """Crea o actualiza un espacio. `window_id` es un entero o la palabra 'nuevo'.
@@ -1415,10 +1570,20 @@ def space_save(
     Los campos llegan por `Form(...)` y no leyendo el cuerpo a mano: la ruta es
     `def` (para no bloquear el event loop con el `FOR UPDATE`) y en una `def` no
     se puede `await request.form()`.
+
+    `visibility` es un CAMPO MAS, sin ruta ni permiso propios (spec §5): quien
+    puede editar un espacio puede publicarlo. Se valida aqui contra el dominio
+    porque el `CheckConstraint` de la tabla lo rechazaria con un `IntegrityError`
+    crudo, o sea un 500 en vez de una frase.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
     from itcj2.apps.titulatec.services.review_window_service import ReviewWindowService
+    from itcj2.apps.titulatec.services.scope_service import _program_ids_for_user
+
+    if visibility not in _VISIBILIDADES:
+        return Response(status_code=400, headers={
+            "X-Tt-Error": _hdr("Ese modo de visibilidad no existe.")})
 
     uid = int(user["sub"])
     db = SessionLocal()
@@ -1428,7 +1593,19 @@ def space_save(
             slot_minutes=_to_int(slot_minutes) or 30,
             capacity=_to_int(capacity) or 1,
             location=(location or None),
+            visibility=visibility,
         )
+        # Ruling 14: `offer` es fail-closed, asi que un `bookable` de alguien sin
+        # carreras asignadas no se lo ofrece a NADIE. Se guarda igual —el
+        # predicado no cambia—, pero callarlo convierte un espacio publicado en
+        # un bug silencioso: el encargado cree que publico y no publico nada.
+        avisa_sin_alcance = (visibility == "bookable"
+                             and not _program_ids_for_user(db, uid))
+        exito = ("Espacio guardado, pero NINGÚN egresado lo verá: no tienes "
+                 "carreras asignadas. Pídele a la jefatura de Servicios "
+                 "Escolares que te asigne las que atiendes."
+                 if avisa_sin_alcance else "Espacio guardado.")
+        kind = "warning" if avisa_sin_alcance else "success"
         if window_id == "nuevo":
             dia = _parse_date(request.query_params.get("date"))
             cohort_id = _active_cohort_id(db)
@@ -1441,11 +1618,11 @@ def space_save(
                                    fn=lambda: ReviewWindowService.create(
                                        db, fila.id, uid, position_id=pos,
                                        actor_id=uid, **campos),
-                                   exito="Espacio guardado.")
+                                   exito=exito, kind=kind)
         w = _espacio_en_alcance(db, _to_int(window_id), uid)
         return _accion_espacio(request, db, user_id=uid,
                                fn=lambda: ReviewWindowService.update(db, w, **campos),
-                               exito="Espacio guardado.")
+                               exito=exito, kind=kind)
     finally:
         db.close()
 

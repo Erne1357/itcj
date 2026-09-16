@@ -47,9 +47,15 @@
          {% if v == 'agenda' %}aria-current="page"{% endif %}
          {{ appt_nav(U_AGENDA) }}>
         <i class="bi bi-calendar3" aria-hidden="true"></i>Agenda
-        {% if pending_count or reagendar_count %}
-        <span class="tt-badge" aria-hidden="true">{{ pending_count + reagendar_count }}</span>
-        <span class="visually-hidden">, {{ pending_count + reagendar_count }} por atender</span>
+        {# «Por atender» = lo que el encargado puede resolver HOY. Los bloqueados
+           por D9 suman porque son suyos por definición: el alumno ya no puede
+           agendarse solo, así que si el badge no los cuenta, el único aviso de
+           que alguien espera queda enterrado en la cola. «Sin encuesta» NO
+           suma: ahí no hay nada que el encargado pueda hacer todavía. #}
+        {% set por_atender = pending_count + bloqueados_count + reagendar_count %}
+        {% if por_atender %}
+        <span class="tt-badge" aria-hidden="true">{{ por_atender }}</span>
+        <span class="visually-hidden">, {{ por_atender }} por atender</span>
         {% endif %}
       </a>
       <a class="seg{{ ' is-active' if v == 'atender' }}"

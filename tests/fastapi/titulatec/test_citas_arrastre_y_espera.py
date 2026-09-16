@@ -185,3 +185,113 @@ def test_terminado_el_dia_lo_dice(dia_con_citas, client_as, db_session):
 
     html = client_as(esc["officer"]).get(URL + "?v=atender&date=" + _D.isoformat()).text
     assert "Terminaste el día" in html
+
+
+# ---------------------------------------------------------------------------
+# 3. Re-sentar desde el tablero a quien ya se atendio (D5)
+# ---------------------------------------------------------------------------
+# `move` elegia entre `create` y `reschedule` con `appt is None` como proxy de
+# «no hay cita activa». Con el historial de intentos el proxy se rompe: una cita
+# `attended` SIGUE siendo la vigente, asi que caia en `reschedule` ->
+# `InvalidTransition` (terminal), y el encargado NO podia volver a sentar a
+# quien atendio y le faltaron papeles — que es literalmente D5, la regla que el
+# usuario pidio. El criterio correcto es el complemento exacto de la guarda de
+# `create`: hay cita VIVA que mover, o se abre un intento nuevo.
+
+
+@pytest.fixture()
+def alumno_atendido(seed_phase_defs, seed_document_types, make_program, make_cohort,
+                    make_review_day, make_officer, make_student, make_process,
+                    make_document, make_review_window, make_appointment,
+                    make_survey_review):
+    """Un alumno con cita `attended` a las 09:00 y la rejilla con lugares libres.
+
+    Lleva la encuesta enviada a proposito: `AppointmentService.create` exige la
+    solicitud ANTES que cualquier otra guarda (D2), asi que sin ella este test
+    fallaria por `SurveyNotSubmitted` y no por lo que viene a medir.
+    """
+    # `OFFICER_PERMS` es el set de BANDEJA (solo lectura): el resto de este
+    # archivo hace GETs de markup, asi que nunca necesito un permiso de
+    # escritura. `move` exige `appointment.api.reschedule` y sin el la ruta
+    # contesta 403 — un rojo que NO habla de D5 y que tapa lo que se mide.
+    from tests.fastapi.titulatec.conftest import OFFICER_PERMS
+    _PERMS = OFFICER_PERMS + ("titulatec.appointment.api.reschedule",)
+
+    def _build(status="attended"):
+        seed_phase_defs()
+        seed_document_types()
+        prog = make_program("Ingenieria de Resentado")
+        cohort = make_cohort()
+        dia = make_review_day(cohort, day=_D)
+        officer, pos = make_officer([prog], perm_codes=_PERMS)
+        ventana = make_review_window(dia, officer, start="09:00", end="12:00",
+                                     slot=30, cap=1, position=pos)
+        st = make_student(last_name="RESENTADO")
+        proc = make_process(st, cohort=cohort, program=prog, current_phase=2)
+        for code in ("birth_certificate", "high_school_cert", "curp"):
+            make_document(proc, type_code=code, review_status="approved")
+        make_survey_review(proc)
+        appt = make_appointment(proc, when=datetime.combine(
+            _D, datetime.min.time()).replace(hour=9), status=status)
+        return {"officer": officer, "proc": proc, "w": ventana, "appt": appt}
+    return _build
+
+
+def _intentos(db_session, proc):
+    from itcj2.apps.titulatec.models import ReviewAppointment
+    db_session.expire_all()
+    return (db_session.query(ReviewAppointment)
+            .filter_by(process_id=proc.id)
+            .order_by(ReviewAppointment.attempt_no).all())
+
+
+def test_el_encargado_puede_resentar_a_quien_ya_atendio(alumno_atendido, client_as,
+                                                        db_session):
+    """D5: atendido pero con faltantes -> se le abre un INTENTO NUEVO.
+
+    Y la evidencia del cotejo que si ocurrio no se toca: la fila `attended`
+    conserva su estado y su franja; solo deja de ser la vigente.
+    """
+    esc = alumno_atendido()
+    resp = client_as(esc["officer"]).post(
+        URL + "/%d/move?window_id=%d&slot=10:00" % (esc["proc"].id, esc["w"].id))
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert not resp.headers.get("X-Tt-Error"), resp.headers.get("X-Tt-Error")
+
+    filas = _intentos(db_session, esc["proc"])
+    assert len(filas) == 2, "no se abrio un intento nuevo: %s" % [f.status for f in filas]
+
+    vieja, nueva = filas
+    assert vieja.status == "attended", "se borro la evidencia de que el cotejo ocurrio"
+    assert vieja.is_current is False
+    assert vieja.scheduled_at.hour == 9, "la atendida no conserva su franja"
+
+    assert nueva.attempt_no == 2
+    assert nueva.is_current is True
+    assert nueva.status == "scheduled"
+    assert nueva.scheduled_at.hour == 10
+
+
+def test_mover_una_cita_VIVA_sigue_siendo_una_reagenda(alumno_atendido, client_as,
+                                                       db_session):
+    """La asercion positiva que acompana a la de arriba.
+
+    Sin ella, mandar TODO a `create` pasaria el test anterior y romperia en
+    silencio el camino normal: una cita viva tiene que SUPERARSE
+    (`superseded`, que libera su franja), no conservar su estado como hace la
+    atendida. Es la diferencia entre mover a alguien y darle una cita mas.
+    """
+    esc = alumno_atendido(status="scheduled")
+    resp = client_as(esc["officer"]).post(
+        URL + "/%d/move?window_id=%d&slot=10:00" % (esc["proc"].id, esc["w"].id))
+
+    assert resp.status_code == 200, resp.text[:300]
+
+    filas = _intentos(db_session, esc["proc"])
+    assert len(filas) == 2
+    vieja, nueva = filas
+    assert vieja.status == "superseded", (
+        "mover una cita viva tiene que superarla, no dejarla como estaba")
+    assert vieja.is_current is False
+    assert nueva.is_current is True and nueva.scheduled_at.hour == 10

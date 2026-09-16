@@ -1302,6 +1302,13 @@ th.sortable { cursor: pointer; user-select: none; }
                  font-family: var(--tt-mono); }
 .tt-seat .who, .tt-seat .meta { min-width: 0; overflow: hidden;
                                 text-overflow: ellipsis; white-space: nowrap; }
+/* Distintivo «El alumno agendo» (D11). Vive DENTRO de `.meta`, nunca como una
+   linea nueva: el asiento es de alto FIJO (56px, arriba) y una tercera fila lo
+   haria crecer, o sea que llenar un lugar moveria la fila — el defecto exacto
+   que el rediseno del 2026-09-03 cerro. Va PRIMERO en la linea para que el
+   truncado se coma la carrera y no el distintivo. */
+.tt-seat .meta .selfbook { font-family: var(--tt-ui); font-weight: 600;
+                           color: var(--tt-text-2); }
 .tt-seat--libre { border-style: dashed; background: var(--tt-mist); }
 .tt-seat--libre .who { color: var(--tt-text-3); font-weight: 500; }
 .tt-seat.is-active { background: var(--tt-accent-soft); border-color: var(--tt-accent-ink); }
@@ -1900,3 +1907,48 @@ button.tt-seat--libre { pointer-events: auto; }
   .tt-daychip, .tt-slot { transition: none; }
   .tt-daychip:active, .tt-slot:active { transform: none; }
 }
+
+/* ===========================================================================
+   ADMIN - CITAS: visibilidad del espacio e historial de intentos (2026-09-16)
+
+   OJO, y ya esta dicho arriba (`:1786-1791`): `test_citas_sistema_visual.py`
+   recorta el bloque de Citas desde su marcador hasta el FINAL DEL ARCHIVO, asi
+   que TODO lo que se anada aqui cae bajo aquellas reglas aunque sea de otra
+   pantalla. En concreto: solo tokens `--tt-fs-*` (ningun `font-size` literal),
+   `--tt-mute` jamas como `color:` de texto (va `--tt-text-3`) y el anillo de
+   foco con `--tt-focus`, nunca con `--tt-accent`.
+   =========================================================================== */
+
+/* --- Los tres modos del espacio ----------------------------------------- */
+/* Uno por FILA, con su linea derivada debajo del rotulo. En linea no cabian:
+   los tres rotulos mas sus frases suman mas de 200 caracteres y en la columna
+   del editor se partian en mitades sin relacion visible con su radio. */
+.tt-vis { display: flex; flex-direction: column; gap: var(--tt-sp-2);
+          min-width: 0; border: 0; padding: 0; margin: 0; }
+.tt-vis-opt { display: grid; grid-template-columns: auto 1fr; gap: var(--tt-sp-2);
+              align-items: start; min-width: 0; cursor: pointer;
+              padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r-sm);
+              border: 1px solid var(--tt-line-soft); background: var(--tt-paper);
+              transition: border-color var(--tt-dur-1) ease, background var(--tt-dur-1) ease; }
+.tt-vis-opt .rotulo   { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+.tt-vis-opt .derivada { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+/* El resalte del elegido es progresivo: sin `:has()` el radio sigue marcado y
+   el formulario funciona igual, solo que sin el fondo. */
+.tt-vis-opt:has(input:checked) { background: var(--tt-mist);
+                                 border-color: var(--tt-accent-ink); }
+.tt-vis-opt:focus-within { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+
+/* Aviso de alcance vacio: publicar «Agendable» sin carreras asignadas no lo ve
+   NADIE (`offer` es fail-closed a proposito). Es un aviso, no un error: el
+   espacio se guarda. */
+.tt-vis-aviso { font-size: var(--tt-fs-100); color: var(--tt-amber-ink); }
+
+/* --- Historial de intentos (ficha de Atender) ---------------------------- */
+.tt-attempts { list-style: none; margin: 0; padding: 0;
+               display: flex; flex-direction: column; gap: var(--tt-sp-1); }
+.tt-attempt { display: flex; align-items: center; flex-wrap: wrap;
+              gap: var(--tt-sp-2); min-width: 0;
+              font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-attempt .n    { font-family: var(--tt-mono); color: var(--tt-text-3); }
+.tt-attempt .when { font-family: var(--tt-mono); font-variant-numeric: tabular-nums;
+                    color: var(--tt-text-1); }

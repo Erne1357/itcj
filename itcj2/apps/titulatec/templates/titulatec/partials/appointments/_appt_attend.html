@@ -129,6 +129,32 @@
         {% endif %}
       </div>
 
+      {# Cancelar NO es «no se presentó», y son dos botones distintos a
+         propósito (D12): la ausencia registra que el lugar se consumió y NO lo
+         libera; cancelar dice que la cita no va a ocurrir y devuelve el lugar
+         al pozo en el acto. El motivo es opcional y va en un `<details>`
+         NATIVO: cero JS, que es lo único que permite tenerlo aquí (los
+         parciales de Citas no admiten `<script>` ni `style=` inline).
+
+         El `hx-post` va también en el botón: htmx 2 no hereda los verbos, así
+         que sin él el botón dentro del form no dispara nada. El form lo lleva
+         para que Enter dentro del campo también envíe. #}
+      {% if detail.appt.status in ('scheduled', 'confirmed') %}
+      <form class="mt-3" {{ appt_action(BASE ~ '/cancelar' ~ QZ) }}>
+        <details>
+          <summary class="tt-appt-note">Cancelar la cita</summary>
+          <input name="motivo" class="form-control form-control-sm mt-2" maxlength="255"
+                 placeholder="Motivo (opcional) — el alumno no lo ve"
+                 aria-label="Motivo de la cancelación">
+          <button type="submit" class="btn btn-sm tt-btn-danger-soft mt-2"
+                  hx-post="{{ BASE }}/cancelar{{ QZ }}"
+                  hx-confirm="Cancelar la cita|¿Cancelar la cita de {{ detail.student.name }}? Su lugar queda libre para otro egresado. Esto NO le consume sus cancelaciones."
+                  data-tt-confirm-ok="Sí, cancelar">
+            <i class="bi bi-calendar-x me-1" aria-hidden="true"></i>Cancelar cita</button>
+        </details>
+      </form>
+      {% endif %}
+
       {% if detail.appt.status == 'attended' %}
       <div class="mt-3">
         <span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Cotejo concluido</span>
@@ -274,6 +300,37 @@
         <i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Agendar a este alumno</a>
       {% endif %}
     </div>
+
+    {# --- Historial de intentos ------------------------------------------
+       Vive FUERA de la tarjeta de la cita, y esa es la diferencia que importa:
+       quien agotó sus cancelaciones NO tiene cita vigente, así que dentro del
+       `{% if detail.appt %}` el encargado abriría su ficha desde «Requieren que
+       les agendes» y no vería ni rastro de las tres veces que canceló — justo
+       el dato con el que tiene que decidir.
+
+       Es el ÚNICO sitio donde el historial se vuelve visible: `get_for_process`
+       devuelve solo la vigente. Se pinta a partir de DOS intentos: con uno
+       solo, «#1» no informa de nada y es ruido sobre la ficha. #}
+    {% if detail.attempts and detail.attempts|length > 1 %}
+    <div class="tt-card">
+      <h3 class="tt-h-sec">Intentos de cita
+        <span class="n">{{ detail.attempts|length }}</span>
+      </h3>
+      <p class="tt-appt-empty mb-2">
+        Ya se le agendó {{ detail.attempts|length }} veces. Del más reciente al más antiguo.
+      </p>
+      <ul class="tt-attempts">
+        {% for a in detail.attempts %}
+        <li class="tt-attempt" id="appt-attempt-{{ detail.process.id }}-{{ a.n }}">
+          <span class="n">#{{ a.n }}</span>
+          <span class="when">{{ a.when }}</span>
+          {{ appt_pill(a.status) }}
+          <span>{{ 'Agendó el alumno' if a.by_student else 'Agendó el encargado' }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
   </div>
 
   {# --- Visor de documentos ------------------------------------------------ #}
