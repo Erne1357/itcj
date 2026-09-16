@@ -38,7 +38,7 @@ def alumno(agenda_slots, make_survey_review):
     return agenda_slots
 
 
-def _tope(db=None) -> int:
+def _tope() -> int:
     from itcj2.config import get_settings
     return get_settings().TITULATEC_SELF_CANCEL_MAX
 

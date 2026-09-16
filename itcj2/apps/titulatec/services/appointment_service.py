@@ -523,9 +523,13 @@ class AppointmentService:
         # el botón y notificarle su propio clic es ruido (auto-agendado, §4.1).
         # Es la misma condición EXACTA que `cancel` —actor == alumno— y por la
         # misma razón. Cuando agenda el encargado, el alumno sí recibe su aviso.
+        # `int()` en los dos lados NO es adorno: `user["sub"]` es **string**
+        # (gotcha 5 del CLAUDE.md raíz), y sin la coerción `"7" != 7` es
+        # siempre verdadero — el alumno recibiría aviso de su propio clic y el
+        # silencio de esta rama sería mentira.
         from itcj2.apps.titulatec.models import TitulationProcess
         proc = db.get(TitulationProcess, process_id)
-        if proc is None or created_by_id != proc.student_id:
+        if proc is None or int(created_by_id) != int(proc.student_id):
             AppointmentService._notify_appt(db, process_id, "APPOINTMENT_SCHEDULED",
                                             "Tu cita de cotejo fue agendada",
                                             appt.scheduled_at, appt.location)
@@ -681,7 +685,10 @@ class AppointmentService:
 
         from itcj2.apps.titulatec.models import TitulationProcess
         proc = db.get(TitulationProcess, appt.process_id)
-        if proc is not None and actor_id != proc.student_id:
+        # `int()` en los dos lados: `user["sub"]` es string y sin la coerción
+        # la comparación es siempre verdadera (gotcha 5), así que el alumno
+        # recibiría aviso de su propia cancelación.
+        if proc is not None and int(actor_id) != int(proc.student_id):
             AppointmentService._notify_appt(
                 db, appt.process_id, "APPOINTMENT_CANCELLED",
                 "Tu cita de cotejo fue cancelada",

@@ -347,6 +347,15 @@ class SelfBookingService:
                 item["slots"] = SelfBookingService._offerable_slots(db, w, ahora=ahora)
                 if not item["slots"]:
                     continue
+            elif datetime.combine(dia.date, w.end_time) <= ahora:
+                # Un `walkin` que YA TERMINÓ hoy deja de anunciarse. El corte
+                # por DÍA (`date >= hoy`) no basta: a las 18:00 la pantalla
+                # seguiría diciendo «abierto sin cita, 09:00-11:00» y mandaría
+                # al egresado a caminar hasta un cubículo vacío. Es el gemelo
+                # del corte por hora de las `bookable`, y vive aquí —en la
+                # oferta— y no en la plantilla: la UI pinta lo que recibe, no
+                # filtra datos.
+                continue
             por_dia.setdefault(dia.date, {}).setdefault(w.owner_user_id, []).append(item)
 
         salida = []
@@ -408,8 +417,23 @@ class SelfBookingService:
            (`create` lo calla cuando el actor es el propio alumno) y al
            encargado porque D11 dice que se entera por su tablero.
         """
+        from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.services.appointment_errors import MissingSchedule
         from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+        # Que el proceso sea SUYO, antes que nada. Paridad con `cancel`: la
+        # ruta resuelve el proceso del usuario autenticado, pero el service no
+        # se fía de eso. Además la supresión de la notificación de `create`
+        # depende EN SILENCIO de este emparejamiento — avisar o no al alumno se
+        # decide comparando el actor con `student_id`.
+        #
+        # Va ANTES de `eligibility` y no después: al revés, un `process_id`
+        # ajeno recibiría `SelfBookingNotAllowed` con el motivo de ESE proceso,
+        # que es justo el oráculo que el 404 uniforme viene a cerrar (mismo
+        # criterio que `scope_service`: los ids son enteros secuenciales).
+        proc = db.get(TitulationProcess, int(process_id))
+        if proc is None or int(actor_id) != int(proc.student_id):
+            raise NotYours("Ese proceso no es tuyo.")
 
         elig = SelfBookingService.eligibility(db, process_id)
         if not elig["can_book"]:

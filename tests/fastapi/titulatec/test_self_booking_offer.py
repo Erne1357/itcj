@@ -97,6 +97,33 @@ def test_el_walkin_viaja_como_anuncio_sin_franjas(db_session, publicado):
     assert ventana["location"] == "Edificio A"
 
 
+def test_un_walkin_que_ya_termino_hoy_deja_de_anunciarse(db_session, publicado,
+                                                          monkeypatch):
+    """El corte por DÍA no basta para el anuncio sin cita.
+
+    A las 18:00, «abierto sin cita, 09:00-11:00» manda al egresado a caminar
+    hasta un cubículo vacío. El corte vive en `offer`, no en la plantilla.
+    """
+    publicado["w"].visibility = "walkin"
+    db_session.flush()
+    monkeypatch.setattr(sb_mod, "db_now",
+                        lambda: datetime.combine(_DIA, time(18, 0)))
+
+    assert SelfBookingService.offer(db_session, publicado["p1"].id) == []
+
+
+def test_un_walkin_en_curso_se_sigue_anunciando(db_session, publicado, monkeypatch):
+    """Y el corte no se pasa de listo: a media atención sigue anunciándose."""
+    publicado["w"].visibility = "walkin"
+    db_session.flush()
+    monkeypatch.setattr(sb_mod, "db_now",
+                        lambda: datetime.combine(_DIA, time(10, 0)))
+
+    ventana = _ventanas(SelfBookingService.offer(db_session, publicado["p1"].id))[0]
+
+    assert ventana["visibility"] == "walkin"
+
+
 def test_la_oferta_no_pinta_franjas_que_arrancan_en_menos_de_una_hora(
         db_session, publicado, monkeypatch):
     """D8, y el mismo corte que usa `book`: una franja ofrecida tiene que
@@ -165,9 +192,7 @@ def test_no_se_ofrece_el_espacio_de_un_encargado_de_otra_carrera(
         publicado["w"].id}
 
 
-def test_un_puesto_vencido_deja_de_ofrecer(db_session, publicado, make_program,
-                                           make_officer, make_review_window,
-                                           assign_position):
+def test_un_puesto_vencido_deja_de_ofrecer(db_session, publicado):
     """`_active_position_filter()` exige vigencia; el encargado cuyo puesto
     venció ayer ya no atiende esa carrera."""
     from itcj2.core.models.position import UserPosition
@@ -267,9 +292,14 @@ def test_quien_no_es_elegible_no_agenda_aunque_mande_el_formulario(
 
 
 def test_con_una_cita_viva_el_segundo_clic_no_abre_otra(db_session, publicado):
-    """El doble clic en «Agendar»: la regla 4 lo corta antes de los locks, y
-    `AppointmentService.create` vuelve a comprobarlo DENTRO del advisory lock
-    del proceso (`rechazar_activa`), que es la que vale en una carrera real."""
+    """El segundo clic en «Agendar» choca con la regla 4 de `eligibility`.
+
+    Es un test SECUENCIAL: mide la guarda de elegibilidad, que corre **fuera**
+    de los locks. La comprobación equivalente DENTRO del advisory lock del
+    proceso (`rechazar_activa`, la única que decide una carrera real) existe,
+    pero no es lo que mide este test: la fija
+    `test_appointment_transitions.py::TestElLockEsQuienDecide`.
+    """
     SelfBookingService.book(db_session, publicado["p1"].id, publicado["w"].id,
                             time(9, 30), publicado["p1"].student_id)
 
@@ -278,6 +308,19 @@ def test_con_una_cita_viva_el_segundo_clic_no_abre_otra(db_session, publicado):
                                 time(10, 0), publicado["p1"].student_id)
 
     assert exc.value.reason == "tiene_cita"
+
+
+def test_no_agenda_el_proceso_de_otro(db_session, publicado):
+    """Paridad con `cancel`: el service no se fía de que la ruta haya resuelto
+    el proceso del usuario autenticado.
+
+    De este emparejamiento depende además, en silencio, que `create` calle la
+    notificación: si el actor no fuera el dueño, el «no le avises de su propio
+    clic» estaría callando el aviso de otra persona.
+    """
+    with pytest.raises(err.NotYours):
+        SelfBookingService.book(db_session, publicado["p1"].id, publicado["w"].id,
+                                time(9, 30), publicado["p2"].student_id)
 
 
 def test_el_alumno_no_recibe_aviso_de_su_propio_clic(db_session, publicado):
@@ -289,3 +332,23 @@ def test_el_alumno_no_recibe_aviso_de_su_propio_clic(db_session, publicado):
                                 time(9, 30), publicado["p1"].student_id)
 
     assert not notificar.called
+
+
+def test_cuando_agenda_el_encargado_el_alumno_si_recibe_aviso(db_session, publicado):
+    """La rama POSITIVA del silencio de arriba.
+
+    Sin esta aserción, una edición que quitara la notificación **por completo**
+    pasaría todos los tests: la mudez del auto-agendado quedaría fijada y el
+    aviso del encargado no lo fijaría nadie.
+    """
+    from unittest.mock import patch
+
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    with patch("itcj2.apps.titulatec.services.notify.notify_student") as notificar:
+        AppointmentService.create(db_session, publicado["p1"].id,
+                                  window_id=publicado["w"].id, slot_start=time(9, 30),
+                                  created_by_id=publicado["off"].id)
+
+    assert notificar.called
+    assert notificar.call_args.kwargs["type"] == "APPOINTMENT_SCHEDULED"
