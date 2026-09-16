@@ -26,8 +26,12 @@ las veces.
 El reloj es `db_now()`
 ----------------------
 Hora local naive, idéntica a la que produce `NOW()` en Postgres, porque TODAS
-las columnas de fecha de esta app son naive. Nunca `utcnow()`: restaría seis
-horas y la ventana de D8 se abriría o cerraría sola. Se importa a nivel de
+las columnas de fecha de esta app son naive. Nunca `datetime.utcnow` —escrito
+sin los paréntesis A PROPÓSITO: `test_timezone_consistency.py::
+test_ningun_modulo_de_produccion_usa_utcnow` barre el literal con paréntesis
+por TODO `itcj2/`, docstrings incluidos, y solo exime a `core/utils/timezone.py`;
+con la forma llamable ahí, esta docstring ponía en rojo la suite global—:
+restaría seis horas y la ventana de D8 se abriría o cerraría sola. Se importa a nivel de
 módulo a propósito, para que un test pueda fijarlo con
 `monkeypatch.setattr(mod, "db_now", ...)`.
 """
