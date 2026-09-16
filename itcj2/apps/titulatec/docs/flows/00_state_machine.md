@@ -74,21 +74,80 @@ stateDiagram-v2
 
 ## Estado de una cita (`ReviewAppointment.status`) — Fase 2
 
+> **Siete valores desde 2026-09-16** (auto-agendado). Eran cinco; entraron `cancelled` y
+> `superseded`, y desaparecieron dos aristas: `scheduled → scheduled` y `no_show → scheduled`.
+> Ninguna de esas dos era una transición de verdad — hoy **abrir un intento nuevo inserta una
+> fila**, no reescribe la que había. La matriz vive en `AppointmentService._TRANSICIONES` y se
+> valida con `assert_transition` **antes** de escribir.
+
 ```mermaid
 stateDiagram-v2
-    [*] --> scheduled: 🏛️ agenda
+    [*] --> scheduled: 🏛️/👤 agenda (fila NUEVA)
     scheduled --> confirmed: 👤 confirma
-    scheduled --> scheduled: 👤 solicita cambio (nota) / 🏛️ reagenda
-    confirmed --> in_progress: 🏛️ atiende (cotejo)
     scheduled --> in_progress: 🏛️ atiende
+    confirmed --> in_progress: 🏛️ atiende (cotejo)
     in_progress --> attended: 🏛️ marca asistió
     scheduled --> no_show: 🏛️ no se presentó
-    confirmed --> no_show
+    confirmed --> no_show: 🏛️ no se presentó
+    no_show --> in_progress: 🏛️ deshacer «no se presentó»
+    scheduled --> cancelled: 🏛️/👤 cancela
+    confirmed --> cancelled: 🏛️/👤 cancela
+    scheduled --> superseded: 🤖 se abre otro intento
+    confirmed --> superseded: 🤖 se abre otro intento
     attended --> [*]
+    cancelled --> [*]
+    superseded --> [*]
 ```
 
+**Los tres terminales son `attended`, `cancelled` y `superseded`** (conjunto vacío en la matriz).
+`in_progress` **no** se puede cancelar: un cotejo empezado se cierra con `attended` o con `no_show`.
+
+| Estado | Quién lo escribe | Dónde |
+|---|---|---|
+| `scheduled` | 🏛️ agenda · 👤 auto-agenda | nace así en cada INSERT (`SlotService.assign`) |
+| `confirmed` | 👤 confirma | `confirm` (+ `confirmed_at`) |
+| `in_progress` | 🏛️ atiende | `start` · `undo_no_show` |
+| `attended` | 🏛️ marca asistió | `mark_attended` |
+| `no_show` | 🏛️ no se presentó | `mark_no_show` |
+| `cancelled` | 🏛️ o 👤 cancela | `AppointmentService.cancel` (+ `cancelled_at`, `cancelled_by_id`, `cancel_reason`) |
+| `superseded` | 🤖 automático | `SlotService._open_new_attempt`, **solo si la vigente estaba ACTIVA** |
+
+### El segundo eje: `is_current` es ORTOGONAL a `status`
+
+Son dos cosas distintas y confundirlas es el error fácil. `status` dice **cómo terminó ese
+intento**; `is_current` dice **cuál de los intentos es el vigente**. Un proceso tiene como mucho
+una fila vigente — lo garantiza el índice único parcial `uq_titulatec_review_appt_current`
+(declarado en el modelo **y** en la migración, para que el `create_all` del CI también lo tenga).
+
+| Operación | La fila vieja | La fila nueva |
+|---|---|---|
+| **Reagendar / mover** una cita ACTIVA (`scheduled`/`confirmed`/`in_progress`) | `status='superseded'`, `is_current=False` | `attempt_no+1`, `status='scheduled'` |
+| **Intento nuevo** tras `no_show` / `attended` / `cancelled` | **conserva su status** (un `no_show` sigue diciendo `no_show`), solo `is_current=False` | `attempt_no+1`, `status='scheduled'` |
+
+**Y la consecuencia que hay que tener presente: la ocupación de una franja se calcula por ESTADO,
+nunca por vigencia.** Una fila `no_show` que ya no es la vigente **sigue ocupando su lugar**.
+
+| Estado | ¿Ocupa la franja? | Por qué |
+|---|---|---|
+| `scheduled` · `confirmed` · `in_progress` | sí | está viva |
+| `attended` | sí | la franja se usó de verdad |
+| `no_show` | **sí** | «si no se presentó es que ya pasó» (decisión del usuario) |
+| `cancelled` | no | canceló a tiempo: el lugar vuelve al pozo |
+| `superseded` | no | su ocupación la heredó la fila nueva |
+
+Lo implementa `SlotService._ESTADOS_QUE_LIBERAN = {"cancelled", "superseded"}`, y `occupancy`
+filtra por ese conjunto y **no** por `is_current`. Añadirle `is_current == True` parece lo natural
+al leer el historial por primera vez, y vuelve a liberar los `no_show`: es el defecto que el
+auto-agendado vino a cerrar. Lleva comentario en el código y test dedicado
+(`test_slot_service.py::test_la_ocupacion_cuenta_los_no_show`).
+
+`get_for_process` devuelve **la vigente** (`is_current=True`); el historial completo sale de
+`list_attempts`. Un proceso cuya única cita se canceló devuelve `None` y vuelve a estar «sin cita».
+
 > `attended` **no** aprueba la fase 2. La aprobación es un paso separado: el detalle del
-> proceso → "Aprobar fase 02" → [motor de avance](engine_approve_advance_phase.md).
+> proceso → "Aprobar fase 02" → [motor de avance](engine_approve_advance_phase.md). Y por eso una
+> cita `attended` con papeles faltantes **no** cierra nada: el egresado puede agendar otra mientras
+> la fase 2 siga abierta.
 
 ## Estado del Formato B (`FormatB.status`) — Fase 3
 

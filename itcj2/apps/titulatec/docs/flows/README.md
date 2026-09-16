@@ -53,6 +53,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 
 ### Fase 2 — Cita de cotejo
 - [Cita de cotejo (loop completo)](phase2_appointment_loop.md) 🏛️👤 ⤵ engine
+- [El egresado agenda su propia cita](phase2_student_self_booking.md) 👤🏛️ ⤵ engine — desde 2026-09-16: el encargado publica su espacio como «Agendable» (o «Abierto sin cita») y el egresado elige franja, la cancela a tiempo, y el encargado se entera **por su tablero** con el distintivo «El alumno agendó».
 - [Información para el alumno de un requisito de cotejo](phase2_school_services_requirement_info.md) 🏛️👤 — la jefa escribe una nota enriquecida por requisito (editor Quill, sanitizada con `utils/rich_text.py`); el alumno la abre con el botón «i» en su cita.
 - [Liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md) 🛠️👤 — Gestión Tecnológica y Vinculación revisa lo que el egresado ya envió y decide si libera el requisito de cotejo `graduate_survey` o le deja observaciones; el egresado no vuelve a tocar la encuesta desde el sistema, lo resuelve físicamente en su ventanilla.
 

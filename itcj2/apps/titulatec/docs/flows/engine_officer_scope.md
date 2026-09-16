@@ -119,6 +119,39 @@ Criterio exacto de esa query (`scope_service.py:69-93`) — el alcance es el **g
 - **Sin puesto no hay ancla.** Un rol concedido directo al usuario (`core_user_app_roles`) no tiene
   `ProgramPosition` → set vacío. Misma regla que el scope por departamento de `org-scoped-authz`.
 
+### El mismo predicado, EN SENTIDO INVERSO: `SelfBookingService.offer` (2026-09-16)
+
+Todo lo de arriba responde **«¿qué carreras ve este usuario?»** (usuario → carreras). El
+auto-agendado del egresado necesita la pregunta **al revés**: dada la carrera del alumno,
+**¿qué encargados la atienden?** — porque D3 dice que el egresado puede agendar con *cualquier*
+encargado que atienda su carrera, no con uno asignado.
+
+Se resuelve **llamando a la función que ya existe**, no reescribiendo su join.
+`SelfBookingService._owners_serving(db, owner_ids, program_id)` toma los dueños de las ventanas
+PUBLICADAS de esos días y se queda con aquellos para los que
+`program_id in _program_ids_for_user(db, uid)`. El conjunto candidato es pequeño —solo dueños de
+ventanas publicadas—, así que preguntar uno por uno sale barato.
+
+**Por qué no un join propio «carrera → encargados»:** sería una segunda implementación del mismo
+predicado, y diverge en cuanto alguien añada una vía de asignación. El día que aparezca una
+tercera vía junto a `PositionAppRole`/`PositionAppPerm`, el alcance del encargado la respetaría y
+la oferta del alumno no — o al revés: un egresado vería franjas de un encargado que no atiende su
+carrera. Con una sola función eso no puede pasar.
+
+Consecuencias de reusar el predicado tal cual, las dos deliberadas:
+
+- **Fail-closed también aquí.** Un proceso sin `program_id` no cae en la oferta de nadie, igual que
+  no cae en el alcance de nadie.
+- **`read.all` NO abre la oferta** (Ruling 14 de la ejecución). `_owners_serving` usa
+  `_program_ids_for_user`, no `officer_programs`, así que el atajo `"ALL"` no participa: quien
+  tiene `read.all` pero ninguna carrera asignada —la jefatura, típicamente— puede publicar un
+  espacio `bookable` que **ningún egresado verá**. Es lo correcto (`read.all` es un permiso de
+  lectura para supervisión, no una declaración de que esa persona atiende presencialmente a todo
+  el instituto), pero sería un bug silencioso, así que la UI de Espacios lo dice con todas sus
+  letras al guardar y en la propia lista (`_espacios_ctx.sin_alcance`).
+
+Detalle del flujo completo: ⤵ [el egresado agenda su propia cita](phase2_student_self_booking.md).
+
 ## Scope en escritura (el guard)
 
 Hasta 2026-09 esto era un **hueco abierto**: `officer_programs` se consultaba en 5 call sites, los
