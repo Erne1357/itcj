@@ -102,6 +102,9 @@ from itcj2.database import SessionLocal
 from itcj2.core.models.academic_period import AcademicPeriod
 from itcj2.core.models.app import App
 from itcj2.core.models.permission import Permission
+from itcj2.core.models.position import (
+    Position, PositionAppRole, ProgramPosition, UserPosition,
+)
 from itcj2.core.models.program import Program
 from itcj2.core.models.role import Role
 from itcj2.core.models.role_permission import RolePermission
@@ -139,6 +142,18 @@ STUDENT_PERMS = [
     "titulatec.process.page.my",
     "titulatec.process.api.read.own",
     "titulatec.appointment.page.my",
+    # Auto-agendado (spec 2026-09-15 §5). VERIFICADO, no supuesto: el alumno de
+    # este escenario NO tiene el rol 'graduate' -tiene el rol SINTETICO
+    # 'E2E_TITULATEC_student' que arma _role() unas lineas mas abajo-, asi que
+    # los dos permisos que el DML le cuelga a 'graduate'
+    # (03_insert_role_permissions.sql) no le llegan por herencia. Y no hacen
+    # falta por herencia: las dos rutas nuevas piden PERMISO, no rol
+    # -require_page_app("titulatec", perms=["titulatec.appointment.api.book.own"])
+    # en pages/student.py-, y _role() crea el permiso si no existe. Sin estas
+    # dos lineas, POST /student/cita/agendar responde 403 y el E2E falla por
+    # una razon que no es la que prueba.
+    "titulatec.appointment.api.book.own",
+    "titulatec.appointment.api.cancel.own",
 ]
 # GTV (Gestión Tecnológica y Vinculación): bandeja de liberaciones de la
 # encuesta de egresados (Tarea 8, spec 2026-09-15-titulatec-liberacion-gtv
@@ -149,6 +164,22 @@ GTV_PERMS = [
     "titulatec.survey_review.page.list",
     "titulatec.survey_review.api.approve",
     "titulatec.survey_review.api.reject",
+]
+# ENCARGADO DE CARRERA (auto-agendado, spec 2026-09-15). Es el unico actor del
+# escenario cuyo rol NO basta: su alcance sale del PUESTO
+# -ProgramPosition via scope_service._program_ids_for_user-, y
+# SelfBookingService._owners_serving recorre ese mismo predicado AL REVES
+# -carrera -> encargados- para decidir a quien se le ofrece una ventana. Un
+# encargado sin ProgramPosition publica un espacio 'bookable' que NINGUN
+# egresado ve (Ruling 14), asi que el puesto es parte del actor, no un extra.
+#
+# Deliberadamente SIN titulatec.process.api.read.all: con el, officer_programs
+# devuelve "ALL" y el tablero dejaria de estar acotado por carrera, que es
+# justo lo que este escenario quiere ejercer de verdad.
+OFFICER_PERMS = [
+    "titulatec.dashboard.school_services",
+    "titulatec.appointment.page.list",
+    "titulatec.review_window.api.manage",
 ]
 
 SCHEMA = {
@@ -215,6 +246,7 @@ try:
     rol_head = _role(TAG + "_head", HEAD_PERMS)
     rol_alumno = _role(TAG + "_student", STUDENT_PERMS)
     rol_gtv = _role(TAG + "_gtv", GTV_PERMS)
+    rol_officer = _role(TAG + "_officer", OFFICER_PERMS)
 
     program = db.query(Program).filter_by(name=TAG + " Sistemas").first()
     if program is None:
@@ -259,6 +291,37 @@ try:
     db.add(gtv); db.flush()
     db.add(UserAppRole(user_id=gtv.id, app_id=app.id, role_id=rol_gtv.id))
 
+    # --- Encargado de carrera: el UNICO actor que llega por PUESTO ----------
+    # Misma forma que OfficerService.create_officer en produccion
+    # (services/officer_service.py): Position + PositionAppRole + UserPosition
+    # + ProgramPosition, y el prefijo se_officer_ como marca de propiedad. Se
+    # arma a mano en vez de llamar al service porque aquel EXIGE un
+    # departamento gestionado (department_id) y valida que los usuarios ya
+    # pertenezcan a el; aqui el departamento no aporta nada -el alcance cuelga
+    # de ProgramPosition, no del depto- y sembrar un departamento entero seria
+    # superficie ajena a lo que este escenario prueba.
+    #
+    # El rol es SINTETICO ('E2E_TITULATEC_officer'), no el
+    # 'titulatec_school_services' real, por lo mismo que el resto de la carpeta:
+    # asi el escenario no depende de que el DML este cargado y el cleanup puede
+    # borrar el rol por patron sin tocar produccion.
+    #
+    # start_date = AYER y no hoy: _active_position_filter() (authz_service.py)
+    # exige start_date <= hoy; con la fecha en el futuro el usuario no hereda
+    # nada y el 403 resultante desconcierta.
+    officer = User(first_name=TAG, last_name="ENCARGADO",
+                   username=TAG + "_officer", is_active=True)
+    db.add(officer); db.flush()
+    pos = Position(code="se_officer_e2e_%d" % cohort.id,
+                   title=TAG + " Encargado de carrera",
+                   is_active=True, allows_multiple=True)
+    db.add(pos); db.flush()
+    db.add(PositionAppRole(position_id=pos.id, app_id=app.id, role_id=rol_officer.id))
+    db.add(UserPosition(user_id=officer.id, position_id=pos.id,
+                        start_date=date.today() - timedelta(days=1), is_active=True))
+    db.add(ProgramPosition(position_id=pos.id, program_id=program.id))
+    db.flush()
+
     proc = TitulationProcess(folio="TT-29991-9001", student_id=student.id,
                              cohort_id=cohort.id, program_id=program.id,
                              current_phase=1, status="active")
@@ -294,6 +357,10 @@ try:
         "gtvId": gtv.id,
         "gtvToken": _encode_jwt({"sub": str(gtv.id), "role": "",
                                  "name": TAG + " GTV", "cn": ""}, 12),
+        "officerId": officer.id,
+        "officerToken": _encode_jwt({"sub": str(officer.id), "role": "",
+                                     "name": TAG + " ENCARGADO", "cn": ""}, 12),
+        "officerPositionId": pos.id,
         "cohortId": cohort.id,
         "periodId": period.id,
         "programId": program.id,
@@ -348,6 +415,23 @@ try:
                {"f": ${ctx.formId}})
     db.execute(text("DELETE FROM titulatec_survey_forms WHERE id = :f"), {"f": ${ctx.formId}})
 
+    # CITAS DE COTEJO, en orden de FK (auto-agendado, citas-autoagenda.spec.js).
+    # Las citas PRIMERO: su \`window_id\` apunta a \`titulatec_review_windows\` con
+    # ON DELETE RESTRICT (borrar la ventana antes reventaria con IntegrityError)
+    # y sus \`created_by_id\`/\`cancelled_by_id\` apuntan a \`core_users\` sin
+    # cascade, asi que tambien tienen que irse antes que los usuarios del TAG.
+    # Se borran TODOS los intentos, no solo el vigente: desde el historial de
+    # intentos un proceso deja varias filas (superseded/cancelled) y filtrar por
+    # \`is_current\` aqui dejaria huerfanas las demas.
+    db.execute(text("DELETE FROM titulatec_review_appointments WHERE process_id IN "
+                    "(SELECT id FROM titulatec_processes WHERE cohort_id = :c)"),
+               {"c": ${ctx.cohortId}})
+    db.execute(text("DELETE FROM titulatec_review_windows WHERE review_day_id IN "
+                    "(SELECT id FROM titulatec_cohort_review_days WHERE cohort_id = :c)"),
+               {"c": ${ctx.cohortId}})
+    db.execute(text("DELETE FROM titulatec_cohort_review_days WHERE cohort_id = :c"),
+               {"c": ${ctx.cohortId}})
+
     db.execute(text("DELETE FROM titulatec_requirement_fulfillments WHERE process_id IN "
                     "(SELECT id FROM titulatec_processes WHERE cohort_id = :c)"),
                {"c": ${ctx.cohortId}})
@@ -379,6 +463,25 @@ try:
                {"t": TAG})
     db.execute(text("DELETE FROM core_users WHERE first_name = :t OR username LIKE '2999%'"),
                {"t": TAG})
+
+    # El PUESTO del encargado. Se borra por id y ademas por patron del \`code\`
+    # (nunca por el prefijo \`se_officer_\` a secas, que es el de PRODUCCION:
+    # \`OfficerService.create_officer\` marca asi los encargados reales y un
+    # LIKE mas ancho se llevaria por delante el organigrama de dev).
+    # Los hijos van explicitos aunque las tres FK sean ON DELETE CASCADE: este
+    # archivo borra hijos -> padres en todas partes, y depender del cascade aqui
+    # y no alla es la clase de asimetria que se rompe sola.
+    db.execute(text("DELETE FROM core_program_positions WHERE position_id IN "
+                    "(SELECT id FROM core_positions WHERE id = :p OR code LIKE 'se_officer_e2e_%')"),
+               {"p": ${ctx.officerPositionId || 0}})
+    db.execute(text("DELETE FROM core_position_app_roles WHERE position_id IN "
+                    "(SELECT id FROM core_positions WHERE id = :p OR code LIKE 'se_officer_e2e_%')"),
+               {"p": ${ctx.officerPositionId || 0}})
+    db.execute(text("DELETE FROM core_user_positions WHERE position_id IN "
+                    "(SELECT id FROM core_positions WHERE id = :p OR code LIKE 'se_officer_e2e_%')"),
+               {"p": ${ctx.officerPositionId || 0}})
+    db.execute(text("DELETE FROM core_positions WHERE id = :p OR code LIKE 'se_officer_e2e_%'"),
+               {"p": ${ctx.officerPositionId || 0}})
 
     db.execute(text("DELETE FROM core_role_permissions WHERE role_id IN "
                     "(SELECT id FROM core_roles WHERE name LIKE :t)"), {"t": TAG + "%"})
@@ -484,6 +587,7 @@ function stateFor(role) {
   if (!_ctx) throw new Error('stateFor() antes de seedScenario()');
   const token = role === 'head' ? _ctx.headToken
     : role === 'gtv' ? _ctx.gtvToken
+    : role === 'officer' ? _ctx.officerToken
     : _ctx.studentToken;
   if (!token) throw new Error(`stateFor("${role}"): rol desconocido`);
   return {
@@ -635,6 +739,78 @@ finally:
   return parseInt(out, 10);
 }
 
+/**
+ * Habilita un DÍA DE COTEJO en la convocatoria del escenario y devuelve su id.
+ *
+ * Sin al menos uno, la sub-vista «Espacios» del encargado no deja abrir nada
+ * («Esta convocatoria aún no tiene días de cotejo») y `SelfBookingService.offer`
+ * devuelve `[]` — los días son la reja sobre la que cuelgan las ventanas
+ * (`CohortReviewDay` -> `ReviewWindow` -> franjas derivadas).
+ *
+ * Idempotente: `uq_titulatec_cohort_review_days_cohort_date` admite un solo día
+ * por (convocatoria, fecha), así que repetir la llamada devuelve el mismo id en
+ * vez de reventar. Cae en el borrado del escenario (`deletePy`), que lo hace
+ * DESPUÉS de las ventanas porque la FK de `ReviewWindow` es ON DELETE RESTRICT.
+ */
+function seedReviewDay(ctx, isoDate) {
+  const out = runInContainer(`
+from datetime import date as _date
+from itcj2.database import SessionLocal
+from itcj2.apps.titulatec.models import CohortReviewDay
+db = SessionLocal()
+try:
+    d = _date.fromisoformat("${isoDate}")
+    fila = db.query(CohortReviewDay).filter_by(cohort_id=${ctx.cohortId}, date=d).first()
+    if fila is None:
+        fila = CohortReviewDay(cohort_id=${ctx.cohortId}, date=d, is_closed=False)
+        db.add(fila)
+        db.flush()
+    rid = fila.id
+    db.commit()
+    print(rid)
+finally:
+    db.close()
+`).trim();
+  return parseInt(out, 10);
+}
+
+/**
+ * Deja el proceso del escenario EN la fase `n` (y coherente con ella).
+ *
+ * `SEED_PY` lo deja en la fase 1, y la guarda de fase del alumno
+ * (`PhaseService.assert_student_can_act`) mira **`process.current_phase`**, no
+ * el estado de la cita: con la 1 en curso, `GET /student/cita` responde 302 al
+ * dashboard y ninguna de las dos rutas del auto-agendado llega a ejecutarse.
+ *
+ * Mueve las tres cosas a la vez -`current_phase`, las fases anteriores a
+ * `approved` y las posteriores a `pending`- porque un `current_phase` suelto
+ * dejaría el acordeón del alumno contando una historia distinta de la que
+ * cuenta la guarda.
+ */
+function setStudentPhase(ctx, n) {
+  runInContainer(`
+from itcj2.database import SessionLocal
+from sqlalchemy import text
+db = SessionLocal()
+try:
+    db.execute(text("UPDATE titulatec_processes SET current_phase = :n WHERE id = :p"),
+               {"n": ${n}, "p": ${ctx.processId}})
+    db.execute(text("UPDATE titulatec_process_phases SET status = 'approved' "
+                    "WHERE process_id = :p AND phase_number < :n"),
+               {"n": ${n}, "p": ${ctx.processId}})
+    db.execute(text("UPDATE titulatec_process_phases SET status = 'in_progress' "
+                    "WHERE process_id = :p AND phase_number = :n"),
+               {"n": ${n}, "p": ${ctx.processId}})
+    db.execute(text("UPDATE titulatec_process_phases SET status = 'pending' "
+                    "WHERE process_id = :p AND phase_number > :n"),
+               {"n": ${n}, "p": ${ctx.processId}})
+    db.commit()
+    print("proceso ${ctx.processId} -> fase ${n}")
+finally:
+    db.close()
+`);
+}
+
 /** Folio del proceso de un número de control, o cadena vacía si no hay. */
 function processFolioFor(ctx, controlNumber) {
   return runInContainer(`
@@ -662,6 +838,8 @@ module.exports = {
   setFormAnonymous,
   seedPendingRequest,
   seedSurveyReview,
+  seedReviewDay,
+  setStudentPhase,
   processFolioFor,
   E2E_TAG,
   E2E_NIP,
