@@ -678,6 +678,14 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     # agendarse solos. Cubo propio y mutuamente excluyente con «Por agendar»:
     # la resta la hace `list_pending_processes`, no esta vista.
     bloqueados = AppointmentService.list_self_blocked_processes(db, allowed_program_ids=allowed)
+    # D5: se les atendio y la fase 02 quedo RECHAZADA, asi que necesitan otra
+    # cita. Cubo propio porque conservan su cita vigente (`attended`), lo que los
+    # deja fuera del universo «sin cita» del que salen los cubos 1, 2 y 4, y no
+    # son `no_show`, asi que «Reagendar» tampoco los veia: sin este cubo no
+    # estaban en NINGUNO. No hace falta sumarlos a `visibles`: su cita vigente ya
+    # los mete por `agenda_process_ids`, asi que el `?selected=` les abre ficha.
+    rechazados = AppointmentService.list_rejected_cotejo_processes(
+        db, allowed_program_ids=allowed)
     # Los bloqueados ENTRAN a `visibles`, y no es un detalle: `?selected=` se
     # descarta si el proceso no esta aqui, asi que sin esta union el encargado
     # veria el cubo pero no podria abrirle la ficha a nadie de el — o sea, no
@@ -719,6 +727,8 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         "bloqueados_count": len(bloqueados),
         "reagendar": _proc_rows(db, reagendar),
         "reagendar_count": len(reagendar),
+        "rechazados": _proc_rows(db, rechazados),
+        "rechazados_count": len(rechazados),
         # No se suma al badge de la pestaña (`appointments_body.html`): ese
         # contador es "por atender" (agendar + reagendar) y este cubo no se
         # puede atender todavía — solo informa.

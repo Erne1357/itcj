@@ -1,4 +1,4 @@
-{# La cola de trabajo del encargado. CUATRO cubos, MUTUAMENTE EXCLUYENTES —
+{# La cola de trabajo del encargado. CINCO cubos, MUTUAMENTE EXCLUYENTES —
    un proceso aparece en exactamente uno (spec 2026-09-15 §6):
 
    «Por agendar»               sin cita vigente, y todavía puede agendarse solo.
@@ -8,6 +8,12 @@
                                propio y no una fila más del montón: nadie los
                                va a agendar si nadie sabe que están esperando.
    «Reagendar»                 alumnos que no se presentaron.
+   «Cotejo rechazado»          se les atendió y la fase 02 quedó rechazada, así
+                               que necesitan otra cita (D5). Conservan su cita
+                               vigente `attended`, así que no caben en el
+                               universo «sin cita» de los cubos 1, 2 y 4, y no
+                               son `no_show`: sin este cubo no estaban en
+                               NINGUNO.
    «Sin encuesta»              falta que envíen la encuesta de egresados.
 
    No se mezclan a propósito. Su lugar NO se libera cuando alguien no llega
@@ -28,7 +34,7 @@
 {% from "titulatec/_macros.html" import appt_pill %}
 
 <aside id="appt-queue" aria-label="Cola de trabajo"
-       data-tt-fade-key="queue:{{ pending_count }}|{{ bloqueados_count }}|{{ reagendar_count }}|{{ sin_encuesta_count }}|{{ seleccion|join(',') }}">
+       data-tt-fade-key="queue:{{ pending_count }}|{{ bloqueados_count }}|{{ reagendar_count }}|{{ rechazados_count }}|{{ sin_encuesta_count }}|{{ seleccion|join(',') }}">
 
   <div class="tt-card">
     <div class="tt-queue-head">
@@ -130,6 +136,43 @@
         {# La pastilla va DEBAJO, no al lado: en la columna de 320 px competia con
            el nombre y lo truncaba a "RODRIGO PENA N...". El nombre es el dato
            con el que se busca a alguien. #}
+        <span class="flex-grow-1 min-w-0">
+          <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
+          <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# «Cotejo rechazado» (D5) — el quinto cubo, y el único que faltaba.
+     Se les atendió, el encargado RECHAZÓ la fase 02 y necesitan otra cita.
+     Conservan su cita vigente (`attended`), así que el universo «sin cita» de
+     los cubos 1, 2 y 4 no los ve, y no son `no_show`, así que «Reagendar»
+     tampoco: sin este cubo no estaban en NINGUNO. Podían auto-agendarse, pero
+     solo si alguien había publicado un espacio `bookable` — y `private` es el
+     default, así que el día uno no existían para nadie.
+
+     Filas CON arrastre y CON navegación, como «Reagendar»: aquí sí hay algo que
+     hacer, y es exactamente darles otra cita. Arrastrarlos a un lugar libre
+     funciona porque `move` decide por `_ESTADOS_ACTIVOS` — un `attended` no es
+     cita VIVA, así que abre un intento NUEVO en vez de mover el anterior, que
+     borraría la evidencia de que el cotejo ocurrió. #}
+  {% if rechazados_count %}
+  <div class="tt-card mt-3">
+    <div class="tt-queue-head">
+      <h2 class="tt-h-sec">Cotejo rechazado
+        <span class="n">{{ rechazados_count }}</span>
+      </h2>
+    </div>
+    <p class="tt-appt-empty mb-2">Se les atendió y la fase 02 quedó rechazada: necesitan otra cita.</p>
+    <div class="tt-queue-list">
+      {% for r in rechazados %}
+      <a class="tt-appt-item" id="appt-rejected-{{ r.process_id }}"
+         draggable="true" data-tt-drag="{{ r.process_id }}"
+         data-tt-drag-name="{{ r.student }}"
+         {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ r.process_id) }}>
         <span class="flex-grow-1 min-w-0">
           <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
           <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>

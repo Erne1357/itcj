@@ -422,6 +422,61 @@ class AppointmentService:
             q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
         return q.order_by(ReviewAppointment.scheduled_at).all()
 
+    @staticmethod
+    def list_rejected_cotejo_processes(db: Session, *,
+                                       allowed_program_ids: set | None = None) -> list:
+        """«Cotejo rechazado»: se les atendió, la fase 2 se rechazó y necesitan
+        OTRA cita (D5).
+
+        Es el quinto cubo, y existe porque **D5 se había quedado sin bandeja**.
+        Un proceso con cita vigente `attended` al que el encargado le RECHAZA la
+        fase 2 caía en CERO cubos: conserva una cita vigente, así que
+        `_unscheduled_query` lo saca de «Por agendar», «Requieren que les
+        agendes» y «Sin encuesta»; y no es `no_show`, así que «Reagendar»
+        tampoco lo veía. Podía auto-agendarse —eso sí funcionaba—, pero solo si
+        alguien había publicado un espacio `bookable`, y `private` es el
+        `server_default`: el día uno, con todos los espacios privados, ese
+        egresado no aparecía en ninguna lista de nadie.
+
+        **Los dos predicados hacen falta, y ninguno basta solo:**
+
+        * `status='attended'` en la VIGENTE, y no «fase 2 rechazada» a secas: un
+          proceso al que ya se le reagendó tras el rechazo y luego no se
+          presentó saldría aquí *y* en «Reagendar». Como `attended` y `no_show`
+          se excluyen por construcción, la disjunción con el cubo 3 es
+          estructural y no una resta que haya que acordarse de hacer (al revés
+          que la de los cubos 1 y 2).
+        * fase 2 `rejected`, y no `attended` a secas: si no, entrarían también
+          los que esperan DICTAMEN. A ésos no les falta cita, les falta que el
+          encargado se pronuncie — otro trabajo y otra pantalla. Y el `attended`
+          con la fase ya APROBADA queda fuera por lo mismo: es el caso terminal
+          de §3 (`fase_aprobada`), no necesita nada.
+
+        El criterio de la fase es el mismo `PhaseService.PHASE_COTEJO` que usa
+        `SelfBookingService._fase_cotejo_aprobada`, para que grep encuentre los
+        dos lados de la regla desde cualquiera de ellos.
+        """
+        from itcj2.apps.titulatec.models import (
+            ProcessPhase, ReviewAppointment, TitulationProcess,
+        )
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        if allowed_program_ids is not None and len(allowed_program_ids) == 0:
+            return []
+        q = (db.query(TitulationProcess)
+             .join(ReviewAppointment,
+                   ReviewAppointment.process_id == TitulationProcess.id)
+             .filter(TitulationProcess.status == "active",
+                     ReviewAppointment.is_current.is_(True),
+                     ReviewAppointment.status == "attended")
+             .filter(db.query(ProcessPhase.id)
+                     .filter(ProcessPhase.process_id == TitulationProcess.id,
+                             ProcessPhase.phase_number == PhaseService.PHASE_COTEJO,
+                             ProcessPhase.status == "rejected")
+                     .exists()))
+        if allowed_program_ids is not None:
+            q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
+        return q.order_by(ReviewAppointment.scheduled_at).all()
+
     # ----------------------------------------------------------------- helpers
     @staticmethod
     def _log(db: Session, process_id: int, actor_id: int, event_type: str, payload: dict | None = None):

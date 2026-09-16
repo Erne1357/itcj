@@ -80,19 +80,33 @@ Cada una declara su rejilla **una vez por breakpoint**. Lo que cambia al elegir 
 sub-vista se renderiza**, nunca cuánto mide una columna: por eso nada se encoge ni salta. (Antes,
 abrir un alumno pasaba la agenda de 676 a 340 px y a 390 px empujaba todo 1220 px hacia abajo.)
 
-**La cola de trabajo son CUATRO cubos mutuamente excluyentes** — un proceso aparece en exactamente
+**La cola de trabajo son CINCO cubos mutuamente excluyentes** — un proceso aparece en exactamente
 uno:
 
 1. **Por agendar** — sin cita vigente y todavía puede agendarse solo (o esperar al encargado).
 2. **Requieren que les agendes** — agotaron su tope de cancelaciones: **solo el encargado** puede
    sacarlos de ahí. Cada fila dice el conteo («3 cancelaciones · ya no puede agendar solo»).
 3. **Reagendar** — no se presentaron (`no_show`).
-4. **Sin encuesta** — documentos aprobados, falta enviar la encuesta. Solo informan.
+4. **Cotejo rechazado** — su cita vigente quedó en `attended` y la **fase 02 se rechazó**, así que
+   necesitan otra cita (D5). `AppointmentService.list_rejected_cotejo_processes`.
+5. **Sin encuesta** — documentos aprobados, falta enviar la encuesta. Solo informan.
 
-La exclusión **no** se resuelve en la plantilla: la resta la hace `list_pending_processes`, que
-excluye a los del cubo 2. Filtrar en el template dejaría los **contadores** mintiendo. El badge
-«por atender» del segmento suma los cubos 1+2+3; el 4 **no** suma, porque ahí no hay nada que el
-encargado pueda hacer todavía.
+> **El cubo 4 se añadió el 2026-09-16, cerrando un agujero: D5 no tenía bandeja.** Un proceso
+> atendido al que le rechazaban la fase 02 caía en **cero** cubos — conserva cita vigente, así que
+> el universo «sin cita» de los cubos 1, 2 y 5 no lo veía, y no es `no_show`, así que «Reagendar»
+> tampoco. Podía auto-agendarse, pero **solo si alguien había publicado un espacio `bookable`**, y
+> `private` es el `server_default`: el día uno ese egresado no aparecía en ninguna lista de nadie.
+
+La exclusión de los cubos 1 y 2 **no** se resuelve en la plantilla: la resta la hace
+`list_pending_processes`, que excluye a los del cubo 2. Filtrar en el template dejaría los
+**contadores** mintiendo. La de los cubos 3 y 4 es **estructural** y no una resta: los dos exigen
+cita vigente, pero uno la exige `no_show` y el otro `attended`, que se excluyen por construcción.
+Y el cubo 4 exige además la fase 02 **`rejected`**: el `attended` que espera dictamen no está en
+ningún cubo a propósito (no le falta cita, le falta que el encargado se pronuncie), y el que la
+tiene **aprobada** tampoco (ya terminó, §3 `fase_aprobada`).
+
+El badge «por atender» del segmento suma los cubos 1+2+3+4; el 5 **no** suma, porque ahí no hay
+nada que el encargado pueda hacer todavía.
 
 **👤 Alumno** → tarjeta «Tu proceso» del dashboard → **«Ver mi cita»**, o menú del alumno →
 **Cita de cotejo** (`/titulatec/student/cita`): tarjeta de estado + checklist de requisitos de su

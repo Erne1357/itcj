@@ -52,7 +52,7 @@
            agendarse solo, así que si el badge no los cuenta, el único aviso de
            que alguien espera queda enterrado en la cola. «Sin encuesta» NO
            suma: ahí no hay nada que el encargado pueda hacer todavía. #}
-        {% set por_atender = pending_count + bloqueados_count + reagendar_count %}
+        {% set por_atender = pending_count + bloqueados_count + reagendar_count + rechazados_count %}
         {% if por_atender %}
         <span class="tt-badge" aria-hidden="true">{{ por_atender }}</span>
         <span class="visually-hidden">, {{ por_atender }} por atender</span>
