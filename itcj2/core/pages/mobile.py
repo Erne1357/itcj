@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
 from itcj2.dependencies import DbSession, require_page_login
+from itcj2.exceptions import PageLoginRequired
 from itcj2.templates import render
 
 logger = logging.getLogger("itcj2.core.pages.mobile")
@@ -37,6 +38,14 @@ async def mobile_dashboard(
 
     user_id = int(user["sub"])
     mobile_user = get_user_for_mobile(db, user_id)
+    # El JWT puede tener firma y `exp` validos y aun asi apuntar a un usuario que
+    # ya no existe: cuenta borrada, o —en dev— una cookie `itcj_token` que
+    # sobrevivio a un reseed de la BD. `require_page_login` solo valida el token,
+    # nunca que el `sub` siga en `core_users`. Sin esta guarda, `mobile_user` es
+    # None, la plantilla hace `user.first_name[:1]` y sale un 500 en vez del
+    # login. Una sesion que apunta a nadie es una sesion invalida.
+    if mobile_user is None:
+        raise PageLoginRequired()
     user_type = get_user_type(db, user_id)
     apps = get_mobile_apps_for_user(db, user_id)
 
@@ -62,12 +71,18 @@ async def mobile_dashboard(
 async def mobile_notifications(
     request: Request,
     user: dict = Depends(require_page_login),
+    db: DbSession = None,
 ):
     """Página de notificaciones en vista móvil."""
-    from itcj2.core.services.mobile_service import get_user_type
+    from itcj2.core.services.mobile_service import get_user_for_mobile, get_user_type
 
     user_id = int(user["sub"])
-    user_type = get_user_type(user_id)
+    # `get_user_type` pide (db, user_id) — `mobile_service.py:18`. Esta ruta lo
+    # llamaba con UNO solo y ni siquiera recibia `db`, asi que reventaba con
+    # TypeError para CUALQUIER visitante, no solo con sesion huerfana.
+    if get_user_for_mobile(db, user_id) is None:
+        raise PageLoginRequired()
+    user_type = get_user_type(db, user_id)
 
     return render(request, "core/mobile/notifications.html", {
         "user_type": user_type,
@@ -86,6 +101,8 @@ async def mobile_profile(
 
     user_id = int(user["sub"])
     mobile_user = get_user_for_mobile(db, user_id)
+    if mobile_user is None:          # mismo caso que en el dashboard: JWT huerfano
+        raise PageLoginRequired()
     user_type = get_user_type(db, user_id)
 
     if user_type == "student":
