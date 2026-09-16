@@ -426,12 +426,20 @@ class SlotService:
 
         Pasa al cambiar `slot_minutes` con citas dentro. Se muestran en su
         propia banda: esconderlas sería peor que enseñarlas.
+
+        Filtra por ESTADO con el MISMO criterio que `occupancy`, y por la misma
+        razón: una `cancelled` o `superseded` ya no ocupa nada, así que pintarla
+        aquí sería un **asiento fantasma** — un nombre en el tablero que no
+        corresponde a ninguna cita viva. Un `no_show` o una `attended` que ya no
+        son la vigente SÍ siguen ocupando su franja (D10/D5) y tienen que salir.
+        Nunca por `is_current`: eso es del historial, no de la ocupación.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
         validas = set(SlotService.slots(window))
-        filas = (db.query(ReviewAppointment)
-                 .filter(ReviewAppointment.window_id == window.id).all())
-        return [a for a in filas
+        q = db.query(ReviewAppointment).filter(ReviewAppointment.window_id == window.id)
+        if _ESTADOS_QUE_LIBERAN:
+            q = q.filter(~ReviewAppointment.status.in_(_ESTADOS_QUE_LIBERAN))
+        return [a for a in q.all()
                 if a.scheduled_at and a.scheduled_at.time() not in validas]
 
     # ------------------------------------------------------------ resolución
