@@ -10,19 +10,24 @@
  *
  *   1. GTV ve la solicitud sembrada en «En revisión» y la observa con un motivo.
  *   2. El egresado ve "Con observaciones" -y el motivo- en la fase 2 de su home.
- *   3. GTV libera la solicitud desde «Con observaciones».
+ *   3. GTV intenta liberar y CANCELA en el modal -nada cambia, ningún POST-,
+ *      luego libera de verdad desde «Con observaciones» (confirma el modal).
  *   4. El egresado ve "Liberada" en la fase 2 de su home.
- *   5. GTV revoca la liberación mientras la fase 2 de ese proceso no está
- *      aprobada -`can_revoke`-, y la solicitud vuelve a «Con observaciones»
- *      con el nuevo motivo.
+ *   5. GTV intenta revocar y CANCELA -nada cambia-, luego revoca de verdad
+ *      (confirma) mientras la fase 2 de ese proceso no está aprobada
+ *      -`can_revoke`-, y la solicitud vuelve a «Con observaciones» con el
+ *      nuevo motivo.
  *
- * DEFECTO DE PRODUCTO (documentado en `task-8-report.md`, NO corregido aquí):
- * la spec (§6.3) pide `hx-confirm` en Liberar/Revocar, y el markup lo declara
- * -pero en el `<button>`, descendiente del `<form hx-post=...>` que emite la
- * petición-, y htmx 2.0.3 resuelve `hx-confirm` caminando solo hacia
- * ANCESTROS del elemento con `hx-post`, nunca hacia hijos. Hoy Liberar y
- * Revocar se ejecutan SIN NINGUNA confirmación. Detalle y verificación en el
- * docstring de `dispararAccion`, más abajo.
+ * RONDA DE CORRECCIÓN (2026-09-15): este mismo E2E encontró que Liberar y
+ * Revocar se ejecutaban SIN NINGUNA confirmación -`hx-confirm`/
+ * `data-tt-confirm-ok` vivían en el `<button>`, descendiente del
+ * `<form hx-post=...>` que emite la petición, y htmx 2.0.3 los resuelve
+ * caminando solo hacia ANCESTROS del elemento con `hx-post` (nunca hacia
+ * hijos), así que nunca se leían-. Se corrigió moviendo ambos atributos al
+ * `<form>` en `survey_reviews_body.html`. Los pasos 3 y 5 de arriba ahora
+ * prueban las DOS ramas del modal real de `TitulaTecUtils.confirmDialog`
+ * (`confirmarAccion` confirma, `cancelarAccion` cancela) — nunca el
+ * `confirm()` nativo, que este proyecto prohíbe.
  *
  * No se recorre el asistente público de la encuesta en el navegador para
  * llegar a "En revisión": eso ya lo cubre `public-survey.spec.js` (pasos,
@@ -79,31 +84,39 @@ function esperarPost(page, ruta) {
 }
 
 /**
- * Dispara Liberar/Revocar y espera la petición POST real.
- *
- * DEFECTO DE PRODUCTO DESCUBIERTO POR ESTE E2E (documentado en
- * `task-8-report.md`, NO corregido aquí por instrucción del brief): la spec
- * (§6.3) pide que Liberar/Revocar lleven `hx-confirm`, y
- * `survey_reviews_body.html` sí lo declara -pero en el `<button>`, que es
- * DESCENDIENTE del `<form hx-post=...>` que en realidad emite la petición.
- * htmx 2.0.3 resuelve `hx-confirm` con
- * `getClosestAttributeValue(elt, 'hx-confirm')` donde `elt` es el FORM (el
- * elemento que declara `hx-post`), y esa función solo camina hacia
- * ANCESTROS (`getClosestMatch`/`parentElt` en `htmx.js`), nunca hacia hijos.
- * Resultado verificado con un spec de diagnóstico aparte (`page.on('dialog')`,
- * `page.on('console')`, conteo de `.modal`): `confirmQuestion` sale
- * `undefined`, el puente de `titulatec-utils.js:265` ve `e.detail.question`
- * vacío y hace `return` ANTES de `preventDefault()`, y htmx sigue con la
- * petición DE INMEDIATO -sin `confirm()` nativo ni el modal de
- * `TitulaTecUtils.confirmDialog`-. Este helper prueba el comportamiento REAL
- * de hoy (sin confirmación); el arreglo -mover `hx-confirm` al `<form>`,
- * mismo elemento que `hx-post`- queda pendiente y fuera de esta tarea.
+ * Dispara Liberar/Revocar y CONFIRMA en el modal real de
+ * `TitulaTecUtils.confirmDialog` -PROHIBIDO `confirm()` nativo en este
+ * proyecto-: el puente `htmx:confirm` -> `confirmDialog`
+ * (`titulatec-utils.js:265`) intercepta el submit, pinta un `.modal` de
+ * Bootstrap con dos botones (`[data-tt-action="confirm"|"cancel"]`) y solo
+ * dispara la petición real si se acepta. El botón de confirmación real es
+ * el del MODAL, con el texto de `data-tt-confirm-ok` ("Liberar"/"Revocar")
+ * -el mismo texto que el botón disparador de la fila-, así que hay que
+ * escoparlo a `.modal.show` para no chocar en modo estricto con el
+ * disparador. `hx-confirm`/`data-tt-confirm-ok` viven en el `<form>`
+ * (`survey_reviews_body.html`), nunca en el `<button>` — ver la nota de
+ * corrección en el encabezado del archivo.
  */
-async function dispararAccion(page, boton, ruta) {
+async function confirmarAccion(page, boton, ruta, textoOk) {
   const peticion = esperarPost(page, ruta);
   await boton.click();
+  const modal = page.locator('.modal.show');
+  await expect(modal).toBeVisible();
+  await modal.getByRole('button', { name: textoOk, exact: true }).click();
   expect((await peticion).status()).toBe(200);
-  // Ver el comentario de arriba: hoy NUNCA aparece un modal para esta acción.
+}
+
+/**
+ * Dispara Liberar/Revocar y CANCELA en el modal: ningún POST debe salir y
+ * el estado de la fila no debe cambiar. El llamador es quien verifica que
+ * la fila siga igual después -este helper solo cierra el modal por la vía
+ * de "Cancelar" y confirma que el modal desaparece-.
+ */
+async function cancelarAccion(page, boton) {
+  await boton.click();
+  const modal = page.locator('.modal.show');
+  await expect(modal).toBeVisible();
+  await modal.getByRole('button', { name: 'Cancelar', exact: true }).click();
   await expect(page.locator('.modal')).toHaveCount(0);
 }
 
@@ -162,9 +175,11 @@ test('el egresado ve "Con observaciones" y el motivo en la fase 2 de su home', a
   await c.close();
 });
 
-test('GTV libera la solicitud desde «Con observaciones»', async ({ browser }) => {
+test('GTV libera la solicitud desde «Con observaciones» -cancelar no cambia nada, confirmar sí-', async ({ browser }) => {
   const c = await browser.newContext({ storageState: stateFor('gtv') });
   const page = await c.newPage();
+  let posts = 0;
+  page.on('request', (req) => { if (req.method() === 'POST') posts++; });
   await page.goto(LIBERACIONES_URL, { waitUntil: 'domcontentloaded' });
 
   await page.locator('#tt-rev-tab-rejected').click();
@@ -172,11 +187,21 @@ test('GTV libera la solicitud desde «Con observaciones»', async ({ browser }) 
   const fila = page.locator(`#tt-rev-${reviewId}`);
   await expect(fila).toBeVisible();
 
-  await dispararAccion(
+  // Cancelar el modal: ningún POST, la fila sigue exactamente igual.
+  await cancelarAccion(page, fila.getByRole('button', { name: 'Liberar', exact: true }));
+  expect(posts, 'cancelar el modal de Liberar no debe emitir ningún POST').toBe(0);
+  await expect(page.locator('#tt-rev-tab-rejected[aria-current="true"]')).toBeVisible();
+  await expect(fila).toContainText('Con observaciones');
+  await expect(fila).toContainText(MOTIVO_OBSERVACION);
+
+  // Confirmar el modal: ahora sí sale el POST y la solicitud avanza.
+  await confirmarAccion(
     page,
     fila.getByRole('button', { name: 'Liberar', exact: true }),
-    `/titulatec/admin/liberaciones/${reviewId}/liberar`
+    `/titulatec/admin/liberaciones/${reviewId}/liberar`,
+    'Liberar'
   );
+  expect(posts, 'confirmar debe emitir EXACTAMENTE un POST (el de cancelar no contó)').toBe(1);
 
   // Vuelve a pintar «Con observaciones» (de donde partió el formulario): ya no está.
   await expect(page.locator('#tt-rev-tab-rejected[aria-current="true"]')).toBeVisible();
@@ -203,22 +228,35 @@ test('el egresado ve "Liberada" en la fase 2 de su home', async ({ browser }) =>
   await c.close();
 });
 
-test('GTV puede revocar la liberación mientras la fase 2 no esté aprobada', async ({ browser }) => {
+test('GTV puede revocar la liberación mientras la fase 2 no esté aprobada -cancelar no cambia nada, confirmar sí-', async ({ browser }) => {
   const c = await browser.newContext({ storageState: stateFor('gtv') });
   const page = await c.newPage();
+  let posts = 0;
+  page.on('request', (req) => { if (req.method() === 'POST') posts++; });
   await page.goto(LIBERACIONES_URL, { waitUntil: 'domcontentloaded' });
 
   await page.locator('#tt-rev-tab-approved').click();
   await expect(page.locator('#tt-rev-tab-approved[aria-current="true"]')).toBeVisible();
   const fila = page.locator(`#tt-rev-${reviewId}`);
   await expect(fila).toBeVisible();
+  // El motivo se escribe UNA sola vez: cancelar no vacía el campo -no hay
+  // swap alguno, la fila entera sigue siendo el mismo nodo del DOM-.
   await fila.getByPlaceholder('Motivo de la revocación').fill(MOTIVO_REVOCACION);
 
-  await dispararAccion(
+  // Cancelar el modal: ningún POST, la fila sigue "Liberada".
+  await cancelarAccion(page, fila.getByRole('button', { name: 'Revocar', exact: true }));
+  expect(posts, 'cancelar el modal de Revocar no debe emitir ningún POST').toBe(0);
+  await expect(page.locator('#tt-rev-tab-approved[aria-current="true"]')).toBeVisible();
+  await expect(fila).toContainText('Liberada por');
+
+  // Confirmar el modal: ahora sí sale el POST y la solicitud se revoca.
+  await confirmarAccion(
     page,
     fila.getByRole('button', { name: 'Revocar', exact: true }),
-    `/titulatec/admin/liberaciones/${reviewId}/revocar`
+    `/titulatec/admin/liberaciones/${reviewId}/revocar`,
+    'Revocar'
   );
+  expect(posts, 'confirmar debe emitir EXACTAMENTE un POST (el de cancelar no contó)').toBe(1);
 
   // Vuelve a pintar «Liberadas» (de donde partió el formulario): ya no está.
   await expect(page.locator('#tt-rev-tab-approved[aria-current="true"]')).toBeVisible();

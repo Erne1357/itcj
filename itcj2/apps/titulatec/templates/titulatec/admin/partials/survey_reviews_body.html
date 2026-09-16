@@ -16,7 +16,17 @@
      si no, la píldora "Fase 2 liberada" (ya no se puede deshacer).
    Sin `hx-confirm` salvo Liberar/Revocar (Observar no destruye nada) y sin
    JS ni CSS en línea: el puente `hx-confirm` -> modal ya existe
-   (`static/js/shared/titulatec-utils.js:265`). #}
+   (`static/js/shared/titulatec-utils.js:265`).
+
+   `hx-confirm` y `data-tt-confirm-ok` van en el `<form>` (el elemento que
+   lleva `hx-post`), NUNCA en el `<button>` que dispara el submit: htmx
+   resuelve ambos con `getClosestAttributeValue`, que camina hacia
+   ANCESTROS del elemento con `hx-post`, nunca hacia hijos -- declararlos en
+   el botón (descendiente del form) los deja sin efecto: el puente ve
+   `e.detail.question` vacío, no llama a `preventDefault()`, y htmx sigue
+   con la petición sin confirmar nada (defecto real, detectado por E2E el
+   2026-09-15 en Liberar/Revocar; ver `docs/superpowers/specs/2026-09-15-
+   titulatec-liberacion-gtv-design.md` §6.3 y el reporte de la Tarea 8). #}
 {% from "titulatec/_macros.html" import survey_review_pill %}
 {% macro tab_fields(tab, q, page) -%}
 <input type="hidden" name="status" value="{{ tab }}">
@@ -74,10 +84,11 @@
         <td>
           {% if r.status == 'in_review' %}
             <form class="d-inline" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/liberar"
-                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button">
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Liberar"
+                  hx-confirm="Liberar encuesta|¿Liberar la encuesta de egresados de {{ r.student }}? Se acredita el requisito de cotejo.">
               {{ tab_fields(status, q, page) }}
-              <button type="submit" class="btn btn-sm tt-btn-ink" data-tt-confirm-ok="Liberar"
-                      hx-confirm="Liberar encuesta|¿Liberar la encuesta de egresados de {{ r.student }}? Se acredita el requisito de cotejo.">Liberar</button>
+              <button type="submit" class="btn btn-sm tt-btn-ink">Liberar</button>
             </form>
             <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/observar"
                   hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button">
@@ -89,10 +100,11 @@
           {% elif r.status == 'rejected' %}
             <p class="small mb-1">{{ r.reason }}</p>
             <form class="d-inline" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/liberar"
-                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button">
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Liberar"
+                  hx-confirm="Liberar encuesta|¿Liberar la encuesta de egresados de {{ r.student }}? Se acredita el requisito de cotejo.">
               {{ tab_fields(status, q, page) }}
-              <button type="submit" class="btn btn-sm tt-btn-ink" data-tt-confirm-ok="Liberar"
-                      hx-confirm="Liberar encuesta|¿Liberar la encuesta de egresados de {{ r.student }}? Se acredita el requisito de cotejo.">Liberar</button>
+              <button type="submit" class="btn btn-sm tt-btn-ink">Liberar</button>
             </form>
             <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/observar"
                   hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button">
@@ -105,12 +117,13 @@
             <p class="small mb-1">Liberada por {{ r.reviewed_by or '—' }} el {{ r.reviewed_at or '—' }}</p>
             {% if r.can_revoke %}
             <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/revocar"
-                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button">
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Revocar"
+                  hx-confirm="Revocar liberación|¿Revocar la liberación de {{ r.student }}? Vuelve a quedar con observaciones y ya no acredita el requisito.">
               {{ tab_fields(status, q, page) }}
               <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
                      placeholder="Motivo de la revocación" aria-label="Motivo de la revocación">
-              <button type="submit" class="btn btn-sm tt-btn-danger-soft" data-tt-confirm-ok="Revocar"
-                      hx-confirm="Revocar liberación|¿Revocar la liberación de {{ r.student }}? Vuelve a quedar con observaciones y ya no acredita el requisito.">Revocar</button>
+              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Revocar</button>
             </form>
             {% else %}
             <span class="tt-pill tt-pill--neutral">Fase 2 liberada</span>
