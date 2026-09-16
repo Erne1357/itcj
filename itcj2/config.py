@@ -219,6 +219,17 @@ class Settings(BaseSettings):
     TITULATEC_IDLE_WARN_DAYS: int = 7    # ámbar a partir de aquí
     TITULATEC_IDLE_CRIT_DAYS: int = 14   # rojo (atorado) a partir de aquí
 
+    # Auto-agendado de la cita de cotejo por el egresado (spec 2026-09-15).
+    # D8: agenda hasta 1 h antes de la franja y cancela hasta 2 h antes. Las dos
+    # ventanas son SOLO del alumno; el encargado no tiene límite de tiempo.
+    # D9: tope de cancelaciones PROPIAS (las del encargado no le consumen cupo).
+    # Al llegar al tope pierde el auto-agendado y pasa al cubo "Requieren que
+    # les agendes" de la cola del encargado — sigue pudiendo llegar sin cita a
+    # un espacio abierto, que es otra cosa (`can_walkin`).
+    TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES: int = 60
+    TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES: int = 120
+    TITULATEC_SELF_CANCEL_MAX: int = 3
+
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

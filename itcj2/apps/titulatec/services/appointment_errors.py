@@ -112,6 +112,69 @@ class SurveyNotSubmitted(AppointmentError):
         super().__init__(msg)
 
 
+def _lapso(minutos: int) -> str:
+    """'1 hora' / '2 horas' / '45 minutos'. Las ventanas de D8 son
+    configurables, así que el mensaje no puede llevar el número a mano."""
+    if minutos % 60 == 0:
+        horas = minutos // 60
+        return "1 hora" if horas == 1 else f"{horas} horas"
+    return f"{minutos} minutos"
+
+
+class SelfBookingNotAllowed(AppointmentError):
+    """El egresado no cumple una de las 6 reglas de elegibilidad (spec §3).
+
+    Lleva `reason` —el mismo código que devuelve
+    `SelfBookingService.eligibility`— para que la ruta pueda distinguirlas sin
+    leer el texto. El mensaje lo pone quien la levanta, desde la tabla de §3
+    (`SelfBookingService.message_for`): la copia vive con las reglas, no aquí,
+    o habría dos sitios que decirle al alumno por qué no puede.
+
+    `tiene_cita` es la única que refresca la vista: es lo que produce un doble
+    clic en «Agendar», y ahí la pantalla ESTÁ rancia — ya existe una cita que
+    el alumno no está viendo. Las demás son estados estables: lo que hay en
+    pantalla sigue siendo verdad y solo falta el mensaje.
+    """
+
+    def __init__(self, reason: str, msg: str | None = None):
+        super().__init__(msg or "Ahora mismo no puedes agendar tu cita de cotejo.")
+        self.reason = reason
+        self.refresca_la_vista = reason == "tiene_cita"
+
+
+class SlotTooSoon(AppointmentError):
+    """D8: el egresado agenda hasta `TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES` antes."""
+
+    def __init__(self, minutos: int = 60):
+        super().__init__(f"Esa franja empieza en menos de {_lapso(minutos)}. "
+                         f"Elige una más adelante.")
+
+
+class CancelTooLate(AppointmentError):
+    """D8: el egresado cancela hasta `TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES` antes.
+
+    El encargado NO pasa por aquí: su `cancel` no tiene ventana de tiempo.
+    """
+
+    def __init__(self, minutos: int = 120):
+        super().__init__(f"Ya faltan menos de {_lapso(minutos)} para tu cita, así que "
+                         f"ya no puedes cancelarla. Avisa a tu encargado de carrera.")
+
+
+class NotYours(AppointmentError):
+    """El recurso no es de este egresado: ventana fuera de su oferta, o cita
+    de otro proceso.
+
+    **La ruta responde 404 limpio, SIN `X-Tt-Error`**, por la misma razón que
+    `scope_service.assert_process_in_scope`: los ids son enteros secuenciales
+    y un 403 (o un mensaje distintivo) confirmaría que el id existe. Por eso
+    `str(e)` de esta familia casi nunca se enseña — está para el log.
+    """
+
+    def __init__(self, msg="Eso ya no está disponible."):
+        super().__init__(msg)
+
+
 # --------------------------------------------------------------------------
 # Colisión de estado: 200 con el cuerpo fresco
 # --------------------------------------------------------------------------

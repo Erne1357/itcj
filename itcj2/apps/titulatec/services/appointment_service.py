@@ -296,19 +296,23 @@ class AppointmentService:
         return q
 
     @staticmethod
-    def list_pending_processes(db: Session, *, program_id: int | None = None,
-                               allowed_program_ids: set | None = None) -> list:
-        """Procesos activos, SIN cita, con los 3 documentos iniciales aprobados
-        y con la SOLICITUD de liberación de la encuesta de egresados ya abierta
-        (D2: hace falta que la haya enviado, no que GTV ya la haya liberado).
+    def _pending_candidates(db: Session, *, program_id: int | None,
+                            allowed_program_ids: set | None) -> list:
+        """Procesos activos, SIN cita vigente, con los 3 documentos iniciales
+        aprobados y con la SOLICITUD de liberación de la encuesta de egresados
+        ya abierta (D2: hace falta que la haya enviado, no que GTV ya la haya
+        liberado).
 
-        Los `no_show` NO entran aquí: conservan su cita y su lugar (decisión del
-        usuario, «si no se presentó es que ya pasó»). Viven en su propio cubo,
-        `list_reschedule_processes`, para que nadie se pierda sin mezclar dos
-        cosas distintas. Y quien SÍ tiene los 3 documentos pero todavía no
-        envía la encuesta vive en `list_missing_survey_processes`: por eso el
-        filtro va aquí, con una subconsulta `exists`, y no reescribiendo el de
-        documentos.
+        De aquí salen DOS cubos que se reparten el conjunto sin solaparse
+        (§6): «Por agendar» y «Requieren que les agendes» (los bloqueados por
+        D9). Se calcula en un solo sitio para que no puedan desincronizarse:
+        con dos consultas gemelas, un proceso acabaría en los dos cubos o en
+        ninguno según cuál se tocara primero.
+
+        Los `no_show` NO entran: conservan su cita y su lugar («si no se
+        presentó es que ya pasó») y viven en `list_reschedule_processes`.
+        Quien SÍ tiene los 3 documentos pero todavía no envía la encuesta vive
+        en `list_missing_survey_processes`.
         """
         from itcj2.apps.titulatec.models import SurveyReview, TitulationProcess
         from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -321,6 +325,47 @@ class AppointmentService:
                     .exists())
         candidates = q.order_by(TitulationProcess.created_at).all()
         return [p for p in candidates if DocumentService.initial_docs_all_approved(db, p.id)]
+
+    @staticmethod
+    def list_pending_processes(db: Session, *, program_id: int | None = None,
+                               allowed_program_ids: set | None = None) -> list:
+        """«Por agendar»: los del universo de arriba que TODAVÍA pueden
+        agendarse solos (o esperar a que el encargado los siente).
+
+        **Excluye a los bloqueados por D9**, que se van a su propio cubo
+        (`list_self_blocked_processes`). Los cuatro cubos de la cola son
+        mutuamente excluyentes (§6): sin esta resta, el bloqueado sale en dos
+        sitios a la vez y el encargado no sabe cuál mirar — ni cuál de los dos
+        contadores le está diciendo la verdad.
+
+        El tope lo decide `SelfBookingService`, que es donde vive la regla del
+        alumno (D13), en vez de una consulta propia aquí.
+        """
+        from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+        return [p for p in AppointmentService._pending_candidates(
+                    db, program_id=program_id, allowed_program_ids=allowed_program_ids)
+                if not SelfBookingService.is_blocked_by_cancellations(db, p)]
+
+    @staticmethod
+    def list_self_blocked_processes(db: Session, *, program_id: int | None = None,
+                                    allowed_program_ids: set | None = None) -> list:
+        """«Requieren que les agendes» — el cubo de D10.
+
+        Mismo universo que «Por agendar» con el ÚNICO predicado añadido de D9:
+        cancelaron su cita tantas veces que perdieron el auto-agendado. El
+        encargado TIENE que verlos claramente, y por eso son un cubo propio y
+        no una fila más del montón: nadie los va a agendar si nadie sabe que
+        están esperando a que alguien lo haga por ellos.
+
+        El criterio es el mismo objeto que usa la pantalla del alumno
+        (`SelfBookingService.is_blocked_by_cancellations`, la regla 5 de §3):
+        con dos implementaciones, este cubo diría una cosa y el alumno vería
+        otra.
+        """
+        from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+        return [p for p in AppointmentService._pending_candidates(
+                    db, program_id=program_id, allowed_program_ids=allowed_program_ids)
+                if SelfBookingService.is_blocked_by_cancellations(db, p)]
 
     @staticmethod
     def list_missing_survey_processes(db: Session, *, program_id: int | None = None,
@@ -474,9 +519,16 @@ class AppointmentService:
             db, process_id, created_by_id, "appointment_scheduled",
             {"scheduled_at": appt.scheduled_at.isoformat(), "location": appt.location,
              "window_id": window.id})
-        AppointmentService._notify_appt(db, process_id, "APPOINTMENT_SCHEDULED",
-                                        "Tu cita de cotejo fue agendada",
-                                        appt.scheduled_at, appt.location)
+        # Avisa al alumno SALVO que haya sido él quien agendó: acaba de pulsar
+        # el botón y notificarle su propio clic es ruido (auto-agendado, §4.1).
+        # Es la misma condición EXACTA que `cancel` —actor == alumno— y por la
+        # misma razón. Cuando agenda el encargado, el alumno sí recibe su aviso.
+        from itcj2.apps.titulatec.models import TitulationProcess
+        proc = db.get(TitulationProcess, process_id)
+        if proc is None or created_by_id != proc.student_id:
+            AppointmentService._notify_appt(db, process_id, "APPOINTMENT_SCHEDULED",
+                                            "Tu cita de cotejo fue agendada",
+                                            appt.scheduled_at, appt.location)
         db.commit()
         db.refresh(appt)
         return appt
