@@ -205,15 +205,18 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_80_permisos_conocidos():
+def test_el_dml_declara_los_82_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    80 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 77
-    hasta el 2026-09-15, cuando la liberacion de la encuesta de egresados por
-    Gestion Tecnologica y Vinculacion (GTV) anadio tres codigos
-    `titulatec.survey_review.*` en el mismo delta
-    `survey_2026_09/09_insert_survey_perms.sql`. Antes de eso eran 69 hasta el
-    2026-09-07, cuando esa misma campana anadio los ocho de
+    82 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 80
+    hasta el 2026-09-16, cuando el auto-agendado de citas de cotejo anadio dos
+    codigos nuevos (`titulatec.appointment.api.book.own` y
+    `titulatec.appointment.api.cancel.own`) al bloque de citas de
+    `02_insert_permissions.sql`. Antes de eso eran 77 hasta el 2026-09-15,
+    cuando la liberacion de la encuesta de egresados por Gestion Tecnologica y
+    Vinculacion (GTV) anadio tres codigos `titulatec.survey_review.*` en el
+    mismo delta `survey_2026_09/09_insert_survey_perms.sql`. Antes de eso eran
+    69 hasta el 2026-09-07, cuando esa misma campana anadio los ocho de
     encuesta/solicitudes (aparte del 03, que lleva DELETE que se re-aplican en
     cada corrida). Antes de eso eran 66 hasta el 2026-09-03, cuando el
     rediseno de Citas anadio los tres de `review_window.*` en su propio
@@ -224,8 +227,8 @@ def test_el_dml_declara_los_80_permisos_conocidos():
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 80, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 80. "
+    assert len(declared) == 82, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 82. "
         "Actualiza este numero SOLO si el cambio en database/DML/titulatec/ es "
         f"intencional. Declarados: {sorted(declared)}"
     )
@@ -397,8 +400,10 @@ def test_el_patron_like_de_survey_no_alcanza_a_survey_review():
     assert not patron.match("titulatec.survey_review.api.reject")
 
 
-# Los 21 permisos del alumno de titulacion. Hasta 2026-09-15 colgaban de
-# `student`; desde entonces son de `graduate`.
+# Los 23 permisos del alumno de titulacion. Los 21 originales colgaban de
+# `student` hasta 2026-09-15, cuando pasaron a `graduate`; los 2 de
+# `appointment.api.{book,cancel}.own` se agregaron el 2026-09-16 para el
+# auto-agendado de citas de cotejo (nunca existieron en `student`).
 PERMISOS_ALUMNO = (
     "titulatec.dashboard.student",
     "titulatec.process.page.my", "titulatec.process.api.read.own",
@@ -410,6 +415,7 @@ PERMISOS_ALUMNO = (
     "titulatec.chat.page.view", "titulatec.chat.api.read", "titulatec.chat.api.send",
     "titulatec.chat.api.upload",
     "titulatec.appointment.page.my", "titulatec.appointment.api.confirm.own",
+    "titulatec.appointment.api.book.own", "titulatec.appointment.api.cancel.own",
     "titulatec.ceremony.page.my", "titulatec.ceremony.api.upload.own",
     "titulatec.notifications.api.read.own", "titulatec.notifications.api.mark_read",
 )
