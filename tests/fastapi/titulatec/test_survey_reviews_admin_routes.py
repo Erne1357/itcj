@@ -155,6 +155,28 @@ def test_busqueda_filtra_por_control_o_nombre(
     assert "99500022" not in resp.text
 
 
+def test_los_contadores_de_pestana_respetan_la_busqueda(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+):
+    """`counts_by_status` debe filtrar igual que `list_for_inbox`: sin esto,
+    buscar a un alumno deja una sola fila bajo pestañas que siguen anunciando
+    el total global (12/3/40)."""
+    gtv = make_gtv()
+    s1 = make_student(control_number="99500071", first_name="BUSCADA",
+                      last_name="COINCIDE")
+    s2 = make_student(control_number="99500072", first_name="OTRO",
+                      last_name="ALUMNO")
+    make_survey_review(make_process(s1, current_phase=1), status="in_review")
+    make_survey_review(make_process(s2, current_phase=1), status="in_review")
+
+    resp = client_as(gtv).get(f"{URL}/body?status=in_review&q=99500071")
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert ">1<" in _tab_span(resp.text, "tt-rev-tab-in_review")
+    assert ">0<" in _tab_span(resp.text, "tt-rev-tab-approved")
+    assert ">0<" in _tab_span(resp.text, "tt-rev-tab-rejected")
+
+
 def test_pestana_sin_solicitudes_muestra_bandeja_limpia(client_as, make_gtv):
     resp = client_as(make_gtv()).get(f"{URL}/body?status=approved")
 

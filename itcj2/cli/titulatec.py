@@ -184,6 +184,17 @@ def init_titulatec_command():
     pasó a Gestión Tecnológica y Vinculación (GTV, rol `titulatec_tech_management`)
     desde 2026-09-15 (spec 2026-09-15-titulatec-liberacion-gtv).
 
+    Al terminar VERIFICA contra la base con `_verify_survey_2026_09` —el mismo
+    chequeo que ya traía `load-survey-2026-09`—: los 11 permisos del delta, los
+    9 grants de GTV, el recorte de `titulatec.survey.%` a la jefatura, el
+    puesto de ventanilla y sus exactamente 2 filas puesto→rol, y el formulario
+    'egresados' abierto. Aborta si algo no aterrizó. Antes este comando no
+    comprobaba nada: en una base destino sin `head_tech_management` o sin el
+    departamento `tech_management`, los `INSERT ... SELECT` de grants insertan
+    0 filas y el comando salía en verde de todos modos — y el runbook de
+    lanzamiento (`alembic upgrade head` → `init-titulatec` → asignar a la
+    persona) nunca corre `load-survey-2026-09` por separado para atraparlo.
+
     Prerequisitos:
       - Tablas titulatec_* existen (alembic upgrade head).
       - 04 antes que 05: el mapeo puesto→rol necesita los puestos ya creados
@@ -193,11 +204,19 @@ def init_titulatec_command():
     click.echo()
     try:
         _run_sql_files(SEED_FILES)
-        click.echo()
-        click.echo("🎉 init-titulatec completado.")
     except Exception as e:
         click.echo(f"\n💥 Error durante init-titulatec: {e}")
         raise
+
+    problemas = _verify_survey_2026_09()
+    if problemas:
+        click.echo()
+        for p in problemas:
+            click.echo(click.style(f"ERROR: {p}", fg="red"), err=True)
+        raise click.Abort()
+
+    click.echo()
+    click.echo("🎉 init-titulatec completado.")
 
 
 @titulatec_cli.command("fix-missing-credentials")

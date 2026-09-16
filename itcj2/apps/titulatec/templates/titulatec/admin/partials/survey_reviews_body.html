@@ -35,7 +35,8 @@
 {%- endmacro %}
 <div id="tt-releases-body" data-tt-view="survey-reviews-body">
 
-  <form class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <form class="d-flex flex-wrap align-items-center gap-2 mb-3"
+        hx-get="/titulatec/admin/liberaciones/body" hx-target="#tt-releases-body" hx-swap="outerHTML">
     <input type="hidden" name="status" value="{{ status }}">
     <input type="hidden" name="page" value="1">
     <div class="tt-search">

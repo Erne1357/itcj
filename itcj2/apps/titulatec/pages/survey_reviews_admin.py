@@ -85,7 +85,7 @@ def _body_ctx(db, *, status, q, page):
     q_clean = (q or "").strip() or None
     page = max(1, _to_int(page) or 1)
 
-    counts = SurveyReviewService.counts_by_status(db)
+    counts = SurveyReviewService.counts_by_status(db, q=q_clean)
     rows, has_more = SurveyReviewService.list_for_inbox(
         db, status=tab, q=q_clean, page=page, per_page=_PAGE_SIZE)
 

@@ -276,13 +276,27 @@ class SurveyReviewService:
 
     # ------------------------------------------------------------------ listas
     @staticmethod
-    def counts_by_status(db: Session) -> dict[str, int]:
+    def counts_by_status(db: Session, q: str | None = None) -> dict[str, int]:
         """Conteo por estado. Las 3 llaves de `REVIEW_STATUSES` siempre
-        presentes (0 si no hay ninguna solicitud en ese estado)."""
-        from itcj2.apps.titulatec.models import SurveyReview
+        presentes (0 si no hay ninguna solicitud en ese estado).
 
-        filas = (db.query(SurveyReview.status, func.count(SurveyReview.id))
-                .group_by(SurveyReview.status).all())
+        Con `q` aplica el MISMO criterio de búsqueda que `list_for_inbox`
+        (`ILIKE` sobre nombre completo y número de control del alumno), para
+        que las pestañas no anuncien un total global mientras la tabla ya
+        está filtrada por texto."""
+        from itcj2.apps.titulatec.models import SurveyReview, TitulationProcess
+        from itcj2.core.models.user import User
+
+        query = db.query(SurveyReview.status, func.count(SurveyReview.id))
+        if q:
+            patron = f"%{q.strip()}%"
+            query = (
+                query
+                .join(TitulationProcess, TitulationProcess.id == SurveyReview.process_id)
+                .join(User, User.id == TitulationProcess.student_id)
+                .filter(or_(User.full_name.ilike(patron), User.control_number.ilike(patron)))
+            )
+        filas = query.group_by(SurveyReview.status).all()
         out = {estado: 0 for estado in REVIEW_STATUSES}
         for estado, total in filas:
             if estado in out:
