@@ -396,14 +396,31 @@ def test_el_segmento_tiene_tres_subvistas():
 def test_los_parciales_de_citas_no_llevan_js_ni_css_inline():
     """Regla del proyecto: cero `<script>` y cero `style=` nuevos en templates.
     El parcial traia 12 lineas de `<script>` con dos funciones globales y ocho
-    `style=` inline; hoy todo vive en `js/admin/appointments.js` y `titulatec.css`."""
+    `style=` inline; hoy todo vive en `js/admin/appointments.js` y `titulatec.css`.
+
+    Barre las DOS audiencias. La spec §7 del auto-agendado declaraba que la
+    regla la fijaba este test «y el equivalente del alumno», y ese equivalente
+    NUNCA se construyo: los tres parciales nuevos de `partials/student/` nacieron
+    limpios, pero `partials/cita_card.html` —que es justo lo que re-renderizan
+    los dos POST del auto-agendado— llevaba un `onclick` inline y ocho `style=`.
+    Una guarda que solo mira la mitad admin no puede cazar eso.
+    """
     ofensores = []
-    # Se barre TODO lo que exista bajo partials/appointments/ mas los dos hosts,
-    # en vez de una lista fija: el rediseno crea y borra parciales, y una lista
-    # fija se queda obsoleta en silencio (o revienta con FileNotFoundError).
+    # Se barre TODO lo que exista bajo partials/appointments/ y partials/student/
+    # mas los hosts, en vez de una lista fija: el rediseno crea y borra parciales,
+    # y una lista fija se queda obsoleta en silencio (o revienta con
+    # FileNotFoundError).
     archivos = [TEMPLATES / "admin" / "appointments.html",
-                TEMPLATES / "partials" / "appointments_body.html"]
-    archivos += sorted((TEMPLATES / "partials" / "appointments").glob("*.html"))
+                TEMPLATES / "partials" / "appointments_body.html",
+                TEMPLATES / "partials" / "cita_card.html"]
+    del_admin = sorted((TEMPLATES / "partials" / "appointments").glob("*.html"))
+    del_alumno = sorted((TEMPLATES / "partials" / "student").glob("*.html"))
+    # Las dos carpetas tienen que APORTAR algo. Sin esto, renombrar una deja el
+    # barrido reducido a los hosts y el test sigue verde sin mirar nada: es la
+    # misma trampa que la asercion negativa que viaja sola.
+    assert del_admin, "el barrido admin se quedo sin archivos: ¿se renombro la carpeta?"
+    assert del_alumno, "el barrido del alumno se quedo sin archivos: ¿se renombro la carpeta?"
+    archivos += del_admin + del_alumno
     for path in archivos:
         if not path.exists():
             continue

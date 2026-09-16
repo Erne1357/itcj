@@ -129,7 +129,15 @@ class Settings(BaseSettings):
     # de intentos (`.tt-attempts`). Sin el bump, el editor de espacios pinta
     # los tres radios sin rejilla (caen como una lista cruda de casillas), el
     # distintivo del asiento sale sin contraste y el historial sin separación.
-    STATIC_VERSION: str = "1.0.1111537"
+    # Bump 2026-09-16 (6): limpieza de `partials/cita_card.html` — sus ocho
+    # `style=` y su `onclick` inline pasan a `titulatec.css` (`.tt-cita-note`,
+    # `.tt-cita-when`, `.tt-cita-where`, `.tt-cita-changed`, `.tt-cita-btn` y
+    # `.tt-cita-more-sum`, este ultimo para el `<details>` que sustituye al
+    # `onclick`). Sin el bump, el alumno recibe el CSS viejo: la tarjeta pierde
+    # tamanos y color —el texto cae al del `<body>`— y el nuevo «Solicitar
+    # cambio» se pinta como un `<summary>` crudo, con su triangulo y sin
+    # objetivo tactil.
+    STATIC_VERSION: str = "1.0.1111538"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

@@ -1810,6 +1810,35 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-cita-why i { flex: 0 0 auto; margin-top: 2px; color: var(--tt-amber-ink); }
 .tt-cita-why p { font-size: var(--tt-fs-200); color: var(--tt-text-2); min-width: 0; }
 
+/* — Tarjeta de la cita (`partials/cita_card.html`) —
+   Lo que hasta el 2026-09-16 iban como ocho `style=` inline. Sobrevivieron
+   porque el barrido de parciales solo miraba la mitad ADMIN; hoy cubre tambien
+   `partials/student/` y este archivo. Tamanos SIEMPRE por token: este bloque
+   cae dentro del recorte marcador->EOF de `test_citas_sistema_visual.py`, que
+   prohibe los literales. */
+.tt-cita-note  { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+.tt-cita-when  { font-size: var(--tt-fs-500); font-weight: 600; }
+.tt-cita-where { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+.tt-cita-changed { background: var(--tt-amber-soft); border-radius: var(--tt-r-sm); }
+.tt-cita-changed span { font-size: var(--tt-fs-100); color: var(--tt-amber-ink); }
+/* 44 px de objetivo tactil, que es lo que declaraba el `style="height:44px"`.
+   `min-height` y no `height`: con el texto a dos lineas en un movil chico, el
+   alto fijo recortaba la etiqueta. */
+.tt-cita-btn { min-height: 44px; }
+
+/* «Solicitar cambio» plegable: `<details>` NATIVO, cero JS — lo unico que
+   permite tenerlo en un parcial que prohibe `<script>`. Sustituye a un
+   `onclick` inline que hacia `classList.toggle('d-none')`. Mismo idiom (y mismo
+   `::-webkit-details-marker` apagado) que `.tt-reqinfo-sum`. */
+.tt-cita-more-sum {
+  display: flex; align-items: center; min-width: 0; min-height: 44px;
+  cursor: pointer; list-style: none; border-radius: var(--tt-r-sm);
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-2);
+}
+.tt-cita-more-sum::-webkit-details-marker { display: none; }
+.tt-cita-more-sum:hover { color: var(--tt-text-1); }
+.tt-cita-more-sum:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+
 /* — Tira de dias —
    OJO CON EL NOMBRE: el chip se llama `.tt-daychip`, NO `.tt-day`.
    `.tt-day` ya existe (`:1261-1279`) y es del carril de dias del ADMIN
