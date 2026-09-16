@@ -9,8 +9,25 @@ Estados de ``ReviewAppointment.status``::
     scheduled    agendada, pendiente de confirmación del alumno
     confirmed    el alumno confirmó asistencia
     in_progress  el encargado está atendiendo el cotejo
-    attended     cotejo concluido (la fase se aprueba aparte)
+    attended     cotejo concluido (la fase se aprueba aparte)   [terminal]
     no_show      el alumno no se presentó
+    cancelled    se canceló y el lugar volvió al pozo (D12)     [terminal]
+    superseded   la reemplazó el intento siguiente              [terminal]
+
+Historial de intentos: ``is_current`` es un eje APARTE de ``status``
+--------------------------------------------------------------------
+Un proceso tiene como mucho una cita **vigente** (``is_current``), y las
+anteriores se conservan. Confundir los dos ejes es el error fácil:
+
+* reagendar una cita **activa** la pasa a ``superseded`` e inserta otra;
+* abrir un intento nuevo tras ``no_show`` / ``attended`` / ``cancelled``
+  **conserva el status de la fila vieja** (un ``no_show`` sigue diciendo
+  ``no_show``, ocupando su franja — D10) y solo le quita ``is_current``.
+
+Por eso ``get_for_process`` devuelve **la vigente** y no «la última por id»:
+con historial, «la última» devolvería intentos ya superados. Y por eso los
+listados de la agenda filtran ``is_current``: sin ese filtro pintarían cada
+intento superado como una cita más.
 
 La matriz de transiciones se valida ANTES de escribir
 -----------------------------------------------------
@@ -43,18 +60,40 @@ from datetime import datetime, time
 
 from sqlalchemy.orm import Session
 
-from itcj2.apps.titulatec.services.appointment_errors import InvalidTransition
+from itcj2.apps.titulatec.services.appointment_errors import (
+    AppointmentConflict, InvalidTransition,
+)
 from itcj2.core.utils.timezone import db_now
+
+# Estados "vivos" de una cita (D4): mientras el proceso tenga una en uno de
+# estos, no se le puede abrir otra. Gemelo de `slot_service._ESTADOS_ACTIVOS`,
+# que decide lo complementario (si la fila vieja pasa a `superseded` o
+# conserva su status al abrir el intento nuevo). Son la misma regla vista
+# desde los dos lados; si algún día divergen, es un bug.
+_ESTADOS_ACTIVOS: frozenset[str] = frozenset({"scheduled", "confirmed", "in_progress"})
+
+# Estados desde los que `reschedule` puede mover al alumno a otra franja.
+# NO es la matriz: reagendar a un `no_show` no transiciona nada —su fila se
+# queda en `no_show` ocupando su franja (D7 + D10)— sino que abre un intento
+# nuevo. `in_progress` queda fuera a propósito (un cotejo empezado se cierra
+# con `attended` o `no_show`, §2.3) y los tres terminales también: mover una
+# `attended` borraría la evidencia de que el cotejo ocurrió.
+_REAGENDABLES: frozenset[str] = frozenset({"scheduled", "confirmed", "no_show"})
 
 
 class AppointmentService:
-    # Matriz de transiciones. `attended` no aparece como origen: es terminal.
+    # Matriz de transiciones DENTRO de un mismo intento (spec 2026-09-15 §2.3).
+    # `scheduled` no es destino de ninguna: abrir un intento nuevo crea una
+    # fila, no reescribe la que había, así que dejó de ser una transición.
+    # Tres terminales: `attended`, `cancelled` y `superseded`.
     _TRANSICIONES: dict[str, set[str]] = {
-        "scheduled":   {"scheduled", "confirmed", "in_progress", "no_show"},
-        "confirmed":   {"scheduled", "in_progress", "no_show"},
-        "in_progress": {"scheduled", "attended", "no_show"},
-        "no_show":     {"scheduled", "in_progress"},
+        "scheduled":   {"confirmed", "in_progress", "no_show", "cancelled", "superseded"},
+        "confirmed":   {"in_progress", "no_show", "cancelled", "superseded"},
+        "in_progress": {"attended", "no_show"},
+        "no_show":     {"in_progress"},
         "attended":    set(),
+        "cancelled":   set(),
+        "superseded":  set(),
     }
 
     @staticmethod
@@ -67,13 +106,42 @@ class AppointmentService:
     # ---------------------------------------------------------------- lecturas
     @staticmethod
     def get_for_process(db: Session, process_id: int):
-        """Cita más reciente del proceso (o None)."""
+        """La cita **VIGENTE** del proceso (o None).
+
+        Antes era «la más reciente por id», que sin historial era lo mismo.
+        Con historial NO lo es: devolvería intentos ya superados o cancelados.
+        El índice único parcial `uq_titulatec_review_appt_current` garantiza
+        que como mucho hay una vigente, así que el `.first()` no esconde un
+        empate — y por eso tampoco necesita `order_by`.
+
+        Un proceso cuya única cita se canceló devuelve `None`, que es
+        justamente lo que hace que vuelva a estar «sin cita» y pueda agendar
+        otra (D6).
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+        return (
+            db.query(ReviewAppointment)
+            .filter_by(process_id=process_id, is_current=True)
+            .first()
+        )
+
+    @staticmethod
+    def list_attempts(db: Session, process_id: int) -> list:
+        """Todos los intentos del proceso, del más reciente al más viejo.
+
+        La contraparte de `get_for_process`: aquella devuelve UNA fila (la
+        vigente), ésta el historial completo — superados, cancelados y el
+        vigente. La consumen la ficha de Atender y el expediente; sin ella el
+        encargado no tiene forma de ver que ésta es la tercera vez que se le
+        agenda a alguien.
+        """
         from itcj2.apps.titulatec.models import ReviewAppointment
         return (
             db.query(ReviewAppointment)
             .filter_by(process_id=process_id)
-            .order_by(ReviewAppointment.id.desc())
-            .first()
+            .order_by(ReviewAppointment.attempt_no.desc(),
+                      ReviewAppointment.id.desc())
+            .all()
         )
 
     @staticmethod
@@ -93,6 +161,10 @@ class AppointmentService:
         query = (
             db.query(ReviewAppointment)
             .join(TitulationProcess, ReviewAppointment.process_id == TitulationProcess.id)
+            # Solo la cita VIGENTE de cada proceso: sin esto la agenda pinta
+            # cada intento superado como una cita más y el mismo alumno sale
+            # repetido.
+            .filter(ReviewAppointment.is_current.is_(True))
         )
         if allowed_program_ids is not None:
             query = query.filter(TitulationProcess.program_id.in_(allowed_program_ids))
@@ -121,6 +193,9 @@ class AppointmentService:
             return {}
         q = (db.query(ReviewAppointment)
              .join(TitulationProcess, ReviewAppointment.process_id == TitulationProcess.id)
+             # Solo la vigente: un intento superado inflaría el contador del
+             # carril de días con una cita que ya no existe.
+             .filter(ReviewAppointment.is_current.is_(True))
              .filter(ReviewAppointment.scheduled_at >= start, ReviewAppointment.scheduled_at < end))
         if allowed_program_ids is not None:
             q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
@@ -145,6 +220,9 @@ class AppointmentService:
         q = (
             db.query(ReviewAppointment)
             .join(TitulationProcess, ReviewAppointment.process_id == TitulationProcess.id)
+            # Solo la vigente (ver `list_appointments`): el tablero del día
+            # sentaría dos veces al mismo alumno, una por intento.
+            .filter(ReviewAppointment.is_current.is_(True))
             .filter(ReviewAppointment.scheduled_at >= start,
                     ReviewAppointment.scheduled_at < end)
         )
@@ -171,6 +249,11 @@ class AppointmentService:
         q = (
             db.query(ReviewAppointment.process_id)
             .join(TitulationProcess, ReviewAppointment.process_id == TitulationProcess.id)
+            # Mismo criterio que el resto de la agenda: el universo del
+            # `?selected=` es el de las citas VIGENTES. Un proceso cuya única
+            # cita se canceló ya no está en la agenda — llega por «Por
+            # agendar», que es la otra mitad de este universo.
+            .filter(ReviewAppointment.is_current.is_(True))
         )
         if allowed_program_ids is not None:
             q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
@@ -306,17 +389,25 @@ class AppointmentService:
     @staticmethod
     def create(db: Session, process_id: int, *, window_id: int | None,
                slot_start: time | None, created_by_id: int,
-               location: str | None = None):
-        """Agenda la cita en una franja concreta. Dueña de la transacción.
+               location: str | None = None, booked_by: str = "officer"):
+        """Abre un intento de cita en una franja concreta. Dueña de la transacción.
 
         Valida, en este orden: que el alumno YA HAYA ENVIADO la encuesta de
         egresados (`SurveyNotSubmitted`, D2 — sirve cualquier estado de
         revisión; GTV puede seguir revisando en paralelo), que haya ventana y
-        franja (`MissingSchedule`), que el día siga habilitado
+        franja (`MissingSchedule`), que no haya ya una cita ACTIVA
+        (`AppointmentConflict`, D4), que el día siga habilitado
         (`DayNotAllowed`), que la hora sea una franja real (`InvalidSlot`) y
         que quede lugar (`SlotFull`). La guarda de la encuesta va PRIMERO y
-        aplica a todo `create`, incluido el re-agendar desde `no_show`: sin
-        ella no hay nada más que validar.
+        aplica a todo `create`: sin ella no hay nada más que validar.
+
+        `booked_by` ∈ {officer, student} es el distintivo «Agendada por el
+        alumno» del tablero (D11). Lo pone quien llama, no se adivina del
+        actor: el encargado también agenda con el id de otro usuario delante.
+
+        Es el camino de los intentos NUEVOS, incluidos los que siguen a un
+        `no_show` (D7), a una `attended` con faltantes (D5) y a una
+        `cancelled` (D6). Mover una cita viva es `reschedule`.
         """
         from itcj2.apps.titulatec.models import ReviewWindow
         from itcj2.apps.titulatec.services.appointment_errors import (
@@ -332,12 +423,16 @@ class AppointmentService:
         if not window_id or slot_start is None:
             raise MissingSchedule()
 
-        # Un proceso tiene una sola cita: si ya la tiene, esto es un movimiento
-        # y hay que respetar la matriz. Sin esta guarda, `create` sobre una cita
-        # ya `attended` la devolvia a `scheduled` en silencio.
+        # D4: UNA cita activa a la vez. Antes esto era
+        # `assert_transition(previa.status, "scheduled")`, que con el historial
+        # ya no aplica: abrir un intento nuevo no es una transición, es una
+        # fila nueva. Y la guarda vieja rechazaba de más — dejaba sin salida a
+        # la `attended` con faltantes (D5), al `no_show` (D7) y a la
+        # `cancelled` (D6), que son justo los casos que esta feature viene a
+        # habilitar. Solo lo VIVO bloquea.
         previa = AppointmentService.get_for_process(db, process_id)
-        if previa is not None:
-            AppointmentService.assert_transition(previa.status, "scheduled")
+        if previa is not None and previa.status in _ESTADOS_ACTIVOS:
+            raise AppointmentConflict()
 
         window = db.get(ReviewWindow, int(window_id))
         if window is None:
@@ -346,10 +441,13 @@ class AppointmentService:
         ReviewDayService.assert_allowed(db, window.review_day.cohort_id,
                                         window.review_day.date)
 
+        # `assign` INSERTA una fila nueva (ya vigente, `scheduled`, sin
+        # confirmar y con `attempt_no+1`), y cierra la anterior si la había.
+        # Por eso ya no hace falta pisarle `status` ni `confirmed_at`: hacerlo
+        # sugeriría que la fila puede venir con restos del intento anterior.
         appt = SlotService.assign(db, window_id, slot_start, process_id,
                                   created_by_id, location=location)
-        appt.status = "scheduled"
-        appt.confirmed_at = None
+        appt.booked_by = booked_by
         AppointmentService._log(
             db, process_id, created_by_id, "appointment_scheduled",
             {"scheduled_at": appt.scheduled_at.isoformat(), "location": appt.location,
@@ -365,10 +463,25 @@ class AppointmentService:
     def reschedule(db: Session, appt, *, window_id: int | None,
                    slot_start: time | None, actor_id: int,
                    location: str | None = None):
-        """Mueve la cita a otra franja. Vuelve a `scheduled`.
+        """Mueve al alumno a otra franja. **Devuelve una fila NUEVA.**
+
+        Ya no muta la cita: cierra la que había e inserta el intento
+        siguiente, así que la referencia que el llamador traía queda apuntando
+        al intento **anterior**, con su hora vieja y su `confirmed_at`. Quien
+        necesite la cita resultante tiene que leer el valor de retorno o
+        volver a pedir `get_for_process`.
+
+        Qué le pasa a la fila vieja depende de su estado, y son dos cosas
+        distintas (§2.2): una cita ACTIVA pasa a `superseded`; un `no_show`
+        **conserva su status y su franja** (D7 + D10), solo deja de ser la
+        vigente. Esa asimetría vive en `SlotService._open_new_attempt`.
+
+        `_REAGENDABLES` deja fuera `in_progress` (un cotejo empezado se cierra
+        con `attended` o `no_show`) y los tres terminales.
 
         **No toca `change_request`.** Antes hacía `appt.note = note`, así que la
-        solicitud del alumno se perdía justo al atenderla.
+        solicitud del alumno se perdía justo al atenderla; ahora se queda en el
+        intento al que pertenecía y la cita nueva nace limpia.
         """
         from itcj2.apps.titulatec.models import ReviewWindow
         from itcj2.apps.titulatec.services.appointment_errors import (
@@ -379,7 +492,8 @@ class AppointmentService:
 
         if not window_id or slot_start is None:
             raise MissingSchedule()
-        AppointmentService.assert_transition(appt.status, "scheduled")
+        if appt.status not in _REAGENDABLES:
+            raise InvalidTransition(desde=appt.status, hacia="scheduled")
 
         window = db.get(ReviewWindow, int(window_id))
         if window is None:
@@ -387,10 +501,12 @@ class AppointmentService:
         ReviewDayService.assert_allowed(db, window.review_day.cohort_id,
                                         window.review_day.date)
 
+        # Igual que en `create`: la fila que vuelve es NUEVA y ya nace
+        # `scheduled` y sin confirmar. Reasignar `appt` aquí es deliberado —
+        # todo lo que sigue (log, notificación, refresh) habla de la cita
+        # nueva, no de la que se acaba de cerrar.
         appt = SlotService.assign(db, window_id, slot_start, appt.process_id,
                                   actor_id, location=location)
-        appt.status = "scheduled"
-        appt.confirmed_at = None
         AppointmentService._log(db, appt.process_id, actor_id, "appointment_rescheduled",
                                 {"scheduled_at": appt.scheduled_at.isoformat(),
                                  "window_id": window.id})
@@ -445,6 +561,46 @@ class AppointmentService:
         AppointmentService.assert_transition(appt.status, "in_progress")
         appt.status = "in_progress"
         AppointmentService._log(db, appt.process_id, actor_id, "appointment_undo_no_show")
+        db.commit()
+        db.refresh(appt)
+        return appt
+
+    # -------------------------------------------- compartido: alumno y encargado
+    @staticmethod
+    def cancel(db: Session, appt, actor_id: int, reason: str | None = None):
+        """Cancela la cita y libera su franja. Dueña de la transacción.
+
+        D12, y la asimetría deliberada con D10: cancelar **sí** devuelve el
+        lugar al pozo, no presentarse **no**. Cancelar a tiempo es un aviso;
+        no presentarse ya consumió la franja. Lo implementa
+        `SlotService._ESTADOS_QUE_LIBERAN`, donde está `cancelled` y no está
+        `no_show`.
+
+        La fila deja de ser la vigente, así que para el resto de la app el
+        proceso vuelve a estar «sin cita» y puede agendarse otra (D6).
+
+        Una sola función para los dos actores a propósito: las reglas del
+        ALUMNO —la ventana de 2 h (D8) y el tope de cancelaciones (D9)— NO
+        viven aquí sino en `SelfBookingService`, que envuelve a ésta (D13). Si
+        se colaran a esta capa se le aplicarían también al encargado, que no
+        tiene ventana de tiempo.
+
+        No notifica: D11 deja el aviso fuera, y el alumno que cancela acaba de
+        pulsar el botón.
+        """
+        AppointmentService.assert_transition(appt.status, "cancelled")
+        appt.status = "cancelled"
+        appt.is_current = False
+        appt.cancelled_at = db_now()
+        appt.cancelled_by_id = actor_id
+        # Sin motivo se queda en NULL en vez de inventar un texto: el contador
+        # de D9 mira `cancelled_by_id`, nunca el motivo, y un "Sin motivo"
+        # fabricado se leería como algo que el alumno escribió.
+        appt.cancel_reason = (reason or "").strip() or None
+        AppointmentService._log(
+            db, appt.process_id, actor_id, "appointment_cancelled",
+            {"reason": appt.cancel_reason,
+             "scheduled_at": appt.scheduled_at.isoformat() if appt.scheduled_at else None})
         db.commit()
         db.refresh(appt)
         return appt

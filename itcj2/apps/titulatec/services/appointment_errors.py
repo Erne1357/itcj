@@ -116,6 +116,23 @@ class InvalidTransition(AppointmentError):
         self.hacia = hacia
 
 
+class AppointmentConflict(AppointmentError):
+    """El proceso ya tiene una cita ACTIVA y se intento abrir otra (D4).
+
+    No es una `InvalidTransition`: con el historial de intentos, agendar sobre
+    una cita que ya no esta viva (`attended` con faltantes -D5-, `no_show`
+    -D7-, `cancelled` -D6-) es legitimo y crea una fila nueva. Lo unico que se
+    rechaza es duplicar una cita VIVA, y eso no es un salto de estado invalido
+    sino un choque: por eso tiene error propio y mensaje propio.
+    """
+
+    refresca_la_vista = True
+
+    def __init__(self, msg="Ese alumno ya tiene una cita activa. "
+                           "Muévela o cancélala antes de agendar otra."):
+        super().__init__(msg)
+
+
 class SlotLockTimeout(AppointmentError):
     refresca_la_vista = True
 
