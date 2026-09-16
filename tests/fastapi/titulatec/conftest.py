@@ -819,13 +819,23 @@ def make_document(db_session):
 def make_appointment(db_session):
     """Cita de cotejo.
 
-    Dominio real de `status` (`appointment_service.py:172-235`):
-    scheduled|confirmed|in_progress|attended|no_show. NO existe `rescheduled`.
+    Dominio real de `status` (`appointment_service.py:172-235`, mas
+    `cancelled`/`superseded` del historial de intentos, Tarea 1-2):
+    scheduled|confirmed|in_progress|attended|no_show|cancelled|superseded.
+    NO existe `rescheduled`.
+
+    `is_current`/`attempt_no`/`booked_by` traen los MISMOS defaults que el
+    `server_default` del modelo (vigente, intento 1, agendada por el
+    encargado), asi que un test que no los toca ve el comportamiento normal.
+    Se exponen para fabricar intentos NO vigentes a mano (historial ya
+    cerrado) sin pasar por `SlotService`/`AppointmentService` ni duplicar el
+    constructor de `ReviewAppointment` en cada archivo de test.
     """
     from itcj2.apps.titulatec.models import ReviewAppointment
 
     def _make(process, when=None, status="scheduled", created_by=None,
-              location="Edificio de prueba", note=None):
+              location="Edificio de prueba", note=None,
+              is_current=True, attempt_no=1, booked_by="officer"):
         default_when = datetime.combine(
             date.today() + timedelta(days=7), datetime.min.time()
         ).replace(hour=10)
@@ -835,6 +845,9 @@ def make_appointment(db_session):
             location=location,
             status=status,
             note=note,
+            is_current=is_current,
+            attempt_no=attempt_no,
+            booked_by=booked_by,
             created_by_id=getattr(created_by, "id", created_by) or process.student_id,
         )
         db_session.add(row)
