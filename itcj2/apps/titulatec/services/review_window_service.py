@@ -72,27 +72,31 @@ class ReviewWindowService:
 
     @staticmethod
     def _assert_cabe_lo_agendado(db: Session, window, inicio, fin, minutos, cupo) -> None:
-        """Ninguna cita puede quedar fuera del horario nuevo, ni sobrar del cupo.
+        """Ninguna cita VIVA puede quedar fuera del horario nuevo, ni sobrar del cupo.
 
         Se comprueba ANTES de escribir: reducir un espacio con gente dentro no
         puede dejarlas huérfanas en silencio.
+
+        Cuenta con `SlotService.occupancy`, que es el MISMO predicado que decide
+        el cupo al agendar: filtra por ESTADO —una `cancelled` o una
+        `superseded` ya devolvieron su lugar; un `no_show` NO, D10— y **nunca**
+        por `is_current`. Contar filas crudas, que es lo que hacía antes,
+        rompía un caso perfectamente alcanzable con el historial de intentos:
+        el alumno cancela su 09:00 y se re-agenda en la misma 09:00 (legítimo,
+        D12 liberó el lugar), quedaban 2 filas en esa hora contra un cupo de 1
+        y CUALQUIER edición del espacio —hasta cambiarle solo la ubicación—
+        moría con un `WindowShrinkConflict` cuyo número, además, mentía.
         """
-        from itcj2.apps.titulatec.models import ReviewAppointment
-        citas = (db.query(ReviewAppointment)
-                 .filter(ReviewAppointment.window_id == window.id).all())
-        if not citas:
+        ocupacion = SlotService.occupancy(db, window)
+        if not ocupacion:
             return
 
         rejilla = set(SlotService.slots_from(inicio, fin, minutos))
-        fuera = [a for a in citas
-                 if not a.scheduled_at or a.scheduled_at.time() not in rejilla]
+        fuera = sum(n for hora, n in ocupacion.items() if hora not in rejilla)
         if fuera:
-            raise WindowShrinkConflict(len(fuera))
+            raise WindowShrinkConflict(fuera)
 
-        por_hora = {}
-        for a in citas:
-            por_hora[a.scheduled_at.time()] = por_hora.get(a.scheduled_at.time(), 0) + 1
-        excedidas = sum(1 for n in por_hora.values() if n > int(cupo))
+        excedidas = sum(1 for n in ocupacion.values() if n > int(cupo))
         if excedidas:
             raise WindowShrinkConflict(excedidas)
 
@@ -159,11 +163,31 @@ class ReviewWindowService:
 
     @staticmethod
     def delete(db: Session, window) -> None:
+        """Borra el espacio, si de verdad no queda nada que perder.
+
+        Dos motivos distintos para negarse, con mensajes distintos (ver
+        `WindowInUse`), porque la acción que le toca al encargado no es la
+        misma:
+
+        * **citas vivas** → puede moverlas y volver a intentarlo. El conteo
+          sale de `SlotService.occupancy`, el mismo predicado del cupo, así que
+          coincide con lo que ve en el tablero. Antes contaba filas crudas y le
+          decía «muévelas» por citas canceladas o superadas que ya no están
+          ahí;
+        * **solo historial muerto** → no hay nada que mover, y la FK
+          `fk_titulatec_review_appointments_window` (`ON DELETE RESTRICT`,
+          verificado en BD) rechazaría el DELETE igual. Sin este segundo
+          chequeo el service daría el visto bueno y Postgres devolvería un
+          `IntegrityError` crudo: un 500 en vez de una frase.
+        """
         from itcj2.apps.titulatec.models import ReviewAppointment
-        n = (db.query(ReviewAppointment)
-             .filter(ReviewAppointment.window_id == window.id).count())
-        if n:
-            raise WindowInUse(n)
+        vivas = sum(SlotService.occupancy(db, window).values())
+        if vivas:
+            raise WindowInUse(vivas)
+        historicas = (db.query(ReviewAppointment)
+                      .filter(ReviewAppointment.window_id == window.id).count())
+        if historicas:
+            raise WindowInUse(historicas, solo_historial=True)
         db.delete(window)
         db.flush()
 

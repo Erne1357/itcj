@@ -1,8 +1,9 @@
 """Citas de cotejo de documentos (fase 2, Servicios Escolares).
 
-Una cita por proceso. El encargado de la carrera agenda, reagenda y marca el
-cotejo; el alumno confirma o solicita un cambio. Los cambios relevantes escriben
-un ``ProcessEvent`` (phase_number=2). El commit vive aquí.
+Una cita VIGENTE por proceso, más el historial de los intentos anteriores (ver
+abajo). El encargado de la carrera agenda, reagenda, cancela y marca el cotejo;
+el alumno confirma, solicita un cambio o cancela. Los cambios relevantes
+escriben un ``ProcessEvent`` (phase_number=2). El commit vive aquí.
 
 Estados de ``ReviewAppointment.status``::
 
@@ -275,7 +276,16 @@ class AppointmentService:
         from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
         if allowed_program_ids is not None and len(allowed_program_ids) == 0:
             return None
-        with_appt = [pid for (pid,) in db.query(ReviewAppointment.process_id).distinct()]
+        # «Sin cita» significa sin cita VIGENTE, no «sin ninguna fila jamás».
+        # Sin este filtro, un alumno que canceló (D6: puede agendar otra) no
+        # volvía a «Por agendar» — y como `_shell_ctx` arma
+        # `visibles = agenda_process_ids | pendientes` y descarta el
+        # `?selected=` que no esté ahí, el encargado ni siquiera podía abrirle
+        # la ficha: no era invisible, era inalcanzable.
+        with_appt = [pid for (pid,) in
+                     db.query(ReviewAppointment.process_id)
+                     .filter(ReviewAppointment.is_current.is_(True))
+                     .distinct()]
         q = db.query(TitulationProcess).filter(TitulationProcess.status == "active")
         if with_appt:
             q = q.filter(~TitulationProcess.id.in_(with_appt))
@@ -345,6 +355,13 @@ class AppointmentService:
         Son trabajo pendiente del encargado, pero de otra clase que «Por
         agendar»: aquí el alumno ya tuvo su lugar y no llegó. Se listan aparte
         para que el contador de la cola siga significando una sola cosa.
+
+        El `no_show` tiene que ser el VIGENTE, y el filtro arregla dos cosas a
+        la vez: sin él, (a) quien ya fue reagendado tras su ausencia se
+        quedaba en este cubo para siempre —y salía a la vez aquí y en la
+        agenda, con lo que los cuatro cubos de la cola dejaban de ser
+        mutuamente excluyentes—, y (b) dos filas `no_show` del mismo proceso
+        lo listaban DOS VECES, porque el join multiplica.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
         if allowed_program_ids is not None and len(allowed_program_ids) == 0:
@@ -352,6 +369,7 @@ class AppointmentService:
         q = (db.query(TitulationProcess)
              .join(ReviewAppointment, ReviewAppointment.process_id == TitulationProcess.id)
              .filter(TitulationProcess.status == "active",
+                     ReviewAppointment.is_current.is_(True),
                      ReviewAppointment.status == "no_show"))
         if allowed_program_ids is not None:
             q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
@@ -445,8 +463,12 @@ class AppointmentService:
         # confirmar y con `attempt_no+1`), y cierra la anterior si la había.
         # Por eso ya no hace falta pisarle `status` ni `confirmed_at`: hacerlo
         # sugeriría que la fila puede venir con restos del intento anterior.
+        # `rechazar_activa=True`: la guarda de arriba corre fuera de los locks,
+        # así que dos `create` concurrentes del mismo proceso la pasarían los
+        # dos. La que vale es la de dentro del advisory lock.
         appt = SlotService.assign(db, window_id, slot_start, process_id,
-                                  created_by_id, location=location)
+                                  created_by_id, location=location,
+                                  rechazar_activa=True)
         appt.booked_by = booked_by
         AppointmentService._log(
             db, process_id, created_by_id, "appointment_scheduled",
@@ -585,8 +607,11 @@ class AppointmentService:
         se colaran a esta capa se le aplicarían también al encargado, que no
         tiene ventana de tiempo.
 
-        No notifica: D11 deja el aviso fuera, y el alumno que cancela acaba de
-        pulsar el botón.
+        **Avisa al alumno solo si la cancelación NO fue suya.** D11 quita la
+        notificación AL ENCARGADO por un auto-agendado; no dice callarle al
+        alumno, y una cancelación es más disruptiva que una reagenda —que sí
+        le avisa—. Quien cancela su propia cita acaba de pulsar el botón, así
+        que a ése no se le avisa de su propio clic.
         """
         AppointmentService.assert_transition(appt.status, "cancelled")
         appt.status = "cancelled"
@@ -601,6 +626,14 @@ class AppointmentService:
             db, appt.process_id, actor_id, "appointment_cancelled",
             {"reason": appt.cancel_reason,
              "scheduled_at": appt.scheduled_at.isoformat() if appt.scheduled_at else None})
+
+        from itcj2.apps.titulatec.models import TitulationProcess
+        proc = db.get(TitulationProcess, appt.process_id)
+        if proc is not None and actor_id != proc.student_id:
+            AppointmentService._notify_appt(
+                db, appt.process_id, "APPOINTMENT_CANCELLED",
+                "Tu cita de cotejo fue cancelada",
+                appt.scheduled_at, appt.location)
         db.commit()
         db.refresh(appt)
         return appt

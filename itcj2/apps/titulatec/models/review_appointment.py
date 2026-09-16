@@ -51,8 +51,10 @@ class ReviewAppointment(Base):
     # La matriz de transiciones vive en AppointmentService._TRANSICIONES y se
     # valida ANTES de escribir: `no_show -> attended` era alcanzable.
     # `cancelled` y `superseded` los introduce el auto-agendado (historial de
-    # intentos, ver abajo): ningun code path los escribe todavia en esta tarea,
-    # que es solo de esquema.
+    # intentos, ver abajo). Quien los escribe: `AppointmentService.cancel`
+    # pone `cancelled`, y `SlotService._open_new_attempt` pone `superseded`
+    # al abrir un intento nuevo sobre una cita que estaba ACTIVA. Los tres
+    # terminales (`attended`, `cancelled`, `superseded`) no salen de ahi.
     status = Column(String(20), nullable=False, server_default=text("'scheduled'"))
 
     # --- Historial de intentos (auto-agendado) ---

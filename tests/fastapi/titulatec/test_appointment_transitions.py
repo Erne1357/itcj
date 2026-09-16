@@ -31,6 +31,7 @@ superada**, que conserva su hora original y su `confirmed_at`. Lo que hay que
 afirmar es sobre la cita **vigente**, que es una fila distinta.
 """
 from datetime import date, time
+from unittest.mock import patch
 
 import pytest
 
@@ -424,6 +425,34 @@ class TestCancelar:
         with pytest.raises(err.InvalidTransition):
             AppointmentService.cancel(db_session, ap, esc["off"].id)
 
+    @patch("itcj2.apps.titulatec.services.notify.notify_student")
+    def test_si_cancela_el_encargado_se_le_avisa_al_alumno(
+            self, mock_notify, db_session, agenda_slots_survey):
+        """Una cancelación es más disruptiva que una reagenda, y a esa sí se le
+        avisa. D11 quita la notificación AL ENCARGADO por un auto-agendado; no
+        dice callarle al alumno."""
+        esc = agenda_slots_survey
+        ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                       slot_start=time(9, 0), created_by_id=esc["off"].id)
+        mock_notify.reset_mock()        # `create` ya notificó lo suyo
+
+        AppointmentService.cancel(db_session, ap, esc["off"].id)
+
+        assert mock_notify.called
+        assert mock_notify.call_args.kwargs["type"] == "APPOINTMENT_CANCELLED"
+
+    @patch("itcj2.apps.titulatec.services.notify.notify_student")
+    def test_el_alumno_no_recibe_aviso_de_su_propio_clic(
+            self, mock_notify, db_session, agenda_slots_survey):
+        esc = agenda_slots_survey
+        ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                       slot_start=time(9, 0), created_by_id=esc["off"].id)
+        mock_notify.reset_mock()
+
+        AppointmentService.cancel(db_session, ap, esc["p1"].student_id)
+
+        assert not mock_notify.called
+
 
 # --------------------------------------------------------------- la vigencia
 class TestVigencia:
@@ -533,7 +562,134 @@ class TestLosListadosNoPintanLosIntentosSuperados:
             db_session, date(2029, 5, 7), allowed_program_ids={esc["prog"].id}) == []
 
 
+class TestElLockEsQuienDecide:
+    """El TOCTOU de D4. La guarda de `create` corre FUERA de los locks, así que
+    dos `create` concurrentes del mismo proceso la pasan los dos y el segundo
+    supera al primero: un intento de más y, peor, **la franja del primero
+    liberada** (`superseded` libera). Un doble clic en «Agendar» es exactamente
+    ese escenario.
+
+    La carrera real no se puede montar con una sola sesión de test, así que lo
+    que se fija aquí es que la comprobación **existe dentro del lock**, que es
+    la parte que un refactor futuro podría tirar sin que nada se quejara.
+    """
+
+    def test_assign_rechaza_abrir_un_intento_sobre_una_cita_viva(
+            self, db_session, agenda_slots_survey):
+        from itcj2.apps.titulatec.services.slot_service import SlotService
+        esc = agenda_slots_survey
+        AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                  slot_start=time(9, 0), created_by_id=esc["off"].id)
+
+        with pytest.raises(err.AppointmentConflict):
+            SlotService.assign(db_session, esc["w"].id, time(9, 30), esc["p1"].id,
+                               esc["off"].id, rechazar_activa=True)
+
+    def test_reagendar_y_el_reparto_masivo_no_piden_esa_guarda(
+            self, db_session, agenda_slots_survey):
+        """Superar una cita activa es justo lo que vienen a hacer: si la
+        guarda fuera incondicional, reagendar dejaría de funcionar."""
+        from itcj2.apps.titulatec.services.slot_service import SlotService
+        esc = agenda_slots_survey
+        primera = AppointmentService.create(
+            db_session, esc["p1"].id, window_id=esc["w"].id,
+            slot_start=time(9, 0), created_by_id=esc["off"].id)
+
+        segunda = SlotService.assign(db_session, esc["w"].id, time(9, 30),
+                                     esc["p1"].id, esc["off"].id)
+
+        assert primera.status == "superseded"
+        assert segunda.is_current is True and segunda.attempt_no == 2
+
+
 # ------------------------------------------------------------------ los cubos
+@pytest.fixture()
+def p1_listo_para_agendar(agenda_slots_survey, make_document):
+    """`p1` con los 3 documentos iniciales aprobados, que es lo que «Por
+    agendar» exige además de la encuesta."""
+    for code in ("birth_certificate", "high_school_cert", "curp"):
+        make_document(agenda_slots_survey["p1"], type_code=code,
+                      review_status="approved")
+    return agenda_slots_survey
+
+
+class TestElCanceladoVuelveAlCubo:
+    """D6: cancelada -> sí puede agendar otra. «Sin cita» tiene que significar
+    sin cita VIGENTE, no «sin ninguna fila jamás»."""
+
+    @staticmethod
+    def _pendientes(db, esc):
+        return [p.id for p in AppointmentService.list_pending_processes(
+            db, allowed_program_ids={esc["prog"].id})]
+
+    def test_vuelve_a_por_agendar_despues_de_cancelar(self, db_session,
+                                                      p1_listo_para_agendar):
+        esc = p1_listo_para_agendar
+        assert esc["p1"].id in self._pendientes(db_session, esc)
+
+        ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                       slot_start=time(9, 0), created_by_id=esc["off"].id)
+        assert esc["p1"].id not in self._pendientes(db_session, esc), \
+            "con cita viva no puede seguir en «Por agendar»"
+
+        AppointmentService.cancel(db_session, ap, esc["off"].id)
+
+        assert esc["p1"].id in self._pendientes(db_session, esc)
+
+    def test_el_cancelado_sigue_siendo_alcanzable_desde_citas(
+            self, db_session, p1_listo_para_agendar):
+        """La consecuencia que de verdad se sufre: `_shell_ctx` arma
+        `visibles = agenda_process_ids | pendientes` y **descarta el
+        `?selected=` que no esté ahí**. Fuera de los dos conjuntos, el
+        encargado no puede ni abrirle la ficha: no es invisible, es
+        inalcanzable."""
+        esc = p1_listo_para_agendar
+        ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                       slot_start=time(9, 0), created_by_id=esc["off"].id)
+        AppointmentService.cancel(db_session, ap, esc["off"].id)
+
+        visibles = (AppointmentService.agenda_process_ids(
+                        db_session, allowed_program_ids={esc["prog"].id})
+                    | set(self._pendientes(db_session, esc)))
+
+        assert esc["p1"].id in visibles
+
+
+def test_el_reagendado_tras_un_no_show_sale_del_cubo_reagendar(
+        db_session, agenda_slots_survey):
+    """Los cuatro cubos de la cola son mutuamente excluyentes. Sin el filtro
+    de vigencia, quien ya fue reagendado se quedaba en «Reagendar» para
+    siempre Y salía a la vez en la agenda."""
+    esc = agenda_slots_survey
+    ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                   slot_start=time(9, 0), created_by_id=esc["off"].id)
+    AppointmentService.mark_no_show(db_session, ap, esc["off"].id)
+    reagendar = lambda: [p.id for p in AppointmentService.list_reschedule_processes(
+        db_session, allowed_program_ids={esc["prog"].id})]
+    assert esc["p1"].id in reagendar()
+
+    AppointmentService.reschedule(db_session, ap, window_id=esc["w"].id,
+                                  slot_start=time(10, 0), actor_id=esc["off"].id)
+
+    assert esc["p1"].id not in reagendar()
+
+
+def test_dos_no_show_del_mismo_proceso_no_lo_listan_dos_veces(
+        db_session, agenda_slots_survey, make_appointment):
+    """Defecto nuevo del historial: el join multiplica. Con dos ausencias, el
+    contador del cubo decía 2 y la misma persona salía dos veces en la lista."""
+    esc = agenda_slots_survey
+    make_appointment(esc["p1"], status="no_show", is_current=False, attempt_no=1)
+    ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                   slot_start=time(9, 0), created_by_id=esc["off"].id)
+    AppointmentService.mark_no_show(db_session, ap, esc["off"].id)
+
+    reagendar = [p.id for p in AppointmentService.list_reschedule_processes(
+        db_session, allowed_program_ids={esc["prog"].id})]
+
+    assert reagendar.count(esc["p1"].id) == 1
+
+
 def test_el_no_show_no_vuelve_a_por_agendar(db_session, agenda_slots_survey):
     """Decisión del usuario: su lugar no se libera. Y como conserva su cita,
     tampoco puede aparecer entre los que nunca tuvieron una."""

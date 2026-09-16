@@ -48,7 +48,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.services.appointment_errors import (
-    InvalidSlot, MissingSchedule, SlotFull, SlotLockTimeout,
+    AppointmentConflict, InvalidSlot, MissingSchedule, SlotFull, SlotLockTimeout,
 )
 
 # Namespace del advisory lock que serializa las citas de un mismo proceso.
@@ -242,7 +242,8 @@ class SlotService:
                    {"ns": _PROCESO_LOCK_NS, "pid": int(process_id)})
 
     @staticmethod
-    def _open_new_attempt(db: Session, process_id: int) -> int:
+    def _open_new_attempt(db: Session, process_id: int, *,
+                          rechazar_activa: bool = False) -> int:
         """Cierra la cita vigente del proceso (si hay una) y devuelve el
         `attempt_no` que le toca a la fila nueva. NO inserta nada — eso lo
         hace el llamador, con el resto de los datos de la franja destino.
@@ -266,6 +267,17 @@ class SlotService:
         3. `attempt_no` sale de `MAX(attempt_no)` del proceso, no de
            `vigente.attempt_no + 1` — hace falta para el caso donde no hay
            vigente pero sí historial (p. ej. tras una cancelación).
+        4. `rechazar_activa` cierra el TOCTOU de D4. La guarda de
+           `AppointmentService.create` corre FUERA de los locks, así que dos
+           `create` concurrentes del mismo proceso la pasan los dos y el
+           segundo supera al primero: un intento de más y —peor— la franja
+           del primero liberada, porque `superseded` está en
+           `_ESTADOS_QUE_LIBERAN`. Un doble clic en «Agendar» es exactamente
+           ese escenario. Aquí ya estamos DENTRO del `pg_advisory_xact_lock`
+           del proceso, así que ésta es la comprobación que vale; la de
+           `create` se queda como rechazo rápido sin pagar locks.
+           `reschedule` y `assign_batch` NO la piden: superar una cita activa
+           es precisamente lo que vienen a hacer.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
 
@@ -273,6 +285,8 @@ class SlotService:
                    .filter_by(process_id=process_id, is_current=True)
                    .first())
         if vigente is not None:
+            if rechazar_activa and vigente.status in _ESTADOS_ACTIVOS:
+                raise AppointmentConflict()
             if vigente.status in _ESTADOS_ACTIVOS:
                 vigente.status = "superseded"
             vigente.is_current = False
@@ -283,8 +297,14 @@ class SlotService:
 
     @staticmethod
     def assign(db: Session, window_id: int | None, slot_start: time | None,
-               process_id: int, actor_id: int, *, location: str | None = None):
+               process_id: int, actor_id: int, *, location: str | None = None,
+               rechazar_activa: bool = False):
         """Sienta a un proceso en una franja. NO commitea.
+
+        `rechazar_activa=True` (lo pasa `AppointmentService.create`) levanta
+        `AppointmentConflict` si al tomar el lock resulta que el proceso ya
+        tiene una cita VIVA. Es el cierre del TOCTOU de D4 — ver
+        `_open_new_attempt`, punto 4.
 
         Nunca mueve una fila existente: si el proceso ya tenía una cita
         vigente, la CIERRA (a `superseded` si estaba activa —
@@ -312,7 +332,8 @@ class SlotService:
         cuando = datetime.combine(window.review_day.date, slot_start)
         lugar = location if location is not None else window.location
 
-        attempt_no = SlotService._open_new_attempt(db, process_id)
+        attempt_no = SlotService._open_new_attempt(
+            db, process_id, rechazar_activa=rechazar_activa)
 
         appt = ReviewAppointment(
             process_id=process_id, window_id=window.id, scheduled_at=cuando,

@@ -70,9 +70,24 @@ class WindowOverlap(AppointmentError):
 
 
 class WindowInUse(AppointmentError):
-    """Lo garantiza `ON DELETE RESTRICT`; aquí solo se traduce a español."""
+    """Lo garantiza `ON DELETE RESTRICT`; aquí solo se traduce a español.
 
-    def __init__(self, n: int):
+    Dos mensajes, porque son dos situaciones distintas y al encargado no le
+    toca lo mismo en cada una. Con citas VIVAS puede moverlas y entonces sí
+    borrar el espacio. Con solo historial muerto (canceladas o superadas) no
+    hay nada que mover, y la FK `fk_titulatec_review_appointments_window` es
+    `ON DELETE RESTRICT`, así que Postgres va a seguir rechazando el DELETE
+    pase lo que pase: la única salida real es pausarlo. Darle el mensaje de
+    «muévelas» lo manda a buscar en el tablero citas que ya no están ahí.
+    """
+
+    def __init__(self, n: int, *, solo_historial: bool = False):
+        if solo_historial:
+            super().__init__(
+                "Este espacio ya no tiene citas activas, pero conserva el "
+                "historial de intentos anteriores. Cámbialo a «En pausa»: "
+                "borrarlo perdería ese registro.")
+            return
         plural = "s" if n != 1 else ""
         super().__init__(
             f"Este espacio tiene {n} cita{plural}. Muévelas o cámbialo a «En pausa».")
