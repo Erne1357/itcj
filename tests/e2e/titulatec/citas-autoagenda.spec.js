@@ -43,10 +43,20 @@
 const { test, expect } = require('@playwright/test');
 const {
   seedScenario, cleanupScenario, stateFor, seedSurveyReview, seedReviewDay,
-  setStudentPhase,
+  setStudentPhase, tomorrowInContainer,
 } = require('./_helpers');
 
 test.use({ storageState: { cookies: [], origins: [] } });
+
+// Los 4 tests son UN recorrido encadenado sobre el MISMO escenario: el 3 agenda
+// en el espacio que publica el 1, y el 4 mira el asiento que crea el 3. Eso hoy
+// se cumple por el `fullyParallel: false` + `workers: 1` del config GLOBAL, que
+// es de otro archivo y no sabe de esta dependencia — el día que alguien lo
+// paralelice, los tests 2-4 revientan de forma ilegible en vez de saltarse.
+// `mode: 'serial'` lo fija AQUÍ y además aborta la cadena al primer fallo, que
+// es lo correcto para un recorrido: si nadie publicó el espacio, «el egresado
+// agenda» no es un fallo nuevo, es ruido.
+test.describe.configure({ mode: 'serial' });
 
 const CITAS_URL = '/titulatec/admin/appointments';
 const CITA_ALUMNO_URL = '/titulatec/student/cita';
@@ -61,7 +71,14 @@ const FASE_COTEJO = 2;
 // hoy, este archivo pasaría o fallaría según la hora a la que se corriera —el
 // peor tipo de test intermitente—: a las 08:30 la franja de las 09:00 no se
 // ofrece, y a las 10:00 ya pasó.
-const MANANA = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+//
+// Y se deriva del reloj del CONTENEDOR (`tomorrowInContainer`), no del runner:
+// quien decide qué días entran en la oferta es `db_now()`, hora local del
+// contenedor. Con `new Date()` del host, una zona horaria distinta —o arrancar
+// unos minutos antes de medianoche— hace que «mañana» no sea el mismo día para
+// los dos, y el día sembrado deja de ser el día ofrecido. Se asigna en
+// `beforeAll` porque leerlo exige un `docker exec`.
+let MANANA;
 
 const ESPACIO = { inicio: '09:00', fin: '11:00', minutos: '30', cupo: '1',
                   lugar: 'Edificio A · E2E' };
@@ -80,6 +97,9 @@ const MATRIZ = [
 let ctx;
 
 test.beforeAll(() => {
+  // Primero el reloj del contenedor: todo lo que sigue (el día sembrado y las
+  // URLs de los 4 tests) cuelga de esta fecha.
+  MANANA = tomorrowInContainer();
   ctx = seedScenario();
   // Regla 3 de §3: sin `SurveyReview` el egresado no pasa de «Primero envía la
   // encuesta de egresados», y `AppointmentService.create` lo rechazaría de todos

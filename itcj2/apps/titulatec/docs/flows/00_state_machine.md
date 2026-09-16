@@ -77,8 +77,15 @@ stateDiagram-v2
 > **Siete valores desde 2026-09-16** (auto-agendado). Eran cinco; entraron `cancelled` y
 > `superseded`, y desaparecieron dos aristas: `scheduled → scheduled` y `no_show → scheduled`.
 > Ninguna de esas dos era una transición de verdad — hoy **abrir un intento nuevo inserta una
-> fila**, no reescribe la que había. La matriz vive en `AppointmentService._TRANSICIONES` y se
-> valida con `assert_transition` **antes** de escribir.
+> fila**, no reescribe la que había. La matriz vive en `AppointmentService._TRANSICIONES`.
+>
+> **Ojo con el alcance de la matriz:** las transiciones que escribe `AppointmentService` se validan
+> con `assert_transition` **antes** de escribir, pero **`SlotService._open_new_attempt` NO pasa por
+> ella**: escribe `superseded` directo sobre la fila vieja, a propósito. No es un descuido —abrir un
+> intento nuevo no es una transición del intento viejo—, pero significa que **`_TRANSICIONES` no es
+> la lista completa de lo que puede ocurrirle a `status`**. Afirmar «toda escritura de estado pasa
+> por la matriz» es falso, y es justo la clase de afirmación con la que alguien razona «esto no
+> puede pasar».
 
 ```mermaid
 stateDiagram-v2
@@ -89,11 +96,13 @@ stateDiagram-v2
     in_progress --> attended: 🏛️ marca asistió
     scheduled --> no_show: 🏛️ no se presentó
     confirmed --> no_show: 🏛️ no se presentó
+    in_progress --> no_show: 🏛️ no se presentó (camino principal)
     no_show --> in_progress: 🏛️ deshacer «no se presentó»
     scheduled --> cancelled: 🏛️/👤 cancela
     confirmed --> cancelled: 🏛️/👤 cancela
     scheduled --> superseded: 🤖 se abre otro intento
     confirmed --> superseded: 🤖 se abre otro intento
+    in_progress --> superseded: 🤖 solo assign_batch (hoy sin llamadores)
     attended --> [*]
     cancelled --> [*]
     superseded --> [*]
@@ -101,6 +110,19 @@ stateDiagram-v2
 
 **Los tres terminales son `attended`, `cancelled` y `superseded`** (conjunto vacío en la matriz).
 `in_progress` **no** se puede cancelar: un cotejo empezado se cierra con `attended` o con `no_show`.
+
+**`in_progress → no_show` es el camino principal, no un borde.** El encargado pulsa «iniciar el
+cotejo» (que deja la cita `in_progress`) y desde ahí marca la ausencia; las aristas
+`scheduled/confirmed → no_show` son los atajos, no el recorrido normal.
+
+**`in_progress → superseded` existe en el código y NO está en la matriz.**
+`_open_new_attempt` supersede cualquier estado de `SlotService._ESTADOS_ACTIVOS`, que **sí** incluye
+`in_progress`; la matriz, en cambio, no lista `superseded` como destino suyo. Hoy esa arista **no la
+alcanza el encargado**: `reschedule` exige `_REAGENDABLES = {scheduled, confirmed, no_show}` y
+levanta `InvalidTransition` con una cita empezada, y `create` levanta `AppointmentConflict` antes de
+llegar. El único camino es `SlotService.assign_batch`, que hoy **no tiene llamadores en
+producción** — el mismo motor de reparto masivo que se salta la puerta de la encuesta. Si algún día
+se cablea, esta arista se vuelve alcanzable de verdad.
 
 | Estado | Quién lo escribe | Dónde |
 |---|---|---|

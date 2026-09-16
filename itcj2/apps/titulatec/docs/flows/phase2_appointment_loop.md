@@ -219,8 +219,11 @@ encargado**: se entera por el distintivo «El alumno agendó» de su tablero.
   locks, así que la que vale es la re-comprobación de dentro del advisory lock (`rechazar_activa`).
   Sin ella, el segundo clic superaba al primero y —peor— **liberaba su franja**, porque
   `superseded` libera.
-- **Transición inválida** → `InvalidTransition`. Todas las escrituras de estado pasan por
-  `assert_transition`: `no_show → attended` ya **no** es alcanzable.
+- **Transición inválida** → `InvalidTransition`. Las escrituras de estado **de
+  `AppointmentService`** pasan por `assert_transition`, así que `no_show → attended` ya **no** es
+  alcanzable. **No es universal:** `SlotService._open_new_attempt` escribe `superseded` sobre la
+  fila vieja **sin** consultar la matriz, a propósito (abrir un intento nuevo no es una transición
+  del intento viejo). Ver [la nota de alcance en la máquina de estados](00_state_machine.md).
 - **Filtro de carrera vacío** llega como `program_id=`: los parámetros se parsean como `str` (no
   `int|None`) para evitar un 422.
 - **Las rutas del alumno solo responden con la fase 2 en curso**

@@ -585,10 +585,16 @@ function stateFor(role) {
   const url = new URL(process.env.E2E_BASE_URL || 'http://localhost:8080');
   if (role === 'anon') return { cookies: [], origins: [] };
   if (!_ctx) throw new Error('stateFor() antes de seedScenario()');
+  // El ultimo caso es EXPLICITO ('student'), no un respaldo: con la cadena
+  // terminando en `_ctx.studentToken`, el `throw` de abajo era inalcanzable y
+  // un rol mal escrito -`stateFor('oficer')`- devolvia en silencio la sesion
+  // del ALUMNO. El sintoma era un 403 en una pagina de admin, que se lee como
+  // un problema de permisos y no como el error de dedo que es.
   const token = role === 'head' ? _ctx.headToken
     : role === 'gtv' ? _ctx.gtvToken
     : role === 'officer' ? _ctx.officerToken
-    : _ctx.studentToken;
+    : role === 'student' ? _ctx.studentToken
+    : null;
   if (!token) throw new Error(`stateFor("${role}"): rol desconocido`);
   return {
     cookies: [{
@@ -740,6 +746,26 @@ finally:
 }
 
 /**
+ * «Mañana» SEGÚN EL RELOJ DEL CONTENEDOR, en ISO (`YYYY-MM-DD`).
+ *
+ * No `new Date()` del runner: la oferta se filtra con `db_now()` —hora local
+ * del contenedor— y si el host y el contenedor no comparten zona horaria, o la
+ * corrida arranca unos minutos antes de medianoche, «mañana» no es el mismo día
+ * para los dos. El síntoma sería un E2E que falla solo a veces, y justo en CI,
+ * donde nadie está mirando.
+ *
+ * Se usa `db_now()` y no `date.today()` a propósito: es exactamente el mismo
+ * reloj que `SelfBookingService` consulta para decidir qué franjas ofrece.
+ */
+function tomorrowInContainer() {
+  return runInContainer(`
+from datetime import timedelta
+from itcj2.core.utils.timezone import db_now
+print((db_now() + timedelta(days=1)).date().isoformat())
+`).trim();
+}
+
+/**
  * Habilita un DÍA DE COTEJO en la convocatoria del escenario y devuelve su id.
  *
  * Sin al menos uno, la sub-vista «Espacios» del encargado no deja abrir nada
@@ -840,6 +866,7 @@ module.exports = {
   seedSurveyReview,
   seedReviewDay,
   setStudentPhase,
+  tomorrowInContainer,
   processFolioFor,
   E2E_TAG,
   E2E_NIP,
