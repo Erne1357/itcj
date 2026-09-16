@@ -130,3 +130,37 @@ def test_el_no_show_sigue_ocupando_su_franja_despues_de_reagendar(db_session, ag
     assert ocup.get(time(9, 0)) == 1            # la franja ORIGINAL sigue ocupada
     with pytest.raises(err.SlotFull):
         SlotService.assign(db_session, esc["w"].id, time(9, 0), esc["p2"].id, esc["off"].id)
+
+
+# --------------------------------------------------- SlotService.assign_batch
+def test_assign_batch_reasigna_sin_violar_el_indice_unico(db_session, agenda_slots):
+    """La rama de reasignacion del loop de `assign_batch` (el proceso YA
+    tenia vigente cuando el batch lo vuelve a tocar) hereda el mismo cambio
+    que `assign` via `_open_new_attempt`. Ningun test de reparto existente la
+    ejercitaba: todos asignan cada `pid` una sola vez, asi que ninguno
+    encontraba jamas una vigente dentro del loop."""
+    from itcj2.apps.titulatec.models import ReviewAppointment
+    esc = agenda_slots
+
+    ok1, fuera1 = SlotService.assign_batch(db_session, esc["w"].id, [esc["p1"].id], esc["off"].id)
+    assert ok1 == [(time(9, 0), esc["p1"].id)]
+    assert fuera1 == []
+
+    # Mismo proceso, mismo batch, SEGUNDA vez: ya tiene vigente. La franja de
+    # 9:00 la "ocupa" su propia fila anterior (el batch no se excluye a si
+    # mismo), asi que el reparto natural la salta y cae en 9:30 — sin pasar
+    # `desde` a proposito, para probar el camino tal como lo usaria un
+    # reparto real, no uno afinado para el test.
+    ok2, fuera2 = SlotService.assign_batch(db_session, esc["w"].id, [esc["p1"].id], esc["off"].id)
+    assert ok2 == [(time(9, 30), esc["p1"].id)]
+    assert fuera2 == []
+
+    filas = (db_session.query(ReviewAppointment)
+             .filter_by(process_id=esc["p1"].id).order_by(ReviewAppointment.id).all())
+    assert len(filas) == 2
+    primera, segunda = filas
+    assert primera.status == "superseded"
+    assert primera.is_current is False
+    assert segunda.status == "scheduled"
+    assert segunda.is_current is True
+    assert segunda.attempt_no == 2

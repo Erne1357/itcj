@@ -242,6 +242,46 @@ class SlotService:
                    {"ns": _PROCESO_LOCK_NS, "pid": int(process_id)})
 
     @staticmethod
+    def _open_new_attempt(db: Session, process_id: int) -> int:
+        """Cierra la cita vigente del proceso (si hay una) y devuelve el
+        `attempt_no` que le toca a la fila nueva. NO inserta nada — eso lo
+        hace el llamador, con el resto de los datos de la franja destino.
+
+        Bloque compartido por `assign` y `assign_batch`: antes eran dos
+        copias casi idénticas (solo `process_id` cambiaba por `pid`), y es
+        justo donde viven las tres trampas de esta tarea. Una sola función
+        para que un arreglo futuro no se aplique a una copia y se le olvide
+        la otra — el batch es el camino menos ejercitado por los tests
+        existentes, así que es el más fácil de dejar atrás:
+
+        1. Si hay vigente, la cierra (`is_current=False`) y hace
+           `db.flush()` **antes** de que el llamador inserte la fila nueva.
+           El índice único parcial (`uq_titulatec_review_appt_current`)
+           exige que nunca convivan dos `is_current=True` del mismo proceso;
+           si el INSERT llegara a la base antes que este UPDATE, Postgres
+           revienta con violación de unicidad. El orden importa.
+        2. `status` solo cambia a `superseded` si la vigente estaba ACTIVA
+           (`_ESTADOS_ACTIVOS`, D4). Si no (`no_show`, `attended`), conserva
+           su status: abrir un intento nuevo no es una transición.
+        3. `attempt_no` sale de `MAX(attempt_no)` del proceso, no de
+           `vigente.attempt_no + 1` — hace falta para el caso donde no hay
+           vigente pero sí historial (p. ej. tras una cancelación).
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+
+        vigente = (db.query(ReviewAppointment)
+                   .filter_by(process_id=process_id, is_current=True)
+                   .first())
+        if vigente is not None:
+            if vigente.status in _ESTADOS_ACTIVOS:
+                vigente.status = "superseded"
+            vigente.is_current = False
+            db.flush()
+
+        return (db.query(func.max(ReviewAppointment.attempt_no))
+                .filter_by(process_id=process_id).scalar() or 0) + 1
+
+    @staticmethod
     def assign(db: Session, window_id: int | None, slot_start: time | None,
                process_id: int, actor_id: int, *, location: str | None = None):
         """Sienta a un proceso en una franja. NO commitea.
@@ -249,9 +289,10 @@ class SlotService:
         Nunca mueve una fila existente: si el proceso ya tenía una cita
         vigente, la CIERRA (a `superseded` si estaba activa —
         scheduled/confirmed/in_progress—; conserva su status si no, p. ej.
-        `no_show`) e INSERTA un intento nuevo con `attempt_no+1`. Devuelve la
-        `ReviewAppointment` recién creada, siempre vigente. Levanta
-        `MissingSchedule`, `InvalidSlot` o `SlotFull`.
+        `no_show`) e INSERTA un intento nuevo con `attempt_no+1`
+        (`_open_new_attempt`). Devuelve la `ReviewAppointment` recién
+        creada, siempre vigente. Levanta `MissingSchedule`, `InvalidSlot` o
+        `SlotFull`.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
 
@@ -271,22 +312,7 @@ class SlotService:
         cuando = datetime.combine(window.review_day.date, slot_start)
         lugar = location if location is not None else window.location
 
-        vigente = (db.query(ReviewAppointment)
-                   .filter_by(process_id=process_id, is_current=True)
-                   .first())
-        if vigente is not None:
-            if vigente.status in _ESTADOS_ACTIVOS:
-                vigente.status = "superseded"
-            vigente.is_current = False
-            # Cierra la vigente ANTES de insertar la nueva. El índice único
-            # parcial (`uq_titulatec_review_appt_current`) exige que nunca
-            # convivan dos `is_current=True` del mismo proceso: si el INSERT
-            # de abajo llegara a la base antes que este UPDATE, Postgres
-            # revienta con violación de unicidad. El orden importa.
-            db.flush()
-
-        attempt_no = (db.query(func.max(ReviewAppointment.attempt_no))
-                      .filter_by(process_id=process_id).scalar() or 0) + 1
+        attempt_no = SlotService._open_new_attempt(db, process_id)
 
         appt = ReviewAppointment(
             process_id=process_id, window_id=window.id, scheduled_at=cuando,
@@ -311,9 +337,10 @@ class SlotService:
 
         Límite duro: cuando se acaban los lugares **se detiene**, no desborda.
 
-        Igual que `assign`: si un proceso ya tenía cita vigente, la CIERRA
-        (superseded si estaba activa; conserva su status si no) e INSERTA un
-        intento nuevo. Nunca mueve la fila existente.
+        Igual que `assign` (mismo `_open_new_attempt`): si un proceso ya
+        tenía cita vigente, la CIERRA (superseded si estaba activa; conserva
+        su status si no) e INSERTA un intento nuevo. Nunca mueve la fila
+        existente.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
 
@@ -337,19 +364,7 @@ class SlotService:
                 cuando = datetime.combine(window.review_day.date, hora)
                 lugar = location if location is not None else window.location
 
-                vigente = (db.query(ReviewAppointment)
-                          .filter_by(process_id=pid, is_current=True)
-                          .first())
-                if vigente is not None:
-                    if vigente.status in _ESTADOS_ACTIVOS:
-                        vigente.status = "superseded"
-                    vigente.is_current = False
-                    # Mismo orden que en `assign`: cerrar antes de insertar,
-                    # o el indice unico parcial revienta.
-                    db.flush()
-
-                attempt_no = (db.query(func.max(ReviewAppointment.attempt_no))
-                             .filter_by(process_id=pid).scalar() or 0) + 1
+                attempt_no = SlotService._open_new_attempt(db, pid)
                 db.add(ReviewAppointment(
                     process_id=pid, window_id=window.id, scheduled_at=cuando,
                     location=lugar, status="scheduled", created_by_id=actor_id,
