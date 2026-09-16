@@ -162,6 +162,12 @@ _EVENT_LABELS = {
     "appointment_rescheduled":     "Cita reagendada",
     "appointment_change_requested":"Solicitaste un cambio de cita",
     "appointment_no_show":         "No te presentaste a la cita",
+    # Lo escribe `AppointmentService.cancel`, que comparten el alumno (desde
+    # «Cancelar mi cita») y el encargado. La etiqueta es NEUTRAL a propósito:
+    # es el mismo `event_type` para los dos actores, así que «Cancelaste tu
+    # cita» sería mentira cuando quien canceló fue Servicios Escolares. Sin
+    # esta fila la línea de tiempo del alumno enseñaba el código crudo.
+    "appointment_cancelled":       "Cita cancelada",
     "process_completed":           "Proceso completado",
     # Solicitud de liberación de GTV para la encuesta de egresados (D3, spec
     # 2026-09-15-titulatec-liberacion-gtv §6.1). Mismos `event_type` que
@@ -971,6 +977,126 @@ def _checklist_ctx(db, process) -> list[dict]:
     return out
 
 
+_DAYS_ES = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+
+
+def _hdr(msg) -> str:
+    """Codifica un mensaje para que quepa en un header HTTP.
+
+    Gemelo de `pages/appointments.py::_hdr`, y por el mismo motivo: los valores
+    de header son latin-1 por especificación y Starlette los escribe así, pero
+    el cliente los lee UTF-8, así que un mensaje con acentos —o sea, TODOS los
+    de `SelfBookingService` y los de `appointment_errors`— llega roto.
+
+    Se percent-codifica aquí y lo decodifica `static/js/student/errors.js`.
+    """
+    from urllib.parse import quote
+    return quote(str(msg), safe="")
+
+
+def _to_int(raw):
+    """'12' -> 12; basura -> None. Un `window_id` inventado NO revienta la ruta:
+    cae en `None` y el service lo traduce a `NotYours` (404 limpio)."""
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_hhmm(raw):
+    """'09:30' -> time(9,30), o None (-> `MissingSchedule`, 400 con mensaje)."""
+    from datetime import datetime as _dt
+    if not raw:
+        return None
+    for fmt in ("%H:%M", "%H:%M:%S"):
+        try:
+            return _dt.strptime(str(raw).strip(), fmt).time()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _dia_label(d) -> str:
+    return f"{_DAYS_ES[d.weekday()]} {d.day:02d} {_MONTHS_ES[d.month]}"
+
+
+def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
+    """Las cuatro caras de §7, resueltas en DATOS PLANOS.
+
+    Planos porque la plantilla se renderiza DESPUÉS del `db.close()` de la ruta:
+    un atributo perezoso sobre una instancia ya desanclada lanzaría
+    `DetachedInstanceError` (mismo motivo que `_checklist_ctx`). `offer()` ya
+    devuelve dicts, así que aquí solo se les da forma de pantalla: las horas se
+    formatean AQUÍ y no en Jinja, para que la plantilla no haga aritmética.
+
+    `eligibility` decide QUIÉN puede y `offer` QUÉ hay. Se consumen juntos, y de
+    ahí sale lo que a primera vista parece una contradicción: la tarjeta de
+    «atención sin cita» convive con la frase de la cara 4, porque el bloqueado
+    por D9 no puede reservar pero sí presentarse.
+    """
+    vacio = {"can_book": False, "can_walkin": False, "reason": None,
+             "message": None, "dias": [], "dia_sel": None, "dia_actual": None,
+             "walkins": []}
+    if process is None:
+        return vacio
+
+    from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+
+    elig = SelfBookingService.eligibility(db, process.id)
+    oferta = SelfBookingService.offer(db, process.id)
+
+    dias, walkins = [], []
+    for jornada in oferta:
+        fecha = jornada["date"]
+        duenos = []
+        for dueno in jornada["owners"]:
+            ventanas = []
+            for w in dueno["windows"]:
+                if w["visibility"] == "walkin":
+                    # D2: anuncio, no agenda. Viaja sin franjas desde `offer`.
+                    walkins.append({
+                        "date_label": _dia_label(fecha),
+                        "start": f'{w["start_time"]:%H:%M}',
+                        "end": f'{w["end_time"]:%H:%M}',
+                        "location": w["location"],
+                        "owner_name": dueno["owner_name"],
+                    })
+                    continue
+                ventanas.append({
+                    "window_id": w["window_id"],
+                    "range": f'{w["start_time"]:%H:%M} a {w["end_time"]:%H:%M}',
+                    "location": w["location"],
+                    "slots": [f"{s:%H:%M}" for s in w["slots"]],
+                })
+            if ventanas:
+                duenos.append({"owner_name": dueno["owner_name"], "windows": ventanas})
+        if duenos:
+            dias.append({"iso": fecha.isoformat(), "label": _dia_label(fecha),
+                         "dow": _DAYS_ES[fecha.weekday()], "dom": f"{fecha.day:02d}",
+                         "mon": _MONTHS_ES[fecha.month], "owners": duenos})
+
+    # El día pedido, si sigue en la oferta; si no, el primero que la tenga. Un
+    # `?dia=` viejo —un enlace guardado, un día que el encargado cerró— degrada
+    # al primer día con oferta en vez de dejar una rejilla vacía sin explicar
+    # por qué (mismo criterio que `_parse_open_phase`: la URL no tumba la vista).
+    dia_sel = next((d["iso"] for d in dias if d["iso"] == dia), None)
+    if dia_sel is None and dias:
+        dia_sel = dias[0]["iso"]
+    dia_actual = next((d for d in dias if d["iso"] == dia_sel), None)
+
+    # La cara 4 NO se pinta cuando el motivo es `tiene_cita`: esa pantalla YA
+    # explica el porqué, con la tarjeta de la cita justo encima. Repetirlo
+    # debajo sería decirle dos veces lo mismo al alumno. Las demás razones no
+    # tienen ninguna otra señal en pantalla, y sin la frase quedaría un hueco.
+    message = (None if elig["reason"] == "tiene_cita"
+               else SelfBookingService.message_for(
+                   elig["reason"], cancellations=elig["cancellations"]))
+
+    return {"can_book": elig["can_book"], "can_walkin": elig["can_walkin"],
+            "reason": elig["reason"], "message": message, "dias": dias,
+            "dia_sel": dia_sel, "dia_actual": dia_actual, "walkins": walkins}
+
+
 def _cita_label(dt) -> str:
     if not dt:
         return "—"
@@ -980,6 +1106,7 @@ def _cita_label(dt) -> str:
 def _cita_card_ctx(db, user_id: int) -> dict:
     from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
 
     # `ProcessService.creditable_process` y NO `DocumentService.get_active_process`:
     # aquel no filtra por status pese al nombre, y esta tarjeta tiene que hablar
@@ -994,6 +1121,10 @@ def _cita_card_ctx(db, user_id: int) -> dict:
             "status": appt.status,
             "confirmed": appt.confirmed_at is not None,
             "change_requested": bool(appt and appt.change_request),
+            # D8. Lo decide el MISMO predicado que va a aplicar el servidor, no
+            # una cuenta repetida aquí: si divergieran, la tarjeta ofrecería
+            # «Cancelar mi cita» justo cuando la ruta ya va a rechazarlo.
+            "can_cancel": SelfBookingService.can_self_cancel(appt),
         }
     return {
         "process": process.to_dict() if process else None,
@@ -1001,9 +1132,35 @@ def _cita_card_ctx(db, user_id: int) -> dict:
     }
 
 
+def _cita_panel_ctx(db, user_id: int, *, dia: str | None = None) -> dict:
+    """Contexto del panel completo: la tarjeta MÁS las cuatro caras de §7.
+
+    Resuelve el proceso con el mismo selector que `_cita_card_ctx`
+    (`creditable_process`): la tarjeta y el selector de agendado TIENEN que
+    hablar del mismo proceso, o el alumno vería la cita de uno y agendaría en
+    el otro.
+    """
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+
+    ctx = _cita_card_ctx(db, user_id)
+    ctx["agenda"] = _agenda_ctx(db, ProcessService.creditable_process(db, user_id),
+                                dia=dia)
+    return ctx
+
+
+def _cita_panel(request, db, user_id: int, *, dia: str | None = None):
+    """El parcial que devuelven los dos POST del auto-agendado.
+
+    App pages-only: un POST responde con el cuerpo re-renderizado, no con JSON.
+    """
+    return render_titulatec(request, "titulatec/partials/student/_cita_panel.html",
+                            _cita_panel_ctx(db, user_id, dia=dia))
+
+
 @router.get("/cita", name="titulatec.pages.student.cita")
 async def cita(
     request: Request,
+    dia: str | None = None,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.page.my"])),
 ):
     """Página de la cita de cotejo del alumno: estado + requisitos de SU convocatoria.
@@ -1027,13 +1184,25 @@ async def cita(
         process = ProcessService.creditable_process(db, user_id)
         if process is None:
             return RedirectResponse(_DASHBOARD_URL, status_code=302)
-        fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "review_appointment"))
+        # Con `?dia=` la respuesta es un PARCIAL, así que la guarda cambia de
+        # canal: 400 + `X-Tt-Error` en lugar del 302 de las páginas. htmx sigue
+        # los redirects de forma transparente y metería el dashboard entero
+        # dentro del selector de franjas.
+        n = _phase_of(db, "review_appointment")
+        fuera_de_fase = (_phase_guard(db, process, n) if dia
+                         else _phase_guard_page(db, process, n))
         if fuera_de_fase:
             return fuera_de_fase
-        ctx = _cita_card_ctx(db, user_id)
+        ctx = _cita_panel_ctx(db, user_id, dia=dia)
         ctx["checklist"] = _checklist_ctx(db, process)
     finally:
         db.close()
+    # `?dia=` es la MISMA ruta con querystring —no suma al censo de rutas del
+    # alumno— y devuelve solo el selector del día elegido, que es justo lo que
+    # se swappea (`#tt-cita-agendar`, `outerHTML`).
+    if dia:
+        return render_titulatec(
+            request, "titulatec/partials/student/_cita_agendar.html", ctx)
     return render_titulatec(request, "titulatec/student/cita.html", ctx)
 
 
@@ -1094,6 +1263,136 @@ async def cita_request_change(
             AppointmentService.request_change(db, appt, int(user["sub"]), reason)
         return render_titulatec(request, "titulatec/partials/cita_card.html",
                                 _cita_card_ctx(db, int(user["sub"])))
+    finally:
+        db.close()
+
+
+# ===========================================================================
+# Auto-agendado del egresado (spec 2026-09-15 §5)
+# ===========================================================================
+# NINGUNA de las dos lleva `{process_id}`: el proceso sale del usuario
+# autenticado, igual que las dos rutas de cita que ya existían. Es lo correcto y
+# además lo que mantiene verde a `test_scope_guard.py` sin excepciones nuevas.
+#
+# Las dos pasan por `_phase_guard` (fase 2), como sus hermanas: una ruta del
+# alumno sin guarda de fase sale en rojo en `test_student_phase_guard.py`, y el
+# modo de fallo del olvido sería ABIERTO.
+
+
+def _cita_accion(request, db, user_id: int, fn):
+    """Ejecuta una acción del auto-agendado y traduce sus errores de dominio.
+
+    Tres salidas, y la diferencia entre ellas es el contrato de T4:
+
+    * `NotYours` -> **404 limpio, SIN `X-Tt-Error`**. Mismo criterio que
+      `assert_process_in_scope`: los ids son enteros secuenciales, y un mensaje
+      distintivo convertiría la ruta en un detector de lo que existe. Lo levanta
+      por dos motivos —ventana fuera de su oferta y proceso ajeno— y los dos
+      salen igual a propósito: distinguirlos sería el oráculo que se quiere
+      cerrar.
+    * entrada del usuario (`SlotTooSoon`, `CancelTooLate`, casi toda
+      `SelfBookingNotAllowed`) -> 400 + `X-Tt-Error`. htmx no swappea en 4xx, y
+      está bien: lo que hay en pantalla sigue siendo verdad.
+    * colisión de estado (`refresca_la_vista`, o sea `reason == "tiene_cita"`)
+      -> **200 con el panel fresco** + `X-Tt-Notice`. Es lo que produce un doble
+      clic en «Agendar»: ahí la pantalla SÍ está rancia —ya existe una cita que
+      el alumno no está viendo— y un 4xx lo dejaría mirando un selector muerto.
+    """
+    from itcj2.apps.titulatec.services.appointment_errors import (
+        AppointmentError, NotYours,
+    )
+    try:
+        fn()
+    except NotYours:
+        # `NotYours` hereda de `AppointmentError`: va PRIMERO o el 404 nunca
+        # llegaría a ejecutarse.
+        return Response(status_code=404)
+    except AppointmentError as e:
+        if not e.refresca_la_vista:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(e)})
+        resp = _cita_panel(request, db, user_id)
+        resp.headers["X-Tt-Notice"] = _hdr(e)
+        return resp
+    return _cita_panel(request, db, user_id)
+
+
+@router.post("/cita/agendar", name="titulatec.pages.student.cita_book")
+async def cita_book(
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.book.own"])),
+):
+    """El egresado toma una franja publicada. Devuelve el panel re-renderizado.
+
+    `window_id` llega en el CUERPO del formulario, no en la ruta, así que quien
+    lo revalida contra la oferta de ESTE proceso es
+    `SelfBookingService.book` (`_window_in_offer`) — el regresor estructural de
+    alcance, que barre rutas con `{process_id}`, no puede verlo. Aquí solo se
+    traduce el `NotYours` resultante al 404 limpio.
+
+    El actor va como `int(user["sub"])`: `sub` es **string** (gotcha 5), y de
+    esa comparación depende en silencio que `create` calle la notificación del
+    propio clic del alumno.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+    from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+
+    form = dict(await request.form())
+    window_id = _to_int(form.get("window_id"))
+    slot = _parse_hhmm(form.get("slot"))
+    db = SessionLocal()
+    try:
+        user_id = int(user["sub"])
+        process = ProcessService.creditable_process(db, user_id)
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "review_appointment"))
+        if fuera_de_fase:
+            return fuera_de_fase
+        if process is None:
+            return Response(status_code=409)
+        return _cita_accion(request, db, user_id, lambda: SelfBookingService.book(
+            db, process.id, window_id, slot, user_id))
+    finally:
+        db.close()
+
+
+@router.post("/cita/cancelar", name="titulatec.pages.student.cita_cancel")
+async def cita_cancel(
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.cancel.own"])),
+):
+    """El egresado cancela su propia cita (D8: hasta 2 h antes).
+
+    `motivo` es opcional y se guarda tal cual: `AppointmentService.cancel` lo
+    deja en NULL si viene vacío en vez de inventar un texto que se leería como
+    algo que el alumno escribió.
+
+    La franja vuelve al pozo en el acto (D12), así que el panel que se devuelve
+    ya trae el selector de agendado otra vez.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+
+    form = dict(await request.form())
+    motivo = (form.get("motivo") or "").strip() or None
+    db = SessionLocal()
+    try:
+        user_id = int(user["sub"])
+        process = ProcessService.creditable_process(db, user_id)
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "review_appointment"))
+        if fuera_de_fase:
+            return fuera_de_fase
+        if process is None:
+            return Response(status_code=409)
+        appt = AppointmentService.get_for_process(db, process.id)
+        if appt is None:
+            # Doble clic en «Cancelar»: la segunda vez ya no hay cita vigente.
+            # Lo que el alumno pidió YA está hecho, así que se le devuelve el
+            # panel tal como quedó. Un 4xx aquí sería un error inventado.
+            return _cita_panel(request, db, user_id)
+        return _cita_accion(request, db, user_id, lambda: SelfBookingService.cancel(
+            db, appt, user_id, motivo))
     finally:
         db.close()
 

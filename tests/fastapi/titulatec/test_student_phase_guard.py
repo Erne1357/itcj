@@ -631,6 +631,6 @@ def test_toda_ruta_del_alumno_atada_a_una_fase_invoca_la_guarda():
             if "_phase_guard" not in inspect.getsource(route.endpoint):
                 sin_guarda.append(method + " " + path)
 
-    assert revisadas == 13, "cambio el inventario de rutas del alumno: " + str(revisadas)
+    assert revisadas == 15, "cambio el inventario de rutas del alumno: " + str(revisadas)
     assert not sin_guarda, ("rutas del alumno sin guarda de fase:\n"
                             + "\n".join(sin_guarda))

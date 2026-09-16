@@ -1763,3 +1763,116 @@ button.tt-seat--libre { pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) {
   .tt-reqinfo-chev, .tt-reqinfo-btn::before { transition: none; }
 }
+
+/* ===========================================================================
+   ALUMNO · AUTO-AGENDADO DE LA CITA DE COTEJO (spec 2026-09-15 §7)
+   ---------------------------------------------------------------------------
+   Invariante duro del proyecto, en los 6 viewports (360/390/768/1280/1440/1920):
+   `document.documentElement.scrollWidth <= window.innerWidth`.
+
+   Las dos tiras horizontales de esta vista se resuelven DISTINTO, a proposito:
+
+     · la de DIAS puede crecer sin limite (una convocatoria con muchas fechas),
+       asi que scrollea DENTRO de si misma (`overflow-x:auto`) y nunca empuja la
+       pagina;
+     · la de FRANJAS no scrollea: ENVUELVE (`auto-fill` + `minmax`), que a 360px
+       da 3 columnas y a 1920 las que quepan. Una rejilla que envuelve no puede
+       desbordar, y eso es mas fuerte que contener el desbordamiento.
+
+   `min-width: 0` en todo hijo de flex/grid: sin el, un hijo con contenido
+   indivisible impone su ancho minimo al padre y el que acaba scrolleando es el
+   body. Es el fallo clasico de este contrato.
+   =========================================================================== */
+
+.tt-cita-hint { font-size: .8rem; color: var(--tt-mute); margin: .25rem 0 .75rem; }
+
+/* — Cara 4: la frase que dice POR QUE no puede agendar — */
+.tt-cita-why { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.tt-cita-why i { flex: 0 0 auto; margin-top: 2px; color: var(--tt-amber-ink); }
+.tt-cita-why p { font-size: .85rem; color: var(--tt-slate); min-width: 0; }
+
+/* — Tira de dias — */
+.tt-daybar {
+  display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  padding-bottom: 6px; margin-bottom: 4px; scroll-snap-type: x proximity;
+}
+.tt-day {
+  flex: 0 0 auto; min-width: 0; scroll-snap-align: start;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 60px; min-height: 66px; padding: 8px 6px; border-radius: var(--tt-r);
+  background: var(--tt-mist); border: 1px solid var(--tt-line);
+  color: var(--tt-ink); text-decoration: none; line-height: 1.1;
+  transition: background .15s ease, border-color .15s ease, transform .14s var(--tt-ease-out);
+}
+.tt-day .dow { font-size: .65rem; text-transform: uppercase; color: var(--tt-mute); letter-spacing: .04em; }
+.tt-day .dom { font-family: var(--tt-display); font-size: 1.15rem; font-weight: 600; }
+.tt-day .mon { font-size: .65rem; color: var(--tt-mute); }
+.tt-day:active { transform: scale(.96); }
+.tt-day.is-active {
+  background: var(--tt-ink); border-color: var(--tt-ink); color: #fff;
+}
+.tt-day.is-active .dow, .tt-day.is-active .mon { color: rgba(255, 255, 255, .72); }
+.tt-day:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--tt-focus); }
+
+/* — Bloque de un encargado y sus espacios — */
+.tt-slotblock { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--tt-line-soft); }
+.tt-slotblock:first-of-type { border-top: 0; margin-top: 4px; }
+.tt-slotblock-head { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; }
+.tt-slotblock-head i { flex: 0 0 auto; color: var(--tt-slate); }
+.tt-slotblock-head .who {
+  min-width: 0; overflow-wrap: anywhere;
+  font-size: .875rem; font-weight: 600; color: var(--tt-ink);
+}
+.tt-slotwin + .tt-slotwin { margin-top: 12px; }
+.tt-slotwin .meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0;
+  font-size: .75rem; color: var(--tt-mute); margin-bottom: 8px;
+}
+.tt-slotwin .meta i { margin-right: 3px; }
+
+/* — Rejilla de franjas: envuelve, no scrollea — */
+.tt-slotgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.tt-slot {
+  min-width: 0; min-height: 44px;           /* objetivo tactil completo */
+  padding: 8px 6px; border-radius: var(--tt-r);
+  background: var(--tt-paper); border: 1px solid var(--tt-line); color: var(--tt-ink);
+  font-family: var(--tt-mono); font-size: .8125rem; font-weight: 600; cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .14s var(--tt-ease-out);
+}
+.tt-slot:active { transform: scale(.96); }
+.tt-slot:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--tt-focus); }
+@media (hover: hover) and (pointer: fine) {
+  .tt-day:hover  { background: var(--tt-line-soft); }
+  .tt-day.is-active:hover { background: var(--tt-ink); }
+  .tt-slot:hover { background: var(--tt-ink); border-color: var(--tt-ink); color: #fff; }
+}
+
+/* — Cara 3: atencion sin cita — */
+.tt-walkins { list-style: none; margin: 0; padding: 0; }
+.tt-walkin {
+  min-width: 0; padding: 10px 12px; border-radius: var(--tt-r);
+  background: var(--tt-mist); border: 1px solid var(--tt-line);
+}
+.tt-walkin + .tt-walkin { margin-top: 8px; }
+.tt-walkin .when {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; min-width: 0;
+}
+.tt-walkin .when .day { font-size: .875rem; font-weight: 600; color: var(--tt-ink); }
+.tt-walkin .when .hours { font-family: var(--tt-mono); font-size: .8125rem; color: var(--tt-slate); }
+.tt-walkin .who {
+  min-width: 0; overflow-wrap: anywhere;
+  font-size: .75rem; color: var(--tt-mute); margin-top: 2px;
+}
+.tt-walkin .who i { margin-right: 3px; }
+
+/* Desktop: el alumno tiene layout propio, no un movil estirado. Las franjas
+   ganan aire y la tira de dias deja de scrollear porque ya caben. */
+@media (min-width: 992px) {
+  .tt-slotgrid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+  .tt-daybar { flex-wrap: wrap; overflow-x: visible; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-day, .tt-slot { transition: none; }
+  .tt-day:active, .tt-slot:active { transform: none; }
+}

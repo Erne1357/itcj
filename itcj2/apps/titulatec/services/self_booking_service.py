@@ -460,6 +460,36 @@ class SelfBookingService:
 
     # ----------------------------------------------------------- §4.1: cancelar
     @staticmethod
+    def _within_cancel_window(appt) -> bool:
+        """¿Estamos todavía a más de `MIN_LEAD` de la cita? (D8)
+
+        La desigualdad vive AQUÍ y en ningún otro sitio. La consumen `cancel`,
+        que la niega para levantar `CancelTooLate`, y `can_self_cancel`, que es
+        quien decide si la pantalla pinta el botón «Cancelar mi cita». Con la
+        cuenta repetida en la plantilla, el botón se ofrecería justo cuando el
+        servidor ya va a rechazarlo.
+        """
+        minutos = SelfBookingService._settings().TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES
+        return db_now() <= appt.scheduled_at - timedelta(minutes=minutos)
+
+    @staticmethod
+    def can_self_cancel(appt) -> bool:
+        """¿Se le ofrece al alumno el botón «Cancelar mi cita»?
+
+        Estado cancelable **y** dentro de la ventana de 2 h. Los dos, y en este
+        orden, son lo que `cancel` va a exigir: la transición la valida
+        `AppointmentService.cancel` y la ventana la valida esta capa.
+
+        NO se usa dentro de `cancel` tal cual, a propósito: allí un estado no
+        cancelable tiene que salir por `InvalidTransition` («esa cita ya cambió
+        de estado»), no por `CancelTooLate` («ya faltan menos de 2 horas»), que
+        sería un mensaje falso.
+        """
+        return (appt is not None
+                and appt.status in ("scheduled", "confirmed")
+                and SelfBookingService._within_cancel_window(appt))
+
+    @staticmethod
     def cancel(db: Session, appt, actor_id: int, reason: str | None = None):
         """El egresado cancela su propia cita. Dueña de la transacción.
 
@@ -488,8 +518,11 @@ class SelfBookingService:
 
         minutos = SelfBookingService._settings().TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES
         # Spec, literal: puede cancelar mientras
-        # `db_now() <= scheduled_at - MIN_LEAD`.
-        if db_now() > appt.scheduled_at - timedelta(minutes=minutos):
+        # `db_now() <= scheduled_at - MIN_LEAD`. La desigualdad vive en
+        # `_within_cancel_window`, que es lo MISMO que mira la pantalla para
+        # decidir si pinta el botón: dos cuentas separadas acabarían ofreciendo
+        # un botón que el servidor rechaza.
+        if not SelfBookingService._within_cancel_window(appt):
             raise CancelTooLate(minutos)
 
         return AppointmentService.cancel(db, appt, actor_id, reason)

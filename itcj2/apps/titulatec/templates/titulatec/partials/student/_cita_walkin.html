@@ -1,0 +1,31 @@
+{# ===========================================================================
+   _cita_walkin.html — cara 3: «Atención sin cita» (D2, spec §7).
+
+   Es un ANUNCIO, no una agenda: no hay botones, porque presentarse no reserva
+   nada. El corte por hora (un walk-in que ya terminó hoy deja de anunciarse)
+   vive en `SelfBookingService.offer`, no aquí: la plantilla pinta lo que
+   recibe, no filtra datos.
+
+   Se renderiza con `can_walkin`, que NO es `can_book`: el bloqueado por el
+   tope de cancelaciones (D9) perdió el derecho a reservar un lugar, no el de
+   presentarse a una atención que el encargado abrió a todos.
+   =========================================================================== #}
+<div class="tt-card mt-3 tt-anim-in">
+  <span class="tt-kicker"><i class="bi bi-door-open me-1" aria-hidden="true"></i>Atención sin cita</span>
+  <p class="tt-cita-hint">Estos encargados atienden por orden de llegada. No reservas lugar: te presentas dentro del horario.</p>
+
+  <ul class="tt-walkins">
+    {% for wk in agenda.walkins %}
+    <li class="tt-walkin">
+      <div class="when">
+        <span class="day">{{ wk.date_label }}</span>
+        <span class="hours">{{ wk.start }} a {{ wk.end }}</span>
+      </div>
+      <div class="who">
+        <i class="bi bi-person-badge" aria-hidden="true"></i>{{ wk.owner_name }}
+        {%- if wk.location %} · <i class="bi bi-geo-alt" aria-hidden="true"></i>{{ wk.location }}{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>

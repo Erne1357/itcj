@@ -116,7 +116,7 @@ class Settings(BaseSettings):
     #
     # Bump 2026-09-15 (3): `public.css` gana `.tt-public-bar-back`, el botón
     # «Volver a TitulaTec» de la barra de la encuesta.
-    STATIC_VERSION: str = "1.0.1111534"
+    STATIC_VERSION: str = "1.0.1111535"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

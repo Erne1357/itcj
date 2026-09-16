@@ -57,5 +57,23 @@
     {% elif appt.status == 'no_show' %}
       <div class="mt-3"><span class="tt-pill tt-pill--danger"><i class="bi bi-x-circle"></i> No asististe — contacta a Servicios Escolares</span></div>
     {% endif %}
+
+    {# — «Cancelar mi cita» (D8): solo mientras falten más de 2 h. Lo decide
+       `SelfBookingService.can_self_cancel`, el MISMO predicado que usa el
+       servidor, para que no aparezca un botón que va a ser rechazado.
+       Va fuera del if/elif de estados porque aplica a `scheduled` Y a
+       `confirmed`: confirmar asistencia no te ata a presentarte.
+       La confirmación es `hx-confirm`, que el puente de `titulatec-utils.js`
+       convierte en `TitulaTecUtils.confirmDialog` — nunca el `confirm()`
+       nativo, que este proyecto prohíbe. — #}
+    {% if appt.can_cancel %}
+      <form class="mt-2" hx-post="/titulatec/student/cita/cancelar"
+            hx-target="#tt-cita-panel" hx-swap="innerHTML"
+            hx-confirm="Cancelar tu cita|Vas a liberar tu lugar. Podrás agendar otro mientras queden espacios disponibles."
+            data-tt-confirm-ok="Sí, cancelar">
+        <button class="btn btn-sm tt-btn-ghost w-100" type="submit">
+          <i class="bi bi-x-circle me-1"></i>Cancelar mi cita</button>
+      </form>
+    {% endif %}
   </div>
 {% endif %}

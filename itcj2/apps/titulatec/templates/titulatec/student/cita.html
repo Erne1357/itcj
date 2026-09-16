@@ -18,8 +18,11 @@
      uno correcto. Lo consumen `test_survey_credit_route.py` y los E2E. #}
   <div id="tt-cita-process" data-tt-process="{{ process.folio if process else '' }}" hidden></div>
   <div class="p-3 p-lg-4">
-    <div id="tt-cita-card" class="tt-anim-in">
-      {% include "titulatec/partials/cita_card.html" %}
+    {# Host de las cuatro caras (§7). El panel entero es lo que devuelven los
+       dos POST del auto-agendado; `#tt-cita-card`, que vive DENTRO, sigue
+       siendo el destino de «Confirmar asistencia» y «Solicitar cambio». #}
+    <div id="tt-cita-panel" class="tt-anim-in">
+      {% include "titulatec/partials/student/_cita_panel.html" %}
     </div>
 
     {# — Requisitos de cotejo de SU convocatoria (los edita Servicios Escolares) — #}
