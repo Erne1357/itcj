@@ -674,7 +674,13 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         q = q or ""
         estado = estado or _legacy.get("status") or ""
 
-    vista = v if v in ("agenda", "atender", "espacios", "reparto") else "agenda"
+    # «reparto» estuvo aqui desde el rediseno de tres pestanas como 4.ª sub-vista
+    # candidata y nunca se termino: ninguna rama de `_shell_ctx` le arma `board`,
+    # asi que `?v=reparto` escrito a mano daba 500 (`'board' is undefined`).
+    # Ningun enlace lo genera y `assign_batch` —el reparto masivo— no tiene
+    # llamadores en produccion. Fuera de la lista cae al `else` como cualquier
+    # valor basura (`?v=foo` ya funcionaba asi).
+    vista = v if v in ("agenda", "atender", "espacios") else "agenda"
 
     # --- el dia abierto ------------------------------------------------------
     day = _parse_date(date_raw)
