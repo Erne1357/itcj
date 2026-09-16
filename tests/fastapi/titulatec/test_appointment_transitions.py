@@ -123,6 +123,39 @@ def test_el_error_de_transicion_refresca_la_vista():
     assert "asistió" in str(e)
 
 
+def test_el_conflicto_de_cita_activa_tambien_refresca_la_vista():
+    """El hermano que faltaba del de arriba.
+
+    `AppointmentConflict` es lo que produce un doble clic en «Agendar»: ahí la
+    pantalla SÍ está rancia —ya existe una cita que quien pulsa no está
+    viendo—, así que toca 200 con el cuerpo fresco y no un 4xx, que htmx no
+    swappearía y dejaría al usuario mirando un selector muerto.
+    """
+    assert err.AppointmentConflict().refresca_la_vista is True
+
+
+def test_los_estados_activos_son_UN_SOLO_objeto_en_los_dos_servicios():
+    """Censo estructural: `_ESTADOS_ACTIVOS` no puede volver a duplicarse.
+
+    Vivía copiado en `appointment_service` y en `slot_service`, atado solo por
+    comentarios cruzados que se pedían mutuamente no divergir, y los tres
+    consumidores se repartían entre las dos copias: `pages/appointments.py::move`
+    importaba la de `appointment_service` mientras
+    `SlotService._open_new_attempt` usaba la suya. Si divergían, una cita VIVA
+    se iba por `create` -> `AppointmentConflict` donde se quería una reagenda.
+
+    Se afirma la IDENTIDAD y no la igualdad a propósito: dos literales idénticos
+    pasarían un `==` y volverían a poder separarse mañana.
+    """
+    from itcj2.apps.titulatec.services import appointment_service as a_mod
+    from itcj2.apps.titulatec.services import slot_service as s_mod
+
+    assert a_mod._ESTADOS_ACTIVOS is s_mod._ESTADOS_ACTIVOS, (
+        "hay dos definiciones de `_ESTADOS_ACTIVOS` otra vez: impórtala de "
+        "`slot_service` en vez de copiar el literal")
+    assert a_mod._ESTADOS_ACTIVOS == {"scheduled", "confirmed", "in_progress"}
+
+
 # ---------------------------------------------------------------- integración
 def test_marcar_asistio_desde_no_show_se_rechaza(db_session, agenda_slots_survey):
     esc = agenda_slots_survey

@@ -65,12 +65,27 @@ _PROCESO_LOCK_NS = 0x7455  # "tU"
 # puede romper otra vez confundiéndolo con `is_current`.
 _ESTADOS_QUE_LIBERAN: set[str] = {"cancelled", "superseded"}
 
-# Estados "vivos" de una cita (D4). Si la vigente está en uno de estos cuando
-# `assign`/`assign_batch` abren un intento nuevo, SÍ hubo una transición real
-# (reagendar/mover) y la fila vieja pasa a 'superseded'. Fuera de este set
-# (no_show, attended) la fila vieja conserva su status: abrir un intento nuevo
-# tras esos NO es una transición de estado (spec 2026-09-15 §2.2).
-_ESTADOS_ACTIVOS: set[str] = {"scheduled", "confirmed", "in_progress"}
+# Estados "vivos" de una cita (D4). **DEFINICIÓN ÚNICA de la app.**
+#
+# Vivía duplicada aquí y en `appointment_service`, unidas solo por comentarios
+# cruzados que se pedían mutuamente no divergir — y los tres consumidores se
+# repartían entre las dos copias: `pages/appointments.py::move` y
+# `self_booking_service` importaban la de allá, mientras `_open_new_attempt`
+# usaba la de acá. Con las dos separadas, un estado añadido a una sola mandaba
+# una cita VIVA por `create` (-> `AppointmentConflict`) donde se quería una
+# reagenda. `appointment_service` la re-exporta IMPORTÁNDOLA, así que los dos
+# nombres apuntan al mismo objeto y ya no hay dónde divergir.
+#
+# Decide dos cosas complementarias, que son la misma regla vista de los dos
+# lados:
+#   · aquí, si la fila vieja pasa a 'superseded' al abrir un intento nuevo.
+#     Fuera del set (`no_show`, `attended`) conserva su status: abrir un
+#     intento nuevo tras esos NO es una transición (spec 2026-09-15 §2.2);
+#   · en `AppointmentService.create`, si se rechaza abrir otra cita (D4).
+#
+# `frozenset` y no `set`: es una constante que ahora comparten dos módulos, y
+# una mutación accidental en cualquiera de ellos se vería en el otro.
+_ESTADOS_ACTIVOS: frozenset[str] = frozenset({"scheduled", "confirmed", "in_progress"})
 
 
 class SlotService:

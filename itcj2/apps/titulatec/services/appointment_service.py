@@ -64,14 +64,16 @@ from sqlalchemy.orm import Session
 from itcj2.apps.titulatec.services.appointment_errors import (
     AppointmentConflict, InvalidTransition,
 )
-from itcj2.core.utils.timezone import db_now
-
 # Estados "vivos" de una cita (D4): mientras el proceso tenga una en uno de
-# estos, no se le puede abrir otra. Gemelo de `slot_service._ESTADOS_ACTIVOS`,
-# que decide lo complementario (si la fila vieja pasa a `superseded` o
-# conserva su status al abrir el intento nuevo). Son la misma regla vista
-# desde los dos lados; si algún día divergen, es un bug.
-_ESTADOS_ACTIVOS: frozenset[str] = frozenset({"scheduled", "confirmed", "in_progress"})
+# estos, no se le puede abrir otra. Se IMPORTA de `slot_service`, que es donde
+# vive la ÚNICA definición (el porqué, largo, está allí). Antes eran dos copias
+# atadas solo por comentarios cruzados, y los consumidores se repartían entre
+# ellas: `self_booking_service` y `pages/appointments.py::move` leían ÉSTA
+# mientras `_open_new_attempt` leía la otra. El nombre se conserva aquí a
+# propósito —esos dos lo importan de este módulo— pero ya es el mismo objeto,
+# así que no hay dónde divergir.
+from itcj2.apps.titulatec.services.slot_service import _ESTADOS_ACTIVOS
+from itcj2.core.utils.timezone import db_now
 
 # Estados desde los que `reschedule` puede mover al alumno a otra franja.
 # NO es la matriz: reagendar a un `no_show` no transiciona nada —su fila se
