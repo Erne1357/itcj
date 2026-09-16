@@ -1782,21 +1782,40 @@ button.tt-seat--libre { pointer-events: auto; }
    `min-width: 0` en todo hijo de flex/grid: sin el, un hijo con contenido
    indivisible impone su ancho minimo al padre y el que acaba scrolleando es el
    body. Es el fallo clasico de este contrato.
+
+   TAMANOS: solo tokens `--tt-fs-*`, nunca un literal. Y ojo con DONDE vive este
+   bloque: `test_citas_sistema_visual.py::_bloque_citas` recorta desde el marcador
+   "ADMIN - CITAS DE COTEJO" hasta el FINAL DEL ARCHIVO, asi que todo lo que se
+   anada al EOF -esto incluido- cae bajo las reglas de aquel bloque aunque sea de
+   otra pantalla. No es un accidente que convenga "arreglar" moviendo el bloque:
+   la escala y el piso de 12.64 px son de toda la app.
    =========================================================================== */
 
-.tt-cita-hint { font-size: .8rem; color: var(--tt-mute); margin: .25rem 0 .75rem; }
+.tt-cita-hint { font-size: var(--tt-fs-100); color: var(--tt-text-3); margin: .25rem 0 .75rem; }
 
 /* — Cara 4: la frase que dice POR QUE no puede agendar — */
 .tt-cita-why { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .tt-cita-why i { flex: 0 0 auto; margin-top: 2px; color: var(--tt-amber-ink); }
-.tt-cita-why p { font-size: .85rem; color: var(--tt-slate); min-width: 0; }
+.tt-cita-why p { font-size: var(--tt-fs-200); color: var(--tt-text-2); min-width: 0; }
 
-/* — Tira de dias — */
+/* — Tira de dias —
+   OJO CON EL NOMBRE: el chip se llama `.tt-daychip`, NO `.tt-day`.
+   `.tt-day` ya existe (`:1261-1279`) y es del carril de dias del ADMIN
+   (`partials/appointments/_appt_days.html`). Reusar ese nombre aqui repintaba
+   aquella pantalla: misma especificidad y mas abajo en el archivo, asi que
+   estas reglas ganaban EN TODAS PARTES -el contador del dia seleccionado se
+   iba a ~1.8:1, el anillo de foco pasaba de interior a exterior (y el carril
+   del admin, con `overflow-x:auto`, lo recortaba) y la etiqueta bajaba del
+   piso de 12.64 px de la escala-. Ningun test lo atrapa: la suite renderiza
+   markup, nunca CSS computado. Acotar bajo `.tt-daybar` tampoco bastaba: las
+   reglas BASE de `.tt-day` seguirian aplicando aqui (su `gap: 2px`, su
+   `flex: 0 0 132px`) y heredariamos por accidente el chip del admin.
+   Nombre propio = cero interaccion en las dos direcciones. */
 .tt-daybar {
   display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
   padding-bottom: 6px; margin-bottom: 4px; scroll-snap-type: x proximity;
 }
-.tt-day {
+.tt-daychip {
   flex: 0 0 auto; min-width: 0; scroll-snap-align: start;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   width: 60px; min-height: 66px; padding: 8px 6px; border-radius: var(--tt-r);
@@ -1804,15 +1823,20 @@ button.tt-seat--libre { pointer-events: auto; }
   color: var(--tt-ink); text-decoration: none; line-height: 1.1;
   transition: background .15s ease, border-color .15s ease, transform .14s var(--tt-ease-out);
 }
-.tt-day .dow { font-size: .65rem; text-transform: uppercase; color: var(--tt-mute); letter-spacing: .04em; }
-.tt-day .dom { font-family: var(--tt-display); font-size: 1.15rem; font-weight: 600; }
-.tt-day .mon { font-size: .65rem; color: var(--tt-mute); }
-.tt-day:active { transform: scale(.96); }
-.tt-day.is-active {
+/* `--tt-text-3` y no `--tt-mute`: la hoja lo prohibe para TEXTO en `:14-16`
+   (2.56:1 sobre papel, contra los 4.5 de WCAG). Mismo motivo en `.mon`,
+   `.tt-slotwin .meta`, `.tt-walkin .who` y `.tt-cita-hint`. */
+.tt-daychip .dow { font-size: var(--tt-fs-100); text-transform: uppercase; color: var(--tt-text-3); letter-spacing: .04em; }
+.tt-daychip .dom { font-family: var(--tt-display); font-size: var(--tt-fs-400); font-weight: 600; }
+.tt-daychip .mon { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-daychip:active { transform: scale(.96); }
+.tt-daychip.is-active {
   background: var(--tt-ink); border-color: var(--tt-ink); color: #fff;
 }
-.tt-day.is-active .dow, .tt-day.is-active .mon { color: rgba(255, 255, 255, .72); }
-.tt-day:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--tt-focus); }
+.tt-daychip.is-active .dow, .tt-daychip.is-active .mon { color: rgba(255, 255, 255, .78); }
+/* Anillo por DENTRO: `.tt-daybar` es `overflow-x: auto`, y ahi un `box-shadow`
+   exterior se recorta en el primer y el ultimo chip. Misma leccion que `:1277`. */
+.tt-daychip:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
 
 /* — Bloque de un encargado y sus espacios — */
 .tt-slotblock { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--tt-line-soft); }
@@ -1821,12 +1845,12 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-slotblock-head i { flex: 0 0 auto; color: var(--tt-slate); }
 .tt-slotblock-head .who {
   min-width: 0; overflow-wrap: anywhere;
-  font-size: .875rem; font-weight: 600; color: var(--tt-ink);
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
 }
 .tt-slotwin + .tt-slotwin { margin-top: 12px; }
 .tt-slotwin .meta {
   display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0;
-  font-size: .75rem; color: var(--tt-mute); margin-bottom: 8px;
+  font-size: var(--tt-fs-100); color: var(--tt-text-3); margin-bottom: 8px;
 }
 .tt-slotwin .meta i { margin-right: 3px; }
 
@@ -1836,14 +1860,14 @@ button.tt-seat--libre { pointer-events: auto; }
   min-width: 0; min-height: 44px;           /* objetivo tactil completo */
   padding: 8px 6px; border-radius: var(--tt-r);
   background: var(--tt-paper); border: 1px solid var(--tt-line); color: var(--tt-ink);
-  font-family: var(--tt-mono); font-size: .8125rem; font-weight: 600; cursor: pointer;
+  font-family: var(--tt-mono); font-size: var(--tt-fs-200); font-weight: 600; cursor: pointer;
   transition: background .15s ease, border-color .15s ease, transform .14s var(--tt-ease-out);
 }
 .tt-slot:active { transform: scale(.96); }
 .tt-slot:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--tt-focus); }
 @media (hover: hover) and (pointer: fine) {
-  .tt-day:hover  { background: var(--tt-line-soft); }
-  .tt-day.is-active:hover { background: var(--tt-ink); }
+  .tt-daychip:hover  { background: var(--tt-line-soft); }
+  .tt-daychip.is-active:hover { background: var(--tt-ink); }
   .tt-slot:hover { background: var(--tt-ink); border-color: var(--tt-ink); color: #fff; }
 }
 
@@ -1857,11 +1881,11 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-walkin .when {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; min-width: 0;
 }
-.tt-walkin .when .day { font-size: .875rem; font-weight: 600; color: var(--tt-ink); }
-.tt-walkin .when .hours { font-family: var(--tt-mono); font-size: .8125rem; color: var(--tt-slate); }
+.tt-walkin .when .day { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+.tt-walkin .when .hours { font-family: var(--tt-mono); font-size: var(--tt-fs-200); color: var(--tt-text-2); }
 .tt-walkin .who {
   min-width: 0; overflow-wrap: anywhere;
-  font-size: .75rem; color: var(--tt-mute); margin-top: 2px;
+  font-size: var(--tt-fs-100); color: var(--tt-text-3); margin-top: 2px;
 }
 .tt-walkin .who i { margin-right: 3px; }
 
@@ -1873,6 +1897,6 @@ button.tt-seat--libre { pointer-events: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tt-day, .tt-slot { transition: none; }
-  .tt-day:active, .tt-slot:active { transform: none; }
+  .tt-daychip, .tt-slot { transition: none; }
+  .tt-daychip:active, .tt-slot:active { transform: none; }
 }

@@ -116,7 +116,13 @@ class Settings(BaseSettings):
     #
     # Bump 2026-09-15 (3): `public.css` gana `.tt-public-bar-back`, el botón
     # «Volver a TitulaTec» de la barra de la encuesta.
-    STATIC_VERSION: str = "1.0.1111535"
+    #
+    # Bump 2026-09-15 (4): auto-agendado del egresado — `titulatec.css` gana el
+    # bloque de la pantalla de cita (`.tt-daybar`/`.tt-daychip`, rejilla de
+    # franjas, walk-in) y `js/student/errors.js` pasa a DECODIFICAR
+    # `X-Tt-Error`. Sin el bump, el alumno recibe el CSS viejo (las franjas
+    # salen sin rejilla) y los mensajes nuevos llegan percent-codificados.
+    STATIC_VERSION: str = "1.0.1111536"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

@@ -9,8 +9,14 @@
    tiene que coincidir igual o htmx no encuentra dónde poner la respuesta.)
 
    Una franja es un `<button type="submit" name="slot">` dentro de un
-   `<form method="post">`: **no se teclea una hora**. El `action`/`method` del
-   formulario son el camino sin JS; `hx-post` es el mismo destino sin recargar.
+   `<form method="post">`: **no se teclea una hora**.
+
+   Sobre el `action`/`method` y el `href` de los días: son el camino sin htmx.
+   El GET lo sirve entero —la ruta devuelve la PÁGINA completa cuando falta la
+   cabecera `HX-Request`, así que un día abierto sin JS (o pegado en la barra)
+   aterriza en una pantalla con shell, no en un fragmento pelado—. El POST sin
+   htmx sí responde el parcial desnudo: se conserva porque es mejor que un
+   botón muerto, pero no es una experiencia terminada.
    =========================================================================== #}
 <div id="tt-cita-agendar" class="tt-card mt-3 tt-anim-in">
   <span class="tt-kicker"><i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Agendar mi cita</span>
@@ -20,7 +26,7 @@
      misma: la página nunca se desborda en horizontal. — #}
   <nav class="tt-daybar" aria-label="Días con espacios disponibles">
     {% for d in agenda.dias %}
-    <a class="tt-day{% if d.iso == agenda.dia_sel %} is-active{% endif %}"
+    <a class="tt-daychip{% if d.iso == agenda.dia_sel %} is-active{% endif %}"
        href="/titulatec/student/cita?dia={{ d.iso }}"
        hx-get="/titulatec/student/cita?dia={{ d.iso }}"
        hx-target="#tt-cita-agendar" hx-swap="outerHTML"

@@ -96,12 +96,32 @@ def test_no_agenda_en_la_ventana_de_otra_carrera(
     w_ajena.visibility = "bookable"
     db_session.flush()
 
-    resp = client_as(escena["alumno"]).post(
-        AGENDAR, data={"window_id": str(w_ajena.id), "slot": "12:00"})
+    cli = client_as(escena["alumno"])
+
+    # 1) La ventana AJENA -mismo día, misma convocatoria, misma hora de
+    #    rejilla: lo ÚNICO que cambia es de quién es- da 404 limpio.
+    resp = cli.post(AGENDAR, data={"window_id": str(w_ajena.id), "slot": "12:00"})
 
     assert resp.status_code == 404, resp.text[:300]
     assert "X-Tt-Error" not in resp.headers, "el 404 no debe llevar oraculo"
     assert _citas(db_session, escena["p1"]) == [], "no debio crearse ninguna cita"
+
+    # 2) Y la PROPIA, por la misma ruta, sí agenda.
+    #
+    #    Esta mitad no es decorativa: sin ella el test pasa en verde aunque la
+    #    ruta NO EXISTA -un POST a una URL inexistente ya es 404 y la tabla ya
+    #    está vacía-, que es exactamente como salió en la corrida en rojo de
+    #    esta tarea. El discriminador tiene que vivir DENTRO del test y no en
+    #    un hermano que alguien pueda borrar o saltarse.
+    #
+    #    Va DESPUÉS a propósito: agendar primero dejaría una cita viva y el 404
+    #    de arriba se convertiría en el 200 de `tiene_cita`.
+    ok = cli.post(AGENDAR, data={"window_id": str(escena["w"].id), "slot": "09:30"})
+
+    assert ok.status_code == 200, _msg(ok) or ok.text[:300]
+    assert len(_citas(db_session, escena["p1"])) == 1, (
+        "la ruta tiene que existir y agendar de verdad; si esto falla, el 404 "
+        "de arriba no prueba nada")
 
 
 def test_no_agenda_en_un_espacio_privado(db_session, escena, client_as):
@@ -161,6 +181,12 @@ def test_agendar_una_franja_que_arranca_en_menos_de_una_hora(
 
     assert resp.status_code == 400
     assert "menos de 1 hora" in _msg(resp), _msg(resp)
+    # El header viaja latin-1 y el cliente lo lee UTF-8, así que el servidor lo
+    # percent-codifica. Esta línea es la ÚNICA que lo fija: las subcadenas de
+    # arriba están escritas sin acentos y sobreviven intactas al mojibake, así
+    # que si alguien quita `_hdr` seguirían en verde mientras el alumno ve
+    # basura en el toast.
+    assert resp.headers["X-Tt-Error"].isascii(), resp.headers["X-Tt-Error"]
     assert _citas(db_session, escena["p1"]) == []
 
 
@@ -290,11 +316,51 @@ def test_el_dia_elegido_devuelve_el_parcial_no_la_pagina(db_session, escena, cli
     """`GET /student/cita?dia=` es la MISMA ruta con querystring: devuelve el
     parcial del día, no el documento entero."""
     resp = client_as(escena["alumno"]).get(
-        CITA + "?dia=" + _DIA.isoformat(), follow_redirects=False)
+        CITA + "?dia=" + _DIA.isoformat(), follow_redirects=False,
+        headers={"HX-Request": "true"})
 
     assert resp.status_code == 200
     assert "<html" not in resp.text.lower()
     assert 'value="09:30"' in resp.text
+
+
+def test_el_mismo_dia_sin_htmx_devuelve_la_pagina_entera(db_session, escena, client_as):
+    """El enlace del día abierto SIN htmx es una navegación de página.
+
+    Devolverle el fragmento pelado —sin shell, sin estilos, sin navegación— es
+    peor que no contestar, y además convertía en mentira el comentario que
+    llama a `href`/`method` «el camino sin JS».
+    """
+    resp = client_as(escena["alumno"]).get(
+        CITA + "?dia=" + _DIA.isoformat(), follow_redirects=False)
+
+    assert resp.status_code == 200
+    assert "<html" in resp.text.lower(), "sin htmx toca la pagina completa"
+    assert 'value="09:30"' in resp.text, "y con el dia elegido ya pintado"
+
+
+def test_el_dia_no_ofrece_franjas_a_quien_ya_no_puede_agendar(
+        db_session, escena, client_as, make_appointment):
+    """El parcial del día respeta la elegibilidad, igual que el panel.
+
+    Sin esto, quien dejó la pestaña abierta y ya agendó (o perdió el derecho)
+    recibía una rejilla de franjas VIVAS y ninguna explicación: el «botón mudo»
+    que §7 existe para prohibir. El POST lo revalida, así que no era un
+    agujero de seguridad — era una mentira en pantalla.
+    """
+    make_appointment(escena["p1"])            # -> reason `tiene_cita`
+
+    resp = client_as(escena["alumno"]).get(
+        CITA + "?dia=" + _DIA.isoformat(), follow_redirects=False,
+        headers={"HX-Request": "true"})
+
+    assert resp.status_code == 200
+    assert 'name="slot"' not in resp.text, "no puede agendar: no hay franjas que pulsar"
+    # El destino original era solo el selector, así que el panel entero tiene
+    # que redirigir el swap; si no, entraría DENTRO del selector y el documento
+    # acabaría con dos `#tt-cita-card`.
+    assert resp.headers.get("HX-Retarget") == "#tt-cita-panel"
+    assert resp.headers.get("HX-Reswap") == "innerHTML"
 
 
 def test_el_walkin_se_anuncia_con_su_horario_y_su_encargado(db_session, escena,

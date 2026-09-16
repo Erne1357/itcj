@@ -18,7 +18,9 @@
      2. Su PROPIO escucha de `htmx:responseError` y `htmx:sendError`. htmx no
         swappea en 4xx y el escucha es por base: sin el, el boton queda mudo. Va
         como modulo externo `js/shared/tt-errors.js` (CSS/JS inline prohibido) y
-        DECODIFICA `X-Tt-Error`, a diferencia de `student/errors.js`.
+        DECODIFICA `X-Tt-Error` (igual que `student/errors.js` desde el
+        auto-agendado del 2026-09-15: sus mensajes llevan acentos, asi que el
+        servidor los percent-codifica y el cliente los decodifica).
      3. Ancla estable `<main data-tt-page="...">` para los E2E, mismo contrato
         que `base_student.html:80`.
      4. Un hueco a la derecha de la barra (`public_bar_actions`), VACIO por

@@ -168,6 +168,9 @@ _EVENT_LABELS = {
     # cita» sería mentira cuando quien canceló fue Servicios Escolares. Sin
     # esta fila la línea de tiempo del alumno enseñaba el código crudo.
     "appointment_cancelled":       "Cita cancelada",
+    # Mismo defecto que el de arriba, en el mismo dict: lo escribe
+    # `AppointmentService.undo_no_show` y salía en crudo.
+    "appointment_undo_no_show":    "Se corrigió tu asistencia",
     "process_completed":           "Proceso completado",
     # Solicitud de liberación de GTV para la encuesta de egresados (D3, spec
     # 2026-09-15-titulatec-liberacion-gtv §6.1). Mismos `event_type` que
@@ -1184,12 +1187,17 @@ async def cita(
         process = ProcessService.creditable_process(db, user_id)
         if process is None:
             return RedirectResponse(_DASHBOARD_URL, status_code=302)
-        # Con `?dia=` la respuesta es un PARCIAL, así que la guarda cambia de
-        # canal: 400 + `X-Tt-Error` en lugar del 302 de las páginas. htmx sigue
-        # los redirects de forma transparente y metería el dashboard entero
-        # dentro del selector de franjas.
+        # Lo que decide parcial-contra-página es `HX-Request`, NO la mera
+        # presencia de `?dia=`: ese mismo enlace abierto sin htmx —sin JS, o
+        # pegado en la barra de direcciones— es una navegación de PÁGINA, y
+        # contestarle un fragmento pelado (sin shell, sin estilos) es peor que
+        # no contestar.
+        es_htmx = request.headers.get("HX-Request") == "true"
+        # Mismo criterio para el canal de la guarda de fase: 302 en páginas,
+        # 400 + `X-Tt-Error` en parciales. htmx sigue los redirects de forma
+        # transparente y metería el dashboard entero dentro del selector.
         n = _phase_of(db, "review_appointment")
-        fuera_de_fase = (_phase_guard(db, process, n) if dia
+        fuera_de_fase = (_phase_guard(db, process, n) if es_htmx
                          else _phase_guard_page(db, process, n))
         if fuera_de_fase:
             return fuera_de_fase
@@ -1197,12 +1205,30 @@ async def cita(
         ctx["checklist"] = _checklist_ctx(db, process)
     finally:
         db.close()
+
     # `?dia=` es la MISMA ruta con querystring —no suma al censo de rutas del
-    # alumno— y devuelve solo el selector del día elegido, que es justo lo que
-    # se swappea (`#tt-cita-agendar`, `outerHTML`).
-    if dia:
-        return render_titulatec(
-            request, "titulatec/partials/student/_cita_agendar.html", ctx)
+    # alumno— y con htmx devuelve solo el selector del día elegido, que es
+    # justo lo que se swappea (`#tt-cita-agendar`, `outerHTML`).
+    if dia and es_htmx:
+        agenda = ctx["agenda"]
+        # La rejilla SOLO si de verdad puede agendar. Sin esta condición, quien
+        # dejó la pestaña abierta y ya agendó (o perdió el derecho) recibía
+        # franjas vivas y ninguna explicación: exactamente el «botón mudo» que
+        # §7 existe para prohibir. El POST lo revalida, así que no era un
+        # agujero — era una mentira en pantalla, que es lo que esta vista no
+        # puede permitirse.
+        if agenda["can_book"] and agenda["dias"]:
+            return render_titulatec(
+                request, "titulatec/partials/student/_cita_agendar.html", ctx)
+        # Ya no aplica: se refresca el PANEL entero (tarjeta + la frase que
+        # dice por qué). El destino original era solo el selector, así que se
+        # redirige el swap; sin esto, el panel entraría DENTRO del selector y
+        # habría dos `#tt-cita-card` en el documento.
+        resp = render_titulatec(
+            request, "titulatec/partials/student/_cita_panel.html", ctx)
+        resp.headers["HX-Retarget"] = "#tt-cita-panel"
+        resp.headers["HX-Reswap"] = "innerHTML"
+        return resp
     return render_titulatec(request, "titulatec/student/cita.html", ctx)
 
 
