@@ -521,6 +521,7 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
     """Mis espacios de un dia, mas el editor si hay uno abierto."""
     from itcj2.apps.titulatec.models import ReviewWindow
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
+    from itcj2.apps.titulatec.services.review_window_service import ReviewWindowService
     from itcj2.apps.titulatec.services.slot_service import SlotService
 
     from itcj2.apps.titulatec.services.scope_service import _program_ids_for_user
@@ -580,14 +581,34 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
                   "pausada": False}
     elif editando:
         w = db.get(ReviewWindow, editando)
-        if w is not None and w.review_day_id == fila_dia.id:
+        # PROPIEDAD, no solo el dia. Sin esta mitad,
+        # `?v=espacios&date=...&w=<id ajeno>` renderizaba el editor de OTRO
+        # encargado: horario, cupo, lugar y hasta la VISIBILIDAD, con los radios
+        # premarcados — bastante mas de lo que la lista «de otros encargados»
+        # ensena a proposito (solo horario y conteos, sin nombre, ver `ajenos`
+        # arriba y `_appt_spaces.html`). Guardar ya daba 404
+        # (`_espacio_en_alcance`), asi que el unico efecto neto era la fuga: htmx
+        # no swappea en 4xx, y el encargado se llevaba un toast generico DESPUES
+        # de haber leido datos que no le tocaban.
+        #
+        # Es el MISMO predicado de los caminos de escritura
+        # (`ReviewWindowService.puede_editar`, que ya contempla el `manage.all`
+        # de la jefatura), no una copia: con dos criterios, lo que se pinta y lo
+        # que se deja guardar acabarian discrepando.
+        #
+        # Sin editor la vista cae a la lista de espacios del dia, que es
+        # exactamente lo que ve quien no pasa ningun `w`. NO se levanta 404
+        # aqui: esto es el render de la pagina entera, y tumbarla por un
+        # parametro de mas seria peor que ignorarlo.
+        if (w is not None and w.review_day_id == fila_dia.id
+                and ReviewWindowService.puede_editar(
+                    w, user_id, manage_all=_puede_todo(db, user_id))):
             editor_w = w
             editor = {"id": w.id, "start": w.start_time.strftime("%H:%M"),
                       "end": w.end_time.strftime("%H:%M"),
                       "slot_minutes": w.slot_minutes, "capacity": w.capacity,
                       "location": w.location or "", "pausada": w.status == "paused",
-                      "visibility": w.visibility,
-                      "propio": w.owner_user_id == user_id}
+                      "visibility": w.visibility}
     if editor is not None:
         n = len(SlotService.slots_from(editor["start"], editor["end"],
                                        editor["slot_minutes"]))

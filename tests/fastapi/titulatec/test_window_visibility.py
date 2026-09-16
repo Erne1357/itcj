@@ -68,6 +68,9 @@ def test_un_valor_fuera_del_dominio_levanta_integrity_error(db_session, dia_y_en
 # ventana, que es el par que hace falta para probar la guarda.
 
 _ESPACIO_PERM = "titulatec.review_window.api.manage"
+# El de la jefatura: `puede_editar(..., manage_all=True)` abre los espacios de
+# CUALQUIERA. Es la excepcion que distingue «no eres el dueno» de «no puedes».
+_ESPACIO_PERM_ALL = "titulatec.review_window.api.manage.all"
 
 
 def _form(**kw):
@@ -315,3 +318,77 @@ def test_la_lista_repite_el_aviso_si_ya_hay_un_espacio_agendable(
         "/titulatec/admin/appointments?v=espacios&date=" + _D.isoformat()).text
 
     assert "ningún egresado los verá" in html
+
+
+# ---------------------------------------------------------------------------
+# El editor NO se renderiza para una ventana AJENA
+# ---------------------------------------------------------------------------
+# El camino de ESCRITURA ya comprobaba la propiedad (`_espacio_en_alcance`, el
+# 404 de mas arriba). El de LECTURA comprobaba solo el DIA, asi que el encargado
+# A abria `?v=espacios&date=...&w=<id de B>` y se llevaba horario, cupo, LUGAR y
+# VISIBILIDAD de B con los radios premarcados — bastante mas de lo que la lista
+# «de otros encargados» ensena a proposito (solo horario y conteos, sin nombre y
+# sin lugar). Guardar daba 404, pero htmx NO swappea en 4xx: el toast generico
+# le llegaba DESPUES de haber leido lo que no le tocaba.
+
+def test_el_editor_no_se_abre_para_la_ventana_de_otro_encargado(
+        editor, client_as, make_officer):
+    """La negativa viaja con su positiva EN EL MISMO test.
+
+    Si el `w=` estuviera mal formado, o el dia no existiera, el editor tampoco
+    saldria y esto pasaria en verde sin haber medido la propiedad. La mitad del
+    dueno es la que prueba que esa MISMA url si abre un editor.
+    """
+    from tests.fastapi.titulatec.conftest import OFFICER_PERMS
+
+    esc = editor
+    url = ("/titulatec/admin/appointments?v=espacios&date=%s&w=%d"
+           % (_D.isoformat(), esc["w"].id))
+    ajeno, _ = make_officer([esc["prog"]], perm_codes=OFFICER_PERMS + (_ESPACIO_PERM,),
+                            first_name="MIRON", last_name="ENCARGADO")
+
+    resp = client_as(ajeno).get(url)
+    html = resp.text
+
+    # La pagina sigue viva: lo que desaparece es el editor, no la vista del dia.
+    assert resp.status_code == 200, html[:300]
+    assert 'name="visibility"' not in html, (
+        "se renderizo el editor de un espacio AJENO: filtra su modo de "
+        "visibilidad, y ademas con el radio premarcado")
+    assert "Edificio A" not in html, (
+        "se filtro el LUGAR de la ventana ajena, que la lista de espacios de "
+        "otros encargados omite a proposito")
+    assert "franjas libres" not in html, (
+        "se filtro la ocupacion real del espacio ajeno")
+
+    # Positiva, en el mismo test: el DUENO si abre su editor por esa url.
+    propio = client_as(esc["off"]).get(url).text
+    assert 'name="visibility"' in propio, "el dueno dejo de poder editar lo suyo"
+    assert "Edificio A" in propio
+
+
+def test_la_jefatura_SI_abre_el_editor_de_una_ventana_ajena(
+        editor, client_as, make_officer):
+    """`manage.all` es exactamente la excepcion que `puede_editar` contempla.
+
+    Sin esta prueba, cerrar la fuga de arriba con un `owner_user_id == user_id`
+    pelado saldria igual de verde y le quitaria a la jefatura una facultad que
+    el camino de ESCRITURA si le reconoce — o sea, dejaria los dos caminos
+    discrepando, que es el defecto de origen al reves.
+    """
+    from tests.fastapi.titulatec.conftest import OFFICER_PERMS
+
+    esc = editor
+    jefa, _ = make_officer(
+        [esc["prog"]],
+        perm_codes=OFFICER_PERMS + (_ESPACIO_PERM, _ESPACIO_PERM_ALL),
+        first_name="JEFA", last_name="DEESPACIOS")
+
+    html = client_as(jefa).get(
+        "/titulatec/admin/appointments?v=espacios&date=%s&w=%d"
+        % (_D.isoformat(), esc["w"].id)).text
+
+    assert 'name="visibility"' in html, (
+        "la jefatura con `manage.all` tiene que poder abrir el editor de "
+        "cualquiera: es lo que ya le permite el camino de escritura")
+    assert "Edificio A" in html
