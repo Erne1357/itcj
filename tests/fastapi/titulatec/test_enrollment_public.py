@@ -203,8 +203,82 @@ def test_control_invalido_devuelve_200_con_el_formulario_y_error_inline(
     assert 'id="tt-enroll-form"' in resp.text
     assert "número de control" in resp.text
     assert 'aria-invalid="true"' in resp.text
-    assert 'value="abc"' in resp.text              # el servidor conserva lo capturado
+    # Se conserva lo capturado, normalizado a MAYÚSCULA (se normaliza ANTES de
+    # validar, así que hasta un valor inválido se echa de vuelta en mayúscula).
+    assert 'value="ABC"' in resp.text
+    assert _count(db_session, "ABC") == 0
     assert _count(db_session, "abc") == 0
+
+
+@pytest.mark.parametrize("control", ["99885910", "B21221523"])
+def test_control_valido_ocho_digitos_o_letra_mas_ocho_queda_en_revision(
+    client, db_session, make_cohort, sin_correo, control,
+):
+    """Formato vigente (2026-09-17): 8 dígitos, o una letra + 8 dígitos para
+    quien viene de traslado. Los dos deben aceptarse igual.
+
+    `99885910` (no `21111182`, el ejemplo del mensaje al visitante) a
+    propósito: `99xxxxxx` es la convención sintética del harness (ver
+    `test_import_scale.py`), y `21111182` con forma de matrícula real
+    colisionó contra un `EnrollmentRequest` ya sembrado en la BD de dev
+    compartida (`NoResultFound` al buscarlo de vuelta)."""
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.post(ENROLL_URL, data=_form(control_number=control),
+                       headers={"X-Real-IP": "203.0.113.94"}, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert TITULO_TARJETA in resp.text
+    fila = db_session.query(EnrollmentRequest).filter_by(control_number=control).one()
+    assert fila.status == "pending_review"
+
+
+def test_control_con_letra_minuscula_se_guarda_en_mayuscula(
+    client, db_session, make_cohort, sin_correo,
+):
+    """`b21221523` se normaliza a `B21221523` ANTES de guardar: el lookup de
+    `EnrollmentRequestService` es un filter_by exacto, y una letra en
+    minúscula abriría una segunda solicitud para la misma persona."""
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.post(ENROLL_URL, data=_form(control_number="b21221523"),
+                       headers={"X-Real-IP": "203.0.113.95"}, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert TITULO_TARJETA in resp.text
+    assert _count(db_session, "b21221523") == 0
+    fila = db_session.query(EnrollmentRequest).filter_by(control_number="B21221523").one()
+    assert fila.status == "pending_review"
+
+
+@pytest.mark.parametrize("bad", ["L1234567", "123456789", "M123456789"])
+def test_formatos_viejos_de_control_ya_no_son_validos(
+    client, db_session, make_cohort, bad,
+):
+    """El formato viejo (letra + 7 o 9 dígitos, o 9 dígitos puros de posgrado)
+    se retiró el 2026-09-17: el visitante ve el mensaje nuevo y nada se guarda."""
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.post(ENROLL_URL, data=_form(control_number=bad),
+                       headers={"X-Real-IP": "203.0.113.96"}, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'id="tt-enroll-form"' in resp.text
+    assert 'aria-invalid="true"' in resp.text
+    assert ("Tu número de control son 8 dígitos, o una letra y 8 dígitos si "
+           "vienes de traslado") in resp.text
+    assert _count(db_session, bad) == 0
+    assert _count(db_session, bad.upper()) == 0
 
 
 def test_correo_invalido_devuelve_200_con_el_formulario_y_error_inline(

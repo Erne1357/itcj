@@ -116,7 +116,7 @@ El mapeo se persiste **solo al confirmar** y es **global**, no por convocatoria
 | Condición | Severidad |
 |---|---|
 | sin número de control | `error` |
-| control que no cumple `^(\d{8}\|[A-Za-z]\d{7,9})$` (`CONTROL_NUMBER_RE:45`) | `error` |
+| control que no cumple `^[A-Za-z]?\d{8}$` (`CONTROL_NUMBER_RE`; revisado 2026-09-17 — 8 dígitos, o una letra + 8 dígitos para traslado, ej. `B21221523`; el formato viejo de posgrado, letra + 7 a 9 dígitos, se retiró) | `error` |
 | sin nombre | `error` |
 | correo que no termina en `@cdjuarez.tecnm.mx` | `warning` |
 | sin correo | `warning` |
@@ -132,7 +132,12 @@ ocultos salen de `_preview_ctx` (`admin.py:419-436`).
 
 Por cada fila incluida (`ImportService.import_rows`, `import_service.py:455-663`):
 
-- `core_users`: merge por `control_number`. Si existe, solo rellena `email` cuando estaba vacío.
+- **Normalización del control (2026-09-17):** la letra se sube a MAYÚSCULA (y se recorta el espacio)
+  en `build_preview` — antes de validar y de mostrarla en el preview — y otra vez en `import_rows`
+  justo antes del merge. El lookup es `filter_by(control_number=...)` exacto: sin esto, `b21221523` y
+  `B21221523` serían dos altas distintas para la misma persona. `base` (la línea de comparación de
+  `overrides`) conserva el valor crudo del CSV, sin normalizar.
+- `core_users`: merge por `control_number` (ya normalizado). Si existe, solo rellena `email` cuando estaba vacío.
   Si no existe, crea `User(username=control, control_number=control, first_name/last_name` por split
   del último token`, role_id=graduate, is_active=True, must_change_password=True)`.
 - **Credencial inicial**: `set_initial_credential()` (`import_service.py:35-49`) le pone

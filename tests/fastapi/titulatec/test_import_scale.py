@@ -254,6 +254,56 @@ def test_revalidate_permite_remapear_una_convocatoria_de_400_filas(
 
 
 # ---------------------------------------------------------------------------
+# Formato del número de control (2026-09-17): normaliza y rechaza el viejo
+# ---------------------------------------------------------------------------
+def _csv_una_fila(control, *, nombre="ALUMNA TRASLADO"):
+    return ("\n".join([
+        ",".join(CSV_HEADERS),
+        ",".join([control, nombre, "tt.import.control@example.invalid",
+                  PROGRAM_NAME, MODALITY_NAME]),
+    ]) + "\n").encode("utf-8")
+
+
+def test_commit_normaliza_la_letra_del_control_a_mayuscula(
+    client_as, db_session, import_ctx,
+):
+    """`b99200500` (traslado, minúscula) se guarda como `B99200500`: el merge
+    de `import_rows` es un filter_by exacto y una letra distinta duplicaría
+    la cuenta en vez de encontrarla."""
+    from itcj2.core.models.user import User
+
+    cohort = import_ctx["cohort"]
+    client = client_as(import_ctx["head"])
+
+    resp = _upload(client, cohort.id, _csv_una_fila("b99200500"))
+    assert resp.status_code == 200
+    payload = serialize_form(resp.text)
+
+    resp = post_form(
+        client, "/titulatec/admin/cohorts/{}/import/commit".format(cohort.id), payload,
+    )
+    assert resp.status_code == 200, resp.text[:400]
+
+    assert db_session.query(User).filter_by(control_number="B99200500").count() == 1
+    assert db_session.query(User).filter_by(control_number="b99200500").count() == 0
+
+
+def test_preview_marca_como_invalido_el_formato_viejo_de_control(
+    client_as, import_ctx,
+):
+    """Letra + 7 dígitos (formato viejo, retirado el 2026-09-17) ya no es un
+    número de control válido: la fila se detecta pero queda marcada `error`."""
+    cohort = import_ctx["cohort"]
+    client = client_as(import_ctx["head"])
+
+    resp = _upload(client, cohort.id, _csv_una_fila("M9920060"))
+
+    assert resp.status_code == 200
+    assert total_detectado(resp.text) == 1, "la fila debe detectarse, solo marcarse invalida"
+    assert "Número de control inválido" in resp.text
+
+
+# ---------------------------------------------------------------------------
 # Contrato del payload nuevo: excluded + overrides
 # ---------------------------------------------------------------------------
 def test_commit_respeta_excluded_y_overrides(client_as, db_session, import_ctx):

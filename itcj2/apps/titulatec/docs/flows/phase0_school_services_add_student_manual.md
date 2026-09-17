@@ -66,6 +66,14 @@ sequenceDiagram
 | 5 | 🏛️ | tab *Alumnos* | ver el resultado | mismo POST | `_students_ctx()` (`admin.py:97-121`) | — | — |
 | 6 | 🏛️ | ✕ | cancelar | `GET /titulatec/admin/cohorts/{id}/students/cancel` (`admin.py:207-211`) | — | — | — |
 
+### Normalización del control (2026-09-17)
+
+Tanto el `lookup` (paso 1-2) como el `POST` de alta (paso 3) suben la letra a MAYÚSCULA (y recortan
+el espacio) **antes** de buscar o de llamar a `_add_student`/`import_rows`. Los dos `filter_by
+(control_number=...)` de este flujo son exactos: sin la normalización, teclear `b21221523` no
+encontraría a un alumno ya dado de alta como `B21221523`, y el alta lo duplicaría en vez de
+adjuntarlo a la convocatoria.
+
 ## Estado resultante
 
 - `titulatec_processes` ← 1 proceso `active`, `current_phase = 1`, `is_app_active = true`.
@@ -89,8 +97,9 @@ sequenceDiagram
 - **Falta convocatoria o falta control** → `400` + `X-Tt-Error: "Falta el número de control."` (`admin.py:226-227`).
 - **Falta nombre y el alumno es nuevo** → `400` + `X-Tt-Error: "Falta el nombre del alumno."` (`admin.py:230-231`).
   Ambos los recoge el handler global de `htmx:responseError` en `admin/base_admin.html:61-66` → toast rojo.
-- **Control con formato inválido** (no cumple `CONTROL_NUMBER_RE = ^(\d{8}|[A-Za-z]\d{7,9})$`,
-  `import_service.py:45,271-273`) → `import_rows` lo cuenta como `skipped` y **no crea nada**, pero
+- **Control con formato inválido** (no cumple `CONTROL_NUMBER_RE = ^[A-Za-z]?\d{8}$` — revisado
+  2026-09-17: 8 dígitos, o una letra + 8 dígitos para traslado; el formato viejo de posgrado, letra +
+  7 a 9 dígitos, se retiró) → `import_rows` lo cuenta como `skipped` y **no crea nada**, pero
   `_add_student` descarta el summary y el endpoint responde `200` con la tabla igual que estaba:
   el alta falla **en silencio**, sin toast. Mismo desenlace si el alumno ya tenía proceso en esa
   convocatoria (`import_service.py:298-299`): re-render idempotente, sin aviso.

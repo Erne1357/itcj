@@ -131,10 +131,16 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-# Formato de número de control. Copia deliberada del regex de
+# Formato de número de control: 8 dígitos, o una letra + 8 dígitos para quien
+# viene de traslado (ej. B21221523). Copia deliberada del regex de
 # itcj2/core/api/users_admin.py:23 — importarlo en top-level desde un módulo de
-# core/api crea ciclo de imports (gotcha #2 del CLAUDE.md). Mantener en sync.
-CONTROL_NUMBER_RE = re.compile(r"^(\d{8}|[A-Za-z]\d{7,9})$")
+# core/api crea ciclo de imports (gotcha #2 del CLAUDE.md). Mantener en sync
+# (`.pattern` idéntico; test_path_traversal_regression.py lo exige, y
+# enrollment_request_service.py importa ESTE objeto, no una copia propia). La
+# letra se normaliza a MAYÚSCULA en cada punto de entrada (import_rows,
+# build_preview, alta manual de pages/admin.py) antes de validar/buscar: los
+# lookups son filter_by(control_number=...) exactos.
+CONTROL_NUMBER_RE = re.compile(r"^[A-Za-z]?\d{8}$")
 
 
 def _imports_dir() -> Path:
@@ -392,6 +398,13 @@ class ImportService:
                 if "modality_id" in patch:
                     modality = modalities_by_id.get(patch["modality_id"])
 
+            # MAYÚSCULA antes de validar/mostrar/importar, venga del CSV o de
+            # un override del admin. `base` (abajo) NO se toca: sigue siendo
+            # el valor crudo del CSV, que es la línea de comparación para
+            # volver a derivar `overrides` en el próximo POST (docstring de
+            # build_preview).
+            control = control.strip().upper()
+
             issues = []
             if not control:
                 issues.append(("error", "Sin número de control"))
@@ -548,7 +561,12 @@ class ImportService:
         touched: set[tuple[int, str]] = set()
 
         for r in rows:
-            control = (r.get("control_number") or "").strip()
+            # MAYÚSCULA antes del merge: el punto de entrada real de la
+            # importación (CSV y alta manual pasan los dos por aquí). Sin
+            # esto, "b21221523" y "B21221523" son DOS filter_by distintos y
+            # el segundo alta crea una cuenta duplicada en vez de encontrar
+            # la primera.
+            control = (r.get("control_number") or "").strip().upper()
             full_name = (r.get("full_name") or "").strip()
             if not control or not full_name:
                 skipped += 1

@@ -1452,6 +1452,11 @@ async def enroll_submit(request: Request):
         "control_number", "first_name", "last_name", "middle_name",
         "program_id", "program_text", "phone", "contact_email",
         "contact_email_confirm")}
+    # MAYÚSCULA antes de validar y de buscar/guardar: EnrollmentRequestService
+    # solo hace `.strip()` sobre lo que le llega, y su lookup por control es
+    # exacto. Normalizar aquí, en la ruta, es lo único que evita que "b..." y
+    # "B..." abran dos solicitudes para la misma persona.
+    values["control_number"] = values["control_number"].upper()
     values["has_efirma"] = "1" if (form.get("has_efirma") or "") == "1" else "0"
 
     db = SessionLocal()
@@ -1482,8 +1487,9 @@ async def enroll_submit(request: Request):
         errors: dict[str, str] = {}
         control = values["control_number"]
         if not CONTROL_NUMBER_RE.fullmatch(control):
-            errors["control_number"] = ("Escribe tu número de control tal como "
-                                        "aparece en tu credencial.")
+            errors["control_number"] = ("Tu número de control son 8 dígitos, o una "
+                                        "letra y 8 dígitos si vienes de traslado "
+                                        "(ej. 21111182 o B21221523).")
         email = normalize_email(values["contact_email"])
         if not is_valid_email(email):
             errors["contact_email"] = "Escribe un correo personal válido."
@@ -1755,7 +1761,11 @@ async def enroll_resend(request: Request):
     if not ok:
         return _enroll_wait_card(request, retry)
 
-    control = (form.get("control_number") or "").strip()
+    # MAYÚSCULA antes de buscar: `EnrollmentRequestService.resend` solo hace
+    # `.strip()`, y compara contra `EnrollmentRequest.control_number`, que
+    # `enroll_submit` ya guarda normalizado. Sin esto, reenviar con la letra
+    # en minúscula no encontraría la solicitud aprobada.
+    control = (form.get("control_number") or "").strip().upper()
     email = (form.get("contact_email") or "").strip()
 
     db = SessionLocal()

@@ -151,7 +151,7 @@ test.describe('ventana abierta', () => {
   test('un envío rechazado renderiza texto VISIBLE, no un 400 mudo', async ({ page }) => {
     await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
 
-    // Control fuera de CONTROL_NUMBER_RE = ^(\d{8}|[A-Za-z]\d{7,9})$
+    // Control fuera de CONTROL_NUMBER_RE = ^[A-Za-z]?\d{8}$
     await llenarFormulario(page, { control_number: '123' });
 
     const post = esperarPost(page);

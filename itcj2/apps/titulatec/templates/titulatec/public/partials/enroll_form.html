@@ -22,9 +22,11 @@
 
   <label class="tt-kicker" for="tt-control">Número de control</label>
   <input class="tt-field" id="tt-control" name="control_number" required
-         inputmode="numeric" maxlength="20"
+         autocapitalize="characters" maxlength="9" pattern="[A-Za-z]?[0-9]{8}"
          value="{{ values.control_number|default('') }}"
-         {% if errors.control_number %}aria-invalid="true" aria-describedby="tt-control-err"{% endif %}>
+         aria-describedby="tt-control-hint{% if errors.control_number %} tt-control-err{% endif %}"
+         {% if errors.control_number %}aria-invalid="true"{% endif %}>
+  <p class="tt-hint" id="tt-control-hint">8 dígitos, o letra + 8 si vienes de traslado</p>
   {% if errors.control_number %}
   <p class="tt-field-error" id="tt-control-err" data-tt-error="control_number">{{ errors.control_number }}</p>
   {% endif %}

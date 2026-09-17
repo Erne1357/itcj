@@ -233,12 +233,15 @@ async def student_lookup(cohort_id: int, request: Request, control: str = "",
                          user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
     from itcj2.database import SessionLocal
     from itcj2.core.models.user import User
+    # MAYÚSCULA antes de buscar: el lookup es un filter_by exacto y una letra
+    # en minúscula no encontraría a un alumno ya dado de alta con "B...".
+    control = control.strip().upper()
     db = SessionLocal()
     try:
-        found = db.query(User).filter_by(control_number=control.strip()).first() if control.strip() else None
-        ctx = {"cohort_id": cohort_id, "control": control.strip(),
+        found = db.query(User).filter_by(control_number=control).first() if control else None
+        ctx = {"cohort_id": cohort_id, "control": control,
                "found": ({"name": found.full_name} if found else None),
-               "searched": bool(control.strip()),
+               "searched": bool(control),
                "programs": _programs(db), "modalities": _modalities(db)}
     finally:
         db.close()
@@ -260,7 +263,10 @@ async def student_add(cohort_id: int, request: Request,
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.core.models.user import User
     form = dict(await request.form())
-    control = (form.get("control_number") or "").strip()
+    # MAYÚSCULA antes de buscar/crear: `_add_student` -> `ImportService.
+    # import_rows` hace el merge con un filter_by exacto, y una letra en
+    # minúscula duplicaría la cuenta en vez de encontrar/adjuntar la existente.
+    control = (form.get("control_number") or "").strip().upper()
     db = SessionLocal()
     try:
         cohort = db.get(Cohort, cohort_id)

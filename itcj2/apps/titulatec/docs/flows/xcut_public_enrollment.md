@@ -238,6 +238,15 @@ Lo fija `tests/fastapi/titulatec/test_enrollment_identity_chain.py`.
 número de control fuera de `CONTROL_NUMBER_RE`, correo inválido, **«Los dos correos no coinciden.»**
 (se compara sin distinguir mayúsculas ni espacios), nombre, apellido paterno, teléfono, carrera.
 
+**Número de control (2026-09-17):** `CONTROL_NUMBER_RE = ^[A-Za-z]?\d{8}$` — 8 dígitos, o una letra
++ 8 dígitos si viene de traslado (`B21221523`). Se retiró el formato viejo «letra + 7 a 9 dígitos».
+El mensaje del campo es «Tu número de control son 8 dígitos, o una letra y 8 dígitos si vienes de
+traslado (ej. 21111182 o B21221523).». `enroll_submit` pasa la letra a MAYÚSCULA (y recorta) ANTES de
+validar y guardar, y `enroll_resend` antes de buscar: `EnrollmentRequestService.create()`/`.resend()`
+solo hacen `.strip()` y sus lookups por `control_number` son exactos, así que `b21221523` abriría una
+segunda solicitud (o no encontraría la aprobada) frente a `B21221523`. El `<input>` lleva
+`pattern="[A-Za-z]?[0-9]{8}"`, `maxlength="9"` y la ayuda visible bajo el campo.
+
 **Formulario, defensas públicas:**
 - Trampa llena → la misma tarjeta, sin escritura ni cobro.
 - Límite por IP (30/hora) y por número de control (3/día): se **leen** antes y se **cobran** solo tras
