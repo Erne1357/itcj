@@ -753,3 +753,45 @@ def test_stats_ordena_anios_descendente_con_sin_ano_al_final(db_session, make_co
     assert sin_anio["slug"] == "sin-anio"
     veintiuno = next(y for y in stats["by_year"] if y["year"] == "2021")
     assert veintiuno["slug"] == "2021"
+
+
+def test_stats_resume_personas_generaciones_rango_y_pico(db_session, make_cohort):
+    """El `<summary>` del bloque plegable se lee con el bloque CERRADO, así que
+    tiene que bastar solo: personas únicas, generaciones, rango y año pico.
+
+    El pico desempata por el año MÁS RECIENTE (2021 y 2018 empatan con 2) y
+    «Sin año» cuenta como generación pero no entra al rango ni compite."""
+    from datetime import date
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    cohort = make_cohort()
+    _fila(db_session, cohort, control="18000001")
+    _fila(db_session, cohort, control="18000002")
+    _fila(db_session, cohort, control="21000001", status="rejected")
+    _fila(db_session, cohort, control="21000001")             # misma persona: cuenta 1
+    _fila(db_session, cohort, control="21000002")
+    _fila(db_session, cohort, control="03000001")             # 2003
+    _fila(db_session, cohort, control="abcdefgh")             # Sin año
+
+    resumen = EnrollmentRequestService.stats(
+        db_session, scope="ALL", cohort_id=cohort.id, today=date(2026, 9, 17))["summary"]
+
+    assert resumen["people"] == 6
+    assert resumen["generations"] == 4                        # 2021, 2018, 2003, Sin año
+    assert resumen["span"] == "2003–2021"
+    assert resumen["peak"] == {"year": "2021", "total": 2}
+
+
+def test_stats_resumen_sin_solicitudes_no_revienta(db_session, make_cohort):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    cohort = make_cohort()
+    resumen = EnrollmentRequestService.stats(
+        db_session, scope="ALL", cohort_id=cohort.id)["summary"]
+
+    assert resumen == {"people": 0, "generations": 0, "span": "", "peak": None}

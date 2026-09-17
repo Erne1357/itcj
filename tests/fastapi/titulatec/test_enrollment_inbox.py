@@ -573,6 +573,32 @@ def test_el_bloque_por_ano_muestra_personas_unicas_y_su_desglose(
     assert 'max="2" value="2"' in html
 
 
+def test_el_bloque_por_ano_es_plegable_cerrado_y_recordado(
+    client_as, db_session, make_head, make_cohort,
+):
+    """Con la carga real (20+ generaciones) el bloque abierto en filas medía
+    2,651 px y tapaba la lista: nace CERRADO (el servidor nunca manda `open`),
+    se recuerda por `data-tt-remember` y el `<summary>` basta para decidir si
+    abrirlo."""
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    _make_req(db_session, cohort, control="18100001")
+    _make_req(db_session, cohort, control="21100001")
+    _make_req(db_session, cohort, control="21100002")
+
+    html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
+
+    inicio = html.index('<details class="tt-card tt-years')
+    apertura = html[inicio:html.index(">", inicio)]
+    assert "open" not in apertura.split("data-tt-remember")[0], (
+        "el bloque por año tiene que nacer cerrado")
+    assert 'data-tt-remember="tt-req-years"' in apertura
+    resumen = _plano(html[inicio:html.index("</summary>", inicio)])
+    assert "3 personas" in resumen
+    assert "2 generaciones" in resumen
+    assert "más: 2021 (2)" in resumen
+
+
 def test_el_bloque_por_ano_no_sale_si_no_hay_solicitudes(
     client_as, db_session, make_head, make_cohort,
 ):

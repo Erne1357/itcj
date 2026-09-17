@@ -126,7 +126,7 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
     ctx = {"rows": [], "status": tab, "tabs": _TABS, "cohort_id": cohort_id,
            "programs": [], "no_programs": False,
            "kpis": {"total": 0, "review": 0, "sent": 0, "converted": 0, "rejected": 0},
-           "by_year": [], "year_max": 0}
+           "by_year": [], "year_max": 0, "years_summary": None}
 
     if scope != "ALL" and not scope:
         # Conjunto vacío = no ve nada, EN SILENCIO. Se marca explícitamente para
@@ -142,6 +142,7 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
     ctx["kpis"] = stats["counts"]
     ctx["by_year"] = stats["by_year"]
     ctx["year_max"] = stats["year_max"]
+    ctx["years_summary"] = stats["summary"]
 
     # El <select> del formulario de aprobar solo puede ofrecer carreras que la
     # ruta vaya a aceptar (Finding 1, ronda 1 de revisión).

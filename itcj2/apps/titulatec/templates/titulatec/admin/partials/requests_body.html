@@ -19,8 +19,9 @@
    abrirla la reactiva, la única escritura sobre la cuenta además de roles y
    proceso.
 
-   Arriba de las pestañas: KPIs (`kpis`) y el bloque «Por año de ingreso»
-   (`by_year`/`year_max`), ambos del MISMO alcance y convocatoria que la lista
+   Arriba de las pestañas: KPIs (`kpis`) y el bloque plegable «Por año de
+   ingreso» (`by_year`/`year_max`/`years_summary`), ambos del MISMO alcance y
+   convocatoria que la lista
    pero SIN el filtro de pestaña ni el límite de 300 — se repintan solos en
    cada acción porque viven en este mismo parcial. `EnrollmentRequestService
    .stats()` hace la cuenta; ver docs/flows/xcut_public_enrollment.md.
@@ -45,28 +46,56 @@
     <div class="tt-kpi"><div class="tt-kicker">Rechazadas</div><div class="num">{{ kpis.rejected }}</div></div>
   </div>
 
+  {# «Por año de ingreso» — PLEGABLE y CERRADO por omisión. Con la carga real
+     (egresados desde 2002) son 20+ generaciones: abierto en filas ocupaba
+     2,651 px y empujaba las pestañas y la lista fuera de la pantalla. Cerrado,
+     el `<summary>` dice lo necesario para decidir si abrirlo; abierto, cada
+     año es una ficha de una rejilla que envuelve (25 años = 4-5 filas en
+     escritorio). `data-tt-remember` (titulatec-utils.js) recuerda si el
+     oficial lo dejó abierto, porque cada acción de la bandeja re-pinta este
+     parcial y el `open` se perdería. El desglose por estado va con icono +
+     número + etiqueta oculta, y una sola leyenda arriba: nunca solo color. #}
   {% if by_year %}
-  <div class="tt-card mb-3">
-    <span class="tt-kicker"><i class="bi bi-bar-chart-steps me-1" aria-hidden="true"></i>Por año de ingreso</span>
-    <ul class="tt-yearlist">
+  <details class="tt-card tt-years mb-3" id="tt-req-years" data-tt-remember="tt-req-years">
+    <summary class="tt-years-sum">
+      <span class="tt-years-txt">
+        <span class="tt-kicker"><i class="bi bi-bar-chart-steps me-1" aria-hidden="true"></i>Por año de ingreso</span>
+        {% if years_summary %}
+        <span class="tt-years-resumen">
+          {{ years_summary.people }} {{ 'persona' if years_summary.people == 1 else 'personas' }}
+          · {{ years_summary.generations }} {{ 'generación' if years_summary.generations == 1 else 'generaciones' }}
+          {%- if years_summary.span %} ({{ years_summary.span }}){% endif %}
+          {%- if years_summary.peak and years_summary.generations > 1 %} · más: {{ years_summary.peak.year }} ({{ years_summary.peak.total }}){% endif %}
+        </span>
+        {% endif %}
+      </span>
+      <i class="bi bi-chevron-down tt-years-chev" aria-hidden="true"></i>
+    </summary>
+    <p class="tt-years-legend">
+      <span class="tt-mix tt-mix--review"><i class="bi bi-hourglass-split" aria-hidden="true"></i>Por revisar</span>
+      <span class="tt-mix tt-mix--sent"><i class="bi bi-envelope-check" aria-hidden="true"></i>Liga enviada</span>
+      <span class="tt-mix tt-mix--converted"><i class="bi bi-check-circle" aria-hidden="true"></i>Inscritas</span>
+      <span class="tt-mix tt-mix--rejected"><i class="bi bi-x-circle" aria-hidden="true"></i>Rechazadas</span>
+    </p>
+    <ul class="tt-yeargrid">
       {% for y in by_year %}
-      <li class="tt-yearrow" id="tt-req-year-{{ y.slug }}">
-        <div class="tt-yearrow-head">
-          <span class="tt-yearrow-label">{{ y.year }}</span>
-          <span class="tt-yearrow-total">{{ y.total }} {{ 'persona' if y.total == 1 else 'personas' }}</span>
+      <li class="tt-yeartile" id="tt-req-year-{{ y.slug }}">
+        <div class="tt-yeartile-head">
+          <span class="tt-yeartile-year">{{ y.year }}</span>
+          <span class="tt-yeartile-total">{{ y.total }}<span class="visually-hidden"> {{ 'persona' if y.total == 1 else 'personas' }}</span></span>
         </div>
         <meter class="tt-yearbar" min="0" max="{{ year_max }}" value="{{ y.total }}"
                aria-label="Año {{ y.year }}: {{ y.total }} de {{ year_max }} personas">{{ y.total }}</meter>
-        <div class="tt-yearrow-breakdown">
-          {% if y.review %}<span class="tt-pill tt-pill--amber"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Por revisar {{ y.review }}</span>{% endif %}
-          {% if y.sent %}<span class="tt-pill tt-pill--navy"><i class="bi bi-envelope-check" aria-hidden="true"></i> Liga enviada {{ y.sent }}</span>{% endif %}
-          {% if y.converted %}<span class="tt-pill tt-pill--success"><i class="bi bi-check-circle" aria-hidden="true"></i> Inscritas {{ y.converted }}</span>{% endif %}
-          {% if y.rejected %}<span class="tt-pill tt-pill--danger"><i class="bi bi-x-circle" aria-hidden="true"></i> Rechazadas {{ y.rejected }}</span>{% endif %}
+        <div class="tt-yeartile-mix">
+          {% if y.review %}<span class="tt-mix tt-mix--review" title="Por revisar"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ y.review }}<span class="visually-hidden"> por revisar</span></span>{% endif %}
+          {% if y.sent %}<span class="tt-mix tt-mix--sent" title="Liga enviada"><i class="bi bi-envelope-check" aria-hidden="true"></i>{{ y.sent }}<span class="visually-hidden"> con liga enviada</span></span>{% endif %}
+          {% if y.converted %}<span class="tt-mix tt-mix--converted" title="Inscritas"><i class="bi bi-check-circle" aria-hidden="true"></i>{{ y.converted }}<span class="visually-hidden"> inscritas</span></span>{% endif %}
+          {% if y.rejected %}<span class="tt-mix tt-mix--rejected" title="Rechazadas"><i class="bi bi-x-circle" aria-hidden="true"></i>{{ y.rejected }}<span class="visually-hidden"> rechazadas</span></span>{% endif %}
         </div>
       </li>
       {% endfor %}
     </ul>
-  </div>
+  </details>
   {% endif %}
   {% endif %}
 

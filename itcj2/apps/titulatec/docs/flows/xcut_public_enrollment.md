@@ -152,6 +152,15 @@ calcula nada y no se pinta nada de esto.
   **nativo** (nunca `style=` inline: `requests_body.html`/`requests.html` están barridos por
   `test_la_bandeja_no_usa_hx_confirm_ni_js_ni_css_inline`); el número de personas siempre va en texto,
   igual que el desglose por estado (nunca solo color).
+  **Plegable y cerrado por omisión (2026-09-17, a pedido del usuario):** con 20+ generaciones (hay
+  egresados desde 2002) la versión en filas medía 2,651 px a 1440 de ancho y mandaba pestañas y lista
+  fuera de la pantalla. Ahora es un `<details id="tt-req-years">` cuyo `<summary>` lleva
+  `stats()["summary"]` — personas únicas · generaciones (rango) · año pico, que desempata por el más
+  reciente — y adentro una rejilla de fichas por año (icono + número por estado, con una sola
+  leyenda). Medido con 27 generaciones: cerrado 58-95 px; abierto 520 px a 1440 (6 columnas) y 2
+  columnas en móvil; sin scroll horizontal en 360/390/1280/1440. `data-tt-remember="tt-req-years"`
+  (`titulatec-utils.js`) guarda en localStorage si el oficial lo dejó abierto y lo restaura en
+  `htmx:load`, porque cada acción de la bandeja re-pinta el parcial y el servidor lo manda cerrado.
 - **Correo de rechazo no enviado**: columna `titulatec_enrollment_requests.rejection_sent_at`
   (`DateTime`, nullable; migración `tt20260917a`). `reject()` la sella en un commit PROPIO, DESPUÉS
   de mandar `send_enrollment_rejected`, solo si devolvió `True` — mismo patrón que

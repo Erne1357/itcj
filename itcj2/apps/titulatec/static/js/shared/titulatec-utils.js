@@ -276,5 +276,50 @@
     });
   }
 
+  // ————————————————————————————————— `<details data-tt-remember="clave">`
+  //
+  // Recuerda si el oficial dejó ABIERTO un bloque plegable. Hace falta porque
+  // las bandejas re-pintan su parcial entero en cada acción (aprobar, pestaña,
+  // rechazar) y el servidor lo manda cerrado: sin esto el bloque se cerraría
+  // solo a cada clic. Es preferencia de UNA persona en UN navegador, así que
+  // vive en localStorage, nunca en la BD; y todo acceso va en try/catch porque
+  // en modo privado o con almacenamiento bloqueado lanza — entonces el bloque
+  // simplemente nace cerrado, que es el comportamiento por omisión.
+  //
+  // `toggle` NO burbujea: se escucha en fase de CAPTURA sobre `document`.
+  // Se restaura en `htmx:load`, que htmx dispara sobre el contenido nuevo en
+  // la misma tarea del swap (antes de pintar), así que no hay parpadeo
+  // cerrado → abierto; y al cargar la página, por si htmx aún no procesó.
+  function _rememberKey(el) {
+    return 'tt.remember.' + el.getAttribute('data-tt-remember');
+  }
+  function restoreRemembered(root) {
+    if (!root || !root.querySelectorAll) return;
+    var nodos = Array.prototype.slice.call(root.querySelectorAll('details[data-tt-remember]'));
+    if (root.matches && root.matches('details[data-tt-remember]')) nodos.push(root);
+    nodos.forEach(function (d) {
+      var abierto = null;
+      try { abierto = window.localStorage.getItem(_rememberKey(d)); } catch (_) { return; }
+      if (abierto === '1') d.open = true;
+      else if (abierto === '0') d.open = false;
+    });
+  }
+  if (!window.__ttRememberBound) {
+    window.__ttRememberBound = true;
+    document.addEventListener('toggle', function (e) {
+      var d = e.target;
+      if (!d || !d.matches || !d.matches('details[data-tt-remember]')) return;
+      try { window.localStorage.setItem(_rememberKey(d), d.open ? '1' : '0'); } catch (_) { /* sin almacenamiento */ }
+    }, true);
+    document.body.addEventListener('htmx:load', function (e) {
+      restoreRemembered(e.detail && e.detail.elt);
+    });
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () { restoreRemembered(document); });
+    } else {
+      restoreRemembered(document);
+    }
+  }
+
   window.TitulaTecUtils = { showToast, confirmDialog, escapeHtml, decodeHeaderMsg };
 })();

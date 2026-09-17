@@ -143,3 +143,39 @@ def test_ningun_template_usa_dialogos_nativos():
         "window.TitulaTecUtils.confirmDialog o hx-confirm (puente en "
         "titulatec-utils.js).\n" + "\n".join("  " + c for c in culpables)
     )
+
+
+# --- <details data-tt-remember> -------------------------------------------
+
+def _bloque_remember(texto):
+    inicio = texto.find("data-tt-remember")
+    assert inicio != -1, "no se encontro el comportamiento data-tt-remember"
+    fin = texto.find("window.TitulaTecUtils", inicio)
+    return texto[inicio:fin]
+
+
+def test_remember_escucha_toggle_en_captura():
+    """`toggle` de <details> NO burbujea: escuchado en fase de burbuja sobre
+    `document` nunca llegaria y el estado no se guardaria jamas."""
+    bloque = _bloque_remember(_js_texto())
+    assert re.search(r"addEventListener\(\s*'toggle'[\s\S]*?\},\s*true\s*\)", bloque), (
+        "el listener de 'toggle' debe registrarse en fase de CAPTURA "
+        "(tercer argumento `true`)."
+    )
+
+
+def test_remember_restaura_tras_el_swap_de_htmx():
+    """Las bandejas re-pintan su parcial en cada accion y el servidor lo manda
+    cerrado: sin restaurar en `htmx:load` el bloque se cerraria a cada clic."""
+    assert "htmx:load" in _bloque_remember(_js_texto())
+
+
+def test_remember_nunca_revienta_sin_almacenamiento():
+    """En modo privado o con almacenamiento bloqueado `localStorage` LANZA: cada
+    acceso va dentro de un try, y sin almacenamiento el bloque nace cerrado."""
+    bloque = _bloque_remember(_js_texto())
+    usos = [m.start() for m in re.finditer(r"localStorage\.(get|set)Item", bloque)]
+    assert usos, "no se encontraron accesos a localStorage"
+    for pos in usos:
+        linea = bloque[bloque.rfind("\n", 0, pos):bloque.find("\n", pos)]
+        assert "try" in linea, "acceso a localStorage fuera de try: " + linea.strip()

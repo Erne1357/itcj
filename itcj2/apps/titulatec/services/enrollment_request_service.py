@@ -900,4 +900,20 @@ class EnrollmentRequestService:
             key=lambda y: (0, -int(y["year"])) if y["year"] != "Sin año" else (1, 0),
         )
         year_max = max((y["total"] for y in by_year), default=0)
-        return {"counts": counts, "by_year": by_year, "year_max": year_max}
+
+        # Lo que se lee con el bloque CERRADO (`<summary>` de la bandeja): con
+        # 20+ generaciones el bloque abierto no cabe en pantalla, así que el
+        # resumen tiene que bastar para decidir si vale la pena abrirlo.
+        # `peak` desempata por el año MÁS RECIENTE; «Sin año» no compite ni
+        # entra al rango.
+        reales = [y for y in by_year if y["year"] != "Sin año"]
+        pico = max(reales, key=lambda y: (y["total"], int(y["year"])), default=None)
+        summary = {
+            "people": len(latest_by_control),
+            "generations": len(by_year),
+            "span": (f"{reales[-1]['year']}–{reales[0]['year']}"
+                     if len(reales) > 1 else (reales[0]["year"] if reales else "")),
+            "peak": ({"year": pico["year"], "total": pico["total"]} if pico else None),
+        }
+        return {"counts": counts, "by_year": by_year, "year_max": year_max,
+                "summary": summary}

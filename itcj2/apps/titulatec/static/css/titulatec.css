@@ -2040,27 +2040,71 @@ button.tt-seat--libre { pointer-events: auto; }
    hasta el FINAL DEL ARCHIVO aunque la pantalla no sea Citas. Reglas que
    aplican aqui: tokens `--tt-fs-*` (nunca `font-size` literal), `--tt-text-3`
    en vez de `--tt-mute` como color de TEXTO, y ningun anillo de foco con
-   `--tt-accent`. Nada de eso aparece abajo: no hay `font-size` ni `outline`
-   propios, todo hereda del resto de la hoja.
+   `--tt-accent`. Abajo los `font-size` son tokens y el unico `outline` es el
+   del `<summary>` plegable, con `--tt-focus`.
    =========================================================================== */
-.tt-yearlist { list-style: none; margin: 0; padding: 0; }
-.tt-yearrow { padding-top: var(--tt-sp-3); margin-top: var(--tt-sp-3); border-top: 1px solid var(--tt-line-soft); }
-.tt-yearrow:first-of-type { border-top: 0; margin-top: var(--tt-sp-1); padding-top: 0; }
-.tt-yearrow-head {
-  display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between;
-  gap: var(--tt-sp-2); min-width: 0;
+/* «Por año de ingreso» es un `<details>` PLEGABLE, cerrado por omision. Con la
+   carga real (egresados desde 2002, 20+ generaciones) la version en filas
+   medía 2,651 px a 1440 de ancho y mandaba pestañas y lista fuera de la
+   pantalla. Cerrado ocupa una linea (el resumen); abierto, cada año es una
+   ficha de una rejilla que ENVUELVE, así que 25 años son 4-5 filas en
+   escritorio y 2 columnas en movil, sin scroll horizontal. */
+/* El texto envuelve DENTRO de `.tt-years-txt` y el chevron se queda arriba a
+   la derecha: con un solo flex que envolvía, en 360 px el chevron bajaba a un
+   renglón propio y el resumen cerrado medía 125 px. */
+.tt-years-sum {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--tt-sp-3);
+  min-height: 44px; cursor: pointer; list-style: none;
 }
-.tt-yearrow-label { font-family: var(--tt-display); font-size: var(--tt-fs-400); font-weight: 600; color: var(--tt-text-1); }
-.tt-yearrow-total { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
-.tt-yearrow-breakdown { display: flex; flex-wrap: wrap; gap: var(--tt-sp-1); margin-top: var(--tt-sp-1); }
+.tt-years-txt { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px var(--tt-sp-3); min-width: 0; }
+.tt-years-sum::-webkit-details-marker { display: none; }
+.tt-years-sum::marker { content: ""; }
+.tt-years-sum:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 4px; border-radius: var(--tt-r-sm); }
+.tt-years-resumen { font-size: var(--tt-fs-200); color: var(--tt-text-2); min-width: 0; }
+.tt-years-chev { flex: 0 0 auto; color: var(--tt-text-3); transition: transform 200ms var(--tt-ease-out); }
+.tt-years[open] .tt-years-chev { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .tt-years-chev { transition: none; } }
+
+/* Una sola leyenda para toda la rejilla: el desglose de cada ficha es icono +
+   numero, y la leyenda dice que icono es que estado (nunca solo color). */
+.tt-years-legend {
+  display: flex; flex-wrap: wrap; gap: var(--tt-sp-1) var(--tt-sp-3);
+  margin: var(--tt-sp-2) 0; font-size: var(--tt-fs-100); color: var(--tt-text-3);
+}
+.tt-yeargrid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: var(--tt-sp-2);
+}
+/* En movil el minimo de 172 px dejaba UNA columna: 27 fichas median 2,415 px
+   abiertas. Dos columnas fijas lo parten a la mitad; el desglose puede
+   envolver a dos renglones y la rejilla iguala la altura por fila. */
+@media (max-width: 575.98px) {
+  .tt-yeargrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.tt-yeartile {
+  min-width: 0; padding: var(--tt-sp-2) var(--tt-sp-3);
+  border: 1px solid var(--tt-line); border-radius: var(--tt-r-sm);
+}
+.tt-yeartile-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--tt-sp-2); }
+.tt-yeartile-year { font-family: var(--tt-display); font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-yeartile-total { font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-yeartile-mix {
+  display: flex; flex-wrap: wrap; gap: 2px 6px; margin-top: var(--tt-sp-1);
+  font-size: var(--tt-fs-100); color: var(--tt-text-2); font-variant-numeric: tabular-nums;
+}
+.tt-mix { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.tt-mix--review i    { color: var(--tt-amber-ink); }
+.tt-mix--sent i      { color: var(--tt-navy); }
+.tt-mix--converted i { color: var(--tt-success); }
+.tt-mix--rejected i  { color: var(--tt-danger); }
 
 /* `<meter>` nativo: WebKit/Blink separan pista y valor en dos pseudo-elementos;
    Firefox pinta el valor sobre el propio elemento. Sin soporte, cae al meter
    nativo del SO, que igual comunica la proporcion (nunca queda en blanco). */
 .tt-yearbar {
   -webkit-appearance: none; -moz-appearance: none; appearance: none;
-  display: block; width: 100%; height: 8px; border: 0; border-radius: 999px;
-  background: var(--tt-line); margin: var(--tt-sp-2) 0 0;
+  display: block; width: 100%; height: 6px; border: 0; border-radius: 999px;
+  background: var(--tt-line); margin: var(--tt-sp-1) 0 0;
 }
 .tt-yearbar::-webkit-meter-bar { background: var(--tt-line); border: 0; border-radius: 999px; }
 .tt-yearbar::-webkit-meter-optimum-value { background: var(--tt-accent); border-radius: 999px; }
