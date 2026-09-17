@@ -52,6 +52,45 @@ sequenceDiagram
 `skipped`. Si no hay siguiente → `process.status=completed`, `completed_at`.
 Ver [máquina de estados](00_state_machine.md).
 
+## Cierre automático de la cita de cotejo (solo fase 02, desde 2026-09-17)
+
+**El hueco.** Desde el expediente (`pages/admin.py::phase_approve/phase_reject`) y
+desde el panel de Citas (`pages/appointments.py::fase2_approve/fase2_reject`) se
+podía aprobar **o** rechazar la fase 02 con la cita vigente todavía `in_progress`
+—el encargado la atiende y se le olvida marcar "Asistió" antes de dictaminar—.
+Esa cita quedaba colgada: no aparecía en ningún cubo de la cola (no es `no_show`
+ni `attended`) y D4 bloqueaba volver a agendar (una cita ACTIVA es la única que
+lo impide).
+
+**El arreglo.** `PhaseService._auto_close_cotejo_appointment(db, process,
+actor_id, via)`, invocado desde `approve_phase` y `reject_phase` **solo cuando
+`phase_number == PhaseService.PHASE_COTEJO`**, **después** de todas las guardas
+de esa fase (si una guarda lanza `ValueError`, no se escribe nada — ni la cita
+ni la fase) y **dentro de la misma transacción** que el resto del dictamen
+(antes del `db.commit()` final; nunca `AppointmentService.mark_attended`, que
+commitea por su cuenta):
+
+1. Lee la cita vigente con `AppointmentService.get_for_process`.
+2. Si es `None`, o su `status` no es `in_progress`, no hace nada.
+   `scheduled`/`confirmed`/`no_show`/`attended`/sin cita **no se tocan** — solo
+   `in_progress` queda de verdad "colgado" por el dictamen.
+3. Si es `in_progress`: valida el salto con
+   `AppointmentService.assert_transition("in_progress", "attended")` (legal
+   siempre — está en `_TRANSICIONES`, ver [máquina de estados](00_state_machine.md)),
+   escribe `status = "attended"` y un `ProcessEvent(appointment_attended,
+   phase_number=2, payload={"auto": True, "via": "phase_approved"})` —
+   `"phase_rejected"` si vino de `reject_phase`.
+
+El `via` en el payload distingue en el timeline si el cierre automático vino de
+una aprobación o de un rechazo; lo lee el alumno en su historial de fase con la
+misma etiqueta que un `appointment_attended` manual (`_EVENT_LABELS` en
+`pages/student.py`, "Asististe al cotejo").
+
+**Por qué en el service y no en las rutas.** `approve_phase`/`reject_phase`
+tienen ya dos llamadores cada una (el expediente y el panel de Citas) y
+cualquier futuro tercero lo hereda gratis. Reimplementarlo en cada ruta es
+exactamente como se desincroniza esta clase de regla.
+
 ## Notificaciones al alumno
 
 `approve_phase` / `reject_phase` avisan al alumno vía `services/notify.notify_student`

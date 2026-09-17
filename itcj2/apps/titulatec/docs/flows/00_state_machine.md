@@ -124,12 +124,23 @@ llegar. El único camino es `SlotService.assign_batch`, que hoy **no tiene llama
 producción** — el mismo motor de reparto masivo que se salta la puerta de la encuesta. Si algún día
 se cablea, esta arista se vuelve alcanzable de verdad.
 
+**`in_progress → attended` tiene un segundo escritor, desde 2026-09-17: el dictamen de la
+fase 02.** `PhaseService.approve_phase`/`reject_phase` cierran la cita vigente a `attended`
+si sigue `in_progress` al momento de aprobar **o** rechazar esa fase — antes quedaba colgada
+(ni `no_show` ni `attended`, y D4 bloqueaba abrir otro intento). A diferencia de
+`_open_new_attempt`, este camino **sí** pasa por `AppointmentService.assert_transition` antes
+de escribir (la arista ya existía en la matriz, así que no hace falta ampliarla); lo único que
+cambia es que el escritor ya no es siempre `mark_attended`. El evento que deja
+(`appointment_attended`) trae `payload={"auto": True, "via": "phase_approved"|"phase_rejected"}`
+para distinguirlo en el timeline de un "Asistió" marcado a mano. Detalle completo:
+[motor de aprobar/rechazar fase](engine_approve_advance_phase.md#cierre-automático-de-la-cita-de-cotejo-solo-fase-02-desde-2026-09-17).
+
 | Estado | Quién lo escribe | Dónde |
 |---|---|---|
 | `scheduled` | 🏛️ agenda · 👤 auto-agenda | nace así en cada INSERT (`SlotService.assign`) |
 | `confirmed` | 👤 confirma | `confirm` (+ `confirmed_at`) |
 | `in_progress` | 🏛️ atiende | `start` · `undo_no_show` |
-| `attended` | 🏛️ marca asistió | `mark_attended` |
+| `attended` | 🏛️ marca asistió · 🤖 dictamen de fase 02 (auto, solo si seguía `in_progress`) | `mark_attended` · `PhaseService._auto_close_cotejo_appointment` |
 | `no_show` | 🏛️ no se presentó | `mark_no_show` |
 | `cancelled` | 🏛️ o 👤 cancela | `AppointmentService.cancel` (+ `cancelled_at`, `cancelled_by_id`, `cancel_reason`) |
 | `superseded` | 🤖 automático | `SlotService._open_new_attempt`, **solo si la vigente estaba ACTIVA** |
@@ -170,6 +181,11 @@ auto-agendado vino a cerrar. Lleva comentario en el código y test dedicado
 > proceso → "Aprobar fase 02" → [motor de avance](engine_approve_advance_phase.md). Y por eso una
 > cita `attended` con papeles faltantes **no** cierra nada: el egresado puede agendar otra mientras
 > la fase 2 siga abierta.
+>
+> La flecha inversa **sí** existe, y es angosta a propósito: dictaminar la fase 02 (aprobar o
+> rechazar) puede empujar la cita de `in_progress` a `attended` —nunca al revés, y nunca sobre
+> ningún otro estado— para no dejarla colgada si el encargado dictamina sin haber marcado
+> "Asistió". Ver la nota de `in_progress → attended` más arriba.
 
 ## Estado del Formato B (`FormatB.status`) — Fase 3
 

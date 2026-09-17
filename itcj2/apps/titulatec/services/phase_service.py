@@ -303,6 +303,40 @@ class PhaseService:
                 f"de cotejo ({nombres}).")
 
     @staticmethod
+    def _auto_close_cotejo_appointment(db: Session, process, actor_id: int, via: str) -> None:
+        """Cierra la cita vigente de cotejo si el dictamen de la fase 02 la deja colgada.
+
+        Hueco cerrado 2026-09-17: desde el expediente se podia aprobar O RECHAZAR
+        la fase 02 con la cita vigente todavia `in_progress` (el encargado la
+        atiende y se le olvida marcar "Asistio" antes de dictaminar). Esa cita no
+        aparecia en ningun cubo de la cola —no es `no_show` ni `attended`— y
+        bloqueaba volver a agendar por D4 (una cita ACTIVA es la unica que impide
+        abrir otro intento): quedaba colgada para siempre.
+
+        Solo toca `in_progress`: es el UNICO estado que de verdad queda "colgado"
+        por el dictamen. `scheduled`/`confirmed` significan que el cotejo ni
+        siquiera empezo (dictaminar ahi es otro problema, distinto de este);
+        `no_show`, `attended` y "sin cita" ya estan resueltos por su cuenta y no
+        se tocan.
+
+        NO usa `AppointmentService.mark_attended`: ese metodo hace su propio
+        `db.commit()`, y esto tiene que quedar en la MISMA transaccion que el
+        dictamen de la fase — `approve_phase`/`reject_phase` ya hacen el suyo al
+        final. `assert_transition` se llama de todas formas (aunque el `if` de
+        arriba ya garantiza que el salto es legal) porque en esta app NINGUNA
+        escritura de `status` se hace sin pasar por la matriz primero.
+        """
+        from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+        appt = AppointmentService.get_for_process(db, process.id)
+        if appt is None or appt.status != "in_progress":
+            return
+        AppointmentService.assert_transition("in_progress", "attended")
+        appt.status = "attended"
+        PhaseService._log(db, process.id, actor_id, "appointment_attended",
+                          PhaseService.PHASE_COTEJO, {"auto": True, "via": via})
+
+    @staticmethod
     def approve_phase(db: Session, process, phase_number: int, reviewer_id: int) -> dict:
         """Aprueba una fase, activa la siguiente aplicable (o completa el proceso).
 
@@ -322,6 +356,12 @@ class PhaseService:
             falta = PhaseService._cotejo_gate_error(db, process)
             if falta:
                 raise ValueError(falta)
+            # Las guardas de arriba ya pasaron: si la cita vigente quedo
+            # `in_progress`, aprobar la fase 2 es la senal de que el cotejo
+            # terminó. Dentro de la MISMA transaccion que el resto de este metodo
+            # (antes del commit de al final).
+            PhaseService._auto_close_cotejo_appointment(db, process, reviewer_id,
+                                                        "phase_approved")
 
         ph = PhaseService._ensure_phase(db, process.id, phase_number)
         ph.status = "approved"
@@ -373,6 +413,13 @@ class PhaseService:
         en `process.current_phase`.
         """
         PhaseService.assert_can_transition(db, process, phase_number)
+
+        # Gemelo del cierre automático de `approve_phase`: rechazar la fase 2
+        # tambien es un dictamen, y si la cita vigente quedo `in_progress` queda
+        # igual de colgada que si se hubiera aprobado.
+        if phase_number == PhaseService.PHASE_COTEJO:
+            PhaseService._auto_close_cotejo_appointment(db, process, reviewer_id,
+                                                        "phase_rejected")
 
         ph = PhaseService._ensure_phase(db, process.id, phase_number)
         ph.status = "rejected"

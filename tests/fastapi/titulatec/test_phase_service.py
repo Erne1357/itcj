@@ -143,3 +143,125 @@ class TestRejectPhase:
         assert kwargs["type"] == "PHASE_REJECTED"
         assert kwargs["phase_number"] == 2
         assert "Faltan firmas" in kwargs["body"]
+
+
+# ──────────────── auto-cierre de la cita de cotejo (Tarea B2) ────────────
+# Hueco: desde el expediente se podia aprobar O RECHAZAR la fase 02 con la
+# cita vigente todavia `in_progress` -el encargado la atiende y se le olvida
+# marcar "Asistio" antes de dictaminar-. Esa cita no aparecia en ningun cubo
+# de la cola (no es `no_show` ni `attended`) y D4 bloqueaba volver a agendar
+# (una cita ACTIVA es la unica que lo impide): quedaba colgada para siempre.
+# `PhaseService._auto_close_cotejo_appointment` la cierra a `attended` dentro
+# de la MISMA transaccion del dictamen, sin pasar por `mark_attended` (que
+# commitea por su cuenta).
+
+class TestAutoCloseCotejoAppointment:
+    @patch("itcj2.apps.titulatec.services.notify.notify_student")
+    def test_aprobar_cierra_la_cita_in_progress_a_attended(
+            self, mock_notify, db_session, seed_phase_defs, make_student,
+            make_process, make_appointment, revisor):
+        from itcj2.apps.titulatec.models import ProcessEvent
+
+        seed_phase_defs()
+        process = make_process(make_student(), current_phase=2)
+        appt = make_appointment(process, status="in_progress")
+
+        PhaseService.approve_phase(db_session, process, 2, reviewer_id=revisor.id)
+
+        assert appt.status == "attended"
+        ev = (db_session.query(ProcessEvent)
+              .filter_by(process_id=process.id, event_type="appointment_attended").one())
+        assert ev.phase_number == 2
+        assert ev.payload == {"auto": True, "via": "phase_approved"}
+
+    @patch("itcj2.apps.titulatec.services.notify.notify_student")
+    def test_rechazar_cierra_la_cita_in_progress_a_attended(
+            self, mock_notify, db_session, seed_phase_defs, make_student,
+            make_process, make_appointment, revisor):
+        from itcj2.apps.titulatec.models import ProcessEvent
+
+        seed_phase_defs()
+        process = make_process(make_student(), current_phase=2)
+        appt = make_appointment(process, status="in_progress")
+
+        PhaseService.reject_phase(db_session, process, 2, reviewer_id=revisor.id,
+                                  reason="Le falto el acta certificada.")
+
+        assert appt.status == "attended"
+        ev = (db_session.query(ProcessEvent)
+              .filter_by(process_id=process.id, event_type="appointment_attended").one())
+        assert ev.phase_number == 2
+        assert ev.payload == {"auto": True, "via": "phase_rejected"}
+
+    @pytest.mark.parametrize("estado", ["scheduled", "confirmed", "no_show", "attended"])
+    @patch("itcj2.apps.titulatec.services.notify.notify_student")
+    def test_no_toca_citas_que_no_estan_in_progress(
+            self, mock_notify, db_session, seed_phase_defs, make_student,
+            make_process, make_appointment, revisor, estado):
+        from itcj2.apps.titulatec.models import ProcessEvent
+
+        seed_phase_defs()
+        process = make_process(make_student(), current_phase=2)
+        appt = make_appointment(process, status=estado)
+
+        PhaseService.approve_phase(db_session, process, 2, reviewer_id=revisor.id)
+
+        assert appt.status == estado, "el auto-cierre solo toca `in_progress`"
+        assert db_session.query(ProcessEvent).filter_by(
+            process_id=process.id, event_type="appointment_attended").first() is None
+
+    @patch("itcj2.apps.titulatec.services.notify.notify_student")
+    def test_sin_cita_no_revienta(
+            self, mock_notify, db_session, seed_phase_defs, make_student,
+            make_process, revisor):
+        """Dictaminar la fase 02 sin ninguna cita agendada no debe fallar."""
+        seed_phase_defs()
+        process = make_process(make_student(), current_phase=2)
+
+        result = PhaseService.approve_phase(db_session, process, 2, reviewer_id=revisor.id)
+
+        assert result == {"next_phase": 3, "completed": False}
+
+    @patch("itcj2.apps.titulatec.services.notify.notify_student")
+    def test_bloqueado_por_requisitos_faltantes_no_toca_la_cita(
+            self, mock_notify, db_session, seed_phase_defs, make_student,
+            make_cohort, make_process, make_appointment, revisor):
+        """La guarda de fase 2 (checklist, ver `test_phase2_cotejo_gate.py`)
+        corre ANTES del auto-cierre: si aprobar falla, no se escribe nada -la
+        cita sigue `in_progress`-, mismo contrato que el resto de las guardas.
+        """
+        from itcj2.apps.titulatec.models import CotejoRequirement, ProcessEvent
+
+        seed_phase_defs()
+        cohort = make_cohort()
+        process = make_process(make_student(), cohort=cohort, current_phase=2)
+        appt = make_appointment(process, status="in_progress")
+        db_session.add(CotejoRequirement(
+            cohort_id=cohort.id, label="12 fotografias", icon="check2-square",
+            is_required=True, is_active=True, order_index=0))
+        db_session.flush()
+
+        with pytest.raises(ValueError):
+            PhaseService.approve_phase(db_session, process, 2, reviewer_id=revisor.id)
+
+        assert appt.status == "in_progress"
+        assert db_session.query(ProcessEvent).filter_by(
+            process_id=process.id, event_type="appointment_attended").first() is None
+
+    @patch("itcj2.apps.titulatec.services.notify.notify_student")
+    def test_solo_aplica_a_la_fase_2(
+            self, mock_notify, db_session, seed_phase_defs, make_student,
+            make_process, make_appointment, revisor):
+        """Dictaminar otra fase no debe tocar una cita de cotejo `in_progress`
+        colgada del mismo proceso: el auto-cierre es EXCLUSIVO de la fase 02."""
+        from itcj2.apps.titulatec.models import ProcessEvent
+
+        seed_phase_defs()
+        process = make_process(make_student(), current_phase=1)
+        appt = make_appointment(process, status="in_progress")
+
+        PhaseService.approve_phase(db_session, process, 1, reviewer_id=revisor.id)
+
+        assert appt.status == "in_progress"
+        assert db_session.query(ProcessEvent).filter_by(
+            process_id=process.id, event_type="appointment_attended").first() is None
