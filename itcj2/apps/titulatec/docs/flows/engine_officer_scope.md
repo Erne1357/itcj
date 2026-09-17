@@ -288,6 +288,18 @@ llamar **al mismo guard**.
   (`/titulatec/admin/officers`), que escribe `ProgramPosition` vía `OfficerService.set_programs()`.
 - Jefe sin departamento gestionado (`positions_service.get_user_primary_managed_department` → `None`,
   `officers.py:16-22`) → la pestaña Encargados renderiza `{"no_department": True}` (`officers.py:44-45`).
+  **Respaldo para el rol `admin` (2026-09-17):** si la vía normal devuelve `None`,
+  `_managed_department_id` (`officers.py`) comprueba si el usuario tiene el rol literal `admin`
+  **en la app titulatec** (`authz_service.user_roles_in_app(db, user_id, "titulatec")`, NO el rol
+  global del JWT: esta app no lo bypasea, §6 del CLAUDE.md de titulatec) y, si lo tiene, usa el
+  departamento `core_departments.code = 'school_services'` en vez de `None`. Cubre al usuario
+  `admin` de bootstrap, que no tiene NINGÚN puesto del organigrama y por tanto nunca gestiona nada
+  por la vía normal. Tener solo `titulatec.officers.api.manage` **no** activa este respaldo —hace
+  falta el rol `admin` en la app—, así que `test_sin_departamento_gestionado_no_muta` /
+  `_no_desactiva` (`test_officers_authz.py`) siguen en verde. El rol `admin` recibe TODOS los
+  permisos de titulatec (dinámicamente, incluidos los futuros) vía
+  `database/DML/titulatec/15_grant_admin_all_perms.sql`, el ÚLTIMO seeder de `SEED_FILES`
+  (`itcj2/cli/titulatec.py`). Tests: `tests/fastapi/titulatec/test_officers_admin_fallback.py`.
 - **La validación "usuario fuera del depto" solo existe en el alta, no en la edición.**
   `create_officer` (`officer_service.py:91-94`) calcula `allowed = department_user_ids(...)` y
   `bad = set(user_ids) - allowed`, así que sí rechaza con `ValueError` → `400` + header `X-Tt-Error`
