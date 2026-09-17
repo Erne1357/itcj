@@ -294,7 +294,8 @@ traslado (ej. 21111182 o B21221523).». `enroll_submit` pasa la letra a MAYÚSCU
 validar y guardar, y `enroll_resend` antes de buscar: `EnrollmentRequestService.create()`/`.resend()`
 solo hacen `.strip()` y sus lookups por `control_number` son exactos, así que `b21221523` abriría una
 segunda solicitud (o no encontraría la aprobada) frente a `B21221523`. El `<input>` lleva
-`pattern="[A-Za-z]?[0-9]{8}"`, `maxlength="9"` y la ayuda visible bajo el campo.
+`pattern="[A-Za-z]?[0-9]{8}"` y `maxlength="9"`, sin texto de ayuda bajo el campo (se quitó a pedido del
+usuario el 2026-09-17): la regla solo se explica en el mensaje de error.
 
 **Formulario, defensas públicas:**
 - Trampa llena → la misma tarjeta, sin escritura ni cobro.
