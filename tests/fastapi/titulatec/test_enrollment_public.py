@@ -891,3 +891,268 @@ def test_el_formulario_usa_tt_public_hp_y_no_una_clase_propia(
     assert resp.status_code == 200
     assert "tt-public-hp" in resp.text
     assert "tt-honeypot" not in resp.text
+
+
+def _apagar_las_demas(db_session, ids_vivas):
+    """Deja `status='closed'` en toda convocatoria fuera de `ids_vivas`.
+
+    Variante de `_solo_esta_convocatoria` para los casos con DOS convocatorias
+    en juego (la próxima y una más lejana): las dos tienen que sobrevivir, y
+    ninguna de las dos está abierta HOY, así que la ruta cae a la tarjeta de
+    cierre y no al 503 de «más de una abierta».
+    """
+    from itcj2.apps.titulatec.models import Cohort
+    (db_session.query(Cohort)
+     .filter(Cohort.id.notin_(list(ids_vivas)))
+     .update({Cohort.status: "closed"}, synchronize_session=False))
+    db_session.flush()
+
+
+# ---------------------------------------------------------------------------
+# GET cerrada: la tarjeta dice CUÁNDO abre (rediseño 2026-09-17)
+#
+# El caso real que lo motivó: `status='open'` con `opens_at` en el futuro.
+# `is_public_enrollment_open` la considera cerrada —y hace bien, el formulario
+# no se abre antes de tiempo— pero el servidor YA SABE la fecha, y la página
+# mandaba al egresado a «consultar las fechas con Servicios Escolares».
+# ---------------------------------------------------------------------------
+def test_la_tarjeta_de_cierre_dice_cuando_abre_y_cuando_cierra(
+    client, db_session, make_cohort, make_period,
+):
+    from datetime import date, timedelta
+
+    cohort = make_cohort(status="open",
+                         opens_at=date.today() + timedelta(days=11),
+                         closes_at=date.today() + timedelta(days=20))
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.get(ENROLL_URL, follow_redirects=False)
+    plano = _plano(resp.text)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert "inscripción está cerrada" in resp.text        # contrato de siempre
+    assert 'id="tt-enroll-form"' not in resp.text
+    assert 'data-tt-notice="closed"' in resp.text
+    # La fecha, en palabras y en ISO.
+    abre = date.today() + timedelta(days=11)
+    assert f'datetime="{abre.isoformat()}"' in resp.text
+    assert f"{abre.day} de " in plano
+    assert "Faltan 11 días" in plano
+    assert "para enviar tu solicitud" in plano
+    # Y el nombre de la convocatoria sigue sin salir a la vista pública.
+    assert cohort.name not in resp.text
+
+
+def test_la_tarjeta_de_cierre_no_inventa_fecha_si_no_hay_ninguna_decidida(
+    client, db_session, make_cohort,
+):
+    """Sin convocatoria `open` con `opens_at` futuro no hay nada que prometer."""
+    cohort = make_cohort(status="closed")
+    _solo_esta_convocatoria(db_session, cohort)
+    db_session.query(type(cohort)).filter_by(id=cohort.id).update({"status": "closed"})
+    db_session.flush()
+    client.cookies.clear()
+
+    resp = client.get(ENROLL_URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert "inscripción está cerrada" in resp.text
+    assert "Consulta las fechas con Servicios Escolares" in _plano(resp.text)
+    assert "tt-enroll-closed-date" not in resp.text, (
+        "sin fecha decidida no puede pintarse el bloque de la fecha"
+    )
+
+
+def test_una_convocatoria_en_borrador_no_se_anuncia(
+    client, db_session, make_cohort, make_period,
+):
+    """`draft` es un borrador cuyas fechas todavía se mueven.
+
+    Anunciarla sería prometerle al egresado un día al que vendría en balde.
+    """
+    from datetime import date, timedelta
+
+    abierta = make_cohort(status="closed")
+    _solo_esta_convocatoria(db_session, abierta)
+    make_cohort(period=make_period(code="29997"), status="draft",
+                opens_at=date.today() + timedelta(days=5),
+                closes_at=date.today() + timedelta(days=15))
+    db_session.flush()
+    client.cookies.clear()
+
+    resp = client.get(ENROLL_URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert "Consulta las fechas con Servicios Escolares" in _plano(resp.text)
+    assert "tt-enroll-closed-date" not in resp.text
+
+
+def test_con_dos_aperturas_futuras_se_anuncia_la_mas_proxima(
+    client, db_session, make_cohort, make_period,
+):
+    from datetime import date, timedelta
+
+    lejana = make_cohort(period=make_period(code="29996"), status="open",
+                         opens_at=date.today() + timedelta(days=40),
+                         closes_at=date.today() + timedelta(days=50))
+    cercana = make_cohort(period=make_period(code="29995"), status="open",
+                          opens_at=date.today() + timedelta(days=7),
+                          closes_at=date.today() + timedelta(days=17))
+    # Ninguna de las dos está abierta HOY, así que la ruta cae a la tarjeta de
+    # cierre y no al 503 de «más de una abierta».
+    _apagar_las_demas(db_session, {lejana.id, cercana.id})
+    client.cookies.clear()
+
+    resp = client.get(ENROLL_URL, follow_redirects=False)
+    plano = _plano(resp.text)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert "Faltan 7 días" in plano
+    assert f'datetime="{(date.today() + timedelta(days=7)).isoformat()}"' in resp.text
+
+
+def test_el_panel_del_formulario_dice_cuando_cierra_sin_nombrar_la_convocatoria(
+    client, db_session, make_cohort,
+):
+    """El panel lateral es lo único que el rediseño añadió al formulario."""
+    from datetime import date, timedelta
+
+    cierre = date.today() + timedelta(days=9)
+    cohort = make_cohort(status="open", opens_at=date.today() - timedelta(days=1),
+                         closes_at=cierre)
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.get(ENROLL_URL, follow_redirects=False)
+    plano = _plano(resp.text)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'id="tt-enroll-form"' in resp.text
+    assert f"Cierra el {cierre.day} de " in plano
+    assert "Faltan 9 días" in plano
+    assert "Ten a la mano" in plano
+    assert cohort.name not in resp.text
+
+
+def test_sin_fecha_de_cierre_el_panel_omite_el_bloque_en_vez_de_inventarlo(
+    client, db_session, make_cohort,
+):
+    """Casi toda convocatoria vieja trae `closes_at` NULL."""
+    from datetime import date, timedelta
+
+    cohort = make_cohort(status="open", opens_at=date.today() - timedelta(days=1))
+    db_session.query(type(cohort)).filter_by(id=cohort.id).update({"closes_at": None})
+    db_session.flush()
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.get(ENROLL_URL, follow_redirects=False)
+    plano = _plano(resp.text)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'id="tt-enroll-form"' in resp.text
+    assert "Cierra el" not in plano
+    assert "Ten a la mano" in plano, "el panel entero no puede desaparecer con la fecha"
+
+
+# ---------------------------------------------------------------------------
+# Marcado del formulario rediseñado: lo que NO puede volver a romperse
+# ---------------------------------------------------------------------------
+def test_el_formulario_no_usa_el_eyebrow_como_etiqueta_de_campo(
+    client, db_session, make_cohort, make_program,
+):
+    """`.tt-kicker` es mono, MAYÚSCULAS, 11 px: ilegible como etiqueta.
+
+    Es el defecto #3 del design system de la app y la razón del rediseño. El
+    kicker sigue existiendo UNA vez por pantalla, como etiqueta de contexto
+    sobre el título; lo que no puede volver es a etiquetar campos.
+    """
+    import re
+
+    make_program("Ingenieria Ficticia A")
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    cuerpo = client.get(ENROLL_URL, follow_redirects=False).text
+    main = cuerpo[cuerpo.index("<main"):]          # la barra de la base trae el suyo
+    form = cuerpo[cuerpo.index('id="tt-enroll-form"'):]
+
+    assert "tt-kicker" not in form, "el eyebrow volvió a hacer de etiqueta de formulario"
+    assert main.count("tt-kicker") == 1, "el kicker es UNO por vista, el de contexto"
+    # Toda etiqueta visible es un <label> real atado a su campo.
+    for campo in ("tt-control", "tt-first", "tt-last", "tt-middle", "tt-program",
+                  "tt-phone", "tt-email", "tt-email-confirm"):
+        assert re.search(rf'<label class="tt-label" for="{campo}"', form), campo
+
+
+def test_el_formulario_agrupa_en_fieldsets_con_legend_propio(
+    client, db_session, make_cohort,
+):
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    cuerpo = client.get(ENROLL_URL, follow_redirects=False).text
+    form = cuerpo[cuerpo.index('id="tt-enroll-form"'):]
+
+    assert form.count('<fieldset class="tt-enroll-group"') == 4
+    for titulo in ("¿Ya acreditaste el inglés?", "Tus datos", "Cómo te contactamos",
+                   "¿Ya tienes tu e.firma vigente?"):
+        assert f'<legend class="tt-enroll-legend">{titulo}</legend>' in form, titulo
+
+
+def test_las_opciones_binarias_reutilizan_las_tiles_de_la_encuesta(
+    client, db_session, make_cohort,
+):
+    """`.tt-opt` mide 44 px y ya está probada; un radio nativo mide 16."""
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    cuerpo = client.get(ENROLL_URL, follow_redirects=False).text
+    form = cuerpo[cuerpo.index('id="tt-enroll-form"'):]
+
+    assert form.count('class="tt-opt"') == 4          # inglés x2 + e.firma x2
+    assert "tt-enroll-radio" not in form, "quedó marcado de la versión vieja"
+    for nombre in ('name="has_english"', 'name="has_efirma"'):
+        assert form.count(nombre) == 2, nombre
+
+
+def test_la_hoja_publica_da_16px_y_44px_a_los_campos_de_la_inscripcion():
+    """16 px evita el zoom de iOS al enfocar; 44 px es el objetivo táctil.
+
+    Se mide sobre el CSS porque es la única capa donde vive el valor: el render
+    del servidor no lo sabe. El alto real se comprueba en `public-enroll.spec.js`.
+    """
+    import re
+    from pathlib import Path
+
+    import itcj2
+
+    css = (Path(itcj2.__file__).resolve().parent / "apps" / "titulatec" / "static"
+           / "css" / "public.css").read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
+
+    m = re.search(r"\.tt-enroll\s+\.tt-field\s*\{([^}]*)\}", css)
+    assert m, "la inscripción ya no declara el tamaño de sus campos"
+    cuerpo = m.group(1)
+    assert "min-height: 44px" in cuerpo, cuerpo
+    assert "font-size: var(--tt-fs-300)" in cuerpo, cuerpo   # --tt-fs-300 = 1rem
+
+
+def test_el_campo_de_carrera_libre_nace_oculto_y_el_css_lo_respeta():
+    """`display: grid` le gana a `hidden`: sin la regla, el campo sale SIEMPRE."""
+    import re
+    from pathlib import Path
+
+    import itcj2
+
+    css = (Path(itcj2.__file__).resolve().parent / "apps" / "titulatec" / "static"
+           / "css" / "public.css").read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
+
+    assert re.search(r"\.tt-enroll-row\[hidden\]\s*\{[^}]*display:\s*none", css), (
+        "falta la regla que respeta `hidden` en una fila que es `display: grid`"
+    )

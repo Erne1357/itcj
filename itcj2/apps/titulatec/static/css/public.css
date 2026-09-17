@@ -874,13 +874,390 @@
    `.tt-public-hp`, la que este CSS define de verdad y la que la Tarea 12 ya
    usa en producción. No se añade nada aquí para la trampa. */
 
-.tt-field-error {
-  margin: .2rem 0 .6rem;
-  font-size: .78rem;
-  color: var(--tt-danger);
+/* ---------------------------------------------------------------------------
+   Rediseño 2026-09-17 (aprobado por el usuario). Medido ANTES:
+
+   - 1440 x 900, formulario: columna de 60ch centrada con ~1100 px de fondo
+     vacío a los lados. `docs/design/responsive.md` lo prohíbe con todas sus
+     letras («no un móvil estirado ni una columna angosta centrada en una
+     pantalla vacía»), y el borde derecho de los campos quedaba a 91 px del
+     borde de su tarjeta por un `max-width: 30rem` suelto.
+   - 1440 x 900, ventana cerrada: una tarjeta de ~100 px en una ventana de 900.
+     800 px de vacío debajo de un aviso que además no decía cuándo volver.
+   - Las 11 etiquetas eran `.tt-kicker` (mono, mayúsculas, 11 px,
+     `--tt-text-3`): el eyebrow haciendo de etiqueta de formulario, defecto
+     declarado del design system de la app.
+   - Radios nativos de 16 px en filas de 24; el contrato pide 40 px táctiles.
+   - `.tt-field` a 14 px: por debajo de los 16 que evitan el zoom automático de
+     iOS al enfocar un campo.
+   - Anillo de foco en ámbar (`titulatec.css:277`), 2.15:1 contra los 3:1 que
+     pide WCAG 1.4.11 para elementos no textuales.
+
+   Reglas de este bloque, las mismas que rigen el de la encuesta: espaciado solo
+   con `--tt-sp-*`, tipografía solo con `--tt-fs-*`, texto nunca en `--tt-mute`,
+   y movimiento solo de transform/opacity/border-color/background-color, por
+   debajo de 300 ms y respetando `prefers-reduced-motion`.
+
+   VOCABULARIO REUTILIZADO, no inventado: `.tt-opts`/`.tt-opt` (tiles de opción),
+   `.tt-label`, `.tt-hint` y `.tt-err` son los de la encuesta pública, que viven
+   más arriba en este archivo y ya están probados por E2E. Una segunda familia
+   de controles para el mismo trabajo es justo lo que rompe la regla de
+   «familiaridad ganada» del proyecto.
+   --------------------------------------------------------------------------- */
+
+/* ---- 0. Medidas del layout ----------------------------------------------- */
+/* Dos medidas de diseño, no de espaciado: ancho del panel de contexto y de la
+   columna del formulario. Cambiar el reparto es UNA línea. */
+.tt-public-main--enroll {
+  --tt-enroll-aside: 16.5rem;
+  --tt-enroll-col: 40rem;
+  --tt-enroll-gap: var(--tt-sp-6);
 }
 
-.tt-enroll .tt-kicker { display: block; margin-top: .9rem; }
-.tt-enroll .tt-field { width: 100%; max-width: 30rem; }
-.tt-enroll-radio { display: flex; gap: 1.25rem; margin: .35rem 0 1rem; }
+/* Móvil y tablet: una columna. `.tt-public-main.tt-prose` dejaría 60ch, que es
+   lo que había antes; 40rem es el ancho al que el formulario deja de verse
+   angosto sin pasarse de largo de lectura. El tope de 60ch de la base NO se
+   toca (`test_survey_layout.py` lo asierta): esto es un modificador encima. */
+.tt-public-main.tt-prose.tt-public-main--enroll {
+  max-width: calc(var(--tt-enroll-col) + 2 * clamp(16px, 4vw, 24px));
+}
+
+/* La prosa de esta pantalla no son párrafos largos: son ayudas, errores y
+   pastillas dentro de celdas estrechas. El tope de 48ch de la base las partía
+   antes de que la celda se acabara. El lede sí conserva tope propio (abajo). */
+.tt-public-main--enroll p { max-width: none; }
+
+/* ---- 1. Cabecera de la página -------------------------------------------- */
+.tt-enroll-head {
+  margin-bottom: var(--tt-sp-5);
+  min-width: 0;
+}
+.tt-enroll-head > .tt-kicker { display: block; margin-bottom: var(--tt-sp-2); }
+/* `.tt-h1` (al final de este archivo) es la regla compartida; aquí sube al paso
+   de h1 de la escala y recupera el tope de lectura que el bloque 0 quitó. */
+.tt-enroll-head > .tt-h1 {
+  margin: 0;
+  font-size: var(--tt-fs-600);
+  line-height: 1.15;
+  color: var(--tt-text-1);
+  text-wrap: balance;
+}
+.tt-enroll-lede {
+  max-width: 54ch;
+  margin: var(--tt-sp-3) 0 0;
+  font-size: var(--tt-fs-200);
+  line-height: 1.5;
+  color: var(--tt-text-2);
+  text-wrap: pretty;
+}
+
+/* ---- 2. Rejilla: panel de contexto + formulario --------------------------- */
+/* El panel va ANTES en el DOM y arriba en móvil: decirle al egresado qué tener
+   a la mano sirve cuando todavía puede ir por ello, no después de once campos. */
+.tt-enroll-layout {
+  display: grid;
+  gap: var(--tt-sp-5);
+  align-items: start;
+  min-width: 0;
+}
+@media (min-width: 992px) {
+  .tt-public-main.tt-prose.tt-public-main--enroll {
+    max-width: calc(var(--tt-enroll-aside) + var(--tt-enroll-gap)
+                    + var(--tt-enroll-col) + 2 * clamp(16px, 4vw, 24px));
+  }
+  .tt-enroll-layout {
+    grid-template-columns: var(--tt-enroll-aside) minmax(0, 1fr);
+    gap: var(--tt-enroll-gap);
+  }
+  /* El formulario es largo; el cierre y la lista de requisitos siguen a la
+     vista mientras se llena. `top` deja el hueco de la barra pública. */
+  .tt-enroll-aside {
+    position: sticky;
+    top: var(--tt-sp-5);
+  }
+}
+
+/* ---- 3. Panel de contexto ------------------------------------------------- */
+/* Superficie SECUNDARIA: mismo papel y mismo borde que la tarjeta del
+   formulario, pero sin sombra. Es la jerarquía, no un descuido. */
+.tt-enroll-aside {
+  min-width: 0;
+  padding: var(--tt-sp-4);
+  border-radius: var(--tt-r);
+  box-shadow: none;
+}
+/* Subdivisión con línea de 1 px. Tarjeta dentro de tarjeta está prohibida. */
+.tt-enroll-aside-block + .tt-enroll-aside-block {
+  margin-top: var(--tt-sp-4);
+  padding-top: var(--tt-sp-4);
+  border-top: 1px solid var(--tt-line-soft);
+}
+.tt-enroll-aside-title {
+  margin: 0;
+  font-size: var(--tt-fs-200);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--tt-text-1);
+  text-wrap: balance;
+}
+.tt-enroll-aside-meta { margin: var(--tt-sp-2) 0 0; }
+.tt-enroll-aside-list {
+  display: grid;
+  gap: var(--tt-sp-2);
+  margin: var(--tt-sp-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--tt-fs-200);
+  line-height: 1.4;
+  color: var(--tt-text-2);
+}
+/* Viñeta propia: el marcador nativo no se alinea con la primera línea cuando el
+   renglón se parte en dos, que es lo que pasa a 360 px. */
+.tt-enroll-aside-list > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--tt-sp-2);
+  min-width: 0;
+}
+.tt-enroll-aside-list > li::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-top: .55em;
+  border-radius: 999px;
+  background-color: var(--tt-text-3);
+}
+
+/* ---- 4. Tarjeta del formulario ------------------------------------------- */
+/* `container` para decidir por el ancho de la TARJETA, no por el de la ventana:
+   a 991 px el formulario tiene ~600 px útiles y a 992, con el panel al lado,
+   ~570. Una media query se equivocaría justo en la banda de los portátiles
+   (mismo razonamiento que `.tt-q` en el bloque de la encuesta).
+
+   `padding: 0`: lo ponen los grupos, para que la línea que los separa vaya de
+   borde a borde. Una línea con sangría parece un error de alineación. */
+.tt-enroll {
+  container: tt-enroll / inline-size;
+  min-width: 0;
+  padding: 0;
+  border-radius: var(--tt-r);
+}
+
+/* `min-width: 0` NO es opcional: un `<fieldset>` trae `min-width: min-content`
+   de fábrica, y con él una celda de rejilla que no cabe empuja la página entera
+   y rompe el invariante `scrollWidth <= innerWidth` a 360 px. */
+.tt-enroll-group {
+  min-width: 0;
+  margin: 0;
+  padding: var(--tt-sp-5) var(--tt-sp-4);
+  border: 0;
+}
+.tt-enroll-group + .tt-enroll-group { border-top: 1px solid var(--tt-line-soft); }
+/* Con la tarjeta ancha el aire lateral iguala al vertical; a 360 px seguirian
+   siendo 16, que es lo que deja el campo respirar sin comerse la pantalla. */
+@container tt-enroll (min-width: 30rem) {
+  .tt-enroll-group { padding: var(--tt-sp-5); }
+  .tt-enroll-foot { padding: var(--tt-sp-5); }
+}
+
+/* `<legend>` con `float` + `clear` en el hermano: es la forma que se comporta
+   igual en los cuatro motores. `display: block` a secas todavía deja el legend
+   pegado al borde del fieldset en algunas versiones de Safari. */
+.tt-enroll-legend {
+  float: left;
+  width: 100%;
+  margin: 0 0 var(--tt-sp-3);
+  padding: 0;
+  font-family: var(--tt-display);
+  font-size: var(--tt-fs-400);
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--tt-text-1);
+  text-wrap: balance;
+}
+.tt-enroll-legend + * { clear: both; }
+
+/* ---- 5. Filas y celdas ---------------------------------------------------- */
+.tt-enroll-row {
+  display: grid;
+  gap: var(--tt-sp-3);
+  min-width: 0;
+}
+.tt-enroll-row + .tt-enroll-row { margin-top: var(--tt-sp-4); }
+/* `display: grid` gana a `hidden` por especificidad de tipo: sin esta línea el
+   campo «Escribe tu carrera» sale SIEMPRE, que es un campo de más para todos. */
+.tt-enroll-row[hidden] { display: none; }
+.tt-enroll-cell { min-width: 0; }
+
+/* Dos campos cortos por renglón en cuanto la tarjeta da 30rem. Debajo de eso
+   (móvil, y el panel lateral comiéndose el ancho) cada campo va solo. */
+@container tt-enroll (min-width: 30rem) {
+  .tt-enroll-row--pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--tt-sp-4);
+  }
+}
+
+/* ---- 6. Etiquetas, campos y errores --------------------------------------- */
+.tt-enroll .tt-label {
+  display: block;
+  margin: 0 0 var(--tt-sp-1);
+  font-size: var(--tt-fs-200);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--tt-text-2);
+}
+.tt-enroll .tt-hint {
+  max-width: none;
+  margin: 0 0 var(--tt-sp-2);
+  font-size: var(--tt-fs-100);
+  line-height: 1.4;
+  color: var(--tt-text-3);
+}
+.tt-enroll .tt-err { margin-top: var(--tt-sp-2); }
+/* Solo UN campo del formulario es opcional. Marcar los nueve obligatorios con
+   asterisco seria ruido; marcar el unico que no lo es dice lo mismo con una
+   palabra. Va dentro del `<label>`, en minuscula y en el gris mas claro que se
+   puede leer, para que no compita con el nombre del campo. */
+.tt-enroll .tt-optional {
+  margin-left: var(--tt-sp-2);
+  font-weight: 400;
+  font-size: var(--tt-fs-100);
+  color: var(--tt-text-3);
+}
+
+/* 16 px de letra: por debajo, iOS hace zoom al enfocar y deja la página
+   desplazada a la derecha. 44 px de alto: el objetivo táctil del contrato. */
+.tt-enroll .tt-field {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  border-radius: var(--tt-r-sm);
+  font-size: var(--tt-fs-300);
+  line-height: 1.5;
+}
+/* El `<select>` conserva la flecha nativa del sistema, que es el afijo que el
+   usuario ya reconoce; solo se le deja aire para que no la pise el texto. */
+.tt-enroll select.tt-field { padding-right: var(--tt-sp-2); }
+/* `titulatec.css` enfoca en ámbar: 2.15:1, por debajo de los 3:1 de WCAG
+   1.4.11. `--tt-focus` mide 5.02:1. Mismo parche que ya aplica la encuesta. */
+.tt-enroll .tt-field:focus {
+  border-color: var(--tt-focus);
+  box-shadow: 0 0 0 3px rgba(180, 83, 9, .18);
+}
+.tt-enroll .tt-field[aria-invalid="true"] { border-color: var(--tt-danger); }
+
+/* ---- 7. Pie de envío ------------------------------------------------------ */
+/* Fondo hundido y línea propia: la acción primaria de la página no puede ser un
+   botón chico suelto al final de la última fila de campos. */
+.tt-enroll-foot {
+  padding: var(--tt-sp-4);
+  border-top: 1px solid var(--tt-line-soft);
+  border-radius: 0 0 var(--tt-r) var(--tt-r);
+  background-color: var(--tt-mist);
+}
+.tt-enroll-submit {
+  width: 100%;
+  min-height: 48px;
+  font-size: var(--tt-fs-200);
+}
+@container tt-enroll (min-width: 30rem) {
+  .tt-enroll-submit { width: auto; min-width: 15rem; }
+}
+
+/* ---- 8. Ventana cerrada --------------------------------------------------- */
+/* Un aviso NO usa el ancho de la rejilla de dos columnas: no hay panel lateral
+   que acomodar. Con los 58.5rem del bloque 2, la tarjeta de 34rem quedaba
+   pegada a la izquierda de una columna de 936 px, o sea visiblemente descuadrada
+   respecto al centro de la ventana (medido a 1440: tarjeta en 252-796, centro
+   de pantalla en 720). Esta regla va DESPUÉS y con la misma especificidad que
+   las dos del bloque 2, así que gana por orden y la columna se ciñe al aviso. */
+.tt-public-main.tt-prose.tt-public-main--enroll-notice {
+  max-width: calc(34rem + 2 * clamp(16px, 4vw, 24px));
+}
+
+/* La fecha es el dato por el que el egresado entró: es lo más grande de la
+   tarjeta, y el estado («está cerrada») pasa a ser el rótulo de arriba. */
+.tt-enroll-closed {
+  padding: var(--tt-sp-5);
+}
+.tt-enroll-closed-state {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-sp-2);
+  margin: 0;
+  font-size: var(--tt-fs-200);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--tt-text-2);
+}
+.tt-enroll-closed-state > .bi {
+  flex: 0 0 auto;
+  font-size: var(--tt-fs-300);
+  color: var(--tt-text-3);
+}
+.tt-enroll-closed-when {
+  margin: var(--tt-sp-4) 0 0;
+  font-size: var(--tt-fs-200);
+  line-height: 1.4;
+  color: var(--tt-text-2);
+}
+.tt-enroll-closed-date {
+  display: block;
+  margin-top: var(--tt-sp-1);
+  font-family: var(--tt-display);
+  font-size: var(--tt-fs-600);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -.4px;
+  color: var(--tt-text-1);
+  text-wrap: balance;
+}
+.tt-enroll-closed-meta { margin: var(--tt-sp-3) 0 0; }
+.tt-enroll-closed-body {
+  max-width: 48ch;
+  margin: var(--tt-sp-4) 0 0;
+  font-size: var(--tt-fs-200);
+  line-height: 1.5;
+  color: var(--tt-text-2);
+}
+.tt-enroll-closed-note {
+  margin: var(--tt-sp-4) 0 0;
+  padding-top: var(--tt-sp-3);
+  border-top: 1px solid var(--tt-line-soft);
+  font-size: var(--tt-fs-100);
+  line-height: 1.4;
+  color: var(--tt-text-3);
+}
+
+/* Un aviso de 200 px arriba de una ventana de 900 dejaba 700 px de nada. Se
+   centra en vertical con márgenes automáticos, NO con `justify-content: center`:
+   cuando el contenido no cabe, el margen automático se resuelve en 0 y el aviso
+   sigue completo, mientras que el centrado de flex lo recortaría por arriba sin
+   manera de llegar a él. Solo a partir de 44rem de alto: en una ventana corta
+   no hay nada que centrar. */
+@media (min-height: 44rem) {
+  .tt-public-main.tt-prose.tt-public-main--enroll-notice {
+    display: flex;
+    flex-direction: column;
+  }
+  .tt-public-main--enroll-notice > .tt-enroll-head { margin-top: auto; }
+  .tt-public-main--enroll-notice > .tt-card { margin-bottom: auto; }
+}
+
+/* ---- 9. Movimiento -------------------------------------------------------- */
+/* El único movimiento del formulario: el campo de carrera libre al aparecer.
+   Es un cambio de estado real (el `<select>` acaba de cambiar), que es la única
+   licencia que da `ui_motion.md`. La carga de la página no se coreografía. */
+.tt-enroll-row[data-tt-enroll="program-text-wrap"]:not([hidden]) {
+  animation: tt-slide-up var(--tt-dur-3) var(--tt-ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tt-enroll-row[data-tt-enroll="program-text-wrap"]:not([hidden]) { animation: none; }
+}
+
+/* Compartida con `admin/surveys.html` y `admin/survey_detail.html`, que NO
+   cargan esta hoja: allí el h1 se queda sin regla. Deuda preexistente, ajena a
+   este rediseño; aquí la cabecera de la inscripción la pisa arriba. */
 .tt-h1 { font-size: 1.5rem; font-weight: 600; margin: .15rem 0 .75rem; }

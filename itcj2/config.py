@@ -137,7 +137,7 @@ class Settings(BaseSettings):
     # tamanos y color —el texto cae al del `<body>`— y el nuevo «Solicitar
     # cambio» se pinta como un `<summary>` crudo, con su triangulo y sin
     # objetivo tactil.
-    STATIC_VERSION: str = "1.0.1111545"
+    STATIC_VERSION: str = "1.0.1111547"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

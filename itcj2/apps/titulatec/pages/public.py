@@ -1360,6 +1360,53 @@ def _enroll_form_ctx(db, *, values=None, errors=None):
             "values": values or {}, "errors": errors or {}, "notice": False}
 
 
+def _enroll_aside_ctx(cohort) -> dict:
+    """Fecha de CIERRE para el panel lateral del formulario.
+
+    Solo fechas: `test_enrollment_public.py` exige `cohort.name not in
+    resp.text`, así que el nombre de la convocatoria no sale de aquí ni por
+    descuido. Con `closes_at` nulo (la mayoría de las convocatorias viejas) el
+    bloque no se pinta: una fecha inventada es peor que ninguna.
+    """
+    from itcj2.apps.titulatec.utils.dates_es import cuenta_regresiva, dia_mes
+
+    if cohort is None or cohort.closes_at is None:
+        return {"closes_label": "", "closes_countdown": ""}
+    return {"closes_label": dia_mes(cohort.closes_at),
+            "closes_countdown": cuenta_regresiva(cohort.closes_at)}
+
+
+def _enroll_closed_ctx(db) -> dict:
+    """Tarjeta de cierre: dice CUÁNDO volver si la fecha ya está decidida.
+
+    El literal «La inscripción está cerrada» se conserva palabra por palabra:
+    lo asertan `test_enrollment_public.py` (dos veces) y la E2E por
+    `[data-tt-notice="closed"]`. Lo que cambia es lo que va debajo.
+    """
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.apps.titulatec.utils.dates_es import (
+        cuenta_regresiva, dia_largo, dia_mes,
+    )
+
+    ctx = {"notice": True, "notice_key": "closed",
+           "notice_title": "La inscripción está cerrada",
+           "opens_label": "", "opens_iso": "", "opens_countdown": "",
+           "closes_label": ""}
+
+    prox = CohortService.next_public_enrollment_window(db)
+    if prox is None:
+        ctx["notice_body"] = ("Ahora mismo no hay una convocatoria abierta. "
+                              "Consulta las fechas con Servicios Escolares.")
+        return ctx
+
+    ctx["opens_label"] = dia_largo(prox.opens_at)
+    ctx["opens_iso"] = prox.opens_at.isoformat()
+    ctx["opens_countdown"] = cuenta_regresiva(prox.opens_at)
+    ctx["closes_label"] = dia_mes(prox.closes_at) if prox.closes_at else ""
+    ctx["notice_body"] = "Vuelve a esta página ese día para llenar tu solicitud."
+    return ctx
+
+
 @router.get("/inscripcion", name="titulatec.pages.public.enroll")
 async def enroll(request: Request):
     """Formulario público, gateado por la ventana de la convocatoria (§6.6)."""
@@ -1381,14 +1428,10 @@ async def enroll(request: Request):
                 "notice_body": "Inténtalo más tarde. Ya avisamos a Servicios Escolares.",
             }, status_code=503)
         if err == "closed" or cohort is None:
-            return render_titulatec(request, "titulatec/public/enroll.html", {
-                "notice": True, "notice_key": "closed",
-                "notice_icon": "calendar-x",
-                "notice_title": "La inscripción está cerrada",
-                "notice_body": ("Ahora mismo no hay una convocatoria abierta. Consulta "
-                                "las fechas con Servicios Escolares."),
-            })
+            return render_titulatec(request, "titulatec/public/enroll.html",
+                                    _enroll_closed_ctx(db))
         ctx = _enroll_form_ctx(db)
+        ctx.update(_enroll_aside_ctx(cohort))
     finally:
         db.close()
     return render_titulatec(request, "titulatec/public/enroll.html", ctx)

@@ -65,6 +65,35 @@ class CohortService:
         return abiertas[0], None
 
     @staticmethod
+    def next_public_enrollment_window(db: Session):
+        """La convocatoria que ABRIRÁ el formulario público, o `None`.
+
+        Sirve para que la tarjeta de cierre diga *cuándo volver* en vez de
+        mandar al egresado a preguntar. El caso real: `status='open'` con
+        `opens_at` en el futuro es "cerrada" para `is_public_enrollment_open`
+        —y debe serlo, el formulario no se abre antes de tiempo— pero la fecha
+        ya está decidida y publicada.
+
+        Solo `status='open'`. Una `draft` es un borrador cuyas fechas todavía se
+        mueven: anunciarla es prometer un día al que el egresado vendría en
+        balde. Una `closed` con `opens_at` futuro es una ventana que la jefatura
+        cerró a mano; tampoco se anuncia.
+
+        Se ordena por `opens_at` y se desempata por `id`: aquí SÍ se desempata,
+        al revés que `public_enrollment_cohort`, porque lo único que se expone
+        es una fecha. Si dos convocatorias abren el mismo día, la fecha es la
+        misma y el desempate no cambia lo que lee el egresado.
+        """
+        from itcj2.apps.titulatec.models import Cohort
+
+        return (db.query(Cohort)
+                  .filter(Cohort.status == "open",
+                          Cohort.opens_at.isnot(None),
+                          Cohort.opens_at > date.today())
+                  .order_by(Cohort.opens_at, Cohort.id)
+                  .first())
+
+    @staticmethod
     def set_window(db: Session, cohort_id: int, *, opens_at, closes_at,
                    status: str, actor_id: int) -> dict:
         """Escribe la ventana y aplica la tabla de transiciones de D5.

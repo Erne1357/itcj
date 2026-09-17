@@ -20,7 +20,7 @@
  */
 const { test, expect } = require('@playwright/test');
 const { execFileSync } = require('child_process');
-const { seedScenario, cleanupScenario, setCohortStatus } = require('./_helpers');
+const { seedScenario, cleanupScenario, setCohortStatus, E2E_TAG } = require('./_helpers');
 
 let ctx;
 
@@ -35,6 +35,16 @@ const TARJETA_CUERPO = 'Servicios Escolares la revisará. Si se aprueba, te lleg
   + 'con tu acceso. Revisa también la carpeta de correo no deseado.';
 
 const BACKEND_CONTAINER = process.env.E2E_BACKEND_CONTAINER || 'itcj-backend-1';
+
+// Matriz de viewports del proyecto (`docs/design/responsive.md`). No inventar otra.
+const MATRIZ = [
+  { w: 360, h: 740, perfil: 'movil chico' },
+  { w: 390, h: 844, perfil: 'movil de referencia' },
+  { w: 768, h: 1024, perfil: 'tablet vertical' },
+  { w: 1280, h: 800, perfil: 'laptop' },
+  { w: 1440, h: 900, perfil: 'escritorio comun' },
+  { w: 1920, h: 1080, perfil: 'monitor grande' },
+];
 
 /** Corre Python dentro del contenedor (mismo mecanismo que `_helpers.js` y
  * `public-survey.spec.js`; no está exportado por `_helpers.js`, así que cada
@@ -114,6 +124,28 @@ async function llenarFormulario(page, over = {}) {
   return datos;
 }
 
+/**
+ * Apaga la validación NATIVA del formulario (`novalidate`) para el envío que
+ * sigue.
+ *
+ * Por qué hace falta (2026-09-17): desde `ce057fd2` el formulario declara
+ * `required` en «¿Ya acreditaste el inglés?» y `pattern="[A-Za-z]?[0-9]{8}"`
+ * en el número de control. htmx NO dispara la petición si el formulario es
+ * inválido, así que los dos tests que prueban las defensas del SERVIDOR
+ * -rechazo con texto visible y corto-circuito de la trampa- se quedaban sin
+ * POST que esperar y fallaban por la razón equivocada.
+ *
+ * Apagarla no debilita la prueba: la refleja. Un bot que llena la trampa hace
+ * POST directo y no respeta ni `required` ni `pattern`, y la validación del
+ * servidor existe precisamente para ese cliente. Lo que se ejerce aquí es esa
+ * segunda línea, no la primera.
+ */
+async function sinValidacionNativa(page) {
+  await page.evaluate(() => {
+    document.getElementById('tt-enroll-form').setAttribute('novalidate', '');
+  });
+}
+
 function esperarPost(page) {
   return page.waitForResponse(
     (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === ENROLL_URL
@@ -157,6 +189,10 @@ test.describe('ventana abierta', () => {
 
     // Control fuera de CONTROL_NUMBER_RE = ^[A-Za-z]?\d{8}$
     await llenarFormulario(page, { control_number: '123' });
+    // Ese mismo formato lo exige ya el `pattern` del input, así que sin esto
+    // htmx ni siquiera manda la petición y lo que se probaría es la validación
+    // del NAVEGADOR, no la del servidor, que es la que este test cubre.
+    await sinValidacionNativa(page);
 
     const post = esperarPost(page);
     await page.getByRole('button', { name: 'Enviar solicitud' }).click();
@@ -222,6 +258,11 @@ test.describe('ventana abierta', () => {
     await page.fill('[name="contact_email"]', 'bot@example.com');
     await page.fill('[name="contact_email_confirm"]', 'bot@example.com');
     await page.locator('input[name="website"]').fill('http://spam.example', { force: true });
+    // A propósito tampoco se contesta «¿Ya acreditaste el inglés?», que es
+    // `required`: un bot no contesta lo que no entiende. Sin apagar la
+    // validación nativa el envío ni saldría, y el corto-circuito de la trampa
+    // -que vive en el servidor- se quedaría sin ejercer.
+    await sinValidacionNativa(page);
 
     await page.getByRole('button', { name: 'Enviar solicitud' }).click();
     // La MISMA tarjeta que ven el alta buena, la solicitud repetida y quien ya
@@ -259,5 +300,173 @@ test.describe('ventana cerrada', () => {
       }));
       expect(m.s, `desborde a ${w}px: ${m.s} > ${m.i}`).toBeLessThanOrEqual(m.i);
     }
+  });
+});
+
+/* ===========================================================================
+   Rediseño 2026-09-17: la tarjeta de cierre dice CUÁNDO abre, y las dos ramas
+   de la pantalla (formulario y aviso) cumplen la matriz de seis viewports.
+
+   Los dos bloques de abajo mueven la VENTANA de la convocatoria del escenario
+   (`opens_at`/`closes_at`), no solo su `status` como hace `setCohortStatus`.
+   Cada uno la restaura en su `afterAll` a lo que siembra `_helpers.js`
+   (`opens_at = hoy - 1`, `closes_at = hoy + 30`), que es de lo que dependen
+   todos los demás bloques de este archivo.
+   =========================================================================== */
+
+/** Fija la ventana de la convocatoria del escenario en días RELATIVOS a hoy.
+ *  `null` escribe NULL (sin tope), que es como están las convocatorias viejas. */
+function setCohortWindow(ctx, { abreEnDias, cierraEnDias, status = 'open' }) {
+  const expr = (d) => (d === null ? 'None' : `date.today() + timedelta(days=${d})`);
+  runInContainer(`
+from datetime import date, timedelta
+from itcj2.database import SessionLocal
+from sqlalchemy import text
+db = SessionLocal()
+try:
+    db.execute(text("UPDATE titulatec_cohorts SET status=:s, opens_at=:o, closes_at=:c WHERE id=:id"),
+               {"s": "${status}", "o": ${expr(abreEnDias)}, "c": ${expr(cierraEnDias)},
+                "id": ${ctx.cohortId}})
+    db.commit()
+finally:
+    db.close()
+`);
+}
+
+test.describe('ventana cerrada: dice cuándo abre', () => {
+  // `status='open'` con `opens_at` en el futuro es el caso REAL del 2026-09-17:
+  // `is_public_enrollment_open` la considera cerrada -y hace bien- pero la
+  // fecha ya está decidida. Antes la página mandaba a «consultar las fechas».
+  test.beforeAll(() => { setCohortWindow(ctx, { abreEnDias: 11, cierraEnDias: 20 }); });
+  test.afterAll(() => { setCohortWindow(ctx, { abreEnDias: -1, cierraEnDias: 30 }); });
+
+  test('muestra la fecha de apertura, la cuenta regresiva y el cierre', async ({ page }) => {
+    const res = await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
+    expect(res.status()).toBe(200);
+
+    const tarjeta = page.locator('[data-tt-notice="closed"]');
+    await expect(tarjeta).toBeVisible();
+    await expect(page.locator('[name="control_number"]')).toHaveCount(0);
+
+    // La fecha viaja también legible por máquina, no solo formateada.
+    const fecha = tarjeta.locator('time.tt-enroll-closed-date');
+    await expect(fecha).toBeVisible();
+    const iso = await fecha.getAttribute('datetime');
+    const esperado = new Date(Date.now() + 11 * 864e5).toISOString().slice(0, 10);
+    expect(iso, 'el <time> no lleva la fecha de apertura en ISO').toBe(esperado);
+
+    await expect(tarjeta).toContainText('Faltan 11 días');
+    await expect(tarjeta).toContainText('Abre de nuevo el');
+    await expect(tarjeta, 'no dice hasta cuándo se podrá enviar').toContainText('para enviar tu solicitud');
+    // El nombre de la convocatoria NUNCA sale a la vista pública.
+    await expect(tarjeta).not.toContainText(E2E_TAG);
+  });
+
+  test('no desborda en los seis viewports de la matriz', async ({ page }) => {
+    for (const { w, h } of MATRIZ) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-tt-notice="closed"]')).toBeVisible();
+      const m = await page.evaluate(() => ({
+        s: document.documentElement.scrollWidth, i: window.innerWidth,
+      }));
+      expect(m.s, `desborde a ${w}px: ${m.s} > ${m.i}`).toBeLessThanOrEqual(m.i);
+    }
+  });
+});
+
+test.describe('ventana cerrada SIN fecha decidida', () => {
+  // Sin ninguna convocatoria `open` con `opens_at` futuro no hay nada que
+  // prometer, y la tarjeta cae al texto de siempre. Es el caso que protege de
+  // inventarle una fecha al egresado.
+  test.beforeAll(() => {
+    setCohortWindow(ctx, { abreEnDias: null, cierraEnDias: null, status: 'closed' });
+  });
+  test.afterAll(() => { setCohortWindow(ctx, { abreEnDias: -1, cierraEnDias: 30 }); });
+
+  test('no inventa fecha: manda con Servicios Escolares', async ({ page }) => {
+    await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
+
+    const tarjeta = page.locator('[data-tt-notice="closed"]');
+    await expect(tarjeta).toBeVisible();
+    await expect(tarjeta).toContainText('Consulta las fechas con Servicios Escolares');
+    await expect(tarjeta.locator('time.tt-enroll-closed-date')).toHaveCount(0);
+  });
+});
+
+test.describe('formulario: layout y objetivos táctiles', () => {
+  test.beforeAll(() => { setCohortStatus(ctx, 'open'); });
+
+  test('no desborda en los seis viewports de la matriz', async ({ page }) => {
+    for (const { w, h } of MATRIZ) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('#tt-enroll-form')).toBeVisible();
+      const m = await page.evaluate(() => ({
+        s: document.documentElement.scrollWidth, i: window.innerWidth,
+      }));
+      expect(m.s, `desborde a ${w}px: ${m.s} > ${m.i}`).toBeLessThanOrEqual(m.i);
+    }
+  });
+
+  test('a 390 todo control mide 44 px y el campo va a 16 px', async ({ page }) => {
+    // 16 px NO es cosmético: por debajo, iOS hace zoom al enfocar y deja la
+    // página desplazada. 44 px es el objetivo táctil del contrato responsive.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
+
+    const medidas = await page.evaluate(() => {
+      const vis = [...document.querySelectorAll('.tt-opt, .tt-field, .tt-enroll-submit')]
+        .filter((e) => e.getBoundingClientRect().height > 0);
+      return {
+        n: vis.length,
+        minAlto: Math.min(...vis.map((e) => Math.round(e.getBoundingClientRect().height))),
+        fsCampo: parseFloat(getComputedStyle(document.querySelector('.tt-field')).fontSize),
+      };
+    });
+    expect(medidas.n, 'no se midió ningún control').toBeGreaterThan(8);
+    expect(medidas.minAlto, 'hay un control por debajo de 44 px').toBeGreaterThanOrEqual(44);
+    expect(medidas.fsCampo, 'el campo bajó de 16 px: iOS hará zoom').toBeGreaterThanOrEqual(16);
+  });
+
+  test('a 1440 el panel de contexto va al lado y el formulario no queda angosto', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
+
+    const cajas = await page.evaluate(() => {
+      const r = (sel) => {
+        const e = document.querySelector(sel);
+        const b = e.getBoundingClientRect();
+        return { x: Math.round(b.x), w: Math.round(b.width), bottom: Math.round(b.bottom) };
+      };
+      return { aside: r('.tt-enroll-aside'), form: r('#tt-enroll-form') };
+    });
+    // Dos columnas: el panel termina antes de que empiece el formulario.
+    expect(cajas.aside.x + cajas.aside.w,
+      'el panel no está a la izquierda del formulario').toBeLessThanOrEqual(cajas.form.x);
+    // Y el formulario dejó de ser la columna angosta de 60ch (~636 px con el
+    // panel al lado sería estrechar, no ensanchar): al menos 560 px útiles.
+    expect(cajas.form.w, 'el formulario sigue angosto en escritorio').toBeGreaterThanOrEqual(560);
+  });
+
+  test('el panel no nombra la convocatoria y sí dice cuándo cierra', async ({ page }) => {
+    await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
+
+    const aside = page.locator('.tt-enroll-aside');
+    await expect(aside).toBeVisible();
+    await expect(aside).toContainText('Cierra el');
+    await expect(aside).toContainText('Ten a la mano');
+    await expect(aside).not.toContainText(E2E_TAG);
+  });
+
+  test('«mi carrera no aparece» revela el campo de texto libre', async ({ page }) => {
+    await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
+
+    const libre = page.locator('[data-tt-enroll="program-text-wrap"]');
+    await expect(libre, 'el campo libre no puede nacer visible').toBeHidden();
+
+    await page.locator('[name="program_id"]').selectOption('__other__');
+    await expect(libre).toBeVisible();
+    await expect(page.locator('[name="program_text"]')).toBeVisible();
   });
 });

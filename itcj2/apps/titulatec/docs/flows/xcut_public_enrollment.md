@@ -45,6 +45,69 @@
 Tras aprobar, rechazar o reenviar, la bandeja vuelve a pintar **la pestaña donde estaba el oficial**:
 cada formulario de fila lleva `status` y `cohort_id` en campos ocultos.
 
+## La pantalla pública (rediseño 2026-09-17)
+
+Una sola plantilla (`public/enroll.html`) con dos ramas, y `public_main_class` decide el ancho de
+cada una: ` tt-public-main--enroll` siempre, más ` tt-public-main--enroll-notice` cuando lo que se
+pinta es un aviso.
+
+### Rama A — formulario
+
+`partials/enroll_aside.html` + `partials/enroll_form.html` dentro de `.tt-enroll-layout`.
+
+- **≥992 px:** rejilla de dos columnas (`16.5rem` de panel + `1fr` de formulario, tope 58.5rem).
+  El panel es `position: sticky`. Antes era una columna de 60ch centrada con ~1100 px de fondo
+  vacío a los lados, justo lo que prohíbe [`docs/design/responsive.md`](../design/responsive.md).
+- **<992 px:** una columna, el panel ARRIBA. Decirle al egresado qué tener a la mano sirve cuando
+  todavía puede ir por ello, no después de once campos.
+- **El panel NO nombra la convocatoria.** `test_enrollment_public.py` asierta
+  `cohort.name not in resp.text`. Solo lleva la fecha de cierre (`_enroll_aside_ctx`), y con
+  `closes_at` nulo ese bloque entero desaparece en vez de inventar una fecha.
+- **Cuatro `<fieldset>`** separados por una línea de 1 px dentro de la MISMA tarjeta (tarjeta
+  anidada está prohibida): «¿Ya acreditaste el inglés?» · «Tus datos» · «Cómo te contactamos» ·
+  «¿Ya tienes tu e.firma vigente?». Un grupo de una sola pregunta usa la pregunta como `<legend>`.
+- **Vocabulario reutilizado de la encuesta pública**, no inventado: `.tt-opts`/`.tt-opt` para los
+  binarios (44 px, la tile entera es el `<label>`), `.tt-label`, `.tt-hint` y `.tt-err`.
+- **Campos a 16 px** (`--tt-fs-300`) y 44 px de alto: por debajo de 16, iOS hace zoom al enfocar y
+  deja la página desplazada. El foco pasó de ámbar (2.15:1) a `--tt-focus` (5.02:1, WCAG 1.4.11).
+- **`min-width: 0` en el `<fieldset>`** y `.tt-enroll-row[hidden] { display: none }` no son
+  cosméticos: sin el primero, una celda que no cabe rompe `scrollWidth <= innerWidth` a 360 px;
+  sin el segundo, «Escribe tu carrera» sale siempre porque `display: grid` le gana a `hidden`.
+- Solo un campo es opcional (apellido materno) y es el único marcado; los otros nueve no llevan
+  asterisco.
+
+### Rama B — la ventana está cerrada, y dice cuándo abre
+
+`partials/enroll_closed.html`, con el ancla estable `data-tt-notice="closed"` y el literal
+«La inscripción está cerrada» que asiertan pytest y la E2E.
+
+`CohortService.next_public_enrollment_window(db)` devuelve la convocatoria **`status='open'` con
+`opens_at` futuro** más próxima (orden `opens_at, id`), o `None`:
+
+| Caso | Qué se pinta |
+|---|---|
+| Hay apertura futura | «Abre de nuevo el **lunes 28 de septiembre**» (en `<time datetime>`), pastilla «Faltan 11 días», «Vuelve a esta página ese día…» y «Tendrás hasta el 30 de septiembre para enviar tu solicitud.» |
+| No hay | «Ahora mismo no hay una convocatoria abierta. Consulta las fechas con Servicios Escolares.» |
+| >1 abierta (`ambiguous`) | Sin cambio: 503 con la tarjeta genérica «no disponible» |
+
+**Una `draft` NO se anuncia**: es un borrador cuyas fechas todavía se mueven, y prometer un día al
+que el egresado vendría en balde es peor que no decir nada. Una `closed` con `opens_at` futuro
+tampoco: esa ventana la cerró la jefatura a mano.
+
+Aquí sí se desempata por `id` (al revés que `public_enrollment_cohort`, que falla cerrado): lo
+único que se expone es una fecha, y si dos convocatorias abren el mismo día la fecha es la misma.
+
+El aviso se centra en vertical con **márgenes automáticos**, no con `justify-content: center`:
+cuando el contenido no cabe, un margen automático se resuelve en 0 y el aviso sigue completo,
+mientras que el centrado de flex lo recortaría por arriba sin manera de llegar a él.
+
+Fechas en español: `utils/dates_es.py` (`dia_mes`, `dia_largo`, `cuenta_regresiva`), escritas a
+mano porque el locale del contenedor es `C` y `%B` devolvería «September».
+
+**Cobertura:** `tests/fastapi/titulatec/test_enrollment_public.py` (51 tests, 11 del rediseño) y
+`tests/e2e/titulatec/public-enroll.spec.js` (16, incluidos los seis viewports de la matriz en las
+dos ramas y la medición real de 44 px / 16 px).
+
 ## Estados
 
 ```mermaid

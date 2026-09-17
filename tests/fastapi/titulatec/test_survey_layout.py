@@ -379,10 +379,17 @@ def test_la_encuesta_opta_por_el_modificador_ancho_sin_soltar_la_base(
 
 
 def test_la_inscripcion_no_hereda_el_modificador_de_la_encuesta():
-    """Fuente, no render: la inscripcion la reescribe otra tarea en paralelo y
-    su ruta puede no estar en pie. Lo que se fija es que el ancho nuevo entra
-    por un bloque que SOLO llena `survey.html`, y que la regla de 60ch de la
-    base sigue intacta."""
+    """Fuente, no render: lo que se fija es que cada pantalla publica cambia de
+    ancho por SU PROPIO modificador y ninguna pisa a la otra.
+
+    El 2026-09-17 la inscripcion estreno el suyo (`--enroll`, panel lateral +
+    formulario). Antes de eso este test exigia que `enroll.html` ni siquiera
+    nombrara el bloque, que era la forma de decir «la inscripcion se queda en
+    los 60ch de la base» cuando la encuesta fue la unica en tocarlo. Lo que
+    protege de verdad -que el modificador de la encuesta no se cuele en la otra
+    pantalla, y que la regla de 60ch de la base siga en pie para quien no
+    declare modificador- se conserva palabra por palabra.
+    """
     base = re.sub(r"{#.*?#}", " ", (PUBLIC_TPL / "base_public.html").read_text(encoding="utf-8"), flags=re.S)
     main = re.search(r"<main\b[^>]*>", base, flags=re.S).group(0)
     assert "{% block public_main_class %}{% endblock %}" in main, main
@@ -391,12 +398,12 @@ def test_la_inscripcion_no_hereda_el_modificador_de_la_encuesta():
     assert re.search(r"{%\s*block public_main_class\s*%}.*tt-public-main--survey", survey, flags=re.S)
 
     enroll = (PUBLIC_TPL / "enroll.html").read_text(encoding="utf-8")
-    assert "public_main_class" not in enroll
+    assert re.search(r"{%\s*block public_main_class\s*%}.*tt-public-main--enroll", enroll, flags=re.S)
     assert "tt-public-main--survey" not in enroll
 
     css = CSS_PUBLICO.read_text(encoding="utf-8")
     assert re.search(r"\.tt-public-main\.tt-prose\s*\{[^}]*max-width:\s*60ch", css), \
-        "el tope de 60ch de la base publica cambio: la inscripcion cambiaria de ancho"
+        "el tope de 60ch de la base publica cambio: lo hereda toda pagina sin modificador"
 
 
 def test_la_hoja_publica_no_usa_mute_para_texto_ni_transition_all():

@@ -1,0 +1,44 @@
+{# ===========================================================================
+   enroll_aside.html — panel de contexto del formulario de inscripción.
+
+   Existe por una razón medible: a 1440 el formulario era una columna de 60ch
+   centrada con ~1100 px de fondo vacío a los lados, que es exactamente lo que
+   `docs/design/responsive.md` prohíbe («no un móvil estirado ni una columna
+   angosta centrada en una pantalla vacía»). El panel convierte ese vacío en la
+   información que el egresado necesita ANTES de empezar a teclear.
+
+   Va ANTES del formulario en el DOM, no después. En escritorio el CSS lo pone
+   a la izquierda; en móvil se queda arriba, que es donde sirve: decirle qué
+   tener a la mano cuando todavía puede ir por ello, no cuando ya llenó once
+   campos.
+
+   PROHIBIDO poner aquí el nombre de la convocatoria.
+   `test_enrollment_public.py:135` asierta `cohort.name not in resp.text`. Solo
+   fechas. Y con `closes_at` nulo el bloque entero desaparece: una fecha
+   inventada es peor que ninguna.
+
+   Contexto: closes_label ('30 de septiembre'), closes_countdown ('Faltan 13
+   días', o cadena vacía si ya pasó o es hoy). Los arma
+   `pages/public.py::_enroll_aside_ctx`.
+   =========================================================================== #}
+<aside class="tt-card tt-enroll-aside" aria-label="Antes de empezar">
+  {% if closes_label %}
+  <div class="tt-enroll-aside-block">
+    <h2 class="tt-enroll-aside-title">Cierra el {{ closes_label }}</h2>
+    {% if closes_countdown %}
+    <p class="tt-enroll-aside-meta">
+      <span class="tt-pill tt-pill--amber">{{ closes_countdown }}</span>
+    </p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="tt-enroll-aside-block">
+    <h2 class="tt-enroll-aside-title">Ten a la mano</h2>
+    <ul class="tt-enroll-aside-list">
+      <li>Tu número de control</li>
+      <li>Un correo personal al que sigas entrando cuando egreses</li>
+      <li>Tu teléfono</li>
+    </ul>
+  </div>
+</aside>
