@@ -161,6 +161,13 @@ calcula nada y no se pinta nada de esto.
   columnas en móvil; sin scroll horizontal en 360/390/1280/1440. `data-tt-remember="tt-req-years"`
   (`titulatec-utils.js`) guarda en localStorage si el oficial lo dejó abierto y lo restaura en
   `htmx:load`, porque cada acción de la bandeja re-pinta el parcial y el servidor lo manda cerrado.
+- **La tabla cabe en el admin (2026-09-17):** 5 columnas — Solicitante (control, nombre, cuenta y
+  «Rechazada antes» hasta 2 renglones) · Carrera (con la convocatoria debajo) · Contacto (el correo
+  parte en la «@» con `<wbr>` armado por `partition`, sin `|safe`) · Recibida · acciones apiladas —
+  con `table-layout: fixed`, anchos en % y mínimo de 920 px. Con 8 columnas medía 1,337 px contra
+  977-1,192 px útiles y las acciones quedaban fuera, con la barra de scroll al final de cientos de
+  filas. Medido en 1920/1440/1280/1024/390/360 × 4 pestañas: 0 celdas desbordadas; bajo 1280 la tabla
+  se desplaza dentro de `.table-responsive` y la página nunca.
 - **Correo de rechazo no enviado**: columna `titulatec_enrollment_requests.rejection_sent_at`
   (`DateTime`, nullable; migración `tt20260917a`). `reject()` la sella en un commit PROPIO, DESPUÉS
   de mandar `send_enrollment_rejected`, solo si devolvió `True` — mismo patrón que

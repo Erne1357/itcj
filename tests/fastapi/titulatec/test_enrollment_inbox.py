@@ -218,7 +218,9 @@ def test_la_fila_por_revisar_con_cuenta_no_pide_nip_y_avisa_a_donde_va_la_liga(
     assert "Aprobar y enviar liga" in fila
     assert "Aprobar y crear acceso" not in fila
     assert AVISO_CON_CUENTA in _plano(fila)
-    assert "lo.tecleo@example.invalid" in fila
+    # El correo lleva un `<wbr>` antes de la «@» para partir ahí en la tabla;
+    # no produce texto, así que lo que el oficial LEE es el correo entero.
+    assert "lo.tecleo@example.invalid" in fila.replace("<wbr>", "")
     assert f'hx-post="/titulatec/admin/solicitudes/{req.id}/rechazar"' in fila
 
 
@@ -735,3 +737,79 @@ def test_rechazada_antes_si_aparece_cuando_esta_dentro_del_alcance(
 
     assert "Rechazada antes" in texto
     assert "Motivo dentro de alcance." in texto
+
+
+# ---------------------------------------------------------------------------
+# La tabla cabe en el ancho del admin (2026-09-17)
+# ---------------------------------------------------------------------------
+# Con 8 columnas y `table-layout: auto` medía 1,337 px como mínimo contra
+# 977-1,192 px útiles: se desplazaba en horizontal con la barra al final de
+# cientos de filas y las acciones se veían cortadas. El ancho real se midió en
+# navegador (0 celdas desbordadas en 6 anchos x 4 pestañas); estos tests fijan
+# las piezas que lo hacen posible, que es lo que un cambio futuro rompería.
+_CSS = (Path(__file__).resolve().parents[3]
+        / "itcj2/apps/titulatec/static/css/titulatec.css")
+
+
+def test_la_tabla_tiene_cinco_columnas_y_agrupa_por_fila(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open", name="Convocatoria De La Tabla")
+    req = _make_req(db_session, cohort, control="21100077",
+                    email="nombre.apellido@example.invalid")
+
+    html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
+
+    tabla = html.split('<table class="table table-sm tt-req-table">', 1)
+    assert len(tabla) == 2, "la tabla perdió la clase que le da el layout fijo"
+    encabezado = tabla[1].split("</thead>", 1)[0]
+    assert encabezado.count("<th>") == 5
+    assert encabezado.count("<col ") == 5
+    fila = _fila(html, req)
+    celdas = fila.split("<td")[1:]
+    assert len(celdas) == 5
+    # Control, nombre y cuenta en la MISMA celda; convocatoria bajo la carrera.
+    assert "21100077" in celdas[0] and "EGRESADO" in _plano(celdas[0])
+    assert "Sin cuenta" in celdas[0]
+    assert "Convocatoria De La Tabla" in celdas[1]
+    # El correo parte en la «@», no letra por letra.
+    assert "nombre.apellido<wbr>@example.invalid" in celdas[2]
+    # Las acciones siguen completas en la última celda.
+    assert f'hx-post="/titulatec/admin/solicitudes/{req.id}/aprobar"' in celdas[4]
+    assert f'hx-post="/titulatec/admin/solicitudes/{req.id}/rechazar"' in celdas[4]
+
+
+def test_el_correo_con_marcado_se_escapa_aunque_se_parta_en_la_arroba(
+    client_as, db_session, make_head, make_cohort,
+):
+    """El `<wbr>` se arma en la plantilla con `partition`, no con `|safe`: el
+    correo lo teclea un anónimo y tiene que seguir escapado."""
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="21100078",
+                    email='<script>x</script>@example.invalid')
+
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
+
+    assert "<script>x</script>" not in fila
+    assert "&lt;script&gt;x&lt;/script&gt;<wbr>@example.invalid" in fila
+
+
+def test_el_css_de_la_tabla_no_vuelve_a_desbordar():
+    css = _CSS.read_text(encoding="utf-8")
+    sin_comentarios = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    regla = re.search(r"\.tt-req-table\s*\{([^}]*)\}", sin_comentarios)
+    assert regla and "table-layout: fixed" in regla.group(1)
+    assert re.search(r"min-width:\s*\d+px", regla.group(1)), (
+        "sin ancho mínimo, en móvil las celdas se aplastan en vez de desplazarse")
+
+    antecedente = re.search(r"\.tt-prior-reject\s*\{([^}]*)\}", sin_comentarios)
+    assert antecedente and "nowrap" not in antecedente.group(1), (
+        "«Rechazada antes» en una sola línea ensanchaba la columna a 268 px")
+
+    # El `.visually-hidden` del encabezado es `position: absolute`: sin un
+    # ancestro posicionado dentro del scroll, estiraba la PÁGINA en móvil.
+    assert re.search(r"#tt-requests-body \.table-responsive\s*\{[^}]*position:\s*relative",
+                     sin_comentarios)

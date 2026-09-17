@@ -2110,9 +2110,53 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-yearbar::-webkit-meter-optimum-value { background: var(--tt-accent); border-radius: 999px; }
 .tt-yearbar::-moz-meter-bar { background: var(--tt-accent); border-radius: 999px; }
 
-/* Antecedente de rechazo, en la columna Nombre: motivo truncado VISUALMENTE —
-   el texto completo sigue entero en el DOM y en `title`, nunca se pierde. */
+/* Tabla de la bandeja: CINCO columnas con `table-layout: fixed`. Con ocho y
+   `auto` medía 1,337 px como mínimo contra 977-1,192 px útiles, así que se
+   desplazaba en horizontal con la barra al final de cientos de filas y las
+   acciones se veían cortadas. Medido tras el cambio (1920/1440/1280): la tabla
+   mide lo mismo que su contenedor, sin celdas desbordadas ni botones cortados.
+
+   Anchos TODOS en porcentaje, con un mínimo de 920 px: mezclar px fijos con %
+   hacía que la suma pasara del contenedor a 1280 (la fecha, `nowrap`, se salía
+   2 px) y en móvil aplastaba las celdas. Con 920 px la fecha tiene 101 px y
+   las acciones 258 px; bajo ese ancho la tabla se desplaza DENTRO de
+   `.table-responsive`, nunca la página. */
+.tt-req-table { table-layout: fixed; width: 100%; min-width: 920px; }
+.tt-req-table td { vertical-align: top; overflow-wrap: break-word; }
+.tt-req-col-who     { width: 24%; }
+.tt-req-col-prog    { width: 17%; }
+.tt-req-col-contact { width: 20%; }
+.tt-req-col-date    { width: 11%; }
+.tt-req-col-acc     { width: 28%; }
+/* El `<th>` de acciones lleva su nombre en un `.visually-hidden`, que es
+   `position: absolute`. Sin un ancestro posicionado DENTRO del contenedor con
+   scroll, ese span no lo recorta el `overflow` y estiraba la PÁGINA a 538 px
+   en un móvil de 360. */
+#tt-requests-body .table-responsive { position: relative; }
+.tt-req-ctl  { display: block; font-family: var(--tt-mono); font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-req-name { display: block; color: var(--tt-text-1); }
+.tt-req-sub  { display: block; font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-req-mail { display: block; }
+.tt-req-date { white-space: nowrap; }
+.tt-req-tags { display: flex; flex-wrap: wrap; gap: var(--tt-sp-1); margin-top: var(--tt-sp-1); }
+.tt-req-tags:empty { display: none; }
+
+/* Acciones apiladas: el `<select>` de carrera ocupa su renglón (sus opciones
+   son largas y con ancho automático empujaban la celda) y el botón de aprobar
+   también; el motivo del rechazo comparte renglón con su botón y envuelve si
+   no cabe. `min-width: 0` deja encoger a los hijos del flex. */
+.tt-req-form { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-1); }
+.tt-req-form > * { min-width: 0; }
+.tt-req-form select { flex: 1 1 100%; max-width: 100%; }
+.tt-req-form input[name="nip"] { flex: 0 0 76px; }
+.tt-req-form button { flex: 1 1 auto; }
+.tt-req-form--inline input { flex: 1 1 120px; }
+
+/* Antecedente de rechazo, bajo el nombre: hasta DOS renglones y después se
+   corta — el texto completo sigue en el DOM y en `title`. Antes era una sola
+   línea `nowrap` de 260 px que, por sí sola, ensanchaba la columna Nombre de
+   94 a 268 px y empujaba las acciones fuera de la tabla. */
 .tt-prior-reject {
-  display: inline-block; max-width: 260px; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; vertical-align: bottom; color: var(--tt-text-3);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; margin-top: var(--tt-sp-1); color: var(--tt-text-3);
 }

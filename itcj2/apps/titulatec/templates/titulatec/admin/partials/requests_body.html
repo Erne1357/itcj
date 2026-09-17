@@ -122,41 +122,61 @@
     <p class="mb-0">No hay solicitudes con ese filtro.</p>
   </div>
   {% else %}
+  {# CINCO columnas, no ocho (2026-09-17). Con Control, Nombre, Carrera,
+     Contacto, Convocatoria, Fecha, Cuenta y Acciones la tabla medía 1,337 px
+     como mínimo contra 977-1,192 px útiles del admin: se desplazaba en
+     horizontal y la barra quedaba al final de cientos de filas, así que las
+     acciones se veían cortadas. Ahora el control y la cuenta van con el nombre,
+     la convocatoria bajo la carrera, y `table-layout: fixed` + `<colgroup>`
+     reparte el ancho (titulatec.css, «Bandeja de solicitudes»). Las acciones
+     se apilan dentro de su columna. Bajo ~760 px la tabla conserva un mínimo y
+     se desplaza dentro de `.table-responsive`, como el resto de tablas admin. #}
   <div class="table-responsive">
-    <table class="table table-sm align-middle">
+    <table class="table table-sm tt-req-table">
+      <colgroup>
+        <col class="tt-req-col-who"><col class="tt-req-col-prog"><col class="tt-req-col-contact">
+        <col class="tt-req-col-date"><col class="tt-req-col-acc">
+      </colgroup>
       <thead><tr>
-        <th>Control</th><th>Nombre</th><th>Carrera</th><th>Contacto</th>
-        <th>Convocatoria</th><th>Fecha</th><th>Cuenta</th><th></th>
+        <th>Solicitante</th><th>Carrera</th><th>Contacto</th><th>Recibida</th>
+        <th><span class="visually-hidden">Acciones</span></th>
       </tr></thead>
       <tbody>
       {% for r in rows %}
       <tr id="tt-req-{{ r.id }}">
-        <td class="tt-mono">{{ r.control }}</td>
         <td>
-          {{ r.name }}
-          {% if status == 'all' %}<br><span class="tt-pill tt-pill--neutral">{{ r.status_label }}</span>{% endif %}
+          <span class="tt-req-ctl">{{ r.control }}</span>
+          <span class="tt-req-name">{{ r.name }}</span>
+          <span class="tt-req-tags">
+            {% if status == 'all' %}<span class="tt-pill tt-pill--neutral">{{ r.status_label }}</span>{% endif %}
+            {% if r.has_account %}
+            <span class="tt-pill tt-pill--neutral">Con cuenta</span>
+            {% if not r.has_password %}<span class="tt-pill tt-pill--danger">sin contraseña</span>{% endif %}
+            {% if r.account_inactive and (r.reviewable or r.status == 'approved') %}<span class="tt-pill tt-pill--amber">Cuenta desactivada: se reactiva al abrir la liga</span>{% endif %}
+            {% else %}
+            <span class="tt-pill tt-pill--amber">Sin cuenta</span>
+            {% endif %}
+          </span>
           {% if r.prior_reject %}
-          <br><span class="small tt-prior-reject" title="Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}">
+          <span class="small tt-prior-reject" title="Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}">
             <i class="bi bi-clock-history me-1" aria-hidden="true"></i>Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}</span>
           {% endif %}
         </td>
-        <td>{{ r.program }}</td>
-        <td>{{ r.email }}<br><span class="tt-mono">{{ r.phone }}</span></td>
-        <td>{{ r.cohort }}</td>
-        <td class="tt-mono">{{ r.created }}</td>
         <td>
-          {% if r.has_account %}
-          <span class="tt-pill tt-pill--neutral">Con cuenta</span>
-          {% if not r.has_password %}<span class="tt-pill tt-pill--danger">sin contraseña</span>{% endif %}
-          {% if r.account_inactive and (r.reviewable or r.status == 'approved') %}<span class="tt-pill tt-pill--amber">Cuenta desactivada: se reactiva al abrir la liga</span>{% endif %}
-          {% else %}
-          <span class="tt-pill tt-pill--amber">Sin cuenta</span>
-          {% endif %}
+          {{ r.program }}
+          <span class="tt-req-sub">{{ r.cohort }}</span>
         </td>
         <td>
+          {# El correo parte en la «@» (`<wbr>`), no letra por letra. #}
+          {%- set local, arroba, dominio = (r.email or '').partition('@') -%}
+          <span class="tt-req-mail">{{ local }}{% if arroba %}<wbr>@{{ dominio }}{% endif %}</span>
+          <span class="tt-req-sub tt-mono">{{ r.phone }}</span>
+        </td>
+        <td class="tt-mono tt-req-date">{{ r.created }}</td>
+        <td class="tt-req-acc">
           {% if r.reviewable %}
             {% if r.note %}<p class="small mb-1">Nota: {{ r.note }}</p>{% endif %}
-            <form class="d-flex flex-wrap gap-1 align-items-center"
+            <form class="tt-req-form"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/aprobar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
@@ -181,7 +201,7 @@
                liga de activación irá a este correo, que escribió el solicitante. Confirma su
                identidad antes de aprobar.</p>
             {% endif %}
-            <form class="d-flex gap-1 mt-1"
+            <form class="tt-req-form tt-req-form--inline mt-1"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
@@ -194,14 +214,14 @@
             <p class="small mb-1">Liga enviada {{ r.sends }} {{ 'vez' if r.sends == 1 else 'veces' }}{% if r.last_sent %}
                · última {{ r.last_sent }}{% endif %} · {{ 'abierta' if r.opened else 'sin abrir' }}</p>
             {% if not r.last_sent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
-            <form class="d-flex gap-1 mt-1"
+            <form class="tt-req-form tt-req-form--inline mt-1"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reenviar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
               {{ tab_fields(status, cohort_id) }}
               <button type="submit" class="btn btn-sm tt-btn-ghost">Reenviar liga</button>
             </form>
-            <form class="d-flex gap-1 mt-1"
+            <form class="tt-req-form tt-req-form--inline mt-1"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
