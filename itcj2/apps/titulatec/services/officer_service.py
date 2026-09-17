@@ -51,7 +51,12 @@ class OfficerService:
             )
             out.append({
                 "id": pos.id, "name": pos.title,
-                "users": [{"id": u.id, "name": u.full_name} for u in users],
+                # `is_active` viaja a la vista porque una cuenta se puede
+                # desactivar DESPUÉS desde la configuración del core, y entonces
+                # el encargado deja de poder entrar sin que nada en esta
+                # pestaña lo delatara.
+                "users": [{"id": u.id, "name": u.full_name,
+                           "is_active": bool(u.is_active)} for u in users],
                 "programs": [{"id": p.id, "name": p.name} for p in progs],
             })
         return out
@@ -106,6 +111,71 @@ class OfficerService:
         if pos is None or not (pos.code or "").startswith(code_prefix):
             return None
         return pos
+
+    @staticmethod
+    def activate_users(db: Session, user_ids: set[int], *, department_id: int,
+                       actor_id: int | None = None) -> list[dict]:
+        """Reactiva las cuentas INACTIVAS que van a ser encargados. Devuelve a quiénes tocó.
+
+        Por qué existe (2026-09-17): nombrar encargado a una cuenta inactiva
+        producía un encargado MUERTO. `auth_service.py:45` filtra
+        `is_active=True` al entrar, así que la persona salía en la lista, tenía
+        el rol `titulatec_school_services` y su alcance por carrera, y no podía
+        iniciar sesión. En Servicios Escolares eran 9 de 11 cuentas: los
+        `aux_school_services`, dados de alta en una campaña de inventario de
+        helpdesk y desactivados desde entonces.
+
+        Restablece además la contraseña a `DEFAULT_PASSWORD` (decisión del
+        usuario, 2026-09-17). Esto INVALIDA la contraseña anterior, así que la
+        UI lo dice antes de guardar y lo confirma después; no es un efecto
+        secundario callado. Lo que evita que quede una credencial conocida es
+        `core/api/users.py::password_state`: quien tenga exactamente esa
+        contraseña recibe la pantalla de cambio obligatorio al entrar.
+
+        El conjunto permitido es el MISMO que valida `create_officer` y
+        `set_users`: usuarios con puesto activo en el departamento que gestiona
+        el jefe. Un `user_id` escrito a mano que no esté ahí se ignora en
+        silencio y NO se activa — esta función nunca es la guarda única, pero
+        tampoco puede ser el agujero por el que se active a un ajeno. Es lo que
+        acota el alcance de un permiso de titulatec que toca identidad del core.
+
+        Una cuenta YA activa no se toca: ni su `is_active` ni su contraseña.
+        Sin ella, editar un encargado para agregarle una carrera le habría
+        reseteado la contraseña a todos sus ocupantes.
+        """
+        import logging
+
+        from itcj2.core.models.user import User
+        from itcj2.core.utils.security import DEFAULT_PASSWORD, hash_nip
+
+        if department_id is None:
+            raise ValueError("Sin departamento gestionado")
+        permitidos = OfficerService.department_user_ids(db, department_id)
+        objetivo = set(user_ids) & permitidos
+        if not objetivo:
+            return []
+
+        tocados = []
+        for u in db.query(User).filter(User.id.in_(objetivo),
+                                       User.is_active.is_(False)).all():
+            u.is_active = True
+            u.password_hash = hash_nip(DEFAULT_PASSWORD)
+            # Lo mismo que hace `core/api/users_admin.py::reset_password`. La
+            # pantalla de cambio obligatorio la decide `password_state`
+            # comparando el hash contra `DEFAULT_PASSWORD`, así que el flujo
+            # funcionaría sin esta línea; se pone para no dejar la columna
+            # diciendo lo contrario que el hash en la cuenta de alguien que sí
+            # se había puesto contraseña propia antes de que la desactivaran.
+            u.must_change_password = True
+            tocados.append({"id": u.id, "name": u.full_name})
+        if tocados:
+            db.commit()
+            logging.getLogger("itcj2.apps.titulatec.services.officer_service").info(
+                "Encargados: actor %s reactivó y restableció la contraseña de %s "
+                "en el departamento %s",
+                actor_id, [t["id"] for t in tocados], department_id,
+            )
+        return tocados
 
     @staticmethod
     def set_programs(db: Session, position_id: int, program_ids: set[int]) -> None:

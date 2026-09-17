@@ -2160,3 +2160,337 @@ button.tt-seat--libre { pointer-events: auto; }
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   overflow: hidden; margin-top: var(--tt-sp-1); color: var(--tt-text-3);
 }
+
+/* ===========================================================================
+   Encargados por carrera (2026-09-17)
+
+   Medido ANTES: los usuarios y las carreras se elegian en dos `<select
+   multiple size="3">` nativos. Exigian Ctrl+click, mostraban 3 renglones de 11
+   usuarios y de 25 carreras, y cortaban el cuarto nombre por la mitad. En la
+   tarjeta del encargado, usuarios y carreras iban revueltos en la MISMA fila de
+   pastillas, distinguidos solo por color: sin rotulo, sin forma de saber cual
+   era cual salvo por el tono.
+
+   Y algo peor que lo feo: 9 de los 11 usuarios de Servicios Escolares tienen la
+   cuenta INACTIVA (los dio de alta una campana de inventario de helpdesk).
+   `auth_service` filtra `is_active` al entrar, asi que nombrar encargado a uno
+   de ellos producia un encargado que no podia iniciar sesion, y la lista no
+   daba ninguna senal. Ahora cada fila inactiva lo dice, el contador anuncia
+   cuantas se reactivaran y el aviso previo al boton advierte del cambio de
+   contrasena.
+
+   Cae DESPUES del marcador "ADMIN - CITAS DE COTEJO" (linea 1127), igual que el
+   bloque de KPIs de arriba, asi que `test_citas_sistema_visual.py` barre estas
+   reglas: tipografia SOLO con tokens `--tt-fs-*` (ningun `font-size` literal),
+   texto nunca en `--tt-mute` (va `--tt-text-3`), y ningun anillo de foco con
+   `--tt-accent` (2.15:1) — todos con `--tt-focus`.
+   =========================================================================== */
+
+/* ---- 1. Rejilla del formulario ------------------------------------------- */
+/* El nombre ocupa el renglon entero y los dos selectores se reparten el ancho
+   en cuanto hay sitio. `auto-fit` con minimo de 18rem y no una media query: la
+   caja util del admin cambia con el cajon lateral, no con la ventana. */
+/* DOS columnas exactas, no `auto-fit`. Con `repeat(auto-fit, minmax(18rem, 1fr))`
+   la rejilla sacaba una TERCERA columna vacia en cuanto cabia (medido a 1920:
+   tres de 288 px), porque aqui solo hay dos selectores y el numero de columnas
+   no lo decide el contenido. El tope de 56rem ademas evita que el formulario se
+   estire a los 1240 px del contenido admin: eso no se escanea, se recorre. */
+.tt-off-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--tt-sp-4);
+  align-items: start;
+  max-width: 56rem;
+  min-width: 0;
+}
+/* 768 y no 992: bajo 992 el cajon admin esta cerrado y el contenido ocupa casi
+   toda la ventana, asi que a 768 ya caben dos columnas de ~360 px. */
+@media (min-width: 768px) {
+  .tt-off-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.tt-off-form-grid > .tt-off-name-field { grid-column: 1 / -1; }
+.tt-off-field { min-width: 0; }
+/* `.tt-field` no trae ancho propio (es un campo compacto de tabla en su origen),
+   asi que sin esto el nombre del encargado salia en una caja de ~220 px en una
+   fila de 1100. Se topa para que no se estire a lo bruto en un monitor grande. */
+.tt-off-name-field > .tt-field { width: 100%; max-width: 32rem; }
+.tt-off-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-sp-2);
+  margin-top: var(--tt-sp-4);
+}
+
+/* El alta plegable. El marcador nativo se retira y lo sustituye el icono del
+   marcado, que ya dice «+»; `list-style` cubre Firefox y el pseudo-elemento
+   `-webkit-details-marker`, Safari. */
+.tt-off-new > summary { list-style: none; }
+.tt-off-new > summary::-webkit-details-marker { display: none; }
+.tt-off-new-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-sp-2);
+  min-height: 44px;
+  margin: calc(-1 * var(--tt-sp-2)) calc(-1 * var(--tt-sp-2)) 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  border-radius: var(--tt-r-sm);
+  font-size: var(--tt-fs-200);
+  font-weight: 600;
+  color: var(--tt-text-1);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tt-off-new-summary:hover { background-color: var(--tt-mist); }
+}
+.tt-off-new-summary:focus-visible {
+  outline: 2px solid var(--tt-focus);
+  outline-offset: -2px;
+}
+.tt-off-new-summary > .bi {
+  font-size: var(--tt-fs-300);
+  line-height: 1;
+  transition: transform var(--tt-dur-2) var(--tt-ease-out);
+}
+/* Abierto, el «+» gira a «x»: el mismo icono dice las dos cosas. */
+.tt-off-new[open] > .tt-off-new-summary > .bi { transform: rotate(45deg); }
+.tt-off-new[open] > .tt-off-new-summary { margin-bottom: var(--tt-sp-3); }
+@media (prefers-reduced-motion: reduce) {
+  .tt-off-new-summary > .bi { transition: none; }
+}
+
+/* ---- 2. Selector de casillas con buscador -------------------------------- */
+/* Sustituye al `<select multiple>`: sin Ctrl+click, con buscador, con estado
+   por fila y usable con el pulgar. La lista tiene scroll PROPIO -no empuja la
+   pagina- y se topa en 15rem, que son unas 6 filas: suficiente para ver que hay
+   mas y para no comerse la pantalla con 25 carreras. */
+.tt-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-sp-2);
+  min-width: 0;
+}
+.tt-picker-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tt-sp-2);
+  min-width: 0;
+}
+.tt-picker-title {
+  font-size: var(--tt-fs-200);
+  font-weight: 600;
+  color: var(--tt-text-2);
+}
+/* El contador es dato, no adorno: dice cuantos van elegidos de cuantos hay y,
+   cuando toca, cuantas cuentas se reactivaran al guardar. */
+.tt-picker-count {
+  font-size: var(--tt-fs-100);
+  font-variant-numeric: tabular-nums;
+  color: var(--tt-text-3);
+  white-space: nowrap;
+}
+.tt-picker-count[data-tt-picker-warn="1"] {
+  font-weight: 600;
+  color: var(--tt-accent-ink);
+}
+
+.tt-picker-search { position: relative; min-width: 0; }
+.tt-picker-search > .bi {
+  position: absolute;
+  top: 50%;
+  left: var(--tt-sp-3);
+  transform: translateY(-50%);
+  font-size: var(--tt-fs-200);
+  color: var(--tt-text-3);
+  pointer-events: none;
+}
+/* 16 px de letra: por debajo, iOS hace zoom al enfocar. El admin se usa en
+   tablet de ventanilla, asi que aplica igual que en la inscripcion publica. */
+.tt-picker-input {
+  width: 100%;
+  min-height: 40px;
+  padding-left: calc(var(--tt-sp-3) + var(--tt-sp-5));
+  font-size: var(--tt-fs-300);
+}
+.tt-picker-input:focus {
+  border-color: var(--tt-focus);
+  box-shadow: 0 0 0 3px rgba(180, 83, 9, .18);
+}
+/* La X nativa de `type="search"` en WebKit se come el padding y salta de sitio;
+   el campo se limpia con Esc o borrando, que es lo que hace todo el mundo. */
+.tt-picker-input::-webkit-search-decoration,
+.tt-picker-input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+.tt-picker-list {
+  /* 5 filas y MEDIA. La media fila asomando es lo que dice "hay mas abajo" sin
+     una sombra ni un degradado; con una altura que cortara justo entre filas, la
+     lista parece completa y nadie baja. 44 px por fila + los 8 del relleno. */
+  max-height: calc(5.5 * 44px + 2 * var(--tt-sp-1));
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--tt-sp-1);
+  list-style: none;
+  border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r);
+  background-color: var(--tt-paper);
+  overscroll-behavior: contain;
+}
+.tt-picker-row { min-width: 0; }
+.tt-picker-row[hidden] { display: none; }
+
+/* La fila ENTERA es el `<label>`: 44 px de objetivo tactil y ningun `for`/`id`
+   que mantener unico entre el alta y los N formularios de edicion de la misma
+   pagina. */
+.tt-picker-opt {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--tt-sp-3);
+  min-height: 44px;
+  margin: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  border-radius: var(--tt-r-sm);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--tt-dur-1) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tt-picker-opt:hover { background-color: var(--tt-mist); }
+}
+.tt-picker-opt:has(input:focus-visible) {
+  outline: 2px solid var(--tt-focus);
+  outline-offset: -2px;
+}
+/* Lo elegido se ve sin depender del color: ademas del fondo, el nombre sube de
+   peso. */
+.tt-picker-opt:has(input:checked) { background-color: var(--tt-mist); }
+.tt-picker-opt:has(input:checked) > .tt-picker-name {
+  font-weight: 600;
+  color: var(--tt-text-1);
+}
+/* El borde gris de Bootstrap da 1.3:1: la casilla vacia no se veia. */
+.tt-picker-opt > .form-check-input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-color: var(--tt-text-3);
+  cursor: pointer;
+}
+.tt-picker-opt > .form-check-input:checked {
+  border-color: var(--tt-ink);
+  background-color: var(--tt-ink);
+}
+.tt-picker-opt > .form-check-input:focus { border-color: var(--tt-ink); box-shadow: none; }
+
+.tt-picker-name {
+  min-width: 0;
+  font-size: var(--tt-fs-200);
+  line-height: 1.35;
+  color: var(--tt-text-1);
+  overflow-wrap: anywhere;
+}
+.tt-picker-flag { flex: 0 0 auto; }
+.tt-picker-empty {
+  margin: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  font-size: var(--tt-fs-100);
+  color: var(--tt-text-3);
+}
+
+/* ---- 3. Aviso de reactivacion -------------------------------------------- */
+/* Reactivar una cuenta es dar acceso al sistema Y cambiarle la contrasena. No
+   puede pasar en silencio: esto aparece ANTES de guardar, en cuanto se marca
+   una cuenta inactiva. Fondo tenido y borde completo, nunca un borde lateral. */
+.tt-off-warn {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--tt-sp-3);
+  margin-top: var(--tt-sp-4);
+  padding: var(--tt-sp-3) var(--tt-sp-4);
+  border: 1px solid rgba(245, 158, 11, .38);
+  border-radius: var(--tt-r);
+  background-color: var(--tt-accent-soft);
+  font-size: var(--tt-fs-200);
+  line-height: 1.45;
+  color: var(--tt-accent-ink);
+}
+.tt-off-warn[hidden] { display: none; }
+.tt-off-warn > .bi { font-size: var(--tt-fs-400); line-height: 1.25; }
+.tt-off-warn strong { font-weight: 600; }
+.tt-off-warn code {
+  padding: 0 var(--tt-sp-1);
+  border-radius: var(--tt-r-sm);
+  background-color: rgba(120, 53, 15, .1);
+  font-family: var(--tt-mono);
+  font-size: var(--tt-fs-100);
+  color: var(--tt-accent-ink);
+}
+
+/* ---- 4. Tarjeta del encargado -------------------------------------------- */
+.tt-off { min-width: 0; }
+.tt-off-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--tt-sp-3);
+  min-width: 0;
+}
+.tt-off-name {
+  margin: 0;
+  min-width: 0;
+  font-family: var(--tt-display);
+  font-size: var(--tt-fs-400);
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--tt-text-1);
+  overflow-wrap: anywhere;
+}
+.tt-off-tools { display: flex; flex-wrap: wrap; gap: var(--tt-sp-2); flex: 0 0 auto; }
+
+/* Dos renglones ROTULADOS. Antes usuarios y carreras compartian una sola fila
+   de pastillas y solo el color decia cual era cual, que es justo lo que no
+   funciona para quien no distingue esos dos tonos. */
+.tt-off-rows {
+  display: grid;
+  gap: var(--tt-sp-3);
+  margin: var(--tt-sp-4) 0 0;
+  min-width: 0;
+}
+.tt-off-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--tt-sp-2);
+  min-width: 0;
+}
+@media (min-width: 768px) {
+  .tt-off-row { grid-template-columns: 7rem minmax(0, 1fr); gap: var(--tt-sp-4); }
+}
+.tt-off-row > dt {
+  font-size: var(--tt-fs-100);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--tt-text-3);
+}
+.tt-off-row > dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-sp-2);
+  margin: 0;
+  min-width: 0;
+}
+.tt-off-none { font-size: var(--tt-fs-200); color: var(--tt-text-3); }
+
+/* ---- 5. Edicion en linea ------------------------------------------------- */
+/* Se despliega DENTRO de la tarjeta y empuja hacia abajo: no tapa a su vecina
+   ni la encoge, que es la regla del proyecto. Separador de 1 px, no otra
+   tarjeta: tarjeta dentro de tarjeta esta prohibida. */
+.tt-off-edit {
+  margin-top: var(--tt-sp-4);
+  padding-top: var(--tt-sp-4);
+  border-top: 1px solid var(--tt-line-soft);
+  min-width: 0;
+}
+.tt-off-edit[hidden] { display: none; }

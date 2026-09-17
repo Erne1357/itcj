@@ -68,6 +68,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [Bandeja administrativa de procesos](xcut_admin_process_inbox.md) 🏛️🎓 ⤵ scope — tabla y kanban del mismo dataset, `idle_days` y filtro de atorados.
 - [Expediente del alumno](xcut_admin_process_expediente.md) 🏛️ ⤵ scope — acordeón de las 9 fases con el historial de cada una; documentos de solo lectura, mover de fase en modal, y el `?from=` que devuelve a la pestaña de origen con sus filtros.
 - [El alumno consulta el detalle de una fase](xcut_student_phase_detail.md) 👤 — **acordeón en el dashboard** (la pantalla `/fase/{n}` ya no existe: redirige): estado, instrucciones, sub-progreso, CTA y timeline.
+- [La jefatura da de alta encargados por carrera](xcut_school_services_manage_officers.md) 🏛️🤖 ⤵ alimenta el alcance — un encargado es un `Position` con rol y carreras; nombrar a una cuenta INACTIVA la reactiva y le restablece la contraseña (9 de 11 usuarios de Servicios Escolares lo estaban), y la pantalla lo dice antes y después.
 - [El alumno usa TitulaTec dentro del shell mobile del core](xcut_student_shell_embed.md) 👤 — embebido vs standalone, drawer/rail, notificaciones por Avisos, mini-perfil.
 
 ### Referencias

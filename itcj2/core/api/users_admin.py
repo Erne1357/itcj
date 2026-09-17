@@ -15,7 +15,9 @@ from itcj2.dependencies import DbSession, CurrentUser, require_perms, require_ro
 router = APIRouter(prefix="/users", tags=["users-admin"])
 logger = logging.getLogger(__name__)
 
-DEFAULT_PASSWORD = "tecno#2K"
+# Reexportada desde `core/utils/security`, donde vive junto a `hash_nip`.
+# Se conserva el nombre aquí porque otros módulos ya la importaban de este.
+from itcj2.core.utils.security import DEFAULT_PASSWORD  # noqa: E402,F401
 
 # D8/C7 (core-config-revamp; formato de traslado revisado 2026-09-17): 8
 # dígitos, o una letra + 8 dígitos para quien viene de traslado (ej.

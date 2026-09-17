@@ -1,15 +1,25 @@
+{# Encargados por carrera. La cabecera sigue el patrón de `requests.html`
+   (`tt-display h3 fw-medium` + lede en `small text-body-secondary`), que es el
+   de las pantallas nuevas: sin `style=` inline, que el proyecto prohíbe. Las
+   páginas admin viejas todavía lo traen; no se tocan aquí. #}
 {% extends "titulatec/admin/base_admin.html" %}
 {% block title %}Encargados · TitulaTec{% endblock %}
 {% block admin_view %}officers{% endblock %}
 {% block admin_main %}
-<div class="px-4 pt-4">
-  <h1 class="tt-display" style="font-size:1.875rem;font-weight:500;letter-spacing:-.7px">Encargados por carrera</h1>
-  <p class="mb-0" style="font-size:.85rem;color:var(--tt-slate)">Asigna a tu personal las carreras que atiende. Solo ves a usuarios de tu departamento.</p>
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Servicios Escolares</span>
+  <h1 class="tt-display h3 fw-medium">Encargados por carrera</h1>
+  <p class="mb-0 small text-body-secondary">Asigna a tu personal las carreras que atiende.
+     Solo ves a usuarios de tu departamento. Si la cuenta de alguien está inactiva, al
+     nombrarlo encargado se reactiva y su contraseña queda en <code>tecno#2K</code>, con
+     cambio obligatorio al entrar.</p>
 </div>
 <div class="px-4 pt-3 pb-4">
   {% if no_department %}
     <div class="tt-empty"><div class="ico"><i class="bi bi-people"></i></div>
-      <h6>Sin departamento</h6><p>No tienes un departamento asignado como jefe.</p></div>
+      <h6>Sin departamento</h6>
+      <p>No tienes un departamento asignado como jefe, así que no hay personal que
+         administrar desde aquí. Pídeselo a quien lleve el organigrama.</p></div>
   {% else %}
   <div id="officers-body">{% include "titulatec/partials/officers_body.html" %}</div>
   {% endif %}
