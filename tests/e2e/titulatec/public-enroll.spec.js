@@ -94,6 +94,10 @@ function controlNuevo() {
 
 /** Llena el formulario completo con datos válidos; `over` pisa campos. */
 async function llenarFormulario(page, over = {}) {
+  // «¿Ya acreditaste el inglés?» es obligatoria y viene SIN marcar
+  // (2026-09-17): sin elegir, el navegador no deja enviar. Por omisión «Sí».
+  const { has_english: ingles = '1', ...resto } = over;
+  await page.check(`[name="has_english"][value="${ingles}"]`);
   const datos = {
     control_number: controlNuevo(),
     first_name: 'Juan',
@@ -101,7 +105,7 @@ async function llenarFormulario(page, over = {}) {
     phone: '6560000000',
     contact_email: 'juan.perez@example.com',
     contact_email_confirm: 'juan.perez@example.com',
-    ...over,
+    ...resto,
   };
   for (const [campo, valor] of Object.entries(datos)) {
     await page.fill(`[name="${campo}"]`, valor);

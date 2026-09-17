@@ -20,6 +20,25 @@
     <input type="text" id="tt-website" name="website" tabindex="-1" autocomplete="off">
   </div>
 
+  {# «¿Ya acreditaste el inglés?» (2026-09-17, revierte D11 «el inglés no se
+     pregunta»). Obligatoria y SIN opción marcada: un «No» por descuido sería un
+     dato falso. Va PRIMERO porque es un requisito que bloquea — con «No» el
+     servidor no crea la solicitud — y conviene saberlo antes de llenar lo
+     demás. `required` en un solo radio basta para que el navegador exija una
+     opción del grupo. #}
+  <fieldset class="tt-enroll-q"{% if errors.has_english %} aria-describedby="tt-english-err"{% endif %}>
+    <legend class="tt-kicker">¿Ya acreditaste el inglés?</legend>
+    <div class="tt-enroll-radio">
+      <label><input type="radio" name="has_english" value="1" required
+                    {% if values.has_english == '1' %}checked{% endif %}> Sí</label>
+      <label><input type="radio" name="has_english" value="0"
+                    {% if values.has_english == '0' %}checked{% endif %}> No</label>
+    </div>
+    {% if errors.has_english %}
+    <p class="tt-field-error" id="tt-english-err" data-tt-error="has_english">{{ errors.has_english }}</p>
+    {% endif %}
+  </fieldset>
+
   <label class="tt-kicker" for="tt-control">Número de control</label>
   <input class="tt-field" id="tt-control" name="control_number" required
          autocapitalize="characters" maxlength="9" pattern="[A-Za-z]?[0-9]{8}"

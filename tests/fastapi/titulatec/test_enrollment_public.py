@@ -62,6 +62,7 @@ def _form(**kw):
         "contact_email": "alguien@example.invalid",
         "contact_email_confirm": "alguien@example.invalid",
         "has_efirma": "0",
+        "has_english": "1",
         "website": "",
     }
     base.update(kw)
@@ -131,7 +132,6 @@ def test_get_con_ventana_abierta_muestra_el_formulario_y_la_trampa(
     assert 'name="website"' in resp.text          # honeypot (E3)
     assert "Ingenieria Ficticia A" in resp.text    # select de core_programs
     assert 'value="__other__"' in resp.text        # "mi carrera no aparece"
-    assert "Inglés" not in resp.text               # el inglés NO se pregunta (D11)
     assert cohort.name not in resp.text            # sin nombre de convocatoria
 
 
@@ -385,6 +385,69 @@ def test_sin_carrera_y_sin_texto_libre_devuelve_error_de_programa(
     assert _count(db_session, "99880002") == 0
 
 
+# ---------------------------------------------------------------------------
+# «¿Ya acreditaste el inglés?» (2026-09-17) — revierte D11 («el inglés no se
+# pregunta»): el usuario pidió preguntarlo, obligatorio y SIN opción marcada, y
+# que un «No» impida enviar la solicitud.
+# ---------------------------------------------------------------------------
+def test_el_formulario_pregunta_por_el_ingles_al_inicio_y_sin_respuesta_marcada(
+    client, db_session, make_cohort,
+):
+    import re
+
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    html = client.get(ENROLL_URL, follow_redirects=False).text
+
+    assert "¿Ya acreditaste el inglés?" in html
+    radios = re.findall(r'<input[^>]*name="has_english"[^>]*>', html)
+    assert sorted(re.search(r'value="(\d)"', r).group(1) for r in radios) == ["0", "1"]
+    assert not any("checked" in r for r in radios), "no debe venir ninguna opción marcada"
+    assert any("required" in r for r in radios), "el navegador debe exigir una respuesta"
+    # Es un requisito que BLOQUEA: va antes del resto de los datos.
+    assert html.index('name="has_english"') < html.index('name="control_number"')
+
+
+def test_sin_contestar_lo_del_ingles_no_se_crea_la_solicitud(
+    client, db_session, make_cohort,
+):
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+    datos = _form()
+    datos.pop("has_english")
+
+    resp = client.post(ENROLL_URL, data=datos,
+                       headers={"X-Real-IP": "203.0.113.15"}, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'data-tt-error="has_english"' in resp.text
+    assert "Indica si ya acreditaste el inglés." in resp.text
+    assert _count(db_session, "99880002") == 0
+
+
+def test_sin_ingles_acreditado_no_se_crea_la_solicitud_y_conserva_lo_capturado(
+    client, db_session, make_cohort,
+):
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.post(ENROLL_URL, data=_form(has_english="0"),
+                       headers={"X-Real-IP": "203.0.113.16"}, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'id="tt-enroll-form"' in resp.text
+    assert 'data-tt-error="has_english"' in resp.text
+    assert ("Para inscribirte necesitas tener acreditado el inglés. Cuando lo "
+            "acredites, vuelve a enviar tu solicitud.") in _plano(resp.text)
+    assert TITULO_TARJETA not in resp.text
+    assert 'value="ALUMNA"' in resp.text
+    assert _count(db_session, "99880002") == 0
+
+
 def test_ventana_cerrada_en_el_post_no_escribe_y_muestra_cerrada(
     client, db_session, make_cohort,
 ):
@@ -578,7 +641,8 @@ def test_los_presupuestos_del_limitador_son_los_acordados():
 @pytest.mark.parametrize("errata", [
     {"control_number": "abc"},
     {"contact_email_confirm": "otro@example.invalid"},
-], ids=["control-invalido", "correos-distintos"])
+    {"has_english": "0"},
+], ids=["control-invalido", "correos-distintos", "sin-ingles"])
 def test_un_envio_invalido_no_gasta_presupuesto_de_ip(
     client, db_session, make_cohort, monkeypatch, errata,
 ):

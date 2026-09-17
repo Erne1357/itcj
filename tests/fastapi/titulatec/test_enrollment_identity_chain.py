@@ -103,7 +103,7 @@ def _form(**kw):
         "control_number": "99884001", "first_name": "ALUMNA", "last_name": "INVENTADA",
         "middle_name": "", "program_id": "__other__", "program_text": "Ingenieria Ficticia",
         "phone": "6561234567", "contact_email": ATACANTE, "contact_email_confirm": ATACANTE,
-        "has_efirma": "0", "website": "",
+        "has_efirma": "0", "has_english": "1", "website": "",
     }
     base.update(kw)
     return base

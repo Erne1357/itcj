@@ -16,9 +16,17 @@
 
 ## Ruta en la app (UI)
 
-1. 👤 `/titulatec/inscripcion` → formulario: número de control, nombre, apellidos, carrera (o texto
-   libre si no aparece), teléfono, **correo personal dos veces** y e.firma → **Enviar solicitud** →
-   tarjeta «Recibimos tu solicitud».
+1. 👤 `/titulatec/inscripcion` → formulario: **¿ya acreditaste el inglés?** (primero, obligatoria), número
+   de control, nombre, apellidos, carrera (o texto libre si no aparece), teléfono, **correo personal dos
+   veces** y e.firma → **Enviar solicitud** → tarjeta «Recibimos tu solicitud».
+
+   **Inglés (2026-09-17, revierte D11 «el inglés no se pregunta»):** radios Sí/No SIN opción marcada
+   (`required` en el primero). Con «No» el POST responde 200 con el formulario y el error en el campo
+   («Para inscribirte necesitas tener acreditado el inglés. Cuando lo acredites, vuelve a enviar tu
+   solicitud.»); sin respuesta, «Indica si ya acreditaste el inglés.». Es un error de formulario más:
+   no se crea la solicitud ni se cobra presupuesto de IP ni de control. **No se guarda** la respuesta
+   (solo pasa quien contestó «Sí») ni se escribe `core_student_profile.english_accredited`, que es el
+   dato VERIFICADO (sii|manual|import), no lo que declara el egresado.
 2. 🏛️ Menú admin **Solicitudes** (`/titulatec/admin/solicitudes`) → pestaña **Por revisar**, que es la
    de por omisión.
 3. 🏛️ Fila **Sin cuenta** → NIP de 4 dígitos + carrera → **Aprobar y crear acceso**.

@@ -1458,6 +1458,10 @@ async def enroll_submit(request: Request):
     # "B..." abran dos solicitudes para la misma persona.
     values["control_number"] = values["control_number"].upper()
     values["has_efirma"] = "1" if (form.get("has_efirma") or "") == "1" else "0"
+    # «¿Ya acreditaste el inglés?»: SIN valor por omisión, al revés que e.firma.
+    # Solo "1"/"0" cuentan como respuesta; cualquier otra cosa es "no contestó".
+    _ingles = (form.get("has_english") or "").strip()
+    values["has_english"] = _ingles if _ingles in ("1", "0") else ""
 
     db = SessionLocal()
     try:
@@ -1485,6 +1489,16 @@ async def enroll_submit(request: Request):
             })
 
         errors: dict[str, str] = {}
+        # Requisito que BLOQUEA (2026-09-17, decisión del usuario): sin el inglés
+        # acreditado no hay solicitud. Es un error más del formulario —200 con el
+        # formulario re-renderizado, sin escribir ni cobrar presupuestos—, no una
+        # tarjeta aparte: así conserva lo capturado y no revela nada del control.
+        # No se guarda la respuesta: solo pasa quien contestó «Sí».
+        if values["has_english"] == "0":
+            errors["has_english"] = ("Para inscribirte necesitas tener acreditado el inglés. "
+                                     "Cuando lo acredites, vuelve a enviar tu solicitud.")
+        elif values["has_english"] != "1":
+            errors["has_english"] = "Indica si ya acreditaste el inglés."
         control = values["control_number"]
         if not CONTROL_NUMBER_RE.fullmatch(control):
             errors["control_number"] = ("Tu número de control son 8 dígitos, o una "
