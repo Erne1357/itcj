@@ -186,3 +186,20 @@ def test_aborta_si_la_verificacion_reporta_un_permiso_sin_aterrizar():
 
     assert res.exit_code != 0, "un delta a medias NO puede salir 0"
     assert "titulatec.survey.api.export" in res.output
+
+
+def test_el_grant_de_admin_va_al_final_despues_de_todo_lo_que_inserta_permisos():
+    """15_grant_admin_all_perms.sql concede DINAMICAMENTE (SELECT sobre
+    core_permissions, sin listar codigos) TODOS los permisos de titulatec al rol
+    admin. Si corriera antes de algun archivo que inserta permisos (02, 07, 08 o
+    el propio delta de encuesta en survey_2026_09/09), "todos" dejaria de ser
+    todos: el rol admin se quedaria sin los codigos que se insertan despues.
+    Sin BD: solo verifica el orden de la lista en memoria."""
+    quince = SEED_FILES.index("15_grant_admin_all_perms.sql")
+
+    assert quince == len(SEED_FILES) - 1, (
+        "15_grant_admin_all_perms.sql debe ser el ULTIMO elemento de SEED_FILES")
+    assert quince > SEED_FILES.index("02_insert_permissions.sql")
+    assert quince > SEED_FILES.index("07_insert_cotejo_reqs_perm.sql")
+    assert quince > SEED_FILES.index("08_insert_review_window_perms.sql")
+    assert quince > SEED_FILES.index("survey_2026_09/09_insert_survey_perms.sql")

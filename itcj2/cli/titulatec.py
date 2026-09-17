@@ -56,6 +56,13 @@ SEED_FILES = [
     # Exige el rol CON sus permisos (el 01 y el 03, que corren antes en esta
     # lista) y aborta sin mover a nadie si faltan. No toca permisos de rol.
     "survey_2026_09/14_graduate_role_backfill.sql",        # rol graduate a alumnos con proceso
+    # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
+    # core_permissions, sin listar códigos) todos los permisos de titulatec al
+    # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
+    # correr después de CUALQUIER archivo que inserte permisos (02, 07, 08 y
+    # survey_2026_09/09) para que "todos" sea de verdad todos. Solo concede
+    # (ON CONFLICT DO NOTHING): re-correrlo nunca revoca nada.
+    "15_grant_admin_all_perms.sql",
 ]
 
 _DML_SURVEY_2026_09_DIR = "survey_2026_09"
