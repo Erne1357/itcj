@@ -52,6 +52,48 @@ un acto deliberado** y migrar no le cambió el comportamiento a nadie.
 Las caras 3 y 4 conviven a propósito en el único caso donde eso importa: el bloqueado por el tope
 de cancelaciones no puede *reservar*, pero sí puede *presentarse*.
 
+## La fase 02 rechazada, en la pantalla del alumno (Tarea B2, 2026-09-17)
+
+Hasta esta fecha, una cita `attended` con la fase 02 `rejected` (el dictamen que Servicios
+Escolares hace tras el cotejo — «le faltan documentos») seguía mostrando la tarjeta como si
+todo estuviera resuelto —píldora verde «Cotejo realizado»— y, si nadie había publicado
+todavía un espacio nuevo, la pantalla no decía nada de qué hacer. El hueco era de PANTALLA,
+no de reglas: la regla 2 de `eligibility()` (arriba) **ya** deja agendar de nuevo con la fase
+02 rechazada —el corte real es la fase **aprobada**, no `attended`—, así que `agenda.can_book`
+ya salía `True`. Lo que faltaba era mostrarlo.
+
+`_cita_card_ctx` (`pages/student.py`) agrega un dato plano, `fase_rechazada` —
+`{"motivo": str | None}` o `None`—, leído de `ProcessPhase` (fase `PhaseService.PHASE_COTEJO`)
+y **nunca** de `appt.status`, por el mismo motivo que `_fase_cotejo_aprobada`: una `attended`
+con la fase todavía sin dictaminar no es un rechazo. Lo consumen dos parciales:
+
+- **`cita_card.html`**: si `fase_rechazada`, un aviso (`.tt-card--danger`) al inicio de la
+  tarjeta — «Tu cotejo quedó con observaciones.», el motivo si lo hay, y «Necesitas otra cita
+  de cotejo. Lleva lo que te faltó.». Es **aditivo**: si ya hay una cita nueva `scheduled`/
+  `confirmed` (Servicios Escolares ya reagendó), el aviso convive arriba de su tarjeta normal
+  como recordatorio del motivo. Cuando `appt.status == 'attended'` y la fase sigue rechazada,
+  la píldora deja de decir «Cotejo realizado» (verde) y dice «Cotejo con observaciones»
+  (ámbar); el resto de los estados de la cita no cambia.
+- **`_cita_panel.html`**: caso nuevo, `fase_rechazada and agenda.can_book and not agenda.dias`
+  —puede agendar, pero Servicios Escolares todavía no publicó ningún espacio—: una tarjeta
+  «Servicios Escolares te agendará una nueva cita. Te avisaremos cuando tenga fecha.» ocupa el
+  lugar donde iría el selector. `agenda.message` (cara 4) no cambia y no aplica a este caso:
+  como `can_book` es `True`, no hay ningún motivo que explicar.
+
+El motivo del rechazo **también** se ve, sin relación con nada de lo anterior, en el acordeón
+del dashboard (`/student/dashboard`, y por tanto en `/student/fase/2`, que redirige ahí): la
+fase 02 sigue siendo la `current` mientras esté `rejected` (`reject_phase` deja
+`process.current_phase` apuntando a ella), así que `dashboard.html:82-87` ya pinta «Necesita
+corrección» + el motivo en la tarjeta grande de la columna A. Es la MISMA información en dos
+pantallas a propósito: en `/student/cita` el alumno decide su próximo paso (agendar, esperar);
+en el dashboard confirma por qué.
+
+Efecto colateral del lado del motor, no de esta pantalla: si la cita seguía `in_progress`
+cuando Servicios Escolares dictaminó la fase 02, ya no queda colgada — el dictamen (aprobar
+**o** rechazar) la cierra a `attended` en la MISMA transacción. Detalle: [motor de
+aprobar/rechazar fase](engine_approve_advance_phase.md#cierre-automático-de-la-cita-de-cotejo-solo-fase-02-desde-2026-09-17)
+y [máquina de estados](00_state_machine.md).
+
 ## Secuencia
 
 ```mermaid

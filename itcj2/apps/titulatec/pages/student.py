@@ -1136,9 +1136,25 @@ def _cita_card_ctx(db, user_id: int) -> dict:
             # «Cancelar mi cita» justo cuando la ruta ya va a rechazarlo.
             "can_cancel": SelfBookingService.can_self_cancel(appt),
         }
+    # Fase 02 con observaciones (Tarea B2): dato PLANO, nunca la fila `ProcessPhase`
+    # completa (la plantilla se renderiza después del `db.close()` de la ruta). Se
+    # lee de `ProcessPhase`, igual que `_fase_cotejo_aprobada` en
+    # `SelfBookingService`, y NUNCA de `appt.status`: una `attended` con fase 2
+    # todavía sin dictaminar no es un rechazo.
+    fase_rechazada = None
+    if process is not None:
+        from itcj2.apps.titulatec.models import ProcessPhase
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        ph2 = (db.query(ProcessPhase)
+               .filter_by(process_id=process.id, phase_number=PhaseService.PHASE_COTEJO)
+               .first())
+        if ph2 is not None and ph2.status == "rejected":
+            fase_rechazada = {"motivo": ph2.rejection_reason or None}
     return {
         "process": process.to_dict() if process else None,
         "appt": appt_ctx,
+        "fase_rechazada": fase_rechazada,
     }
 
 

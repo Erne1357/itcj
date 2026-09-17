@@ -1810,6 +1810,14 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-cita-why i { flex: 0 0 auto; margin-top: 2px; color: var(--tt-amber-ink); }
 .tt-cita-why p { font-size: var(--tt-fs-200); color: var(--tt-text-2); min-width: 0; }
 
+/* — Aviso de fase 02 con observaciones (`cita_card.html`, Tarea B2) —
+   Reusa `.tt-card--danger` + `.tt-cita-why` (icono + texto en fila) y solo
+   re-tiñe el icono: `.tt-cita-why i` lo pinta ambar por defecto (el tono de
+   la cara 4), y este aviso es un rechazo, no una explicación neutral.
+   `#991B1B` y no un token: es el mismo literal que ya usan `.tt-pill--danger`
+   y `.tt-btn-danger-ghost` en este archivo — no hay `--tt-danger-ink`. */
+.tt-cita-rechazo .tt-cita-why i { color: #991B1B; }
+
 /* — Tarjeta de la cita (`partials/cita_card.html`) —
    Lo que hasta el 2026-09-16 iban como ocho `style=` inline. Sobrevivieron
    porque el barrido de parciales solo miraba la mitad ADMIN; hoy cubre tambien

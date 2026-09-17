@@ -28,6 +28,22 @@
 
 {% if agenda.can_book and agenda.dias %}
   {% include "titulatec/partials/student/_cita_agendar.html" %}
+{% elif fase_rechazada and appt and agenda.can_book and not agenda.dias %}
+  {# La fase 02 quedó con observaciones y el alumno YA puede volver a agendar
+     (regla 2 de `eligibility`: el corte es la fase APROBADA, no `attended`),
+     pero Servicios Escolares todavía no publica ningún espacio. Sin este
+     aviso el hueco entre la tarjeta y la cara 3/4 quedaba mudo: `agenda.dias`
+     vacío no entra al selector y `agenda.message` es `None` porque SÍ puede
+     agendar — no hay ningún motivo que explicar.
+     Exige `appt`: sin cita vigente, `cita_card.html` ya pinta «Pendiente de
+     agenda · Servicios Escolares agendará tu cita», y repetirlo aquí diría lo
+     mismo dos veces. #}
+  <div class="tt-card tt-card--accent mt-3 tt-anim-in">
+    <div class="tt-cita-why">
+      <i class="bi bi-calendar-event" aria-hidden="true"></i>
+      <p class="mb-0">Servicios Escolares te agendará una nueva cita. Te avisaremos cuando tenga fecha.</p>
+    </div>
+  </div>
 {% endif %}
 
 {% if agenda.message %}

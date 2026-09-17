@@ -15,6 +15,26 @@
    =========================================================================== #}
 {% from "titulatec/_macros.html" import pill, appt_pill %}
 
+{# Aviso de fase 02 con observaciones (Tarea B2). Va ANTES de las ramas de abajo
+   y ES ADITIVO: si ya hay una cita nueva (scheduled/confirmed) se ve su tarjeta
+   normal MAS este aviso arriba, como recordatorio del motivo. Sin id propio:
+   el destino de los POST sigue siendo `#tt-cita-card` (la caja que envuelve a
+   este parcial en `_cita_panel.html`), y duplicar ids ahi lo rompe. #}
+{% if fase_rechazada %}
+  <div class="tt-card tt-card--danger tt-cita-rechazo mb-3">
+    <div class="tt-cita-why">
+      <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+      <div>
+        <p class="mb-0"><strong>Tu cotejo quedó con observaciones.</strong></p>
+        {% if fase_rechazada.motivo %}
+          <p class="tt-cita-note mb-0">{{ fase_rechazada.motivo }}</p>
+        {% endif %}
+        <p class="mb-0">Necesitas otra cita de cotejo. Lleva lo que te faltó.</p>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
 {% if not process %}
   <div class="tt-card tt-card--accent">
     <span class="tt-pill tt-pill--amber"><i class="bi bi-info-circle"></i> Sin proceso</span>
@@ -69,6 +89,8 @@
       <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Confirmaste tu asistencia</span></div>
     {% elif appt.status == 'in_progress' %}
       <div class="mt-3"><span class="tt-pill tt-pill--amber"><i class="bi bi-hourglass-split"></i> Cotejo en proceso</span></div>
+    {% elif appt.status == 'attended' and fase_rechazada %}
+      <div class="mt-3"><span class="tt-pill tt-pill--amber"><i class="bi bi-exclamation-triangle"></i> Cotejo con observaciones</span></div>
     {% elif appt.status == 'attended' %}
       <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Cotejo realizado</span></div>
     {% elif appt.status == 'no_show' %}
