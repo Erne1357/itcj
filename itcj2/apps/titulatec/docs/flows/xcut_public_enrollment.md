@@ -109,12 +109,12 @@ sequenceDiagram
 |---|---|---|---|---|---|---|---|
 | 1 | 👤 | `/titulatec/inscripcion` | Ver el formulario | `GET /titulatec/inscripcion` | `CohortService.public_enrollment_cohort` | (lectura) | — |
 | 2 | 👤 | formulario | Enviar | `POST /titulatec/inscripcion` | `EnrollmentRequestService.create` | `titulatec_enrollment_requests` ← `pending_review`, `kind` (solo para mostrar), `created_ip_hash`; **sin token** | Solo si ya hay proceso vivo: `send_already_enrolled` → institucional, sin fila |
-| 3 | 🏛️ | Solicitudes | Ver una pestaña | `GET /titulatec/admin/solicitudes[/body]?status=&cohort_id=` | `_body_ctx` | (lectura; `account_inactive` por fila) | — |
+| 3 | 🏛️ | Solicitudes | Ver una pestaña | `GET /titulatec/admin/solicitudes[/body]?status=&cohort_id=` | `_body_ctx` (KPIs y "por año" vía `EnrollmentRequestService.stats`) | (lectura; `account_inactive`, `rejection_sent`, `prior_reject` por fila) | — |
 | 4a | 🏛️ | fila **Sin cuenta** | Aprobar y crear acceso | `POST /titulatec/admin/solicitudes/{id}/aprobar` | `approve` | `core_users` ← usuario = control, `hash_nip(nip)`, `must_change_password`, `role_id = graduate`; `core_user_app_roles` ← `graduate` en `itcj` y `titulatec`; `titulatec_processes` + 9 fases; `core_student_profile` con los datos del formulario; solicitud → `converted` | `ProcessEvent(enrollment_self_service, activation=nip_personal_email)` sin NIP; caché de authz invalidado tras el commit; `send_enrollment_approved` → **personal** |
 | 4b | 🏛️ | fila **Con cuenta** | Aprobar y enviar liga | `POST /titulatec/admin/solicitudes/{id}/aprobar` | `approve` | solicitud → `approved`; `verify_token_hash`, `verify_expires_at` (+7 días), `verify_sent_to`, `verify_send_count = 1`; claro en Redis. **La cuenta no se toca, ni se reactiva** | `send_verify_enrollment` → **personal**; si sale, `verify_sent_at` |
 | 5 | 👤 | correo | Activar mi acceso | `GET /titulatec/inscripcion/verificar?t=` | `verify` → `_convert` | `core_user_app_roles`: `graduate` en `itcj` y `titulatec`, fuera `student` en `itcj`/`titulatec`/`agendatec`; `core_users.role_id` → `graduate` solo desde `student`/NULL; `core_users.is_active` → `true` **si estaba desactivada**; `titulatec_processes` + fases; solicitud → `converted`, `verified_at`. **Nada del perfil** | `ProcessEvent(activation=personal_email_link, reactivated)`; caché de authz invalidado tras el commit; `send_enrollment_done` → **institucional** |
 | 6 | 🏛️ | Liga enviada | Reenviar liga | `POST /titulatec/admin/solicitudes/{id}/reenviar` | `resend_link` | hash y vencimiento nuevos, `verify_send_count + 1`, `verified_at` y `verify_sent_at` a NULL; claro viejo borrado de Redis | `send_verify_enrollment` → personal |
-| 7 | 🏛️ | fila | Rechazar / Cancelar solicitud | `POST /titulatec/admin/solicitudes/{id}/rechazar` | `reject` | → `rejected`, `review_note`, `reviewed_by_id/at`, token a NULL; claro borrado | `send_enrollment_rejected` → personal |
+| 7 | 🏛️ | fila | Rechazar / Cancelar solicitud | `POST /titulatec/admin/solicitudes/{id}/rechazar` | `reject` | → `rejected`, `review_note`, `reviewed_by_id/at`, token a NULL; claro borrado; si el correo sale, `rejection_sent_at` en un commit propio (2026-09-17) | `send_enrollment_rejected` → personal |
 | 8 | 👤 | (sin pantalla) | Reenvío público | `POST /titulatec/inscripcion/reenviar` | `resend` | `verify_send_count + 1`, mismo token | `send_verify_enrollment` → personal |
 
 ## A qué buzón va cada correo
@@ -130,6 +130,46 @@ sequenceDiagram
 El destinatario lo decide cada método del helper, nunca quien llama: ninguno recibe `to`. Lo fija
 `test_ningun_correo_de_la_solicitud_acepta_un_destinatario_del_llamador`. Sin token de Graph y fuera
 de producción, la liga se escribe al log con `[TT-VERIFY-LINK]` (E9).
+
+## Bandeja: KPIs, por año de ingreso, correo de rechazo sin enviar y antecedentes (2026-09-17)
+
+Arriba de las pestañas de `requests_body.html`, `_body_ctx` invoca
+`EnrollmentRequestService.stats(db, scope=, cohort_id=)` — MISMO alcance por carrera y MISMA
+convocatoria que el listado, pero **sin** filtro de pestaña ni el límite de 300 filas: es el universo
+completo, no la página visible. Con `scope` acotado a un conjunto vacío (`no_programs`), no se
+calcula nada y no se pinta nada de esto.
+
+- **KPIs** (`stats()["counts"]`, tarjetas `.tt-kpi` reutilizadas de Procesos/Convocatorias): Total,
+  Por revisar (`pending_review` + el legado `unverified`/`verified`), Liga enviada (`approved`),
+  Inscritas (`converted`), Rechazadas (`rejected`). Cuentan **solicitudes**, no personas.
+- **Por año de ingreso** (`stats()["by_year"]`/`["year_max"]`): cuenta **personas** — número de
+  control distinto —, cada una por su solicitud MÁS RECIENTE (`created_at`, `id`) dentro del mismo
+  alcance/convocatoria. El año sale de `entry_year(control, today=None)`: los 2 primeros dígitos tras
+  una letra opcional, con pivote dinámico sobre los 2 últimos dígitos del año actual (`yy <= hoy % 100
+  → 2000+yy`, si no `1900+yy`; con hoy=2026: 26→2026, 21→2021, 90→1990). Un control que no case cae en
+  el grupo «Sin año». Orden: año descendente, «Sin año» al final. Cada año trae el mismo desglose de
+  `counts` sobre sus personas. La barra de cada fila es un `<meter min="0" max=year_max value=total>`
+  **nativo** (nunca `style=` inline: `requests_body.html`/`requests.html` están barridos por
+  `test_la_bandeja_no_usa_hx_confirm_ni_js_ni_css_inline`); el número de personas siempre va en texto,
+  igual que el desglose por estado (nunca solo color).
+- **Correo de rechazo no enviado**: columna `titulatec_enrollment_requests.rejection_sent_at`
+  (`DateTime`, nullable; migración `tt20260917a`). `reject()` la sella en un commit PROPIO, DESPUÉS
+  de mandar `send_enrollment_rejected`, solo si devolvió `True` — mismo patrón que
+  `verify_sent_at`/`_mail_activation`: un fallo al sellar no deshace el rechazo, que ya está
+  commiteado. Una fila `rejected` con `rejection_sent_at` NULL muestra la píldora ámbar «correo no
+  enviado» (pestañas Rechazadas y Todas). Sin botón de reenvío: a diferencia de la liga de activación,
+  no hay nada que reenviar automáticamente — el motivo ya se decidió y quedó en `review_note`.
+- **Rechazada antes**: si existe una solicitud ANTERIOR (`id` menor) con el MISMO número de control,
+  en estado `rejected` y dentro del MISMO alcance por carrera del oficial, la fila muestra «Rechazada
+  antes · dd/mm/aaaa: motivo» (la más reciente de esas). `_body_ctx` lo resuelve en una sola consulta
+  por lote sobre los controles de la página (nunca N+1); el motivo se trunca VISUALMENTE con CSS
+  (`.tt-prior-reject`, `text-overflow: ellipsis`) y queda completo en `title` — Jinja ya escapa los
+  dos. Acotado al alcance: una rechazada de otra carrera no se delata a un encargado que no podría
+  verla por sí mismo.
+
+Cálculo puro y testeable sin HTTP en `EnrollmentRequestService.stats`/`entry_year`
+(`test_enrollment_request_service.py`); el nivel de ruta (KPIs con números correctos, píldora,
+antecedente, alcance) en `test_enrollment_inbox.py`.
 
 ## Rol `graduate` (egresado)
 

@@ -71,7 +71,7 @@ import hmac
 import logging
 import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -85,6 +85,33 @@ STATUSES = ("unverified", "verified", "pending_review", "approved", "rejected", 
 # Desde dónde la bandeja aprueba (y rechaza, junto con `approved`).
 _REVIEWABLE = ("pending_review", "unverified", "verified")
 _REJECTABLE = _REVIEWABLE + ("approved",)
+
+# Agrupa los 6 STATUSES en los 4 cubos que pinta la bandeja (KPIs y "por año de
+# ingreso", `EnrollmentRequestService.stats`): el legado `unverified`/`verified`
+# cuenta como "por revisar", igual que en `_TAB_STATUSES` de `pages/requests_admin.py`.
+_STATUS_GROUP = {s: "review" for s in _REVIEWABLE}
+_STATUS_GROUP.update(approved="sent", converted="converted", rejected="rejected")
+
+# `control_number` -> año de ingreso, para el bloque "Por año de ingreso" de la
+# bandeja. `CONTROL_NUMBER_RE` (import_service.py) ya exige `^[A-Za-z]?\d{8}$`;
+# esto solo lee los 2 dígitos que siguen a la letra opcional, así que tolera un
+# control legado o mal formado sin reventar (cae a "Sin año").
+_ENTRY_YEAR_RE = re.compile(r"^[A-Za-z]?(\d{2})")
+
+
+def entry_year(control: str | None, today: date | None = None) -> str:
+    """Año de ingreso a 4 dígitos, o `"Sin año"` si el control no case (o es `None`).
+
+    Pivote dinámico sobre los 2 últimos dígitos del año actual (o `today`,
+    inyectable para test): `yy <= hoy % 100` -> `2000 + yy`; si no, `1900 + yy`.
+    Ej. con hoy=2026: 26 -> 2026, 21 -> 2021, 90 -> 1990.
+    """
+    m = _ENTRY_YEAR_RE.match((control or "").strip())
+    if not m:
+        return "Sin año"
+    yy = int(m.group(1))
+    pivote = (today or date.today()).year % 100
+    return str(2000 + yy if yy <= pivote else 1900 + yy)
 
 VERIFY_TTL_HOURS = 168           # la liga de activación vive 7 días
 MAX_VERIFY_SENDS = 3             # tope del reenvío PÚBLICO; la bandeja no lo tiene
@@ -622,6 +649,11 @@ class EnrollmentRequestService:
         Aplica desde `pending_review`, `approved` (cancela una liga en camino) y
         el legado. La liga muere en BD y en Redis; el motivo se manda al correo
         personal después del commit. El índice parcial deja volver a intentar.
+
+        Si el correo SALE, sella `rejection_sent_at` en un commit propio, mismo
+        patrón que `_mail_activation`/`verify_sent_at`: un fallo al sellar no
+        deshace nada (el correo ya salió). `NULL` es lo que la bandeja pinta
+        como "correo no enviado" en una fila `rejected`.
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest
         from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
@@ -647,7 +679,17 @@ class EnrollmentRequestService:
         req.verify_expires_at = None
         db.commit()
         _token_cache_delete(muerta)
-        TitulaTecEmailHelper.send_enrollment_rejected(db, req)
+        if TitulaTecEmailHelper.send_enrollment_rejected(db, req):
+            try:
+                req.rejection_sent_at = datetime.now()
+                db.commit()
+            except Exception:
+                logger.warning(
+                    "No se pudo sellar el envío del rechazo de la solicitud %s", req_id)
+                try:
+                    db.rollback()
+                except Exception:      # pragma: no cover - sesión ya inservible
+                    pass
         return True
 
     @staticmethod
@@ -781,3 +823,81 @@ class EnrollmentRequestService:
                 except Exception:      # pragma: no cover - sesión ya inservible
                     pass
         return ok
+
+    @staticmethod
+    def stats(db: Session, *, scope, cohort_id: int | None = None, today: date | None = None):
+        """KPIs y "por año de ingreso" de la bandeja. Puro respecto a HTTP: solo
+        lee, no lanza, no depende de `Request`. `pages/requests_admin.py::_body_ctx`
+        solo la invoca.
+
+        `scope`: `'ALL'` o `set[int]` de `program_id`, el MISMO criterio que
+        `scope_service.officer_programs` — el mismo con el que la bandeja filtra su
+        listado (invariante: los KPIs y el listado cuentan sobre el mismo universo).
+        Un set vacío devuelve todo en cero sin tocar la BD: el caller real
+        (`_body_ctx`) ya corta antes con `no_programs`, esto es solo para no
+        reventar si alguien la llama igual.
+
+        Devuelve `{"counts": {...}, "by_year": [...], "year_max": int}`:
+
+        - `counts`: conteos de SOLICITUDES (una fila = una solicitud) agrupados con
+          `_STATUS_GROUP` — `total`, `review` (por revisar, incluido el legado),
+          `sent` (liga enviada), `converted` (inscritas), `rejected`. Mismo alcance
+          y `cohort_id` que el listado, pero SIN filtro de pestaña ni el límite de
+          300 filas: es el universo completo de la convocatoria (o de todas).
+        - `by_year`: una entrada por año de ingreso (`entry_year`, orden
+          descendente, "Sin año" al final), contando PERSONAS únicas (número de
+          control distinto) por la solicitud MÁS RECIENTE (`created_at`, `id`) de
+          cada una dentro de este mismo alcance/convocatoria — no solicitudes:
+          dos intentos de la misma persona no deben contarla dos veces. Cada
+          entrada trae el mismo desglose de `counts` sobre esas personas.
+        - `year_max`: el `total` más alto de `by_year` (0 si está vacío), para que
+          la plantilla dibuje la barra de cada año proporcional al máximo sin
+          tener que recalcularlo (p. ej. como `max` de un `<meter>`).
+        """
+        from itcj2.apps.titulatec.models import EnrollmentRequest
+
+        counts = {"total": 0, "review": 0, "sent": 0, "converted": 0, "rejected": 0}
+        if scope != "ALL" and not scope:
+            return {"counts": counts, "by_year": [], "year_max": 0}
+
+        q = db.query(EnrollmentRequest.id, EnrollmentRequest.control_number,
+                     EnrollmentRequest.status, EnrollmentRequest.created_at)
+        if scope != "ALL":
+            q = q.filter(EnrollmentRequest.program_id.in_(scope))
+        if cohort_id:
+            q = q.filter(EnrollmentRequest.cohort_id == cohort_id)
+
+        # Más reciente por control: (created_at, id) más alto gana. `created_at`
+        # trae `server_default=NOW()` (nunca NULL en una fila real), `datetime.min`
+        # es solo para que el `max()` no reviente si alguna vez lo fuera.
+        latest_by_control: dict[str, tuple] = {}
+        for rid, control, status, created_at in q.all():
+            counts["total"] += 1
+            counts[_STATUS_GROUP.get(status, "review")] += 1
+            if not control:
+                continue
+            key = (created_at or datetime.min, rid)
+            if control not in latest_by_control or key > latest_by_control[control][0]:
+                latest_by_control[control] = (key, status)
+
+        years: dict[str, dict] = {}
+        for control, (_key, status) in latest_by_control.items():
+            year = entry_year(control, today)
+            if year not in years:
+                # `slug` es un token seguro para `id="..."` en la plantilla: "Sin
+                # año" trae espacio y una ñ, y un `id` con espacio es HTML
+                # inválido (rompe el emparejado de Idiomorph). Los años reales ya
+                # son 4 dígitos: sirven tal cual.
+                slug = year if year != "Sin año" else "sin-anio"
+                years[year] = {"year": year, "slug": slug, "total": 0, "review": 0,
+                               "sent": 0, "converted": 0, "rejected": 0}
+            bucket = years[year]
+            bucket["total"] += 1
+            bucket[_STATUS_GROUP.get(status, "review")] += 1
+
+        by_year = sorted(
+            years.values(),
+            key=lambda y: (0, -int(y["year"])) if y["year"] != "Sin año" else (1, 0),
+        )
+        year_max = max((y["total"] for y in by_year), default=0)
+        return {"counts": counts, "by_year": by_year, "year_max": year_max}

@@ -18,6 +18,16 @@
    abrir la liga» mientras la liga puede abrirse (por revisar o liga enviada):
    abrirla la reactiva, la única escritura sobre la cuenta además de roles y
    proceso.
+
+   Arriba de las pestañas: KPIs (`kpis`) y el bloque «Por año de ingreso»
+   (`by_year`/`year_max`), ambos del MISMO alcance y convocatoria que la lista
+   pero SIN el filtro de pestaña ni el límite de 300 — se repintan solos en
+   cada acción porque viven en este mismo parcial. `EnrollmentRequestService
+   .stats()` hace la cuenta; ver docs/flows/xcut_public_enrollment.md.
+   Por fila: la píldora ámbar «correo no enviado» en una `rejected` sin
+   `rejection_sent_at`, y «Rechazada antes» cuando hay una solicitud anterior
+   (mismo control, `rejected`, mismo alcance) — motivo truncado con CSS,
+   completo en `title`.
    Sin hx-confirm (no hay puente) y sin JS ni CSS en línea. #}
 {% macro tab_fields(tab, cohort) -%}
 <input type="hidden" name="status" value="{{ tab }}">
@@ -25,6 +35,40 @@
 {%- endmacro %}
 {%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
 <div id="tt-requests-body" data-tt-view="requests-body">
+
+  {% if not no_programs %}
+  <div class="tt-kpis tt-stagger mb-3">
+    <div class="tt-kpi"><div class="tt-kicker">Total</div><div class="num">{{ kpis.total }}</div></div>
+    <div class="tt-kpi"><div class="tt-kicker">Por revisar</div><div class="num">{{ kpis.review }}</div></div>
+    <div class="tt-kpi"><div class="tt-kicker">Liga enviada</div><div class="num">{{ kpis.sent }}</div></div>
+    <div class="tt-kpi"><div class="tt-kicker">Inscritas</div><div class="num">{{ kpis.converted }}</div></div>
+    <div class="tt-kpi"><div class="tt-kicker">Rechazadas</div><div class="num">{{ kpis.rejected }}</div></div>
+  </div>
+
+  {% if by_year %}
+  <div class="tt-card mb-3">
+    <span class="tt-kicker"><i class="bi bi-bar-chart-steps me-1" aria-hidden="true"></i>Por año de ingreso</span>
+    <ul class="tt-yearlist">
+      {% for y in by_year %}
+      <li class="tt-yearrow" id="tt-req-year-{{ y.slug }}">
+        <div class="tt-yearrow-head">
+          <span class="tt-yearrow-label">{{ y.year }}</span>
+          <span class="tt-yearrow-total">{{ y.total }} {{ 'persona' if y.total == 1 else 'personas' }}</span>
+        </div>
+        <meter class="tt-yearbar" min="0" max="{{ year_max }}" value="{{ y.total }}"
+               aria-label="Año {{ y.year }}: {{ y.total }} de {{ year_max }} personas">{{ y.total }}</meter>
+        <div class="tt-yearrow-breakdown">
+          {% if y.review %}<span class="tt-pill tt-pill--amber"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Por revisar {{ y.review }}</span>{% endif %}
+          {% if y.sent %}<span class="tt-pill tt-pill--navy"><i class="bi bi-envelope-check" aria-hidden="true"></i> Liga enviada {{ y.sent }}</span>{% endif %}
+          {% if y.converted %}<span class="tt-pill tt-pill--success"><i class="bi bi-check-circle" aria-hidden="true"></i> Inscritas {{ y.converted }}</span>{% endif %}
+          {% if y.rejected %}<span class="tt-pill tt-pill--danger"><i class="bi bi-x-circle" aria-hidden="true"></i> Rechazadas {{ y.rejected }}</span>{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% endif %}
 
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
     {% for key, label in tabs %}
@@ -62,6 +106,10 @@
         <td>
           {{ r.name }}
           {% if status == 'all' %}<br><span class="tt-pill tt-pill--neutral">{{ r.status_label }}</span>{% endif %}
+          {% if r.prior_reject %}
+          <br><span class="small tt-prior-reject" title="Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}">
+            <i class="bi bi-clock-history me-1" aria-hidden="true"></i>Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}</span>
+          {% endif %}
         </td>
         <td>{{ r.program }}</td>
         <td>{{ r.email }}<br><span class="tt-mono">{{ r.phone }}</span></td>
@@ -137,6 +185,7 @@
             {% if r.folio %}<span class="tt-mono">{{ r.folio }}</span>{% endif %}
           {% elif r.status == 'rejected' %}
             {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}
+            {% if not r.rejection_sent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
           {% endif %}
         </td>
       </tr>

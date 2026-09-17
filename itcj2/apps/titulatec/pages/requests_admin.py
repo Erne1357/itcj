@@ -9,6 +9,7 @@ manda de vuelta en `status` y `cohort_id`. Flujo completo en
 `docs/flows/xcut_public_enrollment.md`.
 """
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
@@ -116,17 +117,31 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
     from itcj2.core.models.program import Program
     from itcj2.core.models.user import User
     from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest, TitulationProcess
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
 
     tab = _tab(status)
     scope = _officer_scope(db, user_id)
     ctx = {"rows": [], "status": tab, "tabs": _TABS, "cohort_id": cohort_id,
-           "programs": [], "no_programs": False}
+           "programs": [], "no_programs": False,
+           "kpis": {"total": 0, "review": 0, "sent": 0, "converted": 0, "rejected": 0},
+           "by_year": [], "year_max": 0}
 
     if scope != "ALL" and not scope:
         # Conjunto vacío = no ve nada, EN SILENCIO. Se marca explícitamente para
-        # que la plantilla no muestre "no hay solicitudes".
+        # que la plantilla no muestre "no hay solicitudes" (ni KPIs: no hay
+        # universo que contar).
         ctx["no_programs"] = True
         return ctx
+
+    # KPIs y "por año de ingreso": MISMO alcance y convocatoria que el listado de
+    # abajo, pero sin filtro de pestaña ni el límite de 300 — es el universo
+    # completo, no la página visible.
+    stats = EnrollmentRequestService.stats(db, scope=scope, cohort_id=cohort_id)
+    ctx["kpis"] = stats["counts"]
+    ctx["by_year"] = stats["by_year"]
+    ctx["year_max"] = stats["year_max"]
 
     # El <select> del formulario de aprobar solo puede ofrecer carreras que la
     # ruta vaya a aceptar (Finding 1, ronda 1 de revisión).
@@ -162,8 +177,36 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
                       .filter(Cohort.id.in_(cohort_ids)).all()) if cohort_ids else {})
     prog_names = {p["id"]: p["name"] for p in programs}
 
+    # «Rechazada antes» (riesgo 4b): TODAS las `rejected` de estos controles, en
+    # UNA consulta — nunca un `db.get`/query por fila (N+1). Acotada al MISMO
+    # alcance por carrera que el listado: una rechazada fuera de alcance no debe
+    # delatarse a un encargado que no podría verla por sí misma. Se agrupa por
+    # control y, por fila, se descarta lo que no sea estrictamente ANTERIOR
+    # (`id` menor) antes de quedarse con la más reciente — una solicitud no
+    # puede ser "antecedente" de sí misma, y una `rejected` puede tener SU
+    # PROPIO antecedente más viejo.
+    rejected_by_control: dict[str, list] = {}
+    if controls:
+        pq = (db.query(EnrollmentRequest.id, EnrollmentRequest.control_number,
+                       EnrollmentRequest.created_at, EnrollmentRequest.review_note)
+              .filter(EnrollmentRequest.control_number.in_(controls),
+                      EnrollmentRequest.status == "rejected"))
+        if scope != "ALL":
+            pq = pq.filter(EnrollmentRequest.program_id.in_(scope))
+        for pid, control, created_at, note in pq.all():
+            rejected_by_control.setdefault(control, []).append((created_at, pid, note))
+
     for r in reqs:
         u = users.get(r.control_number)
+        anteriores = [c for c in rejected_by_control.get(r.control_number, ()) if c[1] < r.id]
+        prior_reject = None
+        if anteriores:
+            p_created_at, _p_id, p_note = max(
+                anteriores, key=lambda c: (c[0] or datetime.min, c[1]))
+            prior_reject = {
+                "date": p_created_at.strftime("%d/%m/%Y") if p_created_at else "",
+                "note": p_note or "",
+            }
         ctx["rows"].append({
             "id": r.id,
             "control": r.control_number,
@@ -189,6 +232,10 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
             "opened": r.verified_at is not None,
             "folio": folios.get(r.converted_process_id, ""),
             "note": r.review_note or "",
+            # Solo tiene sentido leerla en una fila `rejected`: el correo de
+            # rechazo es lo único que sella esta columna (`reject()`).
+            "rejection_sent": r.rejection_sent_at is not None,
+            "prior_reject": prior_reject,
         })
     return ctx
 

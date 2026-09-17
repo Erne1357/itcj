@@ -11,6 +11,12 @@ hace: un NIP que nunca se aplica, o una liga que el oficial no sabía que salía
 
 La mecánica de aprobar, rechazar y reenviar vive en `test_enrollment_approve.py`
 y `test_enrollment_resend.py`; aquí se prueba lo que ve y toca el oficial.
+
+Los KPIs, "Por año de ingreso" y "Rechazada antes" (2026-09-17) se prueban aquí
+a nivel de ruta (que el mismo alcance/convocatoria del listado llegue a
+`_body_ctx` y se pinte); el cálculo en sí — agrupado por estado, personas
+únicas por su solicitud más reciente, pivote de siglo — se prueba sin HTTP en
+`test_enrollment_request_service.py::EnrollmentRequestService.stats`.
 """
 from __future__ import annotations
 
@@ -28,10 +34,25 @@ LIST_PERMS = (
     "titulatec.enrollment_request.api.reject",
     "titulatec.process.api.read.all",      # -> officer_programs() == "ALL"
 )
+# Mismos permisos de bandeja que LIST_PERMS, pero SIN `process.api.read.all`:
+# deja al actor ACOTADO por carrera (`officer_programs()` devuelve un `set`,
+# no `'ALL'`) para probar el alcance de "Rechazada antes".
+OFFICER_LIST_PERMS = (
+    "titulatec.enrollment_request.page.list",
+    "titulatec.enrollment_request.api.approve",
+    "titulatec.enrollment_request.api.reject",
+)
 
 PESTANAS = ["Por revisar", "Liga enviada", "Inscritas", "Rechazadas", "Todas"]
 AVISO_CON_CUENTA = ("La liga de activación irá a este correo, que escribió el "
                     "solicitante. Confirma su identidad antes de aprobar.")
+
+
+def _kpi(html: str, label: str) -> int:
+    m = re.search(
+        rf'<div class="tt-kicker">{re.escape(label)}</div><div class="num">(\d+)</div>', html)
+    assert m, f"no se encontró el KPI {label!r}"
+    return int(m.group(1))
 
 
 def _plano(html: str) -> str:
@@ -468,3 +489,223 @@ def test_la_bandeja_no_usa_hx_confirm_ni_js_ni_css_inline():
         sin_comentarios = re.sub(r"\{#.*?#\}", "", ruta.read_text(encoding="utf-8"), flags=re.S)
         for prohibido in ("hx-confirm", "<script", " style=", "onclick="):
             assert prohibido not in sin_comentarios, f"{ruta.name}: {prohibido}"
+
+
+# ---------------------------------------------------------------------------
+# KPIs (2026-09-17): mismo alcance y convocatoria que el listado, sin pestaña
+# ---------------------------------------------------------------------------
+def test_los_kpis_cuentan_solicitudes_sin_filtro_de_pestana_ni_limite(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    _make_req(db_session, cohort, control="99601001", status="pending_review")
+    _make_req(db_session, cohort, control="99601002", status="unverified")
+    _make_req(db_session, cohort, control="99601003", status="approved")
+    _make_req(db_session, cohort, control="99601004", status="converted")
+    _make_req(db_session, cohort, control="99601005", status="rejected")
+
+    # Pide la pestaña "Inscritas" y acota a ESTA convocatoria: los KPIs no
+    # deben filtrarse por pestaña, pero SÍ por `cohort_id` — sin acotar, la BD
+    # de dev trae solicitudes reales de otras convocatorias que contaminarían
+    # el conteo (no son parte de este test).
+    html = client_as(head).get(f"{URL}/body?status=converted&cohort_id={cohort.id}").text
+
+    assert _kpi(html, "Total") == 5
+    assert _kpi(html, "Por revisar") == 2       # pending_review + unverified
+    assert _kpi(html, "Liga enviada") == 1
+    assert _kpi(html, "Inscritas") == 1
+    assert _kpi(html, "Rechazadas") == 1
+
+
+def test_los_kpis_respetan_la_convocatoria_filtrada(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    c1 = make_cohort(status="open")
+    c2 = make_cohort(status="open")
+    _make_req(db_session, c1, control="99602001")
+    _make_req(db_session, c2, control="99602002")
+
+    html = client_as(head).get(f"{URL}/body?cohort_id={c1.id}").text
+
+    assert _kpi(html, "Total") == 1
+
+
+def test_sin_alcance_la_bandeja_no_muestra_kpis(
+    client_as, db_session, make_officer,
+):
+    officer, _pos = make_officer([], perm_codes=OFFICER_LIST_PERMS)
+
+    html = client_as(officer).get(f"{URL}/body").text
+
+    assert "Sin alcance" in html
+    assert "tt-kpis" not in html
+    assert "Por año de ingreso" not in html
+
+
+# ---------------------------------------------------------------------------
+# «Por año de ingreso» (2026-09-17)
+# ---------------------------------------------------------------------------
+def test_el_bloque_por_ano_muestra_personas_unicas_y_su_desglose(
+    client_as, db_session, make_head, make_cohort,
+):
+    from itcj2.apps.titulatec.services.enrollment_request_service import entry_year
+
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    # DOS solicitudes del MISMO control: cuenta una sola persona, con el estado
+    # de su solicitud MÁS RECIENTE (converted).
+    _make_req(db_session, cohort, control="21100001", status="rejected")
+    mas_reciente = _make_req(db_session, cohort, control="21100001", status="converted")
+    _make_req(db_session, cohort, control="21100002", status="pending_review")
+    esperado = entry_year("21100001")
+    assert mas_reciente.control_number == "21100001"
+
+    # Acotado a ESTA convocatoria: sin `cohort_id`, la BD de dev puede traer
+    # otro control real que también empiece con "21" y sume una persona más.
+    html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
+
+    assert "Por año de ingreso" in html
+    assert f'id="tt-req-year-{esperado}"' in html
+    assert "2 personas" in _plano(html)
+    # Único año en juego -> su total ES el máximo: min="0" max="2" value="2".
+    assert 'max="2" value="2"' in html
+
+
+def test_el_bloque_por_ano_no_sale_si_no_hay_solicitudes(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    # Convocatoria propia, sin ninguna solicitud: acotar a su `cohort_id` es lo
+    # que garantiza "cero de verdad" (sin acotar, la BD de dev sí tiene
+    # solicitudes reales de otras convocatorias).
+    cohort = make_cohort(status="open")
+
+    html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
+
+    assert "Por año de ingreso" not in html
+
+
+# ---------------------------------------------------------------------------
+# «Correo no enviado» en una rechazada (2026-09-17)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("tab", ["rejected", "all"])
+def test_una_rechazada_sin_rejection_sent_at_muestra_la_pildora(
+    client_as, db_session, make_head, make_cohort, tab,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99603001", status="rejected",
+                    review_note="No aparece en el padrón.")
+
+    fila = _fila(client_as(head).get(f"{URL}/body?status={tab}").text, req)
+
+    assert "correo no enviado" in fila
+
+
+def test_una_rechazada_con_rejection_sent_at_no_muestra_la_pildora(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99603002", status="rejected",
+                    review_note="No aparece en el padrón.",
+                    rejection_sent_at=datetime(2026, 9, 17, 9, 0))
+
+    fila = _fila(client_as(head).get(f"{URL}/body?status=rejected").text, req)
+
+    assert "correo no enviado" not in fila
+
+
+# ---------------------------------------------------------------------------
+# «Rechazada antes» (2026-09-17)
+# ---------------------------------------------------------------------------
+def test_rechazada_antes_muestra_fecha_y_motivo_de_la_mas_reciente(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    vieja = _make_req(db_session, cohort, control="99604001", status="rejected",
+                      review_note="Documentos incompletos.")
+    db_session.refresh(vieja)
+    nueva = _make_req(db_session, cohort, control="99604001", status="pending_review")
+    assert nueva.id > vieja.id
+
+    fila = _fila(client_as(head).get(f"{URL}/body").text, nueva)
+    texto = _plano(fila)
+
+    assert "Rechazada antes" in texto
+    assert "Documentos incompletos." in texto
+    assert vieja.created_at.strftime("%d/%m/%Y") in texto
+
+
+def test_rechazada_antes_toma_la_mas_reciente_anterior_a_la_fila_no_la_global(
+    client_as, db_session, make_head, make_cohort,
+):
+    """Dos rechazos del mismo control (id 1 y 2): visto desde el MÁS RECIENTE
+    (id 2, que es la propia fila), su antecedente es el id 1 — no debe
+    autoexcluirse ni desaparecer por ser también el rechazo "más reciente"."""
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    primera = _make_req(db_session, cohort, control="99604004", status="rejected",
+                        review_note="Primer motivo.")
+    segunda = _make_req(db_session, cohort, control="99604004", status="rejected",
+                        review_note="Segundo motivo.")
+    assert segunda.id > primera.id
+
+    fila = _fila(client_as(head).get(f"{URL}/body?status=rejected").text, segunda)
+    texto = _plano(fila)
+
+    assert "Rechazada antes" in texto
+    assert "Primer motivo." in texto
+    assert "Segundo motivo." in texto      # su propio motivo de rechazo, aparte
+
+
+def test_rechazada_antes_no_aparece_para_una_solicitud_sin_antecedente(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99604005")
+
+    fila = _fila(client_as(head).get(f"{URL}/body").text, req)
+
+    assert "Rechazada antes" not in fila
+
+
+def test_rechazada_antes_respeta_el_alcance_por_carrera(
+    client_as, db_session, make_officer, make_program, make_cohort,
+):
+    """Riesgo de fuga entre carreras: un rechazo de una carrera FUERA del
+    alcance del encargado no debe delatarse como antecedente."""
+    prog_propia = make_program("Carrera del encargado acotado")
+    prog_ajena = make_program("Carrera ajena al encargado acotado")
+    officer, _pos = make_officer([prog_propia], perm_codes=OFFICER_LIST_PERMS)
+    cohort = make_cohort(status="open")
+    _make_req(db_session, cohort, control="99604002", status="rejected",
+             program_id=prog_ajena.id, review_note="Nota de otra carrera.")
+    nueva = _make_req(db_session, cohort, control="99604002", status="pending_review",
+                      program_id=prog_propia.id)
+
+    fila = _fila(client_as(officer).get(f"{URL}/body").text, nueva)
+
+    assert "Rechazada antes" not in fila
+
+
+def test_rechazada_antes_si_aparece_cuando_esta_dentro_del_alcance(
+    client_as, db_session, make_officer, make_program, make_cohort,
+):
+    prog = make_program("Carrera del encargado acotado 2")
+    officer, _pos = make_officer([prog], perm_codes=OFFICER_LIST_PERMS)
+    cohort = make_cohort(status="open")
+    _make_req(db_session, cohort, control="99604003", status="rejected",
+             program_id=prog.id, review_note="Motivo dentro de alcance.")
+    nueva = _make_req(db_session, cohort, control="99604003", status="pending_review",
+                      program_id=prog.id)
+
+    fila = _fila(client_as(officer).get(f"{URL}/body").text, nueva)
+    texto = _plano(fila)
+
+    assert "Rechazada antes" in texto
+    assert "Motivo dentro de alcance." in texto

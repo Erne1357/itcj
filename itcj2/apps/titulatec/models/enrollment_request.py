@@ -91,6 +91,11 @@ class EnrollmentRequest(Base):
     reviewed_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     review_note = Column(Text, nullable=True)
+    # Sellada por `EnrollmentRequestService.reject()` en un commit PROPIO,
+    # SOLO si `send_enrollment_rejected` devolvio True (mismo patron que
+    # `verify_sent_at`/`_mail_activation`). NULL en una fila `rejected` es lo
+    # que la bandeja pinta como "correo no enviado" (migracion `tt20260917a`).
+    rejection_sent_at = Column(DateTime, nullable=True)
     converted_process_id = Column(Integer, ForeignKey("titulatec_processes.id"),
                                   nullable=True)
     created_ip_hash = Column(String(64), nullable=True)

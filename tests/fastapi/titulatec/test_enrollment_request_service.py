@@ -361,7 +361,12 @@ def test_rechazar_una_en_revision_la_cierra_y_avisa_despues_del_commit(
     assert req.status == "rejected"
     assert req.review_note == "No aparece en el padrón."
     assert req.reviewed_by_id == actor.id and req.reviewed_at is not None
-    assert orden == ["commit", "correo"], "el aviso salió antes de commitear el rechazo"
+    # El rechazo se commitea PRIMERO; el correo sale despues; y solo entonces
+    # se sella `rejection_sent_at`, en un tercer commit propio (mismo patron
+    # que `verify_sent_at`/`_mail_activation`).
+    assert orden == ["commit", "correo", "commit"], (
+        "el aviso salió antes de commitear el rechazo, o no se selló después")
+    assert req.rejection_sent_at is not None
     (_asunto, destinatarios, html), = enviados
     assert destinatarios == ["personal@example.invalid"]
     assert "No aparece en el padrón." in html
@@ -534,3 +539,217 @@ def test_el_modelo_y_la_migracion_declaran_el_mismo_predicado():
     assert 'down_revision = "tt20260908a"' in src
     assert _norm(_PREDICADO_VIVO) in _norm(src), "el upgrade debe crear el predicado nuevo"
     assert _norm(_PREDICADO_ANTERIOR) in _norm(src), "el downgrade debe restaurar el anterior"
+
+
+# ---------------------------------------------------------------------------
+# reject(): sella `rejection_sent_at` SOLO si el correo salió (2026-09-17)
+# ---------------------------------------------------------------------------
+def test_reject_sella_rejection_sent_at_si_el_correo_salio(
+    db_session, make_cohort, make_user, correo_falso,
+):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    actor = make_user()
+    cohort = make_cohort()
+    req, _ = _fila(db_session, cohort, control="99000030")
+
+    ok = EnrollmentRequestService.reject(db_session, req.id, note="Motivo",
+                                         actor_id=actor.id)
+
+    assert ok is True
+    assert req.status == "rejected"
+    assert req.rejection_sent_at is not None
+
+
+def test_reject_no_sella_rejection_sent_at_si_el_correo_no_salio(
+    db_session, make_cohort, make_user, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_rejected",
+                        staticmethod(lambda db, req: False))
+    actor = make_user()
+    cohort = make_cohort()
+    req, _ = _fila(db_session, cohort, control="99000031")
+
+    ok = EnrollmentRequestService.reject(db_session, req.id, note="Motivo",
+                                         actor_id=actor.id)
+
+    assert ok is True, "el rechazo en sí no depende de que el correo salga"
+    assert req.status == "rejected"
+    assert req.rejection_sent_at is None
+
+
+# ---------------------------------------------------------------------------
+# entry_year(): año de ingreso por control, con pivote de siglo inyectable
+# (2026-09-17)
+# ---------------------------------------------------------------------------
+def test_entry_year_con_pivote_de_siglo_dinamico():
+    from datetime import date
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import entry_year
+
+    hoy = date(2026, 9, 17)     # pivote = 26
+
+    assert entry_year("26110123", today=hoy) == "2026"    # yy == pivote  -> 2000+yy
+    assert entry_year("21110123", today=hoy) == "2021"    # yy < pivote   -> 2000+yy
+    assert entry_year("90110123", today=hoy) == "1990"    # yy > pivote   -> 1900+yy
+    assert entry_year("27110123", today=hoy) == "1927"    # yy == pivote+1 -> 1900+yy
+
+
+def test_entry_year_lee_los_2_digitos_tras_la_letra_opcional():
+    from datetime import date
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import entry_year
+
+    hoy = date(2026, 9, 17)
+
+    assert entry_year("L21105023", today=hoy) == "2021"
+    assert entry_year("21105023", today=hoy) == "2021"
+
+
+def test_entry_year_sin_ano_para_un_control_que_no_casa():
+    from itcj2.apps.titulatec.services.enrollment_request_service import entry_year
+
+    assert entry_year("") == "Sin año"
+    assert entry_year(None) == "Sin año"
+    assert entry_year("abcdefgh") == "Sin año"     # 2 letras seguidas: no hay 2 dígitos tras UNA
+
+
+def test_entry_year_usa_hoy_real_si_no_se_inyecta_today():
+    from datetime import date
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import entry_year
+
+    pivote = date.today().year % 100
+    assert entry_year(f"{pivote:02d}000001") == str(2000 + pivote)
+
+
+# ---------------------------------------------------------------------------
+# stats(): KPIs y "por año de ingreso" (2026-09-17)
+# ---------------------------------------------------------------------------
+def test_stats_agrupa_solicitudes_por_estado_sin_pestana_ni_limite(db_session, make_cohort):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    cohort = make_cohort()
+    for i, status in enumerate(
+        ("pending_review", "unverified", "verified", "approved", "converted", "rejected"),
+        start=1,
+    ):
+        _fila(db_session, cohort, control=f"9970{i:04d}", status=status)
+
+    # `cohort_id` acota a la convocatoria RECIÉN CREADA: sin esto, `scope="ALL"`
+    # también cuenta filas reales preexistentes en la BD de dev (de otras
+    # convocatorias), que no son parte de este test.
+    stats = EnrollmentRequestService.stats(db_session, scope="ALL", cohort_id=cohort.id)
+
+    assert stats["counts"] == {
+        "total": 6, "review": 3, "sent": 1, "converted": 1, "rejected": 1,
+    }
+
+
+def test_stats_respeta_el_alcance_por_carrera(db_session, make_cohort, make_program):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    cohort = make_cohort()
+    prog_a = make_program("Carrera A de stats")
+    prog_b = make_program("Carrera B de stats")
+    _fila(db_session, cohort, control="99710001", program_id=prog_a.id)
+    _fila(db_session, cohort, control="99710002", program_id=prog_b.id)
+
+    stats = EnrollmentRequestService.stats(db_session, scope={prog_a.id})
+
+    assert stats["counts"]["total"] == 1
+
+
+def test_stats_con_alcance_vacio_devuelve_todo_en_cero_sin_reventar(db_session, make_cohort):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    cohort = make_cohort()
+    _fila(db_session, cohort, control="99710010")
+
+    stats = EnrollmentRequestService.stats(db_session, scope=set())
+
+    assert stats == {
+        "counts": {"total": 0, "review": 0, "sent": 0, "converted": 0, "rejected": 0},
+        "by_year": [], "year_max": 0,
+    }
+
+
+def test_stats_filtra_por_convocatoria(db_session, make_cohort):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    c1 = make_cohort()
+    c2 = make_cohort()
+    _fila(db_session, c1, control="99710020")
+    _fila(db_session, c2, control="99710021")
+
+    stats = EnrollmentRequestService.stats(db_session, scope="ALL", cohort_id=c1.id)
+
+    assert stats["counts"]["total"] == 1
+
+
+def test_stats_por_ano_cuenta_personas_unicas_por_su_solicitud_mas_reciente(
+    db_session, make_cohort,
+):
+    """DOS solicitudes del MISMO control (una `rejected` vieja, una
+    `pending_review` nueva): "por año" cuenta UNA persona, con el estado de la
+    MÁS RECIENTE — nunca las dos solicitudes por separado."""
+    from datetime import date
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    cohort = make_cohort()
+    control = "21110099"
+    _fila(db_session, cohort, control=control, status="rejected")
+    _fila(db_session, cohort, control=control, status="pending_review")
+    _fila(db_session, cohort, control="21110100", status="converted")   # otra persona, mismo año
+
+    # `cohort_id`: sin acotar, la BD de dev puede traer otro control real que
+    # también empiece con "21" y contamine el bucket 2021 de este test.
+    stats = EnrollmentRequestService.stats(db_session, scope="ALL", cohort_id=cohort.id,
+                                           today=date(2026, 9, 17))
+
+    anio = next(y for y in stats["by_year"] if y["year"] == "2021")
+    assert anio["total"] == 2
+    assert anio["review"] == 1         # la MAS RECIENTE de `control` es pending_review
+    assert anio["converted"] == 1
+    assert anio["rejected"] == 0       # la rejected vieja de esa MISMA persona ya no cuenta aparte
+
+
+def test_stats_ordena_anios_descendente_con_sin_ano_al_final(db_session, make_cohort):
+    from datetime import date
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    cohort = make_cohort()
+    _fila(db_session, cohort, control="90000001")      # 1990
+    _fila(db_session, cohort, control="21000002")       # 2021
+    _fila(db_session, cohort, control="abcdefgh")       # no casa -> Sin año
+
+    stats = EnrollmentRequestService.stats(db_session, scope="ALL", cohort_id=cohort.id,
+                                           today=date(2026, 9, 17))
+
+    assert [y["year"] for y in stats["by_year"]] == ["2021", "1990", "Sin año"]
+    assert stats["year_max"] == 1
+    sin_anio = next(y for y in stats["by_year"] if y["year"] == "Sin año")
+    assert sin_anio["slug"] == "sin-anio"
+    veintiuno = next(y for y in stats["by_year"] if y["year"] == "2021")
+    assert veintiuno["slug"] == "2021"
