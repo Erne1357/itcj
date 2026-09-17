@@ -265,17 +265,20 @@ class AppointmentService:
     @staticmethod
     def _unscheduled_query(db: Session, *, program_id: int | None,
                            allowed_program_ids: set | None):
-        """Base compartida de `list_pending_processes` y
-        `list_missing_survey_processes`: procesos activos, SIN cita, acotados
-        por carrera. Cada llamador le agrega su propio predicado de la
-        solicitud (existe / no existe) y el filtro de documentos, para no
-        arriesgarse a que los dos cubos se desincronicen del universo que
-        comparten.
+        """Base compartida de `list_pending_processes`,
+        `list_self_blocked_processes` y `list_missing_survey_processes`:
+        procesos activos, SIN cita, acotados por carrera. Cada llamador le
+        agrega su propio predicado de la solicitud (existe / no existe), el
+        filtro de documentos y el de D9, para no arriesgarse a que los cubos
+        se desincronicen del universo que comparten.
 
         `None` si `allowed_program_ids` cerró el alcance (set vacío): el
         llamador debe leerlo así y devolver `[]` sin más consultas.
         """
-        from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
+        from itcj2.apps.titulatec.models import (
+            ProcessPhase, ReviewAppointment, TitulationProcess,
+        )
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
         if allowed_program_ids is not None and len(allowed_program_ids) == 0:
             return None
         # «Sin cita» significa sin cita VIGENTE, no «sin ninguna fila jamás».
@@ -291,6 +294,22 @@ class AppointmentService:
         q = db.query(TitulationProcess).filter(TitulationProcess.status == "active")
         if with_appt:
             q = q.filter(~TitulationProcess.id.in_(with_appt))
+        # D5: la fase 02 rechazada tiene bandeja propia
+        # (`list_rejected_cotejo_processes`). Sin esta resta, a quien le
+        # cancelan (D6 libera y vuelve a «sin cita») la cita `attended` que
+        # había quedado tras el rechazo reaparecía aquí como si fuera de
+        # primera vez — mezclando "nunca tuvo cita" con "ya la tuvo y se la
+        # rechazaron" en el MISMO cubo, que es justo lo que rompía que «Por
+        # agendar» significara una sola cosa. Se resta en la base COMPARTIDA
+        # y no en cada cubo por separado, para que «Por agendar», «Requieren
+        # que les agendes» y «Sin encuesta» no puedan desincronizarse entre sí.
+        rechazados_ids = [pid for (pid,) in
+                          db.query(ProcessPhase.process_id)
+                          .filter(ProcessPhase.phase_number == PhaseService.PHASE_COTEJO,
+                                  ProcessPhase.status == "rejected")
+                          .distinct()]
+        if rechazados_ids:
+            q = q.filter(~TitulationProcess.id.in_(rechazados_ids))
         if allowed_program_ids is not None:
             q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
         if program_id:
@@ -335,10 +354,16 @@ class AppointmentService:
         agendarse solos (o esperar a que el encargado los siente).
 
         **Excluye a los bloqueados por D9**, que se van a su propio cubo
-        (`list_self_blocked_processes`). Los cuatro cubos de la cola son
+        (`list_self_blocked_processes`). Los cinco cubos de la cola son
         mutuamente excluyentes (§6): sin esta resta, el bloqueado sale en dos
         sitios a la vez y el encargado no sabe cuál mirar — ni cuál de los dos
         contadores le está diciendo la verdad.
+
+        **Es SOLO de primera vez.** `_unscheduled_query` resta también a quien
+        tiene la fase 02 `rejected` (viven en `list_rejected_cotejo_processes`,
+        aunque hayan cancelado la cita `attended` y vuelto a estar «sin cita»),
+        así que este cubo nunca mezcla «nunca tuvo cita» con «ya la tuvo y se la
+        rechazaron».
 
         El tope lo decide `SelfBookingService`, que es donde vive la regla del
         alumno (D13), en vez de una consulta propia aquí.
@@ -406,9 +431,14 @@ class AppointmentService:
         El `no_show` tiene que ser el VIGENTE, y el filtro arregla dos cosas a
         la vez: sin él, (a) quien ya fue reagendado tras su ausencia se
         quedaba en este cubo para siempre —y salía a la vez aquí y en la
-        agenda, con lo que los cuatro cubos de la cola dejaban de ser
+        agenda, con lo que los cinco cubos de la cola dejaban de ser
         mutuamente excluyentes—, y (b) dos filas `no_show` del mismo proceso
         lo listaban DOS VECES, porque el join multiplica.
+
+        Manda la cita, no la fase: un `no_show` vigente con la fase 02
+        `rejected` sigue aquí y no en `list_rejected_cotejo_processes` — esa
+        disjunción es estructural (`attended` y `no_show` se excluyen entre
+        sí), no una resta que haya que acordarse de hacer.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
         if allowed_program_ids is not None and len(allowed_program_ids) == 0:
@@ -425,36 +455,55 @@ class AppointmentService:
     @staticmethod
     def list_rejected_cotejo_processes(db: Session, *,
                                        allowed_program_ids: set | None = None) -> list:
-        """«Cotejo rechazado»: se les atendió, la fase 2 se rechazó y necesitan
+        """«Fase 02 rechazada»: la fase 2 quedó con observaciones y necesitan
         OTRA cita (D5).
 
-        Es el quinto cubo, y existe porque **D5 se había quedado sin bandeja**.
-        Un proceso con cita vigente `attended` al que el encargado le RECHAZA la
-        fase 2 caía en CERO cubos: conserva una cita vigente, así que
-        `_unscheduled_query` lo saca de «Por agendar», «Requieren que les
-        agendes» y «Sin encuesta»; y no es `no_show`, así que «Reagendar»
-        tampoco lo veía. Podía auto-agendarse —eso sí funcionaba—, pero solo si
-        alguien había publicado un espacio `bookable`, y `private` es el
-        `server_default`: el día uno, con todos los espacios privados, ese
+        En PANTALLA es el 2.º cubo, justo detrás de «Por agendar» (el orden de
+        este archivo es otro y no tiene por qué coincidir), y existe porque
+        **D5 se había quedado sin bandeja**. Un proceso con cita vigente `attended` al
+        que el encargado le RECHAZA la fase 2 caía en CERO cubos: conserva una
+        cita vigente, así que `_unscheduled_query` lo saca de «Por agendar»,
+        «Requieren que les agendes» y «Sin encuesta»; y no es `no_show`, así que
+        «Reagendar» tampoco lo veía. Podía auto-agendarse —eso sí funcionaba—,
+        pero solo si alguien había publicado un espacio `bookable`, y `private`
+        es el `server_default`: el día uno, con todos los espacios privados, ese
         egresado no aparecía en ninguna lista de nadie.
 
-        **Los dos predicados hacen falta, y ninguno basta solo:**
+        **Ampliado (2026-09-17): también entra SIN cita vigente.** Antes exigía
+        `status='attended'` en la vigente a secas, así que un rechazado al que
+        se le CANCELA esa cita (D6: cancelar libera y vuelve a «sin cita») se
+        quedaba otra vez sin bandeja — el mismo agujero de D5, por la puerta de
+        atrás. El predicado correcto no es «tiene una `attended`», es «no tiene
+        una cita VIVA que lo tape»:
 
-        * `status='attended'` en la VIGENTE, y no «fase 2 rechazada» a secas: un
+        * **Sin cita vigente en absoluto** → aquí. Es el caso nuevo.
+        * **Vigente `attended`** → aquí, como antes.
+        * **Vigente `no_show`** → «Reagendar», NO aquí: manda la cita, no la
+          fase (igual que ya decidía este cubo frente al 3 — ver abajo). Un
           proceso al que ya se le reagendó tras el rechazo y luego no se
-          presentó saldría aquí *y* en «Reagendar». Como `attended` y `no_show`
-          se excluyen por construcción, la disjunción con el cubo 3 es
-          estructural y no una resta que haya que acordarse de hacer (al revés
-          que la de los cubos 1 y 2).
-        * fase 2 `rejected`, y no `attended` a secas: si no, entrarían también
-          los que esperan DICTAMEN. A ésos no les falta cita, les falta que el
-          encargado se pronuncie — otro trabajo y otra pantalla. Y el `attended`
-          con la fase ya APROBADA queda fuera por lo mismo: es el caso terminal
-          de §3 (`fase_aprobada`), no necesita nada.
+          presentó saldría aquí *y* en «Reagendar» si el predicado mirara solo
+          la fase.
+        * **Vigente `scheduled`/`confirmed`/`in_progress`** (`_ESTADOS_ACTIVOS`)
+          → en la AGENDA, en ningún cubo de la cola: ya tiene lugar, ahí es
+          donde se atiende.
+
+        La implementación no hace JOIN a `ReviewAppointment`: un NOT EXISTS de
+        "hay una vigente que no sea `attended`" dice exactamente eso sin
+        importar si el proceso tiene alguna fila de cita en absoluto —
+        necesario para el caso nuevo, que puede no tener ninguna.
+
+        Fase 2 `rejected`, y no `attended` a secas: si no, entrarían también los
+        que esperan DICTAMEN. A ésos no les falta cita, les falta que el
+        encargado se pronuncie — otro trabajo y otra pantalla. Y el `attended`
+        con la fase ya APROBADA queda fuera por lo mismo: es el caso terminal
+        de §3 (`fase_aprobada`), no necesita nada.
 
         El criterio de la fase es el mismo `PhaseService.PHASE_COTEJO` que usa
         `SelfBookingService._fase_cotejo_aprobada`, para que grep encuentre los
         dos lados de la regla desde cualquiera de ellos.
+
+        Orden: por `TitulationProcess.created_at` (no por `scheduled_at` de la
+        cita: desde la ampliación, no todos tienen una).
         """
         from itcj2.apps.titulatec.models import (
             ProcessPhase, ReviewAppointment, TitulationProcess,
@@ -463,19 +512,23 @@ class AppointmentService:
         if allowed_program_ids is not None and len(allowed_program_ids) == 0:
             return []
         q = (db.query(TitulationProcess)
-             .join(ReviewAppointment,
-                   ReviewAppointment.process_id == TitulationProcess.id)
-             .filter(TitulationProcess.status == "active",
-                     ReviewAppointment.is_current.is_(True),
-                     ReviewAppointment.status == "attended")
+             .filter(TitulationProcess.status == "active")
              .filter(db.query(ProcessPhase.id)
                      .filter(ProcessPhase.process_id == TitulationProcess.id,
                              ProcessPhase.phase_number == PhaseService.PHASE_COTEJO,
                              ProcessPhase.status == "rejected")
+                     .exists())
+             # El complemento exacto de D4: si existe una vigente que NO sea
+             # `attended` (viva o `no_show`), el proceso NO es de este cubo —
+             # ver los cuatro casos en el docstring de arriba.
+             .filter(~db.query(ReviewAppointment.id)
+                     .filter(ReviewAppointment.process_id == TitulationProcess.id,
+                             ReviewAppointment.is_current.is_(True),
+                             ReviewAppointment.status != "attended")
                      .exists()))
         if allowed_program_ids is not None:
             q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
-        return q.order_by(ReviewAppointment.scheduled_at).all()
+        return q.order_by(TitulationProcess.created_at).all()
 
     # ----------------------------------------------------------------- helpers
     @staticmethod

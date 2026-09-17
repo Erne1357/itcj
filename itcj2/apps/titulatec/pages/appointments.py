@@ -705,20 +705,26 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     # agendarse solos. Cubo propio y mutuamente excluyente con «Por agendar»:
     # la resta la hace `list_pending_processes`, no esta vista.
     bloqueados = AppointmentService.list_self_blocked_processes(db, allowed_program_ids=allowed)
-    # D5: se les atendio y la fase 02 quedo RECHAZADA, asi que necesitan otra
-    # cita. Cubo propio porque conservan su cita vigente (`attended`), lo que los
-    # deja fuera del universo «sin cita» del que salen los cubos 1, 2 y 4, y no
-    # son `no_show`, asi que «Reagendar» tampoco los veia: sin este cubo no
-    # estaban en NINGUNO. No hace falta sumarlos a `visibles`: su cita vigente ya
-    # los mete por `agenda_process_ids`, asi que el `?selected=` les abre ficha.
+    # D5: la fase 02 quedo RECHAZADA, asi que necesitan otra cita. Cubo propio
+    # porque, mientras tengan una cita vigente `attended`, quedan fuera del
+    # universo «sin cita» del que salen los cubos 1, 2 y 5, y no son `no_show`,
+    # asi que «Reagendar» tampoco los veia: sin este cubo no estaban en
+    # NINGUNO. Desde el 2026-09-17 TAMBIEN entran SIN cita vigente en absoluto
+    # (p.ej. si se cancela esa `attended`): esos SI hace falta sumarlos a
+    # `visibles` a mano, porque no tienen cita que los meta por
+    # `agenda_process_ids` — ver la union de abajo.
     rechazados = AppointmentService.list_rejected_cotejo_processes(
         db, allowed_program_ids=allowed)
-    # Los bloqueados ENTRAN a `visibles`, y no es un detalle: `?selected=` se
-    # descarta si el proceso no esta aqui, asi que sin esta union el encargado
-    # veria el cubo pero no podria abrirle la ficha a nadie de el — o sea, no
-    # podria agendarle, que es lo unico que ese cubo existe para pedirle.
+    # Los bloqueados y los rechazados ENTRAN a `visibles`, y no es un detalle:
+    # `?selected=` se descarta si el proceso no esta aqui, asi que sin esta
+    # union el encargado veria el cubo pero no podria abrirle la ficha a nadie
+    # de el — o sea, no podria agendarle, que es lo unico que esos cubos
+    # existen para pedirle. Sumar TODOS los rechazados (no solo los sin cita)
+    # es deliberado y gratis: quien ya esta en `agenda_process_ids` por su
+    # `attended` vigente simplemente se repite en la union de sets.
     visibles = (AppointmentService.agenda_process_ids(db, allowed_program_ids=allowed)
-                | {p.id for p in pendientes} | {p.id for p in bloqueados})
+                | {p.id for p in pendientes} | {p.id for p in bloqueados}
+                | {p.id for p in rechazados})
     if selected_id is not None and selected_id not in visibles:
         selected_id = None
     detail = (_detail_ctx(db, selected_id, user_id=user_id, doc_abierto=doc)
@@ -733,6 +739,7 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     buscando = bool((q or "").strip() or estado or mias or program_id)
     modo = "resultados" if buscando else "dia"
 
+    filas_rechazados = _proc_rows_rechazados(db, rechazados)
     ctx = {
         "v": vista, "modo": modo,
         "day": day.isoformat() if day else "",
@@ -754,8 +761,13 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         "bloqueados_count": len(bloqueados),
         "reagendar": _proc_rows(db, reagendar),
         "reagendar_count": len(reagendar),
-        "rechazados": _proc_rows(db, rechazados),
+        "rechazados": filas_rechazados,
         "rechazados_count": len(rechazados),
+        # Lo que suma al badge «por atender»: el rechazado SIN encuesta no se
+        # puede agendar todavía (`SurveyNotSubmitted`), igual que el cubo «Sin
+        # encuesta», así que tampoco cuenta como trabajo del encargado.
+        "rechazados_accionables_count": sum(
+            1 for fila in filas_rechazados if not fila["sin_encuesta"]),
         # No se suma al badge de la pestaña (`appointments_body.html`): ese
         # contador es "por atender" (agendar + reagendar) y este cubo no se
         # puede atender todavía — solo informa.
@@ -836,6 +848,59 @@ def _proc_rows_bloqueados(db, procs):
     for fila in filas:
         fila["cancelaciones"] = SelfBookingService.cancellations(
             db, por_id[fila["process_id"]])
+    return filas
+
+
+def _proc_rows_rechazados(db, procs):
+    """Filas del cubo de D5, con lo que decide si la fila es arrastrable.
+
+    Tres datos por encima de `_proc_rows`:
+
+    * `motivo` — el `rejection_reason` de la fase 02, para que el encargado no
+      tenga que abrir la ficha solo para saber que corregir. En lote (1
+      consulta): son planas y el volumen es chico, pero N+1 consultas aqui
+      serian evitables sin motivo.
+    * `sin_encuesta` — no existe `SurveyReview` del proceso. Importa porque
+      `AppointmentService.create` exige la encuesta ANTES que cualquier otra
+      cosa (`SurveyNotSubmitted`): un proceso puede llegar a este cubo sin
+      ella (docs/fixtures que insertan la cita sin pasar por el service), y
+      arrastrarlo a un lugar libre revienta con un error que no explica nada.
+      Tambien en lote.
+    * `bloqueado` — igual que en `_proc_rows_bloqueados`,
+      `SelfBookingService.is_blocked_by_cancellations` por fila y no en lote:
+      ES la fuente unica del predicado de D9, y este cubo tambien tiene pocas
+      filas.
+
+    Los dos primeros no son excluyentes entre si: un rechazado puede estar SIN
+    encuesta Y bloqueado por D9 a la vez, y la plantilla pinta las dos senales.
+    """
+    from itcj2.apps.titulatec.models import ProcessPhase, SurveyReview
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+
+    por_id = {p.id: p for p in procs}
+    filas = _proc_rows(db, procs)
+    if not filas:
+        return filas
+
+    pids = list(por_id)
+    motivos = {
+        pp.process_id: (pp.rejection_reason or "").strip() or None
+        for pp in db.query(ProcessPhase)
+                    .filter(ProcessPhase.process_id.in_(pids),
+                            ProcessPhase.phase_number == PhaseService.PHASE_COTEJO)
+                    .all()
+    }
+    con_encuesta = {sid for (sid,) in
+                    db.query(SurveyReview.process_id)
+                    .filter(SurveyReview.process_id.in_(pids))
+                    .distinct()}
+    for fila in filas:
+        pid = fila["process_id"]
+        fila["motivo"] = motivos.get(pid)
+        fila["sin_encuesta"] = pid not in con_encuesta
+        fila["bloqueado"] = SelfBookingService.is_blocked_by_cancellations(
+            db, por_id[pid])
     return filas
 
 

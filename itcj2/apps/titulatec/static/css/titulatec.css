@@ -1352,6 +1352,34 @@ label.tt-appt-item .form-check-input { flex: 0 0 auto; width: 20px; height: 20px
                  gap: var(--tt-sp-2); margin-bottom: var(--tt-sp-2); }
 .tt-queue-list { display: flex; flex-direction: column; gap: var(--tt-sp-1); }
 .tt-appt-empty { font-size: var(--tt-fs-100); color: var(--tt-text-3); margin: 0; }
+
+/* «Por agendar» es la PRIORIDAD de la cola (primera cita: nadie mas que el
+   encargado, o el propio alumno, la resuelve). Se COMPONE con `.tt-card--accent`
+   (fondo tenido + borde completo, arriba en la seccion CARD) y le suma solo la
+   raya de acento a la izquierda -- con `box-shadow: inset`, el MISMO idiom que
+   ya usa `.tt-exp-doc.is-open` mas abajo, y a proposito NO `border-left`: un
+   borde lateral de acento esta PROHIBIDO en este archivo
+   (`test_ningun_patron_prohibido_en_todo_el_archivo`) porque desplaza el
+   contenido de la tarjeta 2px respecto a las demas apiladas debajo. El inset
+   no participa en el box model, asi que las cinco tarjetas de la cola
+   conservan el mismo `padding: 16px` de `.tt-card` y el texto arranca en el
+   MISMO x en las cinco -- sin necesitar compensar nada.
+
+   Tokens, no colores sueltos: `--tt-accent-soft`/`--tt-accent-ink` son alias
+   de `--tt-amber-soft`/`--tt-amber-ink` (mismo par que ya usan `.tt-badge` y
+   `.tt-day.is-active`, con su contraste ya validado), y el tema oscuro los
+   redefine arriba (`[data-tt-theme="dark"]`) sin que esta regla necesite una
+   copia. */
+.tt-queue-card--priority { box-shadow: inset 4px 0 0 var(--tt-accent); }
+.tt-queue-kicker { display: block; font-family: var(--tt-mono); font-size: var(--tt-fs-100);
+                   font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+                   color: var(--tt-accent-ink); margin: 0 0 4px; }
+/* El contador que mas rota, mas grande: `.tt-h-sec .n` generico es
+   `--tt-fs-100`/`--tt-text-3` (ver mas arriba); aqui no depende solo del
+   color para destacar. */
+.tt-queue-card--priority .tt-h-sec .n {
+  font-size: var(--tt-fs-500); font-weight: 700; color: var(--tt-accent-ink);
+}
 @media (min-width: 1280px) {
   /* Sticky para no abandonar la cola al bajar por el tablero. Idiomorph
      conserva el nodo, asi que su scroll sobrevive a los swaps. */

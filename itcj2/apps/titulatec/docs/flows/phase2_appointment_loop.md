@@ -8,7 +8,7 @@
 |---|---|
 | **Actor(es)** | 🏛️ Servicios Escolares (encargado de la carrera) · 👤 Alumno |
 | **Permiso(s)** | **Ver la agenda:** `appointment.page.list` ∨ `dashboard.school_services` ∨ `dashboard.admin`. **Actuar:** `appointment.api.create` (agendar) · `.reschedule` (reagendar / mover) · `.update` (iniciar, no-show, deshacer, **cancelar**) · `.mark_attended` · `process.api.requirement.mark` (checklist) · `process.api.approve_phase` / `.reject_phase`. **Espacios:** `review_window.api.manage` ∨ `.manage.all`. **Alumno:** `appointment.page.my` · `.api.confirm.own` · `.api.book.own` · `.api.cancel.own` |
-| **Trigger** | El proceso aparece en «Por agendar»: activo, **sin cita vigente**, los 3 documentos iniciales aprobados y la **encuesta de egresados ya enviada** |
+| **Trigger** | El proceso aparece en «Por agendar»: activo, **sin cita vigente**, **la fase 02 nunca rechazada**, los 3 documentos iniciales aprobados y la **encuesta de egresados ya enviada** |
 | **Precondiciones** | `DocumentService.initial_docs_all_approved(db, process_id)` y existe `SurveyReview` (guarda dura de `AppointmentService.create`: `SurveyNotSubmitted`) |
 | **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) · ⤵ [alcance por carrera](engine_officer_scope.md) · ⤵ [el egresado agenda solo](phase2_student_self_booking.md) |
 | **Estado final** | Cita `attended`; fase 2 `approved`; fase 3 `in_progress` |
@@ -25,7 +25,15 @@
 > `ae0dfe1` quitó ese filtro de `AppointmentService.list_pending_processes`. El criterio es
 > `status == "active"` + sin cita vigente + los **3 documentos iniciales aprobados**
 > (`birth_certificate`, `high_school_cert`, `curp`). En la práctica coinciden —aprobar el 3.er
-> documento aprueba la fase 1 y deja `current_phase=2`—, pero **la fase ya no se consulta**.
+> documento aprueba la fase 1 y deja `current_phase=2`—, pero **la fase (en el sentido de
+> `current_phase`) ya no se consulta**.
+>
+> **Corrección (2026-09-17): la fase SÍ vuelve a consultarse, pero por otra columna.** Desde el
+> cubo «Fase 02 rechazada» (más abajo), «Por agendar» también excluye a quien tenga una
+> `ProcessPhase` de `PhaseService.PHASE_COTEJO` en `status == "rejected"` — sin importar
+> `current_phase`. Es lo que hace que «Por agendar» sea **solo primera vez**: sin esta resta, quien
+> ya pasó por cotejo, se lo rechazaron y luego canceló su cita (D6 la devuelve a «sin cita»)
+> reaparecería aquí mezclado con quien nunca tuvo cita.
 
 > **Puerta de la encuesta de egresados (2026-09-15, D2).** «Por agendar» exige un cuarto requisito:
 > la encuesta **ENVIADA** (no liberada — GTV puede seguir revisando en paralelo). Quien tiene los 3
@@ -81,32 +89,63 @@ sub-vista se renderiza**, nunca cuánto mide una columna: por eso nada se encoge
 abrir un alumno pasaba la agenda de 676 a 340 px y a 390 px empujaba todo 1220 px hacia abajo.)
 
 **La cola de trabajo son CINCO cubos mutuamente excluyentes** — un proceso aparece en exactamente
-uno:
+uno. El orden en pantalla (fijado 2026-09-17) antepone los dos cubos que de verdad necesitan una
+cita **nueva** a los que solo necesitan *seguimiento*:
 
-1. **Por agendar** — sin cita vigente y todavía puede agendarse solo (o esperar al encargado).
-2. **Requieren que les agendes** — agotaron su tope de cancelaciones: **solo el encargado** puede
+1. **Por agendar** — sin cita vigente, fase 02 **nunca rechazada**, y todavía puede agendarse solo
+   (o esperar al encargado). Es la **prioridad visual** de la cola (fondo y borde de acento, kicker
+   «Prioridad · primera cita», contador más grande): es la única que es de **primera vez** y la que
+   más rota. `AppointmentService.list_pending_processes`.
+2. **Fase 02 rechazada** — la fase 02 quedó con observaciones y necesita **otra** cita (D5).
+   `AppointmentService.list_rejected_cotejo_processes`.
+3. **Requieren que les agendes** — agotaron su tope de cancelaciones: **solo el encargado** puede
    sacarlos de ahí. Cada fila dice el conteo («3 cancelaciones · ya no puede agendar solo»).
-3. **Reagendar** — no se presentaron (`no_show`).
-4. **Cotejo rechazado** — su cita vigente quedó en `attended` y la **fase 02 se rechazó**, así que
-   necesitan otra cita (D5). `AppointmentService.list_rejected_cotejo_processes`.
+4. **Reagendar** — no se presentaron (`no_show`).
 5. **Sin encuesta** — documentos aprobados, falta enviar la encuesta. Solo informan.
 
-> **El cubo 4 se añadió el 2026-09-16, cerrando un agujero: D5 no tenía bandeja.** Un proceso
+> **El cubo 2 se añadió el 2026-09-16, cerrando un agujero: D5 no tenía bandeja.** Un proceso
 > atendido al que le rechazaban la fase 02 caía en **cero** cubos — conserva cita vigente, así que
-> el universo «sin cita» de los cubos 1, 2 y 5 no lo veía, y no es `no_show`, así que «Reagendar»
+> el universo «sin cita» de los cubos 1, 3 y 5 no lo veía, y no es `no_show`, así que «Reagendar»
 > tampoco. Podía auto-agendarse, pero **solo si alguien había publicado un espacio `bookable`**, y
 > `private` es el `server_default`: el día uno ese egresado no aparecía en ninguna lista de nadie.
+>
+> **Ampliado el 2026-09-17, cerrando el mismo agujero por la puerta de atrás.** El predicado
+> original exigía `status='attended'` en la cita vigente a secas, así que a quien se le **cancelaba**
+> esa cita tras el rechazo (D6: cancelar libera y vuelve a «sin cita») le pasaban DOS cosas malas a
+> la vez: (a) volvía a caer en cero cubos —el mismo defecto que el cubo 2 vino a cerrar—, y (b) si
+> encima ya tenía documentos y encuesta, reaparecía en «Por agendar» como si fuera de **primera
+> vez**, mezclando dos historias distintas bajo el mismo contador. El fix tiene dos mitades que
+> tienen que viajar juntas: `list_rejected_cotejo_processes` ahora entra también **sin cita vigente
+> en absoluto** (no solo con `attended`), y `_unscheduled_query` —la base compartida de los cubos
+> 1, 3 y 5— resta a todo el que tenga la fase 02 `rejected`, tenga o no cita. Un `no_show` vigente
+> con la fase 02 `rejected` **sigue** en «Reagendar» y no en el cubo 2: `attended` y `no_show` se
+> excluyen por construcción, así que esa disjunción no dependía de arreglar nada.
+>
+> **Caso real que motivó el fix (dev, proceso #39):** fase 02 `rejected` + cita vigente `attended`,
+> pero **sin** `SurveyReview` (nunca se sembró/migró correctamente). Arrastrarlo a un lugar libre
+> reventaba con `SurveyNotSubmitted` — un error que no dice nada en el contexto de «nada más le
+> rechazaron la fase». La fila del cubo 2 resuelve `sin_encuesta` (no existe `SurveyReview` del
+> proceso) **por fila**: sin encuesta pierde `draggable`/`data-tt-drag*` y muestra la píldora
+> «Falta encuesta» en su lugar, pero conserva la navegación (`appt_nav`) para poder ver el motivo y
+> dar seguimiento. Con encuesta, arrastrable como cualquier otro cubo. También muestra `motivo`
+> (`rejection_reason` de la fase 02, en una línea truncada con `title` completo) y, si aplica,
+> **la misma línea de D9** que el cubo 3 («Agotó sus cancelaciones…») — `sin_encuesta` y bloqueado
+> por D9 no son excluyentes entre sí.
 
-La exclusión de los cubos 1 y 2 **no** se resuelve en la plantilla: la resta la hace
-`list_pending_processes`, que excluye a los del cubo 2. Filtrar en el template dejaría los
-**contadores** mintiendo. La de los cubos 3 y 4 es **estructural** y no una resta: los dos exigen
-cita vigente, pero uno la exige `no_show` y el otro `attended`, que se excluyen por construcción.
-Y el cubo 4 exige además la fase 02 **`rejected`**: el `attended` que espera dictamen no está en
-ningún cubo a propósito (no le falta cita, le falta que el encargado se pronuncie), y el que la
-tiene **aprobada** tampoco (ya terminó, §3 `fase_aprobada`).
+La exclusión de los cubos 1 y 3 **no** se resuelve en la plantilla: la resta la hace
+`list_pending_processes`, que excluye a los del cubo 3. Filtrar en el template dejaría los
+**contadores** mintiendo. La del cubo 2 frente al 4 es **estructural** y no una resta: los dos
+exigen cita vigente para quedar fuera del universo «sin cita», pero uno se define por `no_show` y
+el otro por «`attended` o ninguna», que se excluyen por construcción. Y el cubo 2 exige además la
+fase 02 **`rejected`**: el `attended` que espera dictamen no está en ningún cubo a propósito (no le
+falta cita, le falta que el encargado se pronuncie), y el que la tiene **aprobada** tampoco (ya
+terminó, §3 `fase_aprobada`).
 
-El badge «por atender» del segmento suma los cubos 1+2+3+4; el 5 **no** suma, porque ahí no hay
-nada que el encargado pueda hacer todavía.
+El badge «por atender» del segmento suma los cubos 1+2+3+4 (por posición de pantalla: por agendar +
+fase 02 rechazada + requieren que les agendes + reagendar); el de «sin encuesta» **no** suma, porque
+ahí no hay nada que el encargado pueda hacer todavía. La suma no distingue si una fila del cubo 2
+tiene `sin_encuesta=true` (esa sigue sin poder agendarse hasta que el egresado la envíe) — es una
+imprecisión conocida y no una que este cambio haya intentado cerrar.
 
 **👤 Alumno** → tarjeta «Tu proceso» del dashboard → **«Ver mi cita»**, o menú del alumno →
 **Cita de cotejo** (`/titulatec/student/cita`): tarjeta de estado + checklist de requisitos de su
