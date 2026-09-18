@@ -46,9 +46,18 @@ _PHASE_INFO = {
                "o te pide corregir.",
     },
     "review_appointment": {
-        "desc": "Servicios Escolares te asigna fecha, hora y lugar del cotejo. Confirma tu "
-                "asistencia y preséntate con tus documentos físicos. Si no puedes ese día, "
-                "solicita un cambio.",
+        # Neutral a proposito (2026-09-18): desde el auto-agendado hay convocatorias
+        # donde el alumno elige dia y hora, y otras donde se atiende por orden de
+        # llegada. El texto anterior prometia que Servicios Escolares asignaba la
+        # fecha SIEMPRE, y se contradecia con el selector de la propia pantalla.
+        # Aqui no se consulta la agenda -esto lo lee el dashboard para las 9
+        # fases- : se dice lo que vale en los tres casos y se manda a la pestaña,
+        # que si lo sabe. Y el cotejo NO es solo lo que el alumno subio: la lista
+        # `needs` de abajo trae fotografias, no-adeudo, IMSS, e.firma y el pago.
+        "desc": "En el cotejo revisan tus documentos EN FÍSICO: los que ya subiste y los "
+                "demás requisitos de tu convocatoria. Según tu convocatoria, agendas tú "
+                "o Servicios Escolares te asigna la fecha; en la pestaña de tu cita viene "
+                "lo que te toca.",
         "needs": [
             "Actas de nacimiento: original y copias.",
             "CURP certificada, e.Firma del SAT vigente y vigencia de derechos del IMSS.",
@@ -1142,7 +1151,22 @@ def _cita_label(dt) -> str:
     return f"{dt.day:02d} {_MONTHS_ES[dt.month]} {dt.year} · {dt:%H:%M}"
 
 
-def _cita_card_ctx(db, user_id: int) -> dict:
+def _cita_card_ctx(db, user_id: int, *, agenda: dict | None = None) -> dict:
+    """Contexto de la tarjeta de estado de la cita.
+
+    `agenda` (2026-09-18) viaja hasta aqui porque la rama «todavia no tienes
+    cita» tiene que decir COSAS DISTINTAS segun lo que el alumno pueda hacer:
+    con auto-agendado le toca a el, con atencion sin cita se presenta y ya, y
+    solo cuando no hay ninguna de las dos es verdad que Servicios Escolares le
+    asignara la fecha. Antes decia siempre lo ultimo, y quedaba contradiciendo
+    al selector de horas que estaba tres centimetros mas abajo en la misma
+    pantalla.
+
+    Se acepta como parametro para que `_cita_panel_ctx` lo calcule UNA vez y lo
+    preste; si nadie lo pasa (los dos POST que swappean solo la tarjeta) se
+    calcula aqui, porque un parcial que depende de quien lo incluya es un
+    parcial roto esperando su turno.
+    """
     from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
@@ -1184,6 +1208,7 @@ def _cita_card_ctx(db, user_id: int) -> dict:
         "process": process.to_dict() if process else None,
         "appt": appt_ctx,
         "fase_rechazada": fase_rechazada,
+        "agenda": agenda if agenda is not None else _agenda_ctx(db, process),
     }
 
 
@@ -1194,13 +1219,16 @@ def _cita_panel_ctx(db, user_id: int, *, dia: str | None = None) -> dict:
     (`creditable_process`): la tarjeta y el selector de agendado TIENEN que
     hablar del mismo proceso, o el alumno vería la cita de uno y agendaría en
     el otro.
+
+    La agenda se calcula AQUÍ y se le presta a la tarjeta: las dos la necesitan
+    —el selector para pintarse y la tarjeta para saber qué decir cuando no hay
+    cita— y `offer()` recorre las jornadas de la convocatoria, así que hacerlo
+    dos veces por carga sería pagar el doble por el mismo dato.
     """
     from itcj2.apps.titulatec.services.process_service import ProcessService
 
-    ctx = _cita_card_ctx(db, user_id)
-    ctx["agenda"] = _agenda_ctx(db, ProcessService.creditable_process(db, user_id),
-                                dia=dia)
-    return ctx
+    agenda = _agenda_ctx(db, ProcessService.creditable_process(db, user_id), dia=dia)
+    return _cita_card_ctx(db, user_id, agenda=agenda)
 
 
 def _cita_panel(request, db, user_id: int, *, dia: str | None = None):

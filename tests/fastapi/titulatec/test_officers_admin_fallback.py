@@ -43,6 +43,13 @@ def test_admin_en_titulatec_sin_puesto_ve_y_da_de_alta_en_servicios_escolares(
     y el alta aterriza en Servicios Escolares."""
     depto = make_department(code="school_services", name="Servicios Escolares (ficticio)")
     admin_role = make_role("admin", _OFFICER_ADMIN_PERMS)
+    # El rol que `officers.py::ROLE_ASSIGNED` cuelga del puesto nuevo, con su
+    # nombre LITERAL: sin el, `create_officer` -> `assign_role_to_position`
+    # revienta con "Role 'titulatec_school_services' does not exist" y el POST
+    # contesta 400. En dev lo siembra `database/DML/titulatec/`, asi que este
+    # test pasaba ahi y fallaba en CI, que arranca de una base vacia
+    # (create_all sin DML). Medido contra `itcj_ci` el 2026-09-18.
+    make_role("titulatec_school_services", _OFFICER_ADMIN_PERMS)
     admin_user = make_user(first_name="ADMIN", last_name="BOOTSTRAP")
     grant_user_role(admin_user, admin_role)
 

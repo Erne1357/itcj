@@ -919,7 +919,7 @@ def make_survey_form(db_session):
     diseno mas un multiselect y un textarea, para ejercer el renderizador entero.
     """
     from itcj2.apps.titulatec.models import (
-        SurveyAnswer, SurveyDraft, SurveyForm, SurveyResponse,
+        SurveyAnswer, SurveyDraft, SurveyForm, SurveyResponse, SurveyReview,
     )
 
     def _make(code="egresados", version=1, status="open", schema=None,
@@ -943,10 +943,23 @@ def make_survey_form(db_session):
             .scalar()
         )
         if existente_id is not None:
+            respuestas = (db_session.query(SurveyResponse.id)
+                          .filter(SurveyResponse.form_id == existente_id))
             (db_session.query(SurveyAnswer)
-             .filter(SurveyAnswer.response_id.in_(
-                 db_session.query(SurveyResponse.id)
-                 .filter(SurveyResponse.form_id == existente_id)))
+             .filter(SurveyAnswer.response_id.in_(respuestas))
+             .delete(synchronize_session=False))
+            # `SurveyReview` tambien apunta a `SurveyResponse`, y es la tabla
+            # que faltaba (2026-09-18). Nacio el 2026-09-15 con la liberacion de
+            # GTV, despues de que se escribiera este purgado, asi que se quedo
+            # fuera: en cuanto un alumno REAL de dev envio su encuesta y GTV se
+            # la libero, el DELETE de las respuestas reventaba con
+            # `titulatec_survey_reviews_response_id_fkey` y se llevaba por
+            # delante 113 tests de la suite de titulatec, ninguno de ellos
+            # relacionado con la liberacion. El comentario de arriba ya preveia
+            # exactamente este fallo ("reventaria con FK si alguien le dejo una
+            # respuesta real encima"); solo le faltaba esta tabla.
+            (db_session.query(SurveyReview)
+             .filter(SurveyReview.response_id.in_(respuestas))
              .delete(synchronize_session=False))
             (db_session.query(SurveyResponse)
              .filter(SurveyResponse.form_id == existente_id)

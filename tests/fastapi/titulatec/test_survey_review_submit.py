@@ -140,6 +140,11 @@ def test_sin_proceso_no_abre_solicitud_y_dice_no_process(
     pero no nace ninguna solicitud."""
     form = make_survey_form(code="tt_test_sin_proceso")
     student = make_student()
+    # `_reviews` barre la TABLA ENTERA, y la base de dev tiene liberaciones de
+    # verdad: exigir `== []` daba por hecho que estaba vacía y se puso rojo el
+    # día que un alumno real envió su encuesta (2026-09-18). Lo que este test
+    # quiere decir es «no nació NINGUNA solicitud nueva», que es un delta.
+    antes = {r.id for r in _reviews(db_session)}
 
     response, errors, credit = SurveyService.submit(
         db_session, form, ENVIO_OK, user_id=student.id,
@@ -149,7 +154,9 @@ def test_sin_proceso_no_abre_solicitud_y_dice_no_process(
     assert credit == "no_process"
     assert response is not None
     assert response.process_id is None
-    assert _reviews(db_session) == []
+    assert {r.id for r in _reviews(db_session)} == antes, (
+        "sin proceso acreditable no puede nacer una solicitud de liberación"
+    )
 
 
 def test_commitea_UNA_sola_vez_y_la_solicitud_va_DENTRO(

@@ -209,7 +209,16 @@ test('el egresado ve el espacio publicado y agenda su cita', async ({ browser })
   await page.goto(CITA_ALUMNO_URL, { waitUntil: 'domcontentloaded' });
 
   // Antes de agendar: sin cita, y con la oferta del encargado a la vista.
-  await expect(page.locator('#tt-cita-card')).toContainText('Pendiente de agenda');
+  //
+  // La tarjeta dice «Te toca agendar», NO «Pendiente de agenda · Servicios
+  // Escolares agendará tu cita» (2026-09-18). Esa era la copia de antes del
+  // auto-agendado y se contradecía con el selector que esta misma prueba
+  // encuentra tres líneas más abajo: el egresado leía que se la iban a asignar
+  // mientras tenía las horas delante. La aserción negativa va junto a la
+  // positiva a propósito: sin ella, cualquier texto pasaría.
+  const tarjeta = page.locator('#tt-cita-card');
+  await expect(tarjeta).toContainText('Te toca agendar');
+  await expect(tarjeta).not.toContainText('Servicios Escolares agendará tu cita');
   const agendar = page.locator('#tt-cita-agendar');
   await expect(agendar).toBeVisible();
   await expect(agendar).toContainText(ESPACIO.lugar);
@@ -223,8 +232,9 @@ test('el egresado ve el espacio publicado y agenda su cita', async ({ browser })
   expect((await post).status()).toBe(200);
 
   // El POST responde con el PANEL re-renderizado (app pages-only: un POST
-  // devuelve el parcial, no JSON).
-  const tarjeta = page.locator('#tt-cita-card');
+  // devuelve el parcial, no JSON). Se reusa el locator de arriba: ahora la
+  // tarjeta se mira DOS veces en esta prueba -antes de agendar y despues- y
+  // redeclararlo era un `SyntaxError` que dejaba el archivo entero sin cargar.
   await expect(tarjeta).toContainText('Tu cita de cotejo');
   await expect(tarjeta).toContainText(ESPACIO.inicio);
   await expect(tarjeta).toContainText(ESPACIO.lugar);

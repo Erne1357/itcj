@@ -373,13 +373,29 @@ class TestCanRevoke:
 # counts_by_status
 # ---------------------------------------------------------------------------
 class TestCountsByStatus:
+    """`counts_by_status` cuenta la TABLA ENTERA: no recibe convocatoria ni
+    alcance, y es lo que alimenta las pestañas de la bandeja de GTV.
+
+    Por eso estos dos tests miden DELTA y no absolutos (2026-09-18). Asertar
+    `{"approved": 0}` daba por hecho que la base no tiene ni una liberación de
+    verdad, y se puso rojo el día que un alumno real de dev envió su encuesta y
+    GTV se la aprobó: nada que ver con el código, solo con que la base dejó de
+    estar vacía. La suite corre contra la base de dev (savepoint por test, pero
+    la base es la real), así que un absoluto aquí es una bomba de tiempo.
+    """
+
     def test_las_tres_llaves_siempre_presentes(self, db_session):
-        assert SurveyReviewService.counts_by_status(db_session) == {
-            "in_review": 0, "approved": 0, "rejected": 0,
-        }
+        """El contrato es que las tres llaves existan SIEMPRE, con o sin filas:
+        la bandeja pinta `counts["rejected"]` sin comprobar nada."""
+        counts = SurveyReviewService.counts_by_status(db_session)
+
+        assert set(counts) == {"in_review", "approved", "rejected"}
+        assert all(isinstance(v, int) and v >= 0 for v in counts.values()), counts
 
     def test_cuenta_por_estado(self, db_session, make_student, make_cohort,
                                make_process, make_survey_review):
+        antes = SurveyReviewService.counts_by_status(db_session)
+
         cohort = make_cohort()
         p1 = make_process(make_student(), cohort=cohort, current_phase=2)
         p2 = make_process(make_student(), cohort=cohort, current_phase=2)
@@ -388,9 +404,14 @@ class TestCountsByStatus:
         make_survey_review(p2, status="in_review")
         make_survey_review(p3, status="rejected")
 
-        assert SurveyReviewService.counts_by_status(db_session) == {
-            "in_review": 2, "approved": 0, "rejected": 1,
-        }
+        despues = SurveyReviewService.counts_by_status(db_session)
+
+        assert despues["in_review"] - antes["in_review"] == 2
+        assert despues["rejected"] - antes["rejected"] == 1
+        assert despues["approved"] - antes["approved"] == 0, (
+            "ninguna de las tres sembradas es `approved`: si sube, el estado se "
+            "está clasificando mal"
+        )
 
 
 # ---------------------------------------------------------------------------

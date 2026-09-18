@@ -50,6 +50,16 @@ def _recargar(db, user):
     return user
 
 
+def _porque(resp) -> str:
+    """El motivo de un 4xx de esta app viaja en `X-Tt-Error`, percent-codificado.
+
+    Sin esto, un 400 se reporta como `assert 400 == 200` y el cuerpo vacio: hay
+    que ir a leer la ruta para adivinar cual de sus dos ramas salto.
+    """
+    from urllib.parse import unquote
+    return unquote(resp.headers.get("X-Tt-Error", "")) or resp.text[:300]
+
+
 def _es_default(user) -> bool:
     from itcj2.core.utils.security import DEFAULT_PASSWORD, verify_nip
     return verify_nip(DEFAULT_PASSWORD, user.password_hash or "")
@@ -69,6 +79,17 @@ def escenario(make_department, make_position, make_user, make_role,
         d2 = make_department(name="Mantenimiento (ficticio)")
         rol_head = make_role(ROLE_HEAD, HEAD_PERMS)
         make_role(ROLE_OFFICER, OFFICER_PERMS)
+        # El rol que `officers.py::ROLE_ASSIGNED` cuelga del puesto nuevo, con su
+        # nombre LITERAL: `create_officer` -> `assign_role_to_position` lo busca
+        # por nombre y revienta con "Role 'titulatec_school_services' does not
+        # exist" si no esta.
+        #
+        # En dev lo siembra `database/DML/titulatec/`, asi que estos tests pasaban
+        # ahi y fallaban en CI, que arranca de una base VACIA (create_all sin DML,
+        # `.github/workflows/deploy.yml`). Medido el 2026-09-18 contra `itcj_ci`:
+        # 5 rojos que en dev eran verdes. Los roles sinteticos de arriba son para
+        # los PERMISOS del actor; este es el que la ruta escribe.
+        make_role("titulatec_school_services", OFFICER_PERMS)
 
         pos_head = make_position(code=f"head_{d1.code}",
                                  title="Jefatura ficticia D1", department=d1)
@@ -178,7 +199,7 @@ def test_el_alta_reactiva_y_lo_dice_en_pantalla(escenario, client_as, db_session
         "program_ids": [str(e["carrera"].id)],
     }, follow_redirects=False)
 
-    assert resp.status_code == 200, resp.text[:400]
+    assert resp.status_code == 200, _porque(resp)
     _recargar(db_session, e["inactiva1"])
     assert e["inactiva1"].is_active is True
     # Y la pantalla lo confirma nombrando la cuenta, no con un "3 cuentas" mudo.
@@ -198,7 +219,7 @@ def test_el_alta_de_solo_cuentas_activas_no_pinta_la_tarjeta(escenario, client_a
         "program_ids": [str(e["carrera"].id)],
     }, follow_redirects=False)
 
-    assert resp.status_code == 200, resp.text[:400]
+    assert resp.status_code == 200, _porque(resp)
     assert 'data-tt-officers="reactivated"' not in resp.text
 
 
@@ -217,7 +238,7 @@ def test_la_edicion_tambien_reactiva(escenario, client_as, db_session):
         "program_ids": [str(e["carrera"].id)],
     }, follow_redirects=False)
 
-    assert resp.status_code == 200, resp.text[:400]
+    assert resp.status_code == 200, _porque(resp)
     _recargar(db_session, e["inactiva2"])
     assert e["inactiva2"].is_active is True
     assert 'data-tt-officers="reactivated"' in resp.text

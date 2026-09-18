@@ -115,8 +115,22 @@ def test_gtv_ve_pestanas_con_contadores_y_filas(
     assert "En revisión" in resp.text
     assert "Con observaciones" in resp.text
     assert "Liberadas" in resp.text
-    assert ">1<" in _tab_span(resp.text, "tt-rev-tab-in_review")
-    assert ">0<" in _tab_span(resp.text, "tt-rev-tab-approved")
+    # Los contadores se comparan contra `counts_by_status`, NO contra 1 y 0
+    # (2026-09-18). Esta pestaña se pide SIN búsqueda, así que anuncia el total
+    # GLOBAL: los absolutos daban por hecho que la base de dev no tiene ni una
+    # liberación de verdad, y se pusieron rojos el día que un alumno real envió
+    # su encuesta y GTV se la aprobó. Comparar contra el service prueba algo más
+    # fuerte -que la pestaña imprime el conteo REAL y no un número cualquiera- y
+    # deja de depender de que la base esté vacía.
+    #
+    # El test de más abajo que sí busca (`q=99500071`) conserva sus absolutos, y
+    # debe: ahí los contadores son del conjunto FILTRADO, que el propio test
+    # siembra entero.
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    counts = SurveyReviewService.counts_by_status(db_session)
+    assert counts["in_review"] >= 1, "la solicitud sembrada tiene que contar"
+    assert f'>{counts["in_review"]}<' in _tab_span(resp.text, "tt-rev-tab-in_review")
+    assert f'>{counts["approved"]}<' in _tab_span(resp.text, "tt-rev-tab-approved")
     assert f'id="tt-rev-{review.id}"' in resp.text
     assert student.control_number in resp.text
     assert f"/titulatec/admin/encuestas/{review.response_id}" in resp.text
@@ -177,7 +191,21 @@ def test_los_contadores_de_pestana_respetan_la_busqueda(
     assert ">0<" in _tab_span(resp.text, "tt-rev-tab-rejected")
 
 
-def test_pestana_sin_solicitudes_muestra_bandeja_limpia(client_as, make_gtv):
+def test_pestana_sin_solicitudes_muestra_bandeja_limpia(client_as, db_session, make_gtv):
+    """El vacío se FABRICA, no se supone (2026-09-18).
+
+    Antes se pedía la pestaña «Liberadas» dando por hecho que estaría vacía. En
+    la base de dev hay liberaciones de verdad, así que la bandeja traía filas y
+    el test se caía por el estado de los datos, no por el código. Se vacía ese
+    estado dentro del savepoint —`db_session` hace rollback al terminar, así que
+    la fila real no se pierde— y entonces sí se puede exigir el vacío.
+    """
+    from itcj2.apps.titulatec.models import SurveyReview
+
+    db_session.query(SurveyReview).filter_by(status="approved").delete(
+        synchronize_session=False)
+    db_session.flush()
+
     resp = client_as(make_gtv()).get(f"{URL}/body?status=approved")
 
     assert resp.status_code == 200, resp.text[:500]

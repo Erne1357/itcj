@@ -42,11 +42,53 @@
       Aún no tienes un proceso de titulación activo.</p>
   </div>
 {% elif not appt %}
+  {# Tres caras, no una (2026-09-18). Hasta hoy esta rama decia SIEMPRE
+     «Servicios Escolares agendará tu cita», y desde el auto-agendado eso se
+     contradice con la propia pantalla: el alumno leia que se la iban a asignar
+     mientras tres centimetros mas abajo tenia el selector de horas y el horario
+     de atencion sin cita.
+
+     La tarjeta dice el ESTADO («todavia no tienes cita») y a quien le toca; el
+     COMO lo explica cada seccion de abajo, que trae su propio rotulo. Por eso
+     aqui no se repite «elige el dia y toca la hora».
+
+     `agenda` lo pone `_cita_card_ctx`, tambien cuando este parcial se swappea
+     solo. El `agenda and ...` es defensivo: si algun dia alguien lo renderiza
+     sin contexto, cae a la cara conservadora en vez de reventar. #}
+  {% set puede_agendar = agenda and agenda.can_book and agenda.dias %}
+  {% set hay_walkin = agenda and agenda.can_walkin and agenda.walkins %}
   <div class="tt-card tt-card--accent">
-    <span class="tt-pill tt-pill--navy"><i class="bi bi-calendar-event"></i> Pendiente de agenda</span>
-    <p class="tt-cita-note mb-0 mt-2">
-      Servicios Escolares agendará tu cita de cotejo. Te avisaremos cuando tenga fecha.
-      Mientras tanto, prepara los documentos del checklist de abajo.</p>
+    {% if puede_agendar %}
+      <span class="tt-pill tt-pill--navy"><i class="bi bi-calendar-plus"></i> Te toca agendar</span>
+      <p class="tt-cita-note mb-0 mt-2">
+        Todavía no tienes cita de cotejo.
+        {% if hay_walkin %}
+          Agéndala aquí abajo, o preséntate sin cita dentro del horario de atención.
+        {% else %}
+          Agéndala aquí abajo con el día y la hora que te acomoden.
+        {% endif %}</p>
+    {% elif hay_walkin %}
+      <span class="tt-pill tt-pill--navy"><i class="bi bi-door-open"></i> Atención sin cita</span>
+      <p class="tt-cita-note mb-0 mt-2">
+        No necesitas agendar: preséntate dentro del horario de atención de abajo
+        con los documentos del checklist.</p>
+    {% elif agenda and agenda.message %}
+      {# No puede agendar por un REQUISITO suyo (encuesta sin enviar, fase…), y
+         `agenda.message` ya lo dice con todas sus letras en la tarjeta de la
+         cara 4, tres centimetros mas abajo. Prometerle aqui que Servicios
+         Escolares le asignara la fecha seria falso -no se la van a asignar
+         hasta que el cumpla- y ademas taparia la causa real con una espera
+         inventada. Se dice el estado y se manda a leer el motivo. #}
+      <span class="tt-pill tt-pill--navy"><i class="bi bi-calendar-event"></i> Pendiente de agenda</span>
+      <p class="tt-cita-note mb-0 mt-2">
+        Todavía no tienes cita de cotejo. Aquí abajo te decimos qué falta para
+        que puedas agendarla.</p>
+    {% else %}
+      <span class="tt-pill tt-pill--navy"><i class="bi bi-calendar-event"></i> Pendiente de agenda</span>
+      <p class="tt-cita-note mb-0 mt-2">
+        Servicios Escolares agendará tu cita de cotejo. Te avisaremos cuando tenga fecha.
+        Mientras tanto, prepara los documentos del checklist de abajo.</p>
+    {% endif %}
   </div>
 {% else %}
   <div class="tt-card tt-card--hero">

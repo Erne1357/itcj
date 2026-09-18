@@ -773,10 +773,11 @@ def test_si_la_escritura_revienta_el_visitante_recupera_su_cuestionario(
         raise ValueError("A string literal cannot contain NUL (0x00) characters")
 
     make_survey_form()
+    alumno = make_student()
     monkeypatch.setattr(SurveyService, "submit", staticmethod(_revienta))
     payload = dict(OK_PAYLOAD, comentarios="Tres anos de practicas.")
 
-    resp = client_as(make_student()).post(
+    resp = client_as(alumno).post(
         SURVEY_URL, data=payload,
         headers={"X-Real-IP": "203.0.113.62"}, follow_redirects=False)
 
@@ -785,7 +786,20 @@ def test_si_la_escritura_revienta_el_visitante_recupera_su_cuestionario(
     assert "data-tt-errors" in resp.text
     assert "No pudimos guardar tu respuesta" in resp.text
     assert "Tres anos de practicas." in resp.text, "se perdio lo escrito"
-    assert _responses(db_session) == []
+    # Acotado AL ALUMNO del envio, no a la tabla entera (2026-09-18).
+    #
+    # `_responses` barre toda la tabla y la base de dev tiene respuestas reales,
+    # asi que el `== []` de antes daba por hecho un vacio que dejo de ser cierto.
+    # Y un delta «antes/despues» tampoco sirve aqui: el purgado de
+    # `make_survey_form` borra las reales DENTRO del savepoint, pero la ruta abre
+    # su PROPIA sesion y su `rollback()` al reventar las RESUCITA -la trampa que
+    # ya documenta el arnes-, asi que el conjunto crece por un motivo ajeno.
+    # Lo que este test afirma es «la escritura que fallo no dejo SU respuesta»,
+    # y eso solo se puede medir sobre quien la envio.
+    mias = [r for r in _responses(db_session) if r.user_id == alumno.id]
+    assert mias == [], (
+        "una escritura que revento no puede dejar la respuesta de su autor en la BD"
+    )
 
 
 def test_una_parte_de_archivo_no_entra_a_la_BD_como_repr(

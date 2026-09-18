@@ -34,6 +34,11 @@ from itcj2.core.utils.timezone import db_now
 
 VIVOS = ("PENDING", "ASSIGNED", "IN_PROGRESS", "RESOLVED_SUCCESS", "RESOLVED_FAILED")
 
+# Prefijo de los tickets que siembra el andamiaje. Es lo que separa «lo que esta
+# prueba creo» de los tickets REALES de la base de dev, y por lo que `_limpia`
+# puede devolver totales que no dependen de lo que haya en produccion.
+_PREFIJO = f"TST-CLEAN-{os.getpid()}-"
+
 
 # ---------------------------------------------------------------------------
 # Andamiaje
@@ -83,7 +88,7 @@ def escenario(db_session, tmp_path):
     def _ticket(status, *, cerrado_hace_dias=None, adjuntos=1, con_comentario=False):
         contador["n"] += 1
         t = Ticket(
-            ticket_number=f"TST-CLEAN-{os.getpid()}-{contador['n']:04d}",
+            ticket_number=f"{_PREFIJO}{contador['n']:04d}",
             requester_id=usuario.id, area="SOPORTE", category_id=categoria.id,
             priority="MEDIA", title="Ticket de prueba",
             description="Descripcion original.", status=status,
@@ -113,17 +118,54 @@ def escenario(db_session, tmp_path):
 
 
 def _limpia(db):
-    """Ejecuta el paso de borrado real y devuelve (borrados, bytes, por_ticket)."""
+    """Ejecuta el paso de borrado real y devuelve (borrados, bytes, por_ticket).
+
+    ACOTADO A LOS TICKETS DE ESTE ARCHIVO (2026-09-18). `_cleanup_with_metrics`
+    barre la BASE ENTERA -no recibe filtro, es la tarea de produccion-, asi que
+    los totales que devuelve incluyen cualquier adjunto REAL de dev que haya
+    vencido su `auto_delete_at`. Los tests de aqui asertaban esos totales como
+    absolutos (`borrados == 2`) y se ponian rojos SOLOS, sin que nadie tocara
+    codigo, en cuanto pasaba la fecha de un adjunto de verdad: el 2026-09-17
+    vencieron dos (TK-2026-0476 a las 13:29 y TK-2026-0580 a las 14:38) y se
+    llevaron por delante 12 de los 14 tests de este archivo.
+
+    Se sigue ejecutando la limpieza COMPLETA -eso es lo que hace la tarea y es lo
+    que hay que probar-, pero los numeros que se devuelven se recortan a los
+    tickets que sembro el andamiaje, que llevan el prefijo `TST-CLEAN-<pid>-`.
+    Lo real se borra igual, como siempre hizo esta prueba; lo que cambia es que
+    ya no se cuenta.
+    """
     from itcj2.tasks.helpdesk_tasks import _cleanup_with_metrics
     errores: list = []
-    borrados, bytes_, por_ticket = _cleanup_with_metrics(db, errores)
+    _, _, por_ticket = _cleanup_with_metrics(db, errores)
     assert not errores, f"la limpieza reporto errores: {errores}"
-    return borrados, bytes_, por_ticket
+    mios = {num: fila for num, fila in por_ticket.items()
+            if num.startswith(_PREFIJO)}
+    borrados = sum(fila["total"] for fila in mios.values())
+    bytes_ = sum(fila["freed_bytes"] for fila in mios.values())
+    return borrados, bytes_, mios
 
 
 def _vive(db, att) -> bool:
     from itcj2.apps.helpdesk.models.attachment import Attachment
     return db.get(Attachment, att.id) is not None
+
+
+def _previstos(db):
+    """Lo que el dry-run ve, acotado a los tickets de esta prueba.
+
+    Mismo motivo que `_limpia`: `_attachments_a_borrar` es el predicado de
+    PRODUCCION y no recibe filtro, asi que devuelve tambien los adjuntos reales
+    de dev que ya vencieron. Lo que estos dos tests comparan es que el dry-run y
+    el borrado real vean LO MISMO, y eso se compara igual de bien sobre el
+    subconjunto propio.
+    """
+    from itcj2.apps.helpdesk.models.ticket import Ticket
+    from itcj2.tasks.helpdesk_tasks import _attachments_a_borrar
+
+    mios = {row.id for row in
+            db.query(Ticket.id).filter(Ticket.ticket_number.like(_PREFIJO + "%")).all()}
+    return [a for a in _attachments_a_borrar(db) if a.ticket_id in mios]
 
 
 # ===========================================================================
@@ -268,7 +310,7 @@ def test_el_dry_run_cuenta_lo_mismo_que_borra_la_ejecucion_real(escenario, db_se
     viejo["adjuntos"][0].auto_delete_at = db_now() - timedelta(days=23)
     db_session.flush()
 
-    previstos = {a.id for a in _attachments_a_borrar(db_session)}
+    previstos = {a.id for a in _previstos(db_session)}
     assert len(previstos) == 4, f"el predicado ve {len(previstos)}, esperaba 4"
 
     borrados, _, _ = _limpia(db_session)
@@ -280,7 +322,7 @@ def test_el_dry_run_no_borra_nada(escenario, db_session, monkeypatch):
     from itcj2.tasks.helpdesk_tasks import _attachments_a_borrar
     esc = escenario["ticket"]("CANCELED", adjuntos=2)
 
-    previstos = _attachments_a_borrar(db_session)
+    previstos = _previstos(db_session)
 
     assert len(previstos) == 2
     assert all(os.path.exists(a.filepath) for a in esc["adjuntos"])
