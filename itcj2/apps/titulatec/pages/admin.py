@@ -963,6 +963,13 @@ _INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
 # crudo en vez de desaparecer: un historial que se calla no es un historial.
 _EVENT_UI = {
     "process_created":              ("Alta en la convocatoria",   "person-plus",            "neutral"),
+    # Alta por el formulario publico, no por CSV ni a mano: al oficial le dice
+    # por que este expediente existe sin que el lo capturara.
+    "enrollment_self_service":      ("Se inscribió por el formulario", "globe",              "neutral"),
+    # Los escribe `CohortService.set_window` al cerrar y reabrir la convocatoria.
+    # Explican por que un proceso se quedo quieto sin accion de nadie.
+    "process_paused":               ("Proceso pausado",           "pause-circle",           "amber"),
+    "process_resumed":              ("Proceso reanudado",         "arrow-clockwise",        "neutral"),
     "document_uploaded":            ("Subió un documento",        "cloud-arrow-up",         "neutral"),
     "document_approved":            ("Documento aprobado",        "check-lg",               "success"),
     "document_rejected":            ("Documento rechazado",       "x-lg",                   "danger"),
@@ -980,6 +987,16 @@ _EVENT_UI = {
     "appointment_attended":         ("Cotejo atendido",           "check-circle",           "success"),
     "appointment_no_show":          ("No se presentó",            "person-x",               "danger"),
     "appointment_undo_no_show":     ("Se deshizo la falta",       "arrow-counterclockwise", "amber"),
+    # Lo escribe `AppointmentService.cancel`, que comparten el alumno y el
+    # encargado: la etiqueta es NEUTRAL porque el mismo `event_type` sirve a los
+    # dos y «El alumno cancelo» seria mentira cuando cancelo la ventanilla.
+    "appointment_cancelled":        ("Cita cancelada",            "calendar-x",             "danger"),
+    # Liberacion de la encuesta de egresados (GTV). Faltaban los cuatro, asi que
+    # el expediente enseñaba `survey_review_approved` en crudo.
+    "survey_review_submitted":      ("Envió la encuesta de egresados", "clipboard-check",   "neutral"),
+    "survey_review_approved":       ("GTV liberó la encuesta",    "patch-check",            "success"),
+    "survey_review_rejected":       ("GTV dejó observaciones",    "chat-left-text",         "amber"),
+    "survey_review_revoked":        ("Se revocó la liberación",   "arrow-counterclockwise", "amber"),
 }
 
 # Fases con contenido propio en el expediente. El resto tiene modelo y tabla y

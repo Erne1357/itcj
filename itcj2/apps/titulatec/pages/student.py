@@ -151,10 +151,39 @@ _RESPONSIBLE_LABEL = {
     "student":         "ti",
 }
 
-# Etiqueta legible de cada evento del timeline.
+# Etiqueta legible de cada evento del timeline, EN LA VOZ DEL ALUMNO: aquí el
+# mismo evento dice «Confirmaste tu asistencia» y en `pages/admin.py` «El alumno
+# confirmó». Las dos caras del mismo suceso, cada una para quien la lee.
+#
+# COMPLETADO EL 2026-09-18. Faltaban diez entradas —todo el bloque de documentos,
+# los tres de proceso, los dos de requisitos y el alta pública—, y como el
+# `.get()` de abajo cae al `event_type` crudo, el egresado veía
+# «document_uploaded» y «document_approved» en su propio historial. El dominio
+# completo vive en `models/process_event.py::EVENT_TYPES` y `test_event_labels.py`
+# cruza este dict contra él: agregar un evento sin etiqueta aquí rompe el test.
 _EVENT_LABELS = {
+    # ---- Proceso -------------------------------------------------------
+    "process_created":             "Te dieron de alta en la convocatoria",
+    # Lo escribe `CohortService.set_window` al cerrar y reabrir la convocatoria.
+    # Es la explicación de por qué el trámite se quedó quieto sin que el alumno
+    # hiciera nada, así que callarlo es justo lo contrario de lo que sirve.
+    "process_paused":              "Tu proceso quedó en pausa",
+    "process_resumed":             "Tu proceso se reanudó",
+    "enrollment_self_service":     "Te inscribiste desde el formulario público",
+    # ---- Documentos iniciales ------------------------------------------
+    "document_uploaded":           "Subiste un documento",
+    "document_approved":           "Te aprobaron un documento",
+    "document_rejected":           "Te rechazaron un documento",
+    # Neutral a propósito: lo escribe `DocumentService` tanto cuando el alumno
+    # borra el suyo como cuando lo retira Servicios Escolares.
+    "document_deleted":            "Se eliminó un documento",
+    # ---- Requisitos de cotejo ------------------------------------------
+    "requirement_fulfilled":       "Te acreditaron un requisito",
+    "requirement_unfulfilled":     "Se desmarcó un requisito",
+    # ---- Fases ----------------------------------------------------------
     "phase_approved":              "Fase aprobada",
     "phase_rejected":              "Fase rechazada",
+    # ---- Cita de cotejo --------------------------------------------------
     "appointment_scheduled":       "Cita agendada",
     "appointment_confirmed":       "Confirmaste tu asistencia",
     "appointment_in_progress":     "Cotejo en proceso",
