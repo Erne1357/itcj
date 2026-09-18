@@ -138,7 +138,7 @@ _PHASE_HELP = {code: info["desc"] for code, info in _PHASE_INFO.items()}
 # CTA del alumno por código de fase (solo las soportadas hoy).
 _PHASE_CTA = {
     "initial_docs":       ("/titulatec/student/documents", "Ir a documentos", "file-earmark-arrow-up"),
-    "review_appointment": ("/titulatec/student/cita", "Ver mi cita", "calendar-check"),
+    "review_appointment": ("/titulatec/student/cita", "Ver requisitos", "calendar-check"),
     "format_b":           ("/titulatec/student/formato-b", "Llenar Formato B", "pencil-square"),
 }
 
