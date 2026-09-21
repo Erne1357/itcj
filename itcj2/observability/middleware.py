@@ -30,7 +30,7 @@ from itcj2.observability.metrics import (
     HTTP_REQUEST_DURATION,
     HTTP_REQUESTS,
 )
-from itcj2.observability.route import app_key_from_route, normalize_route
+from itcj2.observability.route import UNMATCHED, app_key_from_route, normalize_route
 
 # Nombre fijo y no `__name__`: es el contrato con la configuración de logs
 # (nivel y handler propios) y con las consultas de Loki sobre la línea-resumen.
@@ -42,6 +42,27 @@ access_logger = logging.getLogger("itcj2.access")
 SKIP_PATHS = frozenset({"/health", "/ready", "/metrics"})
 
 _TRACEPARENT = b"traceparent"
+
+# El método es entrada del cliente: el servidor HTTP acepta decenas (PROPFIND,
+# PURGE, TRACE…) o cualquier token, y cada uno sería una etiqueta nueva. En
+# las métricas va tal cual solo si es uno de estos; si no, "OTHER".
+METRIC_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
+
+
+def _metric_route_method(route: str, method: str, status: int) -> tuple[str, str]:
+    """`route` y `method` como etiquetas de métrica (la línea-resumen no).
+
+    Un 405 conserva la plantilla real (match parcial de Starlette) y llega
+    antes de la autenticación: un HEAD a cada ruta GET (FastAPI no añade HEAD)
+    o un barrido de métodos abriría método × plantilla × (1 + 14 del
+    histograma) series que el presupuesto de §6 no cuenta, y un cliente
+    anónimo tumbaría el `mem_limit` de Prometheus, que es de TODO el stack.
+    En las métricas va a `"__unmatched__"`, como un 404; en Loki la línea
+    conserva la ruta real para investigar.
+    """
+    if status == 405:
+        route = UNMATCHED
+    return route, method if method in METRIC_METHODS else "OTHER"
 
 
 def _header(scope: dict, name: bytes) -> str | None:
@@ -150,15 +171,20 @@ class ObservabilityMiddleware:
             route = normalize_route(scope)
             app = app_key_from_route(route)
             method = scope["method"]
+            metric_route, metric_method = _metric_route_method(route, method, status)
+            # De la ruta de la MÉTRICA: un 405 cuenta como "otro", igual que
+            # un 404 ("__unmatched__" -> "otro" es el contrato).
+            metric_app = app_key_from_route(metric_route)
             HTTP_REQUESTS.labels(
-                app=app, method=method, route=route, status=str(status)
+                app=metric_app, method=metric_method, route=metric_route,
+                status=str(status),
             ).inc()
             HTTP_REQUEST_DURATION.labels(
-                app=app, method=method, route=route
+                app=metric_app, method=metric_method, route=metric_route
             ).observe(duration)
             if exc_type is not None:
                 HTTP_EXCEPTIONS.labels(
-                    app=app, route=route, exc_type=exc_type
+                    app=metric_app, route=metric_route, exc_type=exc_type
                 ).inc()
             _log_summary(
                 method, route, app, status, duration,

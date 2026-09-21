@@ -13,9 +13,10 @@ import pytest
 
 from itcj2.main import create_app
 from itcj2.observability.metrics import DURATION_BUCKETS
+from itcj2.observability.middleware import METRIC_METHODS
 from itcj2.observability.route import _KEYS, _route_method_pairs, build_route_map
 
-# R8: ~23 % sobre las ~16.300 series proyectadas de hoy (803 pares).
+# R8: ~22 % sobre las ~16.400 series proyectadas de hoy (804 pares).
 MAX_SERIES_PER_TARGET = 20_000
 
 # Peor caso de estados distintos por par (método, ruta) en el contador (§6).
@@ -23,7 +24,9 @@ MAX_STATUS = 6
 
 # Series que no escalan con las rutas (§6, tabla "Cuánto añade cada fase"):
 IN_FLIGHT_SERIES = len(_KEYS) + 1          # una por app_key, más "otro"
-UNMATCHED_SERIES = 14 + 4                  # "__unmatched__": histograma + estados
+# "__unmatched__" (404, y el 405 a propósito: ver middleware): histograma +
+# estados, por cada método que el middleware guarda tal cual más "OTHER".
+UNMATCHED_SERIES = (len(METRIC_METHODS) + 1) * (14 + 4)
 EXCEPTION_SERIES = 200                     # disperso: solo rutas que revientan
 EXTRA_SERIES = IN_FLIGHT_SERIES + UNMATCHED_SERIES + EXCEPTION_SERIES
 

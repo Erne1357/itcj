@@ -12,6 +12,7 @@ una etiqueta de más (p. ej. `status` en el histograma) la consulta devolvería
 Sin BD ni datos sembrados: la app de prueba solo tiene rutas propias.
 """
 import asyncio
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -156,6 +157,61 @@ def test_unhandled_exception_counts_500_and_its_type(client):
     assert resp.status_code == 500
     assert _value(REQUESTS, labels) - before == 1
     assert _value(EXCEPTIONS, exc_labels) - exc_before == 1
+
+
+# ---------------------------------------------------------------------------
+# El método es entrada del cliente: cardinalidad acotada
+# ---------------------------------------------------------------------------
+# Un 405 deja la ruta matcheada en el scope (match parcial) y llega antes de
+# la autenticación. Con la plantilla real, cada método × cada plantilla sería
+# una serie nueva (más 14 del histograma) que nadie presupuestó. FastAPI no
+# añade HEAD a las rutas GET: un HEAD a cualquier GET es un 405.
+
+@pytest.mark.parametrize("method", ["HEAD", "DELETE"])
+def test_405_is_counted_as_unmatched_not_under_its_template(client, caplog, method):
+    unmatched = {"app": "otro", "method": method, "route": "__unmatched__"}
+    real = {"app": "helpdesk", "method": method, "route": ITEM_TEMPLATE}
+    before = _value(REQUESTS, {**unmatched, "status": "405"})
+    duration_before = _value(DURATION_COUNT, unmatched)
+
+    with caplog.at_level(logging.INFO, logger="itcj2.access"):
+        resp = client.request(method, f"{PREFIX}/items/7")
+
+    assert resp.status_code == 405
+    assert _value(REQUESTS, {**unmatched, "status": "405"}) - before == 1
+    assert _value(DURATION_COUNT, unmatched) - duration_before == 1
+    # `is None` y no un delta: lo que cuesta es que la serie EXISTA.
+    assert REGISTRY.get_sample_value(REQUESTS, {**real, "status": "405"}) is None
+    assert REGISTRY.get_sample_value(DURATION_COUNT, real) is None
+    # Solo en las métricas: la línea-resumen (Loki, sin etiquetas por ruta)
+    # conserva la plantilla, la app y el método reales.
+    [record] = [r for r in caplog.records if r.name == "itcj2.access"]
+    assert (record.method, record.route, record.app, record.status) == (
+        method, ITEM_TEMPLATE, "helpdesk", 405,
+    )
+
+
+@pytest.mark.parametrize(
+    "path, status",
+    [(f"{PREFIX}/items/7", 405), (f"{PREFIX}/no-existe/48213", 404)],
+)
+def test_non_standard_method_is_counted_as_other(client, path, status):
+    labels = {"app": "otro", "method": "OTHER", "route": "__unmatched__"}
+    before = _value(REQUESTS, {**labels, "status": str(status)})
+    duration_before = _value(DURATION_COUNT, labels)
+
+    resp = client.request("PROPFIND", path)
+
+    assert resp.status_code == status
+    assert _value(REQUESTS, {**labels, "status": str(status)}) - before == 1
+    assert _value(DURATION_COUNT, labels) - duration_before == 1
+    leaked = [
+        sample
+        for family in REGISTRY.collect()
+        for sample in family.samples
+        if sample.labels.get("method") == "PROPFIND"
+    ]
+    assert leaked == []
 
 
 @pytest.mark.parametrize("path", ["/ready", "/health", "/metrics"])
