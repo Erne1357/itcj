@@ -313,19 +313,21 @@ def test_el_copy_de_tsoft_reserva_espacio_para_no_tapar_con_el_fab(
     24px de offset = 80px desde el borde) se monta sobre la ultima linea del
     copy de T-soft cuando el usuario se desplaza hasta el fondo -- medido en
     el navegador real (Playwright `boundingBox()`, no solo visto en la
-    captura): el parrafo terminaba a 16px del fondo de un viewport de 844px,
-    y el FAB empieza a 764px (80px antes del fondo).
+    captura): a 390x844 el parrafo del PANEL terminaba a 16px del fondo, y el
+    FAB empieza a 764px (80px antes del fondo).
 
-    Aqui solo se prueba que el marcado lleva la clase que reserva el colchon
-    (`.tt-handoff-note` en titulatec.css, mismo criterio que `.tt-canvas` ya
-    usa para el final de la pagina, ver su comentario) SOLO en el panel del
-    acordeon, que es donde se midio el riesgo real (puede quedar flush contra
-    el fondo en cualquier punto de la lista). La tarjeta grande NO la lleva a
-    proposito: la misma medicion ahi dio ~117px de holgura en la posicion de
-    scroll natural (es lo primero que se ve, antes del acordeon) -- agregar
-    el colchon tambien ahi solo infla la tarjeta sin cerrar un riesgo real.
-    La clearance real la confirma la captura de pantalla (no un test de HTML:
-    aqui no hay layout real que medir).
+    Ronda de fix 2 (medicion que faltaba, senalada por el coordinador): la
+    holgura de ~117px que la tarjeta grande media a 390x844 NO se sostiene en
+    una pantalla mas baja -el FAB es `fixed` a 80px del fondo del VIEWPORT,
+    asi que la holgura depende del alto, no del ancho-. A 375x667 (iPhone SE)
+    la tarjeta de la fase 3, SIN SCROLLEAR, ya solapaba el FAB: el parrafo
+    terminaba en `y=646.5px` y el FAB empezaba en `y=587px` -- **-59.5px**,
+    overlap real al cargar. Probado tambien con la fase de `desc` mas largo
+    de las 4-8 (`synodal_assignment`, 145 caracteres vs 135 de `format_b`):
+    ahi NO solapaba (+84px) porque esas fases no tienen el bloque de 3 pasos
+    que si tiene la 3 -el bloque de pasos, no el texto, es lo que dominaba la
+    altura-. Con cualquiera de los dos casos solapando basta para aplicar el
+    colchon: ahora `.tt-handoff-note` va en LAS DOS apariciones del copy.
     """
     seed_phase_defs()
     seed_document_types()
@@ -338,7 +340,7 @@ def test_el_copy_de_tsoft_reserva_espacio_para_no_tapar_con_el_fab(
         '//*[@id="tt-fase-actual"]//p[contains(@class,"tt-handoff-note")]')
     panel_note = doc.xpath(
         '//*[@id="tt-acc-panel-4"]//p[contains(@class,"tt-handoff-note")]')
-    assert len(tarjeta_note) == 0
+    assert len(tarjeta_note) == 1
     assert len(panel_note) == 1
 
 

@@ -526,17 +526,42 @@ body.tt-stu {
 .tt-canvas-inner { width: 100%; }
 .tt-rail { display: none; }
 /* Corte a T-soft (Tarea 3, ronda de fix 1, Hallazgo 1, 2026-09-21): el copy de
-   T-soft del PANEL DEL ACORDEÓN (dashboard.html) puede quedar como la ÚLTIMA
-   línea visible en CUALQUIER punto de la lista -no solo al final de la
-   página, que ya cubre el padding de `.tt-canvas` de arriba-, y ahí el FAB
-   standalone se le monta encima si el alumno se desplaza hasta el borde
-   (medido en el navegador: el párrafo quedaba a 16px del fondo del viewport,
-   el FAB empieza a 80px antes del fondo). Mismo colchón (88px) que
-   `.tt-canvas`, para el mismo FAB. Deliberadamente NO va en la tarjeta grande
-   de la fase actual (mismo copy, otro sitio): esa es siempre lo primero que
-   se ve, con ~117px de holgura medidos en la posición de scroll natural —
-   agregarlo ahí también solo infla la tarjeta sin cerrar un riesgo real. */
+   T-soft (tarjeta grande de la fase actual Y panel del acordeón,
+   dashboard.html) puede quedar como la ÚLTIMA línea visible, y ahí el FAB
+   standalone se le monta encima si el alumno se desplaza hasta el borde —o,
+   en pantallas bajas, incluso SIN desplazarse. Mismo colchón (88px) que
+   `.tt-canvas`, para el mismo FAB.
+
+   Ronda de fix 2 (medición que faltaba): la ronda de fix 1 dejó esta clase
+   SOLO en el panel del acordeón, razonando que la tarjeta grande medía
+   ~117px de holgura y no la necesitaba — pero esa medición fue solo a
+   390×844. El FAB es `fixed` a 80px del BORDE INFERIOR DEL VIEWPORT, así
+   que la holgura depende del ALTO de la pantalla, no del ancho. A 375×667
+   (iPhone SE, 177px menos de alto) la tarjeta grande con la fase 3 actual,
+   sin scrollear, ya solapaba el FAB en -59.5px. Ambas apariciones del copy
+   llevan la clase desde entonces. */
 .tt-handoff-note { padding-bottom: 88px; }
+/* Ronda de fix 2: SOLO `padding-bottom` no alcanza en la tarjeta grande de la
+   fase actual (a diferencia del panel del acordeón, donde sí). Ahí el alumno
+   nunca se desplaza para verla -sale completa desde la primera pintura de la
+   pagina-, así que el padding de DESPUÉS del párrafo no mueve nada: el texto
+   ya está pintado en su posición final, exactamente donde estaba antes del
+   padding. A 375×667 el párrafo empezaba en `y=587.4px`, casi el mismo punto
+   donde el FAB empieza (`y=587px`) -no se solapa "un poco al final", el
+   párrafo entero cae dentro de la franja del FAB-. Hacía falta clearance
+   ANTES del texto: empuja el párrafo lo suficiente para que, sin scroll,
+   caiga bajo el FAB (`y > 643px`) en vez de encima. ESTE margin-top
+   REEMPLAZA el `mt-3` (16px) que llevaba el párrafo, no se suma a él -el
+   primer intento (72px) lo media mal y solo dejaba 0.4px de holgura real,
+   casi cero-. 88px de margin-top neto = 71.6px netos sobre los 16px
+   originales de `mt-3` (587.4−16=571.4px de base ⇒ 571.4+88=659.4px, contra
+   los 643px del FAB ⇒ ~16px de colchón real, medido, no solo calculado).
+   Mismo criterio de colchón que el resto de esta sección, y mismo número
+   (88px) que `.tt-handoff-note` por legibilidad, aunque aquí sea margin y no
+   padding. Solo en la tarjeta grande -el panel del acordeón no se ve nunca
+   "de golpe" como esta: hace falta desplegarlo, así que jamás aparece en la
+   posición de scroll 0 de la carga inicial-. */
+.tt-handoff-note--hero { margin-top: 88px; }
 
 /* Dashboard: hero + "subida" de las tarjetas.
    Móvil: el hero se extiende y las tarjetas suben para solaparlo (efecto tarjeta).

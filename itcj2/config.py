@@ -145,7 +145,23 @@ class Settings(BaseSettings):
     # comentario de la clase). Sin el bump, el FAB standalone del core se sigue
     # montando sobre la ultima linea del aviso cuando el alumno se desplaza
     # hasta el borde de un panel expandido.
-    STATIC_VERSION: str = "1.0.1111553"
+    #
+    # Bump 2026-09-21 (2): ronda de fix 2 -- la medicion de la ronda anterior
+    # (117px de holgura, tarjeta grande sin `.tt-handoff-note`) solo se probo a
+    # 390x844. A 375x667 (iPhone SE) esa misma tarjeta, con la fase 3 actual y
+    # SIN SCROLLEAR, ya solapaba el FAB en -59.5px: el FAB es fixed a 80px del
+    # fondo del VIEWPORT, asi que la holgura depende del alto, no del ancho.
+    # Pero `.tt-handoff-note` (padding DESPUES del texto) sola no alcanza ahi:
+    # el alumno nunca desplaza para ver esta tarjeta -sale completa desde la
+    # primera pintura-, asi que el padding de despues no mueve el texto, que
+    # ya esta pintado en su posicion final. `titulatec.css` gana ademas
+    # `.tt-handoff-note--hero` (margin-top 88px, ANTES del texto -reemplaza el
+    # `mt-3` que ya traia el parrafo, no se le suma-) solo para la tarjeta
+    # grande (dashboard.html), que empuja el parrafo bajo el FAB en vez de
+    # encima. Sin el bump, la tarjeta sigue sin colchon en pantallas bajas y
+    # el FAB tapa el aviso ya al cargar la pagina, sin necesidad de que el
+    # alumno haga nada.
+    STATIC_VERSION: str = "1.0.1111556"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
