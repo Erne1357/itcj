@@ -21,12 +21,20 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 NGINX_PROD_CONF = REPO_ROOT / "docker" / "nginx" / "nginx.prod.conf"
+ENTRYPOINT_FASTAPI = REPO_ROOT / "docker" / "backend" / "entrypoint-fastapi.sh"
 ENTRYPOINTS = (
-    REPO_ROOT / "docker" / "backend" / "entrypoint-fastapi.sh",
+    ENTRYPOINT_FASTAPI,
     # El de dev lo usan `backend` Y `sockets` en docker-compose.dev.yml.
     REPO_ROOT / "docker" / "backend" / "entrypoint-fastapi-dev.sh",
 )
 CELERY_APP = REPO_ROOT / "itcj2" / "celery_app.py"
+COMPOSE_PROD = REPO_ROOT / "docker" / "compose" / "docker-compose.prod.yml"
+
+# Los tres servicios que sirven HTTP con --workers > 1 o Socket.IO: son los que
+# necesitan el tmpfs de mmap para prometheus_client (F2b). Celery no entra:
+# corre en un solo proceso por contenedor y el registro plano ya le basta.
+PROMETHEUS_TMPFS_SERVICES = ("backend-blue", "backend-green", "sockets")
+CELERY_SERVICES = ("celery-worker", "celery-worker-reports", "celery-beat")
 
 
 def _find_matching_brace(text: str, open_index: int) -> int:
@@ -133,3 +141,115 @@ def test_celery_configura_logging_por_la_senal_setup_logging():
     assert module_level_calls == [], (
         "configure_logging() a nivel de módulo la borra el worker al arrancar"
     )
+
+
+def test_entrypoint_fastapi_prepara_prometheus_multiproc_dir_antes_de_uvicorn():
+    """Con `--workers 4` cada worker es un proceso: el registro normal de
+    `prometheus_client` daría el número de UNO al azar (mal, no ausente). El
+    bloque exporta `PROMETHEUS_MULTIPROC_DIR` (default `/run/prometheus`, el
+    tmpfs propio del compose) y limpia + recrea el directorio ANTES de
+    `exec uvicorn`.
+
+    El `rm -rf` es obligatorio: si esa ruta alguna vez no fuera un tmpfs, los
+    ficheros del arranque anterior se seguirían sumando al total; y dentro de
+    la misma vida del contenedor, un worker respawneado suma de más a los
+    Gauge livesum porque nadie llama a `multiprocess.mark_process_dead()`.
+    """
+    stripped = [
+        line.strip()
+        for line in ENTRYPOINT_FASTAPI.read_text(encoding="utf-8").splitlines()
+    ]
+
+    export_idx = next(
+        i
+        for i, line in enumerate(stripped)
+        if line.startswith("export PROMETHEUS_MULTIPROC_DIR=")
+    )
+    assert "${PROMETHEUS_MULTIPROC_DIR:-/run/prometheus}" in stripped[export_idx], (
+        "el default debe ser /run/prometheus (el tmpfs que declara el compose)"
+    )
+
+    rm_idx = next(
+        i
+        for i, line in enumerate(stripped)
+        if line.startswith('rm -rf "$PROMETHEUS_MULTIPROC_DIR"')
+    )
+    mkdir_idx = next(
+        i
+        for i, line in enumerate(stripped)
+        if line.startswith('mkdir -p "$PROMETHEUS_MULTIPROC_DIR"')
+    )
+    exec_idx = next(
+        i for i, line in enumerate(stripped) if line.startswith("exec uvicorn")
+    )
+
+    assert export_idx < rm_idx < mkdir_idx < exec_idx, (
+        "export, 'rm -rf' y 'mkdir -p' deben ir en ese orden, antes de 'exec uvicorn'"
+    )
+
+
+def _service_lines(text: str, service: str) -> list[str]:
+    """Líneas del cuerpo de un servicio del compose (sin su propia cabecera).
+
+    Mismo criterio que `test_compose_prod_invariants.py::_service_env`: el
+    nombre del servicio es una clave con indentación de EXACTAMENTE 2 espacios;
+    la siguiente clave con esa misma indentación (otro servicio, o `volumes:`
+    a nivel de documento cuando trae sub-claves) cierra el bloque.
+    """
+    lines: list[str] = []
+    in_service = False
+    for line in text.splitlines():
+        if line.startswith("  ") and not line.startswith("   ") and line.rstrip().endswith(":"):
+            in_service = line.strip().rstrip(":") == service
+            continue
+        if in_service:
+            lines.append(line)
+    return lines
+
+
+def _service_tmpfs(text: str, service: str) -> list[str]:
+    """Entradas del bloque `tmpfs:` de un servicio (lista de strings sueltos,
+    a diferencia de `environment:` que es `- CLAVE=valor`)."""
+    entries: list[str] = []
+    in_tmpfs = False
+    for line in _service_lines(text, service):
+        stripped = line.strip()
+        if stripped == "tmpfs:":
+            in_tmpfs = True
+            continue
+        if not in_tmpfs:
+            continue
+        if stripped.startswith("- "):
+            entries.append(stripped[2:])
+        elif stripped and not stripped.startswith("#"):
+            in_tmpfs = False  # empezó otra clave del servicio
+    return entries
+
+
+@pytest.mark.parametrize("service", PROMETHEUS_TMPFS_SERVICES)
+def test_tmpfs_dedicado_para_prometheus_multiproc(service):
+    """`/run/prometheus` debe ser un tmpfs PROPIO, no `/dev/shm`: el compose
+    solo declara `shm_size` en `postgres`, así que `/dev/shm` en estos
+    servicios son los 64 MB por defecto de Docker, a compartir con lo que sea.
+    `mode=1777` para que cualquier worker (mismo UID) pueda escribir sus
+    ficheros mmap."""
+    text = COMPOSE_PROD.read_text(encoding="utf-8")
+    entries = _service_tmpfs(text, service)
+    assert "/run/prometheus:size=64m,mode=1777" in entries, (
+        f"{service}: falta 'tmpfs: - /run/prometheus:size=64m,mode=1777' en {COMPOSE_PROD.name}"
+    )
+
+
+def test_celery_no_declara_prometheus_multiproc_dir():
+    """El export vive SOLO en el entrypoint HTTP (`entrypoint-fastapi.sh`).
+    Cada contenedor de Celery corre un único proceso, así que el registro
+    plano de `prometheus_client` (sin `PROMETHEUS_MULTIPROC_DIR`) ya es
+    correcto ahí; ponerle la env var de todos modos activaría por accidente
+    el modo multiproceso sobre un directorio que nadie prepara ni limpia."""
+    text = COMPOSE_PROD.read_text(encoding="utf-8")
+    for service in CELERY_SERVICES:
+        block = "\n".join(_service_lines(text, service))
+        assert "PROMETHEUS_MULTIPROC_DIR" not in block, (
+            f"{service}: no debe declarar PROMETHEUS_MULTIPROC_DIR "
+            "(el export vive solo en el entrypoint HTTP)"
+        )

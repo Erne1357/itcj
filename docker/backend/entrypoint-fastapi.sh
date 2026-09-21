@@ -55,6 +55,23 @@ if [ -n "${UVICORN_FORWARDED_ALLOW_IPS:-}" ]; then
 fi
 
 echo "Iniciando FastAPI (Uvicorn) — APP_ROLE=$APP_ROLE, workers=$UVICORN_WORKERS..."
+
+# ── prometheus_client en modo multiproceso (F2b) ───────────────────────
+# Con --workers 4 cada worker es un proceso, y el registro normal de
+# prometheus_client daria el numero de UNO al azar (mal, no ausente). Los
+# mmap van a un tmpfs propio, no a /dev/shm: el compose solo declara
+# shm_size en postgres, asi que aqui /dev/shm son los 64 MB por defecto de
+# Docker y hay que compartirlos con lo que sea.
+# El rm -rf es obligatorio: si esta ruta alguna vez NO fuera un tmpfs, los
+# ficheros del arranque anterior se seguirian sumando al total. Y dentro de
+# una misma vida del contenedor, los ficheros de un worker respawneado se
+# suman igual: correcto para los Counter (no quieres perder sus peticiones),
+# INCORRECTO para los Gauge livesum, que se inflan con cada respawn porque
+# nadie llama a multiprocess.mark_process_dead().
+export PROMETHEUS_MULTIPROC_DIR="${PROMETHEUS_MULTIPROC_DIR:-/run/prometheus}"
+rm -rf "$PROMETHEUS_MULTIPROC_DIR"
+mkdir -p "$PROMETHEUS_MULTIPROC_DIR"
+
 # --no-access-log: la línea por petición ya la emite ObservabilityMiddleware
 # (JSON, con la ruta plantillada y la duración). Con el access log de uvicorn
 # serían dos líneas por petición: el doble de volumen en Loki y un doble

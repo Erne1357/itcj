@@ -150,6 +150,13 @@ services:
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance  # rw: sirve exports generados por Celery
+    # F2b: tmpfs PROPIO para los mmap de prometheus_client en modo
+    # multiproceso (el entrypoint exporta PROMETHEUS_MULTIPROC_DIR con este
+    # mismo default). NO /dev/shm: solo postgres declara shm_size, así que
+    # /dev/shm aquí son los 64 MB por defecto de Docker a compartir con lo
+    # que sea. mode=1777 para que cualquier worker (mismo UID) escriba ahí.
+    tmpfs:
+      - /run/prometheus:size=64m,mode=1777
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -218,6 +225,13 @@ services:
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance  # rw: sirve exports generados por Celery
+    # F2b: tmpfs PROPIO para los mmap de prometheus_client en modo
+    # multiproceso (el entrypoint exporta PROMETHEUS_MULTIPROC_DIR con este
+    # mismo default). NO /dev/shm: solo postgres declara shm_size, así que
+    # /dev/shm aquí son los 64 MB por defecto de Docker a compartir con lo
+    # que sea. mode=1777 para que cualquier worker (mismo UID) escriba ahí.
+    tmpfs:
+      - /run/prometheus:size=64m,mode=1777
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -289,6 +303,13 @@ services:
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance
+    # F2b: tmpfs PROPIO para los mmap de prometheus_client en modo
+    # multiproceso (el entrypoint exporta PROMETHEUS_MULTIPROC_DIR con este
+    # mismo default). NO /dev/shm: solo postgres declara shm_size, así que
+    # /dev/shm aquí son los 64 MB por defecto de Docker a compartir con lo
+    # que sea. mode=1777 para que cualquier worker (mismo UID) escriba ahí.
+    tmpfs:
+      - /run/prometheus:size=64m,mode=1777
     depends_on:
       pgbouncer:
         condition: service_healthy
