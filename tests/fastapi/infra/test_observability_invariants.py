@@ -1,6 +1,6 @@
 """Invariantes de infraestructura para observabilidad (Fase 0 en adelante).
 
-nginx (F0) y arranque de Celery (F1c).
+nginx (F0), entrypoints de uvicorn y arranque de Celery (F1c).
 
 `/metrics`, cuando exista, no debe ser alcanzable desde el hostname público:
 `location /` (más abajo, en el mismo `server`) proxea absolutamente todo al
@@ -17,8 +17,15 @@ uno por invariante, para que crezca sin volverse un solo test gigante.
 import re
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 NGINX_PROD_CONF = REPO_ROOT / "docker" / "nginx" / "nginx.prod.conf"
+ENTRYPOINTS = (
+    REPO_ROOT / "docker" / "backend" / "entrypoint-fastapi.sh",
+    # El de dev lo usan `backend` Y `sockets` en docker-compose.dev.yml.
+    REPO_ROOT / "docker" / "backend" / "entrypoint-fastapi-dev.sh",
+)
 CELERY_APP = REPO_ROOT / "itcj2" / "celery_app.py"
 
 
@@ -83,6 +90,30 @@ def test_nginx_bloquea_metrics():
     assert "proxy_pass" not in metrics_body, (
         "el bloque no debe reenviar al backend (dejaría de estar cerrado)"
     )
+
+
+def _exec_uvicorn(script: Path) -> str:
+    """El comando `exec uvicorn ...` completo, con sus líneas de continuación
+    (barra invertida al final) unidas en una sola cadena."""
+    lines = script.read_text(encoding="utf-8").splitlines()
+    start = next(
+        i for i, line in enumerate(lines) if line.lstrip().startswith("exec uvicorn")
+    )
+    parts = []
+    for line in lines[start:]:
+        stripped = line.rstrip()
+        parts.append(stripped.rstrip("\\"))
+        if not stripped.endswith("\\"):
+            break
+    return " ".join(parts)
+
+
+@pytest.mark.parametrize("script", ENTRYPOINTS, ids=lambda p: p.name)
+def test_uvicorn_arranca_sin_access_log(script):
+    """La línea por petición la emite `ObservabilityMiddleware` (JSON, ruta
+    plantillada, duración). Con el access log de uvicorn serían dos líneas por
+    petición: el doble de volumen en Loki y doble conteo en cualquier panel."""
+    assert "--no-access-log" in _exec_uvicorn(script)
 
 
 def test_celery_configura_logging_por_la_senal_setup_logging():

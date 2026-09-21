@@ -55,9 +55,14 @@ if [ -n "${UVICORN_FORWARDED_ALLOW_IPS:-}" ]; then
 fi
 
 echo "Iniciando FastAPI (Uvicorn) — APP_ROLE=$APP_ROLE, workers=$UVICORN_WORKERS..."
+# --no-access-log: la línea por petición ya la emite ObservabilityMiddleware
+# (JSON, con la ruta plantillada y la duración). Con el access log de uvicorn
+# serían dos líneas por petición: el doble de volumen en Loki y un doble
+# conteo garantizado en cualquier panel.
 exec uvicorn asgi:app \
   --host 0.0.0.0 \
   --port 8001 \
   --workers "$UVICORN_WORKERS" \
   ${FORWARDED_ARGS} \
-  --log-level info
+  --log-level info \
+  --no-access-log

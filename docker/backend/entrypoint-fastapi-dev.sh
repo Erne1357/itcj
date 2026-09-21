@@ -44,8 +44,12 @@ fi
 # --reload implica 1 worker; dev reproduce el SPLIT de prod (APP_ROLE), no el
 # número de workers.
 echo "Iniciando FastAPI (Uvicorn dev con --reload) — APP_ROLE=${APP_ROLE:-all}..."
+# --no-access-log: igual que en prod (entrypoint-fastapi.sh). La línea por
+# petición la emite ObservabilityMiddleware; con el access log de uvicorn cada
+# petición saldría dos veces.
 exec uvicorn asgi:app \
   --host 0.0.0.0 \
   --port 8001 \
   --reload \
-  --log-level info
+  --log-level info \
+  --no-access-log
