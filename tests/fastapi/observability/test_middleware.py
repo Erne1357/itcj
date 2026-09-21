@@ -413,3 +413,41 @@ def test_context_is_reset_after_a_request_without_exception():
         return context.current_request_id(), context.current_scope()
 
     assert asyncio.run(main()) == ("", None)
+
+
+def test_app_returning_without_response_is_logged_as_500(caplog):
+    # R19: la app termina sin http.response.start y sin lanzar. Uvicorn
+    # responde entonces con su propio 500 ("ASGI callable returned without
+    # starting response"): eso es lo que vio el cliente, no un status vacío.
+    async def silent(scope, receive, send):
+        return None
+
+    async def send(message):
+        pass
+
+    with caplog.at_level(logging.INFO, logger=ACCESS_LOGGER):
+        asyncio.run(ObservabilityMiddleware(silent)(_http_scope(), _receive, send))
+
+    [record] = _access_records(caplog)
+    assert record.status == 500
+    assert not hasattr(record, "exc_type")
+
+
+def test_response_start_without_headers_key_gets_the_request_id():
+    # R20: ASGI permite omitir "headers" en http.response.start.
+    async def bare(scope, receive, send):
+        await send({"type": "http.response.start", "status": 204})
+        await send({"type": "http.response.body", "body": b""})
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(ObservabilityMiddleware(bare)(_http_scope(), _receive, send))
+
+    start = sent[0]
+    assert start["status"] == 204
+    [(name, value)] = start["headers"]
+    assert name == b"x-request-id"
+    assert _HEX32.match(value.decode())

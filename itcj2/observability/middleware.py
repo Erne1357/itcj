@@ -99,8 +99,6 @@ class ObservabilityMiddleware:
             trace_id=trace_id, span_id=span_id, request_id=request_id, scope=scope
         )
 
-        # None solo si la app termina sin responder y sin lanzar (uvicorn
-        # manda entonces su propio 500): se deja así en vez de inventar uno.
         status = None
         exc_type = None
 
@@ -108,6 +106,8 @@ class ObservabilityMiddleware:
             nonlocal status
             if message["type"] == "http.response.start":
                 status = message["status"]
+                # R20: ASGI permite omitir "headers"; MutableHeaders lo exige.
+                message.setdefault("headers", [])
                 MutableHeaders(scope=message)["x-request-id"] = request_id
             await send(message)
 
@@ -124,6 +124,11 @@ class ObservabilityMiddleware:
             raise
         finally:
             duration = perf_counter() - start
+            if status is None:
+                # R19: la app terminó sin http.response.start y sin lanzar.
+                # Uvicorn responde entonces con su propio 500 ("ASGI callable
+                # returned without starting response"): eso vio el cliente.
+                status = 500
             # Starlette rellena scope["route"] EN SITIO al enrutar, así que
             # aquí ya está, también cuando el endpoint reventó.
             route = normalize_route(scope)
