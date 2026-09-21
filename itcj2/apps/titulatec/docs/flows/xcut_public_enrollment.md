@@ -27,8 +27,8 @@ pestaña vacía con el aviso "sin alcance" — es el comportamiento esperado.
 ## Ruta en la app (UI)
 
 1. 👤 `/titulatec/inscripcion` → formulario: **¿ya acreditaste el inglés?** (primero, obligatoria), número
-   de control, nombre, apellidos, carrera (o texto libre si no aparece), teléfono, **correo personal dos
-   veces** y e.firma → **Enviar solicitud** → tarjeta «Recibimos tu solicitud».
+   de control, nombre, apellidos, carrera (obligatoria, siempre del catálogo), teléfono, **correo personal
+   dos veces** y e.firma → **Enviar solicitud** → tarjeta «Recibimos tu solicitud».
 
    **Inglés (2026-09-17, revierte D11 «el inglés no se pregunta»):** radios Sí/No SIN opción marcada
    (`required` en el primero). Con «No» el POST responde 200 con el formulario y el error en el campo
@@ -80,9 +80,8 @@ pinta es un aviso.
   binarios (44 px, la tile entera es el `<label>`), `.tt-label`, `.tt-hint` y `.tt-err`.
 - **Campos a 16 px** (`--tt-fs-300`) y 44 px de alto: por debajo de 16, iOS hace zoom al enfocar y
   deja la página desplazada. El foco pasó de ámbar (2.15:1) a `--tt-focus` (5.02:1, WCAG 1.4.11).
-- **`min-width: 0` en el `<fieldset>`** y `.tt-enroll-row[hidden] { display: none }` no son
-  cosméticos: sin el primero, una celda que no cabe rompe `scrollWidth <= innerWidth` a 360 px;
-  sin el segundo, «Escribe tu carrera» sale siempre porque `display: grid` le gana a `hidden`.
+- **`min-width: 0` en el `<fieldset>`** no es cosmético: sin él, una celda que no cabe rompe
+  `scrollWidth <= innerWidth` a 360 px.
 - Solo un campo es opcional (apellido materno) y es el único marcado; los otros nueve no llevan
   asterisco.
 
@@ -114,9 +113,12 @@ mientras que el centrado de flex lo recortaría por arriba sin manera de llegar 
 Fechas en español: `utils/dates_es.py` (`dia_mes`, `dia_largo`, `cuenta_regresiva`), escritas a
 mano porque el locale del contenedor es `C` y `%B` devolvería «September».
 
-**Cobertura:** `tests/fastapi/titulatec/test_enrollment_public.py` (51 tests, 11 del rediseño) y
+**Cobertura:** `tests/fastapi/titulatec/test_enrollment_public.py` (53 tests, 11 del rediseño) y
 `tests/e2e/titulatec/public-enroll.spec.js` (16, incluidos los seis viewports de la matriz en las
-dos ramas y la medición real de 44 px / 16 px).
+dos ramas y la medición real de 44 px / 16 px). ⚠️ 2026-09-21: uno de esos 16
+(**«mi carrera no aparece» revela el campo de texto libre**) quedó **roto** por este mismo cambio
+—ejercita `program_id=__other__` y `[name="program_text"]`, que ya no existen en el HTML— y sigue
+sin tocarse; pendiente de borrarlo en un commit aparte.
 
 ## Estados
 
@@ -384,6 +386,21 @@ solo hacen `.strip()` y sus lookups por `control_number` son exactos, así que `
 segunda solicitud (o no encontraría la aprobada) frente a `B21221523`. El `<input>` lleva
 `pattern="[A-Za-z]?[0-9]{8}"` y `maxlength="9"`, sin texto de ayuda bajo el campo (se quitó a pedido del
 usuario el 2026-09-17): la regla solo se explica en el mensaje de error.
+
+**Carrera (2026-09-21, elimina el caso de raíz):** obligatoria y siempre del catálogo
+(`core_programs`). Hasta esa fecha el visitante podía elegir «Mi carrera no aparece en la lista»
+(`program_id=__other__`) y escribirla a mano en `program_text`, lo que dejaba la solicitud **sin**
+`program_id` — y una solicitud sin carrera no la ve ningún encargado de carrera, porque el
+[alcance por carrera](engine_officer_scope.md) filtra por `program_id`. Se quitaron del `<select>` la
+opción `__other__` y la fila de texto libre; el aviso «De no encontrar tu carrera exacta, elige la que
+más se apegue a la que cursaste.» queda como ayuda del campo (`aria-describedby`). El servidor valida
+contra el MISMO catálogo que ofreció el `<select>` (`db.get(Program, program_id)`), no solo que
+`program_id` tenga forma de dígito: antes un id inventado o de una carrera borrada pasaba la
+validación de a fuerzas y la petición fallaba silenciosamente contra el `FOREIGN KEY` de
+`titulatec_enrollment_requests.program_id` (la misma tarjeta genérica de éxito, sin escribir nada).
+Mensaje: «Elige tu carrera de la lista.». La columna `program_text` **sigue en la BD** (dato legado;
+la bandeja la sigue mostrando para las filas viejas) y `EnrollmentRequestService.create` sigue
+aceptándola — solo el formulario público dejó de alimentarla.
 
 **Formulario, defensas públicas:**
 - Trampa llena → la misma tarjeta, sin escritura ni cobro.

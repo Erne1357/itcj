@@ -5,10 +5,21 @@
 > SQL. Pieza transversal: la usan la bandeja de procesos, el tablero kanban y la agenda de citas.
 
 > ✅ **Alcance real del mecanismo:** el scope por carrera se aplica en **dos capas**: el filtro SQL
-> de los listados (`pages/admin.py:652`, `pages/appointments.py:307`, `pages/documents.py:53`)
-> **y** el guard `assert_process_in_scope` en las **13 rutas con
+> de los listados (`pages/admin.py:652`, `pages/appointments.py:307`, `pages/documents.py:53`,
+> `pages/requests_admin.py:159`) **y** el guard `assert_process_in_scope` en las **13 rutas con
 > `{process_id}`** (§ *Scope en escritura*). Mismo predicado en ambas: si un proceso no sale en tu
 > listado, sus rutas de detalle y de mutación responden **404**.
+>
+> `pages/requests_admin.py` filtra la bandeja de **Solicitudes** (inscripción pública, sobre
+> `EnrollmentRequest`, no `TitulationProcess`) por el mismo `officer_programs()`, con su PROPIA
+> reimplementación local del mismo patrón lectura+escritura en vez de llamar a `scope_service`:
+> `_officer_scope`/`_program_in_scope`/`_load_scoped_request` (`requests_admin.py:79-107`) son los
+> gemelos de `officer_programs`/`process_in_scope`/`assert_process_in_scope`, pero indexados por
+> `req_id` de `EnrollmentRequest`, no por `process_id` de `TitulationProcess`
+> (`assert_process_in_scope` no aplica aquí: son entidades distintas). Las tres rutas con
+> `{req_id}` (`aprobar`, `rechazar`, `reenviar`) llaman `_load_scoped_request` como primera
+> comprobación y devuelven **404 liso** si es `None` — mismo criterio "no existe" ≡ "no es tuya"
+> que `assert_process_in_scope`. Detalle: [`xcut_public_enrollment.md`](xcut_public_enrollment.md).
 
 | | |
 |---|---|
@@ -177,13 +188,14 @@ parcial HTMX el cuerpo da igual: htmx no hace swap en 4xx.
 La regla 3 es deliberada: `read.all` lo tienen **dos** roles (jefe y titulaciones), y el cubo
 "Sin carrera" es una **cola de reparación de datos**, así que lo abre quien puede repararla.
 
-**Call sites de listado (los 5, filtro SQL):**
+**Call sites de listado (los 6, filtro SQL):**
 
 | Archivo:línea | Ruta | Qué acota |
 |---|---|---|
 | `pages/admin.py:652` | `GET /titulatec/admin/processes` | `TitulationProcess.program_id.in_(scope)` (`:657`); scope vacío → contexto `_empty()` (`:655-656`) |
 | `pages/appointments.py:307` | `GET /admin/appointments` y `/body` (vía `_shell_ctx`) | **una** resolución de `officer_programs` alimenta **cinco** consultas: `list_for_day` (`:324`), `list_appointments` (`:328`), `list_pending_processes` (`:343`), `agenda_process_ids` (`:363`) y `counts_by_day` (`:249`, vía `_calendar_ctx`) |
 | `pages/documents.py:53` | `GET /admin/documents` y `/body` (vía `_body_ctx`) | `program_id.in_(scope)` (`:59`); scope vacío → `rows: []` (`:56-58`) |
+| `pages/requests_admin.py:159` | `GET /admin/solicitudes` y `/body` (vía `_body_ctx`) | `EnrollmentRequest.program_id.in_(scope)`; entidad `EnrollmentRequest`, no `TitulationProcess` (única de esta tabla) — ver la nota de arriba |
 
 > ⚠️ **Las rutas `/admin/appointments/calendar` y `/day` ya no existen** (2026-09-02): se plegaron
 > dentro de `/body`, que ahora renderiza el shell de tres zonas completo. Eso concentra el riesgo:

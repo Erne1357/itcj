@@ -100,29 +100,19 @@
       </div>
       <div class="tt-enroll-cell">
         <label class="tt-label" for="tt-program">Carrera</label>
-        <select class="tt-field" id="tt-program" name="program_id" data-tt-enroll="program"
-                {% if errors.program_id %}aria-invalid="true" aria-describedby="tt-program-err"{% endif %}>
+        <p class="tt-hint" id="tt-program-hint">De no encontrar tu carrera exacta, elige la que más se apegue a la que cursaste.</p>
+        <select class="tt-field" id="tt-program" name="program_id" data-tt-enroll="program" required
+                {% if errors.program_id %}aria-invalid="true" aria-describedby="tt-program-err"{% else %}aria-describedby="tt-program-hint"{% endif %}>
           <option value="">Elige tu carrera…</option>
           {% for p in programs %}
           <option value="{{ p.id }}"{% if values.program_id == p.id|string %} selected{% endif %}>{{ p.name }}</option>
           {% endfor %}
-          <option value="__other__"{% if values.program_id == '__other__' %} selected{% endif %}>Mi carrera no aparece en la lista</option>
         </select>
         {% if errors.program_id %}
         <p class="tt-err" id="tt-program-err" data-tt-error="program_id">
           <i class="bi bi-exclamation-circle" aria-hidden="true"></i>{{ errors.program_id }}
         </p>
         {% endif %}
-      </div>
-    </div>
-
-    {# Se revela con el `<select>` de arriba (`enroll.js`). Va en su propia fila
-       a ancho completo: el nombre de una carrera no cabe en media columna. #}
-    <div class="tt-enroll-row" data-tt-enroll="program-text-wrap"{% if values.program_id != '__other__' %} hidden{% endif %}>
-      <div class="tt-enroll-cell">
-        <label class="tt-label" for="tt-program-text">Escribe tu carrera</label>
-        <input class="tt-field" id="tt-program-text" name="program_text" maxlength="160"
-               value="{{ values.program_text|default('') }}">
       </div>
     </div>
 

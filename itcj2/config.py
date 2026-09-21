@@ -162,7 +162,16 @@ class Settings(BaseSettings):
     # encima. Sin el bump, la tarjeta sigue sin colchon en pantallas bajas y
     # el FAB tapa el aviso ya al cargar la pagina, sin necesidad de que el
     # alumno haga nada.
-    STATIC_VERSION: str = "1.0.1111556"
+    #
+    # Bump 2026-09-21 (3): la carrera pasa a ser obligatoria y siempre del
+    # catálogo en la inscripción pública (elimina el caso de raíz de "mi
+    # carrera no aparece", que dejaba la solicitud sin `program_id` y por
+    # tanto invisible para todo encargado de carrera). `enroll_form.html`
+    # pierde la opción `__other__` y la fila de texto libre; `js/public/
+    # enroll.js` queda vacío (esa era su única lógica). Sin el bump, quien ya
+    # tenía la página en caché sigue corriendo el JS viejo, que ahora apunta a
+    # un nodo (`program-text-wrap`) que ya no existe en el HTML.
+    STATIC_VERSION: str = "1.0.1111557"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

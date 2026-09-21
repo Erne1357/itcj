@@ -50,14 +50,35 @@ def _solo_esta_convocatoria(db_session, cohort):
     db_session.flush()
 
 
+# `_form()` no es un fixture: no tiene forma de tomar `db_session`/`make_program`
+# por sí sola. Desde que la carrera es obligatoria y siempre del catálogo
+# (2026-09-21, se elimina el caso de raíz del "mi carrera no aparece"), su
+# default de `program_id` tiene que apuntar a una fila REAL de `core_programs`,
+# o la validación de carrera tumbaría decenas de pruebas que no tienen nada que
+# ver con eso. El autouse de abajo crea esa fila UNA vez por prueba (dentro del
+# mismo savepoint) y dejamos su id en este contenedor mutable para que `_form()`
+# lo lea en cada llamada.
+_default_program_id = {"value": None}
+
+
+@pytest.fixture(autouse=True)
+def _programa_valido_por_omision(make_program):
+    """Carrera válida por omisión para `_form()` (ver arriba). Autouse: toda
+    prueba de este módulo puede seguir llamando `_form()` sin pensar en la
+    carrera, igual que antes del 2026-09-21."""
+    programa = make_program("Ingeniería Ficticia (helper _form)")
+    _default_program_id["value"] = programa.id
+    yield
+    _default_program_id["value"] = None
+
+
 def _form(**kw):
     base = {
         "control_number": "99880002",
         "first_name": "ALUMNA",
         "last_name": "INVENTADA",
         "middle_name": "",
-        "program_id": "__other__",
-        "program_text": "Ingenieria Ficticia",
+        "program_id": str(_default_program_id["value"]),
         "phone": "6561234567",
         "contact_email": "alguien@example.invalid",
         "contact_email_confirm": "alguien@example.invalid",
@@ -120,6 +141,8 @@ def test_get_con_ventana_cerrada_muestra_la_tarjeta_de_cierre(
 def test_get_con_ventana_abierta_muestra_el_formulario_y_la_trampa(
     client, db_session, make_cohort, make_program,
 ):
+    import re
+
     make_program("Ingenieria Ficticia A")
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
@@ -131,7 +154,15 @@ def test_get_con_ventana_abierta_muestra_el_formulario_y_la_trampa(
     assert 'id="tt-enroll-form"' in resp.text
     assert 'name="website"' in resp.text          # honeypot (E3)
     assert "Ingenieria Ficticia A" in resp.text    # select de core_programs
-    assert 'value="__other__"' in resp.text        # "mi carrera no aparece"
+    # 2026-09-21: se elimina el caso de raíz. La carrera es obligatoria y
+    # siempre del catálogo; "mi carrera no aparece" ya no es una opción.
+    assert 'value="__other__"' not in resp.text
+    assert "Mi carrera no aparece en la lista" not in resp.text
+    assert 'name="program_text"' not in resp.text
+    assert "De no encontrar tu carrera exacta, elige la que más se apegue a la que cursaste." in resp.text
+    campo_select = re.search(r'<select[^>]*id="tt-program"[^>]*>', resp.text)
+    assert campo_select, "no se encontró el <select> de carrera"
+    assert "required" in campo_select.group(0), "la carrera debe ser obligatoria para la UX"
     assert cohort.name not in resp.text            # sin nombre de convocatoria
 
 
@@ -368,20 +399,71 @@ def test_sin_nombre_devuelve_200_con_error_inline_en_ese_campo(
     assert _count(db_session, "99880002") == 0
 
 
-def test_sin_carrera_y_sin_texto_libre_devuelve_error_de_programa(
+MSG_CARRERA_OBLIGATORIA = "Elige tu carrera de la lista."
+
+
+def test_sin_carrera_devuelve_error_de_programa(
     client, db_session, make_cohort,
 ):
+    """2026-09-21: la carrera es obligatoria. Sin `program_id` no hay forma de
+    saber a qué encargado de carrera le toca la solicitud."""
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
     client.cookies.clear()
 
     resp = client.post(ENROLL_URL,
-                       data=_form(program_id="", program_text=""),
+                       data=_form(program_id=""),
                        headers={"X-Real-IP": "203.0.113.14"},
                        follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:400]
     assert 'data-tt-error="program_id"' in resp.text
+    assert MSG_CARRERA_OBLIGATORIA in resp.text
+    assert _count(db_session, "99880002") == 0
+
+
+def test_program_id_other_se_rechaza_aunque_llegue_por_post_directo(
+    client, db_session, make_cohort,
+):
+    """El `<select>` ya no ofrece `__other__` (se quitó del HTML), pero el
+    `required` del navegador no protege nada ante un POST directo: el
+    contrato de verdad es del servidor, que debe rechazarlo igual."""
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.post(ENROLL_URL,
+                       data=_form(program_id="__other__"),
+                       headers={"X-Real-IP": "203.0.113.141"},
+                       follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'data-tt-error="program_id"' in resp.text
+    assert MSG_CARRERA_OBLIGATORIA in resp.text
+    assert _count(db_session, "99880002") == 0
+
+
+def test_un_program_id_inventado_se_rechaza_aunque_sea_numerico(
+    client, db_session, make_cohort,
+):
+    """Antes del 2026-09-21 `isdigit()` era la ÚNICA prueba sobre `program_id`:
+    un id inventado (o de una carrera que ya no existe) pasaba la validación
+    de a fuerzas. Ahora se comprueba contra `core_programs`, el MISMO catálogo
+    que ofreció el `<select>` — nunca un id inventado."""
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.post(ENROLL_URL,
+                       # int32 alcanza para 2,147,483,647: ninguna carrera real
+                       # de `core_programs` llega ni de lejos a ese id.
+                       data=_form(program_id="999999999"),
+                       headers={"X-Real-IP": "203.0.113.142"},
+                       follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'data-tt-error="program_id"' in resp.text
+    assert MSG_CARRERA_OBLIGATORIA in resp.text
     assert _count(db_session, "99880002") == 0
 
 

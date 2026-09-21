@@ -1458,6 +1458,7 @@ async def enroll_submit(request: Request):
     número de control existe o si esa persona se está titulando.
     """
     from itcj2.database import SessionLocal
+    from itcj2.core.models.program import Program
     from itcj2.core.utils.client_ip import client_ip
     from itcj2.core.utils.email_tools import is_valid_email, normalize_email
     from itcj2.apps.titulatec.services.cohort_service import CohortService
@@ -1493,7 +1494,7 @@ async def enroll_submit(request: Request):
 
     values = {k: (form.get(k) or "").strip() for k in (
         "control_number", "first_name", "last_name", "middle_name",
-        "program_id", "program_text", "phone", "contact_email",
+        "program_id", "phone", "contact_email",
         "contact_email_confirm")}
     # MAYÚSCULA antes de validar y de buscar/guardar: EnrollmentRequestService
     # solo hace `.strip()` sobre lo que le llega, y su lookup por control es
@@ -1560,11 +1561,20 @@ async def enroll_submit(request: Request):
         if not values["phone"]:
             errors["phone"] = "Escribe un teléfono donde podamos localizarte."
 
+        # La carrera es obligatoria y siempre del catálogo (2026-09-21, elimina
+        # el caso de raíz: una solicitud sin `program_id` no la ve ningún
+        # encargado de carrera, porque el alcance por carrera filtra por
+        # `program_id`). `__other__` y una carrera libre ya no son opciones
+        # del `<select>`, pero el `required` del HTML no protege nada ante un
+        # POST directo, así que aquí es donde de verdad se exige.
         prog_raw = values["program_id"]
         program_id = int(prog_raw) if prog_raw.isdigit() else None
-        program_text = values["program_text"][:160] or None
-        if program_id is None and not program_text:
-            errors["program_id"] = "Elige tu carrera o escríbela si no aparece."
+        if program_id is not None and db.get(Program, program_id) is None:
+            # `isdigit()` sola no prueba existencia: sin esto, un id inventado
+            # (o de una carrera borrada) pasaba la validación de a fuerzas.
+            program_id = None
+        if program_id is None:
+            errors["program_id"] = "Elige tu carrera de la lista."
 
         if errors:
             # 200 con el formulario re-renderizado: es un resultado que el
@@ -1590,7 +1600,6 @@ async def enroll_submit(request: Request):
                 "last_name": values["last_name"][:80],
                 "middle_name": values["middle_name"][:80] or None,
                 "program_id": program_id,
-                "program_text": program_text,
                 "phone": values["phone"][:20],
                 "contact_email": email,
                 "has_efirma": values["has_efirma"] == "1",
