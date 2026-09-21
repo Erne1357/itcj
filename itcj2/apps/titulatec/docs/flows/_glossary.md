@@ -50,7 +50,8 @@ de la app `titulatec` que el rol tiene hoy en `core_role_permissions`.
 | `student` (global — **ya NO** es el alumno de titulación) | rol de **AgendaTec**; `03_insert_role_permissions.sql` le revoca en cada corrida todo lo de `titulatec` que le quedara; `core_users.role_id` conserva el alias en filas viejas que no han pasado por el backfill | 0 | — |
 | `titulatec_school_services` | por puesto: `aux_school_services`, `secretary_school_services`. Es también el rol que reciben los **encargados** dados de alta desde la pestaña Encargados (`pages/officers.py:13`, `ROLE_ASSIGNED`) | 22 | 🏛️ |
 | `titulatec_school_services_head` | por puesto: `head_school_services` | 27 | 🏛️ |
-| `titulatec_titulaciones` | por puesto: `head_prof_studies_div`, `secretary_prof_studies_div`, `aux_prof_studies_div` | 20 | 🎓 |
+| `titulatec_titulaciones` | por puesto: **solo** `head_prof_studies_div` (2026-09-21: perdió `secretary_prof_studies_div`/`aux_prof_studies_div` — recorte a supervisión de la jefatura, D6/D7 del deslinde a T-soft) | 12 | 🎓 |
+| `titulatec_titulacion` (Departamento de Titulación, NUEVO 2026-09-21) | por puesto: `head_titulacion`, `aux_titulacion` (colgados de `prof_studies_div`, `04b_insert_titulacion_department.sql`; **nacen sin ocupantes**) | 22 | 🎓 |
 | `titulatec_tech_management` | por puesto: `head_tech_management` (jefatura de GTV, ya en el organigrama del core) + `external_service_tech_management` («Servicio Externo», puesto NUEVO 2026-09-15, `allows_multiple=TRUE`) — `05_insert_position_app_roles.sql` | 9 | 🛠️ |
 | `titulatec_vinculacion` | por puesto: los 5 `coord_vinculacion_*` (`database/DML/titulatec/04_insert_vinculacion_positions.sql`) | 13 | 🔗 |
 | `titulatec_sinodal` | **sin ruta de asignación en el código todavía**: 0 filas en `core_position_app_roles` y ningún `grant_role`; solo aparece en el resolver de dashboard (`pages/nav.py:61`) | 14 | 🧑‍⚖️ |
@@ -138,10 +139,10 @@ Quién los tiene en BD hoy (los de puerta):
 | Permiso | Roles |
 |---|---|
 | `cohort.page.list`, `appointment.page.list` | `titulatec_school_services`, `titulatec_school_services_head` |
-| `process.page.list`, `document.page.list` | `titulatec_school_services`, `titulatec_school_services_head`, `titulatec_titulaciones` |
+| `process.page.list`, `document.page.list` | `titulatec_school_services`, `titulatec_school_services_head`, `titulatec_titulaciones`, `titulatec_titulacion` |
 | `officers.page.list`, `officers.api.manage`, `cohort.api.review_days`, `cohort.api.cotejo_reqs` | solo `titulatec_school_services_head` |
-| `process.api.read.all` (⇒ alcance `"ALL"`) | `titulatec_school_services_head`, `titulatec_titulaciones` |
-| `ceremony.page.list` | solo `titulatec_titulaciones` |
+| `process.api.read.all` (⇒ alcance `"ALL"`) | `titulatec_school_services_head`, `titulatec_titulaciones`, `titulatec_titulacion` |
+| `ceremony.page.list` | `titulatec_titulaciones`, `titulatec_titulacion` (2026-09-21: ya no es "solo" uno) |
 | `survey_review.page.list`, `survey_review.api.approve`, `survey_review.api.reject` | solo `titulatec_tech_management` (2026-09-15) |
 
 > Authz en páginas: **todas** las rutas usan `require_page_app("titulatec", perms=[...])` (any-of, sin
@@ -160,8 +161,8 @@ campaña de encuesta/convocatoria anterior a esta tarea).
 | Símbolo | Archivo | Responsabilidad |
 |---|---|---|
 | `PhaseService` | `services/phase_service.py` | Motor de fases: `approve_phase`/`reject_phase`, salto de fases según la modalidad (`_skips`/`_next_applicable`) y log de `ProcessEvent`. **Y las dos guardas**: `assert_can_transition` (dictamen 🏛️🎓) y `assert_student_can_act` (ejecución 👤) — [guarda de fase del alumno](engine_student_phase_lock.md) |
-| `DocumentService` | `services/document_service.py` | Guardar/leer/borrar documentos y `review()`; además las consultas de elegibilidad `initial_docs_all_approved` y `list_phase_document_types` |
-| `FormatBService` | `services/format_b_service.py` | Formato B multi-step: `get_or_create`, `save_step`, `submit(db, fb, process)` (reaplica la guarda de fase), `review`, `to_ctx` |
+| `DocumentService` | `services/document_service.py` | Guardar/leer/borrar documentos y `review()` (2026-09-21: rechaza dictaminar un documento cuyo TIPO pertenece a una fase congelada por el corte a T-soft — `dtype.phase_number >= PhaseService._handoff_phase()`; guarda angosta a propósito, NO mira `current_phase`, para no romper el dictamen tardío); además las consultas de elegibilidad `initial_docs_all_approved` y `list_phase_document_types` |
+| `FormatBService` | `services/format_b_service.py` | Formato B multi-step: `get_or_create`, `save_step`, `submit(db, fb, process)` (reaplica la guarda de fase del alumno), `review(db, fb, process, ...)` (2026-09-21: ganó `process` y reaplica `assert_can_transition`, la guarda gemela del admin), `to_ctx` |
 | `ImportService` | `services/import_service.py` | Import CSV de la convocatoria: `parse` → `autodetect_mapping` → `build_preview` → `import_rows` (crea/empata usuario, otorga rol `graduate` y revoca `student` vía `_sync_graduate_roles`, crea proceso + sus 9 `ProcessPhase`) |
 | `AppointmentService` | `services/appointment_service.py` | Cita de cotejo (fase 2): `create`, `reschedule`, `start`, `mark_attended`, `mark_no_show`, `confirm`, `request_change`; y las lecturas de la agenda `list_appointments`, `counts_by_day`, `list_for_day`, `list_pending_processes`, `agenda_process_ids` (universo acotado contra el que se valida el `?selected=`). **Las cinco lecturas tienen `allowed_program_ids` con default ABIERTO** |
 | `ReviewDayService` | `services/review_day_service.py` | Días de cotejo por convocatoria: `list_days`, `is_allowed`, `set_days`, `toggle`, `months_with_days` |

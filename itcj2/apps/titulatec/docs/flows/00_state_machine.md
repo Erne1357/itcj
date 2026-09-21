@@ -42,16 +42,21 @@ stateDiagram-v2
 - Una fase ya `in_review`/`approved` **no** se rebaja al activarse (solo `pending`/`rejected`→`in_progress`).
 - Cada transición escribe `ProcessEvent`.
 
-### Quién puede mover qué, y cuándo — las dos guardas
+### Quién puede mover/dictaminar qué, y cuándo — cuatro puntos de aplicación
 
 Ninguna transición del diagrama es libre: **solo se actúa sobre `current_phase`, y solo
 si `process.status == 'active'`**. Es la misma regla escrita dos veces, una por cada lado
-de la mesa, y las dos viven en `PhaseService`:
+de la mesa. Desde 2026-09-21 hay dos puntos más: el dictamen de Formato B reusa la MISMA
+función que el admin, y el dictamen de documentos suma un chequeo propio y más angosto —
+los cuatro existen para que el corte a T-soft (ver abajo) sea de verdad cierto en toda la
+superficie que dictamina o ejecuta una fase, no solo en el botón obvio.
 
-| Lado | Qué protege | Función | Fuera de regla |
-|---|---|---|---|
-| 🏛️🎓 **admin** | el **dictamen** (aprobar / rechazar) | [`assert_can_transition`](engine_approve_advance_phase.md#guarda-de-transición-desde-2026-09) | `400` + `X-Tt-Error` |
-| 👤 **alumno** | la **ejecución** (subir, borrar, llenar, enviar, confirmar) | [`assert_student_can_act`](engine_student_phase_lock.md) | `400` + `X-Tt-Error` (acciones) · `302` al acordeón (páginas) |
+| Punto | Qué protege | Función | ¿Mira `current_phase`? | Fuera de regla |
+|---|---|---|---|---|
+| 🏛️🎓 **admin — dictamen de la fase del proceso** | `approve_phase` / `reject_phase` | [`PhaseService.assert_can_transition`](engine_approve_advance_phase.md#guarda-de-transición-desde-2026-09) | Sí — exige `n == current_phase` | `400` + `X-Tt-Error` |
+| 👤 **alumno — ejecución** | subir, borrar, llenar, enviar, confirmar | [`PhaseService.assert_student_can_act`](engine_student_phase_lock.md) | Sí — exige `n == current_phase` | `400` + `X-Tt-Error` (acciones) · `302` al acordeón (páginas) |
+| 🎓 **admin — dictamen de Formato B** (desde 2026-09-21) | `FormatBService.review` (aprobar/rechazar) | la MISMA `assert_can_transition` de arriba, con `n` = fase `format_b` del catálogo | Sí — mismas reglas que la fila 1 | `400` + `X-Tt-Error` |
+| 🏛️🎓 **admin — dictamen de un documento** (desde 2026-09-21) | `DocumentService.review` (aprobar/rechazar) | chequeo propio dentro del service — **no** reusa `assert_can_transition` | **No**, a propósito (ver abajo) | `400` + `X-Tt-Error` |
 
 Para el alumno eso significa: las fases **siguientes** son informativas (las lee en el
 acordeón del dashboard, sin poder ejecutarlas) y las **anteriores** quedan cerradas e
@@ -59,16 +64,27 @@ acordeón del dashboard, sin poder ejecutarlas) y las **anteriores** quedan cerr
 La fase `rejected` sigue abierta porque `reject_phase` deja `current_phase` apuntando a
 ella; es corrección, no reapertura.
 
-### El corte a T-soft: una tercera regla (desde 2026-09-21)
+### El corte a T-soft: la misma regla, en los cuatro puntos (desde 2026-09-21)
 
-Las dos guardas de arriba ganaron una regla más, la misma en las dos: **ninguna fase con
-`number >= PhaseService._handoff_phase()` se toca desde esta app**, ni para ejecutarla
-(alumno) ni para dictaminarla (admin). `_handoff_phase()` lee `TITULATEC_HANDOFF_PHASE`
-(`itcj2/config.py:282`, default `3` = Formato B): de ahí en adelante el proceso lo
-continúa el Departamento de Titulación en su propio sistema, T-soft. Revertir es una
-variable de entorno y un reinicio — `TITULATEC_HANDOFF_PHASE=9` —, sin migración ni
-backfill. Detalle completo, con las dos guardas, la tarjeta que ve el alumno y sus
-bordes: [`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).
+Los cuatro puntos de arriba comparten una regla más: **ninguna fase con `number >=
+PhaseService._handoff_phase()` se dictamina ni se ejecuta desde esta app.**
+`_handoff_phase()` lee `TITULATEC_HANDOFF_PHASE` (`itcj2/config.py:282`, default `3` =
+Formato B): de ahí en adelante el proceso lo continúa el Departamento de Titulación en su
+propio sistema, T-soft. Revertir es una variable de entorno y un reinicio —
+`TITULATEC_HANDOFF_PHASE=9` —, sin migración ni backfill.
+
+**La asimetría entre el dictamen de Formato B y el de documentos es deliberada, no un
+descuido.** El de Formato B exige la guarda completa (`assert_can_transition`) porque ese
+dictamen siempre es sobre la fase EN CURSO (`format_b`): la regla "solo la fase actual"
+aplica tal cual. El de documentos **no puede** exigir lo mismo: dictaminar HOY un
+documento de una fase que el proceso ya dejó atrás — el dictamen tardío — es el uso
+NORMAL de la bandeja de Documentos, no una excepción (`DocumentService.save` ya trata la
+fase del documento como la del TIPO, `dtype.phase_number`, no la del proceso). Su guarda
+mira **solo** si `dtype.phase_number >= _handoff_phase()`, nunca `current_phase`:
+endurecerla para que también exigiera `current_phase` sería un defecto nuevo — rompería
+el dictamen tardío — y hay un test que fija ese comportamiento como el deseado
+(`test_handoff_phase_cut.py`). Detalle completo, con los cuatro puntos, la tarjeta que ve
+el alumno y sus bordes: [`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).
 
 **Qué significa "liberado".** No es un valor de columna en ningún modelo — es un cálculo:
 un proceso está **liberado hacia Titulación** cuando `ProcessPhase(phase_number=2).status

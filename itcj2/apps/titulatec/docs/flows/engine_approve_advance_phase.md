@@ -8,7 +8,7 @@
 | **Actor(es)** | 🏛️ Servicios Escolares / 🎓 Titulaciones (según fase) · 🤖 lógica |
 | **Permiso(s)** | `titulatec.process.api.approve_phase` · `...reject_phase` |
 | **Trigger** | Botón "Aprobar fase NN" / "Rechazar fase" en el detalle del proceso |
-| **Precondiciones** | Proceso `active`; la fase a aprobar es `current_phase`. **Se validan** en `PhaseService.assert_can_transition` (`services/phase_service.py:97`) |
+| **Precondiciones** | Proceso `active`; la fase a aprobar es `current_phase`; la fase no está congelada por el corte a T-soft (desde 2026-09-21). **Se validan** en `PhaseService.assert_can_transition` (`services/phase_service.py:121-133`) |
 | **Estado final** | Fase `approved` + siguiente `in_progress` (o proceso `completed`); o fase `rejected` |
 
 ## Ruta en la app (UI)
@@ -108,14 +108,16 @@ la fase). Tabla de eventos en
 ## Guarda de transición (desde 2026-09)
 
 `approve_phase` y `reject_phase` empiezan llamando a `PhaseService.assert_can_transition`
-(`services/phase_service.py:97`), que lanza `ValueError` si falla alguna de las tres reglas.
-La ruta lo traduce al canal de error de la app: `400` + header `X-Tt-Error`
-(`pages/admin.py:824-826`, `:851-853`), y el path param está acotado con `Path(ge=0)`.
+(`services/phase_service.py:121-133`, que delega la comprobación en `_transition_error`,
+`:72-106`), que lanza `ValueError` si falla alguna de las **cuatro** reglas. La ruta lo traduce
+al canal de error de la app: `400` + header `X-Tt-Error` (`pages/admin.py:1566`, `:1597`), y el
+path param está acotado con `Path(ge=0)`.
 
 | Regla | Mensaje al usuario |
 |---|---|
 | `n` dentro del catálogo de fases | `Fase {n} fuera de rango: el proceso solo tiene las fases 0 a 8.` |
 | `process.status == 'active'` | `El proceso ya no admite cambios de fase (estado: {status}).` |
+| `n >= PhaseService._handoff_phase()` (corte a T-soft, 2026-09-21 — va ANTES que la de "fase en curso", de ahí abajo) | `PhaseService.HANDOFF_MSG`: `Esta fase continua en el Departamento de Titulacion (sistema T-soft). Te contactaran por correo para darte tu usuario.` |
 | `n == process.current_phase` | `Solo puedes actuar sobre la fase en curso (fase NN, no la MM).` |
 
 El rango **sale del catálogo** `titulatec_phase_definitions` (`PhaseService.phase_range`), no de un
@@ -129,8 +131,24 @@ proceso (`n=8` desde la fase 1), inventar fases (`n=99`), retroceder (`n=0` desd
 
 > **Tiene gemela.** Esta guarda protege el **dictamen** (🏛️🎓 aprobar / rechazar). La ejecución
 > del 👤 alumno la protege [`assert_student_can_act`](engine_student_phase_lock.md), en el mismo
-> service y con las mismas tres reglas. Si tocas una, mira la otra: entre las dos son las únicas
-> puertas por las que una fase cambia de estado.
+> service y con las mismas cuatro reglas. Si tocas una, mira la otra: entre las dos son las únicas
+> puertas por las que el `ProcessPhase`/`current_phase` de un proceso cambia de estado.
+
+### Segundo llamador, desde 2026-09-21: `FormatBService.review`
+
+`assert_can_transition` ya no la invoca solo `approve_phase`/`reject_phase`.
+`FormatBService.review` (`services/format_b_service.py:123-147` — dictamen de Formato B desde
+el expediente, vía `pages/admin.py::fb_review`) también la exige, con el número de fase del
+catálogo (`format_b`): antes de este arreglo `review` **no pasaba por ninguna guarda** (solo
+permiso y alcance por carrera), y el hueco era real por el propio mecanismo de reversión del
+corte que este flujo documenta — subir `TITULATEC_HANDOFF_PHASE` a 9, dejar pasar un envío a
+`submitted`, y volver a bajarlo a 3 dejaba ese Formato B aprobable/rechazable para siempre pese
+al corte. Esto **no contradice** "las únicas puertas" de arriba: `FormatBService.review` cambia
+`FormatB.status`, nunca `ProcessPhase`/`current_phase` (no hay auto-avance ahí) — sigue siendo
+la misma guarda, con un segundo punto de aplicación. Su prima angosta,
+`DocumentService.review`, deliberadamente **no** reusa `assert_can_transition` (le rompería el
+dictamen tardío, que es su uso normal, no una excepción). Detalle completo de las dos:
+[`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).
 
 ## Caminos alternos / errores ❗
 
@@ -139,9 +157,12 @@ proceso (`n=8` desde la fase 1), inventar fases (`n=99`), retroceder (`n=0` desd
 - Aprobar cuando la siguiente fase ya está `in_review`/`approved` → **no** la rebaja
   (solo `pending`/`rejected` pasan a `in_progress`).
 - Proceso inexistente → `404` (antes se renderizaba el detalle con contexto `None`).
-- El auto-avance del dictamen de documentos (`pages/documents.py:136`) pregunta con
+- El auto-avance del dictamen de documentos (`pages/documents.py:188-190`) pregunta con
   `PhaseService.can_transition` en vez de atrapar la excepción: si el proceso no está `active` o ya
-  no está en la fase 1, simplemente no avanza.
+  no está en la fase 1, simplemente no avanza. (Ese dictamen en sí, desde 2026-09-21, puede
+  rechazarse *antes* de llegar aquí si el TIPO del documento pertenece a una fase congelada por
+  el corte — guarda distinta a esta, angosta a propósito: ver
+  [`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).)
 
 ## Flujos relacionados
 

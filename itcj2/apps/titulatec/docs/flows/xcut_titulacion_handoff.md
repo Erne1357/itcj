@@ -6,11 +6,11 @@
 
 | | |
 |---|---|
-| **Actor(es)** | 👤 Alumno (topado en la fase 3) · 🏛️ Servicios Escolares (libera la fase 2) · 🎓 Titulaciones/DEP (supervisión, lee la bandeja) · 🎓 Departamento de Titulación (rol nuevo, mismo permiso de lectura — hoy sin ocupantes) · 🤖 las dos guardas de `PhaseService` |
-| **Permiso(s)** | El corte en sí **no exige ninguno nuevo** — es ortogonal al permiso, igual que su gemela ([`engine_student_phase_lock.md`](engine_student_phase_lock.md)). La bandeja **Liberados** sí: `titulatec.handoff.page.list` (ver/filtrar), `titulatec.handoff.api.export` (CSV) |
+| **Actor(es)** | 👤 Alumno (topado en la fase 3) · 🏛️ Servicios Escolares (libera la fase 2, dictamina documentos) · 🎓 Titulaciones/DEP (supervisión, lee la bandeja) · 🎓 Departamento de Titulación (rol nuevo, dictamina Formato B/documentos/fases — hoy sin ocupantes) · 🤖 los cuatro puntos de aplicación del corte |
+| **Permiso(s)** | El corte en sí **no exige ninguno nuevo** — es ortogonal al permiso, igual que sus gemelas ([`engine_student_phase_lock.md`](engine_student_phase_lock.md)). La bandeja **Liberados** sí: `titulatec.handoff.page.list` (ver/filtrar), `titulatec.handoff.api.export` (CSV) |
 | **Trigger** | `TitulationProcess.current_phase` alcanza `PhaseService._handoff_phase()` (config `TITULATEC_HANDOFF_PHASE`, default `3`). Hoy solo ocurre por un camino: Servicios Escolares aprueba la fase 2 (Cita de cotejo) |
 | **Precondiciones** | Para aparecer en Liberados: `ProcessPhase(phase_number=2).status == 'approved'` (nada que ver con el estado de la cita) |
-| **Sub-flujos** | ⤵ extiende las dos guardas gemelas: [motor de avance / dictamen del admin](engine_approve_advance_phase.md), [guarda de ejecución del alumno](engine_student_phase_lock.md). ⤵ la bandeja compone [alcance por carrera](engine_officer_scope.md) |
+| **Sub-flujos** | ⤵ extiende cuatro puntos de aplicación: las dos guardas gemelas de [motor de avance / dictamen del admin](engine_approve_advance_phase.md) y [guarda de ejecución del alumno](engine_student_phase_lock.md), más `FormatBService.review` y `DocumentService.review` (ver abajo). ⤵ la bandeja compone [alcance por carrera](engine_officer_scope.md) |
 | **Estado final** | El proceso sigue vivo en BD (`current_phase=3`, fase 3 en `in_progress`); ninguna ruta de esta app puede volver a moverlo. Aparece en Liberados hasta que alguien lo dé de alta en T-soft (fuera de esta app: sin acuse, D12) |
 
 Spec: `docs/superpowers/specs/2026-09-21-titulatec-dpto-titulacion-design.md` (no versionado).
@@ -41,7 +41,7 @@ sequenceDiagram
     actor S as Alumno (👤)
     participant FE as Navegador (HTMX)
     participant PS as PhaseService
-    actor T as Titulación (🎓, vía "Mover de fase")
+    actor T as Titulación / Servicios Escolares (🎓🏛️, dictamen)
 
     S->>FE: GET/POST /student/formato-b... (o cualquier ruta de fase ≥ 3)
     FE->>PS: _phase_guard / _phase_guard_page → assert_student_can_act
@@ -50,6 +50,16 @@ sequenceDiagram
 
     T->>FE: "Mover de fase" → Aprobar/Rechazar la fase actual (≥3)
     FE->>PS: PhaseService.approve_phase / reject_phase → assert_can_transition
+    PS-->>FE: ValueError(HANDOFF_MSG)
+    FE-->>T: 400 + X-Tt-Error (toast)
+
+    T->>FE: "Aprobar/Rechazar Formato B" (expediente, fase 3)
+    FE->>PS: FormatBService.review → assert_can_transition (n=format_b)
+    PS-->>FE: ValueError(HANDOFF_MSG)
+    FE-->>T: 400 + X-Tt-Error (toast)
+
+    T->>FE: Dictamina un documento de TIPO congelado (ej. anexo_iii, fase 6)
+    FE->>PS: DocumentService.review → dtype.phase_number >= _handoff_phase()
     PS-->>FE: ValueError(HANDOFF_MSG)
     FE-->>T: 400 + X-Tt-Error (toast)
 ```
@@ -83,7 +93,9 @@ sequenceDiagram
 |---|---|---|---|---|---|---|---|
 | 1 | 👤 | `/titulatec/student/formato-b`, `/step/{n}` GET/POST y las demás rutas de fase | intenta ejecutar una fase ≥ `_handoff_phase()` | `pages/student.py` (10 rutas guardadas) | `PhaseService.assert_student_can_act` (`services/phase_service.py:214`, vía `_student_action_error`:170-202, chequeo de corte en `:196-198`) | ninguno — corta antes de escribir | ninguno |
 | 2 | 👤 | (mutación de fase, vía `FormatBService.submit`) | reenvío de la guarda en el punto de mutación | — | `FormatBService.submit` (`services/format_b_service.py:92-121`) re-invoca `assert_student_can_act` en `:113` | ninguno si falla | ninguno |
-| 3 | 🎓/Admin | expediente, botón «Mover de fase» (`_exp_shell.html:34-40`, siempre apunta a `current_phase`) | intenta aprobar/rechazar la fase actual (≥3) | `POST /admin/processes/{id}/phase/{n}/approve` · `/reject` (`pages/admin.py:1547-1600`) | `PhaseService.approve_phase` / `reject_phase` → `assert_can_transition` (`services/phase_service.py:122-133`, vía `_transition_error`:72-106, chequeo de corte en `:99-102`) | ninguno | ninguno |
+| 3 | 🎓/Admin | expediente, botón «Mover de fase» (`_exp_shell.html:34-40`, siempre apunta a `current_phase`) | intenta aprobar/rechazar la fase actual (≥3) | `POST /admin/processes/{id}/phase/{n}/approve` · `/reject` (`pages/admin.py:1551-1604`) | `PhaseService.approve_phase` / `reject_phase` → `assert_can_transition` (`services/phase_service.py:121-133`, vía `_transition_error`:72-106, chequeo de corte en `:99-102`) | ninguno | ninguno |
+| 4 | 🎓 | expediente, botones «Aprobar/Rechazar Formato B» (`partials/processes/_exp_phase.html:228-241`, solo visibles con `formato_b.status=='submitted'`) | intenta dictaminar el Formato B de una fase ≥3 | `POST /admin/processes/{id}/format-b/review` (`pages/admin.py:1520-1548`) | `FormatBService.review` (`services/format_b_service.py:123-157`) reusa la MISMA `assert_can_transition` que la fila 3, con `n = format_b` del catálogo (`:146-147`) — cerrado 2026-09-21, commit `99554755` (Ronda 2 de esta tarea) | ninguno | ninguno |
+| 5 | 🏛️/🎓 | bandeja Documentos, botones aprobar/rechazar (`partials/documents_body.html:115-120`) | intenta dictaminar un documento cuyo TIPO pertenece a una fase ≥3 | `POST /admin/documents/{process_id}/document/review` (`pages/documents.py:153-195`) | `DocumentService.review` (`services/document_service.py:194-253`) — chequeo PROPIO y angosto (`:224-227`): `dtype.phase_number >= _handoff_phase()`, **no** mira `current_phase` — cerrado 2026-09-21, commit `c75b352f` (Ronda 2 de esta tarea, ver asimetría abajo) | ninguno | ninguno |
 
 ### Bandeja Liberados
 
@@ -95,11 +107,60 @@ sequenceDiagram
 
 ---
 
+## Dictamen de Formato B y de documentos: dos guardas más, con una asimetría a propósito
+
+Hasta el 2026-09-21 (ronda de fix 2/3 de esta misma tarea), **ninguno de los dos dictámenes
+pasaba por guarda alguna del corte** — dos huecos reales, no hipotéticos, cada uno cerrado en
+su propio commit:
+
+- **`FormatBService.review`** (`services/format_b_service.py:123-157`, vía
+  `pages/admin.py::fb_review`, `:1520-1548`) — commit `99554755`. Ganó `process` como
+  parámetro nuevo y ahora exige `PhaseService.assert_can_transition(db, process, n)` con
+  `n` = fase `format_b` del catálogo (`:146-147`), la MISMA función que usan
+  `approve_phase`/`reject_phase` (fila 3 de la tabla de arriba). El hueco era real por el
+  propio mecanismo de reversión que esta sección documenta: subir `TITULATEC_HANDOFF_PHASE`
+  a 9, dejar pasar un Formato B a `submitted`, y volver a bajarlo a 3 dejaba ese Formato B
+  aprobable/rechazable para siempre pese al corte — el corte dejaba de ser cierto justo por
+  el camino documentado para desactivarlo.
+- **`DocumentService.review`** (`services/document_service.py:194-253`, vía
+  `pages/documents.py::review`, `:153-195`) — commit `c75b352f`, encontrado **al cerrar el
+  de arriba** (mismo patrón exacto: cero guarda, solo permiso y alcance por carrera). Gana
+  un chequeo propio y angosto (`:224-227`): rechaza **solo** si `dtype.phase_number >=
+  PhaseService._handoff_phase()`, sin mirar `current_phase` en ningún momento.
+
+**La asimetría entre los dos arreglos es deliberada, no un descuido.**
+`assert_can_transition` exige `phase_number == process.current_phase` — correcto para
+Formato B, porque ese dictamen SIEMPRE es sobre la fase en curso. Aplicarle la misma regla
+a documentos **rompería el dictamen tardío**: revisar HOY un acta de la fase 1 con el
+proceso ya en la fase 2 (o más adelante) es el **uso normal** de la bandeja de Documentos
+(la cola de rezagados), no una excepción — `DocumentService.save` ya trata la fase del
+documento como la del TIPO (`dtype.phase_number`), nunca la del proceso, y esta guarda
+respeta la misma idea. Por debajo del corte, el comportamiento de Documentos no cambió ni
+un ápice; lo único nuevo es que se cierra el dictamen de un documento cuyo TIPO pertenece a
+una fase ya congelada (`anexo_iii` fase 6, `ine`/`residency_proof` fase 7,
+`final_project`/`presentation` fase 8 — los tipos de las fases 1 y 2 nunca caen en esta
+regla, con o sin corte). Endurecer esta guarda para que también exigiera `current_phase`
+sería un **defecto nuevo**, no una mejora: cerraría el dictamen tardío legítimo. Hay un
+test que fija ese comportamiento como el deseado, para que nadie lo "corrija" sin darse
+cuenta (`test_handoff_phase_cut.py`, el caso donde un documento de fase 1 se sigue
+dictaminando tarde con el proceso ya en fase 2 y el corte puesto).
+
+Ninguno de los dos arreglos mueve `ProcessPhase`/`current_phase`: no hay auto-avance en
+`FormatBService.review` ni en `DocumentService.review`. Los dos cierran el DICTAMEN fuera
+de tiempo; no cambian de qué fase va el proceso. Por eso no contradicen la nota de
+["Tiene gemela"](engine_approve_advance_phase.md#guarda-de-transición-desde-2026-09):
+`assert_can_transition`/`assert_student_can_act` siguen siendo las únicas dos puertas por
+las que `current_phase` cambia — `FormatBService.review` solo REUSA la primera para un
+dictamen que no toca `current_phase`.
+
+---
+
 ## Estado resultante
 
 - `TitulationProcess.current_phase` queda congelado en `PhaseService._handoff_phase()` (3 por
-  defecto): con las dos guardas puestas, ninguna ruta de esta app puede volver a moverlo hacia
-  adelante ni hacia atrás.
+  defecto): con los cuatro puntos de aplicación puestos, ninguna ruta de esta app puede volver
+  a moverlo hacia adelante ni hacia atrás, ni dictaminar Formato B o un documento de una fase
+  ya congelada.
 - El **único** hecho que consulta la bandeja Liberados es
   `ProcessPhase(phase_number=2).status == 'approved'`, resuelto por número de fase vía
   `PhaseService.phase_number_for_code(db, "review_appointment")`
@@ -154,29 +215,21 @@ lo borra ni lo envía por él.
   sobre la fase 3 leería «se habilitará cuando llegues a ella» — promesa que el corte vuelve
   falsa, porque esa fase ya no se habilita en esta app.
 - **Rechazo de fase 2** deja `current_phase = 2`: del lado vivo del corte, nada cambia.
-- **⚠️ Hueco real, no cubierto por las dos guardas: `POST /admin/processes/{id}/format-b/review`
-  (`pages/admin.py:1520-1544`, botones «Aprobar/Rechazar Formato B» en
-  `partials/processes/_exp_phase.html:228-241`).** Este endpoint llama directo a
-  `FormatBService.review` (`services/format_b_service.py:123-134`), que **no** invoca
-  `PhaseService` — ni `assert_can_transition` ni el chequeo de `_handoff_phase()`. En la
-  práctica hoy no es explotable porque los botones solo se pintan `{% if formato_b.status ==
-  'submitted' %}` (`_exp_phase.html:228`) y el alumno no puede llegar a `submitted` con el
-  corte puesto (`FormatBService.submit` sí está guardado, ver arriba) — pero si alguna vez se
-  revierte el corte (`TITULATEC_HANDOFF_PHASE=9`) para dejar pasar un envío y luego se vuelve a
-  bajar a `3`, ese Formato B `submitted` queda con los botones vivos y **aprobable/rechazable
-  sin pasar por la guarda del admin**. No mueve `ProcessPhase`/`current_phase` (no hay
-  auto-avance aquí), así que no deja saltar el corte formalmente, pero sí deja que
-  `FormatB.status` cambie fuera de las dos puertas que este flujo documenta como únicas.
-  Verificado en BD: 0 filas `titulatec_format_b` fuera de `draft` hoy. No se corrigió en esta
-  tarea (documentación, no código) — ver el reporte de la Tarea 6.
+- **El dictamen de Formato B y de documentos también pasa por guarda, desde 2026-09-21** — no
+  fue así en la primera versión de esta feature (Tareas 2/3): `FormatBService.review` y
+  `DocumentService.review` no comprobaban nada del corte, cada una un hueco real (no
+  hipotético) cerrado en su propio commit. Detalle completo, con la asimetría entre las dos
+  guardas y por qué es a propósito: ["Dictamen de Formato B y de documentos"](#dictamen-de-formato-b-y-de-documentos-dos-guardas-más-con-una-asimetría-a-propósito),
+  arriba.
 
 ---
 
 ## Flujos relacionados
 
 - ⇄ Gemelas: [motor de avance de fase (dictamen del admin)](engine_approve_advance_phase.md),
-  [guarda de ejecución del alumno](engine_student_phase_lock.md) — el corte es la tercera regla
-  de ambas.
+  [guarda de ejecución del alumno](engine_student_phase_lock.md) — el corte es la regla que
+  comparten los cuatro puntos de aplicación (las dos de arriba, más `FormatBService.review` y
+  `DocumentService.review`, ver "Dictamen de Formato B y de documentos" arriba).
 - 📐 Reglas de transición y qué significa "liberado": [máquina de estados](00_state_machine.md).
 - ⤵ Alcance por carrera que filtra la bandeja: [engine_officer_scope.md](engine_officer_scope.md).
 - 🖥️ Donde el alumno lee el aviso: [acordeón de fases](xcut_student_phase_detail.md).
