@@ -13,8 +13,15 @@ NO se usa PyYAML porque no está en requirements.txt y CI instala solo eso, y
 nginx no es YAML de todos modos. Este archivo lo amplían tareas posteriores
 (T4, T6) con más invariantes de observabilidad; se mantiene en helpers chicos,
 uno por invariante, para que crezca sin volverse un solo test gigante.
+
+Excepción: el bloque de `PROMETHEUS_MULTIPROC_DIR` del entrypoint se EJECUTA
+con bash (ver su sección): un invariante de texto sobre un script de shell
+congeló una vez justo la línea que tumbaba producción.
 """
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -143,49 +150,180 @@ def test_celery_configura_logging_por_la_senal_setup_logging():
     )
 
 
-def test_entrypoint_fastapi_prepara_prometheus_multiproc_dir_antes_de_uvicorn():
-    """Con `--workers 4` cada worker es un proceso: el registro normal de
-    `prometheus_client` daría el número de UNO al azar (mal, no ausente). El
-    bloque exporta `PROMETHEUS_MULTIPROC_DIR` (default `/run/prometheus`, el
-    tmpfs propio del compose) y limpia + recrea el directorio ANTES de
-    `exec uvicorn`.
+# ---------------------------------------------------------------------------
+# Bloque de PROMETHEUS_MULTIPROC_DIR del entrypoint (F2b, R23)
+# ---------------------------------------------------------------------------
+# Estos tests EJECUTAN el bloque real con bash, no leen su texto: la versión
+# anterior exigía la línea literal `rm -rf "$PROMETHEUS_MULTIPROC_DIR"` y con
+# eso congeló un defecto que tumbaba producción. En prod esa ruta es el PUNTO
+# DE MONTAJE del tmpfs del compose, y `rmdir` sobre un punto de montaje da
+# EBUSY incluso a root: `rm` sale con 1 y, bajo `set -euo pipefail`, el
+# contenedor muere antes de `exec uvicorn` (ni blue, ni green, ni sockets).
+# Un tmp_path no es un punto de montaje, así que lo que se comprueba es la
+# propiedad que sí importa ahí: el directorio se VACÍA en sitio (mismo
+# inodo, nunca desenlazado), no se borra y se recrea.
 
-    El `rm -rf` es obligatorio: si esa ruta alguna vez no fuera un tmpfs, los
-    ficheros del arranque anterior se seguirían sumando al total; y dentro de
-    la misma vida del contenedor, un worker respawneado suma de más a los
-    Gauge livesum porque nadie llama a `multiprocess.mark_process_dead()`.
-    """
-    stripped = [
+_MULTIPROC_EXPORT = "export PROMETHEUS_MULTIPROC_DIR="
+
+# Comandos del bloque que tocan el disco: los tests de la guarda los
+# sustituyen por funciones de bash que solo apuntan la llamada.
+_FS_COMMANDS = ("mkdir", "find", "rm", "rmdir")
+
+
+def _multiproc_block() -> str:
+    """Las líneas del entrypoint desde el `export PROMETHEUS_MULTIPROC_DIR=`
+    hasta justo antes de `exec uvicorn` (el bloque tal cual se ejecuta)."""
+    lines = ENTRYPOINT_FASTAPI.read_text(encoding="utf-8").splitlines()
+    start = next(
+        i for i, line in enumerate(lines) if line.strip().startswith(_MULTIPROC_EXPORT)
+    )
+    end = next(
+        i for i, line in enumerate(lines) if line.lstrip().startswith("exec uvicorn")
+    )
+    assert start < end, "el bloque debe ir ANTES de 'exec uvicorn'"
+    return "\n".join(lines[start:end])
+
+
+def _bash() -> str:
+    bash = shutil.which("bash")
+    if bash is None:  # pragma: no cover - el contenedor y el runner de CI lo traen
+        pytest.skip("bash no disponible para ejecutar el bloque del entrypoint")
+    return bash
+
+
+def _run_block(script: str, multiproc_dir: str, cwd: Path) -> subprocess.CompletedProcess:
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+    env["PROMETHEUS_MULTIPROC_DIR"] = multiproc_dir
+    return subprocess.run(
+        [_bash(), "-euo", "pipefail", "-c", script],
+        env=env, cwd=cwd, capture_output=True, text=True, timeout=30,
+    )
+
+
+def test_entrypoint_exporta_el_default_del_tmpfs_del_compose():
+    """El default debe ser `/run/prometheus`, la ruta del tmpfs que declara el
+    compose de prod (`test_tmpfs_dedicado_para_prometheus_multiproc`)."""
+    export_line = next(
         line.strip()
         for line in ENTRYPOINT_FASTAPI.read_text(encoding="utf-8").splitlines()
-    ]
+        if line.strip().startswith(_MULTIPROC_EXPORT)
+    )
+    assert "${PROMETHEUS_MULTIPROC_DIR:-/run/prometheus}" in export_line
 
-    export_idx = next(
-        i
-        for i, line in enumerate(stripped)
-        if line.startswith("export PROMETHEUS_MULTIPROC_DIR=")
-    )
-    assert "${PROMETHEUS_MULTIPROC_DIR:-/run/prometheus}" in stripped[export_idx], (
-        "el default debe ser /run/prometheus (el tmpfs que declara el compose)"
+
+def test_entrypoint_vacia_el_dir_de_mmap_en_sitio_sin_borrarlo(tmp_path):
+    """Exit 0, directorio vacío y el MISMO directorio (inodo) que antes.
+
+    Se sostiene un descriptor abierto sobre el directorio durante la
+    ejecución: si el bloque lo borrara y recreara, el inodo viejo no se
+    puede reciclar mientras el descriptor viva (el `st_ino` nuevo difiere) y
+    su `st_nlink` cae a 0. Sin el descriptor, un sistema de ficheros que
+    recicla inodos al instante podría dar el mismo número y un falso verde.
+    """
+    multiproc_dir = tmp_path / "prometheus"
+    (multiproc_dir / "sub").mkdir(parents=True)
+    for name in ("gauge_livesum_101.db", "counter_101.db", "histogram_101.db"):
+        (multiproc_dir / name).write_bytes(b"residuo del arranque anterior")
+    (multiproc_dir / "sub" / "anidado.db").write_bytes(b"x")
+
+    fd = os.open(multiproc_dir, os.O_RDONLY)
+    try:
+        inode_before = os.fstat(fd).st_ino
+
+        proc = _run_block(_multiproc_block(), str(multiproc_dir), tmp_path)
+
+        assert proc.returncode == 0, proc.stderr
+        assert os.fstat(fd).st_nlink > 0, (
+            "el bloque BORRÓ el directorio: sobre el punto de montaje del tmpfs "
+            "de prod eso es EBUSY y el contenedor no arranca"
+        )
+        assert multiproc_dir.stat().st_ino == inode_before, (
+            "el directorio se recreó en vez de vaciarse en sitio"
+        )
+        assert list(multiproc_dir.iterdir()) == []
+    finally:
+        os.close(fd)
+
+
+def test_entrypoint_crea_el_dir_si_no_existe(tmp_path):
+    """Fuera de prod (sin tmpfs montado) la ruta puede no existir aún."""
+    multiproc_dir = tmp_path / "no-existe" / "prometheus"
+
+    proc = _run_block(_multiproc_block(), str(multiproc_dir), tmp_path)
+
+    assert proc.returncode == 0, proc.stderr
+    assert multiproc_dir.is_dir()
+
+
+def test_entrypoint_nunca_borra_el_dir_mismo():
+    """Ninguna línea puede quitar el directorio (solo su contenido): `rm`
+    o `rmdir` sobre `$PROMETHEUS_MULTIPROC_DIR` sin `/` detrás."""
+    var_ref = re.compile(r'\$\{?PROMETHEUS_MULTIPROC_DIR(?::[^}]*)?\}?"?(.?)')
+    offenders = []
+    for line in _multiproc_block().splitlines():
+        code = line.split("#", 1)[0]
+        if not re.search(r"(^|[;&|\s])(rm|rmdir)\s", code):
+            continue
+        for match in var_ref.finditer(code):
+            if match.group(1) != "/":
+                offenders.append(line.strip())
+    assert offenders == [], (
+        f"{offenders}: borra el directorio, no su contenido. En prod es el punto "
+        "de montaje del tmpfs (EBUSY -> exit 1 bajo set -e). Vaciar con "
+        "'find \"$PROMETHEUS_MULTIPROC_DIR\" -mindepth 1 -delete'."
     )
 
-    rm_idx = next(
-        i
-        for i, line in enumerate(stripped)
-        if line.startswith('rm -rf "$PROMETHEUS_MULTIPROC_DIR"')
-    )
-    mkdir_idx = next(
-        i
-        for i, line in enumerate(stripped)
-        if line.startswith('mkdir -p "$PROMETHEUS_MULTIPROC_DIR"')
-    )
-    exec_idx = next(
-        i for i, line in enumerate(stripped) if line.startswith("exec uvicorn")
-    )
 
-    assert export_idx < rm_idx < mkdir_idx < exec_idx, (
-        "export, 'rm -rf' y 'mkdir -p' deben ir en ese orden, antes de 'exec uvicorn'"
+def _shimmed(script: str, log: Path) -> str:
+    """`script` con mkdir/find/rm/rmdir sustituidos por funciones que solo
+    apuntan su llamada en `log`: el test de la guarda no puede tocar el disco
+    aunque la guarda estuviera rota."""
+    shims = "\n".join(
+        f'{name}() {{ echo "{name} $*" >> "{log}"; }}' for name in _FS_COMMANDS
     )
+    return f"{shims}\n{script}"
+
+
+def _assert_fs_commands_are_bare(script: str) -> None:
+    # Las funciones solo tapan comandos llamados por su nombre: una ruta
+    # absoluta (/usr/bin/find) se saltaría el shim.
+    for name in _FS_COMMANDS:
+        assert not re.search(rf"/{name}\b", script), (
+            f"el bloque llama a {name} por ruta absoluta: el test de la guarda "
+            "ya no es seguro de ejecutar"
+        )
+
+
+def test_shims_de_la_guarda_interceptan_de_verdad(tmp_path):
+    """Control positivo: con una ruta válida los shims SÍ reciben mkdir y
+    find. Sin esto, el test de abajo podría pasar porque los shims no se
+    usan (y entonces la guarda no se estaría probando)."""
+    script = _multiproc_block()
+    _assert_fs_commands_are_bare(script)
+    log = tmp_path / "calls.log"
+    target = str(tmp_path / "prometheus")
+
+    proc = _run_block(_shimmed(script, log), target, tmp_path)
+
+    assert proc.returncode == 0, proc.stderr
+    calls = log.read_text(encoding="utf-8").splitlines()
+    assert any(c.startswith("mkdir ") and target in c for c in calls), calls
+    assert any(c.startswith("find ") and target in c for c in calls), calls
+
+
+@pytest.mark.parametrize("dangerous", ["/", "//", "/tmp/..", "/tmp/../"])
+def test_entrypoint_se_niega_a_vaciar_la_raiz(tmp_path, dangerous):
+    """`find / -mindepth 1 -delete` vaciaría el contenedor entero: la guarda
+    tiene que abortar ANTES de tocar nada."""
+    script = _multiproc_block()
+    _assert_fs_commands_are_bare(script)
+    log = tmp_path / "calls.log"
+
+    proc = _run_block(_shimmed(script, log), dangerous, tmp_path)
+
+    assert proc.returncode != 0
+    assert "PROMETHEUS_MULTIPROC_DIR" in proc.stderr
+    assert not log.exists(), log.read_text(encoding="utf-8")
 
 
 def _service_lines(text: str, service: str) -> list[str]:

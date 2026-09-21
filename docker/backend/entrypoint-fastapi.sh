@@ -62,15 +62,24 @@ echo "Iniciando FastAPI (Uvicorn) — APP_ROLE=$APP_ROLE, workers=$UVICORN_WORKE
 # mmap van a un tmpfs propio, no a /dev/shm: el compose solo declara
 # shm_size en postgres, asi que aqui /dev/shm son los 64 MB por defecto de
 # Docker y hay que compartirlos con lo que sea.
-# El rm -rf es obligatorio: si esta ruta alguna vez NO fuera un tmpfs, los
-# ficheros del arranque anterior se seguirian sumando al total. Y dentro de
-# una misma vida del contenedor, los ficheros de un worker respawneado se
-# suman igual: correcto para los Counter (no quieres perder sus peticiones),
-# INCORRECTO para los Gauge livesum, que se inflan con cada respawn porque
-# nadie llama a multiprocess.mark_process_dead().
+# Se VACIA el directorio, nunca se borra (R23): en prod es el PUNTO DE
+# MONTAJE del tmpfs del compose, y rmdir sobre un punto de montaje da EBUSY
+# incluso a root; con set -e el contenedor moriria aqui, antes de uvicorn, y
+# no arrancaria ningun color ni sockets. Vaciarlo al arrancar importa si esta
+# ruta alguna vez NO fuera un tmpfs: los ficheros de la vida anterior del
+# contenedor se seguirian sumando al total. Dentro de una misma vida, los
+# Gauge livesum de un worker muerto los retira metrics.reap_dead_workers()
+# en cada scrape (mark_process_dead); sus Counter e Histogram se quedan a
+# proposito, porque sus peticiones cuentan.
 export PROMETHEUS_MULTIPROC_DIR="${PROMETHEUS_MULTIPROC_DIR:-/run/prometheus}"
-rm -rf "$PROMETHEUS_MULTIPROC_DIR"
+# Guarda: con "/" (o "//", "/x/..") el find de abajo vaciaria el contenedor
+# entero. realpath -m resuelve la ruta sin exigir que exista.
+if [ "$(realpath -m -- "$PROMETHEUS_MULTIPROC_DIR")" = "/" ]; then
+  echo "ERROR: PROMETHEUS_MULTIPROC_DIR no puede ser la raiz (vale: '$PROMETHEUS_MULTIPROC_DIR')" >&2
+  exit 1
+fi
 mkdir -p "$PROMETHEUS_MULTIPROC_DIR"
+find "${PROMETHEUS_MULTIPROC_DIR:?}" -mindepth 1 -delete
 
 # --no-access-log: la línea por petición ya la emite ObservabilityMiddleware
 # (JSON, con la ruta plantillada y la duración). Con el access log de uvicorn
