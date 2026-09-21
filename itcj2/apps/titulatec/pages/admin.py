@@ -1285,10 +1285,28 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # Los controles se pintan solo para quien puede usarlos: un boton que
     # contesta 403 es peor que no estar. Mismo patron que `cohort_detail`.
     can_mark_reqs = False
+    # Arreglo A2 (revision final 2026-09-21): mismo criterio para «Mover de
+    # fase» (_exp_shell.html) y «Aprobar/Rechazar Formato B» (_exp_phase.html,
+    # fase 3) -- el spec §10 paso 4 exige que la jefatura de la Division
+    # (titulatec_titulaciones, recortada a supervision) ya NO vea estos
+    # botones tras perder el permiso, y hoy los veia igual porque el template
+    # solo miraba el ESTADO del dato, nunca el permiso del actor.
+    # `can_dictaminar_fase` es OR de approve_phase/reject_phase porque el
+    # modal «Mover de fase» ofrece las DOS acciones (`process_detail.html`,
+    # botones «Aprobar fase»/«Rechazar fase» del mismo `#exp-modal-fase`): con
+    # solo uno de los dos permisos, al menos una mitad del modal SI funciona.
+    can_dictaminar_fase = False
+    can_dictaminar_fb = False
     if user_id is not None:
         from itcj2.core.services.authz_service import get_user_permissions_for_app
-        can_mark_reqs = ("titulatec.process.api.requirement.mark"
-                         in get_user_permissions_for_app(db, user_id, "titulatec"))
+        _user_perms = get_user_permissions_for_app(db, user_id, "titulatec")
+        can_mark_reqs = "titulatec.process.api.requirement.mark" in _user_perms
+        can_dictaminar_fase = bool(_user_perms & {
+            "titulatec.process.api.approve_phase", "titulatec.process.api.reject_phase",
+        })
+        can_dictaminar_fb = bool(_user_perms & {
+            "titulatec.format_b.api.approve", "titulatec.format_b.api.reject",
+        })
 
     appt = AppointmentService.get_for_process(db, process_id)
 
@@ -1329,6 +1347,8 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "otros_eventos": sin_fase,
         "requisitos": requisitos,
         "can_mark_reqs": can_mark_reqs,
+        "can_dictaminar_fase": can_dictaminar_fase,
+        "can_dictaminar_fb": can_dictaminar_fb,
         "survey": survey,
     }
 

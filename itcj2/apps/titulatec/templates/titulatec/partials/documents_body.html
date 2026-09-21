@@ -104,6 +104,11 @@
           <div class="tt-kicker" style="color:var(--tt-danger)">Último motivo de rechazo</div>
           <div id="tt-doc-note-text" class="p-2 mt-1" style="font-size:.82rem;background:var(--tt-danger-soft);border-radius:8px;color:#991B1B"></div>
         </div>
+        {% if can_review_docs %}
+        {# `can_review_docs` (arreglo A2, revision final 2026-09-21): sin el
+           permiso, aprobar/rechazar responderia 403 -- se oculta el FORM
+           entero (botones Y el comentario, que sin ellos no tiene a donde
+           ir), no solo los botones. Ver `pages/documents.py::_body_ctx`. #}
         <form id="tt-review-form" class="mt-2">
           <input type="hidden" name="type_code" id="tt-review-type">
           <input type="hidden" name="status" value="{{ status_filter }}">
@@ -123,6 +128,7 @@
               <i class="bi bi-x-lg me-1"></i>Rechazar</button>
           </div>
         </form>
+        {% endif %}
         {% if detail.all_approved %}
         <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Los 3 aprobados · listo para agendar cotejo</span></div>
         {% endif %}

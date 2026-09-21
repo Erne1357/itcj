@@ -348,6 +348,74 @@ def test_el_menu_de_acciones_solo_esta_si_el_proceso_vive(expediente, client_as)
     assert 'id="exp-acciones"' not in html2
 
 
+def test_sin_permiso_de_dictamen_no_se_pinta_mover_de_fase(
+    seed_phase_defs, seed_document_types, make_program, make_cohort,
+    make_officer, make_student, make_process, client_as,
+):
+    """Arreglo A2 (revision final 2026-09-21, spec §10 paso 4): un boton que
+    abre un modal cuyas DOS acciones (`#exp-modal-fase`) responderian 403 es
+    peor que no estar. Mismo criterio que `can_mark_reqs`
+    (`pages/admin.py:1285-1291`). El encargado tiene `OFFICER_PERMS`, que NO
+    incluye `approve_phase`/`reject_phase` (a diferencia de `EXPEDIENTE_PERMS`,
+    que las agrega arriba)."""
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria Solo Lectura del Expediente")
+    cohort = make_cohort()
+    officer, _pos = make_officer([prog], perm_codes=OFFICER_PERMS)
+    student = make_student()
+    proc = make_process(student, cohort=cohort, program=prog, status="active")
+
+    html = client_as(officer).get(f"{URL}/{proc.id}").text
+
+    assert 'id="exp-acciones"' not in html
+
+
+# Los 2 permisos de dictamen del Formato B (fase 3): ninguno vive en
+# `EXPEDIENTE_PERMS` (arriba), que solo trae los de mover de fase.
+FORMAT_B_REVIEW_PERMS = ("titulatec.format_b.api.approve", "titulatec.format_b.api.reject")
+
+
+def test_sin_permiso_de_dictamen_no_se_pintan_los_botones_de_formato_b(
+    expediente, client_as, db_session,
+):
+    """`expediente()` da `EXPEDIENTE_PERMS` (approve/reject_phase de CUALQUIER
+    fase) pero nunca `format_b.api.approve/.reject`: exactamente el actor que
+    el spec §10 paso 4 quiere sin estos botones (arreglo A2)."""
+    from itcj2.apps.titulatec.models import FormatB
+    esc = expediente(current_phase=3)
+    db_session.add(FormatB(process_id=esc["proc"].id, status="submitted"))
+    db_session.flush()
+
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
+
+    assert "Aprobar Formato B" not in html
+    assert "format-b/review" not in html
+
+
+def test_con_permiso_de_dictamen_si_se_pintan_los_botones_de_formato_b(
+    seed_phase_defs, seed_document_types, make_program, make_cohort,
+    make_officer, make_student, make_process, client_as, db_session,
+):
+    """Positivo de la MISMA ruta: la guarda de permiso no puede ser un 'no'
+    universal (regla de oro heredada de `test_student_phase_guard.py`)."""
+    from itcj2.apps.titulatec.models import FormatB
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria Con Dictamen de Formato B")
+    cohort = make_cohort()
+    officer, _pos = make_officer([prog], perm_codes=EXPEDIENTE_PERMS + FORMAT_B_REVIEW_PERMS)
+    student = make_student()
+    proc = make_process(student, cohort=cohort, program=prog, current_phase=3)
+    db_session.add(FormatB(process_id=proc.id, status="submitted"))
+    db_session.flush()
+
+    html = client_as(officer).get(f"{URL}/{proc.id}").text
+
+    assert "Aprobar Formato B" in html
+    assert "format-b/review" in html
+
+
 def test_mover_de_fase_no_usa_confirm_nativo(expediente, client_as):
     """Regla del proyecto: nada de `confirm()`/`alert()`. El motivo del rechazo
     ademas no cabe en un `confirm`."""

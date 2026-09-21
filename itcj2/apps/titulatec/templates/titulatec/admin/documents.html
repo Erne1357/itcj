@@ -48,12 +48,20 @@
       <div class="modal-footer flex-column align-items-stretch gap-2">
         <div class="tt-kicker">Dictamen · <span id="tt-modal-name"></span>
           <span style="color:var(--tt-mute);font-weight:400;text-transform:none;letter-spacing:0"> — comentario obligatorio si rechazas</span></div>
+        {% if can_review_docs %}
+        {# `can_review_docs` (arreglo A2, revision final 2026-09-21): mismo
+           permiso que oculta el form inline en `documents_body.html` -- sin
+           el, este boton igual quedaba clicable y, antes del arreglo,
+           disparaba el POST inline (`actFromModal` en el script de
+           `documents_body.html`) y contestaba 403. Ver
+           `pages/documents.py::_body_ctx`. #}
         <textarea id="tt-modal-note" class="tt-field" rows="2" style="width:100%"
                   placeholder="Motivo del rechazo y la corrección esperada…"></textarea>
         <div class="d-flex gap-2">
           <button type="button" id="tt-modal-approve" class="btn btn-sm tt-btn-ink"><i class="bi bi-check-lg me-1"></i>Aprobar</button>
           <button type="button" id="tt-modal-reject" class="btn btn-sm tt-btn-ghost" style="color:var(--tt-danger);border-color:rgba(220,38,38,.3)"><i class="bi bi-x-lg me-1"></i>Rechazar</button>
         </div>
+        {% endif %}
       </div>
     </div>
   </div>

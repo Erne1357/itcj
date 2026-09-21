@@ -225,7 +225,10 @@
     <div class="col-md-6"><span style="color:var(--tt-mute)">Egreso:</span> {{ formato_b.datos.graduation_date }}</div>
     <div class="col-12"><span style="color:var(--tt-mute)">Proyecto:</span> {{ formato_b.datos.project_name }}</div>
   </div>
-  {% if formato_b.status == 'submitted' %}
+  {% if formato_b.status == 'submitted' and can_dictaminar_fb %}
+  {# `can_dictaminar_fb` (arreglo A2, revision final 2026-09-21): sin el
+     permiso, aprobar/rechazar responderia 403 -- un boton asi es peor que no
+     estar (spec §10 paso 4). Ver `pages/admin.py::_detail_ctx`. #}
   <div class="d-flex gap-2 mt-3">
     <button class="btn btn-sm tt-btn-ink"
             hx-post="/titulatec/admin/processes/{{ process.id }}/format-b/review{{ ('?' ~ zona) if zona }}"

@@ -89,12 +89,24 @@ def _doc_row(proc, *, users, progs, names, docs):
 def _body_ctx(db, *, user_id, status_filter, selected_id):
     from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.services.scope_service import officer_programs
+    from itcj2.core.services.authz_service import get_user_permissions_for_app
+
+    # Arreglo A2 (revision final 2026-09-21): mismo criterio que `can_mark_reqs`
+    # en `pages/admin.py` -- los botones Aprobar/Rechazar de `documents_body.html`
+    # se pintan solo para quien tiene el permiso, no solo por el estado del
+    # documento. `_REVIEW_PERMS` es la MISMA lista OR que exige la ruta
+    # `POST .../document/review`, asi que "puede verlos" == "puede usarlos".
+    can_review_docs = bool(
+        user_id is not None
+        and get_user_permissions_for_app(db, user_id, "titulatec") & set(_REVIEW_PERMS)
+    )
+
     scope = officer_programs(db, user_id)
     q = db.query(TitulationProcess).filter(TitulationProcess.status == "active")
     if scope != "ALL":
         if not scope:
             return {"rows": [], "total_pending": 0, "status_filter": status_filter or "",
-                    "detail": None, "selected_id": None}
+                    "detail": None, "selected_id": None, "can_review_docs": can_review_docs}
         q = q.filter(TitulationProcess.program_id.in_(scope))
     # Desempate por `id`: `created_at` es `server_default NOW()` y en Postgres
     # NOW() es la hora de INICIO DE LA TRANSACCION, asi que varios procesos
@@ -114,7 +126,8 @@ def _body_ctx(db, *, user_id, status_filter, selected_id):
     total_pending = sum(r["pending"] for r in rows)
     detail = next((r for r in rows if r["process_id"] == selected_id), None) if selected_id else None
     return {"rows": rows, "total_pending": total_pending,
-            "status_filter": status_filter or "", "detail": detail, "selected_id": selected_id}
+            "status_filter": status_filter or "", "detail": detail, "selected_id": selected_id,
+            "can_review_docs": can_review_docs}
 
 
 def _to_int(raw):

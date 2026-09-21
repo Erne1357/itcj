@@ -25,12 +25,17 @@
       <a id="exp-back" class="btn btn-sm tt-btn-ghost" href="{{ back.url }}">
         <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>{{ back.label }}</a>
 
-      {% if process.status == 'active' %}
+      {% if process.status == 'active' and can_dictaminar_fase %}
       {# Discreto y siempre en el mismo sitio: mover de fase es lo raro, no lo
          que se viene a hacer aquí.
 
          El modal vive FUERA del shell (en `block modals`, a nivel <body>) y se
-         puebla al abrirlo leyendo estos `data-*`. Ver el porqué abajo. #}
+         puebla al abrirlo leyendo estos `data-*`. Ver el porqué abajo.
+
+         `can_dictaminar_fase` (arreglo A2, revision final 2026-09-21): un
+         boton que abre un modal cuyas DOS acciones responden 403 es peor que
+         no estar (spec §10 paso 4 -- la jefatura de la Division ya no
+         dictamina). Ver `pages/admin.py::_detail_ctx`. #}
       <button type="button" id="exp-acciones" class="btn btn-sm tt-btn-soft ms-auto"
               data-bs-toggle="modal" data-bs-target="#exp-modal-fase"
               data-tt-fase="{{ '%02d'|format(current_phase) }}"
@@ -39,6 +44,9 @@
               data-tt-rechazar="{{ BASE }}/phase/{{ current_phase }}/reject{{ Q }}">
         <i class="bi bi-arrow-left-right me-1" aria-hidden="true"></i>Mover de fase</button>
       {% else %}
+      {# Sin el permiso de dictamen (o proceso no activo): el mismo pill de
+         estado que antes, en vez de un boton que abriria un modal donde las
+         DOS acciones responderian 403. #}
       <span class="ms-auto">{{ estado_pill(process.status) }}</span>
       {% endif %}
     </div>
