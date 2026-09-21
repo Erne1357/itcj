@@ -163,9 +163,14 @@ def _route_method_pairs(app) -> list:
     `tests/fastapi/observability/test_route_template.py`: enumera
     `(método, plantilla completa)` por cada `Route` real de `app`.
 
-    Se excluye `HEAD`: fastapi lo agrega automáticamente a cada ruta `GET`,
-    y contarlo duplicaría cada ruta GET sin que eso sea un colapso real del
-    walker (ver `ref/enum_routes6.py`, que hace el mismo descarte).
+    Se excluye `HEAD`. Ojo: las `APIRoute` de FastAPI NO lo añaden a las
+    `GET` (comprobado en vivo: `HEAD /itcj/login` = 405, y en las métricas
+    cuenta como `__unmatched__`, R21). Quien sí lo añade es la `Route` plana
+    de Starlette a cada `GET` — aquí solo las de la documentación
+    (`/api/docs`, `/api/redoc`, `/api/openapi.json`,
+    `/docs/oauth2-redirect`), que no existen en producción — y contarlo
+    duplicaría esas rutas sin que sea un colapso real del walker (ver
+    `ref/enum_routes6.py`, que hace el mismo descarte).
     """
     from starlette.routing import Route
 

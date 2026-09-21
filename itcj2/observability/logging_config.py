@@ -158,6 +158,13 @@ class JsonFormatter(logging.Formatter):
     registro tal cual (la línea-resumen trae `method`, `status` como int y
     `duration_ms` como float). `exc_type`/`exc_info` solo con excepción, el
     traceback en UNA cadena: `json.dumps` escapa los saltos de línea.
+
+    PRIVACIDAD: TODO lo que llegue por `extra=` sale como campo JSON de primer
+    nivel, tal cual, y va a Loki (retención de semanas, lo lee cualquiera con
+    acceso a Grafana). Nunca meter en `extra=` (ni en el mensaje) secretos,
+    tokens, contraseñas, cookies ni PII (CURP, correo, teléfono): ids
+    internos sí. Desde R6 los `logger.info` de la app se emiten, así que esto
+    aplica también a los INFO que antes nadie veía.
     """
 
     def format(self, record: logging.LogRecord) -> str:
