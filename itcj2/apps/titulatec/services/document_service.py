@@ -211,8 +211,17 @@ class DocumentService:
         (`dtype.phase_number >= _handoff_phase()`): las fases 1 y 2 se siguen
         dictaminando sin condición, tarde o no, mientras el corte no las
         alcance -- por debajo del corte el comportamiento de hoy no cambia ni
-        un ápice. `dtype.phase_number` es nullable; un tipo sin fase no entra
-        en esta cuenta (no hay corte que aplicarle).
+        un ápice. `dtype.phase_number` es nullable; un tipo CON fila pero SIN
+        fase (`dtype is not None and dtype.phase_number is None`) sigue exento
+        del corte a propósito -- no hay corte que aplicarle.
+
+        Arreglo A4 (revision final 2026-09-21): si el TIPO ya no existe en el
+        catálogo (`dtype is None` -- borrado o nunca sembrado), el respaldo es
+        `doc.phase_number` (columna real de la fila, `nullable=False`: SIEMPRE
+        está a mano). Antes, `dtype is None` dejaba pasar el dictamen SIN
+        mirar nada más -- falla ABIERTO justo donde el propio repo fija
+        "FALLA CERRADO" para el mismo tipo de ausencia
+        (`phase_service.py:158-161`, `phase_number_for_code`).
         """
         from itcj2.apps.titulatec.models import DocumentType
         from itcj2.apps.titulatec.services.phase_service import PhaseService
@@ -222,8 +231,9 @@ class DocumentService:
             return False
 
         dtype = db.query(DocumentType).filter_by(code=type_code).first()
-        if (dtype is not None and dtype.phase_number is not None
-                and dtype.phase_number >= PhaseService._handoff_phase()):
+        fase_para_el_corte = dtype.phase_number if dtype is not None else doc.phase_number
+        if (fase_para_el_corte is not None
+                and fase_para_el_corte >= PhaseService._handoff_phase()):
             raise ValueError(PhaseService.HANDOFF_MSG)
 
         doc.review_status = status

@@ -2,6 +2,8 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import itcj2.models  # noqa: F401
 
 from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -51,3 +53,64 @@ class TestReview:
                                     status="rejected", note="x", reviewer_id=200)
         assert ok is False
         mock_notify.assert_not_called()
+
+    @patch("itcj2.apps.titulatec.services.notify.notify_student")
+    def test_tipo_de_documento_desconocido_cae_en_la_fase_de_la_fila(self, mock_notify):
+        """Arreglo A4 (revision final 2026-09-21): si `dtype` es None (el tipo
+        ya no existe en el catalogo -- borrado o nunca sembrado), la guarda
+        del corte NO debe abrirse por default. Antes, `dtype is None` dejaba
+        pasar el dictamen SIN mirar nada mas, aunque el documento fuera de una
+        fase ya congelada -- justo lo contrario del principio que el propio
+        repo fija en `phase_service.py:158-161` ("None es una respuesta
+        legitima... FALLA CERRADO"). El respaldo es `doc.phase_number`
+        (columna real de la fila, `nullable=False`: SIEMPRE esta a mano).
+        """
+        from itcj2.apps.titulatec.models import Document
+
+        doc = SimpleNamespace(phase_number=6, review_status="pending",
+                              review_note=None, reviewed_by_id=None)
+
+        def _query(model):
+            q = MagicMock()
+            q.filter_by.return_value.first.return_value = (
+                doc if model is Document else None)
+            return q
+
+        db = MagicMock()
+        db.query.side_effect = _query
+
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        with pytest.raises(ValueError) as exc:
+            DocumentService.review(db, process_id=1, type_code="tipo_borrado",
+                                   status="approved", note=None, reviewer_id=200)
+
+        assert str(exc.value) == PhaseService.HANDOFF_MSG
+        assert doc.review_status == "pending", "debe bloquear ANTES de escribir"
+        mock_notify.assert_not_called()
+
+    @patch("itcj2.apps.titulatec.services.notify.notify_student")
+    def test_tipo_de_documento_desconocido_de_fase_temprana_si_se_dictamina(
+        self, mock_notify,
+    ):
+        """Simetrico del anterior: el respaldo usa el VALOR de
+        `doc.phase_number`, no bloquea por el simple hecho de que `dtype` sea
+        None (regla de oro: ninguna negativa sola)."""
+        from itcj2.apps.titulatec.models import Document
+
+        doc = SimpleNamespace(phase_number=1, review_status="pending",
+                              review_note=None, reviewed_by_id=None)
+
+        def _query(model):
+            q = MagicMock()
+            q.filter_by.return_value.first.return_value = (
+                doc if model is Document else None)
+            return q
+
+        db = MagicMock()
+        db.query.side_effect = _query
+
+        ok = DocumentService.review(db, process_id=1, type_code="tipo_borrado",
+                                    status="approved", note=None, reviewer_id=200)
+
+        assert ok is True
+        assert doc.review_status == "approved"
