@@ -589,6 +589,30 @@ def _verify_titulacion() -> list[str]:
                 "no aterrizó)"
             )
 
+        # titulatec_titulaciones ya NO debe tener ningún titulatec.ceremony.api.%
+        # (2026-09-21, ronda de fix 1): el acto protocolario es fase 8, trabajo
+        # del Departamento de Titulación. La supervisión conserva solo
+        # ceremony.page.list (ver, no escribe).
+        ceremony_supervivientes = [
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT p.code FROM core_role_permissions rp "
+                    "  JOIN core_roles r ON r.id = rp.role_id "
+                    "  JOIN core_permissions p ON p.id = rp.perm_id "
+                    "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                    " WHERE r.name = :rol AND p.code LIKE 'titulatec.ceremony.api.%'"
+                ),
+                {"rol": _ROL_TITULACIONES_DIV},
+            )
+        ]
+        if ceremony_supervivientes:
+            problemas.append(
+                f"{_ROL_TITULACIONES_DIV} todavía tiene permisos de escritura de "
+                f"ceremony: {ceremony_supervivientes} (el DELETE de "
+                "03_insert_role_permissions.sql no aterrizó)"
+            )
+
     return problemas
 
 

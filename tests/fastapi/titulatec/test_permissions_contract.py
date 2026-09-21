@@ -205,12 +205,17 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_82_permisos_conocidos():
+def test_el_dml_declara_los_84_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    82 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 80
-    hasta el 2026-09-16, cuando el auto-agendado de citas de cotejo anadio dos
-    codigos nuevos (`titulatec.appointment.api.book.own` y
+    84 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 82
+    hasta el 2026-09-21, cuando el Departamento de Titulacion (spec
+    2026-09-21-titulatec-dpto-titulacion) anadio dos codigos nuevos
+    (`titulatec.handoff.page.list` y `titulatec.handoff.api.export`, la
+    bandeja de liberados a Titulacion) al bloque HANDOFF de
+    `02_insert_permissions.sql`. Antes de eso eran 80 hasta el 2026-09-16,
+    cuando el auto-agendado de citas de cotejo anadio dos codigos nuevos
+    (`titulatec.appointment.api.book.own` y
     `titulatec.appointment.api.cancel.own`) al bloque de citas de
     `02_insert_permissions.sql`. Antes de eso eran 77 hasta el 2026-09-15,
     cuando la liberacion de la encuesta de egresados por Gestion Tecnologica y
@@ -227,8 +232,10 @@ def test_el_dml_declara_los_82_permisos_conocidos():
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 82, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 82. "
+    assert len(declared) == 84, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 84 "
+        "(2026-09-21: sube de 82 a 84 por titulatec.handoff.page.list y "
+        "titulatec.handoff.api.export, la bandeja de liberados a Titulacion). "
         "Actualiza este numero SOLO si el cambio en database/DML/titulatec/ es "
         f"intencional. Declarados: {sorted(declared)}"
     )
