@@ -11,6 +11,7 @@ El escenario reproduce lo que hace `uvicorn --workers` al respawnear: un
 worker muere a mitad de una petición (su in-flight quedó en 1 en su fichero)
 y otro sigue vivo con una petición en curso.
 """
+import logging
 import os
 import subprocess
 import sys
@@ -118,6 +119,7 @@ def scenario(tmp_path_factory):
         scraped = _run(_SCRAPER, env)
 
         yield {
+            "multiproc_dir": multiproc_dir,
             "dead_pid": dead_pid,
             "live_pid": live_pid,
             "files_before": files_before,
@@ -154,6 +156,53 @@ def test_live_worker_files_are_untouched(scenario):
     live_files = {f for f in scenario["files_before"] if f.endswith(f"_{live_pid}.db")}
     assert f"gauge_livesum_{live_pid}.db" in live_files
     assert live_files <= scenario["files_after"]
+
+
+# ---------------------------------------------------------------------------
+# Uso del directorio de mmap (R25): lleno = SIGBUS, hay que verlo venir
+# ---------------------------------------------------------------------------
+DIR_USED = ("itcj_metrics_dir_used_bytes", ())
+DIR_SIZE = ("itcj_metrics_dir_size_bytes", ())
+
+
+def test_scrape_reports_the_multiproc_dir_usage(scenario):
+    # El scrape del subproceso (modo multiproceso real) lee `statvfs` del
+    # directorio de `PROMETHEUS_MULTIPROC_DIR`, no de otro sistema de
+    # ficheros: el tamaño cuadra exacto con el que ve pytest.
+    stats = os.statvfs(scenario["multiproc_dir"])
+    after = scenario["after"]
+
+    assert after[DIR_SIZE] == stats.f_blocks * stats.f_frsize
+    assert 0 < after[DIR_USED] <= after[DIR_SIZE]
+
+
+def test_flat_registry_does_not_report_the_dir_usage(monkeypatch):
+    # Sin la variable (tests, dev) no hay directorio que medir.
+    from itcj2.observability.metrics import render_latest
+
+    monkeypatch.delenv("PROMETHEUS_MULTIPROC_DIR", raising=False)
+    body = render_latest()[0].decode()
+
+    assert "itcj_metrics_dir_used_bytes" not in body
+    assert "itcj_metrics_dir_size_bytes" not in body
+
+
+def test_dir_usage_never_raises_on_a_missing_dir(tmp_path, monkeypatch, caplog):
+    # Un fallo aquí no puede tirar el scrape entero: se omite la familia.
+    from itcj2.observability import metrics
+
+    monkeypatch.setenv("PROMETHEUS_MULTIPROC_DIR", str(tmp_path / "no-existe"))
+    collectors = [
+        c for c in metrics._scrape_collectors
+        if isinstance(c, metrics.MetricsDirCollector)
+    ]
+    assert len(collectors) == 1, "el colector del dir debe estar registrado una vez"
+
+    with caplog.at_level(logging.WARNING, logger="itcj2.observability"):
+        families = list(collectors[0].collect())
+
+    assert families == []
+    assert any("no-existe" in r.getMessage() for r in caplog.records)
 
 
 def test_reaper_never_raises_on_a_missing_dir(tmp_path):

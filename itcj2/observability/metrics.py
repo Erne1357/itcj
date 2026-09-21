@@ -36,6 +36,7 @@ from prometheus_client import (
     Histogram,
     generate_latest,
 )
+from prometheus_client.core import GaugeMetricFamily
 from prometheus_client.multiprocess import MultiProcessCollector, mark_process_dead
 
 logger = logging.getLogger("itcj2.observability")
@@ -233,6 +234,48 @@ def register_scrape_collector(collector) -> None:
 from itcj2.observability.presence import PresenceCollector  # noqa: E402
 
 register_scrape_collector(PresenceCollector())
+
+
+# Uso del directorio de mmap (R25). Lleno, cada escritura mmap nueva da SIGBUS
+# (no se puede atrapar): el worker muere y los que uvicorn respawnea mueren al
+# importar, porque los gauges sin etiquetas abren su fichero al declararse; el
+# color queda caído en bucle. El directorio solo crece en la vida del
+# contenedor (los counter/histogram de cada worker muerto se quedan, a
+# propósito), así que se mide en cada scrape para que la alerta llegue ANTES.
+# Colector a la hora del scrape y no Gauge: es un dato del contenedor entero,
+# el mismo lo lea el worker que lo lea; un `livesum` lo sumaría 4 veces.
+class MetricsDirCollector:
+    """`itcj_metrics_dir_used_bytes` / `_size_bytes` vía `os.statvfs`.
+
+    Solo con `PROMETHEUS_MULTIPROC_DIR` puesta (en el registro plano no hay
+    directorio). Nunca lanza: si no se puede leer, se omiten las dos familias
+    y se deja un warning; el resto del scrape sigue.
+    """
+
+    def collect(self):
+        path = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+        if not path:
+            return
+        try:
+            stats = os.statvfs(path)
+        except Exception as exc:
+            logger.warning("metrics_dir: no se pudo leer statvfs de %r: %s", path, exc)
+            return
+        size = stats.f_blocks * stats.f_frsize
+        used = (stats.f_blocks - stats.f_bfree) * stats.f_frsize
+        yield GaugeMetricFamily(
+            "itcj_metrics_dir_used_bytes",
+            "Bytes usados del directorio de mmap de prometheus_client (lleno = SIGBUS).",
+            value=used,
+        )
+        yield GaugeMetricFamily(
+            "itcj_metrics_dir_size_bytes",
+            "Tamaño total del sistema de ficheros del directorio de mmap.",
+            value=size,
+        )
+
+
+register_scrape_collector(MetricsDirCollector())
 
 
 class _ScrapeView:
