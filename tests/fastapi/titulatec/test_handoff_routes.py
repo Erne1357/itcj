@@ -89,6 +89,20 @@ def test_export_csv_sin_el_permiso_de_exportacion_se_rechaza(client_as, make_hea
     assert resp.status_code == 403, resp.text[:300]
 
 
+def test_solo_api_export_no_basta_para_ver_la_pagina_ni_el_parcial(client_as, make_head):
+    """Simétrico del test anterior: `handoff.api.export` es un código
+    EXCLUSIVO del CSV, no abre la bandeja ni su parcial. `perms=[...]` es OR
+    dentro de CADA ruta, no una unión entre rutas distintas
+    (`itcj2/dependencies.py:131-136`)."""
+    head = make_head(perm_codes=("titulatec.handoff.api.export",))
+
+    resp_pagina = client_as(head).get(URL)
+    resp_body = client_as(head).get(f"{URL}/body")
+
+    assert resp_pagina.status_code == 403, resp_pagina.text[:300]
+    assert resp_body.status_code == 403, resp_body.text[:300]
+
+
 # ---------------------------------------------------------------------------
 # Bandeja: filas, criterio de liberación, alcance
 # ---------------------------------------------------------------------------
@@ -147,18 +161,31 @@ def test_respeta_el_alcance_por_carrera(
 
 
 def test_alcance_vacio_no_revienta_y_no_trae_filas_ajenas(
-    client_as, make_user, make_role, grant_user_role,
+    client_as, db_session, make_user, make_role, grant_user_role,
+    make_program, make_cohort, make_process,
 ):
     """Permiso de la bandeja SIN ninguna carrera asignada: alcance vacío
-    (`officer_programs` falla cerrado). La página debe responder 200 con un
-    aviso, no un 500 -- y desde luego no la bandeja completa de "ALL"."""
+    (`officer_programs` falla cerrado). La página debe responder 200 con la
+    tarjeta "Sin alcance" y el formulario de filtros OCULTO -- nunca la
+    bandeja completa de "ALL". Se siembra un egresado liberado REAL, ajeno al
+    actor: si la rama fail-closed se rompiera (p. ej. `officer_programs`
+    devolviendo "ALL" por error), ese control number es justo lo que se
+    filtraría, y las tres aserciones de abajo lo atrapan.
+    """
     user = make_user(first_name="SIN", last_name="CARRERAS")
     role = make_role("tt_test_handoff_sin_carreras", ("titulatec.handoff.page.list",))
     grant_user_role(user, role)
+    _liberado(db_session, make_program, make_cohort, make_user, make_process,
+             control="99700010")
 
     resp = client_as(user).get(URL)
 
     assert resp.status_code == 200, resp.text[:500]
+    assert "99700010" not in resp.text
+    assert "Sin alcance" in resp.text
+    # Con `no_programs`, `handoff_table.html` oculta el `<form>` de filtros
+    # entero (no tiene sentido ofrecer un selector de carrera vacío).
+    assert 'id="tt-handoff-filters"' not in resp.text
 
 
 def test_body_es_hermana_de_la_pagina_y_responde_solo_el_fragmento(
@@ -223,6 +250,30 @@ def test_export_csv_respeta_el_alcance_por_carrera(
     cuerpo = resp.content.decode("utf-8")
     assert "99700008" in cuerpo
     assert "99700009" not in cuerpo
+
+
+def test_export_csv_escapa_celdas_que_empiezan_como_formula(
+    client_as, db_session, make_head, make_program, make_cohort, make_user, make_process,
+):
+    """Cableado REAL de `escape_formula` en este endpoint, no solo en el de
+    encuestas (`test_survey_export_route.py`): un nombre puede llegar con
+    `=`/`+`/`-`/`@` al frente desde la inscripción pública, y esta es la
+    primera vez que ese nombre sale en un CSV de esta bandeja."""
+    head = make_head(perm_codes=HANDOFF_EXPORT_PERMS)
+    program = make_program("Ingenieria Formula CSV")
+    cohort = make_cohort()
+    alumno = make_user(first_name="=CMD('calc')", last_name="RIESGO",
+                       control_number="99700012")
+    proc = make_process(alumno, cohort=cohort, program=program, current_phase=1)
+    _release(db_session, proc, datetime(2026, 1, 21, 9, 0))
+
+    resp = client_as(head).get(f"{URL}/export.csv")
+
+    assert resp.status_code == 200, resp.text[:500]
+    cuerpo = resp.content.decode("utf-8")
+    assert "'=CMD('calc') RIESGO" in cuerpo
+    # La celda cruda NO puede aparecer sin el apóstrofo antepuesto.
+    assert ",=CMD" not in cuerpo
 
 
 # ---------------------------------------------------------------------------
