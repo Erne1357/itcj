@@ -19,6 +19,8 @@ confirmación del correo, la trampa, el tope de tamaño y el limitador.
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 ENROLL_URL = "/titulatec/inscripcion"
@@ -33,6 +35,27 @@ INTRO_PAGINA = ("Llena tus datos. Servicios Escolares revisará tu solicitud y, 
 def _plano(html: str) -> str:
     """El texto de una plantilla viene partido en renglones: se compara plano."""
     return " ".join(html.split())
+
+
+# `x-request-id` lo añade ObservabilityMiddleware a toda respuesta: aleatorio
+# por petición, con la MISMA distribución en todas las ramas (R26). Su valor no
+# distingue nada, así que se compara solo su FORMA; que faltara en una rama (un
+# 500 que sale por fuera del middleware, p. ej.) sí la delataría.
+_REQUEST_ID = re.compile(r"[0-9a-f]{32}")
+
+
+def _h(resp):
+    """Cabeceras comparables byte a byte entre ramas: fuera `date` (puede
+    saltar de segundo) y `x-request-id` reducido a su forma (ver arriba)."""
+    return {
+        k.lower(): (
+            "<request-id>"
+            if k.lower() == "x-request-id" and _REQUEST_ID.fullmatch(v)
+            else v
+        )
+        for k, v in resp.headers.items()
+        if k.lower() != "date"
+    }
 
 
 def _solo_esta_convocatoria(db_session, cohort):
@@ -626,10 +649,6 @@ def test_la_trampa_no_escribe_nada_y_devuelve_la_tarjeta_generica(
     # Cuerpo idéntico BYTE A BYTE contra un envío legítimo real, no "parecido".
     assert r_trampa.content == r_ok.content
 
-    def _h(resp):
-        # `date` se excluye porque puede saltar de segundo entre peticiones.
-        return {k.lower(): v for k, v in resp.headers.items() if k.lower() != "date"}
-
     assert _h(r_trampa) == _h(r_ok)
 
     assert _count(db_session, "99885601") == 1, "el envio legitimo SI debe escribir"
@@ -667,9 +686,6 @@ def test_e8_las_tres_ramas_son_identicas_byte_a_byte(
     # Cuerpo idéntico BYTE A BYTE, no "parecido".
     assert r_ok.content == r_dup.content
     assert r_ok.content == r_proc.content
-
-    def _h(resp):
-        return {k.lower(): v for k, v in resp.headers.items() if k.lower() != "date"}
 
     assert _h(r_ok) == _h(r_dup)
     assert _h(r_ok) == _h(r_proc)

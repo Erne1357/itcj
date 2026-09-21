@@ -20,6 +20,7 @@ Dos reenvíos con reglas opuestas, a propósito:
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 from datetime import datetime, timedelta
 from urllib.parse import unquote
@@ -118,9 +119,25 @@ def _token_de_la_liga(html: str) -> str:
     return html.split("/inscripcion/verificar?t=", 1)[1].split('"', 1)[0]
 
 
+# `x-request-id` lo añade ObservabilityMiddleware a toda respuesta: aleatorio
+# por petición, con la MISMA distribución en todas las ramas (R26). Su valor no
+# distingue nada, así que se compara solo su FORMA; que faltara en una rama (un
+# 500 que sale por fuera del middleware, p. ej.) sí la delataría.
+_REQUEST_ID = re.compile(r"[0-9a-f]{32}")
+
+
 def _h(resp):
-    """Cabeceras normalizadas, sin `date` (puede saltar de segundo)."""
-    return {k.lower(): v for k, v in resp.headers.items() if k.lower() != "date"}
+    """Cabeceras comparables byte a byte entre ramas: fuera `date` (puede
+    saltar de segundo) y `x-request-id` reducido a su forma (ver arriba)."""
+    return {
+        k.lower(): (
+            "<request-id>"
+            if k.lower() == "x-request-id" and _REQUEST_ID.fullmatch(v)
+            else v
+        )
+        for k, v in resp.headers.items()
+        if k.lower() != "date"
+    }
 
 
 # ===========================================================================
