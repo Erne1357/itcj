@@ -107,10 +107,55 @@ def build_route_map(app) -> dict:
     route_map: dict = {}
 
     def _collect(route_obj, full_path):
-        route_map[id(route_obj)] = full_path
+        route_id = id(route_obj)
+        previous = route_map.get(route_id)
+        if previous is not None and previous != full_path:
+            # El colapso real de un mapa indexado por id(route): en fastapi
+            # 0.141 `include_router` ya NO copia los objetos `Route` (ver
+            # docstring del módulo), así que si el MISMO router se incluyera
+            # bajo dos prefijos distintos, `_walk` visitaría este MISMO
+            # objeto dos veces con dos `full_path` distintos y un dict se
+            # quedaría en silencio solo con el último — tráfico de un
+            # prefijo etiquetado con la plantilla del otro. Un
+            # `len(route_map) == len(set(route_map.keys()))` NUNCA lo
+            # detecta (es tautológico para cualquier dict); por eso se
+            # compara explícitamente contra el valor previo aquí, antes de
+            # sobrescribir.
+            logger.warning(
+                "build_route_map: la ruta id=%s ya estaba mapeada a %r; "
+                "se sobrescribe con %r (¿el mismo router incluido bajo dos "
+                "prefijos? ver docstring de itcj2.observability.route)",
+                route_id, previous, full_path,
+            )
+        route_map[route_id] = full_path
 
     _walk(app.routes, "", _RootRouter(), _collect)
     return route_map
+
+
+def _count_walker_visits(app) -> int:
+    """SOLO para el guardián de unicidad de
+    `tests/fastapi/observability/test_route_template.py`: cuenta cuántas
+    veces `_walk` invoca `sink` (una vez por `Route`/`WebSocketRoute` real
+    encontrado), sin pasar por el dict de `build_route_map`.
+
+    Es la otra mitad de la comparación que de verdad expone un colapso
+    (ver el comentario en `_collect` arriba): `len(route_map)` nunca puede
+    superar la cantidad de ids DISTINTOS vistos, así que compararlo contra
+    `len(set(route_map.keys()))` es tautológico. Comparar este conteo (total
+    de visitas del walker) contra `len(build_route_map(app))` (entradas que
+    sobrevivieron) sí lo expone: si alguna vez difieren, algún `id(route)`
+    fue visitado más de una vez con plantillas distintas y el dict absorbió
+    la colisión en silencio.
+    """
+    count = 0
+
+    def _collect(route_obj, full_path):
+        nonlocal count
+        count += 1
+
+    _walk(app.routes, "", _RootRouter(), _collect)
+    return count
 
 
 def _route_method_pairs(app) -> list:

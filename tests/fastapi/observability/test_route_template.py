@@ -18,6 +18,7 @@ import pytest
 
 from itcj2.main import create_app
 from itcj2.observability.route import (
+    _count_walker_visits,
     _route_method_pairs,
     app_key_from_route,
     build_route_map,
@@ -177,10 +178,25 @@ def test_build_route_map_has_no_duplicate_or_empty_templates(app):
     # Aquí sí se espera repetición de STRING de plantilla entre métodos
     # distintos de la misma ruta (GET y PATCH comparten
     # /tickets/{ticket_id}), así que la unicidad real se prueba sobre el
-    # par (método, plantilla) en el test anterior. Este test solo cubre que
-    # cada id(route) (la llave real del mapa) es única y no vacía, que es
-    # justo lo que garantiza un dict de Python.
-    assert len(route_map) == len(set(route_map.keys()))
+    # par (método, plantilla) en el test anterior.
+    #
+    # `len(route_map) == len(set(route_map.keys()))` (versión anterior de
+    # este assert) es tautológico: TODO dict de Python lo cumple, nunca
+    # puede tener dos entradas con la misma llave. No detecta el colapso
+    # real de un mapa indexado por id(route): que `_walk` visite el MISMO
+    # objeto Route dos veces con dos `full_path` distintos (el mismo router
+    # incluido bajo dos prefijos — posible en fastapi 0.141 porque
+    # `include_router` ya no copia los objetos Route) y el dict se quede en
+    # silencio solo con el último. Eso sí se expone comparando cuántas veces
+    # el walker invocó `sink` contra cuántas entradas sobrevivieron en el
+    # mapa (ver R3 en progress.md y el review de Task 2, ronda 1).
+    visits = _count_walker_visits(app)
+    assert visits == len(route_map), (
+        f"el walker visitó {visits} rutas pero build_route_map solo "
+        f"registró {len(route_map)}: algún id(route) colisionó con una "
+        "plantilla distinta y se sobrescribió en silencio (ver "
+        "logger.warning de build_route_map)"
+    )
 
 
 # ---------------------------------------------------------------------------
