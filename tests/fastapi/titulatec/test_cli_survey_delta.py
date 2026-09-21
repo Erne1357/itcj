@@ -53,6 +53,38 @@ requires_dml = pytest.mark.skipif(
     ),
 )
 
+# A diferencia de `requires_dml` (que gatea sobre la subcarpeta survey_2026_09/),
+# esta gatea sobre la raiz de DML de titulatec: 04b_insert_titulacion_department.sql
+# vive directo ahi, no en una subcarpeta de delta.
+requires_titulatec_dml = pytest.mark.skipif(
+    not DML_TITULATEC.is_dir(),
+    reason=(
+        "database/DML/titulatec/ no esta en el checkout (gitignored a "
+        "proposito: trae PII real y nunca llega a CI). Esta prueba comprueba "
+        "en disco que 04b_insert_titulacion_department.sql existe."
+    ),
+)
+
+
+@requires_titulatec_dml
+def test_04b_titulacion_department_entre_04_y_05_en_seed_files():
+    """Spec 2026-09-21-titulatec-dpto-titulacion (D13): el depto + puestos del
+    Departamento de Titulacion viven en su propio archivo porque deben correr
+    DESPUES de 04 (puestos existentes) y ANTES de 05 (mapeo puesto->rol, que
+    necesita los puestos nuevos head_titulacion/aux_titulacion ya creados)."""
+    nombre = "04b_insert_titulacion_department.sql"
+    assert nombre in SEED_FILES, f"{nombre} no esta en SEED_FILES"
+
+    idx_04 = SEED_FILES.index("04_insert_vinculacion_positions.sql")
+    idx_04b = SEED_FILES.index(nombre)
+    idx_05 = SEED_FILES.index("05_insert_position_app_roles.sql")
+    assert idx_04 < idx_04b < idx_05, (
+        f"{nombre} debe ir entre 04 y 05 en SEED_FILES: "
+        f"04={idx_04}, 04b={idx_04b}, 05={idx_05}")
+
+    assert (DML_TITULATEC / nombre).exists(), (
+        f"falta database/DML/titulatec/{nombre} en disco")
+
 
 def test_el_delta_esta_en_seed_files_con_su_prefijo_de_subcarpeta():
     """Sin esto, una base NUEVA (`core seed-reference-data`) nace sin los 8.

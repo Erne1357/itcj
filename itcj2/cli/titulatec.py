@@ -30,6 +30,12 @@ SEED_FILES = [
     "02_insert_permissions.sql",          # Permisos titulatec.*
     "03_insert_role_permissions.sql",     # Asignación rol→permisos (incl. 'graduate') + revocaciones
     "04_insert_vinculacion_positions.sql",# Puestos nuevos coord_vinculacion_* por depto
+    # 2026-09-21 (spec 2026-09-21-titulatec-dpto-titulacion): Departamento de
+    # Titulación (depto + puestos head_titulacion/aux_titulacion), colgado de
+    # prof_studies_div. Debe correr DESPUÉS del 04 (no depende de él, pero
+    # sigue la numeración) y ANTES del 05: el mapeo puesto→rol de abajo
+    # necesita estos puestos ya creados.
+    "04b_insert_titulacion_department.sql",
     "05_insert_position_app_roles.sql",   # Mapeo puestos→roles (escolares, titulaciones, vinculación)
     "06_seed_catalogs.sql",               # Modalidades, fases (0-8) y tipos de documento
     "07_insert_cotejo_reqs_perm.sql",     # Permiso de requisitos de cotejo (rol head)
@@ -195,17 +201,28 @@ def init_titulatec_command():
     chequeo que ya traía `load-survey-2026-09`—: los 11 permisos del delta, los
     9 grants de GTV, el recorte de `titulatec.survey.%` a la jefatura, el
     puesto de ventanilla y sus exactamente 2 filas puesto→rol, y el formulario
-    'egresados' abierto. Aborta si algo no aterrizó. Antes este comando no
-    comprobaba nada: en una base destino sin `head_tech_management` o sin el
-    departamento `tech_management`, los `INSERT ... SELECT` de grants insertan
-    0 filas y el comando salía en verde de todos modos — y el runbook de
-    lanzamiento (`alembic upgrade head` → `init-titulatec` → asignar a la
-    persona) nunca corre `load-survey-2026-09` por separado para atraparlo.
+    'egresados' abierto. Y con `_verify_titulacion` (spec
+    2026-09-21-titulatec-dpto-titulacion): el departamento `titulacion`
+    colgado de `prof_studies_div`, sus 2 puestos, los 2 permisos de la bandeja
+    de liberados, el grant completo del rol nuevo `titulatec_titulacion`, sus
+    exactamente 2 filas puesto→rol (y 1 la del rol viejo, recortado a
+    `head_prof_studies_div`), y que `titulatec_titulaciones` haya quedado sin
+    ningún permiso de dictamen. Acumula los problemas de AMBOS verifies antes
+    de abortar: un error del primero no debe esconder uno del segundo.
+
+    Aborta si algo no aterrizó. Antes este comando no comprobaba nada: en una
+    base destino sin `head_tech_management` o sin el departamento
+    `tech_management`, los `INSERT ... SELECT` de grants insertan 0 filas y el
+    comando salía en verde de todos modos — y el runbook de lanzamiento
+    (`alembic upgrade head` → `init-titulatec` → asignar a la persona) nunca
+    corre `load-survey-2026-09` por separado para atraparlo.
 
     Prerequisitos:
       - Tablas titulatec_* existen (alembic upgrade head).
-      - 04 antes que 05: el mapeo puesto→rol necesita los puestos ya creados
-        (incluido el nuevo `external_service_tech_management` de GTV).
+      - 04 antes que 04b antes que 05: el mapeo puesto→rol necesita los
+        puestos ya creados (incluidos `external_service_tech_management` de
+        GTV y `head_titulacion`/`aux_titulacion` del Departamento de
+        Titulación).
     """
     click.echo("🎓 Inicializando app de TitulaTec...")
     click.echo()
@@ -215,7 +232,7 @@ def init_titulatec_command():
         click.echo(f"\n💥 Error durante init-titulatec: {e}")
         raise
 
-    problemas = _verify_survey_2026_09()
+    problemas = _verify_survey_2026_09() + _verify_titulacion()
     if problemas:
         click.echo()
         for p in problemas:
@@ -396,6 +413,180 @@ def _verify_survey_2026_09() -> list[str]:
             problemas.append(
                 f"formularios 'egresados' abiertos: {len(abiertos)} "
                 "(el índice parcial uq_titulatec_survey_forms_open exige exactamente 1)"
+            )
+
+    return problemas
+
+
+# ---------------------------------------------------------------------------
+# Departamento de Titulación (2026-09-21, spec
+# 2026-09-21-titulatec-dpto-titulacion): rol nuevo `titulatec_titulacion` con
+# sus 2 puestos (`head_titulacion`, `aux_titulacion`), colgado del
+# departamento `titulacion` (a su vez colgado de `prof_studies_div`).
+# `titulatec_titulaciones` se recorta a supervisión de la jefatura de la
+# División. Ver spec secciones 3 y 6.
+# ---------------------------------------------------------------------------
+_DEPTO_TITULACION = "titulacion"
+_DEPTO_PADRE_TITULACION = "prof_studies_div"
+_PUESTO_HEAD_TITULACION = "head_titulacion"
+_PUESTO_AUX_TITULACION = "aux_titulacion"
+_ROL_TITULACION = "titulatec_titulacion"
+_ROL_TITULACIONES_DIV = "titulatec_titulaciones"
+_PUESTO_HEAD_PROF_STUDIES_DIV = "head_prof_studies_div"
+
+_PERMISOS_HANDOFF = (
+    "titulatec.handoff.page.list",
+    "titulatec.handoff.api.export",
+)
+
+# Los 8 permisos de dictamen de las fases 3-8 (Formato B en adelante) que
+# `titulatec_titulaciones` pierde y `titulatec_titulacion` gana.
+_PERMISOS_DICTAMEN_FASES_3_8 = (
+    "titulatec.process.api.approve_phase",
+    "titulatec.process.api.reject_phase",
+    "titulatec.process.api.cancel",
+    "titulatec.process.api.hold",
+    "titulatec.format_b.api.approve",
+    "titulatec.format_b.api.reject",
+    "titulatec.document.api.approve",
+    "titulatec.document.api.reject",
+)
+
+
+def _verify_titulacion() -> list[str]:
+    """Comprueba que el Departamento de Titulación ATERRIZÓ. Devuelve problemas.
+
+    Mismo contrato que `_verify_survey_2026_09`: abre su propia conexión,
+    arma sets contra la BD y devuelve strings de problema en vez de levantar.
+    Sin esto un `INSERT ... SELECT` que inserta 0 filas (p.ej. porque `04b` no
+    corrió antes que `05`, o `prof_studies_div` no existe en esta base) sale
+    en verde igual que la app a medio sembrar del incidente de los seeders
+    borrados. Ver spec 2026-09-21-titulatec-dpto-titulacion, sección 6.
+    """
+    from sqlalchemy import text
+
+    from itcj2.cli.core import _get_engine
+
+    problemas: list[str] = []
+
+    with _get_engine().connect() as conn:
+        # Departamento titulacion con su parent_id correcto.
+        depto = conn.execute(
+            text(
+                "SELECT d.id, padre.code "
+                "FROM core_departments d "
+                "LEFT JOIN core_departments padre ON padre.id = d.parent_id "
+                "WHERE d.code = :code"
+            ),
+            {"code": _DEPTO_TITULACION},
+        ).first()
+        if depto is None:
+            problemas.append(f"departamento ausente: {_DEPTO_TITULACION}")
+        elif depto[1] != _DEPTO_PADRE_TITULACION:
+            problemas.append(
+                f"departamento {_DEPTO_TITULACION}: parent_id apunta a "
+                f"'{depto[1]}', se esperaba '{_DEPTO_PADRE_TITULACION}'"
+            )
+
+        # Los 2 puestos nuevos.
+        puestos = {
+            row[0]
+            for row in conn.execute(
+                text("SELECT code FROM core_positions WHERE code = ANY(:codes)"),
+                {"codes": [_PUESTO_HEAD_TITULACION, _PUESTO_AUX_TITULACION]},
+            )
+        }
+        for code in (_PUESTO_HEAD_TITULACION, _PUESTO_AUX_TITULACION):
+            if code not in puestos:
+                problemas.append(f"puesto ausente: {code}")
+
+        # Los 2 permisos de la bandeja de liberados.
+        permisos = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT p.code FROM core_permissions p "
+                    "JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                    "WHERE p.code = ANY(:codes)"
+                ),
+                {"codes": list(_PERMISOS_HANDOFF)},
+            )
+        }
+        for code in _PERMISOS_HANDOFF:
+            if code not in permisos:
+                problemas.append(f"permiso ausente: {code}")
+
+        # Mapeo puesto→rol: exactamente 2 filas para el rol nuevo (head+aux) y
+        # exactamente 1 para el viejo (solo head_prof_studies_div).
+        n_nuevo = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM core_position_app_roles par "
+                "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
+                "  JOIN core_roles r ON r.id = par.role_id "
+                " WHERE r.name = :rol"
+            ),
+            {"rol": _ROL_TITULACION},
+        ).scalar()
+        if n_nuevo != 2:
+            problemas.append(
+                f"mapeo puesto→rol de {_ROL_TITULACION}: se esperaban 2 filas, hay {n_nuevo}"
+            )
+
+        n_viejo = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM core_position_app_roles par "
+                "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
+                "  JOIN core_roles r ON r.id = par.role_id "
+                " WHERE r.name = :rol"
+            ),
+            {"rol": _ROL_TITULACIONES_DIV},
+        ).scalar()
+        if n_viejo != 1:
+            problemas.append(
+                f"mapeo puesto→rol de {_ROL_TITULACIONES_DIV}: se esperaba 1 fila "
+                f"({_PUESTO_HEAD_PROF_STUDIES_DIV}), hay {n_viejo}"
+            )
+
+        # El rol nuevo debe tener el dictamen + la bandeja de liberados.
+        concedidos_nuevo = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT p.code FROM core_role_permissions rp "
+                    "  JOIN core_roles r ON r.id = rp.role_id "
+                    "  JOIN core_permissions p ON p.id = rp.perm_id "
+                    "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                    " WHERE r.name = :rol"
+                ),
+                {"rol": _ROL_TITULACION},
+            )
+        }
+        for code in _PERMISOS_DICTAMEN_FASES_3_8 + _PERMISOS_HANDOFF:
+            if code not in concedidos_nuevo:
+                problemas.append(f"sin grant a {_ROL_TITULACION}: {code}")
+
+        # titulatec_titulaciones ya NO debe tener ningún permiso de dictamen.
+        supervivientes = [
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT p.code FROM core_role_permissions rp "
+                    "  JOIN core_roles r ON r.id = rp.role_id "
+                    "  JOIN core_permissions p ON p.id = rp.perm_id "
+                    "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                    " WHERE r.name = :rol AND p.code = ANY(:codes)"
+                ),
+                {
+                    "rol": _ROL_TITULACIONES_DIV,
+                    "codes": list(_PERMISOS_DICTAMEN_FASES_3_8),
+                },
+            )
+        ]
+        if supervivientes:
+            problemas.append(
+                f"{_ROL_TITULACIONES_DIV} todavía tiene permisos de dictamen: "
+                f"{supervivientes} (el DELETE de 03_insert_role_permissions.sql "
+                "no aterrizó)"
             )
 
     return problemas
