@@ -1,0 +1,108 @@
+{# Bandeja "Liberados". Raíz `#tt-handoff-table`; filtros, búsqueda y
+   paginación apuntan a ELLA (no a `#tt-admin-content`) con `hx-swap="outerHTML"`,
+   así que cada handler devuelve este parcial completo. Bandeja de SOLO
+   LECTURA: ninguna fila lleva acción que escriba.
+
+   Cada `<select>` dispara su PROPIO `hx-get` en `change` (con
+   `hx-include="closest form"` para no perder los demás filtros ni la
+   búsqueda) -- mismo idiom que el buscador de `survey_reviews_body.html`. El
+   `<form>` en sí lleva su propio `hx-get` con el trigger por omisión
+   (`submit`), para que Enter en el buscador dispare AJAX en vez de una
+   navegación completa. El campo oculto `page=1` reinicia la paginación cada
+   vez que cambia un filtro. #}
+<div id="tt-handoff-table" data-tt-view="handoff-table">
+
+  {% if not no_programs %}
+  <form id="tt-handoff-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3"
+        hx-get="/titulatec/admin/liberados/body" hx-target="#tt-handoff-table" hx-swap="outerHTML">
+    <input type="hidden" name="page" value="1">
+    <select class="tt-field tt-field--xs" name="cohort_id" aria-label="Convocatoria"
+            hx-get="/titulatec/admin/liberados/body" hx-target="#tt-handoff-table"
+            hx-swap="outerHTML" hx-trigger="change" hx-include="closest form">
+      <option value="">Todas las convocatorias</option>
+      {% for c in cohorts %}
+      <option value="{{ c.id }}"{% if cohort_id == c.id %} selected{% endif %}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+    <select class="tt-field tt-field--xs" name="program_id" aria-label="Carrera"
+            hx-get="/titulatec/admin/liberados/body" hx-target="#tt-handoff-table"
+            hx-swap="outerHTML" hx-trigger="change" hx-include="closest form">
+      <option value="">Todas las carreras</option>
+      {% for p in programs %}
+      <option value="{{ p.id }}"{% if program_id == p.id %} selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    <select class="tt-field tt-field--xs" name="modality_id" aria-label="Modalidad"
+            hx-get="/titulatec/admin/liberados/body" hx-target="#tt-handoff-table"
+            hx-swap="outerHTML" hx-trigger="change" hx-include="closest form">
+      <option value="">Todas las modalidades</option>
+      {% for m in modalities %}
+      <option value="{{ m.id }}"{% if modality_id == m.id %} selected{% endif %}>{{ m.name }}</option>
+      {% endfor %}
+    </select>
+    <div class="tt-search">
+      <i class="bi bi-search"></i>
+      <input type="search" name="q" value="{{ q }}" placeholder="Buscar control o nombre"
+             aria-label="Buscar control o nombre" hx-get="/titulatec/admin/liberados/body"
+             hx-target="#tt-handoff-table" hx-swap="outerHTML"
+             hx-trigger="keyup changed delay:400ms, search" hx-include="closest form">
+    </div>
+    <span class="tt-pill tt-pill--neutral ms-auto">{{ total }} liberado{{ 's' if total != 1 else '' }}</span>
+    <a class="btn btn-sm tt-btn-ghost"
+       href="/titulatec/admin/liberados/export.csv?cohort_id={{ cohort_id or '' }}&program_id={{ program_id or '' }}&modality_id={{ modality_id or '' }}&q={{ q | urlencode }}">
+      <i class="bi bi-download me-1"></i>Exportar CSV</a>
+  </form>
+  {% endif %}
+
+  {% if no_programs %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-signpost-split me-1"></i>Sin alcance</span>
+    <p class="mb-0">No tienes carreras asignadas, así que esta bandeja no te muestra ningún
+       egresado. Pídele a la jefatura que te asigne carreras en <strong>Encargados</strong>.</p>
+  </div>
+  {% elif not rows %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-inbox me-1"></i>Bandeja limpia</span>
+    <p class="mb-0">Nadie liberado con ese filtro todavía.</p>
+  </div>
+  {% else %}
+  <div class="tt-table-wrap">
+    <table class="table table-sm align-middle">
+      <thead><tr>
+        <th>No. control</th><th>Nombre</th><th>Correo</th><th>Carrera</th>
+        <th>Modalidad</th><th>Convocatoria</th><th>Liberado el</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr id="tt-hdf-{{ r.process_id }}">
+        <td class="tt-mono">{{ r.control_number }}</td>
+        <td>{{ r.full_name }}</td>
+        <td>{{ r.email or '—' }}</td>
+        <td>{{ r.program_name }}</td>
+        <td>{{ r.modality_name or '—' }}</td>
+        <td>{{ r.cohort_name }}</td>
+        <td class="tt-mono">{{ r.released_at.strftime('%Y-%m-%d %H:%M') if r.released_at else '—' }}</td>
+        <td><a class="btn btn-sm tt-btn-ghost"
+               href="/titulatec/admin/processes/{{ r.process_id }}">Ver expediente</a></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page > 1 or has_more %}
+  {% set qs = '&cohort_id=' ~ (cohort_id or '') ~ '&program_id=' ~ (program_id or '') ~ '&modality_id=' ~ (modality_id or '') ~ '&q=' ~ (q | urlencode) %}
+  <div class="d-flex gap-2 mt-2">
+    {% if page > 1 %}
+    <button class="btn btn-sm tt-btn-ghost" type="button"
+            hx-get="/titulatec/admin/liberados/body?page={{ page - 1 }}{{ qs }}"
+            hx-target="#tt-handoff-table" hx-swap="outerHTML">Anteriores</button>
+    {% endif %}
+    {% if has_more %}
+    <button class="btn btn-sm tt-btn-ghost" type="button"
+            hx-get="/titulatec/admin/liberados/body?page={{ page + 1 }}{{ qs }}"
+            hx-target="#tt-handoff-table" hx-swap="outerHTML">Siguientes</button>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% endif %}
+</div>

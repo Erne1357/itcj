@@ -324,6 +324,11 @@ async def review_days_toggle(cohort_id: int, request: Request,
 
 _ROLE_LABELS = {
     "titulatec_titulaciones": "Titulaciones",
+    # Rol nuevo del Departamento de Titulacion (2026-09-21, Tarea 5): la
+    # bandeja `/titulatec/admin/` la resuelve `role_label` con `next(...)`
+    # sobre este dict, y sin esta fila el actor cae al "Administración" por
+    # omisión aunque su rol real ya exista.
+    "titulatec_titulacion": "Titulación",
     "titulatec_school_services": "Servicios Escolares",
     "admin": "Administración",
 }
