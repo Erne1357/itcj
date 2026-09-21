@@ -270,7 +270,17 @@ class TestPaginasDeOtraFaseRedirigen:
     @pytest.mark.parametrize("url,fase,en", [
         ("/titulatec/student/documents", 1, 3),   # fase 1 vista desde la 3 (pasada)
         ("/titulatec/student/cita", 2, 1),        # fase 2 vista desde la 1 (futura)
-        ("/titulatec/student/formato-b", 3, 1),   # fase 3 vista desde la 1 (futura)
+        # OJO (arreglo A8, revision final 2026-09-21): con el corte por
+        # DEFECTO (fase 3) esto NO pasa por la regla de "futura"
+        # (`phase_number > process.current_phase`) -- pasa por el CORTE
+        # (`phase_number >= _handoff_phase()`, que en `_student_action_error`
+        # se comprueba ANTES). El 302 y el destino son identicos por
+        # cualquiera de las dos razones, asi que el aserto de abajo no
+        # distingue una de la otra; la razon REAL la fija
+        # `test_handoff_phase_cut.py::TestCorteARutaDelAlumno` (misma ruta,
+        # pero con `current_phase=3` -- la fase PROPIA del alumno, no una
+        # futura). Antes este comentario decia "futura" sin comprobarlo.
+        ("/titulatec/student/formato-b", 3, 1),   # fase 3: corte, no "futura" (ver arriba)
         ("/titulatec/student/documents", 1, 2),   # fase 1 vista desde la 2 (pasada)
         ("/titulatec/student/cita", 2, 3),        # fase 2 vista desde la 3 (pasada)
     ])

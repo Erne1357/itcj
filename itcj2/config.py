@@ -1,6 +1,7 @@
 import os
 import json
 from functools import lru_cache
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -279,8 +280,16 @@ class Settings(BaseSettings):
     # app -- de ahí en adelante el proceso lo atiende el Departamento de
     # Titulación en su propio sistema (T-soft). 9 la desactiva (el catálogo real
     # va de 0 a 8, así que ninguna fase legítima la alcanza).
-    TITULATEC_HANDOFF_PHASE: int = 3
-
+    # Piso en 3 (arreglo A6, revision final 2026-09-21): la fase 2 es la
+    # LIBERACION hacia T-soft (`PhaseService.approve_phase(2)`, mueve
+    # `current_phase` de 2 a 3) y SIEMPRE debe poder aprobarse -- un 0, 1 o 2
+    # por error congelaria tambien esa liberacion, y el proceso dejaria de
+    # avanzar para todo el mundo sin decir por que (`_transition_error`/
+    # `_student_action_error` comparan `phase_number >= _handoff_phase()`
+    # ANTES que cualquier otra regla). `Field(ge=3)` hace que un valor invalido
+    # truene fuerte al arrancar (`get_settings()`), no en silencio a media
+    # operacion.
+    TITULATEC_HANDOFF_PHASE: int = Field(default=3, ge=3)
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

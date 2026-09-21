@@ -67,6 +67,62 @@ class TestCorteDelAlumno:
         assert PhaseService.assert_student_can_act(db_session, process, 3) == 3
 
 
+# ──────────────── guarda del ALUMNO a nivel de RUTA HTTP (arreglo A8) ─────────
+# Las clases de arriba solo probaban el SERVICE (`PhaseService.
+# assert_student_can_act`/`can_student_act` a secas). Nadie probaba que la
+# ruta HTTP -que es lo que de verdad pega el navegador- tradujera esa guarda
+# al canal correcto: 302 en paginas completas, 400 + `X-Tt-Error` en
+# mutaciones/parciales (`pages/student.py::_phase_guard`/`_phase_guard_page`,
+# docstring en `:265-294`). El alumno esta en su PROPIA fase 3 (la fase
+# ACTUAL, no una futura): sin este test, un bug que solo rompiera el WIRING
+# de la ruta (p. ej. que dejara de pasar el numero de fase correcto a la
+# guarda) pasaria inadvertido aunque el service siguiera perfecto.
+_FORMATO_B_PERMS = ("titulatec.format_b.page.fill", "titulatec.format_b.api.save")
+
+
+class TestCorteARutaDelAlumno:
+    def test_get_formato_b_redirige_302_con_el_corte_puesto(
+        self, client_as, seed_phase_defs, make_student, make_process,
+    ):
+        seed_phase_defs()
+        student = make_student(perm_codes=_FORMATO_B_PERMS)
+        process = make_process(student, current_phase=3)
+
+        resp = client_as(student).get("/titulatec/student/formato-b",
+                                      follow_redirects=False)
+
+        assert resp.status_code == 302, resp.text[:300]
+        assert resp.headers["location"] == "/titulatec/student/dashboard?fase=3"
+
+    def test_post_formato_b_step_3_devuelve_400_con_el_corte_puesto(
+        self, client_as, seed_phase_defs, make_student, make_process,
+    ):
+        seed_phase_defs()
+        student = make_student(perm_codes=_FORMATO_B_PERMS)
+        process = make_process(student, current_phase=3)
+
+        resp = client_as(student).post("/titulatec/student/formato-b/step/3",
+                                       data={"project_name": "Proyecto inventado"})
+
+        assert resp.status_code == 400, resp.text[:300]
+        assert resp.headers.get("X-Tt-Error") == PhaseService.HANDOFF_MSG
+
+    def test_con_el_corte_en_9_la_ruta_get_formato_b_ya_no_redirige(
+        self, client_as, seed_phase_defs, make_student, make_process, monkeypatch,
+    ):
+        """Positivo de la MISMA ruta (regla de oro): la guarda no puede ser un
+        'no' universal."""
+        monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+        seed_phase_defs()
+        student = make_student(perm_codes=_FORMATO_B_PERMS)
+        process = make_process(student, current_phase=3)
+
+        resp = client_as(student).get("/titulatec/student/formato-b",
+                                      follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+
+
 # ──────────────────────────── guarda del ADMIN ────────────────────────────
 
 class TestCorteDelAdmin:
@@ -228,3 +284,26 @@ class TestMensajeDelCorte:
 
         msg.encode("latin-1")  # no debe levantar
         assert msg == unicodedata.normalize("NFKD", msg).encode("ascii", "ignore").decode()
+
+
+# ────────────────────── piso de la config (arreglo A6) ────────────────────
+class TestPisoDeLaConfig:
+    def test_titulatec_handoff_phase_no_admite_menos_de_3(self):
+        """Arreglo A6 (revision final 2026-09-21): la fase 2 es la LIBERACION
+        hacia T-soft y SIEMPRE debe poder aprobarse -- un 0, 1 o 2 por error
+        la congelaria tambien. `Field(ge=3)` hace que `Settings(...)` truene
+        con `ValidationError` en vez de dejar pasar el valor en silencio."""
+        from pydantic import ValidationError
+        from itcj2.config import Settings
+
+        for invalido in (0, 1, 2):
+            with pytest.raises(ValidationError):
+                Settings(TITULATEC_HANDOFF_PHASE=invalido)
+
+    def test_titulatec_handoff_phase_si_admite_3_en_adelante(self):
+        """Positivo de la MISMA validacion: 3 (el default) y 9 (desactivar el
+        corte) siguen siendo valores legitimos."""
+        from itcj2.config import Settings
+
+        for valido in (3, 8, 9):
+            assert Settings(TITULATEC_HANDOFF_PHASE=valido).TITULATEC_HANDOFF_PHASE == valido
