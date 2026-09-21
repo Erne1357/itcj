@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| **Actor(es)** | 👤 Alumno (topado en la fase 3) · 🏛️ Servicios Escolares (libera la fase 2, dictamina documentos) · 🎓 Titulaciones/DEP (supervisión, lee la bandeja) · 🎓 Departamento de Titulación (rol nuevo, dictamina Formato B/documentos/fases — hoy sin ocupantes) · 🤖 los cuatro puntos de aplicación del corte |
+| **Actor(es)** | 👤 Alumno (topado en la fase 3) · 🏛️ Servicios Escolares (libera la fase 2, dictamina documentos) · 🎓 Titulaciones/DEP (jefatura de la División, permisos PLENOS desde 2026-09-21: supervisa, dictamina Formato B/documentos/fases y ve Convocatorias, aunque normalmente no sea su trabajo diario) · 🎓 Departamento de Titulación (rol operativo, dictamina Formato B/documentos/fases en el día a día — hoy sin ocupantes) · 🤖 los cuatro puntos de aplicación del corte |
 | **Permiso(s)** | El corte en sí **no exige ninguno nuevo** — es ortogonal al permiso, igual que sus gemelas ([`engine_student_phase_lock.md`](engine_student_phase_lock.md)). La bandeja **Liberados** sí: `titulatec.handoff.page.list` (ver/filtrar), `titulatec.handoff.api.export` (CSV) |
 | **Trigger** | `TitulationProcess.current_phase` alcanza `PhaseService._handoff_phase()` (config `TITULATEC_HANDOFF_PHASE`, default `3`). Hoy solo ocurre por un camino: Servicios Escolares aprueba la fase 2 (Cita de cotejo) |
 | **Precondiciones** | Para aparecer en Liberados: `ProcessPhase(phase_number=2).status == 'approved'` (nada que ver con el estado de la cita) |
@@ -198,35 +198,37 @@ feature.
 
 ## Cómo revertir el corte
 
-**No es una sola perilla — son dos pasos, y el segundo lo decide un humano.** El spec original
-lo presentaba como una sola variable; la revisión final de rama encontró que eso es cierto para
-el PROCESO y falso para QUIÉN puede operarlo.
+**Antes eran dos pasos, uno de ellos manual; hoy uno solo basta.** El spec original lo
+presentaba como una sola variable. La primera revisión de rama (2026-09-21) encontró que eso
+era cierto para el PROCESO y falso para QUIÉN podía operarlo, porque en ese momento
+`titulatec_titulaciones` (la jefatura de la División) estaba recortada a solo-supervisión
+(D6/D7) y el rol que sí dictaminaba (`titulatec_titulacion`) nacía sin ocupantes. **El usuario
+revirtió ese recorte el mismo día**: quiere que la jefatura de la División pueda hacer
+cualquier cosa en TitulaTec, aunque en el día a día no lo haga. Verificado en BD hoy:
+`titulatec_titulaciones` tiene **25** permisos (los 8 de dictamen de fases 3-8, los 2 de
+escritura de `ceremony.api.*` y los 3 de `cohort.*` incluidos) y su puesto
+(`head_prof_studies_div`) tiene **1 ocupante**. Como ese puesto ya tenía gente asignada desde
+antes (es el mismo que usa la bandeja Liberados, ver "Caminos alternos" abajo), apagar la
+variable ya basta **por sí sola** para que la jefatura de la División pueda dictaminar de
+inmediato — sin ningún paso manual adicional.
 
-**1. La variable de config apaga las cuatro guardas.** `TITULATEC_HANDOFF_PHASE` en
+**La variable de config apaga las cuatro guardas.** `TITULATEC_HANDOFF_PHASE` en
 `itcj2/config.py:292` (default `3`, con piso `Field(ge=3)` desde el arreglo A6 — un valor 0/1/2
 tronaría `get_settings()` al arrancar en vez de congelar también la liberación de la fase 2, que
 NUNCA debe bloquearse). Fijarla en **`9`** (o cualquier número por encima de la última fase del
 catálogo, hoy 8) y **reiniciar el proceso** desactiva los cuatro puntos de aplicación de golpe —
 `PhaseService._handoff_phase()` (`services/phase_service.py:65-70`) lee `get_settings()`, que
-está cacheado, así que sin reinicio el cambio no aplica. Esto sí es una sola variable, y sí basta
-para que las fases 3-8 vuelvan a ser ejecutables/dictaminables **en principio**. "En principio"
-no es "en la práctica" — sigue el paso 2.
+está cacheado, así que sin reinicio el cambio no aplica.
 
-**2. Quién puede operarlas NO se revierte con la variable.** El recorte de permisos de
-`titulatec_titulaciones` vive en BD (`database/DML/titulatec/03_insert_role_permissions.sql`,
-los `DELETE` de D6/D7, y `05_insert_position_app_roles.sql`) y **se re-aplica en cada corrida de
-`init-titulatec`** — la variable de config no lo toca ni lo sabe. Verificado en BD hoy:
-`titulatec_titulaciones` tiene 12 permisos, ninguno de dictamen; `titulatec_titulacion` (el rol
-que sí los tiene, 22) está mapeado a `head_titulacion`/`aux_titulacion`, y **los dos puestos
-tienen 0 ocupantes**. Apagar el corte deja la fase 3 abierta para el alumno pero **sin nadie
-—salvo `admin`, por el 15 dinámico— que pueda dictaminarla**. Para que revertir sirva de algo
-hace falta ADEMÁS uno de los dos:
-
-- asignar ocupantes a `head_titulacion`/`aux_titulacion` desde el organigrama del core
-  (`/itcj/config`) — la vía normal, ya prevista como paso 3 del runbook de lanzamiento; o
-- devolver a mano los 8 permisos de dictamen a `titulatec_titulaciones` en BD — sabiendo que la
-  siguiente corrida de `init-titulatec` **se los vuelve a quitar** (política declarada del `03`,
-  no un accidente): esta opción es, como mucho, temporal.
+**El Departamento de Titulación sigue siendo un segundo camino, aparte y todavía vacío.** Que
+la jefatura de la División pueda operar sola no significa que el rol operativo (día a día) haya
+cambiado: `titulatec_titulacion` se quedó exactamente igual, con sus 22 permisos de siempre.
+Verificado en BD hoy: está mapeado a `head_titulacion`/`aux_titulacion`
+(`05_insert_position_app_roles.sql`) y **los dos puestos siguen con 0 ocupantes**. Para que el
+Departamento de Titulación (y no solo la jefatura) pueda operar, sigue haciendo falta asignar
+gente a esos dos puestos desde el organigrama del core (`/itcj/config`) — la vía normal, ya
+prevista como paso 3 del runbook de lanzamiento. Mientras eso no pase, todo el dictamen real
+recae en quien ocupe `head_prof_studies_div` (o en `admin`, por el 15 dinámico).
 
 Nada de esto toca datos de proceso: un `FormatB` que se quedó en `draft` mientras el corte
 estuvo puesto sigue en `draft` después de revertir — nadie lo borra ni lo envía por él. La
@@ -267,11 +269,14 @@ el flujo completo en dev.
 
 **Tres cosas que la variable NO resuelve, y que te van a morder si no las sabes:**
 
-1. **Hace falta quién dictamine.** El recorte de permisos (§ *Cómo revertir el corte*, paso 2)
-   vive en BD y no lo toca esta variable: la jefatura de la División quedó en solo lectura y los
-   puestos `head_titulacion`/`aux_titulacion` nacen sin ocupantes. Para probar el lado admin,
-   asígnate a `head_titulacion` desde el organigrama del core (`/itcj/config`) o trabaja con el
-   usuario `admin`, que conserva los 84 permisos por el `15_grant_admin_all_perms.sql`.
+1. **Ya no hace falta ningún paso extra para quien ocupe la jefatura de la División.**
+   `titulatec_titulaciones` tiene permisos PLENOS (25, dictamen incluido) desde que el usuario
+   revirtió el recorte D6/D7 (§ *Cómo revertir el corte*), y su puesto (`head_prof_studies_div`)
+   ya tiene ocupante — para probar el lado admin basta con esa cuenta. Los puestos
+   `head_titulacion`/`aux_titulacion` (Departamento de Titulación, rol operativo) siguen sin
+   ocupantes: para probar ESE camino específicamente, asígnate uno de los dos desde el
+   organigrama del core (`/itcj/config`), o trabaja con el usuario `admin`, que conserva los 84
+   permisos por el `15_grant_admin_all_perms.sql`.
 2. **`FormatBService.review` quedó más estricta que antes de esta feature, incluso con el corte
    en 9.** Ahora exige `process.status == 'active'` y que la fase 3 sea la actual (hereda
    `assert_can_transition`). Un dictamen tardío que antes pasaba —proceso ya en la fase 4, o en
@@ -297,8 +302,9 @@ el paso 2 de la sección de reversión: asignar ocupantes a los puestos nuevos.
   (`database/DML/titulatec/04b_insert_titulacion_department.sql`) se siembran vacíos — el
   Departamento de Titulación no ve nada hasta que un admin le asigne gente desde el organigrama
   del core (`/itcj/config` → organigrama). Es un paso manual del lanzamiento, no un defecto; la
-  jefatura de la División (`titulatec_titulaciones`, vía `head_prof_studies_div`) sí puede
-  usar la bandeja desde el primer momento porque su puesto ya tiene ocupante.
+  jefatura de la División (`titulatec_titulaciones`, vía `head_prof_studies_div`, 1 ocupante
+  verificado en BD) sí puede usar la bandeja **y dictaminar** desde el primer momento, porque su
+  puesto ya tiene ocupante y desde 2026-09-21 su rol tiene permisos plenos (25).
 - **Alcance vacío = bandeja vacía, en silencio.** Igual que el resto de listados con alcance por
   carrera: `scope_service.officer_programs` devolviendo `set()` no es un error, es "no tienes
   carreras asignadas" (`pages/handoff_admin.py:87-89`, `ctx["no_programs"] = True`).

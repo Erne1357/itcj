@@ -442,13 +442,9 @@ def _grants_de_rol(sql: str, rol: str) -> set[str]:
             for c in re.findall(r"'([^']+)'", bloque)}
 
 
-# Los 12 permisos de SUPERVISION que conserva `titulatec_titulaciones` tras el
-# recorte (D6/D7): lectura de todo + la bandeja de liberados. `titulatec_titulacion`
-# (rol nuevo, D5) tiene TODOS estos 12 MAS los 10 de dictamen (8 de fase 3-8 +
-# 2 de escritura de ceremony) -- 22 en total. Arreglo A3(a) (revision final
-# 2026-09-21): esos 10 códigos YA NO viven en el ARRAY de concesión de
-# titulatec_titulaciones (antes sí, "por compat de lectura", y un DELETE en el
-# mismo bloque los revocaba -- confuso para quien leyera solo el ARRAY).
+# Los 12 permisos de SUPERVISION que comparten los dos roles de Titulacion:
+# lectura de todo + la bandeja de liberados. Base comun de ambos repartos de
+# abajo -- no describe por si sola a ninguno de los dos roles.
 PERMISOS_SUPERVISION_TITULACIONES = (
     "titulatec.dashboard.titulaciones",
     "titulatec.process.page.list", "titulatec.process.page.detail",
@@ -469,38 +465,57 @@ PERMISOS_DICTAMEN_FASES_3_8 = (
 PERMISOS_CEREMONY_ESCRITURA = (
     "titulatec.ceremony.api.create", "titulatec.ceremony.api.update",
 )
+# Los 3 de Convocatorias (cohort). Decision explicita del usuario al revertir
+# D6/D7: la jefatura de la Division tambien debe VER Convocatorias, ademas de
+# poder dictaminar. Solo entran en el reparto de `titulatec_titulaciones` --
+# `titulatec_titulacion` (Departamento de Titulacion) NO los tiene.
+PERMISOS_COHORT_TITULACIONES_DIV = (
+    "titulatec.cohort.page.list", "titulatec.cohort.page.detail", "titulatec.cohort.api.read",
+)
 PERMISOS_DEPARTAMENTO_TITULACION = (
     PERMISOS_SUPERVISION_TITULACIONES + PERMISOS_DICTAMEN_FASES_3_8 + PERMISOS_CEREMONY_ESCRITURA
 )
+# El reparto PLENO de `titulatec_titulaciones` (jefatura de la Division) tras
+# revertir el recorte D6/D7: los mismos 22 de `titulatec_titulacion` MAS los 3
+# de cohort -- 25 en total. Queda con MAS que `titulatec_titulacion`: es
+# intencional (el usuario lo pidio explicitamente), no un descuido a corregir.
+PERMISOS_TITULACIONES_PLENA = PERMISOS_DEPARTAMENTO_TITULACION + PERMISOS_COHORT_TITULACIONES_DIV
 
 
 @requires_dml
-def test_titulaciones_recortado_y_titulacion_nuevo_tienen_el_reparto_exacto():
-    """Spec 2026-09-21-titulatec-dpto-titulacion, D5/D6 + arreglo A3 (revision
-    final 2026-09-21). Mismo patron que
+def test_titulaciones_plena_y_titulacion_tienen_el_reparto_exacto():
+    """Spec 2026-09-21-titulatec-dpto-titulacion, D5/D6 + arreglo A3, MAS la
+    reversion del mismo dia: el usuario recorto `titulatec_titulaciones` a
+    solo-supervision (D6/D7, arreglo A3) y despues revirtio ese recorte --
+    quiere que la jefatura de la Division pueda hacer cualquier cosa en
+    TitulaTec, aunque el trabajo diario de dictamen lo siga haciendo el
+    Departamento de Titulacion. Mismo patron que
     `test_el_alumno_de_titulacion_es_graduate_y_student_ya_no_recibe_nada_de_titulatec`
     (abajo), aplicado a los dos roles de Titulacion:
 
-    - `titulatec_titulaciones` (jefatura de la Division, RECORTADA): el ARRAY
-      de concesion en el DML debe ser EXACTAMENTE los 12 de supervision --
-      NINGUN approve/reject/cancel/hold ni ceremony.api.create/.update. Antes
-      del arreglo A3(a) el ARRAY traia esos 10 codigos "por compat de lectura"
-      y un DELETE en el MISMO bloque los revocaba: funcionaba, pero enganaba a
-      quien leyera solo el ARRAY.
-    - `titulatec_titulacion` (Departamento de Titulacion, rol NUEVO): los
-      mismos 12 MAS los 10 de dictamen -- 22 en total.
+    - `titulatec_titulaciones` (jefatura de la Division, PLENA de nuevo): el
+      ARRAY de concesion en el DML debe ser EXACTAMENTE los 25 -- los 12 de
+      supervision, los 8 de dictamen, los 2 de ceremony.api.* Y los 3 de
+      cohort. Los DELETE "RED DE SEGURIDAD" que antes revocaban dictamen y
+      ceremony (y el que revocaba cohort) se ELIMINARON del DML: ya no hay
+      nada que los revoque en la misma corrida.
+    - `titulatec_titulacion` (Departamento de Titulacion): sigue con los
+      mismos 22 de siempre -- este rol NO se tocó. Queda con MENOS que
+      `titulatec_titulaciones` (le faltan los 3 de cohort): es a proposito.
     """
     tres = re.sub(r"--[^\n]*", "",
                   (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8"))
 
-    assert _grants_de_rol(tres, "titulatec_titulaciones") == set(PERMISOS_SUPERVISION_TITULACIONES), (
-        "titulatec_titulaciones ya no deberia conceder en su ARRAY ningun "
-        "permiso de dictamen (approve/reject/cancel/hold/ceremony.api.*): eso "
-        "se revoca via DELETE, que hoy es solo la red de seguridad (A3(a))")
+    assert _grants_de_rol(tres, "titulatec_titulaciones") == set(PERMISOS_TITULACIONES_PLENA), (
+        "titulatec_titulaciones deberia conceder en su ARRAY el reparto PLENO "
+        "(25): los 12 de supervision, los 8 de dictamen "
+        "(approve/reject/cancel/hold x2), los 2 de ceremony.api.* y los 3 de "
+        "cohort -- el usuario revirtio el recorte D6/D7")
     assert _grants_de_rol(tres, "titulatec_titulacion") == set(PERMISOS_DEPARTAMENTO_TITULACION), (
         "titulatec_titulacion (Departamento de Titulacion) deberia tener "
-        "exactamente los 22 permisos: los 12 de supervision mas los 10 de "
-        "dictamen (8 de fase 3-8 + 2 de ceremony.api.*)")
+        "exactamente los 22 permisos de siempre: los 12 de supervision mas "
+        "los 10 de dictamen (8 de fase 3-8 + 2 de ceremony.api.*) -- este rol "
+        "no se tocó al revertir D6/D7")
 
 
 def test_el_alumno_de_titulacion_es_graduate_y_student_ya_no_recibe_nada_de_titulatec():

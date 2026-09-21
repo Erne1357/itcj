@@ -50,7 +50,7 @@ de la app `titulatec` que el rol tiene hoy en `core_role_permissions`.
 | `student` (global — **ya NO** es el alumno de titulación) | rol de **AgendaTec**; `03_insert_role_permissions.sql` le revoca en cada corrida todo lo de `titulatec` que le quedara; `core_users.role_id` conserva el alias en filas viejas que no han pasado por el backfill | 0 | — |
 | `titulatec_school_services` | por puesto: `aux_school_services`, `secretary_school_services`. Es también el rol que reciben los **encargados** dados de alta desde la pestaña Encargados (`pages/officers.py:13`, `ROLE_ASSIGNED`) | 22 | 🏛️ |
 | `titulatec_school_services_head` | por puesto: `head_school_services` | 27 | 🏛️ |
-| `titulatec_titulaciones` | por puesto: **solo** `head_prof_studies_div` (2026-09-21: perdió `secretary_prof_studies_div`/`aux_prof_studies_div` — recorte a supervisión de la jefatura, D6/D7 del deslinde a T-soft) | 12 | 🎓 |
+| `titulatec_titulaciones` | por puesto: **solo** `head_prof_studies_div` (2026-09-21: perdió `secretary_prof_studies_div`/`aux_prof_studies_div` en el deslinde a T-soft, D6/D7 — ese mapeo NO se revirtió, sigue siendo 1 fila) | 25 (2026-09-21: bajó a 12 con el recorte D6/D7 y el usuario REVIRTIÓ ese mismo día — reparto PLENO de nuevo: dictamen, ceremony y cohort incluidos) | 🎓 |
 | `titulatec_titulacion` (Departamento de Titulación, NUEVO 2026-09-21) | por puesto: `head_titulacion`, `aux_titulacion` (colgados de `prof_studies_div`, `04b_insert_titulacion_department.sql`; **nacen sin ocupantes**) | 22 | 🎓 |
 | `titulatec_tech_management` | por puesto: `head_tech_management` (jefatura de GTV, ya en el organigrama del core) + `external_service_tech_management` («Servicio Externo», puesto NUEVO 2026-09-15, `allows_multiple=TRUE`) — `05_insert_position_app_roles.sql` | 9 | 🛠️ |
 | `titulatec_vinculacion` | por puesto: los 5 `coord_vinculacion_*` (`database/DML/titulatec/04_insert_vinculacion_positions.sql`) | 13 | 🔗 |
@@ -138,7 +138,8 @@ Quién los tiene en BD hoy (los de puerta):
 
 | Permiso | Roles |
 |---|---|
-| `cohort.page.list`, `appointment.page.list` | `titulatec_school_services`, `titulatec_school_services_head` |
+| `appointment.page.list` | `titulatec_school_services`, `titulatec_school_services_head` |
+| `cohort.page.list` | `titulatec_school_services_head`, `titulatec_titulaciones` (2026-09-21: recupera Convocatorias al revertirse D6/D7, decisión explícita del usuario — el operativo `titulatec_school_services` NUNCA lo tuvo) |
 | `process.page.list`, `document.page.list` | `titulatec_school_services`, `titulatec_school_services_head`, `titulatec_titulaciones`, `titulatec_titulacion` |
 | `officers.page.list`, `officers.api.manage`, `cohort.api.review_days`, `cohort.api.cotejo_reqs` | solo `titulatec_school_services_head` |
 | `process.api.read.all` (⇒ alcance `"ALL"`) | `titulatec_school_services_head`, `titulatec_titulaciones`, `titulatec_titulacion` |

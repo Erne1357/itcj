@@ -19,11 +19,14 @@ DML_TITULATEC = PROJECT_ROOT / "database" / "DML" / "titulatec"
 # ninguno de los dos cargaba el set completo).
 #
 # Todos son idempotentes, pero OJO con el 03: además de los INSERT ... ON CONFLICT
-# lleva DELETE que revocan `cohort.*` a `titulatec_titulaciones` (las
-# convocatorias son de Servicios Escolares) y TODO lo de titulatec a `student`
-# (desde 2026-09-15 el alumno es `graduate`). Eso se aplica EN CADA CORRIDA: una
-# concesión manual posterior de esos permisos se pierde al re-sembrar. Es la
-# política declarada, no un accidente.
+# lleva DELETE que revocan `cohort.*` a `titulatec_school_services` (las
+# convocatorias son de la JEFATURA de Servicios Escolares, no del operativo) y
+# TODO lo de titulatec a `student` (desde 2026-09-15 el alumno es `graduate`).
+# Eso se aplica EN CADA CORRIDA: una concesión manual posterior de esos
+# permisos se pierde al re-sembrar. Es la política declarada, no un accidente.
+# (2026-09-21: el 03 también le daba `titulatec_titulaciones` la jefatura de
+# la División solo-lectura, D6/D7; el usuario revirtió ese recorte — ver
+# `_verify_titulacion` y el propio 03 para el detalle.)
 SEED_FILES = [
     "00_insert_app.sql",                  # Registra la app en core_apps
     "01_insert_roles.sql",                # 7 roles nuevos: incl. 'graduate' (alumno) y titulatec_tech_management (GTV)
@@ -187,8 +190,9 @@ def init_titulatec_command():
 
     Ejecuta en orden los seeders de database/DML/titulatec/ (ver SEED_FILES).
     Idempotentes, pero el 03 revoca en cada corrida `cohort.*` a
-    `titulatec_titulaciones` (las convocatorias son de Servicios Escolares) y todo
-    lo de titulatec a `student` (el alumno es `graduate` desde 2026-09-15).
+    `titulatec_school_services` (las convocatorias son de la JEFATURA de
+    Servicios Escolares, no del operativo) y todo lo de titulatec a `student`
+    (el alumno es `graduate` desde 2026-09-15).
 
     Aborta si falta cualquier archivo: sembrar a medias deja la app en 404.
 
@@ -204,11 +208,12 @@ def init_titulatec_command():
     'egresados' abierto. Y con `_verify_titulacion` (spec
     2026-09-21-titulatec-dpto-titulacion): el departamento `titulacion`
     colgado de `prof_studies_div`, sus 2 puestos, los 2 permisos de la bandeja
-    de liberados, el grant completo del rol nuevo `titulatec_titulacion`, sus
-    exactamente 2 filas puesto→rol (y 1 la del rol viejo, recortado a
-    `head_prof_studies_div`), y que `titulatec_titulaciones` haya quedado sin
-    ningún permiso de dictamen. Acumula los problemas de AMBOS verifies antes
-    de abortar: un error del primero no debe esconder uno del segundo.
+    de liberados, el grant completo del rol `titulatec_titulacion` (22), sus
+    exactamente 2 filas puesto→rol (y 1 la del rol viejo, `head_prof_studies_div`),
+    y que `titulatec_titulaciones` tenga el reparto PLENO (25) que el usuario
+    pidió al revertir el recorte D6/D7 — dictamen, ceremony y cohort incluidos,
+    no solo supervisión. Acumula los problemas de AMBOS verifies antes de
+    abortar: un error del primero no debe esconder uno del segundo.
 
     Aborta si algo no aterrizó. Antes este comando no comprobaba nada: en una
     base destino sin `head_tech_management` o sin el departamento
@@ -423,8 +428,14 @@ def _verify_survey_2026_09() -> list[str]:
 # 2026-09-21-titulatec-dpto-titulacion): rol nuevo `titulatec_titulacion` con
 # sus 2 puestos (`head_titulacion`, `aux_titulacion`), colgado del
 # departamento `titulacion` (a su vez colgado de `prof_studies_div`).
-# `titulatec_titulaciones` se recorta a supervisión de la jefatura de la
-# División. Ver spec secciones 3 y 6.
+#
+# `titulatec_titulaciones` (la jefatura de la División) se recortó ese mismo
+# día a solo-supervisión (D6/D7) y el usuario REVIRTIÓ el recorte poco
+# después: quiere que la jefatura pueda hacer cualquier cosa en TitulaTec,
+# aunque el trabajo diario de dictamen lo siga haciendo el Departamento de
+# Titulación. Hoy `titulatec_titulaciones` tiene el reparto PLENO (25) y
+# `titulatec_titulacion` se quedó igual (22) — ver spec secciones 3 y 6, y el
+# comentario de cada bloque del ARRAY en `03_insert_role_permissions.sql`.
 # ---------------------------------------------------------------------------
 _DEPTO_TITULACION = "titulacion"
 _DEPTO_PADRE_TITULACION = "prof_studies_div"
@@ -439,8 +450,11 @@ _PERMISOS_HANDOFF = (
     "titulatec.handoff.api.export",
 )
 
-# Los 8 permisos de dictamen de las fases 3-8 (Formato B en adelante) que
-# `titulatec_titulaciones` pierde y `titulatec_titulacion` gana.
+# Los 8 permisos de dictamen de las fases 3-8 (Formato B en adelante). Los
+# tiene `titulatec_titulacion` (Departamento de Titulación, quien dictamina
+# en el día a día) y, desde que el usuario revirtió el recorte D6/D7, también
+# `titulatec_titulaciones` (la jefatura de la División — puede hacerlo aunque
+# normalmente no lo haga).
 _PERMISOS_DICTAMEN_FASES_3_8 = (
     "titulatec.process.api.approve_phase",
     "titulatec.process.api.reject_phase",
@@ -452,19 +466,33 @@ _PERMISOS_DICTAMEN_FASES_3_8 = (
     "titulatec.document.api.reject",
 )
 
-# Los 2 de escritura de ceremony (fase 8): `titulatec_titulaciones` los pierde
-# y `titulatec_titulacion` los gana, igual que los 8 de arriba (ronda de fix 1).
+# Los 2 de escritura de ceremony (fase 8). Mismo reparto que
+# `_PERMISOS_DICTAMEN_FASES_3_8` de arriba: `titulatec_titulacion` los tiene
+# desde que nació, y `titulatec_titulaciones` los recuperó al revertirse D6/D7.
 _PERMISOS_CEREMONY_ESCRITURA = (
     "titulatec.ceremony.api.create",
     "titulatec.ceremony.api.update",
 )
 
-# Los 12 permisos de SUPERVISION que se quedan en `titulatec_titulaciones` tras
-# el recorte (D6): lectura de todo + la bandeja de liberados. Arreglo A3(c)
-# (revision final 2026-09-21): antes `_verify_titulacion()` solo comprobaba que
-# `titulatec_titulacion` tuviera los 10 del delta (dictamen + ceremony), no los
-# 22 completos del rol -- una siembra que dejara sin sembrar alguno de estos 12
-# (p.ej. si `02_insert_permissions.sql` se ejecutara truncado) pasaba en verde.
+# Los 3 de Convocatorias (cohort). Decisión explícita del usuario al revertir
+# D6/D7: la jefatura de la División (`titulatec_titulaciones`) también debe
+# ver Convocatorias, no solo dictaminar. `titulatec_titulacion` (Departamento
+# de Titulación) NO los tiene -- por eso ese rol se queda en 22 y este otro
+# sube a 25: la diferencia es intencional, no hay que "igualarlos".
+_PERMISOS_COHORT_TITULACIONES_DIV = (
+    "titulatec.cohort.page.list",
+    "titulatec.cohort.page.detail",
+    "titulatec.cohort.api.read",
+)
+
+# Los 12 permisos de SUPERVISIÓN (lectura de todo + la bandeja de liberados)
+# que comparten los dos roles de Titulación. Arreglo A3(c) (revisión final
+# 2026-09-21): antes `_verify_titulacion()` solo comprobaba que
+# `titulatec_titulacion` tuviera los 10 del delta (dictamen + ceremony), no
+# los 22 completos del rol -- una siembra que dejara sin sembrar alguno de
+# estos 12 (p.ej. si `02_insert_permissions.sql` se ejecutara truncado) pasaba
+# en verde. Mismo motivo por el que el verify de `titulatec_titulaciones`
+# (abajo) también exige el reparto completo, no un subconjunto.
 _PERMISOS_SUPERVISION_TITULACIONES = (
     "titulatec.dashboard.titulaciones",
     "titulatec.process.page.list",
@@ -487,9 +515,21 @@ _PERMISOS_ROL_TITULACION = (
     + _PERMISOS_CEREMONY_ESCRITURA
 )
 
+# Los 25 permisos completos de `titulatec_titulaciones` (jefatura de la
+# División) tras revertir el recorte D6/D7: los mismos 22 de arriba MÁS los 3
+# de cohort. Queda con MÁS permisos que `titulatec_titulacion` -- es
+# intencional (ver `_PERMISOS_COHORT_TITULACIONES_DIV`), no lo "corrijas".
+_PERMISOS_ROL_TITULACIONES_DIV = (
+    _PERMISOS_SUPERVISION_TITULACIONES
+    + _PERMISOS_DICTAMEN_FASES_3_8
+    + _PERMISOS_CEREMONY_ESCRITURA
+    + _PERMISOS_COHORT_TITULACIONES_DIV
+)
+
 
 def _verify_titulacion() -> list[str]:
-    """Comprueba que el Departamento de Titulación ATERRIZÓ. Devuelve problemas.
+    """Comprueba que el Departamento de Titulación ATERRIZÓ Y que la jefatura de
+    la División quedó con su reparto PLENO. Devuelve problemas.
 
     Mismo contrato que `_verify_survey_2026_09`: abre su propia conexión,
     arma sets contra la BD y devuelve strings de problema en vez de levantar.
@@ -497,6 +537,13 @@ def _verify_titulacion() -> list[str]:
     corrió antes que `05`, o `prof_studies_div` no existe en esta base) sale
     en verde igual que la app a medio sembrar del incidente de los seeders
     borrados. Ver spec 2026-09-21-titulatec-dpto-titulacion, sección 6.
+
+    Fija el reparto COMPLETO de los dos roles de Titulación, no un subconjunto:
+    `titulatec_titulacion` con sus 22 (`_PERMISOS_ROL_TITULACION`) y
+    `titulatec_titulaciones` con sus 25 (`_PERMISOS_ROL_TITULACIONES_DIV`) —
+    el usuario revirtió el recorte D6/D7 del mismo día: la jefatura de la
+    División puede dictaminar, escribir ceremony y ver Convocatorias, aunque
+    el trabajo diario lo siga haciendo el Departamento de Titulación.
     """
     from sqlalchemy import text
 
@@ -609,8 +656,16 @@ def _verify_titulacion() -> list[str]:
             if code not in concedidos_nuevo:
                 problemas.append(f"sin grant a {_ROL_TITULACION}: {code}")
 
-        # titulatec_titulaciones ya NO debe tener ningún permiso de dictamen.
-        supervivientes = [
+        # titulatec_titulaciones (jefatura de la División) debe tener su
+        # reparto PLENO: 25 -- los 12 de supervisión, los 8 de dictamen de
+        # fases 3-8, los 2 de escritura de ceremony y los 3 de cohort. El
+        # usuario revirtió el recorte D6/D7 del 2026-09-21: la jefatura puede
+        # hacer cualquier cosa en TitulaTec aunque el trabajo diario de
+        # dictamen lo siga haciendo el Departamento de Titulación (rol de
+        # arriba). Positivo, no negativo: antes de este cambio este verify
+        # exigía que el rol NO tuviera dictamen/ceremony; el usuario invirtió
+        # esa decisión, así que el verify se invierte con ella.
+        concedidos_div = {
             row[0]
             for row in conn.execute(
                 text(
@@ -618,44 +673,14 @@ def _verify_titulacion() -> list[str]:
                     "  JOIN core_roles r ON r.id = rp.role_id "
                     "  JOIN core_permissions p ON p.id = rp.perm_id "
                     "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
-                    " WHERE r.name = :rol AND p.code = ANY(:codes)"
-                ),
-                {
-                    "rol": _ROL_TITULACIONES_DIV,
-                    "codes": list(_PERMISOS_DICTAMEN_FASES_3_8),
-                },
-            )
-        ]
-        if supervivientes:
-            problemas.append(
-                f"{_ROL_TITULACIONES_DIV} todavía tiene permisos de dictamen: "
-                f"{supervivientes} (el DELETE de 03_insert_role_permissions.sql "
-                "no aterrizó)"
-            )
-
-        # titulatec_titulaciones ya NO debe tener ningún titulatec.ceremony.api.%
-        # (2026-09-21, ronda de fix 1): el acto protocolario es fase 8, trabajo
-        # del Departamento de Titulación. La supervisión conserva solo
-        # ceremony.page.list (ver, no escribe).
-        ceremony_supervivientes = [
-            row[0]
-            for row in conn.execute(
-                text(
-                    "SELECT p.code FROM core_role_permissions rp "
-                    "  JOIN core_roles r ON r.id = rp.role_id "
-                    "  JOIN core_permissions p ON p.id = rp.perm_id "
-                    "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
-                    " WHERE r.name = :rol AND p.code LIKE 'titulatec.ceremony.api.%'"
+                    " WHERE r.name = :rol"
                 ),
                 {"rol": _ROL_TITULACIONES_DIV},
             )
-        ]
-        if ceremony_supervivientes:
-            problemas.append(
-                f"{_ROL_TITULACIONES_DIV} todavía tiene permisos de escritura de "
-                f"ceremony: {ceremony_supervivientes} (el DELETE de "
-                "03_insert_role_permissions.sql no aterrizó)"
-            )
+        }
+        for code in _PERMISOS_ROL_TITULACIONES_DIV:
+            if code not in concedidos_div:
+                problemas.append(f"sin grant a {_ROL_TITULACIONES_DIV}: {code}")
 
     return problemas
 
