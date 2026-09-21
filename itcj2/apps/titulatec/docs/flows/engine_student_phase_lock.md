@@ -34,7 +34,7 @@ Decisión del usuario (2026-09-02), que es literalmente lo que promete el acorde
 
 > **Cuarta regla, desde 2026-09-21 (corte a T-soft): `n >= PhaseService._handoff_phase()`
 > gana sobre "Actual" y sobre "Siguiente".** De la fase 3 (Formato B) en adelante por
-> defecto (`TITULATEC_HANDOFF_PHASE`, `itcj2/config.py:282`) el proceso lo continúa el
+> defecto (`TITULATEC_HANDOFF_PHASE`, `itcj2/config.py:292`) el proceso lo continúa el
 > Departamento de Titulación fuera de esta app: ni la fase actual se ejecuta (aunque sea
 > `current_phase`) ni una futura "se habilita" — ambas pintan el mismo aviso de T-soft. Se
 > evalúa **antes** que la comparación de "Siguiente" (ver el orden real en

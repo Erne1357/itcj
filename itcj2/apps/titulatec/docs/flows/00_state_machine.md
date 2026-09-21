@@ -34,7 +34,7 @@ stateDiagram-v2
     pending --> skipped: modalidad salta la fase (ej. EGEL salta 4 y 5)
 ```
 
-> **Ojo:** una fase `rejected` **no** regresa a `in_progress` cuando el alumno corrige. El reenvío la manda directo a `in_review`: fase 1 en `pages/student.py:556` (`phase.status = "in_review"`) y fase 3 en `services/format_b_service.py:91` (`FormatBService.submit()`). El único código que escribe `in_progress` sobre una fase `rejected` es `services/phase_service.py:92-93`, y solo cuando esa fase resulta ser la **siguiente aplicable** al aprobarse otra (regla de abajo), no como «reapertura» de la fase rechazada.
+> **Ojo:** una fase `rejected` **no** regresa a `in_progress` cuando el alumno corrige. El reenvío la manda directo a `in_review`: fase 1 en `pages/student.py:1622` (`phase.status = "in_review"`) y fase 3 en `services/format_b_service.py:91` (`FormatBService.submit()`). El único código que escribe `in_progress` sobre una fase `rejected` es `services/phase_service.py:92-93`, y solo cuando esa fase resulta ser la **siguiente aplicable** al aprobarse otra (regla de abajo), no como «reapertura» de la fase rechazada.
 
 **Reglas (las implementa [`PhaseService`](engine_approve_advance_phase.md)):**
 - Aprobar fase N → `N.status=approved` → activa la **siguiente aplicable** (`in_progress`,
@@ -68,23 +68,33 @@ ella; es corrección, no reapertura.
 
 Los cuatro puntos de arriba comparten una regla más: **ninguna fase con `number >=
 PhaseService._handoff_phase()` se dictamina ni se ejecuta desde esta app.**
-`_handoff_phase()` lee `TITULATEC_HANDOFF_PHASE` (`itcj2/config.py:282`, default `3` =
+`_handoff_phase()` lee `TITULATEC_HANDOFF_PHASE` (`itcj2/config.py:292`, default `3` =
 Formato B): de ahí en adelante el proceso lo continúa el Departamento de Titulación en su
-propio sistema, T-soft. Revertir es una variable de entorno y un reinicio —
-`TITULATEC_HANDOFF_PHASE=9` —, sin migración ni backfill.
+propio sistema, T-soft. Revertir el PROCESO es una variable de entorno y un reinicio —
+`TITULATEC_HANDOFF_PHASE=9` —, sin migración ni backfill; revertir QUIÉN puede operarlo es
+un paso aparte, porque el recorte de permisos vive en BD y los puestos nuevos nacen sin
+ocupantes — los dos pasos, completos, en
+["Cómo revertir el corte"](xcut_titulacion_handoff.md#cómo-revertir-el-corte).
 
 **La asimetría entre el dictamen de Formato B y el de documentos es deliberada, no un
 descuido.** El de Formato B exige la guarda completa (`assert_can_transition`) porque ese
 dictamen siempre es sobre la fase EN CURSO (`format_b`): la regla "solo la fase actual"
-aplica tal cual. El de documentos **no puede** exigir lo mismo: dictaminar HOY un
-documento de una fase que el proceso ya dejó atrás — el dictamen tardío — es el uso
-NORMAL de la bandeja de Documentos, no una excepción (`DocumentService.save` ya trata la
-fase del documento como la del TIPO, `dtype.phase_number`, no la del proceso). Su guarda
-mira **solo** si `dtype.phase_number >= _handoff_phase()`, nunca `current_phase`:
+aplica tal cual — y de paso hereda las otras dos reglas de esa guarda
+(`process.status == 'active'`, `n == current_phase`), que **no dependen de la variable del
+corte**: un dictamen tardío de Formato B o sobre un proceso `on_hold` da 400 aunque el
+corte esté en `9`. Antes de esta feature `FormatBService.review` no comprobaba ninguna de
+las dos; es un cambio de comportamiento permanente, no algo que la reversión deshaga. El
+de documentos **no puede** exigir lo mismo: dictaminar HOY un documento de una fase que el
+proceso ya dejó atrás — el dictamen tardío — es el uso NORMAL de la bandeja de Documentos,
+no una excepción (`DocumentService.save` ya trata la fase del documento como la del TIPO,
+`dtype.phase_number`, no la del proceso). Su guarda mira **solo** si
+`dtype.phase_number >= _handoff_phase()`, nunca `current_phase` ni `process.status`:
 endurecerla para que también exigiera `current_phase` sería un defecto nuevo — rompería
 el dictamen tardío — y hay un test que fija ese comportamiento como el deseado
-(`test_handoff_phase_cut.py`). Detalle completo, con los cuatro puntos, la tarjeta que ve
-el alumno y sus bordes: [`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).
+(`test_handoff_phase_cut.py`). Con el corte en `9` esta guarda sí queda neutra del todo
+(ninguna fase real es `>= 9`), a diferencia de la de Formato B. Detalle completo, con los
+cuatro puntos, la tarjeta que ve el alumno y sus bordes:
+[`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).
 
 **Qué significa "liberado".** No es un valor de columna en ningún modelo — es un cálculo:
 un proceso está **liberado hacia Titulación** cuando `ProcessPhase(phase_number=2).status

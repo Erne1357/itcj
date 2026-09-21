@@ -93,17 +93,17 @@ sequenceDiagram
 |---|---|---|---|---|---|---|---|
 | 1 | 👤 | `/titulatec/student/formato-b`, `/step/{n}` GET/POST y las demás rutas de fase | intenta ejecutar una fase ≥ `_handoff_phase()` | `pages/student.py` (10 rutas guardadas) | `PhaseService.assert_student_can_act` (`services/phase_service.py:214`, vía `_student_action_error`:170-202, chequeo de corte en `:196-198`) | ninguno — corta antes de escribir | ninguno |
 | 2 | 👤 | (mutación de fase, vía `FormatBService.submit`) | reenvío de la guarda en el punto de mutación | — | `FormatBService.submit` (`services/format_b_service.py:92-121`) re-invoca `assert_student_can_act` en `:113` | ninguno si falla | ninguno |
-| 3 | 🎓/Admin | expediente, botón «Mover de fase» (`_exp_shell.html:34-40`, siempre apunta a `current_phase`) | intenta aprobar/rechazar la fase actual (≥3) | `POST /admin/processes/{id}/phase/{n}/approve` · `/reject` (`pages/admin.py:1551-1604`) | `PhaseService.approve_phase` / `reject_phase` → `assert_can_transition` (`services/phase_service.py:121-133`, vía `_transition_error`:72-106, chequeo de corte en `:99-102`) | ninguno | ninguno |
-| 4 | 🎓 | expediente, botones «Aprobar/Rechazar Formato B» (`partials/processes/_exp_phase.html:228-241`, solo visibles con `formato_b.status=='submitted'`) | intenta dictaminar el Formato B de una fase ≥3 | `POST /admin/processes/{id}/format-b/review` (`pages/admin.py:1520-1548`) | `FormatBService.review` (`services/format_b_service.py:123-157`) reusa la MISMA `assert_can_transition` que la fila 3, con `n = format_b` del catálogo (`:146-147`) — cerrado 2026-09-21, commit `99554755` (Ronda 2 de esta tarea) | ninguno | ninguno |
-| 5 | 🏛️/🎓 | bandeja Documentos, botones aprobar/rechazar (`partials/documents_body.html:115-120`) | intenta dictaminar un documento cuyo TIPO pertenece a una fase ≥3 | `POST /admin/documents/{process_id}/document/review` (`pages/documents.py:153-195`) | `DocumentService.review` (`services/document_service.py:194-253`) — chequeo PROPIO y angosto (`:224-227`): `dtype.phase_number >= _handoff_phase()`, **no** mira `current_phase` — cerrado 2026-09-21, commit `c75b352f` (Ronda 2 de esta tarea, ver asimetría abajo) | ninguno | ninguno |
+| 3 | 🎓/Admin | expediente, botón «Mover de fase» (`_exp_shell.html:28-45`, siempre apunta a `current_phase`; desde 2026-09-21 solo se pinta con `can_dictaminar_fase`, arreglo A2 de la revisión final) | intenta aprobar/rechazar la fase actual (≥3) | `POST /admin/processes/{id}/phase/{n}/approve` · `/reject` (`pages/admin.py:1571-1624`) | `PhaseService.approve_phase` / `reject_phase` → `assert_can_transition` (`services/phase_service.py:121-133`, vía `_transition_error`:72-106, chequeo de corte en `:99-102`) | ninguno | ninguno |
+| 4 | 🎓 | expediente, botones «Aprobar/Rechazar Formato B» (`partials/processes/_exp_phase.html:228-244`, solo se pintan con `formato_b.status=='submitted'` **y** `can_dictaminar_fb`, arreglo A2) | intenta dictaminar el Formato B de una fase ≥3 | `POST /admin/processes/{id}/format-b/review` (`pages/admin.py:1540-1568`) | `FormatBService.review` (`services/format_b_service.py:123-157`) reusa la MISMA `assert_can_transition` que la fila 3, con `n = format_b` del catálogo (`:146-147`) — cerrado 2026-09-21, commit `99554755` (Ronda 2 de esta tarea) | ninguno | ninguno |
+| 5 | 🏛️/🎓 | bandeja Documentos, botones aprobar/rechazar (`partials/documents_body.html:120-125`, desde 2026-09-21 solo se pintan con `can_review_docs`, arreglo A2) | intenta dictaminar un documento cuyo TIPO pertenece a una fase ≥3 | `POST /admin/documents/{process_id}/document/review` (`pages/documents.py:166-208`) | `DocumentService.review` (`services/document_service.py:194-263`) — chequeo PROPIO y angosto (`:233-237`): rechaza si `dtype.phase_number >= _handoff_phase()` — o, desde el arreglo A4, si el TIPO ya no existe en el catálogo, el respaldo es `doc.phase_number` (falla CERRADO, no abierto) —, **no** mira `current_phase` — cerrado 2026-09-21, commit `c75b352f` (Ronda 2, ver asimetría abajo) | ninguno | ninguno |
 
 ### Bandeja Liberados
 
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif |
 |---|---|---|---|---|---|---|---|
 | 1 | 🏛️ | expediente del proceso, fase 2 | aprueba la Cita de cotejo (el acto de liberación) | `POST /admin/processes/{id}/phase/2/approve` | `PhaseService.approve_phase` (`services/phase_service.py:373-439`) | `titulatec_process_phases`: fase 2 → `status='approved'`, `completed_at=now()`; `titulatec_processes.current_phase=3`; fase 3 → `in_progress` | `ProcessEvent(phase_approved)`, notif `PHASE_APPROVED` al alumno |
-| 2 | 🎓 | pestaña **Liberados** (`_ADMIN_NAV`, `pages/nav.py:110`) | abre la bandeja / cambia un filtro / pagina | `GET /admin/liberados` (`pages/handoff_admin.py:104-116`) · `GET /admin/liberados/body` (`:119-132`) | `HandoffService.list_released` (`services/handoff_service.py:143-166`) | solo lectura | ninguno |
-| 3 | 🎓 | botón «Exportar CSV» | descarga el CSV de todo lo que cae en su alcance + filtros | `GET /admin/liberados/export.csv` (`pages/handoff_admin.py:135-181`) | `HandoffService.export_rows` (`services/handoff_service.py:169-183`) | solo lectura | ninguno |
+| 2 | 🎓 | pestaña **Liberados** (`_ADMIN_NAV`, `pages/nav.py:110`) | abre la bandeja / cambia un filtro / pagina | `GET /admin/liberados` (`pages/handoff_admin.py:115-127`) · `GET /admin/liberados/body` (`:130-143`) | `HandoffService.list_released` (`services/handoff_service.py:143-166`) | solo lectura | ninguno |
+| 3 | 🎓 | botón «Exportar CSV» — desde 2026-09-21 solo se pinta con `can_export` (arreglo A5); antes de ese arreglo el link seguía ahí y contestaba 403 | descarga el CSV de todo lo que cae en su alcance + filtros | `GET /admin/liberados/export.csv` (`pages/handoff_admin.py:146-192`) | `HandoffService.export_rows` (`services/handoff_service.py:169-183`) | solo lectura | ninguno |
 
 ---
 
@@ -114,7 +114,7 @@ pasaba por guarda alguna del corte** — dos huecos reales, no hipotéticos, cad
 su propio commit:
 
 - **`FormatBService.review`** (`services/format_b_service.py:123-157`, vía
-  `pages/admin.py::fb_review`, `:1520-1548`) — commit `99554755`. Ganó `process` como
+  `pages/admin.py::fb_review`, `:1540-1568`) — commit `99554755`. Ganó `process` como
   parámetro nuevo y ahora exige `PhaseService.assert_can_transition(db, process, n)` con
   `n` = fase `format_b` del catálogo (`:146-147`), la MISMA función que usan
   `approve_phase`/`reject_phase` (fila 3 de la tabla de arriba). El hueco era real por el
@@ -122,11 +122,15 @@ su propio commit:
   a 9, dejar pasar un Formato B a `submitted`, y volver a bajarlo a 3 dejaba ese Formato B
   aprobable/rechazable para siempre pese al corte — el corte dejaba de ser cierto justo por
   el camino documentado para desactivarlo.
-- **`DocumentService.review`** (`services/document_service.py:194-253`, vía
-  `pages/documents.py::review`, `:153-195`) — commit `c75b352f`, encontrado **al cerrar el
+- **`DocumentService.review`** (`services/document_service.py:194-263`, vía
+  `pages/documents.py::review`, `:166-208`) — commit `c75b352f`, encontrado **al cerrar el
   de arriba** (mismo patrón exacto: cero guarda, solo permiso y alcance por carrera). Gana
-  un chequeo propio y angosto (`:224-227`): rechaza **solo** si `dtype.phase_number >=
-  PhaseService._handoff_phase()`, sin mirar `current_phase` en ningún momento.
+  un chequeo propio y angosto (`:233-237`): rechaza si `dtype.phase_number >=
+  PhaseService._handoff_phase()`, sin mirar `current_phase` en ningún momento. Desde el
+  arreglo A4 (revisión final, mismo commit) el respaldo cuando el TIPO ya no existe en el
+  catálogo (`dtype is None`) es `doc.phase_number` (columna de la fila, siempre presente) en
+  vez de dejar pasar el dictamen sin más — antes `dtype is None` fallaba ABIERTO, justo
+  donde el resto del repo falla CERRADO ante la misma ausencia.
 
 **La asimetría entre los dos arreglos es deliberada, no un descuido.**
 `assert_can_transition` exige `phase_number == process.current_phase` — correcto para
@@ -153,6 +157,23 @@ de tiempo; no cambian de qué fase va el proceso. Por eso no contradicen la nota
 las que `current_phase` cambia — `FormatBService.review` solo REUSA la primera para un
 dictamen que no toca `current_phase`.
 
+**`FormatBService.review` no es neutra con el corte desactivado (`TITULATEC_HANDOFF_PHASE=9`)
+— y eso es intencional, pero es nuevo.** `assert_can_transition` no exige solo la regla del
+corte: exige LAS TRES reglas de `_transition_error` (`services/phase_service.py:72-106`),
+y las otras dos no dependen de `_handoff_phase()` en absoluto —
+`process.status == 'active'` y `phase_number == process.current_phase`—. Antes de esta
+feature `FormatBService.review` no comprobaba ninguna de las dos, con corte o sin él: un
+dictamen tardío de Formato B (el proceso ya avanzó a la fase 4) o sobre un proceso
+`on_hold` pasaba sin más. Hoy, con el corte en `9`, ambos casos dan **400 +
+`X-Tt-Error`** igual — es probablemente lo deseable (revisar un Formato B que ya no
+corresponde a la fase actual es un descuido, no un flujo legítimo, a diferencia del
+dictamen tardío de documentos), pero es un **cambio de comportamiento sobre el mundo
+pre-corte**, no una restauración a como estaba: revertir la variable no revierte esta
+parte. `DocumentService.review`, en cambio, **sí es neutra en `9`**: su único chequeo
+compara contra `_handoff_phase()`, y con `9` ninguna fase real (0-8) puede ser `>= 9`, así
+que la condición nunca dispara — vuelve exactamente al comportamiento de antes de esta
+feature.
+
 ---
 
 ## Estado resultante
@@ -177,17 +198,41 @@ dictamen que no toca `current_phase`.
 
 ## Cómo revertir el corte
 
-Una sola variable, sin migración ni backfill: `TITULATEC_HANDOFF_PHASE` en
-`itcj2/config.py:282` (default `3`). Fijarla en **`9`** (o cualquier número por encima de la
-última fase del catálogo, hoy 8) y **reiniciar el proceso** desactiva el corte por completo —
-`PhaseService._handoff_phase()` (`services/phase_service.py:65-70`) lee `get_settings()`, que
-está cacheado, así que sin reinicio el cambio no aplica.
+**No es una sola perilla — son dos pasos, y el segundo lo decide un humano.** El spec original
+lo presentaba como una sola variable; la revisión final de rama encontró que eso es cierto para
+el PROCESO y falso para QUIÉN puede operarlo.
 
-Al revertir: las fases 3-8 vuelven a ser operables por quien tenga los permisos de dictamen
-(hoy `titulatec_titulacion`), el alumno recupera el CTA de Formato B, y la bandeja Liberados
-sigue funcionando igual (no depende de la variable). Nada de esto toca datos: un `FormatB` que
-se quedó en `draft` mientras el corte estuvo puesto sigue en `draft` después de revertir — nadie
-lo borra ni lo envía por él.
+**1. La variable de config apaga las cuatro guardas.** `TITULATEC_HANDOFF_PHASE` en
+`itcj2/config.py:292` (default `3`, con piso `Field(ge=3)` desde el arreglo A6 — un valor 0/1/2
+tronaría `get_settings()` al arrancar en vez de congelar también la liberación de la fase 2, que
+NUNCA debe bloquearse). Fijarla en **`9`** (o cualquier número por encima de la última fase del
+catálogo, hoy 8) y **reiniciar el proceso** desactiva los cuatro puntos de aplicación de golpe —
+`PhaseService._handoff_phase()` (`services/phase_service.py:65-70`) lee `get_settings()`, que
+está cacheado, así que sin reinicio el cambio no aplica. Esto sí es una sola variable, y sí basta
+para que las fases 3-8 vuelvan a ser ejecutables/dictaminables **en principio**. "En principio"
+no es "en la práctica" — sigue el paso 2.
+
+**2. Quién puede operarlas NO se revierte con la variable.** El recorte de permisos de
+`titulatec_titulaciones` vive en BD (`database/DML/titulatec/03_insert_role_permissions.sql`,
+los `DELETE` de D6/D7, y `05_insert_position_app_roles.sql`) y **se re-aplica en cada corrida de
+`init-titulatec`** — la variable de config no lo toca ni lo sabe. Verificado en BD hoy:
+`titulatec_titulaciones` tiene 12 permisos, ninguno de dictamen; `titulatec_titulacion` (el rol
+que sí los tiene, 22) está mapeado a `head_titulacion`/`aux_titulacion`, y **los dos puestos
+tienen 0 ocupantes**. Apagar el corte deja la fase 3 abierta para el alumno pero **sin nadie
+—salvo `admin`, por el 15 dinámico— que pueda dictaminarla**. Para que revertir sirva de algo
+hace falta ADEMÁS uno de los dos:
+
+- asignar ocupantes a `head_titulacion`/`aux_titulacion` desde el organigrama del core
+  (`/itcj/config`) — la vía normal, ya prevista como paso 3 del runbook de lanzamiento; o
+- devolver a mano los 8 permisos de dictamen a `titulatec_titulaciones` en BD — sabiendo que la
+  siguiente corrida de `init-titulatec` **se los vuelve a quitar** (política declarada del `03`,
+  no un accidente): esta opción es, como mucho, temporal.
+
+Nada de esto toca datos de proceso: un `FormatB` que se quedó en `draft` mientras el corte
+estuvo puesto sigue en `draft` después de revertir — nadie lo borra ni lo envía por él. La
+bandeja Liberados sigue funcionando igual con cualquier valor de la variable. Y dos escrituras
+de fase ≥3 se cuelan por encima del corte MIENTRAS estuvo activo y **no se deshacen** al
+revertir — ver "Caminos alternos" abajo.
 
 ---
 
@@ -208,7 +253,7 @@ lo borra ni lo envía por él.
   usar la bandeja desde el primer momento porque su puesto ya tiene ocupante.
 - **Alcance vacío = bandeja vacía, en silencio.** Igual que el resto de listados con alcance por
   carrera: `scope_service.officer_programs` devolviendo `set()` no es un error, es "no tienes
-  carreras asignadas" (`pages/handoff_admin.py:76-78`, `ctx["no_programs"] = True`).
+  carreras asignadas" (`pages/handoff_admin.py:87-89`, `ctx["no_programs"] = True`).
 - **`_transition_error`/`_student_action_error` cortan ANTES que la regla de "fase futura"**,
   no después (`services/phase_service.py:99-102`, `:196-198`, con el porqué en el docstring de
   `_student_action_error`): sin ese orden, un alumno parado en la fase 2 que pidiera acción
@@ -221,6 +266,32 @@ lo borra ni lo envía por él.
   hipotético) cerrado en su propio commit. Detalle completo, con la asimetría entre las dos
   guardas y por qué es a propósito: ["Dictamen de Formato B y de documentos"](#dictamen-de-formato-b-y-de-documentos-dos-guardas-más-con-una-asimetría-a-propósito),
   arriba.
+- **Dos escrituras legítimas cruzan el corte a propósito, y la reversión NO las deshace**
+  (hallazgo de la revisión final de rama, no hipotético):
+  - **(a) Fases saltadas por modalidad.** Al aprobar la fase 2, `PhaseService.approve_phase`
+    marca `skipped` toda fase en `modality.skips_phases` (`services/phase_service.py:406-410`)
+    — en dev, la modalidad `egel` salta la 4 y la 5 (verificado en BD:
+    `titulatec_modalities.skips_phases = [4, 5]` para `code='egel'`). Esas dos fases están
+    `>= _handoff_phase()` y de todos modos se escriben: es correcto, la escritura es un
+    efecto secundario de aprobar la fase 2 (que sigue del lado vivo del corte), no un
+    dictamen de la fase 4/5 en sí. Pero si se revierte el corte más tarde, esos `skipped` NO
+    se deshacen — no hay backfill que los reconsidere.
+  - **(b) Alta del proceso.** `ImportService.import_rows` siembra las 9 filas `ProcessPhase`
+    (0-8) de un alumno nuevo en un solo `for` (`services/import_service.py:645-648`,
+    `status='pending'` para las que no son la 0 ni la actual) — necesariamente escribe filas
+    para fases ≥3 desde el primer día del proceso, con o sin corte.
+- **Cerrar una convocatoria es una palanca que descuadra los dos sistemas sin avisar —
+  riesgo operativo conocido, no un defecto de esta feature.** `CohortService.set_window`
+  (`services/cohort_service.py:97-174`, vía `POST /admin/cohorts/{id}/ventana`,
+  `pages/admin.py:706-782`, permiso `titulatec.cohort.api.update`) pone en masa
+  `status='on_hold'` a **todos** los procesos `active` de la convocatoria que se cierra
+  (`:161-171`) — incluidos los que ya pasó T-soft (un proceso en fase 5, por ejemplo). No
+  viola el corte: toca `TitulationProcess.status`, no la fase, así que ninguna de las cuatro
+  guardas opina. Pero es exactamente el tipo de acción que deja a Titulación operando un
+  proceso que TitulaTec acaba de pausar sin que nadie en T-soft se entere — y reabrir la
+  convocatoria (`:148-159`) lo **reanuda** igual de en masa, sin mirar en qué fase esté ni
+  si Titulación ya hizo algo mientras tanto. Quien administre convocatorias necesita saber
+  esto antes de cerrar una con procesos ya liberados hacia T-soft.
 
 ---
 

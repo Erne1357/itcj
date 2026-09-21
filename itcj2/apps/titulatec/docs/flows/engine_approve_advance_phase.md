@@ -110,7 +110,7 @@ la fase). Tabla de eventos en
 `approve_phase` y `reject_phase` empiezan llamando a `PhaseService.assert_can_transition`
 (`services/phase_service.py:121-133`, que delega la comprobación en `_transition_error`,
 `:72-106`), que lanza `ValueError` si falla alguna de las **cuatro** reglas. La ruta lo traduce
-al canal de error de la app: `400` + header `X-Tt-Error` (`pages/admin.py:1566`, `:1597`), y el
+al canal de error de la app: `400` + header `X-Tt-Error` (`pages/admin.py:1590`, `:1621`), y el
 path param está acotado con `Path(ge=0)`.
 
 | Regla | Mensaje al usuario |
@@ -157,7 +157,7 @@ dictamen tardío, que es su uso normal, no una excepción). Detalle completo de 
 - Aprobar cuando la siguiente fase ya está `in_review`/`approved` → **no** la rebaja
   (solo `pending`/`rejected` pasan a `in_progress`).
 - Proceso inexistente → `404` (antes se renderizaba el detalle con contexto `None`).
-- El auto-avance del dictamen de documentos (`pages/documents.py:188-190`) pregunta con
+- El auto-avance del dictamen de documentos (`pages/documents.py:198-203`) pregunta con
   `PhaseService.can_transition` en vez de atrapar la excepción: si el proceso no está `active` o ya
   no está en la fase 1, simplemente no avanza. (Ese dictamen en sí, desde 2026-09-21, puede
   rechazarse *antes* de llegar aquí si el TIPO del documento pertenece a una fase congelada por
