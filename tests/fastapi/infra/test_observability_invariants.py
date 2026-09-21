@@ -1,4 +1,6 @@
-"""Invariantes de nginx en producción para observabilidad (Fase 0 en adelante).
+"""Invariantes de infraestructura para observabilidad (Fase 0 en adelante).
+
+nginx (F0) y arranque de Celery (F1c).
 
 `/metrics`, cuando exista, no debe ser alcanzable desde el hostname público:
 `location /` (más abajo, en el mismo `server`) proxea absolutamente todo al
@@ -12,10 +14,12 @@ nginx no es YAML de todos modos. Este archivo lo amplían tareas posteriores
 (T4, T6) con más invariantes de observabilidad; se mantiene en helpers chicos,
 uno por invariante, para que crezca sin volverse un solo test gigante.
 """
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 NGINX_PROD_CONF = REPO_ROOT / "docker" / "nginx" / "nginx.prod.conf"
+CELERY_APP = REPO_ROOT / "itcj2" / "celery_app.py"
 
 
 def _find_matching_brace(text: str, open_index: int) -> int:
@@ -78,4 +82,23 @@ def test_nginx_bloquea_metrics():
     assert "return 404" in metrics_body, "el bloque debe cortar en seco con 404"
     assert "proxy_pass" not in metrics_body, (
         "el bloque no debe reenviar al backend (dejaría de estar cerrado)"
+    )
+
+
+def test_celery_configura_logging_por_la_senal_setup_logging():
+    """Una llamada suelta a `configure_logging()` al importar `celery_app.py`
+    la borra el worker al arrancar (`worker_hijack_root_logger`, activo por
+    defecto): el worker nunca emitiría JSON. Con un receptor conectado a
+    `celery.signals.setup_logging`, Celery se salta ese secuestro."""
+    text = CELERY_APP.read_text(encoding="utf-8")
+
+    assert re.search(r"\bsetup_logging\.connect\b", text), (
+        "celery_app.py debe conectar un receptor a celery.signals.setup_logging"
+    )
+    # Sentencias de nivel de módulo = líneas sin sangría.
+    module_level_calls = re.findall(
+        r"^(?![#\s]|def |class |@).*\bconfigure_logging\(", text, re.MULTILINE
+    )
+    assert module_level_calls == [], (
+        "configure_logging() a nivel de módulo la borra el worker al arrancar"
     )

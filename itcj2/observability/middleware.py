@@ -44,12 +44,14 @@ def _header(scope: dict, name: bytes) -> str | None:
     return None
 
 
-def _user_id(scope: dict) -> str:
+def user_id_from_scope(scope: dict) -> str:
     """`sub` del JWT como cadena, o `""` si la petición es anónima.
 
     `JWTMiddleware` corre POR DENTRO de este middleware, pero escribe
     `request.state.current_user` en `scope["state"]`, que es el MISMO dict que
     este middleware tiene en la mano: por eso se lee después de la petición.
+    Público porque el filtro de logs (`logging_config`) lo lee igual, en
+    diferido, para las líneas emitidas dentro del endpoint.
     """
     current_user = (scope.get("state") or {}).get("current_user")
     if not isinstance(current_user, dict):
@@ -127,7 +129,8 @@ class ObservabilityMiddleware:
             route = normalize_route(scope)
             app = app_key_from_route(route)
             _log_summary(
-                scope["method"], route, app, status, duration, _user_id(scope), exc_type
+                scope["method"], route, app, status, duration,
+                user_id_from_scope(scope), exc_type,
             )
             # R4: sin reset en el camino de excepción, para que el
             # logger.exception del handler global (ServerErrorMiddleware, por

@@ -122,6 +122,12 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # Primero que nada: así lo que se loguee al registrar routers y al importar
+    # itcj2.sockets (python-socketio decide ahí si cuelga su propio handler)
+    # ya sale con el formato y los niveles buenos.
+    from itcj2.observability.logging_config import configure_logging
+    configure_logging()
+
     from itcj2.config import get_settings
 
     # Swagger/ReDoc/openapi.json exponen sin auth el inventario completo de rutas,

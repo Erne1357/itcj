@@ -258,6 +258,15 @@ class Settings(BaseSettings):
     FLASK_ENV: str = "production"
     APP_TZ: str = "America/Ciudad_Juarez"
 
+    # Logging (itcj2/observability/logging_config.py). `json` = una línea JSON
+    # por registro con el contexto de la petición (lo que Loki espera en prod);
+    # `text` = legible para dev (docker-compose.dev.yml lo pone, R5). Un valor
+    # inválido tumba el arranque: configure_logging() corre en create_app().
+    # LOG_LEVEL=WARNING calla los logger.info de la app sin tocar código (R6);
+    # la línea por petición (`itcj2.access`) sale siempre.
+    LOG_FORMAT: str = "json"
+    LOG_LEVEL: str = "INFO"
+
     # CORS
     CORS_ORIGINS: str = ""
 
