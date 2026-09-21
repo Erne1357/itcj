@@ -206,17 +206,25 @@ def create_app() -> FastAPI:
             return JSONResponse(status_code=503, content={"ready": False, "errors": errors})
         return {"ready": True}
 
-    # Scrape de Prometheus. `def` y no `async def` a propósito: en modo
-    # multiproceso `MultiProcessCollector` lee los ficheros mmap de TODOS los
-    # workers, I/O real que va al threadpool y no al event loop. Da igual en
-    # qué worker caiga el scrape: el agregado sale de los ficheros de todos.
+    # Scrape de Prometheus. El trabajo va a un hilo y no al event loop: en
+    # modo multiproceso `MultiProcessCollector` lee los ficheros mmap de TODOS
+    # los workers (hasta ~0.5 s de CPU en el peor caso medido) y la presencia
+    # lee Redis de forma síncrona. Pero NO por el threadpool de los endpoints
+    # `def` (R24): con ese agotado, el scrape haría cola detrás de las
+    # peticiones y Prometheus quedaría ciego justo en la saturación que debe
+    # medir. Por eso `async def` + limiter propio de un token. Da igual en qué
+    # worker caiga el scrape: el agregado sale de los ficheros de todos.
     # Fuera del esquema OpenAPI (no es API de la app); hacia internet lo corta
     # nginx con un 404 (Fase 0).
     @app.get("/metrics", include_in_schema=False)
-    def metrics():
-        from itcj2.observability.metrics import render_latest
+    async def metrics():
+        import anyio.to_thread
 
-        content, content_type = render_latest()
+        from itcj2.observability.metrics import render_latest, scrape_limiter
+
+        content, content_type = await anyio.to_thread.run_sync(
+            render_latest, limiter=scrape_limiter()
+        )
         return Response(content, media_type=content_type)
 
     # Error handlers

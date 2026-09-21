@@ -27,6 +27,8 @@ import logging
 import os
 import re
 
+from anyio import CapacityLimiter
+from anyio.lowlevel import RunVar
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     REGISTRY,
@@ -289,6 +291,28 @@ class _ScrapeView:
         yield from self._base.collect()
         for collector in self._extras:
             yield from collector.collect()
+
+
+# Limiter PROPIO del scrape (R24). Con el limiter por defecto de anyio (el de
+# los endpoints `def`, 40 tokens) el scrape haría cola FIFO detrás de las
+# peticiones justo cuando el threadpool se agota: el scrape vence su timeout,
+# el target cae a up=0, sus series se vuelven stale, el `for:` de la alerta de
+# threadpool se reinicia y la alerta no dispara en el único escenario para el
+# que existe. Un token: además serializa scrapes concurrentes (y el reaper).
+# `RunVar` y no un global: un CapacityLimiter pertenece a UN event loop (los
+# tests abren varios); es el mismo mecanismo con que anyio guarda el suyo.
+_SCRAPE_LIMITER: RunVar = RunVar("itcj_scrape_limiter")
+
+
+def scrape_limiter() -> CapacityLimiter:
+    """El `CapacityLimiter(1)` del scrape para el event loop en curso,
+    creado perezosamente la primera vez que lo pide ese loop."""
+    try:
+        return _SCRAPE_LIMITER.get()
+    except LookupError:
+        limiter = CapacityLimiter(1)
+        _SCRAPE_LIMITER.set(limiter)
+        return limiter
 
 
 def render_latest() -> tuple[bytes, str]:
