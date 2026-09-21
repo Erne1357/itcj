@@ -80,7 +80,13 @@ class TestApprovePhase:
 
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
     def test_ultima_fase_completa_el_proceso(self, mock_notify, db_session, seed_phase_defs,
-                                             make_student, make_process, revisor):
+                                             make_student, make_process, revisor, monkeypatch):
+        # Corte a T-soft (Tarea 2, 2026-09-21) desactivado: este test prueba que
+        # aprobar la ULTIMA fase del catalogo completa el PROCESO, no el corte
+        # -que en produccion cae en la fase 3-. Con el default (3) la fase 8 caeria
+        # dentro del corte por una razon ajena a lo que este test verifica; su
+        # propia cobertura vive en test_handoff_phase_cut.py.
+        monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
         seed_phase_defs()
         process = make_process(make_student(), current_phase=8)
 
@@ -94,10 +100,15 @@ class TestApprovePhase:
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
     def test_salta_las_fases_de_la_modalidad(self, mock_notify, db_session, seed_phase_defs,
                                              make_student, make_process, make_modality,
-                                             revisor):
+                                             revisor, monkeypatch):
         """EGEL salta 4 y 5: aprobar la 3 lleva a la 6 y deja las saltadas en 'skipped'."""
         from itcj2.apps.titulatec.models import ProcessPhase
 
+        # Corte a T-soft (Tarea 2, 2026-09-21) desactivado: este test prueba el
+        # salto de fases de la MODALIDAD, no el corte -que en produccion cae justo
+        # en la fase 3 que aqui se aprueba-. Su propia cobertura vive en
+        # test_handoff_phase_cut.py.
+        monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
         seed_phase_defs()
         modality = make_modality(name="Modalidad que salta", skips_phases=[4, 5])
         process = make_process(make_student(), modality=modality, current_phase=3)

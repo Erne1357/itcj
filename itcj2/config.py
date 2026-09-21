@@ -251,6 +251,12 @@ class Settings(BaseSettings):
     TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES: int = 120
     TITULATEC_SELF_CANCEL_MAX: int = 3
 
+    # Corte a T-soft (spec 2026-09-21): primera fase que ya NO se opera en esta
+    # app -- de ahí en adelante el proceso lo atiende el Departamento de
+    # Titulación en su propio sistema (T-soft). 9 la desactiva (el catálogo real
+    # va de 0 a 8, así que ninguna fase legítima la alcanza).
+    TITULATEC_HANDOFF_PHASE: int = 3
+
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

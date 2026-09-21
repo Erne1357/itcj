@@ -51,13 +51,34 @@ class PhaseService:
             raise ValueError("No hay fases dadas de alta en el sistema.")
         return nums[0], nums[-1]
 
+    # ------------------------------------------------------------------
+    # Corte a T-soft (spec 2026-09-21, Tarea 2 del plan de deslinde)
+    # ------------------------------------------------------------------
+    # A partir de `_handoff_phase()` el proceso ya NO se opera en esta app: lo
+    # atiende el Departamento de Titulación en su propio sistema (T-soft). Vive
+    # aquí, no repetido, porque lo usan las DOS guardas de abajo: la del admin
+    # (`_transition_error`, dictamen) y la del alumno (`_student_action_error`,
+    # ejecución).
+    HANDOFF_MSG = ("Esta fase continua en el Departamento de Titulacion (sistema T-soft). "
+                   "Te contactaran por correo para darte tu usuario.")
+
+    @staticmethod
+    def _handoff_phase() -> int:
+        """`get_settings()` está cacheado; el import va local (gotcha 2 del
+        CLAUDE.md raíz), mismo molde que `SelfBookingService._settings()`."""
+        from itcj2.config import get_settings
+        return get_settings().TITULATEC_HANDOFF_PHASE
+
     @staticmethod
     def _transition_error(process, phase_number, first: int, last: int) -> str | None:
         """Motivo por el que `phase_number` NO puede aprobarse/rechazarse, o None.
 
         Las tres reglas de `docs/flows/00_state_machine.md`: la fase existe, el
         proceso está vivo, y solo se actúa sobre la fase actual (ni saltar hacia
-        adelante ni retroceder a una ya cerrada).
+        adelante ni retroceder a una ya cerrada). Más una cuarta (spec
+        2026-09-21): ninguna fase desde `_handoff_phase()` en adelante se
+        dictamina aquí -- `approve_phase(2)` (la liberación hacia T-soft) sigue
+        intacta porque pasa con `phase_number=2`, por debajo del corte.
 
         Los mensajes van SIN acentos a propósito, no por descuido: viajan al toast
         por el header `X-Tt-Error`, y ahí Starlette es asimétrico — escribe la
@@ -75,6 +96,10 @@ class PhaseService:
                     f"las fases {first} a {last}.")
         if process.status != "active":
             return f"El proceso ya no admite cambios de fase (estado: {process.status})."
+        # Corte a T-soft: ninguna fase >= `_handoff_phase()` se dictamina aquí,
+        # ni siquiera la propia fase actual del proceso.
+        if phase_number >= PhaseService._handoff_phase():
+            return PhaseService.HANDOFF_MSG
         if phase_number != process.current_phase:
             return (f"Solo puedes actuar sobre la fase en curso "
                     f"(fase {process.current_phase:02d}, no la {phase_number:02d}).")
@@ -150,6 +175,12 @@ class PhaseService:
         motivo: viajan al toast por el header `X-Tt-Error`, y ahí Starlette
         escribe latin-1 pero su TestClient lee UTF-8 — un byte >127 tumba el
         request entero en cualquier test de ruta que caiga aquí.
+
+        La regla del corte a T-soft (spec 2026-09-21) va ANTES que la de "fase
+        futura": sin eso, un egresado parado en la fase 3 (o pidiendo acción
+        sobre ella desde antes) leería "se habilitará cuando llegues a ella",
+        una promesa que el corte vuelve falsa -- esa fase ya no se habilita
+        aquí, la opera T-soft.
         """
         # `bool` es subclase de `int`: True colaría como fase 1.
         if isinstance(phase_number, bool) or not isinstance(phase_number, int):
@@ -162,6 +193,9 @@ class PhaseService:
         if phase_number < process.current_phase:
             return (f"La fase {phase_number:02d} ya esta cerrada: no requiere "
                     f"accion y no admite cambios.")
+        # Corte a T-soft: ANTES que la regla de "fase futura" (ver docstring).
+        if phase_number >= PhaseService._handoff_phase():
+            return PhaseService.HANDOFF_MSG
         if phase_number > process.current_phase:
             return (f"La fase {phase_number:02d} se habilitara cuando llegues a "
                     f"ella (vas en la fase {process.current_phase:02d}).")

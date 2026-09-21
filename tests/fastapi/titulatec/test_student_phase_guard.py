@@ -288,8 +288,15 @@ class TestPaginasDeOtraFaseRedirigen:
         ("/titulatec/student/formato-b", 3),
     ])
     def test_la_pagina_de_la_fase_en_curso_sigue_abierta(self, url, en, escenario,
-                                                         client_as):
-        """Positivo de la MISMA ruta: la guarda no puede ser un 'no' universal."""
+                                                         client_as, monkeypatch):
+        """Positivo de la MISMA ruta: la guarda no puede ser un 'no' universal.
+
+        Corte a T-soft (Tarea 2, 2026-09-21) desactivado: el caso formato-b/fase 3
+        prueba que la pagina de la fase EN CURSO se abre, no el corte -que en
+        produccion bloquea justo esa fase-. Su propia cobertura vive en
+        test_handoff_phase_cut.py.
+        """
+        monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
         esc = escenario(current_phase=en)
 
         resp = client_as(esc.student).get(url, follow_redirects=False)
@@ -360,8 +367,15 @@ class TestParcialesYMutacionesDeOtraFase:
 
     @pytest.mark.parametrize("alias,method,url,kwargs,fase", ACCIONES, ids=IDS)
     def test_la_fase_en_curso_si_se_ejecuta(self, alias, method, url, kwargs, fase,
-                                            escenario, client_as):
-        """Positivo de la MISMA ruta y el MISMO actor, con el proceso en su fase."""
+                                            escenario, client_as, monkeypatch):
+        """Positivo de la MISMA ruta y el MISMO actor, con el proceso en su fase.
+
+        Corte a T-soft (Tarea 2, 2026-09-21) desactivado: los 3 casos de Formato B
+        (fase 3) prueban que la fase EN CURSO se ejecuta, no el corte -que en
+        produccion bloquea justo esa fase-. Su propia cobertura vive en
+        test_handoff_phase_cut.py.
+        """
+        monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
         esc = escenario(current_phase=fase, docs=TODOS_APROBADOS,
                         appt_status="scheduled")
 
@@ -471,7 +485,13 @@ class TestFaseRechazada:
         assert _phases(db_session, esc.process.id)[1] == "in_review"
 
     def test_corrige_y_reenvia_el_formato_b_rechazado(self, escenario, client_as,
-                                                      db_session):
+                                                      db_session, monkeypatch):
+        """Corte a T-soft (Tarea 2, 2026-09-21) desactivado: este test prueba que
+        una fase RECHAZADA se corrige y reenvia (docstring de la clase), no el
+        corte -que en produccion bloquea justo la fase 3, que es Formato B-. Su
+        propia cobertura vive en test_handoff_phase_cut.py.
+        """
+        monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
         esc = escenario(current_phase=3, phase_overrides={3: "rejected"})
 
         pagina = client_as(esc.student).get("/titulatec/student/formato-b",
