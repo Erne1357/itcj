@@ -227,6 +227,16 @@ _DASHBOARD_URL = "/titulatec/student/dashboard"
 # checkout) para no acoplar dos archivos que dos tareas tocan a la vez.
 _SURVEY_URL = "/titulatec/encuesta-egresados"
 
+# Corte a T-soft (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion §4): copy
+# de PANTALLA para la fase actual y las futuras a partir de
+# `PhaseService._handoff_phase()`. CON acentos a propósito -- a diferencia de
+# `PhaseService.HANDOFF_MSG` (sin acentos, viaja en el header `X-Tt-Error` de
+# las guardas), esto es texto Jinja normal, no un header HTTP. Constante de
+# módulo para que el contexto (`_phases_ctx`) y la plantilla usen la MISMA
+# cadena, en vez de repetirla a mano.
+_HANDOFF_COPY = ("Tu proceso continúa en el Departamento de Titulación, en el sistema "
+                 "T-soft. El departamento te contactará por correo para darte tu usuario.")
+
 
 # ===========================================================================
 # Guarda de fase del alumno (traducción HTTP de PhaseService)
@@ -424,13 +434,19 @@ def _format_b_progress(fb) -> dict:
     return {**prog, "kind": "format_b", "started": started, "label": label, "tone": tone}
 
 
-def _cta_for(code: str, *, is_current: bool, status: str) -> dict | None:
+def _cta_for(code: str, *, is_current: bool, status: str, handoff: bool) -> dict | None:
     """CTA de una fase. `_PHASE_CTA` sigue siendo la ÚNICA fuente de los enlaces.
 
     Solo acciona la fase ACTUAL: las anteriores están cerradas (inmutables) y las
     siguientes son informativas — el alumno se prepara ahí, no ejecuta.
+
+    `handoff` (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion): a partir del
+    corte a T-soft ninguna fase se acciona desde aquí, ni la actual. Hoy la única
+    entrada de `_PHASE_CTA` que puede caer en el corte es `format_b` (fase 3 por
+    defecto) — sin esto, el alumno vería un botón que lo manda a una pantalla que
+    el guardia del backend (Tarea 2) ya le bloquea.
     """
-    if not is_current or status == "skipped":
+    if not is_current or status == "skipped" or handoff:
         return None
     entry = _PHASE_CTA.get(code)
     if not entry:
@@ -454,6 +470,8 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
           "current_phase": int,          # 0 si no hay proceso
           "progress_pct":  int,
           "open_phase":    int | None,   # deep-link ?fase=N ya resuelto
+          "handoff_copy":  str,          # copy de pantalla del corte a T-soft
+                                          # (constante `_HANDOFF_COPY`, D3 Tarea 3)
           "current":       card | None,  # la MISMA card de la fase actual (col. A)
           "phases":        [card, ...],  # las 9, en orden de catálogo
         }
@@ -469,8 +487,15 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         is_target         bool   deep-link: la fase a RESALTAR. Difiere de `is_open`
                                  solo cuando el deep-link apunta a la fase actual,
                                  que no se despliega pero sí se resalta (col. A).
+        handoff           bool   `number >= PhaseService._handoff_phase()` (Tarea 3,
+                                 spec 2026-09-21-titulatec-dpto-titulacion). Formula
+                                 pura sobre el número de fase: no depende de si hay
+                                 proceso ni de en qué fase va el alumno. El template
+                                 la usa para pintar `handoff_copy` en vez de "en
+                                 proceso por…" (actual) o "se habilitará…" (futura).
         desc, needs, who         copy de `_PHASE_INFO` ("qué vas a necesitar" = needs)
-        cta               {url,label,icon} | None   solo la actual y si está soportada
+        cta               {url,label,icon} | None   solo la actual, soportada, Y NO
+                                                      handoff (`_cta_for`)
         rejection_reason  str | None
         events            [{label, when}]   historial de ESTA fase
         progress          dict | None       sub-progreso (fases 1, 2 y 3)
@@ -483,6 +508,13 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     )
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    # Corte a T-soft (Tarea 3): se LEE aquí, en cada llamada a `_phases_ctx`
+    # (una por carga del dashboard) -- nunca una constante de módulo ni un
+    # valor de import time, o la reversibilidad por env var / monkeypatch de
+    # `PhaseService._handoff_phase` deja de funcionar (ver su propio docstring).
+    handoff_phase = PhaseService._handoff_phase()
 
     pdefs = (
         db.query(PhaseDefinition)
@@ -506,6 +538,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             "can_expand": True,
             "is_open": pd.number == open_phase,
             "is_target": pd.number == open_phase,
+            "handoff": pd.number >= handoff_phase,
             "desc": info.get("desc", ""),
             "needs": info.get("needs", []),
             "who": info.get("who", ""),
@@ -521,8 +554,8 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     if process is None:
         # Sin proceso no hay fase actual: las 9 son informativas y desplegables.
         return {"has_process": False, "current_phase": 0, "progress_pct": 0,
-                "open_phase": open_phase, "current": None,
-                "phases": [_base_card(pd) for pd in pdefs]}
+                "open_phase": open_phase, "handoff_copy": _HANDOFF_COPY,
+                "current": None, "phases": [_base_card(pd) for pd in pdefs]}
 
     current_phase = process.current_phase
 
@@ -566,6 +599,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         status = ph.status if ph else "pending"
         is_current = pd.number == current_phase
         rel = "current" if is_current else ("past" if pd.number < current_phase else "future")
+        handoff = pd.number >= handoff_phase
 
         progress = progress_by_code.get(pd.code)
         # Una fase futura que nadie ha tocado no muestra un sub-progreso vacío.
@@ -580,7 +614,8 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             can_expand=not is_current,
             is_open=(not is_current) and pd.number == open_phase,
             is_target=pd.number == open_phase,
-            cta=_cta_for(pd.code, is_current=is_current, status=status),
+            handoff=handoff,
+            cta=_cta_for(pd.code, is_current=is_current, status=status, handoff=handoff),
             rejection_reason=(ph.rejection_reason if ph else None),
             events=events_by_phase.get(pd.number, []),
             progress=progress,
@@ -593,6 +628,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         "current_phase": current_phase,
         "progress_pct": int(round(current_phase / total * 100)),
         "open_phase": open_phase,
+        "handoff_copy": _HANDOFF_COPY,
         "current": next((c for c in cards if c["is_current"]), None),
         "phases": cards,
     }

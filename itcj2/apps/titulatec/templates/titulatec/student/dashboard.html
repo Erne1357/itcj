@@ -103,6 +103,13 @@
           </div>
           {% elif current.status == 'skipped' %}
           <div class="mt-3">{{ pill('No aplica a tu modalidad', 'neutral', 'dash-circle') }}</div>
+          {% elif current.handoff %}
+          {# Corte a T-soft (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion): el
+             backend ya bloquea esta fase (PhaseService._handoff_phase); aqui se le
+             explica al alumno en vez de dejarlo frente al boton muerto de arriba. #}
+          <p class="tt-prose mt-3 mb-0" style="font-size:.82rem;color:var(--tt-mute)">
+            <i class="bi bi-signpost-split me-1"></i>{{ handoff_copy }}
+          </p>
           {% else %}
           <p class="tt-prose mt-3 mb-0" style="font-size:.82rem;color:var(--tt-mute)">
             <i class="bi bi-hourglass-split me-1"></i>En proceso por {{ current.responsible_label }}.
@@ -242,6 +249,12 @@
                       {{ pill('No aplica a tu modalidad', 'neutral', 'dash-circle') }}
                     {% elif ph.rel == 'past' %}
                       {{ pill('Fase cerrada · ya no requiere acción', 'neutral', 'lock') }}
+                    {% elif ph.handoff %}
+                      {# Corte a T-soft (Tarea 3): esta fase nunca se va a "habilitar"
+                         aqui -- el corte se la llevo a T-soft igual que a la actual. #}
+                      <p class="tt-prose mb-0" style="font-size:.78rem;color:var(--tt-mute)">
+                        <i class="bi bi-signpost-split me-1"></i>{{ handoff_copy }}
+                      </p>
                     {% else %}
                       {{ pill('Se habilitará cuando llegues a esta fase', 'neutral', 'hourglass-split') }}
                       {% if ph.who %}

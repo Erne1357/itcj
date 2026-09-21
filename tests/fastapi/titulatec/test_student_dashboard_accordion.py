@@ -16,7 +16,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from itcj2.apps.titulatec.pages.student import _parse_open_phase, _phases_ctx
+from itcj2.apps.titulatec.pages.student import _HANDOFF_COPY, _parse_open_phase, _phases_ctx
+from itcj2.apps.titulatec.services.phase_service import PhaseService
 
 DASHBOARD = "/titulatec/student/dashboard"
 
@@ -247,6 +248,104 @@ def test_sin_proceso_no_hay_fase_actual_ni_cta(
     assert ctx["current_phase"] == 0 and ctx["progress_pct"] == 0
     assert len(ctx["phases"]) == 9
     assert all(c["can_expand"] and c["cta"] is None for c in ctx["phases"])
+
+
+# ---------------------------------------------------------------------------
+# Corte a T-soft en el acordeon (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion)
+# ---------------------------------------------------------------------------
+# La Tarea 2 ya bloquea la EJECUCION en el backend (`PhaseService._handoff_phase`,
+# guardas del alumno y del admin). Esto prueba que el CONTEXTO se lo explica al
+# alumno en vez de dejarlo frente a un boton muerto: cada card gana `handoff`, y
+# `_cta_for` deja de ofrecer el modulo de Formato B cuando aplica.
+def test_las_fases_desde_el_corte_en_adelante_traen_handoff_true(
+    db_session, seed_phase_defs, seed_document_types,
+):
+    """`handoff = pd.number >= PhaseService._handoff_phase()`: formula pura, ni
+    siquiera hace falta un proceso para probarla (igual que
+    `test_sin_proceso_no_hay_fase_actual_ni_cta`, del que es vecino)."""
+    seed_phase_defs()
+    seed_document_types()
+
+    ctx = _phases_ctx(db_session, None)
+
+    assert [c["number"] for c in ctx["phases"] if c["handoff"]] == [3, 4, 5, 6, 7, 8]
+    assert [c["number"] for c in ctx["phases"] if not c["handoff"]] == [0, 1, 2]
+
+
+def test_handoff_copy_viaja_en_el_contexto_y_es_la_constante_del_modulo(
+    db_session, seed_phase_defs, seed_document_types,
+):
+    """El copy CON acentos vive en `_HANDOFF_COPY` (pages/student.py), no
+    repetido a mano en la plantilla -- y no es `PhaseService.HANDOFF_MSG` (ese
+    es el mensaje SIN acentos del header `X-Tt-Error`, para el toast)."""
+    seed_phase_defs()
+    seed_document_types()
+
+    ctx = _phases_ctx(db_session, None)
+
+    assert ctx["handoff_copy"] == _HANDOFF_COPY
+    assert _HANDOFF_COPY == (
+        "Tu proceso continúa en el Departamento de Titulación, en el sistema "
+        "T-soft. El departamento te contactará por correo para darte tu usuario."
+    )
+
+
+def test_fase_3_actual_pierde_su_cta_por_el_corte(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """El egresado en fase 3 (Formato B): `handoff=True` y CERO cta, ni en la
+    card ni en `ctx["current"]` -- son el mismo dict (ver
+    `test_la_card_grande_es_la_misma_de_la_fase_actual`), asi que si uno se
+    entera el otro tambien.
+    """
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    actual = _card(ctx, 3)
+    assert actual["handoff"] is True
+    assert actual["cta"] is None
+    assert ctx["current"]["cta"] is None
+    assert [c["number"] for c in ctx["phases"] if c["cta"]] == []
+
+
+def test_fase_2_actual_no_tiene_handoff_y_conserva_su_cta(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Control: antes del corte nada cambia -- sigue habiendo UN cta y es el
+    de la cita."""
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=2)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    actual = _card(ctx, 2)
+    assert actual["handoff"] is False
+    assert actual["cta"]["url"] == "/titulatec/student/cita"
+
+
+def test_con_el_corte_en_9_la_fase_3_recupera_su_cta_de_formato_b(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+    monkeypatch,
+):
+    """Mismo truco que `test_handoff_phase_cut.py`: 9 desactiva el corte (queda
+    fuera del catalogo 0-8). Prueba que `handoff` LEE `_handoff_phase()` en
+    cada llamada -- si `_phases_ctx` lo hubiera capturado en una constante de
+    modulo o a import time, este monkeypatch no cambiaria nada.
+    """
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    actual = _card(ctx, 3)
+    assert actual["handoff"] is False
+    assert actual["cta"]["url"] == "/titulatec/student/formato-b"
 
 
 # ---------------------------------------------------------------------------
