@@ -12,11 +12,13 @@ usa el middleware para etiquetar), importado — nunca un recorrido propio del
 import pytest
 
 from itcj2.main import create_app
-from itcj2.observability.metrics import DURATION_BUCKETS
+from itcj2.observability.metrics import DURATION_BUCKETS, LOOP_LAG_BUCKETS
 from itcj2.observability.middleware import METRIC_METHODS
 from itcj2.observability.route import _KEYS, _route_method_pairs, build_route_map
 
-# R8: ~22 % sobre las ~16.400 series proyectadas de hoy (804 pares).
+# R8: ~21 % sobre las ~16.500 series proyectadas de hoy. Son 804 pares
+# (método, ruta) contando `/metrics`, que no genera series (SKIP_PATHS): un
+# par de margen a favor.
 MAX_SERIES_PER_TARGET = 20_000
 
 # Peor caso de estados distintos por par (método, ruta) en el contador (§6).
@@ -24,11 +26,28 @@ MAX_STATUS = 6
 
 # Series que no escalan con las rutas (§6, tabla "Cuánto añade cada fase"):
 IN_FLIGHT_SERIES = len(_KEYS) + 1          # una por app_key, más "otro"
-# "__unmatched__" (404, y el 405 a propósito: ver middleware): histograma +
-# estados, por cada método que el middleware guarda tal cual más "OTHER".
-UNMATCHED_SERIES = (len(METRIC_METHODS) + 1) * (14 + 4)
+# Estados que un cliente ANÓNIMO puede producir en "__unmatched__" (sin ruta
+# matcheada): 404; 405 (colapsado a propósito, ver middleware); 307 (redirect
+# de barra final de Starlette); 200 y 400 (preflight CORS de origen permitido
+# y no permitido: CORSMiddleware responde antes de enrutar); 500; y las
+# respuestas tempranas de JWTMiddleware (antes de enrutar).
+UNMATCHED_STATUSES = 7
+# "__unmatched__": histograma + estados, por cada método que el middleware
+# guarda tal cual más "OTHER".
+UNMATCHED_SERIES = (len(METRIC_METHODS) + 1) * (
+    len(DURATION_BUCKETS) + 3 + UNMATCHED_STATUSES
+)
 EXCEPTION_SERIES = 200                     # disperso: solo rutas que revientan
-EXTRA_SERIES = IN_FLIGHT_SERIES + UNMATCHED_SERIES + EXCEPTION_SERIES
+# Una vez por target, sin etiquetas que crezcan (peor caso: rol `all`, que
+# publica también presencia y sockets):
+FIXED_SERIES = (
+    3 + 3 + 5                              # saturación: anyio, asyncio, pool de BD
+    + 2                                    # uso del dir de mmap (R25)
+    + len(LOOP_LAG_BUCKETS) + 3            # histograma de lag del loop
+    + 4                                    # itcj_presence_users (buckets)
+    + 6                                    # itcj_socket_connections (namespaces hoy)
+)
+EXTRA_SERIES = IN_FLIGHT_SERIES + UNMATCHED_SERIES + EXCEPTION_SERIES + FIXED_SERIES
 
 RUTAS_CON_NUMERO_ESTATICO = {
     # El "1" es el número de fase, no un id: /phase/2/… no existe como ruta
