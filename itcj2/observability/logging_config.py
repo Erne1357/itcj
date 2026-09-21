@@ -114,7 +114,10 @@ class ContextFilter(logging.Filter):
 
     Los ids (`trace_id`, `span_id`, `request_id`) salen SIEMPRE del contexto,
     aunque el registro traiga un `extra` con el mismo nombre: son la llave para
-    unir líneas en Loki (agendatec pasa `extra={"request_id": <id en BD>}`).
+    unir líneas en Loki. Un id de negocio va con su propio nombre
+    (agendatec: `extra={"agendatec_request_id": <id en BD>}`); ningún `extra`
+    de la app puede usar esos tres nombres (lo vigila un test de
+    `test_json_logging.py`), porque se perdería en silencio.
     `route`/`app`/`user_id` respetan el `extra` si viene: la línea-resumen los
     trae calculados por el middleware y son la fuente.
     """

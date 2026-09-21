@@ -117,7 +117,9 @@ def _build_app() -> FastAPI:
 
     @router.get("/{item_id}/spoof")
     def spoof(item_id: int):
-        # agendatec hace esto de verdad (`extra={"request_id": obj.id}`).
+        # Un `extra` con el nombre de un id de contexto. Ningún código de la
+        # app lo hace (lo vigila `test_no_app_log_extra_uses_a_context_id_key`),
+        # pero la precedencia tiene que aguantar si alguien lo cuela.
         logger.info("extra que choca", extra={"request_id": 57})
         return {"ok": True}
 
@@ -236,11 +238,66 @@ def test_summary_line_is_json_with_typed_fields(client, json_logs):
 
 def test_extra_cannot_spoof_the_request_id(client, json_logs):
     # El request_id es la llave para unir líneas en Loki: un `extra` con el
-    # mismo nombre (agendatec pasa el id de su solicitud en BD) no la pisa.
+    # mismo nombre no la pisa.
     resp = client.get(f"{PREFIX}/items/7/spoof")
 
     line = _by_msg(json_logs.records(), "extra que choca")
     assert line["request_id"] == resp.headers["x-request-id"]
+
+
+# Ids que `ContextFilter` escribe SIEMPRE desde el contexto de la petición.
+_CONTEXT_ID_KEYS = frozenset({"trace_id", "span_id", "request_id"})
+
+
+def _extra_keys_that_collide(tree) -> list:
+    """`(línea, clave)` de cada `extra={...}` literal con una clave de
+    `_CONTEXT_ID_KEYS`."""
+    import ast
+
+    hits = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg != "extra" or not isinstance(keyword.value, ast.Dict):
+                continue
+            for key in keyword.value.keys:
+                if isinstance(key, ast.Constant) and key.value in _CONTEXT_ID_KEYS:
+                    hits.append((key.lineno, key.value))
+    return sorted(hits)
+
+
+def test_no_app_log_extra_uses_a_context_id_key():
+    """Un `extra={"request_id": <id de BD>}` lo PISA en silencio el filtro de
+    contexto con el id HTTP: la línea pierde justo el dato que quería dejar
+    (así estaban tres INFO de agendatec, visibles por primera vez con R6).
+    Hay que nombrarlo por lo que es: `agendatec_request_id`, etc."""
+    import ast
+    from pathlib import Path
+
+    package = Path(__file__).resolve().parents[3] / "itcj2"
+    offenders = []
+    for path in sorted(package.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for lineno, key in _extra_keys_that_collide(tree):
+            offenders.append(f"{path.relative_to(package.parent)}:{lineno} {key!r}")
+
+    assert offenders == [], (
+        "extra= con una clave que ContextFilter sobrescribe con el id de la "
+        f"petición (renómbrala, p. ej. '<app>_request_id'): {offenders}"
+    )
+
+
+def test_collision_scan_detects_a_colliding_extra():
+    # Sin esto el escáner podría estar roto y el test de arriba pasaría en
+    # vacío.
+    import ast
+
+    tree = ast.parse(
+        'log.info("x", extra={"request_id": 1, "agendatec_request_id": 2})\n'
+        'log.info("y", extra={"span_id": 3})\n'
+    )
+    assert _extra_keys_that_collide(tree) == [(1, "request_id"), (2, "span_id")]
 
 
 def test_unhandled_500_line_carries_the_request_id(client, json_logs):
