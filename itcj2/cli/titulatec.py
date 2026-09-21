@@ -49,7 +49,7 @@ SEED_FILES = [
     # `_run_sql_files` hace `DML_TITULATEC / filename` y `_titulatec_seed_files`
     # (cli/core.py:205) hace `f"titulatec/{name}"`; ambas rutas resuelven bien.
     "survey_2026_09/09_insert_survey_perms.sql",           # 11 permisos (8 encuesta/solicitudes + 3 liberacion GTV)
-    "survey_2026_09/10_insert_survey_role_permissions.sql",# grants (GTV 9; jefatura recortada a enrollment_request+requirement.mark; operativo requirement.mark)
+    "survey_2026_09/10_insert_survey_role_permissions.sql",# grants (GTV 9; jefatura recortada a enrollment_request+requirement.mark; operativo enrollment_request+requirement.mark, 2026-09-21)
     "survey_2026_09/11_seed_survey_form.sql",              # formulario 'egresados' v1, status open
     "survey_2026_09/12_seed_cotejo_codes.sql",             # auto_source del requisito de la encuesta
     # El 13 es lo que ARMA la guarda de la fase 2 en las convocatorias que ya
@@ -149,6 +149,21 @@ _PERMISOS_JEFATURA_CONSERVA = (
 )
 
 _ROL_OPERATIVO_ESCOLARES = "titulatec_school_services"
+# 2026-09-21 (spec 2026-09-21-titulatec-dpto-titulacion, "encargados de
+# carrera en la bandeja de Solicitudes"): el operativo deja de tener SOLO
+# `requirement.mark` y gana ADEMAS los mismos 3 `enrollment_request.*` que ya
+# tenia la jefatura -- los encargados de carrera (puestos `se_officer_*`),
+# la secretaria y el auxiliar del depto cuelgan de este rol. El alcance por
+# carrera de esa bandeja YA estaba implementado en `requests_admin.py`
+# (`officer_programs` + `_load_scoped_request`/`_program_in_scope`); este
+# delta solo abre la puerta del permiso. `api.approve` tambien gatea el
+# reenvio de liga (`requests_admin.py::resend`) -- intencional.
+_PERMISOS_OPERATIVO_CONSERVA = (
+    _PERM_MARCA_REQUISITO,
+    "titulatec.enrollment_request.page.list",
+    "titulatec.enrollment_request.api.approve",
+    "titulatec.enrollment_request.api.reject",
+)
 
 
 def _run_sql_files(files: list[str]) -> None:
@@ -311,6 +326,15 @@ def _verify_survey_2026_09() -> list[str]:
       - el puesto de ventanilla (`external_service_tech_management`) existe y
         el mapeo puesto→rol de GTV tiene exactamente 2 filas (jefatura +
         ventanilla).
+
+    2026-09-21 (spec 2026-09-21-titulatec-dpto-titulacion, "encargados de
+    carrera en la bandeja de Solicitudes"): el encargado operativo
+    (`titulatec_school_services`) ADEMÁS recibe los 3 `enrollment_request.*`
+    -mismo trío que ya tenía la jefatura- para que los encargados de carrera
+    puedan resolver la bandeja de Solicitudes de SU carrera. El alcance real
+    no lo da este permiso: lo acota `scope_service.officer_programs()` +
+    `_load_scoped_request`/`_program_in_scope` en `pages/requests_admin.py`,
+    que ya filtraba esa bandeja antes de este delta.
     """
     from sqlalchemy import text
 
@@ -355,10 +379,9 @@ def _verify_survey_2026_09() -> list[str]:
         for code in _PERMISOS_JEFATURA_CONSERVA:
             if (_ROL_JEFATURA_ESCOLARES, code) not in concedidos:
                 problemas.append(f"sin grant a la jefatura: {code}")
-        if (_ROL_OPERATIVO_ESCOLARES, _PERM_MARCA_REQUISITO) not in concedidos:
-            problemas.append(
-                f"sin grant al encargado operativo: {_PERM_MARCA_REQUISITO}"
-            )
+        for code in _PERMISOS_OPERATIVO_CONSERVA:
+            if (_ROL_OPERATIVO_ESCOLARES, code) not in concedidos:
+                problemas.append(f"sin grant al encargado operativo: {code}")
 
         for code in _PERMISOS_GTV:
             if (_ROL_GTV, code) not in concedidos:

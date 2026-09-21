@@ -407,6 +407,41 @@ def test_el_patron_like_de_survey_no_alcanza_a_survey_review():
     assert not patron.match("titulatec.survey_review.api.reject")
 
 
+@requires_dml
+def test_el_operativo_de_escolares_recibe_solicitudes_por_alcance():
+    """2026-09-21 (spec 2026-09-21-titulatec-dpto-titulacion, "encargados de
+    carrera en la bandeja de Solicitudes"): el rol OPERATIVO
+    (`titulatec_school_services`) deja de tener SOLO `requirement.mark` y gana
+    ADEMAS los mismos 3 `enrollment_request.*` que ya tenia la jefatura -- de
+    aqui cuelgan los encargados de carrera (puestos sinteticos `se_officer_*`
+    que crea `OfficerService`), ademas de la secretaria y el auxiliar del
+    depto.
+
+    El alcance por carrera de esa bandeja YA estaba implementado ANTES de
+    este delta: `scope_service.officer_programs()` +
+    `_load_scoped_request`/`_program_in_scope` en `pages/requests_admin.py`
+    filtran el listado (`program_id IN (scope)`) y devuelven 404 liso en
+    mutaciones fuera de alcance. Este test solo verifica que el DML concede el
+    permiso -- el filtro en si lo ejercitan `test_enrollment_inbox.py` y
+    `test_enrollment_approve.py`.
+
+    OJO: `titulatec.enrollment_request.api.approve` tambien gatea el reenvio
+    de liga desde la bandeja (`requests_admin.py::resend`) -- a proposito:
+    mismo permiso, misma bandeja que aprobar.
+    """
+    diez = (DML_DIR / "survey_2026_09"
+            / "10_insert_survey_role_permissions.sql").read_text(encoding="utf-8")
+    sin_comentarios = re.sub(r"--[^\n]*", "", diez)
+
+    concedidos = _grants_de_rol_in(sin_comentarios, "titulatec_school_services")
+    for codigo in ("titulatec.enrollment_request.page.list",
+                   "titulatec.enrollment_request.api.approve",
+                   "titulatec.enrollment_request.api.reject",
+                   "titulatec.process.api.requirement.mark"):
+        assert codigo in concedidos, (
+            f"el operativo (titulatec_school_services) deberia tener {codigo}")
+
+
 # Los 23 permisos del alumno de titulacion. Los 21 originales colgaban de
 # `student` hasta 2026-09-15, cuando pasaron a `graduate`; los 2 de
 # `appointment.api.{book,cancel}.own` se agregaron el 2026-09-16 para el

@@ -6,13 +6,23 @@
 
 | | |
 |---|---|
-| **Actor(es)** | 👤 Visitante anónimo (formulario y liga) · 🏛️ Servicios Escolares (bandeja) · 🤖 correo y conversión |
-| **Permiso(s)** | Formulario, liga y reenvío público: **ninguno**. Son las rutas públicas de `pages/public.py`, sin `require_page_app` (una ruta es pública por omitir la dependencia).<br>Bandeja (`pages/requests_admin.py`), **un código por ruta**: `titulatec.enrollment_request.page.list` (ver) · `titulatec.enrollment_request.api.approve` (aprobar y reenviar) · `titulatec.enrollment_request.api.reject` (rechazar). |
+| **Actor(es)** | 👤 Visitante anónimo (formulario y liga) · 🏛️ Servicios Escolares (bandeja: jefatura con alcance total + operativo/encargados por carrera) · 🤖 correo y conversión |
+| **Permiso(s)** | Formulario, liga y reenvío público: **ninguno**. Son las rutas públicas de `pages/public.py`, sin `require_page_app` (una ruta es pública por omitir la dependencia).<br>Bandeja (`pages/requests_admin.py`), **un código por ruta**: `titulatec.enrollment_request.page.list` (ver) · `titulatec.enrollment_request.api.approve` (aprobar y reenviar) · `titulatec.enrollment_request.api.reject` (rechazar). Los tres se conceden a `titulatec_school_services_head` (jefatura) Y, desde 2026-09-21, también a `titulatec_school_services` (operativo: secretaria, auxiliar y los `se_officer_*` de los encargados) — `survey_2026_09/10_insert_survey_role_permissions.sql`. |
 | **Rol que recibe el alumno** | `graduate` (egresado) en las apps `itcj` y `titulatec`, siempre vía `ImportService.import_rows`. Ver [Rol `graduate`](#rol-graduate-egresado). |
 | **Trigger** | El visitante envía el formulario de `/titulatec/inscripcion`. |
 | **Precondiciones** | Exactamente **una** convocatoria abierta según `CohortService.is_public_enrollment_open` (`status='open'` y hoy dentro de `[opens_at, closes_at]`). Cero: tarjeta de cierre. Más de una: 503, falla cerrado. En la bandeja, las filas pasan por el [alcance por carrera](engine_officer_scope.md). |
 | **Sub-flujos** | ⤵ [alcance por carrera](engine_officer_scope.md) · ⤵ `ImportService.import_rows`, el mismo alta que el [CSV](phase0_school_services_import_csv.md) y el [alta manual](phase0_school_services_add_student_manual.md) |
 | **Estado final** | `titulatec_enrollment_requests.status = converted` con `converted_process_id` (proceso en fase 1), o `rejected` con motivo. |
+
+**Quién revisa (2026-09-21):** hasta esa fecha SOLO la jefatura (`titulatec_school_services_head`,
+alcance `"ALL"`) podía abrir esta bandeja. El permiso se extendió al rol operativo
+(`titulatec_school_services`) para que los **encargados de carrera** también revisen, limitados a
+SU carrera — el filtro por `program_id` y el 404 liso fuera de alcance (`_load_scoped_request` /
+`_program_in_scope`, `pages/requests_admin.py:79-107`) ya existían antes de este delta; solo faltaba
+el permiso. `api.approve` también gatea el reenvío de liga (paso 4 de abajo) — a propósito, no un
+descuido. Detalle del alcance: [`engine_officer_scope.md`](engine_officer_scope.md). Si la secretaria
+o el auxiliar del depto no tienen ninguna carrera asignada en `core_program_positions`, ven la
+pestaña vacía con el aviso "sin alcance" — es el comportamiento esperado.
 
 ## Ruta en la app (UI)
 

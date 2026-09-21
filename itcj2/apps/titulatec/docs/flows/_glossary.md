@@ -48,7 +48,7 @@ de la app `titulatec` que el rol tiene hoy en `core_role_permissions`.
 |---|---|---|---|
 | `graduate` (egresado, desde 2026-09-15) | **directa** en cada alta: `ImportService.import_rows` → `_sync_graduate_roles` (`services/import_service.py:81`) — CSV, alta manual, aprobación de bandeja y liga de activación son los cuatro caminos | 21 (+2 de `itcj`) | 👤 |
 | `student` (global — **ya NO** es el alumno de titulación) | rol de **AgendaTec**; `03_insert_role_permissions.sql` le revoca en cada corrida todo lo de `titulatec` que le quedara; `core_users.role_id` conserva el alias en filas viejas que no han pasado por el backfill | 0 | — |
-| `titulatec_school_services` | por puesto: `aux_school_services`, `secretary_school_services`. Es también el rol que reciben los **encargados** dados de alta desde la pestaña Encargados (`pages/officers.py:13`, `ROLE_ASSIGNED`) | 22 | 🏛️ |
+| `titulatec_school_services` | por puesto: `aux_school_services`, `secretary_school_services`. Es también el rol que reciben los **encargados** dados de alta desde la pestaña Encargados (`pages/officers.py:13`, `ROLE_ASSIGNED`) | 22 (verificado en BD, 2026-09-21 — el "22" que traía esta fila desde la auditoría de 2026-09-01 no correspondía a ningún estado real; sube a 22 justo el 2026-09-21 con los 3 `enrollment_request.*`, ver [xcut_public_enrollment.md](xcut_public_enrollment.md)) | 🏛️ |
 | `titulatec_school_services_head` | por puesto: `head_school_services` | 27 | 🏛️ |
 | `titulatec_titulaciones` | por puesto: **solo** `head_prof_studies_div` (2026-09-21: perdió `secretary_prof_studies_div`/`aux_prof_studies_div` en el deslinde a T-soft, D6/D7 — ese mapeo NO se revirtió, sigue siendo 1 fila) | 25 (2026-09-21: bajó a 12 con el recorte D6/D7 y el usuario REVIRTIÓ ese mismo día — reparto PLENO de nuevo: dictamen, ceremony y cohort incluidos) | 🎓 |
 | `titulatec_titulacion` (Departamento de Titulación, NUEVO 2026-09-21) | por puesto: `head_titulacion`, `aux_titulacion` (colgados de `prof_studies_div`, `04b_insert_titulacion_department.sql`; **nacen sin ocupantes**) | 22 | 🎓 |
@@ -145,6 +145,7 @@ Quién los tiene en BD hoy (los de puerta):
 | `process.api.read.all` (⇒ alcance `"ALL"`) | `titulatec_school_services_head`, `titulatec_titulaciones`, `titulatec_titulacion` |
 | `ceremony.page.list` | `titulatec_titulaciones`, `titulatec_titulacion` (2026-09-21: ya no es "solo" uno) |
 | `survey_review.page.list`, `survey_review.api.approve`, `survey_review.api.reject` | solo `titulatec_tech_management` (2026-09-15) |
+| `enrollment_request.page.list`, `enrollment_request.api.approve`, `enrollment_request.api.reject` | `titulatec_school_services_head` (jefatura, alcance `"ALL"`) y, desde 2026-09-21, también `titulatec_school_services` (operativo: secretaria, auxiliar y los `se_officer_*` de los encargados, acotados a su carrera) — ver [xcut_public_enrollment.md](xcut_public_enrollment.md) |
 
 > Authz en páginas: **todas** las rutas usan `require_page_app("titulatec", perms=[...])` (any-of, sin
 > bypass de admin). Ninguna usa `require_perms`. Reparto completo por rol en
