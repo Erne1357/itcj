@@ -484,14 +484,22 @@ def test_subprogreso_fase_2_solicitud_de_cambio_manda_sobre_el_estado(
 
 def test_subprogreso_fase_3_cuenta_los_pasos_del_formato_b(
     db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+    monkeypatch,
 ):
     """El paso se deriva de datos PROPIOS del alumno, no de los precargados.
 
     `FormatBService.get_or_create` precarga nombre, control, carrera y modalidad:
     si contaran, el paso 2 se veria completo desde el minuto cero.
+
+    Corte desactivado a proposito (arreglo A1, revision final 2026-09-21): con
+    el corte por defecto (fase 3) esta fase ya no pinta NINGUN sub-progreso
+    (ver `test_subprogreso_fase_3_no_se_pinta_con_el_corte_puesto`, mas abajo).
+    Este test sigue probando el CONTEO de pasos del Formato B, que solo se ve
+    donde el corte no aplica -- de ahi el `monkeypatch` a `_handoff_phase`.
     """
     from itcj2.apps.titulatec.models import FormatB
 
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
     seed_phase_defs()
     seed_document_types()
     proc = make_process(make_student(), current_phase=3)
@@ -512,9 +520,12 @@ def test_subprogreso_fase_3_cuenta_los_pasos_del_formato_b(
 
 def test_subprogreso_fase_3_enviado(
     db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+    monkeypatch,
 ):
+    """Corte desactivado a proposito -- mismo motivo que la prueba anterior."""
     from itcj2.apps.titulatec.models import FormatB
 
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
     seed_phase_defs()
     seed_document_types()
     proc = make_process(make_student(), current_phase=3)
@@ -527,6 +538,36 @@ def test_subprogreso_fase_3_enviado(
     assert prog["submitted"] is True
     assert prog["tone"] == "amber"
     assert "revisión" in prog["label"]
+
+
+def test_subprogreso_fase_3_no_se_pinta_con_el_corte_puesto(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Arreglo A1 (revision final 2026-09-21): la fase ACTUAL, cuando esta
+    congelada por el corte, no puede pintar su sub-progreso -- se
+    contradiria con el aviso de T-soft que sale al lado ("Paso 2 de 3" junto
+    a "esto ya no se opera aqui"). Verificado contra un proceso real de dev en
+    `current_phase=3`. Con el corte por DEFECTO (fase 3, sin monkeypatch):
+    misma fixture EXACTA que `test_subprogreso_fase_3_cuenta_los_pasos_del_formato_b`
+    (FormatB en 'draft', paso 2 de 3), pero aqui el sub-progreso debe desaparecer.
+    """
+    from itcj2.apps.titulatec.models import FormatB
+
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+    db_session.add(FormatB(process_id=proc.id, status="draft",
+                           first_name="ALUMNO", last_name="FICTICIO",
+                           program_id=None, titulation_type="Residencia",
+                           gender="female", age=23))
+    db_session.flush()
+
+    card = _card(_phases_ctx(db_session, proc), 3)
+
+    assert card["handoff"] is True, "fixture rota: la fase 3 deberia estar en el corte"
+    assert card["progress"] is None, (
+        "la fase actual congelada por el corte no debe pintar sub-progreso: "
+        "se contradice con el aviso de T-soft")
 
 
 def test_fase_futura_intacta_no_muestra_subprogreso_vacio(

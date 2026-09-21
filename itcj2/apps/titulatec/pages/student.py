@@ -530,7 +530,13 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
                                                       handoff (`_cta_for`)
         rejection_reason  str | None
         events            [{label, when}]   historial de ESTA fase
-        progress          dict | None       sub-progreso (fases 1, 2 y 3)
+        progress          dict | None       sub-progreso (fases 1, 2 y 3); tambien
+                                             None cuando `handoff` es True (arreglo
+                                             A1, revision final 2026-09-21) -- la
+                                             fase ACTUAL congelada por el corte no
+                                             puede pintar "Paso 2 de 3" o "Listo
+                                             para enviar" AL LADO del aviso de que
+                                             esta fase ya no se opera aqui
         survey            dict | None       SOLO en la card `review_appointment`
                                              (dict plano de `summary_for_process`
                                              + `url`, D3, spec §6.1)
@@ -636,8 +642,14 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         handoff = pd.number >= handoff_phase
 
         progress = progress_by_code.get(pd.code)
-        # Una fase futura que nadie ha tocado no muestra un sub-progreso vacío.
-        if progress and rel == "future" and not progress["started"]:
+        # Arreglo A1 (revision final 2026-09-21): la fase >= corte NUNCA pinta
+        # sub-progreso, ni siquiera la ACTUAL (`rel == "current"`) -- un
+        # Formato B a medias ("Paso 2 de 3") justo encima del aviso de que esa
+        # fase ya no se opera aqui es la contradiccion que este `if` cierra.
+        # Antes solo se anulaba en `rel == "future"`, que nunca cubria la
+        # propia fase congelada. Y, aparte del corte: una fase futura que
+        # nadie ha tocado tampoco muestra un sub-progreso vacío.
+        if progress and (handoff or (rel == "future" and not progress["started"])):
             progress = None
 
         cards.append(_base_card(
