@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
+from itcj2.apps.titulatec.services.format_b_service import FormatBService
 from itcj2.apps.titulatec.services.phase_service import PhaseService
 
 
@@ -98,6 +99,54 @@ class TestCorteDelAdmin:
 
         assert result == {"next_phase": 3, "completed": False}
         assert process.current_phase == 3
+
+
+# ──────────────── guarda del ADMIN en FormatBService.review ───────────────
+# Ronda de fix 2 (2026-09-21): `review` no pasaba por NINGUNA guarda -ni la
+# generica del admin-, solo por permiso y alcance por carrera. El hueco es
+# real por el mecanismo de REVERSION que esta misma feature documenta: subir
+# `TITULATEC_HANDOFF_PHASE` a 9, dejar pasar un envio a `submitted`, y volver
+# a bajarlo a 3 dejaba ese Formato B aprobable/rechazable para siempre pese
+# al corte -el corte dejaba de ser cierto justo por el camino que
+# documentamos para desactivarlo-.
+
+class TestCorteEnFormatBReview:
+    @staticmethod
+    def _fb_submitted(db, process):
+        from itcj2.apps.titulatec.models import FormatB
+        fb = FormatB(process_id=process.id, status="submitted")
+        db.add(fb)
+        db.flush()
+        return fb
+
+    def test_el_admin_no_puede_dictaminar_el_formato_b_con_el_corte_puesto(
+        self, db_session, seed_phase_defs, make_student, make_process, revisor,
+    ):
+        seed_phase_defs()
+        process = make_process(make_student(), current_phase=3)
+        fb = self._fb_submitted(db_session, process)
+
+        with pytest.raises(ValueError) as exc:
+            FormatBService.review(db_session, fb, process, status="approved",
+                                  note=None, reviewer_id=revisor.id)
+
+        assert str(exc.value) == PhaseService.HANDOFF_MSG
+        assert fb.status == "submitted", "el corte debe bloquear ANTES de escribir"
+
+    def test_con_el_corte_en_9_el_dictamen_del_formato_b_si_pasa(
+        self, db_session, seed_phase_defs, make_student, make_process, revisor,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+        seed_phase_defs()
+        process = make_process(make_student(), current_phase=3)
+        fb = self._fb_submitted(db_session, process)
+
+        FormatBService.review(db_session, fb, process, status="approved",
+                              note=None, reviewer_id=revisor.id)
+
+        assert fb.status == "approved"
+        assert fb.approved_by_id == revisor.id
 
 
 # ─────────────────────────── mensaje del corte ────────────────────────────

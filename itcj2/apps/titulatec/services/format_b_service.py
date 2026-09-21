@@ -121,8 +121,31 @@ class FormatBService:
         db.commit()
 
     @staticmethod
-    def review(db: Session, fb, *, status: str, note: str | None, reviewer_id: int) -> None:
-        """Aprueba o rechaza el Formato B (status 'approved'|'rejected')."""
+    def review(db: Session, fb, process, *, status: str, note: str | None, reviewer_id: int) -> None:
+        """Aprueba o rechaza el Formato B (status 'approved'|'rejected').
+
+        **Guarda propia, no solo en la ruta.** Gemela de la de `submit`, pero del
+        lado del ADMIN: `assert_can_transition` (dictamen), no
+        `assert_student_can_act` (ejecución). Faltaba -la ruta solo validaba
+        permiso y alcance por carrera- y el hueco es real aunque hoy el Formato B
+        nunca llegue a `submitted` con el corte puesto (porque `submit` sí está
+        guardado y los botones no se pintan): el mecanismo de REVERSIÓN que esta
+        misma feature documenta (subir `TITULATEC_HANDOFF_PHASE` a 9, dejar
+        pasar un envío, volver a bajarlo a 3) deja un Formato B en `submitted`
+        que después queda aprobable/rechazable para siempre pese al corte. Sin
+        esta guarda, el corte dejaría de ser cierto justo por el camino que
+        documentamos para desactivarlo.
+
+        `process` es parámetro nuevo (antes solo recibía `fb`), igual que le pasó
+        a `submit`: la guarda necesita `current_phase` y `status`, que viven en
+        el proceso. El número de fase sale del CATÁLOGO (`format_b`), no de un
+        literal `3`, por el mismo motivo que en `submit`.
+        """
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        n = PhaseService.phase_number_for_code(db, "format_b")
+        PhaseService.assert_can_transition(db, process, n)
+
         from datetime import datetime
         fb.status = status
         if status == "approved":

@@ -1535,10 +1535,14 @@ async def fb_review(
     status = "approved" if action == "approve" else "rejected"
     db = SessionLocal()
     try:
-        assert_process_in_scope(db, int(user["sub"]), process_id)
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
         fb = db.get(FormatB, process_id)
         if fb:
-            FormatBService.review(db, fb, status=status, note=note, reviewer_id=int(user["sub"]))
+            try:
+                FormatBService.review(db, fb, proc, status=status, note=note,
+                                      reviewer_id=int(user["sub"]))
+            except ValueError as exc:
+                return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         return _render_detail_body(request, db, process_id, int(user["sub"]))
     finally:
         db.close()
