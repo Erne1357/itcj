@@ -44,6 +44,29 @@ _VARS = {
     "scope": _scope,
 }
 
+# ---------------------------------------------------------------------------
+# OpenTelemetry: import resuelto UNA vez al cargar el módulo
+# ---------------------------------------------------------------------------
+# TRAMPA MEDIDA (review de Task 2, ronda 1): Python cachea un import que
+# CARGA en `sys.modules`, pero NO cachea uno que falla — cada intento repite
+# los path finders (un `stat` por entrada de `sys.path`) y toma el import
+# lock. Medido en el contenedor de dev intentando `from opentelemetry import
+# trace` en cada llamada: 793.85 us/llamada contra 0.030 us/llamada de
+# `current_request_id()` (~26 000x). `current_trace_id()` está en el camino
+# caliente de la Fase 1b/1c: el middleware de Task 3 lo toca en cada
+# petición y el filtro de logging de Task 4 en cada línea de log (incluso
+# desde hilos del threadpool de anyio, compitiendo por el import lock entre
+# ellos). Por eso el intento se hace una sola vez aquí, al importar este
+# módulo — el resultado (instalado o no) no cambia en caliente dentro de un
+# mismo proceso — y los tests que ejercitan la rama OTel parchean este
+# atributo de módulo (`context._otel_trace`) en vez de `sys.modules`: una vez
+# que el import ya corrió al cargar el módulo, tocar `sys.modules` después no
+# tiene ningún efecto sobre `current_trace_id()`.
+try:
+    from opentelemetry import trace as _otel_trace
+except ImportError:
+    _otel_trace = None
+
 
 def new_ids() -> tuple[str, str]:
     """Genera un par `(trace_id, span_id)` nuevo con forma W3C.
@@ -129,15 +152,12 @@ def current_trace_id() -> str:
     válido en curso — esto es lo que hace que la Fase 7 (OTel real) sea un
     drop-in: el logging y las métricas ya leen de aquí sin cambiar una línea
     cuando el SDK entre. Hoy el SDK no está instalado (no está en
-    requirements.txt), así que siempre cae al ContextVar que puebla `bind()`.
+    requirements.txt), así que `_otel_trace` es `None` (resuelto una sola vez
+    al importar el módulo, ver arriba) y siempre cae al ContextVar que puebla
+    `bind()`.
     """
-    try:
-        from opentelemetry import trace as otel_trace
-    except ImportError:
-        otel_trace = None
-
-    if otel_trace is not None:
-        span_context = otel_trace.get_current_span().get_span_context()
+    if _otel_trace is not None:
+        span_context = _otel_trace.get_current_span().get_span_context()
         if span_context.is_valid:
             return format(span_context.trace_id, "032x")
 

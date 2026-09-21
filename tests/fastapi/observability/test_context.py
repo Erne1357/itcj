@@ -6,7 +6,6 @@ No dependen de BD ni de datos sembrados (corren igual en la base vacía de CI):
 son primitivas puras de contextvars/threading/regex.
 """
 import re
-import sys
 import threading
 from asyncio import gather, run as asyncio_run, sleep
 
@@ -128,12 +127,12 @@ def test_restore_tolerates_partial_snapshot():
 # ---------------------------------------------------------------------------
 
 def test_current_trace_id_falls_back_to_contextvar_without_otel(monkeypatch):
-    # `None` en sys.modules es el truco estándar para forzar ImportError sin
-    # tocar sys.path: hace determinista la rama "OTel no instalado" sin
-    # depender de que el sandbox de verdad no lo tenga instalado (aunque hoy
-    # no lo tiene: no está en requirements.txt).
-    monkeypatch.setitem(sys.modules, "opentelemetry", None)
-    monkeypatch.setitem(sys.modules, "opentelemetry.trace", None)
+    # El import de OTel se resuelve UNA vez al cargar el módulo, no en cada
+    # llamada a current_trace_id() (fix de review T2 R0: un import fallido no
+    # se cachea en sys.modules y repetirlo en cada llamada costaba ~800
+    # us/llamada). Por eso ya no sirve forzar ImportError vía sys.modules:
+    # hay que parchear directo el atributo cacheado.
+    monkeypatch.setattr(context, "_otel_trace", None)
 
     tokens = context.bind(trace_id="3" * 32)
     try:
@@ -158,16 +157,11 @@ def test_current_trace_id_prefers_valid_otel_span(monkeypatch):
         def get_current_span():
             return _FakeSpan()
 
-    fake_pkg = type(sys)("opentelemetry")
-    # Se fija el atributo `trace` a mano en vez de confiar en que
-    # `sys.modules["opentelemetry.trace"]` baste: el import real solo cuelga
-    # el submódulo del paquete padre cuando lo carga de cero (en
-    # `_find_and_load_unlocked`); como aquí se precarga ya "cacheado", ese
-    # paso no corre y `from opentelemetry import trace` fallaría con
-    # ImportError si no se hace explícito.
-    fake_pkg.trace = _FakeTraceModule
-    monkeypatch.setitem(sys.modules, "opentelemetry", fake_pkg)
-    monkeypatch.setitem(sys.modules, "opentelemetry.trace", _FakeTraceModule)
+    # Mismo motivo que en el test anterior: `_otel_trace` ya está resuelto
+    # al importar el módulo, así que se parchea directo en vez de simular el
+    # import vía sys.modules (que ya no tiene ningún efecto en
+    # current_trace_id()).
+    monkeypatch.setattr(context, "_otel_trace", _FakeTraceModule)
 
     tokens = context.bind(trace_id="5" * 32)
     try:
