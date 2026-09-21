@@ -178,7 +178,15 @@ class Settings(BaseSettings):
     # las dos huérfanas desde que ese campo se eliminó del HTML. Sin el bump,
     # quien ya tenía la hoja en caché conserva reglas muertas que no hacen daño
     # hoy pero confunden al próximo diff.
-    STATIC_VERSION: str = "1.0.1111558"
+    #
+    # Bump 2026-09-21 (5): arregla el desalineamiento de Carrera/Número de
+    # control en `.tt-enroll-row--pair` (`public.css`, sección 5). Convierte
+    # esa fila en subgrid de 4 pistas -etiqueta/aviso/campo/error- con
+    # colocación explícita por hijo, para que un aviso (`.tt-hint`) en una
+    # sola celda ya no empuje su campo una pista más abajo que el de la celda
+    # vecina. Solo CSS, sin cambios de HTML. Sin el bump, quien ya tenía la
+    # hoja en caché sigue viendo el `<select>` de Carrera desalineado.
+    STATIC_VERSION: str = "1.0.1111560"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

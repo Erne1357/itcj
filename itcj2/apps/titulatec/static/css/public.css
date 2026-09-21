@@ -1087,12 +1087,60 @@
 .tt-enroll-cell { min-width: 0; }
 
 /* Dos campos cortos por renglón en cuanto la tarjeta da 30rem. Debajo de eso
-   (móvil, y el panel lateral comiéndose el ancho) cada campo va solo. */
+   (móvil, y el panel lateral comiéndose el ancho) cada campo va solo, apilado
+   en flujo normal -sin subgrid-: ahí SÍ importa `gap` como espacio vertical
+   entre las dos celdas, y se deja tal cual en la regla base de arriba.
+
+   A partir de 30rem las celdas comparten fila, y ahí vivía el defecto (2026-
+   09-21): cada celda apilaba sus hijos por su cuenta, así que un aviso
+   (`.tt-hint`) en una sola celda -Carrera- empujaba su campo una pista hacia
+   abajo mientras el campo vecino -Número de control, sin aviso- se quedaba
+   arriba. Arreglo GENERAL, no un parche solo para Carrera: la fila declara 4
+   pistas -etiqueta / aviso / campo / error- y cada celda las hereda con
+   `grid-template-rows: subgrid`, ocupándolas TODAS (`grid-row: 1 / 5`) aunque
+   no use alguna. Sin la colocación explícita de los hijos (bloque 6), una
+   celda sin aviso metería su campo en la pista 2 -la del aviso- y quedaría
+   peor que antes. Una celda sin contenido en una pista deja ahí un hueco en
+   blanco del alto que le impone esa pista -fijado por la OTRA celda, ya que
+   el tamaño de una pista de grid es compartido por todas las columnas-, y ese
+   hueco es lo que alinea su campo a la misma Y que el campo vecino: es el
+   mecanismo, no un efecto secundario. Mismo montaje para el caso con error en
+   una sola celda: la pista 4 se dimensiona por la que sí tiene `.tt-err`, así
+   que la fila entera queda del mismo alto y no se descuadra.
+
+   `column-gap`/`row-gap` por separado a propósito, ya no el `gap` de una sola
+   pieza que traía esta regla: el espaciado entre etiqueta/aviso/campo/error
+   ya lo ponen los márgenes de esos elementos (bloque 6); un `row-gap` mayor a
+   0 se sumaría encima en CADA pista -incluida una vacía, el `gap` de grid NO
+   colapsa por falta de contenido- y ensancharía hasta las filas que nunca
+   tuvieron aviso ni error (Apellido paterno/materno, Teléfono/Correo). El
+   `column-gap` sigue en sp-4 -mismo valor que el `gap` de antes-, y es el
+   único que se ve hoy: una sola fila de celdas, nunca hay envoltura vertical
+   real entre ellas. */
 @container tt-enroll (min-width: 30rem) {
   .tt-enroll-row--pair {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--tt-sp-4);
+    grid-template-rows: repeat(4, auto);
+    column-gap: var(--tt-sp-4);
+    row-gap: 0;
   }
+  /* `minmax(0, 1fr)`: mismo motivo que el `<fieldset>` de arriba (bloque 4) y
+     que la propia rejilla de columnas -sin el `0`, el `<select>` de Carrera
+     con una opción larga podría imponer su min-content y ensanchar la
+     celda. */
+  .tt-enroll-row--pair > .tt-enroll-cell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: subgrid;
+    grid-row: 1 / 5;
+  }
+  /* Pistas explícitas: 1 etiqueta, 2 aviso, 3 campo, 4 error. `.tt-field` es
+     tanto `<input>` como `<select>` (bloque 6); da igual cuál sea, es la
+     misma pista. */
+  .tt-enroll-row--pair > .tt-enroll-cell > .tt-label { grid-row: 1; }
+  .tt-enroll-row--pair > .tt-enroll-cell > .tt-hint  { grid-row: 2; }
+  .tt-enroll-row--pair > .tt-enroll-cell > .tt-field { grid-row: 3; }
+  .tt-enroll-row--pair > .tt-enroll-cell > .tt-err   { grid-row: 4; }
 }
 
 /* ---- 6. Etiquetas, campos y errores --------------------------------------- */
