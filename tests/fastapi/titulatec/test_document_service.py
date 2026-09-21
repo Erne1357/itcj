@@ -12,6 +12,13 @@ class TestReview:
     def test_rechazo_notifica_al_alumno(self, mock_notify):
         db = MagicMock()
         db.get.return_value = SimpleNamespace(student_id=7)
+        # `review()` ahora TAMBIEN consulta `DocumentType` para la guarda angosta
+        # del corte a T-soft (Tarea 2, Ronda 3): sin configurar esto, el
+        # `MagicMock` sin resolver revienta `dtype.phase_number >= _handoff_phase()`
+        # (`>=` entre MagicMock e int). `curp` es fase 1 de verdad en el catalogo
+        # real, asi que esto no cambia lo que el test prueba (notificacion).
+        db.query.return_value.filter_by.return_value.first.return_value = \
+            SimpleNamespace(phase_number=1)
 
         ok = DocumentService.review(db, process_id=1, type_code="curp",
                                     status="rejected", note="Ilegible", reviewer_id=200)
@@ -26,6 +33,11 @@ class TestReview:
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
     def test_aprobacion_no_notifica(self, mock_notify):
         db = MagicMock()
+        # Mismo motivo que en `test_rechazo_notifica_al_alumno`: la guarda angosta
+        # del corte a T-soft consulta `DocumentType.phase_number`.
+        db.query.return_value.filter_by.return_value.first.return_value = \
+            SimpleNamespace(phase_number=1)
+
         ok = DocumentService.review(db, process_id=1, type_code="curp",
                                     status="approved", note=None, reviewer_id=200)
         assert ok is True

@@ -193,10 +193,39 @@ class DocumentService:
 
     @staticmethod
     def review(db: Session, process_id: int, type_code: str, *, status: str, note: str | None, reviewer_id: int) -> bool:
-        """Aprueba o rechaza un documento (status 'approved'|'rejected')."""
+        """Aprueba o rechaza un documento (status 'approved'|'rejected').
+
+        **Guarda angosta a propósito -- NO es la gemela de
+        `FormatBService.review`.** Esa usa `PhaseService.assert_can_transition`,
+        que exige `phase_number == process.current_phase`: aquí eso ROMPERÍA un
+        flujo legítimo que hoy funciona y es el uso normal de esta ruta, no una
+        excepción -- el dictamen TARDÍO. Revisar hoy un acta de la fase 1 con el
+        proceso ya en la fase 2 (o más adelante) es el caso de uso real de
+        "Documentos" (bandeja de rezagados); `DocumentService.save` ya trata la
+        fase del documento como la del TIPO (`dtype.phase_number`), no la del
+        proceso, y esta guarda respeta la misma idea.
+
+        Lo único que el corte a T-soft (spec 2026-09-21,
+        `PhaseService._handoff_phase`) tiene que impedir es dictaminar un
+        documento cuyo TIPO pertenece a una fase ya congelada
+        (`dtype.phase_number >= _handoff_phase()`): las fases 1 y 2 se siguen
+        dictaminando sin condición, tarde o no, mientras el corte no las
+        alcance -- por debajo del corte el comportamiento de hoy no cambia ni
+        un ápice. `dtype.phase_number` es nullable; un tipo sin fase no entra
+        en esta cuenta (no hay corte que aplicarle).
+        """
+        from itcj2.apps.titulatec.models import DocumentType
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
         doc = DocumentService.get_document(db, process_id, type_code)
         if not doc:
             return False
+
+        dtype = db.query(DocumentType).filter_by(code=type_code).first()
+        if (dtype is not None and dtype.phase_number is not None
+                and dtype.phase_number >= PhaseService._handoff_phase()):
+            raise ValueError(PhaseService.HANDOFF_MSG)
+
         doc.review_status = status
         doc.review_note = note or None
         doc.reviewed_by_id = reviewer_id

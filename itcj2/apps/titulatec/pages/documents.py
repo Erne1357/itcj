@@ -175,8 +175,13 @@ async def review(process_id: int, request: Request,
         # El guard sustituye al `db.get` de mas abajo: dictaminar y, peor, auto-avanzar
         # la fase de un proceso de otra carrera pasaba sin que nada lo mirara.
         proc = assert_process_in_scope(db, int(user["sub"]), process_id)
-        DocumentService.review(db, process_id, type_code, status=new_status, note=note,
-                               reviewer_id=int(user["sub"]))
+        try:
+            DocumentService.review(db, process_id, type_code, status=new_status, note=note,
+                                   reviewer_id=int(user["sub"]))
+        except ValueError as exc:
+            # `PhaseService.HANDOFF_MSG` es ASCII puro (test dedicado en
+            # `phase_service`): no hace falta el `_hdr()` de otros archivos.
+            return Response(status_code=400, headers={"X-Tt-Error": str(exc)})
         # El auto-avance pasa por la MISMA guarda que el botón manual: `can_transition`
         # incluye `current_phase == 1` y además exige `status == 'active'`, que este
         # camino no miraba (dictaminar un doc empujaba de fase a un proceso cancelado).

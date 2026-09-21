@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
+from itcj2.apps.titulatec.services.document_service import DocumentService
 from itcj2.apps.titulatec.services.format_b_service import FormatBService
 from itcj2.apps.titulatec.services.phase_service import PhaseService
 
@@ -147,6 +148,73 @@ class TestCorteEnFormatBReview:
 
         assert fb.status == "approved"
         assert fb.approved_by_id == revisor.id
+
+
+# ────────────── guarda ANGOSTA en DocumentService.review ──────────────────
+# Ronda de fix 3 (2026-09-21): mismo hueco que `FormatBService.review` tenia
+# (cero guarda; `pages/documents.py::review` solo validaba permiso y alcance
+# por carrera), pero el arreglo NO es la misma guarda. `assert_can_transition`
+# exige `phase_number == process.current_phase`, y en documentos eso
+# ROMPERIA el dictamen TARDIO -revisar hoy un documento de una fase que el
+# proceso ya dejo atras es el uso normal de esta bandeja, no una excepcion
+# ("`DocumentService.save` ya trata la fase del documento como la del TIPO,
+# no la del proceso"). La guarda aqui es minima: solo mira si el TIPO del
+# documento (`dtype.phase_number`) cayo dentro del corte, sin importar en
+# que fase vaya el proceso.
+
+class TestCorteEnDocumentServiceReview:
+    def test_no_se_dictamina_un_documento_de_tipo_congelado_con_el_corte_puesto(
+        self, db_session, seed_phase_defs, seed_document_types, make_student,
+        make_process, make_document, revisor,
+    ):
+        """`anexo_iii` es de la fase 6 (>= corte=3): bloqueado.
+
+        `current_phase=1` aqui es DELIBERADO, no un descuido: esta guarda no
+        mira `current_phase` en absoluto, solo el tipo del documento -- por
+        eso bloquea igual aunque el proceso ni siquiera haya llegado ahi.
+        """
+        seed_phase_defs()
+        seed_document_types([("anexo_iii", "Anexo III firmado", 6)])
+        process = make_process(make_student(), current_phase=1)
+        doc = make_document(process, type_code="anexo_iii", phase_number=6,
+                            review_status="pending")
+
+        with pytest.raises(ValueError) as exc:
+            DocumentService.review(db_session, process.id, "anexo_iii",
+                                   status="approved", note=None,
+                                   reviewer_id=revisor.id)
+
+        assert str(exc.value) == PhaseService.HANDOFF_MSG
+        assert doc.review_status == "pending", "el corte debe bloquear ANTES de escribir"
+
+    def test_un_documento_de_fase_1_se_dictamina_tarde_con_el_corte_puesto(
+        self, db_session, seed_phase_defs, seed_document_types, make_student,
+        make_process, make_document, revisor,
+    ):
+        """EL TEST IMPORTANTE: fija el dictamen TARDIO como comportamiento
+
+        deseado, no un hueco a cerrar. El documento es de la fase 1 pero el
+        proceso YA avanzo a la fase 2 -- exactamente el caso real de la
+        bandeja de Documentos (rezagados) que `DocumentService.review` tiene
+        que seguir sirviendo sin condicion, con el corte puesto o no.
+
+        Si alguien mas adelante "endurece" esta guarda para que tambien exija
+        `phase_number == process.current_phase` (como
+        `FormatBService.review`), ESTE test se pone en rojo y avisa: seria
+        romper el dictamen tardio, no una mejora de seguridad.
+        """
+        seed_phase_defs()
+        seed_document_types()  # los 3 de la fase 1 por defecto
+        process = make_process(make_student(), current_phase=2)  # YA avanzo
+        doc = make_document(process, type_code="curp", phase_number=1,
+                            review_status="pending")
+
+        ok = DocumentService.review(db_session, process.id, "curp",
+                                    status="approved", note=None,
+                                    reviewer_id=revisor.id)
+
+        assert ok is True
+        assert doc.review_status == "approved"
 
 
 # ─────────────────────────── mensaje del corte ────────────────────────────
