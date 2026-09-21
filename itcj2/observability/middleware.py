@@ -19,7 +19,7 @@ lo ve nunca. De ahí el `except BaseException` explícito.
 """
 import logging
 import secrets
-from time import perf_counter
+from time import monotonic, perf_counter
 
 from starlette.datastructures import MutableHeaders
 
@@ -35,6 +35,30 @@ from itcj2.observability.route import UNMATCHED, app_key_from_route, normalize_r
 # Nombre fijo y no `__name__`: es el contrato con la configuración de logs
 # (nivel y handler propios) y con las consultas de Loki sobre la línea-resumen.
 access_logger = logging.getLogger("itcj2.access")
+logger = logging.getLogger("itcj2.observability")
+
+# R27: una escritura de métrica que lanza (mmap que no se pudo crear o crecer)
+# no rompe ni silencia la petición: se atrapa y se avisa. Con límite de
+# frecuencia porque si el directorio se rompe falla CADA petición, y un
+# traceback por petición inundaría Loki; uno por minuto basta para enterarse.
+# (El tmpfs LLENO es SIGBUS y no llega aquí: lo ataja R25.)
+_METRICS_FAILURE_LOG_INTERVAL = 60.0
+_last_metrics_failure_log = float("-inf")
+
+
+def _report_metrics_failure(where: str) -> None:
+    """Llamar SOLO desde un `except`: `logger.exception` toma la excepción en
+    curso. Corre en el event loop (un solo hilo): sin candado."""
+    global _last_metrics_failure_log
+    now = monotonic()
+    if now - _last_metrics_failure_log < _METRICS_FAILURE_LOG_INTERVAL:
+        return
+    _last_metrics_failure_log = now
+    logger.exception(
+        "métricas HTTP: fallo al actualizar (%s); la petición sigue sin ellas "
+        "(siguiente aviso en %.0f s como mínimo)",
+        where, _METRICS_FAILURE_LOG_INTERVAL,
+    )
 
 # El healthcheck de Docker pega a /ready cada 5 s en tres contenedores y
 # Prometheus a /metrics en cada scrape: medirlos solo sería ruido en Loki y
@@ -144,9 +168,16 @@ class ObservabilityMiddleware:
         # cerrado de valores (app_key_from_route solo devuelve claves conocidas
         # u "otro"), así que no abre cardinalidad; la diferencia es que un 404
         # bajo /api/help-desk/ cuenta aquí como helpdesk y en el contador
-        # como "otro". Se guarda el hijo para decrementar el MISMO que se sumó.
-        in_flight = HTTP_IN_FLIGHT.labels(app=app_key_from_route(scope["path"]))
-        in_flight.inc()
+        # como "otro". Se guarda el hijo para decrementar el MISMO que se sumó,
+        # y solo si el `inc()` se hizo: un `dec()` sin su `inc()` dejaría el
+        # gauge en negativo para siempre.
+        in_flight = None
+        try:
+            child = HTTP_IN_FLIGHT.labels(app=app_key_from_route(scope["path"]))
+            child.inc()
+            in_flight = child
+        except Exception:
+            _report_metrics_failure("in_flight.inc")
         start = perf_counter()
         try:
             await self.app(scope, receive, send_wrapper)
@@ -159,41 +190,58 @@ class ObservabilityMiddleware:
             # global) lo sigue emitiendo ServerErrorMiddleware, por fuera.
             raise
         finally:
+            # Nada de este `finally` puede lanzar (R27): una excepción aquí
+            # se comería la línea de access, dejaría los ContextVars puestos
+            # y, en el camino de excepción, TAPARÍA la excepción real del
+            # endpoint en lo que loguea ServerErrorMiddleware.
             duration = perf_counter() - start
-            in_flight.dec()
             if status is None:
                 # R19: la app terminó sin http.response.start y sin lanzar.
                 # Uvicorn responde entonces con su propio 500 ("ASGI callable
                 # returned without starting response"): eso vio el cliente.
                 status = 500
-            # Starlette rellena scope["route"] EN SITIO al enrutar, así que
-            # aquí ya está, también cuando el endpoint reventó.
-            route = normalize_route(scope)
-            app = app_key_from_route(route)
             method = scope["method"]
-            metric_route, metric_method = _metric_route_method(route, method, status)
-            # De la ruta de la MÉTRICA: un 405 cuenta como "otro", igual que
-            # un 404 ("__unmatched__" -> "otro" es el contrato).
-            metric_app = app_key_from_route(metric_route)
-            HTTP_REQUESTS.labels(
-                app=metric_app, method=metric_method, route=metric_route,
-                status=str(status),
-            ).inc()
-            HTTP_REQUEST_DURATION.labels(
-                app=metric_app, method=metric_method, route=metric_route
-            ).observe(duration)
-            if exc_type is not None:
-                HTTP_EXCEPTIONS.labels(
-                    app=metric_app, route=metric_route, exc_type=exc_type
+            try:
+                # Starlette rellena scope["route"] EN SITIO al enrutar, así
+                # que aquí ya está, también cuando el endpoint reventó.
+                route = normalize_route(scope)
+            except Exception:
+                route = UNMATCHED
+                _report_metrics_failure("normalize_route")
+            app = app_key_from_route(route)
+            try:
+                if in_flight is not None:
+                    in_flight.dec()
+                metric_route, metric_method = _metric_route_method(route, method, status)
+                # De la ruta de la MÉTRICA: un 405 cuenta como "otro", igual
+                # que un 404 ("__unmatched__" -> "otro" es el contrato).
+                metric_app = app_key_from_route(metric_route)
+                HTTP_REQUESTS.labels(
+                    app=metric_app, method=metric_method, route=metric_route,
+                    status=str(status),
                 ).inc()
-            _log_summary(
-                method, route, app, status, duration,
-                user_id_from_scope(scope), exc_type,
-            )
-            # R4: sin reset en el camino de excepción, para que el
-            # logger.exception del handler global (ServerErrorMiddleware, por
-            # fuera) y el log de error de uvicorn lleven el request_id de la
-            # petición que falló. Uvicorn corre cada petición en su propia
-            # Task, así que el contexto no se hereda a la siguiente.
-            if exc_type is None:
-                reset(tokens)
+                HTTP_REQUEST_DURATION.labels(
+                    app=metric_app, method=metric_method, route=metric_route
+                ).observe(duration)
+                if exc_type is not None:
+                    HTTP_EXCEPTIONS.labels(
+                        app=metric_app, route=metric_route, exc_type=exc_type
+                    ).inc()
+            except Exception:
+                _report_metrics_failure("RED")
+            # La línea y el reset FUERA de la guarda de métricas: se emiten
+            # aunque las métricas hayan fallado.
+            try:
+                _log_summary(
+                    method, route, app, status, duration,
+                    user_id_from_scope(scope), exc_type,
+                )
+            finally:
+                # R4: sin reset en el camino de excepción, para que el
+                # logger.exception del handler global (ServerErrorMiddleware,
+                # por fuera) y el log de error de uvicorn lleven el
+                # request_id de la petición que falló. Uvicorn corre cada
+                # petición en su propia Task, así que el contexto no se
+                # hereda a la siguiente.
+                if exc_type is None:
+                    reset(tokens)

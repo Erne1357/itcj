@@ -311,3 +311,112 @@ def test_app_returning_without_response_counts_as_500():
     assert _value(REQUESTS, labels) - before == 1
     # Sin excepción no hay `exc_type` que contar.
     assert _family_total(EXCEPTIONS) == exceptions_before
+
+
+# ---------------------------------------------------------------------------
+# R27: la observabilidad nunca rompe ni silencia una petición
+# ---------------------------------------------------------------------------
+# Una escritura de métrica que lanza (mmap que no se puede crear o crecer)
+# no puede convertir la petición en 500, ni comerse la línea de access, ni
+# tapar la excepción real del endpoint. (El tmpfs LLENO es SIGBUS y no se
+# atrapa: eso lo ataja R25 con el tamaño y la alerta.)
+
+class _MetricsWriteError(OSError):
+    """Nombre propio: si aparece en vez de la del endpoint, se tapó la real."""
+
+
+def _access_records(caplog) -> list:
+    return [r for r in caplog.records if r.name == "itcj2.access"]
+
+
+@pytest.fixture()
+def fresh_failure_log(monkeypatch):
+    # El log de fallo de métricas va con límite de frecuencia: cada test
+    # arranca con la ventana abierta para poder verlo.
+    from itcj2.observability import middleware
+
+    monkeypatch.setattr(middleware, "_last_metrics_failure_log", float("-inf"))
+
+
+def test_counter_write_failure_keeps_the_response_and_the_access_line(
+    client, caplog, fresh_failure_log
+):
+    from itcj2.observability.metrics import HTTP_REQUESTS
+
+    with patch.object(
+        HTTP_REQUESTS, "labels", side_effect=_MetricsWriteError("mmap (simulado)")
+    ), caplog.at_level(logging.INFO, logger="itcj2"):
+        resp = client.get(f"{PREFIX}/items/7")
+
+    assert resp.status_code == 200
+    assert len(resp.headers["x-request-id"]) == 32
+    [access] = _access_records(caplog)
+    assert (access.route, access.status) == (ITEM_TEMPLATE, 200)
+    errors = [r for r in caplog.records if r.name == "itcj2.observability"]
+    assert errors and errors[0].exc_info[0] is _MetricsWriteError
+
+
+def test_in_flight_failure_keeps_the_response_and_the_access_line(
+    client, caplog, fresh_failure_log
+):
+    from itcj2.observability.metrics import HTTP_IN_FLIGHT
+
+    with patch.object(
+        HTTP_IN_FLIGHT, "labels", side_effect=_MetricsWriteError("mmap (simulado)")
+    ), caplog.at_level(logging.INFO, logger="itcj2.access"):
+        resp = client.get(f"{PREFIX}/items/7")
+
+    assert resp.status_code == 200
+    assert len(resp.headers["x-request-id"]) == 32
+    assert len(_access_records(caplog)) == 1
+
+
+def test_failed_in_flight_inc_is_never_decremented(client, fresh_failure_log):
+    # Si el `inc()` no se hizo, un `dec()` dejaría el gauge en -1 para siempre.
+    from unittest.mock import MagicMock
+
+    from itcj2.observability.metrics import HTTP_IN_FLIGHT
+
+    child = MagicMock()
+    child.inc.side_effect = _MetricsWriteError("mmap (simulado)")
+    with patch.object(HTTP_IN_FLIGHT, "labels", return_value=child):
+        resp = client.get(f"{PREFIX}/items/7")
+
+    assert resp.status_code == 200
+    child.dec.assert_not_called()
+
+
+def test_metrics_failure_on_the_exception_path_keeps_the_original_exception(
+    caplog, fresh_failure_log
+):
+    # raise_server_exceptions=True: ServerErrorMiddleware re-lanza lo que le
+    # llegó, así que el TestClient entrega EXACTAMENTE la excepción que vio el
+    # handler global. Tiene que ser la del endpoint, no la de la métrica.
+    from itcj2.observability.metrics import HTTP_REQUESTS
+
+    with patch("itcj2.middleware._JWT_SECRET", TEST_SECRET), \
+            TestClient(_build_app(), raise_server_exceptions=True) as raising, \
+            patch.object(
+                HTTP_REQUESTS, "labels",
+                side_effect=_MetricsWriteError("mmap (simulado)"),
+            ), caplog.at_level(logging.INFO, logger="itcj2.access"), \
+            pytest.raises(RedProbeError):
+        raising.get(f"{PREFIX}/items/7/boom")
+
+    [access] = _access_records(caplog)
+    assert (access.status, access.exc_type) == (500, "RedProbeError")
+
+
+def test_metrics_failure_log_is_rate_limited(client, caplog, fresh_failure_log):
+    # Con el directorio roto fallaría CADA petición: un traceback por petición
+    # inundaría Loki. Uno por ventana basta para enterarse.
+    from itcj2.observability.metrics import HTTP_REQUESTS
+
+    with patch.object(
+        HTTP_REQUESTS, "labels", side_effect=_MetricsWriteError("mmap (simulado)")
+    ), caplog.at_level(logging.ERROR, logger="itcj2.observability"):
+        for _ in range(3):
+            assert client.get(f"{PREFIX}/items/7").status_code == 200
+
+    errors = [r for r in caplog.records if r.name == "itcj2.observability"]
+    assert len(errors) == 1
