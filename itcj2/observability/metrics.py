@@ -223,6 +223,18 @@ def register_scrape_collector(collector) -> None:
     _scrape_collectors.append(collector)
 
 
+# Presencia y conexiones de socket (Task 8): el colector se registra SIEMPRE,
+# en cualquier rol — el filtro `APP_ROLE in ("socket", "all")` vive DENTRO de
+# `PresenceCollector.collect()`, comprobado en cada scrape (ver
+# presence.py), no aquí. Si se condicionara el alta al rol de ESTE import
+# (como `_WRITE_ONLY` en `sockets/server.py`), un worker `http` jamás lo
+# tendría en `_scrape_collectors` y ningún test podría simular
+# `APP_ROLE=socket` con un `monkeypatch`: haría falta relanzar el proceso.
+from itcj2.observability.presence import PresenceCollector  # noqa: E402
+
+register_scrape_collector(PresenceCollector())
+
+
 class _ScrapeView:
     """Lo que `generate_latest` recorre: la base más los colectores extra."""
 
