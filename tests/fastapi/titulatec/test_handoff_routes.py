@@ -288,3 +288,37 @@ def test_liberados_aparece_en_el_menu_solo_con_el_permiso(client_as, make_head):
     assert con_permiso.status_code == 200, con_permiso.text[:500]
     assert "/titulatec/admin/liberados" in con_permiso.text
     assert "Liberados" in con_permiso.text
+
+
+# ---------------------------------------------------------------------------
+# Boton "Exportar CSV": solo para quien puede usarlo (arreglo A5)
+# ---------------------------------------------------------------------------
+def test_el_boton_de_exportar_no_se_pinta_sin_el_permiso_de_exportacion(
+    client_as, make_head,
+):
+    """`HANDOFF_LIST_PERMS` NO incluye `handoff.api.export`: el mismo GET que
+    `export.csv` exige (ver `test_export_csv_sin_el_permiso_de_exportacion_se_rechaza`,
+    arriba) responderia 403 si se le diera clic. Mismo criterio que
+    `can_mark_reqs` (`pages/admin.py:1285-1291`): un boton que contesta 403 es
+    peor que no estar."""
+    head = make_head(perm_codes=HANDOFF_LIST_PERMS)
+
+    resp = client_as(head).get(URL)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert "Exportar CSV" not in resp.text
+    assert "/liberados/export.csv" not in resp.text
+
+
+def test_el_boton_de_exportar_se_pinta_con_el_permiso_de_exportacion(
+    client_as, make_head,
+):
+    """Positivo de la MISMA ruta (regla de oro heredada de
+    `test_student_phase_guard.py`): con el permiso, el boton SI se pinta."""
+    head = make_head(perm_codes=HANDOFF_LIST_PERMS + ("titulatec.handoff.api.export",))
+
+    resp = client_as(head).get(URL)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert "Exportar CSV" in resp.text
+    assert "/liberados/export.csv" in resp.text

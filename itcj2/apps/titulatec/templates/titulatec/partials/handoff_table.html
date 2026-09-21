@@ -48,9 +48,17 @@
              hx-trigger="keyup changed delay:400ms, search" hx-include="closest form">
     </div>
     <span class="tt-pill tt-pill--neutral ms-auto">{{ total }} liberado{{ 's' if total != 1 else '' }}</span>
+    {% if can_export %}
+    {# `can_export` (arreglo A5, revision final 2026-09-21): sin
+       `titulatec.handoff.api.export`, este link respondia 403 -- un boton
+       asi es peor que no estar. Ver `pages/handoff_admin.py::_body_ctx`.
+       `&amp;` (arreglo A9): los otros tres `&` de esta misma URL ya iban
+       escapados; a este le faltaba, por eso el HTML resultante NO era valido
+       (un `&p`/`&m`/`&q` sin `;` puede leerse como referencia de entidad). #}
     <a class="btn btn-sm tt-btn-ghost"
-       href="/titulatec/admin/liberados/export.csv?cohort_id={{ cohort_id or '' }}&program_id={{ program_id or '' }}&modality_id={{ modality_id or '' }}&q={{ q | urlencode }}">
+       href="/titulatec/admin/liberados/export.csv?cohort_id={{ cohort_id or '' }}&amp;program_id={{ program_id or '' }}&amp;modality_id={{ modality_id or '' }}&amp;q={{ q | urlencode }}">
       <i class="bi bi-download me-1"></i>Exportar CSV</a>
+    {% endif %}
   </form>
   {% endif %}
 
