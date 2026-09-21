@@ -126,7 +126,12 @@ def test_cycle_after_dispose_reads_the_new_pool(caplog):
 
     with caplog.at_level(logging.WARNING, logger="itcj2.observability"):
         _cycle()
-    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    # Solo los de la sonda: caplog también recoge WARNING de cualquier otro
+    # logger (SQLAlchemy al disponer el pool, p. ej.) y no son de este test.
+    assert not [
+        r for r in caplog.records
+        if r.levelno >= logging.WARNING and r.name.startswith("itcj2.observability")
+    ]
 
     held_new = [database.engine.connect() for _ in range(2)]
     try:
