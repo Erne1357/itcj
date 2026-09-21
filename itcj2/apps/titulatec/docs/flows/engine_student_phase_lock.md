@@ -32,6 +32,16 @@ Decisión del usuario (2026-09-02), que es literalmente lo que promete el acorde
 > ya deja pasar la corrección y el reenvío del alumno. Una guarda escrita sobre el `status`
 > habría cerrado el único camino de corrección del proceso.
 
+> **Cuarta regla, desde 2026-09-21 (corte a T-soft): `n >= PhaseService._handoff_phase()`
+> gana sobre "Actual" y sobre "Siguiente".** De la fase 3 (Formato B) en adelante por
+> defecto (`TITULATEC_HANDOFF_PHASE`, `itcj2/config.py:282`) el proceso lo continúa el
+> Departamento de Titulación fuera de esta app: ni la fase actual se ejecuta (aunque sea
+> `current_phase`) ni una futura "se habilita" — ambas pintan el mismo aviso de T-soft. Se
+> evalúa **antes** que la comparación de "Siguiente" (ver el orden real en
+> `_student_action_error`, y la tabla de `## Mensajes` más abajo, donde la fila nueva va
+> justo antes de la de fase futura). Revertir: variable de entorno y reinicio, sin tocar
+> datos. Detalle completo: [`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).
+
 ## Dónde vive
 
 ```
@@ -115,6 +125,7 @@ tumba el request entero en cualquier test de ruta que caiga en este camino.
 | `n` es un entero del catálogo | `Fase no reconocida: esta accion no corresponde a ninguna fase de tu proceso.` / `Fase {n} fuera del proceso: no existe en el catalogo de fases.` |
 | `process.status == 'active'` | `Tu proceso ya no admite cambios (estado: {status}).` |
 | `n == current_phase` (anterior) | `La fase NN ya esta cerrada: no requiere accion y no admite cambios.` |
+| `n >= PhaseService._handoff_phase()` (corte a T-soft, 2026-09-21 — va ANTES que la de fase futura, de ahí abajo) | `PhaseService.HANDOFF_MSG`: `Esta fase continua en el Departamento de Titulacion (sistema T-soft). Te contactaran por correo para darte tu usuario.` |
 | `n == current_phase` (siguiente) | `La fase NN se habilitara cuando llegues a ella (vas en la fase MM).` |
 
 ## Qué pasaba antes (2026-09-02)

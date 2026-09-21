@@ -70,6 +70,10 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [El alumno consulta el detalle de una fase](xcut_student_phase_detail.md) 👤 — **acordeón en el dashboard** (la pantalla `/fase/{n}` ya no existe: redirige): estado, instrucciones, sub-progreso, CTA y timeline.
 - [La jefatura da de alta encargados por carrera](xcut_school_services_manage_officers.md) 🏛️🤖 ⤵ alimenta el alcance — un encargado es un `Position` con rol y carreras; nombrar a una cuenta INACTIVA la reactiva y le restablece la contraseña (9 de 11 usuarios de Servicios Escolares lo estaban), y la pantalla lo dice antes y después.
 - [El alumno usa TitulaTec dentro del shell mobile del core](xcut_student_shell_embed.md) 👤 — embebido vs standalone, drawer/rail, notificaciones por Avisos, mini-perfil.
+- [Corte a T-soft y bandeja de Liberados](xcut_titulacion_handoff.md) 👤🎓 ⤵ gemela de las dos
+  guardas — de la fase 3 en adelante el proceso deja de operarse aquí (lo sigue el Departamento
+  de Titulación en T-soft); la pestaña **Liberados** (solo lectura) muestra a quién ya soltó
+  Servicios Escolares (`ProcessPhase(2).status == 'approved'`). Reversible con una sola variable.
 
 ### Referencias
 - [Máquina de estados (fases + citas + documentos)](00_state_machine.md)

@@ -59,6 +59,26 @@ acordeón del dashboard, sin poder ejecutarlas) y las **anteriores** quedan cerr
 La fase `rejected` sigue abierta porque `reject_phase` deja `current_phase` apuntando a
 ella; es corrección, no reapertura.
 
+### El corte a T-soft: una tercera regla (desde 2026-09-21)
+
+Las dos guardas de arriba ganaron una regla más, la misma en las dos: **ninguna fase con
+`number >= PhaseService._handoff_phase()` se toca desde esta app**, ni para ejecutarla
+(alumno) ni para dictaminarla (admin). `_handoff_phase()` lee `TITULATEC_HANDOFF_PHASE`
+(`itcj2/config.py:282`, default `3` = Formato B): de ahí en adelante el proceso lo
+continúa el Departamento de Titulación en su propio sistema, T-soft. Revertir es una
+variable de entorno y un reinicio — `TITULATEC_HANDOFF_PHASE=9` —, sin migración ni
+backfill. Detalle completo, con las dos guardas, la tarjeta que ve el alumno y sus
+bordes: [`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).
+
+**Qué significa "liberado".** No es un valor de columna en ningún modelo — es un cálculo:
+un proceso está **liberado hacia Titulación** cuando `ProcessPhase(phase_number=2).status
+== 'approved'`. La fecha de liberación es su `completed_at`, no la de la cita ni la del
+alta del proceso. Deliberadamente **no** se usa el estado de la cita
+(`ReviewAppointment.status`): marcarla `attended` no libera nada — con requisitos
+faltantes el egresado puede agendar otro intento mientras la fase 2 siga abierta (ver
+más arriba, "`attended` no aprueba la fase 2"). Aprobar la fase 2 es el acto explícito de
+liberación. La bandeja **Liberados** (`/titulatec/admin/liberados`) lista exactamente esto.
+
 ## Estado de un documento (`Document.review_status`)
 
 ```mermaid
