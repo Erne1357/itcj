@@ -33,6 +33,17 @@ from sqlalchemy.orm import Session
 _RELEASE_PHASE_CODE = "review_appointment"
 
 
+def _like_escape(s: str) -> str:
+    """Escapa `\\`, `%` y `_` para que `q` viaje LITERAL dentro de un ILIKE.
+
+    Sin esto un '%' o '_' tecleado en el buscador actua como comodin SQL: una
+    busqueda que deberia ser "contiene exactamente este texto" trae de mas
+    (o, con `_`, cualquier caracter en esa posicion). Se usa junto con
+    `escape="\\"` en el `.ilike(...)` de `_query`.
+    """
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @dataclass(frozen=True)
 class ReleasedRow:
     process_id: int
@@ -103,15 +114,15 @@ class HandoffService:
         if modality_id:
             query = query.filter(TitulationProcess.modality_id == modality_id)
         if q and q.strip():
-            needle = f"%{q.strip()}%"
+            needle = f"%{_like_escape(q.strip())}%"
             # Misma forma que `AppointmentService.list_appointments`
             # (services/appointment_service.py:150-189): `core_users` no
             # tiene columna `full_name`, se arma primer+ultimo apellido con
             # coalesce para que un NULL no apague el concat entero.
             nombre = func.concat(func.coalesce(User.first_name, ""), " ",
                                  func.coalesce(User.last_name, ""))
-            query = query.filter(or_(User.control_number.ilike(needle),
-                                     nombre.ilike(needle)))
+            query = query.filter(or_(User.control_number.ilike(needle, escape="\\"),
+                                     nombre.ilike(needle, escape="\\")))
         return query
 
     @staticmethod

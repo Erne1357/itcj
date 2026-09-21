@@ -286,6 +286,32 @@ def test_q_busca_por_nombre_insensible_a_mayusculas(db_session, make_program, ma
     assert rows[0].full_name == "GABRIELA NUNEZ"
 
 
+def test_q_escapa_el_comodin_porcentaje(db_session, make_program, make_cohort,
+                                        make_user, make_process):
+    """Un '%' en `q` debe buscarse LITERAL, no como comodin SQL.
+
+    `control_number` es siempre digitos (con letra opcional al inicio, ver
+    CLAUDE.md de la app 10): ningun numero de control real contiene un '%'.
+    Sin escapar, el patron `ILIKE '%<control>%%'` colapsa el `%%` final en un
+    comodin de "lo que sea" y el patron se comporta como "empieza con
+    <control>", que SI matchea el propio alumno -- trae de mas. Escapado, el
+    patron exige un '%' LITERAL despues del control, que ningun numero de
+    control real trae, y el resultado correcto es CERO filas.
+    """
+    program = make_program("Ingenieria en Sistemas (T4-ESCAPE)")
+    cohort = make_cohort()
+    control = _cn()
+    alumno = make_user(first_name="PORCENTAJE", last_name="PRUEBA", control_number=control)
+    proc = make_process(alumno, cohort=cohort, program=program, current_phase=1)
+    _release(db_session, proc, datetime(2026, 1, 19, 8, 0))
+
+    rows, total = HandoffService.list_released(
+        db_session, allowed_program_ids={program.id}, q=f"{control}%")
+
+    assert total == 0
+    assert rows == []
+
+
 # =========================================================================
 # Forma de la fila / orden / paginacion
 # =========================================================================
