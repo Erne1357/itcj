@@ -651,8 +651,23 @@ def test_el_panel_de_la_cita_dice_fecha_lugar_y_si_falta_confirmar(
 
 def test_el_panel_del_formato_b_enumera_sus_tres_pasos(
     client_as, db_session, make_student, make_process,
-    seed_phase_defs, seed_document_types,
+    seed_phase_defs, seed_document_types, monkeypatch,
 ):
+    """Corte desactivado a proposito (arreglo A1, ronda de barrido posterior
+    2026-09-21): desde A1, `ph.progress` (y por lo tanto el bloque "Como va"
+    con sus `tt-substep`) se anula sin condicion de `rel` en cuanto la fase
+    entra al corte (`handoff = pd.number >= _handoff_phase()`), fase 3
+    incluida aunque ya haya quedado atras (`current_phase=5` aqui, `rel`
+    "past"). Mismo truco que `test_con_el_corte_en_9_reaparece_el_cta_de_formato_b`
+    (arriba) y que los `test_subprogreso_fase_3_*` de
+    `test_student_dashboard_accordion.py`: este test prueba la ENUMERACION de
+    los 3 pasos del Formato B, que por definicion del arreglo A1 solo existe
+    por debajo del corte -- sin desactivarlo aqui, `ph.progress` siempre es
+    `None` y no hay nada que enumerar.
+    """
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
     seed_phase_defs()
     seed_document_types()
     from itcj2.apps.titulatec.models import FormatB
