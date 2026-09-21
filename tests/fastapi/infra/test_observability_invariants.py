@@ -370,11 +370,19 @@ def test_tmpfs_dedicado_para_prometheus_multiproc(service):
     solo declara `shm_size` en `postgres`, así que `/dev/shm` en estos
     servicios son los 64 MB por defecto de Docker, a compartir con lo que sea.
     `mode=1777` para que cualquier worker (mismo UID) pueda escribir sus
-    ficheros mmap."""
+    ficheros mmap.
+
+    256m y no 64m (R25): lleno, cada escritura mmap da SIGBUS (no se puede
+    atrapar), todos los workers mueren y los que uvicorn respawnea mueren al
+    importar — el color queda caído en bucle. El directorio solo crece en la
+    vida del contenedor (los counter/histogram de cada worker muerto se
+    quedan), ~3.3 MB por vida de worker en el peor caso medido. tmpfs asigna
+    páginas perezosamente: el techo no cuesta memoria mientras no se use."""
     text = COMPOSE_PROD.read_text(encoding="utf-8")
     entries = _service_tmpfs(text, service)
-    assert "/run/prometheus:size=64m,mode=1777" in entries, (
-        f"{service}: falta 'tmpfs: - /run/prometheus:size=64m,mode=1777' en {COMPOSE_PROD.name}"
+    assert "/run/prometheus:size=256m,mode=1777" in entries, (
+        f"{service}: falta 'tmpfs: - /run/prometheus:size=256m,mode=1777' en "
+        f"{COMPOSE_PROD.name} (hay: {entries})"
     )
 
 
