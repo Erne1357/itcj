@@ -41,8 +41,10 @@ click>=8.1.0
 httpx>=0.27.0
 msal>=1.24.0
 
-# Observabilidad (métricas de Prometheus en GET /metrics)
-prometheus-client>=0.20.0
+# Observabilidad (métricas de Prometheus en GET /metrics). Piso 0.26: la
+# versión verificada (CONTENT_TYPE_LATEST, set_exemplar no-op en multiproceso,
+# tolera ficheros gauge_live* borrados por el reaper a mitad del scrape).
+prometheus-client>=0.26.0
 
 # Timezone data (zoneinfo)
 tzdata>=2024.1
