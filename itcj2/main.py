@@ -90,7 +90,20 @@ async def lifespan(app: FastAPI):
     # Capturar el event loop principal para que async_broadcast funcione
     # desde endpoints síncronos (que corren en el threadpool).
     from itcj2.utils import set_main_loop
-    set_main_loop(asyncio.get_running_loop())
+    loop = asyncio.get_running_loop()
+    set_main_loop(loop)
+
+    # Sondas de saturación y lag del event loop (Fase 3), en TODOS los roles:
+    # cada worker publica su propio pool/threadpool y `livesum` los suma. El
+    # executor se instala ANTES de que nada use `asyncio.to_thread`: bajo
+    # uvloop es la única forma de poder observarlo. El lag también lo suben
+    # las llamadas síncronas a Redis de `/notify` (ver `loop_lag.py`), no
+    # solo lo que arregla la Fase 6.
+    from itcj2.observability.loop_lag import PROBE_TASK_NAME, run_probe
+    from itcj2.observability.saturation import install_default_executor
+
+    install_default_executor(loop)
+    probe_task = asyncio.create_task(run_probe(), name=PROBE_TASK_NAME)
 
     # Subscriber de Redis Pub/Sub para eventos de tareas Celery.
     # SOLO en el proceso que sirve Socket.IO (F2.1). Redis pub/sub entrega el
@@ -108,7 +121,14 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown: detener subscriber y cerrar pool de conexiones.
+    # Shutdown: detener sondas y subscriber, y cerrar pool de conexiones. La
+    # sonda para ANTES de `engine.dispose()`: lee `engine.pool`.
+    probe_task.cancel()
+    try:
+        await probe_task
+    except asyncio.CancelledError:
+        pass
+
     if subscriber_task is not None:
         subscriber_task.cancel()
         try:

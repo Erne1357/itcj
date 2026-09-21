@@ -85,6 +85,77 @@ HTTP_EXCEPTIONS = Counter(
 
 
 # ---------------------------------------------------------------------------
+# Saturación (Fase 3) — los actualiza `saturation.update_gauges()`
+# ---------------------------------------------------------------------------
+# Gauges REALES con `.set()` desde cada worker, no un colector personalizado:
+# un colector corre solo en el worker que atiende el scrape, su salida nunca
+# pasa por los ficheros mmap, y se publicaría el pool de 1 de los 4 workers
+# elegido al azar — números equivocados, no ausentes (plan Fase 3). Con
+# `livesum` numerador y denominador de un ratio ya vienen sumados sobre los
+# workers vivos.
+
+
+def _saturation_gauge(name: str, documentation: str) -> Gauge:
+    return Gauge(name, documentation, multiprocess_mode="livesum")
+
+
+# Limiter de anyio: los hilos donde corren los endpoints `def` (40 tokens).
+ANYIO_THREADPOOL_TOTAL = _saturation_gauge(
+    "itcj_anyio_threadpool_total", "Tokens del limiter de hilos de anyio."
+)
+ANYIO_THREADPOOL_BORROWED = _saturation_gauge(
+    "itcj_anyio_threadpool_borrowed", "Tokens del limiter de anyio en uso."
+)
+ANYIO_THREADPOOL_WAITING = _saturation_gauge(
+    "itcj_anyio_threadpool_waiting",
+    "Tareas esperando un hilo de anyio (> 0: threadpool agotado).",
+)
+
+# Executor por defecto de asyncio (`asyncio.to_thread`: handlers de sockets).
+ASYNCIO_THREADPOOL_TOTAL = _saturation_gauge(
+    "itcj_asyncio_threadpool_total", "max_workers del executor por defecto de asyncio."
+)
+ASYNCIO_THREADPOOL_THREADS = _saturation_gauge(
+    "itcj_asyncio_threadpool_threads",
+    "Hilos creados por el executor por defecto de asyncio (nunca baja).",
+)
+ASYNCIO_THREADPOOL_WAITING = _saturation_gauge(
+    "itcj_asyncio_threadpool_waiting",
+    "Trabajos encolados en el executor por defecto de asyncio.",
+)
+
+# Pool de SQLAlchemy. La saturación es checkedout / (size + max_overflow),
+# NUNCA `overflow` a secas (ver `saturation.py`).
+DB_POOL_SIZE = _saturation_gauge("itcj_db_pool_size", "pool_size del engine.")
+DB_POOL_CHECKEDIN = _saturation_gauge(
+    "itcj_db_pool_checkedin", "Conexiones ociosas en el pool."
+)
+DB_POOL_CHECKEDOUT = _saturation_gauge(
+    "itcj_db_pool_checkedout", "Conexiones prestadas del pool."
+)
+DB_POOL_OVERFLOW = _saturation_gauge(
+    "itcj_db_pool_overflow",
+    "QueuePool.overflow() crudo: arranca en -pool_size (no es un error).",
+)
+DB_POOL_MAX_OVERFLOW = _saturation_gauge(
+    "itcj_db_pool_max_overflow", "max_overflow configurado (DB_MAX_OVERFLOW)."
+)
+
+# ---------------------------------------------------------------------------
+# Lag del event loop (Fase 3) — lo observa `loop_lag.run_probe()`
+# ---------------------------------------------------------------------------
+# Hace falsable el arreglo de la Fase 6: cuánto tarda el loop en despertar
+# una corrutina que pidió dormir, por encima de lo pedido.
+LOOP_LAG_BUCKETS = (0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5)
+
+EVENT_LOOP_LAG = Histogram(
+    "itcj_event_loop_lag_seconds",
+    "Retraso del event loop al despertar una corrutina dormida.",
+    buckets=LOOP_LAG_BUCKETS,
+)
+
+
+# ---------------------------------------------------------------------------
 # Reaper de gauges `live*` de workers muertos (plan §9.16)
 # ---------------------------------------------------------------------------
 # `livesum` NO detecta procesos muertos: el fichero `gauge_livesum_<pid>.db`
