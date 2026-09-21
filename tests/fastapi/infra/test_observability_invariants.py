@@ -142,13 +142,53 @@ def test_celery_configura_logging_por_la_senal_setup_logging():
     assert re.search(r"\bsetup_logging\.connect\b", text), (
         "celery_app.py debe conectar un receptor a celery.signals.setup_logging"
     )
-    # Sentencias de nivel de módulo = líneas sin sangría.
-    module_level_calls = re.findall(
-        r"^(?![#\s]|def |class |@).*\bconfigure_logging\(", text, re.MULTILINE
-    )
-    assert module_level_calls == [], (
+    assert _import_time_calls(text, "configure_logging") == [], (
         "configure_logging() a nivel de módulo la borra el worker al arrancar"
     )
+
+
+def _import_time_calls(source: str, name: str) -> list[int]:
+    """Líneas donde `name(...)` se llamaría al IMPORTAR el módulo.
+
+    Con `ast` y no con regex sobre líneas sin sangría: una regex da falso
+    positivo con una mención en el docstring y falso negativo con una llamada
+    dentro de un `if`/`try` de módulo, que también corre al importar. Se
+    recorre todo salvo los cuerpos de función y lambda (esos corren cuando
+    alguien los llama, no al importar).
+    """
+    import ast
+
+    lines = []
+    pending = list(ast.iter_child_nodes(ast.parse(source)))
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        if isinstance(node, ast.Call):
+            func = node.func
+            called = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+            if called == name:
+                lines.append(node.lineno)
+        pending.extend(ast.iter_child_nodes(node))
+    return sorted(lines)
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ("configure_logging()\n", [1]),
+        ("import x\nif True:\n    configure_logging()\n", [3]),
+        ("def f():\n    configure_logging()\n", []),
+        ('"""Docstring.\n\nconfigure_logging() se llama por la señal.\n"""\n', []),
+        ("# configure_logging() no\n", []),
+    ],
+    ids=["suelta", "dentro-de-if", "en-funcion", "docstring", "comentario"],
+)
+def test_import_time_calls_detector(source, expected):
+    # Sin esto el detector podría dar falsos positivos (una mención en el
+    # docstring) o negativos (una llamada dentro de un `if` de módulo, que
+    # también corre al importar) y el test de Celery no probaría nada.
+    assert _import_time_calls(source, "configure_logging") == expected
 
 
 def test_celery_arranca_aunque_herede_prometheus_multiproc_dir(tmp_path):
@@ -432,6 +472,12 @@ def test_celery_no_declara_prometheus_multiproc_dir():
     text = COMPOSE_PROD.read_text(encoding="utf-8")
     for service in CELERY_SERVICES:
         block = "\n".join(_service_lines(text, service))
+        # Un servicio renombrado o borrado daría un bloque vacío y la
+        # aserción negativa de abajo pasaría sin comprobar nada.
+        assert block.strip(), (
+            f"{service}: no está en {COMPOSE_PROD.name} (¿renombrado?): "
+            "actualizar CELERY_SERVICES"
+        )
         assert "PROMETHEUS_MULTIPROC_DIR" not in block, (
             f"{service}: no debe declarar PROMETHEUS_MULTIPROC_DIR "
             "(el export vive solo en el entrypoint HTTP)"
