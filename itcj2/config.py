@@ -186,7 +186,18 @@ class Settings(BaseSettings):
     # sola celda ya no empuje su campo una pista más abajo que el de la celda
     # vecina. Solo CSS, sin cambios de HTML. Sin el bump, quien ya tenía la
     # hoja en caché sigue viendo el `<select>` de Carrera desalineado.
-    STATIC_VERSION: str = "1.0.1111560"
+    #
+    # Bump 2026-09-21 (6): ronda de fix 1 sobre el bump (5) -- el orden de
+    # pistas del subgrid de `.tt-enroll-row--pair` (`public.css`, sección 5)
+    # pasa de etiqueta/aviso/campo/error a etiqueta/campo/error/aviso, porque
+    # el orden anterior dejaba la etiqueta de Número de control flotando
+    # ~79px sobre su `<input>` (la pista de aviso, vacía en esa celda, caía
+    # ENTRE etiqueta y campo). El aviso de Carrera se mueve en
+    # `enroll_form.html` de antes a después del `<select>` (y del bloque de
+    # error), y `public.css` (bloque 6) gana la regla `.tt-field ~ .tt-hint`
+    # para darle margen arriba en vez de abajo. Sin el bump, quien ya tenía
+    # la hoja en caché sigue viendo la etiqueta flotando.
+    STATIC_VERSION: str = "1.0.1111561"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

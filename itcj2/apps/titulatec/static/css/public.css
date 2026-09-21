@@ -1096,20 +1096,32 @@
    (`.tt-hint`) en una sola celda -Carrera- empujaba su campo una pista hacia
    abajo mientras el campo vecino -Número de control, sin aviso- se quedaba
    arriba. Arreglo GENERAL, no un parche solo para Carrera: la fila declara 4
-   pistas -etiqueta / aviso / campo / error- y cada celda las hereda con
-   `grid-template-rows: subgrid`, ocupándolas TODAS (`grid-row: 1 / 5`) aunque
-   no use alguna. Sin la colocación explícita de los hijos (bloque 6), una
-   celda sin aviso metería su campo en la pista 2 -la del aviso- y quedaría
-   peor que antes. Una celda sin contenido en una pista deja ahí un hueco en
-   blanco del alto que le impone esa pista -fijado por la OTRA celda, ya que
-   el tamaño de una pista de grid es compartido por todas las columnas-, y ese
-   hueco es lo que alinea su campo a la misma Y que el campo vecino: es el
-   mecanismo, no un efecto secundario. Mismo montaje para el caso con error en
-   una sola celda: la pista 4 se dimensiona por la que sí tiene `.tt-err`, así
-   que la fila entera queda del mismo alto y no se descuadra.
+   pistas y cada celda las hereda con `grid-template-rows: subgrid`,
+   ocupándolas TODAS (`grid-row: 1 / 5`) aunque no use alguna. Sin la
+   colocación explícita de los hijos (bloque 6), una celda sin contenido en
+   una pista intermedia metería el siguiente ahí y quedaría peor que antes.
+
+   RONDA DE FIX 1 (2026-09-21): la primera versión ponía el aviso en la pista
+   2 -etiqueta/aviso/campo/error, el orden visual de antes del rediseño de
+   subgrid- y el `deltaY` medía 0 entre los dos campos, pero apareció un
+   efecto secundario peor: en la celda SIN aviso (Número de control), la
+   etiqueta quedaba flotando ~79px sobre su propio `<input>` -el hueco de la
+   pista 2 vacía cae justo ENTRE etiqueta y campo, que es el único sitio
+   donde un hueco en blanco SÍ se nota-. El usuario decidió la salida
+   contraria a la app (el aviso va DEBAJO del campo en esta fila pareada, no
+   arriba; ver la nota en `enroll_form.html` junto al aviso de Carrera y NO
+   la subas de vuelta sin resolver esto primero), y el orden de pistas quedó:
+   1 etiqueta, 2 campo, 3 error, 4 aviso. Con esto, una celda sin contenido en
+   una pista SIEMPRE dispara el hueco DESPUÉS de su campo -nunca entre
+   etiqueta y campo, que ahora son las dos primeras pistas y las dos únicas
+   que SIEMPRE están pobladas en ambas celdas-. Error antes que aviso a
+   propósito: el error es lo urgente y pide reacción inmediata, el aviso es
+   ayuda permanente que puede esperar una línea más; mismo orden que ya usa el
+   DOM (`enroll_form.html`), así que quien navega con lector de pantalla oye
+   lo mismo que ve quien mira la pantalla.
 
    `column-gap`/`row-gap` por separado a propósito, ya no el `gap` de una sola
-   pieza que traía esta regla: el espaciado entre etiqueta/aviso/campo/error
+   pieza que traía esta regla: el espaciado entre etiqueta/campo/error/aviso
    ya lo ponen los márgenes de esos elementos (bloque 6); un `row-gap` mayor a
    0 se sumaría encima en CADA pista -incluida una vacía, el `gap` de grid NO
    colapsa por falta de contenido- y ensancharía hasta las filas que nunca
@@ -1134,13 +1146,15 @@
     grid-template-rows: subgrid;
     grid-row: 1 / 5;
   }
-  /* Pistas explícitas: 1 etiqueta, 2 aviso, 3 campo, 4 error. `.tt-field` es
-     tanto `<input>` como `<select>` (bloque 6); da igual cuál sea, es la
-     misma pista. */
+  /* Pistas explícitas: 1 etiqueta, 2 campo, 3 error, 4 aviso (orden desde la
+     ronda de fix 1, ver el comentario grande de arriba). `.tt-field` es tanto
+     `<input>` como `<select>` (bloque 6); da igual cuál sea, es la misma
+     pista. Las dos primeras -etiqueta y campo- están SIEMPRE pobladas en las
+     dos celdas de cualquier fila pareada: nunca dejan un hueco entre ellas. */
   .tt-enroll-row--pair > .tt-enroll-cell > .tt-label { grid-row: 1; }
-  .tt-enroll-row--pair > .tt-enroll-cell > .tt-hint  { grid-row: 2; }
-  .tt-enroll-row--pair > .tt-enroll-cell > .tt-field { grid-row: 3; }
-  .tt-enroll-row--pair > .tt-enroll-cell > .tt-err   { grid-row: 4; }
+  .tt-enroll-row--pair > .tt-enroll-cell > .tt-field { grid-row: 2; }
+  .tt-enroll-row--pair > .tt-enroll-cell > .tt-err   { grid-row: 3; }
+  .tt-enroll-row--pair > .tt-enroll-cell > .tt-hint  { grid-row: 4; }
 }
 
 /* ---- 6. Etiquetas, campos y errores --------------------------------------- */
@@ -1158,6 +1172,32 @@
   font-size: var(--tt-fs-100);
   line-height: 1.4;
   color: var(--tt-text-3);
+}
+/* EXCEPCIÓN (ronda de fix 1, 2026-09-21): en esta app el aviso va ARRIBA de
+   su campo -la regla de encima, la que usan «Confirma tu correo personal»
+   (más abajo en este archivo) y `survey_form.html:147`-. El aviso de Carrera
+   es la única excepción: vive en una fila pareada (`.tt-enroll-row--pair`,
+   bloque 5) y tener el aviso arriba desalineaba la etiqueta vecina -no el
+   campo- respecto al campo de SU PROPIA celda (~79px, medido). Aquí el
+   `margin-bottom` de la regla de encima no sirve -ese margen separa del
+   elemento que viene DESPUÉS, y aquí el campo va ANTES-, así que un aviso
+   que sigue a un campo necesita espacio ARRIBA en su lugar.
+
+   `~` -general, no `+` adyacente- a propósito: el error (`.tt-err`) es
+   opcional y, cuando existe, se cuela ENTRE el campo y el aviso en el DOM
+   -mismo orden que el visual, pista 3 error / pista 4 aviso, bloque 5-, así
+   que un `.tt-field + .tt-hint` dejaría de aplicar justo en el caso con
+   error, que es el que más importa que no se rompa. `~` sigue encontrando el
+   aviso sea o no el hermano INMEDIATO del campo.
+
+   Acotado a esta forma -nunca `.tt-hint` a secas-: solo alcanza a un aviso
+   que tiene un `.tt-field` ANTES en el mismo padre. El de «Confirma tu
+   correo personal» va antes de su `<input>`, así que esta regla no lo toca y
+   conserva el margen de abajo de la regla de encima. NO generalices esto a
+   todos los avisos: sigue siendo la excepción, no el patrón nuevo de la
+   app. */
+.tt-enroll .tt-field ~ .tt-hint {
+  margin: var(--tt-sp-2) 0 0;
 }
 .tt-enroll .tt-err { margin-top: var(--tt-sp-2); }
 /* Solo UN campo del formulario es opcional. Marcar los nueve obligatorios con

@@ -100,7 +100,6 @@
       </div>
       <div class="tt-enroll-cell">
         <label class="tt-label" for="tt-program">Carrera</label>
-        <p class="tt-hint" id="tt-program-hint">De no encontrar tu carrera exacta, elige la que más se apegue a la que cursaste.</p>
         <select class="tt-field" id="tt-program" name="program_id" required
                 {% if errors.program_id %}aria-invalid="true" aria-describedby="tt-program-err"{% else %}aria-describedby="tt-program-hint"{% endif %}>
           <option value="">Elige tu carrera…</option>
@@ -113,6 +112,22 @@
           <i class="bi bi-exclamation-circle" aria-hidden="true"></i>{{ errors.program_id }}
         </p>
         {% endif %}
+        {# RONDA DE FIX 1 (2026-09-21): este aviso va DESPUÉS del campo -no
+           antes, que es el patrón normal de la app; compara con «Confirma tu
+           correo personal» más abajo y con survey_form.html:147-. Es la
+           EXCEPCIÓN, no un patrón nuevo que copiar: esta celda vive en una
+           fila pareada (`.tt-enroll-row--pair`) y el subgrid de 4 pistas de
+           `public.css` (bloque 5) necesita que la celda vecina -Número de
+           control, sin aviso- no tenga NADA entre su etiqueta y su campo. Con
+           el aviso arriba (como se hizo primero) esa etiqueta vecina quedaba
+           flotando ~79px sobre su propio `<input>`. Va también DESPUÉS del
+           bloque de error de arriba -no antes- para que el orden visual
+           -pista 3 error, pista 4 aviso- coincida con el orden del DOM que
+           lee un lector de pantalla, y para que el selector `.tt-field ~
+           .tt-hint` de `public.css` (bloque 6) seguro lo encuentre aunque el
+           error no sea su hermano inmediato. NO subas este aviso de vuelta
+           arriba del `<select>` sin resolver antes ese mismo problema. #}
+        <p class="tt-hint" id="tt-program-hint">De no encontrar tu carrera exacta, elige la que más se apegue a la que cursaste.</p>
       </div>
     </div>
 
