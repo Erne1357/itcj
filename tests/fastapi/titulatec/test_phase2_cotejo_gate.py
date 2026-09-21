@@ -144,7 +144,13 @@ class TestSoloLaFase2:
         assert result == {"next_phase": 2, "completed": False}
 
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
-    def test_la_fase_3_no_mira_el_checklist(self, _n, db_session, esc, revisor):
+    def test_la_fase_3_no_mira_el_checklist(self, _n, db_session, esc, revisor,
+                                            monkeypatch):
+        # Corte a T-soft (Tarea 2, 2026-09-21) desactivado: este test prueba que
+        # el checklist de cotejo es EXCLUSIVO de la fase 2 (no la 3), no el corte
+        # -que en produccion bloquea justo la fase 3-. Su propia cobertura vive
+        # en test_handoff_phase_cut.py.
+        monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
         cohort, process = esc(current_phase=3)
         _req(db_session, cohort, label="Requisito pendiente")
 

@@ -619,7 +619,7 @@ def test_cada_cabecera_desplegable_cumple_el_patron_apg(
 
 def test_toda_vista_de_alumno_lleva_su_ancla_data_tt_page(
     client_as, make_student, make_process, seed_phase_defs, seed_document_types,
-    db_session,
+    db_session, monkeypatch,
 ):
     """`main[data-tt-page="clave"]`, una sola, no vacia y distinta en cada vista.
 
@@ -640,7 +640,13 @@ def test_toda_vista_de_alumno_lleva_su_ancla_data_tt_page(
     test hablando de MARKUP y no de autorizacion, que es lo suyo.
     """
     from tests.fastapi.titulatec.conftest import STUDENT_PERMS
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
 
+    # Corte a T-soft (Tarea 2, 2026-09-21) desactivado: este test habla de
+    # MARKUP (la ancla `data-tt-page`), no del corte -que en produccion bloquea
+    # justo la vista de formato-b, fase 3-. Su propia cobertura vive en
+    # test_handoff_phase_cut.py.
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
     seed_phase_defs()
     seed_document_types()
     # `formato-b` pide un permiso que el set por defecto del alumno no trae.
