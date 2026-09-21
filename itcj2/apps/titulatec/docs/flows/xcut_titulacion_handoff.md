@@ -236,6 +236,54 @@ revertir — ver "Caminos alternos" abajo.
 
 ---
 
+## Desarrollar las fases 3-8 en dev, sin tocar el corte de producción
+
+Mientras el Departamento de Titulación siga operando en T-soft, las fases 3-8 se construyen
+**con el corte apagado en dev y puesto en producción**. No hace falta código nuevo: la variable
+se lee del `.env` de la raíz, que está gitignored y lo montan todos los servicios del compose de
+dev (`docker/compose/docker-compose.dev.yml`, `env_file: ../../.env`). Ese `.env` nunca viaja al
+servidor, así que el interruptor es local por definición.
+
+**Receta (verificada de punta a punta el 2026-09-21 contra el proceso real `id=5039`, que está
+en `current_phase=3`):**
+
+```bash
+# 1. abrir las fases 3-8 en este entorno
+echo 'TITULATEC_HANDOFF_PHASE=9' >> .env
+docker compose -f docker/compose/docker-compose.dev.yml restart backend   # get_settings() esta cacheado: sin reinicio no aplica
+
+# 2. comprobar que de verdad se abrio (no lo supongas)
+docker exec -w /app -e PYTHONPATH=/app itcj-backend-1 python -c "
+from itcj2.apps.titulatec.services.phase_service import PhaseService
+print(PhaseService._handoff_phase())"     # -> 9
+
+# 3. al terminar, volver al estado que se despliega
+#    (quitar la linea del .env y reiniciar) -> _handoff_phase() vuelve a 3
+```
+
+Medido con la receta puesta: `can_student_act(fase 3) == True` y `can_transition(fase 3) == True`;
+con el corte restaurado, ambas en `False`. Es decir, la variable sola **sí** basta para recuperar
+el flujo completo en dev.
+
+**Tres cosas que la variable NO resuelve, y que te van a morder si no las sabes:**
+
+1. **Hace falta quién dictamine.** El recorte de permisos (§ *Cómo revertir el corte*, paso 2)
+   vive en BD y no lo toca esta variable: la jefatura de la División quedó en solo lectura y los
+   puestos `head_titulacion`/`aux_titulacion` nacen sin ocupantes. Para probar el lado admin,
+   asígnate a `head_titulacion` desde el organigrama del core (`/itcj/config`) o trabaja con el
+   usuario `admin`, que conserva los 84 permisos por el `15_grant_admin_all_perms.sql`.
+2. **`FormatBService.review` quedó más estricta que antes de esta feature, incluso con el corte
+   en 9.** Ahora exige `process.status == 'active'` y que la fase 3 sea la actual (hereda
+   `assert_can_transition`). Un dictamen tardío que antes pasaba —proceso ya en la fase 4, o en
+   `on_hold`— hoy contesta 400. No es el corte actuando: es la guarda nueva, y se queda.
+3. **Los tests corren con el corte PUESTO** (default 3). Un test nuevo que ejercite las fases 3-8
+   tiene que desactivarlo él mismo, con el patrón que ya usan los otros:
+   `monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))` más un
+   comentario diciendo por qué. Nunca bajando la guarda.
+
+Cuando llegue el día de abrirlo en producción, el cambio es el mismo (variable + reinicio) **más**
+el paso 2 de la sección de reversión: asignar ocupantes a los puestos nuevos.
+
 ## Caminos alternos / errores ❗
 
 - **Un proceso sin carrera (`program_id IS NULL`) NUNCA aparece en Liberados, ni con alcance
