@@ -171,7 +171,14 @@ class Settings(BaseSettings):
     # enroll.js` queda vacío (esa era su única lógica). Sin el bump, quien ya
     # tenía la página en caché sigue corriendo el JS viejo, que ahora apunta a
     # un nodo (`program-text-wrap`) que ya no existe en el HTML.
-    STATIC_VERSION: str = "1.0.1111557"
+    #
+    # Bump 2026-09-21 (4): ronda de fix 1 sobre el bump (3) -- `public.css`
+    # pierde la regla `.tt-enroll-row[hidden]` (sección 5) y toda la sección
+    # "9. Movimiento" (la animación de `[data-tt-enroll="program-text-wrap"]`),
+    # las dos huérfanas desde que ese campo se eliminó del HTML. Sin el bump,
+    # quien ya tenía la hoja en caché conserva reglas muertas que no hacen daño
+    # hoy pero confunden al próximo diff.
+    STATIC_VERSION: str = "1.0.1111558"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

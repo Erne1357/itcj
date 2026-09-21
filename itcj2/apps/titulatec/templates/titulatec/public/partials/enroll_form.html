@@ -101,7 +101,7 @@
       <div class="tt-enroll-cell">
         <label class="tt-label" for="tt-program">Carrera</label>
         <p class="tt-hint" id="tt-program-hint">De no encontrar tu carrera exacta, elige la que más se apegue a la que cursaste.</p>
-        <select class="tt-field" id="tt-program" name="program_id" data-tt-enroll="program" required
+        <select class="tt-field" id="tt-program" name="program_id" required
                 {% if errors.program_id %}aria-invalid="true" aria-describedby="tt-program-err"{% else %}aria-describedby="tt-program-hint"{% endif %}>
           <option value="">Elige tu carrera…</option>
           {% for p in programs %}

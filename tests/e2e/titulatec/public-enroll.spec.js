@@ -459,14 +459,51 @@ test.describe('formulario: layout y objetivos táctiles', () => {
     await expect(aside).not.toContainText(E2E_TAG);
   });
 
-  test('«mi carrera no aparece» revela el campo de texto libre', async ({ page }) => {
+  // 2026-09-21: convertido -ya no existe "mi carrera no aparece" que probar-,
+  // no borrado. El caso de raíz se eliminó: esa opción dejaba la solicitud sin
+  // `program_id`, invisible para todo encargado de carrera (el alcance filtra
+  // por `program_id`, ver `docs/flows/engine_officer_scope.md`). Lo que este
+  // test prueba ahora es justo lo que un navegador real puede probar y pytest
+  // no -la API de constraint validation del DOM-, así que no es redundante con
+  // `test_enrollment_public.py`: ese archivo cubre la validación del SERVIDOR
+  // (sin carrera, `__other__` por POST directo, id inventado), no si el
+  // NAVEGADOR bloquea el envío antes de llegar a htmx.
+  test('carrera obligatoria: ya no hay "mi carrera no aparece", y sin elegirla el navegador bloquea el envío', async ({ page }) => {
     await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
 
-    const libre = page.locator('[data-tt-enroll="program-text-wrap"]');
-    await expect(libre, 'el campo libre no puede nacer visible').toBeHidden();
+    await expect(page.locator('option[value="__other__"]')).toHaveCount(0);
+    await expect(page.locator('[data-tt-enroll="program-text-wrap"]')).toHaveCount(0);
+    await expect(page.locator('[name="program_text"]')).toHaveCount(0);
+    await expect(page.getByText(
+      'De no encontrar tu carrera exacta, elige la que más se apegue a la que cursaste.'
+    )).toBeVisible();
 
-    await page.locator('[name="program_id"]').selectOption('__other__');
-    await expect(libre).toBeVisible();
-    await expect(page.locator('[name="program_text"]')).toBeVisible();
+    const select = page.locator('#tt-program');
+    await expect(select).toHaveAttribute('required', '');
+
+    // Capa 1: el navegador. Se llena TODO -incluida una carrera válida, vía
+    // `llenarFormulario`- y luego se deja el <select> sin elegir a propósito:
+    // htmx no manda nada si el formulario es inválido (por eso el resto de
+    // este archivo APAGA la validación nativa para poder probar la del
+    // servidor, ver `sinValidacionNativa` arriba). No se espera una petición
+    // con un plazo -nunca se prueba un negativo con un timeout-: se lee
+    // directo la API de constraint validation, que es determinista.
+    await llenarFormulario(page);
+    await select.selectOption('');
+    await page.getByRole('button', { name: 'Enviar solicitud' }).click();
+    expect(await select.evaluate((el) => el.validity.valueMissing),
+      'el navegador debió marcar el <select> como inválido').toBe(true);
+    await expect(page.locator('[data-tt-notice]'),
+      'con el envío bloqueado por el navegador no debe aparecer ninguna tarjeta').toHaveCount(0);
+
+    // Capa 2: el servidor, que es el contrato de verdad -el `required` del
+    // HTML no protege nada ante un POST directo-.
+    await sinValidacionNativa(page);
+    const post = esperarPost(page);
+    await page.getByRole('button', { name: 'Enviar solicitud' }).click();
+    expect((await post).status()).toBe(200);
+    await expect(page.locator('[data-tt-error="program_id"]')).toBeVisible();
+    await expect(page.locator('[name="program_id"][aria-invalid="true"]')).toBeVisible();
+    await expect(page.getByText('Elige tu carrera de la lista.')).toBeVisible();
   });
 });

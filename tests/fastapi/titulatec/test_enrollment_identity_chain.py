@@ -128,7 +128,7 @@ def _solicitud_del_atacante(db_session, cohort, control):
 # Nada sale antes de la revisión
 # ===========================================================================
 def test_el_formulario_con_un_control_ajeno_no_manda_nada_a_nadie(
-    client, db_session, make_cohort, correo_falso,
+    client, db_session, make_cohort, make_program, correo_falso,
 ):
     from itcj2.apps.titulatec.models import EnrollmentRequest
 
@@ -136,8 +136,15 @@ def test_el_formulario_con_un_control_ajeno_no_manda_nada_a_nadie(
     cohort = make_cohort(status="open")
     _solo_esta_convocatoria(db_session, cohort)
     client.cookies.clear()
+    # 2026-09-21: la carrera es obligatoria y siempre del catálogo -el default
+    # `program_id="__other__"` de `_form()` (arriba) ya no pasa la validación
+    # del servidor-, así que este ÚNICO call site que postea por HTTP necesita
+    # una carrera real. `_form()` no se toca: nada más en este archivo pasa por
+    # la ruta pública (el resto llama a `EnrollmentRequestService` directo).
+    programa = make_program("Ingeniería Ficticia (identity chain)")
 
-    resp = client.post(ENROLL_URL, data=_form(control_number="99884010"),
+    resp = client.post(ENROLL_URL,
+                       data=_form(control_number="99884010", program_id=str(programa.id)),
                        headers={"X-Real-IP": "203.0.113.91"}, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:400]

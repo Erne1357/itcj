@@ -1084,9 +1084,6 @@
   min-width: 0;
 }
 .tt-enroll-row + .tt-enroll-row { margin-top: var(--tt-sp-4); }
-/* `display: grid` gana a `hidden` por especificidad de tipo: sin esta línea el
-   campo «Escribe tu carrera» sale SIEMPRE, que es un campo de más para todos. */
-.tt-enroll-row[hidden] { display: none; }
 .tt-enroll-cell { min-width: 0; }
 
 /* Dos campos cortos por renglón en cuanto la tarjeta da 30rem. Debajo de eso
@@ -1244,17 +1241,6 @@
   }
   .tt-public-main--enroll-notice > .tt-enroll-head { margin-top: auto; }
   .tt-public-main--enroll-notice > .tt-card { margin-bottom: auto; }
-}
-
-/* ---- 9. Movimiento -------------------------------------------------------- */
-/* El único movimiento del formulario: el campo de carrera libre al aparecer.
-   Es un cambio de estado real (el `<select>` acaba de cambiar), que es la única
-   licencia que da `ui_motion.md`. La carga de la página no se coreografía. */
-.tt-enroll-row[data-tt-enroll="program-text-wrap"]:not([hidden]) {
-  animation: tt-slide-up var(--tt-dur-3) var(--tt-ease-out) both;
-}
-@media (prefers-reduced-motion: reduce) {
-  .tt-enroll-row[data-tt-enroll="program-text-wrap"]:not([hidden]) { animation: none; }
 }
 
 /* Compartida con `admin/surveys.html` y `admin/survey_detail.html`, que NO

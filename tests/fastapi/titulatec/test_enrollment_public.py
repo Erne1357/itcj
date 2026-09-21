@@ -1222,19 +1222,3 @@ def test_la_hoja_publica_da_16px_y_44px_a_los_campos_de_la_inscripcion():
     cuerpo = m.group(1)
     assert "min-height: 44px" in cuerpo, cuerpo
     assert "font-size: var(--tt-fs-300)" in cuerpo, cuerpo   # --tt-fs-300 = 1rem
-
-
-def test_el_campo_de_carrera_libre_nace_oculto_y_el_css_lo_respeta():
-    """`display: grid` le gana a `hidden`: sin la regla, el campo sale SIEMPRE."""
-    import re
-    from pathlib import Path
-
-    import itcj2
-
-    css = (Path(itcj2.__file__).resolve().parent / "apps" / "titulatec" / "static"
-           / "css" / "public.css").read_text(encoding="utf-8")
-    css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
-
-    assert re.search(r"\.tt-enroll-row\[hidden\]\s*\{[^}]*display:\s*none", css), (
-        "falta la regla que respeta `hidden` en una fila que es `display: grid`"
-    )
