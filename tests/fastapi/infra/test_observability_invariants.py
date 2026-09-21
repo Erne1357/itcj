@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -147,6 +148,42 @@ def test_celery_configura_logging_por_la_senal_setup_logging():
     )
     assert module_level_calls == [], (
         "configure_logging() a nivel de módulo la borra el worker al arrancar"
+    )
+
+
+def test_celery_arranca_aunque_herede_prometheus_multiproc_dir(tmp_path):
+    """Celery no puede depender de que nadie le pase `PROMETHEUS_MULTIPROC_DIR`.
+
+    Todos los servicios leen el mismo `.env` (`env_file`): si la variable
+    llegara ahí, Celery pasaría a modo multiproceso contra un directorio que
+    nadie crea, y la primera métrica declarada a nivel de módulo (los gauges
+    sin etiquetas abren su fichero mmap al declararse) lo mataría AL
+    IMPORTAR. Celery solo necesita el logging, así que su cadena de imports
+    no debe tocar `prometheus_client` en absoluto. Se importa lo mismo que el
+    worker: `itcj2.celery_app` y cada módulo de `include`.
+    """
+    code = (
+        "import sys\n"
+        "import itcj2.celery_app as c\n"
+        "for name in c.celery_app.conf.include:\n"
+        "    __import__(name)\n"
+        "print('PROMETHEUS_LOADED=%s' % ('prometheus_client' in sys.modules))\n"
+    )
+    env = dict(os.environ)
+    env["PROMETHEUS_MULTIPROC_DIR"] = str(tmp_path / "nadie-lo-crea")
+    env["PYTHONPATH"] = os.pathsep.join(
+        p for p in (str(REPO_ROOT), env.get("PYTHONPATH")) if p
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        env=env, cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+    )
+
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    assert "PROMETHEUS_LOADED=False" in proc.stdout, (
+        "la cadena de imports de Celery carga prometheus_client: "
+        "logging_config no debe importar middleware/metrics"
     )
 
 

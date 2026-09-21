@@ -23,7 +23,14 @@ from time import monotonic, perf_counter
 
 from starlette.datastructures import MutableHeaders
 
-from itcj2.observability.context import bind, new_ids, parse_traceparent, reset
+from itcj2.observability.context import (
+    bind,
+    new_ids,
+    parse_traceparent,
+    reset,
+    user_id_from_scope,
+)
+from itcj2.observability.logging_config import ACCESS_LOGGER_NAME
 from itcj2.observability.metrics import (
     HTTP_EXCEPTIONS,
     HTTP_IN_FLIGHT,
@@ -34,7 +41,7 @@ from itcj2.observability.route import UNMATCHED, app_key_from_route, normalize_r
 
 # Nombre fijo y no `__name__`: es el contrato con la configuración de logs
 # (nivel y handler propios) y con las consultas de Loki sobre la línea-resumen.
-access_logger = logging.getLogger("itcj2.access")
+access_logger = logging.getLogger(ACCESS_LOGGER_NAME)
 logger = logging.getLogger("itcj2.observability")
 
 # R27: una escritura de métrica que lanza (mmap que no se pudo crear o crecer)
@@ -94,22 +101,6 @@ def _header(scope: dict, name: bytes) -> str | None:
         if key == name:
             return value.decode("latin-1")
     return None
-
-
-def user_id_from_scope(scope: dict) -> str:
-    """`sub` del JWT como cadena, o `""` si la petición es anónima.
-
-    `JWTMiddleware` corre POR DENTRO de este middleware, pero escribe
-    `request.state.current_user` en `scope["state"]`, que es el MISMO dict que
-    este middleware tiene en la mano: por eso se lee después de la petición.
-    Público porque el filtro de logs (`logging_config`) lo lee igual, en
-    diferido, para las líneas emitidas dentro del endpoint.
-    """
-    current_user = (scope.get("state") or {}).get("current_user")
-    if not isinstance(current_user, dict):
-        return ""
-    sub = current_user.get("sub")
-    return "" if sub is None else str(sub)
 
 
 def _log_summary(method, route, app, status, duration, user_id, exc_type) -> None:

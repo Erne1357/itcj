@@ -31,9 +31,20 @@ from itcj2.observability.context import (
     current_scope,
     current_span_id,
     current_trace_id,
+    user_id_from_scope,
 )
-from itcj2.observability.middleware import access_logger, user_id_from_scope
 from itcj2.observability.route import app_key_from_route, normalize_route
+
+# NO importar aquí `middleware` ni `metrics`: este módulo es lo único de la
+# observabilidad que carga Celery (`itcj2/celery_app.py`), y esos dos arrastran
+# `prometheus_client`. Con `PROMETHEUS_MULTIPROC_DIR` heredada del `.env`
+# compartido, las métricas de módulo abrirían sus mmap en un directorio que
+# nadie crea y Celery moriría al importar. Lo vigila
+# `test_celery_arranca_aunque_herede_prometheus_multiproc_dir`.
+
+# La línea-resumen por petición (la emite `ObservabilityMiddleware`). Nombre
+# fijo: es el contrato con este módulo (nivel propio) y con Loki.
+ACCESS_LOGGER_NAME = "itcj2.access"
 
 # Atributo (no una subclase) para reconocer el handler propio: sobrevive a un
 # `importlib.reload` de este módulo, que crearía una clase nueva y dejaría el
@@ -244,6 +255,6 @@ def configure_logging(log_format: str | None = None, level: str | None = None) -
     # La línea-resumen reemplaza al access log de uvicorn: nivel fijo en INFO
     # para que LOG_LEVEL=WARNING (R6, bajar el volumen de la app) no la calle
     # con el resto de los INFO.
-    access_logger.setLevel(logging.INFO)
+    logging.getLogger(ACCESS_LOGGER_NAME).setLevel(logging.INFO)
     for name, quiet_level in _QUIET_LOGGERS.items():
         logging.getLogger(name).setLevel(quiet_level)

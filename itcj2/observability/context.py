@@ -178,6 +178,24 @@ def current_scope() -> dict | None:
     return _scope.get(None)
 
 
+def user_id_from_scope(scope: dict) -> str:
+    """`sub` del JWT como cadena, o `""` si la petición es anónima.
+
+    `JWTMiddleware` corre POR DENTRO del middleware de observabilidad, pero
+    escribe `request.state.current_user` en `scope["state"]`, que es el MISMO
+    dict que ese middleware tiene en la mano: por eso se lee después de la
+    petición. Vive aquí y no en `middleware.py` porque el filtro de logs
+    (`logging_config`) lo lee igual, en diferido, y `logging_config` NO puede
+    importar el middleware: arrastraría `metrics` -> `prometheus_client` a
+    Celery (ver `test_celery_arranca_aunque_herede_prometheus_multiproc_dir`).
+    """
+    current_user = (scope.get("state") or {}).get("current_user")
+    if not isinstance(current_user, dict):
+        return ""
+    sub = current_user.get("sub")
+    return "" if sub is None else str(sub)
+
+
 # ---------------------------------------------------------------------------
 # snapshot/restore — cruzar fronteras que NO propagan ContextVars solas
 # ---------------------------------------------------------------------------
