@@ -152,6 +152,11 @@ _PHASE_CTA = {
 }
 
 # Quién es responsable de la fase (para fases que el alumno no acciona).
+# El artículo va INCLUIDO en el valor ("el Depto. de Titulación") porque
+# `dashboard.html:115` lo usa tal cual detrás de "En proceso por " -- "por el"
+# es correcto en español y no contrae. `_con_de` (abajo) es para el OTRO
+# consumidor, `dashboard.html:73` ("A cargo de "), donde "de" + "el" sí
+# contrae.
 _RESPONSIBLE_LABEL = {
     "school_services": "Servicios Escolares",
     "titulaciones":    "el Depto. de Titulación",
@@ -159,6 +164,25 @@ _RESPONSIBLE_LABEL = {
     "synodals":        "tus sinodales",
     "student":         "ti",
 }
+
+
+def _con_de(label: str) -> str:
+    """"de" + `label`, con la contracción obligatoria "del" cuando `label`
+    empieza con "el " (regla dura del español: "de"+"el"→"del", "a"+"el"→"al";
+    "por"/"para"/"con"+"el" NO contraen, así que esto no sirve para esos).
+
+    Ronda de fix 1 (Hallazgo 2, 2026-09-21): `dashboard.html:73` armaba
+    "A cargo de {{ responsible_label }}", y con `_RESPONSIBLE_LABEL["titulaciones"]`
+    = "el Depto. de Titulación" salía "A cargo de el Depto. de Titulación".
+    Genérica sobre el prefijo "el " (no un `if label == "el Depto. de Titulación"`
+    hardcodeado) para que un responsable nuevo que empiece con "el " no vuelva
+    a colarse sin la contracción -- cubre también el fallback
+    "el área responsable" de `_base_card`, que nunca se probó a mano.
+    """
+    if label.startswith("el "):
+        return "del " + label[3:]
+    return "de " + label
+
 
 # Etiqueta legible de cada evento del timeline, EN LA VOZ DEL ALUMNO: aquí el
 # mismo evento dice «Confirmaste tu asistencia» y en `pages/admin.py` «El alumno
@@ -479,6 +503,14 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     Cada ``card``::
 
         number, code, name, icon, responsible, responsible_label
+        responsible_label_de    str    `responsible_label` ya con "de"/"del" al
+                                 frente (`_con_de`, ronda de fix 1, Hallazgo 2):
+                                 el único consumidor correcto de "A cargo de/del
+                                 X" (dashboard.html:73). NO uses `responsible_label`
+                                 a secas ahí -- "de el Depto." es el bug que este
+                                 campo arregla. `dashboard.html:115` ("En proceso
+                                 por…") sigue usando `responsible_label` sin
+                                 contraer: "por el" no contrae en español.
         status            pending|in_progress|in_review|approved|rejected|skipped
         rel               "past" | "current" | "future"
         is_current        bool
@@ -525,13 +557,15 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
 
     def _base_card(pd, **over) -> dict:
         info = _PHASE_INFO.get(pd.code, {})
+        resp_label = _RESPONSIBLE_LABEL.get(pd.responsible, "el área responsable")
         card = {
             "number": pd.number,
             "code": pd.code,
             "name": pd.name,
             "icon": pd.icon,
             "responsible": pd.responsible,
-            "responsible_label": _RESPONSIBLE_LABEL.get(pd.responsible, "el área responsable"),
+            "responsible_label": resp_label,
+            "responsible_label_de": _con_de(resp_label),
             "status": "pending",
             "rel": "future",
             "is_current": False,

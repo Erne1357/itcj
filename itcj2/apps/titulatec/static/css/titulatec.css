@@ -525,6 +525,18 @@ body.tt-stu {
 .tt-canvas { flex: 1; padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
 .tt-canvas-inner { width: 100%; }
 .tt-rail { display: none; }
+/* Corte a T-soft (Tarea 3, ronda de fix 1, Hallazgo 1, 2026-09-21): el copy de
+   T-soft del PANEL DEL ACORDEÓN (dashboard.html) puede quedar como la ÚLTIMA
+   línea visible en CUALQUIER punto de la lista -no solo al final de la
+   página, que ya cubre el padding de `.tt-canvas` de arriba-, y ahí el FAB
+   standalone se le monta encima si el alumno se desplaza hasta el borde
+   (medido en el navegador: el párrafo quedaba a 16px del fondo del viewport,
+   el FAB empieza a 80px antes del fondo). Mismo colchón (88px) que
+   `.tt-canvas`, para el mismo FAB. Deliberadamente NO va en la tarjeta grande
+   de la fase actual (mismo copy, otro sitio): esa es siempre lo primero que
+   se ve, con ~117px de holgura medidos en la posición de scroll natural —
+   agregarlo ahí también solo infla la tarjeta sin cerrar un riesgo real. */
+.tt-handoff-note { padding-bottom: 88px; }
 
 /* Dashboard: hero + "subida" de las tarjetas.
    Móvil: el hero se extiende y las tarjetas suben para solaparlo (efecto tarjeta).

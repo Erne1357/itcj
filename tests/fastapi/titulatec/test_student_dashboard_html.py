@@ -296,6 +296,72 @@ def test_con_el_corte_en_9_reaparece_el_cta_de_formato_b(
     ctas = doc.xpath('//a[@data-tt-cta]')
     assert len(ctas) == 1 and ctas[0].get("href") == "/titulatec/student/formato-b"
     assert _HANDOFF_COPY not in _text(tarjeta)
+    # Paridad con `test_control_la_fase_actual_si_acciona_y_lo_hace_desde_la_tarjeta`
+    # (que perdio el caso (3, formato-b) al agregar el corte, ronda de fix 1): el
+    # CTA que reaparece sigue viviendo en la tarjeta grande, no en el acordeon.
+    assert doc.xpath('//*[@id="tt-fase-actual"]//a[@data-tt-cta]')
+    assert not _acc_root(doc).xpath('.//a[@data-tt-cta]')
+
+
+# ---------------------------------------------------------------------------
+# Ronda de fix 1 (post-revision del coordinador)
+# ---------------------------------------------------------------------------
+def test_el_copy_de_tsoft_reserva_espacio_para_no_tapar_con_el_fab(
+    client_as, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Hallazgo 1 (Importante): el FAB standalone del core (fixed, 56px +
+    24px de offset = 80px desde el borde) se monta sobre la ultima linea del
+    copy de T-soft cuando el usuario se desplaza hasta el fondo -- medido en
+    el navegador real (Playwright `boundingBox()`, no solo visto en la
+    captura): el parrafo terminaba a 16px del fondo de un viewport de 844px,
+    y el FAB empieza a 764px (80px antes del fondo).
+
+    Aqui solo se prueba que el marcado lleva la clase que reserva el colchon
+    (`.tt-handoff-note` en titulatec.css, mismo criterio que `.tt-canvas` ya
+    usa para el final de la pagina, ver su comentario) SOLO en el panel del
+    acordeon, que es donde se midio el riesgo real (puede quedar flush contra
+    el fondo en cualquier punto de la lista). La tarjeta grande NO la lleva a
+    proposito: la misma medicion ahi dio ~117px de holgura en la posicion de
+    scroll natural (es lo primero que se ve, antes del acordeon) -- agregar
+    el colchon tambien ahi solo infla la tarjeta sin cerrar un riesgo real.
+    La clearance real la confirma la captura de pantalla (no un test de HTML:
+    aqui no hay layout real que medir).
+    """
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student, current_phase=3)
+
+    doc = _dash(client_as(student))
+
+    tarjeta_note = doc.xpath(
+        '//*[@id="tt-fase-actual"]//p[contains(@class,"tt-handoff-note")]')
+    panel_note = doc.xpath(
+        '//*[@id="tt-acc-panel-4"]//p[contains(@class,"tt-handoff-note")]')
+    assert len(tarjeta_note) == 0
+    assert len(panel_note) == 1
+
+
+def test_a_cargo_del_depto_de_titulacion_contrae_bien_en_la_tarjeta(
+    client_as, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Hallazgo 2 (Menor): la tarjeta grande decia "A cargo de el Depto. de
+    Titulacion" para cualquier fase a cargo de Titulaciones (3, 6 u 8) --
+    probado con la 3 porque ya es el escenario de esta seccion (fase actual
+    con el corte puesto). El contrato de datos (`responsible_label_de` para
+    las 9 fases) se prueba en `test_student_dashboard_accordion.py`; esto es
+    la confirmacion de que el HTML lo usa de verdad.
+    """
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student, current_phase=3)
+
+    doc = _dash(client_as(student))
+    tarjeta = doc.xpath('//*[@id="tt-fase-actual"]')[0]
+
+    assert "A cargo del Depto. de Titulación" in _text(tarjeta)
+    assert "A cargo de el" not in _text(tarjeta)
 
 
 # ---------------------------------------------------------------------------

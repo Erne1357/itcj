@@ -137,7 +137,15 @@ class Settings(BaseSettings):
     # tamanos y color —el texto cae al del `<body>`— y el nuevo «Solicitar
     # cambio» se pinta como un `<summary>` crudo, con su triangulo y sin
     # objetivo tactil.
-    STATIC_VERSION: str = "1.0.1111552"
+    #
+    # Bump 2026-09-21: corte a T-soft, ronda de fix 1 (Hallazgo 1) — `titulatec.css`
+    # gana `.tt-handoff-note` (padding-bottom 88px, mismo colchon que `.tt-canvas`)
+    # en el copy de T-soft del panel del acordeon del dashboard del alumno
+    # (deliberadamente NO en la tarjeta grande de la fase actual, ver el
+    # comentario de la clase). Sin el bump, el FAB standalone del core se sigue
+    # montando sobre la ultima linea del aviso cuando el alumno se desplaza
+    # hasta el borde de un panel expandido.
+    STATIC_VERSION: str = "1.0.1111553"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

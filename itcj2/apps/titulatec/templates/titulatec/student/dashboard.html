@@ -70,7 +70,7 @@
             <div class="min-w-0">
               <div class="tt-now-title">{{ current.name }}</div>
               <div style="font-size:.72rem;color:var(--tt-mute);margin-top:3px">
-                {% if current.responsible == 'student' %}Te toca a ti{% else %}A cargo de {{ current.responsible_label }}{% endif %}
+                {% if current.responsible == 'student' %}Te toca a ti{% else %}A cargo {{ current.responsible_label_de }}{% endif %}
               </div>
             </div>
           </div>
@@ -106,7 +106,14 @@
           {% elif current.handoff %}
           {# Corte a T-soft (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion): el
              backend ya bloquea esta fase (PhaseService._handoff_phase); aqui se le
-             explica al alumno en vez de dejarlo frente al boton muerto de arriba. #}
+             explica al alumno en vez de dejarlo frente al boton muerto de arriba.
+             SIN `tt-handoff-note` aqui a proposito (ronda de fix 1, Hallazgo 1):
+             medido en el navegador, esta tarjeta tiene ~117px de holgura frente al
+             FAB en la posicion de scroll natural (es lo primero que se ve, antes
+             del acordeon) -- el colchon de 88px solo hacia falta, y se confirmo
+             con la misma medicion, en el panel del acordeon de abajo, que SI puede
+             quedar flush contra el fondo del viewport. Agregarlo aqui tambien solo
+             infla la tarjeta sin cerrar un riesgo real. #}
           <p class="tt-prose mt-3 mb-0" style="font-size:.82rem;color:var(--tt-mute)">
             <i class="bi bi-signpost-split me-1"></i>{{ handoff_copy }}
           </p>
@@ -251,8 +258,15 @@
                       {{ pill('Fase cerrada · ya no requiere acción', 'neutral', 'lock') }}
                     {% elif ph.handoff %}
                       {# Corte a T-soft (Tarea 3): esta fase nunca se va a "habilitar"
-                         aqui -- el corte se la llevo a T-soft igual que a la actual. #}
-                      <p class="tt-prose mb-0" style="font-size:.78rem;color:var(--tt-mute)">
+                         aqui -- el corte se la llevo a T-soft igual que a la actual.
+                         `tt-handoff-note` (ronda de fix 1, Hallazgo 1): el acordeon
+                         puede desplegar esta nota en CUALQUIER punto de la lista, no
+                         solo al final de la pagina, y ahi el FAB flotante se le monta
+                         encima si el alumno se desplaza hasta el borde (medido: el
+                         parrafo quedaba a 16px del fondo del viewport, el FAB empieza
+                         a 80px). La tarjeta grande NO lleva esta clase -- ver su
+                         propio comentario, unas lineas arriba. #}
+                      <p class="tt-prose mb-0 tt-handoff-note" style="font-size:.78rem;color:var(--tt-mute)">
                         <i class="bi bi-signpost-split me-1"></i>{{ handoff_copy }}
                       </p>
                     {% else %}

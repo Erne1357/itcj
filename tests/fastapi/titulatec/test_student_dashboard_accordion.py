@@ -349,6 +349,44 @@ def test_con_el_corte_en_9_la_fase_3_recupera_su_cta_de_formato_b(
 
 
 # ---------------------------------------------------------------------------
+# Ronda de fix 1 (post-revision del coordinador) -- Hallazgo 2: "A cargo de
+# el Depto. de Titulacion" (falta la contraccion "del"). `dashboard.html:73`
+# arma "A cargo de {{ responsible_label }}", y `_RESPONSIBLE_LABEL["titulaciones"]`
+# ya trae el articulo ("el Depto. de Titulacion") para que sirva tal cual en
+# `dashboard.html:115` ("En proceso por {{ responsible_label }}.", donde "por
+# el" SI es correcto -- el espanol solo contrae "de"+"el" y "a"+"el", nunca
+# "por"+"el"). `responsible_label_de` es el campo nuevo, ya contraido, para el
+# UNICO consumidor que lo necesita.
+# ---------------------------------------------------------------------------
+def test_responsible_label_de_contrae_correctamente_en_las_9_fases(
+    db_session, seed_phase_defs, seed_document_types,
+):
+    """Los 5 valores de `_RESPONSIBLE_LABEL` (los `responsible` 0-8 solo tocan
+    4 mas el propio `student`), probados de una vez contra el catalogo real
+    para que un responsable nuevo que empiece con "el " no vuelva a colarse
+    sin la contraccion.
+    """
+    seed_phase_defs()
+    seed_document_types()
+
+    ctx = _phases_ctx(db_session, None)
+
+    esperado = {
+        0: "de Servicios Escolares",    # cohort_intake -> school_services
+        1: "de ti",                     # initial_docs -> student
+        2: "de Servicios Escolares",    # review_appointment -> school_services
+        3: "del Depto. de Titulación",  # format_b -> titulaciones
+        4: "de Vinculación",            # synodal_assignment -> vinculacion
+        5: "de tus sinodales",          # synodal_review -> synodals
+        6: "del Depto. de Titulación",  # anexo_iii -> titulaciones
+        7: "de ti",                     # final_docs -> student
+        8: "del Depto. de Titulación",  # ceremony -> titulaciones
+    }
+    obtenido = {c["number"]: c["responsible_label_de"] for c in ctx["phases"]}
+    assert obtenido == esperado
+
+
+# ---------------------------------------------------------------------------
 # Sub-progreso (decision 4)
 # ---------------------------------------------------------------------------
 def test_subprogreso_fase_1_cuenta_aprobados_rechazados_y_faltantes(
