@@ -442,7 +442,67 @@ def _grants_de_rol(sql: str, rol: str) -> set[str]:
             for c in re.findall(r"'([^']+)'", bloque)}
 
 
+# Los 12 permisos de SUPERVISION que conserva `titulatec_titulaciones` tras el
+# recorte (D6/D7): lectura de todo + la bandeja de liberados. `titulatec_titulacion`
+# (rol nuevo, D5) tiene TODOS estos 12 MAS los 10 de dictamen (8 de fase 3-8 +
+# 2 de escritura de ceremony) -- 22 en total. Arreglo A3(a) (revision final
+# 2026-09-21): esos 10 códigos YA NO viven en el ARRAY de concesión de
+# titulatec_titulaciones (antes sí, "por compat de lectura", y un DELETE en el
+# mismo bloque los revocaba -- confuso para quien leyera solo el ARRAY).
+PERMISOS_SUPERVISION_TITULACIONES = (
+    "titulatec.dashboard.titulaciones",
+    "titulatec.process.page.list", "titulatec.process.page.detail",
+    "titulatec.process.api.read.all",
+    "titulatec.document.api.read.all",
+    "titulatec.document.page.list",
+    "titulatec.format_b.api.read.all",
+    "titulatec.ceremony.page.list",
+    "titulatec.notifications.api.read.own", "titulatec.notifications.api.mark_read",
+    "titulatec.handoff.page.list", "titulatec.handoff.api.export",
+)
+PERMISOS_DICTAMEN_FASES_3_8 = (
+    "titulatec.process.api.approve_phase", "titulatec.process.api.reject_phase",
+    "titulatec.process.api.cancel", "titulatec.process.api.hold",
+    "titulatec.format_b.api.approve", "titulatec.format_b.api.reject",
+    "titulatec.document.api.approve", "titulatec.document.api.reject",
+)
+PERMISOS_CEREMONY_ESCRITURA = (
+    "titulatec.ceremony.api.create", "titulatec.ceremony.api.update",
+)
+PERMISOS_DEPARTAMENTO_TITULACION = (
+    PERMISOS_SUPERVISION_TITULACIONES + PERMISOS_DICTAMEN_FASES_3_8 + PERMISOS_CEREMONY_ESCRITURA
+)
+
+
 @requires_dml
+def test_titulaciones_recortado_y_titulacion_nuevo_tienen_el_reparto_exacto():
+    """Spec 2026-09-21-titulatec-dpto-titulacion, D5/D6 + arreglo A3 (revision
+    final 2026-09-21). Mismo patron que
+    `test_el_alumno_de_titulacion_es_graduate_y_student_ya_no_recibe_nada_de_titulatec`
+    (abajo), aplicado a los dos roles de Titulacion:
+
+    - `titulatec_titulaciones` (jefatura de la Division, RECORTADA): el ARRAY
+      de concesion en el DML debe ser EXACTAMENTE los 12 de supervision --
+      NINGUN approve/reject/cancel/hold ni ceremony.api.create/.update. Antes
+      del arreglo A3(a) el ARRAY traia esos 10 codigos "por compat de lectura"
+      y un DELETE en el MISMO bloque los revocaba: funcionaba, pero enganaba a
+      quien leyera solo el ARRAY.
+    - `titulatec_titulacion` (Departamento de Titulacion, rol NUEVO): los
+      mismos 12 MAS los 10 de dictamen -- 22 en total.
+    """
+    tres = re.sub(r"--[^\n]*", "",
+                  (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8"))
+
+    assert _grants_de_rol(tres, "titulatec_titulaciones") == set(PERMISOS_SUPERVISION_TITULACIONES), (
+        "titulatec_titulaciones ya no deberia conceder en su ARRAY ningun "
+        "permiso de dictamen (approve/reject/cancel/hold/ceremony.api.*): eso "
+        "se revoca via DELETE, que hoy es solo la red de seguridad (A3(a))")
+    assert _grants_de_rol(tres, "titulatec_titulacion") == set(PERMISOS_DEPARTAMENTO_TITULACION), (
+        "titulatec_titulacion (Departamento de Titulacion) deberia tener "
+        "exactamente los 22 permisos: los 12 de supervision mas los 10 de "
+        "dictamen (8 de fase 3-8 + 2 de ceremony.api.*)")
+
+
 def test_el_alumno_de_titulacion_es_graduate_y_student_ya_no_recibe_nada_de_titulatec():
     """2026-09-15: el alumno deja de reciclar `student` (el de AgendaTec y el
     `role_id` de miles de cuentas). El 01 crea `graduate`; el 03 le da lo que tenia

@@ -452,6 +452,41 @@ _PERMISOS_DICTAMEN_FASES_3_8 = (
     "titulatec.document.api.reject",
 )
 
+# Los 2 de escritura de ceremony (fase 8): `titulatec_titulaciones` los pierde
+# y `titulatec_titulacion` los gana, igual que los 8 de arriba (ronda de fix 1).
+_PERMISOS_CEREMONY_ESCRITURA = (
+    "titulatec.ceremony.api.create",
+    "titulatec.ceremony.api.update",
+)
+
+# Los 12 permisos de SUPERVISION que se quedan en `titulatec_titulaciones` tras
+# el recorte (D6): lectura de todo + la bandeja de liberados. Arreglo A3(c)
+# (revision final 2026-09-21): antes `_verify_titulacion()` solo comprobaba que
+# `titulatec_titulacion` tuviera los 10 del delta (dictamen + ceremony), no los
+# 22 completos del rol -- una siembra que dejara sin sembrar alguno de estos 12
+# (p.ej. si `02_insert_permissions.sql` se ejecutara truncado) pasaba en verde.
+_PERMISOS_SUPERVISION_TITULACIONES = (
+    "titulatec.dashboard.titulaciones",
+    "titulatec.process.page.list",
+    "titulatec.process.page.detail",
+    "titulatec.process.api.read.all",
+    "titulatec.document.api.read.all",
+    "titulatec.document.page.list",
+    "titulatec.format_b.api.read.all",
+    "titulatec.ceremony.page.list",
+) + _PERMISOS_HANDOFF + (
+    "titulatec.notifications.api.read.own",
+    "titulatec.notifications.api.mark_read",
+)
+
+# Los 22 permisos completos de `titulatec_titulacion` (D5): los 12 de
+# supervision (arriba) mas los 10 de dictamen (8 de fase 3-8 + 2 de ceremony).
+_PERMISOS_ROL_TITULACION = (
+    _PERMISOS_SUPERVISION_TITULACIONES
+    + _PERMISOS_DICTAMEN_FASES_3_8
+    + _PERMISOS_CEREMONY_ESCRITURA
+)
+
 
 def _verify_titulacion() -> list[str]:
     """Comprueba que el Departamento de Titulación ATERRIZÓ. Devuelve problemas.
@@ -516,35 +551,43 @@ def _verify_titulacion() -> list[str]:
             if code not in permisos:
                 problemas.append(f"permiso ausente: {code}")
 
-        # Mapeo puesto→rol: exactamente 2 filas para el rol nuevo (head+aux) y
-        # exactamente 1 para el viejo (solo head_prof_studies_div).
-        n_nuevo = conn.execute(
-            text(
-                "SELECT COUNT(*) FROM core_position_app_roles par "
-                "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
-                "  JOIN core_roles r ON r.id = par.role_id "
-                " WHERE r.name = :rol"
-            ),
-            {"rol": _ROL_TITULACION},
-        ).scalar()
-        if n_nuevo != 2:
+        # Mapeo puesto→rol: el rol nuevo debe INCLUIR head+aux, y el viejo
+        # debe INCLUIR head_prof_studies_div. Arreglo A7 (revision final
+        # 2026-09-21): antes esto exigia una CUENTA EXACTA (2 y 1 filas). Si
+        # un admin mapeara mas adelante, con toda intencion, un tercer puesto
+        # al rol nuevo (o a la supervision de la Division) desde el
+        # organigrama del core, `init-titulatec` abortaba en rojo con la
+        # siembra perfectamente sana -- "contiene al menos estos puestos" no
+        # se rompe con una decision de organigrama que nada tiene que ver con
+        # el DML.
+        puestos_de = {}
+        for rol in (_ROL_TITULACION, _ROL_TITULACIONES_DIV):
+            puestos_de[rol] = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        "SELECT pos.code FROM core_position_app_roles par "
+                        "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
+                        "  JOIN core_roles r ON r.id = par.role_id "
+                        "  JOIN core_positions pos ON pos.id = par.position_id "
+                        " WHERE r.name = :rol"
+                    ),
+                    {"rol": rol},
+                )
+            }
+
+        faltan_nuevo = {_PUESTO_HEAD_TITULACION, _PUESTO_AUX_TITULACION} - puestos_de[_ROL_TITULACION]
+        if faltan_nuevo:
             problemas.append(
-                f"mapeo puesto→rol de {_ROL_TITULACION}: se esperaban 2 filas, hay {n_nuevo}"
+                f"mapeo puesto→rol de {_ROL_TITULACION}: faltan {sorted(faltan_nuevo)} "
+                f"(hay {sorted(puestos_de[_ROL_TITULACION])})"
             )
 
-        n_viejo = conn.execute(
-            text(
-                "SELECT COUNT(*) FROM core_position_app_roles par "
-                "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
-                "  JOIN core_roles r ON r.id = par.role_id "
-                " WHERE r.name = :rol"
-            ),
-            {"rol": _ROL_TITULACIONES_DIV},
-        ).scalar()
-        if n_viejo != 1:
+        if _PUESTO_HEAD_PROF_STUDIES_DIV not in puestos_de[_ROL_TITULACIONES_DIV]:
             problemas.append(
-                f"mapeo puesto→rol de {_ROL_TITULACIONES_DIV}: se esperaba 1 fila "
-                f"({_PUESTO_HEAD_PROF_STUDIES_DIV}), hay {n_viejo}"
+                f"mapeo puesto→rol de {_ROL_TITULACIONES_DIV}: falta "
+                f"{_PUESTO_HEAD_PROF_STUDIES_DIV} "
+                f"(hay {sorted(puestos_de[_ROL_TITULACIONES_DIV])})"
             )
 
         # El rol nuevo debe tener el dictamen + la bandeja de liberados.
@@ -561,7 +604,8 @@ def _verify_titulacion() -> list[str]:
                 {"rol": _ROL_TITULACION},
             )
         }
-        for code in _PERMISOS_DICTAMEN_FASES_3_8 + _PERMISOS_HANDOFF:
+        # Arreglo A3(c): los 22 completos, no solo los 10 del delta de dictamen.
+        for code in _PERMISOS_ROL_TITULACION:
             if code not in concedidos_nuevo:
                 problemas.append(f"sin grant a {_ROL_TITULACION}: {code}")
 
