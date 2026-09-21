@@ -775,7 +775,15 @@ def test_el_token_nunca_aparece_en_los_logs(
         client.get(f"{VERIFY_URL}?t={token}", follow_redirects=False)
 
     propios = [r for r in caplog.records if r.name.startswith("itcj2")]
-    assert propios, "el request no pasó por ningún logger de itcj2 — el test no prueba nada"
+    # La guarda anti-vacuidad NO cuenta la línea-resumen `itcj2.access`: la
+    # emite el middleware en TODA petición, así que la dejaría satisfecha
+    # siempre aunque la ruta no logueara nada. Esa línea sí entra en la
+    # comprobación de fuga de abajo (si algún día llevara la URL cruda, el
+    # token saldría por ahí).
+    assert [r for r in propios if r.name != "itcj2.access"], (
+        "el request no pasó por ningún logger de itcj2 — el test no prueba nada"
+    )
+    assert any(r.name == "itcj2.access" for r in propios)
     for record in propios:
         assert token not in record.getMessage()
         if record.exc_text:
