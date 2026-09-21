@@ -51,7 +51,10 @@ class PresenceCollector:
         presence_family = self._presence_family()
         if presence_family is not None:
             yield presence_family
-        yield self._socket_family()
+
+        socket_family = self._socket_family()
+        if socket_family is not None:
+            yield socket_family
 
     def _presence_family(self):
         try:
@@ -86,29 +89,47 @@ class PresenceCollector:
         return family
 
     def _socket_family(self):
+        try:
+            # Import local: importar `itcj2.sockets.server` dispara la
+            # inicialización del paquete `itcj2.sockets` (registra los 6
+            # namespaces sobre el `sio` compartido) si nadie lo hizo antes —
+            # en un worker `http` eso nunca pasa porque `collect()` ya
+            # retornó arriba sin llegar aquí.
+            from itcj2.sockets.server import sio
+
+            rooms = sio.manager.rooms
+            # `sio.handlers` es la lista ESTÁTICA de namespaces con handlers
+            # registrados (`.on(..., namespace=NAMESPACE)`, todo al importar
+            # el paquete): a diferencia de `sio.manager.rooms`, no depende de
+            # que haya al menos una conexión viva, así que un namespace vacío
+            # sigue apareciendo en `/metrics` con 0 en vez de faltar de la
+            # serie.
+            counts = {
+                # `rooms[namespace][None]` es la sala implícita de
+                # python-socketio con TODOS los sids conectados a ese
+                # namespace (ver `base_manager.py::connect`/`is_connected`);
+                # ausente hasta la primera conexión, de ahí los
+                # `.get(..., {})` encadenados.
+                namespace: len(rooms.get(namespace, {}).get(None, {}))
+                for namespace in sio.handlers
+            }
+        except Exception:
+            # Mismo contrato que `_presence_family()`: `sio.manager.rooms` lo
+            # muta el loop de asyncio en otra tarea mientras este scrape corre
+            # en el threadpool (ver docstring de la clase) — una lectura que
+            # choque con una estructura inesperada no debe tirar TODO el
+            # scrape (RED, saturación y lag también se sirven desde aquí).
+            logger.exception(
+                "sockets: no se pudo leer sio.manager.rooms, familia "
+                "itcj_socket_connections omitida"
+            )
+            return None
+
         family = GaugeMetricFamily(
             "itcj_socket_connections",
             "Sockets conectados por namespace, en el worker de ESTE proceso.",
             labels=["namespace"],
         )
-        # Import local: importar `itcj2.sockets.server` dispara la
-        # inicialización del paquete `itcj2.sockets` (registra los 6
-        # namespaces sobre el `sio` compartido) si nadie lo hizo antes — en
-        # un worker `http` eso nunca pasa porque `collect()` ya retornó
-        # arriba sin llegar aquí.
-        from itcj2.sockets.server import sio
-
-        rooms = sio.manager.rooms
-        # `sio.handlers` es la lista ESTÁTICA de namespaces con handlers
-        # registrados (`.on(..., namespace=NAMESPACE)`, todo al importar el
-        # paquete): a diferencia de `sio.manager.rooms`, no depende de que
-        # haya al menos una conexión viva, así que un namespace vacío sigue
-        # apareciendo en `/metrics` con 0 en vez de faltar de la serie.
-        for namespace in sio.handlers:
-            # `rooms[namespace][None]` es la sala implícita de python-socketio
-            # con TODOS los sids conectados a ese namespace (ver
-            # `base_manager.py::connect`/`is_connected`); ausente hasta la
-            # primera conexión, de ahí los `.get(..., {})` encadenados.
-            connected = len(rooms.get(namespace, {}).get(None, {}))
+        for namespace, connected in counts.items():
             family.add_metric([namespace], connected)
         return family

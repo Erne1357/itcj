@@ -164,6 +164,34 @@ def test_redis_failure_keeps_200_without_presence_family_and_logs(
     )
 
 
+def test_socket_manager_failure_keeps_200_without_socket_family_and_logs(
+    client, presence_redis, monkeypatch, caplog
+):
+    # Reproduce el hallazgo de la revisión: una lectura de `sio.manager.rooms`
+    # que explota (estructura corrupta/inesperada, no una caída de Redis) no
+    # debe tirar TODO el scrape de /metrics, solo omitir esta familia — mismo
+    # contrato que ya cubre `_presence_family()` arriba.
+    monkeypatch.setattr(get_settings(), "APP_ROLE", "all")
+    from itcj2.sockets.server import sio
+
+    class _BoomRooms:
+        def get(self, *_args, **_kwargs):
+            raise RuntimeError("rooms corrupto (simulado)")
+
+    monkeypatch.setattr(sio.manager, "rooms", _BoomRooms())
+
+    with caplog.at_level(logging.ERROR, logger="itcj2.observability"):
+        resp = client.get("/metrics")
+
+    assert resp.status_code == 200
+    assert _family(resp.text, "itcj_socket_connections") is None
+    # La familia de presencia no depende de sio.manager: sigue presente.
+    assert _family(resp.text, "itcj_presence_users") is not None
+    assert any(
+        r.exc_info and "rooms corrupto" in str(r.exc_info[1]) for r in caplog.records
+    )
+
+
 # ---------------------------------------------------------------------------
 # Nunca identidades: solo bucket/namespace y conteos
 # ---------------------------------------------------------------------------
