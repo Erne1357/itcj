@@ -9,10 +9,11 @@ diferencia de esos tests, aquí se comparan CONTEOS ABSOLUTOS contra el body
 de `/metrics`, y una presencia real del dev (alguien conectado de verdad al
 `/notify` del stack) los rompería si se compartiera `presence:notify:*`.
 
-Este contenedor (`itcj-backend-1`) corre con `APP_ROLE=http` de verdad (ver
-`docker-compose.dev.yml`): el caso "http no aparece" es el comportamiento
-POR DEFECTO, sin monkeypatch, y los casos "socket/all sí aparecen" son los
-que necesitan `monkeypatch.setattr(get_settings(), "APP_ROLE", ...)`.
+`APP_ROLE` se fija en CADA test con `monkeypatch.setattr(get_settings(),
+"APP_ROLE", ...)`, nunca se lee del entorno: el contenedor de dev corre con
+`http` (`docker-compose.dev.yml`) pero CI no define la variable y cae en el
+default `all`. Un test que dependiera del entorno pasaría en local y
+bloquearía el deploy en CI.
 """
 import logging
 
@@ -41,14 +42,24 @@ def client(app):
 @pytest.fixture()
 def presence_redis(monkeypatch):
     """Aísla las claves de presencia: prefijo propio (nunca `presence:notify:*`,
-    que puede tener presencia real del dev) y limpieza garantizada al final."""
+    que puede tener presencia real del dev) y limpieza al entrar Y al salir.
+
+    Al entrar también: una corrida abortada (Ctrl+C, contenedor reiniciado)
+    no llega al teardown y deja miembros vivos hasta
+    `PRESENCE_WINDOW_SECONDS`; la siguiente corrida compararía conteos
+    absolutos contra ese residuo y fallaría sin que nada estuviera roto."""
     monkeypatch.setattr(presence_service, "_KEY", TEST_KEY_TEMPLATE)
     client = get_redis()
     try:
         client.ping()
     except Exception:
         pytest.skip("Redis no disponible")
+    _delete_test_keys(client)
     yield client
+    _delete_test_keys(client)
+
+
+def _delete_test_keys(client) -> None:
     for bucket in presence_service.BUCKETS:
         client.delete(TEST_KEY_TEMPLATE.format(bucket=bucket))
 
@@ -66,10 +77,10 @@ def _label_values(family) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# APP_ROLE=http (default real de este contenedor): ninguna familia aparece
+# APP_ROLE=http (backend-blue/green): ninguna familia aparece
 # ---------------------------------------------------------------------------
-def test_http_role_never_exposes_presence_or_socket_families(client):
-    assert get_settings().APP_ROLE == "http"
+def test_http_role_never_exposes_presence_or_socket_families(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "APP_ROLE", "http")
 
     body = client.get("/metrics").text
 
