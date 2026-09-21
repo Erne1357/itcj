@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,10 @@ from itcj2.observability.metrics import reap_dead_workers
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Un "worker": deja una petición en vuelo, una contada y una medida, y
-# anuncia su PID. Con "stay" se queda vivo hasta que se le cierre stdin.
+# anuncia su PID. Con "exit" lo imprime y termina; con "stay" lo escribe en el
+# fichero `argv[2]` (atómico: tmp + replace) y se queda vivo hasta que se le
+# cierre stdin. Por fichero y no por stdout: el test lo espera con plazo, sin
+# un `readline()` que se colgaría para siempre si el hijo se atasca.
 _WORKER = textwrap.dedent("""
     import os, sys
     from itcj2.observability import metrics
@@ -39,9 +43,14 @@ _WORKER = textwrap.dedent("""
     metrics.HTTP_REQUEST_DURATION.labels(
         app="helpdesk", method="GET", route="/x/{id}"
     ).observe(0.1)
-    print(os.getpid(), flush=True)
     if sys.argv[1] == "stay":
+        ready = sys.argv[2]
+        with open(ready + ".tmp", "w") as f:
+            f.write(str(os.getpid()))
+        os.replace(ready + ".tmp", ready)
         sys.stdin.read()
+    else:
+        print(os.getpid(), flush=True)
 """)
 
 # El worker que atiende el scrape: exactamente lo que hace GET /metrics.
@@ -100,36 +109,60 @@ DURATION_COUNT = (
 )
 
 
+def _wait_for_ready(proc: subprocess.Popen, ready: Path, timeout: float = 60) -> int:
+    """PID que el worker vivo dejó en `ready`, con plazo: si el hijo muere
+    antes o se atasca, el test falla con su stderr en vez de colgarse."""
+    deadline = time.monotonic() + timeout
+    while not ready.exists():
+        if proc.poll() is not None:
+            raise AssertionError(
+                f"el worker murió (rc={proc.returncode}) sin avisar: {proc.stderr.read()}"
+            )
+        if time.monotonic() > deadline:
+            raise AssertionError(f"el worker no avisó en {timeout} s")
+        time.sleep(0.02)
+    return int(ready.read_text())
+
+
 @pytest.fixture(scope="module")
 def scenario(tmp_path_factory):
     multiproc_dir = tmp_path_factory.mktemp("prometheus_multiproc")
+    # Fuera del dir de mmap: el test compara los ficheros de ese dir.
+    ready = tmp_path_factory.mktemp("worker_ready") / "live.pid"
     env = _env(multiproc_dir)
 
     dead_pid = int(_run(_WORKER, env, "exit").strip())
 
-    live = subprocess.Popen(
-        [sys.executable, "-c", _WORKER, "stay"],
-        env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
-    )
-    try:
-        live_pid = int(live.stdout.readline().strip())
-        files_before = set(os.listdir(multiproc_dir))
-        before = _read_without_reaping(multiproc_dir)
+    # `with`: al salir cierra los pipes (sin ResourceWarning) y recoge al hijo.
+    with subprocess.Popen(
+        [sys.executable, "-c", _WORKER, "stay", str(ready)],
+        env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE, text=True,
+    ) as live:
+        try:
+            live_pid = _wait_for_ready(live, ready)
+            files_before = set(os.listdir(multiproc_dir))
+            before = _read_without_reaping(multiproc_dir)
 
-        scraped = _run(_SCRAPER, env)
+            scraped = _run(_SCRAPER, env)
 
-        yield {
-            "multiproc_dir": multiproc_dir,
-            "dead_pid": dead_pid,
-            "live_pid": live_pid,
-            "files_before": files_before,
-            "files_after": set(os.listdir(multiproc_dir)),
-            "before": before,
-            "after": _samples(scraped),
-        }
-    finally:
-        live.stdin.close()
-        live.wait(timeout=30)
+            yield {
+                "multiproc_dir": multiproc_dir,
+                "dead_pid": dead_pid,
+                "live_pid": live_pid,
+                "files_before": files_before,
+                "files_after": set(os.listdir(multiproc_dir)),
+                "before": before,
+                "after": _samples(scraped),
+            }
+        finally:
+            live.stdin.close()
+            try:
+                live.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                # Un hijo atascado no puede sobrevivir a la sesión de pytest.
+                live.kill()
+                live.wait()
 
 
 def test_dead_worker_livesum_gauge_stops_being_summed(scenario):
