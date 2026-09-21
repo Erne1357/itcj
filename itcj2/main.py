@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 logger = logging.getLogger("itcj2")
 
@@ -185,6 +185,19 @@ def create_app() -> FastAPI:
         if errors:
             return JSONResponse(status_code=503, content={"ready": False, "errors": errors})
         return {"ready": True}
+
+    # Scrape de Prometheus. `def` y no `async def` a propósito: en modo
+    # multiproceso `MultiProcessCollector` lee los ficheros mmap de TODOS los
+    # workers, I/O real que va al threadpool y no al event loop. Da igual en
+    # qué worker caiga el scrape: el agregado sale de los ficheros de todos.
+    # Fuera del esquema OpenAPI (no es API de la app); hacia internet lo corta
+    # nginx con un 404 (Fase 0).
+    @app.get("/metrics", include_in_schema=False)
+    def metrics():
+        from itcj2.observability.metrics import render_latest
+
+        content, content_type = render_latest()
+        return Response(content, media_type=content_type)
 
     # Error handlers
     _register_error_handlers(app)

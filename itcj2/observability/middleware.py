@@ -1,4 +1,5 @@
-"""Middleware ASGI puro: contexto de petición, cronómetro y una línea por petición.
+"""Middleware ASGI puro: contexto de petición, cronómetro, métricas RED y una
+línea por petición.
 
 Por qué ASGI puro y no `BaseHTTPMiddleware` (plan §9.1). NO es por la
 creencia de que un `ContextVar` puesto en `dispatch` no llega al endpoint (sí
@@ -23,6 +24,12 @@ from time import perf_counter
 from starlette.datastructures import MutableHeaders
 
 from itcj2.observability.context import bind, new_ids, parse_traceparent, reset
+from itcj2.observability.metrics import (
+    HTTP_EXCEPTIONS,
+    HTTP_IN_FLIGHT,
+    HTTP_REQUEST_DURATION,
+    HTTP_REQUESTS,
+)
 from itcj2.observability.route import app_key_from_route, normalize_route
 
 # Nombre fijo y no `__name__`: es el contrato con la configuración de logs
@@ -111,6 +118,14 @@ class ObservabilityMiddleware:
                 MutableHeaders(scope=message)["x-request-id"] = request_id
             await send(message)
 
+        # La ruta plantillada no existe hasta que Starlette enruta, POR DENTRO:
+        # el in-flight se etiqueta con la app del path crudo. Mismo conjunto
+        # cerrado de valores (app_key_from_route solo devuelve claves conocidas
+        # u "otro"), así que no abre cardinalidad; la diferencia es que un 404
+        # bajo /api/help-desk/ cuenta aquí como helpdesk y en el contador
+        # como "otro". Se guarda el hijo para decrementar el MISMO que se sumó.
+        in_flight = HTTP_IN_FLIGHT.labels(app=app_key_from_route(scope["path"]))
+        in_flight.inc()
         start = perf_counter()
         try:
             await self.app(scope, receive, send_wrapper)
@@ -124,6 +139,7 @@ class ObservabilityMiddleware:
             raise
         finally:
             duration = perf_counter() - start
+            in_flight.dec()
             if status is None:
                 # R19: la app terminó sin http.response.start y sin lanzar.
                 # Uvicorn responde entonces con su propio 500 ("ASGI callable
@@ -133,8 +149,19 @@ class ObservabilityMiddleware:
             # aquí ya está, también cuando el endpoint reventó.
             route = normalize_route(scope)
             app = app_key_from_route(route)
+            method = scope["method"]
+            HTTP_REQUESTS.labels(
+                app=app, method=method, route=route, status=str(status)
+            ).inc()
+            HTTP_REQUEST_DURATION.labels(
+                app=app, method=method, route=route
+            ).observe(duration)
+            if exc_type is not None:
+                HTTP_EXCEPTIONS.labels(
+                    app=app, route=route, exc_type=exc_type
+                ).inc()
             _log_summary(
-                scope["method"], route, app, status, duration,
+                method, route, app, status, duration,
                 user_id_from_scope(scope), exc_type,
             )
             # R4: sin reset en el camino de excepción, para que el
