@@ -1,0 +1,138 @@
+"""Middleware ASGI puro: contexto de petición, cronómetro y una línea por petición.
+
+Por qué ASGI puro y no `BaseHTTPMiddleware` (plan §9.1). NO es por la
+creencia de que un `ContextVar` puesto en `dispatch` no llega al endpoint (sí
+llega, medido), sino porque:
+1. Coste: `BaseHTTPMiddleware` añade tareas y streams de anyio por petición, y
+   `JWTMiddleware` ya paga uno.
+2. Solo ve un `Response` ya construido: no puede leer el `status` de
+   `http.response.start` ni añadir una cabecera sin materializar el cuerpo,
+   y aquí hacen falta las dos cosas sin romper el streaming de los exports.
+3. Que el contexto propague hoy a través de él no es un contrato (lo fija
+   `test_context_propagation.py`).
+
+Se registra el ÚLTIMO en `setup_middleware()`, así que es el más externo DE
+LOS DE USUARIO. Por encima sigue `ServerErrorMiddleware` (plan §9.15): ante
+una excepción no controlada el 500 lo emite esa capa y el `send` envuelto no
+lo ve nunca. De ahí el `except BaseException` explícito.
+"""
+import logging
+import secrets
+from time import perf_counter
+
+from starlette.datastructures import MutableHeaders
+
+from itcj2.observability.context import bind, new_ids, parse_traceparent, reset
+from itcj2.observability.route import app_key_from_route, normalize_route
+
+# Nombre fijo y no `__name__`: es el contrato con la configuración de logs
+# (nivel y handler propios) y con las consultas de Loki sobre la línea-resumen.
+access_logger = logging.getLogger("itcj2.access")
+
+# El healthcheck de Docker pega a /ready cada 5 s en tres contenedores y
+# Prometheus a /metrics en cada scrape: medirlos solo sería ruido en Loki y
+# series en Prometheus.
+SKIP_PATHS = frozenset({"/health", "/ready", "/metrics"})
+
+_TRACEPARENT = b"traceparent"
+
+
+def _header(scope: dict, name: bytes) -> str | None:
+    for key, value in scope.get("headers") or ():
+        if key == name:
+            return value.decode("latin-1")
+    return None
+
+
+def _user_id(scope: dict) -> str:
+    """`sub` del JWT como cadena, o `""` si la petición es anónima.
+
+    `JWTMiddleware` corre POR DENTRO de este middleware, pero escribe
+    `request.state.current_user` en `scope["state"]`, que es el MISMO dict que
+    este middleware tiene en la mano: por eso se lee después de la petición.
+    """
+    current_user = (scope.get("state") or {}).get("current_user")
+    if not isinstance(current_user, dict):
+        return ""
+    sub = current_user.get("sub")
+    return "" if sub is None else str(sub)
+
+
+def _log_summary(method, route, app, status, duration, user_id, exc_type) -> None:
+    duration_ms = round(duration * 1000, 3)
+    extra = {
+        "method": method,
+        "route": route,
+        "app": app,
+        "status": status,
+        "duration_ms": duration_ms,
+        "user_id": user_id,
+    }
+    if exc_type is not None:
+        extra["exc_type"] = exc_type
+    access_logger.info(
+        "%s %s %s %.1fms", method, route, status, duration_ms, extra=extra
+    )
+
+
+class ObservabilityMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["path"] in SKIP_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        trace_id, span_id = new_ids()
+        incoming = parse_traceparent(_header(scope, _TRACEPARENT))
+        if incoming is not None:
+            # Del traceparent solo se hereda la traza: su span es el del
+            # LLAMANTE (el padre), esta petición abre uno propio.
+            trace_id = incoming[0]
+        # Siempre generado, nunca el X-Request-ID entrante: un id elegido por
+        # el cliente podría hacerse pasar por el de otra petición en los logs.
+        request_id = secrets.token_hex(16)
+        tokens = bind(
+            trace_id=trace_id, span_id=span_id, request_id=request_id, scope=scope
+        )
+
+        # None solo si la app termina sin responder y sin lanzar (uvicorn
+        # manda entonces su propio 500): se deja así en vez de inventar uno.
+        status = None
+        exc_type = None
+
+        async def send_wrapper(message):
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                MutableHeaders(scope=message)["x-request-id"] = request_id
+            await send(message)
+
+        start = perf_counter()
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except BaseException as exc:
+            # 500 aunque ya hubiera salido un http.response.start: la
+            # respuesta quedó cortada, para el cliente también es un fallo.
+            status = 500
+            exc_type = type(exc).__name__
+            # Re-lanzar SIEMPRE: el 500 (y el logger.exception del handler
+            # global) lo sigue emitiendo ServerErrorMiddleware, por fuera.
+            raise
+        finally:
+            duration = perf_counter() - start
+            # Starlette rellena scope["route"] EN SITIO al enrutar, así que
+            # aquí ya está, también cuando el endpoint reventó.
+            route = normalize_route(scope)
+            app = app_key_from_route(route)
+            _log_summary(
+                scope["method"], route, app, status, duration, _user_id(scope), exc_type
+            )
+            # R4: sin reset en el camino de excepción, para que el
+            # logger.exception del handler global (ServerErrorMiddleware, por
+            # fuera) y el log de error de uvicorn lleven el request_id de la
+            # petición que falló. Uvicorn corre cada petición en su propia
+            # Task, así que el contexto no se hereda a la siguiente.
+            if exc_type is None:
+                reset(tokens)

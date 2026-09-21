@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import get_settings
+from .observability.middleware import ObservabilityMiddleware
 
 logger = logging.getLogger("itcj2")
 
@@ -158,3 +159,8 @@ def setup_middleware(app: FastAPI):
     )
 
     app.add_middleware(JWTMiddleware)
+
+    # El ÚLTIMO a propósito: add_middleware inserta en el índice 0, así que el
+    # último registrado queda el más externo de los de usuario. Por fuera del
+    # JWT cronometra también su trabajo y ve las excepciones que salgan de él.
+    app.add_middleware(ObservabilityMiddleware)
