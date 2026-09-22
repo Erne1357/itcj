@@ -189,17 +189,22 @@ class TestUpdatePendingTicketCharacterization:
         assert _edit_logs(db_session, ticket.id) == []
 
     def test_no_changes_returns_ticket_without_edit_logs(self, db_session):
+        # `creator` != `editor` a proposito: si `update_pending_ticket`
+        # estampara `updated_by_id` incluso sin cambios, este test lo
+        # detectaria (con el mismo usuario en los dos roles el valor
+        # "sin tocar" y el valor "sobreescrito por quien llama" coincidirian
+        # y la asercion pasaria por accidente).
+        creator = _user(db_session, "CreatorNoop")
         editor = _user(db_session, "EditorNoop")
         category = ensure_helpdesk_category(db_session, code="tfe_char_noop", area="SOPORTE")
-        ticket = _ticket(db_session, "TFE-CHAR-5", editor, category)
+        ticket = _ticket(db_session, "TFE-CHAR-5", creator, category)
         original_updated_at = ticket.updated_at
-        original_updated_by = ticket.updated_by_id
 
         result = ticket_service.update_pending_ticket(db_session, ticket.id, editor.id)
 
         assert result.id == ticket.id
         assert result.updated_at == original_updated_at
-        assert result.updated_by_id == original_updated_by
+        assert result.updated_by_id == creator.id
         assert _edit_logs(db_session, ticket.id) == []
 
 
@@ -213,12 +218,16 @@ class TestApplyTicketFieldEditsDirect:
     refactor deben quedar en verde sin modificarse."""
 
     def test_works_on_assigned_ticket_without_status_check(self, db_session):
+        # `creator` != `editor`: si `apply_ticket_field_edits` no estampara
+        # `updated_by_id`, la asercion de abajo lo detectaria (con el mismo
+        # usuario en ambos roles pasaria por accidente).
+        creator = _user(db_session, "CreatorDirectOk")
         editor = _user(db_session, "EditorDirectOk")
         category = ensure_helpdesk_category(db_session, code="tfe_direct_ok", area="SOPORTE")
         # `_ticket` ya commitea internamente (add/commit/refresh) — el setup
         # queda persistido en un SAVEPOINT propio antes de que la funcion bajo
         # prueba mute nada, tal como pide el brief.
-        ticket = _ticket(db_session, "TFE-DIRECT-1", editor, category, status="ASSIGNED")
+        ticket = _ticket(db_session, "TFE-DIRECT-1", creator, category, status="ASSIGNED")
 
         changed = ticket_service.apply_ticket_field_edits(
             db_session, ticket, editor.id,
