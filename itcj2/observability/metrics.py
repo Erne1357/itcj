@@ -159,6 +159,42 @@ EVENT_LOOP_LAG = Histogram(
 
 
 # ---------------------------------------------------------------------------
+# Trabajo pesado y llamadas salientes (Fase 4) — los observa `work.measured*`
+# ---------------------------------------------------------------------------
+# Lo que puede ocupar un hilo del threadpool (y una conexión de BD) durante
+# segundos. Los valores de las etiquetas son conjuntos CERRADOS que valida
+# `work.py`, no este módulo: `work` los necesita sin importar esto (regla de
+# oro 1, ver su docstring).
+#
+# Alcance: solo el camino HTTP se raspa (opción (i) del plan). Los mismos
+# servicios corren en `celery-worker` y ahí la observación cae en un registro
+# plano que nadie raspa. El panel debe decirlo en su descripción.
+
+# R31: primer bucket en 50 ms y no en 0,5 s: el oficio de bajas y los CSV son
+# sub-segundo y con el plan (.5,…,60) caerían todos en el primero. Tope en
+# 60 s: el `timeout=60` de LibreOffice (el timeout mismo cae en +Inf).
+DOCUMENT_RENDER_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 40, 60)
+
+DOCUMENT_RENDER_DURATION = Histogram(
+    "itcj_document_render_seconds",
+    "Duración de la generación de documentos (PDF, Excel, CSV), camino HTTP.",
+    ("kind", "engine", "outcome"),
+    buckets=DOCUMENT_RENDER_BUCKETS,
+)
+
+# Tope en 30 s: el `timeout=30` de MS Graph. El 15 deja el `timeout=12` de la
+# API de fútbol en su propio bucket, (10, 15].
+OUTBOUND_REQUEST_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 30)
+
+OUTBOUND_REQUEST_DURATION = Histogram(
+    "itcj_outbound_request_seconds",
+    "Duración de las llamadas HTTP salientes, por destino y resultado.",
+    ("target", "outcome"),
+    buckets=OUTBOUND_REQUEST_BUCKETS,
+)
+
+
+# ---------------------------------------------------------------------------
 # Reaper de gauges `live*` de workers muertos (plan §9.16)
 # ---------------------------------------------------------------------------
 # `livesum` NO detecta procesos muertos: el fichero `gauge_livesum_<pid>.db`

@@ -12,13 +12,24 @@ usa el middleware para etiquetar), importado — nunca un recorrido propio del
 import pytest
 
 from itcj2.main import create_app
-from itcj2.observability.metrics import DURATION_BUCKETS, LOOP_LAG_BUCKETS
+from itcj2.observability.metrics import (
+    DOCUMENT_RENDER_BUCKETS,
+    DURATION_BUCKETS,
+    LOOP_LAG_BUCKETS,
+    OUTBOUND_REQUEST_BUCKETS,
+)
 from itcj2.observability.middleware import METRIC_METHODS
 from itcj2.observability.route import _KEYS, _route_method_pairs, build_route_map
+from itcj2.observability.work import (
+    DOCUMENT_ENGINES,
+    DOCUMENT_KINDS,
+    OUTBOUND_TARGETS,
+    OUTCOMES,
+)
 
-# R8: ~21 % sobre las ~16.500 series proyectadas de hoy. Son 804 pares
-# (método, ruta) contando `/metrics`, que no genera series (SKIP_PATHS): un
-# par de margen a favor.
+# R8: ~21 % sobre las ~16.500 series proyectadas antes de la Fase 4 (con las
+# de trabajo pesado, ~18.250). Son 804 pares (método, ruta) contando
+# `/metrics`, que no genera series (SKIP_PATHS): un par de margen a favor.
 MAX_SERIES_PER_TARGET = 20_000
 
 # Peor caso de estados distintos por par (método, ruta) en el contador (§6).
@@ -47,7 +58,22 @@ FIXED_SERIES = (
     + 4                                    # itcj_presence_users (buckets)
     + 6                                    # itcj_socket_connections (namespaces hoy)
 )
-EXTRA_SERIES = IN_FLIGHT_SERIES + UNMATCHED_SERIES + EXCEPTION_SERIES + FIXED_SERIES
+# Trabajo pesado y llamadas salientes (Fase 4): conjuntos CERRADOS que
+# `work.measured*` valida, así que tampoco escalan con las rutas. Se cuenta el
+# producto cartesiano completo que el código PERMITE (+3: +Inf, `_sum`,
+# `_count`), aunque hoy cada `kind` va con un solo `engine` y lo real es ~1/4.
+# Derivado de los conjuntos: un `kind` nuevo sube la cuenta solo. Si el tope
+# aprieta, la palanca es validar el PAR (kind, engine) en `work.py`, no quitar
+# esto del presupuesto.
+WORK_SERIES = (
+    len(DOCUMENT_KINDS) * len(DOCUMENT_ENGINES) * len(OUTCOMES)
+    * (len(DOCUMENT_RENDER_BUCKETS) + 3)
+    + len(OUTBOUND_TARGETS) * len(OUTCOMES) * (len(OUTBOUND_REQUEST_BUCKETS) + 3)
+)
+EXTRA_SERIES = (
+    IN_FLIGHT_SERIES + UNMATCHED_SERIES + EXCEPTION_SERIES + FIXED_SERIES
+    + WORK_SERIES
+)
 
 RUTAS_CON_NUMERO_ESTATICO = {
     # El "1" es el número de fase, no un id: /phase/2/… no existe como ruta

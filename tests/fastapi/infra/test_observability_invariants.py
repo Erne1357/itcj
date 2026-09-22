@@ -201,12 +201,18 @@ def test_celery_arranca_aunque_herede_prometheus_multiproc_dir(tmp_path):
     IMPORTAR. Celery solo necesita el logging, así que su cadena de imports
     no debe tocar `prometheus_client` en absoluto. Se importa lo mismo que el
     worker: `itcj2.celery_app` y cada módulo de `include`.
+
+    Más `itcj2.observability.work`, explícito: es el medidor que usan los
+    servicios de negocio, y varios corren también dentro de tareas (p. ej.
+    `document_service` bajo `convert_document`). Importado a mano, el test lo
+    vigila llegue o no la cadena real hasta él.
     """
     code = (
         "import sys\n"
         "import itcj2.celery_app as c\n"
         "for name in c.celery_app.conf.include:\n"
         "    __import__(name)\n"
+        "import itcj2.observability.work\n"
         "print('PROMETHEUS_LOADED=%s' % ('prometheus_client' in sys.modules))\n"
     )
     env = dict(os.environ)
@@ -223,7 +229,8 @@ def test_celery_arranca_aunque_herede_prometheus_multiproc_dir(tmp_path):
     assert proc.returncode == 0, proc.stderr[-3000:]
     assert "PROMETHEUS_LOADED=False" in proc.stdout, (
         "la cadena de imports de Celery carga prometheus_client: "
-        "logging_config no debe importar middleware/metrics"
+        "logging_config no debe importar middleware/metrics, y work.py solo "
+        "de forma perezosa (dentro de una función)"
     )
 
 
