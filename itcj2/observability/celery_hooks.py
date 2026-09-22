@@ -47,7 +47,13 @@ import secrets
 
 from celery.signals import before_task_publish, task_postrun, task_prerun
 
-from itcj2.observability.context import bind, new_ids, reset, snapshot
+from itcj2.observability.context import (
+    bind,
+    new_ids,
+    reset,
+    sanitize_carried,
+    snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,22 +67,6 @@ HEADER = "itcj_ctx"
 # cuelgan del propio `task.request`: `Task.__call__` copia su `__dict__` en la
 # petición de una llamada directa, y los tokens viajarían con ella.
 _tokens: dict[int, dict] = {}
-
-
-def _carried_ids(value) -> dict:
-    """`trace_id`/`request_id` utilizables de un snapshot, o `{}`.
-
-    Tolera lo que mande un productor viejo o ajeno (sin cabecera, `None`, algo
-    que no es un dict, ids que no son cadenas): nada de eso tumba la tarea,
-    solo hace que se acuñe una raíz.
-    """
-    if not isinstance(value, dict):
-        return {}
-    return {
-        name: value[name]
-        for name in ("trace_id", "request_id")
-        if isinstance(value.get(name), str) and value[name]
-    }
 
 
 @before_task_publish.connect(weak=False, dispatch_uid="itcj2.observability.inject")
@@ -101,7 +91,10 @@ def _bind_task_context(task=None, **kwargs) -> None:
         # mensaje como atributos del `Context` y en `request.headers` deja
         # solo las que no reconoce como suyas; el atributo no depende de esa
         # clasificación.
-        carried = _carried_ids(request.get(HEADER))
+        # Cada id que no tenga forma W3C se descarta (y se acuña): la
+        # cabecera la escribe cualquiera con acceso a Redis, y un productor
+        # viejo o ajeno puede no mandarla o mandar otra cosa.
+        carried = sanitize_carried(request.get(HEADER))
         trace_id, span_id = new_ids()
         # La tarea abre su propio span: el del snapshot es el de quien encoló
         # (su padre), igual que un `traceparent` entrante en el middleware.

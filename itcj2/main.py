@@ -13,22 +13,6 @@ logger = logging.getLogger("itcj2")
 # Redis Pub/Sub — subscriber de eventos de tareas Celery
 # ---------------------------------------------------------------------------
 
-def _carried_context(data: dict) -> dict | None:
-    """Los ids que trae el payload en `itcj_ctx` (Fase 5a), o `None`.
-
-    Solo los ids, y solo si el campo es un dict: un worker viejo no lo manda
-    (despliegue mixto) y nada de lo que venga ahí puede impedir el aviso.
-    """
-    carried = data.get("itcj_ctx")
-    if not isinstance(carried, dict):
-        return None
-    return {
-        name: carried[name]
-        for name in ("trace_id", "span_id", "request_id")
-        if isinstance(carried.get(name), str)
-    }
-
-
 async def _handle_task_event(data: dict) -> None:
     """Procesa un evento recibido del canal Redis 'task_events' y lo
     retransmite por Socket.IO al usuario correspondiente.
@@ -41,10 +25,14 @@ async def _handle_task_event(data: dict) -> None:
     subscriber es UN task de larga vida que atiende todos, así que el
     `restore()` va por mensaje y se deshace al salir, o el `trace_id` de un
     aviso se filtraría a los siguientes.
-    """
-    from itcj2.observability.context import restore
 
-    with restore(_carried_context(data)):
+    Del `itcj_ctx` del payload (Fase 5a) solo se ligan los ids con forma W3C
+    (`sanitize_carried`): un worker viejo no lo manda (despliegue mixto), y
+    nada de lo que venga ahí puede impedir el aviso.
+    """
+    from itcj2.observability.context import restore, sanitize_carried
+
+    with restore(sanitize_carried(data.get("itcj_ctx"))):
         # El fallo se loguea AQUÍ, dentro del `restore`: es la única línea del
         # tier sockets cuando el aviso no llega, la que más se busca por
         # `trace_id` en un incidente. En el `except` del subscriber el

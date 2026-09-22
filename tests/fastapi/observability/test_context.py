@@ -199,3 +199,63 @@ def test_parse_traceparent_accepts_valid():
 )
 def test_parse_traceparent_rejects(value):
     assert context.parse_traceparent(value) is None
+
+
+# ---------------------------------------------------------------------------
+# sanitize_carried(): ids que llegan de FUERA del proceso
+# ---------------------------------------------------------------------------
+# La cabecera `itcj_ctx` de Celery y el payload de `task_events` los escribe
+# cualquiera con acceso a Redis. Lo que no tenga la forma exacta se descarta:
+# un id de megas tira la línea entera en Loki (límite de tamaño de línea) y un
+# salto de línea parte las líneas del formato de texto de dev.
+
+VALID = {"trace_id": "a" * 31 + "1", "span_id": "b" * 15 + "2", "request_id": "c" * 31 + "3"}
+
+
+def test_sanitize_carried_keeps_ids_with_w3c_shape():
+    assert context.sanitize_carried(dict(VALID)) == VALID
+
+
+@pytest.mark.parametrize("value", [None, "basura", 7, ["trace_id"], {}])
+def test_sanitize_carried_without_a_dict_gives_nothing(value):
+    assert context.sanitize_carried(value) == {}
+
+
+@pytest.mark.parametrize("field", ["trace_id", "span_id", "request_id"])
+@pytest.mark.parametrize(
+    "make_bad",
+    [
+        pytest.param(lambda good: "a" * 1_000_000, id="enorme"),
+        pytest.param(lambda good: good + "a", id="un-caracter-de-mas"),
+        pytest.param(lambda good: good[:-1], id="corto"),
+        # `$` de `re` también casa ANTES de un "\n" final: sin `fullmatch`
+        # este valor pasaría con la longitud justa más el salto.
+        pytest.param(lambda good: good + "\n", id="salto-final"),
+        pytest.param(lambda good: good[:8] + "\n" + good[9:], id="salto-en-medio"),
+        pytest.param(lambda good: good.upper(), id="mayusculas"),
+        pytest.param(lambda good: "g" * len(good), id="no-hex"),
+        pytest.param(lambda good: None, id="none"),
+        pytest.param(lambda good: 12345, id="no-str"),
+    ],
+)
+def test_sanitize_carried_drops_only_the_bad_field(field, make_bad):
+    carried = {**VALID, field: make_bad(VALID[field])}
+
+    clean = context.sanitize_carried(carried)
+
+    # Se descarta ese campo y solo ese: los demás siguen sirviendo.
+    assert clean == {k: v for k, v in VALID.items() if k != field}
+
+
+@pytest.mark.parametrize("field, length", [("trace_id", 32), ("span_id", 16)])
+def test_sanitize_carried_drops_all_zero_w3c_ids(field, length):
+    # W3C reserva el "todo ceros" como inválido (mismo criterio que
+    # `parse_traceparent`): en la Fase 7 Tempo lo rechazaría.
+    clean = context.sanitize_carried({**VALID, field: "0" * length})
+    assert field not in clean
+
+
+def test_sanitize_carried_never_passes_other_keys():
+    # `restore()` ligaría un `scope` y con él `route`/`app`/`user_id` falsos.
+    clean = context.sanitize_carried({**VALID, "scope": {"path": "/x"}, "user_id": "1"})
+    assert clean == VALID

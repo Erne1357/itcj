@@ -116,6 +116,51 @@ def parse_traceparent(value: str | None) -> tuple[str, str] | None:
 
 
 # ---------------------------------------------------------------------------
+# ids que llegan de FUERA del proceso (Celery, pub/sub)
+# ---------------------------------------------------------------------------
+# La cabecera `itcj_ctx` de Celery y el payload de `task_events` viajan por
+# Redis: cualquiera con acceso a Redis los escribe, y lo que se ligue sale en
+# CADA línea de log de la tarea o del aviso. Un id de megas pasa el límite de
+# línea de Loki y la línea se pierde; un salto de línea parte las líneas del
+# formato de texto de dev. Mismo criterio que el `traceparent` del
+# middleware, que ya se valida entero: forma exacta o nada.
+#
+# `fullmatch` y no `match` con `$`: `$` también casa ANTES de un "\n" final,
+# así que un id con la longitud justa más un salto de línea pasaría.
+_CARRIED_ID_RE = {
+    "trace_id": re.compile(r"[0-9a-f]{32}"),
+    "span_id": re.compile(r"[0-9a-f]{16}"),
+    "request_id": re.compile(r"[0-9a-f]{32}"),
+}
+# W3C reserva "todo ceros" como inválido (igual que en `parse_traceparent`);
+# el `request_id` no es W3C, solo tiene su forma.
+_W3C_ZERO_IDS = frozenset({"0" * 32, "0" * 16})
+_W3C_FIELDS = frozenset({"trace_id", "span_id"})
+
+
+def sanitize_carried(carried) -> dict:
+    """Los ids utilizables de un `snapshot()` que llegó de otro proceso.
+
+    Regresa solo `trace_id`/`span_id`/`request_id` con su forma exacta
+    (32/16/32 hex minúsculas); cada campo que no cumpla se descarta solo,
+    sin arrastrar a los demás, y quien lo use acuña uno nuevo donde toque.
+    Nunca deja pasar otra clave (`restore()` ligaría un `scope` y con él
+    `route`/`app`/`user_id` falsos). Nunca lanza: `{}` si no es un dict.
+    """
+    if not isinstance(carried, dict):
+        return {}
+    clean = {}
+    for name, pattern in _CARRIED_ID_RE.items():
+        value = carried.get(name)
+        if not isinstance(value, str) or pattern.fullmatch(value) is None:
+            continue
+        if name in _W3C_FIELDS and value in _W3C_ZERO_IDS:
+            continue
+        clean[name] = value
+    return clean
+
+
+# ---------------------------------------------------------------------------
 # bind/reset
 # ---------------------------------------------------------------------------
 

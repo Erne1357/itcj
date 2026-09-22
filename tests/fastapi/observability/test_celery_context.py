@@ -185,6 +185,46 @@ def test_malformed_header_gets_a_fresh_root():
     assert _HEX32.match(seen["request_id"])
 
 
+BAD_IDS = [
+    # Un id de megas: la línea JSON pasaría el límite de Loki y se perdería.
+    pytest.param("f" * 1_000_000, id="enorme"),
+    # Largo justo más un salto: parte las líneas del formato de texto de dev
+    # (y `$` de `re` lo dejaría pasar sin `fullmatch`).
+    pytest.param(TRACE + "\n", id="salto-de-linea"),
+]
+
+
+@pytest.mark.parametrize("bad", BAD_IDS)
+def test_malformed_ids_in_the_header_are_replaced_by_fresh_ones(bad):
+    # La cabecera la escribe cualquiera con acceso a Redis: lo que no tenga
+    # forma W3C no se liga, y la tarea acuña el suyo.
+    queue = unique_queue()
+    _publish_unbound(
+        queue,
+        headers={"itcj_ctx": {"trace_id": bad, "span_id": SPAN, "request_id": bad}},
+    )
+
+    _in_fresh_context(run_as_worker, app, consume(app, queue))
+
+    [seen] = _seen
+    assert _HEX32.fullmatch(seen["trace_id"])
+    assert _HEX32.fullmatch(seen["request_id"])
+
+
+def test_only_the_malformed_id_of_the_header_is_replaced():
+    queue = unique_queue()
+    _publish_unbound(
+        queue,
+        headers={"itcj_ctx": {"trace_id": TRACE, "span_id": SPAN, "request_id": "x" * 64}},
+    )
+
+    _in_fresh_context(run_as_worker, app, consume(app, queue))
+
+    [seen] = _seen
+    assert seen["trace_id"] == TRACE
+    assert _HEX32.fullmatch(seen["request_id"])
+
+
 def test_nothing_stays_bound_after_the_task_in_the_same_worker():
     queue = unique_queue()
     _publish_bound(queue)
@@ -500,6 +540,30 @@ def test_handle_task_event_without_usable_context_still_relays(pushed, extra):
     [call] = pushed
     assert call["user_id"] == 12
     assert call["trace_id"] == ""
+
+
+@pytest.mark.parametrize("bad", BAD_IDS)
+def test_handle_task_event_drops_malformed_ids_and_still_relays(pushed, bad):
+    from itcj2.main import _handle_task_event
+
+    carried = {"trace_id": bad, "span_id": SPAN, "request_id": REQUEST + "\n"}
+    _run_async(lambda: _handle_task_event(_task_event(itcj_ctx=carried)))
+
+    [call] = pushed
+    assert call["user_id"] == 12
+    assert call["trace_id"] == ""
+    assert call["request_id"] == ""
+
+
+def test_handle_task_event_keeps_the_well_formed_ids(pushed):
+    from itcj2.main import _handle_task_event
+
+    carried = {"trace_id": TRACE, "span_id": SPAN, "request_id": "x" * 64}
+    _run_async(lambda: _handle_task_event(_task_event(itcj_ctx=carried)))
+
+    [call] = pushed
+    assert call["trace_id"] == TRACE
+    assert call["request_id"] == ""
 
 
 def test_relayed_task_event_log_line_carries_the_payload_trace(pushed, caplog):
