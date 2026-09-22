@@ -11,7 +11,14 @@ que el worker arma el `task.request` desde las cabeceras del mensaje. Así
 
 El transporte `memory://` de kombu guarda sus colas a nivel de CLASE (las
 comparten todas las apps del proceso): cada test usa su propia cola, con
-nombre único, para que un mensaje olvidado no lo consuma otro test.
+nombre único, para que un mensaje olvidado no lo consuma otro test. Va con
+host (`memory://localhost/`): sin él kombu avisa "No hostname was supplied"
+en cada conexión.
+
+Las tareas de prueba se declaran con `shared=False`: con el `shared=True` por
+defecto, Celery las registra también en toda app que se finalice después,
+incluida la real `itcj2.celery_app` (medido: tres tareas `tests.*` colgadas
+de `celery_app.tasks`).
 """
 import uuid
 
@@ -27,7 +34,7 @@ import itcj2.observability.celery_hooks  # noqa: F401
 
 
 def memory_app(name: str) -> Celery:
-    app = Celery(name, broker="memory://", set_as_current=False)
+    app = Celery(name, broker="memory://localhost/", set_as_current=False)
     app.conf.update(
         task_always_eager=False,
         # Sin backend de resultados: nada que guardar ni que limpiar.

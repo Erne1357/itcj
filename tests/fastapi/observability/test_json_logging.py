@@ -355,7 +355,7 @@ def test_line_inside_a_celery_task_carries_its_task_id(json_logs):
 
     celery = memory_app("itcj-obs-json-logging")
 
-    @celery.task(name="tests.observability.json_logging.probe")
+    @celery.task(name="tests.observability.json_logging.probe", shared=False)
     def probe():
         logger.warning("dentro de la tarea")
 

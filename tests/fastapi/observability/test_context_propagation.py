@@ -49,7 +49,7 @@ _celery = memory_app("itcj-obs-propagation")
 _celery_seen: list[str] = []
 
 
-@_celery.task(name="tests.observability.propagation.probe_request_id")
+@_celery.task(name="tests.observability.propagation.probe_request_id", shared=False)
 def _probe_request_id():
     _celery_seen.append(current_request_id())
 

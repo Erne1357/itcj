@@ -60,7 +60,7 @@ app = memory_app("itcj-obs-celery-context")
 _seen: list[dict] = []
 
 
-@app.task(name="tests.observability.celery_context.probe", bind=True)
+@app.task(name="tests.observability.celery_context.probe", bind=True, shared=False)
 def probe(self):
     _seen.append({
         "trace_id": current_trace_id(),
@@ -225,6 +225,50 @@ def test_only_the_malformed_id_of_the_header_is_replaced():
     assert _HEX32.fullmatch(seen["request_id"])
 
 
+@app.task(
+    name="tests.observability.celery_context.retry_probe",
+    bind=True, shared=False, max_retries=1,
+)
+def retry_probe(self):
+    _seen.append({
+        "trace_id": current_trace_id(),
+        "span_id": current_span_id(),
+        "request_id": current_request_id(),
+        "retries": self.request.retries,
+    })
+    if self.request.retries == 0:
+        raise self.retry(countdown=0)
+    return "ok"
+
+
+def test_retry_republishes_and_continues_the_trace():
+    """`Task.retry()` re-publica desde DENTRO de la tarea, con los ids ya
+    restaurados por `task_prerun`: el mensaje del reintento lleva la misma
+    traza y el reintento la continúa (con su propio span, hijo del intento
+    que falló)."""
+    queue = unique_queue()
+    _in_fresh_context(lambda: (bind(**PUBLISHER), retry_probe.apply_async(queue=queue)))
+
+    worker = contextvars.Context()
+    worker.run(run_as_worker, app, consume(app, queue))
+    retried = consume(app, queue)
+    worker.run(run_as_worker, app, retried)
+
+    first, second = _seen
+    assert (first["retries"], second["retries"]) == (0, 1)
+    carried = retried.headers["itcj_ctx"]
+    assert carried["trace_id"] == TRACE and carried["request_id"] == REQUEST
+    # El padre del reintento es el intento que falló, no quien encoló.
+    assert carried["span_id"] == first["span_id"] != SPAN
+    assert second["trace_id"] == TRACE and second["request_id"] == REQUEST
+    assert _HEX16.fullmatch(second["span_id"])
+    assert second["span_id"] not in (SPAN, first["span_id"])
+    # Ninguno de los dos intentos deja nada ligado en el worker.
+    assert worker.run(snapshot) == {
+        "trace_id": None, "span_id": None, "request_id": None,
+    }
+
+
 def test_nothing_stays_bound_after_the_task_in_the_same_worker():
     queue = unique_queue()
     _publish_bound(queue)
@@ -331,7 +375,10 @@ class _FakeRedis:
         self.published.append((channel, json.loads(raw)))
 
 
-@app.task(name="tests.observability.celery_context.logged", base=LoggedTask, bind=True)
+@app.task(
+    name="tests.observability.celery_context.logged",
+    base=LoggedTask, bind=True, shared=False,
+)
 def logged_probe(self, task_run_id=None):
     return {"ok": True}
 
