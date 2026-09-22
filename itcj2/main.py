@@ -45,7 +45,14 @@ async def _handle_task_event(data: dict) -> None:
     from itcj2.observability.context import restore
 
     with restore(_carried_context(data)):
-        await _relay_task_event(data)
+        # El fallo se loguea AQUÍ, dentro del `restore`: es la única línea del
+        # tier sockets cuando el aviso no llega, la que más se busca por
+        # `trace_id` en un incidente. En el `except` del subscriber el
+        # contexto ya se habría deshecho y saldría sin ids.
+        try:
+            await _relay_task_event(data)
+        except Exception as e:
+            logger.error(f"Redis subscriber: error procesando mensaje: {e}")
 
 
 async def _relay_task_event(data: dict) -> None:
@@ -104,6 +111,10 @@ async def _redis_task_subscriber() -> None:
                         try:
                             data = json.loads(message["data"])
                             await _handle_task_event(data)
+                        # Lo que falla ANTES del contexto del mensaje (JSON
+                        # roto, un payload que no es un dict): no hay ids que
+                        # poner. Los fallos del aviso los loguea
+                        # `_handle_task_event` bajo su `restore`.
                         except Exception as e:
                             logger.error(
                                 f"Redis subscriber: error procesando mensaje: {e}"

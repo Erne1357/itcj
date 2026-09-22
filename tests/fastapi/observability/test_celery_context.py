@@ -586,6 +586,53 @@ def test_subscriber_scopes_the_context_to_each_message(pushed):
     assert after["trace_id"] is None
 
 
+def test_subscriber_error_line_carries_the_message_trace(monkeypatch):
+    """La línea de un aviso que FALLA es la que más se busca en un incidente:
+    sale bajo el contexto de su mensaje (con su `trace_id`), y el subscriber
+    sigue con el siguiente sin arrastrarlo."""
+    import itcj2.sockets.notifications as notifications
+    from itcj2.main import _redis_task_subscriber
+
+    pushed = []
+
+    async def _flaky_push(user_id, payload):
+        if payload.get("task_run_id") == 1:
+            raise RuntimeError("socket caído")
+        pushed.append(current_trace_id())
+
+    monkeypatch.setattr(notifications, "push_notification", _flaky_push)
+
+    other = {"trace_id": "d" * 32, "span_id": "e" * 16, "request_id": "f" * 32}
+    messages = [
+        {"type": "message", "data": json.dumps(
+            _task_event(task_run_id=1, itcj_ctx=PUBLISHER)
+        )},
+        {"type": "message", "data": json.dumps(_task_event(itcj_ctx=other))},
+    ]
+
+    seen = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            seen.append((record.levelno, record.getMessage(), current_trace_id()))
+
+    handler = _Capture(level=logging.ERROR)
+    itcj2_logger = logging.getLogger("itcj2")
+    itcj2_logger.addHandler(handler)
+    try:
+        with patch("redis.asyncio.from_url", return_value=_FakeAsyncRedis(messages)):
+            _run_async(_redis_task_subscriber)
+    finally:
+        itcj2_logger.removeHandler(handler)
+
+    errors = [(msg, trace) for level, msg, trace in seen if level >= logging.ERROR]
+    assert errors == [
+        ("Redis subscriber: error procesando mensaje: socket caído", TRACE),
+    ]
+    # El siguiente mensaje se retransmite, bajo SU contexto.
+    assert pushed == ["d" * 32]
+
+
 def test_hooks_module_imports_only_context_from_itcj2():
     """Regla de oro 1: los hooks viven en la cadena de imports de Celery, que
     no puede cargar `prometheus_client` (ver
