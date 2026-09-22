@@ -15,6 +15,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 
 from itcj2.dependencies import DbSession, require_perms
+from itcj2.observability.work import measured
 from itcj2.apps.agendatec.helpers import parse_range_from_params
 from itcj2.apps.agendatec.models.appointment import Appointment
 from itcj2.apps.agendatec.models.request import Request as Req
@@ -228,8 +229,11 @@ def export_requests_xlsx(
             df_drops = df_drops[cols]
 
     buf = BytesIO()
-    _write_excel(buf, df_appointments, df_drops, valid_citas, valid_bajas,
-                 citas_summary_opts, bajas_summary_opts)
+    # El buffer se arma ENTERO aquí, antes del StreamingResponse: el trabajo
+    # de xlsxwriter (no el streaming) es lo que puede ocupar el hilo.
+    with measured("agendatec_report", "xlsxwriter"):
+        _write_excel(buf, df_appointments, df_drops, valid_citas, valid_bajas,
+                     citas_summary_opts, bajas_summary_opts)
     buf.seek(0)
 
     safe_name = re.sub(r'[<>:"/\\|?*]', '_', filename) if filename else ""
