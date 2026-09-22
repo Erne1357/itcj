@@ -7,9 +7,9 @@ Tres saltos, cada uno con su test:
 2. Ejecución (`task_prerun`/`task_postrun`): el cuerpo de la tarea ve los ids
    de quien la encoló, o una raíz nueva si no vino nada (beat, CLI), y al
    terminar no queda nada ligado para la siguiente tarea del mismo proceso.
-3. Pub/sub (`_publish_task_event` -> `_handle_task_event`): el aviso de fin de
-   tarea que retransmite el tier sockets se procesa bajo el contexto que trae
-   su payload, mensaje por mensaje.
+3. Pub/sub (los publicadores de `task_events` -> `_handle_task_event`): el
+   aviso que retransmite el tier sockets (fin de tarea o notificación) se
+   procesa bajo el contexto que trae su payload, mensaje por mensaje.
 
 Cada escenario corre en un `contextvars.Context()` nuevo: el hilo del test no
 tiene ids ligados de un test anterior, y el contexto del "worker" es distinto
@@ -357,6 +357,81 @@ def test_publish_task_event_still_publishes_when_snapshot_fails():
     [(_, payload)] = fake.published
     assert payload["task_run_id"] == 5
     assert "itcj_ctx" not in payload
+
+
+class _FakeSession:
+    """Lo único que usa `_push_user_notification` de la sesión: la prueba es
+    del mensaje que publica, no del INSERT (en CI la base está vacía y una
+    `Notification` real pide un usuario)."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def add(self, obj):
+        pass
+
+    def commit(self):
+        pass
+
+    def refresh(self, obj):
+        pass
+
+
+def test_helpdesk_user_notification_carries_the_task_context(monkeypatch):
+    # El otro publicador de `task_events` en el worker (avisos de documento y
+    # de exportación listos): también lleva el contexto de la tarea (R32).
+    from itcj2.core.models.notification import Notification
+    from itcj2.tasks.helpdesk_tasks import _push_user_notification
+
+    monkeypatch.setattr("itcj2.database.SessionLocal", _FakeSession)
+    monkeypatch.setattr(
+        Notification, "to_dict", lambda self, **kw: {"title": self.title}
+    )
+    fake = _FakeRedis()
+
+    def _run():
+        bind(**PUBLISHER)
+        _push_user_notification(8, "Listo", "Tu documento", None)
+
+    with patch("redis.from_url", return_value=fake):
+        _in_fresh_context(_run)
+
+    [(channel, payload)] = fake.published
+    assert channel == "task_events"
+    # Compatible hacia atrás: los campos de siempre, igual que antes.
+    assert payload == {
+        "type": "user_notification",
+        "user_id": 8,
+        "notification": {"title": "Listo"},
+        "itcj_ctx": PUBLISHER,
+    }
+
+
+def test_mass_notification_events_carry_the_task_context():
+    from itcj2.tasks.notification_tasks import _push_user_notifications
+
+    fake = _FakeRedis()
+    notifications = [{"user_id": 4, "id": 1}, {"user_id": 5, "id": 2}]
+
+    def _run():
+        bind(**PUBLISHER)
+        _push_user_notifications(notifications)
+
+    with patch("redis.from_url", return_value=fake):
+        _in_fresh_context(_run)
+
+    assert [payload for _, payload in fake.published] == [
+        {
+            "type": "user_notification",
+            "user_id": notif["user_id"],
+            "notification": notif,
+            "itcj_ctx": PUBLISHER,
+        }
+        for notif in notifications
+    ]
 
 
 def _task_event(**extra) -> dict:

@@ -31,6 +31,28 @@ def _now() -> datetime:
 logger = logging.getLogger(__name__)
 
 
+def with_itcj_ctx(payload: dict) -> dict:
+    """`payload` con el campo `itcj_ctx` = `snapshot()` (R32), para todo lo
+    que un worker publica en el canal `task_events`.
+
+    Lleva el contexto de la tarea (ya restaurado por `task_prerun`, ver
+    `itcj2/observability/celery_hooks.py`) hasta el tier sockets, que
+    retransmite el aviso bajo esos ids: así la petición que disparó la tarea
+    también se encuentra en sus líneas. Campo nuevo y compatible hacia atrás:
+    un consumidor viejo lo ignora, y el nuevo tolera que falte (despliegue
+    mixto). Un solo lugar para los tres publicadores (`task_completed` aquí,
+    `user_notification` en helpdesk y en las notificaciones masivas), para que
+    ninguno se quede sin el campo.
+    """
+    try:
+        payload["itcj_ctx"] = snapshot()
+    except Exception:
+        # La instrumentación nunca cambia el negocio: sin contexto, el aviso
+        # sale igual.
+        logger.exception("task_events: no se pudo tomar el contexto")
+    return payload
+
+
 class LoggedTask(Task):
     """Task base que persiste el historial de ejecución en TaskRun."""
 
@@ -165,14 +187,8 @@ class LoggedTask(Task):
         lo retransmita por Socket.IO al usuario que disparó la tarea.
 
         Solo publica si hay un user_id (tareas manuales). Las tareas
-        programadas por Beat no tienen usuario directo.
-
-        `itcj_ctx` lleva el contexto de la tarea (ya restaurado por
-        `task_prerun`, ver `itcj2/observability/celery_hooks.py`) hasta el
-        tier sockets, que retransmite el aviso bajo esos ids: así la petición
-        que disparó la tarea también se encuentra en sus líneas. Campo nuevo
-        y compatible hacia atrás: un consumidor viejo lo ignora, y el nuevo
-        tolera que falte (despliegue mixto).
+        programadas por Beat no tienen usuario directo. El payload lleva
+        `itcj_ctx` (ver `with_itcj_ctx`).
         """
         if not user_id:
             return
@@ -180,19 +196,13 @@ class LoggedTask(Task):
             import redis
             from itcj2.config import get_settings
 
-            payload = {
+            payload = with_itcj_ctx({
                 "type": "task_completed",
                 "task_run_id": task_run_id,
                 "task_name": task_name,
                 "status": status,
                 "user_id": user_id,
-            }
-            try:
-                payload["itcj_ctx"] = snapshot()
-            except Exception:
-                # La instrumentación nunca cambia el negocio: sin contexto,
-                # el aviso sale igual.
-                logger.exception("LoggedTask: no se pudo tomar el contexto")
+            })
 
             r = redis.from_url(get_settings().REDIS_URL)
             r.publish("task_events", json.dumps(payload))
