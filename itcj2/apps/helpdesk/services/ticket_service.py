@@ -970,29 +970,29 @@ def _is_valid_status_transition(from_status: str, to_status: str, db: Session) -
         return to_status in _fallback.get(from_status, set())
 
 
-# ==================== EDITAR TICKET PENDIENTE ====================
-def update_pending_ticket(
+# ==================== APLICAR EDICIONES DE CAMPOS ====================
+def apply_ticket_field_edits(
     db: Session,
-    ticket_id: int,
+    ticket: Ticket,
     updated_by_id: int,
+    *,
     area: str = None,
     category_id: int = None,
     priority: str = None,
     title: str = None,
     description: str = None,
     location: str = None
-) -> Ticket:
+) -> int:
     """
-    Edita campos de un ticket en estado PENDING.
+    Valida y aplica cambios de campos sobre un `ticket` ya cargado: agrega un
+    `TicketEditLog` por campo modificado y, si hubo al menos un cambio, fija
+    `updated_at`/`updated_by_id`. NO revisa el estado del ticket ni hace
+    commit — eso es responsabilidad del caller (`update_pending_ticket` abajo,
+    y a futuro `ticket_split_service.split_ticket` para editar el ticket
+    original al partirlo, que puede estar ASSIGNED/IN_PROGRESS).
+    Devuelve el número de campos modificados (== TicketEditLog creados).
     """
     from itcj2.apps.helpdesk.models.ticket_edit_log import TicketEditLog
-
-    ticket = db.get(Ticket, ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail='Ticket no encontrado')
-
-    if ticket.status != 'PENDING':
-        raise HTTPException(status_code=400, detail='Solo se pueden editar tickets en estado PENDING')
 
     changes = []
 
@@ -1085,14 +1085,14 @@ def update_pending_ticket(
         ticket.location = location if location else None
 
     if not changes:
-        return ticket
+        return 0
 
     ticket.updated_at = now_local()
     ticket.updated_by_id = updated_by_id
 
     for change in changes:
         edit_log = TicketEditLog(
-            ticket_id=ticket_id,
+            ticket_id=ticket.id,
             field_name=change['field'],
             old_value=change['old'],
             new_value=change['new'],
@@ -1100,9 +1100,47 @@ def update_pending_ticket(
         )
         db.add(edit_log)
 
+    return len(changes)
+
+
+# ==================== EDITAR TICKET PENDIENTE ====================
+def update_pending_ticket(
+    db: Session,
+    ticket_id: int,
+    updated_by_id: int,
+    area: str = None,
+    category_id: int = None,
+    priority: str = None,
+    title: str = None,
+    description: str = None,
+    location: str = None
+) -> Ticket:
+    """
+    Edita campos de un ticket en estado PENDING.
+    """
+    ticket = db.get(Ticket, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail='Ticket no encontrado')
+
+    if ticket.status != 'PENDING':
+        raise HTTPException(status_code=400, detail='Solo se pueden editar tickets en estado PENDING')
+
+    changed_count = apply_ticket_field_edits(
+        db, ticket, updated_by_id,
+        area=area,
+        category_id=category_id,
+        priority=priority,
+        title=title,
+        description=description,
+        location=location,
+    )
+
+    if not changed_count:
+        return ticket
+
     try:
         db.commit()
-        logger.info(f"Ticket {ticket.ticket_number} editado: {len(changes)} campo(s) modificado(s) por usuario {updated_by_id}")
+        logger.info(f"Ticket {ticket.ticket_number} editado: {changed_count} campo(s) modificado(s) por usuario {updated_by_id}")
         return ticket
     except Exception as e:
         db.rollback()
