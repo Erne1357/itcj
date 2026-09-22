@@ -1,10 +1,12 @@
 """
 Tests API de "Partir ticket": `POST /api/help-desk/v2/tickets/{ticket_id}/split`.
 
-Cubre el guard (401 sin cookie / 403 sin el permiso `helpdesk.tickets.api.split`),
-que el permiso propio abre la puerta tanto por rol (`admin`) como por
-`PositionAppPerm` directo (la forma real de la posición `secretary_comp_center`
-en el DML, sin necesitar un rol de helpdesk), el camino feliz (201, un
+Cubre el guard (401 sin cookie / 403 sin el permiso `helpdesk.tickets.api.split`
+/ 403 CON el permiso pero sin visibilidad sobre ese ticket), que el permiso
+propio abre la puerta tanto por rol (`admin`) como por `PositionAppPerm` directo
+(la forma real de la posición `secretary_comp_center` en el DML, sin necesitar un
+rol de helpdesk, con el alcance departamental que la deja ver el ticket), el
+camino feliz (201, un
 `ticket_created` por cada parte NUEVA a `_admin_room()` con `actor_id` y
 `split_from`), la notificación `TICKET_SPLIT` (solicitante + técnico asignado,
 nunca al actor) y que un 400 del servicio llega como `resp.json()["error"]`
@@ -41,6 +43,10 @@ from itcj2.sockets import helpdesk as hd_sockets
 from ._catalog import ensure_helpdesk_category, ensure_helpdesk_priority
 
 SPLIT_PERM = "helpdesk.tickets.api.split"
+# Alcance departamental: lo que hace que una secretaría VEA los tickets de su
+# departamento (`ticket_service.department_scope_ids`). El permiso de partir
+# abre la operación, no el ticket.
+READ_DEPT_PERM = "helpdesk.tickets.api.read.department"
 
 
 # ─────────────────────────── infraestructura de test ───────────────────────────
@@ -121,8 +127,8 @@ def _perm(db, app, code) -> Permission:
     return p
 
 
-def _grant_position_perm(db, user, department, *, code) -> Position:
-    """Puesto con el permiso DIRECTO vía `PositionAppPerm` (patrón de
+def _grant_position_perm(db, user, department, *, codes) -> Position:
+    """Puesto con permisos DIRECTOS vía `PositionAppPerm` (patrón de
     `test_ticket_guards_scope.py::_grant`) — la forma real en que
     `secretary_comp_center` recibe `helpdesk.tickets.api.split` en el DML real,
     sin ningún rol de helpdesk."""
@@ -134,8 +140,9 @@ def _grant_position_perm(db, user, department, *, code) -> Position:
     db.refresh(pos)
     db.add(UserPosition(user_id=user.id, position_id=pos.id,
                          start_date=date.today() - timedelta(days=1), is_active=True))
-    perm = _perm(db, app, code)
-    db.add(PositionAppPerm(position_id=pos.id, app_id=app.id, perm_id=perm.id, allow=True))
+    for code in codes:
+        perm = _perm(db, app, code)
+        db.add(PositionAppPerm(position_id=pos.id, app_id=app.id, perm_id=perm.id, allow=True))
     db.commit()
     return pos
 
@@ -213,6 +220,41 @@ class TestSplitAuthGuard:
         )
         assert resp.status_code == 403
 
+    def test_split_permission_without_visibility_returns_403(self, client, db_session):
+        """Tener `helpdesk.tickets.api.split` abre la OPERACIÓN, no el ticket.
+
+        El actor tiene el permiso por puesto pero NINGÚN alcance sobre este
+        ticket: no es el solicitante, no está asignado y el ticket es de otro
+        departamento (el suyo no lo cubre — ni siquiera tiene
+        `read.department`). Sin el chequeo de visibilidad del endpoint, el
+        servicio hace `db.get(Ticket, ticket_id)` a secas y cualquier futuro
+        titular del permiso (p. ej. un jefe de departamento, la concesión
+        natural que sigue) podría partir cualquier ticket del instituto
+        adivinando el id."""
+        own_dept = _dept(db_session, "tks_dept_novis_propio")
+        other_dept = _dept(db_session, "tks_dept_novis_ajeno")
+        requester = _user(db_session, "ReqNoVis")
+        actor = _user(db_session, "ActorNoVis")
+        _grant_position_perm(db_session, actor, own_dept, codes=[SPLIT_PERM])
+        category = ensure_helpdesk_category(db_session, area="SOPORTE")
+        ensure_helpdesk_priority(db_session, "MEDIA")
+        ticket = _ticket(db_session, "TKS-NOVIS-1", requester, category,
+                          requester_department_id=other_dept.id)
+
+        resp = client.post(
+            f"/api/help-desk/v2/tickets/{ticket.id}/split",
+            json={
+                "original": _part(category, title="Cuenta de Moodle"),
+                "parts": [_part(category, title="Cuenta de SII nueva")],
+            },
+            headers=_jwt_cookie(actor.id, role=None),
+        )
+        assert resp.status_code == 403, resp.text
+        # Y nada se partió: ni partes nuevas ni edición del original.
+        assert db_session.query(Ticket).filter_by(split_from_ticket_id=ticket.id).count() == 0
+        db_session.refresh(ticket)
+        assert ticket.title == "TKS-NOVIS-1 - ticket de prueba"
+
 
 class TestSplitPermissionGrantsAccess:
 
@@ -220,11 +262,16 @@ class TestSplitPermissionGrantsAccess:
         """El permiso llega por `PositionAppPerm` directo (sin rol de helpdesk)
         — confirma que `helpdesk.tickets.api.split` es el código que el
         endpoint realmente exige, igual que lo recibirá `secretary_comp_center`
-        vía el DML."""
+        vía el DML.
+
+        El puesto lleva además `read.department` (lo que el DML ya le concede a
+        las 28 secretarías) porque el endpoint exige VER el ticket, no solo el
+        permiso: ese es el alcance por el que la secretaría alcanza legítimamente
+        un ticket de su departamento que levantó alguien más."""
         dept = _dept(db_session, "tks_dept_posperm")
         requester = _user(db_session, "ReqPosPerm")
         secretary = _user(db_session, "SecPosPerm")
-        _grant_position_perm(db_session, secretary, dept, code=SPLIT_PERM)
+        _grant_position_perm(db_session, secretary, dept, codes=[SPLIT_PERM, READ_DEPT_PERM])
         category = ensure_helpdesk_category(db_session, area="SOPORTE")
         ensure_helpdesk_priority(db_session, "MEDIA")
         ticket = _ticket(db_session, "TKS-POSPERM-1", requester, category,

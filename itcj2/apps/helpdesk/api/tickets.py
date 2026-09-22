@@ -6,7 +6,7 @@ import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
-from itcj2.dependencies import DbSession, require_perms
+from itcj2.dependencies import DbSession, is_global_admin, require_perms
 from itcj2.apps.helpdesk.schemas.tickets import (
     ResolveTicketRequest,
     RateTicketRequest,
@@ -612,9 +612,20 @@ async def split_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.split"]),
     db: DbSession = None,
 ):
-    from itcj2.apps.helpdesk.services import ticket_split_service
+    from itcj2.apps.helpdesk.services import ticket_service, ticket_split_service
 
     user_id = int(user["sub"])
+
+    # El permiso abre la OPERACIÓN, no el ticket: `split_ticket` hace
+    # `db.get(Ticket, ticket_id)` sin mirar alcance, así que sin esto quien
+    # reciba `helpdesk.tickets.api.split` (hoy rol admin y secretary_comp_center;
+    # mañana, lo natural, un jefe de departamento) podría partir CUALQUIER ticket
+    # del instituto adivinando el id. Mismo chequeo que `GET /tickets/{id}`.
+    # El atajo de admin global es obligatorio: `can_user_view_ticket` lee los
+    # roles de BD, no el claim `role` del JWT, así que un admin "solo JWT"
+    # (token emitido por otra vía) se llevaría un 403.
+    if not is_global_admin(user):
+        ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     original, new_tickets = ticket_split_service.split_ticket(
         db,
@@ -646,9 +657,13 @@ async def split_ticket(
         except Exception as rollback_error:
             logger.error(f"Error al hacer rollback tras fallo de notificación: {rollback_error}")
 
-    try:
-        from itcj2.sockets.helpdesk import broadcast_ticket_created
-        for part in new_tickets:
+    # Un try POR PARTE: con uno solo alrededor del ciclo, un tropiezo de Redis en
+    # la primera parte se saltaba en silencio el anuncio de todas las demás.
+    # El import va DENTRO del try (igual que en el resto del archivo) para que
+    # nada de este bloque pueda tumbar una división ya comiteada.
+    for part in new_tickets:
+        try:
+            from itcj2.sockets.helpdesk import broadcast_ticket_created
             await broadcast_ticket_created({
                 "id": part.id,
                 "ticket_number": part.ticket_number,
@@ -660,8 +675,10 @@ async def split_ticket(
                 "department_id": part.requester_department_id,
                 "split_from": original.ticket_number,
             }, actor_id=user_id)
-    except Exception as ws_err:
-        logger.warning(f"WS broadcast ticket_created (split) error: {ws_err}")
+        except Exception as ws_err:
+            logger.warning(
+                f"WS broadcast ticket_created (split) error para {part.ticket_number}: {ws_err}"
+            )
 
     return {
         "success": True,
