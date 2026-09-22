@@ -209,7 +209,18 @@ class Settings(BaseSettings):
     # el botón "Partir" en cada tarjeta, contra el JS viejo que no define
     # `openSplitTicketModal`: el botón no hace nada y solo deja un
     # ReferenceError en la consola.
-    STATIC_VERSION: str = "1.0.1111562"
+    #
+    # Bump 2026-09-22 (2): enlaces entre el ticket original y sus partes en el
+    # detalle ("Partir ticket"). `js/user/ticket_detail.js` gana
+    # `renderSplitInfo()` (enlaces "Derivado de TK-X" / "Dividido en: TK-Y,
+    # TK-Z" dentro de `#splitInfoContainer`, invocado desde
+    # `renderTicketDetail()`) y un `escapeHtml()` local para los folios/títulos
+    # que vienen de la API (`ticket.split_from`, `ticket.split_children`). El
+    # HTML (`user/ticket_detail.html`, sin caché por `sv()`) ya declara el
+    # contenedor vacío; sin este bump, quien ya tenía la página en caché con el
+    # `?v=` del bump (1) sigue sirviendo el JS viejo, que no define la función,
+    # y el contenedor se queda oculto siempre.
+    STATIC_VERSION: str = "1.0.1111563"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

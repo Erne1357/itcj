@@ -18,6 +18,14 @@
     let ticketId = null;
     let currentUserId = null;
 
+    // ==================== HELPERS ====================
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     // ==================== INIT ====================
     function init() {
         // Read server data from data-hd-page element
@@ -284,6 +292,8 @@
             document.getElementById('ticketFolio').textContent = ticket.office_document_folio;
         }
 
+        renderSplitInfo(ticket);
+
         document.getElementById('ticketDescription').textContent = ticket.description;
 
         renderCustomFields(ticket);
@@ -334,6 +344,70 @@
 
         const isOpen = !['CLOSED', 'CANCELED'].includes(ticket.status);
         document.getElementById('addCommentForm').classList.toggle('d-none', !isOpen);
+    }
+
+    // ==================== RENDER SPLIT INFO ====================
+    // "Partir ticket": enlace al original ("Derivado de TK-X") si este ticket
+    // es una parte, y/o enlaces a las partes ("Dividido en: TK-Y, TK-Z") si
+    // este ticket fue partido. Discreto (una o dos líneas con ícono, sin card
+    // ni alert) y oculto por completo si no aplica ninguno de los dos —
+    // incluye modo tutorial, cuyo JSON no trae split_from/split_children.
+    // Misma plantilla para user/technician/department: la base del enlace se
+    // arma con la URL actual (location.pathname/search), no con una ruta fija.
+    // `hx-boost="false"`: opt-out documentado del listener delegado en
+    // onDocumentClick (static/js/shared/base.js) — SIN él, el click navega por
+    // morph, pero activate() resuelve la "key" de destino solo con
+    // data-hd-page ("user_ticket_detail"), IGUAL en origen y destino porque es
+    // la misma plantilla con otro id; lo trata como "mismo destino" (no-op) y
+    // nunca vuelve a llamar init()/loadTicketDetail() para el ticket nuevo →
+    // la página se queda en el spinner de carga para siempre. Con el opt-out,
+    // el click cae a navegación normal del navegador (recarga completa), que
+    // sí ejecuta init() desde cero con el ticket_id correcto.
+    function renderSplitInfo(ticket) {
+        const container = document.getElementById('splitInfoContainer');
+        if (!container) return;
+
+        const splitFrom = ticket.split_from;
+        const splitChildren = ticket.split_children || [];
+
+        if (!splitFrom && splitChildren.length === 0) {
+            container.classList.add('d-none');
+            container.innerHTML = '';
+            return;
+        }
+
+        const base = location.pathname.replace(/\/\d+\/?$/, '');
+        const buildUrl = (id) => `${base}/${id}${location.search}`;
+
+        let html = '';
+
+        if (splitFrom) {
+            const url = buildUrl(splitFrom.id);
+            const number = escapeHtml(splitFrom.ticket_number);
+            html += `
+                <div class="small text-muted mb-1">
+                    <i class="fas fa-code-branch me-1"></i>Derivado de <a href="${url}" hx-boost="false">${number}</a>
+                </div>
+            `;
+        }
+
+        if (splitChildren.length > 0) {
+            const links = splitChildren.map(child => {
+                const url = buildUrl(child.id);
+                const number = escapeHtml(child.ticket_number);
+                const title = escapeHtml(child.title);
+                return `<a href="${url}" hx-boost="false" title="${title}">${number}</a> ${HelpdeskUtils.getStatusBadge(child.status)}`;
+            }).join(', ');
+
+            html += `
+                <div class="small text-muted">
+                    <i class="fas fa-code-branch me-1"></i>Dividido en: ${links}
+                </div>
+            `;
+        }
+
+        container.innerHTML = html;
+        container.classList.remove('d-none');
     }
 
     // ==================== RENDER REQUESTER INFO ====================
