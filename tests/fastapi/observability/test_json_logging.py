@@ -36,7 +36,9 @@ logger = logging.getLogger(__name__)
 PREFIX = "/api/help-desk/v2/obs-log"
 ITEM_TEMPLATE = f"{PREFIX}/items/{{item_id}}"
 
-CONTEXT_FIELDS = ("trace_id", "span_id", "request_id", "user_id", "route", "app")
+CONTEXT_FIELDS = (
+    "trace_id", "span_id", "request_id", "user_id", "route", "app", "celery_task_id",
+)
 BASE_FIELDS = ("ts", "level", "logger", "msg")
 
 _HEX32 = re.compile(r"^[0-9a-f]{32}$")
@@ -213,6 +215,7 @@ def test_line_inside_def_endpoint_carries_request_context(client, json_logs):
     assert line["route"] == ITEM_TEMPLATE
     assert line["app"] == "helpdesk"
     assert line["user_id"] == "200"
+    assert line["celery_task_id"] == ""
 
 
 def test_summary_line_is_json_with_typed_fields(client, json_logs):
@@ -246,7 +249,7 @@ def test_extra_cannot_spoof_the_request_id(client, json_logs):
 
 
 # Ids que `ContextFilter` escribe SIEMPRE desde el contexto de la petición.
-_CONTEXT_ID_KEYS = frozenset({"trace_id", "span_id", "request_id"})
+_CONTEXT_ID_KEYS = frozenset({"trace_id", "span_id", "request_id", "celery_task_id"})
 
 
 def _extra_keys_that_collide(tree) -> list:
@@ -342,6 +345,27 @@ def test_line_without_context_has_every_field_empty(json_logs, method, levelname
     assert line["level"] == levelname
     assert line["msg"] == "sin contexto"
     assert "exc_type" not in line and "exc_info" not in line
+
+
+def test_line_inside_a_celery_task_carries_its_task_id(json_logs):
+    """R33: el mismo id que guarda `core_task_runs.celery_task_id`, para cruzar
+    Loki con Postgres. Eager basta: el id sale de la tarea en curso, no de la
+    publicación."""
+    from tests.fastapi.observability._celery_helpers import memory_app
+
+    celery = memory_app("itcj-obs-json-logging")
+
+    @celery.task(name="tests.observability.json_logging.probe")
+    def probe():
+        logger.warning("dentro de la tarea")
+
+    contextvars.Context().run(probe.apply, task_id="obs-task-0001")
+
+    line = _by_msg(json_logs.records(), "dentro de la tarea")
+    assert line["celery_task_id"] == "obs-task-0001"
+    # `task_prerun` acuñó una raíz: la tarea es correlacionable consigo misma.
+    assert _HEX32.match(line["trace_id"])
+    assert _HEX32.match(line["request_id"])
 
 
 def test_ts_is_iso8601_utc_with_z(json_logs):

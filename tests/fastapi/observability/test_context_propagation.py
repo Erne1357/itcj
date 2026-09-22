@@ -11,12 +11,15 @@ Este módulo es el que se pone rojo cuando eso pase.
 La app de prueba monta el `JWTMiddleware` REAL con `setup_middleware()` (así
 el `ObservabilityMiddleware` queda por fuera, igual que en producción) y cada
 endpoint devuelve el `current_request_id()` que ve desde su frontera; el
-test lo compara con el `X-Request-ID` de la respuesta.
+test lo compara con el `X-Request-ID` de la respuesta. El salto a Celery
+(Fase 5a) se prueba igual, pero el cuerpo de la tarea corre DESPUÉS de la
+respuesta, desde el mensaje que el endpoint dejó en el broker.
 
 Sin BD ni datos sembrados: las peticiones son anónimas (el JWT no consulta
 nada sin cookie).
 """
 import asyncio
+import contextvars
 import re
 import threading
 from contextlib import asynccontextmanager
@@ -30,8 +33,24 @@ import itcj2.utils
 from itcj2.middleware import setup_middleware
 from itcj2.observability.context import current_request_id
 from itcj2.utils import async_broadcast, set_main_loop
+from tests.fastapi.observability._celery_helpers import (
+    consume,
+    memory_app,
+    run_as_worker,
+    unique_queue,
+)
 
 _HEX32 = re.compile(r"^[0-9a-f]{32}$")
+
+# (g) Broker `memory://`, no eager: en eager Celery no dispara
+# `before_task_publish` y el test no pasaría por la publicación.
+_celery = memory_app("itcj-obs-propagation")
+_celery_seen: list[str] = []
+
+
+@_celery.task(name="tests.observability.propagation.probe_request_id")
+def _probe_request_id():
+    _celery_seen.append(current_request_id())
 
 
 def _build_app() -> FastAPI:
@@ -92,6 +111,12 @@ def _build_app() -> FastAPI:
         async_broadcast(read())
         return {"ran": done.wait(5), **seen}
 
+    # (g) endpoint def que encola una tarea Celery, como los sitios reales.
+    @app.get("/probe/celery")
+    def probe_celery(queue: str):
+        _probe_request_id.apply_async(queue=queue)
+        return {"queued": True}
+
     return app
 
 
@@ -137,34 +162,30 @@ def test_request_id_propagates_through_async_broadcast_from_sync_endpoint(client
     assert body["request_id"] == header
 
 
+def test_request_id_reaches_the_celery_task_it_enqueues(client):
+    # Antes de la Fase 5a esto era un negativo (`.apply()` fuera de petición,
+    # id vacío). Invertir aquel assert no probaba nada: `.apply()` nunca pasa
+    # por la publicación. Aquí el endpoint publica de verdad y el cuerpo corre
+    # como en el worker: en otro contexto, después de la respuesta, con el id
+    # llegado en la cabecera del mensaje.
+    _celery_seen.clear()
+    queue = unique_queue()
+
+    resp = client.get("/probe/celery", params={"queue": queue})
+
+    assert resp.status_code == 200
+    header = resp.headers.get("x-request-id", "")
+    assert _HEX32.match(header)
+    contextvars.Context().run(run_as_worker, _celery, consume(_celery, queue))
+    assert _celery_seen == [header]
+
+
 # ---------------------------------------------------------------------------
 # Negativos: fronteras que HOY no llevan contexto
 # ---------------------------------------------------------------------------
 
-def test_celery_task_body_outside_request_has_no_request_id():
-    # NEGATIVO HOY — SE INVIERTE EN LA FASE 5: cuando el id viaje en las
-    # cabeceras de la tarea, el cuerpo verá el id de la petición que la
-    # encoló. Hoy el worker corre en otro proceso, sin petición de la que
-    # heredar; aquí se modela ejecutando el cuerpo eager (`apply()`) fuera de
-    # cualquier petición, sobre la app de Celery real.
-    from itcj2.celery_app import celery_app
-
-    name = "tests.observability.probe_request_id"
-
-    @celery_app.task(name=name)
-    def probe_request_id():
-        return current_request_id()
-
-    try:
-        seen = probe_request_id.apply().get()
-    finally:
-        celery_app.tasks.pop(name, None)
-
-    assert seen == ""
-
-
 def test_socketio_handler_outside_request_has_no_request_id():
-    # NEGATIVO HOY — SE INVIERTE EN LA FASE 5: cada evento de Socket.IO
+    # NEGATIVO HOY — SE INVIERTE EN LA FASE 5c: cada evento de Socket.IO
     # tendrá ids propios. Hoy un handler no tiene petición HTTP de la que
     # heredar. Se registra en el servidor REAL (en un namespace de prueba que
     # se retira al final) y se dispara por la misma vía interna que usa

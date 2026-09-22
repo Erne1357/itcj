@@ -25,6 +25,8 @@ import sys
 import threading
 from datetime import datetime, timezone
 
+from celery import current_task
+
 from itcj2.config import get_settings
 from itcj2.observability.context import (
     current_request_id,
@@ -52,8 +54,12 @@ ACCESS_LOGGER_NAME = "itcj2.access"
 _OWN_MARK = "_itcj_observability"
 
 # Siempre presentes en cada línea, vacíos sin petición: una consulta de Loki no
-# tiene que distinguir "campo ausente" de "sin contexto".
-CONTEXT_FIELDS = ("trace_id", "span_id", "request_id", "user_id", "route", "app")
+# tiene que distinguir "campo ausente" de "sin contexto". `celery_task_id` (R33)
+# es el id de la tarea Celery en curso, el mismo que guarda
+# `core_task_runs.celery_task_id`: une las líneas de un worker con su fila.
+CONTEXT_FIELDS = (
+    "trace_id", "span_id", "request_id", "user_id", "route", "app", "celery_task_id",
+)
 
 # Librerías que emiten INFO por cada llamada saliente o por cada archivo
 # tocado (R6). `socketio.server`/`engineio.server` van aparte: con
@@ -120,14 +126,31 @@ def _scope_fields() -> tuple[str, str, str]:
         _building.active = False
 
 
+def _celery_task_id() -> str:
+    """Id de la tarea Celery que corre en este hilo, o `""` fuera de una.
+
+    De la pila de tareas de Celery (`current_task`) y no de un ContextVar
+    propio: la llena el propio Celery al ejecutar (también en eager), así que
+    no depende de que los hooks de `celery_hooks` estén conectados. Fuera de
+    una tarea (HTTP, sockets) la pila está vacía y cuesta una consulta a un
+    thread-local. Una llamada directa (`task()`) no tiene id: `""`.
+    """
+    try:
+        task = current_task._get_current_object()
+        return (task.request.id or "") if task is not None else ""
+    except Exception:
+        # Un filtro que lanza tumba el `logger.info()` de quien loguea.
+        return ""
+
+
 class ContextFilter(logging.Filter):
     """Pone los campos de contexto como atributos de cada `LogRecord`.
 
-    Los ids (`trace_id`, `span_id`, `request_id`) salen SIEMPRE del contexto,
-    aunque el registro traiga un `extra` con el mismo nombre: son la llave para
-    unir líneas en Loki. Un id de negocio va con su propio nombre
-    (agendatec: `extra={"agendatec_request_id": <id en BD>}`); ningún `extra`
-    de la app puede usar esos tres nombres (lo vigila un test de
+    Los ids (`trace_id`, `span_id`, `request_id`, `celery_task_id`) salen
+    SIEMPRE del contexto, aunque el registro traiga un `extra` con el mismo
+    nombre: son la llave para unir líneas en Loki. Un id de negocio va con su
+    propio nombre (agendatec: `extra={"agendatec_request_id": <id en BD>}`);
+    ningún `extra` de la app puede usar esos nombres (lo vigila un test de
     `test_json_logging.py`), porque se perdería en silencio.
     `route`/`app`/`user_id` respetan el `extra` si viene: la línea-resumen los
     trae calculados por el middleware y son la fuente.
@@ -137,6 +160,7 @@ class ContextFilter(logging.Filter):
         record.trace_id = current_trace_id()
         record.span_id = current_span_id()
         record.request_id = current_request_id()
+        record.celery_task_id = _celery_task_id()
         if not all(hasattr(record, name) for name in ("route", "app", "user_id")):
             route, app, user_id = _scope_fields()
             for name, value in (("route", route), ("app", app), ("user_id", user_id)):

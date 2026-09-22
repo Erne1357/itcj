@@ -13,6 +13,22 @@ logger = logging.getLogger("itcj2")
 # Redis Pub/Sub — subscriber de eventos de tareas Celery
 # ---------------------------------------------------------------------------
 
+def _carried_context(data: dict) -> dict | None:
+    """Los ids que trae el payload en `itcj_ctx` (Fase 5a), o `None`.
+
+    Solo los ids, y solo si el campo es un dict: un worker viejo no lo manda
+    (despliegue mixto) y nada de lo que venga ahí puede impedir el aviso.
+    """
+    carried = data.get("itcj_ctx")
+    if not isinstance(carried, dict):
+        return None
+    return {
+        name: carried[name]
+        for name in ("trace_id", "span_id", "request_id")
+        if isinstance(carried.get(name), str)
+    }
+
+
 async def _handle_task_event(data: dict) -> None:
     """Procesa un evento recibido del canal Redis 'task_events' y lo
     retransmite por Socket.IO al usuario correspondiente.
@@ -20,7 +36,19 @@ async def _handle_task_event(data: dict) -> None:
     Tipos de evento:
         task_completed    — tarea finalizada (SUCCESS/FAILURE), emite 'task_event'
         user_notification — notificación individual,   emite 'notify'
+
+    Se procesa bajo el contexto que trae el mensaje, y SOLO ese mensaje: el
+    subscriber es UN task de larga vida que atiende todos, así que el
+    `restore()` va por mensaje y se deshace al salir, o el `trace_id` de un
+    aviso se filtraría a los siguientes.
     """
+    from itcj2.observability.context import restore
+
+    with restore(_carried_context(data)):
+        await _relay_task_event(data)
+
+
+async def _relay_task_event(data: dict) -> None:
     from itcj2.sockets.notifications import push_notification
 
     event_type = data.get("type")
@@ -36,6 +64,15 @@ async def _handle_task_event(data: dict) -> None:
             "task_name": data.get("task_name"),
             "status": data.get("status"),
         })
+        # Sin esta línea, buscar en Loki el `trace_id` de la petición nunca
+        # llegaría a `service="sockets"` cuando todo sale bien:
+        # `push_notification` no loguea nada. Solo aquí, una por tarea manual:
+        # `user_notification` puede ser una por destinatario de una
+        # notificación masiva.
+        logger.info(
+            "task_events: aviso de fin de tarea retransmitido (task_run_id=%s, status=%s)",
+            data.get("task_run_id"), data.get("status"),
+        )
 
     elif event_type == "user_notification":
         notification = data.get("notification")

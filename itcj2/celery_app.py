@@ -13,6 +13,12 @@ from celery.signals import setup_logging
 from itcj2.config import get_settings
 from itcj2.observability.logging_config import configure_logging
 
+# Efecto lateral: conecta los receptores que llevan el contexto de la petición
+# a la tarea (Fase 5a). Aquí porque TODO proceso que encola o ejecuta tareas
+# importa esta app: los HTTP que publican, el worker y el beat. Quitar esta
+# línea apaga la propagación entera (palanca de rollback de 5a).
+import itcj2.observability.celery_hooks  # noqa: F401
+
 
 @setup_logging.connect
 def _configure_logging(**kwargs) -> None:
