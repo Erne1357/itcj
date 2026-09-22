@@ -19,8 +19,9 @@ llamarlo. Contra la base vacia de CI no hay catalogos: categorias (codigo unico
 por test) y prioridades se siembran con `_catalog.py`.
 
 El servicio se importa en tiempo de LLAMADA (`_svc()`), no de coleccion: asi la
-evidencia RED es un `ModuleNotFoundError` por test, despues de que su setup
-corrio, y no un error de coleccion que tumba el archivo entero.
+evidencia RED es un `ImportError` ("cannot import name 'ticket_split_service'")
+por test, despues de que su setup corrio, y no un error de coleccion que tumba
+el archivo entero.
 
 Cubre (numeracion del brief de la tarea):
   1. PENDING en 3: el original cambia categoria/titulo/descripcion con sus
@@ -652,7 +653,7 @@ class TestSplitAtomicity:
         assert exc_info.value.detail == "Error al partir ticket"
         # Las copias SI llegaron a existir (2 adjuntos x 2 partes) ...
         assert len(files_at_commit) == len(files_before) + 4
-        # ... y el rollback las borro: solo quedan los archivos del original.
+        # ... y la limpieza del fallo las borro: solo quedan los archivos del original.
         assert _files(tmp_path) == files_before
         assert _parts_of(db_session, original) == []
         assert db_session.query(Ticket).filter_by(requester_id=requester.id).count() == 1
