@@ -636,8 +636,8 @@ async def split_ticket(
     # 403 sin este bypass explícito.
     if not is_global_admin(user):
         from itcj2.apps.helpdesk.models.ticket import Ticket as TicketModel
+        from itcj2.apps.helpdesk.utils.teams import tech_team_for_user
         from itcj2.core.services.authz_cache import cached_perms
-        from itcj2.core.services.authz_service import user_roles_in_app
 
         perms = cached_perms(db, user_id, "helpdesk")
         if "helpdesk.tickets.api.split.all" in perms:
@@ -650,14 +650,10 @@ async def split_ticket(
                 raise HTTPException(status_code=404, detail="Ticket no encontrado")
 
             # El equipo del actor sale de sus ROLES en helpdesk, no del JWT
-            # — mismo criterio que `_tech_team` en pages/technician.py.
-            user_roles = user_roles_in_app(db, user_id, "helpdesk")
-            if "tech_desarrollo" in user_roles:
-                team = "desarrollo"
-            elif "tech_soporte" in user_roles:
-                team = "soporte"
-            else:
-                team = None
+            # — mapeo compartido (`utils/teams.py`), el mismo que usan la
+            # pestaña "Equipo" del dashboard y las páginas de detalle (que se
+            # lo pasan al cliente para no ofrecer el botón y luego 403).
+            team = tech_team_for_user(db, user_id)
 
             is_own = ticket.assigned_to_user_id == user_id
             is_team_queue = (

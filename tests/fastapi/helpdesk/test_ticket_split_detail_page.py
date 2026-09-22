@@ -11,10 +11,16 @@ de esas dos pantallas, el botón "Partir" del detalle lo pinta JS puro
 (`renderQuickActions()` en `ticket_detail.js`, contra el JSON que trae
 `loadTicketDetail()`), no Jinja — así que el servidor no puede probarse por la
 presencia del botón en el HTML. Lo que SÍ puede (y debe) probarse por HTTP es
-que `split_scope` de verdad LLEGA a la plantilla: el `<script>` inline
-`const SPLIT_SCOPE = "...";` (extra_js) y el modal `#splitTicketModal`
+que `split_scope` de verdad LLEGA a la plantilla: el atributo
+`data-split-scope="..."` del `[data-hd-page]` y el modal `#splitTicketModal`
 (`{% if split_scope %}`). El botón en sí (client-side) queda cubierto por el
 QA de navegador de esta misma tarea.
+
+El VALOR importa, no solo que sea verdadero: el cliente distingue "all" (puede
+partir cualquier ticket que vea) de "own" (solo lo suyo o la cola sin asignar
+de su equipo, D17). Por eso cada ruta se prueba con los DOS alcances — una
+errata en el `return` de `can_split()` dejaría el botón muerto para todos los
+técnicos (que solo tienen `.split.own`) con la suite en verde.
 
 Ninguna de las tres rutas de detalle consulta el ticket en el servidor (todo
 el fetch es client-side vía `HelpdeskUtils.api.getTicket`), así que estos tests
@@ -42,14 +48,28 @@ from itcj2.core.models.app import App
 from itcj2.core.models.department import Department
 from itcj2.core.models.permission import Permission
 from itcj2.core.models.position import Position, PositionAppPerm, UserPosition
+from itcj2.core.models.role import Role
 from itcj2.core.models.user import User
+from itcj2.core.models.user_app_role import UserAppRole
 from itcj2.database import get_db
 from itcj2.main import create_app
 
 SPLIT_PERM_ALL = "helpdesk.tickets.api.split.all"
+SPLIT_PERM_OWN = "helpdesk.tickets.api.split.own"
 USER_PAGE_PERM = "helpdesk.tickets.api.read.own"
 TECH_DEPT_PAGE_PERM = "helpdesk.tickets.page.my_tickets"
 MODAL_MARK = 'id="splitTicketModal"'
+
+
+def _scope_mark(scope: str) -> str:
+    """El alcance viaja en el `[data-hd-page]`, NO en un `<script>` inline: el
+    <body> lo reemplaza htmx con morph y un `const` de nivel superior
+    reejecutado en la revisita es un SyntaxError que aborta el swap."""
+    return f'data-split-scope="{scope}"'
+
+
+def _team_mark(team: str) -> str:
+    return f'data-split-team="{team}"'
 
 
 # ─────────────────────────── infraestructura de test ───────────────────────────
@@ -162,6 +182,26 @@ def _grant_position_perms(db, user, department, codes, code_prefix="tksplit_det_
     return pos
 
 
+def _grant_role(db, user, role_name) -> Role:
+    """Rol LITERAL del usuario en helpdesk (`UserAppRole`), sin permisos: aquí
+    solo interesa el nombre, que es de donde `utils/teams.py::tech_team()` saca
+    el equipo. Los permisos siguen viniendo del puesto para que el test valga
+    igual en la BD de dev (donde `tech_soporte` ya trae `.split.own` por el DML)
+    y en la de CI (vacía, donde no trae nada)."""
+    app = db.query(App).filter_by(key="helpdesk").first()
+    role = db.query(Role).filter_by(name=role_name).first()
+    if not role:
+        role = Role(name=role_name)
+        db.add(role)
+        db.commit()
+        db.refresh(role)
+    exists = db.query(UserAppRole).filter_by(user_id=user.id, app_id=app.id, role_id=role.id).first()
+    if not exists:
+        db.add(UserAppRole(user_id=user.id, app_id=app.id, role_id=role.id))
+        db.commit()
+    return role
+
+
 # ─────────────────────────────────── tests ────────────────────────────────────
 
 class TestSplitScopeInUserDetailPage:
@@ -178,7 +218,23 @@ class TestSplitScopeInUserDetailPage:
         resp = client.get(self.URL, headers=_jwt_cookie(user.id))
 
         assert resp.status_code == 200, resp.text
-        assert 'const SPLIT_SCOPE = "all";' in resp.text
+        assert _scope_mark("all") in resp.text
+        assert MODAL_MARK in resp.text
+
+    def test_own_scope_reaches_template(self, client, patched_session_local):
+        """Solo `.split.own` → la página lleva "own", no "all" ni vacío. Es el
+        caso de TODOS los técnicos: una errata en el `return` de `can_split()`
+        les dejaría el botón muerto sin romper el caso `.all`."""
+        db = patched_session_local
+        dept = _dept(db, "tksplitdet_u_own")
+        user = _user(db, "SplitDetUOWN")
+        _grant_position_perms(db, user, dept, [USER_PAGE_PERM, SPLIT_PERM_OWN])
+
+        resp = client.get(self.URL, headers=_jwt_cookie(user.id))
+
+        assert resp.status_code == 200, resp.text
+        assert _scope_mark("own") in resp.text
+        assert _scope_mark("all") not in resp.text
         assert MODAL_MARK in resp.text
 
     def test_omits_scope_without_split_permission(self, client, patched_session_local):
@@ -190,7 +246,7 @@ class TestSplitScopeInUserDetailPage:
         resp = client.get(self.URL, headers=_jwt_cookie(user.id))
 
         assert resp.status_code == 200, resp.text
-        assert 'const SPLIT_SCOPE = "";' in resp.text
+        assert _scope_mark("") in resp.text
         assert MODAL_MARK not in resp.text
 
 
@@ -208,7 +264,20 @@ class TestSplitScopeInTechnicianDetailPage:
         resp = client.get(self.URL, headers=_jwt_cookie(user.id))
 
         assert resp.status_code == 200, resp.text
-        assert 'const SPLIT_SCOPE = "all";' in resp.text
+        assert _scope_mark("all") in resp.text
+        assert MODAL_MARK in resp.text
+
+    def test_own_scope_reaches_template(self, client, patched_session_local):
+        db = patched_session_local
+        dept = _dept(db, "tksplitdet_t_own")
+        user = _user(db, "SplitDetTOWN")
+        _grant_position_perms(db, user, dept, [TECH_DEPT_PAGE_PERM, SPLIT_PERM_OWN])
+
+        resp = client.get(self.URL, headers=_jwt_cookie(user.id))
+
+        assert resp.status_code == 200, resp.text
+        assert _scope_mark("own") in resp.text
+        assert _scope_mark("all") not in resp.text
         assert MODAL_MARK in resp.text
 
     def test_omits_scope_without_split_permission(self, client, patched_session_local):
@@ -220,7 +289,7 @@ class TestSplitScopeInTechnicianDetailPage:
         resp = client.get(self.URL, headers=_jwt_cookie(user.id))
 
         assert resp.status_code == 200, resp.text
-        assert 'const SPLIT_SCOPE = "";' in resp.text
+        assert _scope_mark("") in resp.text
         assert MODAL_MARK not in resp.text
 
 
@@ -239,7 +308,20 @@ class TestSplitScopeInDepartmentDetailPage:
         resp = client.get(self.URL, headers=_jwt_cookie(user.id))
 
         assert resp.status_code == 200, resp.text
-        assert 'const SPLIT_SCOPE = "all";' in resp.text
+        assert _scope_mark("all") in resp.text
+        assert MODAL_MARK in resp.text
+
+    def test_own_scope_reaches_template(self, client, patched_session_local):
+        db = patched_session_local
+        dept = _dept(db, "tksplitdet_d_own")
+        user = _user(db, "SplitDetDOWN")
+        _grant_position_perms(db, user, dept, [TECH_DEPT_PAGE_PERM, SPLIT_PERM_OWN], code_prefix="head_")
+
+        resp = client.get(self.URL, headers=_jwt_cookie(user.id))
+
+        assert resp.status_code == 200, resp.text
+        assert _scope_mark("own") in resp.text
+        assert _scope_mark("all") not in resp.text
         assert MODAL_MARK in resp.text
 
     def test_omits_scope_without_split_permission(self, client, patched_session_local):
@@ -251,5 +333,58 @@ class TestSplitScopeInDepartmentDetailPage:
         resp = client.get(self.URL, headers=_jwt_cookie(user.id))
 
         assert resp.status_code == 200, resp.text
-        assert 'const SPLIT_SCOPE = "";' in resp.text
+        assert _scope_mark("") in resp.text
         assert MODAL_MARK not in resp.text
+
+
+class TestSplitTeamInDetailPage:
+    """El EQUIPO del actor también viaja a la plantilla (I2).
+
+    Con alcance `.own` el guard de `POST /tickets/{id}/split` solo deja partir
+    lo propio o lo que siga SIN ASIGNAR en la cola de ESE equipo (D17). Sin el
+    equipo en la página, el cliente ofrecía "Partir" para la cola de CUALQUIER
+    equipo y el técnico cobraba el 403 con el modal ya lleno.
+    """
+
+    TECH_URL = "/help-desk/technician/tickets/999999"
+    USER_URL = "/help-desk/user/tickets/999999"
+
+    def test_technician_detail_carries_actor_team(self, client, patched_session_local):
+        db = patched_session_local
+        dept = _dept(db, "tksplitdet_team_t")
+        user = _user(db, "SplitDetTeamT")
+        _grant_position_perms(db, user, dept, [TECH_DEPT_PAGE_PERM, SPLIT_PERM_OWN])
+        _grant_role(db, user, "tech_soporte")
+
+        resp = client.get(self.TECH_URL, headers=_jwt_cookie(user.id))
+
+        assert resp.status_code == 200, resp.text
+        assert _scope_mark("own") in resp.text
+        assert _team_mark("soporte") in resp.text
+
+    def test_user_detail_carries_actor_team(self, client, patched_session_local):
+        db = patched_session_local
+        dept = _dept(db, "tksplitdet_team_u")
+        user = _user(db, "SplitDetTeamU")
+        _grant_position_perms(db, user, dept, [USER_PAGE_PERM, SPLIT_PERM_OWN])
+        _grant_role(db, user, "tech_desarrollo")
+
+        resp = client.get(self.USER_URL, headers=_jwt_cookie(user.id))
+
+        assert resp.status_code == 200, resp.text
+        assert _scope_mark("own") in resp.text
+        assert _team_mark("desarrollo") in resp.text
+
+    def test_non_technician_carries_empty_team(self, client, patched_session_local):
+        """Sin rol `tech_*` no hay cola de equipo que mirar: el atributo llega
+        vacío y el cliente solo ofrece "Partir" sobre lo asignado a uno mismo."""
+        db = patched_session_local
+        dept = _dept(db, "tksplitdet_team_none")
+        user = _user(db, "SplitDetTeamNone")
+        _grant_position_perms(db, user, dept, [USER_PAGE_PERM, SPLIT_PERM_OWN])
+
+        resp = client.get(self.USER_URL, headers=_jwt_cookie(user.id))
+
+        assert resp.status_code == 200, resp.text
+        assert _scope_mark("own") in resp.text
+        assert _team_mark("") in resp.text

@@ -12,6 +12,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 
 from itcj2.apps.helpdesk.pages.nav import can_split, render_helpdesk
+from itcj2.apps.helpdesk.utils.teams import tech_team
 from itcj2.dependencies import require_page_app
 
 logger = logging.getLogger("itcj2.apps.helpdesk.pages.user")
@@ -194,8 +195,11 @@ async def ticket_detail(
         _db.close()
 
     # "Partir ticket" (fase 2, tarea 11): mismo criterio que assign_tickets/
-    # technician.dashboard — helper compartido en pages/nav.py.
+    # technician.dashboard — helpers compartidos en pages/nav.py. El detalle
+    # necesita además el EQUIPO del actor: no hay lista que acote nada, así que
+    # el cliente reproduce D17 (lo propio o la cola sin asignar de MI equipo).
     split_scope = can_split(user)
+    actor_team = tech_team(user_roles)
 
     can_consume_warehouse = False
     if user.get("role") == "admin":
@@ -218,4 +222,5 @@ async def ticket_detail(
         "active_page": "my_tickets",
         "can_consume_warehouse": can_consume_warehouse,
         "split_scope": split_scope,
+        "split_team": actor_team,
     })

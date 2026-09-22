@@ -886,13 +886,14 @@
     href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ sv('helpdesk', 'css/user/ticket_tutorial.css') }}">
 {% endblock %}
 
-{% block hd_data %}data-ticket-id="{{ ticket_id }}"{% endblock %}
-
-{% block extra_js %}
-{# split_scope ("all"|"own"|"") llega inline: renderQuickActions() (ticket_detail.js)
-   es 100% cliente (pinta el menú desde el JSON que trae loadTicketDetail()), así
-   que no puede leer un {% if %} de Jinja para decidir si ofrece "Partir ticket". #}
-<script>
-    const SPLIT_SCOPE = "{{ split_scope or '' }}";
-</script>
-{% endblock %}
+{# "Partir ticket" viaja en data-*, NO en un <script> inline: renderQuickActions()
+   (ticket_detail.js) es 100% cliente (pinta el menú desde el JSON que trae
+   loadTicketDetail()), así que no puede leer un {% if %} de Jinja — pero este
+   <body> lo reemplaza htmx con morph, y un `const` de nivel superior reejecutado
+   en la revisita es un SyntaxError duro ("already been declared") que aborta el
+   swap. ticket_detail.js::init() los relee del dataset en cada visita.
+     · data-split-scope: "all" | "own" | ""  (can_split, pages/nav.py)
+     · data-split-team : "desarrollo" | "soporte" | ""  (equipo del ACTOR,
+       utils/teams.py) — con alcance ".own" el guard de la API (D17) solo deja
+       partir lo propio o la cola sin asignar de ESE equipo. #}
+{% block hd_data %}data-ticket-id="{{ ticket_id }}" data-split-scope="{{ split_scope or '' }}" data-split-team="{{ split_team or '' }}"{% endblock %}

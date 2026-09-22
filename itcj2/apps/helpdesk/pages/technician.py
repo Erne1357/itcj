@@ -11,6 +11,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 
 from itcj2.apps.helpdesk.pages.nav import can_split, render_helpdesk
+from itcj2.apps.helpdesk.utils.teams import tech_team
 from itcj2.dependencies import require_page_app
 
 logger = logging.getLogger("itcj2.apps.helpdesk.pages.technician")
@@ -30,11 +31,9 @@ def _helpdesk_roles(user_id: int) -> set:
 
 
 def _tech_team(user_roles: set):
-    if "tech_desarrollo" in user_roles:
-        return "desarrollo"
-    if "tech_soporte" in user_roles:
-        return "soporte"
-    return None
+    """Equipo del técnico. El mapeo vive en `utils/teams.py` (única copia:
+    lo comparten esta pestaña, el guard de la API y `nav.split_team()`)."""
+    return tech_team(user_roles)
 
 
 def _query_tech_tickets(user_id: int, user_roles: set, tab: str, hist: str = "all", search: str = None) -> list:
@@ -173,8 +172,11 @@ async def ticket_detail(
     user_roles = _helpdesk_roles(user_id)
 
     # "Partir ticket" (fase 2, tarea 11): mismo criterio que el dashboard
-    # (tarea 10) — helper compartido en pages/nav.py.
+    # (tarea 10) — helpers compartidos en pages/nav.py. Aquí, a diferencia de
+    # las listas, hace falta también el EQUIPO: el detalle no acota nada, así
+    # que el cliente reproduce D17 (lo propio o la cola de MI equipo).
     split_scope = can_split(user)
+    actor_team = tech_team(user_roles)
 
     # Check if technician has warehouse consume permission
     can_consume_warehouse = False
@@ -196,4 +198,5 @@ async def ticket_detail(
         "active_page": "tech_assignments",
         "can_consume_warehouse": can_consume_warehouse,
         "split_scope": split_scope,
+        "split_team": actor_team,
     })

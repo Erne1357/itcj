@@ -12,7 +12,8 @@
   El JS localiza el modal por id, así que no le importa desde qué página se
   invocó; la página solo aporta el `onSplit` que refresca lo que ella muestra.
 
-  Estilos: `.hd-split-*` viven hoy en `css/admin/assign_tickets.css`.
+  Estilos: `.hd-split-*` viven en `css/shared/split_ticket.css` — la página que
+  incluye el modal debe enlazar esa hoja (con `sv()`), este partial no lo hace.
 #}
 <div class="modal fade" id="splitTicketModal" tabindex="-1" aria-labelledby="splitTicketModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">

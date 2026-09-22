@@ -462,14 +462,15 @@ def can_split(user: dict) -> str | None:
     efectivos que tenga (".all" antes que ".own"). Si el DML del permiso aún
     no corrió, el botón no aparece en vez de responder 403 al pulsarlo.
 
-    Devuelve `"all" | "own" | None`. Las páginas que lo consumen lo tratan
-    como booleano (`{% if can_split %}`): cualquier alcance no vacío pinta el
-    botón — qué ticket se puede partir de verdad con `.own` (solo lo propio o
-    la cola del equipo, D17 del spec) ya lo acota cada lista por su cuenta (la
-    de asignación muestra lo que ese usuario puede ver; el dashboard del
-    técnico solo lista lo suyo/de su equipo) y, en última instancia, el guard
-    de la API. El VALOR (distinguir "all" de "own") no lo necesita ninguna
-    página todavía.
+    Devuelve `"all" | "own" | None`. Las páginas de LISTA lo tratan como
+    booleano (`{% if can_split %}`): cualquier alcance no vacío pinta el botón
+    — qué ticket se puede partir de verdad con `.own` (solo lo propio o la cola
+    del equipo, D17 del spec) ya lo acota cada lista por su cuenta (la de
+    asignación muestra lo que ese usuario puede ver; el dashboard del técnico
+    solo lista lo suyo/de su equipo) y, en última instancia, el guard de la API.
+    El detalle del ticket sí necesita el VALOR: ahí no hay lista que acote nada,
+    así que el cliente reproduce la regla de D17 con este alcance y con
+    `split_team()` (abajo).
     """
     from itcj2.core.services.authz_cache import cached_perms
     from itcj2.database import SessionLocal
@@ -487,3 +488,28 @@ def can_split(user: dict) -> str | None:
     if SPLIT_PERM_OWN in perms:
         return "own"
     return None
+
+
+def split_team(user: dict) -> str | None:
+    """Equipo del actor (`"desarrollo" | "soporte" | None`) para "Partir".
+
+    Compañero de `can_split()` para el DETALLE del ticket: con alcance `.own`
+    el guard de la API (D17) deja partir lo propio **o** lo que siga sin
+    asignar en la cola de ESTE equipo, así que el cliente necesita saber cuál
+    es — sin el dato ofrecería el botón para la cola del otro equipo y el
+    técnico descubriría el 403 con el modal ya lleno.
+
+    El mapeo rol→equipo es el compartido (`utils/teams.py`), el mismo que usan
+    la pestaña "Equipo" del dashboard y el propio guard de la API. Esta
+    envoltura es para las páginas que NO tienen ya los roles a mano (department);
+    las que sí (user, technician) llaman directo a `teams.tech_team(user_roles)`
+    en vez de volver a consultarlos.
+    """
+    from itcj2.apps.helpdesk.utils.teams import tech_team_for_user
+    from itcj2.database import SessionLocal
+
+    _db = SessionLocal()
+    try:
+        return tech_team_for_user(_db, int(user["sub"]))
+    finally:
+        _db.close()

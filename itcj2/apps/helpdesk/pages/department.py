@@ -13,7 +13,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from itcj2.apps.helpdesk.pages.nav import can_split, render_helpdesk
+from itcj2.apps.helpdesk.pages.nav import can_split, render_helpdesk, split_team
 from itcj2.dependencies import require_page_app, require_page_login
 from itcj2.exceptions import PageForbidden
 
@@ -185,8 +185,12 @@ async def ticket_detail(
     managed = _get_managed_department(user_id)
 
     # "Partir ticket" (fase 2, tarea 11): mismo criterio que assign_tickets/
-    # technician.dashboard — helper compartido en pages/nav.py.
+    # technician.dashboard — helpers compartidos en pages/nav.py. El detalle
+    # necesita además el EQUIPO del actor (D17): esta ruta no trae los roles a
+    # mano, así que los resuelve `split_team()` (normalmente None: un jefe de
+    # depto no es técnico de ningún equipo).
     split_scope = can_split(user)
+    actor_team = split_team(user)
 
     can_consume_warehouse = False
     if user.get("role") == "admin":
@@ -210,6 +214,7 @@ async def ticket_detail(
         "active_page": "tickets",
         "can_consume_warehouse": can_consume_warehouse,
         "split_scope": split_scope,
+        "split_team": actor_team,
     })
 
 

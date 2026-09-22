@@ -17,6 +17,8 @@
     // These are read from data-* in init()
     let ticketId = null;
     let currentUserId = null;
+    let splitScope = '';   // "all" | "own" | ""  (can_split, pages/nav.py)
+    let splitTeam = '';    // "desarrollo" | "soporte" | ""  (equipo del actor)
 
     // ==================== HELPERS ====================
     function escapeHtml(str) {
@@ -34,6 +36,11 @@
             ticketId = parseInt(root.dataset.ticketId, 10);
             currentUserId = parseInt(root.dataset.currentUserId, 10);
         }
+        // "Partir ticket": SIEMPRE relectura (fuera del if, y sin capturarlo a
+        // nivel de archivo) — morph reejecuta init() sin recargar el módulo, y
+        // el ticket de la revisita puede traer otro alcance/equipo.
+        splitScope = (root && root.dataset.splitScope) || '';
+        splitTeam = (root && root.dataset.splitTeam) || '';
 
         // Reset module state (guard against re-init on same session)
         currentTicket = null;
@@ -505,17 +512,22 @@
     // mismo que usan la pantalla de asignación y el dashboard del técnico.
     const SPLIT_STATUSES = ['PENDING', 'ASSIGNED', 'IN_PROGRESS'];
 
-    // SPLIT_SCOPE ("all"|"own"|"") llega inline desde el bloque de scripts de la
-    // página (extra_js de ticket_detail.html), calculado por can_split() en
-    // pages/nav.py. Con ".own" solo se ofrece si este usuario es el técnico
-    // asignado o el ticket sigue en la cola sin asignar de su equipo — mismo
-    // criterio que exige el guard fino de la API (D17).
+    // splitScope ("all"|"own"|"") y splitTeam ("desarrollo"|"soporte"|"") los
+    // relee init() de data-split-scope / data-split-team (los calculan
+    // can_split() en pages/nav.py y tech_team() en utils/teams.py).
+    //
+    // Con ".own" solo se ofrece si este usuario es el técnico asignado o el
+    // ticket sigue SIN ASIGNAR en la cola de SU equipo (no la de cualquier
+    // equipo) — mismo criterio que exige el guard fino de la API (D17). Sin
+    // comparar el equipo, el técnico llenaba el modal entero (partes, títulos,
+    // descripciones de 20 caracteres) para cobrar un 403 al enviar.
     function canSplitTicket(ticket) {
         if (!SPLIT_STATUSES.includes(ticket.status)) return false;
-        if (SPLIT_SCOPE === 'all') return true;
-        if (SPLIT_SCOPE === 'own') {
-            return ticket.assigned_to?.id === currentUserId ||
-                (!ticket.assigned_to && !!ticket.assigned_to_team);
+        if (splitScope === 'all') return true;
+        if (splitScope === 'own') {
+            if (ticket.assigned_to?.id === currentUserId) return true;
+            return !ticket.assigned_to && !!splitTeam &&
+                ticket.assigned_to_team === splitTeam;
         }
         return false;
     }

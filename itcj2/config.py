@@ -243,7 +243,21 @@ class Settings(BaseSettings):
     # `openSplitTicketModal` ni `window.HelpdeskSplit`) contra el HTML nuevo, que
     # ya trae el modal cuando `split_scope` es verdadero: el botón "Partir" del
     # menú no aparece o, si aparece por un HTML a medio cachear, no hace nada.
-    STATIC_VERSION: str = "1.0.1111565"
+    #
+    # Bump 2026-09-22 (5): el detalle deja de traer el `<script>` inline con
+    # `const SPLIT_SCOPE` y lee data-split-scope / data-split-team del
+    # `[data-hd-page]`. Dos motivos: (a) ese `<script>` vivía dentro del <body>
+    # que htmx reemplaza con morph, así que en la 2ª visita a un detalle (ida y
+    # vuelta boosteada) la redeclaración del `const` lanzaba un SyntaxError que
+    # abortaba el swap; (b) con alcance ".own" la puerta del cliente aceptaba
+    # CUALQUIER ticket sin asignar que tuviera equipo, también el de la cola del
+    # OTRO equipo, y el técnico descubría el 403 con el modal ya lleno: ahora
+    # compara contra el equipo del actor. `js/user/ticket_detail.js` relee ambos
+    # valores en cada `init()`. Sin el bump, quien tenga en caché el JS del bump
+    # (4) recibe el HTML nuevo (sin el `<script>`) contra un JS que sigue
+    # leyendo `SPLIT_SCOPE`: ReferenceError dentro de `loadTicketDetail()` y el
+    # detalle entero cae a su estado de error.
+    STATIC_VERSION: str = "1.0.1111566"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
