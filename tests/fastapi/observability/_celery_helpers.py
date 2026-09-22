@@ -18,6 +18,13 @@ import uuid
 from celery import Celery
 from celery.worker.request import Request
 
+# Los receptores de señales se conectan al importar `celery_hooks`; en
+# producción lo importa `itcj2/celery_app.py`, que estos tests no cargan. Sin
+# esta línea un módulo corrido solo publica sin cabecera y su tarea no liga
+# nada: pasaba únicamente si otro módulo de la sesión ya había importado los
+# hooks.
+import itcj2.observability.celery_hooks  # noqa: F401
+
 
 def memory_app(name: str) -> Celery:
     app = Celery(name, broker="memory://", set_as_current=False)
