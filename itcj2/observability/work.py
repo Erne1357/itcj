@@ -49,6 +49,7 @@ import threading
 from contextlib import contextmanager
 from importlib import import_module
 from time import monotonic, perf_counter
+from types import MappingProxyType
 
 from itcj2.config import get_settings
 
@@ -60,19 +61,29 @@ logger = logging.getLogger("itcj2.observability")
 # Viven aquí y no en `metrics.py`: la validación no puede depender de un
 # import que en Celery puede fallar. Un valor nuevo se añade AQUÍ, y el
 # presupuesto de series (`test_cardinalidad.py`) lo cuenta solo.
-DOCUMENT_KINDS = frozenset({
-    "solicitud",
-    "orden_trabajo",
-    "inventory_export",
-    "inventory_report_equipment",
-    "inventory_report_movements",
-    "inventory_report_warranty",
-    "inventory_report_maintenance",
-    "inventory_report_lifecycle",
-    "retirement_oficio",
-    "agendatec_report",
+#
+# R44: cada `kind` tiene exactamente UN motor, el que usa de verdad el sitio
+# que genera ese documento. Con dos conjuntos independientes el código
+# permitía 10 x 4 pares y solo 10 pueden existir: el presupuesto de series
+# contaba ~1.260 imposibles y el siguiente merge de una app lo ponía en rojo.
+# Un par que no está aquí sigue la misma política que un valor fuera de su
+# conjunto (ValueError en desarrollo; en producción no se registra y se avisa
+# una vez).
+DOCUMENT_KIND_ENGINE = MappingProxyType({
+    "solicitud": "libreoffice",
+    "orden_trabajo": "libreoffice",
+    "inventory_export": "openpyxl",
+    "inventory_report_equipment": "csv",
+    "inventory_report_movements": "csv",
+    "inventory_report_warranty": "csv",
+    "inventory_report_maintenance": "csv",
+    "inventory_report_lifecycle": "csv",
+    "retirement_oficio": "openpyxl",  # R36: el oficio de bajas no pasa a PDF
+    "agendatec_report": "xlsxwriter",
 })
-DOCUMENT_ENGINES = frozenset({"libreoffice", "openpyxl", "xlsxwriter", "csv"})
+DOCUMENT_KINDS = frozenset(DOCUMENT_KIND_ENGINE)
+DOCUMENT_ENGINES = frozenset(DOCUMENT_KIND_ENGINE.values())
+_DOCUMENT_PAIRS = frozenset(DOCUMENT_KIND_ENGINE.items())
 OUTBOUND_TARGETS = frozenset({"msgraph", "football_api"})
 OUTCOMES = frozenset({"ok", "error", "timeout"})
 
@@ -303,7 +314,12 @@ def measured(kind: str, engine: str):
     # del `with` sin que el trabajo llegue a correr.
     kind_ok = closed_label_ok(_RENDER_METRIC, "kind", kind, DOCUMENT_KINDS)
     engine_ok = closed_label_ok(_RENDER_METRIC, "engine", engine, DOCUMENT_ENGINES)
-    labels = {"kind": kind, "engine": engine} if kind_ok and engine_ok else None
+    # El par solo se mira con los dos valores válidos: con uno inválido ya se
+    # avisó (o lanzó) por él, y un segundo aviso por el par sería ruido.
+    pair_ok = kind_ok and engine_ok and closed_label_ok(
+        _RENDER_METRIC, "(kind, engine)", (kind, engine), _DOCUMENT_PAIRS
+    )
+    labels = {"kind": kind, "engine": engine} if pair_ok else None
     yield from _timed("DOCUMENT_RENDER_DURATION", labels)
 
 

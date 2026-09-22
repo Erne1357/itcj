@@ -110,6 +110,26 @@ def test_closed_label_sets_match_the_contract():
     assert work.OUTCOMES == frozenset(OUTCOMES)
 
 
+def test_each_kind_has_exactly_one_engine():
+    """R44: el motor lo fija el `kind` (el sitio que genera el documento), no
+    el llamador. Mapa cerrado: los conjuntos de `kind` y `engine` salen de él,
+    y cada par que no esté aquí sería una serie que no puede existir."""
+    assert dict(work.DOCUMENT_KIND_ENGINE) == {
+        "solicitud": "libreoffice",
+        "orden_trabajo": "libreoffice",
+        "inventory_export": "openpyxl",
+        "inventory_report_equipment": "csv",
+        "inventory_report_movements": "csv",
+        "inventory_report_warranty": "csv",
+        "inventory_report_maintenance": "csv",
+        "inventory_report_lifecycle": "csv",
+        "retirement_oficio": "openpyxl",  # R36: openpyxl, sin PDF
+        "agendatec_report": "xlsxwriter",
+    }
+    assert work.DOCUMENT_KINDS == frozenset(work.DOCUMENT_KIND_ENGINE)
+    assert work.DOCUMENT_ENGINES == frozenset(work.DOCUMENT_KIND_ENGINE.values())
+
+
 # ---------------------------------------------------------------------------
 # measured(kind, engine)
 # ---------------------------------------------------------------------------
@@ -398,6 +418,12 @@ def test_closed_label_ok_warns_once_per_label_in_production(monkeypatch, caplog)
     [
         pytest.param(lambda: work.measured("factura", "libreoffice"), id="kind"),
         pytest.param(lambda: work.measured("solicitud", "pandoc"), id="engine"),
+        # Los dos valores existen, el PAR no (R44): el CSV de inventario
+        # nunca sale de LibreOffice.
+        pytest.param(
+            lambda: work.measured("inventory_report_equipment", "libreoffice"),
+            id="kind-engine",
+        ),
         pytest.param(lambda: work.measured_outbound("github"), id="target"),
     ],
 )
@@ -428,6 +454,31 @@ def test_label_outside_the_closed_set_in_production_records_nothing(monkeypatch)
     assert info.value is business
     assert _family_count(RENDER) == render_before
     assert _family_count(OUTBOUND) == outbound_before
+
+
+def test_mismatched_kind_engine_in_production_records_nothing_and_warns_once(
+    monkeypatch, caplog
+):
+    """R44, política de siempre para el par: el trabajo corre, no se registra
+    la serie imposible y se avisa UNA vez (no una por render)."""
+    monkeypatch.setattr(work, "strict_labels", lambda: False)
+    monkeypatch.setattr(work, "_warned_labels", set())
+    render_before = _family_count(RENDER)
+
+    ran = 0
+    with caplog.at_level(logging.WARNING, logger="itcj2.observability"):
+        for _ in range(2):
+            with work.measured("solicitud", "csv"):
+                ran += 1
+
+    assert ran == 2
+    assert _family_count(RENDER) == render_before
+    warnings = [
+        r.getMessage() for r in caplog.records
+        if r.name == "itcj2.observability" and r.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1
+    assert "solicitud" in warnings[0] and "csv" in warnings[0]
 
 
 # ---------------------------------------------------------------------------

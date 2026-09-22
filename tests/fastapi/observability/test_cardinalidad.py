@@ -22,16 +22,20 @@ from itcj2.observability.middleware import METRIC_METHODS
 from itcj2.observability.route import _KEYS, _route_method_pairs, build_route_map
 from itcj2.observability.spawn import BACKGROUND_TASK_NAMES, BACKGROUND_TASK_STATUSES
 from itcj2.observability.work import (
-    DOCUMENT_ENGINES,
-    DOCUMENT_KINDS,
+    DOCUMENT_KIND_ENGINE,
     OUTBOUND_TARGETS,
     OUTCOMES,
 )
 
-# R8: ~21 % sobre las ~16.500 series proyectadas antes de la Fase 4 (con las
-# de trabajo pesado, ~18.250; las de segundo plano de la 5b suman 8). Son 804
-# pares (método, ruta) contando
-# `/metrics`, que no genera series (SKIP_PATHS): un par de margen a favor.
+# R8 (tope) y R44 (pares reales). Medido el 2026-09-21 en el contenedor de
+# dev, tras la ronda 2 (Fases 4 + 5b): 804 pares (método, ruta) -> 16.998
+# series proyectadas (histograma 11.256 + contador 4.824 + fijas 918, de las
+# que 498 son de trabajo pesado y 8 de segundo plano). Margen: 3.002 series,
+# 17,7 % sobre lo proyectado (15 % del tope), unos 150 pares nuevos a 20
+# series cada uno. Contando el producto kind x engine completo eran 18.258 y
+# el margen caía a 1.742 (~87 pares): el merge de adhoc (~90) lo ponía rojo.
+# Los 804 pares cuentan `/metrics`, que no genera series (SKIP_PATHS): un par
+# de margen a favor.
 MAX_SERIES_PER_TARGET = 20_000
 
 # Peor caso de estados distintos por par (método, ruta) en el contador (§6).
@@ -61,15 +65,13 @@ FIXED_SERIES = (
     + 6                                    # itcj_socket_connections (namespaces hoy)
 )
 # Trabajo pesado y llamadas salientes (Fase 4): conjuntos CERRADOS que
-# `work.measured*` valida, así que tampoco escalan con las rutas. Se cuenta el
-# producto cartesiano completo que el código PERMITE (+3: +Inf, `_sum`,
-# `_count`), aunque hoy cada `kind` va con un solo `engine` y lo real es ~1/4.
-# Derivado de los conjuntos: un `kind` nuevo sube la cuenta solo. Si el tope
-# aprieta, la palanca es validar el PAR (kind, engine) en `work.py`, no quitar
-# esto del presupuesto.
+# `work.measured*` valida, así que tampoco escalan con las rutas. Del render
+# se cuentan solo los pares (kind, engine) que existen (R44): `work.py` valida
+# el PAR contra `DOCUMENT_KIND_ENGINE`, así que el producto kind x engine
+# completo ya no puede aparecer (+3: +Inf, `_sum`, `_count`). Derivado del
+# mapa: un `kind` nuevo sube la cuenta solo.
 WORK_SERIES = (
-    len(DOCUMENT_KINDS) * len(DOCUMENT_ENGINES) * len(OUTCOMES)
-    * (len(DOCUMENT_RENDER_BUCKETS) + 3)
+    len(DOCUMENT_KIND_ENGINE) * len(OUTCOMES) * (len(DOCUMENT_RENDER_BUCKETS) + 3)
     + len(OUTBOUND_TARGETS) * len(OUTCOMES) * (len(OUTBOUND_REQUEST_BUCKETS) + 3)
 )
 # Tareas en segundo plano (Fase 5b): un contador, sitio x resultado, los dos
