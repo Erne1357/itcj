@@ -2,9 +2,14 @@
 Tests de página del botón "Partir" en la pantalla de asignación
 (`GET /help-desk/admin/assign-tickets`).
 
-El botón solo se pinta con `can_split`: admin global del JWT o el permiso
-efectivo `helpdesk.tickets.api.split` — el mismo criterio que el guard del
-endpoint `POST /tickets/{id}/split`. Se verifica en los DOS caminos del route:
+El botón solo se pinta con `can_split`: admin global del JWT o alguno de los
+permisos efectivos `helpdesk.tickets.api.split.{all,own}` — el mismo criterio
+que el guard del endpoint `POST /tickets/{id}/split`. Esta pantalla es la de
+quien ASIGNA (fase 1), así que estos tests usan `.split.all` — el alcance que
+de verdad tienen `admin`/`secretary_comp_center` en el DML; `_can_split` ahora
+devuelve el ALCANCE ("all"|"own"|None) en vez de un bool, pero estas plantillas
+lo siguen consumiendo como booleano (`{% if can_split %}`), así que el
+comportamiento aquí no cambia. Se verifica en los DOS caminos del route:
 
 - el FRAGMENTO HTMX de cada lista (`?tab=` + `HX-Request`), que `refreshLists()`
   recarga tras cada acción: si `can_split` solo llegara a la página completa, el
@@ -46,7 +51,7 @@ from itcj2.main import create_app
 from ._catalog import ensure_helpdesk_category, ensure_helpdesk_priority
 
 PAGE_PERM = "helpdesk.assignments.page.list"
-SPLIT_PERM = "helpdesk.tickets.api.split"
+SPLIT_PERM_ALL = "helpdesk.tickets.api.split.all"
 PAGE_URL = "/help-desk/admin/assign-tickets"
 SPLIT_CALL = "openSplitTicketModal("
 
@@ -194,7 +199,7 @@ class TestSplitButtonInFragment:
         self, client, patched_session_local,
     ):
         db = patched_session_local
-        user, ticket = _seed(db, "QOK", [PAGE_PERM, SPLIT_PERM])
+        user, ticket = _seed(db, "QOK", [PAGE_PERM, SPLIT_PERM_ALL])
 
         resp = client.get(f"{PAGE_URL}?tab=queue", headers=_htmx_headers(user.id))
 
@@ -223,7 +228,7 @@ class TestSplitButtonInFragment:
         db = patched_session_local
         tech = _user(db, "SplitPageTech")
         user, ticket = _seed(
-            db, "AOK", [PAGE_PERM, SPLIT_PERM],
+            db, "AOK", [PAGE_PERM, SPLIT_PERM_ALL],
             status="ASSIGNED", assigned_to_user_id=tech.id,
         )
 
@@ -255,7 +260,7 @@ class TestSplitButtonInFullPage:
         self, client, patched_session_local,
     ):
         db = patched_session_local
-        user, ticket = _seed(db, "FOK", [PAGE_PERM, SPLIT_PERM])
+        user, ticket = _seed(db, "FOK", [PAGE_PERM, SPLIT_PERM_ALL])
 
         resp = client.get(PAGE_URL, headers=_jwt_cookie(user.id))
 

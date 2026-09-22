@@ -38,27 +38,41 @@ def _helpdesk_roles(user_id: int) -> set:
         _db.close()
 
 
-_SPLIT_PERM = "helpdesk.tickets.api.split"
+_SPLIT_PERM_ALL = "helpdesk.tickets.api.split.all"
+_SPLIT_PERM_OWN = "helpdesk.tickets.api.split.own"
 
 
-def _can_split(user: dict) -> bool:
-    """¿Se pinta el botón "Partir" en la pantalla de asignación?
+def _can_split(user: dict) -> str | None:
+    """¿Se pinta el botón "Partir" en la pantalla de asignación, y con qué
+    alcance?
 
     Mismo criterio que el guard de `POST /tickets/{id}/split` (`require_perms`):
-    admin global del JWT o el permiso efectivo. Si el DML del permiso aún no
-    corrió, el botón no aparece en vez de responder 403 al pulsarlo.
+    admin global del JWT (alcance "all") o el más amplio de los permisos
+    efectivos que tenga (".all" antes que ".own"). Si el DML del permiso aún
+    no corrió, el botón no aparece en vez de responder 403 al pulsarlo.
+
+    Devuelve `"all" | "own" | None`. Esta pantalla (fase 1, solo quien asigna)
+    lo sigue usando como booleano (`{% if can_split %}`) — cualquier alcance
+    no vacío pinta el botón. El VALOR lo empiezan a usar las tareas 10-11
+    (dashboard/detalle de técnico, fase 2) para decidir la regla de "solo mis
+    tickets / cola de mi equipo".
     """
     from itcj2.core.services.authz_cache import cached_perms
     from itcj2.database import SessionLocal
     from itcj2.dependencies import is_global_admin
 
     if is_global_admin(user):
-        return True
+        return "all"
     _db = SessionLocal()
     try:
-        return _SPLIT_PERM in cached_perms(_db, int(user["sub"]), "helpdesk")
+        perms = cached_perms(_db, int(user["sub"]), "helpdesk")
     finally:
         _db.close()
+    if _SPLIT_PERM_ALL in perms:
+        return "all"
+    if _SPLIT_PERM_OWN in perms:
+        return "own"
+    return None
 
 
 _TICKETS_SORT_VALUES = {"oldest", "priority", "stale"}

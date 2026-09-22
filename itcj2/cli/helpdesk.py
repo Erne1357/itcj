@@ -361,25 +361,35 @@ def init_assign_permissions_command():
 
 @click.command("init-split-permissions")
 def init_split_permissions_command():
-    """Carga el permiso `helpdesk.tickets.api.split` y lo asigna.
+    """Carga los permisos `helpdesk.tickets.api.split.{all,own}` y los asigna.
 
     Ejecuta en orden:
-      01_add_split_permission.sql    — Inserta el permiso
-      02_assign_split_permission.sql — Lo asigna a admin y a la posición
-                                        secretary_comp_center.
+      01_add_split_permission.sql    — Borra el permiso plano de la fase 1
+                                        (`helpdesk.tickets.api.split`, nunca
+                                        llegó a producción) e inserta los dos
+                                        permisos con alcance own/all.
+      02_assign_split_permission.sql — Los asigna a sus titulares.
 
-    Tras ejecutar, quien tenga el permiso puede partir un ticket PENDING,
-    ASSIGNED o IN_PROGRESS en varios tickets nuevos (feature "Partir ticket").
+    Tras ejecutar, quien tenga CUALQUIERA de los dos permisos puede partir un
+    ticket PENDING, ASSIGNED o IN_PROGRESS en varios tickets nuevos (feature
+    "Partir ticket"):
+      - helpdesk.tickets.api.split.all → cualquier ticket que pueda VER (rol
+        admin, posición secretary_comp_center) — quien asigna.
+      - helpdesk.tickets.api.split.own → solo un ticket asignado a él o sin
+        asignar en la cola de su equipo (roles tech_desarrollo, tech_soporte)
+        — el técnico que lo trae entre manos.
     """
-    click.echo("🔀 Inicializando permiso de partir ticket...")
+    click.echo("🔀 Inicializando permisos de partir ticket (own/all)...")
     try:
         _run_sql_files(DML_TICKET_SPLIT, [
             "01_add_split_permission.sql",
             "02_assign_split_permission.sql",
         ])
-        click.echo("\n🎉 Permiso aplicado.")
-        click.echo("   • rol admin                      → helpdesk.tickets.api.split")
-        click.echo("   • posición secretary_comp_center → helpdesk.tickets.api.split")
+        click.echo("\n🎉 Permisos aplicados.")
+        click.echo("   • rol admin                      → helpdesk.tickets.api.split.all")
+        click.echo("   • posición secretary_comp_center → helpdesk.tickets.api.split.all")
+        click.echo("   • rol tech_desarrollo            → helpdesk.tickets.api.split.own")
+        click.echo("   • rol tech_soporte               → helpdesk.tickets.api.split.own")
     except Exception as e:
         click.echo(f"\n💥 Error: {e}")
         raise

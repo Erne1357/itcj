@@ -609,23 +609,67 @@ def update_ticket(
 async def split_ticket(
     ticket_id: int,
     body: SplitTicketRequest,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.split"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.split.all",
+        "helpdesk.tickets.api.split.own",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import ticket_service, ticket_split_service
 
     user_id = int(user["sub"])
 
-    # El permiso abre la OPERACIÓN, no el ticket: `split_ticket` hace
-    # `db.get(Ticket, ticket_id)` sin mirar alcance, así que sin esto quien
-    # reciba `helpdesk.tickets.api.split` (hoy rol admin y secretary_comp_center;
-    # mañana, lo natural, un jefe de departamento) podría partir CUALQUIER ticket
-    # del instituto adivinando el id. Mismo chequeo que `GET /tickets/{id}`.
-    # El atajo de admin global es obligatorio: `can_user_view_ticket` lee los
-    # roles de BD, no el claim `role` del JWT, así que un admin "solo JWT"
-    # (token emitido por otra vía) se llevaría un 403.
+    # El permiso abre la OPERACIÓN, no el ticket. Desde la fase 2 tiene dos
+    # alcances (spec §2-bis, D16):
+    #   - .split.all → como en la fase 1: basta con poder VER el ticket
+    #     (`can_user_view_ticket`, mismo chequeo que `GET /tickets/{id}`). Sin
+    #     esto quien reciba `.split.all` (hoy rol admin y secretary_comp_center;
+    #     mañana, lo natural, un jefe de departamento) podría partir CUALQUIER
+    #     ticket del instituto adivinando el id.
+    #   - .split.own → el técnico solo puede partir el ticket que trae entre
+    #     manos: el suyo, o uno sin asignar en la cola de su equipo. "Los
+    #     técnicos ven todo el instituto" (`can_user_view_ticket`) NO basta
+    #     aquí a propósito (D17): sin esta regla el permiso sería barra libre.
+    # El atajo de admin global es obligatorio: ni `can_user_view_ticket` ni la
+    # regla de abajo leen el claim `role` del JWT (leen roles/permisos de BD),
+    # así que un admin "solo JWT" (token emitido por otra vía) se llevaría un
+    # 403 sin este bypass explícito.
     if not is_global_admin(user):
-        ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
+        from itcj2.apps.helpdesk.models.ticket import Ticket as TicketModel
+        from itcj2.core.services.authz_cache import cached_perms
+        from itcj2.core.services.authz_service import user_roles_in_app
+
+        perms = cached_perms(db, user_id, "helpdesk")
+        if "helpdesk.tickets.api.split.all" in perms:
+            ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
+        else:
+            # Solo .split.own (garantizado por `require_perms`: si no es
+            # .all, es .own). 404 antes que 403: primero existencia.
+            ticket = db.get(TicketModel, ticket_id)
+            if not ticket:
+                raise HTTPException(status_code=404, detail="Ticket no encontrado")
+
+            # El equipo del actor sale de sus ROLES en helpdesk, no del JWT
+            # — mismo criterio que `_tech_team` en pages/technician.py.
+            user_roles = user_roles_in_app(db, user_id, "helpdesk")
+            if "tech_desarrollo" in user_roles:
+                team = "desarrollo"
+            elif "tech_soporte" in user_roles:
+                team = "soporte"
+            else:
+                team = None
+
+            is_own = ticket.assigned_to_user_id == user_id
+            is_team_queue = (
+                team is not None
+                and ticket.assigned_to_user_id is None
+                and ticket.assigned_to_team == team
+            )
+            if not (is_own or is_team_queue):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Solo puedes partir tickets asignados a ti o en la cola de tu equipo",
+                )
 
     original, new_tickets = ticket_split_service.split_ticket(
         db,

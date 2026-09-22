@@ -1,16 +1,24 @@
 """
 Tests API de "Partir ticket": `POST /api/help-desk/v2/tickets/{ticket_id}/split`.
 
-Cubre el guard (401 sin cookie / 403 sin el permiso `helpdesk.tickets.api.split`
-/ 403 CON el permiso pero sin visibilidad sobre ese ticket), que el permiso
-propio abre la puerta tanto por rol (`admin`) como por `PositionAppPerm` directo
-(la forma real de la posición `secretary_comp_center` en el DML, sin necesitar un
-rol de helpdesk, con el alcance departamental que la deja ver el ticket), el
-camino feliz (201, un
+Cubre el guard (401 sin cookie / 403 sin ninguno de los dos permisos
+`helpdesk.tickets.api.split.{all,own}` / 403 CON `.split.all` pero sin
+visibilidad sobre ese ticket), que el permiso propio abre la puerta tanto por
+rol (`admin`) como por `PositionAppPerm` directo (la forma real de la posición
+`secretary_comp_center` en el DML, sin necesitar un rol de helpdesk, con el
+alcance departamental que la deja ver el ticket), el camino feliz (201, un
 `ticket_created` por cada parte NUEVA a `_admin_room()` con `actor_id` y
 `split_from`), la notificación `TICKET_SPLIT` (solicitante + técnico asignado,
 nunca al actor) y que un 400 del servicio llega como `resp.json()["error"]`
 con el texto "Parte ...".
+
+Fase 2 (`TestSplitOwnScope`): con SOLO `.split.own` (roles `tech_desarrollo` /
+`tech_soporte` en el DML real) el técnico solo puede partir un ticket asignado
+A ÉL o sin asignar en la cola de SU equipo (`assigned_to_team`) — "los
+técnicos ven todo el instituto" (`can_user_view_ticket`) NO aplica a este
+alcance a propósito (D17 del spec), así que estos tests NO pasan por ese
+camino: usan `_grant_role_with_perm` (rol + `RolePermission`, la forma real en
+que un rol trae el permiso) en vez de `_grant_position_perm`.
 
 Infraestructura de `client`/`fake_emit`/`_jwt_cookie`/`_user`/`_dept`/`_ticket`/
 `_emitted_rooms` copiada de `test_broadcast_single_emit.py:53-145`; `_perm` y
@@ -34,6 +42,7 @@ from itcj2.core.models.notification import Notification
 from itcj2.core.models.permission import Permission
 from itcj2.core.models.position import Position, PositionAppPerm, UserPosition
 from itcj2.core.models.role import Role
+from itcj2.core.models.role_permission import RolePermission
 from itcj2.core.models.user import User
 from itcj2.core.models.user_app_role import UserAppRole
 from itcj2.database import get_db
@@ -42,7 +51,8 @@ from itcj2.sockets import helpdesk as hd_sockets
 
 from ._catalog import ensure_helpdesk_category, ensure_helpdesk_priority
 
-SPLIT_PERM = "helpdesk.tickets.api.split"
+SPLIT_PERM_ALL = "helpdesk.tickets.api.split.all"
+SPLIT_PERM_OWN = "helpdesk.tickets.api.split.own"
 # Alcance departamental: lo que hace que una secretaría VEA los tickets de su
 # departamento (`ticket_service.department_scope_ids`). El permiso de partir
 # abre la operación, no el ticket.
@@ -100,7 +110,11 @@ def _dept(db, code) -> Department:
 
 def _grant_role(db, user, role_name) -> Role:
     """Rol DIRECTO del usuario en helpdesk (`UserAppRole`), sin permisos
-    propios — da acceso a la app pero NO al permiso de partir (test de 403)."""
+    propios — da acceso a la app pero NO al permiso de partir (test de 403).
+
+    Simula a propósito un rol "pelón": en el DML real `tech_desarrollo` y
+    `tech_soporte` SÍ traen `.split.own` (ver `_grant_role_with_perm`); esta
+    versión sirve para probar el camino "tiene la app pero no el permiso"."""
     app = db.query(App).filter_by(key="helpdesk").first()
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
@@ -112,6 +126,22 @@ def _grant_role(db, user, role_name) -> Role:
     if not exists:
         db.add(UserAppRole(user_id=user.id, app_id=app.id, role_id=role.id))
         db.commit()
+    return role
+
+
+def _grant_role_with_perm(db, user, role_name, codes) -> Role:
+    """Rol del usuario en helpdesk (`UserAppRole`) CON `codes` unidos por
+    `RolePermission` — la forma real en que `tech_desarrollo`/`tech_soporte`
+    reciben `helpdesk.tickets.api.split.own` en el DML real (02_assign_split_
+    permission.sql, sección `.own`)."""
+    role = _grant_role(db, user, role_name)
+    app = db.query(App).filter_by(key="helpdesk").first()
+    for code in codes:
+        perm = _perm(db, app, code)
+        exists = db.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).first()
+        if not exists:
+            db.add(RolePermission(role_id=role.id, perm_id=perm.id))
+    db.commit()
     return role
 
 
@@ -130,8 +160,8 @@ def _perm(db, app, code) -> Permission:
 def _grant_position_perm(db, user, department, *, codes) -> Position:
     """Puesto con permisos DIRECTOS vía `PositionAppPerm` (patrón de
     `test_ticket_guards_scope.py::_grant`) — la forma real en que
-    `secretary_comp_center` recibe `helpdesk.tickets.api.split` en el DML real,
-    sin ningún rol de helpdesk."""
+    `secretary_comp_center` recibe `helpdesk.tickets.api.split.all` en el DML
+    real, sin ningún rol de helpdesk."""
     app = db.query(App).filter_by(key="helpdesk").first()
     pos = Position(code=f"tksplit_pos_{user.id}", title="Secretaria",
                    department_id=department.id, is_active=True, allows_multiple=True)
@@ -203,9 +233,11 @@ class TestSplitAuthGuard:
         assert resp.status_code == 401
 
     def test_user_without_split_permission_returns_403(self, client, db_session):
-        """El actor tiene acceso a la app (rol `tech_soporte`) pero ese rol no
-        trae el permiso de partir — debe caer en el segundo check de
-        `require_perms` (intersección de `cached_perms`), no en el de app."""
+        """El actor tiene acceso a la app (rol `tech_soporte`) pero ese rol NO
+        trae ningún permiso propio en este test (`_grant_role` a secas, sin
+        `RolePermission` — a diferencia del DML real, que sí le da `.split.own`)
+        — debe caer en el segundo check de `require_perms` (intersección de
+        `cached_perms` contra `.split.all`/`.split.own`), no en el de app."""
         category = ensure_helpdesk_category(db_session, area="SOPORTE")
         ensure_helpdesk_priority(db_session, "MEDIA")
         requester = _user(db_session, "ReqNoPerm")
@@ -221,7 +253,7 @@ class TestSplitAuthGuard:
         assert resp.status_code == 403
 
     def test_split_permission_without_visibility_returns_403(self, client, db_session):
-        """Tener `helpdesk.tickets.api.split` abre la OPERACIÓN, no el ticket.
+        """Tener `helpdesk.tickets.api.split.all` abre la OPERACIÓN, no el ticket.
 
         El actor tiene el permiso por puesto pero NINGÚN alcance sobre este
         ticket: no es el solicitante, no está asignado y el ticket es de otro
@@ -230,12 +262,12 @@ class TestSplitAuthGuard:
         servicio hace `db.get(Ticket, ticket_id)` a secas y cualquier futuro
         titular del permiso (p. ej. un jefe de departamento, la concesión
         natural que sigue) podría partir cualquier ticket del instituto
-        adivinando el id."""
+        adivinando el id. (Test de la fase 1, adaptado al code `.split.all`.)"""
         own_dept = _dept(db_session, "tks_dept_novis_propio")
         other_dept = _dept(db_session, "tks_dept_novis_ajeno")
         requester = _user(db_session, "ReqNoVis")
         actor = _user(db_session, "ActorNoVis")
-        _grant_position_perm(db_session, actor, own_dept, codes=[SPLIT_PERM])
+        _grant_position_perm(db_session, actor, own_dept, codes=[SPLIT_PERM_ALL])
         category = ensure_helpdesk_category(db_session, area="SOPORTE")
         ensure_helpdesk_priority(db_session, "MEDIA")
         ticket = _ticket(db_session, "TKS-NOVIS-1", requester, category,
@@ -260,18 +292,18 @@ class TestSplitPermissionGrantsAccess:
 
     def test_position_app_perm_alone_grants_access(self, client, db_session, fake_emit):
         """El permiso llega por `PositionAppPerm` directo (sin rol de helpdesk)
-        — confirma que `helpdesk.tickets.api.split` es el código que el
-        endpoint realmente exige, igual que lo recibirá `secretary_comp_center`
-        vía el DML.
+        — confirma que `helpdesk.tickets.api.split.all` es el código que el
+        endpoint realmente exige para este alcance, igual que lo recibirá
+        `secretary_comp_center` vía el DML.
 
         El puesto lleva además `read.department` (lo que el DML ya le concede a
-        las 28 secretarías) porque el endpoint exige VER el ticket, no solo el
+        las 28 secretarías) porque `.split.all` exige VER el ticket, no solo el
         permiso: ese es el alcance por el que la secretaría alcanza legítimamente
         un ticket de su departamento que levantó alguien más."""
         dept = _dept(db_session, "tks_dept_posperm")
         requester = _user(db_session, "ReqPosPerm")
         secretary = _user(db_session, "SecPosPerm")
-        _grant_position_perm(db_session, secretary, dept, codes=[SPLIT_PERM, READ_DEPT_PERM])
+        _grant_position_perm(db_session, secretary, dept, codes=[SPLIT_PERM_ALL, READ_DEPT_PERM])
         category = ensure_helpdesk_category(db_session, area="SOPORTE")
         ensure_helpdesk_priority(db_session, "MEDIA")
         ticket = _ticket(db_session, "TKS-POSPERM-1", requester, category,
@@ -286,6 +318,136 @@ class TestSplitPermissionGrantsAccess:
             headers=_jwt_cookie(secretary.id, role=None),
         )
         assert resp.status_code == 201, resp.text
+
+
+class TestSplitOwnScope:
+    """Fase 2: con SOLO `helpdesk.tickets.api.split.own` (roles `tech_desarrollo`
+    / `tech_soporte` en el DML real), el técnico solo puede partir un ticket
+    asignado A ÉL o sin asignar en la cola de SU equipo. El equipo sale de sus
+    ROLES en helpdesk (`user_roles_in_app`), no del JWT (D17 del spec)."""
+
+    def test_technician_splits_own_assigned_ticket(self, client, db_session, fake_emit):
+        dept = _dept(db_session, "tks_dept_own_assigned")
+        requester = _user(db_session, "ReqOwnAssigned")
+        tech = _user(db_session, "TechOwnAssigned")
+        _grant_role_with_perm(db_session, tech, "tech_soporte", [SPLIT_PERM_OWN])
+        category = ensure_helpdesk_category(db_session, area="SOPORTE")
+        ensure_helpdesk_priority(db_session, "MEDIA")
+        ticket = _ticket(
+            db_session, "TKS-OWNASSIGNED-1", requester, category,
+            area="SOPORTE", status="ASSIGNED", assigned_to_user_id=tech.id,
+            requester_department_id=dept.id,
+        )
+
+        resp = client.post(
+            f"/api/help-desk/v2/tickets/{ticket.id}/split",
+            json={
+                "original": _part(category, title="Cuenta de Moodle"),
+                "parts": [_part(category, title="Cuenta de correo institucional")],
+            },
+            headers=_jwt_cookie(tech.id, role=None),
+        )
+        assert resp.status_code == 201, resp.text
+
+    def test_technician_cannot_split_other_technicians_ticket(self, client, db_session, fake_emit):
+        """`.split.own` no es "puedo VER" (los técnicos ven todo el instituto,
+        `can_user_view_ticket`) — es "es MÍO". El ticket de otro técnico cae
+        en 403 aunque el actor lo pudiera abrir en modo lectura."""
+        dept = _dept(db_session, "tks_dept_own_other")
+        requester = _user(db_session, "ReqOwnOther")
+        tech = _user(db_session, "TechOwnOther")
+        other_tech = _user(db_session, "OtherTechOwnOther")
+        _grant_role_with_perm(db_session, tech, "tech_soporte", [SPLIT_PERM_OWN])
+        category = ensure_helpdesk_category(db_session, area="SOPORTE")
+        ensure_helpdesk_priority(db_session, "MEDIA")
+        ticket = _ticket(
+            db_session, "TKS-OWNOTHER-1", requester, category,
+            area="SOPORTE", status="ASSIGNED", assigned_to_user_id=other_tech.id,
+            requester_department_id=dept.id,
+        )
+
+        resp = client.post(
+            f"/api/help-desk/v2/tickets/{ticket.id}/split",
+            json={
+                "original": _part(category, title="Cuenta de Moodle"),
+                "parts": [_part(category, title="Cuenta de correo institucional")],
+            },
+            headers=_jwt_cookie(tech.id, role=None),
+        )
+        assert resp.status_code == 403, resp.text
+        assert db_session.query(Ticket).filter_by(split_from_ticket_id=ticket.id).count() == 0
+        db_session.refresh(ticket)
+        assert ticket.title == "TKS-OWNOTHER-1 - ticket de prueba"
+
+    def test_technician_splits_own_team_queue_ticket(self, client, db_session, fake_emit):
+        """Sin técnico asignado pero en la cola de SU equipo (`assigned_to_team`
+        == su equipo, resuelto vía rol `tech_soporte` -> 'soporte') también
+        cuenta como suyo."""
+        dept = _dept(db_session, "tks_dept_team_own")
+        requester = _user(db_session, "ReqTeamOwn")
+        tech = _user(db_session, "TechTeamOwn")
+        _grant_role_with_perm(db_session, tech, "tech_soporte", [SPLIT_PERM_OWN])
+        category = ensure_helpdesk_category(db_session, area="SOPORTE")
+        ensure_helpdesk_priority(db_session, "MEDIA")
+        ticket = _ticket(
+            db_session, "TKS-TEAMOWN-1", requester, category,
+            area="SOPORTE", status="ASSIGNED", assigned_to_team="soporte",
+            requester_department_id=dept.id,
+        )
+
+        resp = client.post(
+            f"/api/help-desk/v2/tickets/{ticket.id}/split",
+            json={
+                "original": _part(category, title="Cuenta de Moodle"),
+                "parts": [_part(category, title="Cuenta de correo institucional")],
+            },
+            headers=_jwt_cookie(tech.id, role=None),
+        )
+        assert resp.status_code == 201, resp.text
+
+    def test_technician_cannot_split_other_team_queue_ticket(self, client, db_session, fake_emit):
+        """La cola de DESARROLLO no es suya aunque esté sin asignar: un técnico
+        de soporte no puede partirla."""
+        dept = _dept(db_session, "tks_dept_team_other")
+        requester = _user(db_session, "ReqTeamOther")
+        tech = _user(db_session, "TechTeamOther")
+        _grant_role_with_perm(db_session, tech, "tech_soporte", [SPLIT_PERM_OWN])
+        category = ensure_helpdesk_category(db_session, area="SOPORTE")
+        ensure_helpdesk_priority(db_session, "MEDIA")
+        ticket = _ticket(
+            db_session, "TKS-TEAMOTHER-1", requester, category,
+            area="SOPORTE", status="ASSIGNED", assigned_to_team="desarrollo",
+            requester_department_id=dept.id,
+        )
+
+        resp = client.post(
+            f"/api/help-desk/v2/tickets/{ticket.id}/split",
+            json={
+                "original": _part(category, title="Cuenta de Moodle"),
+                "parts": [_part(category, title="Cuenta de correo institucional")],
+            },
+            headers=_jwt_cookie(tech.id, role=None),
+        )
+        assert resp.status_code == 403, resp.text
+        assert db_session.query(Ticket).filter_by(split_from_ticket_id=ticket.id).count() == 0
+
+    def test_technician_nonexistent_ticket_returns_404_not_403(self, client, db_session):
+        """Un ticket inexistente debe ser 404, no 403: el chequeo de existencia
+        va ANTES que el de pertenencia también en la rama `.split.own` (mismo
+        orden que `ticket_service.get_ticket_by_id` sigue para `.split.all`)."""
+        tech = _user(db_session, "TechOwn404")
+        _grant_role_with_perm(db_session, tech, "tech_soporte", [SPLIT_PERM_OWN])
+        category = ensure_helpdesk_category(db_session, area="SOPORTE")
+
+        resp = client.post(
+            "/api/help-desk/v2/tickets/999999999/split",
+            json={
+                "original": _part(category, title="Cuenta de Moodle"),
+                "parts": [_part(category, title="Cuenta de correo institucional")],
+            },
+            headers=_jwt_cookie(tech.id, role=None),
+        )
+        assert resp.status_code == 404, resp.text
 
 
 class TestSplitHappyPath:
