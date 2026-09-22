@@ -21,6 +21,7 @@ import time
 import jwt
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 import itcj2.models  # noqa: F401
 from itcj2.apps.helpdesk.models.ticket import Ticket
@@ -375,6 +376,77 @@ class TestSplitNotifications:
         )
         assert resp.status_code == 201, resp.text
 
+        notifs = db_session.query(Notification).filter_by(
+            type="TICKET_SPLIT", ticket_id=ticket.id,
+        ).all()
+        assert notifs == []
+
+
+class TestSplitNotificationCommitFailure:
+
+    def test_notification_commit_failure_rolls_back_and_still_returns_201(
+        self, client, db_session, fake_emit, monkeypatch,
+    ):
+        """Si el `db.commit()` que sigue a `notify_ticket_split` falla (p. ej.
+        un error transitorio de BD), el endpoint debe loguearlo, hacer
+        `db.rollback()` y responder 201 de todas formas: la división ya la
+        comiteó el servicio (primer `commit`, exitoso). Sin el rollback la
+        sesión queda con la transacción realmente abortada, y el
+        `to_dict(include_relations=True)` que sigue (dispara SELECT de
+        relaciones `lazy='dynamic'`, p. ej. `collaborators`) truena con
+        `PendingRollbackError` sin nadie que lo atrape -> 500 para una
+        división que ya estaba comiteada.
+
+        Se fuerza el fallo del SEGUNDO `commit` (el del endpoint) con un
+        statement roto de verdad (`SELECT 1/0`) en la MISMA transacción —
+        deja la transacción realmente abortada, igual que un commit fallido
+        de Postgres de verdad, no solo una excepción de Python fabricada. El
+        PRIMER `commit` (el del servicio) pasa normal.
+        """
+        dept = _dept(db_session, "tks_dept_notiffail")
+        requester = _user(db_session, "ReqNotifFail")
+        admin_actor = _user(db_session, "AdminNotifFailActor")
+        category = ensure_helpdesk_category(db_session, area="SOPORTE")
+        ensure_helpdesk_priority(db_session, "MEDIA")
+        ticket = _ticket(
+            db_session, "TKS-NOTIFFAIL-1", requester, category,
+            area="SOPORTE", requester_department_id=dept.id,
+        )
+
+        real_commit = db_session.commit
+        calls = {"n": 0}
+
+        def flaky_commit():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                # commit del SERVICIO (ticket_split_service.split_ticket): pasa normal.
+                return real_commit()
+            # commit del ENDPOINT tras notify_ticket_split: falla de verdad y
+            # aborta la transacción real de Postgres, como un error transitorio.
+            return db_session.execute(text("SELECT 1/0"))
+
+        monkeypatch.setattr(db_session, "commit", flaky_commit)
+
+        resp = client.post(
+            f"/api/help-desk/v2/tickets/{ticket.id}/split",
+            json={
+                "original": _part(category, title="Cuenta de Moodle"),
+                "parts": [_part(category, title="Cuenta de correo institucional")],
+            },
+            headers=_jwt_cookie(admin_actor.id, role="admin"),
+        )
+
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert len(body["data"]["tickets"]) == 1
+        new_number = body["data"]["tickets"][0]["ticket_number"]
+
+        # El split en sí (comiteado por el PRIMER commit, exitoso) sigue ahí.
+        persisted = db_session.query(Ticket).filter_by(ticket_number=new_number).first()
+        assert persisted is not None
+
+        # El aviso (flush dentro de la transacción que el SEGUNDO commit
+        # abortó) se deshizo con el rollback: cero filas.
         notifs = db_session.query(Notification).filter_by(
             type="TICKET_SPLIT", ticket_id=ticket.id,
         ).all()

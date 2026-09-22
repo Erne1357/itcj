@@ -635,6 +635,16 @@ async def split_ticket(
         db.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de ticket partido: {notif_error}")
+        # La división ya la comiteó el servicio (commit previo, exitoso): un
+        # fallo aquí es solo del aviso. Sin este rollback la sesión queda con
+        # la transacción abortada y el to_dict() de más abajo (dispara SELECT
+        # de relaciones lazy='dynamic', p. ej. collaborators) truena con
+        # PendingRollbackError sin nadie que lo atrape -> 500 para un split
+        # que ya estaba comiteado.
+        try:
+            db.rollback()
+        except Exception as rollback_error:
+            logger.error(f"Error al hacer rollback tras fallo de notificación: {rollback_error}")
 
     try:
         from itcj2.sockets.helpdesk import broadcast_ticket_created
