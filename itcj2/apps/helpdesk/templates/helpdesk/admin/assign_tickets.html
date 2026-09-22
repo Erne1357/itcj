@@ -675,54 +675,11 @@
     </div>
 </div>
 
+{# Modal "Partir ticket" — markup compartido; lo pinta y envía
+   js/shared/split_ticket.js (HelpdeskSplit). Solo con el permiso de partir
+   (can_split): sin él la página no trae el modal y el botón tampoco. #}
 {% if can_split %}
-<!-- Split Ticket Modal ("Partir ticket"). La parte 1 es el ticket original (se
-     edita para acotarlo); las demás se crean como tickets nuevos del mismo
-     solicitante. Las tarjetas de parte las pinta assign_tickets.js
-     (openSplitTicketModal); solo existe con el permiso de partir (can_split). -->
-<div class="modal fade" id="splitTicketModal" tabindex="-1" aria-labelledby="splitTicketModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="splitTicketModalLabel">
-                    <i class="fas fa-code-branch me-2"></i>Partir ticket
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-            </div>
-            <div class="modal-body">
-                <!-- Solicitud original (solo lectura) -->
-                <div id="splitOriginalInfo" class="hd-split-original p-3 bg-light rounded mb-3"></div>
-
-                <p class="small text-muted mb-3">
-                    <i class="fas fa-info-circle me-1"></i>
-                    La parte 1 es el ticket original: conserva su folio, adjuntos, equipos,
-                    historial y asignación. Cada parte nueva nace como ticket pendiente y sin asignar.
-                </p>
-
-                <fieldset id="splitPartsFieldset">
-                    <legend class="visually-hidden">Partes del ticket</legend>
-                    <div id="splitPartsList" class="d-flex flex-column gap-3"></div>
-
-                    <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
-                        <button type="button" class="btn btn-outline-primary btn-sm" id="btnAddSplitPart">
-                            <i class="fas fa-plus me-1"></i>Agregar parte
-                        </button>
-                        <small class="text-muted" id="splitPartsLimit"></small>
-                    </div>
-                </fieldset>
-            </div>
-            <div class="modal-footer">
-                <div id="splitSummary" class="hd-split-summary small" aria-live="polite"></div>
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                    Cancelar
-                </button>
-                <button type="button" class="btn btn-primary" id="btnConfirmSplit">
-                    <i class="fas fa-code-branch me-2"></i>Partir ticket
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
+{% include "helpdesk/_components/split_ticket_modal.html" %}
 {% endif %}
 
 {% endblock %}

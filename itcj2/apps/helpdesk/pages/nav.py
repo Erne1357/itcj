@@ -54,7 +54,9 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "admin_analysis": ["https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js", "https://cdn.jsdelivr.net/npm/apexcharts@3.44.0/dist/apexcharts.min.js", "js/shared/ticket-summary.js", "js/admin/analysis.js"],
     "admin_documents": ["js/admin/documents.js"],
     "admin_home": ["js/admin/home.js"],
-    "admin_assign_tickets": ["js/admin/assign_tickets.js"],
+    # split_ticket.js (modal compartido "Partir ticket") ANTES del módulo de la
+    # página: assign_tickets.js delega en window.HelpdeskSplit.
+    "admin_assign_tickets": ["js/shared/split_ticket.js", "js/admin/assign_tickets.js"],
     "admin_tickets_list": ["js/admin/tickets_list.js"],
     "warehouse_dashboard": ["js/warehouse/dashboard.js"],
     "warehouse_categories": ["js/warehouse/categories.js"],
