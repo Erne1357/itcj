@@ -307,6 +307,17 @@ def get_ticket(
     except Exception:
         ticket_dict["materials_used"] = []
 
+    # Tickets hijos resultado de "Partir ticket" (orden por id, vía relación dinámica)
+    ticket_dict["split_children"] = [
+        {
+            "id": child.id,
+            "ticket_number": child.ticket_number,
+            "title": child.title,
+            "status": child.status,
+        }
+        for child in ticket.split_children
+    ]
+
     return {"ticket": ticket_dict}
 
 
