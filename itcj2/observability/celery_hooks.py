@@ -23,10 +23,14 @@ Casos que explican la forma:
   no tiene nada ligado, no agrega la cabecera.
 - `Task.retry()` re-publica desde dentro de la tarea, con los ids ya
   restaurados: el reintento continúa la misma traza.
+- Sin cabecera se acuña la raíz SIEMPRE, sin mirar lo que ya esté ligado en
+  el hilo: si un `reset` de `task_postrun` fallara alguna vez, el worker
+  quedaría con ids ligados entre tareas, y heredarlos pegaría en silencio las
+  tareas del beat a la traza de otra.
 - En eager (`.apply()`, `task_always_eager`) Celery NO dispara
-  `before_task_publish` (medido en 5.6.3): no hay cabecera, pero el cuerpo
-  corre inline en el hilo de quien lo llama, así que se continúa lo que ya
-  esté ligado en vez de acuñar una raíz.
+  `before_task_publish` (medido en 5.6.3): no hay cabecera y la tarea acuña
+  su raíz aunque corra inline dentro de una petición; `task_postrun` le
+  devuelve a quien la llamó sus propios ids.
 
 Regla de oro 1: este módulo está en la cadena de imports de Celery (lo importa
 `itcj2/celery_app.py`) y no puede cargar `prometheus_client`; de itcj2 solo
@@ -97,7 +101,7 @@ def _bind_task_context(task=None, **kwargs) -> None:
         # mensaje como atributos del `Context` y en `request.headers` deja
         # solo las que no reconoce como suyas; el atributo no depende de esa
         # clasificación.
-        carried = _carried_ids(request.get(HEADER)) or _carried_ids(snapshot())
+        carried = _carried_ids(request.get(HEADER))
         trace_id, span_id = new_ids()
         # La tarea abre su propio span: el del snapshot es el de quien encoló
         # (su padre), igual que un `traceparent` entrante en el middleware.

@@ -205,10 +205,28 @@ def test_nothing_stays_bound_after_the_task_in_the_same_worker():
     assert worker.run(snapshot)["trace_id"] is None
 
 
-def test_eager_apply_continues_the_context_it_runs_in():
-    # Eager no publica (no hay cabecera): el cuerpo corre inline en el mismo
-    # hilo de quien lo llama y sigue su traza, y al terminar le devuelve su
-    # contexto intacto.
+def test_headerless_task_mints_a_root_even_over_a_stale_context():
+    # Si un `reset` de `task_postrun` fallara alguna vez, el worker quedaría
+    # con ids ligados entre tareas: una tarea del beat (sin cabecera) debe
+    # acuñar su raíz igual, no heredar en silencio la traza de otra.
+    queue = unique_queue()
+    _publish_unbound(queue)
+
+    worker = contextvars.Context()
+    worker.run(bind, **PUBLISHER)
+    worker.run(run_as_worker, app, consume(app, queue))
+
+    [seen] = _seen
+    assert _HEX32.match(seen["trace_id"]) and seen["trace_id"] != TRACE
+    assert _HEX32.match(seen["request_id"]) and seen["request_id"] != REQUEST
+    # `task_postrun` deshace solo lo suyo.
+    assert worker.run(snapshot) == PUBLISHER
+
+
+def test_eager_apply_mints_a_root_and_gives_the_caller_its_context_back():
+    # Eager no publica: no hay cabecera, así que la tarea acuña su raíz
+    # aunque quien la llama tenga ids ligados (el contrato: falta la
+    # cabecera -> raíz nueva), y al terminar le devuelve su contexto intacto.
     def _run():
         bind(**PUBLISHER)
         probe.apply()
@@ -217,8 +235,8 @@ def test_eager_apply_continues_the_context_it_runs_in():
     after = _in_fresh_context(_run)
 
     [seen] = _seen
-    assert seen["trace_id"] == TRACE
-    assert seen["request_id"] == REQUEST
+    assert _HEX32.match(seen["trace_id"]) and seen["trace_id"] != TRACE
+    assert _HEX32.match(seen["request_id"]) and seen["request_id"] != REQUEST
     assert after == PUBLISHER
 
 
