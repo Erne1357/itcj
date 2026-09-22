@@ -21,6 +21,7 @@ from docx.opc.packuri import PackURI
 from PIL import Image, ImageDraw
 
 from itcj2.apps.helpdesk.models.ticket import Ticket
+from itcj2.observability.work import measured
 import logging
 
 logger = logging.getLogger(__name__)
@@ -356,7 +357,9 @@ def _find_libreoffice_cmd():
     return None
 
 
-def _convert_docx_to_pdf(docx_buffer: BytesIO) -> BytesIO:
+def _convert_docx_to_pdf(docx_buffer: BytesIO, kind: str) -> BytesIO:
+    """`kind` lo decide el llamador (`solicitud` / `orden_trabajo`): la métrica
+    de render vive aquí, en el único lugar que de verdad invoca LibreOffice."""
     lo_cmd = _find_libreoffice_cmd()
     if not lo_cmd:
         raise RuntimeError(
@@ -369,19 +372,22 @@ def _convert_docx_to_pdf(docx_buffer: BytesIO) -> BytesIO:
         with open(docx_path, 'wb') as f:
             f.write(docx_buffer.read())
 
-        result = subprocess.run(
-            [
-                lo_cmd, '--headless', '--convert-to', 'pdf',
-                '--outdir', tmpdir, docx_path
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        # El returncode != 0 entra en el bloque medido: hoy ya lanza (raise
+        # abajo), así que cae como outcome="error" sin tocar el negocio.
+        with measured(kind, "libreoffice"):
+            result = subprocess.run(
+                [
+                    lo_cmd, '--headless', '--convert-to', 'pdf',
+                    '--outdir', tmpdir, docx_path
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
 
-        if result.returncode != 0:
-            logger.error(f'LibreOffice error: {result.stderr}')
-            raise RuntimeError(f'Error al convertir a PDF: {result.stderr}')
+            if result.returncode != 0:
+                logger.error(f'LibreOffice error: {result.stderr}')
+                raise RuntimeError(f'Error al convertir a PDF: {result.stderr}')
 
         pdf_path = os.path.join(tmpdir, 'document.pdf')
         if not os.path.exists(pdf_path):
@@ -398,12 +404,12 @@ def _convert_docx_to_pdf(docx_buffer: BytesIO) -> BytesIO:
 
 def generate_solicitud_pdf(ticket: Ticket) -> BytesIO:
     docx_buffer = generate_solicitud_docx(ticket)
-    return _convert_docx_to_pdf(docx_buffer)
+    return _convert_docx_to_pdf(docx_buffer, kind="solicitud")
 
 
 def generate_orden_trabajo_pdf(ticket: Ticket) -> BytesIO:
     docx_buffer = generate_orden_trabajo_docx(ticket)
-    return _convert_docx_to_pdf(docx_buffer)
+    return _convert_docx_to_pdf(docx_buffer, kind="orden_trabajo")
 
 
 # ==================== GENERACIÓN EN LOTE ====================
