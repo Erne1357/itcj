@@ -10,7 +10,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Request
 
-from itcj2.apps.helpdesk.pages.nav import render_helpdesk
+from itcj2.apps.helpdesk.pages.nav import can_split, render_helpdesk
 from itcj2.dependencies import require_page_app
 
 logger = logging.getLogger("itcj2.apps.helpdesk.pages.technician")
@@ -107,10 +107,16 @@ async def dashboard(
     Una sola URL sirve dos representaciones (patrón canónico HTMX): petición HTMX
     no-boost con ``?tab=`` → solo el FRAGMENTO de esa lista; si no → la PÁGINA con
     las 4 listas renderizadas server-side.
+
+    ``can_split`` va a los DOS caminos (mismo criterio que
+    ``admin.assign_tickets``): el fragmento es lo que cada pestaña recarga por
+    HTMX, así que si solo llegara a la página el botón "Partir" desaparecería
+    al cambiar de pestaña.
     """
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
     p = request.query_params
+    split_scope = can_split(user)
 
     is_htmx = request.headers.get("hx-request") == "true"
     is_boost = request.headers.get("hx-boosted") == "true"
@@ -128,6 +134,7 @@ async def dashboard(
             "oob": bool(badge_id),
             "badge_id": badge_id,
             "badge_cls": badge_cls,
+            "can_split": split_scope,
         })
 
     can_consume_warehouse = False
@@ -147,6 +154,7 @@ async def dashboard(
         "user_roles": user_roles,
         "active_page": "tech_dashboard",
         "can_consume_warehouse": can_consume_warehouse,
+        "can_split": split_scope,
         "t_assigned": _query_tech_tickets(user_id, user_roles, "assigned"),
         "t_inprogress": _query_tech_tickets(user_id, user_roles, "inProgress"),
         "t_team": _query_tech_tickets(user_id, user_roles, "team"),

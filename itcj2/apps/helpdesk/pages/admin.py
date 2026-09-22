@@ -19,7 +19,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
-from itcj2.apps.helpdesk.pages.nav import render_helpdesk
+from itcj2.apps.helpdesk.pages.nav import can_split, render_helpdesk
 from itcj2.dependencies import require_page_app
 
 logger = logging.getLogger("itcj2.apps.helpdesk.pages.admin")
@@ -38,42 +38,8 @@ def _helpdesk_roles(user_id: int) -> set:
         _db.close()
 
 
-_SPLIT_PERM_ALL = "helpdesk.tickets.api.split.all"
-_SPLIT_PERM_OWN = "helpdesk.tickets.api.split.own"
-
-
-def _can_split(user: dict) -> str | None:
-    """¿Se pinta el botón "Partir" en la pantalla de asignación, y con qué
-    alcance?
-
-    Mismo criterio que el guard de `POST /tickets/{id}/split` (`require_perms`):
-    admin global del JWT (alcance "all") o el más amplio de los permisos
-    efectivos que tenga (".all" antes que ".own"). Si el DML del permiso aún
-    no corrió, el botón no aparece en vez de responder 403 al pulsarlo.
-
-    Devuelve `"all" | "own" | None`. Esta pantalla (fase 1, solo quien asigna)
-    lo sigue usando como booleano (`{% if can_split %}`) — cualquier alcance
-    no vacío pinta el botón. El VALOR lo empiezan a usar las tareas 10-11
-    (dashboard/detalle de técnico, fase 2) para decidir la regla de "solo mis
-    tickets / cola de mi equipo".
-    """
-    from itcj2.core.services.authz_cache import cached_perms
-    from itcj2.database import SessionLocal
-    from itcj2.dependencies import is_global_admin
-
-    if is_global_admin(user):
-        return "all"
-    _db = SessionLocal()
-    try:
-        perms = cached_perms(_db, int(user["sub"]), "helpdesk")
-    finally:
-        _db.close()
-    if _SPLIT_PERM_ALL in perms:
-        return "all"
-    if _SPLIT_PERM_OWN in perms:
-        return "own"
-    return None
-
+# "can_split" (alcance del botón "Partir") vive en pages/nav.py — compartido
+# con technician.py (y, desde la tarea 11, con la vista de detalle).
 
 _TICKETS_SORT_VALUES = {"oldest", "priority", "stale"}
 
@@ -522,7 +488,7 @@ async def assign_tickets(
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
-    can_split = _can_split(user)
+    split_scope = can_split(user)
 
     is_htmx  = request.headers.get("hx-request") == "true"
     is_boost = request.headers.get("hx-boosted") == "true"
@@ -530,14 +496,14 @@ async def assign_tickets(
         tab = request.query_params.get("tab", "queue")
         ctx = _query_assign_lists_ctx(request, user_id, user_roles, tab=tab)
         ctx["oob"] = True
-        ctx["can_split"] = can_split
+        ctx["can_split"] = split_scope
         return render(request, "helpdesk/admin/_assign_results.html", ctx)
 
     ctx = _query_assign_lists_ctx(request, user_id, user_roles)
     ctx.update({
         "user_roles": user_roles,
         "active_page": "admin_assign_tickets",
-        "can_split": can_split,
+        "can_split": split_scope,
     })
     return render_helpdesk(request, "helpdesk/admin/assign_tickets.html", ctx)
 

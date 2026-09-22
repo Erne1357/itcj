@@ -100,7 +100,9 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     # Landing de Help-Desk — página standalone; se registra para habilitar boost
     # del brand link (base_helpdesk.html) cuando htmx_boost_enabled está activo.
     "home_landing": [],
-    "technician_dashboard": ["js/technician/warehouse_ticket.js", "js/technician/dashboard.js"],
+    # split_ticket.js (modal compartido "Partir ticket") ANTES del módulo de la
+    # página: dashboard.js delega en window.HelpdeskSplit.
+    "technician_dashboard": ["js/shared/split_ticket.js", "js/technician/warehouse_ticket.js", "js/technician/dashboard.js"],
     "secretary_dashboard": ["js/secretary/dashboard.js"],
     "department_head_dashboard": ["js/department_head/dashboard.js"],
     "user_my_tickets": [
@@ -436,3 +438,49 @@ def render_helpdesk(
         "hd_current_user_id": int(user["sub"]) if user else None,
     }
     return render(request, template, ctx, status_code)
+
+
+# ---------------------------------------------------------------------------
+# "Partir ticket" — alcance del botón, COMPARTIDO por todas las páginas que lo
+# pintan (admin/assign_tickets desde la fase 1; technician/dashboard desde la
+# tarea 10 de la fase 2; user/ticket_detail se suma en la tarea 11). Vivía
+# duplicado en pages/admin.py; una sola función evita que las páginas se
+# desalineen del criterio real del guard de la API.
+# ---------------------------------------------------------------------------
+SPLIT_PERM_ALL = "helpdesk.tickets.api.split.all"
+SPLIT_PERM_OWN = "helpdesk.tickets.api.split.own"
+
+
+def can_split(user: dict) -> str | None:
+    """¿Se pinta el botón "Partir" en esta página, y con qué alcance?
+
+    Mismo criterio que el guard de `POST /tickets/{id}/split` (`require_perms`):
+    admin global del JWT (alcance "all") o el más amplio de los permisos
+    efectivos que tenga (".all" antes que ".own"). Si el DML del permiso aún
+    no corrió, el botón no aparece en vez de responder 403 al pulsarlo.
+
+    Devuelve `"all" | "own" | None`. Las páginas que lo consumen lo tratan
+    como booleano (`{% if can_split %}`): cualquier alcance no vacío pinta el
+    botón — qué ticket se puede partir de verdad con `.own` (solo lo propio o
+    la cola del equipo, D17 del spec) ya lo acota cada lista por su cuenta (la
+    de asignación muestra lo que ese usuario puede ver; el dashboard del
+    técnico solo lista lo suyo/de su equipo) y, en última instancia, el guard
+    de la API. El VALOR (distinguir "all" de "own") no lo necesita ninguna
+    página todavía.
+    """
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.database import SessionLocal
+    from itcj2.dependencies import is_global_admin
+
+    if is_global_admin(user):
+        return "all"
+    _db = SessionLocal()
+    try:
+        perms = cached_perms(_db, int(user["sub"]), "helpdesk")
+    finally:
+        _db.close()
+    if SPLIT_PERM_ALL in perms:
+        return "all"
+    if SPLIT_PERM_OWN in perms:
+        return "own"
+    return None

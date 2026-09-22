@@ -107,45 +107,7 @@
     transition: all 0.15s ease;
 }
 
-/* ==================== PARTIR TICKET (#splitTicketModal) ==================== */
-
-/* Solicitud original (solo lectura): un texto largo sin espacios (URL, ruta)
-   se parte en vez de ensanchar el modal a 390 px. */
-.hd-split-original {
-    overflow-wrap: anywhere;
-}
-
-/* Descripción completa pero con alto acotado: las tarjetas de parte, que es lo
-   que se edita, siguen a la vista sin tener que bajar. */
-.hd-split-original__desc {
-    white-space: pre-wrap;
-    max-height: 9rem;
-    overflow-y: auto;
-}
-
-/* La parte 1 (el ticket original) se distingue de las nuevas con un filete. */
-.hd-split-part--original {
-    border-left: 4px solid var(--bs-primary);
-}
-
-/* Resumen del pie: comparte renglón con los botones cuando cabe; si no (móvil)
-   baja a uno propio en vez de apretarlos. */
-.hd-split-summary {
-    flex: 1 1 16rem;
-    min-width: 0;
-}
-
-/* En móvil helpdesk.css ancla #toastContainer abajo (z-index 9999) y su
-   padding (p-3) deja, aun sin toasts, una franja vacía de 2rem justo sobre el
-   pie de los modales con scroll: a 390 px "Partir ticket" y "Cancelar" no
-   recibían el toque. El contenedor deja pasar los clics; solo los toasts los
-   reciben. Va aquí (hoja de ESTA página) y no en helpdesk.css para no tocar
-   una hoja global desde esta tarea: la causa es de allá y le pasa a cualquier
-   modal con scroll de la app. */
-#toastContainer {
-    pointer-events: none;
-}
-
-#toastContainer .toast {
-    pointer-events: auto;
-}
+/* Partir ticket (#splitTicketModal): reglas movidas a la hoja compartida
+   css/shared/split_ticket.css (tarea 10, fase 2) — el dashboard del técnico
+   incluye el mismo partial y no debía heredar la hoja de ESTA página para
+   conseguirlas. Cárgala junto con esta hoja en el <head>. */
