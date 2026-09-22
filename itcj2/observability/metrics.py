@@ -203,6 +203,20 @@ OUTBOUND_REQUEST_DURATION = Histogram(
 # CERRADO que valida `spawn.py`, no este módulo, por la misma razón que los de
 # trabajo pesado. `dropped` cuenta lo que ni llegó a lanzarse: la rama de
 # `async_broadcast` sin loop principal.
+#
+# Lo que la serie raspada NO ve, para que nadie lea un 0 como "no se pierde
+# nada":
+# - `dropped` solo ocurre en procesos que no se raspan: CLI y scripts (p. ej.
+#   `itcj2/scripts/maint_sla_check.py`, que llega a `async_broadcast` por
+#   `sla_service`) y Celery. En los tiers HTTP y sockets el lifespan fija el
+#   loop principal antes de atender nada, así que ahí solo lo producen las
+#   carreras de arranque y de cierre: la serie raspada vale ~0 por estructura.
+# - `notify_websocket_push` no cuenta el push que
+#   `NotificationService.broadcast_websocket` salta cuando lo llama código
+#   síncrono (sin loop: endpoints `def`, Celery), que es el caso común. No es
+#   `dropped` a propósito (R42): varios de esos llamadores empujan aparte por
+#   `async_broadcast` y contarlo como pérdida alarmaría en falso. Esa serie
+#   solo se mueve con los llamadores async.
 BACKGROUND_TASKS = Counter(
     "itcj_background_tasks_total",
     "Corrutinas en segundo plano terminadas o descartadas, por sitio y resultado.",

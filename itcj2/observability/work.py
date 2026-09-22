@@ -34,6 +34,20 @@ raspa, y se pierde en silencio, a propósito. El volumen encolado se sigue por
 `core_task_runs`; el panel lo dice para que nadie lea su p95 como el de todo
 el sistema.
 
+Fuera de alcance A PROPÓSITO (R35, R43), para que nadie los tome por un
+olvido ni suponga que el panel los cubre:
+
+- Los escritores inline de Celery: `_write_equipment_csv` y
+  `_write_equipment_xlsx` en `itcj2/tasks/helpdesk_tasks.py` (opción (i):
+  corren en el worker, que nadie raspa).
+- Los export de auditoría de config: `export_audit_csv` en
+  `itcj2/apps/helpdesk/api/config/audit.py` y en
+  `itcj2/apps/maint/api/config/audit.py`.
+- Los CSV de titulatec: `itcj2/apps/titulatec/pages/handoff_admin.py` y
+  `itcj2/apps/titulatec/pages/surveys_admin.py` (dos export de admin; se
+  anotaron para una ronda posterior, cada uno sería un `kind` nuevo en
+  `DOCUMENT_KIND_ENGINE`).
+
 Sin `returncode` como etiqueta: es un entero abierto (cada código de salida,
 y los negativos de cada señal, sería una serie nueva por cada `kind`), y sin
 el stderr no explica nada. Va en la línea de log del servicio cuando es != 0.
