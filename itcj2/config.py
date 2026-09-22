@@ -197,7 +197,19 @@ class Settings(BaseSettings):
     # error), y `public.css` (bloque 6) gana la regla `.tt-field ~ .tt-hint`
     # para darle margen arriba en vez de abajo. Sin el bump, quien ya tenía
     # la hoja en caché sigue viendo la etiqueta flotando.
-    STATIC_VERSION: str = "1.0.1111561"
+    #
+    # Bump 2026-09-22: "Partir ticket" en la pantalla de asignación de
+    # helpdesk. `js/admin/assign_tickets.js` gana el modal de partir
+    # (`openSplitTicketModal`, tarjetas de parte y envío a
+    # `POST /tickets/{id}/split`) y además da `source` propio a cada petición de
+    # `refreshLists()` (sin él htmx encolaba las tres en <body> y la pestaña
+    # Asignado nunca se recargaba); `css/admin/assign_tickets.css` gana los
+    # estilos `.hd-split-*` y deja pasar los clics por el contenedor de toasts.
+    # Sin el bump, quien ya tenía la página en caché recibe el HTML nuevo, con
+    # el botón "Partir" en cada tarjeta, contra el JS viejo que no define
+    # `openSplitTicketModal`: el botón no hace nada y solo deja un
+    # ReferenceError en la consola.
+    STATIC_VERSION: str = "1.0.1111562"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

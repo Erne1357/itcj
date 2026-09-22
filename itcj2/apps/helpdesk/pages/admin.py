@@ -38,6 +38,29 @@ def _helpdesk_roles(user_id: int) -> set:
         _db.close()
 
 
+_SPLIT_PERM = "helpdesk.tickets.api.split"
+
+
+def _can_split(user: dict) -> bool:
+    """¿Se pinta el botón "Partir" en la pantalla de asignación?
+
+    Mismo criterio que el guard de `POST /tickets/{id}/split` (`require_perms`):
+    admin global del JWT o el permiso efectivo. Si el DML del permiso aún no
+    corrió, el botón no aparece en vez de responder 403 al pulsarlo.
+    """
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.database import SessionLocal
+    from itcj2.dependencies import is_global_admin
+
+    if is_global_admin(user):
+        return True
+    _db = SessionLocal()
+    try:
+        return _SPLIT_PERM in cached_perms(_db, int(user["sub"]), "helpdesk")
+    finally:
+        _db.close()
+
+
 _TICKETS_SORT_VALUES = {"oldest", "priority", "stale"}
 
 _TICKETS_STATUS_LABELS = {
@@ -476,11 +499,16 @@ async def assign_tickets(
     Una sola URL sirve dos representaciones (patrón canónico HTMX):
       - petición HTMX no-boost con ``?tab=`` → solo el FRAGMENTO de esa lista.
       - petición normal o boosteada → PÁGINA completa con las 3 listas server-side.
+
+    ``can_split`` va a los DOS caminos: el fragmento es lo que ``refreshLists()``
+    recarga tras cada acción, así que si solo llegara a la página el botón
+    "Partir" desaparecería tras el primer refresco.
     """
     from itcj2.templates import render
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    can_split = _can_split(user)
 
     is_htmx  = request.headers.get("hx-request") == "true"
     is_boost = request.headers.get("hx-boosted") == "true"
@@ -488,10 +516,15 @@ async def assign_tickets(
         tab = request.query_params.get("tab", "queue")
         ctx = _query_assign_lists_ctx(request, user_id, user_roles, tab=tab)
         ctx["oob"] = True
+        ctx["can_split"] = can_split
         return render(request, "helpdesk/admin/_assign_results.html", ctx)
 
     ctx = _query_assign_lists_ctx(request, user_id, user_roles)
-    ctx.update({"user_roles": user_roles, "active_page": "admin_assign_tickets"})
+    ctx.update({
+        "user_roles": user_roles,
+        "active_page": "admin_assign_tickets",
+        "can_split": can_split,
+    })
     return render_helpdesk(request, "helpdesk/admin/assign_tickets.html", ctx)
 
 
