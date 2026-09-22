@@ -553,6 +553,7 @@ def test_titulaciones_plena_y_titulacion_tienen_el_reparto_exacto():
         "no se tocó al revertir D6/D7")
 
 
+@requires_dml
 def test_el_alumno_de_titulacion_es_graduate_y_student_ya_no_recibe_nada_de_titulatec():
     """2026-09-15: el alumno deja de reciclar `student` (el de AgendaTec y el
     `role_id` de miles de cuentas). El 01 crea `graduate`; el 03 le da lo que tenia
