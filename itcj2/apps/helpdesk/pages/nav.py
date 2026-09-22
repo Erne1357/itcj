@@ -115,10 +115,13 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
         "js/user/ticket_tutorial.js",
         "js/user/create_ticket.js",
     ],
+    # split_ticket.js (modal compartido "Partir ticket") ANTES del módulo de la
+    # página: ticket_detail.js delega en window.HelpdeskSplit (tarea 11).
     "user_ticket_detail": [
         "https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js",
         "js/user/ticket_tutorial.js",
         "js/user/warehouse_ticket.js",
+        "js/shared/split_ticket.js",
         "js/user/ticket_detail.js",
     ],
 }

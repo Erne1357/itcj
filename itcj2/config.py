@@ -230,7 +230,20 @@ class Settings(BaseSettings):
     # `js/user/ticket_detail.js`: la URL interpolada en los enlaces de
     # `renderSplitInfo()` pasa por `escapeHtml()`. Sin el bump, quien tenga en
     # caché el JS del bump (2) conserva el camino que puede duplicar la división.
-    STATIC_VERSION: str = "1.0.1111564"
+    #
+    # Bump 2026-09-22 (4): cierre de la fase 2 de "Partir ticket" — la acción
+    # llega al detalle del ticket (tarea 11), que reúne todo lo de la fase: el
+    # módulo compartido `js/shared/split_ticket.js` (HelpdeskSplit, tarea 9), la
+    # hoja compartida `css/shared/split_ticket.css` (tarea 10), el botón en el
+    # dashboard del técnico (tarea 10) y ahora el menú de acciones rápidas de
+    # `js/user/ticket_detail.js` (`canSplitTicket()`/`openSplitTicketModal()`,
+    # nuevas en esta página) más el `<script>const SPLIT_SCOPE = ...;</script>`
+    # que agrega `user/ticket_detail.html` (extra_js). Sin el bump, quien ya
+    # tenía el detalle en caché sigue sirviendo el JS viejo (sin
+    # `openSplitTicketModal` ni `window.HelpdeskSplit`) contra el HTML nuevo, que
+    # ya trae el modal cuando `split_scope` es verdadero: el botón "Partir" del
+    # menú no aparece o, si aparece por un HTML a medio cachear, no hace nada.
+    STATIC_VERSION: str = "1.0.1111565"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

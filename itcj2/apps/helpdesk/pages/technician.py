@@ -172,6 +172,10 @@ async def ticket_detail(
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
 
+    # "Partir ticket" (fase 2, tarea 11): mismo criterio que el dashboard
+    # (tarea 10) — helper compartido en pages/nav.py.
+    split_scope = can_split(user)
+
     # Check if technician has warehouse consume permission
     can_consume_warehouse = False
     if user.get("role") == "admin":
@@ -191,4 +195,5 @@ async def ticket_detail(
         "user_roles": user_roles,
         "active_page": "tech_assignments",
         "can_consume_warehouse": can_consume_warehouse,
+        "split_scope": split_scope,
     })

@@ -865,11 +865,20 @@
     </div>
 </div>
 
+{# Modal "Partir ticket" — markup compartido; lo pinta y envía
+   js/shared/split_ticket.js (HelpdeskSplit). Solo con el permiso de partir
+   (split_scope): sin él la página no trae el modal y el botón tampoco. #}
+{% if split_scope %}
+{% include "helpdesk/_components/split_ticket_modal.html" %}
+{% endif %}
+
 {% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet"
     href="{{ url_for('static', filename='helpdesk/css/user/ticket_detail.css') }}?v={{ sv('helpdesk', 'css/user/ticket_detail.css') }}">
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='helpdesk/css/shared/split_ticket.css') }}?v={{ sv('helpdesk', 'css/shared/split_ticket.css') }}">
 <!-- Shepherd.js CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css">
 <!-- Tutorial Custom CSS -->
@@ -879,4 +888,11 @@
 
 {% block hd_data %}data-ticket-id="{{ ticket_id }}"{% endblock %}
 
-{% block extra_js %}{% endblock %}
+{% block extra_js %}
+{# split_scope ("all"|"own"|"") llega inline: renderQuickActions() (ticket_detail.js)
+   es 100% cliente (pinta el menú desde el JSON que trae loadTicketDetail()), así
+   que no puede leer un {% if %} de Jinja para decidir si ofrece "Partir ticket". #}
+<script>
+    const SPLIT_SCOPE = "{{ split_scope or '' }}";
+</script>
+{% endblock %}

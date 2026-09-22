@@ -68,6 +68,7 @@
         window.openEquipmentDetail = openEquipmentDetail;
         window.openEquipmentListModal = openEquipmentListModal;
         window.openPhotoModal = openPhotoModal;
+        window.openSplitTicketModal = openSplitTicketModal;
 
         // Setup modal event listeners
         setupRatingModal();
@@ -139,6 +140,12 @@
             }
         });
 
+        // Modal compartido "Partir ticket": suelta su modal, sus listeners y su
+        // estado, e invalida la carga/envío que siga en vuelo (al resolver ya no
+        // encontrará su página y no tocará el DOM de la nueva). Mismo criterio
+        // que dashboard.js (técnico) y assign_tickets.js.
+        window.HelpdeskSplit?.teardown();
+
         // Reset resolve panel
         const resolvePanel = document.getElementById('resolvePanel');
         if (resolvePanel) resolvePanel.classList.add('d-none');
@@ -155,6 +162,7 @@
             'openCancelModal', 'openResolutionFilesModal', 'deleteResolutionFile',
             'viewAttachmentImage', 'downloadCustomFieldFile', 'removeCommentFile',
             'addComment', 'openEquipmentDetail', 'openEquipmentListModal', 'openPhotoModal',
+            'openSplitTicketModal',
         ];
         fns.forEach(fn => { delete window[fn]; });
 
@@ -477,7 +485,56 @@
             </li>
         `;
 
+        if (canSplitTicket(ticket)) {
+            html += `
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                    <a class="dropdown-item" href="#" onclick="openSplitTicketModal(${ticket.id}); return false;">
+                        <i class="fas fa-code-branch me-2"></i>Partir ticket
+                    </a>
+                </li>
+            `;
+        }
+
         menu.innerHTML = html;
+    }
+
+    // ==================== SPLIT TICKET MODAL ====================
+    // "Partir ticket" vive en js/shared/split_ticket.js (window.HelpdeskSplit) y
+    // su markup en el partial helpdesk/_components/split_ticket_modal.html — el
+    // mismo que usan la pantalla de asignación y el dashboard del técnico.
+    const SPLIT_STATUSES = ['PENDING', 'ASSIGNED', 'IN_PROGRESS'];
+
+    // SPLIT_SCOPE ("all"|"own"|"") llega inline desde el bloque de scripts de la
+    // página (extra_js de ticket_detail.html), calculado por can_split() en
+    // pages/nav.py. Con ".own" solo se ofrece si este usuario es el técnico
+    // asignado o el ticket sigue en la cola sin asignar de su equipo — mismo
+    // criterio que exige el guard fino de la API (D17).
+    function canSplitTicket(ticket) {
+        if (!SPLIT_STATUSES.includes(ticket.status)) return false;
+        if (SPLIT_SCOPE === 'all') return true;
+        if (SPLIT_SCOPE === 'own') {
+            return ticket.assigned_to?.id === currentUserId ||
+                (!ticket.assigned_to && !!ticket.assigned_to_team);
+        }
+        return false;
+    }
+
+    function openSplitTicketModal(ticketId) {
+        if (!window.HelpdeskSplit) {
+            console.error('[ticket_detail] HelpdeskSplit no está cargado (js/shared/split_ticket.js).');
+            HelpdeskUtils.showToast('No se pudo abrir "Partir ticket". Recarga la página.', 'error');
+            return;
+        }
+        return window.HelpdeskSplit.open(ticketId, { onSplit: onTicketSplit });
+    }
+
+    // Tras partir, el original pudo cambiar (título/descripción/categoría/
+    // prioridad) y gana el enlace "Dividido en: …" (renderSplitInfo, dentro de
+    // renderTicketDetail): recargar todo el detalle reusa el mismo camino que
+    // un F5 en vez de parchear cada pieza a mano.
+    async function onTicketSplit() {
+        await loadTicketDetail();
     }
 
     // ==================== RENDER CUSTOM FIELDS ====================

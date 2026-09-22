@@ -11,7 +11,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Request
 
-from itcj2.apps.helpdesk.pages.nav import render_helpdesk
+from itcj2.apps.helpdesk.pages.nav import can_split, render_helpdesk
 from itcj2.dependencies import require_page_app
 
 logger = logging.getLogger("itcj2.apps.helpdesk.pages.user")
@@ -193,6 +193,10 @@ async def ticket_detail(
     finally:
         _db.close()
 
+    # "Partir ticket" (fase 2, tarea 11): mismo criterio que assign_tickets/
+    # technician.dashboard — helper compartido en pages/nav.py.
+    split_scope = can_split(user)
+
     can_consume_warehouse = False
     if user.get("role") == "admin":
         can_consume_warehouse = True
@@ -213,4 +217,5 @@ async def ticket_detail(
         "user_roles": user_roles,
         "active_page": "my_tickets",
         "can_consume_warehouse": can_consume_warehouse,
+        "split_scope": split_scope,
     })
