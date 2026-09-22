@@ -20,6 +20,7 @@ from itcj2.observability.metrics import (
 )
 from itcj2.observability.middleware import METRIC_METHODS
 from itcj2.observability.route import _KEYS, _route_method_pairs, build_route_map
+from itcj2.observability.spawn import BACKGROUND_TASK_NAMES, BACKGROUND_TASK_STATUSES
 from itcj2.observability.work import (
     DOCUMENT_ENGINES,
     DOCUMENT_KINDS,
@@ -28,7 +29,8 @@ from itcj2.observability.work import (
 )
 
 # R8: ~21 % sobre las ~16.500 series proyectadas antes de la Fase 4 (con las
-# de trabajo pesado, ~18.250). Son 804 pares (método, ruta) contando
+# de trabajo pesado, ~18.250; las de segundo plano de la 5b suman 8). Son 804
+# pares (método, ruta) contando
 # `/metrics`, que no genera series (SKIP_PATHS): un par de margen a favor.
 MAX_SERIES_PER_TARGET = 20_000
 
@@ -70,9 +72,12 @@ WORK_SERIES = (
     * (len(DOCUMENT_RENDER_BUCKETS) + 3)
     + len(OUTBOUND_TARGETS) * len(OUTCOMES) * (len(OUTBOUND_REQUEST_BUCKETS) + 3)
 )
+# Tareas en segundo plano (Fase 5b): un contador, sitio x resultado, los dos
+# conjuntos CERRADOS que valida `spawn.py`.
+BACKGROUND_SERIES = len(BACKGROUND_TASK_NAMES) * len(BACKGROUND_TASK_STATUSES)
 EXTRA_SERIES = (
     IN_FLIGHT_SERIES + UNMATCHED_SERIES + EXCEPTION_SERIES + FIXED_SERIES
-    + WORK_SERIES
+    + WORK_SERIES + BACKGROUND_SERIES
 )
 
 RUTAS_CON_NUMERO_ESTATICO = {

@@ -205,7 +205,9 @@ def test_celery_arranca_aunque_herede_prometheus_multiproc_dir(tmp_path):
     Más `itcj2.observability.work`, explícito: es el medidor que usan los
     servicios de negocio, y varios corren también dentro de tareas (p. ej.
     `document_service` bajo `convert_document`). Importado a mano, el test lo
-    vigila llegue o no la cadena real hasta él.
+    vigila llegue o no la cadena real hasta él. Igual `spawn` (Fase 5b) e
+    `itcj2.utils`, que lo importa al cargarse y al que importan a nivel de
+    módulo servicios de negocio de agendatec, helpdesk y maint.
     """
     code = (
         "import sys\n"
@@ -213,6 +215,8 @@ def test_celery_arranca_aunque_herede_prometheus_multiproc_dir(tmp_path):
         "for name in c.celery_app.conf.include:\n"
         "    __import__(name)\n"
         "import itcj2.observability.work\n"
+        "import itcj2.observability.spawn\n"
+        "import itcj2.utils\n"
         "print('PROMETHEUS_LOADED=%s' % ('prometheus_client' in sys.modules))\n"
     )
     env = dict(os.environ)

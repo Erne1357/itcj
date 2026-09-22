@@ -1,12 +1,13 @@
 """La matriz de propagación de contexto (plan §3.0) convertida en test.
 
-Que HOY el `request_id` llegue a un hilo del threadpool o a una corrutina
-programada con `run_coroutine_threadsafe` no es un contrato de nadie: depende
-de que anyio corra el endpoint `def` dentro de un contexto copiado y de que
-`call_soon_threadsafe` copie el contexto del hilo que llama — dos detalles de
-implementación, ninguno documentado. Un `pip install -U starlette` o `anyio`
-puede romperlo en silencio y los ids simplemente saldrían vacíos en los logs.
-Este módulo es el que se pone rojo cuando eso pase.
+Que HOY el `request_id` llegue a un hilo del threadpool o a una corrutina que
+`async_broadcast` hace saltar al loop principal no es un contrato de nadie:
+depende de que anyio corra el endpoint `def` dentro de un contexto copiado, un
+detalle de implementación no documentado (desde la Fase 5b el salto al loop
+copia el contexto del hilo de forma explícita, pero solo lleva lo que el hilo
+tenga). Un `pip install -U starlette` o `anyio` puede romperlo en silencio y
+los ids simplemente saldrían vacíos en los logs. Este módulo es el que se pone
+rojo cuando eso pase.
 
 La app de prueba monta el `JWTMiddleware` REAL con `setup_middleware()` (así
 el `ObservabilityMiddleware` queda por fuera, igual que en producción) y cada
@@ -95,8 +96,9 @@ def _build_app() -> FastAPI:
         return {"request_id": await task}
 
     # (f) corrutina pasada a async_broadcast desde un endpoint def: sin loop
-    # en el hilo del threadpool, cae a run_coroutine_threadsafe sobre el loop
-    # principal — el camino que usan los broadcasts reales de Socket.IO.
+    # en el hilo del threadpool, salta al loop principal (`spawn` programado
+    # con `call_soon_threadsafe`) — el camino que usan los broadcasts reales
+    # de Socket.IO.
     @app.get("/probe/broadcast")
     def probe_broadcast():
         seen = {}
@@ -155,7 +157,7 @@ def test_request_id_propagates_through_async_broadcast_from_sync_endpoint(client
     body = resp.json()
     assert body["ran"], "async_broadcast no ejecutó la corrutina en el loop principal"
     # Si corriera en el mismo hilo del endpoint, no se estaría probando el
-    # camino run_coroutine_threadsafe sino otro.
+    # salto al loop principal sino otro camino.
     assert body["other_thread"]
     header = resp.headers.get("x-request-id", "")
     assert _HEX32.match(header)

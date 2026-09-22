@@ -195,6 +195,22 @@ OUTBOUND_REQUEST_DURATION = Histogram(
 
 
 # ---------------------------------------------------------------------------
+# Tareas en segundo plano (Fase 5b) — las cuenta `spawn.py`
+# ---------------------------------------------------------------------------
+# Las corrutinas fire-and-forget (los broadcasts de Socket.IO), una cuenta por
+# tarea al terminar. `name` es el SITIO técnico (R37), no el evento de
+# negocio: el evento va en la línea de log. Sus valores son un conjunto
+# CERRADO que valida `spawn.py`, no este módulo, por la misma razón que los de
+# trabajo pesado. `dropped` cuenta lo que ni llegó a lanzarse: la rama de
+# `async_broadcast` sin loop principal.
+BACKGROUND_TASKS = Counter(
+    "itcj_background_tasks_total",
+    "Corrutinas en segundo plano terminadas o descartadas, por sitio y resultado.",
+    ("name", "status"),
+)
+
+
+# ---------------------------------------------------------------------------
 # Reaper de gauges `live*` de workers muertos (plan §9.16)
 # ---------------------------------------------------------------------------
 # `livesum` NO detecta procesos muertos: el fichero `gauge_livesum_<pid>.db`
