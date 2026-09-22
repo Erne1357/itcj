@@ -12,6 +12,7 @@ streaming. Fuera de alcance: los escritores inline de
 `itcj2/tasks/helpdesk_tasks.py` (Celery, opción (i)) y los export de
 auditoría de config.
 """
+import logging
 import subprocess
 from io import BytesIO
 from types import SimpleNamespace
@@ -51,22 +52,65 @@ class TestDocumentServiceLibreOffice:
         assert result.read().startswith(b"%PDF")
         assert delta(before, counts(self.LABELS)) == only("ok")
 
-    def test_returncode_nonzero_records_error_and_still_raises(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "returncode, stderr",
+        [
+            (1, "boom LibreOffice"),
+            # Matado por señal (OOM dentro del límite del worker): el stderr
+            # sale VACÍO y el returncode es lo único que lo distingue de un
+            # documento que LibreOffice rechazó.
+            (-9, ""),
+        ],
+        ids=["error-de-conversion", "matado-por-senal"],
+    )
+    def test_returncode_nonzero_records_error_and_still_raises(
+        self, monkeypatch, caplog, returncode, stderr
+    ):
         """`returncode != 0` hoy ya lanza (RuntimeError con el stderr en el
         mensaje) — la instrumentación no debe cambiar ni la excepción ni el
-        mensaje, solo clasificarlo como outcome=error."""
+        mensaje, solo clasificarlo como outcome=error. El returncode no es
+        etiqueta (contrato): va en la línea de log."""
         from itcj2.apps.helpdesk.services import document_service
 
         def _fake_run(cmd, **kwargs):
-            return SimpleNamespace(returncode=1, stdout="", stderr="boom LibreOffice")
+            return SimpleNamespace(returncode=returncode, stdout="", stderr=stderr)
 
         monkeypatch.setattr(document_service, "_find_libreoffice_cmd", lambda: "soffice")
         monkeypatch.setattr(document_service.subprocess, "run", _fake_run)
 
         before = counts(self.LABELS)
-        with pytest.raises(RuntimeError, match="boom LibreOffice"):
+        with caplog.at_level(logging.ERROR, logger=document_service.logger.name):
+            with pytest.raises(RuntimeError) as info:
+                document_service._convert_docx_to_pdf(BytesIO(b"docx"), kind="solicitud")
+
+        # Regla de oro 2: el mensaje de la excepción, byte a byte, el de antes.
+        assert str(info.value) == f"Error al convertir a PDF: {stderr}"
+        assert delta(before, counts(self.LABELS)) == only("error")
+        [line] = [
+            r.getMessage() for r in caplog.records
+            if r.name == document_service.logger.name and r.levelno == logging.ERROR
+        ]
+        assert f"returncode={returncode}" in line
+        assert "kind=solicitud" in line
+
+    def test_exit_zero_without_pdf_records_error_and_raises_the_same(self, monkeypatch):
+        """soffice que sale con 0 sin escribir el PDF (típico: le pasa el
+        trabajo a otra instancia que ya usa el mismo perfil). El negocio ya
+        fallaba igual; lo que cambia es que el panel lo cuente como error y no
+        como éxito."""
+        from itcj2.apps.helpdesk.services import document_service
+
+        def _fake_run(cmd, **kwargs):
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(document_service, "_find_libreoffice_cmd", lambda: "soffice")
+        monkeypatch.setattr(document_service.subprocess, "run", _fake_run)
+
+        before = counts(self.LABELS)
+        with pytest.raises(RuntimeError) as info:
             document_service._convert_docx_to_pdf(BytesIO(b"docx"), kind="solicitud")
 
+        assert str(info.value) == "No se generó el archivo PDF"
         assert delta(before, counts(self.LABELS)) == only("error")
 
     def test_timeout_records_timeout_and_reraises_the_same_exception(self, monkeypatch):

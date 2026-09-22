@@ -372,8 +372,12 @@ def _convert_docx_to_pdf(docx_buffer: BytesIO, kind: str) -> BytesIO:
         with open(docx_path, 'wb') as f:
             f.write(docx_buffer.read())
 
-        # El returncode != 0 entra en el bloque medido: hoy ya lanza (raise
-        # abajo), así que cae como outcome="error" sin tocar el negocio.
+        # Los dos fallos que ya lanzaban (returncode != 0 y "salió con 0 pero
+        # sin PDF") van DENTRO del bloque medido: la misma excepción de
+        # siempre, contada como outcome="error". Fuera, un soffice que le pasa
+        # el trabajo a otra instancia con el mismo perfil y sale con 0 sin
+        # escribir nada contaba como éxito: justo la falla por concurrencia
+        # que este panel existe para ver.
         with measured(kind, "libreoffice"):
             result = subprocess.run(
                 [
@@ -386,12 +390,18 @@ def _convert_docx_to_pdf(docx_buffer: BytesIO, kind: str) -> BytesIO:
             )
 
             if result.returncode != 0:
-                logger.error(f'LibreOffice error: {result.stderr}')
+                # El returncode no es etiqueta de la métrica (contrato): va
+                # aquí. Matado por señal (OOM: -9) el stderr sale vacío y es
+                # lo único que lo distingue de un documento rechazado.
+                logger.error(
+                    'LibreOffice error (kind=%s, returncode=%s): %s',
+                    kind, result.returncode, result.stderr,
+                )
                 raise RuntimeError(f'Error al convertir a PDF: {result.stderr}')
 
-        pdf_path = os.path.join(tmpdir, 'document.pdf')
-        if not os.path.exists(pdf_path):
-            raise RuntimeError('No se generó el archivo PDF')
+            pdf_path = os.path.join(tmpdir, 'document.pdf')
+            if not os.path.exists(pdf_path):
+                raise RuntimeError('No se generó el archivo PDF')
 
         pdf_buffer = BytesIO()
         with open(pdf_path, 'rb') as f:
