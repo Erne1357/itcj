@@ -382,7 +382,10 @@
         let html = '';
 
         if (splitFrom) {
-            const url = buildUrl(splitFrom.id);
+            // `url` sale de location.pathname/search: el navegador ya percent-
+            // codifica `"`, `<` y `>` ahí, pero se escapa igual para que en este
+            // archivo NINGUNA interpolación a innerHTML quede sin escapar.
+            const url = escapeHtml(buildUrl(splitFrom.id));
             const number = escapeHtml(splitFrom.ticket_number);
             html += `
                 <div class="small text-muted mb-1">
@@ -393,7 +396,7 @@
 
         if (splitChildren.length > 0) {
             const links = splitChildren.map(child => {
-                const url = buildUrl(child.id);
+                const url = escapeHtml(buildUrl(child.id));
                 const number = escapeHtml(child.ticket_number);
                 const title = escapeHtml(child.title);
                 return `<a href="${url}" hx-boost="false" title="${title}">${number}</a> ${HelpdeskUtils.getStatusBadge(child.status)}`;

@@ -2054,6 +2054,11 @@
         setSplitFormEnabled(false);
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Partiendo...';
 
+        // `applied`: el servidor respondió 2xx, así que la división YA ocurrió —
+        // aunque el cuerpo venga ilegible. Se separa de `result` porque el
+        // servidor no es idempotente: reintentar partiría el ticket otra vez
+        // (N-1 tickets más, otra tanda de copias físicas de adjuntos y de avisos).
+        let applied = false;
         let result = null;
         try {
             // fetch directo y no HelpdeskUtils.api.request: ese cliente lee
@@ -2065,7 +2070,17 @@
                 body: JSON.stringify(payload)
             });
             if (response.ok) {
-                result = await response.json();
+                applied = true;
+                // El parseo va en su PROPIO try: si un 2xx trae cuerpo ilegible
+                // (proxy que corta, HTML de error interpuesto) y la excepción
+                // cayera en el catch de red, el usuario vería "Error de conexión",
+                // el formulario se rehabilitaría y el siguiente clic partiría el
+                // ticket por segunda vez.
+                try {
+                    result = await response.json();
+                } catch (parseError) {
+                    console.error('Respuesta 2xx ilegible al partir ticket:', parseError);
+                }
             } else {
                 const message = await fetchApiError(response, 'No se pudo partir el ticket');
                 HelpdeskUtils.showToast(escapeHtml(message), 'error');
@@ -2080,27 +2095,43 @@
 
         // Mismo modal abierto con el mismo ticket (no se cerró ni se fue la página).
         const sameSession = seq === _splitSeq;
-        if (!result) {
+        if (!applied) {
             if (sameSession) setSplitFormEnabled(true);   // corregir y reintentar
             return;
         }
 
-        // Éxito: el formulario queda deshabilitado hasta que el modal termine de
-        // cerrarse, para que un segundo clic no vuelva a partir.
-        const folios = ((result.data && result.data.tickets) || []).map(t => t.ticket_number).join(', ');
-        const message = `${result.message || 'Ticket partido'}${folios ? `. Nuevos: ${folios}` : ''}`;
-        HelpdeskUtils.showToast(escapeHtml(message), 'success');
+        // Aplicado: el formulario queda deshabilitado hasta que el modal termine
+        // de cerrarse, para que un segundo clic no vuelva a partir.
+        if (result) {
+            const folios = ((result.data && result.data.tickets) || []).map(t => t.ticket_number).join(', ');
+            const message = `${result.message || 'Ticket partido'}${folios ? `. Nuevos: ${folios}` : ''}`;
+            HelpdeskUtils.showToast(escapeHtml(message), 'success');
+        } else {
+            HelpdeskUtils.showToast(
+                'El servidor respondió con un formato inesperado: la división pudo haberse aplicado. Recargando las listas para confirmar.',
+                'warning'
+            );
+        }
 
         if (pageToken !== _splitPageToken) return;   // se navegó a otra página
         if (sameSession && _splitTicketModalInstance) _splitTicketModalInstance.hide();
 
-        // Refrescar arreglos + listas server-side (mismo patrón que asignar)
-        await Promise.all([
-            loadDashboardStats(),
-            loadPendingTickets(),
-            loadActiveTickets()
-        ]);
-        refreshLists();
+        // Refrescar arreglos + listas server-side (mismo patrón que asignar).
+        // `refreshLists()` va en el `finally`: es lo que repinta las tres
+        // pestañas server-side, y si un recargador fallara (rechazo) el operador
+        // se quedaría con el toast de éxito sobre listas que siguen mostrando el
+        // ticket SIN partir — justo el estado que invita a partirlo otra vez.
+        try {
+            await Promise.all([
+                loadDashboardStats(),
+                loadPendingTickets(),
+                loadActiveTickets()
+            ]);
+        } catch (reloadError) {
+            console.error('Error al recargar los arreglos tras partir ticket:', reloadError);
+        } finally {
+            refreshLists();
+        }
     }
 
     // ==================== ERROR HELPERS ====================

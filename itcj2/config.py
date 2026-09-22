@@ -220,7 +220,17 @@ class Settings(BaseSettings):
     # contenedor vacío; sin este bump, quien ya tenía la página en caché con el
     # `?v=` del bump (1) sigue sirviendo el JS viejo, que no define la función,
     # y el contenedor se queda oculto siempre.
-    STATIC_VERSION: str = "1.0.1111563"
+    #
+    # Bump 2026-09-22 (3): manejo de errores de "Partir ticket".
+    # `js/admin/assign_tickets.js`: `confirmSplitTicket()` deja de tratar un 2xx
+    # con cuerpo ilegible como error de red (antes decía "Error de conexión" y
+    # rehabilitaba el formulario, así que el siguiente clic partía el ticket por
+    # SEGUNDA vez — el servidor no es idempotente) y siempre llama a
+    # `refreshLists()` tras una división aplicada, aunque falle alguna recarga.
+    # `js/user/ticket_detail.js`: la URL interpolada en los enlaces de
+    # `renderSplitInfo()` pasa por `escapeHtml()`. Sin el bump, quien tenga en
+    # caché el JS del bump (2) conserva el camino que puede duplicar la división.
+    STATIC_VERSION: str = "1.0.1111564"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
