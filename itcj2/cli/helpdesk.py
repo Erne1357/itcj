@@ -15,6 +15,7 @@ DML_INVENTORY_CAMPAIGN = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inven
 DML_INVENTORY = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory"
 DML_INVENTORY_ASSIGN = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory" / "assign"
 DML_CONFIG = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "config"
+DML_TICKET_SPLIT = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "ticket_split"
 
 
 def _run_sql_files(base_dir: Path, files: list[str]) -> None:
@@ -358,6 +359,32 @@ def init_assign_permissions_command():
         raise
 
 
+@click.command("init-split-permissions")
+def init_split_permissions_command():
+    """Carga el permiso `helpdesk.tickets.api.split` y lo asigna.
+
+    Ejecuta en orden:
+      01_add_split_permission.sql    — Inserta el permiso
+      02_assign_split_permission.sql — Lo asigna a admin y a la posición
+                                        secretary_comp_center.
+
+    Tras ejecutar, quien tenga el permiso puede partir un ticket PENDING,
+    ASSIGNED o IN_PROGRESS en varios tickets nuevos (feature "Partir ticket").
+    """
+    click.echo("🔀 Inicializando permiso de partir ticket...")
+    try:
+        _run_sql_files(DML_TICKET_SPLIT, [
+            "01_add_split_permission.sql",
+            "02_assign_split_permission.sql",
+        ])
+        click.echo("\n🎉 Permiso aplicado.")
+        click.echo("   • rol admin                      → helpdesk.tickets.api.split")
+        click.echo("   • posición secretary_comp_center → helpdesk.tickets.api.split")
+    except Exception as e:
+        click.echo(f"\n💥 Error: {e}")
+        raise
+
+
 @click.command("seed-config")
 def seed_config_command():
     """Ejecuta los SQL de la pestaña de Configuración del Helpdesk.
@@ -405,4 +432,5 @@ helpdesk_cli.add_command(load_inventory_csv)
 helpdesk_cli.add_command(init_inventory_campaign_command)
 helpdesk_cli.add_command(init_retirement_permissions_command)
 helpdesk_cli.add_command(init_assign_permissions_command)
+helpdesk_cli.add_command(init_split_permissions_command)
 helpdesk_cli.add_command(seed_config_command)

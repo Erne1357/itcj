@@ -582,6 +582,85 @@ class HelpdeskNotificationHelper:
             logger.error(f"Error enviando notificación TICKET_CANCELED_BY_COMP_CENTER: {e}", exc_info=True)
 
     @staticmethod
+    def notify_ticket_split(db: Session, ticket, new_tickets, actor_id: int):
+        """
+        Notifica al solicitante y al técnico asignado del ORIGINAL (si hay uno
+        y no es el actor) cuando el ticket se partió en `1 + len(new_tickets)`
+        tickets. Nunca notifica al actor: quien parte ya sabe que lo partió.
+        """
+        try:
+            all_parts = [ticket] + list(new_tickets)
+            parts_summary = ', '.join(
+                f'{p.ticket_number} ({p.category.name if p.category else "Sin categoría"})'
+                for p in all_parts
+            )
+            new_numbers = ', '.join(p.ticket_number for p in new_tickets)
+
+            data = {
+                'ticket_id': ticket.id,
+                'url': f'/help-desk/user/tickets/{ticket.id}',
+                'parts': [p.ticket_number for p in all_parts],
+            }
+
+            if ticket.requester_id != actor_id:
+                fallback_title = f'Tu ticket #{ticket.ticket_number} se dividió en {len(all_parts)} tickets'
+                fallback_body = parts_summary
+
+                context = _build_context(
+                    ticket=ticket,
+                    requester=ticket.requester,
+                )
+                title, body = _render_notification(
+                    db, 'ticket_split', context, fallback_title, fallback_body
+                )
+
+                NotificationService.create(
+                    db=db,
+                    user_id=ticket.requester_id,
+                    app_name='helpdesk',
+                    type='TICKET_SPLIT',
+                    title=title,
+                    body=body,
+                    data=data,
+                    ticket_id=ticket.id,
+                )
+
+            if ticket.assigned_to_user_id and ticket.assigned_to_user_id != actor_id:
+                fallback_title = f'Ticket #{ticket.ticket_number} dividido'
+                fallback_body = f'Ahora solo cubre: {ticket.title}. Nuevos en la cola: {new_numbers}'
+
+                context = _build_context(
+                    ticket=ticket,
+                    assignee=ticket.assigned_to,
+                )
+                title, body = _render_notification(
+                    db, 'ticket_split', context, fallback_title, fallback_body
+                )
+
+                NotificationService.create(
+                    db=db,
+                    user_id=ticket.assigned_to_user_id,
+                    app_name='helpdesk',
+                    type='TICKET_SPLIT',
+                    title=title,
+                    body=body,
+                    data=data,
+                    ticket_id=ticket.id,
+                )
+
+            logger.info(
+                f"Notificación TICKET_SPLIT enviada para ticket #{ticket.ticket_number} "
+                f"({len(all_parts)} partes)"
+            )
+
+            # Sin broadcast de socket aquí: `api/tickets.py::split_ticket` ya
+            # emite `ticket_created` por cada parte nueva (await-eado, orden
+            # determinista) tras el commit. Ver nota en notify_ticket_created.
+
+        except Exception as e:
+            logger.error(f"Error enviando notificación TICKET_SPLIT: {e}", exc_info=True)
+
+    @staticmethod
     def notify_comment_added(db: Session, ticket, comment, author):
         """
         Notifica a los stakeholders relevantes cuando se agrega un comentario.

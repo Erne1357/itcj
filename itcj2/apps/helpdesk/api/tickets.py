@@ -12,6 +12,7 @@ from itcj2.apps.helpdesk.schemas.tickets import (
     RateTicketRequest,
     CancelTicketRequest,
     UpdateTicketRequest,
+    SplitTicketRequest,
 )
 
 router = APIRouter(tags=["helpdesk-tickets"])
@@ -601,3 +602,62 @@ def update_ticket(
 
     logger.info(f"Ticket {ticket.ticket_number} editado por usuario {user_id}")
     return {"message": "Ticket actualizado exitosamente", "ticket": ticket.to_dict(include_relations=True)}
+
+
+# ==================== PARTIR TICKET ====================
+@router.post("/{ticket_id}/split", status_code=201)
+async def split_ticket(
+    ticket_id: int,
+    body: SplitTicketRequest,
+    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.split"]),
+    db: DbSession = None,
+):
+    from itcj2.apps.helpdesk.services import ticket_split_service
+
+    user_id = int(user["sub"])
+
+    original, new_tickets = ticket_split_service.split_ticket(
+        db,
+        ticket_id=ticket_id,
+        split_by_id=user_id,
+        original=body.original.model_dump(),
+        parts=[p.model_dump() for p in body.parts],
+    )
+
+    logger.info(
+        f"Ticket {original.ticket_number} partido por usuario {user_id} en "
+        f"{1 + len(new_tickets)} tickets"
+    )
+
+    from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
+    try:
+        HelpdeskNotificationHelper.notify_ticket_split(db, original, new_tickets, user_id)
+        db.commit()
+    except Exception as notif_error:
+        logger.error(f"Error al enviar notificación de ticket partido: {notif_error}")
+
+    try:
+        from itcj2.sockets.helpdesk import broadcast_ticket_created
+        for part in new_tickets:
+            await broadcast_ticket_created({
+                "id": part.id,
+                "ticket_number": part.ticket_number,
+                "title": part.title,
+                "area": part.area,
+                "priority": part.priority,
+                "status": part.status,
+                "requester": part.requester.full_name if part.requester else "Desconocido",
+                "department_id": part.requester_department_id,
+                "split_from": original.ticket_number,
+            }, actor_id=user_id)
+    except Exception as ws_err:
+        logger.warning(f"WS broadcast ticket_created (split) error: {ws_err}")
+
+    return {
+        "success": True,
+        "message": f"Ticket {original.ticket_number} dividido en {1 + len(new_tickets)} tickets",
+        "data": {
+            "original": original.to_dict(include_relations=True),
+            "tickets": [t.to_dict(include_relations=True) for t in new_tickets],
+        },
+    }
