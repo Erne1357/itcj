@@ -11,7 +11,7 @@ import logging
 import os
 
 from itcj2.celery_app import celery_app
-from itcj2.tasks.base import LoggedTask
+from itcj2.tasks.base import LoggedTask, with_itcj_ctx
 from itcj2.core.utils.timezone import db_now
 
 logger = logging.getLogger(__name__)
@@ -217,11 +217,11 @@ def _push_user_notification(user_id: int, title: str, body: str, link: str | Non
             notif_dict = notif.to_dict()
 
         r = redis.from_url(get_settings().REDIS_URL)
-        r.publish("task_events", json.dumps({
+        r.publish("task_events", json.dumps(with_itcj_ctx({
             "type": "user_notification",
             "user_id": user_id,
             "notification": notif_dict,
-        }))
+        })))
     except Exception as e:
         logger.error(f"[helpdesk_tasks] Error creando notificación para user {user_id}: {e}")
 

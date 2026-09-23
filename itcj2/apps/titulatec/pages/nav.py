@@ -55,11 +55,18 @@ def sv_core(path: str) -> str:
 _ROLE_DASHBOARD = [
     ("admin",                          "/titulatec/admin/"),
     ("titulatec_titulaciones",         "/titulatec/admin/"),
+    # Rol nuevo del Departamento de Titulacion (2026-09-21, design doc
+    # 2026-09-21-titulatec-dpto-titulacion S3): sin esta fila, la primera
+    # persona asignada a `head_titulacion`/`aux_titulacion` aterriza en
+    # `/itcj/dashboard` tras el login en vez de la bandeja admin.
+    ("titulatec_titulacion",           "/titulatec/admin/"),
     ("titulatec_school_services_head", "/titulatec/admin/"),
     ("titulatec_school_services",      "/titulatec/admin/"),
+    ("titulatec_tech_management", "/titulatec/admin/liberaciones"),  # GTV: bandeja de liberaciones (2026-09-15)
     ("titulatec_vinculacion",     "/titulatec/vinculacion/"),
     ("titulatec_sinodal",         "/titulatec/sinodal/"),
-    ("student",                   "/titulatec/student/dashboard"),  # rol global reciclado
+    ("graduate",                  "/titulatec/student/dashboard"),  # egresado: el alumno (2026-09-15)
+    ("student",                   "/titulatec/student/dashboard"),  # legado: filas que el backfill 14 no movió
 ]
 
 
@@ -98,7 +105,15 @@ _ADMIN_NAV = [
     ("Documentos",          "bi-file-earmark-check", "/titulatec/admin/documents",    {"titulatec.document.page.list"}),
     ("Convocatorias",       "bi-award",       "/titulatec/admin/cohorts",      {"titulatec.cohort.page.list"}),
     ("Citas de cotejo",     "bi-calendar",    "/titulatec/admin/appointments", {"titulatec.appointment.page.list"}),
+    # Bandeja de solo lectura del Departamento de Titulacion (2026-09-21, Tarea
+    # 5 del deslinde a T-soft): egresados ya liberados por Servicios Escolares.
+    ("Liberados",           "bi-box-arrow-right", "/titulatec/admin/liberados", {"titulatec.handoff.page.list"}),
     ("Encargados",          "bi-people-fill", "/titulatec/admin/officers",     {"titulatec.officers.page.list"}),
+    # Un solo código por fila: `admin_nav_items` (:118) hace `perms & need`, que
+    # es OR — un `dashboard.*` de más abriría el item a todos los oficiales.
+    ("Solicitudes",         "bi-person-plus", "/titulatec/admin/solicitudes",  {"titulatec.enrollment_request.page.list"}),
+    ("Liberaciones",        "bi-patch-check", "/titulatec/admin/liberaciones", {"titulatec.survey_review.page.list"}),
+    ("Encuestas",           "bi-clipboard-data", "/titulatec/admin/encuestas", {"titulatec.survey.page.list"}),
     ("Actos protocolarios", "bi-mortarboard", "#",                             {"titulatec.ceremony.page.list"}),
 ]
 

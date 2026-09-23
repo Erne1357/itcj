@@ -59,6 +59,37 @@ def _month_arg(raw: str):
     return today.year, today.month
 
 
+def _parse_day(raw: str | None):
+    """'YYYY-MM-DD' → `date`, o `None`. Vacío y basura dan `None`, no 500."""
+    from datetime import datetime
+    if not raw or not str(raw).strip():
+        return None
+    try:
+        return datetime.strptime(str(raw).strip(), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _window_ctx(db, cohort, *, can_edit: bool) -> dict:
+    """Contexto del parcial `cohort/cohort_window.html`.
+
+    Las fechas se entregan ya en ISO porque `<input type="date">` solo acepta
+    ese formato: cualquier otro lo deja en blanco y el editor parecería vacío
+    sobre una convocatoria que sí tiene ventana. No es cosmético —
+    `CohortService.set_window` escribe SIEMPRE las dos fechas con lo que reciba,
+    sin conservar lo anterior, así que un input en blanco las borra.
+    """
+    return {
+        "cohort_id": cohort.id,
+        "window": {
+            "status": cohort.status,
+            "opens_at": cohort.opens_at.isoformat() if cohort.opens_at else "",
+            "closes_at": cohort.closes_at.isoformat() if cohort.closes_at else "",
+        },
+        "can_edit_window": can_edit,
+    }
+
+
 def _cohort_summary_ctx(db, cohort) -> dict:
     from itcj2.apps.titulatec.models import TitulationProcess, ReviewAppointment, PhaseDefinition
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
@@ -202,12 +233,15 @@ async def student_lookup(cohort_id: int, request: Request, control: str = "",
                          user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
     from itcj2.database import SessionLocal
     from itcj2.core.models.user import User
+    # MAYÚSCULA antes de buscar: el lookup es un filter_by exacto y una letra
+    # en minúscula no encontraría a un alumno ya dado de alta con "B...".
+    control = control.strip().upper()
     db = SessionLocal()
     try:
-        found = db.query(User).filter_by(control_number=control.strip()).first() if control.strip() else None
-        ctx = {"cohort_id": cohort_id, "control": control.strip(),
+        found = db.query(User).filter_by(control_number=control).first() if control else None
+        ctx = {"cohort_id": cohort_id, "control": control,
                "found": ({"name": found.full_name} if found else None),
-               "searched": bool(control.strip()),
+               "searched": bool(control),
                "programs": _programs(db), "modalities": _modalities(db)}
     finally:
         db.close()
@@ -229,7 +263,10 @@ async def student_add(cohort_id: int, request: Request,
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.core.models.user import User
     form = dict(await request.form())
-    control = (form.get("control_number") or "").strip()
+    # MAYÚSCULA antes de buscar/crear: `_add_student` -> `ImportService.
+    # import_rows` hace el merge con un filter_by exacto, y una letra en
+    # minúscula duplicaría la cuenta en vez de encontrar/adjuntar la existente.
+    control = (form.get("control_number") or "").strip().upper()
     db = SessionLocal()
     try:
         cohort = db.get(Cohort, cohort_id)
@@ -287,6 +324,11 @@ async def review_days_toggle(cohort_id: int, request: Request,
 
 _ROLE_LABELS = {
     "titulatec_titulaciones": "Titulaciones",
+    # Rol nuevo del Departamento de Titulacion (2026-09-21, Tarea 5): la
+    # bandeja `/titulatec/admin/` la resuelve `role_label` con `next(...)`
+    # sobre este dict, y sin esta fila el actor cae al "Administración" por
+    # omisión aunque su rol real ya exista.
+    "titulatec_titulacion": "Titulación",
     "titulatec_school_services": "Servicios Escolares",
     "admin": "Administración",
 }
@@ -373,19 +415,38 @@ async def cohort_create(
     period_id: int = Form(...),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.create"])),
 ):
+    """Alta de convocatoria: nace en `draft` y con su lista de requisitos.
+
+    Dos cambios respecto a la versión anterior, ambos deliberados:
+
+    * **`status='draft'`, no `'open'`.** Toda convocatoria nacía abierta con
+      `opens_at`/`closes_at` en NULL, así que el predicado de "convocatoria
+      pública abierta" era verdadero para TODAS y el formulario público no
+      habría sabido a cuál inscribir. La abre el editor de ventana.
+    * **Siembra los requisitos de cotejo en la MISMA transacción.** `list_or_seed`
+      es perezoso y solo se dispararía desde una página gateada por la fase 2:
+      un alumno en fase 1 que contesta la encuesta no tendría requisito que
+      acreditar y el crédito se perdería en silencio.
+    """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
     from itcj2.core.models.academic_period import AcademicPeriod
 
     db = SessionLocal()
     try:
         if not db.query(Cohort).filter_by(period_id=period_id).first():
             period = db.get(AcademicPeriod, period_id)
-            db.add(Cohort(
+            cohort = Cohort(
                 period_id=period_id,
                 name=f"Convocatoria Titulación {period.code if period else period_id}",
-                status="open", created_by_id=int(user["sub"]),
-            ))
+                status="draft", created_by_id=int(user["sub"]),
+            )
+            db.add(cohort)
+            db.flush()          # hace falta el id para sembrar
+            CotejoRequirementService.seed_defaults(db, cohort.id, commit=False)
             db.commit()
     finally:
         db.close()
@@ -398,7 +459,7 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.core.services.authz_service import get_user_permissions_for_app
-    tab = tab if tab in ("resumen", "dias", "alumnos", "importar") else "resumen"
+    tab = tab if tab in ("resumen", "dias", "alumnos", "importar", "cotejo") else "resumen"
     db = SessionLocal()
     try:
         cohort = db.get(Cohort, cohort_id)
@@ -409,6 +470,8 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
                "can_edit_days": "titulatec.cohort.api.review_days" in perms}
         if tab == "resumen":
             ctx["summary"] = _cohort_summary_ctx(db, cohort)
+            ctx.update(_window_ctx(
+                db, cohort, can_edit="titulatec.cohort.api.update" in perms))
         elif tab == "importar":
             pass  # el wizard de importación se sirve con el cohort ya en ctx
         elif tab == "dias":
@@ -417,9 +480,306 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
             ctx["days"] = _review_days_ctx(db, cohort_id, today.year, today.month)
         elif tab == "alumnos":
             ctx.update(_students_ctx(db, cohort_id, q="", phase=None, page=1))
+        elif tab == "cotejo":
+            # `_cotejo_reqs_ctx` vuelve a pedir los permisos (ya están en `perms`
+            # de arriba), pero `get_user_permissions_for_app` va por el caché de
+            # authz y la ruta suelta necesita el helper autocontenido: se deja la
+            # llamada tal cual para que el editor tenga UNA sola forma de armarse.
+            ctx.update(_cotejo_reqs_ctx(db, cohort_id, int(user["sub"])))
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/cohort_detail.html", ctx)
+
+
+# ===========================================================================
+# Requisitos de cotejo por convocatoria
+# ===========================================================================
+# Las URL las dicta el parcial `partials/cohort/cohort_cotejo_reqs.html`, que
+# existe desde el rediseño de Citas y posteaba a tres rutas inexistentes
+# (`:15`, `:36`, `:50`). Su raíz es `id="cotejo-reqs-body"` y TODOS sus controles
+# usan `hx-target="#cotejo-reqs-body" hx-swap="outerHTML"`, así que las cuatro
+# rutas devuelven el parcial COMPLETO, nunca una fila.
+#
+# UN SOLO permiso en la lista, y a propósito: `require_page_app` la evalúa como
+# OR (`itcj2/dependencies.py:131`). Cualquier `dashboard.*` que se cuele aquí
+# abre el editor de la convocatoria al encargado de carrera, igual que pasó con
+# `_COHORT_PERMS`. La pestaña de `cohort_detail` tampoco es motivo para ensanchar
+# esta lista: esa página va por `_COHORT_PERMS` y el parcial se pinta en solo
+# lectura cuando `can_edit_reqs` es False.
+_COTEJO_REQ_PERMS = ["titulatec.cohort.api.cotejo_reqs"]
+
+_TT_COTEJO_PARTIAL = "titulatec/partials/cohort/cohort_cotejo_reqs.html"
+
+
+def _cotejo_reqs_ctx(db, cohort_id: int, user_id: int) -> dict:
+    """Contexto del parcial. `active_only=False`: el editor sí lista los inactivos.
+
+    Desactivar es la vía soportada en vez de borrar (un requisito con
+    cumplimientos NO se puede borrar), así que ocultarlos aquí dejaría al usuario
+    sin forma de reactivarlos. El parcial ya los pinta con `opacity-50`.
+
+    `CotejoRequirementService.list`, NO `list_or_seed`: un GET jamás siembra. La
+    convocatoria nace con sus requisitos (Tarea 4, `cohort_create`), y si alguna
+    vieja no los tiene, el editor muestra el vacío y la jefa los agrega.
+
+    `info_by_req` es la «Información para el alumno» de cada requisito YA
+    re-sanitizada: la segunda sanitización del diseño, al PINTAR (la primera es
+    al guardar, en el servicio), para que una fila escrita por fuera del editor
+    —un UPDATE a mano, un DML— tampoco inyecte. Sin tope (`max_len=None`): una
+    fila vieja nunca tumba la página. El parcial pinta con `|safe` SOLO este
+    mapa, nunca `r.info_html`.
+    """
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+    from itcj2.apps.titulatec.utils.rich_text import sanitize_info_html
+    from itcj2.core.services.authz_service import get_user_permissions_for_app
+
+    perms = get_user_permissions_for_app(db, user_id, "titulatec")
+    reqs = CotejoRequirementService.list(db, cohort_id, active_only=False)
+    return {
+        "reqs": reqs,
+        "cohort_id": cohort_id,
+        "can_edit_reqs": "titulatec.cohort.api.cotejo_reqs" in perms,
+        "info_by_req": {r.id: sanitize_info_html(r.info_html, max_len=None) for r in reqs},
+    }
+
+
+@router.get("/cohorts/{cohort_id}/cotejo-reqs", name="titulatec.pages.admin.cotejo_reqs")
+async def cotejo_reqs(
+    cohort_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
+):
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        ctx = _cotejo_reqs_ctx(db, cohort_id, int(user["sub"]))
+        return render_titulatec(request, _TT_COTEJO_PARTIAL, ctx)
+    finally:
+        db.close()
+
+
+@router.post("/cohorts/{cohort_id}/cotejo-reqs", name="titulatec.pages.admin.cotejo_req_create")
+async def cotejo_req_create(
+    cohort_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
+):
+    """Agrega un requisito, con su «Información para el alumno» si la trae.
+
+    `info_html` llega CRUDO del editor (input oculto del formulario de alta) y lo
+    sanitiza el servicio. Excederse del tope es 400 + `X-Tt-Error` sin escribir
+    nada: htmx no swappea en 4xx, así que el editor conserva lo escrito.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+    from itcj2.apps.titulatec.utils.rich_text import InfoHtmlTooLong
+
+    form = dict(await request.form())
+    label = (form.get("label") or "").strip()
+    if not label:
+        return Response(status_code=400,
+                        headers={"X-Tt-Error": _hdr("Escribe el nombre del requisito.")})
+    info = form.get("info_html")
+    db = SessionLocal()
+    try:
+        try:
+            CotejoRequirementService.create(
+                db, cohort_id, label=label,
+                hint=((form.get("hint") or "").strip() or None),
+                icon=((form.get("icon") or "").strip() or None),
+                is_required=bool(form.get("is_required")),
+                # Un campo que no es texto (un archivo con ese nombre) se ignora.
+                info_html=(info if isinstance(info, str) else None),
+            )
+        except InfoHtmlTooLong as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        ctx = _cotejo_reqs_ctx(db, cohort_id, int(user["sub"]))
+        return render_titulatec(request, _TT_COTEJO_PARTIAL, ctx)
+    finally:
+        db.close()
+
+
+@router.post("/cohorts/{cohort_id}/cotejo-reqs/{rid}/update",
+             name="titulatec.pages.admin.cotejo_req_update")
+async def cotejo_req_update(
+    cohort_id: int,
+    rid: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
+):
+    """Actualiza etiqueta, detalle, ícono, las dos casillas y la información.
+
+    `code`/`auto_source` NO son editables: los siembra `seed_defaults` y son la
+    identidad estable del requisito. Y **no hay input de `order_index`** en el
+    parcial, así que aquí no se toca: pasarlo como `None` lo dejaría igual, pero
+    ni siquiera se menciona para que nadie lo añada sin cambiar el formulario.
+
+    `info_html` se pasa SOLO si el formulario lo trae: para el servicio su
+    presencia es la intención (ausente = no se toca; vacío = se borra). Un
+    formulario sin editor —una pestaña abierta antes de este cambio— no borra la
+    información. Excederse del tope es 400 + `X-Tt-Error` sin escribir nada.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+    from itcj2.apps.titulatec.utils.rich_text import InfoHtmlTooLong
+
+    form = dict(await request.form())
+    label = (form.get("label") or "").strip()
+    if not label:
+        return Response(status_code=400,
+                        headers={"X-Tt-Error": _hdr("Escribe el nombre del requisito.")})
+    # Las casillas ausentes son False, no "sin cambio": un checkbox que el
+    # navegador no envía es exactamente el usuario desmarcándolo.
+    campos = {
+        "label": label,
+        "hint": ((form.get("hint") or "").strip() or None),
+        "icon": ((form.get("icon") or "").strip() or None),
+        "is_required": bool(form.get("is_required")),
+        "is_active": bool(form.get("is_active")),
+    }
+    info = form.get("info_html")
+    if isinstance(info, str):
+        campos["info_html"] = info
+    db = SessionLocal()
+    try:
+        try:
+            CotejoRequirementService.update(db, rid, cohort_id, **campos)
+        except InfoHtmlTooLong as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        ctx = _cotejo_reqs_ctx(db, cohort_id, int(user["sub"]))
+        return render_titulatec(request, _TT_COTEJO_PARTIAL, ctx)
+    finally:
+        db.close()
+
+
+@router.post("/cohorts/{cohort_id}/cotejo-reqs/{rid}/delete",
+             name="titulatec.pages.admin.cotejo_req_delete")
+async def cotejo_req_delete(
+    cohort_id: int,
+    rid: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
+):
+    """Borra el requisito, con dos negativas.
+
+    * Un requisito con `auto_source` no se borra desde la UI: `create()` no puede
+      fijar ese campo, así que borrarlo dejaría a la encuesta sin nada que
+      acreditar en esa convocatoria y sin forma de restaurarlo.
+    * Un requisito que alguien ya cumplió tampoco: la FK de los cumplimientos es
+      `ON DELETE RESTRICT`, y borrarlo destruiría el crédito dejando la bitácora
+      contradiciendo el estado.
+
+    `not_found` NO es error: el `delete` de la Tarea 4 devuelve `(False,
+    "not_found")` y aquí se re-renderiza la lista, que es lo correcto para htmx
+    (la fila ya no está; el swap deja al usuario viendo el estado real).
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import CotejoRequirement
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+
+    db = SessionLocal()
+    try:
+        item = db.query(CotejoRequirement).filter_by(id=rid, cohort_id=cohort_id).first()
+        if item is not None and item.auto_source:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "Ese requisito lo acredita el sistema: desactívalo en vez de borrarlo.")})
+        ok, motivo = CotejoRequirementService.delete(db, rid, cohort_id)
+        if not ok and motivo.startswith("fulfilled:"):
+            n = motivo.split(":", 1)[1]
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                f"Ese requisito ya lo cumplieron {n} alumnos; "
+                f"desactívalo en vez de borrarlo.")})
+        ctx = _cotejo_reqs_ctx(db, cohort_id, int(user["sub"]))
+        return render_titulatec(request, _TT_COTEJO_PARTIAL, ctx)
+    finally:
+        db.close()
+
+
+@router.post("/cohorts/{cohort_id}/ventana", name="titulatec.pages.admin.cohort_window")
+async def cohort_window(
+    cohort_id: int,
+    request: Request,
+    status: str = Form(...),
+    opens_at: str = Form(""),
+    closes_at: str = Form(""),
+    user: dict = Depends(require_page_app("titulatec",
+                                          perms=["titulatec.cohort.api.update"])),
+):
+    """Escribe la ventana de inscripción pública y aplica la pausa/reanudación.
+
+    UN SOLO código en `perms`, y el específico. `require_page_app` evalúa la
+    lista como OR (`dependencies.py:131`): un `dashboard.*` de más abriría el
+    interruptor que pausa los procesos de toda una convocatoria a cualquier
+    oficial (es el incidente documentado en `_COHORT_PERMS`, arriba).
+
+    `titulatec.cohort.api.update` lleva sembrado desde el primer DML
+    (`02_insert_permissions.sql:44`) y hasta ahora no gateaba nada.
+
+    El flip de procesos NO se replica aquí: `CohortService.set_window` es el
+    actor único de D5 y hace su propio `commit`. Esta ruta llama y pinta.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.apps.titulatec.models import Cohort
+
+    db = SessionLocal()
+    try:
+        if db.get(Cohort, cohort_id) is None:
+            return Response(status_code=404)
+        try:
+            res = CohortService.set_window(
+                db, cohort_id,
+                opens_at=_parse_day(opens_at), closes_at=_parse_day(closes_at),
+                status=(status or "").strip(), actor_id=int(user["sub"]),
+            )
+        except ValueError as exc:
+            # htmx NO swappea en 4xx: el mensaje viaja en el header y lo pinta el
+            # escucha de `base_admin.html:100-108`. `_hdr` lo percent-codifica
+            # porque los headers son latin-1 y todos nuestros textos van con
+            # acentos.
+            #
+            # SIN `db.rollback()`, a propósito. `CohortService.set_window` lanza
+            # sus tres ValueError —estado desconocido, convocatoria inexistente y
+            # `closes_at < opens_at`— ANTES de su primera escritura, así que no
+            # hay nada que deshacer. Y un rollback "por si acaso" no es gratis:
+            # bajo el `join_transaction_mode="create_savepoint"` del harness
+            # emite ROLLBACK TO SAVEPOINT y descarta también las filas que
+            # sembraron las fábricas —la jefa, su rol, sus permisos y la
+            # convocatoria—, con lo que el `db_session.refresh(cohort)` de
+            # `test_el_cierre_anterior_a_la_apertura_se_rechaza` reventaría con
+            # `ObjectDeletedError`. El repo ya escarmentó en
+            # `pages/appointments.py`: si algún día hiciera falta un rollback
+            # aquí, va gateado por la clase de error que de verdad envenena la
+            # transacción de Postgres, nunca en el `except` entero.
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+
+        cohort = db.get(Cohort, cohort_id)
+        perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
+        ctx = _window_ctx(db, cohort,
+                          can_edit="titulatec.cohort.api.update" in perms)
+    finally:
+        db.close()
+
+    partes = []
+    if res["paused"]:
+        partes.append(f"{res['paused']} proceso(s) en pausa")
+    if res["resumed"]:
+        partes.append(f"{res['resumed']} proceso(s) reanudado(s)")
+    aviso = "Ventana guardada" + (f": {', '.join(partes)}." if partes else ".")
+
+    resp = render_titulatec(request, "titulatec/partials/cohort/cohort_window.html", ctx)
+    resp.headers["X-Tt-Notice"] = _hdr(aviso)
+    resp.headers["X-Tt-Notice-Kind"] = "success"
+    return resp
 
 
 # ===========================================================================
@@ -608,12 +968,21 @@ _INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
 # crudo en vez de desaparecer: un historial que se calla no es un historial.
 _EVENT_UI = {
     "process_created":              ("Alta en la convocatoria",   "person-plus",            "neutral"),
+    # Alta por el formulario publico, no por CSV ni a mano: al oficial le dice
+    # por que este expediente existe sin que el lo capturara.
+    "enrollment_self_service":      ("Se inscribió por el formulario", "globe",              "neutral"),
+    # Los escribe `CohortService.set_window` al cerrar y reabrir la convocatoria.
+    # Explican por que un proceso se quedo quieto sin accion de nadie.
+    "process_paused":               ("Proceso pausado",           "pause-circle",           "amber"),
+    "process_resumed":              ("Proceso reanudado",         "arrow-clockwise",        "neutral"),
     "document_uploaded":            ("Subió un documento",        "cloud-arrow-up",         "neutral"),
     "document_approved":            ("Documento aprobado",        "check-lg",               "success"),
     "document_rejected":            ("Documento rechazado",       "x-lg",                   "danger"),
     "document_deleted":             ("Documento eliminado",       "trash",                  "danger"),
     "phase_approved":               ("Fase aprobada",             "check-circle",           "success"),
     "phase_rejected":               ("Fase rechazada",            "exclamation-triangle",   "danger"),
+    "requirement_fulfilled":        ("Requisito acreditado",      "check2-square",          "success"),
+    "requirement_unfulfilled":      ("Requisito desmarcado",      "square",                 "amber"),
     "process_completed":            ("Proceso completado",        "trophy",                 "success"),
     "appointment_scheduled":        ("Cita agendada",             "calendar-plus",          "neutral"),
     "appointment_confirmed":        ("El alumno confirmó",        "check2-circle",          "success"),
@@ -623,6 +992,16 @@ _EVENT_UI = {
     "appointment_attended":         ("Cotejo atendido",           "check-circle",           "success"),
     "appointment_no_show":          ("No se presentó",            "person-x",               "danger"),
     "appointment_undo_no_show":     ("Se deshizo la falta",       "arrow-counterclockwise", "amber"),
+    # Lo escribe `AppointmentService.cancel`, que comparten el alumno y el
+    # encargado: la etiqueta es NEUTRAL porque el mismo `event_type` sirve a los
+    # dos y «El alumno cancelo» seria mentira cuando cancelo la ventanilla.
+    "appointment_cancelled":        ("Cita cancelada",            "calendar-x",             "danger"),
+    # Liberacion de la encuesta de egresados (GTV). Faltaban los cuatro, asi que
+    # el expediente enseñaba `survey_review_approved` en crudo.
+    "survey_review_submitted":      ("Envió la encuesta de egresados", "clipboard-check",   "neutral"),
+    "survey_review_approved":       ("GTV liberó la encuesta",    "patch-check",            "success"),
+    "survey_review_rejected":       ("GTV dejó observaciones",    "chat-left-text",         "amber"),
+    "survey_review_revoked":        ("Se revocó la liberación",   "arrow-counterclockwise", "amber"),
 }
 
 # Fases con contenido propio en el expediente. El resto tiene modelo y tabla y
@@ -705,6 +1084,16 @@ def _evento_detalle(ev, doc_names: dict) -> str | None:
     trozo se añade solo si está.
     """
     p = ev.payload or {}
+    # Los sucesos de requisito traen `label` (la etiqueta congelada al
+    # acreditar) y un `source` que aqui significa QUIEN acredito
+    # (officer|system|self_service), no el origen del alta. `unfulfill` guarda
+    # ese dato como `source_previo`, que es lo unico que sobrevive al borrado.
+    if ev.event_type in ("requirement_fulfilled", "requirement_unfulfilled"):
+        etiqueta = p.get("label") or p.get("code")
+        origen = {"officer": "en ventanilla", "system": "por el sistema",
+                  "self_service": "por el alumno"}.get(
+                      p.get("source") or p.get("source_previo"))
+        return " · ".join([x for x in (etiqueta, origen) if x]) or None
     partes = []
     code = p.get("type_code")
     if code:
@@ -730,8 +1119,8 @@ def _evento_detalle(ev, doc_names: dict) -> str | None:
     return texto or None
 
 
-def _detail_ctx(db, process_id: int, *, open_phase=None, back_raw=None,
-                doc_abierto=None) -> dict | None:
+def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=None,
+                back_raw=None, doc_abierto=None) -> dict | None:
     """El expediente completo en un número FIJO de consultas.
 
     Antes esto pedía un `DocumentType` por cada código dentro de un bucle, y no
@@ -852,7 +1241,83 @@ def _detail_ctx(db, process_id: int, *, open_phase=None, back_raw=None,
         formato_b = {"status": fb_row.status, "datos": FormatBService.to_ctx(fb_row),
                      "program_name": program.name if program else None}
 
+    # ---- requisitos de cotejo de la fase 2 (§5.4) ----
+    #
+    # Lectura NO SEMBRADORA a proposito. `RequirementService.list_with_status`
+    # enruta a `CotejoRequirementService.list_or_seed` -> `seed_defaults(
+    # commit=True)`: un simple GET del expediente COMMITEARIA ocho filas en la
+    # convocatoria del alumno. Aqui se copia la forma de consulta de
+    # `RequirementService.missing_required`, que ya es la no sembradora, y se
+    # deja la siembra donde pertenece (crear la convocatoria y acreditar la
+    # encuesta).
+    from itcj2.apps.titulatec.models import CotejoRequirement, RequirementFulfillment
+    from itcj2.apps.titulatec.services.requirement_service import DONE_STATUSES
+
+    req_rows = (db.query(CotejoRequirement)
+                .filter_by(cohort_id=proc.cohort_id, is_active=True)
+                .order_by(CotejoRequirement.order_index, CotejoRequirement.id)
+                .all())
+    cumplidos = {
+        f.requirement_id: f for f in
+        db.query(RequirementFulfillment).filter_by(process_id=process_id).all()
+    }
+    # Diccionarios PLANOS, no objetos ORM: `process_detail` renderiza DESPUES de
+    # su `db.close()` y un atributo expirado sobre una instancia desanclada
+    # lanzaria `DetachedInstanceError` (misma razon que `_checklist_ctx` del
+    # alumno en `pages/student.py`).
+    requisitos = []
+    for r in req_rows:
+        ful = cumplidos.get(r.id)
+        requisitos.append({
+            "id": r.id,
+            "icon": r.icon or "check2-square",
+            "label": r.label,
+            "hint": r.hint or "",
+            "required": bool(r.is_required),
+            "auto_source": r.auto_source,
+            "done": bool(ful is not None and ful.status in DONE_STATUSES),
+            "status": (ful.status if ful else None),
+            "source": (ful.source if ful else None),
+            "note": (ful.note if ful else None),
+            "when": (f"{ful.fulfilled_at:%d/%m/%Y}" if ful and ful.fulfilled_at else None),
+        })
+
+    # Los controles se pintan solo para quien puede usarlos: un boton que
+    # contesta 403 es peor que no estar. Mismo patron que `cohort_detail`.
+    can_mark_reqs = False
+    # Arreglo A2 (revision final 2026-09-21): mismo criterio para «Mover de
+    # fase» (_exp_shell.html) y «Aprobar/Rechazar Formato B» (_exp_phase.html,
+    # fase 3) -- el spec §10 paso 4 exige que la jefatura de la Division
+    # (titulatec_titulaciones, recortada a supervision) ya NO vea estos
+    # botones tras perder el permiso, y hoy los veia igual porque el template
+    # solo miraba el ESTADO del dato, nunca el permiso del actor.
+    # `can_dictaminar_fase` es OR de approve_phase/reject_phase porque el
+    # modal «Mover de fase» ofrece las DOS acciones (`process_detail.html`,
+    # botones «Aprobar fase»/«Rechazar fase» del mismo `#exp-modal-fase`): con
+    # solo uno de los dos permisos, al menos una mitad del modal SI funciona.
+    can_dictaminar_fase = False
+    can_dictaminar_fb = False
+    if user_id is not None:
+        from itcj2.core.services.authz_service import get_user_permissions_for_app
+        _user_perms = get_user_permissions_for_app(db, user_id, "titulatec")
+        can_mark_reqs = "titulatec.process.api.requirement.mark" in _user_perms
+        can_dictaminar_fase = bool(_user_perms & {
+            "titulatec.process.api.approve_phase", "titulatec.process.api.reject_phase",
+        })
+        can_dictaminar_fb = bool(_user_perms & {
+            "titulatec.format_b.api.approve", "titulatec.format_b.api.reject",
+        })
+
     appt = AppointmentService.get_for_process(db, process_id)
+
+    # Estatus de la solicitud de liberación de GTV para la encuesta de
+    # egresados (D3, spec 2026-09-15-titulatec-liberacion-gtv §6.2). Dict
+    # plano de `summary_for_process`, MISMA fuente que el panel de atender
+    # (`pages/appointments.py::_detail_ctx`): el expediente también renderiza
+    # DESPUÉS de su `db.close()`.
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    survey = SurveyReviewService.summary_for_process(db, process_id)
+
     return {
         "process": proc.to_dict(),
         "student": {
@@ -880,6 +1345,11 @@ def _detail_ctx(db, process_id: int, *, open_phase=None, back_raw=None,
                  if appt else None),
         "formato_b": formato_b,
         "otros_eventos": sin_fase,
+        "requisitos": requisitos,
+        "can_mark_reqs": can_mark_reqs,
+        "can_dictaminar_fase": can_dictaminar_fase,
+        "can_dictaminar_fb": can_dictaminar_fb,
+        "survey": survey,
     }
 
 
@@ -1052,17 +1522,17 @@ async def process_detail(
         # puede devolver None a partir de aqui.
         assert_process_in_scope(db, int(user["sub"]), process_id)
         params = _exp_params(request)
-        ctx = _detail_ctx(db, process_id, **params)
+        ctx = _detail_ctx(db, process_id, user_id=int(user["sub"]), **params)
         ctx["zona"] = _exp_query(params)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/process_detail.html", ctx)
 
 
-def _render_detail_body(request, db, process_id):
+def _render_detail_body(request, db, process_id, user_id: int | None = None):
     """El cuerpo del expediente re-renderizado tras una acción (swap HTMX)."""
     params = _exp_params(request)
-    ctx = _detail_ctx(db, process_id, **params)
+    ctx = _detail_ctx(db, process_id, user_id=user_id, **params)
     ctx["zona"] = _exp_query(params)
     return render_titulatec(request, "titulatec/partials/processes/_exp_shell.html", ctx)
 
@@ -1085,11 +1555,15 @@ async def fb_review(
     status = "approved" if action == "approve" else "rejected"
     db = SessionLocal()
     try:
-        assert_process_in_scope(db, int(user["sub"]), process_id)
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
         fb = db.get(FormatB, process_id)
         if fb:
-            FormatBService.review(db, fb, status=status, note=note, reviewer_id=int(user["sub"]))
-        return _render_detail_body(request, db, process_id)
+            try:
+                FormatBService.review(db, fb, proc, status=status, note=note,
+                                      reviewer_id=int(user["sub"]))
+            except ValueError as exc:
+                return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
     finally:
         db.close()
 
@@ -1114,7 +1588,7 @@ async def phase_approve(
             PhaseService.approve_phase(db, proc, n, int(user["sub"]))
         except ValueError as exc:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
-        return _render_detail_body(request, db, process_id)
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
     finally:
         db.close()
 
@@ -1145,6 +1619,85 @@ async def phase_reject(
             PhaseService.reject_phase(db, proc, n, int(user["sub"]), reason)
         except ValueError as exc:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
-        return _render_detail_body(request, db, process_id)
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
+    finally:
+        db.close()
+
+
+@router.post("/processes/{process_id}/requisitos/{rid}",
+             name="titulatec.pages.admin.process_requirement")
+async def process_requirement(
+    process_id: int,
+    rid: int,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.process.api.requirement.mark"])),
+):
+    """El oficial marca, dispensa o desmarca un requisito de cotejo del alumno.
+
+    `action` ∈ ``mark`` | ``waive`` | ``unmark``; `note` es libre y es lo que se
+    guarda como justificación de la dispensa.
+
+    **Permiso NUEVO** (`titulatec.process.api.requirement.mark`). El
+    `titulatec.process.api.review` que se había supuesto NO existe en el repo:
+    como `require_page_app` resuelve el código contra `core_permissions` y no
+    tiene bypass de admin global, exigirlo habría dado 403 a todo el mundo y
+    dejado la fase 2 permanentemente inaprobable. Se otorga a
+    `titulatec_school_services` y a `titulatec_school_services_head`: quien usa
+    el checklist en ventanilla es el encargado operativo, no solo la jefa.
+
+    Quién acreditó queda en `checked_by_id`, que es el campo donde `fulfill`
+    escribe la identidad del oficial.
+
+    Los requisitos con `auto_source` son de SOLO LECTURA aquí: los acredita el
+    sistema (hoy, la encuesta de egresados) y marcarlos a mano rompería la
+    trazabilidad de `external_ref`.
+
+    Devuelve el cuerpo del expediente re-renderizado, igual que aprobar/rechazar
+    fase: el checklist se pinta en `_exp_phase.html` (rama de la fase 2), que
+    `_exp_shell.html` incluye por fase, y el swap es del shell entero, no de la
+    fila.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import CotejoRequirement
+    from itcj2.apps.titulatec.services.requirement_service import RequirementService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    form = dict(await request.form())
+    accion = (form.get("action") or "mark").strip()
+    # `note` AUSENTE = «no lo mandes, conserva lo que haya»; `note` VACÍO =
+    # «borra la nota». La distinción es deliberada: `RequirementService.fulfill`
+    # lee `None` como "el llamador no lo manda" y conserva el valor anterior,
+    # así que normalizar el campo vacío a `None` dejaría al oficial sin forma de
+    # corregir una nota equivocada salvo desmarcando y volviendo a marcar. El
+    # formulario del checklist SIEMPRE envía el input, así que vaciarlo borra.
+    nota = form["note"].strip() if "note" in form else None
+
+    db = SessionLocal()
+    try:
+        # El guard sustituye al `db.get` + 404 y ademas comprueba que el proceso
+        # sea de una carrera del usuario. 404 uniforme, sin `X-Tt-Error`: el id
+        # es secuencial y un 403 convertiria la ruta en un contador del padron.
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+
+        req = (db.query(CotejoRequirement)
+               .filter_by(id=rid, cohort_id=proc.cohort_id).first())
+        if req is None:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "Ese requisito no es de la convocatoria del alumno.")})
+        if req.auto_source:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "Ese requisito lo acredita el sistema; no se marca a mano.")})
+
+        if accion == "unmark":
+            RequirementService.unfulfill(db, process_id, rid,
+                                         actor_id=int(user["sub"]))
+        else:
+            RequirementService.fulfill(
+                db, process_id, rid, source="officer",
+                checked_by_id=int(user["sub"]), note=nota,
+                status=("waived" if accion == "waive" else "fulfilled"),
+            )
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
     finally:
         db.close()

@@ -2,15 +2,34 @@ import os
 
 MAIL_STUDENT_DOMAIN = os.getenv("EMAIL_DOMAIN", "cdjuarez.tecnm.mx")
 
+def _norm_control(value: str) -> str:
+    """Normaliza para comparar: strip, mayúsculas, sin una "L" inicial."""
+    v = (value or "").strip().upper()
+    if v.startswith("L"):
+        v = v[1:]
+    return v
+
+
 def student_email(user) -> str:
     """
     Regla: si user.username existe → username@dominio
            si no → L{control_number}@dominio
+
+    Excepción: el importador de TitulaTec crea alumnos con
+    `username == control_number` (el número de control repetido, dígitos
+    puros — NO es un usuario real, así que no lleva la "L" del buzón
+    verdadero). Cuando el username normalizado coincide con el
+    control_number normalizado igual, se trata como "sin username" y se
+    aplica la forma `L{control}` — si no, esos alumnos salían con
+    `90200034@...` en vez de `L90200034@...` (36 casos en dev; los 8,195
+    del SII no tienen username y ya salían bien).
     """
     uname = (getattr(user, "username", None) or "").strip()
+    cn = (getattr(user, "control_number", None) or "").strip()
+    if uname and cn and _norm_control(uname) == _norm_control(cn):
+        uname = ""
     if uname:
         return f"{uname}@{MAIL_STUDENT_DOMAIN}"
-    cn = (getattr(user, "control_number", None) or "").strip()
     if not cn:
         return ""  # caller decide si salta
     if cn.upper().startswith("L"):

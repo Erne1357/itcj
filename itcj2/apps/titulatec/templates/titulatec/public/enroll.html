@@ -1,0 +1,52 @@
+{# Inscripción pública. Una sola plantilla para los estados de PÁGINA COMPLETA:
+   formulario, cierre de ventana y tarjetas de verificación. El POST no pasa por
+   aquí: responde con los parciales sueltos, que es lo que htmx swappea.
+
+   Los nombres de bloque son los que `base_public.html` REALMENTE declara. Jinja
+   descarta EN SILENCIO un bloque hijo que el padre no define, así que un
+   `public_main` inventado dejaría la página en blanco sin un solo error. Y no se
+   abre un `<main>` propio: la base ya emite
+   `<main class="tt-public-main tt-prose" data-tt-page="…">`; anidar otro deja el
+   de fuera con `data-tt-page=""` y viola el modo estricto del locator de T27.
+
+   `public_page` es un bloque SEPARADO de `public_body`: se declara "public_enroll"
+   siempre, sea cual sea la rama (formulario, cerrada, no disponible) que
+   `public_body` termine pintando -- por eso `data-tt-page="public_enroll"` sale
+   incluso cuando no hay convocatoria abierta (test_public_routes.py lo exige).
+
+   `public_main_class` (2026-09-17): sube el tope de la columna de 60ch al ancho
+   que necesitan el panel lateral y el formulario, y en la rama de AVISO añade
+   `--notice`, que es lo que centra la tarjeta verticalmente. Quien llena el
+   bloque pone el espacio inicial; la base conserva `tt-prose` y `data-tt-page`.
+   La encuesta usa el mismo mecanismo con `--survey`. #}
+{% extends "titulatec/public/base_public.html" %}
+{% block public_title %}Inscripción · TitulaTec{% endblock %}
+{% block public_page %}public_enroll{% endblock %}
+{% block public_main_class %} tt-public-main--enroll{% if notice %} tt-public-main--enroll-notice{% endif %}{% endblock %}
+{% block public_body %}
+  <div class="tt-enroll-head">
+    <span class="tt-kicker">Titulación</span>
+    <h1 class="tt-display tt-h1">Inscripción a titulación</h1>
+    {% if not notice %}
+    {# Este párrafo es contrato: `test_enrollment_public.py` lo compara
+       aplanado (INTRO_PAGINA). El corte de línea no importa, las palabras sí. #}
+    <p class="tt-enroll-lede">Llena tus datos. Servicios Escolares revisará tu solicitud y, si se
+       aprueba, te enviará tu acceso por correo.</p>
+    {% endif %}
+  </div>
+  {% if notice %}
+    {% if notice_key == 'closed' %}
+      {% include "titulatec/public/partials/enroll_closed.html" %}
+    {% else %}
+      {% include "titulatec/public/partials/notice_card.html" %}
+    {% endif %}
+  {% else %}
+  <div class="tt-enroll-layout">
+    {% include "titulatec/public/partials/enroll_aside.html" %}
+    {% include "titulatec/public/partials/enroll_form.html" %}
+  </div>
+  {% endif %}
+{% endblock %}
+{% block public_scripts %}
+<script src="/static/titulatec/js/public/enroll.js?v={{ sv('js/public/enroll.js') }}"></script>
+{% endblock %}

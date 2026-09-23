@@ -55,13 +55,21 @@ def _declared_models() -> dict[str, str]:
     return found
 
 
-def test_hay_18_modelos_declarados():
+def test_hay_25_modelos_declarados():
     """Guarda del propio test: si el AST deja de ver clases, lo de abajo pasaria
-    en verde sin verificar nada."""
+    en verde sin verificar nada.
+
+    18 (hasta 2026-09-07) + 7 de la encuesta, convocatoria y revisión:
+    `survey.py` declara CUATRO (SurveyForm, SurveyResponse, SurveyAnswer,
+    SurveyDraft), mas RequirementFulfillment, EnrollmentRequest y SurveyReview.
+
+    El spec dice «23» en §3.9 porque ahi cuenta cinco tablas de titulatec; §3.2
+    a §3.7 definen seis. El numero bueno es el que ve el AST.
+    """
     declared = _declared_models()
 
-    assert len(declared) == 18, (
-        f"se esperaban 18 modelos titulatec, el AST vio {len(declared)}: "
+    assert len(declared) == 25, (
+        f"se esperaban 25 modelos titulatec, el AST vio {len(declared)}: "
         f"{sorted(declared)}"
     )
 

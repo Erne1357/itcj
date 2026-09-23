@@ -11,7 +11,7 @@
    Contexto: pages/student.py::_phases_ctx. JS: static/js/student/dashboard.js.
    =========================================================================== #}
 {% extends "titulatec/student/base_student.html" %}
-{% from "titulatec/_macros.html" import pill, estado_pill %}
+{% from "titulatec/_macros.html" import pill, estado_pill, survey_review_pill %}
 {% block student_title %}Mi proceso · TitulaTec{% endblock %}
 {% block student_active %}home{% endblock %}
 {% block student_page %}student_dashboard{% endblock %}
@@ -59,7 +59,10 @@
              tabindex="-1" style="scroll-margin-top:84px">
           <div class="d-flex justify-content-between align-items-center gap-2">
             <span class="tt-kicker">Tu proceso · Fase {{ '%02d'|format(current.number) }}</span>
-            {{ estado_pill(current.status) }}
+            <div class="d-flex align-items-center gap-2">
+              {% if current.survey %}{{ survey_review_pill(current.survey.status) }}{% endif %}
+              {{ estado_pill(current.status) }}
+            </div>
           </div>
 
           <div class="tt-now-head mt-2">
@@ -67,7 +70,7 @@
             <div class="min-w-0">
               <div class="tt-now-title">{{ current.name }}</div>
               <div style="font-size:.72rem;color:var(--tt-mute);margin-top:3px">
-                {% if current.responsible == 'student' %}Te toca a ti{% else %}A cargo de {{ current.responsible_label }}{% endif %}
+                {% if current.responsible == 'student' %}Te toca a ti{% else %}A cargo {{ current.responsible_label_de }}{% endif %}
               </div>
             </div>
           </div>
@@ -100,6 +103,27 @@
           </div>
           {% elif current.status == 'skipped' %}
           <div class="mt-3">{{ pill('No aplica a tu modalidad', 'neutral', 'dash-circle') }}</div>
+          {% elif current.handoff %}
+          {# Corte a T-soft (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion): el
+             backend ya bloquea esta fase (PhaseService._handoff_phase); aqui se le
+             explica al alumno en vez de dejarlo frente al boton muerto de arriba.
+
+             `tt-handoff-note` + `tt-handoff-note--hero` (ronda de fix 2, correccion
+             sobre la ronda de fix 1): a 390x844 esta tarjeta media ~117px de holgura
+             frente al FAB y parecia no necesitar colchon, pero esa holgura depende
+             del ALTO del viewport, no del ancho -el FAB es fixed a 80px del fondo-.
+             A 375x667 (iPhone SE), con la fase 3 actual y SIN SCROLLEAR, el parrafo
+             ya solapaba el FAB en -59.5px -- y aqui `padding-bottom` (que si basta
+             en el panel del acordeon, mas abajo) NO alcanza: el alumno no desplaza
+             nada para ver esta tarjeta, sale completa desde la primera pintura, asi
+             que el padding de DESPUES del texto no mueve el texto (que ya esta
+             pintado exactamente donde estaba). Hacia falta clearance ANTES del
+             texto -- `tt-handoff-note--hero` empuja el parrafo hacia abajo lo
+             suficiente para que, sin scroll, quede por completo bajo el FAB en vez
+             de encima. Ver el comentario de ambas clases en titulatec.css. #}
+          <p class="tt-prose mb-0 tt-handoff-note tt-handoff-note--hero" style="font-size:.82rem;color:var(--tt-mute)">
+            <i class="bi bi-signpost-split me-1"></i>{{ handoff_copy }}
+          </p>
           {% else %}
           <p class="tt-prose mt-3 mb-0" style="font-size:.82rem;color:var(--tt-mute)">
             <i class="bi bi-hourglass-split me-1"></i>En proceso por {{ current.responsible_label }}.
@@ -158,6 +182,7 @@
                   <span class="tt-acc-name">{{ ph.name }}
                     {% if ph.progress %}<span class="tt-acc-sub">{{ ph.progress.label }}</span>{% endif %}
                   </span>
+                  {% if ph.survey %}{{ survey_review_pill(ph.survey.status) }}{% endif %}
                   {% if ph.status != 'pending' %}{{ estado_pill(ph.status) }}{% endif %}
                   <i class="bi bi-chevron-right tt-acc-chev" aria-hidden="true"></i>
                 </button>
@@ -184,6 +209,27 @@
                   <div class="p-3" style="border-radius:var(--tt-r);background:var(--tt-danger-soft);border:1px solid rgba(220,38,38,.2)">
                     <span class="tt-pill tt-pill--danger"><i class="bi bi-exclamation-triangle"></i> Observaciones</span>
                     <p class="tt-prose mb-0 mt-2" style="font-size:.8rem;color:#7F1D1D">{{ ph.rejection_reason }}</p>
+                  </div>
+                  {% endif %}
+
+                  {% if ph.survey %}
+                  {# D3 (spec §6.1): excepción deliberada a "Se habilitará cuando
+                     llegues a esta fase" -- la encuesta de egresados no está
+                     sujeta a la guarda de fase del alumno, así que se pinta con
+                     su estatus real aunque `ph.rel == 'future'`. Aditivo: el
+                     aviso genérico de más abajo sigue saliendo igual. #}
+                  <div>
+                    <div class="tt-acc-block-title"><i class="bi bi-clipboard-check"></i>Encuesta de egresados</div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      {{ survey_review_pill(ph.survey.status) }}
+                    </div>
+                    {% if ph.survey.status == 'rejected' and ph.survey.reason %}
+                    <p class="tt-prose mb-0 mt-2">{{ ph.survey.reason }}</p>
+                    {% endif %}
+                    {% if ph.survey.status == 'missing' and ph.survey.url %}
+                    <a class="btn btn-sm tt-btn-soft mt-2" href="{{ ph.survey.url }}">
+                      <i class="bi bi-pencil-square me-1"></i>Contestar la encuesta</a>
+                    {% endif %}
                   </div>
                   {% endif %}
 
@@ -217,6 +263,19 @@
                       {{ pill('No aplica a tu modalidad', 'neutral', 'dash-circle') }}
                     {% elif ph.rel == 'past' %}
                       {{ pill('Fase cerrada · ya no requiere acción', 'neutral', 'lock') }}
+                    {% elif ph.handoff %}
+                      {# Corte a T-soft (Tarea 3): esta fase nunca se va a "habilitar"
+                         aqui -- el corte se la llevo a T-soft igual que a la actual.
+                         `tt-handoff-note` (ronda de fix 1, Hallazgo 1): el acordeon
+                         puede desplegar esta nota en CUALQUIER punto de la lista, no
+                         solo al final de la pagina, y ahi el FAB flotante se le monta
+                         encima si el alumno se desplaza hasta el borde (medido: el
+                         parrafo quedaba a 16px del fondo del viewport, el FAB empieza
+                         a 80px). La tarjeta grande TAMBIEN la lleva desde la ronda de
+                         fix 2 -- ver su propio comentario, unas lineas arriba. #}
+                      <p class="tt-prose mb-0 tt-handoff-note" style="font-size:.78rem;color:var(--tt-mute)">
+                        <i class="bi bi-signpost-split me-1"></i>{{ handoff_copy }}
+                      </p>
                     {% else %}
                       {{ pill('Se habilitará cuando llegues a esta fase', 'neutral', 'hourglass-split') }}
                       {% if ph.who %}
@@ -235,6 +294,7 @@
                 <span class="tt-acc-name">{{ ph.name }}
                   {% if ph.progress %}<span class="tt-acc-sub">{{ ph.progress.label }}</span>{% endif %}
                 </span>
+                {% if ph.survey %}{{ survey_review_pill(ph.survey.status) }}{% endif %}
                 {{ pill('Actual', 'amber') }}
               </div>
               <a class="tt-acc-hint" href="#tt-fase-actual" data-tt-acc-goto>

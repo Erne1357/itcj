@@ -27,9 +27,10 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 
 | Símbolo | Significado |
 |---|---|
-| 👤 | Acción del **alumno** (rol `student`, mobile) |
+| 👤 | Acción del **alumno** (rol `graduate` desde 2026-09-15; antes `student`), mobile |
 | 🏛️ | Acción de **Servicios Escolares** (`titulatec_school_services`) |
 | 🎓 | Acción de **Titulaciones / DEP** (`titulatec_titulaciones`) |
+| 🛠️ | Acción de **Gestión Tecnológica y Vinculación** (`titulatec_tech_management`, GTV — desde 2026-09-15) |
 | 🔗 | Jefe de **Vinculación** (`titulatec_vinculacion`) · 🧑‍⚖️ **Sinodal** (`titulatec_sinodal`) |
 | 🤖 | Paso automático del sistema (sin humano) |
 | ⤵ | Compone/invoca otro flujo |
@@ -43,6 +44,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [Detalle de convocatoria: 4 sub-pestañas HTMX](phase0_school_services_cohort_detail.md) 🏛️ ⤵ compone las dos altas — el hub por convocatoria: resumen, alumnos, días de cotejo, importar.
 - [Servicios Escolares importa alumnos por CSV](phase0_school_services_import_csv.md) 🏛️🤖 — asistente de 3 pasos: subir → mapear/validar → confirmar.
 - [Alta manual de un alumno suelto](phase0_school_services_add_student_manual.md) 🏛️ ⤵ reusa `ImportService` — el que no venía en el CSV, por nº de control.
+- [Inscripción pública con revisión previa](xcut_public_enrollment.md) 👤🏛️🤖 ⤵ reusa `ImportService` — formulario público → bandeja de Solicitudes → usuario + NIP por correo (cuenta nueva) o liga de activación (cuenta existente, que se reactiva si estaba desactivada); el alumno recibe el rol `graduate`; riesgo aceptado y su contención.
 
 ### Fase 1 — Documentos iniciales
 - [El alumno sube sus documentos iniciales](phase1_student_upload_initial_docs.md) 👤
@@ -51,6 +53,9 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 
 ### Fase 2 — Cita de cotejo
 - [Cita de cotejo (loop completo)](phase2_appointment_loop.md) 🏛️👤 ⤵ engine
+- [El egresado agenda su propia cita](phase2_student_self_booking.md) 👤🏛️ ⤵ engine — desde 2026-09-16: el encargado publica su espacio como «Agendable» (o «Abierto sin cita») y el egresado elige franja, la cancela a tiempo, y el encargado se entera **por su tablero** con el distintivo «El alumno agendó».
+- [Información para el alumno de un requisito de cotejo](phase2_school_services_requirement_info.md) 🏛️👤 — la jefa escribe una nota enriquecida por requisito (editor Quill, sanitizada con `utils/rich_text.py`); el alumno la abre con el botón «i» en su cita.
+- [Liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md) 🛠️👤 — Gestión Tecnológica y Vinculación revisa lo que el egresado ya envió y decide si libera el requisito de cotejo `graduate_survey` o le deja observaciones; el egresado no vuelve a tocar la encuesta desde el sistema, lo resuelve físicamente en su ventanilla.
 
 ### Fase 3 — Formato B
 - [El alumno llena y envía el Formato B](phase3_student_formato_b.md) 👤
@@ -63,7 +68,12 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [Bandeja administrativa de procesos](xcut_admin_process_inbox.md) 🏛️🎓 ⤵ scope — tabla y kanban del mismo dataset, `idle_days` y filtro de atorados.
 - [Expediente del alumno](xcut_admin_process_expediente.md) 🏛️ ⤵ scope — acordeón de las 9 fases con el historial de cada una; documentos de solo lectura, mover de fase en modal, y el `?from=` que devuelve a la pestaña de origen con sus filtros.
 - [El alumno consulta el detalle de una fase](xcut_student_phase_detail.md) 👤 — **acordeón en el dashboard** (la pantalla `/fase/{n}` ya no existe: redirige): estado, instrucciones, sub-progreso, CTA y timeline.
+- [La jefatura da de alta encargados por carrera](xcut_school_services_manage_officers.md) 🏛️🤖 ⤵ alimenta el alcance — un encargado es un `Position` con rol y carreras; nombrar a una cuenta INACTIVA la reactiva y le restablece la contraseña (9 de 11 usuarios de Servicios Escolares lo estaban), y la pantalla lo dice antes y después.
 - [El alumno usa TitulaTec dentro del shell mobile del core](xcut_student_shell_embed.md) 👤 — embebido vs standalone, drawer/rail, notificaciones por Avisos, mini-perfil.
+- [Corte a T-soft y bandeja de Liberados](xcut_titulacion_handoff.md) 👤🎓 ⤵ gemela de las dos
+  guardas — de la fase 3 en adelante el proceso deja de operarse aquí (lo sigue el Departamento
+  de Titulación en T-soft); la pestaña **Liberados** (solo lectura) muestra a quién ya soltó
+  Servicios Escolares (`ProcessPhase(2).status == 'approved'`). Reversible con una sola variable.
 
 ### Referencias
 - [Máquina de estados (fases + citas + documentos)](00_state_machine.md)

@@ -7,8 +7,11 @@
  * Los arrays allPendingTickets / allAssigned... siguen cargándose para que
  * los modales (openAssignmentModal, openReassignmentModal, openEditTicketModal,
  * showTicketQuickView) continúen funcionando sin cambios.
- * Tras una acción (assign/reassign/edit/socket) se llama refreshLists() para
- * recargar los tres fragmentos server-side vía htmx.ajax.
+ * "Partir ticket" lo sirve el módulo compartido js/shared/split_ticket.js
+ * (window.HelpdeskSplit); openSplitTicketModal solo lo abre con el callback
+ * que recarga estas listas.
+ * Tras una acción (assign/reassign/edit/split/socket) se llama refreshLists()
+ * para recargar los tres fragmentos server-side vía htmx.ajax.
  */
 (function () {
     'use strict';
@@ -33,6 +36,8 @@
     let ticketToEdit = null;
     let categoriesCache = { DESARROLLO: [], SOPORTE: [] };
     let originalTicketData = null;
+
+    // El estado de "Partir ticket" es del módulo compartido (HelpdeskSplit).
 
     // Handles para destroy
     let _socketPollerInterval = null;
@@ -77,6 +82,7 @@
         window.openAssignmentModal = openAssignmentModal;
         window.openReassignmentModal = openReassignmentModal;
         window.openEditTicketModal = openEditTicketModal;
+        window.openSplitTicketModal = openSplitTicketModal;
         window.showTicketQuickView = showTicketQuickView;
         window.showTicketDetail = showTicketDetail;
         window.filterByTechnician = filterByTechnician;
@@ -156,12 +162,18 @@
             _editTicketModalInstance = null;
         }
 
+        // Modal compartido "Partir ticket": suelta su modal, sus listeners y su
+        // estado, e invalida la carga/envío que siga en vuelo (al resolver ya no
+        // encontrará su página y no tocará el DOM de la nueva).
+        window.HelpdeskSplit?.teardown();
+
         // Limpiar funciones globales
         delete window.refreshDashboard;
         delete window.loadPendingTickets;
         delete window.openAssignmentModal;
         delete window.openReassignmentModal;
         delete window.openEditTicketModal;
+        delete window.openSplitTicketModal;
         delete window.showTicketQuickView;
         delete window.showTicketDetail;
         delete window.filterByTechnician;
@@ -231,9 +243,13 @@
     function refreshLists() {
         if (!window.htmx) return;
         const base = '/help-desk/admin/assign-tickets';
-        window.htmx.ajax('GET', base + '?tab=queue',      { target: '#hd-tab-queue',      swap: 'innerHTML' });
-        window.htmx.ajax('GET', base + '?tab=assigned',   { target: '#hd-tab-assigned',   swap: 'innerHTML' });
-        window.htmx.ajax('GET', base + '?tab=inprogress', { target: '#hd-tab-inprogress', swap: 'innerHTML' });
+        // Cada lista es `source` de su propia petición. Sin `source`, htmx usa
+        // <body> como elemento de sincronización de las tres: la segunda queda
+        // en cola tras la primera y la tercera la reemplaza (cola "last"), así
+        // que la pestaña Asignado nunca se recargaba.
+        window.htmx.ajax('GET', base + '?tab=queue',      { source: '#hd-tab-queue',      target: '#hd-tab-queue',      swap: 'innerHTML' });
+        window.htmx.ajax('GET', base + '?tab=assigned',   { source: '#hd-tab-assigned',   target: '#hd-tab-assigned',   swap: 'innerHTML' });
+        window.htmx.ajax('GET', base + '?tab=inprogress', { source: '#hd-tab-inprogress', target: '#hd-tab-inprogress', swap: 'innerHTML' });
     }
 
     // ==================== DASHBOARD STATS ====================
@@ -1485,6 +1501,41 @@
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalText;
+        }
+    }
+
+    // ==================== SPLIT TICKET MODAL ====================
+    // "Partir ticket" vive en js/shared/split_ticket.js (window.HelpdeskSplit) y
+    // su markup en el partial helpdesk/_components/split_ticket_modal.html: la
+    // misma pieza que usan el dashboard del técnico y el detalle del ticket.
+    // Esta pantalla solo lo abre y, cuando la división ya se aplicó (el módulo
+    // muestra el toast y cierra el modal), recarga sus listas.
+
+    function openSplitTicketModal(ticketId) {
+        if (!window.HelpdeskSplit) {
+            console.error('[Assign] HelpdeskSplit no está cargado (js/shared/split_ticket.js).');
+            HelpdeskUtils.showToast('No se pudo abrir "Partir ticket". Recarga la página.', 'error');
+            return;
+        }
+        return window.HelpdeskSplit.open(ticketId, { onSplit: onTicketSplit });
+    }
+
+    // Refrescar arreglos + listas server-side (mismo patrón que asignar).
+    // `refreshLists()` va en el `finally`: es lo que repinta las tres
+    // pestañas server-side, y si un recargador fallara (rechazo) el operador
+    // se quedaría con el toast de éxito sobre listas que siguen mostrando el
+    // ticket SIN partir — justo el estado que invita a partirlo otra vez.
+    async function onTicketSplit() {
+        try {
+            await Promise.all([
+                loadDashboardStats(),
+                loadPendingTickets(),
+                loadActiveTickets()
+            ]);
+        } catch (reloadError) {
+            console.error('Error al recargar los arreglos tras partir ticket:', reloadError);
+        } finally {
+            refreshLists();
         }
     }
 

@@ -1,0 +1,19 @@
+{% extends "titulatec/email/_base_email.html" %}
+{% block titulo %}Sobre tu solicitud de inscripción — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ req.first_name|e }} {{ req.last_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  Servicios Escolares revisó tu solicitud de inscripción con el número de control
+  <strong>{{ req.control_number|e }}</strong> y <strong>no pudo aprobarla</strong>. El motivo:
+</p>
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="border-left:4px solid #B71C1C;background-color:#FBE9E7;border-radius:4px;margin-bottom:24px;">
+  <tr><td style="padding:16px;color:#37474F;font-size:14px;">
+    {{ (req.review_note or 'Sin motivo capturado.')|e }}
+  </td></tr>
+</table>
+<p style="margin:0;color:#607D8B;font-size:13px;">
+  Puedes corregir lo señalado y volver a enviar el formulario, o acudir a Servicios
+  Escolares con tu documentación.
+</p>
+{% endblock %}

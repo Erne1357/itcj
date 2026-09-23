@@ -1,0 +1,154 @@
+{# Bandeja de liberaciones de GTV. Raíz `#tt-releases-body`; TODOS los
+   controles (pestañas, búsqueda, paginación y las 3 acciones de fila) apuntan
+   a ella con `hx-swap="outerHTML"`, así que cada handler devuelve este
+   parcial completo, nunca una fila.
+
+   `status` es la pestaña activa (`_body_ctx` la normaliza: nunca un filtro
+   arbitrario). Cada formulario de fila la manda de vuelta, junto con `q` y
+   `page`, en campos ocultos: liberar, observar o revocar vuelven a pintar la
+   pestaña donde estaba GTV.
+
+   Acciones por pestaña (spec §6.3):
+   - «En revisión»: Liberar (sin motivo) · motivo + Observar.
+   - «Con observaciones»: texto vigente · Liberar (sin motivo) · motivo +
+     Actualizar observaciones.
+   - «Liberadas»: "Liberada por… el…" · si `can_revoke`: motivo + Revocar;
+     si no, la píldora "Fase 2 liberada" (ya no se puede deshacer).
+   Sin `hx-confirm` salvo Liberar/Revocar (Observar no destruye nada) y sin
+   JS ni CSS en línea: el puente `hx-confirm` -> modal ya existe
+   (`static/js/shared/titulatec-utils.js:265`).
+
+   `hx-confirm` y `data-tt-confirm-ok` van en el `<form>` (el elemento que
+   lleva `hx-post`), NUNCA en el `<button>` que dispara el submit: htmx
+   resuelve ambos con `getClosestAttributeValue`, que camina hacia
+   ANCESTROS del elemento con `hx-post`, nunca hacia hijos -- declararlos en
+   el botón (descendiente del form) los deja sin efecto: el puente ve
+   `e.detail.question` vacío, no llama a `preventDefault()`, y htmx sigue
+   con la petición sin confirmar nada (defecto real, detectado por E2E el
+   2026-09-15 en Liberar/Revocar; ver `docs/superpowers/specs/2026-09-15-
+   titulatec-liberacion-gtv-design.md` §6.3 y el reporte de la Tarea 8). #}
+{% from "titulatec/_macros.html" import survey_review_pill %}
+{% macro tab_fields(tab, q, page) -%}
+<input type="hidden" name="status" value="{{ tab }}">
+<input type="hidden" name="q" value="{{ q }}">
+<input type="hidden" name="page" value="{{ page }}">
+{%- endmacro %}
+<div id="tt-releases-body" data-tt-view="survey-reviews-body">
+
+  <form class="d-flex flex-wrap align-items-center gap-2 mb-3"
+        hx-get="/titulatec/admin/liberaciones/body" hx-target="#tt-releases-body" hx-swap="outerHTML">
+    <input type="hidden" name="status" value="{{ status }}">
+    <input type="hidden" name="page" value="1">
+    <div class="tt-search">
+      <i class="bi bi-search"></i>
+      <input type="search" name="q" value="{{ q }}" placeholder="Buscar control o nombre"
+             aria-label="Buscar control o nombre" hx-get="/titulatec/admin/liberaciones/body"
+             hx-target="#tt-releases-body" hx-swap="outerHTML"
+             hx-trigger="keyup changed delay:400ms, search" hx-include="closest form">
+    </div>
+  </form>
+
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    {% for key, label in tabs %}
+    <button id="tt-rev-tab-{{ key }}" type="button"
+            class="btn btn-sm {{ 'tt-btn-ink' if status == key else 'tt-btn-ghost' }}"
+            {% if status == key %}aria-current="true"{% endif %}
+            hx-get="/titulatec/admin/liberaciones/body?status={{ key }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
+            hx-target="#tt-releases-body" hx-swap="outerHTML">{{ label }}
+      <span class="tt-pill tt-pill--neutral">{{ counts.get(key, 0) }}</span></button>
+    {% endfor %}
+  </div>
+
+  {% if not rows %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-patch-check me-1"></i>Bandeja limpia</span>
+    <p class="mb-0">No hay solicitudes en esta pestaña{{ ' con ese filtro' if q else '' }}.</p>
+  </div>
+  {% else %}
+  <div class="tt-table-wrap">
+    <table class="table table-sm align-middle">
+      <thead><tr>
+        <th>Egresado</th><th>Control</th><th>Carrera</th><th>Convocatoria</th>
+        <th>Enviada</th><th>Fase actual</th><th>Estado</th><th></th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr id="tt-rev-{{ r.id }}">
+        <td>{{ r.student }}</td>
+        <td class="tt-mono">{{ r.control }}</td>
+        <td>{{ r.program }}</td>
+        <td>{{ r.cohort }}</td>
+        <td class="tt-mono">{{ r.submitted }}</td>
+        <td class="tt-mono">{{ '%02d'|format(r.current_phase) }}</td>
+        <td>{{ survey_review_pill(r.status) }}</td>
+        <td><a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas/{{ r.response_id }}">Ver respuestas</a></td>
+        <td>
+          {% if r.status == 'in_review' %}
+            <form class="d-inline" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/liberar"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Liberar"
+                  hx-confirm="Liberar encuesta|¿Liberar la encuesta de egresados de {{ r.student }}? Se acredita el requisito de cotejo.">
+              {{ tab_fields(status, q, page) }}
+              <button type="submit" class="btn btn-sm tt-btn-ink">Liberar</button>
+            </form>
+            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/observar"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button">
+              {{ tab_fields(status, q, page) }}
+              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
+                     placeholder="Motivo" aria-label="Motivo de la observación">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Observar</button>
+            </form>
+          {% elif r.status == 'rejected' %}
+            <p class="small mb-1">{{ r.reason }}</p>
+            <form class="d-inline" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/liberar"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Liberar"
+                  hx-confirm="Liberar encuesta|¿Liberar la encuesta de egresados de {{ r.student }}? Se acredita el requisito de cotejo.">
+              {{ tab_fields(status, q, page) }}
+              <button type="submit" class="btn btn-sm tt-btn-ink">Liberar</button>
+            </form>
+            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/observar"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button">
+              {{ tab_fields(status, q, page) }}
+              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
+                     placeholder="Nuevo motivo" aria-label="Actualizar observaciones">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Actualizar observaciones</button>
+            </form>
+          {% elif r.status == 'approved' %}
+            <p class="small mb-1">Liberada por {{ r.reviewed_by or '—' }} el {{ r.reviewed_at or '—' }}</p>
+            {% if r.can_revoke %}
+            <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/revocar"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Revocar"
+                  hx-confirm="Revocar liberación|¿Revocar la liberación de {{ r.student }}? Vuelve a quedar con observaciones y ya no acredita el requisito.">
+              {{ tab_fields(status, q, page) }}
+              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
+                     placeholder="Motivo de la revocación" aria-label="Motivo de la revocación">
+              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Revocar</button>
+            </form>
+            {% else %}
+            <span class="tt-pill tt-pill--neutral">Fase 2 liberada</span>
+            {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page > 1 or has_more %}
+  <div class="d-flex gap-2 mt-2">
+    {% if page > 1 %}
+    <button class="btn btn-sm tt-btn-ghost" type="button"
+            hx-get="/titulatec/admin/liberaciones/body?status={{ status }}&page={{ page - 1 }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
+            hx-target="#tt-releases-body" hx-swap="outerHTML">Anteriores</button>
+    {% endif %}
+    {% if has_more %}
+    <button class="btn btn-sm tt-btn-ghost" type="button"
+            hx-get="/titulatec/admin/liberaciones/body?status={{ status }}&page={{ page + 1 }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
+            hx-target="#tt-releases-body" hx-swap="outerHTML">Siguientes</button>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% endif %}
+</div>

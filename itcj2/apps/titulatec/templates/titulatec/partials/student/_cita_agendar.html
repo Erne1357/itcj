@@ -1,0 +1,71 @@
+{# ===========================================================================
+   _cita_agendar.html — cara 2: día -> encargado -> franjas (spec §7).
+
+   Es TAMBIÉN la respuesta de `GET /student/cita?dia=YYYY-MM-DD`, y por eso su
+   raíz lleva el id del destino: el swap es `morph`-libre pero sí `outerHTML`
+   sobre `#tt-cita-agendar`, así que el nodo se REEMPLAZA en vez de anidarse.
+   (Regla de la app: `hx-select` == `hx-target` obliga a `outerHTML`; aquí no
+   hay `hx-select` porque la respuesta ya ES el parcial, pero el id del destino
+   tiene que coincidir igual o htmx no encuentra dónde poner la respuesta.)
+
+   Una franja es un `<button type="submit" name="slot">` dentro de un
+   `<form method="post">`: **no se teclea una hora**.
+
+   Sobre el `action`/`method` y el `href` de los días: son el camino sin htmx.
+   El GET lo sirve entero —la ruta devuelve la PÁGINA completa cuando falta la
+   cabecera `HX-Request`, así que un día abierto sin JS (o pegado en la barra)
+   aterriza en una pantalla con shell, no en un fragmento pelado—. El POST sin
+   htmx sí responde el parcial desnudo: se conserva porque es mejor que un
+   botón muerto, pero no es una experiencia terminada.
+   =========================================================================== #}
+<div id="tt-cita-agendar" class="tt-card mt-3 tt-anim-in">
+  <span class="tt-kicker"><i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Agendar mi cita</span>
+  <p class="tt-cita-hint">Elige el día y toca la hora que te acomode.</p>
+
+  {# — Tira de días. Es la que puede crecer, así que scrollea DENTRO de sí
+     misma: la página nunca se desborda en horizontal. — #}
+  <nav class="tt-daybar" aria-label="Días con espacios disponibles">
+    {% for d in agenda.dias %}
+    <a class="tt-daychip{% if d.iso == agenda.dia_sel %} is-active{% endif %}"
+       href="/titulatec/student/cita?dia={{ d.iso }}"
+       hx-get="/titulatec/student/cita?dia={{ d.iso }}"
+       hx-target="#tt-cita-agendar" hx-swap="outerHTML"
+       {% if d.iso == agenda.dia_sel %}aria-current="date"{% endif %}>
+      <span class="dow">{{ d.dow }}</span>
+      <span class="dom">{{ d.dom }}</span>
+      <span class="mon">{{ d.mon }}</span>
+    </a>
+    {% endfor %}
+  </nav>
+
+  {% if agenda.dia_actual %}
+    {% for o in agenda.dia_actual.owners %}
+    <div class="tt-slotblock">
+      <div class="tt-slotblock-head">
+        <i class="bi bi-person-badge" aria-hidden="true"></i>
+        <span class="who">{{ o.owner_name }}</span>
+      </div>
+
+      {% for w in o.windows %}
+      <div class="tt-slotwin">
+        <div class="meta">
+          <i class="bi bi-clock" aria-hidden="true"></i>{{ w.range }}
+          {%- if w.location %} · <i class="bi bi-geo-alt" aria-hidden="true"></i>{{ w.location }}{% endif %}
+        </div>
+        <form method="post" action="/titulatec/student/cita/agendar"
+              hx-post="/titulatec/student/cita/agendar"
+              hx-target="#tt-cita-panel" hx-swap="innerHTML">
+          <input type="hidden" name="window_id" value="{{ w.window_id }}">
+          <div class="tt-slotgrid">
+            {% for s in w.slots %}
+            <button type="submit" name="slot" value="{{ s }}" class="tt-slot"
+                    aria-label="Agendar el {{ agenda.dia_actual.label }} a las {{ s }} con {{ o.owner_name }}">{{ s }}</button>
+            {% endfor %}
+          </div>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  {% endif %}
+</div>

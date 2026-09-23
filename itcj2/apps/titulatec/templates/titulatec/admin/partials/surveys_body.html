@@ -1,0 +1,65 @@
+{# Respuestas de la encuesta. Raíz `#tt-surveys-body`; todos los controles
+   apuntan a ella con `hx-swap="outerHTML"`. #}
+<div id="tt-surveys-body" data-tt-view="surveys-body">
+
+  {% if form %}
+  <p class="tt-kicker mb-2">{{ form.title }} · v{{ form.version }}</p>
+  {% endif %}
+
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <select class="tt-field tt-field--xs" aria-label="Formulario"
+            hx-get="/titulatec/admin/encuestas/body" hx-target="#tt-surveys-body"
+            hx-swap="outerHTML" name="form_id">
+      {% for f in forms %}
+      <option value="{{ f.id }}"{% if form and form.id == f.id %} selected{% endif %}>{{ f.label }}</option>
+      {% endfor %}
+    </select>
+    <span class="tt-pill tt-pill--neutral">{{ total }} respuestas</span>
+    {% if form %}
+    <a class="btn btn-sm tt-btn-ghost"
+       href="/titulatec/admin/encuestas/export.csv?form_id={{ form.id }}">
+      <i class="bi bi-download me-1"></i>Exportar CSV</a>
+    {% endif %}
+  </div>
+
+  {% if not rows %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-clipboard-data me-1"></i>Sin respuestas</span>
+    <p class="mb-0">Todavía nadie contesta este formulario.</p>
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead><tr>
+        <th>Fecha</th><th>Quién</th><th>Control</th><th>Origen</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="tt-mono">{{ r.submitted_at.strftime('%Y-%m-%d %H:%M') if r.submitted_at }}</td>
+        <td>{{ r.name }}</td>
+        <td class="tt-mono">{{ r.control }}</td>
+        <td><span class="tt-pill tt-pill--neutral">{{ r.identity }}</span></td>
+        <td><a class="btn btn-sm tt-btn-ghost"
+               href="/titulatec/admin/encuestas/{{ r.id }}">Ver</a></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page > 1 or has_more %}
+  <div class="d-flex gap-2 mt-2">
+    {% if page > 1 %}
+    <button class="btn btn-sm tt-btn-ghost" type="button"
+            hx-get="/titulatec/admin/encuestas/body?form_id={{ form.id }}&page={{ page - 1 }}"
+            hx-target="#tt-surveys-body" hx-swap="outerHTML">Anteriores</button>
+    {% endif %}
+    {% if has_more %}
+    <button class="btn btn-sm tt-btn-ghost" type="button"
+            hx-get="/titulatec/admin/encuestas/body?form_id={{ form.id }}&page={{ page + 1 }}"
+            hx-target="#tt-surveys-body" hx-swap="outerHTML">Siguientes</button>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% endif %}
+</div>

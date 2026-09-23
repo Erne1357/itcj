@@ -1,0 +1,25 @@
+{# Liga de ACTIVACIÓN: Servicios Escolares aprobó la solicitud de una cuenta que
+   ya existe y la liga viaja al correo personal que escribió el solicitante.
+   Abrirla inscribe a esa cuenta; por eso el último renglón le dice qué hacer a
+   quien no la pidió. Todo dato que viene del formulario va con `|e`. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% block titulo %}Activa tu acceso a titulación — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ req.first_name|e }} {{ req.last_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  Servicios Escolares aprobó tu solicitud de inscripción al proceso de titulación con el
+  número de control <strong>{{ req.control_number|e }}</strong>.
+</p>
+<p style="margin:0 0 24px;text-align:center;">
+  <a href="{{ link|e }}"
+     style="display:inline-block;background-color:#1F3D7A;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:6px;font-weight:700;">
+    Activar mi acceso</a>
+</p>
+<p style="margin:0 0 8px;color:#607D8B;font-size:13px;">
+  La liga vence en {{ dias|e }} días. Al abrirla quedas inscrito y entras con tu número de
+  control y tu NIP de siempre.
+</p>
+<p style="margin:0;color:#607D8B;font-size:13px;">
+  Si no solicitaste esta inscripción, no abras la liga y avisa a Servicios Escolares.
+</p>
+{% endblock %}

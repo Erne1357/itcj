@@ -16,6 +16,8 @@ from pathlib import Path
 import msal
 import requests
 
+from itcj2.observability.work import measured_outbound
+
 logger = logging.getLogger(__name__)
 
 TENANT_ID = os.getenv("MS_TENANT_ID", "")
@@ -259,4 +261,9 @@ def graph_send_mail(
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
-    return requests.post(endpoint, headers=headers, json=payload, timeout=30)
+    # Cubre a los tres llamadores (maint, agendatec surveys, titulatec): todos
+    # pasan por esta función. El candado de MSAL y el envío síncrono no cambian.
+    with measured_outbound("msgraph") as call:
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+        call.mark_status(response.status_code)
+        return response

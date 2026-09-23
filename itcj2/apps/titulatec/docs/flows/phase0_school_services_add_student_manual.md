@@ -10,7 +10,7 @@
 | **Trigger** | Botón **Agregar alumno** en el tab *Alumnos* del detalle de convocatoria |
 | **Precondiciones** | Existe el `Cohort`; hay `core_programs` y `titulatec_modalities` activas para poblar los selects |
 | **Sub-flujos** | ⤵ reusa `ImportService.import_rows` de [import CSV](phase0_school_services_import_csv.md) |
-| **Estado final** | 1 `TitulationProcess` en fase 1 `in_progress` + rol `student` concedido + notif `PROCESS_CREATED` |
+| **Estado final** | 1 `TitulationProcess` en fase 1 `in_progress` + rol `graduate` concedido (revocado `student`) + notif `PROCESS_CREATED` |
 
 ## Ruta en la app (UI)
 
@@ -48,7 +48,7 @@ sequenceDiagram
     S->>FE: Agregar / Crear y agregar
     FE->>API: POST /admin/cohorts/{id}/students
     API->>IS: import_rows(db, cohort, [1 fila])
-    IS->>DB: (INSERT core_users) + grant_role student + INSERT proceso y 9 fases + notif
+    IS->>DB: (INSERT core_users) + sync roles graduate (fuera student) + INSERT proceso y 9 fases + notif
     IS->>DB: COMMIT
     API->>DB: UPDATE core_users SET password_hash, must_change_password + COMMIT
     API->>DB: SELECT lista de alumnos
@@ -61,17 +61,26 @@ sequenceDiagram
 |---|---|---|---|---|---|---|---|
 | 1 | 🏛️ | tab *Alumnos* | abrir el form | `GET /titulatec/admin/cohorts/{id}/students/lookup` (`admin.py:190-205`) | — (query inline a `User`) | — (sólo lectura) | — |
 | 2 | 🏛️ | input control | buscar por control | mismo endpoint, re-render del form | — | — | — |
-| 3 | 🏛️ | botón submit | dar de alta | `POST /titulatec/admin/cohorts/{id}/students` (`admin.py:214-239`) | `_add_student()` (`admin.py:124-139`) → `ImportService.import_rows()` (`import_service.py:240-327`) | `core_users` (INSERT si es nuevo; si ya existía y se mandó email y el user no tenía, se rellena `email`) · `core_user_app_roles` ← rol `student` en app `titulatec` · `titulatec_processes` ← 1 fila `folio=TT-{period_code}-{seq:04d}`, `current_phase=1`, `status=active`, `is_app_active=true` · `titulatec_process_phases` ← 9 filas (fase 0 `approved`, fase 1 `in_progress`, 2-8 `pending`) | `notify_student(type="PROCESS_CREATED")` → `core_notifications`, `data.url = /titulatec/student/fase/1` (`import_service.py:315-319`) |
-| 4 | 🏛️ | — | credencial inicial (**sólo si el user es nuevo**) | mismo POST | `_add_student` (`admin.py:135-139`) | `core_users.password_hash = hash_nip(control)` · `must_change_password = true` · `COMMIT` propio | — |
+| 3 | 🏛️ | botón submit | dar de alta | `POST /titulatec/admin/cohorts/{id}/students` (`admin.py:255`) | `_add_student()` (`admin.py:164`) → `ImportService.import_rows()` (`import_service.py:455-663`) | `core_users` (INSERT si es nuevo; si ya existía y se mandó email y el user no tenía, se rellena `email`) · `core_user_app_roles` ← rol `graduate` en `itcj`/`titulatec`, fuera `student` en `itcj`/`titulatec`/`agendatec` (`_sync_graduate_roles`, `import_service.py:81`) · `titulatec_processes` ← 1 fila `folio=TT-{period_code}-{seq:04d}`, `current_phase=1`, `status=active`, `is_app_active=true` · `titulatec_process_phases` ← 9 filas (fase 0 `approved`, fase 1 `in_progress`, 2-8 `pending`) | `notify_student(type="PROCESS_CREATED")` → `core_notifications`, `data.url = /titulatec/student/fase/1` |
+| 4 | 🏛️ | — | credencial inicial (**sólo si el user es nuevo**) | mismo POST | `_add_student` (`admin.py:174-179`) | `core_users.password_hash = hash_nip(control)` · `must_change_password = true` · `COMMIT` propio | — |
 | 5 | 🏛️ | tab *Alumnos* | ver el resultado | mismo POST | `_students_ctx()` (`admin.py:97-121`) | — | — |
 | 6 | 🏛️ | ✕ | cancelar | `GET /titulatec/admin/cohorts/{id}/students/cancel` (`admin.py:207-211`) | — | — | — |
+
+### Normalización del control (2026-09-17)
+
+Tanto el `lookup` (paso 1-2) como el `POST` de alta (paso 3) suben la letra a MAYÚSCULA (y recortan
+el espacio) **antes** de buscar o de llamar a `_add_student`/`import_rows`. Los dos `filter_by
+(control_number=...)` de este flujo son exactos: sin la normalización, teclear `b21221523` no
+encontraría a un alumno ya dado de alta como `B21221523`, y el alta lo duplicaría en vez de
+adjuntarlo a la convocatoria.
 
 ## Estado resultante
 
 - `titulatec_processes` ← 1 proceso `active`, `current_phase = 1`, `is_app_active = true`.
 - Fase 0 `approved` (intake), fase 1 `in_progress`, fases 2-8 `pending`.
-- `core_user_app_roles` ← (`user`, app `titulatec`, rol `student`); `grant_role` invalida la caché de
-  authz del usuario (`core/services/authz_service.py:85`).
+- `core_user_app_roles` ← `graduate` en `itcj`/`titulatec`, fuera `student` en `itcj`/`titulatec`/
+  `agendatec` (`_sync_graduate_roles`, `services/import_service.py:81`); el caché de authz del
+  usuario se invalida tras el commit (`ImportService.invalidate_authz`).
 - El alumno queda listo para [subir sus documentos iniciales](phase1_student_upload_initial_docs.md).
 - Si el `User` se creó en este alta: `must_change_password = true` y `password_hash = hash_nip(control)`.
 
@@ -82,13 +91,15 @@ sequenceDiagram
   si el user no tenía. **No se toca la contraseña**: el paso 4 está guardado por `if not existed`.
   El campo *Nombre* ni se pinta, y el POST lo repone con `existed.full_name` (`admin.py:229`).
 - **El control no existe** → se crea `User` con `username = control_number`, `first_name`/`last_name`
-  por split ingenuo (último token = apellido), `role_id` = rol global `student` si existe,
-  `is_active=true`, `must_change_password=true` (`import_service.py:281-294`).
+  por split ingenuo (último token = apellido), `role_id = graduate` (alias legado de
+  `core_users.role_id`; ver [rol `graduate`](xcut_public_enrollment.md#rol-graduate-egresado)),
+  `is_active=true`, `must_change_password=true`.
 - **Falta convocatoria o falta control** → `400` + `X-Tt-Error: "Falta el número de control."` (`admin.py:226-227`).
 - **Falta nombre y el alumno es nuevo** → `400` + `X-Tt-Error: "Falta el nombre del alumno."` (`admin.py:230-231`).
   Ambos los recoge el handler global de `htmx:responseError` en `admin/base_admin.html:61-66` → toast rojo.
-- **Control con formato inválido** (no cumple `CONTROL_NUMBER_RE = ^(\d{8}|[A-Za-z]\d{7,9})$`,
-  `import_service.py:45,271-273`) → `import_rows` lo cuenta como `skipped` y **no crea nada**, pero
+- **Control con formato inválido** (no cumple `CONTROL_NUMBER_RE = ^[A-Za-z]?\d{8}$` — revisado
+  2026-09-17: 8 dígitos, o una letra + 8 dígitos para traslado; el formato viejo de posgrado, letra +
+  7 a 9 dígitos, se retiró) → `import_rows` lo cuenta como `skipped` y **no crea nada**, pero
   `_add_student` descarta el summary y el endpoint responde `200` con la tabla igual que estaba:
   el alta falla **en silencio**, sin toast. Mismo desenlace si el alumno ya tenía proceso en esa
   convocatoria (`import_service.py:298-299`): re-render idempotente, sin aviso.

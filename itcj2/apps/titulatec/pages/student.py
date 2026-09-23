@@ -46,9 +46,18 @@ _PHASE_INFO = {
                "o te pide corregir.",
     },
     "review_appointment": {
-        "desc": "Servicios Escolares te asigna fecha, hora y lugar del cotejo. Confirma tu "
-                "asistencia y preséntate con tus documentos físicos. Si no puedes ese día, "
-                "solicita un cambio.",
+        # Neutral a proposito (2026-09-18): desde el auto-agendado hay convocatorias
+        # donde el alumno elige dia y hora, y otras donde se atiende por orden de
+        # llegada. El texto anterior prometia que Servicios Escolares asignaba la
+        # fecha SIEMPRE, y se contradecia con el selector de la propia pantalla.
+        # Aqui no se consulta la agenda -esto lo lee el dashboard para las 9
+        # fases- : se dice lo que vale en los tres casos y se manda a la pestaña,
+        # que si lo sabe. Y el cotejo NO es solo lo que el alumno subio: la lista
+        # `needs` de abajo trae fotografias, no-adeudo, IMSS, e.firma y el pago.
+        "desc": "En el cotejo revisan tus documentos EN FÍSICO: los que ya subiste y los "
+                "demás requisitos de tu convocatoria. Según tu convocatoria, agendas tú "
+                "o Servicios Escolares te asigna la fecha; en la pestaña de tu cita viene "
+                "lo que te toca.",
         "needs": [
             "Actas de nacimiento: original y copias.",
             "CURP certificada, e.Firma del SAT vigente y vigencia de derechos del IMSS.",
@@ -138,11 +147,16 @@ _PHASE_HELP = {code: info["desc"] for code, info in _PHASE_INFO.items()}
 # CTA del alumno por código de fase (solo las soportadas hoy).
 _PHASE_CTA = {
     "initial_docs":       ("/titulatec/student/documents", "Ir a documentos", "file-earmark-arrow-up"),
-    "review_appointment": ("/titulatec/student/cita", "Ver mi cita", "calendar-check"),
+    "review_appointment": ("/titulatec/student/cita", "Ver requisitos", "calendar-check"),
     "format_b":           ("/titulatec/student/formato-b", "Llenar Formato B", "pencil-square"),
 }
 
 # Quién es responsable de la fase (para fases que el alumno no acciona).
+# El artículo va INCLUIDO en el valor ("el Depto. de Titulación") porque
+# `dashboard.html:115` lo usa tal cual detrás de "En proceso por " -- "por el"
+# es correcto en español y no contrae. `_con_de` (abajo) es para el OTRO
+# consumidor, `dashboard.html:73` ("A cargo de "), donde "de" + "el" sí
+# contrae.
 _RESPONSIBLE_LABEL = {
     "school_services": "Servicios Escolares",
     "titulaciones":    "el Depto. de Titulación",
@@ -151,10 +165,58 @@ _RESPONSIBLE_LABEL = {
     "student":         "ti",
 }
 
-# Etiqueta legible de cada evento del timeline.
+
+def _con_de(label: str) -> str:
+    """"de" + `label`, con la contracción obligatoria "del" cuando `label`
+    empieza con "el " (regla dura del español: "de"+"el"→"del", "a"+"el"→"al";
+    "por"/"para"/"con"+"el" NO contraen, así que esto no sirve para esos).
+
+    Ronda de fix 1 (Hallazgo 2, 2026-09-21): `dashboard.html:73` armaba
+    "A cargo de {{ responsible_label }}", y con `_RESPONSIBLE_LABEL["titulaciones"]`
+    = "el Depto. de Titulación" salía "A cargo de el Depto. de Titulación".
+    Genérica sobre el prefijo "el " (no un `if label == "el Depto. de Titulación"`
+    hardcodeado) para que un responsable nuevo que empiece con "el " no vuelva
+    a colarse sin la contracción -- cubre también el fallback
+    "el área responsable" de `_base_card`, que nunca se probó a mano.
+    """
+    if label.startswith("el "):
+        return "del " + label[3:]
+    return "de " + label
+
+
+# Etiqueta legible de cada evento del timeline, EN LA VOZ DEL ALUMNO: aquí el
+# mismo evento dice «Confirmaste tu asistencia» y en `pages/admin.py` «El alumno
+# confirmó». Las dos caras del mismo suceso, cada una para quien la lee.
+#
+# COMPLETADO EL 2026-09-18. Faltaban diez entradas —todo el bloque de documentos,
+# los tres de proceso, los dos de requisitos y el alta pública—, y como el
+# `.get()` de abajo cae al `event_type` crudo, el egresado veía
+# «document_uploaded» y «document_approved» en su propio historial. El dominio
+# completo vive en `models/process_event.py::EVENT_TYPES` y `test_event_labels.py`
+# cruza este dict contra él: agregar un evento sin etiqueta aquí rompe el test.
 _EVENT_LABELS = {
+    # ---- Proceso -------------------------------------------------------
+    "process_created":             "Te dieron de alta en la convocatoria",
+    # Lo escribe `CohortService.set_window` al cerrar y reabrir la convocatoria.
+    # Es la explicación de por qué el trámite se quedó quieto sin que el alumno
+    # hiciera nada, así que callarlo es justo lo contrario de lo que sirve.
+    "process_paused":              "Tu proceso quedó en pausa",
+    "process_resumed":             "Tu proceso se reanudó",
+    "enrollment_self_service":     "Te inscribiste desde el formulario público",
+    # ---- Documentos iniciales ------------------------------------------
+    "document_uploaded":           "Subiste un documento",
+    "document_approved":           "Te aprobaron un documento",
+    "document_rejected":           "Te rechazaron un documento",
+    # Neutral a propósito: lo escribe `DocumentService` tanto cuando el alumno
+    # borra el suyo como cuando lo retira Servicios Escolares.
+    "document_deleted":            "Se eliminó un documento",
+    # ---- Requisitos de cotejo ------------------------------------------
+    "requirement_fulfilled":       "Te acreditaron un requisito",
+    "requirement_unfulfilled":     "Se desmarcó un requisito",
+    # ---- Fases ----------------------------------------------------------
     "phase_approved":              "Fase aprobada",
     "phase_rejected":              "Fase rechazada",
+    # ---- Cita de cotejo --------------------------------------------------
     "appointment_scheduled":       "Cita agendada",
     "appointment_confirmed":       "Confirmaste tu asistencia",
     "appointment_in_progress":     "Cotejo en proceso",
@@ -162,11 +224,42 @@ _EVENT_LABELS = {
     "appointment_rescheduled":     "Cita reagendada",
     "appointment_change_requested":"Solicitaste un cambio de cita",
     "appointment_no_show":         "No te presentaste a la cita",
+    # Lo escribe `AppointmentService.cancel`, que comparten el alumno (desde
+    # «Cancelar mi cita») y el encargado. La etiqueta es NEUTRAL a propósito:
+    # es el mismo `event_type` para los dos actores, así que «Cancelaste tu
+    # cita» sería mentira cuando quien canceló fue Servicios Escolares. Sin
+    # esta fila la línea de tiempo del alumno enseñaba el código crudo.
+    "appointment_cancelled":       "Cita cancelada",
+    # Mismo defecto que el de arriba, en el mismo dict: lo escribe
+    # `AppointmentService.undo_no_show` y salía en crudo.
+    "appointment_undo_no_show":    "Se corrigió tu asistencia",
     "process_completed":           "Proceso completado",
+    # Solicitud de liberación de GTV para la encuesta de egresados (D3, spec
+    # 2026-09-15-titulatec-liberacion-gtv §6.1). Mismos `event_type` que
+    # escribe `SurveyReviewService._log`.
+    "survey_review_submitted":     "Enviaste la encuesta de egresados",
+    "survey_review_approved":      "Gestión Tecnológica y Vinculación liberó tu encuesta",
+    "survey_review_rejected":      "Gestión Tecnológica y Vinculación dejó observaciones",
+    "survey_review_revoked":       "Se revocó la liberación de tu encuesta",
 }
 
 
 _DASHBOARD_URL = "/titulatec/student/dashboard"
+
+# Encuesta de egresados: mismo path que `pages/public.py::SURVEY_URL` (Tarea 3).
+# Literal propio y no un import de ese módulo (en edición paralela en este
+# checkout) para no acoplar dos archivos que dos tareas tocan a la vez.
+_SURVEY_URL = "/titulatec/encuesta-egresados"
+
+# Corte a T-soft (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion §4): copy
+# de PANTALLA para la fase actual y las futuras a partir de
+# `PhaseService._handoff_phase()`. CON acentos a propósito -- a diferencia de
+# `PhaseService.HANDOFF_MSG` (sin acentos, viaja en el header `X-Tt-Error` de
+# las guardas), esto es texto Jinja normal, no un header HTTP. Constante de
+# módulo para que el contexto (`_phases_ctx`) y la plantilla usen la MISMA
+# cadena, en vez de repetirla a mano.
+_HANDOFF_COPY = ("Tu proceso continúa en el Departamento de Titulación, en el sistema "
+                 "T-soft. El departamento te contactará por correo para darte tu usuario.")
 
 
 # ===========================================================================
@@ -270,6 +363,13 @@ _APPT_STUDENT_LABEL = {
     "in_progress": ("Cotejo en proceso", "amber"),
     "attended":    ("Asististe al cotejo", "success"),
     "no_show":     ("No te presentaste a la cita", "danger"),
+    # Los dos estados del historial de intentos (spec 2026-09-15 §2.3). Una
+    # cita `cancelled` o `superseded` nunca es la VIGENTE, así que hoy no se
+    # alcanzan por `get_for_process`; van aquí porque el respaldo del `.get()`
+    # imprime el codigo crudo en ingles, y basta con que alguien pinte el
+    # historial en el panel del alumno para que se vuelva visible.
+    "cancelled":   ("Cita cancelada", "neutral"),
+    "superseded":  ("Cita reagendada", "neutral"),
 }
 
 
@@ -358,13 +458,19 @@ def _format_b_progress(fb) -> dict:
     return {**prog, "kind": "format_b", "started": started, "label": label, "tone": tone}
 
 
-def _cta_for(code: str, *, is_current: bool, status: str) -> dict | None:
+def _cta_for(code: str, *, is_current: bool, status: str, handoff: bool) -> dict | None:
     """CTA de una fase. `_PHASE_CTA` sigue siendo la ÚNICA fuente de los enlaces.
 
     Solo acciona la fase ACTUAL: las anteriores están cerradas (inmutables) y las
     siguientes son informativas — el alumno se prepara ahí, no ejecuta.
+
+    `handoff` (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion): a partir del
+    corte a T-soft ninguna fase se acciona desde aquí, ni la actual. Hoy la única
+    entrada de `_PHASE_CTA` que puede caer en el corte es `format_b` (fase 3 por
+    defecto) — sin esto, el alumno vería un botón que lo manda a una pantalla que
+    el guardia del backend (Tarea 2) ya le bloquea.
     """
-    if not is_current or status == "skipped":
+    if not is_current or status == "skipped" or handoff:
         return None
     entry = _PHASE_CTA.get(code)
     if not entry:
@@ -388,6 +494,8 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
           "current_phase": int,          # 0 si no hay proceso
           "progress_pct":  int,
           "open_phase":    int | None,   # deep-link ?fase=N ya resuelto
+          "handoff_copy":  str,          # copy de pantalla del corte a T-soft
+                                          # (constante `_HANDOFF_COPY`, D3 Tarea 3)
           "current":       card | None,  # la MISMA card de la fase actual (col. A)
           "phases":        [card, ...],  # las 9, en orden de catálogo
         }
@@ -395,6 +503,14 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     Cada ``card``::
 
         number, code, name, icon, responsible, responsible_label
+        responsible_label_de    str    `responsible_label` ya con "de"/"del" al
+                                 frente (`_con_de`, ronda de fix 1, Hallazgo 2):
+                                 el único consumidor correcto de "A cargo de/del
+                                 X" (dashboard.html:73). NO uses `responsible_label`
+                                 a secas ahí -- "de el Depto." es el bug que este
+                                 campo arregla. `dashboard.html:115` ("En proceso
+                                 por…") sigue usando `responsible_label` sin
+                                 contraer: "por el" no contrae en español.
         status            pending|in_progress|in_review|approved|rejected|skipped
         rel               "past" | "current" | "future"
         is_current        bool
@@ -403,17 +519,40 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         is_target         bool   deep-link: la fase a RESALTAR. Difiere de `is_open`
                                  solo cuando el deep-link apunta a la fase actual,
                                  que no se despliega pero sí se resalta (col. A).
+        handoff           bool   `number >= PhaseService._handoff_phase()` (Tarea 3,
+                                 spec 2026-09-21-titulatec-dpto-titulacion). Formula
+                                 pura sobre el número de fase: no depende de si hay
+                                 proceso ni de en qué fase va el alumno. El template
+                                 la usa para pintar `handoff_copy` en vez de "en
+                                 proceso por…" (actual) o "se habilitará…" (futura).
         desc, needs, who         copy de `_PHASE_INFO` ("qué vas a necesitar" = needs)
-        cta               {url,label,icon} | None   solo la actual y si está soportada
+        cta               {url,label,icon} | None   solo la actual, soportada, Y NO
+                                                      handoff (`_cta_for`)
         rejection_reason  str | None
         events            [{label, when}]   historial de ESTA fase
-        progress          dict | None       sub-progreso (fases 1, 2 y 3)
+        progress          dict | None       sub-progreso (fases 1, 2 y 3); tambien
+                                             None cuando `handoff` es True (arreglo
+                                             A1, revision final 2026-09-21) -- la
+                                             fase ACTUAL congelada por el corte no
+                                             puede pintar "Paso 2 de 3" o "Listo
+                                             para enviar" AL LADO del aviso de que
+                                             esta fase ya no se opera aqui
+        survey            dict | None       SOLO en la card `review_appointment`
+                                             (dict plano de `summary_for_process`
+                                             + `url`, D3, spec §6.1)
     """
     from itcj2.apps.titulatec.models import (
         FormatB, PhaseDefinition, ProcessEvent, ProcessPhase,
     )
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    # Corte a T-soft (Tarea 3): se LEE aquí, en cada llamada a `_phases_ctx`
+    # (una por carga del dashboard) -- nunca una constante de módulo ni un
+    # valor de import time, o la reversibilidad por env var / monkeypatch de
+    # `PhaseService._handoff_phase` deja de funcionar (ver su propio docstring).
+    handoff_phase = PhaseService._handoff_phase()
 
     pdefs = (
         db.query(PhaseDefinition)
@@ -424,19 +563,22 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
 
     def _base_card(pd, **over) -> dict:
         info = _PHASE_INFO.get(pd.code, {})
+        resp_label = _RESPONSIBLE_LABEL.get(pd.responsible, "el área responsable")
         card = {
             "number": pd.number,
             "code": pd.code,
             "name": pd.name,
             "icon": pd.icon,
             "responsible": pd.responsible,
-            "responsible_label": _RESPONSIBLE_LABEL.get(pd.responsible, "el área responsable"),
+            "responsible_label": resp_label,
+            "responsible_label_de": _con_de(resp_label),
             "status": "pending",
             "rel": "future",
             "is_current": False,
             "can_expand": True,
             "is_open": pd.number == open_phase,
             "is_target": pd.number == open_phase,
+            "handoff": pd.number >= handoff_phase,
             "desc": info.get("desc", ""),
             "needs": info.get("needs", []),
             "who": info.get("who", ""),
@@ -444,6 +586,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             "rejection_reason": None,
             "events": [],
             "progress": None,
+            "survey": None,
         }
         card.update(over)
         return card
@@ -451,10 +594,20 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     if process is None:
         # Sin proceso no hay fase actual: las 9 son informativas y desplegables.
         return {"has_process": False, "current_phase": 0, "progress_pct": 0,
-                "open_phase": open_phase, "current": None,
-                "phases": [_base_card(pd) for pd in pdefs]}
+                "open_phase": open_phase, "handoff_copy": _HANDOFF_COPY,
+                "current": None, "phases": [_base_card(pd) for pd in pdefs]}
 
     current_phase = process.current_phase
+
+    # Estatus de la solicitud de liberación de GTV para la encuesta de
+    # egresados (D3, spec §6.1). UNA sola consulta fija, igual que el resto de
+    # este contexto: no una por fase. Se cuelga solo de la card
+    # `review_appointment` (nunca por número) y es visible desde la fase 0:
+    # a diferencia del resto de esta pantalla, la encuesta NO está sujeta a la
+    # guarda de fase del alumno.
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    survey = SurveyReviewService.summary_for_process(db, process.id)
+    survey["url"] = _SURVEY_URL if survey["status"] == "missing" else None
 
     ph_by_number = {
         ph.phase_number: ph for ph in
@@ -486,10 +639,17 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         status = ph.status if ph else "pending"
         is_current = pd.number == current_phase
         rel = "current" if is_current else ("past" if pd.number < current_phase else "future")
+        handoff = pd.number >= handoff_phase
 
         progress = progress_by_code.get(pd.code)
-        # Una fase futura que nadie ha tocado no muestra un sub-progreso vacío.
-        if progress and rel == "future" and not progress["started"]:
+        # Arreglo A1 (revision final 2026-09-21): la fase >= corte NUNCA pinta
+        # sub-progreso, ni siquiera la ACTUAL (`rel == "current"`) -- un
+        # Formato B a medias ("Paso 2 de 3") justo encima del aviso de que esa
+        # fase ya no se opera aqui es la contradiccion que este `if` cierra.
+        # Antes solo se anulaba en `rel == "future"`, que nunca cubria la
+        # propia fase congelada. Y, aparte del corte: una fase futura que
+        # nadie ha tocado tampoco muestra un sub-progreso vacío.
+        if progress and (handoff or (rel == "future" and not progress["started"])):
             progress = None
 
         cards.append(_base_card(
@@ -500,10 +660,12 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             can_expand=not is_current,
             is_open=(not is_current) and pd.number == open_phase,
             is_target=pd.number == open_phase,
-            cta=_cta_for(pd.code, is_current=is_current, status=status),
+            handoff=handoff,
+            cta=_cta_for(pd.code, is_current=is_current, status=status, handoff=handoff),
             rejection_reason=(ph.rejection_reason if ph else None),
             events=events_by_phase.get(pd.number, []),
             progress=progress,
+            survey=(survey if pd.code == "review_appointment" else None),
         ))
 
     total = len(pdefs) or 9
@@ -512,6 +674,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         "current_phase": current_phase,
         "progress_pct": int(round(current_phase / total * 100)),
         "open_phase": open_phase,
+        "handoff_copy": _HANDOFF_COPY,
         "current": next((c for c in cards if c["is_current"]), None),
         "phases": cards,
     }
@@ -880,17 +1043,188 @@ async def formato_b_save(
 _MONTHS_ES = ["", "ene", "feb", "mar", "abr", "may", "jun",
               "jul", "ago", "sep", "oct", "nov", "dic"]
 
-# Checklist físico (fijo) que el alumno debe llevar a la cita de cotejo.
-_COTEJO_CHECKLIST = [
-    ("file-earmark-text", "Actas de nacimiento", "Original + copias."),
-    ("card-text", "CURP certificada", "Impresión certificada (no la simple)."),
-    ("shield-check", "e.Firma (SAT)", "Constancia de situación fiscal con e.Firma vigente."),
-    ("clipboard-check", "Encuesta de egresados", "Comprobante de haberla contestado."),
-    ("book", "No-adeudo de biblioteca", "Constancia de no adeudo vigente."),
-    ("camera", "12 fotografías", "Tamaño credencial, ovaladas, B/N, fondo blanco, papel mate."),
-    ("heart-pulse", "Vigencia de derechos IMSS", "Documento que acredite vigencia."),
-    ("cash-coin", "$1,900 en efectivo", "Pago del proceso de titulación (efectivo)."),
-]
+def _checklist_ctx(db, process) -> list[dict]:
+    """Requisitos de cotejo de SU convocatoria, cruzados con lo que ya acreditó.
+
+    Sustituye a `_COTEJO_CHECKLIST`, que era un duplicado byte a byte de
+    `CotejoRequirementService.DEFAULTS`: la jefa de Servicios Escolares editaba
+    la lista por convocatoria y el alumno seguía viendo la fija.
+
+    Devuelve DICCIONARIOS PLANOS, no objetos ORM: la plantilla se renderiza
+    después del `db.close()` de la ruta y un atributo expirado sobre una
+    instancia ya desanclada lanzaría `DetachedInstanceError`.
+
+    ATENCION, y es deliberado: `list_with_status` enruta a `list_or_seed`, que
+    en una convocatoria sin requisitos configurados SIEMBRA los 8 por defecto y
+    COMMITEA. Es decir, este GET puede escribir. Se conserva a proposito porque
+    el spec 5.3 lo pide asi y porque toda convocatoria creada antes de este
+    trabajo tiene cero requisitos: una lectura no sembradora le mostraria al
+    alumno un checklist VACIO. La lectura NO sembradora es la del expediente
+    del oficial (Tarea 8), donde navegar no debe crear configuracion.
+    """
+    if process is None:
+        return []
+    from itcj2.apps.titulatec.services.requirement_service import RequirementService
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    from itcj2.apps.titulatec.utils.rich_text import sanitize_info_html
+
+    # Estatus de la solicitud de liberación de GTV (D3, spec §6.1): una sola
+    # consulta fija, igual que `_phases_ctx`, aunque solo la use la fila con
+    # `auto_source == "graduate_survey"`.
+    survey = SurveyReviewService.summary_for_process(db, process.id)
+
+    out = []
+    for it in RequirementService.list_with_status(db, process.id):
+        req, ful = it["requirement"], it["fulfillment"]
+        es_encuesta = req.auto_source == "graduate_survey"
+        out.append({
+            # Ancla del botón «i» con SU modal (`#tt-reqinfo-modal-{id}`).
+            "id": req.id,
+            # «Información para el alumno», re-sanitizada AL PINTAR (la primera
+            # sanitización es al guardar): una fila escrita por fuera del editor
+            # —un UPDATE a mano, un DML— tampoco inyecta. La plantilla la pinta
+            # con `|safe` y SOLO este campo; `None` = sin botón «i». Sin tope
+            # (`max_len=None`): una fila ya guardada nunca tumba la página.
+            "info_html": sanitize_info_html(req.info_html, max_len=None),
+            "icon": req.icon or "check2-square",
+            "title": req.label,
+            "hint": req.hint or "",
+            "required": bool(req.is_required),
+            "done": it["is_done"],
+            "status": (ful.status if ful else None),
+            "source": (ful.source if ful else None),
+            "when": (f"{ful.fulfilled_at:%d/%m/%Y}" if ful and ful.fulfilled_at else None),
+            # La libera GTV, no el alumno (D3): el estatus real de la
+            # solicitud sustituye al "Listo"/"Dispensado" genérico en la
+            # plantilla. `None` en cualquier otro requisito.
+            "survey": (survey if es_encuesta else None),
+            # El único requisito que el alumno puede resolver desde aquí mismo,
+            # y SOLO si de verdad no ha enviado nada todavía (pseudo-estado
+            # "missing" = sin fila en `titulatec_survey_reviews`).
+            "survey_url": (_SURVEY_URL if es_encuesta and survey["status"] == "missing"
+                           else None),
+        })
+    return out
+
+
+_DAYS_ES = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+
+
+def _hdr(msg) -> str:
+    """Codifica un mensaje para que quepa en un header HTTP.
+
+    Gemelo de `pages/appointments.py::_hdr`, y por el mismo motivo: los valores
+    de header son latin-1 por especificación y Starlette los escribe así, pero
+    el cliente los lee UTF-8, así que un mensaje con acentos —o sea, TODOS los
+    de `SelfBookingService` y los de `appointment_errors`— llega roto.
+
+    Se percent-codifica aquí y lo decodifica `static/js/student/errors.js`.
+    """
+    from urllib.parse import quote
+    return quote(str(msg), safe="")
+
+
+def _to_int(raw):
+    """'12' -> 12; basura -> None. Un `window_id` inventado NO revienta la ruta:
+    cae en `None` y el service lo traduce a `NotYours` (404 limpio)."""
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_hhmm(raw):
+    """'09:30' -> time(9,30), o None (-> `MissingSchedule`, 400 con mensaje)."""
+    from datetime import datetime as _dt
+    if not raw:
+        return None
+    for fmt in ("%H:%M", "%H:%M:%S"):
+        try:
+            return _dt.strptime(str(raw).strip(), fmt).time()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _dia_label(d) -> str:
+    return f"{_DAYS_ES[d.weekday()]} {d.day:02d} {_MONTHS_ES[d.month]}"
+
+
+def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
+    """Las cuatro caras de §7, resueltas en DATOS PLANOS.
+
+    Planos porque la plantilla se renderiza DESPUÉS del `db.close()` de la ruta:
+    un atributo perezoso sobre una instancia ya desanclada lanzaría
+    `DetachedInstanceError` (mismo motivo que `_checklist_ctx`). `offer()` ya
+    devuelve dicts, así que aquí solo se les da forma de pantalla: las horas se
+    formatean AQUÍ y no en Jinja, para que la plantilla no haga aritmética.
+
+    `eligibility` decide QUIÉN puede y `offer` QUÉ hay. Se consumen juntos, y de
+    ahí sale lo que a primera vista parece una contradicción: la tarjeta de
+    «atención sin cita» convive con la frase de la cara 4, porque el bloqueado
+    por D9 no puede reservar pero sí presentarse.
+    """
+    vacio = {"can_book": False, "can_walkin": False, "reason": None,
+             "message": None, "dias": [], "dia_sel": None, "dia_actual": None,
+             "walkins": []}
+    if process is None:
+        return vacio
+
+    from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+
+    elig = SelfBookingService.eligibility(db, process.id)
+    oferta = SelfBookingService.offer(db, process.id)
+
+    dias, walkins = [], []
+    for jornada in oferta:
+        fecha = jornada["date"]
+        duenos = []
+        for dueno in jornada["owners"]:
+            ventanas = []
+            for w in dueno["windows"]:
+                if w["visibility"] == "walkin":
+                    # D2: anuncio, no agenda. Viaja sin franjas desde `offer`.
+                    walkins.append({
+                        "date_label": _dia_label(fecha),
+                        "start": f'{w["start_time"]:%H:%M}',
+                        "end": f'{w["end_time"]:%H:%M}',
+                        "location": w["location"],
+                        "owner_name": dueno["owner_name"],
+                    })
+                    continue
+                ventanas.append({
+                    "window_id": w["window_id"],
+                    "range": f'{w["start_time"]:%H:%M} a {w["end_time"]:%H:%M}',
+                    "location": w["location"],
+                    "slots": [f"{s:%H:%M}" for s in w["slots"]],
+                })
+            if ventanas:
+                duenos.append({"owner_name": dueno["owner_name"], "windows": ventanas})
+        if duenos:
+            dias.append({"iso": fecha.isoformat(), "label": _dia_label(fecha),
+                         "dow": _DAYS_ES[fecha.weekday()], "dom": f"{fecha.day:02d}",
+                         "mon": _MONTHS_ES[fecha.month], "owners": duenos})
+
+    # El día pedido, si sigue en la oferta; si no, el primero que la tenga. Un
+    # `?dia=` viejo —un enlace guardado, un día que el encargado cerró— degrada
+    # al primer día con oferta en vez de dejar una rejilla vacía sin explicar
+    # por qué (mismo criterio que `_parse_open_phase`: la URL no tumba la vista).
+    dia_sel = next((d["iso"] for d in dias if d["iso"] == dia), None)
+    if dia_sel is None and dias:
+        dia_sel = dias[0]["iso"]
+    dia_actual = next((d for d in dias if d["iso"] == dia_sel), None)
+
+    # La cara 4 NO se pinta cuando el motivo es `tiene_cita`: esa pantalla YA
+    # explica el porqué, con la tarjeta de la cita justo encima. Repetirlo
+    # debajo sería decirle dos veces lo mismo al alumno. Las demás razones no
+    # tienen ninguna otra señal en pantalla, y sin la frase quedaría un hueco.
+    message = (None if elig["reason"] == "tiene_cita"
+               else SelfBookingService.message_for(
+                   elig["reason"], cancellations=elig["cancellations"]))
+
+    return {"can_book": elig["can_book"], "can_walkin": elig["can_walkin"],
+            "reason": elig["reason"], "message": message, "dias": dias,
+            "dia_sel": dia_sel, "dia_actual": dia_actual, "walkins": walkins}
 
 
 def _cita_label(dt) -> str:
@@ -899,11 +1233,30 @@ def _cita_label(dt) -> str:
     return f"{dt.day:02d} {_MONTHS_ES[dt.month]} {dt.year} · {dt:%H:%M}"
 
 
-def _cita_card_ctx(db, user_id: int) -> dict:
-    from itcj2.apps.titulatec.services.document_service import DocumentService
-    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+def _cita_card_ctx(db, user_id: int, *, agenda: dict | None = None) -> dict:
+    """Contexto de la tarjeta de estado de la cita.
 
-    process = DocumentService.get_active_process(db, user_id)
+    `agenda` (2026-09-18) viaja hasta aqui porque la rama «todavia no tienes
+    cita» tiene que decir COSAS DISTINTAS segun lo que el alumno pueda hacer:
+    con auto-agendado le toca a el, con atencion sin cita se presenta y ya, y
+    solo cuando no hay ninguna de las dos es verdad que Servicios Escolares le
+    asignara la fecha. Antes decia siempre lo ultimo, y quedaba contradiciendo
+    al selector de horas que estaba tres centimetros mas abajo en la misma
+    pantalla.
+
+    Se acepta como parametro para que `_cita_panel_ctx` lo calcule UNA vez y lo
+    preste; si nadie lo pasa (los dos POST que swappean solo la tarjeta) se
+    calcula aqui, porque un parcial que depende de quien lo incluya es un
+    parcial roto esperando su turno.
+    """
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+
+    # `ProcessService.creditable_process` y NO `DocumentService.get_active_process`:
+    # aquel no filtra por status pese al nombre, y esta tarjeta tiene que hablar
+    # del MISMO proceso que acredita la encuesta (§5.3 del diseño).
+    process = ProcessService.creditable_process(db, user_id)
     appt = AppointmentService.get_for_process(db, process.id) if process else None
     appt_ctx = None
     if appt:
@@ -913,33 +1266,131 @@ def _cita_card_ctx(db, user_id: int) -> dict:
             "status": appt.status,
             "confirmed": appt.confirmed_at is not None,
             "change_requested": bool(appt and appt.change_request),
+            # D8. Lo decide el MISMO predicado que va a aplicar el servidor, no
+            # una cuenta repetida aquí: si divergieran, la tarjeta ofrecería
+            # «Cancelar mi cita» justo cuando la ruta ya va a rechazarlo.
+            "can_cancel": SelfBookingService.can_self_cancel(appt),
         }
+    # Fase 02 con observaciones (Tarea B2): dato PLANO, nunca la fila `ProcessPhase`
+    # completa (la plantilla se renderiza después del `db.close()` de la ruta). Se
+    # lee de `ProcessPhase`, igual que `_fase_cotejo_aprobada` en
+    # `SelfBookingService`, y NUNCA de `appt.status`: una `attended` con fase 2
+    # todavía sin dictaminar no es un rechazo.
+    fase_rechazada = None
+    if process is not None:
+        from itcj2.apps.titulatec.models import ProcessPhase
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        ph2 = (db.query(ProcessPhase)
+               .filter_by(process_id=process.id, phase_number=PhaseService.PHASE_COTEJO)
+               .first())
+        if ph2 is not None and ph2.status == "rejected":
+            fase_rechazada = {"motivo": ph2.rejection_reason or None}
     return {
         "process": process.to_dict() if process else None,
         "appt": appt_ctx,
+        "fase_rechazada": fase_rechazada,
+        "agenda": agenda if agenda is not None else _agenda_ctx(db, process),
     }
+
+
+def _cita_panel_ctx(db, user_id: int, *, dia: str | None = None) -> dict:
+    """Contexto del panel completo: la tarjeta MÁS las cuatro caras de §7.
+
+    Resuelve el proceso con el mismo selector que `_cita_card_ctx`
+    (`creditable_process`): la tarjeta y el selector de agendado TIENEN que
+    hablar del mismo proceso, o el alumno vería la cita de uno y agendaría en
+    el otro.
+
+    La agenda se calcula AQUÍ y se le presta a la tarjeta: las dos la necesitan
+    —el selector para pintarse y la tarjeta para saber qué decir cuando no hay
+    cita— y `offer()` recorre las jornadas de la convocatoria, así que hacerlo
+    dos veces por carga sería pagar el doble por el mismo dato.
+    """
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+
+    agenda = _agenda_ctx(db, ProcessService.creditable_process(db, user_id), dia=dia)
+    return _cita_card_ctx(db, user_id, agenda=agenda)
+
+
+def _cita_panel(request, db, user_id: int, *, dia: str | None = None):
+    """El parcial que devuelven los dos POST del auto-agendado.
+
+    App pages-only: un POST responde con el cuerpo re-renderizado, no con JSON.
+    """
+    return render_titulatec(request, "titulatec/partials/student/_cita_panel.html",
+                            _cita_panel_ctx(db, user_id, dia=dia))
 
 
 @router.get("/cita", name="titulatec.pages.student.cita")
 async def cita(
     request: Request,
+    dia: str | None = None,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.page.my"])),
 ):
-    """Página de la cita de cotejo del alumno: estado + checklist físico."""
+    """Página de la cita de cotejo del alumno: estado + requisitos de SU convocatoria.
+
+    Sin proceso acreditable se redirige al dashboard. `_phase_guard_page` deja
+    pasar el `None` a propósito, y antes eso nunca ocurría porque el selector
+    viejo devolvía un proceso pasara lo que pasara; `creditable_process` sí puede
+    no devolver ninguno, y entonces el alumno caía en la página vacía con una
+    copia que le decía que faltaba configurar su convocatoria. Todo el alumno
+    tiene un solo contrato —solo la fase en curso, solo con el proceso `active`—
+    y quien no tiene trámite vivo no tiene fase en curso: ninguna página del
+    alumno es suya. Es lo que ya hacen `/student/documents` y sus hermanas.
+    """
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from fastapi.responses import RedirectResponse
+    from itcj2.apps.titulatec.services.process_service import ProcessService
 
     db = SessionLocal()
     try:
         user_id = int(user["sub"])
-        process = DocumentService.get_active_process(db, user_id)
-        fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "review_appointment"))
+        process = ProcessService.creditable_process(db, user_id)
+        if process is None:
+            return RedirectResponse(_DASHBOARD_URL, status_code=302)
+        # Lo que decide parcial-contra-página es `HX-Request`, NO la mera
+        # presencia de `?dia=`: ese mismo enlace abierto sin htmx —sin JS, o
+        # pegado en la barra de direcciones— es una navegación de PÁGINA, y
+        # contestarle un fragmento pelado (sin shell, sin estilos) es peor que
+        # no contestar.
+        es_htmx = request.headers.get("HX-Request") == "true"
+        # Mismo criterio para el canal de la guarda de fase: 302 en páginas,
+        # 400 + `X-Tt-Error` en parciales. htmx sigue los redirects de forma
+        # transparente y metería el dashboard entero dentro del selector.
+        n = _phase_of(db, "review_appointment")
+        fuera_de_fase = (_phase_guard(db, process, n) if es_htmx
+                         else _phase_guard_page(db, process, n))
         if fuera_de_fase:
             return fuera_de_fase
-        ctx = _cita_card_ctx(db, user_id)
-        ctx["checklist"] = _COTEJO_CHECKLIST
+        ctx = _cita_panel_ctx(db, user_id, dia=dia)
+        ctx["checklist"] = _checklist_ctx(db, process)
     finally:
         db.close()
+
+    # `?dia=` es la MISMA ruta con querystring —no suma al censo de rutas del
+    # alumno— y con htmx devuelve solo el selector del día elegido, que es
+    # justo lo que se swappea (`#tt-cita-agendar`, `outerHTML`).
+    if dia and es_htmx:
+        agenda = ctx["agenda"]
+        # La rejilla SOLO si de verdad puede agendar. Sin esta condición, quien
+        # dejó la pestaña abierta y ya agendó (o perdió el derecho) recibía
+        # franjas vivas y ninguna explicación: exactamente el «botón mudo» que
+        # §7 existe para prohibir. El POST lo revalida, así que no era un
+        # agujero — era una mentira en pantalla, que es lo que esta vista no
+        # puede permitirse.
+        if agenda["can_book"] and agenda["dias"]:
+            return render_titulatec(
+                request, "titulatec/partials/student/_cita_agendar.html", ctx)
+        # Ya no aplica: se refresca el PANEL entero (tarjeta + la frase que
+        # dice por qué). El destino original era solo el selector, así que se
+        # redirige el swap; sin esto, el panel entraría DENTRO del selector y
+        # habría dos `#tt-cita-card` en el documento.
+        resp = render_titulatec(
+            request, "titulatec/partials/student/_cita_panel.html", ctx)
+        resp.headers["HX-Retarget"] = "#tt-cita-panel"
+        resp.headers["HX-Reswap"] = "innerHTML"
+        return resp
     return render_titulatec(request, "titulatec/student/cita.html", ctx)
 
 
@@ -948,14 +1399,19 @@ async def cita_confirm(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.confirm.own"])),
 ):
-    """El alumno confirma asistencia. Devuelve la tarjeta re-renderizada (HTMX)."""
+    """El alumno confirma asistencia. Devuelve la tarjeta re-renderizada (HTMX).
+
+    Mismo selector que la página que aloja este botón (`_cita_card_ctx`): si la
+    guarda mirara otro proceso, el alumno vería la cita del suyo y el POST le
+    contestaría 400 por el estado de uno distinto.
+    """
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
     db = SessionLocal()
     try:
-        process = DocumentService.get_active_process(db, int(user["sub"]))
+        process = ProcessService.creditable_process(db, int(user["sub"]))
         fuera_de_fase = _phase_guard(db, process, _phase_of(db, "review_appointment"))
         if fuera_de_fase:
             return fuera_de_fase
@@ -973,16 +1429,20 @@ async def cita_request_change(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.confirm.own"])),
 ):
-    """El alumno solicita un cambio de cita (el encargado decide). Devuelve la tarjeta."""
+    """El alumno solicita un cambio de cita (el encargado decide). Devuelve la tarjeta.
+
+    Mismo selector que `cita_confirm` y que la página, por lo mismo: los dos
+    botones de la tarjeta tienen que hablar del proceso que la tarjeta pinta.
+    """
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
     form = dict(await request.form())
     reason = form.get("reason", "")
     db = SessionLocal()
     try:
-        process = DocumentService.get_active_process(db, int(user["sub"]))
+        process = ProcessService.creditable_process(db, int(user["sub"]))
         fuera_de_fase = _phase_guard(db, process, _phase_of(db, "review_appointment"))
         if fuera_de_fase:
             return fuera_de_fase
@@ -991,6 +1451,136 @@ async def cita_request_change(
             AppointmentService.request_change(db, appt, int(user["sub"]), reason)
         return render_titulatec(request, "titulatec/partials/cita_card.html",
                                 _cita_card_ctx(db, int(user["sub"])))
+    finally:
+        db.close()
+
+
+# ===========================================================================
+# Auto-agendado del egresado (spec 2026-09-15 §5)
+# ===========================================================================
+# NINGUNA de las dos lleva `{process_id}`: el proceso sale del usuario
+# autenticado, igual que las dos rutas de cita que ya existían. Es lo correcto y
+# además lo que mantiene verde a `test_scope_guard.py` sin excepciones nuevas.
+#
+# Las dos pasan por `_phase_guard` (fase 2), como sus hermanas: una ruta del
+# alumno sin guarda de fase sale en rojo en `test_student_phase_guard.py`, y el
+# modo de fallo del olvido sería ABIERTO.
+
+
+def _cita_accion(request, db, user_id: int, fn):
+    """Ejecuta una acción del auto-agendado y traduce sus errores de dominio.
+
+    Tres salidas, y la diferencia entre ellas es el contrato de T4:
+
+    * `NotYours` -> **404 limpio, SIN `X-Tt-Error`**. Mismo criterio que
+      `assert_process_in_scope`: los ids son enteros secuenciales, y un mensaje
+      distintivo convertiría la ruta en un detector de lo que existe. Lo levanta
+      por dos motivos —ventana fuera de su oferta y proceso ajeno— y los dos
+      salen igual a propósito: distinguirlos sería el oráculo que se quiere
+      cerrar.
+    * entrada del usuario (`SlotTooSoon`, `CancelTooLate`, casi toda
+      `SelfBookingNotAllowed`) -> 400 + `X-Tt-Error`. htmx no swappea en 4xx, y
+      está bien: lo que hay en pantalla sigue siendo verdad.
+    * colisión de estado (`refresca_la_vista`, o sea `reason == "tiene_cita"`)
+      -> **200 con el panel fresco** + `X-Tt-Notice`. Es lo que produce un doble
+      clic en «Agendar»: ahí la pantalla SÍ está rancia —ya existe una cita que
+      el alumno no está viendo— y un 4xx lo dejaría mirando un selector muerto.
+    """
+    from itcj2.apps.titulatec.services.appointment_errors import (
+        AppointmentError, NotYours,
+    )
+    try:
+        fn()
+    except NotYours:
+        # `NotYours` hereda de `AppointmentError`: va PRIMERO o el 404 nunca
+        # llegaría a ejecutarse.
+        return Response(status_code=404)
+    except AppointmentError as e:
+        if not e.refresca_la_vista:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(e)})
+        resp = _cita_panel(request, db, user_id)
+        resp.headers["X-Tt-Notice"] = _hdr(e)
+        return resp
+    return _cita_panel(request, db, user_id)
+
+
+@router.post("/cita/agendar", name="titulatec.pages.student.cita_book")
+async def cita_book(
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.book.own"])),
+):
+    """El egresado toma una franja publicada. Devuelve el panel re-renderizado.
+
+    `window_id` llega en el CUERPO del formulario, no en la ruta, así que quien
+    lo revalida contra la oferta de ESTE proceso es
+    `SelfBookingService.book` (`_window_in_offer`) — el regresor estructural de
+    alcance, que barre rutas con `{process_id}`, no puede verlo. Aquí solo se
+    traduce el `NotYours` resultante al 404 limpio.
+
+    El actor va como `int(user["sub"])`: `sub` es **string** (gotcha 5), y de
+    esa comparación depende en silencio que `create` calle la notificación del
+    propio clic del alumno.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+    from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+
+    form = dict(await request.form())
+    window_id = _to_int(form.get("window_id"))
+    slot = _parse_hhmm(form.get("slot"))
+    db = SessionLocal()
+    try:
+        user_id = int(user["sub"])
+        process = ProcessService.creditable_process(db, user_id)
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "review_appointment"))
+        if fuera_de_fase:
+            return fuera_de_fase
+        if process is None:
+            return Response(status_code=409)
+        return _cita_accion(request, db, user_id, lambda: SelfBookingService.book(
+            db, process.id, window_id, slot, user_id))
+    finally:
+        db.close()
+
+
+@router.post("/cita/cancelar", name="titulatec.pages.student.cita_cancel")
+async def cita_cancel(
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.cancel.own"])),
+):
+    """El egresado cancela su propia cita (D8: hasta 2 h antes).
+
+    `motivo` es opcional y se guarda tal cual: `AppointmentService.cancel` lo
+    deja en NULL si viene vacío en vez de inventar un texto que se leería como
+    algo que el alumno escribió.
+
+    La franja vuelve al pozo en el acto (D12), así que el panel que se devuelve
+    ya trae el selector de agendado otra vez.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+
+    form = dict(await request.form())
+    motivo = (form.get("motivo") or "").strip() or None
+    db = SessionLocal()
+    try:
+        user_id = int(user["sub"])
+        process = ProcessService.creditable_process(db, user_id)
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "review_appointment"))
+        if fuera_de_fase:
+            return fuera_de_fase
+        if process is None:
+            return Response(status_code=409)
+        appt = AppointmentService.get_for_process(db, process.id)
+        if appt is None:
+            # Doble clic en «Cancelar»: la segunda vez ya no hay cita vigente.
+            # Lo que el alumno pidió YA está hecho, así que se le devuelve el
+            # panel tal como quedó. Un 4xx aquí sería un error inventado.
+            return _cita_panel(request, db, user_id)
+        return _cita_accion(request, db, user_id, lambda: SelfBookingService.cancel(
+            db, appt, user_id, motivo))
     finally:
         db.close()
 

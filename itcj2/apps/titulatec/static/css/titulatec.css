@@ -170,18 +170,92 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
 /* Se apoyan en .btn de Bootstrap; sólo redefinen color/forma. */
 .btn { border-radius: var(--tt-r); font-weight: 600; letter-spacing: -.1px; }
 .tt-btn-ink     { background: var(--tt-ink); color: #fff; border: 1px solid var(--tt-ink); }
-.tt-btn-ink:hover { background: #1e293b; color: #fff; }
 .tt-btn-accent  { background: var(--tt-accent); color: #1F1300; border: 1px solid var(--tt-accent); }
-.tt-btn-accent:hover { filter: brightness(.96); color: #1F1300; }
 .tt-btn-ghost   { background: transparent; color: var(--tt-ink); border: 1px solid var(--tt-line); }
-.tt-btn-ghost:hover { background: var(--tt-mist); }
 .tt-btn-soft    { background: var(--tt-mist); color: var(--tt-ink); border: 1px solid var(--tt-line); }
 /* Accion destructiva: pesa distinto que sus vecinas. Marcar que un egresado no
    se presento le dispara notificacion y hasta ahora era un boton fantasma
    identico a "Reagendar", sin confirmacion y sin deshacer. */
 .tt-btn-danger-soft { background: var(--tt-danger-soft); color: #991B1B;
                       border: 1px solid rgba(220,38,38,.35); }
-.tt-btn-danger-soft:hover { background: #FECACA; color: #7F1D1D; }
+/* Modificador de `.tt-btn-ghost` (siempre van juntas en el markup, p.ej.
+   "btn btn-sm tt-btn-ghost tt-btn-danger-ghost" en el Rechazar del expediente
+   y del visor de documentos): mismo fondo transparente, tono danger en texto
+   y borde. No tenia NI la regla base: el boton salia identico a un ghost
+   neutro, sin ninguna senal de que la accion es destructiva. */
+.tt-btn-danger-ghost { color: #991B1B; border-color: rgba(220,38,38,.35); }
+
+/* --- Estados: hover / focus-visible / pulsado / disabled -----------------
+   Bootstrap 5.3.3 pinta :hover, :focus-visible, :active, `.btn-check:checked
+   + .btn` y `.btn.show` leyendo variables --bs-btn-hover-* y --bs-btn-active-*,
+   y :disabled con --bs-btn-disabled-*; un `.btn` sin variante de Bootstrap
+   (btn-primary y demas) no las define. Resultado medido: estos botones se
+   quedaban TRANSPARENTES y sin anillo al pulsar o enfocar con teclado (arriba
+   solo `:hover` tenia parche, y no en las 6 variantes: `.tt-btn-soft` no
+   tenia ninguno y `.tt-btn-danger-ghost` no tenia ni color). Se definen las
+   variables UNA vez por variante para que las reglas nativas de Bootstrap
+   -que ya cubren las 5 formas de "activo" de golpe- las hereden solas.
+   Mismo diagnostico que el parche local de `public.css` (seccion de la
+   encuesta, comentario en la linea ~609); esto lo generaliza a las 6
+   variantes reales en uso, dentro y fuera de esa pantalla.
+
+   Hover y pulsado comparten tono a proposito, como ya hacia `.tt-btn-ink`
+   antes de este cambio: la señal de "pulsado" ya la da
+   `.btn:active { transform: scale(.97) }` (mas abajo en este archivo), asi
+   que no hace falta inventar un segundo tono por variante. El foco de
+   teclado usa SIEMPRE `--tt-focus` -nunca el acento: da 2.15:1, menos de los
+   3:1 que pide WCAG 1.4.11 para un anillo no-textual- con `outline` hacia
+   ADENTRO (-2px), igual que el resto de los `:focus-visible` de este archivo
+   (`.tt-day`, `.tt-seat`, `.tt-appt-item`...), para no recortarse dentro de
+   una `.tt-table-wrap` o una barra de acciones angosta. No se usa
+   `--bs-btn-focus-shadow-rgb`: apilaria un resplandor de color sobre el
+   anillo y ninguno de los otros focus-visible del archivo lo hace. */
+.tt-btn-ink:focus-visible, .tt-btn-accent:focus-visible, .tt-btn-ghost:focus-visible,
+.tt-btn-soft:focus-visible, .tt-btn-danger-soft:focus-visible, .tt-btn-danger-ghost:focus-visible {
+  outline: 2px solid var(--tt-focus); outline-offset: -2px; box-shadow: none;
+}
+
+.tt-btn-ink {
+  --bs-btn-hover-color: #fff; --bs-btn-hover-bg: var(--tt-ink-soft); --bs-btn-hover-border-color: var(--tt-ink);
+  --bs-btn-active-color: #fff; --bs-btn-active-bg: var(--tt-ink-soft); --bs-btn-active-border-color: var(--tt-ink);
+}
+.tt-btn-accent {
+  /* #D97706 es amber-600 (escala Tailwind, un paso mas oscuro que --tt-accent
+     = amber-500). No se reutiliza --tt-focus (= amber-700, #B45309): con el
+     texto #1F1300 encima da 3.6:1, por debajo de 4.5. */
+  --bs-btn-hover-color: #1F1300; --bs-btn-hover-bg: #D97706; --bs-btn-hover-border-color: #D97706;
+  --bs-btn-active-color: #1F1300; --bs-btn-active-bg: #D97706; --bs-btn-active-border-color: #D97706;
+}
+.tt-btn-ghost {
+  --bs-btn-hover-color: var(--tt-ink); --bs-btn-hover-bg: var(--tt-mist); --bs-btn-hover-border-color: var(--tt-text-3);
+  --bs-btn-active-color: var(--tt-ink); --bs-btn-active-bg: var(--tt-line); --bs-btn-active-border-color: var(--tt-text-3);
+}
+.tt-btn-soft {
+  --bs-btn-hover-color: var(--tt-ink); --bs-btn-hover-bg: var(--tt-line); --bs-btn-hover-border-color: var(--tt-text-3);
+  --bs-btn-active-color: var(--tt-ink); --bs-btn-active-bg: var(--tt-line); --bs-btn-active-border-color: var(--tt-text-3);
+}
+.tt-btn-danger-soft {
+  --bs-btn-hover-color: #7F1D1D; --bs-btn-hover-bg: #FECACA; --bs-btn-hover-border-color: rgba(220,38,38,.5);
+  --bs-btn-active-color: #7F1D1D; --bs-btn-active-bg: #FECACA; --bs-btn-active-border-color: rgba(220,38,38,.5);
+}
+.tt-btn-danger-ghost {
+  --bs-btn-hover-color: #7F1D1D; --bs-btn-hover-bg: var(--tt-danger-soft); --bs-btn-hover-border-color: rgba(220,38,38,.5);
+  --bs-btn-active-color: #7F1D1D; --bs-btn-active-bg: var(--tt-danger-soft); --bs-btn-active-border-color: rgba(220,38,38,.5);
+}
+
+/* Disabled: UN solo tratamiento neutro para las 6 variantes -perder el color
+   de marca es, ademas, la propia señal de "no accionable". `opacity: 1` a
+   proposito: a los .65 por defecto de Bootstrap, texto y fondo se diluyen
+   juntos hacia el blanco y el contraste medido cae por debajo de 4.5:1; aqui
+   el color ya sale calculado (--tt-text-3 sobre --tt-mist ≈ 5.2:1, contra los
+   4.5 que pide WCAG), asi que diluirlo de mas solo lo estropea. */
+.tt-btn-ink, .tt-btn-accent, .tt-btn-ghost, .tt-btn-soft,
+.tt-btn-danger-soft, .tt-btn-danger-ghost {
+  --bs-btn-disabled-color: var(--tt-text-3);
+  --bs-btn-disabled-bg: var(--tt-mist);
+  --bs-btn-disabled-border-color: var(--tt-line);
+  --bs-btn-disabled-opacity: 1;
+}
 
 /* ============================ INPUTS / FORM ============================ */
 .tt-label { font-size: .75rem; font-weight: 600; color: var(--tt-slate); margin-bottom: 6px; display: block; }
@@ -189,6 +263,17 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
   border: 1px solid var(--tt-line); border-radius: var(--tt-r);
   padding: 12px 14px; font-size: .875rem; background: var(--tt-paper); color: var(--tt-ink);
 }
+/* Campos compactos de la bandeja de solicitudes y de encuestas (Tareas 22/24).
+   Modificador de `.tt-field` de arriba: mismo idioma que su base (literal, no
+   token) -- la escala `--tt-fs-*` es de la Tarea 11/redisenio de Citas y solo
+   aplica a ese bloque, no a esta seccion. Vivia al final del archivo, despues
+   del encabezado de seccion de Citas de cotejo; `test_citas_sistema_visual.py`
+   ubica ese encabezado con `str.find()` y escanea desde ahi hasta EOF
+   asumiendo que Citas es lo ultimo del archivo, asi que una regla ajena
+   colgada ahi se contaba como si fuera de Citas (y, ojo, por eso este mismo
+   comentario evita citar el texto exacto de ese encabezado). Se relocaliza
+   junto a su base real. */
+.tt-field--xs { padding: .2rem .45rem; font-size: .78rem; width: auto; }
 .tt-field:focus, .form-control:focus, .form-select:focus {
   border-color: var(--tt-accent); box-shadow: 0 0 0 3px rgba(245,158,11,.18);
 }
@@ -440,6 +525,43 @@ body.tt-stu {
 .tt-canvas { flex: 1; padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
 .tt-canvas-inner { width: 100%; }
 .tt-rail { display: none; }
+/* Corte a T-soft (Tarea 3, ronda de fix 1, Hallazgo 1, 2026-09-21): el copy de
+   T-soft (tarjeta grande de la fase actual Y panel del acordeón,
+   dashboard.html) puede quedar como la ÚLTIMA línea visible, y ahí el FAB
+   standalone se le monta encima si el alumno se desplaza hasta el borde —o,
+   en pantallas bajas, incluso SIN desplazarse. Mismo colchón (88px) que
+   `.tt-canvas`, para el mismo FAB.
+
+   Ronda de fix 2 (medición que faltaba): la ronda de fix 1 dejó esta clase
+   SOLO en el panel del acordeón, razonando que la tarjeta grande medía
+   ~117px de holgura y no la necesitaba — pero esa medición fue solo a
+   390×844. El FAB es `fixed` a 80px del BORDE INFERIOR DEL VIEWPORT, así
+   que la holgura depende del ALTO de la pantalla, no del ancho. A 375×667
+   (iPhone SE, 177px menos de alto) la tarjeta grande con la fase 3 actual,
+   sin scrollear, ya solapaba el FAB en -59.5px. Ambas apariciones del copy
+   llevan la clase desde entonces. */
+.tt-handoff-note { padding-bottom: 88px; }
+/* Ronda de fix 2: SOLO `padding-bottom` no alcanza en la tarjeta grande de la
+   fase actual (a diferencia del panel del acordeón, donde sí). Ahí el alumno
+   nunca se desplaza para verla -sale completa desde la primera pintura de la
+   pagina-, así que el padding de DESPUÉS del párrafo no mueve nada: el texto
+   ya está pintado en su posición final, exactamente donde estaba antes del
+   padding. A 375×667 el párrafo empezaba en `y=587.4px`, casi el mismo punto
+   donde el FAB empieza (`y=587px`) -no se solapa "un poco al final", el
+   párrafo entero cae dentro de la franja del FAB-. Hacía falta clearance
+   ANTES del texto: empuja el párrafo lo suficiente para que, sin scroll,
+   caiga bajo el FAB (`y > 643px`) en vez de encima. ESTE margin-top
+   REEMPLAZA el `mt-3` (16px) que llevaba el párrafo, no se suma a él -el
+   primer intento (72px) lo media mal y solo dejaba 0.4px de holgura real,
+   casi cero-. 88px de margin-top neto = 71.6px netos sobre los 16px
+   originales de `mt-3` (587.4−16=571.4px de base ⇒ 571.4+88=659.4px, contra
+   los 643px del FAB ⇒ ~16px de colchón real, medido, no solo calculado).
+   Mismo criterio de colchón que el resto de esta sección, y mismo número
+   (88px) que `.tt-handoff-note` por legibilidad, aunque aquí sea margin y no
+   padding. Solo en la tarjeta grande -el panel del acordeón no se ve nunca
+   "de golpe" como esta: hace falta desplegarlo, así que jamás aparece en la
+   posición de scroll 0 de la carga inicial-. */
+.tt-handoff-note--hero { margin-top: 88px; }
 
 /* Dashboard: hero + "subida" de las tarjetas.
    Móvil: el hero se extiende y las tarjetas suben para solaparlo (efecto tarjeta).
@@ -1217,6 +1339,18 @@ th.sortable { cursor: pointer; user-select: none; }
                  font-family: var(--tt-mono); }
 .tt-seat .who, .tt-seat .meta { min-width: 0; overflow: hidden;
                                 text-overflow: ellipsis; white-space: nowrap; }
+/* Distintivo «El alumno agendo» (D11). Vive DENTRO de `.meta`, nunca como una
+   linea nueva: el asiento es de ALTO FIJO y una tercera fila lo haria crecer, o
+   sea que llenar un lugar moveria la fila — el defecto exacto que el rediseno
+   del 2026-09-03 cerro. Va PRIMERO en la linea para que el truncado se coma la
+   carrera y no el distintivo.
+
+   SIN numero a proposito: el alto se declara arriba y se REDEFINE mas abajo en
+   este mismo archivo, asi que cualquier cifra escrita aqui nace de segunda mano
+   y caduca sin avisar. Lo que protege este comentario es el invariante -que el
+   asiento no crezca-, no un valor concreto. */
+.tt-seat .meta .selfbook { font-family: var(--tt-ui); font-weight: 600;
+                           color: var(--tt-text-2); }
 .tt-seat--libre { border-style: dashed; background: var(--tt-mist); }
 .tt-seat--libre .who { color: var(--tt-text-3); font-weight: 500; }
 .tt-seat.is-active { background: var(--tt-accent-soft); border-color: var(--tt-accent-ink); }
@@ -1255,6 +1389,34 @@ label.tt-appt-item .form-check-input { flex: 0 0 auto; width: 20px; height: 20px
                  gap: var(--tt-sp-2); margin-bottom: var(--tt-sp-2); }
 .tt-queue-list { display: flex; flex-direction: column; gap: var(--tt-sp-1); }
 .tt-appt-empty { font-size: var(--tt-fs-100); color: var(--tt-text-3); margin: 0; }
+
+/* «Por agendar» es la PRIORIDAD de la cola (primera cita: nadie mas que el
+   encargado, o el propio alumno, la resuelve). Se COMPONE con `.tt-card--accent`
+   (fondo tenido + borde completo, arriba en la seccion CARD) y le suma solo la
+   raya de acento a la izquierda -- con `box-shadow: inset`, el MISMO idiom que
+   ya usa `.tt-exp-doc.is-open` mas abajo, y a proposito NO `border-left`: un
+   borde lateral de acento esta PROHIBIDO en este archivo
+   (`test_ningun_patron_prohibido_en_todo_el_archivo`) porque desplaza el
+   contenido de la tarjeta 2px respecto a las demas apiladas debajo. El inset
+   no participa en el box model, asi que las cinco tarjetas de la cola
+   conservan el mismo `padding: 16px` de `.tt-card` y el texto arranca en el
+   MISMO x en las cinco -- sin necesitar compensar nada.
+
+   Tokens, no colores sueltos: `--tt-accent-soft`/`--tt-accent-ink` son alias
+   de `--tt-amber-soft`/`--tt-amber-ink` (mismo par que ya usan `.tt-badge` y
+   `.tt-day.is-active`, con su contraste ya validado), y el tema oscuro los
+   redefine arriba (`[data-tt-theme="dark"]`) sin que esta regla necesite una
+   copia. */
+.tt-queue-card--priority { box-shadow: inset 4px 0 0 var(--tt-accent); }
+.tt-queue-kicker { display: block; font-family: var(--tt-mono); font-size: var(--tt-fs-100);
+                   font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+                   color: var(--tt-accent-ink); margin: 0 0 4px; }
+/* El contador que mas rota, mas grande: `.tt-h-sec .n` generico es
+   `--tt-fs-100`/`--tt-text-3` (ver mas arriba); aqui no depende solo del
+   color para destacar. */
+.tt-queue-card--priority .tt-h-sec .n {
+  font-size: var(--tt-fs-500); font-weight: 700; color: var(--tt-accent-ink);
+}
 @media (min-width: 1280px) {
   /* Sticky para no abandonar la cola al bajar por el tablero. Idiomorph
      conserva el nodo, asi que su scroll sobrevive a los swaps. */
@@ -1282,6 +1444,21 @@ label.tt-appt-item .form-check-input { flex: 0 0 auto; width: 20px; height: 20px
 .tt-appt-when i { color: var(--tt-text-3); }
 .tt-appt-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
 .tt-appt-warn { font-size: var(--tt-fs-200); color: var(--tt-amber-ink); }
+
+/* --- Checklist de requisitos de cotejo (fase 02, dentro de Atender) ------
+   El expediente pinta el mismo checklist con `style=` inline; aqui NO se puede:
+   los parciales de Citas tienen prohibido el CSS inline y lo vigila
+   `test_appointments_scope_day.py::test_los_parciales_de_citas_no_llevan_js_ni_css_inline`.
+   Estas cuatro clases son la traduccion a tokens de aquellos ocho `style=`. */
+.tt-req-ico   { display: flex; align-items: center; justify-content: center;
+                width: 32px; height: 32px; flex: 0 0 auto;
+                border-radius: 9px; background: var(--tt-mist);
+                border: 1px solid var(--tt-line); }
+.tt-req-ico i { color: var(--tt-text-3); }
+.tt-req-label { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+.tt-req-meta  { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+/* La nota no debe empujar los botones a otra linea en el panel estrecho. */
+.tt-req-note  { max-width: 180px; }
 
 /* El visor es la razon de ser de la pantalla: cotejar un acta escaneada contra
    el papel que el alumno trae en la mano. Antes eran 470 px de alto en una
@@ -1520,3 +1697,837 @@ button.tt-seat--libre { pointer-events: auto; }
   .tt-exp-meta > span + span::before,
   .tt-exp-fechas span + span::before { content: none; }
 }
+
+/* ————————————————————————— Ventana de la convocatoria —————————————————————
+   Del parcial `partials/cohort/cohort_window.html`. Existen para que ese
+   parcial no lleve ni un `style=` inline: es la regla del proyecto y ya hay un
+   barrido que la exige en los parciales de Citas
+   (`test_appointments_scope_day.py::test_los_parciales_de_citas_no_llevan_js_ni_css_inline`).
+
+   El ancho tope es el mismo para los dos `<input type="date">` y el `<select>`:
+   con el `d-flex flex-wrap` del formulario, sin tope se estiran a toda la fila y
+   los tres controles dejan de leerse como un grupo. */
+.tt-win-field { max-width: 170px; }
+/* La nota explica QUÉ apaga y QUÉ enciende el botón, así que es texto de lectura,
+   no adorno: `--tt-text-2` (7.58:1). `--tt-mute` está marcado PROHIBIDO PARA
+   TEXTO en el `:root` de este mismo archivo (2.56:1 sobre `--tt-paper`). */
+.tt-win-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+.tt-win-ro   { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
+/* ——————————— Requisitos de cotejo: «Información para el alumno» ———————————
+   Editor del admin (`partials/cohort/cohort_cotejo_reqs.html` +
+   `js/admin/cotejo-info-editor.js`) y botón «i» + modal del alumno
+   (`student/cita.html`). Existen para que ninguna de las dos plantillas lleve
+   un `style=` nuevo.
+
+   Quill 2 carga su hoja DESPUÉS que esta (perezosa, desde el módulo), así que
+   toda regla que la pisa lleva `.tt-reqinfo` delante: una clase más de
+   especificidad, no `!important`. Tamaños de letra SOLO con `--tt-fs-*`: este
+   tramo cae dentro del barrido de `test_citas_sistema_visual.py`, que va del
+   encabezado de Citas hasta el final del archivo. */
+
+/* — Admin: bloque plegable dentro del formulario de cada requisito — */
+.tt-reqinfo { flex: 1 1 100%; min-width: 0; padding-top: var(--tt-sp-1);
+  border-top: 1px dashed var(--tt-line); }
+.tt-reqinfo-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--tt-sp-2);
+  min-height: 44px; cursor: pointer; list-style: none; border-radius: var(--tt-r-sm);
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-2); }
+.tt-reqinfo-sum::-webkit-details-marker { display: none; }
+.tt-reqinfo-sum:hover { color: var(--tt-text-1); }
+.tt-reqinfo-sum:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-reqinfo-estado { font-size: var(--tt-fs-100); font-weight: 400; color: var(--tt-text-3); }
+.tt-reqinfo-chev { margin-left: auto; transition: transform var(--tt-dur-2) var(--tt-ease-out); }
+.tt-reqinfo[open] .tt-reqinfo-chev { transform: rotate(180deg); }
+.tt-reqinfo-panel { display: flex; flex-direction: column; gap: var(--tt-sp-2);
+  padding-bottom: var(--tt-sp-1); }
+.tt-reqinfo-msg { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-reqinfo-msg.is-error { color: #991B1B; }
+.tt-reqinfo-pie { display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: var(--tt-sp-2); }
+.tt-reqinfo-ayuda { margin: 0; max-width: 62ch; font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
+/* — Quill (tema snow) con los tokens de la app — */
+.tt-reqinfo .ql-toolbar.ql-snow { padding: 4px; border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r-sm) var(--tt-r-sm) 0 0; background: var(--tt-mist);
+  font-family: var(--tt-ui); }
+.tt-reqinfo .ql-toolbar.ql-snow .ql-formats { margin-right: var(--tt-sp-2); }
+.tt-reqinfo .ql-toolbar.ql-snow button { width: 36px; height: 36px; padding: 8px;
+  border-radius: 6px; }
+.tt-reqinfo .ql-toolbar.ql-snow button:focus-visible { outline: 2px solid var(--tt-focus);
+  outline-offset: -2px; }
+.tt-reqinfo .ql-toolbar.ql-snow button:hover,
+.tt-reqinfo .ql-toolbar.ql-snow button:focus,
+.tt-reqinfo .ql-toolbar.ql-snow button.ql-active { color: var(--tt-focus); background: var(--tt-paper); }
+.tt-reqinfo .ql-toolbar.ql-snow button:hover .ql-stroke,
+.tt-reqinfo .ql-toolbar.ql-snow button:focus .ql-stroke,
+.tt-reqinfo .ql-toolbar.ql-snow button.ql-active .ql-stroke { stroke: var(--tt-focus); }
+.tt-reqinfo .ql-toolbar.ql-snow button:hover .ql-fill,
+.tt-reqinfo .ql-toolbar.ql-snow button:focus .ql-fill,
+.tt-reqinfo .ql-toolbar.ql-snow button.ql-active .ql-fill { fill: var(--tt-focus); }
+.tt-reqinfo .ql-container.ql-snow { border: 1px solid var(--tt-line); border-top: 0;
+  border-radius: 0 0 var(--tt-r-sm) var(--tt-r-sm); background: var(--tt-paper);
+  font-family: var(--tt-ui); font-size: var(--tt-fs-200); }
+.tt-reqinfo .ql-container.ql-snow:focus-within { box-shadow: inset 0 0 0 2px var(--tt-focus); }
+.tt-reqinfo .ql-editor { min-height: 120px; max-height: 360px; overflow-y: auto;
+  line-height: 1.55; color: var(--tt-text-1); }
+.tt-reqinfo .ql-editor.ql-blank::before { color: var(--tt-text-3); font-style: normal; }
+.tt-reqinfo .ql-editor a { color: var(--tt-navy); }
+/* Tooltip de ligas en español: Quill escribe sus rótulos con `content:`. */
+.tt-reqinfo .ql-snow .ql-tooltip { z-index: 3; border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r-sm); box-shadow: 0 8px 24px -8px rgba(15, 23, 42, .25);
+  color: var(--tt-text-1); font-family: var(--tt-ui); }
+.tt-reqinfo .ql-snow .ql-tooltip::before { content: "Abrir liga:"; }
+.tt-reqinfo .ql-snow .ql-tooltip[data-mode=link]::before { content: "Escribe la liga:"; }
+.tt-reqinfo .ql-snow .ql-tooltip a.ql-action::after { content: "Editar"; }
+.tt-reqinfo .ql-snow .ql-tooltip a.ql-remove::before { content: "Quitar"; }
+.tt-reqinfo .ql-snow .ql-tooltip.ql-editing a.ql-action::after { content: "Guardar"; }
+.tt-reqinfo .ql-snow .ql-tooltip input[type=text] { border: 1px solid var(--tt-line);
+  border-radius: 6px; font-size: var(--tt-fs-200); }
+.tt-reqinfo .ql-snow .ql-tooltip a { color: var(--tt-navy); }
+
+/* — Lectura: vista sin permiso de edición (admin) y cuerpo del modal (alumno) —
+   `overflow-wrap: anywhere`: una liga larga no puede empujar el ancho de la
+   página (invariante `scrollWidth <= innerWidth`). */
+.tt-reqinfo-vista, .tt-reqinfo-body { line-height: 1.55; color: var(--tt-text-1);
+  overflow-wrap: anywhere; }
+.tt-reqinfo-vista { max-width: 70ch; margin-top: var(--tt-sp-2);
+  padding: var(--tt-sp-2) var(--tt-sp-3); font-size: var(--tt-fs-200);
+  background: var(--tt-mist); border: 1px solid var(--tt-line-soft); border-radius: var(--tt-r-sm); }
+.tt-reqinfo-body { font-size: var(--tt-fs-300); }
+.tt-reqinfo-vista p, .tt-reqinfo-body p { margin: 0 0 var(--tt-sp-2); }
+.tt-reqinfo-vista ul, .tt-reqinfo-vista ol,
+.tt-reqinfo-body ul, .tt-reqinfo-body ol { margin: 0 0 var(--tt-sp-2); padding-left: 1.25rem; }
+.tt-reqinfo-vista li + li, .tt-reqinfo-body li + li { margin-top: 2px; }
+.tt-reqinfo-vista > :last-child, .tt-reqinfo-body > :last-child { margin-bottom: 0; }
+.tt-reqinfo-vista a, .tt-reqinfo-body a { color: var(--tt-navy); text-decoration: underline;
+  text-underline-offset: 2px; }
+
+/* — Alumno: botón «i» junto al título del requisito —
+   Objetivo táctil de 44 × 44 px sin engordar la línea del título: los márgenes
+   negativos devuelven el alto sobrante y el círculo visible (`::before`) mide
+   26 px. `position` + `z-index` lo ponen ENCIMA del renglón del detalle, en el
+   que invade 12 px: sin eso esa franja la gana el texto de abajo y el objetivo
+   real se queda en 32 px. */
+.tt-reqinfo-btn { position: relative; z-index: 1; display: inline-flex; align-items: center;
+  justify-content: center; vertical-align: middle; width: 44px; height: 44px;
+  margin: -12px -8px -12px -4px; padding: 0; border: 0; background: transparent;
+  color: var(--tt-text-2); font-size: var(--tt-fs-300); line-height: 1; cursor: pointer; }
+.tt-reqinfo-btn::before { content: ""; position: absolute; inset: 9px; z-index: -1;
+  border-radius: 999px;
+  transition: background-color var(--tt-dur-1) var(--tt-ease-out),
+              box-shadow var(--tt-dur-1) var(--tt-ease-out); }
+.tt-reqinfo-btn:active::before { background: var(--tt-line); }
+.tt-reqinfo-btn:focus-visible { outline: none; }
+.tt-reqinfo-btn:focus-visible::before { box-shadow: 0 0 0 2px var(--tt-focus); }
+@media (hover: hover) and (pointer: fine) {
+  .tt-reqinfo-btn:hover { color: var(--tt-text-1); }
+  .tt-reqinfo-btn:hover::before { background: var(--tt-line-soft); }
+}
+
+/* — Alumno: el modal — */
+.tt-reqinfo-modal .modal-content { border: 1px solid var(--tt-line); border-radius: var(--tt-r-lg); }
+.tt-reqinfo-modal .modal-header { align-items: flex-start; gap: var(--tt-sp-2); }
+.tt-reqinfo-modal .modal-title { display: flex; align-items: center; gap: var(--tt-sp-2);
+  min-width: 0; margin: 0; font-family: var(--tt-display); font-size: var(--tt-fs-400);
+  font-weight: 600; letter-spacing: -.2px; line-height: 1.25; color: var(--tt-text-1); }
+.tt-reqinfo-modal .modal-title i { flex: 0 0 auto; color: var(--tt-text-2); }
+/* El cierre de Bootstrap mide 24 px: se lleva a 44 sin mover la cabecera. */
+.tt-reqinfo-modal .btn-close { box-sizing: border-box; flex: 0 0 auto; width: 44px; height: 44px;
+  padding: 0; margin: -10px -10px -10px auto; }
+.tt-reqinfo-modal .btn-close:focus-visible { box-shadow: 0 0 0 2px var(--tt-focus); }
+.tt-reqinfo-ok { min-height: 44px; min-width: 128px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-reqinfo-chev, .tt-reqinfo-btn::before { transition: none; }
+}
+
+/* ===========================================================================
+   ALUMNO · AUTO-AGENDADO DE LA CITA DE COTEJO (spec 2026-09-15 §7)
+   ---------------------------------------------------------------------------
+   Invariante duro del proyecto, en los 6 viewports (360/390/768/1280/1440/1920):
+   `document.documentElement.scrollWidth <= window.innerWidth`.
+
+   Las dos tiras horizontales de esta vista se resuelven DISTINTO, a proposito:
+
+     · la de DIAS puede crecer sin limite (una convocatoria con muchas fechas),
+       asi que scrollea DENTRO de si misma (`overflow-x:auto`) y nunca empuja la
+       pagina;
+     · la de FRANJAS no scrollea: ENVUELVE (`auto-fill` + `minmax`), que a 360px
+       da 3 columnas y a 1920 las que quepan. Una rejilla que envuelve no puede
+       desbordar, y eso es mas fuerte que contener el desbordamiento.
+
+   `min-width: 0` en todo hijo de flex/grid: sin el, un hijo con contenido
+   indivisible impone su ancho minimo al padre y el que acaba scrolleando es el
+   body. Es el fallo clasico de este contrato.
+
+   TAMANOS: solo tokens `--tt-fs-*`, nunca un literal. Y ojo con DONDE vive este
+   bloque: `test_citas_sistema_visual.py::_bloque_citas` recorta desde el marcador
+   "ADMIN - CITAS DE COTEJO" hasta el FINAL DEL ARCHIVO, asi que todo lo que se
+   anada al EOF -esto incluido- cae bajo las reglas de aquel bloque aunque sea de
+   otra pantalla. No es un accidente que convenga "arreglar" moviendo el bloque:
+   la escala y el piso de 12.64 px son de toda la app.
+   =========================================================================== */
+
+.tt-cita-hint { font-size: var(--tt-fs-100); color: var(--tt-text-3); margin: .25rem 0 .75rem; }
+
+/* — Cara 4: la frase que dice POR QUE no puede agendar — */
+.tt-cita-why { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.tt-cita-why i { flex: 0 0 auto; margin-top: 2px; color: var(--tt-amber-ink); }
+.tt-cita-why p { font-size: var(--tt-fs-200); color: var(--tt-text-2); min-width: 0; }
+
+/* — Aviso de fase 02 con observaciones (`cita_card.html`, Tarea B2) —
+   Reusa `.tt-card--danger` + `.tt-cita-why` (icono + texto en fila) y solo
+   re-tiñe el icono: `.tt-cita-why i` lo pinta ambar por defecto (el tono de
+   la cara 4), y este aviso es un rechazo, no una explicación neutral.
+   `#991B1B` y no un token: es el mismo literal que ya usan `.tt-pill--danger`
+   y `.tt-btn-danger-ghost` en este archivo — no hay `--tt-danger-ink`. */
+.tt-cita-rechazo .tt-cita-why i { color: #991B1B; }
+
+/* — Tarjeta de la cita (`partials/cita_card.html`) —
+   Lo que hasta el 2026-09-16 iban como ocho `style=` inline. Sobrevivieron
+   porque el barrido de parciales solo miraba la mitad ADMIN; hoy cubre tambien
+   `partials/student/` y este archivo. Tamanos SIEMPRE por token: este bloque
+   cae dentro del recorte marcador->EOF de `test_citas_sistema_visual.py`, que
+   prohibe los literales. */
+.tt-cita-note  { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+.tt-cita-when  { font-size: var(--tt-fs-500); font-weight: 600; }
+.tt-cita-where { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+.tt-cita-changed { background: var(--tt-amber-soft); border-radius: var(--tt-r-sm); }
+.tt-cita-changed span { font-size: var(--tt-fs-100); color: var(--tt-amber-ink); }
+/* 44 px de objetivo tactil, que es lo que declaraba el `style="height:44px"`.
+   `min-height` y no `height`: con el texto a dos lineas en un movil chico, el
+   alto fijo recortaba la etiqueta. */
+.tt-cita-btn { min-height: 44px; }
+
+/* «Solicitar cambio» plegable: `<details>` NATIVO, cero JS — lo unico que
+   permite tenerlo en un parcial que prohibe `<script>`. Sustituye a un
+   `onclick` inline que hacia `classList.toggle('d-none')`. Mismo idiom (y mismo
+   `::-webkit-details-marker` apagado) que `.tt-reqinfo-sum`. */
+.tt-cita-more-sum {
+  display: flex; align-items: center; min-width: 0; min-height: 44px;
+  cursor: pointer; list-style: none; border-radius: var(--tt-r-sm);
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-2);
+}
+.tt-cita-more-sum::-webkit-details-marker { display: none; }
+.tt-cita-more-sum:hover { color: var(--tt-text-1); }
+.tt-cita-more-sum:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+
+/* — Tira de dias —
+   OJO CON EL NOMBRE: el chip se llama `.tt-daychip`, NO `.tt-day`.
+   `.tt-day` ya existe (`:1261-1279`) y es del carril de dias del ADMIN
+   (`partials/appointments/_appt_days.html`). Reusar ese nombre aqui repintaba
+   aquella pantalla: misma especificidad y mas abajo en el archivo, asi que
+   estas reglas ganaban EN TODAS PARTES -el contador del dia seleccionado se
+   iba a ~1.8:1, el anillo de foco pasaba de interior a exterior (y el carril
+   del admin, con `overflow-x:auto`, lo recortaba) y la etiqueta bajaba del
+   piso de 12.64 px de la escala-. Ningun test lo atrapa: la suite renderiza
+   markup, nunca CSS computado. Acotar bajo `.tt-daybar` tampoco bastaba: las
+   reglas BASE de `.tt-day` seguirian aplicando aqui (su `gap: 2px`, su
+   `flex: 0 0 132px`) y heredariamos por accidente el chip del admin.
+   Nombre propio = cero interaccion en las dos direcciones. */
+.tt-daybar {
+  display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  padding-bottom: 6px; margin-bottom: 4px; scroll-snap-type: x proximity;
+}
+.tt-daychip {
+  flex: 0 0 auto; min-width: 0; scroll-snap-align: start;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 60px; min-height: 66px; padding: 8px 6px; border-radius: var(--tt-r);
+  background: var(--tt-mist); border: 1px solid var(--tt-line);
+  color: var(--tt-ink); text-decoration: none; line-height: 1.1;
+  transition: background .15s ease, border-color .15s ease, transform .14s var(--tt-ease-out);
+}
+/* `--tt-text-3` y no `--tt-mute`: la hoja lo prohibe para TEXTO en `:14-16`
+   (2.56:1 sobre papel, contra los 4.5 de WCAG). Mismo motivo en `.mon`,
+   `.tt-slotwin .meta`, `.tt-walkin .who` y `.tt-cita-hint`. */
+.tt-daychip .dow { font-size: var(--tt-fs-100); text-transform: uppercase; color: var(--tt-text-3); letter-spacing: .04em; }
+.tt-daychip .dom { font-family: var(--tt-display); font-size: var(--tt-fs-400); font-weight: 600; }
+.tt-daychip .mon { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-daychip:active { transform: scale(.96); }
+.tt-daychip.is-active {
+  background: var(--tt-ink); border-color: var(--tt-ink); color: #fff;
+}
+.tt-daychip.is-active .dow, .tt-daychip.is-active .mon { color: rgba(255, 255, 255, .78); }
+/* Anillo por DENTRO: `.tt-daybar` es `overflow-x: auto`, y ahi un `box-shadow`
+   exterior se recorta en el primer y el ultimo chip. Misma leccion que `:1277`. */
+.tt-daychip:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+
+/* — Bloque de un encargado y sus espacios — */
+.tt-slotblock { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--tt-line-soft); }
+.tt-slotblock:first-of-type { border-top: 0; margin-top: 4px; }
+.tt-slotblock-head { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; }
+.tt-slotblock-head i { flex: 0 0 auto; color: var(--tt-slate); }
+.tt-slotblock-head .who {
+  min-width: 0; overflow-wrap: anywhere;
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
+}
+.tt-slotwin + .tt-slotwin { margin-top: 12px; }
+.tt-slotwin .meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0;
+  font-size: var(--tt-fs-100); color: var(--tt-text-3); margin-bottom: 8px;
+}
+.tt-slotwin .meta i { margin-right: 3px; }
+
+/* — Rejilla de franjas: envuelve, no scrollea — */
+.tt-slotgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.tt-slot {
+  min-width: 0; min-height: 44px;           /* objetivo tactil completo */
+  padding: 8px 6px; border-radius: var(--tt-r);
+  background: var(--tt-paper); border: 1px solid var(--tt-line); color: var(--tt-ink);
+  font-family: var(--tt-mono); font-size: var(--tt-fs-200); font-weight: 600; cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .14s var(--tt-ease-out);
+}
+.tt-slot:active { transform: scale(.96); }
+.tt-slot:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--tt-focus); }
+@media (hover: hover) and (pointer: fine) {
+  .tt-daychip:hover  { background: var(--tt-line-soft); }
+  .tt-daychip.is-active:hover { background: var(--tt-ink); }
+  .tt-slot:hover { background: var(--tt-ink); border-color: var(--tt-ink); color: #fff; }
+}
+
+/* — Cara 3: atencion sin cita — */
+.tt-walkins { list-style: none; margin: 0; padding: 0; }
+.tt-walkin {
+  min-width: 0; padding: 10px 12px; border-radius: var(--tt-r);
+  background: var(--tt-mist); border: 1px solid var(--tt-line);
+}
+.tt-walkin + .tt-walkin { margin-top: 8px; }
+.tt-walkin .when {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; min-width: 0;
+}
+.tt-walkin .when .day { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+.tt-walkin .when .hours { font-family: var(--tt-mono); font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+.tt-walkin .who {
+  min-width: 0; overflow-wrap: anywhere;
+  font-size: var(--tt-fs-100); color: var(--tt-text-3); margin-top: 2px;
+}
+.tt-walkin .who i { margin-right: 3px; }
+
+/* Desktop: el alumno tiene layout propio, no un movil estirado. Las franjas
+   ganan aire y la tira de dias deja de scrollear porque ya caben. */
+@media (min-width: 992px) {
+  .tt-slotgrid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+  .tt-daybar { flex-wrap: wrap; overflow-x: visible; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-daychip, .tt-slot { transition: none; }
+  .tt-daychip:active, .tt-slot:active { transform: none; }
+}
+
+/* ===========================================================================
+   ADMIN - CITAS: visibilidad del espacio e historial de intentos (2026-09-16)
+
+   OJO, y ya esta dicho arriba (`:1786-1791`): `test_citas_sistema_visual.py`
+   recorta el bloque de Citas desde su marcador hasta el FINAL DEL ARCHIVO, asi
+   que TODO lo que se anada aqui cae bajo aquellas reglas aunque sea de otra
+   pantalla. En concreto: solo tokens `--tt-fs-*` (ningun `font-size` literal),
+   `--tt-mute` jamas como `color:` de texto (va `--tt-text-3`) y el anillo de
+   foco con `--tt-focus`, nunca con `--tt-accent`.
+   =========================================================================== */
+
+/* --- Los tres modos del espacio ----------------------------------------- */
+/* Uno por FILA, con su linea derivada debajo del rotulo. En linea no cabian:
+   los tres rotulos mas sus frases suman mas de 200 caracteres y en la columna
+   del editor se partian en mitades sin relacion visible con su radio. */
+.tt-vis { display: flex; flex-direction: column; gap: var(--tt-sp-2);
+          min-width: 0; border: 0; padding: 0; margin: 0; }
+.tt-vis-opt { display: grid; grid-template-columns: auto 1fr; gap: var(--tt-sp-2);
+              align-items: start; min-width: 0; cursor: pointer;
+              padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r-sm);
+              border: 1px solid var(--tt-line-soft); background: var(--tt-paper);
+              transition: border-color var(--tt-dur-1) ease, background var(--tt-dur-1) ease; }
+.tt-vis-opt .rotulo   { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+.tt-vis-opt .derivada { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+/* El resalte del elegido es progresivo: sin `:has()` el radio sigue marcado y
+   el formulario funciona igual, solo que sin el fondo. */
+.tt-vis-opt:has(input:checked) { background: var(--tt-mist);
+                                 border-color: var(--tt-accent-ink); }
+.tt-vis-opt:focus-within { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+
+/* Aviso de alcance vacio: publicar «Agendable» sin carreras asignadas no lo ve
+   NADIE (`offer` es fail-closed a proposito). Es un aviso, no un error: el
+   espacio se guarda. */
+.tt-vis-aviso { font-size: var(--tt-fs-100); color: var(--tt-amber-ink); }
+
+/* --- Historial de intentos (ficha de Atender) ---------------------------- */
+.tt-attempts { list-style: none; margin: 0; padding: 0;
+               display: flex; flex-direction: column; gap: var(--tt-sp-1); }
+.tt-attempt { display: flex; align-items: center; flex-wrap: wrap;
+              gap: var(--tt-sp-2); min-width: 0;
+              font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-attempt .n    { font-family: var(--tt-mono); color: var(--tt-text-3); }
+.tt-attempt .when { font-family: var(--tt-mono); font-variant-numeric: tabular-nums;
+                    color: var(--tt-text-1); }
+
+/* ===========================================================================
+   Bandeja de solicitudes: KPIs (2026-09-17)
+
+   `.tt-kpis`/`.tt-kpi` ya existen (linea ~741, "KPIs (bandeja, procesos,
+   convocatorias)"): la bandeja los reusa tal cual, cero CSS nuevo. Esto es
+   solo "Por año de ingreso" (meter nativo) y el aviso "Rechazada antes".
+
+   SIN `style=` inline en ningun lado: `requests_body.html`/`requests.html`
+   estan barridos por `test_la_bandeja_no_usa_hx_confirm_ni_js_ni_css_inline`.
+   Por eso la barra de cada año es un `<meter>` — la proporcion la calcula el
+   navegador desde `value`/`max`, no una clase de ancho ni una var inline.
+
+   Cae DESPUES del marcador "ADMIN - CITAS DE COTEJO" (linea 1127): por el
+   comentario de `:1834`, el barrido de `test_citas_sistema_visual.py` llega
+   hasta el FINAL DEL ARCHIVO aunque la pantalla no sea Citas. Reglas que
+   aplican aqui: tokens `--tt-fs-*` (nunca `font-size` literal), `--tt-text-3`
+   en vez de `--tt-mute` como color de TEXTO, y ningun anillo de foco con
+   `--tt-accent`. Abajo los `font-size` son tokens y el unico `outline` es el
+   del `<summary>` plegable, con `--tt-focus`.
+   =========================================================================== */
+/* «Por año de ingreso» es un `<details>` PLEGABLE, cerrado por omision. Con la
+   carga real (egresados desde 2002, 20+ generaciones) la version en filas
+   medía 2,651 px a 1440 de ancho y mandaba pestañas y lista fuera de la
+   pantalla. Cerrado ocupa una linea (el resumen); abierto, cada año es una
+   ficha de una rejilla que ENVUELVE, así que 25 años son 4-5 filas en
+   escritorio y 2 columnas en movil, sin scroll horizontal. */
+/* El texto envuelve DENTRO de `.tt-years-txt` y el chevron se queda arriba a
+   la derecha: con un solo flex que envolvía, en 360 px el chevron bajaba a un
+   renglón propio y el resumen cerrado medía 125 px. */
+.tt-years-sum {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--tt-sp-3);
+  min-height: 44px; cursor: pointer; list-style: none;
+}
+.tt-years-txt { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px var(--tt-sp-3); min-width: 0; }
+.tt-years-sum::-webkit-details-marker { display: none; }
+.tt-years-sum::marker { content: ""; }
+.tt-years-sum:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 4px; border-radius: var(--tt-r-sm); }
+.tt-years-resumen { font-size: var(--tt-fs-200); color: var(--tt-text-2); min-width: 0; }
+.tt-years-chev { flex: 0 0 auto; color: var(--tt-text-3); transition: transform 200ms var(--tt-ease-out); }
+.tt-years[open] .tt-years-chev { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .tt-years-chev { transition: none; } }
+
+/* Una sola leyenda para toda la rejilla: el desglose de cada ficha es icono +
+   numero, y la leyenda dice que icono es que estado (nunca solo color). */
+.tt-years-legend {
+  display: flex; flex-wrap: wrap; gap: var(--tt-sp-1) var(--tt-sp-3);
+  margin: var(--tt-sp-2) 0; font-size: var(--tt-fs-100); color: var(--tt-text-3);
+}
+.tt-yeargrid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: var(--tt-sp-2);
+}
+/* En movil el minimo de 172 px dejaba UNA columna: 27 fichas median 2,415 px
+   abiertas. Dos columnas fijas lo parten a la mitad; el desglose puede
+   envolver a dos renglones y la rejilla iguala la altura por fila. */
+@media (max-width: 575.98px) {
+  .tt-yeargrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.tt-yeartile {
+  min-width: 0; padding: var(--tt-sp-2) var(--tt-sp-3);
+  border: 1px solid var(--tt-line); border-radius: var(--tt-r-sm);
+}
+.tt-yeartile-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--tt-sp-2); }
+.tt-yeartile-year { font-family: var(--tt-display); font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-yeartile-total { font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-yeartile-mix {
+  display: flex; flex-wrap: wrap; gap: 2px 6px; margin-top: var(--tt-sp-1);
+  font-size: var(--tt-fs-100); color: var(--tt-text-2); font-variant-numeric: tabular-nums;
+}
+.tt-mix { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.tt-mix--review i    { color: var(--tt-amber-ink); }
+.tt-mix--sent i      { color: var(--tt-navy); }
+.tt-mix--converted i { color: var(--tt-success); }
+.tt-mix--rejected i  { color: var(--tt-danger); }
+
+/* `<meter>` nativo: WebKit/Blink separan pista y valor en dos pseudo-elementos;
+   Firefox pinta el valor sobre el propio elemento. Sin soporte, cae al meter
+   nativo del SO, que igual comunica la proporcion (nunca queda en blanco). */
+.tt-yearbar {
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  display: block; width: 100%; height: 6px; border: 0; border-radius: 999px;
+  background: var(--tt-line); margin: var(--tt-sp-1) 0 0;
+}
+.tt-yearbar::-webkit-meter-bar { background: var(--tt-line); border: 0; border-radius: 999px; }
+.tt-yearbar::-webkit-meter-optimum-value { background: var(--tt-accent); border-radius: 999px; }
+.tt-yearbar::-moz-meter-bar { background: var(--tt-accent); border-radius: 999px; }
+
+/* Tabla de la bandeja: CINCO columnas con `table-layout: fixed`. Con ocho y
+   `auto` medía 1,337 px como mínimo contra 977-1,192 px útiles, así que se
+   desplazaba en horizontal con la barra al final de cientos de filas y las
+   acciones se veían cortadas. Medido tras el cambio (1920/1440/1280): la tabla
+   mide lo mismo que su contenedor, sin celdas desbordadas ni botones cortados.
+
+   Anchos TODOS en porcentaje, con un mínimo de 920 px: mezclar px fijos con %
+   hacía que la suma pasara del contenedor a 1280 (la fecha, `nowrap`, se salía
+   2 px) y en móvil aplastaba las celdas. Con 920 px la fecha tiene 101 px y
+   las acciones 258 px; bajo ese ancho la tabla se desplaza DENTRO de
+   `.table-responsive`, nunca la página. */
+.tt-req-table { table-layout: fixed; width: 100%; min-width: 920px; }
+.tt-req-table td { vertical-align: top; overflow-wrap: break-word; }
+.tt-req-col-who     { width: 24%; }
+.tt-req-col-prog    { width: 17%; }
+.tt-req-col-contact { width: 20%; }
+.tt-req-col-date    { width: 11%; }
+.tt-req-col-acc     { width: 28%; }
+/* El `<th>` de acciones lleva su nombre en un `.visually-hidden`, que es
+   `position: absolute`. Sin un ancestro posicionado DENTRO del contenedor con
+   scroll, ese span no lo recorta el `overflow` y estiraba la PÁGINA a 538 px
+   en un móvil de 360. */
+#tt-requests-body .table-responsive { position: relative; }
+.tt-req-ctl  { display: block; font-family: var(--tt-mono); font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-req-name { display: block; color: var(--tt-text-1); }
+.tt-req-sub  { display: block; font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-req-mail { display: block; }
+.tt-req-date { white-space: nowrap; }
+.tt-req-tags { display: flex; flex-wrap: wrap; gap: var(--tt-sp-1); margin-top: var(--tt-sp-1); }
+.tt-req-tags:empty { display: none; }
+
+/* Acciones apiladas: el `<select>` de carrera ocupa su renglón (sus opciones
+   son largas y con ancho automático empujaban la celda) y el botón de aprobar
+   también; el motivo del rechazo comparte renglón con su botón y envuelve si
+   no cabe. `min-width: 0` deja encoger a los hijos del flex. */
+.tt-req-form { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-1); }
+.tt-req-form > * { min-width: 0; }
+.tt-req-form select { flex: 1 1 100%; max-width: 100%; }
+.tt-req-form input[name="nip"] { flex: 0 0 76px; }
+.tt-req-form button { flex: 1 1 auto; }
+.tt-req-form--inline input { flex: 1 1 120px; }
+
+/* Antecedente de rechazo, bajo el nombre: hasta DOS renglones y después se
+   corta — el texto completo sigue en el DOM y en `title`. Antes era una sola
+   línea `nowrap` de 260 px que, por sí sola, ensanchaba la columna Nombre de
+   94 a 268 px y empujaba las acciones fuera de la tabla. */
+.tt-prior-reject {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; margin-top: var(--tt-sp-1); color: var(--tt-text-3);
+}
+
+/* ===========================================================================
+   Encargados por carrera (2026-09-17)
+
+   Medido ANTES: los usuarios y las carreras se elegian en dos `<select
+   multiple size="3">` nativos. Exigian Ctrl+click, mostraban 3 renglones de 11
+   usuarios y de 25 carreras, y cortaban el cuarto nombre por la mitad. En la
+   tarjeta del encargado, usuarios y carreras iban revueltos en la MISMA fila de
+   pastillas, distinguidos solo por color: sin rotulo, sin forma de saber cual
+   era cual salvo por el tono.
+
+   Y algo peor que lo feo: 9 de los 11 usuarios de Servicios Escolares tienen la
+   cuenta INACTIVA (los dio de alta una campana de inventario de helpdesk).
+   `auth_service` filtra `is_active` al entrar, asi que nombrar encargado a uno
+   de ellos producia un encargado que no podia iniciar sesion, y la lista no
+   daba ninguna senal. Ahora cada fila inactiva lo dice, el contador anuncia
+   cuantas se reactivaran y el aviso previo al boton advierte del cambio de
+   contrasena.
+
+   Cae DESPUES del marcador "ADMIN - CITAS DE COTEJO" (linea 1127), igual que el
+   bloque de KPIs de arriba, asi que `test_citas_sistema_visual.py` barre estas
+   reglas: tipografia SOLO con tokens `--tt-fs-*` (ningun `font-size` literal),
+   texto nunca en `--tt-mute` (va `--tt-text-3`), y ningun anillo de foco con
+   `--tt-accent` (2.15:1) — todos con `--tt-focus`.
+   =========================================================================== */
+
+/* ---- 1. Rejilla del formulario ------------------------------------------- */
+/* El nombre ocupa el renglon entero y los dos selectores se reparten el ancho
+   en cuanto hay sitio. `auto-fit` con minimo de 18rem y no una media query: la
+   caja util del admin cambia con el cajon lateral, no con la ventana. */
+/* DOS columnas exactas, no `auto-fit`. Con `repeat(auto-fit, minmax(18rem, 1fr))`
+   la rejilla sacaba una TERCERA columna vacia en cuanto cabia (medido a 1920:
+   tres de 288 px), porque aqui solo hay dos selectores y el numero de columnas
+   no lo decide el contenido. El tope de 56rem ademas evita que el formulario se
+   estire a los 1240 px del contenido admin: eso no se escanea, se recorre. */
+.tt-off-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--tt-sp-4);
+  align-items: start;
+  max-width: 56rem;
+  min-width: 0;
+}
+/* 768 y no 992: bajo 992 el cajon admin esta cerrado y el contenido ocupa casi
+   toda la ventana, asi que a 768 ya caben dos columnas de ~360 px. */
+@media (min-width: 768px) {
+  .tt-off-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.tt-off-form-grid > .tt-off-name-field { grid-column: 1 / -1; }
+.tt-off-field { min-width: 0; }
+/* `.tt-field` no trae ancho propio (es un campo compacto de tabla en su origen),
+   asi que sin esto el nombre del encargado salia en una caja de ~220 px en una
+   fila de 1100. Se topa para que no se estire a lo bruto en un monitor grande. */
+.tt-off-name-field > .tt-field { width: 100%; max-width: 32rem; }
+.tt-off-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-sp-2);
+  margin-top: var(--tt-sp-4);
+}
+
+/* El alta plegable. El marcador nativo se retira y lo sustituye el icono del
+   marcado, que ya dice «+»; `list-style` cubre Firefox y el pseudo-elemento
+   `-webkit-details-marker`, Safari. */
+.tt-off-new > summary { list-style: none; }
+.tt-off-new > summary::-webkit-details-marker { display: none; }
+.tt-off-new-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--tt-sp-2);
+  min-height: 44px;
+  margin: calc(-1 * var(--tt-sp-2)) calc(-1 * var(--tt-sp-2)) 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  border-radius: var(--tt-r-sm);
+  font-size: var(--tt-fs-200);
+  font-weight: 600;
+  color: var(--tt-text-1);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tt-off-new-summary:hover { background-color: var(--tt-mist); }
+}
+.tt-off-new-summary:focus-visible {
+  outline: 2px solid var(--tt-focus);
+  outline-offset: -2px;
+}
+.tt-off-new-summary > .bi {
+  font-size: var(--tt-fs-300);
+  line-height: 1;
+  transition: transform var(--tt-dur-2) var(--tt-ease-out);
+}
+/* Abierto, el «+» gira a «x»: el mismo icono dice las dos cosas. */
+.tt-off-new[open] > .tt-off-new-summary > .bi { transform: rotate(45deg); }
+.tt-off-new[open] > .tt-off-new-summary { margin-bottom: var(--tt-sp-3); }
+@media (prefers-reduced-motion: reduce) {
+  .tt-off-new-summary > .bi { transition: none; }
+}
+
+/* ---- 2. Selector de casillas con buscador -------------------------------- */
+/* Sustituye al `<select multiple>`: sin Ctrl+click, con buscador, con estado
+   por fila y usable con el pulgar. La lista tiene scroll PROPIO -no empuja la
+   pagina- y se topa en 15rem, que son unas 6 filas: suficiente para ver que hay
+   mas y para no comerse la pantalla con 25 carreras. */
+.tt-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-sp-2);
+  min-width: 0;
+}
+.tt-picker-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tt-sp-2);
+  min-width: 0;
+}
+.tt-picker-title {
+  font-size: var(--tt-fs-200);
+  font-weight: 600;
+  color: var(--tt-text-2);
+}
+/* El contador es dato, no adorno: dice cuantos van elegidos de cuantos hay y,
+   cuando toca, cuantas cuentas se reactivaran al guardar. */
+.tt-picker-count {
+  font-size: var(--tt-fs-100);
+  font-variant-numeric: tabular-nums;
+  color: var(--tt-text-3);
+  white-space: nowrap;
+}
+.tt-picker-count[data-tt-picker-warn="1"] {
+  font-weight: 600;
+  color: var(--tt-accent-ink);
+}
+
+.tt-picker-search { position: relative; min-width: 0; }
+.tt-picker-search > .bi {
+  position: absolute;
+  top: 50%;
+  left: var(--tt-sp-3);
+  transform: translateY(-50%);
+  font-size: var(--tt-fs-200);
+  color: var(--tt-text-3);
+  pointer-events: none;
+}
+/* 16 px de letra: por debajo, iOS hace zoom al enfocar. El admin se usa en
+   tablet de ventanilla, asi que aplica igual que en la inscripcion publica. */
+.tt-picker-input {
+  width: 100%;
+  min-height: 40px;
+  padding-left: calc(var(--tt-sp-3) + var(--tt-sp-5));
+  font-size: var(--tt-fs-300);
+}
+.tt-picker-input:focus {
+  border-color: var(--tt-focus);
+  box-shadow: 0 0 0 3px rgba(180, 83, 9, .18);
+}
+/* La X nativa de `type="search"` en WebKit se come el padding y salta de sitio;
+   el campo se limpia con Esc o borrando, que es lo que hace todo el mundo. */
+.tt-picker-input::-webkit-search-decoration,
+.tt-picker-input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+.tt-picker-list {
+  /* 5 filas y MEDIA. La media fila asomando es lo que dice "hay mas abajo" sin
+     una sombra ni un degradado; con una altura que cortara justo entre filas, la
+     lista parece completa y nadie baja. 44 px por fila + los 8 del relleno. */
+  max-height: calc(5.5 * 44px + 2 * var(--tt-sp-1));
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--tt-sp-1);
+  list-style: none;
+  border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r);
+  background-color: var(--tt-paper);
+  overscroll-behavior: contain;
+}
+.tt-picker-row { min-width: 0; }
+.tt-picker-row[hidden] { display: none; }
+
+/* La fila ENTERA es el `<label>`: 44 px de objetivo tactil y ningun `for`/`id`
+   que mantener unico entre el alta y los N formularios de edicion de la misma
+   pagina. */
+.tt-picker-opt {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--tt-sp-3);
+  min-height: 44px;
+  margin: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  border-radius: var(--tt-r-sm);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--tt-dur-1) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tt-picker-opt:hover { background-color: var(--tt-mist); }
+}
+.tt-picker-opt:has(input:focus-visible) {
+  outline: 2px solid var(--tt-focus);
+  outline-offset: -2px;
+}
+/* Lo elegido se ve sin depender del color: ademas del fondo, el nombre sube de
+   peso. */
+.tt-picker-opt:has(input:checked) { background-color: var(--tt-mist); }
+.tt-picker-opt:has(input:checked) > .tt-picker-name {
+  font-weight: 600;
+  color: var(--tt-text-1);
+}
+/* El borde gris de Bootstrap da 1.3:1: la casilla vacia no se veia. */
+.tt-picker-opt > .form-check-input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-color: var(--tt-text-3);
+  cursor: pointer;
+}
+.tt-picker-opt > .form-check-input:checked {
+  border-color: var(--tt-ink);
+  background-color: var(--tt-ink);
+}
+.tt-picker-opt > .form-check-input:focus { border-color: var(--tt-ink); box-shadow: none; }
+
+.tt-picker-name {
+  min-width: 0;
+  font-size: var(--tt-fs-200);
+  line-height: 1.35;
+  color: var(--tt-text-1);
+  overflow-wrap: anywhere;
+}
+.tt-picker-flag { flex: 0 0 auto; }
+.tt-picker-empty {
+  margin: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  font-size: var(--tt-fs-100);
+  color: var(--tt-text-3);
+}
+
+/* ---- 3. Aviso de reactivacion -------------------------------------------- */
+/* Reactivar una cuenta es dar acceso al sistema Y cambiarle la contrasena. No
+   puede pasar en silencio: esto aparece ANTES de guardar, en cuanto se marca
+   una cuenta inactiva. Fondo tenido y borde completo, nunca un borde lateral. */
+.tt-off-warn {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--tt-sp-3);
+  margin-top: var(--tt-sp-4);
+  padding: var(--tt-sp-3) var(--tt-sp-4);
+  border: 1px solid rgba(245, 158, 11, .38);
+  border-radius: var(--tt-r);
+  background-color: var(--tt-accent-soft);
+  font-size: var(--tt-fs-200);
+  line-height: 1.45;
+  color: var(--tt-accent-ink);
+}
+.tt-off-warn[hidden] { display: none; }
+.tt-off-warn > .bi { font-size: var(--tt-fs-400); line-height: 1.25; }
+.tt-off-warn strong { font-weight: 600; }
+.tt-off-warn code {
+  padding: 0 var(--tt-sp-1);
+  border-radius: var(--tt-r-sm);
+  background-color: rgba(120, 53, 15, .1);
+  font-family: var(--tt-mono);
+  font-size: var(--tt-fs-100);
+  color: var(--tt-accent-ink);
+}
+
+/* ---- 4. Tarjeta del encargado -------------------------------------------- */
+.tt-off { min-width: 0; }
+.tt-off-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--tt-sp-3);
+  min-width: 0;
+}
+.tt-off-name {
+  margin: 0;
+  min-width: 0;
+  font-family: var(--tt-display);
+  font-size: var(--tt-fs-400);
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--tt-text-1);
+  overflow-wrap: anywhere;
+}
+.tt-off-tools { display: flex; flex-wrap: wrap; gap: var(--tt-sp-2); flex: 0 0 auto; }
+
+/* Dos renglones ROTULADOS. Antes usuarios y carreras compartian una sola fila
+   de pastillas y solo el color decia cual era cual, que es justo lo que no
+   funciona para quien no distingue esos dos tonos. */
+.tt-off-rows {
+  display: grid;
+  gap: var(--tt-sp-3);
+  margin: var(--tt-sp-4) 0 0;
+  min-width: 0;
+}
+.tt-off-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--tt-sp-2);
+  min-width: 0;
+}
+@media (min-width: 768px) {
+  .tt-off-row { grid-template-columns: 7rem minmax(0, 1fr); gap: var(--tt-sp-4); }
+}
+.tt-off-row > dt {
+  font-size: var(--tt-fs-100);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--tt-text-3);
+}
+.tt-off-row > dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tt-sp-2);
+  margin: 0;
+  min-width: 0;
+}
+.tt-off-none { font-size: var(--tt-fs-200); color: var(--tt-text-3); }
+
+/* ---- 5. Edicion en linea ------------------------------------------------- */
+/* Se despliega DENTRO de la tarjeta y empuja hacia abajo: no tapa a su vecina
+   ni la encoge, que es la regla del proyecto. Separador de 1 px, no otra
+   tarjeta: tarjeta dentro de tarjeta esta prohibida. */
+.tt-off-edit {
+  margin-top: var(--tt-sp-4);
+  padding-top: var(--tt-sp-4);
+  border-top: 1px solid var(--tt-line-soft);
+  min-width: 0;
+}
+.tt-off-edit[hidden] { display: none; }

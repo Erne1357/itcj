@@ -1,0 +1,431 @@
+{# ===========================================================================
+   survey_form.html — formulario re-renderizable en cada POST.
+
+   El servidor conserva los valores porque htmx SI swappea en 200 (spec 6.1):
+   si aqui no se re-imprimen, un fallo de validacion borra el cuestionario
+   entero y el visitante lo abandona.
+
+   La raiz `#tt-survey-form` es a la vez el `hx-target`, asi que el swap es
+   `outerHTML` (invariante: si no coincidieran, htmx anidaria el formulario
+   dentro de si mismo en cada envio fallido). El id es ademas lo que permite
+   a Idiomorph no reescribir el arbol en cada swap (contrato de `survey.js`).
+
+   Los valores llegan ya normalizados por `_display_values` (pages/public.py):
+   un `yesno` como booleano, un `scale` como texto y un `multiselect` como lista
+   de texto, vengan del borrador de BD o del envio que acaba de fallar.
+
+   Tarea 3 — dos modos, decididos por `step_index` (ver `_form_ctx`):
+
+     * `step_index` es `none` (envio final fallido, `SURVEY_URL`): `sections`
+       trae TODAS las secciones, apiladas, como siempre -el envio final
+       revalida el formulario entero y un error puede caer en cualquiera-.
+     * `step_index` es un numero (GET y `STEP_URL`): `sections` trae UNA sola
+       -la del paso actual-, con un indicador de progreso y, al pie,
+       "Atras"/"Siguiente" en vez del envio directo (salvo en el ultimo paso,
+       que si ofrece "Enviar respuestas"). Los campos de las demas secciones
+       viajan en `other_fields`, pintados como ocultos por `tt_hidden`: es asi
+       como el estado del recorrido sobrevive el swap sin sesion de servidor
+       (spec 3.3) -y por que el envio final, cuando se hace desde el ultimo
+       paso, ya trae la foto completa sin nada especial de por medio-.
+
+   Rediseno 2026-09-15 — estructura que lee `public.css`:
+
+     form#tt-survey-form.tt-survey-form
+       ocultos (tt_step + otras secciones) · trampa
+       .tt-survey-top    avisos: presupuesto y anonimo (no se emite si no hay)
+       nav.tt-steps      indicador de pasos (solo en modo paso)
+       .tt-survey-body   errores · seccion(es) con sus tarjetas · acciones
+
+   Bajo 992 px es una sola columna en ese orden, compacta (segunda ronda del
+   2026-09-15): los pasos son circulos numerados en una linea y el h2 de la
+   seccion sale de la VISTA -no del DOM: `survey.js` le da el foco- porque su
+   titulo ya va en "Paso N de M · titulo". Desde 992 px el formulario es
+   `display: contents` y esos tres bloques se colocan en la rejilla del <main>
+   (`tt-public-main--survey`): el riel ocupa la columna izquierda de arriba
+   abajo -tambien junto a la cabecera de `survey.html`, que no esta dentro del
+   formulario- y avisos y cuerpo van en la columna de contenido. Por eso el
+   indicador se pinta UNA sola vez: riel y chips son el mismo nodo con otra
+   hoja, y duplicarlo rompe el modo estricto de los E2E.
+
+   `data-tt-view` es CONSTANTE a proposito: `titulatec-utils.js` re-anima el
+   destino de cada swap salvo que esa marca no cambie, y aqui el destino
+   incluye el riel, que en un "Siguiente" no deberia rebotar. Lo que entra
+   animado es la seccion (`tt-anim-in`), que es lo que de verdad cambio.
+   =========================================================================== #}
+
+{# Atributos ARIA de un control: `aria-invalid` solo con error, y
+   `aria-describedby` hacia la ayuda y/o el error cuando existen. #}
+{% macro tt_aria(err, desc) -%}
+  {%- if err %} aria-invalid="true"{% endif %}{% if desc %} aria-describedby="{{ desc }}"{% endif -%}
+{%- endmacro %}
+
+{# Distribucion de un grupo de opciones. La decide la plantilla porque el CSS
+   no sabe contar opciones ni medir rotulos. `n` es cuantas hay y `L` el largo
+   del rotulo mas largo, en caracteres. Calibrado contra el instrumento real
+   (tarjeta de 594 px en el peor ancho de escritorio):
+     · `--pair`  2 opciones cortas (Si/No, Hombre/Mujer): a 2 columnas incluso
+                 en movil, donde caben sin partirse.
+     · `--row`   <=5 opciones de <=14 caracteres (las Likert de 4), o <=3 de
+                 <=24: una sola fila en cuanto la tarjeta es ancha.
+     · `--cols3` 6 o mas opciones cortas (idiomas, nivel jerarquico).
+     · `--cols2` rotulos medianos (carrera de egreso, tiempo al primer empleo).
+     · sin clase: rotulos de ~60 caracteres (sector, requisito de
+                 contratacion), que en columnas se partirian en 3-5 lineas.
+   En movil todo lo que no es `--pair` va a una columna (ver `public.css`). #}
+{% macro tt_opts_layout(options) -%}
+  {%- set opts = options or [] -%}
+  {%- set n = opts|length -%}
+  {%- set L = (opts|map(attribute='label')|map('string')|map('length')|max) if n else 0 -%}
+  {%- if n == 2 and L <= 12 -%}tt-opts--pair tt-opts--row
+  {%- elif (n <= 5 and L <= 14) or (n <= 3 and L <= 24) -%}tt-opts--row
+  {%- elif n >= 6 and L <= 26 -%}tt-opts--cols3
+  {%- elif L <= 44 or (n >= 6 and L <= 60) -%}tt-opts--cols2
+  {%- endif -%}
+{%- endmacro %}
+
+{# Atributos de un <input> de texto o de fecha segun su formato (2026-09-15).
+   El servidor es la fuente de verdad (`utils/survey_validator.py`); esto solo
+   pone el teclado, el largo y el autollenado que evitan el error:
+     · `digits`/`year` -> `inputmode="numeric"`, sin volver el control
+       `type="number"` (que cambia con la rueda del raton y acepta "e");
+     · `decimal` -> `inputmode="decimal"`: el teclado numerico de iOS no trae
+       punto;
+     · `phone` -> `type="tel"`, `email` -> `type="email"` y `date` ->
+       `type="date"` con el `min`/`max` de `date_bounds` (la misma aritmetica
+       que la validacion). Los tres los pinta `tt_field`;
+     · `autocomplete` sale del formato y el campo puede pisarlo con uno del
+       vocabulario cerrado del validador (el telefono del encargado de RH
+       declara `off`: no es el del egresado).
+   `type` va en `tt_field`, pegado a `id`: las pruebas buscan
+   `type="text" id="f-..."` contiguos. #}
+{% macro tt_input_extra(f, fmt, bounds) -%}
+  {%- set val = f.validation or {} -%}
+  {%- set ac = f.autocomplete or '' -%}
+  {%- if f.type == 'date' -%}
+    {%- if not ac and (val.get('minAge') is not none or val.get('maxAge') is not none) %}{% set ac = 'bday' %}{% endif -%}
+    {%- if bounds and bounds.get('min') %} min="{{ bounds.get('min') }}"{% endif -%}
+    {%- if bounds and bounds.get('max') %} max="{{ bounds.get('max') }}"{% endif -%}
+  {%- elif fmt in ('digits', 'year') -%}
+    {%- set ac = ac or 'off' %} inputmode="numeric"
+  {%- elif fmt == 'decimal' -%}
+    {%- set ac = ac or 'off' %} inputmode="decimal"
+  {%- elif fmt == 'phone' -%}
+    {%- set ac = ac or 'tel-national' -%}
+  {%- elif fmt == 'email' -%}
+    {%- set ac = ac or 'email' %} autocapitalize="none" spellcheck="false"
+  {%- elif fmt == 'person_name' -%}
+    {%- set ac = ac or 'name' %} autocapitalize="words" spellcheck="false"
+  {%- endif -%}
+  {%- if ac %} autocomplete="{{ ac }}"{% endif -%}
+  {%- if f.type == 'text' -%}
+    {%- set tope = 4 if fmt == 'year' else (val.get('length') if (fmt == 'digits' and val.get('length')) else val.get('maxLength')) -%}
+    {%- if tope %} maxlength="{{ tope }}"{% endif -%}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro tt_field(f, values, errors, first_error_key, bounds=none) %}
+  {% set v = values.get(f.key) %}
+  {% set err = errors.get(f.key) %}
+  {% set fid = 'f-' ~ f.key %}
+  {% set foco = (first_error_key == f.key) %}
+  {# En `checkbox` la ayuda ES el rotulo de la casilla: no se repite debajo. #}
+  {% set hint = f.hint if (f.hint and f.type != 'checkbox') else '' %}
+  {% set desc = ([fid ~ '-hint'] if hint else []) + ([fid ~ '-err'] if err else []) %}
+  {% set desc = desc|join(' ') %}
+  {# Un `radio` de 20 opciones o mas se pinta como <select> con el MISMO
+     `name` y los MISMOS `value`: 48 radios apilados (especialidad) eran 1250 px
+     de scroll para una sola respuesta. El servidor no distingue un control del
+     otro, y la opcion vacia manda `""`, que el validador trata igual que un
+     radio sin marcar (obligatorio -> error; opcional -> sin respuesta). #}
+  {% set radio_largo = (f.type == 'radio' and (f.options or [])|length >= 20) %}
+  <div class="tt-q" data-tt-field="{{ f.key }}"{% if f.visible_when %} data-tt-when='{{ f.visible_when|tojson }}'{% endif %}>
+    {# `&nbsp;` y no un espacio: con enunciados largos el asterisco caia solo
+       en la linea siguiente. #}
+    <span class="tt-label" id="{{ fid }}-lbl">
+      {{ f.label }}{% if f.required %}&nbsp;<span class="tt-req" aria-hidden="true">*</span>{% endif %}
+    </span>
+    {% if hint %}<p class="tt-hint" id="{{ fid }}-hint">{{ hint }}</p>{% endif %}
+
+    {% if f.type in ('text', 'date') %}
+      {% set fmt = (f.validation or {}).get('format') if f.type == 'text' else none %}
+      {% set itype = 'date' if f.type == 'date' else {'phone': 'tel', 'email': 'email'}.get(fmt, 'text') %}
+      <input class="tt-field form-control"{{ tt_input_extra(f, fmt, bounds) }} type="{{ itype }}" id="{{ fid }}" name="{{ f.key }}"
+             aria-labelledby="{{ fid }}-lbl"{{ tt_aria(err, desc) }}
+             value="{{ v if v is not none else '' }}"
+             {% if foco %}autofocus data-tt-focus="1"{% endif %}>
+
+    {% elif f.type == 'textarea' %}
+      <textarea class="tt-field form-control" id="{{ fid }}" name="{{ f.key }}" rows="4"
+                aria-labelledby="{{ fid }}-lbl"{{ tt_aria(err, desc) }}
+                {% if f.validation and f.validation.maxLength %}maxlength="{{ f.validation.maxLength }}"{% endif %}
+                {% if foco %}autofocus data-tt-focus="1"{% endif %}>{{ v if v is not none else '' }}</textarea>
+
+    {% elif f.type == 'select' or radio_largo %}
+      <select class="tt-field form-select" id="{{ fid }}" name="{{ f.key }}"
+              aria-labelledby="{{ fid }}-lbl"{{ tt_aria(err, desc) }}
+              {% if foco %}autofocus data-tt-focus="1"{% endif %}>
+        <option value="">Selecciona una opción…</option>
+        {% for opt in f.options %}
+        <option value="{{ opt.value }}"{% if v == opt.value|string %} selected{% endif %}>{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+
+    {% elif f.type == 'radio' %}
+      {% set lay = tt_opts_layout(f.options)|trim %}
+      <div class="tt-opts{% if lay %} {{ lay }}{% endif %}" role="radiogroup"
+           aria-labelledby="{{ fid }}-lbl"{{ tt_aria(err, desc) }}>
+        {% for opt in f.options %}
+        <label class="tt-opt">
+          <input class="form-check-input" type="radio" id="{{ fid }}-{{ loop.index }}"
+                 name="{{ f.key }}" value="{{ opt.value }}"{% if v == opt.value|string %} checked{% endif %}
+                 {% if foco and loop.first %}autofocus data-tt-focus="1"{% endif %}>
+          <span class="tt-opt-text">{{ opt.label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+
+    {% elif f.type == 'multiselect' %}
+      {% set lay = tt_opts_layout(f.options)|trim %}
+      <div class="tt-opts{% if lay %} {{ lay }}{% endif %}" role="group"
+           aria-labelledby="{{ fid }}-lbl"{{ tt_aria(err, desc) }}>
+        {% for opt in f.options %}
+        <label class="tt-opt">
+          <input class="form-check-input" type="checkbox" id="{{ fid }}-{{ loop.index }}"
+                 name="{{ f.key }}" value="{{ opt.value }}"{% if opt.value|string in (v or []) %} checked{% endif %}
+                 {% if foco and loop.first %}autofocus data-tt-focus="1"{% endif %}>
+          <span class="tt-opt-text">{{ opt.label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+
+    {% elif f.type == 'checkbox' %}
+      <div class="tt-opts">
+        <label class="tt-opt">
+          <input class="form-check-input" type="checkbox" id="{{ fid }}"
+                 name="{{ f.key }}" value="1"{% if v %} checked{% endif %}{{ tt_aria(err, desc) }}
+                 {% if foco %}autofocus data-tt-focus="1"{% endif %}>
+          <span class="tt-opt-text">{{ f.hint or f.label }}</span>
+        </label>
+      </div>
+
+    {% elif f.type == 'yesno' %}
+      <div class="tt-opts tt-opts--pair tt-opts--row" role="radiogroup"
+           aria-labelledby="{{ fid }}-lbl"{{ tt_aria(err, desc) }}>
+        <label class="tt-opt">
+          <input class="form-check-input" type="radio" id="{{ fid }}-si"
+                 name="{{ f.key }}" value="si"{% if v is sameas true %} checked{% endif %}
+                 {% if foco %}autofocus data-tt-focus="1"{% endif %}>
+          <span class="tt-opt-text">Sí</span>
+        </label>
+        <label class="tt-opt">
+          <input class="form-check-input" type="radio" id="{{ fid }}-no"
+                 name="{{ f.key }}" value="no"{% if v is sameas false %} checked{% endif %}>
+          <span class="tt-opt-text">No</span>
+        </label>
+      </div>
+
+    {% elif f.type == 'scale' %}
+      {# Los rotulos de los extremos NO son decoracion: sin ellos un 1 y un 5 no
+         significan nada y el visitante no sabe que punta es cual. Se ven en los
+         extremos y, para el lector de pantalla, viajan en el nombre del primer
+         y del ultimo chip ("1, Poco"): los visibles van `aria-hidden` para no
+         leerse dos veces. El radio nativo cubre el chip entero (transparente),
+         asi que sigue siendo el control real: foco, flechas y `checked`. #}
+      <div class="tt-scale" role="radiogroup"
+           aria-labelledby="{{ fid }}-lbl"{{ tt_aria(err, desc) }}>
+        <span class="tt-scale-end tt-scale-end--min" aria-hidden="true">{{ f.scale.min_label }}</span>
+        <span class="tt-scale-track">
+          {% for n in range(f.scale.min, f.scale.max + 1) %}
+          <label class="tt-scale-opt">
+            <input class="tt-scale-input" type="radio" name="{{ f.key }}" value="{{ n }}"{% if v == n|string %} checked{% endif %}
+                   {% if foco and loop.first %}autofocus data-tt-focus="1"{% endif %}>
+            <span class="tt-scale-num">{{ n }}{% if loop.first and f.scale.min_label %}<span class="visually-hidden">, {{ f.scale.min_label }}</span>{% elif loop.last and f.scale.max_label %}<span class="visually-hidden">, {{ f.scale.max_label }}</span>{% endif %}</span>
+          </label>
+          {% endfor %}
+        </span>
+        <span class="tt-scale-end tt-scale-end--max" aria-hidden="true">{{ f.scale.max_label }}</span>
+      </div>
+    {% endif %}
+
+    {% if err %}
+      <div class="tt-err" id="{{ fid }}-err" data-tt-error="{{ f.key }}" role="alert"><i class="bi bi-exclamation-circle" aria-hidden="true"></i><span>{{ err }}</span></div>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+{# Tarea 3: lo capturado en OTRAS secciones no se pierde al mostrar solo la
+   actual -viaja oculto, no se descarta-. Sin control visible que lo porte,
+   cada tipo necesita su propia forma de cable (la misma que emitiria su
+   control real): N ocultos con el mismo `name` para `multiselect` (como N
+   casillas marcadas), uno solo si `checkbox`/`yesno` tienen valor, y el texto
+   crudo para el resto. Un valor vacio o `none` no imprime nada -ausente en el
+   cable es exactamente "todavia sin contestar", igual que un control real sin
+   tocar-. #}
+{% macro tt_hidden(f, values) %}
+  {% set v = values.get(f.key) %}
+  {% if f.type == 'multiselect' %}
+    {% for item in (v or []) %}
+    <input type="hidden" name="{{ f.key }}" value="{{ item }}">
+    {% endfor %}
+  {% elif f.type == 'checkbox' %}
+    {% if v %}<input type="hidden" name="{{ f.key }}" value="1">{% endif %}
+  {% elif f.type == 'yesno' %}
+    {% if v is sameas true %}<input type="hidden" name="{{ f.key }}" value="si">
+    {% elif v is sameas false %}<input type="hidden" name="{{ f.key }}" value="no">{% endif %}
+  {% else %}
+    {% if v is not none and v != '' %}<input type="hidden" name="{{ f.key }}" value="{{ v }}">{% endif %}
+  {% endif %}
+{% endmacro %}
+
+{# `novalidate`: `type="email"` y un `type="date"` con `min`/`max` activan la
+   validacion NATIVA, y «Enviar respuestas» es un submit nativo que el navegador
+   detendria con su burbuja ANTES de que htmx lo mande. El error que cuenta es
+   el que pinta el servidor en linea, bajo su pregunta. #}
+<form id="tt-survey-form" class="tt-survey-form" novalidate
+      method="post" action="{{ survey_url }}"
+      hx-post="{{ survey_url }}"
+      hx-target="#tt-survey-form" hx-swap="outerHTML"
+      data-tt-view="survey"
+      data-tt-survey="{{ form.code }}"
+      data-tt-version="{{ form.version }}"
+      data-tt-auth="{{ '1' if is_authenticated else '0' }}"
+      data-tt-draft-url="{{ draft_url }}"
+      data-tt-draft-updated="{{ draft_updated_at }}">
+
+  {% if step_index is not none %}
+    {# El indice viaja de vuelta en cada avance/retroceso: es lo que le dice a
+       `STEP_URL` desde cual seccion se esta saliendo (y por tanto cual valida
+       si el boton pulsado fue "Siguiente"). No es un dato del cuestionario:
+       `survey.js` lo excluye a proposito de lo que guarda en `localStorage`. #}
+    <input type="hidden" name="tt_step" value="{{ step_index }}">
+    {% for f in other_fields %}{{ tt_hidden(f, values) }}{% endfor %}
+  {% endif %}
+
+  {# Trampa (E3): invisible por posicion, nunca por `display:none` ni
+     `type=hidden` (un bot serio salta los dos). La clase es la que public.css
+     ya define desde la Tarea 11; una clase nueva sin regla dejaria el campo a
+     la vista en medio del cuestionario. #}
+  <div class="tt-public-hp" aria-hidden="true">
+    <label for="tt-website">No llenar este campo</label>
+    <input type="text" id="tt-website" name="website" value="" tabindex="-1" autocomplete="off">
+  </div>
+
+  {# Con sesion este bloque suele quedar vacio: el banner de "si acredita" se
+     quito el 2026-09-15 -la nota de guardado vive en la cabecera de
+     `survey.html` y la acreditacion la explica la tarjeta de gracias-. Sin
+     nada que pintar no se emite, para no dejar un hueco encima de los pasos. #}
+  {% if notice_key or not is_authenticated %}
+  <div class="tt-survey-top">
+    {# El aviso (hoy: presupuesto agotado) se pinta DENTRO del formulario, no
+       como hermano suyo. El destino del swap es `#tt-survey-form`, asi que una
+       tarjeta hermana no volveria a tocarse nunca: se quedaria clavada sobre el
+       cuestionario hasta que el visitante recargara. Aqui desaparece sola en el
+       siguiente render, y —lo importante— el formulario NO se sustituye por la
+       tarjeta: lo que el visitante escribio sigue en pantalla. #}
+    {% if notice_key %}
+      {% include "titulatec/public/partials/notice_card.html" %}
+    {% endif %}
+
+    {% if not is_authenticated %}
+      {# Aviso PERSISTENTE del spec 6.1, no un toast: quien contesta sin sesion
+         tiene que poder verlo mientras decide, no medio segundo al entrar.
+         Solo lo ve quien abre SIN sesion un formulario `is_anonymous`: uno que
+         no lo es manda al login antes de pintar nada (`_requiere_sesion`). #}
+      <div class="tt-card tt-card--accent tt-survey-note" role="status" data-tt-anon-notice>
+        <i class="bi bi-info-circle" aria-hidden="true"></i>
+        <div class="min-w-0">
+          <p class="mb-2">No iniciaste sesión. Esta respuesta cuenta para la estadística del Tec, pero NO quedará en tu expediente de titulación.</p>
+          <a class="btn btn-sm tt-btn-ink tt-pressable" data-tt-login
+             href="{{ login_url }}">Iniciar sesión y continuar</a>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if step_index is not none %}
+    {# Ronda 2 (pedido del controlador): el indicador es tambien la forma de
+       volver DIRECTO a cualquier paso ya visitado -un solo click, no uno por
+       seccion-. Un paso "is-done" (indice < el actual) es un <button> real
+       que postea `tt_goto`; el actual y los que faltan son texto, no control:
+       adelante sigue siendo estricto y no hay forma de saltar a un paso que
+       todavia no se visito. `.tt-steps-link` es SOLO de los visitados: es la
+       clase que buscan los E2E.
+
+       El numero de cada paso lo pinta un contador de CSS: la lista ya es un
+       <ol> (el lector de pantalla cuenta solo) y asi el texto de cada paso es
+       su titulo y nada mas. "Paso N de M" vive en un solo nodo: en movil lleva
+       ademas el titulo del paso (`.tt-steps-now`), en el riel no hace falta. #}
+    {% set actual = steps|selectattr('current')|first %}
+    <nav class="tt-steps" data-tt-steps aria-label="Progreso de la encuesta">
+      <div class="tt-steps-head">
+        <p class="tt-steps-count" id="tt-steps-count">Paso {{ step_number }} de {{ step_count }}{% if actual %}<span class="tt-steps-now"> · {{ actual.title or actual.key }}</span>{% endif %}</p>
+        <progress class="tt-steps-bar" value="{{ step_number }}" max="{{ step_count }}" aria-labelledby="tt-steps-count"></progress>
+      </div>
+      <ol class="tt-steps-list">
+        {% for s in steps %}
+        <li class="tt-steps-item {{ 'is-current' if s.current else ('is-done' if s.index < step_index else 'is-upcoming') }}">
+          {% if s.index < step_index %}
+          <button type="submit" name="tt_goto" value="{{ s.index }}" class="tt-steps-link"
+                  hx-post="{{ step_url }}" hx-target="#tt-survey-form" hx-swap="outerHTML"><span class="tt-steps-mark" aria-hidden="true"><i class="bi bi-check2" aria-hidden="true"></i></span><span class="tt-steps-title">{{ s.title or s.key }}</span></button>
+          {% else %}
+          <span class="tt-steps-label"{% if s.current %} aria-current="step"{% endif %}><span class="tt-steps-mark" aria-hidden="true"></span><span class="tt-steps-title">{{ s.title or s.key }}</span></span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+    </nav>
+  {% endif %}
+
+  <div class="tt-survey-body">
+    {% if errors %}
+      {% set faltantes = errors|length - (1 if form_error else 0) %}
+      <div class="tt-card tt-card--danger tt-survey-note" role="alert" data-tt-errors tabindex="-1"
+           {% if not first_error_key %}autofocus data-tt-focus="1"{% endif %}>
+        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+        <div class="min-w-0">
+          {% if form_error %}
+            {# El error de tamano no cuelga de ningun campo (llave `__form__`): si
+               solo se pintaran los errores en linea, seria INVISIBLE y la pagina se
+               re-dibujaria igual sin nada que leer. #}
+            <p class="{{ 'mb-2' if faltantes else 'mb-0' }}">{{ form_error }}</p>
+          {% endif %}
+          {% if faltantes %}
+            <p class="mb-0">Revisa lo marcado en rojo: hay {{ faltantes }} respuesta(s) por corregir.</p>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+
+    {% for sec in sections %}
+    <section class="tt-section tt-anim-in" data-tt-section="{{ sec.key }}"
+             {% if sec.title %}aria-labelledby="sec-{{ sec.key }}"{% endif %}>
+      {% if sec.title %}<h2 class="tt-display tt-section-title" id="sec-{{ sec.key }}" tabindex="-1">{{ sec.title }}</h2>{% endif %}
+      {% for f in sec.fields %}{{ tt_field(f, values, errors, first_error_key, (date_bounds or {}).get(f.key)) }}{% endfor %}
+    </section>
+    {% endfor %}
+
+    {# Los iconos van `aria-hidden`: el nombre accesible de cada boton tiene que
+       seguir siendo EXACTAMENTE "Atrás", "Siguiente" o "Enviar respuestas" (lo
+       buscan los E2E por rol y nombre). #}
+    <div class="tt-survey-actions{{ ' tt-survey-actions--steps' if step_index is not none else '' }}">
+      {% if step_index is not none %}
+        {% if not is_first_step %}
+        {# Atajo del paso VISIBLE inmediato anterior. Mismo `tt_goto` que usa el
+           indicador de pasos -no es un mecanismo aparte-, asi que "libre hacia
+           atras" es una sola regla del servidor con dos entradas en el DOM. #}
+        <button type="submit" name="tt_goto" value="{{ prev_step_index }}" class="btn tt-btn-ghost tt-pressable"
+                hx-post="{{ step_url }}" hx-target="#tt-survey-form" hx-swap="outerHTML"><i class="bi bi-arrow-left" aria-hidden="true"></i>Atrás</button>
+        {% endif %}
+        {% if is_last_step %}
+        <button type="submit" class="btn tt-btn-accent tt-pressable">Enviar respuestas<i class="bi bi-send" aria-hidden="true"></i></button>
+        {% else %}
+        <button type="submit" name="tt_next" value="1" class="btn tt-btn-accent tt-pressable"
+                hx-post="{{ step_url }}" hx-target="#tt-survey-form" hx-swap="outerHTML">Siguiente<i class="bi bi-arrow-right" aria-hidden="true"></i></button>
+        {% endif %}
+      {% else %}
+        <button type="submit" class="btn tt-btn-accent tt-pressable">Enviar respuestas<i class="bi bi-send" aria-hidden="true"></i></button>
+      {% endif %}
+    </div>
+  </div>
+</form>

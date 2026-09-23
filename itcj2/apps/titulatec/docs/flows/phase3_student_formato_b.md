@@ -5,7 +5,7 @@
 
 | | |
 |---|---|
-| **Actor(es)** | 👤 Alumno (`student`) |
+| **Actor(es)** | 👤 Alumno (`graduate`) |
 | **Permiso(s)** | `format_b.page.fill` · `format_b.api.save` · `format_b.api.submit` |
 | **Trigger** | El alumno toca **«Llenar Formato B»** en la tarjeta «Tu proceso» del dashboard ([acordeón de fases](xcut_student_phase_detail.md)); el CTA solo aparece con la fase 3 activa |
 | **Precondiciones** | Proceso `active` y **la fase 3 es su `current_phase`** (`in_progress` o `rejected`). **Se valida** en [`PhaseService.assert_student_can_act`](engine_student_phase_lock.md) |

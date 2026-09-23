@@ -16,7 +16,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from itcj2.apps.titulatec.pages.student import _parse_open_phase, _phases_ctx
+from itcj2.apps.titulatec.pages.student import _HANDOFF_COPY, _parse_open_phase, _phases_ctx
+from itcj2.apps.titulatec.services.phase_service import PhaseService
 
 DASHBOARD = "/titulatec/student/dashboard"
 
@@ -250,6 +251,142 @@ def test_sin_proceso_no_hay_fase_actual_ni_cta(
 
 
 # ---------------------------------------------------------------------------
+# Corte a T-soft en el acordeon (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion)
+# ---------------------------------------------------------------------------
+# La Tarea 2 ya bloquea la EJECUCION en el backend (`PhaseService._handoff_phase`,
+# guardas del alumno y del admin). Esto prueba que el CONTEXTO se lo explica al
+# alumno en vez de dejarlo frente a un boton muerto: cada card gana `handoff`, y
+# `_cta_for` deja de ofrecer el modulo de Formato B cuando aplica.
+def test_las_fases_desde_el_corte_en_adelante_traen_handoff_true(
+    db_session, seed_phase_defs, seed_document_types,
+):
+    """`handoff = pd.number >= PhaseService._handoff_phase()`: formula pura, ni
+    siquiera hace falta un proceso para probarla (igual que
+    `test_sin_proceso_no_hay_fase_actual_ni_cta`, del que es vecino)."""
+    seed_phase_defs()
+    seed_document_types()
+
+    ctx = _phases_ctx(db_session, None)
+
+    assert [c["number"] for c in ctx["phases"] if c["handoff"]] == [3, 4, 5, 6, 7, 8]
+    assert [c["number"] for c in ctx["phases"] if not c["handoff"]] == [0, 1, 2]
+
+
+def test_handoff_copy_viaja_en_el_contexto_y_es_la_constante_del_modulo(
+    db_session, seed_phase_defs, seed_document_types,
+):
+    """El copy CON acentos vive en `_HANDOFF_COPY` (pages/student.py), no
+    repetido a mano en la plantilla -- y no es `PhaseService.HANDOFF_MSG` (ese
+    es el mensaje SIN acentos del header `X-Tt-Error`, para el toast)."""
+    seed_phase_defs()
+    seed_document_types()
+
+    ctx = _phases_ctx(db_session, None)
+
+    assert ctx["handoff_copy"] == _HANDOFF_COPY
+    assert _HANDOFF_COPY == (
+        "Tu proceso continúa en el Departamento de Titulación, en el sistema "
+        "T-soft. El departamento te contactará por correo para darte tu usuario."
+    )
+
+
+def test_fase_3_actual_pierde_su_cta_por_el_corte(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """El egresado en fase 3 (Formato B): `handoff=True` y CERO cta, ni en la
+    card ni en `ctx["current"]` -- son el mismo dict (ver
+    `test_la_card_grande_es_la_misma_de_la_fase_actual`), asi que si uno se
+    entera el otro tambien.
+    """
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    actual = _card(ctx, 3)
+    assert actual["handoff"] is True
+    assert actual["cta"] is None
+    assert ctx["current"]["cta"] is None
+    assert [c["number"] for c in ctx["phases"] if c["cta"]] == []
+
+
+def test_fase_2_actual_no_tiene_handoff_y_conserva_su_cta(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Control: antes del corte nada cambia -- sigue habiendo UN cta y es el
+    de la cita."""
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=2)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    actual = _card(ctx, 2)
+    assert actual["handoff"] is False
+    assert actual["cta"]["url"] == "/titulatec/student/cita"
+
+
+def test_con_el_corte_en_9_la_fase_3_recupera_su_cta_de_formato_b(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+    monkeypatch,
+):
+    """Mismo truco que `test_handoff_phase_cut.py`: 9 desactiva el corte (queda
+    fuera del catalogo 0-8). Prueba que `handoff` LEE `_handoff_phase()` en
+    cada llamada -- si `_phases_ctx` lo hubiera capturado en una constante de
+    modulo o a import time, este monkeypatch no cambiaria nada.
+    """
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    actual = _card(ctx, 3)
+    assert actual["handoff"] is False
+    assert actual["cta"]["url"] == "/titulatec/student/formato-b"
+
+
+# ---------------------------------------------------------------------------
+# Ronda de fix 1 (post-revision del coordinador) -- Hallazgo 2: "A cargo de
+# el Depto. de Titulacion" (falta la contraccion "del"). `dashboard.html:73`
+# arma "A cargo de {{ responsible_label }}", y `_RESPONSIBLE_LABEL["titulaciones"]`
+# ya trae el articulo ("el Depto. de Titulacion") para que sirva tal cual en
+# `dashboard.html:115` ("En proceso por {{ responsible_label }}.", donde "por
+# el" SI es correcto -- el espanol solo contrae "de"+"el" y "a"+"el", nunca
+# "por"+"el"). `responsible_label_de` es el campo nuevo, ya contraido, para el
+# UNICO consumidor que lo necesita.
+# ---------------------------------------------------------------------------
+def test_responsible_label_de_contrae_correctamente_en_las_9_fases(
+    db_session, seed_phase_defs, seed_document_types,
+):
+    """Los 5 valores de `_RESPONSIBLE_LABEL` (los `responsible` 0-8 solo tocan
+    4 mas el propio `student`), probados de una vez contra el catalogo real
+    para que un responsable nuevo que empiece con "el " no vuelva a colarse
+    sin la contraccion.
+    """
+    seed_phase_defs()
+    seed_document_types()
+
+    ctx = _phases_ctx(db_session, None)
+
+    esperado = {
+        0: "de Servicios Escolares",    # cohort_intake -> school_services
+        1: "de ti",                     # initial_docs -> student
+        2: "de Servicios Escolares",    # review_appointment -> school_services
+        3: "del Depto. de Titulación",  # format_b -> titulaciones
+        4: "de Vinculación",            # synodal_assignment -> vinculacion
+        5: "de tus sinodales",          # synodal_review -> synodals
+        6: "del Depto. de Titulación",  # anexo_iii -> titulaciones
+        7: "de ti",                     # final_docs -> student
+        8: "del Depto. de Titulación",  # ceremony -> titulaciones
+    }
+    obtenido = {c["number"]: c["responsible_label_de"] for c in ctx["phases"]}
+    assert obtenido == esperado
+
+
+# ---------------------------------------------------------------------------
 # Sub-progreso (decision 4)
 # ---------------------------------------------------------------------------
 def test_subprogreso_fase_1_cuenta_aprobados_rechazados_y_faltantes(
@@ -347,14 +484,22 @@ def test_subprogreso_fase_2_solicitud_de_cambio_manda_sobre_el_estado(
 
 def test_subprogreso_fase_3_cuenta_los_pasos_del_formato_b(
     db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+    monkeypatch,
 ):
     """El paso se deriva de datos PROPIOS del alumno, no de los precargados.
 
     `FormatBService.get_or_create` precarga nombre, control, carrera y modalidad:
     si contaran, el paso 2 se veria completo desde el minuto cero.
+
+    Corte desactivado a proposito (arreglo A1, revision final 2026-09-21): con
+    el corte por defecto (fase 3) esta fase ya no pinta NINGUN sub-progreso
+    (ver `test_subprogreso_fase_3_no_se_pinta_con_el_corte_puesto`, mas abajo).
+    Este test sigue probando el CONTEO de pasos del Formato B, que solo se ve
+    donde el corte no aplica -- de ahi el `monkeypatch` a `_handoff_phase`.
     """
     from itcj2.apps.titulatec.models import FormatB
 
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
     seed_phase_defs()
     seed_document_types()
     proc = make_process(make_student(), current_phase=3)
@@ -375,9 +520,12 @@ def test_subprogreso_fase_3_cuenta_los_pasos_del_formato_b(
 
 def test_subprogreso_fase_3_enviado(
     db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+    monkeypatch,
 ):
+    """Corte desactivado a proposito -- mismo motivo que la prueba anterior."""
     from itcj2.apps.titulatec.models import FormatB
 
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
     seed_phase_defs()
     seed_document_types()
     proc = make_process(make_student(), current_phase=3)
@@ -390,6 +538,36 @@ def test_subprogreso_fase_3_enviado(
     assert prog["submitted"] is True
     assert prog["tone"] == "amber"
     assert "revisión" in prog["label"]
+
+
+def test_subprogreso_fase_3_no_se_pinta_con_el_corte_puesto(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Arreglo A1 (revision final 2026-09-21): la fase ACTUAL, cuando esta
+    congelada por el corte, no puede pintar su sub-progreso -- se
+    contradiria con el aviso de T-soft que sale al lado ("Paso 2 de 3" junto
+    a "esto ya no se opera aqui"). Verificado contra un proceso real de dev en
+    `current_phase=3`. Con el corte por DEFECTO (fase 3, sin monkeypatch):
+    misma fixture EXACTA que `test_subprogreso_fase_3_cuenta_los_pasos_del_formato_b`
+    (FormatB en 'draft', paso 2 de 3), pero aqui el sub-progreso debe desaparecer.
+    """
+    from itcj2.apps.titulatec.models import FormatB
+
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+    db_session.add(FormatB(process_id=proc.id, status="draft",
+                           first_name="ALUMNO", last_name="FICTICIO",
+                           program_id=None, titulation_type="Residencia",
+                           gender="female", age=23))
+    db_session.flush()
+
+    card = _card(_phases_ctx(db_session, proc), 3)
+
+    assert card["handoff"] is True, "fixture rota: la fase 3 deberia estar en el corte"
+    assert card["progress"] is None, (
+        "la fase actual congelada por el corte no debe pintar sub-progreso: "
+        "se contradice con el aviso de T-soft")
 
 
 def test_fase_futura_intacta_no_muestra_subprogreso_vacio(

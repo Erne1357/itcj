@@ -54,7 +54,9 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "admin_analysis": ["https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js", "https://cdn.jsdelivr.net/npm/apexcharts@3.44.0/dist/apexcharts.min.js", "js/shared/ticket-summary.js", "js/admin/analysis.js"],
     "admin_documents": ["js/admin/documents.js"],
     "admin_home": ["js/admin/home.js"],
-    "admin_assign_tickets": ["js/admin/assign_tickets.js"],
+    # split_ticket.js (modal compartido "Partir ticket") ANTES del módulo de la
+    # página: assign_tickets.js delega en window.HelpdeskSplit.
+    "admin_assign_tickets": ["js/shared/split_ticket.js", "js/admin/assign_tickets.js"],
     "admin_tickets_list": ["js/admin/tickets_list.js"],
     "warehouse_dashboard": ["js/warehouse/dashboard.js"],
     "warehouse_categories": ["js/warehouse/categories.js"],
@@ -98,7 +100,9 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     # Landing de Help-Desk — página standalone; se registra para habilitar boost
     # del brand link (base_helpdesk.html) cuando htmx_boost_enabled está activo.
     "home_landing": [],
-    "technician_dashboard": ["js/technician/warehouse_ticket.js", "js/technician/dashboard.js"],
+    # split_ticket.js (modal compartido "Partir ticket") ANTES del módulo de la
+    # página: dashboard.js delega en window.HelpdeskSplit.
+    "technician_dashboard": ["js/shared/split_ticket.js", "js/technician/warehouse_ticket.js", "js/technician/dashboard.js"],
     "secretary_dashboard": ["js/secretary/dashboard.js"],
     "department_head_dashboard": ["js/department_head/dashboard.js"],
     "user_my_tickets": [
@@ -111,10 +115,13 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
         "js/user/ticket_tutorial.js",
         "js/user/create_ticket.js",
     ],
+    # split_ticket.js (modal compartido "Partir ticket") ANTES del módulo de la
+    # página: ticket_detail.js delega en window.HelpdeskSplit (tarea 11).
     "user_ticket_detail": [
         "https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js",
         "js/user/ticket_tutorial.js",
         "js/user/warehouse_ticket.js",
+        "js/shared/split_ticket.js",
         "js/user/ticket_detail.js",
     ],
 }
@@ -434,3 +441,75 @@ def render_helpdesk(
         "hd_current_user_id": int(user["sub"]) if user else None,
     }
     return render(request, template, ctx, status_code)
+
+
+# ---------------------------------------------------------------------------
+# "Partir ticket" — alcance del botón, COMPARTIDO por todas las páginas que lo
+# pintan (admin/assign_tickets desde la fase 1; technician/dashboard desde la
+# tarea 10 de la fase 2; user/ticket_detail se suma en la tarea 11). Vivía
+# duplicado en pages/admin.py; una sola función evita que las páginas se
+# desalineen del criterio real del guard de la API.
+# ---------------------------------------------------------------------------
+SPLIT_PERM_ALL = "helpdesk.tickets.api.split.all"
+SPLIT_PERM_OWN = "helpdesk.tickets.api.split.own"
+
+
+def can_split(user: dict) -> str | None:
+    """¿Se pinta el botón "Partir" en esta página, y con qué alcance?
+
+    Mismo criterio que el guard de `POST /tickets/{id}/split` (`require_perms`):
+    admin global del JWT (alcance "all") o el más amplio de los permisos
+    efectivos que tenga (".all" antes que ".own"). Si el DML del permiso aún
+    no corrió, el botón no aparece en vez de responder 403 al pulsarlo.
+
+    Devuelve `"all" | "own" | None`. Las páginas de LISTA lo tratan como
+    booleano (`{% if can_split %}`): cualquier alcance no vacío pinta el botón
+    — qué ticket se puede partir de verdad con `.own` (solo lo propio o la cola
+    del equipo, D17 del spec) ya lo acota cada lista por su cuenta (la de
+    asignación muestra lo que ese usuario puede ver; el dashboard del técnico
+    solo lista lo suyo/de su equipo) y, en última instancia, el guard de la API.
+    El detalle del ticket sí necesita el VALOR: ahí no hay lista que acote nada,
+    así que el cliente reproduce la regla de D17 con este alcance y con
+    `split_team()` (abajo).
+    """
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.database import SessionLocal
+    from itcj2.dependencies import is_global_admin
+
+    if is_global_admin(user):
+        return "all"
+    _db = SessionLocal()
+    try:
+        perms = cached_perms(_db, int(user["sub"]), "helpdesk")
+    finally:
+        _db.close()
+    if SPLIT_PERM_ALL in perms:
+        return "all"
+    if SPLIT_PERM_OWN in perms:
+        return "own"
+    return None
+
+
+def split_team(user: dict) -> str | None:
+    """Equipo del actor (`"desarrollo" | "soporte" | None`) para "Partir".
+
+    Compañero de `can_split()` para el DETALLE del ticket: con alcance `.own`
+    el guard de la API (D17) deja partir lo propio **o** lo que siga sin
+    asignar en la cola de ESTE equipo, así que el cliente necesita saber cuál
+    es — sin el dato ofrecería el botón para la cola del otro equipo y el
+    técnico descubriría el 403 con el modal ya lleno.
+
+    El mapeo rol→equipo es el compartido (`utils/teams.py`), el mismo que usan
+    la pestaña "Equipo" del dashboard y el propio guard de la API. Esta
+    envoltura es para las páginas que NO tienen ya los roles a mano (department);
+    las que sí (user, technician) llaman directo a `teams.tech_team(user_roles)`
+    en vez de volver a consultarlos.
+    """
+    from itcj2.apps.helpdesk.utils.teams import tech_team_for_user
+    from itcj2.database import SessionLocal
+
+    _db = SessionLocal()
+    try:
+        return tech_team_for_user(_db, int(user["sub"]))
+    finally:
+        _db.close()

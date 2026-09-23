@@ -193,10 +193,49 @@ class DocumentService:
 
     @staticmethod
     def review(db: Session, process_id: int, type_code: str, *, status: str, note: str | None, reviewer_id: int) -> bool:
-        """Aprueba o rechaza un documento (status 'approved'|'rejected')."""
+        """Aprueba o rechaza un documento (status 'approved'|'rejected').
+
+        **Guarda angosta a propósito -- NO es la gemela de
+        `FormatBService.review`.** Esa usa `PhaseService.assert_can_transition`,
+        que exige `phase_number == process.current_phase`: aquí eso ROMPERÍA un
+        flujo legítimo que hoy funciona y es el uso normal de esta ruta, no una
+        excepción -- el dictamen TARDÍO. Revisar hoy un acta de la fase 1 con el
+        proceso ya en la fase 2 (o más adelante) es el caso de uso real de
+        "Documentos" (bandeja de rezagados); `DocumentService.save` ya trata la
+        fase del documento como la del TIPO (`dtype.phase_number`), no la del
+        proceso, y esta guarda respeta la misma idea.
+
+        Lo único que el corte a T-soft (spec 2026-09-21,
+        `PhaseService._handoff_phase`) tiene que impedir es dictaminar un
+        documento cuyo TIPO pertenece a una fase ya congelada
+        (`dtype.phase_number >= _handoff_phase()`): las fases 1 y 2 se siguen
+        dictaminando sin condición, tarde o no, mientras el corte no las
+        alcance -- por debajo del corte el comportamiento de hoy no cambia ni
+        un ápice. `dtype.phase_number` es nullable; un tipo CON fila pero SIN
+        fase (`dtype is not None and dtype.phase_number is None`) sigue exento
+        del corte a propósito -- no hay corte que aplicarle.
+
+        Arreglo A4 (revision final 2026-09-21): si el TIPO ya no existe en el
+        catálogo (`dtype is None` -- borrado o nunca sembrado), el respaldo es
+        `doc.phase_number` (columna real de la fila, `nullable=False`: SIEMPRE
+        está a mano). Antes, `dtype is None` dejaba pasar el dictamen SIN
+        mirar nada más -- falla ABIERTO justo donde el propio repo fija
+        "FALLA CERRADO" para el mismo tipo de ausencia
+        (`phase_service.py:158-161`, `phase_number_for_code`).
+        """
+        from itcj2.apps.titulatec.models import DocumentType
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
         doc = DocumentService.get_document(db, process_id, type_code)
         if not doc:
             return False
+
+        dtype = db.query(DocumentType).filter_by(code=type_code).first()
+        fase_para_el_corte = dtype.phase_number if dtype is not None else doc.phase_number
+        if (fase_para_el_corte is not None
+                and fase_para_el_corte >= PhaseService._handoff_phase()):
+            raise ValueError(PhaseService.HANDOFF_MSG)
+
         doc.review_status = status
         doc.review_note = note or None
         doc.reviewed_by_id = reviewer_id

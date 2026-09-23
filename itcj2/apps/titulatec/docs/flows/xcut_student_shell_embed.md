@@ -6,10 +6,10 @@
 
 | | |
 |---|---|
-| **Actor(es)** | 👤 Alumno (`student`) |
+| **Actor(es)** | 👤 Alumno (`graduate`) |
 | **Permiso(s)** | los de cada vista (dashboard/documents/cita/fase/perfil) |
 | **Trigger** | Tocar la tarjeta **TitulaTec** en `/itcj/m/` (embebido) **o** entrar directo a `/titulatec/student/...` (standalone) |
-| **Precondiciones** | Sesión iniciada; rol `student` en titulatec |
+| **Precondiciones** | Sesión iniciada; rol `graduate` en titulatec |
 | **Estado final** | — (chrome; cada vista muta lo suyo) |
 
 ## Cómo se integra
@@ -80,7 +80,7 @@ flowchart TD
 
 `GET /titulatec/student/perfil` → identidad (nombre / nº control / correo) + resumen del proceso
 (folio / modalidad / convocatoria / fase actual → link dashboard) + **cerrar sesión**. Solo se enlaza
-standalone; embebido lo cubre el shell. El alumno reutiliza rol `student` → **no** hay cambio de
+standalone; embebido lo cubre el shell. El alumno tiene rol `graduate` → **no** hay cambio de
 contraseña aquí (el endpoint core es solo staff).
 
 ## Archivos

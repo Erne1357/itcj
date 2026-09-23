@@ -2,7 +2,12 @@
 
 > Referencia para enlazar desde los flujos. No describe pasos; describe **qué es cada cosa**.
 > Verificado contra el código y la BD de dev el **2026-09-01** (alembic `s1e2s3s4v001`, seeders
-> `database/DML/titulatec/00..07` cargados).
+> `database/DML/titulatec/00..07` cargados). Las piezas de la liberación GTV de la encuesta de
+> egresados (`SurveyReview`, rol `titulatec_tech_management`, permisos `survey_review.*`,
+> `SurveyReviewService`) se verificaron aparte contra código y BD el **2026-09-15**; el resto de
+> este archivo NO se re-auditó a esa fecha y puede haber quedado atrás de otras apps de la misma
+> campaña (encuesta, solicitudes de inscripción, espacios de cotejo) — ver las notas fechadas
+> 2026-09-15 en este mismo archivo para lo que sí se corrigió.
 
 ## Entidades / tablas (`titulatec_*`)
 
@@ -13,7 +18,7 @@
 |---|---|---|---|
 | `Cohort` | `titulatec_cohorts` | Convocatoria por período académico | `period_id`, `name`, `opens_at`, `closes_at` (cierre de **inscripción**), `status` (`draft`/`open`/`closed`) |
 | `CohortReviewDay` | `titulatec_cohort_review_days` | Días habilitados para cotejo, por convocatoria | `cohort_id`, `date` · `UNIQUE(cohort_id, date)` |
-| `CotejoRequirement` | `titulatec_cotejo_requirements` | Requisitos "qué llevar a la cita", configurables por convocatoria | `cohort_id`, `label`, `hint`, `icon`, `order_index`, `is_required` |
+| `CotejoRequirement` | `titulatec_cotejo_requirements` | Requisitos "qué llevar a la cita", configurables por convocatoria | `cohort_id`, `label`, `hint`, `icon`, `order_index`, `is_required`, `info_html` (HTML sanitizado con `utils/rich_text.py`, 2026-09-15) |
 | `Modality` | `titulatec_modalities` | Catálogo de modalidades (4 sembradas) | `code`, `requires_synodals`, `signature_rule` (`president_only`/`all_synodals`), `skips_phases` (JSON) |
 | `TitulationProcess` | `titulatec_processes` | Proceso raíz, `UNIQUE(student_id, cohort_id)` | `folio` (`TT-{period}-{NNNN}`), `student_id`, `cohort_id`, `program_id`, `modality_id`, `current_phase` (0–8), `status` (`active`/`completed`/`cancelled`/`on_hold`), `is_app_active` |
 | `ProcessPhase` | `titulatec_process_phases` | Instancia de cada fase del proceso | `phase_number` (0–8), `status` (`pending`/`in_progress`/`in_review`/`approved`/`rejected`/`skipped`), `completed_at`, `reviewed_by_id`, `rejection_reason` |
@@ -22,6 +27,7 @@
 | `Document` | `titulatec_documents` | Archivo subido; **una fila por (proceso, tipo)**: `UNIQUE(process_id, type_code)` | `phase_number`, `file_path` (relativa a `TITULATEC_UPLOAD_PATH`), `review_status` (`pending`/`approved`/`rejected`), `review_note`, `version` (contador informativo) |
 | `FormatB` | `titulatec_format_b` | Formato B (PK = `process_id`) | `status` (`draft`/`submitted`/`approved`/`rejected`), datos personales/escolares, `project_name`, `rejection_reason` |
 | `ReviewAppointment` | `titulatec_review_appointments` | Cita de cotejo (fase 2) | `process_id`, `scheduled_at`, `location`, `status` (`scheduled`/`confirmed`/`in_progress`/`attended`/`no_show`), `confirmed_at`, `note`, `created_by_id` |
+| `SurveyReview` | `titulatec_survey_reviews` | Solicitud de liberación de GTV para el requisito de cotejo `graduate_survey` (fase 2); una por proceso, nace al enviar la encuesta (2026-09-15) | `process_id` (FK `titulatec_processes`, UNIQUE), `response_id` (FK `titulatec_survey_responses`), `status` (`in_review`/`approved`/`rejected`), `rejection_reason`, `reviewed_by_id`, `reviewed_at`, `submitted_at` |
 | `ProcessEvent` | `titulatec_process_events` | Auditoría / timeline | `event_type`, `phase_number`, `actor_id`, `payload` (JSON) |
 | `SynodalAssignment` | `titulatec_synodal_assignments` | Sinodales asignados (fase 4) | `user_id`, `role` (`president`/`secretary`/`vocal`), `vote` (`approved`/`changes_requested`), `vote_note`, `assigned_by_id` |
 | `ProcessChat` | `titulatec_chats` | Chat de titulación, 1 por proceso (`process_id` único) | `pinned_document_id` |
@@ -40,10 +46,13 @@ de la app `titulatec` que el rol tiene hoy en `core_role_permissions`.
 
 | Rol (`core_roles.name`) | Cómo se asigna hoy | Perms titulatec | Emoji |
 |---|---|---|---|
-| `student` (global reciclado) | **directa** al importar el CSV: `grant_role(db, user.id, "titulatec", "student")` (`services/import_service.py:296`) | 21 | 👤 |
-| `titulatec_school_services` | por puesto: `aux_school_services`, `secretary_school_services`. Es también el rol que reciben los **encargados** dados de alta desde la pestaña Encargados (`pages/officers.py:13`, `ROLE_ASSIGNED`) | 22 | 🏛️ |
+| `graduate` (egresado, desde 2026-09-15) | **directa** en cada alta: `ImportService.import_rows` → `_sync_graduate_roles` (`services/import_service.py:81`) — CSV, alta manual, aprobación de bandeja y liga de activación son los cuatro caminos | 21 (+2 de `itcj`) | 👤 |
+| `student` (global — **ya NO** es el alumno de titulación) | rol de **AgendaTec**; `03_insert_role_permissions.sql` le revoca en cada corrida todo lo de `titulatec` que le quedara; `core_users.role_id` conserva el alias en filas viejas que no han pasado por el backfill | 0 | — |
+| `titulatec_school_services` | por puesto: `aux_school_services`, `secretary_school_services`. Es también el rol que reciben los **encargados** dados de alta desde la pestaña Encargados (`pages/officers.py:13`, `ROLE_ASSIGNED`) | 22 (verificado en BD, 2026-09-21 — el "22" que traía esta fila desde la auditoría de 2026-09-01 no correspondía a ningún estado real; sube a 22 justo el 2026-09-21 con los 3 `enrollment_request.*`, ver [xcut_public_enrollment.md](xcut_public_enrollment.md)) | 🏛️ |
 | `titulatec_school_services_head` | por puesto: `head_school_services` | 27 | 🏛️ |
-| `titulatec_titulaciones` | por puesto: `head_prof_studies_div`, `secretary_prof_studies_div`, `aux_prof_studies_div` | 20 | 🎓 |
+| `titulatec_titulaciones` | por puesto: **solo** `head_prof_studies_div` (2026-09-21: perdió `secretary_prof_studies_div`/`aux_prof_studies_div` en el deslinde a T-soft, D6/D7 — ese mapeo NO se revirtió, sigue siendo 1 fila) | 25 (2026-09-21: bajó a 12 con el recorte D6/D7 y el usuario REVIRTIÓ ese mismo día — reparto PLENO de nuevo: dictamen, ceremony y cohort incluidos) | 🎓 |
+| `titulatec_titulacion` (Departamento de Titulación, NUEVO 2026-09-21) | por puesto: `head_titulacion`, `aux_titulacion` (colgados de `prof_studies_div`, `04b_insert_titulacion_department.sql`; **nacen sin ocupantes**) | 22 | 🎓 |
+| `titulatec_tech_management` | por puesto: `head_tech_management` (jefatura de GTV, ya en el organigrama del core) + `external_service_tech_management` («Servicio Externo», puesto NUEVO 2026-09-15, `allows_multiple=TRUE`) — `05_insert_position_app_roles.sql` | 9 | 🛠️ |
 | `titulatec_vinculacion` | por puesto: los 5 `coord_vinculacion_*` (`database/DML/titulatec/04_insert_vinculacion_positions.sql`) | 13 | 🔗 |
 | `titulatec_sinodal` | **sin ruta de asignación en el código todavía**: 0 filas en `core_position_app_roles` y ningún `grant_role`; solo aparece en el resolver de dashboard (`pages/nav.py:61`) | 14 | 🧑‍⚖️ |
 | `admin` (global) | fuera de la app | **0** | — |
@@ -61,14 +70,34 @@ que dirige el manager, con `PositionAppRole` → `titulatec_school_services` y `
 carreras. El alcance se lee después con `scope_service.officer_programs()`. Ver
 [engine_officer_scope](engine_officer_scope.md).
 
+### GTV: dos puestos, sin alcance por carrera (2026-09-15)
+
+Gestión Tecnológica y Vinculación (GTV, `core_departments.code = 'tech_management'`) llega al
+rol `titulatec_tech_management` por DOS puestos, sin `ProgramPosition` de por medio — GTV ve
+**todas** las solicitudes, no una por carrera:
+
+- `head_tech_management` — jefatura de GTV, ya existía en el organigrama del core (no lo crea
+  el DML de titulatec).
+- `external_service_tech_management` — título «Servicio Externo» (Residencias, Prácticas,
+  Servicio Social), puesto NUEVO (`04_insert_vinculacion_positions.sql`), `allows_multiple =
+  TRUE`: no es una sola persona, y no tiene ocupante fijo por diseño (se asigna a quien esté de
+  ventanilla desde `/itcj/config/positions/{id}`).
+
+Detalle completo del flujo que habilita: [liberación GTV de la encuesta de
+egresados](phase2_tech_management_survey_release.md).
+
 ## Permisos (`titulatec.{modulo}.{tipo}.{accion}[.scope]`)
 
 Son dos cosas distintas y aquí van como dos columnas:
 
-- **Definidos en BD** — sembrados por `database/DML/titulatec/02_insert_permissions.sql` (+ `07`);
-  hoy **66** filas en `core_permissions` para la app.
+- **Definidos en BD** — sembrados por `database/DML/titulatec/02_insert_permissions.sql` (+ `07`,
+  `08`, `survey_2026_09/09`); hoy **80** filas en `core_permissions` para la app (verificado en
+  BD, 2026-09-15).
 - **Exigidos por el código** — los que aparecen en un `require_page_app(..., perms=[...])` o en una
-  entrada del menú `_ADMIN_NAV`; hoy **39** códigos distintos.
+  entrada del menú `_ADMIN_NAV`; **39** códigos distintos a la fecha de la última auditoría
+  (2026-09-01) — cifra sin recalcular tras `07`/`08`/`survey_2026_09` (requisitos de cotejo,
+  espacios de cotejo, encuesta/solicitudes/liberación GTV), así que hoy es un PISO, no el total
+  vigente.
 
 Un permiso definido y no exigido **no es un error**: es capacidad ya modelada para fases que aún no
 tienen pantalla. En sentido contrario sí sería bug, y hoy no lo hay: los 39 exigidos existen en BD.
@@ -85,6 +114,7 @@ tienen pantalla. En sentido contrario sí sería bug, y hoy no lo hay: los 39 ex
 | `notifications` (2) | `api.read.own`, `api.mark_read` | — |
 | `officers` (2) | `page.list`, `api.manage` | **los 2** |
 | `process` (11) | `page.my`, `page.list`, `page.detail`, `api.read.own`, `api.read.all`, `api.read.department`, `api.advance`, `api.approve_phase`, `api.reject_phase`, `api.cancel`, `api.hold` | `page.my`, `page.list`, `page.detail`, `api.read.own`, `api.read.all`, `api.advance`, `api.approve_phase`, `api.reject_phase` |
+| `survey_review` (3, 2026-09-15) | `page.list`, `api.approve`, `api.reject` | **los 3** (`pages/survey_reviews_admin.py`, bandeja de GTV) |
 | `synodal` (6) | `page.list`, `page.my_reviews`, `api.assign`, `api.read`, `api.release`, `api.vote` | — |
 
 Definidos y todavía sin exigir (27): todo `chat.*`, todo `synodal.*`, todo `notifications.*`,
@@ -108,11 +138,14 @@ Quién los tiene en BD hoy (los de puerta):
 
 | Permiso | Roles |
 |---|---|
-| `cohort.page.list`, `appointment.page.list` | `titulatec_school_services`, `titulatec_school_services_head` |
-| `process.page.list`, `document.page.list` | `titulatec_school_services`, `titulatec_school_services_head`, `titulatec_titulaciones` |
+| `appointment.page.list` | `titulatec_school_services`, `titulatec_school_services_head` |
+| `cohort.page.list` | `titulatec_school_services_head`, `titulatec_titulaciones` (2026-09-21: recupera Convocatorias al revertirse D6/D7, decisión explícita del usuario — el operativo `titulatec_school_services` NUNCA lo tuvo) |
+| `process.page.list`, `document.page.list` | `titulatec_school_services`, `titulatec_school_services_head`, `titulatec_titulaciones`, `titulatec_titulacion` |
 | `officers.page.list`, `officers.api.manage`, `cohort.api.review_days`, `cohort.api.cotejo_reqs` | solo `titulatec_school_services_head` |
-| `process.api.read.all` (⇒ alcance `"ALL"`) | `titulatec_school_services_head`, `titulatec_titulaciones` |
-| `ceremony.page.list` | solo `titulatec_titulaciones` |
+| `process.api.read.all` (⇒ alcance `"ALL"`) | `titulatec_school_services_head`, `titulatec_titulaciones`, `titulatec_titulacion` |
+| `ceremony.page.list` | `titulatec_titulaciones`, `titulatec_titulacion` (2026-09-21: ya no es "solo" uno) |
+| `survey_review.page.list`, `survey_review.api.approve`, `survey_review.api.reject` | solo `titulatec_tech_management` (2026-09-15) |
+| `enrollment_request.page.list`, `enrollment_request.api.approve`, `enrollment_request.api.reject` | `titulatec_school_services_head` (jefatura, alcance `"ALL"`) y, desde 2026-09-21, también `titulatec_school_services` (operativo: secretaria, auxiliar y los `se_officer_*` de los encargados, acotados a su carrera) — ver [xcut_public_enrollment.md](xcut_public_enrollment.md) |
 
 > Authz en páginas: **todas** las rutas usan `require_page_app("titulatec", perms=[...])` (any-of, sin
 > bypass de admin). Ninguna usa `require_perms`. Reparto completo por rol en
@@ -121,18 +154,23 @@ Quién los tiene en BD hoy (los de puerta):
 
 ## Servicios
 
-10 módulos en `itcj2/apps/titulatec/services/`.
+11 de los ~19 módulos en `itcj2/apps/titulatec/services/` están documentados abajo (lista
+PARCIAL, no exhaustiva — quedan fuera `cohort_service`, `email_helper`,
+`enrollment_request_service`, `process_service`, `requirement_service`,
+`review_window_service`, `slot_service` y `survey_service`: deuda de documentación de la
+campaña de encuesta/convocatoria anterior a esta tarea).
 
 | Símbolo | Archivo | Responsabilidad |
 |---|---|---|
 | `PhaseService` | `services/phase_service.py` | Motor de fases: `approve_phase`/`reject_phase`, salto de fases según la modalidad (`_skips`/`_next_applicable`) y log de `ProcessEvent`. **Y las dos guardas**: `assert_can_transition` (dictamen 🏛️🎓) y `assert_student_can_act` (ejecución 👤) — [guarda de fase del alumno](engine_student_phase_lock.md) |
-| `DocumentService` | `services/document_service.py` | Guardar/leer/borrar documentos y `review()`; además las consultas de elegibilidad `initial_docs_all_approved` y `list_phase_document_types` |
-| `FormatBService` | `services/format_b_service.py` | Formato B multi-step: `get_or_create`, `save_step`, `submit(db, fb, process)` (reaplica la guarda de fase), `review`, `to_ctx` |
-| `ImportService` | `services/import_service.py` | Import CSV de la convocatoria: `parse` → `autodetect_mapping` → `build_preview` → `import_rows` (crea/empata usuario, otorga rol `student`, crea proceso + sus 9 `ProcessPhase`) |
+| `DocumentService` | `services/document_service.py` | Guardar/leer/borrar documentos y `review()` (2026-09-21: rechaza dictaminar un documento cuyo TIPO pertenece a una fase congelada por el corte a T-soft — `dtype.phase_number >= PhaseService._handoff_phase()`; guarda angosta a propósito, NO mira `current_phase`, para no romper el dictamen tardío); además las consultas de elegibilidad `initial_docs_all_approved` y `list_phase_document_types` |
+| `FormatBService` | `services/format_b_service.py` | Formato B multi-step: `get_or_create`, `save_step`, `submit(db, fb, process)` (reaplica la guarda de fase del alumno), `review(db, fb, process, ...)` (2026-09-21: ganó `process` y reaplica `assert_can_transition`, la guarda gemela del admin), `to_ctx` |
+| `ImportService` | `services/import_service.py` | Import CSV de la convocatoria: `parse` → `autodetect_mapping` → `build_preview` → `import_rows` (crea/empata usuario, otorga rol `graduate` y revoca `student` vía `_sync_graduate_roles`, crea proceso + sus 9 `ProcessPhase`) |
 | `AppointmentService` | `services/appointment_service.py` | Cita de cotejo (fase 2): `create`, `reschedule`, `start`, `mark_attended`, `mark_no_show`, `confirm`, `request_change`; y las lecturas de la agenda `list_appointments`, `counts_by_day`, `list_for_day`, `list_pending_processes`, `agenda_process_ids` (universo acotado contra el que se valida el `?selected=`). **Las cinco lecturas tienen `allowed_program_ids` con default ABIERTO** |
 | `ReviewDayService` | `services/review_day_service.py` | Días de cotejo por convocatoria: `list_days`, `is_allowed`, `set_days`, `toggle`, `months_with_days` |
 | `CotejoRequirementService` | `services/cotejo_requirement_service.py` | Requisitos "qué llevar a la cita" por convocatoria: `list_or_seed` (siembra DEFAULTS si la cohorte no tiene), `create`, `update`, `delete` |
 | `OfficerService` | `services/officer_service.py` | Alta delegada de encargados: `create_officer` (Position + rol + usuarios del depto + carreras), `set_users`, `set_programs`, `list_officers`, `deactivate_officer` |
+| `SurveyReviewService` | `services/survey_review_service.py` | Solicitud de liberación de GTV para la encuesta de egresados (fase 2, 2026-09-15): `open_for_submission`, `approve`, `reject`, `revoke`, `can_revoke`, `summary_for_process`, `counts_by_status`, `list_for_inbox` — único dueño de `SurveyReview.status` |
 | `scope_service` (módulo, no clase) | `services/scope_service.py` | `officer_programs(db, user_id)` → `"ALL"` si tiene `titulatec.process.api.read.all`, si no el set de `program_id` ligados a sus puestos |
 | `notify` (módulo, no clase) | `services/notify.py` | `notify_student(...)`: enruta los avisos in-app por el `NotificationService` del core (tab **Avisos** del shell mobile + FAB por-app) |
 

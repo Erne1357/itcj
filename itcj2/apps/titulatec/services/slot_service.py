@@ -43,12 +43,12 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.services.appointment_errors import (
-    InvalidSlot, MissingSchedule, SlotFull, SlotLockTimeout,
+    AppointmentConflict, InvalidSlot, MissingSchedule, SlotFull, SlotLockTimeout,
 )
 
 # Namespace del advisory lock que serializa las citas de un mismo proceso.
@@ -56,9 +56,36 @@ from itcj2.apps.titulatec.services.appointment_errors import (
 # estén corriendo con el valor viejo.
 _PROCESO_LOCK_NS = 0x7455  # "tU"
 
-# Estados que NO ocupan lugar. Hoy está vacío a propósito: el no_show SÍ ocupa
-# (decisión del usuario). Si algún día se añade `cancelled`, va aquí.
-_ESTADOS_QUE_LIBERAN: set[str] = set()
+# Estados que NO ocupan lugar: la franja vuelve al pozo. `cancelled` (D12:
+# canceló a tiempo, el lugar vuelve) y `superseded` (su ocupación la hereda la
+# fila nueva del intento siguiente). `no_show` y `attended` NO están aquí a
+# propósito aunque ya no sean la cita vigente: D10 dice que si no se presentó
+# es que ya pasó, y D5 que una atendida con faltantes sigue "ocupando" hasta
+# que la fase 2 se apruebe. Ver `occupancy` — es el punto exacto donde esto se
+# puede romper otra vez confundiéndolo con `is_current`.
+_ESTADOS_QUE_LIBERAN: set[str] = {"cancelled", "superseded"}
+
+# Estados "vivos" de una cita (D4). **DEFINICIÓN ÚNICA de la app.**
+#
+# Vivía duplicada aquí y en `appointment_service`, unidas solo por comentarios
+# cruzados que se pedían mutuamente no divergir — y los tres consumidores se
+# repartían entre las dos copias: `pages/appointments.py::move` y
+# `self_booking_service` importaban la de allá, mientras `_open_new_attempt`
+# usaba la de acá. Con las dos separadas, un estado añadido a una sola mandaba
+# una cita VIVA por `create` (-> `AppointmentConflict`) donde se quería una
+# reagenda. `appointment_service` la re-exporta IMPORTÁNDOLA, así que los dos
+# nombres apuntan al mismo objeto y ya no hay dónde divergir.
+#
+# Decide dos cosas complementarias, que son la misma regla vista de los dos
+# lados:
+#   · aquí, si la fila vieja pasa a 'superseded' al abrir un intento nuevo.
+#     Fuera del set (`no_show`, `attended`) conserva su status: abrir un
+#     intento nuevo tras esos NO es una transición (spec 2026-09-15 §2.2);
+#   · en `AppointmentService.create`, si se rechaza abrir otra cita (D4).
+#
+# `frozenset` y no `set`: es una constante que ahora comparten dos módulos, y
+# una mutación accidental en cualquiera de ellos se vería en el otro.
+_ESTADOS_ACTIVOS: frozenset[str] = frozenset({"scheduled", "confirmed", "in_progress"})
 
 
 class SlotService:
@@ -148,6 +175,13 @@ class SlotService:
         if not window or not window.id:
             return {}
         q = db.query(ReviewAppointment).filter(ReviewAppointment.window_id == window.id)
+        # Filtra por ESTADO, nunca por `is_current`. Una fila `no_show` o
+        # `attended` que ya no es la vigente sigue ocupando su franja (D10/D5).
+        # Añadir `is_current == True` aquí parece lo natural al leer esto por
+        # primera vez tras introducir el historial de intentos, y ES EL ERROR:
+        # reabre el defecto de la spec 2026-09-15 §0 (reagendar liberaba la
+        # franja del no-show). `is_current` es del historial, no de la
+        # ocupación.
         if _ESTADOS_QUE_LIBERAN:
             q = q.filter(~ReviewAppointment.status.in_(_ESTADOS_QUE_LIBERAN))
         if excluir_process_id:
@@ -223,12 +257,77 @@ class SlotService:
                    {"ns": _PROCESO_LOCK_NS, "pid": int(process_id)})
 
     @staticmethod
+    def _open_new_attempt(db: Session, process_id: int, *,
+                          rechazar_activa: bool = False) -> int:
+        """Cierra la cita vigente del proceso (si hay una) y devuelve el
+        `attempt_no` que le toca a la fila nueva. NO inserta nada — eso lo
+        hace el llamador, con el resto de los datos de la franja destino.
+
+        Bloque compartido por `assign` y `assign_batch`: antes eran dos
+        copias casi idénticas (solo `process_id` cambiaba por `pid`), y es
+        justo donde viven las tres trampas de esta tarea. Una sola función
+        para que un arreglo futuro no se aplique a una copia y se le olvide
+        la otra — el batch es el camino menos ejercitado por los tests
+        existentes, así que es el más fácil de dejar atrás:
+
+        1. Si hay vigente, la cierra (`is_current=False`) y hace
+           `db.flush()` **antes** de que el llamador inserte la fila nueva.
+           El índice único parcial (`uq_titulatec_review_appt_current`)
+           exige que nunca convivan dos `is_current=True` del mismo proceso;
+           si el INSERT llegara a la base antes que este UPDATE, Postgres
+           revienta con violación de unicidad. El orden importa.
+        2. `status` solo cambia a `superseded` si la vigente estaba ACTIVA
+           (`_ESTADOS_ACTIVOS`, D4). Si no (`no_show`, `attended`), conserva
+           su status: abrir un intento nuevo no es una transición.
+        3. `attempt_no` sale de `MAX(attempt_no)` del proceso, no de
+           `vigente.attempt_no + 1` — hace falta para el caso donde no hay
+           vigente pero sí historial (p. ej. tras una cancelación).
+        4. `rechazar_activa` cierra el TOCTOU de D4. La guarda de
+           `AppointmentService.create` corre FUERA de los locks, así que dos
+           `create` concurrentes del mismo proceso la pasan los dos y el
+           segundo supera al primero: un intento de más y —peor— la franja
+           del primero liberada, porque `superseded` está en
+           `_ESTADOS_QUE_LIBERAN`. Un doble clic en «Agendar» es exactamente
+           ese escenario. Aquí ya estamos DENTRO del `pg_advisory_xact_lock`
+           del proceso, así que ésta es la comprobación que vale; la de
+           `create` se queda como rechazo rápido sin pagar locks.
+           `reschedule` y `assign_batch` NO la piden: superar una cita activa
+           es precisamente lo que vienen a hacer.
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+
+        vigente = (db.query(ReviewAppointment)
+                   .filter_by(process_id=process_id, is_current=True)
+                   .first())
+        if vigente is not None:
+            if rechazar_activa and vigente.status in _ESTADOS_ACTIVOS:
+                raise AppointmentConflict()
+            if vigente.status in _ESTADOS_ACTIVOS:
+                vigente.status = "superseded"
+            vigente.is_current = False
+            db.flush()
+
+        return (db.query(func.max(ReviewAppointment.attempt_no))
+                .filter_by(process_id=process_id).scalar() or 0) + 1
+
+    @staticmethod
     def assign(db: Session, window_id: int | None, slot_start: time | None,
-               process_id: int, actor_id: int, *, location: str | None = None):
+               process_id: int, actor_id: int, *, location: str | None = None,
+               rechazar_activa: bool = False):
         """Sienta a un proceso en una franja. NO commitea.
 
-        Devuelve la `ReviewAppointment` creada o movida. Levanta
-        `MissingSchedule`, `InvalidSlot` o `SlotFull`.
+        `rechazar_activa=True` (lo pasa `AppointmentService.create`) levanta
+        `AppointmentConflict` si al tomar el lock resulta que el proceso ya
+        tiene una cita VIVA. Es el cierre del TOCTOU de D4 — ver
+        `_open_new_attempt`, punto 4.
+
+        Nunca mueve una fila existente: si el proceso ya tenía una cita
+        vigente, la CIERRA (a `superseded` si estaba activa —
+        scheduled/confirmed/in_progress—; conserva su status si no, p. ej.
+        `no_show`) e INSERTA un intento nuevo con `attempt_no+1`
+        (`_open_new_attempt`). Devuelve la `ReviewAppointment` recién
+        creada, siempre vigente. Levanta `MissingSchedule`, `InvalidSlot` o
+        `SlotFull`.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
 
@@ -248,20 +347,15 @@ class SlotService:
         cuando = datetime.combine(window.review_day.date, slot_start)
         lugar = location if location is not None else window.location
 
-        appt = (db.query(ReviewAppointment)
-                .filter_by(process_id=process_id)
-                .order_by(ReviewAppointment.id.desc())
-                .first())
-        if appt is None:
-            appt = ReviewAppointment(
-                process_id=process_id, window_id=window.id, scheduled_at=cuando,
-                location=lugar, status="scheduled", created_by_id=actor_id,
-            )
-            db.add(appt)
-        else:
-            appt.window_id = window.id
-            appt.scheduled_at = cuando
-            appt.location = lugar
+        attempt_no = SlotService._open_new_attempt(
+            db, process_id, rechazar_activa=rechazar_activa)
+
+        appt = ReviewAppointment(
+            process_id=process_id, window_id=window.id, scheduled_at=cuando,
+            location=lugar, status="scheduled", created_by_id=actor_id,
+            is_current=True, attempt_no=attempt_no,
+        )
+        db.add(appt)
         db.flush()
         return appt
 
@@ -278,6 +372,11 @@ class SlotService:
         medias movía de sitio a los que ya estaban sentados.
 
         Límite duro: cuando se acaban los lugares **se detiene**, no desborda.
+
+        Igual que `assign` (mismo `_open_new_attempt`): si un proceso ya
+        tenía cita vigente, la CIERRA (superseded si estaba activa; conserva
+        su status si no) e INSERTA un intento nuevo. Nunca mueve la fila
+        existente.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
 
@@ -300,18 +399,12 @@ class SlotService:
                 SlotService._lock_process(db, pid)
                 cuando = datetime.combine(window.review_day.date, hora)
                 lugar = location if location is not None else window.location
-                appt = (db.query(ReviewAppointment)
-                        .filter_by(process_id=pid)
-                        .order_by(ReviewAppointment.id.desc())
-                        .first())
-                if appt is None:
-                    db.add(ReviewAppointment(
-                        process_id=pid, window_id=window.id, scheduled_at=cuando,
-                        location=lugar, status="scheduled", created_by_id=actor_id))
-                else:
-                    appt.window_id = window.id
-                    appt.scheduled_at = cuando
-                    appt.location = lugar
+
+                attempt_no = SlotService._open_new_attempt(db, pid)
+                db.add(ReviewAppointment(
+                    process_id=pid, window_id=window.id, scheduled_at=cuando,
+                    location=lugar, status="scheduled", created_by_id=actor_id,
+                    is_current=True, attempt_no=attempt_no))
                 asignados.append((hora, pid))
                 ocupacion[hora] = ocupacion.get(hora, 0) + 1
                 libres -= 1
@@ -348,12 +441,20 @@ class SlotService:
 
         Pasa al cambiar `slot_minutes` con citas dentro. Se muestran en su
         propia banda: esconderlas sería peor que enseñarlas.
+
+        Filtra por ESTADO con el MISMO criterio que `occupancy`, y por la misma
+        razón: una `cancelled` o `superseded` ya no ocupa nada, así que pintarla
+        aquí sería un **asiento fantasma** — un nombre en el tablero que no
+        corresponde a ninguna cita viva. Un `no_show` o una `attended` que ya no
+        son la vigente SÍ siguen ocupando su franja (D10/D5) y tienen que salir.
+        Nunca por `is_current`: eso es del historial, no de la ocupación.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
         validas = set(SlotService.slots(window))
-        filas = (db.query(ReviewAppointment)
-                 .filter(ReviewAppointment.window_id == window.id).all())
-        return [a for a in filas
+        q = db.query(ReviewAppointment).filter(ReviewAppointment.window_id == window.id)
+        if _ESTADOS_QUE_LIBERAN:
+            q = q.filter(~ReviewAppointment.status.in_(_ESTADOS_QUE_LIBERAN))
+        return [a for a in q.all()
                 if a.scheduled_at and a.scheduled_at.time() not in validas]
 
     # ------------------------------------------------------------ resolución

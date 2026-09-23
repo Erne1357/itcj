@@ -14,6 +14,11 @@ from .appointments import router as appointments_router
 from .roles import router as roles_router
 from .officers import router as officers_router
 from .documents import router as documents_router
+from .public import router as public_router
+from .requests_admin import router as requests_admin_router
+from .surveys_admin import router as surveys_admin_router
+from .survey_reviews_admin import router as survey_reviews_admin_router
+from .handoff_admin import router as handoff_admin_router
 
 titulatec_pages_router = APIRouter(prefix="/titulatec", tags=["titulatec-pages"])
 
@@ -24,3 +29,10 @@ titulatec_pages_router.include_router(appointments_router)
 titulatec_pages_router.include_router(roles_router)
 titulatec_pages_router.include_router(officers_router)
 titulatec_pages_router.include_router(documents_router)
+# El ÚNICO sub-router sin `require_page_*`: sus rutas son públicas por omitir la
+# dependencia (no hay allowlist en este repo). Ver `public.py`.
+titulatec_pages_router.include_router(public_router)
+titulatec_pages_router.include_router(requests_admin_router)
+titulatec_pages_router.include_router(surveys_admin_router)
+titulatec_pages_router.include_router(survey_reviews_admin_router)
+titulatec_pages_router.include_router(handoff_admin_router)

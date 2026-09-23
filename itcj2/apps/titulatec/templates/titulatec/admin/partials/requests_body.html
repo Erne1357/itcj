@@ -1,0 +1,246 @@
+{# Bandeja de solicitudes. Raíz `#tt-requests-body`; todos los controles apuntan
+   a ella con `hx-swap="outerHTML"`, así que TODOS los handlers devuelven este
+   parcial completo, nunca una fila.
+
+   `status` es la pestaña activa (`_body_ctx` la normaliza: nunca un filtro
+   arbitrario). Cada formulario de fila la manda de vuelta, junto con la
+   convocatoria, en campos ocultos: aprobar, rechazar o reenviar vuelven a pintar
+   la pestaña donde estaba el oficial.
+
+   Lo que ofrece cada fila sale de su estado y de si el número de control tiene
+   cuenta HOY en `core_users`, que es la misma pregunta que se hace `approve()`:
+   - por revisar, sin cuenta: NIP + carrera, «Aprobar y crear acceso»;
+   - por revisar, con cuenta: carrera, «Aprobar y enviar liga», con el aviso de a
+     dónde va la liga (el riesgo aceptado de docs/flows/xcut_public_enrollment.md);
+   - liga enviada: envíos, «Reenviar liga» (rota la liga) y «Cancelar solicitud»;
+   - inscrita: folio; rechazada: motivo.
+   Una cuenta desactivada lleva la píldora «Cuenta desactivada: se reactiva al
+   abrir la liga» mientras la liga puede abrirse (por revisar o liga enviada):
+   abrirla la reactiva, la única escritura sobre la cuenta además de roles y
+   proceso.
+
+   Arriba de las pestañas: KPIs (`kpis`) y el bloque plegable «Por año de
+   ingreso» (`by_year`/`year_max`/`years_summary`), ambos del MISMO alcance y
+   convocatoria que la lista
+   pero SIN el filtro de pestaña ni el límite de 300 — se repintan solos en
+   cada acción porque viven en este mismo parcial. `EnrollmentRequestService
+   .stats()` hace la cuenta; ver docs/flows/xcut_public_enrollment.md.
+   Por fila: la píldora ámbar «correo no enviado» en una `rejected` sin
+   `rejection_sent_at`, y «Rechazada antes» cuando hay una solicitud anterior
+   (mismo control, `rejected`, mismo alcance) — motivo truncado con CSS,
+   completo en `title`.
+   Sin hx-confirm (no hay puente) y sin JS ni CSS en línea. #}
+{% macro tab_fields(tab, cohort) -%}
+<input type="hidden" name="status" value="{{ tab }}">
+<input type="hidden" name="cohort_id" value="{{ cohort or '' }}">
+{%- endmacro %}
+{%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
+<div id="tt-requests-body" data-tt-view="requests-body">
+
+  {% if not no_programs %}
+  <div class="tt-kpis tt-stagger mb-3">
+    <div class="tt-kpi"><div class="tt-kicker">Total</div><div class="num">{{ kpis.total }}</div></div>
+    <div class="tt-kpi"><div class="tt-kicker">Por revisar</div><div class="num">{{ kpis.review }}</div></div>
+    <div class="tt-kpi"><div class="tt-kicker">Liga enviada</div><div class="num">{{ kpis.sent }}</div></div>
+    <div class="tt-kpi"><div class="tt-kicker">Inscritas</div><div class="num">{{ kpis.converted }}</div></div>
+    <div class="tt-kpi"><div class="tt-kicker">Rechazadas</div><div class="num">{{ kpis.rejected }}</div></div>
+  </div>
+
+  {# «Por año de ingreso» — PLEGABLE y CERRADO por omisión. Con la carga real
+     (egresados desde 2002) son 20+ generaciones: abierto en filas ocupaba
+     2,651 px y empujaba las pestañas y la lista fuera de la pantalla. Cerrado,
+     el `<summary>` dice lo necesario para decidir si abrirlo; abierto, cada
+     año es una ficha de una rejilla que envuelve (25 años = 4-5 filas en
+     escritorio). `data-tt-remember` (titulatec-utils.js) recuerda si el
+     oficial lo dejó abierto, porque cada acción de la bandeja re-pinta este
+     parcial y el `open` se perdería. El desglose por estado va con icono +
+     número + etiqueta oculta, y una sola leyenda arriba: nunca solo color. #}
+  {% if by_year %}
+  <details class="tt-card tt-years mb-3" id="tt-req-years" data-tt-remember="tt-req-years">
+    <summary class="tt-years-sum">
+      <span class="tt-years-txt">
+        <span class="tt-kicker"><i class="bi bi-bar-chart-steps me-1" aria-hidden="true"></i>Por año de ingreso</span>
+        {% if years_summary %}
+        <span class="tt-years-resumen">
+          {{ years_summary.people }} {{ 'persona' if years_summary.people == 1 else 'personas' }}
+          · {{ years_summary.generations }} {{ 'generación' if years_summary.generations == 1 else 'generaciones' }}
+          {%- if years_summary.span %} ({{ years_summary.span }}){% endif %}
+          {%- if years_summary.peak and years_summary.generations > 1 %} · más: {{ years_summary.peak.year }} ({{ years_summary.peak.total }}){% endif %}
+        </span>
+        {% endif %}
+      </span>
+      <i class="bi bi-chevron-down tt-years-chev" aria-hidden="true"></i>
+    </summary>
+    <p class="tt-years-legend">
+      <span class="tt-mix tt-mix--review"><i class="bi bi-hourglass-split" aria-hidden="true"></i>Por revisar</span>
+      <span class="tt-mix tt-mix--sent"><i class="bi bi-envelope-check" aria-hidden="true"></i>Liga enviada</span>
+      <span class="tt-mix tt-mix--converted"><i class="bi bi-check-circle" aria-hidden="true"></i>Inscritas</span>
+      <span class="tt-mix tt-mix--rejected"><i class="bi bi-x-circle" aria-hidden="true"></i>Rechazadas</span>
+    </p>
+    <ul class="tt-yeargrid">
+      {% for y in by_year %}
+      <li class="tt-yeartile" id="tt-req-year-{{ y.slug }}">
+        <div class="tt-yeartile-head">
+          <span class="tt-yeartile-year">{{ y.year }}</span>
+          <span class="tt-yeartile-total">{{ y.total }}<span class="visually-hidden"> {{ 'persona' if y.total == 1 else 'personas' }}</span></span>
+        </div>
+        <meter class="tt-yearbar" min="0" max="{{ year_max }}" value="{{ y.total }}"
+               aria-label="Año {{ y.year }}: {{ y.total }} de {{ year_max }} personas">{{ y.total }}</meter>
+        <div class="tt-yeartile-mix">
+          {% if y.review %}<span class="tt-mix tt-mix--review" title="Por revisar"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ y.review }}<span class="visually-hidden"> por revisar</span></span>{% endif %}
+          {% if y.sent %}<span class="tt-mix tt-mix--sent" title="Liga enviada"><i class="bi bi-envelope-check" aria-hidden="true"></i>{{ y.sent }}<span class="visually-hidden"> con liga enviada</span></span>{% endif %}
+          {% if y.converted %}<span class="tt-mix tt-mix--converted" title="Inscritas"><i class="bi bi-check-circle" aria-hidden="true"></i>{{ y.converted }}<span class="visually-hidden"> inscritas</span></span>{% endif %}
+          {% if y.rejected %}<span class="tt-mix tt-mix--rejected" title="Rechazadas"><i class="bi bi-x-circle" aria-hidden="true"></i>{{ y.rejected }}<span class="visually-hidden"> rechazadas</span></span>{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+  {% endif %}
+
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    {% for key, label in tabs %}
+    <button id="tt-req-tab-{{ key }}" type="button"
+            class="btn btn-sm {{ 'tt-btn-ink' if status == key else 'tt-btn-ghost' }}"
+            {% if status == key %}aria-current="true"{% endif %}
+            hx-get="/titulatec/admin/solicitudes/body?status={{ key }}{{ qs_cohort }}"
+            hx-target="#tt-requests-body" hx-swap="outerHTML">{{ label }}</button>
+    {% endfor %}
+  </div>
+
+  {% if no_programs %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-signpost-split me-1"></i>Sin alcance</span>
+    <p class="mb-0">No tienes carreras asignadas, así que esta bandeja no te muestra
+       ninguna solicitud. Pídele a la jefatura de Servicios Escolares que te asigne
+       carreras en <strong>Encargados</strong>.</p>
+  </div>
+  {% elif not rows %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-inbox me-1"></i>Bandeja limpia</span>
+    <p class="mb-0">No hay solicitudes con ese filtro.</p>
+  </div>
+  {% else %}
+  {# CINCO columnas, no ocho (2026-09-17). Con Control, Nombre, Carrera,
+     Contacto, Convocatoria, Fecha, Cuenta y Acciones la tabla medía 1,337 px
+     como mínimo contra 977-1,192 px útiles del admin: se desplazaba en
+     horizontal y la barra quedaba al final de cientos de filas, así que las
+     acciones se veían cortadas. Ahora el control y la cuenta van con el nombre,
+     la convocatoria bajo la carrera, y `table-layout: fixed` + `<colgroup>`
+     reparte el ancho (titulatec.css, «Bandeja de solicitudes»). Las acciones
+     se apilan dentro de su columna. Bajo ~760 px la tabla conserva un mínimo y
+     se desplaza dentro de `.table-responsive`, como el resto de tablas admin. #}
+  <div class="table-responsive">
+    <table class="table table-sm tt-req-table">
+      <colgroup>
+        <col class="tt-req-col-who"><col class="tt-req-col-prog"><col class="tt-req-col-contact">
+        <col class="tt-req-col-date"><col class="tt-req-col-acc">
+      </colgroup>
+      <thead><tr>
+        <th>Solicitante</th><th>Carrera</th><th>Contacto</th><th>Recibida</th>
+        <th><span class="visually-hidden">Acciones</span></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr id="tt-req-{{ r.id }}">
+        <td>
+          <span class="tt-req-ctl">{{ r.control }}</span>
+          <span class="tt-req-name">{{ r.name }}</span>
+          <span class="tt-req-tags">
+            {% if status == 'all' %}<span class="tt-pill tt-pill--neutral">{{ r.status_label }}</span>{% endif %}
+            {% if r.has_account %}
+            <span class="tt-pill tt-pill--neutral">Con cuenta</span>
+            {% if not r.has_password %}<span class="tt-pill tt-pill--danger">sin contraseña</span>{% endif %}
+            {% if r.account_inactive and (r.reviewable or r.status == 'approved') %}<span class="tt-pill tt-pill--amber">Cuenta desactivada: se reactiva al abrir la liga</span>{% endif %}
+            {% else %}
+            <span class="tt-pill tt-pill--amber">Sin cuenta</span>
+            {% endif %}
+          </span>
+          {% if r.prior_reject %}
+          <span class="small tt-prior-reject" title="Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}">
+            <i class="bi bi-clock-history me-1" aria-hidden="true"></i>Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {{ r.program }}
+          <span class="tt-req-sub">{{ r.cohort }}</span>
+        </td>
+        <td>
+          {# El correo parte en la «@» (`<wbr>`), no letra por letra. #}
+          {%- set local, arroba, dominio = (r.email or '').partition('@') -%}
+          <span class="tt-req-mail">{{ local }}{% if arroba %}<wbr>@{{ dominio }}{% endif %}</span>
+          <span class="tt-req-sub tt-mono">{{ r.phone }}</span>
+        </td>
+        <td class="tt-mono tt-req-date">{{ r.created }}</td>
+        <td class="tt-req-acc">
+          {% if r.reviewable %}
+            {% if r.note %}<p class="small mb-1">Nota: {{ r.note }}</p>{% endif %}
+            <form class="tt-req-form"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/aprobar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              {% if not r.has_account %}
+              <input class="tt-field tt-field--xs" name="nip" required
+                     inputmode="numeric" pattern="\d{4}" maxlength="4"
+                     placeholder="NIP" aria-label="NIP de 4 dígitos"
+                     autocomplete="off">
+              {% endif %}
+              <select class="tt-field tt-field--xs" name="program_id" aria-label="Carrera">
+                <option value="">Carrera…</option>
+                {% for p in programs %}
+                <option value="{{ p.id }}"{% if r.program_id == p.id %} selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn btn-sm tt-btn-ink">
+                {{ 'Aprobar y enviar liga' if r.has_account else 'Aprobar y crear acceso' }}</button>
+            </form>
+            {% if r.has_account %}
+            <p class="small mt-1 mb-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>La
+               liga de activación irá a este correo, que escribió el solicitante. Confirma su
+               identidad antes de aprobar.</p>
+            {% endif %}
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <input class="tt-field tt-field--xs" name="note" required
+                     placeholder="Motivo del rechazo" aria-label="Motivo del rechazo">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Rechazar</button>
+            </form>
+          {% elif r.status == 'approved' %}
+            <p class="small mb-1">Liga enviada {{ r.sends }} {{ 'vez' if r.sends == 1 else 'veces' }}{% if r.last_sent %}
+               · última {{ r.last_sent }}{% endif %} · {{ 'abierta' if r.opened else 'sin abrir' }}</p>
+            {% if not r.last_sent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reenviar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Reenviar liga</button>
+            </form>
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <input class="tt-field tt-field--xs" name="note" required
+                     placeholder="Motivo de la cancelación" aria-label="Motivo de la cancelación">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Cancelar solicitud</button>
+            </form>
+          {% elif r.status == 'converted' %}
+            {% if r.folio %}<span class="tt-mono">{{ r.folio }}</span>{% endif %}
+          {% elif r.status == 'rejected' %}
+            {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}
+            {% if not r.rejection_sent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>

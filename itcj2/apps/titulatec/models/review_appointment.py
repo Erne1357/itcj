@@ -1,6 +1,6 @@
 """Cita de cotejo de documentos (fase 2, Servicios Escolares)."""
 from sqlalchemy import (
-    BigInteger, Column, DateTime, ForeignKey, Integer, String, Text,
+    BigInteger, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import text
@@ -9,7 +9,8 @@ from itcj2.models.base import Base
 
 
 class ReviewAppointment(Base):
-    """Una cita de cotejo. Un proceso tiene como mucho una.
+    """Una cita de cotejo. Un proceso tiene como mucho una VIGENTE (`is_current`);
+    las citas anteriores del mismo proceso se conservan como historial de intentos.
 
     Sobre `window_id`
     -----------------
@@ -29,6 +30,14 @@ class ReviewAppointment(Base):
     leía como solicitud del alumno. Ahora es columna propia y nadie más la toca.
     """
     __tablename__ = "titulatec_review_appointments"
+    __table_args__ = (
+        # Como mucho una fila VIGENTE por proceso. Se declara aqui y no solo
+        # en la migracion: el CI levanta el esquema con `create_all`, y si el
+        # indice solo viviera en la migracion los tests correrian sin este
+        # invariante (ver docstring de la clase).
+        Index("uq_titulatec_review_appt_current", "process_id", unique=True,
+              postgresql_where=text("is_current")),
+    )
 
     id = Column(Integer, primary_key=True)
     process_id = Column(Integer, ForeignKey("titulatec_processes.id"), nullable=False, index=True)
@@ -38,13 +47,37 @@ class ReviewAppointment(Base):
     )
     scheduled_at = Column(DateTime, nullable=False)
     location = Column(String(120), nullable=True)                   # 'Edificio A · Servicios Escolares'
-    # scheduled|confirmed|in_progress|attended|no_show
+    # scheduled|confirmed|in_progress|attended|no_show|cancelled|superseded
     # La matriz de transiciones vive en AppointmentService._TRANSICIONES y se
     # valida ANTES de escribir: `no_show -> attended` era alcanzable.
+    # `cancelled` y `superseded` los introduce el auto-agendado (historial de
+    # intentos, ver abajo). Quien los escribe: `AppointmentService.cancel`
+    # pone `cancelled`, y `SlotService._open_new_attempt` pone `superseded`
+    # al abrir un intento nuevo sobre una cita que estaba ACTIVA. Los tres
+    # terminales (`attended`, `cancelled`, `superseded`) no salen de ahi.
     status = Column(String(20), nullable=False, server_default=text("'scheduled'"))
+
+    # --- Historial de intentos (auto-agendado) ---
+    # `is_current` es ORTOGONAL a `status`: reagendar, o abrir un intento nuevo
+    # tras no_show/attended/cancelled, deja la fila vieja con is_current=False
+    # SIN tocarle el status (un no_show se queda diciendo no_show, ocupando su
+    # franja) y crea una fila nueva con attempt_no+1. Como mucho una vigente
+    # por proceso: `uq_titulatec_review_appt_current` en __table_args__.
+    is_current = Column(Boolean, nullable=False, server_default=text("TRUE"))
+    attempt_no = Column(Integer, nullable=False, server_default=text("1"))
+    # officer|student — quien agendo esta cita. Distintivo "Agendada por el
+    # alumno" en el tablero del encargado.
+    booked_by = Column(String(20), nullable=False, server_default=text("'officer'"))
+
     created_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=False)
     confirmed_at = Column(DateTime, nullable=True)
     note = Column(Text, nullable=True)
+
+    # Cancelacion: a diferencia de no_show, cancelar SI libera la franja (la
+    # logica que decide eso vive en SlotService, no aqui).
+    cancelled_at = Column(DateTime, nullable=True)
+    cancelled_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
+    cancel_reason = Column(String(255), nullable=True)
 
     # Solicitud de cambio del alumno (columna propia, ver docstring).
     change_request = Column(Text, nullable=True)

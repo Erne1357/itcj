@@ -27,6 +27,9 @@ rotos— salgan en rojo.
 """
 from __future__ import annotations
 
+import ast
+import inspect
+import textwrap
 from datetime import date, timedelta
 from types import SimpleNamespace
 
@@ -56,7 +59,12 @@ HEAD_WRITE_PERMS = HEAD_PERMS + SCOPED_PERMS
 _DAY = (date.today() + timedelta(days=7)).isoformat()
 _INITIAL_DOCS = ("birth_certificate", "high_school_cert", "curp")
 
-# (alias, metodo, plantilla de URL, form). Las 13 rutas con `{process_id}`.
+# (alias, metodo, plantilla de URL, form). Las 13 rutas que la matriz ejercita
+# de punta a punta. NO son todas las que llevan `{process_id}`: el censo por AST
+# de `test_toda_ruta_con_process_id_invoca_el_guard` cuenta 19, y las que faltan
+# aqui (las de requisitos, dictamen de fase 02, mover y deshacer no-show) quedan
+# cubiertas por ese censo estructural. El comentario decia "las 13 rutas" cuando
+# la lista tenia 12 y el censo 18: dos numeros de segunda mano en una linea.
 ROUTES = [
     ("process_detail", "GET",
      "/titulatec/admin/processes/{pid}", None),
@@ -75,6 +83,10 @@ ROUTES = [
     ("appt_start", "POST", "/titulatec/admin/appointments/{pid}/start", {}),
     ("appt_attended", "POST", "/titulatec/admin/appointments/{pid}/attended", {}),
     ("appt_no_show", "POST", "/titulatec/admin/appointments/{pid}/no-show", {}),
+    # Cancelar la cita de un alumno (spec 2026-09-15 §5). Lleva `{process_id}`,
+    # asi que entra al censo por AST igual que sus hermanas.
+    ("appt_cancel", "POST", "/titulatec/admin/appointments/{pid}/cancelar",
+     {"motivo": "el alumno aviso que no puede"}),
     ("appt_document", "GET",
      "/titulatec/admin/appointments/{pid}/document/curp", None),
     ("doc_review", "POST",
@@ -94,13 +106,19 @@ def _call(cli, method, url, form):
 def escenario(seed_phase_defs, seed_document_types, make_program, make_cohort,
               make_review_day, make_review_window, make_student, make_process,
               make_document, make_appointment, make_officer, make_head,
-              tmp_path, monkeypatch):
+              make_survey_review, tmp_path, monkeypatch):
     """Tres procesos gemelos —carrera A, carrera B y SIN carrera— y dos actores.
 
     Los tres traen los 3 documentos iniciales **en disco** a proposito: si el
     archivo no existiera, las dos rutas de `FileResponse` devolverian 404 por
     "no existe el archivo" y el test negativo pasaria por la razon equivocada,
     tapando justo la fuga mas grave (descarga de acta/CURP ajenas).
+
+    Los tres traen ADEMAS la encuesta de egresados ya enviada (Tarea 4, D2):
+    `appt_schedule` en `ROUTES` re-agenda la cita que `make_appointment` ya les
+    dejo (pasa por `AppointmentService.create`, que ahora exige la solicitud
+    ANTES que cualquier guarda de alcance), y `test_el_guard_no_estorba_a_la_jefa`
+    la ejercita sobre los tres procesos con la jefa (alcance "ALL").
     """
     def _build():
         monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
@@ -132,6 +150,7 @@ def escenario(seed_phase_defs, seed_document_types, make_program, make_cohort,
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(b"%PDF-1.4 documento de prueba")
             make_appointment(proc)
+            make_survey_review(proc)
             procs[key] = proc
             students[key] = student
 
@@ -463,36 +482,160 @@ def _rutas(router):
             yield route
 
 
-def test_toda_ruta_con_process_id_invoca_el_guard():
-    """Ergonomia como control: el guard devuelve el proceso, olvidarlo cuesta mas codigo.
+_GUARD = "assert_process_in_scope"
 
-    Reemplaza al parametro de scope en los services, cuyo modo de fallo seria
-    ABIERTO (un default `None` = "sin restriccion"). Este test falla en rojo ante
-    cualquier ruta nueva que reciba un `{process_id}` y no llame al guard.
+
+def _nombre_llamado(func):
+    """Nombre del callable de un `Call`: `f(...)` -> "f", `scope_service.f(...)` -> "f"."""
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return ""
+
+
+def _cuerpo(endpoint):
+    """AST del CUERPO del endpoint, sin decoradores ni defaults de la firma.
+
+    Se recorta a `body` a proposito: los decoradores (`@router.post(...)`) y los
+    defaults (`Depends(require_page_app(...))`) tambien son `Call`, y contarlos
+    ensuciaria tanto el censo de llamadas como el orden.
     """
-    import inspect
+    arbol = ast.parse(textwrap.dedent(inspect.getsource(endpoint)))
+    return arbol.body[0].body
 
+
+def _espina(cuerpo):
+    """Sentencias que se ejecutan SIEMPRE que el flujo llegue hasta ellas.
+
+    Baja por el `body` de `try`/`with` —la forma real de las 18 rutas: abren
+    sesion, guardan dentro del `try` y cierran en el `finally`— y NO entra a
+    `if`, bucles, `except` ni funciones anidadas: un guard ahi dentro es un
+    guard OPCIONAL, que es justo lo que este censo debe delatar.
+    """
+    for st in cuerpo:
+        yield st
+        if isinstance(st, (ast.Try, ast.With, ast.AsyncWith)):
+            yield from _espina(st.body)
+
+
+def _es_sentencia_guard(st):
+    """El guard como sentencia propia: `assert_process_in_scope(...)` o `proc = ...`.
+
+    Son las dos unicas formas que existen hoy (unas rutas guardan el proceso que
+    devuelve, otras lo llaman a secas). Un guard escondido en un ternario o en
+    una comprension NO cuenta: preferimos el rojo explicito a aflojar el criterio.
+    """
+    valor = st.value if isinstance(st, (ast.Expr, ast.Assign, ast.AnnAssign)) else None
+    return isinstance(valor, ast.Call) and _nombre_llamado(valor.func) == _GUARD
+
+
+def _toca_la_sesion(call):
+    """Llamada que usa la sesion abierta: `db.<algo>(...)` o `f(..., db, ...)`.
+
+    `db = SessionLocal()` NO cuenta —abrir la sesion no lee nada— y por eso
+    puede ir antes del guard, como va en las 18.
+    """
+    func = call.func
+    if (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+            and func.value.id == "db"):
+        return True
+    argumentos = list(call.args) + [k.value for k in call.keywords]
+    return any(isinstance(a, ast.Name) and a.id == "db" for a in argumentos)
+
+
+def test_toda_ruta_con_process_id_invoca_el_guard():
+    """Censo por AST: cada ruta con `{process_id}` LLAMA al guard, no solo lo menciona.
+
+    Ergonomia como control: el guard devuelve el proceso, asi que olvidarlo cuesta
+    mas codigo. Reemplaza al parametro de scope en los services, cuyo modo de fallo
+    seria ABIERTO (un default `None` = "sin restriccion").
+
+    POR QUE AST Y NO `"assert_process_in_scope" in src`
+    ---------------------------------------------------
+    La version anterior grepeaba el fuente del endpoint, y **la linea del import
+    ya satisfacia el grep**. Cazaba la ruta que nace sin guard, pero no la
+    regresion mas probable: borrar la LLAMADA dejando el import, que sobrevive a
+    cualquier edicion del cuerpo. Se probo en la Tarea 8-bis —quitar el guard de
+    una ruta dejaba este censo en verde— y solo lo vio el test de comportamiento
+    de esa ruta en concreto; las rutas que no tienen 404/200 propio (p. ej.
+    `undo-no-show`) se quedaban sin ninguna red. El AST es el mismo instrumento
+    que ya usa `test_permissions_contract.py` sobre `pages/*.py`.
+
+    QUE EXIGE, EXACTAMENTE (presencia + posicion, con una relajacion declarada)
+    --------------------------------------------------------------------------
+    1. **Presencia real**: un `Call` cuyo callable resuelve al nombre
+       `assert_process_in_scope` (`f(...)` o `modulo.f(...)`). El import solo
+       ya no basta.
+    2. **Incondicional**: la llamada es una sentencia de la ESPINA (cuerpo de la
+       funcion, o del `try`/`with` que la envuelve), nunca dentro de un `if`, un
+       bucle o un `except`. Un guard condicional es un guard que a veces no corre.
+    3. **Antes de tocar la BD**: ninguna llamada que use la sesion (`db.x(...)`
+       o `f(..., db, ...)`) puede preceder al guard.
+
+    El punto 3 es una relajacion DELIBERADA de la regla escrita ("primera
+    sentencia del `try`"): tres rutas reales —`start`, `attended` y `no-show`—
+    resuelven `uid = int(user["sub"])` dentro del `try` antes de guardar, y eso
+    no lee ni escribe nada. Exigir la primera sentencia literal obligaria a
+    mover codigo inocente o a mantener una lista de excepciones; exigir "antes
+    de la primera llamada que toca la sesion" conserva la propiedad que de
+    verdad importa —no consultar ni mutar nada de otra carrera— sin inventar
+    excepciones.
+
+    NINGUNA DE LAS 18 DELEGA EL GUARD EN UN HELPER (se verifico ruta por ruta):
+    las 18 lo llaman en su propio cuerpo. Si algun dia una lo delega, este censo
+    la marcara en rojo: **no lo arregles volviendo al `in src`**. O la ruta llama
+    al guard directamente, o el helper se declara aqui como envoltorio conocido
+    y se comprueba que el helper si lo llama.
+    """
     from itcj2.apps.titulatec.pages.router import titulatec_pages_router
 
-    sin_guard = []
+    sin_guard, condicional, tardio = [], [], []
     revisadas = 0
     for route in _rutas(titulatec_pages_router):
         path = getattr(route, "path", "")
         if "{process_id}" not in path:
             continue
         revisadas += 1
-        src = inspect.getsource(route.endpoint)
-        if "assert_process_in_scope" not in src:
-            sin_guard.append(str(sorted(getattr(route, "methods", []))) + " " + path)
+        etiqueta = str(sorted(getattr(route, "methods", []))) + " " + path
 
-    assert revisadas == 14, (
+        cuerpo = _cuerpo(route.endpoint)
+        llamadas = [n for st in cuerpo for n in ast.walk(st) if isinstance(n, ast.Call)]
+        if not any(_nombre_llamado(c.func) == _GUARD for c in llamadas):
+            sin_guard.append(etiqueta)
+            continue
+
+        espina = [st for st in _espina(cuerpo) if _es_sentencia_guard(st)]
+        if not espina:
+            condicional.append(etiqueta)
+            continue
+
+        pos = (espina[0].lineno, espina[0].col_offset)
+        antes = [c for c in llamadas
+                 if (c.lineno, c.col_offset) < pos and _toca_la_sesion(c)]
+        if antes:
+            tardio.append(etiqueta + " (toca la sesion en la linea relativa "
+                          + str(antes[0].lineno) + ", antes del guard)")
+
+    assert revisadas == 19, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
         "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
         "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"
         "OJO: este censo solo ve rutas que llevan el id EN LA RUTA. Una ruta que\n"
         "reciba ids en el CUERPO (p. ej. el reparto masivo) le es invisible y tiene\n"
         "que validar cada id contra `process_in_scope` por su cuenta." % revisadas)
-    assert not sin_guard, "rutas con process_id sin guard de carrera:\n" + "\n".join(sin_guard)
+    assert not sin_guard, (
+        "rutas con {process_id} que NO llaman a `assert_process_in_scope`\n"
+        "(importarlo no cuenta: el censo lee el AST, no el texto):\n"
+        + "\n".join(sin_guard))
+    assert not condicional, (
+        "rutas donde el guard existe pero NO es incondicional: esta dentro de un\n"
+        "`if`/bucle/`except`, o escondido en un ternario. Sacalo a la espina del\n"
+        "`try`, como primera sentencia:\n" + "\n".join(condicional))
+    assert not tardio, (
+        "rutas que consultan o mutan la BD ANTES de acotar el proceso: el 404 llega\n"
+        "tarde y para entonces ya se leyo (o escribio) algo de otra carrera:\n"
+        + "\n".join(tardio))
 
 
 def test_las_rutas_del_alumno_no_aceptan_ids_de_proceso():

@@ -21,7 +21,9 @@ from itcj2.core.schemas.user import (
 router = APIRouter(prefix="/user", tags=["user"])
 logger = logging.getLogger("itcj2.users")
 
-DEFAULT_PASSWORD = "tecno#2K"
+# Reexportada desde `core/utils/security`, donde vive junto a `hash_nip`.
+# Se conserva el nombre aquí porque otros módulos ya la importaban de este.
+from itcj2.core.utils.security import DEFAULT_PASSWORD  # noqa: E402,F401
 
 
 def _get_user(user_data: dict, db):

@@ -231,8 +231,9 @@
                         <div class="mb-3">
                             <label for="controlNumber" class="form-label">Numero de Control <span class="text-danger">*</span></label>
                             <input type="text" class="form-control" id="controlNumber" name="control_number"
-                                   maxlength="10" pattern="(\d{8}|[A-Za-z]\d{7,9})">
-                            <div class="form-text">8 digitos normales o 9-10 caracteres para posgrado/traslado (ej. M21111182)</div>
+                                   maxlength="9" pattern="[A-Za-z]?[0-9]{8}"
+                                   title="8 digitos, o una letra seguida de 8 digitos (traslado)">
+                            <div class="form-text">8 digitos, o una letra y 8 digitos si es de traslado (ej. 21111182 o B21221523)</div>
                         </div>
                     </div>
                     <div id="staffFields" class="d-none">

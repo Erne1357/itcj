@@ -675,10 +675,18 @@
     </div>
 </div>
 
+{# Modal "Partir ticket" — markup compartido; lo pinta y envía
+   js/shared/split_ticket.js (HelpdeskSplit). Solo con el permiso de partir
+   (can_split): sin él la página no trae el modal y el botón tampoco. #}
+{% if can_split %}
+{% include "helpdesk/_components/split_ticket_modal.html" %}
+{% endif %}
+
 {% endblock %}
 
 {% block extra_css %}
     <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/admin/assign_tickets.css') }}?v={{ sv('helpdesk', 'css/admin/assign_tickets.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/shared/split_ticket.css') }}?v={{ sv('helpdesk', 'css/shared/split_ticket.css') }}">
 {% endblock %}
 
 {% block extra_js %}{% endblock %}

@@ -96,6 +96,19 @@
    `#tt-admin-content` (`hx-select`): un <script> de la plantilla de página no
    llegaría al entrar desde otra pestaña. #}
 <script src="/static/titulatec/js/admin/expediente.js?v={{ sv('js/admin/expediente.js') }}"></script>
+{# Requisitos de cotejo: editor de «Información para el alumno». Trae Quill 2
+   PEREZOSAMENTE la primera vez que se abre un editor (ninguna otra página admin
+   lo descarga), sincroniza el HTML con el input oculto de su formulario y vuelve
+   a montar los editores tras el outerHTML del parcial o el morph de la
+   navegación. Mismo contrato: una sola carga y delegación en `document`. #}
+<script src="/static/titulatec/js/admin/cotejo-info-editor.js?v={{ sv('js/admin/cotejo-info-editor.js') }}"></script>
+{# Encargados por carrera: buscador y contador de cada selector de casillas, el
+   aviso de «se reactivarán N cuentas» y la edición en línea de cada tarjeta.
+   Se carga aquí y no en `officers.html` porque la navegación del admin trae
+   solo `#tt-admin-content` (`hx-select`): un <script> de la plantilla de página
+   no llegaría al entrar desde otra pestaña. Mismo contrato que los de arriba:
+   una sola carga y delegación en `document`. #}
+<script src="/static/titulatec/js/admin/officers.js?v={{ sv('js/admin/officers.js') }}"></script>
 <script>
   // Toast genérico para errores de acciones HTMX (usa X-Tt-Error si viene).
   document.body.addEventListener('htmx:responseError', function (e) {

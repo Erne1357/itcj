@@ -17,6 +17,16 @@
     // These are read from data-* in init()
     let ticketId = null;
     let currentUserId = null;
+    let splitScope = '';   // "all" | "own" | ""  (can_split, pages/nav.py)
+    let splitTeam = '';    // "desarrollo" | "soporte" | ""  (equipo del actor)
+
+    // ==================== HELPERS ====================
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
 
     // ==================== INIT ====================
     function init() {
@@ -26,6 +36,11 @@
             ticketId = parseInt(root.dataset.ticketId, 10);
             currentUserId = parseInt(root.dataset.currentUserId, 10);
         }
+        // "Partir ticket": SIEMPRE relectura (fuera del if, y sin capturarlo a
+        // nivel de archivo) — morph reejecuta init() sin recargar el módulo, y
+        // el ticket de la revisita puede traer otro alcance/equipo.
+        splitScope = (root && root.dataset.splitScope) || '';
+        splitTeam = (root && root.dataset.splitTeam) || '';
 
         // Reset module state (guard against re-init on same session)
         currentTicket = null;
@@ -60,6 +75,7 @@
         window.openEquipmentDetail = openEquipmentDetail;
         window.openEquipmentListModal = openEquipmentListModal;
         window.openPhotoModal = openPhotoModal;
+        window.openSplitTicketModal = openSplitTicketModal;
 
         // Setup modal event listeners
         setupRatingModal();
@@ -131,6 +147,12 @@
             }
         });
 
+        // Modal compartido "Partir ticket": suelta su modal, sus listeners y su
+        // estado, e invalida la carga/envío que siga en vuelo (al resolver ya no
+        // encontrará su página y no tocará el DOM de la nueva). Mismo criterio
+        // que dashboard.js (técnico) y assign_tickets.js.
+        window.HelpdeskSplit?.teardown();
+
         // Reset resolve panel
         const resolvePanel = document.getElementById('resolvePanel');
         if (resolvePanel) resolvePanel.classList.add('d-none');
@@ -147,6 +169,7 @@
             'openCancelModal', 'openResolutionFilesModal', 'deleteResolutionFile',
             'viewAttachmentImage', 'downloadCustomFieldFile', 'removeCommentFile',
             'addComment', 'openEquipmentDetail', 'openEquipmentListModal', 'openPhotoModal',
+            'openSplitTicketModal',
         ];
         fns.forEach(fn => { delete window[fn]; });
 
@@ -284,6 +307,8 @@
             document.getElementById('ticketFolio').textContent = ticket.office_document_folio;
         }
 
+        renderSplitInfo(ticket);
+
         document.getElementById('ticketDescription').textContent = ticket.description;
 
         renderCustomFields(ticket);
@@ -334,6 +359,73 @@
 
         const isOpen = !['CLOSED', 'CANCELED'].includes(ticket.status);
         document.getElementById('addCommentForm').classList.toggle('d-none', !isOpen);
+    }
+
+    // ==================== RENDER SPLIT INFO ====================
+    // "Partir ticket": enlace al original ("Derivado de TK-X") si este ticket
+    // es una parte, y/o enlaces a las partes ("Dividido en: TK-Y, TK-Z") si
+    // este ticket fue partido. Discreto (una o dos líneas con ícono, sin card
+    // ni alert) y oculto por completo si no aplica ninguno de los dos —
+    // incluye modo tutorial, cuyo JSON no trae split_from/split_children.
+    // Misma plantilla para user/technician/department: la base del enlace se
+    // arma con la URL actual (location.pathname/search), no con una ruta fija.
+    // `hx-boost="false"`: opt-out documentado del listener delegado en
+    // onDocumentClick (static/js/shared/base.js) — SIN él, el click navega por
+    // morph, pero activate() resuelve la "key" de destino solo con
+    // data-hd-page ("user_ticket_detail"), IGUAL en origen y destino porque es
+    // la misma plantilla con otro id; lo trata como "mismo destino" (no-op) y
+    // nunca vuelve a llamar init()/loadTicketDetail() para el ticket nuevo →
+    // la página se queda en el spinner de carga para siempre. Con el opt-out,
+    // el click cae a navegación normal del navegador (recarga completa), que
+    // sí ejecuta init() desde cero con el ticket_id correcto.
+    function renderSplitInfo(ticket) {
+        const container = document.getElementById('splitInfoContainer');
+        if (!container) return;
+
+        const splitFrom = ticket.split_from;
+        const splitChildren = ticket.split_children || [];
+
+        if (!splitFrom && splitChildren.length === 0) {
+            container.classList.add('d-none');
+            container.innerHTML = '';
+            return;
+        }
+
+        const base = location.pathname.replace(/\/\d+\/?$/, '');
+        const buildUrl = (id) => `${base}/${id}${location.search}`;
+
+        let html = '';
+
+        if (splitFrom) {
+            // `url` sale de location.pathname/search: el navegador ya percent-
+            // codifica `"`, `<` y `>` ahí, pero se escapa igual para que en este
+            // archivo NINGUNA interpolación a innerHTML quede sin escapar.
+            const url = escapeHtml(buildUrl(splitFrom.id));
+            const number = escapeHtml(splitFrom.ticket_number);
+            html += `
+                <div class="small text-muted mb-1">
+                    <i class="fas fa-code-branch me-1"></i>Derivado de <a href="${url}" hx-boost="false">${number}</a>
+                </div>
+            `;
+        }
+
+        if (splitChildren.length > 0) {
+            const links = splitChildren.map(child => {
+                const url = escapeHtml(buildUrl(child.id));
+                const number = escapeHtml(child.ticket_number);
+                const title = escapeHtml(child.title);
+                return `<a href="${url}" hx-boost="false" title="${title}">${number}</a> ${HelpdeskUtils.getStatusBadge(child.status)}`;
+            }).join(', ');
+
+            html += `
+                <div class="small text-muted">
+                    <i class="fas fa-code-branch me-1"></i>Dividido en: ${links}
+                </div>
+            `;
+        }
+
+        container.innerHTML = html;
+        container.classList.remove('d-none');
     }
 
     // ==================== RENDER REQUESTER INFO ====================
@@ -400,7 +492,61 @@
             </li>
         `;
 
+        if (canSplitTicket(ticket)) {
+            html += `
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                    <a class="dropdown-item" href="#" onclick="openSplitTicketModal(${ticket.id}); return false;">
+                        <i class="fas fa-code-branch me-2"></i>Partir ticket
+                    </a>
+                </li>
+            `;
+        }
+
         menu.innerHTML = html;
+    }
+
+    // ==================== SPLIT TICKET MODAL ====================
+    // "Partir ticket" vive en js/shared/split_ticket.js (window.HelpdeskSplit) y
+    // su markup en el partial helpdesk/_components/split_ticket_modal.html — el
+    // mismo que usan la pantalla de asignación y el dashboard del técnico.
+    const SPLIT_STATUSES = ['PENDING', 'ASSIGNED', 'IN_PROGRESS'];
+
+    // splitScope ("all"|"own"|"") y splitTeam ("desarrollo"|"soporte"|"") los
+    // relee init() de data-split-scope / data-split-team (los calculan
+    // can_split() en pages/nav.py y tech_team() en utils/teams.py).
+    //
+    // Con ".own" solo se ofrece si este usuario es el técnico asignado o el
+    // ticket sigue SIN ASIGNAR en la cola de SU equipo (no la de cualquier
+    // equipo) — mismo criterio que exige el guard fino de la API (D17). Sin
+    // comparar el equipo, el técnico llenaba el modal entero (partes, títulos,
+    // descripciones de 20 caracteres) para cobrar un 403 al enviar.
+    function canSplitTicket(ticket) {
+        if (!SPLIT_STATUSES.includes(ticket.status)) return false;
+        if (splitScope === 'all') return true;
+        if (splitScope === 'own') {
+            if (ticket.assigned_to?.id === currentUserId) return true;
+            return !ticket.assigned_to && !!splitTeam &&
+                ticket.assigned_to_team === splitTeam;
+        }
+        return false;
+    }
+
+    function openSplitTicketModal(ticketId) {
+        if (!window.HelpdeskSplit) {
+            console.error('[ticket_detail] HelpdeskSplit no está cargado (js/shared/split_ticket.js).');
+            HelpdeskUtils.showToast('No se pudo abrir "Partir ticket". Recarga la página.', 'error');
+            return;
+        }
+        return window.HelpdeskSplit.open(ticketId, { onSplit: onTicketSplit });
+    }
+
+    // Tras partir, el original pudo cambiar (título/descripción/categoría/
+    // prioridad) y gana el enlace "Dividido en: …" (renderSplitInfo, dentro de
+    // renderTicketDetail): recargar todo el detalle reusa el mismo camino que
+    // un F5 en vez de parchear cada pieza a mano.
+    async function onTicketSplit() {
+        await loadTicketDetail();
     }
 
     // ==================== RENDER CUSTOM FIELDS ====================

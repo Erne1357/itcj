@@ -5,10 +5,21 @@
 > SQL. Pieza transversal: la usan la bandeja de procesos, el tablero kanban y la agenda de citas.
 
 > ✅ **Alcance real del mecanismo:** el scope por carrera se aplica en **dos capas**: el filtro SQL
-> de los listados (`pages/admin.py:652`, `pages/appointments.py:307`, `pages/documents.py:53`)
-> **y** el guard `assert_process_in_scope` en las **13 rutas con
+> de los listados (`pages/admin.py:652`, `pages/appointments.py:307`, `pages/documents.py:53`,
+> `pages/requests_admin.py:159`) **y** el guard `assert_process_in_scope` en las **13 rutas con
 > `{process_id}`** (§ *Scope en escritura*). Mismo predicado en ambas: si un proceso no sale en tu
 > listado, sus rutas de detalle y de mutación responden **404**.
+>
+> `pages/requests_admin.py` filtra la bandeja de **Solicitudes** (inscripción pública, sobre
+> `EnrollmentRequest`, no `TitulationProcess`) por el mismo `officer_programs()`, con su PROPIA
+> reimplementación local del mismo patrón lectura+escritura en vez de llamar a `scope_service`:
+> `_officer_scope`/`_program_in_scope`/`_load_scoped_request` (`requests_admin.py:79-107`) son los
+> gemelos de `officer_programs`/`process_in_scope`/`assert_process_in_scope`, pero indexados por
+> `req_id` de `EnrollmentRequest`, no por `process_id` de `TitulationProcess`
+> (`assert_process_in_scope` no aplica aquí: son entidades distintas). Las tres rutas con
+> `{req_id}` (`aprobar`, `rechazar`, `reenviar`) llaman `_load_scoped_request` como primera
+> comprobación y devuelven **404 liso** si es `None` — mismo criterio "no existe" ≡ "no es tuya"
+> que `assert_process_in_scope`. Detalle: [`xcut_public_enrollment.md`](xcut_public_enrollment.md).
 
 | | |
 |---|---|
@@ -119,6 +130,39 @@ Criterio exacto de esa query (`scope_service.py:69-93`) — el alcance es el **g
 - **Sin puesto no hay ancla.** Un rol concedido directo al usuario (`core_user_app_roles`) no tiene
   `ProgramPosition` → set vacío. Misma regla que el scope por departamento de `org-scoped-authz`.
 
+### El mismo predicado, EN SENTIDO INVERSO: `SelfBookingService.offer` (2026-09-16)
+
+Todo lo de arriba responde **«¿qué carreras ve este usuario?»** (usuario → carreras). El
+auto-agendado del egresado necesita la pregunta **al revés**: dada la carrera del alumno,
+**¿qué encargados la atienden?** — porque D3 dice que el egresado puede agendar con *cualquier*
+encargado que atienda su carrera, no con uno asignado.
+
+Se resuelve **llamando a la función que ya existe**, no reescribiendo su join.
+`SelfBookingService._owners_serving(db, owner_ids, program_id)` toma los dueños de las ventanas
+PUBLICADAS de esos días y se queda con aquellos para los que
+`program_id in _program_ids_for_user(db, uid)`. El conjunto candidato es pequeño —solo dueños de
+ventanas publicadas—, así que preguntar uno por uno sale barato.
+
+**Por qué no un join propio «carrera → encargados»:** sería una segunda implementación del mismo
+predicado, y diverge en cuanto alguien añada una vía de asignación. El día que aparezca una
+tercera vía junto a `PositionAppRole`/`PositionAppPerm`, el alcance del encargado la respetaría y
+la oferta del alumno no — o al revés: un egresado vería franjas de un encargado que no atiende su
+carrera. Con una sola función eso no puede pasar.
+
+Consecuencias de reusar el predicado tal cual, las dos deliberadas:
+
+- **Fail-closed también aquí.** Un proceso sin `program_id` no cae en la oferta de nadie, igual que
+  no cae en el alcance de nadie.
+- **`read.all` NO abre la oferta** (Ruling 14 de la ejecución). `_owners_serving` usa
+  `_program_ids_for_user`, no `officer_programs`, así que el atajo `"ALL"` no participa: quien
+  tiene `read.all` pero ninguna carrera asignada —la jefatura, típicamente— puede publicar un
+  espacio `bookable` que **ningún egresado verá**. Es lo correcto (`read.all` es un permiso de
+  lectura para supervisión, no una declaración de que esa persona atiende presencialmente a todo
+  el instituto), pero sería un bug silencioso, así que la UI de Espacios lo dice con todas sus
+  letras al guardar y en la propia lista (`_espacios_ctx.sin_alcance`).
+
+Detalle del flujo completo: ⤵ [el egresado agenda su propia cita](phase2_student_self_booking.md).
+
 ## Scope en escritura (el guard)
 
 Hasta 2026-09 esto era un **hueco abierto**: `officer_programs` se consultaba en 5 call sites, los
@@ -144,13 +188,14 @@ parcial HTMX el cuerpo da igual: htmx no hace swap en 4xx.
 La regla 3 es deliberada: `read.all` lo tienen **dos** roles (jefe y titulaciones), y el cubo
 "Sin carrera" es una **cola de reparación de datos**, así que lo abre quien puede repararla.
 
-**Call sites de listado (los 5, filtro SQL):**
+**Call sites de listado (los 6, filtro SQL):**
 
 | Archivo:línea | Ruta | Qué acota |
 |---|---|---|
 | `pages/admin.py:652` | `GET /titulatec/admin/processes` | `TitulationProcess.program_id.in_(scope)` (`:657`); scope vacío → contexto `_empty()` (`:655-656`) |
 | `pages/appointments.py:307` | `GET /admin/appointments` y `/body` (vía `_shell_ctx`) | **una** resolución de `officer_programs` alimenta **cinco** consultas: `list_for_day` (`:324`), `list_appointments` (`:328`), `list_pending_processes` (`:343`), `agenda_process_ids` (`:363`) y `counts_by_day` (`:249`, vía `_calendar_ctx`) |
 | `pages/documents.py:53` | `GET /admin/documents` y `/body` (vía `_body_ctx`) | `program_id.in_(scope)` (`:59`); scope vacío → `rows: []` (`:56-58`) |
+| `pages/requests_admin.py:159` | `GET /admin/solicitudes` y `/body` (vía `_body_ctx`) | `EnrollmentRequest.program_id.in_(scope)`; entidad `EnrollmentRequest`, no `TitulationProcess` (única de esta tabla) — ver la nota de arriba |
 
 > ⚠️ **Las rutas `/admin/appointments/calendar` y `/day` ya no existen** (2026-09-02): se plegaron
 > dentro de `/body`, que ahora renderiza el shell de tres zonas completo. Eso concentra el riesgo:
@@ -255,6 +300,18 @@ llamar **al mismo guard**.
   (`/titulatec/admin/officers`), que escribe `ProgramPosition` vía `OfficerService.set_programs()`.
 - Jefe sin departamento gestionado (`positions_service.get_user_primary_managed_department` → `None`,
   `officers.py:16-22`) → la pestaña Encargados renderiza `{"no_department": True}` (`officers.py:44-45`).
+  **Respaldo para el rol `admin` (2026-09-17):** si la vía normal devuelve `None`,
+  `_managed_department_id` (`officers.py`) comprueba si el usuario tiene el rol literal `admin`
+  **en la app titulatec** (`authz_service.user_roles_in_app(db, user_id, "titulatec")`, NO el rol
+  global del JWT: esta app no lo bypasea, §6 del CLAUDE.md de titulatec) y, si lo tiene, usa el
+  departamento `core_departments.code = 'school_services'` en vez de `None`. Cubre al usuario
+  `admin` de bootstrap, que no tiene NINGÚN puesto del organigrama y por tanto nunca gestiona nada
+  por la vía normal. Tener solo `titulatec.officers.api.manage` **no** activa este respaldo —hace
+  falta el rol `admin` en la app—, así que `test_sin_departamento_gestionado_no_muta` /
+  `_no_desactiva` (`test_officers_authz.py`) siguen en verde. El rol `admin` recibe TODOS los
+  permisos de titulatec (dinámicamente, incluidos los futuros) vía
+  `database/DML/titulatec/15_grant_admin_all_perms.sql`, el ÚLTIMO seeder de `SEED_FILES`
+  (`itcj2/cli/titulatec.py`). Tests: `tests/fastapi/titulatec/test_officers_admin_fallback.py`.
 - **La validación "usuario fuera del depto" solo existe en el alta, no en la edición.**
   `create_officer` (`officer_service.py:91-94`) calcula `allowed = department_user_ids(...)` y
   `bad = set(user_ids) - allowed`, así que sí rechaza con `ValueError` → `400` + header `X-Tt-Error`

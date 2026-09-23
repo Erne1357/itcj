@@ -1,0 +1,65 @@
+{# Ventana de la convocatoria: fechas + estado. Es lo que decide si el formulario
+   PÚBLICO de auto-inscripción está abierto. El personal nunca queda bloqueado
+   por esto: importar CSV y dar de alta a mano siguen funcionando con la
+   convocatoria cerrada.
+
+   Raíz estable `#cohort-window`: el POST devuelve ESTE mismo parcial y htmx lo
+   swappea con outerHTML. Mismo contrato que `cohort/cohort_cotejo_reqs.html`.
+
+   Las fechas llegan YA en ISO desde `_window_ctx`, y llegan SIEMPRE precargadas:
+   `CohortService.set_window` escribe las dos con lo que reciba, sin conservar lo
+   anterior, así que un editor en blanco borraría la ventana de quien solo venía
+   a cambiar el estado.
+
+   Cero `style=` inline: los anchos y tamaños viven en `titulatec.css`
+   (`.tt-win-*`). El color de la nota es `--tt-text-2`, no `--tt-mute`: el propio
+   `:root` marca `--tt-mute` como PROHIBIDO PARA TEXTO (2.56:1). #}
+<div id="cohort-window">
+  <div class="tt-card">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <span class="tt-kicker"><i class="bi bi-calendar-range me-1"></i>Ventana de inscripción</span>
+      <span class="tt-pill tt-pill--{{ 'success' if window.status == 'open' else 'neutral' }}">
+        {{ {'open': 'abierta', 'closed': 'cerrada', 'draft': 'borrador'}.get(window.status, window.status) }}
+      </span>
+    </div>
+    <p class="mb-3 tt-win-note">
+      Solo gobierna el formulario público de auto-inscripción. Al <strong>cerrar</strong>,
+      los procesos activos de esta convocatoria pasan a pausa; al <strong>abrir</strong>,
+      vuelven a activo los que quedaron pausados en convocatorias cerradas, sin
+      cambiarlos de convocatoria.
+      {% if not can_edit_window %}<br><span class="tt-win-ro">Solo lectura — la jefatura de Servicios Escolares la configura.</span>{% endif %}
+    </p>
+
+    {% if can_edit_window %}
+    <form class="d-flex flex-wrap align-items-end gap-2"
+          hx-post="/titulatec/admin/cohorts/{{ cohort_id }}/ventana"
+          hx-target="#cohort-window" hx-swap="outerHTML">
+      <div>
+        <label class="tt-kicker d-block mb-1" for="win-opens">Apertura</label>
+        <input type="date" id="win-opens" name="opens_at"
+               class="form-control form-control-sm tt-win-field" value="{{ window.opens_at }}">
+      </div>
+      <div>
+        <label class="tt-kicker d-block mb-1" for="win-closes">Cierre</label>
+        <input type="date" id="win-closes" name="closes_at"
+               class="form-control form-control-sm tt-win-field" value="{{ window.closes_at }}">
+      </div>
+      <div>
+        <label class="tt-kicker d-block mb-1" for="win-status">Estado</label>
+        <select id="win-status" name="status" class="form-select form-select-sm tt-win-field">
+          <option value="draft" {{ 'selected' if window.status == 'draft' }}>Borrador</option>
+          <option value="open" {{ 'selected' if window.status == 'open' }}>Abierta</option>
+          <option value="closed" {{ 'selected' if window.status == 'closed' }}>Cerrada</option>
+        </select>
+      </div>
+      <button class="btn btn-sm tt-btn-ink" type="submit">
+        <i class="bi bi-check-lg me-1"></i>Guardar ventana</button>
+    </form>
+    {% else %}
+    <div class="d-flex flex-wrap gap-3 tt-win-ro">
+      <span><span class="tt-kicker">Apertura</span> <span class="tt-mono">{{ window.opens_at or '—' }}</span></span>
+      <span><span class="tt-kicker">Cierre</span> <span class="tt-mono">{{ window.closes_at or '—' }}</span></span>
+    </div>
+    {% endif %}
+  </div>
+</div>

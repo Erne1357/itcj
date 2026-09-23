@@ -8,8 +8,32 @@ Los workers se arrancan desde Docker con:
     celery -A itcj2.celery_app worker --loglevel=info
 """
 from celery import Celery
+from celery.signals import setup_logging
 
 from itcj2.config import get_settings
+from itcj2.observability.logging_config import configure_logging
+
+# Efecto lateral: conecta los receptores que llevan el contexto de la petición
+# a la tarea (Fase 5a). Aquí porque TODO proceso que encola o ejecuta tareas
+# importa esta app: los HTTP que publican, el worker y el beat. Quitar esta
+# línea apaga la propagación entera (palanca de rollback de 5a).
+import itcj2.observability.celery_hooks  # noqa: F401
+
+
+@setup_logging.connect
+def _configure_logging(**kwargs) -> None:
+    """Logs del worker y del beat en el mismo formato que la app (R10).
+
+    Por la señal y no con una llamada suelta al importar este módulo: al
+    arrancar, Celery vacía `root.handlers` (`worker_hijack_root_logger`, activo
+    por defecto) y pone su propio formato de texto, salvo que haya un receptor
+    conectado a `setup_logging`, en cuyo caso deja todo el logging en sus
+    manos. Con un receptor tampoco redirige stdout/stderr al logger.
+
+    `--loglevel` del CLI de Celery (en `kwargs`) se ignora a propósito: manda
+    `LOG_LEVEL`, igual que en la app.
+    """
+    configure_logging()
 
 
 def create_celery_app() -> Celery:

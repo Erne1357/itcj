@@ -54,6 +54,8 @@ class ReviewWindow(Base):
                         name="ck_titulatec_review_windows_slot_minutes"),
         CheckConstraint("capacity >= 1",
                         name="ck_titulatec_review_windows_capacity"),
+        CheckConstraint("visibility IN ('private','bookable','walkin')",
+                        name="ck_titulatec_review_windows_visibility"),
         Index("ix_titulatec_review_windows_day_user",
               "review_day_id", "owner_user_id"),
     )
@@ -75,6 +77,10 @@ class ReviewWindow(Base):
     capacity = Column(Integer, nullable=False, server_default=text("1"))   # POR FRANJA
     location = Column(String(120), nullable=True)
     status = Column(String(20), nullable=False, server_default=text("'open'"))  # open|paused
+    visibility = Column(String(20), nullable=False, server_default=text("'private'"))
+    # private|bookable|walkin — modo del espacio para el auto-agendado del
+    # egresado: private = como hoy (nadie ve ni agenda solo); bookable = ve
+    # franjas con lugar y agenda; walkin = ve solo el anuncio, no agenda por si.
     note = Column(String(255), nullable=True)
 
     created_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=False)

@@ -150,6 +150,17 @@ services:
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance  # rw: sirve exports generados por Celery
+    # F2b: tmpfs PROPIO para los mmap de prometheus_client en modo
+    # multiproceso (el entrypoint exporta PROMETHEUS_MULTIPROC_DIR con este
+    # mismo default). NO /dev/shm: solo postgres declara shm_size, así que
+    # /dev/shm aquí son los 64 MB por defecto de Docker a compartir con lo
+    # que sea. mode=1777 para que cualquier worker (mismo UID) escriba ahí.
+    # 256m (R25): lleno = SIGBUS en cada escritura mmap (no se atrapa), los
+    # workers mueren y los respawneados mueren al importar. Solo crece en la
+    # vida del contenedor (~3.3 MB por vida de worker, peor caso); tmpfs
+    # asigna perezoso. Uso en itcj_metrics_dir_used_bytes / _size_bytes.
+    tmpfs:
+      - /run/prometheus:size=256m,mode=1777
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -218,6 +229,17 @@ services:
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance  # rw: sirve exports generados por Celery
+    # F2b: tmpfs PROPIO para los mmap de prometheus_client en modo
+    # multiproceso (el entrypoint exporta PROMETHEUS_MULTIPROC_DIR con este
+    # mismo default). NO /dev/shm: solo postgres declara shm_size, así que
+    # /dev/shm aquí son los 64 MB por defecto de Docker a compartir con lo
+    # que sea. mode=1777 para que cualquier worker (mismo UID) escriba ahí.
+    # 256m (R25): lleno = SIGBUS en cada escritura mmap (no se atrapa), los
+    # workers mueren y los respawneados mueren al importar. Solo crece en la
+    # vida del contenedor (~3.3 MB por vida de worker, peor caso); tmpfs
+    # asigna perezoso. Uso en itcj_metrics_dir_used_bytes / _size_bytes.
+    tmpfs:
+      - /run/prometheus:size=256m,mode=1777
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -289,6 +311,17 @@ services:
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance
+    # F2b: tmpfs PROPIO para los mmap de prometheus_client en modo
+    # multiproceso (el entrypoint exporta PROMETHEUS_MULTIPROC_DIR con este
+    # mismo default). NO /dev/shm: solo postgres declara shm_size, así que
+    # /dev/shm aquí son los 64 MB por defecto de Docker a compartir con lo
+    # que sea. mode=1777 para que cualquier worker (mismo UID) escriba ahí.
+    # 256m (R25): lleno = SIGBUS en cada escritura mmap (no se atrapa), los
+    # workers mueren y los respawneados mueren al importar. Solo crece en la
+    # vida del contenedor (~3.3 MB por vida de worker, peor caso); tmpfs
+    # asigna perezoso. Uso en itcj_metrics_dir_used_bytes / _size_bytes.
+    tmpfs:
+      - /run/prometheus:size=256m,mode=1777
     depends_on:
       pgbouncer:
         condition: service_healthy

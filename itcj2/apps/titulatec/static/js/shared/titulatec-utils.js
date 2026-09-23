@@ -254,18 +254,72 @@
   // `confirmDialog` existía pero NADIE lo enganchaba a htmx, así que un
   // `hx-confirm` caía al `confirm()` nativo del navegador, que este proyecto
   // prohíbe. Mismo patrón que `apps/directory/static/js/index.js`.
-  document.body.addEventListener('htmx:confirm', function (e) {
-    if (!e.detail || !e.detail.question) return;   // sin hx-confirm: request normal
-    e.preventDefault();
-    var partes = String(e.detail.question).split('|');
-    var titulo = partes.length > 1 ? partes[0].trim() : 'Confirmar';
-    var cuerpo = (partes.length > 1 ? partes.slice(1).join('|') : partes[0]).trim();
-    var elt = e.detail.elt;
-    var ok = (elt && elt.getAttribute('data-tt-confirm-ok')) || 'Confirmar';
-    confirmDialog(titulo, cuerpo, ok, 'Cancelar').then(function (si) {
-      if (si) e.detail.issueRequest(true);
+  //
+  // Guarda de doble carga: `base.html` inyecta este script en TODAS las
+  // páginas (hoy, una sola vez por documento), pero si algún fragmento
+  // morpheado llegara a incluirlo de nuevo -la app ya tiene ese historial,
+  // ver CLAUDE.md §4/§10- un segundo registro duplicaría el listener y el
+  // modal se abriría dos veces por cada hx-confirm.
+  if (!window.__ttHtmxConfirmBound) {
+    window.__ttHtmxConfirmBound = true;
+    document.body.addEventListener('htmx:confirm', function (e) {
+      if (!e.detail || !e.detail.question) return;   // sin hx-confirm: request normal
+      e.preventDefault();
+      var partes = String(e.detail.question).split('|');
+      var titulo = partes.length > 1 ? partes[0].trim() : 'Confirmar';
+      var cuerpo = (partes.length > 1 ? partes.slice(1).join('|') : partes[0]).trim();
+      var elt = e.detail.elt;
+      var ok = (elt && elt.getAttribute('data-tt-confirm-ok')) || 'Confirmar';
+      confirmDialog(titulo, cuerpo, ok, 'Cancelar').then(function (si) {
+        if (si) e.detail.issueRequest(true);
+      });
     });
-  });
+  }
+
+  // ————————————————————————————————— `<details data-tt-remember="clave">`
+  //
+  // Recuerda si el oficial dejó ABIERTO un bloque plegable. Hace falta porque
+  // las bandejas re-pintan su parcial entero en cada acción (aprobar, pestaña,
+  // rechazar) y el servidor lo manda cerrado: sin esto el bloque se cerraría
+  // solo a cada clic. Es preferencia de UNA persona en UN navegador, así que
+  // vive en localStorage, nunca en la BD; y todo acceso va en try/catch porque
+  // en modo privado o con almacenamiento bloqueado lanza — entonces el bloque
+  // simplemente nace cerrado, que es el comportamiento por omisión.
+  //
+  // `toggle` NO burbujea: se escucha en fase de CAPTURA sobre `document`.
+  // Se restaura en `htmx:load`, que htmx dispara sobre el contenido nuevo en
+  // la misma tarea del swap (antes de pintar), así que no hay parpadeo
+  // cerrado → abierto; y al cargar la página, por si htmx aún no procesó.
+  function _rememberKey(el) {
+    return 'tt.remember.' + el.getAttribute('data-tt-remember');
+  }
+  function restoreRemembered(root) {
+    if (!root || !root.querySelectorAll) return;
+    var nodos = Array.prototype.slice.call(root.querySelectorAll('details[data-tt-remember]'));
+    if (root.matches && root.matches('details[data-tt-remember]')) nodos.push(root);
+    nodos.forEach(function (d) {
+      var abierto = null;
+      try { abierto = window.localStorage.getItem(_rememberKey(d)); } catch (_) { return; }
+      if (abierto === '1') d.open = true;
+      else if (abierto === '0') d.open = false;
+    });
+  }
+  if (!window.__ttRememberBound) {
+    window.__ttRememberBound = true;
+    document.addEventListener('toggle', function (e) {
+      var d = e.target;
+      if (!d || !d.matches || !d.matches('details[data-tt-remember]')) return;
+      try { window.localStorage.setItem(_rememberKey(d), d.open ? '1' : '0'); } catch (_) { /* sin almacenamiento */ }
+    }, true);
+    document.body.addEventListener('htmx:load', function (e) {
+      restoreRemembered(e.detail && e.detail.elt);
+    });
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () { restoreRemembered(document); });
+    } else {
+      restoreRemembered(document);
+    }
+  }
 
   window.TitulaTecUtils = { showToast, confirmDialog, escapeHtml, decodeHeaderMsg };
 })();

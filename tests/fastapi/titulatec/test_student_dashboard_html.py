@@ -105,7 +105,7 @@ def _acciones(el) -> list[str]:
 @pytest.mark.parametrize("current_phase", list(range(9)))
 def test_ninguna_fase_del_acordeon_ofrece_una_accion(
     client_as, make_student, make_process, make_document, make_appointment,
-    seed_phase_defs, seed_document_types, current_phase,
+    make_survey_review, seed_phase_defs, seed_document_types, current_phase,
 ):
     """En las 9 posiciones posibles del alumno, el acordeon NO acciona nada.
 
@@ -126,6 +126,15 @@ def test_ninguna_fase_del_acordeon_ofrece_una_accion(
     make_document(proc, type_code="high_school_cert", review_status="rejected",
                   note="Se ve borrosa")
     make_appointment(proc, status="scheduled")
+    # La UNICA excepcion deliberada a "el acordeon no acciona nada" es la liga
+    # "Contestar la encuesta" cuando la solicitud de liberacion de GTV esta en
+    # el pseudo-estado "missing" (spec 2026-09-15-titulatec-liberacion-gtv, D3):
+    # la encuesta no esta sujeta a la guarda de fase, asi que vive en el panel
+    # aunque la fase 2 no sea la actual. Esa excepcion la prueba aparte
+    # `test_student_survey_badge.py`; aqui se cierra sembrando una solicitud YA
+    # enviada para que este barrido siga afirmando "cero acciones nuevas o
+    # accidentales" en las 9 posiciones.
+    make_survey_review(proc)
 
     doc = _dash(client_as(student))
     root = _acc_root(doc)
@@ -143,7 +152,10 @@ def test_ninguna_fase_del_acordeon_ofrece_una_accion(
 @pytest.mark.parametrize("current_phase,url", [
     (1, "/titulatec/student/documents"),
     (2, "/titulatec/student/cita"),
-    (3, "/titulatec/student/formato-b"),
+    # La fase 3 (Formato B) YA NO tiene CTA por el corte a T-soft por defecto
+    # (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion): su propia cobertura
+    # vive en `test_fase_3_actual_muestra_el_copy_de_tsoft_y_no_el_boton_de_formato_b`,
+    # mas abajo, junto con el caso de control que la reactiva (corte en 9).
 ])
 def test_control_la_fase_actual_si_acciona_y_lo_hace_desde_la_tarjeta(
     client_as, make_student, make_process, seed_phase_defs, seed_document_types,
@@ -189,6 +201,169 @@ def test_una_fase_actual_sin_modulo_no_inventa_un_boton(
 
     assert doc.xpath('//a[@data-tt-cta]') == []
     assert doc.xpath('//*[@id="tt-fase-actual"]'), "la tarjeta debe seguir ahi"
+
+
+# ---------------------------------------------------------------------------
+# Corte a T-soft (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion)
+# ---------------------------------------------------------------------------
+# La Tarea 2 ya bloquea la EJECUCION en el backend. Esto prueba la PANTALLA: el
+# copy de T-soft aparece donde antes habia un boton muerto (fase 3, tarjeta
+# grande) o una promesa que el corte vuelve falsa ("se habilitara cuando
+# llegues", fases futuras >= el corte), y desaparece si el corte se desactiva.
+def test_fase_3_actual_muestra_el_copy_de_tsoft_y_no_el_boton_de_formato_b(
+    client_as, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    from itcj2.apps.titulatec.pages.student import _HANDOFF_COPY
+
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student, current_phase=3)
+
+    doc = _dash(client_as(student))
+    tarjeta = doc.xpath('//*[@id="tt-fase-actual"]')[0]
+
+    assert doc.xpath('//a[@data-tt-cta]') == []
+    assert "Llenar Formato B" not in _text(tarjeta)
+    assert "En proceso por" not in _text(tarjeta)
+    assert _HANDOFF_COPY in _text(tarjeta)
+    assert _acciones(tarjeta) == []
+
+
+def test_fase_2_actual_conserva_su_cta_de_cita_con_el_corte_puesto(
+    client_as, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Control: el corte por defecto (fase 3) no toca la fase 2 -- sigue
+    habiendo un CTA y sigue siendo el de la cita."""
+    from itcj2.apps.titulatec.pages.student import _HANDOFF_COPY
+
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student, current_phase=2)
+
+    doc = _dash(client_as(student))
+    tarjeta = doc.xpath('//*[@id="tt-fase-actual"]')[0]
+
+    ctas = doc.xpath('//a[@data-tt-cta]')
+    assert len(ctas) == 1 and ctas[0].get("href") == "/titulatec/student/cita"
+    assert _HANDOFF_COPY not in _text(tarjeta)
+
+
+def test_una_fase_futura_con_el_corte_puesto_avisa_tsoft_en_vez_de_habilitara(
+    client_as, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """La 4 (asignacion de sinodales) nunca se va a "habilitar" aqui: el corte
+    en 3 se la llevo a T-soft igual que a la 3. Prometerle "se habilitara
+    cuando llegues" le mentiria -- esa fase ya no se habilita en esta app.
+    """
+    from itcj2.apps.titulatec.pages.student import _HANDOFF_COPY
+
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student, current_phase=2)
+
+    panel = _panel(_dash(client_as(student)), 4)
+    txt = _text(panel)
+
+    assert _HANDOFF_COPY in txt
+    assert "Se habilitará cuando llegues a esta fase" not in txt
+    assert _acciones(panel) == []
+
+
+def test_con_el_corte_en_9_reaparece_el_cta_de_formato_b(
+    client_as, make_student, make_process, seed_phase_defs, seed_document_types,
+    monkeypatch,
+):
+    """Mismo truco que `test_handoff_phase_cut.py` y que
+    `test_toda_vista_de_alumno_lleva_su_ancla_data_tt_page` (arriba): 9 queda
+    fuera del catalogo 0-8 y desactiva el corte -- la pantalla vuelve a ofrecer
+    el modulo real.
+    """
+    from itcj2.apps.titulatec.pages.student import _HANDOFF_COPY
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student, current_phase=3)
+
+    doc = _dash(client_as(student))
+    tarjeta = doc.xpath('//*[@id="tt-fase-actual"]')[0]
+
+    ctas = doc.xpath('//a[@data-tt-cta]')
+    assert len(ctas) == 1 and ctas[0].get("href") == "/titulatec/student/formato-b"
+    assert _HANDOFF_COPY not in _text(tarjeta)
+    # Paridad con `test_control_la_fase_actual_si_acciona_y_lo_hace_desde_la_tarjeta`
+    # (que perdio el caso (3, formato-b) al agregar el corte, ronda de fix 1): el
+    # CTA que reaparece sigue viviendo en la tarjeta grande, no en el acordeon.
+    assert doc.xpath('//*[@id="tt-fase-actual"]//a[@data-tt-cta]')
+    assert not _acc_root(doc).xpath('.//a[@data-tt-cta]')
+
+
+# ---------------------------------------------------------------------------
+# Ronda de fix 1 (post-revision del coordinador)
+# ---------------------------------------------------------------------------
+def test_el_copy_de_tsoft_reserva_espacio_para_no_tapar_con_el_fab(
+    client_as, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Hallazgo 1 (Importante): el FAB standalone del core (fixed, 56px +
+    24px de offset = 80px desde el borde) se monta sobre la ultima linea del
+    copy de T-soft cuando el usuario se desplaza hasta el fondo -- medido en
+    el navegador real (Playwright `boundingBox()`, no solo visto en la
+    captura): a 390x844 el parrafo del PANEL terminaba a 16px del fondo, y el
+    FAB empieza a 764px (80px antes del fondo).
+
+    Ronda de fix 2 (medicion que faltaba, senalada por el coordinador): la
+    holgura de ~117px que la tarjeta grande media a 390x844 NO se sostiene en
+    una pantalla mas baja -el FAB es `fixed` a 80px del fondo del VIEWPORT,
+    asi que la holgura depende del alto, no del ancho-. A 375x667 (iPhone SE)
+    la tarjeta de la fase 3, SIN SCROLLEAR, ya solapaba el FAB: el parrafo
+    terminaba en `y=646.5px` y el FAB empezaba en `y=587px` -- **-59.5px**,
+    overlap real al cargar. Probado tambien con la fase de `desc` mas largo
+    de las 4-8 (`synodal_assignment`, 145 caracteres vs 135 de `format_b`):
+    ahi NO solapaba (+84px) porque esas fases no tienen el bloque de 3 pasos
+    que si tiene la 3 -el bloque de pasos, no el texto, es lo que dominaba la
+    altura-. Con cualquiera de los dos casos solapando basta para aplicar el
+    colchon: ahora `.tt-handoff-note` va en LAS DOS apariciones del copy.
+    """
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student, current_phase=3)
+
+    doc = _dash(client_as(student))
+
+    tarjeta_note = doc.xpath(
+        '//*[@id="tt-fase-actual"]//p[contains(@class,"tt-handoff-note")]')
+    panel_note = doc.xpath(
+        '//*[@id="tt-acc-panel-4"]//p[contains(@class,"tt-handoff-note")]')
+    assert len(tarjeta_note) == 1
+    assert len(panel_note) == 1
+
+
+def test_a_cargo_del_depto_de_titulacion_contrae_bien_en_la_tarjeta(
+    client_as, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Hallazgo 2 (Menor): la tarjeta grande decia "A cargo de el Depto. de
+    Titulacion" para cualquier fase a cargo de Titulaciones (3, 6 u 8) --
+    probado con la 3 porque ya es el escenario de esta seccion (fase actual
+    con el corte puesto). El contrato de datos (`responsible_label_de` para
+    las 9 fases) se prueba en `test_student_dashboard_accordion.py`; esto es
+    la confirmacion de que el HTML lo usa de verdad.
+    """
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student, current_phase=3)
+
+    doc = _dash(client_as(student))
+    tarjeta = doc.xpath('//*[@id="tt-fase-actual"]')[0]
+
+    assert "A cargo del Depto. de Titulación" in _text(tarjeta)
+    assert "A cargo de el" not in _text(tarjeta)
 
 
 # ---------------------------------------------------------------------------
@@ -352,14 +527,23 @@ def test_una_fase_siguiente_informa_pero_no_habilita_nada(
 
     El texto de cierre ("se habilitara cuando llegues") es lo que evita que el
     alumno lea el panel como si ya pudiera hacer algo.
+
+    Fase 1, no 4: desde el corte a T-soft (Tarea 3, spec
+    2026-09-21-titulatec-dpto-titulacion) toda fase >= 3 es "handoff" y ya NO
+    dice esta frase -- dice el copy de T-soft (ver
+    `test_una_fase_futura_con_el_corte_puesto_avisa_tsoft_en_vez_de_habilitara`).
+    Tampoco vale la 2 (`review_appointment`): esa carga la excepcion deliberada
+    de la encuesta de egresados (D3) y "cero acciones" dejaria de ser cierto
+    por una razon ajena a este test. Con el alumno en la 0, la 1 sigue siendo
+    una fase futura corriente y sin excepciones.
     """
     seed_phase_defs()
     seed_document_types()
     student = make_student()
-    make_process(student, current_phase=2)
+    make_process(student, current_phase=0)
 
     doc = _dash(client_as(student))
-    panel = _panel(doc, 4)
+    panel = _panel(doc, 1)
     txt = _text(panel)
 
     assert "Qué vas a necesitar" in txt
@@ -444,7 +628,7 @@ def test_un_documento_rechazado_muestra_el_motivo_en_el_panel(
 
 
 def test_el_panel_de_la_cita_dice_fecha_lugar_y_si_falta_confirmar(
-    client_as, make_student, make_process, make_appointment,
+    client_as, make_student, make_process, make_appointment, make_survey_review,
     seed_phase_defs, seed_document_types,
 ):
     seed_phase_defs()
@@ -452,6 +636,11 @@ def test_el_panel_de_la_cita_dice_fecha_lugar_y_si_falta_confirmar(
     student = make_student()
     proc = make_process(student, current_phase=3)
     make_appointment(proc, status="scheduled", location="Edificio K, planta baja")
+    # Igual que en `test_ninguna_fase_del_acordeon_ofrece_una_accion`: sin esto
+    # el panel trae la liga "Contestar la encuesta" (D3; "missing" es el
+    # pseudo-estado por omision sin solicitud) y este test dejaria de afirmar
+    # "cero acciones" por la razon correcta.
+    make_survey_review(proc)
 
     txt = _text(_panel(_dash(client_as(student)), 2))
 
@@ -462,8 +651,23 @@ def test_el_panel_de_la_cita_dice_fecha_lugar_y_si_falta_confirmar(
 
 def test_el_panel_del_formato_b_enumera_sus_tres_pasos(
     client_as, db_session, make_student, make_process,
-    seed_phase_defs, seed_document_types,
+    seed_phase_defs, seed_document_types, monkeypatch,
 ):
+    """Corte desactivado a proposito (arreglo A1, ronda de barrido posterior
+    2026-09-21): desde A1, `ph.progress` (y por lo tanto el bloque "Como va"
+    con sus `tt-substep`) se anula sin condicion de `rel` en cuanto la fase
+    entra al corte (`handoff = pd.number >= _handoff_phase()`), fase 3
+    incluida aunque ya haya quedado atras (`current_phase=5` aqui, `rel`
+    "past"). Mismo truco que `test_con_el_corte_en_9_reaparece_el_cta_de_formato_b`
+    (arriba) y que los `test_subprogreso_fase_3_*` de
+    `test_student_dashboard_accordion.py`: este test prueba la ENUMERACION de
+    los 3 pasos del Formato B, que por definicion del arreglo A1 solo existe
+    por debajo del corte -- sin desactivarlo aqui, `ph.progress` siempre es
+    `None` y no hay nada que enumerar.
+    """
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
     seed_phase_defs()
     seed_document_types()
     from itcj2.apps.titulatec.models import FormatB
@@ -605,7 +809,7 @@ def test_cada_cabecera_desplegable_cumple_el_patron_apg(
 
 def test_toda_vista_de_alumno_lleva_su_ancla_data_tt_page(
     client_as, make_student, make_process, seed_phase_defs, seed_document_types,
-    db_session,
+    db_session, monkeypatch,
 ):
     """`main[data-tt-page="clave"]`, una sola, no vacia y distinta en cada vista.
 
@@ -626,7 +830,13 @@ def test_toda_vista_de_alumno_lleva_su_ancla_data_tt_page(
     test hablando de MARKUP y no de autorizacion, que es lo suyo.
     """
     from tests.fastapi.titulatec.conftest import STUDENT_PERMS
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
 
+    # Corte a T-soft (Tarea 2, 2026-09-21) desactivado: este test habla de
+    # MARKUP (la ancla `data-tt-page`), no del corte -que en produccion bloquea
+    # justo la vista de formato-b, fase 3-. Su propia cobertura vive en
+    # test_handoff_phase_cut.py.
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
     seed_phase_defs()
     seed_document_types()
     # `formato-b` pide un permiso que el set por defecto del alumno no trae.

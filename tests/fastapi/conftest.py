@@ -13,8 +13,45 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+# ---------------------------------------------------------------------------
+# Aislamiento de Redis — TIENE QUE IR ANTES DE CUALQUIER `get_redis()`
+# ---------------------------------------------------------------------------
+# La suite comparte el Redis de dev con procesos VIVOS: el worker y el beat de
+# Celery, y el servidor de Socket.IO. Medido el 2026-09-14 durante una corrida:
+# 16 clientes conectados a la db 0 ejecutando brpop, evalsha, publish, subscribe
+# y sadd al mismo tiempo que los tests.
+#
+# Eso rompe cualquier test que escriba una clave de PRODUCCION y afirme que
+# sobrevive: `invalidate_all()` borra `authz:v1:deptmap` explicitamente
+# (authz_cache.py, `extra=[_DEPTMAP_KEY]`), asi que a un test le basta con que
+# otro proceso pase por ahi en la ventana de microsegundos entre su `setex` y su
+# `get`. Sintoma observado: `test_invalidate_app_only_touches_that_app` falla una
+# vez cada varias corridas COMPLETAS —9 minutos de ventana— y pasa siempre en
+# aislamiento, en su directorio y en cualquier subconjunto corto. No es orden de
+# tests (se descarto ejecutando los que corren antes), ni imports (se descarto
+# colectando todo y ejecutando solo ese test), ni desalojo de Redis
+# (maxmemory=0, noeviction, evicted_keys=0).
+#
+# La suite corre en su propia base de Redis. La aplicacion bajo prueba vive
+# DENTRO del proceso de pytest, asi que la sigue: los unicos que se quedan en la
+# db 0 son los procesos externos, que es justo lo que se queria separar.
+_TEST_REDIS_DB = os.getenv("TEST_REDIS_DB", "15")
+if os.getenv("REDIS_URL"):
+    os.environ["REDIS_URL"] = os.environ["REDIS_URL"].rsplit("/", 1)[0] + f"/{_TEST_REDIS_DB}"
+os.environ["REDIS_DB"] = _TEST_REDIS_DB
+
+# `redis_conn` lee la URL a constantes de modulo AL IMPORTARSE y memoiza el
+# cliente, asi que fijar el entorno no basta si algo ya lo importo. Se
+# reescriben las constantes y se tira el cliente memoizado, que es determinista
+# pase lo que pase con el orden de imports.
+from itcj2.core.utils import redis_conn as _redis_conn  # noqa: E402
+
+_redis_conn.REDIS_URL = os.getenv("REDIS_URL")
+_redis_conn.REDIS_DB = int(_TEST_REDIS_DB)
+_redis_conn._redis = None
+
 # Eager import: resuelve todos los mappers de SQLAlchemy antes de instanciar modelos.
-import itcj2.models  # noqa: F401
+import itcj2.models  # noqa: F401,E402
 
 
 def _flush_authz_cache():
@@ -119,8 +156,11 @@ def _seed_minimal_reference_data(_pg_engine):
                 ('maint', 'Mantenimiento', true, false, true)
             ON CONFLICT (key) DO NOTHING
         """))
+        # `graduate` (egresado): desde 2026-09-15 `ImportService.import_rows`
+        # exige el rol para dar de alta a CUALQUIER alumno de TitulaTec, y en
+        # una BD de CI no existe hasta que alguien lo siembre.
         conn.execute(text("""
-            INSERT INTO core_roles (name) VALUES ('student')
+            INSERT INTO core_roles (name) VALUES ('student'), ('graduate')
             ON CONFLICT (name) DO NOTHING
         """))
     yield

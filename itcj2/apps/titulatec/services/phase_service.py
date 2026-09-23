@@ -51,13 +51,34 @@ class PhaseService:
             raise ValueError("No hay fases dadas de alta en el sistema.")
         return nums[0], nums[-1]
 
+    # ------------------------------------------------------------------
+    # Corte a T-soft (spec 2026-09-21, Tarea 2 del plan de deslinde)
+    # ------------------------------------------------------------------
+    # A partir de `_handoff_phase()` el proceso ya NO se opera en esta app: lo
+    # atiende el Departamento de Titulación en su propio sistema (T-soft). Vive
+    # aquí, no repetido, porque lo usan las DOS guardas de abajo: la del admin
+    # (`_transition_error`, dictamen) y la del alumno (`_student_action_error`,
+    # ejecución).
+    HANDOFF_MSG = ("Esta fase continua en el Departamento de Titulacion (sistema T-soft). "
+                   "Te contactaran por correo para darte tu usuario.")
+
+    @staticmethod
+    def _handoff_phase() -> int:
+        """`get_settings()` está cacheado; el import va local (gotcha 2 del
+        CLAUDE.md raíz), mismo molde que `SelfBookingService._settings()`."""
+        from itcj2.config import get_settings
+        return get_settings().TITULATEC_HANDOFF_PHASE
+
     @staticmethod
     def _transition_error(process, phase_number, first: int, last: int) -> str | None:
         """Motivo por el que `phase_number` NO puede aprobarse/rechazarse, o None.
 
         Las tres reglas de `docs/flows/00_state_machine.md`: la fase existe, el
         proceso está vivo, y solo se actúa sobre la fase actual (ni saltar hacia
-        adelante ni retroceder a una ya cerrada).
+        adelante ni retroceder a una ya cerrada). Más una cuarta (spec
+        2026-09-21): ninguna fase desde `_handoff_phase()` en adelante se
+        dictamina aquí -- `approve_phase(2)` (la liberación hacia T-soft) sigue
+        intacta porque pasa con `phase_number=2`, por debajo del corte.
 
         Los mensajes van SIN acentos a propósito, no por descuido: viajan al toast
         por el header `X-Tt-Error`, y ahí Starlette es asimétrico — escribe la
@@ -75,6 +96,10 @@ class PhaseService:
                     f"las fases {first} a {last}.")
         if process.status != "active":
             return f"El proceso ya no admite cambios de fase (estado: {process.status})."
+        # Corte a T-soft: ninguna fase >= `_handoff_phase()` se dictamina aquí,
+        # ni siquiera la propia fase actual del proceso.
+        if phase_number >= PhaseService._handoff_phase():
+            return PhaseService.HANDOFF_MSG
         if phase_number != process.current_phase:
             return (f"Solo puedes actuar sobre la fase en curso "
                     f"(fase {process.current_phase:02d}, no la {phase_number:02d}).")
@@ -150,6 +175,12 @@ class PhaseService:
         motivo: viajan al toast por el header `X-Tt-Error`, y ahí Starlette
         escribe latin-1 pero su TestClient lee UTF-8 — un byte >127 tumba el
         request entero en cualquier test de ruta que caiga aquí.
+
+        La regla del corte a T-soft (spec 2026-09-21) va ANTES que la de "fase
+        futura": sin eso, un egresado parado en la fase 3 (o pidiendo acción
+        sobre ella desde antes) leería "se habilitará cuando llegues a ella",
+        una promesa que el corte vuelve falsa -- esa fase ya no se habilita
+        aquí, la opera T-soft.
         """
         # `bool` es subclase de `int`: True colaría como fase 1.
         if isinstance(phase_number, bool) or not isinstance(phase_number, int):
@@ -162,6 +193,9 @@ class PhaseService:
         if phase_number < process.current_phase:
             return (f"La fase {phase_number:02d} ya esta cerrada: no requiere "
                     f"accion y no admite cambios.")
+        # Corte a T-soft: ANTES que la regla de "fase futura" (ver docstring).
+        if phase_number >= PhaseService._handoff_phase():
+            return PhaseService.HANDOFF_MSG
         if phase_number > process.current_phase:
             return (f"La fase {phase_number:02d} se habilitara cuando llegues a "
                     f"ella (vas en la fase {process.current_phase:02d}).")
@@ -233,6 +267,109 @@ class PhaseService:
         pdef = db.query(PhaseDefinition).filter_by(number=phase_number).first()
         return f"Fase {phase_number:02d}" + (f" · {pdef.name}" if pdef else "")
 
+    # La cita de cotejo es la fase 2 del catálogo. Se nombra aquí y no como
+    # literal en el `if` para que grep la encuentre desde el otro lado.
+    PHASE_COTEJO = 2
+
+    # Sufijo del requisito de la encuesta de egresados en el mensaje de la
+    # guarda de fase 2 (D3), por estatus de la solicitud de liberación de GTV.
+    # En ASCII, SIN acentos, por la misma razón que el resto de esta guarda
+    # (ver docstring de `_cotejo_gate_error`): viaja al toast por `X-Tt-Error`.
+    # `approved` no aparece: si GTV liberó, el requisito ya está `fulfilled` y
+    # `missing_required` ni siquiera lo trae aquí.
+    _SUFIJO_ENCUESTA = {
+        "missing": "sin enviar",
+        "in_review": "en revision por GTV",
+        "rejected": "con observaciones de GTV",
+    }
+
+    @staticmethod
+    def _requirement_label(db: Session, process, requirement) -> str:
+        """Nombre de un requisito de cotejo para el mensaje de la guarda.
+
+        El de la encuesta de egresados (`auto_source == 'graduate_survey'`)
+        lleva además el estatus de SU solicitud de liberación: sin esto,
+        «al alumno le faltan requisitos (Encuesta de egresados)» no dice si ya
+        la envió y está en revisión, o si ni siquiera la ha contestado — la
+        diferencia entre "avisa a Escolares" y "avisa al alumno".
+        """
+        if requirement.auto_source != "graduate_survey":
+            return requirement.label
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        estatus = SurveyReviewService.summary_for_process(db, process.id)["status"]
+        sufijo = PhaseService._SUFIJO_ENCUESTA.get(estatus)
+        return f"{requirement.label} ({sufijo})" if sufijo else requirement.label
+
+    @staticmethod
+    def _cotejo_gate_error(db: Session, process) -> str | None:
+        """Motivo por el que la fase 2 NO puede liberarse, o None.
+
+        Espejo de `DocumentService.initial_docs_all_approved`, que ya hace esto
+        mismo para la fase 1: los requisitos ACTIVOS y OBLIGATORIOS de la
+        convocatoria del proceso, menos los que tienen cumplimiento
+        `fulfilled` o `waived`.
+
+        Tres cosas deliberadas:
+
+        * **Nombra lo que falta.** Un «faltan requisitos» a secas obliga al
+          oficial a adivinar cuál, con el alumno enfrente.
+        * **`waived` cuenta.** Es la dispensa con nota; sin ella un caso legítimo
+          dejaría la fase trabada para siempre.
+        * **Lee el estado ACTUAL de la convocatoria.** Un proceso creado antes de
+          que se añadiera un requisito queda igualmente sujeto a él: el requisito
+          es del trámite, no del momento del alta. No es un descuido.
+
+        Nunca siembra: una convocatoria sin lista configurada no bloquea a nadie.
+        """
+        from itcj2.apps.titulatec.services.requirement_service import RequirementService
+
+        faltantes = RequirementService.missing_required(db, process.id)
+        if not faltantes:
+            return None
+        nombres = ", ".join(
+            PhaseService._requirement_label(db, process, r) for r in faltantes)
+        # Texto fijo SIN acentos, igual que `_transition_error`. Las etiquetas
+        # vienen de la BD y sí los llevan, pero el único llamador que alcanza la
+        # fase 2 (`pages/admin.py::phase_approve`) pasa el mensaje por `_hdr()`,
+        # que hace percent-encode y deja el header en ASCII.
+        return (f"No se puede liberar la fase 02: al alumno le faltan requisitos "
+                f"de cotejo ({nombres}).")
+
+    @staticmethod
+    def _auto_close_cotejo_appointment(db: Session, process, actor_id: int, via: str) -> None:
+        """Cierra la cita vigente de cotejo si el dictamen de la fase 02 la deja colgada.
+
+        Hueco cerrado 2026-09-17: desde el expediente se podia aprobar O RECHAZAR
+        la fase 02 con la cita vigente todavia `in_progress` (el encargado la
+        atiende y se le olvida marcar "Asistio" antes de dictaminar). Esa cita no
+        aparecia en ningun cubo de la cola —no es `no_show` ni `attended`— y
+        bloqueaba volver a agendar por D4 (una cita ACTIVA es la unica que impide
+        abrir otro intento): quedaba colgada para siempre.
+
+        Solo toca `in_progress`: es el UNICO estado que de verdad queda "colgado"
+        por el dictamen. `scheduled`/`confirmed` significan que el cotejo ni
+        siquiera empezo (dictaminar ahi es otro problema, distinto de este);
+        `no_show`, `attended` y "sin cita" ya estan resueltos por su cuenta y no
+        se tocan.
+
+        NO usa `AppointmentService.mark_attended`: ese metodo hace su propio
+        `db.commit()`, y esto tiene que quedar en la MISMA transaccion que el
+        dictamen de la fase — `approve_phase`/`reject_phase` ya hacen el suyo al
+        final. `assert_transition` se llama de todas formas (aunque el `if` de
+        arriba ya garantiza que el salto es legal) porque en esta app NINGUNA
+        escritura de `status` se hace sin pasar por la matriz primero.
+        """
+        from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+        appt = AppointmentService.get_for_process(db, process.id)
+        if appt is None or appt.status != "in_progress":
+            return
+        AppointmentService.assert_transition("in_progress", "attended")
+        appt.status = "attended"
+        PhaseService._log(db, process.id, actor_id, "appointment_attended",
+                          PhaseService.PHASE_COTEJO, {"auto": True, "via": via})
+
     @staticmethod
     def approve_phase(db: Session, process, phase_number: int, reviewer_id: int) -> dict:
         """Aprueba una fase, activa la siguiente aplicable (o completa el proceso).
@@ -241,6 +378,24 @@ class PhaseService:
         (la ruta lo traduce a 400 + `X-Tt-Error`).
         """
         _first, last = PhaseService.assert_can_transition(db, process, phase_number)
+
+        # D9: la encuesta de egresados (y el resto del checklist físico) BLOQUEA
+        # el dictamen de la fase 2. El alumno sí puede agendar y presentarse; lo
+        # que no se puede es cerrarle la fase sin haber entregado.
+        #
+        # Va aquí y no en `assert_can_transition` porque esa guarda la comparten
+        # `reject_phase` y `can_transition`: rechazar la fase 2, o preguntar si se
+        # puede actuar en ella, no dependen del checklist.
+        if phase_number == PhaseService.PHASE_COTEJO:
+            falta = PhaseService._cotejo_gate_error(db, process)
+            if falta:
+                raise ValueError(falta)
+            # Las guardas de arriba ya pasaron: si la cita vigente quedo
+            # `in_progress`, aprobar la fase 2 es la senal de que el cotejo
+            # terminó. Dentro de la MISMA transaccion que el resto de este metodo
+            # (antes del commit de al final).
+            PhaseService._auto_close_cotejo_appointment(db, process, reviewer_id,
+                                                        "phase_approved")
 
         ph = PhaseService._ensure_phase(db, process.id, phase_number)
         ph.status = "approved"
@@ -292,6 +447,13 @@ class PhaseService:
         en `process.current_phase`.
         """
         PhaseService.assert_can_transition(db, process, phase_number)
+
+        # Gemelo del cierre automático de `approve_phase`: rechazar la fase 2
+        # tambien es un dictamen, y si la cita vigente quedo `in_progress` queda
+        # igual de colgada que si se hubiera aprobado.
+        if phase_number == PhaseService.PHASE_COTEJO:
+            PhaseService._auto_close_cotejo_appointment(db, process, reviewer_id,
+                                                        "phase_rejected")
 
         ph = PhaseService._ensure_phase(db, process.id, phase_number)
         ph.status = "rejected"

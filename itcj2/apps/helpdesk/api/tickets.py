@@ -6,12 +6,13 @@ import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
-from itcj2.dependencies import DbSession, require_perms
+from itcj2.dependencies import DbSession, is_global_admin, require_perms
 from itcj2.apps.helpdesk.schemas.tickets import (
     ResolveTicketRequest,
     RateTicketRequest,
     CancelTicketRequest,
     UpdateTicketRequest,
+    SplitTicketRequest,
 )
 
 router = APIRouter(tags=["helpdesk-tickets"])
@@ -307,6 +308,17 @@ def get_ticket(
     except Exception:
         ticket_dict["materials_used"] = []
 
+    # Tickets hijos resultado de "Partir ticket" (orden por id, vía relación dinámica)
+    ticket_dict["split_children"] = [
+        {
+            "id": child.id,
+            "ticket_number": child.ticket_number,
+            "title": child.title,
+            "status": child.status,
+        }
+        for child in ticket.split_children
+    ]
+
     return {"ticket": ticket_dict}
 
 
@@ -590,3 +602,129 @@ def update_ticket(
 
     logger.info(f"Ticket {ticket.ticket_number} editado por usuario {user_id}")
     return {"message": "Ticket actualizado exitosamente", "ticket": ticket.to_dict(include_relations=True)}
+
+
+# ==================== PARTIR TICKET ====================
+@router.post("/{ticket_id}/split", status_code=201)
+async def split_ticket(
+    ticket_id: int,
+    body: SplitTicketRequest,
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.split.all",
+        "helpdesk.tickets.api.split.own",
+    ]),
+    db: DbSession = None,
+):
+    from itcj2.apps.helpdesk.services import ticket_service, ticket_split_service
+
+    user_id = int(user["sub"])
+
+    # El permiso abre la OPERACIÓN, no el ticket. Desde la fase 2 tiene dos
+    # alcances (spec §2-bis, D16):
+    #   - .split.all → como en la fase 1: basta con poder VER el ticket
+    #     (`can_user_view_ticket`, mismo chequeo que `GET /tickets/{id}`). Sin
+    #     esto quien reciba `.split.all` (hoy rol admin y secretary_comp_center;
+    #     mañana, lo natural, un jefe de departamento) podría partir CUALQUIER
+    #     ticket del instituto adivinando el id.
+    #   - .split.own → el técnico solo puede partir el ticket que trae entre
+    #     manos: el suyo, o uno sin asignar en la cola de su equipo. "Los
+    #     técnicos ven todo el instituto" (`can_user_view_ticket`) NO basta
+    #     aquí a propósito (D17): sin esta regla el permiso sería barra libre.
+    # El atajo de admin global es obligatorio: ni `can_user_view_ticket` ni la
+    # regla de abajo leen el claim `role` del JWT (leen roles/permisos de BD),
+    # así que un admin "solo JWT" (token emitido por otra vía) se llevaría un
+    # 403 sin este bypass explícito.
+    if not is_global_admin(user):
+        from itcj2.apps.helpdesk.models.ticket import Ticket as TicketModel
+        from itcj2.apps.helpdesk.utils.teams import tech_team_for_user
+        from itcj2.core.services.authz_cache import cached_perms
+
+        perms = cached_perms(db, user_id, "helpdesk")
+        if "helpdesk.tickets.api.split.all" in perms:
+            ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
+        else:
+            # Solo .split.own (garantizado por `require_perms`: si no es
+            # .all, es .own). 404 antes que 403: primero existencia.
+            ticket = db.get(TicketModel, ticket_id)
+            if not ticket:
+                raise HTTPException(status_code=404, detail="Ticket no encontrado")
+
+            # El equipo del actor sale de sus ROLES en helpdesk, no del JWT
+            # — mapeo compartido (`utils/teams.py`), el mismo que usan la
+            # pestaña "Equipo" del dashboard y las páginas de detalle (que se
+            # lo pasan al cliente para no ofrecer el botón y luego 403).
+            team = tech_team_for_user(db, user_id)
+
+            is_own = ticket.assigned_to_user_id == user_id
+            is_team_queue = (
+                team is not None
+                and ticket.assigned_to_user_id is None
+                and ticket.assigned_to_team == team
+            )
+            if not (is_own or is_team_queue):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Solo puedes partir tickets asignados a ti o en la cola de tu equipo",
+                )
+
+    original, new_tickets = ticket_split_service.split_ticket(
+        db,
+        ticket_id=ticket_id,
+        split_by_id=user_id,
+        original=body.original.model_dump(),
+        parts=[p.model_dump() for p in body.parts],
+    )
+
+    logger.info(
+        f"Ticket {original.ticket_number} partido por usuario {user_id} en "
+        f"{1 + len(new_tickets)} tickets"
+    )
+
+    from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
+    try:
+        HelpdeskNotificationHelper.notify_ticket_split(db, original, new_tickets, user_id)
+        db.commit()
+    except Exception as notif_error:
+        logger.error(f"Error al enviar notificación de ticket partido: {notif_error}")
+        # La división ya la comiteó el servicio (commit previo, exitoso): un
+        # fallo aquí es solo del aviso. Sin este rollback la sesión queda con
+        # la transacción abortada y el to_dict() de más abajo (dispara SELECT
+        # de relaciones lazy='dynamic', p. ej. collaborators) truena con
+        # PendingRollbackError sin nadie que lo atrape -> 500 para un split
+        # que ya estaba comiteado.
+        try:
+            db.rollback()
+        except Exception as rollback_error:
+            logger.error(f"Error al hacer rollback tras fallo de notificación: {rollback_error}")
+
+    # Un try POR PARTE: con uno solo alrededor del ciclo, un tropiezo de Redis en
+    # la primera parte se saltaba en silencio el anuncio de todas las demás.
+    # El import va DENTRO del try (igual que en el resto del archivo) para que
+    # nada de este bloque pueda tumbar una división ya comiteada.
+    for part in new_tickets:
+        try:
+            from itcj2.sockets.helpdesk import broadcast_ticket_created
+            await broadcast_ticket_created({
+                "id": part.id,
+                "ticket_number": part.ticket_number,
+                "title": part.title,
+                "area": part.area,
+                "priority": part.priority,
+                "status": part.status,
+                "requester": part.requester.full_name if part.requester else "Desconocido",
+                "department_id": part.requester_department_id,
+                "split_from": original.ticket_number,
+            }, actor_id=user_id)
+        except Exception as ws_err:
+            logger.warning(
+                f"WS broadcast ticket_created (split) error para {part.ticket_number}: {ws_err}"
+            )
+
+    return {
+        "success": True,
+        "message": f"Ticket {original.ticket_number} dividido en {1 + len(new_tickets)} tickets",
+        "data": {
+            "original": original.to_dict(include_relations=True),
+            "tickets": [t.to_dict(include_relations=True) for t in new_tickets],
+        },
+    }

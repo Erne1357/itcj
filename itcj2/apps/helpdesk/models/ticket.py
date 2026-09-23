@@ -64,6 +64,22 @@ class Ticket(Base):
     service_origin = Column(String(20), nullable=True)    # 'INTERNO' | 'EXTERNO'
     observations = Column(Text, nullable=True)
 
+    # ==================== DIVISIÓN ====================
+    # Feature "Partir ticket": id del ticket padre del que este se partio.
+    # Auto-referencial sobre la propia tabla. NULL para cualquier ticket que
+    # no sea resultado de una division. ON DELETE SET NULL (migracion
+    # hd20260922a): si el padre se borra, los hijos no desaparecen.
+    split_from_ticket_id = Column(
+        Integer, ForeignKey('helpdesk_ticket.id', ondelete='SET NULL'), nullable=True, index=True
+    )
+    split_from = relationship(
+        'Ticket', remote_side=[id], foreign_keys=[split_from_ticket_id], back_populates='split_children'
+    )
+    split_children = relationship(
+        'Ticket', foreign_keys=[split_from_ticket_id], back_populates='split_from',
+        lazy='dynamic', order_by='Ticket.id',
+    )
+
     # ==================== RELACIONES ====================
     requester = relationship('User', foreign_keys=[requester_id], back_populates='tickets_requested')
     assigned_to = relationship('User', foreign_keys=[assigned_to_user_id], back_populates='tickets_assigned')
@@ -200,6 +216,7 @@ class Ticket(Base):
             'maintenance_type': self.maintenance_type,
             'service_origin': self.service_origin,
             'observations': self.observations,
+            'split_from_ticket_id': self.split_from_ticket_id,
         }
 
         if include_relations:
@@ -217,6 +234,10 @@ class Ticket(Base):
                     'username': self.assigned_to.username or self.assigned_to.control_number,
                 } if self.assigned_to else None,
                 'assigned_to_team': self.assigned_to_team,
+                'split_from': {
+                    'id': self.split_from.id,
+                    'ticket_number': self.split_from.ticket_number,
+                } if self.split_from else None,
                 'requester_department': {
                     'id': self.requester_department.id,
                     'name': self.requester_department.name,

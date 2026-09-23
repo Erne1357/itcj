@@ -1,0 +1,252 @@
+{# Formulario de auto-inscripción. Se re-renderiza COMPLETO en cada error
+   (§6.1): los valores capturados viajan en `values` y los mensajes en `errors`.
+   htmx sí swappea en 200, así que conservar el estado es del servidor.
+
+   La trampa usa `.tt-public-hp` (RULING R4, Tarea 19): esa es la clase
+   CANÓNICA, ya definida en `public.css` desde la base pública (T11/T12). NO se
+   crea una segunda clase para esto — el propio `public.css` advierte por
+   escrito que dos clases para lo mismo dejan el campo a la vista en cuanto un
+   markup apunte a la que se quede sin regla.
+
+   ---------------------------------------------------------------------------
+   Rediseño 2026-09-17. Medido ANTES a 1440: los 11 campos eran una sola
+   columna plana, cada etiqueta era un `.tt-kicker` (mono, mayúsculas, 11 px,
+   `--tt-text-3`) — el eyebrow haciendo de etiqueta de formulario, que es el
+   defecto #3 del DESIGN.md de la app —, los radios nativos medían 16 px en
+   filas de 24 (el contrato pide 40 px táctiles), `.tt-field` heredaba
+   `font-size: .875rem` (14 px, por debajo de los 16 que evitan el zoom
+   automático de iOS al enfocar) y `max-width: 30rem` dejaba el borde derecho
+   de los campos a 91 px del borde de la tarjeta.
+
+   Lo que cambia y por qué:
+   - Tres `<fieldset>` con `<legend>` real, separados por una línea de 1 px
+     DENTRO de la misma tarjeta. Tarjeta dentro de tarjeta está prohibida en
+     este design system; el separador es la sustitución declarada.
+   - `fieldset` lleva `min-width: 0` en el CSS: su `min-width: min-content` por
+     omisión revienta el invariante `scrollWidth <= innerWidth` en cuanto un
+     hijo de rejilla no cabe.
+   - Etiquetas `.tt-label` (14 px, caja normal, peso 600, `--tt-text-2`).
+   - Radios como `.tt-opts`/`.tt-opt`, el MISMO vocabulario que ya usa la
+     encuesta pública en este archivo de estilos: 44 px de alto, la tile entera
+     es el `<label>` y el radio nativo sigue siendo el control real (foco,
+     flechas, `checked`, y `page.check()` de Playwright).
+   - `autocomplete` en los campos que el teléfono sabe rellenar.
+
+   Contratos que NO se tocan (los asertan `test_enrollment_public.py` y
+   `public-enroll.spec.js`): `id="tt-enroll-form"`, cada `name=`, cada `id=` de
+   campo, `data-tt-error`, `aria-invalid`, `aria-describedby`, la etiqueta
+   «Confirma tu correo personal», el texto del botón «Enviar solicitud» y el
+   `hx-post`/`hx-target`/`hx-swap`. #}
+<form id="tt-enroll-form" class="tt-card tt-enroll"
+      hx-post="/titulatec/inscripcion"
+      hx-target="#tt-enroll-form" hx-swap="outerHTML">
+
+  {# Campo trampa (E3). Oculto por CSS (.tt-public-hp), nunca con `hidden` ni
+     `display:none`: un bot que lea el atributo lo saltaría, y el E2E de la
+     Tarea 27 la mide por posición (`box.x + box.width < 0`), no por
+     visibilidad. #}
+  <div class="tt-public-hp" aria-hidden="true">
+    <label for="tt-website">No llenes este campo</label>
+    <input type="text" id="tt-website" name="website" tabindex="-1" autocomplete="off">
+  </div>
+
+  {# «¿Ya acreditaste el inglés?» (2026-09-17, revierte D11 «el inglés no se
+     pregunta»). Obligatoria y SIN opción marcada: un «No» por descuido sería un
+     dato falso. Va PRIMERO porque es un requisito que bloquea — con «No» el
+     servidor no crea la solicitud — y conviene saberlo antes de llenar lo
+     demás. `required` en un solo radio basta para que el navegador exija una
+     opción del grupo. #}
+  <fieldset class="tt-enroll-group"{% if errors.has_english %} aria-describedby="tt-english-err"{% endif %}>
+    {# Un grupo de UNA sola pregunta usa la pregunta como `<legend>`: el
+       `<fieldset>` ya es lo que ata los radios a ese texto, y un rótulo aparte
+       («Requisito de inglés») encima de la pregunta sería el mismo encabezado
+       dicho dos veces. Los grupos de varios campos sí llevan rótulo de grupo. #}
+    <legend class="tt-enroll-legend">¿Ya acreditaste el inglés?</legend>
+    <div class="tt-opts tt-opts--pair">
+      <label class="tt-opt">
+        <input class="form-check-input" type="radio" name="has_english" value="1" required
+               {% if values.has_english == '1' %}checked{% endif %}>
+        <span class="tt-opt-text">Sí</span>
+      </label>
+      <label class="tt-opt">
+        <input class="form-check-input" type="radio" name="has_english" value="0"
+               {% if values.has_english == '0' %}checked{% endif %}>
+        <span class="tt-opt-text">No</span>
+      </label>
+    </div>
+    {% if errors.has_english %}
+    <p class="tt-err" id="tt-english-err" data-tt-error="has_english">
+      <i class="bi bi-exclamation-circle" aria-hidden="true"></i>{{ errors.has_english }}
+    </p>
+    {% endif %}
+  </fieldset>
+
+  <fieldset class="tt-enroll-group">
+    <legend class="tt-enroll-legend">Tus datos</legend>
+
+    <div class="tt-enroll-row tt-enroll-row--pair">
+      <div class="tt-enroll-cell">
+        <label class="tt-label" for="tt-control">Número de control</label>
+        <input class="tt-field" id="tt-control" name="control_number" required
+               autocapitalize="characters" autocomplete="off" spellcheck="false"
+               maxlength="9" pattern="[A-Za-z]?[0-9]{8}"
+               value="{{ values.control_number|default('') }}"
+               {% if errors.control_number %}aria-invalid="true" aria-describedby="tt-control-err"{% endif %}>
+        {% if errors.control_number %}
+        <p class="tt-err" id="tt-control-err" data-tt-error="control_number">
+          <i class="bi bi-exclamation-circle" aria-hidden="true"></i>{{ errors.control_number }}
+        </p>
+        {% endif %}
+      </div>
+      <div class="tt-enroll-cell">
+        <label class="tt-label" for="tt-program">Carrera</label>
+        <select class="tt-field" id="tt-program" name="program_id" required
+                {% if errors.program_id %}aria-invalid="true" aria-describedby="tt-program-err"{% else %}aria-describedby="tt-program-hint"{% endif %}>
+          <option value="">Elige tu carrera…</option>
+          {% for p in programs %}
+          <option value="{{ p.id }}"{% if values.program_id == p.id|string %} selected{% endif %}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+        {% if errors.program_id %}
+        <p class="tt-err" id="tt-program-err" data-tt-error="program_id">
+          <i class="bi bi-exclamation-circle" aria-hidden="true"></i>{{ errors.program_id }}
+        </p>
+        {% endif %}
+        {# RONDA DE FIX 1 (2026-09-21): este aviso va DESPUÉS del campo -no
+           antes, que es el patrón normal de la app; compara con «Confirma tu
+           correo personal» más abajo y con survey_form.html:147-. Es la
+           EXCEPCIÓN, no un patrón nuevo que copiar: esta celda vive en una
+           fila pareada (`.tt-enroll-row--pair`) y el subgrid de 4 pistas de
+           `public.css` (bloque 5) necesita que la celda vecina -Número de
+           control, sin aviso- no tenga NADA entre su etiqueta y su campo. Con
+           el aviso arriba (como se hizo primero) esa etiqueta vecina quedaba
+           flotando ~79px sobre su propio `<input>`. Va también DESPUÉS del
+           bloque de error de arriba -no antes- para que el orden visual
+           -pista 3 error, pista 4 aviso- coincida con el orden del DOM que
+           lee un lector de pantalla, y para que el selector `.tt-field ~
+           .tt-hint` de `public.css` (bloque 6) seguro lo encuentre aunque el
+           error no sea su hermano inmediato. NO subas este aviso de vuelta
+           arriba del `<select>` sin resolver antes ese mismo problema. #}
+        <p class="tt-hint" id="tt-program-hint">De no encontrar tu carrera exacta, elige la que más se apegue a la que cursaste.</p>
+      </div>
+    </div>
+
+    <div class="tt-enroll-row">
+      <div class="tt-enroll-cell">
+        <label class="tt-label" for="tt-first">Nombre(s)</label>
+        <input class="tt-field" id="tt-first" name="first_name" required maxlength="80"
+               autocomplete="given-name"
+               value="{{ values.first_name|default('') }}"
+               {% if errors.first_name %}aria-invalid="true" aria-describedby="tt-first-err"{% endif %}>
+        {% if errors.first_name %}
+        <p class="tt-err" id="tt-first-err" data-tt-error="first_name">
+          <i class="bi bi-exclamation-circle" aria-hidden="true"></i>{{ errors.first_name }}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="tt-enroll-row tt-enroll-row--pair">
+      <div class="tt-enroll-cell">
+        <label class="tt-label" for="tt-last">Apellido paterno</label>
+        <input class="tt-field" id="tt-last" name="last_name" required maxlength="80"
+               autocomplete="family-name"
+               value="{{ values.last_name|default('') }}"
+               {% if errors.last_name %}aria-invalid="true" aria-describedby="tt-last-err"{% endif %}>
+        {% if errors.last_name %}
+        <p class="tt-err" id="tt-last-err" data-tt-error="last_name">
+          <i class="bi bi-exclamation-circle" aria-hidden="true"></i>{{ errors.last_name }}
+        </p>
+        {% endif %}
+      </div>
+      <div class="tt-enroll-cell">
+        {# El ÚNICO campo opcional del formulario. Se marca este en vez de poner
+           asterisco en los otros nueve: una palabra dice lo mismo que nueve
+           símbolos. El texto va dentro del `<label>` a propósito, para que el
+           lector de pantalla lo anuncie con el nombre del campo. #}
+        <label class="tt-label" for="tt-middle">Apellido materno<span class="tt-optional">opcional</span></label>
+        <input class="tt-field" id="tt-middle" name="middle_name" maxlength="80"
+               value="{{ values.middle_name|default('') }}">
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="tt-enroll-group">
+    <legend class="tt-enroll-legend">Cómo te contactamos</legend>
+
+    <div class="tt-enroll-row tt-enroll-row--pair">
+      <div class="tt-enroll-cell">
+        <label class="tt-label" for="tt-phone">Teléfono</label>
+        <input class="tt-field" id="tt-phone" name="phone" required maxlength="20"
+               inputmode="tel" autocomplete="tel"
+               value="{{ values.phone|default('') }}"
+               {% if errors.phone %}aria-invalid="true" aria-describedby="tt-phone-err"{% endif %}>
+        {% if errors.phone %}
+        <p class="tt-err" id="tt-phone-err" data-tt-error="phone">
+          <i class="bi bi-exclamation-circle" aria-hidden="true"></i>{{ errors.phone }}
+        </p>
+        {% endif %}
+      </div>
+      <div class="tt-enroll-cell">
+        <label class="tt-label" for="tt-email">Correo personal</label>
+        <input class="tt-field" id="tt-email" name="contact_email" required type="email" maxlength="150"
+               inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false"
+               value="{{ values.contact_email|default('') }}"
+               {% if errors.contact_email %}aria-invalid="true" aria-describedby="tt-email-err"{% endif %}>
+        {% if errors.contact_email %}
+        <p class="tt-err" id="tt-email-err" data-tt-error="contact_email">
+          <i class="bi bi-exclamation-circle" aria-hidden="true"></i>{{ errors.contact_email }}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Se teclea dos veces a propósito: el acceso llega SOLO a este correo, y una
+       letra de más es la diferencia entre recibirlo y no enterarse nunca. El
+       servidor compara sin distinguir mayúsculas ni espacios (`enroll_submit`).
+
+       La ayuda va FUERA del `<label>`: la E2E lo ubica con
+       `getByLabel('Confirma tu correo personal')` y el texto de la ayuda dentro
+       de la etiqueta rompería esa búsqueda. #}
+    <div class="tt-enroll-row">
+      <div class="tt-enroll-cell">
+        <label class="tt-label" for="tt-email-confirm">Confirma tu correo personal</label>
+        <p class="tt-hint" id="tt-email-confirm-hint">Escríbelo de nuevo. Tu acceso llega solo a este correo.</p>
+        <input class="tt-field" id="tt-email-confirm" name="contact_email_confirm" required
+               type="email" maxlength="150" autocomplete="off"
+               inputmode="email" autocapitalize="none" spellcheck="false"
+               value="{{ values.contact_email_confirm|default('') }}"
+               {% if errors.contact_email_confirm %}aria-invalid="true" aria-describedby="tt-email-confirm-err"{% else %}aria-describedby="tt-email-confirm-hint"{% endif %}>
+        {% if errors.contact_email_confirm %}
+        <p class="tt-err" id="tt-email-confirm-err" data-tt-error="contact_email_confirm">
+          <i class="bi bi-exclamation-circle" aria-hidden="true"></i>{{ errors.contact_email_confirm }}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+
+  </fieldset>
+
+  {# La e.firma no es un dato de contacto ni un dato de identidad: es un trámite
+     aparte que el egresado ya hizo o no. Grupo propio, y como es de una sola
+     pregunta, la pregunta es el `<legend>` (misma regla que el inglés). #}
+  <fieldset class="tt-enroll-group">
+    <legend class="tt-enroll-legend">¿Ya tienes tu e.firma vigente?</legend>
+    <div class="tt-opts tt-opts--pair">
+      <label class="tt-opt">
+        <input class="form-check-input" type="radio" name="has_efirma" value="1"
+               {% if values.has_efirma == '1' %}checked{% endif %}>
+        <span class="tt-opt-text">Sí</span>
+      </label>
+      <label class="tt-opt">
+        <input class="form-check-input" type="radio" name="has_efirma" value="0"
+               {% if values.has_efirma != '1' %}checked{% endif %}>
+        <span class="tt-opt-text">Todavía no</span>
+      </label>
+    </div>
+  </fieldset>
+
+  <div class="tt-enroll-foot">
+    <button type="submit" class="btn tt-btn-ink tt-enroll-submit">Enviar solicitud</button>
+  </div>
+</form>

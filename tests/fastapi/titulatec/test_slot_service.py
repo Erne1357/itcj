@@ -161,14 +161,18 @@ def test_mover_al_mismo_alumno_no_choca_consigo_mismo(db_session, agenda_slots):
     assert SlotService.occupancy(db_session, esc["w"]) == {time(9, 30): 1}
 
 
-def test_un_proceso_no_acumula_dos_citas(db_session, agenda_slots):
+def test_un_proceso_acumula_intentos_pero_solo_una_vigente(db_session, agenda_slots):
+    """`assign` ya NO sobrescribe: dos llamadas para el mismo proceso dejan DOS
+    filas en la base, y solo la segunda es la vigente."""
     from itcj2.apps.titulatec.models import ReviewAppointment
     esc = agenda_slots
     SlotService.assign(db_session, esc["w"].id, time(9, 0), esc["p1"].id, esc["off"].id)
-    SlotService.assign(db_session, esc["w"].id, time(10, 0), esc["p1"].id, esc["off"].id)
-    n = (db_session.query(ReviewAppointment)
-         .filter_by(process_id=esc["p1"].id).count())
-    assert n == 1
+    segunda = SlotService.assign(db_session, esc["w"].id, time(10, 0), esc["p1"].id, esc["off"].id)
+    filas = (db_session.query(ReviewAppointment)
+             .filter_by(process_id=esc["p1"].id).all())
+    assert len(filas) == 2
+    assert [a for a in filas if a.is_current] == [segunda]
+    assert segunda.attempt_no == 2
 
 
 # ------------------------------------------------------------------- reparto

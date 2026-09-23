@@ -1,0 +1,24 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Respuesta · TitulaTec{% endblock %}
+{% block admin_view %}surveys{% endblock %}
+{% block admin_main %}
+<div class="px-4 pt-4 pb-2">
+  <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas">
+    <i class="bi bi-arrow-left me-1"></i>Respuestas</a>
+  <h1 class="tt-display tt-h1">{{ response.name }}</h1>
+  <p class="mb-0 tt-mono">
+    {{ response.control }} · {{ response.identity }} ·
+    v{{ response.form_version }} ·
+    {{ response.submitted_at.strftime('%Y-%m-%d %H:%M') if response.submitted_at }}</p>
+</div>
+<div class="px-4 pb-4">
+  <div class="tt-card">
+    {% for it in items %}
+    <p class="tt-kicker mb-1">{{ it.label }}</p>
+    <p>{{ it.value }}</p>
+    {% else %}
+    <p class="mb-0">Esta respuesta no trae campos.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

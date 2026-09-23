@@ -23,6 +23,8 @@ from io import BytesIO
 
 from sqlalchemy.orm import Session, joinedload
 
+from itcj2.observability.work import measured
+
 # Por encima de este número de filas se omite el formato condicional (degrada,
 # no rechaza — "todos los resultados de la búsqueda" es requisito explícito).
 _MAX_CONDITIONAL_ROWS = 20_000
@@ -79,9 +81,11 @@ class InventoryExportService:
         Devuelve `(buffer_posicionado_en_0, nombre_de_archivo)`.
         """
         items, filters_display = InventoryExportService._query_items(db, user, params)
-        wb = InventoryExportService._build_workbook(items, filters_display)
-        buf = BytesIO()
-        wb.save(buf)
+        # Medido: solo el armado del workbook (openpyxl), no la consulta a BD.
+        with measured("inventory_export", "openpyxl"):
+            wb = InventoryExportService._build_workbook(items, filters_display)
+            buf = BytesIO()
+            wb.save(buf)
         buf.seek(0)
         filename = f"inventario_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         return buf, filename

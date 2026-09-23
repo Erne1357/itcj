@@ -21,10 +21,23 @@ maint, agendatec y adhoc. Con solo `titulatec.officers.api.manage` se podia:
 Correccion segun `docs/superpowers/specs/2026-09-01-titulatec-scope-carrera-design.md`
 seccion 7.2 (dos conjuntos de aceptacion, asimetria deliberada):
 
-  A - administrable: `Position` del depto del jefe, activo y CON rol en titulatec
-      -> `update` (set_users + set_programs).
-  B - destruible:    A interseccion `code LIKE se_officer_%` -> `deactivate`.
-      El prefijo es la marca de propiedad: esta app solo destruye lo que creo.
+  A - administrable: `Position` del depto del jefe, activo y CON rol en titulatec.
+      Es el conjunto INTERNO (`get_manageable_position`); desde 2026-09-07
+      ninguna ruta guarda con el.
+  B - propio:        A interseccion `code LIKE se_officer_%` (`get_owned_position`)
+      -> `update` (set_users + set_programs) Y `deactivate`. El prefijo es la
+      marca de propiedad: esta app solo edita y destruye lo que ella creo.
+
+AMPLIACION 2026-09-07 (agujero real, no teorico). `update` guardaba con A, que
+tambien contiene `secretary_school_services`, `head_school_services`,
+`aux_school_services` y los puestos de division: puestos COMPARTIDOS que la UI
+no lista porque no llevan el prefijo. Un `position_id` escrito a mano llegaba
+igual a `set_users` + `set_programs`. Colgarle carreras amplia en silencio el
+alcance del ocupante (`scope_service._program_ids_for_user` une las carreras de
+TODOS sus puestos vigentes que otorgan la app); colgarle usuarios les arrastra
+los `PositionAppRole` de ese puesto en TODAS las apps. En produccion aparecieron
+dos `core_program_positions` colgados de `secretary_school_services` el
+2026-09-01 por esta via.
 
 REGLA DE ORO (heredada de la spec de scope): ninguna asercion negativa va sola.
 Cada "no se pudo" viene con el positivo del MISMO actor sobre la MISMA ruta.
@@ -109,6 +122,17 @@ def organigrama(make_department, make_position, make_user, make_role,
         pos_sinrol_d1 = make_position(code=f"se_officer_x_{d1.code}",
                                       title="Puesto sin rol titulatec", department=d1)
 
+        # Puesto COMPARTIDO del propio depto: activo, con rol de titulatec y con
+        # ocupante, pero SIN el prefijo -> la UI no lo lista jamas. Analogo
+        # sintetico de `secretary_school_services`. Cumple las tres condiciones
+        # del conjunto A, y esa es exactamente la razon por la que A no puede
+        # guardar `update`.
+        pos_compartido_d1 = make_position(code=f"secretary_{d1.code}",
+                                          title="Secretaria compartida D1", department=d1)
+        bind_position_role(pos_compartido_d1, rol_officer)
+        ocupante_d1 = make_user(first_name="OCUPANTE", last_name="COMPARTIDO")
+        assign_position(ocupante_d1, pos_compartido_d1)
+
         # Personal asignable: un colega del propio departamento.
         pos_aux_d1 = make_position(code=f"aux_{d1.code}",
                                    title="Auxiliar ficticio D1", department=d1)
@@ -120,6 +144,7 @@ def organigrama(make_department, make_position, make_user, make_role,
             "jefa": jefa, "pos_head_d1": pos_head_d1,
             "pos_off_d1": pos_off_d1, "pos_off_d2": pos_off_d2,
             "pos_head_d2": pos_head_d2, "pos_sinrol_d1": pos_sinrol_d1,
+            "pos_compartido_d1": pos_compartido_d1, "ocupante_d1": ocupante_d1,
             "colega_d1": colega_d1, "jefe_d2": jefe_d2,
         }
 
@@ -261,6 +286,56 @@ class TestRutaUpdate:
 
         assert resp.status_code == 400, resp.text[:300]
         assert _ocupantes(db_session, org["pos_off_d1"].id) == set()
+
+    def test_no_edita_un_puesto_compartido_del_propio_departamento(
+        self, client_as, db_session, organigrama, make_program,
+    ):
+        """REGRESION del agujero de 2026-09-07: A no es la marca de propiedad.
+
+        `pos_compartido_d1` cumple las tres condiciones del conjunto A (mismo
+        depto, activo, con rol de titulatec) pero la UI nunca lo renderiza: no
+        lleva el prefijo. Con A guardando la ruta, este POST a mano le colgaba
+        una carrera y le cambiaba el ocupante.
+
+        El 404 NO es la asercion importante: lo que hay que probar es que no se
+        escribio ni una `ProgramPosition` ni una `UserPosition`.
+        """
+        org = organigrama()
+        prog = make_program("Ingenieria Ficticia Ajena")
+        victima = org["pos_compartido_d1"]
+
+        resp = client_as(org["jefa"]).post(
+            _url(victima.id),
+            data={"user_ids": [str(org["jefa"].id)],
+                  "program_ids": [str(prog.id)]})
+
+        assert resp.status_code == 404, resp.text[:300]
+        assert _carreras(db_session, victima.id) == set(), (
+            "set_programs corrio sobre un puesto compartido: "
+            "alcance por carrera ampliado en silencio")
+        assert _ocupantes(db_session, victima.id) == {org["ocupante_d1"].id}, (
+            "set_users corrio: alta de la jefa o baja del ocupante legitimo")
+
+    def test_si_edita_un_encargado_propio_con_el_mismo_actor(
+        self, client_as, db_session, organigrama, make_program,
+    ):
+        """Positivo pareado del anterior (regla de oro): mismo actor, misma ruta.
+
+        Mismas dos escrituras que el negativo exige que NO ocurran; aqui SI
+        tienen que ocurrir, porque el puesto lo creo esta app.
+        """
+        org = organigrama()
+        prog = make_program("Ingenieria Ficticia Propia")
+        propio = org["pos_off_d1"]
+
+        resp = client_as(org["jefa"]).post(
+            _url(propio.id),
+            data={"user_ids": [str(org["colega_d1"].id)],
+                  "program_ids": [str(prog.id)]})
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert _carreras(db_session, propio.id) == {prog.id}
+        assert _ocupantes(db_session, propio.id) == {org["colega_d1"].id}
 
     def test_edita_su_propio_encargado(
         self, client_as, db_session, organigrama, make_program,

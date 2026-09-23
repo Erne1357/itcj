@@ -1,21 +1,94 @@
 {# ===========================================================================
    cita_card.html — tarjeta de estado de la cita de cotejo del alumno.
    Swap HTMX dentro de #tt-cita-card. Contexto: _cita_card_ctx(...)
+
+   SIN `style=` ni `onclick` inline, como el resto de los parciales de citas.
+   Hasta el 2026-09-16 este archivo llevaba ocho `style=` y un `onclick` que
+   hacia `classList.toggle('d-none')`, y sobrevivieron por un hueco en la
+   guarda: el barrido que los prohibe
+   (`test_appointments_scope_day.py::test_los_parciales_de_citas_no_llevan_js_
+   ni_css_inline`) solo miraba `partials/appointments/` —la mitad ADMIN—,
+   aunque la spec §7 dijera que la regla la fijaba ese test «y el equivalente
+   del alumno». Ese equivalente nunca se construyo. Hoy el barrido cubre
+   tambien esta carpeta y `partials/student/`, y los estilos viven en
+   `titulatec.css` (`.tt-cita-*`).
    =========================================================================== #}
 {% from "titulatec/_macros.html" import pill, appt_pill %}
+
+{# Aviso de fase 02 con observaciones (Tarea B2). Va ANTES de las ramas de abajo
+   y ES ADITIVO: si ya hay una cita nueva (scheduled/confirmed) se ve su tarjeta
+   normal MAS este aviso arriba, como recordatorio del motivo. Sin id propio:
+   el destino de los POST sigue siendo `#tt-cita-card` (la caja que envuelve a
+   este parcial en `_cita_panel.html`), y duplicar ids ahi lo rompe. #}
+{% if fase_rechazada %}
+  <div class="tt-card tt-card--danger tt-cita-rechazo mb-3">
+    <div class="tt-cita-why">
+      <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+      <div>
+        <p class="mb-0"><strong>Tu cotejo quedó con observaciones.</strong></p>
+        {% if fase_rechazada.motivo %}
+          <p class="tt-cita-note mb-0">{{ fase_rechazada.motivo }}</p>
+        {% endif %}
+        <p class="mb-0">Necesitas otra cita de cotejo. Lleva lo que te faltó.</p>
+      </div>
+    </div>
+  </div>
+{% endif %}
 
 {% if not process %}
   <div class="tt-card tt-card--accent">
     <span class="tt-pill tt-pill--amber"><i class="bi bi-info-circle"></i> Sin proceso</span>
-    <p class="mb-0 mt-2" style="font-size:.85rem;color:var(--tt-slate)">
+    <p class="tt-cita-note mb-0 mt-2">
       Aún no tienes un proceso de titulación activo.</p>
   </div>
 {% elif not appt %}
+  {# Tres caras, no una (2026-09-18). Hasta hoy esta rama decia SIEMPRE
+     «Servicios Escolares agendará tu cita», y desde el auto-agendado eso se
+     contradice con la propia pantalla: el alumno leia que se la iban a asignar
+     mientras tres centimetros mas abajo tenia el selector de horas y el horario
+     de atencion sin cita.
+
+     La tarjeta dice el ESTADO («todavia no tienes cita») y a quien le toca; el
+     COMO lo explica cada seccion de abajo, que trae su propio rotulo. Por eso
+     aqui no se repite «elige el dia y toca la hora».
+
+     `agenda` lo pone `_cita_card_ctx`, tambien cuando este parcial se swappea
+     solo. El `agenda and ...` es defensivo: si algun dia alguien lo renderiza
+     sin contexto, cae a la cara conservadora en vez de reventar. #}
+  {% set puede_agendar = agenda and agenda.can_book and agenda.dias %}
+  {% set hay_walkin = agenda and agenda.can_walkin and agenda.walkins %}
   <div class="tt-card tt-card--accent">
-    <span class="tt-pill tt-pill--navy"><i class="bi bi-calendar-event"></i> Pendiente de agenda</span>
-    <p class="mb-0 mt-2" style="font-size:.85rem;color:var(--tt-slate)">
-      Servicios Escolares agendará tu cita de cotejo. Te avisaremos cuando tenga fecha.
-      Mientras tanto, prepara los documentos del checklist de abajo.</p>
+    {% if puede_agendar %}
+      <span class="tt-pill tt-pill--navy"><i class="bi bi-calendar-plus"></i> Te toca agendar</span>
+      <p class="tt-cita-note mb-0 mt-2">
+        Todavía no tienes cita de cotejo.
+        {% if hay_walkin %}
+          Agéndala aquí abajo, o preséntate sin cita dentro del horario de atención.
+        {% else %}
+          Agéndala aquí abajo con el día y la hora que te acomoden.
+        {% endif %}</p>
+    {% elif hay_walkin %}
+      <span class="tt-pill tt-pill--navy"><i class="bi bi-door-open"></i> Atención sin cita</span>
+      <p class="tt-cita-note mb-0 mt-2">
+        No necesitas agendar: preséntate dentro del horario de atención de abajo
+        con los documentos del checklist.</p>
+    {% elif agenda and agenda.message %}
+      {# No puede agendar por un REQUISITO suyo (encuesta sin enviar, fase…), y
+         `agenda.message` ya lo dice con todas sus letras en la tarjeta de la
+         cara 4, tres centimetros mas abajo. Prometerle aqui que Servicios
+         Escolares le asignara la fecha seria falso -no se la van a asignar
+         hasta que el cumpla- y ademas taparia la causa real con una espera
+         inventada. Se dice el estado y se manda a leer el motivo. #}
+      <span class="tt-pill tt-pill--navy"><i class="bi bi-calendar-event"></i> Pendiente de agenda</span>
+      <p class="tt-cita-note mb-0 mt-2">
+        Todavía no tienes cita de cotejo. Aquí abajo te decimos qué falta para
+        que puedas agendarla.</p>
+    {% else %}
+      <span class="tt-pill tt-pill--navy"><i class="bi bi-calendar-event"></i> Pendiente de agenda</span>
+      <p class="tt-cita-note mb-0 mt-2">
+        Servicios Escolares agendará tu cita de cotejo. Te avisaremos cuando tenga fecha.
+        Mientras tanto, prepara los documentos del checklist de abajo.</p>
+    {% endif %}
   </div>
 {% else %}
   <div class="tt-card tt-card--hero">
@@ -23,39 +96,65 @@
       <span class="tt-kicker">Tu cita de cotejo</span>
       {{ appt_pill(appt.status) }}
     </div>
-    <div class="tt-display mt-2" style="font-size:1.25rem;font-weight:600">{{ appt.scheduled_label }}</div>
-    <div class="mt-1" style="font-size:.85rem;color:var(--tt-slate)">
+    <div class="tt-display tt-cita-when mt-2">{{ appt.scheduled_label }}</div>
+    <div class="tt-cita-where mt-1">
       <i class="bi bi-geo-alt me-1"></i>{{ appt.location or 'Lugar por confirmar' }}</div>
 
     {% if appt.change_requested %}
-      <div class="mt-3 p-2" style="background:var(--tt-amber-soft);border-radius:9px">
-        <span style="font-size:.82rem;color:var(--tt-amber-ink)">
+      <div class="tt-cita-changed mt-3 p-2">
+        <span>
           <i class="bi bi-arrow-repeat me-1"></i>Solicitaste un cambio. Servicios Escolares revisará y te reagendará.</span>
       </div>
     {% elif appt.status == 'scheduled' %}
-      <div class="d-flex gap-2 mt-3">
-        <button class="btn tt-btn-ink flex-grow-1" style="height:44px"
-                hx-post="/titulatec/student/cita/confirmar" hx-target="#tt-cita-card" hx-swap="innerHTML">
-          <i class="bi bi-check-lg me-1"></i>Confirmar asistencia</button>
-        <button class="btn tt-btn-ghost" style="height:44px" type="button"
-                onclick="document.getElementById('tt-change-form').classList.toggle('d-none')">
-          <i class="bi bi-arrow-repeat"></i></button>
-      </div>
-      <form id="tt-change-form" class="d-none mt-2"
-            hx-post="/titulatec/student/cita/solicitar-cambio" hx-target="#tt-cita-card" hx-swap="innerHTML">
-        <label class="tt-kicker d-block mb-1">Motivo del cambio</label>
-        <textarea name="reason" class="form-control form-control-sm" rows="2"
-                  placeholder="Ej: tengo examen ese día" required></textarea>
-        <button class="btn btn-sm tt-btn-soft mt-2" type="submit">Solicitar cambio de cita</button>
-      </form>
+      <button class="btn tt-btn-ink tt-cita-btn w-100 mt-3" type="button"
+              hx-post="/titulatec/student/cita/confirmar" hx-target="#tt-cita-card" hx-swap="innerHTML">
+        <i class="bi bi-check-lg me-1"></i>Confirmar asistencia</button>
+
+      {# «Solicitar cambio» en un `<details>` NATIVO: cero JS, que es lo unico
+         que permite tenerlo aqui. Antes era un boton fantasma —solo un icono,
+         sin texto ni `aria-label`— que disparaba un `onclick` inline sobre
+         `#tt-change-form`. El `<details>` lo sustituye con etiqueta visible y
+         objetivo tactil completo, y es el mismo idiom que «Cancelar la cita»
+         del encargado (`partials/appointments/_appt_attend.html`). #}
+      <details class="mt-2">
+        <summary class="tt-cita-more-sum">
+          <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>Solicitar cambio de cita</summary>
+        <form class="mt-2"
+              hx-post="/titulatec/student/cita/solicitar-cambio" hx-target="#tt-cita-card" hx-swap="innerHTML">
+          <label class="tt-kicker d-block mb-1" for="tt-change-reason">Motivo del cambio</label>
+          <textarea id="tt-change-reason" name="reason" class="form-control form-control-sm" rows="2"
+                    placeholder="Ej: tengo examen ese día" required></textarea>
+          <button class="btn btn-sm tt-btn-soft mt-2" type="submit">Solicitar cambio de cita</button>
+        </form>
+      </details>
     {% elif appt.status == 'confirmed' %}
       <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Confirmaste tu asistencia</span></div>
     {% elif appt.status == 'in_progress' %}
       <div class="mt-3"><span class="tt-pill tt-pill--amber"><i class="bi bi-hourglass-split"></i> Cotejo en proceso</span></div>
+    {% elif appt.status == 'attended' and fase_rechazada %}
+      <div class="mt-3"><span class="tt-pill tt-pill--amber"><i class="bi bi-exclamation-triangle"></i> Cotejo con observaciones</span></div>
     {% elif appt.status == 'attended' %}
       <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Cotejo realizado</span></div>
     {% elif appt.status == 'no_show' %}
       <div class="mt-3"><span class="tt-pill tt-pill--danger"><i class="bi bi-x-circle"></i> No asististe — contacta a Servicios Escolares</span></div>
+    {% endif %}
+
+    {# — «Cancelar mi cita» (D8): solo mientras falten más de 2 h. Lo decide
+       `SelfBookingService.can_self_cancel`, el MISMO predicado que usa el
+       servidor, para que no aparezca un botón que va a ser rechazado.
+       Va fuera del if/elif de estados porque aplica a `scheduled` Y a
+       `confirmed`: confirmar asistencia no te ata a presentarte.
+       La confirmación es `hx-confirm`, que el puente de `titulatec-utils.js`
+       convierte en `TitulaTecUtils.confirmDialog` — nunca el `confirm()`
+       nativo, que este proyecto prohíbe. — #}
+    {% if appt.can_cancel %}
+      <form class="mt-2" hx-post="/titulatec/student/cita/cancelar"
+            hx-target="#tt-cita-panel" hx-swap="innerHTML"
+            hx-confirm="Cancelar tu cita|Vas a liberar tu lugar. Podrás agendar otro mientras queden espacios disponibles."
+            data-tt-confirm-ok="Sí, cancelar">
+        <button class="btn btn-sm tt-btn-ghost w-100" type="submit">
+          <i class="bi bi-x-circle me-1"></i>Cancelar mi cita</button>
+      </form>
     {% endif %}
   </div>
 {% endif %}

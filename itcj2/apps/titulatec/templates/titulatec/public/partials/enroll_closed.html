@@ -1,0 +1,56 @@
+{# ===========================================================================
+   enroll_closed.html — la inscripción está cerrada, y aquí dice CUÁNDO abre.
+
+   Sustituye a `notice_card.html` SOLO para `notice_key == 'closed'` de la
+   inscripción. Las demás tarjetas de esta pantalla (verificación, límite de
+   envíos, no disponible) siguen usando la genérica: son avisos de una línea y
+   no tienen una fecha que dar.
+
+   Por qué existe: el caso real del 2026-09-17 es una convocatoria `status='open'`
+   con `opens_at` en el futuro. `is_public_enrollment_open` la considera cerrada
+   —y hace bien, el formulario no se abre antes de tiempo—, pero el servidor
+   YA SABE el día y la página mandaba al egresado a «consultar las fechas con
+   Servicios Escolares». Ahora se las dice.
+
+   Contratos que NO se tocan:
+   - `data-tt-notice="closed"` es el ancla estable de `public-enroll.spec.js`.
+   - El literal «La inscripción está cerrada» lo asertan dos tests de
+     `test_enrollment_public.py` (`"inscripción está cerrada" in resp.text`).
+   - `id="tt-notice"`, igual que la tarjeta genérica.
+
+   Contexto: notice_title, notice_body, opens_label ('lunes 28 de septiembre'),
+   opens_iso (ISO 8601 para `<time datetime>`), opens_countdown ('Faltan 11
+   días') y closes_label ('30 de septiembre'). Sin `opens_label` solo se pinta
+   el cuerpo genérico. Los arma `pages/public.py::_enroll_closed_ctx`.
+   =========================================================================== #}
+<div id="tt-notice" class="tt-card tt-enroll-closed tt-anim-in"
+     role="status" data-tt-notice="closed">
+
+  <p class="tt-enroll-closed-state">
+    <i class="bi bi-calendar-x" aria-hidden="true"></i>
+    <span>{{ notice_title }}</span>
+  </p>
+
+  {% if opens_label %}
+  {# La fecha es el dato por el que el egresado entró a esta página, así que es
+     lo más grande de la tarjeta. Una sola frase en un solo nodo: partirla en
+     dos párrafos la deja leída a trozos por un lector de pantalla. #}
+  <p class="tt-enroll-closed-when">
+    Abre de nuevo el
+    <time class="tt-enroll-closed-date" datetime="{{ opens_iso }}">{{ opens_label }}</time>
+  </p>
+  {% if opens_countdown %}
+  <p class="tt-enroll-closed-meta">
+    <span class="tt-pill tt-pill--amber">{{ opens_countdown }}</span>
+  </p>
+  {% endif %}
+  <p class="tt-enroll-closed-body">{{ notice_body }}</p>
+  {% if closes_label %}
+  <p class="tt-enroll-closed-note">
+    Tendrás hasta el {{ closes_label }} para enviar tu solicitud.
+  </p>
+  {% endif %}
+  {% else %}
+  <p class="tt-enroll-closed-body">{{ notice_body }}</p>
+  {% endif %}
+</div>

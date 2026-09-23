@@ -1,0 +1,54 @@
+{# ===========================================================================
+   survey_thanks.html — tarjeta de agradecimiento.
+
+   Sustituye al formulario por `outerHTML`, sin redirect: el visitante ve que su
+   respuesta llego sin perder la pagina.
+
+   La copia CAMBIA con `credit_status`, y los CUATRO valores del dominio
+   (Tarea 3, spec 5.3, D6: `in_review | already_submitted | no_process |
+   anonymous`) tienen su rama. El envio YA NO acredita nada por si solo -eso
+   lo retiro `SurveyReviewService`, que ahora abre una solicitud para que
+   Gestion Tecnologica y Vinculacion decida despues-, asi que desaparecieron
+   `credited`, `already` y `no_requirement`: no hay nada que "ya acreditar" ni
+   ningun requisito de convocatoria que reclamarle a Servicios Escolares desde
+   aqui.
+
+   `anonymous` va en el `{% else %}` a proposito: es el unico caso sin sesion y
+   ademas el relleno que devuelve `submit` en su rama de error, asi que un valor
+   inesperado cae en el mensaje mas conservador —«quedo registrada, no acredita»—
+   y nunca en una tarjeta en blanco.
+
+   `back_link` (Tarea F): CTA de salida, independiente de `credit_status` -las
+   cuatro ramas la comparten, no solo `in_review`-. `None` sin sesion (incluida
+   la trampa E3, que nunca abre una sesion de BD para calcularla) y con la
+   MISMA verificacion que `require_page_app`: con asignacion en titulatec va a
+   `/titulatec/`, sin ella a `/`. Reusa el boton existente (`tt-btn-ink`), no
+   inventa uno nuevo.
+   =========================================================================== #}
+<div id="tt-survey-thanks" class="tt-card tt-card--hero tt-anim-in"
+     role="status" data-tt-credit="{{ credit_status }}">
+  <span class="tt-kicker"><i class="bi bi-check2-circle me-1" aria-hidden="true"></i>Listo</span>
+
+  {% if credit_status == 'in_review' %}
+    <h2 class="tt-display h5 mt-1 mb-2">Gracias, tu encuesta quedó en revisión</h2>
+    <p class="mb-0">Tu encuesta quedó en revisión por el Departamento de Gestión Tecnológica y Vinculación. Ya pueden agendarte la cita de cotejo; si hay algún pendiente te lo diremos en TitulaTec.</p>
+
+  {% elif credit_status == 'already_submitted' %}
+    <h2 class="tt-display h5 mt-1 mb-2">Gracias, ya teníamos tu respuesta</h2>
+    <p class="mb-0">Ya habías enviado la encuesta de egresados. Tu solicitud de liberación sigue su curso con Gestión Tecnológica y Vinculación; no hace falta contestarla otra vez.</p>
+
+  {% elif credit_status == 'no_process' %}
+    <h2 class="tt-display h5 mt-1 mb-2">Gracias por contestar</h2>
+    <p class="mb-0">Tu respuesta quedó registrada y cuenta para la estadística del Tec. No encontramos un proceso de titulación activo a tu nombre, así que no acredita ningún requisito.</p>
+
+  {% else %}
+    <h2 class="tt-display h5 mt-1 mb-2">Gracias por contestar</h2>
+    <p class="mb-0">Tu respuesta quedó registrada y cuenta para la estadística del Tec. Como no iniciaste sesión, NO quedará en tu expediente de titulación.</p>
+  {% endif %}
+
+  {% if back_link %}
+  <a class="btn btn-sm tt-btn-ink tt-pressable mt-3" href="{{ back_link.url }}" data-tt-thanks-back>
+    <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>{{ back_link.label }}
+  </a>
+  {% endif %}
+</div>

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from itcj2.apps.helpdesk.models.inventory_history import InventoryHistory
 from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+from itcj2.observability.work import measured
 
 logger = logging.getLogger(__name__)
 
@@ -178,35 +179,37 @@ class InventoryReportsService:
         result = InventoryReportsService.get_equipment_report(
             db, {**filters, "page": 1, "per_page": 10000}
         )
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow([
-            "No. Inventario", "Categoría", "Marca", "Modelo",
-            "No. Serie", "Departamento", "Asignado a", "Ubicación",
-            "Estado", "Fecha Adquisición", "Vencimiento Garantía",
-            "Último Mantenimiento", "Próx. Mantenimiento", "Notas",
-        ])
-        for item in result["items"]:
-            dept = item.get("department") or {}
-            user = item.get("assigned_to_user") or {}
-            cat = item.get("category") or {}
+        # Medido: solo el armado del CSV, no la consulta a BD de arriba.
+        with measured("inventory_report_equipment", "csv"):
+            output = io.StringIO()
+            writer = csv.writer(output)
             writer.writerow([
-                item.get("inventory_number", ""),
-                cat.get("name", ""),
-                item.get("brand", ""),
-                item.get("model", ""),
-                item.get("supplier_serial", ""),
-                dept.get("name", ""),
-                user.get("full_name", "Sin asignar"),
-                item.get("location_detail", ""),
-                item.get("status", ""),
-                item.get("acquisition_date", ""),
-                item.get("warranty_expiration", ""),
-                item.get("last_maintenance_date", ""),
-                item.get("next_maintenance_date", ""),
-                item.get("notes", ""),
+                "No. Inventario", "Categoría", "Marca", "Modelo",
+                "No. Serie", "Departamento", "Asignado a", "Ubicación",
+                "Estado", "Fecha Adquisición", "Vencimiento Garantía",
+                "Último Mantenimiento", "Próx. Mantenimiento", "Notas",
             ])
-        return output.getvalue()
+            for item in result["items"]:
+                dept = item.get("department") or {}
+                user = item.get("assigned_to_user") or {}
+                cat = item.get("category") or {}
+                writer.writerow([
+                    item.get("inventory_number", ""),
+                    cat.get("name", ""),
+                    item.get("brand", ""),
+                    item.get("model", ""),
+                    item.get("supplier_serial", ""),
+                    dept.get("name", ""),
+                    user.get("full_name", "Sin asignar"),
+                    item.get("location_detail", ""),
+                    item.get("status", ""),
+                    item.get("acquisition_date", ""),
+                    item.get("warranty_expiration", ""),
+                    item.get("last_maintenance_date", ""),
+                    item.get("next_maintenance_date", ""),
+                    item.get("notes", ""),
+                ])
+            return output.getvalue()
 
     @staticmethod
     def export_movements_csv(db: Session, filters: dict) -> str:
@@ -215,24 +218,25 @@ class InventoryReportsService:
             db, {**filters, "page": 1, "per_page": 10000}
         )
         event_labels = InventoryReportsService.get_event_type_labels()
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow([
-            "Fecha", "Tipo de Evento", "No. Inventario",
-            "Realizado por", "Notas", "Valor Anterior", "Valor Nuevo",
-        ])
-        for event in result["events"]:
-            performed_by = event.get("performed_by") or {}
+        with measured("inventory_report_movements", "csv"):
+            output = io.StringIO()
+            writer = csv.writer(output)
             writer.writerow([
-                event.get("timestamp", ""),
-                event_labels.get(event.get("event_type", ""), event.get("event_type", "")),
-                event.get("item_id", ""),
-                performed_by.get("full_name", ""),
-                event.get("notes", ""),
-                str(event.get("old_value", "")),
-                str(event.get("new_value", "")),
+                "Fecha", "Tipo de Evento", "No. Inventario",
+                "Realizado por", "Notas", "Valor Anterior", "Valor Nuevo",
             ])
-        return output.getvalue()
+            for event in result["events"]:
+                performed_by = event.get("performed_by") or {}
+                writer.writerow([
+                    event.get("timestamp", ""),
+                    event_labels.get(event.get("event_type", ""), event.get("event_type", "")),
+                    event.get("item_id", ""),
+                    performed_by.get("full_name", ""),
+                    event.get("notes", ""),
+                    str(event.get("old_value", "")),
+                    str(event.get("new_value", "")),
+                ])
+            return output.getvalue()
 
     @staticmethod
     def export_warranty_csv(db: Session, department_ids: list | None = None) -> str:
@@ -247,28 +251,29 @@ class InventoryReportsService:
         report = InventoryStatsService.get_warranty_report(db)
         today = date.today()
         dept_filter = set(department_ids) if department_ids is not None else None
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow([
-            "Estado", "No. Inventario", "Marca", "Modelo",
-            "Departamento", "Vencimiento Garantía", "Días Restantes",
-        ])
-        for label, key in [("Vence en 30 días", "expiring_30_days"), ("Vence en 60 días", "expiring_60_days")]:
-            for item in report.get(key, {}).get("items", []):
-                if dept_filter is not None and item.get("department_id") not in dept_filter:
-                    continue
-                days_left = ""
-                if item.get("warranty_expiration"):
-                    try:
-                        days_left = (date.fromisoformat(item["warranty_expiration"]) - today).days
-                    except (ValueError, TypeError):
-                        pass
-                writer.writerow([
-                    label, item.get("inventory_number", ""),
-                    item.get("brand", ""), item.get("model", ""),
-                    "", item.get("warranty_expiration", ""), days_left,
-                ])
-        return output.getvalue()
+        with measured("inventory_report_warranty", "csv"):
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow([
+                "Estado", "No. Inventario", "Marca", "Modelo",
+                "Departamento", "Vencimiento Garantía", "Días Restantes",
+            ])
+            for label, key in [("Vence en 30 días", "expiring_30_days"), ("Vence en 60 días", "expiring_60_days")]:
+                for item in report.get(key, {}).get("items", []):
+                    if dept_filter is not None and item.get("department_id") not in dept_filter:
+                        continue
+                    days_left = ""
+                    if item.get("warranty_expiration"):
+                        try:
+                            days_left = (date.fromisoformat(item["warranty_expiration"]) - today).days
+                        except (ValueError, TypeError):
+                            pass
+                    writer.writerow([
+                        label, item.get("inventory_number", ""),
+                        item.get("brand", ""), item.get("model", ""),
+                        "", item.get("warranty_expiration", ""), days_left,
+                    ])
+            return output.getvalue()
 
     @staticmethod
     def export_maintenance_csv(db: Session, department_ids: list | None = None) -> str:
@@ -276,23 +281,24 @@ class InventoryReportsService:
         from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
         report = InventoryStatsService.get_maintenance_report(db)
         dept_filter = set(department_ids) if department_ids is not None else None
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow([
-            "Estado", "No. Inventario", "Marca", "Modelo",
-            "Departamento", "Próx. Mantenimiento", "Último Mantenimiento",
-        ])
-        for label, key in [("Vencido", "overdue"), ("Próximos 30 días", "upcoming_30_days")]:
-            for item in report.get(key, {}).get("items", []):
-                if dept_filter is not None and item.get("department_id") not in dept_filter:
-                    continue
-                writer.writerow([
-                    label, item.get("inventory_number", ""),
-                    item.get("brand", ""), item.get("model", ""),
-                    "", item.get("next_maintenance_date", ""),
-                    item.get("last_maintenance_date", ""),
-                ])
-        return output.getvalue()
+        with measured("inventory_report_maintenance", "csv"):
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow([
+                "Estado", "No. Inventario", "Marca", "Modelo",
+                "Departamento", "Próx. Mantenimiento", "Último Mantenimiento",
+            ])
+            for label, key in [("Vencido", "overdue"), ("Próximos 30 días", "upcoming_30_days")]:
+                for item in report.get(key, {}).get("items", []):
+                    if dept_filter is not None and item.get("department_id") not in dept_filter:
+                        continue
+                    writer.writerow([
+                        label, item.get("inventory_number", ""),
+                        item.get("brand", ""), item.get("model", ""),
+                        "", item.get("next_maintenance_date", ""),
+                        item.get("last_maintenance_date", ""),
+                    ])
+            return output.getvalue()
 
     @staticmethod
     def export_lifecycle_csv(db: Session, department_ids: list | None = None) -> str:
@@ -301,27 +307,28 @@ class InventoryReportsService:
         report = InventoryStatsService.get_lifecycle_report(db)
         today = date.today()
         dept_filter = set(department_ids) if department_ids is not None else None
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow([
-            "Antigüedad", "No. Inventario", "Marca", "Modelo",
-            "Departamento", "Fecha Adquisición", "Años",
-        ])
-        for item in report.get("older_than_5_years", {}).get("items", []):
-            if dept_filter is not None and item.get("department_id") not in dept_filter:
-                continue
-            years = ""
-            if item.get("acquisition_date"):
-                try:
-                    years = round((today - date.fromisoformat(item["acquisition_date"])).days / 365.25, 1)
-                except (ValueError, TypeError):
-                    pass
+        with measured("inventory_report_lifecycle", "csv"):
+            output = io.StringIO()
+            writer = csv.writer(output)
             writer.writerow([
-                "Más de 5 años", item.get("inventory_number", ""),
-                item.get("brand", ""), item.get("model", ""),
-                "", item.get("acquisition_date", ""), years,
+                "Antigüedad", "No. Inventario", "Marca", "Modelo",
+                "Departamento", "Fecha Adquisición", "Años",
             ])
-        return output.getvalue()
+            for item in report.get("older_than_5_years", {}).get("items", []):
+                if dept_filter is not None and item.get("department_id") not in dept_filter:
+                    continue
+                years = ""
+                if item.get("acquisition_date"):
+                    try:
+                        years = round((today - date.fromisoformat(item["acquisition_date"])).days / 365.25, 1)
+                    except (ValueError, TypeError):
+                        pass
+                writer.writerow([
+                    "Más de 5 años", item.get("inventory_number", ""),
+                    item.get("brand", ""), item.get("model", ""),
+                    "", item.get("acquisition_date", ""), years,
+                ])
+            return output.getvalue()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

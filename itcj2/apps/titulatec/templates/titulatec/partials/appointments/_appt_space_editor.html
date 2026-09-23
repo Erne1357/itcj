@@ -50,6 +50,42 @@
              placeholder="Edificio A · Servicios Escolares">
     </div>
 
+    {# Los tres modos del espacio (D1). Cada uno con su línea derivada
+       CALCULADA EN EL SERVIDOR, igual que la de abajo: dice la verdad sobre
+       ESTE espacio («tus 10 franjas libres», el día y el lugar reales), no una
+       frase genérica. Duplicar el cálculo en JavaScript es exactamente lo que
+       este editor evita desde su rediseño. #}
+    <fieldset class="full tt-vis">
+      <legend class="tt-label">Visibilidad para el egresado</legend>
+      {% for valor, rotulo in [('private', 'Privado'),
+                               ('bookable', 'Agendable'),
+                               ('walkin', 'Abierto sin cita')] %}
+      <label class="tt-vis-opt" for="esp-vis-{{ valor }}">
+        <input class="form-check-input" type="radio" name="visibility"
+               id="esp-vis-{{ valor }}" value="{{ valor }}"
+               {{ 'checked' if E.visibility == valor }}>
+        <span class="min-w-0">
+          <span class="rotulo d-block">{{ rotulo }}</span>
+          <span class="derivada d-block">{{ E.vis_lineas[valor] }}</span>
+        </span>
+      </label>
+      {% endfor %}
+
+      {# Ruling 14: `offer` resuelve la carrera con el mismo predicado de
+         alcance del encargado, así que quien no tiene carreras asignadas —la
+         jefatura, típicamente— puede publicar un «Agendable» que no le aparece
+         a NINGÚN egresado. Se mantiene fail-closed; lo que no se mantiene es
+         el silencio. #}
+      {% if espacios.sin_alcance %}
+      <p class="tt-vis-aviso mb-0">
+        <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>
+        No tienes carreras asignadas: si lo publicas como «Agendable»,
+        <strong>ningún egresado lo verá</strong>. Pídele a la jefatura de
+        Servicios Escolares que te asigne las carreras que atiendes.
+      </p>
+      {% endif %}
+    </fieldset>
+
     <p class="tt-derivada full mb-0">{{ E.derivada }}</p>
 
     <div class="full d-flex flex-wrap gap-2">

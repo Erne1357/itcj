@@ -8,7 +8,7 @@
    columna de 600, así que para leer un acta escaneada había que abrir el modal
    por cada documento y por cada alumno. #}
 {% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav, appt_action %}
-{% from "titulatec/_macros.html" import appt_pill, estado_pill %}
+{% from "titulatec/_macros.html" import appt_pill, estado_pill, survey_review_pill %}
 
 {% set BASE = page_url ~ '/' ~ detail.process.id %}
 {% set QZ = ('?' ~ q_zone) if q_zone else '' %}
@@ -129,12 +129,165 @@
         {% endif %}
       </div>
 
+      {# Cancelar NO es «no se presentó», y son dos botones distintos a
+         propósito (D12): la ausencia registra que el lugar se consumió y NO lo
+         libera; cancelar dice que la cita no va a ocurrir y devuelve el lugar
+         al pozo en el acto. El motivo es opcional y va en un `<details>`
+         NATIVO: cero JS, que es lo único que permite tenerlo aquí (los
+         parciales de Citas no admiten `<script>` ni `style=` inline).
+
+         El `hx-post` va también en el botón: htmx 2 no hereda los verbos, así
+         que sin él el botón dentro del form no dispara nada. El form lo lleva
+         para que Enter dentro del campo también envíe. #}
+      {% if detail.appt.status in ('scheduled', 'confirmed') %}
+      <form class="mt-3" {{ appt_action(BASE ~ '/cancelar' ~ QZ) }}>
+        <details>
+          <summary class="tt-appt-note">Cancelar la cita</summary>
+          <input name="motivo" class="form-control form-control-sm mt-2" maxlength="255"
+                 placeholder="Motivo (opcional) — el alumno no lo ve"
+                 aria-label="Motivo de la cancelación">
+          <button type="submit" class="btn btn-sm tt-btn-danger-soft mt-2"
+                  hx-post="{{ BASE }}/cancelar{{ QZ }}"
+                  hx-confirm="Cancelar la cita|¿Cancelar la cita de {{ detail.student.name }}? Su lugar queda libre para otro egresado. Esto NO le consume sus cancelaciones."
+                  data-tt-confirm-ok="Sí, cancelar">
+            <i class="bi bi-calendar-x me-1" aria-hidden="true"></i>Cancelar cita</button>
+        </details>
+      </form>
+      {% endif %}
+
       {% if detail.appt.status == 'attended' %}
-      <div class="mt-3 d-flex flex-wrap align-items-center gap-2">
+      <div class="mt-3">
         <span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Cotejo concluido</span>
-        <a class="btn btn-sm tt-btn-ink" href="/titulatec/admin/processes/{{ detail.process.id }}">
-          <i class="bi bi-arrow-right me-1" aria-hidden="true"></i>Ir al proceso a aprobar fase 02</a>
       </div>
+
+      {# ---- checklist de requisitos + dictamen de la fase 02 ---------------
+         Antes aquí había un enlace «Ir al proceso a aprobar fase 02», que
+         mandaba al oficial al expediente con el alumno esperando. Y como la
+         guarda de la fase 2 (`PhaseService._cotejo_gate_error`) se niega
+         mientras falte un requisito obligatorio, dos botones a secas no habrían
+         bastado: el checklist tiene que estar AQUÍ para poder palomear lo que
+         el alumno acaba de poner sobre el mostrador.
+
+         Los ids de fila llevan el prefijo `appt-` (el expediente usa `exp-`)
+         para que nunca haya ids duplicados si algún día conviven, y son
+         estables porque el swap es `morph:outerHTML` de `#appt-shell`: sin id,
+         Idiomorph empareja por POSICIÓN y reescribiría la nota a medio teclear
+         de otra fila.
+
+         Las URLs de acción llevan `q_zone`, como el resto del panel: sin ella
+         el swap vuelve con otro día abierto. #}
+      <div class="tt-exp-reqs mt-3">
+        <span class="tt-kicker">
+          <i class="bi bi-check2-square me-1" aria-hidden="true"></i>Requisitos de cotejo</span>
+        {% if detail.requisitos %}
+        <div class="d-flex flex-column gap-2 mt-2">
+          {% for r in detail.requisitos %}
+          <div class="tt-card d-flex align-items-start gap-3" id="appt-req-{{ r.id }}">
+            <span class="tt-req-ico">
+              <i class="bi bi-{{ r.icon }}" aria-hidden="true"></i></span>
+            <div class="flex-grow-1">
+              <div class="tt-req-label">
+                {{ r.label }}
+                {% if not r.required %}<span class="tt-pill tt-pill--neutral">opcional</span>{% endif %}
+                {% if r.status == 'waived' %}<span class="tt-pill tt-pill--neutral">dispensado</span>
+                {% elif r.done %}<span class="tt-pill tt-pill--success">acreditado</span>{% endif %}
+              </div>
+              {% if r.hint %}
+              <div class="tt-req-meta">{{ r.hint }}</div>
+              {% endif %}
+              {% if r.when %}
+              <div class="tt-req-meta">
+                {{ r.when }}{% if r.source %} · {{ r.source }}{% endif %}{% if r.note %} — {{ r.note }}{% endif %}
+              </div>
+              {% endif %}
+              {% if r.auto_source == 'graduate_survey' %}
+              {# D3: aqui ya NO manda "lo acredita el sistema" — el requisito lo
+                 libera GTV, no el envio de la encuesta. `detail.survey` es el
+                 dict plano de `SurveyReviewService.summary_for_process`. #}
+              <div class="tt-req-meta">
+                {{ survey_review_pill(detail.survey.status) }}
+                {%- if detail.survey.status == 'rejected' and detail.survey.reason %}
+                  — {{ detail.survey.reason }}
+                {%- elif detail.survey.status == 'approved' %}
+                  — Liberada por GTV · {{ detail.survey.reviewed_at }}
+                {%- endif %}
+              </div>
+              {% elif r.auto_source %}
+              <div class="tt-req-meta">
+                Lo acredita el sistema ({{ r.auto_source }}); no se marca a mano.</div>
+              {% endif %}
+            </div>
+            {% if detail.can_mark_reqs and not r.auto_source %}
+            {# `hx-post` va en el form Y en cada botón: htmx 2 no hereda los
+               verbos, así que un botón dentro del form no dispara nada por sí
+               mismo. El del form cubre el Enter dentro de la nota (la ruta toma
+               `mark` por omisión); la nota se serializa sola porque htmx incluye
+               el form contenedor en toda petición que no sea GET. #}
+            <form class="d-flex flex-wrap align-items-center gap-2"
+                  {{ appt_action(BASE ~ '/requisitos/' ~ r.id ~ QZ) }}>
+              <input name="note" class="form-control form-control-sm tt-req-note"
+                     value="{{ r.note or '' }}" placeholder="Nota (opcional)"
+                     aria-label="Nota del requisito {{ r.label }}">
+              {# Los botones llevan solo `hx-post` y su `hx-vals`: el destino y
+                 el swap los heredan del form (htmx propaga esos atributos por
+                 el DOM), igual que en el expediente. #}
+              {% if r.done %}
+              <button type="button" class="btn btn-sm tt-btn-ghost"
+                      hx-post="{{ BASE }}/requisitos/{{ r.id }}{{ QZ }}"
+                      hx-vals='{"action":"unmark"}'>
+                <i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i>Desmarcar</button>
+              {% else %}
+              <button type="button" class="btn btn-sm tt-btn-ink"
+                      hx-post="{{ BASE }}/requisitos/{{ r.id }}{{ QZ }}"
+                      hx-vals='{"action":"mark"}'>
+                <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Marcar</button>
+              <button type="button" class="btn btn-sm tt-btn-soft"
+                      hx-post="{{ BASE }}/requisitos/{{ r.id }}{{ QZ }}"
+                      hx-vals='{"action":"waive"}'>
+                <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>Dispensar</button>
+              {% endif %}
+            </form>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="tt-appt-note mt-2 mb-0">
+          Esta convocatoria todavía no tiene requisitos configurados.</p>
+        {% endif %}
+      </div>
+
+      {# ---- Aprobar / Rechazar --------------------------------------------
+         «Rechazar» es una NAVEGACIÓN (`appt_nav`) con `&rechazar=`, el mismo
+         idiom que «Mover de franja» usa con `&mover=`: re-renderiza el panel
+         con el textarea abierto. `hx-confirm` no sirve (es sí/no y no recoge
+         texto) y `prompt()` está prohibido en el proyecto. #}
+      {% if rechazar == detail.process.id %}
+      <form class="tt-card mt-3 d-flex flex-column gap-2"
+            {{ appt_action(BASE ~ '/fase2/rechazar' ~ QZ) }}>
+        <label class="tt-kicker" for="appt-reason">Motivo del rechazo</label>
+        <textarea id="appt-reason" name="reason" rows="3" class="form-control form-control-sm"
+                  placeholder="Qué le faltó y qué tiene que traer. Es lo que el alumno lee."
+                  required></textarea>
+        <div class="d-flex flex-wrap gap-2">
+          <button type="submit" class="btn btn-sm tt-btn-danger-soft">
+            <i class="bi bi-x-circle me-1" aria-hidden="true"></i>Rechazar la fase 02</button>
+          <a class="btn btn-sm tt-btn-ghost"
+             {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ detail.process.id) }}>
+            Cancelar</a>
+        </div>
+      </form>
+      {% else %}
+      <div class="mt-3 d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-sm tt-btn-ink"
+                {{ appt_action(BASE ~ '/fase2/aprobar' ~ QZ) }}>
+          <i class="bi bi-check2-circle me-1" aria-hidden="true"></i>Aprobar fase 02</button>
+        <a class="btn btn-sm tt-btn-danger-soft"
+           {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ detail.process.id
+                       ~ '&rechazar=' ~ detail.process.id) }}>
+          <i class="bi bi-x-circle me-1" aria-hidden="true"></i>Rechazar fase 02</a>
+      </div>
+      {% endif %}
       {% endif %}
 
       {% else %}
@@ -147,6 +300,37 @@
         <i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Agendar a este alumno</a>
       {% endif %}
     </div>
+
+    {# --- Historial de intentos ------------------------------------------
+       Vive FUERA de la tarjeta de la cita, y esa es la diferencia que importa:
+       quien agotó sus cancelaciones NO tiene cita vigente, así que dentro del
+       `{% if detail.appt %}` el encargado abriría su ficha desde «Requieren que
+       les agendes» y no vería ni rastro de las tres veces que canceló — justo
+       el dato con el que tiene que decidir.
+
+       Es el ÚNICO sitio donde el historial se vuelve visible: `get_for_process`
+       devuelve solo la vigente. Se pinta a partir de DOS intentos: con uno
+       solo, «#1» no informa de nada y es ruido sobre la ficha. #}
+    {% if detail.attempts and detail.attempts|length > 1 %}
+    <div class="tt-card">
+      <h3 class="tt-h-sec">Intentos de cita
+        <span class="n">{{ detail.attempts|length }}</span>
+      </h3>
+      <p class="tt-appt-empty mb-2">
+        Ya se le agendó {{ detail.attempts|length }} veces. Del más reciente al más antiguo.
+      </p>
+      <ul class="tt-attempts">
+        {% for a in detail.attempts %}
+        <li class="tt-attempt" id="appt-attempt-{{ detail.process.id }}-{{ a.n }}">
+          <span class="n">#{{ a.n }}</span>
+          <span class="when">{{ a.when }}</span>
+          {{ appt_pill(a.status) }}
+          <span>{{ 'Agendó el alumno' if a.by_student else 'Agendó el encargado' }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
   </div>
 
   {# --- Visor de documentos ------------------------------------------------ #}

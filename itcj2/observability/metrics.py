@@ -1,0 +1,400 @@
+"""Métricas de Prometheus de ITCJ y su exposición en `GET /metrics`.
+
+R18: TODOS los objetos de métrica `itcj_*` se declaran aquí, a nivel de
+módulo y nunca dentro de `create_app()` (una segunda app en el mismo proceso,
+p. ej. en tests, intentaría registrarlos otra vez). Los módulos que los
+alimentan (middleware, saturación, lag del loop) solo los actualizan.
+
+Modo multiproceso (plan §9.2): producción corre `uvicorn --workers 4`, cuatro
+procesos detrás de un puerto. Sin `PROMETHEUS_MULTIPROC_DIR` cada worker
+tendría su propio registro y el scrape caería en uno al azar: un tablero con
+la cuarta parte del tráfico que parece plausible — números EQUIVOCADOS, no
+ausentes. Con la variable puesta (la exporta el entrypoint ANTES de arrancar
+uvicorn: `prometheus_client` elige la clase de valores al importarse), cada
+proceso escribe sus valores en ficheros mmap de ese directorio y
+`MultiProcessCollector` los suma todos al atender el scrape, caiga en el
+worker que caiga.
+
+Sin exemplars (plan §9.3): en modo multiproceso `set_exemplar` es un no-op de
+`prometheus_client` (comprobado en 0.26.0: `MmapedValue.set_exemplar` solo
+hace `return`), así que no hay forma de colgar un `trace_id` de un bucket. El
+puente entre "este panel tiene un pico" y "esta petición es la culpable" va
+por Loki: la línea-resumen de cada petición (`itcj2.access`) lleva `route`,
+`duration_ms`, `status` y `trace_id`, y se filtra con
+`{project="itcj"} | json | route="X" | duration_ms > 1000`.
+"""
+import logging
+import os
+import re
+
+from anyio import CapacityLimiter
+from anyio.lowlevel import RunVar
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    REGISTRY,
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
+from prometheus_client.core import GaugeMetricFamily
+from prometheus_client.multiprocess import MultiProcessCollector, mark_process_dead
+
+logger = logging.getLogger("itcj2.observability")
+
+# ---------------------------------------------------------------------------
+# RED por petición HTTP (Fase 2)
+# ---------------------------------------------------------------------------
+# Nunca `multiprocess_mode='all'` ni `'liveall'`: añaden una etiqueta `pid`,
+# y con workers que uvicorn respawnea cada respawn deja un juego de series
+# muertas para siempre.
+
+# Tope de 30 s: el `proxy_read_timeout 60s` de nginx es la frontera exterior;
+# más allá el cliente ya vio un 504. 11 buckets (R13): el recorte, si hace
+# falta, se decide con la medición de 24 h (plan §6, palanca 3).
+DURATION_BUCKETS = (0.005, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30)
+
+HTTP_REQUESTS = Counter(
+    "itcj_http_requests_total",
+    "Peticiones HTTP atendidas, por ruta plantillada y status.",
+    ("app", "method", "route", "status"),
+)
+
+# SIN `status` (plan §6): lo multiplicaría por ~3 y es la métrica más cara
+# (11 buckets + Inf + sum + count por par). El status ya va en el contador.
+HTTP_REQUEST_DURATION = Histogram(
+    "itcj_http_request_duration_seconds",
+    "Duración de las peticiones HTTP, por ruta plantillada.",
+    ("app", "method", "route"),
+    buckets=DURATION_BUCKETS,
+)
+
+# `livesum` suma los procesos VIVOS, pero solo deja de sumar uno muerto si
+# alguien llama `mark_process_dead(pid)`: de eso se encarga
+# `reap_dead_workers()` en cada scrape.
+HTTP_IN_FLIGHT = Gauge(
+    "itcj_http_requests_in_flight",
+    "Peticiones HTTP en curso.",
+    ("app",),
+    multiprocess_mode="livesum",
+)
+
+HTTP_EXCEPTIONS = Counter(
+    "itcj_http_exceptions_total",
+    "Excepciones no controladas que salieron del endpoint.",
+    ("app", "route", "exc_type"),
+)
+
+
+# ---------------------------------------------------------------------------
+# Saturación (Fase 3) — los actualiza `saturation.update_gauges()`
+# ---------------------------------------------------------------------------
+# Gauges REALES con `.set()` desde cada worker, no un colector personalizado:
+# un colector corre solo en el worker que atiende el scrape, su salida nunca
+# pasa por los ficheros mmap, y se publicaría el pool de 1 de los 4 workers
+# elegido al azar — números equivocados, no ausentes (plan Fase 3). Con
+# `livesum` numerador y denominador de un ratio ya vienen sumados sobre los
+# workers vivos.
+
+
+def _saturation_gauge(name: str, documentation: str) -> Gauge:
+    return Gauge(name, documentation, multiprocess_mode="livesum")
+
+
+# Limiter de anyio: los hilos donde corren los endpoints `def` (40 tokens).
+ANYIO_THREADPOOL_TOTAL = _saturation_gauge(
+    "itcj_anyio_threadpool_total", "Tokens del limiter de hilos de anyio."
+)
+ANYIO_THREADPOOL_BORROWED = _saturation_gauge(
+    "itcj_anyio_threadpool_borrowed", "Tokens del limiter de anyio en uso."
+)
+ANYIO_THREADPOOL_WAITING = _saturation_gauge(
+    "itcj_anyio_threadpool_waiting",
+    "Tareas esperando un hilo de anyio (> 0: threadpool agotado).",
+)
+
+# Executor por defecto de asyncio (`asyncio.to_thread`: handlers de sockets).
+ASYNCIO_THREADPOOL_TOTAL = _saturation_gauge(
+    "itcj_asyncio_threadpool_total", "max_workers del executor por defecto de asyncio."
+)
+ASYNCIO_THREADPOOL_THREADS = _saturation_gauge(
+    "itcj_asyncio_threadpool_threads",
+    "Hilos creados por el executor por defecto de asyncio (nunca baja).",
+)
+ASYNCIO_THREADPOOL_WAITING = _saturation_gauge(
+    "itcj_asyncio_threadpool_waiting",
+    "Trabajos encolados en el executor por defecto de asyncio.",
+)
+
+# Pool de SQLAlchemy. La saturación es checkedout / (size + max_overflow),
+# NUNCA `overflow` a secas (ver `saturation.py`).
+DB_POOL_SIZE = _saturation_gauge("itcj_db_pool_size", "pool_size del engine.")
+DB_POOL_CHECKEDIN = _saturation_gauge(
+    "itcj_db_pool_checkedin", "Conexiones ociosas en el pool."
+)
+DB_POOL_CHECKEDOUT = _saturation_gauge(
+    "itcj_db_pool_checkedout", "Conexiones prestadas del pool."
+)
+DB_POOL_OVERFLOW = _saturation_gauge(
+    "itcj_db_pool_overflow",
+    "QueuePool.overflow() crudo: arranca en -pool_size (no es un error).",
+)
+DB_POOL_MAX_OVERFLOW = _saturation_gauge(
+    "itcj_db_pool_max_overflow", "max_overflow configurado (DB_MAX_OVERFLOW)."
+)
+
+# ---------------------------------------------------------------------------
+# Lag del event loop (Fase 3) — lo observa `loop_lag.run_probe()`
+# ---------------------------------------------------------------------------
+# Hace falsable el arreglo de la Fase 6: cuánto tarda el loop en despertar
+# una corrutina que pidió dormir, por encima de lo pedido.
+LOOP_LAG_BUCKETS = (0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5)
+
+EVENT_LOOP_LAG = Histogram(
+    "itcj_event_loop_lag_seconds",
+    "Retraso del event loop al despertar una corrutina dormida.",
+    buckets=LOOP_LAG_BUCKETS,
+)
+
+
+# ---------------------------------------------------------------------------
+# Trabajo pesado y llamadas salientes (Fase 4) — los observa `work.measured*`
+# ---------------------------------------------------------------------------
+# Lo que puede ocupar un hilo del threadpool (y una conexión de BD) durante
+# segundos. Los valores de las etiquetas son conjuntos CERRADOS que valida
+# `work.py`, no este módulo: `work` los necesita sin importar esto (regla de
+# oro 1, ver su docstring).
+#
+# Alcance: solo el camino HTTP se raspa (opción (i) del plan). Los mismos
+# servicios corren en `celery-worker` y ahí la observación cae en un registro
+# plano que nadie raspa. El panel debe decirlo en su descripción.
+
+# R31: primer bucket en 50 ms y no en 0,5 s: el oficio de bajas y los CSV son
+# sub-segundo y con el plan (.5,…,60) caerían todos en el primero. Tope en
+# 60 s: el `timeout=60` de LibreOffice (el timeout mismo cae en +Inf).
+DOCUMENT_RENDER_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 40, 60)
+
+DOCUMENT_RENDER_DURATION = Histogram(
+    "itcj_document_render_seconds",
+    "Duración de la generación de documentos (PDF, Excel, CSV), camino HTTP.",
+    ("kind", "engine", "outcome"),
+    buckets=DOCUMENT_RENDER_BUCKETS,
+)
+
+# Tope en 30 s: el `timeout=30` de MS Graph. El 15 deja el `timeout=12` de la
+# API de fútbol en su propio bucket, (10, 15].
+OUTBOUND_REQUEST_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 30)
+
+OUTBOUND_REQUEST_DURATION = Histogram(
+    "itcj_outbound_request_seconds",
+    "Duración de las llamadas HTTP salientes, por destino y resultado.",
+    ("target", "outcome"),
+    buckets=OUTBOUND_REQUEST_BUCKETS,
+)
+
+
+# ---------------------------------------------------------------------------
+# Tareas en segundo plano (Fase 5b) — las cuenta `spawn.py`
+# ---------------------------------------------------------------------------
+# Las corrutinas fire-and-forget (los broadcasts de Socket.IO), una cuenta por
+# tarea al terminar. `name` es el SITIO técnico (R37), no el evento de
+# negocio: el evento va en la línea de log. Sus valores son un conjunto
+# CERRADO que valida `spawn.py`, no este módulo, por la misma razón que los de
+# trabajo pesado. `dropped` cuenta lo que ni llegó a lanzarse: la rama de
+# `async_broadcast` sin loop principal.
+#
+# Lo que la serie raspada NO ve, para que nadie lea un 0 como "no se pierde
+# nada":
+# - `dropped` solo ocurre en procesos que no se raspan: CLI y scripts (p. ej.
+#   `itcj2/scripts/maint_sla_check.py`, que llega a `async_broadcast` por
+#   `sla_service`) y Celery. En los tiers HTTP y sockets el lifespan fija el
+#   loop principal antes de atender nada, así que ahí solo lo producen las
+#   carreras de arranque y de cierre: la serie raspada vale ~0 por estructura.
+# - `notify_websocket_push` no cuenta el push que
+#   `NotificationService.broadcast_websocket` salta cuando lo llama código
+#   síncrono (sin loop: endpoints `def`, Celery), que es el caso común. No es
+#   `dropped` a propósito (R42): varios de esos llamadores empujan aparte por
+#   `async_broadcast` y contarlo como pérdida alarmaría en falso. Esa serie
+#   solo se mueve con los llamadores async.
+BACKGROUND_TASKS = Counter(
+    "itcj_background_tasks_total",
+    "Corrutinas en segundo plano terminadas o descartadas, por sitio y resultado.",
+    ("name", "status"),
+)
+
+
+# ---------------------------------------------------------------------------
+# Reaper de gauges `live*` de workers muertos (plan §9.16)
+# ---------------------------------------------------------------------------
+# `livesum` NO detecta procesos muertos: el fichero `gauge_livesum_<pid>.db`
+# de un worker que murió se sigue sumando para siempre, y el in-flight (y los
+# gauges de saturación de la Fase 3) suben de forma monótona con cada
+# respawn — parece una fuga de peticiones y no lo es. El sitio documentado
+# para `mark_process_dead` es el hook `child_exit` de gunicorn, pero aquí se
+# corre `uvicorn --workers` sin gunicorn, y el supervisor de uvicorn
+# (`uvicorn.supervisors.multiprocess.Multiprocess`) no expone ningún callback
+# de salida de worker. Por eso se barre en cada scrape: a un scrape cada 30 s
+# el coste es un `listdir` y unos cuantos `os.kill(pid, 0)`.
+#
+# Los PIDs solo significan algo dentro del contenedor: el directorio tiene que
+# ser propio de cada contenedor (un tmpfs), nunca compartido entre ellos.
+_LIVE_GAUGE_FILE = re.compile(r"^gauge_live[a-z]+_(\d+)\.db$")
+
+
+def reap_dead_workers(path: str | None = None) -> list[int]:
+    """Deja de sumar los gauges `live*` de los PIDs que ya no existen.
+
+    Solo borra ficheros `gauge_live*_<pid>.db` (vía `mark_process_dead`):
+    los de counter e histogram de un worker muerto se quedan, porque sus
+    peticiones cuentan. Nunca lanza: un fallo aquí no puede tirar el scrape.
+    Regresa los PIDs barridos.
+    """
+    reaped = []
+    try:
+        path = path or os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+        if not path or not os.path.isdir(path):
+            return reaped
+        pids = {
+            int(match.group(1))
+            for match in map(_LIVE_GAUGE_FILE.match, os.listdir(path))
+            if match
+        }
+        for pid in sorted(pids):
+            try:
+                # Comprobado justo antes de borrar: acota la carrera con un
+                # worker que siga escribiendo.
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                mark_process_dead(pid, path)
+                reaped.append(pid)
+            except PermissionError:
+                # Existe pero es de otro usuario: vivo.
+                continue
+    except Exception:
+        logger.exception("reap_dead_workers: no se pudo barrer %r", path)
+    return reaped
+
+
+# ---------------------------------------------------------------------------
+# Exposición
+# ---------------------------------------------------------------------------
+# Colectores evaluados a la hora del scrape que se sirven además de las
+# métricas del registro (Task 8: presencia y conexiones de sockets, que
+# viven en Redis y solo registra el rol socket/all). No se registran en
+# REGISTRY porque en modo multiproceso el scrape se arma sobre un registro
+# nuevo que solo lee los ficheros mmap.
+_scrape_collectors: list = []
+
+
+def register_scrape_collector(collector) -> None:
+    """Añade un colector (objeto con `collect()`) a la salida de `/metrics`."""
+    _scrape_collectors.append(collector)
+
+
+# Presencia y conexiones de socket (Task 8): el colector se registra SIEMPRE,
+# en cualquier rol — el filtro `APP_ROLE in ("socket", "all")` vive DENTRO de
+# `PresenceCollector.collect()`, comprobado en cada scrape (ver
+# presence.py), no aquí. Si se condicionara el alta al rol de ESTE import
+# (como `_WRITE_ONLY` en `sockets/server.py`), un worker `http` jamás lo
+# tendría en `_scrape_collectors` y ningún test podría simular
+# `APP_ROLE=socket` con un `monkeypatch`: haría falta relanzar el proceso.
+from itcj2.observability.presence import PresenceCollector  # noqa: E402
+
+register_scrape_collector(PresenceCollector())
+
+
+# Uso del directorio de mmap (R25). Lleno, cada escritura mmap nueva da SIGBUS
+# (no se puede atrapar): el worker muere y los que uvicorn respawnea mueren al
+# importar, porque los gauges sin etiquetas abren su fichero al declararse; el
+# color queda caído en bucle. El directorio solo crece en la vida del
+# contenedor (los counter/histogram de cada worker muerto se quedan, a
+# propósito), así que se mide en cada scrape para que la alerta llegue ANTES.
+# Colector a la hora del scrape y no Gauge: es un dato del contenedor entero,
+# el mismo lo lea el worker que lo lea; un `livesum` lo sumaría 4 veces.
+class MetricsDirCollector:
+    """`itcj_metrics_dir_used_bytes` / `_size_bytes` vía `os.statvfs`.
+
+    Solo con `PROMETHEUS_MULTIPROC_DIR` puesta (en el registro plano no hay
+    directorio). Nunca lanza: si no se puede leer, se omiten las dos familias
+    y se deja un warning; el resto del scrape sigue.
+    """
+
+    def collect(self):
+        path = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+        if not path:
+            return
+        try:
+            stats = os.statvfs(path)
+        except Exception as exc:
+            logger.warning("metrics_dir: no se pudo leer statvfs de %r: %s", path, exc)
+            return
+        size = stats.f_blocks * stats.f_frsize
+        used = (stats.f_blocks - stats.f_bfree) * stats.f_frsize
+        yield GaugeMetricFamily(
+            "itcj_metrics_dir_used_bytes",
+            "Bytes usados del directorio de mmap de prometheus_client (lleno = SIGBUS).",
+            value=used,
+        )
+        yield GaugeMetricFamily(
+            "itcj_metrics_dir_size_bytes",
+            "Tamaño total del sistema de ficheros del directorio de mmap.",
+            value=size,
+        )
+
+
+register_scrape_collector(MetricsDirCollector())
+
+
+class _ScrapeView:
+    """Lo que `generate_latest` recorre: la base más los colectores extra."""
+
+    def __init__(self, base, extras):
+        self._base = base
+        self._extras = extras
+
+    def collect(self):
+        yield from self._base.collect()
+        for collector in self._extras:
+            yield from collector.collect()
+
+
+# Limiter PROPIO del scrape (R24). Con el limiter por defecto de anyio (el de
+# los endpoints `def`, 40 tokens) el scrape haría cola FIFO detrás de las
+# peticiones justo cuando el threadpool se agota: el scrape vence su timeout,
+# el target cae a up=0, sus series se vuelven stale, el `for:` de la alerta de
+# threadpool se reinicia y la alerta no dispara en el único escenario para el
+# que existe. Un token: además serializa scrapes concurrentes (y el reaper).
+# `RunVar` y no un global: un CapacityLimiter pertenece a UN event loop (los
+# tests abren varios); es el mismo mecanismo con que anyio guarda el suyo.
+_SCRAPE_LIMITER: RunVar = RunVar("itcj_scrape_limiter")
+
+
+def scrape_limiter() -> CapacityLimiter:
+    """El `CapacityLimiter(1)` del scrape para el event loop en curso,
+    creado perezosamente la primera vez que lo pide ese loop."""
+    try:
+        return _SCRAPE_LIMITER.get()
+    except LookupError:
+        limiter = CapacityLimiter(1)
+        _SCRAPE_LIMITER.set(limiter)
+        return limiter
+
+
+def render_latest() -> tuple[bytes, str]:
+    """Cuerpo y `Content-Type` de `GET /metrics`.
+
+    Con `PROMETHEUS_MULTIPROC_DIR`: primero el reaper, luego un
+    `CollectorRegistry` nuevo con `MultiProcessCollector` (el patrón
+    documentado de `prometheus_client`: el registro global de ESTE worker solo
+    tiene sus propios valores). Sin la variable (tests, dev): el registro
+    plano del proceso.
+    """
+    path = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+    if path:
+        reap_dead_workers(path)
+        base = CollectorRegistry()
+        MultiProcessCollector(base, path=path)
+    else:
+        base = REGISTRY
+    return generate_latest(_ScrapeView(base, list(_scrape_collectors))), CONTENT_TYPE_LATEST

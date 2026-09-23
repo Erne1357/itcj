@@ -53,7 +53,7 @@ _D2 = date(2029, 5, 8)
 @pytest.fixture()
 def agenda(seed_phase_defs, seed_document_types, make_program, make_cohort,
            make_review_day, make_student, make_process, make_document,
-           make_appointment, make_officer, make_head):
+           make_appointment, make_officer, make_head, make_survey_review):
     """Dos carreras, dos dias de cotejo, cuatro procesos y dos actores.
 
         proc_a1  carrera A · cita el dia 1       -> el encargado SI lo ve
@@ -61,6 +61,12 @@ def agenda(seed_phase_defs, seed_document_types, make_program, make_cohort,
         proc_a2  carrera A · cita el dia 2       -> sirve para el deep link cruzado
         proc_ap  carrera A · SIN cita, 3 docs aprobados -> cae en "Por agendar"
         proc_bp  carrera B · SIN cita, 3 docs aprobados -> "Por agendar" del jefe
+
+    `ap` y `bp` llevan ADEMAS la encuesta de egresados ya enviada (Tarea 4,
+    D2): `list_pending_processes` exige la solicitud para contar como "Por
+    agendar"; sin sembrarla caerian en el cubo nuevo "Sin encuesta" y estos
+    tests, que miden el alcance por carrera de "Por agendar", dejarian de
+    medir lo que dicen medir.
     """
     def _build():
         seed_phase_defs()
@@ -90,6 +96,8 @@ def agenda(seed_phase_defs, seed_document_types, make_program, make_cohort,
                 make_document(proc, type_code=code, review_status="approved")
             if day is not None:
                 make_appointment(proc, when=datetime.combine(day, datetime.min.time()).replace(hour=hour))
+            else:
+                make_survey_review(proc)
         return {"officer": officer, "officer_position": officer_pos, "head": head,
                 "programs": {"a": prog_a, "b": prog_b}, "cohort": cohort,
                 "procs": procs, "students": students}
@@ -388,14 +396,31 @@ def test_el_segmento_tiene_tres_subvistas():
 def test_los_parciales_de_citas_no_llevan_js_ni_css_inline():
     """Regla del proyecto: cero `<script>` y cero `style=` nuevos en templates.
     El parcial traia 12 lineas de `<script>` con dos funciones globales y ocho
-    `style=` inline; hoy todo vive en `js/admin/appointments.js` y `titulatec.css`."""
+    `style=` inline; hoy todo vive en `js/admin/appointments.js` y `titulatec.css`.
+
+    Barre las DOS audiencias. La spec §7 del auto-agendado declaraba que la
+    regla la fijaba este test «y el equivalente del alumno», y ese equivalente
+    NUNCA se construyo: los tres parciales nuevos de `partials/student/` nacieron
+    limpios, pero `partials/cita_card.html` —que es justo lo que re-renderizan
+    los dos POST del auto-agendado— llevaba un `onclick` inline y ocho `style=`.
+    Una guarda que solo mira la mitad admin no puede cazar eso.
+    """
     ofensores = []
-    # Se barre TODO lo que exista bajo partials/appointments/ mas los dos hosts,
-    # en vez de una lista fija: el rediseno crea y borra parciales, y una lista
-    # fija se queda obsoleta en silencio (o revienta con FileNotFoundError).
+    # Se barre TODO lo que exista bajo partials/appointments/ y partials/student/
+    # mas los hosts, en vez de una lista fija: el rediseno crea y borra parciales,
+    # y una lista fija se queda obsoleta en silencio (o revienta con
+    # FileNotFoundError).
     archivos = [TEMPLATES / "admin" / "appointments.html",
-                TEMPLATES / "partials" / "appointments_body.html"]
-    archivos += sorted((TEMPLATES / "partials" / "appointments").glob("*.html"))
+                TEMPLATES / "partials" / "appointments_body.html",
+                TEMPLATES / "partials" / "cita_card.html"]
+    del_admin = sorted((TEMPLATES / "partials" / "appointments").glob("*.html"))
+    del_alumno = sorted((TEMPLATES / "partials" / "student").glob("*.html"))
+    # Las dos carpetas tienen que APORTAR algo. Sin esto, renombrar una deja el
+    # barrido reducido a los hosts y el test sigue verde sin mirar nada: es la
+    # misma trampa que la asercion negativa que viaja sola.
+    assert del_admin, "el barrido admin se quedo sin archivos: ¿se renombro la carpeta?"
+    assert del_alumno, "el barrido del alumno se quedo sin archivos: ¿se renombro la carpeta?"
+    archivos += del_admin + del_alumno
     for path in archivos:
         if not path.exists():
             continue

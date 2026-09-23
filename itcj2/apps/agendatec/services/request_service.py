@@ -291,7 +291,7 @@ class RequestService:
         db.commit()
 
         logger.info("Solicitud de baja creada", extra={
-            "request_id": request_obj.id, "period_id": period.id
+            "agendatec_request_id": request_obj.id, "period_id": period.id
         })
 
         self._notify_drop_created(db, request_obj, student)
@@ -395,7 +395,7 @@ class RequestService:
             db.commit()
 
             logger.info("Solicitud de cita creada", extra={
-                "request_id": request_obj.id,
+                "agendatec_request_id": request_obj.id,
                 "appointment_id": appointment.id,
                 "slot_day": str(slot.day),
                 "coordinator_id": slot.coordinator_id,
@@ -428,7 +428,8 @@ class RequestService:
     def cancel_request(self, db: Session, request: Request, student: User) -> ServiceResult:
         """Cancela una solicitud del estudiante."""
         logger.info("Iniciando cancelación de solicitud", extra={
-            "student_id": student.id, "request_id": request.id, "type": request.type
+            "student_id": student.id, "agendatec_request_id": request.id,
+            "type": request.type,
         })
 
         validation = self.validate_can_cancel(db, request)

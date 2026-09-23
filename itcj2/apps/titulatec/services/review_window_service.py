@@ -72,34 +72,44 @@ class ReviewWindowService:
 
     @staticmethod
     def _assert_cabe_lo_agendado(db: Session, window, inicio, fin, minutos, cupo) -> None:
-        """Ninguna cita puede quedar fuera del horario nuevo, ni sobrar del cupo.
+        """Ninguna cita VIVA puede quedar fuera del horario nuevo, ni sobrar del cupo.
 
         Se comprueba ANTES de escribir: reducir un espacio con gente dentro no
         puede dejarlas huérfanas en silencio.
+
+        Cuenta con `SlotService.occupancy`, que es el MISMO predicado que decide
+        el cupo al agendar: filtra por ESTADO —una `cancelled` o una
+        `superseded` ya devolvieron su lugar; un `no_show` NO, D10— y **nunca**
+        por `is_current`. Contar filas crudas, que es lo que hacía antes,
+        rompía un caso perfectamente alcanzable con el historial de intentos:
+        el alumno cancela su 09:00 y se re-agenda en la misma 09:00 (legítimo,
+        D12 liberó el lugar), quedaban 2 filas en esa hora contra un cupo de 1
+        y CUALQUIER edición del espacio —hasta cambiarle solo la ubicación—
+        moría con un `WindowShrinkConflict` cuyo número, además, mentía.
         """
-        from itcj2.apps.titulatec.models import ReviewAppointment
-        citas = (db.query(ReviewAppointment)
-                 .filter(ReviewAppointment.window_id == window.id).all())
-        if not citas:
+        ocupacion = SlotService.occupancy(db, window)
+        if not ocupacion:
             return
 
         rejilla = set(SlotService.slots_from(inicio, fin, minutos))
-        fuera = [a for a in citas
-                 if not a.scheduled_at or a.scheduled_at.time() not in rejilla]
+        fuera = sum(n for hora, n in ocupacion.items() if hora not in rejilla)
         if fuera:
-            raise WindowShrinkConflict(len(fuera))
+            raise WindowShrinkConflict(fuera)
 
-        por_hora = {}
-        for a in citas:
-            por_hora[a.scheduled_at.time()] = por_hora.get(a.scheduled_at.time(), 0) + 1
-        excedidas = sum(1 for n in por_hora.values() if n > int(cupo))
+        excedidas = sum(1 for n in ocupacion.values() if n > int(cupo))
         if excedidas:
             raise WindowShrinkConflict(excedidas)
 
     @staticmethod
     def create(db: Session, review_day_id: int, owner_id: int, *, start_time,
                end_time, slot_minutes, capacity, location=None,
-               position_id=None, actor_id=None):
+               position_id=None, actor_id=None, visibility="private"):
+        """`visibility` nace `private` (D1): publicar es un acto deliberado.
+
+        El default del parámetro repite el `server_default` de la columna a
+        propósito — así un llamador que no lo pase (el alta desde otro punto de
+        la app) no publica un espacio sin querer.
+        """
         from itcj2.apps.titulatec.models import ReviewWindow
 
         inicio, fin = _t(start_time), _t(end_time)
@@ -112,6 +122,7 @@ class ReviewWindowService:
             owner_position_id=position_id, start_time=inicio, end_time=fin,
             slot_minutes=int(slot_minutes or 30), capacity=int(capacity or 1),
             location=(location or None), status="open",
+            visibility=visibility or "private",
             created_by_id=actor_id or owner_id,
         )
         db.add(w)
@@ -124,7 +135,12 @@ class ReviewWindowService:
 
     @staticmethod
     def update(db: Session, window, *, start_time, end_time, slot_minutes,
-               capacity, location=None):
+               capacity, location=None, visibility=None):
+        """`visibility=None` CONSERVA el modo actual, no lo devuelve a privado.
+
+        La distinción importa: los llamadores que no saben del modo (o que solo
+        tocan el horario) no pueden despublicar un espacio por omisión.
+        """
         inicio, fin = _t(start_time), _t(end_time)
         if inicio is None or fin is None or fin <= inicio:
             raise InvalidSlot("La hora de fin tiene que ser posterior a la de inicio.")
@@ -143,6 +159,8 @@ class ReviewWindowService:
         window.slot_minutes = int(slot_minutes or 30)
         window.capacity = int(capacity or 1)
         window.location = location or None
+        if visibility is not None:
+            window.visibility = visibility
         try:
             db.flush()
         except IntegrityError:
@@ -159,11 +177,31 @@ class ReviewWindowService:
 
     @staticmethod
     def delete(db: Session, window) -> None:
+        """Borra el espacio, si de verdad no queda nada que perder.
+
+        Dos motivos distintos para negarse, con mensajes distintos (ver
+        `WindowInUse`), porque la acción que le toca al encargado no es la
+        misma:
+
+        * **citas vivas** → puede moverlas y volver a intentarlo. El conteo
+          sale de `SlotService.occupancy`, el mismo predicado del cupo, así que
+          coincide con lo que ve en el tablero. Antes contaba filas crudas y le
+          decía «muévelas» por citas canceladas o superadas que ya no están
+          ahí;
+        * **solo historial muerto** → no hay nada que mover, y la FK
+          `fk_titulatec_review_appointments_window` (`ON DELETE RESTRICT`,
+          verificado en BD) rechazaría el DELETE igual. Sin este segundo
+          chequeo el service daría el visto bueno y Postgres devolvería un
+          `IntegrityError` crudo: un 500 en vez de una frase.
+        """
         from itcj2.apps.titulatec.models import ReviewAppointment
-        n = (db.query(ReviewAppointment)
-             .filter(ReviewAppointment.window_id == window.id).count())
-        if n:
-            raise WindowInUse(n)
+        vivas = sum(SlotService.occupancy(db, window).values())
+        if vivas:
+            raise WindowInUse(vivas)
+        historicas = (db.query(ReviewAppointment)
+                      .filter(ReviewAppointment.window_id == window.id).count())
+        if historicas:
+            raise WindowInUse(historicas, solo_historial=True)
         db.delete(window)
         db.flush()
 
@@ -173,6 +211,11 @@ class ReviewWindowService:
 
         Los días donde el dueño YA tiene un espacio no se tocan: copiar no puede
         pisar una configuración que alguien hizo a mano.
+
+        **Copia también el MODO** (`visibility`). Sin eso, el encargado publica
+        el lunes como «Agendable», copia a los demás días y el martes nace
+        privado: espacios gemelos con visibilidad distinta y nada que se lo
+        diga. El horario y el modo son la misma decisión.
         """
         from itcj2.apps.titulatec.models import ReviewWindow
         creados, saltados = [], []
@@ -191,7 +234,7 @@ class ReviewWindowService:
                 start_time=window.start_time, end_time=window.end_time,
                 slot_minutes=window.slot_minutes, capacity=window.capacity,
                 location=window.location, position_id=window.owner_position_id,
-                actor_id=window.created_by_id))
+                actor_id=window.created_by_id, visibility=window.visibility))
         return creados, saltados
 
     @staticmethod

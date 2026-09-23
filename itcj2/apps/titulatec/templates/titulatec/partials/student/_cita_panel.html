@@ -1,0 +1,62 @@
+{# ===========================================================================
+   _cita_panel.html — las CUATRO CARAS de la pantalla de la cita (spec §7).
+
+   Se incluye dentro de `#tt-cita-panel` y es lo que devuelven los dos POST del
+   auto-agendado (`/cita/agendar` y `/cita/cancelar`): un POST de esta app
+   responde con el parcial re-renderizado, no con JSON.
+
+   Contexto: `_cita_panel_ctx(...)` -> `process`, `appt`, `agenda`.
+
+   El ORDEN de las caras no es cosmético:
+
+     1. la tarjeta de la cita (si la hay), que es la respuesta a «¿cuándo me
+        toca?» y por eso va primero;
+     2. el selector de agendado, cuando `can_book`;
+     4. la frase que dice POR QUÉ no puede, justo donde estaría el selector —
+        así el hueco queda explicado en lugar de mudo;
+     3. la atención sin cita, al final, como alternativa.
+
+   La 3 y la 4 conviven a propósito en el único caso donde eso importa: el
+   bloqueado por D9 no puede RESERVAR pero sí PRESENTARSE.
+   =========================================================================== #}
+
+{# `#tt-cita-card` sigue siendo el destino de «Confirmar asistencia» y
+   «Solicitar cambio», que se swappean SOLOS (sin repintar el panel entero). #}
+<div id="tt-cita-card">
+  {% include "titulatec/partials/cita_card.html" %}
+</div>
+
+{% if agenda.can_book and agenda.dias %}
+  {% include "titulatec/partials/student/_cita_agendar.html" %}
+{% elif fase_rechazada and appt and agenda.can_book and not agenda.dias %}
+  {# La fase 02 quedó con observaciones y el alumno YA puede volver a agendar
+     (regla 2 de `eligibility`: el corte es la fase APROBADA, no `attended`),
+     pero Servicios Escolares todavía no publica ningún espacio. Sin este
+     aviso el hueco entre la tarjeta y la cara 3/4 quedaba mudo: `agenda.dias`
+     vacío no entra al selector y `agenda.message` es `None` porque SÍ puede
+     agendar — no hay ningún motivo que explicar.
+     Exige `appt`: sin cita vigente, `cita_card.html` ya pinta «Pendiente de
+     agenda · Servicios Escolares agendará tu cita», y repetirlo aquí diría lo
+     mismo dos veces. #}
+  <div class="tt-card tt-card--accent mt-3 tt-anim-in">
+    <div class="tt-cita-why">
+      <i class="bi bi-calendar-event" aria-hidden="true"></i>
+      <p class="mb-0">Servicios Escolares te agendará una nueva cita. Te avisaremos cuando tenga fecha.</p>
+    </div>
+  </div>
+{% endif %}
+
+{% if agenda.message %}
+  {# Cara 4. Nunca un botón deshabilitado y mudo: la frase sale de
+     `SelfBookingService.message_for`, la misma que usa el error de `book`. #}
+  <div class="tt-card tt-card--accent mt-3 tt-anim-in">
+    <div class="tt-cita-why">
+      <i class="bi bi-info-circle" aria-hidden="true"></i>
+      <p class="mb-0">{{ agenda.message }}</p>
+    </div>
+  </div>
+{% endif %}
+
+{% if agenda.can_walkin and agenda.walkins %}
+  {% include "titulatec/partials/student/_cita_walkin.html" %}
+{% endif %}

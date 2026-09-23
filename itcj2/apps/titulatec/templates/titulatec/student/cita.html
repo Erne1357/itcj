@@ -1,4 +1,5 @@
 {% extends "titulatec/student/base_student.html" %}
+{% from "titulatec/_macros.html" import survey_review_pill %}
 {% block student_title %}Cita de cotejo · TitulaTec{% endblock %}
 {% block student_active %}cita{% endblock %}
 {% block student_page %}student_cita{% endblock %}
@@ -9,32 +10,98 @@
 {% endblock %}
 
 {% block student_body %}
+  {# Ancla ESTABLE del proceso que esta pagina esta mostrando. Existe porque la
+     regla de 5.3 —el checklist y el credito de la encuesta leen el MISMO
+     proceso— no era comprobable desde fuera: ni esta plantilla ni
+     `partials/cita_card.html` imprimian el folio en ningun sitio. Sin esto, un
+     cumplimiento que aterrice en otro proceso vivo del alumno se ve idéntico a
+     uno correcto. Lo consumen `test_survey_credit_route.py` y los E2E. #}
+  <div id="tt-cita-process" data-tt-process="{{ process.folio if process else '' }}" hidden></div>
   <div class="p-3 p-lg-4">
-    <div id="tt-cita-card" class="tt-anim-in">
-      {% include "titulatec/partials/cita_card.html" %}
+    {# Host de las cuatro caras (§7). El panel entero es lo que devuelven los
+       dos POST del auto-agendado; `#tt-cita-card`, que vive DENTRO, sigue
+       siendo el destino de «Confirmar asistencia» y «Solicitar cambio». #}
+    <div id="tt-cita-panel" class="tt-anim-in">
+      {% include "titulatec/partials/student/_cita_panel.html" %}
     </div>
 
-    {# — Checklist físico (informativo, fijo) — #}
+    {# — Requisitos de cotejo de SU convocatoria (los edita Servicios Escolares) — #}
     <div class="tt-card mt-3 tt-anim-in">
       <span class="tt-kicker"><i class="bi bi-bag-check me-1"></i>Qué llevar a tu cita</span>
       <p class="mb-2 mt-1" style="font-size:.8rem;color:var(--tt-slate)">
         Lleva todo físico el día de tu cita. No se suben aquí.</p>
       <div class="d-flex flex-column">
-        {% for icon, title, hint in checklist %}
+        {% for it in checklist %}
         <div class="d-flex align-items-start gap-3 py-2"
              {% if not loop.last %}style="border-bottom:1px solid var(--tt-line-soft)"{% endif %}>
           <span class="d-flex align-items-center justify-content-center"
                 style="width:34px;height:34px;border-radius:9px;background:var(--tt-mist);border:1px solid var(--tt-line);flex:0 0 auto">
-            <i class="bi bi-{{ icon }}" style="color:var(--tt-slate)"></i></span>
+            <i class="bi bi-{{ it.icon }}" style="color:var(--tt-slate)"></i></span>
           <div class="flex-grow-1 min-w-0">
-            <div style="font-size:.86rem;font-weight:600">{{ title }}</div>
-            <div style="font-size:.76rem;color:var(--tt-mute)">{{ hint }}</div>
+            <div style="font-size:.86rem;font-weight:600">{{ it.title }}
+              {% if it.info_html %}<button type="button" class="tt-reqinfo-btn"
+                      data-bs-toggle="modal" data-bs-target="#tt-reqinfo-modal-{{ it.id }}"
+                      aria-haspopup="dialog" aria-label="Información sobre {{ it.title }}"><i class="bi bi-info-circle" aria-hidden="true"></i></button>{% endif %}
+              {% if not it.required %}<span class="tt-pill tt-pill--neutral">opcional</span>{% endif %}
+            </div>
+            {% if it.hint %}<div style="font-size:.76rem;color:var(--tt-mute)">{{ it.hint }}</div>{% endif %}
+            {% if it.survey %}
+            {# D3: la libera GTV, no el envío -- el estatus real de la
+               solicitud sustituye al "Listo"/"Dispensado" genérico de abajo. #}
+            <div class="mt-1">
+              {{ survey_review_pill(it.survey.status) }}
+              {%- if it.survey.status == 'rejected' and it.survey.reason %}
+                — {{ it.survey.reason }}
+              {%- endif %}
+            </div>
+            {% endif %}
+            {% if it.survey_url %}
+            <a href="{{ it.survey_url }}" class="btn btn-sm tt-btn-soft mt-2">
+              <i class="bi bi-pencil-square me-1"></i>Contestar la encuesta</a>
+            {% endif %}
           </div>
+          {% if it.done %}
+          <span class="tt-pill tt-pill--success" style="flex:0 0 auto">{{ 'Dispensado' if it.status == 'waived' else 'Listo' }}{% if it.when %} · {{ it.when }}{% endif %}</span>
+          {% endif %}
         </div>
+        {% else %}
+        <p class="mb-0" style="font-size:.8rem;color:var(--tt-mute)">
+          Servicios Escolares aún no publica los requisitos de tu convocatoria.</p>
         {% endfor %}
       </div>
     </div>
   </div>
+{% endblock %}
+
+{# «Información para el alumno»: UN modal por requisito que la tenga, a nivel
+   <body> (fuera de `.tt-shell`). Uno por requisito y no uno solo poblado desde
+   el disparador, a propósito:
+     · cero JS propio: lo abre el data-API de Bootstrap (foco atrapado, Esc y
+       regreso del foco al botón «i»), así que no hay módulo que cargar ni que
+       pueda fallar;
+     · el HTML se pinta UNA vez en el servidor, ya sanitizado: no hay `innerHTML`
+       en el cliente ni una copia del contenido escondida en un `data-*`;
+     · la lista es corta (unos 8 requisitos) y solo se emiten los que tienen
+       información, así que el costo en DOM es despreciable.
+   El contenido sale de `_checklist_ctx`, que re-sanitiza al pintar. #}
+{% block modals %}
+{% for it in (checklist or []) if it.info_html %}
+<div class="modal fade tt-reqinfo-modal" id="tt-reqinfo-modal-{{ it.id }}" tabindex="-1"
+     aria-labelledby="tt-reqinfo-modal-{{ it.id }}-t" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="tt-reqinfo-modal-{{ it.id }}-t"><i class="bi bi-{{ it.icon }}" aria-hidden="true"></i><span>{{ it.title }}</span></h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body tt-reqinfo-body">{{ it.info_html|safe }}</div>
+      <div class="modal-footer">
+        <button type="button" class="btn tt-btn-ink tt-reqinfo-ok" data-bs-dismiss="modal">Entendido</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
 {% endblock %}
 
 {# Los errores de HTMX los maneja `static/js/student/errors.js`, cargado desde

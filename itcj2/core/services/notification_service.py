@@ -86,14 +86,23 @@ class NotificationService:
             notification: Instancia de Notification
         """
         try:
+            from itcj2.observability.spawn import spawn
             from itcj2.sockets.notifications import push_notification
 
             try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(push_notification(user_id, notification.to_dict()))
+                asyncio.get_running_loop()
             except RuntimeError:
                 # No hay loop activo (e.g. en contexto sync sin uvicorn)
                 pass
+            else:
+                # `spawn` y no `loop.create_task`: guarda la tarea hasta que
+                # termina (sin referencia, el recolector puede destruir el push
+                # a medio vuelo) y loguea con el `request_id` de la petición la
+                # excepción que antes se perdía.
+                spawn(
+                    push_notification(user_id, notification.to_dict()),
+                    name="notify_websocket_push",
+                )
 
         except Exception as e:
             logger.error(

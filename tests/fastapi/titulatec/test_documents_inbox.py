@@ -350,6 +350,61 @@ def test_el_dictamen_re_renderiza_la_bandeja_con_el_estado_nuevo(
     assert fila["all_approved"] is False        # faltan 2: no auto-avanza
 
 
+# ---------------------------------------------------------------------------
+# 4 - Botones de dictamen: solo para quien puede usarlos (arreglo A2)
+# ---------------------------------------------------------------------------
+def test_sin_permiso_de_dictamen_no_se_pintan_los_botones(client_as, make_head, bandeja):
+    """`make_head()` por defecto trae `HEAD_PERMS` (conftest.py), que NO
+    incluye `document.api.approve/.reject` -- exactamente el actor de solo
+    lectura que el spec §10 paso 4 pide sin estos botones. Un boton que
+    dispara un POST que responde 403 es peor que no estar (mismo criterio que
+    `can_mark_reqs`, `pages/admin.py:1285-1291`)."""
+    proc = bandeja()
+
+    html = client_as(make_head()).get(
+        "/titulatec/admin/documents/body?status=&selected=%d" % proc.id).text
+
+    # El atributo `id=`, no la subcadena suelta: el `<script>` de este mismo
+    # parcial SIEMPRE trae `getElementById('tt-inline-approve')` en texto,
+    # exista o no el boton -- una busqueda de subcadena da un falso negativo.
+    assert 'id="tt-inline-approve"' not in html
+    assert 'id="tt-inline-reject"' not in html
+
+
+def test_con_permiso_de_dictamen_si_se_pintan_los_botones(client_as, make_head, bandeja):
+    """Positivo de la MISMA ruta (regla de oro heredada de
+    `test_student_phase_guard.py`): con el permiso, los botones inline SI se
+    pintan."""
+    from tests.fastapi.titulatec.conftest import HEAD_PERMS
+    proc = bandeja()
+    jefa = make_head(perm_codes=HEAD_PERMS + ("titulatec.document.api.approve",
+                                              "titulatec.document.api.reject"))
+
+    html = client_as(jefa).get(
+        "/titulatec/admin/documents/body?status=&selected=%d" % proc.id).text
+
+    assert 'id="tt-inline-approve"' in html
+    assert 'id="tt-inline-reject"' in html
+
+
+def test_sin_permiso_de_dictamen_el_modal_expandido_tampoco_los_trae(
+    client_as, make_head, bandeja,
+):
+    """El modal de `admin/documents.html` (`#tt-doc-modal`) tiene SUS PROPIOS
+    botones Aprobar/Rechazar, aparte del form inline: sin este arreglo se
+    quedaban en el DOM (aunque, gracias a los guardas null-check del script,
+    ya inertes) aun con el form inline oculto -- confuso, no solo redundante.
+    La pagina completa (no el parcial `/body`) es la que renderiza el modal.
+    """
+    proc = bandeja()
+
+    html = client_as(make_head()).get(
+        "/titulatec/admin/documents?selected=%d" % proc.id).text
+
+    assert 'id="tt-modal-approve"' not in html
+    assert 'id="tt-modal-reject"' not in html
+
+
 def test_la_primitiva_del_indicador_existe_en_el_css():
     """El markup de arriba no sirve de nada si el CSS no define la primitiva."""
     css = CSS.read_text(encoding="utf-8")

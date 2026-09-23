@@ -53,3 +53,16 @@ class AddEquipmentRequest(BaseModel):
 
 class ReplaceEquipmentRequest(BaseModel):
     item_ids: list[int]
+
+
+class SplitTicketPart(BaseModel):
+    area: str
+    category_id: int
+    priority: str
+    title: str
+    description: str
+
+
+class SplitTicketRequest(BaseModel):
+    original: SplitTicketPart
+    parts: list[SplitTicketPart]

@@ -124,6 +124,11 @@
                         </div>
                     </div>
 
+                    <!-- Split Info ("Partir ticket"): enlaces al original y/o a las
+                         partes. Contenido 100% via JS (renderSplitInfo en
+                         ticket_detail.js); oculto (d-none) si no aplica. -->
+                    <div id="splitInfoContainer" class="d-none mb-3"></div>
+
                     <hr class="my-3">
 
                     <!-- Description -->
@@ -860,11 +865,20 @@
     </div>
 </div>
 
+{# Modal "Partir ticket" — markup compartido; lo pinta y envía
+   js/shared/split_ticket.js (HelpdeskSplit). Solo con el permiso de partir
+   (split_scope): sin él la página no trae el modal y el botón tampoco. #}
+{% if split_scope %}
+{% include "helpdesk/_components/split_ticket_modal.html" %}
+{% endif %}
+
 {% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet"
     href="{{ url_for('static', filename='helpdesk/css/user/ticket_detail.css') }}?v={{ sv('helpdesk', 'css/user/ticket_detail.css') }}">
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='helpdesk/css/shared/split_ticket.css') }}?v={{ sv('helpdesk', 'css/shared/split_ticket.css') }}">
 <!-- Shepherd.js CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css">
 <!-- Tutorial Custom CSS -->
@@ -872,6 +886,14 @@
     href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ sv('helpdesk', 'css/user/ticket_tutorial.css') }}">
 {% endblock %}
 
-{% block hd_data %}data-ticket-id="{{ ticket_id }}"{% endblock %}
-
-{% block extra_js %}{% endblock %}
+{# "Partir ticket" viaja en data-*, NO en un <script> inline: renderQuickActions()
+   (ticket_detail.js) es 100% cliente (pinta el menú desde el JSON que trae
+   loadTicketDetail()), así que no puede leer un {% if %} de Jinja — pero este
+   <body> lo reemplaza htmx con morph, y un `const` de nivel superior reejecutado
+   en la revisita es un SyntaxError duro ("already been declared") que aborta el
+   swap. ticket_detail.js::init() los relee del dataset en cada visita.
+     · data-split-scope: "all" | "own" | ""  (can_split, pages/nav.py)
+     · data-split-team : "desarrollo" | "soporte" | ""  (equipo del ACTOR,
+       utils/teams.py) — con alcance ".own" el guard de la API (D17) solo deja
+       partir lo propio o la cola sin asignar de ESE equipo. #}
+{% block hd_data %}data-ticket-id="{{ ticket_id }}" data-split-scope="{{ split_scope or '' }}" data-split-team="{{ split_team or '' }}"{% endblock %}

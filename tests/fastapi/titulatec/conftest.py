@@ -819,13 +819,23 @@ def make_document(db_session):
 def make_appointment(db_session):
     """Cita de cotejo.
 
-    Dominio real de `status` (`appointment_service.py:172-235`):
-    scheduled|confirmed|in_progress|attended|no_show. NO existe `rescheduled`.
+    Dominio real de `status` (`appointment_service.py:172-235`, mas
+    `cancelled`/`superseded` del historial de intentos, Tarea 1-2):
+    scheduled|confirmed|in_progress|attended|no_show|cancelled|superseded.
+    NO existe `rescheduled`.
+
+    `is_current`/`attempt_no`/`booked_by` traen los MISMOS defaults que el
+    `server_default` del modelo (vigente, intento 1, agendada por el
+    encargado), asi que un test que no los toca ve el comportamiento normal.
+    Se exponen para fabricar intentos NO vigentes a mano (historial ya
+    cerrado) sin pasar por `SlotService`/`AppointmentService` ni duplicar el
+    constructor de `ReviewAppointment` en cada archivo de test.
     """
     from itcj2.apps.titulatec.models import ReviewAppointment
 
     def _make(process, when=None, status="scheduled", created_by=None,
-              location="Edificio de prueba", note=None):
+              location="Edificio de prueba", note=None,
+              is_current=True, attempt_no=1, booked_by="officer"):
         default_when = datetime.combine(
             date.today() + timedelta(days=7), datetime.min.time()
         ).replace(hour=10)
@@ -835,11 +845,198 @@ def make_appointment(db_session):
             location=location,
             status=status,
             note=note,
+            is_current=is_current,
+            attempt_no=attempt_no,
+            booked_by=booked_by,
             created_by_id=getattr(created_by, "id", created_by) or process.student_id,
         )
         db_session.add(row)
         db_session.flush()
         return row
+
+    return _make
+
+
+# Copia sintetica del `schema` que siembra `11_seed_survey_form.sql`, mas un
+# `multiselect` y un `textarea` para ejercitar el renderizador COMPLETO: la CI
+# corre con `create_all` y sin DML, asi que nada de esto existe alli.
+SURVEY_SCHEMA_V1 = {
+    "enabled": True,
+    "sections": [
+        {"key": "empleo", "title": "Situacion laboral"},
+        {"key": "opinion", "title": "Tu opinion del Tec"},
+    ],
+    "fields": [
+        {"key": "situacion_laboral", "section": "empleo", "type": "radio",
+         "label": "Cual es tu situacion laboral actual?", "required": True,
+         "options": [{"value": "empleado", "label": "Trabajando"},
+                     {"value": "buscando", "label": "Buscando empleo"},
+                     {"value": "estudiando", "label": "Estudiando"}]},
+        {"key": "relacion_carrera", "section": "empleo", "type": "scale",
+         "label": "Que tanto se relaciona tu empleo con tu carrera?", "required": True,
+         "scale": {"min": 1, "max": 5,
+                   "min_label": "Nada relacionado",
+                   "max_label": "Totalmente relacionado"},
+         "visible_when": {"situacion_laboral": "empleado"}},
+        {"key": "areas_fuertes", "section": "opinion", "type": "multiselect",
+         "label": "Que areas sentiste mas fuertes?", "required": False,
+         "options": [{"value": "tecnica", "label": "Formacion tecnica"},
+                     {"value": "practicas", "label": "Practicas profesionales"},
+                     {"value": "idiomas", "label": "Idiomas"}]},
+        {"key": "comentarios", "section": "opinion", "type": "textarea",
+         "label": "Que le cambiarias al Tec?", "required": False,
+         "validation": {"maxLength": 2000}},
+    ],
+}
+
+
+@pytest.fixture()
+def make_survey_form(db_session):
+    """`titulatec_survey_forms`. Una fila = una VERSION del cuestionario.
+
+    1. `code` NO es unique por si sola: el unique es `(code, version)`.
+    2. El indice PARCIAL `uq_titulatec_survey_forms_open` (`code` WHERE
+       status='open') SI existe en la BD de dev migrada — lo declara
+       `__table_args__` (Tarea 1), asi que `create_all` tambien lo crea. Por eso
+       esta fabrica CIERRA las abiertas del mismo `code` antes de insertar: sin
+       ese barrido, en cuanto alguien corra `titulatec load-survey-2026-09` en su
+       BD de dev toda llamada por omision reventaria con IntegrityError.
+    3. GUARDA CONTRA FILAS EXTERNAS, no contra las que la propia fabrica creo:
+       `load-survey-2026-09` deja una fila real `('egresados', 1)` committeada
+       de forma PERMANENTE en la BD de dev (fuera de cualquier transaccion de
+       test), y las suites de Playwright (Tareas 25-27) manejan el navegador
+       real contra esa MISMA base, asi que pueden dejarle respuestas y
+       borradores reales encima. `SurveyResponse.form_id` NO lleva
+       `ondelete='CASCADE'` (a diferencia de `SurveyDraft.form_id`, que si lo
+       lleva), asi que un DELETE de `SurveyForm` sin purgar antes sus
+       respuestas revienta con un IntegrityError de FK — no con el unique que
+       veniamos a evitar. Se purga en orden seguro (answers -> responses ->
+       drafts -> form) DENTRO de esta misma transaccion de test: el
+       `rollback()` final de `db_session` deshace el purgado tambien, asi que
+       el dato real sembrado fuera de pytest nunca se pierde de verdad.
+
+    El `schema` por defecto es `SURVEY_SCHEMA_V1`: los dos campos del v1 del
+    diseno mas un multiselect y un textarea, para ejercer el renderizador entero.
+    """
+    from itcj2.apps.titulatec.models import (
+        SurveyAnswer, SurveyDraft, SurveyForm, SurveyResponse, SurveyReview,
+    )
+
+    def _make(code="egresados", version=1, status="open", schema=None,
+              title=None, description=None, is_anonymous=False,
+              opens_at=None, closes_at=None):
+        if status == "open":
+            (db_session.query(SurveyForm)
+             .filter(SurveyForm.code == code, SurveyForm.status == "open")
+             .update({"status": "closed"}, synchronize_session=False))
+            db_session.flush()
+        # El barrido de arriba solo protege el indice PARCIAL (un solo 'open'
+        # por code). Si YA existe una fila real con este mismo (code, version)
+        # se purga entera, respuestas/borradores incluidos (ver punto 3 del
+        # docstring), antes de insertar la nueva: el unique (code, version)
+        # colisionaria igual aunque la fila ya haya quedado 'closed', y el
+        # DELETE de abajo por si solo reventaria con FK si alguien le dejo una
+        # respuesta real encima.
+        existente_id = (
+            db_session.query(SurveyForm.id)
+            .filter(SurveyForm.code == code, SurveyForm.version == version)
+            .scalar()
+        )
+        if existente_id is not None:
+            respuestas = (db_session.query(SurveyResponse.id)
+                          .filter(SurveyResponse.form_id == existente_id))
+            (db_session.query(SurveyAnswer)
+             .filter(SurveyAnswer.response_id.in_(respuestas))
+             .delete(synchronize_session=False))
+            # `SurveyReview` tambien apunta a `SurveyResponse`, y es la tabla
+            # que faltaba (2026-09-18). Nacio el 2026-09-15 con la liberacion de
+            # GTV, despues de que se escribiera este purgado, asi que se quedo
+            # fuera: en cuanto un alumno REAL de dev envio su encuesta y GTV se
+            # la libero, el DELETE de las respuestas reventaba con
+            # `titulatec_survey_reviews_response_id_fkey` y se llevaba por
+            # delante 113 tests de la suite de titulatec, ninguno de ellos
+            # relacionado con la liberacion. El comentario de arriba ya preveia
+            # exactamente este fallo ("reventaria con FK si alguien le dejo una
+            # respuesta real encima"); solo le faltaba esta tabla.
+            (db_session.query(SurveyReview)
+             .filter(SurveyReview.response_id.in_(respuestas))
+             .delete(synchronize_session=False))
+            (db_session.query(SurveyResponse)
+             .filter(SurveyResponse.form_id == existente_id)
+             .delete(synchronize_session=False))
+            (db_session.query(SurveyDraft)
+             .filter(SurveyDraft.form_id == existente_id)
+             .delete(synchronize_session=False))
+            (db_session.query(SurveyForm)
+             .filter(SurveyForm.id == existente_id)
+             .delete(synchronize_session=False))
+            db_session.flush()
+        row = SurveyForm(
+            code=code,
+            version=version,
+            status=status,
+            title=title or f"Encuesta de prueba {code} v{version}",
+            description=description or "Cuestionario para egresados del ITCJ.",
+            schema=schema if schema is not None else SURVEY_SCHEMA_V1,
+            is_anonymous=is_anonymous,
+            opens_at=opens_at,
+            closes_at=closes_at,
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_survey_review(db_session, make_survey_form):
+    """`SurveyReview` ya en el estado pedido, con una `SurveyResponse` minima detras.
+
+    Crea SOLO la solicitud (y la respuesta que la respalda, via `make_survey_form`
+    con una VERSION propia por llamada -- `version=_n()` -- para no disparar el
+    purgado por colision de `(code, version)` de esa fabrica: dos llamadas en el
+    mismo test con la version por omision borrarian la respuesta de la primera
+    al crear la segunda). NO acredita el requisito `graduate_survey` aunque
+    `status="approved"`: eso es un EFECTO de `SurveyReviewService.approve`, no
+    un dato que se pueda sembrar por separado sin mentir sobre quien lo hizo.
+    El test que necesite la puerta de la fase 2 realmente abierta debe llamar
+    el mismo a `SurveyReviewService.approve(db_session, review.id, actor_id)`.
+
+    `reviewed_by_id`/`reviewed_at` solo se llenan si se pasa `reviewer`: sin
+    el, quedan en `None` sin importar `status` (fabrica minima, sin inferencias).
+    """
+    from itcj2.core.utils.timezone import db_now
+    from itcj2.apps.titulatec.models import SurveyResponse, SurveyReview
+
+    def _make(process, status="in_review", reason=None, reviewer=None):
+        form = make_survey_form(version=_n())
+        response = SurveyResponse(
+            form_id=form.id,
+            form_version=form.version,
+            user_id=process.student_id,
+            process_id=process.id,
+            cohort_id=process.cohort_id,
+            identity_source="session",
+            answers={},
+        )
+        db_session.add(response)
+        db_session.flush()
+
+        reviewer_id = getattr(reviewer, "id", reviewer)
+        review = SurveyReview(
+            process_id=process.id,
+            response_id=response.id,
+            status=status,
+            rejection_reason=reason,
+            reviewed_by_id=reviewer_id,
+            reviewed_at=(db_now() if reviewer_id is not None else None),
+            submitted_at=db_now(),
+            updated_at=db_now(),
+        )
+        db_session.add(review)
+        db_session.flush()
+        return review
 
     return _make
 

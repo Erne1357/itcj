@@ -106,3 +106,8 @@
 #techPillsInprogress .btn {
     transition: all 0.15s ease;
 }
+
+/* Partir ticket (#splitTicketModal): reglas movidas a la hoja compartida
+   css/shared/split_ticket.css (tarea 10, fase 2) — el dashboard del técnico
+   incluye el mismo partial y no debía heredar la hoja de ESTA página para
+   conseguirlas. Cárgala junto con esta hoja en el <head>. */
