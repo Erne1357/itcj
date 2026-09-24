@@ -257,7 +257,14 @@ class Settings(BaseSettings):
     # (4) recibe el HTML nuevo (sin el `<script>`) contra un JS que sigue
     # leyendo `SPLIT_SCOPE`: ReferenceError dentro de `loadTicketDetail()` y el
     # detalle entero cae a su estado de error.
-    STATIC_VERSION: str = "1.0.1111566"
+    #
+    # Bump 2026-09-24: icono propio de TitulaTec. `core/css/mobile/mobile-base.css`
+    # suma `.has-own-tile` (la tarjeta móvil de titulatec lleva su PNG a sangre) y
+    # `titulatec/css/titulatec.css` dimensiona `.tt-brand-img`, que reemplaza al
+    # glifo de Bootstrap Icons del drawer y al monograma «TT» del rail del alumno.
+    # Sin el bump, quien tenga en caché la hoja vieja ve el PNG de 1024 px sin
+    # tamaño dentro del drawer y del rail.
+    STATIC_VERSION: str = "1.0.1111567"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

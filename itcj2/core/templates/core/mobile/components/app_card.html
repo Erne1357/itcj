@@ -7,11 +7,15 @@
      'helpdesk':  'helpdesk/images/help-desk.png',
      'directory': 'directory/images/directory.png',
      'maint':     'maint/img/maint.png',
+     'titulatec': 'titulatec/images/titulatec-claro-1024.png',
    }.get(app.key) %}
+{# Imágenes que YA traen su propio tile (fondo + borde redondeado): van a sangre,
+   sin el tile blanco de .has-img, o se vería un marco dentro de otro. #}
+{% set own_tile = icon_img and app.key in ('titulatec',) %}
 <a href="{{ app.mobile_url or '#' }}"
     class="mobile-app-card"
     data-app-key="{{ app.key }}">
-    <div class="mobile-app-card-icon{% if icon_img %} has-img{% endif %}" style="--app-badge-color: {{ app.color or '#6c757d' }}">
+    <div class="mobile-app-card-icon{% if icon_img %} has-img{% endif %}{% if own_tile %} has-own-tile{% endif %}" style="--app-badge-color: {{ app.color or '#6c757d' }}">
         {% if icon_img %}
         <img src="{{ url_for('static', filename=icon_img) }}" alt="{{ app.name }}" class="mobile-app-card-img">
         {% else %}

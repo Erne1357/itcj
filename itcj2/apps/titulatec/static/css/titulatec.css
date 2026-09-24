@@ -595,15 +595,17 @@ body.tt-stu .mobile-back-to-dashboard:hover { background: var(--tt-line-soft); }
 /* — Helpers embebido / standalone — */
 body.in-mobile-iframe .tt-standalone-only { display: none !important; }
 
+/* — Marca de TitulaTec (static/images/titulatec-claro-1024.png): el PNG ya trae su
+   propio tile (fondo + borde redondeado), asi que solo se dimensiona. Sin tamano
+   explicito se pintaria a 1024 px. — */
+.tt-brand-img { display: block; flex: none; object-fit: contain; }
+
 /* — Drawer: marca de TitulaTec en el header — */
-.tt-stu .app-sidebar-header .app-sidebar-title i { color: var(--tt-accent); }
+.tt-stu .app-sidebar-header .app-sidebar-title .tt-brand-img { width: 26px; height: 26px; border-radius: 7px; }
 
 /* — Rail lateral (desktop): reutiliza .app-sidebar-item del core, ya tematizado — */
 .tt-rail-brand { display: flex; align-items: center; gap: 10px; padding: 4px 12px 16px; }
-.tt-rail-brand .logo {
-  width: 36px; height: 36px; border-radius: 10px; background: var(--tt-ink); color: #fff;
-  display: flex; align-items: center; justify-content: center; font-family: var(--tt-display); font-weight: 700;
-}
+.tt-rail-brand .tt-brand-img { width: 36px; height: 36px; border-radius: 10px; }
 .tt-rail-brand .name { font-family: var(--tt-display); font-weight: 600; font-size: 1.05rem; letter-spacing: -.3px; }
 .tt-rail-brand .sub  { font-size: .7rem; color: var(--tt-mute); }
 .tt-rail-nav { display: flex; flex-direction: column; gap: 2px; }
