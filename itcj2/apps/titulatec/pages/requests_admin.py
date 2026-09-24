@@ -162,8 +162,19 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
     if cohort_id:
         q = q.filter(EnrollmentRequest.cohort_id == cohort_id)
 
-    reqs = q.order_by(EnrollmentRequest.created_at.desc(),
-                      EnrollmentRequest.id.desc()).limit(300).all()
+    if tab == "pending_review":
+        # FIFO (2026-09-24): «Por revisar» es una cola de trabajo, no un
+        # archivo — se atiende en el orden en que llegó. Con el límite de 300
+        # esto deja fuera las solicitudes MÁS NUEVAS si hay más de 300
+        # pendientes, que es lo correcto en una cola: las viejas nunca se
+        # pierden de vista por más que sigan llegando solicitudes después.
+        reqs = q.order_by(EnrollmentRequest.created_at.asc(),
+                          EnrollmentRequest.id.asc()).limit(300).all()
+    else:
+        # El resto de pestañas son historial: se sigue leyendo de lo último
+        # que pasó hacia atrás.
+        reqs = q.order_by(EnrollmentRequest.created_at.desc(),
+                          EnrollmentRequest.id.desc()).limit(300).all()
 
     # Cuentas, folios y convocatorias en una consulta cada uno: un `db.get` por
     # fila sería N+1.

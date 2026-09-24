@@ -813,3 +813,53 @@ def test_el_css_de_la_tabla_no_vuelve_a_desbordar():
     # ancestro posicionado dentro del scroll, estiraba la PÁGINA en móvil.
     assert re.search(r"#tt-requests-body \.table-responsive\s*\{[^}]*position:\s*relative",
                      sin_comentarios)
+
+
+# ---------------------------------------------------------------------------
+# FIFO (2026-09-24): «Por revisar» se atiende en orden de llegada
+# ---------------------------------------------------------------------------
+# En los dos tests de abajo el id va al REVÉS del `created_at`: la fila que se
+# crea PRIMERO (id más chico) es la MÁS NUEVA. Así solo pasan si el orden sale
+# de `created_at`; si saliera del desempate por `id`, se caerían.
+def test_por_revisar_ordena_de_la_mas_antigua_a_la_mas_nueva(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    mas_nueva = _make_req(db_session, cohort, control="99610001",
+                          created_at=datetime(2001, 1, 2, 9, 0))
+    mas_antigua = _make_req(db_session, cohort, control="99610002",
+                            created_at=datetime(2001, 1, 1, 9, 0))
+    assert mas_antigua.id > mas_nueva.id, "el id debe ir al revés del created_at"
+
+    html = client_as(head).get(
+        f"{URL}/body?status=pending_review&cohort_id={cohort.id}").text
+
+    pos_antigua = html.index(f'id="tt-req-{mas_antigua.id}"')
+    pos_nueva = html.index(f'id="tt-req-{mas_nueva.id}"')
+    assert pos_antigua < pos_nueva, (
+        "«Por revisar» debe salir de la solicitud más antigua a la más nueva (FIFO)")
+
+
+@pytest.mark.parametrize("pestana", ["rejected", "all"])
+def test_una_pestana_de_historial_sigue_de_la_mas_nueva_a_la_mas_antigua(
+    client_as, db_session, make_head, make_cohort, pestana,
+):
+    """Las pestañas de historial (todo lo que no es «Por revisar») no cambian:
+    son un archivo, no una cola de trabajo, y se siguen leyendo empezando por
+    lo último que pasó."""
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    mas_nueva = _make_req(db_session, cohort, control="99610003", status="rejected",
+                          created_at=datetime(2001, 1, 2, 9, 0))
+    mas_antigua = _make_req(db_session, cohort, control="99610004", status="rejected",
+                            created_at=datetime(2001, 1, 1, 9, 0))
+    assert mas_antigua.id > mas_nueva.id, "el id debe ir al revés del created_at"
+
+    html = client_as(head).get(
+        f"{URL}/body?status={pestana}&cohort_id={cohort.id}").text
+
+    pos_nueva = html.index(f'id="tt-req-{mas_nueva.id}"')
+    pos_antigua = html.index(f'id="tt-req-{mas_antigua.id}"')
+    assert pos_nueva < pos_antigua, (
+        f"«{pestana}» debe seguir mostrando lo más nuevo primero")
