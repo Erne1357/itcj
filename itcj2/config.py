@@ -264,7 +264,16 @@ class Settings(BaseSettings):
     # glifo de Bootstrap Icons del drawer y al monograma «TT» del rail del alumno.
     # Sin el bump, quien tenga en caché la hoja vieja ve el PNG de 1024 px sin
     # tamaño dentro del drawer y del rail.
-    STATIC_VERSION: str = "1.0.1111567"
+    #
+    # Bump 2026-09-24 (2): presencia en vivo por app (ronda 3 de observabilidad,
+    # Task 2). `core/js/dashboard/dashboard.js` gana `setActiveApp()` /
+    # `getTopmostOpenAppId()` y llama a `window.CorePresenceHeartbeat.reportApp()`
+    # (módulo nuevo `core/js/dashboard/presence-heartbeat.js`, cargado ANTES de
+    # dashboard.js en `dashboard.html`) al abrir/cerrar/cambiar de ventana. Sin
+    # el bump, quien tenga el dashboard en caché sigue con el JS viejo (sin
+    # `window.CorePresenceHeartbeat`), así que el shell nunca emite el latido y
+    # el usuario vuelve a decaer de la ventana de 5 min como antes de esta ronda.
+    STATIC_VERSION: str = "1.0.1111568"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

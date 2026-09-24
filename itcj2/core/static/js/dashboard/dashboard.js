@@ -4,6 +4,10 @@ class WindowsDesktop {
     this.windowZIndex = 1000
     this.cols = 0
     this.rows = 0
+    // App que el shell reporta como "abierta" para la presencia en vivo
+    // (ronda 3 de observabilidad, ver presence-heartbeat.js). null = sin
+    // ninguna app al frente -> se reporta "core".
+    this.activeAppId = null
     this.desktopItems = [
       { id: 'agendatec', name: 'AgendaTec', icon: 'calendar' },
       { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket', customImage: true },
@@ -184,6 +188,35 @@ class WindowsDesktop {
     // ¡La solución está aquí!
     this.setupDesktopIcons()
   }
+  // === PRESENCIA EN VIVO (ronda 3 de observabilidad) ===
+  // La app "abierta" para el latido es la ventana al frente (mayor z-index):
+  // el shell puede tener varias ventanas abiertas a la vez (no son pestañas),
+  // así que "qué app está mirando el usuario" es la que trae al frente, no
+  // simplemente "hay alguna abierta". Sin ninguna ventana abierta, `appId`
+  // llega null y el latido reporta "core" (ver presence-heartbeat.js).
+  setActiveApp(appId) {
+    this.activeAppId = appId || null
+    if (window.CorePresenceHeartbeat) {
+      window.CorePresenceHeartbeat.reportApp(this.activeAppId)
+    }
+  }
+
+  // Recalcula cuál ventana quedó al frente tras cerrar la activa (o null si
+  // ya no queda ninguna abierta).
+  getTopmostOpenAppId() {
+    const windows = document.querySelectorAll('.app-window')
+    let topId = null
+    let topZ = -Infinity
+    windows.forEach((win) => {
+      const z = Number.parseInt(win.style.zIndex, 10) || 0
+      if (z > topZ) {
+        topZ = z
+        topId = win.dataset.appId
+      }
+    })
+    return topId
+  }
+
   createWindow(appId, config) {
     const window = document.createElement("div")
     window.className = "app-window"
@@ -223,12 +256,14 @@ class WindowsDesktop {
     `
 
     this.setupWindowControls(window, appId)
-    this.setupWindowDragging(window)
-    this.setupIframeMonitoring(window, appId) 
+    this.setupWindowDragging(window, appId)
+    this.setupIframeMonitoring(window, appId)
 
     document.getElementById("windows-container").appendChild(window)
     this.openWindows.push(appId)
     this.updateTaskbar()
+    // La ventana recién creada siempre nace al frente (mayor z-index de todas).
+    this.setActiveApp(appId)
 
     lucide.createIcons()
     return window
@@ -413,7 +448,7 @@ class WindowsDesktop {
     })
   }
 
-  setupWindowDragging(window) {
+  setupWindowDragging(window, appId) {
     const titlebar = window.querySelector(".window-titlebar")
     let isDragging = false
     let dragStart = { x: 0, y: 0 }
@@ -430,6 +465,8 @@ class WindowsDesktop {
       }
 
       window.style.zIndex = ++this.windowZIndex
+      // Traer al frente por su título también cuenta como "mirar esta app".
+      this.setActiveApp(appId)
     })
 
     document.addEventListener("mousemove", (e) => {
@@ -455,6 +492,12 @@ class WindowsDesktop {
 
     this.openWindows = this.openWindows.filter((id) => id !== appId)
     this.updateTaskbar()
+
+    // Si la que se cerró era la app reportada, el latido pasa a la que quedó
+    // al frente (o a "core" si ya no queda ninguna abierta).
+    if (this.activeAppId === appId) {
+      this.setActiveApp(this.getTopmostOpenAppId())
+    }
   }
 
   updateTaskbar() {
@@ -474,6 +517,9 @@ class WindowsDesktop {
         const window = document.querySelector(`[data-app-id="${appId}"]`)
         if (window) {
           window.style.zIndex = ++this.windowZIndex
+          // Es la forma principal de cambiar de ventana (todas nacen
+          // maximizadas): así es como el usuario "cambia de app" casi siempre.
+          this.setActiveApp(appId)
         }
       })
 
