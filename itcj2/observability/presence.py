@@ -1,7 +1,7 @@
 """Colector de `/metrics` para presencia y conexiones de Socket.IO (Task 8).
 
 Decisión del dueño 2026-09-21: saber CUÁNTOS hay conectados, nunca QUIÉNES.
-Ninguna etiqueta lleva uid ni sid — solo `bucket`/`namespace` y un conteo.
+Ninguna etiqueta lleva uid ni sid — solo `bucket`/`app`/`namespace` y un conteo.
 
 R14: colector evaluado A LA HORA DEL SCRAPE (no Gauges reales actualizados
 por una sonda, como `saturation.py`). Encaja aquí aunque el plan descarte
@@ -52,6 +52,10 @@ class PresenceCollector:
         if presence_family is not None:
             yield presence_family
 
+        app_family = self._app_family()
+        if app_family is not None:
+            yield app_family
+
         socket_family = self._socket_family()
         if socket_family is not None:
             yield socket_family
@@ -86,6 +90,38 @@ class PresenceCollector:
         values = {**counts, "all": counts["total"]}
         for bucket in _BUCKET_LABELS:
             family.add_metric([bucket], values[bucket])
+        return family
+
+    def _app_family(self):
+        """`itcj_presence_app_users{app}`: en qué app está cada quien (ronda 3).
+
+        Lectura APARTE de `_presence_family()` a propósito: son dos preguntas
+        distintas (cuántos hay / dónde están) y con su propio try/except cada
+        una, así que un fallo leyendo una no borra la otra del scrape. Son dos
+        pipelines cada 30 s, no una por usuario.
+        """
+        try:
+            # Imports locales por lo mismo que en `_presence_family()`.
+            from itcj2.core.services.presence_service import get_app_counts
+            from itcj2.core.utils.redis_conn import get_redis
+
+            counts = get_app_counts(get_redis())
+        except Exception:
+            logger.exception(
+                "presencia: no se pudo leer Redis, familia "
+                "itcj_presence_app_users omitida"
+            )
+            return None
+
+        family = GaugeMetricFamily(
+            "itcj_presence_app_users",
+            "Usuarios DISTINTOS cuyo shell reporta esa app abierta dentro de "
+            "la ventana PRESENCE_WINDOW_SECONDS (latido del socket /notify). "
+            "Solo conteos, nunca identidades.",
+            labels=["app"],
+        )
+        for app, users in counts.items():
+            family.add_metric([app], users)
         return family
 
     def _socket_family(self):

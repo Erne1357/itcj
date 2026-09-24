@@ -27,6 +27,7 @@ from itcj2.core.utils.redis_conn import get_redis
 from itcj2.main import create_app
 
 TEST_KEY_TEMPLATE = "test:obs-presence:{bucket}"
+TEST_APP_KEY_TEMPLATE = "test:obs-presence-app:{app}"
 
 
 @pytest.fixture()
@@ -49,6 +50,7 @@ def presence_redis(monkeypatch):
     `PRESENCE_WINDOW_SECONDS`; la siguiente corrida compararía conteos
     absolutos contra ese residuo y fallaría sin que nada estuviera roto."""
     monkeypatch.setattr(presence_service, "_KEY", TEST_KEY_TEMPLATE)
+    monkeypatch.setattr(presence_service, "_APP_KEY", TEST_APP_KEY_TEMPLATE)
     client = get_redis()
     try:
         client.ping()
@@ -62,6 +64,8 @@ def presence_redis(monkeypatch):
 def _delete_test_keys(client) -> None:
     for bucket in presence_service.BUCKETS:
         client.delete(TEST_KEY_TEMPLATE.format(bucket=bucket))
+    for app in presence_service.APPS:
+        client.delete(TEST_APP_KEY_TEMPLATE.format(app=app))
 
 
 def _family(body: str, name: str):
@@ -85,6 +89,7 @@ def test_http_role_never_exposes_presence_or_socket_families(client, monkeypatch
     body = client.get("/metrics").text
 
     assert _family(body, "itcj_presence_users") is None
+    assert _family(body, "itcj_presence_app_users") is None
     assert _family(body, "itcj_socket_connections") is None
 
 
@@ -111,6 +116,32 @@ def test_presence_users_reports_real_counts_per_bucket(
         "admins": 1.0,
         "all": 4.0,
     }
+
+
+@pytest.mark.parametrize("role", ["socket", "all"])
+def test_presence_app_users_reports_distinct_users_per_app(
+    client, presence_redis, monkeypatch, role
+):
+    monkeypatch.setattr(get_settings(), "APP_ROLE", role)
+    presence_service.touch(presence_redis, 9950011, "students", "helpdesk")
+    presence_service.touch(presence_redis, 9950012, "staff", "helpdesk")
+    presence_service.touch(presence_redis, 9950013, "staff", "maint")
+    presence_service.touch(presence_redis, 9950014, "staff", "inventada")  # -> otro
+
+    body = client.get("/metrics").text
+
+    family = _family(body, "itcj_presence_app_users")
+    assert family is not None
+    values = _label_values(family)
+    # El conjunto CERRADO completo, incluidas las apps sin nadie dentro: una
+    # serie que falta no se distingue en el panel de una que vale 0.
+    assert set(values) == set(presence_service.APPS)
+    assert values["helpdesk"] == 2.0
+    assert values["maint"] == 1.0
+    assert values["otro"] == 1.0
+    assert values["agendatec"] == 0.0
+    # `itcj_presence_users` sigue publicándose igual que siempre.
+    assert _label_values(_family(body, "itcj_presence_users"))["all"] == 4.0
 
 
 @pytest.mark.parametrize("role", ["socket", "all"])
@@ -170,6 +201,9 @@ def test_redis_failure_keeps_200_without_presence_family_and_logs(
     assert _family(resp.text, "itcj_presence_users") is None
     # La familia de sockets no depende de Redis: sigue presente.
     assert _family(resp.text, "itcj_socket_connections") is not None
+    # Dominios de fallo independientes: solo se rompió `get_counts`, así que
+    # la familia por app (otra lectura, otro try/except) sigue publicándose.
+    assert _family(resp.text, "itcj_presence_app_users") is not None
     assert any(
         r.exc_info and "redis caído" in str(r.exc_info[1]) for r in caplog.records
     )
@@ -209,9 +243,11 @@ def test_socket_manager_failure_keeps_200_without_socket_family_and_logs(
 def test_no_user_ids_appear_anywhere_in_the_metrics_body(client, presence_redis, monkeypatch):
     monkeypatch.setattr(get_settings(), "APP_ROLE", "all")
     presence_service.mark_online(presence_redis, 9950099, "staff")
+    presence_service.touch(presence_redis, 9950098, "staff", "helpdesk")
 
     body = client.get("/metrics").text
 
     assert "9950099" not in body
+    assert "9950098" not in body
     family = _family(body, "itcj_presence_users")
     assert set(_label_values(family)) == {"students", "staff", "admins", "all"}

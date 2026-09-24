@@ -299,8 +299,12 @@ class Settings(BaseSettings):
     AUTHZ_CACHE_TTL: int = 300
 
     # Presencia (core-config-revamp F6) — ventana en segundos para considerar
-    # "activo" a un usuario en los sorted-sets presence:notify:*. La poda ocurre
-    # EN LECTURA (presence_service.get_counts); no hay heartbeat.
+    # "activo" a un usuario en los sorted-sets presence:notify:* y presence:app:*.
+    # La poda ocurre EN LECTURA (presence_service.get_counts / get_app_counts) y
+    # el shell refresca la marca con un latido de ~60 s por el socket /notify
+    # (ronda 3 de observabilidad): con 300 s son 5 latidos de tolerancia antes de
+    # dar a alguien por fuera. Bajarlo por debajo de 2 latidos hace parpadear el
+    # panel con cualquier red intermitente.
     PRESENCE_WINDOW_SECONDS: int = 300
 
     # OAuth de correo (config → email, C6 core-config-revamp): TTL en segundos
