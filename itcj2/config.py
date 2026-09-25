@@ -298,7 +298,12 @@ class Settings(BaseSettings):
     # bloque del veredicto del SII en «Por revisar» de Solicitudes (modo `sii`).
     # Sin el bump, la hoja vieja pinta las reglas incumplidas sin su icono de
     # color ni el filete que las separa de los formularios.
-    STATIC_VERSION: str = "1.0.1111572"
+    #
+    # Bump 2026-09-25 (4): `titulatec/css/titulatec.css` suma `.tt-win-auto`, el
+    # renglón propio del interruptor «Aprobación automática (SII)» en el panel de
+    # la ventana de la convocatoria. Sin el bump, la hoja vieja lo deja apretado
+    # entre los campos de fecha.
+    STATIC_VERSION: str = "1.0.1111573"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

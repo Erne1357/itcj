@@ -11,6 +11,11 @@
    anterior, así que un editor en blanco borraría la ventana de quien solo venía
    a cambiar el estado.
 
+   Modo `sii` (`sii_mode`, spec 2026-09-25 §3.5): el interruptor «Aprobación
+   automática (SII)» viaja en ESTE formulario, con el mismo permiso. Una casilla
+   sin marcar no se envía, así que va con `sii_auto_present=1`: sin la marca la
+   ruta no lo toca. En solo lectura se dice si está encendida o apagada.
+
    Cero `style=` inline: los anchos y tamaños viven en `titulatec.css`
    (`.tt-win-*`). El color de la nota es `--tt-text-2`, no `--tt-mute`: el propio
    `:root` marca `--tt-mute` como PROHIBIDO PARA TEXTO (2.56:1). #}
@@ -52,6 +57,17 @@
           <option value="closed" {{ 'selected' if window.status == 'closed' }}>Cerrada</option>
         </select>
       </div>
+      {% if sii_mode %}
+      <div class="form-check form-switch tt-win-auto">
+        <input type="hidden" name="sii_auto_present" value="1">
+        <input class="form-check-input" type="checkbox" role="switch" id="win-sii-auto"
+               name="sii_auto_approve" value="1" {{ 'checked' if sii_auto_approve }}
+               aria-describedby="win-sii-auto-help">
+        <label class="form-check-label" for="win-sii-auto">Aprobación automática (SII)</label>
+        <span class="tt-win-note d-block" id="win-sii-auto-help">Las solicitudes aptas en
+          el SII se aprueban solas. Apagada, todas quedan en «Por revisar» de Solicitudes.</span>
+      </div>
+      {% endif %}
       <button class="btn btn-sm tt-btn-ink" type="submit">
         <i class="bi bi-check-lg me-1"></i>Guardar ventana</button>
     </form>
@@ -59,6 +75,9 @@
     <div class="d-flex flex-wrap gap-3 tt-win-ro">
       <span><span class="tt-kicker">Apertura</span> <span class="tt-mono">{{ window.opens_at or '—' }}</span></span>
       <span><span class="tt-kicker">Cierre</span> <span class="tt-mono">{{ window.closes_at or '—' }}</span></span>
+      {% if sii_mode %}
+      <span><span class="tt-kicker">Aprobación automática (SII)</span> {{ 'encendida' if sii_auto_approve else 'apagada' }}</span>
+      {% endif %}
     </div>
     {% endif %}
   </div>

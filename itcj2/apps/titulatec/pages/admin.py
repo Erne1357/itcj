@@ -78,7 +78,13 @@ def _window_ctx(db, cohort, *, can_edit: bool) -> dict:
     sobre una convocatoria que sí tiene ventana. No es cosmético —
     `CohortService.set_window` escribe SIEMPRE las dos fechas con lo que reciba,
     sin conservar lo anterior, así que un input en blanco las borra.
+
+    `sii_mode`/`sii_auto_approve`: el interruptor «Aprobación automática (SII)»
+    (spec 2026-09-25 §3.5) solo existe en el modo `sii`.
     """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
     return {
         "cohort_id": cohort.id,
         "window": {
@@ -87,6 +93,8 @@ def _window_ctx(db, cohort, *, can_edit: bool) -> dict:
             "closes_at": cohort.closes_at.isoformat() if cohort.closes_at else "",
         },
         "can_edit_window": can_edit,
+        "sii_mode": EnrollmentRequestService.reviewer_mode() == "sii",
+        "sii_auto_approve": bool(cohort.sii_auto_approve),
     }
 
 
@@ -710,10 +718,21 @@ async def cohort_window(
     status: str = Form(...),
     opens_at: str = Form(""),
     closes_at: str = Form(""),
+    sii_auto_present: str = Form(""),
+    sii_auto_approve: str = Form(""),
     user: dict = Depends(require_page_app("titulatec",
                                           perms=["titulatec.cohort.api.update"])),
 ):
     """Escribe la ventana de inscripción pública y aplica la pausa/reanudación.
+
+    En el modo `sii` escribe además el interruptor «Aprobación automática
+    (SII)» (`Cohort.sii_auto_approve`, spec 2026-09-25 §3.5, S8), con el mismo
+    permiso. Una casilla sin marcar no viaja, así que el panel manda
+    `sii_auto_present=1`: sin esa marca (formulario viejo, POST a mano) no se
+    toca, y fuera del modo `sii` tampoco. Se escribe SOLO si la ventana se
+    guardó: un 400 de `set_window` no deja el interruptor movido a medias.
+    `EligibilityService.auto_approve` lo relee bajo lock antes de aprobar, así
+    que apagarlo frena también a las aptas que esperan su ventana de veto.
 
     UN SOLO código en `perms`, y el específico. `require_page_app` evalúa la
     lista como OR (`dependencies.py:131`): un `dashboard.*` de más abriría el
@@ -763,6 +782,18 @@ async def cohort_window(
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
 
         cohort = db.get(Cohort, cohort_id)
+        from itcj2.apps.titulatec.services.enrollment_request_service import (
+            EnrollmentRequestService,
+        )
+        if (sii_auto_present == "1"
+                and EnrollmentRequestService.reviewer_mode() == "sii"):
+            nuevo = sii_auto_approve == "1"
+            if bool(cohort.sii_auto_approve) != nuevo:
+                cohort.sii_auto_approve = nuevo
+                db.commit()
+                # Rastro de quién frenó o soltó la aprobación automática.
+                logger.info("Convocatoria %s: aprobación automática (SII) %s por el usuario %s",
+                            cohort_id, "encendida" if nuevo else "apagada", user["sub"])
         perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
         ctx = _window_ctx(db, cohort,
                           can_edit="titulatec.cohort.api.update" in perms)

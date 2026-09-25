@@ -1717,6 +1717,10 @@ button.tt-seat--libre { pointer-events: auto; }
    TEXTO en el `:root` de este mismo archivo (2.56:1 sobre `--tt-paper`). */
 .tt-win-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
 .tt-win-ro   { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+/* Interruptor «Aprobación automática (SII)» (modo `sii`, 2026-09-25): ocupa su
+   propio renglón del formulario; junto a los tres controles se leía como un
+   cuarto campo de la ventana y su ayuda quedaba aplastada a 170 px. */
+.tt-win-auto { flex: 1 1 100%; margin: 0; }
 
 /* ——————————— Requisitos de cotejo: «Información para el alumno» ———————————
    Editor del admin (`partials/cohort/cohort_cotejo_reqs.html` +
