@@ -303,7 +303,13 @@ class Settings(BaseSettings):
     # renglón propio del interruptor «Aprobación automática (SII)» en el panel de
     # la ventana de la convocatoria. Sin el bump, la hoja vieja lo deja apretado
     # entre los campos de fecha.
-    STATIC_VERSION: str = "1.0.1111573"
+    #
+    # Bump 2026-09-25 (5): `titulatec/js/admin/expediente.js` suma la guarda de
+    # motivo vacío del modal «Revocar inscripción» del expediente (toast), lo
+    # cierra tras una revocación exitosa y limpia el motivo al cerrarlo. Sin el
+    # bump, el navegador sirve el JS viejo (el POST funciona igual: el `hx-post`
+    # va en la plantilla, pero el modal no se cierra solo).
+    STATIC_VERSION: str = "1.0.1111574"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
