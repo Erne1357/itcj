@@ -25,9 +25,12 @@
  * `undefined` es un no-op y el contexto heredaría el storageState global del
  * proyecto -un admin de HELPDESK- en vez de quedar sin sesión.
  *
- * Los tests de este archivo corren EN ORDEN y comparten el escenario: el
- * segundo da el NIP sembrado en el primero, y el tercero revisa que ese NIP
- * no quedó en ninguna pestaña de Accesos.
+ * Los tests de este archivo corren EN ORDEN (`test.describe.configure({ mode:
+ * 'serial' })`, revisión final) y comparten el escenario: el 2º da el NIP
+ * sembrado en el 1º, el 3º devuelve la otra solicitud sembrada en el 1º, y el
+ * 4º (al final A PROPÓSITO) revisa que ese NIP no quedó en ninguna pestaña de
+ * Accesos -incluida "Devueltas", que solo trae una fila de verdad porque el
+ * 3º ya corrió-.
  */
 const { test, expect } = require('@playwright/test');
 const { execFileSync } = require('child_process');
@@ -56,6 +59,16 @@ test.afterAll(() => { cleanupScenario(ctx); });
 // El storageState global es un admin de HELPDESK y require_page_app no tiene
 // bypass de admin global: recibiría PageForbidden en toda página de titulatec.
 test.use({ storageState: { cookies: [], origins: [] } });
+
+// Los 4 tests son UN recorrido encadenado sobre el MISMO escenario (mismo
+// patrón que `citas-autoagenda.spec.js`): el 2 da el NIP que el 3 comprueba
+// que no vuelve, y el 3 necesita que el 4 (devolver) YA HAYA CORRIDO para que
+// la pestaña "Devueltas" tenga una fila de verdad que revisar -si no, esa
+// parte de la prueba pasa sin medir nada, con la pestaña vacía-. Eso hoy se
+// cumple por el `fullyParallel: false` + `workers: 1` del config GLOBAL, que
+// es de otro archivo y no sabe de esta dependencia. `mode: 'serial'` lo fija
+// AQUÍ (revisión final de la ola de arreglos, punto F3.7).
+test.describe.configure({ mode: 'serial' });
 
 /** Estado + banderas de una solicitud, leídos de la base (la pantalla no es la fuente). */
 function requestRowFor(reqId) {
@@ -122,6 +135,13 @@ test('dar NIP mueve la solicitud a «Con acceso»; en la base queda "converted" 
   const page = await c.newPage();
   await page.goto('/titulatec/admin/accesos', { waitUntil: 'domcontentloaded' });
 
+  // Antes de teclearlo: el NIP que se va a dar no debe estar ya en la página
+  // por ningún otro motivo (control previo -mismo criterio que `_sin_nip` del
+  // harness de FastAPI-, para que el "no vuelve" de más abajo compare contra
+  // algo, no contra una premisa nunca verificada).
+  expect(await page.content(), 'el NIP no debe aparecer ANTES de darlo')
+    .not.toContain(NIP_DADO);
+
   const fila = page.locator(`#tt-acc-${reqParaAcceso}`);
   const form = fila.locator(`form[hx-post="/titulatec/admin/accesos/${reqParaAcceso}/dar-acceso"]`);
   await form.locator('[name="nip"]').fill(NIP_DADO);
@@ -145,28 +165,6 @@ test('dar NIP mueve la solicitud a «Con acceso»; en la base queda "converted" 
   await page.locator('#tt-acc-tab-granted').click();
   await expect(page.locator('#tt-acc-tab-granted[aria-current="true"]')).toBeVisible();
   await expect(page.locator(`#tt-acc-${reqParaAcceso}`)).toContainText(folio);
-
-  await c.close();
-});
-
-test('el NIP nunca vuelve al navegador en ninguna pestaña de Accesos', async ({ browser }) => {
-  const c = await browser.newContext({ storageState: stateFor('cc') });
-  const page = await c.newPage();
-
-  for (const pestana of ['awaiting_access', 'granted', 'returned']) {
-    await page.goto(`/titulatec/admin/accesos?status=${pestana}`,
-      { waitUntil: 'domcontentloaded' });
-    expect(await page.content(), `el NIP dado quedó en la pestaña ${pestana}`)
-      .not.toContain(NIP_DADO);
-    // Un campo de NIP puede existir (p. ej. "Reasignar NIP" en «Con acceso»,
-    // con el correo pausado en dev), pero nunca trae valor: el servidor no lo
-    // prellena en ningún caso.
-    const nipFields = page.locator('[name="nip"]');
-    const n = await nipFields.count();
-    for (let i = 0; i < n; i += 1) {
-      await expect(nipFields.nth(i)).toHaveValue('');
-    }
-  }
 
   await c.close();
 });
@@ -208,4 +206,47 @@ test('devolver regresa la solicitud a Servicios Escolares con la nota, y desapar
   await expect(filaSE).toContainText('Devuelta por Centro de Cómputo');
   await expect(filaSE).toContainText(NOTA_DEVOLUCION);
   await c2.close();
+});
+
+test('el NIP nunca vuelve al navegador en ninguna pestaña de Accesos', async ({ browser }) => {
+  // Precondición, ANTES de mirar la pantalla: si esto no es 'converted' (el
+  // test de "dar NIP" no corrió antes, o falló en silencio) lo que sigue
+  // revisa una pestaña vacía y "pasa" sin haber medido nada. Va DESPUÉS del
+  // de "devolver" (arriba) a propósito: así "returned" también trae una fila
+  // de verdad, no una pestaña vacía donde cualquier "no contiene el NIP" es
+  // trivialmente cierto.
+  expect(requestRowFor(reqParaAcceso).status,
+    'el escenario debió dejar la solicitud "converted" antes de este test')
+    .toBe('converted');
+  expect(requestRowFor(reqParaDevolver).returned,
+    'el escenario debió dejar la otra solicitud devuelta antes de este test')
+    .toBe(true);
+
+  const c = await browser.newContext({ storageState: stateFor('cc') });
+  const page = await c.newPage();
+
+  for (const pestana of ['awaiting_access', 'granted', 'returned']) {
+    await page.goto(`/titulatec/admin/accesos?status=${pestana}`,
+      { waitUntil: 'domcontentloaded' });
+    if (pestana === 'granted') {
+      await expect(page.locator(`#tt-acc-${reqParaAcceso}`), 'la fila con el NIP dado debe estar aquí')
+        .toBeVisible();
+    }
+    if (pestana === 'returned') {
+      await expect(page.locator(`#tt-acc-${reqParaDevolver}`), 'la fila devuelta debe estar aquí')
+        .toBeVisible();
+    }
+    expect(await page.content(), `el NIP dado quedó en la pestaña ${pestana}`)
+      .not.toContain(NIP_DADO);
+    // Un campo de NIP puede existir (p. ej. "Reasignar NIP" en «Con acceso»,
+    // con el correo pausado en dev), pero nunca trae valor: el servidor no lo
+    // prellena en ningún caso.
+    const nipFields = page.locator('[name="nip"]');
+    const n = await nipFields.count();
+    for (let i = 0; i < n; i += 1) {
+      await expect(nipFields.nth(i)).toHaveValue('');
+    }
+  }
+
+  await c.close();
 });
