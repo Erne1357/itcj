@@ -264,7 +264,7 @@ def test_pausar_y_reanudar_bloquean_los_procesos_que_mueven(
     lecturas = [s for s in sentencias
                 if s.startswith("SELECT") and "FROM titulatec_processes" in s]
     assert lecturas, sentencias
-    assert all(s.endswith("FOR UPDATE") for s in lecturas), lecturas
+    assert all(s.endswith("FOR NO KEY UPDATE") for s in lecturas), lecturas
 
 
 def test_cerrar_dos_veces_no_pausa_de_nuevo(sin_convocatorias_previas, make_cohort,

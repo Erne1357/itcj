@@ -170,7 +170,7 @@ class CohortService:
             for proc in (db.query(TitulationProcess)
                          .filter(TitulationProcess.status == "on_hold",
                                  TitulationProcess.cohort_id.in_(cerradas))
-                         .with_for_update().all()):
+                         .with_for_update(key_share=True).all()):
                 proc.status = "active"
                 db.add(ProcessEvent(
                     process_id=proc.id, actor_id=actor_id,
@@ -184,7 +184,7 @@ class CohortService:
             for proc in (db.query(TitulationProcess)
                          .filter(TitulationProcess.status == "active",
                                  TitulationProcess.cohort_id == cohort.id)
-                         .with_for_update().all()):
+                         .with_for_update(key_share=True).all()):
                 proc.status = "on_hold"
                 db.add(ProcessEvent(
                     process_id=proc.id, actor_id=actor_id,
