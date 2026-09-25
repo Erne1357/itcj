@@ -508,12 +508,46 @@ def test_aprobar_con_la_convocatoria_cerrada_no_cambia_nada(
         db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
 
     assert ok is False
-    assert detalle == "Esa convocatoria está cerrada; abre su ventana primero."
+    assert detalle == "Esa convocatoria está cerrada."
     assert req.status == "pending_review"
     assert req.verify_token_hash is None
     assert (db_session.query(User).filter_by(control_number="99550024").count()
             == (1 if con_cuenta else 0))
     assert correo_falso == []
+
+
+@pytest.mark.parametrize("con_cuenta", [False, True], ids=["sin-cuenta", "con-cuenta"])
+def test_aprobar_con_la_ventana_publica_vencida_si_procede(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+    con_cuenta,
+):
+    """D5 (spec 2026-09-24): `opens_at`/`closes_at` solo filtran el formulario
+    público. Una solicitud que entró a tiempo se aprueba aunque la ventana ya
+    haya cerrado; lo único que pausa es `status='closed'`."""
+    from datetime import date
+
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    actor = make_user()
+    hoy = date.today()
+    cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
+                         closes_at=hoy - timedelta(days=1))
+    assert CohortService.is_public_enrollment_open(cohort) is False, (
+        "precondición: el formulario público ya cerró")
+    if con_cuenta:
+        _cuenta(db_session, "99550025")
+    req = _make_req(db_session, cohort, control="99550025")
+
+    ok, detalle = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert ok is True, detalle
+    assert req.status == ("approved" if con_cuenta else "converted")
+    assert len(correo_falso) == 1
 
 
 def test_una_cuenta_que_aparecio_despues_de_enviar_va_por_la_rama_con_cuenta(

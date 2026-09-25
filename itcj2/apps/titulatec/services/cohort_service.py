@@ -20,6 +20,16 @@ pública contesta 503 nombrando el choque para que un humano lo resuelva.
 El personal NUNCA queda bloqueado por la ventana: importación CSV y alta manual
 siguen funcionando con la convocatoria cerrada. Esto solo gatea el formulario
 público.
+
+Dos predicados, a propósito (D5, spec 2026-09-24)
+-------------------------------------------------
+- `is_public_enrollment_open`: `status='open'` Y hoy dentro de las fechas. Es
+  SOLO para el formulario público (¿se puede enviar una solicitud nueva?).
+- `accepts_enrollment_followup`: solo `status='open'`. Es para lo que sigue a
+  una solicitud que ya entró a tiempo: aprobarla, darle acceso, abrir su liga y
+  reenviarla. La liga dura 21 días y la revisión puede tardar; cortarlas en
+  `closes_at` dejaría varadas solicitudes legítimas. `closed` sí las detiene:
+  es la pausa de la convocatoria (`set_window`).
 """
 from __future__ import annotations
 
@@ -43,6 +53,11 @@ class CohortService:
         if cohort.closes_at is not None and hoy > cohort.closes_at:
             return False
         return True
+
+    @staticmethod
+    def accepts_enrollment_followup(cohort) -> bool:
+        """`status='open'`, sin mirar fechas: ver "Dos predicados" en el módulo."""
+        return cohort is not None and cohort.status == "open"
 
     @staticmethod
     def public_enrollment_cohort(db: Session):

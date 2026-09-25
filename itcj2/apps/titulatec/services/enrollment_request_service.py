@@ -58,6 +58,14 @@ síncrono: dentro de la transacción retendría los advisory locks, y un correo
 mandado antes de un commit que falla habla de algo que no existe. Ningún método
 del helper lanza, así que un fallo de buzón no revierte nada ya commiteado.
 
+VENTANA (D5, spec 2026-09-24). `opens_at`/`closes_at` solo filtran el formulario
+público (`CohortService.is_public_enrollment_open`, en la ruta). Todo lo que
+sigue a una solicitud ya enviada —`approve`, `verify`/`_convert`, `resend_link`
+y `resend`— exige solo `status == 'open'`
+(`CohortService.accepts_enrollment_followup`): una convocatoria `closed` pausa
+sus procesos y tampoco emite ni canjea ligas, pero pasar `closes_at` no deja
+varada a nadie que entró a tiempo. La liga vive `_link_ttl_hours()`.
+
 CONCURRENCIA. Toda transición de una solicitud (`approve`, `verify`, `reject`,
 `resend_link`, `resend`) toma `pg_advisory_xact_lock(_REQUEST_LOCK_NS, req.id)`
 y hace `db.refresh(req)` ANTES de leer el estado: bajo READ COMMITTED, quien
@@ -140,7 +148,7 @@ _MSG_GONE = "La solicitud ya no existe."
 _MSG_ALREADY_APPROVED = "Esa solicitud ya fue aprobada; usa Reenviar liga."
 _MSG_RESOLVED = "Esa solicitud ya se resolvió."
 _MSG_NO_COHORT = "La convocatoria ya no existe."
-_MSG_COHORT_CLOSED = "Esa convocatoria está cerrada; abre su ventana primero."
+_MSG_COHORT_CLOSED = "Esa convocatoria está cerrada."
 _MSG_BAD_DATA = "El número de control o el nombre no tienen formato válido."
 _MSG_BAD_NIP = "El NIP debe ser exactamente 4 dígitos."
 _MSG_OTHER_COHORT = "Esa persona ya tiene un proceso en otra convocatoria."
@@ -315,9 +323,12 @@ class EnrollmentRequestService:
           `converted`; usuario + NIP al correo personal. El caché de authz de
           esos roles se tira DESPUÉS del commit (`ImportService.invalidate_authz`).
         - CON cuenta: el NIP se ignora -> liga de activación (`_link_ttl_hours()`,
-          21 días por omisión) al correo personal -> `approved`. La cuenta no se toca, ni siquiera se reactiva:
-          eso lo hace abrir la liga (invariante 1 del módulo). Sin
-          `password_hash` no hay liga (invariante 2).
+          21 días por omisión) al correo personal -> `approved`. La cuenta no se
+          toca, ni siquiera se reactiva: eso lo hace abrir la liga (invariante 1
+          del módulo). Sin `password_hash` no hay liga (invariante 2).
+
+        La convocatoria solo tiene que estar `open`: pasada `closes_at` se sigue
+        aprobando lo que entró a tiempo (VENTANA, en el módulo).
 
         EL NIP NUNCA SALE DE AQUÍ: no se loguea, no va en `X-Tt-Error` (`detalle`
         se emite tal cual en una cabecera) ni en el payload del `ProcessEvent`.
@@ -352,7 +363,7 @@ class EnrollmentRequestService:
         cohort = db.get(Cohort, req.cohort_id)
         if cohort is None:
             return False, _MSG_NO_COHORT
-        if not CohortService.is_public_enrollment_open(cohort):
+        if not CohortService.accepts_enrollment_followup(cohort):
             return False, _MSG_COHORT_CLOSED
 
         control = (req.control_number or "").strip()
@@ -560,7 +571,8 @@ class EnrollmentRequestService:
 
         En éxito `detalle` es el folio; en fallo, la `review_note` para la bandeja.
         Todo lo que pudo cambiar desde la aprobación se revisa ANTES de
-        `import_rows`: ventana de la convocatoria, formato de los datos, que la
+        `import_rows`: que la convocatoria siga `open` (las fechas no cuentan,
+        ver VENTANA en el módulo), formato de los datos, que la
         cuenta siga existiendo, D5 y la contraseña.
 
         Solo escribe proceso y roles de egresado (vía `import_rows` con
@@ -582,10 +594,10 @@ class EnrollmentRequestService:
         from itcj2.apps.titulatec.services.cohort_service import CohortService
         from itcj2.apps.titulatec.services.import_service import ImportService
 
-        # La ventana se revisa sobre la convocatoria GUARDADA en la solicitud: el
+        # El estado se revisa sobre la convocatoria GUARDADA en la solicitud: el
         # periodo va dentro del folio y de la ruta en disco.
         cohort = db.get(Cohort, req.cohort_id)
-        if cohort is None or not CohortService.is_public_enrollment_open(cohort):
+        if not CohortService.accepts_enrollment_followup(cohort):
             return False, _NOTE_LINK_COHORT_CLOSED
 
         control = (req.control_number or "").strip()
@@ -702,8 +714,12 @@ class EnrollmentRequestService:
         vieja se borra de Redis y la liga anterior deja de servir. Rotar es seguro
         aquí porque el actor está autenticado y la ruta ya lo acotó por carrera;
         el veto a rotar es del reenvío PÚBLICO. No lleva presupuesto.
+
+        Con la convocatoria `closed` (pausa) no se emite liga nueva; pasada
+        `closes_at` sí (VENTANA, en el módulo).
         """
-        from itcj2.apps.titulatec.models import EnrollmentRequest
+        from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
+        from itcj2.apps.titulatec.services.cohort_service import CohortService
 
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
@@ -713,6 +729,11 @@ class EnrollmentRequestService:
         db.refresh(req)
         if req.status != "approved":
             return False, _MSG_ONLY_APPROVED
+        cohort = db.get(Cohort, req.cohort_id)
+        if cohort is None:
+            return False, _MSG_NO_COHORT
+        if not CohortService.accepts_enrollment_followup(cohort):
+            return False, _MSG_COHORT_CLOSED
 
         muerta = req.verify_token_hash
         raw = EnrollmentRequestService._issue_activation(req)
@@ -734,7 +755,8 @@ class EnrollmentRequestService:
         `MIN_SECONDS_BETWEEN_SENDS` entre uno y otro.
 
         `'noop'` cubre TODO lo que no manda correo: no casa, otro estado, tope,
-        muy pronto, ventana cerrada, liga vencida y la falta del claro en Redis
+        muy pronto, convocatoria no `open` (las fechas no cuentan: VENTANA, en el
+        módulo), liga vencida y la falta del claro en Redis
         (se falla cerrado). La respuesta HTTP es la misma en todos los casos: esa
         igualdad es un invariante (§6.8), no un descuido; darle tarjeta propia a
         cualquiera de ellos haría del endpoint un oráculo de existencia.
@@ -767,7 +789,7 @@ class EnrollmentRequestService:
             return "noop"
 
         cohort = db.get(Cohort, req.cohort_id)
-        if cohort is None or not CohortService.is_public_enrollment_open(cohort):
+        if not CohortService.accepts_enrollment_followup(cohort):
             return "noop"
         now = datetime.now()
         if (req.verify_send_count or 0) >= MAX_VERIFY_SENDS:

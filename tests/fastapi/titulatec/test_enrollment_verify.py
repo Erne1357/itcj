@@ -202,6 +202,33 @@ def test_abrir_la_liga_inscribe_a_la_cuenta_y_muestra_el_folio(
         "abrir la liga debe dar el rol de la app, no solo el proceso")
 
 
+def test_abrir_la_liga_con_la_ventana_publica_vencida_si_inscribe(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+):
+    """D5 (spec 2026-09-24): la ventana solo filtra el formulario. La liga dura
+    21 días y puede abrirse después de `closes_at`; solo `status='closed'` la
+    devuelve a revisión (ver `REVALIDACIONES`)."""
+    from datetime import date
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    hoy = date.today()
+    cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
+                         closes_at=hoy - timedelta(days=1))
+    cuenta = _cuenta(make_user, db_session, "99770011")
+    req, token = _aprobada(db_session, cohort, control="99770011")
+
+    _req, outcome = EnrollmentRequestService.verify(db_session, token)
+
+    assert outcome == "converted"
+    db_session.refresh(req)
+    assert req.status == "converted"
+    assert len(_procesos(db_session, cuenta, cohort)) == 1
+
+
 def test_abrir_la_liga_deja_a_la_cuenta_como_graduate_y_tira_el_cache_tras_el_commit(
     db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
     monkeypatch,
