@@ -35,7 +35,9 @@ from itcj2.apps.titulatec.services.sii.errors import SiiError, SiiRulesError
 logger = logging.getLogger(__name__)
 
 RULES_FILE = "rules.toml"
-ALLOWED_PARAMS = frozenset({"control_number", "curp"})
+# Solo lo que el formulario captura: `curp` salió en la revisión final (§8),
+# nunca se proporcionaba y dejaba reglas que fallarían siempre.
+ALLOWED_PARAMS = frozenset({"control_number"})
 DEFAULT_OK_MESSAGE = "Cumple."
 MASK = "****"
 VERSION_MAX_LEN = 40
@@ -70,6 +72,12 @@ _FORBIDDEN_WORDS = frozenset({
     "CHECKPOINT", "WRITETEXT", "READTEXT", "BULK", "PREPARE", "DEALLOCATE",
     "LOCK", "UNLOCK", "RENAME",
 })
+# Procedimientos de sistema de ASE (`sp_who`, `xp_cmdshell`): en T-SQL se
+# llaman sin EXEC como sentencia siguiente. Una columna que empiece así va
+# entre corchetes (`[sp_total]`), que el validador no mira por dentro.
+_FORBIDDEN_PREFIX_RE = re.compile(r"^(sp|xp)_", re.IGNORECASE)
+# Operadores que unen dos SELECT de la MISMA sentencia.
+_SET_OPERATORS = frozenset({"UNION", "EXCEPT", "INTERSECT", "ALL", "DISTINCT"})
 
 _TOP_KEYS = {"version", "query", "rule", "credential", "identity", "facts"}
 _QUERY_KEYS = {"id", "file", "params"}
@@ -232,15 +240,41 @@ def _sql_errors(sql: str, n_params: int) -> list[str]:
     first = re.match(r"[A-Za-z_]+", body)
     if not first or first.group(0).upper() not in ("SELECT", "WITH"):
         errors.append("debe empezar con SELECT o WITH")
-    bad = sorted({w.upper() for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", body)}
-                 & _FORBIDDEN_WORDS)
+    words = re.findall(r"[A-Za-z_#@][A-Za-z0-9_#@$]*", body)
+    bad = sorted({w.upper() for w in words} & _FORBIDDEN_WORDS
+                 | {w for w in words if _FORBIDDEN_PREFIX_RE.match(w)})
     if bad:
         errors.append("contiene palabras no permitidas en una consulta de solo "
                       "lectura: " + ", ".join(bad))
+    if _top_level_selects(body) > 1:
+        errors.append("tiene más de una sentencia (un segundo SELECT fuera de "
+                      "UNION/EXCEPT/INTERSECT; T-SQL no necesita `;`)")
     marks = body.count("?")
     if marks != n_params:
         errors.append(f"tiene {marks} marcador(es) `?` pero declara {n_params} parámetro(s)")
     return errors
+
+
+def _top_level_selects(body: str) -> int:
+    """SELECT fuera de paréntesis que NO siguen a UNION/EXCEPT/INTERSECT.
+
+    `body` ya viene sin comentarios ni literales (`_strip_sql`). Uno es la
+    sentencia; dos o más son sentencias pegadas sin `;` (`SELECT … SELECT …`).
+    """
+    depth, prev, count = 0, "", 0
+    for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[()]", body):
+        if tok == "(":
+            depth += 1
+        elif tok == ")":
+            depth = max(depth - 1, 0)
+        else:
+            word = tok.upper()
+            if word == "SELECT" and depth == 0 and prev not in _SET_OPERATORS:
+                count += 1
+            prev = word
+            continue
+        prev = tok
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +360,19 @@ def _jsonable(v: Any) -> Any:
     if isinstance(v, (datetime, date, time)):
         return v.isoformat()
     return str(v)
+
+
+def _nip_text(raw: Any) -> str:
+    """El NIP como texto. Uno NUMÉRICO se rellena a 4 dígitos: si el SII lo
+    guarda como número, «0123» llega como 123 (revisión final C13). El
+    formato (4 dígitos ASCII) lo valida quien crea la cuenta."""
+    if raw is None:
+        return ""
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return f"{raw:04d}"
+    if isinstance(raw, Decimal) and raw.is_finite() and raw == raw.to_integral_value():
+        return f"{int(raw):04d}"
+    return str(_jsonable(raw)).strip()
 
 
 def _display(v: Any) -> str:
@@ -622,8 +669,8 @@ class RuleSet:
 
     # -- ejecución ---------------------------------------------------------
     @staticmethod
-    def _args(q: _Query, control_number: str, curp: str | None) -> list[str]:
-        values = {"control_number": control_number, "curp": curp}
+    def _args(q: _Query, control_number: str) -> list[str]:
+        values = {"control_number": control_number}
         args = []
         for p in q.params:
             v = values.get(p)
@@ -632,7 +679,7 @@ class RuleSet:
             args.append(str(v).strip())
         return args
 
-    def evaluate(self, client, control_number: str, *, curp: str | None = None) -> Verdict:
+    def evaluate(self, client, control_number: str) -> Verdict:
         """Corre las reglas contra el SII. Nunca lanza por el SII: cualquier
         falla de consulta o de regla es `Verdict(status="error")`."""
         if self._errors:
@@ -647,7 +694,7 @@ class RuleSet:
                 current["query"] = qid
                 q = self._queries[qid]
                 cache[qid] = _norm_rows(
-                    client.query(q.sql, self._args(q, control_number, curp), query_id=qid))
+                    client.query(q.sql, self._args(q, control_number), query_id=qid))
                 current["query"] = None
             return cache[qid]
 
@@ -756,10 +803,11 @@ class RuleSet:
             out[key] = _jsonable(first.get(col))
         return out
 
-    def fetch_credential(self, client, control_number: str, *,
-                         curp: str | None = None) -> Secret | None:
+    def fetch_credential(self, client, control_number: str) -> Secret | None:
         """El NIP del SII, o None si no hay `[credential]` o el SII no lo da
-        (0 filas, o la columna viene en NULL/vacía).
+        (0 filas, o la columna viene en NULL/vacía). Un NIP numérico se
+        rellena a 4 dígitos (`_nip_text`); varias filas con NIP DISTINTOS son
+        `SiiRulesError` (antes se tomaba la primera: uno al azar).
 
         Las fallas del SII SÍ se propagan (`SiiUnavailable`/`SiiQueryError`):
         quien aprueba debe distinguir «no tiene NIP» de «no se pudo
@@ -775,7 +823,7 @@ class RuleSet:
             return None
         q = self._queries[self._credential.query]
         try:
-            args = self._args(q, control_number, curp)
+            args = self._args(q, control_number)
         except _EvalError as exc:
             raise SiiRulesError(str(exc)) from None
         rows = _norm_rows(client.query(q.sql, args, query_id=q.id, sensitive=True))
@@ -787,8 +835,9 @@ class RuleSet:
             got = ", ".join(sorted(rows[0])) or "ninguna"
             raise SiiRulesError(f"[credential]: la consulta '{q.id}' no devuelve la columna "
                                 f"'{col}' (devuelve: {got}).")
-        raw = rows[0][col]
-        if raw is None:
-            return None
-        text = str(_jsonable(raw)).strip()
-        return Secret(text) if text else None
+        values = {v for v in (_nip_text(r.get(col)) for r in rows) if v}
+        if len(values) > 1:
+            # Solo cuántos, jamás cuáles.
+            raise SiiRulesError(f"[credential]: la consulta '{q.id}' devuelve varias filas "
+                                "con NIP distintos; debe devolver uno solo.")
+        return Secret(values.pop()) if values else None

@@ -345,7 +345,9 @@ class TestErrorNuncaAprueba:
         assert "magia" in v.error
         assert stub.calls == []
 
-    def test_param_curp_sin_curp_es_error(self, tmp_path):
+    def test_curp_ya_no_es_un_parametro_permitido(self, tmp_path):
+        """Revisión final (spec §8): el formulario no captura CURP, así que
+        `curp` nunca llegaba y solo dejaba reglas que fallarían siempre."""
         base = _write(tmp_path, """
             version = "t"
             [[query]]
@@ -359,10 +361,10 @@ class TestErrorNuncaAprueba:
             message = "x"
         """, {"q.sql": _Q})
         rs = RuleSet.load(base)
-        assert rs.evaluate(_Stub(), "C1").status == "error"
-        stub = _Stub({"q": {"CURP1": _ROWS}})
-        assert rs.evaluate(stub, "C1", curp="CURP1").status == "apt"
-        assert stub.calls[0][2] == ("CURP1",)
+        assert any("curp" in e for e in rs.validate())
+        stub = _Stub({"q": {"C1": _ROWS}})
+        assert rs.evaluate(stub, "C1").status == "error"
+        assert stub.calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +412,17 @@ class TestValidador:
         "WITH a AS (SELECT 1 AS z) DELETE FROM x WHERE ctl = ?",
         "SELECT * FROM x WHERE ctl = ? /* ; */ ; DROP TABLE x",
         "",
+        # Revisión final (spec §8): verbos de ASE y una segunda sentencia SIN `;`
+        # (T-SQL no la necesita).
+        "SELECT a FROM x WHERE ctl = ? SELECT b FROM y",
+        "SELECT a FROM x WHERE ctl = ?\nSELECT b FROM y",
+        "WITH a AS (SELECT ctl FROM x) SELECT * FROM a WHERE ctl = ? SELECT 1",
+        "SELECT a FROM x WHERE ctl = ? sp_configure",
+        "SELECT a FROM x WHERE ctl = ? xp_cmdshell",
+        "SELECT a INTO #tmp FROM x WHERE ctl = ?",
+        "SELECT a FROM x WHERE ctl = ? WAITFOR DELAY '00:00:05'",
+        "SELECT a FROM x WHERE ctl = ? DBCC traceon",
+        "SELECT a FROM x WHERE ctl = ? DUMP DATABASE d TO 'x'",
     ])
     def test_sql_que_no_es_un_select(self, tmp_path, sql):
         assert _errores(tmp_path, sql=sql) != []
@@ -420,6 +433,14 @@ class TestValidador:
         "SELECT 'UPDATE; DROP' AS txt FROM x WHERE ctl = ?",
         "WITH a AS (SELECT ctl FROM x) SELECT * FROM a WHERE ctl = ?",
         "select updated_at, created_by FROM x WHERE ctl = ?",
+        "SELECT a FROM x WHERE ctl = ? UNION SELECT a FROM y",
+        "SELECT a FROM x WHERE ctl = ? UNION ALL SELECT a FROM y",
+        "SELECT a FROM x WHERE ctl = ? EXCEPT SELECT a FROM y",
+        "SELECT a FROM x WHERE ctl = ? INTERSECT SELECT a FROM y",
+        "SELECT t.a FROM (SELECT a, ctl FROM x) t WHERE t.ctl = ?",
+        "SELECT a FROM x WHERE ctl = ? AND EXISTS (SELECT 1 FROM y WHERE y.a = x.a)",
+        # Una columna que empiece con sp_/xp_ se escribe entre corchetes.
+        "SELECT [sp_total], [xp_nivel] FROM x WHERE ctl = ?",
     ])
     def test_sql_valido(self, tmp_path, sql):
         assert _errores(tmp_path, sql=sql) == []
@@ -564,6 +585,33 @@ class TestCredencial:
     def test_columna_presente_pero_nula_sigue_siendo_sin_nip(self):
         rs = RuleSet.load(FIXTURES)
         assert rs.fetch_credential(_Stub({"nip": {"C": [{"NIP": None}]}}), "C") is None
+
+    @pytest.mark.parametrize("crudo,esperado", [
+        (123, "0123"), (Decimal("7"), "0007"), (4321, "4321"), ("0123", "0123"),
+    ])
+    def test_un_nip_numerico_conserva_los_ceros_a_la_izquierda(self, crudo, esperado):
+        """Si el SII guarda el NIP como número, «0123» llegaba como «123» y la
+        cuenta no se podía crear (revisión final C13)."""
+        rs = RuleSet.load(FIXTURES)
+        s = rs.fetch_credential(_Stub({"nip": {"C": [{"nip": crudo}]}}), "C")
+        assert s.reveal() == esperado
+
+    def test_varias_filas_con_nip_distinto_es_error_de_reglas(self, caplog):
+        """Antes se tomaba la primera fila: un NIP al azar. Ahora es error de
+        configuración, sin ningún valor en el mensaje ni en el log."""
+        caplog.set_level(logging.DEBUG)
+        rs = RuleSet.load(FIXTURES)
+        stub = _Stub({"nip": {"C": [{"nip": "1111"}, {"nip": "2222"}]}})
+        with pytest.raises(SiiRulesError) as ei:
+            rs.fetch_credential(stub, "C")
+        texto = " ".join([str(ei.value), repr(ei.value), caplog.text])
+        assert "1111" not in texto and "2222" not in texto
+        assert "varias filas" in str(ei.value)
+
+    def test_varias_filas_con_el_mismo_nip_no_es_error(self):
+        rs = RuleSet.load(FIXTURES)
+        stub = _Stub({"nip": {"C": [{"nip": "1111"}, {"nip": 1111}, {"nip": None}]}})
+        assert rs.fetch_credential(stub, "C").reveal() == "1111"
 
     def test_el_nip_no_aparece_en_ningun_lado(self, caplog):
         caplog.set_level(logging.DEBUG)
