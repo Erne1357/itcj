@@ -164,9 +164,11 @@ intentar. Lo crea la migración `tt20260915a` y lo declara el `__table_args__` d
 ```mermaid
 sequenceDiagram
     actor V as 👤 Visitante
-    actor O as 🏛️ Oficial
+    actor O as 🏛️ Oficial (SE, modo oficial)
+    actor CC as 💻 Centro de Cómputo (modo alterno)
     participant P as pages/public.py
     participant B as pages/requests_admin.py
+    participant Acc as pages/access_admin.py
     participant S as EnrollmentRequestService
     participant DB as Postgres
     participant R as Redis
@@ -175,24 +177,34 @@ sequenceDiagram
     P->>S: create()
     S->>DB: INSERT solicitud (pending_review, sin token)
     P-->>V: «Recibimos tu solicitud» (misma tarjeta en las 3 ramas)
-    O->>B: POST /admin/solicitudes/{id}/aprobar
-    B->>S: approve()
-    S->>DB: pg_advisory_xact_lock + refresh
-    alt sin cuenta, modo OFICIAL (por omisión)
-        S->>DB: awaiting_access (SIN correo)
-        S->>DB: COMMIT
-        Note over S,M: Centro de Cómputo da el acceso después ⤵<br/>xcut_computer_center_access.md
-    else sin cuenta, modo ALTERNO (TITULATEC_ENROLLMENT_REVIEWER=computer_center)
-        Note over O: aquí "Oficial" ya es Centro de Cómputo
-        S->>DB: SAVEPOINT · core_users (hash_nip, role_id graduate) · import_rows (roles graduate) · perfil · converted
-        S->>DB: COMMIT
-        S->>R: invalida el caché de authz de los roles nuevos
-        S->>M: usuario + NIP → correo personal
-    else con cuenta (ambos modos)
-        S->>DB: sha256(token), vence en 21 días · approved
-        S->>DB: COMMIT
-        S->>R: SETEX tt:enroll:tok:<sha256> (claro, 21 días)
-        S->>M: liga de activación → correo personal
+    alt modo OFICIAL (por omisión)
+        O->>B: POST /admin/solicitudes/{id}/aprobar
+        B->>S: approve()
+        S->>DB: pg_advisory_xact_lock + refresh
+        alt sin cuenta
+            S->>DB: awaiting_access (SIN correo) · COMMIT
+            Note over S,M: Centro de Cómputo da el acceso después ⤵<br/>xcut_computer_center_access.md
+        else con cuenta
+            S->>DB: sha256(token), vence en 21 días · approved · COMMIT
+            S->>R: SETEX tt:enroll:tok:<sha256> (claro, 21 días)
+            S->>M: liga de activación → correo personal
+        end
+    else modo ALTERNO (TITULATEC_ENROLLMENT_REVIEWER=computer_center)
+        Note over B: los 3 POST de este archivo (B) responden 400<br/>ANTES de abrir sesión (_alternate_mode_block):<br/>aprobar/rechazar/reenviar SON de Accesos aquí
+        CC->>Acc: POST /admin/accesos/{id}/dar-acceso
+        Acc->>S: approve()
+        S->>DB: pg_advisory_xact_lock + refresh
+        alt sin cuenta
+            S->>DB: SAVEPOINT · core_users (hash_nip, role_id graduate) · import_rows (roles graduate) · perfil · converted
+            S->>DB: COMMIT
+            S->>R: invalida el caché de authz de los roles nuevos
+            S->>M: usuario + NIP → correo personal
+        else con cuenta
+            S->>DB: sha256(token), vence en 21 días · approved
+            S->>DB: COMMIT
+            S->>R: SETEX tt:enroll:tok:<sha256> (claro, 21 días)
+            S->>M: liga de activación → correo personal
+        end
     end
     V->>P: GET /inscripcion/verificar?t=…
     P->>S: verify()
@@ -211,8 +223,9 @@ sequenceDiagram
 | 2 | 👤 | formulario | Enviar | `POST /titulatec/inscripcion` | `EnrollmentRequestService.create` | `titulatec_enrollment_requests` ← `pending_review`, `kind` (solo para mostrar), `created_ip_hash`; **sin token** | Solo si ya hay proceso vivo: `send_already_enrolled` → institucional, sin fila |
 | 3 | 🏛️ | Solicitudes | Ver una pestaña | `GET /titulatec/admin/solicitudes[/body]?status=&cohort_id=` | `_body_ctx` (KPIs y "por año" vía `EnrollmentRequestService.stats`) | (lectura; `account_inactive`, `rejection_sent`, `prior_reject` por fila) | — |
 | 4a | 🏛️ | fila **Sin cuenta**, modo OFICIAL (por omisión) | Aprobar y pasar a Cómputo | `POST /titulatec/admin/solicitudes/{id}/aprobar` | `approve` | solicitud → `awaiting_access`, `reviewed_by_id/at` | **Sin correo** — el alumno no se entera de este paso. El NIP lo da Centro de Cómputo: ⤵ [`xcut_computer_center_access.md`](xcut_computer_center_access.md) |
-| 4a-alt | 🏛️/💻 | fila **Sin cuenta**, modo ALTERNO (`TITULATEC_ENROLLMENT_REVIEWER=computer_center`) | Aprobar y crear acceso | `POST /titulatec/admin/solicitudes/{id}/aprobar` | `approve` | `core_users` ← usuario = control, `hash_nip(nip)`, `must_change_password`, `role_id = graduate`; `core_user_app_roles` ← `graduate` en `itcj` y `titulatec`; `titulatec_processes` + 9 fases; `core_student_profile` con los datos del formulario; solicitud → `converted` | `ProcessEvent(enrollment_self_service, activation=nip_personal_email)` sin NIP; caché de authz invalidado tras el commit; `send_enrollment_approved` → **personal** |
-| 4b | 🏛️/💻 | fila **Con cuenta** (ambos modos) | Aprobar y enviar liga | `POST /titulatec/admin/solicitudes/{id}/aprobar` | `approve` | solicitud → `approved`; `verify_token_hash`, `verify_expires_at` (+21 días, `_link_ttl_hours()`), `verify_sent_to`, `verify_send_count = 1`; claro en Redis. **La cuenta no se toca, ni se reactiva** | `send_verify_enrollment` → **personal**; si sale, `verify_sent_at` |
+| 4a-alt | 💻 | Accesos (⚠️ **NO** Solicitudes: en este modo su bandeja es de solo lectura y los 3 POST de `requests_admin.py` responden 400 ANTES de abrir sesión — `_alternate_mode_block`), fila **Sin cuenta**, modo ALTERNO (`TITULATEC_ENROLLMENT_REVIEWER=computer_center`) | Aprobar y crear acceso | `POST /titulatec/admin/accesos/{id}/dar-acceso` (`pages/access_admin.py`) | `approve` | `core_users` ← usuario = control, `hash_nip(nip)`, `must_change_password`, `role_id = graduate`; `core_user_app_roles` ← `graduate` en `itcj` y `titulatec`; `titulatec_processes` + 9 fases; `core_student_profile` con los datos del formulario; solicitud → `converted` | `ProcessEvent(enrollment_self_service, activation=nip_personal_email)` sin NIP; caché de authz invalidado tras el commit; `send_enrollment_approved` → **personal** |
+| 4b | 🏛️ | Solicitudes, fila **Con cuenta**, modo OFICIAL | Aprobar y enviar liga | `POST /titulatec/admin/solicitudes/{id}/aprobar` | `approve` | solicitud → `approved`; `verify_token_hash`, `verify_expires_at` (+21 días, `_link_ttl_hours()`), `verify_sent_to`, `verify_send_count = 1`; claro en Redis. **La cuenta no se toca, ni se reactiva** | `send_verify_enrollment` → **personal**; si sale, `verify_sent_at` |
+| 4b-alt | 💻 | Accesos (misma salvedad que 4a-alt: NO es Solicitudes), fila **Con cuenta**, modo ALTERNO | Aprobar y enviar liga | `POST /titulatec/admin/accesos/{id}/dar-acceso` (`pages/access_admin.py`) | `approve` | mismo efecto que 4b | mismo correo que 4b |
 | 5 | 👤 | correo | Activar mi acceso | `GET /titulatec/inscripcion/verificar?t=` | `verify` → `_convert` | `core_user_app_roles`: `graduate` en `itcj` y `titulatec`, fuera `student` en `itcj`/`titulatec`/`agendatec`; `core_users.role_id` → `graduate` solo desde `student`/NULL; `core_users.is_active` → `true` **si estaba desactivada**; `titulatec_processes` + fases; solicitud → `converted`, `verified_at`. **Nada del perfil** | `ProcessEvent(activation=personal_email_link, reactivated)`; caché de authz invalidado tras el commit; `send_enrollment_done` → **institucional** |
 | 6 | 🏛️ | Liga enviada | Reenviar liga | `POST /titulatec/admin/solicitudes/{id}/reenviar` | `resend_link` | hash y vencimiento nuevos, `verify_send_count + 1`, `verified_at` y `verify_sent_at` a NULL; claro viejo borrado de Redis | `send_verify_enrollment` → personal |
 | 7 | 🏛️ | fila (`pending_review`, `approved` o, desde 2026-09-24, `awaiting_access`) | Rechazar / Cancelar solicitud | `POST /titulatec/admin/solicitudes/{id}/rechazar` | `reject` | → `rejected`, `review_note`, `reviewed_by_id/at`, token a NULL; claro borrado; si el correo sale, `rejection_sent_at` en un commit propio (2026-09-17) | `send_enrollment_rejected` → personal, firmado por `reviewer_label()` |
@@ -430,16 +443,21 @@ aceptándola — solo el formulario público dejó de alimentarla.
   swappea en 5xx).
 - Excepción al escribir → `rollback` y la misma tarjeta de éxito (ninguna entrada produce un 500).
 
-**Aprobar** (400 con `X-Tt-Error`):
+**Aprobar** (`POST /titulatec/admin/solicitudes/{id}/aprobar`, 400 con `X-Tt-Error`; **solo modo
+OFICIAL** — en el ALTERNO esta ruta corta con 400 ANTES de abrir sesión, ver el párrafo de abajo, así
+que ninguno de estos mensajes sale de aquí en ese modo):
 «Esa solicitud ya fue aprobada; usa Reenviar liga.» · «Ya está en Centro de Cómputo para su acceso.»
 (2026-09-24: sobre una `awaiting_access` — SE ya la aprobó, esta ruta no vuelve a aprobarla) · «Esa
 solicitud ya se resolvió.» · «Esa convocatoria está cerrada.» (D5: solo mira `cohort.status`, no las
-fechas) · «El número de control o el nombre no tienen formato válido.» · «El NIP debe ser exactamente
-4 dígitos.» (solo sin cuenta y **solo en modo ALTERNO**: en el OFICIAL `approve()` sin cuenta ya no
-lee ni valida el NIP — lo da Centro de Cómputo después) · «Esa persona ya tiene un proceso en otra
-convocatoria.» · «Esa cuenta no tiene contraseña; dala de alta desde la convocatoria y rechaza esta
-solicitud.» · «Esa carrera no está en tu alcance.» · «No pudimos completar la aprobación; intenta de
-nuevo.» (excepción con `rollback`; entre ellas, que falte el rol `graduate`).
+fechas) · «El número de control o el nombre no tienen formato válido.» · «Esa persona ya tiene un
+proceso en otra convocatoria.» · «Esa cuenta no tiene contraseña; dala de alta desde la convocatoria y
+rechaza esta solicitud.» · «Esa carrera no está en tu alcance.» · «No pudimos completar la aprobación;
+intenta de nuevo.» (excepción con `rollback`; entre ellas, que falte el rol `graduate`). En modo
+OFICIAL `approve()` sin cuenta ya NO lee ni valida el NIP — lo da Centro de Cómputo después —, así que
+«El NIP debe ser exactamente 4 dígitos.» nunca sale de esta ruta; ese mensaje es del `approve()` que
+corre en modo ALTERNO detrás de `POST /titulatec/admin/accesos/{id}/dar-acceso`
+(`pages/access_admin.py`, no este archivo) — ver la sección «Caminos alternos / errores» de
+[`xcut_computer_center_access.md`](xcut_computer_center_access.md).
 Fuera de alcance o inexistente → **404 liso, sin `X-Tt-Error`** (aprobar, rechazar y reenviar). En
 modo ALTERNO, la bandeja de Solicitudes es de solo lectura: los tres POST de este archivo responden
 400 «En este modo la revisión la hace Centro de Cómputo.» ANTES de abrir sesión — detalle completo en

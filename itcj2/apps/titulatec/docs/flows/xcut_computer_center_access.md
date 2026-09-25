@@ -68,11 +68,17 @@ acceso» sobre ellas sigue siendo `grant_access` (nunca `approve`, que ya no las
 4. 💻 Pestaña **Con acceso** — filas `access_granted_at` no nulo (`converted` con NIP, `approved`
    por D10, o una `rejected` que SE canceló después de que CC ya había actuado). Si el correo con
    usuario + NIP no salió, la fila lleva la píldora ámbar «correo no enviado»
-   (`access_mail_unsent`) y, mientras la cuenta no haya entrado (`must_change_password=True`) y
-   sea la que creó ESTA solicitud, el botón **«Reasignar NIP y reenviar»** (D8): NIP nuevo →
-   reescribe la contraseña y reenvía el correo.
-5. 💻 Pestaña **Devueltas** — filas `returned_at` no nulo, sin acciones (SE ya la retomó o
-   decidió qué hacer).
+   (`access_mail_unsent`) y, mientras la cuenta NUNCA haya iniciado sesión (`last_login IS NULL`
+   — revisión final 2026-09-25, C1: `must_change_password` NO sirve por sí solo, nunca se limpia
+   en un egresado) y sea la que creó ESTA solicitud, el botón **«Reasignar NIP y reenviar»** (D8):
+   NIP nuevo → reescribe la contraseña, revoca las sesiones de la cuenta y reenvía el correo con
+   el texto «Este NIP reemplaza al que te enviamos antes» (o, con la casilla «lo dicto por
+   teléfono», sin correo).
+5. 💻 Pestaña **Devueltas** — filas `returned_at` no nulo, sin acciones propias (CC ya no puede
+   volver a tocarlas), pero la fila SÍ dice qué pasó: «La devolviste el {fecha}: {nota}» y, si ya
+   pasó algo después, una segunda línea («Servicios Escolares la volvió a aprobar» /
+   «Servicios Escolares la rechazó», o «Después se…» en el alterno) — `_returned_after`,
+   `pages/access_admin.py:169-177`.
 6. 👤 Correo «Ya tienes acceso» (usuario + NIP, personal) — **exactamente igual** que antes del
    2026-09-24 salvo el texto, que ya no dice «Servicios Escolares te dio de alta» (queda neutro,
    porque en modo oficial fue CC quien tecleó el NIP).
@@ -113,8 +119,9 @@ sequenceDiagram
     end
 ```
 
-Si el correo con usuario + NIP no sale (`access_sent_at` queda NULL), la fila cae en «Con acceso»
-con «correo no enviado» y CC puede reasignar:
+Mientras la cuenta nunca haya iniciado sesión (`last_login IS NULL`, D8), CC puede reasignar el
+NIP en cualquier momento, haya salido o no el primer correo (revisión final 2026-09-25: el botón
+ya NO exige `access_mail_unsent`):
 
 ```mermaid
 sequenceDiagram
@@ -123,12 +130,18 @@ sequenceDiagram
     participant S as EnrollmentRequestService
     participant DB as Postgres
     participant M as Correo (Graph)
-    CC->>A: POST /admin/accesos/{id}/reasignar-nip (nip nuevo)
+    CC->>A: POST /admin/accesos/{id}/reasignar-nip (nip nuevo, no_mail opcional)
     A->>S: reassign_nip()
-    S->>DB: lock + refresh · can_reassign_nip() + señal positiva _request_created_account()
-    S->>DB: password_hash = hash_nip(nip) · access_granted_* resellados · access_sent_at = NULL
+    S->>DB: lock de la solicitud + refresh
+    S->>DB: SELECT user FOR UPDATE (populate_existing) · can_reassign_nip() + señal positiva _request_created_account()
+    S->>DB: password_hash = hash_nip(nip) · session_service.bump_version() (revoca sesiones, MISMA transacción)
+    S->>DB: access_granted_* resellados · access_sent_at = NULL
     S->>DB: ProcessEvent(enrollment_access_reset) SIN el NIP · COMMIT
-    S->>M: usuario + NIP nuevo → correo personal (_mail_access); sella access_sent_at si sale
+    alt send_mail (por omisión)
+        S->>M: usuario + NIP nuevo, «reemplaza al anterior» → correo personal (_mail_access); sella access_sent_at si sale
+    else no_mail («lo dicto por teléfono»)
+        Note over S,M: no se manda nada; access_sent_at sigue NULL
+    end
 ```
 
 ## Pasos detallados
@@ -140,7 +153,7 @@ sequenceDiagram
 | 3a | 💻 | fila, sin cuenta HOY | Dar acceso (NIP) | `POST /titulatec/admin/accesos/{id}/dar-acceso` | `grant_access` | `core_users` ← usuario = control, `hash_nip(nip)`, `must_change_password`, `role_id = graduate`; `core_user_app_roles` ← `graduate` en `itcj`/`titulatec`; `titulatec_processes` + 9 fases; `core_student_profile`; solicitud → `converted`, `access_granted_by_id/at` | `ProcessEvent(enrollment_self_service, activation=nip_personal_email)` sin NIP; caché de authz invalidado tras el commit; `send_enrollment_approved` → **personal**; sella `access_sent_at` si sale |
 | 3b | 💻 | fila, **con cuenta HOY** (D10) | Dar acceso → enviar liga | `POST /titulatec/admin/accesos/{id}/dar-acceso` | `grant_access` | solicitud → `approved`; `verify_token_hash`, `verify_expires_at` (+21 días), `verify_sent_to`, `verify_send_count = 1`; `access_granted_by_id/at` (CC sí actuó); **`access_sent_at` NUNCA se toca aquí** — el envío de esta liga lo cuenta `verify_sent_at`; claro en Redis. La cuenta no se toca ni se reactiva (invariante 1) | `send_verify_enrollment` → **personal**; si sale, `verify_sent_at` |
 | 4 | 💻 | fila | Devolver a Servicios Escolares | `POST /titulatec/admin/accesos/{id}/devolver` | `return_to_review` | solicitud → `pending_review`, `returned_by_id/at`, `return_note` (≤2000, obligatoria) | — (sin correo) |
-| 5 | 💻 | Con acceso, correo no salió | Reasignar NIP | `POST /titulatec/admin/accesos/{id}/reasignar-nip` | `reassign_nip` | `core_users.password_hash = hash_nip(nip)`; `access_granted_by_id/at` reescritos; `access_sent_at` → NULL hasta que salga | `ProcessEvent(enrollment_access_reset)` sin NIP; `send_enrollment_approved` → personal; sella `access_sent_at` si sale |
+| 5 | 💻 | Con acceso, cuenta que nunca ha iniciado sesión | Reasignar NIP | `POST /titulatec/admin/accesos/{id}/reasignar-nip` | `reassign_nip` | Cuenta bloqueada con `FOR UPDATE`; `core_users.password_hash = hash_nip(nip)`; sesiones revocadas (`session_service.bump_version`, MISMA transacción); `access_granted_by_id/at` reescritos; `access_sent_at` → NULL (hasta que salga, si `send_mail`) | `ProcessEvent(enrollment_access_reset)` sin NIP; si `send_mail` (por omisión), `send_enrollment_approved(reassigned=True)` → personal, «reemplaza al anterior», sella `access_sent_at` si sale; con `no_mail`, ningún correo |
 | 6 (solo alterno) | 💻 | Por revisar | Aprobar | `POST /titulatec/admin/accesos/{id}/dar-acceso` | `approve` (sobre `pending_review`/legado) o `grant_access` (sobre una `awaiting_access` sobrante) | igual que el paso 3a/3b, pero disparado por CC en un solo clic | igual que 3a/3b |
 | 7 (solo alterno) | 💻 | fila | Rechazar | `POST /titulatec/admin/accesos/{id}/rechazar` | `reject` | → `rejected`, `review_note`, `reviewed_by_id/at`, token a NULL | `send_enrollment_rejected` → personal, firmado por `reviewer_label()` = «Centro de Cómputo» |
 | 8 (solo alterno) | 💻 | Liga enviada | Reenviar liga | `POST /titulatec/admin/accesos/{id}/reenviar` | `resend_link` | hash y vencimiento nuevos (+21 días), `verify_send_count + 1` | `send_verify_enrollment` → personal |
@@ -158,10 +171,16 @@ sequenceDiagram
   (`pages/access_admin.py:205`).
 - **`can_reassign_nip(req, user)`** — condición NECESARIA (no suficiente) para pintar el botón
   «Reasignar NIP»: `status == "converted"`, `access_granted_at` no nulo, `verify_token_hash` nulo,
-  y la cuenta de HOY (`user`) sigue con `must_change_password=True` (no ha entrado). No exige
-  «correo no enviado» por sí sola — la página combina `can_reassign = access_unsent and
-  can_reassign_nip(r, u)` porque D8 es el remedio de ESE correo, no un botón siempre visible.
-  Bajo el lock, `reassign_nip()` repite esta condición y además exige la señal POSITIVA
+  y la cuenta de HOY (`user`) con `last_login IS NULL` (nunca ha iniciado sesión) **y** todavía con
+  `must_change_password=True`. `must_change_password` SOLO no basta (revisión final 2026-09-25,
+  C1): en un egresado nunca se limpia —TitulaTec no tiene pantalla de cambio de contraseña y
+  `core/api/users.py::password_state` solo lo exige con la contraseña por omisión—, así que una
+  cuenta que lleva semanas entrando lo sigue teniendo en `True`; `last_login` es la señal real. La
+  página pinta el botón directo con `can_reassign = can_reassign_nip(r, u)`, **aunque el correo
+  haya salido** (un correo mal escrito también «sale»; el ruling anterior que lo exigía combinado
+  con `access_unsent` se revirtió el 2026-09-25). Bajo el lock de la solicitud, `reassign_nip()`
+  además bloquea la cuenta con `SELECT ... FOR UPDATE` (contra una carrera con un cambio de
+  contraseña concurrente), repite esta condición Y exige la señal POSITIVA
   `_request_created_account(db, req, proc)`: sin ella, una cuenta que llegó por D10 (nace
   también con `must_change_password=True` y dueña de un proceso) podría reasignarse por error —
   es la defensa concreta del invariante 1 («sobre una cuenta que NO creó la solicitud jamás se
@@ -229,11 +248,37 @@ plantilla no aprueba, rechaza, devuelve ni reenvía nada que su modo no permita.
 3. **D2 no es un caso de este flujo, es organigrama**: `head_comp_center` recibe el rol `admin`
    de titulatec **vía su puesto** (no por esta bandeja); con `admin` ve TODO el menú, no solo
    Accesos.
+4. **SE puede cancelar una `awaiting_access` sin pasar por CC**: mientras la solicitud espera en
+   la bandeja de Accesos, SE la sigue viendo en «En Cómputo» (Solicitudes) con el botón «Cancelar
+   solicitud» — el mismo `reject()` que ya aceptaba `awaiting_access` entre `_REJECTABLE`
+   (`enrollment_request_service.py`). Si CC y SE actúan casi a la vez, el `pg_advisory_xact_lock`
+   decide quién llega primero; el que pierde recibe `_MSG_NOT_AWAITING`/«Esa solicitud ya se
+   resolvió.» sin escribir nada. Detalle: [`xcut_public_enrollment.md`](xcut_public_enrollment.md)
+   paso 7 de la tabla «Pasos detallados».
+
+## Despliegue
+
+Pasos reales (spec §10, revisión final M-6 — **no** solo `alembic upgrade head`):
+
+1. `database/` está gitignored: subir al servidor `database/DML/titulatec/` (al menos 01/02/03/05
+   editados; completo si es el primer lanzamiento de TitulaTec). Sin ellos, `init-titulatec`
+   aborta.
+2. `docker/scripts/deploy.sh` corre `alembic upgrade head` solo al hacer merge a `main`;
+   `init-titulatec` es **manual** y debe correrse enseguida — si TitulaTec ya estuviera en uso, SE
+   podría dejar filas `awaiting_access` sin que nadie con el rol `titulatec_computer_center` exista
+   todavía para atenderlas.
+3. El modo alterno (`TITULATEC_ENROLLMENT_REVIEWER=computer_center` en `.env.prod`) exige
+   reiniciar **todos** los procesos backend que lo leen: `get_settings()` está en `lru_cache` por
+   proceso, así que un proceso sin reiniciar sigue en modo oficial.
+
+Tras `init-titulatec`: asignar a mano el rol `titulatec_computer_center` a los auxiliares elegidos
+(`aux_comp_center` NO lo recibe por puesto, D1 — ver §6 del `CLAUDE.md` de la app).
 
 ## Flujos relacionados
 
 - ← [Inscripción pública con revisión previa](xcut_public_enrollment.md) — de dónde llega la
-  solicitud y qué hace SE antes de que CC la vea.
+  solicitud y qué hace SE antes de que CC la vea, y de dónde SE puede rechazar una `awaiting_access`
+  sin pasar por esta bandeja (limitación 4, arriba).
 - → [El alumno sube sus documentos iniciales](phase1_student_upload_initial_docs.md) — lo
   siguiente tras recibir el NIP.
 - ← [Máquina de estados](00_state_machine.md#estado-de-una-solicitud-de-auto-inscripción-enrollmentrequeststatus) · [Glosario](_glossary.md)
