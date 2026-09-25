@@ -654,3 +654,25 @@ def test_computer_center_mapeo_puesto_rol_y_jefatura_con_admin():
     admin_de = _position_codes_for_role(sin_comentarios, "admin")
     assert "head_comp_center" in admin_de, (
         "head_comp_center deberia tener ademas el rol admin en titulatec (D2)")
+
+
+@requires_dml
+def test_computer_center_mapeo_puesto_rol_lo_negativo():
+    """Complemento negativo de la prueba anterior (revision final, MINOR de
+    D1/D2): esa prueba solo afirma "contiene al menos"; esta fija lo que NO
+    debe pasar. `aux_comp_center` (D1) no recibe el rol por puesto -- se
+    asigna a mano -- y `secretary_comp_center` (D2) no recibe ademas `admin`:
+    solo la jefatura opera la app entera."""
+    cinco = (DML_DIR / "05_insert_position_app_roles.sql").read_text(encoding="utf-8")
+    sin_comentarios = re.sub(r"--[^\n]*", "", cinco)
+
+    mapeados = _position_codes_for_role(sin_comentarios, "titulatec_computer_center")
+    assert mapeados == {"head_comp_center", "secretary_comp_center"}, (
+        f"titulatec_computer_center deberia mapear EXACTAMENTE esos dos "
+        f"puestos, ni aux_comp_center ni ningun otro (hay {sorted(mapeados)})")
+
+    admin_de = _position_codes_for_role(sin_comentarios, "admin")
+    comp_center_en_admin = {c for c in admin_de if c.endswith("comp_center")}
+    assert comp_center_en_admin == {"head_comp_center"}, (
+        f"entre los puestos *_comp_center, SOLO head_comp_center deberia "
+        f"estar en el bloque admin (hay {sorted(comp_center_en_admin)})")
