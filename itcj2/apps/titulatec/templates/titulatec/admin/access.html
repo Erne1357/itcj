@@ -1,0 +1,27 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Accesos · TitulaTec{% endblock %}
+{% block admin_view %}access{% endblock %}
+{% block admin_main %}
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Inscripción · Centro de Cómputo</span>
+  <h1 class="tt-display h3 fw-medium">Accesos</h1>
+  {# Texto por modo (`official`); los días de la liga salen de `link_days`
+     (`_link_ttl_hours()`), la misma fuente que el vencimiento y el correo. #}
+  {% if official %}
+  <p class="mb-0 small text-body-secondary">Egresados sin cuenta cuya solicitud ya aprobó
+     Servicios Escolares. Escribe un NIP de 4 dígitos: a la persona le llega por correo con
+     su usuario y tendrá que cambiarlo al entrar. Si entretanto apareció una cuenta con ese
+     número de control, se le envía una liga de activación de {{ link_days }} días y el NIP
+     no se usa. Si algo no cuadra, devuélvela a Servicios Escolares con una nota: la
+     persona no recibe ningún aviso.</p>
+  {% else %}
+  <p class="mb-0 small text-body-secondary">La revisión la hace Centro de Cómputo. Si la
+     persona no tiene cuenta, al aprobar escribes su NIP de 4 dígitos y le llega por correo
+     con su usuario. Si ya tiene cuenta, le llega una liga de activación de {{ link_days }}
+     días. Rechazar requiere un motivo: es lo que la persona lee.</p>
+  {% endif %}
+</div>
+<div class="px-4 pb-4">
+  {% include "titulatec/admin/partials/access_body.html" %}
+</div>
+{% endblock %}

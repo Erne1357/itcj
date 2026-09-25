@@ -1,0 +1,195 @@
+{# Bandeja «Accesos» de Centro de Cómputo (`pages/access_admin.py`). Raíz
+   `#tt-access-body`; todos los controles apuntan a ella con
+   `hx-swap="outerHTML"`, así que TODOS los handlers devuelven este parcial
+   completo, nunca una fila. Ids propios (`tt-access-*`, `tt-acc-*`): no se
+   reusan los `tt-req-*` de Solicitudes; sí sus CLASES de tabla y formulario
+   (titulatec.css, «Bandeja de solicitudes»), que son primitivas de estilo.
+
+   `status` es la pestaña activa (`_body_ctx` la normaliza por modo). Cada
+   formulario de fila la manda de vuelta, junto con la convocatoria, en campos
+   ocultos: la acción vuelve a pintar la pestaña donde estaba CC.
+
+   Modo oficial (`official`): Por dar acceso · Con acceso · Devueltas. Una fila
+   `awaiting_access` ofrece «Dar acceso» (NIP) o, si el control ya tiene cuenta
+   HOY, «Enviar liga» con el aviso D10 — la misma pregunta que se hace
+   `grant_access()` —, más «Devolver a Servicios Escolares» (nota ≤ 2000).
+   Modo alterno: pestañas de revisión; aprobar (NIP o liga, con carrera),
+   rechazar, reenviar la liga y dar acceso a las `awaiting_access` sobrantes.
+   En ambos, «Reasignar NIP» solo si `can_reassign_nip` y la marca «correo no
+   enviado» del NIP solo si `access_mail_unsent` (para la liga, `verify_sent_at`).
+
+   El NIP NUNCA se pinta: sus campos no llevan `value`.
+   Sin hx-confirm (no hay puente) y sin JS ni CSS en línea. #}
+{% macro tab_fields(tab, cohort) -%}
+<input type="hidden" name="status" value="{{ tab }}">
+<input type="hidden" name="cohort_id" value="{{ cohort or '' }}">
+{%- endmacro %}
+{% macro nip_field() -%}
+<input class="tt-field tt-field--xs" name="nip" type="text" inputmode="numeric"
+       pattern="\d{4}" maxlength="4" autocomplete="off" required
+       placeholder="NIP" aria-label="NIP de 4 dígitos">
+{%- endmacro %}
+{%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
+<div id="tt-access-body" data-tt-view="access-body">
+
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    {% for key, label in tabs %}
+    <button id="tt-acc-tab-{{ key }}" type="button"
+            class="btn btn-sm {{ 'tt-btn-ink' if status == key else 'tt-btn-ghost' }}"
+            {% if status == key %}aria-current="true"{% endif %}
+            hx-get="/titulatec/admin/accesos/body?status={{ key }}{{ qs_cohort }}"
+            hx-target="#tt-access-body" hx-swap="outerHTML">{{ label }}</button>
+    {% endfor %}
+  </div>
+
+  {% if not rows %}
+  <div class="tt-card" id="tt-access-empty">
+    <span class="tt-kicker"><i class="bi bi-inbox me-1" aria-hidden="true"></i>Bandeja limpia</span>
+    <p class="mb-0">No hay solicitudes con ese filtro.</p>
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="table table-sm tt-req-table" id="tt-access-table">
+      <colgroup>
+        <col class="tt-req-col-who"><col class="tt-req-col-prog"><col class="tt-req-col-contact">
+        <col class="tt-req-col-date"><col class="tt-req-col-acc">
+      </colgroup>
+      <thead><tr>
+        <th>Solicitante</th><th>Carrera</th><th>Contacto</th><th>Convocatoria</th>
+        <th><span class="visually-hidden">Acciones</span></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr id="tt-acc-{{ r.id }}">
+        <td>
+          <span class="tt-req-ctl">{{ r.control }}</span>
+          <span class="tt-req-name">{{ r.name }}</span>
+          <span class="tt-req-sub">Ingreso {{ r.entry_year }}</span>
+          <span class="tt-req-tags">
+            {% if r.show_status %}<span class="tt-pill tt-pill--neutral">{{ r.status_label }}</span>{% endif %}
+            {% if r.grantable %}
+              {% if r.has_account %}
+              <span class="tt-pill tt-pill--neutral">Ya tiene cuenta: se enviará liga</span>
+              {% if not r.has_password %}<span class="tt-pill tt-pill--danger">sin contraseña</span>{% endif %}
+              {% else %}
+              <span class="tt-pill tt-pill--amber">Sin cuenta</span>
+              {% endif %}
+            {% endif %}
+            {% if r.account_inactive %}<span class="tt-pill tt-pill--amber">Cuenta desactivada: se reactiva al abrir la liga</span>{% endif %}
+          </span>
+        </td>
+        <td>{{ r.program }}</td>
+        <td>
+          {# El correo parte en la «@» (`<wbr>`), no letra por letra. #}
+          {%- set local, arroba, dominio = (r.email or '').partition('@') -%}
+          <span class="tt-req-mail">{{ local }}{% if arroba %}<wbr>@{{ dominio }}{% endif %}</span>
+          <span class="tt-req-sub tt-mono">{{ r.phone }}</span>
+        </td>
+        <td>
+          {{ r.cohort }}
+          {% if r.when %}<span class="tt-req-sub">{{ r.when_label }} <span class="tt-mono">{{ r.when }}</span></span>{% endif %}
+        </td>
+        <td class="tt-req-acc">
+          {% if r.returned %}
+          <p class="small mb-1"><i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i><strong>Devuelta
+             a Servicios Escolares{% if r.returned_at %} el {{ r.returned_at }}{% endif %}:</strong> {{ r.return_note }}</p>
+          {% endif %}
+
+          {% if r.grantable %}
+            {# Dar acceso (oficial) o aprobar (alterno). Con cuenta no hay NIP: sale la liga. #}
+            <form class="tt-req-form"
+                  hx-post="/titulatec/admin/accesos/{{ r.id }}/dar-acceso"
+                  hx-target="#tt-access-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              {% if r.reviewable %}
+              <select class="tt-field tt-field--xs" name="program_id" aria-label="Carrera">
+                <option value="">Carrera…</option>
+                {% for p in programs %}
+                <option value="{{ p.id }}"{% if r.program_id == p.id %} selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+              </select>
+              {% endif %}
+              {% if not r.has_account %}{{ nip_field() }}{% endif %}
+              <button type="submit" class="btn btn-sm tt-btn-ink">
+                {%- if r.reviewable -%}
+                  {{ 'Aprobar y enviar liga' if r.has_account else 'Aprobar y dar acceso' }}
+                {%- else -%}
+                  {{ 'Enviar liga' if r.has_account else 'Dar acceso' }}
+                {%- endif -%}
+              </button>
+            </form>
+            {% if official %}
+            <form class="tt-req-form mt-1"
+                  hx-post="/titulatec/admin/accesos/{{ r.id }}/devolver"
+                  hx-target="#tt-access-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <textarea class="tt-field tt-field--xs w-100" name="note" rows="2" maxlength="2000"
+                        required placeholder="Qué no cuadra (lo lee Servicios Escolares)"
+                        aria-label="Motivo de la devolución"></textarea>
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Devolver a Servicios Escolares</button>
+            </form>
+            {% else %}
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/accesos/{{ r.id }}/rechazar"
+                  hx-target="#tt-access-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <input class="tt-field tt-field--xs" name="note" required
+                     placeholder="Motivo del rechazo" aria-label="Motivo del rechazo">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Rechazar</button>
+            </form>
+            {% endif %}
+          {% elif r.status == 'approved' %}
+            <p class="small mb-1">Liga enviada {{ r.sends }} {{ 'vez' if r.sends == 1 else 'veces' }}{% if r.last_sent %}
+               · última {{ r.last_sent }}{% endif %} · {{ 'abierta' if r.opened else 'sin abrir' }}</p>
+            {% if r.link_unsent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+            {% if official %}
+              {% if r.link_unsent %}<p class="small mt-1 mb-0">Servicios Escolares puede reenviar la liga desde Solicitudes.</p>{% endif %}
+            {% else %}
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/accesos/{{ r.id }}/reenviar"
+                  hx-target="#tt-access-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Reenviar liga</button>
+            </form>
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/accesos/{{ r.id }}/rechazar"
+                  hx-target="#tt-access-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <input class="tt-field tt-field--xs" name="note" required
+                     placeholder="Motivo de la cancelación" aria-label="Motivo de la cancelación">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Cancelar solicitud</button>
+            </form>
+            {% endif %}
+          {% elif r.status == 'converted' %}
+            {% if r.folio %}<span class="tt-mono">{{ r.folio }}</span>{% endif %}
+            {% if r.access_unsent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+            {% if r.can_reassign %}
+            <form class="tt-req-form mt-1"
+                  hx-post="/titulatec/admin/accesos/{{ r.id }}/reasignar-nip"
+                  hx-target="#tt-access-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              {{ nip_field() }}
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Reasignar NIP y reenviar</button>
+            </form>
+            {% endif %}
+          {% elif r.status == 'rejected' %}
+            {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}
+            {% if not r.rejection_sent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+          {% elif r.reviewable %}
+            <p class="small mb-0"><i class="bi bi-hourglass-split me-1" aria-hidden="true"></i>En
+               revisión de Servicios Escolares</p>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
