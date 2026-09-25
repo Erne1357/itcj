@@ -33,8 +33,9 @@ motivo para Servicios Escolares.
 ya haya veredicto (el SII pudo cambiar), con el siguiente número de intento.
 
 APROBACIÓN AUTOMÁTICA (`auto_approve`, spec S2/S4/S5). Apta ∧ convocatoria
-`open` ∧ `sii_auto_approve` ∧ ventana de veto vencida ∧ el NOMBRE tecleado es
-el de `[identity]` → con cuenta, la liga de siempre; sin cuenta, la cuenta
+`open` ∧ `sii_auto_approve` ∧ ventana de veto vencida ∧ el NOMBRE tecleado se
+comparó con el de `[identity]` y coincide (sin comparación no aprueba: falla
+cerrado) → con cuenta, la liga de siempre; sin cuenta, la cuenta
 nace con el NIP DEL SII. Decide y escribe el mismo núcleo que la bandeja
 (`EnrollmentRequestService._approve_locked`). Con ventana 0 la dispara
 `check` al terminar; con ventana > 0, el barrido. No apta, error, interruptor
@@ -102,6 +103,14 @@ _NAME_LABELS = {"first_name": "nombre", "last_name": "apellido paterno",
 # (hallazgo I1). `{campos}` = etiquetas de `_NAME_LABELS`, nunca los valores.
 _NOTE_IDENTITY_MISMATCH = ("El nombre del formulario no coincide con el del SII ({campos}); "
                            "confirma que la solicitud sea de esa persona antes de aprobarla.")
+# Campos que TIENEN que compararse (con valor en los dos lados) para aprobar
+# sola (revisión final C3/C9, spec §8). El apellido materno es opcional.
+_REQUIRED_NAME_FIELDS = ("first_name", "last_name")
+# Clave de `identity_mismatch` con los campos obligatorios que NO se pudieron
+# comparar (vacíos en el SII o en el formulario, o columna mal escrita).
+_UNVERIFIED = "_unverified"
+# Sin comparación del nombre no se aprueba sola: falla cerrado.
+_NOTE_IDENTITY_UNVERIFIED = "No se pudo comparar el nombre con el SII."
 
 
 def _norm(value) -> str:
@@ -112,19 +121,32 @@ def _norm(value) -> str:
 
 
 def _identity_mismatch(db: Session, req, identity: dict) -> dict | None:
-    """Diferencias formulario ↔ SII (spec §3.3). `None` si no hay ninguna.
+    """Diferencias formulario ↔ SII (spec §3.3).
+
+    `None` = NO se comparó (sin `[identity]` o su consulta sin filas). `{}` =
+    se comparó y coincide. Si no, `{campo: {form, sii}}` por diferencia y, en
+    `_UNVERIFIED`, los campos de `_REQUIRED_NAME_FIELDS` que no se pudieron
+    comparar por venir vacíos de algún lado (o por una columna de
+    `[identity]` mal escrita, que el motor proyecta como NULL).
 
     Solo se compara lo que viene de los DOS lados: un apellido materno vacío
     en el formulario no es discrepancia. La carrera coincide si el texto del
     SII es el de la carrera elegida o el tecleado. No cambia el veredicto (ese
     es de las reglas); se muestra a Servicios Escolares, y una discrepancia de
-    NOMBRE frena la aprobación automática (`_name_mismatch`).
+    NOMBRE —o no haberlo podido comparar— frena la aprobación automática
+    (`_identity_block`).
     """
+    if not identity:
+        return None
     out: dict = {}
     for campo in _NAME_FIELDS:
         form, sii = getattr(req, campo, None), identity.get(campo)
         if _norm(form) and _norm(sii) and _norm(form) != _norm(sii):
             out[campo] = {"form": form, "sii": sii}
+    sin_comparar = [c for c in _REQUIRED_NAME_FIELDS
+                    if not (_norm(getattr(req, c, None)) and _norm(identity.get(c)))]
+    if sin_comparar:
+        out[_UNVERIFIED] = sin_comparar
 
     sii_program = identity.get("program")
     if _norm(sii_program):
@@ -136,7 +158,7 @@ def _identity_mismatch(db: Session, req, identity: dict) -> dict | None:
         candidatos = [c for c in candidatos if _norm(c)]
         if candidatos and _norm(sii_program) not in {_norm(c) for c in candidatos}:
             out["program"] = {"form": candidatos[0], "sii": sii_program}
-    return out or None
+    return out
 
 
 def _name_mismatch(chk) -> list[str]:
@@ -150,6 +172,24 @@ def _name_mismatch(chk) -> list[str]:
     """
     diferencias = (chk.identity_mismatch or {}) if chk is not None else {}
     return [_NAME_LABELS[c] for c in _NAME_FIELDS if c in diferencias]
+
+
+def identity_block(chk) -> str | None:
+    """Por qué la IDENTIDAD no deja aprobar sola a `chk`, o `None` si la deja.
+
+    Falla cerrado (revisión final C3/C9): sin comparación del nombre
+    (`identity_mismatch` NULL o con `_UNVERIFIED`) → `_NOTE_IDENTITY_UNVERIFIED`;
+    nombre distinto al del SII → `_NOTE_IDENTITY_MISMATCH`. Lo usan
+    `auto_approve` y la bandeja (`requests_admin._sii_row`), así las dos dicen
+    lo mismo.
+    """
+    im = chk.identity_mismatch if chk is not None else None
+    if not isinstance(im, dict) or im.get(_UNVERIFIED):
+        return _NOTE_IDENTITY_UNVERIFIED
+    campos = _name_mismatch(chk)
+    if campos:
+        return _NOTE_IDENTITY_MISMATCH.format(campos=", ".join(campos))
+    return None
 
 
 def _leave_note(db: Session, req, note: str):
@@ -365,8 +405,7 @@ class EligibilityService:
         chk.facts = verdict.facts or None
         chk.error = verdict.error
         chk.retryable = retryable if verdict.status == "error" else None
-        chk.identity_mismatch = (_identity_mismatch(db, req, verdict.identity)
-                                 if verdict.identity else None)
+        chk.identity_mismatch = _identity_mismatch(db, req, verdict.identity)
         chk.finished_at = datetime.now()
         chk.duration_ms = duration_ms
         db.commit()
@@ -393,9 +432,10 @@ class EligibilityService:
         es inyectable), que la convocatoria siga `open` y con
         `sii_auto_approve` encendido (Review Focus 5: SE pudo cerrarla o
         apagarlo dentro de la ventana). Si algo de eso falla no escribe nada.
-        Si el NOMBRE tecleado no es el del SII (`identity_mismatch`), no
-        aprueba y deja la nota (`_name_mismatch`): la cuenta nueva solo nace
-        con un nombre que el SII confirma.
+        Si el NOMBRE tecleado no es el del SII, o no se pudo comparar
+        (`identity_block`: sin `[identity]`, columna mal escrita, nombre vacío),
+        no aprueba y deja la nota: la cuenta nueva solo nace con un nombre que
+        el SII confirma.
 
         Lo que decide y escribe la aprobación es el MISMO núcleo que usa la
         bandeja (`EnrollmentRequestService._approve_locked`), con actor `None`:
@@ -447,10 +487,9 @@ class EligibilityService:
             return _no(motivo)
         if not cohort.sii_auto_approve:
             return _no(_MSG_AUTO_OFF)
-        campos = _name_mismatch(chk)
-        if campos:
-            return _leave_note(db, req,
-                               _NOTE_IDENTITY_MISMATCH.format(campos=", ".join(campos)))
+        bloqueo = identity_block(chk)
+        if bloqueo:
+            return _leave_note(db, req, bloqueo)
 
         ok, detalle, falla_nip = ERS._approve_locked(
             db, req, cohort, actor_id=None, program_id=req.program_id,

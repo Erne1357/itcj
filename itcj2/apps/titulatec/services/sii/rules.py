@@ -39,6 +39,9 @@ RULES_FILE = "rules.toml"
 # nunca se proporcionaba y dejaba reglas que fallarían siempre.
 ALLOWED_PARAMS = frozenset({"control_number"})
 DEFAULT_OK_MESSAGE = "Cumple."
+# Claves de `[identity]` sin las que la aprobación automática no procede
+# (`EligibilityService`: el nombre se compara con el formulario o no aprueba).
+IDENTITY_REQUIRED = ("first_name", "last_name")
 MASK = "****"
 VERSION_MAX_LEN = 40
 
@@ -432,6 +435,24 @@ class RuleSet:
         """Errores legibles; `[]` = válido. Un RuleSet con errores nunca
         aprueba: `evaluate()` devuelve `error` sin consultar al SII."""
         return list(self._errors)
+
+    def advisories(self) -> list[str]:
+        """Advertencias que NO invalidan las reglas pero cambian lo que hacen.
+
+        Hoy una: sin `[identity]` que mapee `first_name` y `last_name`, la
+        aprobación automática nunca compara el nombre y, por lo tanto, nunca
+        aprueba sola (revisión final C3/C9: falla cerrado). Las solicitudes
+        aptas quedan para Servicios Escolares.
+        """
+        claves = set(self._identity.columns) if self._identity is not None else set()
+        faltan = [k for k in IDENTITY_REQUIRED if k not in claves]
+        if not faltan:
+            return []
+        que = ("no hay [identity]" if self._identity is None
+               else f"[identity] no mapea {', '.join(faltan)}")
+        return [f"{que}: sin first_name y last_name no se compara el nombre con el "
+                "formulario y NINGUNA solicitud se aprobará sola (quedan para "
+                "Servicios Escolares)."]
 
     @property
     def queries(self) -> list[str]:

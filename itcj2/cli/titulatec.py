@@ -1003,6 +1003,8 @@ def sii_rules_validate_command(rules_dir):
         for e in errors:
             click.echo(click.style(f"  - {e}", fg="red"))
         _sii_fail(f"{len(errors)} error(es) en las reglas.")
+    for aviso in rs.advisories():
+        click.echo(click.style(f"Advertencia: {aviso}", fg="yellow"))
     click.echo(click.style("OK: reglas válidas. (Las columnas de los mensajes se "
                            "verifican al ejecutar: usa sii-check.)", fg="green"))
 
@@ -1010,8 +1012,12 @@ def sii_rules_validate_command(rules_dir):
 _SII_STATUS_LABEL = {"apt": "APTA", "not_apt": "NO APTA", "error": "ERROR"}
 
 
-def _sii_cohort_outcome(cohort_id: int, verdict_status: str) -> None:
-    """Imprime qué pasaría con esta convocatoria. Solo lectura (rollback)."""
+def _sii_cohort_outcome(cohort_id: int, verdict_status: str, *,
+                        compara_nombre: bool = True) -> None:
+    """Imprime qué pasaría con esta convocatoria. Solo lectura (rollback).
+
+    `compara_nombre` = las reglas declaran `[identity]` con nombre y apellido
+    (`RuleSet.advisories()` vacío): sin eso nada se aprueba solo."""
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.database import SessionLocal
 
@@ -1025,14 +1031,16 @@ def _sii_cohort_outcome(cohort_id: int, verdict_status: str) -> None:
         auto = bool(getattr(cohort, "sii_auto_approve", True))
         click.echo(f"Convocatoria: {cohort.name} (id {cohort.id}, {cohort.status}) · "
                    f"aprobación automática: {'encendida' if auto else 'apagada'}")
-        if verdict_status == "apt" and auto and cohort.status == "open":
-            click.echo("  → se aprobaría automáticamente (sujeto a la ventana de veto "
+        if verdict_status == "apt" and auto and cohort.status == "open" and compara_nombre:
+            click.echo("  → se aprobaría automáticamente si el nombre del formulario "
+                       "coincide con el del SII (sujeto a la ventana de veto "
                        "TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS).")
         else:
             why = ("no es apta" if verdict_status == "not_apt"
                    else "la consulta falló" if verdict_status == "error"
                    else "la convocatoria no está abierta" if cohort.status != "open"
-                   else "la aprobación automática está apagada")
+                   else "la aprobación automática está apagada" if not auto
+                   else "las reglas no comparan el nombre: falta [identity]")
             click.echo(f"  → quedaría «Por revisar» de Servicios Escolares ({why}).")
     finally:
         db.rollback()
@@ -1109,7 +1117,8 @@ def sii_check_command(control_number, cohort_id):
     click.echo(f"Duración: {ms} ms")
 
     if cohort_id is not None:
-        _sii_cohort_outcome(cohort_id, verdict.status)
+        _sii_cohort_outcome(cohort_id, verdict.status,
+                            compara_nombre=not rs.advisories())
     if verdict.status == "error" or credential_failed:
         raise SystemExit(1)
 

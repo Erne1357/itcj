@@ -55,6 +55,20 @@ class TestSiiRulesValidate:
         assert res.exit_code != 0
         assert "UPDATE" in res.output and "magia" in res.output
 
+    def test_sin_identity_advierte_pero_sale_en_cero(self, sii, tmp_path):
+        """Revisión final C3: sin `[identity]` con nombre y apellido nada se
+        aprueba solo. Las reglas siguen siendo válidas: es una advertencia."""
+        (tmp_path / "queries").mkdir()
+        (tmp_path / "queries" / "q.sql").write_text(
+            "SELECT a FROM x WHERE c = ?", encoding="utf-8")
+        (tmp_path / "rules.toml").write_text(
+            'version = "t"\n[[query]]\nid = "q"\nfile = "queries/q.sql"\n'
+            'params = ["control_number"]\n[[rule]]\nid = "r"\nquery = "q"\n'
+            'criterion = { kind = "exists" }\nmessage = "x"\n', encoding="utf-8")
+        res = _run("sii-rules-validate", "--dir", str(tmp_path))
+        assert res.exit_code == 0, res.output
+        assert "Advertencia" in res.output and "[identity]" in res.output
+
     def test_carpeta_sin_reglas(self, sii, tmp_path):
         sii["rules"] = tmp_path / "no_existe"
         res = _run("sii-rules-validate")
@@ -155,6 +169,24 @@ class TestSiiCheckConConvocatoria:
         assert res.exit_code == 0, res.output
         assert "Convocatoria SII prueba" in res.output
         assert "se aprobaría automáticamente" in res.output
+
+    def test_sin_identity_quedaria_por_revisar(self, sii, patched_session_local,
+                                               make_cohort, tmp_path):
+        """Revisión final C3/C13: sin `[identity]` nada se aprueba solo, y
+        `sii-check --cohort` no debe prometerlo."""
+        import shutil
+
+        base = tmp_path / "reglas"
+        shutil.copytree(FIXTURES, base)
+        texto = (base / "rules.toml").read_text(encoding="utf-8")
+        inicio = texto.index("[identity]")
+        fin = texto.index("[facts]")
+        (base / "rules.toml").write_text(texto[:inicio] + texto[fin:], encoding="utf-8")
+        sii["rules"] = base
+        cohort = make_cohort(status="open")
+        res = _run("sii-check", "20110001", "--cohort", str(cohort.id))
+        assert "se aprobaría automáticamente" not in res.output
+        assert "Por revisar" in res.output and "nombre" in res.output
 
     def test_cerrada_quedaria_por_revisar(self, sii, patched_session_local, make_cohort):
         cohort = make_cohort(status="closed")

@@ -171,16 +171,22 @@ def _checks(db_session, req):
             .order_by(EligibilityCheck.id).all())
 
 
+_COMPARADA: dict = {}
+
+
 def _check_row(db_session, req, *, status, attempt=1, started_at=None, finished_at=None,
-               rules_version=RULES_VERSION, retryable=None, identity_mismatch=None):
-    """Check ya hecho (historial), apuntado como vigente."""
+               rules_version=RULES_VERSION, retryable=None, identity_mismatch=_COMPARADA):
+    """Check ya hecho (historial), apuntado como vigente. Por omisión el nombre
+    se comparó con el SII y coincidió (`{}`); `None` = no se comparó."""
     from itcj2.apps.titulatec.models import EligibilityCheck
 
     now = datetime.now()
     chk = EligibilityCheck(request_id=req.id, status=status, attempt=attempt,
                            rules_version=rules_version, started_at=started_at or now,
                            finished_at=finished_at if status != "pending" else None,
-                           retryable=retryable, identity_mismatch=identity_mismatch)
+                           retryable=retryable,
+                           identity_mismatch=(dict(identity_mismatch)
+                                              if identity_mismatch is not None else None))
     if status != "pending" and chk.finished_at is None:
         chk.finished_at = now
     db_session.add(chk)
@@ -233,7 +239,7 @@ def test_apta_registra_la_consulta_con_reglas_hechos_y_version(
                          "creditos_carrera": 260, "anio_ingreso": 2019}
     assert chk.error is None
     assert chk.finished_at is not None and chk.duration_ms is not None
-    assert chk.identity_mismatch is None
+    assert chk.identity_mismatch == {}, "se comparó el nombre y coincide"
     assert req.last_check_id == chk.id
     assert req.status == "pending_review"
     assert _svc().latest_check(db_session, req).id == chk.id
@@ -395,7 +401,7 @@ def test_identidad_igual_salvo_acentos_y_mayusculas_no_es_discrepancia(
 
     chk = _svc().check(db_session, req.id)
 
-    assert chk.identity_mismatch is None
+    assert chk.identity_mismatch == {}, "{} = se comparó y coincide; None = no se comparó"
 
 
 def test_el_nip_del_sii_no_se_guarda_ni_se_registra(
@@ -804,8 +810,89 @@ def test_el_mismo_nombre_con_otros_acentos_si_se_aprueba_solo(
 
     chk = _svc().check(db_session, req.id)
 
-    assert chk.identity_mismatch is None
+    assert chk.identity_mismatch == {}
     assert req.status == "converted"
+
+
+# Revisión final C3/C9 (spec §8): la aprobación automática exige que el nombre
+# SE HAYA COMPARADO con el SII y coincida. Sin `[identity]`, con la columna mal
+# escrita o con el nombre vacío en el SII no hay comparación: falla cerrado.
+_NOTA_SIN_COMPARAR = "No se pudo comparar el nombre con el SII."
+
+
+def _reglas_sin(tmp_path, *, quitar=None, cambiar=None) -> Path:
+    """Copia de las reglas sintéticas sin `[identity]` o con un cambio."""
+    import shutil
+
+    base = tmp_path / "reglas"
+    shutil.copytree(FIXTURES, base, ignore=shutil.ignore_patterns("fake_sii.json"))
+    texto = (base / "rules.toml").read_text(encoding="utf-8")
+    if quitar:
+        inicio = texto.index(quitar)
+        fin = texto.index("\n[", inicio + 1)
+        texto = texto[:inicio] + texto[fin + 1:]
+    if cambiar:
+        texto = texto.replace(*cambiar)
+    (base / "rules.toml").write_text(texto, encoding="utf-8")
+    return base
+
+
+def test_sin_identity_en_las_reglas_no_se_aprueba_sola(
+    db_session, make_cohort, sii, listo, tmp_path,
+):
+    sii.rules = _reglas_sin(tmp_path, quitar="[identity]")
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580070")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert chk.identity_mismatch is None, "sin [identity] no hubo comparación"
+    assert req.status == "pending_review"
+    assert req.review_note == _NOTA_SIN_COMPARAR
+    assert _usuario(db_session, "99580070") is None
+    assert listo == []
+
+
+def test_columna_de_identidad_mal_escrita_no_se_aprueba_sola(
+    db_session, make_cohort, sii, listo, tmp_path,
+):
+    sii.rules = _reglas_sin(tmp_path, cambiar=('first_name = "nombre"',
+                                               'first_name = "nombre_mal"'))
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580071")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert req.status == "pending_review"
+    assert req.review_note == _NOTA_SIN_COMPARAR
+    assert _usuario(db_session, "99580071") is None
+
+
+@pytest.mark.parametrize("campo", ["nombre", "paterno"])
+def test_nombre_vacio_en_el_sii_no_se_aprueba_sola(
+    db_session, make_cohort, sii, listo, campo,
+):
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580072", **{campo: None})
+
+    _svc().check(db_session, req.id)
+
+    assert req.status == "pending_review"
+    assert req.review_note == _NOTA_SIN_COMPARAR
+
+
+def test_el_barrido_no_aprueba_una_apta_sin_nombre_comparado(
+    db_session, make_cohort, sii, listo,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580073")
+    sii.alumno("99580073")
+    _check_row(db_session, req, status="apt",
+               finished_at=datetime.now() - timedelta(hours=1), identity_mismatch=None)
+
+    out = _svc().sweep(db_session, cohort_id=cohort.id)
+
+    assert out["approved"] == 0
+    assert req.status == "pending_review" and req.review_note == _NOTA_SIN_COMPARAR
 
 
 def test_la_liga_de_una_aprobada_sola_deja_la_marca_auto_en_el_expediente(
