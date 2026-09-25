@@ -47,6 +47,7 @@ _MSG_ONLY_OFFICIAL = ("En este modo Centro de Cómputo revisa las solicitudes: y
                       "devuelven a Servicios Escolares.")
 _MSG_ONLY_ALTERNATE = "En este modo rechazar y reenviar la liga son de Servicios Escolares."
 _MSG_GRANT_FAILED = "No pudimos completar el acceso; intenta de nuevo."
+_MSG_REASSIGN_FAILED = "No pudimos reasignar el NIP; intenta de nuevo."
 
 _REVIEWABLE = ("pending_review", "unverified", "verified")
 
@@ -267,6 +268,22 @@ def _render_body(request: Request, db, form):
     return render_titulatec(request, "titulatec/admin/partials/access_body.html", ctx)
 
 
+def _fail(db, what: str, req_id: int, exc: Exception, msg: str) -> Response:
+    """Fallo inesperado de un servicio que escribe credenciales: rollback + 400.
+
+    Se registra SOLO el tipo de la excepción, sin traza (`logger.exception` /
+    `exc_info`): la de un `IntegrityError` del INSERT de `core_users` trae los
+    parámetros, y su `password_hash` es un hash de un NIP de 4 dígitos.
+    """
+    logger.error("%s: fallo inesperado en la solicitud %s (%s)", what, req_id,
+                 type(exc).__name__)
+    try:
+        db.rollback()
+    except Exception:      # pragma: no cover - sesión ya inservible
+        logger.warning("%s: rollback fallido tras el error", what)
+    return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
+
+
 def _load(db, req_id: int):
     from itcj2.apps.titulatec.models import EnrollmentRequest
     return db.get(EnrollmentRequest, req_id)
@@ -327,15 +344,11 @@ async def grant(req_id: int, request: Request,
                 ok, detail = EnrollmentRequestService.approve(
                     db, req_id, nip=nip, program_id=_to_int(form.get("program_id")),
                     actor_id=uid)
-        except Exception:
+        except Exception as exc:
             # El servicio es dueño de su transacción: un fallo real se deshace
-            # entero aquí (patrón de `requests_admin.approve`). Sin el NIP.
-            logger.exception("dar-acceso: fallo inesperado en la solicitud %s", req_id)
-            try:
-                db.rollback()
-            except Exception:      # pragma: no cover - sesión ya inservible
-                logger.warning("dar-acceso: rollback fallido tras el error")
-            return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_GRANT_FAILED)})
+            # entero aquí (patrón de `requests_admin.approve`). Sin el NIP ni
+            # su hash (`_fail`).
+            return _fail(db, "dar-acceso", req_id, exc, _MSG_GRANT_FAILED)
         if not ok:
             # `detail` nunca contiene el NIP, y `(False, ...)` no deja nada escrito.
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
@@ -442,9 +455,14 @@ async def reassign_nip(req_id: int, request: Request,
     try:
         if _load(db, req_id) is None:
             return Response(status_code=404)
-        ok, detail = EnrollmentRequestService.reassign_nip(
-            db, req_id, nip=(form.get("nip") or "").strip(), actor_id=int(user["sub"]),
-            send_mail=not form.get("no_mail"))
+        try:
+            ok, detail = EnrollmentRequestService.reassign_nip(
+                db, req_id, nip=(form.get("nip") or "").strip(),
+                actor_id=int(user["sub"]), send_mail=not form.get("no_mail"))
+        except Exception as exc:
+            # Mismo trato que dar-acceso: reescribe `password_hash`, y si no
+            # pudo revocar las sesiones lanza antes de commitear.
+            return _fail(db, "reasignar-nip", req_id, exc, _MSG_REASSIGN_FAILED)
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
         return _render_body(request, db, form)

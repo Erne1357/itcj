@@ -356,11 +356,14 @@ async def approve(req_id: int, request: Request,
             # esta ruta ya cortó arriba.
             ok, detail = EnrollmentRequestService.approve(
                 db, req_id, nip="", program_id=program_id, actor_id=uid)
-        except Exception:
+        except Exception as exc:
             # `approve` es dueña de su transacción: un fallo real en cualquier
             # punto se deshace entero aquí, mismo patrón que `enroll_verify`
-            # (`pages/public.py`). El NIP NUNCA se loguea, ni aquí ni abajo.
-            logger.exception("aprobar: fallo inesperado al aprobar la solicitud")
+            # (`pages/public.py`). El NIP NUNCA se loguea, ni aquí ni abajo, y
+            # tampoco la traza: la de un `IntegrityError` trae los parámetros
+            # del INSERT (mismo criterio que `access_admin._fail`).
+            logger.error("aprobar: fallo inesperado al aprobar la solicitud %s (%s)",
+                         req_id, type(exc).__name__)
             try:
                 db.rollback()
             except Exception:      # pragma: no cover - sesión ya inservible

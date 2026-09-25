@@ -652,6 +652,89 @@ def test_reasignar_una_cuenta_que_ya_inicio_sesion_da_400_sin_escribir(
     assert correo_falso == []
 
 
+def test_un_fallo_real_de_dar_acceso_no_lleva_el_hash_del_nip_al_log(
+    client_as, db_session, make_cc, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso, caplog,
+):
+    """Revisión final (minor de seguridad): el `IntegrityError` del INSERT de
+    `core_users` trae los parámetros, `password_hash` incluido, y un hash de 4
+    dígitos es el NIP. La ruta registra solo el TIPO de la excepción.
+
+    El fallo es real: otra cuenta ya ocupa el `username` (= control) sin tener
+    ese `control_number`, así que D10 no la ve y el INSERT choca."""
+    import logging
+
+    from itcj2.core.models.user import User
+
+    seed_phase_defs()
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    req = _en_espera(db_session, cohort, control="99710140")
+    db_session.add(User(username="99710140", control_number=None,
+                        first_name="OCUPA", last_name="EL USUARIO", is_active=True))
+    db_session.commit()          # checkpoint: el rollback de la ruta no se lleva el fixture
+
+    with caplog.at_level(logging.DEBUG):
+        resp = client_as(cc).post(f"{URL}/{req.id}/dar-acceso", data={"nip": NIP})
+
+    assert resp.status_code == 400
+    assert _error(resp) == "No pudimos completar el acceso; intenta de nuevo."
+    _sin_nip(resp)
+    assert "IntegrityError" in caplog.text, "control positivo: la línea sí se registró"
+    assert "password_hash" not in caplog.text
+    assert "scrypt" not in caplog.text
+    assert "Traceback" not in caplog.text
+    assert NIP not in caplog.text
+    db_session.refresh(req)
+    assert req.status == "awaiting_access"
+
+
+def test_un_fallo_de_reasignar_nip_da_400_generico_y_no_vuelca_la_traza(
+    client_as, db_session, make_cc, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso, caplog, monkeypatch,
+):
+    """Reasignar-nip va envuelto como dar-acceso: rollback + 400 genérico, y el
+    log lleva el tipo de la excepción, nunca la traza con los parámetros."""
+    import logging
+
+    from itcj2.core.models.user import User
+    from itcj2.core.services import session_service
+
+    seed_phase_defs()
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    req = _en_espera(db_session, cohort, control="99710141")
+    c = client_as(cc)
+    assert c.post(f"{URL}/{req.id}/dar-acceso", data={"nip": "7394"}).status_code == 200
+    db_session.commit()          # checkpoint
+    antes = db_session.query(User).filter_by(control_number="99710141").one().password_hash
+    monkeypatch.setattr(session_service, "bump_version", lambda user_id, db=None: None)
+
+    with caplog.at_level(logging.DEBUG):
+        resp = c.post(f"{URL}/{req.id}/reasignar-nip", data={"nip": NIP})
+
+    assert resp.status_code == 400
+    assert _error(resp) == "No pudimos reasignar el NIP; intenta de nuevo."
+    _sin_nip(resp)
+    assert "RuntimeError" in caplog.text, "control positivo: la línea sí se registró"
+    assert "Traceback" not in caplog.text and "scrypt" not in caplog.text
+    cuenta = db_session.query(User).filter_by(control_number="99710141").one()
+    db_session.refresh(cuenta)
+    assert cuenta.password_hash == antes
+
+
+def test_las_rutas_que_emiten_credenciales_no_usan_logger_exception():
+    """`logger.exception` vuelca la traza, y la de un `IntegrityError` trae los
+    parámetros del INSERT (`password_hash`). Aplica a toda ruta que llame a
+    `approve`/`grant_access`/`reassign_nip`."""
+    from itcj2.apps.titulatec.pages import access_admin, requests_admin
+
+    for mod in (access_admin, requests_admin):
+        src = Path(mod.__file__).read_text(encoding="utf-8")
+        assert "logger.exception(" not in src, mod.__name__
+        assert "exc_info=" not in src, mod.__name__
+
+
 def test_reasignar_una_no_elegible_responde_400_sin_escribir(
     client_as, db_session, make_cc, make_cohort,
 ):
