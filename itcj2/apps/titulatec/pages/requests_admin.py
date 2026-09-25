@@ -14,9 +14,18 @@ SE aprueba sin NIP y la solicitud sin cuenta pasa a «En Cómputo»
 ALTERNO la revisión es de Centro de Cómputo: esta bandeja queda de SOLO LECTURA
 y sus tres POST responden 400 ANTES de abrir sesión (`_alternate_mode_block`),
 así que ni un POST directo sin la UI aprueba, rechaza o reenvía.
+
+En el modo `sii` (spec 2026-09-25 §3.5) SE actúa como en el oficial (la cuenta
+nueva nace con el NIP DEL SII, `approve()`), y cada fila «Por revisar» trae el
+veredicto VIGENTE del SII (`_sii_row`): reglas con su motivo, diferencias de
+identidad, intentos y, si era apta, por qué no se aprobó sola. «Reintentar
+consulta» (`reconsultar`) encola una consulta forzada. La aprobada sola se
+reconoce en Liga enviada/Inscritas por `reviewed_by_id` NULL + `reviewed_at` +
+consulta vigente `apt`. El NIP del SII nunca pasa por aquí: la bandeja lee la
+`EligibilityCheck`, que no lo guarda.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
@@ -32,6 +41,28 @@ _APPROVE = ["titulatec.enrollment_request.api.approve"]
 _REJECT = ["titulatec.enrollment_request.api.reject"]
 
 _MSG_ALTERNATE = "En este modo la revisión la hace Centro de Cómputo."
+_MSG_NOT_SII = "La consulta al SII solo existe en el modo sii."
+_MSG_RESOLVED = "Esa solicitud ya se resolvió."
+_MSG_IN_FLIGHT = "Ya se está consultando al SII; espera el resultado."
+_MSG_RECHECK_QUEUED = "Consulta al SII solicitada: el veredicto aparece al terminar."
+
+# Veredicto de la consulta vigente → (etiqueta, tono de `.tt-pill--*`, icono).
+# `pending` fresca = otro proceso consulta ahora; `stale` = `pending` colgada
+# (más de `_PENDING_STALE`), que `force` sí retoma.
+_SII_STATES = {
+    "none": ("Sin consultar", "neutral", "bi-question-circle"),
+    "pending": ("Consultando…", "navy", "bi-hourglass-split"),
+    "stale": ("Consultando… sin respuesta", "amber", "bi-hourglass-bottom"),
+    "apt": ("Apta", "success", "bi-check-circle"),
+    "not_apt": ("No apta", "danger", "bi-x-circle"),
+    "error": ("Error de consulta", "amber", "bi-exclamation-triangle"),
+}
+# Campos de `identity_mismatch` → etiqueta legible. Otro campo sale tal cual.
+_DIFF_LABELS = {"first_name": "Nombre", "last_name": "Apellido paterno",
+                "middle_name": "Apellido materno", "program": "Carrera"}
+_AUTO_OFF = "La aprobación automática está apagada en esta convocatoria."
+_COHORT_NOT_OPEN = "La convocatoria no está abierta: no se aprueba sola."
+_AUTO_WAITING = "Apta: se aprobará sola en el siguiente barrido."
 
 # Pestañas, en el orden en que se pintan.
 _TABS = (
@@ -133,16 +164,99 @@ def _load_scoped_request(db, scope, req_id: int):
     return req if _program_in_scope(scope, req.program_id) else None
 
 
-def _body_ctx(db, *, user_id: int, status, cohort_id):
+def _fmt(dt) -> str:
+    return dt.strftime("%d/%m/%Y %H:%M") if dt else ""
+
+
+def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: int,
+             now: datetime, requested: bool) -> dict:
+    """El bloque del SII de una fila «Por revisar» (modo `sii`).
+
+    `chk` es la consulta VIGENTE (`last_check_id`) ya cargada en lote. Solo
+    se leen `results`, `error`, `identity_mismatch` y los tiempos: nada de
+    eso trae el NIP (el servicio no corre `[credential]` al consultar), y
+    todo se pinta escapado por Jinja. `requested` = SE acaba de pedir la
+    consulta en esta misma respuesta: se pinta «Consultando…» aunque el
+    worker aún no haya abierto la fila, para no ofrecer el botón otra vez.
+
+    `why` dice por qué una APTA sigue aquí, en el orden en que la frena
+    `EligibilityService.auto_approve`: la nota que dejó la automática
+    (`review_note`), el interruptor de la convocatoria, la convocatoria
+    cerrada, la ventana de veto; si nada la frena, la toma el barrido.
+    """
+    from itcj2.apps.titulatec.services.eligibility_service import _PENDING_STALE
+
+    if chk is None:
+        state = "none"
+    elif chk.status == "pending":
+        fresca = chk.started_at is not None and chk.started_at > now - _PENDING_STALE
+        state = "pending" if fresca else "stale"
+    else:
+        state = chk.status if chk.status in _SII_STATES else "error"
+    if requested and state != "pending":
+        state = "pending"
+    label, tone, icon = _SII_STATES[state]
+    if state == "stale" and chk.started_at is not None:
+        label = f"{label} desde {_fmt(chk.started_at)}"
+
+    results = (chk.results or []) if chk is not None and state != "pending" else []
+    failed = [str(r.get("message") or r.get("rule") or "") for r in results
+              if isinstance(r, dict) and not r.get("ok")]
+    passed = [str(r.get("message") or r.get("rule") or "") for r in results
+              if isinstance(r, dict) and r.get("ok")]
+
+    diffs = []
+    for campo, par in ((chk.identity_mismatch or {}) if chk is not None else {}).items():
+        if isinstance(par, dict):
+            diffs.append({"label": _DIFF_LABELS.get(campo, campo),
+                          "form": par.get("form") or "", "sii": par.get("sii") or ""})
+
+    why = ""
+    if state == "apt":
+        if note:
+            why = f"No se aprobó sola: {note}"
+        elif not cohort.get("auto", True):
+            why = _AUTO_OFF
+        elif cohort.get("status") != "open":
+            why = _COHORT_NOT_OPEN
+        elif delay_hours and chk.finished_at is not None:
+            desde = chk.finished_at + timedelta(hours=delay_hours)
+            why = (f"Se aprobará sola a partir del {_fmt(desde)}." if desde > now
+                   else _AUTO_WAITING)
+        else:
+            why = _AUTO_WAITING
+
+    return {
+        "state": state, "label": label, "tone": tone, "icon": icon,
+        "attempt": chk.attempt if chk is not None else 0,
+        "max": max_attempts,
+        "when": _fmt(chk.finished_at or chk.started_at) if chk is not None else "",
+        "failed": failed, "passed": passed,
+        "error": (chk.error or "") if state == "error" else "",
+        "diffs": diffs, "why": why,
+        # La nota ya va en `why`: la fila no la repite como «Nota:».
+        "note_shown": bool(state == "apt" and note),
+        # Una consulta en curso no se duplica (el servicio tampoco la repite).
+        "can_recheck": state != "pending",
+    }
+
+
+def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None = None):
     """Contexto del parcial. Distingue los DOS vacíos (riesgo 3 del diseño).
 
     «¿Tiene cuenta?» se calcula aquí igual que en `approve()`: el número de
     control contra `core_users`, HOY. Si la bandeja y el servicio se separan, la
     fila promete un NIP que no se aplica o esconde una liga que sí sale.
+
+    Modo `sii`: la consulta VIGENTE de cada fila se carga en UNA consulta
+    (nunca `latest_check` por fila) y `_sii_row` arma su bloque. `requested_id`
+    = la solicitud cuya consulta SE acaba de pedir (`reconsultar`).
     """
     from itcj2.core.models.program import Program
     from itcj2.core.models.user import User
-    from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest, TitulationProcess
+    from itcj2.apps.titulatec.models import (
+        Cohort, EligibilityCheck, EnrollmentRequest, TitulationProcess,
+    )
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
@@ -150,11 +264,12 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
     tab = _tab(status)
     scope = _officer_scope(db, user_id)
     mode = EnrollmentRequestService.reviewer_mode()
+    sii = mode == "sii"
     ctx = {"rows": [], "status": tab, "tabs": _TABS, "cohort_id": cohort_id,
            "programs": [], "no_programs": False,
            # Modo alterno = solo lectura: la plantilla no pinta ni un formulario
            # (las rutas POST lo cortan aparte, `_alternate_mode_block`).
-           "mode": mode, "can_act": mode != "computer_center",
+           "mode": mode, "can_act": mode != "computer_center", "sii": sii,
            # Días de la liga para el texto de la cabecera: de la MISMA fuente
            # que el vencimiento en BD y el correo, nunca un literal.
            "link_days": EnrollmentRequestService.link_ttl_days(),
@@ -219,9 +334,22 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
     folios = (dict(db.query(TitulationProcess.id, TitulationProcess.folio)
                    .filter(TitulationProcess.id.in_(pids)).all()) if pids else {})
     cohort_ids = {r.cohort_id for r in reqs}
-    coh_names = (dict(db.query(Cohort.id, Cohort.name)
-                      .filter(Cohort.id.in_(cohort_ids)).all()) if cohort_ids else {})
+    cohorts = ({cid: {"name": name, "status": st, "auto": bool(auto)}
+                for cid, name, st, auto in db.query(
+                    Cohort.id, Cohort.name, Cohort.status, Cohort.sii_auto_approve)
+                .filter(Cohort.id.in_(cohort_ids)).all()} if cohort_ids else {})
     prog_names = {p["id"]: p["name"] for p in programs}
+    # Consultas VIGENTES del SII, en lote. Se cargan en cualquier modo porque
+    # «Aprobada automáticamente (SII)» es un hecho histórico de la fila; el
+    # bloque del veredicto solo se pinta en el modo `sii`.
+    check_ids = {r.last_check_id for r in reqs if r.last_check_id}
+    checks = ({c.id: c for c in db.query(EligibilityCheck)
+               .filter(EligibilityCheck.id.in_(check_ids)).all()} if check_ids else {})
+    if sii:
+        from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+        delay_hours = EligibilityService.delay_hours()
+        max_attempts = EligibilityService.max_attempts()
+        now = datetime.now()
 
     # «Rechazada antes» (riesgo 4b): TODAS las `rejected` de estos controles, en
     # UNA consulta — nunca un `db.get`/query por fila (N+1). Acotada al MISMO
@@ -244,6 +372,15 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
 
     for r in reqs:
         u = users.get(r.control_number)
+        chk = checks.get(r.last_check_id)
+        cohort = cohorts.get(r.cohort_id, {})
+        sii_block = None
+        if sii and r.status == "pending_review":
+            # Solo `pending_review`: `EligibilityService.check` no consulta el
+            # legado (`unverified`/`verified`) ni lo ya resuelto.
+            sii_block = _sii_row(chk, note=r.review_note or "", cohort=cohort,
+                                 delay_hours=delay_hours, max_attempts=max_attempts,
+                                 now=now, requested=(r.id == requested_id))
         anteriores = [c for c in rejected_by_control.get(r.control_number, ()) if c[1] < r.id]
         prior_reject = None
         if anteriores:
@@ -261,7 +398,7 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
             "program_id": r.program_id,
             "email": r.contact_email,
             "phone": r.phone,
-            "cohort": coh_names.get(r.cohort_id, ""),
+            "cohort": cohort.get("name", ""),
             "created": r.created_at.strftime("%d/%m/%Y") if r.created_at else "",
             "status": r.status,
             "status_label": _STATUS_LABELS.get(r.status, r.status),
@@ -291,6 +428,12 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
             # rechazo es lo único que sella esta columna (`reject()`).
             "rejection_sent": r.rejection_sent_at is not None,
             "prior_reject": prior_reject,
+            "sii": sii_block,
+            # Aprobada SOLA (EligibilityService.auto_approve): sin revisor, con
+            # fecha de revisión y la consulta vigente apta.
+            "auto_approved": (r.status in ("approved", "converted")
+                              and r.reviewed_by_id is None and r.reviewed_at is not None
+                              and chk is not None and chk.status == "apt"),
         })
     return ctx
 
@@ -445,3 +588,55 @@ async def resend(req_id: int, request: Request,
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
+
+
+@router.post("/{req_id}/reconsultar", name="titulatec.pages.requests.recheck")
+async def reconsultar(req_id: int, request: Request,
+                      user: dict = Depends(require_page_app("titulatec", perms=_APPROVE))):
+    """«Reintentar consulta» (modo `sii`): encola una consulta FORZADA al SII.
+
+    `enqueue_check(req_id, force=True)` después de validar; la consulta corre
+    en celery (el SII puede tardar lo que sus timeouts: nunca en la petición
+    web). No duplica: con la consulta vigente `pending` y fresca responde 400
+    sin encolar (`EligibilityService.check` tampoco la repetiría), y la bandeja
+    que devuelve ya pinta esa fila «Consultando…» sin el botón. Una `pending`
+    colgada (más de `_PENDING_STALE`) sí se reintenta: `force` la retoma.
+    Mismo permiso y alcance por carrera que aprobar; 404 liso fuera de alcance.
+    """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    if EnrollmentRequestService.reviewer_mode() != "sii":
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_NOT_SII)})
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services import eligibility_service as elig
+
+    form = await request.form()
+    tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        scope = _officer_scope(db, uid)
+        req = _load_scoped_request(db, scope, req_id)
+        if req is None:
+            return Response(status_code=404)
+        if req.status != "pending_review":
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_RESOLVED)})
+        vigente = elig.EligibilityService.latest_check(db, req)
+        if (vigente is not None and vigente.status == "pending"
+                and vigente.started_at is not None
+                and vigente.started_at > datetime.now() - elig._PENDING_STALE):
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_IN_FLIGHT)})
+        # Sin escrituras propias: la fila `pending` la abre la tarea bajo el lock
+        # de la solicitud. `enqueue_check` es best-effort y nunca lanza; con el
+        # broker caído la recoge el barrido (no hay consulta en curso).
+        elig.enqueue_check(req.id, force=True)
+        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
+                        requested_id=req.id)
+    finally:
+        db.close()
+    resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
+    resp.headers["X-Tt-Notice"] = _hdr(_MSG_RECHECK_QUEUED)
+    resp.headers["X-Tt-Notice-Kind"] = "success"
+    return resp

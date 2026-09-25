@@ -293,7 +293,12 @@ class Settings(BaseSettings):
     # tabla de Accesos estiraba `document.documentElement.scrollWidth` a 690 px
     # en 360/390). Sin el bump, quien tenga la hoja vieja en caché sigue con
     # scroll horizontal en `/titulatec/admin/accesos`.
-    STATIC_VERSION: str = "1.0.1111571"
+    #
+    # Bump 2026-09-25 (3): `titulatec/css/titulatec.css` suma `.tt-sii-*`, el
+    # bloque del veredicto del SII en «Por revisar» de Solicitudes (modo `sii`).
+    # Sin el bump, la hoja vieja pinta las reglas incumplidas sin su icono de
+    # color ni el filete que las separa de los formularios.
+    STATIC_VERSION: str = "1.0.1111572"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
