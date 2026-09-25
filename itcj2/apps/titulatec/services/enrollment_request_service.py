@@ -18,8 +18,9 @@ el ALTERNO, CC hace las dos cosas en un paso.
     verify() [liga]          ─── approved ─► converted | pending_review (review_note)
     reject() [SE | CC alt.]  ─── pending_review | awaiting_access | approved | legado
                                  ─► rejected                            (correo; la liga muere)
-    reassign_nip() [CC]      ─── converted (cuenta creada por la solicitud y que no
-                                 ha entrado) ─► converted               NIP nuevo + correo
+    reassign_nip() [CC]      ─── converted (cuenta creada por la solicitud y que
+                                 nunca ha iniciado sesión) ─► converted  NIP nuevo
+                                 (+ correo, u omitido para dictarlo por teléfono)
 
 El alumno no se entera de `awaiting_access`: ni correo al aprobar ni al
 devolver. `unverified` y `verified` son estados LEGADO del flujo con liga
@@ -40,9 +41,10 @@ dejar inscrita a esa persona. Para que no escale:
      `password_hash`, `must_change_password` ni `core_student_profile`, ni en
      `approve()`, ni en `grant_access()`, ni en `verify()`/`_convert()`, ni en
      `reassign_nip()` (que solo acepta la cuenta que creó ESA solicitud y que
-     todavía no ha entrado: `can_reassign_nip` más la señal positiva
-     `_request_created_account`, porque una cuenta del CSV que llegó por D10
-     también nace con `must_change_password` y dueña del proceso). Lo único
+     nunca ha iniciado sesión —`last_login` nulo—: `can_reassign_nip` más la
+     señal positiva `_request_created_account`, porque una cuenta del CSV que
+     llegó por D10 también nace con `must_change_password` y dueña del
+     proceso). Lo único
      que recibe es el proceso y los roles de egresado (`graduate`, que
      desplaza a `student`; ver `ImportService.import_rows`).
      EXCEPCIÓN APROBADA (2026-09-15): abrir la liga pasa `is_active` de False a
@@ -213,7 +215,7 @@ _MSG_RETURN_NOTE = "Escribe el motivo de la devolución."
 _MSG_RETURN_NOTE_LONG = "El motivo de la devolución no puede pasar de 2000 caracteres."
 _RETURN_NOTE_MAX = 2000
 _MSG_NOT_REASSIGNABLE = ("Solo se reasigna el NIP de una cuenta que creó esta solicitud "
-                         "y que todavía no ha entrado.")
+                         "y que nunca ha iniciado sesión.")
 _NOTE_LINK_COHORT_CLOSED = "La convocatoria estaba cerrada cuando se abrió la liga de activación."
 _NOTE_LINK_NO_ACCOUNT = "La cuenta de ese número de control ya no existe."
 _NOTE_LINK_NO_PROCESS = ("No se pudo crear el proceso al abrir la liga; revisa los datos "
@@ -627,9 +629,17 @@ class EnrollmentRequestService:
         `user` es la cuenta que hoy tiene el número de control de la solicitud
         (o `None`). Solo una solicitud `converted` a la que se le DIO acceso con
         NIP (`access_granted_at`, sin liga: `verify_token_hash` nulo) y cuya
-        cuenta sigue con `must_change_password` (la persona no ha entrado a
-        cambiarlo). La bandeja lo usa para pintar el botón; `reassign_nip` lo
-        repite bajo el lock.
+        cuenta NUNCA ha iniciado sesión (`last_login` nulo; lo sella
+        `auth_service.authenticate` en cada entrada) y conserva
+        `must_change_password`. La bandeja lo usa para pintar el botón, aunque el
+        correo haya salido (un correo mal escrito también «sale»);
+        `reassign_nip` lo repite bajo el bloqueo de la cuenta.
+
+        `must_change_password` SOLO no basta (revisión final C1): en un egresado
+        nunca se limpia —TitulaTec no tiene pantalla de cambio y
+        `core/api/users.py::password_state` solo lo exige con la contraseña por
+        omisión—, así que una cuenta que lleva semanas entrando lo sigue
+        teniendo en True.
 
         Es condición NECESARIA, no suficiente. Deja fuera la rama D10 solo
         porque `verify()` conserva el hash al convertir (idempotencia); una
@@ -641,6 +651,7 @@ class EnrollmentRequestService:
                 and req.access_granted_at is not None
                 and req.verify_token_hash is None
                 and user is not None
+                and user.last_login is None
                 and bool(user.must_change_password))
 
     @staticmethod
@@ -666,22 +677,38 @@ class EnrollmentRequestService:
                 and req.access_sent_at is None)
 
     @staticmethod
-    def reassign_nip(db: Session, req_id: int, *, nip: str, actor_id: int):
-        """Centro de Cómputo reasigna el NIP cuando el correo de acceso no salió (D8).
+    def reassign_nip(db: Session, req_id: int, *, nip: str, actor_id: int,
+                     send_mail: bool = True):
+        """CC reasigna el NIP de una cuenta que nunca ha iniciado sesión (D8).
 
-        Devuelve `(ok, detalle)`. Lock + refresh; elegible solo si
-        `can_reassign_nip`, la cuenta del control es la dueña del proceso de la
-        solicitud Y hay señal POSITIVA de que ESTA solicitud creó esa cuenta
-        (`_request_created_account`). Invariante 1: sobre una cuenta que NO
-        creó la solicitud jamás se escribe credencial, y en una fila D10 las
-        dos primeras no bastan (la cuenta del CSV nace con
-        `must_change_password` y `_convert` le crea el proceso a ELLA).
-        Escribe `password_hash = hash_nip(nip)`, sella `access_granted_*`,
-        deja `access_sent_at` en NULL hasta que salga el correo y agrega
-        `enrollment_access_reset` SIN el NIP. Correo después del commit
-        (`_mail_access`, que sella `access_sent_at`).
+        Para cuando el correo con el NIP no salió o salió a una dirección mal
+        escrita. Devuelve `(ok, detalle)`. Lock de la solicitud + refresh; luego
+        la cuenta del control se lee con `FOR UPDATE` (y `populate_existing`,
+        para no decidir con la copia del mapa de identidad) y, BAJO ESE
+        BLOQUEO, se exige `can_reassign_nip` (nunca ha iniciado sesión), que sea
+        la dueña del proceso de la solicitud Y la señal POSITIVA de que ESTA
+        solicitud la creó (`_request_created_account`). Sin el bloqueo, un
+        cambio de contraseña concurrente quedaría pisado por el NIP. Invariante
+        1: sobre una cuenta que NO creó la solicitud jamás se escribe
+        credencial, y en una fila D10 las dos primeras no bastan (la cuenta del
+        CSV nace con `must_change_password` y `_convert` le crea el proceso a
+        ELLA).
+
+        Escribe `password_hash = hash_nip(nip)`, revoca las sesiones de la
+        cuenta en la MISMA transacción (`session_service.bump_version(db=db)`:
+        quien entró con el NIP anterior —p. ej. el dueño del correo mal
+        escrito— no puede fijar su propia contraseña después), sella
+        `access_granted_*`, deja `access_sent_at` en NULL y agrega
+        `enrollment_access_reset` SIN el NIP. Si no pudo revocar, lanza
+        `RuntimeError` antes de commitear (la ruta hace rollback).
+
+        `send_mail=True`: correo después del commit con el texto «Este NIP
+        reemplaza al que te enviamos antes» (`_mail_access(reassigned=True)`,
+        que sella `access_sent_at` si sale). `send_mail=False` («lo dicto por
+        teléfono»): no se manda nada y `access_sent_at` queda NULL.
         """
         from itcj2.core.models.user import User
+        from itcj2.core.services import session_service
         from itcj2.core.utils.security import hash_nip
         from itcj2.apps.titulatec.models import (
             EnrollmentRequest, ProcessEvent, TitulationProcess,
@@ -697,7 +724,10 @@ class EnrollmentRequestService:
         db.refresh(req)
 
         user = (db.query(User)
-                .filter_by(control_number=(req.control_number or "").strip()).first())
+                .filter_by(control_number=(req.control_number or "").strip())
+                .populate_existing()
+                .with_for_update()
+                .first())
         if not EnrollmentRequestService.can_reassign_nip(req, user):
             return False, _MSG_NOT_REASSIGNABLE
         proc = db.get(TitulationProcess, req.converted_process_id)
@@ -707,6 +737,10 @@ class EnrollmentRequestService:
             return False, _MSG_NOT_REASSIGNABLE
 
         user.password_hash = hash_nip(nip)
+        if session_service.bump_version(user.id, db=db) is None:
+            # `bump_version` nunca lanza: un `None` aquí dejaría la credencial
+            # nueva con las sesiones del NIP anterior vivas.
+            raise RuntimeError("reassign_nip: no se pudieron revocar las sesiones")
         req.access_granted_by_id = actor_id
         req.access_granted_at = datetime.now()
         req.access_sent_at = None
@@ -717,7 +751,12 @@ class EnrollmentRequestService:
             payload={"request_id": req.id},
         ))
         db.commit()
-        EnrollmentRequestService._mail_access(db, req, user, nip)
+        # Segundo borrado de la época en caché, ya con el commit hecho (patrón
+        # de `users_admin`): cierra la ventana en que un lector la repuebla con
+        # la época vieja.
+        session_service.forget_cached_version(user.id)
+        if send_mail:
+            EnrollmentRequestService._mail_access(db, req, user, nip, reassigned=True)
         return True, ""
 
     @staticmethod
@@ -842,8 +881,11 @@ class EnrollmentRequestService:
         return True, folio, summary, user
 
     @staticmethod
-    def _mail_access(db: Session, req, user, nip: str) -> bool:
+    def _mail_access(db: Session, req, user, nip: str, *, reassigned: bool = False) -> bool:
         """Manda usuario + NIP al correo personal. Llamar SOLO después del commit.
+
+        `reassigned=True` (desde `reassign_nip`): el correo dice que el NIP
+        reemplaza al anterior.
 
         Si el correo sale, sella `access_sent_at` en un commit propio (mismo
         patrón que `_mail_activation`/`verify_sent_at`); si no, la fila queda
@@ -854,7 +896,8 @@ class EnrollmentRequestService:
         from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
 
         rid = req.id
-        ok = TitulaTecEmailHelper.send_enrollment_approved(db, req, user, nip=nip)
+        ok = TitulaTecEmailHelper.send_enrollment_approved(db, req, user, nip=nip,
+                                                           reassigned=reassigned)
         if ok:
             try:
                 req.access_sent_at = datetime.now()

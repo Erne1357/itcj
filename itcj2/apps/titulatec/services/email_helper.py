@@ -204,12 +204,17 @@ class TitulaTecEmailHelper:
             return False
 
     @staticmethod
-    def send_enrollment_approved(db: Session, req, user, *, nip: str) -> bool:
-        """Alta de una cuenta NUEVA: usuario + NIP + cambio obligatorio (D16).
+    def send_enrollment_approved(db: Session, req, user, *, nip: str,
+                                 reassigned: bool = False) -> bool:
+        """Alta de una cuenta NUEVA: usuario + NIP (D16).
 
         Lo manda `EnrollmentRequestService._mail_access` tras dar el acceso
         (Centro de Cómputo, o la aprobación en el modo alterno) y al reasignar
         el NIP. El texto es NEUTRO sobre quién dio el acceso.
+
+        `reassigned=True` (Reasignar NIP, D8): otro asunto y el aviso «Este NIP
+        reemplaza al que te enviamos antes», para que quien sí recibió el
+        primer correo sepa cuál vale.
 
         Al correo PERSONAL: un egresado de 2005 no tiene institucional vivo. El
         NIP viaja SOLO aquí — nunca al log, ni a `X-Tt-Error`, ni al payload de
@@ -218,9 +223,10 @@ class TitulaTecEmailHelper:
         try:
             return _deliver(
                 template="enrollment_approved.html",
-                context={"req": req, "user": user, "nip": nip,
+                context={"req": req, "user": user, "nip": nip, "reassigned": reassigned,
                          "login_url": "https://enlinea.cdjuarez.tecnm.mx/itcj/login"},
-                subject="[TitulaTec ITCJ] Tu acceso a la plataforma",
+                subject=("[TitulaTec ITCJ] Tu NIP nuevo de acceso" if reassigned
+                         else "[TitulaTec ITCJ] Tu acceso a la plataforma"),
                 to=req.contact_email, que="enrollment_approved",
             )
         except Exception:

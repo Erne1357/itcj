@@ -191,6 +191,31 @@ def test_el_correo_de_alta_es_neutro_sobre_quien_dio_el_acceso(
     assert "Centro de Cómputo" not in texto
 
 
+def test_el_correo_de_un_nip_reasignado_dice_que_reemplaza_al_anterior(
+    db_session, make_student, solicitud, correo_falso,
+):
+    """Ruling 2026-09-25 (D8): quien sí recibió el primer correo recibe otro con
+    otro NIP; sin esta línea no sabe cuál vale. El alta normal no la lleva."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    alumno = make_student(control_number="90000013")
+    req = solicitud(control_number="90000013", kind="unknown", status="converted",
+                    contact_email="reasignado@example.invalid")
+
+    assert TitulaTecEmailHelper.send_enrollment_approved(
+        db_session, req, alumno, nip="4822", reassigned=True) is True
+    assert TitulaTecEmailHelper.send_enrollment_approved(
+        db_session, req, alumno, nip="4823") is True
+
+    (asunto_r, dest_r, html_r), (asunto_n, _dest_n, html_n) = correo_falso
+    assert dest_r == ["reasignado@example.invalid"]
+    assert "Este NIP reemplaza al que te enviamos antes" in _texto(html_r)
+    assert "4822" in html_r and "90000013" in html_r
+    assert "Tu solicitud fue aprobada" not in _texto(html_r)
+    assert asunto_r != asunto_n, "el asunto distingue el NIP nuevo del alta"
+    assert "reemplaza" not in _texto(html_n)
+
+
 @pytest.mark.parametrize("modo,revisor,otro", [
     ("school_services", "Servicios Escolares", "Centro de Cómputo"),
     ("computer_center", "Centro de Cómputo", "Servicios Escolares"),

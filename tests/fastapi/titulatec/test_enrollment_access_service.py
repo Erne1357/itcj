@@ -771,7 +771,7 @@ def test_cada_transicion_nueva_toma_lock_y_refresca_antes_de_leer_status(nombre)
 # reassign_nip(): el correo con el NIP no salió (D8)
 # ---------------------------------------------------------------------------
 MSG_NO_REASIGNABLE = ("Solo se reasigna el NIP de una cuenta que creó esta solicitud "
-                      "y que todavía no ha entrado.")
+                      "y que nunca ha iniciado sesión.")
 
 
 def _con_acceso(db_session, make_cohort, make_user, *, control):
@@ -895,6 +895,132 @@ def test_no_se_reasigna_si_la_persona_ya_entro(
 
     _intentar_sin_escribir(db_session, req, user, espia_helper, make_user())
     assert _eventos_reset(db_session, req) == []
+
+
+def test_no_se_reasigna_si_la_persona_ya_inicio_sesion(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, espia_helper,
+):
+    """Revisión final C1: `must_change_password` NO dice «no ha entrado». En un
+    egresado nunca se limpia (nada lo obliga a cambiar el NIP), así que una
+    cuenta que lleva semanas en TitulaTec lo sigue teniendo en True. La señal es
+    `last_login`, que sella `authenticate` en cada inicio de sesión."""
+    seed_phase_defs()
+    req, user = _con_acceso(db_session, make_cohort, make_user, control="99560081")
+    user.last_login = datetime.now() - timedelta(days=3)
+    db_session.flush()
+    assert user.must_change_password is True, "premisa: la marca sigue puesta"
+    assert _svc().can_reassign_nip(req, user) is False
+
+    _intentar_sin_escribir(db_session, req, user, espia_helper, make_user())
+    assert _eventos_reset(db_session, req) == []
+
+
+def test_reasignar_revoca_las_sesiones_de_la_cuenta_en_la_misma_transaccion(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+    monkeypatch,
+):
+    """Quien tuviera sesión con el NIP anterior (p. ej. el dueño del correo mal
+    escrito) la pierde: `bump_version` sube `session_epoch` ANTES del commit."""
+    from itcj2.core.services import session_service
+
+    seed_phase_defs()
+    req, user = _con_acceso(db_session, make_cohort, make_user, control="99560082")
+    db_session.refresh(user)
+    epoca = user.session_epoch
+    pasos = []
+    bump_real, commit_real = session_service.bump_version, db_session.commit
+
+    def _bump(user_id, db=None):
+        pasos.append(("bump", user_id, db is db_session))
+        return bump_real(user_id, db=db)
+
+    def _commit():
+        pasos.append("commit")
+        return commit_real()
+
+    monkeypatch.setattr(session_service, "bump_version", _bump)
+    monkeypatch.setattr(db_session, "commit", _commit)
+
+    assert _svc().reassign_nip(db_session, req.id, nip="2609",
+                               actor_id=make_user().id) == (True, "")
+
+    assert pasos[0] == ("bump", user.id, True), pasos
+    assert pasos[1] == "commit"
+    db_session.refresh(user)
+    assert user.session_epoch == epoca + 1
+
+
+def test_reasignar_no_escribe_si_no_pudo_revocar_las_sesiones(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, espia_helper,
+    monkeypatch,
+):
+    """`bump_version` nunca lanza: devuelve `None`. Cambiar la credencial sin
+    revocar las sesiones vivas es justo lo que el remedio quiere evitar."""
+    from itcj2.core.services import session_service
+
+    seed_phase_defs()
+    req, user = _con_acceso(db_session, make_cohort, make_user, control="99560083")
+    antes = user.password_hash
+    db_session.commit()          # checkpoint: el rollback no se lleva el fixture
+    monkeypatch.setattr(session_service, "bump_version", lambda user_id, db=None: None)
+
+    with pytest.raises(RuntimeError):
+        _svc().reassign_nip(db_session, req.id, nip="2610", actor_id=make_user().id)
+    db_session.rollback()
+
+    db_session.refresh(user)
+    assert user.password_hash == antes
+    assert _eventos_reset(db_session, req) == []
+    assert espia_helper == []
+
+
+def test_reasignar_sin_correo_no_manda_nada_y_deja_access_sent_at_vacio(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, espia_helper,
+):
+    """«No enviar correo; lo dicto por teléfono» (ruling 2026-09-25): el caso del
+    correo mal escrito, donde reenviar le entregaría el NIP nuevo al mismo buzón
+    equivocado."""
+    from itcj2.core.utils.security import verify_nip
+
+    seed_phase_defs()
+    req, user = _con_acceso(db_session, make_cohort, make_user, control="99560084")
+
+    assert _svc().reassign_nip(db_session, req.id, nip="2611", actor_id=make_user().id,
+                               send_mail=False) == (True, "")
+
+    assert espia_helper == []
+    db_session.refresh(user)
+    db_session.refresh(req)
+    assert verify_nip("2611", user.password_hash)
+    assert req.access_sent_at is None
+    (ev,) = _eventos_reset(db_session, req)
+    assert ev.payload == {"request_id": req.id}
+
+
+def test_el_correo_de_la_reasignacion_dice_que_reemplaza_al_anterior(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+):
+    seed_phase_defs()
+    req, _user = _con_acceso(db_session, make_cohort, make_user, control="99560085")
+
+    assert _svc().reassign_nip(db_session, req.id, nip="2612",
+                               actor_id=make_user().id) == (True, "")
+
+    (_asunto, _dest, html), = correo_falso
+    assert "Este NIP reemplaza al que te enviamos antes" in html
+    assert "2612" in html
+
+
+def test_reassign_nip_bloquea_la_cuenta_antes_de_decidir():
+    """La cuenta se lee con `FOR UPDATE` (y sin la copia del mapa de identidad)
+    y la elegibilidad se decide bajo ese bloqueo: sin él, un cambio de
+    contraseña concurrente quedaría pisado por el NIP."""
+    cuerpo = _cuerpo(_svc().reassign_nip)
+    bloqueo = cuerpo.index(".with_for_update()")
+    assert ".populate_existing()" in cuerpo
+    assert bloqueo < cuerpo.index("can_reassign_nip(req")
+    assert bloqueo < cuerpo.index("_request_created_account(")
+    assert cuerpo.index("bump_version(") < cuerpo.index("db.commit()")
 
 
 def _d10_con_liga(db_session, make_cohort, make_user, correo_falso, *, control):
@@ -1064,12 +1190,14 @@ def test_can_reassign_nip_es_puro_y_decide_el_boton():
 
     ahora = datetime.now()
     ok_req = NS(status="converted", access_granted_at=ahora, verify_token_hash=None)
-    ok_user = NS(must_change_password=True)
+    ok_user = NS(must_change_password=True, last_login=None)
     can = _svc().can_reassign_nip
 
     assert can(ok_req, ok_user) is True
     assert can(ok_req, None) is False
-    assert can(ok_req, NS(must_change_password=False)) is False
+    assert can(ok_req, NS(must_change_password=False, last_login=None)) is False
+    assert can(ok_req, NS(must_change_password=True, last_login=ahora)) is False, (
+        "ya inició sesión: must_change_password no lo distingue (C1)")
     assert can(NS(status="approved", access_granted_at=ahora,
                   verify_token_hash=None), ok_user) is False
     assert can(NS(status="converted", access_granted_at=None,
