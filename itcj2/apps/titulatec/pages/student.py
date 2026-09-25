@@ -203,6 +203,8 @@ _EVENT_LABELS = {
     "process_paused":              "Tu proceso quedó en pausa",
     "process_resumed":             "Tu proceso se reanudó",
     "enrollment_self_service":     "Te inscribiste desde el formulario público",
+    # `EnrollmentRequestService.reassign_nip` (el correo con tu NIP no salió).
+    "enrollment_access_reset":     "Se reasignó tu NIP de acceso",
     # ---- Documentos iniciales ------------------------------------------
     "document_uploaded":           "Subiste un documento",
     "document_approved":           "Te aprobaron un documento",

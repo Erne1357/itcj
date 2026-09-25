@@ -133,6 +133,16 @@ def test_las_dos_voces_no_son_la_misma_frase_repetida():
         )
 
 
+def test_la_reasignacion_del_nip_se_lee_en_las_dos_voces():
+    """`enrollment_access_reset` (2026-09-24): Centro de Computo reasigno el NIP
+    porque el correo de acceso no salio. El payload nunca lleva el NIP, asi que
+    la etiqueta es todo lo que el historial dice."""
+    assert "enrollment_access_reset" in EVENT_TYPES
+    assert _labels_admin()["enrollment_access_reset"] == (
+        "Se reasignó el NIP de acceso", "key", "neutral")
+    assert _labels_alumno()["enrollment_access_reset"] == "Se reasignó tu NIP de acceso"
+
+
 # ---------------------------------------------------------------------------
 # El dominio no puede quedarse atras del codigo que escribe eventos
 # ---------------------------------------------------------------------------

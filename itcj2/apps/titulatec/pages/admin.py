@@ -971,6 +971,9 @@ _EVENT_UI = {
     # Alta por el formulario publico, no por CSV ni a mano: al oficial le dice
     # por que este expediente existe sin que el lo capturara.
     "enrollment_self_service":      ("Se inscribió por el formulario", "globe",              "neutral"),
+    # `EnrollmentRequestService.reassign_nip`: el correo con el NIP no salió y
+    # Centro de Computo le dio uno nuevo. El payload nunca lleva el NIP.
+    "enrollment_access_reset":      ("Se reasignó el NIP de acceso", "key",                  "neutral"),
     # Los escribe `CohortService.set_window` al cerrar y reabrir la convocatoria.
     # Explican por que un proceso se quedo quieto sin accion de nadie.
     "process_paused":               ("Proceso pausado",           "pause-circle",           "amber"),

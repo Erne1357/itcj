@@ -713,3 +713,219 @@ def test_cada_transicion_nueva_toma_lock_y_refresca_antes_de_leer_status(nombre)
     lock_pos = cuerpo.index("pg_advisory_xact_lock")
     refresh_pos = cuerpo.index("db.refresh(req)")
     assert lock_pos < refresh_pos < cuerpo.index("req.status"), nombre
+
+
+# ---------------------------------------------------------------------------
+# reassign_nip(): el correo con el NIP no salió (D8)
+# ---------------------------------------------------------------------------
+MSG_NO_REASIGNABLE = ("Solo se reasigna el NIP de una cuenta que creó esta solicitud "
+                      "y que todavía no ha entrado.")
+
+
+def _con_acceso(db_session, make_cohort, make_user, *, control):
+    """Solicitud a la que CC ya dio acceso y cuyo correo NO salió.
+
+    El fallo del correo se simula solo durante `grant_access` y se restaura lo
+    que hubiera antes (el espía o `correo_falso` del test siguen armados)."""
+    from itcj2.core.models.user import User
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    original = TitulaTecEmailHelper.__dict__["send_enrollment_approved"]
+    TitulaTecEmailHelper.send_enrollment_approved = staticmethod(lambda *a, **k: False)
+    try:
+        req, _se, _ = _en_espera(db_session, make_cohort, make_user, control=control)
+        ok, _ = _svc().grant_access(db_session, req.id, nip=NIP, actor_id=make_user().id)
+    finally:
+        TitulaTecEmailHelper.send_enrollment_approved = original
+    assert ok is True and req.access_sent_at is None
+    user = db_session.query(User).filter_by(control_number=control).one()
+    return req, user
+
+
+def _eventos_reset(db_session, req):
+    from itcj2.apps.titulatec.models import ProcessEvent
+    return (db_session.query(ProcessEvent)
+            .filter_by(process_id=req.converted_process_id,
+                       event_type="enrollment_access_reset").all())
+
+
+def test_reasignar_nip_reescribe_la_contrasena_y_reenvia(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+    caplog,
+):
+    from itcj2.core.utils.security import verify_nip
+
+    seed_phase_defs()
+    req, user = _con_acceso(db_session, make_cohort, make_user, control="99560070")
+    otro_cc = make_user(first_name="OTRO", last_name="COMPUTO")
+
+    with caplog.at_level(logging.DEBUG):
+        resultado = _svc().reassign_nip(db_session, req.id, nip="2604", actor_id=otro_cc.id)
+
+    assert resultado == (True, "")
+    db_session.refresh(user)
+    assert verify_nip("2604", user.password_hash)
+    assert not verify_nip(NIP, user.password_hash)
+    assert user.must_change_password is True
+    assert req.status == "converted"
+    assert req.access_granted_by_id == otro_cc.id
+    assert req.access_sent_at is not None, "el correo nuevo sí salió: se sella"
+    (_a, destinatarios, html), = correo_falso
+    assert destinatarios == ["acceso@example.invalid"] and "2604" in html
+    (ev,) = _eventos_reset(db_session, req)
+    assert ev.actor_id == otro_cc.id
+    assert ev.payload == {"request_id": req.id}
+    assert "2604" not in caplog.text
+
+
+def test_reasignar_nip_commitea_antes_de_mandar_y_sin_correo_sigue_no_enviado(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    seed_phase_defs()
+    req, _user = _con_acceso(db_session, make_cohort, make_user, control="99560071")
+    pasos = []
+    commit_real = db_session.commit
+
+    def _commit():
+        pasos.append("commit")
+        return commit_real()
+
+    monkeypatch.setattr(db_session, "commit", _commit)
+    monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved",
+                        staticmethod(lambda *a, **k: pasos.append("correo") or False))
+
+    assert _svc().reassign_nip(db_session, req.id, nip="2605",
+                               actor_id=make_user().id) == (True, "")
+    assert pasos == ["commit", "correo"]
+    assert req.access_sent_at is None, "sin correo, sigue «no enviado»"
+
+
+def test_reasignar_exige_un_nip_de_4_digitos(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, espia_helper,
+):
+    seed_phase_defs()
+    req, user = _con_acceso(db_session, make_cohort, make_user, control="99560072")
+    antes = user.password_hash
+
+    for nip in ("", "12", "abcd", None):
+        assert _svc().reassign_nip(db_session, req.id, nip=nip,
+                                   actor_id=make_user().id) == (False, MSG_NIP)
+    db_session.refresh(user)
+    assert user.password_hash == antes
+    assert _eventos_reset(db_session, req) == []
+    assert espia_helper == []
+
+
+def _intentar_sin_escribir(db_session, req, user, espia_helper, actor):
+    antes = user.password_hash
+    sellado = (req.access_granted_by_id, req.access_granted_at)
+    assert _svc().reassign_nip(db_session, req.id, nip="2606",
+                               actor_id=actor.id) == (False, MSG_NO_REASIGNABLE)
+    db_session.refresh(user)
+    db_session.refresh(req)
+    assert user.password_hash == antes
+    assert (req.access_granted_by_id, req.access_granted_at) == sellado
+    assert espia_helper == []
+
+
+def test_no_se_reasigna_si_la_persona_ya_entro(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, espia_helper,
+):
+    """Review Focus 5: `must_change_password=False` = ya cambió su NIP."""
+    seed_phase_defs()
+    req, user = _con_acceso(db_session, make_cohort, make_user, control="99560073")
+    user.must_change_password = False
+    db_session.flush()
+
+    _intentar_sin_escribir(db_session, req, user, espia_helper, make_user())
+    assert _eventos_reset(db_session, req) == []
+
+
+def test_no_se_reasigna_en_la_rama_con_liga(
+    db_session, make_cohort, make_user, espia_helper,
+):
+    """Review Focus 5: D10 dejó una liga sobre una cuenta que NO creó la
+    solicitud, aunque ya se haya abierto y la cuenta siga sin cambiar su NIP."""
+    req, _se, _ = _en_espera(db_session, make_cohort, make_user, control="99560074")
+    cuenta = _cuenta(db_session, "99560074", must_change=True)
+    ok, _ = _svc().grant_access(db_session, req.id, nip=NIP, actor_id=make_user().id)
+    assert ok is True and req.access_granted_at is not None
+    espia_helper.clear()
+    req.status = "converted"
+    db_session.flush()
+
+    _intentar_sin_escribir(db_session, req, cuenta, espia_helper, make_user())
+
+
+def test_no_se_reasigna_una_fila_legado_sin_access_granted_at(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, espia_helper,
+):
+    """Review Focus 5: convertida por el flujo de antes (SE daba el NIP)."""
+    seed_phase_defs()
+    req, user = _con_acceso(db_session, make_cohort, make_user, control="99560075")
+    req.access_granted_at = None
+    req.access_granted_by_id = None
+    db_session.flush()
+
+    _intentar_sin_escribir(db_session, req, user, espia_helper, make_user())
+
+
+def test_no_se_reasigna_si_la_cuenta_del_control_no_es_la_del_proceso(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, espia_helper,
+):
+    """La cuenta que hoy tiene ese control no es la que creó la solicitud (se
+    borró y otra la reemplazó): jamás se le escribe credencial."""
+    from itcj2.apps.titulatec.models import TitulationProcess
+
+    seed_phase_defs()
+    req, user = _con_acceso(db_session, make_cohort, make_user, control="99560076")
+    proc = db_session.get(TitulationProcess, req.converted_process_id)
+    proc.student_id = make_user(first_name="AJENA").id
+    db_session.flush()
+
+    _intentar_sin_escribir(db_session, req, user, espia_helper, make_user())
+
+
+@pytest.mark.parametrize("status", ["awaiting_access", "approved", "pending_review",
+                                    "rejected"])
+def test_solo_se_reasigna_una_convertida(db_session, make_cohort, make_user,
+                                         espia_helper, status):
+    req = _make_req(db_session, make_cohort(status="open"), control="99560077",
+                    status=status, access_granted_at=datetime.now())
+
+    assert _svc().reassign_nip(db_session, req.id, nip="2607",
+                               actor_id=make_user().id) == (False, MSG_NO_REASIGNABLE)
+    assert espia_helper == []
+
+
+def test_reasignar_una_solicitud_inexistente(db_session):
+    assert _svc().reassign_nip(db_session, 987654321, nip="2608", actor_id=1) == (
+        False, "La solicitud ya no existe.")
+
+
+def test_can_reassign_nip_es_puro_y_decide_el_boton():
+    from types import SimpleNamespace as NS
+
+    ahora = datetime.now()
+    ok_req = NS(status="converted", access_granted_at=ahora, verify_token_hash=None)
+    ok_user = NS(must_change_password=True)
+    can = _svc().can_reassign_nip
+
+    assert can(ok_req, ok_user) is True
+    assert can(ok_req, None) is False
+    assert can(ok_req, NS(must_change_password=False)) is False
+    assert can(NS(status="approved", access_granted_at=ahora,
+                  verify_token_hash=None), ok_user) is False
+    assert can(NS(status="converted", access_granted_at=None,
+                  verify_token_hash=None), ok_user) is False
+    assert can(NS(status="converted", access_granted_at=ahora,
+                  verify_token_hash="a" * 64), ok_user) is False
+
+
+def test_reassign_nip_toma_lock_y_refresca_antes_de_leer_status():
+    cuerpo = _cuerpo(_svc().reassign_nip)
+    lock_pos = cuerpo.index("pg_advisory_xact_lock")
+    refresh_pos = cuerpo.index("db.refresh(req)")
+    assert lock_pos < refresh_pos < cuerpo.index("can_reassign_nip(req")

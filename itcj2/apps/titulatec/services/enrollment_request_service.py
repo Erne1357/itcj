@@ -18,6 +18,8 @@ el ALTERNO, CC hace las dos cosas en un paso.
     verify() [liga]          ─── approved ─► converted | pending_review (review_note)
     reject() [SE | CC alt.]  ─── pending_review | awaiting_access | approved | legado
                                  ─► rejected                            (correo; la liga muere)
+    reassign_nip() [CC]      ─── converted (cuenta creada por la solicitud y que no
+                                 ha entrado) ─► converted               NIP nuevo + correo
 
 El alumno no se entera de `awaiting_access`: ni correo al aprobar ni al
 devolver. `unverified` y `verified` son estados LEGADO del flujo con liga
@@ -36,9 +38,11 @@ dejar inscrita a esa persona. Para que no escale:
 
   1. Sobre una cuenta que NO creó la solicitud JAMÁS se escribe
      `password_hash`, `must_change_password` ni `core_student_profile`, ni en
-     `approve()`, ni en `grant_access()`, ni en `verify()`/`_convert()`. Lo
-     único que recibe es el proceso y los roles de egresado (`graduate`, que
-     desplaza a `student`; ver `ImportService.import_rows`).
+     `approve()`, ni en `grant_access()`, ni en `verify()`/`_convert()`, ni en
+     `reassign_nip()` (que solo acepta la cuenta que creó ESA solicitud y que
+     todavía no ha entrado: `can_reassign_nip`). Lo único que recibe es el
+     proceso y los roles de egresado (`graduate`, que desplaza a `student`;
+     ver `ImportService.import_rows`).
      EXCEPCIÓN APROBADA (2026-09-15): abrir la liga pasa `is_active` de False a
      True. Sin eso la persona quedaba inscrita sin poder entrar. El riesgo es
      reactivar una cuenta que alguien desactivó a propósito, y se contiene así:
@@ -57,10 +61,10 @@ dejar inscrita a esa persona. Para que no escale:
      la plantilla). Sus columnas quedan en la BD como legado sin uso.
 
 Una cuenta NUEVA solo conoce su NIP por el correo que manda `_mail_access()`
-(tras `grant_access` o el `approve` alterno). EL NIP NUNCA SALE de
+(tras `grant_access`, el `approve` alterno o `reassign_nip`). EL NIP NUNCA SALE de
 otra forma: ni al log, ni al `detalle` que la ruta pone en `X-Tt-Error`, ni al
 payload de un `ProcessEvent`. `access_sent_at` NULL con `access_granted_at`
-lleno es «correo no enviado».
+lleno es «correo no enviado»: CC puede reasignar el NIP y reenviarlo.
 
 TOKEN (E7). La BD guarda SOLO `sha256(token)` y la comparación decisiva usa
 `hmac.compare_digest`. El texto claro vive en Redis bajo `tt:enroll:tok:<sha256>`
@@ -85,7 +89,8 @@ sus procesos y tampoco emite ni canjea ligas, pero pasar `closes_at` no deja
 varada a nadie que entró a tiempo. La liga vive `_link_ttl_hours()`.
 
 CONCURRENCIA. Toda transición de una solicitud (`approve`, `grant_access`,
-`return_to_review`, `verify`, `reject`, `resend_link`, `resend`) toma
+`return_to_review`, `reassign_nip`, `verify`, `reject`, `resend_link`,
+`resend`) toma
 `pg_advisory_xact_lock(_REQUEST_LOCK_NS, req.id)` y hace `db.refresh(req)`
 ANTES de leer el estado: bajo READ COMMITTED, quien esperó el lock puede seguir
 teniendo en memoria el estado de antes de esperarlo. Los tests estructurales de
@@ -189,6 +194,8 @@ _MSG_ONLY_APPROVED = "Solo se reenvía la liga de solicitudes aprobadas."
 _MSG_IN_ACCESS = "Ya está en Centro de Cómputo para su acceso."
 _MSG_NOT_AWAITING = "Esa solicitud ya no está esperando acceso."
 _MSG_RETURN_NOTE = "Escribe el motivo de la devolución."
+_MSG_NOT_REASSIGNABLE = ("Solo se reasigna el NIP de una cuenta que creó esta solicitud "
+                         "y que todavía no ha entrado.")
 _NOTE_LINK_COHORT_CLOSED = "La convocatoria estaba cerrada cuando se abrió la liga de activación."
 _NOTE_LINK_NO_ACCOUNT = "La cuenta de ese número de control ya no existe."
 _NOTE_LINK_NO_PROCESS = ("No se pudo crear el proceso al abrir la liga; revisa los datos "
@@ -562,6 +569,72 @@ class EnrollmentRequestService:
         req.returned_at = datetime.now()
         req.return_note = motivo[:2000]
         db.commit()
+        return True, ""
+
+    @staticmethod
+    def can_reassign_nip(req, user) -> bool:
+        """¿Se puede reasignar el NIP de `req`? Puro: no toca la BD.
+
+        `user` es la cuenta que hoy tiene el número de control de la solicitud
+        (o `None`). Solo una solicitud `converted` a la que se le DIO acceso con
+        NIP (`access_granted_at`, sin liga: `verify_token_hash` nulo, que deja
+        fuera la rama D10) y cuya cuenta sigue con `must_change_password` (la
+        persona no ha entrado a cambiarlo). La bandeja lo usa para pintar el
+        botón; `reassign_nip` lo repite bajo el lock.
+        """
+        return (req.status == "converted"
+                and req.access_granted_at is not None
+                and req.verify_token_hash is None
+                and user is not None
+                and bool(user.must_change_password))
+
+    @staticmethod
+    def reassign_nip(db: Session, req_id: int, *, nip: str, actor_id: int):
+        """Centro de Cómputo reasigna el NIP cuando el correo de acceso no salió (D8).
+
+        Devuelve `(ok, detalle)`. Lock + refresh; elegible solo si
+        `can_reassign_nip` Y la cuenta del control es la dueña del proceso que
+        creó la solicitud (invariante 1: sobre una cuenta que NO creó la
+        solicitud jamás se escribe credencial). Escribe `password_hash =
+        hash_nip(nip)`, sella `access_granted_*`, deja `access_sent_at` en NULL
+        hasta que salga el correo y agrega `enrollment_access_reset` SIN el NIP.
+        Correo después del commit (`_mail_access`, que sella `access_sent_at`).
+        """
+        from itcj2.core.models.user import User
+        from itcj2.core.utils.security import hash_nip
+        from itcj2.apps.titulatec.models import (
+            EnrollmentRequest, ProcessEvent, TitulationProcess,
+        )
+
+        if not re.fullmatch(r"\d{4}", nip or ""):
+            return False, _MSG_BAD_NIP
+        req = db.get(EnrollmentRequest, req_id)
+        if req is None:
+            return False, _MSG_GONE
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns, :key)"),
+                   {"ns": _REQUEST_LOCK_NS, "key": int(req.id)})
+        db.refresh(req)
+
+        user = (db.query(User)
+                .filter_by(control_number=(req.control_number or "").strip()).first())
+        if not EnrollmentRequestService.can_reassign_nip(req, user):
+            return False, _MSG_NOT_REASSIGNABLE
+        proc = db.get(TitulationProcess, req.converted_process_id)
+        if proc is None or proc.student_id != user.id:
+            return False, _MSG_NOT_REASSIGNABLE
+
+        user.password_hash = hash_nip(nip)
+        req.access_granted_by_id = actor_id
+        req.access_granted_at = datetime.now()
+        req.access_sent_at = None
+        db.add(ProcessEvent(
+            process_id=proc.id, actor_id=actor_id,
+            event_type="enrollment_access_reset", phase_number=0,
+            # Se muestra en el expediente: aquí NO va el NIP.
+            payload={"request_id": req.id},
+        ))
+        db.commit()
+        EnrollmentRequestService._mail_access(db, req, user, nip)
         return True, ""
 
     @staticmethod
