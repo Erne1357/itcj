@@ -138,8 +138,10 @@ test('dar NIP mueve la solicitud a «Con acceso»; en la base queda "converted" 
   // Antes de teclearlo: el NIP que se va a dar no debe estar ya en la página
   // por ningún otro motivo (control previo -mismo criterio que `_sin_nip` del
   // harness de FastAPI-, para que el "no vuelve" de más abajo compare contra
-  // algo, no contra una premisa nunca verificada).
-  expect(await page.content(), 'el NIP no debe aparecer ANTES de darlo')
+  // algo, no contra una premisa nunca verificada). `innerText`, no
+  // `page.content()`: el HTML crudo es frágil -ids, teléfonos, `?v=` del
+  // static versioning pueden contener "9911" por coincidencia-.
+  expect(await page.locator('body').innerText(), 'el NIP no debe aparecer ANTES de darlo')
     .not.toContain(NIP_DADO);
 
   const fila = page.locator(`#tt-acc-${reqParaAcceso}`);
@@ -236,7 +238,7 @@ test('el NIP nunca vuelve al navegador en ninguna pestaña de Accesos', async ({
       await expect(page.locator(`#tt-acc-${reqParaDevolver}`), 'la fila devuelta debe estar aquí')
         .toBeVisible();
     }
-    expect(await page.content(), `el NIP dado quedó en la pestaña ${pestana}`)
+    expect(await page.locator('body').innerText(), `el NIP dado quedó en la pestaña ${pestana}`)
       .not.toContain(NIP_DADO);
     // Un campo de NIP puede existir (p. ej. "Reasignar NIP" en «Con acceso»,
     // con el correo pausado en dev), pero nunca trae valor: el servidor no lo
