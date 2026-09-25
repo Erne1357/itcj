@@ -342,6 +342,48 @@ def test_un_error_de_configuracion_no_es_reintentable(
     assert chk.retryable is False
 
 
+@pytest.mark.parametrize("donde", ["consulta", "reglas"])
+def test_el_corte_de_celery_es_un_error_reintentable(
+    db_session, make_cohort, sii, modo_sii, monkeypatch, donde,
+):
+    """Revisión final (minor): `SoftTimeLimitExceeded` es tiempo agotado, no
+    configuración: se reintenta (antes quedaba como error definitivo)."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from itcj2.apps.titulatec.services.sii.client import FakeSiiClient
+    from itcj2.apps.titulatec.services.sii.rules import RuleSet
+
+    def _corte(*a, **k):
+        raise SoftTimeLimitExceeded()
+
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580098")
+    sii.alumno("99580098")
+    if donde == "consulta":
+        monkeypatch.setattr(FakeSiiClient, "query", _corte)
+    else:
+        monkeypatch.setattr(RuleSet, "load", classmethod(_corte))
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "error"
+    assert chk.retryable is True
+
+
+def test_el_corte_de_celery_al_pedir_el_nip_es_transitorio(sii, monkeypatch):
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from itcj2.apps.titulatec.services import eligibility_service as elig
+    from itcj2.apps.titulatec.services.sii.client import FakeSiiClient
+
+    def _corte(*a, **k):
+        raise SoftTimeLimitExceeded()
+
+    monkeypatch.setattr(FakeSiiClient, "query", _corte)
+
+    assert elig.fetch_sii_nip("99580099") == (None, elig.NIP_UNAVAILABLE)
+
+
 def test_un_veredicto_no_es_error_ni_reintentable(db_session, make_cohort, sii, modo_sii):
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99580082")

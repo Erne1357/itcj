@@ -242,6 +242,19 @@ def _lock(db: Session, req_id: int) -> None:
                {"ns": _REQUEST_LOCK_NS, "key": int(req_id)})
 
 
+def _transient_types() -> tuple:
+    """Fallas que se arreglan esperando: el SII no respondió (`SiiUnavailable`)
+    o celery cortó la tarea por tiempo (`SoftTimeLimitExceeded`: tiempo
+    agotado, no configuración; revisión final)."""
+    from itcj2.apps.titulatec.services.sii.errors import SiiUnavailable
+
+    try:
+        from celery.exceptions import SoftTimeLimitExceeded
+    except ImportError:  # pragma: no cover - celery siempre está en el backend
+        return (SiiUnavailable,)
+    return (SiiUnavailable, SoftTimeLimitExceeded)
+
+
 class _FailureWatch:
     """Envuelve al cliente del SII para saber de qué TIPO fue su falla.
 
@@ -268,32 +281,34 @@ def _evaluate(control: str):
     """Pasos del SII, SIN tocar la BD. `(Verdict, retryable)`; nunca lanza.
 
     `retryable` (spec §3.4): el veredicto es `error` porque el SII no
-    respondió (`SiiUnavailable`: conexión, timeout, backend apagado). Reglas
-    que no cargan o no se cumplen de forma evaluable, una consulta inválida o
-    una falla inesperada son de configuración: `False`.
+    respondió (`SiiUnavailable`: conexión, timeout, backend apagado) o celery
+    cortó la tarea por tiempo (`SoftTimeLimitExceeded`) — `_transient_types`.
+    Reglas que no cargan o no se cumplen de forma evaluable, una consulta
+    inválida o una falla inesperada son de configuración: `False`.
     """
     from itcj2.apps.titulatec.services.sii import client as sii_client
-    from itcj2.apps.titulatec.services.sii.errors import SiiError, SiiUnavailable
+    from itcj2.apps.titulatec.services.sii.errors import SiiError
     from itcj2.apps.titulatec.services.sii.rules import RuleSet, Verdict
 
+    transitorias = _transient_types()
     try:
         rules = RuleSet.load(sii_client.SiiConfig.rules_dir())
         with sii_client.get_sii_client() as client:
             watch = _FailureWatch(client)
             verdict = rules.evaluate(watch, control)
         retryable = (verdict.status == "error" and watch.failure is not None
-                     and issubclass(watch.failure, SiiUnavailable))
+                     and issubclass(watch.failure, transitorias))
         return verdict, retryable
     except SiiError as exc:
         # Mensajes ya saneados por contrato (sin cadena de conexión ni NIP).
         return (Verdict(status="error", error=str(exc) or type(exc).__name__),
-                isinstance(exc, SiiUnavailable))
+                isinstance(exc, transitorias))
     except Exception as exc:  # noqa: BLE001 — la consulta nunca tumba la tarea
         logger.warning("SII: error inesperado al consultar la solicitud (%s)",
                        type(exc).__name__)
         return (Verdict(status="error",
                         error=f"Error inesperado al consultar el SII ({type(exc).__name__})."),
-                False)
+                isinstance(exc, transitorias))
 
 
 def fetch_sii_nip(control: str):
@@ -317,6 +332,8 @@ def fetch_sii_nip(control: str):
             return rules.fetch_credential(client, control), None
     except Exception as exc:  # noqa: BLE001 — «no se pudo preguntar»
         logger.warning("SII: no se pudo consultar el NIP (%s)", type(exc).__name__)
+        if isinstance(exc, _transient_types()):
+            return None, NIP_UNAVAILABLE
         return None, type(exc).__name__
 
 
