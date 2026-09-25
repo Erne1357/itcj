@@ -745,7 +745,9 @@ class RuleSet:
 
         Las fallas del SII SÍ se propagan (`SiiUnavailable`/`SiiQueryError`):
         quien aprueba debe distinguir «no tiene NIP» de «no se pudo
-        preguntar». Nada aquí registra ni guarda el valor.
+        preguntar». La consulta va en modo `sensitive` (el cliente no pone el
+        texto del driver, que puede traer el NIP, en el log ni en el error).
+        Nada aquí registra ni guarda el valor.
         """
         if self._errors:
             raise SiiRulesError("Reglas inválidas: " + " | ".join(self._errors))
@@ -756,7 +758,7 @@ class RuleSet:
             args = self._args(q, control_number, curp)
         except _EvalError as exc:
             raise SiiRulesError(str(exc)) from None
-        rows = _norm_rows(client.query(q.sql, args, query_id=q.id))
+        rows = _norm_rows(client.query(q.sql, args, query_id=q.id, sensitive=True))
         if not rows:
             return None
         raw = rows[0].get(self._credential.columns["value"])

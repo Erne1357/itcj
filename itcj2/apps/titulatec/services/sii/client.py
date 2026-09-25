@@ -17,6 +17,11 @@ Errores: `SiiUnavailable` (sin driver, sin conexión, timeout: reintentable) vs
 `SiiQueryError` (SQL inválido). Su mensaje va SANEADO: nunca la cadena de
 conexión ni la contraseña, y se re-lanzan `from None` para que el traceback no
 arrastre la excepción cruda del driver.
+
+Consulta SENSIBLE (`query(..., sensitive=True)`, la de la credencial/NIP): un
+error de DATOS del driver trae el valor de la fila en su mensaje (Sybase 249,
+«explicit conversion of VARCHAR value '…'»). Ahí el log y la excepción llevan
+solo el tipo y el SQLSTATE, nunca el texto del driver.
 """
 from __future__ import annotations
 
@@ -37,6 +42,7 @@ MASK = "****"
 _MAX_ERROR_LEN = 400
 _SECRET_KEYS = ("pwd", "password")
 _SECRET_KV_RE = re.compile(r"(?i)\b(PWD|PASSWORD)\s*=\s*(\{[^}]*\}|[^;\s'\")]*)")
+_SQLSTATE_RE = re.compile(r"[0-9A-Z]{5}")
 
 
 def _resolve(path: str | Path) -> Path:
@@ -85,9 +91,11 @@ class SiiClient(Protocol):
         """Lanza `SiiUnavailable` si no se puede hablar con el SII."""
 
     def query(self, sql: str, params: Sequence[Any], *,
-              query_id: str | None = None) -> list[dict]:
+              query_id: str | None = None, sensitive: bool = False) -> list[dict]:
         """Filas como dicts (columnas en minúsculas). `query_id` es el id del
-        `[[query]]`; el ODBC lo ignora, el falso lo usa como llave."""
+        `[[query]]`; el ODBC lo usa solo en el texto del error, el falso como
+        llave. `sensitive=True` (la consulta de la credencial): un error no
+        lleva el texto del driver, que puede traer valores de la fila."""
 
     def close(self) -> None:
         ...
@@ -136,6 +144,23 @@ def _describe(prefix: str, exc: BaseException, conn: str) -> str:
     raw = " ".join(str(a) for a in exc.args) if exc.args else ""
     detail = _sanitize(raw, conn).strip()
     return f"{prefix} ({type(exc).__name__}{': ' + detail if detail else ''})."
+
+
+def _sqlstate(exc: BaseException) -> str | None:
+    """El SQLSTATE solo si el error trae la forma de pyodbc `(sqlstate,
+    mensaje)`: con un solo argumento, ese argumento podría ser el dato."""
+    args = exc.args
+    if len(args) >= 2 and isinstance(args[0], str) and _SQLSTATE_RE.fullmatch(args[0].strip()):
+        return args[0].strip()
+    return None
+
+
+def _describe_sensitive(prefix: str, exc: BaseException) -> str:
+    """Como `_describe`, pero SIN el texto del driver: en la consulta de la
+    credencial un error de datos lo trae con el valor de la fila (el NIP)."""
+    state = _sqlstate(exc)
+    return (f"{prefix} ({type(exc).__name__}{', SQLSTATE ' + state if state else ''}; "
+            f"detalle del driver omitido: consulta sensible).")
 
 
 def _clean(value: Any) -> Any:
@@ -196,7 +221,7 @@ class OdbcSiiClient(_ContextMixin):
         self.query("SELECT 1", [])
 
     def query(self, sql: str, params: Sequence[Any], *,
-              query_id: str | None = None) -> list[dict]:
+              query_id: str | None = None, sensitive: bool = False) -> list[dict]:
         conn = self._connection()
         pyodbc = self._driver()
         unavailable = tuple(
@@ -204,6 +229,7 @@ class OdbcSiiClient(_ContextMixin):
                             getattr(pyodbc, "InterfaceError", None))
             if isinstance(cls, type)
         )
+        failure: SiiUnavailable | SiiQueryError | None = None
         cursor = None
         try:
             cursor = conn.cursor()
@@ -211,22 +237,26 @@ class OdbcSiiClient(_ContextMixin):
             cols = [str(d[0]).lower() for d in (cursor.description or [])]
             return [{c: _clean(v) for c, v in zip(cols, row)} for row in cursor.fetchall()]
         except Exception as exc:  # noqa: BLE001 — se clasifica y se sanea
-            conn_str = self._conn_str.get_secret_value()
             where = f" '{query_id}'" if query_id else ""
-            if unavailable and isinstance(exc, unavailable):
-                self._discard()
-                msg = _describe(f"El SII no respondió a la consulta{where}", exc, conn_str)
-                logger.warning("SII: %s", msg)
-                raise SiiUnavailable(msg) from None
-            msg = _describe(f"Consulta{where} inválida en el SII", exc, conn_str)
+            is_unavailable = bool(unavailable) and isinstance(exc, unavailable)
+            prefix = (f"El SII no respondió a la consulta{where}" if is_unavailable
+                      else f"Consulta{where} inválida en el SII")
+            msg = (_describe_sensitive(prefix, exc) if sensitive
+                   else _describe(prefix, exc, self._conn_str.get_secret_value()))
             logger.warning("SII: %s", msg)
-            raise SiiQueryError(msg) from None
+            if is_unavailable:
+                self._discard()
+            failure = (SiiUnavailable if is_unavailable else SiiQueryError)(msg)
         finally:
             if cursor is not None:
                 try:
                     cursor.close()
                 except Exception:  # noqa: BLE001
                     pass
+        # Se lanza FUERA del `except`: así la excepción cruda del driver (con la
+        # cadena de conexión o, en la consulta sensible, el valor de la fila) ni
+        # siquiera queda en `__context__`.
+        raise failure from None
 
     def close(self) -> None:
         self._discard()
@@ -272,7 +302,8 @@ class FakeSiiClient(_ContextMixin):
         self._load()
 
     def query(self, sql: str, params: Sequence[Any], *,
-              query_id: str | None = None) -> list[dict]:
+              query_id: str | None = None, sensitive: bool = False) -> list[dict]:
+        # `sensitive` no cambia nada aquí: sus mensajes de error son fijos.
         if not query_id:
             raise SiiQueryError("El SII falso necesita el id de la consulta (query_id).")
         by_key = self._load().get(query_id)

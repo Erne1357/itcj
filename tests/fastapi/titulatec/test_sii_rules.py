@@ -43,9 +43,12 @@ class _Stub:
         self.data = data or {}
         self.errors = errors or {}
         self.calls: list[tuple[str | None, str, tuple]] = []
+        self.sensitive: list[str | None] = []  # consultas pedidas en modo sensible
 
-    def query(self, sql, params, *, query_id=None):
+    def query(self, sql, params, *, query_id=None, sensitive=False):
         self.calls.append((query_id, sql, tuple(params)))
+        if sensitive:
+            self.sensitive.append(query_id)
         if query_id in self.errors:
             raise self.errors[query_id]
         rows = self.data.get(query_id, {}).get(params[0], [])
@@ -480,6 +483,16 @@ class TestCredencial:
         rs = RuleSet.load(FIXTURES)
         with pytest.raises(SiiUnavailable):
             rs.fetch_credential(_Stub(errors={"nip": SiiUnavailable("x")}), "20110001")
+
+    def test_la_consulta_de_la_credencial_va_en_modo_sensible(self):
+        """El cliente, en modo sensible, no pone el detalle del driver (que
+        puede traer el valor de la fila) en el log ni en la excepción."""
+        rs = RuleSet.load(FIXTURES)
+        stub = _stub_con_nip()
+        rs.evaluate(stub, "20110001")
+        assert stub.sensitive == [], "evaluar no toca la credencial"
+        rs.fetch_credential(stub, "20110001")
+        assert stub.sensitive == ["nip"]
 
     def test_el_nip_no_aparece_en_ningun_lado(self, caplog):
         caplog.set_level(logging.DEBUG)

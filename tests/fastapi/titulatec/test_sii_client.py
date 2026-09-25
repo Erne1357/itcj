@@ -201,11 +201,15 @@ def _fake_pyodbc(*, connect_error=None, execute_error=None, rows=None, descripti
     class ProgrammingError(DatabaseError):
         pass
 
+    class DataError(DatabaseError):
+        pass
+
     mod.Error = Error
     mod.InterfaceError = InterfaceError
     mod.DatabaseError = DatabaseError
     mod.OperationalError = OperationalError
     mod.ProgrammingError = ProgrammingError
+    mod.DataError = DataError
     mod.calls = {"connect": [], "execute": [], "closed": 0}
 
     class Cursor:
@@ -332,6 +336,80 @@ class TestOdbcSiiClient:
         c = _odbc()
         assert PASSWORD not in repr(c) and CONN not in repr(c)
         assert PASSWORD not in str(vars(c))
+
+
+# ---------------------------------------------------------------------------
+# Consulta sensible (la del NIP): un error de DATOS del driver trae el valor de
+# la fila en el mensaje (Sybase 249 / SQL Server 245 con `CONVERT(INT, n.nip)`).
+# En modo sensible solo sale el tipo y el SQLSTATE: ni al log, ni al `str` de
+# la excepción, ni encadenado en `__context__`.
+# ---------------------------------------------------------------------------
+NIP = "12AB"
+CONVERSION = (f"[FreeTDS][SQL Server]Syntax error during explicit conversion of VARCHAR "
+              f"value '{NIP}' to a INT field.")
+
+
+def _visible(exc: BaseException, caplog) -> str:
+    return " ".join([str(exc), repr(exc), repr(exc.args), caplog.text])
+
+
+class TestConsultaSensible:
+    @pytest.mark.parametrize("err, cls, state", [
+        ("DataError", SiiQueryError, "22018"),
+        ("ProgrammingError", SiiQueryError, "42000"),
+        ("OperationalError", SiiUnavailable, "HYT00"),
+    ])
+    def test_solo_tipo_y_sqlstate(self, monkeypatch, caplog, err, cls, state):
+        caplog.set_level(logging.DEBUG)
+        mod = _fake_pyodbc(execute_error=lambda m: getattr(m, err)(state, CONVERSION))
+        monkeypatch.setitem(sys.modules, "pyodbc", mod)
+        with pytest.raises(cls) as ei:
+            _odbc().query("SELECT n.nip FROM n WHERE ctl = ?", ["20110001"],
+                          query_id="nip", sensitive=True)
+        exc = ei.value
+        visible = _visible(exc, caplog)
+        assert NIP not in visible
+        assert "conversion" not in visible, "el detalle del driver no sale entero"
+        assert err in str(exc) and state in str(exc) and "'nip'" in str(exc)
+        assert exc.__cause__ is None and exc.__context__ is None, \
+            "la excepción cruda del driver no queda encadenada"
+
+    def test_sqlstate_solo_si_el_driver_lo_da_con_su_forma(self, monkeypatch, caplog):
+        """Un error sin la forma `(sqlstate, mensaje)` → solo el tipo: el
+        primer argumento podría ser el dato mismo."""
+        caplog.set_level(logging.DEBUG)
+        mod = _fake_pyodbc(execute_error=lambda m: m.DataError(f"value '{NIP}'"))
+        monkeypatch.setitem(sys.modules, "pyodbc", mod)
+        with pytest.raises(SiiQueryError) as ei:
+            _odbc().query("SELECT n.nip FROM n WHERE ctl = ?", ["20110001"],
+                          query_id="nip", sensitive=True)
+        assert NIP not in _visible(ei.value, caplog)
+        assert "DataError" in str(ei.value)
+
+    def test_sin_modo_sensible_el_detalle_saneado_se_conserva(self, monkeypatch):
+        """Las consultas de las reglas conservan el detalle (sirve para
+        diagnosticar un `nip.sql`/`alumno.sql` roto), sin la excepción cruda."""
+        mod = _fake_pyodbc(execute_error=lambda m: m.ProgrammingError(
+            "42S02", "Invalid object name 'alumnos'."))
+        monkeypatch.setitem(sys.modules, "pyodbc", mod)
+        with pytest.raises(SiiQueryError) as ei:
+            _odbc().query("SELECT 1 WHERE ? = 1", ["x"], query_id="alumno")
+        assert "Invalid object name 'alumnos'" in str(ei.value)
+        assert ei.value.__context__ is None
+
+    def test_fetch_credential_con_fallo_forzado(self, monkeypatch, caplog):
+        """Review focus #1, por la ruta real (motor → cliente ODBC): el fallo
+        de `nip.sql` trae el NIP en el mensaje del driver y no llega a ningún
+        lado."""
+        caplog.set_level(logging.DEBUG)
+        mod = _fake_pyodbc(execute_error=lambda m: m.DataError("22018", CONVERSION))
+        monkeypatch.setitem(sys.modules, "pyodbc", mod)
+        rs = RuleSet.load(FIXTURES)
+        with pytest.raises(SiiQueryError) as ei:
+            rs.fetch_credential(_odbc(), "20110001")
+        assert NIP not in _visible(ei.value, caplog)
+        assert "22018" in str(ei.value)
+        assert ei.value.__context__ is None
 
 
 def test_importar_el_modulo_no_requiere_pyodbc():
