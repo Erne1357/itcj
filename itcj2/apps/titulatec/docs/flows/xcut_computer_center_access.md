@@ -58,6 +58,13 @@ acceso» sobre ellas sigue siendo `grant_access` (nunca `approve`, que ya no las
      la liga de activación en vez de crear la cuenta.
    - Alternativa: **Devolver a Servicios Escolares** → nota obligatoria (≤2000 caracteres) → la
      solicitud vuelve a «Por revisar» de SE con «Devuelta por Centro de Cómputo: {nota}».
+   - La fila sale de la pestaña, así que la respuesta 200 trae un aviso `X-Tt-Notice` (toast del
+     listener de `titulatec-utils.js`, `pages/access_admin.py::_grant_notice`): «Acceso dado ·
+     folio X · correo enviado»; si `access_mail_unsent`, aviso ámbar «Acceso dado (folio X), pero
+     el correo no salió: dicta el NIP o reasígnalo en Con acceso» («Inscritas» en el alterno); D10
+     «Ya tenía cuenta: se envió la liga» (ámbar si la liga no salió). **Reasignar NIP** avisa igual:
+     «NIP reasignado · correo enviado», «NIP reasignado; no se envió correo» (casilla `no_mail`) o
+     ámbar «…el correo no salió: díctalo por teléfono». Ningún aviso lleva el NIP.
 4. 💻 Pestaña **Con acceso** — filas `access_granted_at` no nulo (`converted` con NIP, `approved`
    por D10, o una `rejected` que SE canceló después de que CC ya había actuado). Si el correo con
    usuario + NIP no salió, la fila lleva la píldora ámbar «correo no enviado»

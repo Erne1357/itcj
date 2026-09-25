@@ -162,6 +162,19 @@ def _error(resp) -> str:
     return unquote(resp.headers.get("X-Tt-Error", ""))
 
 
+def _aviso(resp) -> tuple[str, str]:
+    """`X-Tt-Notice` (percent-encoded, como `_hdr`) y su tipo."""
+    return (unquote(resp.headers.get("X-Tt-Notice", "")),
+            resp.headers.get("X-Tt-Notice-Kind", ""))
+
+
+def _folio(db_session, req) -> str:
+    from itcj2.apps.titulatec.models import TitulationProcess
+
+    db_session.refresh(req)
+    return db_session.get(TitulationProcess, req.converted_process_id).folio
+
+
 def _sin_nip(resp) -> None:
     """Review Focus 4: el NIP no vuelve al navegador, ni en el cuerpo ni en cabeceras."""
     assert NIP not in resp.text
@@ -428,6 +441,74 @@ def test_dar_acceso_si_aparecio_una_cuenta_manda_la_liga(
     assert "/reasignar-nip" not in fila, "la cuenta no la creó la solicitud"
 
 
+def test_dar_acceso_avisa_el_folio_y_que_el_correo_salio(
+    client_as, db_session, make_cc, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso,
+):
+    """C4: la fila se va de «Por dar acceso»; sin aviso CC no sabe qué pasó."""
+    seed_phase_defs()
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    req = _en_espera(db_session, cohort, control="99710051")
+
+    resp = client_as(cc).post(f"{URL}/{req.id}/dar-acceso", data={"nip": NIP})
+
+    assert resp.status_code == 200, _error(resp)
+    assert _aviso(resp) == (f"Acceso dado · folio {_folio(db_session, req)} · correo enviado",
+                            "success")
+    _sin_nip(resp)
+
+
+def test_dar_acceso_con_el_correo_fallido_avisa_que_dicte_o_reasigne_el_nip(
+    client_as, db_session, make_cc, make_cohort, seed_phase_defs, titulatec_app,
+    monkeypatch,
+):
+    """El mejor momento para dictar el NIP es este: CC acaba de teclearlo."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    seed_phase_defs()
+    monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved",
+                        staticmethod(lambda *a, **k: False))
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    req = _en_espera(db_session, cohort, control="99710052")
+
+    resp = client_as(cc).post(f"{URL}/{req.id}/dar-acceso", data={"nip": NIP})
+
+    assert resp.status_code == 200, _error(resp)
+    folio = _folio(db_session, req)
+    assert _aviso(resp) == (f"Acceso dado (folio {folio}), pero el correo no salió: dicta el "
+                            "NIP o reasígnalo en Con acceso", "warning")
+    _sin_nip(resp)
+
+
+def test_dar_acceso_d10_avisa_que_ya_tenia_cuenta_y_si_la_liga_salio(
+    client_as, db_session, make_cc, make_cohort, correo_falso, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    salio = _en_espera(db_session, cohort, control="99710061")
+    _cuenta(db_session, "99710061")
+    no_salio = _en_espera(db_session, cohort, control="99710062")
+    _cuenta(db_session, "99710062")
+    c = client_as(cc)
+
+    ok = c.post(f"{URL}/{salio.id}/dar-acceso", data={"nip": NIP})
+    monkeypatch.setattr(TitulaTecEmailHelper, "send_verify_enrollment",
+                        staticmethod(lambda *a, **k: False))
+    falla = c.post(f"{URL}/{no_salio.id}/dar-acceso", data={"nip": NIP})
+
+    assert ok.status_code == falla.status_code == 200, (_error(ok), _error(falla))
+    assert _aviso(ok) == ("Ya tenía cuenta: se envió la liga", "success")
+    assert _aviso(falla) == ("Ya tenía cuenta: la liga se generó, pero el correo no salió; "
+                             "Servicios Escolares puede reenviarla desde Solicitudes",
+                             "warning")
+    _sin_nip(ok)
+    _sin_nip(falla)
+
+
 def test_un_error_de_dar_acceso_viaja_en_x_tt_error_sin_el_nip(
     client_as, db_session, make_cc, make_cohort,
 ):
@@ -439,6 +520,7 @@ def test_un_error_de_dar_acceso_viaja_en_x_tt_error_sin_el_nip(
 
     assert resp.status_code == 400
     assert _error(resp) == "El NIP debe ser exactamente 4 dígitos."
+    assert "X-Tt-Notice" not in resp.headers, "un 400 no anuncia éxito"
     assert "48a6" not in " ".join(resp.headers.values()) and "48a6" not in resp.text
     db_session.refresh(req)
     assert req.status == "awaiting_access"
@@ -627,6 +709,7 @@ def test_reasignar_solo_se_ofrece_si_es_elegible_y_reenvia_el_nip(
     (_asunto, _dest, correo), = correo_falso
     assert NIP in correo
     assert "Este NIP reemplaza al que te enviamos antes" in correo
+    assert _aviso(resp) == ("NIP reasignado · correo enviado", "success")
 
 
 def test_el_formulario_de_reasignar_dice_a_donde_va_y_permite_no_mandar_correo(
@@ -656,12 +739,36 @@ def test_el_formulario_de_reasignar_dice_a_donde_va_y_permite_no_mandar_correo(
     assert resp.status_code == 200, _error(resp)
     _sin_nip(resp)
     assert correo_falso == [], "con la casilla no sale ningún correo"
+    assert _aviso(resp) == ("NIP reasignado; no se envió correo", "success")
     db_session.refresh(req)
     assert req.access_sent_at is None
     from itcj2.core.models.user import User
     from itcj2.core.utils.security import verify_nip
     cuenta = db_session.query(User).filter_by(control_number="99710112").one()
     assert verify_nip(NIP, cuenta.password_hash)
+
+
+def test_reasignar_con_el_correo_fallido_avisa_que_lo_dicte(
+    client_as, db_session, make_cc, make_cohort, seed_phase_defs, titulatec_app,
+    monkeypatch,
+):
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    seed_phase_defs()
+    monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved",
+                        staticmethod(lambda *a, **k: False))
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    req = _en_espera(db_session, cohort, control="99710114")
+    c = client_as(cc)
+    assert c.post(f"{URL}/{req.id}/dar-acceso", data={"nip": "7395"}).status_code == 200
+
+    resp = c.post(f"{URL}/{req.id}/reasignar-nip", data={"nip": NIP})
+
+    assert resp.status_code == 200, _error(resp)
+    assert _aviso(resp) == ("NIP reasignado, pero el correo no salió: díctalo por teléfono",
+                            "warning")
+    _sin_nip(resp)
 
 
 def test_reasignar_una_cuenta_que_ya_inicio_sesion_da_400_sin_escribir(
@@ -926,6 +1033,28 @@ def test_en_modo_alterno_dar_acceso_a_una_sobrante_la_convierte(
     assert resp.status_code == 200, _error(resp)
     db_session.refresh(req)
     assert req.status == "converted"
+
+
+def test_en_modo_alterno_el_aviso_del_correo_fallido_nombra_inscritas(
+    client_as, db_session, make_cc, make_cohort, seed_phase_defs, titulatec_app,
+    modo_alterno, monkeypatch,
+):
+    """En el alterno no existe «Con acceso»: la fila convertida vive en «Inscritas»."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    seed_phase_defs()
+    monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved",
+                        staticmethod(lambda *a, **k: False))
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99710221")
+
+    resp = client_as(cc).post(f"{URL}/{req.id}/dar-acceso", data={"nip": NIP})
+
+    assert resp.status_code == 200, _error(resp)
+    folio = _folio(db_session, req)
+    assert _aviso(resp) == (f"Acceso dado (folio {folio}), pero el correo no salió: dicta el "
+                            "NIP o reasígnalo en Inscritas", "warning")
 
 
 def test_en_modo_alterno_rechazar_y_reenviar(

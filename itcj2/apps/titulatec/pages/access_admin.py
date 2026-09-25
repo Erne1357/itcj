@@ -19,6 +19,10 @@ Modo (`EnrollmentRequestService.reviewer_mode()`):
   si la hay) y sobre una `awaiting_access` sobrante da el acceso
   (`grant_access`); además rechaza y reenvía la liga. Pestañas de revisión.
 
+«Dar acceso» y «Reasignar NIP» responden el parcial con un aviso `X-Tt-Notice`
+(folio y si el correo salió, `_grant_notice`): la fila sale de la pestaña en
+que estaba CC y sin él no sabría si tiene que dictar el NIP.
+
 Una acción que no es del modo responde 400 + `X-Tt-Error` ANTES de abrir sesión
 (`_mode_block`): ni un POST directo sin la UI la ejecuta. Solicitud
 inexistente = 404 liso. El NIP jamás vuelve al navegador ni a un log: el
@@ -285,6 +289,60 @@ def _fail(db, what: str, req_id: int, exc: Exception, msg: str) -> Response:
     return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
 
 
+def _with_notice(resp, msg: str, kind: str):
+    """`X-Tt-Notice` (+ `X-Tt-Notice-Kind`) sobre la respuesta 200 del parcial.
+
+    El listener global de `titulatec-utils.js` lo muestra como toast. Jamás
+    lleva el NIP: solo el folio, que ya se pinta en la bandeja.
+    """
+    resp.headers["X-Tt-Notice"] = _hdr(msg)
+    resp.headers["X-Tt-Notice-Kind"] = kind
+    return resp
+
+
+def _folio(db, req, detail: str = "") -> str:
+    """Folio del proceso de la solicitud: el que devolvió el servicio o el de BD."""
+    if detail:
+        return detail
+    if not req.converted_process_id:
+        return ""
+    from itcj2.apps.titulatec.models import TitulationProcess
+    proc = db.get(TitulationProcess, req.converted_process_id)
+    return proc.folio if proc is not None else ""
+
+
+def _granted_tab_label(official: bool) -> str:
+    """Pestaña donde vive la fila convertida (y su «Reasignar NIP»)."""
+    return "Con acceso" if official else "Inscritas"
+
+
+def _grant_notice(db, req, detail: str):
+    """Qué pasó tras «Dar acceso» / «Aprobar» (C4): `(mensaje, tipo)` o `None`.
+
+    La fila sale de la pestaña en que estaba CC, así que sin esto no sabría si
+    el correo salió. `req` ya viene refrescada tras los commits del servicio.
+    """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    official = _mode() == _OFFICIAL
+    if req.status == "converted":
+        folio = _folio(db, req, detail)
+        if EnrollmentRequestService.access_mail_unsent(req):
+            return (f"Acceso dado (folio {folio}), pero el correo no salió: dicta el NIP "
+                    f"o reasígnalo en {_granted_tab_label(official)}", "warning")
+        return f"Acceso dado · folio {folio} · correo enviado", "success"
+    if req.status == "approved":
+        # D10 (oficial) o «Aprobar y enviar liga» (alterno): el NIP no se usó.
+        if req.verify_sent_at is not None:
+            return "Ya tenía cuenta: se envió la liga", "success"
+        donde = ("Servicios Escolares puede reenviarla desde Solicitudes" if official
+                 else "reenvíala desde Liga enviada")
+        return (f"Ya tenía cuenta: la liga se generó, pero el correo no salió; {donde}",
+                "warning")
+    return None
+
+
 def _load(db, req_id: int):
     from itcj2.apps.titulatec.models import EnrollmentRequest
     return db.get(EnrollmentRequest, req_id)
@@ -353,7 +411,10 @@ async def grant(req_id: int, request: Request,
         if not ok:
             # `detail` nunca contiene el NIP, y `(False, ...)` no deja nada escrito.
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
-        return _render_body(request, db, form)
+        db.refresh(req)
+        aviso = _grant_notice(db, req, detail)
+        resp = _render_body(request, db, form)
+        return _with_notice(resp, *aviso) if aviso else resp
     finally:
         db.close()
 
@@ -451,21 +512,32 @@ async def reassign_nip(req_id: int, request: Request,
         EnrollmentRequestService,
     )
     form = await request.form()
+    send_mail = not form.get("no_mail")
 
     db = SessionLocal()
     try:
-        if _load(db, req_id) is None:
+        req = _load(db, req_id)
+        if req is None:
             return Response(status_code=404)
         try:
             ok, detail = EnrollmentRequestService.reassign_nip(
                 db, req_id, nip=(form.get("nip") or "").strip(),
-                actor_id=int(user["sub"]), send_mail=not form.get("no_mail"))
+                actor_id=int(user["sub"]), send_mail=send_mail)
         except Exception as exc:
             # Mismo trato que dar-acceso: reescribe `password_hash`, y si no
             # pudo revocar las sesiones lanza antes de commitear.
             return _fail(db, "reasignar-nip", req_id, exc, _MSG_REASSIGN_FAILED)
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
-        return _render_body(request, db, form)
+        # El aviso dice si el correo salió (C4); sin él la fila no cambia de
+        # pestaña y CC no sabría si tiene que dictarlo. Nunca el NIP.
+        db.refresh(req)
+        if not send_mail:
+            aviso = ("NIP reasignado; no se envió correo", "success")
+        elif req.access_sent_at is None:
+            aviso = ("NIP reasignado, pero el correo no salió: díctalo por teléfono", "warning")
+        else:
+            aviso = ("NIP reasignado · correo enviado", "success")
+        return _with_notice(_render_body(request, db, form), *aviso)
     finally:
         db.close()
