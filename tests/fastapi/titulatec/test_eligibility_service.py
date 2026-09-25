@@ -376,7 +376,7 @@ def test_discrepancia_de_identidad_se_registra(db_session, make_cohort, sii, mod
 
     chk = _svc().check(db_session, req.id)
 
-    assert chk.status == "apt", "la identidad informa, no decide"
+    assert chk.status == "apt", "el veredicto es de las reglas; la identidad frena la automática"
     assert chk.identity_mismatch == {
         "first_name": {"form": "EGRESADA", "sii": "OTRA PERSONA"},
         "program": {"form": "Ingenieria Ficticia", "sii": "Arquitectura"},
@@ -727,6 +727,85 @@ def test_apta_con_cuenta_recibe_la_liga_y_la_cuenta_no_se_toca(
     assert req.reviewed_by_id is None and req.reviewed_at is not None
     assert user.password_hash == hash_antes and verify_nip("9999", user.password_hash)
     assert [n for n, _ in listo] == ["send_verify_enrollment"]
+
+
+# Hallazgo I1: quien teclea el número de control de OTRA persona apta con su
+# propio nombre no puede dejarla inscrita sin que nadie lo vea. Con el nombre
+# distinto al del SII (`[identity]`) la automática no aprueba: queda «Por
+# revisar» con la nota, y Servicios Escolares ve la discrepancia.
+_NOTA_IDENTIDAD = "El nombre del formulario no coincide con el del SII"
+
+
+def test_apta_sin_cuenta_con_otro_nombre_no_se_aprueba_sola(
+    db_session, make_cohort, sii, listo,
+):
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580047",
+                             nombre="VICTIMA", paterno="REAL")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert set(chk.identity_mismatch) == {"first_name", "last_name"}
+    assert req.status == "pending_review"
+    assert req.review_note.startswith(_NOTA_IDENTIDAD)
+    assert "nombre" in req.review_note and "apellido paterno" in req.review_note
+    assert _usuario(db_session, "99580047") is None, "la cuenta de la víctima no nace"
+    assert listo == []
+
+
+def test_apta_con_cuenta_y_otro_nombre_no_recibe_la_liga(db_session, make_cohort, sii, listo):
+    _cuenta(db_session, "99580048")
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580048", materno="OTRO")
+    req.middle_name = "DISTINTO"
+    db_session.flush()
+
+    _svc().check(db_session, req.id)
+
+    assert req.status == "pending_review"
+    assert req.verify_token_hash is None
+    assert "apellido materno" in req.review_note
+    assert listo == []
+
+
+def test_el_barrido_no_aprueba_una_apta_con_otro_nombre(db_session, make_cohort, sii, listo):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580049")
+    sii.alumno("99580049")
+    _check_row(db_session, req, status="apt",
+               finished_at=datetime.now() - timedelta(hours=1),
+               identity_mismatch={"first_name": {"form": "EGRESADA", "sii": "OTRA"}})
+
+    out = _svc().sweep(db_session, cohort_id=cohort.id)
+
+    assert out["approved"] == 0
+    assert req.status == "pending_review" and req.review_note.startswith(_NOTA_IDENTIDAD)
+    assert _usuario(db_session, "99580049") is None
+
+
+def test_una_carrera_distinta_no_frena_la_aprobacion_automatica(
+    db_session, make_cohort, sii, listo,
+):
+    """Decisión: la carrera del SII suele venir abreviada o con otro nombre que
+    el catálogo; se muestra a SE pero no frena. Lo que frena es el NOMBRE."""
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580057",
+                             carrera="ING. FICTICIA (PLAN 2010)")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert set(chk.identity_mismatch) == {"program"}
+    assert req.status == "converted"
+
+
+def test_el_mismo_nombre_con_otros_acentos_si_se_aprueba_solo(
+    db_session, make_cohort, sii, listo,
+):
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580058",
+                             nombre="  egresada ", paterno="DEL  SÍI")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.identity_mismatch is None
+    assert req.status == "converted"
 
 
 def test_la_liga_de_una_aprobada_sola_deja_la_marca_auto_en_el_expediente(

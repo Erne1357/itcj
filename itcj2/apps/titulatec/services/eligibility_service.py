@@ -33,10 +33,12 @@ motivo para Servicios Escolares.
 ya haya veredicto (el SII pudo cambiar), con el siguiente número de intento.
 
 APROBACIÓN AUTOMÁTICA (`auto_approve`, spec S2/S4/S5). Apta ∧ convocatoria
-`open` ∧ `sii_auto_approve` ∧ ventana de veto vencida → con cuenta, la liga de
-siempre; sin cuenta, la cuenta nace con el NIP DEL SII. Con ventana 0 la
-dispara `check` al terminar; con ventana > 0, el barrido. No apta, error o
-interruptor apagado → sigue «Por revisar» de Servicios Escolares.
+`open` ∧ `sii_auto_approve` ∧ ventana de veto vencida ∧ el NOMBRE tecleado es
+el de `[identity]` → con cuenta, la liga de siempre; sin cuenta, la cuenta
+nace con el NIP DEL SII. Decide y escribe el mismo núcleo que la bandeja
+(`EnrollmentRequestService._approve_locked`). Con ventana 0 la dispara
+`check` al terminar; con ventana > 0, el barrido. No apta, error, interruptor
+apagado u otro nombre → sigue «Por revisar» de Servicios Escolares.
 
 EL NIP DEL SII NO PASA POR AQUÍ al consultar: `RuleSet.evaluate` no corre la
 consulta de `[credential]`, y los `facts`/`results` son la lista blanca de las
@@ -94,6 +96,12 @@ NIP_UNAVAILABLE = "SiiUnavailable"
 
 # Campos de `[identity]` que se comparan con lo que se tecleó en el formulario.
 _NAME_FIELDS = ("first_name", "last_name", "middle_name")
+_NAME_LABELS = {"first_name": "nombre", "last_name": "apellido paterno",
+                "middle_name": "apellido materno"}
+# El nombre tecleado no es el del SII: la aprobación automática no procede
+# (hallazgo I1). `{campos}` = etiquetas de `_NAME_LABELS`, nunca los valores.
+_NOTE_IDENTITY_MISMATCH = ("El nombre del formulario no coincide con el del SII ({campos}); "
+                           "confirma que la solicitud sea de esa persona antes de aprobarla.")
 
 
 def _norm(value) -> str:
@@ -108,9 +116,9 @@ def _identity_mismatch(db: Session, req, identity: dict) -> dict | None:
 
     Solo se compara lo que viene de los DOS lados: un apellido materno vacío
     en el formulario no es discrepancia. La carrera coincide si el texto del
-    SII es el de la carrera elegida o el tecleado. Informa a Servicios
-    Escolares; no decide la aprobación (el riesgo del correo tecleado es el
-    aceptado del spec §5).
+    SII es el de la carrera elegida o el tecleado. No cambia el veredicto (ese
+    es de las reglas); se muestra a Servicios Escolares, y una discrepancia de
+    NOMBRE frena la aprobación automática (`_name_mismatch`).
     """
     out: dict = {}
     for campo in _NAME_FIELDS:
@@ -129,6 +137,19 @@ def _identity_mismatch(db: Session, req, identity: dict) -> dict | None:
         if candidatos and _norm(sii_program) not in {_norm(c) for c in candidatos}:
             out["program"] = {"form": candidatos[0], "sii": sii_program}
     return out or None
+
+
+def _name_mismatch(chk) -> list[str]:
+    """Etiquetas de los campos de NOMBRE en que el formulario y el SII difieren.
+
+    Con alguno, la aprobación automática no procede (hallazgo I1): quien teclea
+    el número de control de OTRA persona apta con su propio nombre dejaría
+    creada la cuenta y el proceso de esa persona, con los datos falsos y sin
+    que nadie lo vea. La carrera NO frena (decisión): el SII suele nombrarla
+    distinto que el catálogo (abreviada, con el plan) y se muestra a SE.
+    """
+    diferencias = (chk.identity_mismatch or {}) if chk is not None else {}
+    return [_NAME_LABELS[c] for c in _NAME_FIELDS if c in diferencias]
 
 
 def _leave_note(db: Session, req, note: str):
@@ -372,6 +393,9 @@ class EligibilityService:
         es inyectable), que la convocatoria siga `open` y con
         `sii_auto_approve` encendido (Review Focus 5: SE pudo cerrarla o
         apagarlo dentro de la ventana). Si algo de eso falla no escribe nada.
+        Si el NOMBRE tecleado no es el del SII (`identity_mismatch`), no
+        aprueba y deja la nota (`_name_mismatch`): la cuenta nueva solo nace
+        con un nombre que el SII confirma.
 
         Lo que decide y escribe la aprobación es el MISMO núcleo que usa la
         bandeja (`EnrollmentRequestService._approve_locked`), con actor `None`:
@@ -423,6 +447,10 @@ class EligibilityService:
             return _no(motivo)
         if not cohort.sii_auto_approve:
             return _no(_MSG_AUTO_OFF)
+        campos = _name_mismatch(chk)
+        if campos:
+            return _leave_note(db, req,
+                               _NOTE_IDENTITY_MISMATCH.format(campos=", ".join(campos)))
 
         ok, detalle, falla_nip = ERS._approve_locked(
             db, req, cohort, actor_id=None, program_id=req.program_id,

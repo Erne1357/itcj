@@ -14,8 +14,10 @@ el ALTERNO, CC hace las dos cosas en un paso.
                               └─ SIN cuenta ─► converted                usuario + NIP (un paso)
     approve() [SE, sii]      ─┬─ CON cuenta ─► approved                 liga
                               └─ SIN cuenta ─► converted                NIP DEL SII (correo sin NIP)
-    EligibilityService.auto_approve [modo sii, solicitud apta] ─ igual que approve() [sii],
-                                 sin actor (`reviewed_by_id` NULL) ─ ver eligibility_service.py
+    EligibilityService.auto_approve [modo sii, solicitud apta] ─ igual que approve() [sii]
+                                 (mismo núcleo, `_approve_locked`), sin actor
+                                 (`reviewed_by_id` NULL) y solo si el NOMBRE tecleado
+                                 es el del SII ─ ver eligibility_service.py
     grant_access() [CC]      ─── awaiting_access ─┬─ SIN cuenta ─► converted  usuario + NIP
                                                   └─ CON cuenta (D10) ─► approved  liga
     return_to_review() [CC]  ─── awaiting_access ─► pending_review      return_note, sin correo
@@ -39,7 +41,10 @@ pisaría su contraseña.
 RIESGO ACEPTADO Y SU CONTENCIÓN (invariante; sustituye a los rulings R5, B1 y
 D17). La liga de una cuenta existente viaja al correo que TECLEÓ el solicitante:
 quien escriba un número de control ajeno con su correo y pase la revisión puede
-dejar inscrita a esa persona. Para que no escale:
+dejar inscrita a esa persona. En el modo `sii` la revisión puede ser la
+automática, que por eso exige además que el NOMBRE tecleado sea el del SII
+(`eligibility_service._name_mismatch`); con otro nombre queda para SE. Para que
+no escale:
 
   1. Sobre una cuenta que NO creó la solicitud JAMÁS se escribe
      `password_hash`, `must_change_password` ni `core_student_profile`, ni en
