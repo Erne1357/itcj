@@ -29,6 +29,7 @@ inexistente = 404 liso. El NIP jamás vuelve al navegador ni a un log: el
 formulario lo manda, el servicio lo usa y aquí no se lee más que para pasarlo.
 """
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
@@ -82,6 +83,9 @@ _STATUS_LABELS = {
     "converted": "Inscrita",
     "rejected": "Rechazada",
 }
+# En el alterno no existe la pestaña «Por dar acceso»: la sobrante dice por qué
+# no pasa por revisión.
+_ALT_AWAITING_LABEL = "Aprobada por Servicios Escolares"
 
 
 def _hdr(msg: str) -> str:
@@ -206,9 +210,28 @@ def _body_ctx(db, *, status, cohort_id):
     prog_names = (dict(db.query(Program.id, Program.name)
                        .filter(Program.id.in_(prog_ids)).all()) if prog_ids else {})
 
+    # «Rechazada antes» (C6), la misma consulta sin N+1 de Solicitudes
+    # (`requests_admin._body_ctx`), sin el filtro de alcance: CC ve todo.
+    rejected_by_control: dict[str, list] = {}
+    raw_controls = {r.control_number for r in reqs if r.control_number}
+    if raw_controls:
+        pq = (db.query(EnrollmentRequest.id, EnrollmentRequest.control_number,
+                       EnrollmentRequest.created_at, EnrollmentRequest.review_note)
+              .filter(EnrollmentRequest.control_number.in_(raw_controls),
+                      EnrollmentRequest.status == "rejected"))
+        for pid, control, created_at, note in pq.all():
+            rejected_by_control.setdefault(control, []).append((created_at, pid, note))
+
     for r in reqs:
         u = users.get((r.control_number or "").strip())
         reviewable = r.status in _REVIEWABLE
+        # Solo una solicitud ANTERIOR (`id` menor) es antecedente, nunca ella misma.
+        anteriores = [c for c in rejected_by_control.get(r.control_number, ()) if c[1] < r.id]
+        prior_reject = None
+        if anteriores:
+            p_created_at, _p_id, p_note = max(
+                anteriores, key=lambda c: (c[0] or datetime.min, c[1]))
+            prior_reject = {"date": _fmt(p_created_at), "note": p_note or ""}
         access_unsent = EnrollmentRequestService.access_mail_unsent(r)
         # Fecha de la columna Convocatoria/fecha: la que ordena la pestaña.
         if tab == "awaiting_access":
@@ -232,7 +255,9 @@ def _body_ctx(db, *, status, cohort_id):
             "when_label": when[0],
             "when": when[1],
             "status": r.status,
-            "status_label": _STATUS_LABELS.get(r.status, r.status),
+            "status_label": (_ALT_AWAITING_LABEL
+                             if r.status == "awaiting_access" and not ctx["official"]
+                             else _STATUS_LABELS.get(r.status, r.status)),
             "reviewable": reviewable,
             # Donde CC puede dar acceso / aprobar según el modo.
             "grantable": (r.status == "awaiting_access"
@@ -263,7 +288,11 @@ def _body_ctx(db, *, status, cohort_id):
             # de la cuenta, junto con la señal positiva de la solicitud.
             "can_reassign": EnrollmentRequestService.can_reassign_nip(r, u),
             "rejection_sent": r.rejection_sent_at is not None,
-            "show_status": tab in _MIXED_TABS,
+            # «Por revisar» del alterno mezcla las `awaiting_access` sobrantes (y
+            # el legado): esas llevan su estado; la `pending_review` no.
+            "show_status": (tab in _MIXED_TABS
+                            or (tab == "pending_review" and r.status != "pending_review")),
+            "prior_reject": prior_reject,
         })
     return ctx
 

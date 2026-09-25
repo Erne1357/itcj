@@ -18,6 +18,10 @@
    botón de liga, solo la instrucción de devolverla.
    Modo alterno: pestañas de revisión; aprobar (NIP o liga, con carrera),
    rechazar, reenviar la liga y dar acceso a las `awaiting_access` sobrantes.
+   Como en Solicitudes (C6): la fila por revisar lleva «Nota: …» (lo que
+   `verify()` dejó en `review_note`), toda fila con un rechazo anterior del
+   mismo control lleva «Rechazada antes · fecha: motivo», y en «Por revisar»
+   las sobrantes y el legado llevan su píldora de estado.
    En ambos, la marca «correo no enviado» del NIP solo si `access_mail_unsent`
    (para la liga, `verify_sent_at`) y «Reasignar NIP» con `can_reassign_nip`
    (cuenta creada por la solicitud que nunca ha iniciado sesión;
@@ -85,6 +89,10 @@
             {% endif %}
             {% if r.account_inactive %}<span class="tt-pill tt-pill--amber">Cuenta desactivada: se reactiva al abrir la liga</span>{% endif %}
           </span>
+          {% if r.prior_reject %}
+          <span class="small tt-prior-reject" title="Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}">
+            <i class="bi bi-clock-history me-1" aria-hidden="true"></i>Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}</span>
+          {% endif %}
         </td>
         <td>{{ r.program }}</td>
         <td>
@@ -104,6 +112,9 @@
           {% endif %}
 
           {% if r.grantable %}
+            {# La nota con que `verify()` la devolvió a revisión (C6): sin ella CC
+               la reaprobaría a ciegas. #}
+            {% if r.reviewable and r.note %}<p class="small mb-1">Nota: {{ r.note }}</p>{% endif %}
             {% if official and r.has_account and not r.has_password %}
             {# D10 sin contraseña: la liga la exige (invariante 2), así que
                «Enviar liga» siempre daría 400. Lo que CC sí puede hacer es

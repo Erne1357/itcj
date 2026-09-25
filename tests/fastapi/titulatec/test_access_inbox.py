@@ -973,6 +973,37 @@ def test_la_bandeja_alterna_tiene_las_pestanas_de_revision(
     assert f'hx-post="{URL}/{sobrante.id}/dar-acceso"' in _fila(resp.text, sobrante)
 
 
+def test_en_modo_alterno_la_fila_por_revisar_trae_el_contexto_que_ve_se(
+    client_as, db_session, make_cc, make_cohort, modo_alterno,
+):
+    """C6: CC es el único revisor. Ve la nota con que `verify()` la devolvió, el
+    rechazo anterior del mismo control (como Solicitudes) y, en las sobrantes
+    `awaiting_access` mezcladas en «Por revisar», su estado."""
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    anterior = _make_req(db_session, cohort, control="99710250", status="rejected",
+                         review_note="No aparece en el padrón.",
+                         created_at=datetime(2026, 9, 1, 8, 0))
+    devuelta = _make_req(db_session, cohort, control="99710250",
+                         review_note="La convocatoria ya estaba cerrada al abrir la liga.",
+                         created_at=datetime(2026, 9, 10, 8, 0))
+    normal = _make_req(db_session, cohort, control="99710251",
+                       created_at=datetime(2026, 9, 11, 8, 0))
+    sobrante = _en_espera(db_session, cohort, control="99710252",
+                          created_at=datetime(2026, 9, 12, 8, 0))
+
+    html = client_as(cc).get(f"{URL}/body?cohort_id={cohort.id}").text
+    fila = _plano(_fila(html, devuelta))
+
+    assert "Nota: La convocatoria ya estaba cerrada al abrir la liga." in fila
+    assert "Rechazada antes · 01/09/2026: No aparece en el padrón." in fila
+    assert f'id="tt-acc-{anterior.id}"' not in html, "una rechazada no es de «Por revisar»"
+    assert "Rechazada antes" not in _fila(html, normal)
+    assert "Nota:" not in _fila(html, normal)
+    assert "Aprobada por Servicios Escolares" in _plano(_fila(html, sobrante))
+    assert "tt-pill--neutral\">Por revisar" not in _fila(html, normal), "sin píldora redundante"
+
+
 def test_en_modo_alterno_aprobar_con_cuenta_avisa_a_donde_va_la_liga(
     client_as, db_session, make_cc, make_cohort, modo_alterno,
 ):
