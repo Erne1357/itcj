@@ -143,7 +143,7 @@ class ProcessService:
                      "appointment_cancelled": cita_cancelada},
         ))
         notify_student(db, proc.student_id, type="PROCESS_CANCELLED",
-                       title="Tu inscripción a titulación fue cancelada",
+                       title="Tu inscripción a titulación fue revocada",
                        body="Entra a TitulaTec para ver el motivo.",
                        process_id=proc.id)
         db.commit()

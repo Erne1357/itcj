@@ -175,6 +175,7 @@ class TestCancelar:
         avisos = (db_session.query(Notification)
                   .filter_by(user_id=esc["student"].id, type="PROCESS_CANCELLED").all())
         assert len(avisos) == 1
+        assert avisos[0].title == "Tu inscripción a titulación fue revocada"
 
     def test_cancellation_info_lee_el_ultimo_evento(self, db_session, esc, correos):
         proc = esc["proc"]()
@@ -592,6 +593,9 @@ class TestCorreo:
         for _, _, html in enviados:
             assert proc.folio not in html
             assert esc["student"].control_number not in html
+            # Texto neutro (revisión final F2): no se atribuye a un área.
+            assert "fue revocada" in html
+            assert "Servicios Escolares canceló" not in html
 
     def test_sin_solicitud_solo_va_al_institucional(self, db_session, esc, monkeypatch):
         from itcj2.apps.titulatec.services import email_helper
@@ -748,9 +752,30 @@ class TestPantallas:
         html = client_as(esc["student"]).get("/titulatec/student/dashboard").text
 
         assert 'id="tt-inscripcion-cancelada"' in html
-        assert "Tu inscripción fue cancelada" in html
+        # Texto neutro (revisión final F2): no se atribuye a un área.
+        assert "Tu inscripción fue revocada" in html
+        assert "Inscripción revocada" in html
+        assert "cancelada" not in html.split('id="tt-inscripcion-cancelada"', 1)[1][:600]
         assert "Tu acta no es legible" in html
         assert "data-tt-cta" not in html, "una inscripción cancelada no ofrece acciones"
+
+    def test_el_alumno_revocado_no_ve_avance_ni_fase_actual(self, db_session, esc,
+                                                             client_as, correos):
+        """Revisión final (diferido): la barra de avance y la marca «Actual»
+        prometían un proceso vivo; el ancla `#tt-fase-actual` ya no existe."""
+        proc = esc["proc"](current_phase=3)
+        cli = client_as(esc["student"])
+        vivo = cli.get("/titulatec/student/dashboard").text
+        assert 'class="tt-phasebar"' in vivo and "data-tt-acc-goto" in vivo  # premisa
+
+        _svc().cancel(db_session, proc.id, reason="Motivo", actor_id=esc["actor"].id)
+        html = cli.get("/titulatec/student/dashboard").text
+
+        assert 'class="tt-phasebar"' not in html
+        assert "de 9 fases" not in html
+        assert "tt-acc-item is-current" not in html
+        assert "data-tt-acc-goto" not in html
+        assert 'href="#tt-fase-actual"' not in html
 
     def test_el_alumno_activo_no_ve_el_aviso(self, esc, client_as):
         esc["proc"]()

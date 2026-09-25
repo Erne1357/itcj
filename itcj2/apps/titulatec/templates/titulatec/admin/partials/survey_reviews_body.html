@@ -14,6 +14,9 @@
      Actualizar observaciones.
    - «Liberadas»: "Liberada por… el…" · si `can_revoke`: motivo + Revocar;
      si no, la píldora "Fase 2 liberada" (ya no se puede deshacer).
+   - Inscripción revocada (`r.revoked`, cualquier pestaña de historial): sin
+     acciones (todas responderían 400), píldora «Revocada» y, en «Con
+     observaciones», el texto vigente.
    Sin `hx-confirm` salvo Liberar/Revocar (Observar no destruye nada) y sin
    JS ni CSS en línea: el puente `hx-confirm` -> modal ya existe
    (`static/js/shared/titulatec-utils.js:265`).
@@ -83,7 +86,11 @@
         <td>{{ survey_review_pill(r.status) }}</td>
         <td><a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas/{{ r.response_id }}">Ver respuestas</a></td>
         <td>
-          {% if r.status == 'in_review' %}
+          {% if r.revoked %}
+            {% if r.status == 'rejected' and r.reason %}<p class="small mb-1">{{ r.reason }}</p>{% endif %}
+            <span class="tt-pill tt-pill--neutral">Revocada</span>
+            <p class="small mb-0 mt-1">La inscripción fue revocada: no hay acciones.</p>
+          {% elif r.status == 'in_review' %}
             <form class="d-inline" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/liberar"
                   hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
                   data-tt-confirm-ok="Liberar"

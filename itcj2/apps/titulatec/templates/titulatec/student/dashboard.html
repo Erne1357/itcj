@@ -33,6 +33,8 @@
       <div style="font-size:.8rem;color:#94A3B8">Hola,</div>
       <div class="tt-display" style="font-size:1.6rem;font-weight:600;color:#fff;line-height:1.1">{{ first_name or 'Alumno' }}.</div>
     </div>
+    {# Revocada: sin barra de avance (prometería un proceso vivo). #}
+    {% if not cancelled %}
     <div class="position-relative" style="margin-top:22px">
       <div class="d-flex justify-content-between align-items-baseline mb-2">
         <span class="tt-mono" style="font-size:.6875rem;color:var(--tt-accent);font-weight:600;letter-spacing:1.4px;text-transform:uppercase">
@@ -46,6 +48,7 @@
         {% endfor %}
       </div>
     </div>
+    {% endif %}
   </div>
 
   {# — Contenido: a 2 columnas en desktop, apilado en móvil — #}
@@ -60,9 +63,9 @@
            actual: esa ofrecería una acción que la guarda de fase ya rechaza. #}
         <div class="tt-card tt-card--hero tt-card--danger tt-anim-in" id="tt-inscripcion-cancelada"
              role="status" tabindex="-1">
-          {{ pill('Inscripción cancelada', 'danger', 'slash-circle') }}
+          {{ pill('Inscripción revocada', 'danger', 'slash-circle') }}
           <p class="tt-prose mt-3 mb-0">
-            Tu inscripción fue cancelada{% if cancelled.reason %}: <strong>{{ cancelled.reason }}</strong>{% else %}.{% endif %}
+            Tu inscripción fue revocada{% if cancelled.reason %}: <strong>{{ cancelled.reason }}</strong>{% else %}.{% endif %}
           </p>
           <p class="tt-prose small text-muted mt-2 mb-0">
             {% if cancelled.when %}{{ cancelled.when }} · {% endif %}Si crees que es un error,
@@ -182,7 +185,8 @@
         <div class="tt-card p-0 overflow-hidden">
           <div class="tt-acc" data-tt-acc-root>
             {% for ph in phases %}
-            <div class="tt-acc-item{% if ph.is_current %} is-current{% endif %}{% if ph.is_open %} is-open{% endif %}{% if ph.is_target %} is-target{% endif %}{% if ph.rel == 'past' and ph.status == 'approved' %} is-done{% endif %}"
+            {# Revocada: ninguna fase es «actual» (ni marca ni ancla a la col. A). #}
+            <div class="tt-acc-item{% if ph.is_current and not cancelled %} is-current{% endif %}{% if ph.is_open %} is-open{% endif %}{% if ph.is_target %} is-target{% endif %}{% if ph.rel == 'past' and ph.status == 'approved' %} is-done{% endif %}"
                  id="tt-fase-{{ ph.number }}" data-tt-phase="{{ ph.number }}"
                  style="scroll-margin-top:84px">
 
@@ -310,11 +314,13 @@
                   {% if ph.progress %}<span class="tt-acc-sub">{{ ph.progress.label }}</span>{% endif %}
                 </span>
                 {% if ph.survey %}{{ survey_review_pill(ph.survey.status) }}{% endif %}
-                {{ pill('Actual', 'amber') }}
+                {% if not cancelled %}{{ pill('Actual', 'amber') }}{% endif %}
               </div>
+              {% if not cancelled %}
               <a class="tt-acc-hint" href="#tt-fase-actual" data-tt-acc-goto>
                 <i class="bi bi-arrow-up-circle"></i> Lo que tienes que hacer está en «Tu proceso»
               </a>
+              {% endif %}
               {% endif %}
 
             </div>

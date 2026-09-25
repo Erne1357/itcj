@@ -303,6 +303,31 @@ def test_revocar_una_liberacion_re_renderiza_la_pestana(
     assert review.rejection_reason == "Se liberó por error"
 
 
+@pytest.mark.parametrize("estado", ["rejected", "approved"])
+def test_una_inscripcion_revocada_no_ofrece_acciones_y_se_etiqueta(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+    estado,
+):
+    """Revisión final (diferido de T6): con la inscripción revocada toda acción
+    de GTV responde 400 (`_active_process`); la fila la conserva el historial,
+    pero sin botones y con la etiqueta «Revocada»."""
+    gtv = make_gtv()
+    proc = make_process(make_student(control_number="99500061"), current_phase=2,
+                        status="cancelled")
+    review = make_survey_review(proc, status=estado, reason="Falta la constancia",
+                                reviewer=gtv)
+
+    resp = client_as(gtv).get(f"{URL}/body?status={estado}&q=99500061")
+
+    assert resp.status_code == 200, resp.text[:500]
+    marca = f'id="tt-rev-{review.id}"'
+    assert marca in resp.text
+    fila = resp.text.split(marca, 1)[1].split("</tr>", 1)[0]
+    assert "Revocada" in re.sub(r"<[^>]+>", " ", fila).split()
+    assert "hx-post" not in fila
+    assert "Fase 2 liberada" not in fila
+
+
 # ---------------------------------------------------------------------------
 # Errores: 400 de regla, 404 de existencia
 # ---------------------------------------------------------------------------
