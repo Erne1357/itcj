@@ -1258,13 +1258,13 @@ async def survey_draft(
 # solicitud viva", "ya tiene proceso"). Sin nombre de convocatoria ni botón de
 # reenvío condicional -cualquiera de los dos es el mismo oráculo anónimo que E8
 # existe para evitar-. Desde 2026-09-15 el alta ya no manda correo: toda
-# solicitud la revisa Servicios Escolares, y la tarjeta dice eso y nada más.
+# solicitud la revisa quien toque según el modo (`reviewer_label()`, T6), y la
+# tarjeta dice eso y nada más. `notice_body` NO es literal: `_enroll_generic_card`
+# lo arma con el nombre del revisor, así que este dict solo trae lo fijo.
 _ENROLL_CARD = {
     "notice_key": "generic",
     "notice_icon": "inbox",
     "notice_title": "Recibimos tu solicitud",
-    "notice_body": ("Servicios Escolares la revisará. Si se aprueba, te llegará un correo "
-                    "con tu acceso. Revisa también la carpeta de correo no deseado."),
 }
 
 # — Presupuestos del limitador de inscripción (revisión 2026-09-10, RULING R1/R2) —
@@ -1333,8 +1333,16 @@ def _enroll_generic_card(request):
     de la convocatoria ni un botón de reenvío condicional: cualquiera de los dos
     convertiría el endpoint en un oráculo anónimo de "¿existe este control?".
     """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    ctx = dict(_ENROLL_CARD)
+    ctx["notice_body"] = (
+        f"{EnrollmentRequestService.reviewer_label()} la revisará. Si se aprueba, "
+        "te llegará un correo con tu acceso. Revisa también la carpeta de correo "
+        "no deseado.")
     return render_titulatec(
-        request, "titulatec/public/partials/notice_card.html", dict(_ENROLL_CARD))
+        request, "titulatec/public/partials/notice_card.html", ctx)
 
 
 def _enroll_wait_card(request, retry: int):
@@ -1356,8 +1364,15 @@ def _enroll_programs(db):
 
 
 def _enroll_form_ctx(db, *, values=None, errors=None):
+    """`revisor` alimenta la lede de `enroll.html` (T6): el mismo dict sirve al
+    GET de página completa y al re-render del parcial `enroll_form.html` tras
+    un error de validación -este último lo ignora, `revisor` no es su contrato."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
     return {"programs": _enroll_programs(db),
-            "values": values or {}, "errors": errors or {}, "notice": False}
+            "values": values or {}, "errors": errors or {}, "notice": False,
+            "revisor": EnrollmentRequestService.reviewer_label()}
 
 
 def _enroll_aside_ctx(cohort) -> dict:
@@ -1384,6 +1399,9 @@ def _enroll_closed_ctx(db) -> dict:
     `[data-tt-notice="closed"]`. Lo que cambia es lo que va debajo.
     """
     from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
     from itcj2.apps.titulatec.utils.dates_es import (
         cuenta_regresiva, dia_largo, dia_mes,
     )
@@ -1395,8 +1413,9 @@ def _enroll_closed_ctx(db) -> dict:
 
     prox = CohortService.next_public_enrollment_window(db)
     if prox is None:
-        ctx["notice_body"] = ("Ahora mismo no hay una convocatoria abierta. "
-                              "Consulta las fechas con Servicios Escolares.")
+        ctx["notice_body"] = (
+            "Ahora mismo no hay una convocatoria abierta. Consulta las fechas "
+            f"con {EnrollmentRequestService.reviewer_label()}.")
         return ctx
 
     ctx["opens_label"] = dia_largo(prox.opens_at)
@@ -1641,6 +1660,10 @@ def _verify_card(outcome: str, folio: str) -> dict:
     `notice_title` y `notice_body`. Los cuatro `notice_key` salen del
     vocabulario cerrado que `notice_card.html` declara en su propio
     comentario: `verified`, `pending`, `expired`, `invalid`.
+
+    Las tarjetas `pending`/`expired` nombran a quien revisa según el modo
+    (`EnrollmentRequestService.reviewer_label()`, T6): son las dos que mandan
+    de vuelta a quien vaya a actuar (reenviar la liga, revisar de nuevo).
     """
     if outcome in ("converted", "already_converted"):
         # «Tu NIP de siempre»: esta liga solo existe para cuentas que ya tenían
@@ -1650,14 +1673,19 @@ def _verify_card(outcome: str, folio: str) -> dict:
                 "notice_body": (f"Tu folio es {folio}. Entra a TitulaTec con tu número "
                                 "de control y tu NIP de siempre. Si no lo recuerdas, "
                                 "acude a Servicios Escolares.")}
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
     if outcome == "pending_review":
         return {"notice_key": "pending", "notice_icon": "inbox",
                 "notice_title": "Tu solicitud necesita revisión",
-                "notice_body": "Servicios Escolares la revisará y te escribirá por correo."}
+                "notice_body": (f"{EnrollmentRequestService.reviewer_label()} la "
+                                "revisará y te escribirá por correo.")}
     if outcome == "expired":
         return {"notice_key": "expired", "notice_icon": "clock-history",
                 "notice_title": "Esa liga venció",
-                "notice_body": "Pide a Servicios Escolares que te la reenvíe."}
+                "notice_body": (f"Pide a {EnrollmentRequestService.reviewer_label()} "
+                                "que te la reenvíe.")}
     # Catch-all: "invalid" declarado Y cualquier outcome que no se reconozca
     # (ver el `except` de `enroll_verify`, abajo): NUNCA se distingue "token mal
     # formado" de "algo se rompió en el servidor" — sería un oráculo nuevo.

@@ -29,8 +29,11 @@
     <h1 class="tt-display tt-h1">Inscripción a titulación</h1>
     {% if not notice %}
     {# Este párrafo es contrato: `test_enrollment_public.py` lo compara
-       aplanado (INTRO_PAGINA). El corte de línea no importa, las palabras sí. #}
-    <p class="tt-enroll-lede">Llena tus datos. Servicios Escolares revisará tu solicitud y, si se
+       aplanado (INTRO_PAGINA). El corte de línea no importa, las palabras sí.
+       `revisor` (T6, `EnrollmentRequestService.reviewer_label()`) nombra a
+       quien revisa según el modo — la ruta lo pone en el contexto en
+       `_enroll_form_ctx`. #}
+    <p class="tt-enroll-lede">Llena tus datos. {{ revisor|e }} revisará tu solicitud y, si se
        aprueba, te enviará tu acceso por correo.</p>
     {% endif %}
   </div>

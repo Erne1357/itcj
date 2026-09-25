@@ -161,6 +161,31 @@ def test_get_con_ventana_cerrada_muestra_la_tarjeta_de_cierre(
     assert 'data-tt-page="public_enroll"' in resp.text
 
 
+def test_get_con_ventana_cerrada_y_sin_proxima_en_modo_alterno_nombra_a_centro_de_computo(
+    client, db_session, make_cohort, monkeypatch,
+):
+    """Sin próxima convocatoria (`next_public_enrollment_window` es `None`), el
+    cuerpo genérico de la tarjeta de cierre también nombra a quien revisa."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "computer_center"))
+    cohort = make_cohort(status="closed")
+    _solo_esta_convocatoria(db_session, cohort)
+    db_session.query(type(cohort)).filter_by(id=cohort.id).update({"status": "closed"})
+    db_session.flush()
+    client.cookies.clear()
+
+    resp = client.get(ENROLL_URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert "inscripción está cerrada" in resp.text
+    assert "Consulta las fechas con Centro de Cómputo." in resp.text
+    assert "Consulta las fechas con Servicios Escolares." not in resp.text
+
+
 def test_get_con_ventana_abierta_muestra_el_formulario_y_la_trampa(
     client, db_session, make_cohort, make_program,
 ):
@@ -201,6 +226,31 @@ def test_la_pagina_explica_que_la_solicitud_se_revisa_antes_de_dar_acceso(
     assert resp.status_code == 200, resp.text[:400]
     assert INTRO_PAGINA in _plano(resp.text)
     assert "Sin ese clic" not in resp.text, "el texto de la liga de confirmación ya no aplica"
+
+
+def test_en_modo_alterno_la_pagina_nombra_a_centro_de_computo(
+    client, db_session, make_cohort, monkeypatch,
+):
+    """`EnrollmentRequestService.reviewer_label()` decide quién revisa (2026-09-24):
+    se parchea `reviewer_mode`, nunca `get_settings` (mismo patrón que
+    `test_enrollment_approve.py`/`test_enrollment_inbox.py`)."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "computer_center"))
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.get(ENROLL_URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    plano = _plano(resp.text)
+    assert ("Llena tus datos. Centro de Cómputo revisará tu solicitud y, si se "
+            "aprueba, te enviará tu acceso por correo.") in plano
+    assert "Llena tus datos. Servicios Escolares revisará" not in plano
 
 
 def test_el_formulario_pide_confirmar_el_correo_personal(client, db_session, make_cohort):
@@ -616,6 +666,31 @@ def test_un_alta_valida_queda_en_revision_sin_liga_ni_correo(
     assert fila.status == "pending_review"
     assert fila.verify_token_hash is None
     assert sin_correo == [], "el alta ya no manda nada: el acceso llega tras la revisión"
+
+
+def test_en_modo_alterno_la_tarjeta_generica_nombra_a_centro_de_computo(
+    client, db_session, make_cohort, sin_correo, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "computer_center"))
+    cohort = make_cohort(status="open")
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.post(ENROLL_URL, data=_form(control_number="99885804"),
+                       headers={"X-Real-IP": "203.0.113.24"}, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    plano = _plano(resp.text)
+    assert 'data-tt-notice="generic"' in resp.text
+    assert TITULO_TARJETA in resp.text
+    assert ("Centro de Cómputo la revisará. Si se aprueba, te llegará un correo "
+            "con tu acceso. Revisa también la carpeta de correo no deseado.") in plano
+    assert "Servicios Escolares" not in plano
 
 
 # ---------------------------------------------------------------------------
