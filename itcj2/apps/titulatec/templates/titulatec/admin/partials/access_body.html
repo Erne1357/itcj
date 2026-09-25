@@ -81,8 +81,15 @@
             {% if r.show_status %}<span class="tt-pill tt-pill--neutral">{{ r.status_label }}</span>{% endif %}
             {% if r.grantable %}
               {% if r.has_account %}
-              <span class="tt-pill tt-pill--neutral">Ya tiene cuenta: se enviará liga</span>
-              {% if not r.has_password %}<span class="tt-pill tt-pill--danger">sin contraseña</span>{% endif %}
+                {% if official and not r.has_password %}
+                {# D10 sin contraseña en oficial: la liga siempre daría 400
+                   (invariante 2), así que no se anuncia «se enviará liga»
+                   junto a la instrucción de devolver (más abajo). #}
+                <span class="tt-pill tt-pill--danger">Ya tiene cuenta, sin contraseña</span>
+                {% else %}
+                <span class="tt-pill tt-pill--neutral">Ya tiene cuenta: se enviará liga</span>
+                {% if not r.has_password %}<span class="tt-pill tt-pill--danger">sin contraseña</span>{% endif %}
+                {% endif %}
               {% else %}
               <span class="tt-pill tt-pill--amber">Sin cuenta</span>
               {% endif %}
@@ -211,7 +218,7 @@
                   hx-target="#tt-access-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
               {{ tab_fields(status, cohort_id) }}
-              <span class="tt-req-sub w-100">Se enviará a {{ r.email }}</span>
+              <span class="tt-req-sub w-100">Correo: {{ r.email }}</span>
               {{ nip_field() }}
               <div class="form-check small w-100 mb-0">
                 <input class="form-check-input" type="checkbox" name="no_mail" value="1"

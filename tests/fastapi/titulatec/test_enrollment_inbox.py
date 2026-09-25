@@ -505,6 +505,8 @@ def test_la_pagina_explica_los_dos_caminos(client_as, db_session, make_head, mon
     assert "NIP de 4 dígitos" in texto
     assert "ya tiene cuenta" in texto and "liga de activación de 10 días" in texto
     assert "7 días" not in texto and "21 días" not in texto
+    # Premisa falsa (nada obliga a un egresado a cambiar el NIP): no se anuncia.
+    assert "contraseña obligatorio" not in texto
 
 
 def test_la_bandeja_no_usa_hx_confirm_ni_js_ni_css_inline():

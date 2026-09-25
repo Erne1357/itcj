@@ -415,7 +415,12 @@ def test_la_fila_con_cuenta_anuncia_la_liga_y_no_pide_nip(
             in _plano_correo(fila))
     assert DESACTIVADA not in _plano(fila)
     assert DESACTIVADA in _plano(_fila(html, inactiva))
-    assert "sin contraseña" in _plano(_fila(html, sin_contra))
+    fila_sin_contra = _plano(_fila(html, sin_contra))
+    assert "sin contraseña" in fila_sin_contra
+    # D10 sin contraseña en oficial: la liga no saldría (400), así que no se
+    # anuncia junto a la píldora de «sin contraseña».
+    assert YA_TIENE_CUENTA not in fila_sin_contra
+    assert "Ya tiene cuenta, sin contraseña" in fila_sin_contra
 
 
 def test_d10_sin_contrasena_en_modo_oficial_no_ofrece_enviar_liga_sino_devolver(
@@ -436,6 +441,8 @@ def test_d10_sin_contrasena_en_modo_oficial_no_ofrece_enviar_liga_sino_devolver(
             in _plano(fila))
     assert f'hx-post="{URL}/{sin_contra.id}/devolver"' in fila
     assert "La liga de activación irá a" not in _plano_correo(fila), "no sale ninguna liga"
+    # La píldora no debe prometer una liga que nunca sale (400 garantizado).
+    assert YA_TIENE_CUENTA not in _plano(fila)
 
 
 # ---------------------------------------------------------------------------
@@ -821,7 +828,9 @@ def test_el_formulario_de_reasignar_dice_a_donde_va_y_permite_no_mandar_correo(
 
     fila = _fila(c.get(f"{URL}/body?status=granted&cohort_id={cohort.id}").text, req)
     formulario = fila.split(f'hx-post="{URL}/{req.id}/reasignar-nip"', 1)[1].split("</form>", 1)[0]
-    assert "Se enviará a mal.escrito@example.invalid" in _plano(formulario)
+    # Texto neutro (D-25-1): con la casilla marcada no se envía correo, así
+    # que «se enviará a…» sería falso sin JS que lo actualice.
+    assert "Correo: mal.escrito@example.invalid" in _plano(formulario)
     assert re.search(r'<input[^>]*type="checkbox"[^>]*name="no_mail"', formulario)
     assert "No enviar correo; lo dicto por teléfono" in _plano(formulario)
 
