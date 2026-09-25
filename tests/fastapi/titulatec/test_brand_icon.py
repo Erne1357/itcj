@@ -26,6 +26,7 @@ PNG = ROOT / "itcj2/apps/titulatec/static/images/titulatec-claro-1024.png"
 CORE_TPL = ROOT / "itcj2/core/templates"
 TT_TPL = ROOT / "itcj2/apps/titulatec/templates/titulatec"
 TT_CSS = ROOT / "itcj2/apps/titulatec/static/css/titulatec.css"
+PUBLIC_CSS = ROOT / "itcj2/apps/titulatec/static/css/public.css"
 MOBILE_CSS = ROOT / "itcj2/core/static/css/mobile/mobile-base.css"
 
 
@@ -143,6 +144,45 @@ def test_la_marca_del_alumno_tiene_tamano_en_css():
     for selector in (".app-sidebar-title .tt-brand-img", ".tt-rail-brand .tt-brand-img"):
         cuerpo = _regla(css, selector)
         assert "width" in cuerpo and "height" in cuerpo, selector
+
+
+# ---------------------------------------------------------------------------
+# 3b - Menu lateral del admin (antes un cuadro con la letra «T» y style inline)
+# ---------------------------------------------------------------------------
+def test_menu_admin_usa_el_png():
+    (side,) = _doc(TT_TPL / "admin/base_admin.html").xpath('//aside[@id="ttSide"]')
+    (img,) = side.xpath('.//img')
+    assert "tt-brand-img" in img.get("class").split()
+    assert img.get("src").startswith(f"/static/{PNG_REL}?v={{{{ sv(")
+    assert img.get("alt") == "", "decorativa: el texto «TitulaTec · Admin» va al lado"
+    assert not [el for el in side.iter() if (el.text or "").strip() == "T"], (
+        "sigue el monograma «T»")
+
+
+def test_la_marca_del_admin_tiene_tamano_en_css():
+    cuerpo = _regla(TT_CSS.read_text(encoding="utf-8"), ".tt-admin .side .tt-brand-img")
+    assert "width" in cuerpo and "height" in cuerpo
+
+
+# ---------------------------------------------------------------------------
+# 3c - Encabezado de las paginas publicas (encuesta de egresados, inscripcion)
+# ---------------------------------------------------------------------------
+def test_encabezado_publico_usa_el_png():
+    (bar,) = _doc(TT_TPL / "public/base_public.html").xpath(
+        '//header[contains(@class,"tt-public-bar")]')
+    (img,) = bar.xpath('.//img')
+    assert "tt-public-logo" in img.get("class").split()
+    assert img.get("src").startswith(f"/static/{PNG_REL}?v={{{{ sv(")
+    assert img.get("alt") == "", "decorativa: el texto «TitulaTec» va al lado"
+    assert "TT" not in bar.text_content().split(), "sigue el monograma «TT»"
+
+
+def test_el_logo_publico_solo_se_dimensiona():
+    """El PNG trae su propio tile: la regla ya no pinta el cuadro de tinta del
+    monograma, solo lo dimensiona."""
+    cuerpo = _regla(PUBLIC_CSS.read_text(encoding="utf-8"), ".tt-public-logo")
+    assert "width" in cuerpo and "height" in cuerpo
+    assert "background" not in cuerpo, "quedo el fondo de tinta del monograma"
 
 
 # ---------------------------------------------------------------------------

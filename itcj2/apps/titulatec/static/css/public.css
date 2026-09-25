@@ -27,20 +27,15 @@
   padding: var(--tt-sp-3) clamp(16px, 4vw, 44px);
 }
 
+/* Marca: el PNG propio (images/titulatec-claro-1024.png) ya trae su tile, asi
+   que solo se dimensiona. Antes era el monograma «TT» en texto sobre tinta. */
 .tt-public-logo {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   width: 34px;
   height: 34px;
   flex: 0 0 34px;
   border-radius: var(--tt-r-sm);
-  background: var(--tt-ink);
-  color: #fff;
-  font-family: var(--tt-display);
-  font-size: var(--tt-fs-100);
-  font-weight: 700;
-  letter-spacing: .5px;
+  object-fit: contain;
 }
 
 .tt-public-brand {

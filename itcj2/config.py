@@ -273,7 +273,14 @@ class Settings(BaseSettings):
     # el bump, quien tenga el dashboard en caché sigue con el JS viejo (sin
     # `window.CorePresenceHeartbeat`), así que el shell nunca emite el latido y
     # el usuario vuelve a decaer de la ventana de 5 min como antes de esta ronda.
-    STATIC_VERSION: str = "1.0.1111568"
+    #
+    # Bump 2026-09-24 (3): el icono propio de TitulaTec llega al encabezado de las
+    # páginas públicas (encuesta de egresados, inscripción) y al menú del admin.
+    # `titulatec/css/public.css` reduce `.tt-public-logo` a un `<img>` dimensionado
+    # (antes pintaba el monograma «TT» sobre tinta) y `titulatec/css/titulatec.css`
+    # suma `.tt-admin .side .tt-brand-img`. Sin el bump, la hoja vieja deja el PNG
+    # de 1024 px sin tamaño en el menú del admin y con fondo de tinta en el público.
+    STATIC_VERSION: str = "1.0.1111569"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
