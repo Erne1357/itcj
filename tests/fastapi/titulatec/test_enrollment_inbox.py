@@ -1,8 +1,13 @@
 """Bandeja de solicitudes (HTML): pestañas, qué ofrece cada fila y la pestaña que viaja.
 
 Pestañas: "Por revisar" (`pending_review` y el legado `unverified`/`verified`,
-por omisión), "Liga enviada" (`approved`), "Inscritas" (`converted`),
-"Rechazadas" (`rejected`) y "Todas".
+por omisión), "En Cómputo" (`awaiting_access`, 2026-09-24), "Liga enviada"
+(`approved`), "Inscritas" (`converted`), "Rechazadas" (`rejected`) y "Todas".
+
+Modo (`EnrollmentRequestService.reviewer_mode()`, 2026-09-24): en el OFICIAL
+Servicios Escolares aprueba sin NIP y la solicitud sin cuenta pasa a Centro de
+Cómputo; en el ALTERNO la bandeja es de SOLO LECTURA (ni un formulario) y las
+rutas POST responden 400 — eso último vive en `test_enrollment_approve.py`.
 
 Lo que ofrece una fila sale de su ESTADO y de si el número de control tiene
 cuenta HOY en `core_users`, que es la misma pregunta que se hace `approve()`.
@@ -43,7 +48,7 @@ OFFICER_LIST_PERMS = (
     "titulatec.enrollment_request.api.reject",
 )
 
-PESTANAS = ["Por revisar", "Liga enviada", "Inscritas", "Rechazadas", "Todas"]
+PESTANAS = ["Por revisar", "En Cómputo", "Liga enviada", "Inscritas", "Rechazadas", "Todas"]
 AVISO_CON_CUENTA = ("La liga de activación irá a este correo, que escribió el "
                     "solicitante. Confirma su identidad antes de aprobar.")
 
@@ -75,6 +80,16 @@ def correo_falso(monkeypatch):
                         lambda app_key: "token-de-prueba")
     monkeypatch.setattr("itcj2.core.utils.msgraph_mail.graph_send_mail", _fake_send)
     return enviados
+
+
+@pytest.fixture()
+def modo_alterno(monkeypatch):
+    """Centro de Cómputo revisa todo: se parchea `reviewer_mode`, nunca `get_settings`."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "computer_center"))
 
 
 def _make_req(db_session, cohort, *, control, status="pending_review", kind="unknown",
@@ -123,7 +138,7 @@ def _pestana_activa(html: str) -> str:
 # ---------------------------------------------------------------------------
 # Pestañas
 # ---------------------------------------------------------------------------
-def test_la_bandeja_abre_en_por_revisar_con_las_cinco_pestanas(
+def test_la_bandeja_abre_en_por_revisar_con_las_seis_pestanas(
     client_as, db_session, make_head, make_cohort,
 ):
     head = make_head(perm_codes=LIST_PERMS)
@@ -144,11 +159,12 @@ def test_la_bandeja_abre_en_por_revisar_con_las_cinco_pestanas(
 
 @pytest.mark.parametrize("pestana,estados", [
     ("pending_review", {"pending_review", "unverified", "verified"}),
+    ("awaiting_access", {"awaiting_access"}),
     ("approved", {"approved"}),
     ("converted", {"converted"}),
     ("rejected", {"rejected"}),
-    ("all", {"pending_review", "unverified", "verified", "approved", "converted",
-             "rejected"}),
+    ("all", {"pending_review", "unverified", "verified", "awaiting_access", "approved",
+             "converted", "rejected"}),
 ])
 def test_cada_pestana_muestra_solo_sus_estados(
     client_as, db_session, make_head, make_cohort, pestana, estados,
@@ -157,7 +173,8 @@ def test_cada_pestana_muestra_solo_sus_estados(
     cohort = make_cohort(status="open")
     filas = {status: _make_req(db_session, cohort, control=f"9955{i:04d}", status=status)
              for i, status in enumerate(("pending_review", "unverified", "verified",
-                                         "approved", "converted", "rejected"), start=1100)}
+                                         "awaiting_access", "approved", "converted",
+                                         "rejected"), start=1100)}
 
     resp = client_as(head).get(f"{URL}/body?status={pestana}")
 
@@ -184,9 +201,10 @@ def test_una_pestana_desconocida_cae_en_por_revisar(
 # ---------------------------------------------------------------------------
 # Qué ofrece cada fila
 # ---------------------------------------------------------------------------
-def test_la_fila_por_revisar_sin_cuenta_pide_nip_para_crear_el_acceso(
+def test_la_fila_por_revisar_sin_cuenta_se_aprueba_sin_nip_y_pasa_a_computo(
     client_as, db_session, make_head, make_cohort,
 ):
+    """Modo oficial (2026-09-24): el NIP lo da Centro de Cómputo, no SE."""
     head = make_head(perm_codes=LIST_PERMS)
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99551010")
@@ -195,8 +213,9 @@ def test_la_fila_por_revisar_sin_cuenta_pide_nip_para_crear_el_acceso(
 
     assert "Sin cuenta" in fila
     assert f'hx-post="/titulatec/admin/solicitudes/{req.id}/aprobar"' in fila
-    assert 'name="nip"' in fila
-    assert "Aprobar y crear acceso" in fila
+    assert 'name="nip"' not in fila, "SE ya no captura el NIP"
+    assert "Aprobar y pasar a Cómputo" in fila
+    assert "Aprobar y crear acceso" not in fila
     assert "Aprobar y enviar liga" not in fila
     assert AVISO_CON_CUENTA not in _plano(fila)
     assert f'hx-post="/titulatec/admin/solicitudes/{req.id}/rechazar"' in fila
@@ -434,7 +453,7 @@ def test_tras_aprobar_se_vuelve_a_pintar_la_pestana_donde_estaba_el_oficial(
 
     assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
     assert _pestana_activa(resp.text) == "pending_review"
-    assert f'id="tt-req-{req.id}"' not in resp.text, "la inscrita ya no está por revisar"
+    assert f'id="tt-req-{req.id}"' not in resp.text, "la aprobada ya no está por revisar"
     assert f'id="tt-req-{otra.id}"' in resp.text
 
 
@@ -471,13 +490,22 @@ def test_tras_rechazar_y_reenviar_se_queda_en_liga_enviada(
 # ---------------------------------------------------------------------------
 # Página y reglas del frontend
 # ---------------------------------------------------------------------------
-def test_la_pagina_explica_los_dos_caminos(client_as, db_session, make_head):
+def test_la_pagina_explica_los_dos_caminos(client_as, db_session, make_head, monkeypatch):
+    """Los días de la liga salen de `_link_ttl_hours()`, no de un literal: se
+    parchea a 10 días para que un «21» escrito a mano en la plantilla se caiga."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 10 * 24))
     head = make_head(perm_codes=LIST_PERMS)
 
     texto = _plano(client_as(head).get(URL).text)
 
-    assert "no tiene cuenta" in texto and "NIP de 4 dígitos" in texto
-    assert "ya tiene cuenta" in texto and "liga de activación" in texto
+    assert "no tiene cuenta" in texto and "Centro de Cómputo" in texto
+    assert "NIP de 4 dígitos" in texto
+    assert "ya tiene cuenta" in texto and "liga de activación de 10 días" in texto
+    assert "7 días" not in texto and "21 días" not in texto
 
 
 def test_la_bandeja_no_usa_hx_confirm_ni_js_ni_css_inline():
@@ -863,3 +891,164 @@ def test_una_pestana_de_historial_sigue_de_la_mas_nueva_a_la_mas_antigua(
     pos_antigua = html.index(f'id="tt-req-{mas_antigua.id}"')
     assert pos_nueva < pos_antigua, (
         f"«{pestana}» debe seguir mostrando lo más nuevo primero")
+
+
+# ---------------------------------------------------------------------------
+# «En Cómputo» (2026-09-24): SE aprobó una solicitud sin cuenta y Centro de
+# Cómputo tiene que darle el NIP
+# ---------------------------------------------------------------------------
+def test_la_fila_en_computo_dice_desde_cuando_y_solo_ofrece_cancelar(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99620001", status="awaiting_access",
+                    reviewed_at=datetime(2026, 9, 20, 11, 45))
+
+    html = client_as(head).get(f"{URL}/body?status=awaiting_access").text
+    fila = _fila(html, req)
+    texto = _plano(fila)
+
+    assert _pestana_activa(html) == "awaiting_access"
+    assert "En Centro de Cómputo desde 20/09/2026" in texto
+    assert f'hx-post="/titulatec/admin/solicitudes/{req.id}/rechazar"' in fila
+    assert "Cancelar solicitud" in fila
+    assert 'name="note"' in fila and "required" in fila
+    assert f'/solicitudes/{req.id}/aprobar' not in fila
+    assert f'/solicitudes/{req.id}/reenviar' not in fila
+    assert 'name="nip"' not in fila
+
+
+def test_en_todas_la_fila_en_computo_lleva_su_etiqueta(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99620002", status="awaiting_access",
+                    reviewed_at=datetime(2026, 9, 20, 11, 45))
+
+    fila = _fila(client_as(head).get(f"{URL}/body?status=all").text, req)
+
+    assert "En Cómputo" in _plano(fila)
+
+
+def test_aprobar_sin_cuenta_deja_la_fila_en_la_pestana_en_computo(
+    client_as, db_session, make_head, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso,
+):
+    seed_phase_defs()
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99620003")
+    c = client_as(head)
+
+    resp = c.post(f"{URL}/{req.id}/aprobar",
+                  data={"program_id": "", "status": "pending_review", "cohort_id": ""})
+    assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+
+    en_computo = c.get(f"{URL}/body?status=awaiting_access&cohort_id={cohort.id}").text
+    fila = _fila(en_computo, req)
+    assert "En Centro de Cómputo desde" in _plano(fila)
+    assert _kpi(en_computo, "En Cómputo") == 1
+    assert _kpi(en_computo, "Por revisar") == 0
+
+
+def test_cancelar_desde_en_computo_la_manda_a_rechazadas(
+    client_as, db_session, make_head, make_cohort, correo_falso,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99620004", status="awaiting_access",
+                    reviewed_at=datetime(2026, 9, 20, 11, 45))
+    c = client_as(head)
+
+    resp = c.post(f"{URL}/{req.id}/rechazar",
+                  data={"note": "La persona pidió cancelar.", "status": "awaiting_access",
+                        "cohort_id": str(cohort.id)})
+
+    assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+    assert _pestana_activa(resp.text) == "awaiting_access"
+    assert f'id="tt-req-{req.id}"' not in resp.text
+    rechazadas = c.get(f"{URL}/body?status=rejected&cohort_id={cohort.id}").text
+    assert "La persona pidió cancelar." in _fila(rechazadas, req)
+    db_session.refresh(req)
+    assert req.status == "rejected"
+
+
+def test_una_solicitud_devuelta_por_computo_lo_dice_con_su_nota(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    devuelta = _make_req(db_session, cohort, control="99620005",
+                         returned_at=datetime(2026, 9, 21, 9, 0),
+                         return_note="El número de control no coincide con el padrón.")
+    normal = _make_req(db_session, cohort, control="99620006")
+
+    html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
+
+    assert ("Devuelta por Centro de Cómputo: El número de control no coincide con el "
+            "padrón.") in _plano(_fila(html, devuelta))
+    assert "Devuelta por Centro de Cómputo" not in _fila(html, normal)
+    # Devuelta vuelve a ser trabajo de SE: se aprueba o rechaza igual.
+    assert f'/solicitudes/{devuelta.id}/aprobar' in _fila(html, devuelta)
+
+
+def test_el_kpi_y_el_bloque_por_ano_cuentan_las_de_computo(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    _make_req(db_session, cohort, control="21620001", status="awaiting_access")
+    _make_req(db_session, cohort, control="21620002", status="awaiting_access")
+    _make_req(db_session, cohort, control="21620003", status="pending_review")
+
+    html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
+
+    assert _kpi(html, "Total") == 3
+    assert _kpi(html, "En Cómputo") == 2
+    assert _kpi(html, "Por revisar") == 1
+    texto = _plano(html)
+    assert "En Cómputo" in texto.split("Por año de ingreso", 1)[1]
+    assert "2 en Cómputo" in texto
+
+
+# ---------------------------------------------------------------------------
+# Modo alterno (2026-09-24): Centro de Cómputo revisa y SE solo consulta
+# ---------------------------------------------------------------------------
+def test_en_modo_alterno_la_bandeja_es_de_solo_lectura(
+    client_as, db_session, make_head, make_cohort, modo_alterno,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    filas = [
+        _make_req(db_session, cohort, control="99621001"),
+        _make_req(db_session, cohort, control="99621002", status="awaiting_access"),
+        _make_req(db_session, cohort, control="99621003", status="approved",
+                  verify_send_count=1, verify_token_hash="7" * 64,
+                  verify_expires_at=datetime.now() + timedelta(days=1)),
+    ]
+    c = client_as(head)
+
+    for pestana in ("pending_review", "awaiting_access", "approved", "all"):
+        html = c.get(f"{URL}/body?status={pestana}&cohort_id={cohort.id}").text
+        assert "<form" not in html, pestana
+        assert "La revisión la hace Centro de Cómputo" in _plano(html), pestana
+    todas = c.get(f"{URL}/body?status=all&cohort_id={cohort.id}").text
+    for req in filas:
+        _fila(todas, req)          # se siguen viendo: solo lectura, no oculta
+    # KPIs, pestañas y año de ingreso siguen ahí.
+    assert _kpi(todas, "Total") == 3
+    assert 'id="tt-req-tab-awaiting_access"' in todas
+    assert "Por año de ingreso" in todas
+
+
+def test_en_modo_alterno_la_pagina_lo_explica(
+    client_as, db_session, make_head, modo_alterno,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+
+    texto = _plano(client_as(head).get(URL).text)
+
+    assert "La revisión la hace Centro de Cómputo" in texto
+    assert "NIP de 4 dígitos" not in texto, "SE ya no aprueba en este modo"

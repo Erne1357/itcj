@@ -282,7 +282,11 @@ class Settings(BaseSettings):
     # (antes pintaba el monograma «TT» sobre tinta) y `titulatec/css/titulatec.css`
     # suma `.tt-admin .side .tt-brand-img`. Sin el bump, la hoja vieja deja el PNG
     # de 1024 px sin tamaño en el menú del admin y con fondo de tinta en el público.
-    STATIC_VERSION: str = "1.0.1111569"
+    #
+    # Bump 2026-09-25: `titulatec/css/titulatec.css` suma `.tt-mix--access` (el
+    # desglose «En Cómputo» del bloque «Por año de ingreso» de Solicitudes). Sin
+    # el bump, la hoja vieja pinta el icono de ese cubo sin su color.
+    STATIC_VERSION: str = "1.0.1111570"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

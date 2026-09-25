@@ -9,11 +9,16 @@
 
    Lo que ofrece cada fila sale de su estado y de si el número de control tiene
    cuenta HOY en `core_users`, que es la misma pregunta que se hace `approve()`:
-   - por revisar, sin cuenta: NIP + carrera, «Aprobar y crear acceso»;
+   - por revisar, sin cuenta: carrera, «Aprobar y pasar a Cómputo» (SIN NIP: lo
+     da Centro de Cómputo, 2026-09-24);
    - por revisar, con cuenta: carrera, «Aprobar y enviar liga», con el aviso de a
      dónde va la liga (el riesgo aceptado de docs/flows/xcut_public_enrollment.md);
+   - por revisar y devuelta por Centro de Cómputo: además, su nota;
+   - en Cómputo (`awaiting_access`): desde cuándo y «Cancelar solicitud»;
    - liga enviada: envíos, «Reenviar liga» (rota la liga) y «Cancelar solicitud»;
    - inscrita: folio; rechazada: motivo.
+   `can_act` falso (modo alterno, revisa Centro de Cómputo) = SOLO LECTURA: ni
+   un formulario, y un aviso arriba. Las rutas POST lo cortan aparte.
    Una cuenta desactivada lleva la píldora «Cuenta desactivada: se reactiva al
    abrir la liga» mientras la liga puede abrirse (por revisar o liga enviada):
    abrirla la reactiva, la única escritura sobre la cuenta además de roles y
@@ -37,10 +42,19 @@
 {%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
 <div id="tt-requests-body" data-tt-view="requests-body">
 
+  {% if not can_act %}
+  <div class="tt-card tt-card--violet mb-3" id="tt-req-readonly">
+    <span class="tt-kicker"><i class="bi bi-eye me-1" aria-hidden="true"></i>Solo lectura</span>
+    <p class="mb-0">La revisión la hace Centro de Cómputo: aprueba, rechaza y da el acceso
+       desde su bandeja. Aquí ves cómo va cada solicitud.</p>
+  </div>
+  {% endif %}
+
   {% if not no_programs %}
   <div class="tt-kpis tt-stagger mb-3">
     <div class="tt-kpi"><div class="tt-kicker">Total</div><div class="num">{{ kpis.total }}</div></div>
     <div class="tt-kpi"><div class="tt-kicker">Por revisar</div><div class="num">{{ kpis.review }}</div></div>
+    <div class="tt-kpi"><div class="tt-kicker">En Cómputo</div><div class="num">{{ kpis.access }}</div></div>
     <div class="tt-kpi"><div class="tt-kicker">Liga enviada</div><div class="num">{{ kpis.sent }}</div></div>
     <div class="tt-kpi"><div class="tt-kicker">Inscritas</div><div class="num">{{ kpis.converted }}</div></div>
     <div class="tt-kpi"><div class="tt-kicker">Rechazadas</div><div class="num">{{ kpis.rejected }}</div></div>
@@ -73,6 +87,7 @@
     </summary>
     <p class="tt-years-legend">
       <span class="tt-mix tt-mix--review"><i class="bi bi-hourglass-split" aria-hidden="true"></i>Por revisar</span>
+      <span class="tt-mix tt-mix--access"><i class="bi bi-pc-display" aria-hidden="true"></i>En Cómputo</span>
       <span class="tt-mix tt-mix--sent"><i class="bi bi-envelope-check" aria-hidden="true"></i>Liga enviada</span>
       <span class="tt-mix tt-mix--converted"><i class="bi bi-check-circle" aria-hidden="true"></i>Inscritas</span>
       <span class="tt-mix tt-mix--rejected"><i class="bi bi-x-circle" aria-hidden="true"></i>Rechazadas</span>
@@ -88,6 +103,7 @@
                aria-label="Año {{ y.year }}: {{ y.total }} de {{ year_max }} personas">{{ y.total }}</meter>
         <div class="tt-yeartile-mix">
           {% if y.review %}<span class="tt-mix tt-mix--review" title="Por revisar"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ y.review }}<span class="visually-hidden"> por revisar</span></span>{% endif %}
+          {% if y.access %}<span class="tt-mix tt-mix--access" title="En Cómputo"><i class="bi bi-pc-display" aria-hidden="true"></i>{{ y.access }}<span class="visually-hidden"> en Cómputo</span></span>{% endif %}
           {% if y.sent %}<span class="tt-mix tt-mix--sent" title="Liga enviada"><i class="bi bi-envelope-check" aria-hidden="true"></i>{{ y.sent }}<span class="visually-hidden"> con liga enviada</span></span>{% endif %}
           {% if y.converted %}<span class="tt-mix tt-mix--converted" title="Inscritas"><i class="bi bi-check-circle" aria-hidden="true"></i>{{ y.converted }}<span class="visually-hidden"> inscritas</span></span>{% endif %}
           {% if y.rejected %}<span class="tt-mix tt-mix--rejected" title="Rechazadas"><i class="bi bi-x-circle" aria-hidden="true"></i>{{ y.rejected }}<span class="visually-hidden"> rechazadas</span></span>{% endif %}
@@ -175,18 +191,16 @@
         <td class="tt-mono tt-req-date">{{ r.created }}</td>
         <td class="tt-req-acc">
           {% if r.reviewable %}
+            {% if r.returned %}
+            <p class="small mb-1"><i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i><strong>Devuelta por Centro de Cómputo:</strong> {{ r.return_note }}</p>
+            {% endif %}
             {% if r.note %}<p class="small mb-1">Nota: {{ r.note }}</p>{% endif %}
+            {% if can_act %}
             <form class="tt-req-form"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/aprobar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
               {{ tab_fields(status, cohort_id) }}
-              {% if not r.has_account %}
-              <input class="tt-field tt-field--xs" name="nip" required
-                     inputmode="numeric" pattern="\d{4}" maxlength="4"
-                     placeholder="NIP" aria-label="NIP de 4 dígitos"
-                     autocomplete="off">
-              {% endif %}
               <select class="tt-field tt-field--xs" name="program_id" aria-label="Carrera">
                 <option value="">Carrera…</option>
                 {% for p in programs %}
@@ -194,7 +208,7 @@
                 {% endfor %}
               </select>
               <button type="submit" class="btn btn-sm tt-btn-ink">
-                {{ 'Aprobar y enviar liga' if r.has_account else 'Aprobar y crear acceso' }}</button>
+                {{ 'Aprobar y enviar liga' if r.has_account else 'Aprobar y pasar a Cómputo' }}</button>
             </form>
             {% if r.has_account %}
             <p class="small mt-1 mb-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>La
@@ -210,10 +224,26 @@
                      placeholder="Motivo del rechazo" aria-label="Motivo del rechazo">
               <button type="submit" class="btn btn-sm tt-btn-ghost">Rechazar</button>
             </form>
+            {% endif %}
+          {% elif r.status == 'awaiting_access' %}
+            <p class="small mb-1"><i class="bi bi-pc-display me-1" aria-hidden="true"></i>En
+               Centro de Cómputo desde {{ r.awaiting_since }}</p>
+            {% if can_act %}
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <input class="tt-field tt-field--xs" name="note" required
+                     placeholder="Motivo de la cancelación" aria-label="Motivo de la cancelación">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Cancelar solicitud</button>
+            </form>
+            {% endif %}
           {% elif r.status == 'approved' %}
             <p class="small mb-1">Liga enviada {{ r.sends }} {{ 'vez' if r.sends == 1 else 'veces' }}{% if r.last_sent %}
                · última {{ r.last_sent }}{% endif %} · {{ 'abierta' if r.opened else 'sin abrir' }}</p>
             {% if not r.last_sent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+            {% if can_act %}
             <form class="tt-req-form tt-req-form--inline mt-1"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reenviar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
@@ -230,6 +260,7 @@
                      placeholder="Motivo de la cancelación" aria-label="Motivo de la cancelación">
               <button type="submit" class="btn btn-sm tt-btn-ghost">Cancelar solicitud</button>
             </form>
+            {% endif %}
           {% elif r.status == 'converted' %}
             {% if r.folio %}<span class="tt-mono">{{ r.folio }}</span>{% endif %}
           {% elif r.status == 'rejected' %}

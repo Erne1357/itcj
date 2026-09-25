@@ -7,6 +7,13 @@ Pestañas por estado, «Por revisar» por omisión. Aprobar, rechazar y reenviar
 vuelven a pintar la pestaña donde estaba el oficial: cada formulario de fila la
 manda de vuelta en `status` y `cohort_id`. Flujo completo en
 `docs/flows/xcut_public_enrollment.md`.
+
+Modo (`EnrollmentRequestService.reviewer_mode()`, 2026-09-24): en el OFICIAL,
+SE aprueba sin NIP y la solicitud sin cuenta pasa a «En Cómputo»
+(`awaiting_access`) — el NIP lo da Centro de Cómputo en su bandeja. En el
+ALTERNO la revisión es de Centro de Cómputo: esta bandeja queda de SOLO LECTURA
+y sus tres POST responden 400 ANTES de abrir sesión (`_alternate_mode_block`),
+así que ni un POST directo sin la UI aprueba, rechaza o reenvía.
 """
 import logging
 from datetime import datetime
@@ -24,9 +31,12 @@ _LIST = ["titulatec.enrollment_request.page.list"]
 _APPROVE = ["titulatec.enrollment_request.api.approve"]
 _REJECT = ["titulatec.enrollment_request.api.reject"]
 
+_MSG_ALTERNATE = "En este modo la revisión la hace Centro de Cómputo."
+
 # Pestañas, en el orden en que se pintan.
 _TABS = (
     ("pending_review", "Por revisar"),
+    ("awaiting_access", "En Cómputo"),
     ("approved", "Liga enviada"),
     ("converted", "Inscritas"),
     ("rejected", "Rechazadas"),
@@ -37,6 +47,7 @@ _TABS = (
 # rechaza igual que `pending_review`.
 _TAB_STATUSES = {
     "pending_review": ("pending_review", "unverified", "verified"),
+    "awaiting_access": ("awaiting_access",),
     "approved": ("approved",),
     "converted": ("converted",),
     "rejected": ("rejected",),
@@ -48,6 +59,7 @@ _STATUS_LABELS = {
     "pending_review": "Por revisar",
     "unverified": "Por revisar · anterior",
     "verified": "Por revisar · anterior",
+    "awaiting_access": "En Cómputo",
     "approved": "Liga enviada",
     "converted": "Inscrita",
     "rejected": "Rechazada",
@@ -62,6 +74,20 @@ def _hdr(msg: str) -> str:
     """
     from urllib.parse import quote
     return quote(msg or "", safe="")
+
+
+def _alternate_mode_block():
+    """En modo alterno, el 400 con el motivo; en el oficial, `None`.
+
+    Va ANTES de abrir sesión y de leer la solicitud: el corte es de la ruta, no
+    de la plantilla (un POST directo tampoco pasa), y no deja nada escrito.
+    """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    if EnrollmentRequestService.reviewer_mode() == "computer_center":
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_ALTERNATE)})
+    return None
 
 
 def _to_int(raw):
@@ -123,9 +149,17 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
 
     tab = _tab(status)
     scope = _officer_scope(db, user_id)
+    mode = EnrollmentRequestService.reviewer_mode()
     ctx = {"rows": [], "status": tab, "tabs": _TABS, "cohort_id": cohort_id,
            "programs": [], "no_programs": False,
-           "kpis": {"total": 0, "review": 0, "sent": 0, "converted": 0, "rejected": 0},
+           # Modo alterno = solo lectura: la plantilla no pinta ni un formulario
+           # (las rutas POST lo cortan aparte, `_alternate_mode_block`).
+           "mode": mode, "can_act": mode != "computer_center",
+           # Días de la liga para el texto de la cabecera: de la MISMA fuente
+           # que el vencimiento en BD y el correo, nunca un literal.
+           "link_days": EnrollmentRequestService._link_ttl_hours() // 24,
+           "kpis": {"total": 0, "review": 0, "access": 0, "sent": 0, "converted": 0,
+                    "rejected": 0},
            "by_year": [], "year_max": 0, "years_summary": None}
 
     if scope != "ALL" and not scope:
@@ -244,6 +278,15 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
             "opened": r.verified_at is not None,
             "folio": folios.get(r.converted_process_id, ""),
             "note": r.review_note or "",
+            # «En Centro de Cómputo desde …»: `reviewed_at` es cuando SE la
+            # aprobó, y `grant_access` no la toca.
+            "awaiting_since": (r.reviewed_at.strftime("%d/%m/%Y %H:%M")
+                               if r.status == "awaiting_access" and r.reviewed_at else ""),
+            # Devuelta por CC: solo mientras vuelve a ser trabajo de SE. Una
+            # aprobada de nuevo conserva `returned_at`, pero ya no se anuncia.
+            "returned": (r.returned_at is not None
+                         and r.status in _TAB_STATUSES["pending_review"]),
+            "return_note": r.return_note or "",
             # Solo tiene sentido leerla en una fila `rejected`: el correo de
             # rechazo es lo único que sella esta columna (`reject()`).
             "rejection_sent": r.rejection_sent_at is not None,
@@ -282,15 +325,18 @@ async def body(request: Request, status: str = "", cohort_id: str = "",
 @router.post("/{req_id}/aprobar", name="titulatec.pages.requests.approve")
 async def approve(req_id: int, request: Request,
                   user: dict = Depends(require_page_app("titulatec", perms=_APPROVE))):
-    """Aprueba. Sin cuenta, con el NIP que se captura; con cuenta, emitiendo la
-    liga de activación (el NIP se ignora). El NIP NO aparece en ningún log ni
-    cabecera."""
+    """Aprueba (modo oficial). Sin cuenta pasa a Centro de Cómputo
+    (`awaiting_access`), que da el NIP; con cuenta, emite la liga de activación.
+    La ruta ya no lee `nip`: un formulario viejo en caché que lo mande se
+    ignora, y nunca aparece en un log ni cabecera."""
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
     form = await request.form()
-    nip = (form.get("nip") or "").strip()
     program_id = _to_int((form.get("program_id") or "").strip())
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
 
@@ -306,8 +352,10 @@ async def approve(req_id: int, request: Request,
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(
                 "Esa carrera no está en tu alcance.")})
         try:
+            # `nip=""`: en modo oficial `approve` no lo usa, y en el alterno
+            # esta ruta ya cortó arriba.
             ok, detail = EnrollmentRequestService.approve(
-                db, req_id, nip=nip, program_id=program_id, actor_id=uid)
+                db, req_id, nip="", program_id=program_id, actor_id=uid)
         except Exception:
             # `approve` es dueña de su transacción: un fallo real en cualquier
             # punto se deshace entero aquí, mismo patrón que `enroll_verify`
@@ -332,8 +380,11 @@ async def approve(req_id: int, request: Request,
 @router.post("/{req_id}/rechazar", name="titulatec.pages.requests.reject")
 async def reject(req_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_REJECT))):
-    """Rechaza, o cancela una solicitud con la liga enviada. Motivo obligatorio:
-    es lo que la persona lee en su correo."""
+    """Rechaza, o cancela una solicitud con la liga enviada o en Centro de
+    Cómputo. Motivo obligatorio: es lo que la persona lee en su correo."""
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -368,6 +419,9 @@ async def resend(req_id: int, request: Request,
     Aquí SÍ se identifica por id y se rota, porque el actor ya está autenticado
     y acotado por carrera; el veto al id y a rotar es del endpoint PÚBLICO.
     """
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,

@@ -2135,6 +2135,7 @@ button.tt-seat--libre { pointer-events: auto; }
 }
 .tt-mix { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .tt-mix--review i    { color: var(--tt-amber-ink); }
+.tt-mix--access i    { color: var(--tt-violet); }
 .tt-mix--sent i      { color: var(--tt-navy); }
 .tt-mix--converted i { color: var(--tt-success); }
 .tt-mix--rejected i  { color: var(--tt-danger); }

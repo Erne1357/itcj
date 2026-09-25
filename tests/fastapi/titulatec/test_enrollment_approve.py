@@ -889,3 +889,62 @@ def test_el_dropdown_de_aprobar_solo_ofrece_carreras_del_alcance(
 # entre `import_rows` y el commit se prueba donde ahora se crea la cuenta,
 # `grant_access` (`test_enrollment_access_service.py`).
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Modo alterno (2026-09-24): SE no aprueba, no rechaza ni reenvía, ni por POST
+# directo (Review Focus 3). El corte es la ruta, no solo la plantilla.
+# ---------------------------------------------------------------------------
+MSG_MODO_ALTERNO = "En este modo la revisión la hace Centro de Cómputo."
+
+
+def test_en_modo_alterno_se_no_aprueba_rechaza_ni_reenvia_por_post_directo(
+    client_as, db_session, make_head, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso, modo_alterno,
+):
+    from itcj2.core.models.user import User
+
+    seed_phase_defs()
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    por_revisar = _make_req(db_session, cohort, control="99550090")
+    a_rechazar = _make_req(db_session, cohort, control="99550091")
+    enviada = _make_req(db_session, cohort, control="99550092", status="approved",
+                        verify_send_count=1, verify_token_hash="8" * 64,
+                        verify_expires_at=datetime.now() + timedelta(days=1))
+    c = client_as(head)
+
+    aprobar = c.post(f"{URL}/{por_revisar.id}/aprobar",
+                     data={"nip": NIP, "program_id": ""})
+    rechazar = c.post(f"{URL}/{a_rechazar.id}/rechazar",
+                      data={"note": "Motivo cualquiera."})
+    reenviar = c.post(f"{URL}/{enviada.id}/reenviar")
+
+    for resp in (aprobar, rechazar, reenviar):
+        assert resp.status_code == 400
+        assert unquote(resp.headers.get("X-Tt-Error", "")) == MSG_MODO_ALTERNO
+        assert NIP not in resp.text
+    for req, estado in ((por_revisar, "pending_review"), (a_rechazar, "pending_review"),
+                        (enviada, "approved")):
+        db_session.refresh(req)
+        assert req.status == estado
+        assert req.reviewed_by_id is None
+    assert enviada.verify_send_count == 1
+    assert enviada.verify_token_hash == "8" * 64
+    assert db_session.query(User).filter_by(control_number="99550090").first() is None
+    assert correo_falso == []
+
+
+def test_en_modo_alterno_el_corte_ocurre_antes_de_buscar_la_solicitud(
+    client_as, db_session, make_head, modo_alterno,
+):
+    """Motivo antes que existencia: el corte no abre sesión, así que un id que
+    no existe da el mismo 400 (y no el 404 de la búsqueda)."""
+    head = make_head(perm_codes=LIST_PERMS)
+    c = client_as(head)
+
+    for accion, datos in (("aprobar", {"program_id": ""}), ("rechazar", {"note": ""}),
+                          ("reenviar", {})):
+        resp = c.post(f"{URL}/999999999/{accion}", data=datos)
+        assert resp.status_code == 400, accion
+        assert unquote(resp.headers.get("X-Tt-Error", "")) == MSG_MODO_ALTERNO, accion
