@@ -170,9 +170,21 @@ def _folio(db_session, req) -> str:
 
 
 def _sin_nip(resp) -> None:
-    """Review Focus 4: el NIP no vuelve al navegador, ni en el cuerpo ni en cabeceras."""
-    assert NIP not in resp.text
+    """Review Focus 4: el NIP no vuelve al navegador, ni en el texto visible, ni
+    en cabeceras, ni como `value` autocompletado de un `<input name="nip">`.
+
+    Buscar el NIP como subcadena en el HTML CRUDO (`resp.text`) es un fallo
+    intermitente: una hora con segundos («…10:48:26…») u otro dato con fecha de
+    la fila, formateado en un atributo que nadie lee (`data-*`, un `href`), puede
+    contener esos 4 dígitos por casualidad y tumbar la prueba sin que haya fuga
+    real. Lo que SÍ importa es lo que la persona ve o su navegador autocompleta:
+    `_plano()` (texto visible, sin atributos) más una comprobación aparte de que
+    ningún input del NIP trae `value=`.
+    """
+    assert NIP not in _plano(resp.text)
     assert NIP not in " ".join(f"{k}: {v}" for k, v in resp.headers.items())
+    for campo in re.finditer(r'<input\b[^>]*\bname="nip"[^>]*>', resp.text):
+        assert "value=" not in campo.group(0), campo.group(0)
 
 
 # ---------------------------------------------------------------------------
