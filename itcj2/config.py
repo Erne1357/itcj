@@ -3,7 +3,7 @@ import json
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings
 
 
@@ -446,7 +446,34 @@ class Settings(BaseSettings):
     # `computer_center` (modo alterno); se cambia por entorno + reinicio y el DML
     # es el mismo en ambos. `Literal` hace que un typo truene al arrancar en vez
     # de dejar la bandeja en un modo que nadie implementa.
-    TITULATEC_ENROLLMENT_REVIEWER: Literal["school_services", "computer_center"] = "school_services"
+    # Elegibilidad automática contra el SII (spec 2026-09-25). D6 gana un
+    # tercer modo: `sii` delega la decisión al check automático en vez de a
+    # una bandeja humana. Los otros dos modos NO cambian de significado.
+    TITULATEC_ENROLLMENT_REVIEWER: Literal["school_services", "computer_center", "sii"] = "school_services"
+
+    # `SiiClient` (perezoso, ver servicio): qué backend habla con el SII.
+    # `disabled` no consulta nada (checks se quedan en `pending`), `fake` lee
+    # `TITULATEC_SII_FAKE_FILE` (dev/demo/tests), `odbc` es el real (FreeTDS).
+    TITULATEC_SII_BACKEND: Literal["disabled", "fake", "odbc"] = "disabled"
+    # Cadena de conexión ODBC completa (incluye credenciales) — SecretStr para
+    # que un `str(settings)`/log accidental no la exponga, y además
+    # `repr=False` para que ni el NOMBRE del campo aparezca en
+    # `repr(Settings())` (un traceback de validación de arranque imprime los
+    # demás campos tal cual).
+    TITULATEC_SII_ODBC: SecretStr = Field(default=SecretStr(""), repr=False)
+    # Carpeta con `rules.toml` + `queries/*.sql` (gitignored, nunca se
+    # commitean; ver `database/SII/titulatec/` en globals del plan).
+    TITULATEC_SII_RULES_DIR: str = "database/SII/titulatec"
+    # JSON de filas sintéticas que usa el backend `fake`.
+    TITULATEC_SII_FAKE_FILE: str = "database/SII/titulatec/fake_sii.json"
+    TITULATEC_SII_CONNECT_TIMEOUT_S: int = Field(5, ge=1, le=60)
+    TITULATEC_SII_QUERY_TIMEOUT_S: int = Field(10, ge=1, le=120)
+    # Ventana de veto tras la que un check `apt` se aprueba solo (S2). 0 =
+    # inmediato (default); tope de una semana.
+    TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS: int = Field(0, ge=0, le=168)
+    # Tope de reintentos de `titulatec.sii_check_request` ante `SiiUnavailable`
+    # antes de dejar el check en `error` no reintentable.
+    TITULATEC_SII_MAX_ATTEMPTS: int = Field(5, ge=1, le=20)
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
