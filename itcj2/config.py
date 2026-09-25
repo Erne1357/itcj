@@ -3,7 +3,7 @@ import json
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -496,6 +496,16 @@ class Settings(BaseSettings):
     TITULATEC_SII_VERDICT_MAX_AGE_HOURS: int = Field(24, ge=1)
 
     model_config = {"env_file": ".env", "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def _sii_fake_no_en_produccion(self):
+        """El SII FALSO decide quién es apto con un JSON editable: en producción
+        truena al arrancar en vez de aprobar con datos sintéticos (revisión
+        final, spec §8)."""
+        if self.TITULATEC_SII_BACKEND == "fake" and self.FLASK_ENV == "production":
+            raise ValueError("TITULATEC_SII_BACKEND=fake no se permite con "
+                             "FLASK_ENV=production: usa odbc o disabled.")
+        return self
 
     def _extra_cors_origins(self) -> list[str]:
         """Orígenes de `CORS_ORIGINS`, sin vacíos ni duplicados de orden."""

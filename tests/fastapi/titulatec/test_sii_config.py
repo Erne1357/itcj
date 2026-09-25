@@ -51,8 +51,22 @@ class TestValidacionDelSii:
         with pytest.raises(ValidationError):
             Settings(TITULATEC_SII_BACKEND="x")
         for valido in ("disabled", "fake", "odbc"):
-            assert (Settings(TITULATEC_SII_BACKEND=valido)
+            # `fake` solo fuera de producción (ver abajo): el entorno se fija.
+            assert (Settings(TITULATEC_SII_BACKEND=valido, FLASK_ENV="development")
                     .TITULATEC_SII_BACKEND == valido)
+
+    def test_el_sii_falso_no_arranca_en_produccion(self):
+        """Revisión final (spec §8): con `fake` en producción cualquiera que
+        edite el JSON decide quién es apto. Truena al arrancar."""
+        from pydantic import ValidationError
+        from itcj2.config import Settings
+
+        with pytest.raises(ValidationError) as ei:
+            Settings(TITULATEC_SII_BACKEND="fake", FLASK_ENV="production")
+        assert "fake" in str(ei.value)
+        for backend in ("disabled", "odbc"):
+            assert (Settings(TITULATEC_SII_BACKEND=backend, FLASK_ENV="production")
+                    .TITULATEC_SII_BACKEND == backend)
 
     def test_connect_timeout_va_de_1_a_60(self):
         from pydantic import ValidationError
