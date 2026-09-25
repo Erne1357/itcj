@@ -152,6 +152,11 @@ _REVIEWER_LABELS = {
 # control legado o mal formado sin reventar (cae a "Sin año").
 _ENTRY_YEAR_RE = re.compile(r"^[A-Za-z]?(\d{2})")
 
+# EL NIP: 4 dígitos ASCII. `[0-9]`, no `\d`: en `re` de Python `\d` también
+# casa dígitos Unicode («１２３４», «١٢٣٤») que nadie puede teclear en el login.
+# Única regla: la usan `_create_account` y `reassign_nip`.
+_NIP_RE = re.compile(r"[0-9]{4}")
+
 
 def entry_year(control: str | None, today: date | None = None) -> str:
     """Año de ingreso a 4 dígitos, o `"Sin año"` si el control no case (o es `None`).
@@ -682,7 +687,7 @@ class EnrollmentRequestService:
             EnrollmentRequest, ProcessEvent, TitulationProcess,
         )
 
-        if not re.fullmatch(r"\d{4}", nip or ""):
+        if not _NIP_RE.fullmatch(nip or ""):
             return False, _MSG_BAD_NIP
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
@@ -764,7 +769,7 @@ class EnrollmentRequestService:
             GRADUATE_ROLE, ImportService,
         )
 
-        if not re.fullmatch(r"\d{4}", nip or ""):
+        if not _NIP_RE.fullmatch(nip or ""):
             return False, _MSG_BAD_NIP, None, None
         control = (req.control_number or "").strip()
 

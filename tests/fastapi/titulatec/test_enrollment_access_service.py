@@ -430,6 +430,37 @@ def test_solo_se_da_acceso_a_una_solicitud_en_espera(
     assert correo_falso == []
 
 
+@pytest.mark.parametrize("nip", ["１２３４", "١٢٣٤", "12３4"])
+def test_el_nip_son_4_digitos_ascii_no_cualquier_digito_unicode(
+    db_session, make_cohort, make_user, correo_falso, nip,
+):
+    """`\\d` de `re` acepta dígitos de ancho completo o arábigos: un NIP así no
+    se puede teclear en el login. Una sola regla (`_NIP_RE`, `[0-9]{4}`)."""
+    from itcj2.apps.titulatec.services import enrollment_request_service as mod
+
+    assert mod._NIP_RE.pattern == "[0-9]{4}"
+    req, _se, _ = _en_espera(db_session, make_cohort, make_user, control="99560032")
+
+    assert _svc().grant_access(db_session, req.id, nip=nip,
+                               actor_id=make_user().id) == (False, MSG_NIP)
+    db_session.refresh(req)
+    assert req.status == "awaiting_access"
+    assert _usuarios(db_session, "99560032") == 0
+    assert correo_falso == []
+
+
+def test_la_regla_del_nip_vive_en_un_solo_lugar():
+    """`re.fullmatch(r"\\d{4}", ...)` estaba copiado en `_create_account` y en
+    `reassign_nip`: dos copias de una regla divergen."""
+    import inspect as _inspect
+
+    from itcj2.apps.titulatec.services import enrollment_request_service as mod
+
+    src = _inspect.getsource(mod)
+    assert r"\d{4}" not in src
+    assert src.count("_NIP_RE.fullmatch(") == 2
+
+
 def test_dar_acceso_a_una_solicitud_inexistente(db_session):
     assert _svc().grant_access(db_session, 987654321, nip=NIP, actor_id=1) == (
         False, "La solicitud ya no existe.")
@@ -832,7 +863,7 @@ def test_reasignar_exige_un_nip_de_4_digitos(
     req, user = _con_acceso(db_session, make_cohort, make_user, control="99560072")
     antes = user.password_hash
 
-    for nip in ("", "12", "abcd", None):
+    for nip in ("", "12", "abcd", None, "１２３４"):
         assert _svc().reassign_nip(db_session, req.id, nip=nip,
                                    actor_id=make_user().id) == (False, MSG_NIP)
     db_session.refresh(user)
