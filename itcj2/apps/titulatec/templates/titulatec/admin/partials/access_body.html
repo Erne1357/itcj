@@ -30,6 +30,9 @@
    «lo dicto por teléfono»).
    «Con acceso» también lista la D10 que SE canceló (`rejected`, sin acciones).
 
+   Modo sii (`sii`): CC no participa; solo el aviso `#tt-access-sii`, sin
+   pestañas, tabla ni formularios (las rutas POST responden 400 de todos modos).
+
    El NIP NUNCA se pinta: sus campos no llevan `value`.
    Sin hx-confirm (no hay puente) y sin JS ni CSS en línea. #}
 {% macro tab_fields(tab, cohort) -%}
@@ -43,6 +46,12 @@
 {%- endmacro %}
 {%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
 <div id="tt-access-body" data-tt-view="access-body">
+  {% if sii %}
+  <div class="tt-card" id="tt-access-sii">
+    <span class="tt-kicker"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>Sin acciones en este modo</span>
+    <p class="mb-0">{{ sii_msg }}</p>
+  </div>
+  {% else %}
 
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
     {% for key, label in tabs %}
@@ -241,5 +250,6 @@
       </tbody>
     </table>
   </div>
+  {% endif %}
   {% endif %}
 </div>

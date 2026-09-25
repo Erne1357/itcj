@@ -1303,6 +1303,126 @@ def test_un_control_sin_ano_de_ingreso_no_dice_ingreso_sin_ano(
 
 
 # ---------------------------------------------------------------------------
+# Modo sii: Centro de Cómputo no participa (C7/C11 de la revisión final)
+# ---------------------------------------------------------------------------
+MSG_SII = ("En este modo las solicitudes las contesta el SII y Servicios Escolares; "
+           "Centro de Cómputo no tiene acciones.")
+
+
+@pytest.fixture()
+def modo_sii(monkeypatch):
+    """Se parchea `reviewer_mode`, nunca `get_settings` (spec S5)."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "sii"))
+
+
+@pytest.mark.parametrize("ruta", ["", "/body"], ids=["pagina", "parcial"])
+def test_en_modo_sii_la_bandeja_avisa_y_no_ofrece_acciones(
+    client_as, db_session, make_cc, make_cohort, modo_sii, ruta,
+):
+    """Antes: `_TABS['sii']` → KeyError → 500 en el landing de Centro de Cómputo."""
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    espera = _en_espera(db_session, cohort, control="99710500")
+    por_revisar = _make_req(db_session, cohort, control="99710501")
+
+    resp = client_as(cc).get(f"{URL}{ruta}?cohort_id={cohort.id}")
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert MSG_SII in _plano(resp.text)
+    assert 'id="tt-access-body"' in resp.text
+    assert 'id="tt-access-sii"' in resp.text
+    assert 'id="tt-access-table"' not in resp.text
+    assert "hx-post" not in resp.text
+    assert 'id="tt-acc-tab-' not in resp.text
+    for req in (espera, por_revisar):
+        assert f'id="tt-acc-{req.id}"' not in resp.text
+
+
+def test_en_modo_sii_el_landing_de_centro_de_computo_abre(
+    client_as, make_cc, modo_sii,
+):
+    """El rol `titulatec_computer_center` sigue aterrizando en Accesos: sin 500."""
+    from itcj2.apps.titulatec.pages.nav import resolve_dashboard_url
+
+    destino = resolve_dashboard_url({"titulatec_computer_center"})
+    resp = client_as(make_cc()).get(destino)
+
+    assert destino == URL
+    assert resp.status_code == 200, resp.text[:500]
+    assert MSG_SII in _plano(resp.text)
+
+
+# Cada POST con la solicitud en el estado en que, en otro modo, la acción SÍ
+# escribiría: el corte es del modo, no del estado.
+_POSTS_SII = [
+    ("dar-acceso", "pending_review", {"nip": NIP}),
+    ("dar-acceso", "awaiting_access", {"nip": NIP}),
+    ("devolver", "awaiting_access", {"note": "No coincide."}),
+    ("rechazar", "pending_review", {"note": "No procede."}),
+    ("reenviar", "approved", {}),
+    ("reasignar-nip", "converted", {"nip": NIP}),
+]
+
+
+@pytest.mark.parametrize("accion,estado,data", _POSTS_SII,
+                         ids=[f"{a}-{e}" for a, e, _ in _POSTS_SII])
+def test_en_modo_sii_cada_post_da_400_con_el_motivo_sin_escribir(
+    client_as, db_session, make_cc, make_cohort, correo_falso, modo_sii,
+    accion, estado, data,
+):
+    """Antes: «Dar acceso» sobre una `pending_review` caía en `approve()` y
+    aprobaba con solo `enrollment_access.api.grant`, saltándose el veredicto."""
+    from itcj2.core.models.user import User
+
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99710510", status=estado,
+                    verify_send_count=0, verify_token_hash="7" * 64)
+
+    resp = client_as(cc).post(f"{URL}/{req.id}/{accion}", data=data)
+
+    assert resp.status_code == 400, (accion, resp.status_code, resp.text[:300])
+    assert _error(resp) == MSG_SII
+    _sin_nip(resp)
+    db_session.refresh(req)
+    assert req.status == estado
+    assert req.access_granted_at is None and req.returned_at is None
+    assert req.verify_token_hash == "7" * 64
+    assert db_session.query(User).filter_by(control_number="99710510").count() == 0
+    assert correo_falso == []
+
+
+@pytest.mark.parametrize("accion,data", [
+    ("dar-acceso", {"nip": NIP}),
+    ("devolver", {"note": "No coincide."}),
+    ("rechazar", {"note": "No procede."}),
+    ("reenviar", {}),
+    ("reasignar-nip", {"nip": NIP}),
+])
+def test_en_modo_sii_el_corte_va_antes_de_abrir_sesion(
+    client_as, make_cc, modo_sii, monkeypatch, accion, data,
+):
+    """Ni lee la solicitud (una inexistente no da 404) ni abre sesión."""
+    import itcj2.database
+
+    def _prohibido():
+        raise AssertionError("abrió sesión en modo sii")
+
+    cc = make_cc()
+    c = client_as(cc)
+    monkeypatch.setattr(itcj2.database, "SessionLocal", _prohibido)
+
+    resp = c.post(f"{URL}/987654321/{accion}", data=data)
+
+    assert resp.status_code == 400
+    assert _error(resp) == MSG_SII
+
+
+# ---------------------------------------------------------------------------
 # Reglas del frontend
 # ---------------------------------------------------------------------------
 def test_la_bandeja_no_usa_hx_confirm_ni_js_ni_css_inline():

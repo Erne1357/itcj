@@ -9,7 +9,9 @@
      liga salen de `link_days` (`link_ttl_days()`), la misma fuente que el
      vencimiento y el correo, con «1 día» en singular. #}
   {% set dias = link_days ~ (' día' if link_days == 1 else ' días') %}
-  {% if official %}
+  {% if sii %}
+  {# Modo sii: CC no participa; el aviso va en el parcial (`#tt-access-sii`). #}
+  {% elif official %}
   <p class="mb-0 small text-body-secondary">Egresados sin cuenta cuya solicitud ya aprobó
      Servicios Escolares. Escribe un NIP de 4 dígitos: a la persona le llega por correo con
      su usuario. Mientras nunca haya iniciado sesión puedes reasignarle el NIP, con o

@@ -50,10 +50,13 @@ _REJECT = ["titulatec.enrollment_access.api.reject"]
 
 _OFFICIAL = "school_services"
 _ALTERNATE = "computer_center"
+_SII = "sii"
 
 _MSG_ONLY_OFFICIAL = ("En este modo Centro de Cómputo revisa las solicitudes: ya no se "
                       "devuelven a Servicios Escolares.")
 _MSG_ONLY_ALTERNATE = "En este modo rechazar y reenviar la liga son de Servicios Escolares."
+_MSG_SII = ("En este modo las solicitudes las contesta el SII y Servicios Escolares; "
+            "Centro de Cómputo no tiene acciones.")
 _MSG_GRANT_FAILED = "No pudimos completar el acceso; intenta de nuevo."
 _MSG_REASSIGN_FAILED = "No pudimos reasignar el NIP; intenta de nuevo."
 
@@ -105,12 +108,17 @@ def _mode() -> str:
     return EnrollmentRequestService.reviewer_mode()
 
 
-def _mode_block(allowed: str):
+def _mode_block(allowed: str | None = None):
     """400 con el motivo si la acción no es del modo vigente; si lo es, `None`.
 
-    Va ANTES de abrir sesión: el corte es de la ruta, no de la plantilla.
+    `allowed=None`: la acción vale en los dos modos de CC (oficial y alterno).
+    En modo sii ninguna vale (`_MSG_SII`). Va ANTES de abrir sesión: el corte es
+    de la ruta, no de la plantilla.
     """
-    if _mode() == allowed:
+    mode = _mode()
+    if mode == _SII:
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_SII)})
+    if allowed is None or mode == allowed:
         return None
     msg = _MSG_ONLY_OFFICIAL if allowed == _OFFICIAL else _MSG_ONLY_ALTERNATE
     return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
@@ -191,8 +199,13 @@ def _body_ctx(db, *, status, cohort_id):
     )
 
     mode = EnrollmentRequestService.reviewer_mode()
+    if mode == _SII:
+        # CC no participa: solo el aviso, sin pestañas ni filas (ni consultas).
+        return {"sii": True, "sii_msg": _MSG_SII, "rows": [], "tabs": (), "status": "",
+                "cohort_id": cohort_id, "mode": mode, "official": False,
+                "programs": [], "link_days": EnrollmentRequestService.link_ttl_days()}
     tab = _tab(mode, status)
-    ctx = {"rows": [], "status": tab, "tabs": _TABS[mode], "cohort_id": cohort_id,
+    ctx = {"sii": False, "rows": [], "status": tab, "tabs": _TABS[mode], "cohort_id": cohort_id,
            "mode": mode, "official": mode == _OFFICIAL, "programs": [],
            "link_days": EnrollmentRequestService.link_ttl_days()}
 
@@ -424,7 +437,11 @@ async def grant(req_id: int, request: Request,
     Oficial: SIEMPRE `grant_access`, que solo acepta `awaiting_access` — una
     `pending_review` sigue siendo de SE (Review Focus 3). Alterno: sobre una
     `awaiting_access` sobrante, `grant_access`; sobre el resto, `approve`.
+    Sii: 400 antes de abrir sesión (`_mode_block`).
     """
+    bloqueo = _mode_block()
+    if bloqueo is not None:
+        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -549,7 +566,11 @@ async def reassign_nip(req_id: int, request: Request,
     """Reasigna el NIP (D8, ambos modos) y lo reenvía, o no si viene `no_mail`
     («lo dicto por teléfono»: el correo mal escrito). La elegibilidad la decide
     el servicio bajo el bloqueo de la cuenta; el botón aparece con
-    `can_reassign_nip` (nunca ha iniciado sesión), haya salido o no el correo."""
+    `can_reassign_nip` (nunca ha iniciado sesión), haya salido o no el correo.
+    Sii: 400 antes de abrir sesión (`_mode_block`)."""
+    bloqueo = _mode_block()
+    if bloqueo is not None:
+        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
