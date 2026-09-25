@@ -12,7 +12,8 @@ Garantías que el resto del sistema da por hechas:
 - `evaluate()` NUNCA lanza por el SII ni por una regla mal escrita: devuelve
   `Verdict(status="error", …)`. Solo `apt` aprueba, y solo sale cuando TODAS
   las reglas cumplen sobre datos que el SII sí devolvió (fail-closed: una
-  comparación sin filas no cumple; NULL no cumple ninguna comparación).
+  comparación sin filas no cumple; NULL no cumple ninguna comparación, y en
+  `truthy`/`falsy` es error de la regla).
 - Cada `[[query]]` se ejecuta a lo más UNA vez por evaluación y la comparten
   sus reglas; parámetros siempre enlazados (`?`), nunca interpolados.
 - La consulta de `[credential]` no corre al evaluar y no puede alimentar
@@ -56,10 +57,11 @@ MODES = frozenset({"all", "any"})
 _ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 # `truthy`/`falsy` ESTRICTOS (revisión final C4, spec §8): verdadero/falso
-# solo para bool, los enteros 0/1 y estos textos (sin distinguir mayúsculas ni
-# espacios alrededor). Cualquier otro valor es error de la regla, nunca
+# solo para bool, el número 0/1 (int, o Decimal/float que valga exactamente 0
+# o 1: NUMERIC(1,0) y FLOAT llegan así del driver) y estos textos (sin
+# distinguir mayúsculas ni espacios alrededor). Otro valor es error de la regla, nunca
 # «verdadero»: «NO ACREDITADO» o «PENDIENTE» sobre una columna de estatus en
-# texto aprobarían solos a una persona no apta. NULL no cumple ninguno.
+# texto aprobarían solos a una persona no apta. NULL también es error.
 _TRUE_WORDS = frozenset({"1", "s", "si", "sí", "y", "yes", "t", "true", "v", "verdadero"})
 _FALSE_WORDS = frozenset({"0", "n", "no", "f", "false", "falso"})
 
@@ -781,6 +783,14 @@ class RuleSet:
                 raise _EvalError(f"la regla '{rule.id}' usa la columna '{col}' que la "
                                  f"consulta '{rule.query}' no devuelve")
         left = row[rule.column]
+        if left is None and rule.kind in _UNARY:
+            # Spec §8: `truthy`/`falsy` solo aceptan bool, 0/1 y la lista
+            # cerrada; «otro valor → error de la regla», y NULL es otro valor
+            # (revisión de F1). Con `equals`/`in` NULL sigue sin cumplir.
+            raise _EvalError(f"la regla '{rule.id}' (columna '{rule.column}'): el valor "
+                             "viene vacío (NULL) y truthy/falsy solo aceptan 1/0, S/N, "
+                             "SI/NO, TRUE/FALSE, VERDADERO/FALSO; si NULL debe contar como "
+                             "«no cumple», usa equals o in")
         if left is None:
             return False  # NULL no cumple ninguna comparación (como en SQL)
         try:

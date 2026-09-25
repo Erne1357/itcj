@@ -222,15 +222,24 @@ class TestExistsYFilasVacias:
         v = rs.evaluate(_Stub({"q": {"C1": [{"n": None, "m": 1, "s": "", "t": None}]}}), "C1")
         assert v.results[0].ok is False
 
+    @pytest.mark.parametrize("mode", ["all", "any"])
     @pytest.mark.parametrize("kind", ["truthy", "falsy"])
-    def test_null_no_cumple_ni_truthy_ni_falsy(self, tmp_path, kind):
-        """Revisión final (spec §8): NULL no es «falso», es «no se sabe». Como
-        toda comparación, no cumple (fail-closed) — antes `falsy` sobre NULL
-        cumplía y aprobaba sin dato."""
-        rs = _one_rule(tmp_path, f'{{ kind = "{kind}", column = "t" }}')
+    def test_null_en_truthy_o_falsy_es_error_de_la_regla(self, tmp_path, kind, mode):
+        """Spec §8: `truthy`/`falsy` aceptan bool, 0/1 y la lista cerrada;
+        «otro valor → error de la regla», y NULL es otro valor: no es «falso»
+        (antes `falsy` sobre NULL cumplía y aprobaba sin dato) ni «no cumple»
+        (revisión de F1). Quien quiera que NULL cuente como «no cumple» usa
+        `equals`/`in`, donde NULL nunca cumple."""
+        rs = _one_rule(tmp_path, f'{{ kind = "{kind}", column = "t", mode = "{mode}" }}')
+        filas = [{"n": 1, "m": 1, "s": "", "t": None}, {"n": 1, "m": 1, "s": "", "t": 1}]
+        v = rs.evaluate(_Stub({"q": {"C1": filas}}), "C1")
+        assert v.status == "error", v
+        assert "'r'" in v.error and "'t'" in v.error and "NULL" in v.error
+
+    def test_con_equals_null_sigue_sin_cumplir(self, tmp_path):
+        rs = _one_rule(tmp_path, '{ kind = "equals", column = "t", value = true }')
         v = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": None}]}}), "C1")
-        assert v.status == "not_apt"
-        assert v.results[0].ok is False
+        assert v.status == "not_apt" and v.results[0].ok is False
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +252,9 @@ class TestTruthyEstricto:
     @pytest.mark.parametrize("valor", [
         True, 1, Decimal("1"), "1", "S", "si", "SI", "SÍ", "sí", "Y", "yes", "T",
         "true", "TRUE", "V", "verdadero", " Verdadero ",
+        # Decisión (revisión de F1): el NÚMERO 0/1 en cualquier tipo numérico
+        # (NUMERIC(1,0) → Decimal, FLOAT → float); 0.5, 2 o -1 siguen siendo error.
+        Decimal("1.00"), 1.0,
     ])
     def test_valores_verdaderos(self, tmp_path, valor):
         rs = _one_rule(tmp_path, '{ kind = "truthy", column = "t" }')
@@ -251,6 +263,7 @@ class TestTruthyEstricto:
 
     @pytest.mark.parametrize("valor", [
         False, 0, Decimal("0"), "0", "N", "no", "NO", "F", "false", "FALSO", "falso",
+        Decimal("0.0"), 0.0,
     ])
     def test_valores_falsos(self, tmp_path, valor):
         rs = _one_rule(tmp_path, '{ kind = "falsy", column = "t" }')
