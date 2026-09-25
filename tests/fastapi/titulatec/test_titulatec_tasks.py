@@ -114,3 +114,94 @@ def test_sin_consulta_no_hace_nada(consulta, reintentos):
 
     assert out == {"req_id": 5, "skipped": True}
     assert reintentos == []
+
+
+# ---------------------------------------------------------------------------
+# sii_sweep (periódica) y su alta en la BD
+# ---------------------------------------------------------------------------
+def test_el_barrido_esta_registrado_y_catalogado():
+    from itcj2.celery_app import celery_app
+
+    assert "itcj2.tasks.titulatec_tasks.sii_sweep" in celery_app.tasks
+    definicion, = tasks.TASK_DEFINITIONS
+    assert definicion["task_name"] == "itcj2.tasks.titulatec_tasks.sii_sweep"
+    assert definicion["app_name"] == "titulatec"
+
+
+def test_el_barrido_corre_con_su_sesion_y_su_presupuesto(monkeypatch, patched_session_local,
+                                                         db_session):
+    llamadas = []
+
+    def _sweep(db, *, now=None, cohort_id=None, max_seconds=None):
+        llamadas.append((db.get_bind() is db_session.get_bind(), cohort_id, max_seconds))
+        return {"checked": 2, "approved": 1, "retried": 0}
+
+    monkeypatch.setattr(EligibilityService, "sweep", staticmethod(_sweep))
+
+    out = tasks.sii_sweep.run()
+
+    assert out == {"checked": 2, "approved": 1, "retried": 0}
+    (misma_sesion, cohort_id, presupuesto), = llamadas
+    assert misma_sesion and cohort_id is None
+    assert 0 < presupuesto < tasks.sii_sweep.soft_time_limit, (
+        "el presupuesto termina antes de que celery corte la tarea")
+
+
+def test_la_periodica_se_da_de_alta_con_los_seeders_de_titulatec():
+    """El scheduler lee `core_periodic_tasks` (DatabaseScheduler): el alta va
+    por DML plegado a `SEED_FILES` (`init-titulatec`), antes del 15 que debe
+    seguir siendo el último."""
+    from itcj2.cli.titulatec import SEED_FILES
+
+    nombre = "sii_2026_09/16_insert_sii_sweep_task.sql"
+    assert nombre in SEED_FILES
+    assert SEED_FILES.index(nombre) < SEED_FILES.index("15_grant_admin_all_perms.sql")
+    assert SEED_FILES[-1] == "15_grant_admin_all_perms.sql"
+
+
+# ---------------------------------------------------------------------------
+# CLI `titulatec sii-sweep`
+# ---------------------------------------------------------------------------
+def _cli(*args):
+    from click.testing import CliRunner
+    from itcj2.cli.titulatec import titulatec_cli
+
+    return CliRunner().invoke(titulatec_cli, list(args))
+
+
+def _modo(monkeypatch, mode):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: mode))
+
+
+def test_cli_sii_sweep_imprime_lo_que_hizo(monkeypatch, patched_session_local):
+    _modo(monkeypatch, "sii")
+    llamadas = []
+
+    def _sweep(db, *, now=None, cohort_id=None, max_seconds=None):
+        llamadas.append(cohort_id)
+        return {"checked": 3, "approved": 2, "retried": 1}
+
+    monkeypatch.setattr(EligibilityService, "sweep", staticmethod(_sweep))
+
+    res = _cli("sii-sweep", "--cohort", "12")
+
+    assert res.exit_code == 0, res.output
+    assert llamadas == [12]
+    assert "consultadas: 3" in res.output.lower()
+    assert "reintentadas: 1" in res.output.lower()
+    assert "aprobadas: 2" in res.output.lower()
+
+
+def test_cli_sii_sweep_fuera_del_modo_sii_avisa_y_no_barre(monkeypatch, patched_session_local):
+    _modo(monkeypatch, "school_services")
+    monkeypatch.setattr(EligibilityService, "sweep",
+                        staticmethod(lambda *a, **k: pytest.fail("no debió barrer")))
+
+    res = _cli("sii-sweep")
+
+    assert res.exit_code == 0, res.output
+    assert "school_services" in res.output

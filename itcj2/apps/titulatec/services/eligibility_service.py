@@ -63,6 +63,9 @@ CHECK_TASK_NAME = "itcj2.tasks.titulatec_tasks.sii_check_request"
 # conector (conexión ≤ 60 s + consulta ≤ 120 s, por cada `[[query]]`).
 _PENDING_STALE = timedelta(minutes=15)
 
+# Solicitudes por pasada del barrido (el resto, en la siguiente).
+_SWEEP_BATCH = 200
+
 # Motivos de `auto_approve` cuando NO escribe nada (revalidaciones).
 _MSG_NOT_SII = "La aprobación automática solo existe en el modo sii."
 _MSG_NOT_APT = "La consulta vigente del SII no es apta."
@@ -403,3 +406,81 @@ class EligibilityService:
         ImportService.invalidate_authz((summary or {}).get("authz_touched"))
         ERS._mail_access(db, req, user, None, nip_source="sii")
         return True, detalle
+
+    @staticmethod
+    def sweep(db: Session, *, now: datetime | None = None, cohort_id: int | None = None,
+              max_seconds: float | None = None) -> dict:
+        """Barrido periódico. Devuelve `{"checked", "approved", "retried"}`.
+
+        Sobre las solicitudes `pending_review` (de `cohort_id`, si se da):
+
+        - sin consulta vigente (el worker o el broker no estaban) → primera
+          consulta (`checked`);
+        - vigente `error` con intentos por debajo de `max_attempts()`, o
+          `pending` colgada (`_PENDING_STALE`) → siguiente intento (`retried`);
+        - vigente `apt` con la ventana de veto vencida, sin `review_note` (la
+          nota es «esto necesita a una persona»: no se insiste), convocatoria
+          `open` y con el interruptor encendido → `auto_approve`.
+
+        `approved` cuenta toda solicitud que el barrido dejó aprobada, también
+        las que su propia consulta aprobó al instante. Cada solicitud va por
+        separado: la que revienta se registra por su TIPO y no detiene a las
+        demás. `max_seconds` es el presupuesto: no toma solicitudes nuevas
+        pasado ese tiempo (la tarea termina antes de que celery la corte; lo
+        que quedó lo toma el siguiente barrido). Lote de `_SWEEP_BATCH`.
+        """
+        from sqlalchemy import and_, or_
+
+        from itcj2.apps.titulatec.models import Cohort, EligibilityCheck, EnrollmentRequest
+        from itcj2.apps.titulatec.services.enrollment_request_service import (
+            EnrollmentRequestService,
+        )
+
+        out = {"checked": 0, "approved": 0, "retried": 0}
+        if EnrollmentRequestService.reviewer_mode() != "sii":
+            return out
+        now = now or datetime.now()
+        tope = EligibilityService.max_attempts()
+        ventana = timedelta(hours=EligibilityService.delay_hours())
+        EC, ER = EligibilityCheck, EnrollmentRequest
+
+        q = (db.query(ER.id, EC.status, EC.attempt)
+             .join(Cohort, Cohort.id == ER.cohort_id)
+             .outerjoin(EC, EC.id == ER.last_check_id)
+             .filter(ER.status == "pending_review")
+             .filter(or_(
+                 ER.last_check_id.is_(None),
+                 and_(EC.status == "error", EC.attempt < tope),
+                 and_(EC.status == "pending", EC.started_at < now - _PENDING_STALE,
+                      EC.attempt < tope),
+                 and_(EC.status == "apt", EC.finished_at <= now - ventana,
+                      ER.review_note.is_(None), Cohort.status == "open",
+                      Cohort.sii_auto_approve.is_(True)),
+             )))
+        if cohort_id:
+            q = q.filter(ER.cohort_id == cohort_id)
+        filas = q.order_by(ER.id).limit(_SWEEP_BATCH).all()
+        db.commit()          # cierra la lectura: cada solicitud abre la suya
+
+        t0 = time.monotonic()
+        for req_id, status, attempt in filas:
+            if max_seconds is not None and time.monotonic() - t0 >= max_seconds:
+                break
+            try:
+                if status == "apt":
+                    ok, _detalle = EligibilityService.auto_approve(db, req_id, now=now)
+                    out["approved"] += int(ok)
+                    continue
+                chk = EligibilityService.check(
+                    db, req_id, attempt=1 if status is None else attempt + 1)
+                if chk is None:
+                    continue
+                out["checked" if status is None else "retried"] += 1
+                req = db.get(ER, req_id)
+                if req is not None and req.status != "pending_review":
+                    out["approved"] += 1
+            except Exception as exc:  # noqa: BLE001 — una no detiene a las demás
+                db.rollback()
+                logger.warning("SII: el barrido no pudo con la solicitud %s (%s)",
+                               req_id, type(exc).__name__)
+        return out

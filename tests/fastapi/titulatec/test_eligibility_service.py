@@ -931,3 +931,133 @@ def test_se_aprueba_con_cuenta_en_modo_sii_como_siempre(
     assert (ok, detalle) == (True, "")
     assert req.status == "approved" and req.reviewed_by_id == se.id
     assert [n for n, _ in listo] == ["send_verify_enrollment"]
+
+
+# ---------------------------------------------------------------------------
+# sweep(): barrido periódico (acotado a una convocatoria: la BD de dev tiene
+# solicitudes reales que el barrido global también vería)
+# ---------------------------------------------------------------------------
+def test_el_barrido_fuera_del_modo_sii_no_hace_nada(db_session, make_cohort, sii):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580060")
+    sii.alumno("99580060")
+
+    assert _svc().sweep(db_session, cohort_id=cohort.id) == {
+        "checked": 0, "approved": 0, "retried": 0}
+    assert _checks(db_session, req) == []
+
+
+def test_el_barrido_consulta_reintenta_y_aprueba_lo_que_toca(
+    db_session, make_cohort, sii, listo, monkeypatch,
+):
+    monkeypatch.setattr(_svc(), "delay_hours", staticmethod(lambda: 2))
+    cohort = make_cohort(status="open")
+    hace = datetime.now() - timedelta(hours=3)
+
+    sin_consulta = _make_req(db_session, cohort, control="99580061")
+    sii.no_apta("99580061")
+    con_error = _make_req(db_session, cohort, control="99580062")
+    sii.no_apta("99580062")
+    _check_row(db_session, con_error, status="error", attempt=2)
+    colgada = _make_req(db_session, cohort, control="99580063")
+    sii.no_apta("99580063")
+    _check_row(db_session, colgada, status="pending", started_at=hace)
+    vencida = _make_req(db_session, cohort, control="99580064")
+    sii.alumno("99580064")
+    _check_row(db_session, vencida, status="apt", finished_at=hace)
+
+    # Lo que NO se toca:
+    en_ventana = _make_req(db_session, cohort, control="99580065")
+    _check_row(db_session, en_ventana, status="apt")
+    con_nota = _make_req(db_session, cohort, control="99580066",
+                         review_note="El SII no devolvió NIP.")
+    _check_row(db_session, con_nota, status="apt", finished_at=hace)
+    en_tope = _make_req(db_session, cohort, control="99580067")
+    _check_row(db_session, en_tope, status="error", attempt=5)
+    no_apta = _make_req(db_session, cohort, control="99580068")
+    _check_row(db_session, no_apta, status="not_apt")
+    resuelta = _make_req(db_session, cohort, control="99580069", status="rejected")
+    en_curso = _make_req(db_session, cohort, control="99580070")
+    _check_row(db_session, en_curso, status="pending")
+    intactas = {r.id: r.last_check_id
+                for r in (en_ventana, con_nota, en_tope, no_apta, resuelta, en_curso)}
+
+    out = _svc().sweep(db_session, cohort_id=cohort.id)
+
+    assert out == {"checked": 1, "retried": 2, "approved": 1}
+    assert [c.attempt for c in _checks(db_session, sin_consulta)] == [1]
+    assert _svc().latest_check(db_session, con_error).attempt == 3
+    assert _svc().latest_check(db_session, colgada).attempt == 2
+    assert vencida.status == "converted"
+    for r in (en_ventana, con_nota, en_tope, no_apta, resuelta, en_curso):
+        db_session.refresh(r)
+        assert r.last_check_id == intactas[r.id], r.control_number
+        assert r.status in ("pending_review", "rejected")
+
+
+def test_el_barrido_no_aprueba_con_la_convocatoria_cerrada_o_el_interruptor_apagado(
+    db_session, make_cohort, sii, listo,
+):
+    hace = datetime.now() - timedelta(hours=1)
+    cerrada = make_cohort(status="closed")
+    apagada = make_cohort(status="open")
+    apagada.sii_auto_approve = False
+    for cohort, control in ((cerrada, "99580071"), (apagada, "99580072")):
+        req = _make_req(db_session, cohort, control=control)
+        sii.alumno(control)
+        _check_row(db_session, req, status="apt", finished_at=hace)
+
+        assert _svc().sweep(db_session, cohort_id=cohort.id)["approved"] == 0
+        assert req.status == "pending_review"
+    assert listo == []
+
+
+def test_la_aprobacion_inmediata_de_una_consulta_del_barrido_cuenta(
+    db_session, make_cohort, sii, listo,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580073")
+    sii.alumno("99580073")
+
+    out = _svc().sweep(db_session, cohort_id=cohort.id)
+
+    assert out == {"checked": 1, "retried": 0, "approved": 1}
+    assert req.status == "converted"
+
+
+def test_una_solicitud_que_revienta_no_detiene_el_barrido(
+    db_session, make_cohort, sii, modo_sii, monkeypatch, caplog,
+):
+    cohort = make_cohort(status="open")
+    cohort.sii_auto_approve = False
+    mala = _make_req(db_session, cohort, control="99580074")
+    buena = _make_req(db_session, cohort, control="99580075")
+    sii.no_apta("99580074")
+    sii.no_apta("99580075")
+    db_session.commit()
+    check_real = _svc().check
+
+    def _check(db, req_id, **kw):
+        if req_id == mala.id:
+            raise RuntimeError("PWD=secreto")
+        return check_real(db, req_id, **kw)
+
+    monkeypatch.setattr(_svc(), "check", staticmethod(_check))
+
+    with caplog.at_level("WARNING"):
+        out = _svc().sweep(db_session, cohort_id=cohort.id)
+
+    assert out["checked"] == 1
+    assert _checks(db_session, buena) and not _checks(db_session, mala)
+    assert "RuntimeError" in caplog.text and "secreto" not in caplog.text
+
+
+def test_el_barrido_respeta_su_presupuesto_de_tiempo(db_session, make_cohort, sii, modo_sii):
+    cohort = make_cohort(status="open")
+    for control in ("99580076", "99580077"):
+        _make_req(db_session, cohort, control=control)
+        sii.no_apta(control)
+
+    out = _svc().sweep(db_session, cohort_id=cohort.id, max_seconds=0)
+
+    assert out == {"checked": 0, "approved": 0, "retried": 0}

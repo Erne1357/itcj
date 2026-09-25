@@ -13,6 +13,13 @@ Tareas:
         tareas del mismo `req_id`, la tarea que llega antes que el alta) vive en
         `EligibilityService.check`, no aquí.
 
+    sii_sweep()
+        Periódica (Celery Beat vía `DatabaseScheduler`, cada 10 min; alta por
+        el DML `sii_2026_09/16_insert_sii_sweep_task.sql` de `init-titulatec`).
+        Recoge lo que quedó sin consultar, reintenta los errores y aprueba las
+        aptas con la ventana de veto vencida (`EligibilityService.sweep`). A
+        mano: `titulatec sii-sweep`.
+
 La lógica vive en `EligibilityService`; aquí solo sesión, reintento y resultado.
 `SessionLocal` se importa DENTRO de cada tarea (los tests lo parchean).
 """
@@ -27,9 +34,29 @@ logger = logging.getLogger(__name__)
 _BACKOFF_BASE_S = 60
 _BACKOFF_MAX_S = 3600
 
+# Presupuesto del barrido: deja de tomar solicitudes nuevas antes de que celery
+# corte la tarea (`soft_time_limit`); con la periódica cada 10 min no se enciman.
+_SWEEP_BUDGET_S = 480
+
 # Metadata para `core_task_definitions` (patrón de los otros módulos). La
-# consulta por solicitud es interna (la dispara el alta): no se cataloga.
-TASK_DEFINITIONS: list[dict] = []
+# consulta por solicitud es interna (la dispara el alta): no se cataloga. El
+# alta en la BD (definición + programación) es el DML
+# `database/DML/titulatec/sii_2026_09/16_insert_sii_sweep_task.sql`, que corre
+# con `init-titulatec` (`SEED_FILES`).
+TASK_DEFINITIONS = [
+    {
+        "task_name": "itcj2.tasks.titulatec_tasks.sii_sweep",
+        "display_name": "Barrido de elegibilidad del SII (TitulaTec)",
+        "description": (
+            "Modo sii: consulta al SII las solicitudes de inscripción que quedaron sin "
+            "consultar, reintenta las consultas fallidas (hasta TITULATEC_SII_MAX_ATTEMPTS) "
+            "y aprueba las aptas cuya ventana de veto venció. En otro modo no hace nada."
+        ),
+        "app_name": "titulatec",
+        "category": "maintenance",
+        "default_args": {},
+    },
+]
 
 
 def _backoff(attempt: int) -> int:
@@ -67,4 +94,22 @@ def sii_check_request(self, req_id: int, attempt: int = 1, force: bool = False,
             kwargs={"req_id": req_id, "attempt": out["attempt"] + 1, "force": False},
             countdown=_backoff(out["attempt"]),
         )
+    return out
+
+
+@celery_app.task(
+    bind=True,
+    base=LoggedTask,
+    name="itcj2.tasks.titulatec_tasks.sii_sweep",
+    soft_time_limit=540,
+    time_limit=600,
+)
+def sii_sweep(self, task_run_id: int | None = None) -> dict:
+    """Barrido periódico del SII (`EligibilityService.sweep`)."""
+    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+    from itcj2.database import SessionLocal
+
+    with SessionLocal() as db:
+        out = EligibilityService.sweep(db, max_seconds=_SWEEP_BUDGET_S)
+    logger.info("SII: barrido — %s", out)
     return out

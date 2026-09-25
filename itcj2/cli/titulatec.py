@@ -8,6 +8,7 @@ Comandos:
     titulatec sii-ping                    Comprueba que el SII responde (backend configurado).
     titulatec sii-rules-validate [--dir]  Valida rules.toml + queries/*.sql del SII.
     titulatec sii-check <control>         Dry-run de las reglas del SII (NIP enmascarado).
+    titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta, reintenta, aprueba).
 """
 from pathlib import Path
 
@@ -68,6 +69,13 @@ SEED_FILES = [
     # Exige el rol CON sus permisos (el 01 y el 03, que corren antes en esta
     # lista) y aborta sin mover a nadie si faltan. No toca permisos de rol.
     "survey_2026_09/14_graduate_role_backfill.sql",        # rol graduate a alumnos con proceso
+    # --- Delta 2026-09-25: elegibilidad automática contra el SII -------------
+    # Alta de la tarea periódica `itcj2.tasks.titulatec_tasks.sii_sweep`
+    # (definición + `core_periodic_tasks`, cada 10 min): Celery Beat corre con
+    # `DatabaseScheduler`, que SOLO lee la BD. Idempotente (ON CONFLICT). No
+    # inserta permisos, así que va antes del 15 sin problema. Fuera del modo
+    # `sii` la tarea no hace nada.
+    "sii_2026_09/16_insert_sii_sweep_task.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
@@ -1104,3 +1112,35 @@ def sii_check_command(control_number, cohort_id):
         _sii_cohort_outcome(cohort_id, verdict.status)
     if verdict.status == "error" or credential_failed:
         raise SystemExit(1)
+
+
+@titulatec_cli.command("sii-sweep")
+@click.option("--cohort", "cohort_id", type=int, default=None,
+              help="Solo las solicitudes de esa convocatoria.")
+def sii_sweep_command(cohort_id):
+    """Barrido manual del SII (lo mismo que la tarea periódica `sii_sweep`).
+
+    Consulta las solicitudes por revisar que no tienen consulta, reintenta las
+    fallidas y aprueba las aptas con la ventana de veto vencida. Solo en el
+    modo `sii`. ESCRIBE en la BD (consultas y aprobaciones) y manda los
+    correos de las aprobadas; imprime solo los conteos.
+    """
+    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    from itcj2.database import SessionLocal
+
+    mode = EnrollmentRequestService.reviewer_mode()
+    if mode != "sii":
+        click.echo(click.style(
+            f"El modo de revisión es '{mode}', no 'sii' (TITULATEC_ENROLLMENT_REVIEWER): "
+            "el barrido no hace nada.", fg="yellow"))
+        return
+    db = SessionLocal()
+    try:
+        out = EligibilityService.sweep(db, cohort_id=cohort_id)
+    finally:
+        db.close()
+    click.echo(f"Consultadas: {out['checked']} · reintentadas: {out['retried']} · "
+               f"aprobadas: {out['approved']}")
