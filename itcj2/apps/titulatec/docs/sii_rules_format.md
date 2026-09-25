@@ -105,6 +105,12 @@ Solo nombres simples: `{a.b}` o `{a[0]}` no se evalúan.
   crear la cuenta (`RuleSet.fetch_credential`). El valor viaja en un `Secret` (`****`).
 - Debe ser una consulta **propia**: el validador rechaza que alimente reglas, `[identity]` o
   `[facts]`, y que su columna aparezca en `[identity]`/`[facts]`.
+- «Sin NIP» es **0 filas** o la columna en `NULL`/vacía. Si la consulta devuelve filas pero
+  **no trae la columna declarada** en `column`, es un error de configuración
+  (`SiiRulesError`, que nombra las columnas que sí vienen, nunca sus valores).
+- Corre en modo **sensible**: si el SII la rechaza, el log y el error llevan solo el tipo y
+  el SQLSTATE, nunca el texto del driver (un error de conversión, p. ej. con
+  `CONVERT(INT, nip)`, lo trae con el valor de la fila).
 
 ### Veredicto
 
@@ -163,4 +169,5 @@ python -m itcj2.cli.main titulatec sii-rules-validate [--dir RUTA] # ¿reglas v�
 python -m itcj2.cli.main titulatec sii-check 20110001 [--cohort 3] # dry-run, NIP enmascarado
 ```
 
-Ninguno escribe en la BD. `sii-check` sale con código 1 si el veredicto es `error`.
+Ninguno escribe en la BD. `sii-check` sale con código 1 si el veredicto es `error` o si la
+consulta de `[credential]` falla o no trae su columna.
