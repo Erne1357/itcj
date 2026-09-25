@@ -207,6 +207,14 @@ _MSG_BAD_NIP = "El NIP debe ser exactamente 4 dígitos."
 _MSG_OTHER_COHORT = "Esa persona ya tiene un proceso en otra convocatoria."
 _MSG_NO_PASSWORD = ("Esa cuenta no tiene contraseña; dala de alta desde la convocatoria "
                     "y rechaza esta solicitud.")
+# Los mismos dos motivos, dichos a Centro de Cómputo en el modo oficial: no da
+# de alta desde la convocatoria ni rechaza, pero sí devuelve a SE con nota.
+_CC_OFFICIAL_MSGS = {
+    _MSG_NO_PASSWORD: ("Esa cuenta no tiene contraseña; devuélvela a Servicios Escolares "
+                       "con esa nota para que la dé de alta desde la convocatoria."),
+    _MSG_OTHER_COHORT: ("Esa persona ya tiene un proceso en otra convocatoria; devuélvela "
+                        "a Servicios Escolares con esa nota."),
+}
 _MSG_NO_PROCESS = "No se pudo crear el proceso; revisa los datos de la solicitud."
 _MSG_ONLY_APPROVED = "Solo se reenvía la liga de solicitudes aprobadas."
 _MSG_IN_ACCESS = "Ya está en Centro de Cómputo para su acceso."
@@ -526,7 +534,10 @@ class EnrollmentRequestService:
         - CON cuenta (un CSV o un alta manual la creó entretanto): el NIP se
           ignora -> la misma rama que `approve()` con cuenta
           (`_issue_link_for_account`: D5 y contraseña) -> `approved`, liga al
-          correo personal. Sella `access_granted_*` (CC actuó y la fila vive en
+          correo personal. Si D5 o la contraseña la frenan, en el modo oficial
+          el motivo se le dice a CC como algo que SÍ puede hacer
+          (`_CC_OFFICIAL_MSGS`: devolverla a SE con esa nota); el de SE («dala
+          de alta desde la convocatoria y rechaza») no es suyo. Sella `access_granted_*` (CC actuó y la fila vive en
           su pestaña «Con acceso») pero NO `access_sent_at`: el envío de la liga
           lo registra `verify_sent_at`, y la fila no es «correo no enviado»
           (`access_mail_unsent`) ni admite reasignar NIP (la cuenta no la creó
@@ -568,6 +579,8 @@ class EnrollmentRequestService:
             # ── D10: apareció una cuenta; liga, el NIP se ignora ──
             ok, detalle, raw = EnrollmentRequestService._issue_link_for_account(db, req, user)
             if not ok:
+                if EnrollmentRequestService.reviewer_mode() != "computer_center":
+                    detalle = _CC_OFFICIAL_MSGS.get(detalle, detalle)
                 return False, detalle
             req.access_granted_by_id = actor_id
             req.access_granted_at = datetime.now()

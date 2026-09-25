@@ -644,12 +644,51 @@ def test_con_cuenta_sin_contrasena_dar_acceso_no_escribe_nada(
     ok, detalle = _svc().grant_access(db_session, req.id, nip=NIP, actor_id=make_user().id)
 
     assert ok is False
-    assert detalle == ("Esa cuenta no tiene contraseña; dala de alta desde la "
-                       "convocatoria y rechaza esta solicitud.")
+    # Revisión final: el de SE («dala de alta desde la convocatoria y
+    # rechaza») es una instrucción que CC no puede cumplir.
+    assert detalle == MSG_CC_SIN_CONTRASENA
     db_session.refresh(req)
     assert req.status == "awaiting_access"
     assert req.verify_token_hash is None and req.access_granted_at is None
     assert correo_falso == []
+
+
+MSG_CC_SIN_CONTRASENA = ("Esa cuenta no tiene contraseña; devuélvela a Servicios "
+                         "Escolares con esa nota para que la dé de alta desde la "
+                         "convocatoria.")
+MSG_CC_OTRA_CONVOCATORIA = ("Esa persona ya tiene un proceso en otra convocatoria; "
+                            "devuélvela a Servicios Escolares con esa nota.")
+
+
+def test_con_cuenta_en_otra_convocatoria_cc_recibe_su_propia_instruccion(
+    db_session, make_cohort, make_user, make_process, correo_falso,
+):
+    req, _se, _ = _en_espera(db_session, make_cohort, make_user, control="99560043")
+    cuenta = _cuenta(db_session, "99560043")
+    make_process(cuenta, cohort=make_cohort(status="open"))
+
+    ok, detalle = _svc().grant_access(db_session, req.id, nip=NIP, actor_id=make_user().id)
+
+    assert (ok, detalle) == (False, MSG_CC_OTRA_CONVOCATORIA)
+    db_session.refresh(req)
+    assert req.status == "awaiting_access" and req.verify_token_hash is None
+    assert correo_falso == []
+
+
+def test_en_modo_alterno_dar_acceso_con_cuenta_sin_contrasena_no_manda_a_devolver(
+    db_session, make_cohort, make_user, correo_falso, modo_alterno,
+):
+    """En el alterno no existe «devolver»: la sobrante `awaiting_access` da el
+    mismo motivo que `approve()` le da a CC en ese modo."""
+    req, _se, _ = _en_espera(db_session, make_cohort, make_user, control="99560044")
+    _cuenta(db_session, "99560044", password=False)
+
+    ok, detalle = _svc().grant_access(db_session, req.id, nip=NIP, actor_id=make_user().id)
+
+    assert ok is False
+    assert "devuélvela" not in detalle
+    assert detalle == ("Esa cuenta no tiene contraseña; dala de alta desde la "
+                       "convocatoria y rechaza esta solicitud.")
 
 
 # ---------------------------------------------------------------------------
