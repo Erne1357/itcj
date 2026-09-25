@@ -49,7 +49,13 @@ MODES = frozenset({"all", "any"})
 
 _ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
-_FALSE_WORDS = frozenset({"", "0", "n", "no", "f", "false", "falso"})
+# `truthy`/`falsy` ESTRICTOS (revisión final C4, spec §8): verdadero/falso
+# solo para bool, los enteros 0/1 y estos textos (sin distinguir mayúsculas ni
+# espacios alrededor). Cualquier otro valor es error de la regla, nunca
+# «verdadero»: «NO ACREDITADO» o «PENDIENTE» sobre una columna de estatus en
+# texto aprobarían solos a una persona no apta. NULL no cumple ninguno.
+_TRUE_WORDS = frozenset({"1", "s", "si", "sí", "y", "yes", "t", "true", "v", "verdadero"})
+_FALSE_WORDS = frozenset({"0", "n", "no", "f", "false", "falso"})
 
 # Heurística del validador de SQL (documentada en sii_rules_format.md). La
 # defensa de verdad es el usuario de SOLO LECTURA del lado del SII (spec §5):
@@ -262,15 +268,26 @@ def _text(v: Any) -> str:
 
 
 def _truthy(v: Any) -> bool:
-    if v is None:
-        return False
+    """El booleano ESTRICTO de `v` (`_TRUE_WORDS`/`_FALSE_WORDS`, 0/1).
+
+    Lanza `_EvalError` con cualquier otro valor (incluido NULL): el llamador
+    decide qué hace NULL; un texto de estatus nunca se lee como verdadero.
+    """
     if isinstance(v, bool):
         return v
-    if isinstance(v, (int, float, Decimal)):
-        return v != 0
-    if isinstance(v, str):
-        return _text(v) not in _FALSE_WORDS
-    return bool(v)
+    if isinstance(v, (int, float, Decimal)) and not isinstance(v, bool):
+        if v == 1:
+            return True
+        if v == 0:
+            return False
+    elif isinstance(v, str):
+        word = _text(v)
+        if word in _TRUE_WORDS:
+            return True
+        if word in _FALSE_WORDS:
+            return False
+    raise _EvalError(f"el valor «{_display(v)[:40]}» no es booleano (se acepta 1/0, S/N, "
+                     "SI/NO, TRUE/FALSE, VERDADERO/FALSO); usa equals o in")
 
 
 def _eq(a: Any, b: Any) -> bool:
@@ -680,13 +697,13 @@ class RuleSet:
                 raise _EvalError(f"la regla '{rule.id}' usa la columna '{col}' que la "
                                  f"consulta '{rule.query}' no devuelve")
         left = row[rule.column]
-        if rule.kind == "truthy":
-            return _truthy(left)
-        if rule.kind == "falsy":
-            return not _truthy(left)
         if left is None:
             return False  # NULL no cumple ninguna comparación (como en SQL)
         try:
+            if rule.kind == "truthy":
+                return _truthy(left)
+            if rule.kind == "falsy":
+                return not _truthy(left)
             if rule.kind in _SET:
                 hit = any(_eq(left, v) for v in rule.value)
                 return hit if rule.kind == "in" else not hit
@@ -700,7 +717,7 @@ class RuleSet:
             c = _cmp(left, right)
             return c >= 0 if rule.kind == "gte" else c <= 0
         except _EvalError as exc:
-            raise _EvalError(f"la regla '{rule.id}': {exc}") from None
+            raise _EvalError(f"la regla '{rule.id}' (columna '{rule.column}'): {exc}") from None
 
     def _render(self, template: str, rule: _Rule, rows: list[dict],
                 warnings: list[str]) -> str:

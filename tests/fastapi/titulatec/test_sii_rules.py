@@ -222,10 +222,64 @@ class TestExistsYFilasVacias:
         v = rs.evaluate(_Stub({"q": {"C1": [{"n": None, "m": 1, "s": "", "t": None}]}}), "C1")
         assert v.results[0].ok is False
 
-    def test_null_es_falsy(self, tmp_path):
-        rs = _one_rule(tmp_path, '{ kind = "falsy", column = "t" }')
+    @pytest.mark.parametrize("kind", ["truthy", "falsy"])
+    def test_null_no_cumple_ni_truthy_ni_falsy(self, tmp_path, kind):
+        """Revisión final (spec §8): NULL no es «falso», es «no se sabe». Como
+        toda comparación, no cumple (fail-closed) — antes `falsy` sobre NULL
+        cumplía y aprobaba sin dato."""
+        rs = _one_rule(tmp_path, f'{{ kind = "{kind}", column = "t" }}')
         v = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": None}]}}), "C1")
-        assert v.results[0].ok is True
+        assert v.status == "not_apt"
+        assert v.results[0].ok is False
+
+
+# ---------------------------------------------------------------------------
+# truthy / falsy estrictos (revisión final C4, spec §8)
+# ---------------------------------------------------------------------------
+class TestTruthyEstricto:
+    """Solo bool, 0/1 y un conjunto CERRADO de textos. Cualquier otro valor es
+    error de la regla: «NO ACREDITADO» ya no cuenta como verdadero."""
+
+    @pytest.mark.parametrize("valor", [
+        True, 1, Decimal("1"), "1", "S", "si", "SI", "SÍ", "sí", "Y", "yes", "T",
+        "true", "TRUE", "V", "verdadero", " Verdadero ",
+    ])
+    def test_valores_verdaderos(self, tmp_path, valor):
+        rs = _one_rule(tmp_path, '{ kind = "truthy", column = "t" }')
+        v = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": valor}]}}), "C1")
+        assert v.status == "apt", (valor, v)
+
+    @pytest.mark.parametrize("valor", [
+        False, 0, Decimal("0"), "0", "N", "no", "NO", "F", "false", "FALSO", "falso",
+    ])
+    def test_valores_falsos(self, tmp_path, valor):
+        rs = _one_rule(tmp_path, '{ kind = "falsy", column = "t" }')
+        v = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": valor}]}}), "C1")
+        assert v.status == "apt", (valor, v)
+        rs2 = _one_rule(tmp_path / "t", '{ kind = "truthy", column = "t" }')
+        v2 = rs2.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": valor}]}}), "C1")
+        assert v2.status == "not_apt", (valor, v2)
+
+    @pytest.mark.parametrize("valor", [
+        "NO ACREDITADO", "NO LIBERADO", "PENDIENTE", "EN TRÁMITE", "SIN LIBERAR", "-",
+        "", "X", 2, -1, Decimal("0.5"), 1.5,
+    ])
+    @pytest.mark.parametrize("kind", ["truthy", "falsy"])
+    def test_cualquier_otro_valor_es_error_de_la_regla(self, tmp_path, kind, valor):
+        rs = _one_rule(tmp_path, f'{{ kind = "{kind}", column = "t" }}')
+        v = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": valor}]}}), "C1")
+        assert v.status == "error", (valor, v)
+        assert "'t'" in v.error and "r" in v.error
+
+    def test_equals_booleano_tambien_es_estricto(self, tmp_path):
+        """`equals value = true` compara con la misma regla: «NO ACREDITADO»
+        contra `true` es error, no «verdadero»."""
+        rs = _one_rule(tmp_path, '{ kind = "equals", column = "t", value = true }')
+        v = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": "NO ACREDITADO"}]}}),
+                        "C1")
+        assert v.status == "error", v
+        ok = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": "S"}]}}), "C1")
+        assert ok.status == "apt"
 
 
 # ---------------------------------------------------------------------------
