@@ -354,9 +354,10 @@ def test_dar_acceso_sin_cuenta_pasa_a_con_acceso_y_el_nip_solo_va_al_correo(
     fila = _fila(con_acceso.text, req)
     assert "Inscrita" in _plano(fila)
     assert "correo no enviado" not in fila
-    # Elegible (cuenta creada por la solicitud, sin entrar aún): el botón sale
-    # por `can_reassign_nip`, haya salido o no el correo (la persona pudo perderlo).
-    assert f'hx-post="{URL}/{req.id}/reasignar-nip"' in fila
+    # D8 / spec §8.2 «Reasignar NIP (si aplica D8)»: el botón es el remedio del
+    # correo que NO salió. Aquí salió, así que no se ofrece aunque la cuenta siga
+    # elegible (`can_reassign_nip`: creada por la solicitud, sin entrar aún).
+    assert "/reasignar-nip" not in fila
     for pestana in ("awaiting_access", "granted", "returned"):
         _sin_nip(c.get(f"{URL}/body?status={pestana}&cohort_id={cohort.id}"))
     _sin_nip(c.get(f"{URL}?cohort_id={cohort.id}"))
@@ -481,13 +482,19 @@ def test_devolver_sin_nota_o_con_una_larga_da_el_motivo(
     assert req.status == "awaiting_access"
 
 
-def test_con_acceso_excluye_una_d10_que_la_liga_devolvio_a_revision(
+def test_con_acceso_excluye_una_d10_que_volvio_a_una_cola_de_trabajo(
     client_as, db_session, make_cc, make_cohort,
 ):
+    """Una D10 que `verify()` devolvió a `pending_review` conserva
+    `access_granted_*`; si SE la vuelve a aprobar sin cuenta, llega a
+    `awaiting_access` con ese sello. Las dos viven en una cola de trabajo (la de
+    SE o «Por dar acceso»): en «Con acceso» serían un duplicado rancio."""
     cc = make_cc()
     cohort = make_cohort(status="open")
     devuelta = _make_req(db_session, cohort, control="99710100",
                          access_granted_at=datetime.now() - timedelta(days=1))
+    reaprobada = _en_espera(db_session, cohort, control="99710102",
+                            access_granted_at=datetime.now() - timedelta(days=2))
     inscrita = _make_req(db_session, cohort, control="99710101", status="converted",
                          access_granted_at=datetime.now() - timedelta(days=1),
                          access_sent_at=datetime.now())
@@ -496,6 +503,32 @@ def test_con_acceso_excluye_una_d10_que_la_liga_devolvio_a_revision(
 
     _fila(html, inscrita)
     assert f'id="tt-acc-{devuelta.id}"' not in html
+    assert f'id="tt-acc-{reaprobada.id}"' not in html
+
+
+def test_con_acceso_conserva_la_d10_que_se_cancelo(
+    client_as, db_session, make_cc, make_cohort,
+):
+    """Spec §8.2: «Con acceso» = `access_granted_at` no nulo. Una D10 (`approved`,
+    liga en camino) que SE canceló queda `rejected` con el sello de CC: es un
+    estado final que en el modo oficial no sale en ninguna otra pestaña de CC,
+    así que se queda aquí con su etiqueta y el motivo, sin acciones."""
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    motivo = "Cancelada por Servicios Escolares: duplicada."
+    cancelada = _make_req(db_session, cohort, control="99710103", status="rejected",
+                          access_granted_at=datetime.now() - timedelta(days=1),
+                          review_note=motivo, rejection_sent_at=datetime.now())
+    sin_sello = _make_req(db_session, cohort, control="99710104", status="rejected",
+                          review_note="No aparece en el padrón.")
+
+    html = client_as(cc).get(f"{URL}/body?status=granted&cohort_id={cohort.id}").text
+
+    fila = _fila(html, cancelada)
+    assert "Rechazada" in _plano(fila) and motivo in _plano(fila)
+    assert "correo no enviado" not in fila
+    assert "hx-post" not in fila, "una rechazada no tiene acciones de CC"
+    assert f'id="tt-acc-{sin_sello.id}"' not in html, "sin acceso de CC no es de esta pestaña"
 
 
 def test_reasignar_solo_se_ofrece_si_es_elegible_y_reenvia_el_nip(
@@ -524,6 +557,18 @@ def test_reasignar_solo_se_ofrece_si_es_elegible_y_reenvia_el_nip(
     # Una convertida sin acceso de CC (legado) no está en «Con acceso» ni se reasigna.
     assert f'id="tt-acc-{legado.id}"' not in html
 
+    # Aun con el correo sin salir: si la persona ya entró y cambió su contraseña,
+    # no se reasigna (D8: «solo mientras `must_change_password` siga activo»).
+    from itcj2.core.models.user import User
+    cuenta = db_session.query(User).filter_by(control_number="99710110").one()
+    cuenta.must_change_password = False
+    db_session.flush()
+    fila = _fila(c.get(f"{URL}/body?status=granted&cohort_id={cohort.id}").text, req)
+    assert "correo no enviado" in fila
+    assert "/reasignar-nip" not in fila
+    cuenta.must_change_password = True
+    db_session.flush()
+
     monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved", envio_real)
     resp = c.post(f"{URL}/{req.id}/reasignar-nip",
                   data={"nip": NIP, "status": "granted", "cohort_id": str(cohort.id)})
@@ -533,16 +578,10 @@ def test_reasignar_solo_se_ofrece_si_es_elegible_y_reenvia_el_nip(
     assert _pestana_activa(resp.text) == "granted"
     fila = _fila(resp.text, req)
     assert "correo no enviado" not in fila
+    # El correo del NIP nuevo salió: D8 ya no aplica y el botón se va.
+    assert "/reasignar-nip" not in fila
     (_asunto, _dest, correo), = correo_falso
     assert NIP in correo
-
-    # En cuanto la persona entra y cambia su contraseña, ya no se reasigna.
-    from itcj2.core.models.user import User
-    cuenta = db_session.query(User).filter_by(control_number="99710110").one()
-    cuenta.must_change_password = False
-    db_session.flush()
-    html = c.get(f"{URL}/body?status=granted&cohort_id={cohort.id}").text
-    assert "/reasignar-nip" not in _fila(html, req)
 
 
 def test_reasignar_una_no_elegible_responde_400_sin_escribir(

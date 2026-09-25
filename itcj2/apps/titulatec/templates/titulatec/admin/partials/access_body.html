@@ -15,8 +15,10 @@
    `grant_access()` —, más «Devolver a Servicios Escolares» (nota ≤ 2000).
    Modo alterno: pestañas de revisión; aprobar (NIP o liga, con carrera),
    rechazar, reenviar la liga y dar acceso a las `awaiting_access` sobrantes.
-   En ambos, «Reasignar NIP» solo si `can_reassign_nip` y la marca «correo no
-   enviado» del NIP solo si `access_mail_unsent` (para la liga, `verify_sent_at`).
+   En ambos, la marca «correo no enviado» del NIP solo si `access_mail_unsent`
+   (para la liga, `verify_sent_at`) y «Reasignar NIP» solo con esa marca Y
+   `can_reassign_nip` (D8: el remedio del correo que no salió; `r.can_reassign`).
+   «Con acceso» también lista la D10 que SE canceló (`rejected`, sin acciones).
 
    El NIP NUNCA se pinta: sus campos no llevan `value`.
    Sin hx-confirm (no hay puente) y sin JS ni CSS en línea. #}

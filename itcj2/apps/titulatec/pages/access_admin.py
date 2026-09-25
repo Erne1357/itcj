@@ -133,10 +133,14 @@ def _tab_query(q, tab: str):
         return (q.filter(ER.status == "awaiting_access")
                 .order_by(ER.reviewed_at.asc(), ER.id.asc()))
     if tab == "granted":
-        # `approved` entra por D10 (se le mandó liga). Una D10 que `verify()`
-        # devolvió a `pending_review` conserva `access_granted_*`: fuera.
+        # Spec §8.2: `access_granted_at` no nulo. `approved` entra por D10 (se le
+        # mandó liga) y `rejected` también: la D10 que SE canceló es un estado
+        # final que en el modo oficial no sale en ninguna otra pestaña de CC.
+        # Única excepción: la fila que volvió a una cola de trabajo conservando
+        # el sello — la D10 que `verify()` devolvió a revisión de SE y, si SE la
+        # reaprobó sin cuenta, la que está otra vez en «Por dar acceso».
         return (q.filter(ER.access_granted_at.isnot(None),
-                         ER.status.in_(("converted", "approved")))
+                         ER.status.notin_(_REVIEWABLE + ("awaiting_access",)))
                 .order_by(ER.access_granted_at.desc(), ER.id.desc()))
     if tab == "returned":
         return (q.filter(ER.returned_at.isnot(None))
@@ -198,6 +202,7 @@ def _body_ctx(db, *, status, cohort_id):
     for r in reqs:
         u = users.get((r.control_number or "").strip())
         reviewable = r.status in _REVIEWABLE
+        access_unsent = EnrollmentRequestService.access_mail_unsent(r)
         # Fecha de la columna Convocatoria/fecha: la que ordena la pestaña.
         if tab == "awaiting_access":
             when = ("Aprobada por SE", _fmt(r.reviewed_at, True))
@@ -241,10 +246,15 @@ def _body_ctx(db, *, status, cohort_id):
             "returned_at": _fmt(r.returned_at, True),
             "return_note": r.return_note or "",
             # Correo con usuario + NIP que no salió: ÚNICO predicado del servicio.
-            "access_unsent": EnrollmentRequestService.access_mail_unsent(r),
+            "access_unsent": access_unsent,
             # Correo de la liga (D10 y alterno): lo sella `verify_sent_at`.
             "link_unsent": r.status == "approved" and r.verify_sent_at is None,
-            "can_reassign": EnrollmentRequestService.can_reassign_nip(r, u),
+            # «Reasignar NIP (si aplica D8)», spec §8.2: D8 es el remedio del
+            # correo con NIP que NO salió, así que el botón pide las dos cosas.
+            # `reassign_nip` no exige el correo fallido (spec §6) y repite bajo
+            # el lock `can_reassign_nip` + la señal positiva de la cuenta.
+            "can_reassign": (access_unsent
+                             and EnrollmentRequestService.can_reassign_nip(r, u)),
             "rejection_sent": r.rejection_sent_at is not None,
             "show_status": tab in _MIXED_TABS,
         })
@@ -418,7 +428,8 @@ async def resend(req_id: int, request: Request,
 async def reassign_nip(req_id: int, request: Request,
                        user: dict = Depends(require_page_app("titulatec", perms=_GRANT))):
     """Reasigna el NIP y lo reenvía (D8, ambos modos). La elegibilidad la decide
-    el servicio bajo el lock; el botón solo aparece si `can_reassign_nip`."""
+    el servicio bajo el lock; el botón solo aparece si el correo del NIP no
+    salió (`access_mail_unsent`) y `can_reassign_nip`."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
