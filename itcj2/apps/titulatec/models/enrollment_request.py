@@ -141,6 +141,14 @@ class EnrollmentRequest(Base):
     returned_at = Column(DateTime, nullable=True)
     return_note = Column(Text, nullable=True)
 
+    # --- Elegibilidad SII (2026-09-25) ---
+    # La consulta VIGENTE contra el SII (`EligibilityService.check` la
+    # reapunta en cada intento). `tests/.../sii_fixtures` y
+    # `services/eligibility_service.py` son quienes la escriben; ver
+    # `models/eligibility_check.py` para el historial completo por intento.
+    last_check_id = Column(Integer, ForeignKey("titulatec_eligibility_checks.id"),
+                           nullable=True)
+
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     updated_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
 
