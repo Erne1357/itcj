@@ -226,6 +226,7 @@
               </details>
               {% endif %}
               {% if s.error %}<p class="tt-sii-line">{{ s.error }}</p>{% endif %}
+              {% if s.retry %}<p class="tt-sii-line tt-sii-why">{{ s.retry }}</p>{% endif %}
               {% if s.diffs %}
               <div class="tt-sii-diffs">
                 <span class="tt-sii-sub"><i class="bi bi-person-exclamation me-1" aria-hidden="true"></i>Diferencias con el SII</span>

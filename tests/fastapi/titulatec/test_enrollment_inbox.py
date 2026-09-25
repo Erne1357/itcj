@@ -1144,16 +1144,24 @@ REGLAS_APTA = [
 ]
 
 
+_COMPARADA: dict = {}
+
+
 def _consulta(db_session, req, *, status, attempt=1, results=None, error=None,
-              identity_mismatch=None, started_at=None, finished_at=None):
-    """Consulta del SII ya hecha (o en curso) y apuntada como la VIGENTE."""
+              identity_mismatch=_COMPARADA, started_at=None, finished_at=None,
+              retryable=True):
+    """Consulta del SII ya hecha (o en curso) y apuntada como la VIGENTE. Por
+    omisión el nombre se comparó con el SII y coincide (`{}`); `None` = no se
+    comparó (revisión final C3)."""
     from itcj2.apps.titulatec.models import EligibilityCheck
 
     now = datetime.now()
     chk = EligibilityCheck(
         request_id=req.id, status=status, attempt=attempt, rules_version="test-1",
-        results=results, error=error, identity_mismatch=identity_mismatch,
-        retryable=(True if status == "error" else None),
+        results=results, error=error,
+        identity_mismatch=(dict(identity_mismatch) if identity_mismatch is not None
+                           else None),
+        retryable=(retryable if status == "error" else None),
         started_at=started_at or now,
         finished_at=None if status == "pending" else (finished_at or now))
     db_session.add(chk)
@@ -1275,6 +1283,32 @@ def test_apta_con_la_aprobacion_automatica_apagada_lo_dice(
     texto = _plano(_bloque_sii(_fila(client_as(head).get(f"{URL}/body").text, req), req))
 
     assert "La aprobación automática está apagada en esta convocatoria." in texto
+    # Revisión final: dice dónde se enciende.
+    assert "Actívala en la convocatoria" in texto
+
+
+# Revisión final (diferido de T5 y C3): una apta cuyo nombre no coincide con el
+# del SII, o no se pudo comparar, NO se aprobará sola. La bandeja no lo promete.
+@pytest.mark.parametrize("identidad,esperado", [
+    (None, "No se pudo comparar el nombre con el SII."),
+    ({"_unverified": ["last_name"]}, "No se pudo comparar el nombre con el SII."),
+    ({"first_name": {"form": "EGRESADA", "sii": "OTRA"}},
+     "El nombre del formulario no coincide con el del SII (nombre)"),
+])
+def test_apta_con_el_nombre_sin_confirmar_no_promete_que_se_aprobara_sola(
+    client_as, db_session, make_head, make_cohort, modo_sii, ventana_de_24h,
+    identidad, esperado,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99640041")
+    _consulta(db_session, req, status="apt", results=REGLAS_APTA,
+              identity_mismatch=identidad, finished_at=datetime.now())
+
+    texto = _plano(_bloque_sii(_fila(client_as(head).get(f"{URL}/body").text, req), req))
+
+    assert esperado in texto
+    assert "se aprobará sola" not in texto.lower()
 
 
 @pytest.fixture()
@@ -1336,6 +1370,24 @@ def test_error_muestra_el_motivo_y_ofrece_reintentar(
     assert "El SII no respondió a tiempo." in texto
     assert "intento 3 de 5" in texto
     assert f'hx-post="/titulatec/admin/solicitudes/{req.id}/reconsultar"' in bloque
+    # Revisión final: un error reintentable bajo el tope se reintenta solo.
+    assert "Se reintenta sola (intento 4 de 5)." in texto
+
+
+@pytest.mark.parametrize("attempt,retryable", [(5, True), (1, False)])
+def test_un_error_que_ya_no_se_reintenta_solo_no_lo_promete(
+    client_as, db_session, make_head, make_cohort, modo_sii, tope_y_ventana,
+    attempt, retryable,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99640042")
+    _consulta(db_session, req, status="error", attempt=attempt, retryable=retryable,
+              error="Falla.")
+
+    texto = _plano(_bloque_sii(_fila(client_as(head).get(f"{URL}/body").text, req), req))
+
+    assert "Se reintenta sola" not in texto
 
 
 def test_consultando_no_ofrece_reintentar_hasta_que_la_consulta_se_cuelga(

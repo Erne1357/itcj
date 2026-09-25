@@ -74,7 +74,8 @@ _SII_STATES = {
 # Campos de `identity_mismatch` → etiqueta legible. Otro campo sale tal cual.
 _DIFF_LABELS = {"first_name": "Nombre", "last_name": "Apellido paterno",
                 "middle_name": "Apellido materno", "program": "Carrera"}
-_AUTO_OFF = "La aprobación automática está apagada en esta convocatoria."
+_AUTO_OFF = ("La aprobación automática está apagada en esta convocatoria. Actívala en la "
+             "convocatoria (Resumen › Ventana de inscripción).")
 _COHORT_NOT_OPEN = "La convocatoria no está abierta: no se aprueba sola."
 _AUTO_WAITING = "Apta: se aprobará sola en el siguiente barrido."
 
@@ -213,8 +214,16 @@ def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: in
     `why` dice por qué una APTA sigue aquí, en el orden en que la frena
     `EligibilityService.auto_approve`: la nota que dejó la automática
     (`review_note`), el interruptor de la convocatoria, la convocatoria
-    cerrada, la ventana de veto; si nada la frena, la toma el barrido.
+    cerrada, el NOMBRE sin confirmar (`identity_block`: no coincide o no se
+    pudo comparar con el SII — esa fila no se aprobará sola, no se promete),
+    la ventana de veto; si nada la frena, la toma el barrido.
+
+    `retry` = «Se reintenta sola (intento N de M).» en un `error`
+    reintentable (el SII no respondió) que no llegó al tope: N es el intento
+    que sigue.
     """
+    from itcj2.apps.titulatec.services.eligibility_service import identity_block
+
     if chk is None:
         state = "none"
     elif chk.status == "pending":
@@ -247,6 +256,8 @@ def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: in
             why = _AUTO_OFF
         elif cohort.get("status") != "open":
             why = _COHORT_NOT_OPEN
+        elif bloqueo := identity_block(chk):
+            why = bloqueo
         elif delay_hours and chk.finished_at is not None:
             desde = chk.finished_at + timedelta(hours=delay_hours)
             why = (f"Se aprobará sola a partir del {_fmt(desde)}." if desde > now
@@ -261,6 +272,9 @@ def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: in
         "when": _fmt(chk.finished_at or chk.started_at) if chk is not None else "",
         "failed": failed, "passed": passed,
         "error": (chk.error or "") if state == "error" else "",
+        "retry": (f"Se reintenta sola (intento {chk.attempt + 1} de {max_attempts})."
+                  if state == "error" and chk.retryable and chk.attempt < max_attempts
+                  else ""),
         "diffs": diffs, "why": why,
         # La nota ya va en `why`: la fila no la repite como «Nota:».
         "note_shown": bool(state == "apt" and note),
