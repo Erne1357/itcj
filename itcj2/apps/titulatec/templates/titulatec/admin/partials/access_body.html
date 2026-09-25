@@ -13,6 +13,9 @@
    `awaiting_access` ofrece «Dar acceso» (NIP) o, si el control ya tiene cuenta
    HOY, «Enviar liga» con el aviso D10 — la misma pregunta que se hace
    `grant_access()` —, más «Devolver a Servicios Escolares» (nota ≤ 2000).
+   Toda fila que manda una liga lleva el aviso de identidad de Solicitudes
+   con el correo a la vista (C3); si la cuenta no tiene contraseña no hay
+   botón de liga, solo la instrucción de devolverla.
    Modo alterno: pestañas de revisión; aprobar (NIP o liga, con carrera),
    rechazar, reenviar la liga y dar acceso a las `awaiting_access` sobrantes.
    En ambos, la marca «correo no enviado» del NIP solo si `access_mail_unsent`
@@ -101,6 +104,13 @@
           {% endif %}
 
           {% if r.grantable %}
+            {% if official and r.has_account and not r.has_password %}
+            {# D10 sin contraseña: la liga la exige (invariante 2), así que
+               «Enviar liga» siempre daría 400. Lo que CC sí puede hacer es
+               devolverla a SE con nota (el formulario sigue abajo). #}
+            <p class="small mb-1"><i class="bi bi-exclamation-octagon me-1" aria-hidden="true"></i>La
+               cuenta no tiene contraseña: devuélvela a Servicios Escolares.</p>
+            {% else %}
             {# Dar acceso (oficial) o aprobar (alterno). Con cuenta no hay NIP: sale la liga. #}
             <form class="tt-req-form"
                   hx-post="/titulatec/admin/accesos/{{ r.id }}/dar-acceso"
@@ -124,6 +134,15 @@
                 {%- endif -%}
               </button>
             </form>
+            {% if r.has_account and r.has_password %}
+            {# El aviso de identidad de Solicitudes (C3): en la D10 oficial SE aprobó
+               sin cuenta y nunca lo vio; en el alterno CC es el único revisor. #}
+            <p class="small mt-1 mb-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>La
+               liga de activación irá a <strong>{{ local }}{% if arroba %}<wbr>@{{ dominio }}{% endif %}</strong>,
+               que escribió el solicitante. Confirma su identidad antes de
+               {{ 'aprobar' if r.reviewable else 'enviarla' }}.</p>
+            {% endif %}
+            {% endif %}
             {% if official %}
             <form class="tt-req-form mt-1"
                   hx-post="/titulatec/admin/accesos/{{ r.id }}/devolver"

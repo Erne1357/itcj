@@ -52,6 +52,9 @@ OFICIAL = ["Por dar acceso", "Con acceso", "Devueltas"]
 ALTERNO = ["Por revisar", "Liga enviada", "Inscritas", "Rechazadas", "Todas"]
 YA_TIENE_CUENTA = "Ya tiene cuenta: se enviará liga"
 DESACTIVADA = "Cuenta desactivada: se reactiva al abrir la liga"
+# El aviso de identidad de Solicitudes (`requests_body.html`), con el correo a la vista.
+AVISO_IDENTIDAD = ("La liga de activación irá a {correo}, que escribió el solicitante. "
+                   "Confirma su identidad antes de {accion}.")
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +138,11 @@ def _cuenta(db_session, control, *, password=True, is_active=True):
 
 def _plano(html: str) -> str:
     return " ".join(re.sub(r"<[^>]+>", " ", html).split())
+
+
+def _plano_correo(html: str) -> str:
+    """`_plano` sin partir el correo en su `<wbr>` ni en su `<strong>`."""
+    return _plano(re.sub(r"</?(wbr|strong)>", "", html))
 
 
 def _fila(html: str, req) -> str:
@@ -324,9 +332,33 @@ def test_la_fila_con_cuenta_anuncia_la_liga_y_no_pide_nip(
     assert YA_TIENE_CUENTA in _plano(fila)
     assert 'name="nip"' not in fila
     assert f'hx-post="{URL}/{req.id}/dar-acceso"' in fila
+    # C3: SE aprobó cuando no había cuenta y nunca vio el aviso de identidad;
+    # CC es el último que puede verlo antes de que la liga salga.
+    assert (AVISO_IDENTIDAD.format(correo="acceso@example.invalid", accion="enviarla")
+            in _plano_correo(fila))
     assert DESACTIVADA not in _plano(fila)
     assert DESACTIVADA in _plano(_fila(html, inactiva))
     assert "sin contraseña" in _plano(_fila(html, sin_contra))
+
+
+def test_d10_sin_contrasena_en_modo_oficial_no_ofrece_enviar_liga_sino_devolver(
+    client_as, db_session, make_cc, make_cohort,
+):
+    """La liga exige contraseña (invariante 2): el botón siempre daría 400.
+    Lo que CC sí puede hacer es devolverla a SE, y el formulario está ahí."""
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    _cuenta(db_session, "99710043", password=False)
+    sin_contra = _en_espera(db_session, cohort, control="99710043")
+
+    fila = _fila(client_as(cc).get(f"{URL}/body?cohort_id={cohort.id}").text, sin_contra)
+
+    assert f'hx-post="{URL}/{sin_contra.id}/dar-acceso"' not in fila
+    assert "Enviar liga" not in fila
+    assert ("La cuenta no tiene contraseña: devuélvela a Servicios Escolares"
+            in _plano(fila))
+    assert f'hx-post="{URL}/{sin_contra.id}/devolver"' in fila
+    assert "La liga de activación irá a" not in _plano_correo(fila), "no sale ninguna liga"
 
 
 # ---------------------------------------------------------------------------
@@ -830,7 +862,25 @@ def test_la_bandeja_alterna_tiene_las_pestanas_de_revision(
     assert 'name="nip"' in fila and 'name="program_id"' in fila
     assert f'hx-post="{URL}/{por_revisar.id}/rechazar"' in fila
     assert "/devolver" not in fila
+    assert "La liga de activación irá a" not in _plano_correo(fila), "sin cuenta no hay liga"
     assert f'hx-post="{URL}/{sobrante.id}/dar-acceso"' in _fila(resp.text, sobrante)
+
+
+def test_en_modo_alterno_aprobar_con_cuenta_avisa_a_donde_va_la_liga(
+    client_as, db_session, make_cc, make_cohort, modo_alterno,
+):
+    """C3 (b): en el modo alterno CC es el único revisor; sin el aviso nadie en
+    la cadena confirma la identidad antes de mandar la liga a una cuenta real."""
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    _cuenta(db_session, "99710203")
+    req = _make_req(db_session, cohort, control="99710203", email="liga@example.invalid")
+
+    fila = _fila(client_as(cc).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
+
+    assert "Aprobar y enviar liga" in fila
+    assert (AVISO_IDENTIDAD.format(correo="liga@example.invalid", accion="aprobar")
+            in _plano_correo(fila))
 
 
 def test_en_modo_alterno_aprobar_con_nip_crea_la_cuenta(

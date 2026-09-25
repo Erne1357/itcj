@@ -213,8 +213,12 @@ plantilla no aprueba, rechaza, devuelve ni reenvía nada que su modo no permita.
    `awaiting_access` nacida en oficial y nunca atendida sigue siendo perfectamente resoluble en
    cualquiera de los dos modos (paso 3/6); lo único que cambia es en qué pestaña aparece.
 2. **El riesgo aceptado de [Inscripción pública](xcut_public_enrollment.md#riesgo-aceptado-y-contención)
-   sigue vigente sin cambios**: la liga (rama D10 o con cuenta) viaja al correo que tecleó el
-   solicitante, y esta bandeja no añade ni quita nada a esa contención.
+   sigue vigente**: la liga (rama D10 o con cuenta) viaja al correo que tecleó el solicitante.
+   Esta bandeja sostiene la contención 4 («el oficial ve el aviso de a dónde va la liga antes de
+   aprobar») con el mismo aviso de identidad que Solicitudes, con el correo a la vista, en toda fila
+   que manda una liga: la D10 del modo oficial (SE aprobó cuando no había cuenta y nunca lo vio) y
+   «Aprobar y enviar liga» del alterno (CC es el único revisor). La D10 sin contraseña no ofrece
+   «Enviar liga» (siempre daría 400): dice «devuélvela a Servicios Escolares».
 3. **D2 no es un caso de este flujo, es organigrama**: `head_comp_center` recibe el rol `admin`
    de titulatec **vía su puesto** (no por esta bandeja); con `admin` ve TODO el menú, no solo
    Accesos.
