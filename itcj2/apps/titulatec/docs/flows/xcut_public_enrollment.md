@@ -6,12 +6,12 @@
 
 | | |
 |---|---|
-| **Actor(es)** | 👤 Visitante anónimo (formulario y liga) · 🏛️ Servicios Escolares (bandeja: jefatura con alcance total + operativo/encargados por carrera) · 💻 Centro de Cómputo (desde 2026-09-24, modo oficial: da el NIP a las solicitudes sin cuenta — ver [Accesos de Centro de Cómputo](xcut_computer_center_access.md)) · 🤖 correo y conversión |
+| **Actor(es)** | 👤 Visitante anónimo (formulario y liga) · 🏛️ Servicios Escolares (bandeja: jefatura con alcance total + operativo/encargados por carrera) · 💻 Centro de Cómputo (desde 2026-09-24, modo oficial: da el NIP a las solicitudes sin cuenta — ver [Accesos de Centro de Cómputo](xcut_computer_center_access.md)) · 🤖 correo y conversión · 🤖 consulta al SII y aprobación automática (desde 2026-09-25, modo `sii` — ver [Elegibilidad automática contra el SII](xcut_sii_eligibility.md)) |
 | **Permiso(s)** | Formulario, liga y reenvío público: **ninguno**. Son las rutas públicas de `pages/public.py`, sin `require_page_app` (una ruta es pública por omitir la dependencia).<br>Bandeja (`pages/requests_admin.py`), **un código por ruta**: `titulatec.enrollment_request.page.list` (ver) · `titulatec.enrollment_request.api.approve` (aprobar y reenviar) · `titulatec.enrollment_request.api.reject` (rechazar). Los tres se conceden a `titulatec_school_services_head` (jefatura) Y, desde 2026-09-21, también a `titulatec_school_services` (operativo: secretaria, auxiliar y los `se_officer_*` de los encargados) — `survey_2026_09/10_insert_survey_role_permissions.sql`. |
 | **Rol que recibe el alumno** | `graduate` (egresado) en las apps `itcj` y `titulatec`, siempre vía `ImportService.import_rows`. Ver [Rol `graduate`](#rol-graduate-egresado). |
 | **Trigger** | El visitante envía el formulario de `/titulatec/inscripcion`. |
 | **Precondiciones** | Exactamente **una** convocatoria abierta según `CohortService.is_public_enrollment_open` (`status='open'` y hoy dentro de `[opens_at, closes_at]`). Cero: tarjeta de cierre. Más de una: 503, falla cerrado. En la bandeja, las filas pasan por el [alcance por carrera](engine_officer_scope.md). **D5 (2026-09-24):** ese rango `[opens_at, closes_at]` filtra SOLO el envío del formulario. Todo lo que sigue a una solicitud ya enviada — aprobar, dar acceso/NIP, abrir la liga, reenviarla (bandeja y pública) — exige únicamente `cohort.status == 'open'` (`CohortService.accepts_enrollment_followup`): pasar `closes_at` no deja varado a nadie que entró a tiempo; solo una convocatoria puesta en `closed` a mano pausa esos pasos. |
-| **Sub-flujos** | ⤵ [alcance por carrera](engine_officer_scope.md) · ⤵ `ImportService.import_rows`, el mismo alta que el [CSV](phase0_school_services_import_csv.md) y el [alta manual](phase0_school_services_add_student_manual.md) · ⤵ [Accesos de Centro de Cómputo](xcut_computer_center_access.md) — quién da el NIP y en qué modo |
+| **Sub-flujos** | ⤵ [alcance por carrera](engine_officer_scope.md) · ⤵ `ImportService.import_rows`, el mismo alta que el [CSV](phase0_school_services_import_csv.md) y el [alta manual](phase0_school_services_add_student_manual.md) · ⤵ [Accesos de Centro de Cómputo](xcut_computer_center_access.md) — quién da el NIP y en qué modo · ⤵ [Elegibilidad automática contra el SII](xcut_sii_eligibility.md) — modo `sii`: el SII decide y aprueba solo |
 | **Estado final** | `titulatec_enrollment_requests.status = converted` con `converted_process_id` (proceso en fase 1), `awaiting_access` (2026-09-24: esperando el NIP de Centro de Cómputo, modo oficial), o `rejected` con motivo. |
 
 **Quién revisa (2026-09-21):** hasta esa fecha SOLO la jefatura (`titulatec_school_services_head`,
@@ -23,6 +23,18 @@ el permiso. `api.approve` también gatea el reenvío de liga (paso 4 de abajo) �
 descuido. Detalle del alcance: [`engine_officer_scope.md`](engine_officer_scope.md). Si la secretaria
 o el auxiliar del depto no tienen ninguna carrera asignada en `core_program_positions`, ven la
 pestaña vacía con el aviso "sin alcance" — es el comportamiento esperado.
+
+## Los tres modos (`TITULATEC_ENROLLMENT_REVIEWER`)
+
+| Modo | Quién decide | Solicitud sin cuenta | Detalle |
+|---|---|---|---|
+| `school_services` (oficial, por omisión) | 🏛️ SE en Solicitudes | → `awaiting_access`; el NIP lo da Centro de Cómputo | este archivo + [Accesos de Centro de Cómputo](xcut_computer_center_access.md) |
+| `computer_center` (alterno) | 💻 CC en Accesos; Solicitudes es de solo lectura | CC teclea el NIP → `converted` | [Accesos de Centro de Cómputo](xcut_computer_center_access.md) |
+| `sii` (2026-09-25) | 🤖 el SII: las aptas se aprueban solas; 🏛️ SE resuelve lo no apto, lo frenado y las excepciones | la cuenta nace con el **NIP del SII** → `converted`; el correo no lleva NIP | [Elegibilidad automática contra el SII](xcut_sii_eligibility.md) |
+
+En modo `sii` el formulario, la liga (cuenta existente), el reenvío y los correos de este archivo no
+cambian; lo que cambia es **quién** aprueba y **de dónde sale el NIP**. La pantalla pública responde
+igual (la consulta al SII es asíncrona, tras el commit del alta).
 
 ## Ruta en la app (UI)
 
@@ -152,6 +164,11 @@ stateDiagram-v2
         xcut_computer_center_access.md
     end note
 ```
+
+**Modo `sii` (2026-09-25):** mismas aristas que el ALTERNO (`pending_review → converted` sin cuenta,
+`→ approved` con cuenta), pero las escribe la aprobación automática (actor `None`) o SE desde
+Solicitudes; `awaiting_access` no aparece. Una apta frenada, una no apta o un error se quedan en
+`pending_review` con su veredicto. Ver [`xcut_sii_eligibility.md`](xcut_sii_eligibility.md).
 
 El índice parcial `uq_titulatec_enrollment_req_open (cohort_id, control_number) WHERE status IN
 ('unverified','verified','pending_review','approved')` impide **dos solicitudes vivas** del mismo
@@ -463,6 +480,14 @@ modo ALTERNO, la bandeja de Solicitudes es de solo lectura: los tres POST de est
 400 «En este modo la revisión la hace Centro de Cómputo.» ANTES de abrir sesión — detalle completo en
 [`xcut_computer_center_access.md`](xcut_computer_center_access.md).
 
+**Aprobar en modo `sii`** (2026-09-25): la bandeja vuelve a ser de SE (como el oficial) y no existe
+«pasar a Cómputo». Sin cuenta, el NIP del formulario se ignora y se pide al SII; si no lo da o no
+responde → 400 «No se pudo obtener el NIP del SII.» sin escribir. Además, en cualquier modo, una
+persona con una inscripción **revocada** en esa misma convocatoria → 400 «Esa persona tiene una
+inscripción revocada en esta convocatoria; solo puede inscribirse en otra.» (D1; también al abrir la
+liga). Motivos, reintentos y frenos de la aprobación automática:
+[`xcut_sii_eligibility.md`](xcut_sii_eligibility.md).
+
 **Reenviar desde la bandeja:** una solicitud que no está `approved` → 400 «Solo se reenvía la liga
 de solicitudes aprobadas.».
 
@@ -510,5 +535,6 @@ la liga vencida o sin el claro en Redis. Esa indistinción es un invariante, no 
 
 - ⤵ [Alcance por carrera + encargados](engine_officer_scope.md) — quién ve y resuelve cada solicitud.
 - ⤵ [Detalle de convocatoria](phase0_school_services_cohort_detail.md) — la ventana que abre el formulario.
+- ⤵ [Elegibilidad automática contra el SII](xcut_sii_eligibility.md) — el modo `sii`: consulta, aprobación automática, interruptor y revocar.
 - → [El alumno sube sus documentos iniciales](phase1_student_upload_initial_docs.md) — lo siguiente tras inscribirse.
 - ← [Máquina de estados](00_state_machine.md) · [Glosario](_glossary.md)

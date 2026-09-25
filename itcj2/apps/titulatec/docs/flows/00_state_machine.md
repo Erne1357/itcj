@@ -42,6 +42,31 @@ stateDiagram-v2
 - Una fase ya `in_review`/`approved` **no** se rebaja al activarse (solo `pending`/`rejected`→`in_progress`).
 - Cada transición escribe `ProcessEvent`.
 
+## Estado del proceso (`TitulationProcess.status`)
+
+```mermaid
+stateDiagram-v2
+    [*] --> active: import_rows (CSV, alta manual, bandeja, liga)
+    active --> on_hold: 🏛️ la convocatoria pasa a closed (CohortService.set_window)
+    on_hold --> active: 🏛️ otra convocatoria pasa a open (reanuda las de convocatorias cerradas)
+    active --> completed: 🤖 se aprueba la última fase aplicable
+    active --> cancelled: 🏛️ revocar inscripción (motivo obligatorio)
+    on_hold --> cancelled: 🏛️ revocar inscripción
+    completed --> [*]
+    cancelled --> [*]
+```
+
+**`cancelled` se escribe desde 2026-09-25** y tiene un solo escritor: `ProcessService.cancel`
+(revocables = `REVOCABLE_STATUSES` = `active`/`on_hold`; `completed` no; una ya revocada responde
+«Esta inscripción ya estaba revocada.» sin escribir). Es terminal: no hay «des-revocar», y reabrir
+la convocatoria no la resucita (la pausa/reanudación solo mueve `active`↔`on_hold`). Deja
+`ProcessEvent(process_cancelled)` con el motivo en el payload, cancela la cita vigente si está
+`scheduled`/`confirmed`, y avisa al alumno después del commit. Los lectores de `status` se decidieron
+sitio por sitio (excluir / etiquetar «Revocado» / bloquear); una revocada no cuenta como proceso
+vivo para D5 —la persona puede inscribirse en **otra** convocatoria— pero en la **misma** no (D1:
+una sola fila por alumno y convocatoria). Detalle:
+[Elegibilidad automática contra el SII › Revocar](xcut_sii_eligibility.md#revocar-inscripción).
+
 ### Quién puede mover/dictaminar qué, y cuándo — cuatro puntos de aplicación
 
 Ninguna transición del diagrama es libre: **solo se actúa sobre `current_phase`, y solo
@@ -296,8 +321,38 @@ stateDiagram-v2
     rejected --> [*]
 ```
 
+**Modo `sii` (2026-09-25):** las mismas aristas que el ALTERNO (`pending_review → converted` sin
+cuenta, con el NIP del SII; `→ approved` con cuenta), escritas por la aprobación automática (actor
+`None`) o por SE; sin `awaiting_access`. Lo que decide si una solicitud se aprueba sola es el check
+de elegibilidad de abajo.
+
 **`awaiting_access` solo existe en el modo oficial** — el alumno nunca se entera de él (ni al
 entrar ni al salir hay correo). Detalle completo de quién ve cada estado, los dos modos y D8/D10:
 [Accesos de Centro de Cómputo](xcut_computer_center_access.md); el resto del ciclo (formulario,
 liga, riesgo aceptado, rol `graduate`):
 [Inscripción pública con revisión previa](xcut_public_enrollment.md).
+
+## Estado de un check de elegibilidad (`EligibilityCheck.status`) — modo `sii`
+
+Una fila de `titulatec_eligibility_checks` por intento de consulta al SII; la vigente es
+`EnrollmentRequest.last_check_id`. La escribe solo `EligibilityService.check`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: 🤖 check() abre la fila bajo lock
+    pending --> apt: todas las reglas cumplen
+    pending --> not_apt: alguna regla falla (con su motivo)
+    pending --> error: SII caído (retryable) o reglas/SQL mal (no retryable)
+    apt --> [*]
+    not_apt --> [*]
+    error --> [*]
+```
+
+- Una fila **no** cambia de veredicto: reintentar (tarea, barrido o «Reintentar consulta» con
+  `force`) **inserta** otra con `attempt + 1` y mueve `last_check_id`.
+- `pending` de más de 15 min (`_PENDING_STALE`) = colgada: el barrido o `force` la retoman.
+- `error` + `retryable = true` se reintenta solo hasta `TITULATEC_SII_MAX_ATTEMPTS`; `retryable =
+  false` espera a que SE la reconsulte.
+- `apt` aprueba la solicitud **solo** si pasa las revalidaciones de `auto_approve` (ventana,
+  convocatoria `open`, interruptor, nombre igual al del SII, NIP disponible). Detalle:
+  [`xcut_sii_eligibility.md`](xcut_sii_eligibility.md).

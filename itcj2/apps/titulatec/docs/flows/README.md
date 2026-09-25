@@ -47,6 +47,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [Alta manual de un alumno suelto](phase0_school_services_add_student_manual.md) 🏛️ ⤵ reusa `ImportService` — el que no venía en el CSV, por nº de control.
 - [Inscripción pública con revisión previa](xcut_public_enrollment.md) 👤🏛️🤖 ⤵ reusa `ImportService` — formulario público → bandeja de Solicitudes → usuario + NIP por correo (cuenta nueva) o liga de activación (cuenta existente, que se reactiva si estaba desactivada); el alumno recibe el rol `graduate`; riesgo aceptado y su contención.
 - [Accesos de Centro de Cómputo](xcut_computer_center_access.md) 🏛️💻🤖 (2026-09-24) — continúa la anterior: modo oficial, SE aprueba sin NIP y la solicitud sin cuenta pasa a Centro de Cómputo (`awaiting_access`), que teclea el NIP, la devuelve con nota, o reasigna el NIP si el correo no salió (D8); modo alterno (variable de entorno): Centro de Cómputo aprueba y rechaza todo, Solicitudes queda de solo lectura.
+- [Elegibilidad automática contra el SII](xcut_sii_eligibility.md) 🤖🏛️ (2026-09-25) — tercer modo (`TITULATEC_ENROLLMENT_REVIEWER=sii`): tras el alta, celery consulta el SII con reglas declarativas (`database/SII/titulatec/`, formato en [`../sii_rules_format.md`](../sii_rules_format.md)), guarda el veredicto y su porqué, y aprueba sola la apta (la cuenta nace con el NIP del SII); lo no apto o frenado queda en Solicitudes con los motivos; interruptor por convocatoria, «Reintentar consulta», barrido periódico, **revocar inscripción** y los pasos de despliegue.
 
 ### Fase 1 — Documentos iniciales
 - [El alumno sube sus documentos iniciales](phase1_student_upload_initial_docs.md) 👤
@@ -78,7 +79,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
   Servicios Escolares (`ProcessPhase(2).status == 'approved'`). Reversible con una sola variable.
 
 ### Referencias
-- [Máquina de estados (fases + citas + documentos)](00_state_machine.md)
+- [Máquina de estados (proceso + fases + citas + documentos + solicitudes + checks del SII)](00_state_machine.md)
 - [Glosario: entidades, tablas, roles, permisos](_glossary.md)
 - [Plantilla para un flujo nuevo](_TEMPLATE.md)
 - Decisiones de UI: [shell del alumno](../design/student_shell.md) · [animaciones y skeletons](../design/ui_motion.md)
