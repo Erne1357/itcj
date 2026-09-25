@@ -213,6 +213,63 @@ def test_cada_ruta_exige_un_solo_codigo():
     assert access_admin._REJECT == ["titulatec.enrollment_access.api.reject"]
 
 
+# Cada POST con el ÚNICO código que debe exigir (spec §8.2 / §7). Las que emiten
+# credenciales (dar-acceso, reasignar-nip) son las que no pueden caer a `page.list`.
+_RUTAS_POST = [
+    ("dar-acceso", "titulatec.enrollment_access.api.grant", {"nip": NIP}),
+    ("devolver", "titulatec.enrollment_access.api.return", {"note": "No coincide."}),
+    ("rechazar", "titulatec.enrollment_access.api.reject", {"note": "No procede."}),
+    ("reenviar", "titulatec.enrollment_access.api.grant", {}),
+    ("reasignar-nip", "titulatec.enrollment_access.api.grant", {"nip": NIP}),
+]
+
+
+@pytest.fixture()
+def make_cc_parcial(make_user, make_role, grant_user_role):
+    """Actor con SOLO los códigos dados, en un rol propio: `make_role` es
+    aditivo por nombre, así que reusar `tt_test_computer_center` le daría los 4."""
+    def _make(role_name, perm_codes):
+        user = make_user(first_name="CENTRO", last_name="PARCIAL")
+        grant_user_role(user, make_role(role_name, perm_codes))
+        return user
+
+    return _make
+
+
+@pytest.mark.parametrize("accion,codigo,data", _RUTAS_POST,
+                         ids=[r[0] for r in _RUTAS_POST])
+def test_cada_post_exige_su_codigo_y_la_vista_sola_no_basta(
+    client_as, db_session, make_cc_parcial, make_cohort, correo_falso,
+    accion, codigo, data,
+):
+    """C8: `test_cada_ruta_exige_un_solo_codigo` solo compara constantes; esto ata
+    cada ruta a SU código. Un `perms=_LIST` copiado en dar-acceso o
+    reasignar-nip abriría la emisión de NIP a quien solo ve la bandeja."""
+    from itcj2.core.models.user import User
+
+    cohort = make_cohort(status="open")
+    req = _en_espera(db_session, cohort, control="99710300")
+    solo_vista = make_cc_parcial("tt_test_cc_solo_lista",
+                                 ["titulatec.enrollment_access.page.list"])
+
+    resp = client_as(solo_vista).post(f"{URL}/{req.id}/{accion}", data=data)
+
+    assert resp.status_code == 403, (accion, resp.status_code)
+    db_session.refresh(req)
+    assert req.status == "awaiting_access"
+    assert req.access_granted_at is None and req.returned_at is None
+    assert db_session.query(User).filter_by(control_number="99710300").count() == 0
+    assert correo_falso == []
+
+    # Con SOLO su código pasa el gate: puede responder 400 (modo) o 404 (no
+    # existe), nunca 403. Una solicitud inexistente no deja nada escrito.
+    solo_su_codigo = make_cc_parcial(f"tt_test_cc_solo_{codigo.rsplit('.', 1)[1]}", [codigo])
+    resp = client_as(solo_su_codigo).post(f"{URL}/987654321/{accion}", data=data)
+
+    assert resp.status_code != 403, (accion, codigo)
+    assert resp.status_code in (400, 404), (accion, resp.status_code)
+
+
 def test_la_bandeja_usa_los_estados_por_revisar_del_servicio_no_una_copia():
     """Una copia de `_REVIEWABLE` se desincroniza en silencio el día que el
     servicio sume un estado revisable: la bandeja lo escondería."""
@@ -1147,6 +1204,23 @@ def test_en_modo_alterno_rechazar_y_reenviar(
     fila = _fila(reenvio.text, con_liga)
     assert f'hx-post="{URL}/{con_liga.id}/reenviar"' in fila
     assert f'hx-post="{URL}/{con_liga.id}/rechazar"' in fila
+
+
+@pytest.mark.parametrize("accion,data", [
+    ("rechazar", {"note": "No procede."}),
+    ("reenviar", {}),
+    ("dar-acceso", {"nip": NIP}),
+    ("reasignar-nip", {"nip": NIP}),
+])
+def test_en_modo_alterno_una_solicitud_inexistente_da_404_liso(
+    client_as, make_cc, modo_alterno, accion, data,
+):
+    """En el oficial rechazar y reenviar cortan con 400 de modo antes de leer la
+    solicitud; en el alterno sí llegan al 404 liso."""
+    resp = client_as(make_cc()).post(f"{URL}/987654321/{accion}", data=data)
+
+    assert resp.status_code == 404
+    assert "X-Tt-Error" not in resp.headers
 
 
 def test_en_modo_alterno_devolver_no_existe(
