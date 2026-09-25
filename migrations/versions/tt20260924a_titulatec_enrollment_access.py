@@ -30,9 +30,18 @@ ajeno que borra indices/constraints de otras apps (gotcha del CLAUDE.md raiz).
 El upgrade solo fallaria si ya hubiera, para el mismo (convocatoria, control),
 una fila 'awaiting_access' junto a otra viva: ningun escritor produce
 'awaiting_access' antes de esta revision, asi que no hay filas que violen el
-indice nuevo. El downgrade relaja el predicado y no puede fallar; las
-columnas se quitan sin `server_default` porque nacen NULL en toda fila
-existente.
+indice nuevo. Las columnas se quitan en el downgrade sin `server_default`
+porque nacen NULL en toda fila existente.
+
+El downgrade, ANTES de recrear el indice viejo, devuelve toda fila
+'awaiting_access' a 'pending_review' (la vuelve a revisar Servicios
+Escolares, que con el codigo de antes aprueba y da el NIP en un paso). Sin
+eso quedarian atoradas en un estado que el codigo anterior no lee, y fuera
+del predicado viejo dejarian entrar una segunda solicitud viva del mismo
+(convocatoria, control). El UPDATE no puede violar el indice viejo: el nuevo
+ya impedia que una 'awaiting_access' conviviera con otra fila viva del mismo
+par. Las columnas de acceso/devolucion de esas filas se pierden con el
+DROP COLUMN, como el resto.
 
 Correr con MIGRATE_DATABASE_URL (Postgres directo), nunca contra PgBouncer
 (pool_mode=transaction rompe DDL).
@@ -84,6 +93,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Ver el docstring: primero sacar las filas del estado que el indice viejo
+    # (y el codigo de antes) no conoce.
+    op.execute(
+        f"UPDATE {_TABLE} SET status = 'pending_review' "
+        f"WHERE status = 'awaiting_access'"
+    )
     _recreate(_OPEN_OLD)
 
     op.drop_constraint(

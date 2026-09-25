@@ -614,6 +614,49 @@ def test_el_modelo_y_la_migracion_declaran_el_mismo_predicado():
     assert _norm(_PREDICADO_ANTERIOR) in _norm(src), "el downgrade debe restaurar el anterior"
 
 
+def test_el_downgrade_devuelve_las_awaiting_access_a_revision_antes_del_indice_viejo():
+    """El predicado viejo no conoce `awaiting_access`: sin el UPDATE esas filas
+    quedan atoradas en un estado que ningún código de antes lee, y fuera del
+    índice abren la puerta a una segunda solicitud viva del mismo par. El
+    UPDATE no puede violar el índice viejo: el nuevo ya impedía que una
+    `awaiting_access` conviviera con otra viva del mismo (convocatoria, control).
+    """
+    import importlib.util
+    import re
+    from pathlib import Path
+
+    import itcj2
+
+    ruta = (Path(itcj2.__file__).resolve().parent.parent / "migrations" / "versions"
+            / "tt20260924a_titulatec_enrollment_access.py")
+    spec = importlib.util.spec_from_file_location("_tt20260924a", ruta)
+    mig = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mig)
+
+    pasos = []
+
+    class _Op:
+        def execute(self, sql):
+            pasos.append(("execute", re.sub(r"\s+", " ", str(sql)).strip()))
+
+        def __getattr__(self, nombre):
+            return lambda *a, **k: pasos.append((nombre, a))
+
+    mig.op = _Op()
+    mig.downgrade()
+
+    sqls = [sql for tipo, sql in pasos if tipo == "execute"]
+    update = next(i for i, sql in enumerate(sqls) if sql.startswith("UPDATE"))
+    crea_viejo = next(i for i, sql in enumerate(sqls)
+                      if sql.startswith("CREATE UNIQUE INDEX")
+                      and "'awaiting_access'" not in sql)
+    assert update < crea_viejo, sqls
+    assert sqls[update] == ("UPDATE titulatec_enrollment_requests SET status = "
+                            "'pending_review' WHERE status = 'awaiting_access'")
+    assert "awaiting_access" in (mig.__doc__ or "").split("downgrade", 1)[-1], (
+        "el docstring de la migración debe decir qué hace el downgrade con esas filas")
+
+
 # ---------------------------------------------------------------------------
 # reject(): sella `rejection_sent_at` SOLO si el correo salió (2026-09-17)
 # ---------------------------------------------------------------------------
