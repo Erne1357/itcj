@@ -340,7 +340,7 @@
             </form>
             <p class="small mt-1 mb-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Su
                proceso se detiene, se cancela su cita de cotejo si tenía una y se le avisa por
-               correo con el motivo.</p>
+               correo; el motivo lo lee en la plataforma.</p>
             {% endif %}
           {% elif r.status == 'rejected' %}
             {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}

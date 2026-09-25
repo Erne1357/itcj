@@ -142,6 +142,10 @@ def test_la_fila_inscrita_ofrece_revocar_con_motivo_a_quien_tiene_el_permiso(
     assert "tt-btn-danger-ghost" in boton
     assert "se cancela su cita de cotejo" in _plano(fila)
     assert "se le avisa por correo" in _plano(fila)
+    # El correo NO lleva el motivo (`send_process_cancelled`, decisión D1 de
+    # Task 6): la línea no puede prometerlo; el motivo se lee en la plataforma.
+    assert "con el motivo" not in _plano(fila)
+    assert "el motivo lo lee en la plataforma" in _plano(fila)
 
 
 def test_sin_el_permiso_la_fila_inscrita_no_ofrece_revocar(client_as, make_head, esc):
