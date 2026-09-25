@@ -170,6 +170,54 @@ def test_el_rechazo_va_al_correo_personal_con_el_motivo(db_session, solicitud, c
     assert "No aparece en el padrón." in html
 
 
+def test_el_correo_de_alta_es_neutro_sobre_quien_dio_el_acceso(
+    db_session, make_student, solicitud, correo_falso,
+):
+    """Desde 2026-09-24 el NIP lo da Centro de Cómputo (o SE en el modo alterno):
+    el correo ya no dice «Servicios Escolares te dio de alta»."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    alumno = make_student(control_number="90000012")
+    req = solicitud(control_number="90000012", kind="unknown", status="converted")
+
+    assert TitulaTecEmailHelper.send_enrollment_approved(db_session, req, alumno,
+                                                         nip="4821") is True
+
+    (_asunto, _dest, html), = correo_falso
+    texto = _texto(html)
+    assert ("Tu solicitud fue aprobada y ya tienes acceso a la Plataforma Digital "
+            "del ITCJ.") in texto
+    assert "Servicios Escolares" not in texto
+    assert "Centro de Cómputo" not in texto
+
+
+@pytest.mark.parametrize("modo,revisor,otro", [
+    ("school_services", "Servicios Escolares", "Centro de Cómputo"),
+    ("computer_center", "Centro de Cómputo", "Servicios Escolares"),
+])
+def test_el_rechazo_nombra_a_quien_reviso_segun_el_modo(
+    db_session, solicitud, correo_falso, monkeypatch, modo, revisor, otro,
+):
+    """El helper calcula `reviewer_label()`; la firma pública no cambia."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: modo))
+    req = solicitud(control_number="90000013", kind="unknown", status="rejected")
+    req.review_note = "Motivo de prueba."
+    db_session.flush()
+
+    assert TitulaTecEmailHelper.send_enrollment_rejected(db_session, req) is True
+
+    (_asunto, _dest, html), = correo_falso
+    texto = _texto(html)
+    assert f"{revisor} revisó tu solicitud de inscripción" in texto
+    assert otro not in texto
+
+
 def _texto(html: str) -> str:
     """Texto plano del correo: sin etiquetas y con los espacios colapsados."""
     import re

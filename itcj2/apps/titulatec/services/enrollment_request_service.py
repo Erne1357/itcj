@@ -1,32 +1,44 @@
 """Solicitudes de auto-inscripción a una convocatoria de titulación.
 
-FLUJO (2026-09-15; manda sobre §6.6-6.10 del diseño original). Toda solicitud
-pasa por la bandeja de Servicios Escolares y el acceso llega SOLO por correo:
+FLUJO (2026-09-24; manda sobre el de 2026-09-15 y sobre §6.6-6.10 del diseño
+original; spec `2026-09-24-titulatec-accesos-centro-computo-design.md` §3).
+Toda solicitud pasa por una revisión y el acceso llega SOLO por correo. Quién
+revisa lo decide `reviewer_mode()` (TITULATEC_ENROLLMENT_REVIEWER): en el modo
+OFICIAL Servicios Escolares (SE) aprueba y Centro de Cómputo (CC) da el NIP; en
+el ALTERNO, CC hace las dos cosas en un paso.
 
-    create()  ─► pending_review                          sin token, sin correo
-    approve() ─┬─ SIN cuenta en core_users ─► converted   usuario + NIP al correo personal
-               └─ CON cuenta ───────────────► approved    liga de activación al correo personal
-    verify()  ─── approved y liga vigente ──► converted   proceso + rol graduate; folio al institucional
-               └─ falla una revalidación ───► pending_review  (review_note = motivo)
-    reject()  ─── pending_review | approved | legado ─► rejected  (la liga muere)
+    create()                 ─► pending_review                          (sin correo)
+    approve() [SE, oficial]  ─┬─ CON cuenta ─► approved                 liga al correo personal
+                              └─ SIN cuenta ─► awaiting_access          SIN correo
+    approve() [CC, alterno]  ─┬─ CON cuenta ─► approved                 liga
+                              └─ SIN cuenta ─► converted                usuario + NIP (un paso)
+    grant_access() [CC]      ─── awaiting_access ─┬─ SIN cuenta ─► converted  usuario + NIP
+                                                  └─ CON cuenta (D10) ─► approved  liga
+    return_to_review() [CC]  ─── awaiting_access ─► pending_review      return_note, sin correo
+    verify() [liga]          ─── approved ─► converted | pending_review (review_note)
+    reject() [SE | CC alt.]  ─── pending_review | awaiting_access | approved | legado
+                                 ─► rejected                            (correo; la liga muere)
 
-`unverified` y `verified` son estados LEGADO del flujo con liga previa: ya no se
-escriben, pero sus filas se pueden aprobar o rechazar desde la bandeja.
+El alumno no se entera de `awaiting_access`: ni correo al aprobar ni al
+devolver. `unverified` y `verified` son estados LEGADO del flujo con liga
+previa: ya no se escriben, pero sus filas se pueden aprobar o rechazar.
 
-"¿TIENE CUENTA?" SE DECIDE CONTRA `core_users` AL APROBAR, nunca con `kind` (que
-`create()` guarda solo para mostrar): si un CSV creó la cuenta después de enviado
-el formulario, la solicitud va por la rama con cuenta.
+"¿TIENE CUENTA?" SE DECIDE CONTRA `core_users` AL MOMENTO, nunca con `kind` (que
+`create()` guarda solo para mostrar): al aprobar y OTRA VEZ al dar acceso (D10).
+Si un CSV o un alta manual creó la cuenta entre SE y CC, «dar acceso» se desvía
+a la liga y el NIP se ignora: crear otra cuenta chocaría con la real y el NIP
+pisaría su contraseña.
 
 RIESGO ACEPTADO Y SU CONTENCIÓN (invariante; sustituye a los rulings R5, B1 y
 D17). La liga de una cuenta existente viaja al correo que TECLEÓ el solicitante:
 quien escriba un número de control ajeno con su correo y pase la revisión puede
 dejar inscrita a esa persona. Para que no escale:
 
-  1. Sobre una cuenta existente JAMÁS se escribe `password_hash`,
-     `must_change_password` ni `core_student_profile` a partir de la solicitud,
-     ni en `approve()` ni en `verify()`/`_convert()`. Lo único que recibe es el
-     proceso y los roles de egresado (`graduate`, que desplaza a `student`; ver
-     `ImportService.import_rows`).
+  1. Sobre una cuenta que NO creó la solicitud JAMÁS se escribe
+     `password_hash`, `must_change_password` ni `core_student_profile`, ni en
+     `approve()`, ni en `grant_access()`, ni en `verify()`/`_convert()`. Lo
+     único que recibe es el proceso y los roles de egresado (`graduate`, que
+     desplaza a `student`; ver `ImportService.import_rows`).
      EXCEPCIÓN APROBADA (2026-09-15): abrir la liga pasa `is_active` de False a
      True. Sin eso la persona quedaba inscrita sin poder entrar. El riesgo es
      reactivar una cuenta que alguien desactivó a propósito, y se contiene así:
@@ -44,7 +56,11 @@ dejar inscrita a esa persona. Para que no escale:
      también su canje (`confirm_contact`, `GET /titulatec/inscripcion/correo` y
      la plantilla). Sus columnas quedan en la BD como legado sin uso.
 
-Una cuenta NUEVA solo conoce su NIP por el correo que manda `approve()`.
+Una cuenta NUEVA solo conoce su NIP por el correo que manda `_mail_access()`
+(tras `grant_access` o el `approve` alterno). EL NIP NUNCA SALE de
+otra forma: ni al log, ni al `detalle` que la ruta pone en `X-Tt-Error`, ni al
+payload de un `ProcessEvent`. `access_sent_at` NULL con `access_granted_at`
+lleno es «correo no enviado».
 
 TOKEN (E7). La BD guarda SOLO `sha256(token)` y la comparación decisiva usa
 `hmac.compare_digest`. El texto claro vive en Redis bajo `tt:enroll:tok:<sha256>`
@@ -53,24 +69,27 @@ endpoint anónimo dejaría a un extraño matar la liga de otra persona. Sin esa
 copia el reenvío público falla CERRADO. La bandeja sí rota: su actor está
 autenticado y acotado por carrera.
 
-CORREO SIEMPRE DESPUÉS DEL COMMIT. `msgraph_mail` es un `requests.post`
-síncrono: dentro de la transacción retendría los advisory locks, y un correo
-mandado antes de un commit que falla habla de algo que no existe. Ningún método
-del helper lanza, así que un fallo de buzón no revierte nada ya commiteado.
+CORREO E INVALIDACIÓN DE AUTHZ SIEMPRE DESPUÉS DEL COMMIT. `msgraph_mail` es un
+`requests.post` síncrono: dentro de la transacción retendría los advisory
+locks, y un correo mandado antes de un commit que falla habla de algo que no
+existe. Ningún método del helper lanza, así que un fallo de buzón no revierte
+nada ya commiteado. El caché de authz, tirado antes del commit, lo repoblaría
+una lectura concurrente con los roles de antes.
 
 VENTANA (D5, spec 2026-09-24). `opens_at`/`closes_at` solo filtran el formulario
 público (`CohortService.is_public_enrollment_open`, en la ruta). Todo lo que
-sigue a una solicitud ya enviada —`approve`, `verify`/`_convert`, `resend_link`
-y `resend`— exige solo `status == 'open'`
+sigue a una solicitud ya enviada —`approve`, `grant_access`, `verify`/`_convert`,
+`resend_link` y `resend`— exige solo `status == 'open'`
 (`CohortService.accepts_enrollment_followup`): una convocatoria `closed` pausa
 sus procesos y tampoco emite ni canjea ligas, pero pasar `closes_at` no deja
 varada a nadie que entró a tiempo. La liga vive `_link_ttl_hours()`.
 
-CONCURRENCIA. Toda transición de una solicitud (`approve`, `verify`, `reject`,
-`resend_link`, `resend`) toma `pg_advisory_xact_lock(_REQUEST_LOCK_NS, req.id)`
-y hace `db.refresh(req)` ANTES de leer el estado: bajo READ COMMITTED, quien
-esperó el lock puede seguir teniendo en memoria el estado de antes de esperarlo.
-Los tests estructurales de cada método fijan ese orden.
+CONCURRENCIA. Toda transición de una solicitud (`approve`, `grant_access`,
+`return_to_review`, `verify`, `reject`, `resend_link`, `resend`) toma
+`pg_advisory_xact_lock(_REQUEST_LOCK_NS, req.id)` y hace `db.refresh(req)`
+ANTES de leer el estado: bajo READ COMMITTED, quien esperó el lock puede seguir
+teniendo en memoria el estado de antes de esperarlo. Los tests estructurales de
+cada método fijan ese orden.
 """
 from __future__ import annotations
 
@@ -88,17 +107,28 @@ from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
 
 logger = logging.getLogger("itcj2.apps.titulatec.enrollment_request")
 
-STATUSES = ("unverified", "verified", "pending_review", "approved", "rejected", "converted")
+STATUSES = ("unverified", "verified", "pending_review", "approved", "rejected", "converted",
+            "awaiting_access")
 
-# Desde dónde la bandeja aprueba (y rechaza, junto con `approved`).
+# Desde dónde la bandeja aprueba (y rechaza, junto con `approved` y
+# `awaiting_access`). `awaiting_access` NO es aprobable: SE ya la aprobó, y
+# volver a aprobarla da su propio motivo (`_MSG_IN_ACCESS`).
 _REVIEWABLE = ("pending_review", "unverified", "verified")
-_REJECTABLE = _REVIEWABLE + ("approved",)
+_REJECTABLE = _REVIEWABLE + ("approved", "awaiting_access")
 
-# Agrupa los 6 STATUSES en los 4 cubos que pinta la bandeja (KPIs y "por año de
+# Agrupa los 7 STATUSES en los 5 cubos que pinta la bandeja (KPIs y "por año de
 # ingreso", `EnrollmentRequestService.stats`): el legado `unverified`/`verified`
 # cuenta como "por revisar", igual que en `_TAB_STATUSES` de `pages/requests_admin.py`.
 _STATUS_GROUP = {s: "review" for s in _REVIEWABLE}
-_STATUS_GROUP.update(approved="sent", converted="converted", rejected="rejected")
+_STATUS_GROUP.update(awaiting_access="access", approved="sent", converted="converted",
+                     rejected="rejected")
+
+# Quién revisa en cada modo (`TITULATEC_ENROLLMENT_REVIEWER`); lo leen los textos
+# públicos y los correos vía `EnrollmentRequestService.reviewer_label()`.
+_REVIEWER_LABELS = {
+    "school_services": "Servicios Escolares",
+    "computer_center": "Centro de Cómputo",
+}
 
 # `control_number` -> año de ingreso, para el bloque "Por año de ingreso" de la
 # bandeja. `CONTROL_NUMBER_RE` (import_service.py) ya exige `^[A-Za-z]?\d{8}$`;
@@ -156,6 +186,9 @@ _MSG_NO_PASSWORD = ("Esa cuenta no tiene contraseña; dala de alta desde la conv
                     "y rechaza esta solicitud.")
 _MSG_NO_PROCESS = "No se pudo crear el proceso; revisa los datos de la solicitud."
 _MSG_ONLY_APPROVED = "Solo se reenvía la liga de solicitudes aprobadas."
+_MSG_IN_ACCESS = "Ya está en Centro de Cómputo para su acceso."
+_MSG_NOT_AWAITING = "Esa solicitud ya no está esperando acceso."
+_MSG_RETURN_NOTE = "Escribe el motivo de la devolución."
 _NOTE_LINK_COHORT_CLOSED = "La convocatoria estaba cerrada cuando se abrió la liga de activación."
 _NOTE_LINK_NO_ACCOUNT = "La cuenta de ese número de control ya no existe."
 _NOTE_LINK_NO_PROCESS = ("No se pudo crear el proceso al abrir la liga; revisa los datos "
@@ -309,43 +342,53 @@ class EnrollmentRequestService:
         return req, "created"
 
     @staticmethod
+    def reviewer_mode() -> str:
+        """`"school_services"` (oficial) o `"computer_center"` (alterno).
+
+        Sale de TITULATEC_ENROLLMENT_REVIEWER (+ reinicio; un valor inválido
+        truena al arrancar). Los tests parchean ESTE método, nunca `get_settings`.
+        """
+        from itcj2.config import get_settings
+
+        return get_settings().TITULATEC_ENROLLMENT_REVIEWER
+
+    @staticmethod
+    def reviewer_label() -> str:
+        """Nombre de quien revisa según el modo: «Servicios Escolares» | «Centro de Cómputo»."""
+        return _REVIEWER_LABELS[EnrollmentRequestService.reviewer_mode()]
+
+    @staticmethod
     def approve(db: Session, req_id: int, *, nip: str, program_id: int | None,
                 actor_id: int):
         """Aprueba una solicitud de la bandeja. Devuelve `(ok, detalle)`.
 
-        En éxito `detalle` es el folio (cuenta nueva) o `""` (liga emitida); en
-        fallo, el motivo que ve el oficial. Aprobable desde `pending_review` y el
-        legado `unverified`/`verified`.
+        En éxito `detalle` es el folio (cuenta nueva) o `""` (liga emitida o
+        pasó a Centro de Cómputo); en fallo, el motivo que ve el oficial.
+        Aprobable desde `pending_review` y el legado `unverified`/`verified`;
+        sobre `awaiting_access` devuelve `_MSG_IN_ACCESS`.
 
-        - SIN cuenta en `core_users`: NIP obligatorio -> usuario con
-          `hash_nip(nip)`, `must_change_password` y el alias legado `graduate`
-          -> proceso y roles de egresado (`import_rows`) -> perfil ->
+        - CON cuenta en `core_users` (ambos modos): el NIP se ignora -> liga de
+          activación (`_link_ttl_hours()`) al correo personal -> `approved`
+          (`_issue_link_for_account`). La cuenta no se toca, ni siquiera se
+          reactiva: eso lo hace abrir la liga (invariante 1 del módulo). Sin
+          `password_hash` no hay liga (invariante 2).
+        - SIN cuenta, modo OFICIAL: NO valida el NIP, NO crea usuario, NO manda
+          correo -> `awaiting_access`. El NIP lo da Centro de Cómputo
+          (`grant_access`).
+        - SIN cuenta, modo ALTERNO: NIP obligatorio -> `_create_account` ->
           `converted`; usuario + NIP al correo personal. El caché de authz de
-          esos roles se tira DESPUÉS del commit (`ImportService.invalidate_authz`).
-        - CON cuenta: el NIP se ignora -> liga de activación (`_link_ttl_hours()`,
-          21 días por omisión) al correo personal -> `approved`. La cuenta no se
-          toca, ni siquiera se reactiva: eso lo hace abrir la liga (invariante 1
-          del módulo). Sin `password_hash` no hay liga (invariante 2).
+          los roles nuevos se tira DESPUÉS del commit.
 
         La convocatoria solo tiene que estar `open`: pasada `closes_at` se sigue
         aprobando lo que entró a tiempo (VENTANA, en el módulo).
-
-        EL NIP NUNCA SALE DE AQUÍ: no se loguea, no va en `X-Tt-Error` (`detalle`
-        se emite tal cual en una cabecera) ni en el payload del `ProcessEvent`.
 
         INVARIANTE: `(False, motivo)` no deja NADA escrito, ni siquiera en la
         sesión. Toda validación ocurre antes de escribir, y la única que llega
         después (no se creó el proceso) deshace su savepoint.
         """
-        from itcj2.core.models.role import Role
         from itcj2.core.models.user import User
-        from itcj2.core.services.student_profile_service import StudentProfileService
-        from itcj2.core.utils.security import hash_nip
-        from itcj2.apps.titulatec.models import (
-            Cohort, EnrollmentRequest, ProcessEvent, TitulationProcess,
-        )
+        from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
         from itcj2.apps.titulatec.services.cohort_service import CohortService
-        from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
         from itcj2.apps.titulatec.services.import_service import ImportService
 
         req = db.get(EnrollmentRequest, req_id)
@@ -357,6 +400,8 @@ class EnrollmentRequestService:
 
         if req.status == "approved":
             return False, _MSG_ALREADY_APPROVED
+        if req.status == "awaiting_access":
+            return False, _MSG_IN_ACCESS
         if req.status not in _REVIEWABLE:
             return False, _MSG_RESOLVED
 
@@ -367,8 +412,7 @@ class EnrollmentRequestService:
             return False, _MSG_COHORT_CLOSED
 
         control = (req.control_number or "").strip()
-        full_name = _full_name(req)
-        if not CONTROL_NUMBER_RE.fullmatch(control) or not full_name:
+        if not CONTROL_NUMBER_RE.fullmatch(control) or not _full_name(req):
             return False, _MSG_BAD_DATA
 
         resolved_program_id = program_id if program_id else req.program_id
@@ -377,13 +421,9 @@ class EnrollmentRequestService:
 
         if user is not None:
             # ── CON cuenta: liga de activación; la cuenta no se toca ──
-            if _has_process_in_other_cohort(db, user.id, req.cohort_id):
-                return False, _MSG_OTHER_COHORT
-            if not user.password_hash:
-                return False, _MSG_NO_PASSWORD
-            raw = EnrollmentRequestService._issue_activation(req)
-            req.verify_send_count = 1
-            req.status = "approved"
+            ok, detalle, raw = EnrollmentRequestService._issue_link_for_account(db, req, user)
+            if not ok:
+                return False, detalle
             req.program_id = resolved_program_id
             req.reviewed_by_id = actor_id
             req.reviewed_at = now
@@ -392,15 +432,195 @@ class EnrollmentRequestService:
             EnrollmentRequestService._mail_activation(db, req, raw)
             return True, ""
 
-        # ── SIN cuenta: usuario nuevo con el NIP ──
+        if EnrollmentRequestService.reviewer_mode() != "computer_center":
+            # ── SIN cuenta, modo oficial: a Centro de Cómputo, sin correo ──
+            req.status = "awaiting_access"
+            req.program_id = resolved_program_id
+            req.reviewed_by_id = actor_id
+            req.reviewed_at = now
+            db.commit()
+            return True, ""
+
+        # ── SIN cuenta, modo alterno: usuario nuevo con el NIP, en un paso ──
+        ok, detalle, summary, user = EnrollmentRequestService._create_account(
+            db, req, cohort, nip=nip, program_id=resolved_program_id,
+            actor_id=actor_id, approved_by_id=actor_id)
+        if not ok:
+            return False, detalle
+        req.reviewed_by_id = actor_id
+        req.reviewed_at = now
+        db.commit()
+        # Después del commit: antes, una lectura concurrente repoblaría el caché
+        # de authz con los roles de antes de aprobar.
+        ImportService.invalidate_authz((summary or {}).get("authz_touched"))
+        EnrollmentRequestService._mail_access(db, req, user, nip)
+        return True, detalle
+
+    @staticmethod
+    def grant_access(db: Session, req_id: int, *, nip: str, actor_id: int):
+        """Centro de Cómputo da el acceso a una solicitud `awaiting_access`.
+
+        Devuelve `(ok, detalle)`: en éxito el folio (cuenta creada) o `""` (liga
+        emitida, D10); en fallo, el motivo que ve CC.
+
+        Lock + refresh ANTES de leer el estado. Revalida todo lo que pudo
+        cambiar desde que SE aprobó: que la convocatoria siga `open` (las fechas
+        no cuentan, VENTANA), el formato de los datos y —D10— "¿tiene cuenta?"
+        otra vez contra `core_users`:
+
+        - SIN cuenta: NIP de 4 dígitos -> `_create_account` -> `converted`;
+          commit, caché de authz, usuario + NIP al correo personal y sello de
+          `access_sent_at` si salió (`_mail_access`).
+        - CON cuenta (un CSV o un alta manual la creó entretanto): el NIP se
+          ignora -> la misma rama que `approve()` con cuenta
+          (`_issue_link_for_account`: D5 y contraseña) -> `approved`, liga al
+          correo personal. Sella `access_granted_*` (CC actuó y la fila vive en
+          su pestaña «Con acceso») pero NO `access_sent_at`: el envío de la liga
+          lo registra `verify_sent_at`.
+
+        `reviewed_by_id`/`reviewed_at` siguen siendo de SE: dar acceso no
+        reescribe quién aprobó.
+
+        INVARIANTE heredado de `approve()`: `(False, motivo)` no deja nada
+        escrito, y el NIP nunca sale (log, `detalle`, payload).
+        """
+        from itcj2.core.models.user import User
+        from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
+        from itcj2.apps.titulatec.services.cohort_service import CohortService
+        from itcj2.apps.titulatec.services.import_service import ImportService
+
+        req = db.get(EnrollmentRequest, req_id)
+        if req is None:
+            return False, _MSG_GONE
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns, :key)"),
+                   {"ns": _REQUEST_LOCK_NS, "key": int(req.id)})
+        db.refresh(req)
+
+        if req.status != "awaiting_access":
+            return False, _MSG_NOT_AWAITING
+
+        cohort = db.get(Cohort, req.cohort_id)
+        if cohort is None:
+            return False, _MSG_NO_COHORT
+        if not CohortService.accepts_enrollment_followup(cohort):
+            return False, _MSG_COHORT_CLOSED
+
+        control = (req.control_number or "").strip()
+        if not CONTROL_NUMBER_RE.fullmatch(control) or not _full_name(req):
+            return False, _MSG_BAD_DATA
+
+        user = db.query(User).filter_by(control_number=control).first()
+        if user is not None:
+            # ── D10: apareció una cuenta; liga, el NIP se ignora ──
+            ok, detalle, raw = EnrollmentRequestService._issue_link_for_account(db, req, user)
+            if not ok:
+                return False, detalle
+            req.access_granted_by_id = actor_id
+            req.access_granted_at = datetime.now()
+            db.commit()
+            _token_cache_put(raw)
+            EnrollmentRequestService._mail_activation(db, req, raw)
+            return True, ""
+
+        ok, detalle, summary, user = EnrollmentRequestService._create_account(
+            db, req, cohort, nip=nip, program_id=req.program_id,
+            actor_id=actor_id, approved_by_id=req.reviewed_by_id)
+        if not ok:
+            return False, detalle
+        db.commit()
+        ImportService.invalidate_authz((summary or {}).get("authz_touched"))
+        EnrollmentRequestService._mail_access(db, req, user, nip)
+        return True, detalle
+
+    @staticmethod
+    def return_to_review(db: Session, req_id: int, *, note: str, actor_id: int):
+        """Centro de Cómputo devuelve a SE una solicitud `awaiting_access`.
+
+        Devuelve `(ok, detalle)`. Nota obligatoria (se recorta a 2000, como el
+        motivo de `reject`); la solicitud vuelve a `pending_review` con
+        `returned_by_id`/`returned_at`/`return_note`. `reviewed_*` y
+        `review_note` no se tocan (son de SE). SIN correo: el alumno no se
+        entera del paso intermedio.
+        """
+        from itcj2.apps.titulatec.models import EnrollmentRequest
+
+        motivo = (note or "").strip()
+        if not motivo:
+            return False, _MSG_RETURN_NOTE
+        req = db.get(EnrollmentRequest, req_id)
+        if req is None:
+            return False, _MSG_GONE
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns, :key)"),
+                   {"ns": _REQUEST_LOCK_NS, "key": int(req.id)})
+        db.refresh(req)
+
+        if req.status != "awaiting_access":
+            return False, _MSG_NOT_AWAITING
+
+        req.status = "pending_review"
+        req.returned_by_id = actor_id
+        req.returned_at = datetime.now()
+        req.return_note = motivo[:2000]
+        db.commit()
+        return True, ""
+
+    @staticmethod
+    def _issue_link_for_account(db: Session, req, user):
+        """Rama CON cuenta de `approve()` y de `grant_access()` (D10).
+
+        Devuelve `(ok, detalle, raw)`. Valida D5 (la cuenta ya tiene proceso en
+        OTRA convocatoria) y la contraseña (invariante 2) ANTES de escribir; en
+        éxito emite la liga (`_issue_activation`), fija el contador y deja la
+        solicitud `approved`. No toca la cuenta, no commitea ni manda: el
+        llamador sella sus columnas, commitea, cachea el claro y manda
+        (`_mail_activation`), en ese orden.
+        """
+        if _has_process_in_other_cohort(db, user.id, req.cohort_id):
+            return False, _MSG_OTHER_COHORT, None
+        if not user.password_hash:
+            return False, _MSG_NO_PASSWORD, None
+        raw = EnrollmentRequestService._issue_activation(req)
+        req.verify_send_count = 1
+        req.status = "approved"
+        return True, "", raw
+
+    @staticmethod
+    def _create_account(db: Session, req, cohort, *, nip: str, program_id: int | None,
+                        actor_id: int, approved_by_id: int | None):
+        """Crea la cuenta NUEVA de una solicitud sin cuenta. `(ok, detalle, summary, user)`.
+
+        Lo usan `approve()` (modo alterno) y `grant_access()`. NIP de 4 dígitos
+        -> `User` con `hash_nip(nip)` (nunca `set_initial_credential`, que
+        pondría el número de control, dato público), `must_change_password` y el
+        alias legado `graduate` -> proceso y roles de egresado (`import_rows`
+        con `commit=False` y `repair_credentials=False`) -> perfil -> solicitud
+        `converted` con `access_granted_*` -> `ProcessEvent` con
+        `approved_by_id` (quien aprobó) y `granted_by_id` (quien dio el acceso),
+        SIN el NIP.
+
+        Todo corre en un SAVEPOINT: si no se crea el proceso se deshace y
+        devuelve `(False, _MSG_NO_PROCESS, None, None)` sin dejar nada escrito;
+        una excepción lo deshace y sube. No commitea, no tira el caché de authz
+        ni manda correo: eso es del llamador, después de SU commit, con
+        `summary["authz_touched"]` y `_mail_access`.
+        """
+        from itcj2.core.models.role import Role
+        from itcj2.core.models.user import User
+        from itcj2.core.services.student_profile_service import StudentProfileService
+        from itcj2.core.utils.security import hash_nip
+        from itcj2.apps.titulatec.models import ProcessEvent, TitulationProcess
+        from itcj2.apps.titulatec.services.import_service import (
+            GRADUATE_ROLE, ImportService,
+        )
+
         if not re.fullmatch(r"\d{4}", nip or ""):
-            return False, _MSG_BAD_NIP
+            return False, _MSG_BAD_NIP, None, None
+        control = (req.control_number or "").strip()
 
         savepoint = db.begin_nested()
         try:
             # El alias legado nace `graduate`: el mismo que `import_rows` le deja
             # a una cuenta que ya existía (`_sync_graduate_roles`).
-            from itcj2.apps.titulatec.services.import_service import GRADUATE_ROLE
             graduate_role = db.query(Role).filter_by(name=GRADUATE_ROLE).first()
             user = User(
                 username=control, control_number=control,
@@ -414,14 +634,14 @@ class EnrollmentRequestService:
             db.add(user)
             db.flush()
 
-            # `commit=False`: `import_rows` solo hace `flush` y esta función es
-            # dueña única de su transacción (Finding 2, ronda 1 de revisión).
-            # Por lo mismo, el caché de authz de los roles que deja lo tira ESTA
-            # función después de su commit, con los pares del summary.
+            # `commit=False`: `import_rows` solo hace `flush` y el llamador es
+            # dueño único de su transacción (Finding 2, ronda 1 de revisión).
+            # Por lo mismo, el caché de authz de los roles que deja lo tira el
+            # llamador después de su commit, con los pares del summary.
             summary = ImportService.import_rows(
                 db, cohort,
-                [{"control_number": control, "full_name": full_name, "email": None,
-                  "program_id": resolved_program_id, "modality_id": None}],
+                [{"control_number": control, "full_name": _full_name(req), "email": None,
+                  "program_id": program_id, "modality_id": None}],
                 actor_id=actor_id, source="enrollment_request",
                 repair_credentials=False, commit=False,
             )
@@ -429,7 +649,7 @@ class EnrollmentRequestService:
                     .filter_by(student_id=user.id, cohort_id=req.cohort_id).first())
             if proc is None:
                 savepoint.rollback()
-                return False, _MSG_NO_PROCESS
+                return False, _MSG_NO_PROCESS, None, None
 
             # El perfil de un usuario recién creado sí se llena: es lo único que
             # se sabe de él y no pisa nada de nadie.
@@ -437,20 +657,23 @@ class EnrollmentRequestService:
                 db, user.id,
                 contact_email=req.contact_email, phone=req.phone,
                 has_efirma=req.has_efirma, program_text=req.program_text,
-                program_id=resolved_program_id,
+                program_id=program_id,
             )
+            now = datetime.now()
             req.status = "converted"
-            req.program_id = resolved_program_id
-            req.reviewed_by_id = actor_id
-            req.reviewed_at = now
+            req.program_id = program_id
             req.converted_process_id = proc.id
+            req.access_granted_by_id = actor_id
+            req.access_granted_at = now
             db.add(ProcessEvent(
                 process_id=proc.id, actor_id=actor_id,
                 event_type="enrollment_self_service", phase_number=0,
                 # Se muestra en el expediente: aquí NO va el NIP.
                 payload={"request_id": req.id, "folio": proc.folio,
                          "preexisting_process": False, "reviewed": True,
-                         "activation": "nip_personal_email"},
+                         "activation": "nip_personal_email",
+                         "approved_by_id": approved_by_id,
+                         "granted_by_id": actor_id},
             ))
             folio = proc.folio
             savepoint.commit()
@@ -458,12 +681,32 @@ class EnrollmentRequestService:
             if savepoint.is_active:
                 savepoint.rollback()
             raise
-        db.commit()
-        # Después del commit: antes, una lectura concurrente repoblaría el caché
-        # de authz con los roles de antes de aprobar.
-        ImportService.invalidate_authz((summary or {}).get("authz_touched"))
-        TitulaTecEmailHelper.send_enrollment_approved(db, req, user, nip=nip)
-        return True, folio
+        return True, folio, summary, user
+
+    @staticmethod
+    def _mail_access(db: Session, req, user, nip: str) -> bool:
+        """Manda usuario + NIP al correo personal. Llamar SOLO después del commit.
+
+        Si el correo sale, sella `access_sent_at` en un commit propio (mismo
+        patrón que `_mail_activation`/`verify_sent_at`); si no, la fila queda
+        con `access_granted_at` y sin `access_sent_at`: «correo no enviado».
+        Un fallo al sellar no deshace nada: el correo ya salió.
+        """
+        from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+        rid = req.id
+        ok = TitulaTecEmailHelper.send_enrollment_approved(db, req, user, nip=nip)
+        if ok:
+            try:
+                req.access_sent_at = datetime.now()
+                db.commit()
+            except Exception:
+                logger.warning("No se pudo sellar el envío del acceso de la solicitud %s", rid)
+                try:
+                    db.rollback()
+                except Exception:      # pragma: no cover - sesión ya inservible
+                    pass
+        return ok
 
     @staticmethod
     def verify(db: Session, token: str):
@@ -660,9 +903,11 @@ class EnrollmentRequestService:
     def reject(db: Session, req_id: int, *, note: str, actor_id: int) -> bool:
         """Rechaza con motivo obligatorio. `True` si se rechazó.
 
-        Aplica desde `pending_review`, `approved` (cancela una liga en camino) y
+        Aplica desde `pending_review`, `awaiting_access` (SE cancela una que
+        esperaba a Centro de Cómputo), `approved` (cancela una liga en camino) y
         el legado. La liga muere en BD y en Redis; el motivo se manda al correo
-        personal después del commit. El índice parcial deja volver a intentar.
+        personal después del commit, firmado por `reviewer_label()`. El índice
+        parcial deja volver a intentar.
 
         Si el correo SALE, sella `rejection_sent_at` en un commit propio, mismo
         patrón que `_mail_activation`/`verify_sent_at`: un fallo al sellar no
@@ -880,7 +1125,8 @@ class EnrollmentRequestService:
 
         - `counts`: conteos de SOLICITUDES (una fila = una solicitud) agrupados con
           `_STATUS_GROUP` — `total`, `review` (por revisar, incluido el legado),
-          `sent` (liga enviada), `converted` (inscritas), `rejected`. Mismo alcance
+          `access` (en Centro de Cómputo, `awaiting_access`), `sent` (liga
+          enviada), `converted` (inscritas), `rejected`. Mismo alcance
           y `cohort_id` que el listado, pero SIN filtro de pestaña ni el límite de
           300 filas: es el universo completo de la convocatoria (o de todas).
         - `by_year`: una entrada por año de ingreso (`entry_year`, orden
@@ -895,7 +1141,8 @@ class EnrollmentRequestService:
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest
 
-        counts = {"total": 0, "review": 0, "sent": 0, "converted": 0, "rejected": 0}
+        counts = {"total": 0, "review": 0, "access": 0, "sent": 0, "converted": 0,
+                  "rejected": 0}
         if scope != "ALL" and not scope:
             return {"counts": counts, "by_year": [], "year_max": 0}
 
@@ -929,7 +1176,7 @@ class EnrollmentRequestService:
                 # son 4 dígitos: sirven tal cual.
                 slug = year if year != "Sin año" else "sin-anio"
                 years[year] = {"year": year, "slug": slug, "total": 0, "review": 0,
-                               "sent": 0, "converted": 0, "rejected": 0}
+                               "access": 0, "sent": 0, "converted": 0, "rejected": 0}
             bucket = years[year]
             bucket["total"] += 1
             bucket[_STATUS_GROUP.get(status, "review")] += 1

@@ -202,7 +202,11 @@ class TitulaTecEmailHelper:
 
     @staticmethod
     def send_enrollment_approved(db: Session, req, user, *, nip: str) -> bool:
-        """Alta de una cuenta NUEVA aprobada: usuario + NIP + cambio obligatorio (D16).
+        """Alta de una cuenta NUEVA: usuario + NIP + cambio obligatorio (D16).
+
+        Lo manda `EnrollmentRequestService._mail_access` tras dar el acceso
+        (Centro de Cómputo, o la aprobación en el modo alterno) y al reasignar
+        el NIP. El texto es NEUTRO sobre quién dio el acceso.
 
         Al correo PERSONAL: un egresado de 2005 no tiene institucional vivo. El
         NIP viaja SOLO aquí — nunca al log, ni a `X-Tt-Error`, ni al payload de
@@ -222,11 +226,15 @@ class TitulaTecEmailHelper:
 
     @staticmethod
     def send_enrollment_rejected(db: Session, req) -> bool:
-        """Rechazo con motivo, al correo personal."""
+        """Rechazo con motivo, al correo personal, firmado por quien revisa según
+        el modo (`EnrollmentRequestService.reviewer_label()`)."""
         try:
+            from itcj2.apps.titulatec.services.enrollment_request_service import (
+                EnrollmentRequestService,
+            )
             return _deliver(
                 template="enrollment_rejected.html",
-                context={"req": req},
+                context={"req": req, "revisor": EnrollmentRequestService.reviewer_label()},
                 subject="[TitulaTec ITCJ] Sobre tu solicitud de inscripción",
                 to=req.contact_email, que="enrollment_rejected",
             )

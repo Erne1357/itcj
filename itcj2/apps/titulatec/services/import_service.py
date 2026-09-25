@@ -497,13 +497,15 @@ class ImportService:
         commit. Con `commit=False` todavía no hay nada commiteado: los pares
         `(user_id, app_key)` que cambiaron viajan en `summary["authz_touched"]` y
         el llamador llama a `ImportService.invalidate_authz` DESPUÉS de su propio
-        commit (`EnrollmentRequestService.approve` y `.verify` lo hacen).
+        commit (`EnrollmentRequestService.approve`, `.grant_access` y `.verify`
+        lo hacen).
 
         `repair_credentials=False` apaga `set_initial_credential` en LOS DOS
         caminos (alta nueva y reparación del que venía con `password_hash` NULL).
         La credencial inicial ES el número de control, que es dato público: la
-        auto-inscripción y la aprobación de bandeja fijan la contraseña con el
-        NIP que captura Servicios Escolares (D15) y por eso apagan esto. El
+        auto-inscripción fija la contraseña con el NIP que captura quien da el
+        acceso —Centro de Cómputo en `grant_access`, o quien aprueba en el modo
+        alterno (D15, D9 del spec 2026-09-24)— y por eso apaga esto. El
         llamador que lo apague es dueño de la credencial.
 
         `commit=False` deja la transacción en manos del llamador: se hace

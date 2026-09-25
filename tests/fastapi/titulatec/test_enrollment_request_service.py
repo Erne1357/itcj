@@ -142,7 +142,11 @@ def test_constantes_del_contrato():
     assert mod.MIN_SECONDS_BETWEEN_SENDS == 300
     assert mod.MAX_PUBLIC_BODY_BYTES == 256 * 1024
     assert mod.STATUSES == (
-        "unverified", "verified", "pending_review", "approved", "rejected", "converted")
+        "unverified", "verified", "pending_review", "approved", "rejected", "converted",
+        "awaiting_access")
+    assert "awaiting_access" in mod._REJECTABLE, "SE cancela una que espera a Cómputo"
+    assert "awaiting_access" not in mod._REVIEWABLE, "SE ya la aprobó"
+    assert mod._STATUS_GROUP["awaiting_access"] == "access"
     assert mod.CONTROL_NUMBER_RE is re_original, (
         "CONTROL_NUMBER_RE debe ser el MISMO objeto que import_service.py: dos "
         "regex que divergen validarian numeros de control distinto segun la "
@@ -709,7 +713,8 @@ def test_stats_agrupa_solicitudes_por_estado_sin_pestana_ni_limite(db_session, m
 
     cohort = make_cohort()
     for i, status in enumerate(
-        ("pending_review", "unverified", "verified", "approved", "converted", "rejected"),
+        ("pending_review", "unverified", "verified", "approved", "converted", "rejected",
+         "awaiting_access"),
         start=1,
     ):
         _fila(db_session, cohort, control=f"9970{i:04d}", status=status)
@@ -720,8 +725,12 @@ def test_stats_agrupa_solicitudes_por_estado_sin_pestana_ni_limite(db_session, m
     stats = EnrollmentRequestService.stats(db_session, scope="ALL", cohort_id=cohort.id)
 
     assert stats["counts"] == {
-        "total": 6, "review": 3, "sent": 1, "converted": 1, "rejected": 1,
+        "total": 7, "review": 3, "access": 1, "sent": 1, "converted": 1, "rejected": 1,
     }
+    for anio in stats["by_year"]:
+        assert set(anio) == {"year", "slug", "total", "review", "access", "sent",
+                             "converted", "rejected"}
+    assert sum(a["access"] for a in stats["by_year"]) == 1
 
 
 def test_stats_respeta_el_alcance_por_carrera(db_session, make_cohort, make_program):
@@ -751,7 +760,8 @@ def test_stats_con_alcance_vacio_devuelve_todo_en_cero_sin_reventar(db_session, 
     stats = EnrollmentRequestService.stats(db_session, scope=set())
 
     assert stats == {
-        "counts": {"total": 0, "review": 0, "sent": 0, "converted": 0, "rejected": 0},
+        "counts": {"total": 0, "review": 0, "access": 0, "sent": 0, "converted": 0,
+                   "rejected": 0},
         "by_year": [], "year_max": 0,
     }
 

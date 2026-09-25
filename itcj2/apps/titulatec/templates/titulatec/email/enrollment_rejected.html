@@ -3,7 +3,7 @@
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ req.first_name|e }} {{ req.last_name|e }}</strong>,</p>
 <p style="margin:0 0 20px;">
-  Servicios Escolares revisó tu solicitud de inscripción con el número de control
+  {{ revisor|e }} revisó tu solicitud de inscripción con el número de control
   <strong>{{ req.control_number|e }}</strong> y <strong>no pudo aprobarla</strong>. El motivo:
 </p>
 <table width="100%" cellpadding="0" cellspacing="0"
@@ -13,7 +13,7 @@
   </td></tr>
 </table>
 <p style="margin:0;color:#607D8B;font-size:13px;">
-  Puedes corregir lo señalado y volver a enviar el formulario, o acudir a Servicios
-  Escolares con tu documentación.
+  Puedes corregir lo señalado y volver a enviar el formulario, o acudir a
+  {{ revisor|e }} con tu documentación.
 </p>
 {% endblock %}
