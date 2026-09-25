@@ -676,3 +676,46 @@ def test_computer_center_mapeo_puesto_rol_lo_negativo():
     assert comp_center_en_admin == {"head_comp_center"}, (
         f"entre los puestos *_comp_center, SOLO head_comp_center deberia "
         f"estar en el bloque admin (hay {sorted(comp_center_en_admin)})")
+
+
+# Los ARRAY de Servicios Escolares en el 03, EXACTOS. Revocar inscripcion
+# (spec 2026-09-25-titulatec-elegibilidad-sii §3.6) les suma
+# `titulatec.process.api.cancel`, que antes solo tenian los dos roles de
+# Titulacion. El resto de lo que reciben (enrollment_request.*,
+# requirement.mark) llega por el delta `survey_2026_09/10`, no por aqui.
+PERMISOS_SE_OPERATIVO_03 = (
+    "titulatec.dashboard.school_services",
+    "titulatec.process.page.list", "titulatec.process.page.detail",
+    "titulatec.process.api.approve_phase", "titulatec.process.api.reject_phase",
+    "titulatec.process.api.cancel",
+    "titulatec.document.api.read.all", "titulatec.document.api.approve",
+    "titulatec.document.api.reject",
+    "titulatec.appointment.page.list", "titulatec.appointment.api.create",
+    "titulatec.appointment.api.update",
+    "titulatec.appointment.api.mark_attended", "titulatec.appointment.api.reschedule",
+    "titulatec.document.page.list",
+    "titulatec.notifications.api.read.own", "titulatec.notifications.api.mark_read",
+)
+PERMISOS_SE_JEFATURA_03 = PERMISOS_SE_OPERATIVO_03 + (
+    "titulatec.process.api.read.all",
+    "titulatec.cohort.page.list", "titulatec.cohort.page.detail", "titulatec.cohort.api.read",
+    "titulatec.cohort.api.create", "titulatec.cohort.api.update",
+    "titulatec.cohort.api.import_csv",
+    "titulatec.officers.page.list", "titulatec.officers.api.manage",
+    "titulatec.cohort.api.review_days",
+)
+
+
+@requires_dml
+def test_servicios_escolares_puede_revocar_inscripciones():
+    """Spec 2026-09-25-titulatec-elegibilidad-sii §3.6: el permiso existente
+    `titulatec.process.api.cancel` se concede ademas a los roles de SE. El
+    operativo queda acotado por carrera en la ruta (`assert_process_in_scope`),
+    igual que el resto de su dictamen. Ningun DELETE del 03 lo revoca."""
+    tres = re.sub(r"--[^\n]*", "",
+                  (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8"))
+
+    assert _grants_de_rol(tres, "titulatec_school_services") == set(PERMISOS_SE_OPERATIVO_03)
+    assert _grants_de_rol(tres, "titulatec_school_services_head") == set(PERMISOS_SE_JEFATURA_03)
+    for m in re.finditer(r"DELETE\s+FROM\s+core_role_permissions[^;]*;", tres):
+        assert "process.api.cancel" not in m.group(0)
