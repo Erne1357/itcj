@@ -799,43 +799,39 @@ def _verify_computer_center() -> list[str]:
                 f"de Accesos (faltan {sorted(faltan)}, sobran {sorted(sobran)})"
             )
 
-        puestos_del_rol = {
-            row[0]
-            for row in conn.execute(
-                text(
-                    "SELECT pos.code FROM core_position_app_roles par "
-                    "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
-                    "  JOIN core_roles r ON r.id = par.role_id "
-                    "  JOIN core_positions pos ON pos.id = par.position_id "
-                    " WHERE r.name = :rol"
-                ),
-                {"rol": _ROL_COMPUTER_CENTER},
-            )
-        }
-        faltan_mapeo = {_PUESTO_HEAD_COMP_CENTER, _PUESTO_SECRETARY_COMP_CENTER} - puestos_del_rol
+        # Mapeo puesto→rol para los dos roles que nos importan aquí, con la
+        # MISMA consulta parametrizada (patrón de `_verify_titulacion`:
+        # ~639-653) en vez de repetirla una vez por rol.
+        puestos_de_rol = {}
+        for rol in (_ROL_COMPUTER_CENTER, _ROL_ADMIN):
+            puestos_de_rol[rol] = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        "SELECT pos.code FROM core_position_app_roles par "
+                        "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
+                        "  JOIN core_roles r ON r.id = par.role_id "
+                        "  JOIN core_positions pos ON pos.id = par.position_id "
+                        " WHERE r.name = :rol"
+                    ),
+                    {"rol": rol},
+                )
+            }
+
+        faltan_mapeo = (
+            {_PUESTO_HEAD_COMP_CENTER, _PUESTO_SECRETARY_COMP_CENTER}
+            - puestos_de_rol[_ROL_COMPUTER_CENTER]
+        )
         if faltan_mapeo:
             problemas.append(
                 f"mapeo puesto→rol de {_ROL_COMPUTER_CENTER}: faltan "
-                f"{sorted(faltan_mapeo)} (hay {sorted(puestos_del_rol)})"
+                f"{sorted(faltan_mapeo)} (hay {sorted(puestos_de_rol[_ROL_COMPUTER_CENTER])})"
             )
 
-        puestos_admin = {
-            row[0]
-            for row in conn.execute(
-                text(
-                    "SELECT pos.code FROM core_position_app_roles par "
-                    "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
-                    "  JOIN core_roles r ON r.id = par.role_id "
-                    "  JOIN core_positions pos ON pos.id = par.position_id "
-                    " WHERE r.name = :rol"
-                ),
-                {"rol": _ROL_ADMIN},
-            )
-        }
-        if _PUESTO_HEAD_COMP_CENTER not in puestos_admin:
+        if _PUESTO_HEAD_COMP_CENTER not in puestos_de_rol[_ROL_ADMIN]:
             problemas.append(
                 f"mapeo puesto→rol de {_ROL_ADMIN}: falta {_PUESTO_HEAD_COMP_CENTER} "
-                f"(hay {sorted(puestos_admin)})"
+                f"(hay {sorted(puestos_de_rol[_ROL_ADMIN])})"
             )
 
     return problemas
