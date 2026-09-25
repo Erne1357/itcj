@@ -524,6 +524,11 @@ def test_el_nip_no_sale_ni_en_el_log_ni_en_el_retorno_ni_en_el_payload(
     assert resultado[0] is True
     assert NIP not in repr(resultado)
     assert NIP not in caplog.text
+    # Control positivo: sin esto, un caplog que no captura nada (nivel mal
+    # puesto, handler que no llegó) daria el mismo "NIP not in caplog.text"
+    # por una razon completamente distinta. `_deliver` (email_helper.py:132)
+    # SI debe dejar esta linea con el correo mockeado (`correo_falso`).
+    assert "enrollment_approved" in caplog.text
     eventos = (db_session.query(ProcessEvent)
                .filter_by(process_id=req.converted_process_id).all())
     assert eventos
@@ -862,6 +867,9 @@ def test_reasignar_nip_reescribe_la_contrasena_y_reenvia(
     assert ev.actor_id == otro_cc.id
     assert ev.payload == {"request_id": req.id}
     assert "2604" not in caplog.text
+    # Control positivo (mismo motivo que arriba): la captura de logs si
+    # funciona, y `_deliver` si dejo su linea con el correo mockeado.
+    assert "enrollment_approved" in caplog.text
 
 
 def test_reasignar_nip_commitea_antes_de_mandar_y_sin_correo_sigue_no_enviado(
