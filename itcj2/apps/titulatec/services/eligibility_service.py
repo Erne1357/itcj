@@ -81,6 +81,11 @@ _MSG_NOT_APT = "La consulta vigente del SII no es apta."
 _MSG_IN_WINDOW = "Sigue dentro de la ventana de veto de la aprobación automática."
 _MSG_AUTO_OFF = "La aprobación automática está apagada en esa convocatoria."
 _MSG_SII_UNREACHABLE = "No se pudo consultar el NIP en el SII; se reintentará."
+# Veredicto `apt` de otra versión de reglas o más viejo que el tope: no aprueba,
+# se encola una consulta nueva (revisión final C5, spec §8). El barrido lo
+# cuenta como reconsulta.
+_MSG_STALE_VERDICT = ("El veredicto del SII es de otras reglas o ya es viejo: se "
+                      "reconsulta antes de aprobarla.")
 # `review_note` cuando la aprobación automática necesita a una persona.
 _NOTE_SII_NO_NIP = "El SII no devolvió NIP."
 # La consulta del NIP falló por configuración (columna de `[credential]` mal
@@ -211,6 +216,24 @@ def _leave_note(db: Session, req, note: str):
     return False, note
 
 
+def _verdict_stale(chk, *, version: str | None, now: datetime, delay: int,
+                   max_age: int) -> bool:
+    """¿El veredicto `chk` ya no sirve para aprobar solo? (revisión final C5)
+
+    Sí si es de OTRA versión de reglas que la vigente (`version`; `None` = las
+    reglas no cargan: tampoco se aprueba con un veredicto que no se puede
+    cotejar) o si terminó hace más de `max_age` horas contadas desde que
+    venció su ventana de veto (`delay`): con ventana > 0 el veredicto
+    necesariamente tiene `delay` horas al aprobarse, y contarlas lo reconsultaría
+    en bucle.
+    """
+    if version is None or chk.rules_version != version:
+        return True
+    if chk.finished_at is None:
+        return True
+    return chk.finished_at + timedelta(hours=delay + max_age) < now
+
+
 def _lock(db: Session, req_id: int) -> None:
     """El MISMO lock por solicitud que `EnrollmentRequestService`."""
     from itcj2.apps.titulatec.services.enrollment_request_service import _REQUEST_LOCK_NS
@@ -336,6 +359,50 @@ class EligibilityService:
         return get_settings().TITULATEC_SII_MAX_ATTEMPTS
 
     @staticmethod
+    def verdict_max_age_hours() -> int:
+        """Edad máxima de un veredicto apto para aprobar solo
+        (TITULATEC_SII_VERDICT_MAX_AGE_HOURS), desde que vence la ventana."""
+        from itcj2.config import get_settings
+
+        return get_settings().TITULATEC_SII_VERDICT_MAX_AGE_HOURS
+
+    @staticmethod
+    def rules_version() -> str | None:
+        """La `version` de las reglas vigentes, o `None` si no cargan."""
+        from itcj2.apps.titulatec.services.sii import client as sii_client
+        from itcj2.apps.titulatec.services.sii.errors import SiiError
+        from itcj2.apps.titulatec.services.sii.rules import RuleSet
+
+        try:
+            return RuleSet.load(sii_client.SiiConfig.rules_dir()).version or None
+        except SiiError:
+            return None
+
+    @staticmethod
+    def stale_apt_count(db: Session, cohort_id: int, *, now: datetime | None = None) -> int:
+        """Solicitudes `pending_review` de la convocatoria, aptas y sin nota, cuyo
+        veredicto ya no sirve para aprobar solo (`_verdict_stale`): las que el
+        barrido reconsultará antes de aprobar. El aviso del interruptor lo dice
+        al encenderlo (revisión final C5)."""
+        from itcj2.apps.titulatec.models import EligibilityCheck, EnrollmentRequest
+
+        EC, ER = EligibilityCheck, EnrollmentRequest
+        aptas = (db.query(EC)
+                 .join(ER, ER.last_check_id == EC.id)
+                 .filter(ER.cohort_id == cohort_id, ER.status == "pending_review",
+                         ER.review_note.is_(None), EC.status == "apt")
+                 .all())
+        if not aptas:
+            return 0
+        version = EligibilityService.rules_version()
+        now = now or datetime.now()
+        delay = EligibilityService.delay_hours()
+        max_age = EligibilityService.verdict_max_age_hours()
+        return sum(1 for chk in aptas
+                   if _verdict_stale(chk, version=version, now=now, delay=delay,
+                                     max_age=max_age))
+
+    @staticmethod
     def latest_check(db: Session, req):
         """La consulta VIGENTE de la solicitud (`last_check_id`), o `None`."""
         from itcj2.apps.titulatec.models import EligibilityCheck
@@ -436,6 +503,10 @@ class EligibilityService:
         es inyectable), que la convocatoria siga `open` y con
         `sii_auto_approve` encendido (Review Focus 5: SE pudo cerrarla o
         apagarlo dentro de la ventana). Si algo de eso falla no escribe nada.
+        Un veredicto de OTRA versión de reglas o más viejo que
+        `verdict_max_age_hours()` (desde que venció la ventana) no aprueba:
+        encola una consulta nueva (`force`) tras soltar el lock
+        (`_MSG_STALE_VERDICT`; revisión final C5).
         Si el NOMBRE tecleado no es el del SII, o no se pudo comparar
         (`identity_block`: sin `[identity]`, columna mal escrita, nombre vacío),
         no aprueba y deja la nota: la cuenta nueva solo nace con un nombre que
@@ -492,6 +563,13 @@ class EligibilityService:
             return _no(motivo)
         if not cohort.sii_auto_approve:
             return _no(_MSG_AUTO_OFF)
+        if _verdict_stale(chk, version=EligibilityService.rules_version(),
+                          now=now or datetime.now(), delay=delay,
+                          max_age=EligibilityService.verdict_max_age_hours()):
+            # Después del commit de `_no` (suelta el lock): la tarea lo toma.
+            resultado = _no(_MSG_STALE_VERDICT)
+            enqueue_check(req.id, force=True)
+            return resultado
         bloqueo = identity_block(chk)
         if bloqueo:
             return _leave_note(db, req, bloqueo)
@@ -532,7 +610,9 @@ class EligibilityService:
           cuando se corrige;
         - vigente `apt` con la ventana de veto vencida, sin `review_note` (la
           nota es «esto necesita a una persona»: no se insiste), convocatoria
-          `open` y con el interruptor encendido → `auto_approve`.
+          `open` y con el interruptor encendido → `auto_approve`; si el
+          veredicto era viejo o de otras reglas, `auto_approve` encola la
+          reconsulta y cuenta en `retried`.
 
         `approved` cuenta toda solicitud que el barrido dejó aprobada, también
         las que su propia consulta aprobó al instante. Cada solicitud va por
@@ -580,8 +660,9 @@ class EligibilityService:
                 break
             try:
                 if status == "apt":
-                    ok, _detalle = EligibilityService.auto_approve(db, req_id, now=now)
+                    ok, detalle = EligibilityService.auto_approve(db, req_id, now=now)
                     out["approved"] += int(ok)
+                    out["retried"] += int(detalle == _MSG_STALE_VERDICT)
                     continue
                 chk = EligibilityService.check(
                     db, req_id, attempt=1 if status is None else attempt + 1)

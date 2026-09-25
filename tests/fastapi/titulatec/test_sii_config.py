@@ -99,6 +99,30 @@ class TestValidacionDelSii:
                     .TITULATEC_SII_MAX_ATTEMPTS == valido)
 
 
+class TestEdadMaximaDelVeredicto:
+    """Revisión final C5 (spec §8): un veredicto apto más viejo que esto (desde
+    que vence la ventana de veto) se reconsulta en vez de aprobar."""
+
+    def test_default_24_y_minimo_1(self, monkeypatch):
+        from pydantic import ValidationError
+        from itcj2.config import Settings
+
+        monkeypatch.delenv("TITULATEC_SII_VERDICT_MAX_AGE_HOURS", raising=False)
+        assert Settings(_env_file=None).TITULATEC_SII_VERDICT_MAX_AGE_HOURS == 24
+        for invalido in (0, -1):
+            with pytest.raises(ValidationError):
+                Settings(TITULATEC_SII_VERDICT_MAX_AGE_HOURS=invalido)
+        assert (Settings(TITULATEC_SII_VERDICT_MAX_AGE_HOURS=1)
+                .TITULATEC_SII_VERDICT_MAX_AGE_HOURS == 1)
+
+    def test_se_lee_por_metodo_estatico(self, monkeypatch):
+        from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+        from itcj2.config import get_settings
+
+        monkeypatch.setattr(get_settings(), "TITULATEC_SII_VERDICT_MAX_AGE_HOURS", 7)
+        assert EligibilityService.verdict_max_age_hours() == 7
+
+
 class TestElRevisorGanaElModoSii:
     def test_el_revisor_admite_sii_ademas_de_los_dos_modos_previos(self):
         """El modo nuevo se SUMA a `school_services`/`computer_center`

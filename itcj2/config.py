@@ -490,6 +490,10 @@ class Settings(BaseSettings):
     # Tope de reintentos de `titulatec.sii_check_request` ante `SiiUnavailable`
     # antes de dejar el check en `error` no reintentable.
     TITULATEC_SII_MAX_ATTEMPTS: int = Field(5, ge=1, le=20)
+    # Edad máxima (h) de un veredicto `apt` para aprobar solo, contada desde que
+    # vence la ventana de veto. Más viejo, o de otra versión de reglas, se
+    # reconsulta en vez de aprobar (revisión final C5, spec §8).
+    TITULATEC_SII_VERDICT_MAX_AGE_HOURS: int = Field(24, ge=1)
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

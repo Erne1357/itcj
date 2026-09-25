@@ -444,3 +444,73 @@ def test_la_ventana_y_el_interruptor_se_confirman_en_un_solo_commit(
     db_session.refresh(cohort)
     assert cohort.status == "open"
     assert cohort.sii_auto_approve is False
+
+
+# ---------------------------------------------------------------------------
+# Revisión final C5 (spec §8): el aviso del interruptor. Al ENCENDERLO dice
+# cuántas aptas pendientes se reconsultarán (veredicto de otras reglas o viejo);
+# al APAGARLO, que las nuevas quedan para Servicios Escolares.
+# ---------------------------------------------------------------------------
+def _aviso(resp) -> str:
+    from urllib.parse import unquote
+    return unquote(resp.headers.get("X-Tt-Notice", ""))
+
+
+def _apta_pendiente(db_session, cohort, control, *, version, horas):
+    from datetime import datetime
+
+    from itcj2.apps.titulatec.models import EligibilityCheck, EnrollmentRequest
+
+    req = EnrollmentRequest(
+        cohort_id=cohort.id, control_number=control, first_name="A", last_name="B",
+        phone="6561234567", contact_email="a@example.invalid", has_efirma=True,
+        kind="unknown", status="pending_review", verify_send_count=0)
+    db_session.add(req)
+    db_session.flush()
+    hecho = datetime.now() - timedelta(hours=horas)
+    chk = EligibilityCheck(request_id=req.id, status="apt", attempt=1,
+                           rules_version=version, started_at=hecho, finished_at=hecho,
+                           identity_mismatch={})
+    db_session.add(chk)
+    db_session.flush()
+    req.last_check_id = chk.id
+    db_session.flush()
+    return req
+
+
+def test_al_encender_el_aviso_dice_cuantas_aptas_se_reconsultaran(
+        escenario, client_as, db_session, modo_sii, monkeypatch):
+    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+
+    monkeypatch.setattr(EligibilityService, "rules_version", staticmethod(lambda: "v2"))
+    monkeypatch.setattr(EligibilityService, "delay_hours", staticmethod(lambda: 0))
+    monkeypatch.setattr(EligibilityService, "verdict_max_age_hours", staticmethod(lambda: 24))
+    cohort = escenario["cohort"]
+    cohort.sii_auto_approve = False
+    _apta_pendiente(db_session, cohort, "99581001", version="v1", horas=1)    # otra versión
+    _apta_pendiente(db_session, cohort, "99581002", version="v2", horas=30)   # vieja
+    _apta_pendiente(db_session, cohort, "99581003", version="v2", horas=1)    # vigente
+    db_session.flush()
+
+    resp = client_as(escenario["jefa"]).post(
+        _url(cohort), data={"status": "open", "opens_at": "", "closes_at": "",
+                            "sii_auto_present": "1", "sii_auto_approve": "1"},
+        follow_redirects=False)
+
+    assert resp.status_code == 200
+    aviso = _aviso(resp)
+    assert "2 solicitud(es) apta(s)" in aviso and "reconsult" in aviso, aviso
+
+
+def test_al_apagar_el_aviso_dice_que_las_nuevas_quedan_para_se(
+        escenario, client_as, db_session, modo_sii):
+    cohort = escenario["cohort"]
+
+    resp = client_as(escenario["jefa"]).post(
+        _url(cohort), data={"status": "open", "opens_at": "", "closes_at": "",
+                            "sii_auto_present": "1"},
+        follow_redirects=False)
+
+    assert resp.status_code == 200
+    aviso = _aviso(resp)
+    assert "apagada" in aviso and "Servicios Escolares" in aviso, aviso

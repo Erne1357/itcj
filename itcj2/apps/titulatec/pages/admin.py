@@ -716,6 +716,26 @@ async def cotejo_req_delete(
         db.close()
 
 
+def _sii_switch_notice(db, cohort_id: int, *, encendida: bool) -> str:
+    """Lo que el aviso dice al mover el interruptor (revisión final C5).
+
+    Encendida: cuántas aptas pendientes se RECONSULTARÁN antes de aprobarse
+    (veredicto de otras reglas o viejo, `EligibilityService.stale_apt_count`)
+    — el resto de las aptas las aprueba el barrido. Apagada: las nuevas quedan
+    para Servicios Escolares.
+    """
+    if not encendida:
+        return ("Aprobación automática apagada: las solicitudes quedan en «Por revisar» "
+                "para Servicios Escolares.")
+    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+
+    n = EligibilityService.stale_apt_count(db, cohort_id)
+    if not n:
+        return "Aprobación automática encendida."
+    return (f"Aprobación automática encendida: {n} solicitud(es) apta(s) pendiente(s) se "
+            "reconsultarán en el SII antes de aprobarse.")
+
+
 @router.post("/cohorts/{cohort_id}/ventana", name="titulatec.pages.admin.cohort_window")
 async def cohort_window(
     cohort_id: int,
@@ -805,10 +825,12 @@ async def cohort_window(
             # transacción de Postgres, nunca en el `except` entero.
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
 
+        sii_aviso = ""
         if movido is not None:
             # Rastro de quién frenó o soltó la aprobación automática.
             logger.info("Convocatoria %s: aprobación automática (SII) %s por el usuario %s",
                         cohort_id, "encendida" if movido else "apagada", user["sub"])
+            sii_aviso = _sii_switch_notice(db, cohort_id, encendida=movido)
         perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
         ctx = _window_ctx(db, cohort,
                           can_edit="titulatec.cohort.api.update" in perms)
@@ -821,6 +843,8 @@ async def cohort_window(
     if res["resumed"]:
         partes.append(f"{res['resumed']} proceso(s) reanudado(s)")
     aviso = "Ventana guardada" + (f": {', '.join(partes)}." if partes else ".")
+    if movido is not None:
+        aviso += " " + sii_aviso
 
     resp = render_titulatec(request, "titulatec/partials/cohort/cohort_window.html", ctx)
     resp.headers["X-Tt-Notice"] = _hdr(aviso)

@@ -111,6 +111,7 @@ def _ventana_y_tope(monkeypatch):
 
     monkeypatch.setattr(EligibilityService, "delay_hours", staticmethod(lambda: 0))
     monkeypatch.setattr(EligibilityService, "max_attempts", staticmethod(lambda: 5))
+    monkeypatch.setattr(EligibilityService, "verdict_max_age_hours", staticmethod(lambda: 24))
 
 
 @pytest.fixture(autouse=True)
@@ -1149,6 +1150,83 @@ def test_apta_con_cuenta_desactivada_no_se_aprueba_sola(db_session, make_cohort,
     # La nota detiene al barrido: no insiste.
     assert _svc().sweep(db_session, cohort_id=cohort.id)["approved"] == 0
     assert req.verify_token_hash is None
+
+
+# Revisión final C5 (spec §8): un veredicto apto de OTRA versión de reglas o
+# más viejo que TITULATEC_SII_VERDICT_MAX_AGE_HOURS (contado desde que venció
+# la ventana de veto) no aprueba: se encola una consulta nueva (force).
+_MSG_RECONSULTA = "reconsulta"
+
+
+def test_veredicto_de_otra_version_de_reglas_se_reconsulta_en_vez_de_aprobar(
+    db_session, make_cohort, sii, listo, _sin_celery,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580081")
+    sii.alumno("99580081")
+    _check_row(db_session, req, status="apt", rules_version="reglas-viejas",
+               finished_at=datetime.now() - timedelta(hours=1))
+
+    ok, motivo = _svc().auto_approve(db_session, req.id)
+
+    assert ok is False and _MSG_RECONSULTA in motivo
+    assert req.status == "pending_review" and req.review_note is None
+    assert _sin_celery == [(req.id, {"force": True})]
+    assert _usuario(db_session, "99580081") is None and listo == []
+
+
+@pytest.mark.parametrize("delay,horas,aprueba", [
+    (0, 23, True), (0, 25, False), (2, 25, True), (2, 27, False),
+])
+def test_veredicto_viejo_se_reconsulta(
+    db_session, make_cohort, sii, listo, _sin_celery, monkeypatch, delay, horas, aprueba,
+):
+    monkeypatch.setattr(_svc(), "delay_hours", staticmethod(lambda: delay))
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580082")
+    sii.alumno("99580082")
+    _check_row(db_session, req, status="apt",
+               finished_at=datetime.now() - timedelta(hours=horas))
+
+    ok, _ = _svc().auto_approve(db_session, req.id)
+
+    assert ok is aprueba
+    assert (req.status == "converted") is aprueba
+    assert (_sin_celery == [(req.id, {"force": True})]) is (not aprueba)
+
+
+def test_el_barrido_cuenta_la_reconsulta_de_un_veredicto_viejo(
+    db_session, make_cohort, sii, listo, _sin_celery,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580083")
+    sii.alumno("99580083")
+    _check_row(db_session, req, status="apt", rules_version="reglas-viejas",
+               finished_at=datetime.now() - timedelta(hours=1))
+
+    out = _svc().sweep(db_session, cohort_id=cohort.id)
+
+    assert out == {"checked": 0, "approved": 0, "retried": 1}
+    assert _sin_celery == [(req.id, {"force": True})]
+
+
+def test_cuantas_aptas_pendientes_se_reconsultaran(db_session, make_cohort, sii, modo_sii):
+    cohort = make_cohort(status="open")
+    viejas = _make_req(db_session, cohort, control="99580084")
+    _check_row(db_session, viejas, status="apt", rules_version="reglas-viejas")
+    vieja = _make_req(db_session, cohort, control="99580085")
+    _check_row(db_session, vieja, status="apt",
+               finished_at=datetime.now() - timedelta(hours=30))
+    vigente = _make_req(db_session, cohort, control="99580086")
+    _check_row(db_session, vigente, status="apt")
+    con_nota = _make_req(db_session, cohort, control="99580087", review_note="x")
+    _check_row(db_session, con_nota, status="apt", rules_version="reglas-viejas")
+
+    assert _svc().stale_apt_count(db_session, cohort.id) == 2
+
+
+def test_la_version_vigente_sale_de_las_reglas(sii):
+    assert _svc().rules_version() == RULES_VERSION
 
 
 def test_auto_approve_revalida_todo(db_session, make_cohort, sii, listo):
