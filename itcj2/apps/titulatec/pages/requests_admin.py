@@ -20,9 +20,9 @@ nueva nace con el NIP DEL SII, `approve()`), y cada fila «Por revisar» trae el
 veredicto VIGENTE del SII (`_sii_row`): reglas con su motivo, diferencias de
 identidad, intentos y, si era apta, por qué no se aprobó sola. «Reintentar
 consulta» (`reconsultar`) encola una consulta forzada. La aprobada sola se
-reconoce en Liga enviada/Inscritas por `reviewed_by_id` NULL + `reviewed_at` +
-consulta vigente `apt`. El NIP del SII nunca pasa por aquí: la bandeja lee la
-`EligibilityCheck`, que no lo guarda.
+reconoce en Liga enviada/Inscritas con la regla del servicio
+(`enrollment_request_service._auto_approval_marker`). El NIP del SII nunca pasa
+por aquí: la bandeja lee la `EligibilityCheck`, que no lo guarda.
 """
 import logging
 from datetime import datetime, timedelta
@@ -168,6 +168,23 @@ def _fmt(dt) -> str:
     return dt.strftime("%d/%m/%Y %H:%M") if dt else ""
 
 
+def _in_flight(chk, now: datetime) -> bool:
+    """¿La consulta VIGENTE `chk` sigue en curso? ÚNICA copia en la página.
+
+    Es el corte con el que `EligibilityService.check` se niega a consultar otra
+    vez, ni con `force`: `pending` más joven que `_PENDING_STALE`. Lo usan la
+    fila («Consultando…» sin botón, `_sii_row`) y la ruta (`reconsultar`
+    responde 400), así que las dos dicen lo mismo. Vive aquí y no en el
+    servicio solo por el reparto de archivos del plan (T5 no tocaba
+    `eligibility_service.py`); que coincida con el servicio lo fija
+    `test_requests_reconsultar.py::test_la_bandeja_y_el_servicio_coinciden_en_que_es_una_consulta_en_curso`.
+    """
+    from itcj2.apps.titulatec.services.eligibility_service import _PENDING_STALE
+
+    return (chk is not None and chk.status == "pending"
+            and chk.started_at is not None and chk.started_at > now - _PENDING_STALE)
+
+
 def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: int,
              now: datetime, requested: bool) -> dict:
     """El bloque del SII de una fila «Por revisar» (modo `sii`).
@@ -184,13 +201,10 @@ def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: in
     (`review_note`), el interruptor de la convocatoria, la convocatoria
     cerrada, la ventana de veto; si nada la frena, la toma el barrido.
     """
-    from itcj2.apps.titulatec.services.eligibility_service import _PENDING_STALE
-
     if chk is None:
         state = "none"
     elif chk.status == "pending":
-        fresca = chk.started_at is not None and chk.started_at > now - _PENDING_STALE
-        state = "pending" if fresca else "stale"
+        state = "pending" if _in_flight(chk, now) else "stale"
     else:
         state = chk.status if chk.status in _SII_STATES else "error"
     if requested and state != "pending":
@@ -257,6 +271,7 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
     from itcj2.apps.titulatec.models import (
         Cohort, EligibilityCheck, EnrollmentRequest, TitulationProcess,
     )
+    from itcj2.apps.titulatec.services import enrollment_request_service as ers
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
@@ -341,7 +356,9 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
     prog_names = {p["id"]: p["name"] for p in programs}
     # Consultas VIGENTES del SII, en lote. Se cargan en cualquier modo porque
     # «Aprobada automáticamente (SII)» es un hecho histórico de la fila; el
-    # bloque del veredicto solo se pinta en el modo `sii`.
+    # bloque del veredicto solo se pinta en el modo `sii`. El lote las deja en
+    # el mapa de identidad de la sesión: el `db.get` de `_auto_approval_marker`
+    # las toma de ahí, sin una consulta por fila.
     check_ids = {r.last_check_id for r in reqs if r.last_check_id}
     checks = ({c.id: c for c in db.query(EligibilityCheck)
                .filter(EligibilityCheck.id.in_(check_ids)).all()} if check_ids else {})
@@ -429,11 +446,11 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
             "rejection_sent": r.rejection_sent_at is not None,
             "prior_reject": prior_reject,
             "sii": sii_block,
-            # Aprobada SOLA (EligibilityService.auto_approve): sin revisor, con
-            # fecha de revisión y la consulta vigente apta.
+            # Aprobada SOLA (EligibilityService.auto_approve). La regla es la
+            # del servicio (`_auto_approval_marker`, la misma que marca el
+            # evento `auto: true`), no una copia: si cambia, la píldora la sigue.
             "auto_approved": (r.status in ("approved", "converted")
-                              and r.reviewed_by_id is None and r.reviewed_at is not None
-                              and chk is not None and chk.status == "apt"),
+                              and bool(ers._auto_approval_marker(db, r))),
         })
     return ctx
 
@@ -623,10 +640,7 @@ async def reconsultar(req_id: int, request: Request,
             return Response(status_code=404)
         if req.status != "pending_review":
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_RESOLVED)})
-        vigente = elig.EligibilityService.latest_check(db, req)
-        if (vigente is not None and vigente.status == "pending"
-                and vigente.started_at is not None
-                and vigente.started_at > datetime.now() - elig._PENDING_STALE):
+        if _in_flight(elig.EligibilityService.latest_check(db, req), datetime.now()):
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_IN_FLIGHT)})
         # Sin escrituras propias: la fila `pending` la abre la tarea bajo el lock
         # de la solicitud. `enqueue_check` es best-effort y nunca lanza; con el

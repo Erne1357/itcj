@@ -1437,6 +1437,70 @@ def test_la_aprobada_sola_lo_dice_en_liga_enviada_inscritas_y_todas(
     assert "/reconsultar" not in html
 
 
+def test_la_pildora_de_aprobada_sola_es_la_definicion_del_servicio(
+    client_as, db_session, make_head, make_cohort, modo_sii, tope_y_ventana, monkeypatch,
+):
+    """La píldora sale de `_auto_approval_marker`, el predicado con el que el
+    servicio marca el evento `auto: true`: la bandeja no tiene una copia propia
+    que pueda separarse. Aquí el servicio decide AL REVÉS que la regla de hoy y
+    la bandeja lo sigue."""
+    from itcj2.apps.titulatec.services import enrollment_request_service as ers
+
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    por_se = _make_req(db_session, cohort, control="99640041", status="approved",
+                       reviewed_at=datetime.now(), reviewed_by_id=head.id)
+    _consulta(db_session, por_se, status="apt", results=REGLAS_APTA)
+    sola = _make_req(db_session, cohort, control="99640042", status="approved",
+                     reviewed_at=datetime.now(), reviewed_by_id=None)
+    _consulta(db_session, sola, status="apt", results=REGLAS_APTA)
+    monkeypatch.setattr(ers, "_auto_approval_marker",
+                        lambda db, req: {"auto": True} if req.id == por_se.id else {})
+
+    html = client_as(head).get(f"{URL}/body?status=approved&cohort_id={cohort.id}").text
+
+    assert "Aprobada automáticamente (SII)" in _fila(html, por_se)
+    assert "Aprobada automáticamente (SII)" not in _fila(html, sola)
+
+
+def test_la_pildora_de_aprobada_sola_no_consulta_una_vez_por_fila(
+    client_as, db_session, make_head, make_cohort, modo_sii, tope_y_ventana,
+):
+    """Las consultas vigentes van en UN lote también en las pestañas contestadas.
+
+    `expunge_all` deja la sesión como la abre la ruta en producción (vacía):
+    sin eso, las consultas sembradas por el test ya están en el mapa de
+    identidad y un `db.get` por fila no se vería en la cuenta.
+    """
+    from sqlalchemy import event
+
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    for i in range(6):
+        req = _make_req(db_session, cohort, control=f"996400{50 + i}", status="approved",
+                        reviewed_at=datetime.now(), reviewed_by_id=None)
+        _consulta(db_session, req, status="apt", results=REGLAS_APTA)
+    c = client_as(head)
+    db_session.expunge_all()
+
+    consultas = []
+    engine = db_session.get_bind()
+
+    def _cuenta_checks(conn, cursor, statement, *a):
+        if "FROM titulatec_eligibility_checks" in statement:
+            consultas.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _cuenta_checks)
+    try:
+        resp = c.get(f"{URL}/body?status=approved&cohort_id={cohort.id}")
+    finally:
+        event.remove(engine, "before_cursor_execute", _cuenta_checks)
+
+    assert resp.status_code == 200
+    assert resp.text.count("Aprobada automáticamente (SII)") == 6
+    assert len(consultas) == 1, consultas
+
+
 def test_en_modo_sii_kpis_pestanas_y_ano_de_ingreso_siguen_intactos(
     client_as, db_session, make_head, make_cohort, modo_sii, tope_y_ventana,
 ):

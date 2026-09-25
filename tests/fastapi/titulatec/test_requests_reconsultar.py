@@ -26,6 +26,7 @@ from urllib.parse import unquote
 
 import pytest
 
+from itcj2.apps.titulatec.services.eligibility_service import _PENDING_STALE
 from itcj2.apps.titulatec.services.sii.client import SiiConfig
 from tests.fastapi.titulatec.conftest import OFFICER_PERMS
 
@@ -349,3 +350,39 @@ def test_el_nip_del_sii_nunca_llega_a_la_bandeja(
     assert "Le faltan créditos: 200 de 260." in _plano(_fila(html, no_apta))
     assert "La aprobación automática está apagada" in _plano(_fila(html, apta))
     assert NIP_SII not in html
+
+
+# ---------------------------------------------------------------------------
+# «En curso» es UNA definición: la del servicio
+#
+# La bandeja ofrece «Reintentar consulta» y la ruta la acepta exactamente cuando
+# `EligibilityService.check(force=True)` sí consultaría. Si el servicio cambia
+# su corte de «en curso», esta prueba se pone roja en vez de que la bandeja
+# prometa una consulta que el servicio no hace (o niegue una que sí haría). Las
+# edades rodean el corte por los dos lados.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("edad", [
+    timedelta(minutes=1),
+    _PENDING_STALE - timedelta(minutes=1),
+    _PENDING_STALE + timedelta(minutes=1),
+    _PENDING_STALE + timedelta(hours=1),
+], ids=["recien", "antes-del-corte", "despues-del-corte", "colgada"])
+def test_la_bandeja_y_el_servicio_coinciden_en_que_es_una_consulta_en_curso(
+    client_as, db_session, make_head, make_cohort, modo_sii, sii_falso, encolado, edad,
+):
+    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99650030")
+    sii_falso("99650030", creditos_aprobados=200)
+    _consulta(db_session, req, status="pending", started_at=datetime.now() - edad)
+    c = client_as(head)
+
+    fila = _fila(c.get(f"{URL}/body?cohort_id={cohort.id}").text, req)
+    ruta = _post(c, req)
+    consulto = EligibilityService.check(db_session, req.id, force=True) is not None
+
+    assert ("/reconsultar" in fila) is consulto, "el botón de la bandeja"
+    assert (ruta.status_code == 200) is consulto, ruta.headers.get("X-Tt-Error")
+    assert (encolado == [(req.id, {"force": True})]) is consulto
