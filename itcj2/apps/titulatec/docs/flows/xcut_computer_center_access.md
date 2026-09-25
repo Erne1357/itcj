@@ -32,6 +32,17 @@ plantilla).
 | Pestañas de Accesos | **Por dar acceso** · **Con acceso** · **Devueltas** | **Por revisar** · **Liga enviada** · **Inscritas** · **Rechazadas** · **Todas** (mismas 5 de Solicitudes) |
 | Acciones de Accesos | Dar acceso (NIP) · Devolver a SE (nota) · Reasignar NIP (D8) | Aprobar (NIP o liga, con selector de carrera) · Rechazar (motivo) · Reenviar liga · Dar acceso (a las `awaiting_access` que quedaron de antes de cambiar de modo) · Reasignar NIP (D8) |
 
+**Tercer modo, `sii` (2026-09-25, revisión final C7/C11):** las solicitudes las contestan el SII
+(aprobación automática) y Servicios Escolares ([Elegibilidad contra el SII](xcut_sii_eligibility.md));
+**CC no participa**. `GET /titulatec/admin/accesos` (y `/body`) pinta solo el aviso
+`#tt-access-sii` «En este modo las solicitudes las contesta el SII y Servicios Escolares; Centro de
+Cómputo no tiene acciones.», sin pestañas, tabla ni formularios, así que el aterrizaje de
+`titulatec_computer_center` sigue abriendo (antes: `KeyError 'sii'` → 500). Las **cinco** rutas POST
+(`dar-acceso`, `devolver`, `rechazar`, `reenviar`, `reasignar-nip`) responden 400 + ese mismo
+`X-Tt-Error` **antes** de abrir sesión (`_mode_block`), sin leer la solicitud (una inexistente da
+400, no 404). Antes, «Dar acceso» sobre una `pending_review` caía en `approve()` y aprobaba con solo
+`enrollment_access.api.grant`, sin mirar el veredicto del SII ni el alcance por carrera.
+
 **CC no tiene alcance por carrera en ningún modo**: su bandeja ve TODAS las solicitudes (mismo
 patrón que la bandeja de GTV, `survey_reviews_admin.py`) — nunca llama a `officer_programs`.
 
@@ -243,13 +254,20 @@ puede) · «No pudimos reasignar el NIP; intenta de nuevo.» (excepción con `ro
 
 **Fuera de modo, sin pasar por la UI**: cada ruta corta con 400 + `X-Tt-Error` **antes** de tocar
 la BD (`_mode_block`/`_alternate_mode_block`), así que un POST directo desde afuera de la
-plantilla no aprueba, rechaza, devuelve ni reenvía nada que su modo no permita.
+plantilla no aprueba, rechaza, devuelve ni reenvía nada que su modo no permita. En modo `sii` ese
+corte cubre las cinco rutas, «Reasignar NIP» incluida.
+(tests: `test_access_inbox.py::test_en_modo_sii_*`)
 
 ## Limitaciones conocidas ⚠
 
 1. **Cambiar de modo dos veces seguidas puede dejar filas «huérfanas» de UI, no de datos.** Una
    `awaiting_access` nacida en oficial y nunca atendida sigue siendo perfectamente resoluble en
-   cualquiera de los dos modos (paso 3/6); lo único que cambia es en qué pestaña aparece.
+   cualquiera de los dos modos de CC (paso 3/6); lo único que cambia es en qué pestaña aparece.
+   **En modo `sii` no**: CC no tiene acciones, así que una `awaiting_access` que quedó del modo
+   oficial espera sin nadie que le dé el NIP (y «Reasignar NIP» tampoco corre); SE solo puede
+   cancelarla desde Solicitudes › «En Cómputo» (limitación 4). Antes de pasar a
+   `sii`, vaciar «Por dar acceso»; si quedó alguna, se resuelve volviendo al oficial (variable de
+   entorno + reinicio) el tiempo de darle acceso.
 2. **El riesgo aceptado de [Inscripción pública](xcut_public_enrollment.md#riesgo-aceptado-y-contención)
    sigue vigente**: la liga (rama D10 o con cuenta) viaja al correo que tecleó el solicitante.
    Esta bandeja sostiene la contención 4 («el oficial ve el aviso de a dónde va la liga antes de

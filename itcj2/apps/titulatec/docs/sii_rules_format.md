@@ -46,7 +46,7 @@ ok_message = "Créditos completos ({creditos_aprobados})."   # opcional; default
 query = "nip"                      # consulta PROPIA (ver abajo)
 column = "nip"
 
-[identity]                         # opcional: datos para la cuenta y para comparar con el formulario
+[identity]                         # obligatoria para aprobar SOLA (first_name y last_name, ver abajo)
 query = "alumno"
 columns = { first_name = "nombre", last_name = "apellido_paterno", middle_name = "apellido_materno", entry_year = "anio_ingreso", program = "carrera" }
 
@@ -61,8 +61,8 @@ Claves desconocidas son **error** (atrapa typos como `mesage` o `critera`).
 
 - Cada `[[query]]` se ejecuta **a lo más una vez** por evaluación, y la comparten todas sus
   reglas. Solo corren las que usa alguna regla, `[identity]` o `[facts]`.
-- Parámetros **enlazados** con `?` (nunca interpolados). Permitidos: `control_number`,
-  `curp`. El número de `?` debe coincidir con `params`.
+- Parámetros **enlazados** con `?` (nunca interpolados). Permitido: **solo** `control_number`
+  (`curp` se quitó: el formulario no la captura). El número de `?` debe coincidir con `params`.
 - Las columnas se leen en **minúsculas** y el texto sin relleno a la derecha (los `CHAR` de
   Sybase). Escribe las columnas de las reglas en minúsculas; usa alias (`AS`) si hace falta.
 
@@ -74,7 +74,7 @@ Claves desconocidas son **error** (atrapa typos como `mesage` o `critera`).
 | `equals` / `not_equals` | `column` = / ≠ el valor | `column` + (`value` **o** `value_column`) |
 | `gte` / `lte` | `column` ≥ / ≤ el valor | `column` + (`value` **o** `value_column`) |
 | `in` / `not_in` | `column` está / no está en la lista | `column` + `value = [ … ]` |
-| `truthy` / `falsy` | `column` es verdadero / falso | `column` |
+| `truthy` / `falsy` | `column` es verdadero / falso (lista **cerrada**, ver abajo) | `column` |
 
 - `mode = "all"` (default): la condición se cumple en **todas** las filas; `mode = "any"`:
   en **alguna**. No aplica a `exists`/`not_exists`.
@@ -82,13 +82,23 @@ Claves desconocidas son **error** (atrapa typos como `mesage` o `critera`).
 - Números: se comparan como números aunque vengan como texto (`"260"` = `260`).
 - Texto: sin espacios a los lados y **sin distinguir mayúsculas** (`"egresado"` = `"EGRESADO "`).
 - Fechas: fecha contra fecha (`value = 2026-01-15` es una fecha TOML).
-- Falso (`truthy`/`falsy`): `NULL`, `0`, `""`, `N`, `NO`, `F`, `FALSE`, `FALSO`. Todo lo
-  demás es verdadero (`S`, `SI`, `1`, `X`…).
+- `truthy`/`falsy` son **estrictos** (revisión final C4): sin distinguir mayúsculas y sin
+  espacios alrededor, **verdadero** = `1, S, SI, SÍ, Y, YES, T, TRUE, V, VERDADERO` y
+  **falso** = `0, N, NO, F, FALSE, FALSO`; además un `bool` del driver y el **número** 0 o 1 en
+  cualquier tipo numérico (`INT`, `NUMERIC(1,0)` → `Decimal`, `FLOAT` → `float`; `0.5`, `2` o
+  `-1` no valen). **Cualquier otro valor es error de la regla**, nunca «verdadero»: antes
+  «NO ACREDITADO» o «PENDIENTE» en una columna de estatus contaban como verdadero y aprobaban
+  solos. Para una columna de texto con estatus usa `equals` o `in`. `equals` con
+  `value = true/false` usa la misma regla.
 
 **Fail-closed** (nada se aprueba por omisión):
 
 - Una comparación sobre **0 filas no cumple** (con `all` sería «verdad vacía»).
-- **`NULL` no cumple ninguna comparación** (ni `not_equals`, como en SQL); sí es `falsy`.
+- **`NULL` no cumple ninguna comparación** (ni `not_equals`, como en SQL).
+- **`NULL` en `truthy`/`falsy` es error de la regla** (no «no se sabe», con `all` y con `any`):
+  la evaluación queda en `error` (no reintentable) y la solicitud, para Servicios Escolares. El
+  mensaje nombra la regla y la columna. Si `NULL` debe contar como falso, usa `equals`/`in`
+  (con esos, `NULL` simplemente no cumple).
 - Una columna del criterio que la consulta **no devuelve**, o tipos que no se pueden comparar
   (texto contra número) → la evaluación entera queda en **`error`**, nunca `apt`.
 
@@ -99,10 +109,30 @@ Claves desconocidas son **error** (atrapa typos como `mesage` o `critera`).
 columna que no viene queda literal (`{columna}`) y sale como advertencia en `sii-check`.
 Solo nombres simples: `{a.b}` o `{a[0]}` no se evalúan.
 
+### Identidad (`[identity]`)
+
+- Mapea columnas del SII a `first_name`, `last_name`, `middle_name`, `entry_year`, `program`.
+  Sirve para comparar con lo que se tecleó en el formulario (sin acentos ni mayúsculas).
+- **Para aprobar sola es obligatoria** (revisión final C3/C9): tiene que mapear `first_name` y
+  `last_name`, y los dos deben traer valor en el SII y en el formulario. Si no se pudo comparar
+  (sin `[identity]`, columna mal escrita, nombre vacío) la solicitud queda para Servicios
+  Escolares con la nota «No se pudo comparar el nombre con el SII.»; si el nombre difiere, con la
+  nota de discrepancia. El apellido materno es opcional; una carrera distinta no frena.
+- `sii-rules-validate` **advierte** (exit 0) si `[identity]` falta o no mapea `first_name` y
+  `last_name`: las reglas son válidas, pero ninguna solicitud se aprobaría sola.
+
 ### Credencial (NIP)
 
 - La consulta de `[credential]` **no corre al evaluar**: solo cuando se aprueba y hay que
   crear la cuenta (`RuleSet.fetch_credential`). El valor viaja en un `Secret` (`****`).
+- **El NIP debe ser texto de exactamente 4 dígitos** (`0`–`9` ASCII; `nip_format_ok`, la misma
+  regla que el alta manual y «Reasignar NIP»). Devuélvelo como **texto** (`CHAR(4)`/`VARCHAR`):
+  si la columna es numérica, un entero (`INT`, `NUMERIC(p,0)`, un `FLOAT` sin decimales) se
+  rellena a 4 dígitos (`123` → `0123`), pero uno con decimales no se trunca y se rechaza. Con
+  otro formato la cuenta no se crea: la aprobación automática deja la nota «NIP del SII con
+  formato inválido…» y `sii-check` lo marca (`4 dígitos: no`, exit 1).
+- Varias filas con NIP **distintos** son error de configuración (`SiiRulesError`, sin valores):
+  antes se tomaba la primera, es decir, uno al azar.
 - Debe ser una consulta **propia**: el validador rechaza que alimente reglas, `[identity]` o
   `[facts]`, y que su columna aparezca en `[identity]`/`[facts]`.
 - «Sin NIP» es **0 filas** o la columna en `NULL`/vacía. Si la consulta devuelve filas pero
@@ -130,8 +160,18 @@ usuario de BD del SII sea de solo lectura):
   rechaza palabras de escritura/DDL/control en cualquier parte: `INSERT`, `UPDATE`,
   `DELETE`, `MERGE`, `TRUNCATE`, `DROP`, `ALTER`, `CREATE`, `GRANT`, `REVOKE`, `EXEC`,
   `EXECUTE`, `CALL`, `INTO` (`SELECT … INTO` crea tablas), `SET`, `DECLARE`, `USE`, `BEGIN`,
-  `COMMIT`, `ROLLBACK`, `WAITFOR`, `DUMP`, `LOAD`, `KILL`, `SHUTDOWN`, `DBCC`, etc.
-  Si una columna de la tabla se llama así, escríbela entre corchetes (`[set]`) o comillas.
+  `COMMIT`, `ROLLBACK`, `WAITFOR`, `DUMP`, `LOAD`, `KILL`, `SHUTDOWN`, `DBCC`, etc., y los
+  verbos que solo **empiezan** una sentencia de ASE: `SETUSER`, `PRINT`, `RAISERROR`,
+  `QUIESCE`, `REORG`, `MOUNT`, `UNMOUNT`, `ONLINE`, `GOTO`, `RETURN`, `IF`, `WHILE`, `BREAK`,
+  `CONTINUE`, `OPEN`, `FETCH`, `CLOSE`, `CONNECT`, `DISCONNECT`, `REMOVE`, `TRANSFER`,
+  `REFRESH`;
+- rechaza identificadores que empiezan con `sp_` o `xp_` (procedimientos de sistema, que en
+  T-SQL se llaman sin `EXEC`);
+- rechaza un **segundo `SELECT` de nivel superior** sin `;` (fuera de paréntesis y que no siga
+  a `UNION`/`EXCEPT`/`INTERSECT`).
+  Si una columna de la tabla se llama como una de esas palabras o empieza con `sp_`/`xp_`,
+  escríbela entre corchetes (`[set]`, `[sp_total]`) o comillas: el validador no mira adentro, y
+  el mensaje de error lo sugiere.
 
 ```sql
 -- queries/alumno.sql  (ejemplo genérico; el esquema real lo define el área del SII)
@@ -143,7 +183,8 @@ SELECT a.nombre, a.apellido_paterno, a.apellido_materno, a.carrera,
 
 ## `fake_sii.json` (SII falso)
 
-Con `TITULATEC_SII_BACKEND=fake` el conector lee `TITULATEC_SII_FAKE_FILE`:
+Con `TITULATEC_SII_BACKEND=fake` el conector lee `TITULATEC_SII_FAKE_FILE`. **No arranca con
+`FLASK_ENV=production`** (`Settings` lo rechaza: aprobaría con datos sintéticos):
 
 ```json
 {
@@ -165,9 +206,16 @@ consulta inválida.
 
 ```bash
 python -m itcj2.cli.main titulatec sii-ping                        # ¿responde el SII?
-python -m itcj2.cli.main titulatec sii-rules-validate [--dir RUTA] # ¿reglas válidas?
+python -m itcj2.cli.main titulatec sii-rules-validate [--dir RUTA] # ¿reglas válidas? (+ advertencias)
 python -m itcj2.cli.main titulatec sii-check 20110001 [--cohort 3] # dry-run, NIP enmascarado
 ```
 
-Ninguno escribe en la BD. `sii-check` sale con código 1 si el veredicto es `error` o si la
-consulta de `[credential]` falla o no trae su columna.
+Ninguno escribe en la BD. `sii-check` imprime `NIP: **** (el SII lo devuelve · 4 dígitos:
+sí|no)` —nunca el valor— y sale con código 1 si el veredicto es `error`, si la consulta de
+`[credential]` falla o no trae su columna, o si el NIP no tiene 4 dígitos. Con `--cohort` ya no
+promete «se aprobaría automáticamente» si las reglas no comparan el nombre.
+
+En producción las reglas las lee el **worker de Celery** (la consulta y el barrido corren ahí):
+córrelos con `docker compose exec celery-worker python -m itcj2.cli.main titulatec …`, no en el
+backend HTTP, para validar lo que el worker ve de verdad (ver el runbook en
+[`xcut_sii_eligibility.md`](flows/xcut_sii_eligibility.md#despliegue)).
