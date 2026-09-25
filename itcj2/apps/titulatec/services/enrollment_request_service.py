@@ -40,9 +40,11 @@ dejar inscrita a esa persona. Para que no escale:
      `password_hash`, `must_change_password` ni `core_student_profile`, ni en
      `approve()`, ni en `grant_access()`, ni en `verify()`/`_convert()`, ni en
      `reassign_nip()` (que solo acepta la cuenta que creó ESA solicitud y que
-     todavía no ha entrado: `can_reassign_nip`). Lo único que recibe es el
-     proceso y los roles de egresado (`graduate`, que desplaza a `student`;
-     ver `ImportService.import_rows`).
+     todavía no ha entrado: `can_reassign_nip` más la señal positiva
+     `_request_created_account`, porque una cuenta del CSV que llegó por D10
+     también nace con `must_change_password` y dueña del proceso). Lo único
+     que recibe es el proceso y los roles de egresado (`graduate`, que
+     desplaza a `student`; ver `ImportService.import_rows`).
      EXCEPCIÓN APROBADA (2026-09-15): abrir la liga pasa `is_active` de False a
      True. Sin eso la persona quedaba inscrita sin poder entrar. El riesgo es
      reactivar una cuenta que alguien desactivó a propósito, y se contiene así:
@@ -63,8 +65,17 @@ dejar inscrita a esa persona. Para que no escale:
 Una cuenta NUEVA solo conoce su NIP por el correo que manda `_mail_access()`
 (tras `grant_access`, el `approve` alterno o `reassign_nip`). EL NIP NUNCA SALE de
 otra forma: ni al log, ni al `detalle` que la ruta pone en `X-Tt-Error`, ni al
-payload de un `ProcessEvent`. `access_sent_at` NULL con `access_granted_at`
-lleno es «correo no enviado»: CC puede reasignar el NIP y reenviarlo.
+payload de un `ProcessEvent`.
+
+«CORREO NO ENVIADO» (D8) es `access_mail_unsent(req)`: `converted`, SIN liga
+(`verify_token_hash` nulo), `access_granted_at` lleno y `access_sent_at` nulo.
+NO es solo «granted lleno y sent nulo»: la rama con liga de `grant_access` (D10)
+sella `access_granted_*` y nunca `access_sent_at` (su envío va en
+`verify_sent_at`), y la rama de fallo de `verify()` devuelve esa fila a
+`pending_review` SIN limpiar `access_granted_*`. Por lo mismo, «tiene
+`access_granted_at`» no implica `converted`: una D10 devuelta lo conserva.
+Reasignar el NIP es otra pregunta (`can_reassign_nip` + la señal positiva de
+`reassign_nip`) y no depende de `access_sent_at`.
 
 TOKEN (E7). La BD guarda SOLO `sha256(token)` y la comparación decisiva usa
 `hmac.compare_digest`. El texto claro vive en Redis bajo `tt:enroll:tok:<sha256>`
@@ -278,6 +289,31 @@ def _has_process_in_other_cohort(db: Session, user_id: int, cohort_id: int) -> b
             .first()) is not None
 
 
+# `activation` del `enrollment_self_service` que escribe `_create_account` (la
+# solicitud CREÓ la cuenta y le dio NIP). El de `_convert` (liga sobre una cuenta
+# que ya existía) es "personal_email_link".
+_ACTIVATION_NEW_ACCOUNT = "nip_personal_email"
+
+
+def _request_created_account(db: Session, req, proc) -> bool:
+    """Señal POSITIVA de que `req` creó la cuenta dueña de `proc` (invariante 1).
+
+    Busca el `enrollment_self_service` de `proc` que dejó `_create_account` para
+    ESTA solicitud (`request_id == req.id`, `activation ==
+    _ACTIVATION_NEW_ACCOUNT`). Una fila D10 lleva el de `_convert`
+    (`"personal_email_link"`), así que no la cumple aunque su liga muera o su
+    cuenta del CSV siga con `must_change_password`.
+    """
+    from itcj2.apps.titulatec.models import ProcessEvent
+
+    eventos = (db.query(ProcessEvent)
+               .filter_by(process_id=proc.id, event_type="enrollment_self_service")
+               .all())
+    return any((ev.payload or {}).get("request_id") == req.id
+               and (ev.payload or {}).get("activation") == _ACTIVATION_NEW_ACCOUNT
+               for ev in eventos)
+
+
 class EnrollmentRequestService:
     """Alta, revisión, activación, rechazo y reenvío de solicitudes de inscripción."""
 
@@ -483,7 +519,9 @@ class EnrollmentRequestService:
           (`_issue_link_for_account`: D5 y contraseña) -> `approved`, liga al
           correo personal. Sella `access_granted_*` (CC actuó y la fila vive en
           su pestaña «Con acceso») pero NO `access_sent_at`: el envío de la liga
-          lo registra `verify_sent_at`.
+          lo registra `verify_sent_at`, y la fila no es «correo no enviado»
+          (`access_mail_unsent`) ni admite reasignar NIP (la cuenta no la creó
+          la solicitud).
 
         `reviewed_by_id`/`reviewed_at` siguen siendo de SE: dar acceso no
         reescribe quién aprobó.
@@ -577,10 +615,16 @@ class EnrollmentRequestService:
 
         `user` es la cuenta que hoy tiene el número de control de la solicitud
         (o `None`). Solo una solicitud `converted` a la que se le DIO acceso con
-        NIP (`access_granted_at`, sin liga: `verify_token_hash` nulo, que deja
-        fuera la rama D10) y cuya cuenta sigue con `must_change_password` (la
-        persona no ha entrado a cambiarlo). La bandeja lo usa para pintar el
-        botón; `reassign_nip` lo repite bajo el lock.
+        NIP (`access_granted_at`, sin liga: `verify_token_hash` nulo) y cuya
+        cuenta sigue con `must_change_password` (la persona no ha entrado a
+        cambiarlo). La bandeja lo usa para pintar el botón; `reassign_nip` lo
+        repite bajo el lock.
+
+        Es condición NECESARIA, no suficiente. Deja fuera la rama D10 solo
+        porque `verify()` conserva el hash al convertir (idempotencia); una
+        cuenta del CSV también nace con `must_change_password`. Lo que protege
+        de verdad a esa cuenta ajena (invariante 1) es la señal POSITIVA que
+        `reassign_nip` exige además: `_request_created_account`.
         """
         return (req.status == "converted"
                 and req.access_granted_at is not None
@@ -589,16 +633,42 @@ class EnrollmentRequestService:
                 and bool(user.must_change_password))
 
     @staticmethod
+    def access_mail_unsent(req) -> bool:
+        """¿La fila marca «correo no enviado» (D8)? Puro: no toca la BD.
+
+        Único predicado de esa marca; la bandeja de Centro de Cómputo lo usa en
+        vez de derivarlo. Verdadero solo para una solicitud `converted` a la que
+        se le dio acceso CON NIP (`access_granted_at` lleno, sin liga:
+        `verify_token_hash` nulo) y cuyo correo con usuario + NIP no salió
+        (`access_sent_at` nulo; `_mail_access` lo sella si sale).
+
+        NO basta «`access_granted_at` lleno y `access_sent_at` nulo»: la rama con
+        liga de `grant_access` (D10) sella `access_granted_*` y NUNCA
+        `access_sent_at` (el envío de su liga va en `verify_sent_at`), y si
+        `verify()` la devuelve a `pending_review` conserva ese sello de CC. Una
+        fila `converted` con el hash de la liga es D10 abierta: su correo es el
+        de la liga, no el del NIP.
+        """
+        return (req.status == "converted"
+                and req.access_granted_at is not None
+                and req.verify_token_hash is None
+                and req.access_sent_at is None)
+
+    @staticmethod
     def reassign_nip(db: Session, req_id: int, *, nip: str, actor_id: int):
         """Centro de Cómputo reasigna el NIP cuando el correo de acceso no salió (D8).
 
         Devuelve `(ok, detalle)`. Lock + refresh; elegible solo si
-        `can_reassign_nip` Y la cuenta del control es la dueña del proceso que
-        creó la solicitud (invariante 1: sobre una cuenta que NO creó la
-        solicitud jamás se escribe credencial). Escribe `password_hash =
-        hash_nip(nip)`, sella `access_granted_*`, deja `access_sent_at` en NULL
-        hasta que salga el correo y agrega `enrollment_access_reset` SIN el NIP.
-        Correo después del commit (`_mail_access`, que sella `access_sent_at`).
+        `can_reassign_nip`, la cuenta del control es la dueña del proceso de la
+        solicitud Y hay señal POSITIVA de que ESTA solicitud creó esa cuenta
+        (`_request_created_account`). Invariante 1: sobre una cuenta que NO
+        creó la solicitud jamás se escribe credencial, y en una fila D10 las
+        dos primeras no bastan (la cuenta del CSV nace con
+        `must_change_password` y `_convert` le crea el proceso a ELLA).
+        Escribe `password_hash = hash_nip(nip)`, sella `access_granted_*`,
+        deja `access_sent_at` en NULL hasta que salga el correo y agrega
+        `enrollment_access_reset` SIN el NIP. Correo después del commit
+        (`_mail_access`, que sella `access_sent_at`).
         """
         from itcj2.core.models.user import User
         from itcj2.core.utils.security import hash_nip
@@ -621,6 +691,8 @@ class EnrollmentRequestService:
             return False, _MSG_NOT_REASSIGNABLE
         proc = db.get(TitulationProcess, req.converted_process_id)
         if proc is None or proc.student_id != user.id:
+            return False, _MSG_NOT_REASSIGNABLE
+        if not _request_created_account(db, req, proc):
             return False, _MSG_NOT_REASSIGNABLE
 
         user.password_hash = hash_nip(nip)
@@ -744,7 +816,9 @@ class EnrollmentRequestService:
                 # Se muestra en el expediente: aquí NO va el NIP.
                 payload={"request_id": req.id, "folio": proc.folio,
                          "preexisting_process": False, "reviewed": True,
-                         "activation": "nip_personal_email",
+                         # La señal que exige `reassign_nip`
+                         # (`_request_created_account`).
+                         "activation": _ACTIVATION_NEW_ACCOUNT,
                          "approved_by_id": approved_by_id,
                          "granted_by_id": actor_id},
             ))
@@ -762,7 +836,8 @@ class EnrollmentRequestService:
 
         Si el correo sale, sella `access_sent_at` en un commit propio (mismo
         patrón que `_mail_activation`/`verify_sent_at`); si no, la fila queda
-        con `access_granted_at` y sin `access_sent_at`: «correo no enviado».
+        con `access_granted_at` y sin `access_sent_at`: «correo no enviado»
+        (`access_mail_unsent`).
         Un fallo al sellar no deshace nada: el correo ya salió.
         """
         from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
@@ -793,7 +868,11 @@ class EnrollmentRequestService:
 
         IDEMPOTENTE: Outlook Safe Links y los escáneres corporativos pre-abren
         la liga en cuanto llega. Una convertida devuelve `already_converted` con
-        la misma tarjeta, y el hash no se borra al convertir para eso.
+        la misma tarjeta, y el hash no se borra al convertir para eso. Las marcas
+        puras `can_reassign_nip`/`access_mail_unsent` también se apoyan en ese
+        hash para dejar fuera a una D10 convertida; si algún día se borra aquí,
+        hay que revisarlas (`reassign_nip` no depende de él: exige la señal
+        positiva `_request_created_account`).
 
         La comparación decisiva usa `hmac.compare_digest`: es una credencial al
         portador y un `==` de Python filtraría por temporización cuántos bytes
@@ -807,7 +886,9 @@ class EnrollmentRequestService:
         (la bandeja muestra "abierta" y el oficial sabe que la persona lo intentó).
 
         Si `_convert` falla una revalidación, la solicitud vuelve a
-        `pending_review` con la nota y la liga muere. `_convert` corre en un
+        `pending_review` con la nota y la liga muere; en una fila D10 queda el
+        sello `access_granted_*` de CC (ver «CORREO NO ENVIADO» en el módulo).
+        `_convert` corre en un
         SAVEPOINT: al deshacerlo desaparece lo que `import_rows` ya había hecho
         `flush` (rol de la app, proceso) sin soltar el lock ni perder lo que esta
         pasada decidió. Esa era la trampa de la revisión final §3: un `rollback()`

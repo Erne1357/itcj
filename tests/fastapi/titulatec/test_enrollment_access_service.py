@@ -324,6 +324,7 @@ def test_dar_acceso_crea_la_cuenta_con_el_nip_y_conserva_la_revision_de_se(
         "dar acceso no reescribe quién aprobó")
     assert req.access_granted_by_id == cc.id and req.access_granted_at is not None
     assert req.access_sent_at is not None
+    assert _svc().access_mail_unsent(req) is False, "el correo salió"
     user = db_session.query(User).filter_by(control_number="99560020").one()
     assert user.username == "99560020"
     assert verify_nip(NIP, user.password_hash)
@@ -393,7 +394,8 @@ def test_si_el_correo_no_sale_access_sent_at_queda_vacio(
     assert ok is True, "el acceso no depende de que el correo salga"
     assert req.status == "converted"
     assert req.access_granted_at is not None
-    assert req.access_sent_at is None, "NULL = «correo no enviado» en la bandeja"
+    assert req.access_sent_at is None
+    assert _svc().access_mail_unsent(req) is True, "la bandeja marca «correo no enviado»"
 
 
 def test_dar_acceso_exige_un_nip_de_4_digitos_y_no_escribe_nada(
@@ -580,6 +582,8 @@ def test_si_aparecio_una_cuenta_dar_acceso_se_desvia_a_la_liga(
     assert req.access_granted_by_id == cc.id and req.access_granted_at is not None
     assert req.access_sent_at is None, "la liga se sella en verify_sent_at"
     assert req.verify_sent_at is not None
+    assert _svc().access_mail_unsent(req) is False, (
+        "sin access_sent_at, pero D10 no manda NIP: no es «correo no enviado»")
     db_session.refresh(cuenta)
     assert cuenta.password_hash == hash_antes and not verify_nip(NIP, cuenta.password_hash)
     assert _usuarios(db_session, "99560040") == 1
@@ -758,6 +762,7 @@ def test_reasignar_nip_reescribe_la_contrasena_y_reenvia(
     seed_phase_defs()
     req, user = _con_acceso(db_session, make_cohort, make_user, control="99560070")
     otro_cc = make_user(first_name="OTRO", last_name="COMPUTO")
+    assert _svc().access_mail_unsent(req) is True
 
     with caplog.at_level(logging.DEBUG):
         resultado = _svc().reassign_nip(db_session, req.id, nip="2604", actor_id=otro_cc.id)
@@ -770,6 +775,7 @@ def test_reasignar_nip_reescribe_la_contrasena_y_reenvia(
     assert req.status == "converted"
     assert req.access_granted_by_id == otro_cc.id
     assert req.access_sent_at is not None, "el correo nuevo sí salió: se sella"
+    assert _svc().access_mail_unsent(req) is False
     (_a, destinatarios, html), = correo_falso
     assert destinatarios == ["acceso@example.invalid"] and "2604" in html
     (ev,) = _eventos_reset(db_session, req)
@@ -843,20 +849,120 @@ def test_no_se_reasigna_si_la_persona_ya_entro(
     assert _eventos_reset(db_session, req) == []
 
 
-def test_no_se_reasigna_en_la_rama_con_liga(
-    db_session, make_cohort, make_user, espia_helper,
-):
-    """Review Focus 5: D10 dejó una liga sobre una cuenta que NO creó la
-    solicitud, aunque ya se haya abierto y la cuenta siga sin cambiar su NIP."""
-    req, _se, _ = _en_espera(db_session, make_cohort, make_user, control="99560074")
-    cuenta = _cuenta(db_session, "99560074", must_change=True)
-    ok, _ = _svc().grant_access(db_session, req.id, nip=NIP, actor_id=make_user().id)
-    assert ok is True and req.access_granted_at is not None
-    espia_helper.clear()
-    req.status = "converted"
+def _d10_con_liga(db_session, make_cohort, make_user, correo_falso, *, control):
+    """Fila D10 REAL: una cuenta del CSV apareció entre SE y CC y `grant_access`
+    le emitió la liga. `(req, cuenta, token, cohort)`.
+
+    La cuenta nace como la deja el CSV (`set_initial_credential`: contraseña =
+    número de control y `must_change_password=True`, `import_service.py`), así
+    que el guardia «la persona todavía no entra» no la distingue. El token sale
+    del correo de la liga, como lo recibiría la persona."""
+    import re
+    from itcj2.core.models.user import User
+    from itcj2.apps.titulatec.services.import_service import set_initial_credential
+
+    req, _se, cohort = _en_espera(db_session, make_cohort, make_user, control=control)
+    cuenta = User(username=control, control_number=control,
+                  first_name="DEL", last_name="CSV", is_active=True)
+    set_initial_credential(cuenta)
+    db_session.add(cuenta)
     db_session.flush()
 
-    _intentar_sin_escribir(db_session, req, cuenta, espia_helper, make_user())
+    ok, _ = _svc().grant_access(db_session, req.id, nip=NIP, actor_id=make_user().id)
+    assert ok is True and req.status == "approved"
+    (_a, _d, html), = correo_falso
+    token = re.search(r"verificar\?t=([A-Za-z0-9_\-]+)", html).group(1)
+    correo_falso.clear()
+    return req, cuenta, token, cohort
+
+
+def _d10_convertida(db_session, make_cohort, make_user, correo_falso, *, control):
+    """`_d10_con_liga` + la persona abrió la liga: `verify()` real la convirtió."""
+    req, cuenta, token, _cohort = _d10_con_liga(db_session, make_cohort, make_user,
+                                                correo_falso, control=control)
+    _, outcome = _svc().verify(db_session, token)
+    assert outcome == "converted"
+    correo_falso.clear()   # el aviso con folio de `verify()`, si salió
+    return req, cuenta
+
+
+def test_no_se_reasigna_la_cuenta_d10_que_abrio_su_liga(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+):
+    """Review Focus 5 / invariante 1, con la fila que existe en producción: la
+    cuenta NO la creó la solicitud aunque `_convert` le haya creado el proceso."""
+    from itcj2.apps.titulatec.models import TitulationProcess
+
+    seed_phase_defs()
+    req, cuenta = _d10_convertida(db_session, make_cohort, make_user, correo_falso,
+                                  control="99560074")
+    proc = db_session.get(TitulationProcess, req.converted_process_id)
+    assert proc.student_id == cuenta.id, (
+        "«la cuenta es la del proceso» NO la distingue: el proceso es de ELLA")
+    assert cuenta.must_change_password is True and req.access_granted_at is not None
+    assert req.verify_token_hash is not None, (
+        "verify() conserva el hash al convertir (idempotencia ante Safe Links); las "
+        "marcas puras dependen de eso para dejar fuera a D10")
+    assert _svc().can_reassign_nip(req, cuenta) is False
+    assert _svc().access_mail_unsent(req) is False
+
+    _intentar_sin_escribir(db_session, req, cuenta, correo_falso, make_user())
+    assert _eventos_reset(db_session, req) == []
+
+
+def test_aunque_la_liga_usada_muriera_la_cuenta_d10_no_recibe_nip(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+):
+    """Si un día `verify()` borra el hash al convertir («la liga usada muere»),
+    la marca pura ya no distingue la fila D10. `reassign_nip` exige además la
+    señal POSITIVA de que ESTA solicitud creó la cuenta."""
+    seed_phase_defs()
+    req, cuenta = _d10_convertida(db_session, make_cohort, make_user, correo_falso,
+                                  control="99560078")
+    req.verify_token_hash = None          # el endurecimiento hipotético
+    db_session.flush()
+    assert _svc().can_reassign_nip(req, cuenta) is True, "la marca pura sola ya no basta"
+
+    _intentar_sin_escribir(db_session, req, cuenta, correo_falso, make_user())
+    assert _eventos_reset(db_session, req) == []
+
+
+def test_la_senal_de_cuenta_creada_debe_ser_de_esta_solicitud(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, espia_helper,
+):
+    """El `enrollment_self_service` con NIP de OTRA solicitud no cuenta."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+
+    seed_phase_defs()
+    req, user = _con_acceso(db_session, make_cohort, make_user, control="99560079")
+    ev = (db_session.query(ProcessEvent)
+          .filter_by(process_id=req.converted_process_id,
+                     event_type="enrollment_self_service").one())
+    ev.payload = {**ev.payload, "request_id": req.id + 100000}
+    db_session.flush()
+
+    _intentar_sin_escribir(db_session, req, user, espia_helper, make_user())
+    assert _eventos_reset(db_session, req) == []
+
+
+def test_una_d10_que_la_liga_devolvio_a_revision_no_marca_correo_no_enviado(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+):
+    """La rama de fallo de `verify()` devuelve la fila a `pending_review` y
+    conserva el sello `access_granted_*` de CC, sin `access_sent_at`: el
+    predicado «granted lleno y sent vacío» la marcaría mal."""
+    seed_phase_defs()
+    req, cuenta, token, cohort = _d10_con_liga(db_session, make_cohort, make_user,
+                                               correo_falso, control="99560080")
+    cohort.status = "closed"
+    db_session.flush()
+
+    _, outcome = _svc().verify(db_session, token)
+
+    assert outcome == "pending_review"
+    assert req.access_granted_at is not None and req.access_sent_at is None
+    assert _svc().access_mail_unsent(req) is False
+    assert _svc().can_reassign_nip(req, cuenta) is False
 
 
 def test_no_se_reasigna_una_fila_legado_sin_access_granted_at(
@@ -922,6 +1028,29 @@ def test_can_reassign_nip_es_puro_y_decide_el_boton():
                   verify_token_hash=None), ok_user) is False
     assert can(NS(status="converted", access_granted_at=ahora,
                   verify_token_hash="a" * 64), ok_user) is False
+
+
+def test_access_mail_unsent_es_puro_y_decide_la_marca_correo_no_enviado():
+    """El predicado de «correo no enviado» (D8) que consume la bandeja de CC.
+    NO es «`access_granted_at` lleno y `access_sent_at` vacío»: eso también lo
+    cumplen las filas D10 (liga) y las D10 que la liga devolvió a revisión."""
+    from types import SimpleNamespace as NS
+
+    ahora = datetime.now()
+    marca = _svc().access_mail_unsent
+
+    def fila(**kw):
+        base = dict(status="converted", access_granted_at=ahora, access_sent_at=None,
+                    verify_token_hash=None)
+        base.update(kw)
+        return NS(**base)
+
+    assert marca(fila()) is True
+    assert marca(fila(access_sent_at=ahora)) is False
+    assert marca(fila(access_granted_at=None)) is False, "legado: SE daba el NIP"
+    assert marca(fila(verify_token_hash="a" * 64)) is False, "D10 convertida por la liga"
+    for status in ("approved", "pending_review", "awaiting_access", "rejected"):
+        assert marca(fila(status=status)) is False, status
 
 
 def test_reassign_nip_toma_lock_y_refresca_antes_de_leer_status():
