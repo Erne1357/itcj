@@ -67,6 +67,22 @@ class _FakeSii:
         self.data["queries"]["nip"][control] = {"error": "unavailable"}
         self._write()
 
+    def consulta_invalida(self, control):
+        """`SiiQueryError`: el SII respondió, pero la consulta no sirve."""
+        self.data["queries"]["alumno"][control] = {"error": "query"}
+        self._write()
+
+    def nip_invalido(self, control):
+        """`SiiQueryError` al pedir el NIP (p. ej. sin permiso sobre la tabla)."""
+        self.data["queries"]["nip"][control] = {"error": "query"}
+        self._write()
+
+    def nip_sin_columna(self, control):
+        """La consulta del NIP no devuelve la columna de `[credential]`
+        (`SiiRulesError`); la fila trae otro dato que NO debe aparecer."""
+        self.data["queries"]["nip"][control] = [{"otra": "7777"}]
+        self._write()
+
 
 @pytest.fixture()
 def sii(monkeypatch, tmp_path):
@@ -156,14 +172,15 @@ def _checks(db_session, req):
 
 
 def _check_row(db_session, req, *, status, attempt=1, started_at=None, finished_at=None,
-               rules_version=RULES_VERSION):
+               rules_version=RULES_VERSION, retryable=None, identity_mismatch=None):
     """Check ya hecho (historial), apuntado como vigente."""
     from itcj2.apps.titulatec.models import EligibilityCheck
 
     now = datetime.now()
     chk = EligibilityCheck(request_id=req.id, status=status, attempt=attempt,
                            rules_version=rules_version, started_at=started_at or now,
-                           finished_at=finished_at if status != "pending" else None)
+                           finished_at=finished_at if status != "pending" else None,
+                           retryable=retryable, identity_mismatch=identity_mismatch)
     if status != "pending" and chk.finished_at is None:
         chk.finished_at = now
     db_session.add(chk)
@@ -272,6 +289,60 @@ def test_sin_reglas_es_error(db_session, make_cohort, sii, modo_sii, tmp_path):
 
     assert chk.status == "error"
     assert "rules.toml" in chk.error
+
+
+# Spec §3.4: se reintenta SOLO ante `SiiUnavailable` (conexión, timeout,
+# backend apagado). Una regla rota o una consulta inválida no se arreglan
+# solas: quedan en «Error» para Servicios Escolares, con su motivo.
+@pytest.mark.parametrize("falla", ["caido", "deshabilitado"])
+def test_el_sii_que_no_responde_es_un_error_reintentable(
+    db_session, make_cohort, sii, modo_sii, falla,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580080")
+    if falla == "caido":
+        sii.caido("99580080")
+    else:
+        sii.backend = "disabled"
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "error"
+    assert chk.retryable is True
+
+
+@pytest.mark.parametrize("falla", ["consulta", "reglas", "inesperada"])
+def test_un_error_de_configuracion_no_es_reintentable(
+    db_session, make_cohort, sii, modo_sii, tmp_path, monkeypatch, falla,
+):
+    from itcj2.apps.titulatec.services.sii.client import FakeSiiClient
+
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580081")
+    if falla == "consulta":
+        sii.consulta_invalida("99580081")
+    elif falla == "reglas":
+        sii.rules = tmp_path / "no_hay_reglas"
+    else:
+        def _revienta(self, *a, **k):
+            raise RuntimeError("falla del cliente")
+        monkeypatch.setattr(FakeSiiClient, "query", _revienta)
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "error"
+    assert chk.retryable is False
+
+
+def test_un_veredicto_no_es_error_ni_reintentable(db_session, make_cohort, sii, modo_sii):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580082")
+    sii.no_apta("99580082")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "not_apt"
+    assert chk.retryable is None
 
 
 def test_una_falla_inesperada_es_error_sin_su_mensaje(
@@ -958,7 +1029,7 @@ def test_el_barrido_consulta_reintenta_y_aprueba_lo_que_toca(
     sii.no_apta("99580061")
     con_error = _make_req(db_session, cohort, control="99580062")
     sii.no_apta("99580062")
-    _check_row(db_session, con_error, status="error", attempt=2)
+    _check_row(db_session, con_error, status="error", attempt=2, retryable=True)
     colgada = _make_req(db_session, cohort, control="99580063")
     sii.no_apta("99580063")
     _check_row(db_session, colgada, status="pending", started_at=hace)
@@ -973,14 +1044,19 @@ def test_el_barrido_consulta_reintenta_y_aprueba_lo_que_toca(
                          review_note="El SII no devolvió NIP.")
     _check_row(db_session, con_nota, status="apt", finished_at=hace)
     en_tope = _make_req(db_session, cohort, control="99580067")
-    _check_row(db_session, en_tope, status="error", attempt=5)
+    _check_row(db_session, en_tope, status="error", attempt=5, retryable=True)
     no_apta = _make_req(db_session, cohort, control="99580068")
     _check_row(db_session, no_apta, status="not_apt")
     resuelta = _make_req(db_session, cohort, control="99580069", status="rejected")
     en_curso = _make_req(db_session, cohort, control="99580070")
     _check_row(db_session, en_curso, status="pending")
+    # Spec §3.4: un error de configuración (reglas, consulta) no se reintenta.
+    de_config = _make_req(db_session, cohort, control="99580078")
+    sii.no_apta("99580078")
+    _check_row(db_session, de_config, status="error", attempt=1, retryable=False)
     intactas = {r.id: r.last_check_id
-                for r in (en_ventana, con_nota, en_tope, no_apta, resuelta, en_curso)}
+                for r in (en_ventana, con_nota, en_tope, no_apta, resuelta, en_curso,
+                          de_config)}
 
     out = _svc().sweep(db_session, cohort_id=cohort.id)
 
@@ -989,7 +1065,7 @@ def test_el_barrido_consulta_reintenta_y_aprueba_lo_que_toca(
     assert _svc().latest_check(db_session, con_error).attempt == 3
     assert _svc().latest_check(db_session, colgada).attempt == 2
     assert vencida.status == "converted"
-    for r in (en_ventana, con_nota, en_tope, no_apta, resuelta, en_curso):
+    for r in (en_ventana, con_nota, en_tope, no_apta, resuelta, en_curso, de_config):
         db_session.refresh(r)
         assert r.last_check_id == intactas[r.id], r.control_number
         assert r.status in ("pending_review", "rejected")

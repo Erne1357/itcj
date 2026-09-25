@@ -48,8 +48,11 @@ def consulta(monkeypatch, patched_session_local):
     return estado
 
 
-def _chk(status, attempt=1):
-    return SimpleNamespace(id=77, status=status, attempt=attempt)
+def _chk(status, attempt=1, retryable=None):
+    """`retryable`: el error fue `SiiUnavailable` (lo fija `check`)."""
+    if retryable is None and status == "error":
+        retryable = True
+    return SimpleNamespace(id=77, status=status, attempt=attempt, retryable=retryable)
 
 
 def test_las_tareas_estan_registradas_y_el_worker_las_carga():
@@ -84,6 +87,17 @@ def test_error_reintenta_con_el_siguiente_intento_y_espera_creciente(consulta, r
     assert primero["kwargs"] == {"req_id": 5, "attempt": 2, "force": False}
     assert segundo["kwargs"] == {"req_id": 5, "attempt": 3, "force": False}
     assert 0 < primero["countdown"] < segundo["countdown"] <= 3600
+
+
+def test_un_error_que_no_es_del_sii_caido_no_reintenta(consulta, reintentos):
+    """Spec §3.4: backoff SOLO ante `SiiUnavailable`. Una regla rota o una
+    consulta inválida no se arreglan esperando: queda «Error» para SE."""
+    consulta["resultado"] = _chk("error", attempt=1, retryable=False)
+
+    out = tasks.sii_check_request.run(req_id=5)
+
+    assert out["status"] == "error"
+    assert reintentos == []
 
 
 def test_en_el_tope_de_intentos_ya_no_reintenta(consulta, reintentos):

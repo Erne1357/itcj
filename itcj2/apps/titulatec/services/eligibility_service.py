@@ -23,6 +23,12 @@ la consulta VIGENTE (`last_check_id`):
   eso vuelve idempotentes al reintento de celery y al barrido que coinciden;
 - sin `force`, nunca se pasa de `max_attempts()`.
 
+REINTENTOS (spec §3.4). Solo se reintenta el `error` con `retryable`: el SII
+no respondió (`SiiUnavailable`). Lo reintentan la tarea de celery (con
+backoff) y el barrido, hasta `max_attempts()`. Un error de configuración
+(reglas rotas, consulta inválida, falla inesperada) queda como «Error» con su
+motivo para Servicios Escolares.
+
 `force=True` es «Reintentar consulta» de la bandeja: pregunta otra vez aunque
 ya haya veredicto (el SII pudo cambiar), con el siguiente número de intento.
 
@@ -137,24 +143,58 @@ def _lock(db: Session, req_id: int) -> None:
                {"ns": _REQUEST_LOCK_NS, "key": int(req_id)})
 
 
+class _FailureWatch:
+    """Envuelve al cliente del SII para saber de qué TIPO fue su falla.
+
+    `RuleSet.evaluate` convierte cualquier falla del cliente en
+    `Verdict(status="error")` sin decir de qué clase fue; esto la anota (solo
+    la clase, nunca el mensaje) antes de dejarla subir, para distinguir el SII
+    que no respondió (`SiiUnavailable`, se reintenta) de una consulta
+    inválida (`SiiQueryError`, no).
+    """
+
+    def __init__(self, client):
+        self._client = client
+        self.failure: type[BaseException] | None = None
+
+    def query(self, sql, params, **kwargs):
+        try:
+            return self._client.query(sql, params, **kwargs)
+        except Exception as exc:
+            self.failure = type(exc)
+            raise
+
+
 def _evaluate(control: str):
-    """Pasos del SII, SIN tocar la BD. Devuelve un `Verdict`; nunca lanza."""
+    """Pasos del SII, SIN tocar la BD. `(Verdict, retryable)`; nunca lanza.
+
+    `retryable` (spec §3.4): el veredicto es `error` porque el SII no
+    respondió (`SiiUnavailable`: conexión, timeout, backend apagado). Reglas
+    que no cargan o no se cumplen de forma evaluable, una consulta inválida o
+    una falla inesperada son de configuración: `False`.
+    """
     from itcj2.apps.titulatec.services.sii import client as sii_client
-    from itcj2.apps.titulatec.services.sii.errors import SiiError
+    from itcj2.apps.titulatec.services.sii.errors import SiiError, SiiUnavailable
     from itcj2.apps.titulatec.services.sii.rules import RuleSet, Verdict
 
     try:
         rules = RuleSet.load(sii_client.SiiConfig.rules_dir())
         with sii_client.get_sii_client() as client:
-            return rules.evaluate(client, control)
+            watch = _FailureWatch(client)
+            verdict = rules.evaluate(watch, control)
+        retryable = (verdict.status == "error" and watch.failure is not None
+                     and issubclass(watch.failure, SiiUnavailable))
+        return verdict, retryable
     except SiiError as exc:
         # Mensajes ya saneados por contrato (sin cadena de conexión ni NIP).
-        return Verdict(status="error", error=str(exc) or type(exc).__name__)
+        return (Verdict(status="error", error=str(exc) or type(exc).__name__),
+                isinstance(exc, SiiUnavailable))
     except Exception as exc:  # noqa: BLE001 — la consulta nunca tumba la tarea
         logger.warning("SII: error inesperado al consultar la solicitud (%s)",
                        type(exc).__name__)
-        return Verdict(status="error",
-                       error=f"Error inesperado al consultar el SII ({type(exc).__name__}).")
+        return (Verdict(status="error",
+                        error=f"Error inesperado al consultar el SII ({type(exc).__name__})."),
+                False)
 
 
 def fetch_sii_nip(control: str):
@@ -277,7 +317,7 @@ class EligibilityService:
 
         # ② El SII, sin lock ni transacción abierta.
         t0 = time.monotonic()
-        verdict = _evaluate(control)
+        verdict, retryable = _evaluate(control)
         duration_ms = int((time.monotonic() - t0) * 1000)
 
         # ③ Re-lock + refresh para persistir.
@@ -289,6 +329,7 @@ class EligibilityService:
         chk.results = verdict.results_as_dicts() if verdict.results else None
         chk.facts = verdict.facts or None
         chk.error = verdict.error
+        chk.retryable = retryable if verdict.status == "error" else None
         chk.identity_mismatch = (_identity_mismatch(db, req, verdict.identity)
                                  if verdict.identity else None)
         chk.finished_at = datetime.now()
@@ -416,8 +457,12 @@ class EligibilityService:
 
         - sin consulta vigente (el worker o el broker no estaban) → primera
           consulta (`checked`);
-        - vigente `error` con intentos por debajo de `max_attempts()`, o
-          `pending` colgada (`_PENDING_STALE`) → siguiente intento (`retried`);
+        - vigente `error` REINTENTABLE (`retryable`: el SII no respondió;
+          spec §3.4) con intentos por debajo de `max_attempts()`, o `pending`
+          colgada (`_PENDING_STALE`) → siguiente intento (`retried`). Un
+          error de configuración (reglas, consulta inválida) no se reintenta:
+          esperar no lo arregla, y Servicios Escolares lo reconsulta a mano
+          cuando se corrige;
         - vigente `apt` con la ventana de veto vencida, sin `review_note` (la
           nota es «esto necesita a una persona»: no se insiste), convocatoria
           `open` y con el interruptor encendido → `auto_approve`.
@@ -450,7 +495,7 @@ class EligibilityService:
              .filter(ER.status == "pending_review")
              .filter(or_(
                  ER.last_check_id.is_(None),
-                 and_(EC.status == "error", EC.attempt < tope),
+                 and_(EC.status == "error", EC.retryable.is_(True), EC.attempt < tope),
                  and_(EC.status == "pending", EC.started_at < now - _PENDING_STALE,
                       EC.attempt < tope),
                  and_(EC.status == "apt", EC.finished_at <= now - ventana,

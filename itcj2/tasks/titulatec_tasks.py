@@ -7,11 +7,13 @@ Tareas:
     sii_check_request(req_id, attempt=1, force=False)
         Consulta al SII UNA solicitud. La encola `EnrollmentRequestService.create`
         tras el commit del alta (`eligibility_service.enqueue_check`, por nombre).
-        Ante `error` reintenta con espera creciente hasta
+        Ante un `error` REINTENTABLE (`chk.retryable`: el SII no respondió,
+        `SiiUnavailable`; spec §3.4) reintenta con espera creciente hasta
         `EligibilityService.max_attempts()`; cada reintento es un intento nuevo
-        (fila nueva en `titulatec_eligibility_checks`). La idempotencia (dos
-        tareas del mismo `req_id`, la tarea que llega antes que el alta) vive en
-        `EligibilityService.check`, no aquí.
+        (fila nueva en `titulatec_eligibility_checks`). Un error de
+        configuración (reglas, consulta inválida) no se reintenta. La
+        idempotencia (dos tareas del mismo `req_id`, la tarea que llega antes
+        que el alta) vive en `EligibilityService.check`, no aquí.
 
     sii_sweep()
         Periódica (Celery Beat vía `DatabaseScheduler`, cada 10 min; alta por
@@ -86,10 +88,11 @@ def sii_check_request(self, req_id: int, attempt: int = 1, force: bool = False,
             return {"req_id": req_id, "skipped": True}
         out = {"req_id": req_id, "check_id": chk.id, "status": chk.status,
                "attempt": chk.attempt}
+        retryable = chk.status == "error" and bool(chk.retryable)
 
-    if out["status"] == "error" and out["attempt"] < EligibilityService.max_attempts():
-        logger.info("SII: la consulta de la solicitud %s falló (intento %s); se reintenta",
-                    req_id, out["attempt"])
+    if retryable and out["attempt"] < EligibilityService.max_attempts():
+        logger.info("SII: el SII no respondió a la consulta de la solicitud %s "
+                    "(intento %s); se reintenta", req_id, out["attempt"])
         raise self.retry(
             kwargs={"req_id": req_id, "attempt": out["attempt"] + 1, "force": False},
             countdown=_backoff(out["attempt"]),

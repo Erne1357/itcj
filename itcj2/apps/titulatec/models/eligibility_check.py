@@ -1,11 +1,12 @@
 """Consulta de elegibilidad de una solicitud de inscripcion contra el SII.
 
-Una fila por INTENTO de consulta (`attempt`), no una por solicitud: el
-Celery beat reintenta ante `SiiUnavailable` (`TITULATEC_SII_MAX_ATTEMPTS`) y
-cada intento deja su propio rastro -- que reglas se evaluaron, con que
-resultado y por que. `EnrollmentRequest.last_check_id` (agregado en esta
-misma migracion) apunta a la fila VIGENTE; las anteriores quedan como
-historial.
+Una fila por INTENTO de consulta (`attempt`), no una por solicitud: la tarea
+de celery (con backoff) y el barrido periodico reintentan SOLO los `error`
+con `retryable` -- el SII no respondio (`SiiUnavailable`) -- hasta
+`TITULATEC_SII_MAX_ATTEMPTS`, y cada intento deja su propio rastro -- que
+reglas se evaluaron, con que resultado y por que.
+`EnrollmentRequest.last_check_id` (agregado en esta misma migracion) apunta a
+la fila VIGENTE; las anteriores quedan como historial.
 
 `status` nace en 'pending' (server_default) cuando el servicio abre la fila
 al empezar a consultar -- por eso `started_at` tambien tiene NOW() de
@@ -19,7 +20,9 @@ es el NIP: `[credential]` no entra ni en `facts` ni en `results` (spec 3.2,
 5). `error` es el mensaje de `SiiUnavailable`/`SiiQueryError` sin la cadena
 de conexion (spec 5).
 """
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import (
+    BigInteger, Boolean, Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text,
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import text
 
@@ -45,6 +48,12 @@ class EligibilityCheck(Base):
     # o no hubo discrepancia.
     identity_mismatch = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)                 # mensaje de SiiUnavailable/SiiQueryError, sin credenciales
+    # Solo en `status == 'error'`: True si el SII no respondio
+    # (`SiiUnavailable`: conexion, timeout, backend apagado) y por eso se
+    # reintenta (spec 3.4); False si es de configuracion (reglas, consulta
+    # invalida, falla inesperada), que esperar no arregla. NULL en los demas
+    # estados. Migracion `tt20260925b`.
+    retryable = Column(Boolean, nullable=True)
     attempt = Column(Integer, nullable=False, server_default=text("1"))
     started_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     finished_at = Column(DateTime, nullable=True)
