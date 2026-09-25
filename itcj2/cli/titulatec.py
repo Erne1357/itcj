@@ -227,8 +227,14 @@ def init_titulatec_command():
     exactamente 2 filas puesto→rol (y 1 la del rol viejo, `head_prof_studies_div`),
     y que `titulatec_titulaciones` tenga el reparto PLENO (25) que el usuario
     pidió al revertir el recorte D6/D7 — dictamen, ceremony y cohort incluidos,
-    no solo supervisión. Acumula los problemas de AMBOS verifies antes de
-    abortar: un error del primero no debe esconder uno del segundo.
+    no solo supervisión. Y con `_verify_computer_center` (spec
+    2026-09-24-titulatec-accesos-centro-computo): el rol
+    `titulatec_computer_center` con EXACTAMENTE sus 4 permisos de la bandeja
+    de Accesos, el mapeo puesto→rol con `head_comp_center` y
+    `secretary_comp_center` (contiene al menos, igual que el resto de mapeos
+    de este comando) y `head_comp_center` con el rol `admin` en titulatec.
+    Acumula los problemas de LOS TRES verifies antes de abortar: un error del
+    primero no debe esconder uno de los otros.
 
     Aborta si algo no aterrizó. Antes este comando no comprobaba nada: en una
     base destino sin `head_tech_management` o sin el departamento
@@ -252,7 +258,7 @@ def init_titulatec_command():
         click.echo(f"\n💥 Error durante init-titulatec: {e}")
         raise
 
-    problemas = _verify_survey_2026_09() + _verify_titulacion()
+    problemas = _verify_survey_2026_09() + _verify_titulacion() + _verify_computer_center()
     if problemas:
         click.echo()
         for p in problemas:
@@ -704,6 +710,133 @@ def _verify_titulacion() -> list[str]:
         for code in _PERMISOS_ROL_TITULACIONES_DIV:
             if code not in concedidos_div:
                 problemas.append(f"sin grant a {_ROL_TITULACIONES_DIV}: {code}")
+
+    return problemas
+
+
+# ---------------------------------------------------------------------------
+# Centro de Cómputo (2026-09-24, spec 2026-09-24-titulatec-accesos-centro-
+# computo): NIP en dos pasos. Servicios Escolares aprueba y, si el
+# solicitante no tiene cuenta, la solicitud pasa a `awaiting_access`; Centro
+# de Cómputo (CC) es quien le da el NIP desde la bandeja nueva «Accesos».
+# ---------------------------------------------------------------------------
+_ROL_COMPUTER_CENTER = "titulatec_computer_center"
+_ROL_ADMIN = "admin"
+_PUESTO_HEAD_COMP_CENTER = "head_comp_center"
+_PUESTO_SECRETARY_COMP_CENTER = "secretary_comp_center"
+
+_PERMISOS_ACCESOS_COMPUTO = (
+    "titulatec.enrollment_access.page.list",
+    "titulatec.enrollment_access.api.grant",
+    "titulatec.enrollment_access.api.return",
+    "titulatec.enrollment_access.api.reject",
+)
+
+
+def _verify_computer_center() -> list[str]:
+    """Comprueba que el rol de Centro de Cómputo ATERRIZÓ. Devuelve problemas.
+
+    Mismo contrato que `_verify_survey_2026_09`/`_verify_titulacion`: abre su
+    propia conexión, arma sets contra la BD y devuelve strings de problema en
+    vez de levantar. Sin esto un `INSERT ... SELECT` que inserta 0 filas
+    (p.ej. porque `head_comp_center`/`secretary_comp_center` no existen en
+    esta base) sale en verde igual que la app a medio sembrar del incidente de
+    los seeders borrados.
+
+    Tres chequeos (spec sección 7, D1/D2):
+      - el rol `titulatec_computer_center` concede EXACTAMENTE los 4 códigos
+        de la bandeja de Accesos, ni uno más ni uno menos;
+      - el mapeo puesto→rol INCLUYE `head_comp_center` y
+        `secretary_comp_center` -- semántica "contiene al menos" (arreglo A7,
+        igual que `_verify_titulacion`): no exige conteo exacto de filas, así
+        que mapear a mano un tercer puesto más adelante no rompe esto;
+      - `head_comp_center` tiene ADEMÁS el rol `admin` en titulatec (D2).
+
+    Si algún puesto no existe en la base (0 filas), el mensaje lo dice
+    explícitamente en vez de reportar solo "falta el mapeo": la causa más
+    probable es que el organigrama de Centro de Cómputo no esté sembrado
+    todavía en ese ambiente.
+    """
+    from sqlalchemy import text
+
+    from itcj2.cli.core import _get_engine
+
+    problemas: list[str] = []
+
+    with _get_engine().connect() as conn:
+        puestos = {
+            row[0]
+            for row in conn.execute(
+                text("SELECT code FROM core_positions WHERE code = ANY(:codes)"),
+                {"codes": [_PUESTO_HEAD_COMP_CENTER, _PUESTO_SECRETARY_COMP_CENTER]},
+            )
+        }
+        for code in (_PUESTO_HEAD_COMP_CENTER, _PUESTO_SECRETARY_COMP_CENTER):
+            if code not in puestos:
+                problemas.append(
+                    f"puesto ausente: {code} (el organigrama de Centro de "
+                    "Cómputo no está sembrado en esta base)"
+                )
+
+        concedidos = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT p.code FROM core_role_permissions rp "
+                    "  JOIN core_roles r ON r.id = rp.role_id "
+                    "  JOIN core_permissions p ON p.id = rp.perm_id "
+                    "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                    " WHERE r.name = :rol"
+                ),
+                {"rol": _ROL_COMPUTER_CENTER},
+            )
+        }
+        if concedidos != set(_PERMISOS_ACCESOS_COMPUTO):
+            faltan = set(_PERMISOS_ACCESOS_COMPUTO) - concedidos
+            sobran = concedidos - set(_PERMISOS_ACCESOS_COMPUTO)
+            problemas.append(
+                f"{_ROL_COMPUTER_CENTER} no tiene exactamente los 4 permisos "
+                f"de Accesos (faltan {sorted(faltan)}, sobran {sorted(sobran)})"
+            )
+
+        puestos_del_rol = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT pos.code FROM core_position_app_roles par "
+                    "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
+                    "  JOIN core_roles r ON r.id = par.role_id "
+                    "  JOIN core_positions pos ON pos.id = par.position_id "
+                    " WHERE r.name = :rol"
+                ),
+                {"rol": _ROL_COMPUTER_CENTER},
+            )
+        }
+        faltan_mapeo = {_PUESTO_HEAD_COMP_CENTER, _PUESTO_SECRETARY_COMP_CENTER} - puestos_del_rol
+        if faltan_mapeo:
+            problemas.append(
+                f"mapeo puesto→rol de {_ROL_COMPUTER_CENTER}: faltan "
+                f"{sorted(faltan_mapeo)} (hay {sorted(puestos_del_rol)})"
+            )
+
+        puestos_admin = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT pos.code FROM core_position_app_roles par "
+                    "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
+                    "  JOIN core_roles r ON r.id = par.role_id "
+                    "  JOIN core_positions pos ON pos.id = par.position_id "
+                    " WHERE r.name = :rol"
+                ),
+                {"rol": _ROL_ADMIN},
+            )
+        }
+        if _PUESTO_HEAD_COMP_CENTER not in puestos_admin:
+            problemas.append(
+                f"mapeo puesto→rol de {_ROL_ADMIN}: falta {_PUESTO_HEAD_COMP_CENTER} "
+                f"(hay {sorted(puestos_admin)})"
+            )
 
     return problemas
 
