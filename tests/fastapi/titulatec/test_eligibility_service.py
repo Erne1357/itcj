@@ -1233,7 +1233,10 @@ def test_veredicto_de_otra_version_de_reglas_se_reconsulta_en_vez_de_aprobar(
 
 
 @pytest.mark.parametrize("delay,horas,aprueba", [
-    (0, 23, True), (0, 25, False), (2, 25, True), (2, 27, False),
+    # Spec §8: la edad se cuenta desde `finished_at` (≤ max_age = 24), también
+    # con ventana de veto: con delay=2, un veredicto de 25 h ya no aprueba
+    # (revisión de F1; antes se contaba desde que vencía la ventana).
+    (0, 23, True), (0, 25, False), (2, 23, True), (2, 25, False),
 ])
 def test_veredicto_viejo_se_reconsulta(
     db_session, make_cohort, sii, listo, _sin_celery, monkeypatch, delay, horas, aprueba,

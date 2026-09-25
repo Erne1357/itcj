@@ -216,22 +216,22 @@ def _leave_note(db: Session, req, note: str):
     return False, note
 
 
-def _verdict_stale(chk, *, version: str | None, now: datetime, delay: int,
-                   max_age: int) -> bool:
+def _verdict_stale(chk, *, version: str | None, now: datetime, max_age: int) -> bool:
     """¿El veredicto `chk` ya no sirve para aprobar solo? (revisión final C5)
 
     Sí si es de OTRA versión de reglas que la vigente (`version`; `None` = las
     reglas no cargan: tampoco se aprueba con un veredicto que no se puede
-    cotejar) o si terminó hace más de `max_age` horas contadas desde que
-    venció su ventana de veto (`delay`): con ventana > 0 el veredicto
-    necesariamente tiene `delay` horas al aprobarse, y contarlas lo reconsultaría
-    en bucle.
+    cotejar) o si terminó hace más de `max_age` horas (spec §8: «de ≤
+    TITULATEC_SII_VERDICT_MAX_AGE_HOURS», contadas desde `finished_at`, también
+    con ventana de veto). Que la edad supere la ventana (`max_age > delay`) lo
+    exige `Settings` al arrancar: si no, todo veredicto llegaría viejo al vencer
+    la ventana y se reconsultaría sin fin.
     """
     if version is None or chk.rules_version != version:
         return True
     if chk.finished_at is None:
         return True
-    return chk.finished_at + timedelta(hours=delay + max_age) < now
+    return chk.finished_at + timedelta(hours=max_age) < now
 
 
 def _lock(db: Session, req_id: int) -> None:
@@ -382,7 +382,7 @@ class EligibilityService:
     @staticmethod
     def verdict_max_age_hours() -> int:
         """Edad máxima de un veredicto apto para aprobar solo
-        (TITULATEC_SII_VERDICT_MAX_AGE_HOURS), desde que vence la ventana."""
+        (TITULATEC_SII_VERDICT_MAX_AGE_HOURS), desde que terminó la consulta."""
         from itcj2.config import get_settings
 
         return get_settings().TITULATEC_SII_VERDICT_MAX_AGE_HOURS
@@ -417,11 +417,9 @@ class EligibilityService:
             return 0
         version = EligibilityService.rules_version()
         now = now or datetime.now()
-        delay = EligibilityService.delay_hours()
         max_age = EligibilityService.verdict_max_age_hours()
         return sum(1 for chk in aptas
-                   if _verdict_stale(chk, version=version, now=now, delay=delay,
-                                     max_age=max_age))
+                   if _verdict_stale(chk, version=version, now=now, max_age=max_age))
 
     @staticmethod
     def latest_check(db: Session, req):
@@ -525,7 +523,7 @@ class EligibilityService:
         `sii_auto_approve` encendido (Review Focus 5: SE pudo cerrarla o
         apagarlo dentro de la ventana). Si algo de eso falla no escribe nada.
         Un veredicto de OTRA versión de reglas o más viejo que
-        `verdict_max_age_hours()` (desde que venció la ventana) no aprueba:
+        `verdict_max_age_hours()` (desde `finished_at`) no aprueba:
         encola una consulta nueva (`force`) tras soltar el lock
         (`_MSG_STALE_VERDICT`; revisión final C5).
         Si el NOMBRE tecleado no es el del SII, o no se pudo comparar
@@ -592,7 +590,7 @@ class EligibilityService:
             if not cohort.sii_auto_approve:
                 return _no(_MSG_AUTO_OFF)
             if _verdict_stale(chk, version=EligibilityService.rules_version(), now=ahora,
-                              delay=delay, max_age=EligibilityService.verdict_max_age_hours()):
+                              max_age=EligibilityService.verdict_max_age_hours()):
                 # Después del commit de `_no` (suelta el lock): la tarea lo toma.
                 resultado = _no(_MSG_STALE_VERDICT)
                 enqueue_check(req.id, force=True)

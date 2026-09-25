@@ -96,9 +96,13 @@ class TestValidacionDelSii:
 
         for invalido in (-1, 169):
             with pytest.raises(ValidationError):
-                Settings(TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS=invalido)
+                Settings(TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS=invalido,
+                         TITULATEC_SII_VERDICT_MAX_AGE_HOURS=200)
         for valido in (0, 24, 168):
-            assert (Settings(TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS=valido)
+            # La edad máxima del veredicto tiene que superar la ventana
+            # (`TestEdadMaximaDelVeredicto`).
+            assert (Settings(TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS=valido,
+                             TITULATEC_SII_VERDICT_MAX_AGE_HOURS=valido + 1)
                     .TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS == valido)
 
     def test_max_attempts_va_de_1_a_20(self):
@@ -114,8 +118,30 @@ class TestValidacionDelSii:
 
 
 class TestEdadMaximaDelVeredicto:
-    """Revisión final C5 (spec §8): un veredicto apto más viejo que esto (desde
-    que vence la ventana de veto) se reconsulta en vez de aprobar."""
+    """Revisión final C5 (spec §8): un veredicto apto que terminó hace más de
+    esto se reconsulta en vez de aprobar."""
+
+    @pytest.mark.parametrize("delay,max_age", [(0, 0), (24, 24), (24, 10), (168, 24)])
+    def test_tiene_que_superar_la_ventana_de_veto(self, delay, max_age):
+        """La edad se cuenta desde que terminó la consulta (spec §8), y la
+        aprobación solo llega al vencer la ventana: con max_age ≤ delay todo
+        veredicto llegaría viejo y se reconsultaría sin fin. Truena al arrancar
+        (revisión de F1)."""
+        from pydantic import ValidationError
+        from itcj2.config import Settings
+
+        with pytest.raises(ValidationError) as ei:
+            Settings(TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS=delay,
+                     TITULATEC_SII_VERDICT_MAX_AGE_HOURS=max_age)
+        assert "TITULATEC_SII_VERDICT_MAX_AGE_HOURS" in str(ei.value)
+
+    @pytest.mark.parametrize("delay,max_age", [(0, 1), (0, 24), (23, 24), (168, 169)])
+    def test_mayor_que_la_ventana_si_arranca(self, delay, max_age):
+        from itcj2.config import Settings
+
+        s = Settings(TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS=delay,
+                     TITULATEC_SII_VERDICT_MAX_AGE_HOURS=max_age)
+        assert s.TITULATEC_SII_VERDICT_MAX_AGE_HOURS == max_age
 
     def test_default_24_y_minimo_1(self, monkeypatch):
         from pydantic import ValidationError

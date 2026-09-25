@@ -491,8 +491,9 @@ class Settings(BaseSettings):
     # antes de dejar el check en `error` no reintentable.
     TITULATEC_SII_MAX_ATTEMPTS: int = Field(5, ge=1, le=20)
     # Edad máxima (h) de un veredicto `apt` para aprobar solo, contada desde que
-    # vence la ventana de veto. Más viejo, o de otra versión de reglas, se
-    # reconsulta en vez de aprobar (revisión final C5, spec §8).
+    # terminó la consulta. Más viejo, o de otra versión de reglas, se reconsulta
+    # en vez de aprobar (revisión final C5, spec §8). Tiene que ser MAYOR que la
+    # ventana de veto (lo valida `_sii_edad_supera_la_ventana`).
     TITULATEC_SII_VERDICT_MAX_AGE_HOURS: int = Field(24, ge=1)
 
     model_config = {"env_file": ".env", "extra": "ignore"}
@@ -505,6 +506,21 @@ class Settings(BaseSettings):
         if self.TITULATEC_SII_BACKEND == "fake" and self.FLASK_ENV == "production":
             raise ValueError("TITULATEC_SII_BACKEND=fake no se permite con "
                              "FLASK_ENV=production: usa odbc o disabled.")
+        return self
+
+    @model_validator(mode="after")
+    def _sii_edad_supera_la_ventana(self):
+        """La edad del veredicto se cuenta desde que terminó la consulta (spec
+        §8) y la aprobación automática llega al vencer la ventana de veto: con
+        edad ≤ ventana todo veredicto llegaría viejo y se reconsultaría sin fin.
+        Truena al arrancar en vez de no aprobar nunca (revisión de F1)."""
+        delay = self.TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS
+        max_age = self.TITULATEC_SII_VERDICT_MAX_AGE_HOURS
+        if max_age <= delay:
+            raise ValueError(
+                f"TITULATEC_SII_VERDICT_MAX_AGE_HOURS ({max_age}) debe ser mayor que "
+                f"TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS ({delay}): un veredicto apto "
+                "llega a la aprobación con al menos la ventana de veto de edad.")
         return self
 
     def _extra_cors_origins(self) -> list[str]:
