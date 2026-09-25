@@ -309,7 +309,8 @@ def test_la_fila_sin_cuenta_pide_el_nip_y_ofrece_devolver(
     assert "Ingenieria De La Fila" in texto
     assert "acceso@example.invalid" in fila.replace("<wbr>", "")
     assert "6561234567" in texto
-    assert "Convocatoria Accesos Fila" in texto and "21/09/2026" in texto
+    assert "Convocatoria Accesos Fila" in texto
+    assert "Aprobada por Servicios Escolares 21/09/2026" in texto, "sin la sigla «SE»"
     # Dar acceso con NIP.
     assert f'hx-post="{URL}/{req.id}/dar-acceso"' in fila
     nip = re.search(r'<input[^>]*name="nip"[^>]*>', fila)
@@ -1177,7 +1178,39 @@ def test_la_pagina_explica_cada_modo(client_as, make_cc, monkeypatch):
     monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
                         staticmethod(lambda: "computer_center"))
     alterno = _plano(c.get(URL).text)
-    assert "La revisión la hace Centro de Cómputo" in alterno
+    # A CC se le habla en segunda persona, como en el oficial.
+    assert "En este modo tú revisas las solicitudes" in alterno
+    assert "La revisión la hace Centro de Cómputo" not in alterno
+
+
+@pytest.mark.parametrize("modo", ["school_services", "computer_center"])
+def test_con_una_liga_de_un_dia_la_cabecera_dice_dia_en_singular(
+    client_as, make_cc, monkeypatch, modo,
+):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 24))
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode", staticmethod(lambda: modo))
+
+    texto = _plano(client_as(make_cc()).get(URL).text)
+
+    assert "liga de activación de 1 día" in texto
+    assert "1 días" not in texto
+
+
+def test_un_control_sin_ano_de_ingreso_no_dice_ingreso_sin_ano(
+    client_as, db_session, make_cc, make_cohort,
+):
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    req = _en_espera(db_session, cohort, control="LEGADO7")
+
+    texto = _plano(_fila(client_as(cc).get(f"{URL}/body?cohort_id={cohort.id}").text, req))
+
+    assert "Sin año de ingreso" in texto
+    assert "Ingreso Sin año" not in texto
 
 
 # ---------------------------------------------------------------------------

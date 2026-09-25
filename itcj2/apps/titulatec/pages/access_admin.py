@@ -246,7 +246,7 @@ def _body_ctx(db, *, status, cohort_id):
         access_unsent = EnrollmentRequestService.access_mail_unsent(r)
         # Fecha de la columna Convocatoria/fecha: la que ordena la pestaña.
         if tab == "awaiting_access":
-            when = ("Aprobada por SE", _fmt(r.reviewed_at, True))
+            when = ("Aprobada por Servicios Escolares", _fmt(r.reviewed_at, True))
         elif tab == "granted":
             when = ("Acceso", _fmt(r.access_granted_at, True))
         elif tab == "returned":

@@ -5,21 +5,23 @@
 <div class="px-4 pt-4 pb-2">
   <span class="tt-kicker">Inscripción · Centro de Cómputo</span>
   <h1 class="tt-display h3 fw-medium">Accesos</h1>
-  {# Texto por modo (`official`); los días de la liga salen de `link_days`
-     (`link_ttl_days()`), la misma fuente que el vencimiento y el correo. #}
+  {# Texto por modo (`official`), siempre en segunda persona; los días de la
+     liga salen de `link_days` (`link_ttl_days()`), la misma fuente que el
+     vencimiento y el correo, con «1 día» en singular. #}
+  {% set dias = link_days ~ (' día' if link_days == 1 else ' días') %}
   {% if official %}
   <p class="mb-0 small text-body-secondary">Egresados sin cuenta cuya solicitud ya aprobó
      Servicios Escolares. Escribe un NIP de 4 dígitos: a la persona le llega por correo con
      su usuario. Mientras nunca haya iniciado sesión puedes reasignarle el NIP, con o
      sin correo. Si entretanto apareció una cuenta con ese
-     número de control, se le envía una liga de activación de {{ link_days }} días y el NIP
+     número de control, se le envía una liga de activación de {{ dias }} y el NIP
      no se usa. Si algo no cuadra, devuélvela a Servicios Escolares con una nota: la
      persona no recibe ningún aviso.</p>
   {% else %}
-  <p class="mb-0 small text-body-secondary">La revisión la hace Centro de Cómputo. Si la
+  <p class="mb-0 small text-body-secondary">En este modo tú revisas las solicitudes. Si la
      persona no tiene cuenta, al aprobar escribes su NIP de 4 dígitos y le llega por correo
-     con su usuario. Si ya tiene cuenta, le llega una liga de activación de {{ link_days }}
-     días. Rechazar requiere un motivo: es lo que la persona lee.</p>
+     con su usuario. Si ya tiene cuenta, le llega una liga de activación de {{ dias }}.
+     Rechazar requiere un motivo: es lo que la persona lee.</p>
   {% endif %}
 </div>
 <div class="px-4 pb-4">

@@ -1399,9 +1399,6 @@ def _enroll_closed_ctx(db) -> dict:
     `[data-tt-notice="closed"]`. Lo que cambia es lo que va debajo.
     """
     from itcj2.apps.titulatec.services.cohort_service import CohortService
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
     from itcj2.apps.titulatec.utils.dates_es import (
         cuenta_regresiva, dia_largo, dia_mes,
     )
@@ -1413,9 +1410,11 @@ def _enroll_closed_ctx(db) -> dict:
 
     prox = CohortService.next_public_enrollment_window(db)
     if prox is None:
+        # Las fechas las publica Servicios Escolares en los DOS modos: quién
+        # revisa las solicitudes (`reviewer_label()`) no aplica aquí (§8.3).
         ctx["notice_body"] = (
             "Ahora mismo no hay una convocatoria abierta. Consulta las fechas "
-            f"con {EnrollmentRequestService.reviewer_label()}.")
+            "con Servicios Escolares.")
         return ctx
 
     ctx["opens_label"] = dia_largo(prox.opens_at)

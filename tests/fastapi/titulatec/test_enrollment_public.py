@@ -161,11 +161,13 @@ def test_get_con_ventana_cerrada_muestra_la_tarjeta_de_cierre(
     assert 'data-tt-page="public_enroll"' in resp.text
 
 
-def test_get_con_ventana_cerrada_y_sin_proxima_en_modo_alterno_nombra_a_centro_de_computo(
+def test_get_con_ventana_cerrada_y_sin_proxima_en_modo_alterno_sigue_nombrando_a_escolares(
     client, db_session, make_cohort, monkeypatch,
 ):
     """Sin próxima convocatoria (`next_public_enrollment_window` es `None`), el
-    cuerpo genérico de la tarjeta de cierre también nombra a quien revisa."""
+    cuerpo genérico de la tarjeta de cierre manda a consultar las FECHAS, y las
+    fechas las publica Servicios Escolares en los dos modos: el revisor de las
+    solicitudes (`reviewer_label()`) no tiene nada que ver aquí (spec §8.3)."""
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
@@ -182,8 +184,8 @@ def test_get_con_ventana_cerrada_y_sin_proxima_en_modo_alterno_nombra_a_centro_d
 
     assert resp.status_code == 200, resp.text[:400]
     assert "inscripción está cerrada" in resp.text
-    assert "Consulta las fechas con Centro de Cómputo." in resp.text
-    assert "Consulta las fechas con Servicios Escolares." not in resp.text
+    assert "Consulta las fechas con Servicios Escolares." in resp.text
+    assert "Centro de Cómputo" not in resp.text
 
 
 def test_get_con_ventana_abierta_muestra_el_formulario_y_la_trampa(

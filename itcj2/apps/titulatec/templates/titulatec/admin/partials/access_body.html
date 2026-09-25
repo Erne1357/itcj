@@ -76,7 +76,7 @@
         <td>
           <span class="tt-req-ctl">{{ r.control }}</span>
           <span class="tt-req-name">{{ r.name }}</span>
-          <span class="tt-req-sub">Ingreso {{ r.entry_year }}</span>
+          <span class="tt-req-sub">{% if r.entry_year == 'Sin año' %}Sin año de ingreso{% else %}Ingreso {{ r.entry_year }}{% endif %}</span>
           <span class="tt-req-tags">
             {% if r.show_status %}<span class="tt-pill tt-pill--neutral">{{ r.status_label }}</span>{% endif %}
             {% if r.grantable %}

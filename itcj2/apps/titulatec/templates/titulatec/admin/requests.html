@@ -6,18 +6,19 @@
   <span class="tt-kicker">Convocatoria abierta · Servicios Escolares</span>
   <h1 class="tt-display h3 fw-medium">Solicitudes de inscripción</h1>
   {# Texto por modo (`mode`); los días de la liga salen de `link_days`
-     (`link_ttl_days()`), la misma fuente que el vencimiento y el correo. #}
+     (`link_ttl_days()`), la misma fuente que el vencimiento y el correo, con
+     «1 día» en singular. En el alterno, quién revisa y qué ves aquí lo dice UNA
+     vez el aviso «Solo lectura» del parcial, que se repinta en cada pestaña. #}
   {% if can_act %}
   <p class="mb-0 small text-body-secondary">Egresados que pidieron inscribirse desde el
      formulario público. Nada entra sin tu revisión y el acceso llega solo por correo. Si
      la persona no tiene cuenta, al aprobar pasa a Centro de Cómputo, que le da su NIP de
      4 dígitos: le llega con su usuario, con cambio de contraseña obligatorio. Si ya tiene
-     cuenta, le llega una liga de activación de {{ link_days }} días al correo que escribió:
+     cuenta, le llega una liga de activación de {{ link_days }} {{ 'día' if link_days == 1 else 'días' }} al correo que escribió:
      al abrirla queda inscrita y entra con su NIP de siempre.</p>
   {% else %}
   <p class="mb-0 small text-body-secondary">Egresados que pidieron inscribirse desde el
-     formulario público. La revisión la hace Centro de Cómputo: aprueba, rechaza y da el
-     acceso desde su bandeja. Aquí consultas cómo va cada solicitud.</p>
+     formulario público.</p>
   {% endif %}
 </div>
 <div class="px-4 pb-4">

@@ -1071,3 +1071,22 @@ def test_en_modo_alterno_la_pagina_lo_explica(
 
     assert "La revisión la hace Centro de Cómputo" in texto
     assert "NIP de 4 dígitos" not in texto, "SE ya no aprueba en este modo"
+    # Dicho UNA vez: la cabecera y el aviso de solo lectura lo repetían.
+    assert texto.count("La revisión la hace Centro de Cómputo") == 1
+    assert texto.count("aprueba, rechaza y da el acceso") == 1
+
+
+def test_con_una_liga_de_un_dia_la_cabecera_dice_dia_en_singular(
+    client_as, db_session, make_head, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 24))
+    head = make_head(perm_codes=LIST_PERMS)
+
+    texto = _plano(client_as(head).get(URL).text)
+
+    assert "liga de activación de 1 día" in texto
+    assert "1 días" not in texto
