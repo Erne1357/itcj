@@ -6,15 +6,22 @@ cuenta ya no crea el usuario de una vez, sino que la manda a Centro de Computo
 para que de el NIP -- el flujo completo esta en
 `services/enrollment_request_service.py` y `docs/flows/xcut_public_enrollment.md`):
 
-  pending_review --aprobar, SIN cuenta en core_users--> converted  (usuario + NIP por correo)
-                                                        [modo alterno; ver abajo]
+  pending_review --aprobar, SIN cuenta, modo alterno--> converted  (usuario + NIP por correo)
   pending_review --aprobar, SIN cuenta, modo oficial--> awaiting_access  (SIN correo)
   pending_review --aprobar, CON cuenta--------------> approved   (liga de activacion por correo)
   approved --abrir la liga--------------------------> converted
   approved --la liga falla una revalidacion---------> pending_review (review_note = motivo)
   awaiting_access --Centro de Computo da acceso, SIN cuenta--> converted (usuario + NIP por correo)
+  awaiting_access --Centro de Computo da acceso, CON cuenta---> approved (liga de activacion; D10)
   awaiting_access --Centro de Computo devuelve---------------> pending_review (return_note = motivo)
   pending_review | approved | awaiting_access | legado --rechazar-----> rejected
+
+  "Modo alterno" y "modo oficial" los decide TITULATEC_ENROLLMENT_REVIEWER
+  (`reviewer_mode()` en el service): oficial (por omision) es Servicios
+  Escolares aprueba / Centro de Computo da el NIP, como arriba; en el
+  alterno, quien aprueba YA es Centro de Computo y el paso sin cuenta se
+  resuelve en un solo salto (pending_review -> converted), sin pasar por
+  awaiting_access.
 
   `unverified` y `verified` son LEGADO del flujo con liga previa: ya no se
   escriben, pero sus filas se pueden aprobar o rechazar. Por eso el
@@ -116,9 +123,13 @@ class EnrollmentRequest(Base):
 
     # --- Acceso por Centro de Computo (2026-09-24) ---
     # Escritas por `grant_access()` (y por `approve()`/`reassign_nip()` en sus
-    # ramas sin liga). `access_sent_at` queda NULL si el correo con el
-    # usuario y el NIP no salio (mismo patron que `verify_sent_at`); el NIP en
-    # si NUNCA se guarda aqui ni en ningun lado en claro.
+    # ramas sin liga). El NIP en si NUNCA se guarda aqui ni en ningun lado en
+    # claro. «Correo no enviado» NO es solo «access_granted_at lleno y
+    # access_sent_at nulo»: es `EnrollmentRequestService.access_mail_unsent()`,
+    # que ademas exige `status == 'converted'` y `verify_token_hash` nulo (una
+    # fila con liga por D10, o devuelta a pending_review por `verify()`, deja
+    # `access_granted_at` lleno sin que eso signifique correo sin enviar).
+    # Ver el docstring de `services/enrollment_request_service.py`.
     access_granted_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
     access_granted_at = Column(DateTime, nullable=True)
     access_sent_at = Column(DateTime, nullable=True)

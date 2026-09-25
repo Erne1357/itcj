@@ -269,3 +269,35 @@ stateDiagram-v2
 > **El egresado no mueve ningún estado.** Todas las transiciones de arriba las escribe GTV desde
 > `pages/survey_reviews_admin.py`; lo único que hace el egresado (enviar la encuesta) crea la
 > fila inicial en `in_review`, vía `SurveyReviewService.open_for_submission`.
+
+## Estado de una solicitud de auto-inscripción (`EnrollmentRequest.status`)
+
+Es previo a las 9 fases: nace con el formulario público de `/titulatec/inscripcion` y termina en
+`converted` (que abre la fase 0/1 vía `ImportService.import_rows`) o en `rejected`. Siete
+valores, `String(20)`; `unverified`/`verified` son LEGADO del flujo con liga previa y ya no se
+escriben. Quién revisa (SE o CC) y si `awaiting_access` aparece en el camino lo decide
+`EnrollmentRequestService.reviewer_mode()` (`TITULATEC_ENROLLMENT_REVIEWER`, 2026-09-24):
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending_review: 👤 envía el formulario público
+    pending_review --> awaiting_access: 🏛️ SE aprueba SIN cuenta · modo OFICIAL (por omisión) · SIN correo
+    pending_review --> converted: 🏛️/💻 aprueba SIN cuenta · modo ALTERNO · usuario + NIP por correo
+    pending_review --> approved: 🏛️/💻 aprueba CON cuenta (ambos modos) · liga de 21 días por correo
+    awaiting_access --> converted: 💻 CC da el acceso, SIN cuenta · usuario + NIP por correo
+    awaiting_access --> approved: 💻 CC da el acceso, CON cuenta (D10) · liga por correo
+    awaiting_access --> pending_review: 💻 CC devuelve a SE · return_note, sin correo
+    approved --> converted: 👤 abre la liga
+    approved --> pending_review: 👤 abre la liga, falla una revalidación
+    pending_review --> rejected: 🏛️/💻 rechaza
+    awaiting_access --> rejected: 🏛️/💻 cancela
+    approved --> rejected: 🏛️/💻 cancela
+    converted --> [*]
+    rejected --> [*]
+```
+
+**`awaiting_access` solo existe en el modo oficial** — el alumno nunca se entera de él (ni al
+entrar ni al salir hay correo). Detalle completo de quién ve cada estado, los dos modos y D8/D10:
+[Accesos de Centro de Cómputo](xcut_computer_center_access.md); el resto del ciclo (formulario,
+liga, riesgo aceptado, rol `graduate`):
+[Inscripción pública con revisión previa](xcut_public_enrollment.md).
