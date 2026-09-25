@@ -26,6 +26,7 @@ NIP = "5738"
 MSG_EN_COMPUTO = "Ya está en Centro de Cómputo para su acceso."
 MSG_NO_ESPERA = "Esa solicitud ya no está esperando acceso."
 MSG_NOTA = "Escribe el motivo de la devolución."
+MSG_NOTA_LARGA = "El motivo de la devolución no puede pasar de 2000 caracteres."
 MSG_NIP = "El NIP debe ser exactamente 4 dígitos."
 
 
@@ -653,13 +654,29 @@ def test_devolver_exige_nota(db_session, make_cohort, make_user, espia_helper):
     assert req.status == "awaiting_access" and req.returned_at is None
 
 
-def test_devolver_recorta_la_nota_a_2000(db_session, make_cohort, make_user, espia_helper):
+def test_devolver_rechaza_una_nota_de_mas_de_2000_sin_escribir(
+    db_session, make_cohort, make_user, espia_helper,
+):
+    """Brief: «nota obligatoria (≤2000)». Pasarse se rechaza con motivo; recortar
+    en silencio le perdería a CC el final de lo que escribió."""
     req, _se, _ = _en_espera(db_session, make_cohort, make_user, control="99560052")
 
-    ok, _ = _svc().return_to_review(db_session, req.id, note="x" * 2500,
+    assert _svc().return_to_review(db_session, req.id, note="x" * 2001,
+                                   actor_id=make_user().id) == (False, MSG_NOTA_LARGA)
+    db_session.refresh(req)
+    assert req.status == "awaiting_access"
+    assert req.returned_at is None and req.return_note is None
+
+
+def test_devolver_acepta_una_nota_de_2000_exactos_tras_quitar_espacios(
+    db_session, make_cohort, make_user, espia_helper,
+):
+    req, _se, _ = _en_espera(db_session, make_cohort, make_user, control="99560054")
+
+    ok, _ = _svc().return_to_review(db_session, req.id, note="  " + "x" * 2000 + "  ",
                                     actor_id=make_user().id)
 
-    assert ok is True and len(req.return_note) == 2000
+    assert ok is True and req.return_note == "x" * 2000
 
 
 @pytest.mark.parametrize("status", ["pending_review", "approved", "converted", "rejected"])

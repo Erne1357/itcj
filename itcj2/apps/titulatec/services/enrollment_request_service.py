@@ -205,6 +205,8 @@ _MSG_ONLY_APPROVED = "Solo se reenvía la liga de solicitudes aprobadas."
 _MSG_IN_ACCESS = "Ya está en Centro de Cómputo para su acceso."
 _MSG_NOT_AWAITING = "Esa solicitud ya no está esperando acceso."
 _MSG_RETURN_NOTE = "Escribe el motivo de la devolución."
+_MSG_RETURN_NOTE_LONG = "El motivo de la devolución no puede pasar de 2000 caracteres."
+_RETURN_NOTE_MAX = 2000
 _MSG_NOT_REASSIGNABLE = ("Solo se reasigna el NIP de una cuenta que creó esta solicitud "
                          "y que todavía no ha entrado.")
 _NOTE_LINK_COHORT_CLOSED = "La convocatoria estaba cerrada cuando se abrió la liga de activación."
@@ -581,17 +583,21 @@ class EnrollmentRequestService:
     def return_to_review(db: Session, req_id: int, *, note: str, actor_id: int):
         """Centro de Cómputo devuelve a SE una solicitud `awaiting_access`.
 
-        Devuelve `(ok, detalle)`. Nota obligatoria (se recorta a 2000, como el
-        motivo de `reject`); la solicitud vuelve a `pending_review` con
-        `returned_by_id`/`returned_at`/`return_note`. `reviewed_*` y
-        `review_note` no se tocan (son de SE). SIN correo: el alumno no se
-        entera del paso intermedio.
+        Devuelve `(ok, detalle)`. Nota obligatoria de hasta 2000 caracteres ya
+        sin espacios en los extremos: una más larga se RECHAZA con motivo (no se
+        recorta en silencio, que le perdería a CC el final de lo que escribió;
+        la forma de la bandeja lleva `maxlength="2000"`). La solicitud vuelve a
+        `pending_review` con `returned_by_id`/`returned_at`/`return_note`.
+        `reviewed_*` y `review_note` no se tocan (son de SE). SIN correo: el
+        alumno no se entera del paso intermedio.
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest
 
         motivo = (note or "").strip()
         if not motivo:
             return False, _MSG_RETURN_NOTE
+        if len(motivo) > _RETURN_NOTE_MAX:
+            return False, _MSG_RETURN_NOTE_LONG
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
             return False, _MSG_GONE
@@ -605,7 +611,7 @@ class EnrollmentRequestService:
         req.status = "pending_review"
         req.returned_by_id = actor_id
         req.returned_at = datetime.now()
-        req.return_note = motivo[:2000]
+        req.return_note = motivo
         db.commit()
         return True, ""
 
