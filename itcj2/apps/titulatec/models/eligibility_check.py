@@ -43,9 +43,9 @@ class EligibilityCheck(Base):
     rules_version = Column(String(40), nullable=True)
     results = Column(JSON, nullable=True)               # [{rule, ok, message}]
     facts = Column(JSON, nullable=True)                 # columnas no sensibles de [facts]
-    # Diferencias nombre/carrera formulario vs SII, si `[identity]` esta
-    # declarado en las reglas y no coincide (spec 3.3). NULL = no se comparo
-    # o no hubo discrepancia.
+    # Diferencias nombre/carrera formulario vs SII (spec 3.3 y 8): `{}` = se
+    # comparo y coincide; con claves = discrepancias; NULL = no se pudo
+    # comparar (sin `[identity]` o sin datos), y entonces NO se aprueba sola.
     identity_mismatch = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)                 # mensaje de SiiUnavailable/SiiQueryError, sin credenciales
     # Solo en `status == 'error'`: True si el SII no respondio
