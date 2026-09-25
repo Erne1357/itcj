@@ -632,6 +632,8 @@ class TestCredencial:
 
     @pytest.mark.parametrize("crudo,esperado", [
         (123, "0123"), (Decimal("7"), "0007"), (4321, "4321"), ("0123", "0123"),
+        # Columna FLOAT/REAL (revisión de F1): 427.0 no es «427.0».
+        (427.0, "0427"), (7.0, "0007"), (Decimal("427.00"), "0427"),
     ])
     def test_un_nip_numerico_conserva_los_ceros_a_la_izquierda(self, crudo, esperado):
         """Si el SII guarda el NIP como número, «0123» llegaba como «123» y la
@@ -639,6 +641,16 @@ class TestCredencial:
         rs = RuleSet.load(FIXTURES)
         s = rs.fetch_credential(_Stub({"nip": {"C": [{"nip": crudo}]}}), "C")
         assert s.reveal() == esperado
+
+    @pytest.mark.parametrize("crudo", [427.5, Decimal("427.5"), float("nan"), float("inf")])
+    def test_un_nip_numerico_con_decimales_no_se_trunca(self, crudo):
+        """Solo se rellena un número ENTERO: 427.5 no se vuelve «0427» (sería
+        otro NIP); queda con otro formato y la cuenta no se crea."""
+        from itcj2.apps.titulatec.services.enrollment_request_service import nip_format_ok
+
+        rs = RuleSet.load(FIXTURES)
+        s = rs.fetch_credential(_Stub({"nip": {"C": [{"nip": crudo}]}}), "C")
+        assert s is not None and not nip_format_ok(s.reveal())
 
     def test_varias_filas_con_nip_distinto_es_error_de_reglas(self, caplog):
         """Antes se tomaba la primera fila: un NIP al azar. Ahora es error de

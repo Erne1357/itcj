@@ -22,6 +22,7 @@ Garantías que el resto del sistema da por hechas:
 from __future__ import annotations
 
 import logging
+import math
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -377,14 +378,18 @@ def _jsonable(v: Any) -> Any:
 
 
 def _nip_text(raw: Any) -> str:
-    """El NIP como texto. Uno NUMÉRICO se rellena a 4 dígitos: si el SII lo
-    guarda como número, «0123» llega como 123 (revisión final C13). El
-    formato (4 dígitos ASCII) lo valida quien crea la cuenta."""
+    """El NIP como texto. Uno NUMÉRICO ENTERO se rellena a 4 dígitos: si el SII
+    lo guarda como número, «0123» llega como 123 (revisión final C13), o como
+    123.0 desde una columna FLOAT/REAL. Con decimales no se trunca (sería otro
+    NIP): sale tal cual y el formato (4 dígitos ASCII) lo rechaza quien crea la
+    cuenta."""
     if raw is None:
         return ""
     if isinstance(raw, int) and not isinstance(raw, bool):
         return f"{raw:04d}"
     if isinstance(raw, Decimal) and raw.is_finite() and raw == raw.to_integral_value():
+        return f"{int(raw):04d}"
+    if isinstance(raw, float) and math.isfinite(raw) and raw.is_integer():
         return f"{int(raw):04d}"
     return str(_jsonable(raw)).strip()
 
