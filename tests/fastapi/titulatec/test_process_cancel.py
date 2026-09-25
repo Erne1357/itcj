@@ -757,6 +757,28 @@ class TestPantallas:
         html = client_as(esc["student"]).get("/titulatec/student/dashboard").text
         assert 'id="tt-inscripcion-cancelada"' not in html
 
+    def test_los_kpis_de_procesos_no_cuentan_las_revocadas(self, db_session, esc, make_head,
+                                                           client_as, correos):
+        """Revisión final (diferido de T6): el Total de Procesos excluye las
+        revocadas, como el Resumen de la convocatoria. Se mide como diferencia:
+        la BD de dev trae procesos reales que la jefa (read.all) también ve."""
+        import re
+
+        def _total(html):
+            bloque = html.split('id="proc-kpi-total"', 1)[1]
+            return int(re.search(r'<div class="num">(\d+)', bloque).group(1))
+
+        proc = esc["proc"]()
+        jefa = make_head(perm_codes=REVOCA_PERMS + ("titulatec.process.page.list",))
+        cli = client_as(jefa)
+        antes = _total(cli.get("/titulatec/admin/processes").text)
+
+        _svc().cancel(db_session, proc.id, reason="x", actor_id=jefa.id)
+
+        assert _total(cli.get("/titulatec/admin/processes").text) == antes - 1
+        # Pedidas a propósito, sí se cuentan.
+        assert _total(cli.get("/titulatec/admin/processes?status=cancelled").text) >= 1
+
     def test_la_bandeja_de_procesos_lo_etiqueta(self, db_session, esc, make_head,
                                                 client_as, correos):
         proc = esc["proc"]()

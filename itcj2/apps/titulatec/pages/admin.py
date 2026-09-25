@@ -1499,10 +1499,17 @@ async def processes(
         procs = q.order_by(TitulationProcess.created_at.desc()).all()
 
         # KPIs sobre el universo filtrado por status/scope (antes del filtro stuck).
-        kpis = {"total": len(procs), "active": 0, "completed": 0,
-                "on_hold": 0, "cancelled": 0, "pct_completed": 0, "n_stuck": 0}
-        for p in procs:
-            if p.status in kpis:
+        # Una inscripción revocada no es un alumno en proceso: fuera del total y
+        # del porcentaje, como en el Resumen de la convocatoria
+        # (`_cohort_summary_ctx`), salvo que se pidan las revocadas; se cuentan
+        # aparte en `cancelled`.
+        universo = (procs if status == "cancelled"
+                    else [p for p in procs if p.status != "cancelled"])
+        kpis = {"total": len(universo), "active": 0, "completed": 0, "on_hold": 0,
+                "cancelled": sum(1 for p in procs if p.status == "cancelled"),
+                "pct_completed": 0, "n_stuck": 0}
+        for p in universo:
+            if p.status in ("active", "completed", "on_hold"):
                 kpis[p.status] += 1
         if kpis["total"]:
             kpis["pct_completed"] = round(kpis["completed"] / kpis["total"] * 100)
