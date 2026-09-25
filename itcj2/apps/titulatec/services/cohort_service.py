@@ -134,6 +134,11 @@ class CohortService:
         `cohort_id`, así que con el segundo predicado no volvería a reanudarse
         jamás tras la siguiente pausa.
 
+        Los procesos que se mueven se leen con `FOR UPDATE`: una revocación
+        (`ProcessService.cancel`, `FOR NO KEY UPDATE`) que hace commit mientras
+        tanto no se pisa, porque tras la espera Postgres re-evalúa el filtro de
+        estado y la revocada queda fuera.
+
         Un solo `commit` al final: la ventana y el flip viajan juntos.
         Devuelve `{'paused': N, 'resumed': M}`. Lanza `ValueError` con texto para
         el usuario si el estado es desconocido, la convocatoria no existe o el
@@ -164,7 +169,8 @@ class CohortService:
         if status == "open" and anterior in ("draft", "closed") and cerradas:
             for proc in (db.query(TitulationProcess)
                          .filter(TitulationProcess.status == "on_hold",
-                                 TitulationProcess.cohort_id.in_(cerradas)).all()):
+                                 TitulationProcess.cohort_id.in_(cerradas))
+                         .with_for_update().all()):
                 proc.status = "active"
                 db.add(ProcessEvent(
                     process_id=proc.id, actor_id=actor_id,
@@ -177,7 +183,8 @@ class CohortService:
         elif status == "closed" and anterior in ("draft", "open"):
             for proc in (db.query(TitulationProcess)
                          .filter(TitulationProcess.status == "active",
-                                 TitulationProcess.cohort_id == cohort.id).all()):
+                                 TitulationProcess.cohort_id == cohort.id)
+                         .with_for_update().all()):
                 proc.status = "on_hold"
                 db.add(ProcessEvent(
                     process_id=proc.id, actor_id=actor_id,

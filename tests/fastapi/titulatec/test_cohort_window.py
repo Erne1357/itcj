@@ -230,6 +230,43 @@ def test_open_a_closed_pausa_solo_los_activos_de_esa_convocatoria(
             .filter_by(process_id=activo.id, event_type="process_paused").count()) == 1
 
 
+@pytest.mark.parametrize("anterior,nuevo,estado_proc", [
+    ("open", "closed", "active"),       # pausa
+    ("closed", "open", "on_hold"),      # reanuda
+])
+def test_pausar_y_reanudar_bloquean_los_procesos_que_mueven(
+        sin_convocatorias_previas, make_cohort, make_student, make_process,
+        make_head, db_session, anterior, nuevo, estado_proc):
+    """Revisión final (F2): sin `FOR UPDATE`, una revocación que hace commit
+    entre la lectura y el flush se pisa (`cancelled` -> `on_hold`/`active`).
+    Con el bloqueo, Postgres re-evalúa el filtro de estado tras la espera y la
+    revocada queda fuera."""
+    from sqlalchemy import event
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+
+    jefa = make_head()
+    cohort = make_cohort(status=anterior)
+    make_process(make_student(), cohort=cohort, status=estado_proc)
+    sentencias: list[str] = []
+
+    def _captura(conn, cursor, statement, parameters, context, executemany):
+        sentencias.append(" ".join(statement.split()))
+
+    conn = db_session.connection()
+    event.listen(conn, "before_cursor_execute", _captura)
+    try:
+        res = CohortService.set_window(db_session, cohort.id, opens_at=None,
+                                       closes_at=None, status=nuevo, actor_id=jefa.id)
+    finally:
+        event.remove(conn, "before_cursor_execute", _captura)
+
+    assert res["paused"] + res["resumed"] == 1
+    lecturas = [s for s in sentencias
+                if s.startswith("SELECT") and "FROM titulatec_processes" in s]
+    assert lecturas, sentencias
+    assert all(s.endswith("FOR UPDATE") for s in lecturas), lecturas
+
+
 def test_cerrar_dos_veces_no_pausa_de_nuevo(sin_convocatorias_previas, make_cohort,
                                             make_student, make_process, make_head,
                                             db_session):

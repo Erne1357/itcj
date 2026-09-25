@@ -412,7 +412,11 @@ class TestCarreraConLaAgenda:
             return next(i for i, s in enumerate(sentencias) if pred(s))
 
         advisory = _primera(lambda s: "pg_advisory_xact_lock" in s)
-        fila = _primera(lambda s: "FROM titulatec_processes" in s and "FOR UPDATE" in s)
+        # FOR NO KEY UPDATE (revisión final F2): serializa dos revocaciones y a
+        # `set_window`, pero no bloquea los INSERT con FK al proceso (la FK pide
+        # FOR KEY SHARE, que no choca con NO KEY UPDATE).
+        fila = _primera(lambda s: "FROM titulatec_processes" in s
+                        and "FOR NO KEY UPDATE" in s)
         citas = _primera(lambda s: "FROM titulatec_review_appointments" in s)
         assert advisory < fila < citas
 
