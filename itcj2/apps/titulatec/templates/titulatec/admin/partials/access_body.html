@@ -16,8 +16,11 @@
    Modo alterno: pestañas de revisión; aprobar (NIP o liga, con carrera),
    rechazar, reenviar la liga y dar acceso a las `awaiting_access` sobrantes.
    En ambos, la marca «correo no enviado» del NIP solo si `access_mail_unsent`
-   (para la liga, `verify_sent_at`) y «Reasignar NIP» solo con esa marca Y
-   `can_reassign_nip` (D8: el remedio del correo que no salió; `r.can_reassign`).
+   (para la liga, `verify_sent_at`) y «Reasignar NIP» con `can_reassign_nip`
+   (cuenta creada por la solicitud que nunca ha iniciado sesión;
+   `r.can_reassign`), haya salido o no el correo: un correo mal escrito también
+   «sale». Su formulario dice a qué correo va y deja no mandarlo (`no_mail`,
+   «lo dicto por teléfono»).
    «Con acceso» también lista la D10 que SE canceló (`rejected`, sin acciones).
 
    El NIP NUNCA se pinta: sus campos no llevan `value`.
@@ -176,8 +179,14 @@
                   hx-target="#tt-access-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
               {{ tab_fields(status, cohort_id) }}
+              <span class="tt-req-sub w-100">Se enviará a {{ r.email }}</span>
               {{ nip_field() }}
-              <button type="submit" class="btn btn-sm tt-btn-ghost">Reasignar NIP y reenviar</button>
+              <div class="form-check small w-100 mb-0">
+                <input class="form-check-input" type="checkbox" name="no_mail" value="1"
+                       id="tt-acc-nomail-{{ r.id }}">
+                <label class="form-check-label" for="tt-acc-nomail-{{ r.id }}">No enviar correo; lo dicto por teléfono</label>
+              </div>
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Reasignar NIP</button>
             </form>
             {% endif %}
           {% elif r.status == 'rejected' %}

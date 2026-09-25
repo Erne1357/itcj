@@ -11,7 +11,8 @@ Modo (`EnrollmentRequestService.reviewer_mode()`):
 - OFICIAL (`school_services`): SE aprueba y la solicitud sin cuenta llega aquí
   (`awaiting_access`). CC da el NIP (`grant_access`; si entretanto apareció una
   cuenta, se desvía a la liga — D10), la devuelve a SE con nota
-  (`return_to_review`) o reasigna el NIP si el correo no salió (D8).
+  (`return_to_review`) o reasigna el NIP de una cuenta que nunca ha iniciado
+  sesión (D8), con o sin correo.
   Pestañas: Por dar acceso · Con acceso · Devueltas.
 - ALTERNO (`computer_center`): CC revisa todo. «Dar acceso» sobre una
   `pending_review` (o legado) APRUEBA (`approve`, con NIP si no hay cuenta, liga
@@ -249,12 +250,12 @@ def _body_ctx(db, *, status, cohort_id):
             "access_unsent": access_unsent,
             # Correo de la liga (D10 y alterno): lo sella `verify_sent_at`.
             "link_unsent": r.status == "approved" and r.verify_sent_at is None,
-            # «Reasignar NIP (si aplica D8)», spec §8.2: D8 es el remedio del
-            # correo con NIP que NO salió, así que el botón pide las dos cosas.
-            # `reassign_nip` no exige el correo fallido (spec §6) y repite bajo
-            # el lock `can_reassign_nip` + la señal positiva de la cuenta.
-            "can_reassign": (access_unsent
-                             and EnrollmentRequestService.can_reassign_nip(r, u)),
+            # «Reasignar NIP» (ruling 2026-09-25, spec §8.2): basta
+            # `can_reassign_nip` (cuenta creada por la solicitud que nunca ha
+            # iniciado sesión), AUNQUE el correo haya salido: un correo mal
+            # escrito también «sale». `reassign_nip` lo repite bajo el bloqueo
+            # de la cuenta, junto con la señal positiva de la solicitud.
+            "can_reassign": EnrollmentRequestService.can_reassign_nip(r, u),
             "rejection_sent": r.rejection_sent_at is not None,
             "show_status": tab in _MIXED_TABS,
         })
@@ -427,9 +428,10 @@ async def resend(req_id: int, request: Request,
 @router.post("/{req_id}/reasignar-nip", name="titulatec.pages.access.reassign")
 async def reassign_nip(req_id: int, request: Request,
                        user: dict = Depends(require_page_app("titulatec", perms=_GRANT))):
-    """Reasigna el NIP y lo reenvía (D8, ambos modos). La elegibilidad la decide
-    el servicio bajo el lock; el botón solo aparece si el correo del NIP no
-    salió (`access_mail_unsent`) y `can_reassign_nip`."""
+    """Reasigna el NIP (D8, ambos modos) y lo reenvía, o no si viene `no_mail`
+    («lo dicto por teléfono»: el correo mal escrito). La elegibilidad la decide
+    el servicio bajo el bloqueo de la cuenta; el botón aparece con
+    `can_reassign_nip` (nunca ha iniciado sesión), haya salido o no el correo."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -441,7 +443,8 @@ async def reassign_nip(req_id: int, request: Request,
         if _load(db, req_id) is None:
             return Response(status_code=404)
         ok, detail = EnrollmentRequestService.reassign_nip(
-            db, req_id, nip=(form.get("nip") or "").strip(), actor_id=int(user["sub"]))
+            db, req_id, nip=(form.get("nip") or "").strip(), actor_id=int(user["sub"]),
+            send_mail=not form.get("no_mail"))
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
         return _render_body(request, db, form)

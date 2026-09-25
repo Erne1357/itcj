@@ -354,10 +354,10 @@ def test_dar_acceso_sin_cuenta_pasa_a_con_acceso_y_el_nip_solo_va_al_correo(
     fila = _fila(con_acceso.text, req)
     assert "Inscrita" in _plano(fila)
     assert "correo no enviado" not in fila
-    # D8 / spec §8.2 «Reasignar NIP (si aplica D8)»: el botón es el remedio del
-    # correo que NO salió. Aquí salió, así que no se ofrece aunque la cuenta siga
-    # elegible (`can_reassign_nip`: creada por la solicitud, sin entrar aún).
-    assert "/reasignar-nip" not in fila
+    # Ruling 2026-09-25 (spec §8.2): «Reasignar NIP» sale cuando la cuenta es
+    # elegible (`can_reassign_nip`: creada por la solicitud, nunca ha iniciado
+    # sesión), AUNQUE el correo haya salido: un correo mal escrito también «sale».
+    assert f'hx-post="{URL}/{req.id}/reasignar-nip"' in fila
     for pestana in ("awaiting_access", "granted", "returned"):
         _sin_nip(c.get(f"{URL}/body?status={pestana}&cohort_id={cohort.id}"))
     _sin_nip(c.get(f"{URL}?cohort_id={cohort.id}"))
@@ -557,16 +557,18 @@ def test_reasignar_solo_se_ofrece_si_es_elegible_y_reenvia_el_nip(
     # Una convertida sin acceso de CC (legado) no está en «Con acceso» ni se reasigna.
     assert f'id="tt-acc-{legado.id}"' not in html
 
-    # Aun con el correo sin salir: si la persona ya entró y cambió su contraseña,
-    # no se reasigna (D8: «solo mientras `must_change_password` siga activo»).
+    # Aun con el correo sin salir: si la persona ya inició sesión no se reasigna
+    # (revisión final C1: `must_change_password` nunca se limpia en un egresado,
+    # la señal es `last_login`).
     from itcj2.core.models.user import User
     cuenta = db_session.query(User).filter_by(control_number="99710110").one()
-    cuenta.must_change_password = False
+    assert cuenta.must_change_password is True
+    cuenta.last_login = datetime.now()
     db_session.flush()
     fila = _fila(c.get(f"{URL}/body?status=granted&cohort_id={cohort.id}").text, req)
     assert "correo no enviado" in fila
     assert "/reasignar-nip" not in fila
-    cuenta.must_change_password = True
+    cuenta.last_login = None
     db_session.flush()
 
     monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved", envio_real)
@@ -578,10 +580,76 @@ def test_reasignar_solo_se_ofrece_si_es_elegible_y_reenvia_el_nip(
     assert _pestana_activa(resp.text) == "granted"
     fila = _fila(resp.text, req)
     assert "correo no enviado" not in fila
-    # El correo del NIP nuevo salió: D8 ya no aplica y el botón se va.
-    assert "/reasignar-nip" not in fila
+    # El correo salió, pero la persona sigue sin iniciar sesión: el botón sigue
+    # (el ruling ya no exige `access_mail_unsent`).
+    assert f'hx-post="{URL}/{req.id}/reasignar-nip"' in fila
     (_asunto, _dest, correo), = correo_falso
     assert NIP in correo
+    assert "Este NIP reemplaza al que te enviamos antes" in correo
+
+
+def test_el_formulario_de_reasignar_dice_a_donde_va_y_permite_no_mandar_correo(
+    client_as, db_session, make_cc, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso,
+):
+    """Ruling 2026-09-25: el caso del correo mal escrito. CC ve a qué dirección
+    saldría y puede reasignar SIN correo para dictarlo por teléfono."""
+    seed_phase_defs()
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    req = _en_espera(db_session, cohort, control="99710112", email="mal.escrito@example.invalid")
+    c = client_as(cc)
+    assert c.post(f"{URL}/{req.id}/dar-acceso", data={"nip": "7392"}).status_code == 200
+    correo_falso.clear()
+
+    fila = _fila(c.get(f"{URL}/body?status=granted&cohort_id={cohort.id}").text, req)
+    formulario = fila.split(f'hx-post="{URL}/{req.id}/reasignar-nip"', 1)[1].split("</form>", 1)[0]
+    assert "Se enviará a mal.escrito@example.invalid" in _plano(formulario)
+    assert re.search(r'<input[^>]*type="checkbox"[^>]*name="no_mail"', formulario)
+    assert "No enviar correo; lo dicto por teléfono" in _plano(formulario)
+
+    resp = c.post(f"{URL}/{req.id}/reasignar-nip",
+                  data={"nip": NIP, "no_mail": "1", "status": "granted",
+                        "cohort_id": str(cohort.id)})
+
+    assert resp.status_code == 200, _error(resp)
+    _sin_nip(resp)
+    assert correo_falso == [], "con la casilla no sale ningún correo"
+    db_session.refresh(req)
+    assert req.access_sent_at is None
+    from itcj2.core.models.user import User
+    from itcj2.core.utils.security import verify_nip
+    cuenta = db_session.query(User).filter_by(control_number="99710112").one()
+    assert verify_nip(NIP, cuenta.password_hash)
+
+
+def test_reasignar_una_cuenta_que_ya_inicio_sesion_da_400_sin_escribir(
+    client_as, db_session, make_cc, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso,
+):
+    from itcj2.core.models.user import User
+
+    seed_phase_defs()
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    req = _en_espera(db_session, cohort, control="99710113")
+    c = client_as(cc)
+    assert c.post(f"{URL}/{req.id}/dar-acceso", data={"nip": "7393"}).status_code == 200
+    correo_falso.clear()
+    cuenta = db_session.query(User).filter_by(control_number="99710113").one()
+    cuenta.last_login = datetime.now()
+    db_session.flush()
+    antes, epoca = cuenta.password_hash, cuenta.session_epoch
+
+    resp = c.post(f"{URL}/{req.id}/reasignar-nip", data={"nip": NIP})
+
+    assert resp.status_code == 400
+    assert _error(resp) == ("Solo se reasigna el NIP de una cuenta que creó esta "
+                            "solicitud y que nunca ha iniciado sesión.")
+    _sin_nip(resp)
+    db_session.refresh(cuenta)
+    assert (cuenta.password_hash, cuenta.session_epoch) == (antes, epoca)
+    assert correo_falso == []
 
 
 def test_reasignar_una_no_elegible_responde_400_sin_escribir(
