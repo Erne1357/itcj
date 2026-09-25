@@ -211,6 +211,20 @@ class AppointmentConflict(AppointmentError):
         super().__init__(msg)
 
 
+class EnrollmentRevoked(AppointmentError):
+    """El proceso quedó `cancelled` (`ProcessService.cancel`): no se le agenda.
+
+    Colisión de estado, no error de entrada: el caso real es un tablero abierto
+    desde antes de la revocación que todavía pinta al alumno. Re-renderizar
+    le quita la fila de la vista.
+    """
+
+    refresca_la_vista = True
+
+    def __init__(self, msg="La inscripción de este alumno fue revocada: ya no se le agenda cita."):
+        super().__init__(msg)
+
+
 class SlotLockTimeout(AppointmentError):
     refresca_la_vista = True
 

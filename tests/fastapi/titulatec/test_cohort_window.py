@@ -81,6 +81,37 @@ def test_el_predicado_exige_open_y_la_fecha_dentro(db_session, make_cohort, sin_
 
 
 # ---------------------------------------------------------------------------
+# accepts_enrollment_followup — D5 (spec 2026-09-24)
+# ---------------------------------------------------------------------------
+def test_el_seguimiento_de_una_solicitud_solo_exige_status_open(
+    db_session, make_cohort, sin_fechas,
+):
+    """Aprobar, dar acceso, abrir la liga y reenviarla ignoran las fechas: la
+    ventana solo filtra el formulario público. Solo `closed` (pausa) y `draft`
+    lo detienen."""
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    hoy = date.today()
+
+    abierta = make_cohort(status="open", opens_at=hoy - timedelta(days=1),
+                          closes_at=hoy + timedelta(days=1))
+    vencida = make_cohort(status="open", opens_at=hoy - timedelta(days=10),
+                          closes_at=hoy - timedelta(days=1))
+    futura = make_cohort(status="open", opens_at=hoy + timedelta(days=1),
+                         closes_at=hoy + timedelta(days=5))
+    perpetua = sin_fechas(db_session, make_cohort(status="open"))
+    cerrada = make_cohort(status="closed")
+    borrador = make_cohort(status="draft")
+
+    for c in (abierta, vencida, futura, perpetua):
+        assert CohortService.accepts_enrollment_followup(c) is True, c.opens_at
+    assert CohortService.accepts_enrollment_followup(cerrada) is False
+    assert CohortService.accepts_enrollment_followup(borrador) is False
+    assert CohortService.accepts_enrollment_followup(None) is False
+    # El formulario, en cambio, sigue cerrado fuera de fechas.
+    assert CohortService.is_public_enrollment_open(vencida) is False
+
+
+# ---------------------------------------------------------------------------
 # public_enrollment_cohort — 0 / 1 / >1
 # ---------------------------------------------------------------------------
 def test_resolver_sin_ninguna_abierta_devuelve_closed(sin_convocatorias_previas,

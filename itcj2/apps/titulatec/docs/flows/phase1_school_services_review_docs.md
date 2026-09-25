@@ -102,14 +102,32 @@ medición. Medido de punta a punta desde el navegador, la petición de cambiar d
 
 Las 5 son: procesos, `DocumentType IN (3)`, `Document IN (procesos) AND type_code IN (3)`,
 `User IN (…)`, `Program IN (…)` (`pages/documents.py:19-57`). Las 3 extra del encargado son la
-resolución del alcance por carrera, que este cambio no toca.
+resolución del alcance por carrera, que este cambio no toca. Desde el 2026-09-24 «Por evaluar»
+paga **una más, también fija**: los eventos de subida del lote (`_last_uploads`, ver abajo), que
+son los que dan su orden FIFO. Lo fija `test_la_pestana_pendiente_no_escala_con_las_filas`.
 
 De paso, el `ORDER BY` gana un desempate por `id` (`pages/documents.py:103-104`).
 `created_at` es `server_default NOW()` y en Postgres `NOW()` es la hora de **inicio de la
 transacción**: varios procesos creados en la misma —una importación, por ejemplo— empatan, y
 sin desempate el orden lo decidía el planificador, o sea la lista podía re-barajarse sola entre
 un filtro y el siguiente. Con los 34 `created_at` distintos de hoy no cambia nada (el diff byte
-a byte se repitió con el desempate puesto).
+a byte se repitió con el desempate puesto). Este orden —creación del proceso, no llegada del
+documento— sigue rigiendo tal cual en **Todos**, **Con rechazo** y **Completos**.
+
+**«Por evaluar» es la única pestaña con un orden distinto (2026-09-24).** En vez de cuándo se
+creó el proceso, ordena por cuánto lleva esperando dictamen: para cada fila, el mínimo —entre
+sus documentos con archivo en `review_status == 'pending'`— de la ÚLTIMA llegada de cada uno,
+ascendente y con desempate por `process_id`. "Última" y no "primera" porque una resubida tras
+un rechazo es una llegada NUEVA y se va al final de la fila, no conserva el lugar del primer
+intento. La fuente de esa fecha es la bitácora (`ProcessEvent(document_uploaded)`, que
+`DocumentService.save` escribe en la misma transacción que cada subida), no `Document.created_at`
+ni `updated_at`: ninguna de las dos sirve sola, porque una resubida actualiza la fila de
+`Document` en su lugar en vez de crear una nueva. Sin evento en la bitácora (fila sembrada, o
+subida antes de `2f43e7e5` —2026-09-03—, cuando las subidas empezaron a dejar ese evento) el
+respaldo es `Document.created_at`. Las filas cuyo único pendiente es "missing" (nada subido: se espera al
+alumno, no al revisor) no tienen ningún tiempo que medir y van al final, sin reordenarse entre
+sí —conservan el orden de arriba—. Lo resuelven `_last_uploads` y `_order_pending_by_wait`
+(`pages/documents.py`), en una consulta de lote adicional que solo paga esta pestaña.
 
 El lote es **equivalente** al bucle, no una aproximación: `DocumentType.code` es `UNIQUE` y
 `Document` tiene `UNIQUE(process_id, type_code)`, así que el `.first()` por fila no podía devolver

@@ -170,6 +170,103 @@ def test_el_rechazo_va_al_correo_personal_con_el_motivo(db_session, solicitud, c
     assert "No aparece en el padrón." in html
 
 
+def test_el_correo_de_alta_es_neutro_sobre_quien_dio_el_acceso(
+    db_session, make_student, solicitud, correo_falso,
+):
+    """Desde 2026-09-24 el NIP lo da Centro de Cómputo (o SE en el modo alterno):
+    el correo ya no dice «Servicios Escolares te dio de alta»."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    alumno = make_student(control_number="90000012")
+    req = solicitud(control_number="90000012", kind="unknown", status="converted")
+
+    assert TitulaTecEmailHelper.send_enrollment_approved(db_session, req, alumno,
+                                                         nip="4821") is True
+
+    (_asunto, _dest, html), = correo_falso
+    texto = _texto(html)
+    assert ("Tu solicitud fue aprobada y ya tienes acceso a la Plataforma Digital "
+            "del ITCJ.") in texto
+    assert "Servicios Escolares" not in texto
+    assert "Centro de Cómputo" not in texto
+
+
+def test_el_correo_de_un_nip_reasignado_dice_que_reemplaza_al_anterior(
+    db_session, make_student, solicitud, correo_falso,
+):
+    """Ruling 2026-09-25 (D8): quien sí recibió el primer correo recibe otro con
+    otro NIP; sin esta línea no sabe cuál vale. El alta normal no la lleva."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    alumno = make_student(control_number="90000013")
+    req = solicitud(control_number="90000013", kind="unknown", status="converted",
+                    contact_email="reasignado@example.invalid")
+
+    assert TitulaTecEmailHelper.send_enrollment_approved(
+        db_session, req, alumno, nip="4822", reassigned=True) is True
+    assert TitulaTecEmailHelper.send_enrollment_approved(
+        db_session, req, alumno, nip="4823") is True
+
+    (asunto_r, dest_r, html_r), (asunto_n, _dest_n, html_n) = correo_falso
+    assert dest_r == ["reasignado@example.invalid"]
+    assert "Este NIP reemplaza al que te enviamos antes" in _texto(html_r)
+    assert "4822" in html_r and "90000013" in html_r
+    assert "Tu solicitud fue aprobada" not in _texto(html_r)
+    assert asunto_r != asunto_n, "el asunto distingue el NIP nuevo del alta"
+    assert "reemplaza" not in _texto(html_n)
+
+
+def test_el_alta_con_el_nip_del_sii_no_lleva_nip_y_dice_cual_usar(
+    db_session, make_student, solicitud, correo_falso,
+):
+    """Modo `sii` (spec S4): la cuenta nace con el NIP del SII, que solo sabe
+    el alumno. El correo no lleva credencial: «entra con tu número de control
+    y tu NIP del SII». Aunque alguien pase un `nip`, no se pinta."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    alumno = make_student(control_number="90000014")
+    req = solicitud(control_number="90000014", kind="unknown", status="converted",
+                    contact_email="sii@example.invalid")
+
+    assert TitulaTecEmailHelper.send_enrollment_approved(
+        db_session, req, alumno, nip="7531", nip_source="sii") is True
+
+    (_asunto, dest, html), = correo_falso
+    texto = _texto(html)
+    assert dest == ["sii@example.invalid"]
+    assert "7531" not in html
+    assert "entra con tu número de control y tu nip del sii" in texto.lower()
+    assert "Tu solicitud fue aprobada" in texto
+    assert "90000014" in html
+
+
+@pytest.mark.parametrize("modo,revisor,otro", [
+    ("school_services", "Servicios Escolares", "Centro de Cómputo"),
+    ("computer_center", "Centro de Cómputo", "Servicios Escolares"),
+])
+def test_el_rechazo_nombra_a_quien_reviso_segun_el_modo(
+    db_session, solicitud, correo_falso, monkeypatch, modo, revisor, otro,
+):
+    """El helper calcula `reviewer_label()`; la firma pública no cambia."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: modo))
+    req = solicitud(control_number="90000013", kind="unknown", status="rejected")
+    req.review_note = "Motivo de prueba."
+    db_session.flush()
+
+    assert TitulaTecEmailHelper.send_enrollment_rejected(db_session, req) is True
+
+    (_asunto, _dest, html), = correo_falso
+    texto = _texto(html)
+    assert f"{revisor} revisó tu solicitud de inscripción" in texto
+    assert otro not in texto
+
+
 def _texto(html: str) -> str:
     """Texto plano del correo: sin etiquetas y con los espacios colapsados."""
     import re
@@ -194,12 +291,80 @@ def test_la_liga_de_activacion_dice_quien_aprobo_cuanto_dura_y_que_hacer_si_no_f
             "titulación con el número de control 90000010.") in texto
     assert "Activar mi acceso" in texto
     assert f'href="{LIGA}"' in html
-    assert ("La liga vence en 7 días. Al abrirla quedas inscrito y entras con tu número "
+    assert ("La liga vence en 21 días. Al abrirla quedas inscrito y entras con tu número "
             "de control y tu NIP de siempre.") in texto
     assert ("Si no solicitaste esta inscripción, no abras la liga y avisa a Servicios "
             "Escolares.") in texto
     assert "Confirmar mi inscripción" not in texto
     assert "horas" not in texto
+
+
+def test_los_dias_del_correo_de_activacion_salen_de_link_ttl_hours(
+    db_session, solicitud, correo_falso, monkeypatch,
+):
+    """El texto del correo lee la MISMA fuente que el vencimiento en BD."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 48))
+    req = solicitud(control_number="90000011", kind="known", status="approved")
+
+    assert TitulaTecEmailHelper.send_verify_enrollment(db_session, req, link=LIGA) is True
+
+    (_asunto, _dest, html), = correo_falso
+    assert "La liga vence en 2 días." in _texto(html)
+
+
+def test_un_solo_dia_de_vigencia_va_en_singular(
+    db_session, solicitud, correo_falso, monkeypatch,
+):
+    """`{{ dias }} días` con `dias == 1` diría «1 días»: la plantilla debe pluralizar."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 24))
+    req = solicitud(control_number="90000014", kind="known", status="approved")
+
+    assert TitulaTecEmailHelper.send_verify_enrollment(db_session, req, link=LIGA) is True
+
+    (_asunto, _dest, html), = correo_falso
+    texto = _texto(html)
+    assert "La liga vence en 1 día." in texto
+    assert "1 días" not in texto
+
+
+@pytest.mark.parametrize("modo,revisor,otro", [
+    ("school_services", "Servicios Escolares", "Centro de Cómputo"),
+    ("computer_center", "Centro de Cómputo", "Servicios Escolares"),
+])
+def test_la_liga_de_activacion_nombra_a_quien_reviso_segun_el_modo(
+    db_session, solicitud, correo_falso, monkeypatch, modo, revisor, otro,
+):
+    """El helper pasa `revisor` al contexto igual que ya hace con el rechazo
+    (T4, `send_enrollment_rejected`)."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: modo))
+    req = solicitud(control_number="90000015", kind="known", status="approved")
+
+    assert TitulaTecEmailHelper.send_verify_enrollment(db_session, req, link=LIGA) is True
+
+    (_asunto, _dest, html), = correo_falso
+    texto = _texto(html)
+    assert (f"{revisor} aprobó tu solicitud de inscripción al proceso de "
+            "titulación con el número de control 90000015.") in texto
+    assert f"avisa a {revisor}." in texto
+    assert otro not in texto
 
 
 def test_el_aviso_de_folio_dice_que_se_activo_y_sirve_de_alarma(

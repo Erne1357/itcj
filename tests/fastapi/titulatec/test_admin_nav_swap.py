@@ -234,3 +234,34 @@ def test_los_macros_de_citas_tambien_cumplen_el_invariante_de_swap():
     assert len(revisados) >= 1, (
         f"solo se revisaron {len(revisados)} macros con hx-select; "
         f"si los renombraste, actualiza este censo")
+
+
+# ---------------------------------------------------------------------------
+# Accesos (Centro de Cómputo, 2026-09-24): el item nuevo del menú
+# ---------------------------------------------------------------------------
+def test_el_item_accesos_del_menu_no_anida_el_contenedor(
+    client_as, make_user, make_role, grant_user_role,
+):
+    """El actor de Centro de Cómputo no tiene ninguna otra pestaña, así que el
+    recorrido de la jefa (arriba) nunca pasa por Accesos: aquí se simula su swap."""
+    user = make_user(first_name="CENTRO", last_name="COMPUTO")
+    grant_user_role(user, make_role("tt_test_cc_nav",
+                                    ("titulatec.enrollment_access.page.list",)))
+    cli = client_as(user)
+    url = "/titulatec/admin/accesos"
+
+    viva = cli.get(url)
+    assert viva.status_code == 200, viva.text[:500]
+    (item,) = lxml.html.fromstring(viva.text).xpath(
+        '//aside[@id="ttSide"]//a[@hx-get="%s"]' % url)
+    target, select, swap = item.get("hx-target"), item.get("hx-select"), item.get("hx-swap")
+    assert target and select and swap
+
+    resp = cli.get(url, headers={"HX-Request": "true", "HX-Target": target.lstrip("#")})
+    assert resp.status_code == 200
+    arbol = _simulate_swap(viva.text, resp.text, target, select, swap)
+
+    iguales = arbol.xpath(_xpath_for(target))
+    assert len(iguales) == 1, "tras el swap hay %d %s" % (len(iguales), target)
+    assert len(iguales[0]) > 0
+    assert arbol.xpath('//*[@id="tt-access-body"]')

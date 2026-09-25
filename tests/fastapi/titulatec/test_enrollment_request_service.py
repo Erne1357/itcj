@@ -133,17 +133,140 @@ def test_constantes_del_contrato():
     from itcj2.apps.titulatec.services import enrollment_request_service as mod
     from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE as re_original
 
-    assert mod.VERIFY_TTL_HOURS == 168, "la liga de activación vive 7 días"
+    assert not hasattr(mod, "VERIFY_TTL_HOURS"), (
+        "la vida de la liga sale de TITULATEC_ENROLLMENT_LINK_TTL_DAYS vía "
+        "`_link_ttl_hours()`; una constante paralela divergiría en silencio")
+    assert mod.EnrollmentRequestService._link_ttl_hours() == 504, (
+        "por omisión la liga de activación vive 21 días")
     assert mod.MAX_VERIFY_SENDS == 3
     assert mod.MIN_SECONDS_BETWEEN_SENDS == 300
     assert mod.MAX_PUBLIC_BODY_BYTES == 256 * 1024
     assert mod.STATUSES == (
-        "unverified", "verified", "pending_review", "approved", "rejected", "converted")
+        "unverified", "verified", "pending_review", "approved", "rejected", "converted",
+        "awaiting_access")
+    assert "awaiting_access" in mod._REJECTABLE, "SE cancela una que espera a Cómputo"
+    assert "awaiting_access" not in mod._REVIEWABLE, "SE ya la aprobó"
+    assert mod._STATUS_GROUP["awaiting_access"] == "access"
     assert mod.CONTROL_NUMBER_RE is re_original, (
         "CONTROL_NUMBER_RE debe ser el MISMO objeto que import_service.py: dos "
         "regex que divergen validarian numeros de control distinto segun la "
         "ruta que se tome."
     )
+
+
+def test_la_vida_de_la_liga_sigue_a_link_ttl_hours_en_bd_y_en_redis(monkeypatch):
+    """`_link_ttl_hours()` es la ÚNICA fuente: el vencimiento en BD y el TTL del
+    claro en Redis la leen en cada llamada, no una copia tomada al importar."""
+    import uuid
+
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService, _TOKEN_CACHE_PREFIX, _redis, _sha256,
+        _token_cache_delete, _token_cache_put,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 48))
+
+    req = EnrollmentRequest(contact_email="alguien@example.invalid")
+    EnrollmentRequestService._issue_activation(req)
+    vence = datetime.now() + timedelta(hours=48)
+    assert abs((req.verify_expires_at - vence).total_seconds()) < 120
+
+    raw = f"token-de-prueba-{uuid.uuid4().hex}"
+    _token_cache_put(raw)
+    try:
+        ttl = _redis().ttl(_TOKEN_CACHE_PREFIX + _sha256(raw))
+        assert 48 * 3600 - 120 < ttl <= 48 * 3600
+    finally:
+        _token_cache_delete(_sha256(raw))
+
+
+def test_link_ttl_days_es_el_accesor_publico_y_sigue_a_link_ttl_hours(monkeypatch):
+    """Las páginas pintan «N días»: lo leen de `link_ttl_days()`, no del
+    privado `_link_ttl_hours()`. Deriva de él, así que parchear la fuente única
+    sigue alcanzando a todos."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 24))
+    assert EnrollmentRequestService.link_ttl_days() == 1
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 21 * 24))
+    assert EnrollmentRequestService.link_ttl_days() == 21
+
+
+def test_cohort_gate_es_el_unico_corte_de_convocatoria_de_la_bandeja(db_session, make_cohort):
+    """approve / resend_link / grant_access repetían el mismo par de ifs."""
+    import inspect as _inspect
+    from types import SimpleNamespace as NS
+
+    from itcj2.apps.titulatec.services import enrollment_request_service as mod
+
+    abierta, cerrada = make_cohort(status="open"), make_cohort(status="closed")
+    assert mod._cohort_gate(db_session, NS(cohort_id=abierta.id)) == (abierta, None)
+    assert mod._cohort_gate(db_session, NS(cohort_id=cerrada.id)) == (
+        None, "Esa convocatoria está cerrada.")
+    assert mod._cohort_gate(db_session, NS(cohort_id=987654321)) == (
+        None, "La convocatoria ya no existe.")
+    for nombre in ("approve", "resend_link", "grant_access"):
+        cuerpo = _inspect.getsource(getattr(mod.EnrollmentRequestService, nombre))
+        assert "_cohort_gate(db, req)" in cuerpo, nombre
+        assert "accepts_enrollment_followup" not in cuerpo, nombre
+
+
+def test_ni_las_paginas_ni_el_correo_llaman_al_privado_link_ttl_hours():
+    from pathlib import Path
+
+    from itcj2.apps.titulatec.pages import access_admin, requests_admin
+    from itcj2.apps.titulatec.services import email_helper
+
+    for mod in (access_admin, requests_admin, email_helper):
+        src = Path(mod.__file__).read_text(encoding="utf-8")
+        assert "_link_ttl_hours(" not in src, mod.__name__
+        assert "link_ttl_days()" in src, mod.__name__
+
+
+class TestSettingsDeLaInscripcion:
+    """Valor inválido truena al construir `Settings` (mismo criterio que
+    `TITULATEC_HANDOFF_PHASE`): mejor no arrancar que operar con una liga de
+    0 días o con un modo de revisión que nadie implementa."""
+
+    def test_los_defaults_son_21_dias_y_el_modo_oficial(self, monkeypatch):
+        """`Settings()` a secas lee `.env` y el entorno del proceso (C7/I-1 de
+        la revision final): sin aislarla, esta prueba mide lo que haya en el
+        contenedor, no el DEFAULT declarado. `_env_file=None` + `delenv` de
+        ambas variables fuerza el default real de `Field(...)`."""
+        from itcj2.config import Settings
+
+        monkeypatch.delenv("TITULATEC_ENROLLMENT_LINK_TTL_DAYS", raising=False)
+        monkeypatch.delenv("TITULATEC_ENROLLMENT_REVIEWER", raising=False)
+        s = Settings(_env_file=None)
+        assert s.TITULATEC_ENROLLMENT_LINK_TTL_DAYS == 21
+        assert s.TITULATEC_ENROLLMENT_REVIEWER == "school_services"
+
+    def test_la_vida_de_la_liga_va_de_1_a_90_dias(self):
+        from pydantic import ValidationError
+        from itcj2.config import Settings
+
+        for invalido in (0, -1, 91):
+            with pytest.raises(ValidationError):
+                Settings(TITULATEC_ENROLLMENT_LINK_TTL_DAYS=invalido)
+        for valido in (1, 21, 90):
+            assert (Settings(TITULATEC_ENROLLMENT_LINK_TTL_DAYS=valido)
+                    .TITULATEC_ENROLLMENT_LINK_TTL_DAYS == valido)
+
+    def test_el_revisor_solo_admite_los_dos_modos(self):
+        from pydantic import ValidationError
+        from itcj2.config import Settings
+
+        with pytest.raises(ValidationError):
+            Settings(TITULATEC_ENROLLMENT_REVIEWER="x")
+        for valido in ("school_services", "computer_center"):
+            assert (Settings(TITULATEC_ENROLLMENT_REVIEWER=valido)
+                    .TITULATEC_ENROLLMENT_REVIEWER == valido)
 
 
 def test_ya_no_existe_ninguna_liga_de_contacto():
@@ -178,7 +301,7 @@ def test_el_claro_del_token_vive_en_redis_lo_mismo_que_la_liga_y_se_puede_borrar
     import uuid
 
     from itcj2.apps.titulatec.services.enrollment_request_service import (
-        VERIFY_TTL_HOURS, _TOKEN_CACHE_PREFIX, _redis, _sha256, _token_cache_delete,
+        _TOKEN_CACHE_PREFIX, _redis, _sha256, _token_cache_delete,
         _token_cache_get, _token_cache_put,
     )
 
@@ -189,7 +312,7 @@ def test_el_claro_del_token_vive_en_redis_lo_mismo_que_la_liga_y_se_puede_borrar
     _token_cache_put(raw)
     assert _token_cache_get(digest) == raw
     ttl = _redis().ttl(_TOKEN_CACHE_PREFIX + digest)
-    assert VERIFY_TTL_HOURS * 3600 - 120 < ttl <= VERIFY_TTL_HOURS * 3600
+    assert 504 * 3600 - 120 < ttl <= 504 * 3600, "el claro vive lo mismo que la liga: 21 días"
 
     _token_cache_delete(digest)
     assert _token_cache_get(digest) is None
@@ -472,15 +595,18 @@ def test_reject_toma_lock_y_refresca_antes_de_leer_status():
 
 
 # ---------------------------------------------------------------------------
-# Índice parcial de solicitud VIVA: `approved` también cuenta (2026-09-15)
+# Índice parcial de solicitud VIVA: `approved` y `awaiting_access` también
+# cuentan (2026-09-15 / 2026-09-24)
 # ---------------------------------------------------------------------------
-# `approved` significa "la liga de activación va en camino". Si otra solicitud
-# del mismo control pudiera nacer viva en la misma convocatoria, la bandeja
-# podría aprobarla también y la misma persona recibiría dos ligas (o una liga y
-# un NIP). La regla vive en la BD, no solo en `create()`: dos altas simultáneas
-# no pasan por el mismo `if`.
-_PREDICADO_VIVO = "status IN ('unverified','verified','pending_review','approved')"
-_PREDICADO_ANTERIOR = "status IN ('unverified','verified','pending_review')"
+# `approved` significa "la liga de activación va en camino". `awaiting_access`
+# significa "Servicios Escolares ya aprobó y Centro de Cómputo todavía no da
+# NIP/usuario". Si otra solicitud del mismo control pudiera nacer viva en la
+# misma convocatoria, la bandeja podría aprobarla también y la misma persona
+# recibiría dos ligas (o un NIP repetido). La regla vive en la BD, no solo en
+# `create()`: dos altas simultáneas no pasan por el mismo `if`.
+_PREDICADO_VIVO = ("status IN ('unverified','verified','pending_review','approved',"
+                    "'awaiting_access')")
+_PREDICADO_ANTERIOR = "status IN ('unverified','verified','pending_review','approved')"
 
 
 def _fila_viva(cohort, control, status):
@@ -501,7 +627,7 @@ def test_una_solicitud_approved_bloquea_otra_viva_del_mismo_control(db_session, 
     db_session.add(_fila_viva(cohort, "99000090", "approved"))
     db_session.flush()
 
-    for viva in ("pending_review", "approved"):
+    for viva in ("pending_review", "approved", "awaiting_access"):
         with pytest.raises(IntegrityError):
             with db_session.begin_nested():
                 db_session.add(_fila_viva(cohort, "99000090", viva))
@@ -533,12 +659,55 @@ def test_el_modelo_y_la_migracion_declaran_el_mismo_predicado():
     assert _norm(str(indice.dialect_options["postgresql"]["where"])) == _norm(_PREDICADO_VIVO)
 
     migracion = (Path(itcj2.__file__).resolve().parent.parent / "migrations" / "versions"
-                 / "tt20260915a_titulatec_enrollment_open_approved.py")
+                 / "tt20260924a_titulatec_enrollment_access.py")
     src = migracion.read_text(encoding="utf-8")
-    assert 'revision = "tt20260915a"' in src
-    assert 'down_revision = "tt20260908a"' in src
+    assert 'revision = "tt20260924a"' in src
+    assert 'down_revision = "hd20260922a"' in src
     assert _norm(_PREDICADO_VIVO) in _norm(src), "el upgrade debe crear el predicado nuevo"
     assert _norm(_PREDICADO_ANTERIOR) in _norm(src), "el downgrade debe restaurar el anterior"
+
+
+def test_el_downgrade_devuelve_las_awaiting_access_a_revision_antes_del_indice_viejo():
+    """El predicado viejo no conoce `awaiting_access`: sin el UPDATE esas filas
+    quedan atoradas en un estado que ningún código de antes lee, y fuera del
+    índice abren la puerta a una segunda solicitud viva del mismo par. El
+    UPDATE no puede violar el índice viejo: el nuevo ya impedía que una
+    `awaiting_access` conviviera con otra viva del mismo (convocatoria, control).
+    """
+    import importlib.util
+    import re
+    from pathlib import Path
+
+    import itcj2
+
+    ruta = (Path(itcj2.__file__).resolve().parent.parent / "migrations" / "versions"
+            / "tt20260924a_titulatec_enrollment_access.py")
+    spec = importlib.util.spec_from_file_location("_tt20260924a", ruta)
+    mig = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mig)
+
+    pasos = []
+
+    class _Op:
+        def execute(self, sql):
+            pasos.append(("execute", re.sub(r"\s+", " ", str(sql)).strip()))
+
+        def __getattr__(self, nombre):
+            return lambda *a, **k: pasos.append((nombre, a))
+
+    mig.op = _Op()
+    mig.downgrade()
+
+    sqls = [sql for tipo, sql in pasos if tipo == "execute"]
+    update = next(i for i, sql in enumerate(sqls) if sql.startswith("UPDATE"))
+    crea_viejo = next(i for i, sql in enumerate(sqls)
+                      if sql.startswith("CREATE UNIQUE INDEX")
+                      and "'awaiting_access'" not in sql)
+    assert update < crea_viejo, sqls
+    assert sqls[update] == ("UPDATE titulatec_enrollment_requests SET status = "
+                            "'pending_review' WHERE status = 'awaiting_access'")
+    assert "awaiting_access" in (mig.__doc__ or "").split("downgrade", 1)[-1], (
+        "el docstring de la migración debe decir qué hace el downgrade con esas filas")
 
 
 # ---------------------------------------------------------------------------
@@ -640,7 +809,8 @@ def test_stats_agrupa_solicitudes_por_estado_sin_pestana_ni_limite(db_session, m
 
     cohort = make_cohort()
     for i, status in enumerate(
-        ("pending_review", "unverified", "verified", "approved", "converted", "rejected"),
+        ("pending_review", "unverified", "verified", "approved", "converted", "rejected",
+         "awaiting_access"),
         start=1,
     ):
         _fila(db_session, cohort, control=f"9970{i:04d}", status=status)
@@ -651,8 +821,12 @@ def test_stats_agrupa_solicitudes_por_estado_sin_pestana_ni_limite(db_session, m
     stats = EnrollmentRequestService.stats(db_session, scope="ALL", cohort_id=cohort.id)
 
     assert stats["counts"] == {
-        "total": 6, "review": 3, "sent": 1, "converted": 1, "rejected": 1,
+        "total": 7, "review": 3, "access": 1, "sent": 1, "converted": 1, "rejected": 1,
     }
+    for anio in stats["by_year"]:
+        assert set(anio) == {"year", "slug", "total", "review", "access", "sent",
+                             "converted", "rejected"}
+    assert sum(a["access"] for a in stats["by_year"]) == 1
 
 
 def test_stats_respeta_el_alcance_por_carrera(db_session, make_cohort, make_program):
@@ -682,7 +856,8 @@ def test_stats_con_alcance_vacio_devuelve_todo_en_cero_sin_reventar(db_session, 
     stats = EnrollmentRequestService.stats(db_session, scope=set())
 
     assert stats == {
-        "counts": {"total": 0, "review": 0, "sent": 0, "converted": 0, "rejected": 0},
+        "counts": {"total": 0, "review": 0, "access": 0, "sent": 0, "converted": 0,
+                   "rejected": 0},
         "by_year": [], "year_max": 0,
     }
 

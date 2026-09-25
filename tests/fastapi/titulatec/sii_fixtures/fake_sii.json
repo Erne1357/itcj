@@ -1,0 +1,39 @@
+{
+  "_comentario": "SII falso SINTÉTICO para pruebas. queries.<id de [[query]]>.<valor del parámetro> = filas; {\"error\": \"unavailable\"|\"query\"} simula una falla. Nada de esto es real.",
+  "queries": {
+    "alumno": {
+      "20110001": [
+        {"no_de_control": "20110001", "nombre": "Ana", "apellido_paterno": "Prueba", "apellido_materno": "Uno",
+         "carrera": "ISC", "anio_ingreso": 2020, "estatus": "EGRESADO",
+         "creditos_aprobados": 260, "creditos_carrera": 260, "servicio_social": "S", "residencia": "S"}
+      ],
+      "20110002": [
+        {"no_de_control": "20110002", "nombre": "Beto", "apellido_paterno": "Prueba", "apellido_materno": "Dos",
+         "carrera": "IND", "anio_ingreso": 2019, "estatus": "EGRESADO",
+         "creditos_aprobados": 200, "creditos_carrera": 260, "servicio_social": "N", "residencia": "S"}
+      ],
+      "20110003": [
+        {"no_de_control": "20110003", "nombre": "Cris", "apellido_paterno": "Prueba", "apellido_materno": "Tres",
+         "carrera": "IGE", "anio_ingreso": 2018, "estatus": "TITULABLE",
+         "creditos_aprobados": 260, "creditos_carrera": 260, "servicio_social": "S", "residencia": "S"}
+      ],
+      "20110004": [
+        {"no_de_control": "20110004", "nombre": "Dani", "apellido_paterno": "Prueba", "apellido_materno": "Cuatro",
+         "carrera": "ISC", "anio_ingreso": 2020, "estatus": "EGRESADO",
+         "creditos_aprobados": 260, "creditos_carrera": 260, "servicio_social": "S", "residencia": "S"}
+      ],
+      "20119998": {"error": "query"},
+      "20119999": {"error": "unavailable"}
+    },
+    "adeudos": {
+      "20110004": [
+        {"concepto": "BIBLIOTECA", "monto": 150.5}
+      ]
+    },
+    "nip": {
+      "20110001": [{"nip": "4321"}],
+      "20110002": [{"nip": "8765"}],
+      "20110004": [{"nip": "1357"}]
+    }
+  }
+}

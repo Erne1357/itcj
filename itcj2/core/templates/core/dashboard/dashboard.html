@@ -75,9 +75,10 @@
                 <span class="icon-label">Extensiones</span>
             </div>
 
-             <!--<div class="desktop-icon" data-app="titulatec">
+            <div class="desktop-icon" data-app="titulatec">
                 <div class="icon-container" style="position: relative;">
-                    <i class="bi bi-mortarboard-fill" style="font-size:45px;color:#0f766e;"></i>
+                    <img src="{{ url_for('static', filename='titulatec/images/titulatec-claro-1024.png') }}?v={{ sv('titulatec', 'images/titulatec-claro-1024.png') }}" alt="TitulaTec"
+                        style="width:45px;height:45px;">
                 </div>
                 <span class="icon-label">TitulaTec</span>
             </div>
@@ -200,6 +201,9 @@
 
     <!-- Notification System (WebSocket-based) -->
     <script src="{{url_for('static', filename='core/js/dashboard/notification-widget.js') }}?v={{ sv('core', 'js/dashboard/notification-widget.js') }}"></script>
+
+    <!-- ⭐ NUEVO: Presencia en vivo (latido con la app abierta en el iframe) -->
+    <script src="{{url_for('static', filename='core/js/dashboard/presence-heartbeat.js') }}?v={{ sv('core', 'js/dashboard/presence-heartbeat.js') }}"></script>
 
     <script src="{{url_for('static', filename='core/js/dashboard/profile-menu.js') }}?v={{ sv('core', 'js/dashboard/profile-menu.js') }}"></script>
     <script src="{{url_for('static', filename='core/js/dashboard/dashboard.js') }}?v={{ sv('core', 'js/dashboard/dashboard.js') }}"></script>

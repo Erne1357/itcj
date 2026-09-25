@@ -25,7 +25,9 @@ EVENT_TYPES = frozenset({
     "process_completed",
     "process_paused",              # `CohortService.set_window`, al cerrar la convocatoria
     "process_resumed",             # idem, al reabrirla
+    "process_cancelled",           # `ProcessService.cancel`: SE revocó la inscripción
     "enrollment_self_service",     # alta desde el formulario público
+    "enrollment_access_reset",     # Centro de Cómputo reasignó el NIP (sin el NIP)
     # Documentos iniciales
     "document_uploaded",
     "document_approved",

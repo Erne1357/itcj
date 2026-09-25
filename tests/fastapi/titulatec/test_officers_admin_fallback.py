@@ -95,3 +95,33 @@ def test_con_los_permisos_pero_sin_rol_admin_y_sin_puesto_sigue_en_400(
     creado = (db_session.query(Position)
               .filter(Position.title == "No deberia existir").first())
     assert creado is None, "no debio crearse ningun encargado"
+
+
+def test_admin_en_titulatec_que_gestiona_otro_depto_da_de_alta_en_servicios_escolares(
+    client_as, db_session, make_user, make_role, grant_user_role, make_department,
+    make_position, assign_position,
+):
+    """(c) Revisión final, efecto de D2: la jefatura de Centro de Cómputo tiene el
+    rol `admin` en titulatec Y gestiona su propio departamento. Encargados es de
+    Servicios Escolares: con el rol `admin` el alta va SIEMPRE ahí, nunca a
+    «encargados de SE» creados dentro de Cómputo."""
+    from itcj2.core.models.position import Position
+
+    se = make_department(code="school_services", name="Servicios Escolares (ficticio)")
+    computo = make_department(name="Centro de Computo (ficticio)")
+    jefatura = make_position(code=f"head_{computo.code}", title="Jefatura CC ficticia",
+                             department=computo)
+    admin_role = make_role("admin", _OFFICER_ADMIN_PERMS)
+    make_role("titulatec_school_services", _OFFICER_ADMIN_PERMS)
+    jefa = make_user(first_name="JEFA", last_name="DE COMPUTO")
+    assign_position(jefa, jefatura)
+    grant_user_role(jefa, admin_role)
+
+    resp = client_as(jefa).post(_URL, data={"name": "TT Encargado Desde CC"})
+
+    assert resp.status_code == 200, resp.headers.get("X-Tt-Error") or resp.text[:300]
+    creado = (db_session.query(Position)
+              .filter(Position.title == "TT Encargado Desde CC").one())
+    assert creado.department_id == se.id, (
+        "el encargado nació en el departamento que la jefa gestiona, no en SE")
+    assert creado.department_id != computo.id

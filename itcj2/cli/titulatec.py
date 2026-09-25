@@ -5,6 +5,10 @@ Comandos CLI de TitulaTec para itcj2.
 Comandos:
     titulatec init-titulatec              Registra la app, roles, permisos, puestos y catálogos base.
     titulatec fix-missing-credentials     Repone la credencial inicial de alumnos sin password_hash.
+    titulatec sii-ping                    Comprueba que el SII responde (backend configurado).
+    titulatec sii-rules-validate [--dir]  Valida rules.toml + queries/*.sql del SII.
+    titulatec sii-check <control>         Dry-run de las reglas del SII (NIP enmascarado).
+    titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta, reintenta, aprueba).
 """
 from pathlib import Path
 
@@ -65,6 +69,13 @@ SEED_FILES = [
     # Exige el rol CON sus permisos (el 01 y el 03, que corren antes en esta
     # lista) y aborta sin mover a nadie si faltan. No toca permisos de rol.
     "survey_2026_09/14_graduate_role_backfill.sql",        # rol graduate a alumnos con proceso
+    # --- Delta 2026-09-25: elegibilidad automática contra el SII -------------
+    # Alta de la tarea periódica `titulatec.sii_sweep`
+    # (definición + `core_periodic_tasks`, cada 10 min): Celery Beat corre con
+    # `DatabaseScheduler`, que SOLO lee la BD. Idempotente (ON CONFLICT). No
+    # inserta permisos, así que va antes del 15 sin problema. Fuera del modo
+    # `sii` la tarea no hace nada.
+    "sii_2026_09/16_insert_sii_sweep_task.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
@@ -227,8 +238,14 @@ def init_titulatec_command():
     exactamente 2 filas puesto→rol (y 1 la del rol viejo, `head_prof_studies_div`),
     y que `titulatec_titulaciones` tenga el reparto PLENO (25) que el usuario
     pidió al revertir el recorte D6/D7 — dictamen, ceremony y cohort incluidos,
-    no solo supervisión. Acumula los problemas de AMBOS verifies antes de
-    abortar: un error del primero no debe esconder uno del segundo.
+    no solo supervisión. Y con `_verify_computer_center` (spec
+    2026-09-24-titulatec-accesos-centro-computo): el rol
+    `titulatec_computer_center` con EXACTAMENTE sus 4 permisos de la bandeja
+    de Accesos, el mapeo puesto→rol con `head_comp_center` y
+    `secretary_comp_center` (contiene al menos, igual que el resto de mapeos
+    de este comando) y `head_comp_center` con el rol `admin` en titulatec.
+    Acumula los problemas de LOS TRES verifies antes de abortar: un error del
+    primero no debe esconder uno de los otros.
 
     Aborta si algo no aterrizó. Antes este comando no comprobaba nada: en una
     base destino sin `head_tech_management` o sin el departamento
@@ -252,7 +269,7 @@ def init_titulatec_command():
         click.echo(f"\n💥 Error durante init-titulatec: {e}")
         raise
 
-    problemas = _verify_survey_2026_09() + _verify_titulacion()
+    problemas = _verify_survey_2026_09() + _verify_titulacion() + _verify_computer_center()
     if problemas:
         click.echo()
         for p in problemas:
@@ -708,6 +725,129 @@ def _verify_titulacion() -> list[str]:
     return problemas
 
 
+# ---------------------------------------------------------------------------
+# Centro de Cómputo (2026-09-24, spec 2026-09-24-titulatec-accesos-centro-
+# computo): NIP en dos pasos. Servicios Escolares aprueba y, si el
+# solicitante no tiene cuenta, la solicitud pasa a `awaiting_access`; Centro
+# de Cómputo (CC) es quien le da el NIP desde la bandeja nueva «Accesos».
+# ---------------------------------------------------------------------------
+_ROL_COMPUTER_CENTER = "titulatec_computer_center"
+_ROL_ADMIN = "admin"
+_PUESTO_HEAD_COMP_CENTER = "head_comp_center"
+_PUESTO_SECRETARY_COMP_CENTER = "secretary_comp_center"
+
+_PERMISOS_ACCESOS_COMPUTO = (
+    "titulatec.enrollment_access.page.list",
+    "titulatec.enrollment_access.api.grant",
+    "titulatec.enrollment_access.api.return",
+    "titulatec.enrollment_access.api.reject",
+)
+
+
+def _verify_computer_center() -> list[str]:
+    """Comprueba que el rol de Centro de Cómputo ATERRIZÓ. Devuelve problemas.
+
+    Mismo contrato que `_verify_survey_2026_09`/`_verify_titulacion`: abre su
+    propia conexión, arma sets contra la BD y devuelve strings de problema en
+    vez de levantar. Sin esto un `INSERT ... SELECT` que inserta 0 filas
+    (p.ej. porque `head_comp_center`/`secretary_comp_center` no existen en
+    esta base) sale en verde igual que la app a medio sembrar del incidente de
+    los seeders borrados.
+
+    Tres chequeos (spec sección 7, D1/D2):
+      - el rol `titulatec_computer_center` concede EXACTAMENTE los 4 códigos
+        de la bandeja de Accesos, ni uno más ni uno menos;
+      - el mapeo puesto→rol INCLUYE `head_comp_center` y
+        `secretary_comp_center` -- semántica "contiene al menos" (arreglo A7,
+        igual que `_verify_titulacion`): no exige conteo exacto de filas, así
+        que mapear a mano un tercer puesto más adelante no rompe esto;
+      - `head_comp_center` tiene ADEMÁS el rol `admin` en titulatec (D2).
+
+    Si algún puesto no existe en la base (0 filas), el mensaje lo dice
+    explícitamente en vez de reportar solo "falta el mapeo": la causa más
+    probable es que el organigrama de Centro de Cómputo no esté sembrado
+    todavía en ese ambiente.
+    """
+    from sqlalchemy import text
+
+    from itcj2.cli.core import _get_engine
+
+    problemas: list[str] = []
+
+    with _get_engine().connect() as conn:
+        puestos = {
+            row[0]
+            for row in conn.execute(
+                text("SELECT code FROM core_positions WHERE code = ANY(:codes)"),
+                {"codes": [_PUESTO_HEAD_COMP_CENTER, _PUESTO_SECRETARY_COMP_CENTER]},
+            )
+        }
+        for code in (_PUESTO_HEAD_COMP_CENTER, _PUESTO_SECRETARY_COMP_CENTER):
+            if code not in puestos:
+                problemas.append(
+                    f"puesto ausente: {code} (el organigrama de Centro de "
+                    "Cómputo no está sembrado en esta base)"
+                )
+
+        concedidos = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT p.code FROM core_role_permissions rp "
+                    "  JOIN core_roles r ON r.id = rp.role_id "
+                    "  JOIN core_permissions p ON p.id = rp.perm_id "
+                    "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                    " WHERE r.name = :rol"
+                ),
+                {"rol": _ROL_COMPUTER_CENTER},
+            )
+        }
+        if concedidos != set(_PERMISOS_ACCESOS_COMPUTO):
+            faltan = set(_PERMISOS_ACCESOS_COMPUTO) - concedidos
+            sobran = concedidos - set(_PERMISOS_ACCESOS_COMPUTO)
+            problemas.append(
+                f"{_ROL_COMPUTER_CENTER} no tiene exactamente los 4 permisos "
+                f"de Accesos (faltan {sorted(faltan)}, sobran {sorted(sobran)})"
+            )
+
+        # Mapeo puesto→rol para los dos roles que nos importan aquí, con la
+        # MISMA consulta parametrizada (patrón de `_verify_titulacion`:
+        # ~639-653) en vez de repetirla una vez por rol.
+        puestos_de_rol = {}
+        for rol in (_ROL_COMPUTER_CENTER, _ROL_ADMIN):
+            puestos_de_rol[rol] = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        "SELECT pos.code FROM core_position_app_roles par "
+                        "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
+                        "  JOIN core_roles r ON r.id = par.role_id "
+                        "  JOIN core_positions pos ON pos.id = par.position_id "
+                        " WHERE r.name = :rol"
+                    ),
+                    {"rol": rol},
+                )
+            }
+
+        faltan_mapeo = (
+            {_PUESTO_HEAD_COMP_CENTER, _PUESTO_SECRETARY_COMP_CENTER}
+            - puestos_de_rol[_ROL_COMPUTER_CENTER]
+        )
+        if faltan_mapeo:
+            problemas.append(
+                f"mapeo puesto→rol de {_ROL_COMPUTER_CENTER}: faltan "
+                f"{sorted(faltan_mapeo)} (hay {sorted(puestos_de_rol[_ROL_COMPUTER_CENTER])})"
+            )
+
+        if _PUESTO_HEAD_COMP_CENTER not in puestos_de_rol[_ROL_ADMIN]:
+            problemas.append(
+                f"mapeo puesto→rol de {_ROL_ADMIN}: falta {_PUESTO_HEAD_COMP_CENTER} "
+                f"(hay {sorted(puestos_de_rol[_ROL_ADMIN])})"
+            )
+
+    return problemas
+
+
 @titulatec_cli.command("load-survey-2026-09")
 @click.option("--dry-run", is_flag=True, help="Lista los archivos sin ejecutarlos.")
 def load_survey_2026_09_command(dry_run):
@@ -806,3 +946,201 @@ def load_survey_2026_09_command(dry_run):
             fg="green",
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Elegibilidad automática contra el SII (spec 2026-09-25 §3.4 y §7). Orden de
+# despliegue: sii-ping → sii-rules-validate → sii-check <control de prueba>.
+# Ninguno escribe en la BD. El NIP del SII jamás se imprime (`****`).
+# ---------------------------------------------------------------------------
+def _sii_fail(msg: str) -> None:
+    click.echo(click.style(f"ERROR: {msg}", fg="red"))
+    raise SystemExit(1)
+
+
+@titulatec_cli.command("sii-ping")
+def sii_ping_command():
+    """Comprueba que el SII responde con el backend configurado."""
+    import time
+
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig, get_sii_client
+    from itcj2.apps.titulatec.services.sii.errors import SiiError
+
+    backend = SiiConfig.backend()
+    click.echo(f"Backend: {backend}")
+    t0 = time.monotonic()
+    try:
+        with get_sii_client() as sii:
+            sii.ping()
+    except SiiError as exc:
+        _sii_fail(str(exc))
+    ms = int((time.monotonic() - t0) * 1000)
+    click.echo(click.style(f"OK: el SII responde ({ms} ms).", fg="green"))
+
+
+@titulatec_cli.command("sii-rules-validate")
+@click.option("--dir", "rules_dir", type=click.Path(file_okay=False, path_type=Path),
+              default=None,
+              help="Carpeta a validar (default: TITULATEC_SII_RULES_DIR). Útil para "
+                   "revisar reglas nuevas ANTES de copiarlas a su lugar.")
+def sii_rules_validate_command(rules_dir):
+    """Valida rules.toml + queries/*.sql sin consultar al SII."""
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig
+    from itcj2.apps.titulatec.services.sii.errors import SiiRulesError
+    from itcj2.apps.titulatec.services.sii.rules import RuleSet
+
+    rules_dir = rules_dir or SiiConfig.rules_dir()
+    click.echo(f"Reglas: {rules_dir}")
+    try:
+        rs = RuleSet.load(rules_dir)
+    except SiiRulesError as exc:
+        _sii_fail(str(exc))
+    click.echo(f"Versión: {rs.version or '(sin versión)'} · {len(rs.queries)} consultas · "
+               f"{len(rs.rules)} reglas · credencial (NIP): "
+               f"{'sí' if rs.has_credential else 'no'}")
+    errors = rs.validate()
+    if errors:
+        for e in errors:
+            click.echo(click.style(f"  - {e}", fg="red"))
+        _sii_fail(f"{len(errors)} error(es) en las reglas.")
+    click.echo(click.style("OK: reglas válidas. (Las columnas de los mensajes se "
+                           "verifican al ejecutar: usa sii-check.)", fg="green"))
+
+
+_SII_STATUS_LABEL = {"apt": "APTA", "not_apt": "NO APTA", "error": "ERROR"}
+
+
+def _sii_cohort_outcome(cohort_id: int, verdict_status: str) -> None:
+    """Imprime qué pasaría con esta convocatoria. Solo lectura (rollback)."""
+    from itcj2.apps.titulatec.models import Cohort
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        cohort = db.get(Cohort, cohort_id)
+        if cohort is None:
+            _sii_fail(f"No existe la convocatoria {cohort_id}.")
+        # `sii_auto_approve` llega con la migración tt20260925a (server_default
+        # TRUE); antes de ella la convocatoria se comporta como encendida.
+        auto = bool(getattr(cohort, "sii_auto_approve", True))
+        click.echo(f"Convocatoria: {cohort.name} (id {cohort.id}, {cohort.status}) · "
+                   f"aprobación automática: {'encendida' if auto else 'apagada'}")
+        if verdict_status == "apt" and auto and cohort.status == "open":
+            click.echo("  → se aprobaría automáticamente (sujeto a la ventana de veto "
+                       "TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS).")
+        else:
+            why = ("no es apta" if verdict_status == "not_apt"
+                   else "la consulta falló" if verdict_status == "error"
+                   else "la convocatoria no está abierta" if cohort.status != "open"
+                   else "la aprobación automática está apagada")
+            click.echo(f"  → quedaría «Por revisar» de Servicios Escolares ({why}).")
+    finally:
+        db.rollback()
+        db.close()
+
+
+@titulatec_cli.command("sii-check")
+@click.argument("control_number")
+@click.option("--cohort", "cohort_id", type=int, default=None,
+              help="Muestra además qué pasaría en esa convocatoria (solo lectura).")
+def sii_check_command(control_number, cohort_id):
+    """Dry-run: evalúa las reglas del SII para un número de control.
+
+    Imprime el resultado por regla, los hechos, la identidad y si el SII
+    devuelve NIP (siempre enmascarado). No escribe nada.
+    """
+    import time
+
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig, get_sii_client
+    from itcj2.apps.titulatec.services.sii.errors import SiiError, SiiRulesError
+    from itcj2.apps.titulatec.services.sii.rules import RuleSet
+
+    control = control_number.strip().upper()
+    rules_dir = SiiConfig.rules_dir()
+    try:
+        rs = RuleSet.load(rules_dir)
+        sii = get_sii_client()
+    except SiiError as exc:
+        _sii_fail(str(exc))
+
+    t0 = time.monotonic()
+    credential_failed = False  # un nip.sql roto NO pasa en verde (runbook §7)
+    with sii:
+        verdict = rs.evaluate(sii, control)
+        if not rs.has_credential:
+            nip_line = "sin NIP (las reglas no declaran [credential])"
+        elif verdict.status == "error":
+            nip_line = "no consultado (la evaluación falló)"
+        else:
+            # El mensaje de estas excepciones ya viene sin el NIP: la consulta
+            # va en modo sensible y el motor solo nombra columnas.
+            try:
+                secret = rs.fetch_credential(sii, control)
+            except SiiRulesError as exc:
+                credential_failed = True
+                nip_line = f"error en las reglas ({exc})"
+            except SiiError as exc:
+                credential_failed = True
+                nip_line = f"no se pudo consultar ({exc})"
+            else:
+                nip_line = "**** (el SII lo devuelve)" if secret else "sin NIP (el SII no lo devuelve)"
+                del secret
+    ms = int((time.monotonic() - t0) * 1000)
+
+    color = {"apt": "green", "not_apt": "yellow"}.get(verdict.status, "red")
+    click.echo(f"Número de control: {control} · reglas {verdict.rules_version or '?'} "
+               f"· backend {SiiConfig.backend()}")
+    click.echo(click.style(f"Veredicto: {_SII_STATUS_LABEL.get(verdict.status, verdict.status)}",
+                           fg=color, bold=True))
+    if verdict.error:
+        click.echo(click.style(f"  {verdict.error}", fg="red"))
+    if verdict.results:
+        width = max(len(r.rule) for r in verdict.results)
+        for r in verdict.results:
+            mark = click.style("OK   ", fg="green") if r.ok else click.style("FALLA", fg="red")
+            click.echo(f"  {mark} {r.rule.ljust(width)}  {r.message}")
+    for title, data in (("Hechos", verdict.facts), ("Identidad", verdict.identity)):
+        click.echo(f"{title}:" + ("" if data else " (ninguno)"))
+        for k, v in data.items():
+            click.echo(f"  {k} = {v}")
+    for w in verdict.warnings:
+        click.echo(click.style(f"Advertencia: {w}", fg="yellow"))
+    click.echo(f"NIP: {nip_line}")
+    click.echo(f"Duración: {ms} ms")
+
+    if cohort_id is not None:
+        _sii_cohort_outcome(cohort_id, verdict.status)
+    if verdict.status == "error" or credential_failed:
+        raise SystemExit(1)
+
+
+@titulatec_cli.command("sii-sweep")
+@click.option("--cohort", "cohort_id", type=int, default=None,
+              help="Solo las solicitudes de esa convocatoria.")
+def sii_sweep_command(cohort_id):
+    """Barrido manual del SII (lo mismo que la tarea periódica `sii_sweep`).
+
+    Consulta las solicitudes por revisar que no tienen consulta, reintenta las
+    fallidas y aprueba las aptas con la ventana de veto vencida. Solo en el
+    modo `sii`. ESCRIBE en la BD (consultas y aprobaciones) y manda los
+    correos de las aprobadas; imprime solo los conteos.
+    """
+    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    from itcj2.database import SessionLocal
+
+    mode = EnrollmentRequestService.reviewer_mode()
+    if mode != "sii":
+        click.echo(click.style(
+            f"El modo de revisión es '{mode}', no 'sii' (TITULATEC_ENROLLMENT_REVIEWER): "
+            "el barrido no hace nada.", fg="yellow"))
+        return
+    db = SessionLocal()
+    try:
+        out = EligibilityService.sweep(db, cohort_id=cohort_id)
+    finally:
+        db.close()
+    click.echo(f"Consultadas: {out['checked']} · reintentadas: {out['retried']} · "
+               f"aprobadas: {out['approved']}")

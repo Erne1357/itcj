@@ -24,6 +24,16 @@
   {% else %}{{ pill(estado, "neutral") }}{% endif %}
 {% endmacro %}
 
+{# — Estado del PROCESO (`TitulationProcess.status`), no de una fase. Antes las
+     tablas imprimian el codigo crudo («cancelled», «on_hold»). — #}
+{% macro proceso_pill(estado) %}
+  {% if estado == "active" %}{{ pill("Activo", "amber", "play-circle") }}
+  {% elif estado == "completed" %}{{ pill("Completado", "success", "trophy") }}
+  {% elif estado == "on_hold" %}{{ pill("En pausa", "neutral", "pause-circle") }}
+  {% elif estado == "cancelled" %}{{ pill("Revocado", "danger", "slash-circle") }}
+  {% else %}{{ pill(estado, "neutral") }}{% endif %}
+{% endmacro %}
+
 {# — Mapea el estado de una cita de cotejo a (texto, tono, icono) — #}
 {% macro appt_pill(estado) %}
   {% if estado == "scheduled" %}{{ pill("Agendada", "navy", "calendar-event") }}

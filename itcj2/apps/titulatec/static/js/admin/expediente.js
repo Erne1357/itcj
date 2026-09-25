@@ -4,7 +4,8 @@
    Tres cosas, y las tres por delegación en `document`:
      1. acordeón de las 9 fases (abrir/cerrar);
      2. recuerdo de qué fases quedaron abiertas, para que un swap no las cierre;
-     3. el modal de mover de fase: pedir motivo antes de rechazar.
+     3. el modal de mover de fase: pedir motivo antes de rechazar (y el de
+        revocar la inscripción, con la misma guarda).
 
    Contrato, igual que `admin/processes.js` y `admin/appointments.js`:
    se carga UNA vez desde `admin/base_admin.html` (el bloque `scripts` no entra
@@ -99,6 +100,20 @@
         }
       }
     }
+
+    // Revocar inscripción: mismo trato. El motivo es lo que el alumno lee.
+    var revo = e.target.closest('#exp-revocar');
+    if (revo) {
+      var motivoRev = document.getElementById('exp-revocar-motivo');
+      if (motivoRev && !motivoRev.value.trim()) {
+        e.preventDefault();
+        e.stopPropagation();
+        motivoRev.focus();
+        if (window.TitulaTecUtils) {
+          TitulaTecUtils.showToast('Escribe el motivo de la revocación.', 'danger');
+        }
+      }
+    }
   }, true);   // captura: hay que llegar ANTES que htmx al botón de rechazar
 
   // El modal vive a nivel <body> (fuera del swap), así que no puede venir
@@ -135,9 +150,11 @@
   // escrito sigue ahí y el toast dice qué corregir.
   document.addEventListener('htmx:afterRequest', function (e) {
     var origen = e.target;
-    if (!origen || (origen.id !== 'exp-aprobar' && origen.id !== 'exp-rechazar')) return;
+    if (!origen || (origen.id !== 'exp-aprobar' && origen.id !== 'exp-rechazar' &&
+                    origen.id !== 'exp-revocar')) return;
     if (!e.detail || !e.detail.successful) return;
-    var modal = document.getElementById('exp-modal-fase');
+    var modal = document.getElementById(
+      origen.id === 'exp-revocar' ? 'exp-modal-revocar' : 'exp-modal-fase');
     if (modal && window.bootstrap) {
       var inst = bootstrap.Modal.getInstance(modal);
       if (inst) inst.hide();
@@ -146,8 +163,11 @@
 
   // Al cerrar el modal, el motivo no se queda escrito para la siguiente fase.
   document.addEventListener('hidden.bs.modal', function (e) {
-    if (!e.target || e.target.id !== 'exp-modal-fase') return;
-    var motivo = document.getElementById('exp-motivo');
+    if (!e.target) return;
+    var campo = { 'exp-modal-fase': 'exp-motivo',
+                  'exp-modal-revocar': 'exp-revocar-motivo' }[e.target.id];
+    if (!campo) return;
+    var motivo = document.getElementById(campo);
     if (motivo) motivo.value = '';
   });
 

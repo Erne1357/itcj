@@ -21,6 +21,7 @@ El destinatario lo decide CADA MÉTODO, nunca el llamador: ninguno recibe `to`.
   send_enrollment_rejected  motivo del rechazo              correo PERSONAL
   send_already_enrolled     "ya tienes un proceso"          INSTITUCIONAL (student_email(user))
   send_enrollment_done      folio al activarse la cuenta    INSTITUCIONAL
+  send_process_cancelled    inscripción revocada (sin motivo) INSTITUCIONAL + PERSONAL
 
 La liga de una cuenta existente viaja al correo que se tecleó en el formulario
 público. Es un riesgo aceptado, y la contención vive en `EnrollmentRequestService`:
@@ -141,14 +142,18 @@ class TitulaTecEmailHelper:
     def send_verify_enrollment(db: Session, req, *, link: str) -> bool:
         """Liga de ACTIVACIÓN de una cuenta que ya existe, al correo PERSONAL de la
         solicitud. La emite la bandeja al aprobar o al reenviar; abrirla inscribe
-        a la cuenta (`EnrollmentRequestService.verify`)."""
+        a la cuenta (`EnrollmentRequestService.verify`). Firmada por quien revisa
+        según el modo (`EnrollmentRequestService.reviewer_label()`), igual que
+        `send_enrollment_rejected`."""
         try:
             from itcj2.apps.titulatec.services.enrollment_request_service import (
-                VERIFY_TTL_HOURS,
+                EnrollmentRequestService,
             )
+            dias = EnrollmentRequestService.link_ttl_days()
             return _deliver(
                 template="verify_enrollment.html",
-                context={"req": req, "link": link, "dias": VERIFY_TTL_HOURS // 24},
+                context={"req": req, "link": link, "dias": dias,
+                         "revisor": EnrollmentRequestService.reviewer_label()},
                 subject="[TitulaTec ITCJ] Activa tu acceso a titulación",
                 to=req.contact_email, que="verify_enrollment", link=link,
             )
@@ -200,19 +205,36 @@ class TitulaTecEmailHelper:
             return False
 
     @staticmethod
-    def send_enrollment_approved(db: Session, req, user, *, nip: str) -> bool:
-        """Alta de una cuenta NUEVA aprobada: usuario + NIP + cambio obligatorio (D16).
+    def send_enrollment_approved(db: Session, req, user, *, nip: str | None,
+                                 reassigned: bool = False,
+                                 nip_source: str = "manual") -> bool:
+        """Alta de una cuenta NUEVA: usuario + NIP (D16).
+
+        Lo manda `EnrollmentRequestService._mail_access` tras dar el acceso
+        (Centro de Cómputo, o la aprobación en el modo alterno) y al reasignar
+        el NIP. El texto es NEUTRO sobre quién dio el acceso.
+
+        `reassigned=True` (Reasignar NIP, D8): otro asunto y el aviso «Este NIP
+        reemplaza al que te enviamos antes», para que quien sí recibió el
+        primer correo sepa cuál vale.
+
+        `nip_source="sii"` (modo `sii`, spec S4): la cuenta nació con el NIP del
+        SII, que solo sabe el alumno. El correo NO lleva credencial —«entra con
+        tu número de control y tu NIP del SII»— y `nip` se ignora aunque venga.
 
         Al correo PERSONAL: un egresado de 2005 no tiene institucional vivo. El
         NIP viaja SOLO aquí — nunca al log, ni a `X-Tt-Error`, ni al payload de
         un `ProcessEvent`.
         """
         try:
+            from_sii = nip_source == "sii"
             return _deliver(
                 template="enrollment_approved.html",
-                context={"req": req, "user": user, "nip": nip,
+                context={"req": req, "user": user, "nip": None if from_sii else nip,
+                         "from_sii": from_sii, "reassigned": reassigned,
                          "login_url": "https://enlinea.cdjuarez.tecnm.mx/itcj/login"},
-                subject="[TitulaTec ITCJ] Tu acceso a la plataforma",
+                subject=("[TitulaTec ITCJ] Tu NIP nuevo de acceso" if reassigned
+                         else "[TitulaTec ITCJ] Tu acceso a la plataforma"),
                 to=req.contact_email, que="enrollment_approved",
             )
         except Exception:
@@ -220,12 +242,64 @@ class TitulaTecEmailHelper:
             return False
 
     @staticmethod
-    def send_enrollment_rejected(db: Session, req) -> bool:
-        """Rechazo con motivo, al correo personal."""
+    def send_process_cancelled(db: Session, process) -> bool:
+        """Aviso de inscripción REVOCADA (`ProcessService.cancel`). `True` si
+        salió al menos uno.
+
+        A los DOS buzones: el INSTITUCIONAL de la cuenta y el PERSONAL de la
+        solicitud que la convirtió (si la hubo — un alta por CSV no tiene). Un
+        egresado de años atrás no lee el institucional, y el personal es por
+        donde llegó todo lo anterior de este mismo trámite.
+
+        **Sin datos sensibles**: ni el motivo, ni el folio, ni el número de
+        control. El personal lo tecleó quien llenó el formulario (riesgo
+        aceptado del módulo), así que el correo solo dice que hubo un cambio y
+        manda a la plataforma, donde el motivo se lee con sesión iniciada.
+        """
         try:
+            from itcj2.core.models.user import User
+            from itcj2.core.utils.email_tools import student_email
+            from itcj2.apps.titulatec.models import EnrollmentRequest
+
+            user = db.get(User, process.student_id)
+            if user is None:
+                return False
+            destinos = [student_email(user)]
+            req = (db.query(EnrollmentRequest)
+                   .filter_by(converted_process_id=process.id)
+                   .order_by(EnrollmentRequest.id.desc())
+                   .first())
+            if req is not None and req.contact_email:
+                destinos.append(req.contact_email)
+
+            vistos, enviado = set(), False
+            for to in destinos:
+                clave = (to or "").strip().lower()
+                if not clave or clave in vistos:
+                    continue
+                vistos.add(clave)
+                enviado = _deliver(
+                    template="process_cancelled.html",
+                    context={"first_name": user.first_name, "app_url": _STUDENT_URL},
+                    subject="[TitulaTec ITCJ] Cambio en tu inscripción a titulación",
+                    to=to, que="process_cancelled",
+                ) or enviado
+            return enviado
+        except Exception:
+            logger.exception("[titulatec] Error inesperado en send_process_cancelled")
+            return False
+
+    @staticmethod
+    def send_enrollment_rejected(db: Session, req) -> bool:
+        """Rechazo con motivo, al correo personal, firmado por quien revisa según
+        el modo (`EnrollmentRequestService.reviewer_label()`)."""
+        try:
+            from itcj2.apps.titulatec.services.enrollment_request_service import (
+                EnrollmentRequestService,
+            )
             return _deliver(
                 template="enrollment_rejected.html",
-                context={"req": req},
+                context={"req": req, "revisor": EnrollmentRequestService.reviewer_label()},
                 subject="[TitulaTec ITCJ] Sobre tu solicitud de inscripción",
                 to=req.contact_email, que="enrollment_rejected",
             )

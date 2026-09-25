@@ -2,9 +2,10 @@
 
 Ninguno de los tres métodos hace commit: el llamador escribe dentro de su propia
 transacción y commitea él; un commit aquí la partiría a la mitad. Hoy el único
-consumidor externo es `EnrollmentRequestService.approve()` (rama SIN cuenta:
-`set_fields` justo después de crear el `User` nuevo), más el prellenado de la
-encuesta de egresados (`pages/public.py`, solo `get_or_create`). `_convert()`
+consumidor externo que escribe es `EnrollmentRequestService._create_account()`
+(`set_fields` justo después de crear el `User` nuevo, cuando Centro de Cómputo
+da el acceso con `grant_access`, o al aprobar en el modo alterno), más el
+prellenado de la encuesta de egresados (`pages/public.py`, solo `get_or_create`). `_convert()`
 —la rama CON cuenta— no toca este service a propósito (su propio docstring lo
 llama invariante 1): una cuenta que ya existía no debe heredar el perfil de una
 solicitud que pudo llenar cualquiera.
@@ -44,9 +45,10 @@ class StudentProfileService:
         correo NO lo limpia (se compara antes/después, sin distinguir
         mayúsculas): cualquier llamador que vuelva a guardar la misma dirección
         no debe tirar una verificación ya hecha. Hoy el único llamador
-        (`EnrollmentRequestService.approve`, rama sin cuenta) escribe una sola
-        vez, al crear el perfil, así que este caso no se ejerce en producción
-        — la guarda queda lista para cuando exista una segunda escritura.
+        (`EnrollmentRequestService._create_account`, al dar el acceso a una
+        cuenta nueva) escribe una sola vez, al crear el perfil, así que este caso
+        no se ejerce en producción — la guarda queda lista para cuando exista
+        una segunda escritura.
         """
         row = StudentProfileService.get_or_create(db, user_id)
         if "contact_email" in fields:

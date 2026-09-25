@@ -17,17 +17,21 @@ _DEPT_CODE_SCHOOL_SERVICES = "school_services"
 
 
 def _managed_department_id(user_id: int) -> int | None:
-    """Departamento que el usuario gestiona, con respaldo para el rol admin.
+    """Departamento sobre el que opera Encargados para este usuario.
 
-    Via normal: jefe con puesto `head_%`/`subdirector_%`/`director`
-    (`positions_service.get_user_primary_managed_department`). El usuario con
-    el rol `admin` EN TITULATEC (no el admin global del JWT: `require_page_app`
-    no lo bypasea, CLAUDE.md raiz §6) puede no tener NINGUN puesto -- es el caso
-    del usuario `admin` de bootstrap -- y sin este respaldo la pestana
-    Encargados le queda inutilizable ("sin departamento"). Se le asigna
-    Servicios Escolares (`core_departments.code = 'school_services'`), dueno
-    real de esta pestana.
-    Tener SOLO `titulatec.officers.api.manage` NO activa este respaldo: hace
+    Con el rol `admin` EN TITULATEC (no el admin global del JWT:
+    `require_page_app` no lo bypasea, CLAUDE.md raiz §6) es SIEMPRE Servicios
+    Escolares (`core_departments.code = 'school_services'`), dueno real de esta
+    pestana, gestione o no otro departamento:
+    - el usuario `admin` de bootstrap no tiene NINGUN puesto, y sin esto la
+      pestana le quedaba inutilizable ("sin departamento");
+    - la jefatura de Centro de Computo recibe el rol `admin` por su puesto (D2,
+      spec 2026-09-24) y gestiona Computo: por la via normal creaba
+      "encargados de SE" dentro de Computo (revision final 2026-09-25).
+
+    Sin ese rol, la via normal: jefe con puesto `head_%`/`subdirector_%`/
+    `director` (`positions_service.get_user_primary_managed_department`).
+    Tener SOLO `titulatec.officers.api.manage` NO activa el respaldo: hace
     falta el rol `admin` en la app. Sin esa distincion,
     `test_officers_authz.py::test_sin_departamento_gestionado_no_muta` y
     `..._no_desactiva` (actor con esos permisos pero sin departamento) se
@@ -35,20 +39,19 @@ def _managed_department_id(user_id: int) -> int | None:
     devolviendo 400 sin escribir nada.
     """
     from itcj2.core.services import positions_service
+    from itcj2.core.services.authz_service import user_roles_in_app
     from itcj2.database import SessionLocal
     with SessionLocal() as db:
+        if "admin" in user_roles_in_app(db, user_id, "titulatec"):
+            from itcj2.core.models.department import Department
+            dept = db.query(Department).filter_by(code=_DEPT_CODE_SCHOOL_SERVICES).first()
+            return dept.id if dept else None
+
         managed = positions_service.get_user_primary_managed_department(db, user_id)
         if managed is not None:
             # dict con "department" anidado: {"department": {"id": ...}, "position": {...}, ...}
             return managed["department"]["id"]
-
-        from itcj2.core.services.authz_service import user_roles_in_app
-        if "admin" not in user_roles_in_app(db, user_id, "titulatec"):
-            return None
-
-        from itcj2.core.models.department import Department
-        dept = db.query(Department).filter_by(code=_DEPT_CODE_SCHOOL_SERVICES).first()
-        return dept.id if dept else None
+        return None
 
 
 def _body_ctx(db, department_id: int, *, reactivated: list[dict] | None = None) -> dict:

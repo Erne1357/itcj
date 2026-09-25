@@ -19,7 +19,7 @@ from itcj2.observability.metrics import (
     OUTBOUND_REQUEST_BUCKETS,
 )
 from itcj2.observability.middleware import METRIC_METHODS
-from itcj2.observability.route import _KEYS, _route_method_pairs, build_route_map
+from itcj2.observability.route import APP_KEYS, _route_method_pairs, build_route_map
 from itcj2.observability.spawn import BACKGROUND_TASK_NAMES, BACKGROUND_TASK_STATUSES
 from itcj2.observability.work import (
     DOCUMENT_KIND_ENGINE,
@@ -36,13 +36,16 @@ from itcj2.observability.work import (
 # el margen caía a 1.742 (~87 pares): el merge de adhoc (~90) lo ponía rojo.
 # Los 804 pares cuentan `/metrics`, que no genera series (SKIP_PATHS): un par
 # de margen a favor.
+# Re-medido el 2026-09-24 con la presencia por app de la ronda 3
+# (`itcj_presence_app_users`, 10 series fijas más): 805 pares -> 17.028 series
+# (fijas 928). Margen: 2.972 series, ~148 pares nuevos. El tope no se mueve.
 MAX_SERIES_PER_TARGET = 20_000
 
 # Peor caso de estados distintos por par (método, ruta) en el contador (§6).
 MAX_STATUS = 6
 
 # Series que no escalan con las rutas (§6, tabla "Cuánto añade cada fase"):
-IN_FLIGHT_SERIES = len(_KEYS) + 1          # una por app_key, más "otro"
+IN_FLIGHT_SERIES = len(APP_KEYS) + 1          # una por app_key, más "otro"
 # Estados que un cliente ANÓNIMO puede producir en "__unmatched__" (sin ruta
 # matcheada): 404; 405 (colapsado a propósito, ver middleware); 307 (redirect
 # de barra final de Starlette); 200 y 400 (preflight CORS de origen permitido
@@ -62,6 +65,7 @@ FIXED_SERIES = (
     + 2                                    # uso del dir de mmap (R25)
     + len(LOOP_LAG_BUCKETS) + 3            # histograma de lag del loop
     + 4                                    # itcj_presence_users (buckets)
+    + len(APP_KEYS) + 1                    # itcj_presence_app_users (apps + "otro")
     + 6                                    # itcj_socket_connections (namespaces hoy)
 )
 # Trabajo pesado y llamadas salientes (Fase 4): conjuntos CERRADOS que

@@ -63,6 +63,9 @@ _ROLE_DASHBOARD = [
     ("titulatec_school_services_head", "/titulatec/admin/"),
     ("titulatec_school_services",      "/titulatec/admin/"),
     ("titulatec_tech_management", "/titulatec/admin/liberaciones"),  # GTV: bandeja de liberaciones (2026-09-15)
+    # Centro de Computo (2026-09-24): su bandeja de Accesos. La jefatura trae
+    # ademas `admin` por su puesto (D2) y por eso aterriza arriba, en la Bandeja.
+    ("titulatec_computer_center", "/titulatec/admin/accesos"),
     ("titulatec_vinculacion",     "/titulatec/vinculacion/"),
     ("titulatec_sinodal",         "/titulatec/sinodal/"),
     ("graduate",                  "/titulatec/student/dashboard"),  # egresado: el alumno (2026-09-15)
@@ -112,6 +115,9 @@ _ADMIN_NAV = [
     # Un solo código por fila: `admin_nav_items` (:118) hace `perms & need`, que
     # es OR — un `dashboard.*` de más abriría el item a todos los oficiales.
     ("Solicitudes",         "bi-person-plus", "/titulatec/admin/solicitudes",  {"titulatec.enrollment_request.page.list"}),
+    # Centro de Computo (2026-09-24): da el NIP a las solicitudes que SE aprobo
+    # sin cuenta; en modo alterno, revisa todo.
+    ("Accesos",             "bi-key",         "/titulatec/admin/accesos",      {"titulatec.enrollment_access.page.list"}),
     ("Liberaciones",        "bi-patch-check", "/titulatec/admin/liberaciones", {"titulatec.survey_review.page.list"}),
     ("Encuestas",           "bi-clipboard-data", "/titulatec/admin/encuestas", {"titulatec.survey.page.list"}),
     ("Actos protocolarios", "bi-mortarboard", "#",                             {"titulatec.ceremony.page.list"}),

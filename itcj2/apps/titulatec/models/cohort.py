@@ -1,7 +1,7 @@
 """Convocatoria de titulación (una por periodo)."""
 from sqlalchemy import (
-    BigInteger, CheckConstraint, Column, Date, DateTime, ForeignKey, Integer,
-    String, Time,
+    BigInteger, Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey,
+    Integer, String, Time,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import text
@@ -38,6 +38,12 @@ class Cohort(Base):
     default_slot_minutes = Column(Integer, nullable=False, server_default=text("30"))
     default_capacity = Column(Integer, nullable=False, server_default=text("1"))
     default_location = Column(String(120), nullable=True)
+
+    # Interruptor de aprobación automática del modo SII (spec S8, 2026-09-25):
+    # `EligibilityService.auto_approve` solo actúa si sigue en `TRUE` en el
+    # momento de aprobar (revalidado, no solo al consultar). Nace en `TRUE`
+    # para que las convocatorias existentes no requieran backfill.
+    sii_auto_approve = Column(Boolean, nullable=False, server_default=text("true"))
 
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     updated_at = Column(DateTime, nullable=False, server_default=text("NOW()"))

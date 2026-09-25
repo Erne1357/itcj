@@ -11,7 +11,7 @@
    otro documento abierto y con el botón Regresar apuntando a Procesos aunque
    hubieras llegado desde Citas.
    =========================================================================== #}
-{% from "titulatec/_macros.html" import estado_pill %}
+{% from "titulatec/_macros.html" import estado_pill, proceso_pill %}
 {% set BASE = '/titulatec/admin/processes/' ~ process.id %}
 {% set Q = ('?' ~ zona) if zona else '' %}
 
@@ -25,6 +25,17 @@
       <a id="exp-back" class="btn btn-sm tt-btn-ghost" href="{{ back.url }}">
         <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>{{ back.label }}</a>
 
+      <div id="exp-head-acciones" class="ms-auto d-flex flex-wrap align-items-center gap-2">
+      {# «Revocar inscripción» (spec 2026-09-25 §3.6): solo con el permiso y
+         sobre lo que `ProcessService.cancel` acepta (`can_revoke` ya lo
+         combina). El modal con el motivo vive en `block modals` de
+         `process_detail.html`, fuera del swap, igual que el de mover de fase;
+         su URL no depende de la fase, así que no hay nada que poblar al abrir. #}
+      {% if can_revoke %}
+      <button type="button" id="exp-revocar-abrir" class="btn btn-sm tt-btn-ghost tt-btn-danger-ghost"
+              data-bs-toggle="modal" data-bs-target="#exp-modal-revocar">
+        <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>Revocar inscripción</button>
+      {% endif %}
       {% if process.status == 'active' and can_dictaminar_fase %}
       {# Discreto y siempre en el mismo sitio: mover de fase es lo raro, no lo
          que se viene a hacer aquí.
@@ -36,7 +47,7 @@
          boton que abre un modal cuyas DOS acciones responden 403 es peor que
          no estar (spec §10 paso 4 -- la jefatura de la Division ya no
          dictamina). Ver `pages/admin.py::_detail_ctx`. #}
-      <button type="button" id="exp-acciones" class="btn btn-sm tt-btn-soft ms-auto"
+      <button type="button" id="exp-acciones" class="btn btn-sm tt-btn-soft"
               data-bs-toggle="modal" data-bs-target="#exp-modal-fase"
               data-tt-fase="{{ '%02d'|format(current_phase) }}"
               data-tt-fase-nombre="{% for f in fases if f.is_current %}{{ f.name }}{% endfor %}"
@@ -47,9 +58,24 @@
       {# Sin el permiso de dictamen (o proceso no activo): el mismo pill de
          estado que antes, en vez de un boton que abriria un modal donde las
          DOS acciones responderian 403. #}
-      <span class="ms-auto">{{ estado_pill(process.status) }}</span>
+      {{ proceso_pill(process.status) }}
       {% endif %}
+      </div>
     </div>
+
+    {% if revocada %}
+    {# La revocación, dicha arriba y no solo en el historial: quien abre el
+       expediente tiene que saber de inmediato por qué ya no se mueve. #}
+    <div id="exp-revocada" class="tt-card tt-card--danger d-flex gap-2 mt-3" role="status">
+      <i class="bi bi-slash-circle" aria-hidden="true"></i>
+      <div class="min-w-0">
+        <strong>Inscripción revocada</strong>
+        {%- if revocada.when %} · {{ revocada.when }}{% endif %}
+        {%- if revocada.actor %} · {{ revocada.actor }}{% endif %}
+        {% if revocada.reason %}<p class="mb-0">{{ revocada.reason }}</p>{% endif %}
+      </div>
+    </div>
+    {% endif %}
 
     <div class="tt-exp-id">
       <span class="tt-kicker">{{ cohort_period or 'Sin convocatoria' }} · {{ process.folio }}</span>

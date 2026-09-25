@@ -1,7 +1,9 @@
 import os
 import json
 from functools import lru_cache
-from pydantic import Field
+from typing import Literal
+
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings
 
 
@@ -257,7 +259,57 @@ class Settings(BaseSettings):
     # (4) recibe el HTML nuevo (sin el `<script>`) contra un JS que sigue
     # leyendo `SPLIT_SCOPE`: ReferenceError dentro de `loadTicketDetail()` y el
     # detalle entero cae a su estado de error.
-    STATIC_VERSION: str = "1.0.1111566"
+    #
+    # Bump 2026-09-24: icono propio de TitulaTec. `core/css/mobile/mobile-base.css`
+    # suma `.has-own-tile` (la tarjeta móvil de titulatec lleva su PNG a sangre) y
+    # `titulatec/css/titulatec.css` dimensiona `.tt-brand-img`, que reemplaza al
+    # glifo de Bootstrap Icons del drawer y al monograma «TT» del rail del alumno.
+    # Sin el bump, quien tenga en caché la hoja vieja ve el PNG de 1024 px sin
+    # tamaño dentro del drawer y del rail.
+    #
+    # Bump 2026-09-24 (2): presencia en vivo por app (ronda 3 de observabilidad,
+    # Task 2). `core/js/dashboard/dashboard.js` gana `setActiveApp()` /
+    # `getTopmostOpenAppId()` y llama a `window.CorePresenceHeartbeat.reportApp()`
+    # (módulo nuevo `core/js/dashboard/presence-heartbeat.js`, cargado ANTES de
+    # dashboard.js en `dashboard.html`) al abrir/cerrar/cambiar de ventana. Sin
+    # el bump, quien tenga el dashboard en caché sigue con el JS viejo (sin
+    # `window.CorePresenceHeartbeat`), así que el shell nunca emite el latido y
+    # el usuario vuelve a decaer de la ventana de 5 min como antes de esta ronda.
+    #
+    # Bump 2026-09-24 (3): el icono propio de TitulaTec llega al encabezado de las
+    # páginas públicas (encuesta de egresados, inscripción) y al menú del admin.
+    # `titulatec/css/public.css` reduce `.tt-public-logo` a un `<img>` dimensionado
+    # (antes pintaba el monograma «TT» sobre tinta) y `titulatec/css/titulatec.css`
+    # suma `.tt-admin .side .tt-brand-img`. Sin el bump, la hoja vieja deja el PNG
+    # de 1024 px sin tamaño en el menú del admin y con fondo de tinta en el público.
+    #
+    # Bump 2026-09-25: `titulatec/css/titulatec.css` suma `.tt-mix--access` (el
+    # desglose «En Cómputo» del bloque «Por año de ingreso» de Solicitudes). Sin
+    # el bump, la hoja vieja pinta el icono de ese cubo sin su color.
+    #
+    # Bump 2026-09-25 (2): `titulatec/css/titulatec.css` extiende el
+    # `position: relative` de `#tt-requests-body .table-responsive` a
+    # `#tt-access-body .table-responsive` (el `<th>` de acciones oculto de la
+    # tabla de Accesos estiraba `document.documentElement.scrollWidth` a 690 px
+    # en 360/390). Sin el bump, quien tenga la hoja vieja en caché sigue con
+    # scroll horizontal en `/titulatec/admin/accesos`.
+    #
+    # Bump 2026-09-25 (3): `titulatec/css/titulatec.css` suma `.tt-sii-*`, el
+    # bloque del veredicto del SII en «Por revisar» de Solicitudes (modo `sii`).
+    # Sin el bump, la hoja vieja pinta las reglas incumplidas sin su icono de
+    # color ni el filete que las separa de los formularios.
+    #
+    # Bump 2026-09-25 (4): `titulatec/css/titulatec.css` suma `.tt-win-auto`, el
+    # renglón propio del interruptor «Aprobación automática (SII)» en el panel de
+    # la ventana de la convocatoria. Sin el bump, la hoja vieja lo deja apretado
+    # entre los campos de fecha.
+    #
+    # Bump 2026-09-25 (5): `titulatec/js/admin/expediente.js` suma la guarda de
+    # motivo vacío del modal «Revocar inscripción» del expediente (toast), lo
+    # cierra tras una revocación exitosa y limpia el motivo al cerrarlo. Sin el
+    # bump, el navegador sirve el JS viejo (el POST funciona igual: el `hx-post`
+    # va en la plantilla, pero el modal no se cierra solo).
+    STATIC_VERSION: str = "1.0.1111574"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -292,8 +344,12 @@ class Settings(BaseSettings):
     AUTHZ_CACHE_TTL: int = 300
 
     # Presencia (core-config-revamp F6) — ventana en segundos para considerar
-    # "activo" a un usuario en los sorted-sets presence:notify:*. La poda ocurre
-    # EN LECTURA (presence_service.get_counts); no hay heartbeat.
+    # "activo" a un usuario en los sorted-sets presence:notify:* y presence:app:*.
+    # La poda ocurre EN LECTURA (presence_service.get_counts / get_app_counts) y
+    # el shell refresca la marca con un latido de ~60 s por el socket /notify
+    # (ronda 3 de observabilidad): con 300 s son 5 latidos de tolerancia antes de
+    # dar a alguien por fuera. Bajarlo por debajo de 2 latidos hace parpadear el
+    # panel con cualquier red intermitente.
     PRESENCE_WINDOW_SECONDS: int = 300
 
     # OAuth de correo (config → email, C6 core-config-revamp): TTL en segundos
@@ -394,6 +450,46 @@ class Settings(BaseSettings):
     # truene fuerte al arrancar (`get_settings()`), no en silencio a media
     # operacion.
     TITULATEC_HANDOFF_PHASE: int = Field(default=3, ge=3)
+
+    # Inscripción por solicitud (spec 2026-09-24, accesos de Centro de Cómputo).
+    # D4: vida de la liga de activación. Se lee SOLO por
+    # `EnrollmentRequestService._link_ttl_hours()` (BD, TTL del claro en Redis y
+    # los "N días" del correo salen de ahí). `ge=1`: una liga de 0 días nacería
+    # vencida; `le=90`: la liga es una credencial al correo personal y no debe
+    # vivir un semestre. Fuera de rango truena al arrancar, no a media operación.
+    TITULATEC_ENROLLMENT_LINK_TTL_DAYS: int = Field(default=21, ge=1, le=90)
+    # D6: quién revisa las solicitudes. `school_services` (oficial) o
+    # `computer_center` (modo alterno); se cambia por entorno + reinicio y el DML
+    # es el mismo en ambos. `Literal` hace que un typo truene al arrancar en vez
+    # de dejar la bandeja en un modo que nadie implementa.
+    # Elegibilidad automática contra el SII (spec 2026-09-25). D6 gana un
+    # tercer modo: `sii` delega la decisión al check automático en vez de a
+    # una bandeja humana. Los otros dos modos NO cambian de significado.
+    TITULATEC_ENROLLMENT_REVIEWER: Literal["school_services", "computer_center", "sii"] = "school_services"
+
+    # `SiiClient` (perezoso, ver servicio): qué backend habla con el SII.
+    # `disabled` no consulta nada (checks se quedan en `pending`), `fake` lee
+    # `TITULATEC_SII_FAKE_FILE` (dev/demo/tests), `odbc` es el real (FreeTDS).
+    TITULATEC_SII_BACKEND: Literal["disabled", "fake", "odbc"] = "disabled"
+    # Cadena de conexión ODBC completa (incluye credenciales) — SecretStr para
+    # que un `str(settings)`/log accidental no la exponga, y además
+    # `repr=False` para que ni el NOMBRE del campo aparezca en
+    # `repr(Settings())` (un traceback de validación de arranque imprime los
+    # demás campos tal cual).
+    TITULATEC_SII_ODBC: SecretStr = Field(default=SecretStr(""), repr=False)
+    # Carpeta con `rules.toml` + `queries/*.sql` (gitignored, nunca se
+    # commitean; ver `database/SII/titulatec/` en globals del plan).
+    TITULATEC_SII_RULES_DIR: str = "database/SII/titulatec"
+    # JSON de filas sintéticas que usa el backend `fake`.
+    TITULATEC_SII_FAKE_FILE: str = "database/SII/titulatec/fake_sii.json"
+    TITULATEC_SII_CONNECT_TIMEOUT_S: int = Field(5, ge=1, le=60)
+    TITULATEC_SII_QUERY_TIMEOUT_S: int = Field(10, ge=1, le=120)
+    # Ventana de veto tras la que un check `apt` se aprueba solo (S2). 0 =
+    # inmediato (default); tope de una semana.
+    TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS: int = Field(0, ge=0, le=168)
+    # Tope de reintentos de `titulatec.sii_check_request` ante `SiiUnavailable`
+    # antes de dejar el check en `error` no reintentable.
+    TITULATEC_SII_MAX_ATTEMPTS: int = Field(5, ge=1, le=20)
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

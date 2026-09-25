@@ -79,6 +79,11 @@ _TRACEPARENT = b"traceparent"
 # las métricas va tal cual solo si es uno de estos; si no, "OTHER".
 METRIC_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
 
+# `path` (campo de LOG, jamás de métrica: cardinalidad) se acota porque la
+# manda el cliente sin matchear ninguna ruta — un escáner puede mandar
+# cualquier longitud y Loki tiene límite de línea.
+_MAX_UNMATCHED_PATH_LENGTH = 200
+
 
 def _metric_route_method(route: str, method: str, status: int) -> tuple[str, str]:
     """`route` y `method` como etiquetas de métrica (la línea-resumen no).
@@ -88,8 +93,11 @@ def _metric_route_method(route: str, method: str, status: int) -> tuple[str, str
     o un barrido de métodos abriría método × plantilla × (1 + 14 del
     histograma) series que el presupuesto de §6 no cuenta, y un cliente
     anónimo tumbaría el `mem_limit` de Prometheus, que es de TODO el stack.
-    En las métricas va a `"__unmatched__"`, como un 404; en Loki la línea
-    conserva la ruta real para investigar.
+    En las métricas ambos van a `"__unmatched__"`; en Loki el 405 SÍ conserva
+    la plantilla real en `route` (Starlette ya la resolvió, es un match
+    parcial). Un 404 no tiene plantilla que conservar: para ese caso
+    `_log_summary` agrega `path` (la ruta cruda, acotada) — contrato de logs
+    de la ronda 3 (global-constraints.md).
     """
     if status == 405:
         route = UNMATCHED
@@ -103,7 +111,7 @@ def _header(scope: dict, name: bytes) -> str | None:
     return None
 
 
-def _log_summary(method, route, app, status, duration, user_id, exc_type) -> None:
+def _log_summary(method, route, app, status, duration, user_id, exc_type, path) -> None:
     duration_ms = round(duration * 1000, 3)
     extra = {
         "method": method,
@@ -115,6 +123,11 @@ def _log_summary(method, route, app, status, duration, user_id, exc_type) -> Non
     }
     if exc_type is not None:
         extra["exc_type"] = exc_type
+    if path is not None:
+        # Solo cuando `route == UNMATCHED` (ver `_metric_route_method`): una
+        # ruta matcheada ya tiene su plantilla en `route`, agregar la cruda
+        # también sería redundante. NUNCA pasa a una etiqueta de métrica.
+        extra["path"] = path
     access_logger.info(
         "%s %s %s %.1fms", method, route, status, duration_ms, extra=extra
     )
@@ -223,9 +236,17 @@ class ObservabilityMiddleware:
             # La línea y el reset FUERA de la guarda de métricas: se emiten
             # aunque las métricas hayan fallado.
             try:
+                # `path` (ruta cruda) solo para `route == UNMATCHED`: es lo
+                # único que le queda al log para investigar ese 15 % de
+                # tráfico sin plantilla (un 405 ya trae la plantilla real en
+                # `route`, no hace falta duplicarla).
+                raw_path = (
+                    scope["path"][:_MAX_UNMATCHED_PATH_LENGTH]
+                    if route == UNMATCHED else None
+                )
                 _log_summary(
                     method, route, app, status, duration,
-                    user_id_from_scope(scope), exc_type,
+                    user_id_from_scope(scope), exc_type, raw_path,
                 )
             finally:
                 # R4: sin reset en el camino de excepción, para que el

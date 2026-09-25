@@ -268,6 +268,27 @@ def test_con_la_convocatoria_cerrada_el_reenvio_publico_no_sale(
     assert correo_falso == []
 
 
+def test_con_la_ventana_publica_vencida_el_reenvio_publico_si_sale(
+    db_session, make_cohort, correo_falso,
+):
+    """D5 (spec 2026-09-24): la ventana solo filtra el formulario. Una liga
+    vigente se puede pedir de nuevo después de `closes_at`."""
+    from datetime import date
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    hoy = date.today()
+    cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
+                         closes_at=hoy - timedelta(days=1))
+    _aprobada(db_session, cohort, control="99660010")
+
+    assert EnrollmentRequestService.resend(
+        db_session, "99660010", "alguien@example.invalid") == "sent"
+    assert len(correo_falso) == 1
+
+
 def test_reenvio_que_no_casa_da_salida_identica_al_que_si_casa(
     client, db_session, make_cohort, correo_falso,
 ):
@@ -429,6 +450,50 @@ def test_reenviar_desde_la_bandeja_solo_aplica_a_aprobadas(
             == "Solo se reenvía la liga de solicitudes aprobadas.")
     db_session.refresh(req)
     assert req.status == status
+    assert req.verify_token_hash == hash_antes
+    assert req.verify_send_count == 1
+    assert correo_falso == []
+
+
+def test_reenviar_desde_la_bandeja_con_la_ventana_publica_vencida_si_sale(
+    client_as, db_session, make_head, make_cohort, correo_falso,
+):
+    """D5 (spec 2026-09-24): la ventana solo filtra el formulario público."""
+    from datetime import date
+
+    hoy = date.today()
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
+                         closes_at=hoy - timedelta(days=1))
+    req, _tok = _aprobada(db_session, cohort, control="99660032")
+    hash_antes = req.verify_token_hash
+
+    resp = client_as(head).post(f"{ADMIN_URL}/{req.id}/reenviar")
+
+    assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+    db_session.refresh(req)
+    assert req.verify_token_hash != hash_antes
+    vence = datetime.now() + timedelta(days=21)
+    assert abs((req.verify_expires_at - vence).total_seconds()) < 120
+    assert len(correo_falso) == 1
+
+
+def test_reenviar_desde_la_bandeja_con_la_convocatoria_cerrada_no_rota_ni_manda(
+    client_as, db_session, make_head, make_cohort, correo_falso,
+):
+    """Una convocatoria `closed` pausa sus procesos (`CohortService.set_window`):
+    tampoco se le emiten ligas nuevas, igual que `approve` y `verify`."""
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="closed")
+    req, _tok = _aprobada(db_session, cohort, control="99660033")
+    hash_antes = req.verify_token_hash
+
+    resp = client_as(head).post(f"{ADMIN_URL}/{req.id}/reenviar")
+
+    assert resp.status_code == 400
+    assert unquote(resp.headers["X-Tt-Error"]) == "Esa convocatoria está cerrada."
+    db_session.refresh(req)
+    assert req.status == "approved"
     assert req.verify_token_hash == hash_antes
     assert req.verify_send_count == 1
     assert correo_falso == []

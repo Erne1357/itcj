@@ -62,3 +62,31 @@ def test_el_landing_manda_a_un_graduate_a_su_dashboard(
 
     assert resp.status_code == 302, resp.text[:300]
     assert resp.headers["location"] == STUDENT_DASHBOARD
+
+
+ACCESOS = "/titulatec/admin/accesos"
+
+
+def test_titulatec_computer_center_aterriza_en_accesos():
+    """Centro de Cómputo (spec 2026-09-24 §8.2): bandeja propia, con el nombre
+    REAL del rol que siembra `01_insert_roles.sql`."""
+    assert resolve_dashboard_url({"titulatec_computer_center"}) == ACCESOS
+
+
+def test_la_jefatura_de_computo_aterriza_por_admin():
+    """D2: `head_comp_center` trae además `admin` por su puesto, y `admin` va
+    primero en `_ROLE_DASHBOARD`: aterriza en la Bandeja y ve Accesos en el menú."""
+    assert (resolve_dashboard_url({"admin", "titulatec_computer_center"})
+            == "/titulatec/admin/")
+
+
+def test_el_landing_manda_a_centro_de_computo_a_accesos(
+    client_as, make_user, make_role, grant_user_role,
+):
+    user = make_user(first_name="CENTRO", last_name="COMPUTO")
+    grant_user_role(user, make_role("titulatec_computer_center"))
+
+    resp = client_as(user).get("/titulatec/", follow_redirects=False)
+
+    assert resp.status_code == 302, resp.text[:300]
+    assert resp.headers["location"] == ACCESOS

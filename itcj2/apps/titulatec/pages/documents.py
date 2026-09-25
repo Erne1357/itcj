@@ -76,6 +76,10 @@ def _doc_row(proc, *, users, progs, names, docs):
             "mime": (doc.mime_type if doc else None) or "application/pdf",
             "note": doc.review_note if doc else None,
             "view_url": f"/titulatec/admin/documents/{proc.id}/document/{code}" if doc else None,
+            # Respaldo del orden FIFO de "Por evaluar" (`_order_pending_by_wait`)
+            # cuando no hay evento en la bitacora. Ningun template lo pinta, y
+            # no cuesta consulta: ya viene en el lote de `docs` de `_doc_rows`.
+            "created_at": doc.created_at if doc else None,
         })
     return {
         "process_id": proc.id, "folio": proc.folio,
@@ -84,6 +88,73 @@ def _doc_row(proc, *, users, progs, names, docs):
         "docs": docs_out, "pending": pending,
         "all_approved": all(d["status"] == "approved" for d in docs_out),
     }
+
+
+def _last_uploads(db, process_ids):
+    """Ultima llegada de cada (proceso, tipo) segun la bitacora, en UN lote.
+
+    Fuente de verdad de "cuanto lleva esperando" un documento: `Document` no
+    sirve sola porque una resubida NO resetea `created_at`
+    (`DocumentService.save` actualiza la fila en su lugar, solo sube
+    `version`) y `updated_at` no tiene `onupdate` ni la escribe nadie. Cada
+    subida real SI deja un `ProcessEvent(document_uploaded)` en la MISMA
+    transaccion (`services/document_service.py:184-189`), con `type_code` en
+    el payload. Se toma el MAXIMO por (proceso, tipo): un documento rechazado
+    y vuelto a subir cuenta desde la resubida, no desde el primer intento --
+    es una llegada NUEVA, se va al final de la fila.
+    """
+    from itcj2.apps.titulatec.models import ProcessEvent
+
+    if not process_ids:
+        return {}
+    ultimas = {}
+    filas = (db.query(ProcessEvent.process_id, ProcessEvent.payload, ProcessEvent.created_at)
+             .filter(ProcessEvent.process_id.in_(process_ids),
+                     ProcessEvent.event_type == "document_uploaded")
+             .all())
+    for process_id, payload, subido_en in filas:
+        type_code = (payload or {}).get("type_code")
+        if not type_code:
+            continue
+        clave = (process_id, type_code)
+        if clave not in ultimas or subido_en > ultimas[clave]:
+            ultimas[clave] = subido_en
+    return ultimas
+
+
+def _order_pending_by_wait(db, rows):
+    """Orden de "Por evaluar": FIFO por espera REAL, no por antiguedad del proceso.
+
+    La clave de cada fila es el MINIMO, entre sus documentos con archivo en
+    `review_status == 'pending'`, de la ultima llegada de cada uno -- el mas
+    viejo esperando dictamen entra primero. Sin evento en la bitacora (fila
+    sembrada, o subida antes de `2f43e7e5` -- 2026-09-03 --, cuando las subidas
+    empezaron a dejar ese evento) el respaldo es `Document.created_at` (ya
+    cargado por `_doc_row`, sin consulta extra). Desempate por `process_id`
+    ascendente.
+
+    Las filas cuyo unico pendiente es "missing" (nada subido: se espera al
+    alumno, no al revisor) no tienen ningun tiempo que medir -- van al final,
+    SIN reordenarse entre si, asi que conservan el orden que traian
+    (`created_at desc, id desc`).
+
+    Una sola consulta por lote (`_last_uploads`); no se llama desde `_doc_rows`
+    para que las otras 3 pestanas sigan sin pagarla.
+    """
+    ultimas = _last_uploads(db, [r["process_id"] for r in rows])
+
+    con_espera, sin_espera = [], []
+    for r in rows:
+        tiempos = [
+            ultimas.get((r["process_id"], d["type_code"]), d["created_at"])
+            for d in r["docs"] if d["has_file"] and d["status"] == "pending"
+        ]
+        if tiempos:
+            con_espera.append((min(tiempos), r["process_id"], r))
+        else:
+            sin_espera.append(r)
+    con_espera.sort(key=lambda t: (t[0], t[1]))
+    return [r for _, _, r in con_espera] + sin_espera
 
 
 def _body_ctx(db, *, user_id, status_filter, selected_id):
@@ -119,6 +190,10 @@ def _body_ctx(db, *, user_id, status_filter, selected_id):
     rows = [r for r in rows if any(d["has_file"] for d in r["docs"])]
     if status_filter == "pending":
         rows = [r for r in rows if r["pending"] > 0]
+        # Unica pestana con orden distinto: FIFO por espera real (ver
+        # `_order_pending_by_wait`). Las otras 3 se quedan con el orden de
+        # arriba (`created_at desc, id desc`) tal cual.
+        rows = _order_pending_by_wait(db, rows)
     elif status_filter == "rejected":
         rows = [r for r in rows if any(d["status"] == "rejected" for d in r["docs"])]
     elif status_filter == "approved":

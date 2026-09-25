@@ -73,7 +73,10 @@ def _body_ctx(db, *, form_id, page: int):
 
     q = db.query(SurveyResponse).filter(SurveyResponse.form_id == form.id)
     ctx["total"] = q.count()
-    rows = (q.order_by(SurveyResponse.submitted_at.desc(), SurveyResponse.id.desc())
+    # FIFO (2026-09-24): orden de llegada, igual que `SurveyService
+    # .export_rows` (que ya ordena por id ascendente) — el equipo revisa las
+    # respuestas en el orden en que se enviaron.
+    rows = (q.order_by(SurveyResponse.submitted_at.asc(), SurveyResponse.id.asc())
             .offset((page - 1) * _PAGE_SIZE).limit(_PAGE_SIZE + 1).all())
     ctx["has_more"] = len(rows) > _PAGE_SIZE
     rows = rows[:_PAGE_SIZE]

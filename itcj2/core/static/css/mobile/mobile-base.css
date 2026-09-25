@@ -395,6 +395,18 @@
     display: block;
 }
 
+/* Íconos que ya traen su propio tile (titulatec): a sangre, sin el tile blanco
+   ni su borde — si no, se ve un marco dentro de otro. */
+.mobile-app-card-icon.has-own-tile {
+    background: transparent;
+    border: 0;
+}
+
+.mobile-app-card-icon.has-own-tile .mobile-app-card-img {
+    width: 100%;
+    height: 100%;
+}
+
 .mobile-app-card-name {
     font-size: 13px;
     font-weight: 600;

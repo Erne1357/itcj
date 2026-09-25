@@ -104,6 +104,9 @@ class HandoffService:
             .join(Program, Program.id == TitulationProcess.program_id)
             .join(Cohort, Cohort.id == TitulationProcess.cohort_id)
             .outerjoin(Modality, Modality.id == TitulationProcess.modality_id)
+            # Una inscripción REVOCADA (`ProcessService.cancel`) conserva su
+            # fase 2 aprobada, pero no se entrega a T-soft ni sale en el CSV.
+            .filter(TitulationProcess.status != "cancelled")
         )
         if scoped:
             query = query.filter(TitulationProcess.program_id.in_(allowed_program_ids))

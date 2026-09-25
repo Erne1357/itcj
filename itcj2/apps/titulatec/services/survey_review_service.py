@@ -64,6 +64,20 @@ REASON_MAX = 1000
 PHASE_COTEJO = 2
 
 
+def _no_revocada_en_revision():
+    """Predicado de la bandeja de GTV: fuera la solicitud EN REVISIÓN de una
+    inscripción revocada (`ProcessService.cancel`).
+
+    Ahí sería trabajo que nadie puede hacer: toda acción de GTV exige el
+    proceso `active` (`_active_process`) y respondería 400. Las pestañas de
+    historial (liberadas / con observaciones) la conservan: el dictamen sí
+    ocurrió. El llamador ya hizo JOIN a `TitulationProcess`.
+    """
+    from itcj2.apps.titulatec.models import SurveyReview, TitulationProcess
+    return or_(SurveyReview.status != "in_review",
+               TitulationProcess.status != "cancelled")
+
+
 class SurveyReviewService:
     """Único dueño de las transiciones de `titulatec_survey_reviews`."""
 
@@ -287,12 +301,13 @@ class SurveyReviewService:
         from itcj2.apps.titulatec.models import SurveyReview, TitulationProcess
         from itcj2.core.models.user import User
 
-        query = db.query(SurveyReview.status, func.count(SurveyReview.id))
+        query = (db.query(SurveyReview.status, func.count(SurveyReview.id))
+                 .join(TitulationProcess, TitulationProcess.id == SurveyReview.process_id)
+                 .filter(_no_revocada_en_revision()))
         if q:
             patron = f"%{q.strip()}%"
             query = (
                 query
-                .join(TitulationProcess, TitulationProcess.id == SurveyReview.process_id)
                 .join(User, User.id == TitulationProcess.student_id)
                 .filter(or_(User.full_name.ilike(patron), User.control_number.ilike(patron)))
             )
@@ -333,6 +348,7 @@ class SurveyReviewService:
             .join(Cohort, Cohort.id == TitulationProcess.cohort_id)
             .outerjoin(Reviewer, Reviewer.id == SurveyReview.reviewed_by_id)
             .filter(SurveyReview.status == status)
+            .filter(_no_revocada_en_revision())
         )
         if q:
             patron = f"%{q.strip()}%"

@@ -264,7 +264,7 @@ _ALIAS = {
     "itcj": "core",
 }
 
-_KEYS = {
+APP_KEYS = frozenset({
     "helpdesk",
     "agendatec",
     "maint",
@@ -278,7 +278,28 @@ _KEYS = {
     # registre — una clave dormida, no un bug.
     "adhoc",
     "core",
-}
+})
+
+# Valor de escape del vocabulario. Existe como constante porque la usan dos
+# módulos (este y `core/services/presence_service.py`, que normaliza la app
+# que reporta el latido del shell) y una `"otro"` suelta que se escribiera
+# distinto en uno de los dos partiría la serie del panel en dos.
+OTHER_KEY = "otro"
+
+
+def normalize_app_key(value) -> str:
+    """Normaliza una app_key que viene de FUERA (hoy: el latido del shell por
+    el socket `/notify`, ronda 3) contra el vocabulario cerrado: aplica los
+    alias de URL y cae a `"otro"` si no pertenece a `APP_KEYS`.
+
+    Acepta cualquier tipo a propósito: el payload llega de un cliente y un
+    `None`/dict/int no debe reventar el handler, solo contar como `"otro"`.
+    """
+    if not isinstance(value, str):
+        return OTHER_KEY
+    candidate = value.strip().lower()
+    candidate = _ALIAS.get(candidate, candidate)
+    return candidate if candidate in APP_KEYS else OTHER_KEY
 
 
 def app_key_from_route(path: str) -> str:
@@ -286,22 +307,21 @@ def app_key_from_route(path: str) -> str:
 
     Reconoce las dos formas en que este proyecto expone rutas: `/api/<seg>/…`
     (API REST) y `/<seg>/…` (páginas HTML). Sin alias ni pertenencia a
-    `_KEYS`, cae a `"otro"` — el descarte es a propósito y no defensivo por
+    `APP_KEYS`, cae a `"otro"` — el descarte es a propósito y no defensivo por
     gusto: sin él, una app nueva que alguien registre en `routers.py` sin
     actualizar esta tabla se colaría en las métricas con una clave
     inventada; con él, aparece como `"otro"` en el tablero y se nota.
     """
     segments = [s for s in path.split("/") if s]
     if not segments:
-        return "otro"
+        return OTHER_KEY
 
     first = segments[0]
     if first == "api":
         if len(segments) < 2:
-            return "otro"
+            return OTHER_KEY
         candidate = segments[1]
     else:
         candidate = first
 
-    candidate = _ALIAS.get(candidate, candidate)
-    return candidate if candidate in _KEYS else "otro"
+    return normalize_app_key(candidate)

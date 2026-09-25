@@ -219,6 +219,10 @@ def test_summary_line_for_a_normal_request(client, caplog):
     assert record.duration_ms >= 0
     assert record.user_id == ""
     assert not hasattr(record, "exc_type")
+    # `path` es SOLO para `route == "__unmatched__"` (ver docstring de
+    # `_metric_route_method`): una ruta matcheada ya tiene su plantilla en
+    # `route`, así que el campo ni se agrega — no una cadena vacía.
+    assert not hasattr(record, "path")
     assert re.fullmatch(
         rf"GET {re.escape(PREFIX)}/items/\{{item_id\}} 200 \d+\.\dms",
         record.getMessage(),
@@ -227,14 +231,48 @@ def test_summary_line_for_a_normal_request(client, caplog):
 
 
 def test_summary_line_for_unmatched_route(client, caplog):
+    raw_path = f"{PREFIX}/no-existe/4821"
+
     with caplog.at_level(logging.INFO, logger=ACCESS_LOGGER):
-        client.get(f"{PREFIX}/no-existe/4821")
+        client.get(raw_path)
 
     [record] = _access_records(caplog)
-    # Nunca la ruta cruda: cada URL inventada por un escáner sería una serie.
+    # `route` nunca la ruta cruda (cardinalidad, plan §6): cada URL inventada
+    # por un escáner sería una serie de métrica nueva.
     assert record.route == "__unmatched__"
     assert record.app == "otro"
     assert record.status == 404
+    # Pero `path` (campo de LOG, jamás de métrica) sí la conserva: si no, el
+    # 15 % de tráfico sin ruta matcheada es una caja negra desde el log.
+    assert record.path == raw_path
+
+
+def test_summary_line_for_405_has_no_raw_path(client, caplog):
+    # Un 405 SÍ deja la plantilla real en `route` (match parcial de
+    # Starlette): no es `"__unmatched__"`, así que no hace falta `path` de
+    # respaldo — el mismo condicional que en el 404 ya lo excluye.
+    with caplog.at_level(logging.INFO, logger=ACCESS_LOGGER):
+        resp = client.request("DELETE", f"{PREFIX}/items/7")
+
+    assert resp.status_code == 405
+    [record] = _access_records(caplog)
+    assert record.route == f"{PREFIX}/items/{{item_id}}"
+    assert not hasattr(record, "path")
+
+
+def test_summary_line_truncates_a_very_long_unmatched_path(client, caplog):
+    # Un escáner puede mandar rutas absurdamente largas: `path` es un campo
+    # de LOG (Loki tiene límite de línea) y jamás una etiqueta de métrica, así
+    # que se acota en vez de dejarlo crecer sin límite.
+    raw_path = f"{PREFIX}/no-existe/" + ("a" * 300)
+
+    with caplog.at_level(logging.INFO, logger=ACCESS_LOGGER):
+        client.get(raw_path)
+
+    [record] = _access_records(caplog)
+    assert record.route == "__unmatched__"
+    assert len(record.path) == 200
+    assert record.path == raw_path[:200]
 
 
 def test_summary_line_carries_user_id_from_jwt(client, caplog):

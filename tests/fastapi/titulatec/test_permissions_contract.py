@@ -205,13 +205,19 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_84_permisos_conocidos():
+def test_el_dml_declara_los_88_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    84 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 82
-    hasta el 2026-09-21, cuando el Departamento de Titulacion (spec
-    2026-09-21-titulatec-dpto-titulacion) anadio dos codigos nuevos
-    (`titulatec.handoff.page.list` y `titulatec.handoff.api.export`, la
+    88 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 84
+    hasta el 2026-09-24, cuando la spec de Accesos de Centro de Computo (NIP
+    en dos pasos) anadio los cuatro codigos de la bandeja nueva
+    (`titulatec.enrollment_access.page.list`,
+    `titulatec.enrollment_access.api.grant`,
+    `titulatec.enrollment_access.api.return` y
+    `titulatec.enrollment_access.api.reject`) a `02_insert_permissions.sql`.
+    Antes de eso eran 82 hasta el 2026-09-21, cuando el Departamento de
+    Titulacion (spec 2026-09-21-titulatec-dpto-titulacion) anadio dos codigos
+    nuevos (`titulatec.handoff.page.list` y `titulatec.handoff.api.export`, la
     bandeja de liberados a Titulacion) al bloque HANDOFF de
     `02_insert_permissions.sql`. Antes de eso eran 80 hasta el 2026-09-16,
     cuando el auto-agendado de citas de cotejo anadio dos codigos nuevos
@@ -232,12 +238,12 @@ def test_el_dml_declara_los_84_permisos_conocidos():
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 84, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 84 "
-        "(2026-09-21: sube de 82 a 84 por titulatec.handoff.page.list y "
-        "titulatec.handoff.api.export, la bandeja de liberados a Titulacion). "
-        "Actualiza este numero SOLO si el cambio en database/DML/titulatec/ es "
-        f"intencional. Declarados: {sorted(declared)}"
+    assert len(declared) == 88, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 88 "
+        "(2026-09-24: sube de 84 a 88 por los cuatro "
+        "titulatec.enrollment_access.*, la bandeja de Accesos de Centro de "
+        "Computo). Actualiza este numero SOLO si el cambio en "
+        f"database/DML/titulatec/ es intencional. Declarados: {sorted(declared)}"
     )
 
 
@@ -573,3 +579,143 @@ def test_el_alumno_de_titulacion_es_graduate_y_student_ya_no_recibe_nada_de_titu
         r"DELETE\s+FROM\s+core_role_permissions[^;]*r\.name\s*=\s*'student'"
         r"[^;]*p\.app_id\s*=\s*v_app_id\s*;", tres), (
         "falta el DELETE que revoca a student los permisos de titulatec")
+
+
+# Los 4 codigos de la bandeja de Accesos de Centro de Computo (spec
+# 2026-09-24-titulatec-accesos-centro-computo, seccion 7).
+PERMISOS_ACCESOS_COMPUTO = (
+    "titulatec.enrollment_access.page.list",
+    "titulatec.enrollment_access.api.grant",
+    "titulatec.enrollment_access.api.return",
+    "titulatec.enrollment_access.api.reject",
+)
+
+
+@requires_dml
+def test_computer_center_tiene_el_reparto_exacto():
+    """Spec 2026-09-24-titulatec-accesos-centro-computo, D1-D3 + tabla de la
+    seccion 7: el rol nuevo `titulatec_computer_center` concede en su ARRAY
+    EXACTAMENTE los 4 codigos de la bandeja de Accesos, ni uno mas ni uno
+    menos -- mismo patron que
+    `test_titulaciones_plena_y_titulacion_tienen_el_reparto_exacto`."""
+    tres = re.sub(r"--[^\n]*", "",
+                  (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8"))
+
+    assert _grants_de_rol(tres, "titulatec_computer_center") == set(PERMISOS_ACCESOS_COMPUTO), (
+        "titulatec_computer_center deberia conceder en su ARRAY exactamente "
+        "los 4 codigos de la bandeja de Accesos")
+
+
+def _position_codes_for_role(sql: str, rol: str) -> set[str]:
+    """Codigos de puesto mapeados a un rol en `05_insert_position_app_roles.sql`.
+
+    Ese archivo escribe cada mapeo como su propio `INSERT ... SELECT ...
+    WHERE a.key = 'titulatec' AND r.name = '<rol>' AND p.code IN (...)` (o
+    `p.code = '...'` para un solo puesto), un statement por bloque. Partir por
+    `;` aisla cada bloque para no mezclar el rol de un INSERT con el `p.code`
+    de otro.
+    """
+    codigos: set[str] = set()
+    for stmt in sql.split(";"):
+        if f"r.name = '{rol}'" not in stmt:
+            continue
+        m_in = re.search(r"p\.code\s+IN\s*\(([^)]*)\)", stmt)
+        if m_in:
+            codigos.update(re.findall(r"'([^']+)'", m_in.group(1)))
+        m_eq = re.search(r"p\.code\s*=\s*'([^']+)'", stmt)
+        if m_eq:
+            codigos.add(m_eq.group(1))
+    return codigos
+
+
+@requires_dml
+def test_computer_center_mapeo_puesto_rol_y_jefatura_con_admin():
+    """Spec 2026-09-24-titulatec-accesos-centro-computo, D1/D2: `head_comp_center`
+    y `secretary_comp_center` reciben el rol nuevo por puesto; `head_comp_center`
+    ADEMAS recibe el rol `admin` de titulatec (hereda dinamicamente los 4
+    permisos por el SELECT de `15_grant_admin_all_perms.sql`, sin tocar ese
+    archivo). Los auxiliares (`aux_comp_center`) NO se mapean a proposito (el
+    usuario asigna el rol a mano a quien elija).
+
+    Semantica "contiene al menos" (arreglo A7, ver `_verify_titulacion`): no
+    exige conteo exacto de filas del mapeo, solo que estos puestos esten
+    incluidos -- un tercer puesto que un admin mapee despues a mano no debe
+    poner esto en rojo.
+    """
+    cinco = (DML_DIR / "05_insert_position_app_roles.sql").read_text(encoding="utf-8")
+    sin_comentarios = re.sub(r"--[^\n]*", "", cinco)
+
+    mapeados = _position_codes_for_role(sin_comentarios, "titulatec_computer_center")
+    for codigo in ("head_comp_center", "secretary_comp_center"):
+        assert codigo in mapeados, (
+            f"{codigo} deberia estar mapeado a titulatec_computer_center "
+            f"(hay {sorted(mapeados)})")
+
+    admin_de = _position_codes_for_role(sin_comentarios, "admin")
+    assert "head_comp_center" in admin_de, (
+        "head_comp_center deberia tener ademas el rol admin en titulatec (D2)")
+
+
+@requires_dml
+def test_computer_center_mapeo_puesto_rol_lo_negativo():
+    """Complemento negativo de la prueba anterior (revision final, MINOR de
+    D1/D2): esa prueba solo afirma "contiene al menos"; esta fija lo que NO
+    debe pasar. `aux_comp_center` (D1) no recibe el rol por puesto -- se
+    asigna a mano -- y `secretary_comp_center` (D2) no recibe ademas `admin`:
+    solo la jefatura opera la app entera."""
+    cinco = (DML_DIR / "05_insert_position_app_roles.sql").read_text(encoding="utf-8")
+    sin_comentarios = re.sub(r"--[^\n]*", "", cinco)
+
+    mapeados = _position_codes_for_role(sin_comentarios, "titulatec_computer_center")
+    assert mapeados == {"head_comp_center", "secretary_comp_center"}, (
+        f"titulatec_computer_center deberia mapear EXACTAMENTE esos dos "
+        f"puestos, ni aux_comp_center ni ningun otro (hay {sorted(mapeados)})")
+
+    admin_de = _position_codes_for_role(sin_comentarios, "admin")
+    comp_center_en_admin = {c for c in admin_de if c.endswith("comp_center")}
+    assert comp_center_en_admin == {"head_comp_center"}, (
+        f"entre los puestos *_comp_center, SOLO head_comp_center deberia "
+        f"estar en el bloque admin (hay {sorted(comp_center_en_admin)})")
+
+
+# Los ARRAY de Servicios Escolares en el 03, EXACTOS. Revocar inscripcion
+# (spec 2026-09-25-titulatec-elegibilidad-sii §3.6) les suma
+# `titulatec.process.api.cancel`, que antes solo tenian los dos roles de
+# Titulacion. El resto de lo que reciben (enrollment_request.*,
+# requirement.mark) llega por el delta `survey_2026_09/10`, no por aqui.
+PERMISOS_SE_OPERATIVO_03 = (
+    "titulatec.dashboard.school_services",
+    "titulatec.process.page.list", "titulatec.process.page.detail",
+    "titulatec.process.api.approve_phase", "titulatec.process.api.reject_phase",
+    "titulatec.process.api.cancel",
+    "titulatec.document.api.read.all", "titulatec.document.api.approve",
+    "titulatec.document.api.reject",
+    "titulatec.appointment.page.list", "titulatec.appointment.api.create",
+    "titulatec.appointment.api.update",
+    "titulatec.appointment.api.mark_attended", "titulatec.appointment.api.reschedule",
+    "titulatec.document.page.list",
+    "titulatec.notifications.api.read.own", "titulatec.notifications.api.mark_read",
+)
+PERMISOS_SE_JEFATURA_03 = PERMISOS_SE_OPERATIVO_03 + (
+    "titulatec.process.api.read.all",
+    "titulatec.cohort.page.list", "titulatec.cohort.page.detail", "titulatec.cohort.api.read",
+    "titulatec.cohort.api.create", "titulatec.cohort.api.update",
+    "titulatec.cohort.api.import_csv",
+    "titulatec.officers.page.list", "titulatec.officers.api.manage",
+    "titulatec.cohort.api.review_days",
+)
+
+
+@requires_dml
+def test_servicios_escolares_puede_revocar_inscripciones():
+    """Spec 2026-09-25-titulatec-elegibilidad-sii §3.6: el permiso existente
+    `titulatec.process.api.cancel` se concede ademas a los roles de SE. El
+    operativo queda acotado por carrera en la ruta (`assert_process_in_scope`),
+    igual que el resto de su dictamen. Ningun DELETE del 03 lo revoca."""
+    tres = re.sub(r"--[^\n]*", "",
+                  (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8"))
+
+    assert _grants_de_rol(tres, "titulatec_school_services") == set(PERMISOS_SE_OPERATIVO_03)
+    assert _grants_de_rol(tres, "titulatec_school_services_head") == set(PERMISOS_SE_JEFATURA_03)
+    for m in re.finditer(r"DELETE\s+FROM\s+core_role_permissions[^;]*;", tres):
+        assert "process.api.cancel" not in m.group(0)

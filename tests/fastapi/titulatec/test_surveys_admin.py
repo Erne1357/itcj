@@ -6,6 +6,7 @@ hermana devuelve el parcial, nunca se olfatea `HX-Request`.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 URL = "/titulatec/admin/encuestas"
 
@@ -41,7 +42,8 @@ def _make_form(db_session, *, status="open"):
     return form
 
 
-def _make_response(db_session, form, *, answers, user=None, control=None):
+def _make_response(db_session, form, *, answers, user=None, control=None,
+                   submitted_at=None):
     from itcj2.apps.titulatec.models import SurveyAnswer, SurveyResponse
 
     resp = SurveyResponse(
@@ -51,6 +53,12 @@ def _make_response(db_session, form, *, answers, user=None, control=None):
         control_number=control,
         answers=answers,
     )
+    if submitted_at is not None:
+        # Asignado DESPUÉS de construir el objeto: si se pasara `None` al
+        # constructor, SQLAlchemy lo tomaría como un valor explícito y el
+        # INSERT mandaría NULL en vez de dejar que el `server_default` ponga
+        # NOW() (la columna es NOT NULL).
+        resp.submitted_at = submitted_at
     db_session.add(resp)
     db_session.flush()
     for key, val in answers.items():
@@ -168,3 +176,70 @@ def test_ver_el_detalle_sin_el_permiso_de_lectura_se_rechaza(
     resp = client_as(head).get(f"{URL}/{r.id}")
 
     assert resp.status_code == 403, resp.text[:300]
+
+
+# ---------------------------------------------------------------------------
+# FIFO (2026-09-24): la bandeja se recorre en el orden en que llegaron
+# ---------------------------------------------------------------------------
+# En las pruebas de abajo el id de inserción va al REVÉS de `submitted_at`, a
+# propósito: si la ruta ordenara por `id` o por `submitted_at` descendente (el
+# comportamiento de antes), estas pruebas fallarían.
+def test_las_respuestas_se_ordenan_de_la_mas_antigua_a_la_mas_nueva(
+    client_as, db_session, make_head,
+):
+    head = make_head(perm_codes=SURVEY_PERMS)
+    form = _make_form(db_session)
+    mas_nueva = _make_response(db_session, form, answers={"comentarios": "reciente"},
+                               control="99620001",
+                               submitted_at=datetime(2001, 1, 2, 9, 0))
+    mas_antigua = _make_response(db_session, form, answers={"comentarios": "vieja"},
+                                 control="99620002",
+                                 submitted_at=datetime(2001, 1, 1, 9, 0))
+    assert mas_antigua.id > mas_nueva.id, "el id debe ir al revés de submitted_at"
+
+    html = client_as(head).get(f"{URL}/body?form_id={form.id}").text
+
+    pos_antigua = html.index(mas_antigua.control_number)
+    pos_nueva = html.index(mas_nueva.control_number)
+    assert pos_antigua < pos_nueva, (
+        "la bandeja debe listar de la respuesta más antigua a la más nueva")
+
+
+def test_la_pagina_2_continua_a_la_1_en_el_mismo_orden_ascendente(
+    client_as, db_session, make_head, monkeypatch,
+):
+    """Pagina con `_PAGE_SIZE` chico a propósito: 3 respuestas y 2 por página
+    dejan la 3a en la página 2, y sigue en el mismo orden que la 1."""
+    import itcj2.apps.titulatec.pages.surveys_admin as surveys_admin
+    monkeypatch.setattr(surveys_admin, "_PAGE_SIZE", 2)
+
+    head = make_head(perm_codes=SURVEY_PERMS)
+    form = _make_form(db_session)
+    mas_nueva = _make_response(db_session, form, answers={"comentarios": "c"},
+                               control="99620011",
+                               submitted_at=datetime(2001, 1, 3, 9, 0))
+    media = _make_response(db_session, form, answers={"comentarios": "c"},
+                           control="99620012",
+                           submitted_at=datetime(2001, 1, 2, 9, 0))
+    mas_antigua = _make_response(db_session, form, answers={"comentarios": "c"},
+                                 control="99620013",
+                                 submitted_at=datetime(2001, 1, 1, 9, 0))
+    c = client_as(head)
+
+    pagina1 = c.get(f"{URL}/body?form_id={form.id}&page=1")
+    pagina2 = c.get(f"{URL}/body?form_id={form.id}&page=2")
+
+    assert pagina1.status_code == 200, pagina1.text[:500]
+    assert pagina2.status_code == 200, pagina2.text[:500]
+    # Página 1: las DOS más viejas, en orden ascendente.
+    assert mas_antigua.control_number in pagina1.text
+    assert media.control_number in pagina1.text
+    assert mas_nueva.control_number not in pagina1.text
+    assert (pagina1.text.index(mas_antigua.control_number)
+            < pagina1.text.index(media.control_number))
+    assert "Siguientes" in pagina1.text
+    # Página 2: sigue con la más nueva, ella sola.
+    assert mas_nueva.control_number in pagina2.text
+    assert mas_antigua.control_number not in pagina2.text
+    assert media.control_number not in pagina2.text
+    assert "Anteriores" in pagina2.text

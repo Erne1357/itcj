@@ -532,6 +532,27 @@ class AppointmentService:
 
     # ----------------------------------------------------------------- helpers
     @staticmethod
+    def _assert_not_revoked(db: Session, process_id: int) -> None:
+        """`EnrollmentRevoked` si el proceso quedó `cancelled`.
+
+        Solo `cancelled`, no «todo lo que no sea `active`»: `on_hold` y
+        `completed` conservan el comportamiento de antes de la revocación. Lo
+        que se cierra es que un tablero rancio le ocupe una franja a una
+        inscripción que Servicios Escolares ya revocó.
+
+        Es el rechazo RÁPIDO, fuera de los locks (igual que la guarda de D4 en
+        `create`): no cierra la carrera con una revocación concurrente. La
+        comprobación que decide va dentro del advisory del proceso, en
+        `SlotService._open_new_attempt` (punto 5).
+        """
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.appointment_errors import EnrollmentRevoked
+
+        proc = db.get(TitulationProcess, process_id)
+        if proc is not None and proc.status == "cancelled":
+            raise EnrollmentRevoked()
+
+    @staticmethod
     def _log(db: Session, process_id: int, actor_id: int, event_type: str, payload: dict | None = None):
         from itcj2.apps.titulatec.models import ProcessEvent
         db.add(ProcessEvent(
@@ -590,6 +611,7 @@ class AppointmentService:
         from itcj2.apps.titulatec.services.slot_service import SlotService
         from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
+        AppointmentService._assert_not_revoked(db, process_id)
         if SurveyReviewService.get_for_process(db, process_id) is None:
             raise SurveyNotSubmitted()
 
@@ -678,6 +700,7 @@ class AppointmentService:
         from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
         from itcj2.apps.titulatec.services.slot_service import SlotService
 
+        AppointmentService._assert_not_revoked(db, appt.process_id)
         if not window_id or slot_start is None:
             raise MissingSchedule()
         if appt.status not in _REAGENDABLES:
@@ -755,8 +778,15 @@ class AppointmentService:
 
     # -------------------------------------------- compartido: alumno y encargado
     @staticmethod
-    def cancel(db: Session, appt, actor_id: int, reason: str | None = None):
+    def cancel(db: Session, appt, actor_id: int, reason: str | None = None, *,
+               commit: bool = True, notify: bool = True):
         """Cancela la cita y libera su franja. Dueña de la transacción.
+
+        `commit=False` + `notify=False` es SOLO para `ProcessService.cancel`,
+        que revoca la inscripción y cancela la cita en SU transacción: la cita
+        no puede quedar cancelada con el proceso vivo (ni al revés) si algo
+        falla entre las dos escrituras, y el alumno recibe un único aviso —el
+        de la revocación—, no además «tu cita fue cancelada».
 
         D12, y la asimetría deliberada con D10: cancelar **sí** devuelve el
         lugar al pozo, no presentarse **no**. Cancelar a tiempo es un aviso;
@@ -798,11 +828,14 @@ class AppointmentService:
         # `int()` en los dos lados: `user["sub"]` es string y sin la coerción
         # la comparación es siempre verdadera (gotcha 5), así que el alumno
         # recibiría aviso de su propia cancelación.
-        if proc is not None and int(actor_id) != int(proc.student_id):
+        if notify and proc is not None and int(actor_id) != int(proc.student_id):
             AppointmentService._notify_appt(
                 db, appt.process_id, "APPOINTMENT_CANCELLED",
                 "Tu cita de cotejo fue cancelada",
                 appt.scheduled_at, appt.location)
+        if not commit:
+            db.flush()
+            return appt
         db.commit()
         db.refresh(appt)
         return appt

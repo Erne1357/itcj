@@ -150,6 +150,44 @@ def _n() -> int:
 
 
 # ---------------------------------------------------------------------------
+# Modo de revision y TTL de la liga: fijos por defecto para TODA la suite
+# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _modo_oficial_por_defecto(monkeypatch):
+    """`reviewer_mode()` y `_link_ttl_hours()` leen `get_settings()`, que carga
+    `.env`/el entorno del proceso. Sin esto, cambiar `TITULATEC_ENROLLMENT_REVIEWER`
+    o `TITULATEC_ENROLLMENT_LINK_TTL_DAYS` en el contenedor (p. ej. para probar el
+    modo alterno en dev, spec S10) pone en rojo, en falso, toda prueba que no
+    parchea el modo (revision final C7/I-1).
+
+    Fija el modo oficial (`school_services`) y 21 dias parcheando los ATRIBUTOS
+    del singleton de `get_settings()`, nunca el metodo `reviewer_mode()`: hay
+    pruebas (p. ej. `test_el_modo_sale_de_la_variable_de_entorno`) que parchean
+    `get_settings()` y esperan que el metodo REAL lo refleje. La fixture
+    `modo_alterno` de aqui abajo, al pedirse explicitamente en un test, corre
+    despues y gana (mismo `monkeypatch`, ultimo `setattr` manda).
+    """
+    from itcj2.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "TITULATEC_ENROLLMENT_REVIEWER", "school_services")
+    monkeypatch.setattr(settings, "TITULATEC_ENROLLMENT_LINK_TTL_DAYS", 21)
+
+
+@pytest.fixture()
+def modo_alterno(monkeypatch):
+    """Centro de Computo revisa todo: se parchea `reviewer_mode`, nunca
+    `get_settings` (spec S5). UNICA copia (antes duplicada en 4 archivos de
+    prueba): C7/I-1 de la revision final la centraliza aqui.
+    """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "computer_center"))
+
+
+# ---------------------------------------------------------------------------
 # Sesion compartida: proxy + overrides
 # ---------------------------------------------------------------------------
 class _TestSession:

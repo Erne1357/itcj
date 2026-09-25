@@ -202,6 +202,33 @@ def test_abrir_la_liga_inscribe_a_la_cuenta_y_muestra_el_folio(
         "abrir la liga debe dar el rol de la app, no solo el proceso")
 
 
+def test_abrir_la_liga_con_la_ventana_publica_vencida_si_inscribe(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+):
+    """D5 (spec 2026-09-24): la ventana solo filtra el formulario. La liga dura
+    21 días y puede abrirse después de `closes_at`; solo `status='closed'` la
+    devuelve a revisión (ver `REVALIDACIONES`)."""
+    from datetime import date
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    hoy = date.today()
+    cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
+                         closes_at=hoy - timedelta(days=1))
+    cuenta = _cuenta(make_user, db_session, "99770011")
+    req, token = _aprobada(db_session, cohort, control="99770011")
+
+    _req, outcome = EnrollmentRequestService.verify(db_session, token)
+
+    assert outcome == "converted"
+    db_session.refresh(req)
+    assert req.status == "converted"
+    assert len(_procesos(db_session, cuenta, cohort)) == 1
+
+
 def test_abrir_la_liga_deja_a_la_cuenta_como_graduate_y_tira_el_cache_tras_el_commit(
     db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
     monkeypatch,
@@ -460,6 +487,35 @@ def test_una_liga_vencida_no_convierte_y_la_tarjeta_pide_reenvio(
     assert correo_falso == []
 
 
+def test_en_modo_alterno_la_tarjeta_de_liga_vencida_nombra_a_centro_de_computo(
+    client, db_session, make_cohort, make_user, seed_phase_defs, titulatec_app,
+    correo_falso, monkeypatch,
+):
+    """`EnrollmentRequestService.reviewer_label()` decide quién revisa (2026-09-24):
+    se parchea `reviewer_mode`, nunca `get_settings`."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "computer_center"))
+    seed_phase_defs()
+    cohort = make_cohort(status="open")
+    _cuenta(make_user, db_session, "99770016")
+    req, token = _aprobada(db_session, cohort, control="99770016",
+                           vence=-timedelta(hours=1))
+    client.cookies.clear()
+
+    resp = client.get(f"{VERIFY_URL}?t={token}", follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'data-tt-notice="expired"' in resp.text
+    assert "Esa liga venció" in resp.text
+    assert "Pide a Centro de Cómputo que te la reenvíe." in resp.text
+    assert "Pide a Servicios Escolares que te la reenvíe." not in resp.text
+    assert correo_falso == []
+
+
 # ---------------------------------------------------------------------------
 # Revalidaciones: vuelve a revisión con la nota, sin nada a medias
 # ---------------------------------------------------------------------------
@@ -529,6 +585,32 @@ def test_si_una_revalidacion_falla_la_solicitud_vuelve_a_revision_con_la_nota(
 
     otra_vez = client.get(f"{VERIFY_URL}?t={token}", follow_redirects=False)
     assert TARJETA_INVALIDA in otra_vez.text
+
+
+def test_en_modo_alterno_la_tarjeta_de_revalidacion_nombra_a_centro_de_computo(
+    client, db_session, make_cohort, make_user, make_process, seed_phase_defs,
+    titulatec_app, correo_falso, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "computer_center"))
+    seed_phase_defs()
+    cohort = make_cohort(status="open")
+    cuenta = _cuenta(make_user, db_session, "99770021")
+    req, token = _aprobada(db_session, cohort, control="99770021")
+    _cerrar_convocatoria(db_session, {"cohort": cohort})
+    client.cookies.clear()
+
+    resp = client.get(f"{VERIFY_URL}?t={token}", follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'data-tt-notice="pending"' in resp.text
+    assert "Tu solicitud necesita revisión" in resp.text
+    assert "Centro de Cómputo la revisará y te escribirá por correo." in resp.text
+    assert "Servicios Escolares la revisará y te escribirá por correo." not in resp.text
 
 
 def test_sin_cuenta_en_la_bd_la_liga_devuelve_la_solicitud_a_revision(

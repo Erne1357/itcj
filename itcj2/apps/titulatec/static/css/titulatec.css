@@ -368,6 +368,8 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
 .tt-admin .side a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px;
   color: #94A3B8; font-size: .8125rem; font-weight: 500; text-decoration: none; }
 .tt-admin .side a.active { background: rgba(245,158,11,.15); color: var(--tt-accent); font-weight: 600; }
+/* Marca del menu: el PNG propio (ver .tt-brand-img), del tamano del cuadro «T» al que sustituye. */
+.tt-admin .side .tt-brand-img { width: 28px; height: 28px; border-radius: 7px; }
 .tt-admin .main { flex: 1; min-width: 0; background: var(--tt-mist); }
 
 /* ============================ MOTION / ANIMACIÓN ====================== */
@@ -595,15 +597,17 @@ body.tt-stu .mobile-back-to-dashboard:hover { background: var(--tt-line-soft); }
 /* — Helpers embebido / standalone — */
 body.in-mobile-iframe .tt-standalone-only { display: none !important; }
 
+/* — Marca de TitulaTec (static/images/titulatec-claro-1024.png): el PNG ya trae su
+   propio tile (fondo + borde redondeado), asi que solo se dimensiona. Sin tamano
+   explicito se pintaria a 1024 px. — */
+.tt-brand-img { display: block; flex: none; object-fit: contain; }
+
 /* — Drawer: marca de TitulaTec en el header — */
-.tt-stu .app-sidebar-header .app-sidebar-title i { color: var(--tt-accent); }
+.tt-stu .app-sidebar-header .app-sidebar-title .tt-brand-img { width: 26px; height: 26px; border-radius: 7px; }
 
 /* — Rail lateral (desktop): reutiliza .app-sidebar-item del core, ya tematizado — */
 .tt-rail-brand { display: flex; align-items: center; gap: 10px; padding: 4px 12px 16px; }
-.tt-rail-brand .logo {
-  width: 36px; height: 36px; border-radius: 10px; background: var(--tt-ink); color: #fff;
-  display: flex; align-items: center; justify-content: center; font-family: var(--tt-display); font-weight: 700;
-}
+.tt-rail-brand .tt-brand-img { width: 36px; height: 36px; border-radius: 10px; }
 .tt-rail-brand .name { font-family: var(--tt-display); font-weight: 600; font-size: 1.05rem; letter-spacing: -.3px; }
 .tt-rail-brand .sub  { font-size: .7rem; color: var(--tt-mute); }
 .tt-rail-nav { display: flex; flex-direction: column; gap: 2px; }
@@ -1713,6 +1717,10 @@ button.tt-seat--libre { pointer-events: auto; }
    TEXTO en el `:root` de este mismo archivo (2.56:1 sobre `--tt-paper`). */
 .tt-win-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
 .tt-win-ro   { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+/* Interruptor «Aprobación automática (SII)» (modo `sii`, 2026-09-25): ocupa su
+   propio renglón del formulario; junto a los tres controles se leía como un
+   cuarto campo de la ventana y su ayuda quedaba aplastada a 170 px. */
+.tt-win-auto { flex: 1 1 100%; margin: 0; }
 
 /* ——————————— Requisitos de cotejo: «Información para el alumno» ———————————
    Editor del admin (`partials/cohort/cohort_cotejo_reqs.html` +
@@ -2131,6 +2139,7 @@ button.tt-seat--libre { pointer-events: auto; }
 }
 .tt-mix { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .tt-mix--review i    { color: var(--tt-amber-ink); }
+.tt-mix--access i    { color: var(--tt-violet); }
 .tt-mix--sent i      { color: var(--tt-navy); }
 .tt-mix--converted i { color: var(--tt-success); }
 .tt-mix--rejected i  { color: var(--tt-danger); }
@@ -2168,8 +2177,12 @@ button.tt-seat--libre { pointer-events: auto; }
 /* El `<th>` de acciones lleva su nombre en un `.visually-hidden`, que es
    `position: absolute`. Sin un ancestro posicionado DENTRO del contenedor con
    scroll, ese span no lo recorta el `overflow` y estiraba la PÁGINA a 538 px
-   en un móvil de 360. */
+   en un móvil de 360 (Solicitudes) y a 690 px (Accesos, misma tabla, mismo
+   `<th>` sin nombre visible). Ambas bandejas comparten `.tt-req-table`, así
+   que comparten el arreglo; reglas separadas (no un selector combinado) para
+   no mover la línea que ya fija `test_el_css_de_la_tabla_no_vuelve_a_desbordar`. */
 #tt-requests-body .table-responsive { position: relative; }
+#tt-access-body .table-responsive { position: relative; }
 .tt-req-ctl  { display: block; font-family: var(--tt-mono); font-size: var(--tt-fs-100); color: var(--tt-text-3); }
 .tt-req-name { display: block; color: var(--tt-text-1); }
 .tt-req-sub  { display: block; font-size: var(--tt-fs-100); color: var(--tt-text-3); }
@@ -2197,6 +2210,31 @@ button.tt-seat--libre { pointer-events: auto; }
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   overflow: hidden; margin-top: var(--tt-sp-1); color: var(--tt-text-3);
 }
+
+/* Veredicto del SII en «Por revisar» (modo `sii`, 2026-09-25). Va arriba de
+   los formularios de la celda de acciones, separado por un filete: primero el
+   porqué, después la decisión. Las reglas incumplidas van abiertas y las
+   cumplidas plegadas en un `<details>` (una apta tiene 6+ reglas y empujaba
+   los botones fuera de la vista). Tokens de tipografía, texto nunca en
+   `--tt-mute` y el foco del `<summary>` con `--tt-focus`. */
+.tt-sii {
+  display: flex; flex-direction: column; gap: var(--tt-sp-1);
+  margin-bottom: var(--tt-sp-2); padding-bottom: var(--tt-sp-2);
+  border-bottom: 1px solid var(--tt-line-soft); min-width: 0;
+}
+.tt-sii-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-1) var(--tt-sp-2); }
+.tt-sii-meta { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-sii-rules { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.tt-sii-rules li { display: flex; gap: var(--tt-sp-1); font-size: var(--tt-fs-100); color: var(--tt-text-1); min-width: 0; }
+.tt-sii-rules li i { flex: 0 0 auto; color: #991B1B; }
+.tt-sii-rules--ok li { color: var(--tt-text-2); }
+.tt-sii-rules--ok li i { color: #166534; }
+.tt-sii-ok > summary { font-size: var(--tt-fs-100); color: var(--tt-text-2); cursor: pointer; }
+.tt-sii-ok > summary:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: var(--tt-r-sm); }
+.tt-sii-sub { font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2); }
+.tt-sii-diffs .tt-sii-rules li { color: var(--tt-text-2); }
+.tt-sii-line { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-sii-why { color: var(--tt-text-1); }
 
 /* ===========================================================================
    Encargados por carrera (2026-09-17)

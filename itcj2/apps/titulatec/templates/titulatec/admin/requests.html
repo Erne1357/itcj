@@ -5,12 +5,29 @@
 <div class="px-4 pt-4 pb-2">
   <span class="tt-kicker">Convocatoria abierta · Servicios Escolares</span>
   <h1 class="tt-display h3 fw-medium">Solicitudes de inscripción</h1>
+  {# Texto por modo (`mode`); los días de la liga salen de `link_days`
+     (`link_ttl_days()`), la misma fuente que el vencimiento y el correo, con
+     «1 día» en singular. En el `sii`, quién decide (el SII) y con qué NIP nace
+     la cuenta (el del SII). En el alterno, quién revisa y qué ves aquí lo dice UNA
+     vez el aviso «Solo lectura» del parcial, que se repinta en cada pestaña. #}
+  {% if sii %}
+  <p class="mb-0 small text-body-secondary">Egresados que pidieron inscribirse desde el
+     formulario público. El SII revisa cada solicitud: las aptas se aprueban solas si la
+     convocatoria tiene encendida la aprobación automática, y aquí quedan las demás con el
+     motivo de cada regla. Tú apruebas como excepción o rechazas. Si la persona no tiene
+     cuenta, se le crea y entra con su número de control y su NIP del SII. Si ya tiene
+     cuenta, le llega una liga de activación de {{ link_days }} {{ 'día' if link_days == 1 else 'días' }} al correo que escribió.</p>
+  {% elif can_act %}
   <p class="mb-0 small text-body-secondary">Egresados que pidieron inscribirse desde el
      formulario público. Nada entra sin tu revisión y el acceso llega solo por correo. Si
-     la persona no tiene cuenta, al aprobar capturas su NIP de 4 dígitos y le llega con su
-     usuario, con cambio de contraseña obligatorio. Si ya tiene cuenta, le llega una liga de
-     activación de 7 días al correo que escribió: al abrirla queda inscrita y entra con su
-     NIP de siempre.</p>
+     la persona no tiene cuenta, al aprobar pasa a Centro de Cómputo, que le da su NIP de
+     4 dígitos: le llega con su usuario. Si ya tiene
+     cuenta, le llega una liga de activación de {{ link_days }} {{ 'día' if link_days == 1 else 'días' }} al correo que escribió:
+     al abrirla queda inscrita y entra con su NIP de siempre.</p>
+  {% else %}
+  <p class="mb-0 small text-body-secondary">Egresados que pidieron inscribirse desde el
+     formulario público.</p>
+  {% endif %}
 </div>
 <div class="px-4 pb-4">
   {% include "titulatec/admin/partials/requests_body.html" %}
