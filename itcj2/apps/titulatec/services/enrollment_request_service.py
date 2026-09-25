@@ -113,7 +113,8 @@ def entry_year(control: str | None, today: date | None = None) -> str:
     pivote = (today or date.today()).year % 100
     return str(2000 + yy if yy <= pivote else 1900 + yy)
 
-VERIFY_TTL_HOURS = 168           # la liga de activación vive 7 días
+# La vida de la liga NO es una constante: `EnrollmentRequestService._link_ttl_hours()`
+# (TITULATEC_ENROLLMENT_LINK_TTL_DAYS, 21 días por omisión).
 MAX_VERIFY_SENDS = 3             # tope del reenvío PÚBLICO; la bandeja no lo tiene
 MIN_SECONDS_BETWEEN_SENDS = 300
 MAX_PUBLIC_BODY_BYTES = 256 * 1024
@@ -170,7 +171,8 @@ def _token_cache_put(raw: str) -> None:
     if r is None:
         return
     try:
-        r.setex(_TOKEN_CACHE_PREFIX + _sha256(raw), VERIFY_TTL_HOURS * 3600, raw)
+        r.setex(_TOKEN_CACHE_PREFIX + _sha256(raw),
+                EnrollmentRequestService._link_ttl_hours() * 3600, raw)
     except Exception as exc:
         logger.warning("No se pudo cachear el token de inscripción: %s", exc)
 
@@ -312,8 +314,8 @@ class EnrollmentRequestService:
           -> proceso y roles de egresado (`import_rows`) -> perfil ->
           `converted`; usuario + NIP al correo personal. El caché de authz de
           esos roles se tira DESPUÉS del commit (`ImportService.invalidate_authz`).
-        - CON cuenta: el NIP se ignora -> liga de activación de 7 días al correo
-          personal -> `approved`. La cuenta no se toca, ni siquiera se reactiva:
+        - CON cuenta: el NIP se ignora -> liga de activación (`_link_ttl_hours()`,
+          21 días por omisión) al correo personal -> `approved`. La cuenta no se toca, ni siquiera se reactiva:
           eso lo hace abrir la liga (invariante 1 del módulo). Sin
           `password_hash` no hay liga (invariante 2).
 
@@ -784,6 +786,20 @@ class EnrollmentRequestService:
         return "sent" if EnrollmentRequestService._mail_activation(db, req, raw) else "noop"
 
     @staticmethod
+    def _link_ttl_hours() -> int:
+        """Vida de la liga de activación, en horas (TITULATEC_ENROLLMENT_LINK_TTL_DAYS).
+
+        ÚNICA fuente: el vencimiento en BD (`_issue_activation`), el TTL del
+        claro en Redis (`_token_cache_put`) y los "N días" del correo
+        (`TitulaTecEmailHelper.send_verify_enrollment`) la llaman en cada uso,
+        así que no pueden divergir. Los tests parchean ESTE método, nunca
+        `get_settings`.
+        """
+        from itcj2.config import get_settings
+
+        return get_settings().TITULATEC_ENROLLMENT_LINK_TTL_DAYS * 24
+
+    @staticmethod
     def _issue_activation(req) -> str:
         """Emite (o rota) la liga de activación de `req`. Devuelve el claro.
 
@@ -794,7 +810,8 @@ class EnrollmentRequestService:
         """
         raw = secrets.token_urlsafe(32)
         req.verify_token_hash = _sha256(raw)
-        req.verify_expires_at = datetime.now() + timedelta(hours=VERIFY_TTL_HOURS)
+        req.verify_expires_at = (datetime.now()
+                                 + timedelta(hours=EnrollmentRequestService._link_ttl_hours()))
         req.verify_sent_to = req.contact_email
         req.verify_sent_at = None
         req.verified_at = None

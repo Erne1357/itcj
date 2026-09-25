@@ -1,6 +1,8 @@
 import os
 import json
 from functools import lru_cache
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
@@ -421,6 +423,19 @@ class Settings(BaseSettings):
     # truene fuerte al arrancar (`get_settings()`), no en silencio a media
     # operacion.
     TITULATEC_HANDOFF_PHASE: int = Field(default=3, ge=3)
+
+    # Inscripción por solicitud (spec 2026-09-24, accesos de Centro de Cómputo).
+    # D4: vida de la liga de activación. Se lee SOLO por
+    # `EnrollmentRequestService._link_ttl_hours()` (BD, TTL del claro en Redis y
+    # los "N días" del correo salen de ahí). `ge=1`: una liga de 0 días nacería
+    # vencida; `le=90`: la liga es una credencial al correo personal y no debe
+    # vivir un semestre. Fuera de rango truena al arrancar, no a media operación.
+    TITULATEC_ENROLLMENT_LINK_TTL_DAYS: int = Field(default=21, ge=1, le=90)
+    # D6: quién revisa las solicitudes. `school_services` (oficial) o
+    # `computer_center` (modo alterno); se cambia por entorno + reinicio y el DML
+    # es el mismo en ambos. `Literal` hace que un typo truene al arrancar en vez
+    # de dejar la bandeja en un modo que nadie implementa.
+    TITULATEC_ENROLLMENT_REVIEWER: Literal["school_services", "computer_center"] = "school_services"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

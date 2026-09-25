@@ -194,12 +194,31 @@ def test_la_liga_de_activacion_dice_quien_aprobo_cuanto_dura_y_que_hacer_si_no_f
             "titulación con el número de control 90000010.") in texto
     assert "Activar mi acceso" in texto
     assert f'href="{LIGA}"' in html
-    assert ("La liga vence en 7 días. Al abrirla quedas inscrito y entras con tu número "
+    assert ("La liga vence en 21 días. Al abrirla quedas inscrito y entras con tu número "
             "de control y tu NIP de siempre.") in texto
     assert ("Si no solicitaste esta inscripción, no abras la liga y avisa a Servicios "
             "Escolares.") in texto
     assert "Confirmar mi inscripción" not in texto
     assert "horas" not in texto
+
+
+def test_los_dias_del_correo_de_activacion_salen_de_link_ttl_hours(
+    db_session, solicitud, correo_falso, monkeypatch,
+):
+    """El texto del correo lee la MISMA fuente que el vencimiento en BD."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 48))
+    req = solicitud(control_number="90000011", kind="known", status="approved")
+
+    assert TitulaTecEmailHelper.send_verify_enrollment(db_session, req, link=LIGA) is True
+
+    (_asunto, _dest, html), = correo_falso
+    assert "La liga vence en 2 días." in _texto(html)
 
 
 def test_el_aviso_de_folio_dice_que_se_activo_y_sirve_de_alarma(

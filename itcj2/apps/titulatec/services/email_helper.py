@@ -144,11 +144,12 @@ class TitulaTecEmailHelper:
         a la cuenta (`EnrollmentRequestService.verify`)."""
         try:
             from itcj2.apps.titulatec.services.enrollment_request_service import (
-                VERIFY_TTL_HOURS,
+                EnrollmentRequestService,
             )
+            dias = EnrollmentRequestService._link_ttl_hours() // 24
             return _deliver(
                 template="verify_enrollment.html",
-                context={"req": req, "link": link, "dias": VERIFY_TTL_HOURS // 24},
+                context={"req": req, "link": link, "dias": dias},
                 subject="[TitulaTec ITCJ] Activa tu acceso a titulación",
                 to=req.contact_email, que="verify_enrollment", link=link,
             )

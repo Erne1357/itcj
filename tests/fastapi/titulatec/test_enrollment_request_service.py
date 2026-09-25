@@ -133,7 +133,11 @@ def test_constantes_del_contrato():
     from itcj2.apps.titulatec.services import enrollment_request_service as mod
     from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE as re_original
 
-    assert mod.VERIFY_TTL_HOURS == 168, "la liga de activación vive 7 días"
+    assert not hasattr(mod, "VERIFY_TTL_HOURS"), (
+        "la vida de la liga sale de TITULATEC_ENROLLMENT_LINK_TTL_DAYS vía "
+        "`_link_ttl_hours()`; una constante paralela divergiría en silencio")
+    assert mod.EnrollmentRequestService._link_ttl_hours() == 504, (
+        "por omisión la liga de activación vive 21 días")
     assert mod.MAX_VERIFY_SENDS == 3
     assert mod.MIN_SECONDS_BETWEEN_SENDS == 300
     assert mod.MAX_PUBLIC_BODY_BYTES == 256 * 1024
@@ -144,6 +148,68 @@ def test_constantes_del_contrato():
         "regex que divergen validarian numeros de control distinto segun la "
         "ruta que se tome."
     )
+
+
+def test_la_vida_de_la_liga_sigue_a_link_ttl_hours_en_bd_y_en_redis(monkeypatch):
+    """`_link_ttl_hours()` es la ÚNICA fuente: el vencimiento en BD y el TTL del
+    claro en Redis la leen en cada llamada, no una copia tomada al importar."""
+    import uuid
+
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService, _TOKEN_CACHE_PREFIX, _redis, _sha256,
+        _token_cache_delete, _token_cache_put,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 48))
+
+    req = EnrollmentRequest(contact_email="alguien@example.invalid")
+    EnrollmentRequestService._issue_activation(req)
+    vence = datetime.now() + timedelta(hours=48)
+    assert abs((req.verify_expires_at - vence).total_seconds()) < 120
+
+    raw = f"token-de-prueba-{uuid.uuid4().hex}"
+    _token_cache_put(raw)
+    try:
+        ttl = _redis().ttl(_TOKEN_CACHE_PREFIX + _sha256(raw))
+        assert 48 * 3600 - 120 < ttl <= 48 * 3600
+    finally:
+        _token_cache_delete(_sha256(raw))
+
+
+class TestSettingsDeLaInscripcion:
+    """Valor inválido truena al construir `Settings` (mismo criterio que
+    `TITULATEC_HANDOFF_PHASE`): mejor no arrancar que operar con una liga de
+    0 días o con un modo de revisión que nadie implementa."""
+
+    def test_los_defaults_son_21_dias_y_el_modo_oficial(self):
+        from itcj2.config import Settings
+
+        s = Settings()
+        assert s.TITULATEC_ENROLLMENT_LINK_TTL_DAYS == 21
+        assert s.TITULATEC_ENROLLMENT_REVIEWER == "school_services"
+
+    def test_la_vida_de_la_liga_va_de_1_a_90_dias(self):
+        from pydantic import ValidationError
+        from itcj2.config import Settings
+
+        for invalido in (0, -1, 91):
+            with pytest.raises(ValidationError):
+                Settings(TITULATEC_ENROLLMENT_LINK_TTL_DAYS=invalido)
+        for valido in (1, 21, 90):
+            assert (Settings(TITULATEC_ENROLLMENT_LINK_TTL_DAYS=valido)
+                    .TITULATEC_ENROLLMENT_LINK_TTL_DAYS == valido)
+
+    def test_el_revisor_solo_admite_los_dos_modos(self):
+        from pydantic import ValidationError
+        from itcj2.config import Settings
+
+        with pytest.raises(ValidationError):
+            Settings(TITULATEC_ENROLLMENT_REVIEWER="x")
+        for valido in ("school_services", "computer_center"):
+            assert (Settings(TITULATEC_ENROLLMENT_REVIEWER=valido)
+                    .TITULATEC_ENROLLMENT_REVIEWER == valido)
 
 
 def test_ya_no_existe_ninguna_liga_de_contacto():
@@ -178,7 +244,7 @@ def test_el_claro_del_token_vive_en_redis_lo_mismo_que_la_liga_y_se_puede_borrar
     import uuid
 
     from itcj2.apps.titulatec.services.enrollment_request_service import (
-        VERIFY_TTL_HOURS, _TOKEN_CACHE_PREFIX, _redis, _sha256, _token_cache_delete,
+        _TOKEN_CACHE_PREFIX, _redis, _sha256, _token_cache_delete,
         _token_cache_get, _token_cache_put,
     )
 
@@ -189,7 +255,7 @@ def test_el_claro_del_token_vive_en_redis_lo_mismo_que_la_liga_y_se_puede_borrar
     _token_cache_put(raw)
     assert _token_cache_get(digest) == raw
     ttl = _redis().ttl(_TOKEN_CACHE_PREFIX + digest)
-    assert VERIFY_TTL_HOURS * 3600 - 120 < ttl <= VERIFY_TTL_HOURS * 3600
+    assert 504 * 3600 - 120 < ttl <= 504 * 3600, "el claro vive lo mismo que la liga: 21 días"
 
     _token_cache_delete(digest)
     assert _token_cache_get(digest) is None

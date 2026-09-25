@@ -5,7 +5,7 @@ con el `kind` que se guardó al enviar el formulario):
 
 - SIN cuenta en `core_users`: NIP obligatorio -> usuario + `hash_nip` + proceso +
   perfil -> `converted`, y usuario + NIP al correo personal.
-- CON cuenta: sin NIP -> liga de activación de 7 días al correo personal ->
+- CON cuenta: sin NIP -> liga de activación de 21 días al correo personal ->
   `approved`. La cuenta no se toca (ni credencial, ni `is_active`, ni perfil):
   la inscripción ocurre al abrir la liga (`test_enrollment_verify.py`).
 
@@ -378,7 +378,7 @@ def test_aprobar_con_cuenta_emite_la_liga_al_correo_personal_y_queda_approved(
     assert req.verify_send_count == 1
     assert req.verify_sent_at is not None
     assert req.verified_at is None
-    vence = datetime.now() + timedelta(days=7)
+    vence = datetime.now() + timedelta(days=21)
     assert abs((req.verify_expires_at - vence).total_seconds()) < 120
 
     assert orden and orden[0] == "commit", "la liga salió antes de commitear"
