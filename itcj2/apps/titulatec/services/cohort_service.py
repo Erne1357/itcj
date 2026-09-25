@@ -27,9 +27,10 @@ Dos predicados, a propósito (D5, spec 2026-09-24)
   SOLO para el formulario público (¿se puede enviar una solicitud nueva?).
 - `accepts_enrollment_followup`: solo `status='open'`. Es para lo que sigue a
   una solicitud que ya entró a tiempo: aprobarla, darle acceso, abrir su liga y
-  reenviarla. La liga dura 21 días y la revisión puede tardar; cortarlas en
-  `closes_at` dejaría varadas solicitudes legítimas. `closed` sí las detiene:
-  es la pausa de la convocatoria (`set_window`).
+  reenviarla. La liga dura `TITULATEC_ENROLLMENT_LINK_TTL_DAYS` (21 por
+  omisión; `EnrollmentRequestService.link_ttl_days()`) y la revisión puede
+  tardar; cortarlas en `closes_at` dejaría varadas solicitudes legítimas.
+  `closed` sí las detiene: es la pausa de la convocatoria (`set_window`).
 """
 from __future__ import annotations
 

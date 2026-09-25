@@ -198,6 +198,25 @@ def test_link_ttl_days_es_el_accesor_publico_y_sigue_a_link_ttl_hours(monkeypatc
     assert EnrollmentRequestService.link_ttl_days() == 21
 
 
+def test_cohort_gate_es_el_unico_corte_de_convocatoria_de_la_bandeja(db_session, make_cohort):
+    """approve / resend_link / grant_access repetían el mismo par de ifs."""
+    import inspect as _inspect
+    from types import SimpleNamespace as NS
+
+    from itcj2.apps.titulatec.services import enrollment_request_service as mod
+
+    abierta, cerrada = make_cohort(status="open"), make_cohort(status="closed")
+    assert mod._cohort_gate(db_session, NS(cohort_id=abierta.id)) == (abierta, None)
+    assert mod._cohort_gate(db_session, NS(cohort_id=cerrada.id)) == (
+        None, "Esa convocatoria está cerrada.")
+    assert mod._cohort_gate(db_session, NS(cohort_id=987654321)) == (
+        None, "La convocatoria ya no existe.")
+    for nombre in ("approve", "resend_link", "grant_access"):
+        cuerpo = _inspect.getsource(getattr(mod.EnrollmentRequestService, nombre))
+        assert "_cohort_gate(db, req)" in cuerpo, nombre
+        assert "accepts_enrollment_followup" not in cuerpo, nombre
+
+
 def test_ni_las_paginas_ni_el_correo_llaman_al_privado_link_ttl_hours():
     from pathlib import Path
 

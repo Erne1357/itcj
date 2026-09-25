@@ -46,8 +46,9 @@ class StudentProfileService:
         mayúsculas): cualquier llamador que vuelva a guardar la misma dirección
         no debe tirar una verificación ya hecha. Hoy el único llamador
         (`EnrollmentRequestService._create_account`, al dar el acceso a una
-        cuenta nueva) escribe una sola vez, al crear el perfil, así que este caso no se ejerce en producción
-        — la guarda queda lista para cuando exista una segunda escritura.
+        cuenta nueva) escribe una sola vez, al crear el perfil, así que este caso
+        no se ejerce en producción — la guarda queda lista para cuando exista
+        una segunda escritura.
         """
         row = StudentProfileService.get_or_create(db, user_id)
         if "contact_email" in fields:

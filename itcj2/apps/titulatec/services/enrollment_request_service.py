@@ -306,6 +306,25 @@ def _has_process_in_other_cohort(db: Session, user_id: int, cohort_id: int) -> b
             .first()) is not None
 
 
+def _cohort_gate(db: Session, req):
+    """Corte de convocatoria de la bandeja: `(cohort, None)` o `(None, motivo)`.
+
+    Lo comparten `approve`, `grant_access` y `resend_link`: la convocatoria
+    tiene que existir y seguir `open` (`CohortService.accepts_enrollment_followup`;
+    las fechas no cuentan, VENTANA en el módulo). `verify` no lo usa: su motivo
+    va a la `review_note`, no al oficial.
+    """
+    from itcj2.apps.titulatec.models import Cohort
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+
+    cohort = db.get(Cohort, req.cohort_id)
+    if cohort is None:
+        return None, _MSG_NO_COHORT
+    if not CohortService.accepts_enrollment_followup(cohort):
+        return None, _MSG_COHORT_CLOSED
+    return cohort, None
+
+
 # `activation` del `enrollment_self_service` que escribe `_create_account` (la
 # solicitud CREÓ la cuenta y le dio NIP). El de `_convert` (liga sobre una cuenta
 # que ya existía) es "personal_email_link".
@@ -447,8 +466,7 @@ class EnrollmentRequestService:
         después (no se creó el proceso) deshace su savepoint.
         """
         from itcj2.core.models.user import User
-        from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
-        from itcj2.apps.titulatec.services.cohort_service import CohortService
+        from itcj2.apps.titulatec.models import EnrollmentRequest
         from itcj2.apps.titulatec.services.import_service import ImportService
 
         req = db.get(EnrollmentRequest, req_id)
@@ -465,11 +483,9 @@ class EnrollmentRequestService:
         if req.status not in _REVIEWABLE:
             return False, _MSG_RESOLVED
 
-        cohort = db.get(Cohort, req.cohort_id)
+        cohort, motivo = _cohort_gate(db, req)
         if cohort is None:
-            return False, _MSG_NO_COHORT
-        if not CohortService.accepts_enrollment_followup(cohort):
-            return False, _MSG_COHORT_CLOSED
+            return False, motivo
 
         control = (req.control_number or "").strip()
         if not CONTROL_NUMBER_RE.fullmatch(control) or not _full_name(req):
@@ -550,8 +566,7 @@ class EnrollmentRequestService:
         escrito, y el NIP nunca sale (log, `detalle`, payload).
         """
         from itcj2.core.models.user import User
-        from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
-        from itcj2.apps.titulatec.services.cohort_service import CohortService
+        from itcj2.apps.titulatec.models import EnrollmentRequest
         from itcj2.apps.titulatec.services.import_service import ImportService
 
         req = db.get(EnrollmentRequest, req_id)
@@ -564,11 +579,9 @@ class EnrollmentRequestService:
         if req.status != "awaiting_access":
             return False, _MSG_NOT_AWAITING
 
-        cohort = db.get(Cohort, req.cohort_id)
+        cohort, motivo = _cohort_gate(db, req)
         if cohort is None:
-            return False, _MSG_NO_COHORT
-        if not CohortService.accepts_enrollment_followup(cohort):
-            return False, _MSG_COHORT_CLOSED
+            return False, motivo
 
         control = (req.control_number or "").strip()
         if not CONTROL_NUMBER_RE.fullmatch(control) or not _full_name(req):
@@ -1184,8 +1197,7 @@ class EnrollmentRequestService:
         Con la convocatoria `closed` (pausa) no se emite liga nueva; pasada
         `closes_at` sí (VENTANA, en el módulo).
         """
-        from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
-        from itcj2.apps.titulatec.services.cohort_service import CohortService
+        from itcj2.apps.titulatec.models import EnrollmentRequest
 
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
@@ -1195,11 +1207,9 @@ class EnrollmentRequestService:
         db.refresh(req)
         if req.status != "approved":
             return False, _MSG_ONLY_APPROVED
-        cohort = db.get(Cohort, req.cohort_id)
+        cohort, motivo = _cohort_gate(db, req)
         if cohort is None:
-            return False, _MSG_NO_COHORT
-        if not CohortService.accepts_enrollment_followup(cohort):
-            return False, _MSG_COHORT_CLOSED
+            return False, motivo
 
         muerta = req.verify_token_hash
         raw = EnrollmentRequestService._issue_activation(req)
