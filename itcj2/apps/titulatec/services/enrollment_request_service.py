@@ -217,6 +217,8 @@ _MSG_COHORT_CLOSED = "Esa convocatoria está cerrada."
 _MSG_BAD_DATA = "El número de control o el nombre no tienen formato válido."
 _MSG_BAD_NIP = "El NIP debe ser exactamente 4 dígitos."
 _MSG_OTHER_COHORT = "Esa persona ya tiene un proceso en otra convocatoria."
+_MSG_REVOKED_HERE = ("Esa persona tiene una inscripción revocada en esta convocatoria; "
+                     "solo puede inscribirse en otra.")
 _MSG_NO_PASSWORD = ("Esa cuenta no tiene contraseña; dala de alta desde la convocatoria "
                     "y rechaza esta solicitud.")
 # Los mismos dos motivos, dichos a Centro de Cómputo en el modo oficial: no da
@@ -322,6 +324,24 @@ def _has_process_in_other_cohort(db: Session, user_id: int, cohort_id: int) -> b
             .filter(TitulationProcess.student_id == user_id,
                     TitulationProcess.cohort_id != cohort_id,
                     TitulationProcess.status.in_(("active", "on_hold")))
+            .first()) is not None
+
+
+def _has_revoked_process_here(db: Session, user_id: int, cohort_id: int) -> bool:
+    """¿La cuenta tiene una inscripción REVOCADA en esta misma convocatoria?
+
+    D5 solo cuenta procesos vivos, así que una revocada no impide inscribirse
+    en OTRA convocatoria. En la MISMA no se puede: hay una sola fila por
+    `(alumno, convocatoria)` (`uq_titulatec_process_student_cohort`) e
+    `import_rows` reutiliza la que encuentra, así que aprobar «convertía» la
+    solicitud al proceso revocado y la persona seguía cancelada sin aviso.
+    """
+    from itcj2.apps.titulatec.models import TitulationProcess
+
+    return (db.query(TitulationProcess.id)
+            .filter(TitulationProcess.student_id == user_id,
+                    TitulationProcess.cohort_id == cohort_id,
+                    TitulationProcess.status == "cancelled")
             .first()) is not None
 
 
@@ -918,6 +938,8 @@ class EnrollmentRequestService:
         """
         if _has_process_in_other_cohort(db, user.id, req.cohort_id):
             return False, _MSG_OTHER_COHORT, None
+        if _has_revoked_process_here(db, user.id, req.cohort_id):
+            return False, _MSG_REVOKED_HERE, None
         if not user.password_hash:
             return False, _MSG_NO_PASSWORD, None
         raw = EnrollmentRequestService._issue_activation(req)
@@ -1246,6 +1268,8 @@ class EnrollmentRequestService:
             return False, _NOTE_LINK_NO_ACCOUNT
         if _has_process_in_other_cohort(db, user.id, req.cohort_id):
             return False, _MSG_OTHER_COHORT
+        if _has_revoked_process_here(db, user.id, req.cohort_id):
+            return False, _MSG_REVOKED_HERE
         if not user.password_hash:
             return False, _MSG_NO_PASSWORD
 
