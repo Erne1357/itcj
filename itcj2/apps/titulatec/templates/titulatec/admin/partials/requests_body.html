@@ -336,8 +336,11 @@
               {{ tab_fields(status, cohort_id) }}
               <input class="tt-field tt-field--xs" name="reason" required maxlength="2000"
                      placeholder="Motivo de la revocación" aria-label="Motivo de la revocación">
-              <button type="submit" class="btn btn-sm tt-btn-ghost">Revocar inscripción</button>
+              <button type="submit" class="btn btn-sm tt-btn-ghost tt-btn-danger-ghost">Revocar inscripción</button>
             </form>
+            <p class="small mt-1 mb-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Su
+               proceso se detiene, se cancela su cita de cotejo si tenía una y se le avisa por
+               correo con el motivo.</p>
             {% endif %}
           {% elif r.status == 'rejected' %}
             {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}

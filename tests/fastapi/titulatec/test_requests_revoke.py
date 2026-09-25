@@ -136,6 +136,12 @@ def test_la_fila_inscrita_ofrece_revocar_con_motivo_a_quien_tiene_el_permiso(
     # Vuelve a la pestaña donde estaba, como el resto de formularios de fila.
     assert 'name="status" value="converted"' in fila
     assert "hx-confirm" not in fila
+    # Revisión final (minor): botón de peligro y una línea con las
+    # consecuencias, las mismas que dice el modal del expediente.
+    boton = re.search(r'<button[^>]*>\s*Revocar inscripción', fila).group(0)
+    assert "tt-btn-danger-ghost" in boton
+    assert "se cancela su cita de cotejo" in _plano(fila)
+    assert "se le avisa por correo" in _plano(fila)
 
 
 def test_sin_el_permiso_la_fila_inscrita_no_ofrece_revocar(client_as, make_head, esc):
