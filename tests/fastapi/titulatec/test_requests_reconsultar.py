@@ -67,7 +67,7 @@ def encolado(monkeypatch):
     llamadas = []
     monkeypatch.setattr(
         "itcj2.apps.titulatec.services.eligibility_service.enqueue_check",
-        lambda req_id, **kw: llamadas.append((req_id, kw)))
+        lambda req_id, **kw: llamadas.append((req_id, kw)) or True)
     return llamadas
 
 
@@ -423,3 +423,23 @@ def test_aprobar_corre_el_servicio_fuera_del_event_loop(
     assert resp.status_code == 400
     assert unquote(resp.headers["X-Tt-Error"]) == "Detenido por la prueba."
     assert visto == {"loop": False}, "approve() corrió dentro del event loop"
+
+
+def test_si_no_se_pudo_encolar_responde_400_y_no_anuncia_exito(
+    client_as, db_session, make_head, make_cohort, modo_sii, monkeypatch,
+):
+    """Revisión final: `enqueue_check` devuelve si encoló. Con el broker caído
+    la ruta ya no anuncia «Consulta al SII solicitada»."""
+    monkeypatch.setattr(
+        "itcj2.apps.titulatec.services.eligibility_service.enqueue_check",
+        lambda req_id, **kw: False)
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99650091")
+
+    resp = _post(client_as(head), req, cohort_id=str(cohort.id))
+
+    assert resp.status_code == 400
+    assert unquote(resp.headers["X-Tt-Error"]) == (
+        "No se pudo solicitar la consulta; intenta de nuevo.")
+    assert "X-Tt-Notice" not in resp.headers

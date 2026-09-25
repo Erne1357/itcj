@@ -619,7 +619,7 @@ def test_enqueue_check_nunca_lanza(monkeypatch, caplog):
 
     monkeypatch.setattr(celery_app, "send_task", _sin_broker)
     with caplog.at_level("WARNING"):
-        assert mod.enqueue_check(42) is None
+        assert mod.enqueue_check(42) is False, "devuelve si se encoló (revisión final)"
     assert "42" in caplog.text
     assert "clave" not in caplog.text
 
@@ -635,8 +635,8 @@ def test_enqueue_check_manda_la_tarea_por_nombre_sin_reintentar_el_broker(monkey
     monkeypatch.setattr(celery_app, "send_task",
                         lambda name, **kw: enviados.append((name, kw)))
 
-    mod.enqueue_check(42)
-    mod.enqueue_check(44, force=True)
+    assert mod.enqueue_check(42) is True
+    assert mod.enqueue_check(44, force=True) is True
 
     assert enviados[0] == ("titulatec.sii_check_request",
                            {"kwargs": {"req_id": 42, "attempt": 1, "force": False},

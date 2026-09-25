@@ -320,12 +320,14 @@ def fetch_sii_nip(control: str):
         return None, type(exc).__name__
 
 
-def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False) -> None:
+def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False) -> bool:
     """Encola la consulta de `req_id` en celery. Best-effort: NUNCA lanza.
 
-    Por nombre (`send_task`) y sin reintentar la publicación (`retry=False`):
-    con el broker caído el alta no espera, y la solicitud la recoge el barrido
-    periódico (no tiene consulta vigente). Llamar SOLO después del commit.
+    Devuelve si se encoló: «Reintentar consulta» no anuncia éxito si no
+    (revisión final). Por nombre (`send_task`) y sin reintentar la publicación
+    (`retry=False`): con el broker caído el alta no espera, y la solicitud sin
+    consulta vigente la recoge el barrido periódico. Llamar SOLO después del
+    commit.
     """
     try:
         from itcj2.celery_app import celery_app
@@ -339,6 +341,8 @@ def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False) -> None
         # Solo el tipo: el texto de un error del broker puede traer su URL.
         logger.warning("No se pudo encolar la consulta al SII de la solicitud %s (%s)",
                        req_id, type(exc).__name__)
+        return False
+    return True
 
 
 class EligibilityService:

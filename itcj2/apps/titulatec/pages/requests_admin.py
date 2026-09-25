@@ -56,6 +56,7 @@ _MSG_NOT_SII = "La consulta al SII solo existe en el modo sii."
 _MSG_RESOLVED = "Esa solicitud ya se resolvió."
 _MSG_IN_FLIGHT = "Ya se está consultando al SII; espera el resultado."
 _MSG_RECHECK_QUEUED = "Consulta al SII solicitada: el veredicto aparece al terminar."
+_MSG_RECHECK_NOT_QUEUED = "No se pudo solicitar la consulta; intenta de nuevo."
 _MSG_NO_REASON = "Escribe el motivo de la revocación: es lo que el alumno lee."
 _MSG_NOT_ENROLLED = "Esa solicitud no tiene una inscripción que revocar."
 
@@ -655,7 +656,8 @@ async def reconsultar(req_id: int, request: Request,
 
     `enqueue_check(req_id, force=True)` después de validar; la consulta corre
     en celery (el SII puede tardar lo que sus timeouts: nunca en la petición
-    web). No duplica: con la consulta vigente `pending` y fresca responde 400
+    web). Si no se pudo encolar (broker caído), 400 con el motivo: no se
+    anuncia una consulta que nadie va a hacer. No duplica: con la consulta vigente `pending` y fresca responde 400
     sin encolar (`EligibilityService.check` tampoco la repetiría), y la bandeja
     que devuelve ya pinta esa fila «Consultando…» sin el botón. Una `pending`
     colgada (más de `_PENDING_STALE`) sí se reintenta: `force` la retoma.
@@ -684,9 +686,10 @@ async def reconsultar(req_id: int, request: Request,
         if _in_flight(elig.EligibilityService.latest_check(db, req), datetime.now()):
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_IN_FLIGHT)})
         # Sin escrituras propias: la fila `pending` la abre la tarea bajo el lock
-        # de la solicitud. `enqueue_check` es best-effort y nunca lanza; con el
-        # broker caído la recoge el barrido (no hay consulta en curso).
-        elig.enqueue_check(req.id, force=True)
+        # de la solicitud. `enqueue_check` nunca lanza: dice si encoló.
+        if not elig.enqueue_check(req.id, force=True):
+            return Response(status_code=400,
+                            headers={"X-Tt-Error": _hdr(_MSG_RECHECK_NOT_QUEUED)})
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
                         requested_id=req.id)
     finally:
