@@ -1601,3 +1601,15 @@ def test_la_consulta_vigente_se_carga_sin_n_mas_1(
 
     assert resp.status_code == 200
     assert len(consultas) == 1, consultas
+
+
+@pytest.mark.parametrize("selector", [".tt-sii-line", ".tt-sii-rules li span"])
+def test_los_textos_largos_del_bloque_sii_se_cortan(selector):
+    """Revisión final (F2): un error del driver o un nombre largo sin espacios
+    (ruta, cadena ODBC saneada, correo) desbordaba la celda de acciones."""
+    css = re.sub(r"/\*.*?\*/", "", _CSS.read_text(encoding="utf-8"), flags=re.S)
+    reglas = re.findall(r"(?m)^([^{}]+)\{([^}]*)\}", css)
+    cuerpos = [cuerpo for sel, cuerpo in reglas
+               if selector in [s.strip() for s in sel.split(",")]]
+    assert cuerpos, f"no hay regla para {selector}"
+    assert any(re.search(r"overflow-wrap:\s*anywhere", c) for c in cuerpos), cuerpos

@@ -2227,13 +2227,15 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-sii-rules { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .tt-sii-rules li { display: flex; gap: var(--tt-sp-1); font-size: var(--tt-fs-100); color: var(--tt-text-1); min-width: 0; }
 .tt-sii-rules li i { flex: 0 0 auto; color: #991B1B; }
+/* Errores del driver, rutas y nombres sin espacios: se cortan donde sea. */
+.tt-sii-rules li span { min-width: 0; overflow-wrap: anywhere; }
 .tt-sii-rules--ok li { color: var(--tt-text-2); }
 .tt-sii-rules--ok li i { color: #166534; }
 .tt-sii-ok > summary { font-size: var(--tt-fs-100); color: var(--tt-text-2); cursor: pointer; }
 .tt-sii-ok > summary:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: var(--tt-r-sm); }
 .tt-sii-sub { font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2); }
 .tt-sii-diffs .tt-sii-rules li { color: var(--tt-text-2); }
-.tt-sii-line { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-sii-line { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
 .tt-sii-why { color: var(--tt-text-1); }
 
 /* ===========================================================================

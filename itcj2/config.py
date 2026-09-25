@@ -309,7 +309,7 @@ class Settings(BaseSettings):
     # cierra tras una revocación exitosa y limpia el motivo al cerrarlo. Sin el
     # bump, el navegador sirve el JS viejo (el POST funciona igual: el `hx-post`
     # va en la plantilla, pero el modal no se cierra solo).
-    STATIC_VERSION: str = "1.0.1111574"
+    STATIC_VERSION: str = "1.0.1111575"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
