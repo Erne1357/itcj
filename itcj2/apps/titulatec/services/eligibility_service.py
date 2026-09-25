@@ -111,6 +111,10 @@ _REQUIRED_NAME_FIELDS = ("first_name", "last_name")
 _UNVERIFIED = "_unverified"
 # Sin comparación del nombre no se aprueba sola: falla cerrado.
 _NOTE_IDENTITY_UNVERIFIED = "No se pudo comparar el nombre con el SII."
+# Abrir la liga reactiva una cuenta desactivada (EXCEPCIÓN APROBADA del
+# invariante 1, `enrollment_request_service`). La bandeja lo pinta ANTES de
+# aprobar; la automática no la ve nadie: no aprueba (revisión final C2).
+_NOTE_ACCOUNT_INACTIVE = "La cuenta está desactivada: al abrir la liga se reactivaría."
 
 
 def _norm(value) -> str:
@@ -435,7 +439,8 @@ class EligibilityService:
         Si el NOMBRE tecleado no es el del SII, o no se pudo comparar
         (`identity_block`: sin `[identity]`, columna mal escrita, nombre vacío),
         no aprueba y deja la nota: la cuenta nueva solo nace con un nombre que
-        el SII confirma.
+        el SII confirma. Tampoco si la cuenta existe DESACTIVADA: abrir la liga
+        la reactivaría sin que nadie lo vea (queda para SE con la nota).
 
         Lo que decide y escribe la aprobación es el MISMO núcleo que usa la
         bandeja (`EnrollmentRequestService._approve_locked`), con actor `None`:
@@ -490,6 +495,11 @@ class EligibilityService:
         bloqueo = identity_block(chk)
         if bloqueo:
             return _leave_note(db, req, bloqueo)
+        from itcj2.core.models.user import User
+        cuenta = (db.query(User)
+                  .filter_by(control_number=(req.control_number or "").strip()).first())
+        if cuenta is not None and not cuenta.is_active:
+            return _leave_note(db, req, _NOTE_ACCOUNT_INACTIVE)
 
         ok, detalle, falla_nip = ERS._approve_locked(
             db, req, cohort, actor_id=None, program_id=req.program_id,

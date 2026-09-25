@@ -1126,6 +1126,31 @@ def test_una_falla_al_crear_la_cuenta_no_filtra_el_nip_ni_su_hash(
     assert "RuntimeError" in caplog.text
 
 
+# Revisión final C2 (spec §8): abrir la liga reactiva una cuenta desactivada. En
+# la bandeja SE lo ve (píldora) ANTES de aprobar; la automática no lo ve nadie,
+# así que no aprueba sola: queda para SE con la nota.
+_NOTA_DESACTIVADA = "La cuenta está desactivada: al abrir la liga se reactivaría"
+
+
+def test_apta_con_cuenta_desactivada_no_se_aprueba_sola(db_session, make_cohort, sii, listo):
+    user = _cuenta(db_session, "99580080")
+    user.is_active = False
+    db_session.flush()
+    req, cohort = _solicitud_apta(db_session, make_cohort, sii, "99580080")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert req.status == "pending_review"
+    assert req.review_note.startswith(_NOTA_DESACTIVADA)
+    assert req.verify_token_hash is None, "no sale la liga"
+    assert user.is_active is False
+    assert listo == []
+    # La nota detiene al barrido: no insiste.
+    assert _svc().sweep(db_session, cohort_id=cohort.id)["approved"] == 0
+    assert req.verify_token_hash is None
+
+
 def test_auto_approve_revalida_todo(db_session, make_cohort, sii, listo):
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99580043")
