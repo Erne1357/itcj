@@ -182,6 +182,34 @@ def test_la_vida_de_la_liga_sigue_a_link_ttl_hours_en_bd_y_en_redis(monkeypatch)
         _token_cache_delete(_sha256(raw))
 
 
+def test_link_ttl_days_es_el_accesor_publico_y_sigue_a_link_ttl_hours(monkeypatch):
+    """Las páginas pintan «N días»: lo leen de `link_ttl_days()`, no del
+    privado `_link_ttl_hours()`. Deriva de él, así que parchear la fuente única
+    sigue alcanzando a todos."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 24))
+    assert EnrollmentRequestService.link_ttl_days() == 1
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 21 * 24))
+    assert EnrollmentRequestService.link_ttl_days() == 21
+
+
+def test_ni_las_paginas_ni_el_correo_llaman_al_privado_link_ttl_hours():
+    from pathlib import Path
+
+    from itcj2.apps.titulatec.pages import access_admin, requests_admin
+    from itcj2.apps.titulatec.services import email_helper
+
+    for mod in (access_admin, requests_admin, email_helper):
+        src = Path(mod.__file__).read_text(encoding="utf-8")
+        assert "_link_ttl_hours(" not in src, mod.__name__
+        assert "link_ttl_days()" in src, mod.__name__
+
+
 class TestSettingsDeLaInscripcion:
     """Valor inválido truena al construir `Settings` (mismo criterio que
     `TITULATEC_HANDOFF_PHASE`): mejor no arrancar que operar con una liga de

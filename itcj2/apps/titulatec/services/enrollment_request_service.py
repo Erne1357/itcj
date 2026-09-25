@@ -1288,6 +1288,16 @@ class EnrollmentRequestService:
         return get_settings().TITULATEC_ENROLLMENT_LINK_TTL_DAYS * 24
 
     @staticmethod
+    def link_ttl_days() -> int:
+        """Vida de la liga en DÍAS, para lo que la pinta (bandejas y correo).
+
+        Accesor PÚBLICO: las páginas y el helper de correo no llaman al privado
+        `_link_ttl_hours()`. Deriva de él, así que sigue siendo una sola fuente
+        (y parchear `_link_ttl_hours` en un test alcanza también a este).
+        """
+        return EnrollmentRequestService._link_ttl_hours() // 24
+
+    @staticmethod
     def _issue_activation(req) -> str:
         """Emite (o rota) la liga de activación de `req`. Devuelve el claro.
 

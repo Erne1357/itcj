@@ -157,7 +157,7 @@ def _body_ctx(db, *, user_id: int, status, cohort_id):
            "mode": mode, "can_act": mode != "computer_center",
            # Días de la liga para el texto de la cabecera: de la MISMA fuente
            # que el vencimiento en BD y el correo, nunca un literal.
-           "link_days": EnrollmentRequestService._link_ttl_hours() // 24,
+           "link_days": EnrollmentRequestService.link_ttl_days(),
            "kpis": {"total": 0, "review": 0, "access": 0, "sent": 0, "converted": 0,
                     "rejected": 0},
            "by_year": [], "year_max": 0, "years_summary": None}

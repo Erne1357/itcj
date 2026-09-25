@@ -174,7 +174,7 @@ def _body_ctx(db, *, status, cohort_id):
     tab = _tab(mode, status)
     ctx = {"rows": [], "status": tab, "tabs": _TABS[mode], "cohort_id": cohort_id,
            "mode": mode, "official": mode == _OFFICIAL, "programs": [],
-           "link_days": EnrollmentRequestService._link_ttl_hours() // 24}
+           "link_days": EnrollmentRequestService.link_ttl_days()}
 
     if not ctx["official"]:
         # Solo el modo alterno aprueba, y aprobar deja escoger la carrera.

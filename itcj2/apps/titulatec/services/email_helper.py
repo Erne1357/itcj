@@ -148,7 +148,7 @@ class TitulaTecEmailHelper:
             from itcj2.apps.titulatec.services.enrollment_request_service import (
                 EnrollmentRequestService,
             )
-            dias = EnrollmentRequestService._link_ttl_hours() // 24
+            dias = EnrollmentRequestService.link_ttl_days()
             return _deliver(
                 template="verify_enrollment.html",
                 context={"req": req, "link": link, "dias": dias,
