@@ -13,7 +13,8 @@
      da Centro de Cómputo, 2026-09-24);
    - por revisar, con cuenta: carrera, «Aprobar y enviar liga», con el aviso de a
      dónde va la liga (el riesgo aceptado de docs/flows/xcut_public_enrollment.md);
-   - por revisar y devuelta por Centro de Cómputo: además, su nota;
+   - por revisar y devuelta por Centro de Cómputo: además, su nota y la
+     píldora «Devuelta por Cómputo» junto al nombre;
    - en Cómputo (`awaiting_access`): desde cuándo y «Cancelar solicitud»;
    - liga enviada: envíos, «Reenviar liga» (rota la liga) y «Cancelar solicitud»;
    - inscrita: folio; rechazada: motivo.
@@ -172,6 +173,7 @@
             {% else %}
             <span class="tt-pill tt-pill--amber">Sin cuenta</span>
             {% endif %}
+            {% if r.returned %}<span class="tt-pill tt-pill--amber">Devuelta por Cómputo</span>{% endif %}
           </span>
           {% if r.prior_reject %}
           <span class="small tt-prior-reject" title="Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}">
@@ -227,7 +229,7 @@
             {% endif %}
           {% elif r.status == 'awaiting_access' %}
             <p class="small mb-1"><i class="bi bi-pc-display me-1" aria-hidden="true"></i>En
-               Centro de Cómputo desde {{ r.awaiting_since }}</p>
+               Centro de Cómputo{% if r.awaiting_since %} desde {{ r.awaiting_since }}{% endif %}</p>
             {% if can_act %}
             <form class="tt-req-form tt-req-form--inline mt-1"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"

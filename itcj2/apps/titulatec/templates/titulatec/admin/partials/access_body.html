@@ -107,8 +107,10 @@
         </td>
         <td class="tt-req-acc">
           {% if r.returned %}
-          <p class="small mb-1"><i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i><strong>Devuelta
-             a Servicios Escolares{% if r.returned_at %} el {{ r.returned_at }}{% endif %}:</strong> {{ r.return_note }}</p>
+          {# Qué hizo CC y, si ya pasó algo después, qué (`returned_after`). #}
+          <p class="small mb-1"><i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i><strong>La
+             devolviste{% if r.returned_at %} el {{ r.returned_at }}{% endif %}:</strong> {{ r.return_note }}</p>
+          {% if r.returned_after %}<p class="small mb-1">{{ r.returned_after }}.</p>{% endif %}
           {% endif %}
 
           {% if r.grantable %}

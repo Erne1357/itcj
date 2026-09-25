@@ -919,6 +919,20 @@ def test_la_fila_en_computo_dice_desde_cuando_y_solo_ofrece_cancelar(
     assert 'name="nip"' not in fila
 
 
+def test_la_fila_en_computo_sin_fecha_de_aprobacion_no_dice_desde_vacio(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99620007", status="awaiting_access",
+                    reviewed_at=None)
+
+    texto = _plano(_fila(client_as(head).get(f"{URL}/body?status=awaiting_access").text, req))
+
+    assert "En Centro de Cómputo" in texto
+    assert "desde" not in texto
+
+
 def test_en_todas_la_fila_en_computo_lleva_su_etiqueta(
     client_as, db_session, make_head, make_cohort,
 ):
@@ -990,6 +1004,11 @@ def test_una_solicitud_devuelta_por_computo_lo_dice_con_su_nota(
     assert ("Devuelta por Centro de Cómputo: El número de control no coincide con el "
             "padrón.") in _plano(_fila(html, devuelta))
     assert "Devuelta por Centro de Cómputo" not in _fila(html, normal)
+    # Y una píldora junto al nombre: la nota va en la columna de acciones, que
+    # se lee después; la pestaña «Por revisar» tiene que delatarla de un vistazo.
+    assert re.search(r'<span class="tt-pill[^"]*">Devuelta por Cómputo</span>',
+                     _fila(html, devuelta))
+    assert "Devuelta por Cómputo" not in _fila(html, normal)
     # Devuelta vuelve a ser trabajo de SE: se aprueba o rechaza igual.
     assert f'/solicitudes/{devuelta.id}/aprobar' in _fila(html, devuelta)
 

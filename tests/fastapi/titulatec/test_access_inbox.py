@@ -587,6 +587,35 @@ def test_devolver_la_manda_a_devueltas_y_a_por_revisar_de_se_con_la_nota(
     assert f"Devuelta por Centro de Cómputo: {nota}" in _plano(fila_se)
 
 
+def test_devueltas_dice_que_paso_despues_de_devolverla(
+    client_as, db_session, make_cc, make_cohort,
+):
+    """«Devuelta a Servicios Escolares» se leía como estado actual aunque SE ya
+    la hubiera vuelto a aprobar. La fila dice qué hizo CC y qué pasó después."""
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    cuando = datetime(2026, 9, 21, 9, 0)
+    con_se = _make_req(db_session, cohort, control="99710092", returned_at=cuando,
+                       return_note="No coincide el nombre.")
+    reaprobada = _en_espera(db_session, cohort, control="99710093", returned_at=cuando,
+                            return_note="Faltaba la carrera.")
+    cancelada = _make_req(db_session, cohort, control="99710094", status="rejected",
+                          returned_at=cuando, return_note="Duplicada.",
+                          review_note="Duplicada.", rejection_sent_at=datetime.now())
+
+    html = client_as(cc).get(f"{URL}/body?status=returned&cohort_id={cohort.id}").text
+
+    texto = _plano(_fila(html, con_se))
+    assert "La devolviste el 21/09/2026 09:00: No coincide el nombre." in texto
+    assert "volvió a aprobar" not in texto
+    texto = _plano(_fila(html, reaprobada))
+    assert "La devolviste el 21/09/2026 09:00: Faltaba la carrera." in texto
+    assert "Servicios Escolares la volvió a aprobar" in texto
+    texto = _plano(_fila(html, cancelada))
+    assert "Servicios Escolares la rechazó" in texto
+    assert "Devuelta a Servicios Escolares" not in html
+
+
 def test_devolver_sin_nota_o_con_una_larga_da_el_motivo(
     client_as, db_session, make_cc, make_cohort,
 ):

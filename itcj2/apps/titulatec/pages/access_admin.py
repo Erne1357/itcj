@@ -166,6 +166,17 @@ def _tab_query(q, tab: str):
     return q.order_by(ER.created_at.desc(), ER.id.desc())
 
 
+def _returned_after(status: str, official: bool) -> str:
+    """Lo que pasó con una devuelta después de devolverla ("" = sigue en revisión)."""
+    if status in _REVIEWABLE:
+        return ""
+    if status == "rejected":
+        return "Servicios Escolares la rechazó" if official else "Después se rechazó"
+    # awaiting_access / approved / converted: alguien la volvió a aprobar. En el
+    # oficial solo SE aprueba una `pending_review`.
+    return "Servicios Escolares la volvió a aprobar" if official else "Después se aprobó"
+
+
 def _body_ctx(db, *, status, cohort_id):
     """Contexto del parcial. Sin alcance por carrera: CC ve todo.
 
@@ -276,6 +287,9 @@ def _body_ctx(db, *, status, cohort_id):
             "note": r.review_note or "",
             "returned": r.returned_at is not None,
             "returned_at": _fmt(r.returned_at, True),
+            # Qué pasó DESPUÉS de devolverla: «Devuelta» a secas se leía como
+            # estado actual aunque SE ya la hubiera vuelto a aprobar.
+            "returned_after": _returned_after(r.status, ctx["official"]),
             "return_note": r.return_note or "",
             # Correo con usuario + NIP que no salió: ÚNICO predicado del servicio.
             "access_unsent": access_unsent,
