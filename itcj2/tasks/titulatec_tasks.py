@@ -3,8 +3,9 @@
 Spec 2026-09-25 §3.4. Solo hacen algo en el modo `sii`
 (`TITULATEC_ENROLLMENT_REVIEWER`); en los otros modos el servicio es un no-op.
 
-Tareas:
-    sii_check_request(req_id, attempt=1, force=False)
+Tareas (nombres del spec §3.4, `titulatec.*`: `enqueue_check` y el DML de la
+periódica las mandan por NOMBRE, no por ruta de módulo):
+    titulatec.sii_check_request(req_id, attempt=1, force=False)
         Consulta al SII UNA solicitud. La encola `EnrollmentRequestService.create`
         tras el commit del alta (`eligibility_service.enqueue_check`, por nombre).
         Ante un `error` REINTENTABLE (`chk.retryable`: el SII no respondió,
@@ -15,7 +16,7 @@ Tareas:
         idempotencia (dos tareas del mismo `req_id`, la tarea que llega antes
         que el alta) vive en `EligibilityService.check`, no aquí.
 
-    sii_sweep()
+    titulatec.sii_sweep()
         Periódica (Celery Beat vía `DatabaseScheduler`, cada 10 min; alta por
         el DML `sii_2026_09/16_insert_sii_sweep_task.sql` de `init-titulatec`).
         Recoge lo que quedó sin consultar, reintenta los errores y aprueba las
@@ -47,7 +48,7 @@ _SWEEP_BUDGET_S = 480
 # con `init-titulatec` (`SEED_FILES`).
 TASK_DEFINITIONS = [
     {
-        "task_name": "itcj2.tasks.titulatec_tasks.sii_sweep",
+        "task_name": "titulatec.sii_sweep",
         "display_name": "Barrido de elegibilidad del SII (TitulaTec)",
         "description": (
             "Modo sii: consulta al SII las solicitudes de inscripción que quedaron sin "
@@ -69,7 +70,7 @@ def _backoff(attempt: int) -> int:
 @celery_app.task(
     bind=True,
     base=LoggedTask,
-    name="itcj2.tasks.titulatec_tasks.sii_check_request",
+    name="titulatec.sii_check_request",
     # El tope real es `EligibilityService.max_attempts()` (≤ 20 por settings);
     # este solo evita que celery corte antes.
     max_retries=20,
@@ -103,7 +104,7 @@ def sii_check_request(self, req_id: int, attempt: int = 1, force: bool = False,
 @celery_app.task(
     bind=True,
     base=LoggedTask,
-    name="itcj2.tasks.titulatec_tasks.sii_sweep",
+    name="titulatec.sii_sweep",
     soft_time_limit=540,
     time_limit=600,
 )

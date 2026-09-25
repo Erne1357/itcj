@@ -70,7 +70,7 @@ SEED_FILES = [
     # lista) y aborta sin mover a nadie si faltan. No toca permisos de rol.
     "survey_2026_09/14_graduate_role_backfill.sql",        # rol graduate a alumnos con proceso
     # --- Delta 2026-09-25: elegibilidad automática contra el SII -------------
-    # Alta de la tarea periódica `itcj2.tasks.titulatec_tasks.sii_sweep`
+    # Alta de la tarea periódica `titulatec.sii_sweep`
     # (definición + `core_periodic_tasks`, cada 10 min): Celery Beat corre con
     # `DatabaseScheduler`, que SOLO lee la BD. Idempotente (ON CONFLICT). No
     # inserta permisos, así que va antes del 15 sin problema. Fuera del modo

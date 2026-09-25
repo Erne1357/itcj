@@ -631,7 +631,7 @@ def test_enqueue_check_manda_la_tarea_por_nombre_sin_reintentar_el_broker(monkey
     mod.enqueue_check(42)
     mod.enqueue_check(44, force=True)
 
-    assert enviados[0] == ("itcj2.tasks.titulatec_tasks.sii_check_request",
+    assert enviados[0] == ("titulatec.sii_check_request",
                            {"kwargs": {"req_id": 42, "attempt": 1, "force": False},
                             "retry": False})
     assert enviados[1][1]["kwargs"] == {"req_id": 44, "attempt": 1, "force": True}

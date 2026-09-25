@@ -61,10 +61,10 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger("itcj2.apps.titulatec.eligibility")
 
-# Nombre de la tarea celery por solicitud (`itcj2/tasks/titulatec_tasks.py`).
-# `enqueue_check` la manda por NOMBRE: el proceso web no importa el módulo de
-# tareas.
-CHECK_TASK_NAME = "itcj2.tasks.titulatec_tasks.sii_check_request"
+# Nombre de la tarea celery por solicitud (spec §3.4; `name=` en
+# `itcj2/tasks/titulatec_tasks.py`). `enqueue_check` la manda por NOMBRE: el
+# proceso web no importa el módulo de tareas.
+CHECK_TASK_NAME = "titulatec.sii_check_request"
 
 # Una consulta `pending` más vieja que esto se da por muerta (el worker cayó a
 # media consulta) y se puede retomar. Holgado frente a los timeouts del

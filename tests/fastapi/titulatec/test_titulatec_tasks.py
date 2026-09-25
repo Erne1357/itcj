@@ -59,7 +59,19 @@ def test_las_tareas_estan_registradas_y_el_worker_las_carga():
     from itcj2.celery_app import celery_app
 
     assert "itcj2.tasks.titulatec_tasks" in celery_app.conf.include
-    assert "itcj2.tasks.titulatec_tasks.sii_check_request" in celery_app.tasks
+    assert "titulatec.sii_check_request" in celery_app.tasks
+
+
+def test_los_nombres_de_las_tareas_son_los_del_spec():
+    """Spec 2026-09-25 §3.4: `titulatec.sii_check_request` y
+    `titulatec.sii_sweep`. `enqueue_check` manda la consulta por NOMBRE
+    (`send_task`): si su constante y el `name=` de la tarea divergen, el worker
+    descarta el mensaje y la solicitud solo la recoge el barrido."""
+    from itcj2.apps.titulatec.services.eligibility_service import CHECK_TASK_NAME
+
+    assert tasks.sii_check_request.name == "titulatec.sii_check_request"
+    assert tasks.sii_sweep.name == "titulatec.sii_sweep"
+    assert CHECK_TASK_NAME == tasks.sii_check_request.name
 
 
 def test_consulta_apta_no_reintenta(consulta, reintentos, db_session):
@@ -136,9 +148,9 @@ def test_sin_consulta_no_hace_nada(consulta, reintentos):
 def test_el_barrido_esta_registrado_y_catalogado():
     from itcj2.celery_app import celery_app
 
-    assert "itcj2.tasks.titulatec_tasks.sii_sweep" in celery_app.tasks
+    assert "titulatec.sii_sweep" in celery_app.tasks
     definicion, = tasks.TASK_DEFINITIONS
-    assert definicion["task_name"] == "itcj2.tasks.titulatec_tasks.sii_sweep"
+    assert definicion["task_name"] == tasks.sii_sweep.name
     assert definicion["app_name"] == "titulatec"
 
 
@@ -171,6 +183,21 @@ def test_la_periodica_se_da_de_alta_con_los_seeders_de_titulatec():
     assert nombre in SEED_FILES
     assert SEED_FILES.index(nombre) < SEED_FILES.index("15_grant_admin_all_perms.sql")
     assert SEED_FILES[-1] == "15_grant_admin_all_perms.sql"
+
+
+def test_el_dml_de_la_periodica_programa_la_tarea_por_su_nombre_registrado():
+    """Beat manda `core_periodic_tasks.task_name` tal cual: un nombre que el
+    worker no registró es una periódica que nunca corre, sin error visible.
+    `database/` no se versiona; sin el archivo (CI) no hay nada que comparar."""
+    from itcj2.cli.titulatec import DML_TITULATEC
+
+    dml = DML_TITULATEC / "sii_2026_09" / "16_insert_sii_sweep_task.sql"
+    if not dml.exists():
+        pytest.skip("database/ no está en este entorno")
+    sql = dml.read_text(encoding="utf-8")
+
+    # Una vez en `core_task_definitions` y otra en `core_periodic_tasks`.
+    assert sql.count(f"'{tasks.sii_sweep.name}'") >= 2
 
 
 # ---------------------------------------------------------------------------
