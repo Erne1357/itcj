@@ -17,7 +17,11 @@
      píldora «Devuelta por Cómputo» junto al nombre;
    - en Cómputo (`awaiting_access`): desde cuándo y «Cancelar solicitud»;
    - liga enviada: envíos, «Reenviar liga» (rota la liga) y «Cancelar solicitud»;
-   - inscrita: folio; rechazada: motivo.
+   - inscrita: folio y, con proceso revocable y `can_revoke` (permiso
+     `process.api.cancel`, calculado en servidor y falso en modo alterno),
+     «Revocar inscripción» con motivo obligatorio; revocada: «Inscripción
+     revocada: motivo»;
+   - rechazada: motivo.
    `can_act` falso (modo alterno, revisa Centro de Cómputo) = SOLO LECTURA: ni
    un formulario, y un aviso arriba. Las rutas POST lo cortan aparte.
    Modo `sii` (`sii`, spec 2026-09-25 §3.5): se actúa como en el oficial, pero
@@ -320,6 +324,20 @@
             {% endif %}
           {% elif r.status == 'converted' %}
             {% if r.folio %}<span class="tt-mono">{{ r.folio }}</span>{% endif %}
+            {% if r.revoked %}
+            <p class="small mt-1 mb-1"><i class="bi bi-slash-circle me-1" aria-hidden="true"></i><strong>Inscripción
+               revocada{% if r.revoked.reason %}:{% endif %}</strong> {{ r.revoked.reason }}</p>
+            {% elif can_revoke and r.revocable %}
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/revocar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <input class="tt-field tt-field--xs" name="reason" required maxlength="2000"
+                     placeholder="Motivo de la revocación" aria-label="Motivo de la revocación">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Revocar inscripción</button>
+            </form>
+            {% endif %}
           {% elif r.status == 'rejected' %}
             {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}
             {% if not r.rejection_sent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}

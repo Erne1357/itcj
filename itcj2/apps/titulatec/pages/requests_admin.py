@@ -23,6 +23,12 @@ consulta» (`reconsultar`) encola una consulta forzada. La aprobada sola se
 reconoce en Liga enviada/Inscritas con la regla del servicio
 (`enrollment_request_service._auto_approval_marker`). El NIP del SII nunca pasa
 por aquí: la bandeja lee la `EligibilityCheck`, que no lo guarda.
+
+«Revocar inscripción» (spec 2026-09-25 §3.6, `revocar`): en Inscritas, sobre el
+proceso en que se convirtió la solicitud, con `titulatec.process.api.cancel` y
+motivo obligatorio; la escritura es de `ProcessService.cancel`. La fila revocada
+dice «Inscripción revocada: motivo» (`ProcessService.cancellation_info`). Como
+aprobar, rechazar y reenviar, queda cortada en el modo alterno (solo lectura).
 """
 import logging
 from datetime import datetime, timedelta
@@ -39,12 +45,15 @@ router = APIRouter(prefix="/admin/solicitudes", tags=["titulatec-pages-requests"
 _LIST = ["titulatec.enrollment_request.page.list"]
 _APPROVE = ["titulatec.enrollment_request.api.approve"]
 _REJECT = ["titulatec.enrollment_request.api.reject"]
+_CANCEL = ["titulatec.process.api.cancel"]
 
 _MSG_ALTERNATE = "En este modo la revisión la hace Centro de Cómputo."
 _MSG_NOT_SII = "La consulta al SII solo existe en el modo sii."
 _MSG_RESOLVED = "Esa solicitud ya se resolvió."
 _MSG_IN_FLIGHT = "Ya se está consultando al SII; espera el resultado."
 _MSG_RECHECK_QUEUED = "Consulta al SII solicitada: el veredicto aparece al terminar."
+_MSG_NO_REASON = "Escribe el motivo de la revocación: es lo que el alumno lee."
+_MSG_NOT_ENROLLED = "Esa solicitud no tiene una inscripción que revocar."
 
 # Veredicto de la consulta vigente → (etiqueta, tono de `.tt-pill--*`, icono).
 # `pending` fresca = otro proceso consulta ahora; `stale` = `pending` colgada
@@ -285,6 +294,10 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
            # Modo alterno = solo lectura: la plantilla no pinta ni un formulario
            # (las rutas POST lo cortan aparte, `_alternate_mode_block`).
            "mode": mode, "can_act": mode != "computer_center", "sii": sii,
+           # «Revocar inscripción»: el formulario solo a quien la ruta va a
+           # dejar pasar (patrón `can_export` de `handoff_admin.py`); se
+           # calcula abajo, después del corte de «sin alcance».
+           "can_revoke": False,
            # Días de la liga para el texto de la cabecera: de la MISMA fuente
            # que el vencimiento en BD y el correo, nunca un literal.
            "link_days": EnrollmentRequestService.link_ttl_days(),
@@ -298,6 +311,11 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
         # universo que contar).
         ctx["no_programs"] = True
         return ctx
+
+    if ctx["can_act"]:
+        from itcj2.core.services.authz_service import get_user_permissions_for_app
+        ctx["can_revoke"] = _CANCEL[0] in get_user_permissions_for_app(
+            db, user_id, "titulatec")
 
     # KPIs y "por año de ingreso": MISMO alcance y convocatoria que el listado de
     # abajo, pero sin filtro de pestaña ni el límite de 300 — es el universo
@@ -345,9 +363,11 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
     controls = {r.control_number for r in reqs if r.control_number}
     users = ({u.control_number: u for u in db.query(User)
               .filter(User.control_number.in_(controls)).all()} if controls else {})
+    # El proceso entero, no solo el folio: su `status` decide si la fila
+    # ofrece «Revocar inscripción» o dice «Inscripción revocada».
     pids = {r.converted_process_id for r in reqs if r.converted_process_id}
-    folios = (dict(db.query(TitulationProcess.id, TitulationProcess.folio)
-                   .filter(TitulationProcess.id.in_(pids)).all()) if pids else {})
+    procs = ({p.id: p for p in db.query(TitulationProcess)
+              .filter(TitulationProcess.id.in_(pids)).all()} if pids else {})
     cohort_ids = {r.cohort_id for r in reqs}
     cohorts = ({cid: {"name": name, "status": st, "auto": bool(auto)}
                 for cid, name, st, auto in db.query(
@@ -387,8 +407,16 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
         for pid, control, created_at, note in pq.all():
             rejected_by_control.setdefault(control, []).append((created_at, pid, note))
 
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+
     for r in reqs:
         u = users.get(r.control_number)
+        proc = procs.get(r.converted_process_id)
+        # Solo una revocada paga la consulta de su motivo (una por fila
+        # revocada, que es la excepción): la regla es la del servicio, que lee
+        # el ÚLTIMO `process_cancelled` y solo si el proceso sigue `cancelled`.
+        revoked = (ProcessService.cancellation_info(db, proc)
+                   if r.status == "converted" and proc is not None else None)
         chk = checks.get(r.last_check_id)
         cohort = cohorts.get(r.cohort_id, {})
         sii_block = None
@@ -430,7 +458,13 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
             "last_sent": (r.verify_sent_at.strftime("%d/%m/%Y %H:%M")
                           if r.verify_sent_at else ""),
             "opened": r.verified_at is not None,
-            "folio": folios.get(r.converted_process_id, ""),
+            "folio": proc.folio if proc is not None else "",
+            # Lo mismo que `ProcessService.cancel` acepta revocar; el permiso
+            # lo pone `can_revoke`, arriba.
+            "revocable": (r.status == "converted" and proc is not None
+                          and proc.status in ProcessService.REVOCABLE_STATUSES),
+            "revoked": ({"reason": revoked["reason"] or ""}
+                        if revoked is not None else None),
             "note": r.review_note or "",
             # «En Centro de Cómputo desde …»: `reviewed_at` es cuando SE la
             # aprobó, y `grant_access` no la toca.
@@ -654,3 +688,47 @@ async def reconsultar(req_id: int, request: Request,
     resp.headers["X-Tt-Notice"] = _hdr(_MSG_RECHECK_QUEUED)
     resp.headers["X-Tt-Notice-Kind"] = "success"
     return resp
+
+
+@router.post("/{req_id}/revocar", name="titulatec.pages.requests.revoke")
+async def revocar(req_id: int, request: Request,
+                  user: dict = Depends(require_page_app("titulatec", perms=_CANCEL))):
+    """«Revocar inscripción» desde Inscritas (spec 2026-09-25 §3.6).
+
+    Revoca el proceso en que se convirtió la solicitud (`converted_process_id`)
+    con `ProcessService.cancel`, que es dueña de la transacción, del lock y del
+    aviso al alumno. Motivo obligatorio: es lo que el alumno lee. Alcance por
+    carrera de la SOLICITUD, como aprobar y rechazar (404 liso). Una solicitud
+    sin inscripción, o con el proceso ya revocado o concluido, es 400 con el
+    motivo; el del servicio va por `_hdr` (trae acentos). En el modo alterno la
+    bandeja es de solo lectura, también para esto (`_alternate_mode_block`).
+    """
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+
+    form = await request.form()
+    reason = (form.get("reason") or "").strip()
+    tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
+    if not reason:
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_NO_REASON)})
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        scope = _officer_scope(db, uid)
+        req = _load_scoped_request(db, scope, req_id)
+        if req is None:
+            return Response(status_code=404)
+        if req.status != "converted" or not req.converted_process_id:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_NOT_ENROLLED)})
+        ok, msg = ProcessService.cancel(db, req.converted_process_id, reason=reason,
+                                        actor_id=uid)
+        if not ok:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
+        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort)
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
