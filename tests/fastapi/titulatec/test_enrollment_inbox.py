@@ -449,6 +449,11 @@ def test_tras_aprobar_se_vuelve_a_pintar_la_pestana_donde_estaba_el_oficial(
     assert _pestana_activa(resp.text) == "pending_review"
     assert f'id="tt-req-{req.id}"' not in resp.text, "la aprobada ya no está por revisar"
     assert f'id="tt-req-{otra.id}"' in resp.text
+    # D10 oficial: aprobar sin cuenta pasa a Cómputo, y CC es quien crea la
+    # cuenta con `dar-acceso`. El `nip` que llegó en el POST debe IGNORARSE
+    # aquí; antes nada comprobaba que no se hubiera creado un usuario con él.
+    from itcj2.core.models.user import User
+    assert db_session.query(User).filter_by(control_number="99551031").first() is None
 
 
 def test_tras_rechazar_y_reenviar_se_queda_en_liga_enviada(
@@ -959,6 +964,9 @@ def test_aprobar_sin_cuenta_deja_la_fila_en_la_pestana_en_computo(
     assert "En Centro de Cómputo desde" in _plano(fila)
     assert _kpi(en_computo, "En Cómputo") == 1
     assert _kpi(en_computo, "Por revisar") == 0
+    # D10 oficial sin cuenta: pasa a Cómputo sin usuario ni correo (§9 del
+    # spec). El fixture estaba pedido pero nunca se comprobaba.
+    assert correo_falso == []
 
 
 def test_cancelar_desde_en_computo_la_manda_a_rechazadas(
@@ -1022,8 +1030,14 @@ def test_el_kpi_y_el_bloque_por_ano_cuentan_las_de_computo(
     assert _kpi(html, "En Cómputo") == 2
     assert _kpi(html, "Por revisar") == 1
     texto = _plano(html)
-    assert "En Cómputo" in texto.split("Por año de ingreso", 1)[1]
-    assert "2 en Cómputo" in texto
+    # La leyenda de `requests_body.html:91` pinta «En Cómputo» SIEMPRE que
+    # `by_year` no esté vacío, aunque el conteo real sea 0: comprobar solo que
+    # la palabra aparece después de «Por año de ingreso» es una aserción
+    # vacía, cierta sin importar los datos. Lo que sí depende del conteo real
+    # es la cifra («2 en Cómputo», de `y.access` en la ficha del año), y debe
+    # estar DENTRO del bloque del desglose, no en cualquier parte de la página.
+    bloque_anio = texto.split("Por año de ingreso", 1)[1]
+    assert "2 en Cómputo" in bloque_anio
 
 
 # ---------------------------------------------------------------------------
