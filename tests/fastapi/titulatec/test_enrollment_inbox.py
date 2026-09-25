@@ -1277,22 +1277,47 @@ def test_apta_con_la_aprobacion_automatica_apagada_lo_dice(
     assert "La aprobación automática está apagada en esta convocatoria." in texto
 
 
-def test_apta_dentro_de_la_ventana_de_veto_dice_cuando_se_aprueba(
-    client_as, db_session, make_head, make_cohort, modo_sii, monkeypatch,
-):
+@pytest.fixture()
+def ventana_de_24h(monkeypatch):
+    """Tope de 5 intentos y ventana de veto de 24 h."""
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
 
     monkeypatch.setattr(EligibilityService, "max_attempts", staticmethod(lambda: 5))
     monkeypatch.setattr(EligibilityService, "delay_hours", staticmethod(lambda: 24))
+
+
+# La bandeja compara el fin de la ventana contra el reloj REAL
+# (`datetime.now()` en `_body_ctx`), así que la consulta se siembra relativa a
+# ese mismo reloj. Una fecha fija se volvía «ventana vencida» sola al día
+# siguiente (la misma bomba de tiempo que `test_cleanup_cancelados`).
+def test_apta_dentro_de_la_ventana_de_veto_dice_cuando_se_aprueba(
+    client_as, db_session, make_head, make_cohort, modo_sii, ventana_de_24h,
+):
     head = make_head(perm_codes=LIST_PERMS)
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99640007")
-    fin = datetime(2026, 9, 25, 10, 0)
+    fin = datetime.now().replace(second=0, microsecond=0)
     _consulta(db_session, req, status="apt", results=REGLAS_APTA, finished_at=fin)
 
     texto = _plano(_bloque_sii(_fila(client_as(head).get(f"{URL}/body").text, req), req))
 
-    assert "Se aprobará sola a partir del 26/09/2026 10:00" in texto
+    desde = (fin + timedelta(hours=24)).strftime("%d/%m/%Y %H:%M")
+    assert f"Se aprobará sola a partir del {desde}." in texto
+
+
+def test_apta_con_la_ventana_de_veto_vencida_espera_al_barrido(
+    client_as, db_session, make_head, make_cohort, modo_sii, ventana_de_24h,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99640040")
+    _consulta(db_session, req, status="apt", results=REGLAS_APTA,
+              finished_at=datetime.now() - timedelta(hours=25))
+
+    texto = _plano(_bloque_sii(_fila(client_as(head).get(f"{URL}/body").text, req), req))
+
+    assert "Apta: se aprobará sola en el siguiente barrido." in texto
+    assert "Se aprobará sola a partir del" not in texto
 
 
 def test_error_muestra_el_motivo_y_ofrece_reintentar(
