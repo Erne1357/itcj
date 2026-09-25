@@ -12,6 +12,10 @@ el ALTERNO, CC hace las dos cosas en un paso.
                               └─ SIN cuenta ─► awaiting_access          SIN correo
     approve() [CC, alterno]  ─┬─ CON cuenta ─► approved                 liga
                               └─ SIN cuenta ─► converted                usuario + NIP (un paso)
+    approve() [SE, sii]      ─┬─ CON cuenta ─► approved                 liga
+                              └─ SIN cuenta ─► converted                NIP DEL SII (correo sin NIP)
+    EligibilityService.auto_approve [modo sii, solicitud apta] ─ igual que approve() [sii],
+                                 sin actor (`reviewed_by_id` NULL) ─ ver eligibility_service.py
     grant_access() [CC]      ─── awaiting_access ─┬─ SIN cuenta ─► converted  usuario + NIP
                                                   └─ CON cuenta (D10) ─► approved  liga
     return_to_review() [CC]  ─── awaiting_access ─► pending_review      return_note, sin correo
@@ -227,6 +231,13 @@ _MSG_RETURN_NOTE_LONG = "El motivo de la devolución no puede pasar de 2000 cara
 _RETURN_NOTE_MAX = 2000
 _MSG_NOT_REASSIGNABLE = ("Solo se reasigna el NIP de una cuenta que creó esta solicitud "
                          "y que nunca ha iniciado sesión.")
+# Modo `sii` (spec 2026-09-25): la cuenta nueva nace con el NIP del SII. Ningún
+# mensaje lleva el valor.
+_MSG_SII_NO_NIP = "No se pudo obtener el NIP del SII."
+_MSG_SII_BAD_NIP = ("El NIP del SII no tiene 4 dígitos; da de alta a la persona desde la "
+                    "convocatoria.")
+_MSG_SII_ACCOUNT_FAILED = ("No se pudo crear la cuenta con el NIP del SII; da de alta a la "
+                           "persona desde la convocatoria.")
 _NOTE_LINK_COHORT_CLOSED = "La convocatoria estaba cerrada cuando se abrió la liga de activación."
 _NOTE_LINK_NO_ACCOUNT = "La cuenta de ese número de control ya no existe."
 _NOTE_LINK_NO_PROCESS = ("No se pudo crear el proceso al abrir la liga; revisa los datos "
@@ -332,6 +343,24 @@ def _cohort_gate(db: Session, req):
 # solicitud CREÓ la cuenta y le dio NIP). El de `_convert` (liga sobre una cuenta
 # que ya existía) es "personal_email_link".
 _ACTIVATION_NEW_ACCOUNT = "nip_personal_email"
+
+
+def _auto_approval_marker(db: Session, req) -> dict:
+    """`{auto, rules_version, check_id}` si `req` la aprobó SOLA el SII.
+
+    Aprobación automática = `reviewed_at` lleno con `reviewed_by_id` nulo y la
+    consulta vigente `apt` (`EligibilityService.auto_approve`). `{}` en
+    cualquier otro caso. La usa `_convert`, que escribe el evento de una
+    solicitud con cuenta cuando se abre la liga.
+    """
+    from itcj2.apps.titulatec.models import EligibilityCheck
+
+    if req.reviewed_by_id is not None or req.reviewed_at is None or not req.last_check_id:
+        return {}
+    chk = db.get(EligibilityCheck, req.last_check_id)
+    if chk is None or chk.status != "apt":
+        return {}
+    return {"auto": True, "rules_version": chk.rules_version, "check_id": chk.id}
 
 
 def _request_created_account(db: Session, req, proc) -> bool:
@@ -469,6 +498,12 @@ class EnrollmentRequestService:
         - SIN cuenta, modo ALTERNO: NIP obligatorio -> `_create_account` ->
           `converted`; usuario + NIP al correo personal. El caché de authz de
           los roles nuevos se tira DESPUÉS del commit.
+        - SIN cuenta, modo `sii` (SE aprueba como excepción o con la
+          aprobación automática apagada): el NIP del formulario se IGNORA; se
+          le pide al SII (`fetch_sii_nip`) -> `_create_account_with_sii_nip`
+          (`must_change_password=False`) -> `converted`; correo SIN el NIP
+          («tu NIP del SII»). Si el SII no lo da (o no responde):
+          `_MSG_SII_NO_NIP` y nada escrito.
 
         La convocatoria solo tiene que estar `open`: pasada `closes_at` se sigue
         aprobando lo que entró a tiempo (VENTANA, en el módulo).
@@ -520,7 +555,31 @@ class EnrollmentRequestService:
             EnrollmentRequestService._mail_activation(db, req, raw)
             return True, ""
 
-        if EnrollmentRequestService.reviewer_mode() != "computer_center":
+        mode = EnrollmentRequestService.reviewer_mode()
+        if mode == "sii":
+            # ── SIN cuenta, modo sii: usuario nuevo con el NIP DEL SII ──
+            # (SE aprueba como excepción o con la aprobación automática
+            # apagada). El NIP del formulario se ignora.
+            from itcj2.apps.titulatec.services.eligibility_service import fetch_sii_nip
+
+            secret, _alcanzado = fetch_sii_nip(control)
+            if secret is None:
+                return False, _MSG_SII_NO_NIP
+            ok, detalle, summary, user = EnrollmentRequestService._create_account_with_sii_nip(
+                db, req, cohort, secret, program_id=resolved_program_id,
+                actor_id=actor_id, approved_by_id=actor_id,
+                event_extra={"nip_source": "sii"})
+            del secret
+            if not ok:
+                return False, detalle
+            req.reviewed_by_id = actor_id
+            req.reviewed_at = now
+            db.commit()
+            ImportService.invalidate_authz((summary or {}).get("authz_touched"))
+            EnrollmentRequestService._mail_access(db, req, user, None, nip_source="sii")
+            return True, detalle
+
+        if mode != "computer_center":
             # ── SIN cuenta, modo oficial: a Centro de Cómputo, sin correo ──
             req.status = "awaiting_access"
             req.program_id = resolved_program_id
@@ -819,10 +878,17 @@ class EnrollmentRequestService:
 
     @staticmethod
     def _create_account(db: Session, req, cohort, *, nip: str, program_id: int | None,
-                        actor_id: int, approved_by_id: int | None):
+                        actor_id: int | None, approved_by_id: int | None,
+                        must_change_password: bool = True,
+                        event_extra: dict | None = None):
         """Crea la cuenta NUEVA de una solicitud sin cuenta. `(ok, detalle, summary, user)`.
 
-        Lo usan `approve()` (modo alterno) y `grant_access()`. NIP de 4 dígitos
+        Lo usan `approve()` (modo alterno y modo `sii`), `grant_access()` y la
+        aprobación automática (`EligibilityService.auto_approve`, `actor_id`
+        `None`). En el modo `sii` el NIP es el del SII: `must_change_password`
+        `False` (es suyo, no uno que alguien le dictó) y `event_extra` suma al
+        payload del `ProcessEvent` de dónde salió (`nip_source`) y, si fue
+        automática, `auto`/`rules_version`/`check_id`. NIP de 4 dígitos
         -> `User` con `hash_nip(nip)` (nunca `set_initial_credential`, que
         pondría el número de control, dato público), `must_change_password` y el
         alias legado `graduate` -> proceso y roles de egresado (`import_rows`
@@ -861,7 +927,7 @@ class EnrollmentRequestService:
                 middle_name=req.middle_name or None,
                 email=None,
                 role_id=graduate_role.id if graduate_role else None,
-                is_active=True, must_change_password=True,
+                is_active=True, must_change_password=must_change_password,
             )
             user.password_hash = hash_nip(nip)   # nunca `set_initial_credential`
             db.add(user)
@@ -908,7 +974,8 @@ class EnrollmentRequestService:
                          # (`_request_created_account`).
                          "activation": _ACTIVATION_NEW_ACCOUNT,
                          "approved_by_id": approved_by_id,
-                         "granted_by_id": actor_id},
+                         "granted_by_id": actor_id,
+                         **(event_extra or {})},
             ))
             folio = proc.folio
             savepoint.commit()
@@ -919,11 +986,41 @@ class EnrollmentRequestService:
         return True, folio, summary, user
 
     @staticmethod
-    def _mail_access(db: Session, req, user, nip: str, *, reassigned: bool = False) -> bool:
+    def _create_account_with_sii_nip(db: Session, req, cohort, secret, *,
+                                     program_id: int | None, actor_id: int | None,
+                                     approved_by_id: int | None, event_extra: dict):
+        """`_create_account` con el NIP del SII (`secret`, un `sii.rules.Secret`).
+
+        Mismo retorno `(ok, detalle, summary, user)`. El NIP se revela SOLO para
+        hashearlo y nunca sale de aquí: un NIP con otro formato devuelve
+        `_MSG_SII_BAD_NIP` (sin el valor), y CUALQUIER excepción se convierte en
+        `(False, _MSG_SII_ACCOUNT_FAILED, …)` tras `rollback()`, registrando solo
+        su TIPO — el mensaje de un error de la BD trae los parámetros del INSERT
+        (el hash del NIP; Review Focus 1). El rollback suelta el lock y deshace
+        todo lo que el llamador no había commiteado.
+        """
+        try:
+            ok, detalle, summary, user = EnrollmentRequestService._create_account(
+                db, req, cohort, nip=secret.reveal(), program_id=program_id,
+                actor_id=actor_id, approved_by_id=approved_by_id,
+                must_change_password=False, event_extra=event_extra)
+        except Exception as exc:  # noqa: BLE001 — el texto puede traer el hash
+            db.rollback()
+            logger.warning("No se pudo crear la cuenta de la solicitud %s con el NIP "
+                           "del SII (%s)", req.id, type(exc).__name__)
+            return False, _MSG_SII_ACCOUNT_FAILED, None, None
+        if not ok and detalle == _MSG_BAD_NIP:
+            detalle = _MSG_SII_BAD_NIP
+        return ok, detalle, summary, user
+
+    @staticmethod
+    def _mail_access(db: Session, req, user, nip: str | None, *, reassigned: bool = False,
+                     nip_source: str = "manual") -> bool:
         """Manda usuario + NIP al correo personal. Llamar SOLO después del commit.
 
         `reassigned=True` (desde `reassign_nip`): el correo dice que el NIP
-        reemplaza al anterior.
+        reemplaza al anterior. `nip_source="sii"` (modo `sii`): la cuenta nació
+        con el NIP del SII y el correo NO lo lleva (`nip` es `None`).
 
         Si el correo sale, sella `access_sent_at` en un commit propio (mismo
         patrón que `_mail_activation`/`verify_sent_at`); si no, la fila queda
@@ -935,7 +1032,8 @@ class EnrollmentRequestService:
 
         rid = req.id
         ok = TitulaTecEmailHelper.send_enrollment_approved(db, req, user, nip=nip,
-                                                           reassigned=reassigned)
+                                                           reassigned=reassigned,
+                                                           nip_source=nip_source)
         if ok:
             try:
                 req.access_sent_at = datetime.now()
@@ -1141,7 +1239,10 @@ class EnrollmentRequestService:
                      "approved_by_id": req.reviewed_by_id,
                      # Rastro de la excepción: la bandeja la anuncia antes de
                      # aprobar y el expediente la conserva después.
-                     "reactivated": reactivada},
+                     "reactivated": reactivada,
+                     # Aprobada sola por el SII (modo `sii`): la marca va aquí
+                     # porque al aprobar todavía no había proceso.
+                     **_auto_approval_marker(db, req)},
         ))
         return True, proc.folio
 

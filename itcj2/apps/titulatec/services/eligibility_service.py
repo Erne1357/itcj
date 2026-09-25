@@ -26,6 +26,12 @@ la consulta VIGENTE (`last_check_id`):
 `force=True` es «Reintentar consulta» de la bandeja: pregunta otra vez aunque
 ya haya veredicto (el SII pudo cambiar), con el siguiente número de intento.
 
+APROBACIÓN AUTOMÁTICA (`auto_approve`, spec S2/S4/S5). Apta ∧ convocatoria
+`open` ∧ `sii_auto_approve` ∧ ventana de veto vencida → con cuenta, la liga de
+siempre; sin cuenta, la cuenta nace con el NIP DEL SII. Con ventana 0 la
+dispara `check` al terminar; con ventana > 0, el barrido. No apta, error o
+interruptor apagado → sigue «Por revisar» de Servicios Escolares.
+
 EL NIP DEL SII NO PASA POR AQUÍ al consultar: `RuleSet.evaluate` no corre la
 consulta de `[credential]`, y los `facts`/`results` son la lista blanca de las
 reglas. Un error que no es del SII se registra solo por su TIPO (su texto
@@ -56,6 +62,15 @@ CHECK_TASK_NAME = "itcj2.tasks.titulatec_tasks.sii_check_request"
 # media consulta) y se puede retomar. Holgado frente a los timeouts del
 # conector (conexión ≤ 60 s + consulta ≤ 120 s, por cada `[[query]]`).
 _PENDING_STALE = timedelta(minutes=15)
+
+# Motivos de `auto_approve` cuando NO escribe nada (revalidaciones).
+_MSG_NOT_SII = "La aprobación automática solo existe en el modo sii."
+_MSG_NOT_APT = "La consulta vigente del SII no es apta."
+_MSG_IN_WINDOW = "Sigue dentro de la ventana de veto de la aprobación automática."
+_MSG_AUTO_OFF = "La aprobación automática está apagada en esa convocatoria."
+_MSG_SII_UNREACHABLE = "No se pudo consultar el NIP en el SII; se reintentará."
+# `review_note` cuando la aprobación automática necesita a una persona.
+_NOTE_SII_NO_NIP = "El SII no devolvió NIP."
 
 # Campos de `[identity]` que se comparan con lo que se tecleó en el formulario.
 _NAME_FIELDS = ("first_name", "last_name", "middle_name")
@@ -96,6 +111,21 @@ def _identity_mismatch(db: Session, req, identity: dict) -> dict | None:
     return out or None
 
 
+def _leave_note(db: Session, req, note: str):
+    """La aprobación automática necesita a una persona: `review_note` = motivo.
+
+    Vuelve a tomar el lock y refresca (tras un `rollback()` de
+    `_create_account_with_sii_nip` ya no lo tiene) y solo escribe si la
+    solicitud sigue `pending_review`. Devuelve `(False, note)`.
+    """
+    _lock(db, req.id)
+    db.refresh(req)
+    if req.status == "pending_review":
+        req.review_note = note[:2000]
+    db.commit()
+    return False, note
+
+
 def _lock(db: Session, req_id: int) -> None:
     """El MISMO lock por solicitud que `EnrollmentRequestService`."""
     from itcj2.apps.titulatec.services.enrollment_request_service import _REQUEST_LOCK_NS
@@ -122,6 +152,27 @@ def _evaluate(control: str):
                        type(exc).__name__)
         return Verdict(status="error",
                        error=f"Error inesperado al consultar el SII ({type(exc).__name__}).")
+
+
+def fetch_sii_nip(control: str):
+    """El NIP del SII de `control`: `(Secret | None, alcanzado)`. Nunca lanza.
+
+    `(Secret, True)`: el SII lo dio. `(None, True)`: el SII respondió pero no
+    hay NIP (0 filas, NULL o vacío). `(None, False)`: no se pudo preguntar
+    (SII caído, deshabilitado, reglas rotas) — transitorio o de configuración,
+    no «sin NIP». El valor vive envuelto en `Secret` (repr `****`) hasta que
+    quien lo recibe lo hashea; aquí solo se registra el TIPO del error.
+    """
+    from itcj2.apps.titulatec.services.sii import client as sii_client
+    from itcj2.apps.titulatec.services.sii.rules import RuleSet
+
+    try:
+        rules = RuleSet.load(sii_client.SiiConfig.rules_dir())
+        with sii_client.get_sii_client() as client:
+            return rules.fetch_credential(client, control), True
+    except Exception as exc:  # noqa: BLE001 — «no se pudo preguntar»
+        logger.warning("SII: no se pudo consultar el NIP (%s)", type(exc).__name__)
+        return None, False
 
 
 def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False) -> None:
@@ -240,4 +291,115 @@ class EligibilityService:
         chk.finished_at = datetime.now()
         chk.duration_ms = duration_ms
         db.commit()
+
+        # Apta y sin ventana de veto: se aprueba ya. `auto_approve` revalida
+        # todo (convocatoria, interruptor) bajo su propio lock. Un fallo aquí
+        # no deshace la consulta, que ya quedó guardada: el barrido lo retoma.
+        if chk.status == "apt" and EligibilityService.delay_hours() == 0:
+            try:
+                EligibilityService.auto_approve(db, req.id)
+            except Exception as exc:  # noqa: BLE001 — la consulta ya se guardó
+                db.rollback()
+                logger.warning("SII: la aprobación automática de la solicitud %s falló (%s)",
+                               req_id, type(exc).__name__)
         return chk
+
+    @staticmethod
+    def auto_approve(db: Session, req_id: int, *, now: datetime | None = None):
+        """Aprueba SOLA una solicitud apta. Devuelve `(ok, detalle)`.
+
+        Revalida bajo el lock de la solicitud, en este orden: modo `sii`, que
+        siga `pending_review`, que la consulta VIGENTE sea `apt`, que haya
+        pasado la ventana de veto (`delay_hours()` desde `finished_at`; `now`
+        es inyectable), que la convocatoria siga `open` y con
+        `sii_auto_approve` encendido (Review Focus 5: SE pudo cerrarla o
+        apagarlo dentro de la ventana). Si algo de eso falla no escribe nada.
+
+        - CON cuenta: la misma liga que `approve()` (`_issue_link_for_account`,
+          D5 y contraseña; la cuenta no se toca) -> `approved`.
+        - SIN cuenta: NIP del SII (`fetch_sii_nip`) ->
+          `_create_account_with_sii_nip` -> `converted`; correo SIN el NIP.
+
+        Aprobada sola = `reviewed_by_id` NULL + `reviewed_at`; el evento del
+        proceso lleva `auto: true`, `rules_version` y `check_id` (con cuenta, lo
+        escribe `_convert` al abrir la liga). Correo e invalidación de authz
+        DESPUÉS del commit.
+
+        Lo que necesita a una persona (sin NIP en el SII, NIP con otro formato,
+        D5, sin contraseña, datos inválidos, no se pudo crear la cuenta) queda
+        `pending_review` con `review_note` = el motivo, y el barrido ya no
+        insiste. Lo transitorio (el SII no respondió al pedir el NIP) no deja
+        nota: el barrido lo reintenta.
+        """
+        from itcj2.core.models.user import User
+        from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
+        from itcj2.apps.titulatec.services import enrollment_request_service as ers
+        from itcj2.apps.titulatec.services.cohort_service import CohortService
+        from itcj2.apps.titulatec.services.import_service import (
+            CONTROL_NUMBER_RE, ImportService,
+        )
+
+        ERS = ers.EnrollmentRequestService
+        if ERS.reviewer_mode() != "sii":
+            return False, _MSG_NOT_SII
+        req = db.get(EnrollmentRequest, req_id)
+        if req is None:
+            return False, ers._MSG_GONE
+        _lock(db, req.id)
+        db.refresh(req)
+
+        def _no(motivo: str):
+            db.commit()      # nada escrito: solo cierra la transacción y suelta el lock
+            return False, motivo
+
+        if req.status != "pending_review":
+            return _no(ers._MSG_RESOLVED)
+        chk = EligibilityService.latest_check(db, req)
+        if chk is None or chk.status != "apt":
+            return _no(_MSG_NOT_APT)
+        delay = EligibilityService.delay_hours()
+        if delay and (chk.finished_at is None
+                      or chk.finished_at + timedelta(hours=delay) > (now or datetime.now())):
+            return _no(_MSG_IN_WINDOW)
+        cohort = db.get(Cohort, req.cohort_id)
+        if not CohortService.accepts_enrollment_followup(cohort):
+            return _no(ers._MSG_COHORT_CLOSED)
+        if not cohort.sii_auto_approve:
+            return _no(_MSG_AUTO_OFF)
+
+        control = (req.control_number or "").strip()
+        if not CONTROL_NUMBER_RE.fullmatch(control) or not ers._full_name(req):
+            return _leave_note(db, req, ers._MSG_BAD_DATA)
+        auto = {"auto": True, "rules_version": chk.rules_version, "check_id": chk.id}
+
+        user = db.query(User).filter_by(control_number=control).first()
+        if user is not None:
+            # ── CON cuenta: liga de activación; la cuenta no se toca ──
+            ok, detalle, raw = ERS._issue_link_for_account(db, req, user)
+            if not ok:
+                return _leave_note(db, req, detalle)
+            req.reviewed_by_id = None
+            req.reviewed_at = datetime.now()
+            db.commit()
+            ers._token_cache_put(raw)
+            ERS._mail_activation(db, req, raw)
+            return True, ""
+
+        # ── SIN cuenta: el NIP del SII ──
+        secret, alcanzado = fetch_sii_nip(control)
+        if not alcanzado:
+            return _no(_MSG_SII_UNREACHABLE)
+        if secret is None:
+            return _leave_note(db, req, _NOTE_SII_NO_NIP)
+        ok, detalle, summary, user = ERS._create_account_with_sii_nip(
+            db, req, cohort, secret, program_id=req.program_id, actor_id=None,
+            approved_by_id=None, event_extra={**auto, "nip_source": "sii"})
+        del secret
+        if not ok:
+            return _leave_note(db, req, detalle)
+        req.reviewed_by_id = None
+        req.reviewed_at = datetime.now()
+        db.commit()
+        ImportService.invalidate_authz((summary or {}).get("authz_touched"))
+        ERS._mail_access(db, req, user, None, nip_source="sii")
+        return True, detalle

@@ -564,3 +564,370 @@ def test_enqueue_check_manda_la_tarea_por_nombre_sin_reintentar_el_broker(monkey
                            {"kwargs": {"req_id": 42, "attempt": 1, "force": False},
                             "retry": False})
     assert enviados[1][1]["kwargs"] == {"req_id": 44, "attempt": 1, "force": True}
+
+
+
+# ---------------------------------------------------------------------------
+# Aprobación automática (spec S2, S4, S5)
+# ---------------------------------------------------------------------------
+_NOTA_SIN_NIP = "El SII no devolvió NIP."
+
+
+def _cuenta(db_session, control, *, password=True):
+    from itcj2.core.models.user import User
+    from itcj2.core.utils.security import hash_nip
+
+    user = User(username=control, control_number=control, first_name="YA",
+                last_name="EXISTIA", password_hash=hash_nip("9999") if password else None,
+                is_active=True, must_change_password=False)
+    db_session.add(user)
+    db_session.flush()
+    return user
+
+
+def _usuario(db_session, control):
+    from itcj2.core.models.user import User
+    return db_session.query(User).filter_by(control_number=control).first()
+
+
+def _eventos(db_session, proc_id):
+    from itcj2.apps.titulatec.models import ProcessEvent
+    return (db_session.query(ProcessEvent)
+            .filter_by(process_id=proc_id, event_type="enrollment_self_service").all())
+
+
+@pytest.fixture()
+def listo(db_session, seed_phase_defs, titulatec_app, sii, modo_sii, espia_helper):
+    """SII falso + modo sii + lo que `import_rows` necesita. Devuelve el espía
+    de correos."""
+    seed_phase_defs()
+    return espia_helper
+
+
+def _solicitud_apta(db_session, make_cohort, sii, control, *, cohort=None, **kw):
+    cohort = cohort or make_cohort(status="open")
+    req = _make_req(db_session, cohort, control=control)
+    sii.alumno(control, **kw)
+    return req, cohort
+
+
+def test_apta_sin_cuenta_se_aprueba_sola_con_el_nip_del_sii(
+    db_session, make_cohort, sii, listo, caplog,
+):
+    from itcj2.core.utils.security import verify_nip
+
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580030", nip="2468")
+
+    with caplog.at_level("DEBUG"):
+        chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert req.status == "converted"
+    assert req.reviewed_by_id is None and req.reviewed_at is not None
+    user = _usuario(db_session, "99580030")
+    assert user is not None and verify_nip("2468", user.password_hash)
+    assert user.must_change_password is False, "el NIP es suyo, del SII"
+    ev, = _eventos(db_session, req.converted_process_id)
+    assert ev.actor_id is None
+    assert ev.payload["auto"] is True
+    assert ev.payload["rules_version"] == RULES_VERSION
+    assert ev.payload["check_id"] == chk.id
+    assert ev.payload["nip_source"] == "sii"
+    assert ev.payload["approved_by_id"] is None
+    assert "2468" not in json.dumps(ev.payload)
+    assert listo == [("send_enrollment_approved", {"nip": None, "reassigned": False,
+                                                   "nip_source": "sii"})]
+    assert "2468" not in caplog.text
+
+
+def test_apta_con_cuenta_recibe_la_liga_y_la_cuenta_no_se_toca(
+    db_session, make_cohort, sii, listo,
+):
+    from itcj2.core.utils.security import verify_nip
+
+    user = _cuenta(db_session, "99580031")
+    hash_antes = user.password_hash
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580031")
+
+    _svc().check(db_session, req.id)
+
+    assert req.status == "approved"
+    assert req.verify_token_hash is not None
+    assert req.reviewed_by_id is None and req.reviewed_at is not None
+    assert user.password_hash == hash_antes and verify_nip("9999", user.password_hash)
+    assert [n for n, _ in listo] == ["send_verify_enrollment"]
+
+
+def test_la_liga_de_una_aprobada_sola_deja_la_marca_auto_en_el_expediente(
+    db_session, make_cohort, sii, listo, monkeypatch,
+):
+    from itcj2.apps.titulatec.services import enrollment_request_service as ers
+
+    claros = []
+    monkeypatch.setattr(ers, "_token_cache_put", claros.append)
+    _cuenta(db_session, "99580032")
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580032")
+    chk = _svc().check(db_session, req.id)
+
+    _req, outcome = _ers().verify(db_session, claros[0])
+
+    assert outcome == "converted"
+    ev, = _eventos(db_session, req.converted_process_id)
+    assert ev.payload["auto"] is True and ev.payload["check_id"] == chk.id
+    assert ev.payload["activation"] == "personal_email_link"
+
+
+def test_con_el_interruptor_apagado_queda_por_revisar(db_session, make_cohort, sii, listo):
+    cohort = make_cohort(status="open")
+    cohort.sii_auto_approve = False
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580033", cohort=cohort)
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt" and req.status == "pending_review"
+    assert _usuario(db_session, "99580033") is None
+    assert listo == []
+
+
+def test_con_la_convocatoria_cerrada_queda_por_revisar(db_session, make_cohort, sii, listo):
+    cohort = make_cohort(status="closed")
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580034", cohort=cohort)
+
+    _svc().check(db_session, req.id)
+
+    assert req.status == "pending_review"
+    assert listo == []
+
+
+def test_con_ventana_de_veto_no_se_aprueba_al_consultar(
+    db_session, make_cohort, sii, listo, monkeypatch,
+):
+    monkeypatch.setattr(_svc(), "delay_hours", staticmethod(lambda: 2))
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580035")
+
+    chk = _svc().check(db_session, req.id)
+    ok, motivo = _svc().auto_approve(db_session, req.id)
+
+    assert chk.status == "apt" and req.status == "pending_review"
+    assert ok is False and "ventana" in motivo
+    assert listo == []
+
+
+def test_vencida_la_ventana_se_aprueba(db_session, make_cohort, sii, listo, monkeypatch):
+    monkeypatch.setattr(_svc(), "delay_hours", staticmethod(lambda: 2))
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580036")
+    _svc().check(db_session, req.id)
+
+    ok, folio = _svc().auto_approve(db_session, req.id,
+                                    now=datetime.now() + timedelta(hours=3))
+
+    assert ok is True and folio
+    assert req.status == "converted"
+
+
+@pytest.mark.parametrize("cambio", ["cerrada", "apagada"])
+def test_si_la_convocatoria_cambia_dentro_de_la_ventana_no_se_aprueba(
+    db_session, make_cohort, sii, listo, monkeypatch, cambio,
+):
+    """Review Focus 5: apta a las 10:00, ventana de 2 h, SE cierra la
+    convocatoria (o apaga el interruptor) a las 11:00 → a las 12:01 no aprueba."""
+    monkeypatch.setattr(_svc(), "delay_hours", staticmethod(lambda: 2))
+    cohort = make_cohort(status="open")
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580037", cohort=cohort)
+    _svc().check(db_session, req.id)
+    if cambio == "cerrada":
+        cohort.status = "closed"
+    else:
+        cohort.sii_auto_approve = False
+    db_session.flush()
+
+    ok, _ = _svc().auto_approve(db_session, req.id, now=datetime.now() + timedelta(hours=3))
+
+    assert ok is False
+    assert req.status == "pending_review"
+    assert _usuario(db_session, "99580037") is None
+    assert listo == []
+
+
+def test_apta_sin_nip_en_el_sii_queda_por_revisar_con_nota(
+    db_session, make_cohort, sii, listo,
+):
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580038", nip=None)
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert req.status == "pending_review"
+    assert req.review_note == _NOTA_SIN_NIP
+    assert _usuario(db_session, "99580038") is None
+    assert listo == []
+
+
+def test_si_el_sii_no_responde_al_pedir_el_nip_no_deja_nota(
+    db_session, make_cohort, sii, listo,
+):
+    """Transitorio: sin nota, para que el barrido lo vuelva a intentar."""
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580039")
+    sii.nip_caido("99580039")
+
+    _svc().check(db_session, req.id)
+
+    assert req.status == "pending_review"
+    assert req.review_note is None
+    assert _usuario(db_session, "99580039") is None
+
+
+def test_un_nip_del_sii_con_otro_formato_no_crea_cuenta_ni_se_filtra(
+    db_session, make_cohort, sii, listo, caplog,
+):
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580040", nip="12AB")
+
+    with caplog.at_level("DEBUG"):
+        _svc().check(db_session, req.id)
+
+    assert req.status == "pending_review"
+    assert "4 dígitos" in req.review_note and "12AB" not in req.review_note
+    assert _usuario(db_session, "99580040") is None
+    assert "12AB" not in caplog.text
+
+
+def test_con_cuenta_en_otra_convocatoria_queda_por_revisar_con_el_motivo(
+    db_session, make_cohort, make_process, sii, listo,
+):
+    user = _cuenta(db_session, "99580041")
+    make_process(user, cohort=make_cohort(status="open"))
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580041")
+
+    _svc().check(db_session, req.id)
+
+    assert req.status == "pending_review"
+    assert req.review_note == "Esa persona ya tiene un proceso en otra convocatoria."
+
+
+def test_una_falla_al_crear_la_cuenta_no_filtra_el_nip_ni_su_hash(
+    db_session, make_cohort, sii, listo, monkeypatch, caplog,
+):
+    """Review Focus 1: el error del driver de la BD trae los parámetros del
+    INSERT (el hash del NIP). Ni ese texto ni el NIP llegan al log ni al motivo."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    from itcj2.core.utils.security import hash_nip
+
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580042", nip="1593")
+    db_session.commit()
+    h = hash_nip("1593")
+
+    def _revienta(*a, **k):
+        raise RuntimeError(f"INSERT core_users [parameters: ('1593', '{h}')]")
+
+    monkeypatch.setattr(EnrollmentRequestService, "_create_account",
+                        staticmethod(_revienta))
+
+    with caplog.at_level("DEBUG"):
+        chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert req.status == "pending_review"
+    assert "1593" not in (req.review_note or "") and h not in (req.review_note or "")
+    assert req.review_note, "queda con nota para que el barrido no insista"
+    assert "1593" not in caplog.text and h not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_auto_approve_revalida_todo(db_session, make_cohort, sii, listo):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580043")
+
+    ok, motivo = _svc().auto_approve(db_session, req.id)
+    assert ok is False and "apta" in motivo, "sin consulta vigente no se aprueba"
+
+    _check_row(db_session, req, status="not_apt")
+    assert _svc().auto_approve(db_session, req.id)[0] is False
+
+    _check_row(db_session, req, status="apt")
+    req.status = "rejected"
+    db_session.flush()
+    assert _svc().auto_approve(db_session, req.id)[0] is False
+
+    assert _svc().auto_approve(db_session, 987654321)[0] is False
+    assert listo == []
+
+
+def test_auto_approve_fuera_del_modo_sii_no_hace_nada(
+    db_session, make_cohort, seed_phase_defs, titulatec_app, sii, espia_helper,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580044")
+    _check_row(db_session, req, status="apt")
+
+    ok, _ = _svc().auto_approve(db_session, req.id)
+
+    assert ok is False and req.status == "pending_review"
+    assert espia_helper == []
+
+
+# ---------------------------------------------------------------------------
+# approve() en modo sii: SE aprueba como excepción (o con el interruptor apagado)
+# ---------------------------------------------------------------------------
+def test_se_aprueba_sin_cuenta_con_el_nip_del_sii_e_ignora_el_del_formulario(
+    db_session, make_cohort, make_user, sii, listo,
+):
+    from itcj2.core.utils.security import verify_nip
+
+    se = make_user(first_name="SERVICIOS", last_name="ESCOLARES")
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580050")
+    sii.no_apta("99580050", nip="3579")
+
+    ok, folio = _ers().approve(db_session, req.id, nip="1111", program_id=None,
+                               actor_id=se.id)
+
+    assert ok is True and folio
+    assert req.status == "converted" and req.reviewed_by_id == se.id
+    user = _usuario(db_session, "99580050")
+    assert verify_nip("3579", user.password_hash)
+    assert not verify_nip("1111", user.password_hash)
+    assert user.must_change_password is False
+    ev, = _eventos(db_session, req.converted_process_id)
+    assert ev.payload["nip_source"] == "sii" and "auto" not in ev.payload
+    assert ev.payload["approved_by_id"] == se.id
+    assert listo == [("send_enrollment_approved", {"nip": None, "reassigned": False,
+                                                   "nip_source": "sii"})]
+
+
+@pytest.mark.parametrize("falla", ["sin_nip", "caido"])
+def test_se_no_puede_aprobar_sin_cuenta_si_el_sii_no_da_el_nip(
+    db_session, make_cohort, make_user, sii, listo, falla,
+):
+    se = make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580051")
+    if falla == "sin_nip":
+        sii.alumno("99580051", nip=None)
+    else:
+        sii.alumno("99580051")
+        sii.nip_caido("99580051")
+
+    ok, motivo = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id)
+
+    assert (ok, motivo) == (False, "No se pudo obtener el NIP del SII.")
+    assert req.status == "pending_review" and req.reviewed_by_id is None
+    assert _usuario(db_session, "99580051") is None
+    assert listo == []
+
+
+def test_se_aprueba_con_cuenta_en_modo_sii_como_siempre(
+    db_session, make_cohort, make_user, sii, listo,
+):
+    se = make_user()
+    _cuenta(db_session, "99580052")
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580052")
+
+    ok, detalle = _ers().approve(db_session, req.id, nip="", program_id=None,
+                                 actor_id=se.id)
+
+    assert (ok, detalle) == (True, "")
+    assert req.status == "approved" and req.reviewed_by_id == se.id
+    assert [n for n, _ in listo] == ["send_verify_enrollment"]

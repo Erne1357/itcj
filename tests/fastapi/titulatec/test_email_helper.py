@@ -216,6 +216,30 @@ def test_el_correo_de_un_nip_reasignado_dice_que_reemplaza_al_anterior(
     assert "reemplaza" not in _texto(html_n)
 
 
+def test_el_alta_con_el_nip_del_sii_no_lleva_nip_y_dice_cual_usar(
+    db_session, make_student, solicitud, correo_falso,
+):
+    """Modo `sii` (spec S4): la cuenta nace con el NIP del SII, que solo sabe
+    el alumno. El correo no lleva credencial: «entra con tu número de control
+    y tu NIP del SII». Aunque alguien pase un `nip`, no se pinta."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    alumno = make_student(control_number="90000014")
+    req = solicitud(control_number="90000014", kind="unknown", status="converted",
+                    contact_email="sii@example.invalid")
+
+    assert TitulaTecEmailHelper.send_enrollment_approved(
+        db_session, req, alumno, nip="7531", nip_source="sii") is True
+
+    (_asunto, dest, html), = correo_falso
+    texto = _texto(html)
+    assert dest == ["sii@example.invalid"]
+    assert "7531" not in html
+    assert "entra con tu número de control y tu nip del sii" in texto.lower()
+    assert "Tu solicitud fue aprobada" in texto
+    assert "90000014" in html
+
+
 @pytest.mark.parametrize("modo,revisor,otro", [
     ("school_services", "Servicios Escolares", "Centro de Cómputo"),
     ("computer_center", "Centro de Cómputo", "Servicios Escolares"),

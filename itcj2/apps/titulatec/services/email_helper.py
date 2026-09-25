@@ -204,8 +204,9 @@ class TitulaTecEmailHelper:
             return False
 
     @staticmethod
-    def send_enrollment_approved(db: Session, req, user, *, nip: str,
-                                 reassigned: bool = False) -> bool:
+    def send_enrollment_approved(db: Session, req, user, *, nip: str | None,
+                                 reassigned: bool = False,
+                                 nip_source: str = "manual") -> bool:
         """Alta de una cuenta NUEVA: usuario + NIP (D16).
 
         Lo manda `EnrollmentRequestService._mail_access` tras dar el acceso
@@ -216,14 +217,20 @@ class TitulaTecEmailHelper:
         reemplaza al que te enviamos antes», para que quien sí recibió el
         primer correo sepa cuál vale.
 
+        `nip_source="sii"` (modo `sii`, spec S4): la cuenta nació con el NIP del
+        SII, que solo sabe el alumno. El correo NO lleva credencial —«entra con
+        tu número de control y tu NIP del SII»— y `nip` se ignora aunque venga.
+
         Al correo PERSONAL: un egresado de 2005 no tiene institucional vivo. El
         NIP viaja SOLO aquí — nunca al log, ni a `X-Tt-Error`, ni al payload de
         un `ProcessEvent`.
         """
         try:
+            from_sii = nip_source == "sii"
             return _deliver(
                 template="enrollment_approved.html",
-                context={"req": req, "user": user, "nip": nip, "reassigned": reassigned,
+                context={"req": req, "user": user, "nip": None if from_sii else nip,
+                         "from_sii": from_sii, "reassigned": reassigned,
                          "login_url": "https://enlinea.cdjuarez.tecnm.mx/itcj/login"},
                 subject=("[TitulaTec ITCJ] Tu NIP nuevo de acceso" if reassigned
                          else "[TitulaTec ITCJ] Tu acceso a la plataforma"),

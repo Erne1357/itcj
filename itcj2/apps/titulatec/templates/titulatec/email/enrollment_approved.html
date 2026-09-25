@@ -8,6 +8,12 @@
   <strong>Este NIP reemplaza al que te enviamos antes</strong>: el anterior ya no sirve.
   Estos son tus datos de acceso:
 </p>
+{% elif from_sii %}
+<p style="margin:0 0 20px;">
+  Tu solicitud fue aprobada y ya tienes acceso a la Plataforma Digital del ITCJ.
+  Entra con tu número de control y tu NIP del SII: el mismo NIP con el que
+  consultas el SII del Tecnológico.
+</p>
 {% else %}
 <p style="margin:0 0 20px;">
   Tu solicitud fue aprobada y ya tienes acceso a la Plataforma Digital del ITCJ.
@@ -22,8 +28,13 @@
   </tr>
   <tr>
     <td style="padding:12px 16px;color:#607D8B;font-size:12px;border-top:1px solid #ECEFF1;">NIP</td>
+    {% if from_sii %}
+    <td style="padding:12px 16px;color:#37474F;font-size:14px;border-top:1px solid #ECEFF1;">
+      Tu NIP del SII</td>
+    {% else %}
     <td style="padding:12px 16px;color:#37474F;font-size:16px;font-weight:700;letter-spacing:3px;border-top:1px solid #ECEFF1;">
       {{ nip|e }}</td>
+    {% endif %}
   </tr>
 </table>
 <p style="margin:0 0 24px;text-align:center;">
@@ -32,6 +43,6 @@
     Entrar a la plataforma</a>
 </p>
 <p style="margin:0;color:#B71C1C;font-size:13px;">
-  No compartas este correo con nadie.
+  {% if from_sii %}Nunca compartas tu NIP con nadie.{% else %}No compartas este correo con nadie.{% endif %}
 </p>
 {% endblock %}
