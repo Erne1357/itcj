@@ -81,6 +81,11 @@ _MSG_SII_UNREACHABLE = "No se pudo consultar el NIP en el SII; se reintentará."
 # `review_note` cuando la aprobación automática necesita a una persona.
 _NOTE_SII_NO_NIP = "El SII no devolvió NIP."
 
+# `falla_nip` de `fetch_sii_nip` / `EnrollmentRequestService._approve_locked`:
+# el SII respondió sin NIP, o no respondió (el nombre del tipo de su error).
+NIP_MISSING = "missing"
+NIP_UNAVAILABLE = "SiiUnavailable"
+
 # Campos de `[identity]` que se comparan con lo que se tecleó en el formulario.
 _NAME_FIELDS = ("first_name", "last_name", "middle_name")
 
@@ -198,13 +203,16 @@ def _evaluate(control: str):
 
 
 def fetch_sii_nip(control: str):
-    """El NIP del SII de `control`: `(Secret | None, alcanzado)`. Nunca lanza.
+    """El NIP del SII de `control`: `(Secret | None, falla)`. Nunca lanza.
 
-    `(Secret, True)`: el SII lo dio. `(None, True)`: el SII respondió pero no
-    hay NIP (0 filas, NULL o vacío). `(None, False)`: no se pudo preguntar
-    (SII caído, deshabilitado, reglas rotas) — transitorio o de configuración,
-    no «sin NIP». El valor vive envuelto en `Secret` (repr `****`) hasta que
-    quien lo recibe lo hashea; aquí solo se registra el TIPO del error.
+    `(Secret, None)`: el SII lo dio. `(None, None)`: el SII respondió pero no
+    hay NIP (0 filas, NULL o vacío). `(None, "<Tipo>")`: no se pudo preguntar,
+    y `falla` es el NOMBRE del tipo del error — `NIP_UNAVAILABLE`
+    (`SiiUnavailable`: caído, timeout, deshabilitado) es transitorio; cualquier
+    otro (`SiiRulesError`, `SiiQueryError`, uno inesperado) es de
+    configuración y esperar no lo arregla. El valor vive envuelto en `Secret`
+    (repr `****`) hasta que quien lo recibe lo hashea; aquí solo se registra el
+    TIPO del error.
     """
     from itcj2.apps.titulatec.services.sii import client as sii_client
     from itcj2.apps.titulatec.services.sii.rules import RuleSet
@@ -212,10 +220,10 @@ def fetch_sii_nip(control: str):
     try:
         rules = RuleSet.load(sii_client.SiiConfig.rules_dir())
         with sii_client.get_sii_client() as client:
-            return rules.fetch_credential(client, control), True
+            return rules.fetch_credential(client, control), None
     except Exception as exc:  # noqa: BLE001 — «no se pudo preguntar»
         logger.warning("SII: no se pudo consultar el NIP (%s)", type(exc).__name__)
-        return None, False
+        return None, type(exc).__name__
 
 
 def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False) -> None:
@@ -359,10 +367,13 @@ class EligibilityService:
         `sii_auto_approve` encendido (Review Focus 5: SE pudo cerrarla o
         apagarlo dentro de la ventana). Si algo de eso falla no escribe nada.
 
-        - CON cuenta: la misma liga que `approve()` (`_issue_link_for_account`,
-          D5 y contraseña; la cuenta no se toca) -> `approved`.
-        - SIN cuenta: NIP del SII (`fetch_sii_nip`) ->
-          `_create_account_with_sii_nip` -> `converted`; correo SIN el NIP.
+        Lo que decide y escribe la aprobación es el MISMO núcleo que usa la
+        bandeja (`EnrollmentRequestService._approve_locked`), con actor `None`:
+
+        - CON cuenta: la liga de siempre (D5 y contraseña; la cuenta no se
+          toca) -> `approved`.
+        - SIN cuenta: la cuenta nace con el NIP DEL SII -> `converted`; correo
+          SIN el NIP.
 
         Aprobada sola = `reviewed_by_id` NULL + `reviewed_at`; el evento del
         proceso lleva `auto: true`, `rules_version` y `check_id` (con cuenta, lo
@@ -375,13 +386,8 @@ class EligibilityService:
         insiste. Lo transitorio (el SII no respondió al pedir el NIP) no deja
         nota: el barrido lo reintenta.
         """
-        from itcj2.core.models.user import User
-        from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
+        from itcj2.apps.titulatec.models import EnrollmentRequest
         from itcj2.apps.titulatec.services import enrollment_request_service as ers
-        from itcj2.apps.titulatec.services.cohort_service import CohortService
-        from itcj2.apps.titulatec.services.import_service import (
-            CONTROL_NUMBER_RE, ImportService,
-        )
 
         ERS = ers.EnrollmentRequestService
         if ERS.reviewer_mode() != "sii":
@@ -405,48 +411,23 @@ class EligibilityService:
         if delay and (chk.finished_at is None
                       or chk.finished_at + timedelta(hours=delay) > (now or datetime.now())):
             return _no(_MSG_IN_WINDOW)
-        cohort = db.get(Cohort, req.cohort_id)
-        if not CohortService.accepts_enrollment_followup(cohort):
-            return _no(ers._MSG_COHORT_CLOSED)
+        cohort, motivo = ers._cohort_gate(db, req)
+        if cohort is None:
+            return _no(motivo)
         if not cohort.sii_auto_approve:
             return _no(_MSG_AUTO_OFF)
 
-        control = (req.control_number or "").strip()
-        if not CONTROL_NUMBER_RE.fullmatch(control) or not ers._full_name(req):
-            return _leave_note(db, req, ers._MSG_BAD_DATA)
-        auto = {"auto": True, "rules_version": chk.rules_version, "check_id": chk.id}
-
-        user = db.query(User).filter_by(control_number=control).first()
-        if user is not None:
-            # ── CON cuenta: liga de activación; la cuenta no se toca ──
-            ok, detalle, raw = ERS._issue_link_for_account(db, req, user)
-            if not ok:
-                return _leave_note(db, req, detalle)
-            req.reviewed_by_id = None
-            req.reviewed_at = datetime.now()
-            db.commit()
-            ers._token_cache_put(raw)
-            ERS._mail_activation(db, req, raw)
-            return True, ""
-
-        # ── SIN cuenta: el NIP del SII ──
-        secret, alcanzado = fetch_sii_nip(control)
-        if not alcanzado:
-            return _no(_MSG_SII_UNREACHABLE)
-        if secret is None:
+        ok, detalle, falla_nip = ERS._approve_locked(
+            db, req, cohort, actor_id=None, program_id=req.program_id,
+            event_extra={"auto": True, "rules_version": chk.rules_version,
+                         "check_id": chk.id})
+        if ok:
+            return True, detalle
+        if falla_nip == NIP_MISSING:
             return _leave_note(db, req, _NOTE_SII_NO_NIP)
-        ok, detalle, summary, user = ERS._create_account_with_sii_nip(
-            db, req, cohort, secret, program_id=req.program_id, actor_id=None,
-            approved_by_id=None, event_extra={**auto, "nip_source": "sii"})
-        del secret
-        if not ok:
-            return _leave_note(db, req, detalle)
-        req.reviewed_by_id = None
-        req.reviewed_at = datetime.now()
-        db.commit()
-        ImportService.invalidate_authz((summary or {}).get("authz_touched"))
-        ERS._mail_access(db, req, user, None, nip_source="sii")
-        return True, detalle
+        if falla_nip is not None:
+            return _no(_MSG_SII_UNREACHABLE)
+        return _leave_note(db, req, detalle)
 
     @staticmethod
     def sweep(db: Session, *, now: datetime | None = None, cohort_id: int | None = None,

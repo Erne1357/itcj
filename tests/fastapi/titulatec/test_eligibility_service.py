@@ -1137,3 +1137,48 @@ def test_el_barrido_respeta_su_presupuesto_de_tiempo(db_session, make_cohort, si
     out = _svc().sweep(db_session, cohort_id=cohort.id, max_seconds=0)
 
     assert out == {"checked": 0, "approved": 0, "retried": 0}
+
+
+# ---------------------------------------------------------------------------
+# Un solo núcleo de aprobación: `approve()` (SE) y la aprobación automática
+# (hallazgo I3 de la revisión: una guarda nueva de `approve()` tiene que
+# alcanzar también a la ruta desatendida)
+# ---------------------------------------------------------------------------
+def test_approve_y_la_aprobacion_automatica_comparten_el_nucleo(
+    db_session, make_cohort, make_user, sii, listo, monkeypatch,
+):
+    llamadas = []
+
+    def _nucleo(db, req, cohort, **kw):
+        llamadas.append((req.id, cohort.id, kw))
+        return False, "Guarda nueva del núcleo.", None
+
+    monkeypatch.setattr(_ers(), "_approve_locked", staticmethod(_nucleo))
+    se = make_user()
+    cohort = make_cohort(status="open")
+    por_se = _make_req(db_session, cohort, control="99580090")
+    sola, _ = _solicitud_apta(db_session, make_cohort, sii, "99580091", cohort=cohort)
+
+    assert _ers().approve(db_session, por_se.id, nip="", program_id=None,
+                          actor_id=se.id) == (False, "Guarda nueva del núcleo.")
+    _svc().check(db_session, sola.id)
+
+    assert sola.status == "pending_review"
+    assert sola.review_note == "Guarda nueva del núcleo."
+    (id_se, _c1, kw_se), (id_auto, _c2, kw_auto) = llamadas
+    assert (id_se, kw_se["actor_id"]) == (por_se.id, se.id)
+    assert (id_auto, kw_auto["actor_id"]) == (sola.id, None)
+    assert kw_auto["event_extra"]["auto"] is True
+    assert listo == []
+
+
+def test_la_aprobacion_automatica_no_repite_la_logica_de_approve():
+    import inspect
+
+    cuerpo = inspect.getsource(_svc().auto_approve)
+    for copia in ("_issue_link_for_account", "_create_account_with_sii_nip",
+                  "CONTROL_NUMBER_RE", "accepts_enrollment_followup", "fetch_sii_nip",
+                  "_mail_access", "_mail_activation"):
+        assert copia not in cuerpo, copia
+    assert "_approve_locked(" in cuerpo
+    assert "_cohort_gate(db, req)" in cuerpo

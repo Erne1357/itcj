@@ -508,13 +508,15 @@ class EnrollmentRequestService:
         La convocatoria solo tiene que estar `open`: pasada `closes_at` se sigue
         aprobando lo que entró a tiempo (VENTANA, en el módulo).
 
+        Aquí solo viven las guardas de la BANDEJA (lock, estado, convocatoria);
+        lo que decide y escribe la aprobación es `_approve_locked`, el mismo
+        núcleo que usa la aprobación automática del SII.
+
         INVARIANTE: `(False, motivo)` no deja NADA escrito, ni siquiera en la
         sesión. Toda validación ocurre antes de escribir, y la única que llega
         después (no se creó el proceso) deshace su savepoint.
         """
-        from itcj2.core.models.user import User
         from itcj2.apps.titulatec.models import EnrollmentRequest
-        from itcj2.apps.titulatec.services.import_service import ImportService
 
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
@@ -534,66 +536,108 @@ class EnrollmentRequestService:
         if cohort is None:
             return False, motivo
 
+        ok, detalle, _falla_nip = EnrollmentRequestService._approve_locked(
+            db, req, cohort, actor_id=actor_id,
+            program_id=program_id if program_id else req.program_id, nip=nip)
+        return ok, detalle
+
+    @staticmethod
+    def _approve_locked(db: Session, req, cohort, *, actor_id: int | None,
+                        program_id: int | None, nip: str | None = None,
+                        event_extra: dict | None = None):
+        """Núcleo ÚNICO de la aprobación: `approve()` (una persona) y
+        `EligibilityService.auto_approve` (el SII solo, `actor_id` `None`).
+
+        Precondiciones del llamador: el lock de la solicitud tomado, `req`
+        refrescada, su estado ya validado y `cohort` salida de `_cohort_gate`.
+        Cada llamador conserva sus propias guardas previas (la bandeja acepta
+        el legado `unverified`/`verified`; la automática exige la consulta
+        `apt`, la ventana vencida, el interruptor encendido y la identidad),
+        pero TODO lo que decide y escribe la aprobación vive aquí: una guarda
+        nueva alcanza a los dos.
+
+        Devuelve `(ok, detalle, falla_nip)`:
+
+        - éxito: `(True, folio | "", None)`, ya commiteado; el correo, la liga
+          en Redis y la invalidación de authz van DESPUÉS del commit;
+        - fallo: `(False, motivo, None)` sin nada escrito (invariante de
+          `approve()`); el llamador devuelve el motivo (SE) o lo deja en la
+          `review_note` (automática);
+        - el SII no dio el NIP (modo `sii`, sin cuenta):
+          `(False, _MSG_SII_NO_NIP, falla_nip)` con `falla_nip` =
+          `eligibility_service.NIP_MISSING` (respondió sin NIP) o el TIPO del
+          error de `fetch_sii_nip` (`"SiiUnavailable"`: transitorio; otro: de
+          configuración). Nada escrito.
+
+        `event_extra` se suma al payload del `ProcessEvent` de la cuenta nueva
+        (la automática pone `auto`, `rules_version` y `check_id`; con cuenta,
+        esa marca la escribe `_convert` al abrir la liga).
+        """
+        from itcj2.core.models.user import User
+        from itcj2.apps.titulatec.services.import_service import ImportService
+
         control = (req.control_number or "").strip()
         if not CONTROL_NUMBER_RE.fullmatch(control) or not _full_name(req):
-            return False, _MSG_BAD_DATA
+            return False, _MSG_BAD_DATA, None
 
-        resolved_program_id = program_id if program_id else req.program_id
         user = db.query(User).filter_by(control_number=control).first()
         now = datetime.now()
 
         if user is not None:
-            # ── CON cuenta: liga de activación; la cuenta no se toca ──
+            # ── CON cuenta (todos los modos): liga de activación; la cuenta
+            #    no se toca ──
             ok, detalle, raw = EnrollmentRequestService._issue_link_for_account(db, req, user)
             if not ok:
-                return False, detalle
-            req.program_id = resolved_program_id
+                return False, detalle, None
+            req.program_id = program_id
             req.reviewed_by_id = actor_id
             req.reviewed_at = now
             db.commit()
             _token_cache_put(raw)
             EnrollmentRequestService._mail_activation(db, req, raw)
-            return True, ""
+            return True, "", None
 
         mode = EnrollmentRequestService.reviewer_mode()
         if mode == "sii":
             # ── SIN cuenta, modo sii: usuario nuevo con el NIP DEL SII ──
-            # (SE aprueba como excepción o con la aprobación automática
-            # apagada). El NIP del formulario se ignora.
-            from itcj2.apps.titulatec.services.eligibility_service import fetch_sii_nip
+            # (SE como excepción o con la automática apagada, o el SII solo).
+            # El NIP del formulario se ignora.
+            from itcj2.apps.titulatec.services.eligibility_service import (
+                NIP_MISSING, fetch_sii_nip,
+            )
 
-            secret, _alcanzado = fetch_sii_nip(control)
+            secret, falla = fetch_sii_nip(control)
             if secret is None:
-                return False, _MSG_SII_NO_NIP
+                return False, _MSG_SII_NO_NIP, falla or NIP_MISSING
             ok, detalle, summary, user = EnrollmentRequestService._create_account_with_sii_nip(
-                db, req, cohort, secret, program_id=resolved_program_id,
+                db, req, cohort, secret, program_id=program_id,
                 actor_id=actor_id, approved_by_id=actor_id,
-                event_extra={"nip_source": "sii"})
+                event_extra={**(event_extra or {}), "nip_source": "sii"})
             del secret
             if not ok:
-                return False, detalle
+                return False, detalle, None
             req.reviewed_by_id = actor_id
             req.reviewed_at = now
             db.commit()
             ImportService.invalidate_authz((summary or {}).get("authz_touched"))
             EnrollmentRequestService._mail_access(db, req, user, None, nip_source="sii")
-            return True, detalle
+            return True, detalle, None
 
         if mode != "computer_center":
             # ── SIN cuenta, modo oficial: a Centro de Cómputo, sin correo ──
             req.status = "awaiting_access"
-            req.program_id = resolved_program_id
+            req.program_id = program_id
             req.reviewed_by_id = actor_id
             req.reviewed_at = now
             db.commit()
-            return True, ""
+            return True, "", None
 
         # ── SIN cuenta, modo alterno: usuario nuevo con el NIP, en un paso ──
         ok, detalle, summary, user = EnrollmentRequestService._create_account(
-            db, req, cohort, nip=nip, program_id=resolved_program_id,
-            actor_id=actor_id, approved_by_id=actor_id)
+            db, req, cohort, nip=nip, program_id=program_id,
+            actor_id=actor_id, approved_by_id=actor_id, event_extra=event_extra)
         if not ok:
-            return False, detalle
+            return False, detalle, None
         req.reviewed_by_id = actor_id
         req.reviewed_at = now
         db.commit()
@@ -601,7 +645,7 @@ class EnrollmentRequestService:
         # de authz con los roles de antes de aprobar.
         ImportService.invalidate_authz((summary or {}).get("authz_touched"))
         EnrollmentRequestService._mail_access(db, req, user, nip)
-        return True, detalle
+        return True, detalle, None
 
     @staticmethod
     def grant_access(db: Session, req_id: int, *, nip: str, actor_id: int):
