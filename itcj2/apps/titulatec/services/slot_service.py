@@ -48,7 +48,8 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.services.appointment_errors import (
-    AppointmentConflict, InvalidSlot, MissingSchedule, SlotFull, SlotLockTimeout,
+    AppointmentConflict, EnrollmentRevoked, InvalidSlot, MissingSchedule, SlotFull,
+    SlotLockTimeout,
 )
 
 # Namespace del advisory lock que serializa las citas de un mismo proceso.
@@ -252,7 +253,12 @@ class SlotService:
 
     @staticmethod
     def _lock_process(db: Session, process_id: int) -> None:
-        """Serializa las citas de un mismo proceso entre ventanas distintas."""
+        """Serializa las citas de un mismo proceso entre ventanas distintas.
+
+        También lo toma `ProcessService.cancel`, ANTES del `FOR UPDATE` de la
+        fila del proceso: así revocar y agendar el mismo proceso no se cruzan
+        (ver `_open_new_attempt`, punto 5).
+        """
         db.execute(text("SELECT pg_advisory_xact_lock(:ns, :pid)"),
                    {"ns": _PROCESO_LOCK_NS, "pid": int(process_id)})
 
@@ -293,8 +299,28 @@ class SlotService:
            `create` se queda como rechazo rápido sin pagar locks.
            `reschedule` y `assign_batch` NO la piden: superar una cita activa
            es precisamente lo que vienen a hacer.
+        5. La revocación, mismo TOCTOU con otro escritor.
+           `AppointmentService._assert_not_revoked` corre fuera de los locks:
+           un `create`/`reschedule` que la pasa con `active` y se queda
+           esperando el lock de la ventana podía sentar en la agenda a un
+           proceso que `ProcessService.cancel` revocó en ese intervalo (el
+           `cancel` no veía cita vigente que cancelar). `cancel` toma este
+           mismo advisory antes de leer la cita, así que aquí dentro solo hay
+           dos órdenes posibles: o la revocación ya hizo commit y se lee
+           abajo, o espera a que esta cita haga commit y la cancela ella.
+           Sin condición, a diferencia del 4: ni `create`, ni `reschedule`, ni
+           el reparto masivo tienen por qué sentar a un revocado (en el
+           reparto, uno revocado aborta el lote entero; hoy no tiene
+           llamadores en producción). La lectura es de COLUMNA a
+           propósito: un `db.get` devolvería el objeto que la guarda rápida
+           dejó en el mapa de identidad, todavía `active`.
         """
-        from itcj2.apps.titulatec.models import ReviewAppointment
+        from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
+
+        estado = (db.query(TitulationProcess.status)
+                  .filter(TitulationProcess.id == process_id).scalar())
+        if estado == "cancelled":
+            raise EnrollmentRevoked()
 
         vigente = (db.query(ReviewAppointment)
                    .filter_by(process_id=process_id, is_current=True)
@@ -326,8 +352,9 @@ class SlotService:
         scheduled/confirmed/in_progress—; conserva su status si no, p. ej.
         `no_show`) e INSERTA un intento nuevo con `attempt_no+1`
         (`_open_new_attempt`). Devuelve la `ReviewAppointment` recién
-        creada, siempre vigente. Levanta `MissingSchedule`, `InvalidSlot` o
-        `SlotFull`.
+        creada, siempre vigente. Levanta `MissingSchedule`, `InvalidSlot`,
+        `SlotFull` o, si el proceso quedó revocado mientras esperaba el lock,
+        `EnrollmentRevoked`.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
 

@@ -539,6 +539,11 @@ class AppointmentService:
         `completed` conservan el comportamiento de antes de la revocación. Lo
         que se cierra es que un tablero rancio le ocupe una franja a una
         inscripción que Servicios Escolares ya revocó.
+
+        Es el rechazo RÁPIDO, fuera de los locks (igual que la guarda de D4 en
+        `create`): no cierra la carrera con una revocación concurrente. La
+        comprobación que decide va dentro del advisory del proceso, en
+        `SlotService._open_new_attempt` (punto 5).
         """
         from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.services.appointment_errors import EnrollmentRevoked

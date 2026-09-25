@@ -423,7 +423,7 @@ class SelfBookingService:
         """
         from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.services.appointment_errors import (
-            AppointmentConflict, MissingSchedule,
+            AppointmentConflict, EnrollmentRevoked, MissingSchedule,
         )
         from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
@@ -480,6 +480,12 @@ class SelfBookingService:
         # `refresca_la_vista` para `tiene_cita`, igual que `AppointmentConflict`,
         # así que la ruta sigue respondiendo 200 con el panel fresco — que es lo
         # correcto, porque la pantalla del alumno SÍ está rancia.
+        #
+        # Lo mismo con la revocación: si Servicios Escolares revoca mientras el
+        # clic espera el lock, `create` levanta `EnrollmentRevoked` (dentro del
+        # advisory, `SlotService._open_new_attempt` punto 5), cuyo texto es del
+        # encargado («La inscripción de este alumno…»). Aquí significa la
+        # regla 1 de §3, y dice lo que ya decía el camino secuencial.
         try:
             return AppointmentService.create(
                 db, process_id, window_id=ventana.id, slot_start=slot_start,
@@ -487,6 +493,9 @@ class SelfBookingService:
         except AppointmentConflict:
             raise SelfBookingNotAllowed(
                 "tiene_cita", SelfBookingService.message_for("tiene_cita"))
+        except EnrollmentRevoked:
+            raise SelfBookingNotAllowed(
+                "proceso_inactivo", SelfBookingService.message_for("proceso_inactivo"))
 
     # ----------------------------------------------------------- §4.1: cancelar
     @staticmethod

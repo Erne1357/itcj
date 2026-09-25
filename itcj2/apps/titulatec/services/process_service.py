@@ -69,8 +69,10 @@ class ProcessService:
                actor_id: int | None) -> tuple[bool, str]:
         """Revoca la inscripción. Dueña de la transacción. `(ok, mensaje)`.
 
-        En UNA transacción, bajo `FOR UPDATE` del proceso (dos personas de
-        Servicios Escolares sobre la misma fila): `status='cancelled'`, cancela
+        En UNA transacción, bajo el advisory de las citas del proceso
+        (`SlotService._lock_process`: que no se cruce con quien lo está
+        agendando) y el `FOR UPDATE` de su fila (dos personas de Servicios
+        Escolares sobre la misma fila): `status='cancelled'`, cancela
         la cita VIGENTE si todavía se puede cancelar (`scheduled`/`confirmed`:
         libera su franja, D12) y deja el evento `process_cancelled` con el
         motivo. Una vigente `in_progress`, `no_show` o `attended` se deja como
@@ -90,6 +92,7 @@ class ProcessService:
         from itcj2.apps.titulatec.models import ProcessEvent, TitulationProcess
         from itcj2.apps.titulatec.services.appointment_service import AppointmentService
         from itcj2.apps.titulatec.services.notify import notify_student
+        from itcj2.apps.titulatec.services.slot_service import SlotService
         from itcj2.core.utils.timezone import db_now
 
         motivo = (reason or "").strip()
@@ -98,6 +101,19 @@ class ProcessService:
         if len(motivo) > _REASON_MAX:
             return False, _MSG_REASON_LONG
 
+        # El advisory de las citas del proceso, ANTES de leer la cita vigente.
+        # Sin él, un `create`/`reschedule` que ya pasó su guarda rápida y está
+        # insertando no se ve (todavía no hizo commit): `cancel` leería «sin
+        # cita», revocaría, y la cita nacería vigente sobre un proceso
+        # `cancelled`. Con él, o esa cita ya hizo commit y se cancela abajo, o
+        # es ella la que espera y ve `cancelled` dentro del mismo lock
+        # (`SlotService._open_new_attempt`, punto 5).
+        #
+        # Y antes del `FOR UPDATE` de la fila, no después: `assign` toma
+        # ventana -> advisory, y al insertar la cita la FK pide `FOR KEY SHARE`
+        # sobre esta fila. Con la fila tomada primero, cada uno esperaría al
+        # otro (deadlock).
+        SlotService._lock_process(db, process_id)
         proc = (db.query(TitulationProcess).filter_by(id=process_id)
                 .with_for_update().first())
         if proc is None:

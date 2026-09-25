@@ -238,6 +238,183 @@ class TestCita:
                                       created_by_id=agenda_slots["off"].id)
         assert "revocada" in str(exc.value)
 
+    def test_no_se_le_reagenda_a_un_revocado(self, db_session, agenda_slots,
+                                             make_survey_review):
+        """Reagendar tampoco sienta a un revocado. En secuencia lo para ya la
+        guarda rápida de `reschedule`, antes de los locks; la carrera la cubre
+        `TestCarreraConLaAgenda`."""
+        from datetime import time
+        from itcj2.apps.titulatec.services.appointment_errors import EnrollmentRevoked
+        from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+        proc = agenda_slots["p1"]
+        make_survey_review(proc)
+        appt = AppointmentService.create(db_session, proc.id, window_id=agenda_slots["w"].id,
+                                         slot_start=time(9, 0),
+                                         created_by_id=agenda_slots["off"].id)
+        proc.status = "cancelled"
+        db_session.flush()
+
+        with pytest.raises(EnrollmentRevoked):
+            AppointmentService.reschedule(db_session, appt, window_id=agenda_slots["w"].id,
+                                          slot_start=time(9, 30),
+                                          actor_id=agenda_slots["off"].id)
+
+
+# ===========================================================================
+# 2b. La carrera revocar <-> agendar (TOCTOU, revisión de la T6)
+# ===========================================================================
+def _revoca_mientras_espera_el_lock(monkeypatch, db, process_id):
+    """Simula que la revocación hizo commit MIENTRAS `assign` esperaba su lock.
+
+    El escenario real: la guarda rápida de `create` lee `active`, el encargado
+    se queda esperando el lock de la ventana y, entretanto, Servicios Escolares
+    revoca y hace commit. Con una sola sesión de test no hay dos transacciones,
+    así que se reproduce lo que la de la cita VE al conseguir el lock: la fila
+    ya dice `cancelled` en la base, pero el objeto que la guarda rápida dejó en
+    el mapa de identidad sigue diciendo `active`. Por eso el UPDATE va por SQL
+    crudo y no por el ORM.
+    """
+    from sqlalchemy import text
+    from itcj2.apps.titulatec.services.slot_service import SlotService
+
+    original = SlotService._lock_window
+
+    def _lock_y_revoca(db_, window_id):
+        window = original(db_, window_id)
+        db_.execute(text("UPDATE titulatec_processes SET status = 'cancelled' "
+                         "WHERE id = :pid"), {"pid": process_id})
+        return window
+
+    monkeypatch.setattr(SlotService, "_lock_window", staticmethod(_lock_y_revoca))
+
+
+class TestCarreraConLaAgenda:
+    """Hallazgo Important de la revisión: `_assert_not_revoked` corre FUERA de
+    los locks. Sin una comprobación DENTRO del advisory del proceso, un
+    `create` que ya pasó la guarda sentaba en la agenda a un proceso que se
+    revocó mientras esperaba, y el alumno recibía «Tu cita fue agendada»
+    después de «inscripción cancelada»."""
+
+    def test_agendar_no_sienta_a_quien_revocaron_mientras_esperaba(
+            self, db_session, agenda_slots, make_survey_review, monkeypatch):
+        from datetime import time
+        from itcj2.apps.titulatec.services.appointment_errors import EnrollmentRevoked
+        from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+        proc = agenda_slots["p1"]
+        make_survey_review(proc)
+        _revoca_mientras_espera_el_lock(monkeypatch, db_session, proc.id)
+
+        with pytest.raises(EnrollmentRevoked):
+            AppointmentService.create(db_session, proc.id, window_id=agenda_slots["w"].id,
+                                      slot_start=time(9, 0),
+                                      created_by_id=agenda_slots["off"].id)
+
+        assert AppointmentService.get_for_process(db_session, proc.id) is None
+        assert _events(db_session, proc.id, "appointment_scheduled") == []
+
+    def test_reagendar_no_mueve_a_quien_revocaron_mientras_esperaba(
+            self, db_session, agenda_slots, make_survey_review, monkeypatch):
+        from datetime import time
+        from itcj2.apps.titulatec.services.appointment_errors import EnrollmentRevoked
+        from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+        proc = agenda_slots["p1"]
+        make_survey_review(proc)
+        appt = AppointmentService.create(db_session, proc.id, window_id=agenda_slots["w"].id,
+                                         slot_start=time(9, 0),
+                                         created_by_id=agenda_slots["off"].id)
+        _revoca_mientras_espera_el_lock(monkeypatch, db_session, proc.id)
+
+        with pytest.raises(EnrollmentRevoked):
+            AppointmentService.reschedule(db_session, appt, window_id=agenda_slots["w"].id,
+                                          slot_start=time(9, 30),
+                                          actor_id=agenda_slots["off"].id)
+
+        assert _events(db_session, proc.id, "appointment_rescheduled") == []
+
+    def test_el_alumno_que_agenda_a_la_vez_lee_su_propio_mensaje(
+            self, db_session, agenda_slots, make_survey_review, monkeypatch):
+        """El auto-agendado delega en `create`, así que choca con la misma
+        comprobación. Lo que le llega al alumno es lo que ya le decía el
+        camino secuencial (`proceso_inactivo`), no el texto del encargado
+        («La inscripción de este alumno…»)."""
+        from datetime import time
+        from itcj2.apps.titulatec.services.appointment_errors import SelfBookingNotAllowed
+        from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+        proc = agenda_slots["p1"]
+        make_survey_review(proc)
+        agenda_slots["w"].visibility = "bookable"
+        db_session.flush()
+        _revoca_mientras_espera_el_lock(monkeypatch, db_session, proc.id)
+
+        with pytest.raises(SelfBookingNotAllowed) as exc:
+            SelfBookingService.book(db_session, proc.id, agenda_slots["w"].id,
+                                    time(9, 30), proc.student_id)
+
+        assert exc.value.reason == "proceso_inactivo"
+        assert str(exc.value) == SelfBookingService.message_for("proceso_inactivo")
+
+    def test_revocar_espera_a_la_cita_que_se_esta_agendando(
+            self, db_session, esc, correos, _pg_engine):
+        """Del otro lado: `cancel` tiene que esperar el advisory de las citas del
+        proceso. Si no, lee «sin cita vigente» mientras un `create` que ya tiene
+        el lock está insertando, y la cita nace sobre un proceso revocado.
+
+        Aquí sí hay dos conexiones de verdad: la segunda solo sostiene el
+        advisory (no lee nada de este test), y un `lock_timeout` corto convierte
+        «se quedó esperando» en un error medible en vez de un test colgado.
+        """
+        from sqlalchemy import text
+        from sqlalchemy.exc import OperationalError
+        from itcj2.apps.titulatec.services.slot_service import _PROCESO_LOCK_NS
+        proc = esc["proc"]()
+
+        otra = _pg_engine.connect()
+        tx = otra.begin()
+        try:
+            otra.execute(text("SELECT pg_advisory_xact_lock(:ns, :pid)"),
+                         {"ns": _PROCESO_LOCK_NS, "pid": proc.id})
+            db_session.execute(text("SET LOCAL lock_timeout = '300ms'"))
+
+            with pytest.raises(OperationalError):
+                _svc().cancel(db_session, proc.id, reason="Revocada",
+                              actor_id=esc["actor"].id)
+        finally:
+            tx.rollback()
+            otra.close()
+            db_session.rollback()
+        assert correos == []
+
+    def test_revocar_toma_el_lock_de_citas_antes_que_la_fila_del_proceso(
+            self, db_session, esc, correos):
+        """El orden no es decorativo. `assign` toma ventana -> advisory, y al
+        insertar la cita la FK pide `FOR KEY SHARE` sobre la fila del proceso.
+        Si `cancel` tomara primero el `FOR UPDATE` de esa fila y después el
+        advisory, cada uno esperaría al otro: deadlock."""
+        from sqlalchemy import event
+        proc = esc["proc"]()
+        sentencias: list[str] = []
+
+        def _captura(conn, cursor, statement, parameters, context, executemany):
+            sentencias.append(" ".join(statement.split()))
+
+        conn = db_session.connection()
+        event.listen(conn, "before_cursor_execute", _captura)
+        try:
+            ok, _ = _svc().cancel(db_session, proc.id, reason="Revocada",
+                                  actor_id=esc["actor"].id)
+        finally:
+            event.remove(conn, "before_cursor_execute", _captura)
+
+        assert ok
+
+        def _primera(pred):
+            return next(i for i, s in enumerate(sentencias) if pred(s))
+
+        advisory = _primera(lambda s: "pg_advisory_xact_lock" in s)
+        fila = _primera(lambda s: "FROM titulatec_processes" in s and "FOR UPDATE" in s)
+        citas = _primera(lambda s: "FROM titulatec_review_appointments" in s)
+        assert advisory < fila < citas
+
 
 # ===========================================================================
 # 3. Guardas y listados que lo excluyen
