@@ -451,7 +451,12 @@ def test_la_regla_del_nip_vive_en_un_solo_lugar():
 
     src = _inspect.getsource(mod)
     assert r"\d{4}" not in src
-    assert src.count("_NIP_RE.fullmatch(") == 2
+    # Revisión final: la regla vive en `nip_format_ok` (también la usa
+    # `sii-check`); `_create_account` y `reassign_nip` la llaman.
+    assert src.count("_NIP_RE.fullmatch(") == 1
+    for fn in (mod.EnrollmentRequestService._create_account,
+               mod.EnrollmentRequestService.reassign_nip):
+        assert "nip_format_ok(" in _inspect.getsource(fn)
 
 
 def test_dar_acceso_a_una_solicitud_inexistente(db_session):

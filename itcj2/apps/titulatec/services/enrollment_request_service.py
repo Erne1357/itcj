@@ -168,12 +168,14 @@ _ENTRY_YEAR_RE = re.compile(r"^[A-Za-z]?(\d{2})")
 
 # EL NIP: 4 dígitos ASCII. `[0-9]`, no `\d`: en `re` de Python `\d` también
 # casa dígitos Unicode («１２３４», «١٢٣٤») que nadie puede teclear en el login.
-# Única regla: la usan `_create_account` y `reassign_nip`.
+# Única regla: `nip_format_ok`, que usan `_create_account`, `reassign_nip` y
+# `sii-check`.
 _NIP_RE = re.compile(r"[0-9]{4}")
 
 
 def nip_format_ok(nip: str | None) -> bool:
-    """¿`nip` sirve como NIP (exactamente 4 dígitos ASCII, `_NIP_RE`)? Lo usa
+    """¿`nip` sirve como NIP (exactamente 4 dígitos ASCII, `_NIP_RE`)? La
+    ÚNICA regla del NIP: la usan `_create_account` y `reassign_nip`, y
     `sii-check` para decir si el del SII serviría SIN mostrarlo."""
     return bool(_NIP_RE.fullmatch(nip or ""))
 
@@ -932,7 +934,7 @@ class EnrollmentRequestService:
             EnrollmentRequest, ProcessEvent, TitulationProcess,
         )
 
-        if not _NIP_RE.fullmatch(nip or ""):
+        if not nip_format_ok(nip):
             return False, _MSG_BAD_NIP
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
@@ -1035,7 +1037,7 @@ class EnrollmentRequestService:
             GRADUATE_ROLE, ImportService,
         )
 
-        if not _NIP_RE.fullmatch(nip or ""):
+        if not nip_format_ok(nip):
             return False, _MSG_BAD_NIP, None, None
         control = (req.control_number or "").strip()
 
