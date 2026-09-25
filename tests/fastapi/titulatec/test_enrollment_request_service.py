@@ -472,15 +472,18 @@ def test_reject_toma_lock_y_refresca_antes_de_leer_status():
 
 
 # ---------------------------------------------------------------------------
-# Índice parcial de solicitud VIVA: `approved` también cuenta (2026-09-15)
+# Índice parcial de solicitud VIVA: `approved` y `awaiting_access` también
+# cuentan (2026-09-15 / 2026-09-24)
 # ---------------------------------------------------------------------------
-# `approved` significa "la liga de activación va en camino". Si otra solicitud
-# del mismo control pudiera nacer viva en la misma convocatoria, la bandeja
-# podría aprobarla también y la misma persona recibiría dos ligas (o una liga y
-# un NIP). La regla vive en la BD, no solo en `create()`: dos altas simultáneas
-# no pasan por el mismo `if`.
-_PREDICADO_VIVO = "status IN ('unverified','verified','pending_review','approved')"
-_PREDICADO_ANTERIOR = "status IN ('unverified','verified','pending_review')"
+# `approved` significa "la liga de activación va en camino". `awaiting_access`
+# significa "Servicios Escolares ya aprobó y Centro de Cómputo todavía no da
+# NIP/usuario". Si otra solicitud del mismo control pudiera nacer viva en la
+# misma convocatoria, la bandeja podría aprobarla también y la misma persona
+# recibiría dos ligas (o un NIP repetido). La regla vive en la BD, no solo en
+# `create()`: dos altas simultáneas no pasan por el mismo `if`.
+_PREDICADO_VIVO = ("status IN ('unverified','verified','pending_review','approved',"
+                    "'awaiting_access')")
+_PREDICADO_ANTERIOR = "status IN ('unverified','verified','pending_review','approved')"
 
 
 def _fila_viva(cohort, control, status):
@@ -501,7 +504,7 @@ def test_una_solicitud_approved_bloquea_otra_viva_del_mismo_control(db_session, 
     db_session.add(_fila_viva(cohort, "99000090", "approved"))
     db_session.flush()
 
-    for viva in ("pending_review", "approved"):
+    for viva in ("pending_review", "approved", "awaiting_access"):
         with pytest.raises(IntegrityError):
             with db_session.begin_nested():
                 db_session.add(_fila_viva(cohort, "99000090", viva))
@@ -533,10 +536,10 @@ def test_el_modelo_y_la_migracion_declaran_el_mismo_predicado():
     assert _norm(str(indice.dialect_options["postgresql"]["where"])) == _norm(_PREDICADO_VIVO)
 
     migracion = (Path(itcj2.__file__).resolve().parent.parent / "migrations" / "versions"
-                 / "tt20260915a_titulatec_enrollment_open_approved.py")
+                 / "tt20260924a_titulatec_enrollment_access.py")
     src = migracion.read_text(encoding="utf-8")
-    assert 'revision = "tt20260915a"' in src
-    assert 'down_revision = "tt20260908a"' in src
+    assert 'revision = "tt20260924a"' in src
+    assert 'down_revision = "hd20260922a"' in src
     assert _norm(_PREDICADO_VIVO) in _norm(src), "el upgrade debe crear el predicado nuevo"
     assert _norm(_PREDICADO_ANTERIOR) in _norm(src), "el downgrade debe restaurar el anterior"
 

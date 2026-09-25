@@ -1,18 +1,29 @@
 """Solicitud de auto-inscripcion a una convocatoria (convocatoria abierta).
 
 Estados (2026-09-15: toda solicitud pasa por la bandeja de Servicios Escolares
-y el acceso llega solo por correo; el flujo completo esta en
+y el acceso llega solo por correo; 2026-09-24: en el modo OFICIAL, aprobar sin
+cuenta ya no crea el usuario de una vez, sino que la manda a Centro de Computo
+para que de el NIP -- el flujo completo esta en
 `services/enrollment_request_service.py` y `docs/flows/xcut_public_enrollment.md`):
 
   pending_review --aprobar, SIN cuenta en core_users--> converted  (usuario + NIP por correo)
+                                                        [modo alterno; ver abajo]
+  pending_review --aprobar, SIN cuenta, modo oficial--> awaiting_access  (SIN correo)
   pending_review --aprobar, CON cuenta--------------> approved   (liga de activacion por correo)
   approved --abrir la liga--------------------------> converted
   approved --la liga falla una revalidacion---------> pending_review (review_note = motivo)
-  pending_review | approved | legado --rechazar-----> rejected
+  awaiting_access --Centro de Computo da acceso, SIN cuenta--> converted (usuario + NIP por correo)
+  awaiting_access --Centro de Computo devuelve---------------> pending_review (return_note = motivo)
+  pending_review | approved | awaiting_access | legado --rechazar-----> rejected
 
   `unverified` y `verified` son LEGADO del flujo con liga previa: ya no se
   escriben, pero sus filas se pueden aprobar o rechazar. Por eso el
   `server_default` sigue en 'unverified'; `create()` escribe 'pending_review'.
+
+  Las columnas `access_*` las escribe `grant_access()` (y `approve()` en el
+  modo alterno, y `reassign_nip()`); `returned_*`/`return_note` las escribe
+  `return_to_review()`. Ver `docs/superpowers/specs/2026-09-24-titulatec-
+  accesos-centro-computo-design.md`.
 
 `kind` (known|unknown) se guarda al crear SOLO para mostrar: "tiene cuenta?" se
 decide contra `core_users` al aprobar.
@@ -41,9 +52,11 @@ from itcj2.models.base import Base
 # Estados VIVOS: una solicitud en cualquiera de ellos ocupa el lugar del par
 # (convocatoria, numero de control). `approved` entra el 2026-09-15: es la liga
 # de activacion en camino, y otra solicitud viva del mismo control abriria una
-# segunda liga (o un NIP) para la misma persona. `unverified` y `verified` son
-# estados legado que ya no se escriben, pero siguen protegiendo filas viejas.
-OPEN_STATUSES = ("unverified", "verified", "pending_review", "approved")
+# segunda liga (o un NIP) para la misma persona. `awaiting_access` entra el
+# 2026-09-24: es el mismo riesgo mientras Centro de Computo todavia no da el
+# NIP. `unverified` y `verified` son estados legado que ya no se escriben,
+# pero siguen protegiendo filas viejas.
+OPEN_STATUSES = ("unverified", "verified", "pending_review", "approved", "awaiting_access")
 _OPEN_PREDICATE = "status IN (" + ",".join(f"'{s}'" for s in OPEN_STATUSES) + ")"
 
 
@@ -52,8 +65,9 @@ class EnrollmentRequest(Base):
     # Un UniqueConstraint normal no sirve: impediria reintentar despues de un
     # rechazo. El indice PARCIAL deja fuera 'rejected' y 'converted' y solo
     # prohibe duplicados VIVOS. Se declara aqui ademas de en la migracion
-    # (`tt20260915a`) porque el `create_all` del CI no pasa por Alembic; los dos
-    # predicados los amarra `test_el_modelo_y_la_migracion_declaran_el_mismo_predicado`.
+    # (`tt20260915a`, extendida por `tt20260924a`) porque el `create_all` del
+    # CI no pasa por Alembic; los dos predicados los amarra
+    # `test_el_modelo_y_la_migracion_declaran_el_mismo_predicado`.
     __table_args__ = (
         Index("uq_titulatec_enrollment_req_open", "cohort_id", "control_number",
               unique=True,
@@ -99,6 +113,22 @@ class EnrollmentRequest(Base):
     converted_process_id = Column(Integer, ForeignKey("titulatec_processes.id"),
                                   nullable=True)
     created_ip_hash = Column(String(64), nullable=True)
+
+    # --- Acceso por Centro de Computo (2026-09-24) ---
+    # Escritas por `grant_access()` (y por `approve()`/`reassign_nip()` en sus
+    # ramas sin liga). `access_sent_at` queda NULL si el correo con el
+    # usuario y el NIP no salio (mismo patron que `verify_sent_at`); el NIP en
+    # si NUNCA se guarda aqui ni en ningun lado en claro.
+    access_granted_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
+    access_granted_at = Column(DateTime, nullable=True)
+    access_sent_at = Column(DateTime, nullable=True)
+
+    # Escritas por `return_to_review()`: Centro de Computo regresa la solicitud
+    # a Servicios Escolares sin dar acceso. `return_note` es la nota de CC;
+    # `review_note` (arriba) sigue siendo la de SE/sistema.
+    returned_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
+    returned_at = Column(DateTime, nullable=True)
+    return_note = Column(Text, nullable=True)
 
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     updated_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
