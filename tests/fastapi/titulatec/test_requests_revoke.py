@@ -11,7 +11,8 @@ Contrato que fija este archivo:
 - Motivo obligatorio (es lo que el alumno lee): vacío = 400 sin escribir.
 - Solo una solicitud `converted` con proceso: sin proceso, o con el proceso ya
   revocado o concluido, 400 + `X-Tt-Error` con el motivo del servicio.
-- En modo alterno la bandeja es de solo lectura: 400 y nada escrito.
+- En modo alterno la bandeja es de solo lectura: 400 y nada escrito; la
+  revocación sigue en el expediente, que no depende del modo.
 - La fila ofrece el formulario solo a quien tiene el permiso y solo sobre un
   proceso revocable; una revocada dice «Inscripción revocada: motivo».
 - Sin `hx-confirm` (no hay puente en esta bandeja).
@@ -344,3 +345,31 @@ def test_en_modo_alterno_revocar_responde_400_sin_escribir(
     db_session.refresh(proc)
     assert proc.status == "active"
     assert correos == []
+
+
+def test_en_modo_alterno_se_revoca_desde_el_expediente(
+    client_as, db_session, make_head, esc, modo_alterno, correos,
+):
+    """Premisa de cortar la bandeja en modo alterno: SE no pierde la revocación.
+
+    La bandeja es de solo lectura en ese modo (spec 2026-09-24 §8.1, «sin
+    formularios»), pero el expediente no depende del modo (spec 2026-09-25
+    §3.6): si algún día se cortara también, SE se quedaría sin revocar.
+    """
+    req, proc = esc["inscrita"]("99660017")
+    c = client_as(make_head(perm_codes=REVOKE_PERMS + ("titulatec.process.page.detail",)))
+
+    # El modo alterno está en vigor: la bandeja no revoca...
+    assert _post(c, req).status_code == 400
+    # ...y el expediente sí.
+    resp = c.post(f"/titulatec/admin/processes/{proc.id}/cancelar",
+                  data={"reason": "Documentación apócrifa"})
+
+    assert resp.status_code == 200, _msg(resp)
+    db_session.refresh(proc)
+    assert proc.status == "cancelled"
+    assert correos == [proc.id]
+    # La bandeja, en solo lectura, lo dice igual (sin formulario).
+    fila = _fila(c.get(f"{URL}/body?status=converted").text, req)
+    assert "Inscripción revocada: Documentación apócrifa" in _plano(fila)
+    assert "<form" not in fila

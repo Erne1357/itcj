@@ -28,7 +28,10 @@ por aquí: la bandeja lee la `EligibilityCheck`, que no lo guarda.
 proceso en que se convirtió la solicitud, con `titulatec.process.api.cancel` y
 motivo obligatorio; la escritura es de `ProcessService.cancel`. La fila revocada
 dice «Inscripción revocada: motivo» (`ProcessService.cancellation_info`). Como
-aprobar, rechazar y reenviar, queda cortada en el modo alterno (solo lectura).
+aprobar, rechazar y reenviar, queda cortada en el modo alterno: la bandeja es de
+solo lectura, «sin formularios» (spec 2026-09-24 §8.1), y el spec 2026-09-25
+conserva ese modo tal cual (S1). En ese modo se revoca desde el expediente
+(`admin.process_cancel`), que no depende del modo.
 """
 import logging
 from datetime import datetime, timedelta
@@ -701,7 +704,8 @@ async def revocar(req_id: int, request: Request,
     carrera de la SOLICITUD, como aprobar y rechazar (404 liso). Una solicitud
     sin inscripción, o con el proceso ya revocado o concluido, es 400 con el
     motivo; el del servicio va por `_hdr` (trae acentos). En el modo alterno la
-    bandeja es de solo lectura, también para esto (`_alternate_mode_block`).
+    bandeja es de solo lectura, también para esto (`_alternate_mode_block`); ahí
+    se revoca desde el expediente.
     """
     bloqueo = _alternate_mode_block()
     if bloqueo is not None:
