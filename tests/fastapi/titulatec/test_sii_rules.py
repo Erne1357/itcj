@@ -427,6 +427,50 @@ class TestValidador:
     def test_sql_que_no_es_un_select(self, tmp_path, sql):
         assert _errores(tmp_path, sql=sql) != []
 
+    @pytest.mark.parametrize("segunda", [
+        "SETUSER 'dbo'",
+        "PRINT 'x'",
+        "RAISERROR 20001 'x'",
+        "QUIESCE DATABASE t HOLD d",
+        "REORG REBUILD x",
+        "MOUNT DATABASE ALL FROM 'm'",
+        "UNMOUNT DATABASE d TO 'm'",
+        "ONLINE DATABASE d",
+        "GOTO fin",
+        "RETURN",
+        "IF 1 = 1 PRINT 'x'",
+        "WHILE 1 = 1 BREAK",
+        "CONTINUE",
+        "OPEN c",
+        "FETCH c",
+        "CLOSE c",
+        "CONNECT TO srv",
+        "DISCONNECT",
+        "REMOVE JAVA PACKAGE p",
+        "TRANSFER TABLE x TO 'f'",
+        "REFRESH PRECOMPUTED RESULT SET prs",
+    ])
+    def test_una_segunda_sentencia_sin_punto_y_coma_con_cualquier_verbo(
+        self, tmp_path, segunda,
+    ):
+        """Revisión de F1 (brief punto 7): T-SQL separa sentencias sin `;`, así
+        que un segundo statement de nivel superior que NO empiece con SELECT
+        (`… WHERE ctl = ? SETUSER 'dbo'`) también se rechaza, no solo un
+        segundo SELECT."""
+        sql = f"SELECT a FROM x WHERE ctl = ? {segunda}"
+        errs = _errores(tmp_path / "misma", sql=sql)
+        verbo = segunda.split()[0].upper()
+        assert any(verbo in e for e in errs), (sql, errs)
+        # En otra línea, y en minúsculas, igual.
+        otra = f"SELECT a FROM x WHERE ctl = ?\n{segunda.lower()}"
+        assert _errores(tmp_path / "otra", sql=otra) != []
+
+    def test_una_columna_que_se_llama_como_un_verbo_va_entre_corchetes(self, tmp_path):
+        sql = "SELECT [print], [online], [transfer] FROM x WHERE ctl = ?"
+        assert _errores(tmp_path / "con", sql=sql) == []
+        errs = _errores(tmp_path / "sin", sql="SELECT online FROM x WHERE ctl = ?")
+        assert any("ONLINE" in e and "corchetes" in e for e in errs), errs
+
     @pytest.mark.parametrize("sql", [
         "SELECT * FROM x WHERE ctl = ?;",
         "  -- comentario con DELETE; y UPDATE\nSELECT a FROM x WHERE ctl = ?",

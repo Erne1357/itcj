@@ -74,6 +74,16 @@ _FORBIDDEN_WORDS = frozenset({
     "WAITFOR", "BEGIN", "COMMIT", "ROLLBACK", "SAVE", "DBCC", "DISK",
     "CHECKPOINT", "WRITETEXT", "READTEXT", "BULK", "PREPARE", "DEALLOCATE",
     "LOCK", "UNLOCK", "RENAME",
+}) | frozenset({
+    # Verbos que solo EMPIEZAN una sentencia de ASE (control de flujo,
+    # cursores, administración). Ninguno cabe en un SELECT de solo lectura, así
+    # que un segundo statement de nivel superior SIN `;` que empiece con otro
+    # verbo (`… WHERE ctl = ? SETUSER 'dbo'`) se rechaza igual que un segundo
+    # SELECT (`_top_level_selects`). Casi todos son palabras reservadas de ASE:
+    # una columna que se llame así ya iba entre corchetes (revisión de F1).
+    "SETUSER", "PRINT", "RAISERROR", "QUIESCE", "REORG", "MOUNT", "UNMOUNT",
+    "ONLINE", "GOTO", "RETURN", "IF", "WHILE", "BREAK", "CONTINUE", "OPEN",
+    "FETCH", "CLOSE", "CONNECT", "DISCONNECT", "REMOVE", "TRANSFER", "REFRESH",
 })
 # Procedimientos de sistema de ASE (`sp_who`, `xp_cmdshell`): en T-SQL se
 # llaman sin EXEC como sentencia siguiente. Una columna que empiece así va
@@ -248,7 +258,8 @@ def _sql_errors(sql: str, n_params: int) -> list[str]:
                  | {w for w in words if _FORBIDDEN_PREFIX_RE.match(w)})
     if bad:
         errors.append("contiene palabras no permitidas en una consulta de solo "
-                      "lectura: " + ", ".join(bad))
+                      "lectura: " + ", ".join(bad) + " (si es el nombre de una "
+                      "columna, escríbela entre corchetes: [nombre])")
     if _top_level_selects(body) > 1:
         errors.append("tiene más de una sentencia (un segundo SELECT fuera de "
                       "UNION/EXCEPT/INTERSECT; T-SQL no necesita `;`)")
