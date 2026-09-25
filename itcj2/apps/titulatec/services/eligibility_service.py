@@ -80,6 +80,12 @@ _MSG_AUTO_OFF = "La aprobación automática está apagada en esa convocatoria."
 _MSG_SII_UNREACHABLE = "No se pudo consultar el NIP en el SII; se reintentará."
 # `review_note` cuando la aprobación automática necesita a una persona.
 _NOTE_SII_NO_NIP = "El SII no devolvió NIP."
+# La consulta del NIP falló por configuración (columna de `[credential]` mal
+# escrita, sin permiso sobre la tabla, reglas que no cargan): esperar no lo
+# arregla. Solo el TIPO del error, nunca su texto (puede traer la fila).
+_NOTE_SII_NIP_CONFIG = ("No se pudo leer el NIP en el SII ({tipo}): revisa [credential] en "
+                        "las reglas del SII (titulatec sii-rules-validate) y después apruébala "
+                        "desde la bandeja.")
 
 # `falla_nip` de `fetch_sii_nip` / `EnrollmentRequestService._approve_locked`:
 # el SII respondió sin NIP, o no respondió (el nombre del tipo de su error).
@@ -380,11 +386,12 @@ class EligibilityService:
         escribe `_convert` al abrir la liga). Correo e invalidación de authz
         DESPUÉS del commit.
 
-        Lo que necesita a una persona (sin NIP en el SII, NIP con otro formato,
-        D5, sin contraseña, datos inválidos, no se pudo crear la cuenta) queda
-        `pending_review` con `review_note` = el motivo, y el barrido ya no
-        insiste. Lo transitorio (el SII no respondió al pedir el NIP) no deja
-        nota: el barrido lo reintenta.
+        Lo que necesita a una persona (sin NIP en el SII, la consulta del NIP
+        mal configurada, NIP con otro formato, D5, sin contraseña, datos
+        inválidos, no se pudo crear la cuenta) queda `pending_review` con
+        `review_note` = el motivo, y el barrido ya no insiste. Solo lo
+        transitorio (el SII no respondió al pedir el NIP, `SiiUnavailable`) no
+        deja nota: el barrido lo reintenta cuando el SII vuelva.
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest
         from itcj2.apps.titulatec.services import enrollment_request_service as ers
@@ -425,8 +432,10 @@ class EligibilityService:
             return True, detalle
         if falla_nip == NIP_MISSING:
             return _leave_note(db, req, _NOTE_SII_NO_NIP)
-        if falla_nip is not None:
+        if falla_nip == NIP_UNAVAILABLE:
             return _no(_MSG_SII_UNREACHABLE)
+        if falla_nip is not None:
+            return _leave_note(db, req, _NOTE_SII_NIP_CONFIG.format(tipo=falla_nip))
         return _leave_note(db, req, detalle)
 
     @staticmethod

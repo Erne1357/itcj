@@ -848,6 +848,60 @@ def test_si_el_sii_no_responde_al_pedir_el_nip_no_deja_nota(
     assert _usuario(db_session, "99580039") is None
 
 
+@pytest.mark.parametrize("falla,tipo", [("invalido", "SiiQueryError"),
+                                        ("sin_columna", "SiiRulesError")])
+def test_un_error_de_configuracion_al_pedir_el_nip_deja_nota_con_su_tipo(
+    db_session, make_cohort, sii, listo, caplog, falla, tipo,
+):
+    """Hallazgo I2: una consulta del NIP mal configurada (columna de
+    `[credential]` mal escrita, sin permiso sobre la tabla) no se arregla
+    esperando. Antes quedaba «Por revisar» SIN nota y el barrido la reintentaba
+    cada 10 min para siempre; ahora la nota dice por qué (solo el TIPO del
+    error: ni valores de la fila ni el texto del driver)."""
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580045")
+    if falla == "invalido":
+        sii.nip_invalido("99580045")
+    else:
+        sii.nip_sin_columna("99580045")
+
+    with caplog.at_level("DEBUG"):
+        chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert req.status == "pending_review"
+    assert req.review_note and tipo in req.review_note
+    assert "[credential]" in req.review_note
+    assert "7777" not in req.review_note and "7777" not in caplog.text
+    assert _usuario(db_session, "99580045") is None
+    assert listo == []
+
+
+def test_el_barrido_no_vuelve_a_pedir_un_nip_mal_configurado(
+    db_session, make_cohort, sii, listo, monkeypatch,
+):
+    from itcj2.apps.titulatec.services import eligibility_service as mod
+
+    req, cohort = _solicitud_apta(db_session, make_cohort, sii, "99580046")
+    sii.nip_invalido("99580046")
+    _svc().check(db_session, req.id)
+    assert req.review_note
+
+    pedidos = []
+    real = mod.fetch_sii_nip
+    monkeypatch.setattr(mod, "fetch_sii_nip", lambda c: pedidos.append(c) or real(c))
+
+    assert _svc().sweep(db_session, cohort_id=cohort.id) == {
+        "checked": 0, "approved": 0, "retried": 0}
+    assert pedidos == []
+
+
+def test_el_tipo_transitorio_del_nip_es_el_de_sii_unavailable():
+    from itcj2.apps.titulatec.services import eligibility_service as mod
+    from itcj2.apps.titulatec.services.sii.errors import SiiUnavailable
+
+    assert mod.NIP_UNAVAILABLE == SiiUnavailable.__name__
+
+
 def test_un_nip_del_sii_con_otro_formato_no_crea_cuenta_ni_se_filtra(
     db_session, make_cohort, sii, listo, caplog,
 ):
@@ -967,7 +1021,7 @@ def test_se_aprueba_sin_cuenta_con_el_nip_del_sii_e_ignora_el_del_formulario(
                                                    "nip_source": "sii"})]
 
 
-@pytest.mark.parametrize("falla", ["sin_nip", "caido"])
+@pytest.mark.parametrize("falla", ["sin_nip", "caido", "invalido"])
 def test_se_no_puede_aprobar_sin_cuenta_si_el_sii_no_da_el_nip(
     db_session, make_cohort, make_user, sii, listo, falla,
 ):
@@ -976,9 +1030,12 @@ def test_se_no_puede_aprobar_sin_cuenta_si_el_sii_no_da_el_nip(
     req = _make_req(db_session, cohort, control="99580051")
     if falla == "sin_nip":
         sii.alumno("99580051", nip=None)
-    else:
+    elif falla == "caido":
         sii.alumno("99580051")
         sii.nip_caido("99580051")
+    else:
+        sii.alumno("99580051")
+        sii.nip_invalido("99580051")
 
     ok, motivo = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id)
 
