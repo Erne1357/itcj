@@ -533,6 +533,7 @@ class EligibilityService:
         transitorio (el SII no respondió al pedir el NIP, `SiiUnavailable`) no
         deja nota: el barrido lo reintenta cuando el SII vuelva.
         """
+        from itcj2.core.models.user import User
         from itcj2.apps.titulatec.models import EnrollmentRequest
         from itcj2.apps.titulatec.services import enrollment_request_service as ers
 
@@ -542,47 +543,57 @@ class EligibilityService:
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
             return False, ers._MSG_GONE
-        _lock(db, req.id)
-        db.refresh(req)
+        ahora = now or datetime.now()
 
         def _no(motivo: str):
             db.commit()      # nada escrito: solo cierra la transacción y suelta el lock
             return False, motivo
 
-        if req.status != "pending_review":
-            return _no(ers._MSG_RESOLVED)
-        chk = EligibilityService.latest_check(db, req)
-        if chk is None or chk.status != "apt":
-            return _no(_MSG_NOT_APT)
-        delay = EligibilityService.delay_hours()
-        if delay and (chk.finished_at is None
-                      or chk.finished_at + timedelta(hours=delay) > (now or datetime.now())):
-            return _no(_MSG_IN_WINDOW)
-        cohort, motivo = ers._cohort_gate(db, req)
-        if cohort is None:
-            return _no(motivo)
-        if not cohort.sii_auto_approve:
-            return _no(_MSG_AUTO_OFF)
-        if _verdict_stale(chk, version=EligibilityService.rules_version(),
-                          now=now or datetime.now(), delay=delay,
-                          max_age=EligibilityService.verdict_max_age_hours()):
-            # Después del commit de `_no` (suelta el lock): la tarea lo toma.
-            resultado = _no(_MSG_STALE_VERDICT)
-            enqueue_check(req.id, force=True)
-            return resultado
-        bloqueo = identity_block(chk)
-        if bloqueo:
-            return _leave_note(db, req, bloqueo)
-        from itcj2.core.models.user import User
-        cuenta = (db.query(User)
-                  .filter_by(control_number=(req.control_number or "").strip()).first())
-        if cuenta is not None and not cuenta.is_active:
-            return _leave_note(db, req, _NOTE_ACCOUNT_INACTIVE)
+        # Dos vueltas como mucho: si todo pasa y hace falta el NIP del SII
+        # (sin cuenta), se pide SIN el lock (`_sii_nip_unlocked`) y la segunda
+        # vuelta revalida TODO bajo el lock (revisión final C6/C8).
+        sii_nip = None
+        while True:
+            _lock(db, req.id)
+            db.refresh(req)
+            if req.status != "pending_review":
+                return _no(ers._MSG_RESOLVED)
+            chk = EligibilityService.latest_check(db, req)
+            if chk is None or chk.status != "apt":
+                return _no(_MSG_NOT_APT)
+            delay = EligibilityService.delay_hours()
+            if delay and (chk.finished_at is None
+                          or chk.finished_at + timedelta(hours=delay) > ahora):
+                return _no(_MSG_IN_WINDOW)
+            cohort, motivo = ers._cohort_gate(db, req)
+            if cohort is None:
+                return _no(motivo)
+            if not cohort.sii_auto_approve:
+                return _no(_MSG_AUTO_OFF)
+            if _verdict_stale(chk, version=EligibilityService.rules_version(), now=ahora,
+                              delay=delay, max_age=EligibilityService.verdict_max_age_hours()):
+                # Después del commit de `_no` (suelta el lock): la tarea lo toma.
+                resultado = _no(_MSG_STALE_VERDICT)
+                enqueue_check(req.id, force=True)
+                return resultado
+            bloqueo = identity_block(chk)
+            if bloqueo:
+                return _leave_note(db, req, bloqueo)
+            cuenta = (db.query(User)
+                      .filter_by(control_number=(req.control_number or "").strip()).first())
+            if cuenta is not None and not cuenta.is_active:
+                return _leave_note(db, req, _NOTE_ACCOUNT_INACTIVE)
+            if sii_nip is None:
+                sii_nip = ERS._sii_nip_unlocked(db, req)
+                if sii_nip is not None:
+                    continue
+            break
 
         ok, detalle, falla_nip = ERS._approve_locked(
             db, req, cohort, actor_id=None, program_id=req.program_id,
             event_extra={"auto": True, "rules_version": chk.rules_version,
-                         "check_id": chk.id})
+                         "check_id": chk.id},
+            sii_nip=sii_nip)
         if ok:
             return True, detalle
         if falla_nip == NIP_MISSING:

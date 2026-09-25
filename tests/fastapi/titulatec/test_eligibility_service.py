@@ -1331,6 +1331,119 @@ def test_se_aprueba_con_cuenta_en_modo_sii_como_siempre(
 
 
 # ---------------------------------------------------------------------------
+# El NIP del SII se pide SIN el lock de la solicitud (revisión final C6/C8 y el
+# minor diferido de T4): SE no espera los timeouts del SII con el lock y la
+# transacción abiertos. Después se re-toma el lock y se revalida el estado.
+# ---------------------------------------------------------------------------
+def _espia_del_nip(db_session, monkeypatch, *, al_pedir=None):
+    """Registra `lock`/`commit` de la sesión y `nip` cuando el SII falso atiende
+    la consulta de `[credential]` (la única en modo sensible)."""
+    from itcj2.apps.titulatec.services.sii.client import FakeSiiClient
+
+    pasos = []
+    commit_real, execute_real = db_session.commit, db_session.execute
+    query_real = FakeSiiClient.query
+
+    def _commit():
+        pasos.append("commit")
+        return commit_real()
+
+    def _execute(stmt, *a, **k):
+        if "pg_advisory_xact_lock" in str(stmt):
+            pasos.append("lock")
+        return execute_real(stmt, *a, **k)
+
+    def _query(self, sql, params, **kw):
+        if kw.get("sensitive"):
+            pasos.append("nip")
+            if al_pedir is not None:
+                al_pedir()
+        return query_real(self, sql, params, **kw)
+
+    monkeypatch.setattr(db_session, "commit", _commit)
+    monkeypatch.setattr(db_session, "execute", _execute)
+    monkeypatch.setattr(FakeSiiClient, "query", _query)
+    return pasos
+
+
+def _nip_sin_lock(pasos):
+    i = pasos.index("nip")
+    previos = [p for p in pasos[:i] if p in ("lock", "commit")]
+    assert previos and previos[-1] == "commit", f"el NIP se pidió con el lock: {pasos}"
+    assert "lock" in pasos[i:], f"no re-tomó el lock para revalidar: {pasos}"
+
+
+def test_se_pide_el_nip_al_sii_sin_el_lock_de_la_solicitud(
+    db_session, make_cohort, make_user, sii, listo, monkeypatch,
+):
+    se = make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580093")
+    sii.alumno("99580093")
+    pasos = _espia_del_nip(db_session, monkeypatch)
+
+    ok, folio = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id)
+
+    assert ok is True and folio
+    _nip_sin_lock(pasos)
+    assert pasos.count("nip") == 1
+
+
+def test_si_la_resuelven_mientras_se_pide_el_nip_no_se_crea_la_cuenta(
+    db_session, make_cohort, make_user, sii, listo, monkeypatch,
+):
+    from sqlalchemy import text
+
+    se = make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580094")
+    sii.alumno("99580094")
+
+    def _otra_persona_la_rechaza():
+        db_session.execute(text("UPDATE titulatec_enrollment_requests SET status = 'rejected' "
+                                "WHERE id = :id"), {"id": req.id})
+
+    _espia_del_nip(db_session, monkeypatch, al_pedir=_otra_persona_la_rechaza)
+
+    ok, motivo = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id)
+
+    assert (ok, motivo) == (False, "Esa solicitud ya se resolvió.")
+    assert _usuario(db_session, "99580094") is None
+    assert listo == []
+
+
+def test_la_aprobacion_automatica_pide_el_nip_sin_el_lock(
+    db_session, make_cohort, sii, listo, monkeypatch,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580095")
+    sii.alumno("99580095")
+    _check_row(db_session, req, status="apt")
+    pasos = _espia_del_nip(db_session, monkeypatch)
+
+    ok, _ = _svc().auto_approve(db_session, req.id)
+
+    assert ok is True and req.status == "converted"
+    _nip_sin_lock(pasos)
+
+
+def test_la_automatica_no_pide_el_nip_si_una_guarda_la_frena(
+    db_session, make_cohort, sii, listo, monkeypatch,
+):
+    """El SII solo se consulta cuando la aprobación sí va a proceder."""
+    cohort = make_cohort(status="open")
+    cohort.sii_auto_approve = False
+    req = _make_req(db_session, cohort, control="99580096")
+    sii.alumno("99580096")
+    _check_row(db_session, req, status="apt")
+    pasos = _espia_del_nip(db_session, monkeypatch)
+
+    ok, _ = _svc().auto_approve(db_session, req.id)
+
+    assert ok is False and "nip" not in pasos
+
+
+# ---------------------------------------------------------------------------
 # sweep(): barrido periódico (acotado a una convocatoria: la BD de dev tiene
 # solicitudes reales que el barrido global también vería)
 # ---------------------------------------------------------------------------

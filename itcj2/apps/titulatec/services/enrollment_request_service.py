@@ -525,7 +525,9 @@ class EnrollmentRequestService:
           los roles nuevos se tira DESPUÉS del commit.
         - SIN cuenta, modo `sii` (SE aprueba como excepción o con la
           aprobación automática apagada): el NIP del formulario se IGNORA; se
-          le pide al SII (`fetch_sii_nip`) -> `_create_account_with_sii_nip`
+          le pide al SII SIN el lock (`_sii_nip_unlocked`: suelta el lock,
+          pregunta, lo vuelve a tomar y revalida el estado y la convocatoria)
+          -> `_create_account_with_sii_nip`
           (`must_change_password=False`) -> `converted`; correo SIN el NIP
           («tu NIP del SII»). Si el SII no lo da (o no responde):
           `_MSG_SII_NO_NIP` y nada escrito.
@@ -546,30 +548,69 @@ class EnrollmentRequestService:
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
             return False, _MSG_GONE
-        db.execute(text("SELECT pg_advisory_xact_lock(:ns, :key)"),
-                   {"ns": _REQUEST_LOCK_NS, "key": int(req.id)})
-        db.refresh(req)
+        # Modo `sii` sin cuenta: el NIP se pide al SII SIN el lock (puede tardar
+        # sus timeouts) y la segunda vuelta revalida todo bajo el lock
+        # (`_sii_nip_unlocked`). En cualquier otro caso hay una sola vuelta.
+        sii_nip = None
+        while True:
+            db.execute(text("SELECT pg_advisory_xact_lock(:ns, :key)"),
+                       {"ns": _REQUEST_LOCK_NS, "key": int(req.id)})
+            db.refresh(req)
 
-        if req.status == "approved":
-            return False, _MSG_ALREADY_APPROVED
-        if req.status == "awaiting_access":
-            return False, _MSG_IN_ACCESS
-        if req.status not in _REVIEWABLE:
-            return False, _MSG_RESOLVED
+            if req.status == "approved":
+                return False, _MSG_ALREADY_APPROVED
+            if req.status == "awaiting_access":
+                return False, _MSG_IN_ACCESS
+            if req.status not in _REVIEWABLE:
+                return False, _MSG_RESOLVED
 
-        cohort, motivo = _cohort_gate(db, req)
-        if cohort is None:
-            return False, motivo
+            cohort, motivo = _cohort_gate(db, req)
+            if cohort is None:
+                return False, motivo
+            if sii_nip is None:
+                sii_nip = EnrollmentRequestService._sii_nip_unlocked(db, req)
+                if sii_nip is not None:
+                    continue
+            break
 
         ok, detalle, _falla_nip = EnrollmentRequestService._approve_locked(
             db, req, cohort, actor_id=actor_id,
-            program_id=program_id if program_id else req.program_id, nip=nip)
+            program_id=program_id if program_id else req.program_id, nip=nip,
+            sii_nip=sii_nip)
         return ok, detalle
+
+    @staticmethod
+    def _sii_nip_unlocked(db: Session, req):
+        """El NIP del SII para aprobar `req`, pedido SIN el lock. `None` si no
+        hace falta pedirlo.
+
+        Solo en el modo `sii` y si el número de control NO tiene cuenta (con
+        cuenta sale la liga, sin NIP). Hace `commit` antes de preguntar: suelta
+        el lock de la solicitud y cierra la transacción, así el SII puede tardar
+        sus timeouts sin tener a nadie esperando ni una conexión de PgBouncer
+        ocupada (revisión final C6/C8). No escribe nada: quien llama estaba
+        solo leyendo. Devuelve lo mismo que `fetch_sii_nip`, `(Secret | None,
+        falla)`; el llamador vuelve a tomar el lock, REVALIDA el estado y se lo
+        pasa a `_approve_locked` (`sii_nip`).
+        """
+        from itcj2.core.models.user import User
+
+        if EnrollmentRequestService.reviewer_mode() != "sii":
+            return None
+        control = (req.control_number or "").strip()
+        if not CONTROL_NUMBER_RE.fullmatch(control):
+            return None
+        if db.query(User.id).filter_by(control_number=control).first() is not None:
+            return None
+        db.commit()
+        from itcj2.apps.titulatec.services.eligibility_service import fetch_sii_nip
+
+        return fetch_sii_nip(control)
 
     @staticmethod
     def _approve_locked(db: Session, req, cohort, *, actor_id: int | None,
                         program_id: int | None, nip: str | None = None,
-                        event_extra: dict | None = None):
+                        event_extra: dict | None = None, sii_nip=None):
         """Núcleo ÚNICO de la aprobación: `approve()` (una persona) y
         `EligibilityService.auto_approve` (el SII solo, `actor_id` `None`).
 
@@ -597,6 +638,10 @@ class EnrollmentRequestService:
         `event_extra` se suma al payload del `ProcessEvent` de la cuenta nueva
         (la automática pone `auto`, `rules_version` y `check_id`; con cuenta,
         esa marca la escribe `_convert` al abrir la liga).
+
+        `sii_nip` = `(Secret | None, falla)` ya pedido SIN el lock
+        (`_sii_nip_unlocked`). Si falta —la cuenta desapareció entre las dos
+        vueltas— se pide aquí, con el lock: es la excepción, no el camino.
         """
         from itcj2.core.models.user import User
         from itcj2.apps.titulatec.services.import_service import ImportService
@@ -631,7 +676,8 @@ class EnrollmentRequestService:
                 NIP_MISSING, fetch_sii_nip,
             )
 
-            secret, falla = fetch_sii_nip(control)
+            secret, falla = sii_nip if sii_nip is not None else fetch_sii_nip(control)
+            sii_nip = None
             if secret is None:
                 return False, _MSG_SII_NO_NIP, falla or NIP_MISSING
             ok, detalle, summary, user = EnrollmentRequestService._create_account_with_sii_nip(

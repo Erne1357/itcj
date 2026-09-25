@@ -386,3 +386,40 @@ def test_la_bandeja_y_el_servicio_coinciden_en_que_es_una_consulta_en_curso(
     assert ("/reconsultar" in fila) is consulto, "el botón de la bandeja"
     assert (ruta.status_code == 200) is consulto, ruta.headers.get("X-Tt-Error")
     assert (encolado == [(req.id, {"force": True})]) is consulto
+
+
+# ---------------------------------------------------------------------------
+# Aprobar en modo sii llama al SII (el NIP): fuera del event loop (revisión
+# final C6/C8). La ruta corre el servicio en el threadpool de starlette.
+# ---------------------------------------------------------------------------
+def test_aprobar_corre_el_servicio_fuera_del_event_loop(
+    client_as, db_session, make_head, make_cohort, modo_sii, monkeypatch,
+):
+    import asyncio
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    visto = {}
+
+    def _approve(db, req_id, **kw):
+        try:
+            asyncio.get_running_loop()
+            visto["loop"] = True
+        except RuntimeError:
+            visto["loop"] = False
+        return False, "Detenido por la prueba."
+
+    monkeypatch.setattr(EnrollmentRequestService, "approve", staticmethod(_approve))
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99650090")
+
+    resp = client_as(head).post(f"{URL}/{req.id}/aprobar",
+                                data={"status": "pending_review", "cohort_id": ""},
+                                follow_redirects=False)
+
+    assert resp.status_code == 400
+    assert unquote(resp.headers["X-Tt-Error"]) == "Detenido por la prueba."
+    assert visto == {"loop": False}, "approve() corrió dentro del event loop"

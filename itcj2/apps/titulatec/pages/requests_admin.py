@@ -38,6 +38,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
@@ -550,8 +551,11 @@ async def approve(req_id: int, request: Request,
                 "Esa carrera no está en tu alcance.")})
         try:
             # `nip=""`: en modo oficial `approve` no lo usa, y en el alterno
-            # esta ruta ya cortó arriba.
-            ok, detail = EnrollmentRequestService.approve(
+            # esta ruta ya cortó arriba. En el threadpool, no en el event loop:
+            # en modo `sii` pide el NIP al SII (pyodbc, bloqueante, hasta sus
+            # timeouts) y congelaría el proceso HTTP entero (revisión final C6).
+            ok, detail = await run_in_threadpool(
+                EnrollmentRequestService.approve,
                 db, req_id, nip="", program_id=program_id, actor_id=uid)
         except Exception as exc:
             # `approve` es dueña de su transacción: un fallo real en cualquier
