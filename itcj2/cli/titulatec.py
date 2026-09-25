@@ -5,6 +5,9 @@ Comandos CLI de TitulaTec para itcj2.
 Comandos:
     titulatec init-titulatec              Registra la app, roles, permisos, puestos y catálogos base.
     titulatec fix-missing-credentials     Repone la credencial inicial de alumnos sin password_hash.
+    titulatec sii-ping                    Comprueba que el SII responde (backend configurado).
+    titulatec sii-rules-validate [--dir]  Valida rules.toml + queries/*.sql del SII.
+    titulatec sii-check <control>         Dry-run de las reglas del SII (NIP enmascarado).
 """
 from pathlib import Path
 
@@ -935,3 +938,162 @@ def load_survey_2026_09_command(dry_run):
             fg="green",
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Elegibilidad automática contra el SII (spec 2026-09-25 §3.4 y §7). Orden de
+# despliegue: sii-ping → sii-rules-validate → sii-check <control de prueba>.
+# Ninguno escribe en la BD. El NIP del SII jamás se imprime (`****`).
+# ---------------------------------------------------------------------------
+def _sii_fail(msg: str) -> None:
+    click.echo(click.style(f"ERROR: {msg}", fg="red"))
+    raise SystemExit(1)
+
+
+@titulatec_cli.command("sii-ping")
+def sii_ping_command():
+    """Comprueba que el SII responde con el backend configurado."""
+    import time
+
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig, get_sii_client
+    from itcj2.apps.titulatec.services.sii.errors import SiiError
+
+    backend = SiiConfig.backend()
+    click.echo(f"Backend: {backend}")
+    t0 = time.monotonic()
+    try:
+        with get_sii_client() as sii:
+            sii.ping()
+    except SiiError as exc:
+        _sii_fail(str(exc))
+    ms = int((time.monotonic() - t0) * 1000)
+    click.echo(click.style(f"OK: el SII responde ({ms} ms).", fg="green"))
+
+
+@titulatec_cli.command("sii-rules-validate")
+@click.option("--dir", "rules_dir", type=click.Path(file_okay=False, path_type=Path),
+              default=None,
+              help="Carpeta a validar (default: TITULATEC_SII_RULES_DIR). Útil para "
+                   "revisar reglas nuevas ANTES de copiarlas a su lugar.")
+def sii_rules_validate_command(rules_dir):
+    """Valida rules.toml + queries/*.sql sin consultar al SII."""
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig
+    from itcj2.apps.titulatec.services.sii.errors import SiiRulesError
+    from itcj2.apps.titulatec.services.sii.rules import RuleSet
+
+    rules_dir = rules_dir or SiiConfig.rules_dir()
+    click.echo(f"Reglas: {rules_dir}")
+    try:
+        rs = RuleSet.load(rules_dir)
+    except SiiRulesError as exc:
+        _sii_fail(str(exc))
+    click.echo(f"Versión: {rs.version or '(sin versión)'} · {len(rs.queries)} consultas · "
+               f"{len(rs.rules)} reglas · credencial (NIP): "
+               f"{'sí' if rs.has_credential else 'no'}")
+    errors = rs.validate()
+    if errors:
+        for e in errors:
+            click.echo(click.style(f"  - {e}", fg="red"))
+        _sii_fail(f"{len(errors)} error(es) en las reglas.")
+    click.echo(click.style("OK: reglas válidas. (Las columnas de los mensajes se "
+                           "verifican al ejecutar: usa sii-check.)", fg="green"))
+
+
+_SII_STATUS_LABEL = {"apt": "APTA", "not_apt": "NO APTA", "error": "ERROR"}
+
+
+def _sii_cohort_outcome(cohort_id: int, verdict_status: str) -> None:
+    """Imprime qué pasaría con esta convocatoria. Solo lectura (rollback)."""
+    from itcj2.apps.titulatec.models import Cohort
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        cohort = db.get(Cohort, cohort_id)
+        if cohort is None:
+            _sii_fail(f"No existe la convocatoria {cohort_id}.")
+        # `sii_auto_approve` llega con la migración tt20260925a (server_default
+        # TRUE); antes de ella la convocatoria se comporta como encendida.
+        auto = bool(getattr(cohort, "sii_auto_approve", True))
+        click.echo(f"Convocatoria: {cohort.name} (id {cohort.id}, {cohort.status}) · "
+                   f"aprobación automática: {'encendida' if auto else 'apagada'}")
+        if verdict_status == "apt" and auto and cohort.status == "open":
+            click.echo("  → se aprobaría automáticamente (sujeto a la ventana de veto "
+                       "TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS).")
+        else:
+            why = ("no es apta" if verdict_status == "not_apt"
+                   else "la consulta falló" if verdict_status == "error"
+                   else "la convocatoria no está abierta" if cohort.status != "open"
+                   else "la aprobación automática está apagada")
+            click.echo(f"  → quedaría «Por revisar» de Servicios Escolares ({why}).")
+    finally:
+        db.rollback()
+        db.close()
+
+
+@titulatec_cli.command("sii-check")
+@click.argument("control_number")
+@click.option("--cohort", "cohort_id", type=int, default=None,
+              help="Muestra además qué pasaría en esa convocatoria (solo lectura).")
+def sii_check_command(control_number, cohort_id):
+    """Dry-run: evalúa las reglas del SII para un número de control.
+
+    Imprime el resultado por regla, los hechos, la identidad y si el SII
+    devuelve NIP (siempre enmascarado). No escribe nada.
+    """
+    import time
+
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig, get_sii_client
+    from itcj2.apps.titulatec.services.sii.errors import SiiError
+    from itcj2.apps.titulatec.services.sii.rules import RuleSet
+
+    control = control_number.strip().upper()
+    rules_dir = SiiConfig.rules_dir()
+    try:
+        rs = RuleSet.load(rules_dir)
+        sii = get_sii_client()
+    except SiiError as exc:
+        _sii_fail(str(exc))
+
+    t0 = time.monotonic()
+    with sii:
+        verdict = rs.evaluate(sii, control)
+        if not rs.has_credential:
+            nip_line = "sin NIP (las reglas no declaran [credential])"
+        elif verdict.status == "error":
+            nip_line = "no consultado (la evaluación falló)"
+        else:
+            try:
+                secret = rs.fetch_credential(sii, control)
+            except SiiError as exc:
+                nip_line = f"no se pudo consultar ({exc})"
+            else:
+                nip_line = "**** (el SII lo devuelve)" if secret else "sin NIP (el SII no lo devuelve)"
+                del secret
+    ms = int((time.monotonic() - t0) * 1000)
+
+    color = {"apt": "green", "not_apt": "yellow"}.get(verdict.status, "red")
+    click.echo(f"Número de control: {control} · reglas {verdict.rules_version or '?'} "
+               f"· backend {SiiConfig.backend()}")
+    click.echo(click.style(f"Veredicto: {_SII_STATUS_LABEL.get(verdict.status, verdict.status)}",
+                           fg=color, bold=True))
+    if verdict.error:
+        click.echo(click.style(f"  {verdict.error}", fg="red"))
+    if verdict.results:
+        width = max(len(r.rule) for r in verdict.results)
+        for r in verdict.results:
+            mark = click.style("OK   ", fg="green") if r.ok else click.style("FALLA", fg="red")
+            click.echo(f"  {mark} {r.rule.ljust(width)}  {r.message}")
+    for title, data in (("Hechos", verdict.facts), ("Identidad", verdict.identity)):
+        click.echo(f"{title}:" + ("" if data else " (ninguno)"))
+        for k, v in data.items():
+            click.echo(f"  {k} = {v}")
+    for w in verdict.warnings:
+        click.echo(click.style(f"Advertencia: {w}", fg="yellow"))
+    click.echo(f"NIP: {nip_line}")
+    click.echo(f"Duración: {ms} ms")
+
+    if cohort_id is not None:
+        _sii_cohort_outcome(cohort_id, verdict.status)
+    if verdict.status == "error":
+        raise SystemExit(1)
