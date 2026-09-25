@@ -146,6 +146,9 @@ _STATUS_GROUP.update(awaiting_access="access", approved="sent", converted="conve
 _REVIEWER_LABELS = {
     "school_services": "Servicios Escolares",
     "computer_center": "Centro de Cómputo",
+    # Modo `sii` (spec 2026-09-25): el SII decide y aprueba solo lo apto, pero
+    # quien responde por la solicitud (rechazos, excepciones) sigue siendo SE.
+    "sii": "Servicios Escolares",
 }
 
 # `control_number` -> año de ingreso, para el bloque "Por año de ingreso" de la
@@ -418,11 +421,19 @@ class EnrollmentRequestService:
         )
         db.add(req)
         db.commit()
+        if EnrollmentRequestService.reviewer_mode() == "sii":
+            # Modo `sii`: la consulta de elegibilidad corre en celery, DESPUÉS
+            # del commit y sin esperar (best-effort, nunca lanza). La
+            # respuesta pública no cambia (E8); si no se encola, la recoge el
+            # barrido periódico.
+            from itcj2.apps.titulatec.services import eligibility_service
+            eligibility_service.enqueue_check(req.id)
         return req, "created"
 
     @staticmethod
     def reviewer_mode() -> str:
-        """`"school_services"` (oficial) o `"computer_center"` (alterno).
+        """`"school_services"` (oficial), `"computer_center"` (alterno) o `"sii"`
+        (elegibilidad automática contra el SII, `EligibilityService`).
 
         Sale de TITULATEC_ENROLLMENT_REVIEWER (+ reinicio; un valor inválido
         truena al arrancar). Los tests parchean ESTE método, nunca `get_settings`.
@@ -433,7 +444,8 @@ class EnrollmentRequestService:
 
     @staticmethod
     def reviewer_label() -> str:
-        """Nombre de quien revisa según el modo: «Servicios Escolares» | «Centro de Cómputo»."""
+        """Nombre de quien revisa según el modo: «Servicios Escolares» (oficial y
+        `sii`) | «Centro de Cómputo» (alterno)."""
         return _REVIEWER_LABELS[EnrollmentRequestService.reviewer_mode()]
 
     @staticmethod
