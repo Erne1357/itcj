@@ -269,6 +269,55 @@ def test_los_dias_del_correo_de_activacion_salen_de_link_ttl_hours(
     assert "La liga vence en 2 días." in _texto(html)
 
 
+def test_un_solo_dia_de_vigencia_va_en_singular(
+    db_session, solicitud, correo_falso, monkeypatch,
+):
+    """`{{ dias }} días` con `dias == 1` diría «1 días»: la plantilla debe pluralizar."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 24))
+    req = solicitud(control_number="90000014", kind="known", status="approved")
+
+    assert TitulaTecEmailHelper.send_verify_enrollment(db_session, req, link=LIGA) is True
+
+    (_asunto, _dest, html), = correo_falso
+    texto = _texto(html)
+    assert "La liga vence en 1 día." in texto
+    assert "1 días" not in texto
+
+
+@pytest.mark.parametrize("modo,revisor,otro", [
+    ("school_services", "Servicios Escolares", "Centro de Cómputo"),
+    ("computer_center", "Centro de Cómputo", "Servicios Escolares"),
+])
+def test_la_liga_de_activacion_nombra_a_quien_reviso_segun_el_modo(
+    db_session, solicitud, correo_falso, monkeypatch, modo, revisor, otro,
+):
+    """El helper pasa `revisor` al contexto igual que ya hace con el rechazo
+    (T4, `send_enrollment_rejected`)."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: modo))
+    req = solicitud(control_number="90000015", kind="known", status="approved")
+
+    assert TitulaTecEmailHelper.send_verify_enrollment(db_session, req, link=LIGA) is True
+
+    (_asunto, _dest, html), = correo_falso
+    texto = _texto(html)
+    assert (f"{revisor} aprobó tu solicitud de inscripción al proceso de "
+            "titulación con el número de control 90000015.") in texto
+    assert f"avisa a {revisor}." in texto
+    assert otro not in texto
+
+
 def test_el_aviso_de_folio_dice_que_se_activo_y_sirve_de_alarma(
     db_session, make_student, make_process, solicitud, correo_falso,
 ):

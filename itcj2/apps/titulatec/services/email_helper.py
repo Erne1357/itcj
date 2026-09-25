@@ -141,7 +141,9 @@ class TitulaTecEmailHelper:
     def send_verify_enrollment(db: Session, req, *, link: str) -> bool:
         """Liga de ACTIVACIÓN de una cuenta que ya existe, al correo PERSONAL de la
         solicitud. La emite la bandeja al aprobar o al reenviar; abrirla inscribe
-        a la cuenta (`EnrollmentRequestService.verify`)."""
+        a la cuenta (`EnrollmentRequestService.verify`). Firmada por quien revisa
+        según el modo (`EnrollmentRequestService.reviewer_label()`), igual que
+        `send_enrollment_rejected`."""
         try:
             from itcj2.apps.titulatec.services.enrollment_request_service import (
                 EnrollmentRequestService,
@@ -149,7 +151,8 @@ class TitulaTecEmailHelper:
             dias = EnrollmentRequestService._link_ttl_hours() // 24
             return _deliver(
                 template="verify_enrollment.html",
-                context={"req": req, "link": link, "dias": dias},
+                context={"req": req, "link": link, "dias": dias,
+                         "revisor": EnrollmentRequestService.reviewer_label()},
                 subject="[TitulaTec ITCJ] Activa tu acceso a titulación",
                 to=req.contact_email, que="verify_enrollment", link=link,
             )
