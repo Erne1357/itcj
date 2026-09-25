@@ -9,7 +9,7 @@
 | | |
 |---|---|
 | **Actor(es)** | 🏛️ Servicios Escolares (aprueba, en la bandeja de [Solicitudes](xcut_public_enrollment.md)) · 💻 Centro de Cómputo (da el NIP, devuelve, reasigna — bandeja **Accesos**, este flujo) · 🤖 correo |
-| **Permiso(s)** | Un código por ruta, la lista es OR: `titulatec.enrollment_access.page.list` (ver la bandeja) · `titulatec.enrollment_access.api.grant` (dar acceso / aprobar en modo alterno / reenviar liga en modo alterno / reasignar NIP) · `titulatec.enrollment_access.api.return` (devolver a SE, solo modo oficial) · `titulatec.enrollment_access.api.reject` (rechazar, solo modo alterno). Los 4 se conceden a `titulatec_computer_center`, y solo a él. |
+| **Permiso(s)** | Un código por ruta, la lista es OR: `titulatec.enrollment_access.page.list` (ver la bandeja) · `titulatec.enrollment_access.api.grant` (dar acceso / aprobar en modo alterno / reenviar liga en modo alterno / reasignar NIP) · `titulatec.enrollment_access.api.return` (devolver a SE, solo modo oficial) · `titulatec.enrollment_access.api.reject` (rechazar, solo modo alterno). Los 4 se conceden a `titulatec_computer_center` — y, con el resto de los 88, al rol `admin` (`15_grant_admin_all_perms.sql`, SELECT dinámico: los recoge solos). `head_comp_center` los tiene por partida doble: por su puesto (`titulatec_computer_center`) y porque el mismo puesto le da además el rol `admin` (D2, ver limitación 3). |
 | **Trigger** | SE aprueba una solicitud **sin cuenta** (modo oficial) → `awaiting_access`. |
 | **Precondiciones** | La solicitud está `awaiting_access` (dar acceso/devolver) o, en modo alterno, en cualquier estado revisable. `cohort.status == 'open'` (D5: las fechas `opens_at`/`closes_at` no cuentan aquí — solo el formulario público las mira). |
 | **Sub-flujos** | continúa a [Inscripción pública](xcut_public_enrollment.md) cuando SE aprueba sin cuenta (modo oficial) · ⤵ `ImportService.import_rows` vía `_create_account` (mismo alta que el CSV y la bandeja de Solicitudes) |
@@ -67,13 +67,13 @@ acceso» sobre ellas sigue siendo `grant_access` (nunca `approve`, que ya no las
      ámbar «…el correo no salió: díctalo por teléfono». Ningún aviso lleva el NIP.
 4. 💻 Pestaña **Con acceso** — filas `access_granted_at` no nulo (`converted` con NIP, `approved`
    por D10, o una `rejected` que SE canceló después de que CC ya había actuado). Si el correo con
-   usuario + NIP no salió, la fila lleva la píldora ámbar «correo no enviado»
-   (`access_mail_unsent`) y, mientras la cuenta NUNCA haya iniciado sesión (`last_login IS NULL`
-   — revisión final 2026-09-25, C1: `must_change_password` NO sirve por sí solo, nunca se limpia
-   en un egresado) y sea la que creó ESTA solicitud, el botón **«Reasignar NIP y reenviar»** (D8):
-   NIP nuevo → reescribe la contraseña, revoca las sesiones de la cuenta y reenvía el correo con
-   el texto «Este NIP reemplaza al que te enviamos antes» (o, con la casilla «lo dicto por
-   teléfono», sin correo).
+   usuario + NIP no salió, la fila lleva la píldora ámbar «correo no enviado» (`access_mail_unsent`),
+   pero el botón **«Reasignar NIP»** (D8) NO depende de esa píldora — sale (aunque el correo SÍ haya
+   salido; un correo mal escrito también «sale») siempre que la cuenta NUNCA haya iniciado sesión
+   (`last_login IS NULL` — revisión final 2026-09-25, C1: `must_change_password` NO sirve por sí
+   solo, nunca se limpia en un egresado) y sea la que creó ESTA solicitud. NIP nuevo → reescribe la
+   contraseña, revoca las sesiones de la cuenta y reenvía el correo con el texto «Este NIP reemplaza
+   al que te enviamos antes» (o, con la casilla «lo dicto por teléfono», sin correo).
 5. 💻 Pestaña **Devueltas** — filas `returned_at` no nulo, sin acciones propias (CC ya no puede
    volver a tocarlas), pero la fila SÍ dice qué pasó: «La devolviste el {fecha}: {nota}» y, si ya
    pasó algo después, una segunda línea («Servicios Escolares la volvió a aprobar» /
@@ -196,8 +196,10 @@ sequenceDiagram
   flujo es idéntico al de [Inscripción pública](xcut_public_enrollment.md) con cuenta.
 - Devuelta: `status = pending_review`, `returned_by_id/at`, `return_note` — vuelve a la bandeja de
   SE, que puede volver a aprobar o rechazar.
-- Reasignado: mismo `status = converted`, `password_hash` nuevo, `access_sent_at` limpio hasta
-  que el reenvío salga.
+- Reasignado: mismo `status = converted`, `password_hash` nuevo, sesiones de la cuenta revocadas,
+  `access_sent_at` puesto a `NULL` de entrada; con `send_mail` (por omisión) se rellena si el
+  correo sale, y con `no_mail` («lo dicto por teléfono») se queda en `NULL` — no hay reenvío que
+  lo rellene después.
 
 ## Caminos alternos / errores ❗
 
@@ -206,10 +208,16 @@ nunca sale — ni log, ni header, ni `ProcessEvent.payload`):
 «La solicitud ya no existe.» · «Esa solicitud ya no está esperando acceso.» (`_MSG_NOT_AWAITING`:
 alguien ya le dio acceso, la devolvió o SE la rechazó/reaprobó) · «Esa convocatoria está cerrada.»
 (D5) · «El número de control o el nombre no tienen formato válido.» · «El NIP debe ser exactamente
-4 dígitos.» (solo sin cuenta) · «Esa persona ya tiene un proceso en otra convocatoria.» · «Esa
-cuenta no tiene contraseña; dala de alta desde la convocatoria y rechaza esta solicitud.» (rama
-D10) · «No pudimos completar el acceso; intenta de nuevo.» (excepción con `rollback`,
-`pages/access_admin.py`, patrón de `requests_admin.approve`).
+4 dígitos.» (solo sin cuenta) · «No pudimos completar el acceso; intenta de nuevo.» (excepción con
+`rollback`, `pages/access_admin.py`, patrón de `requests_admin.approve`).
+Los dos errores de la rama D10 (apareció cuenta) pasan por `_CC_OFFICIAL_MSGS`
+(`enrollment_request_service.py:212-217`) **en modo oficial**, que los reescribe para
+apuntar a «devolver», no a «rechazar» (CC no rechaza en ese modo): «Esa cuenta no tiene
+contraseña; devuélvela a Servicios Escolares con esa nota para que la dé de alta desde la
+convocatoria.» · «Esa persona ya tiene un proceso en otra convocatoria; devuélvela a
+Servicios Escolares con esa nota.» En modo alterno (la `awaiting_access` sobrante del paso 6)
+salen sin reescribir: «Esa cuenta no tiene contraseña; dala de alta desde la convocatoria y
+rechaza esta solicitud.» · «Esa persona ya tiene un proceso en otra convocatoria.»
 Inexistente → **404 liso, sin `X-Tt-Error`** (todas las rutas de esta bandeja).
 
 **Devolver** (solo modo oficial; en el alterno → 400 «En este modo Centro de Cómputo revisa las
@@ -224,10 +232,14 @@ del rechazo: es lo que la persona lee.») y una solicitud no resuelta («Esa sol
 resolvió.»); reenviar exige `approved` («Solo se reenvía la liga de solicitudes aprobadas.»).
 
 **Reasignar NIP** (D8, ambos modos): «El NIP debe ser exactamente 4 dígitos.» · «Solo se reasigna
-el NIP de una cuenta que creó esta solicitud y todavía no ha entrado.» (`_MSG_NOT_REASSIGNABLE`:
-cubre las tres condiciones de `can_reassign_nip` MÁS la señal positiva
-`_request_created_account` — cualquiera que falle da el mismo mensaje, a propósito: no hay que
-distinguirle a CC POR QUÉ no puede, solo que no puede).
+el NIP de una cuenta que creó esta solicitud y que nunca ha iniciado sesión.»
+(`_MSG_NOT_REASSIGNABLE`, texto exacto: sale si falla `can_reassign_nip` —`status == converted`,
+`access_granted_at` no nulo, `verify_token_hash` nulo, `must_change_password` en `True`,
+`last_login IS NULL`—, si el proceso convertido (`converted_process_id`) no existe o su dueño no
+es la cuenta de hoy, o si falla la señal positiva `_request_created_account`: cualquiera de las
+tres da el mismo mensaje, a propósito — no hay que distinguirle a CC POR QUÉ no puede, solo que no
+puede) · «No pudimos reasignar el NIP; intenta de nuevo.» (excepción con `rollback`,
+`_MSG_REASSIGN_FAILED`, mismo patrón que «Dar acceso»).
 
 **Fuera de modo, sin pasar por la UI**: cada ruta corta con 400 + `X-Tt-Error` **antes** de tocar
 la BD (`_mode_block`/`_alternate_mode_block`), así que un POST directo desde afuera de la
