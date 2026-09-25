@@ -21,6 +21,7 @@ El destinatario lo decide CADA MÉTODO, nunca el llamador: ninguno recibe `to`.
   send_enrollment_rejected  motivo del rechazo              correo PERSONAL
   send_already_enrolled     "ya tienes un proceso"          INSTITUCIONAL (student_email(user))
   send_enrollment_done      folio al activarse la cuenta    INSTITUCIONAL
+  send_process_cancelled    inscripción revocada (sin motivo) INSTITUCIONAL + PERSONAL
 
 La liga de una cuenta existente viaja al correo que se tecleó en el formulario
 público. Es un riesgo aceptado, y la contención vive en `EnrollmentRequestService`:
@@ -238,6 +239,54 @@ class TitulaTecEmailHelper:
             )
         except Exception:
             logger.exception("[titulatec] Error inesperado en send_enrollment_approved")
+            return False
+
+    @staticmethod
+    def send_process_cancelled(db: Session, process) -> bool:
+        """Aviso de inscripción REVOCADA (`ProcessService.cancel`). `True` si
+        salió al menos uno.
+
+        A los DOS buzones: el INSTITUCIONAL de la cuenta y el PERSONAL de la
+        solicitud que la convirtió (si la hubo — un alta por CSV no tiene). Un
+        egresado de años atrás no lee el institucional, y el personal es por
+        donde llegó todo lo anterior de este mismo trámite.
+
+        **Sin datos sensibles**: ni el motivo, ni el folio, ni el número de
+        control. El personal lo tecleó quien llenó el formulario (riesgo
+        aceptado del módulo), así que el correo solo dice que hubo un cambio y
+        manda a la plataforma, donde el motivo se lee con sesión iniciada.
+        """
+        try:
+            from itcj2.core.models.user import User
+            from itcj2.core.utils.email_tools import student_email
+            from itcj2.apps.titulatec.models import EnrollmentRequest
+
+            user = db.get(User, process.student_id)
+            if user is None:
+                return False
+            destinos = [student_email(user)]
+            req = (db.query(EnrollmentRequest)
+                   .filter_by(converted_process_id=process.id)
+                   .order_by(EnrollmentRequest.id.desc())
+                   .first())
+            if req is not None and req.contact_email:
+                destinos.append(req.contact_email)
+
+            vistos, enviado = set(), False
+            for to in destinos:
+                clave = (to or "").strip().lower()
+                if not clave or clave in vistos:
+                    continue
+                vistos.add(clave)
+                enviado = _deliver(
+                    template="process_cancelled.html",
+                    context={"first_name": user.first_name, "app_url": _STUDENT_URL},
+                    subject="[TitulaTec ITCJ] Cambio en tu inscripción a titulación",
+                    to=to, que="process_cancelled",
+                ) or enviado
+            return enviado
+        except Exception:
+            logger.exception("[titulatec] Error inesperado en send_process_cancelled")
             return False
 
     @staticmethod

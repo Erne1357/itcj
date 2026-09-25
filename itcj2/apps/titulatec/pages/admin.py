@@ -101,7 +101,12 @@ def _window_ctx(db, cohort, *, can_edit: bool) -> dict:
 def _cohort_summary_ctx(db, cohort) -> dict:
     from itcj2.apps.titulatec.models import TitulationProcess, ReviewAppointment, PhaseDefinition
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
-    procs = db.query(TitulationProcess).filter_by(cohort_id=cohort.id).all()
+    todos = db.query(TitulationProcess).filter_by(cohort_id=cohort.id).all()
+    # Una inscripción revocada no es un alumno de la convocatoria: fuera del
+    # total, del embudo y de «con cita». Se cuenta aparte (`cancelled`); la
+    # pestaña Alumnos sí la lista, etiquetada.
+    procs = [p for p in todos if p.status != "cancelled"]
+    cancelled = len(todos) - len(procs)
     by_phase = {}
     for p in procs:
         by_phase[p.current_phase] = by_phase.get(p.current_phase, 0) + 1
@@ -128,7 +133,7 @@ def _cohort_summary_ctx(db, cohort) -> dict:
         "opens_at": cohort.opens_at.isoformat() if cohort.opens_at else None,
         "closes_at": cohort.closes_at.isoformat() if cohort.closes_at else None,
         "total": total, "phase_rows": phase_rows, "with_appt": with_appt,
-        "completed": completed,
+        "completed": completed, "cancelled": cancelled,
         "pct_completed": round(completed / total * 100) if total else 0,
         "review_days": review_days, "max_phase": max_phase,
     }
@@ -1009,6 +1014,9 @@ _EVENT_UI = {
     # Explican por que un proceso se quedo quieto sin accion de nadie.
     "process_paused":               ("Proceso pausado",           "pause-circle",           "amber"),
     "process_resumed":              ("Proceso reanudado",         "arrow-clockwise",        "neutral"),
+    # `ProcessService.cancel`. El motivo viaja en el payload (`reason`) y
+    # `_evento_detalle` ya lo pinta.
+    "process_cancelled":            ("Inscripción revocada",      "slash-circle",           "danger"),
     "document_uploaded":            ("Subió un documento",        "cloud-arrow-up",         "neutral"),
     "document_approved":            ("Documento aprobado",        "check-lg",               "success"),
     "document_rejected":            ("Documento rechazado",       "x-lg",                   "danger"),
@@ -1171,6 +1179,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     )
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
+    from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.utils import storage
 
     proc = db.get(TitulationProcess, process_id)
@@ -1331,6 +1340,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # solo uno de los dos permisos, al menos una mitad del modal SI funciona.
     can_dictaminar_fase = False
     can_dictaminar_fb = False
+    can_revoke = False
     if user_id is not None:
         from itcj2.core.services.authz_service import get_user_permissions_for_app
         _user_perms = get_user_permissions_for_app(db, user_id, "titulatec")
@@ -1341,6 +1351,19 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         can_dictaminar_fb = bool(_user_perms & {
             "titulatec.format_b.api.approve", "titulatec.format_b.api.reject",
         })
+        # «Revocar inscripción»: mismo permiso que exige `process_cancel`, y
+        # solo sobre lo que `ProcessService.cancel` acepta revocar.
+        can_revoke = ("titulatec.process.api.cancel" in _user_perms
+                      and proc.status in ProcessService.REVOCABLE_STATUSES)
+
+    # La revocación vigente (motivo, cuándo, quién). Dict plano: se renderiza
+    # después del `db.close()` de la ruta.
+    revocada = ProcessService.cancellation_info(db, proc)
+    if revocada is not None:
+        quien = db.get(User, revocada["actor_id"]) if revocada["actor_id"] else None
+        revocada = {"reason": revocada["reason"],
+                    "when": _fecha_larga(revocada["at"]),
+                    "actor": quien.full_name if quien else None}
 
     appt = AppointmentService.get_for_process(db, process_id)
 
@@ -1383,6 +1406,8 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "can_mark_reqs": can_mark_reqs,
         "can_dictaminar_fase": can_dictaminar_fase,
         "can_dictaminar_fb": can_dictaminar_fb,
+        "can_revoke": can_revoke,
+        "revocada": revocada,
         "survey": survey,
     }
 
@@ -1471,6 +1496,9 @@ async def processes(
             idle_days = max(0, (now - since).days) if since else 0
             idle_level = ("crit" if idle_days >= crit_days
                           else "warn" if idle_days >= warn_days else "ok")
+            # Una inscripción revocada no está «atorada»: ya no espera nada.
+            if p.status == "cancelled":
+                idle_level = "ok"
             progress_pct = max(0, min(100, round(p.current_phase / max_phase * 100)))
             rows.append({
                 "id": p.id, "folio": p.folio,
@@ -1490,8 +1518,12 @@ async def processes(
             rows = [r for r in rows if r["idle_level"] == "crit"]
 
         # Columnas del kanban: agrupar por fase actual.
+        # Sin las revocadas (salvo que se pidan): en el tablero se leerían como
+        # alumnos parados en su fase.
         buckets = {ph.number: [] for ph in phase_defs}
         for r in rows:
+            if r["status"] == "cancelled" and status != "cancelled":
+                continue
             buckets.setdefault(r["phase"], []).append(r)
         columns = []
         for ph in phase_defs:
@@ -1653,6 +1685,41 @@ async def phase_reject(
             PhaseService.reject_phase(db, proc, n, int(user["sub"]), reason)
         except ValueError as exc:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
+    finally:
+        db.close()
+
+
+@router.post("/processes/{process_id}/cancelar", name="titulatec.pages.admin.process_cancel")
+async def process_cancel(
+    process_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.process.api.cancel"])),
+):
+    """«Revocar inscripción» desde el expediente (spec 2026-09-25 §3.6).
+
+    Motivo obligatorio: es lo que el alumno lee en su dashboard. Alcance por
+    carrera con el mismo guard que el resto de rutas con `{process_id}` (404
+    liso fuera de alcance). Devuelve el expediente re-renderizado, como
+    aprobar/rechazar fase; los rechazos de `ProcessService.cancel` (ya
+    revocada, completada) son 400 + `X-Tt-Error`.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    form = dict(await request.form())
+    reason = (form.get("reason") or "").strip()
+    if not reason:
+        return Response(status_code=400, headers={
+            "X-Tt-Error": _hdr("Escribe el motivo de la revocación: es lo que el alumno lee.")})
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
+        ok, msg = ProcessService.cancel(db, process_id, reason=reason,
+                                        actor_id=int(user["sub"]))
+        if not ok:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
         return _render_detail_body(request, db, process_id, int(user["sub"]))
     finally:
         db.close()

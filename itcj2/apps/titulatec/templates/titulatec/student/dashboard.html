@@ -54,7 +54,22 @@
 
       {# ================= Col A — la fase ACTUAL, en grande ================= #}
       <div>
-        {% if current %}
+        {% if cancelled %}
+        {# Inscripción revocada (`ProcessService.cancel`, contexto `cancelled` de
+           `pages/student.py::dashboard`). Sustituye a la tarjeta de la fase
+           actual: esa ofrecería una acción que la guarda de fase ya rechaza. #}
+        <div class="tt-card tt-card--hero tt-card--danger tt-anim-in" id="tt-inscripcion-cancelada"
+             role="status" tabindex="-1">
+          {{ pill('Inscripción cancelada', 'danger', 'slash-circle') }}
+          <p class="tt-prose mt-3 mb-0">
+            Tu inscripción fue cancelada{% if cancelled.reason %}: <strong>{{ cancelled.reason }}</strong>{% else %}.{% endif %}
+          </p>
+          <p class="tt-prose small text-muted mt-2 mb-0">
+            {% if cancelled.when %}{{ cancelled.when }} · {% endif %}Si crees que es un error,
+            acude a Servicios Escolares. Puedes inscribirte de nuevo en una convocatoria futura.
+          </p>
+        </div>
+        {% elif current %}
         <div class="tt-card tt-card--hero tt-anim-in" id="tt-fase-actual" data-tt-now
              tabindex="-1" style="scroll-margin-top:84px">
           <div class="d-flex justify-content-between align-items-center gap-2">

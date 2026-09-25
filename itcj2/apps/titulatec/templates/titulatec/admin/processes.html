@@ -3,6 +3,7 @@
 {% block admin_view %}processes{% endblock %}
 
 {% block admin_main %}
+{% from "titulatec/_macros.html" import proceso_pill %}
 {% set V = view|default('table') %}
 {% set _st = '&stuck=1' if stuck else '' %}
 {# Las URLs se arman UNA vez y se usan en `href` y en `hx-get`: el enlace normal
@@ -173,7 +174,7 @@
           </td>
           <td><span class="tt-pill tt-pill--navy">{{ '%02d'|format(r.phase) }} · {{ r.phase_name }}</span></td>
           <td><span class="tt-pill tt-pill--idle-{{ r.idle_level }}">{{ r.idle_days }} d</span></td>
-          <td><span class="tt-pill tt-pill--{{ 'success' if r.status=='completed' else ('neutral' if r.status in ('cancelled','on_hold') else 'amber') }}">{{ r.status }}</span></td>
+          <td>{{ proceso_pill(r.status) }}</td>
           <td class="text-end"><a href="/titulatec/admin/processes/{{ r.id }}?from={{ VOLVER }}" class="btn btn-sm tt-btn-soft">Abrir <i class="bi bi-arrow-right ms-1"></i></a></td>
         </tr>
         {% else %}

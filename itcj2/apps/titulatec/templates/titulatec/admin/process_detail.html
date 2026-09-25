@@ -61,4 +61,44 @@
     </div>
   </div>
 </div>
+
+{# Revocar inscripción (spec 2026-09-25 §3.6). Mismo sitio y mismo motivo que el
+   de arriba (fuera del swap). Solo existe si el botón que lo abre existe
+   (`can_revoke`). A diferencia del de mover de fase, su URL no cambia con las
+   acciones del expediente: el proceso es el mismo, así que va escrita aquí.
+   El botón de enviar está FUERA del <form> (hx-include): la validación nativa
+   del navegador no bloquea el POST y el motivo vacío lo contesta el servidor
+   (400 + X-Tt-Error), además de la guarda de `expediente.js`. #}
+{% if can_revoke %}
+{% set Q = ('?' ~ zona) if zona else '' %}
+<div class="modal fade" id="exp-modal-revocar" tabindex="-1" aria-hidden="true"
+     aria-labelledby="exp-modal-revocar-t">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title tt-h-sec" id="exp-modal-revocar-t">Revocar inscripción</h3>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <form id="exp-form-revocar" class="modal-body">
+        <p class="tt-exp-modal-help">
+          {{ student.name }} deja de estar inscrito: su proceso se detiene, se
+          cancela su cita de cotejo si tenía una y se le avisa por correo. Podrá
+          inscribirse de nuevo en otra convocatoria.</p>
+        <label class="tt-label" for="exp-revocar-motivo">
+          Motivo <span class="tt-exp-modal-req">(obligatorio, lo lee el alumno)</span></label>
+        <textarea class="tt-field" id="exp-revocar-motivo" name="reason" rows="3"
+                  maxlength="2000" placeholder="Por qué se revoca la inscripción…"></textarea>
+      </form>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm tt-btn-ghost" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm tt-btn-danger-soft" id="exp-revocar"
+                hx-post="/titulatec/admin/processes/{{ process.id }}/cancelar{{ Q }}"
+                hx-include="#exp-form-revocar"
+                hx-target="#exp-shell" hx-swap="morph:outerHTML">
+          <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>Revocar inscripción</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

@@ -1,6 +1,8 @@
 {# Resumen de la convocatoria. Contenido interno del tab (sin wrapper #cohort-tab-body). #}
 <div class="tt-kpis tt-stagger">
-  <div class="tt-kpi"><div class="tt-kicker">Alumnos</div><div class="num">{{ summary.total }}</div></div>
+  {# Revocadas fuera del total (`_cohort_summary_ctx`); se dicen aquí para que
+     el número no discrepe en silencio con la pestaña Alumnos. #}
+  <div class="tt-kpi"><div class="tt-kicker">Alumnos</div><div class="num">{{ summary.total }}{% if summary.cancelled %} <small>+{{ summary.cancelled }} revocada{{ 's' if summary.cancelled != 1 }}</small>{% endif %}</div></div>
   <div class="tt-kpi"><div class="tt-kicker">Completados</div><div class="num">{{ summary.completed }} <small>{{ summary.pct_completed }}%</small></div></div>
   <div class="tt-kpi"><div class="tt-kicker">Con cita</div><div class="num">{{ summary.with_appt }}</div></div>
   <div class="tt-kpi"><div class="tt-kicker">Días de cotejo</div><div class="num">{{ summary.review_days }}</div></div>

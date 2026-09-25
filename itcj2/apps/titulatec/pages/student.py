@@ -202,6 +202,8 @@ _EVENT_LABELS = {
     # hiciera nada, así que callarlo es justo lo contrario de lo que sirve.
     "process_paused":              "Tu proceso quedó en pausa",
     "process_resumed":             "Tu proceso se reanudó",
+    # `ProcessService.cancel`: Servicios Escolares revocó la inscripción.
+    "process_cancelled":           "Tu inscripción fue cancelada",
     "enrollment_self_service":     "Te inscribiste desde el formulario público",
     # `EnrollmentRequestService.reassign_nip` (el correo con tu NIP no salió).
     "enrollment_access_reset":     "Se reasignó tu NIP de acceso",
@@ -723,6 +725,14 @@ async def dashboard(
 
         ctx = _phases_ctx(db, process, open_phase=_parse_open_phase(fase))
         ctx["first_name"] = u.first_name if u else None
+        # Inscripción revocada (`ProcessService.cancel`): «Tu inscripción fue
+        # cancelada: motivo» EN LUGAR de la tarjeta de la fase actual, que
+        # ofrecería una acción que la guarda de fase ya no deja hacer.
+        from itcj2.apps.titulatec.services.process_service import ProcessService
+        info = ProcessService.cancellation_info(db, process)
+        ctx["cancelled"] = ({"reason": info["reason"],
+                             "when": _cita_label(info["at"]) if info["at"] else None}
+                            if info else None)
         # Compat del hero: nombre de la fase actual como texto suelto.
         ctx["phase_name"] = ctx["current"]["name"] if ctx["current"] else None
     finally:
