@@ -551,6 +551,18 @@ class TestPantallas:
         assert "Inscripción revocada" in html      # historial, no el código crudo
         assert ">cancelled<" not in html
 
+    def test_el_checklist_de_una_revocada_es_de_solo_lectura(
+        self, db_session, esc, make_head, client_as, correos,
+    ):
+        from itcj2.apps.titulatec.pages.admin import _detail_ctx
+        proc = esc["proc"](current_phase=2)
+        jefa = make_head(perm_codes=REVOCA_PERMS + ("titulatec.process.api.requirement.mark",))
+        assert _detail_ctx(db_session, proc.id, user_id=jefa.id)["can_mark_reqs"] is True
+
+        _svc().cancel(db_session, proc.id, reason="Motivo", actor_id=jefa.id)
+
+        assert _detail_ctx(db_session, proc.id, user_id=jefa.id)["can_mark_reqs"] is False
+
     def test_el_alumno_ve_el_motivo(self, db_session, esc, client_as, correos):
         proc = esc["proc"]()
         _svc().cancel(db_session, proc.id, reason="Tu acta no es legible",

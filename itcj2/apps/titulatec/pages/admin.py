@@ -1344,7 +1344,10 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     if user_id is not None:
         from itcj2.core.services.authz_service import get_user_permissions_for_app
         _user_perms = get_user_permissions_for_app(db, user_id, "titulatec")
-        can_mark_reqs = "titulatec.process.api.requirement.mark" in _user_perms
+        # Sobre una inscripción revocada el checklist queda de solo lectura:
+        # acreditarle un requisito ya no mueve nada.
+        can_mark_reqs = ("titulatec.process.api.requirement.mark" in _user_perms
+                         and proc.status != "cancelled")
         can_dictaminar_fase = bool(_user_perms & {
             "titulatec.process.api.approve_phase", "titulatec.process.api.reject_phase",
         })
