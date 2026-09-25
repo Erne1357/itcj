@@ -192,6 +192,15 @@ def test_cada_ruta_exige_un_solo_codigo():
     assert access_admin._REJECT == ["titulatec.enrollment_access.api.reject"]
 
 
+def test_la_bandeja_usa_los_estados_por_revisar_del_servicio_no_una_copia():
+    """Una copia de `_REVIEWABLE` se desincroniza en silencio el día que el
+    servicio sume un estado revisable: la bandeja lo escondería."""
+    from itcj2.apps.titulatec.pages import access_admin
+    from itcj2.apps.titulatec.services import enrollment_request_service as svc
+
+    assert access_admin._REVIEWABLE is svc._REVIEWABLE
+
+
 # ---------------------------------------------------------------------------
 # Modo oficial: pestañas y filas
 # ---------------------------------------------------------------------------

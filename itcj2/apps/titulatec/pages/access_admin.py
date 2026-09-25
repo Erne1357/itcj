@@ -31,6 +31,9 @@ from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+# Estados «por revisar» (incluido el legado): los del servicio, nunca una copia
+# que se desincronice el día que el servicio sume uno.
+from itcj2.apps.titulatec.services.enrollment_request_service import _REVIEWABLE
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.access_admin")
 router = APIRouter(prefix="/admin/accesos", tags=["titulatec-pages-access"])
@@ -48,8 +51,6 @@ _MSG_ONLY_OFFICIAL = ("En este modo Centro de Cómputo revisa las solicitudes: y
 _MSG_ONLY_ALTERNATE = "En este modo rechazar y reenviar la liga son de Servicios Escolares."
 _MSG_GRANT_FAILED = "No pudimos completar el acceso; intenta de nuevo."
 _MSG_REASSIGN_FAILED = "No pudimos reasignar el NIP; intenta de nuevo."
-
-_REVIEWABLE = ("pending_review", "unverified", "verified")
 
 # Pestañas por modo, en el orden en que se pintan; la primera es la de omisión.
 _TABS = {
