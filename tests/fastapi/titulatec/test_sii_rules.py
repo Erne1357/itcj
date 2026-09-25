@@ -494,6 +494,23 @@ class TestCredencial:
         rs.fetch_credential(stub, "20110001")
         assert stub.sensitive == ["nip"]
 
+    def test_columna_de_la_credencial_que_no_viene_es_error_de_reglas(self, caplog):
+        """`[credential] column = "nip"` pero la consulta devuelve NIP_ALUMNO:
+        es un error de configuración, NO «el SII no da NIP» (eso es 0 filas o
+        NULL). Tragarlo haría que todo alumno sin cuenta quedara «sin NIP»."""
+        caplog.set_level(logging.DEBUG)
+        rs = RuleSet.load(FIXTURES)
+        stub = _Stub({"nip": {"20110001": [{"NIP_ALUMNO": NIP}]}})
+        with pytest.raises(SiiRulesError) as ei:
+            rs.fetch_credential(stub, "20110001")
+        msg = str(ei.value)
+        assert "'nip'" in msg and "nip_alumno" in msg
+        assert NIP not in " ".join([msg, repr(ei.value), caplog.text])
+
+    def test_columna_presente_pero_nula_sigue_siendo_sin_nip(self):
+        rs = RuleSet.load(FIXTURES)
+        assert rs.fetch_credential(_Stub({"nip": {"C": [{"NIP": None}]}}), "C") is None
+
     def test_el_nip_no_aparece_en_ningun_lado(self, caplog):
         caplog.set_level(logging.DEBUG)
         rs = RuleSet.load(FIXTURES)

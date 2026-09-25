@@ -741,13 +741,16 @@ class RuleSet:
 
     def fetch_credential(self, client, control_number: str, *,
                          curp: str | None = None) -> Secret | None:
-        """El NIP del SII, o None si no hay `[credential]` o el SII no lo da.
+        """El NIP del SII, o None si no hay `[credential]` o el SII no lo da
+        (0 filas, o la columna viene en NULL/vacía).
 
         Las fallas del SII SÍ se propagan (`SiiUnavailable`/`SiiQueryError`):
         quien aprueba debe distinguir «no tiene NIP» de «no se pudo
         preguntar». La consulta va en modo `sensitive` (el cliente no pone el
         texto del driver, que puede traer el NIP, en el log ni en el error).
-        Nada aquí registra ni guarda el valor.
+        Si la consulta NO devuelve la columna declarada es un error de
+        configuración (`SiiRulesError`), no «sin NIP». Nada aquí registra ni
+        guarda el valor.
         """
         if self._errors:
             raise SiiRulesError("Reglas inválidas: " + " | ".join(self._errors))
@@ -761,7 +764,13 @@ class RuleSet:
         rows = _norm_rows(client.query(q.sql, args, query_id=q.id, sensitive=True))
         if not rows:
             return None
-        raw = rows[0].get(self._credential.columns["value"])
+        col = self._credential.columns["value"]
+        if col not in rows[0]:
+            # Solo NOMBRES de columna, jamás valores: la fila trae el NIP.
+            got = ", ".join(sorted(rows[0])) or "ninguna"
+            raise SiiRulesError(f"[credential]: la consulta '{q.id}' no devuelve la columna "
+                                f"'{col}' (devuelve: {got}).")
+        raw = rows[0][col]
         if raw is None:
             return None
         text = str(_jsonable(raw)).strip()

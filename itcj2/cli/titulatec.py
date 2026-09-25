@@ -1044,7 +1044,7 @@ def sii_check_command(control_number, cohort_id):
     import time
 
     from itcj2.apps.titulatec.services.sii.client import SiiConfig, get_sii_client
-    from itcj2.apps.titulatec.services.sii.errors import SiiError
+    from itcj2.apps.titulatec.services.sii.errors import SiiError, SiiRulesError
     from itcj2.apps.titulatec.services.sii.rules import RuleSet
 
     control = control_number.strip().upper()
@@ -1056,6 +1056,7 @@ def sii_check_command(control_number, cohort_id):
         _sii_fail(str(exc))
 
     t0 = time.monotonic()
+    credential_failed = False  # un nip.sql roto NO pasa en verde (runbook §7)
     with sii:
         verdict = rs.evaluate(sii, control)
         if not rs.has_credential:
@@ -1063,9 +1064,15 @@ def sii_check_command(control_number, cohort_id):
         elif verdict.status == "error":
             nip_line = "no consultado (la evaluación falló)"
         else:
+            # El mensaje de estas excepciones ya viene sin el NIP: la consulta
+            # va en modo sensible y el motor solo nombra columnas.
             try:
                 secret = rs.fetch_credential(sii, control)
+            except SiiRulesError as exc:
+                credential_failed = True
+                nip_line = f"error en las reglas ({exc})"
             except SiiError as exc:
+                credential_failed = True
                 nip_line = f"no se pudo consultar ({exc})"
             else:
                 nip_line = "**** (el SII lo devuelve)" if secret else "sin NIP (el SII no lo devuelve)"
@@ -1095,5 +1102,5 @@ def sii_check_command(control_number, cohort_id):
 
     if cohort_id is not None:
         _sii_cohort_outcome(cohort_id, verdict.status)
-    if verdict.status == "error":
+    if verdict.status == "error" or credential_failed:
         raise SystemExit(1)

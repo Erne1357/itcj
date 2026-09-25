@@ -8,6 +8,7 @@ el NIP ENMASCARADO; no escribe nada.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,32 @@ class TestSiiCheck:
         res = _run("sii-check", "20110001")
         assert res.exit_code != 0
         assert "deshabilitada" in res.output
+
+    def test_columna_del_nip_mal_escrita_no_pasa_en_verde(self, sii, tmp_path):
+        """`[credential] column = "nip"` pero `nip.sql` devuelve NIP_ALUMNO:
+        antes decía «sin NIP» y salía 0; es un error de configuración."""
+        sii["fake"] = _fake_con_nip(tmp_path, [{"NIP_ALUMNO": "4321"}])
+        res = _run("sii-check", "20110001")
+        assert res.exit_code != 0, res.output
+        assert "Veredicto: APTA" in res.output
+        assert "no devuelve la columna" in res.output
+        assert "sin NIP" not in res.output
+        assert "4321" not in res.output
+
+    def test_consulta_del_nip_fallida_no_pasa_en_verde(self, sii, tmp_path):
+        sii["fake"] = _fake_con_nip(tmp_path, {"error": "query"})
+        res = _run("sii-check", "20110001")
+        assert res.exit_code != 0, res.output
+        assert "no se pudo consultar" in res.output
+
+
+def _fake_con_nip(tmp_path, entry) -> Path:
+    """El SII falso de las fixtures con otra respuesta de `nip` para 20110001."""
+    data = json.loads((FIXTURES / "fake_sii.json").read_text(encoding="utf-8"))
+    data["queries"]["nip"]["20110001"] = entry
+    path = tmp_path / "fake_sii.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
 
 
 class TestSiiCheckConConvocatoria:
