@@ -1059,6 +1059,7 @@ def sii_check_command(control_number, cohort_id):
     """
     import time
 
+    from itcj2.apps.titulatec.services.enrollment_request_service import nip_format_ok
     from itcj2.apps.titulatec.services.sii.client import SiiConfig, get_sii_client
     from itcj2.apps.titulatec.services.sii.errors import SiiError, SiiRulesError
     from itcj2.apps.titulatec.services.sii.rules import RuleSet
@@ -1091,7 +1092,16 @@ def sii_check_command(control_number, cohort_id):
                 credential_failed = True
                 nip_line = f"no se pudo consultar ({exc})"
             else:
-                nip_line = "**** (el SII lo devuelve)" if secret else "sin NIP (el SII no lo devuelve)"
+                if secret is None:
+                    nip_line = "sin NIP (el SII no lo devuelve)"
+                elif nip_format_ok(secret.reveal()):
+                    nip_line = "**** (el SII lo devuelve · 4 dígitos: sí)"
+                else:
+                    # La cuenta no se podría crear con él (ni sola ni a mano):
+                    # no pasa en verde. Solo el formato, jamás el valor.
+                    credential_failed = True
+                    nip_line = ("**** (el SII lo devuelve · 4 dígitos: no — con ese "
+                                "formato no se puede crear la cuenta)")
                 del secret
     ms = int((time.monotonic() - t0) * 1000)
 

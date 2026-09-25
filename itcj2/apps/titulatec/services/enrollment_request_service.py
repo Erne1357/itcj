@@ -172,6 +172,12 @@ _ENTRY_YEAR_RE = re.compile(r"^[A-Za-z]?(\d{2})")
 _NIP_RE = re.compile(r"[0-9]{4}")
 
 
+def nip_format_ok(nip: str | None) -> bool:
+    """¿`nip` sirve como NIP (exactamente 4 dígitos ASCII, `_NIP_RE`)? Lo usa
+    `sii-check` para decir si el del SII serviría SIN mostrarlo."""
+    return bool(_NIP_RE.fullmatch(nip or ""))
+
+
 def entry_year(control: str | None, today: date | None = None) -> str:
     """Año de ingreso a 4 dígitos, o `"Sin año"` si el control no case (o es `None`).
 
@@ -241,8 +247,8 @@ _MSG_NOT_REASSIGNABLE = ("Solo se reasigna el NIP de una cuenta que creó esta s
 # Modo `sii` (spec 2026-09-25): la cuenta nueva nace con el NIP del SII. Ningún
 # mensaje lleva el valor.
 _MSG_SII_NO_NIP = "No se pudo obtener el NIP del SII."
-_MSG_SII_BAD_NIP = ("El NIP del SII no tiene 4 dígitos; da de alta a la persona desde la "
-                    "convocatoria.")
+_MSG_SII_BAD_NIP = ("NIP del SII con formato inválido (no son 4 dígitos); da de alta a la "
+                    "persona desde la convocatoria.")
 _MSG_SII_ACCOUNT_FAILED = ("No se pudo crear la cuenta con el NIP del SII; da de alta a la "
                            "persona desde la convocatoria.")
 _NOTE_LINK_COHORT_CLOSED = "La convocatoria estaba cerrada cuando se abrió la liga de activación."

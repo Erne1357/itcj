@@ -1121,9 +1121,23 @@ def test_un_nip_del_sii_con_otro_formato_no_crea_cuenta_ni_se_filtra(
         _svc().check(db_session, req.id)
 
     assert req.status == "pending_review"
+    assert req.review_note.startswith("NIP del SII con formato inválido")
     assert "4 dígitos" in req.review_note and "12AB" not in req.review_note
     assert _usuario(db_session, "99580040") is None
     assert "12AB" not in caplog.text
+
+
+@pytest.mark.parametrize("nip", ["123", "12345", "１２３４", " 12 "])
+def test_solo_4_digitos_ascii_crean_la_cuenta(db_session, make_cohort, sii, listo, nip):
+    """Revisión final C13: exactamente 4 dígitos ASCII. Un dígito Unicode
+    («１２３４») nadie lo puede teclear en el login."""
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580041", nip=nip)
+
+    _svc().check(db_session, req.id)
+
+    assert req.status == "pending_review"
+    assert req.review_note.startswith("NIP del SII con formato inválido")
+    assert _usuario(db_session, "99580041") is None
 
 
 def test_con_cuenta_en_otra_convocatoria_queda_por_revisar_con_el_motivo(

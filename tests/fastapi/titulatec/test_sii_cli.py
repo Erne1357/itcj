@@ -146,6 +146,21 @@ class TestSiiCheck:
         assert "sin NIP" not in res.output
         assert "4321" not in res.output
 
+    def test_dice_si_el_nip_tiene_4_digitos_sin_mostrarlo(self, sii):
+        """Revisión final C13: el formato se reporta, el valor jamás."""
+        res = _run("sii-check", "20110001")
+        assert res.exit_code == 0, res.output
+        assert "4 dígitos: sí" in res.output
+        assert "4321" not in res.output
+
+    @pytest.mark.parametrize("nip", ["12AB", "123", "１２３４"])
+    def test_un_nip_con_otro_formato_no_pasa_en_verde(self, sii, tmp_path, nip):
+        sii["fake"] = _fake_con_nip(tmp_path, [{"nip": nip}])
+        res = _run("sii-check", "20110001")
+        assert res.exit_code != 0, res.output
+        assert "4 dígitos: no" in res.output
+        assert nip not in res.output
+
     def test_consulta_del_nip_fallida_no_pasa_en_verde(self, sii, tmp_path):
         sii["fake"] = _fake_con_nip(tmp_path, {"error": "query"})
         res = _run("sii-check", "20110001")
