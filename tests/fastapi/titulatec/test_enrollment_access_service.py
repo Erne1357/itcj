@@ -95,15 +95,8 @@ def orden(db_session, monkeypatch):
     return pasos, enviados
 
 
-@pytest.fixture()
-def modo_alterno(monkeypatch):
-    """`TITULATEC_ENROLLMENT_REVIEWER=computer_center`: se parchea el método, nunca
-    `get_settings` (spec §5)."""
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
-    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
-                        staticmethod(lambda: "computer_center"))
+# `modo_alterno` vive en conftest.py (C7/I-1 de la revision final: una sola
+# copia compartida en vez de 4 duplicadas por archivo).
 
 
 def _svc():

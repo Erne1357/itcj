@@ -234,10 +234,16 @@ class TestSettingsDeLaInscripcion:
     `TITULATEC_HANDOFF_PHASE`): mejor no arrancar que operar con una liga de
     0 días o con un modo de revisión que nadie implementa."""
 
-    def test_los_defaults_son_21_dias_y_el_modo_oficial(self):
+    def test_los_defaults_son_21_dias_y_el_modo_oficial(self, monkeypatch):
+        """`Settings()` a secas lee `.env` y el entorno del proceso (C7/I-1 de
+        la revision final): sin aislarla, esta prueba mide lo que haya en el
+        contenedor, no el DEFAULT declarado. `_env_file=None` + `delenv` de
+        ambas variables fuerza el default real de `Field(...)`."""
         from itcj2.config import Settings
 
-        s = Settings()
+        monkeypatch.delenv("TITULATEC_ENROLLMENT_LINK_TTL_DAYS", raising=False)
+        monkeypatch.delenv("TITULATEC_ENROLLMENT_REVIEWER", raising=False)
+        s = Settings(_env_file=None)
         assert s.TITULATEC_ENROLLMENT_LINK_TTL_DAYS == 21
         assert s.TITULATEC_ENROLLMENT_REVIEWER == "school_services"
 

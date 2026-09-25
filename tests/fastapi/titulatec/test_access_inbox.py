@@ -90,14 +90,8 @@ def correo_falso(monkeypatch):
     return enviados
 
 
-@pytest.fixture()
-def modo_alterno(monkeypatch):
-    """Centro de Cómputo revisa todo: se parchea `reviewer_mode`, nunca `get_settings`."""
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
-    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
-                        staticmethod(lambda: "computer_center"))
+# `modo_alterno` vive en conftest.py (C7/I-1 de la revision final: una sola
+# copia compartida en vez de 4 duplicadas por archivo).
 
 
 def _make_req(db_session, cohort, *, control, status="pending_review", program=None,
