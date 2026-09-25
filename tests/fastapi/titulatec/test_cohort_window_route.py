@@ -417,3 +417,30 @@ def test_en_solo_lectura_el_estado_del_interruptor_se_ve_sin_casilla(
     assert INTERRUPTOR not in ventana
     texto = " ".join(re.sub(r"<[^>]+>", " ", ventana).split())
     assert "Aprobación automática (SII) apagada" in texto
+
+
+def test_la_ventana_y_el_interruptor_se_confirman_en_un_solo_commit(
+        escenario, client_as, db_session, modo_sii, monkeypatch):
+    """Una sola transacción. Con un segundo commit solo para el interruptor, un
+    fallo entre los dos dejaba la ventana guardada con un 500 y el interruptor
+    sin mover. El interruptor viaja en el commit de `CohortService.set_window`."""
+    cohort = escenario["cohort"]
+    commits = []
+    confirmar = db_session.commit
+
+    def _cuenta():
+        commits.append(cohort.sii_auto_approve)
+        return confirmar()
+
+    monkeypatch.setattr(db_session, "commit", _cuenta)
+
+    resp = client_as(escenario["jefa"]).post(
+        _url(cohort), data={"status": "open", "opens_at": "", "closes_at": "",
+                            "sii_auto_present": "1"},
+        follow_redirects=False)
+
+    assert resp.status_code == 200
+    assert commits == [False], "un commit, y el interruptor ya va apagado en él"
+    db_session.refresh(cohort)
+    assert cohort.status == "open"
+    assert cohort.sii_auto_approve is False
