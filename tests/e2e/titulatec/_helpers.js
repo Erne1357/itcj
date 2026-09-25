@@ -181,6 +181,18 @@ OFFICER_PERMS = [
     "titulatec.appointment.page.list",
     "titulatec.review_window.api.manage",
 ]
+# CENTRO DE CÓMPUTO (CC), Tarea 8, spec 2026-09-24-titulatec-accesos-centro-computo.
+# Los 4 permisos exactos de la bandeja /titulatec/admin/accesos
+# (database/DML/titulatec/02_insert_permissions.sql); sin ningun otro -ni
+# siquiera un dashboard-, porque el escenario ejercita justo esa superficie: CC
+# no tiene alcance por carrera (ve todas las solicitudes) y no puede abrir
+# /titulatec/admin/ ni /processes (le faltan esos permisos a proposito).
+CC_PERMS = [
+    "titulatec.enrollment_access.page.list",
+    "titulatec.enrollment_access.api.grant",
+    "titulatec.enrollment_access.api.return",
+    "titulatec.enrollment_access.api.reject",
+]
 
 SCHEMA = {
     "enabled": True,
@@ -247,6 +259,7 @@ try:
     rol_alumno = _role(TAG + "_student", STUDENT_PERMS)
     rol_gtv = _role(TAG + "_gtv", GTV_PERMS)
     rol_officer = _role(TAG + "_officer", OFFICER_PERMS)
+    rol_cc = _role(TAG + "_cc", CC_PERMS)
 
     program = db.query(Program).filter_by(name=TAG + " Sistemas").first()
     if program is None:
@@ -290,6 +303,14 @@ try:
                is_active=True)
     db.add(gtv); db.flush()
     db.add(UserAppRole(user_id=gtv.id, app_id=app.id, role_id=rol_gtv.id))
+
+    # Centro de Computo (Tarea 8): solo los 4 permisos de CC_PERMS, sin rol
+    # 'admin' del JWT (role='' como el resto) para ejercer los permisos reales
+    # de BD, igual que jefatura/GTV/alumno.
+    cc = User(first_name=TAG, last_name="COMPUTO", username=TAG + "_cc",
+              is_active=True)
+    db.add(cc); db.flush()
+    db.add(UserAppRole(user_id=cc.id, app_id=app.id, role_id=rol_cc.id))
 
     # --- Encargado de carrera: el UNICO actor que llega por PUESTO ----------
     # Misma forma que OfficerService.create_officer en produccion
@@ -357,6 +378,9 @@ try:
         "gtvId": gtv.id,
         "gtvToken": _encode_jwt({"sub": str(gtv.id), "role": "",
                                  "name": TAG + " GTV", "cn": ""}, 12),
+        "ccId": cc.id,
+        "ccToken": _encode_jwt({"sub": str(cc.id), "role": "",
+                                "name": TAG + " COMPUTO", "cn": ""}, 12),
         "officerId": officer.id,
         "officerToken": _encode_jwt({"sub": str(officer.id), "role": "",
                                      "name": TAG + " ENCARGADO", "cn": ""}, 12),
@@ -593,6 +617,7 @@ function stateFor(role) {
   const token = role === 'head' ? _ctx.headToken
     : role === 'gtv' ? _ctx.gtvToken
     : role === 'officer' ? _ctx.officerToken
+    : role === 'cc' ? _ctx.ccToken
     : role === 'student' ? _ctx.studentToken
     : null;
   if (!token) throw new Error(`stateFor("${role}"): rol desconocido`);
@@ -669,10 +694,21 @@ finally:
  * así que la bandeja la aprueba emitiendo la liga de activación, sin NIP. Las
  * dos filas caen en el borrado del escenario (`first_name = E2E_TAG` y
  * `username LIKE '2999%'`).
+ *
+ * `{ status: 'awaiting_access' }` (Tarea 8): siembra la fila YA aprobada por
+ * SE -mismo estado que deja `EnrollmentRequestService.approve()` en modo
+ * oficial sin cuenta- para que `admin-access.spec.js` ejerza directamente la
+ * bandeja de Centro de Cómputo sin repetir el paso de SE que ya cubre
+ * `admin-requests.spec.js`. Sella `reviewed_by_id`/`reviewed_at` con la
+ * jefatura del escenario (`ctx.headId`), igual que hace el service real.
+ * `{ control }` permite una SEGUNDA fila sin cuenta en el mismo escenario
+ * (dar NIP y devolver son pruebas separadas, cada una con su propia fila) sin
+ * chocar con el 29990777 por omisión.
  */
-function seedPendingRequest(ctx, { withAccount = false } = {}) {
-  const control = withAccount ? '29990778' : '29990777';
+function seedPendingRequest(ctx, { withAccount = false, status = 'pending_review', control } = {}) {
+  const ctrl = control || (withAccount ? '29990778' : '29990777');
   const out = runInContainer(`
+from datetime import datetime
 from itcj2.database import SessionLocal
 from itcj2.core.models.user import User
 from itcj2.core.utils.security import hash_nip
@@ -681,15 +717,21 @@ db = SessionLocal()
 try:
     if ${withAccount ? 'True' : 'False'}:
         db.add(User(first_name="${E2E_TAG}", last_name="CON CUENTA",
-                    username="${control}", control_number="${control}",
+                    username="${ctrl}", control_number="${ctrl}",
                     password_hash=hash_nip("${E2E_NIP}"), is_active=True))
         db.flush()
     req = EnrollmentRequest(
-        cohort_id=${ctx.cohortId}, control_number="${control}",
+        cohort_id=${ctx.cohortId}, control_number="${ctrl}",
         first_name="EGRESADO", last_name="${E2E_TAG}",
         program_text="Ingeniería en Sistemas", phone="6560000000",
         contact_email="e2e.titulatec@example.com", has_efirma=False,
-        kind="${withAccount ? 'known' : 'unknown'}", status="pending_review")
+        kind="${withAccount ? 'known' : 'unknown'}", status="${status}")
+    if "${status}" == "awaiting_access":
+        # Espejo de lo que deja EnrollmentRequestService.approve() en modo
+        # oficial: SE ya fijo la carrera al aprobar, antes de que exista cuenta.
+        req.program_id = ${ctx.programId}
+        req.reviewed_by_id = ${ctx.headId}
+        req.reviewed_at = datetime.now()
     db.add(req); db.flush()
     rid = req.id
     db.commit()

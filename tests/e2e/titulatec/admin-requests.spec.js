@@ -2,8 +2,10 @@
 /**
  * Bandeja de solicitudes — aprobar con revisión previa, por los dos caminos.
  *
- * - SIN cuenta: se captura el NIP, se crea el acceso y la solicitud pasa a
- *   «Inscritas» con su folio.
+ * - SIN cuenta (Tarea 8, spec 2026-09-24-titulatec-accesos-centro-computo):
+ *   SE ya NO captura el NIP; aprueba sin NIP y la solicitud pasa a «En
+ *   Cómputo» (`awaiting_access`). El NIP lo da Centro de Cómputo en su propia
+ *   bandeja (`/titulatec/admin/accesos`, `admin-access.spec.js`).
  * - CON cuenta: no se pide NIP; se emite la liga de activación y la solicitud
  *   pasa a «Liga enviada».
  *
@@ -18,8 +20,9 @@
  * `undefined` es un no-op, así que el contexto heredaría el storageState global
  * del proyecto — un admin de HELPDESK — en vez de quedar sin sesión.
  *
- * Los tests de este archivo corren EN ORDEN y comparten el escenario: el último
- * revisa que el NIP aprobado en el segundo no quedó en ninguna pestaña.
+ * Los tests de este archivo corren EN ORDEN y comparten el escenario: el
+ * último revisa que ninguna pestaña de Solicitudes pinte nunca un campo de
+ * NIP -ya no es de SE, así que el formulario no debe volver a traerlo.
  */
 const { test, expect } = require('@playwright/test');
 const { execFileSync } = require('child_process');
@@ -28,7 +31,6 @@ const {
 } = require('./_helpers');
 
 const BACKEND_CONTAINER = process.env.E2E_BACKEND_CONTAINER || 'itcj-backend-1';
-const NIP_APROBADO = '7788';
 
 let ctx;
 let reqSinCuenta;
@@ -107,7 +109,7 @@ test('la fila "Solicitudes" del menú admin existe y lleva a su bandeja; "Encues
   await c.close();
 });
 
-test('aprobar SIN cuenta capturando el NIP crea el acceso y la lista en «Inscritas»', async ({ browser }) => {
+test('aprobar SIN cuenta, sin NIP, deja la solicitud «En Cómputo»', async ({ browser }) => {
   const c = await browser.newContext({ storageState: stateFor('head') });
   const page = await c.newPage();
   await abrirBandejaDesdeElMenu(page);
@@ -116,24 +118,30 @@ test('aprobar SIN cuenta capturando el NIP crea el acceso y la lista en «Inscri
   await expect(fila).toContainText('Sin cuenta');
   const form = fila.locator(`form[hx-post="/titulatec/admin/solicitudes/${reqSinCuenta}/aprobar"]`);
 
-  // El NIP es obligatorio y de 4 dígitos (D15).
-  await form.locator('[name="nip"]').fill(NIP_APROBADO);
+  // Tarea 8 (Accesos de Centro de Cómputo, 2026-09-24): SE ya NO captura el
+  // NIP al aprobar -lo da Centro de Cómputo en su propia bandeja-, así que el
+  // formulario de aprobar sin cuenta no lleva campo `nip`.
+  await expect(form.locator('[name="nip"]'), 'SE ya no captura el NIP al aprobar')
+    .toHaveCount(0);
   await form.locator('[name="program_id"]').selectOption(String(ctx.programId));
 
   const post = esperarPost(page, `/titulatec/admin/solicitudes/${reqSinCuenta}/aprobar`);
-  await form.getByRole('button', { name: 'Aprobar y crear acceso' }).click();
+  await form.getByRole('button', { name: 'Aprobar y pasar a Cómputo' }).click();
   expect((await post).status()).toBe(200);
 
   // Se vuelve a pintar «Por revisar», donde ya no está.
   await expect(page.locator('#tt-req-tab-pending_review[aria-current="true"]')).toBeVisible();
   await expect(page.locator(`#tt-req-${reqSinCuenta}`)).toHaveCount(0);
 
-  // El folio se lee de la BASE, no de una copia inventada aquí.
-  const folio = processFolioFor(ctx, '29990777');
-  expect(folio, 'la aprobación no creó el proceso').toMatch(/^TT-/);
-  await page.locator('#tt-req-tab-converted').click();
-  await expect(page.locator('#tt-req-tab-converted[aria-current="true"]')).toBeVisible();
-  await expect(page.locator(`#tt-req-${reqSinCuenta}`)).toContainText(folio);
+  // Sin NIP no hay cuenta ni proceso todavía: eso lo hace Centro de Cómputo
+  // al dar el acceso (`admin-access.spec.js`).
+  expect(processFolioFor(ctx, '29990777'), 'aprobar sin cuenta no debe crear el proceso')
+    .toBe('');
+  expect(requestStatusFor(reqSinCuenta)).toBe('awaiting_access');
+
+  await page.locator('#tt-req-tab-awaiting_access').click();
+  await expect(page.locator('#tt-req-tab-awaiting_access[aria-current="true"]')).toBeVisible();
+  await expect(page.locator(`#tt-req-${reqSinCuenta}`)).toContainText('En Centro de Cómputo desde');
 
   await c.close();
 });
@@ -167,15 +175,22 @@ test('aprobar CON cuenta no pide NIP y la solicitud pasa a «Liga enviada»', as
   await c.close();
 });
 
-test('el NIP nunca viaja de vuelta al navegador', async ({ browser }) => {
+// Tarea 8 (2026-09-24): SE ya no captura NI conoce el NIP -lo da Centro de
+// Cómputo desde su propia bandeja (`admin-access.spec.js`)-, así que ningún
+// formulario de Solicitudes lleva `[name="nip"]`, en ninguna pestaña. Antes
+// esta prueba buscaba un NIP concreto que SE capturaba al aprobar; ahora ese
+// campo no existe aquí en absoluto, así que la prueba estructural (ningún
+// `input[name="nip"]` en ninguna pestaña) es la que de verdad puede fallar si
+// alguien reintroduce el campo por error.
+test('Solicitudes nunca pinta un campo de NIP, en ninguna pestaña', async ({ browser }) => {
   const c = await browser.newContext({ storageState: stateFor('head') });
   const page = await c.newPage();
 
-  for (const pestana of ['pending_review', 'approved', 'converted', 'all']) {
+  for (const pestana of ['pending_review', 'awaiting_access', 'approved', 'converted', 'all']) {
     await page.goto(`/titulatec/admin/solicitudes?status=${pestana}`,
       { waitUntil: 'domcontentloaded' });
-    expect(await page.content(), `el NIP capturado quedó en la pestaña ${pestana}`)
-      .not.toContain(NIP_APROBADO);
+    await expect(page.locator('[name="nip"]'), `pestaña ${pestana} pintó un campo de NIP`)
+      .toHaveCount(0);
   }
 
   await c.close();
