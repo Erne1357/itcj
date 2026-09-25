@@ -838,7 +838,11 @@ def test_el_css_de_la_tabla_no_vuelve_a_desbordar():
 
     # El `.visually-hidden` del encabezado es `position: absolute`: sin un
     # ancestro posicionado dentro del scroll, estiraba la PÁGINA en móvil.
+    # La misma tabla la reusa Accesos (`#tt-access-body`, medido en navegador:
+    # `scrollWidth` de 690 px en 360/390 antes del arreglo).
     assert re.search(r"#tt-requests-body \.table-responsive\s*\{[^}]*position:\s*relative",
+                     sin_comentarios)
+    assert re.search(r"#tt-access-body \.table-responsive\s*\{[^}]*position:\s*relative",
                      sin_comentarios)
 
 

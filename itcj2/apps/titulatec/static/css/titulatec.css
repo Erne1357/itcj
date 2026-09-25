@@ -2173,8 +2173,12 @@ button.tt-seat--libre { pointer-events: auto; }
 /* El `<th>` de acciones lleva su nombre en un `.visually-hidden`, que es
    `position: absolute`. Sin un ancestro posicionado DENTRO del contenedor con
    scroll, ese span no lo recorta el `overflow` y estiraba la PÁGINA a 538 px
-   en un móvil de 360. */
+   en un móvil de 360 (Solicitudes) y a 690 px (Accesos, misma tabla, mismo
+   `<th>` sin nombre visible). Ambas bandejas comparten `.tt-req-table`, así
+   que comparten el arreglo; reglas separadas (no un selector combinado) para
+   no mover la línea que ya fija `test_el_css_de_la_tabla_no_vuelve_a_desbordar`. */
 #tt-requests-body .table-responsive { position: relative; }
+#tt-access-body .table-responsive { position: relative; }
 .tt-req-ctl  { display: block; font-family: var(--tt-mono); font-size: var(--tt-fs-100); color: var(--tt-text-3); }
 .tt-req-name { display: block; color: var(--tt-text-1); }
 .tt-req-sub  { display: block; font-size: var(--tt-fs-100); color: var(--tt-text-3); }

@@ -286,7 +286,14 @@ class Settings(BaseSettings):
     # Bump 2026-09-25: `titulatec/css/titulatec.css` suma `.tt-mix--access` (el
     # desglose «En Cómputo» del bloque «Por año de ingreso» de Solicitudes). Sin
     # el bump, la hoja vieja pinta el icono de ese cubo sin su color.
-    STATIC_VERSION: str = "1.0.1111570"
+    #
+    # Bump 2026-09-25 (2): `titulatec/css/titulatec.css` extiende el
+    # `position: relative` de `#tt-requests-body .table-responsive` a
+    # `#tt-access-body .table-responsive` (el `<th>` de acciones oculto de la
+    # tabla de Accesos estiraba `document.documentElement.scrollWidth` a 690 px
+    # en 360/390). Sin el bump, quien tenga la hoja vieja en caché sigue con
+    # scroll horizontal en `/titulatec/admin/accesos`.
+    STATIC_VERSION: str = "1.0.1111571"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
