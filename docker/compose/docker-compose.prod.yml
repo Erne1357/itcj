@@ -364,6 +364,9 @@ services:
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../docker/backend/celery:/app/docker/backend/celery:ro
       - ../../instance:/app/instance  # rw: workers leen/escriben archivos
+      # Reglas del SII (TitulaTec): titulatec.sii_check_request / sii_sweep van a la
+      # cola `default` y leen database/SII/titulatec/ (gitignored, no va en la imagen).
+      - ../../database/SII:/app/database/SII:ro
     entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-worker.sh"]
     depends_on:
       pgbouncer:
