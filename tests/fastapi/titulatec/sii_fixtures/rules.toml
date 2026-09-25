@@ -1,0 +1,71 @@
+# Reglas SINTÉTICAS de elegibilidad del SII — SOLO para pruebas.
+#
+# Las reales viven en `database/SII/titulatec/` (gitignored, nunca en el repo).
+# El formato está documentado en `itcj2/apps/titulatec/docs/sii_rules_format.md`.
+# Tablas y columnas inventadas: no reflejan el esquema real del SII.
+
+version = "test-2026-09-25.1"
+
+[[query]]
+id = "alumno"
+file = "queries/alumno.sql"
+params = ["control_number"]
+
+[[query]]
+id = "adeudos"
+file = "queries/adeudos.sql"
+params = ["control_number"]
+
+[[query]]
+id = "nip"
+file = "queries/nip.sql"
+params = ["control_number"]
+
+[[rule]]
+id = "existe"
+query = "alumno"
+criterion = { kind = "exists" }
+message = "El número de control no existe en el SII."
+
+[[rule]]
+id = "estatus"
+query = "alumno"
+criterion = { kind = "in", column = "estatus", value = ["EGRESADO", "TITULABLE"] }
+message = "Su estatus en el SII es {estatus}; se requiere EGRESADO o TITULABLE."
+
+[[rule]]
+id = "creditos"
+query = "alumno"
+criterion = { kind = "gte", column = "creditos_aprobados", value_column = "creditos_carrera" }
+message = "Le faltan créditos: {creditos_aprobados} de {creditos_carrera}."
+ok_message = "Créditos completos ({creditos_aprobados})."
+
+[[rule]]
+id = "servicio_social"
+query = "alumno"
+criterion = { kind = "truthy", column = "servicio_social" }
+message = "El servicio social no aparece liberado en el SII."
+
+[[rule]]
+id = "residencia"
+query = "alumno"
+criterion = { kind = "truthy", column = "residencia" }
+message = "La residencia profesional no aparece acreditada en el SII."
+
+[[rule]]
+id = "sin_adeudos"
+query = "adeudos"
+criterion = { kind = "not_exists" }
+message = "Tiene adeudos en el SII (p. ej. {concepto})."
+
+[credential]
+query = "nip"
+column = "nip"
+
+[identity]
+query = "alumno"
+columns = { first_name = "nombre", last_name = "apellido_paterno", middle_name = "apellido_materno", entry_year = "anio_ingreso", program = "carrera" }
+
+[facts]
+query = "alumno"
+columns = ["estatus", "creditos_aprobados", "creditos_carrera", "anio_ingreso"]
