@@ -1126,13 +1126,22 @@ def sii_check_command(control_number, cohort_id):
 @titulatec_cli.command("sii-sweep")
 @click.option("--cohort", "cohort_id", type=int, default=None,
               help="Solo las solicitudes de esa convocatoria.")
-def sii_sweep_command(cohort_id):
+@click.option("--reconsultar-errores", "reconsultar_errores", is_flag=True,
+              help="En vez del barrido: encola una consulta forzada para toda "
+                   "solicitud por revisar cuya consulta vigente sea un error "
+                   "(de configuración o en el tope de intentos) o esté colgada. "
+                   "Úsalo tras corregir las reglas o la conexión.")
+def sii_sweep_command(cohort_id, reconsultar_errores):
     """Barrido manual del SII (lo mismo que la tarea periódica `sii_sweep`).
 
     Consulta las solicitudes por revisar que no tienen consulta, reintenta las
     fallidas y aprueba las aptas con la ventana de veto vencida. Solo en el
     modo `sii`. ESCRIBE en la BD (consultas y aprobaciones) y manda los
     correos de las aprobadas; imprime solo los conteos.
+
+    Con `--reconsultar-errores` solo ENCOLA reconsultas forzadas de lo que el
+    barrido ya no toma (`EligibilityService.recheck_errors`); las hace el
+    worker de celery.
     """
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.apps.titulatec.services.enrollment_request_service import (
@@ -1148,8 +1157,18 @@ def sii_sweep_command(cohort_id):
         return
     db = SessionLocal()
     try:
-        out = EligibilityService.sweep(db, cohort_id=cohort_id)
+        if reconsultar_errores:
+            out = EligibilityService.recheck_errors(db, cohort_id=cohort_id)
+        else:
+            out = EligibilityService.sweep(db, cohort_id=cohort_id)
     finally:
         db.close()
+    if reconsultar_errores:
+        click.echo(f"Reconsultas encoladas: {out['queued']}")
+        if out["failed"]:
+            click.echo(click.style(
+                f"No se pudo encolar: {out['failed']} (¿broker caído?). Vuelve a "
+                "correr el comando.", fg="yellow"))
+        return
     click.echo(f"Consultadas: {out['checked']} · reintentadas: {out['retried']} · "
                f"aprobadas: {out['approved']}")

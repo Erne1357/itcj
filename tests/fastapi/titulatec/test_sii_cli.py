@@ -203,3 +203,43 @@ class TestSiiCheckConConvocatoria:
         res = _run("sii-check", "20110001", "--cohort", "999999999")
         assert res.exit_code != 0
         assert "999999999" in res.output
+
+
+class TestSiiSweepReconsultarErrores:
+    """Revisión final C12: tras corregir la configuración, las consultas en
+    error (reintentables o no) y las colgadas se reconsultan en bloque."""
+
+    @pytest.fixture()
+    def modo_sii(self, monkeypatch):
+        from itcj2.apps.titulatec.services.enrollment_request_service import (
+            EnrollmentRequestService,
+        )
+        monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                            staticmethod(lambda: "sii"))
+
+    def test_encola_y_dice_cuantas(self, sii, modo_sii, patched_session_local,
+                                   monkeypatch):
+        from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+
+        llamadas = []
+
+        def _recheck(db, *, cohort_id=None, now=None):
+            llamadas.append(cohort_id)
+            return {"queued": 4, "failed": 1}
+
+        monkeypatch.setattr(EligibilityService, "recheck_errors", staticmethod(_recheck))
+        res = _run("sii-sweep", "--reconsultar-errores", "--cohort", "7")
+        assert res.exit_code == 0, res.output
+        assert llamadas == [7]
+        assert "4" in res.output and "reconsulta" in res.output.lower()
+        assert "1" in res.output and "no se pudo" in res.output.lower()
+
+    def test_fuera_del_modo_sii_no_hace_nada(self, sii, patched_session_local,
+                                            monkeypatch):
+        from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+
+        monkeypatch.setattr(EligibilityService, "recheck_errors",
+                            staticmethod(lambda *a, **k: pytest.fail("no debió correr")))
+        res = _run("sii-sweep", "--reconsultar-errores")
+        assert res.exit_code == 0, res.output
+        assert "no 'sii'" in res.output

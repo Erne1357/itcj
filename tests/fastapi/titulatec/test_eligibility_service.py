@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from itcj2.apps.titulatec.services.eligibility_service import _PENDING_STALE
 from itcj2.apps.titulatec.services.sii.client import SiiConfig
 
 FIXTURES = Path(__file__).parent / "sii_fixtures"
@@ -1508,6 +1509,91 @@ def test_el_barrido_consulta_reintenta_y_aprueba_lo_que_toca(
         db_session.refresh(r)
         assert r.last_check_id == intactas[r.id], r.control_number
         assert r.status in ("pending_review", "rejected")
+
+
+def test_el_barrido_retoma_una_consulta_colgada_aunque_este_en_el_tope(
+    db_session, make_cohort, sii, modo_sii,
+):
+    """Revisión final (spec §8): una `pending` colgada en el tope de intentos
+    no la retomaba nadie. El barrido la retoma (forzada)."""
+    cohort = make_cohort(status="open")
+    cohort.sii_auto_approve = False
+    req = _make_req(db_session, cohort, control="99580097")
+    sii.no_apta("99580097")
+    _check_row(db_session, req, status="pending", attempt=5,
+               started_at=datetime.now() - _PENDING_STALE - timedelta(minutes=1))
+
+    out = _svc().sweep(db_session, cohort_id=cohort.id)
+
+    assert out["retried"] == 1
+    assert _svc().latest_check(db_session, req).attempt == 6
+    assert _svc().latest_check(db_session, req).status == "not_apt"
+
+
+# ---------------------------------------------------------------------------
+# Reconsulta masiva de errores (revisión final C12, spec §8):
+# `titulatec sii-sweep --reconsultar-errores [--cohort ID]`
+# ---------------------------------------------------------------------------
+def test_reconsultar_errores_fuerza_toda_consulta_en_error_o_colgada(
+    db_session, make_cohort, sii, modo_sii, monkeypatch,
+):
+    encoladas = []
+    monkeypatch.setattr(
+        "itcj2.apps.titulatec.services.eligibility_service.enqueue_check",
+        lambda req_id, **kw: encoladas.append((req_id, kw)) or True)
+    cohort = make_cohort(status="open")
+    otra = make_cohort(status="open")
+    colgada_hace = datetime.now() - _PENDING_STALE - timedelta(minutes=1)
+
+    de_config = _make_req(db_session, cohort, control="99580100")
+    _check_row(db_session, de_config, status="error", retryable=False)
+    en_tope = _make_req(db_session, cohort, control="99580101")
+    _check_row(db_session, en_tope, status="error", attempt=5, retryable=True)
+    colgada = _make_req(db_session, cohort, control="99580102")
+    _check_row(db_session, colgada, status="pending", attempt=5, started_at=colgada_hace)
+    # Lo que NO se toca:
+    en_curso = _make_req(db_session, cohort, control="99580103")
+    _check_row(db_session, en_curso, status="pending")
+    apta = _make_req(db_session, cohort, control="99580104")
+    _check_row(db_session, apta, status="apt")
+    sin_consulta = _make_req(db_session, cohort, control="99580105")
+    resuelta = _make_req(db_session, cohort, control="99580106", status="rejected")
+    _check_row(db_session, resuelta, status="error", retryable=False)
+    ajena = _make_req(db_session, otra, control="99580107")
+    _check_row(db_session, ajena, status="error", retryable=False)
+
+    out = _svc().recheck_errors(db_session, cohort_id=cohort.id)
+
+    assert out == {"queued": 3, "failed": 0}
+    assert sorted(encoladas) == sorted((r.id, {"force": True})
+                                       for r in (de_config, en_tope, colgada))
+    assert sin_consulta.id not in [r for r, _ in encoladas]
+
+
+def test_reconsultar_errores_cuenta_las_que_no_se_encolaron(
+    db_session, make_cohort, sii, modo_sii, monkeypatch,
+):
+    monkeypatch.setattr(
+        "itcj2.apps.titulatec.services.eligibility_service.enqueue_check",
+        lambda req_id, **kw: False)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580108")
+    _check_row(db_session, req, status="error", retryable=False)
+
+    assert _svc().recheck_errors(db_session, cohort_id=cohort.id) == {"queued": 0,
+                                                                       "failed": 1}
+
+
+def test_reconsultar_errores_fuera_del_modo_sii_no_hace_nada(
+    db_session, make_cohort, sii, _sin_celery,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580109")
+    _check_row(db_session, req, status="error", retryable=False)
+
+    assert _svc().recheck_errors(db_session, cohort_id=cohort.id) == {"queued": 0,
+                                                                       "failed": 0}
+    assert _sin_celery == []
 
 
 def test_el_barrido_no_aprueba_con_la_convocatoria_cerrada_o_el_interruptor_apagado(

@@ -609,6 +609,46 @@ class EligibilityService:
         return _leave_note(db, req, detalle)
 
     @staticmethod
+    def recheck_errors(db: Session, *, cohort_id: int | None = None,
+                       now: datetime | None = None) -> dict:
+        """Reconsulta en bloque tras corregir la configuración. `{queued, failed}`.
+
+        Encola una consulta FORZADA (`enqueue_check(id, force=True)`) para cada
+        solicitud `pending_review` (de `cohort_id`, si se da) cuya consulta
+        vigente es `error` —reintentable o no, en el tope o no— o `pending`
+        colgada (`_PENDING_STALE`). El barrido no las toma: un error de
+        configuración no se arregla esperando, y uno reintentable en el tope ya
+        agotó sus intentos (revisión final C12). `failed` = no se pudo encolar
+        (broker caído). Solo en el modo `sii`. No escribe en la BD: la fila
+        `pending` la abre la tarea bajo el lock.
+        """
+        from sqlalchemy import and_, or_
+
+        from itcj2.apps.titulatec.models import EligibilityCheck, EnrollmentRequest
+        from itcj2.apps.titulatec.services.enrollment_request_service import (
+            EnrollmentRequestService,
+        )
+
+        out = {"queued": 0, "failed": 0}
+        if EnrollmentRequestService.reviewer_mode() != "sii":
+            return out
+        now = now or datetime.now()
+        EC, ER = EligibilityCheck, EnrollmentRequest
+        q = (db.query(ER.id)
+             .join(EC, EC.id == ER.last_check_id)
+             .filter(ER.status == "pending_review")
+             .filter(or_(EC.status == "error",
+                         and_(EC.status == "pending",
+                              EC.started_at < now - _PENDING_STALE))))
+        if cohort_id:
+            q = q.filter(ER.cohort_id == cohort_id)
+        ids = [rid for (rid,) in q.order_by(ER.id).all()]
+        db.commit()          # solo lectura: no deja la transacción abierta
+        for rid in ids:
+            out["queued" if enqueue_check(rid, force=True) else "failed"] += 1
+        return out
+
+    @staticmethod
     def sweep(db: Session, *, now: datetime | None = None, cohort_id: int | None = None,
               max_seconds: float | None = None) -> dict:
         """Barrido periódico. Devuelve `{"checked", "approved", "retried"}`.
@@ -618,11 +658,12 @@ class EligibilityService:
         - sin consulta vigente (el worker o el broker no estaban) → primera
           consulta (`checked`);
         - vigente `error` REINTENTABLE (`retryable`: el SII no respondió;
-          spec §3.4) con intentos por debajo de `max_attempts()`, o `pending`
-          colgada (`_PENDING_STALE`) → siguiente intento (`retried`). Un
-          error de configuración (reglas, consulta inválida) no se reintenta:
-          esperar no lo arregla, y Servicios Escolares lo reconsulta a mano
-          cuando se corrige;
+          spec §3.4) con intentos por debajo de `max_attempts()` → siguiente
+          intento (`retried`); `pending` colgada (`_PENDING_STALE`) → se
+          retoma forzada, aunque esté en el tope (`retried`). Un error de
+          configuración (reglas, consulta inválida) no se reintenta: esperar
+          no lo arregla; tras corregirlo, `recheck_errors` (CLI
+          `sii-sweep --reconsultar-errores`) o «Reintentar consulta»;
         - vigente `apt` con la ventana de veto vencida, sin `review_note` (la
           nota es «esto necesita a una persona»: no se insiste), convocatoria
           `open` y con el interruptor encendido → `auto_approve`; si el
@@ -658,8 +699,9 @@ class EligibilityService:
              .filter(or_(
                  ER.last_check_id.is_(None),
                  and_(EC.status == "error", EC.retryable.is_(True), EC.attempt < tope),
-                 and_(EC.status == "pending", EC.started_at < now - _PENDING_STALE,
-                      EC.attempt < tope),
+                 # Colgada, aunque esté en el tope (revisión final): nadie más
+                 # la retoma; se fuerza abajo.
+                 and_(EC.status == "pending", EC.started_at < now - _PENDING_STALE),
                  and_(EC.status == "apt", EC.finished_at <= now - ventana,
                       ER.review_note.is_(None), Cohort.status == "open",
                       Cohort.sii_auto_approve.is_(True)),
@@ -679,8 +721,11 @@ class EligibilityService:
                     out["approved"] += int(ok)
                     out["retried"] += int(detalle == _MSG_STALE_VERDICT)
                     continue
-                chk = EligibilityService.check(
-                    db, req_id, attempt=1 if status is None else attempt + 1)
+                if status == "pending":
+                    chk = EligibilityService.check(db, req_id, force=True)
+                else:
+                    chk = EligibilityService.check(
+                        db, req_id, attempt=1 if status is None else attempt + 1)
                 if chk is None:
                     continue
                 out["checked" if status is None else "retried"] += 1
