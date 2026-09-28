@@ -176,6 +176,15 @@ class TestElRevisorGanaElModoSii:
             assert (Settings(TITULATEC_ENROLLMENT_REVIEWER=valido)
                     .TITULATEC_ENROLLMENT_REVIEWER == valido)
 
+    def test_el_default_es_sii(self, monkeypatch):
+        """D3: `sii` pasa a ser el flujo por omisión; `school_services` y
+        `computer_center` quedan como respaldo, activables solo por variable de
+        entorno. `_env_file=None` + `delenv` aísla el default declarado."""
+        from itcj2.config import Settings
+
+        monkeypatch.delenv("TITULATEC_ENROLLMENT_REVIEWER", raising=False)
+        assert Settings(_env_file=None).TITULATEC_ENROLLMENT_REVIEWER == "sii"
+
 
 class TestElSecretoNuncaSeAsoma:
     def test_titulatec_sii_odbc_no_aparece_en_repr_de_settings(self, monkeypatch):

@@ -163,10 +163,18 @@ def _cuerpo(metodo) -> str:
 # ---------------------------------------------------------------------------
 # Modo y etiqueta de quien revisa
 # ---------------------------------------------------------------------------
-def test_el_modo_oficial_es_el_de_por_omision_y_lo_revisa_servicios_escolares():
-    svc = _svc()
-    assert svc.reviewer_mode() == "school_services"
-    assert svc.reviewer_label() == "Servicios Escolares"
+def test_el_modo_por_omision_es_sii_y_lo_revisa_servicios_escolares(monkeypatch):
+    """`Settings()` a secas lee `.env`/el entorno del contenedor: el autouse
+    `_modo_oficial_por_defecto` solo parchea el SINGLETON de `get_settings()`
+    (para no falsear el resto de la suite, spec D3), nunca sirve para medir el
+    DEFAULT declarado en el campo. `_env_file=None` + `delenv` lo aísla, igual
+    que `TestSettingsDeLaInscripcion` en `test_enrollment_request_service.py`."""
+    from itcj2.config import Settings
+
+    monkeypatch.delenv("TITULATEC_ENROLLMENT_REVIEWER", raising=False)
+    s = Settings(_env_file=None)
+    assert s.TITULATEC_ENROLLMENT_REVIEWER == "sii"
+    assert _svc().reviewer_label() == "Servicios Escolares"
 
 
 def test_en_modo_alterno_la_etiqueta_es_centro_de_computo(modo_alterno):

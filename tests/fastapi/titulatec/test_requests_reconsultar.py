@@ -44,13 +44,8 @@ LIST_PERMS = (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-@pytest.fixture()
-def modo_sii(monkeypatch):
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
-    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
-                        staticmethod(lambda: "sii"))
+# `modo_sii` vive en conftest.py (Tarea 1: una sola copia compartida en vez de
+# 6 duplicadas por archivo).
 
 
 @pytest.fixture(autouse=True)

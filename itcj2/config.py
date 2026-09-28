@@ -458,14 +458,14 @@ class Settings(BaseSettings):
     # vencida; `le=90`: la liga es una credencial al correo personal y no debe
     # vivir un semestre. Fuera de rango truena al arrancar, no a media operación.
     TITULATEC_ENROLLMENT_LINK_TTL_DAYS: int = Field(default=21, ge=1, le=90)
-    # D6: quién revisa las solicitudes. `school_services` (oficial) o
-    # `computer_center` (modo alterno); se cambia por entorno + reinicio y el DML
-    # es el mismo en ambos. `Literal` hace que un typo truene al arrancar en vez
+    # D6: quién revisa las solicitudes. Por omisión `sii` (spec 2026-09-27, «el
+    # SII informa, Servicios Escolares decide»): la consulta automática al SII
+    # trae veredicto + NIP, pero SE sigue dando el paso final desde la bandeja
+    # (nada se aprueba solo). `school_services` y `computer_center` quedan como
+    # RESPALDO, activables solo por variable de entorno + reinicio; el DML es
+    # el mismo en los tres. `Literal` hace que un typo truene al arrancar en vez
     # de dejar la bandeja en un modo que nadie implementa.
-    # Elegibilidad automática contra el SII (spec 2026-09-25). D6 gana un
-    # tercer modo: `sii` delega la decisión al check automático en vez de a
-    # una bandeja humana. Los otros dos modos NO cambian de significado.
-    TITULATEC_ENROLLMENT_REVIEWER: Literal["school_services", "computer_center", "sii"] = "school_services"
+    TITULATEC_ENROLLMENT_REVIEWER: Literal["school_services", "computer_center", "sii"] = "sii"
 
     # `SiiClient` (perezoso, ver servicio): qué backend habla con el SII.
     # `disabled` no consulta nada (checks se quedan en `pending`), `fake` lee

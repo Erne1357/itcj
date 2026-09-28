@@ -187,6 +187,53 @@ def modo_alterno(monkeypatch):
                         staticmethod(lambda: "computer_center"))
 
 
+@pytest.fixture()
+def modo_sii(monkeypatch):
+    """El SII informa, Servicios Escolares decide (spec 2026-09-27, default
+    desde la Tarea 1): se parchea el método, nunca `get_settings`. UNICA copia
+    (antes duplicada en 6 archivos de prueba: `test_eligibility_service.py`,
+    `test_enrollment_inbox.py`, `test_access_inbox.py`,
+    `test_requests_reconsultar.py`, `test_cohort_window_route.py`,
+    `test_sii_cli.py`); se centraliza aqui igual que `modo_alterno`.
+    """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "sii"))
+
+
+@pytest.fixture(autouse=True)
+def _sin_broker(monkeypatch):
+    """`celery_app.send_task` real tocaría Redis: `EligibilityService.enqueue_check`
+    lo llama por nombre (sin sesión de BD de por medio) desde `create()` en modo
+    `sii` y desde `sii-check`/`sii-sweep`. Con `sii` ya de default (Tarea 1) y
+    creciendo el número de archivos que usan la fixture `modo_sii`, este parche
+    es AUTOUSE para que ningún archivo nuevo tenga que acordarse de mockearlo:
+    registra la llamada y devuelve `None` en vez de tocar el broker.
+
+    Los dos tests que prueban el `enqueue_check` REAL
+    (`test_eligibility_service.py::test_enqueue_check_nunca_lanza` y
+    `..._manda_la_tarea_por_nombre_sin_reintentar_el_broker`) hacen
+    `monkeypatch.undo()` primero (mismo `monkeypatch`, function-scoped: deshace
+    tambien este parche) y vuelven a parchear `send_task` ELLOS MISMOS despues
+    -> su parche, por ser el ultimo `setattr`, gana.
+    """
+    from itcj2.celery_app import celery_app
+
+    llamadas: list = []
+    monkeypatch.setattr(
+        celery_app, "send_task",
+        lambda *a, **k: llamadas.append((a, k)) or None)
+    return llamadas
+
+
+@pytest.fixture()
+def envios_celery(_sin_broker):
+    """Llamadas que `_sin_broker` interceptó, para el test que quiera revisarlas."""
+    return _sin_broker
+
+
 # ---------------------------------------------------------------------------
 # Sesion compartida: proxy + overrides
 # ---------------------------------------------------------------------------

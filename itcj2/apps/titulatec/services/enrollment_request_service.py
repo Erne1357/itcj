@@ -155,8 +155,9 @@ _STATUS_GROUP.update(awaiting_access="access", approved="sent", converted="conve
 _REVIEWER_LABELS = {
     "school_services": "Servicios Escolares",
     "computer_center": "Centro de Cómputo",
-    # Modo `sii` (spec 2026-09-25): el SII decide y aprueba solo lo apto, pero
-    # quien responde por la solicitud (rechazos, excepciones) sigue siendo SE.
+    # Modo `sii` (por omisión, spec 2026-09-27): el SII solo INFORMA (veredicto
+    # + NIP); quien aprueba y responde por la solicitud (rechazos, excepciones)
+    # sigue siendo SE, igual que en el modo oficial.
     "sii": "Servicios Escolares",
 }
 
@@ -494,8 +495,11 @@ class EnrollmentRequestService:
 
     @staticmethod
     def reviewer_mode() -> str:
-        """`"school_services"` (oficial), `"computer_center"` (alterno) o `"sii"`
-        (elegibilidad automática contra el SII, `EligibilityService`).
+        """`"sii"` (POR OMISIÓN, spec 2026-09-27): el SII informa el veredicto y
+        el NIP (`EligibilityService`), pero SE decide siempre desde la bandeja
+        — nada se aprueba solo. `"school_services"` / `"computer_center"`:
+        modos de RESPALDO (comportamiento sin cambios), activables solo por
+        variable de entorno.
 
         Sale de TITULATEC_ENROLLMENT_REVIEWER (+ reinicio; un valor inválido
         truena al arrancar). Los tests parchean ESTE método, nunca `get_settings`.

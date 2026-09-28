@@ -1114,14 +1114,8 @@ def test_con_una_liga_de_un_dia_la_cabecera_dice_dia_en_singular(
 # pinta la bandeja de una `EligibilityCheck`. Que el NIP del SII no llegue al
 # HTML con una consulta REAL al SII falso vive en `test_requests_reconsultar.py`.
 # ---------------------------------------------------------------------------
-@pytest.fixture()
-def modo_sii(monkeypatch):
-    """Se parchea `reviewer_mode`, nunca `get_settings` (globals del plan)."""
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
-    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
-                        staticmethod(lambda: "sii"))
+# `modo_sii` vive en conftest.py (Tarea 1: una sola copia compartida en vez de
+# 6 duplicadas por archivo).
 
 
 @pytest.fixture()

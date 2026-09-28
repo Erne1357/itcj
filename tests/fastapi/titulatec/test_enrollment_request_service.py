@@ -234,18 +234,19 @@ class TestSettingsDeLaInscripcion:
     `TITULATEC_HANDOFF_PHASE`): mejor no arrancar que operar con una liga de
     0 días o con un modo de revisión que nadie implementa."""
 
-    def test_los_defaults_son_21_dias_y_el_modo_oficial(self, monkeypatch):
+    def test_los_defaults_son_21_dias_y_el_modo_sii(self, monkeypatch):
         """`Settings()` a secas lee `.env` y el entorno del proceso (C7/I-1 de
         la revision final): sin aislarla, esta prueba mide lo que haya en el
         contenedor, no el DEFAULT declarado. `_env_file=None` + `delenv` de
-        ambas variables fuerza el default real de `Field(...)`."""
+        ambas variables fuerza el default real de `Field(...)`. Desde la
+        Tarea 1 (spec 2026-09-27, D3) el default del revisor es `sii`."""
         from itcj2.config import Settings
 
         monkeypatch.delenv("TITULATEC_ENROLLMENT_LINK_TTL_DAYS", raising=False)
         monkeypatch.delenv("TITULATEC_ENROLLMENT_REVIEWER", raising=False)
         s = Settings(_env_file=None)
         assert s.TITULATEC_ENROLLMENT_LINK_TTL_DAYS == 21
-        assert s.TITULATEC_ENROLLMENT_REVIEWER == "school_services"
+        assert s.TITULATEC_ENROLLMENT_REVIEWER == "sii"
 
     def test_la_vida_de_la_liga_va_de_1_a_90_dias(self):
         from pydantic import ValidationError
@@ -258,13 +259,15 @@ class TestSettingsDeLaInscripcion:
             assert (Settings(TITULATEC_ENROLLMENT_LINK_TTL_DAYS=valido)
                     .TITULATEC_ENROLLMENT_LINK_TTL_DAYS == valido)
 
-    def test_el_revisor_solo_admite_los_dos_modos(self):
+    def test_el_revisor_admite_los_tres_modos(self):
+        """`sii` (default, Tarea 1) + los dos de respaldo `school_services`/
+        `computer_center`; un typo sigue tronando al arrancar."""
         from pydantic import ValidationError
         from itcj2.config import Settings
 
         with pytest.raises(ValidationError):
             Settings(TITULATEC_ENROLLMENT_REVIEWER="x")
-        for valido in ("school_services", "computer_center"):
+        for valido in ("school_services", "computer_center", "sii"):
             assert (Settings(TITULATEC_ENROLLMENT_REVIEWER=valido)
                     .TITULATEC_ENROLLMENT_REVIEWER == valido)
 
