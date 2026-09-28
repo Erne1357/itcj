@@ -11,6 +11,7 @@ Comandos:
     titulatec sii-check <control>         Dry-run de las reglas del SII (NIP enmascarado).
     titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta y reintenta).
 """
+import os
 from pathlib import Path, PurePosixPath
 
 import click
@@ -328,6 +329,32 @@ def fix_missing_credentials_command(cohort_id, dry_run):
 _RENAME_BATCH = 200
 
 
+def _rename_no_replace(src: Path, dst: Path) -> None:
+    """Renombra ``src`` a ``dst`` SIN pisar nunca un ``dst`` existente.
+
+    ``Path.rename`` sobrescribe en POSIX: entre revisar que el destino está
+    libre y renombrar cabe una subida del alumno, que se perdería (revisión
+    2026-09-28, m4). ``os.link`` es atómico y falla con ``FileExistsError`` si
+    el destino ya existe; después se borra el nombre viejo. Si el sistema de
+    archivos no admite enlaces duros, se revisa y se renombra (en Windows
+    ``os.rename`` tampoco pisa; en POSIX queda la ventana mínima).
+    """
+    try:
+        os.link(src, dst)
+    except FileExistsError:
+        raise
+    except OSError:
+        if dst.exists():
+            raise FileExistsError(str(dst)) from None
+        os.rename(src, dst)
+        return
+    try:
+        os.unlink(src)
+    except BaseException:
+        os.unlink(dst)          # sin dos nombres para el mismo archivo
+        raise
+
+
 @titulatec_cli.command("rename-documents")
 @click.option("--dry-run", is_flag=True,
               help="Solo reporta lo que haría; no toca ni el disco ni la BD.")
@@ -348,9 +375,11 @@ def rename_documents_command(dry_run):
     - control no alfanumérico o ruta fuera de TITULATEC_UPLOAD_PATH
                                               -> omitidos (no toca nada)
 
-    Idempotente: una segunda corrida da todo `ya_bien`. Commits por lotes; si
-    algo falla, rollback, deshace en disco los renombres del lote sin
-    commitear y sale con 1. Imprime conteos e ids, nunca contenido.
+    Idempotente: una segunda corrida da todo `ya_bien`. El renombre nunca pisa
+    un destino, ni uno que aparezca a última hora (cuenta como conflicto).
+    Commits por lotes; si algo falla — también Ctrl-C, o el propio rollback —
+    deshace en disco los renombres del lote sin commitear y sale con 1.
+    Imprime conteos e ids, nunca contenido.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Document, TitulationProcess
@@ -391,31 +420,46 @@ def rename_documents_command(dry_run):
 
             if current.name == expected:
                 counts["ya_bien"] += 1
-            elif old_abs.exists() and not new_abs.exists():
-                counts["renombrados"] += 1
-                if not dry_run:
-                    old_abs.rename(new_abs)
-                    pending.append((new_abs, old_abs))
-                    doc.file_path = new_rel
-                    if len(pending) >= _RENAME_BATCH:
-                        db.commit()
-                        pending.clear()
-            elif new_abs.exists():
-                counts["conflictos"] += 1
-                ids["conflictos"].append(doc.id)
+            elif not old_abs.exists():
+                key = "conflictos" if new_abs.exists() else "faltantes"
+                counts[key] += 1
+                ids[key].append(doc.id)
+            elif dry_run:
+                if new_abs.exists():
+                    counts["conflictos"] += 1
+                    ids["conflictos"].append(doc.id)
+                else:
+                    counts["renombrados"] += 1
             else:
-                counts["faltantes"] += 1
-                ids["faltantes"].append(doc.id)
+                try:
+                    _rename_no_replace(old_abs, new_abs)
+                except FileExistsError:
+                    counts["conflictos"] += 1
+                    ids["conflictos"].append(doc.id)
+                    continue
+                counts["renombrados"] += 1
+                pending.append((new_abs, old_abs))
+                doc.file_path = new_rel
+                if len(pending) >= _RENAME_BATCH:
+                    db.commit()
+                    pending.clear()
 
         if not dry_run:
             db.commit()
             pending.clear()
-    except Exception as exc:
-        db.rollback()
+    except BaseException as exc:
+        # BaseException y no Exception: un Ctrl-C (KeyboardInterrupt) a media
+        # corrida dejaba los renombres del lote en disco con la BD apuntando al
+        # nombre viejo, y la corrida siguiente los veía como conflictos.
+        bd = "BD revertida al último lote"
+        try:
+            db.rollback()
+        except Exception as rb_exc:
+            bd = f"el rollback también falló ({type(rb_exc).__name__}: {rb_exc})"
         deshechos = 0
         for new_abs, old_abs in reversed(pending):
             try:
-                new_abs.rename(old_abs)
+                _rename_no_replace(new_abs, old_abs)
                 deshechos += 1
             except OSError as undo_exc:
                 click.echo(click.style(
@@ -423,11 +467,14 @@ def rename_documents_command(dry_run):
                     fg="red"), err=True)
         click.echo(click.style(
             f"ERROR: rename-documents falló ({type(exc).__name__}: {exc}). "
-            f"BD revertida al último lote; {deshechos} renombre(s) deshecho(s) en disco.",
+            f"{bd}; {deshechos} renombre(s) deshecho(s) en disco.",
             fg="red"), err=True)
         raise SystemExit(1)
     finally:
-        db.close()
+        try:
+            db.close()
+        except Exception as close_exc:
+            click.echo(f"AVISO: no se pudo cerrar la sesión: {close_exc}", err=True)
 
     total = sum(counts.values())
     if dry_run:

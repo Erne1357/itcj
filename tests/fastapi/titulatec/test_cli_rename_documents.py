@@ -12,16 +12,30 @@ Por cada fila `Document` calcula el nombre esperado en la MISMA carpeta:
 ids, nunca contenido. Ante una excepcion: rollback, deshace los renombres del
 lote sin commitear y sale con 1.
 
+Ronda 1 (revision 2026-09-28):
+
+* m3: tambien ante Ctrl-C (`KeyboardInterrupt`, que no es `Exception`) y
+  aunque el propio `rollback()` falle, se deshacen los renombres del lote y la
+  BD queda con el `file_path` de antes.
+* m4: el renombre NUNCA pisa un destino, ni uno que aparece despues de
+  revisar (`os.link` + `unlink`, que falla si el destino existe).
+
 La sesion del comando es la del test (`patched_session_local`): el comando
-abre `SessionLocal()` con import local, igual que las rutas.
+abre `SessionLocal()` con import local, igual que las rutas. Las factories
+solo hacen `flush`: las pruebas que miran la BD despues de un `rollback` del
+comando hacen `db_session.commit()` antes (bajo `create_savepoint` eso libera
+el SAVEPOINT y lo sembrado sobrevive; el test igual se revierte al final).
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
 
+from itcj2.cli import titulatec as cli_mod
 from itcj2.cli.titulatec import titulatec_cli
 
 
@@ -176,11 +190,75 @@ class TestFaltanteYConflicto:
         assert "%PDF" not in res.output
 
 
+    def test_un_destino_que_aparece_despues_de_revisar_no_se_pisa(self, esc, db_session,
+                                                                   monkeypatch):
+        """m4: la revision no ve el destino (llego justo despues, p. ej. una
+        subida del alumno) y aun asi el renombre no lo sobrescribe."""
+        e = esc(docs=("curp",))
+        destino = e.base / e.carpeta / f"{e.control}_CURP.pdf"
+        destino.write_bytes(b"%PDF-1.4 subida de ultimo momento")
+        antes = _paths(db_session, e.docs)
+        real_exists = Path.exists
+
+        def _exists(self, *a, **k):
+            if os.path.realpath(self) == os.path.realpath(destino):
+                return False
+            return real_exists(self, *a, **k)
+
+        monkeypatch.setattr(Path, "exists", _exists)
+
+        res = _run()
+
+        assert res.exit_code == 0, res.output
+        assert destino.read_bytes() == b"%PDF-1.4 subida de ultimo momento"
+        assert (e.base / e.carpeta / "curp.pdf").read_bytes() == b"%PDF-1.4 curp"
+        assert e.docs["curp"].id in _ids(res.output, "conflictos")
+        assert _paths(db_session, e.docs) == antes
+
+
+class TestRenombreSinPisar:
+    def test_no_pisa_un_destino_existente(self, tmp_path):
+        viejo, nuevo = tmp_path / "curp.pdf", tmp_path / "X_CURP.pdf"
+        viejo.write_bytes(b"viejo")
+        nuevo.write_bytes(b"ajeno")
+
+        with pytest.raises(FileExistsError):
+            cli_mod._rename_no_replace(viejo, nuevo)
+
+        assert (viejo.read_bytes(), nuevo.read_bytes()) == (b"viejo", b"ajeno")
+
+    def test_renombra_cuando_el_destino_esta_libre(self, tmp_path):
+        viejo, nuevo = tmp_path / "curp.pdf", tmp_path / "X_CURP.pdf"
+        viejo.write_bytes(b"viejo")
+
+        cli_mod._rename_no_replace(viejo, nuevo)
+
+        assert not viejo.exists() and nuevo.read_bytes() == b"viejo"
+
+    def test_sin_enlaces_duros_tampoco_pisa(self, tmp_path, monkeypatch):
+        """Sistemas de archivos sin `link` (EPERM): se revisa y se renombra."""
+        def _sin_link(*a, **k):
+            raise PermissionError("sin enlaces duros")
+        monkeypatch.setattr(cli_mod.os, "link", _sin_link)
+        viejo, nuevo = tmp_path / "curp.pdf", tmp_path / "X_CURP.pdf"
+        viejo.write_bytes(b"viejo")
+        nuevo.write_bytes(b"ajeno")
+
+        with pytest.raises(FileExistsError):
+            cli_mod._rename_no_replace(viejo, nuevo)
+        nuevo.unlink()
+        cli_mod._rename_no_replace(viejo, nuevo)
+
+        assert not viejo.exists() and nuevo.read_bytes() == b"viejo"
+
+
 class TestExcepcion:
     def test_rollback_deshace_los_renombres_del_lote_y_sale_con_1(self, esc, db_session,
                                                                   monkeypatch):
         e = esc()
+        db_session.commit()               # lo sembrado sobrevive al rollback del comando
         antes = _disk(e.base, e.carpeta)
+        antes_bd = _paths(db_session, e.docs)
 
         def _falla():
             raise RuntimeError("se cayo la BD")
@@ -190,3 +268,39 @@ class TestExcepcion:
 
         assert res.exit_code == 1, res.output
         assert _disk(e.base, e.carpeta) == antes
+        assert _paths(db_session, e.docs) == antes_bd, "file_path en BD sigue igual"
+
+    def test_ctrl_c_deshace_los_renombres_y_la_bd_sigue_igual(self, esc, db_session,
+                                                              monkeypatch):
+        """m3: `KeyboardInterrupt` no es `Exception`; antes se escapaba sin
+        deshacer y la BD se quedaba apuntando al nombre viejo."""
+        e = esc()
+        db_session.commit()
+        antes = _disk(e.base, e.carpeta)
+        antes_bd = _paths(db_session, e.docs)
+
+        def _ctrl_c():
+            raise KeyboardInterrupt
+        monkeypatch.setattr(db_session, "commit", _ctrl_c)
+
+        res = _run()
+
+        assert res.exit_code == 1, res.output
+        assert _disk(e.base, e.carpeta) == antes
+        assert _paths(db_session, e.docs) == antes_bd
+
+    def test_si_el_rollback_tambien_falla_igual_deshace_el_disco(self, esc, db_session,
+                                                                 monkeypatch):
+        e = esc()
+        antes = _disk(e.base, e.carpeta)
+
+        def _falla():
+            raise RuntimeError("se cayo la BD")
+        monkeypatch.setattr(db_session, "commit", _falla)
+        monkeypatch.setattr(db_session, "rollback", _falla)
+
+        res = _run()
+
+        assert res.exit_code == 1, res.output
+        assert _disk(e.base, e.carpeta) == antes
+        assert "3 renombre(s) deshecho(s)" in res.output
