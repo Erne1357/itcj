@@ -16,6 +16,9 @@ Contrato (brief 2026-09-28, documentos a 2 MB):
 * ronda 1 (m2): un JPEG grande se decodifica ya reducido (`Image.draft`) y una
   imagen con mas pixeles declarados que `MAX_IMAGE_PIXELS` ni se decodifica.
 * ronda 1 (m6): nunca se devuelve un PDF con otro numero de paginas.
+* ronda 2: una imagen `/Indexed` (paleta) nunca se recodifica (pypdf la leia
+  negra y se aceptaba), y una imagen que se decodifica de un solo color con un
+  stream original de mas de unos KB tampoco reemplaza a la original.
 
 Los PDFs salen de `_pdf_samples` (Pillow, en memoria).
 """
@@ -30,7 +33,7 @@ from pypdf import PdfReader, PdfWriter
 from itcj2.apps.titulatec.utils import pdf_compress
 from itcj2.apps.titulatec.utils.pdf_compress import PdfUnreadable, compress_pdf
 from tests.fastapi.titulatec._pdf_samples import (
-    MB, bilevel_noise_pdf, flate_pdf, merge_pdfs, photo_pdf, small_pdf,
+    MB, bilevel_noise_pdf, flate_pdf, indexed_pdf, merge_pdfs, photo_pdf, small_pdf,
 )
 
 TARGET = 2 * MB
@@ -234,6 +237,93 @@ class TestMemoria:
 
         assert compress_pdf(raw, target_bytes=TARGET) is None
         assert abiertas == [], "ni siquiera se abrio la imagen"
+
+
+def _uniforme(img) -> bool:
+    """Un solo color: sin variacion en ningun canal."""
+    extremos = img.getextrema()
+    if not isinstance(extremos[0], tuple):      # un solo canal: (min, max)
+        extremos = (extremos,)
+    return all(lo == hi for lo, hi in extremos)
+
+
+def _indexed_a_mano(xo):
+    """Decodifica A MANO una imagen `/Indexed` de 8 bits: indices del stream +
+    paleta del arreglo `/ColorSpace`. pypdf 6.19 la da negra, asi que no sirve
+    para comprobar que la imagen conserva su contenido."""
+    from PIL import Image
+
+    cs = xo["/ColorSpace"]
+    paleta = cs[3].get_object() if hasattr(cs[3], "get_object") else cs[3]
+    img = Image.frombytes("P", (int(xo["/Width"]), int(xo["/Height"])), xo.get_data())
+    img.putpalette(bytes(paleta))
+    return img.convert("RGB")
+
+
+class TestIndexed:
+    """Ronda 2: pypdf 6.19 decodifica NEGRA una imagen `/Indexed` con
+    `/ASCIIHexDecode` (asi la escribe Pillow en modo P) y el JPEG negro pesa
+    menos, asi que la guarda de «solo si pesa menos» lo aceptaba (medido
+    16.81 -> 0.01 MB, media [0,0,0]). Una imagen de paleta nunca se recodifica."""
+
+    @pytest.mark.parametrize("ref", ["directo", "arreglo", "nombre"])
+    def test_sola_no_se_recodifica_y_el_pdf_se_rechaza(self, ref):
+        raw = indexed_pdf(colorspace_ref=ref)
+        assert len(raw) > TARGET
+        assert not _uniforme(_indexed_a_mano(_xobjects(raw)[0])), "la muestra tiene variacion"
+
+        out = compress_pdf(raw, target_bytes=TARGET)
+
+        assert out is None, "sin recodificar la paleta no cabe: nunca un documento negro"
+
+    def test_se_deja_igual_y_se_comprime_el_resto(self):
+        raw = merge_pdfs(indexed_pdf(width=600, height=800), photo_pdf())
+        antes = _xobjects(raw)[0].get_data()
+        assert len(raw) > TARGET
+
+        out = compress_pdf(raw, target_bytes=TARGET)
+
+        assert out is not None and len(out) <= TARGET
+        primera, segunda = _xobjects(out)
+        assert primera["/ColorSpace"][0] == "/Indexed"
+        assert primera.get_data() == antes, "la paleta se deja como estaba"
+        assert not _uniforme(_indexed_a_mano(primera)), "conserva la variacion: no salio negra"
+        assert max(segunda["/Width"], segunda["/Height"]) == A4_LONG_150
+
+
+class TestDecodificacionUniforme:
+    """Ronda 2, guarda general: si lo decodificado sale de UN SOLO color y el
+    stream original pesa mas de unos KB, la decodificacion es sospechosa (el
+    caso `/Indexed`, u otro que pypdf lea mal): se deja la original. Se simula
+    la mala lectura sobre un Flate sano de 600x800 (~1.2 MB)."""
+
+    @pytest.mark.parametrize("color", [("RGB", (0, 0, 0)), ("L", 255)], ids=["negra", "blanca"])
+    def test_un_solo_color_no_reemplaza_a_la_original(self, monkeypatch, color):
+        from PIL import Image
+
+        mode, relleno = color
+        monkeypatch.setattr(pdf_compress, "_decode_with_pypdf",
+                            lambda page, path: Image.new(mode, (600, 800), relleno))
+        raw = merge_pdfs(flate_pdf(width=600, height=800), photo_pdf())
+        antes = _xobjects(raw)[0].get_data()
+        assert len(raw) > TARGET
+
+        out = compress_pdf(raw, target_bytes=TARGET)
+
+        assert out is not None and len(out) <= TARGET
+        primera, segunda = _xobjects(out)
+        assert primera["/Filter"] == "/FlateDecode"
+        assert primera.get_data() == antes, "la original, no el JPEG de un solo color"
+        assert max(segunda["/Width"], segunda["/Height"]) == A4_LONG_150
+
+    def test_lo_que_si_varia_se_sigue_recodificando(self):
+        """La guarda no frena el caso normal: el mismo Flate, bien leido, pasa a JPEG."""
+        raw = merge_pdfs(flate_pdf(width=600, height=800), photo_pdf())
+
+        out = compress_pdf(raw, target_bytes=TARGET)
+
+        assert out is not None
+        assert _xobjects(out)[0]["/Filter"] == "/DCTDecode"
 
 
 class TestPaginas:

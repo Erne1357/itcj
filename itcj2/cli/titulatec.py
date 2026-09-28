@@ -367,11 +367,13 @@ def rename_documents_command(dry_run):
     día los que ya estaban, en la MISMA carpeta. Por cada fila `Document`:
 
     \b
-    - el nombre ya es el esperado             -> ya_bien
+    - el nombre ya es el esperado y el archivo
+      existe en disco                         -> ya_bien
     - el viejo existe y el destino no         -> se renombra y se actualiza
                                                  `file_path` -> renombrados
     - el destino ya existe                    -> conflictos (no toca nada)
-    - el viejo no existe                      -> faltantes (no toca la fila)
+    - el archivo de la fila no existe (con
+      nombre viejo o ya con el nuevo)         -> faltantes (no toca la fila)
     - control no alfanumérico o ruta fuera de TITULATEC_UPLOAD_PATH
                                               -> omitidos (no toca nada)
 
@@ -418,7 +420,10 @@ def rename_documents_command(dry_run):
                 ids["omitidos"].append(doc.id)
                 continue
 
-            if current.name == expected:
+            # `ya_bien` exige el archivo en disco (ronda 2): un lote deshecho
+            # tras un commit «en duda» deja filas con el nombre nuevo y sin
+            # archivo, que caen abajo como faltantes (aquí old_abs == new_abs).
+            if current.name == expected and old_abs.exists():
                 counts["ya_bien"] += 1
             elif not old_abs.exists():
                 key = "conflictos" if new_abs.exists() else "faltantes"

@@ -20,6 +20,9 @@ Ronda 1 (revision 2026-09-28):
 * m4: el renombre NUNCA pisa un destino, ni uno que aparece despues de
   revisar (`os.link` + `unlink`, que falla si el destino existe).
 
+Ronda 2: `ya_bien` exige que el archivo con el nombre esperado exista; una
+fila que ya dice el nombre nuevo sin archivo en disco es `faltantes`.
+
 La sesion del comando es la del test (`patched_session_local`): el comando
 abre `SessionLocal()` con import local, igual que las rutas. Las factories
 solo hacen `flush`: las pruebas que miran la BD despues de un `rollback` del
@@ -214,6 +217,42 @@ class TestFaltanteYConflicto:
         assert (e.base / e.carpeta / "curp.pdf").read_bytes() == b"%PDF-1.4 curp"
         assert e.docs["curp"].id in _ids(res.output, "conflictos")
         assert _paths(db_session, e.docs) == antes
+
+
+class TestYaBienExigeElArchivo:
+    """Ronda 2: `ya_bien` solo si el archivo con el nombre esperado EXISTE.
+
+    Un lote deshecho en disco tras un commit «en duda» (PostgreSQL confirmo y
+    se cayo la conexion) deja filas que ya dicen `{control}_CURP.pdf` sin ese
+    archivo; antes se contaban `ya_bien` y el hueco quedaba invisible.
+    """
+
+    @pytest.mark.parametrize("args", [(), ("--dry-run",)], ids=["real", "dry-run"])
+    def test_fila_con_el_nombre_nuevo_sin_archivo_es_faltante(self, esc, db_session, args):
+        e = esc(docs=("curp",), write=False)
+        doc = e.docs["curp"]
+        nuevo_rel = f"{e.carpeta}/{e.control}_CURP.pdf"
+        doc.file_path = nuevo_rel
+        db_session.flush()
+        nuevo = e.base / nuevo_rel
+        nuevo.parent.mkdir(parents=True, exist_ok=True)
+        nuevo.write_bytes(b"%PDF-1.4 curp")
+        con_archivo = _run(*args)
+        assert con_archivo.exit_code == 0, con_archivo.output
+        assert doc.id not in _ids(con_archivo.output, "faltantes")
+        nuevo.unlink()
+
+        sin_archivo = _run(*args)
+
+        # La BD de dev trae documentos reales (faltantes en `tmp_path`): se
+        # compara contra la corrida con el archivo, no contra un numero fijo.
+        assert sin_archivo.exit_code == 0, sin_archivo.output
+        assert doc.id in _ids(sin_archivo.output, "faltantes")
+        assert _conteo(sin_archivo.output, "ya_bien") == _conteo(con_archivo.output, "ya_bien") - 1
+        assert (_conteo(sin_archivo.output, "faltantes")
+                == _conteo(con_archivo.output, "faltantes") + 1)
+        assert _conteo(sin_archivo.output, "renombrados") == 0
+        assert _paths(db_session, e.docs) == {"curp": nuevo_rel}, "la fila no se toca"
 
 
 class TestRenombreSinPisar:

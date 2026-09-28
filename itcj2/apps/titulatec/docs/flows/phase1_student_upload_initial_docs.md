@@ -106,6 +106,13 @@ En cada pasada, cada imagen:
   así bajan los escaneos guardados sin pérdida (Flate) o en JPEG q95. Si el JPEG nuevo no pesa
   menos que la imagen original, se queda la original;
 - **bitonal** (1 bit, máscaras, CCITT/JBIG2): nunca se toca, en JPEG crecería;
+- **de paleta** (`/ColorSpace` `/Indexed`, también por referencia indirecta): nunca se toca.
+  pypdf 6.19 decodifica NEGRA una `/Indexed` con `/ASCIIHexDecode` (así escribe Pillow el modo
+  P), y como el JPEG negro pesa menos, se aceptaba en silencio (medido: 16.81 → 0.01 MB, todo
+  negro). Si por no tocarla el PDF no cabe, se rechaza con el mensaje de siempre (ronda 2);
+- que se **decodifica de un solo color** (`getextrema` sin variación en ningún canal) con un
+  stream original de más de 4 KB (`UNIFORM_SUSPECT_BYTES`): se deja la original. Una imagen lisa
+  de verdad se comprime a casi nada, así que eso delata una mala lectura (ronda 2);
 - que declara más de 50 MP (`MAX_IMAGE_PIXELS` de `pdf_compress`): se deja como está sin
   decodificarla. Los JPEG se decodifican ya reducidos (`Image.draft`), no a tamaño completo;
 - que pypdf/Pillow no pueden decodificar: se deja como está, sin abortar el resto.
@@ -137,7 +144,10 @@ cualquier versión previa del mismo tipo, con el nombre viejo (`{type_code}.*`) 
 otra extensión — después de escribir la nueva. Los archivos anteriores al cambio se renombran con
 `python -m itcj2.cli.main titulatec rename-documents [--dry-run]`, que nunca pisa un destino
 (`os.link` + `unlink`: uno que aparezca a última hora cuenta como conflicto) y que ante
-cualquier fallo — también Ctrl-C — deshace los renombres del lote sin commitear y sale con 1 (ver
+cualquier fallo — también Ctrl-C — deshace los renombres del lote sin commitear y sale con 1.
+Cuenta `ya_bien` solo si el archivo con el nombre esperado existe en disco; una fila que ya dice
+el nombre nuevo sin archivo sale en `faltantes` (lo que deja un lote deshecho tras un commit «en
+duda») (ver
 [revisión de documentos](phase1_school_services_review_docs.md) para el nombre de descarga).
 
 ## Estado resultante

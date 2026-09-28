@@ -23,6 +23,11 @@ Tamanos medidos en el contenedor (Pillow 12.3, pypdf 6.19):
                   -> ~2.6 MB. Lo bitonal nunca se recodifica (en JPEG
                   creceria), asi que ninguna pasada lo baja: es el PDF que
                   "aun comprimido" sigue arriba de 2 MB.
+* `indexed_pdf()` foto cuantizada a 64 colores (modo P de Pillow) de
+                  1200x1600 a 150 dpi -> ~3.7 MB. Pillow la escribe como
+                  `/Indexed` con `/ASCIIHexDecode`, y pypdf 6.19 la decodifica
+                  NEGRA (indices y paleta en cero): es la muestra de la
+                  corrupcion silenciosa de la ronda 2.
 """
 from __future__ import annotations
 
@@ -91,6 +96,39 @@ def bilevel_noise_pdf(*, px: int = 3200) -> bytes:
     buf = io.BytesIO()
     img.save(buf, "PDF", resolution=300)
     return buf.getvalue()
+
+
+@lru_cache(maxsize=None)
+def indexed_pdf(*, width: int = 1200, height: int = 1600, resolution: float = 150,
+                colorspace_ref: str = "directo") -> bytes:
+    """Imagen de paleta (`/Indexed`) tal como la escribe Pillow en modo P.
+
+    `colorspace_ref` cambia COMO llega el espacio de color, no los pixeles:
+    ``"directo"`` (lo que escribe Pillow), ``"arreglo"`` (todo el arreglo
+    `/ColorSpace` por referencia indirecta) o ``"nombre"`` (solo el `/Indexed`
+    del arreglo por referencia indirecta).
+    """
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import ArrayObject, NameObject
+
+    buf = io.BytesIO()
+    _photo_image(width, height).quantize(64).save(buf, "PDF", resolution=resolution)
+    if colorspace_ref == "directo":
+        return buf.getvalue()
+    writer = PdfWriter(clone_from=PdfReader(io.BytesIO(buf.getvalue())))
+    xobjs = writer.pages[0]["/Resources"]["/XObject"]
+    stream = xobjs.raw_get(next(iter(xobjs))).get_object()
+    cs = stream["/ColorSpace"]
+    if colorspace_ref == "arreglo":
+        stream[NameObject("/ColorSpace")] = writer._add_object(ArrayObject(cs))
+    elif colorspace_ref == "nombre":
+        stream[NameObject("/ColorSpace")] = ArrayObject(
+            [writer._add_object(NameObject("/Indexed")), *cs[1:]])
+    else:
+        raise ValueError(colorspace_ref)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
 
 
 def merge_pdfs(*pdfs: bytes) -> bytes:

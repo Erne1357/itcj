@@ -23,7 +23,13 @@ pasada, cada imagen:
   en JPEG q95 no baja de otra forma (R1). Si el JPEG nuevo no pesa menos que el
   stream original, la imagen se deja como está (una gráfica plana en Flate
   pesa menos que en JPEG);
-- lo bitonal (1 bit, máscaras) nunca se toca: en JPEG crecería.
+- lo bitonal (1 bit, máscaras) nunca se toca: en JPEG crecería;
+- lo de paleta (``/Indexed``) nunca se toca: pypdf puede leerlo mal (NEGRO,
+  con ``/ASCIIHexDecode``) y el JPEG negro pesa menos, así que se aceptaba
+  en silencio (revisión 2026-09-28, ronda 2);
+- guarda de sanidad para cualquier otra mala lectura: si la imagen
+  decodificada es de un solo color y el stream original pesa más de
+  ``UNIFORM_SUSPECT_BYTES``, se deja la original (ronda 2).
 
 Memoria (m2): un JPEG se decodifica ya reducido con ``Image.draft`` (la
 biblioteca escala al decodificar por 1/2, 1/4 u 1/8), y una imagen que declara
@@ -66,6 +72,13 @@ PASSES: tuple[_Pass, ...] = (
 # decodificarla: ~150 MB en RGB. Cubre de sobra un escaneo a 600 dpi de una
 # hoja oficio (5100 × 8400 = 43 MP).
 MAX_IMAGE_PIXELS = 50_000_000
+
+# Una imagen que se decodifica de UN SOLO color no reemplaza a la original si
+# el stream original (más su SMask) pesa más que esto: una imagen de verdad
+# lisa se comprime a casi nada, así que un stream grande con resultado liso es
+# una mala decodificación (ronda 2). Dejarla nunca la corrompe; si por eso el
+# PDF no cabe, se rechaza con el mensaje de siempre.
+UNIFORM_SUSPECT_BYTES = 4 * 1024
 
 _POINTS_PER_INCH = 72
 
@@ -262,6 +275,29 @@ def _is_bilevel(obj) -> bool:
     return any(f in ("/CCITTFaxDecode", "/JBIG2Decode") for f in _filters(obj))
 
 
+def _is_indexed(obj) -> bool:
+    """Espacio de color de paleta: ``/Indexed`` como nombre o como arreglo que
+    empieza con ``/Indexed``, aunque venga por referencia indirecta.
+
+    pypdf 6.19 decodifica NEGRA una ``/Indexed`` con ``/ASCIIHexDecode`` (así
+    la escribe Pillow en modo P: índices y paleta en cero), y ese JPEG negro
+    pesa menos que el original. Lo que se lee de una paleta no es confiable:
+    se deja como está (ronda 2).
+    """
+    cs = _resolved(obj.get("/ColorSpace"))
+    if isinstance(cs, (list, tuple)):
+        cs = _resolved(cs[0]) if cs else None
+    return str(cs) == "/Indexed"
+
+
+def _is_uniform(img) -> bool:
+    """La imagen es de un solo color: ningún canal varía (``getextrema``)."""
+    extrema = img.getextrema()
+    if not isinstance(extrema[0], tuple):       # un solo canal: (min, max)
+        extrema = (extrema,)
+    return all(lo == hi for lo, hi in extrema)
+
+
 def _encoded_len(obj) -> int:
     """Bytes que ocupa hoy la imagen en el archivo (con su SMask, que se pierde)."""
     size = len(getattr(obj, "_data", b"") or b"")
@@ -278,7 +314,7 @@ def _recode_image(page, path: list[str], obj, *, limit: int, quality: int) -> No
     corruptos) lanza y el llamador la deja COMO ESTÁ: una imagen difícil no debe
     tumbar la compresión del resto del documento.
     """
-    if _is_bilevel(obj):
+    if _is_bilevel(obj) or _is_indexed(obj):
         return
     width = int(_resolved(obj.get("/Width")) or 0)
     height = int(_resolved(obj.get("/Height")) or 0)
@@ -299,14 +335,19 @@ def _recode_image(page, path: list[str], obj, *, limit: int, quality: int) -> No
                 return          # ya es un JPEG a esta calidad o menor y cabe
         pil = _decode_jpeg_reduced(jpeg, obj, limit)
     if pil is None:
-        # El resto (Flate, JPX, CMYK, con SMask, con /Decode...) lo decodifica
-        # pypdf, que sabe aplicar espacios de color y máscaras.
-        pil = page.images[path if len(path) > 1 else path[0]].image
+        pil = _decode_with_pypdf(page, path)
     if pil is None:
         return
 
     prepared = _for_jpeg(pil)
     if prepared is None:
+        return
+    if _is_uniform(prepared) and _encoded_len(obj) > UNIFORM_SUSPECT_BYTES:
+        # Un solo color salido de un stream que no es trivial: casi seguro una
+        # mala decodificación (ronda 2). El JPEG pesaría casi nada y la guarda
+        # de abajo lo aceptaría: el documento quedaría en negro sin avisar.
+        logger.debug("compress_pdf: imagen %s decodificada de un solo color; "
+                     "se deja como está", path)
         return
     if max(prepared.size) > limit:
         prepared.thumbnail((limit, limit))
@@ -317,6 +358,12 @@ def _recode_image(page, path: list[str], obj, *, limit: int, quality: int) -> No
     if len(data) >= _encoded_len(obj):
         return                  # el JPEG no gana nada: se queda la original
     _put_jpeg(obj, data, prepared)
+
+
+def _decode_with_pypdf(page, path: list[str]):
+    """Decodifica con pypdf lo que no es un JPEG «simple» (Flate, JPX, CMYK, con
+    SMask, con /Decode...): pypdf sabe aplicar espacios de color y máscaras."""
+    return page.images[path if len(path) > 1 else path[0]].image
 
 
 def _decode_jpeg_reduced(jpeg, obj, limit: int):
