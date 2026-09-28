@@ -321,8 +321,10 @@ nació con el NIP del SII no admite «Reasignar NIP» (`must_change_password=Fal
   el NIP en el SII (revisa la configuración de las reglas).» — un 4xx no dejaría a HTMX re-pintar
   la fila, que ya ofrece Accesos.
 - Falla inesperada al crear la cuenta con el NIP del SII → 400 «No se pudo crear la cuenta con el
-  NIP del SII; pásala a Accesos.» (rollback; se registra solo el tipo: el mensaje de la BD trae el
-  hash del NIP).
+  NIP del SII; intenta de nuevo.» (rollback; se registra solo el tipo: el mensaje de la BD trae el
+  hash del NIP). No es una falla del NIP: nadie toca `nip_status` (sigue `available`), así que la
+  fila sigue ofreciendo «Aprobar y dar acceso», que es el reintento; el motivo no dice «pasar a
+  Accesos» porque esa fila no tiene ese botón.
 - El resto, 400 + `X-Tt-Error` como en el modo oficial: «Esa solicitud ya fue aprobada; usa
   Reenviar liga.» · «Ya está en Centro de Cómputo para su acceso.» · «Esa solicitud ya se
   resolvió.» · «Esa convocatoria está cerrada.» (`_cohort_gate`, solo `status`) · «El número de

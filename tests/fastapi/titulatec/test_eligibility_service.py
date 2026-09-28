@@ -1182,12 +1182,45 @@ def test_una_falla_al_crear_la_cuenta_no_filtra_el_nip_ni_su_hash(
 
     assert ok is False and motivo
     assert "1593" not in motivo and h not in motivo
-    # El respaldo del modo `sii` es Accesos (spec 2026-09-27 D1), no el alta
-    # desde la convocatoria.
-    assert motivo == "No se pudo crear la cuenta con el NIP del SII; pásala a Accesos."
     assert req.status == "pending_review"
     assert "1593" not in caplog.text and h not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+def test_una_falla_al_crear_la_cuenta_pide_reintentar_lo_que_la_fila_sigue_ofreciendo(
+    db_session, make_cohort, make_user, sii, listo, monkeypatch,
+):
+    """La falla al CREAR la cuenta no es del NIP: a diferencia de la del NIP
+    (`record_nip_status`), no toca la consulta vigente, que sigue con
+    `nip_status = available`, así que la fila sigue ofreciendo «Aprobar y dar
+    acceso» (spec 2026-09-27 §A5) y la ruta responde 400 (§A4). El motivo pide
+    eso —reintentar—, no «pasar a Accesos», que esa fila no ofrece (revisión de
+    la Task 12)."""
+    from itcj2.apps.titulatec.models import EligibilityCheck
+
+    se = make_user()
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580043", nip="1594")
+    chk = _svc().check(db_session, req.id)
+    assert chk.nip_status == "available", "premisa: la fila ofrece «dar acceso»"
+
+    def _revienta(*a, **k):
+        raise RuntimeError("la BD rechazó el INSERT")
+
+    monkeypatch.setattr(_ers(), "_create_account", staticmethod(_revienta))
+
+    ok, motivo = _ers().approve(db_session, req.id, nip="", program_id=None,
+                                actor_id=se.id)
+
+    assert ok is False
+    assert motivo == "No se pudo crear la cuenta con el NIP del SII; intenta de nuevo."
+    db_session.refresh(req)
+    assert req.status == "pending_review" and req.last_check_id == chk.id
+    vigente = db_session.get(EligibilityCheck, chk.id)
+    db_session.refresh(vigente)
+    assert vigente.nip_status == "available"
+    assert _ers().approval_path(False, vigente.nip_status) == "sii_nip"
+    assert _usuario(db_session, "99580043") is None
+    assert listo == [], "ni correo"
 
 
 @pytest.mark.parametrize("falla,motivo", [

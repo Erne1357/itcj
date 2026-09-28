@@ -532,7 +532,8 @@ acceso» el NIP del formulario se ignora y se pide al SII; si ya no da uno váli
 formato válido (4 dígitos).», «El SII no respondió al pedir el NIP.» o «No se pudo leer el NIP en el
 SII (revisa la configuración de las reglas).», seguido de «Puedes pasarla a Accesos o reintentar la
 consulta.» —, sin escribir nada de la solicitud. Una falla inesperada al crear la cuenta → 400 «No
-se pudo crear la cuenta con el NIP del SII; pásala a Accesos.». Además, en cualquier modo, una
+se pudo crear la cuenta con el NIP del SII; intenta de nuevo.» (no es del NIP: la fila sigue
+ofreciendo «Aprobar y dar acceso»). Además, en cualquier modo, una
 persona con una inscripción **revocada** en esa misma convocatoria → 400 «Esa persona tiene una
 inscripción revocada en esta convocatoria; solo puede inscribirse en otra.» (D1; también al abrir la
 liga). Detalle, confirmación D7 y los errores de «Reintentar consulta» y «Reenviar aviso»:

@@ -265,7 +265,11 @@ _NIP_FAILURE_MSGS = {
     "unavailable": "El SII no respondió al pedir el NIP.",
     "error": "No se pudo leer el NIP en el SII (revisa la configuración de las reglas).",
 }
-_MSG_SII_ACCOUNT_FAILED = "No se pudo crear la cuenta con el NIP del SII; pásala a Accesos."
+# Falla al CREAR la cuenta con el NIP del SII (`_create_account_with_sii_nip`):
+# no es del NIP, así que nadie toca `nip_status` —sigue `available`— y la fila
+# sigue ofreciendo «Aprobar y dar acceso» (`approval_path`). El motivo pide eso,
+# reintentar; «pásala a Accesos» recomendaría un botón que esa fila no tiene.
+_MSG_SII_ACCOUNT_FAILED = "No se pudo crear la cuenta con el NIP del SII; intenta de nuevo."
 _NOTE_LINK_COHORT_CLOSED = "La convocatoria estaba cerrada cuando se abrió la liga de activación."
 _NOTE_LINK_NO_ACCOUNT = "La cuenta de ese número de control ya no existe."
 _NOTE_LINK_NO_PROCESS = ("No se pudo crear el proceso al abrir la liga; revisa los datos "
