@@ -127,7 +127,8 @@ acta la semana pasada empieza vacío en la fase 1.
 ## Lo que este flujo NO hace
 
 * No conserva versiones anteriores de un documento. `storage.save_document`
-  sobreescribe por nombre fijo (`{type_code}.{ext}`); la bitácora dice que hubo
+  sobreescribe por nombre fijo (`{control}_{ETIQUETA}.{ext}` desde 2026-09-28, antes
+  `{type_code}.{ext}`); la bitácora dice que hubo
   una v2, pero la v1 ya no existe en disco. Decisión explícita del 2026-09-03.
 * No toca nada de la fase 3 en adelante mientras el trabajo sea la parte de
   Servicios Escolares (fases 0 a 2).
