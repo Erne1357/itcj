@@ -449,6 +449,116 @@ def test_identidad_igual_salvo_acentos_y_mayusculas_no_es_discrepancia(
     assert chk.identity_mismatch == {}, "{} = se comparó y coincide; None = no se comparó"
 
 
+# La identidad FALLA CERRADO (revisión final C3/C9): sin `[identity]`, con la
+# columna mal escrita o con el nombre vacío en el SII, el nombre NO se comparó
+# y la consulta lo dice (`None` o `_unverified`), nunca `{}` («coincide»). Ya
+# no frena una aprobación automática (se retiró, spec 2026-09-27 D2), pero es
+# lo que `identity_block` convierte en la confirmación de la bandeja (D7): si
+# volviera `{}`, un nombre que nadie comparó pasaría por confirmado.
+_NOTA_SIN_COMPARAR = "No se pudo comparar el nombre con el SII."
+
+
+def _reglas_sin(tmp_path, *, quitar=None, cambiar=None) -> Path:
+    """Copia de las reglas sintéticas sin `[identity]` o con un cambio."""
+    import shutil
+
+    base = tmp_path / "reglas"
+    shutil.copytree(FIXTURES, base, ignore=shutil.ignore_patterns("fake_sii.json"))
+    texto = (base / "rules.toml").read_text(encoding="utf-8")
+    if quitar:
+        inicio = texto.index(quitar)
+        fin = texto.index("\n[", inicio + 1)
+        texto = texto[:inicio] + texto[fin + 1:]
+    if cambiar:
+        assert cambiar[0] in texto, "el cambio no aplicó: las reglas sintéticas cambiaron"
+        texto = texto.replace(*cambiar)
+    (base / "rules.toml").write_text(texto, encoding="utf-8")
+    return base
+
+
+def test_sin_identity_en_las_reglas_el_nombre_no_se_compara(
+    db_session, make_cohort, sii, modo_sii, tmp_path,
+):
+    sii.rules = _reglas_sin(tmp_path, quitar="[identity]")
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580070")
+    sii.alumno("99580070")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt", "el veredicto es de las reglas; la identidad va aparte"
+    assert chk.identity_mismatch is None, "sin [identity] no hubo comparación (≠ {})"
+
+
+def test_columna_de_identidad_mal_escrita_deja_el_nombre_sin_comparar(
+    db_session, make_cohort, sii, modo_sii, tmp_path,
+):
+    """El motor proyecta la columna inexistente como NULL: no es «coincide»."""
+    sii.rules = _reglas_sin(tmp_path, cambiar=('first_name = "nombre"',
+                                               'first_name = "nombre_mal"'))
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580071")
+    sii.alumno("99580071")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert chk.identity_mismatch == {"_unverified": ["first_name"]}
+
+
+@pytest.mark.parametrize("campo,sin_comparar", [("nombre", "first_name"),
+                                                ("paterno", "last_name")])
+def test_nombre_vacio_en_el_sii_queda_sin_comparar(
+    db_session, make_cohort, sii, modo_sii, campo, sin_comparar,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580072")
+    sii.alumno("99580072", **{campo: None})
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert chk.identity_mismatch == {"_unverified": [sin_comparar]}
+
+
+_OTRA = {"form": "EGRESADA", "sii": "OTRA PERSONA"}
+
+
+@pytest.mark.parametrize("identidad,esperado", [
+    (None, _NOTA_SIN_COMPARAR),
+    ({"_unverified": ["last_name"]}, _NOTA_SIN_COMPARAR),
+    ({"_unverified": ["first_name"], "last_name": _OTRA}, _NOTA_SIN_COMPARAR),
+    ({"first_name": _OTRA}, "El nombre del formulario no coincide con el del SII (nombre); "),
+    ({"first_name": _OTRA, "last_name": _OTRA, "program": _OTRA},
+     "El nombre del formulario no coincide con el del SII (nombre, apellido paterno); "),
+    ({}, None),
+    ({"program": {"form": "Ingenieria Ficticia", "sii": "Arquitectura"}}, None),
+], ids=["no_comparado", "sin_comparar", "sin_comparar_gana", "nombre_distinto",
+        "dos_campos_sin_carrera", "coincide", "solo_la_carrera"])
+def test_identity_block_falla_cerrado(identidad, esperado):
+    """Lo que la confirmación de la bandeja (D7) dirá del nombre. Sin
+    comparación → «no se pudo comparar», aunque además haya diferencias; nombre
+    distinto → los CAMPOS, nunca los valores; carrera distinta sola o
+    coincidencia → nada que confirmar."""
+    from types import SimpleNamespace
+
+    from itcj2.apps.titulatec.services.eligibility_service import identity_block
+
+    texto = identity_block(SimpleNamespace(identity_mismatch=identidad))
+
+    if esperado is None or esperado == _NOTA_SIN_COMPARAR:
+        assert texto == esperado
+    else:
+        assert texto.startswith(esperado)
+        assert "OTRA PERSONA" not in texto and "EGRESADA" not in texto
+
+
+def test_identity_block_sin_consulta_falla_cerrado():
+    from itcj2.apps.titulatec.services.eligibility_service import identity_block
+
+    assert identity_block(None) == _NOTA_SIN_COMPARAR
+
+
 def test_el_nip_del_sii_no_se_guarda_ni_se_registra(
     db_session, make_cohort, sii, modo_sii, caplog,
 ):
