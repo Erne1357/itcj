@@ -439,10 +439,30 @@ procesos (backend HTTP, sockets, celery worker y beat).
 
 ### Este cambio (2026-09-27, spec §10)
 
-1. **Antes:** confirmar en producción que toda convocatoria tiene fecha de cierre —
-   `SELECT id, name FROM titulatec_cohorts WHERE closes_at IS NULL;` debe salir vacío—. Si no,
-   `tt20260927b` **aborta** nombrando cada convocatoria; se configura en Convocatorias › Resumen ›
-   Ventana de inscripción y se vuelve a correr.
+**Comprobaciones previas — ANTES de fusionar a `main`** (el push a `main` dispara `deploy.yml`, y
+para cuando la migración aborta `deploy.sh` ya hizo backup, build y `git reset`: el workflow sale
+en rojo y hay que relanzarlo a mano):
+
+- **Toda convocatoria tiene cierre**: `SELECT id, name FROM titulatec_cohorts WHERE closes_at IS
+  NULL;` en producción debe dar **0 filas**. Si no, `tt20260927b` **aborta** nombrando cada una; se
+  configura en Convocatorias › Resumen › Ventana de inscripción.
+- **`.env.prod` NO fija el modo**: `grep TITULATEC_ .env.prod` no debe traer
+  `TITULATEC_ENROLLMENT_REVIEWER` (si trae `school_services`, el cambio de default no hace nada y
+  Servicios Escolares sigue en el flujo viejo sin que nadie lo note). Las retiradas
+  (`TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS`, `TITULATEC_SII_VERDICT_MAX_AGE_HOURS`) pueden quedarse:
+  `extra="ignore"`.
+
+**Aviso de contrato: `tt20260927b` NO es compatible hacia atrás.** El código anterior (el de
+`origin/main` antes de esta rama) compara `date.today()` con la columna ya `TIMESTAMP` →
+`TypeError` y **500 en `/titulatec/inscripcion`** (GET y POST) mientras haya una convocatoria
+`open`; y su alta de convocatoria da **500 por el NOT NULL**. `deploy.sh` migra en el paso 4 y el
+backend viejo sigue atendiendo hasta la recarga de nginx (health check + alcance): **desplegar
+fuera de una ventana de inscripción abierta** o aceptar ese corte breve. `tt20260927a` sí es
+compatible (solo agrega columnas nullable).
+
+Pasos:
+
+1. Las dos comprobaciones previas de arriba.
 2. `git pull` + **reconstruir** las imágenes backend y celery (la rama ya trae el montaje
    `../../database/SII:/app/database/SII:ro` del `celery-worker` en
    `docker/compose/docker-compose.prod.yml`).
@@ -453,13 +473,35 @@ procesos (backend HTTP, sockets, celery worker y beat).
 4. **Reiniciar todos los procesos** (HTTP, sockets, celery worker y beat): el nuevo default del
    modo vive en `get_settings()` (`lru_cache`).
 5. **Nada de `init-titulatec` ni DML**: no cambia ningún permiso, rol ni puesto (D4/D5). `.env.prod`
-   no necesita el modo (ya es el default).
+   no necesita el modo (ya es el default) y **no debe** fijarlo (comprobación previa).
 
 `docker/scripts/deploy.sh` (merge a `main`) hace 2-4 solo: migra en la imagen nueva con
 `set -euo pipefail` —si `tt20260927b` aborta, el deploy se detiene antes de conmutar el backend— y
 recrea sockets, `celery-worker` y `celery-beat`. Mientras no haya acceso al SII,
 `TITULATEC_SII_BACKEND` sigue `disabled`: **todo lo sin cuenta se aprueba pasando a Accesos** (la
 jefatura y la secretaría de Centro de Cómputo capturan el NIP), y con cuenta sale la liga.
+
+### Volver atrás
+
+`docker/scripts/rollback.sh` revierte solo el código. **ANTES** de correrlo hay que bajar la BD a
+`tt20260927a` (compatible con el código anterior), y **desde la imagen NUEVA**: la vieja no trae
+`tt20260927a`/`b` y alembic no las encuentra. En `/home/cuaderno/ITCJ`, con el patrón del paso 4
+de `deploy.sh` (`MIGRATE_DATABASE_URL` llega del `env_file` `.env.prod` del servicio; cualquier
+color sirve, la imagen la fija `IMAGE_TAG`):
+
+```bash
+export IMAGE_TAG="$(git rev-parse --short HEAD)"   # la imagen NUEVA (la que calculó deploy.sh)
+docker compose -f docker/compose/docker-compose.prod.yml --profile blue \
+    run --rm --entrypoint "" -e PYTHONPATH=/app backend-blue \
+    bash -c "cd /app && alembic -c migrations/alembic.ini downgrade tt20260927a"
+./docker/scripts/rollback.sh
+```
+
+Se pierde la hora de la ventana (un cierre a las 14:00 vuelve a contar el día entero); `nip_status`
+y `nip_source` se quedan (el código viejo las ignora). La otra salida es restaurar el dump
+pre-deploy que deja `deploy.sh`. Lo mismo vale si `backend-NEW` no pasa el health check después de
+migrar: `deploy.sh` sale dejando el backend viejo sobre el esquema migrado, y el formulario público
+queda en 500 hasta bajar a `tt20260927a`.
 
 ### Cuando haya acceso al SII
 

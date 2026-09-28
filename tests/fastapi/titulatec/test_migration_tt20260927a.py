@@ -40,6 +40,38 @@ def test_las_constantes_de_tabla_apuntan_a_las_tablas_correctas():
     assert '_REQUESTS = "titulatec_enrollment_requests"' in src
 
 
+def test_upgrade_fija_lock_timeout_antes_de_cualquier_ddl():
+    """Alembic corre `tt20260927a` y `tt20260927b` en UNA transacción: los
+    `ADD COLUMN` de aquí retienen ACCESS EXCLUSIVE sobre solicitudes y consultas
+    hasta el COMMIT, y el `ALTER ... TYPE` de la b espera el de
+    `titulatec_cohorts`. Sin tope, un lock ajeno sobre convocatorias congela la
+    inscripción entera en vez de abortar el deploy. `SET LOCAL` vale para el
+    resto de la transacción (las dos revisiones) y tiene que ir PRIMERO."""
+    upgrade = _cuerpo("upgrade", _fuente())
+    sentencias = [ln.strip() for ln in upgrade.splitlines()
+                  if ln.strip() and not ln.strip().startswith("#")]
+
+    assert sentencias[0] == 'op.execute("SET LOCAL lock_timeout = \'10s\'")', sentencias[:2]
+    assert upgrade.index("lock_timeout") < upgrade.index("op.add_column")
+
+
+def test_el_docstring_describe_el_dominio_real():
+    """Revisión final (F2): una migración es historia durable. El docstring no
+    puede invertir `not_needed`/NULL, atribuir `form` al modo oficial ni
+    presentar el relleno como código muerto (el código desplegado desde
+    `0b72d5f7` ya escribía `payload.nip_source='sii'`)."""
+    import ast
+
+    doc = ast.get_docstring(ast.parse(_fuente()))
+    plano = " ".join(doc.split())
+
+    assert "not_needed" in plano and "SI tenia cuenta" in plano
+    assert "(tiene cuenta" not in plano, "NULL no significa «tiene cuenta»"
+    assert "0b72d5f7" in plano, "el porqué real del relleno"
+    assert "LEGADO desde el dia uno" not in plano
+    assert "`school_services`/" not in plano, "`form` es solo del modo alterno"
+
+
 def test_upgrade_agrega_nip_status_en_checks_y_nip_source_en_requests():
     upgrade = _cuerpo("upgrade", _fuente())
 

@@ -110,3 +110,21 @@ def test_el_modelo_declara_datetime_not_null():
         col = Cohort.__table__.columns[nombre]
         assert isinstance(col.type, DateTime), nombre
         assert col.nullable is False, nombre
+
+
+def test_el_docstring_avisa_que_no_es_compatible_hacia_atras_y_como_revertir():
+    """Revisión final (F1): es un cambio de CONTRATO. El código anterior compara
+    `date` con la columna ya `TIMESTAMP` (`TypeError` → 500 en la inscripción
+    pública con una convocatoria abierta) y su alta de convocatoria choca con
+    el NOT NULL. La reversión baja a `tt20260927a` (compatible con el código
+    anterior) DESDE LA IMAGEN NUEVA y ANTES de `rollback.sh`: la imagen vieja
+    no conoce estas revisiones."""
+    plano = " ".join((_modulo().__doc__ or "").split())
+
+    assert "TypeError" in plano and "/titulatec/inscripcion" in plano
+    assert "NOT NULL" in plano and "alta de convocatoria" in plano
+    assert "downgrade tt20260927a" in plano
+    assert "ANTES de `docker/scripts/rollback.sh`" in plano
+    # En los comandos del runbook, el downgrade va primero.
+    assert plano.index("downgrade tt20260927a") < plano.index("./docker/scripts/rollback.sh")
+    assert "imagen nueva" in plano.lower()

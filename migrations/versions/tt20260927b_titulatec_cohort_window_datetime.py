@@ -21,6 +21,34 @@ Antes de convertir:
 Downgrade: `TIMESTAMP` -> `DATE` (`::date`, se pierde la hora) y nullable otra
 vez.
 
+AVISO DE CONTRATO: NO es compatible hacia atras. El codigo anterior (el de
+`origin/main` antes de esta rama) compara `date.today()` con la columna ya
+`TIMESTAMP` (el `Column(Date)` viejo recibe `datetime`) -> `TypeError` y 500
+en `/titulatec/inscripcion` (GET y POST) mientras haya una convocatoria
+`open`; y su alta de convocatoria crea `Cohort` sin fechas -> 500 por el NOT
+NULL. `deploy.sh` migra en el paso 4 y el backend VIEJO sigue atendiendo hasta
+la recarga de nginx (health check + alcance, decenas de segundos): desplegar
+fuera de una ventana de inscripcion abierta o aceptar ese corte breve. Si el
+backend nuevo no pasa el health check, deploy.sh sale con el viejo sobre el
+esquema migrado: el formulario publico queda en 500 hasta revertir.
+
+REVERSION: ANTES de `docker/scripts/rollback.sh` (que solo revierte codigo),
+bajar a `tt20260927a` -- esa si es compatible con el codigo anterior: solo
+agrega columnas nullable que el codigo viejo ignora -- DESDE LA IMAGEN NUEVA,
+porque la vieja no trae estas revisiones y alembic no las encuentra. En
+`/home/cuaderno/ITCJ`, con el patron del paso 4 de deploy.sh
+(`MIGRATE_DATABASE_URL` llega del `env_file` `.env.prod` del servicio;
+cualquier color sirve: la imagen la fija `IMAGE_TAG`):
+
+    export IMAGE_TAG="$(git rev-parse --short HEAD)"   # la imagen NUEVA
+    docker compose -f docker/compose/docker-compose.prod.yml --profile blue \
+        run --rm --entrypoint "" -e PYTHONPATH=/app backend-blue \
+        bash -c "cd /app && alembic -c migrations/alembic.ini downgrade tt20260927a"
+    ./docker/scripts/rollback.sh
+
+Se pierde la hora de la ventana (un cierre a las 14:00 vuelve a contar el dia
+entero). La otra salida es restaurar el dump pre-deploy que deja deploy.sh.
+
 Escrita a mano (no autogenerate: arrastra drift ajeno). Correr con
 MIGRATE_DATABASE_URL (Postgres directo), nunca contra PgBouncer. Postgres corre
 el DDL dentro de la transaccion de Alembic, asi que un aborto no deja nada a

@@ -1,32 +1,43 @@
 """titulatec: el SII informa, Servicios Escolares decide -- estado y origen del NIP
 
-`titulatec_eligibility_checks.nip_status` (String(20), nullable): solo se
-llena cuando la persona consultada NO tiene cuenta en `core_users` en ese
-momento (spec `2026-09-27-titulatec-sii-informa-se-decide-design.md` A2).
-Dominio: `available|missing|invalid|unavailable|error|not_needed`; NULL = no
-se reviso (tiene cuenta, o el veredicto fue `error` antes de llegar a pedir
-el NIP). Lo escribe `EligibilityService.check`/`classify_sii_nip`; con eso la
-bandeja de Solicitudes pinta desde el inicio el boton correcto (D6) sin tener
-que reconsultar.
+`titulatec_eligibility_checks.nip_status` (String(20), nullable): lo que la
+consulta al SII vio del NIP (spec `2026-09-27-titulatec-sii-informa-se-decide-design.md`
+A2). Dominio: `available|missing|invalid|unavailable|error` (la persona NO
+tenia cuenta en `core_users` al consultar: se le pidio el NIP al SII y se
+clasifico) o `not_needed` (la persona SI tenia cuenta: sale la liga y el NIP
+del SII no importa). NULL = no se reviso: la consulta termino en `error` o
+sigue `pending` antes de llegar a pedir el NIP, o es una fila anterior a esta
+migracion. NULL NO significa "tiene cuenta". Lo escriben
+`EligibilityService.check` (via `classify_sii_nip`) y `record_nip_status`
+(una aprobacion que vio al SII sin NIP valido); con eso la bandeja de
+Solicitudes pinta desde el inicio el boton correcto (D6) sin reconsultar.
+Nunca guarda el NIP, solo su estado.
 
-`titulatec_enrollment_requests.nip_source` (String(20), nullable):
-`sii|center|form`; NULL = cuenta preexistente (aprobar con liga) o fila
-anterior a esta migracion. Lo escriben `_create_account`/`grant_access`:
-`sii` cuando el NIP nacio de la consulta al SII, `center` cuando lo dio
-Centro de Computo a mano, `form` en el modo alterno (`school_services`/
-`computer_center`, sin SII). "Con acceso" filtra
-`nip_source IS DISTINCT FROM 'sii'` para no listar las cuentas que ya
-mandaron su propio correo con NIP.
+`titulatec_enrollment_requests.nip_source` (String(20), nullable): de donde
+salio el NIP de la cuenta que esta solicitud CREO. Lo escribe SOLO
+`_create_account`: `sii` = la cuenta nacio con el NIP del SII («Aprobar y
+dar acceso», modo `sii`); `center` = lo capturo Centro de Computo en Accesos
+(`grant_access`, modo oficial `school_services` o modo `sii` pasando por
+Accesos); `form` = lo tecleo quien aprobo en el modo ALTERNO
+(`computer_center`), y solo ahi. NULL = no creo cuenta (cuenta preexistente:
+se aprobo con liga) o fila anterior a esta migracion. «Con acceso» filtra
+`nip_source IS DISTINCT FROM 'sii'`: Centro de Computo no intervino en esas
+cuentas.
 
-El relleno (UPDATE) es LEGADO desde el dia uno: ninguna solicitud existente
-hoy pudo nacer con `nip_source='sii'`, porque esta es la primera revision que
-declara la columna. Se deja para reconstruir `nip_source` desde el rastro
-que SI existe desde antes (`ProcessEvent('enrollment_self_service')` con
-`payload.request_id`) si algun ambiente llega a correr esta migracion sobre
-datos que el codigo nuevo (`payload.nip_source`) ya escribio -- por ejemplo,
-una restauracion de un volcado de BD tomado despues de desplegar el codigo
-pero antes de correr esta migracion. Solo toca filas con `nip_source IS
-NULL` para no pisar un valor ya resuelto.
+El relleno (UPDATE) NO es codigo muerto: desde `0b72d5f7` (ya en `main` y
+desplegado) el codigo escribe `payload.nip_source = 'sii'` en el
+`ProcessEvent('enrollment_self_service')` de cada cuenta creada con el NIP del
+SII, asi que CUALQUIER ambiente que corrio el modo `sii` antes de esta
+revision tiene solicitudes `converted` con esa marca y la columna todavia
+vacia. Sin el relleno esas cuentas aparecerian en «Con acceso» de Accesos como
+si Centro de Computo les hubiera dado el NIP. Se une por
+`converted_process_id` Y `payload.request_id` (nunca marca la solicitud de
+otra persona) y solo toca filas con `nip_source IS NULL` (no pisa un valor ya
+resuelto). En produccion hoy no rellena nada (nunca corrio en modo `sii`); en
+dev si.
+
+`upgrade()` fija primero `SET LOCAL lock_timeout = '10s'`: ver el comentario
+ahi.
 
 Escrita a mano (no autogenerate: arrastra drift ajeno). Correr con
 MIGRATE_DATABASE_URL (Postgres directo), nunca contra PgBouncer.
@@ -48,6 +59,17 @@ _EVENTS = "titulatec_process_events"
 
 
 def upgrade() -> None:
+    # Alembic corre esta revision y `tt20260927b` en UNA sola transaccion
+    # (`migrations/env.py` no usa `transaction_per_migration`): los ADD COLUMN
+    # de aqui retienen ACCESS EXCLUSIVE sobre solicitudes y consultas hasta el
+    # COMMIT, y el `ALTER ... TYPE` de la b pide el de `titulatec_cohorts`. Un
+    # lock ajeno sobre convocatorias (el backend viejo sirviendo, un export
+    # largo, un psql «idle in transaction») lo haria esperar sin tope, y detras
+    # se formaria toda consulta a las solicitudes: la inscripcion congelada
+    # hasta el timeout del deploy en vez de fallar rapido. `SET LOCAL` vale para
+    # el resto de la transaccion (las dos revisiones); si salta, el deploy
+    # aborta limpio (nada queda a medias) y se reintenta.
+    op.execute("SET LOCAL lock_timeout = '10s'")
     op.add_column(_CHECKS, sa.Column("nip_status", sa.String(20), nullable=True))
     op.add_column(_REQUESTS, sa.Column("nip_source", sa.String(20), nullable=True))
 
