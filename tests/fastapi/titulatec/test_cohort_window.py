@@ -112,6 +112,61 @@ def test_la_apertura_respeta_la_hora(make_cohort):
         cohort, now=datetime(2031, 3, 10, 9, 0)) is True
 
 
+def test_un_cierre_tecleado_23_59_conserva_su_ultimo_minuto(make_cohort):
+    """Revisión final (F10): la hora tecleada se guarda HH:MM:00, así que un
+    cierre escrito «23:59» es 23:59:00. «Al minuto» de verdad: a las 23:59:30
+    sigue abierto, igual que con el cierre por omisión (23:59:59); a las
+    00:00:00 del día siguiente, cerrado. El cierre sale del mismo
+    `_parse_window_dt` que usa la ruta."""
+    from itcj2.apps.titulatec.pages.admin import _CLOSES_DEFAULT_TIME, _parse_window_dt
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+
+    cierre = _parse_window_dt("2031-03-20", "23:59", default=_CLOSES_DEFAULT_TIME)
+    assert cierre == datetime(2031, 3, 20, 23, 59, 0)
+    cohort = make_cohort(status="open", opens_at=datetime(2031, 3, 10),
+                         closes_at=cierre)
+
+    assert CohortService.is_public_enrollment_open(
+        cohort, now=datetime(2031, 3, 20, 23, 59, 30)) is True
+    assert CohortService.is_public_enrollment_open(
+        cohort, now=datetime(2031, 3, 20, 23, 59, 59, 999999)) is True
+    assert CohortService.is_public_enrollment_open(
+        cohort, now=datetime(2031, 3, 21, 0, 0, 0)) is False
+
+
+def test_la_apertura_es_al_minuto(make_cohort):
+    """F10: una apertura a las 09:00 sigue cerrada a las 08:59:59 y ya está
+    abierta a las 09:00:30 (el minuto de las 09:00 cuenta entero)."""
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+
+    cohort = make_cohort(status="open", opens_at=datetime(2031, 3, 10, 9, 0),
+                         closes_at=datetime(2031, 3, 20, 23, 59, 59))
+
+    assert CohortService.is_public_enrollment_open(
+        cohort, now=datetime(2031, 3, 10, 8, 59, 59)) is False
+    assert CohortService.is_public_enrollment_open(
+        cohort, now=datetime(2031, 3, 10, 9, 0, 30)) is True
+
+
+def test_la_proxima_ventana_y_el_predicado_comparan_igual(sin_convocatorias_previas,
+                                                        make_cohort, db_session):
+    """F10: `next_public_enrollment_window` trunca al minuto como
+    `is_public_enrollment_open`, así los dos nunca se contradicen: una
+    convocatoria cerrada porque su apertura aún no llega se anuncia como la
+    próxima, aunque la apertura traiga segundos (09:00:30 con el reloj en
+    09:00:45 → el minuto de las 09:00 todavía no la alcanza)."""
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+
+    cohort = make_cohort(status="open", opens_at=datetime(2031, 3, 10, 9, 0, 30),
+                         closes_at=datetime(2031, 3, 20, 23, 59, 59))
+    ahora = datetime(2031, 3, 10, 9, 0, 45)
+
+    assert CohortService.is_public_enrollment_open(cohort, now=ahora) is False
+    prox = CohortService.next_public_enrollment_window(db_session, now=ahora)
+    assert prox is not None and prox.id == cohort.id, (
+        "cerrada por no haber abierto: tiene que anunciarse como la próxima")
+
+
 def test_los_predicados_usan_db_now(sin_convocatorias_previas, make_cohort,
                                     db_session, monkeypatch):
     """Review Focus 5: el reloj del proceso puede no estar en APP_TZ. Con

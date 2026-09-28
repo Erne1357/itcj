@@ -140,7 +140,8 @@ esto: importar CSV y dar de alta a mano siguen funcionando con la convocatoria `
   el alta de convocatoria): `<input type="date">` **obligatorio** + `<input type="time">`
   **opcional**, con la ayuda «Hora opcional · vacío = 00:00» (apertura) / «vacío = 23:59» (cierre).
   `_parse_window_dt` aplica la hora de omisión: 00:00 en la apertura y **23:59:59** en el cierre
-  (se muestra «23:59»: quien envía a las 23:59:30 del último día sigue dentro). Una hora ilegible
+  (se muestra «23:59»: quien envía a las 23:59:30 del último día sigue dentro; con un cierre
+  tecleado «23:59», guardado 23:59:00, también, porque la lectura trunca al minuto). Una hora ilegible
   NO cae a la de omisión: se rechaza. Sin `style=`: los anchos son `.tt-win-*` de `titulatec.css`.
 - **Todo se entrega precargado** (`_window_ctx`: fecha en ISO `YYYY-MM-DD`, hora en `HH:MM`),
   porque `set_window` escribe SIEMPRE los dos extremos con lo que reciba: no existe "conservar lo
@@ -152,9 +153,13 @@ esto: importar CSV y dar de alta a mano siguen funcionando con la convocatoria `
   cierre tiene que ser posterior a la apertura.» (`CohortService.set_window`, que además exige los
   dos extremos: vacío ya no significa «sin tope»).
 - **Lectura al minuto con `db_now()`**, nunca el reloj del proceso (el contenedor puede correr en
-  UTC): `is_public_enrollment_open` = `status == 'open'` y `opens_at <= db_now() <= closes_at`;
-  `next_public_enrollment_window` = `opens_at > db_now()`. Lo que sigue a una solicitud ya enviada
-  (aprobar, dar acceso, la liga) no mira las fechas (D5 de 09-24).
+  UTC): `db_now()` se trunca a su minuto (`cohort_service._al_minuto`) y
+  `is_public_enrollment_open` = `status == 'open'` y `opens_at <= ahora <= closes_at`;
+  `next_public_enrollment_window` = `opens_at > ahora`, con el MISMO truncado. Así un cierre
+  tecleado «23:59» (guardado 23:59:00) conserva su último minuto igual que el de omisión
+  (23:59:30 abierto, 00:00:00 del día siguiente cerrado) y una apertura a las 09:00 abre al empezar
+  ese minuto (revisión final F10). Lo que sigue a una solicitud ya enviada (aprobar, dar acceso, la
+  liga) no mira las fechas (D5 de 09-24).
 - Sin el permiso, la tarjeta es de solo lectura: «Apertura dd/mm/aaaa hh:mm · Cierre dd/mm/aaaa
   hh:mm».
 - El interruptor «Aprobación automática (SII)» que vivió en este panel del 2026-09-25 al

@@ -15,6 +15,14 @@ APP_TZ) y los predicados comparan AL MINUTO contra `db_now()`, nunca contra el
 reloj del proceso: el contenedor puede correr en UTC y la ventana se abriría o
 cerraría seis horas corrida, en silencio. El cierre por omisión es 23:59:59.
 
+«Al minuto» de verdad (revisión final F10): `now` se trunca a su minuto
+(`_al_minuto`) antes de comparar. La hora tecleada se guarda HH:MM:00, así que
+sin truncar un cierre escrito «23:59» perdía su último minuto (23:59:30 ya
+contaba como cerrado) mientras el de omisión (23:59:59, que también se lee
+«23:59») lo conservaba. Truncado, los dos se comportan igual: abierto hasta
+las 23:59:59.999, cerrado a las 00:00:00 del día siguiente; y una apertura a
+las 09:00 abre en cuanto empieza ese minuto.
+
 Fallo cerrado, a propósito
 --------------------------
 `public_enrollment_cohort` NUNCA desempata. Cuando las fechas podían ser NULL,
@@ -52,19 +60,27 @@ from itcj2.core.utils.timezone import db_now
 _STATUSES = ("draft", "open", "closed")
 
 
+def _al_minuto(now: datetime) -> datetime:
+    """`now` truncado a su minuto: la ventana se compara AL MINUTO (F10)."""
+    return now.replace(second=0, microsecond=0)
+
+
 class CohortService:
 
     @staticmethod
     def is_public_enrollment_open(cohort, *, now: datetime | None = None) -> bool:
-        """`status='open'` y `opens_at <= now <= closes_at`, al minuto.
+        """`status='open'` y `opens_at <= now <= closes_at`, AL MINUTO.
 
-        `now` por omisión es `db_now()`. Los dos extremos cuentan: el cierre por
-        omisión es 23:59:59, así que las 23:59:30 del último día siguen dentro y
-        las 00:00:00 del siguiente ya no.
+        `now` por omisión es `db_now()`, y se trunca a su minuto antes de
+        comparar (`_al_minuto`): los dos extremos cuentan con su minuto entero.
+        Un cierre tecleado «23:59» (guardado 23:59:00) y el de omisión
+        (23:59:59) siguen abiertos a las 23:59:30 del último día y cerrados a
+        las 00:00:00 del siguiente; una apertura a las 09:00 está cerrada a las
+        08:59:59 y abierta a las 09:00:30.
         """
         if cohort is None or cohort.status != "open":
             return False
-        now = now or db_now()
+        now = _al_minuto(now or db_now())
         return cohort.opens_at <= now <= cohort.closes_at
 
     @staticmethod
@@ -99,8 +115,9 @@ class CohortService:
 
         Sirve para que la tarjeta de cierre diga *cuándo volver* en vez de
         mandar al egresado a preguntar. El caso real: `status='open'` con
-        `opens_at > now` (`db_now()` por omisión) es "cerrada" para
-        `is_public_enrollment_open`
+        `opens_at > now` (`db_now()` por omisión, truncado al minuto igual que
+        en `is_public_enrollment_open`, para que los dos nunca se
+        contradigan) es "cerrada" para `is_public_enrollment_open`
         —y debe serlo, el formulario no se abre antes de tiempo— pero la fecha
         ya está decidida y publicada.
 
@@ -116,7 +133,7 @@ class CohortService:
         """
         from itcj2.apps.titulatec.models import Cohort
 
-        now = now or db_now()
+        now = _al_minuto(now or db_now())
         return (db.query(Cohort)
                   .filter(Cohort.status == "open", Cohort.opens_at > now)
                   .order_by(Cohort.opens_at, Cohort.id)
