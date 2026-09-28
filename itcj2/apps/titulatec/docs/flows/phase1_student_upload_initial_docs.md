@@ -100,7 +100,7 @@ En cada pasada, cada imagen:
   tope absoluto es por los «foto → PDF» (iPhone «Crear PDF», Vista Previa, img2pdf, apps de
   escaneo), que hacen la página del tamaño de la foto a 72 dpi (~42×56″): el límite de la
   página solo nunca los tocaba (revisión 2026-09-28, R1; medido: una foto de 3000×4000 px en
-  un PDF de 5.69 MB queda en 0.23 MB a 1315×1754 px);
+  un PDF de 5.69 MB queda en 0.19 MB a 1315×1754 px);
 - se **recodifica** en JPEG a la calidad de la pasada aunque ya quepa, salvo que ya sea un JPEG
   a esa calidad o menor (la calidad se estima de su tabla de cuantización, sin decodificarlo):
   así bajan los escaneos guardados sin pérdida (Flate) o en JPEG q95. Si el JPEG nuevo no pesa
