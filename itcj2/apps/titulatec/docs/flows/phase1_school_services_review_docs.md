@@ -74,8 +74,10 @@ archivo: un documento subido antes del cambio (todavía `curp.pdf` en disco, has
 `titulatec rename-documents`) ya se descarga con el nombre nuevo. `Document.original_name` se
 sigue guardando (y se muestra en el slot del alumno y en el expediente) pero **ya no nombra la
 descarga**; antes iba tal cual al header. Con un número de control no alfanumérico (fila vieja
-del importador) cae a la etiqueta sola (`CURP.pdf`): la descarga nunca falla por el nombre.
-Fijado por `tests/fastapi/titulatec/test_document_files_routes.py`.
+del importador) cae a la etiqueta sola (`CURP.pdf`), y con un `type_code` fuera de
+`^[a-z0-9_]+$` a `documento.{ext}` (el catálogo real ya cumple; revisión 2026-09-28, m7): la
+descarga nunca falla por el nombre. Fijado por
+`tests/fastapi/titulatec/test_document_files_routes.py` y `test_document_storage.py`.
 
 ### De dónde sale el visor (ojo con los parciales muertos)
 

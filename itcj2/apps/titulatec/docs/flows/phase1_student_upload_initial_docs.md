@@ -41,8 +41,11 @@ sequenceDiagram
     U->>FE: elige archivo en el dropzone
     FE->>API: POST /titulatec/student/documents/{type_code}  (multipart)
     API->>API: archivo.size > 20 MB? → error SIN leer el cuerpo
-    API->>SVC: run_in_threadpool(save, db, process, type_code, raw, ...)
-    SVC->>ST: save_document(...) (comprime img / PDF > 2 MB → pdf_compress)
+    API->>DB: lecturas (tipo, proceso, guarda de fase, control) y commit: cierra la transacción
+    API->>ST: run_in_threadpool(prepare_document, raw, control, file_kind) (valida + comprime; sin disco ni BD)
+    ST-->>API: PreparedDocument (bytes a guardar)
+    API->>SVC: run_in_threadpool(save, db, process, type_code, ..., prepared=...)
+    SVC->>ST: write_document(prepared, ...) (temporal + os.replace; luego borra versiones viejas)
     ST-->>SVC: {file_path, mime, size (del archivo GUARDADO)}
     SVC->>DB: UPSERT Document (review_status=pending, version++)
     SVC-->>API: doc
@@ -58,7 +61,7 @@ sequenceDiagram
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif |
 |---|---|---|---|---|---|---|---|
 | 1 | 👤 | `/student/documents` | ver slots | `GET /student/documents` | `DocumentService.get_document` ×3 | — | — |
-| 2 | 👤 | dropzone | subir/re-subir | `POST /student/documents/{type_code}` | `DocumentService.save` (en el threadpool) → `storage.save_document` → `pdf_compress.compress_pdf` si pasa de 2 MB | `titulatec_documents` UPSERT (`review_status=pending`, `version`++, `size_bytes` = lo guardado, `original_name` = el nombre que subió el alumno), archivo en `instance/.../{period}/{control}/documents/{control}_{ETIQUETA}.{ext}` | `ProcessEvent(document_uploaded)` |
+| 2 | 👤 | dropzone | subir/re-subir | `POST /student/documents/{type_code}` | `storage.prepare_document` (en el threadpool, sin transacción abierta; `pdf_compress.compress_pdf` si pasa de 2 MB) → `DocumentService.save(..., prepared=...)` (en el threadpool) → `storage.write_document` | `titulatec_documents` UPSERT (`review_status=pending`, `version`++, `size_bytes` = lo guardado, `original_name` = el nombre que subió el alumno), archivo en `instance/.../{period}/{control}/documents/{control}_{ETIQUETA}.{ext}` | `ProcessEvent(document_uploaded)` |
 | 3 | 👤 | botón ✕ | eliminar | `DELETE /student/documents/{type_code}` | `DocumentService.delete` | borra fila + archivo | — |
 | 4 | 👤 | botón enviar | enviar fase | `POST /student/phase/1/submit` | (inline) valida 3 docs | `ProcessPhase[1].status=in_review` | — |
 
@@ -71,39 +74,70 @@ Dos topes en `itcj2/config.py`, ambos por `.env` (reiniciar los procesos backend
 | `TITULATEC_MAX_PDF_SIZE` | 2 MB | lo que pesa el archivo **guardado** |
 | `TITULATEC_MAX_PDF_UPLOAD_SIZE` | 20 MB | lo máximo que se **recibe** para intentar comprimir |
 
-`storage.save_document`, rama `pdf`, en este orden:
+`storage.prepare_document`, rama `pdf`, en este orden (`save_document` = `prepare_document` +
+`write_document`, para quien no necesite separarlos):
 
 1. extensión `.pdf`;
 2. `> 20 MB` → `StorageError` «Tu PDF pesa {X} MB; el máximo que aceptamos es {N} MB.» (la ruta
-   ya lo comprobó con `UploadFile.size` **antes de leer el cuerpo**; `save_document` lo repite
+   ya lo comprobó con `UploadFile.size` **antes de leer el cuerpo**; `prepare_document` lo repite
    sobre los bytes);
 3. número de control alfanumérico (si no, `StorageError`: no se inventa un nombre);
 4. `<= 2 MB` → se guarda **intacto** (mismos bytes);
 5. `> 2 MB` → `utils/pdf_compress.compress_pdf(raw, target_bytes=2 MB)`: pasadas (150 dpi, JPEG
-   q75) → (110, q60) → (96, q50) sobre las **imágenes** de cada página (tope en píxeles = lado
-   mayor de la página × dpi; más `compress_content_streams` y compactar objetos), gana la primera
-   que cabe. `None` → «Tu PDF pesa {X} MB y aun comprimido supera {L} MB; escanéalo en menor
-   resolución o en blanco y negro.»; ilegible/cifrado → «No pudimos leer tu PDF; vuelve a
-   generarlo o escanéalo de nuevo.».
+   q75, tope 1754 px) → (110, q60, 1286 px) → (96, q50, 1123 px) sobre las **imágenes** de cada
+   página (más `compress_content_streams` y compactar objetos), gana la primera que cabe. `None` →
+   «Tu PDF pesa {X} MB y aun comprimido supera {L} MB; escanéalo en menor resolución o en blanco y
+   negro.»; ilegible/cifrado, o un resultado con otro número de páginas → «No pudimos leer tu PDF;
+   vuelve a generarlo o escanéalo de nuevo.».
 
-Todo se valida **antes** de crear la carpeta: un error no deja nada en disco ni en BD. Una
-imagen que pypdf/Pillow no pueden decodificar (CCITT, JBIG2, máscaras raras) se deja como está;
-las bitonales (modo `1`) también, porque en CCITT/Flate ya pesan menos que un JPEG. Limitación
-conocida: si la página mide lo mismo que la imagen a 72 dpi (algunos convertidores
-«imagen → PDF»), ninguna pasada la reduce y el PDF sale como «aun comprimido supera».
+`{X}` va con un decimal redondeado **hacia arriba** (20 MB + 1 byte = «20.1»): lo que pasa del
+tope nunca se lee igual al tope.
 
-La compresión es CPU (segundos en un PDF de 20 MB): por eso la ruta llama `DocumentService.save`
-con `run_in_threadpool`.
+En cada pasada, cada imagen:
+
+- se **reduce** si su lado largo pasa del MENOR de dos límites: lado mayor de la página
+  (pulgadas) × dpi, y el **tope absoluto** de la pasada (≈ lado largo de un A4 a esos dpi). El
+  tope absoluto es por los «foto → PDF» (iPhone «Crear PDF», Vista Previa, img2pdf, apps de
+  escaneo), que hacen la página del tamaño de la foto a 72 dpi (~42×56″): el límite de la
+  página solo nunca los tocaba (revisión 2026-09-28, R1; medido: una foto de 3000×4000 px en
+  un PDF de 5.69 MB queda en 0.23 MB a 1315×1754 px);
+- se **recodifica** en JPEG a la calidad de la pasada aunque ya quepa, salvo que ya sea un JPEG
+  a esa calidad o menor (la calidad se estima de su tabla de cuantización, sin decodificarlo):
+  así bajan los escaneos guardados sin pérdida (Flate) o en JPEG q95. Si el JPEG nuevo no pesa
+  menos que la imagen original, se queda la original;
+- **bitonal** (1 bit, máscaras, CCITT/JBIG2): nunca se toca, en JPEG crecería;
+- que declara más de 50 MP (`MAX_IMAGE_PIXELS` de `pdf_compress`): se deja como está sin
+  decodificarla. Los JPEG se decodifican ya reducidos (`Image.draft`), no a tamaño completo;
+- que pypdf/Pillow no pueden decodificar: se deja como está, sin abortar el resto.
+
+Todo se valida **antes** de crear la carpeta: un error de validación no deja nada en disco ni en
+BD.
+
+La compresión es CPU (segundos en un PDF de 20 MB): la ruta corre `prepare_document` y
+`DocumentService.save` con `run_in_threadpool`. Y la corre **sin transacción abierta**: antes de
+leer el cuerpo hace `commit()` de la transacción de lectura (no hay nada pendiente), así la
+conexión no queda «idle in transaction» — con PgBouncer transaccional, un backend fijado —
+mientras se comprime; `DocumentService.save(..., prepared=...)` solo escribe el archivo y la fila
+en una transacción corta. (Sigue abierta, si hubo *cache miss* de authz, la sesión propia de
+`require_page_app`/`get_db`, que se cierra al terminar la petición: es del core, no de esta ruta.)
+
+Escritura (`storage.write_document`): a un temporal en la misma carpeta y `os.replace` al nombre
+final (atómico: quien lea ve el archivo anterior completo o el nuevo completo); las versiones
+viejas del mismo tipo se borran **después** de escribir la nueva. Si la escritura falla, lo
+anterior queda en su lugar.
 
 ## Nombre en disco (desde 2026-09-28)
 
 `{control}_{ETIQUETA}.{ext}` (`storage.document_filename`): `ACTA` (`birth_certificate`),
 `CERTIFICADO` (`high_school_cert`), `CURP` (`curp`) y, para cualquier otro tipo, el código en
 mayúsculas (`INE`, `ANEXO_III`, `EGEL_PROOF`…). El control viene de `core_users` vía
-`DocumentService._storage_keys` y solo se usa si casa `^[A-Za-z0-9]+$`. Al resubir se borra
+`DocumentService._storage_keys` y solo se usa si casa `^[A-Za-z0-9]+$`; el `type_code`, si casa
+`^[a-z0-9_]+$`. El nombre final se une a la carpeta con `safe_join`. Al resubir se borra
 cualquier versión previa del mismo tipo, con el nombre viejo (`{type_code}.*`) o con el nuevo en
-otra extensión. Los archivos anteriores al cambio se renombran con
-`python -m itcj2.cli.main titulatec rename-documents [--dry-run]` (ver
+otra extensión — después de escribir la nueva. Los archivos anteriores al cambio se renombran con
+`python -m itcj2.cli.main titulatec rename-documents [--dry-run]`, que nunca pisa un destino
+(`os.link` + `unlink`: uno que aparezca a última hora cuenta como conflicto) y que ante
+cualquier fallo — también Ctrl-C — deshace los renombres del lote sin commitear y sale con 1 (ver
 [revisión de documentos](phase1_school_services_review_docs.md) para el nombre de descarga).
 
 ## Estado resultante
