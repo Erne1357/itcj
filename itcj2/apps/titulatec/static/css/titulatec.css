@@ -317,6 +317,8 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
   padding: 22px 12px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
 }
 .tt-dropzone:hover { border-color: var(--tt-accent); background: var(--tt-amber-soft); }
+/* Ayuda de la casilla (formato y tope; `storage.pdf_upload_hint`). */
+.tt-dropzone-hint { font-size: .6875rem; color: var(--tt-mute); }
 
 /* ============================ SHELL MÓVIL ============================== */
 /* Aquí vivía `.tt-mobile { max-width: 430px }`, con CERO usos en templates y JS

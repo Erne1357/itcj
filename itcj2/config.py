@@ -324,7 +324,12 @@ class Settings(BaseSettings):
     # columnas de Solicitudes en modo `sii` (carrera 13 → 15 %, «Solicitante»
     # 18 → 17 %, SII 20 → 19 %; revisión final F12). Sin el bump, la hoja
     # `immutable` en caché sigue partiendo «computacionales» a media palabra.
-    STATIC_VERSION: str = "1.0.1111577"
+    #
+    # Bump 2026-09-28 (2): `titulatec/css/titulatec.css` suma
+    # `.tt-dropzone-hint`, la ayuda de la casilla de subida («PDF de hasta
+    # 2 MB…») que antes iba con estilo en línea. Sin el bump, la hoja
+    # `immutable` en caché no la trae y la ayuda sale del tamaño del título.
+    STATIC_VERSION: str = "1.0.1111578"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
