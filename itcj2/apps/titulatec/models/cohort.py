@@ -39,10 +39,9 @@ class Cohort(Base):
     default_capacity = Column(Integer, nullable=False, server_default=text("1"))
     default_location = Column(String(120), nullable=True)
 
-    # Interruptor de aprobación automática del modo SII (spec S8, 2026-09-25):
-    # `EligibilityService.auto_approve` solo actúa si sigue en `TRUE` en el
-    # momento de aprobar (revalidado, no solo al consultar). Nace en `TRUE`
-    # para que las convocatorias existentes no requieran backfill.
+    # LEGADO desde 2026-09-27: la aprobación automática se eliminó; la
+    # columna queda sin uso. No quitar del modelo: el autogenerate propondría
+    # borrarla.
     sii_auto_approve = Column(Boolean, nullable=False, server_default=text("true"))
 
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))

@@ -102,6 +102,33 @@ def test_last_check_id_nace_nulo(db_session, solicitud):
     assert solicitud["req"].last_check_id is None
 
 
+def test_el_check_declara_nip_status_string20_nullable():
+    from sqlalchemy import String
+
+    col = EligibilityCheck.__table__.columns["nip_status"]
+    assert isinstance(col.type, String)
+    assert col.type.length == 20
+    assert col.nullable is True
+
+
+def test_el_check_nace_con_nip_status_nulo(db_session, solicitud):
+    chk = EligibilityCheck(request_id=solicitud["req"].id)
+    db_session.add(chk)
+    db_session.flush()
+    db_session.refresh(chk)
+
+    assert chk.nip_status is None
+
+
+def test_el_check_guarda_el_estado_del_nip(db_session, solicitud):
+    chk = EligibilityCheck(request_id=solicitud["req"].id, status="apt", nip_status="available")
+    db_session.add(chk)
+    db_session.flush()
+    db_session.refresh(chk)
+
+    assert chk.nip_status == "available"
+
+
 def test_la_convocatoria_nace_con_auto_approve_encendido(db_session, make_cohort):
     cohort = make_cohort()
     db_session.flush()
