@@ -11,8 +11,11 @@ dev, y «¿tiene cuenta?» se decide contra `core_users`.
 Máquina que fija este archivo:
 
     create() [modo sii]  ─commit─► enqueue_check(req_id)      (best-effort)
-    check()              lock ─► fila `pending` ─commit─► SII (SIN lock)
-                         ─► lock + refresh ─► apt | not_apt | error
+    check()              lock ─► fila `pending` ─commit─► SII + NIP (SIN lock)
+                         ─► lock + refresh ─► apt | not_apt | error + nip_status
+
+Con el SII sin configurar (backend `disabled`, D11) nada se consulta, encola
+ni barre.
 """
 from __future__ import annotations
 
@@ -24,7 +27,9 @@ from pathlib import Path
 
 import pytest
 
-from itcj2.apps.titulatec.services.eligibility_service import _PENDING_STALE
+from itcj2.apps.titulatec.services.eligibility_service import (
+    _PENDING_STALE, NIP_MISSING, NIP_UNAVAILABLE,
+)
 from itcj2.apps.titulatec.services.sii.client import SiiConfig
 
 FIXTURES = Path(__file__).parent / "sii_fixtures"
@@ -273,17 +278,6 @@ def test_sii_caido_es_error_y_la_solicitud_sigue_por_revisar(
     assert req.last_check_id == chk.id
 
 
-def test_backend_deshabilitado_es_error(db_session, make_cohort, sii, modo_sii):
-    cohort = make_cohort(status="open")
-    req = _make_req(db_session, cohort, control="99580004")
-    sii.backend = "disabled"
-
-    chk = _svc().check(db_session, req.id)
-
-    assert chk.status == "error"
-    assert "deshabilitada" in chk.error
-
-
 def test_sin_reglas_es_error(db_session, make_cohort, sii, modo_sii, tmp_path):
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99580005")
@@ -295,19 +289,25 @@ def test_sin_reglas_es_error(db_session, make_cohort, sii, modo_sii, tmp_path):
     assert "rules.toml" in chk.error
 
 
-# Spec §3.4: se reintenta SOLO ante `SiiUnavailable` (conexión, timeout,
-# backend apagado). Una regla rota o una consulta inválida no se arreglan
-# solas: quedan en «Error» para Servicios Escolares, con su motivo.
-@pytest.mark.parametrize("falla", ["caido", "deshabilitado"])
+# Spec §3.4: se reintenta SOLO ante `SiiUnavailable` (conexión, timeout). Una
+# regla rota o una consulta inválida no se arreglan solas: quedan en «Error»
+# para Servicios Escolares, con su motivo. (Con el backend `disabled` ya no se
+# llega a consultar: `test_sii_no_configurado_no_consulta`.)
+@pytest.mark.parametrize("falla", ["caido", "al_conectar"])
 def test_el_sii_que_no_responde_es_un_error_reintentable(
-    db_session, make_cohort, sii, modo_sii, falla,
+    db_session, make_cohort, sii, modo_sii, monkeypatch, falla,
 ):
+    from itcj2.apps.titulatec.services.sii import client as sii_client
+    from itcj2.apps.titulatec.services.sii.errors import SiiUnavailable
+
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99580080")
     if falla == "caido":
         sii.caido("99580080")
     else:
-        sii.backend = "disabled"
+        def _sin_conexion():
+            raise SiiUnavailable("No se pudo conectar al SII.")
+        monkeypatch.setattr(sii_client, "get_sii_client", _sin_conexion)
 
     chk = _svc().check(db_session, req.id)
 
@@ -559,9 +559,160 @@ def test_identity_block_sin_consulta_falla_cerrado():
     assert identity_block(None) == _NOTA_SIN_COMPARAR
 
 
-def test_el_nip_del_sii_no_se_guarda_ni_se_registra(
+# ---------------------------------------------------------------------------
+# check(): estado del NIP (spec 2026-09-27 §A2, D6). Sin cuenta y con un
+# veredicto que no es `error`, la consulta pregunta también por el NIP del SII
+# y guarda SOLO en qué estado está (`nip_status`): con eso la bandeja pinta
+# desde el inicio «dar acceso» o «pasar a Accesos». El valor jamás se guarda.
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def pide_nip(monkeypatch):
+    """Espía de `fetch_sii_nip`: anota el control y deja responder al real."""
+    from itcj2.apps.titulatec.services import eligibility_service as elig
+
+    llamadas = []
+    real = elig.fetch_sii_nip
+
+    def _espia(control):
+        llamadas.append(control)
+        return real(control)
+
+    monkeypatch.setattr(elig, "fetch_sii_nip", _espia)
+    return llamadas
+
+
+def test_el_dominio_del_estado_del_nip_es_el_de_la_spec():
+    from itcj2.apps.titulatec.services.eligibility_service import NIP_STATUSES
+
+    assert NIP_STATUSES == ("available", "missing", "invalid", "unavailable", "error",
+                            "not_needed")
+
+
+@pytest.mark.parametrize("valor,falla,esperado", [
+    ("4321", None, "available"),
+    ("12345", None, "invalid"),
+    (None, None, "missing"),
+    (None, NIP_MISSING, "missing"),
+    (None, NIP_UNAVAILABLE, "unavailable"),
+    (None, "SiiQueryError", "error"),
+], ids=["valido", "cinco_digitos", "sin_nip", "nip_missing", "sii_caido", "de_config"])
+def test_classify_sii_nip_cubre_todo_el_dominio(valor, falla, esperado):
+    """UNA función traduce `(Secret | None, falla)` de `fetch_sii_nip` (o de
+    `_approve_locked`, que dice `NIP_MISSING`) al estado que se guarda."""
+    from itcj2.apps.titulatec.services.eligibility_service import NIP_STATUSES
+    from itcj2.apps.titulatec.services.sii.rules import Secret
+
+    secret = Secret(valor) if valor is not None else None
+
+    assert _svc().classify_sii_nip(secret, falla) == esperado
+    assert esperado in NIP_STATUSES
+
+
+@pytest.mark.parametrize("veredicto", ["apt", "not_apt"])
+def test_la_consulta_guarda_available_sin_cuenta(
+    db_session, make_cohort, sii, modo_sii, pide_nip, veredicto,
+):
+    """Apta o no, sin cuenta: SE decide igual, así que el NIP se revisa."""
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580120")
+    (sii.alumno if veredicto == "apt" else sii.no_apta)("99580120")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == veredicto
+    assert chk.nip_status == "available"
+    assert pide_nip == ["99580120"]
+
+
+def test_la_consulta_guarda_missing_si_el_sii_no_tiene_nip(
+    db_session, make_cohort, sii, modo_sii,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580121")
+    sii.alumno("99580121", nip=None)
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt" and chk.nip_status == "missing"
+
+
+@pytest.mark.parametrize("nip", ["12345", "12a4"])
+def test_la_consulta_guarda_invalid_con_formato_raro(
+    db_session, make_cohort, sii, modo_sii, nip,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580122")
+    sii.alumno("99580122", nip=nip)
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt" and chk.nip_status == "invalid"
+
+
+def test_la_consulta_guarda_unavailable_si_el_nip_no_responde(
+    db_session, make_cohort, sii, modo_sii,
+):
+    """El alumno sí respondió; la consulta del NIP no (transitorio)."""
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580123")
+    sii.alumno("99580123")
+    sii.nip_caido("99580123")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt" and chk.nip_status == "unavailable"
+    assert chk.error is None, "la falla del NIP no convierte el veredicto en error"
+
+
+def test_la_consulta_guarda_error_si_la_consulta_del_nip_falla(
+    db_session, make_cohort, sii, modo_sii,
+):
+    """`SiiQueryError` al pedir el NIP: `[credential]` mal configurada."""
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580124")
+    sii.alumno("99580124")
+    sii.nip_invalido("99580124")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt" and chk.nip_status == "error"
+
+
+def test_la_consulta_guarda_not_needed_con_cuenta(
+    db_session, make_cohort, sii, modo_sii, pide_nip,
+):
+    """Con cuenta sale la liga, sin NIP: ni se le pregunta al SII."""
+    _cuenta(db_session, "99580125")
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580125")
+    sii.alumno("99580125")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt" and chk.nip_status == "not_needed"
+    assert pide_nip == []
+
+
+def test_con_veredicto_error_no_se_pide_el_nip(
+    db_session, make_cohort, sii, modo_sii, pide_nip,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580126")
+    sii.caido("99580126")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "error"
+    assert chk.nip_status is None, "NULL = no se revisó"
+    assert pide_nip == []
+
+
+def test_el_nip_de_la_consulta_nunca_se_persiste_ni_se_loguea(
     db_session, make_cohort, sii, modo_sii, caplog,
 ):
+    from itcj2.apps.titulatec.services import eligibility_service as elig
+    from itcj2.apps.titulatec.services.sii.rules import Secret
+
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99580009")
     sii.alumno("99580009", nip="8642")
@@ -569,10 +720,61 @@ def test_el_nip_del_sii_no_se_guarda_ni_se_registra(
     with caplog.at_level("DEBUG"):
         chk = _svc().check(db_session, req.id)
 
-    guardado = json.dumps([chk.results, chk.facts, chk.identity_mismatch, chk.error,
-                           repr(chk)], default=str)
+    assert chk.nip_status == "available", "el NIP sí se le pidió al SII"
+    db_session.refresh(chk)
+    guardado = json.dumps([chk.results, chk.facts, chk.error, chk.identity_mismatch,
+                           chk.nip_status, repr(chk)], default=str)
     assert "8642" not in guardado
     assert "8642" not in caplog.text
+    # El `Secret` se descartó en la misma línea: no quedó colgado de nada.
+    for dueno in (elig, elig.EligibilityService, chk):
+        assert not any(isinstance(v, Secret) for v in vars(dueno).values()), dueno
+
+
+# ---------------------------------------------------------------------------
+# SII no configurado (spec 2026-09-27 D11, el caso de producción hoy:
+# `TITULATEC_SII_BACKEND=disabled`): nada se consulta, encola ni barre.
+# ---------------------------------------------------------------------------
+class _SinBD:
+    """Sesión que truena al primer uso: «sin consultar la BD»."""
+
+    def __getattr__(self, nombre):
+        raise AssertionError(f"tocó la BD ({nombre}) con el SII sin configurar")
+
+
+def test_sii_no_configurado_no_consulta(db_session, make_cohort, sii, modo_sii, monkeypatch):
+    import importlib
+
+    from itcj2.celery_app import celery_app
+
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580130")
+    sii.alumno("99580130")
+    assert _svc().sii_configured() is True, "con el SII falso sí está configurado"
+    sii.backend = "disabled"
+
+    assert _svc().sii_configured() is False
+    assert _svc().check(db_session, req.id) is None
+    assert _svc().check(db_session, req.id, force=True) is None
+    assert _checks(db_session, req) == []
+    db_session.refresh(req)
+    assert req.last_check_id is None
+    assert _svc().sweep(_SinBD(), cohort_id=cohort.id) == {
+        "checked": 0, "retried": 0, "disabled": True}
+    assert _svc().recheck_errors(_SinBD(), cohort_id=cohort.id) == {
+        "queued": 0, "failed": 0, "disabled": True}
+
+    # El `enqueue_check` REAL (sin el parche autouse) no publica nada.
+    mod = importlib.import_module("itcj2.apps.titulatec.services.eligibility_service")
+    monkeypatch.undo()
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "disabled"))
+    enviados = []
+    monkeypatch.setattr(celery_app, "send_task",
+                        lambda name, **kw: enviados.append((name, kw)))
+
+    assert mod.enqueue_check(req.id) is False
+    assert mod.enqueue_check(req.id, force=True) is False
+    assert enviados == []
 
 
 # ---------------------------------------------------------------------------
@@ -703,7 +905,7 @@ def test_la_consulta_al_sii_corre_sin_el_lock_de_la_solicitud(
         if "sii" not in pasos:
             vigente = db_session.get(EligibilityCheck, req.last_check_id)
             pasos.append(("vigente", vigente.status if vigente else None))
-        pasos.append("sii")
+        pasos.append("nip" if kw.get("sensitive") else "sii")
         return query_real(self, sql, params, **kw)
 
     monkeypatch.setattr(db_session, "commit", _commit)
@@ -717,6 +919,10 @@ def test_la_consulta_al_sii_corre_sin_el_lock_de_la_solicitud(
     assert antes == ["lock", "commit"], pasos
     despues = [p for p in pasos[primera:] if p in ("lock", "commit")]
     assert despues[:2] == ["lock", "commit"], pasos
+    # El NIP (spec 2026-09-27 §A2) también se pide en ②, sin el lock.
+    nip = pasos.index("nip")
+    assert [p for p in pasos[primera:nip] if p in ("lock", "commit")] == [], pasos
+    assert "lock" in pasos[nip:], pasos
 
 
 # ---------------------------------------------------------------------------
@@ -761,6 +967,7 @@ def test_enqueue_check_nunca_lanza(monkeypatch, caplog):
 
     mod = importlib.import_module("itcj2.apps.titulatec.services.eligibility_service")
     monkeypatch.undo()   # el `enqueue_check` real, sin el parche autouse
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "fake"))
     from itcj2.celery_app import celery_app
 
     def _sin_broker(*a, **k):
@@ -778,6 +985,8 @@ def test_enqueue_check_manda_la_tarea_por_nombre_sin_reintentar_el_broker(monkey
 
     mod = importlib.import_module("itcj2.apps.titulatec.services.eligibility_service")
     monkeypatch.undo()
+    # SII configurado: con `disabled` no publica (`test_sii_no_configurado_no_consulta`).
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "fake"))
     from itcj2.celery_app import celery_app
 
     enviados = []

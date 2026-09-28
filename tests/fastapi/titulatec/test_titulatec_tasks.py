@@ -142,6 +142,34 @@ def test_sin_consulta_no_hace_nada(consulta, reintentos):
     assert reintentos == []
 
 
+def test_la_tarea_no_hace_nada_con_sii_no_configurado(
+    monkeypatch, patched_session_local, db_session, make_cohort, modo_sii, reintentos,
+):
+    """Spec 2026-09-27 D11: con `TITULATEC_SII_BACKEND=disabled` una tarea que
+    llegue de todos modos (encolada antes del cambio, o a mano) no escribe nada
+    ni se reintenta. Con el `EligibilityService.check` REAL."""
+    from itcj2.apps.titulatec.models import EligibilityCheck, EnrollmentRequest
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig
+
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "disabled"))
+    cohort = make_cohort(status="open")
+    req = EnrollmentRequest(
+        cohort_id=cohort.id, control_number="99580140", first_name="EGRESADA",
+        last_name="DEL SII", program_text="Ingenieria Ficticia", phone="6561234567",
+        contact_email="sii@example.invalid", has_efirma=True, kind="unknown",
+        status="pending_review", verify_send_count=0)
+    db_session.add(req)
+    db_session.flush()
+
+    out = tasks.sii_check_request.run(req_id=req.id)
+
+    assert out == {"req_id": req.id, "skipped": True}
+    assert reintentos == []
+    assert db_session.query(EligibilityCheck).filter_by(request_id=req.id).count() == 0
+    db_session.refresh(req)
+    assert req.last_check_id is None
+
+
 # ---------------------------------------------------------------------------
 # sii_sweep (periódica) y su alta en la BD
 # ---------------------------------------------------------------------------

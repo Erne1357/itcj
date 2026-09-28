@@ -6,6 +6,8 @@ pintar la bandeja. Contrato que fija este archivo:
 
 - UN código en `perms`: `titulatec.enrollment_request.api.approve` (globals).
 - Solo en el modo `sii`: en los otros dos, 400 con motivo y nada encolado.
+- Solo con el SII configurado (spec 2026-09-27 D11): con el backend
+  `disabled`, 400 «El SII no está configurado.» antes de abrir sesión.
 - Mismo alcance por carrera que aprobar: fuera de alcance = 404 liso.
 - Solo una solicitud `pending_review` (lo único que `EligibilityService.check`
   consulta).
@@ -53,6 +55,14 @@ def _tope(monkeypatch):
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
 
     monkeypatch.setattr(EligibilityService, "max_attempts", staticmethod(lambda: 5))
+
+
+@pytest.fixture(autouse=True)
+def _sii_configurado(monkeypatch):
+    """Un backend que no es `disabled`: sin él la ruta corta con 400 antes de
+    todo (D11, `test_reconsultar_con_sii_no_configurado_da_400`). El SII no se
+    consulta aquí salvo con `sii_falso`, que además apunta al JSON falso."""
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "fake"))
 
 
 @pytest.fixture(autouse=True)
@@ -211,6 +221,30 @@ def test_fuera_del_modo_sii_no_encola(
     assert unquote(resp.headers["X-Tt-Error"]) == (
         "La consulta al SII solo existe en el modo sii.")
     assert encolado == []
+
+
+def test_reconsultar_con_sii_no_configurado_da_400(
+    client_as, db_session, make_head, make_cohort, modo_sii, encolado, monkeypatch,
+):
+    """Spec 2026-09-27 D11: con `TITULATEC_SII_BACKEND=disabled` no hay a quién
+    preguntar. El corte va ANTES de abrir sesión: ni siquiera se busca la
+    solicitud (una inexistente también da 400, no 404)."""
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "disabled"))
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99650010")
+    c = client_as(head)
+
+    resp = _post(c, req, cohort_id=str(cohort.id))
+    inexistente = c.post(f"{URL}/999999999/reconsultar", data={}, follow_redirects=False)
+
+    for r in (resp, inexistente):
+        assert r.status_code == 400
+        assert unquote(r.headers["X-Tt-Error"]) == "El SII no está configurado."
+        assert "X-Tt-Notice" not in r.headers
+    assert encolado == []
+    db_session.refresh(req)
+    assert req.last_check_id is None
 
 
 @pytest.mark.parametrize("estado", ["approved", "converted", "rejected", "unverified"])

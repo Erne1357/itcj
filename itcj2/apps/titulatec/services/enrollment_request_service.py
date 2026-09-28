@@ -467,7 +467,9 @@ class EnrollmentRequestService:
             # Modo `sii`: la consulta de elegibilidad corre en celery, DESPUÉS
             # del commit y sin esperar (best-effort, nunca lanza). La
             # respuesta pública no cambia (E8); si no se encola, la recoge el
-            # barrido periódico.
+            # barrido periódico. Con el SII sin configurar (D11) no se publica
+            # nada —el corte vive en `enqueue_check`— y la solicitud queda
+            # «Sin consultar» hasta que el barrido corra con el SII listo.
             from itcj2.apps.titulatec.services import eligibility_service
             eligibility_service.enqueue_check(req.id)
         return req, "created"

@@ -8,9 +8,18 @@ aquí es un no-op.
                                  │
                    EligibilityService.check(db, req_id)
                                  │
-       ① lock de la solicitud → fila `pending` (vigente) → COMMIT
-       ② SII + reglas SIN lock tomado (puede tardar: timeouts del conector)
-       ③ lock + refresh → persiste apt | not_apt | error → COMMIT
+       ① lock de la solicitud → ¿tiene cuenta? → fila `pending` (vigente) → COMMIT
+       ② SII + reglas SIN lock tomado (puede tardar: timeouts del conector);
+          sin cuenta y sin `error`, también el NIP → `classify_sii_nip`
+       ③ lock + refresh → persiste apt | not_apt | error + nip_status → COMMIT
+
+SII NO CONFIGURADO (spec 2026-09-27 D11: `TITULATEC_SII_BACKEND=disabled`, el
+caso de producción mientras no haya acceso al SII). No hay a quién preguntar:
+`check` no consulta, `enqueue_check` no publica y `sweep`/`recheck_errors` no
+tocan la BD (devuelven sus conteos en cero con `"disabled": True`). La bandeja
+aprueba «pasando a Accesos». Al configurarlo (y reiniciar), el barrido toma
+toda solicitud por revisar sin consulta vigente como su primera consulta.
+Único criterio: `EligibilityService.sii_configured()`.
 
 CONCURRENCIA (Review Focus 2 y 3). La tarea puede correr antes de que el alta
 sea visible (→ `None`, la recoge el barrido) y dos tareas del mismo `req_id`
@@ -40,10 +49,17 @@ llama al núcleo `_approve_locked`; lo fija una prueba estructural). La
 aprobación automática, su interruptor por convocatoria, la ventana de veto y la
 edad máxima del veredicto se retiraron (D2).
 
-EL NIP DEL SII NO PASA POR AQUÍ al consultar: `RuleSet.evaluate` no corre la
-consulta de `[credential]`, y los `facts`/`results` son la lista blanca de las
-reglas. Un error que no es del SII se registra solo por su TIPO (su texto
-puede traer cualquier cosa: la cadena de conexión, datos de la fila).
+ESTADO DEL NIP (spec 2026-09-27 §A2, D6). Sin cuenta, la consulta pregunta
+también por el NIP del SII para que la bandeja pinte desde el inicio «Aprobar
+y dar acceso» o «Aprobar y pasar a Accesos». Se guarda SOLO el estado
+(`EligibilityCheck.nip_status`, dominio `NIP_STATUSES`), que decide UNA
+función, `classify_sii_nip` (la usan también `sii-check` y la aprobación). El
+`Secret` se revela ahí únicamente para `nip_format_ok` y se descarta en la
+misma línea en que se pidió: nunca llega a un atributo, log, `facts`,
+`results` ni payload. `RuleSet.evaluate` no corre la consulta de
+`[credential]`, y los `facts`/`results` son la lista blanca de las reglas. Un
+error que no es del SII se registra solo por su TIPO (su texto puede traer
+cualquier cosa: la cadena de conexión, datos de la fila).
 
 Los settings del SII de este servicio se leen SOLO por `max_attempts()` (los
 tests parchean ese método, nunca `get_settings`).
@@ -78,6 +94,11 @@ _SWEEP_BATCH = 200
 # el SII respondió sin NIP, o no respondió (el nombre del tipo de su error).
 NIP_MISSING = "missing"
 NIP_UNAVAILABLE = "SiiUnavailable"
+
+# Dominio de `EligibilityCheck.nip_status` (spec 2026-09-27 §A2). Los cinco
+# primeros los da `EligibilityService.classify_sii_nip` (sin cuenta);
+# `not_needed` = tenía cuenta al consultar (no se pidió). NULL = no se revisó.
+NIP_STATUSES = ("available", "missing", "invalid", "unavailable", "error", "not_needed")
 
 # Campos de `[identity]` que se comparan con lo que se tecleó en el formulario.
 _NAME_FIELDS = ("first_name", "last_name", "middle_name")
@@ -224,7 +245,7 @@ def _evaluate(control: str):
     """Pasos del SII, SIN tocar la BD. `(Verdict, retryable)`; nunca lanza.
 
     `retryable` (spec §3.4): el veredicto es `error` porque el SII no
-    respondió (`SiiUnavailable`: conexión, timeout, backend apagado) o celery
+    respondió (`SiiUnavailable`: conexión, timeout) o celery
     cortó la tarea por tiempo (`SoftTimeLimitExceeded`) — `_transient_types`.
     Reglas que no cargan o no se cumplen de forma evaluable, una consulta
     inválida o una falla inesperada son de configuración: `False`.
@@ -254,17 +275,27 @@ def _evaluate(control: str):
                 isinstance(exc, transitorias))
 
 
+def nip_failure(exc: BaseException) -> str:
+    """La `falla` de `fetch_sii_nip` para `exc`: `NIP_UNAVAILABLE` si es
+    transitoria (`_transient_types`), si no el NOMBRE de su tipo. La usa
+    también `sii-check`, que pide el NIP por su cuenta para mostrar el motivo."""
+    if isinstance(exc, _transient_types()):
+        return NIP_UNAVAILABLE
+    return type(exc).__name__
+
+
 def fetch_sii_nip(control: str):
     """El NIP del SII de `control`: `(Secret | None, falla)`. Nunca lanza.
 
     `(Secret, None)`: el SII lo dio. `(None, None)`: el SII respondió pero no
     hay NIP (0 filas, NULL o vacío). `(None, "<Tipo>")`: no se pudo preguntar,
-    y `falla` es el NOMBRE del tipo del error — `NIP_UNAVAILABLE`
-    (`SiiUnavailable`: caído, timeout, deshabilitado) es transitorio; cualquier
-    otro (`SiiRulesError`, `SiiQueryError`, uno inesperado) es de
-    configuración y esperar no lo arregla. El valor vive envuelto en `Secret`
-    (repr `****`) hasta que quien lo recibe lo hashea; aquí solo se registra el
-    TIPO del error.
+    y `falla` es el NOMBRE del tipo del error (`nip_failure`) —
+    `NIP_UNAVAILABLE` (`SiiUnavailable`: caído, timeout, deshabilitado) es
+    transitorio; cualquier otro (`SiiRulesError`, `SiiQueryError`, uno
+    inesperado) es de configuración y esperar no lo arregla. El valor vive
+    envuelto en `Secret` (repr `****`) hasta que quien lo recibe lo hashea o
+    lo clasifica (`EligibilityService.classify_sii_nip`); aquí solo se
+    registra el TIPO del error.
     """
     from itcj2.apps.titulatec.services.sii import client as sii_client
     from itcj2.apps.titulatec.services.sii.rules import RuleSet
@@ -275,9 +306,7 @@ def fetch_sii_nip(control: str):
             return rules.fetch_credential(client, control), None
     except Exception as exc:  # noqa: BLE001 — «no se pudo preguntar»
         logger.warning("SII: no se pudo consultar el NIP (%s)", type(exc).__name__)
-        if isinstance(exc, _transient_types()):
-            return None, NIP_UNAVAILABLE
-        return None, type(exc).__name__
+        return None, nip_failure(exc)
 
 
 def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False) -> bool:
@@ -288,7 +317,13 @@ def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False) -> bool
     (`retry=False`): con el broker caído el alta no espera, y la solicitud sin
     consulta vigente la recoge el barrido periódico. Llamar SOLO después del
     commit.
+
+    Con el SII sin configurar (D11) devuelve `False` SIN publicar: la tarea
+    no tendría a quién preguntar. Al configurarlo, el barrido hace la primera
+    consulta de lo que quedó pendiente.
     """
+    if not EligibilityService.sii_configured():
+        return False
     try:
         from itcj2.celery_app import celery_app
 
@@ -316,6 +351,34 @@ class EligibilityService:
         return get_settings().TITULATEC_SII_MAX_ATTEMPTS
 
     @staticmethod
+    def sii_configured() -> bool:
+        """¿Hay SII a quién preguntar? `False` con el backend `disabled` (D11)."""
+        from itcj2.apps.titulatec.services.sii.client import SiiConfig
+
+        return SiiConfig.backend() != "disabled"
+
+    @staticmethod
+    def classify_sii_nip(secret, falla) -> str:
+        """El estado del NIP del SII (`NIP_STATUSES`) para `(Secret | None, falla)`
+        de `fetch_sii_nip` o de `_approve_locked`. ÚNICA función que traduce.
+
+        `secret` con formato válido → `available`; con otro formato →
+        `invalid`; sin `secret` y sin falla (o `NIP_MISSING`) → `missing`;
+        `NIP_UNAVAILABLE` → `unavailable`; cualquier otra falla → `error`. El
+        formato es `nip_format_ok` (la regla del NIP vive solo ahí); el valor
+        se revela solo para esa comparación y no se guarda.
+        """
+        from itcj2.apps.titulatec.services.enrollment_request_service import nip_format_ok
+
+        if secret is not None:
+            return "available" if nip_format_ok(secret.reveal()) else "invalid"
+        if falla is None or falla == NIP_MISSING:
+            return "missing"
+        if falla == NIP_UNAVAILABLE:
+            return "unavailable"
+        return "error"
+
+    @staticmethod
     def rules_version() -> str | None:
         """La `version` de las reglas vigentes, o `None` si no cargan."""
         from itcj2.apps.titulatec.services.sii import client as sii_client
@@ -340,17 +403,25 @@ class EligibilityService:
     def check(db: Session, req_id: int, *, attempt: int = 1, force: bool = False):
         """Consulta al SII para `req_id`. Devuelve la `EligibilityCheck` o `None`.
 
-        `None` = no se consultó: fuera del modo `sii`, la solicitud no existe
-        (todavía), ya no está `pending_review`, otra consulta está en curso, o
-        (sin `force`) ese intento ya se hizo o pasa del tope. Ver CONCURRENCIA
-        en el módulo.
+        `None` = no se consultó: fuera del modo `sii`, con el SII sin
+        configurar (D11; ni se lee la BD), la solicitud no existe (todavía), ya
+        no está `pending_review`, otra consulta está en curso, o (sin `force`)
+        ese intento ya se hizo o pasa del tope. Ver CONCURRENCIA en el módulo.
+
+        `nip_status` (spec 2026-09-27 §A2): `not_needed` si el control tenía
+        cuenta en ①; sin cuenta y con veredicto que no es `error`, el estado
+        que da `classify_sii_nip` al NIP pedido en ②; `None` con veredicto
+        `error` (no se llegó a preguntar).
         """
         from itcj2.apps.titulatec.models import EligibilityCheck, EnrollmentRequest
         from itcj2.apps.titulatec.services.enrollment_request_service import (
             EnrollmentRequestService,
         )
+        from itcj2.core.models.user import User
 
         if EnrollmentRequestService.reviewer_mode() != "sii":
+            return None
+        if not EligibilityService.sii_configured():
             return None
 
         # ① Lock, decidir y abrir la fila `pending`, en una transacción corta.
@@ -384,11 +455,20 @@ class EligibilityService:
         db.flush()
         req.last_check_id = chk.id
         control = (req.control_number or "").strip()
+        # Mismo criterio que la aprobación (`_approve_locked`): `core_users` ahora.
+        tiene_cuenta = db.query(User.id).filter_by(control_number=control).first() is not None
         db.commit()          # suelta el lock: el SII puede tardar
 
         # ② El SII, sin lock ni transacción abierta.
         t0 = time.monotonic()
         verdict, retryable = _evaluate(control)
+        if verdict.status == "error":
+            nip_status = None            # no se llegó a preguntar
+        elif tiene_cuenta:
+            nip_status = "not_needed"    # con cuenta sale la liga, sin NIP
+        else:
+            # El `Secret` se clasifica y se descarta en esta misma línea.
+            nip_status = EligibilityService.classify_sii_nip(*fetch_sii_nip(control))
         duration_ms = int((time.monotonic() - t0) * 1000)
 
         # ③ Re-lock + refresh para persistir.
@@ -402,6 +482,7 @@ class EligibilityService:
         chk.error = verdict.error
         chk.retryable = retryable if verdict.status == "error" else None
         chk.identity_mismatch = _identity_mismatch(db, req, verdict.identity)
+        chk.nip_status = nip_status
         chk.finished_at = datetime.now()
         chk.duration_ms = duration_ms
         db.commit()
@@ -412,7 +493,8 @@ class EligibilityService:
     @staticmethod
     def recheck_errors(db: Session, *, cohort_id: int | None = None,
                        now: datetime | None = None) -> dict:
-        """Reconsulta en bloque tras corregir la configuración. `{queued, failed}`.
+        """Reconsulta en bloque tras corregir la configuración. `{queued, failed}`
+        (+ `"disabled"`).
 
         Encola una consulta FORZADA (`enqueue_check(id, force=True)`) para cada
         solicitud `pending_review` (de `cohort_id`, si se da) cuya consulta
@@ -421,7 +503,8 @@ class EligibilityService:
         configuración no se arregla esperando, y uno reintentable en el tope ya
         agotó sus intentos (revisión final C12). `failed` = no se pudo encolar
         (broker caído). Solo en el modo `sii`. No escribe en la BD: la fila
-        `pending` la abre la tarea bajo el lock.
+        `pending` la abre la tarea bajo el lock. Con el SII sin configurar
+        (D11) no lee la BD y suma `"disabled": True`.
         """
         from sqlalchemy import and_, or_
 
@@ -433,6 +516,8 @@ class EligibilityService:
         out = {"queued": 0, "failed": 0}
         if EnrollmentRequestService.reviewer_mode() != "sii":
             return out
+        if not EligibilityService.sii_configured():
+            return {**out, "disabled": True}
         now = now or datetime.now()
         EC, ER = EligibilityCheck, EnrollmentRequest
         q = (db.query(ER.id)
@@ -452,7 +537,7 @@ class EligibilityService:
     @staticmethod
     def sweep(db: Session, *, now: datetime | None = None, cohort_id: int | None = None,
               max_seconds: float | None = None) -> dict:
-        """Barrido periódico. Devuelve `{"checked", "retried"}`.
+        """Barrido periódico. Devuelve `{"checked", "retried"}` (+ `"disabled"`).
 
         Solo CONSULTA, nunca aprueba (spec 2026-09-27 §A3: una apta queda para
         Servicios Escolares como cualquier otra). Sobre las solicitudes
@@ -473,6 +558,10 @@ class EligibilityService:
         solicitudes nuevas pasado ese tiempo (la tarea termina antes de que
         celery la corte; lo que quedó lo toma el siguiente barrido). Lote de
         `_SWEEP_BATCH`.
+
+        Con el SII sin configurar (D11) no lee la BD y suma `"disabled": True`;
+        al configurarlo, lo que quedó sin consulta vigente entra aquí como
+        primera consulta (no hace falta `--reconsultar-errores`).
         """
         from sqlalchemy import and_, or_
 
@@ -484,6 +573,8 @@ class EligibilityService:
         out = {"checked": 0, "retried": 0}
         if EnrollmentRequestService.reviewer_mode() != "sii":
             return out
+        if not EligibilityService.sii_configured():
+            return {**out, "disabled": True}
         now = now or datetime.now()
         tope = EligibilityService.max_attempts()
         EC, ER = EligibilityCheck, EnrollmentRequest

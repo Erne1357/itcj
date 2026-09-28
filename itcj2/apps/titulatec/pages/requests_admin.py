@@ -52,6 +52,7 @@ _CANCEL = ["titulatec.process.api.cancel"]
 
 _MSG_ALTERNATE = "En este modo la revisión la hace Centro de Cómputo."
 _MSG_NOT_SII = "La consulta al SII solo existe en el modo sii."
+_MSG_SII_OFF = "El SII no está configurado."
 _MSG_RESOLVED = "Esa solicitud ya se resolvió."
 _MSG_IN_FLIGHT = "Ya se está consultando al SII; espera el resultado."
 _MSG_RECHECK_QUEUED = "Consulta al SII solicitada: el veredicto aparece al terminar."
@@ -631,14 +632,19 @@ async def reconsultar(req_id: int, request: Request,
     que devuelve ya pinta esa fila «Consultando…» sin el botón. Una `pending`
     colgada (más de `_PENDING_STALE`) sí se reintenta: `force` la retoma.
     Mismo permiso y alcance por carrera que aprobar; 404 liso fuera de alcance.
+    Con el SII sin configurar (spec 2026-09-27 D11) no hay a quién preguntar:
+    400 `_MSG_SII_OFF` antes de abrir sesión, como el corte de modo.
     """
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
+    from itcj2.apps.titulatec.services import eligibility_service as elig
+
     if EnrollmentRequestService.reviewer_mode() != "sii":
         return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_NOT_SII)})
+    if not elig.EligibilityService.sii_configured():
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_SII_OFF)})
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services import eligibility_service as elig
 
     form = await request.form()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
