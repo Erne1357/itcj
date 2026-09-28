@@ -1,6 +1,7 @@
 """Páginas administrativas de TitulaTec (desktop, bandeja tipo email)."""
 import logging
 import secrets
+from datetime import datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, File, Form, Path, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
@@ -70,21 +71,70 @@ def _parse_day(raw: str | None):
         return None
 
 
+# Hora por omisión de cada extremo de la ventana cuando el formulario la deja
+# vacía (spec 2026-09-27 D8/D9). El cierre es 23:59:59 —se lee «23:59»— para que
+# quien envía a las 23:59:30 del último día siga dentro.
+_OPENS_DEFAULT_TIME = time(0, 0)
+_CLOSES_DEFAULT_TIME = time(23, 59, 59)
+
+
+def _parse_window_dt(date_raw: str | None, time_raw: str | None, *,
+                     default: time) -> datetime | None:
+    """Fecha `YYYY-MM-DD` (obligatoria) + hora `HH:MM` (opcional) → `datetime`.
+
+    Hora vacía → `default`. Fecha vacía o ilegible, u hora ilegible → `None`,
+    nunca un 500: la ruta lo convierte en «La apertura y el cierre son
+    obligatorios.». Una hora que no se entiende NO cae al valor por omisión:
+    abrir a las 00:00 lo que la jefa quiso abrir a las 09:00 es peor que
+    pedírsela otra vez.
+    """
+    d = _parse_day(date_raw)
+    if d is None:
+        return None
+    t = (time_raw or "").strip()
+    if not t:
+        return datetime.combine(d, default)
+    try:
+        return datetime.combine(d, datetime.strptime(t, "%H:%M").time())
+    except ValueError:
+        return None
+
+
+def _fecha_hora(dt) -> str:
+    """'05/10/2026 09:00' para las cabeceras del panel. Solo dígitos, así que
+    `strftime` no depende del locale del proceso."""
+    return dt.strftime("%d/%m/%Y %H:%M")
+
+
 def _window_ctx(db, cohort, *, can_edit: bool) -> dict:
     """Contexto del parcial `cohort/cohort_window.html`.
 
-    Las fechas se entregan ya en ISO porque `<input type="date">` solo acepta
-    ese formato: cualquier otro lo deja en blanco y el editor parecería vacío
-    sobre una convocatoria que sí tiene ventana. No es cosmético —
-    `CohortService.set_window` escribe SIEMPRE las dos fechas con lo que reciba,
-    sin conservar lo anterior, así que un input en blanco las borra.
+    `opens_at`/`closes_at` son la FECHA en ISO (`YYYY-MM-DD`): el formulario de
+    hoy es `<input type="date">`, que solo acepta ese formato —el ISO con hora
+    lo deja en blanco— y el editor parecería vacío sobre una convocatoria que sí
+    tiene ventana. No es cosmético: `CohortService.set_window` escribe SIEMPRE
+    los dos extremos con lo que reciba, sin conservar lo anterior.
+
+    `opens_date/opens_time/closes_date/closes_time` son el par fecha + hora por
+    extremo (`HH:MM`). La hora que coincide con la de omisión va VACÍA: el
+    cierre por omisión es 23:59:59 y un `<input type="time">` de minutos no
+    puede llevar los segundos; precargado como «23:59», re-guardar la ventana
+    sin tocarla movería el cierre a 23:59:00 y se perdería el último minuto.
+    Vacío vuelve a ser 23:59:59 (`_parse_window_dt`).
     """
+    def _hora(dt, default):
+        return "" if dt.time() == default else dt.strftime("%H:%M")
+
     return {
         "cohort_id": cohort.id,
         "window": {
             "status": cohort.status,
-            "opens_at": cohort.opens_at.isoformat() if cohort.opens_at else "",
-            "closes_at": cohort.closes_at.isoformat() if cohort.closes_at else "",
+            "opens_at": cohort.opens_at.date().isoformat(),
+            "closes_at": cohort.closes_at.date().isoformat(),
+            "opens_date": cohort.opens_at.date().isoformat(),
+            "opens_time": _hora(cohort.opens_at, _OPENS_DEFAULT_TIME),
+            "closes_date": cohort.closes_at.date().isoformat(),
+            "closes_time": _hora(cohort.closes_at, _CLOSES_DEFAULT_TIME),
         },
         "can_edit_window": can_edit,
     }
@@ -122,8 +172,9 @@ def _cohort_summary_ctx(db, cohort) -> dict:
         review_days = 0
     return {
         "period_code": cohort.period_code, "status": cohort.status,
-        "opens_at": cohort.opens_at.isoformat() if cohort.opens_at else None,
-        "closes_at": cohort.closes_at.isoformat() if cohort.closes_at else None,
+        # ISO completo, con hora (spec 2026-09-27 §B3).
+        "opens_at": cohort.opens_at.isoformat(),
+        "closes_at": cohort.closes_at.isoformat(),
         "total": total, "phase_rows": phase_rows, "with_appt": with_appt,
         "completed": completed, "cancelled": cancelled,
         "pct_completed": round(completed / total * 100) if total else 0,
@@ -439,15 +490,25 @@ async def cohort_create(
         CotejoRequirementService,
     )
     from itcj2.core.models.academic_period import AcademicPeriod
+    from itcj2.core.utils.timezone import db_now
 
     db = SessionLocal()
     try:
         if not db.query(Cohort).filter_by(period_id=period_id).first():
             period = db.get(AcademicPeriod, period_id)
+            # La ventana es NOT NULL desde tt20260927b y este formulario todavía
+            # no la pide: nace con una PROVISIONAL (hoy 00:00 → +30 días
+            # 23:59:59) que la jefa ajusta en Resumen › Ventana de inscripción
+            # antes de abrirla. Un `draft` no es público, así que no promete
+            # nada a nadie. Cuando el alta pida apertura y cierre, esto se va.
+            hoy = db_now().date()
             cohort = Cohort(
                 period_id=period_id,
                 name=f"Convocatoria Titulación {period.code if period else period_id}",
                 status="draft", created_by_id=int(user["sub"]),
+                opens_at=datetime.combine(hoy, _OPENS_DEFAULT_TIME),
+                closes_at=datetime.combine(hoy + timedelta(days=30),
+                                           _CLOSES_DEFAULT_TIME),
             )
             db.add(cohort)
             db.flush()          # hace falta el id para sembrar
@@ -472,7 +533,9 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
             return Response(status_code=404)
         perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
         ctx = {"cohort": cohort.to_dict(), "cohort_id": cohort_id, "tab": tab,
-               "can_edit_days": "titulatec.cohort.api.review_days" in perms}
+               "can_edit_days": "titulatec.cohort.api.review_days" in perms,
+               "window_header": {"opens": _fecha_hora(cohort.opens_at),
+                                 "closes": _fecha_hora(cohort.closes_at)}}
         if tab == "resumen":
             ctx["summary"] = _cohort_summary_ctx(db, cohort)
             ctx.update(_window_ctx(
@@ -720,6 +783,11 @@ async def cohort_window(
 ):
     """Escribe la ventana de inscripción pública y aplica la pausa/reanudación.
 
+    `opens_at`/`closes_at` llegan como FECHA (`YYYY-MM-DD`) y se leen con
+    `_parse_window_dt`: apertura a las 00:00, cierre a las 23:59:59. Los dos
+    son obligatorios (columnas NOT NULL): vacío o ilegible → 400 con «La
+    apertura y el cierre son obligatorios.», sin tocar la convocatoria.
+
     Solo la ventana: el interruptor «Aprobación automática (SII)» se retiró con
     la automática (spec 2026-09-27 §A3). Un formulario viejo en caché que aún
     mande sus campos no mueve nada: la ruta ya no los lee, y la columna queda
@@ -747,10 +815,14 @@ async def cohort_window(
         cohort = db.get(Cohort, cohort_id)
         if cohort is None:
             return Response(status_code=404)
+        apertura = _parse_window_dt(opens_at, None, default=_OPENS_DEFAULT_TIME)
+        cierre = _parse_window_dt(closes_at, None, default=_CLOSES_DEFAULT_TIME)
+        if apertura is None or cierre is None:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "La apertura y el cierre son obligatorios.")})
         try:
             res = CohortService.set_window(
-                db, cohort_id,
-                opens_at=_parse_day(opens_at), closes_at=_parse_day(closes_at),
+                db, cohort_id, opens_at=apertura, closes_at=cierre,
                 status=(status or "").strip(), actor_id=int(user["sub"]),
             )
         except ValueError as exc:
@@ -760,10 +832,11 @@ async def cohort_window(
             # acentos.
             #
             # SIN `db.rollback()`, a propósito. `CohortService.set_window` lanza
-            # sus tres ValueError —estado desconocido, convocatoria inexistente y
-            # `closes_at < opens_at`— ANTES de su primera escritura, así que no
-            # hay nada que deshacer. Y un rollback "por si acaso" no
-            # es gratis: bajo el `join_transaction_mode="create_savepoint"` del harness
+            # sus ValueError —estado desconocido, convocatoria inexistente,
+            # extremo faltante y `closes_at <= opens_at`— ANTES de su primera
+            # escritura, así que no hay nada que deshacer. Y un rollback "por
+            # si acaso" no es gratis: bajo el
+            # `join_transaction_mode="create_savepoint"` del harness
             # emite ROLLBACK TO SAVEPOINT y descarta también las filas que
             # sembraron las fábricas —la jefa, su rol, sus permisos y la
             # convocatoria—, con lo que el `db_session.refresh(cohort)` de

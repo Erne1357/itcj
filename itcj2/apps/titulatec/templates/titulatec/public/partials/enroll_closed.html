@@ -18,10 +18,12 @@
      `test_enrollment_public.py` (`"inscripción está cerrada" in resp.text`).
    - `id="tt-notice"`, igual que la tarjeta genérica.
 
-   Contexto: notice_title, notice_body, opens_label ('lunes 28 de septiembre'),
-   opens_iso (ISO 8601 para `<time datetime>`), opens_countdown ('Faltan 11
-   días') y closes_label ('30 de septiembre'). Sin `opens_label` solo se pinta
-   el cuerpo genérico. Los arma `pages/public.py::_enroll_closed_ctx`.
+   Contexto: notice_title, notice_body, opens_label ('lunes 28 de septiembre',
+   o '… a las 09:00' si la apertura no es a las 00:00), opens_iso (ISO 8601
+   completo, con hora, para `<time datetime>`), opens_countdown ('Faltan 11
+   días', 'Mañana', 'Hoy a las 09:00') y closes_label ('30 de septiembre a las
+   23:59'). Sin `opens_label` solo se pinta el cuerpo genérico. Los arma
+   `pages/public.py::_enroll_closed_ctx`.
    =========================================================================== #}
 <div id="tt-notice" class="tt-card tt-enroll-closed tt-anim-in"
      role="status" data-tt-notice="closed">

@@ -792,18 +792,28 @@ def make_period(db_session):
 
 @pytest.fixture()
 def make_cohort(db_session, make_period):
-    """Convocatoria. `period_id` es UNIQUE: una convocatoria por periodo."""
+    """Convocatoria. `period_id` es UNIQUE: una convocatoria por periodo.
+
+    La ventana es `DateTime` NOT NULL (spec 2026-09-27 §B1): por omisión abre
+    HOY a las 00:00 y cierra en 30 días a las 23:59:59, en el reloj de la
+    ventana (`db_now`, hora local), no en el del proceso. Quien pase
+    `opens_at`/`closes_at` pasa `datetime`: un `date` se guardaría igual, pero
+    el objeto en memoria no se puede comparar contra `db_now()`.
+    """
     from itcj2.apps.titulatec.models import Cohort
+    from itcj2.core.utils.timezone import db_now
 
     def _make(period=None, name=None, status="open", opens_at=None, closes_at=None,
               created_by=None):
         period = period if period is not None else make_period()
+        hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
         row = Cohort(
             period_id=period.id,
             name=name or f"Convocatoria {period.code}",
             status=status,
-            opens_at=opens_at or date.today(),
-            closes_at=closes_at or (date.today() + timedelta(days=30)),
+            opens_at=opens_at or hoy,
+            closes_at=closes_at or (hoy + timedelta(days=30, hours=23, minutes=59,
+                                                    seconds=59)),
             created_by_id=getattr(created_by, "id", created_by),
         )
         db_session.add(row)

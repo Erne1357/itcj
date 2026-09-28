@@ -208,16 +208,16 @@ def test_abrir_la_liga_con_la_ventana_publica_vencida_si_inscribe(
     """D5 (spec 2026-09-24): la ventana solo filtra el formulario. La liga dura
     21 días y puede abrirse después de `closes_at`; solo `status='closed'` la
     devuelve a revisión (ver `REVALIDACIONES`)."""
-    from datetime import date
+    from itcj2.core.utils.timezone import db_now
 
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
 
     seed_phase_defs()
-    hoy = date.today()
+    hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
     cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
-                         closes_at=hoy - timedelta(days=1))
+                         closes_at=hoy - timedelta(seconds=1))
     cuenta = _cuenta(make_user, db_session, "99770011")
     req, token = _aprobada(db_session, cohort, control="99770011")
 

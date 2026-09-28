@@ -9,9 +9,11 @@ carrera.
 Regla de la casa: ninguna aserción negativa va sola. Cada 403 se empareja con la
 jefa entrando al MISMO recurso.
 """
-from datetime import date, timedelta
+from datetime import datetime, time, timedelta
 
 import pytest
+
+from itcj2.core.utils.timezone import db_now
 
 from tests.fastapi.titulatec.conftest import HEAD_PERMS
 
@@ -32,10 +34,24 @@ def _url(cohort) -> str:
     return f"/titulatec/admin/cohorts/{cohort.id}/ventana"
 
 
+def _hoy():
+    """Hoy como FECHA en el reloj de la ventana (`db_now`, hora local)."""
+    return db_now().date()
+
+
+def _ventana(cohort) -> dict:
+    """Las fechas que el editor manda precargadas (`opens_at`/`closes_at` como
+    FECHA, que es lo que el formulario de hoy postea)."""
+    return {"opens_at": cohort.opens_at.date().isoformat(),
+            "closes_at": cohort.closes_at.date().isoformat()}
+
+
 def test_la_jefa_abre_la_convocatoria_y_queda_escrita(escenario, client_as, db_session):
+    """Solo fechas (el formulario de hoy no manda hora): la apertura queda a las
+    00:00 y el cierre a las 23:59:59 — D8/D9."""
     cohort = escenario["cohort"]
-    apertura = date.today()
-    cierre = date.today() + timedelta(days=30)
+    apertura = _hoy()
+    cierre = _hoy() + timedelta(days=30)
 
     resp = client_as(escenario["jefa"]).post(
         _url(cohort),
@@ -51,8 +67,8 @@ def test_la_jefa_abre_la_convocatoria_y_queda_escrita(escenario, client_as, db_s
     )
     db_session.refresh(cohort)
     assert cohort.status == "open"
-    assert cohort.opens_at == apertura
-    assert cohort.closes_at == cierre
+    assert cohort.opens_at == datetime.combine(apertura, time(0, 0))
+    assert cohort.closes_at == datetime.combine(cierre, time(23, 59, 59))
 
 
 def test_cerrar_desde_la_ruta_pausa_los_procesos(escenario, client_as, make_student,
@@ -64,7 +80,7 @@ def test_cerrar_desde_la_ruta_pausa_los_procesos(escenario, client_as, make_stud
     proc = make_process(make_student(), cohort=cohort, status="active")
 
     resp = client_as(escenario["jefa"]).post(
-        _url(cohort), data={"status": "closed", "opens_at": "", "closes_at": ""},
+        _url(cohort), data={"status": "closed", **_ventana(cohort)},
         follow_redirects=False,
     )
 
@@ -75,7 +91,7 @@ def test_cerrar_desde_la_ruta_pausa_los_procesos(escenario, client_as, make_stud
 
 def test_el_cierre_anterior_a_la_apertura_se_rechaza(escenario, client_as, db_session):
     cohort = escenario["cohort"]
-    hoy = date.today()
+    hoy = _hoy()
 
     resp = client_as(escenario["jefa"]).post(
         _url(cohort),
@@ -99,7 +115,7 @@ def test_el_mensaje_del_rechazo_llega_legible(escenario, client_as):
     """
     from urllib.parse import unquote
 
-    hoy = date.today()
+    hoy = _hoy()
     resp = client_as(escenario["jefa"]).post(
         _url(escenario["cohort"]),
         data={"status": "open", "opens_at": hoy.isoformat(),
@@ -109,8 +125,51 @@ def test_el_mensaje_del_rechazo_llega_legible(escenario, client_as):
 
     assert resp.status_code == 400
     assert unquote(resp.headers["X-Tt-Error"]) == (
-        "El cierre no puede ser anterior a la apertura."
+        "El cierre tiene que ser posterior a la apertura."
     )
+
+
+@pytest.mark.parametrize("datos", [
+    {"opens_at": "2031-03-10", "closes_at": ""},
+    {"opens_at": "", "closes_at": "2031-03-20"},
+    {"opens_at": "", "closes_at": ""},
+    {"opens_at": "2031-03-10", "closes_at": "20/03/2031"},     # basura
+    {"closes_at": "2031-03-20"},                               # campo ausente
+], ids=["sin-cierre", "sin-apertura", "sin-ambas", "cierre-basura", "sin-campo"])
+def test_sin_apertura_o_sin_cierre_es_400_y_no_escribe(escenario, client_as, db_session,
+                                                      datos):
+    """D9: NOT NULL. Un extremo vacío o ilegible ya no significa «sin tope»:
+    400 con el texto que lee la jefa, y la convocatoria no se mueve."""
+    from urllib.parse import unquote
+
+    cohort = escenario["cohort"]
+    antes = (cohort.opens_at, cohort.closes_at, cohort.status)
+
+    resp = client_as(escenario["jefa"]).post(
+        _url(cohort), data={"status": "open", **datos}, follow_redirects=False)
+
+    assert resp.status_code == 400
+    assert unquote(resp.headers["X-Tt-Error"]) == (
+        "La apertura y el cierre son obligatorios.")
+    db_session.refresh(cohort)
+    assert (cohort.opens_at, cohort.closes_at, cohort.status) == antes
+
+
+def test_un_mismo_dia_es_una_ventana_valida(escenario, client_as, db_session):
+    """Apertura y cierre el mismo día = de 00:00 a 23:59:59: el cierre SÍ es
+    posterior. Rechazar la igualdad de instantes no puede romper esto."""
+    cohort = escenario["cohort"]
+    dia = _hoy() + timedelta(days=3)
+
+    resp = client_as(escenario["jefa"]).post(
+        _url(cohort), data={"status": "draft", "opens_at": dia.isoformat(),
+                            "closes_at": dia.isoformat()},
+        follow_redirects=False)
+
+    assert resp.status_code == 200
+    db_session.refresh(cohort)
+    assert cohort.opens_at == datetime.combine(dia, time(0, 0))
+    assert cohort.closes_at == datetime.combine(dia, time(23, 59, 59))
 
 
 def test_un_estado_inventado_se_rechaza(escenario, client_as, db_session):
@@ -122,7 +181,7 @@ def test_un_estado_inventado_se_rechaza(escenario, client_as, db_session):
 
     cohort = escenario["cohort"]
     resp = client_as(escenario["jefa"]).post(
-        _url(cohort), data={"status": "archivada", "opens_at": "", "closes_at": ""},
+        _url(cohort), data={"status": "archivada", **_ventana(cohort)},
         follow_redirects=False,
     )
 
@@ -145,7 +204,7 @@ def test_una_convocatoria_inexistente_da_404(escenario, client_as):
 
 def test_sin_el_permiso_no_pasa_y_la_jefa_si(escenario, client_as):
     cohort = escenario["cohort"]
-    datos = {"status": "closed", "opens_at": "", "closes_at": ""}
+    datos = {"status": "closed", **_ventana(cohort)}
 
     r_sin = client_as(escenario["sin_permiso"]).post(_url(cohort), data=datos,
                                                      follow_redirects=False)
@@ -177,7 +236,7 @@ def test_el_encargado_de_carrera_no_abre_la_ventana_y_la_jefa_si(
     """
     encargado, _pos = make_officer([make_program("Ing. de prueba T17")])
     cohort = escenario["cohort"]
-    datos = {"status": "closed", "opens_at": "", "closes_at": ""}
+    datos = {"status": "closed", **_ventana(cohort)}
 
     r_enc = client_as(encargado).post(_url(cohort), data=datos, follow_redirects=False)
     r_jefa = client_as(escenario["jefa"]).post(_url(cohort), data=datos,
@@ -216,24 +275,99 @@ def test_el_editor_precarga_las_fechas_que_ya_tiene_la_convocatoria(
         escenario, client_as, make_cohort, db_session):
     """`set_window` SIEMPRE escribe las DOS fechas con lo que reciba.
 
-    No existe "conservar lo que había": un `<input>` vacío borra la fecha. Así
-    que si el editor no llega precargado, la jefa que solo quería cambiar el
-    estado se lleva por delante la ventana entera sin enterarse. Esta prueba fija
-    la precarga, que es lo único que lo impide.
+    No existe "conservar lo que había": desde que la ventana es NOT NULL un
+    `<input>` vacío ya no la borra (400), pero si el editor no llega precargado
+    la jefa que solo quería cambiar el estado tiene que volver a teclear la
+    ventana entera —y la teclea de memoria—. Esta prueba fija la precarga.
     """
-    apertura = date.today() + timedelta(days=3)
-    cierre = date.today() + timedelta(days=40)
+    apertura = datetime.combine(_hoy() + timedelta(days=3), time(9, 30))
+    cierre = datetime.combine(_hoy() + timedelta(days=40), time(23, 59, 59))
     cohort = make_cohort(status="open", opens_at=apertura, closes_at=cierre)
 
     resp = client_as(escenario["jefa"]).get(
         f"/titulatec/admin/cohorts/{cohort.id}?tab=resumen", follow_redirects=False)
 
     assert resp.status_code == 200
-    assert f'value="{apertura.isoformat()}"' in resp.text, (
+    assert f'value="{apertura.date().isoformat()}"' in resp.text, (
         "El input de apertura llegó vacío: `<input type=\"date\">` solo acepta "
-        "ISO y un formato distinto lo deja en blanco."
+        "`YYYY-MM-DD` y un ISO con hora lo deja en blanco."
     )
-    assert f'value="{cierre.isoformat()}"' in resp.text
+    assert f'value="{cierre.date().isoformat()}"' in resp.text
+
+
+def test_la_cabecera_del_detalle_muestra_fecha_y_hora(escenario, client_as, make_cohort):
+    """«Apertura dd/mm/aaaa hh:mm»; el cierre por omisión (23:59:59) se lee 23:59."""
+    cohort = make_cohort(status="open", opens_at=datetime(2031, 3, 10, 9, 30),
+                         closes_at=datetime(2031, 3, 20, 23, 59, 59))
+
+    resp = client_as(escenario["jefa"]).get(
+        f"/titulatec/admin/cohorts/{cohort.id}?tab=alumnos", follow_redirects=False)
+
+    assert resp.status_code == 200
+    cabecera = resp.text.split('id="cohort-pane"', 1)[0]
+    assert "10/03/2031 09:30" in cabecera
+    assert "20/03/2031 23:59" in cabecera
+    assert "2031-03-10" not in cabecera, "ya no se recorta el ISO a 10 caracteres"
+
+
+# ---------------------------------------------------------------------------
+# _parse_window_dt y el contexto del editor (lo que consume la Task 10)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("fecha,hora,default,esperado", [
+    ("2031-03-10", "", time(0, 0), datetime(2031, 3, 10, 0, 0)),
+    ("2031-03-10", None, time(0, 0), datetime(2031, 3, 10, 0, 0)),
+    ("2031-03-20", "", time(23, 59, 59), datetime(2031, 3, 20, 23, 59, 59)),
+    ("2031-03-20", "  ", time(23, 59, 59), datetime(2031, 3, 20, 23, 59, 59)),
+    (" 2031-03-10 ", "09:30", time(0, 0), datetime(2031, 3, 10, 9, 30)),
+    ("2031-03-20", "18:00", time(23, 59, 59), datetime(2031, 3, 20, 18, 0)),
+    # Fecha obligatoria: vacía o basura → None.
+    ("", "09:30", time(0, 0), None),
+    (None, None, time(0, 0), None),
+    ("10/03/2031", "", time(0, 0), None),
+    ("2031-02-30", "", time(0, 0), None),
+    # Hora opcional, pero si viene tiene que ser HH:MM.
+    ("2031-03-10", "9h", time(0, 0), None),
+    ("2031-03-10", "25:00", time(0, 0), None),
+])
+def test_parse_window_dt(fecha, hora, default, esperado):
+    from itcj2.apps.titulatec.pages.admin import _parse_window_dt
+
+    assert _parse_window_dt(fecha, hora, default=default) == esperado
+
+
+def test_los_defaults_de_hora_son_00_00_y_23_59_59():
+    from itcj2.apps.titulatec.pages.admin import (
+        _CLOSES_DEFAULT_TIME, _OPENS_DEFAULT_TIME,
+    )
+
+    assert _OPENS_DEFAULT_TIME == time(0, 0)
+    assert _CLOSES_DEFAULT_TIME == time(23, 59, 59)
+
+
+def test_window_ctx_conserva_las_claves_de_fecha_y_agrega_fecha_y_hora(make_cohort):
+    """Ruling R1: `opens_at`/`closes_at` siguen siendo FECHA (las lee la plantilla
+    actual) y se agregan `opens_date/opens_time/closes_date/closes_time`.
+
+    La hora que coincide con el valor por omisión va VACÍA: el cierre guardado
+    a las 23:59:59 no cabe en un `<input type="time">` de minutos, y precargarlo
+    como «23:59» haría que re-guardar la ventana sin tocarla moviera el cierre
+    a 23:59:00 (se perdería el último minuto, Review Focus 3). Vacío = «vacío =
+    23:59» del formulario, que vuelve a 23:59:59."""
+    from itcj2.apps.titulatec.pages.admin import _window_ctx
+
+    con_hora = make_cohort(status="open", opens_at=datetime(2031, 3, 10, 9, 30),
+                           closes_at=datetime(2031, 3, 20, 18, 0))
+    por_omision = make_cohort(status="open", opens_at=datetime(2031, 3, 10, 0, 0),
+                              closes_at=datetime(2031, 3, 20, 23, 59, 59))
+
+    w = _window_ctx(None, con_hora, can_edit=True)["window"]
+    assert w["opens_at"] == "2031-03-10" and w["closes_at"] == "2031-03-20"
+    assert (w["opens_date"], w["opens_time"]) == ("2031-03-10", "09:30")
+    assert (w["closes_date"], w["closes_time"]) == ("2031-03-20", "18:00")
+
+    w = _window_ctx(None, por_omision, can_edit=True)["window"]
+    assert (w["opens_date"], w["opens_time"]) == ("2031-03-10", "")
+    assert (w["closes_date"], w["closes_time"]) == ("2031-03-20", "")
 
 
 def test_quien_solo_ve_la_convocatoria_no_recibe_el_formulario(
@@ -279,7 +413,7 @@ def test_el_panel_ya_no_ofrece_aprobacion_automatica(
     assert "sii_auto" not in ventana
 
     resp = c.post(_url(cohort),
-                  data={"status": "open", "opens_at": "", "closes_at": "",
+                  data={"status": "open", **_ventana(cohort),
                         "sii_auto_present": "1", "sii_auto_approve": "0"},
                   follow_redirects=False)
 

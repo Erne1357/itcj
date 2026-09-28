@@ -18,7 +18,7 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -512,11 +512,12 @@ def test_dar_acceso_con_la_ventana_publica_vencida_si_procede(
     """Review Focus 2 / D5: pasada `closes_at` se sigue dando acceso a lo que
     entró a tiempo; solo `status='closed'` pausa."""
     from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.core.utils.timezone import db_now
 
     seed_phase_defs()
-    hoy = date.today()
+    hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
     cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
-                         closes_at=hoy - timedelta(days=1))
+                         closes_at=hoy - timedelta(seconds=1))
     assert CohortService.is_public_enrollment_open(cohort) is False
     req, _se, _ = _en_espera(db_session, make_cohort, make_user, control="99560027",
                              cohort=cohort)

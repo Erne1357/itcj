@@ -10,8 +10,8 @@
   </div>
   <div class="d-flex flex-wrap gap-3 mt-1" style="font-size:.78rem;color:var(--tt-slate)">
     <span><span class="tt-kicker">Período</span> <span class="tt-mono">{{ cohort.period_code }}</span></span>
-    {% if cohort.opens_at %}<span><span class="tt-kicker">Apertura</span> <span class="tt-mono">{{ cohort.opens_at[:10] }}</span></span>{% endif %}
-    {% if cohort.closes_at %}<span><span class="tt-kicker">Cierre</span> <span class="tt-mono">{{ cohort.closes_at[:10] }}</span></span>{% endif %}
+    <span><span class="tt-kicker">Apertura</span> <span class="tt-mono">{{ window_header.opens }}</span></span>
+    <span><span class="tt-kicker">Cierre</span> <span class="tt-mono">{{ window_header.closes }}</span></span>
   </div>
 </div>
 

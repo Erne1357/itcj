@@ -37,6 +37,16 @@ def _plano(html: str) -> str:
     return " ".join(html.split())
 
 
+def _dia(dias: int, h: int = 0, m: int = 0, s: int = 0):
+    """`dias` desde hoy (reloj de la ventana, `db_now`) a la hora dada."""
+    from datetime import timedelta
+
+    from itcj2.core.utils.timezone import db_now
+
+    hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    return hoy + timedelta(days=dias, hours=h, minutes=m, seconds=s)
+
+
 # `x-request-id` lo añade ObservabilityMiddleware a toda respuesta: aleatorio
 # por petición, con la MISMA distribución en todas las ramas (R26). Su valor no
 # distingue nada, así que se compara solo su FORMA; que faltara en una rama (un
@@ -1094,11 +1104,11 @@ def _apagar_las_demas(db_session, ids_vivas):
 def test_la_tarjeta_de_cierre_dice_cuando_abre_y_cuando_cierra(
     client, db_session, make_cohort, make_period,
 ):
-    from datetime import date, timedelta
+    from itcj2.apps.titulatec.utils.dates_es import MESES
 
-    cohort = make_cohort(status="open",
-                         opens_at=date.today() + timedelta(days=11),
-                         closes_at=date.today() + timedelta(days=20))
+    abre = _dia(11)                                   # 00:00: se dice solo el día
+    cierra = _dia(20, 23, 59, 59)
+    cohort = make_cohort(status="open", opens_at=abre, closes_at=cierra)
     _solo_esta_convocatoria(db_session, cohort)
     client.cookies.clear()
 
@@ -1109,12 +1119,15 @@ def test_la_tarjeta_de_cierre_dice_cuando_abre_y_cuando_cierra(
     assert "inscripción está cerrada" in resp.text        # contrato de siempre
     assert 'id="tt-enroll-form"' not in resp.text
     assert 'data-tt-notice="closed"' in resp.text
-    # La fecha, en palabras y en ISO.
-    abre = date.today() + timedelta(days=11)
+    # La fecha, en palabras y en ISO completo (con hora).
     assert f'datetime="{abre.isoformat()}"' in resp.text
+    assert "T00:00:00" in abre.isoformat()
     assert f"{abre.day} de " in plano
+    assert "a las 00:00" not in plano, "una apertura a las 00:00 dice solo el día"
     assert "Faltan 11 días" in plano
-    assert "para enviar tu solicitud" in plano
+    # El cierre SIEMPRE lleva hora; el 23:59:59 guardado se lee 23:59.
+    assert (f"Tendrás hasta el {cierra.day} de {MESES[cierra.month]} a las 23:59 "
+            f"para enviar tu solicitud") in plano
     # Y el nombre de la convocatoria sigue sin salir a la vista pública.
     assert cohort.name not in resp.text
 
@@ -1146,13 +1159,10 @@ def test_una_convocatoria_en_borrador_no_se_anuncia(
 
     Anunciarla sería prometerle al egresado un día al que vendría en balde.
     """
-    from datetime import date, timedelta
-
     abierta = make_cohort(status="closed")
     _solo_esta_convocatoria(db_session, abierta)
     make_cohort(period=make_period(code="29997"), status="draft",
-                opens_at=date.today() + timedelta(days=5),
-                closes_at=date.today() + timedelta(days=15))
+                opens_at=_dia(5), closes_at=_dia(15, 23, 59, 59))
     db_session.flush()
     client.cookies.clear()
 
@@ -1166,14 +1176,10 @@ def test_una_convocatoria_en_borrador_no_se_anuncia(
 def test_con_dos_aperturas_futuras_se_anuncia_la_mas_proxima(
     client, db_session, make_cohort, make_period,
 ):
-    from datetime import date, timedelta
-
     lejana = make_cohort(period=make_period(code="29996"), status="open",
-                         opens_at=date.today() + timedelta(days=40),
-                         closes_at=date.today() + timedelta(days=50))
+                         opens_at=_dia(40), closes_at=_dia(50, 23, 59, 59))
     cercana = make_cohort(period=make_period(code="29995"), status="open",
-                          opens_at=date.today() + timedelta(days=7),
-                          closes_at=date.today() + timedelta(days=17))
+                          opens_at=_dia(7), closes_at=_dia(17, 23, 59, 59))
     # Ninguna de las dos está abierta HOY, así que la ruta cae a la tarjeta de
     # cierre y no al 503 de «más de una abierta».
     _apagar_las_demas(db_session, {lejana.id, cercana.id})
@@ -1184,18 +1190,40 @@ def test_con_dos_aperturas_futuras_se_anuncia_la_mas_proxima(
 
     assert resp.status_code == 200, resp.text[:400]
     assert "Faltan 7 días" in plano
-    assert f'datetime="{(date.today() + timedelta(days=7)).isoformat()}"' in resp.text
+    assert f'datetime="{_dia(7).isoformat()}"' in resp.text
+
+
+def test_la_tarjeta_de_cierre_con_apertura_a_las_9_dice_la_hora(
+    client, db_session, make_cohort,
+):
+    """Spec §B3: la apertura omite la hora SOLO si es 00:00; a las 09:00 la
+    dice, y el `<time datetime>` lleva la hora también."""
+    abre = _dia(5, 9, 0)
+    cohort = make_cohort(status="open", opens_at=abre, closes_at=_dia(15, 23, 59, 59))
+    _solo_esta_convocatoria(db_session, cohort)
+    client.cookies.clear()
+
+    resp = client.get(ENROLL_URL, follow_redirects=False)
+    plano = _plano(resp.text)
+
+    assert resp.status_code == 200, resp.text[:400]
+    assert 'data-tt-notice="closed"' in resp.text
+    assert f'datetime="{abre.isoformat()}"' in resp.text
+    assert "T09:00:00" in abre.isoformat()
+    assert "Abre de nuevo el" in plano
+    assert f"{abre.day} de " in plano
+    assert "a las 09:00" in plano
+    assert "Faltan 5 días" in plano
 
 
 def test_el_panel_del_formulario_dice_cuando_cierra_sin_nombrar_la_convocatoria(
     client, db_session, make_cohort,
 ):
     """El panel lateral es lo único que el rediseño añadió al formulario."""
-    from datetime import date, timedelta
+    from itcj2.apps.titulatec.utils.dates_es import MESES
 
-    cierre = date.today() + timedelta(days=9)
-    cohort = make_cohort(status="open", opens_at=date.today() - timedelta(days=1),
-                         closes_at=cierre)
+    cierre = _dia(9, 23, 59, 59)
+    cohort = make_cohort(status="open", opens_at=_dia(-1), closes_at=cierre)
     _solo_esta_convocatoria(db_session, cohort)
     client.cookies.clear()
 
@@ -1204,21 +1232,28 @@ def test_el_panel_del_formulario_dice_cuando_cierra_sin_nombrar_la_convocatoria(
 
     assert resp.status_code == 200, resp.text[:400]
     assert 'id="tt-enroll-form"' in resp.text
-    assert f"Cierra el {cierre.day} de " in plano
+    assert f"Cierra el {cierre.day} de {MESES[cierre.month]} a las 23:59" in plano
     assert "Faltan 9 días" in plano
     assert "Ten a la mano" in plano
     assert cohort.name not in resp.text
 
 
-def test_sin_fecha_de_cierre_el_panel_omite_el_bloque_en_vez_de_inventarlo(
-    client, db_session, make_cohort,
+def test_el_ultimo_dia_el_panel_dice_hoy_a_las_23_59(
+    client, db_session, make_cohort, monkeypatch,
 ):
-    """Casi toda convocatoria vieja trae `closes_at` NULL."""
-    from datetime import date, timedelta
+    """El último día la pastilla habla en horas: «Hoy a las 23:59». Reloj fijo
+    en los DOS módulos que lo leen (el predicado y el texto), para que el
+    resultado no dependa de la hora a la que corre la suite."""
+    from datetime import datetime
 
-    cohort = make_cohort(status="open", opens_at=date.today() - timedelta(days=1))
-    db_session.query(type(cohort)).filter_by(id=cohort.id).update({"closes_at": None})
-    db_session.flush()
+    import itcj2.apps.titulatec.services.cohort_service as cohort_mod
+    import itcj2.apps.titulatec.utils.dates_es as dates_mod
+
+    ahora = datetime(2031, 3, 20, 10, 0)
+    monkeypatch.setattr(cohort_mod, "db_now", lambda: ahora)
+    monkeypatch.setattr(dates_mod, "db_now", lambda: ahora)
+    cohort = make_cohort(status="open", opens_at=datetime(2031, 3, 10, 0, 0),
+                         closes_at=datetime(2031, 3, 20, 23, 59, 59))
     _solo_esta_convocatoria(db_session, cohort)
     client.cookies.clear()
 
@@ -1227,8 +1262,9 @@ def test_sin_fecha_de_cierre_el_panel_omite_el_bloque_en_vez_de_inventarlo(
 
     assert resp.status_code == 200, resp.text[:400]
     assert 'id="tt-enroll-form"' in resp.text
-    assert "Cierra el" not in plano
-    assert "Ten a la mano" in plano, "el panel entero no puede desaparecer con la fecha"
+    assert "Cierra el 20 de marzo a las 23:59" in plano
+    assert "Hoy a las 23:59" in plano
+    assert "Ten a la mano" in plano
 
 
 # ---------------------------------------------------------------------------

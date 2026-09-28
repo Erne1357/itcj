@@ -273,15 +273,15 @@ def test_con_la_ventana_publica_vencida_el_reenvio_publico_si_sale(
 ):
     """D5 (spec 2026-09-24): la ventana solo filtra el formulario. Una liga
     vigente se puede pedir de nuevo después de `closes_at`."""
-    from datetime import date
+    from itcj2.core.utils.timezone import db_now
 
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
 
-    hoy = date.today()
+    hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
     cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
-                         closes_at=hoy - timedelta(days=1))
+                         closes_at=hoy - timedelta(seconds=1))
     _aprobada(db_session, cohort, control="99660010")
 
     assert EnrollmentRequestService.resend(
@@ -459,12 +459,12 @@ def test_reenviar_desde_la_bandeja_con_la_ventana_publica_vencida_si_sale(
     client_as, db_session, make_head, make_cohort, correo_falso,
 ):
     """D5 (spec 2026-09-24): la ventana solo filtra el formulario público."""
-    from datetime import date
+    from itcj2.core.utils.timezone import db_now
 
-    hoy = date.today()
+    hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
     head = make_head(perm_codes=LIST_PERMS)
     cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
-                         closes_at=hoy - timedelta(days=1))
+                         closes_at=hoy - timedelta(seconds=1))
     req, _tok = _aprobada(db_session, cohort, control="99660032")
     hash_antes = req.verify_token_hash
 

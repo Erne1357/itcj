@@ -10,6 +10,10 @@ por eso el resolver falla cerrado con >1 en vez de desempatar por id — un
 desempate silencioso mandaría al solicitante a otro periodo, y el folio y su
 carpeta en disco llevan el periodo dentro.
 
+Desde `tt20260927b` (spec 2026-09-27 §B) las dos columnas son `DateTime` NOT
+NULL y los predicados comparan al minuto contra `db_now()`: ya no hay «fechas
+NULL = sin tope», y `set_window` exige los dos extremos.
+
 Aislamiento
 -----------
 La suite corre contra la BD de dev dentro de un SAVEPOINT, así que las
@@ -19,9 +23,21 @@ DENTRO de la transacción del test (`draft` no entra ni en el predicado de
 apertura ni en el de reanudación) y el rollback del fixture `db_session` las deja
 intactas. Contra la BD vacía de CI el fixture es un no-op.
 """
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 
 import pytest
+
+from itcj2.core.utils.timezone import db_now
+
+
+def _hoy() -> datetime:
+    """Hoy a las 00:00 en el reloj de la ventana (`db_now`, hora local)."""
+    return db_now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _cierre(dias: int) -> datetime:
+    """El cierre por omisión: `dias` desde hoy, a las 23:59:59."""
+    return _hoy() + timedelta(days=dias, hours=23, minutes=59, seconds=59)
 
 
 @pytest.fixture()
@@ -36,73 +52,138 @@ def sin_convocatorias_previas(db_session):
     return db_session
 
 
-@pytest.fixture()
-def sin_fechas():
-    """`make_cohort` hace `opens_at or date.today()`: no sabe crear fechas NULL.
-
-    Las convocatorias de producción SÍ las tienen NULL, que es el caso que hace
-    verdadero el predicado para todas. Este helper las borra tras crear la fila.
-    """
-    def _quitar(db, cohort):
-        cohort.opens_at = None
-        cohort.closes_at = None
-        db.flush()
-        return cohort
-
-    return _quitar
-
-
 # ---------------------------------------------------------------------------
 # is_public_enrollment_open
 # ---------------------------------------------------------------------------
-def test_el_predicado_exige_open_y_la_fecha_dentro(db_session, make_cohort, sin_fechas):
+def test_el_predicado_exige_open_y_la_fecha_dentro(db_session, make_cohort):
     from itcj2.apps.titulatec.services.cohort_service import CohortService
-    hoy = date.today()
+    hoy = _hoy()
 
     abierta = make_cohort(status="open", opens_at=hoy - timedelta(days=1),
-                          closes_at=hoy + timedelta(days=1))
+                          closes_at=_cierre(1))
     borrador = make_cohort(status="draft")
     cerrada = make_cohort(status="closed")
     futura = make_cohort(status="open", opens_at=hoy + timedelta(days=1),
-                         closes_at=hoy + timedelta(days=5))
+                         closes_at=_cierre(5))
     vencida = make_cohort(status="open", opens_at=hoy - timedelta(days=10),
-                          closes_at=hoy - timedelta(days=1))
-    perpetua = sin_fechas(db_session, make_cohort(status="open"))
+                          closes_at=_cierre(-1))
 
     assert CohortService.is_public_enrollment_open(abierta) is True
     assert CohortService.is_public_enrollment_open(borrador) is False
     assert CohortService.is_public_enrollment_open(cerrada) is False
     assert CohortService.is_public_enrollment_open(futura) is False
     assert CohortService.is_public_enrollment_open(vencida) is False
-    assert CohortService.is_public_enrollment_open(perpetua) is True, (
-        "Fechas NULL = sin tope. Es el estado de TODA convocatoria real hoy."
-    )
     assert CohortService.is_public_enrollment_open(None) is False
+
+
+def test_el_ultimo_minuto_del_cierre_sigue_abierto(make_cohort):
+    """Review Focus 3: con el cierre POR OMISIÓN (solo fecha → 23:59:59), quien
+    envía a las 23:59:30 del último día sigue dentro; a las 00:00:00 del día
+    siguiente ya no. El cierre sale del mismo `_parse_window_dt` que usa la
+    ruta, no de un literal del test."""
+    from itcj2.apps.titulatec.pages.admin import (
+        _CLOSES_DEFAULT_TIME, _OPENS_DEFAULT_TIME, _parse_window_dt,
+    )
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+
+    apertura = _parse_window_dt("2031-03-10", "", default=_OPENS_DEFAULT_TIME)
+    cierre = _parse_window_dt("2031-03-20", "", default=_CLOSES_DEFAULT_TIME)
+    assert cierre == datetime(2031, 3, 20, 23, 59, 59)
+    cohort = make_cohort(status="open", opens_at=apertura, closes_at=cierre)
+
+    assert CohortService.is_public_enrollment_open(
+        cohort, now=datetime(2031, 3, 20, 23, 59, 30)) is True
+    assert CohortService.is_public_enrollment_open(
+        cohort, now=datetime(2031, 3, 20, 23, 59, 59)) is True
+    assert CohortService.is_public_enrollment_open(
+        cohort, now=datetime(2031, 3, 21, 0, 0, 0)) is False
+
+
+def test_la_apertura_respeta_la_hora(make_cohort):
+    """Al minuto: una apertura a las 09:00 está cerrada a las 08:59."""
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+
+    cohort = make_cohort(status="open", opens_at=datetime(2031, 3, 10, 9, 0),
+                         closes_at=datetime(2031, 3, 20, 23, 59, 59))
+
+    assert CohortService.is_public_enrollment_open(
+        cohort, now=datetime(2031, 3, 10, 8, 59)) is False
+    assert CohortService.is_public_enrollment_open(
+        cohort, now=datetime(2031, 3, 10, 9, 0)) is True
+
+
+def test_los_predicados_usan_db_now(sin_convocatorias_previas, make_cohort,
+                                    db_session, monkeypatch):
+    """Review Focus 5: el reloj del proceso puede no estar en APP_TZ. Con
+    `db_now` fijado a un instante y el `datetime`/`date` del módulo a otro,
+    manda `db_now` — en los dos predicados."""
+    from datetime import date as date_real
+
+    import itcj2.apps.titulatec.services.cohort_service as mod
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+
+    cohort = make_cohort(status="open", opens_at=datetime(2031, 3, 10, 9, 0),
+                         closes_at=datetime(2031, 3, 20, 23, 59, 59))
+    antes = datetime(2031, 3, 1, 12, 0)
+    dentro = datetime(2031, 3, 15, 12, 0)
+
+    class _RelojDelProceso(datetime):
+        """El reloj del proceso: se mueve SIEMPRE al lado contrario de `db_now`."""
+        instante = antes
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.instante
+
+        @classmethod
+        def today(cls):
+            return cls.instante
+
+    class _HoyDelProceso(date_real):
+        @classmethod
+        def today(cls):
+            return _RelojDelProceso.instante.date()
+
+    monkeypatch.setattr(mod, "datetime", _RelojDelProceso, raising=False)
+    monkeypatch.setattr(mod, "date", _HoyDelProceso, raising=False)
+
+    # db_now DENTRO de la ventana, el proceso ANTES de la apertura.
+    monkeypatch.setattr(mod, "db_now", lambda: dentro)
+    _RelojDelProceso.instante = antes
+    assert CohortService.is_public_enrollment_open(cohort) is True
+    assert CohortService.next_public_enrollment_window(db_session) is None, (
+        "según db_now ya abrió: no es la PRÓXIMA")
+
+    # Al revés: db_now ANTES de la apertura, el proceso DENTRO.
+    monkeypatch.setattr(mod, "db_now", lambda: antes)
+    _RelojDelProceso.instante = dentro
+    assert CohortService.is_public_enrollment_open(cohort) is False
+    prox = CohortService.next_public_enrollment_window(db_session)
+    assert prox is not None and prox.id == cohort.id
 
 
 # ---------------------------------------------------------------------------
 # accepts_enrollment_followup — D5 (spec 2026-09-24)
 # ---------------------------------------------------------------------------
 def test_el_seguimiento_de_una_solicitud_solo_exige_status_open(
-    db_session, make_cohort, sin_fechas,
+    db_session, make_cohort,
 ):
     """Aprobar, dar acceso, abrir la liga y reenviarla ignoran las fechas: la
     ventana solo filtra el formulario público. Solo `closed` (pausa) y `draft`
     lo detienen."""
     from itcj2.apps.titulatec.services.cohort_service import CohortService
-    hoy = date.today()
+    hoy = _hoy()
 
     abierta = make_cohort(status="open", opens_at=hoy - timedelta(days=1),
-                          closes_at=hoy + timedelta(days=1))
+                          closes_at=_cierre(1))
     vencida = make_cohort(status="open", opens_at=hoy - timedelta(days=10),
-                          closes_at=hoy - timedelta(days=1))
+                          closes_at=_cierre(-1))
     futura = make_cohort(status="open", opens_at=hoy + timedelta(days=1),
-                         closes_at=hoy + timedelta(days=5))
-    perpetua = sin_fechas(db_session, make_cohort(status="open"))
+                         closes_at=_cierre(5))
     cerrada = make_cohort(status="closed")
     borrador = make_cohort(status="draft")
 
-    for c in (abierta, vencida, futura, perpetua):
+    for c in (abierta, vencida, futura):
         assert CohortService.accepts_enrollment_followup(c) is True, c.opens_at
     assert CohortService.accepts_enrollment_followup(cerrada) is False
     assert CohortService.accepts_enrollment_followup(borrador) is False
@@ -166,8 +247,8 @@ def test_draft_a_open_reanuda_los_pausados_de_convocatorias_cerradas(
     pausado = make_process(make_student(), cohort=vieja, status="on_hold")
     nueva = make_cohort(status="draft")
 
-    res = CohortService.set_window(db_session, nueva.id, opens_at=date.today(),
-                                   closes_at=date.today() + timedelta(days=30),
+    res = CohortService.set_window(db_session, nueva.id, opens_at=_hoy(),
+                                   closes_at=_cierre(30),
                                    status="open", actor_id=jefa.id)
 
     db_session.refresh(pausado)
@@ -193,8 +274,8 @@ def test_closed_a_open_reanuda_tambien_los_suyos(sin_convocatorias_previas,
     cohort = make_cohort(status="closed")
     propio = make_process(make_student(), cohort=cohort, status="on_hold")
 
-    res = CohortService.set_window(db_session, cohort.id, opens_at=None,
-                                   closes_at=None, status="open", actor_id=jefa.id)
+    res = CohortService.set_window(db_session, cohort.id, opens_at=cohort.opens_at,
+                                   closes_at=cohort.closes_at, status="open", actor_id=jefa.id)
 
     db_session.refresh(propio)
     assert res["resumed"] == 1
@@ -216,8 +297,8 @@ def test_open_a_closed_pausa_solo_los_activos_de_esa_convocatoria(
     cancelado = make_process(make_student(), cohort=cohort, status="cancelled")
     ajeno = make_process(make_student(), cohort=otra, status="active")
 
-    res = CohortService.set_window(db_session, cohort.id, opens_at=None,
-                                   closes_at=None, status="closed", actor_id=jefa.id)
+    res = CohortService.set_window(db_session, cohort.id, opens_at=cohort.opens_at,
+                                   closes_at=cohort.closes_at, status="closed", actor_id=jefa.id)
 
     for p in (activo, terminado, cancelado, ajeno):
         db_session.refresh(p)
@@ -255,8 +336,8 @@ def test_pausar_y_reanudar_bloquean_los_procesos_que_mueven(
     conn = db_session.connection()
     event.listen(conn, "before_cursor_execute", _captura)
     try:
-        res = CohortService.set_window(db_session, cohort.id, opens_at=None,
-                                       closes_at=None, status=nuevo, actor_id=jefa.id)
+        res = CohortService.set_window(db_session, cohort.id, opens_at=cohort.opens_at,
+                                       closes_at=cohort.closes_at, status=nuevo, actor_id=jefa.id)
     finally:
         event.remove(conn, "before_cursor_execute", _captura)
 
@@ -278,10 +359,11 @@ def test_cerrar_dos_veces_no_pausa_de_nuevo(sin_convocatorias_previas, make_coho
     cohort = make_cohort(status="open")
     proc = make_process(make_student(), cohort=cohort, status="active")
 
-    CohortService.set_window(db_session, cohort.id, opens_at=None, closes_at=None,
+    CohortService.set_window(db_session, cohort.id, opens_at=cohort.opens_at,
+                             closes_at=cohort.closes_at,
                              status="closed", actor_id=jefa.id)
-    res = CohortService.set_window(db_session, cohort.id, opens_at=None,
-                                   closes_at=None, status="closed", actor_id=jefa.id)
+    res = CohortService.set_window(db_session, cohort.id, opens_at=cohort.opens_at,
+                                   closes_at=cohort.closes_at, status="closed", actor_id=jefa.id)
 
     assert res == {"paused": 0, "resumed": 0}
     assert (db_session.query(ProcessEvent)
@@ -296,8 +378,8 @@ def test_draft_a_closed_tambien_pausa(sin_convocatorias_previas, make_cohort,
     cohort = make_cohort(status="draft")
     proc = make_process(make_student(), cohort=cohort, status="active")
 
-    res = CohortService.set_window(db_session, cohort.id, opens_at=None,
-                                   closes_at=None, status="closed", actor_id=jefa.id)
+    res = CohortService.set_window(db_session, cohort.id, opens_at=cohort.opens_at,
+                                   closes_at=cohort.closes_at, status="closed", actor_id=jefa.id)
 
     db_session.refresh(proc)
     assert res["paused"] == 1
@@ -315,8 +397,8 @@ def test_pasar_a_draft_no_toca_ningun_proceso(sin_convocatorias_previas, make_co
     cohort = make_cohort(status="open")
     activo = make_process(make_student(), cohort=cohort, status="active")
 
-    res = CohortService.set_window(db_session, cohort.id, opens_at=None,
-                                   closes_at=None, status="draft", actor_id=jefa.id)
+    res = CohortService.set_window(db_session, cohort.id, opens_at=cohort.opens_at,
+                                   closes_at=cohort.closes_at, status="draft", actor_id=jefa.id)
 
     db_session.refresh(activo)
     db_session.refresh(pausado)
@@ -334,9 +416,9 @@ def test_abrir_lo_ya_abierto_solo_mueve_fechas(sin_convocatorias_previas, make_c
     cerrada = make_cohort(status="closed")
     pausado = make_process(make_student(), cohort=cerrada, status="on_hold")
     cohort = make_cohort(status="open")
-    nuevo_cierre = date.today() + timedelta(days=60)
+    nuevo_cierre = _cierre(60)
 
-    res = CohortService.set_window(db_session, cohort.id, opens_at=date.today(),
+    res = CohortService.set_window(db_session, cohort.id, opens_at=_hoy(),
                                    closes_at=nuevo_cierre, status="open",
                                    actor_id=jefa.id)
 
@@ -353,24 +435,74 @@ def test_rechaza_estado_desconocido_y_convocatoria_inexistente(make_cohort, make
     jefa = make_head()
     cohort = make_cohort(status="draft")
 
-    with pytest.raises(ValueError):
-        CohortService.set_window(db_session, cohort.id, opens_at=None, closes_at=None,
+    with pytest.raises(ValueError, match="borrador, abierta o cerrada"):
+        CohortService.set_window(db_session, cohort.id, opens_at=cohort.opens_at,
+                                 closes_at=cohort.closes_at,
                                  status="abierta", actor_id=jefa.id)
-    with pytest.raises(ValueError):
-        CohortService.set_window(db_session, 10**9, opens_at=None, closes_at=None,
+    with pytest.raises(ValueError, match="no existe"):
+        CohortService.set_window(db_session, 10**9, opens_at=cohort.opens_at,
+                                 closes_at=cohort.closes_at,
                                  status="open", actor_id=jefa.id)
 
 
-def test_rechaza_cierre_anterior_a_la_apertura(make_cohort, make_head, db_session):
+@pytest.mark.parametrize("falta", ["opens_at", "closes_at", "ambas"])
+def test_la_apertura_y_el_cierre_son_obligatorios(make_cohort, make_head, db_session,
+                                                  falta):
+    """D9: las dos columnas son NOT NULL. Se rechaza ANTES de escribir, con el
+    texto que lee la jefa, y la convocatoria queda como estaba."""
     from itcj2.apps.titulatec.services.cohort_service import CohortService
     jefa = make_head()
     cohort = make_cohort(status="draft")
-    hoy = date.today()
+    antes = (cohort.opens_at, cohort.closes_at, cohort.status)
+    ventana = {"opens_at": cohort.opens_at, "closes_at": cohort.closes_at}
+    for k in (("opens_at", "closes_at") if falta == "ambas" else (falta,)):
+        ventana[k] = None
 
-    with pytest.raises(ValueError):
-        CohortService.set_window(db_session, cohort.id, opens_at=hoy,
-                                 closes_at=hoy - timedelta(days=1),
+    with pytest.raises(ValueError) as exc:
+        CohortService.set_window(db_session, cohort.id, status="open",
+                                 actor_id=jefa.id, **ventana)
+
+    assert str(exc.value) == "La apertura y el cierre son obligatorios."
+    db_session.refresh(cohort)
+    assert (cohort.opens_at, cohort.closes_at, cohort.status) == antes
+
+
+@pytest.mark.parametrize("cierre_menos_apertura", [
+    timedelta(0),                  # igualdad: rechazada (spec B2)
+    -timedelta(minutes=1),
+    -timedelta(days=1),
+])
+def test_el_cierre_tiene_que_ser_posterior_a_la_apertura(make_cohort, make_head,
+                                                         db_session, cierre_menos_apertura):
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    jefa = make_head()
+    cohort = make_cohort(status="draft")
+    apertura = datetime(2031, 3, 10, 9, 0)
+
+    with pytest.raises(ValueError) as exc:
+        CohortService.set_window(db_session, cohort.id, opens_at=apertura,
+                                 closes_at=apertura + cierre_menos_apertura,
                                  status="open", actor_id=jefa.id)
+
+    assert str(exc.value) == "El cierre tiene que ser posterior a la apertura."
+    db_session.refresh(cohort)
+    assert cohort.status == "draft"
+
+
+def test_set_window_guarda_la_hora_exacta(make_cohort, make_head, db_session):
+    """Una apertura a las 09:30 y un cierre a las 18:00 salen de la BD tal cual."""
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    jefa = make_head()
+    cohort = make_cohort(status="draft")
+
+    CohortService.set_window(db_session, cohort.id,
+                             opens_at=datetime(2031, 3, 10, 9, 30),
+                             closes_at=datetime(2031, 3, 20, 18, 0),
+                             status="draft", actor_id=jefa.id)
+
+    db_session.expire(cohort)
+    assert cohort.opens_at == datetime(2031, 3, 10, 9, 30)
+    assert cohort.closes_at == datetime(2031, 3, 20, 18, 0)
 
 
 # ---------------------------------------------------------------------------

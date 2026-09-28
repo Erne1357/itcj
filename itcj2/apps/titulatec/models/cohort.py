@@ -1,6 +1,6 @@
 """Convocatoria de titulación (una por periodo)."""
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey,
+    BigInteger, Boolean, CheckConstraint, Column, DateTime, ForeignKey,
     Integer, String, Time,
 )
 from sqlalchemy.orm import relationship
@@ -24,8 +24,13 @@ class Cohort(Base):
         unique=True, nullable=False, index=True,
     )
     name = Column(String(120), nullable=False)
-    opens_at = Column(Date, nullable=True)
-    closes_at = Column(Date, nullable=True)                          # cierre de INSCRIPCIÓN (no del proceso)
+    # Ventana del formulario PÚBLICO de inscripción (no del proceso). Fecha Y
+    # hora, naive en hora local de APP_TZ: el mismo reloj que `db_now()` y que
+    # `NOW()` de Postgres. NOT NULL desde tt20260927b (spec 2026-09-27 D9). El
+    # cierre por omisión es 23:59:59 (se muestra «23:59»): quien envía a las
+    # 23:59:30 del último día sigue dentro.
+    opens_at = Column(DateTime, nullable=False)
+    closes_at = Column(DateTime, nullable=False)
     status = Column(String(20), nullable=False, server_default=text("'open'"))  # draft|open|closed
     created_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
 

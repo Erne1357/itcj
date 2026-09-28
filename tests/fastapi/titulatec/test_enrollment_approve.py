@@ -559,18 +559,17 @@ def test_aprobar_con_la_ventana_publica_vencida_si_procede(
     """D5 (spec 2026-09-24): `opens_at`/`closes_at` solo filtran el formulario
     público. Una solicitud que entró a tiempo se aprueba aunque la ventana ya
     haya cerrado; lo único que pausa es `status='closed'`."""
-    from datetime import date
-
     from itcj2.apps.titulatec.services.cohort_service import CohortService
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
+    from itcj2.core.utils.timezone import db_now
 
     seed_phase_defs()
     actor = make_user()
-    hoy = date.today()
+    hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
     cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
-                         closes_at=hoy - timedelta(days=1))
+                         closes_at=hoy - timedelta(seconds=1))
     assert CohortService.is_public_enrollment_open(cohort) is False, (
         "precondición: el formulario público ya cerró")
     if con_cuenta:
