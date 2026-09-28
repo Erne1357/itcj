@@ -96,7 +96,7 @@ function mintTokenFor(userId) {
 // (spec §4.1).
 const SEED_PY = `
 import json, sys
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 from itcj2.database import SessionLocal
 from itcj2.core.models.academic_period import AcademicPeriod
@@ -111,6 +111,7 @@ from itcj2.core.models.role_permission import RolePermission
 from itcj2.core.models.user import User
 from itcj2.core.models.user_app_role import UserAppRole
 from itcj2.core.utils.security import hash_nip
+from itcj2.core.utils.timezone import db_now
 from itcj2.apps.titulatec.models import (
     Cohort, CotejoRequirement, ProcessPhase, SurveyForm, TitulationProcess,
 )
@@ -277,9 +278,16 @@ try:
                             status="INACTIVE")
     db.add(period); db.flush()
 
+    # La ventana es fecha Y hora, NOT NULL (tt20260927b, spec 2026-09-27 §B1):
+    # abre ayer a las 00:00 y cierra dentro de 30 días a las 23:59:59, que es
+    # como la guarda el panel con la hora vacía (se lee «23:59»). «Hoy» es el
+    # de db_now() -el reloj con el que is_public_enrollment_open la evalúa-,
+    # no el del proceso ni el del runner.
+    hoy = db_now().date()
     cohort = Cohort(period_id=period.id, name=TAG + " convocatoria", status="open",
-                    opens_at=date.today() - timedelta(days=1),
-                    closes_at=date.today() + timedelta(days=30))
+                    opens_at=datetime.combine(hoy - timedelta(days=1), time(0, 0)),
+                    closes_at=datetime.combine(hoy + timedelta(days=30),
+                                               time(23, 59, 59)))
     db.add(cohort); db.flush()
 
     req = CotejoRequirement(cohort_id=cohort.id, icon="clipboard-check",
@@ -689,18 +697,24 @@ finally:
  * Devuelve su id.
  *
  * Sin opciones (lo que ya usaban los specs): el número de control 29990777 NO
- * tiene cuenta, así que la bandeja pide NIP para crear el acceso.
+ * tiene cuenta. En el modo por omisión (`sii`, con el SII sin configurar en
+ * dev) la bandeja ofrece «Aprobar y pasar a Accesos»: Centro de Cómputo le
+ * captura el NIP.
  * `{ withAccount: true }`: crea antes una cuenta con contraseña para 29990778,
  * así que la bandeja la aprueba emitiendo la liga de activación, sin NIP. Las
  * dos filas caen en el borrado del escenario (`first_name = E2E_TAG` y
- * `username LIKE '2999%'`).
+ * `username LIKE '2999%'`). Ninguna trae consulta al SII (`last_check_id`
+ * NULL): la columna SII dice «Sin consultar».
  *
  * `{ status: 'awaiting_access' }` (Tarea 8): siembra la fila YA aprobada por
- * SE -mismo estado que deja `EnrollmentRequestService.approve()` en modo
- * oficial sin cuenta- para que `admin-access.spec.js` ejerza directamente la
- * bandeja de Centro de Cómputo sin repetir el paso de SE que ya cubre
- * `admin-requests.spec.js`. Sella `reviewed_by_id`/`reviewed_at` con la
- * jefatura del escenario (`ctx.headId`), igual que hace el service real.
+ * SE -mismo estado que deja `EnrollmentRequestService.approve()` sin cuenta
+ * pasándola a Accesos (`to_access`, modo `sii`) o en el modo oficial- para
+ * que `admin-access.spec.js` ejerza directamente la bandeja de Accesos sin
+ * repetir el paso de SE que ya cubre `admin-requests.spec.js`. Sella
+ * `reviewed_by_id`/`reviewed_at` con la jefatura del escenario
+ * (`ctx.headId`), igual que hace el service real (`reviewed_at` con
+ * `datetime.now()`, como `_approve_locked`). `nip_source` queda NULL: lo
+ * escribe `grant_access` («center») al dar el NIP.
  * `{ control }` permite una SEGUNDA fila sin cuenta en el mismo escenario
  * (dar NIP y devolver son pruebas separadas, cada una con su propia fila) sin
  * chocar con el 29990777 por omisión.
@@ -727,8 +741,9 @@ try:
         contact_email="e2e.titulatec@example.com", has_efirma=False,
         kind="${withAccount ? 'known' : 'unknown'}", status="${status}")
     if "${status}" == "awaiting_access":
-        # Espejo de lo que deja EnrollmentRequestService.approve() en modo
-        # oficial: SE ya fijo la carrera al aprobar, antes de que exista cuenta.
+        # Espejo de lo que deja EnrollmentRequestService.approve() al pasarla
+        # a Accesos (modo sii con to_access, u oficial): SE ya fijo la carrera
+        # al aprobar, antes de que exista cuenta.
         req.program_id = ${ctx.programId}
         req.reviewed_by_id = ${ctx.headId}
         req.reviewed_at = datetime.now()

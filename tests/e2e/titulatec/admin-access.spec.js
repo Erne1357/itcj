@@ -3,14 +3,18 @@
  * Bandeja «Accesos» de Centro de Cómputo (Tarea 8, spec
  * 2026-09-24-titulatec-accesos-centro-computo) — la mitad CC del flujo
  * SE → CC. `admin-requests.spec.js` cubre el lado de Servicios Escolares
- * (aprobar sin cuenta y sin NIP → «En Cómputo»); este archivo arranca YA en
- * `awaiting_access` (`seedPendingRequest(ctx, { status: 'awaiting_access' })`)
- * para ejercer directamente `/titulatec/admin/accesos` sin repetir ese primer
- * paso, que ya prueba su propio spec.
+ * (aprobar sin cuenta «pasando a Accesos» → «En Cómputo»); este archivo
+ * arranca YA en `awaiting_access`
+ * (`seedPendingRequest(ctx, { status: 'awaiting_access' })`) para ejercer
+ * directamente `/titulatec/admin/accesos` sin repetir ese primer paso, que ya
+ * prueba su propio spec.
  *
- * `TITULATEC_ENROLLMENT_REVIEWER` por omisión es `"school_services"` (modo
- * OFICIAL, `itcj2/config.py`), así que aquí CC solo DA ACCESO y DEVUELVE:
- * aprobar/rechazar/reenviar son del modo alterno y quedan fuera de esta tarea.
+ * `TITULATEC_ENROLLMENT_REVIEWER` por omisión es `"sii"` desde la spec
+ * 2026-09-27-titulatec-sii-informa-se-decide (D3; el contenedor de dev no la
+ * define). En ese modo Accesos es el RESPALDO de Servicios Escolares para
+ * quien el SII no dio NIP (§A6) y opera como en el oficial: CC solo DA
+ * ACCESO, DEVUELVE y reasigna el NIP; aprobar/rechazar/reenviar son del modo
+ * alterno y quedan fuera. Ya no hay aviso `#tt-access-sii` ni POST bloqueados.
  *
  * El actor `cc` (`_helpers.js`) SOLO tiene los 4 permisos de esta bandeja
  * (`titulatec.enrollment_access.*`): no puede abrir `/titulatec/admin/` ni
@@ -82,11 +86,12 @@ db = SessionLocal()
 try:
     row = db.execute(text(
         "SELECT status, (access_granted_at IS NOT NULL), "
-        "(returned_at IS NOT NULL), COALESCE(return_note, '') "
+        "(returned_at IS NOT NULL), COALESCE(return_note, ''), nip_source "
         "FROM titulatec_enrollment_requests WHERE id = :i"),
         {"i": ${parseInt(String(reqId), 10)}}).first()
     print(json.dumps({"status": row[0], "granted": bool(row[1]),
-                      "returned": bool(row[2]), "note": row[3]}) if row else "null")
+                      "returned": bool(row[2]), "note": row[3],
+                      "nipSource": row[4]}) if row else "null")
 finally:
     db.close()
 `],
@@ -117,8 +122,24 @@ test('la fila "Accesos" existe en el menú, es la única que ve Centro de Cómpu
   await expect(solicitudes, 'Solicitudes no debe ser visible para Centro de Cómputo')
     .toHaveCount(0);
 
-  // Modo oficial: la pestaña de omisión es "Por dar acceso".
+  // Modo `sii` (el por omisión) con el SII SIN configurar (el contenedor): la
+  // cabecera no culpa al SII —nadie lo consultó, TODA solicitud sin cuenta
+  // aprobada llega aquí— y da las instrucciones del oficial (revisión final
+  // F4). Ya no queda el aviso de "Accesos no participa" que tenía este modo
+  // antes de la spec 2026-09-27.
+  await expect(page.getByText('Inscripción · Accesos (respaldo)')).toBeVisible();
+  await expect(page.getByText(
+    'Solicitudes sin cuenta que aprobó Servicios Escolares (el SII no está configurado)'))
+    .toBeVisible();
+  await expect(page.getByText('a las que el SII no dio NIP')).toHaveCount(0);
+  await expect(page.locator('#tt-access-sii'), 'el aviso del modo sii inerte ya no existe')
+    .toHaveCount(0);
+
+  // Como en el oficial: la pestaña de omisión es "Por dar acceso", y las tres
+  // pestañas son las del oficial.
   await expect(page.locator('#tt-acc-tab-awaiting_access[aria-current="true"]')).toBeVisible();
+  await expect(page.locator('#tt-acc-tab-granted')).toBeVisible();
+  await expect(page.locator('#tt-acc-tab-returned')).toBeVisible();
 
   const fila = page.locator(`#tt-acc-${reqParaAcceso}`);
   await expect(fila).toContainText('Sin cuenta');
@@ -159,6 +180,10 @@ test('dar NIP mueve la solicitud a «Con acceso»; en la base queda "converted" 
   const row = requestRowFor(reqParaAcceso);
   expect(row.status, 'dar-acceso debió convertir la solicitud').toBe('converted');
   expect(row.granted, 'access_granted_at debió quedar sellado').toBe(true);
+  // El NIP lo dio Accesos, no el SII: por eso sí entra a «Con acceso» (que
+  // excluye las cuentas nacidas con el NIP del SII, spec 2026-09-27 §A6).
+  expect(row.nipSource, 'dar acceso debió marcar el NIP como de Centro de Cómputo')
+    .toBe('center');
 
   // El folio se lee de la BASE, no de una copia inventada aquí.
   const folio = processFolioFor(ctx, '29990777');

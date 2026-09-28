@@ -3,13 +3,25 @@
 {% block admin_view %}access{% endblock %}
 {% block admin_main %}
 <div class="px-4 pt-4 pb-2">
-  <span class="tt-kicker">Inscripción · Centro de Cómputo</span>
+  <span class="tt-kicker">{{ 'Inscripción · Accesos (respaldo)' if sii else 'Inscripción · Centro de Cómputo' }}</span>
   <h1 class="tt-display h3 fw-medium">Accesos</h1>
-  {# Texto por modo (`official`), siempre en segunda persona; los días de la
+  {# Texto por modo, siempre en segunda persona. `sii` va primero: su contexto
+     también trae `official` (mismas acciones que el oficial). Los días de la
      liga salen de `link_days` (`link_ttl_days()`), la misma fuente que el
-     vencimiento y el correo, con «1 día» en singular. #}
+     vencimiento y el correo, con «1 día» en singular. En `sii` la causa
+     depende de `sii_configured` (D11: sin SII, TODA solicitud sin cuenta que
+     SE aprueba llega aquí) y las instrucciones son las del oficial, porque
+     las acciones son las mismas (revisión final F4). #}
   {% set dias = link_days ~ (' día' if link_days == 1 else ' días') %}
-  {% if official %}
+  {% if sii %}
+  <p class="mb-0 small text-body-secondary">{% if sii_configured %}Solicitudes que Servicios
+     Escolares aprobó y a las que el SII no dio NIP{% else %}Solicitudes sin cuenta que aprobó
+     Servicios Escolares (el SII no está configurado){% endif %}: captura su NIP de 4 dígitos y
+     le llega por correo con su usuario. Mientras nunca haya iniciado sesión puedes reasignarle
+     el NIP, con o sin correo. Si entretanto apareció una cuenta con ese número de control, se
+     le envía una liga de activación de {{ dias }} y el NIP no se usa. Si algo no cuadra,
+     devuélvela a Servicios Escolares con una nota: la persona no recibe ningún aviso.</p>
+  {% elif official %}
   <p class="mb-0 small text-body-secondary">Egresados sin cuenta cuya solicitud ya aprobó
      Servicios Escolares. Escribe un NIP de 4 dígitos: a la persona le llega por correo con
      su usuario. Mientras nunca haya iniciado sesión puedes reasignarle el NIP, con o

@@ -3,7 +3,7 @@
 > **Objetivo:** dar a Servicios Escolares una sola pantalla por convocatoria donde ve el
 > avance del padrón, da de alta alumnos (uno a uno o por CSV) y —si es la jefa— configura
 > los días habilitados para el cotejo, los requisitos de cotejo y **la ventana de
-> inscripción pública** (fechas + `status`).
+> inscripción pública** (fecha y hora de apertura y de cierre + `status`).
 
 | | |
 |---|---|
@@ -18,8 +18,9 @@
 
 1. Sidebar admin → **Convocatorias** (`/titulatec/admin/cohorts`; entrada de `_ADMIN_NAV` gateada
    por `titulatec.cohort.page.list`, `pages/nav.py:99`) → fila → **Detalles**.
-2. `/titulatec/admin/cohorts/{id}` — encabezado (nombre, `status`, `period_code`,
-   `opens_at`/`closes_at`) + barra de 4 tabs.
+2. `/titulatec/admin/cohorts/{id}` — encabezado (nombre, `status`, `period_code`, y
+   **Apertura**/**Cierre** con fecha y hora, «dd/mm/aaaa hh:mm», `window_header` de
+   `cohort_detail`) + barra de tabs.
 3. Tabs (orden en pantalla, `admin/cohort_detail.html:21`):
 
 | Tab | `?tab=` | Parcial incluido | Qué muestra |
@@ -86,7 +87,7 @@ Prefijos: router de páginas `/titulatec` (`pages/router.py:18`) + router admin 
 | 6 | 🏛️ | Importar | subir CSV | `POST /cohorts/{id}/import/upload` | `ImportService.save_temp` + `parse` + `autodetect_mapping` | — (CSV temporal por token) | `titulatec.cohort.api.import_csv` |
 | 7 | 🏛️ | Importar | ajustar mapeo | `POST /cohorts/{id}/import/revalidate` | `ImportService.read_temp` + `build_preview` | — | `titulatec.cohort.api.import_csv` |
 | 8 | 🏛️ | Importar | confirmar | `POST /cohorts/{id}/import/commit` | `ImportService.save_mapping` + `import_rows` + `delete_temp` | igual que el paso 2, en lote; notif `PROCESS_CREATED` por proceso creado | `titulatec.cohort.api.import_csv` |
-| 9 | 🏛️ jefa | Resumen | guardar ventana | `POST /cohorts/{id}/ventana` (`status`, `opens_at`, `closes_at`) | `CohortService.set_window` | UPDATE de `opens_at`/`closes_at`/`status` en `titulatec_cohorts` **+ el flip de procesos**: al cerrar, los `active` de esa convocatoria pasan a `on_hold`; al abrir, los `on_hold` de convocatorias cerradas vuelven a `active`. Un `ProcessEvent` (`process_paused`/`process_resumed`) por proceso tocado | `titulatec.cohort.api.update` |
+| 9 | 🏛️ jefa | Resumen | guardar ventana | `POST /cohorts/{id}/ventana` (`status`, `opens_date` + `opens_time`, `closes_date` + `closes_time`; los nombres viejos `opens_at`/`closes_at` solo como respaldo de fecha) | `_parse_window_dt` → `CohortService.set_window` | UPDATE de `opens_at`/`closes_at`/`status` en `titulatec_cohorts` **+ el flip de procesos**: al cerrar, los `active` de esa convocatoria pasan a `on_hold`; al abrir, los `on_hold` de convocatorias cerradas vuelven a `active`. Un `ProcessEvent` (`process_paused`/`process_resumed`) por proceso tocado | `titulatec.cohort.api.update` |
 
 ### Targets HTMX (no todo swappea el tab)
 
@@ -133,9 +134,37 @@ esto: importar CSV y dar de alta a mano siguen funcionando con la convocatoria `
   `require_page_app` evalúa la lista como **OR**, así que un `dashboard.*` de más entregaría a
   cualquier oficial el interruptor que pausa los procesos de toda una convocatoria. Es el mismo
   incidente que documenta `_COHORT_PERMS`.
-- **Las fechas se entregan precargadas en ISO**, porque `set_window` escribe SIEMPRE las dos con lo
-  que reciba: no existe "conservar lo anterior". Un `<input>` vacío **borra** esa fecha, así que un
-  editor sin precarga se llevaría la ventana por delante de quien solo venía a cambiar el estado.
+- **Fecha y hora por extremo (2026-09-27, spec §B).** `opens_at` y `closes_at` son `DateTime`
+  (naive, hora local de `APP_TZ`: el mismo reloj que `db_now()`) **NOT NULL** desde la migración
+  `tt20260927b`. Cada extremo se edita con la macro `window_end` de `_macros.html` (compartida con
+  el alta de convocatoria): `<input type="date">` **obligatorio** + `<input type="time">`
+  **opcional**, con la ayuda «Hora opcional · vacío = 00:00» (apertura) / «vacío = 23:59» (cierre).
+  `_parse_window_dt` aplica la hora de omisión: 00:00 en la apertura y **23:59:59** en el cierre
+  (se muestra «23:59»: quien envía a las 23:59:30 del último día sigue dentro; con un cierre
+  tecleado «23:59», guardado 23:59:00, también, porque la lectura trunca al minuto). Una hora ilegible
+  NO cae a la de omisión: se rechaza. Sin `style=`: los anchos son `.tt-win-*` de `titulatec.css`.
+- **Todo se entrega precargado** (`_window_ctx`: fecha en ISO `YYYY-MM-DD`, hora en `HH:MM`),
+  porque `set_window` escribe SIEMPRE los dos extremos con lo que reciba: no existe "conservar lo
+  anterior". La hora que coincide con la de omisión va **vacía** (Ruling R14): un
+  `<input type="time">` de minutos no lleva segundos, y precargar «23:59» movería el cierre a
+  23:59:00 al re-guardar sin tocarlo.
+- **Validación** (siempre antes de escribir): fecha vacía o ilegible, u hora ilegible → 400
+  «La apertura y el cierre son obligatorios.»; cierre igual o anterior a la apertura → 400 «El
+  cierre tiene que ser posterior a la apertura.» (`CohortService.set_window`, que además exige los
+  dos extremos: vacío ya no significa «sin tope»).
+- **Lectura al minuto con `db_now()`**, nunca el reloj del proceso (el contenedor puede correr en
+  UTC): `db_now()` se trunca a su minuto (`cohort_service._al_minuto`) y
+  `is_public_enrollment_open` = `status == 'open'` y `opens_at <= ahora <= closes_at`;
+  `next_public_enrollment_window` = `opens_at > ahora`, con el MISMO truncado. Así un cierre
+  tecleado «23:59» (guardado 23:59:00) conserva su último minuto igual que el de omisión
+  (23:59:30 abierto, 00:00:00 del día siguiente cerrado) y una apertura a las 09:00 abre al empezar
+  ese minuto (revisión final F10). Lo que sigue a una solicitud ya enviada (aprobar, dar acceso, la
+  liga) no mira las fechas (D5 de 09-24).
+- Sin el permiso, la tarjeta es de solo lectura: «Apertura dd/mm/aaaa hh:mm · Cierre dd/mm/aaaa
+  hh:mm».
+- El interruptor «Aprobación automática (SII)» que vivió en este panel del 2026-09-25 al
+  2026-09-27 se **retiró el 2026-09-27** con la aprobación automática; un formulario viejo en caché
+  que aún mande su campo no mueve nada ([Consulta de elegibilidad al SII](xcut_sii_eligibility.md)).
 - Éxito → 200 con el parcial re-renderizado + `X-Tt-Notice` («Ventana guardada: N proceso(s) en
   pausa.»). Rechazo → **400 + `X-Tt-Error`** percent-codificado, porque htmx no swappea en 4xx.
 - El flip de procesos lo hace **`CohortService.set_window`, no la ruta**: es el actor único de esa
@@ -193,9 +222,16 @@ esto: importar CSV y dar de alta a mano siguen funcionando con la convocatoria `
 ## Estado resultante
 
 - `titulatec_cohorts` **sí se modifica** desde esta pantalla desde 2026-09-08: el editor de ventana
-  del tab *Resumen* escribe `opens_at`, `closes_at` y `status`. (El **alta** sigue viviendo en
-  `/admin/cohorts` + `POST /cohorts`, que crea la convocatoria en `draft`.) Ese mismo POST puede
+  del tab *Resumen* escribe `opens_at`, `closes_at` (fecha y hora) y `status`. Ese mismo POST puede
   además mover `titulatec_processes.status` (`active` ↔ `on_hold`) y escribir `ProcessEvent`.
+- El **alta** vive en la lista (`/titulatec/admin/cohorts` → «Nueva convocatoria» →
+  `POST /cohorts`, perm `titulatec.cohort.api.create`): desde 2026-09-27 pide, además del período
+  académico, la **ventana** con la misma macro `window_end` (fecha obligatoria + hora opcional por
+  extremo, mismas horas de omisión). Si falta una fecha, una hora es ilegible o el cierre no es
+  posterior a la apertura → **303 a `/titulatec/admin/cohorts?error=ventana`** sin crear nada: la
+  lista pinta «Indica apertura y cierre (el cierre después de la apertura).» (`#tt-cohort-new-error`)
+  y deja el formulario desplegado. La convocatoria nace `draft` con esa ventana y sus requisitos
+  de cotejo (misma transacción).
 - Tras *Alumnos* / *Importar*: N `titulatec_processes` (`current_phase=1`, `status=active`,
   `is_app_active=true`) + 9 `titulatec_process_phases` c/u + rol `graduate` en la app (fuera `student`).
 - Tras *Días de cotejo*: filas en `titulatec_cohort_review_days` que habilitan el agendado de la

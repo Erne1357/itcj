@@ -14,11 +14,12 @@
 
    PROHIBIDO poner aquí el nombre de la convocatoria.
    `test_enrollment_public.py:135` asierta `cohort.name not in resp.text`. Solo
-   fechas. Y con `closes_at` nulo el bloque entero desaparece: una fecha
-   inventada es peor que ninguna.
+   fechas. Sin convocatoria (`closes_label` vacío) el bloque entero desaparece:
+   una fecha inventada es peor que ninguna.
 
-   Contexto: closes_label ('30 de septiembre'), closes_countdown ('Faltan 13
-   días', o cadena vacía si ya pasó o es hoy). Los arma
+   Contexto: closes_label ('30 de septiembre a las 23:59' — el cierre siempre
+   lleva hora), closes_countdown ('Faltan 13 días', 'Mañana', 'Hoy a las
+   23:59', o cadena vacía si ya pasó). Los arma
    `pages/public.py::_enroll_aside_ctx`.
    =========================================================================== #}
 <aside class="tt-card tt-enroll-aside" aria-label="Antes de empezar">

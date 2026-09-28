@@ -16,7 +16,7 @@
 
 | Clase (inglés) | Tabla | Qué guarda | Campos clave |
 |---|---|---|---|
-| `Cohort` | `titulatec_cohorts` | Convocatoria por período académico | `period_id`, `name`, `opens_at`, `closes_at` (cierre de **inscripción**), `status` (`draft`/`open`/`closed`) |
+| `Cohort` | `titulatec_cohorts` | Convocatoria por período académico | `period_id`, `name`, `opens_at`, `closes_at` (ventana de **inscripción** pública: fecha **y hora**, `DateTime` naive en hora local de `APP_TZ`, NOT NULL desde `tt20260927b` — antes fechas nullable; cierre por omisión 23:59:59, que se lee «23:59»), `status` (`draft`/`open`/`closed`) |
 | `CohortReviewDay` | `titulatec_cohort_review_days` | Días habilitados para cotejo, por convocatoria | `cohort_id`, `date` · `UNIQUE(cohort_id, date)` |
 | `CotejoRequirement` | `titulatec_cotejo_requirements` | Requisitos "qué llevar a la cita", configurables por convocatoria | `cohort_id`, `label`, `hint`, `icon`, `order_index`, `is_required`, `info_html` (HTML sanitizado con `utils/rich_text.py`, 2026-09-15) |
 | `Modality` | `titulatec_modalities` | Catálogo de modalidades (4 sembradas) | `code`, `requires_synodals`, `signature_rule` (`president_only`/`all_synodals`), `skips_phases` (JSON) |

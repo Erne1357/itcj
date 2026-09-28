@@ -187,6 +187,55 @@ def modo_alterno(monkeypatch):
                         staticmethod(lambda: "computer_center"))
 
 
+@pytest.fixture()
+def modo_sii(monkeypatch):
+    """El SII informa, Servicios Escolares decide (spec 2026-09-27, default
+    desde la Tarea 1): se parchea el método, nunca `get_settings`. UNICA copia
+    (antes duplicada en 6 archivos de prueba: `test_eligibility_service.py`,
+    `test_enrollment_inbox.py`, `test_access_inbox.py`,
+    `test_requests_reconsultar.py`, `test_cohort_window_route.py`,
+    `test_sii_cli.py`); se centraliza aqui igual que `modo_alterno`.
+    """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "sii"))
+
+
+@pytest.fixture(autouse=True)
+def _sin_broker(monkeypatch):
+    """`celery_app.send_task` real tocaría Redis: `enqueue_check` lo llama por
+    nombre (sin sesión de BD de por medio) desde `create()` en modo `sii`,
+    desde «Reintentar consulta» de la bandeja y desde `recheck_errors`
+    (`sii-sweep --reconsultar-errores`). Con `sii` ya de default (Tarea 1) y
+    creciendo el número de archivos que usan la fixture `modo_sii`, este parche
+    es AUTOUSE para que ningún archivo nuevo tenga que acordarse de mockearlo:
+    registra la llamada y devuelve `None` en vez de tocar el broker.
+
+    Los tres tests que prueban el `enqueue_check` REAL
+    (`test_eligibility_service.py::test_enqueue_check_nunca_lanza`,
+    `..._manda_la_tarea_por_nombre_sin_reintentar_el_broker` y
+    `test_sii_no_configurado_no_consulta`) hacen `monkeypatch.undo()` primero
+    (mismo `monkeypatch`, function-scoped: deshace tambien este parche) y
+    vuelven a parchear `send_task` ELLOS MISMOS despues -> su parche, por ser
+    el ultimo `setattr`, gana.
+    """
+    from itcj2.celery_app import celery_app
+
+    llamadas: list = []
+    monkeypatch.setattr(
+        celery_app, "send_task",
+        lambda *a, **k: llamadas.append((a, k)) or None)
+    return llamadas
+
+
+@pytest.fixture()
+def envios_celery(_sin_broker):
+    """Llamadas que `_sin_broker` interceptó, para el test que quiera revisarlas."""
+    return _sin_broker
+
+
 # ---------------------------------------------------------------------------
 # Sesion compartida: proxy + overrides
 # ---------------------------------------------------------------------------
@@ -745,18 +794,28 @@ def make_period(db_session):
 
 @pytest.fixture()
 def make_cohort(db_session, make_period):
-    """Convocatoria. `period_id` es UNIQUE: una convocatoria por periodo."""
+    """Convocatoria. `period_id` es UNIQUE: una convocatoria por periodo.
+
+    La ventana es `DateTime` NOT NULL (spec 2026-09-27 §B1): por omisión abre
+    HOY a las 00:00 y cierra en 30 días a las 23:59:59, en el reloj de la
+    ventana (`db_now`, hora local), no en el del proceso. Quien pase
+    `opens_at`/`closes_at` pasa `datetime`: un `date` se guardaría igual, pero
+    el objeto en memoria no se puede comparar contra `db_now()`.
+    """
     from itcj2.apps.titulatec.models import Cohort
+    from itcj2.core.utils.timezone import db_now
 
     def _make(period=None, name=None, status="open", opens_at=None, closes_at=None,
               created_by=None):
         period = period if period is not None else make_period()
+        hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
         row = Cohort(
             period_id=period.id,
             name=name or f"Convocatoria {period.code}",
             status=status,
-            opens_at=opens_at or date.today(),
-            closes_at=closes_at or (date.today() + timedelta(days=30)),
+            opens_at=opens_at or hoy,
+            closes_at=closes_at or (hoy + timedelta(days=30, hours=23, minutes=59,
+                                                    seconds=59)),
             created_by_id=getattr(created_by, "id", created_by),
         )
         db_session.add(row)

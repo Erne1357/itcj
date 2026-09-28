@@ -3,7 +3,7 @@ import json
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -309,7 +309,22 @@ class Settings(BaseSettings):
     # cierra tras una revocación exitosa y limpia el motivo al cerrarlo. Sin el
     # bump, el navegador sirve el JS viejo (el POST funciona igual: el `hx-post`
     # va en la plantilla, pero el modal no se cierra solo).
-    STATIC_VERSION: str = "1.0.1111574"
+    #
+    # Bump 2026-09-27: `titulatec/css/titulatec.css` («el SII informa, Servicios
+    # Escolares decide» + ventana con hora). Suma `.tt-req-table--sii` (la
+    # SEXTA columna «SII» de Solicitudes con sus anchos y el `min-width: 960px`),
+    # `.tt-sii--compact`/`.tt-sii-fold` (la celda compacta del historial) y los
+    # `.tt-win-*` de la pareja fecha + hora (macro `window_end`, panel de la
+    # ventana y alta de convocatoria); retira `.tt-win-auto` (el interruptor de
+    # la automática). nginx sirve la hoja `immutable`: sin el bump, quien la
+    # tenga en caché ve la columna del SII sin anchos (la tabla se sale) y los
+    # campos de hora a lo ancho de la tarjeta.
+    #
+    # Bump 2026-09-28: `titulatec/css/titulatec.css` reparte otra vez las seis
+    # columnas de Solicitudes en modo `sii` (carrera 13 → 15 %, «Solicitante»
+    # 18 → 17 %, SII 20 → 19 %; revisión final F12). Sin el bump, la hoja
+    # `immutable` en caché sigue partiendo «computacionales» a media palabra.
+    STATIC_VERSION: str = "1.0.1111577"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -458,17 +473,19 @@ class Settings(BaseSettings):
     # vencida; `le=90`: la liga es una credencial al correo personal y no debe
     # vivir un semestre. Fuera de rango truena al arrancar, no a media operación.
     TITULATEC_ENROLLMENT_LINK_TTL_DAYS: int = Field(default=21, ge=1, le=90)
-    # D6: quién revisa las solicitudes. `school_services` (oficial) o
-    # `computer_center` (modo alterno); se cambia por entorno + reinicio y el DML
-    # es el mismo en ambos. `Literal` hace que un typo truene al arrancar en vez
+    # D6: quién revisa las solicitudes. Por omisión `sii` (spec 2026-09-27, «el
+    # SII informa, Servicios Escolares decide»): la consulta automática al SII
+    # trae veredicto + NIP, pero SE sigue dando el paso final desde la bandeja
+    # (nada se aprueba solo). `school_services` y `computer_center` quedan como
+    # RESPALDO, activables solo por variable de entorno + reinicio; el DML es
+    # el mismo en los tres. `Literal` hace que un typo truene al arrancar en vez
     # de dejar la bandeja en un modo que nadie implementa.
-    # Elegibilidad automática contra el SII (spec 2026-09-25). D6 gana un
-    # tercer modo: `sii` delega la decisión al check automático en vez de a
-    # una bandeja humana. Los otros dos modos NO cambian de significado.
-    TITULATEC_ENROLLMENT_REVIEWER: Literal["school_services", "computer_center", "sii"] = "school_services"
+    TITULATEC_ENROLLMENT_REVIEWER: Literal["school_services", "computer_center", "sii"] = "sii"
 
     # `SiiClient` (perezoso, ver servicio): qué backend habla con el SII.
-    # `disabled` no consulta nada (checks se quedan en `pending`), `fake` lee
+    # `disabled` = SII no configurado (spec 2026-09-27 D11): no se consulta ni
+    # se encola nada (no nace ninguna `EligibilityCheck`) y la bandeja aprueba
+    # lo que no tiene cuenta pasándolo a Accesos; `fake` lee
     # `TITULATEC_SII_FAKE_FILE` (dev/demo/tests), `odbc` es el real (FreeTDS).
     TITULATEC_SII_BACKEND: Literal["disabled", "fake", "odbc"] = "disabled"
     # Cadena de conexión ODBC completa (incluye credenciales) — SecretStr para
@@ -484,14 +501,22 @@ class Settings(BaseSettings):
     TITULATEC_SII_FAKE_FILE: str = "database/SII/titulatec/fake_sii.json"
     TITULATEC_SII_CONNECT_TIMEOUT_S: int = Field(5, ge=1, le=60)
     TITULATEC_SII_QUERY_TIMEOUT_S: int = Field(10, ge=1, le=120)
-    # Ventana de veto tras la que un check `apt` se aprueba solo (S2). 0 =
-    # inmediato (default); tope de una semana.
-    TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS: int = Field(0, ge=0, le=168)
-    # Tope de reintentos de `titulatec.sii_check_request` ante `SiiUnavailable`
-    # antes de dejar el check en `error` no reintentable.
+    # Tope de intentos de consulta ante `SiiUnavailable` (tarea y barrido): en
+    # el tope el check se queda en `error` y ya nadie lo retoma solo
+    # (`titulatec sii-sweep --reconsultar-errores` o «Reintentar consulta»).
     TITULATEC_SII_MAX_ATTEMPTS: int = Field(5, ge=1, le=20)
 
     model_config = {"env_file": ".env", "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def _sii_fake_no_en_produccion(self):
+        """El SII FALSO decide quién es apto con un JSON editable: en producción
+        truena al arrancar en vez de aprobar con datos sintéticos (revisión
+        final, spec §8)."""
+        if self.TITULATEC_SII_BACKEND == "fake" and self.FLASK_ENV == "production":
+            raise ValueError("TITULATEC_SII_BACKEND=fake no se permite con "
+                             "FLASK_ENV=production: usa odbc o disabled.")
+        return self
 
     def _extra_cors_origins(self) -> list[str]:
         """Orígenes de `CORS_ORIGINS`, sin vacíos ni duplicados de orden."""

@@ -6,6 +6,8 @@ pintar la bandeja. Contrato que fija este archivo:
 
 - UN código en `perms`: `titulatec.enrollment_request.api.approve` (globals).
 - Solo en el modo `sii`: en los otros dos, 400 con motivo y nada encolado.
+- Solo con el SII configurado (spec 2026-09-27 D11): con el backend
+  `disabled`, 400 «El SII no está configurado.» antes de abrir sesión.
 - Mismo alcance por carrera que aprobar: fuera de alcance = 404 liso.
 - Solo una solicitud `pending_review` (lo único que `EligibilityService.check`
   consulta).
@@ -44,21 +46,23 @@ LIST_PERMS = (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-@pytest.fixture()
-def modo_sii(monkeypatch):
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
-    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
-                        staticmethod(lambda: "sii"))
+# `modo_sii` vive en conftest.py (Tarea 1: una sola copia compartida en vez de
+# 6 duplicadas por archivo).
 
 
 @pytest.fixture(autouse=True)
-def _tope_y_ventana(monkeypatch):
+def _tope(monkeypatch):
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
 
     monkeypatch.setattr(EligibilityService, "max_attempts", staticmethod(lambda: 5))
-    monkeypatch.setattr(EligibilityService, "delay_hours", staticmethod(lambda: 0))
+
+
+@pytest.fixture(autouse=True)
+def _sii_configurado(monkeypatch):
+    """Un backend que no es `disabled`: sin él la ruta corta con 400 antes de
+    todo (D11, `test_reconsultar_con_sii_no_configurado_da_400`). El SII no se
+    consulta aquí salvo con `sii_falso`, que además apunta al JSON falso."""
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "fake"))
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +71,7 @@ def encolado(monkeypatch):
     llamadas = []
     monkeypatch.setattr(
         "itcj2.apps.titulatec.services.eligibility_service.enqueue_check",
-        lambda req_id, **kw: llamadas.append((req_id, kw)))
+        lambda req_id, **kw: llamadas.append((req_id, kw)) or True)
     return llamadas
 
 
@@ -219,6 +223,30 @@ def test_fuera_del_modo_sii_no_encola(
     assert encolado == []
 
 
+def test_reconsultar_con_sii_no_configurado_da_400(
+    client_as, db_session, make_head, make_cohort, modo_sii, encolado, monkeypatch,
+):
+    """Spec 2026-09-27 D11: con `TITULATEC_SII_BACKEND=disabled` no hay a quién
+    preguntar. El corte va ANTES de abrir sesión: ni siquiera se busca la
+    solicitud (una inexistente también da 400, no 404)."""
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "disabled"))
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99650010")
+    c = client_as(head)
+
+    resp = _post(c, req, cohort_id=str(cohort.id))
+    inexistente = c.post(f"{URL}/999999999/reconsultar", data={}, follow_redirects=False)
+
+    for r in (resp, inexistente):
+        assert r.status_code == 400
+        assert unquote(r.headers["X-Tt-Error"]) == "El SII no está configurado."
+        assert "X-Tt-Notice" not in r.headers
+    assert encolado == []
+    db_session.refresh(req)
+    assert req.last_check_id is None
+
+
 @pytest.mark.parametrize("estado", ["approved", "converted", "rejected", "unverified"])
 def test_una_solicitud_que_no_esta_por_revisar_no_se_consulta(
     client_as, db_session, make_head, make_cohort, modo_sii, encolado, estado,
@@ -327,14 +355,12 @@ def sii_falso(monkeypatch, tmp_path):
 def test_el_nip_del_sii_nunca_llega_a_la_bandeja(
     client_as, db_session, make_head, make_cohort, modo_sii, sii_falso,
 ):
-    """Una no apta y una apta con la aprobación automática apagada quedan
-    «Por revisar» con su consulta REAL; el SII tiene NIP para las dos."""
+    """Una no apta y una apta quedan «Por revisar» con su consulta REAL (nada
+    se aprueba solo); el SII tiene NIP para las dos."""
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
 
     head = make_head(perm_codes=LIST_PERMS)
     cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
-    db_session.flush()
     no_apta = _make_req(db_session, cohort, control="99650020")
     sii_falso("99650020", creditos_aprobados=200)
     apta = _make_req(db_session, cohort, control="99650021")
@@ -343,12 +369,12 @@ def test_el_nip_del_sii_nunca_llega_a_la_bandeja(
     assert EligibilityService.check(db_session, no_apta.id).status == "not_apt"
     assert EligibilityService.check(db_session, apta.id).status == "apt"
     db_session.refresh(apta)
-    assert apta.status == "pending_review", "el interruptor apagado la deja aquí"
+    assert apta.status == "pending_review", "la aprueba Servicios Escolares, no el SII"
 
     html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
 
     assert "Le faltan créditos: 200 de 260." in _plano(_fila(html, no_apta))
-    assert "La aprobación automática está apagada" in _plano(_fila(html, apta))
+    assert "Apta" in _plano(_fila(html, apta))
     assert NIP_SII not in html
 
 
@@ -386,3 +412,62 @@ def test_la_bandeja_y_el_servicio_coinciden_en_que_es_una_consulta_en_curso(
     assert ("/reconsultar" in fila) is consulto, "el botón de la bandeja"
     assert (ruta.status_code == 200) is consulto, ruta.headers.get("X-Tt-Error")
     assert (encolado == [(req.id, {"force": True})]) is consulto
+
+
+# ---------------------------------------------------------------------------
+# Aprobar en modo sii llama al SII (el NIP): fuera del event loop (revisión
+# final C6/C8). La ruta corre el servicio en el threadpool de starlette.
+# ---------------------------------------------------------------------------
+def test_aprobar_corre_el_servicio_fuera_del_event_loop(
+    client_as, db_session, make_head, make_cohort, modo_sii, monkeypatch,
+):
+    import asyncio
+
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        ApproveResult, EnrollmentRequestService,
+    )
+
+    visto = {}
+
+    def _approve(db, req_id, **kw):
+        try:
+            asyncio.get_running_loop()
+            visto["loop"] = True
+        except RuntimeError:
+            visto["loop"] = False
+        return ApproveResult(False, "Detenido por la prueba.", None)
+
+    # La ruta llama a `approve_detailed` (Tarea 5: distingue la falla del NIP).
+    monkeypatch.setattr(EnrollmentRequestService, "approve_detailed",
+                        staticmethod(_approve))
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99650090")
+
+    resp = client_as(head).post(f"{URL}/{req.id}/aprobar",
+                                data={"status": "pending_review", "cohort_id": ""},
+                                follow_redirects=False)
+
+    assert resp.status_code == 400
+    assert unquote(resp.headers["X-Tt-Error"]) == "Detenido por la prueba."
+    assert visto == {"loop": False}, "approve() corrió dentro del event loop"
+
+
+def test_si_no_se_pudo_encolar_responde_400_y_no_anuncia_exito(
+    client_as, db_session, make_head, make_cohort, modo_sii, monkeypatch,
+):
+    """Revisión final: `enqueue_check` devuelve si encoló. Con el broker caído
+    la ruta ya no anuncia «Consulta al SII solicitada»."""
+    monkeypatch.setattr(
+        "itcj2.apps.titulatec.services.eligibility_service.enqueue_check",
+        lambda req_id, **kw: False)
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99650091")
+
+    resp = _post(client_as(head), req, cohort_id=str(cohort.id))
+
+    assert resp.status_code == 400
+    assert unquote(resp.headers["X-Tt-Error"]) == (
+        "No se pudo solicitar la consulta; intenta de nuevo.")
+    assert "X-Tt-Notice" not in resp.headers

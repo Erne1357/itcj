@@ -102,6 +102,53 @@ def test_last_check_id_nace_nulo(db_session, solicitud):
     assert solicitud["req"].last_check_id is None
 
 
+def test_el_check_declara_nip_status_string20_nullable():
+    from sqlalchemy import String
+
+    col = EligibilityCheck.__table__.columns["nip_status"]
+    assert isinstance(col.type, String)
+    assert col.type.length == 20
+    assert col.nullable is True
+
+
+def test_el_check_nace_con_nip_status_nulo(db_session, solicitud):
+    chk = EligibilityCheck(request_id=solicitud["req"].id)
+    db_session.add(chk)
+    db_session.flush()
+    db_session.refresh(chk)
+
+    assert chk.nip_status is None
+
+
+def test_el_check_guarda_el_estado_del_nip(db_session, solicitud):
+    chk = EligibilityCheck(request_id=solicitud["req"].id, status="apt", nip_status="available")
+    db_session.add(chk)
+    db_session.flush()
+    db_session.refresh(chk)
+
+    assert chk.nip_status == "available"
+
+
+def test_el_comentario_de_nip_status_separa_not_needed_de_null():
+    """Contrato para las Tasks 4/5/6/8 (spec A2): `not_needed` es el valor
+    que se escribe cuando la persona SI tenia cuenta al consultar; NULL es
+    un caso aparte (no se reviso), sin relacion con "tiene cuenta". La
+    ronda 1 de revision de esta tarea encontro el comentario al reves --
+    ver `.superpowers/sdd/2026-09-27-titulatec-sii-informa-se-decide/
+    task-2-review-7fc84fe-a730c90.md`.
+    """
+    import inspect
+
+    from itcj2.apps.titulatec.models import eligibility_check as mod
+
+    src = inspect.getsource(mod)
+
+    assert "`not_needed` = la persona SI tenia cuenta" in src
+    # El error de ronda 1: decir que NULL tambien significa "tiene cuenta".
+    assert "NULL = no se reviso (tiene cuenta" not in src
+    assert "Solo se llena si la persona consultada NO tiene cuenta" not in src
+
+
 def test_la_convocatoria_nace_con_auto_approve_encendido(db_session, make_cohort):
     cohort = make_cohort()
     db_session.flush()

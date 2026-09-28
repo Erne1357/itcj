@@ -23,6 +23,17 @@ para que de el NIP -- el flujo completo esta en
   resuelve en un solo salto (pending_review -> converted), sin pasar por
   awaiting_access.
 
+  El modo `sii` (2026-09-27, por omision desde entonces -- spec
+  `2026-09-27-titulatec-sii-informa-se-decide-design.md`) sigue siendo
+  Servicios Escolares quien aprueba, pero reusa las MISMAS transiciones de
+  arriba segun el estado del NIP que ya vio la consulta
+  (`EligibilityCheck.nip_status`): SIN cuenta y NIP disponible se comporta
+  como el modo alterno (pending_review -> converted, con el NIP del SII);
+  SIN cuenta y cualquier otro `nip_status` (o sin consulta) se comporta como
+  el modo oficial (pending_review -> awaiting_access); CON cuenta es igual
+  en los tres modos (pending_review -> approved). En resumen:
+  `pending_review -> converted | approved | awaiting_access`.
+
   `unverified` y `verified` son LEGADO del flujo con liga previa: ya no se
   escriben, pero sus filas se pueden aprobar o rechazar. Por eso el
   `server_default` sigue en 'unverified'; `create()` escribe 'pending_review'.
@@ -148,6 +159,16 @@ class EnrollmentRequest(Base):
     # `models/eligibility_check.py` para el historial completo por intento.
     last_check_id = Column(Integer, ForeignKey("titulatec_eligibility_checks.id"),
                            nullable=True)
+
+    # De donde salio el NIP de la cuenta que esta solicitud creo (2026-09-27):
+    # `sii|center|form`; NULL = cuenta preexistente (aprobar con liga) o fila
+    # anterior a esta migracion. Lo escriben `_create_account`/
+    # `grant_access`: `sii` cuando el NIP nacio de la consulta al SII,
+    # `center` cuando lo dio Centro de Computo a mano, `form` en el modo
+    # alterno (sin SII). La bandeja de Accesos ("Con acceso") filtra
+    # `nip_source IS DISTINCT FROM 'sii'` para no listar las cuentas que ya
+    # mandaron su propio correo con NIP. Migracion `tt20260927a`.
+    nip_source = Column(String(20), nullable=True)
 
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     updated_at = Column(DateTime, nullable=False, server_default=text("NOW()"))

@@ -8,7 +8,7 @@ Comandos:
     titulatec sii-ping                    Comprueba que el SII responde (backend configurado).
     titulatec sii-rules-validate [--dir]  Valida rules.toml + queries/*.sql del SII.
     titulatec sii-check <control>         Dry-run de las reglas del SII (NIP enmascarado).
-    titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta, reintenta, aprueba).
+    titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta y reintenta).
 """
 from pathlib import Path
 
@@ -1003,16 +1003,45 @@ def sii_rules_validate_command(rules_dir):
         for e in errors:
             click.echo(click.style(f"  - {e}", fg="red"))
         _sii_fail(f"{len(errors)} error(es) en las reglas.")
+    for aviso in rs.advisories():
+        click.echo(click.style(f"Advertencia: {aviso}", fg="yellow"))
     click.echo(click.style("OK: reglas válidas. (Las columnas de los mensajes se "
                            "verifican al ejecutar: usa sii-check.)", fg="green"))
 
 
 _SII_STATUS_LABEL = {"apt": "APTA", "not_apt": "NO APTA", "error": "ERROR"}
 
+# `nip_status` (`EligibilityService.classify_sii_nip`) → texto de `sii-check`.
+# `None` = no se revisó (veredicto `error`), como en la consulta.
+_SII_NIP_LABEL = {
+    "available": "disponible",
+    "missing": "no tiene",
+    "invalid": "formato inválido",
+    "unavailable": "no se pudo leer (el SII no respondió)",
+    "error": "error de configuración",
+    None: "sin revisar",
+}
+# El NIP no serviría para crear la cuenta: `sii-check` no pasa en verde.
+_SII_NIP_FAILS = ("invalid", "unavailable", "error")
 
-def _sii_cohort_outcome(cohort_id: int, verdict_status: str) -> None:
-    """Imprime qué pasaría con esta convocatoria. Solo lectura (rollback)."""
+
+def _sii_cohort_outcome(cohort_id: int, control: str, nip_status: str | None) -> None:
+    """Imprime lo que vería Servicios Escolares en «Por revisar» de esa
+    convocatoria (spec 2026-09-27 §A7). Solo lectura (rollback).
+
+    Ninguna se aprueba sola: con cualquier veredicto la decide SE. El botón
+    sale de «¿tiene cuenta?» (contra `core_users` ahora, como al aprobar) y del
+    estado del NIP, con la MISMA decisión que la bandeja
+    (`EnrollmentRequestService.approval_path` + `APPROVAL_LABELS`, Ruling R8).
+    Un control que no cumple `CONTROL_NUMBER_RE` no se busca en `core_users`
+    (mismo corte que `EligibilityService.check` y la aprobación): cuenta como
+    sin cuenta."""
     from itcj2.apps.titulatec.models import Cohort
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        APPROVAL_LABELS, EnrollmentRequestService,
+    )
+    from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
+    from itcj2.core.models.user import User
     from itcj2.database import SessionLocal
 
     db = SessionLocal()
@@ -1020,20 +1049,13 @@ def _sii_cohort_outcome(cohort_id: int, verdict_status: str) -> None:
         cohort = db.get(Cohort, cohort_id)
         if cohort is None:
             _sii_fail(f"No existe la convocatoria {cohort_id}.")
-        # `sii_auto_approve` llega con la migración tt20260925a (server_default
-        # TRUE); antes de ella la convocatoria se comporta como encendida.
-        auto = bool(getattr(cohort, "sii_auto_approve", True))
-        click.echo(f"Convocatoria: {cohort.name} (id {cohort.id}, {cohort.status}) · "
-                   f"aprobación automática: {'encendida' if auto else 'apagada'}")
-        if verdict_status == "apt" and auto and cohort.status == "open":
-            click.echo("  → se aprobaría automáticamente (sujeto a la ventana de veto "
-                       "TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS).")
-        else:
-            why = ("no es apta" if verdict_status == "not_apt"
-                   else "la consulta falló" if verdict_status == "error"
-                   else "la convocatoria no está abierta" if cohort.status != "open"
-                   else "la aprobación automática está apagada")
-            click.echo(f"  → quedaría «Por revisar» de Servicios Escolares ({why}).")
+        tiene_cuenta = (CONTROL_NUMBER_RE.fullmatch(control) is not None
+                        and db.query(User.id).filter_by(control_number=control)
+                        .first() is not None)
+        boton = APPROVAL_LABELS[EnrollmentRequestService.approval_path(tiene_cuenta, nip_status)]
+        click.echo(f"Convocatoria: {cohort.name} (id {cohort.id}, {cohort.status})")
+        click.echo(f"Cuenta: {'sí' if tiene_cuenta else 'no'}")
+        click.echo(f"  → En «Por revisar», Servicios Escolares vería: {boton}")
     finally:
         db.rollback()
         db.close()
@@ -1046,15 +1068,25 @@ def _sii_cohort_outcome(cohort_id: int, verdict_status: str) -> None:
 def sii_check_command(control_number, cohort_id):
     """Dry-run: evalúa las reglas del SII para un número de control.
 
-    Imprime el resultado por regla, los hechos, la identidad y si el SII
-    devuelve NIP (siempre enmascarado). No escribe nada.
+    Imprime el resultado por regla, los hechos, la identidad y el estado del
+    NIP (`classify_sii_nip`; el valor siempre enmascarado): el que guardaría
+    la consulta para una persona SIN cuenta. Aquí se pregunta siempre,
+    aunque el control ya tenga cuenta (la consulta, en ese caso, ni lo pide y
+    guarda `not_needed`). Con `--cohort`, el botón que vería Servicios
+    Escolares. No escribe nada. Sale 1 ante `error` o un NIP que no serviría
+    para crear la cuenta (formato inválido, SII sin respuesta, `[credential]`
+    mal configurada).
     """
     import time
 
+    from itcj2.apps.titulatec.services.eligibility_service import (
+        EligibilityService, nip_failure,
+    )
     from itcj2.apps.titulatec.services.sii.client import SiiConfig, get_sii_client
     from itcj2.apps.titulatec.services.sii.errors import SiiError, SiiRulesError
     from itcj2.apps.titulatec.services.sii.rules import RuleSet
 
+    classify = EligibilityService.classify_sii_nip
     control = control_number.strip().upper()
     rules_dir = SiiConfig.rules_dir()
     try:
@@ -1064,27 +1096,35 @@ def sii_check_command(control_number, cohort_id):
         _sii_fail(str(exc))
 
     t0 = time.monotonic()
-    credential_failed = False  # un nip.sql roto NO pasa en verde (runbook §7)
+    nip_status = None          # sin revisar, como la consulta con veredicto `error`
     with sii:
         verdict = rs.evaluate(sii, control)
-        if not rs.has_credential:
-            nip_line = "sin NIP (las reglas no declaran [credential])"
-        elif verdict.status == "error":
-            nip_line = "no consultado (la evaluación falló)"
+        if verdict.status == "error":
+            nip_detail = "no consultado (la evaluación falló)"
+        elif not rs.has_credential:
+            nip_status = classify(None, None)
+            nip_detail = "sin NIP (las reglas no declaran [credential])"
         else:
             # El mensaje de estas excepciones ya viene sin el NIP: la consulta
             # va en modo sensible y el motor solo nombra columnas.
             try:
-                secret = rs.fetch_credential(sii, control)
+                # El `Secret` se clasifica y se descarta en esta misma línea.
+                nip_status = classify(rs.fetch_credential(sii, control), None)
             except SiiRulesError as exc:
-                credential_failed = True
-                nip_line = f"error en las reglas ({exc})"
+                nip_status = classify(None, nip_failure(exc))
+                nip_detail = f"error en las reglas ({exc})"
             except SiiError as exc:
-                credential_failed = True
-                nip_line = f"no se pudo consultar ({exc})"
+                nip_status = classify(None, nip_failure(exc))
+                nip_detail = f"no se pudo consultar ({exc})"
             else:
-                nip_line = "**** (el SII lo devuelve)" if secret else "sin NIP (el SII no lo devuelve)"
-                del secret
+                # Solo el formato, jamás el valor. Con otro formato la cuenta no
+                # se podría crear al aprobarla: no pasa en verde.
+                nip_detail = {
+                    "available": "**** (el SII lo devuelve · 4 dígitos: sí)",
+                    "invalid": ("**** (el SII lo devuelve · 4 dígitos: no — con ese "
+                                "formato no se puede crear la cuenta)"),
+                    "missing": "sin NIP (el SII no lo devuelve)",
+                }[nip_status]
     ms = int((time.monotonic() - t0) * 1000)
 
     color = {"apt": "green", "not_apt": "yellow"}.get(verdict.status, "red")
@@ -1105,25 +1145,37 @@ def sii_check_command(control_number, cohort_id):
             click.echo(f"  {k} = {v}")
     for w in verdict.warnings:
         click.echo(click.style(f"Advertencia: {w}", fg="yellow"))
-    click.echo(f"NIP: {nip_line}")
+    click.echo(f"NIP: {_SII_NIP_LABEL[nip_status]} — {nip_detail}")
     click.echo(f"Duración: {ms} ms")
 
     if cohort_id is not None:
-        _sii_cohort_outcome(cohort_id, verdict.status)
-    if verdict.status == "error" or credential_failed:
+        _sii_cohort_outcome(cohort_id, control, nip_status)
+    if verdict.status == "error" or nip_status in _SII_NIP_FAILS:
         raise SystemExit(1)
 
 
 @titulatec_cli.command("sii-sweep")
 @click.option("--cohort", "cohort_id", type=int, default=None,
               help="Solo las solicitudes de esa convocatoria.")
-def sii_sweep_command(cohort_id):
+@click.option("--reconsultar-errores", "reconsultar_errores", is_flag=True,
+              help="En vez del barrido: encola una consulta forzada para toda "
+                   "solicitud por revisar cuya consulta vigente sea un error "
+                   "(de configuración o en el tope de intentos) o esté colgada. "
+                   "Úsalo tras corregir las reglas o la conexión.")
+def sii_sweep_command(cohort_id, reconsultar_errores):
     """Barrido manual del SII (lo mismo que la tarea periódica `sii_sweep`).
 
-    Consulta las solicitudes por revisar que no tienen consulta, reintenta las
-    fallidas y aprueba las aptas con la ventana de veto vencida. Solo en el
-    modo `sii`. ESCRIBE en la BD (consultas y aprobaciones) y manda los
-    correos de las aprobadas; imprime solo los conteos.
+    Consulta las solicitudes por revisar que no tienen consulta y reintenta las
+    fallidas. No aprueba nada (eso es de Servicios Escolares, desde la bandeja).
+    Solo en el modo `sii`. ESCRIBE en la BD (las consultas); imprime solo los
+    conteos.
+
+    Con `--reconsultar-errores` solo ENCOLA reconsultas forzadas de lo que el
+    barrido ya no toma (`EligibilityService.recheck_errors`); las hace el
+    worker de celery.
+
+    Con el SII sin configurar (`TITULATEC_SII_BACKEND=disabled`, spec
+    2026-09-27 D11) el servicio no consulta ni encola nada: se avisa y sale 0.
     """
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.apps.titulatec.services.enrollment_request_service import (
@@ -1139,8 +1191,22 @@ def sii_sweep_command(cohort_id):
         return
     db = SessionLocal()
     try:
-        out = EligibilityService.sweep(db, cohort_id=cohort_id)
+        if reconsultar_errores:
+            out = EligibilityService.recheck_errors(db, cohort_id=cohort_id)
+        else:
+            out = EligibilityService.sweep(db, cohort_id=cohort_id)
     finally:
         db.close()
-    click.echo(f"Consultadas: {out['checked']} · reintentadas: {out['retried']} · "
-               f"aprobadas: {out['approved']}")
+    if out.get("disabled"):
+        click.echo(click.style(
+            "El SII no está configurado (TITULATEC_SII_BACKEND=disabled); "
+            "no se consultó nada.", fg="yellow"))
+        return
+    if reconsultar_errores:
+        click.echo(f"Reconsultas encoladas: {out['queued']}")
+        if out["failed"]:
+            click.echo(click.style(
+                f"No se pudo encolar: {out['failed']} (¿broker caído?). Vuelve a "
+                "correr el comando.", fg="yellow"))
+        return
+    click.echo(f"Consultadas: {out['checked']} · reintentadas: {out['retried']}")

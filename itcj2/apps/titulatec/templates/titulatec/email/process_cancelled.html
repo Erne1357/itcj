@@ -1,12 +1,13 @@
 {# Aviso de inscripción revocada (`TitulaTecEmailHelper.send_process_cancelled`).
    Sin motivo, sin folio y sin número de control: va también al correo PERSONAL,
-   que tecleó quien llenó el formulario. El motivo se lee en la plataforma. #}
+   que tecleó quien llenó el formulario. El motivo se lee en la plataforma.
+   Texto neutro: no atribuye la revocación a un área (revisión final F2). #}
 {% extends "titulatec/email/_base_email.html" %}
 {% block titulo %}Cambio en tu inscripción — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 <p style="margin:0 0 20px;">
-  Servicios Escolares <strong>canceló tu inscripción al proceso de titulación</strong>.
+  <strong>Tu inscripción al proceso de titulación fue revocada</strong>.
   El motivo lo puedes consultar al entrar a la plataforma.
 </p>
 <p style="margin:0 0 24px;text-align:center;">

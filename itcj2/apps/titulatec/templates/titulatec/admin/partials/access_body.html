@@ -9,7 +9,9 @@
    formulario de fila la manda de vuelta, junto con la convocatoria, en campos
    ocultos: la acción vuelve a pintar la pestaña donde estaba CC.
 
-   Modo oficial (`official`): Por dar acceso · Con acceso · Devueltas. Una fila
+   Modo oficial (`official`, también en modo `sii`, donde Accesos es el
+   respaldo de SE para quien el SII no dio NIP): Por dar acceso · Con acceso ·
+   Devueltas. Una fila
    `awaiting_access` ofrece «Dar acceso» (NIP) o, si el control ya tiene cuenta
    HOY, «Enviar liga» con el aviso D10 — la misma pregunta que se hace
    `grant_access()` —, más «Devolver a Servicios Escolares» (nota ≤ 2000).
@@ -28,10 +30,14 @@
    `r.can_reassign`), haya salido o no el correo: un correo mal escrito también
    «sale». Su formulario dice a qué correo va y deja no mandarlo (`no_mail`,
    «lo dicto por teléfono»).
-   «Con acceso» también lista la D10 que SE canceló (`rejected`, sin acciones).
+   «Con acceso» también lista la D10 que SE canceló (`rejected`, sin acciones),
+   pero no las cuentas que nacieron con el NIP del SII (`_tab_query`).
 
    El NIP NUNCA se pinta: sus campos no llevan `value`.
-   Sin hx-confirm (no hay puente) y sin JS ni CSS en línea. #}
+   Sin hx-confirm: ninguna acción de aquí pide confirmación (si alguna la
+   necesitara, el puente existe: `hx-confirm` + `data-tt-confirm-ok` en el
+   `<form>`, que `titulatec-utils.js` lleva a `TitulaTecUtils.confirmDialog`,
+   como aprobar en Solicitudes). Sin JS ni CSS en línea. #}
 {% macro tab_fields(tab, cohort) -%}
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="cohort_id" value="{{ cohort or '' }}">
@@ -43,7 +49,6 @@
 {%- endmacro %}
 {%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
 <div id="tt-access-body" data-tt-view="access-body">
-
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
     {% for key, label in tabs %}
     <button id="tt-acc-tab-{{ key }}" type="button"

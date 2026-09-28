@@ -392,6 +392,9 @@ class SurveyReviewService:
                                if review.reviewed_at else None),
                 "can_revoke": (process.status == "active"
                               and fase2_status.get(process.id) != "approved"),
+                # Inscripción revocada (`ProcessService.cancel`): el historial la
+                # conserva, pero toda acción respondería 400 (`_active_process`).
+                "revoked": process.status == "cancelled",
             })
         return out, has_more
 

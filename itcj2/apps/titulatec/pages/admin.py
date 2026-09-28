@@ -1,6 +1,7 @@
 """Páginas administrativas de TitulaTec (desktop, bandeja tipo email)."""
 import logging
 import secrets
+from datetime import datetime, time
 
 from fastapi import APIRouter, Depends, File, Form, Path, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
@@ -70,31 +71,75 @@ def _parse_day(raw: str | None):
         return None
 
 
+# Hora por omisión de cada extremo de la ventana cuando el formulario la deja
+# vacía (spec 2026-09-27 D8/D9). El cierre es 23:59:59 —se lee «23:59»— para que
+# quien envía a las 23:59:30 del último día siga dentro.
+_OPENS_DEFAULT_TIME = time(0, 0)
+_CLOSES_DEFAULT_TIME = time(23, 59, 59)
+
+
+def _parse_window_dt(date_raw: str | None, time_raw: str | None, *,
+                     default: time) -> datetime | None:
+    """Fecha `YYYY-MM-DD` (obligatoria) + hora `HH:MM` (opcional) → `datetime`.
+
+    Hora vacía → `default`. Fecha vacía o ilegible, u hora ilegible → `None`,
+    nunca un 500: el panel de la ventana (`cohort_window`) lo convierte en
+    400 «La apertura y el cierre son obligatorios.» y el alta de convocatoria
+    (`cohort_create`) en un 303 a `?error=ventana`, sin crear nada. Una hora
+    que no se entiende NO cae al valor por omisión: abrir a las 00:00 lo que
+    la jefa quiso abrir a las 09:00 es peor que pedírsela otra vez.
+    """
+    d = _parse_day(date_raw)
+    if d is None:
+        return None
+    t = (time_raw or "").strip()
+    if not t:
+        return datetime.combine(d, default)
+    try:
+        return datetime.combine(d, datetime.strptime(t, "%H:%M").time())
+    except ValueError:
+        return None
+
+
+def _fecha_hora(dt) -> str:
+    """'05/10/2026 09:00' para las cabeceras del panel. Solo dígitos, así que
+    `strftime` no depende del locale del proceso."""
+    return dt.strftime("%d/%m/%Y %H:%M")
+
+
 def _window_ctx(db, cohort, *, can_edit: bool) -> dict:
     """Contexto del parcial `cohort/cohort_window.html`.
 
-    Las fechas se entregan ya en ISO porque `<input type="date">` solo acepta
-    ese formato: cualquier otro lo deja en blanco y el editor parecería vacío
-    sobre una convocatoria que sí tiene ventana. No es cosmético —
-    `CohortService.set_window` escribe SIEMPRE las dos fechas con lo que reciba,
-    sin conservar lo anterior, así que un input en blanco las borra.
+    `opens_date/opens_time/closes_date/closes_time` son el par fecha + hora por
+    extremo, SIEMPRE precargado: `CohortService.set_window` escribe los dos
+    extremos con lo que reciba, sin conservar lo anterior. La fecha va en ISO
+    (`YYYY-MM-DD`) porque `<input type="date">` solo acepta ese formato —un ISO
+    con hora lo deja en blanco—; la hora en `HH:MM`.
 
-    `sii_mode`/`sii_auto_approve`: el interruptor «Aprobación automática (SII)»
-    (spec 2026-09-25 §3.5) solo existe en el modo `sii`.
+    La hora que coincide con la de omisión va VACÍA: el cierre por omisión es
+    23:59:59 y un `<input type="time">` de minutos no puede llevar los
+    segundos; precargado como «23:59», re-guardar la ventana sin tocarla
+    movería el cierre a 23:59:00 y se perdería el último minuto. Vacío vuelve a
+    ser 23:59:59 (`_parse_window_dt`), y el formulario lo dice («vacío = 23:59»).
+
+    `opens_label/closes_label` son la lectura «dd/mm/aaaa hh:mm» de quien no
+    puede editar (la misma que la cabecera del detalle).
     """
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
+    def _hora(dt, default):
+        return "" if dt.time() == default else dt.strftime("%H:%M")
+
     return {
         "cohort_id": cohort.id,
         "window": {
             "status": cohort.status,
-            "opens_at": cohort.opens_at.isoformat() if cohort.opens_at else "",
-            "closes_at": cohort.closes_at.isoformat() if cohort.closes_at else "",
+            "opens_date": cohort.opens_at.date().isoformat(),
+            "opens_time": _hora(cohort.opens_at, _OPENS_DEFAULT_TIME),
+            "closes_date": cohort.closes_at.date().isoformat(),
+            "closes_time": _hora(cohort.closes_at, _CLOSES_DEFAULT_TIME),
+            "opens_label": _fecha_hora(cohort.opens_at),
+            "closes_label": _fecha_hora(cohort.closes_at),
         },
         "can_edit_window": can_edit,
-        "sii_mode": EnrollmentRequestService.reviewer_mode() == "sii",
-        "sii_auto_approve": bool(cohort.sii_auto_approve),
     }
 
 
@@ -130,8 +175,9 @@ def _cohort_summary_ctx(db, cohort) -> dict:
         review_days = 0
     return {
         "period_code": cohort.period_code, "status": cohort.status,
-        "opens_at": cohort.opens_at.isoformat() if cohort.opens_at else None,
-        "closes_at": cohort.closes_at.isoformat() if cohort.closes_at else None,
+        # ISO completo, con hora (spec 2026-09-27 §B3).
+        "opens_at": cohort.opens_at.isoformat(),
+        "closes_at": cohort.closes_at.isoformat(),
         "total": total, "phase_rows": phase_rows, "with_appt": with_appt,
         "completed": completed, "cancelled": cancelled,
         "pct_completed": round(completed / total * 100) if total else 0,
@@ -388,9 +434,15 @@ async def home(
 @router.get("/cohorts", name="titulatec.pages.admin.cohorts")
 async def cohorts(
     request: Request,
+    error: str = "",
     user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS)),
 ):
-    """Lista de convocatorias + alta (selecciona período académico)."""
+    """Lista de convocatorias + alta (período académico y ventana).
+
+    `?error=ventana` lo pone `cohort_create` cuando la ventana del alta no
+    sirve: la página pinta el aviso y deja el formulario desplegado. Cualquier
+    otro valor se ignora.
+    """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort, TitulationProcess
     from itcj2.core.models.academic_period import AcademicPeriod
@@ -419,6 +471,7 @@ async def cohorts(
         db.close()
     return render_titulatec(request, "titulatec/admin/cohorts.html", {
         "cohorts": rows, "periods": periods, "kpis": kpis,
+        "window_error": error == "ventana",
     })
 
 
@@ -426,16 +479,25 @@ async def cohorts(
 async def cohort_create(
     request: Request,
     period_id: int = Form(...),
+    opens_date: str = Form(""),
+    opens_time: str = Form(""),
+    closes_date: str = Form(""),
+    closes_time: str = Form(""),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.create"])),
 ):
-    """Alta de convocatoria: nace en `draft` y con su lista de requisitos.
-
-    Dos cambios respecto a la versión anterior, ambos deliberados:
+    """Alta de convocatoria: nace en `draft`, con su ventana y su lista de
+    requisitos.
 
     * **`status='draft'`, no `'open'`.** Toda convocatoria nacía abierta con
       `opens_at`/`closes_at` en NULL, así que el predicado de "convocatoria
       pública abierta" era verdadero para TODAS y el formulario público no
       habría sabido a cuál inscribir. La abre el editor de ventana.
+    * **La ventana la teclea la jefa** (spec 2026-09-27 §B2): misma regla que
+      el panel —fecha obligatoria, hora opcional (vacía = 00:00 / 23:59:59),
+      cierre POSTERIOR a la apertura—. Las columnas son NOT NULL, y una
+      ventana inventada por el servidor sería una fecha que nadie decidió.
+      Si no sirve: 303 a `?error=ventana` ANTES de abrir sesión, sin crear
+      nada; la lista pinta el aviso.
     * **Siembra los requisitos de cotejo en la MISMA transacción.** `list_or_seed`
       es perezoso y solo se dispararía desde una página gateada por la fase 2:
       un alumno en fase 1 que contesta la encuesta no tendría requisito que
@@ -448,6 +510,11 @@ async def cohort_create(
     )
     from itcj2.core.models.academic_period import AcademicPeriod
 
+    apertura = _parse_window_dt(opens_date, opens_time, default=_OPENS_DEFAULT_TIME)
+    cierre = _parse_window_dt(closes_date, closes_time, default=_CLOSES_DEFAULT_TIME)
+    if apertura is None or cierre is None or cierre <= apertura:
+        return RedirectResponse("/titulatec/admin/cohorts?error=ventana", status_code=303)
+
     db = SessionLocal()
     try:
         if not db.query(Cohort).filter_by(period_id=period_id).first():
@@ -456,6 +523,7 @@ async def cohort_create(
                 period_id=period_id,
                 name=f"Convocatoria Titulación {period.code if period else period_id}",
                 status="draft", created_by_id=int(user["sub"]),
+                opens_at=apertura, closes_at=cierre,
             )
             db.add(cohort)
             db.flush()          # hace falta el id para sembrar
@@ -480,7 +548,9 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
             return Response(status_code=404)
         perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
         ctx = {"cohort": cohort.to_dict(), "cohort_id": cohort_id, "tab": tab,
-               "can_edit_days": "titulatec.cohort.api.review_days" in perms}
+               "can_edit_days": "titulatec.cohort.api.review_days" in perms,
+               "window_header": {"opens": _fecha_hora(cohort.opens_at),
+                                 "closes": _fecha_hora(cohort.closes_at)}}
         if tab == "resumen":
             ctx["summary"] = _cohort_summary_ctx(db, cohort)
             ctx.update(_window_ctx(
@@ -721,25 +791,33 @@ async def cohort_window(
     cohort_id: int,
     request: Request,
     status: str = Form(...),
+    opens_date: str = Form(""),
+    opens_time: str = Form(""),
+    closes_date: str = Form(""),
+    closes_time: str = Form(""),
     opens_at: str = Form(""),
     closes_at: str = Form(""),
-    sii_auto_present: str = Form(""),
-    sii_auto_approve: str = Form(""),
     user: dict = Depends(require_page_app("titulatec",
                                           perms=["titulatec.cohort.api.update"])),
 ):
     """Escribe la ventana de inscripción pública y aplica la pausa/reanudación.
 
-    En el modo `sii` escribe además el interruptor «Aprobación automática
-    (SII)» (`Cohort.sii_auto_approve`, spec 2026-09-25 §3.5, S8), con el mismo
-    permiso. Una casilla sin marcar no viaja, así que el panel manda
-    `sii_auto_present=1`: sin esa marca (formulario viejo, POST a mano) no se
-    toca, y fuera del modo `sii` tampoco. Viaja en el MISMO commit que la
-    ventana (el de `set_window`): o se guardan los dos o ninguno, así que un
-    400 de `set_window` no deja el interruptor movido a medias, ni un fallo
-    deja la ventana guardada con el interruptor sin mover.
-    `EligibilityService.auto_approve` lo relee bajo lock antes de aprobar, así
-    que apagarlo frena también a las aptas que esperan su ventana de veto.
+    Cada extremo llega como fecha (`*_date`, `YYYY-MM-DD`, obligatoria) + hora
+    (`*_time`, `HH:MM`, opcional) y se lee con `_parse_window_dt`: hora vacía =
+    00:00 en la apertura y 23:59:59 en el cierre (spec 2026-09-27 D8). Fecha
+    vacía o ilegible, u hora ilegible → 400 con «La apertura y el cierre son
+    obligatorios.», sin tocar la convocatoria (columnas NOT NULL).
+
+    `opens_at`/`closes_at` son los nombres del formulario de ANTES de la hora
+    (solo fecha): se aceptan como la fecha del extremo cuando no llega
+    `*_date`, para que una pestaña con el formulario viejo en caché guarde con
+    la hora de omisión en vez de estrellarse en «obligatorios». Solo respaldo:
+    la plantilla ya no los postea.
+
+    Solo la ventana: el interruptor «Aprobación automática (SII)» se retiró con
+    la automática (spec 2026-09-27 §A3). Un formulario viejo en caché que aún
+    mande sus campos no mueve nada: la ruta ya no los lee, y la columna queda
+    en la BD como legado sin uso (ver el modelo `Cohort`).
 
     UN SOLO código en `perms`, y el específico. `require_page_app` evalúa la
     lista como OR (`dependencies.py:131`): un `dashboard.*` de más abriría el
@@ -751,7 +829,7 @@ async def cohort_window(
 
     El flip de procesos NO se replica aquí: `CohortService.set_window` es el
     actor único de D5 y hace el ÚNICO `commit`. Esta ruta no confirma nada:
-    marca el interruptor, llama y pinta.
+    llama y pinta.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.cohort_service import CohortService
@@ -763,24 +841,16 @@ async def cohort_window(
         cohort = db.get(Cohort, cohort_id)
         if cohort is None:
             return Response(status_code=404)
-        # El interruptor se marca ANTES de `set_window`, sobre la MISMA
-        # convocatoria que `set_window` toma de la sesión con su `db.get`: su
-        # `commit` lo confirma junto con la ventana y el flip de procesos. Si
-        # `set_window` lanza, no hay commit y `close()` lo descarta.
-        from itcj2.apps.titulatec.services.enrollment_request_service import (
-            EnrollmentRequestService,
-        )
-        movido = None
-        if (sii_auto_present == "1"
-                and EnrollmentRequestService.reviewer_mode() == "sii"):
-            nuevo = sii_auto_approve == "1"
-            if bool(cohort.sii_auto_approve) != nuevo:
-                cohort.sii_auto_approve = nuevo
-                movido = nuevo
+        apertura = _parse_window_dt(opens_date or opens_at, opens_time,
+                                    default=_OPENS_DEFAULT_TIME)
+        cierre = _parse_window_dt(closes_date or closes_at, closes_time,
+                                  default=_CLOSES_DEFAULT_TIME)
+        if apertura is None or cierre is None:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "La apertura y el cierre son obligatorios.")})
         try:
             res = CohortService.set_window(
-                db, cohort_id,
-                opens_at=_parse_day(opens_at), closes_at=_parse_day(closes_at),
+                db, cohort_id, opens_at=apertura, closes_at=cierre,
                 status=(status or "").strip(), actor_id=int(user["sub"]),
             )
         except ValueError as exc:
@@ -790,11 +860,11 @@ async def cohort_window(
             # acentos.
             #
             # SIN `db.rollback()`, a propósito. `CohortService.set_window` lanza
-            # sus tres ValueError —estado desconocido, convocatoria inexistente y
-            # `closes_at < opens_at`— ANTES de su primera escritura, así que no
-            # hay nada que deshacer: el interruptor marcado arriba nunca llegó
-            # a la BD y `close()` lo descarta. Y un rollback "por si acaso" no
-            # es gratis: bajo el `join_transaction_mode="create_savepoint"` del harness
+            # sus ValueError —estado desconocido, convocatoria inexistente,
+            # extremo faltante y `closes_at <= opens_at`— ANTES de su primera
+            # escritura, así que no hay nada que deshacer. Y un rollback "por
+            # si acaso" no es gratis: bajo el
+            # `join_transaction_mode="create_savepoint"` del harness
             # emite ROLLBACK TO SAVEPOINT y descarta también las filas que
             # sembraron las fábricas —la jefa, su rol, sus permisos y la
             # convocatoria—, con lo que el `db_session.refresh(cohort)` de
@@ -805,10 +875,6 @@ async def cohort_window(
             # transacción de Postgres, nunca en el `except` entero.
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
 
-        if movido is not None:
-            # Rastro de quién frenó o soltó la aprobación automática.
-            logger.info("Convocatoria %s: aprobación automática (SII) %s por el usuario %s",
-                        cohort_id, "encendida" if movido else "apagada", user["sub"])
         perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
         ctx = _window_ctx(db, cohort,
                           can_edit="titulatec.cohort.api.update" in perms)
@@ -1475,10 +1541,17 @@ async def processes(
         procs = q.order_by(TitulationProcess.created_at.desc()).all()
 
         # KPIs sobre el universo filtrado por status/scope (antes del filtro stuck).
-        kpis = {"total": len(procs), "active": 0, "completed": 0,
-                "on_hold": 0, "cancelled": 0, "pct_completed": 0, "n_stuck": 0}
-        for p in procs:
-            if p.status in kpis:
+        # Una inscripción revocada no es un alumno en proceso: fuera del total y
+        # del porcentaje, como en el Resumen de la convocatoria
+        # (`_cohort_summary_ctx`), salvo que se pidan las revocadas; se cuentan
+        # aparte en `cancelled`.
+        universo = (procs if status == "cancelled"
+                    else [p for p in procs if p.status != "cancelled"])
+        kpis = {"total": len(universo), "active": 0, "completed": 0, "on_hold": 0,
+                "cancelled": sum(1 for p in procs if p.status == "cancelled"),
+                "pct_completed": 0, "n_stuck": 0}
+        for p in universo:
+            if p.status in ("active", "completed", "on_hold"):
                 kpis[p.status] += 1
         if kpis["total"]:
             kpis["pct_completed"] = round(kpis["completed"] / kpis["total"] * 100)

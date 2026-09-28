@@ -1708,19 +1708,39 @@ button.tt-seat--libre { pointer-events: auto; }
    barrido que la exige en los parciales de Citas
    (`test_appointments_scope_day.py::test_los_parciales_de_citas_no_llevan_js_ni_css_inline`).
 
-   El ancho tope es el mismo para los dos `<input type="date">` y el `<select>`:
-   con el `d-flex flex-wrap` del formulario, sin tope se estiran a toda la fila y
-   los tres controles dejan de leerse como un grupo. */
+   `.tt-win-field` es el ancho tope del `<select>` de Estado: con el
+   `d-flex flex-wrap` del formulario, sin tope se estira a toda la fila y deja
+   de leerse junto a la ventana. Las fechas y horas YA NO lo llevan: desde la
+   ventana con hora (2026-09-27) usan `.tt-win-date`/`.tt-win-time` de la macro
+   `window_end` (abajo). */
 .tt-win-field { max-width: 170px; }
 /* La nota explica QUÉ apaga y QUÉ enciende el botón, así que es texto de lectura,
    no adorno: `--tt-text-2` (7.58:1). `--tt-mute` está marcado PROHIBIDO PARA
    TEXTO en el `:root` de este mismo archivo (2.56:1 sobre `--tt-paper`). */
 .tt-win-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
 .tt-win-ro   { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
-/* Interruptor «Aprobación automática (SII)» (modo `sii`, 2026-09-25): ocupa su
-   propio renglón del formulario; junto a los tres controles se leía como un
-   cuarto campo de la ventana y su ayuda quedaba aplastada a 170 px. */
-.tt-win-auto { flex: 1 1 100%; margin: 0; }
+
+/* — Extremo de la ventana: fecha + hora (macro `window_end` de `_macros.html`,
+   en el panel de Resumen y en el alta de `admin/cohorts.html`) —
+   El `<fieldset>` agrupa la pareja para el lector de pantalla («Apertura» /
+   «Cierre», cada input con su etiqueta oculta). `.tt-win-legend` anula el
+   `float:left; width:100%` y el margen que el reboot de Bootstrap le da a
+   `<legend>`; el tamaño de letra lo pone la clase de texto que la acompaña
+   (`tt-kicker` en el panel, `tt-label` en el alta).
+   Ancho FIJO por input y no `width:100%` de `.form-control`: dentro del
+   `flex-wrap` del formulario la pareja se leería como una fila suelta. Con
+   `max-width:100%` y el `flex-wrap` de `.tt-win-pair`, a 360 px la hora baja
+   bajo la fecha en vez de empujar la página. */
+.tt-win-legend { float: none; width: auto; margin-bottom: var(--tt-sp-1); }
+.tt-win-pair   { display: flex; flex-wrap: wrap; gap: var(--tt-sp-2); }
+.tt-win-date   { flex: 0 1 auto; width: 10rem; max-width: 100%; }
+.tt-win-time   { flex: 0 1 auto; width: 8.5rem; max-width: 100%; }
+/* La ayuda dice QUÉ vale la hora vacía: es texto de lectura, `--tt-text-3`
+   (5.43:1), nunca `--tt-mute`. */
+.tt-win-hint   { margin-top: var(--tt-sp-1); font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+/* Alta: el `<select>` de período trae textos largos («2031-1 · Enero-Junio
+   2031»); a lo ancho de la tarjeta se estiraría a 1100 px en escritorio. */
+.tt-cohort-new-period { max-width: 360px; }
 
 /* ——————————— Requisitos de cotejo: «Información para el alumno» ———————————
    Editor del admin (`partials/cohort/cohort_cotejo_reqs.html` +
@@ -2174,6 +2194,31 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-req-col-contact { width: 20%; }
 .tt-req-col-date    { width: 11%; }
 .tt-req-col-acc     { width: 28%; }
+/* Modo `sii` (2026-09-27): SEIS columnas, la del SII entre «Recibida» y las
+   acciones, que ya no cargan el veredicto. Mismas reglas que arriba: todo en
+   porcentaje y un mínimo bajo el que la tabla se desplaza DENTRO de
+   `.table-responsive`, nunca la página. El mínimo cabe en el ancho útil del
+   admin a 1280 (977 px), así que en escritorio no hay barra horizontal. La
+   fecha (`nowrap`) pide 100 px: con el 10 % se salía 2 px hasta 1280 (medido
+   en navegador), con el 11 % tiene 105 px en el mínimo. La carrera va al 15 %
+   (revisión final F12): con el 13 % tenía ~118 px de contenido y la palabra
+   más larga de las carreras («computacionales», 124.7 px a 16 px de Geist;
+   «Semiconductores», 127.7 px) se partía a media palabra en 960-1280
+   («Ing. Sistemas / computacionale / s»). Con el 15 % tiene ~136 px en el
+   mínimo; el punto sale de «Solicitante» (18 → 17 %) y otro del SII
+   (20 → 19 %), cuyas píldoras ya parten renglón. Solo con el modificador: los
+   otros modos y Accesos (que comparten la tabla) conservan sus cinco. */
+.tt-req-table--sii { min-width: 960px; }
+.tt-req-table--sii .tt-req-col-who     { width: 17%; }
+.tt-req-table--sii .tt-req-col-prog    { width: 15%; }
+.tt-req-table--sii .tt-req-col-contact { width: 16%; }
+.tt-req-table--sii .tt-req-col-date    { width: 11%; }
+.tt-req-table--sii .tt-req-col-sii     { width: 19%; }
+.tt-req-table--sii .tt-req-col-acc     { width: 22%; }
+/* Con el 18 % la píldora «Cuenta desactivada: se reactiva al abrir la liga»
+   (260 px, `nowrap`) se salía de la celda en TODOS los anchos: aquí parte
+   renglón. */
+.tt-req-table--sii .tt-req-tags .tt-pill { white-space: normal; max-width: 100%; }
 /* El `<th>` de acciones lleva su nombre en un `.visually-hidden`, que es
    `position: absolute`. Sin un ancestro posicionado DENTRO del contenedor con
    scroll, ese span no lo recorta el `overflow` y estiraba la PÁGINA a 538 px
@@ -2211,29 +2256,37 @@ button.tt-seat--libre { pointer-events: auto; }
   overflow: hidden; margin-top: var(--tt-sp-1); color: var(--tt-text-3);
 }
 
-/* Veredicto del SII en «Por revisar» (modo `sii`, 2026-09-25). Va arriba de
-   los formularios de la celda de acciones, separado por un filete: primero el
-   porqué, después la decisión. Las reglas incumplidas van abiertas y las
-   cumplidas plegadas en un `<details>` (una apta tiene 6+ reglas y empujaba
-   los botones fuera de la vista). Tokens de tipografía, texto nunca en
-   `--tt-mute` y el foco del `<summary>` con `--tt-focus`. */
-.tt-sii {
-  display: flex; flex-direction: column; gap: var(--tt-sp-1);
-  margin-bottom: var(--tt-sp-2); padding-bottom: var(--tt-sp-2);
-  border-bottom: 1px solid var(--tt-line-soft); min-width: 0;
-}
+/* Veredicto del SII (modo `sii`). Desde 2026-09-27 vive en su PROPIA columna,
+   a la izquierda de las acciones: primero el porqué, después la decisión (ya
+   no hace falta el filete que lo separaba de los formularios). Las reglas
+   incumplidas van abiertas y las cumplidas plegadas en un `<details>` (una
+   apta tiene 6+ reglas y empujaba los botones fuera de la vista). En el
+   historial va compacta (`.tt-sii--compact`): la píldora y las incumplidas
+   plegadas. Tokens de tipografía, texto nunca en `--tt-mute` y el foco del
+   `<summary>` con `--tt-focus`. */
+.tt-sii { display: flex; flex-direction: column; gap: var(--tt-sp-1); min-width: 0; }
+.tt-sii--compact { gap: 2px; }
+/* Las píldoras del SII son largas («No se pudo leer el NIP (SII sin
+   respuesta)», «Consultando… sin respuesta desde …») y la de `.tt-pill` no
+   parte renglón: en una columna del 20 % se salían de la celda. */
+.tt-sii .tt-pill { white-space: normal; max-width: 100%; }
+.tt-sii > .tt-pill { align-self: flex-start; }
 .tt-sii-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-1) var(--tt-sp-2); }
 .tt-sii-meta { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
 .tt-sii-rules { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .tt-sii-rules li { display: flex; gap: var(--tt-sp-1); font-size: var(--tt-fs-100); color: var(--tt-text-1); min-width: 0; }
 .tt-sii-rules li i { flex: 0 0 auto; color: #991B1B; }
+/* Errores del driver, rutas y nombres sin espacios: se cortan donde sea. */
+.tt-sii-rules li span { min-width: 0; overflow-wrap: anywhere; }
 .tt-sii-rules--ok li { color: var(--tt-text-2); }
 .tt-sii-rules--ok li i { color: #166534; }
-.tt-sii-ok > summary { font-size: var(--tt-fs-100); color: var(--tt-text-2); cursor: pointer; }
-.tt-sii-ok > summary:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: var(--tt-r-sm); }
+.tt-sii-ok > summary,
+.tt-sii-fold > summary { font-size: var(--tt-fs-100); color: var(--tt-text-2); cursor: pointer; }
+.tt-sii-ok > summary:focus-visible,
+.tt-sii-fold > summary:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: var(--tt-r-sm); }
 .tt-sii-sub { font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2); }
 .tt-sii-diffs .tt-sii-rules li { color: var(--tt-text-2); }
-.tt-sii-line { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-sii-line { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
 .tt-sii-why { color: var(--tt-text-1); }
 
 /* ===========================================================================

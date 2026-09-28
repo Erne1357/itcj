@@ -175,6 +175,7 @@ class TestCancelar:
         avisos = (db_session.query(Notification)
                   .filter_by(user_id=esc["student"].id, type="PROCESS_CANCELLED").all())
         assert len(avisos) == 1
+        assert avisos[0].title == "Tu inscripción a titulación fue revocada"
 
     def test_cancellation_info_lee_el_ultimo_evento(self, db_session, esc, correos):
         proc = esc["proc"]()
@@ -411,7 +412,11 @@ class TestCarreraConLaAgenda:
             return next(i for i, s in enumerate(sentencias) if pred(s))
 
         advisory = _primera(lambda s: "pg_advisory_xact_lock" in s)
-        fila = _primera(lambda s: "FROM titulatec_processes" in s and "FOR UPDATE" in s)
+        # FOR NO KEY UPDATE (revisión final F2): serializa dos revocaciones y a
+        # `set_window`, pero no bloquea los INSERT con FK al proceso (la FK pide
+        # FOR KEY SHARE, que no choca con NO KEY UPDATE).
+        fila = _primera(lambda s: "FROM titulatec_processes" in s
+                        and "FOR NO KEY UPDATE" in s)
         citas = _primera(lambda s: "FROM titulatec_review_appointments" in s)
         assert advisory < fila < citas
 
@@ -592,6 +597,9 @@ class TestCorreo:
         for _, _, html in enviados:
             assert proc.folio not in html
             assert esc["student"].control_number not in html
+            # Texto neutro (revisión final F2): no se atribuye a un área.
+            assert "fue revocada" in html
+            assert "Servicios Escolares canceló" not in html
 
     def test_sin_solicitud_solo_va_al_institucional(self, db_session, esc, monkeypatch):
         from itcj2.apps.titulatec.services import email_helper
@@ -748,14 +756,57 @@ class TestPantallas:
         html = client_as(esc["student"]).get("/titulatec/student/dashboard").text
 
         assert 'id="tt-inscripcion-cancelada"' in html
-        assert "Tu inscripción fue cancelada" in html
+        # Texto neutro (revisión final F2): no se atribuye a un área.
+        assert "Tu inscripción fue revocada" in html
+        assert "Inscripción revocada" in html
+        assert "cancelada" not in html.split('id="tt-inscripcion-cancelada"', 1)[1][:600]
         assert "Tu acta no es legible" in html
         assert "data-tt-cta" not in html, "una inscripción cancelada no ofrece acciones"
+
+    def test_el_alumno_revocado_no_ve_avance_ni_fase_actual(self, db_session, esc,
+                                                             client_as, correos):
+        """Revisión final (diferido): la barra de avance y la marca «Actual»
+        prometían un proceso vivo; el ancla `#tt-fase-actual` ya no existe."""
+        proc = esc["proc"](current_phase=3)
+        cli = client_as(esc["student"])
+        vivo = cli.get("/titulatec/student/dashboard").text
+        assert 'class="tt-phasebar"' in vivo and "data-tt-acc-goto" in vivo  # premisa
+
+        _svc().cancel(db_session, proc.id, reason="Motivo", actor_id=esc["actor"].id)
+        html = cli.get("/titulatec/student/dashboard").text
+
+        assert 'class="tt-phasebar"' not in html
+        assert "de 9 fases" not in html
+        assert "tt-acc-item is-current" not in html
+        assert "data-tt-acc-goto" not in html
+        assert 'href="#tt-fase-actual"' not in html
 
     def test_el_alumno_activo_no_ve_el_aviso(self, esc, client_as):
         esc["proc"]()
         html = client_as(esc["student"]).get("/titulatec/student/dashboard").text
         assert 'id="tt-inscripcion-cancelada"' not in html
+
+    def test_los_kpis_de_procesos_no_cuentan_las_revocadas(self, db_session, esc, make_head,
+                                                           client_as, correos):
+        """Revisión final (diferido de T6): el Total de Procesos excluye las
+        revocadas, como el Resumen de la convocatoria. Se mide como diferencia:
+        la BD de dev trae procesos reales que la jefa (read.all) también ve."""
+        import re
+
+        def _total(html):
+            bloque = html.split('id="proc-kpi-total"', 1)[1]
+            return int(re.search(r'<div class="num">(\d+)', bloque).group(1))
+
+        proc = esc["proc"]()
+        jefa = make_head(perm_codes=REVOCA_PERMS + ("titulatec.process.page.list",))
+        cli = client_as(jefa)
+        antes = _total(cli.get("/titulatec/admin/processes").text)
+
+        _svc().cancel(db_session, proc.id, reason="x", actor_id=jefa.id)
+
+        assert _total(cli.get("/titulatec/admin/processes").text) == antes - 1
+        # Pedidas a propósito, sí se cuentan.
+        assert _total(cli.get("/titulatec/admin/processes?status=cancelled").text) >= 1
 
     def test_la_bandeja_de_procesos_lo_etiqueta(self, db_session, esc, make_head,
                                                 client_as, correos):

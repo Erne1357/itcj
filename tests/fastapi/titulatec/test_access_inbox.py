@@ -12,6 +12,9 @@ Modo (`EnrollmentRequestService.reviewer_mode()`):
   SE («Devueltas»). Rechazar y reenviar la liga NO son suyos: 400.
 - ALTERNO (`computer_center`): CC revisa todo (aprueba con NIP o liga, rechaza,
   reenvía); devolver a SE no existe: 400.
+- SII (`sii`, spec 2026-09-27 §A6): SE aprueba y, a quien el SII no dio NIP, lo
+  pasa a Accesos; aquí CC opera como en el oficial (respaldo). «Con acceso»
+  deja fuera las cuentas que nacieron con el NIP del SII (`nip_source`).
 
 CC NO tiene alcance por carrera: ve todo sin `core_program_positions` (patrón
 GTV). El actor es sintético con rol DIRECTO y los 4 permisos: en CI no hay DML,
@@ -29,6 +32,8 @@ from pathlib import Path
 from urllib.parse import unquote
 
 import pytest
+
+from tests.fastapi.titulatec._sii_fake import sii  # noqa: F401
 
 URL = "/titulatec/admin/accesos"
 SE_URL = "/titulatec/admin/solicitudes"
@@ -1300,6 +1305,394 @@ def test_un_control_sin_ano_de_ingreso_no_dice_ingreso_sin_ano(
 
     assert "Sin año de ingreso" in texto
     assert "Ingreso Sin año" not in texto
+
+
+# ---------------------------------------------------------------------------
+# Modo sii: Accesos como respaldo de Servicios Escolares (spec 2026-09-27 §A6)
+# ---------------------------------------------------------------------------
+# SE aprueba; a quien el SII no dio NIP lo pasa a Accesos (`approve(to_access=True)`
+# -> `awaiting_access`) y aquí CC opera como en el modo oficial: mismas pestañas
+# y acciones. Rechazar y reenviar la liga siguen siendo solo del alterno.
+# `modo_sii` vive en conftest.py; `sii` (el SII falso) en `_sii_fake.py`.
+# Revisión final (F4): la causa depende de si el SII está configurado, y las
+# instrucciones de operación son las del oficial (Accesos opera igual).
+CABECERA_SII = "Solicitudes que Servicios Escolares aprobó y a las que el SII no dio NIP"
+CABECERA_SII_OFF = ("Solicitudes sin cuenta que aprobó Servicios Escolares (el SII no está "
+                    "configurado)")
+INSTRUCCIONES_ACCESOS = (
+    "captura su NIP de 4 dígitos y le llega por correo con su usuario",
+    "Mientras nunca haya iniciado sesión puedes reasignarle el NIP",
+    "Si entretanto apareció una cuenta con ese número de control, se le envía una liga "
+    "de activación",
+    "devuélvela a Servicios Escolares con una nota",
+)
+
+
+@pytest.fixture()
+def sii_configurado(monkeypatch):
+    """Un backend que no es `disabled` (el del contenedor lo es)."""
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig
+
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "fake"))
+MSG_SOLO_ALTERNO = "En este modo rechazar y reenviar la liga son de Servicios Escolares."
+
+
+def _pasar_a_accesos(client_as, se, req, cohort) -> None:
+    """SE la aprueba «pasándola a Accesos» por su ruta real (`to_access=1`).
+
+    `client_as` reusa UN cliente y cambia de actor en cada llamada: quien siga
+    tiene que volver a llamarlo con su usuario."""
+    resp = client_as(se).post(
+        f"{SE_URL}/{req.id}/aprobar",
+        data={"program_id": "", "to_access": "1", "status": "pending_review",
+              "cohort_id": str(cohort.id)})
+    assert resp.status_code == 200, _error(resp)
+
+
+def test_en_modo_sii_por_dar_acceso_lista_lo_que_se_paso(
+    client_as, db_session, make_cc, make_head, make_cohort, correo_falso, modo_sii,
+    sii_configurado,
+):
+    """Lo que SE pasó a Accesos es la cola de CC, FIFO por la aprobación de SE;
+    lo que sigue en revisión de SE no. Antes: solo el aviso `#tt-access-sii`,
+    sin pestañas ni filas."""
+    cc = make_cc()
+    se = make_head(perm_codes=SE_PERMS)
+    cohort = make_cohort(status="open")
+    primera = _make_req(db_session, cohort, control="99710600")
+    segunda = _make_req(db_session, cohort, control="99710601")
+    por_revisar = _make_req(db_session, cohort, control="99710602")
+    # SE pasa primero la de id MAYOR: FIFO por `reviewed_at`, no por id.
+    _pasar_a_accesos(client_as, se, segunda, cohort)
+    _pasar_a_accesos(client_as, se, primera, cohort)
+
+    resp = client_as(cc).get(f"{URL}?cohort_id={cohort.id}")
+
+    assert resp.status_code == 200, resp.text[:500]
+    texto = _plano(resp.text)
+    assert "Inscripción · Accesos (respaldo)" in texto
+    assert CABECERA_SII in texto
+    for instruccion in INSTRUCCIONES_ACCESOS:
+        assert instruccion in texto, instruccion
+    assert CABECERA_SII_OFF not in texto
+    assert "Egresados sin cuenta cuya solicitud ya aprobó" not in texto
+    assert 'id="tt-access-sii"' not in resp.text
+    posiciones = [texto.index(p) for p in OFICIAL]
+    assert posiciones == sorted(posiciones)
+    for ajena in ("Liga enviada", "Inscritas", "Rechazadas"):
+        assert f'>{ajena}<' not in resp.text
+    assert _pestana_activa(resp.text) == "awaiting_access"
+    assert (resp.text.index(f'id="tt-acc-{segunda.id}"')
+            < resp.text.index(f'id="tt-acc-{primera.id}"')), "FIFO por la aprobación de SE"
+    assert f'id="tt-acc-{por_revisar.id}"' not in resp.text, "sigue siendo de SE"
+    fila = _fila(resp.text, primera)
+    assert "Aprobada por Servicios Escolares" in _plano(fila)
+    assert "Sin cuenta" in _plano(fila)
+    assert f'hx-post="{URL}/{primera.id}/dar-acceso"' in fila
+    assert re.search(r'<input[^>]*name="nip"[^>]*>', fila), "falta el campo del NIP"
+    assert f'hx-post="{URL}/{primera.id}/devolver"' in fila
+    assert "/rechazar" not in fila and "/reenviar" not in fila
+    assert 'name="program_id"' not in fila, "la carrera ya la fijó SE"
+    assert correo_falso == [], "el alumno no se entera del paso intermedio"
+
+    parcial = client_as(cc).get(f"{URL}/body?cohort_id={cohort.id}").text
+    assert (parcial.index(f'id="tt-acc-{segunda.id}"')
+            < parcial.index(f'id="tt-acc-{primera.id}"'))
+
+
+def test_en_modo_sii_el_landing_de_centro_de_computo_abre(
+    client_as, make_cc, modo_sii, sii_configurado,
+):
+    """Menú y landing sin cambios: `titulatec_computer_center` aterriza en Accesos."""
+    from itcj2.apps.titulatec.pages.nav import resolve_dashboard_url
+
+    destino = resolve_dashboard_url({"titulatec_computer_center"})
+    resp = client_as(make_cc()).get(destino)
+
+    assert destino == URL
+    assert resp.status_code == 200, resp.text[:500]
+    assert CABECERA_SII in _plano(resp.text)
+
+
+def test_en_modo_sii_sin_sii_configurado_la_cabecera_no_culpa_al_sii(
+    client_as, make_cc, modo_sii, monkeypatch,
+):
+    """Revisión final (F4): con el SII sin configurar (D11, producción hoy) no
+    se consulta a nadie: TODA solicitud sin cuenta que SE aprueba llega aquí.
+    La cabecera no dice «a las que el SII no dio NIP» (Centro de Cómputo
+    creería que el SII no tiene su NIP) y conserva las instrucciones del
+    oficial: capturar el NIP, reasignarlo, la liga si apareció una cuenta y
+    devolver con nota."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig
+
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "disabled"))
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 10 * 24))
+
+    texto = _plano(client_as(make_cc()).get(URL).text)
+
+    assert CABECERA_SII_OFF in texto
+    assert "el SII no dio NIP" not in texto
+    for instruccion in INSTRUCCIONES_ACCESOS:
+        assert instruccion in texto, instruccion
+    assert "liga de activación de 10 días" in texto
+
+
+def test_en_modo_sii_dar_acceso_crea_la_cuenta_con_el_nip_capturado(
+    client_as, db_session, make_cc, make_head, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso, modo_sii,
+):
+    """El NIP lo captura CC (`grant_access`, `nip_source="center"`) y va al correo
+    con el usuario, como en el oficial; quién aprobó sigue siendo SE. D10: si
+    entretanto apareció una cuenta, sale la liga y el NIP no se usa."""
+    from itcj2.core.models.user import User
+    from itcj2.core.utils.security import verify_nip
+
+    seed_phase_defs()
+    cc = make_cc()
+    se = make_head(perm_codes=SE_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99710610")
+    d10 = _make_req(db_session, cohort, control="99710611")
+    _pasar_a_accesos(client_as, se, req, cohort)
+    _pasar_a_accesos(client_as, se, d10, cohort)
+    assert NIP not in client_as(cc).get(f"{URL}?cohort_id={cohort.id}").text, "premisa"
+
+    resp = client_as(cc).post(
+        f"{URL}/{req.id}/dar-acceso",
+        data={"nip": NIP, "status": "awaiting_access", "cohort_id": str(cohort.id)})
+
+    assert resp.status_code == 200, _error(resp)
+    _sin_nip(resp)
+    assert _pestana_activa(resp.text) == "awaiting_access"
+    assert f'id="tt-acc-{req.id}"' not in resp.text
+    assert _aviso(resp) == (f"Acceso dado · folio {_folio(db_session, req)} · correo enviado",
+                            "success")
+    db_session.refresh(req)
+    assert req.status == "converted" and req.nip_source == "center"
+    assert req.access_granted_by_id == cc.id and req.reviewed_by_id == se.id
+    cuenta = db_session.query(User).filter_by(control_number="99710610").one()
+    assert verify_nip(NIP, cuenta.password_hash)
+    (_asunto, destinatarios, correo), = correo_falso
+    assert destinatarios == ["acceso@example.invalid"] and NIP in correo
+    fila = _fila(client_as(cc).get(f"{URL}/body?status=granted&cohort_id={cohort.id}").text,
+                 req)
+    assert "Inscrita" in _plano(fila)
+    assert f'hx-post="{URL}/{req.id}/reasignar-nip"' in fila
+
+    _cuenta(db_session, "99710611")      # un CSV o un alta manual la creó entretanto
+    liga = client_as(cc).post(f"{URL}/{d10.id}/dar-acceso", data={"nip": NIP})
+
+    assert liga.status_code == 200, _error(liga)
+    _sin_nip(liga)
+    assert _aviso(liga) == ("Ya tenía cuenta: se envió la liga", "success")
+    db_session.refresh(d10)
+    assert d10.status == "approved" and d10.nip_source is None
+    (_asunto, _dest, correo_liga) = correo_falso[1]
+    assert "/inscripcion/verificar?t=" in correo_liga and NIP not in correo_liga
+
+
+def test_en_modo_sii_dar_acceso_sobre_una_por_revisar_no_la_aprueba(
+    client_as, db_session, make_cc, make_cohort, correo_falso, modo_sii,
+):
+    """En `sii` decide SE: «Dar acceso» es SIEMPRE `grant_access`, que solo acepta
+    `awaiting_access`. Si cayera en `approve()` (la rama del alterno), CC
+    aprobaría con solo `enrollment_access.api.grant`."""
+    from itcj2.core.models.user import User
+
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    por_revisar = _make_req(db_session, cohort, control="99710660")
+
+    resp = client_as(cc).post(f"{URL}/{por_revisar.id}/dar-acceso", data={"nip": NIP})
+
+    assert resp.status_code == 400
+    assert _error(resp) == "Esa solicitud ya no está esperando acceso."
+    _sin_nip(resp)
+    db_session.refresh(por_revisar)
+    assert por_revisar.status == "pending_review" and por_revisar.reviewed_by_id is None
+    assert db_session.query(User).filter_by(control_number="99710660").count() == 0
+    assert correo_falso == []
+
+
+def test_en_modo_sii_devolver_regresa_a_solicitudes(
+    client_as, db_session, make_cc, make_head, make_cohort, correo_falso, modo_sii,
+):
+    """CC la devuelve con nota: vuelve a «Por revisar» de SE con «Devuelta por
+    Centro de Cómputo», sin correo, y queda en «Devueltas». Si SE la vuelve a
+    pasar, «Devueltas» dice que fue SE (como en el oficial)."""
+    cc = make_cc()
+    se = make_head(perm_codes=SE_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99710620")
+    _pasar_a_accesos(client_as, se, req, cohort)
+    nota = "El nombre no coincide con el del SII."
+
+    resp = client_as(cc).post(
+        f"{URL}/{req.id}/devolver",
+        data={"note": nota, "status": "awaiting_access", "cohort_id": str(cohort.id)})
+
+    assert resp.status_code == 200, _error(resp)
+    assert _pestana_activa(resp.text) == "awaiting_access"
+    assert f'id="tt-acc-{req.id}"' not in resp.text
+    db_session.refresh(req)
+    assert req.status == "pending_review" and req.returned_by_id == cc.id
+    assert req.return_note == nota
+    assert correo_falso == [], "el alumno no se entera"
+    devueltas = client_as(cc).get(f"{URL}/body?status=returned&cohort_id={cohort.id}").text
+    assert "La devolviste" in _plano(_fila(devueltas, req))
+    assert nota in _plano(_fila(devueltas, req))
+    solicitudes = client_as(se).get(f"{SE_URL}/body?cohort_id={cohort.id}").text
+    fila_se = solicitudes.split(f'id="tt-req-{req.id}"', 1)[1].split("</tr>", 1)[0]
+    assert f"Devuelta por Centro de Cómputo: {nota}" in _plano(fila_se)
+
+    _pasar_a_accesos(client_as, se, req, cohort)
+    devueltas = client_as(cc).get(f"{URL}/body?status=returned&cohort_id={cohort.id}").text
+    assert "Servicios Escolares la volvió a aprobar" in _plano(_fila(devueltas, req))
+
+
+@pytest.mark.parametrize("accion,estado,data", [
+    ("rechazar", "pending_review", {"note": "No procede."}),
+    ("rechazar", "awaiting_access", {"note": "No procede."}),
+    ("reenviar", "approved", {}),
+], ids=["rechazar-por_revisar", "rechazar-por_dar_acceso", "reenviar-con_liga"])
+def test_en_modo_sii_rechazar_y_reenviar_siguen_siendo_del_alterno(
+    client_as, db_session, make_cc, make_cohort, correo_falso, modo_sii, monkeypatch,
+    accion, estado, data,
+):
+    """En `sii` rechazar y reenviar la liga son de SE, como en el oficial: 400
+    con el motivo, sin escribir nada, y el corte va ANTES de abrir sesión."""
+    import itcj2.database
+
+    cc = make_cc()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99710630", status=estado,
+                    verify_send_count=1, verify_token_hash="7" * 64)
+
+    resp = client_as(cc).post(f"{URL}/{req.id}/{accion}", data=data)
+
+    assert resp.status_code == 400, (accion, resp.status_code, resp.text[:300])
+    assert _error(resp) == MSG_SOLO_ALTERNO
+    db_session.refresh(req)
+    assert req.status == estado and req.reviewed_by_id is None
+    assert req.verify_token_hash == "7" * 64 and req.verify_send_count == 1
+    assert correo_falso == []
+
+    def _prohibido():
+        raise AssertionError("abrió sesión para una acción que no es del modo")
+
+    monkeypatch.setattr(itcj2.database, "SessionLocal", _prohibido)
+    resp = client_as(cc).post(f"{URL}/987654321/{accion}", data=data)
+
+    assert resp.status_code == 400, "ni lee la solicitud: una inexistente no da 404"
+    assert _error(resp) == MSG_SOLO_ALTERNO
+
+
+def test_con_acceso_no_incluye_cuentas_con_nip_del_sii(
+    client_as, db_session, make_cc, make_head, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso, modo_sii, sii,
+):
+    """`_create_account` sella `access_granted_*` también cuando la cuenta nace
+    con el NIP del SII: sin el filtro por `nip_source`, «Con acceso» listaría
+    cuentas en las que CC no intervino. Las de Accesos (`center`) y las
+    anteriores a la columna (`NULL`) sí se quedan."""
+    seed_phase_defs()
+    cc = make_cc()
+    se = make_head(perm_codes=SE_PERMS)
+    cohort = make_cohort(status="open")
+    del_sii = _make_req(db_session, cohort, control="99710640")
+    sii.alumno("99710640")
+    de_accesos = _make_req(db_session, cohort, control="99710641")
+    anterior = _make_req(db_session, cohort, control="99710642", status="converted",
+                         access_granted_at=datetime.now() - timedelta(days=3),
+                         access_sent_at=datetime.now() - timedelta(days=3))
+
+    # SE aprueba una con el NIP del SII y pasa la otra a Accesos.
+    aprobada = client_as(se).post(
+        f"{SE_URL}/{del_sii.id}/aprobar",
+        data={"program_id": "", "status": "pending_review", "cohort_id": str(cohort.id)})
+    assert aprobada.status_code == 200, _error(aprobada)
+    _pasar_a_accesos(client_as, se, de_accesos, cohort)
+    dar = client_as(cc).post(f"{URL}/{de_accesos.id}/dar-acceso", data={"nip": NIP})
+    assert dar.status_code == 200, _error(dar)
+    db_session.refresh(del_sii)
+    db_session.refresh(de_accesos)
+    assert (del_sii.status, del_sii.nip_source) == ("converted", "sii")
+    assert del_sii.access_granted_at is not None, "premisa: el sello que la metía"
+    assert (de_accesos.status, de_accesos.nip_source) == ("converted", "center")
+    assert anterior.nip_source is None
+
+    html = client_as(cc).get(f"{URL}/body?status=granted&cohort_id={cohort.id}").text
+
+    assert f'id="tt-acc-{del_sii.id}"' not in html
+    _fila(html, de_accesos)
+    _fila(html, anterior)
+
+
+def test_en_modo_sii_reasignar_nip_funciona_para_las_de_accesos(
+    client_as, db_session, make_cc, make_head, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso, modo_sii, monkeypatch,
+):
+    """Una cuenta a la que CC dio el NIP en Accesos se reasigna como en el oficial
+    (D8), y el aviso del correo fallido nombra «Con acceso», la pestaña de este
+    modo. Una cuenta que nació con el NIP del SII sigue sin reasignarse."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+    from itcj2.core.models.user import User
+    from itcj2.core.utils.security import verify_nip
+
+    seed_phase_defs()
+    cc = make_cc()
+    se = make_head(perm_codes=SE_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99710650")
+    _pasar_a_accesos(client_as, se, req, cohort)
+    envio_real = TitulaTecEmailHelper.send_enrollment_approved
+    monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved",
+                        staticmethod(lambda *a, **k: False))
+
+    dar = client_as(cc).post(f"{URL}/{req.id}/dar-acceso", data={"nip": "7391"})
+
+    assert dar.status_code == 200, _error(dar)
+    assert _aviso(dar) == (f"Acceso dado (folio {_folio(db_session, req)}), pero el correo "
+                           "no salió: dicta el NIP o reasígnalo en Con acceso", "warning")
+    fila = _fila(client_as(cc).get(f"{URL}/body?status=granted&cohort_id={cohort.id}").text,
+                 req)
+    assert "correo no enviado" in fila
+    assert f'hx-post="{URL}/{req.id}/reasignar-nip"' in fila
+
+    monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved", envio_real)
+    resp = client_as(cc).post(
+        f"{URL}/{req.id}/reasignar-nip",
+        data={"nip": NIP, "status": "granted", "cohort_id": str(cohort.id)})
+
+    assert resp.status_code == 200, _error(resp)
+    _sin_nip(resp)
+    assert _pestana_activa(resp.text) == "granted"
+    assert _aviso(resp) == ("NIP reasignado · correo enviado", "success")
+    assert "correo no enviado" not in _fila(resp.text, req)
+    cuenta = db_session.query(User).filter_by(control_number="99710650").one()
+    db_session.refresh(cuenta)
+    assert verify_nip(NIP, cuenta.password_hash)
+    (_asunto, _dest, correo), = correo_falso
+    assert NIP in correo and "Este NIP reemplaza al que te enviamos antes" in correo
+
+    # Cuenta con el NIP del SII: `must_change_password=False` -> no reasignable.
+    del_sii = _make_req(db_session, cohort, control="99710651", status="converted",
+                        nip_source="sii", access_granted_at=datetime.now())
+    cuenta_sii = _cuenta(db_session, "99710651")
+    cuenta_sii.must_change_password = False
+    db_session.flush()
+    antes = cuenta_sii.password_hash
+
+    negada = client_as(cc).post(f"{URL}/{del_sii.id}/reasignar-nip", data={"nip": NIP})
+
+    assert negada.status_code == 400
+    assert _error(negada).startswith("Solo se reasigna el NIP")
+    db_session.refresh(cuenta_sii)
+    assert cuenta_sii.password_hash == antes
 
 
 # ---------------------------------------------------------------------------

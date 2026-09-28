@@ -8,10 +8,26 @@ migración y NADIE los escribía ni los leía: `pages/admin.py:387` clavaba
 es el ÚNICO escritor de la ventana y el único que sabe traducirla a "¿puede
 alguien auto-inscribirse ahora mismo?".
 
+Ventana con hora (spec 2026-09-27 §B)
+-------------------------------------
+Desde `tt20260927b` las dos columnas son `DateTime` NOT NULL (hora local naive,
+APP_TZ) y los predicados comparan AL MINUTO contra `db_now()`, nunca contra el
+reloj del proceso: el contenedor puede correr en UTC y la ventana se abriría o
+cerraría seis horas corrida, en silencio. El cierre por omisión es 23:59:59.
+
+«Al minuto» de verdad (revisión final F10): `now` se trunca a su minuto
+(`_al_minuto`) antes de comparar. La hora tecleada se guarda HH:MM:00, así que
+sin truncar un cierre escrito «23:59» perdía su último minuto (23:59:30 ya
+contaba como cerrado) mientras el de omisión (23:59:59, que también se lee
+«23:59») lo conservaba. Truncado, los dos se comportan igual: abierto hasta
+las 23:59:59.999, cerrado a las 00:00:00 del día siguiente; y una apertura a
+las 09:00 abre en cuanto empieza ese minuto.
+
 Fallo cerrado, a propósito
 --------------------------
-`public_enrollment_cohort` NUNCA desempata. Como toda convocatoria existente es
-`status='open'` con fechas NULL, el predicado es verdadero para todas: un
+`public_enrollment_cohort` NUNCA desempata. Cuando las fechas podían ser NULL,
+toda convocatoria existente era `status='open'` sin tope y el predicado era
+verdadero para todas; y aun con fechas, dos ventanas pueden solaparse. Un
 desempate por `id desc` mandaría al solicitante —y con él su folio y su carpeta
 en disco, que llevan el periodo dentro— a la convocatoria equivocada, en
 silencio y sin vuelta atrás. Con >1 devuelve `(None, 'ambiguous')` y la ruta
@@ -23,8 +39,9 @@ público.
 
 Dos predicados, a propósito (D5, spec 2026-09-24)
 -------------------------------------------------
-- `is_public_enrollment_open`: `status='open'` Y hoy dentro de las fechas. Es
-  SOLO para el formulario público (¿se puede enviar una solicitud nueva?).
+- `is_public_enrollment_open`: `status='open'` Y `db_now()` dentro de
+  `[opens_at, closes_at]`. Es SOLO para el formulario público (¿se puede
+  enviar una solicitud nueva?).
 - `accepts_enrollment_followup`: solo `status='open'`. Es para lo que sigue a
   una solicitud que ya entró a tiempo: aprobarla, darle acceso, abrir su liga y
   reenviarla. La liga dura `TITULATEC_ENROLLMENT_LINK_TTL_DAYS` (21 por
@@ -34,26 +51,37 @@ Dos predicados, a propósito (D5, spec 2026-09-24)
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from itcj2.core.utils.timezone import db_now
+
 _STATUSES = ("draft", "open", "closed")
+
+
+def _al_minuto(now: datetime) -> datetime:
+    """`now` truncado a su minuto: la ventana se compara AL MINUTO (F10)."""
+    return now.replace(second=0, microsecond=0)
 
 
 class CohortService:
 
     @staticmethod
-    def is_public_enrollment_open(cohort) -> bool:
-        """`status='open'` y hoy dentro de `[opens_at, closes_at]` (NULL = sin tope)."""
+    def is_public_enrollment_open(cohort, *, now: datetime | None = None) -> bool:
+        """`status='open'` y `opens_at <= now <= closes_at`, AL MINUTO.
+
+        `now` por omisión es `db_now()`, y se trunca a su minuto antes de
+        comparar (`_al_minuto`): los dos extremos cuentan con su minuto entero.
+        Un cierre tecleado «23:59» (guardado 23:59:00) y el de omisión
+        (23:59:59) siguen abiertos a las 23:59:30 del último día y cerrados a
+        las 00:00:00 del siguiente; una apertura a las 09:00 está cerrada a las
+        08:59:59 y abierta a las 09:00:30.
+        """
         if cohort is None or cohort.status != "open":
             return False
-        hoy = date.today()
-        if cohort.opens_at is not None and hoy < cohort.opens_at:
-            return False
-        if cohort.closes_at is not None and hoy > cohort.closes_at:
-            return False
-        return True
+        now = _al_minuto(now or db_now())
+        return cohort.opens_at <= now <= cohort.closes_at
 
     @staticmethod
     def accepts_enrollment_followup(cohort) -> bool:
@@ -69,10 +97,11 @@ class CohortService:
         """
         from itcj2.apps.titulatec.models import Cohort
 
+        ahora = db_now()        # un solo instante para todas las candidatas
         abiertas = [
             c for c in db.query(Cohort).filter(Cohort.status == "open")
                                        .order_by(Cohort.id).all()
-            if CohortService.is_public_enrollment_open(c)
+            if CohortService.is_public_enrollment_open(c, now=ahora)
         ]
         if not abiertas:
             return None, "closed"
@@ -81,12 +110,14 @@ class CohortService:
         return abiertas[0], None
 
     @staticmethod
-    def next_public_enrollment_window(db: Session):
+    def next_public_enrollment_window(db: Session, *, now: datetime | None = None):
         """La convocatoria que ABRIRÁ el formulario público, o `None`.
 
         Sirve para que la tarjeta de cierre diga *cuándo volver* en vez de
         mandar al egresado a preguntar. El caso real: `status='open'` con
-        `opens_at` en el futuro es "cerrada" para `is_public_enrollment_open`
+        `opens_at > now` (`db_now()` por omisión, truncado al minuto igual que
+        en `is_public_enrollment_open`, para que los dos nunca se
+        contradigan) es "cerrada" para `is_public_enrollment_open`
         —y debe serlo, el formulario no se abre antes de tiempo— pero la fecha
         ya está decidida y publicada.
 
@@ -102,16 +133,15 @@ class CohortService:
         """
         from itcj2.apps.titulatec.models import Cohort
 
+        now = _al_minuto(now or db_now())
         return (db.query(Cohort)
-                  .filter(Cohort.status == "open",
-                          Cohort.opens_at.isnot(None),
-                          Cohort.opens_at > date.today())
+                  .filter(Cohort.status == "open", Cohort.opens_at > now)
                   .order_by(Cohort.opens_at, Cohort.id)
                   .first())
 
     @staticmethod
-    def set_window(db: Session, cohort_id: int, *, opens_at, closes_at,
-                   status: str, actor_id: int) -> dict:
+    def set_window(db: Session, cohort_id: int, *, opens_at: datetime,
+                   closes_at: datetime, status: str, actor_id: int) -> dict:
         """Escribe la ventana y aplica la tabla de transiciones de D5.
 
         | De → A                     | Efecto sobre procesos                       |
@@ -134,10 +164,17 @@ class CohortService:
         `cohort_id`, así que con el segundo predicado no volvería a reanudarse
         jamás tras la siguiente pausa.
 
+        Los procesos que se mueven se leen con `FOR UPDATE`: una revocación
+        (`ProcessService.cancel`, `FOR NO KEY UPDATE`) que hace commit mientras
+        tanto no se pisa, porque tras la espera Postgres re-evalúa el filtro de
+        estado y la revocada queda fuera.
+
         Un solo `commit` al final: la ventana y el flip viajan juntos.
         Devuelve `{'paused': N, 'resumed': M}`. Lanza `ValueError` con texto para
-        el usuario si el estado es desconocido, la convocatoria no existe o el
-        cierre es anterior a la apertura.
+        el usuario —siempre ANTES de la primera escritura— si el estado es
+        desconocido, la convocatoria no existe, falta la apertura o el cierre
+        (las dos columnas son NOT NULL: vacío ya no significa «sin tope») o el
+        cierre no es POSTERIOR a la apertura (la igualdad se rechaza).
         """
         from itcj2.apps.titulatec.models import Cohort, ProcessEvent, TitulationProcess
 
@@ -146,8 +183,10 @@ class CohortService:
         cohort = db.get(Cohort, cohort_id)
         if cohort is None:
             raise ValueError("La convocatoria no existe.")
-        if opens_at and closes_at and closes_at < opens_at:
-            raise ValueError("El cierre no puede ser anterior a la apertura.")
+        if opens_at is None or closes_at is None:
+            raise ValueError("La apertura y el cierre son obligatorios.")
+        if closes_at <= opens_at:
+            raise ValueError("El cierre tiene que ser posterior a la apertura.")
 
         anterior = cohort.status
         cerradas = [row.id for row in
@@ -164,7 +203,8 @@ class CohortService:
         if status == "open" and anterior in ("draft", "closed") and cerradas:
             for proc in (db.query(TitulationProcess)
                          .filter(TitulationProcess.status == "on_hold",
-                                 TitulationProcess.cohort_id.in_(cerradas)).all()):
+                                 TitulationProcess.cohort_id.in_(cerradas))
+                         .with_for_update(key_share=True).all()):
                 proc.status = "active"
                 db.add(ProcessEvent(
                     process_id=proc.id, actor_id=actor_id,
@@ -177,7 +217,8 @@ class CohortService:
         elif status == "closed" and anterior in ("draft", "open"):
             for proc in (db.query(TitulationProcess)
                          .filter(TitulationProcess.status == "active",
-                                 TitulationProcess.cohort_id == cohort.id).all()):
+                                 TitulationProcess.cohort_id == cohort.id)
+                         .with_for_update(key_share=True).all()):
                 proc.status = "on_hold"
                 db.add(ProcessEvent(
                     process_id=proc.id, actor_id=actor_id,

@@ -4,25 +4,39 @@ Cada ruta lleva EXACTAMENTE un código en `perms=[...]`: la lista es OR
 (`itcj2/dependencies.py:131`), así que un código de más abre la bandeja entera.
 
 Pestañas por estado, «Por revisar» por omisión. Aprobar, rechazar y reenviar
-vuelven a pintar la pestaña donde estaba el oficial: cada formulario de fila la
-manda de vuelta en `status` y `cohort_id`. Flujo completo en
-`docs/flows/xcut_public_enrollment.md`.
+(la liga o el aviso de acceso) vuelven a pintar la pestaña donde estaba el
+oficial: cada formulario de fila la manda de vuelta en `status` y
+`cohort_id`. Flujo completo en `docs/flows/xcut_public_enrollment.md`.
 
 Modo (`EnrollmentRequestService.reviewer_mode()`, 2026-09-24): en el OFICIAL,
 SE aprueba sin NIP y la solicitud sin cuenta pasa a «En Cómputo»
 (`awaiting_access`) — el NIP lo da Centro de Cómputo en su bandeja. En el
 ALTERNO la revisión es de Centro de Cómputo: esta bandeja queda de SOLO LECTURA
-y sus tres POST responden 400 ANTES de abrir sesión (`_alternate_mode_block`),
-así que ni un POST directo sin la UI aprueba, rechaza o reenvía.
+y sus POST (aprobar, rechazar, reenviar la liga o el aviso, revocar) responden
+400 ANTES de abrir sesión (`_alternate_mode_block`), así que ni un POST directo
+sin la UI aprueba, rechaza o reenvía.
 
-En el modo `sii` (spec 2026-09-25 §3.5) SE actúa como en el oficial (la cuenta
-nueva nace con el NIP DEL SII, `approve()`), y cada fila «Por revisar» trae el
-veredicto VIGENTE del SII (`_sii_row`): reglas con su motivo, diferencias de
-identidad, intentos y, si era apta, por qué no se aprobó sola. «Reintentar
-consulta» (`reconsultar`) encola una consulta forzada. La aprobada sola se
-reconoce en Liga enviada/Inscritas con la regla del servicio
-(`enrollment_request_service._auto_approval_marker`). El NIP del SII nunca pasa
-por aquí: la bandeja lee la `EligibilityCheck`, que no lo guarda.
+En el modo `sii` (spec 2026-09-25 §3.5; spec 2026-09-27 «el SII informa,
+Servicios Escolares decide») SE es quien aprueba SIEMPRE: nada se aprueba solo.
+Sin cuenta, la cuenta nace con el NIP DEL SII o, con `to_access`, la solicitud
+pasa a Accesos (`approve_detailed`); si el SII no da un NIP válido al aprobar,
+nada se escribe y la ruta avisa en 200. Cada fila, en TODAS las pestañas, trae
+la columna «SII» con la consulta VIGENTE (`_sii_cell`): en lo pendiente,
+reglas con su motivo, diferencias de identidad, intentos y el estado del NIP;
+en el historial, compacta. El botón de aprobar lo decide `_approve_action`
+(«enviar liga» / «dar acceso» / «pasar a Accesos», con la MISMA decisión que
+`sii-check`: `EnrollmentRequestService.approval_path`, Ruling R8), y pide
+confirmación (`hx-confirm`) cuando el SII no dijo «Apta» o el nombre no
+coincide (D7). Con el SII sin configurar (D11) hay un aviso de página, sin
+«Reintentar consulta» ni «Se reintenta sola»; solo pide confirmación una
+consulta VIEJA que marcó «No apta» o la identidad, y aprobar sin cuenta ES
+pasar a Accesos. «Reintentar consulta» (`reconsultar`) encola una consulta
+forzada. En este modo aprobar responde con un aviso (`_approve_notice`): cuenta
+creada y si el correo salió, pasó a Accesos, o liga enviada. El NIP del SII nunca pasa por aquí: la bandeja lee
+la `EligibilityCheck`, que solo guarda su ESTADO (`nip_status`). En Inscritas,
+una cuenta que nació con el NIP del SII y cuyo correo de acceso no salió lleva
+«correo no enviado» y «Reenviar aviso» (`reenviar-aviso`, D12): el correo no
+lleva NIP y no se toca ninguna credencial.
 
 «Revocar inscripción» (spec 2026-09-25 §3.6, `revocar`): en Inscritas, sobre el
 proceso en que se convirtió la solicitud, con `titulatec.process.api.cancel` y
@@ -34,10 +48,11 @@ conserva ese modo tal cual (S1). En ese modo se revoca desde el expediente
 (`admin.process_cancel`), que no depende del modo.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
@@ -52,11 +67,25 @@ _CANCEL = ["titulatec.process.api.cancel"]
 
 _MSG_ALTERNATE = "En este modo la revisión la hace Centro de Cómputo."
 _MSG_NOT_SII = "La consulta al SII solo existe en el modo sii."
+_MSG_SII_OFF = "El SII no está configurado."
 _MSG_RESOLVED = "Esa solicitud ya se resolvió."
 _MSG_IN_FLIGHT = "Ya se está consultando al SII; espera el resultado."
 _MSG_RECHECK_QUEUED = "Consulta al SII solicitada: el veredicto aparece al terminar."
+_MSG_RECHECK_NOT_QUEUED = "No se pudo solicitar la consulta; intenta de nuevo."
 _MSG_NO_REASON = "Escribe el motivo de la revocación: es lo que el alumno lee."
 _MSG_NOT_ENROLLED = "Esa solicitud no tiene una inscripción que revocar."
+_MSG_NOTICE_RESENT = "Aviso reenviado."
+# Aviso tras aprobar en el modo `sii` (revisión final F9, `_approve_notice`):
+# la fila sale de «Por revisar» y sin él SE no sabría si el correo salió.
+_MSG_ACCOUNT_MAILED = "Cuenta creada (folio {folio}); se le avisó por correo."
+_MSG_ACCOUNT_UNMAILED = ("Cuenta creada (folio {folio}), pero el correo no salió: "
+                         "reenvíalo desde Inscritas.")
+_MSG_TO_ACCESS = "Pasó a Accesos: Centro de Cómputo le capturará el NIP."
+_MSG_LINK_MAILED = "Liga enviada al correo del solicitante."
+_MSG_LINK_UNMAILED = "Liga generada, pero el correo no salió: reenvíala desde Liga enviada."
+# Sigue al motivo de `ApproveResult.detail` cuando el SII no dio un NIP válido
+# al aprobar (modo `sii`, aviso en 200).
+_MSG_NIP_FAILURE_TAIL = "Puedes pasarla a Accesos o reintentar la consulta."
 
 # Veredicto de la consulta vigente → (etiqueta, tono de `.tt-pill--*`, icono).
 # `pending` fresca = otro proceso consulta ahora; `stale` = `pending` colgada
@@ -72,9 +101,28 @@ _SII_STATES = {
 # Campos de `identity_mismatch` → etiqueta legible. Otro campo sale tal cual.
 _DIFF_LABELS = {"first_name": "Nombre", "last_name": "Apellido paterno",
                 "middle_name": "Apellido materno", "program": "Carrera"}
-_AUTO_OFF = "La aprobación automática está apagada en esta convocatoria."
-_COHORT_NOT_OPEN = "La convocatoria no está abierta: no se aprueba sola."
-_AUTO_WAITING = "Apta: se aprobará sola en el siguiente barrido."
+# `EligibilityCheck.nip_status` (solo SIN cuenta) → (etiqueta, tono). Cualquier
+# otro valor —`None` (no se revisó) o `not_needed` (tenía cuenta al consultar y
+# ya no)— es `_NIP_UNCHECKED`.
+_NIP_LABELS = {
+    "available": ("NIP en el SII: disponible", "success"),
+    "missing": ("El SII no tiene NIP", "amber"),
+    "invalid": ("NIP del SII con formato inválido", "amber"),
+    "unavailable": ("No se pudo leer el NIP (SII sin respuesta)", "amber"),
+    "error": ("No se pudo leer el NIP (configuración)", "amber"),
+}
+_NIP_UNCHECKED = ("NIP sin revisar", "neutral")
+# Botón de aprobar del modo OFICIAL sin cuenta (con cuenta es el mismo «enviar
+# liga» que `APPROVAL_LABELS["link"]`).
+_LABEL_TO_COMPUTER_CENTER = "Aprobar y pasar a Cómputo"
+# Confirmación de aprobar (spec 2026-09-27 D7): el motivo + `_CONFIRM_TAIL`.
+_CONFIRM_TAIL = "¿Aprobar de todos modos?"
+_CONFIRM_NO_CHECK = "No se ha consultado al SII."
+_CONFIRM_NOT_APT = "El SII dijo «No apta»"
+_CONFIRM_PENDING = "La consulta al SII sigue en curso."
+# `pending` colgada (no `_in_flight`): ya no se afirma que siga en curso.
+_CONFIRM_STALE = "La consulta al SII no terminó."
+_CONFIRM_ERROR = "La consulta al SII terminó en error."
 
 # Pestañas, en el orden en que se pintan.
 _TABS = (
@@ -185,7 +233,7 @@ def _in_flight(chk, now: datetime) -> bool:
 
     Es el corte con el que `EligibilityService.check` se niega a consultar otra
     vez, ni con `force`: `pending` más joven que `_PENDING_STALE`. Lo usan la
-    fila («Consultando…» sin botón, `_sii_row`) y la ruta (`reconsultar`
+    fila («Consultando…» sin botón, `_sii_cell`) y la ruta (`reconsultar`
     responde 400), así que las dos dicen lo mismo. Vive aquí y no en el
     servicio solo por el reparto de archivos del plan (T5 no tocaba
     `eligibility_service.py`); que coincida con el servicio lo fija
@@ -197,21 +245,38 @@ def _in_flight(chk, now: datetime) -> bool:
             and chk.started_at is not None and chk.started_at > now - _PENDING_STALE)
 
 
-def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: int,
-             now: datetime, requested: bool) -> dict:
-    """El bloque del SII de una fila «Por revisar» (modo `sii`).
+def _rule_messages(chk, *, ok: bool) -> list[str]:
+    """Los `message` de las reglas de `chk` que se cumplieron (`ok`) o no."""
+    results = (chk.results or []) if chk is not None else []
+    return [str(r.get("message") or r.get("rule") or "") for r in results
+            if isinstance(r, dict) and bool(r.get("ok")) is ok]
+
+
+def _sii_cell(chk, *, has_account: bool, compact: bool, now: datetime,
+              max_attempts: int, requested: bool, configured: bool) -> dict:
+    """La celda «SII» de una fila (modo `sii`), en TODAS las pestañas.
 
     `chk` es la consulta VIGENTE (`last_check_id`) ya cargada en lote. Solo
-    se leen `results`, `error`, `identity_mismatch` y los tiempos: nada de
-    eso trae el NIP (el servicio no corre `[credential]` al consultar), y
+    se leen `results`, `error`, `identity_mismatch`, `nip_status` y los
+    tiempos: el NIP no está en ninguno (la consulta guarda solo su ESTADO), y
     todo se pinta escapado por Jinja. `requested` = SE acaba de pedir la
     consulta en esta misma respuesta: se pinta «Consultando…» aunque el
     worker aún no haya abierto la fila, para no ofrecer el botón otra vez.
 
-    `why` dice por qué una APTA sigue aquí, en el orden en que la frena
-    `EligibilityService.auto_approve`: la nota que dejó la automática
-    (`review_note`), el interruptor de la convocatoria, la convocatoria
-    cerrada, la ventana de veto; si nada la frena, la toma el barrido.
+    `compact` (historial: ya no es trabajo de nadie): la plantilla pinta solo
+    la píldora y las reglas incumplidas plegadas; sin NIP ni «Reintentar».
+
+    Informa, no promete: una apta sigue aquí como cualquier otra, porque la
+    aprueba siempre Servicios Escolares (spec 2026-09-27 §A3).
+
+    `retry` = «Se reintenta sola (intento N de M).» en un `error`
+    reintentable (el SII no respondió) que no llegó al tope: N es el intento
+    que sigue (lo que se reintenta es la CONSULTA, no una aprobación). Solo
+    con el SII configurado, como `can_recheck`: sin él (D11) `check`, `sweep`
+    y `recheck_errors` no hacen nada y nadie la reintentaría.
+
+    `nip` = `{label, tone}` del NIP del SII, solo SIN cuenta y fuera del
+    historial: con cuenta sale la liga y el NIP del SII no importa.
     """
     if chk is None:
         state = "none"
@@ -225,78 +290,198 @@ def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: in
     if state == "stale" and chk.started_at is not None:
         label = f"{label} desde {_fmt(chk.started_at)}"
 
-    results = (chk.results or []) if chk is not None and state != "pending" else []
-    failed = [str(r.get("message") or r.get("rule") or "") for r in results
-              if isinstance(r, dict) and not r.get("ok")]
-    passed = [str(r.get("message") or r.get("rule") or "") for r in results
-              if isinstance(r, dict) and r.get("ok")]
-
+    leer = chk if state != "pending" else None
     diffs = []
     for campo, par in ((chk.identity_mismatch or {}) if chk is not None else {}).items():
         if isinstance(par, dict):
             diffs.append({"label": _DIFF_LABELS.get(campo, campo),
                           "form": par.get("form") or "", "sii": par.get("sii") or ""})
 
-    why = ""
-    if state == "apt":
-        if note:
-            why = f"No se aprobó sola: {note}"
-        elif not cohort.get("auto", True):
-            why = _AUTO_OFF
-        elif cohort.get("status") != "open":
-            why = _COHORT_NOT_OPEN
-        elif delay_hours and chk.finished_at is not None:
-            desde = chk.finished_at + timedelta(hours=delay_hours)
-            why = (f"Se aprobará sola a partir del {_fmt(desde)}." if desde > now
-                   else _AUTO_WAITING)
-        else:
-            why = _AUTO_WAITING
+    nip = None
+    if not (has_account or compact):
+        nip_label, nip_tone = _NIP_LABELS.get(
+            chk.nip_status if chk is not None else None, _NIP_UNCHECKED)
+        nip = {"label": nip_label, "tone": nip_tone}
 
     return {
         "state": state, "label": label, "tone": tone, "icon": icon,
         "attempt": chk.attempt if chk is not None else 0,
         "max": max_attempts,
         "when": _fmt(chk.finished_at or chk.started_at) if chk is not None else "",
-        "failed": failed, "passed": passed,
+        "failed": _rule_messages(leer, ok=False),
+        "passed": _rule_messages(leer, ok=True),
         "error": (chk.error or "") if state == "error" else "",
-        "diffs": diffs, "why": why,
-        # La nota ya va en `why`: la fila no la repite como «Nota:».
-        "note_shown": bool(state == "apt" and note),
-        # Una consulta en curso no se duplica (el servicio tampoco la repite).
-        "can_recheck": state != "pending",
+        "retry": (f"Se reintenta sola (intento {chk.attempt + 1} de {max_attempts})."
+                  if (configured and state == "error" and chk.retryable
+                      and chk.attempt < max_attempts)
+                  else ""),
+        "diffs": diffs,
+        "nip": nip,
+        # Una consulta en curso no se duplica (el servicio tampoco la repite),
+        # y sin SII configurado la ruta respondería 400 (D11).
+        "can_recheck": configured and not compact and state != "pending",
+        "compact": compact,
     }
+
+
+def _approve_confirm(chk, *, now: datetime, requested: bool = False) -> str | None:
+    """Por qué aprobar pide confirmación (spec 2026-09-27 D7), o `None`.
+
+    Sin consulta; el SII no dijo «Apta» (no apta con sus reglas incumplidas,
+    en curso, colgada o en error); o apta con la identidad sin confirmar
+    (`identity_block`: nombre distinto o no comparable). La carrera distinta
+    NO cuenta: el SII la manda como clave (spec §11).
+
+    «Sigue en curso» solo si lo está de verdad (`_in_flight`, el mismo corte
+    que la celda y la ruta) o si SE la acaba de pedir en esta respuesta
+    (`requested`: la celda ya dice «Consultando…», y el veredicto de `chk` es
+    el VIEJO, que no vale para no confirmar). Una `pending` colgada dice solo
+    que no terminó.
+    """
+    from itcj2.apps.titulatec.services.eligibility_service import identity_block
+
+    if requested or _in_flight(chk, now):
+        return f"{_CONFIRM_PENDING} {_CONFIRM_TAIL}"
+    if chk is None:
+        return f"{_CONFIRM_NO_CHECK} {_CONFIRM_TAIL}"
+    if chk.status == "not_apt":
+        # Van unidos por «; »: a cada mensaje se le quita COMO MUCHO un punto
+        # final (el de una abreviatura que lo cierra, «etc..», se conserva).
+        motivos = "; ".join(m for m in (x.strip().removesuffix(".").rstrip() for x in
+                                        _rule_messages(chk, ok=False)) if m)
+        return (f"{_CONFIRM_NOT_APT}{': ' + motivos if motivos else ''}. "
+                f"{_CONFIRM_TAIL}")
+    if chk.status == "pending":
+        return f"{_CONFIRM_STALE} {_CONFIRM_TAIL}"
+    if chk.status != "apt":
+        return f"{_CONFIRM_ERROR} {_CONFIRM_TAIL}"
+    bloqueo = identity_block(chk)
+    return f"{bloqueo} {_CONFIRM_TAIL}" if bloqueo else None
+
+
+def _approve_action(row_ctx: dict, chk, *, configured: bool, requested: bool,
+                    now: datetime) -> dict:
+    """El botón de aprobar de una fila revisable en el modo `sii`.
+
+    `label` y el camino salen de `EnrollmentRequestService.approval_path` +
+    `APPROVAL_LABELS` (Ruling R8, la misma decisión que `sii-check`): con
+    cuenta, la liga; sin cuenta y con el NIP del SII `available`, «dar
+    acceso»; cualquier otro estado —o sin consulta— «pasar a Accesos», que
+    es lo único que manda `to_access`. Lo que ocurre de verdad lo decide
+    `approve_detailed` bajo el lock (si entretanto apareció la cuenta, sale
+    la liga aunque diga Accesos).
+
+    Con el SII sin configurar (D11) el `nip_status` de una consulta vieja NO
+    cuenta (Ruling R10): «dar acceso» le pediría el NIP a un SII que no hay,
+    así que sin cuenta es siempre «pasar a Accesos» (la celda sí sigue
+    mostrando ese último veredicto).
+
+    `confirm`: el texto de `_approve_confirm` (`requested` = SE acaba de pedir
+    la consulta de esta fila). Con el SII sin configurar (D11) no hay consulta
+    nueva posible: sin consulta, o con una que no terminó o terminó en error,
+    no hay veredicto que discutir (`None`); pero una consulta VIEJA que sí
+    marcó un problema —«No apta» o la identidad sin confirmar
+    (`identity_block`) en una apta— se sigue pintando en la celda (Ruling R10)
+    y pide la MISMA confirmación con su motivo (revisión final F6): con
+    cuenta, aprobar manda la liga al correo tecleado, justo lo que D7 ataja.
+    """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        APPROVAL_LABELS, EnrollmentRequestService,
+    )
+
+    nip_status = chk.nip_status if (configured and chk is not None) else None
+    path = EnrollmentRequestService.approval_path(row_ctx["has_account"], nip_status)
+    if configured:
+        confirm = _approve_confirm(chk, now=now, requested=requested)
+    elif chk is not None and chk.status in ("not_apt", "apt"):
+        # Veredicto terminado: `_approve_confirm` da el motivo de «No apta» o
+        # el de `identity_block` (una apta limpia sigue sin confirmación).
+        confirm = _approve_confirm(chk, now=now)
+    else:
+        confirm = None
+    return {
+        "label": APPROVAL_LABELS[path],
+        "to_access": path == "access",
+        "confirm": confirm,
+    }
+
+
+def _approve_notice(db, req, detail: str):
+    """Qué pasó tras aprobar en el modo `sii`: `(mensaje, tipo)` o `None`.
+
+    Mismo patrón que `access_admin._grant_notice`: la fila sale de «Por
+    revisar», así que sin esto SE no sabría si el correo salió. `req` ya viene
+    refrescada tras los commits del servicio (el sello del correo va en uno
+    propio). Nunca lleva el NIP: solo el folio, que ya se pinta en Inscritas.
+
+    - `converted` con `nip_source == "sii"` («Aprobar y dar acceso»): folio y,
+      con `EnrollmentRequestService.access_mail_unsent` (ÚNICO predicado de
+      «correo no enviado»), si el correo de acceso salió.
+    - `awaiting_access` (pasó a Accesos): a dónde fue.
+    - `approved` (liga): si salió (`verify_sent_at`; `_issue_activation` lo
+      pone en NULL al emitir, así que no es el de una liga anterior).
+    """
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    if req.status == "converted" and req.nip_source == "sii":
+        folio = detail
+        if not folio and req.converted_process_id:
+            proc = db.get(TitulationProcess, req.converted_process_id)
+            folio = proc.folio if proc is not None else ""
+        if EnrollmentRequestService.access_mail_unsent(req):
+            return _MSG_ACCOUNT_UNMAILED.format(folio=folio), "warning"
+        return _MSG_ACCOUNT_MAILED.format(folio=folio), "success"
+    if req.status == "awaiting_access":
+        return _MSG_TO_ACCESS, "success"
+    if req.status == "approved":
+        if req.verify_sent_at is not None:
+            return _MSG_LINK_MAILED, "success"
+        return _MSG_LINK_UNMAILED, "warning"
+    return None
 
 
 def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None = None):
     """Contexto del parcial. Distingue los DOS vacíos (riesgo 3 del diseño).
 
     «¿Tiene cuenta?» se calcula aquí igual que en `approve()`: el número de
-    control contra `core_users`, HOY. Si la bandeja y el servicio se separan, la
-    fila promete un NIP que no se aplica o esconde una liga que sí sale.
+    control contra `core_users`, HOY, y solo si casa `CONTROL_NUMBER_RE` (la
+    misma guarda que `EligibilityService.check`, la aprobación y `sii-check`:
+    un control mal formado cuenta como SIN cuenta). Si la bandeja y el
+    servicio se separan, la fila promete un NIP que no se aplica o esconde una
+    liga que sí sale.
 
-    Modo `sii`: la consulta VIGENTE de cada fila se carga en UNA consulta
-    (nunca `latest_check` por fila) y `_sii_row` arma su bloque. `requested_id`
-    = la solicitud cuya consulta SE acaba de pedir (`reconsultar`).
+    Modo `sii`: la consulta VIGENTE de cada fila, en TODAS las pestañas, se
+    carga en UNA consulta (nunca `latest_check` por fila); `_sii_cell` arma su
+    celda y `_approve_action` su botón. `requested_id` = la solicitud cuya
+    consulta SE acaba de pedir (`reconsultar`).
     """
     from itcj2.core.models.program import Program
     from itcj2.core.models.user import User
     from itcj2.apps.titulatec.models import (
         Cohort, EligibilityCheck, EnrollmentRequest, TitulationProcess,
     )
-    from itcj2.apps.titulatec.services import enrollment_request_service as ers
+    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
+        APPROVAL_LABELS, EnrollmentRequestService,
     )
+    from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
 
     tab = _tab(status)
     scope = _officer_scope(db, user_id)
     mode = EnrollmentRequestService.reviewer_mode()
     sii = mode == "sii"
+    configured = EligibilityService.sii_configured()
     ctx = {"rows": [], "status": tab, "tabs": _TABS, "cohort_id": cohort_id,
            "programs": [], "no_programs": False,
            # Modo alterno = solo lectura: la plantilla no pinta ni un formulario
            # (las rutas POST lo cortan aparte, `_alternate_mode_block`).
            "mode": mode, "can_act": mode != "computer_center", "sii": sii,
+           # D11: con el backend `disabled` la plantilla avisa arriba de la
+           # tabla (solo en el modo `sii`: fuera de él no se habla del SII).
+           "sii_configured": configured,
            # «Revocar inscripción»: el formulario solo a quien la ruta va a
            # dejar pasar (patrón `can_export` de `handoff_admin.py`); se
            # calcula abajo, después del corte de «sin alcance».
@@ -355,6 +540,12 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
         # pierden de vista por más que sigan llegando solicitudes después.
         reqs = q.order_by(EnrollmentRequest.created_at.asc(),
                           EnrollmentRequest.id.asc()).limit(300).all()
+    elif tab == "awaiting_access":
+        # FIFO también (spec 2026-09-27 D10; Ruling R4: en todos los modos, es
+        # la misma cola): se atiende en el orden en que SE la mandó a Centro de
+        # Cómputo, `reviewed_at`, no en el de llegada del formulario.
+        reqs = q.order_by(EnrollmentRequest.reviewed_at.asc(),
+                          EnrollmentRequest.id.asc()).limit(300).all()
     else:
         # El resto de pestañas son historial: se sigue leyendo de lo último
         # que pasó hacia atrás.
@@ -372,22 +563,17 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
     procs = ({p.id: p for p in db.query(TitulationProcess)
               .filter(TitulationProcess.id.in_(pids)).all()} if pids else {})
     cohort_ids = {r.cohort_id for r in reqs}
-    cohorts = ({cid: {"name": name, "status": st, "auto": bool(auto)}
-                for cid, name, st, auto in db.query(
-                    Cohort.id, Cohort.name, Cohort.status, Cohort.sii_auto_approve)
-                .filter(Cohort.id.in_(cohort_ids)).all()} if cohort_ids else {})
+    cohort_names = ({cid: name for cid, name in db.query(Cohort.id, Cohort.name)
+                     .filter(Cohort.id.in_(cohort_ids)).all()} if cohort_ids else {})
     prog_names = {p["id"]: p["name"] for p in programs}
-    # Consultas VIGENTES del SII, en lote. Se cargan en cualquier modo porque
-    # «Aprobada automáticamente (SII)» es un hecho histórico de la fila; el
-    # bloque del veredicto solo se pinta en el modo `sii`. El lote las deja en
-    # el mapa de identidad de la sesión: el `db.get` de `_auto_approval_marker`
-    # las toma de ahí, sin una consulta por fila.
-    check_ids = {r.last_check_id for r in reqs if r.last_check_id}
-    checks = ({c.id: c for c in db.query(EligibilityCheck)
-               .filter(EligibilityCheck.id.in_(check_ids)).all()} if check_ids else {})
+    # Consultas VIGENTES del SII, en lote (nunca `latest_check` por fila), de
+    # TODAS las filas: la columna «SII» está en cada pestaña. Solo en el modo
+    # `sii`: fuera de él la bandeja no habla del SII.
+    checks = {}
     if sii:
-        from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
-        delay_hours = EligibilityService.delay_hours()
+        check_ids = {r.last_check_id for r in reqs if r.last_check_id}
+        checks = ({c.id: c for c in db.query(EligibilityCheck)
+                   .filter(EligibilityCheck.id.in_(check_ids)).all()} if check_ids else {})
         max_attempts = EligibilityService.max_attempts()
         now = datetime.now()
 
@@ -413,22 +599,38 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
     from itcj2.apps.titulatec.services.process_service import ProcessService
 
     for r in reqs:
-        u = users.get(r.control_number)
+        # Un control mal formado no se busca (ya viene en el lote, sin N+1):
+        # `approve` tampoco lo haría, así que la fila no promete la liga.
+        u = (users.get(r.control_number)
+             if CONTROL_NUMBER_RE.fullmatch((r.control_number or "").strip()) else None)
         proc = procs.get(r.converted_process_id)
         # Solo una revocada paga la consulta de su motivo (una por fila
         # revocada, que es la excepción): la regla es la del servicio, que lee
         # el ÚLTIMO `process_cancelled` y solo si el proceso sigue `cancelled`.
         revoked = (ProcessService.cancellation_info(db, proc)
                    if r.status == "converted" and proc is not None else None)
-        chk = checks.get(r.last_check_id)
-        cohort = cohorts.get(r.cohort_id, {})
-        sii_block = None
-        if sii and r.status == "pending_review":
-            # Solo `pending_review`: `EligibilityService.check` no consulta el
-            # legado (`unverified`/`verified`) ni lo ya resuelto.
-            sii_block = _sii_row(chk, note=r.review_note or "", cohort=cohort,
-                                 delay_hours=delay_hours, max_attempts=max_attempts,
-                                 now=now, requested=(r.id == requested_id))
+        has_account = u is not None
+        reviewable = r.status in _TAB_STATUSES["pending_review"]
+        chk = checks.get(r.last_check_id) if sii else None
+        # Celda completa en lo pendiente (también en «Todas»), compacta en el
+        # historial. El legado (`unverified`/`verified`) no tiene consulta
+        # posible (`check` no lo consulta): queda «Sin consultar», y la
+        # plantilla solo ofrece «Reintentar» a `pending_review`.
+        sii_cell = (_sii_cell(chk, has_account=has_account, compact=not reviewable,
+                              now=now, max_attempts=max_attempts,
+                              requested=(r.id == requested_id), configured=configured)
+                    if sii else None)
+        if not reviewable:
+            approve = None
+        elif sii:
+            approve = _approve_action({"has_account": has_account}, chk,
+                                      configured=configured,
+                                      requested=(r.id == requested_id), now=now)
+        else:
+            # Modos oficial y alterno: los botones de siempre, sin confirmar.
+            approve = {"label": (APPROVAL_LABELS["link"] if has_account
+                                 else _LABEL_TO_COMPUTER_CENTER),
+                       "to_access": False, "confirm": None}
         anteriores = [c for c in rejected_by_control.get(r.control_number, ()) if c[1] < r.id]
         prior_reject = None
         if anteriores:
@@ -446,12 +648,12 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
             "program_id": r.program_id,
             "email": r.contact_email,
             "phone": r.phone,
-            "cohort": cohort.get("name", ""),
+            "cohort": cohort_names.get(r.cohort_id, ""),
             "created": r.created_at.strftime("%d/%m/%Y") if r.created_at else "",
             "status": r.status,
             "status_label": _STATUS_LABELS.get(r.status, r.status),
-            "reviewable": r.status in _TAB_STATUSES["pending_review"],
-            "has_account": u is not None,
+            "reviewable": reviewable,
+            "has_account": has_account,
             "has_password": bool(u is not None and u.password_hash),
             # Abrir la liga la reactiva (excepción aprobada, 2026-09-15): el
             # oficial tiene que verlo ANTES de aprobar. La plantilla solo lo pinta
@@ -482,12 +684,14 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
             # rechazo es lo único que sella esta columna (`reject()`).
             "rejection_sent": r.rejection_sent_at is not None,
             "prior_reject": prior_reject,
-            "sii": sii_block,
-            # Aprobada SOLA (EligibilityService.auto_approve). La regla es la
-            # del servicio (`_auto_approval_marker`, la misma que marca el
-            # evento `auto: true`), no una copia: si cambia, la píldora la sigue.
-            "auto_approved": (r.status in ("approved", "converted")
-                              and bool(ers._auto_approval_marker(db, r))),
+            # «Reenviar aviso» (spec 2026-09-27 D12): la cuenta nació con el
+            # NIP del SII y su correo de acceso no salió. Lo mismo que exige
+            # `EnrollmentRequestService.resend_access_notice` (que además
+            # comprueba, bajo el lock, que la cuenta sea la del proceso).
+            "access_unsent_sii": (r.status == "converted" and r.nip_source == "sii"
+                                  and r.access_sent_at is None),
+            "sii": sii_cell,
+            "approve": approve,
         })
     return ctx
 
@@ -522,10 +726,26 @@ async def body(request: Request, status: str = "", cohort_id: str = "",
 @router.post("/{req_id}/aprobar", name="titulatec.pages.requests.approve")
 async def approve(req_id: int, request: Request,
                   user: dict = Depends(require_page_app("titulatec", perms=_APPROVE))):
-    """Aprueba (modo oficial). Sin cuenta pasa a Centro de Cómputo
-    (`awaiting_access`), que da el NIP; con cuenta, emite la liga de activación.
-    La ruta ya no lee `nip`: un formulario viejo en caché que lo mande se
-    ignora, y nunca aparece en un log ni cabecera."""
+    """Aprueba una solicitud (`EnrollmentRequestService.approve_detailed`).
+
+    Con cuenta emite la liga de activación. Sin cuenta: en el modo oficial pasa
+    a «En Cómputo» (`awaiting_access`); en el modo `sii` crea la cuenta con el
+    NIP del SII, o la pasa a Accesos si el formulario manda `to_access=1`
+    («Aprobar y pasar a Accesos»). Si en `sii` el SII no da un NIP válido al
+    aprobar, responde 200 con la bandeja re-pintada y el motivo en
+    `X-Tt-Notice` (warning): un 4xx no dejaría a HTMX re-pintar la fila, que
+    ya ofrece Accesos. Cualquier otro fallo, 400 + `X-Tt-Error`. Con el SII
+    sin configurar (D11) aprobar sin cuenta ES pasar a Accesos
+    (`approve_detailed`, revisión final F8).
+
+    En el modo `sii` un éxito lleva además `X-Tt-Notice` con lo que pasó
+    (`_approve_notice`, revisión final F9): cuenta creada con su folio y si
+    el correo salió, pasó a Accesos, o liga enviada / sin enviar. Los modos
+    oficial y alterno quedan sin aviso, como siempre.
+
+    La ruta no lee `nip`: un formulario viejo en caché que lo mande se ignora,
+    y el NIP nunca aparece en un log ni en una cabecera (los motivos del
+    servicio no lo llevan)."""
     bloqueo = _alternate_mode_block()
     if bloqueo is not None:
         return bloqueo
@@ -535,26 +755,33 @@ async def approve(req_id: int, request: Request,
     )
     form = await request.form()
     program_id = _to_int((form.get("program_id") or "").strip())
+    to_access = (form.get("to_access") or "").strip() == "1"
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
 
+    aviso = None
     db = SessionLocal()
     try:
         uid = int(user["sub"])
         # Alcance por carrera (Finding 1, ronda 1 de revisión): 404 liso, sin
         # `X-Tt-Error`, para que "no existe" y "no es tuya" sean indistinguibles.
         scope = _officer_scope(db, uid)
-        if _load_scoped_request(db, scope, req_id) is None:
+        req = _load_scoped_request(db, scope, req_id)
+        if req is None:
             return Response(status_code=404)
         if program_id and not _program_in_scope(scope, program_id):
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(
                 "Esa carrera no está en tu alcance.")})
         try:
-            # `nip=""`: en modo oficial `approve` no lo usa, y en el alterno
-            # esta ruta ya cortó arriba.
-            ok, detail = EnrollmentRequestService.approve(
-                db, req_id, nip="", program_id=program_id, actor_id=uid)
+            # `nip=""`: ni el modo oficial ni el `sii` lo usan, y en el alterno
+            # esta ruta ya cortó arriba. En el threadpool, no en el event loop:
+            # en modo `sii` pide el NIP al SII (pyodbc, bloqueante, hasta sus
+            # timeouts) y congelaría el proceso HTTP entero (revisión final C6).
+            result = await run_in_threadpool(
+                EnrollmentRequestService.approve_detailed,
+                db, req_id, nip="", program_id=program_id, actor_id=uid,
+                to_access=to_access)
         except Exception as exc:
-            # `approve` es dueña de su transacción: un fallo real en cualquier
+            # `approve_detailed` es dueña de su transacción: un fallo real en cualquier
             # punto se deshace entero aquí, mismo patrón que `enroll_verify`
             # (`pages/public.py`). El NIP NUNCA se loguea, ni aquí ni abajo, y
             # tampoco la traza: la de un `IntegrityError` trae los parámetros
@@ -567,14 +794,26 @@ async def approve(req_id: int, request: Request,
                 logger.warning("aprobar: rollback fallido tras el error")
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(
                 "No pudimos completar la aprobación; intenta de nuevo.")})
-        if not ok:
-            # `detail` nunca contiene el NIP, y `approve` no deja nada escrito
-            # cuando devuelve `(False, ...)` (invariante de su docstring).
-            return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
+        if not result.ok and not result.nip_failure:
+            # `detail` nunca contiene el NIP, y `approve_detailed` no deja nada
+            # escrito cuando falla (invariante de su docstring).
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(result.detail)})
+        if result.ok and EnrollmentRequestService.reviewer_mode() == "sii":
+            # Tras los commits del servicio (el sello del correo va en uno
+            # propio): el estado y los sellos que decide el aviso.
+            db.refresh(req)
+            aviso = _approve_notice(db, req, result.detail)
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort)
     finally:
         db.close()
-    return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
+    resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
+    if result.nip_failure:
+        # Nada escrito de la solicitud; su consulta ya dice el estado del NIP.
+        aviso = (f"{result.detail} {_MSG_NIP_FAILURE_TAIL}", "warning")
+    if aviso is not None:
+        resp.headers["X-Tt-Notice"] = _hdr(aviso[0])
+        resp.headers["X-Tt-Notice-Kind"] = aviso[1]
+    return resp
 
 
 @router.post("/{req_id}/rechazar", name="titulatec.pages.requests.reject")
@@ -644,6 +883,46 @@ async def resend(req_id: int, request: Request,
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
 
 
+@router.post("/{req_id}/reenviar-aviso", name="titulatec.pages.requests.resend_notice")
+async def resend_notice(req_id: int, request: Request,
+                        user: dict = Depends(require_page_app("titulatec", perms=_APPROVE))):
+    """«Reenviar aviso» desde Inscritas (spec 2026-09-27 D12).
+
+    Vuelve a mandar el correo de acceso de una cuenta que nació con el NIP DEL
+    SII y cuyo correo no salió (`EnrollmentRequestService.resend_access_notice`).
+    El correo no lleva el NIP y no se toca ninguna credencial. Mismo permiso,
+    corte del modo alterno y alcance por carrera que aprobar (404 liso). Sin
+    aviso pendiente o si el correo no sale, 400 + `X-Tt-Error`; si sale, la
+    bandeja re-pintada (la fila ya sin la marca) + `X-Tt-Notice`.
+    """
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    form = await request.form()
+    tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        scope = _officer_scope(db, uid)
+        if _load_scoped_request(db, scope, req_id) is None:
+            return Response(status_code=404)
+        ok, detail = EnrollmentRequestService.resend_access_notice(db, req_id)
+        if not ok:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
+        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort)
+    finally:
+        db.close()
+    resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
+    resp.headers["X-Tt-Notice"] = _hdr(_MSG_NOTICE_RESENT)
+    resp.headers["X-Tt-Notice-Kind"] = "success"
+    return resp
+
+
 @router.post("/{req_id}/reconsultar", name="titulatec.pages.requests.recheck")
 async def reconsultar(req_id: int, request: Request,
                       user: dict = Depends(require_page_app("titulatec", perms=_APPROVE))):
@@ -651,19 +930,25 @@ async def reconsultar(req_id: int, request: Request,
 
     `enqueue_check(req_id, force=True)` después de validar; la consulta corre
     en celery (el SII puede tardar lo que sus timeouts: nunca en la petición
-    web). No duplica: con la consulta vigente `pending` y fresca responde 400
+    web). Si no se pudo encolar (broker caído), 400 con el motivo: no se
+    anuncia una consulta que nadie va a hacer. No duplica: con la consulta vigente `pending` y fresca responde 400
     sin encolar (`EligibilityService.check` tampoco la repetiría), y la bandeja
     que devuelve ya pinta esa fila «Consultando…» sin el botón. Una `pending`
     colgada (más de `_PENDING_STALE`) sí se reintenta: `force` la retoma.
     Mismo permiso y alcance por carrera que aprobar; 404 liso fuera de alcance.
+    Con el SII sin configurar (spec 2026-09-27 D11) no hay a quién preguntar:
+    400 `_MSG_SII_OFF` antes de abrir sesión, como el corte de modo.
     """
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
+    from itcj2.apps.titulatec.services import eligibility_service as elig
+
     if EnrollmentRequestService.reviewer_mode() != "sii":
         return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_NOT_SII)})
+    if not elig.EligibilityService.sii_configured():
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_SII_OFF)})
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services import eligibility_service as elig
 
     form = await request.form()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
@@ -680,9 +965,10 @@ async def reconsultar(req_id: int, request: Request,
         if _in_flight(elig.EligibilityService.latest_check(db, req), datetime.now()):
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_IN_FLIGHT)})
         # Sin escrituras propias: la fila `pending` la abre la tarea bajo el lock
-        # de la solicitud. `enqueue_check` es best-effort y nunca lanza; con el
-        # broker caído la recoge el barrido (no hay consulta en curso).
-        elig.enqueue_check(req.id, force=True)
+        # de la solicitud. `enqueue_check` nunca lanza: dice si encoló.
+        if not elig.enqueue_check(req.id, force=True):
+            return Response(status_code=400,
+                            headers={"X-Tt-Error": _hdr(_MSG_RECHECK_NOT_QUEUED)})
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
                         requested_id=req.id)
     finally:

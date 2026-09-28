@@ -1376,18 +1376,21 @@ def _enroll_form_ctx(db, *, values=None, errors=None):
 
 
 def _enroll_aside_ctx(cohort) -> dict:
-    """Fecha de CIERRE para el panel lateral del formulario.
+    """Fecha y hora de CIERRE para el panel lateral del formulario.
+
+    «Cierra el 12 de octubre a las 23:59»: el cierre SIEMPRE lleva la hora
+    (spec 2026-09-27 §B3), y el 23:59:59 guardado se lee «23:59». El último día
+    la pastilla dice «Hoy a las 23:59».
 
     Solo fechas: `test_enrollment_public.py` exige `cohort.name not in
     resp.text`, así que el nombre de la convocatoria no sale de aquí ni por
-    descuido. Con `closes_at` nulo (la mayoría de las convocatorias viejas) el
-    bloque no se pinta: una fecha inventada es peor que ninguna.
+    descuido. `closes_at` es NOT NULL desde tt20260927b.
     """
-    from itcj2.apps.titulatec.utils.dates_es import cuenta_regresiva, dia_mes
+    from itcj2.apps.titulatec.utils.dates_es import cuenta_regresiva, dia_mes_hora
 
-    if cohort is None or cohort.closes_at is None:
+    if cohort is None:
         return {"closes_label": "", "closes_countdown": ""}
-    return {"closes_label": dia_mes(cohort.closes_at),
+    return {"closes_label": dia_mes_hora(cohort.closes_at),
             "closes_countdown": cuenta_regresiva(cohort.closes_at)}
 
 
@@ -1397,10 +1400,14 @@ def _enroll_closed_ctx(db) -> dict:
     El literal «La inscripción está cerrada» se conserva palabra por palabra:
     lo asertan `test_enrollment_public.py` (dos veces) y la E2E por
     `[data-tt-notice="closed"]`. Lo que cambia es lo que va debajo.
+
+    Con hora (spec 2026-09-27 §B3): la apertura dice la hora SOLO si no es
+    00:00 («lunes 5 de octubre» / «lunes 5 de octubre a las 09:00»); el cierre
+    la dice siempre. `opens_iso` es el ISO completo, con hora.
     """
     from itcj2.apps.titulatec.services.cohort_service import CohortService
     from itcj2.apps.titulatec.utils.dates_es import (
-        cuenta_regresiva, dia_largo, dia_mes,
+        cuenta_regresiva, dia_largo, dia_mes_hora, hora,
     )
 
     ctx = {"notice": True, "notice_key": "closed",
@@ -1417,10 +1424,12 @@ def _enroll_closed_ctx(db) -> dict:
             "con Servicios Escolares.")
         return ctx
 
-    ctx["opens_label"] = dia_largo(prox.opens_at)
-    ctx["opens_iso"] = prox.opens_at.isoformat()
-    ctx["opens_countdown"] = cuenta_regresiva(prox.opens_at)
-    ctx["closes_label"] = dia_mes(prox.closes_at) if prox.closes_at else ""
+    abre = prox.opens_at
+    ctx["opens_label"] = (dia_largo(abre) if (abre.hour, abre.minute) == (0, 0)
+                          else f"{dia_largo(abre)} a las {hora(abre)}")
+    ctx["opens_iso"] = abre.isoformat()
+    ctx["opens_countdown"] = cuenta_regresiva(abre)
+    ctx["closes_label"] = dia_mes_hora(prox.closes_at)
     ctx["notice_body"] = "Vuelve a esta página ese día para llenar tu solicitud."
     return ctx
 

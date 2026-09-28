@@ -21,7 +21,7 @@ publica (ultima seccion), que son lo que esta tarea entrega.
 from __future__ import annotations
 
 import re
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -116,11 +116,15 @@ def convocatoria_publica(db_session, make_cohort):
     """
     from itcj2.apps.titulatec.models import Cohort
 
+    from itcj2.core.utils.timezone import db_now
+
     db_session.query(Cohort).update({"status": "draft"}, synchronize_session=False)
     db_session.flush()
+    hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
     return make_cohort(status="open",
-                       opens_at=date.today() - timedelta(days=1),
-                       closes_at=date.today() + timedelta(days=30))
+                       opens_at=hoy - timedelta(days=1),
+                       closes_at=hoy + timedelta(days=30, hours=23, minutes=59,
+                                                 seconds=59))
 
 
 # ---------------------------------------------------------------------------

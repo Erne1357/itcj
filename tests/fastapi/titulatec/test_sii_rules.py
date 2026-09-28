@@ -222,10 +222,77 @@ class TestExistsYFilasVacias:
         v = rs.evaluate(_Stub({"q": {"C1": [{"n": None, "m": 1, "s": "", "t": None}]}}), "C1")
         assert v.results[0].ok is False
 
-    def test_null_es_falsy(self, tmp_path):
-        rs = _one_rule(tmp_path, '{ kind = "falsy", column = "t" }')
+    @pytest.mark.parametrize("mode", ["all", "any"])
+    @pytest.mark.parametrize("kind", ["truthy", "falsy"])
+    def test_null_en_truthy_o_falsy_es_error_de_la_regla(self, tmp_path, kind, mode):
+        """Spec §8: `truthy`/`falsy` aceptan bool, 0/1 y la lista cerrada;
+        «otro valor → error de la regla», y NULL es otro valor: no es «falso»
+        (antes `falsy` sobre NULL cumplía y aprobaba sin dato) ni «no cumple»
+        (revisión de F1). Quien quiera que NULL cuente como «no cumple» usa
+        `equals`/`in`, donde NULL nunca cumple."""
+        rs = _one_rule(tmp_path, f'{{ kind = "{kind}", column = "t", mode = "{mode}" }}')
+        filas = [{"n": 1, "m": 1, "s": "", "t": None}, {"n": 1, "m": 1, "s": "", "t": 1}]
+        v = rs.evaluate(_Stub({"q": {"C1": filas}}), "C1")
+        assert v.status == "error", v
+        assert "'r'" in v.error and "'t'" in v.error and "NULL" in v.error
+
+    def test_con_equals_null_sigue_sin_cumplir(self, tmp_path):
+        rs = _one_rule(tmp_path, '{ kind = "equals", column = "t", value = true }')
         v = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": None}]}}), "C1")
-        assert v.results[0].ok is True
+        assert v.status == "not_apt" and v.results[0].ok is False
+
+
+# ---------------------------------------------------------------------------
+# truthy / falsy estrictos (revisión final C4, spec §8)
+# ---------------------------------------------------------------------------
+class TestTruthyEstricto:
+    """Solo bool, 0/1 y un conjunto CERRADO de textos. Cualquier otro valor es
+    error de la regla: «NO ACREDITADO» ya no cuenta como verdadero."""
+
+    @pytest.mark.parametrize("valor", [
+        True, 1, Decimal("1"), "1", "S", "si", "SI", "SÍ", "sí", "Y", "yes", "T",
+        "true", "TRUE", "V", "verdadero", " Verdadero ",
+        # Decisión (revisión de F1): el NÚMERO 0/1 en cualquier tipo numérico
+        # (NUMERIC(1,0) → Decimal, FLOAT → float); 0.5, 2 o -1 siguen siendo error.
+        Decimal("1.00"), 1.0,
+    ])
+    def test_valores_verdaderos(self, tmp_path, valor):
+        rs = _one_rule(tmp_path, '{ kind = "truthy", column = "t" }')
+        v = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": valor}]}}), "C1")
+        assert v.status == "apt", (valor, v)
+
+    @pytest.mark.parametrize("valor", [
+        False, 0, Decimal("0"), "0", "N", "no", "NO", "F", "false", "FALSO", "falso",
+        Decimal("0.0"), 0.0,
+    ])
+    def test_valores_falsos(self, tmp_path, valor):
+        rs = _one_rule(tmp_path, '{ kind = "falsy", column = "t" }')
+        v = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": valor}]}}), "C1")
+        assert v.status == "apt", (valor, v)
+        rs2 = _one_rule(tmp_path / "t", '{ kind = "truthy", column = "t" }')
+        v2 = rs2.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": valor}]}}), "C1")
+        assert v2.status == "not_apt", (valor, v2)
+
+    @pytest.mark.parametrize("valor", [
+        "NO ACREDITADO", "NO LIBERADO", "PENDIENTE", "EN TRÁMITE", "SIN LIBERAR", "-",
+        "", "X", 2, -1, Decimal("0.5"), 1.5,
+    ])
+    @pytest.mark.parametrize("kind", ["truthy", "falsy"])
+    def test_cualquier_otro_valor_es_error_de_la_regla(self, tmp_path, kind, valor):
+        rs = _one_rule(tmp_path, f'{{ kind = "{kind}", column = "t" }}')
+        v = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": valor}]}}), "C1")
+        assert v.status == "error", (valor, v)
+        assert "'t'" in v.error and "r" in v.error
+
+    def test_equals_booleano_tambien_es_estricto(self, tmp_path):
+        """`equals value = true` compara con la misma regla: «NO ACREDITADO»
+        contra `true` es error, no «verdadero»."""
+        rs = _one_rule(tmp_path, '{ kind = "equals", column = "t", value = true }')
+        v = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": "NO ACREDITADO"}]}}),
+                        "C1")
+        assert v.status == "error", v
+        ok = rs.evaluate(_Stub({"q": {"C1": [{"n": 1, "m": 1, "s": "", "t": "S"}]}}), "C1")
+        assert ok.status == "apt"
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +358,9 @@ class TestErrorNuncaAprueba:
         assert "magia" in v.error
         assert stub.calls == []
 
-    def test_param_curp_sin_curp_es_error(self, tmp_path):
+    def test_curp_ya_no_es_un_parametro_permitido(self, tmp_path):
+        """Revisión final (spec §8): el formulario no captura CURP, así que
+        `curp` nunca llegaba y solo dejaba reglas que fallarían siempre."""
         base = _write(tmp_path, """
             version = "t"
             [[query]]
@@ -305,10 +374,10 @@ class TestErrorNuncaAprueba:
             message = "x"
         """, {"q.sql": _Q})
         rs = RuleSet.load(base)
-        assert rs.evaluate(_Stub(), "C1").status == "error"
-        stub = _Stub({"q": {"CURP1": _ROWS}})
-        assert rs.evaluate(stub, "C1", curp="CURP1").status == "apt"
-        assert stub.calls[0][2] == ("CURP1",)
+        assert any("curp" in e for e in rs.validate())
+        stub = _Stub({"q": {"C1": _ROWS}})
+        assert rs.evaluate(stub, "C1").status == "error"
+        assert stub.calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -356,9 +425,64 @@ class TestValidador:
         "WITH a AS (SELECT 1 AS z) DELETE FROM x WHERE ctl = ?",
         "SELECT * FROM x WHERE ctl = ? /* ; */ ; DROP TABLE x",
         "",
+        # Revisión final (spec §8): verbos de ASE y una segunda sentencia SIN `;`
+        # (T-SQL no la necesita).
+        "SELECT a FROM x WHERE ctl = ? SELECT b FROM y",
+        "SELECT a FROM x WHERE ctl = ?\nSELECT b FROM y",
+        "WITH a AS (SELECT ctl FROM x) SELECT * FROM a WHERE ctl = ? SELECT 1",
+        "SELECT a FROM x WHERE ctl = ? sp_configure",
+        "SELECT a FROM x WHERE ctl = ? xp_cmdshell",
+        "SELECT a INTO #tmp FROM x WHERE ctl = ?",
+        "SELECT a FROM x WHERE ctl = ? WAITFOR DELAY '00:00:05'",
+        "SELECT a FROM x WHERE ctl = ? DBCC traceon",
+        "SELECT a FROM x WHERE ctl = ? DUMP DATABASE d TO 'x'",
     ])
     def test_sql_que_no_es_un_select(self, tmp_path, sql):
         assert _errores(tmp_path, sql=sql) != []
+
+    @pytest.mark.parametrize("segunda", [
+        "SETUSER 'dbo'",
+        "PRINT 'x'",
+        "RAISERROR 20001 'x'",
+        "QUIESCE DATABASE t HOLD d",
+        "REORG REBUILD x",
+        "MOUNT DATABASE ALL FROM 'm'",
+        "UNMOUNT DATABASE d TO 'm'",
+        "ONLINE DATABASE d",
+        "GOTO fin",
+        "RETURN",
+        "IF 1 = 1 PRINT 'x'",
+        "WHILE 1 = 1 BREAK",
+        "CONTINUE",
+        "OPEN c",
+        "FETCH c",
+        "CLOSE c",
+        "CONNECT TO srv",
+        "DISCONNECT",
+        "REMOVE JAVA PACKAGE p",
+        "TRANSFER TABLE x TO 'f'",
+        "REFRESH PRECOMPUTED RESULT SET prs",
+    ])
+    def test_una_segunda_sentencia_sin_punto_y_coma_con_cualquier_verbo(
+        self, tmp_path, segunda,
+    ):
+        """Revisión de F1 (brief punto 7): T-SQL separa sentencias sin `;`, así
+        que un segundo statement de nivel superior que NO empiece con SELECT
+        (`… WHERE ctl = ? SETUSER 'dbo'`) también se rechaza, no solo un
+        segundo SELECT."""
+        sql = f"SELECT a FROM x WHERE ctl = ? {segunda}"
+        errs = _errores(tmp_path / "misma", sql=sql)
+        verbo = segunda.split()[0].upper()
+        assert any(verbo in e for e in errs), (sql, errs)
+        # En otra línea, y en minúsculas, igual.
+        otra = f"SELECT a FROM x WHERE ctl = ?\n{segunda.lower()}"
+        assert _errores(tmp_path / "otra", sql=otra) != []
+
+    def test_una_columna_que_se_llama_como_un_verbo_va_entre_corchetes(self, tmp_path):
+        sql = "SELECT [print], [online], [transfer] FROM x WHERE ctl = ?"
+        assert _errores(tmp_path / "con", sql=sql) == []
+        errs = _errores(tmp_path / "sin", sql="SELECT online FROM x WHERE ctl = ?")
+        assert any("ONLINE" in e and "corchetes" in e for e in errs), errs
 
     @pytest.mark.parametrize("sql", [
         "SELECT * FROM x WHERE ctl = ?;",
@@ -366,6 +490,14 @@ class TestValidador:
         "SELECT 'UPDATE; DROP' AS txt FROM x WHERE ctl = ?",
         "WITH a AS (SELECT ctl FROM x) SELECT * FROM a WHERE ctl = ?",
         "select updated_at, created_by FROM x WHERE ctl = ?",
+        "SELECT a FROM x WHERE ctl = ? UNION SELECT a FROM y",
+        "SELECT a FROM x WHERE ctl = ? UNION ALL SELECT a FROM y",
+        "SELECT a FROM x WHERE ctl = ? EXCEPT SELECT a FROM y",
+        "SELECT a FROM x WHERE ctl = ? INTERSECT SELECT a FROM y",
+        "SELECT t.a FROM (SELECT a, ctl FROM x) t WHERE t.ctl = ?",
+        "SELECT a FROM x WHERE ctl = ? AND EXISTS (SELECT 1 FROM y WHERE y.a = x.a)",
+        # Una columna que empiece con sp_/xp_ se escribe entre corchetes.
+        "SELECT [sp_total], [xp_nivel] FROM x WHERE ctl = ?",
     ])
     def test_sql_valido(self, tmp_path, sql):
         assert _errores(tmp_path, sql=sql) == []
@@ -511,6 +643,45 @@ class TestCredencial:
         rs = RuleSet.load(FIXTURES)
         assert rs.fetch_credential(_Stub({"nip": {"C": [{"NIP": None}]}}), "C") is None
 
+    @pytest.mark.parametrize("crudo,esperado", [
+        (123, "0123"), (Decimal("7"), "0007"), (4321, "4321"), ("0123", "0123"),
+        # Columna FLOAT/REAL (revisión de F1): 427.0 no es «427.0».
+        (427.0, "0427"), (7.0, "0007"), (Decimal("427.00"), "0427"),
+    ])
+    def test_un_nip_numerico_conserva_los_ceros_a_la_izquierda(self, crudo, esperado):
+        """Si el SII guarda el NIP como número, «0123» llegaba como «123» y la
+        cuenta no se podía crear (revisión final C13)."""
+        rs = RuleSet.load(FIXTURES)
+        s = rs.fetch_credential(_Stub({"nip": {"C": [{"nip": crudo}]}}), "C")
+        assert s.reveal() == esperado
+
+    @pytest.mark.parametrize("crudo", [427.5, Decimal("427.5"), float("nan"), float("inf")])
+    def test_un_nip_numerico_con_decimales_no_se_trunca(self, crudo):
+        """Solo se rellena un número ENTERO: 427.5 no se vuelve «0427» (sería
+        otro NIP); queda con otro formato y la cuenta no se crea."""
+        from itcj2.apps.titulatec.services.enrollment_request_service import nip_format_ok
+
+        rs = RuleSet.load(FIXTURES)
+        s = rs.fetch_credential(_Stub({"nip": {"C": [{"nip": crudo}]}}), "C")
+        assert s is not None and not nip_format_ok(s.reveal())
+
+    def test_varias_filas_con_nip_distinto_es_error_de_reglas(self, caplog):
+        """Antes se tomaba la primera fila: un NIP al azar. Ahora es error de
+        configuración, sin ningún valor en el mensaje ni en el log."""
+        caplog.set_level(logging.DEBUG)
+        rs = RuleSet.load(FIXTURES)
+        stub = _Stub({"nip": {"C": [{"nip": "1111"}, {"nip": "2222"}]}})
+        with pytest.raises(SiiRulesError) as ei:
+            rs.fetch_credential(stub, "C")
+        texto = " ".join([str(ei.value), repr(ei.value), caplog.text])
+        assert "1111" not in texto and "2222" not in texto
+        assert "varias filas" in str(ei.value)
+
+    def test_varias_filas_con_el_mismo_nip_no_es_error(self):
+        rs = RuleSet.load(FIXTURES)
+        stub = _Stub({"nip": {"C": [{"nip": "1111"}, {"nip": 1111}, {"nip": None}]}})
+        assert rs.fetch_credential(stub, "C").reveal() == "1111"
+
     def test_el_nip_no_aparece_en_ningun_lado(self, caplog):
         caplog.set_level(logging.DEBUG)
         rs = RuleSet.load(FIXTURES)
@@ -523,3 +694,35 @@ class TestCredencial:
             repr(s), str(s), repr(rs), caplog.text,
         ])
         assert NIP not in visible
+
+
+# ---------------------------------------------------------------------------
+# Advertencias: sin `[identity]` no se compara el nombre (revisión final C3)
+# ---------------------------------------------------------------------------
+class TestAdvertencias:
+    def test_las_reglas_sinteticas_no_advierten(self):
+        assert RuleSet.load(FIXTURES).advisories() == []
+
+    def test_sin_identity_advierte_que_no_se_compara_el_nombre(self, tmp_path):
+        rs = RuleSet.load(_write(tmp_path, _BASE_TOML, {"q.sql": _Q}))
+        assert rs.validate() == [], "sigue siendo válida: es una advertencia"
+        avisos = rs.advisories()
+        assert len(avisos) == 1
+        assert "[identity]" in avisos[0] and "first_name" in avisos[0]
+        # Spec 2026-09-27 A7: ya no condiciona una aprobación sola (se retiró),
+        # sí la confirmación D7: sin comparar el nombre, CADA aprobación la pide.
+        assert "no se compara el nombre con el formulario" in avisos[0]
+        assert ("cada aprobación pedirá confirmación "
+                "(«No se pudo comparar el nombre con el SII»)") in avisos[0]
+        assert "aprobará sola" not in avisos[0]
+
+    def test_identity_sin_apellido_paterno_advierte(self, tmp_path):
+        toml = _BASE_TOML + """
+            [identity]
+            query = "q"
+            columns = { first_name = "n", middle_name = "m" }
+        """
+        rs = RuleSet.load(_write(tmp_path, toml, {"q.sql": _Q}))
+        assert rs.validate() == []
+        avisos = rs.advisories()
+        assert len(avisos) == 1 and "last_name" in avisos[0]

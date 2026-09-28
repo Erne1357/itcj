@@ -18,7 +18,7 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -163,10 +163,18 @@ def _cuerpo(metodo) -> str:
 # ---------------------------------------------------------------------------
 # Modo y etiqueta de quien revisa
 # ---------------------------------------------------------------------------
-def test_el_modo_oficial_es_el_de_por_omision_y_lo_revisa_servicios_escolares():
-    svc = _svc()
-    assert svc.reviewer_mode() == "school_services"
-    assert svc.reviewer_label() == "Servicios Escolares"
+def test_el_modo_por_omision_es_sii_y_lo_revisa_servicios_escolares(monkeypatch):
+    """`Settings()` a secas lee `.env`/el entorno del contenedor: el autouse
+    `_modo_oficial_por_defecto` solo parchea el SINGLETON de `get_settings()`
+    (para no falsear el resto de la suite, spec D3), nunca sirve para medir el
+    DEFAULT declarado en el campo. `_env_file=None` + `delenv` lo aísla, igual
+    que `TestSettingsDeLaInscripcion` en `test_enrollment_request_service.py`."""
+    from itcj2.config import Settings
+
+    monkeypatch.delenv("TITULATEC_ENROLLMENT_REVIEWER", raising=False)
+    s = Settings(_env_file=None)
+    assert s.TITULATEC_ENROLLMENT_REVIEWER == "sii"
+    assert _svc().reviewer_label() == "Servicios Escolares"
 
 
 def test_en_modo_alterno_la_etiqueta_es_centro_de_computo(modo_alterno):
@@ -265,6 +273,7 @@ def test_aprobar_sin_cuenta_en_modo_alterno_crea_usuario_y_manda_el_nip(
 
     assert ok is True and folio
     assert req.status == "converted"
+    assert req.nip_source == "form", "el NIP lo tecleó CC en el formulario del alterno"
     assert req.reviewed_by_id == cc.id
     assert req.access_granted_by_id == cc.id and req.access_granted_at is not None
     assert req.access_sent_at is not None, "el correo salió: se sella"
@@ -314,6 +323,7 @@ def test_dar_acceso_crea_la_cuenta_con_el_nip_y_conserva_la_revision_de_se(
     assert ok is True
     db_session.refresh(req)
     assert req.status == "converted"
+    assert req.nip_source == "center", "el NIP lo dio Centro de Cómputo a mano"
     assert (req.reviewed_by_id, req.reviewed_at) == (se.id, revisado_en), (
         "dar acceso no reescribe quién aprobó")
     assert req.access_granted_by_id == cc.id and req.access_granted_at is not None
@@ -451,7 +461,32 @@ def test_la_regla_del_nip_vive_en_un_solo_lugar():
 
     src = _inspect.getsource(mod)
     assert r"\d{4}" not in src
-    assert src.count("_NIP_RE.fullmatch(") == 2
+    # Revisión final: la regla vive en `nip_format_ok`; `_create_account` y
+    # `reassign_nip` la llaman, y `EligibilityService.classify_sii_nip` (la
+    # consulta al SII, la aprobación del modo `sii` y `sii-check`) también.
+    assert src.count("_NIP_RE.fullmatch(") == 1
+    for fn in (mod.EnrollmentRequestService._create_account,
+               mod.EnrollmentRequestService.reassign_nip):
+        assert "nip_format_ok(" in _inspect.getsource(fn)
+
+
+def test_crear_la_cuenta_exige_decir_de_donde_salio_el_nip():
+    """Spec 2026-09-27 §A6: «Con acceso» filtra por `nip_source`, así que ningún
+    llamador de `_create_account` puede olvidarlo (kw obligatorio, sin
+    default) y su dominio es el de la columna."""
+    from itcj2.apps.titulatec.services import enrollment_request_service as mod
+
+    assert mod.NIP_SOURCES == ("sii", "center", "form")
+    param = inspect.signature(mod.EnrollmentRequestService._create_account).parameters[
+        "nip_source"]
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
+    assert param.default is inspect.Parameter.empty
+    # Un valor fuera del dominio es un error de programación: truena antes de
+    # tocar la BD (por eso bastan `None` en sesión, solicitud y convocatoria).
+    with pytest.raises(ValueError):
+        mod.EnrollmentRequestService._create_account(
+            None, None, None, nip="1234", program_id=None, actor_id=None,
+            approved_by_id=None, nip_source="centro")
 
 
 def test_dar_acceso_a_una_solicitud_inexistente(db_session):
@@ -478,11 +513,12 @@ def test_dar_acceso_con_la_ventana_publica_vencida_si_procede(
     """Review Focus 2 / D5: pasada `closes_at` se sigue dando acceso a lo que
     entró a tiempo; solo `status='closed'` pausa."""
     from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.core.utils.timezone import db_now
 
     seed_phase_defs()
-    hoy = date.today()
+    hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
     cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
-                         closes_at=hoy - timedelta(days=1))
+                         closes_at=hoy - timedelta(seconds=1))
     assert CohortService.is_public_enrollment_open(cohort) is False
     req, _se, _ = _en_espera(db_session, make_cohort, make_user, control="99560027",
                              cohort=cohort)
@@ -614,6 +650,7 @@ def test_si_aparecio_una_cuenta_dar_acceso_se_desvia_a_la_liga(
     assert req.verify_sent_at is not None
     assert _svc().access_mail_unsent(req) is False, (
         "sin access_sent_at, pero D10 no manda NIP: no es «correo no enviado»")
+    assert req.nip_source is None, "la solicitud no creó la cuenta: no hay NIP de nadie"
     db_session.refresh(cuenta)
     assert cuenta.password_hash == hash_antes and not verify_nip(NIP, cuenta.password_hash)
     assert _usuarios(db_session, "99560040") == 1

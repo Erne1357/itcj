@@ -1,115 +1,54 @@
-"""Elegibilidad automática contra el SII: consulta, aprobación automática y
-barrido (spec 2026-09-25 §3.4, Tarea 4).
+"""Elegibilidad automática contra el SII: consulta y barrido (spec 2026-09-25
+§3.4, Tarea 4). Nada se aprueba solo: el SII informa y Servicios Escolares
+decide siempre (spec 2026-09-27 §A3).
 
 Corre con el SII FALSO y las reglas sintéticas de `sii_fixtures/` (se parchea
-`SiiConfig`, nunca `get_settings`). El JSON del SII falso lo arma cada prueba
-en `tmp_path` con números de control `9958xxxx`: los `2011xxxx` de
-`sii_fixtures/fake_sii.json` podrían existir como cuentas reales en la BD de
-dev, y «¿tiene cuenta?» se decide contra `core_users`.
+`SiiConfig`, nunca `get_settings`): la fixture `sii` y `FakeSii` viven en
+`_sii_fake.py`, compartidos con `test_enrollment_approve.py`. El JSON del SII
+falso lo arma cada prueba en `tmp_path` con números de control `9958xxxx`:
+los `2011xxxx` de `sii_fixtures/fake_sii.json` podrían existir como cuentas
+reales en la BD de dev, y «¿tiene cuenta?» se decide contra `core_users`.
 
 Máquina que fija este archivo:
 
     create() [modo sii]  ─commit─► enqueue_check(req_id)      (best-effort)
-    check()              lock ─► fila `pending` ─commit─► SII (SIN lock)
-                         ─► lock + refresh ─► apt | not_apt | error
+    check()              lock ─► fila `pending` ─commit─► SII + NIP (SIN lock)
+                         ─► lock + refresh ─► apt | not_apt | error + nip_status
+
+Con el SII sin configurar (backend `disabled`, D11) nada se consulta, encola
+ni barre.
 """
 from __future__ import annotations
 
+import ast
 import json
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from itcj2.apps.titulatec.services.eligibility_service import (
+    _PENDING_STALE, NIP_MISSING, NIP_UNAVAILABLE,
+)
 from itcj2.apps.titulatec.services.sii.client import SiiConfig
-
-FIXTURES = Path(__file__).parent / "sii_fixtures"
-NIP_SII = "4321"
-RULES_VERSION = "test-2026-09-25.1"
+from tests.fastapi.titulatec._sii_fake import (  # noqa: F401
+    FIXTURES, RULES_VERSION, pide_nip, sii,
+)
 
 
 # ---------------------------------------------------------------------------
-# Fixtures locales
+# Fixtures locales (el SII falso, `sii`, es el compartido de `_sii_fake.py`)
 # ---------------------------------------------------------------------------
-class _FakeSii:
-    """Arma el JSON del SII falso por prueba (controles sintéticos)."""
-
-    def __init__(self, path: Path):
-        self.path = path
-        self.data = {"queries": {"alumno": {}, "adeudos": {}, "nip": {}}}
-        self.backend = "fake"
-        self.rules = FIXTURES
-        self._write()
-
-    def _write(self):
-        self.path.write_text(json.dumps(self.data), encoding="utf-8")
-
-    def alumno(self, control, *, nombre="EGRESADA", paterno="DEL SII", materno=None,
-               carrera="Ingenieria Ficticia", nip=NIP_SII, **over):
-        row = {"no_de_control": control, "nombre": nombre, "apellido_paterno": paterno,
-               "apellido_materno": materno, "carrera": carrera, "anio_ingreso": 2019,
-               "estatus": "EGRESADO", "creditos_aprobados": 260, "creditos_carrera": 260,
-               "servicio_social": "S", "residencia": "S"}
-        row.update(over)
-        self.data["queries"]["alumno"][control] = [row]
-        if nip is not None:
-            self.data["queries"]["nip"][control] = [{"nip": nip}]
-        self._write()
-
-    def no_apta(self, control, **kw):
-        self.alumno(control, creditos_aprobados=200, **kw)
-
-    def caido(self, control):
-        self.data["queries"]["alumno"][control] = {"error": "unavailable"}
-        self._write()
-
-    def nip_caido(self, control):
-        self.data["queries"]["nip"][control] = {"error": "unavailable"}
-        self._write()
-
-    def consulta_invalida(self, control):
-        """`SiiQueryError`: el SII respondió, pero la consulta no sirve."""
-        self.data["queries"]["alumno"][control] = {"error": "query"}
-        self._write()
-
-    def nip_invalido(self, control):
-        """`SiiQueryError` al pedir el NIP (p. ej. sin permiso sobre la tabla)."""
-        self.data["queries"]["nip"][control] = {"error": "query"}
-        self._write()
-
-    def nip_sin_columna(self, control):
-        """La consulta del NIP no devuelve la columna de `[credential]`
-        (`SiiRulesError`); la fila trae otro dato que NO debe aparecer."""
-        self.data["queries"]["nip"][control] = [{"otra": "7777"}]
-        self._write()
-
-
-@pytest.fixture()
-def sii(monkeypatch, tmp_path):
-    fake = _FakeSii(tmp_path / "fake_sii.json")
-    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: fake.backend))
-    monkeypatch.setattr(SiiConfig, "fake_file", staticmethod(lambda: fake.path))
-    monkeypatch.setattr(SiiConfig, "rules_dir", staticmethod(lambda: Path(fake.rules)))
-    monkeypatch.setattr(SiiConfig, "odbc_connection_string", staticmethod(lambda: ""))
-    return fake
-
-
-@pytest.fixture()
-def modo_sii(monkeypatch):
-    """Modo `sii` (se parchea el método, nunca `get_settings`)."""
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
-    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
-                        staticmethod(lambda: "sii"))
+# `modo_sii` vive en conftest.py (Tarea 1: una sola copia compartida en vez de
+# 6 duplicadas por archivo).
 
 
 @pytest.fixture(autouse=True)
-def _ventana_y_tope(monkeypatch):
-    """Ventana 0 h y 5 intentos, fijos aunque el `.env` del contenedor diga otra cosa."""
+def _tope(monkeypatch):
+    """5 intentos, fijos aunque el `.env` del contenedor diga otra cosa."""
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
 
-    monkeypatch.setattr(EligibilityService, "delay_hours", staticmethod(lambda: 0))
     monkeypatch.setattr(EligibilityService, "max_attempts", staticmethod(lambda: 5))
 
 
@@ -171,16 +110,22 @@ def _checks(db_session, req):
             .order_by(EligibilityCheck.id).all())
 
 
+_COMPARADA: dict = {}
+
+
 def _check_row(db_session, req, *, status, attempt=1, started_at=None, finished_at=None,
-               rules_version=RULES_VERSION, retryable=None, identity_mismatch=None):
-    """Check ya hecho (historial), apuntado como vigente."""
+               rules_version=RULES_VERSION, retryable=None, identity_mismatch=_COMPARADA):
+    """Check ya hecho (historial), apuntado como vigente. Por omisión el nombre
+    se comparó con el SII y coincidió (`{}`); `None` = no se comparó."""
     from itcj2.apps.titulatec.models import EligibilityCheck
 
     now = datetime.now()
     chk = EligibilityCheck(request_id=req.id, status=status, attempt=attempt,
                            rules_version=rules_version, started_at=started_at or now,
                            finished_at=finished_at if status != "pending" else None,
-                           retryable=retryable, identity_mismatch=identity_mismatch)
+                           retryable=retryable,
+                           identity_mismatch=(dict(identity_mismatch)
+                                              if identity_mismatch is not None else None))
     if status != "pending" and chk.finished_at is None:
         chk.finished_at = now
     db_session.add(chk)
@@ -202,11 +147,13 @@ def test_los_settings_se_leen_por_metodos_estaticos(monkeypatch):
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.config import get_settings
 
-    monkeypatch.undo()   # quita el autouse que fija 0 h / 5 intentos
-    monkeypatch.setattr(get_settings(), "TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS", 7)
+    monkeypatch.undo()   # quita el autouse que fija 5 intentos
     monkeypatch.setattr(get_settings(), "TITULATEC_SII_MAX_ATTEMPTS", 3)
-    assert EligibilityService.delay_hours() == 7
     assert EligibilityService.max_attempts() == 3
+
+
+def test_la_version_vigente_sale_de_las_reglas(sii):
+    assert _svc().rules_version() == RULES_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +163,6 @@ def test_apta_registra_la_consulta_con_reglas_hechos_y_version(
     db_session, make_cohort, sii, modo_sii,
 ):
     cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False      # esta prueba mira solo la consulta
     req = _make_req(db_session, cohort, control="99580001")
     sii.alumno("99580001")
 
@@ -233,7 +179,7 @@ def test_apta_registra_la_consulta_con_reglas_hechos_y_version(
                          "creditos_carrera": 260, "anio_ingreso": 2019}
     assert chk.error is None
     assert chk.finished_at is not None and chk.duration_ms is not None
-    assert chk.identity_mismatch is None
+    assert chk.identity_mismatch == {}, "se comparó el nombre y coincide"
     assert req.last_check_id == chk.id
     assert req.status == "pending_review"
     assert _svc().latest_check(db_session, req).id == chk.id
@@ -269,17 +215,6 @@ def test_sii_caido_es_error_y_la_solicitud_sigue_por_revisar(
     assert req.last_check_id == chk.id
 
 
-def test_backend_deshabilitado_es_error(db_session, make_cohort, sii, modo_sii):
-    cohort = make_cohort(status="open")
-    req = _make_req(db_session, cohort, control="99580004")
-    sii.backend = "disabled"
-
-    chk = _svc().check(db_session, req.id)
-
-    assert chk.status == "error"
-    assert "deshabilitada" in chk.error
-
-
 def test_sin_reglas_es_error(db_session, make_cohort, sii, modo_sii, tmp_path):
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99580005")
@@ -291,19 +226,25 @@ def test_sin_reglas_es_error(db_session, make_cohort, sii, modo_sii, tmp_path):
     assert "rules.toml" in chk.error
 
 
-# Spec §3.4: se reintenta SOLO ante `SiiUnavailable` (conexión, timeout,
-# backend apagado). Una regla rota o una consulta inválida no se arreglan
-# solas: quedan en «Error» para Servicios Escolares, con su motivo.
-@pytest.mark.parametrize("falla", ["caido", "deshabilitado"])
+# Spec §3.4: se reintenta SOLO ante `SiiUnavailable` (conexión, timeout). Una
+# regla rota o una consulta inválida no se arreglan solas: quedan en «Error»
+# para Servicios Escolares, con su motivo. (Con el backend `disabled` ya no se
+# llega a consultar: `test_sii_no_configurado_no_consulta`.)
+@pytest.mark.parametrize("falla", ["caido", "al_conectar"])
 def test_el_sii_que_no_responde_es_un_error_reintentable(
-    db_session, make_cohort, sii, modo_sii, falla,
+    db_session, make_cohort, sii, modo_sii, monkeypatch, falla,
 ):
+    from itcj2.apps.titulatec.services.sii import client as sii_client
+    from itcj2.apps.titulatec.services.sii.errors import SiiUnavailable
+
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99580080")
     if falla == "caido":
         sii.caido("99580080")
     else:
-        sii.backend = "disabled"
+        def _sin_conexion():
+            raise SiiUnavailable("No se pudo conectar al SII.")
+        monkeypatch.setattr(sii_client, "get_sii_client", _sin_conexion)
 
     chk = _svc().check(db_session, req.id)
 
@@ -332,6 +273,55 @@ def test_un_error_de_configuracion_no_es_reintentable(
 
     assert chk.status == "error"
     assert chk.retryable is False
+
+
+@pytest.mark.parametrize("donde", ["consulta", "reglas"])
+def test_el_corte_de_celery_es_un_error_reintentable(
+    db_session, make_cohort, sii, modo_sii, monkeypatch, donde,
+):
+    """Revisión final (minor): `SoftTimeLimitExceeded` es tiempo agotado, no
+    configuración: se reintenta (antes quedaba como error definitivo)."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from itcj2.apps.titulatec.services.sii.client import FakeSiiClient
+    from itcj2.apps.titulatec.services.sii.rules import RuleSet
+
+    def _corte(*a, **k):
+        raise SoftTimeLimitExceeded()
+
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580098")
+    sii.alumno("99580098")
+    if donde == "consulta":
+        monkeypatch.setattr(FakeSiiClient, "query", _corte)
+    else:
+        monkeypatch.setattr(RuleSet, "load", classmethod(_corte))
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "error"
+    assert chk.retryable is True
+
+
+def test_el_corte_de_celery_al_pedir_el_nip_es_transitorio(sii, monkeypatch):
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from itcj2.apps.titulatec.services import eligibility_service as elig
+    from itcj2.apps.titulatec.services.sii.client import FakeSiiClient
+
+    def _corte(*a, **k):
+        raise SoftTimeLimitExceeded()
+
+    monkeypatch.setattr(FakeSiiClient, "query", _corte)
+
+    assert elig.fetch_sii_nip("99580099") == (None, elig.NIP_UNAVAILABLE)
+
+
+def test_el_tipo_transitorio_del_nip_es_el_de_sii_unavailable():
+    from itcj2.apps.titulatec.services import eligibility_service as mod
+    from itcj2.apps.titulatec.services.sii.errors import SiiUnavailable
+
+    assert mod.NIP_UNAVAILABLE == SiiUnavailable.__name__
 
 
 def test_un_veredicto_no_es_error_ni_reintentable(db_session, make_cohort, sii, modo_sii):
@@ -370,13 +360,12 @@ def test_una_falla_inesperada_es_error_sin_su_mensaje(
 
 def test_discrepancia_de_identidad_se_registra(db_session, make_cohort, sii, modo_sii):
     cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
     req = _make_req(db_session, cohort, control="99580007")
     sii.alumno("99580007", nombre="OTRA PERSONA", carrera="Arquitectura")
 
     chk = _svc().check(db_session, req.id)
 
-    assert chk.status == "apt", "el veredicto es de las reglas; la identidad frena la automática"
+    assert chk.status == "apt", "el veredicto es de las reglas; la identidad va aparte"
     assert chk.identity_mismatch == {
         "first_name": {"form": "EGRESADA", "sii": "OTRA PERSONA"},
         "program": {"form": "Ingenieria Ficticia", "sii": "Arquitectura"},
@@ -387,7 +376,6 @@ def test_identidad_igual_salvo_acentos_y_mayusculas_no_es_discrepancia(
     db_session, make_cohort, sii, modo_sii,
 ):
     cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
     req = _make_req(db_session, cohort, control="99580008", first_name="María José",
                     last_name="Núñez", middle_name="López")
     sii.alumno("99580008", nombre="  MARIA  JOSE ", paterno="NUNEZ", materno="LOPEZ",
@@ -395,24 +383,340 @@ def test_identidad_igual_salvo_acentos_y_mayusculas_no_es_discrepancia(
 
     chk = _svc().check(db_session, req.id)
 
-    assert chk.identity_mismatch is None
+    assert chk.identity_mismatch == {}, "{} = se comparó y coincide; None = no se comparó"
 
 
-def test_el_nip_del_sii_no_se_guarda_ni_se_registra(
-    db_session, make_cohort, sii, modo_sii, caplog,
+# La identidad FALLA CERRADO (revisión final C3/C9): sin `[identity]`, con la
+# columna mal escrita o con el nombre vacío en el SII, el nombre NO se comparó
+# y la consulta lo dice (`None` o `_unverified`), nunca `{}` («coincide»). Ya
+# no frena una aprobación automática (se retiró, spec 2026-09-27 D2), pero es
+# lo que `identity_block` convierte en la confirmación de la bandeja (D7): si
+# volviera `{}`, un nombre que nadie comparó pasaría por confirmado.
+_NOTA_SIN_COMPARAR = "No se pudo comparar el nombre con el SII."
+
+
+def _reglas_sin(tmp_path, *, quitar=None, cambiar=None) -> Path:
+    """Copia de las reglas sintéticas sin `[identity]` o con un cambio."""
+    import shutil
+
+    base = tmp_path / "reglas"
+    shutil.copytree(FIXTURES, base, ignore=shutil.ignore_patterns("fake_sii.json"))
+    texto = (base / "rules.toml").read_text(encoding="utf-8")
+    if quitar:
+        inicio = texto.index(quitar)
+        fin = texto.index("\n[", inicio + 1)
+        texto = texto[:inicio] + texto[fin + 1:]
+    if cambiar:
+        assert cambiar[0] in texto, "el cambio no aplicó: las reglas sintéticas cambiaron"
+        texto = texto.replace(*cambiar)
+    (base / "rules.toml").write_text(texto, encoding="utf-8")
+    return base
+
+
+def test_sin_identity_en_las_reglas_el_nombre_no_se_compara(
+    db_session, make_cohort, sii, modo_sii, tmp_path,
+):
+    sii.rules = _reglas_sin(tmp_path, quitar="[identity]")
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580070")
+    sii.alumno("99580070")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt", "el veredicto es de las reglas; la identidad va aparte"
+    assert chk.identity_mismatch is None, "sin [identity] no hubo comparación (≠ {})"
+
+
+def test_columna_de_identidad_mal_escrita_deja_el_nombre_sin_comparar(
+    db_session, make_cohort, sii, modo_sii, tmp_path,
+):
+    """El motor proyecta la columna inexistente como NULL: no es «coincide»."""
+    sii.rules = _reglas_sin(tmp_path, cambiar=('first_name = "nombre"',
+                                               'first_name = "nombre_mal"'))
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580071")
+    sii.alumno("99580071")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert chk.identity_mismatch == {"_unverified": ["first_name"]}
+
+
+@pytest.mark.parametrize("campo,sin_comparar", [("nombre", "first_name"),
+                                                ("paterno", "last_name")])
+def test_nombre_vacio_en_el_sii_queda_sin_comparar(
+    db_session, make_cohort, sii, modo_sii, campo, sin_comparar,
 ):
     cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
+    req = _make_req(db_session, cohort, control="99580072")
+    sii.alumno("99580072", **{campo: None})
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert chk.identity_mismatch == {"_unverified": [sin_comparar]}
+
+
+_OTRA = {"form": "EGRESADA", "sii": "OTRA PERSONA"}
+
+
+@pytest.mark.parametrize("identidad,esperado", [
+    (None, _NOTA_SIN_COMPARAR),
+    ({"_unverified": ["last_name"]}, _NOTA_SIN_COMPARAR),
+    ({"_unverified": ["first_name"], "last_name": _OTRA}, _NOTA_SIN_COMPARAR),
+    ({"first_name": _OTRA}, "El nombre del formulario no coincide con el del SII (nombre); "),
+    ({"first_name": _OTRA, "last_name": _OTRA, "program": _OTRA},
+     "El nombre del formulario no coincide con el del SII (nombre, apellido paterno); "),
+    ({}, None),
+    ({"program": {"form": "Ingenieria Ficticia", "sii": "Arquitectura"}}, None),
+], ids=["no_comparado", "sin_comparar", "sin_comparar_gana", "nombre_distinto",
+        "dos_campos_sin_carrera", "coincide", "solo_la_carrera"])
+def test_identity_block_falla_cerrado(identidad, esperado):
+    """Lo que la confirmación de la bandeja (D7) dirá del nombre. Sin
+    comparación → «no se pudo comparar», aunque además haya diferencias; nombre
+    distinto → los CAMPOS, nunca los valores; carrera distinta sola o
+    coincidencia → nada que confirmar."""
+    from types import SimpleNamespace
+
+    from itcj2.apps.titulatec.services.eligibility_service import identity_block
+
+    texto = identity_block(SimpleNamespace(identity_mismatch=identidad))
+
+    if esperado is None or esperado == _NOTA_SIN_COMPARAR:
+        assert texto == esperado
+    else:
+        assert texto.startswith(esperado)
+        assert "OTRA PERSONA" not in texto and "EGRESADA" not in texto
+
+
+def test_identity_block_sin_consulta_falla_cerrado():
+    from itcj2.apps.titulatec.services.eligibility_service import identity_block
+
+    assert identity_block(None) == _NOTA_SIN_COMPARAR
+
+
+# ---------------------------------------------------------------------------
+# check(): estado del NIP (spec 2026-09-27 §A2, D6). Sin cuenta y con un
+# veredicto que no es `error`, la consulta pregunta también por el NIP del SII
+# y guarda SOLO en qué estado está (`nip_status`): con eso la bandeja pinta
+# desde el inicio «dar acceso» o «pasar a Accesos». El valor jamás se guarda.
+# El espía `pide_nip` es el compartido de `_sii_fake.py`.
+# ---------------------------------------------------------------------------
+def test_el_dominio_del_estado_del_nip_es_el_de_la_spec():
+    from itcj2.apps.titulatec.services.eligibility_service import NIP_STATUSES
+
+    assert NIP_STATUSES == ("available", "missing", "invalid", "unavailable", "error",
+                            "not_needed")
+
+
+@pytest.mark.parametrize("valor,falla,esperado", [
+    ("4321", None, "available"),
+    ("12345", None, "invalid"),
+    (None, None, "missing"),
+    (None, NIP_MISSING, "missing"),
+    (None, NIP_UNAVAILABLE, "unavailable"),
+    (None, "SiiQueryError", "error"),
+], ids=["valido", "cinco_digitos", "sin_nip", "nip_missing", "sii_caido", "de_config"])
+def test_classify_sii_nip_cubre_todo_el_dominio(valor, falla, esperado):
+    """UNA función traduce `(Secret | None, falla)` de `fetch_sii_nip` (en la
+    consulta y en `_approve_locked`; `NIP_MISSING` equivale a «sin NIP») al
+    estado que se guarda."""
+    from itcj2.apps.titulatec.services.eligibility_service import NIP_STATUSES
+    from itcj2.apps.titulatec.services.sii.rules import Secret
+
+    secret = Secret(valor) if valor is not None else None
+
+    assert _svc().classify_sii_nip(secret, falla) == esperado
+    assert esperado in NIP_STATUSES
+
+
+@pytest.mark.parametrize("veredicto", ["apt", "not_apt"])
+def test_la_consulta_guarda_available_sin_cuenta(
+    db_session, make_cohort, sii, modo_sii, pide_nip, veredicto,
+):
+    """Apta o no, sin cuenta: SE decide igual, así que el NIP se revisa."""
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580120")
+    (sii.alumno if veredicto == "apt" else sii.no_apta)("99580120")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == veredicto
+    assert chk.nip_status == "available"
+    assert pide_nip == ["99580120"]
+
+
+def test_la_consulta_guarda_missing_si_el_sii_no_tiene_nip(
+    db_session, make_cohort, sii, modo_sii,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580121")
+    sii.alumno("99580121", nip=None)
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt" and chk.nip_status == "missing"
+
+
+@pytest.mark.parametrize("nip", ["12345", "12a4"])
+def test_la_consulta_guarda_invalid_con_formato_raro(
+    db_session, make_cohort, sii, modo_sii, nip,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580122")
+    sii.alumno("99580122", nip=nip)
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt" and chk.nip_status == "invalid"
+
+
+def test_la_consulta_guarda_unavailable_si_el_nip_no_responde(
+    db_session, make_cohort, sii, modo_sii,
+):
+    """El alumno sí respondió; la consulta del NIP no (transitorio)."""
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580123")
+    sii.alumno("99580123")
+    sii.nip_caido("99580123")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt" and chk.nip_status == "unavailable"
+    assert chk.error is None, "la falla del NIP no convierte el veredicto en error"
+
+
+def test_la_consulta_guarda_error_si_la_consulta_del_nip_falla(
+    db_session, make_cohort, sii, modo_sii,
+):
+    """`SiiQueryError` al pedir el NIP: `[credential]` mal configurada."""
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580124")
+    sii.alumno("99580124")
+    sii.nip_invalido("99580124")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt" and chk.nip_status == "error"
+
+
+def test_la_consulta_guarda_not_needed_con_cuenta(
+    db_session, make_cohort, sii, modo_sii, pide_nip,
+):
+    """Con cuenta sale la liga, sin NIP: ni se le pregunta al SII."""
+    _cuenta(db_session, "99580125")
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580125")
+    sii.alumno("99580125")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt" and chk.nip_status == "not_needed"
+    assert pide_nip == []
+
+
+def test_con_control_invalido_no_se_busca_cuenta(
+    db_session, make_cohort, sii, modo_sii, pide_nip,
+):
+    """Mismo corte que la aprobación (`_sii_nip_unlocked`): un control que no
+    cumple `CONTROL_NUMBER_RE` no se busca en `core_users`, así que una cuenta
+    con ese mismo texto no lo vuelve `not_needed`: se trata como sin cuenta."""
+    control = "9958015X"
+    _cuenta(db_session, control)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control=control)
+    sii.alumno(control)
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert chk.nip_status == "available", "como si no tuviera cuenta"
+    assert pide_nip == [control]
+
+
+def test_con_veredicto_error_no_se_pide_el_nip(
+    db_session, make_cohort, sii, modo_sii, pide_nip,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580126")
+    sii.caido("99580126")
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "error"
+    assert chk.nip_status is None, "NULL = no se revisó"
+    assert pide_nip == []
+
+
+def test_el_nip_de_la_consulta_nunca_se_persiste_ni_se_loguea(
+    db_session, make_cohort, sii, modo_sii, caplog,
+):
+    from itcj2.apps.titulatec.services import eligibility_service as elig
+    from itcj2.apps.titulatec.services.sii.rules import Secret
+
+    cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99580009")
     sii.alumno("99580009", nip="8642")
 
     with caplog.at_level("DEBUG"):
         chk = _svc().check(db_session, req.id)
 
-    guardado = json.dumps([chk.results, chk.facts, chk.identity_mismatch, chk.error,
-                           repr(chk)], default=str)
+    assert chk.nip_status == "available", "el NIP sí se le pidió al SII"
+    db_session.refresh(chk)
+    guardado = json.dumps([chk.results, chk.facts, chk.error, chk.identity_mismatch,
+                           chk.nip_status, repr(chk)], default=str)
     assert "8642" not in guardado
     assert "8642" not in caplog.text
+    # El `Secret` se descartó en la misma línea: no quedó colgado de nada.
+    for dueno in (elig, elig.EligibilityService, chk):
+        assert not any(isinstance(v, Secret) for v in vars(dueno).values()), dueno
+
+
+# ---------------------------------------------------------------------------
+# SII no configurado (spec 2026-09-27 D11, el caso de producción hoy:
+# `TITULATEC_SII_BACKEND=disabled`): nada se consulta, encola ni barre.
+# ---------------------------------------------------------------------------
+class _SinBD:
+    """Sesión que truena al primer uso: «sin consultar la BD»."""
+
+    def __getattr__(self, nombre):
+        raise AssertionError(f"tocó la BD ({nombre}) con el SII sin configurar")
+
+
+def test_sii_no_configurado_no_consulta(db_session, make_cohort, sii, modo_sii, monkeypatch):
+    import importlib
+
+    from itcj2.celery_app import celery_app
+
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580130")
+    sii.alumno("99580130")
+    assert _svc().sii_configured() is True, "con el SII falso sí está configurado"
+    sii.backend = "disabled"
+
+    assert _svc().sii_configured() is False
+    assert _svc().check(db_session, req.id) is None
+    assert _svc().check(db_session, req.id, force=True) is None
+    assert _checks(db_session, req) == []
+    db_session.refresh(req)
+    assert req.last_check_id is None
+    assert _svc().sweep(_SinBD(), cohort_id=cohort.id) == {
+        "checked": 0, "retried": 0, "disabled": True}
+    assert _svc().recheck_errors(_SinBD(), cohort_id=cohort.id) == {
+        "queued": 0, "failed": 0, "disabled": True}
+
+    # El `enqueue_check` REAL (sin el parche autouse) no publica nada.
+    mod = importlib.import_module("itcj2.apps.titulatec.services.eligibility_service")
+    monkeypatch.undo()
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "disabled"))
+    enviados = []
+    monkeypatch.setattr(celery_app, "send_task",
+                        lambda name, **kw: enviados.append((name, kw)))
+
+    assert mod.enqueue_check(req.id) is False
+    assert mod.enqueue_check(req.id, force=True) is False
+    assert enviados == []
 
 
 # ---------------------------------------------------------------------------
@@ -460,7 +764,6 @@ def test_una_consulta_colgada_se_retoma_con_el_siguiente_intento(
     db_session, make_cohort, sii, modo_sii,
 ):
     cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
     req = _make_req(db_session, cohort, control="99580013")
     sii.alumno("99580013")
     _check_row(db_session, req, status="pending",
@@ -476,7 +779,6 @@ def test_el_mismo_intento_dos_veces_consulta_una_sola_vez(
     db_session, make_cohort, sii, modo_sii,
 ):
     cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
     req = _make_req(db_session, cohort, control="99580014")
     sii.no_apta("99580014")
 
@@ -493,7 +795,6 @@ def test_force_consulta_otra_vez_con_el_siguiente_numero_de_intento(
     """«Reintentar consulta» de la bandeja: vuelve a preguntar aunque ya haya
     veredicto (el SII pudo cambiar)."""
     cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
     req = _make_req(db_session, cohort, control="99580015")
     sii.no_apta("99580015")
     _svc().check(db_session, req.id)
@@ -526,7 +827,6 @@ def test_la_consulta_al_sii_corre_sin_el_lock_de_la_solicitud(
     from itcj2.apps.titulatec.services.sii.client import FakeSiiClient
 
     cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
     req = _make_req(db_session, cohort, control="99580017")
     sii.alumno("99580017")
 
@@ -547,7 +847,7 @@ def test_la_consulta_al_sii_corre_sin_el_lock_de_la_solicitud(
         if "sii" not in pasos:
             vigente = db_session.get(EligibilityCheck, req.last_check_id)
             pasos.append(("vigente", vigente.status if vigente else None))
-        pasos.append("sii")
+        pasos.append("nip" if kw.get("sensitive") else "sii")
         return query_real(self, sql, params, **kw)
 
     monkeypatch.setattr(db_session, "commit", _commit)
@@ -561,6 +861,10 @@ def test_la_consulta_al_sii_corre_sin_el_lock_de_la_solicitud(
     assert antes == ["lock", "commit"], pasos
     despues = [p for p in pasos[primera:] if p in ("lock", "commit")]
     assert despues[:2] == ["lock", "commit"], pasos
+    # El NIP (spec 2026-09-27 §A2) también se pide en ②, sin el lock.
+    nip = pasos.index("nip")
+    assert [p for p in pasos[primera:nip] if p in ("lock", "commit")] == [], pasos
+    assert "lock" in pasos[nip:], pasos
 
 
 # ---------------------------------------------------------------------------
@@ -605,6 +909,7 @@ def test_enqueue_check_nunca_lanza(monkeypatch, caplog):
 
     mod = importlib.import_module("itcj2.apps.titulatec.services.eligibility_service")
     monkeypatch.undo()   # el `enqueue_check` real, sin el parche autouse
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "fake"))
     from itcj2.celery_app import celery_app
 
     def _sin_broker(*a, **k):
@@ -612,7 +917,7 @@ def test_enqueue_check_nunca_lanza(monkeypatch, caplog):
 
     monkeypatch.setattr(celery_app, "send_task", _sin_broker)
     with caplog.at_level("WARNING"):
-        assert mod.enqueue_check(42) is None
+        assert mod.enqueue_check(42) is False, "devuelve si se encoló (revisión final)"
     assert "42" in caplog.text
     assert "clave" not in caplog.text
 
@@ -622,14 +927,16 @@ def test_enqueue_check_manda_la_tarea_por_nombre_sin_reintentar_el_broker(monkey
 
     mod = importlib.import_module("itcj2.apps.titulatec.services.eligibility_service")
     monkeypatch.undo()
+    # SII configurado: con `disabled` no publica (`test_sii_no_configurado_no_consulta`).
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "fake"))
     from itcj2.celery_app import celery_app
 
     enviados = []
     monkeypatch.setattr(celery_app, "send_task",
                         lambda name, **kw: enviados.append((name, kw)))
 
-    mod.enqueue_check(42)
-    mod.enqueue_check(44, force=True)
+    assert mod.enqueue_check(42) is True
+    assert mod.enqueue_check(44, force=True) is True
 
     assert enviados[0] == ("titulatec.sii_check_request",
                            {"kwargs": {"req_id": 42, "attempt": 1, "force": False},
@@ -637,13 +944,9 @@ def test_enqueue_check_manda_la_tarea_por_nombre_sin_reintentar_el_broker(monkey
     assert enviados[1][1]["kwargs"] == {"req_id": 44, "attempt": 1, "force": True}
 
 
-
 # ---------------------------------------------------------------------------
-# Aprobación automática (spec S2, S4, S5)
+# Cuentas, eventos y solicitudes aptas (los usan las secciones de abajo)
 # ---------------------------------------------------------------------------
-_NOTA_SIN_NIP = "El SII no devolvió NIP."
-
-
 def _cuenta(db_session, control, *, password=True):
     from itcj2.core.models.user import User
     from itcj2.core.utils.security import hash_nip
@@ -682,397 +985,120 @@ def _solicitud_apta(db_session, make_cohort, sii, control, *, cohort=None, **kw)
     return req, cohort
 
 
-def test_apta_sin_cuenta_se_aprueba_sola_con_el_nip_del_sii(
-    db_session, make_cohort, sii, listo, caplog,
-):
-    from itcj2.core.utils.security import verify_nip
-
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580030", nip="2468")
-
-    with caplog.at_level("DEBUG"):
-        chk = _svc().check(db_session, req.id)
-
-    assert chk.status == "apt"
-    assert req.status == "converted"
-    assert req.reviewed_by_id is None and req.reviewed_at is not None
-    user = _usuario(db_session, "99580030")
-    assert user is not None and verify_nip("2468", user.password_hash)
-    assert user.must_change_password is False, "el NIP es suyo, del SII"
-    ev, = _eventos(db_session, req.converted_process_id)
-    assert ev.actor_id is None
-    assert ev.payload["auto"] is True
-    assert ev.payload["rules_version"] == RULES_VERSION
-    assert ev.payload["check_id"] == chk.id
-    assert ev.payload["nip_source"] == "sii"
-    assert ev.payload["approved_by_id"] is None
-    assert "2468" not in json.dumps(ev.payload)
-    assert listo == [("send_enrollment_approved", {"nip": None, "reassigned": False,
-                                                   "nip_source": "sii"})]
-    assert "2468" not in caplog.text
-
-
-def test_apta_con_cuenta_recibe_la_liga_y_la_cuenta_no_se_toca(
-    db_session, make_cohort, sii, listo,
-):
-    from itcj2.core.utils.security import verify_nip
-
-    user = _cuenta(db_session, "99580031")
-    hash_antes = user.password_hash
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580031")
-
-    _svc().check(db_session, req.id)
-
-    assert req.status == "approved"
-    assert req.verify_token_hash is not None
-    assert req.reviewed_by_id is None and req.reviewed_at is not None
-    assert user.password_hash == hash_antes and verify_nip("9999", user.password_hash)
-    assert [n for n, _ in listo] == ["send_verify_enrollment"]
-
-
-# Hallazgo I1: quien teclea el número de control de OTRA persona apta con su
-# propio nombre no puede dejarla inscrita sin que nadie lo vea. Con el nombre
-# distinto al del SII (`[identity]`) la automática no aprueba: queda «Por
-# revisar» con la nota, y Servicios Escolares ve la discrepancia.
-_NOTA_IDENTIDAD = "El nombre del formulario no coincide con el del SII"
-
-
-def test_apta_sin_cuenta_con_otro_nombre_no_se_aprueba_sola(
-    db_session, make_cohort, sii, listo,
-):
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580047",
-                             nombre="VICTIMA", paterno="REAL")
+# ---------------------------------------------------------------------------
+# SE decide siempre (spec 2026-09-27 §A3, D2): el SII informa, pero ninguna
+# solicitud se aprueba sola — ni al consultar ni en el barrido. La aprobación
+# automática, su ventana de veto y la edad del veredicto se retiraron.
+# ---------------------------------------------------------------------------
+def test_una_apta_no_se_aprueba_sola_al_consultar(db_session, make_cohort, sii, listo):
+    """Apta, sin cuenta, nombre confirmado y convocatoria abierta: todo lo que
+    antes la aprobaba sola. Ahora queda «Por revisar» para Servicios Escolares."""
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580030")
 
     chk = _svc().check(db_session, req.id)
 
-    assert chk.status == "apt"
-    assert set(chk.identity_mismatch) == {"first_name", "last_name"}
+    assert chk.status == "apt" and chk.identity_mismatch == {}, "nada la frenaba"
     assert req.status == "pending_review"
-    assert req.review_note.startswith(_NOTA_IDENTIDAD)
-    assert "nombre" in req.review_note and "apellido paterno" in req.review_note
-    assert _usuario(db_session, "99580047") is None, "la cuenta de la víctima no nace"
-    assert listo == []
+    assert req.reviewed_at is None and req.reviewed_by_id is None
+    assert req.review_note is None, "no hay nota: no es un frenado, es la regla"
+    assert _usuario(db_session, "99580030") is None, "no nace la cuenta"
+    assert listo == [], "ni correo"
 
 
-def test_apta_con_cuenta_y_otro_nombre_no_recibe_la_liga(db_session, make_cohort, sii, listo):
-    _cuenta(db_session, "99580048")
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580048", materno="OTRO")
-    req.middle_name = "DISTINTO"
-    db_session.flush()
-
-    _svc().check(db_session, req.id)
-
-    assert req.status == "pending_review"
-    assert req.verify_token_hash is None
-    assert "apellido materno" in req.review_note
-    assert listo == []
-
-
-def test_el_barrido_no_aprueba_una_apta_con_otro_nombre(db_session, make_cohort, sii, listo):
+def test_el_barrido_no_aprueba_aptas(db_session, make_cohort, sii, listo):
     cohort = make_cohort(status="open")
-    req = _make_req(db_session, cohort, control="99580049")
-    sii.alumno("99580049")
-    _check_row(db_session, req, status="apt",
-               finished_at=datetime.now() - timedelta(hours=1),
-               identity_mismatch={"first_name": {"form": "EGRESADA", "sii": "OTRA"}})
+    req = _make_req(db_session, cohort, control="99580064")
+    sii.alumno("99580064")
+    vigente = _check_row(db_session, req, status="apt",
+                         finished_at=datetime.now() - timedelta(hours=1))
 
     out = _svc().sweep(db_session, cohort_id=cohort.id)
 
-    assert out["approved"] == 0
-    assert req.status == "pending_review" and req.review_note.startswith(_NOTA_IDENTIDAD)
-    assert _usuario(db_session, "99580049") is None
-
-
-def test_una_carrera_distinta_no_frena_la_aprobacion_automatica(
-    db_session, make_cohort, sii, listo,
-):
-    """Decisión: la carrera del SII suele venir abreviada o con otro nombre que
-    el catálogo; se muestra a SE pero no frena. Lo que frena es el NOMBRE."""
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580057",
-                             carrera="ING. FICTICIA (PLAN 2010)")
-
-    chk = _svc().check(db_session, req.id)
-
-    assert set(chk.identity_mismatch) == {"program"}
-    assert req.status == "converted"
-
-
-def test_el_mismo_nombre_con_otros_acentos_si_se_aprueba_solo(
-    db_session, make_cohort, sii, listo,
-):
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580058",
-                             nombre="  egresada ", paterno="DEL  SÍI")
-
-    chk = _svc().check(db_session, req.id)
-
-    assert chk.identity_mismatch is None
-    assert req.status == "converted"
-
-
-def test_la_liga_de_una_aprobada_sola_deja_la_marca_auto_en_el_expediente(
-    db_session, make_cohort, sii, listo, monkeypatch,
-):
-    from itcj2.apps.titulatec.services import enrollment_request_service as ers
-
-    claros = []
-    monkeypatch.setattr(ers, "_token_cache_put", claros.append)
-    _cuenta(db_session, "99580032")
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580032")
-    chk = _svc().check(db_session, req.id)
-
-    _req, outcome = _ers().verify(db_session, claros[0])
-
-    assert outcome == "converted"
-    ev, = _eventos(db_session, req.converted_process_id)
-    assert ev.payload["auto"] is True and ev.payload["check_id"] == chk.id
-    assert ev.payload["activation"] == "personal_email_link"
-
-
-def test_con_el_interruptor_apagado_queda_por_revisar(db_session, make_cohort, sii, listo):
-    cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580033", cohort=cohort)
-
-    chk = _svc().check(db_session, req.id)
-
-    assert chk.status == "apt" and req.status == "pending_review"
-    assert _usuario(db_session, "99580033") is None
+    assert "approved" not in out
+    assert out == {"checked": 0, "retried": 0}, "una apta vigente no es trabajo del barrido"
+    db_session.refresh(req)
+    assert req.status == "pending_review" and req.last_check_id == vigente.id
+    assert _usuario(db_session, "99580064") is None
     assert listo == []
 
 
-def test_con_la_convocatoria_cerrada_queda_por_revisar(db_session, make_cohort, sii, listo):
-    cohort = make_cohort(status="closed")
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580034", cohort=cohort)
+class _LlamadasAlNucleo(ast.NodeVisitor):
+    """Cada llamada a `_approve_locked(` con la clase.función que la contiene."""
 
-    _svc().check(db_session, req.id)
+    def __init__(self):
+        self.pila: list[str] = []
+        self.llamadas: list[str] = []
 
-    assert req.status == "pending_review"
-    assert listo == []
+    def _dentro(self, node):
+        self.pila.append(node.name)
+        self.generic_visit(node)
+        self.pila.pop()
 
+    visit_ClassDef = visit_FunctionDef = visit_AsyncFunctionDef = _dentro
 
-def test_con_ventana_de_veto_no_se_aprueba_al_consultar(
-    db_session, make_cohort, sii, listo, monkeypatch,
-):
-    monkeypatch.setattr(_svc(), "delay_hours", staticmethod(lambda: 2))
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580035")
-
-    chk = _svc().check(db_session, req.id)
-    ok, motivo = _svc().auto_approve(db_session, req.id)
-
-    assert chk.status == "apt" and req.status == "pending_review"
-    assert ok is False and "ventana" in motivo
-    assert listo == []
-
-
-def test_vencida_la_ventana_se_aprueba(db_session, make_cohort, sii, listo, monkeypatch):
-    monkeypatch.setattr(_svc(), "delay_hours", staticmethod(lambda: 2))
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580036")
-    _svc().check(db_session, req.id)
-
-    ok, folio = _svc().auto_approve(db_session, req.id,
-                                    now=datetime.now() + timedelta(hours=3))
-
-    assert ok is True and folio
-    assert req.status == "converted"
+    def visit_Call(self, node):
+        func = node.func
+        nombre = (func.attr if isinstance(func, ast.Attribute)
+                  else func.id if isinstance(func, ast.Name) else None)
+        if nombre == "_approve_locked":
+            self.llamadas.append(".".join(self.pila) or "<módulo>")
+        self.generic_visit(node)
 
 
-@pytest.mark.parametrize("cambio", ["cerrada", "apagada"])
-def test_si_la_convocatoria_cambia_dentro_de_la_ventana_no_se_aprueba(
-    db_session, make_cohort, sii, listo, monkeypatch, cambio,
-):
-    """Review Focus 5: apta a las 10:00, ventana de 2 h, SE cierra la
-    convocatoria (o apaga el interruptor) a las 11:00 → a las 12:01 no aprueba."""
-    monkeypatch.setattr(_svc(), "delay_hours", staticmethod(lambda: 2))
-    cohort = make_cohort(status="open")
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580037", cohort=cohort)
-    _svc().check(db_session, req.id)
-    if cambio == "cerrada":
-        cohort.status = "closed"
-    else:
-        cohort.sii_auto_approve = False
-    db_session.flush()
+def test_nada_llama_al_nucleo_de_aprobacion_salvo_approve():
+    """«Barrido de escritores»: el único que aprueba es la bandeja de Servicios
+    Escolares, por `approve_detailed()` (lock, estado y el NIP del SII; desde la
+    Tarea 5 `approve()` solo le delega) — Ruling R2: el conjunto permitido son
+    esas dos. Se recorre TODO `itcj2/`, no solo el servicio del SII: una ruta
+    desatendida nueva que llame al núcleo sale aquí en rojo. Y el símbolo
+    `auto_approve` no vuelve (ni en código ni en un docstring que lo siga
+    anunciando)."""
+    raiz = Path(__file__).resolve().parents[3]
+    servicio = "itcj2/apps/titulatec/services/enrollment_request_service.py"
+    permitidas = {(servicio, "EnrollmentRequestService.approve"),
+                  (servicio, "EnrollmentRequestService.approve_detailed")}
+    simbolo = re.compile(r"\bauto_approve\b")
 
-    ok, _ = _svc().auto_approve(db_session, req.id, now=datetime.now() + timedelta(hours=3))
+    encontradas, con_simbolo = set(), []
+    for path in sorted((raiz / "itcj2").rglob("*.py")):
+        texto = path.read_text(encoding="utf-8")
+        rel = path.relative_to(raiz).as_posix()
+        if simbolo.search(texto):
+            con_simbolo.append(rel)
+        if "_approve_locked" not in texto:
+            continue
+        visor = _LlamadasAlNucleo()
+        visor.visit(ast.parse(texto, filename=rel))
+        encontradas.update((rel, donde) for donde in visor.llamadas)
 
-    assert ok is False
-    assert req.status == "pending_review"
-    assert _usuario(db_session, "99580037") is None
-    assert listo == []
-
-
-def test_apta_sin_nip_en_el_sii_queda_por_revisar_con_nota(
-    db_session, make_cohort, sii, listo,
-):
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580038", nip=None)
-
-    chk = _svc().check(db_session, req.id)
-
-    assert chk.status == "apt"
-    assert req.status == "pending_review"
-    assert req.review_note == _NOTA_SIN_NIP
-    assert _usuario(db_session, "99580038") is None
-    assert listo == []
+    assert encontradas, "alguien tiene que llamar al núcleo"
+    assert encontradas <= permitidas, encontradas - permitidas
+    assert con_simbolo == []
 
 
-def test_si_el_sii_no_responde_al_pedir_el_nip_no_deja_nota(
-    db_session, make_cohort, sii, listo,
-):
-    """Transitorio: sin nota, para que el barrido lo vuelva a intentar."""
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580039")
-    sii.nip_caido("99580039")
+def test_settings_sin_ventana_de_veto(monkeypatch, tmp_path):
+    """Los dos settings de la automática se fueron. Un `.env` viejo que aún los
+    traiga —con la combinación que antes tronaba al arrancar (edad ≤ ventana)—
+    no truena: `extra="ignore"`."""
+    from itcj2.config import Settings
 
-    _svc().check(db_session, req.id)
+    for var in ("TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS",
+                "TITULATEC_SII_VERDICT_MAX_AGE_HOURS"):
+        assert var not in Settings.model_fields, var
+    env = tmp_path / ".env"
+    env.write_text("TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS=5\n"
+                   "TITULATEC_SII_VERDICT_MAX_AGE_HOURS=1\n", encoding="utf-8")
+    monkeypatch.setenv("TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS", "5")
+    monkeypatch.setenv("TITULATEC_SII_VERDICT_MAX_AGE_HOURS", "1")
 
-    assert req.status == "pending_review"
-    assert req.review_note is None
-    assert _usuario(db_session, "99580039") is None
+    s = Settings(_env_file=env)
 
-
-@pytest.mark.parametrize("falla,tipo", [("invalido", "SiiQueryError"),
-                                        ("sin_columna", "SiiRulesError")])
-def test_un_error_de_configuracion_al_pedir_el_nip_deja_nota_con_su_tipo(
-    db_session, make_cohort, sii, listo, caplog, falla, tipo,
-):
-    """Hallazgo I2: una consulta del NIP mal configurada (columna de
-    `[credential]` mal escrita, sin permiso sobre la tabla) no se arregla
-    esperando. Antes quedaba «Por revisar» SIN nota y el barrido la reintentaba
-    cada 10 min para siempre; ahora la nota dice por qué (solo el TIPO del
-    error: ni valores de la fila ni el texto del driver)."""
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580045")
-    if falla == "invalido":
-        sii.nip_invalido("99580045")
-    else:
-        sii.nip_sin_columna("99580045")
-
-    with caplog.at_level("DEBUG"):
-        chk = _svc().check(db_session, req.id)
-
-    assert chk.status == "apt"
-    assert req.status == "pending_review"
-    assert req.review_note and tipo in req.review_note
-    assert "[credential]" in req.review_note
-    assert "7777" not in req.review_note and "7777" not in caplog.text
-    assert _usuario(db_session, "99580045") is None
-    assert listo == []
-
-
-def test_el_barrido_no_vuelve_a_pedir_un_nip_mal_configurado(
-    db_session, make_cohort, sii, listo, monkeypatch,
-):
-    from itcj2.apps.titulatec.services import eligibility_service as mod
-
-    req, cohort = _solicitud_apta(db_session, make_cohort, sii, "99580046")
-    sii.nip_invalido("99580046")
-    _svc().check(db_session, req.id)
-    assert req.review_note
-
-    pedidos = []
-    real = mod.fetch_sii_nip
-    monkeypatch.setattr(mod, "fetch_sii_nip", lambda c: pedidos.append(c) or real(c))
-
-    assert _svc().sweep(db_session, cohort_id=cohort.id) == {
-        "checked": 0, "approved": 0, "retried": 0}
-    assert pedidos == []
-
-
-def test_el_tipo_transitorio_del_nip_es_el_de_sii_unavailable():
-    from itcj2.apps.titulatec.services import eligibility_service as mod
-    from itcj2.apps.titulatec.services.sii.errors import SiiUnavailable
-
-    assert mod.NIP_UNAVAILABLE == SiiUnavailable.__name__
-
-
-def test_un_nip_del_sii_con_otro_formato_no_crea_cuenta_ni_se_filtra(
-    db_session, make_cohort, sii, listo, caplog,
-):
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580040", nip="12AB")
-
-    with caplog.at_level("DEBUG"):
-        _svc().check(db_session, req.id)
-
-    assert req.status == "pending_review"
-    assert "4 dígitos" in req.review_note and "12AB" not in req.review_note
-    assert _usuario(db_session, "99580040") is None
-    assert "12AB" not in caplog.text
-
-
-def test_con_cuenta_en_otra_convocatoria_queda_por_revisar_con_el_motivo(
-    db_session, make_cohort, make_process, sii, listo,
-):
-    user = _cuenta(db_session, "99580041")
-    make_process(user, cohort=make_cohort(status="open"))
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580041")
-
-    _svc().check(db_session, req.id)
-
-    assert req.status == "pending_review"
-    assert req.review_note == "Esa persona ya tiene un proceso en otra convocatoria."
-
-
-def test_una_falla_al_crear_la_cuenta_no_filtra_el_nip_ni_su_hash(
-    db_session, make_cohort, sii, listo, monkeypatch, caplog,
-):
-    """Review Focus 1: el error del driver de la BD trae los parámetros del
-    INSERT (el hash del NIP). Ni ese texto ni el NIP llegan al log ni al motivo."""
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
-    from itcj2.core.utils.security import hash_nip
-
-    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580042", nip="1593")
-    db_session.commit()
-    h = hash_nip("1593")
-
-    def _revienta(*a, **k):
-        raise RuntimeError(f"INSERT core_users [parameters: ('1593', '{h}')]")
-
-    monkeypatch.setattr(EnrollmentRequestService, "_create_account",
-                        staticmethod(_revienta))
-
-    with caplog.at_level("DEBUG"):
-        chk = _svc().check(db_session, req.id)
-
-    assert chk.status == "apt"
-    assert req.status == "pending_review"
-    assert "1593" not in (req.review_note or "") and h not in (req.review_note or "")
-    assert req.review_note, "queda con nota para que el barrido no insista"
-    assert "1593" not in caplog.text and h not in caplog.text
-    assert "RuntimeError" in caplog.text
-
-
-def test_auto_approve_revalida_todo(db_session, make_cohort, sii, listo):
-    cohort = make_cohort(status="open")
-    req = _make_req(db_session, cohort, control="99580043")
-
-    ok, motivo = _svc().auto_approve(db_session, req.id)
-    assert ok is False and "apta" in motivo, "sin consulta vigente no se aprueba"
-
-    _check_row(db_session, req, status="not_apt")
-    assert _svc().auto_approve(db_session, req.id)[0] is False
-
-    _check_row(db_session, req, status="apt")
-    req.status = "rejected"
-    db_session.flush()
-    assert _svc().auto_approve(db_session, req.id)[0] is False
-
-    assert _svc().auto_approve(db_session, 987654321)[0] is False
-    assert listo == []
-
-
-def test_auto_approve_fuera_del_modo_sii_no_hace_nada(
-    db_session, make_cohort, seed_phase_defs, titulatec_app, sii, espia_helper,
-):
-    cohort = make_cohort(status="open")
-    req = _make_req(db_session, cohort, control="99580044")
-    _check_row(db_session, req, status="apt")
-
-    ok, _ = _svc().auto_approve(db_session, req.id)
-
-    assert ok is False and req.status == "pending_review"
-    assert espia_helper == []
+    assert not hasattr(s, "TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS")
+    assert not hasattr(s, "TITULATEC_SII_VERDICT_MAX_AGE_HOURS")
 
 
 # ---------------------------------------------------------------------------
-# approve() en modo sii: SE aprueba como excepción (o con el interruptor apagado)
+# approve() en modo sii: Servicios Escolares aprueba siempre (el SII solo informa)
 # ---------------------------------------------------------------------------
 def test_se_aprueba_sin_cuenta_con_el_nip_del_sii_e_ignora_el_del_formulario(
     db_session, make_cohort, make_user, sii, listo,
@@ -1089,6 +1115,7 @@ def test_se_aprueba_sin_cuenta_con_el_nip_del_sii_e_ignora_el_del_formulario(
 
     assert ok is True and folio
     assert req.status == "converted" and req.reviewed_by_id == se.id
+    assert req.nip_source == "sii"
     user = _usuario(db_session, "99580050")
     assert verify_nip("3579", user.password_hash)
     assert not verify_nip("1111", user.password_hash)
@@ -1100,10 +1127,113 @@ def test_se_aprueba_sin_cuenta_con_el_nip_del_sii_e_ignora_el_del_formulario(
                                                    "nip_source": "sii"})]
 
 
-@pytest.mark.parametrize("falla", ["sin_nip", "caido", "invalido"])
-def test_se_no_puede_aprobar_sin_cuenta_si_el_sii_no_da_el_nip(
-    db_session, make_cohort, make_user, sii, listo, falla,
+def test_un_nip_del_sii_con_otro_formato_no_crea_cuenta_ni_se_filtra(
+    db_session, make_cohort, make_user, sii, listo, caplog,
 ):
+    se = make_user()
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580040", nip="12AB")
+
+    with caplog.at_level("DEBUG"):
+        ok, motivo = _ers().approve(db_session, req.id, nip="", program_id=None,
+                                    actor_id=se.id)
+
+    assert (ok, motivo) == (False, "El NIP del SII no tiene un formato válido (4 dígitos).")
+    assert req.status == "pending_review"
+    assert _usuario(db_session, "99580040") is None
+    assert "12AB" not in caplog.text
+    assert listo == []
+
+
+@pytest.mark.parametrize("nip", ["123", "12345", "１２３４", " 12 "])
+def test_solo_4_digitos_ascii_crean_la_cuenta(
+    db_session, make_cohort, make_user, sii, listo, nip,
+):
+    """Revisión final C13: exactamente 4 dígitos ASCII. Un dígito Unicode
+    («１２３４») nadie lo puede teclear en el login."""
+    se = make_user()
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580041", nip=nip)
+
+    ok, _ = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id)
+
+    assert ok is False and req.status == "pending_review"
+    assert _usuario(db_session, "99580041") is None
+
+
+def test_una_falla_al_crear_la_cuenta_no_filtra_el_nip_ni_su_hash(
+    db_session, make_cohort, make_user, sii, listo, monkeypatch, caplog,
+):
+    """Review Focus 1: el error del driver de la BD trae los parámetros del
+    INSERT (el hash del NIP). Ni ese texto ni el NIP llegan al log ni al motivo."""
+    from itcj2.core.utils.security import hash_nip
+
+    se = make_user()
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580042", nip="1593")
+    db_session.commit()
+    h = hash_nip("1593")
+
+    def _revienta(*a, **k):
+        raise RuntimeError(f"INSERT core_users [parameters: ('1593', '{h}')]")
+
+    monkeypatch.setattr(_ers(), "_create_account", staticmethod(_revienta))
+
+    with caplog.at_level("DEBUG"):
+        ok, motivo = _ers().approve(db_session, req.id, nip="", program_id=None,
+                                    actor_id=se.id)
+
+    assert ok is False and motivo
+    assert "1593" not in motivo and h not in motivo
+    assert req.status == "pending_review"
+    assert "1593" not in caplog.text and h not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_una_falla_al_crear_la_cuenta_pide_reintentar_lo_que_la_fila_sigue_ofreciendo(
+    db_session, make_cohort, make_user, sii, listo, monkeypatch,
+):
+    """La falla al CREAR la cuenta no es del NIP: a diferencia de la del NIP
+    (`record_nip_status`), no toca la consulta vigente, que sigue con
+    `nip_status = available`, así que la fila sigue ofreciendo «Aprobar y dar
+    acceso» (spec 2026-09-27 §A5) y la ruta responde 400 (§A4). El motivo pide
+    eso —reintentar—, no «pasar a Accesos», que esa fila no ofrece (revisión de
+    la Task 12)."""
+    from itcj2.apps.titulatec.models import EligibilityCheck
+
+    se = make_user()
+    req, _ = _solicitud_apta(db_session, make_cohort, sii, "99580043", nip="1594")
+    chk = _svc().check(db_session, req.id)
+    assert chk.nip_status == "available", "premisa: la fila ofrece «dar acceso»"
+
+    def _revienta(*a, **k):
+        raise RuntimeError("la BD rechazó el INSERT")
+
+    monkeypatch.setattr(_ers(), "_create_account", staticmethod(_revienta))
+
+    ok, motivo = _ers().approve(db_session, req.id, nip="", program_id=None,
+                                actor_id=se.id)
+
+    assert ok is False
+    assert motivo == "No se pudo crear la cuenta con el NIP del SII; intenta de nuevo."
+    db_session.refresh(req)
+    assert req.status == "pending_review" and req.last_check_id == chk.id
+    vigente = db_session.get(EligibilityCheck, chk.id)
+    db_session.refresh(vigente)
+    assert vigente.nip_status == "available"
+    assert _ers().approval_path(False, vigente.nip_status) == "sii_nip"
+    assert _usuario(db_session, "99580043") is None
+    assert listo == [], "ni correo"
+
+
+@pytest.mark.parametrize("falla,motivo", [
+    ("sin_nip", "El SII no tiene NIP para esta persona."),
+    ("caido", "El SII no respondió al pedir el NIP."),
+    ("invalido", "No se pudo leer el NIP en el SII (revisa la configuración de las reglas)."),
+])
+def test_se_no_puede_aprobar_sin_cuenta_si_el_sii_no_da_el_nip(
+    db_session, make_cohort, make_user, sii, listo, falla, motivo,
+):
+    """Sin pasarla a Accesos, cada falla del NIP da SU motivo (spec 2026-09-27
+    §A4); ninguno lleva el valor. La salida es «pasar a Accesos»
+    (`test_enrollment_approve.py::TestModoSiiSEDecide`)."""
     se = make_user()
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99580051")
@@ -1116,9 +1246,9 @@ def test_se_no_puede_aprobar_sin_cuenta_si_el_sii_no_da_el_nip(
         sii.alumno("99580051")
         sii.nip_invalido("99580051")
 
-    ok, motivo = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id)
+    resultado = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id)
 
-    assert (ok, motivo) == (False, "No se pudo obtener el NIP del SII.")
+    assert resultado == (False, motivo)
     assert req.status == "pending_review" and req.reviewed_by_id is None
     assert _usuario(db_session, "99580051") is None
     assert listo == []
@@ -1141,6 +1271,88 @@ def test_se_aprueba_con_cuenta_en_modo_sii_como_siempre(
 
 
 # ---------------------------------------------------------------------------
+# El NIP del SII se pide SIN el lock de la solicitud (revisión final C6/C8 y el
+# minor diferido de T4): SE no espera los timeouts del SII con el lock y la
+# transacción abiertos. Después se re-toma el lock y se revalida el estado.
+# ---------------------------------------------------------------------------
+def _espia_del_nip(db_session, monkeypatch, *, al_pedir=None):
+    """Registra `lock`/`commit` de la sesión y `nip` cuando el SII falso atiende
+    la consulta de `[credential]` (la única en modo sensible)."""
+    from itcj2.apps.titulatec.services.sii.client import FakeSiiClient
+
+    pasos = []
+    commit_real, execute_real = db_session.commit, db_session.execute
+    query_real = FakeSiiClient.query
+
+    def _commit():
+        pasos.append("commit")
+        return commit_real()
+
+    def _execute(stmt, *a, **k):
+        if "pg_advisory_xact_lock" in str(stmt):
+            pasos.append("lock")
+        return execute_real(stmt, *a, **k)
+
+    def _query(self, sql, params, **kw):
+        if kw.get("sensitive"):
+            pasos.append("nip")
+            if al_pedir is not None:
+                al_pedir()
+        return query_real(self, sql, params, **kw)
+
+    monkeypatch.setattr(db_session, "commit", _commit)
+    monkeypatch.setattr(db_session, "execute", _execute)
+    monkeypatch.setattr(FakeSiiClient, "query", _query)
+    return pasos
+
+
+def _nip_sin_lock(pasos):
+    i = pasos.index("nip")
+    previos = [p for p in pasos[:i] if p in ("lock", "commit")]
+    assert previos and previos[-1] == "commit", f"el NIP se pidió con el lock: {pasos}"
+    assert "lock" in pasos[i:], f"no re-tomó el lock para revalidar: {pasos}"
+
+
+def test_se_pide_el_nip_al_sii_sin_el_lock_de_la_solicitud(
+    db_session, make_cohort, make_user, sii, listo, monkeypatch,
+):
+    se = make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580093")
+    sii.alumno("99580093")
+    pasos = _espia_del_nip(db_session, monkeypatch)
+
+    ok, folio = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id)
+
+    assert ok is True and folio
+    _nip_sin_lock(pasos)
+    assert pasos.count("nip") == 1
+
+
+def test_si_la_resuelven_mientras_se_pide_el_nip_no_se_crea_la_cuenta(
+    db_session, make_cohort, make_user, sii, listo, monkeypatch,
+):
+    from sqlalchemy import text
+
+    se = make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580094")
+    sii.alumno("99580094")
+
+    def _otra_persona_la_rechaza():
+        db_session.execute(text("UPDATE titulatec_enrollment_requests SET status = 'rejected' "
+                                "WHERE id = :id"), {"id": req.id})
+
+    _espia_del_nip(db_session, monkeypatch, al_pedir=_otra_persona_la_rechaza)
+
+    ok, motivo = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id)
+
+    assert (ok, motivo) == (False, "Esa solicitud ya se resolvió.")
+    assert _usuario(db_session, "99580094") is None
+    assert listo == []
+
+
+# ---------------------------------------------------------------------------
 # sweep(): barrido periódico (acotado a una convocatoria: la BD de dev tiene
 # solicitudes reales que el barrido global también vería)
 # ---------------------------------------------------------------------------
@@ -1149,15 +1361,11 @@ def test_el_barrido_fuera_del_modo_sii_no_hace_nada(db_session, make_cohort, sii
     req = _make_req(db_session, cohort, control="99580060")
     sii.alumno("99580060")
 
-    assert _svc().sweep(db_session, cohort_id=cohort.id) == {
-        "checked": 0, "approved": 0, "retried": 0}
+    assert _svc().sweep(db_session, cohort_id=cohort.id) == {"checked": 0, "retried": 0}
     assert _checks(db_session, req) == []
 
 
-def test_el_barrido_consulta_reintenta_y_aprueba_lo_que_toca(
-    db_session, make_cohort, sii, listo, monkeypatch,
-):
-    monkeypatch.setattr(_svc(), "delay_hours", staticmethod(lambda: 2))
+def test_el_barrido_consulta_y_reintenta_lo_que_toca(db_session, make_cohort, sii, listo):
     cohort = make_cohort(status="open")
     hace = datetime.now() - timedelta(hours=3)
 
@@ -1169,13 +1377,11 @@ def test_el_barrido_consulta_reintenta_y_aprueba_lo_que_toca(
     colgada = _make_req(db_session, cohort, control="99580063")
     sii.no_apta("99580063")
     _check_row(db_session, colgada, status="pending", started_at=hace)
-    vencida = _make_req(db_session, cohort, control="99580064")
-    sii.alumno("99580064")
-    _check_row(db_session, vencida, status="apt", finished_at=hace)
 
-    # Lo que NO se toca:
-    en_ventana = _make_req(db_session, cohort, control="99580065")
-    _check_row(db_session, en_ventana, status="apt")
+    # Lo que NO se toca (una apta tampoco: la aprueba Servicios Escolares):
+    apta = _make_req(db_session, cohort, control="99580064")
+    sii.alumno("99580064")
+    _check_row(db_session, apta, status="apt", finished_at=hace)
     con_nota = _make_req(db_session, cohort, control="99580066",
                          review_note="El SII no devolvió NIP.")
     _check_row(db_session, con_nota, status="apt", finished_at=hace)
@@ -1191,57 +1397,109 @@ def test_el_barrido_consulta_reintenta_y_aprueba_lo_que_toca(
     sii.no_apta("99580078")
     _check_row(db_session, de_config, status="error", attempt=1, retryable=False)
     intactas = {r.id: r.last_check_id
-                for r in (en_ventana, con_nota, en_tope, no_apta, resuelta, en_curso,
-                          de_config)}
+                for r in (apta, con_nota, en_tope, no_apta, resuelta, en_curso, de_config)}
 
     out = _svc().sweep(db_session, cohort_id=cohort.id)
 
-    assert out == {"checked": 1, "retried": 2, "approved": 1}
+    assert out == {"checked": 1, "retried": 2}
     assert [c.attempt for c in _checks(db_session, sin_consulta)] == [1]
     assert _svc().latest_check(db_session, con_error).attempt == 3
     assert _svc().latest_check(db_session, colgada).attempt == 2
-    assert vencida.status == "converted"
-    for r in (en_ventana, con_nota, en_tope, no_apta, resuelta, en_curso, de_config):
+    for r in (apta, con_nota, en_tope, no_apta, resuelta, en_curso, de_config):
         db_session.refresh(r)
         assert r.last_check_id == intactas[r.id], r.control_number
         assert r.status in ("pending_review", "rejected")
+    assert _usuario(db_session, "99580064") is None and listo == []
 
 
-def test_el_barrido_no_aprueba_con_la_convocatoria_cerrada_o_el_interruptor_apagado(
-    db_session, make_cohort, sii, listo,
+def test_el_barrido_retoma_una_consulta_colgada_aunque_este_en_el_tope(
+    db_session, make_cohort, sii, modo_sii,
 ):
-    hace = datetime.now() - timedelta(hours=1)
-    cerrada = make_cohort(status="closed")
-    apagada = make_cohort(status="open")
-    apagada.sii_auto_approve = False
-    for cohort, control in ((cerrada, "99580071"), (apagada, "99580072")):
-        req = _make_req(db_session, cohort, control=control)
-        sii.alumno(control)
-        _check_row(db_session, req, status="apt", finished_at=hace)
-
-        assert _svc().sweep(db_session, cohort_id=cohort.id)["approved"] == 0
-        assert req.status == "pending_review"
-    assert listo == []
-
-
-def test_la_aprobacion_inmediata_de_una_consulta_del_barrido_cuenta(
-    db_session, make_cohort, sii, listo,
-):
+    """Revisión final (spec §8): una `pending` colgada en el tope de intentos
+    no la retomaba nadie. El barrido la retoma (forzada)."""
     cohort = make_cohort(status="open")
-    req = _make_req(db_session, cohort, control="99580073")
-    sii.alumno("99580073")
+    req = _make_req(db_session, cohort, control="99580097")
+    sii.no_apta("99580097")
+    _check_row(db_session, req, status="pending", attempt=5,
+               started_at=datetime.now() - _PENDING_STALE - timedelta(minutes=1))
 
     out = _svc().sweep(db_session, cohort_id=cohort.id)
 
-    assert out == {"checked": 1, "retried": 0, "approved": 1}
-    assert req.status == "converted"
+    assert out["retried"] == 1
+    assert _svc().latest_check(db_session, req).attempt == 6
+    assert _svc().latest_check(db_session, req).status == "not_apt"
+
+
+# ---------------------------------------------------------------------------
+# Reconsulta masiva de errores (revisión final C12, spec §8):
+# `titulatec sii-sweep --reconsultar-errores [--cohort ID]`
+# ---------------------------------------------------------------------------
+def test_reconsultar_errores_fuerza_toda_consulta_en_error_o_colgada(
+    db_session, make_cohort, sii, modo_sii, monkeypatch,
+):
+    encoladas = []
+    monkeypatch.setattr(
+        "itcj2.apps.titulatec.services.eligibility_service.enqueue_check",
+        lambda req_id, **kw: encoladas.append((req_id, kw)) or True)
+    cohort = make_cohort(status="open")
+    otra = make_cohort(status="open")
+    colgada_hace = datetime.now() - _PENDING_STALE - timedelta(minutes=1)
+
+    de_config = _make_req(db_session, cohort, control="99580100")
+    _check_row(db_session, de_config, status="error", retryable=False)
+    en_tope = _make_req(db_session, cohort, control="99580101")
+    _check_row(db_session, en_tope, status="error", attempt=5, retryable=True)
+    colgada = _make_req(db_session, cohort, control="99580102")
+    _check_row(db_session, colgada, status="pending", attempt=5, started_at=colgada_hace)
+    # Lo que NO se toca:
+    en_curso = _make_req(db_session, cohort, control="99580103")
+    _check_row(db_session, en_curso, status="pending")
+    apta = _make_req(db_session, cohort, control="99580104")
+    _check_row(db_session, apta, status="apt")
+    sin_consulta = _make_req(db_session, cohort, control="99580105")
+    resuelta = _make_req(db_session, cohort, control="99580106", status="rejected")
+    _check_row(db_session, resuelta, status="error", retryable=False)
+    ajena = _make_req(db_session, otra, control="99580107")
+    _check_row(db_session, ajena, status="error", retryable=False)
+
+    out = _svc().recheck_errors(db_session, cohort_id=cohort.id)
+
+    assert out == {"queued": 3, "failed": 0}
+    assert sorted(encoladas) == sorted((r.id, {"force": True})
+                                       for r in (de_config, en_tope, colgada))
+    assert sin_consulta.id not in [r for r, _ in encoladas]
+
+
+def test_reconsultar_errores_cuenta_las_que_no_se_encolaron(
+    db_session, make_cohort, sii, modo_sii, monkeypatch,
+):
+    monkeypatch.setattr(
+        "itcj2.apps.titulatec.services.eligibility_service.enqueue_check",
+        lambda req_id, **kw: False)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580108")
+    _check_row(db_session, req, status="error", retryable=False)
+
+    assert _svc().recheck_errors(db_session, cohort_id=cohort.id) == {"queued": 0,
+                                                                       "failed": 1}
+
+
+def test_reconsultar_errores_fuera_del_modo_sii_no_hace_nada(
+    db_session, make_cohort, sii, _sin_celery,
+):
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99580109")
+    _check_row(db_session, req, status="error", retryable=False)
+
+    assert _svc().recheck_errors(db_session, cohort_id=cohort.id) == {"queued": 0,
+                                                                       "failed": 0}
+    assert _sin_celery == []
 
 
 def test_una_solicitud_que_revienta_no_detiene_el_barrido(
     db_session, make_cohort, sii, modo_sii, monkeypatch, caplog,
 ):
     cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
     mala = _make_req(db_session, cohort, control="99580074")
     buena = _make_req(db_session, cohort, control="99580075")
     sii.no_apta("99580074")
@@ -1272,49 +1530,4 @@ def test_el_barrido_respeta_su_presupuesto_de_tiempo(db_session, make_cohort, si
 
     out = _svc().sweep(db_session, cohort_id=cohort.id, max_seconds=0)
 
-    assert out == {"checked": 0, "approved": 0, "retried": 0}
-
-
-# ---------------------------------------------------------------------------
-# Un solo núcleo de aprobación: `approve()` (SE) y la aprobación automática
-# (hallazgo I3 de la revisión: una guarda nueva de `approve()` tiene que
-# alcanzar también a la ruta desatendida)
-# ---------------------------------------------------------------------------
-def test_approve_y_la_aprobacion_automatica_comparten_el_nucleo(
-    db_session, make_cohort, make_user, sii, listo, monkeypatch,
-):
-    llamadas = []
-
-    def _nucleo(db, req, cohort, **kw):
-        llamadas.append((req.id, cohort.id, kw))
-        return False, "Guarda nueva del núcleo.", None
-
-    monkeypatch.setattr(_ers(), "_approve_locked", staticmethod(_nucleo))
-    se = make_user()
-    cohort = make_cohort(status="open")
-    por_se = _make_req(db_session, cohort, control="99580090")
-    sola, _ = _solicitud_apta(db_session, make_cohort, sii, "99580091", cohort=cohort)
-
-    assert _ers().approve(db_session, por_se.id, nip="", program_id=None,
-                          actor_id=se.id) == (False, "Guarda nueva del núcleo.")
-    _svc().check(db_session, sola.id)
-
-    assert sola.status == "pending_review"
-    assert sola.review_note == "Guarda nueva del núcleo."
-    (id_se, _c1, kw_se), (id_auto, _c2, kw_auto) = llamadas
-    assert (id_se, kw_se["actor_id"]) == (por_se.id, se.id)
-    assert (id_auto, kw_auto["actor_id"]) == (sola.id, None)
-    assert kw_auto["event_extra"]["auto"] is True
-    assert listo == []
-
-
-def test_la_aprobacion_automatica_no_repite_la_logica_de_approve():
-    import inspect
-
-    cuerpo = inspect.getsource(_svc().auto_approve)
-    for copia in ("_issue_link_for_account", "_create_account_with_sii_nip",
-                  "CONTROL_NUMBER_RE", "accepts_enrollment_followup", "fetch_sii_nip",
-                  "_mail_access", "_mail_activation"):
-        assert copia not in cuerpo, copia
-    assert "_approve_locked(" in cuerpo
-    assert "_cohort_gate(db, req)" in cuerpo
+    assert out == {"checked": 0, "retried": 0}

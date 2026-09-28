@@ -43,17 +43,31 @@ class EligibilityCheck(Base):
     rules_version = Column(String(40), nullable=True)
     results = Column(JSON, nullable=True)               # [{rule, ok, message}]
     facts = Column(JSON, nullable=True)                 # columnas no sensibles de [facts]
-    # Diferencias nombre/carrera formulario vs SII, si `[identity]` esta
-    # declarado en las reglas y no coincide (spec 3.3). NULL = no se comparo
-    # o no hubo discrepancia.
+    # Diferencias nombre/carrera formulario vs SII (spec 3.3 y 8): `{}` = se
+    # comparo y coincide; con claves = discrepancias; NULL = no se pudo
+    # comparar (sin `[identity]` o sin datos): identidad sin confirmar
+    # (`eligibility_service.identity_block`).
     identity_mismatch = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)                 # mensaje de SiiUnavailable/SiiQueryError, sin credenciales
     # Solo en `status == 'error'`: True si el SII no respondio
-    # (`SiiUnavailable`: conexion, timeout, backend apagado) y por eso se
-    # reintenta (spec 3.4); False si es de configuracion (reglas, consulta
-    # invalida, falla inesperada), que esperar no arregla. NULL en los demas
-    # estados. Migracion `tt20260925b`.
+    # (`SiiUnavailable`: conexion, timeout) o celery corto la tarea por tiempo
+    # (`SoftTimeLimitExceeded`), y por eso se reintenta (spec 3.4); False si
+    # es de configuracion (reglas, consulta invalida, falla inesperada), que
+    # esperar no arregla. NULL en los demas estados. Con el SII sin configurar
+    # (backend `disabled`, spec 2026-09-27 D11) ya no se consulta: no nace
+    # ninguna fila. Migracion `tt20260925b`.
     retryable = Column(Boolean, nullable=True)
+    # Dominio: `available|missing|invalid|unavailable|error|not_needed`
+    # (spec `2026-09-27-titulatec-sii-informa-se-decide-design.md` A2).
+    # `not_needed` = la persona SI tenia cuenta en `core_users` al momento
+    # de consultar (no hizo falta pedir NIP). Las demas
+    # (`available|missing|invalid|unavailable|error`) solo se calculan
+    # cuando la persona NO tiene cuenta. NULL = caso aparte, no se reviso:
+    # el veredicto fue `error`/`pending` antes de llegar a pedir el NIP, o
+    # es una fila anterior a esta migracion. Nunca guarda el NIP en si,
+    # solo el resultado de clasificarlo (`EligibilityService.
+    # classify_sii_nip`). Migracion `tt20260927a`.
+    nip_status = Column(String(20), nullable=True)
     attempt = Column(Integer, nullable=False, server_default=text("1"))
     started_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     finished_at = Column(DateTime, nullable=True)

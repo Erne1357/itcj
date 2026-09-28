@@ -109,13 +109,15 @@ class ProcessService:
         # es ella la que espera y ve `cancelled` dentro del mismo lock
         # (`SlotService._open_new_attempt`, punto 5).
         #
-        # Y antes del `FOR UPDATE` de la fila, no después: `assign` toma
-        # ventana -> advisory, y al insertar la cita la FK pide `FOR KEY SHARE`
-        # sobre esta fila. Con la fila tomada primero, cada uno esperaría al
-        # otro (deadlock).
+        # Y antes del bloqueo de la fila, no después: `assign` toma ventana ->
+        # advisory. La fila va con `FOR NO KEY UPDATE` (no `FOR UPDATE`): sigue
+        # serializando dos revocaciones y a `CohortService.set_window`, pero no
+        # choca con el `FOR KEY SHARE` que piden los INSERT con FK al proceso
+        # (citas, eventos), así que una transición de cita no espera ni hace
+        # deadlock contra la revocación. En SQLAlchemy es `key_share=True`.
         SlotService._lock_process(db, process_id)
         proc = (db.query(TitulationProcess).filter_by(id=process_id)
-                .with_for_update().first())
+                .with_for_update(key_share=True).first())
         if proc is None:
             return False, _MSG_NOT_FOUND
         # Refresca DESPUÉS del lock: la fila pudo cambiar mientras esperaba.
@@ -143,7 +145,7 @@ class ProcessService:
                      "appointment_cancelled": cita_cancelada},
         ))
         notify_student(db, proc.student_id, type="PROCESS_CANCELLED",
-                       title="Tu inscripción a titulación fue cancelada",
+                       title="Tu inscripción a titulación fue revocada",
                        body="Entra a TitulaTec para ver el motivo.",
                        process_id=proc.id)
         db.commit()

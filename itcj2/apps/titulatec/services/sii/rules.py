@@ -12,7 +12,8 @@ Garantías que el resto del sistema da por hechas:
 - `evaluate()` NUNCA lanza por el SII ni por una regla mal escrita: devuelve
   `Verdict(status="error", …)`. Solo `apt` aprueba, y solo sale cuando TODAS
   las reglas cumplen sobre datos que el SII sí devolvió (fail-closed: una
-  comparación sin filas no cumple; NULL no cumple ninguna comparación).
+  comparación sin filas no cumple; NULL no cumple ninguna comparación, y en
+  `truthy`/`falsy` es error de la regla).
 - Cada `[[query]]` se ejecuta a lo más UNA vez por evaluación y la comparten
   sus reglas; parámetros siempre enlazados (`?`), nunca interpolados.
 - La consulta de `[credential]` no corre al evaluar y no puede alimentar
@@ -22,6 +23,7 @@ Garantías que el resto del sistema da por hechas:
 from __future__ import annotations
 
 import logging
+import math
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -35,8 +37,14 @@ from itcj2.apps.titulatec.services.sii.errors import SiiError, SiiRulesError
 logger = logging.getLogger(__name__)
 
 RULES_FILE = "rules.toml"
-ALLOWED_PARAMS = frozenset({"control_number", "curp"})
+# Solo lo que el formulario captura: `curp` salió en la revisión final (§8),
+# nunca se proporcionaba y dejaba reglas que fallarían siempre.
+ALLOWED_PARAMS = frozenset({"control_number"})
 DEFAULT_OK_MESSAGE = "Cumple."
+# Claves de `[identity]` sin las que el nombre no se compara con el formulario
+# (`EligibilityService`: sin comparación la identidad queda sin confirmar,
+# `identity_block`).
+IDENTITY_REQUIRED = ("first_name", "last_name")
 MASK = "****"
 VERSION_MAX_LEN = 40
 
@@ -49,7 +57,14 @@ MODES = frozenset({"all", "any"})
 
 _ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
-_FALSE_WORDS = frozenset({"", "0", "n", "no", "f", "false", "falso"})
+# `truthy`/`falsy` ESTRICTOS (revisión final C4, spec §8): verdadero/falso
+# solo para bool, el número 0/1 (int, o Decimal/float que valga exactamente 0
+# o 1: NUMERIC(1,0) y FLOAT llegan así del driver) y estos textos (sin
+# distinguir mayúsculas ni espacios alrededor). Otro valor es error de la regla, nunca
+# «verdadero»: «NO ACREDITADO» o «PENDIENTE» sobre una columna de estatus en
+# texto darían por apta a una persona que no lo es. NULL también es error.
+_TRUE_WORDS = frozenset({"1", "s", "si", "sí", "y", "yes", "t", "true", "v", "verdadero"})
+_FALSE_WORDS = frozenset({"0", "n", "no", "f", "false", "falso"})
 
 # Heurística del validador de SQL (documentada en sii_rules_format.md). La
 # defensa de verdad es el usuario de SOLO LECTURA del lado del SII (spec §5):
@@ -63,7 +78,23 @@ _FORBIDDEN_WORDS = frozenset({
     "WAITFOR", "BEGIN", "COMMIT", "ROLLBACK", "SAVE", "DBCC", "DISK",
     "CHECKPOINT", "WRITETEXT", "READTEXT", "BULK", "PREPARE", "DEALLOCATE",
     "LOCK", "UNLOCK", "RENAME",
+}) | frozenset({
+    # Verbos que solo EMPIEZAN una sentencia de ASE (control de flujo,
+    # cursores, administración). Ninguno cabe en un SELECT de solo lectura, así
+    # que un segundo statement de nivel superior SIN `;` que empiece con otro
+    # verbo (`… WHERE ctl = ? SETUSER 'dbo'`) se rechaza igual que un segundo
+    # SELECT (`_top_level_selects`). Casi todos son palabras reservadas de ASE:
+    # una columna que se llame así ya iba entre corchetes (revisión de F1).
+    "SETUSER", "PRINT", "RAISERROR", "QUIESCE", "REORG", "MOUNT", "UNMOUNT",
+    "ONLINE", "GOTO", "RETURN", "IF", "WHILE", "BREAK", "CONTINUE", "OPEN",
+    "FETCH", "CLOSE", "CONNECT", "DISCONNECT", "REMOVE", "TRANSFER", "REFRESH",
 })
+# Procedimientos de sistema de ASE (`sp_who`, `xp_cmdshell`): en T-SQL se
+# llaman sin EXEC como sentencia siguiente. Una columna que empiece así va
+# entre corchetes (`[sp_total]`), que el validador no mira por dentro.
+_FORBIDDEN_PREFIX_RE = re.compile(r"^(sp|xp)_", re.IGNORECASE)
+# Operadores que unen dos SELECT de la MISMA sentencia.
+_SET_OPERATORS = frozenset({"UNION", "EXCEPT", "INTERSECT", "ALL", "DISTINCT"})
 
 _TOP_KEYS = {"version", "query", "rule", "credential", "identity", "facts"}
 _QUERY_KEYS = {"id", "file", "params"}
@@ -226,15 +257,42 @@ def _sql_errors(sql: str, n_params: int) -> list[str]:
     first = re.match(r"[A-Za-z_]+", body)
     if not first or first.group(0).upper() not in ("SELECT", "WITH"):
         errors.append("debe empezar con SELECT o WITH")
-    bad = sorted({w.upper() for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", body)}
-                 & _FORBIDDEN_WORDS)
+    words = re.findall(r"[A-Za-z_#@][A-Za-z0-9_#@$]*", body)
+    bad = sorted({w.upper() for w in words} & _FORBIDDEN_WORDS
+                 | {w for w in words if _FORBIDDEN_PREFIX_RE.match(w)})
     if bad:
         errors.append("contiene palabras no permitidas en una consulta de solo "
-                      "lectura: " + ", ".join(bad))
+                      "lectura: " + ", ".join(bad) + " (si es el nombre de una "
+                      "columna, escríbela entre corchetes: [nombre])")
+    if _top_level_selects(body) > 1:
+        errors.append("tiene más de una sentencia (un segundo SELECT fuera de "
+                      "UNION/EXCEPT/INTERSECT; T-SQL no necesita `;`)")
     marks = body.count("?")
     if marks != n_params:
         errors.append(f"tiene {marks} marcador(es) `?` pero declara {n_params} parámetro(s)")
     return errors
+
+
+def _top_level_selects(body: str) -> int:
+    """SELECT fuera de paréntesis que NO siguen a UNION/EXCEPT/INTERSECT.
+
+    `body` ya viene sin comentarios ni literales (`_strip_sql`). Uno es la
+    sentencia; dos o más son sentencias pegadas sin `;` (`SELECT … SELECT …`).
+    """
+    depth, prev, count = 0, "", 0
+    for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[()]", body):
+        if tok == "(":
+            depth += 1
+        elif tok == ")":
+            depth = max(depth - 1, 0)
+        else:
+            word = tok.upper()
+            if word == "SELECT" and depth == 0 and prev not in _SET_OPERATORS:
+                count += 1
+            prev = word
+            continue
+        prev = tok
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -262,15 +320,26 @@ def _text(v: Any) -> str:
 
 
 def _truthy(v: Any) -> bool:
-    if v is None:
-        return False
+    """El booleano ESTRICTO de `v` (`_TRUE_WORDS`/`_FALSE_WORDS`, 0/1).
+
+    Lanza `_EvalError` con cualquier otro valor (incluido NULL): el llamador
+    decide qué hace NULL; un texto de estatus nunca se lee como verdadero.
+    """
     if isinstance(v, bool):
         return v
-    if isinstance(v, (int, float, Decimal)):
-        return v != 0
-    if isinstance(v, str):
-        return _text(v) not in _FALSE_WORDS
-    return bool(v)
+    if isinstance(v, (int, float, Decimal)) and not isinstance(v, bool):
+        if v == 1:
+            return True
+        if v == 0:
+            return False
+    elif isinstance(v, str):
+        word = _text(v)
+        if word in _TRUE_WORDS:
+            return True
+        if word in _FALSE_WORDS:
+            return False
+    raise _EvalError(f"el valor «{_display(v)[:40]}» no es booleano (se acepta 1/0, S/N, "
+                     "SI/NO, TRUE/FALSE, VERDADERO/FALSO); usa equals o in")
 
 
 def _eq(a: Any, b: Any) -> bool:
@@ -309,6 +378,23 @@ def _jsonable(v: Any) -> Any:
     if isinstance(v, (datetime, date, time)):
         return v.isoformat()
     return str(v)
+
+
+def _nip_text(raw: Any) -> str:
+    """El NIP como texto. Uno NUMÉRICO ENTERO se rellena a 4 dígitos: si el SII
+    lo guarda como número, «0123» llega como 123 (revisión final C13), o como
+    123.0 desde una columna FLOAT/REAL. Con decimales no se trunca (sería otro
+    NIP): sale tal cual y el formato (4 dígitos ASCII) lo rechaza quien crea la
+    cuenta."""
+    if raw is None:
+        return ""
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return f"{raw:04d}"
+    if isinstance(raw, Decimal) and raw.is_finite() and raw == raw.to_integral_value():
+        return f"{int(raw):04d}"
+    if isinstance(raw, float) and math.isfinite(raw) and raw.is_integer():
+        return f"{int(raw):04d}"
+    return str(_jsonable(raw)).strip()
 
 
 def _display(v: Any) -> str:
@@ -368,6 +454,26 @@ class RuleSet:
         """Errores legibles; `[]` = válido. Un RuleSet con errores nunca
         aprueba: `evaluate()` devuelve `error` sin consultar al SII."""
         return list(self._errors)
+
+    def advisories(self) -> list[str]:
+        """Advertencias que NO invalidan las reglas pero cambian lo que hacen.
+
+        Hoy una: sin `[identity]` que mapee `first_name` y `last_name`, la
+        consulta nunca compara el nombre tecleado con el del SII (revisión final
+        C3/C9: falla cerrado). Ya no condiciona una aprobación sola (retirada
+        el 2026-09-27), sí la confirmación D7: `identity_block` devuelve
+        siempre «No se pudo comparar el nombre con el SII.», así que CADA
+        aprobación de una apta pide confirmación (spec 2026-09-27 A7).
+        """
+        claves = set(self._identity.columns) if self._identity is not None else set()
+        faltan = [k for k in IDENTITY_REQUIRED if k not in claves]
+        if not faltan:
+            return []
+        que = ("no hay [identity]" if self._identity is None
+               else f"[identity] no mapea {', '.join(faltan)}")
+        return [f"{que}: sin first_name y last_name no se compara el nombre con el "
+                "formulario, así que cada aprobación pedirá confirmación "
+                "(«No se pudo comparar el nombre con el SII»)."]
 
     @property
     def queries(self) -> list[str]:
@@ -605,8 +711,8 @@ class RuleSet:
 
     # -- ejecución ---------------------------------------------------------
     @staticmethod
-    def _args(q: _Query, control_number: str, curp: str | None) -> list[str]:
-        values = {"control_number": control_number, "curp": curp}
+    def _args(q: _Query, control_number: str) -> list[str]:
+        values = {"control_number": control_number}
         args = []
         for p in q.params:
             v = values.get(p)
@@ -615,7 +721,7 @@ class RuleSet:
             args.append(str(v).strip())
         return args
 
-    def evaluate(self, client, control_number: str, *, curp: str | None = None) -> Verdict:
+    def evaluate(self, client, control_number: str) -> Verdict:
         """Corre las reglas contra el SII. Nunca lanza por el SII: cualquier
         falla de consulta o de regla es `Verdict(status="error")`."""
         if self._errors:
@@ -630,7 +736,7 @@ class RuleSet:
                 current["query"] = qid
                 q = self._queries[qid]
                 cache[qid] = _norm_rows(
-                    client.query(q.sql, self._args(q, control_number, curp), query_id=qid))
+                    client.query(q.sql, self._args(q, control_number), query_id=qid))
                 current["query"] = None
             return cache[qid]
 
@@ -680,13 +786,21 @@ class RuleSet:
                 raise _EvalError(f"la regla '{rule.id}' usa la columna '{col}' que la "
                                  f"consulta '{rule.query}' no devuelve")
         left = row[rule.column]
-        if rule.kind == "truthy":
-            return _truthy(left)
-        if rule.kind == "falsy":
-            return not _truthy(left)
+        if left is None and rule.kind in _UNARY:
+            # Spec §8: `truthy`/`falsy` solo aceptan bool, 0/1 y la lista
+            # cerrada; «otro valor → error de la regla», y NULL es otro valor
+            # (revisión de F1). Con `equals`/`in` NULL sigue sin cumplir.
+            raise _EvalError(f"la regla '{rule.id}' (columna '{rule.column}'): el valor "
+                             "viene vacío (NULL) y truthy/falsy solo aceptan 1/0, S/N, "
+                             "SI/NO, TRUE/FALSE, VERDADERO/FALSO; si NULL debe contar como "
+                             "«no cumple», usa equals o in")
         if left is None:
             return False  # NULL no cumple ninguna comparación (como en SQL)
         try:
+            if rule.kind == "truthy":
+                return _truthy(left)
+            if rule.kind == "falsy":
+                return not _truthy(left)
             if rule.kind in _SET:
                 hit = any(_eq(left, v) for v in rule.value)
                 return hit if rule.kind == "in" else not hit
@@ -700,7 +814,7 @@ class RuleSet:
             c = _cmp(left, right)
             return c >= 0 if rule.kind == "gte" else c <= 0
         except _EvalError as exc:
-            raise _EvalError(f"la regla '{rule.id}': {exc}") from None
+            raise _EvalError(f"la regla '{rule.id}' (columna '{rule.column}'): {exc}") from None
 
     def _render(self, template: str, rule: _Rule, rows: list[dict],
                 warnings: list[str]) -> str:
@@ -739,10 +853,11 @@ class RuleSet:
             out[key] = _jsonable(first.get(col))
         return out
 
-    def fetch_credential(self, client, control_number: str, *,
-                         curp: str | None = None) -> Secret | None:
+    def fetch_credential(self, client, control_number: str) -> Secret | None:
         """El NIP del SII, o None si no hay `[credential]` o el SII no lo da
-        (0 filas, o la columna viene en NULL/vacía).
+        (0 filas, o la columna viene en NULL/vacía). Un NIP numérico se
+        rellena a 4 dígitos (`_nip_text`); varias filas con NIP DISTINTOS son
+        `SiiRulesError` (antes se tomaba la primera: uno al azar).
 
         Las fallas del SII SÍ se propagan (`SiiUnavailable`/`SiiQueryError`):
         quien aprueba debe distinguir «no tiene NIP» de «no se pudo
@@ -758,7 +873,7 @@ class RuleSet:
             return None
         q = self._queries[self._credential.query]
         try:
-            args = self._args(q, control_number, curp)
+            args = self._args(q, control_number)
         except _EvalError as exc:
             raise SiiRulesError(str(exc)) from None
         rows = _norm_rows(client.query(q.sql, args, query_id=q.id, sensitive=True))
@@ -770,8 +885,9 @@ class RuleSet:
             got = ", ".join(sorted(rows[0])) or "ninguna"
             raise SiiRulesError(f"[credential]: la consulta '{q.id}' no devuelve la columna "
                                 f"'{col}' (devuelve: {got}).")
-        raw = rows[0][col]
-        if raw is None:
-            return None
-        text = str(_jsonable(raw)).strip()
-        return Secret(text) if text else None
+        values = {v for v in (_nip_text(r.get(col)) for r in rows) if v}
+        if len(values) > 1:
+            # Solo cuántos, jamás cuáles.
+            raise SiiRulesError(f"[credential]: la consulta '{q.id}' devuelve varias filas "
+                                "con NIP distintos; debe devolver uno solo.")
+        return Secret(values.pop()) if values else None

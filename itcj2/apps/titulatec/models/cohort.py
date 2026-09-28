@@ -1,6 +1,6 @@
 """Convocatoria de titulación (una por periodo)."""
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey,
+    BigInteger, Boolean, CheckConstraint, Column, DateTime, ForeignKey,
     Integer, String, Time,
 )
 from sqlalchemy.orm import relationship
@@ -24,8 +24,13 @@ class Cohort(Base):
         unique=True, nullable=False, index=True,
     )
     name = Column(String(120), nullable=False)
-    opens_at = Column(Date, nullable=True)
-    closes_at = Column(Date, nullable=True)                          # cierre de INSCRIPCIÓN (no del proceso)
+    # Ventana del formulario PÚBLICO de inscripción (no del proceso). Fecha Y
+    # hora, naive en hora local de APP_TZ: el mismo reloj que `db_now()` y que
+    # `NOW()` de Postgres. NOT NULL desde tt20260927b (spec 2026-09-27 D9). El
+    # cierre por omisión es 23:59:59 (se muestra «23:59»): quien envía a las
+    # 23:59:30 del último día sigue dentro.
+    opens_at = Column(DateTime, nullable=False)
+    closes_at = Column(DateTime, nullable=False)
     status = Column(String(20), nullable=False, server_default=text("'open'"))  # draft|open|closed
     created_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
 
@@ -39,10 +44,9 @@ class Cohort(Base):
     default_capacity = Column(Integer, nullable=False, server_default=text("1"))
     default_location = Column(String(120), nullable=True)
 
-    # Interruptor de aprobación automática del modo SII (spec S8, 2026-09-25):
-    # `EligibilityService.auto_approve` solo actúa si sigue en `TRUE` en el
-    # momento de aprobar (revalidado, no solo al consultar). Nace en `TRUE`
-    # para que las convocatorias existentes no requieran backfill.
+    # LEGADO desde 2026-09-27: la aprobación automática se eliminó; la
+    # columna queda sin uso. No quitar del modelo: el autogenerate propondría
+    # borrarla.
     sii_auto_approve = Column(Boolean, nullable=False, server_default=text("true"))
 
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))

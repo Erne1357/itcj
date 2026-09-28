@@ -6,19 +6,21 @@
    Raíz estable `#cohort-window`: el POST devuelve ESTE mismo parcial y htmx lo
    swappea con outerHTML. Mismo contrato que `cohort/cohort_cotejo_reqs.html`.
 
-   Las fechas llegan YA en ISO desde `_window_ctx`, y llegan SIEMPRE precargadas:
-   `CohortService.set_window` escribe las dos con lo que reciba, sin conservar lo
-   anterior, así que un editor en blanco borraría la ventana de quien solo venía
-   a cambiar el estado.
+   Cada extremo es fecha (obligatoria) + hora (opcional, vacía = 00:00 en la
+   apertura y 23:59 en el cierre), con la macro `window_end` que comparte el
+   alta de convocatoria. Llegan SIEMPRE precargados desde `_window_ctx`:
+   `CohortService.set_window` escribe los dos extremos con lo que reciba, sin
+   conservar lo anterior, así que un editor en blanco obligaría a quien solo
+   venía a cambiar el estado a teclear la ventana de memoria.
 
-   Modo `sii` (`sii_mode`, spec 2026-09-25 §3.5): el interruptor «Aprobación
-   automática (SII)» viaja en ESTE formulario, con el mismo permiso. Una casilla
-   sin marcar no se envía, así que va con `sii_auto_present=1`: sin la marca la
-   ruta no lo toca. En solo lectura se dice si está encendida o apagada.
+   Dos filas y no una: la ayuda de la hora va DEBAJO de cada pareja, y en una
+   sola fila alineada por abajo el `<select>` y el botón quedaban a la altura
+   de la ayuda, no de los inputs.
 
    Cero `style=` inline: los anchos y tamaños viven en `titulatec.css`
    (`.tt-win-*`). El color de la nota es `--tt-text-2`, no `--tt-mute`: el propio
    `:root` marca `--tt-mute` como PROHIBIDO PARA TEXTO (2.56:1). #}
+{% from "titulatec/_macros.html" import window_end %}
 <div id="cohort-window">
   <div class="tt-card">
     <div class="d-flex align-items-center justify-content-between mb-2">
@@ -36,48 +38,32 @@
     </p>
 
     {% if can_edit_window %}
-    <form class="d-flex flex-wrap align-items-end gap-2"
+    <form class="d-flex flex-column gap-3"
           hx-post="/titulatec/admin/cohorts/{{ cohort_id }}/ventana"
           hx-target="#cohort-window" hx-swap="outerHTML">
-      <div>
-        <label class="tt-kicker d-block mb-1" for="win-opens">Apertura</label>
-        <input type="date" id="win-opens" name="opens_at"
-               class="form-control form-control-sm tt-win-field" value="{{ window.opens_at }}">
+      <div class="d-flex flex-wrap gap-3">
+        {{ window_end('opens', 'win-opens', 'Apertura', '00:00',
+                      window.opens_date, window.opens_time) }}
+        {{ window_end('closes', 'win-closes', 'Cierre', '23:59',
+                      window.closes_date, window.closes_time) }}
       </div>
-      <div>
-        <label class="tt-kicker d-block mb-1" for="win-closes">Cierre</label>
-        <input type="date" id="win-closes" name="closes_at"
-               class="form-control form-control-sm tt-win-field" value="{{ window.closes_at }}">
+      <div class="d-flex flex-wrap align-items-end gap-2">
+        <div>
+          <label class="tt-kicker d-block mb-1" for="win-status">Estado</label>
+          <select id="win-status" name="status" class="form-select form-select-sm tt-win-field">
+            <option value="draft" {{ 'selected' if window.status == 'draft' }}>Borrador</option>
+            <option value="open" {{ 'selected' if window.status == 'open' }}>Abierta</option>
+            <option value="closed" {{ 'selected' if window.status == 'closed' }}>Cerrada</option>
+          </select>
+        </div>
+        <button class="btn btn-sm tt-btn-ink" type="submit">
+          <i class="bi bi-check-lg me-1"></i>Guardar ventana</button>
       </div>
-      <div>
-        <label class="tt-kicker d-block mb-1" for="win-status">Estado</label>
-        <select id="win-status" name="status" class="form-select form-select-sm tt-win-field">
-          <option value="draft" {{ 'selected' if window.status == 'draft' }}>Borrador</option>
-          <option value="open" {{ 'selected' if window.status == 'open' }}>Abierta</option>
-          <option value="closed" {{ 'selected' if window.status == 'closed' }}>Cerrada</option>
-        </select>
-      </div>
-      {% if sii_mode %}
-      <div class="form-check form-switch tt-win-auto">
-        <input type="hidden" name="sii_auto_present" value="1">
-        <input class="form-check-input" type="checkbox" role="switch" id="win-sii-auto"
-               name="sii_auto_approve" value="1" {{ 'checked' if sii_auto_approve }}
-               aria-describedby="win-sii-auto-help">
-        <label class="form-check-label" for="win-sii-auto">Aprobación automática (SII)</label>
-        <span class="tt-win-note d-block" id="win-sii-auto-help">Las solicitudes aptas en
-          el SII se aprueban solas. Apagada, todas quedan en «Por revisar» de Solicitudes.</span>
-      </div>
-      {% endif %}
-      <button class="btn btn-sm tt-btn-ink" type="submit">
-        <i class="bi bi-check-lg me-1"></i>Guardar ventana</button>
     </form>
     {% else %}
     <div class="d-flex flex-wrap gap-3 tt-win-ro">
-      <span><span class="tt-kicker">Apertura</span> <span class="tt-mono">{{ window.opens_at or '—' }}</span></span>
-      <span><span class="tt-kicker">Cierre</span> <span class="tt-mono">{{ window.closes_at or '—' }}</span></span>
-      {% if sii_mode %}
-      <span><span class="tt-kicker">Aprobación automática (SII)</span> {{ 'encendida' if sii_auto_approve else 'apagada' }}</span>
-      {% endif %}
+      <span><span class="tt-kicker">Apertura</span> <span class="tt-mono">{{ window.opens_label }}</span></span>
+      <span><span class="tt-kicker">Cierre</span> <span class="tt-mono">{{ window.closes_label }}</span></span>
     </div>
     {% endif %}
   </div>

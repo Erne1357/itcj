@@ -202,8 +202,9 @@ _EVENT_LABELS = {
     # hiciera nada, así que callarlo es justo lo contrario de lo que sirve.
     "process_paused":              "Tu proceso quedó en pausa",
     "process_resumed":             "Tu proceso se reanudó",
-    # `ProcessService.cancel`: Servicios Escolares revocó la inscripción.
-    "process_cancelled":           "Tu inscripción fue cancelada",
+    # `ProcessService.cancel`: la inscripción se revocó (texto neutro: no se
+    # atribuye a un área; mismo término que la tarjeta del dashboard).
+    "process_cancelled":           "Tu inscripción fue revocada",
     "enrollment_self_service":     "Te inscribiste desde el formulario público",
     # `EnrollmentRequestService.reassign_nip` (el correo con tu NIP no salió).
     "enrollment_access_reset":     "Se reasignó tu NIP de acceso",
