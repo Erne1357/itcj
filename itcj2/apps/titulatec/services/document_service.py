@@ -135,8 +135,17 @@ class DocumentService:
         original_name: str,
         content_type: str | None,
         uploaded_by_id: int,
+        prepared=None,
     ):
-        """Guarda/sobreescribe el documento de un tipo. Solo última versión."""
+        """Guarda/sobreescribe el documento de un tipo. Solo última versión.
+
+        ``prepared`` (opcional, revisión 2026-09-28 m1): lo que devolvió
+        ``storage.prepare_document`` — validado y comprimido — calculado FUERA
+        de cualquier transacción. La ruta del alumno lo pasa así para que la
+        conexión no quede «idle in transaction» los segundos que tarda comprimir
+        un PDF; entonces aquí solo se escribe el archivo y la fila. Sin él, se
+        valida y comprime aquí mismo (``storage.save_document``), como siempre.
+        """
         from itcj2.apps.titulatec.models import Document, DocumentType
         from itcj2.apps.titulatec.utils import storage
 
@@ -145,15 +154,26 @@ class DocumentService:
             raise ValueError(f"Tipo de documento desconocido: {type_code}")
 
         period_code, control = DocumentService._storage_keys(db, process)
-        meta = storage.save_document(
-            raw=raw,
-            original_name=original_name,
-            content_type=content_type,
-            period_code=period_code,
-            control_number=control,
-            type_code=type_code,
-            file_kind=dtype.file_kind,
-        )
+        if prepared is None:
+            meta = storage.save_document(
+                raw=raw,
+                original_name=original_name,
+                content_type=content_type,
+                period_code=period_code,
+                control_number=control,
+                type_code=type_code,
+                file_kind=dtype.file_kind,
+            )
+        else:
+            # Se preparó con las reglas de OTRO tipo de archivo: no se escribe.
+            if prepared.file_kind != dtype.file_kind:
+                raise ValueError("El archivo no corresponde al tipo de documento.")
+            meta = storage.write_document(
+                prepared,
+                period_code=period_code,
+                control_number=control,
+                type_code=type_code,
+            )
 
         doc = DocumentService.get_document(db, process.id, type_code)
         if doc:

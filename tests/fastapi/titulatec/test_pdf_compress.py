@@ -9,6 +9,13 @@ Contrato (brief 2026-09-28, documentos a 2 MB):
 * por pagina, cada imagen mas grande que `lado_de_la_pagina_en_pulgadas x dpi`
   se reduce (conservando proporcion) y se recodifica JPEG; una imagen que no se
   puede decodificar se deja como esta, sin abortar.
+* ronda 1 (R1): ademas un tope ABSOLUTO por pasada (lado largo 1754 / 1286 /
+  1123 px, un A4 a 150 / 110 / 96 dpi) para los "foto -> PDF" cuya pagina mide
+  lo que la foto, y toda imagen no bitonal que no sea ya JPEG a la calidad de
+  la pasada o menor se recodifica aunque quepa (Flate sin perdida, JPEG q95).
+* ronda 1 (m2): un JPEG grande se decodifica ya reducido (`Image.draft`) y una
+  imagen con mas pixeles declarados que `MAX_IMAGE_PIXELS` ni se decodifica.
+* ronda 1 (m6): nunca se devuelve un PDF con otro numero de paginas.
 
 Los PDFs salen de `_pdf_samples` (Pillow, en memoria).
 """
@@ -20,19 +27,40 @@ import os
 import pytest
 from pypdf import PdfReader, PdfWriter
 
+from itcj2.apps.titulatec.utils import pdf_compress
 from itcj2.apps.titulatec.utils.pdf_compress import PdfUnreadable, compress_pdf
-from tests.fastapi.titulatec._pdf_samples import MB, noise_pdf, photo_pdf, small_pdf
+from tests.fastapi.titulatec._pdf_samples import (
+    MB, bilevel_noise_pdf, flate_pdf, merge_pdfs, photo_pdf, small_pdf,
+)
 
 TARGET = 2 * MB
 
 # Lado largo de un A4 (841.89 pt) a los dpi de cada pasada, en pixeles.
 A4_LONG_150 = round(841.89 / 72 * 150)   # 1754
 A4_LONG_110 = round(841.89 / 72 * 110)   # 1286
+A4_LONG_96 = round(841.89 / 72 * 96)     # 1123
 
 
 def _images(pdf: bytes) -> list:
     reader = PdfReader(io.BytesIO(pdf))
     return [img.image for page in reader.pages for img in page.images]
+
+
+def _xobjects(pdf: bytes) -> list:
+    """El stream de imagen de cada pagina (una por pagina en las muestras)."""
+    reader = PdfReader(io.BytesIO(pdf))
+    out = []
+    for page in reader.pages:
+        xo = page["/Resources"]["/XObject"]
+        out.append(xo[list(xo)[0]].get_object())
+    return out
+
+
+class TestTopes:
+    def test_el_tope_absoluto_de_cada_pasada_es_un_a4_a_esos_dpi(self):
+        assert [(p.dpi, p.quality, p.max_px) for p in pdf_compress.PASSES] == [
+            (150, 75, A4_LONG_150), (110, 60, A4_LONG_110), (96, 50, A4_LONG_96)]
+        assert (A4_LONG_150, A4_LONG_110, A4_LONG_96) == (1754, 1286, 1123)
 
 
 class TestSinTocar:
@@ -103,12 +131,129 @@ class TestNoAlcanza:
         """96 dpi deja ~30 KB: un objetivo de 10 KB no se alcanza."""
         assert compress_pdf(photo_pdf(), target_bytes=10_000) is None
 
-    def test_imagenes_que_no_se_pueden_reducir_devuelven_none(self):
-        """Pagina del tamano de la imagen (72 dpi): ninguna pasada la toca."""
-        raw = noise_pdf()
+    def test_lo_bitonal_no_se_recodifica_y_devuelve_none(self):
+        """1 bit por pixel: en JPEG creceria, asi que se deja como esta."""
+        raw = bilevel_noise_pdf()
         assert len(raw) > TARGET
 
         assert compress_pdf(raw, target_bytes=TARGET) is None
+
+
+class TestFotoAPdf:
+    """R1: el iPhone «Crear PDF», Vista Previa o img2pdf hacen la pagina del
+    tamano de la foto a 72 dpi; el limite relativo a la pagina no la toca."""
+
+    def test_foto_de_celular_a_72dpi_baja_de_2mb(self):
+        raw = photo_pdf(width=3000, height=4000, resolution=72)
+        assert len(raw) > TARGET
+        page = PdfReader(io.BytesIO(raw)).pages[0]
+        assert float(page.mediabox.height) / 72 > 50, "pagina de ~55 pulgadas"
+
+        out = compress_pdf(raw, target_bytes=TARGET)
+
+        assert out is not None and len(out) <= TARGET
+        reader = PdfReader(io.BytesIO(out))
+        assert len(reader.pages) == 1
+        (img,) = _images(out)
+        assert max(img.size) == A4_LONG_150, "el tope absoluto, no el de la pagina"
+        assert img.size[0] < img.size[1], "conserva la proporcion"
+
+    def test_flate_sin_perdida_que_ya_cabe_se_recodifica(self):
+        raw = flate_pdf()
+        assert len(raw) > TARGET
+
+        out = compress_pdf(raw, target_bytes=TARGET)
+
+        assert out is not None and len(out) <= TARGET
+        (xo,) = _xobjects(out)
+        assert xo["/Filter"] == "/DCTDecode"
+        assert (xo["/Width"], xo["/Height"]) == (1200, 1600), "cabia: no se reduce"
+        (img,) = _images(out)
+        assert img.size == (1200, 1600)
+
+    def test_jpeg_que_cabe_a_calidad_alta_se_recodifica(self):
+        from PIL import Image
+
+        raw = photo_pdf(width=1200, height=1600, resolution=150, quality=95)
+
+        out = compress_pdf(raw, target_bytes=len(raw) - 1)
+
+        assert out is not None and len(out) < len(raw) // 2
+        (xo,) = _xobjects(out)
+        assert (xo["/Width"], xo["/Height"]) == (1200, 1600)
+        assert pdf_compress._jpeg_quality(Image.open(io.BytesIO(xo.get_data()))) == 75
+
+    def test_jpeg_que_cabe_a_calidad_igual_o_menor_no_se_toca(self):
+        cabe = photo_pdf(width=1200, height=1600, resolution=150, quality=70)
+        raw = merge_pdfs(cabe, photo_pdf())
+        antes = _xobjects(raw)[0].get_data()
+        assert len(raw) > TARGET
+
+        out = compress_pdf(raw, target_bytes=TARGET)
+
+        assert out is not None and len(out) <= TARGET
+        primera, segunda = _xobjects(out)
+        assert primera.get_data() == antes, "q70 <= q75 y cabe: mismos bytes"
+        assert max(segunda["/Width"], segunda["/Height"]) == A4_LONG_150
+
+
+class TestMemoria:
+    """m2: nada de decodificar una imagen enorme completa."""
+
+    def test_un_jpeg_grande_se_decodifica_ya_reducido(self, monkeypatch):
+        from PIL import JpegImagePlugin
+
+        tamanos = []
+        real_load = JpegImagePlugin.JpegImageFile.load
+
+        def _load(self):
+            tamanos.append(self.size)
+            return real_load(self)
+
+        monkeypatch.setattr(JpegImagePlugin.JpegImageFile, "load", _load)
+
+        out = compress_pdf(photo_pdf(), target_bytes=TARGET)
+
+        assert out is not None
+        assert tamanos, "se decodifico algun JPEG"
+        assert max(max(s) for s in tamanos) <= A4_LONG_150, tamanos
+
+    def test_mas_pixeles_que_el_tope_no_se_decodifica(self, monkeypatch):
+        from PIL import Image
+
+        monkeypatch.setattr(pdf_compress, "MAX_IMAGE_PIXELS", 1_000_000)
+        abiertas = []
+        real_open = Image.open
+
+        def _open(*a, **k):
+            abiertas.append(1)
+            return real_open(*a, **k)
+
+        monkeypatch.setattr(Image, "open", _open)
+        raw = photo_pdf()        # 2480 x 3508 = 8.7 MP declarados
+
+        assert compress_pdf(raw, target_bytes=TARGET) is None
+        assert abiertas == [], "ni siquiera se abrio la imagen"
+
+
+class TestPaginas:
+    def test_una_salida_con_otro_numero_de_paginas_nunca_se_devuelve(self, monkeypatch):
+        raw = photo_pdf(width=1700, height=2200, resolution=200, pages=3)
+        monkeypatch.setattr(pdf_compress, "_one_pass", lambda raw, p: small_pdf())
+
+        with pytest.raises(PdfUnreadable):
+            compress_pdf(raw, target_bytes=TARGET)
+
+
+@pytest.mark.parametrize("q", [50, 60, 70, 75, 90])
+def test_estima_la_calidad_de_un_jpeg(q):
+    from PIL import Image
+    from tests.fastapi.titulatec._pdf_samples import _photo_image
+
+    buf = io.BytesIO()
+    _photo_image(300, 400).save(buf, "JPEG", quality=q)
+
+    assert pdf_compress._jpeg_quality(Image.open(io.BytesIO(buf.getvalue()))) == q
 
 
 class TestIlegible:

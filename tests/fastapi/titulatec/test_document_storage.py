@@ -12,15 +12,29 @@ automatica y nombres `{control}_{TIPO}.{ext}` en disco (brief 2026-09-28).
 
 `TITULATEC_UPLOAD_PATH` se redirige a `tmp_path` parcheando `storage._base`,
 igual que `test_scope_guard.py` y `test_student_phase_guard.py`.
+
+Ronda 1 (revision 2026-09-28):
+
+* m1: `prepare_document` (validar + comprimir, sin disco ni BD) y
+  `write_document` (escribir) por separado, para que la ruta comprima fuera de
+  la transaccion; `DocumentService.save(..., prepared=...)` ya no comprime.
+* m5: se escribe a un temporal y se renombra; las versiones viejas se borran
+  SOLO despues de escribir la nueva.
+* m7: `type_code` fuera de `^[a-z0-9_]+$` es error y el nombre final pasa por
+  `safe_join`.
+* m8: el peso del mensaje se redondea HACIA ARRIBA (20 MB + 1 byte = 20.1).
 """
 from __future__ import annotations
+
+import math
+import os
 
 import pytest
 
 from itcj2.apps.titulatec.utils import pdf_compress, storage
 from itcj2.apps.titulatec.utils.storage import StorageError
 from itcj2.config import get_settings
-from tests.fastapi.titulatec._pdf_samples import MB, noise_pdf, photo_pdf, small_pdf
+from tests.fastapi.titulatec._pdf_samples import MB, bilevel_noise_pdf, photo_pdf, small_pdf
 
 CONTROL = "99000401"
 PERIOD = "2029A"
@@ -28,13 +42,18 @@ PERIOD = "2029A"
 MSG_ILEGIBLE = "No pudimos leer tu PDF; vuelve a generarlo o escanéalo de nuevo."
 
 
+def _mb_arriba(size: int) -> str:
+    """Un decimal, redondeado hacia arriba (nunca iguala al maximo)."""
+    return f"{math.ceil(size * 10 / MB) / 10:.1f}"
+
+
 def _msg_incomprimible(raw: bytes, limit_mb: int = 2) -> str:
-    return (f"Tu PDF pesa {len(raw) / MB:.1f} MB y aun comprimido supera {limit_mb} MB; "
+    return (f"Tu PDF pesa {_mb_arriba(len(raw))} MB y aun comprimido supera {limit_mb} MB; "
             "escanéalo en menor resolución o en blanco y negro.")
 
 
 def _msg_demasiado_grande(size: int, max_mb: int = 20) -> str:
-    return f"Tu PDF pesa {size / MB:.1f} MB; el máximo que aceptamos es {max_mb} MB."
+    return f"Tu PDF pesa {_mb_arriba(size)} MB; el máximo que aceptamos es {max_mb} MB."
 
 
 @pytest.fixture()
@@ -109,6 +128,38 @@ def test_nombre_de_descarga_con_control_invalido_no_revienta():
         f"{CONTROL}_ACTA.pdf"
 
 
+@pytest.mark.parametrize("type_code", ["../x", "Curp", "cu rp", "", "curp\n", "a/b",
+                                       "ñandu", "curp.pdf"])
+def test_un_type_code_fuera_del_patron_es_error(type_code):
+    """m7: solo `^[a-z0-9_]+$`; el catalogo real (DML) ya cumple."""
+    with pytest.raises(StorageError):
+        storage.document_label(type_code)
+    with pytest.raises(StorageError):
+        storage.document_filename(CONTROL, type_code, "pdf")
+
+
+def test_descarga_con_type_code_invalido_cae_a_un_nombre_generico():
+    assert storage.download_filename(CONTROL, "../x", "a/b.pdf") == "documento.pdf"
+
+
+# ---------------------------------------------------------------------------
+# Redondeo del peso en los mensajes (m8)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("size,texto", [
+    (20 * MB + 1, "20.1"), (2 * MB + 1, "2.1"), (2 * MB, "2.0"),
+    (int(2.4 * MB), "2.4"), (5 * MB - 1, "5.0"),
+])
+def test_el_peso_se_redondea_hacia_arriba(size, texto):
+    assert storage._mb1(size) == texto
+
+
+def test_20mb_y_un_byte_no_dice_que_pesa_lo_mismo_que_el_maximo():
+    with pytest.raises(StorageError) as exc:
+        storage.check_pdf_upload_size(20 * MB + 1)
+
+    assert str(exc.value) == "Tu PDF pesa 20.1 MB; el máximo que aceptamos es 20 MB."
+
+
 # ---------------------------------------------------------------------------
 # save_document
 # ---------------------------------------------------------------------------
@@ -132,6 +183,13 @@ class TestHasta2MB:
 
         _save(small_pdf())
 
+    def test_otro_tipo_se_guarda_con_su_codigo_en_mayusculas(self, base):
+        """m6: `_INE` en disco, probado por storage (no solo por el CLI)."""
+        meta = _save(small_pdf(), type_code="ine")
+
+        assert meta["file_path"] == f"{PERIOD}/{CONTROL}/documents/{CONTROL}_INE.pdf"
+        assert (base / meta["file_path"]).read_bytes() == small_pdf()
+
 
 class TestMasDe2MB:
     def test_comprimible_se_guarda_comprimido_con_su_tamano_real(self, base):
@@ -149,7 +207,7 @@ class TestMasDe2MB:
         assert meta["mime_type"] == "application/pdf"
 
     def test_incomprimible_es_error_y_no_deja_nada(self, base):
-        raw = noise_pdf()
+        raw = bilevel_noise_pdf()
         assert 2 * MB < len(raw) < 20 * MB
 
         with pytest.raises(StorageError) as exc:
@@ -183,7 +241,7 @@ class TestMasDe2MB:
     def test_los_numeros_del_mensaje_salen_de_la_config(self, base, monkeypatch):
         monkeypatch.setattr(get_settings(), "TITULATEC_MAX_PDF_SIZE", 1 * MB)
         monkeypatch.setattr(get_settings(), "TITULATEC_MAX_PDF_UPLOAD_SIZE", 2 * MB)
-        raw = noise_pdf()
+        raw = bilevel_noise_pdf()
 
         with pytest.raises(StorageError) as exc:
             _save(raw)
@@ -230,6 +288,122 @@ class TestControlInvalido:
 
         assert "número de control" in str(exc.value)
         assert list(base.iterdir()) == []
+
+
+class TestTypeCodeYRutaFinal:
+    """m7."""
+
+    def test_type_code_invalido_no_deja_nada(self, base):
+        with pytest.raises(StorageError):
+            _save(small_pdf(), type_code="../../fuera")
+
+        assert _files(base) == []
+
+    def test_el_nombre_final_pasa_por_safe_join(self, base, monkeypatch):
+        """Aunque un nombre raro burlara las validaciones, no sale de la carpeta."""
+        monkeypatch.setattr(storage, "document_filename", lambda *a, **k: "../fuera.pdf")
+
+        with pytest.raises(StorageError):
+            _save(small_pdf())
+
+        assert _files(base) == []
+
+
+# ---------------------------------------------------------------------------
+# Escritura atomica (m5)
+# ---------------------------------------------------------------------------
+class TestEscrituraAtomica:
+    def _carpeta(self, base):
+        carpeta = base / PERIOD / CONTROL / "documents"
+        carpeta.mkdir(parents=True)
+        return carpeta
+
+    @staticmethod
+    def _falla_al_renombrar(monkeypatch):
+        def _boom(*a, **k):
+            raise OSError("disco lleno")
+        monkeypatch.setattr(storage.os, "replace", _boom)
+
+    def test_si_falla_la_escritura_el_nombre_viejo_sigue_y_no_quedan_temporales(
+            self, base, monkeypatch):
+        carpeta = self._carpeta(base)
+        (carpeta / "curp.pdf").write_bytes(b"viejo")
+        self._falla_al_renombrar(monkeypatch)
+
+        with pytest.raises(OSError):
+            _save(small_pdf())
+
+        assert [p.name for p in carpeta.iterdir()] == ["curp.pdf"]
+        assert (carpeta / "curp.pdf").read_bytes() == b"viejo"
+
+    def test_si_falla_la_escritura_el_mismo_nombre_conserva_lo_anterior(
+            self, base, monkeypatch):
+        carpeta = self._carpeta(base)
+        destino = carpeta / f"{CONTROL}_CURP.pdf"
+        destino.write_bytes(b"anterior")
+        self._falla_al_renombrar(monkeypatch)
+
+        with pytest.raises(OSError):
+            _save(small_pdf())
+
+        assert [p.name for p in carpeta.iterdir()] == [destino.name]
+        assert destino.read_bytes() == b"anterior"
+
+    def test_los_viejos_se_borran_despues_de_escribir_el_nuevo(self, base, monkeypatch):
+        carpeta = self._carpeta(base)
+        viejo = carpeta / "curp.pdf"
+        viejo.write_bytes(b"viejo")
+        vistos = []
+        real = os.replace
+
+        def _espia(src, dst):
+            vistos.append(viejo.exists())
+            return real(src, dst)
+
+        monkeypatch.setattr(storage.os, "replace", _espia)
+
+        meta = _save(small_pdf())
+
+        assert vistos == [True], "al escribir el nuevo, el viejo seguia ahi"
+        assert not viejo.exists()
+        assert (base / meta["file_path"]).read_bytes() == small_pdf()
+
+
+# ---------------------------------------------------------------------------
+# Preparar (CPU, sin disco) y escribir por separado (m1)
+# ---------------------------------------------------------------------------
+class TestPrepararYEscribir:
+    def test_preparar_comprime_sin_tocar_el_disco(self, base):
+        prep = storage.prepare_document(raw=photo_pdf(), original_name="x.pdf",
+                                        control_number=CONTROL, file_kind="pdf")
+
+        assert list(base.iterdir()) == []
+        assert (prep.ext, prep.mime_type, prep.file_kind) == ("pdf", "application/pdf", "pdf")
+        assert prep.data.startswith(b"%PDF") and len(prep.data) <= 2 * MB
+        assert prep.original_name == "x.pdf"
+
+    def test_preparar_valida_igual_que_guardar(self, base):
+        with pytest.raises(StorageError) as exc:
+            storage.prepare_document(raw=bilevel_noise_pdf(), original_name="x.pdf",
+                                     control_number=CONTROL, file_kind="pdf")
+        assert str(exc.value) == _msg_incomprimible(bilevel_noise_pdf())
+        with pytest.raises(StorageError):
+            storage.prepare_document(raw=small_pdf(), original_name="x.pdf",
+                                     control_number="99-01", file_kind="pdf")
+
+    def test_escribir_guarda_lo_preparado(self, base):
+        prep = storage.prepare_document(raw=photo_pdf(), original_name="x.pdf",
+                                        control_number=CONTROL, file_kind="pdf")
+
+        meta = storage.write_document(prep, period_code=PERIOD, control_number=CONTROL,
+                                      type_code="curp")
+
+        assert meta == {
+            "file_path": f"{PERIOD}/{CONTROL}/documents/{CONTROL}_CURP.pdf",
+            "original_name": "x.pdf", "mime_type": "application/pdf",
+            "size_bytes": len(prep.data),
+        }
+        assert (base / meta["file_path"]).read_bytes() == prep.data
 
 
 # ---------------------------------------------------------------------------
@@ -280,10 +454,46 @@ class TestDocumentServiceSave:
         assert (base / doc.file_path).read_bytes() == small_pdf()
         assert doc.size_bytes == len(small_pdf())
 
+    def test_con_lo_ya_preparado_no_vuelve_a_comprimir(self, proceso, base, db_session,
+                                                        monkeypatch):
+        """m1: la ruta comprime FUERA de la transaccion y aqui solo se persiste."""
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        proc, student = proceso()
+        prep = storage.prepare_document(raw=photo_pdf(), original_name="c.pdf",
+                                        control_number=student.control_number,
+                                        file_kind="pdf")
+
+        def _no(*a, **k):
+            raise AssertionError("ya venia preparado: no se comprime otra vez")
+        monkeypatch.setattr(pdf_compress, "compress_pdf", _no)
+
+        doc = DocumentService.save(db_session, proc, "curp", raw=photo_pdf(),
+                                   original_name="c.pdf", content_type="application/pdf",
+                                   uploaded_by_id=student.id, prepared=prep)
+
+        assert (base / doc.file_path).read_bytes() == prep.data
+        assert doc.size_bytes == len(prep.data)
+        assert doc.file_path.endswith(f"/{student.control_number}_CURP.pdf")
+
+    def test_lo_preparado_para_otro_tipo_de_archivo_es_error(self, proceso, base,
+                                                              db_session):
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        proc, student = proceso()
+        prep = storage.PreparedDocument(data=b"\xff\xd8", ext="jpg", mime_type="image/jpeg",
+                                        original_name="a.jpg", file_kind="image")
+
+        with pytest.raises(ValueError):
+            DocumentService.save(db_session, proc, "curp", raw=b"\xff\xd8",
+                                 original_name="a.jpg", content_type="image/jpeg",
+                                 uploaded_by_id=student.id, prepared=prep)
+
+        assert _doc_row(db_session, proc.id) is None
+        assert _files(base) == []
+
     def test_incomprimible_no_deja_fila_ni_archivo(self, proceso, base, db_session):
         from itcj2.apps.titulatec.services.document_service import DocumentService
         proc, student = proceso()
-        raw = noise_pdf()
+        raw = bilevel_noise_pdf()
 
         with pytest.raises(StorageError) as exc:
             DocumentService.save(db_session, proc, "curp", raw=raw, original_name="c.pdf",

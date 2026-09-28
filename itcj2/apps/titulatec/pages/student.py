@@ -911,6 +911,7 @@ async def document_upload(
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import DocumentType
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.utils import storage
     from itcj2.apps.titulatec.utils.storage import StorageError, check_pdf_upload_size
 
     db = SessionLocal()
@@ -933,16 +934,29 @@ async def document_upload(
         try:
             # Antes de leer el cuerpo: un PDF que ya excede lo que se acepta
             # para comprimir (`TITULATEC_MAX_PDF_UPLOAD_SIZE`) no se sube a
-            # memoria. `save_document` lo vuelve a comprobar sobre los bytes.
+            # memoria. `prepare_document` lo vuelve a comprobar sobre los bytes.
             if dtype.file_kind == "pdf":
                 check_pdf_upload_size(archivo.size)
+            file_kind = dtype.file_kind
+            _, control = DocumentService._storage_keys(db, process)
+            # Fin de la transacción de LECTURA antes de lo lento (leer el cuerpo
+            # y comprimir tardan segundos): abierta, la conexión quedaba «idle in
+            # transaction» y, con PgBouncer transaccional, un backend fijado.
+            # No hay nada pendiente (solo se leyó); al volver a tocar `process`
+            # o `dtype`, la sesión abre otra transacción, ya corta.
+            db.commit()
             raw = await archivo.read()
             # En el threadpool: comprimir un PDF escaneado es CPU (segundos) y
             # en el event loop congelaría el worker entero.
+            prepared = await run_in_threadpool(
+                storage.prepare_document, raw=raw, original_name=archivo.filename,
+                control_number=control, file_kind=file_kind,
+            )
             doc = await run_in_threadpool(
                 DocumentService.save, db, process, type_code,
                 raw=raw, original_name=archivo.filename,
                 content_type=archivo.content_type, uploaded_by_id=int(user["sub"]),
+                prepared=prepared,
             )
         except (StorageError, ValueError) as exc:
             error = str(exc)

@@ -10,12 +10,21 @@ Estructura: instance/apps/titulatec/{period_code}/{control_number}/documents/{co
 - PDFs (2026-09-28): hasta ``TITULATEC_MAX_PDF_SIZE`` (2 MB) se guardan intactos;
   entre ese tope y ``TITULATEC_MAX_PDF_UPLOAD_SIZE`` (20 MB) se comprimen
   (``utils/pdf_compress.py``) y solo se aceptan si bajan del tope.
+
+Dos pasos (revisión 2026-09-28, m1): ``prepare_document`` valida y comprime
+(CPU, segundos; sin disco ni BD) y ``write_document`` escribe. Así la ruta de
+subida comprime SIN una transacción abierta y solo después persiste.
+``save_document`` hace los dos seguidos, para quien no necesite separarlos.
+La escritura es atómica (temporal + ``os.replace``) y las versiones viejas se
+borran solo DESPUÉS de escribir la nueva (m5).
 """
 from __future__ import annotations
 
 import io
 import os
 import re
+import secrets
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from itcj2.config import get_settings
@@ -40,6 +49,11 @@ _DOCUMENT_LABELS = {
 # archivo solo se acepta alfanumérico ASCII: ni separadores, ni espacios, ni
 # acentos. Si no casa, es error; no se inventa un nombre.
 _CONTROL_RE = re.compile(r"[A-Za-z0-9]+")
+
+# El tipo sale del catálogo (DML): minúsculas, dígitos y guion bajo. Un código
+# fuera de ese patrón no nombra ningún archivo (m7).
+_TYPE_CODE_RE = re.compile(r"[a-z0-9_]+")
+_EXT_RE = re.compile(r"[a-z0-9]+")
 
 
 def _base() -> Path:
@@ -97,8 +111,14 @@ class StorageError(Exception):
 # Nombres
 # ---------------------------------------------------------------------------
 def document_label(type_code: str) -> str:
-    """Etiqueta del tipo en el nombre de archivo: ACTA / CERTIFICADO / CURP / CÓDIGO."""
-    return _DOCUMENT_LABELS.get(type_code, str(type_code).upper())
+    """Etiqueta del tipo en el nombre de archivo: ACTA / CERTIFICADO / CURP / CÓDIGO.
+
+    ``StorageError`` si el código no casa ``^[a-z0-9_]+$``.
+    """
+    code = str(type_code or "")
+    if not _TYPE_CODE_RE.fullmatch(code):
+        raise StorageError("Tipo de documento no válido.")
+    return _DOCUMENT_LABELS.get(code, code.upper())
 
 
 def _check_control(control_number: str) -> str:
@@ -112,9 +132,16 @@ def _check_control(control_number: str) -> str:
 
 
 def document_filename(control_number: str, type_code: str, ext: str) -> str:
-    """``{control}_{ETIQUETA}.{ext}``. ``StorageError`` si el control no es alfanumérico."""
+    """``{control}_{ETIQUETA}.{ext}``.
+
+    ``StorageError`` si el control no es alfanumérico, el tipo no casa
+    ``^[a-z0-9_]+$`` o la extensión no es alfanumérica.
+    """
     control = _check_control(control_number)
-    return f"{control}_{document_label(type_code)}.{ext}"
+    label = document_label(type_code)
+    if not _EXT_RE.fullmatch(str(ext or "")):
+        raise StorageError("Extensión de archivo no válida.")
+    return f"{control}_{label}.{ext}"
 
 
 def download_filename(control_number: str, type_code: str, file_path: str) -> str:
@@ -124,13 +151,20 @@ def download_filename(control_number: str, type_code: str, file_path: str) -> st
     control y el tipo — no desde el nombre real del archivo — para que un
     documento que todavía no pasó por ``rename-documents`` se descargue ya con
     el nombre nuevo. Con un control inválido (fila vieja que el importador
-    dejó pasar) cae a la etiqueta sola: una descarga no se rompe por el nombre.
+    dejó pasar) cae a la etiqueta sola, y con un tipo inválido a
+    ``documento``: una descarga no se rompe por el nombre.
     """
-    ext = _ext_of(file_path) or "pdf"
+    ext = _ext_of(file_path)
+    if not _EXT_RE.fullmatch(ext):
+        ext = "pdf"
     try:
         return document_filename(control_number, type_code, ext)
     except StorageError:
+        pass
+    try:
         return f"{document_label(type_code)}.{ext}"
+    except StorageError:
+        return f"documento.{ext}"
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +184,14 @@ def pdf_upload_hint() -> str:
 
 
 def _mb1(size: int) -> str:
-    return f"{size / _MB:.1f}"
+    """MB con un decimal, redondeado HACIA ARRIBA (m8).
+
+    Con redondeo normal, 20 MB + 1 byte decía «pesa 20.0 MB; el máximo es
+    20 MB». Hacia arriba, lo que pasa del tope siempre se ve mayor que el tope.
+    Aritmética entera: sin errores de coma flotante en el décimo.
+    """
+    tenths = -(-int(size) * 10 // _MB)
+    return f"{tenths // 10}.{tenths % 10}"
 
 
 def check_pdf_upload_size(size: int | None) -> None:
@@ -210,25 +251,30 @@ def _previous_versions(folder: Path, stems: set[str], target: Path) -> list[Path
     return out
 
 
-def save_document(
+@dataclass(frozen=True)
+class PreparedDocument:
+    """Bytes ya validados (y comprimidos si hacía falta), listos para escribir."""
+
+    data: bytes
+    ext: str
+    mime_type: str
+    original_name: str
+    file_kind: str
+
+
+def prepare_document(
     *,
     raw: bytes,
     original_name: str,
-    content_type: str | None,
-    period_code: str,
     control_number: str,
-    type_code: str,
     file_kind: str,
-) -> dict:
-    """Guarda (sobreescribe) un documento. Devuelve metadata para el modelo Document.
+) -> PreparedDocument:
+    """Valida y comprime un documento. Solo CPU: no toca el disco ni la BD.
 
-    file_kind: 'pdf' | 'image'. Valida extensión y tamaño; comprime imágenes y
-    los PDFs que pasan de ``TITULATEC_MAX_PDF_SIZE``.
-    El nombre en disco es fijo: ``{control}_{ETIQUETA}.{ext}`` (solo última versión).
-    Todo lo que puede fallar se valida ANTES de crear la carpeta: un error no
-    deja nada en disco.
-    Retorna: {file_path (relativo a TITULATEC_UPLOAD_PATH), original_name, mime_type,
-    size_bytes (del archivo GUARDADO)}.
+    file_kind: 'pdf' | 'image'. Valida extensión, tamaño y número de control
+    (antes de gastar CPU comprimiendo); comprime imágenes y los PDFs que pasan
+    de ``TITULATEC_MAX_PDF_SIZE``. ``StorageError`` con el mensaje para el
+    alumno si algo no pasa.
     """
     settings = get_settings()
     ext = _ext_of(original_name)
@@ -251,22 +297,97 @@ def save_document(
     else:
         raise StorageError(f"file_kind inválido: {file_kind}")
 
-    filename = document_filename(control_number, type_code, final_ext)
-    target = process_documents_dir(period_code, control_number) / filename
-    # Borra cualquier versión previa del MISMO tipo: la de antes de 2026-09-28
-    # (`{type_code}.*`) y la del nombre nuevo con otra extensión.
-    stems = {str(type_code), filename.rsplit(".", 1)[0]}
-    for prev in _previous_versions(target.parent, stems, target):
+    return PreparedDocument(data=data, ext=final_ext, mime_type=mime,
+                            original_name=original_name, file_kind=file_kind)
+
+
+def _write_atomic(target: Path, data: bytes) -> None:
+    """Escribe ``data`` en ``target`` sin dejarlo nunca a medias (m5).
+
+    Va a un temporal en la MISMA carpeta (``.{nombre}.{azar}.tmp``, creado en
+    exclusiva y con los permisos normales del proceso) y se renombra con
+    ``os.replace``, que es atómico: quien lea ``target`` ve el archivo anterior
+    completo o el nuevo completo. Si algo falla, el temporal se borra y
+    ``target`` queda como estaba.
+    """
+    tmp = target.with_name(f".{target.name}.{secrets.token_hex(6)}.tmp")
+    try:
+        with open(tmp, "xb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def write_document(
+    prepared: PreparedDocument,
+    *,
+    period_code: str,
+    control_number: str,
+    type_code: str,
+) -> dict:
+    """Escribe un documento ya preparado. Devuelve metadata para el modelo Document.
+
+    El nombre en disco es fijo: ``{control}_{ETIQUETA}.{ext}`` (solo última
+    versión), anclado con ``safe_join`` en la carpeta del alumno. El nombre se
+    valida ANTES de crear la carpeta. La escritura es atómica y las versiones
+    previas del MISMO tipo — la de antes de 2026-09-28 (``{type_code}.*``) y la
+    del nombre nuevo con otra extensión — se borran solo DESPUÉS de escribir la
+    nueva: si la escritura falla, lo anterior sigue en su lugar.
+    Retorna: {file_path (relativo a TITULATEC_UPLOAD_PATH), original_name,
+    mime_type, size_bytes (del archivo GUARDADO)}.
+    """
+    from itcj2.core.utils.safe_paths import UnsafePath, safe_join
+
+    filename = document_filename(control_number, type_code, prepared.ext)
+    folder = process_documents_dir(period_code, control_number)
+    try:
+        target = safe_join(folder, filename)
+    except UnsafePath as exc:
+        raise StorageError(
+            "No pudimos guardar el documento; avisa a Servicios Escolares."
+        ) from exc
+
+    _write_atomic(target, prepared.data)
+
+    stems = {str(type_code), target.name.rsplit(".", 1)[0]}
+    for prev in _previous_versions(folder, stems, target):
         prev.unlink(missing_ok=True)
-    target.write_bytes(data)
 
     rel = target.relative_to(_base()).as_posix()
     return {
         "file_path": rel,
-        "original_name": original_name,
-        "mime_type": mime,
-        "size_bytes": len(data),
+        "original_name": prepared.original_name,
+        "mime_type": prepared.mime_type,
+        "size_bytes": len(prepared.data),
     }
+
+
+def save_document(
+    *,
+    raw: bytes,
+    original_name: str,
+    content_type: str | None,
+    period_code: str,
+    control_number: str,
+    type_code: str,
+    file_kind: str,
+) -> dict:
+    """Guarda (sobreescribe) un documento: ``prepare_document`` + ``write_document``.
+
+    Todo lo que puede fallar se valida ANTES de crear la carpeta: un error de
+    validación no deja nada en disco. Retorna lo mismo que ``write_document``.
+    """
+    prepared = prepare_document(raw=raw, original_name=original_name,
+                                control_number=control_number, file_kind=file_kind)
+    return write_document(prepared, period_code=period_code,
+                          control_number=control_number, type_code=type_code)
 
 
 def delete_document_file(file_path: str) -> None:
