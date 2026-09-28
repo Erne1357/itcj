@@ -1692,6 +1692,9 @@ class TestColumnaSii:
                     f"en el SII (p. ej. BIBLIOTECA). {CONFIRMA}"),
         ("error", f"La consulta al SII terminó en error. {CONFIRMA}"),
         ("consultando", f"La consulta al SII sigue en curso. {CONFIRMA}"),
+        # M2 (revisión T6): una `pending` colgada ya no está «en curso»: la
+        # fila ofrece reintentarla, así que el texto es neutro.
+        ("colgada", f"La consulta al SII no terminó. {CONFIRMA}"),
         ("nombre_distinto", "El nombre del formulario no coincide con el del SII (nombre); "
                             "confirma que la solicitud sea de esa persona antes de "
                             f"aprobarla. {CONFIRMA}"),
@@ -1716,6 +1719,7 @@ class TestColumnaSii:
             "no_apta": dict(status="not_apt", results=REGLAS_NO_APTA),
             "error": dict(status="error", error="Falla."),
             "consultando": dict(status="pending"),
+            "colgada": dict(status="pending", started_at=datetime.now() - timedelta(hours=1)),
             "nombre_distinto": dict(status="apt", results=REGLAS_APTA, identity_mismatch={
                 "first_name": {"form": "EGRESADO", "sii": "OTRA PERSONA"}}),
             "nombre_sin_comparar": dict(status="apt", results=REGLAS_APTA,
@@ -1780,6 +1784,127 @@ class TestColumnaSii:
         _make_req(db_session, make_cohort(status="open"), control="99660012")
 
         assert 'id="tt-req-sii-off"' not in client_as(head).get(f"{URL}/body").text
+
+    # -- Minors de la revisión de la Tarea 6 (Ruling R10, resueltos en T7) --
+
+    def test_sin_sii_configurado_el_boton_es_accesos_aunque_la_consulta_vieja_de_nip(
+        self, client_as, db_session, make_head, make_cohort, monkeypatch,
+    ):
+        """M1 (D11 + R10): con el SII sin configurar, «dar acceso» iría a pedir
+        un NIP a un SII que no existe; la fila sin cuenta ofrece SIEMPRE
+        «pasar a Accesos», aunque una consulta de cuando sí estaba configurado
+        diga `available`. La celda sigue mostrando el último veredicto."""
+        from itcj2.apps.titulatec.services.sii.client import SiiConfig
+
+        monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "disabled"))
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        req = _make_req(db_session, cohort, control="99662001")
+        _consulta(db_session, req, status="apt", results=REGLAS_APTA, nip_status="available")
+
+        fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
+        form = _form_aprobar(fila, req)
+
+        assert "Aprobar y pasar a Accesos" in form
+        assert "Aprobar y dar acceso" not in fila
+        assert '<input type="hidden" name="to_access" value="1">' in form
+        assert AVISO_ACCESOS in _plano(fila) and AVISO_DAR_ACCESO not in _plano(fila)
+        assert "Apta" in _plano(_bloque_sii(fila, req).split("</td>", 1)[0])
+
+    def test_al_pedir_la_consulta_la_confirmacion_es_la_de_una_en_curso(
+        self, client_as, db_session, make_head, make_cohort, monkeypatch,
+    ):
+        """M3: la bandeja que devuelve «Reintentar consulta» pinta la fila
+        «Consultando…»; su botón de aprobar confirma como consulta en curso
+        aunque la consulta VIEJA fuera una apta sin nada que confirmar."""
+        import html as html_mod
+
+        monkeypatch.setattr(
+            "itcj2.apps.titulatec.services.eligibility_service.enqueue_check",
+            lambda req_id, **kw: True)
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        req = _make_req(db_session, cohort, control="99662002")
+        _consulta(db_session, req, status="apt", results=REGLAS_APTA)
+        c = client_as(head)
+        assert "hx-confirm" not in _fila(c.get(f"{URL}/body?cohort_id={cohort.id}").text,
+                                         req), "la apta vieja no pide confirmación"
+
+        resp = c.post(f"{URL}/{req.id}/reconsultar",
+                      data={"status": "pending_review", "cohort_id": str(cohort.id)},
+                      follow_redirects=False)
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        fila = _fila(resp.text, req)
+        assert "Consultando…" in _plano(_bloque_sii(fila, req).split("</td>", 1)[0])
+        m = re.search(r'hx-confirm="([^"]*)"', _apertura(_form_aprobar(fila, req)))
+        assert m, "la fila recién consultada debe pedir confirmación"
+        assert html_mod.unescape(m.group(1)) == (
+            f"Aprobar solicitud|La consulta al SII sigue en curso. {CONFIRMA}")
+
+    def test_un_control_con_formato_invalido_cuenta_como_sin_cuenta(
+        self, client_as, db_session, make_head, make_cohort,
+    ):
+        """M4: la bandeja decide «¿tiene cuenta?» con la MISMA guarda que
+        `check()`, la aprobación y `sii-check`: un control que no casa
+        `CONTROL_NUMBER_RE` no se busca en `core_users`. Si no, la fila
+        prometería la liga y `approve` respondería «formato inválido»."""
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        control = "996620010"   # 9 dígitos: no casa ^[A-Za-z]?\d{8}$
+        _cuenta(db_session, control)
+        req = _make_req(db_session, cohort, control=control)
+
+        fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
+
+        assert "Sin cuenta" in _plano(fila) and "Con cuenta" not in _plano(fila)
+        assert "Aprobar y pasar a Accesos" in _form_aprobar(fila, req)
+        assert "Aprobar y enviar liga" not in fila
+        assert AVISO_CON_CUENTA not in _plano(fila)
+
+    def test_la_confirmacion_de_no_apta_quita_un_solo_punto_final(
+        self, client_as, db_session, make_head, make_cohort,
+    ):
+        """M6: al unir los motivos se quita COMO MUCHO un punto final; el de
+        una abreviatura que cierra el mensaje («etc..» = «etc.» + punto) se
+        conserva."""
+        import html as html_mod
+
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        req = _make_req(db_session, cohort, control="99662003")
+        _consulta(db_session, req, status="not_apt", results=[
+            {"rule": "adeudos", "ok": False,
+             "message": "Tiene adeudos en: BIBLIOTECA, CAJA, etc.."},
+            {"rule": "creditos", "ok": False, "message": "Le faltan créditos: 200 de 260."},
+        ])
+
+        fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
+        m = re.search(r'hx-confirm="([^"]*)"', _apertura(_form_aprobar(fila, req)))
+
+        assert m
+        assert html_mod.unescape(m.group(1)).partition("|")[2] == (
+            "El SII dijo «No apta»: Tiene adeudos en: BIBLIOTECA, CAJA, etc.; "
+            f"Le faltan créditos: 200 de 260. {CONFIRMA}")
+
+    def test_la_fila_no_lleva_la_clave_nip_muerta(
+        self, db_session, make_head, make_cohort,
+    ):
+        """M7: el estado del NIP vive en la celda (`r.sii.nip`, lo que pinta la
+        plantilla); la copia `r.nip` no la leía nadie."""
+        from itcj2.apps.titulatec.pages.requests_admin import _body_ctx
+
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        req = _make_req(db_session, cohort, control="99662004")
+        _consulta(db_session, req, status="apt", results=REGLAS_APTA, nip_status="missing")
+
+        ctx = _body_ctx(db_session, user_id=head.id, status="pending_review",
+                        cohort_id=cohort.id)
+        fila = next(r for r in ctx["rows"] if r["id"] == req.id)
+
+        assert "nip" not in fila
+        assert fila["sii"]["nip"] == {"label": "El SII no tiene NIP", "tone": "amber"}
 
 
 @pytest.mark.parametrize("modo", ["school_services", "sii"])

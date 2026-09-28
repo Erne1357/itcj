@@ -28,6 +28,8 @@ el ALTERNO, CC hace las dos cosas en un paso.
     reassign_nip() [CC]      ─── converted (cuenta creada por la solicitud y que
                                  nunca ha iniciado sesión) ─► converted  NIP nuevo
                                  (+ correo, u omitido para dictarlo por teléfono)
+    resend_access_notice() [SE, sii] ─ converted (NIP DEL SII, correo no salió)
+                                 ─► converted  el mismo correo SIN NIP; ninguna credencial
 
 El alumno no se entera de `awaiting_access`: ni correo al aprobar ni al
 devolver. `unverified` y `verified` son estados LEGADO del flujo con liga
@@ -112,7 +114,7 @@ varada a nadie que entró a tiempo. La liga vive `_link_ttl_hours()`.
 
 CONCURRENCIA. Toda transición de una solicitud (`approve`, `grant_access`,
 `return_to_review`, `reassign_nip`, `verify`, `reject`, `resend_link`,
-`resend`) toma
+`resend`, `resend_access_notice`) toma
 `pg_advisory_xact_lock(_REQUEST_LOCK_NS, req.id)` y hace `db.refresh(req)`
 ANTES de leer el estado: bajo READ COMMITTED, quien esperó el lock puede seguir
 teniendo en memoria el estado de antes de esperarlo. Los tests estructurales de
@@ -248,6 +250,9 @@ _MSG_RETURN_NOTE_LONG = "El motivo de la devolución no puede pasar de 2000 cara
 _RETURN_NOTE_MAX = 2000
 _MSG_NOT_REASSIGNABLE = ("Solo se reasigna el NIP de una cuenta que creó esta solicitud "
                          "y que nunca ha iniciado sesión.")
+# «Reenviar aviso» (spec 2026-09-27 D12, `resend_access_notice`).
+_MSG_NO_ACCESS_NOTICE = "Esa solicitud no tiene un aviso de acceso pendiente."
+_MSG_ACCESS_NOTICE_NOT_SENT = "El correo no salió; intenta más tarde."
 # Modo `sii` (spec 2026-09-25): la cuenta nueva nace con el NIP del SII. Si AL
 # APROBAR el SII no da uno válido, el motivo por estado
 # (`EligibilityService.classify_sii_nip`; spec 2026-09-27 §A4): la salida es
@@ -978,6 +983,51 @@ class EnrollmentRequestService:
                 and req.access_granted_at is not None
                 and req.verify_token_hash is None
                 and req.access_sent_at is None)
+
+    @staticmethod
+    def resend_access_notice(db: Session, req_id: int) -> tuple[bool, str]:
+        """«Reenviar aviso» (spec 2026-09-27 D12). Devuelve `(ok, detalle)`.
+
+        Para una cuenta que nació con el NIP DEL SII (`nip_source == "sii"`,
+        modo `sii`) cuyo correo de acceso no salió (`access_sent_at` nulo). Ese
+        correo NO lleva NIP —el alumno ya sabe el suyo del SII—, así que
+        reenviarlo no expone nada; por lo mismo, aquí no se toca ninguna
+        credencial (ni `hash_nip`, ni `password_hash`, ni
+        `must_change_password`): para un NIP nuevo está `reassign_nip`.
+
+        Lock + refresh ANTES de leer el estado. Exige `converted`,
+        `nip_source == "sii"`, `access_sent_at` nulo y que la cuenta del
+        número de control sea la dueña del proceso en que se convirtió
+        (`converted_process_id`, el que creó `_create_account`); si no,
+        `(False, _MSG_NO_ACCESS_NOTICE)` sin escribir nada. Commit ANTES del
+        correo (suelta el lock: `msgraph_mail` es un `requests.post`
+        síncrono); `_mail_access` sella `access_sent_at` si sale ->
+        `(True, "")`; si no, `(False, _MSG_ACCESS_NOTICE_NOT_SENT)` y la fila
+        sigue «correo no enviado».
+        """
+        from itcj2.core.models.user import User
+        from itcj2.apps.titulatec.models import EnrollmentRequest, TitulationProcess
+
+        req = db.get(EnrollmentRequest, req_id)
+        if req is None:
+            return False, _MSG_GONE
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns, :key)"),
+                   {"ns": _REQUEST_LOCK_NS, "key": int(req.id)})
+        db.refresh(req)
+
+        if (req.status != "converted" or req.nip_source != "sii"
+                or req.access_sent_at is not None or req.converted_process_id is None):
+            return False, _MSG_NO_ACCESS_NOTICE
+        user = (db.query(User)
+                .filter_by(control_number=(req.control_number or "").strip()).first())
+        proc = db.get(TitulationProcess, req.converted_process_id)
+        if user is None or proc is None or proc.student_id != user.id:
+            return False, _MSG_NO_ACCESS_NOTICE
+
+        db.commit()          # nada escrito: solo suelta el lock antes del correo
+        if EnrollmentRequestService._mail_access(db, req, user, None, nip_source="sii"):
+            return True, ""
+        return False, _MSG_ACCESS_NOTICE_NOT_SENT
 
     @staticmethod
     def reassign_nip(db: Session, req_id: int, *, nip: str, actor_id: int,

@@ -21,7 +21,9 @@
    - inscrita: folio y, con proceso revocable y `can_revoke` (permiso
      `process.api.cancel`, calculado en servidor y falso en modo alterno),
      «Revocar inscripción» con motivo obligatorio; revocada: «Inscripción
-     revocada: motivo»;
+     revocada: motivo». Si la cuenta nació con el NIP del SII y su correo de
+     acceso no salió (`r.access_unsent_sii`, D12), la píldora ámbar «correo
+     no enviado» y, con `can_act`, «Reenviar aviso» (el correo no lleva NIP);
    - rechazada: motivo.
    `can_act` falso (modo alterno, revisa Centro de Cómputo) = SOLO LECTURA: ni
    un formulario, y un aviso arriba. Las rutas POST lo cortan aparte.
@@ -368,6 +370,18 @@
             {% endif %}
           {% elif r.status == 'converted' %}
             {% if r.folio %}<span class="tt-mono">{{ r.folio }}</span>{% endif %}
+            {% if r.access_unsent_sii %}
+            <span class="tt-pill tt-pill--amber">correo no enviado</span>
+            {% if can_act %}
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reenviar-aviso"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Reenviar aviso</button>
+            </form>
+            {% endif %}
+            {% endif %}
             {% if r.revoked %}
             <p class="small mt-1 mb-1"><i class="bi bi-slash-circle me-1" aria-hidden="true"></i><strong>Inscripción
                revocada{% if r.revoked.reason %}:{% endif %}</strong> {{ r.revoked.reason }}</p>
