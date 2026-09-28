@@ -83,7 +83,14 @@ def test_upgrade_aborta_antes_de_cualquier_ddl_y_convierte_el_cierre_a_23_59_59(
     assert "RuntimeError" in src
     assert "interval '23:59:59'" in src
     assert "created_at::date" in src, "apertura vacía = fecha de creación 00:00"
-    assert re.search(r"nullable=False", src), "las dos columnas quedan NOT NULL"
+    # Por llamada: `nullable=False` dentro del MISMO `alter_column` de cada
+    # columna (sin cruzar a la siguiente llamada). `\b` deja fuera
+    # `existing_nullable=`.
+    for columna in ("opens_at", "closes_at"):
+        assert re.search(
+            rf'alter_column\(\s*_COHORTS,\s*"{columna}",'
+            rf'(?:(?!alter_column).)*?\bnullable=False', src, re.S,
+        ), f"{columna} no queda NOT NULL"
 
 
 def test_downgrade_vuelve_a_date_y_nullable():

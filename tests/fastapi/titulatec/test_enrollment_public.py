@@ -1119,9 +1119,9 @@ def test_la_tarjeta_de_cierre_dice_cuando_abre_y_cuando_cierra(
     assert "inscripción está cerrada" in resp.text        # contrato de siempre
     assert 'id="tt-enroll-form"' not in resp.text
     assert 'data-tt-notice="closed"' in resp.text
-    # La fecha, en palabras y en ISO completo (con hora).
-    assert f'datetime="{abre.isoformat()}"' in resp.text
-    assert "T00:00:00" in abre.isoformat()
+    # La fecha, en palabras y en ISO completo (con hora): el atributo de la
+    # RESPUESTA lleva la hora literal, no solo la fecha.
+    assert f'datetime="{abre:%Y-%m-%d}T00:00:00"' in resp.text
     assert f"{abre.day} de " in plano
     assert "a las 00:00" not in plano, "una apertura a las 00:00 dice solo el día"
     assert "Faltan 11 días" in plano
@@ -1208,8 +1208,7 @@ def test_la_tarjeta_de_cierre_con_apertura_a_las_9_dice_la_hora(
 
     assert resp.status_code == 200, resp.text[:400]
     assert 'data-tt-notice="closed"' in resp.text
-    assert f'datetime="{abre.isoformat()}"' in resp.text
-    assert "T09:00:00" in abre.isoformat()
+    assert f'datetime="{abre:%Y-%m-%d}T09:00:00"' in resp.text
     assert "Abre de nuevo el" in plano
     assert f"{abre.day} de " in plano
     assert "a las 09:00" in plano

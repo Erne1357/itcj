@@ -102,6 +102,30 @@
   </form>
 {% endmacro %}
 
+{# — EXTREMO DE LA VENTANA DE UNA CONVOCATORIA: fecha obligatoria + hora opcional —
+   Lo usan el panel de ventana (`partials/cohort/cohort_window.html`) y el alta
+   (`admin/cohorts.html`), que postean lo mismo: `<name>_date` (YYYY-MM-DD) y
+   `<name>_time` (HH:MM), leídos por `pages/admin.py::_parse_window_dt`.
+   name: opens | closes · id: prefijo único en la página · hint: lo que vale la
+   hora vacía («00:00» / «23:59»). La hora de omisión llega VACÍA desde
+   `_window_ctx`, nunca «23:59»: el cierre real es 23:59:59 y un input de
+   minutos re-guardaría 23:59:00. Anchos en `titulatec.css` (`.tt-win-*`). #}
+{% macro window_end(name, id, label, hint, date="", time="", legend_class="tt-kicker", sm=True) %}
+  <fieldset>
+    <legend class="{{ legend_class }} tt-win-legend">{{ label }}</legend>
+    <div class="tt-win-pair">
+      <label class="visually-hidden" for="{{ id }}-date">Fecha de {{ label|lower }}</label>
+      <input type="date" id="{{ id }}-date" name="{{ name }}_date" required
+             class="form-control{{ ' form-control-sm' if sm }} tt-win-date" value="{{ date }}">
+      <label class="visually-hidden" for="{{ id }}-time">Hora de {{ label|lower }}</label>
+      <input type="time" id="{{ id }}-time" name="{{ name }}_time"
+             class="form-control{{ ' form-control-sm' if sm }} tt-win-time" value="{{ time }}"
+             aria-describedby="{{ id }}-hint">
+    </div>
+    <div id="{{ id }}-hint" class="tt-win-hint">Hora opcional · vacío = {{ hint }}</div>
+  </fieldset>
+{% endmacro %}
+
 {# — APPBAR móvil con botón de regreso opcional — #}
 {% macro appbar(titulo, sub=None, back_url=None) %}
   <header class="tt-appbar">

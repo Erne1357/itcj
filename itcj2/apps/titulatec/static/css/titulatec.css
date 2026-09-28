@@ -1718,6 +1718,28 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-win-note { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
 .tt-win-ro   { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
 
+/* — Extremo de la ventana: fecha + hora (macro `window_end` de `_macros.html`,
+   en el panel de Resumen y en el alta de `admin/cohorts.html`) —
+   El `<fieldset>` agrupa la pareja para el lector de pantalla («Apertura» /
+   «Cierre», cada input con su etiqueta oculta). `.tt-win-legend` anula el
+   `float:left; width:100%` y el margen que el reboot de Bootstrap le da a
+   `<legend>`; el tamaño de letra lo pone la clase de texto que la acompaña
+   (`tt-kicker` en el panel, `tt-label` en el alta).
+   Ancho FIJO por input y no `width:100%` de `.form-control`: dentro del
+   `flex-wrap` del formulario la pareja se leería como una fila suelta. Con
+   `max-width:100%` y el `flex-wrap` de `.tt-win-pair`, a 360 px la hora baja
+   bajo la fecha en vez de empujar la página. */
+.tt-win-legend { float: none; width: auto; margin-bottom: var(--tt-sp-1); }
+.tt-win-pair   { display: flex; flex-wrap: wrap; gap: var(--tt-sp-2); }
+.tt-win-date   { flex: 0 1 auto; width: 10rem; max-width: 100%; }
+.tt-win-time   { flex: 0 1 auto; width: 8.5rem; max-width: 100%; }
+/* La ayuda dice QUÉ vale la hora vacía: es texto de lectura, `--tt-text-3`
+   (5.43:1), nunca `--tt-mute`. */
+.tt-win-hint   { margin-top: var(--tt-sp-1); font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+/* Alta: el `<select>` de período trae textos largos («2031-1 · Enero-Junio
+   2031»); a lo ancho de la tarjeta se estiraría a 1100 px en escritorio. */
+.tt-cohort-new-period { max-width: 360px; }
+
 /* ——————————— Requisitos de cotejo: «Información para el alumno» ———————————
    Editor del admin (`partials/cohort/cohort_cotejo_reqs.html` +
    `js/admin/cotejo-info-editor.js`) y botón «i» + modal del alumno

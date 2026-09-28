@@ -16,6 +16,9 @@ Tres cosas que estaban a medio cablear:
 """
 from __future__ import annotations
 
+from datetime import datetime
+from html.parser import HTMLParser
+
 import pytest
 from sqlalchemy.exc import IntegrityError
 
@@ -27,6 +30,8 @@ from itcj2.apps.titulatec.services.cotejo_requirement_service import (
 from itcj2.apps.titulatec.utils.rich_text import (
     MAX_INFO_HTML_LEN, InfoHtmlTooLong, sanitize_info_html,
 )
+
+from tests.fastapi.titulatec.conftest import HEAD_PERMS
 
 AUTO_SURVEY = "graduate_survey"
 
@@ -326,23 +331,117 @@ class TestInfoHtmlEnEscritura:
         assert item.to_dict()["info_html"] == "<p>hola</p>"
 
 
+# El alta pide la ventana (spec 2026-09-27 §B2): fecha obligatoria + hora
+# opcional por extremo, igual que el panel. Hora vacía = 00:00 / 23:59:59.
+VENTANA_ALTA = {"opens_date": "2031-03-10", "opens_time": "09:30",
+                "closes_date": "2031-03-20", "closes_time": ""}
+AVISO_VENTANA = "Indica apertura y cierre (el cierre después de la apertura)."
+
+
+class _InputsDelAlta(HTMLParser):
+    """`name → atributos` de los `<input>` del formulario de alta."""
+
+    def __init__(self):
+        super().__init__()
+        self.inputs: dict[str, dict] = {}
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "input" and a.get("name"):
+            self.inputs[a["name"]] = a
+
+
 class TestCohortCreate:
-    def test_nace_en_draft_y_con_su_lista_de_requisitos(
+    def test_nace_en_draft_con_su_ventana_y_su_lista_de_requisitos(
             self, db_session, client_as, make_head, make_period):
-        """Una convocatoria no puede ser publica en el instante en que se crea."""
+        """Una convocatoria no puede ser publica en el instante en que se crea,
+        y nace con la ventana que se tecleó —09:30 tal cual; el cierre sin hora,
+        a las 23:59:59—, no con una inventada."""
         from itcj2.apps.titulatec.models import Cohort
 
         jefa = make_head(perm_codes=("titulatec.cohort.api.create",))
         periodo = make_period()
 
         resp = client_as(jefa).post("/titulatec/admin/cohorts",
-                                    data={"period_id": periodo.id},
+                                    data={"period_id": periodo.id, **VENTANA_ALTA},
                                     follow_redirects=False)
 
         assert resp.status_code == 303, resp.text[:300]
+        assert resp.headers["location"] == "/titulatec/admin/cohorts"
         cohort = db_session.query(Cohort).filter_by(period_id=periodo.id).one()
         assert cohort.status == "draft"
+        assert cohort.opens_at == datetime(2031, 3, 10, 9, 30)
+        assert cohort.closes_at == datetime(2031, 3, 20, 23, 59, 59)
         assert len(CotejoRequirementService.list(db_session, cohort.id)) == len(DEFAULTS)
+
+    @pytest.mark.parametrize("ventana", [
+        {},
+        {"opens_date": "2031-03-10", "closes_date": ""},
+        {"opens_date": "", "closes_date": "2031-03-20"},
+        {"opens_date": "10/03/2031", "closes_date": "2031-03-20"},
+        {"opens_date": "2031-03-10", "opens_time": "9h", "closes_date": "2031-03-20"},
+        {"opens_date": "2031-03-20", "closes_date": "2031-03-10"},
+        {"opens_date": "2031-03-10", "opens_time": "18:00",
+         "closes_date": "2031-03-10", "closes_time": "18:00"},
+    ], ids=["sin-fechas", "sin-cierre", "sin-apertura", "fecha-basura", "hora-basura",
+            "cierre-antes", "cierre-igual"])
+    def test_sin_ventana_valida_no_crea_nada_y_vuelve_con_el_aviso(
+            self, db_session, client_as, make_head, make_period, ventana):
+        """Fechas faltantes o ilegibles, o un cierre que no es POSTERIOR a la
+        apertura: 303 a `?error=ventana` y cero convocatorias nuevas —ni la del
+        período, ni ninguna otra—. Ya no hay ventana provisional."""
+        from itcj2.apps.titulatec.models import Cohort
+
+        jefa = make_head(perm_codes=("titulatec.cohort.api.create",))
+        periodo = make_period()
+        antes = db_session.query(Cohort).count()
+
+        resp = client_as(jefa).post("/titulatec/admin/cohorts",
+                                    data={"period_id": periodo.id, **ventana},
+                                    follow_redirects=False)
+
+        assert resp.status_code == 303, resp.text[:300]
+        assert resp.headers["location"] == "/titulatec/admin/cohorts?error=ventana"
+        assert db_session.query(Cohort).filter_by(period_id=periodo.id).count() == 0
+        assert db_session.query(Cohort).count() == antes
+
+    def test_la_lista_pinta_el_aviso_solo_con_el_error_de_ventana(
+            self, client_as, make_head, make_period):
+        jefa = make_head(perm_codes=HEAD_PERMS + ("titulatec.cohort.api.create",))
+        make_period()          # un período libre: la página ofrece el alta
+        c = client_as(jefa)
+
+        con_error = c.get("/titulatec/admin/cohorts?error=ventana",
+                          follow_redirects=False)
+        sin_error = c.get("/titulatec/admin/cohorts", follow_redirects=False)
+        otro_error = c.get("/titulatec/admin/cohorts?error=otro",
+                           follow_redirects=False)
+
+        assert con_error.status_code == sin_error.status_code == 200
+        assert AVISO_VENTANA in con_error.text
+        assert AVISO_VENTANA not in sin_error.text
+        assert AVISO_VENTANA not in otro_error.text
+
+    def test_el_formulario_de_alta_pide_fecha_y_hora_de_cada_extremo(
+            self, client_as, make_head, make_period):
+        """Mismo contrato que el panel de ventana: `<input type="date">`
+        obligatorio + `<input type="time">` opcional, con su ayuda."""
+        jefa = make_head(perm_codes=HEAD_PERMS + ("titulatec.cohort.api.create",))
+        make_period()
+
+        resp = client_as(jefa).get("/titulatec/admin/cohorts", follow_redirects=False)
+
+        assert resp.status_code == 200
+        alta = resp.text.split('id="new-cohort"', 1)[1]
+        parser = _InputsDelAlta()
+        parser.feed(alta)
+        campos = parser.inputs
+        for extremo in ("opens", "closes"):
+            fecha, hora = campos[f"{extremo}_date"], campos[f"{extremo}_time"]
+            assert fecha["type"] == "date" and "required" in fecha, extremo
+            assert hora["type"] == "time" and "required" not in hora, extremo
+        assert "vacío = 00:00" in alta
+        assert "vacío = 23:59" in alta
 
     def test_la_ruta_es_duena_de_la_transaccion_y_seed_no_commitea(
             self, db_session, client_as, make_head, make_period, monkeypatch):
@@ -383,7 +482,7 @@ class TestCohortCreate:
         monkeypatch.setattr(db_session, "commit", commit_espiado)
 
         resp = client_as(jefa).post("/titulatec/admin/cohorts",
-                                    data={"period_id": periodo.id},
+                                    data={"period_id": periodo.id, **VENTANA_ALTA},
                                     follow_redirects=False)
 
         assert resp.status_code == 303, resp.text[:300]
