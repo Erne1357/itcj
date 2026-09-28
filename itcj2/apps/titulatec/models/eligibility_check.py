@@ -54,12 +54,15 @@ class EligibilityCheck(Base):
     # invalida, falla inesperada), que esperar no arregla. NULL en los demas
     # estados. Migracion `tt20260925b`.
     retryable = Column(Boolean, nullable=True)
-    # Solo se llena si la persona consultada NO tiene cuenta en `core_users`
-    # en ese momento (spec `2026-09-27-titulatec-sii-informa-se-decide-
-    # design.md` A2). Dominio: `available|missing|invalid|unavailable|
-    # error|not_needed`; NULL = no se reviso (tiene cuenta, o el veredicto
-    # fue `error` antes de llegar a pedir el NIP). Nunca guarda el NIP en
-    # si, solo el resultado de clasificarlo (`EligibilityService.
+    # Dominio: `available|missing|invalid|unavailable|error|not_needed`
+    # (spec `2026-09-27-titulatec-sii-informa-se-decide-design.md` A2).
+    # `not_needed` = la persona SI tenia cuenta en `core_users` al momento
+    # de consultar (no hizo falta pedir NIP). Las demas
+    # (`available|missing|invalid|unavailable|error`) solo se calculan
+    # cuando la persona NO tiene cuenta. NULL = caso aparte, no se reviso:
+    # el veredicto fue `error`/`pending` antes de llegar a pedir el NIP, o
+    # es una fila anterior a esta migracion. Nunca guarda el NIP en si,
+    # solo el resultado de clasificarlo (`EligibilityService.
     # classify_sii_nip`). Migracion `tt20260927a`.
     nip_status = Column(String(20), nullable=True)
     attempt = Column(Integer, nullable=False, server_default=text("1"))
