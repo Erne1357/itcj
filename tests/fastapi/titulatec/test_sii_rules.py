@@ -697,18 +697,21 @@ class TestCredencial:
 
 
 # ---------------------------------------------------------------------------
-# Advertencias: `[identity]` es obligatoria para aprobar sola (revisión final C3)
+# Advertencias: sin `[identity]` no se compara el nombre (revisión final C3)
 # ---------------------------------------------------------------------------
 class TestAdvertencias:
     def test_las_reglas_sinteticas_no_advierten(self):
         assert RuleSet.load(FIXTURES).advisories() == []
 
-    def test_sin_identity_advierte_que_nada_se_aprueba_solo(self, tmp_path):
+    def test_sin_identity_advierte_que_no_se_compara_el_nombre(self, tmp_path):
         rs = RuleSet.load(_write(tmp_path, _BASE_TOML, {"q.sql": _Q}))
         assert rs.validate() == [], "sigue siendo válida: es una advertencia"
         avisos = rs.advisories()
         assert len(avisos) == 1
         assert "[identity]" in avisos[0] and "first_name" in avisos[0]
+        # Spec 2026-09-27: ya no condiciona una aprobación sola (se retiró).
+        assert "Servicios Escolares no verá la comparación del nombre" in avisos[0]
+        assert "aprobará sola" not in avisos[0]
 
     def test_identity_sin_apellido_paterno_advierte(self, tmp_path):
         toml = _BASE_TOML + """

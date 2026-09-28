@@ -19,8 +19,9 @@ periódica las mandan por NOMBRE, no por ruta de módulo):
     titulatec.sii_sweep()
         Periódica (Celery Beat vía `DatabaseScheduler`, cada 10 min; alta por
         el DML `sii_2026_09/16_insert_sii_sweep_task.sql` de `init-titulatec`).
-        Recoge lo que quedó sin consultar, reintenta los errores y aprueba las
-        aptas con la ventana de veto vencida (`EligibilityService.sweep`). A
+        Recoge lo que quedó sin consultar y reintenta los errores
+        (`EligibilityService.sweep`). No aprueba nada: toda solicitud la
+        aprueba Servicios Escolares desde la bandeja (spec 2026-09-27). A
         mano: `titulatec sii-sweep`.
 
 La lógica vive en `EligibilityService`; aquí solo sesión, reintento y resultado.
@@ -52,8 +53,9 @@ TASK_DEFINITIONS = [
         "display_name": "Barrido de elegibilidad del SII (TitulaTec)",
         "description": (
             "Modo sii: consulta al SII las solicitudes de inscripción que quedaron sin "
-            "consultar, reintenta las consultas fallidas (hasta TITULATEC_SII_MAX_ATTEMPTS) "
-            "y aprueba las aptas cuya ventana de veto venció. En otro modo no hace nada."
+            "consultar y reintenta las consultas fallidas (hasta "
+            "TITULATEC_SII_MAX_ATTEMPTS). No aprueba nada: eso es de Servicios Escolares. "
+            "En otro modo no hace nada."
         ),
         "app_name": "titulatec",
         "category": "maintenance",
@@ -79,7 +81,7 @@ def _backoff(attempt: int) -> int:
 )
 def sii_check_request(self, req_id: int, attempt: int = 1, force: bool = False,
                       task_run_id: int | None = None) -> dict:
-    """Consulta al SII la solicitud `req_id` (y la aprueba sola si procede)."""
+    """Consulta al SII la solicitud `req_id` (solo el veredicto; no la aprueba)."""
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.database import SessionLocal
 
@@ -109,7 +111,8 @@ def sii_check_request(self, req_id: int, attempt: int = 1, force: bool = False,
     time_limit=600,
 )
 def sii_sweep(self, task_run_id: int | None = None) -> dict:
-    """Barrido periódico del SII (`EligibilityService.sweep`)."""
+    """Barrido periódico del SII (`EligibilityService.sweep`): consulta y
+    reintenta; devuelve `{"checked", "retried"}`."""
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.database import SessionLocal
 

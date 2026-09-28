@@ -9,7 +9,6 @@ carrera.
 Regla de la casa: ninguna aserción negativa va sola. Cada 403 se empareja con la
 jefa entrando al MISMO recurso.
 """
-import re
 from datetime import date, timedelta
 
 import pytest
@@ -260,252 +259,33 @@ def test_quien_solo_ve_la_convocatoria_no_recibe_el_formulario(
     )
 
 
-# ---------------------------------------------------------------------------
-# Interruptor «Aprobación automática (SII)» (spec 2026-09-25 §3.5, S8). Vive en
-# el panel de la ventana y lo gobierna el MISMO permiso. Solo existe en el modo
-# `sii`: fuera de él ni se pinta ni un POST directo lo mueve. Una casilla sin
-# marcar no viaja en el formulario, así que el panel manda además
-# `sii_auto_present=1`: sin esa marca (un formulario viejo en caché) el
-# interruptor NO se toca.
-# ---------------------------------------------------------------------------
-INTERRUPTOR = 'name="sii_auto_approve"'
-
-
-# `modo_sii` vive en conftest.py (Tarea 1: una sola copia compartida en vez de
-# 6 duplicadas por archivo).
-
-
-def _resumen(client, cohort):
-    return client.get(f"/titulatec/admin/cohorts/{cohort.id}?tab=resumen",
-                      follow_redirects=False)
-
-
-def test_en_modo_sii_el_panel_trae_el_interruptor_encendido_por_omision(
-        escenario, client_as, modo_sii):
-    resp = _resumen(client_as(escenario["jefa"]), escenario["cohort"])
-
-    assert resp.status_code == 200
-    ventana = resp.text.split('id="cohort-window"', 1)[1]
-    assert "Aprobación automática (SII)" in ventana
-    casilla = re.search(r'<input[^>]*name="sii_auto_approve"[^>]*>', ventana)
-    assert casilla and "checked" in casilla.group(0)
-    assert 'name="sii_auto_present"' in ventana
-
-
-def test_fuera_del_modo_sii_no_hay_interruptor(escenario, client_as):
-    resp = _resumen(client_as(escenario["jefa"]), escenario["cohort"])
-
-    assert resp.status_code == 200
-    assert 'id="cohort-window"' in resp.text
-    assert INTERRUPTOR not in resp.text
-    assert "Aprobación automática" not in resp.text
-
-
-def test_apagar_el_interruptor_persiste_y_se_repinta_apagado(
+def test_el_panel_ya_no_ofrece_aprobacion_automatica(
         escenario, client_as, db_session, modo_sii):
-    cohort = escenario["cohort"]
-
-    resp = client_as(escenario["jefa"]).post(
-        _url(cohort), data={"status": "open", "opens_at": "", "closes_at": "",
-                            "sii_auto_present": "1"},
-        follow_redirects=False)
-
-    assert resp.status_code == 200
-    db_session.refresh(cohort)
-    assert cohort.sii_auto_approve is False
-    assert cohort.status == "open", "la ventana se guarda en el mismo envío"
-    casilla = re.search(r'<input[^>]*name="sii_auto_approve"[^>]*>', resp.text)
-    assert casilla and "checked" not in casilla.group(0)
-
-
-def test_encender_el_interruptor_persiste(escenario, client_as, db_session, modo_sii):
-    cohort = escenario["cohort"]
-    cohort.sii_auto_approve = False
-    db_session.flush()
-
-    resp = client_as(escenario["jefa"]).post(
-        _url(cohort), data={"status": "draft", "opens_at": "", "closes_at": "",
-                            "sii_auto_present": "1", "sii_auto_approve": "1"},
-        follow_redirects=False)
-
-    assert resp.status_code == 200
-    db_session.refresh(cohort)
-    assert cohort.sii_auto_approve is True
-
-
-def test_sin_la_marca_del_panel_el_interruptor_no_se_toca(
-        escenario, client_as, db_session, modo_sii):
-    """Un formulario sin `sii_auto_present` (caché, POST a mano) no lo apaga."""
-    cohort = escenario["cohort"]
-
-    resp = client_as(escenario["jefa"]).post(
-        _url(cohort), data={"status": "open", "opens_at": "", "closes_at": ""},
-        follow_redirects=False)
-
-    assert resp.status_code == 200
-    db_session.refresh(cohort)
-    assert cohort.sii_auto_approve is True
-
-
-def test_fuera_del_modo_sii_un_post_directo_no_mueve_el_interruptor(
-        escenario, client_as, db_session):
-    cohort = escenario["cohort"]
-
-    resp = client_as(escenario["jefa"]).post(
-        _url(cohort), data={"status": "open", "opens_at": "", "closes_at": "",
-                            "sii_auto_present": "1"},
-        follow_redirects=False)
-
-    assert resp.status_code == 200
-    db_session.refresh(cohort)
-    assert cohort.sii_auto_approve is True
-
-
-def test_una_ventana_invalida_no_mueve_el_interruptor(
-        escenario, client_as, db_session, modo_sii):
-    cohort = escenario["cohort"]
-    hoy = date.today()
-
-    resp = client_as(escenario["jefa"]).post(
-        _url(cohort), data={"status": "open", "opens_at": hoy.isoformat(),
-                            "closes_at": (hoy - timedelta(days=1)).isoformat(),
-                            "sii_auto_present": "1"},
-        follow_redirects=False)
-
-    assert resp.status_code == 400
-    db_session.refresh(cohort)
-    assert cohort.sii_auto_approve is True
-    assert cohort.status == "draft"
-
-
-def test_sin_el_permiso_el_interruptor_no_se_mueve_y_con_el_si(
-        escenario, client_as, db_session, modo_sii):
-    cohort = escenario["cohort"]
-    datos = {"status": "draft", "opens_at": "", "closes_at": "", "sii_auto_present": "1"}
-
-    r_sin = client_as(escenario["sin_permiso"]).post(_url(cohort), data=datos,
-                                                     follow_redirects=False)
-    db_session.refresh(cohort)
-    tras_sin = cohort.sii_auto_approve
-    r_jefa = client_as(escenario["jefa"]).post(_url(cohort), data=datos,
-                                               follow_redirects=False)
-
-    assert r_sin.status_code == 403
-    assert tras_sin is True
-    assert r_jefa.status_code == 200
-    db_session.refresh(cohort)
-    assert cohort.sii_auto_approve is False
-
-
-def test_en_solo_lectura_el_estado_del_interruptor_se_ve_sin_casilla(
-        make_app_user_without_perms, make_cohort, client_as, db_session, modo_sii):
-    mirona = make_app_user_without_perms(perm_codes=("titulatec.cohort.page.list",))
-    cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
-    db_session.flush()
-
-    resp = client_as(mirona).get(f"/titulatec/admin/cohorts/{cohort.id}?tab=resumen",
-                                 follow_redirects=False)
-
-    assert resp.status_code == 200
-    ventana = resp.text.split('id="cohort-window"', 1)[1]
-    assert INTERRUPTOR not in ventana
-    texto = " ".join(re.sub(r"<[^>]+>", " ", ventana).split())
-    assert "Aprobación automática (SII) apagada" in texto
-
-
-def test_la_ventana_y_el_interruptor_se_confirman_en_un_solo_commit(
-        escenario, client_as, db_session, modo_sii, monkeypatch):
-    """Una sola transacción. Con un segundo commit solo para el interruptor, un
-    fallo entre los dos dejaba la ventana guardada con un 500 y el interruptor
-    sin mover. El interruptor viaja en el commit de `CohortService.set_window`."""
-    cohort = escenario["cohort"]
-    commits = []
-    confirmar = db_session.commit
-
-    def _cuenta():
-        commits.append(cohort.sii_auto_approve)
-        return confirmar()
-
-    monkeypatch.setattr(db_session, "commit", _cuenta)
-
-    resp = client_as(escenario["jefa"]).post(
-        _url(cohort), data={"status": "open", "opens_at": "", "closes_at": "",
-                            "sii_auto_present": "1"},
-        follow_redirects=False)
-
-    assert resp.status_code == 200
-    assert commits == [False], "un commit, y el interruptor ya va apagado en él"
-    db_session.refresh(cohort)
-    assert cohort.status == "open"
-    assert cohort.sii_auto_approve is False
-
-
-# ---------------------------------------------------------------------------
-# Revisión final C5 (spec §8): el aviso del interruptor. Al ENCENDERLO dice
-# cuántas aptas pendientes se reconsultarán (veredicto de otras reglas o viejo);
-# al APAGARLO, que las nuevas quedan para Servicios Escolares.
-# ---------------------------------------------------------------------------
-def _aviso(resp) -> str:
+    """Spec 2026-09-27 §A3 (D2): el interruptor «Aprobación automática (SII)» se
+    retiró junto con la automática. Ni se pinta en el modo `sii`, ni un POST que
+    aún lo mande (formulario viejo en caché) mueve la columna, que queda en la
+    BD como legado sin uso."""
     from urllib.parse import unquote
-    return unquote(resp.headers.get("X-Tt-Notice", ""))
 
-
-def _apta_pendiente(db_session, cohort, control, *, version, horas):
-    from datetime import datetime
-
-    from itcj2.apps.titulatec.models import EligibilityCheck, EnrollmentRequest
-
-    req = EnrollmentRequest(
-        cohort_id=cohort.id, control_number=control, first_name="A", last_name="B",
-        phone="6561234567", contact_email="a@example.invalid", has_efirma=True,
-        kind="unknown", status="pending_review", verify_send_count=0)
-    db_session.add(req)
-    db_session.flush()
-    hecho = datetime.now() - timedelta(hours=horas)
-    chk = EligibilityCheck(request_id=req.id, status="apt", attempt=1,
-                           rules_version=version, started_at=hecho, finished_at=hecho,
-                           identity_mismatch={})
-    db_session.add(chk)
-    db_session.flush()
-    req.last_check_id = chk.id
-    db_session.flush()
-    return req
-
-
-def test_al_encender_el_aviso_dice_cuantas_aptas_se_reconsultaran(
-        escenario, client_as, db_session, modo_sii, monkeypatch):
-    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
-
-    monkeypatch.setattr(EligibilityService, "rules_version", staticmethod(lambda: "v2"))
-    monkeypatch.setattr(EligibilityService, "delay_hours", staticmethod(lambda: 0))
-    monkeypatch.setattr(EligibilityService, "verdict_max_age_hours", staticmethod(lambda: 24))
     cohort = escenario["cohort"]
-    cohort.sii_auto_approve = False
-    _apta_pendiente(db_session, cohort, "99581001", version="v1", horas=1)    # otra versión
-    _apta_pendiente(db_session, cohort, "99581002", version="v2", horas=30)   # vieja
-    _apta_pendiente(db_session, cohort, "99581003", version="v2", horas=1)    # vigente
-    db_session.flush()
+    c = client_as(escenario["jefa"])
 
-    resp = client_as(escenario["jefa"]).post(
-        _url(cohort), data={"status": "open", "opens_at": "", "closes_at": "",
-                            "sii_auto_present": "1", "sii_auto_approve": "1"},
-        follow_redirects=False)
+    resp = c.get(f"/titulatec/admin/cohorts/{cohort.id}?tab=resumen",
+                 follow_redirects=False)
 
     assert resp.status_code == 200
-    aviso = _aviso(resp)
-    assert "2 solicitud(es) apta(s)" in aviso and "reconsult" in aviso, aviso
+    ventana = resp.text.split('id="cohort-window"', 1)[1]
+    assert "Aprobación automática" not in ventana
+    assert "sii_auto" not in ventana
 
-
-def test_al_apagar_el_aviso_dice_que_las_nuevas_quedan_para_se(
-        escenario, client_as, db_session, modo_sii):
-    cohort = escenario["cohort"]
-
-    resp = client_as(escenario["jefa"]).post(
-        _url(cohort), data={"status": "open", "opens_at": "", "closes_at": "",
-                            "sii_auto_present": "1"},
-        follow_redirects=False)
+    resp = c.post(_url(cohort),
+                  data={"status": "open", "opens_at": "", "closes_at": "",
+                        "sii_auto_present": "1", "sii_auto_approve": "0"},
+                  follow_redirects=False)
 
     assert resp.status_code == 200
-    aviso = _aviso(resp)
-    assert "apagada" in aviso and "Servicios Escolares" in aviso, aviso
+    assert "Aprobación automática" not in resp.text
+    assert "automática" not in unquote(resp.headers.get("X-Tt-Notice", ""))
+    db_session.refresh(cohort)
+    assert cohort.status == "open", "la ventana sí se guarda"
+    assert cohort.sii_auto_approve is True, "la columna legado ya no la mueve nadie"

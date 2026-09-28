@@ -8,7 +8,7 @@ Comandos:
     titulatec sii-ping                    Comprueba que el SII responde (backend configurado).
     titulatec sii-rules-validate [--dir]  Valida rules.toml + queries/*.sql del SII.
     titulatec sii-check <control>         Dry-run de las reglas del SII (NIP enmascarado).
-    titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta, reintenta, aprueba).
+    titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta y reintenta).
 """
 from pathlib import Path
 
@@ -1012,12 +1012,13 @@ def sii_rules_validate_command(rules_dir):
 _SII_STATUS_LABEL = {"apt": "APTA", "not_apt": "NO APTA", "error": "ERROR"}
 
 
-def _sii_cohort_outcome(cohort_id: int, verdict_status: str, *,
-                        compara_nombre: bool = True) -> None:
-    """Imprime qué pasaría con esta convocatoria. Solo lectura (rollback).
+def _sii_cohort_outcome(cohort_id: int) -> None:
+    """Imprime dónde quedaría la solicitud en esa convocatoria. Solo lectura
+    (rollback).
 
-    `compara_nombre` = las reglas declaran `[identity]` con nombre y apellido
-    (`RuleSet.advisories()` vacío): sin eso nada se aprueba solo."""
+    Ninguna se aprueba sola (spec 2026-09-27 §A3): con cualquier veredicto la
+    decide Servicios Escolares desde «Por revisar». (Provisional: la Task 4
+    del plan suma el estado del NIP y el botón que se le ofrecería.)"""
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.database import SessionLocal
 
@@ -1026,22 +1027,8 @@ def _sii_cohort_outcome(cohort_id: int, verdict_status: str, *,
         cohort = db.get(Cohort, cohort_id)
         if cohort is None:
             _sii_fail(f"No existe la convocatoria {cohort_id}.")
-        # `sii_auto_approve` llega con la migración tt20260925a (server_default
-        # TRUE); antes de ella la convocatoria se comporta como encendida.
-        auto = bool(getattr(cohort, "sii_auto_approve", True))
-        click.echo(f"Convocatoria: {cohort.name} (id {cohort.id}, {cohort.status}) · "
-                   f"aprobación automática: {'encendida' if auto else 'apagada'}")
-        if verdict_status == "apt" and auto and cohort.status == "open" and compara_nombre:
-            click.echo("  → se aprobaría automáticamente si el nombre del formulario "
-                       "coincide con el del SII (sujeto a la ventana de veto "
-                       "TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS).")
-        else:
-            why = ("no es apta" if verdict_status == "not_apt"
-                   else "la consulta falló" if verdict_status == "error"
-                   else "la convocatoria no está abierta" if cohort.status != "open"
-                   else "la aprobación automática está apagada" if not auto
-                   else "las reglas no comparan el nombre: falta [identity]")
-            click.echo(f"  → quedaría «Por revisar» de Servicios Escolares ({why}).")
+        click.echo(f"Convocatoria: {cohort.name} (id {cohort.id}, {cohort.status})")
+        click.echo("  → Servicios Escolares la vería en «Por revisar».")
     finally:
         db.rollback()
         db.close()
@@ -1097,7 +1084,7 @@ def sii_check_command(control_number, cohort_id):
                 elif nip_format_ok(secret.reveal()):
                     nip_line = "**** (el SII lo devuelve · 4 dígitos: sí)"
                 else:
-                    # La cuenta no se podría crear con él (ni sola ni a mano):
+                    # La cuenta no se podría crear con él al aprobarla:
                     # no pasa en verde. Solo el formato, jamás el valor.
                     credential_failed = True
                     nip_line = ("**** (el SII lo devuelve · 4 dígitos: no — con ese "
@@ -1127,8 +1114,7 @@ def sii_check_command(control_number, cohort_id):
     click.echo(f"Duración: {ms} ms")
 
     if cohort_id is not None:
-        _sii_cohort_outcome(cohort_id, verdict.status,
-                            compara_nombre=not rs.advisories())
+        _sii_cohort_outcome(cohort_id)
     if verdict.status == "error" or credential_failed:
         raise SystemExit(1)
 
@@ -1144,10 +1130,10 @@ def sii_check_command(control_number, cohort_id):
 def sii_sweep_command(cohort_id, reconsultar_errores):
     """Barrido manual del SII (lo mismo que la tarea periódica `sii_sweep`).
 
-    Consulta las solicitudes por revisar que no tienen consulta, reintenta las
-    fallidas y aprueba las aptas con la ventana de veto vencida. Solo en el
-    modo `sii`. ESCRIBE en la BD (consultas y aprobaciones) y manda los
-    correos de las aprobadas; imprime solo los conteos.
+    Consulta las solicitudes por revisar que no tienen consulta y reintenta las
+    fallidas. No aprueba nada (eso es de Servicios Escolares, desde la bandeja).
+    Solo en el modo `sii`. ESCRIBE en la BD (las consultas); imprime solo los
+    conteos.
 
     Con `--reconsultar-errores` solo ENCOLA reconsultas forzadas de lo que el
     barrido ya no toma (`EligibilityService.recheck_errors`); las hace el
@@ -1180,5 +1166,4 @@ def sii_sweep_command(cohort_id, reconsultar_errores):
                 f"No se pudo encolar: {out['failed']} (¿broker caído?). Vuelve a "
                 "correr el comando.", fg="yellow"))
         return
-    click.echo(f"Consultadas: {out['checked']} · reintentadas: {out['retried']} · "
-               f"aprobadas: {out['approved']}")
+    click.echo(f"Consultadas: {out['checked']} · reintentadas: {out['retried']}")

@@ -41,8 +41,9 @@ RULES_FILE = "rules.toml"
 # nunca se proporcionaba y dejaba reglas que fallarían siempre.
 ALLOWED_PARAMS = frozenset({"control_number"})
 DEFAULT_OK_MESSAGE = "Cumple."
-# Claves de `[identity]` sin las que la aprobación automática no procede
-# (`EligibilityService`: el nombre se compara con el formulario o no aprueba).
+# Claves de `[identity]` sin las que el nombre no se compara con el formulario
+# (`EligibilityService`: sin comparación la identidad queda sin confirmar,
+# `identity_block`).
 IDENTITY_REQUIRED = ("first_name", "last_name")
 MASK = "****"
 VERSION_MAX_LEN = 40
@@ -61,7 +62,7 @@ _PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 # o 1: NUMERIC(1,0) y FLOAT llegan así del driver) y estos textos (sin
 # distinguir mayúsculas ni espacios alrededor). Otro valor es error de la regla, nunca
 # «verdadero»: «NO ACREDITADO» o «PENDIENTE» sobre una columna de estatus en
-# texto aprobarían solos a una persona no apta. NULL también es error.
+# texto darían por apta a una persona que no lo es. NULL también es error.
 _TRUE_WORDS = frozenset({"1", "s", "si", "sí", "y", "yes", "t", "true", "v", "verdadero"})
 _FALSE_WORDS = frozenset({"0", "n", "no", "f", "false", "falso"})
 
@@ -458,9 +459,9 @@ class RuleSet:
         """Advertencias que NO invalidan las reglas pero cambian lo que hacen.
 
         Hoy una: sin `[identity]` que mapee `first_name` y `last_name`, la
-        aprobación automática nunca compara el nombre y, por lo tanto, nunca
-        aprueba sola (revisión final C3/C9: falla cerrado). Las solicitudes
-        aptas quedan para Servicios Escolares.
+        consulta nunca compara el nombre tecleado con el del SII (revisión final
+        C3/C9: falla cerrado), y Servicios Escolares aprueba sin esa
+        comparación en la bandeja.
         """
         claves = set(self._identity.columns) if self._identity is not None else set()
         faltan = [k for k in IDENTITY_REQUIRED if k not in claves]
@@ -469,8 +470,8 @@ class RuleSet:
         que = ("no hay [identity]" if self._identity is None
                else f"[identity] no mapea {', '.join(faltan)}")
         return [f"{que}: sin first_name y last_name no se compara el nombre con el "
-                "formulario y NINGUNA solicitud se aprobará sola (quedan para "
-                "Servicios Escolares)."]
+                "formulario y Servicios Escolares no verá la comparación del nombre "
+                "al aprobar."]
 
     @property
     def queries(self) -> list[str]:

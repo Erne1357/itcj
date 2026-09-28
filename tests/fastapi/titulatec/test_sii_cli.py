@@ -56,8 +56,9 @@ class TestSiiRulesValidate:
         assert "UPDATE" in res.output and "magia" in res.output
 
     def test_sin_identity_advierte_pero_sale_en_cero(self, sii, tmp_path):
-        """Revisión final C3: sin `[identity]` con nombre y apellido nada se
-        aprueba solo. Las reglas siguen siendo válidas: es una advertencia."""
+        """Revisión final C3: sin `[identity]` con nombre y apellido el nombre
+        no se compara con el formulario. Las reglas siguen siendo válidas: es
+        una advertencia, y ya no habla de aprobarse sola (spec 2026-09-27)."""
         (tmp_path / "queries").mkdir()
         (tmp_path / "queries" / "q.sql").write_text(
             "SELECT a FROM x WHERE c = ?", encoding="utf-8")
@@ -68,6 +69,8 @@ class TestSiiRulesValidate:
         res = _run("sii-rules-validate", "--dir", str(tmp_path))
         assert res.exit_code == 0, res.output
         assert "Advertencia" in res.output and "[identity]" in res.output
+        assert "Servicios Escolares no verá la comparación del nombre" in res.output
+        assert "aprobará sola" not in res.output
 
     def test_carpeta_sin_reglas(self, sii, tmp_path):
         sii["rules"] = tmp_path / "no_existe"
@@ -178,41 +181,24 @@ def _fake_con_nip(tmp_path, entry) -> Path:
 
 
 class TestSiiCheckConConvocatoria:
-    def test_abierta_se_aprobaria(self, sii, patched_session_local, make_cohort):
-        cohort = make_cohort(name="Convocatoria SII prueba", status="open")
-        res = _run("sii-check", "20110001", "--cohort", str(cohort.id))
+    """Spec 2026-09-27 §A3/A7: `--cohort` ya no promete una aprobación
+    automática (se retiró): con cualquier veredicto, la solicitud la ve
+    Servicios Escolares en «Por revisar». (Provisional: la Task 4 del plan
+    suma el estado del NIP y el botón que se ofrecería.)"""
+
+    @pytest.mark.parametrize("control,estado", [
+        ("20110001", "open"),      # apta
+        ("20110001", "closed"),    # apta, convocatoria cerrada
+        ("20110002", "open"),      # no apta
+    ])
+    def test_la_veria_servicios_escolares_por_revisar(
+            self, sii, patched_session_local, make_cohort, control, estado):
+        cohort = make_cohort(name="Convocatoria SII prueba", status=estado)
+        res = _run("sii-check", control, "--cohort", str(cohort.id))
         assert res.exit_code == 0, res.output
         assert "Convocatoria SII prueba" in res.output
-        assert "se aprobaría automáticamente" in res.output
-
-    def test_sin_identity_quedaria_por_revisar(self, sii, patched_session_local,
-                                               make_cohort, tmp_path):
-        """Revisión final C3/C13: sin `[identity]` nada se aprueba solo, y
-        `sii-check --cohort` no debe prometerlo."""
-        import shutil
-
-        base = tmp_path / "reglas"
-        shutil.copytree(FIXTURES, base)
-        texto = (base / "rules.toml").read_text(encoding="utf-8")
-        inicio = texto.index("[identity]")
-        fin = texto.index("[facts]")
-        (base / "rules.toml").write_text(texto[:inicio] + texto[fin:], encoding="utf-8")
-        sii["rules"] = base
-        cohort = make_cohort(status="open")
-        res = _run("sii-check", "20110001", "--cohort", str(cohort.id))
-        assert "se aprobaría automáticamente" not in res.output
-        assert "Por revisar" in res.output and "nombre" in res.output
-
-    def test_cerrada_quedaria_por_revisar(self, sii, patched_session_local, make_cohort):
-        cohort = make_cohort(status="closed")
-        res = _run("sii-check", "20110001", "--cohort", str(cohort.id))
-        assert res.exit_code == 0, res.output
-        assert "Por revisar" in res.output
-
-    def test_no_apta_quedaria_por_revisar(self, sii, patched_session_local, make_cohort):
-        cohort = make_cohort(status="open")
-        res = _run("sii-check", "20110002", "--cohort", str(cohort.id))
-        assert "Por revisar" in res.output
+        assert "Servicios Escolares la vería en «Por revisar»" in res.output
+        assert "automátic" not in res.output
 
     def test_convocatoria_inexistente(self, sii, patched_session_local):
         res = _run("sii-check", "20110001", "--cohort", "999999999")

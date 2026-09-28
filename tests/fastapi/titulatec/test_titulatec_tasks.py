@@ -160,13 +160,13 @@ def test_el_barrido_corre_con_su_sesion_y_su_presupuesto(monkeypatch, patched_se
 
     def _sweep(db, *, now=None, cohort_id=None, max_seconds=None):
         llamadas.append((db.get_bind() is db_session.get_bind(), cohort_id, max_seconds))
-        return {"checked": 2, "approved": 1, "retried": 0}
+        return {"checked": 2, "retried": 0}
 
     monkeypatch.setattr(EligibilityService, "sweep", staticmethod(_sweep))
 
     out = tasks.sii_sweep.run()
 
-    assert out == {"checked": 2, "approved": 1, "retried": 0}
+    assert out == {"checked": 2, "retried": 0}
     (misma_sesion, cohort_id, presupuesto), = llamadas
     assert misma_sesion and cohort_id is None
     assert 0 < presupuesto < tasks.sii_sweep.soft_time_limit, (
@@ -224,7 +224,7 @@ def test_cli_sii_sweep_imprime_lo_que_hizo(monkeypatch, patched_session_local):
 
     def _sweep(db, *, now=None, cohort_id=None, max_seconds=None):
         llamadas.append(cohort_id)
-        return {"checked": 3, "approved": 2, "retried": 1}
+        return {"checked": 3, "retried": 1}
 
     monkeypatch.setattr(EligibilityService, "sweep", staticmethod(_sweep))
 
@@ -234,7 +234,8 @@ def test_cli_sii_sweep_imprime_lo_que_hizo(monkeypatch, patched_session_local):
     assert llamadas == [12]
     assert "consultadas: 3" in res.output.lower()
     assert "reintentadas: 1" in res.output.lower()
-    assert "aprobadas: 2" in res.output.lower()
+    # El barrido ya no aprueba (spec 2026-09-27 §A3): no hay nada que contar.
+    assert "aprobadas" not in res.output.lower()
 
 
 def test_cli_sii_sweep_fuera_del_modo_sii_avisa_y_no_barre(monkeypatch, patched_session_local):

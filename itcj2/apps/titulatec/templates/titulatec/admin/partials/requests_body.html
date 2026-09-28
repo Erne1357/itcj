@@ -24,14 +24,13 @@
    - rechazada: motivo.
    `can_act` falso (modo alterno, revisa Centro de Cómputo) = SOLO LECTURA: ni
    un formulario, y un aviso arriba. Las rutas POST lo cortan aparte.
-   Modo `sii` (`sii`, spec 2026-09-25 §3.5): se actúa como en el oficial, pero
-   sin cuenta el botón es «Aprobar y crear cuenta» (nace con el NIP DEL SII), y
+   Modo `sii` (`sii`, spec 2026-09-25 §3.5 y 2026-09-27): se actúa como en el
+   oficial —el SII informa, Servicios Escolares aprueba SIEMPRE—, pero sin
+   cuenta el botón es «Aprobar y crear cuenta» (nace con el NIP DEL SII), y
    cada fila `pending_review` trae `#tt-req-sii-<id>` (`r.sii`, `_sii_row`):
    veredicto, reglas incumplidas (las cumplidas plegadas), error, diferencias
-   formulario↔SII, por qué una apta no se aprobó sola, intentos y «Reintentar
-   consulta» (no mientras una consulta está en curso). Todo lo del SII se pinta
-   escapado. «Aprobada automáticamente (SII)» (`r.auto_approved`) en Liga
-   enviada/Inscritas/Todas.
+   formulario↔SII, intentos y «Reintentar consulta» (no mientras una consulta
+   está en curso). Todo lo del SII se pinta escapado.
    Una cuenta desactivada lleva la píldora «Cuenta desactivada: se reactiva al
    abrir la liga» mientras la liga puede abrirse (por revisar o liga enviada):
    abrirla la reactiva, la única escritura sobre la cuenta además de roles y
@@ -186,7 +185,6 @@
             <span class="tt-pill tt-pill--amber">Sin cuenta</span>
             {% endif %}
             {% if r.returned %}<span class="tt-pill tt-pill--amber">Devuelta por Cómputo</span>{% endif %}
-            {% if r.auto_approved %}<span class="tt-pill tt-pill--success"><i class="bi bi-robot" aria-hidden="true"></i>Aprobada automáticamente (SII)</span>{% endif %}
           </span>
           {% if r.prior_reject %}
           <span class="small tt-prior-reject" title="Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}">
@@ -235,7 +233,6 @@
                 </ul>
               </div>
               {% endif %}
-              {% if s.why %}<p class="tt-sii-line tt-sii-why">{{ s.why }}</p>{% endif %}
               {% if can_act and s.can_recheck and r.status == 'pending_review' %}
               <form class="tt-req-form tt-req-form--inline"
                     hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reconsultar"
@@ -251,7 +248,7 @@
             {% if r.returned %}
             <p class="small mb-1"><i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i><strong>Devuelta por Centro de Cómputo:</strong> {{ r.return_note }}</p>
             {% endif %}
-            {% if r.note and not (r.sii and r.sii.note_shown) %}<p class="small mb-1">Nota: {{ r.note }}</p>{% endif %}
+            {% if r.note %}<p class="small mb-1">Nota: {{ r.note }}</p>{% endif %}
             {% if can_act %}
             <form class="tt-req-form"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/aprobar"

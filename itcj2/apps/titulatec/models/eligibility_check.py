@@ -45,7 +45,8 @@ class EligibilityCheck(Base):
     facts = Column(JSON, nullable=True)                 # columnas no sensibles de [facts]
     # Diferencias nombre/carrera formulario vs SII (spec 3.3 y 8): `{}` = se
     # comparo y coincide; con claves = discrepancias; NULL = no se pudo
-    # comparar (sin `[identity]` o sin datos), y entonces NO se aprueba sola.
+    # comparar (sin `[identity]` o sin datos): identidad sin confirmar
+    # (`eligibility_service.identity_block`).
     identity_mismatch = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)                 # mensaje de SiiUnavailable/SiiQueryError, sin credenciales
     # Solo en `status == 'error'`: True si el SII no respondio

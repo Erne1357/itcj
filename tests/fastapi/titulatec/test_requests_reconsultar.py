@@ -49,11 +49,10 @@ LIST_PERMS = (
 
 
 @pytest.fixture(autouse=True)
-def _tope_y_ventana(monkeypatch):
+def _tope(monkeypatch):
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
 
     monkeypatch.setattr(EligibilityService, "max_attempts", staticmethod(lambda: 5))
-    monkeypatch.setattr(EligibilityService, "delay_hours", staticmethod(lambda: 0))
 
 
 @pytest.fixture(autouse=True)
@@ -322,14 +321,12 @@ def sii_falso(monkeypatch, tmp_path):
 def test_el_nip_del_sii_nunca_llega_a_la_bandeja(
     client_as, db_session, make_head, make_cohort, modo_sii, sii_falso,
 ):
-    """Una no apta y una apta con la aprobación automática apagada quedan
-    «Por revisar» con su consulta REAL; el SII tiene NIP para las dos."""
+    """Una no apta y una apta quedan «Por revisar» con su consulta REAL (nada
+    se aprueba solo); el SII tiene NIP para las dos."""
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
 
     head = make_head(perm_codes=LIST_PERMS)
     cohort = make_cohort(status="open")
-    cohort.sii_auto_approve = False
-    db_session.flush()
     no_apta = _make_req(db_session, cohort, control="99650020")
     sii_falso("99650020", creditos_aprobados=200)
     apta = _make_req(db_session, cohort, control="99650021")
@@ -338,12 +335,12 @@ def test_el_nip_del_sii_nunca_llega_a_la_bandeja(
     assert EligibilityService.check(db_session, no_apta.id).status == "not_apt"
     assert EligibilityService.check(db_session, apta.id).status == "apt"
     db_session.refresh(apta)
-    assert apta.status == "pending_review", "el interruptor apagado la deja aquí"
+    assert apta.status == "pending_review", "la aprueba Servicios Escolares, no el SII"
 
     html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
 
     assert "Le faltan créditos: 200 de 260." in _plano(_fila(html, no_apta))
-    assert "La aprobación automática está apagada" in _plano(_fila(html, apta))
+    assert "Apta" in _plano(_fila(html, apta))
     assert NIP_SII not in html
 
 

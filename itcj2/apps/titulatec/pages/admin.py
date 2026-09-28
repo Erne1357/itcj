@@ -78,13 +78,7 @@ def _window_ctx(db, cohort, *, can_edit: bool) -> dict:
     sobre una convocatoria que sí tiene ventana. No es cosmético —
     `CohortService.set_window` escribe SIEMPRE las dos fechas con lo que reciba,
     sin conservar lo anterior, así que un input en blanco las borra.
-
-    `sii_mode`/`sii_auto_approve`: el interruptor «Aprobación automática (SII)»
-    (spec 2026-09-25 §3.5) solo existe en el modo `sii`.
     """
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
     return {
         "cohort_id": cohort.id,
         "window": {
@@ -93,8 +87,6 @@ def _window_ctx(db, cohort, *, can_edit: bool) -> dict:
             "closes_at": cohort.closes_at.isoformat() if cohort.closes_at else "",
         },
         "can_edit_window": can_edit,
-        "sii_mode": EnrollmentRequestService.reviewer_mode() == "sii",
-        "sii_auto_approve": bool(cohort.sii_auto_approve),
     }
 
 
@@ -716,26 +708,6 @@ async def cotejo_req_delete(
         db.close()
 
 
-def _sii_switch_notice(db, cohort_id: int, *, encendida: bool) -> str:
-    """Lo que el aviso dice al mover el interruptor (revisión final C5).
-
-    Encendida: cuántas aptas pendientes se RECONSULTARÁN antes de aprobarse
-    (veredicto de otras reglas o viejo, `EligibilityService.stale_apt_count`)
-    — el resto de las aptas las aprueba el barrido. Apagada: las nuevas quedan
-    para Servicios Escolares.
-    """
-    if not encendida:
-        return ("Aprobación automática apagada: las solicitudes quedan en «Por revisar» "
-                "para Servicios Escolares.")
-    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
-
-    n = EligibilityService.stale_apt_count(db, cohort_id)
-    if not n:
-        return "Aprobación automática encendida."
-    return (f"Aprobación automática encendida: {n} solicitud(es) apta(s) pendiente(s) se "
-            "reconsultarán en el SII antes de aprobarse.")
-
-
 @router.post("/cohorts/{cohort_id}/ventana", name="titulatec.pages.admin.cohort_window")
 async def cohort_window(
     cohort_id: int,
@@ -743,23 +715,15 @@ async def cohort_window(
     status: str = Form(...),
     opens_at: str = Form(""),
     closes_at: str = Form(""),
-    sii_auto_present: str = Form(""),
-    sii_auto_approve: str = Form(""),
     user: dict = Depends(require_page_app("titulatec",
                                           perms=["titulatec.cohort.api.update"])),
 ):
     """Escribe la ventana de inscripción pública y aplica la pausa/reanudación.
 
-    En el modo `sii` escribe además el interruptor «Aprobación automática
-    (SII)» (`Cohort.sii_auto_approve`, spec 2026-09-25 §3.5, S8), con el mismo
-    permiso. Una casilla sin marcar no viaja, así que el panel manda
-    `sii_auto_present=1`: sin esa marca (formulario viejo, POST a mano) no se
-    toca, y fuera del modo `sii` tampoco. Viaja en el MISMO commit que la
-    ventana (el de `set_window`): o se guardan los dos o ninguno, así que un
-    400 de `set_window` no deja el interruptor movido a medias, ni un fallo
-    deja la ventana guardada con el interruptor sin mover.
-    `EligibilityService.auto_approve` lo relee bajo lock antes de aprobar, así
-    que apagarlo frena también a las aptas que esperan su ventana de veto.
+    Solo la ventana: el interruptor «Aprobación automática (SII)» se retiró con
+    la automática (spec 2026-09-27 §A3). Un formulario viejo en caché que aún
+    mande sus campos no mueve nada: la ruta ya no los lee, y la columna queda
+    en la BD como legado sin uso (ver el modelo `Cohort`).
 
     UN SOLO código en `perms`, y el específico. `require_page_app` evalúa la
     lista como OR (`dependencies.py:131`): un `dashboard.*` de más abriría el
@@ -771,7 +735,7 @@ async def cohort_window(
 
     El flip de procesos NO se replica aquí: `CohortService.set_window` es el
     actor único de D5 y hace el ÚNICO `commit`. Esta ruta no confirma nada:
-    marca el interruptor, llama y pinta.
+    llama y pinta.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.cohort_service import CohortService
@@ -783,20 +747,6 @@ async def cohort_window(
         cohort = db.get(Cohort, cohort_id)
         if cohort is None:
             return Response(status_code=404)
-        # El interruptor se marca ANTES de `set_window`, sobre la MISMA
-        # convocatoria que `set_window` toma de la sesión con su `db.get`: su
-        # `commit` lo confirma junto con la ventana y el flip de procesos. Si
-        # `set_window` lanza, no hay commit y `close()` lo descarta.
-        from itcj2.apps.titulatec.services.enrollment_request_service import (
-            EnrollmentRequestService,
-        )
-        movido = None
-        if (sii_auto_present == "1"
-                and EnrollmentRequestService.reviewer_mode() == "sii"):
-            nuevo = sii_auto_approve == "1"
-            if bool(cohort.sii_auto_approve) != nuevo:
-                cohort.sii_auto_approve = nuevo
-                movido = nuevo
         try:
             res = CohortService.set_window(
                 db, cohort_id,
@@ -812,8 +762,7 @@ async def cohort_window(
             # SIN `db.rollback()`, a propósito. `CohortService.set_window` lanza
             # sus tres ValueError —estado desconocido, convocatoria inexistente y
             # `closes_at < opens_at`— ANTES de su primera escritura, así que no
-            # hay nada que deshacer: el interruptor marcado arriba nunca llegó
-            # a la BD y `close()` lo descarta. Y un rollback "por si acaso" no
+            # hay nada que deshacer. Y un rollback "por si acaso" no
             # es gratis: bajo el `join_transaction_mode="create_savepoint"` del harness
             # emite ROLLBACK TO SAVEPOINT y descarta también las filas que
             # sembraron las fábricas —la jefa, su rol, sus permisos y la
@@ -825,12 +774,6 @@ async def cohort_window(
             # transacción de Postgres, nunca en el `except` entero.
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
 
-        sii_aviso = ""
-        if movido is not None:
-            # Rastro de quién frenó o soltó la aprobación automática.
-            logger.info("Convocatoria %s: aprobación automática (SII) %s por el usuario %s",
-                        cohort_id, "encendida" if movido else "apagada", user["sub"])
-            sii_aviso = _sii_switch_notice(db, cohort_id, encendida=movido)
         perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
         ctx = _window_ctx(db, cohort,
                           can_edit="titulatec.cohort.api.update" in perms)
@@ -843,8 +786,6 @@ async def cohort_window(
     if res["resumed"]:
         partes.append(f"{res['resumed']} proceso(s) reanudado(s)")
     aviso = "Ventana guardada" + (f": {', '.join(partes)}." if partes else ".")
-    if movido is not None:
-        aviso += " " + sii_aviso
 
     resp = render_titulatec(request, "titulatec/partials/cohort/cohort_window.html", ctx)
     resp.headers["X-Tt-Notice"] = _hdr(aviso)

@@ -15,14 +15,13 @@ ALTERNO la revisión es de Centro de Cómputo: esta bandeja queda de SOLO LECTUR
 y sus tres POST responden 400 ANTES de abrir sesión (`_alternate_mode_block`),
 así que ni un POST directo sin la UI aprueba, rechaza o reenvía.
 
-En el modo `sii` (spec 2026-09-25 §3.5) SE actúa como en el oficial (la cuenta
-nueva nace con el NIP DEL SII, `approve()`), y cada fila «Por revisar» trae el
-veredicto VIGENTE del SII (`_sii_row`): reglas con su motivo, diferencias de
-identidad, intentos y, si era apta, por qué no se aprobó sola. «Reintentar
-consulta» (`reconsultar`) encola una consulta forzada. La aprobada sola se
-reconoce en Liga enviada/Inscritas con la regla del servicio
-(`enrollment_request_service._auto_approval_marker`). El NIP del SII nunca pasa
-por aquí: la bandeja lee la `EligibilityCheck`, que no lo guarda.
+En el modo `sii` (spec 2026-09-25 §3.5; spec 2026-09-27 «el SII informa,
+Servicios Escolares decide») SE actúa como en el oficial (la cuenta nueva nace
+con el NIP DEL SII, `approve()`) y es quien aprueba SIEMPRE: nada se aprueba
+solo. Cada fila «Por revisar» trae el veredicto VIGENTE del SII (`_sii_row`):
+reglas con su motivo, diferencias de identidad e intentos. «Reintentar
+consulta» (`reconsultar`) encola una consulta forzada. El NIP del SII nunca
+pasa por aquí: la bandeja lee la `EligibilityCheck`, que no lo guarda.
 
 «Revocar inscripción» (spec 2026-09-25 §3.6, `revocar`): en Inscritas, sobre el
 proceso en que se convirtió la solicitud, con `titulatec.process.api.cancel` y
@@ -34,7 +33,7 @@ conserva ese modo tal cual (S1). En ese modo se revoca desde el expediente
 (`admin.process_cancel`), que no depende del modo.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
@@ -74,10 +73,6 @@ _SII_STATES = {
 # Campos de `identity_mismatch` → etiqueta legible. Otro campo sale tal cual.
 _DIFF_LABELS = {"first_name": "Nombre", "last_name": "Apellido paterno",
                 "middle_name": "Apellido materno", "program": "Carrera"}
-_AUTO_OFF = ("La aprobación automática está apagada en esta convocatoria. Actívala en la "
-             "convocatoria (Resumen › Ventana de inscripción).")
-_COHORT_NOT_OPEN = "La convocatoria no está abierta: no se aprueba sola."
-_AUTO_WAITING = "Apta: se aprobará sola en el siguiente barrido."
 
 # Pestañas, en el orden en que se pintan.
 _TABS = (
@@ -200,8 +195,7 @@ def _in_flight(chk, now: datetime) -> bool:
             and chk.started_at is not None and chk.started_at > now - _PENDING_STALE)
 
 
-def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: int,
-             now: datetime, requested: bool) -> dict:
+def _sii_row(chk, *, max_attempts: int, now: datetime, requested: bool) -> dict:
     """El bloque del SII de una fila «Por revisar» (modo `sii`).
 
     `chk` es la consulta VIGENTE (`last_check_id`) ya cargada en lote. Solo
@@ -211,19 +205,13 @@ def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: in
     consulta en esta misma respuesta: se pinta «Consultando…» aunque el
     worker aún no haya abierto la fila, para no ofrecer el botón otra vez.
 
-    `why` dice por qué una APTA sigue aquí, en el orden en que la frena
-    `EligibilityService.auto_approve`: la nota que dejó la automática
-    (`review_note`), el interruptor de la convocatoria, la convocatoria
-    cerrada, el NOMBRE sin confirmar (`identity_block`: no coincide o no se
-    pudo comparar con el SII — esa fila no se aprobará sola, no se promete),
-    la ventana de veto; si nada la frena, la toma el barrido.
+    Informa, no promete: una apta sigue aquí como cualquier otra, porque la
+    aprueba siempre Servicios Escolares (spec 2026-09-27 §A3).
 
     `retry` = «Se reintenta sola (intento N de M).» en un `error`
     reintentable (el SII no respondió) que no llegó al tope: N es el intento
-    que sigue.
+    que sigue (lo que se reintenta es la CONSULTA, no una aprobación).
     """
-    from itcj2.apps.titulatec.services.eligibility_service import identity_block
-
     if chk is None:
         state = "none"
     elif chk.status == "pending":
@@ -248,23 +236,6 @@ def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: in
             diffs.append({"label": _DIFF_LABELS.get(campo, campo),
                           "form": par.get("form") or "", "sii": par.get("sii") or ""})
 
-    why = ""
-    if state == "apt":
-        if note:
-            why = f"No se aprobó sola: {note}"
-        elif not cohort.get("auto", True):
-            why = _AUTO_OFF
-        elif cohort.get("status") != "open":
-            why = _COHORT_NOT_OPEN
-        elif bloqueo := identity_block(chk):
-            why = bloqueo
-        elif delay_hours and chk.finished_at is not None:
-            desde = chk.finished_at + timedelta(hours=delay_hours)
-            why = (f"Se aprobará sola a partir del {_fmt(desde)}." if desde > now
-                   else _AUTO_WAITING)
-        else:
-            why = _AUTO_WAITING
-
     return {
         "state": state, "label": label, "tone": tone, "icon": icon,
         "attempt": chk.attempt if chk is not None else 0,
@@ -275,9 +246,7 @@ def _sii_row(chk, *, note: str, cohort: dict, delay_hours: int, max_attempts: in
         "retry": (f"Se reintenta sola (intento {chk.attempt + 1} de {max_attempts})."
                   if state == "error" and chk.retryable and chk.attempt < max_attempts
                   else ""),
-        "diffs": diffs, "why": why,
-        # La nota ya va en `why`: la fila no la repite como «Nota:».
-        "note_shown": bool(state == "apt" and note),
+        "diffs": diffs,
         # Una consulta en curso no se duplica (el servicio tampoco la repite).
         "can_recheck": state != "pending",
     }
@@ -299,7 +268,6 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
     from itcj2.apps.titulatec.models import (
         Cohort, EligibilityCheck, EnrollmentRequest, TitulationProcess,
     )
-    from itcj2.apps.titulatec.services import enrollment_request_service as ers
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
@@ -388,22 +356,17 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
     procs = ({p.id: p for p in db.query(TitulationProcess)
               .filter(TitulationProcess.id.in_(pids)).all()} if pids else {})
     cohort_ids = {r.cohort_id for r in reqs}
-    cohorts = ({cid: {"name": name, "status": st, "auto": bool(auto)}
-                for cid, name, st, auto in db.query(
-                    Cohort.id, Cohort.name, Cohort.status, Cohort.sii_auto_approve)
-                .filter(Cohort.id.in_(cohort_ids)).all()} if cohort_ids else {})
+    cohort_names = ({cid: name for cid, name in db.query(Cohort.id, Cohort.name)
+                     .filter(Cohort.id.in_(cohort_ids)).all()} if cohort_ids else {})
     prog_names = {p["id"]: p["name"] for p in programs}
-    # Consultas VIGENTES del SII, en lote. Se cargan en cualquier modo porque
-    # «Aprobada automáticamente (SII)» es un hecho histórico de la fila; el
-    # bloque del veredicto solo se pinta en el modo `sii`. El lote las deja en
-    # el mapa de identidad de la sesión: el `db.get` de `_auto_approval_marker`
-    # las toma de ahí, sin una consulta por fila.
-    check_ids = {r.last_check_id for r in reqs if r.last_check_id}
-    checks = ({c.id: c for c in db.query(EligibilityCheck)
-               .filter(EligibilityCheck.id.in_(check_ids)).all()} if check_ids else {})
+    # Consultas VIGENTES del SII, en lote (nunca `latest_check` por fila). Solo
+    # en el modo `sii`: fuera de él la bandeja no habla del SII.
+    checks = {}
     if sii:
         from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
-        delay_hours = EligibilityService.delay_hours()
+        check_ids = {r.last_check_id for r in reqs if r.last_check_id}
+        checks = ({c.id: c for c in db.query(EligibilityCheck)
+                   .filter(EligibilityCheck.id.in_(check_ids)).all()} if check_ids else {})
         max_attempts = EligibilityService.max_attempts()
         now = datetime.now()
 
@@ -436,14 +399,11 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
         # el ÚLTIMO `process_cancelled` y solo si el proceso sigue `cancelled`.
         revoked = (ProcessService.cancellation_info(db, proc)
                    if r.status == "converted" and proc is not None else None)
-        chk = checks.get(r.last_check_id)
-        cohort = cohorts.get(r.cohort_id, {})
         sii_block = None
         if sii and r.status == "pending_review":
             # Solo `pending_review`: `EligibilityService.check` no consulta el
             # legado (`unverified`/`verified`) ni lo ya resuelto.
-            sii_block = _sii_row(chk, note=r.review_note or "", cohort=cohort,
-                                 delay_hours=delay_hours, max_attempts=max_attempts,
+            sii_block = _sii_row(checks.get(r.last_check_id), max_attempts=max_attempts,
                                  now=now, requested=(r.id == requested_id))
         anteriores = [c for c in rejected_by_control.get(r.control_number, ()) if c[1] < r.id]
         prior_reject = None
@@ -462,7 +422,7 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
             "program_id": r.program_id,
             "email": r.contact_email,
             "phone": r.phone,
-            "cohort": cohort.get("name", ""),
+            "cohort": cohort_names.get(r.cohort_id, ""),
             "created": r.created_at.strftime("%d/%m/%Y") if r.created_at else "",
             "status": r.status,
             "status_label": _STATUS_LABELS.get(r.status, r.status),
@@ -499,11 +459,6 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
             "rejection_sent": r.rejection_sent_at is not None,
             "prior_reject": prior_reject,
             "sii": sii_block,
-            # Aprobada SOLA (EligibilityService.auto_approve). La regla es la
-            # del servicio (`_auto_approval_marker`, la misma que marca el
-            # evento `auto: true`), no una copia: si cambia, la píldora la sigue.
-            "auto_approved": (r.status in ("approved", "converted")
-                              and bool(ers._auto_approval_marker(db, r))),
         })
     return ctx
 

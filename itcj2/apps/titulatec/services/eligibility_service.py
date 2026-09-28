@@ -32,22 +32,21 @@ motivo para Servicios Escolares.
 `force=True` es «Reintentar consulta» de la bandeja: pregunta otra vez aunque
 ya haya veredicto (el SII pudo cambiar), con el siguiente número de intento.
 
-APROBACIÓN AUTOMÁTICA (`auto_approve`, spec S2/S4/S5). Apta ∧ convocatoria
-`open` ∧ `sii_auto_approve` ∧ ventana de veto vencida ∧ el NOMBRE tecleado se
-comparó con el de `[identity]` y coincide (sin comparación no aprueba: falla
-cerrado) → con cuenta, la liga de siempre; sin cuenta, la cuenta
-nace con el NIP DEL SII. Decide y escribe el mismo núcleo que la bandeja
-(`EnrollmentRequestService._approve_locked`). Con ventana 0 la dispara
-`check` al terminar; con ventana > 0, el barrido. No apta, error, interruptor
-apagado u otro nombre → sigue «Por revisar» de Servicios Escolares.
+SE APRUEBA SIEMPRE (spec 2026-09-27 «el SII informa, Servicios Escolares
+decide», §A3). La consulta NO aprueba nada: deja el veredicto, las reglas y las
+diferencias de identidad para la bandeja de Solicitudes, y Servicios Escolares
+da siempre el paso final (`EnrollmentRequestService.approve`, el único que
+llama al núcleo `_approve_locked`; lo fija una prueba estructural). La
+aprobación automática, su interruptor por convocatoria, la ventana de veto y la
+edad máxima del veredicto se retiraron (D2).
 
 EL NIP DEL SII NO PASA POR AQUÍ al consultar: `RuleSet.evaluate` no corre la
 consulta de `[credential]`, y los `facts`/`results` son la lista blanca de las
 reglas. Un error que no es del SII se registra solo por su TIPO (su texto
 puede traer cualquier cosa: la cadena de conexión, datos de la fila).
 
-Los settings del SII de este servicio se leen SOLO por `delay_hours()` y
-`max_attempts()` (los tests parchean esos métodos, nunca `get_settings`).
+Los settings del SII de este servicio se leen SOLO por `max_attempts()` (los
+tests parchean ese método, nunca `get_settings`).
 """
 from __future__ import annotations
 
@@ -75,26 +74,6 @@ _PENDING_STALE = timedelta(minutes=15)
 # Solicitudes por pasada del barrido (el resto, en la siguiente).
 _SWEEP_BATCH = 200
 
-# Motivos de `auto_approve` cuando NO escribe nada (revalidaciones).
-_MSG_NOT_SII = "La aprobación automática solo existe en el modo sii."
-_MSG_NOT_APT = "La consulta vigente del SII no es apta."
-_MSG_IN_WINDOW = "Sigue dentro de la ventana de veto de la aprobación automática."
-_MSG_AUTO_OFF = "La aprobación automática está apagada en esa convocatoria."
-_MSG_SII_UNREACHABLE = "No se pudo consultar el NIP en el SII; se reintentará."
-# Veredicto `apt` de otra versión de reglas o más viejo que el tope: no aprueba,
-# se encola una consulta nueva (revisión final C5, spec §8). El barrido lo
-# cuenta como reconsulta.
-_MSG_STALE_VERDICT = ("El veredicto del SII es de otras reglas o ya es viejo: se "
-                      "reconsulta antes de aprobarla.")
-# `review_note` cuando la aprobación automática necesita a una persona.
-_NOTE_SII_NO_NIP = "El SII no devolvió NIP."
-# La consulta del NIP falló por configuración (columna de `[credential]` mal
-# escrita, sin permiso sobre la tabla, reglas que no cargan): esperar no lo
-# arregla. Solo el TIPO del error, nunca su texto (puede traer la fila).
-_NOTE_SII_NIP_CONFIG = ("No se pudo leer el NIP en el SII ({tipo}): revisa [credential] en "
-                        "las reglas del SII (titulatec sii-rules-validate) y después apruébala "
-                        "desde la bandeja.")
-
 # `falla_nip` de `fetch_sii_nip` / `EnrollmentRequestService._approve_locked`:
 # el SII respondió sin NIP, o no respondió (el nombre del tipo de su error).
 NIP_MISSING = "missing"
@@ -104,22 +83,19 @@ NIP_UNAVAILABLE = "SiiUnavailable"
 _NAME_FIELDS = ("first_name", "last_name", "middle_name")
 _NAME_LABELS = {"first_name": "nombre", "last_name": "apellido paterno",
                 "middle_name": "apellido materno"}
-# El nombre tecleado no es el del SII: la aprobación automática no procede
-# (hallazgo I1). `{campos}` = etiquetas de `_NAME_LABELS`, nunca los valores.
+# El nombre tecleado no es el del SII (hallazgo I1). `{campos}` = etiquetas de
+# `_NAME_LABELS`, nunca los valores.
 _NOTE_IDENTITY_MISMATCH = ("El nombre del formulario no coincide con el del SII ({campos}); "
                            "confirma que la solicitud sea de esa persona antes de aprobarla.")
-# Campos que TIENEN que compararse (con valor en los dos lados) para aprobar
-# sola (revisión final C3/C9, spec §8). El apellido materno es opcional.
+# Campos que TIENEN que compararse (con valor en los dos lados) para dar la
+# identidad por confirmada (revisión final C3/C9). El apellido materno es
+# opcional.
 _REQUIRED_NAME_FIELDS = ("first_name", "last_name")
 # Clave de `identity_mismatch` con los campos obligatorios que NO se pudieron
 # comparar (vacíos en el SII o en el formulario, o columna mal escrita).
 _UNVERIFIED = "_unverified"
-# Sin comparación del nombre no se aprueba sola: falla cerrado.
+# Sin comparación del nombre la identidad no está confirmada: falla cerrado.
 _NOTE_IDENTITY_UNVERIFIED = "No se pudo comparar el nombre con el SII."
-# Abrir la liga reactiva una cuenta desactivada (EXCEPCIÓN APROBADA del
-# invariante 1, `enrollment_request_service`). La bandeja lo pinta ANTES de
-# aprobar; la automática no la ve nadie: no aprueba (revisión final C2).
-_NOTE_ACCOUNT_INACTIVE = "La cuenta está desactivada: al abrir la liga se reactivaría."
 
 
 def _norm(value) -> str:
@@ -142,8 +118,7 @@ def _identity_mismatch(db: Session, req, identity: dict) -> dict | None:
     en el formulario no es discrepancia. La carrera coincide si el texto del
     SII es el de la carrera elegida o el tecleado. No cambia el veredicto (ese
     es de las reglas); se muestra a Servicios Escolares, y una discrepancia de
-    NOMBRE —o no haberlo podido comparar— frena la aprobación automática
-    (`_identity_block`).
+    NOMBRE —o no haberlo podido comparar— la resume `identity_block`.
     """
     if not identity:
         return None
@@ -173,24 +148,25 @@ def _identity_mismatch(db: Session, req, identity: dict) -> dict | None:
 def _name_mismatch(chk) -> list[str]:
     """Etiquetas de los campos de NOMBRE en que el formulario y el SII difieren.
 
-    Con alguno, la aprobación automática no procede (hallazgo I1): quien teclea
-    el número de control de OTRA persona apta con su propio nombre dejaría
-    creada la cuenta y el proceso de esa persona, con los datos falsos y sin
-    que nadie lo vea. La carrera NO frena (decisión): el SII suele nombrarla
-    distinto que el catálogo (abreviada, con el plan) y se muestra a SE.
+    Con alguno, la solicitud puede ser de OTRA persona (hallazgo I1): quien
+    teclea el número de control de otra con su propio nombre dejaría creada la
+    cuenta y el proceso de esa persona. La carrera NO cuenta (decisión): el SII
+    suele nombrarla distinto que el catálogo (abreviada, con el plan) y se
+    muestra a SE como diferencia, sin más.
     """
     diferencias = (chk.identity_mismatch or {}) if chk is not None else {}
     return [_NAME_LABELS[c] for c in _NAME_FIELDS if c in diferencias]
 
 
 def identity_block(chk) -> str | None:
-    """Por qué la IDENTIDAD no deja aprobar sola a `chk`, o `None` si la deja.
+    """Por qué la IDENTIDAD de `chk` no está confirmada, o `None` si lo está.
 
     Falla cerrado (revisión final C3/C9): sin comparación del nombre
     (`identity_mismatch` NULL o con `_UNVERIFIED`) → `_NOTE_IDENTITY_UNVERIFIED`;
-    nombre distinto al del SII → `_NOTE_IDENTITY_MISMATCH`. Lo usan
-    `auto_approve` y la bandeja (`requests_admin._sii_row`), así las dos dicen
-    lo mismo.
+    nombre distinto al del SII → `_NOTE_IDENTITY_MISMATCH`. Alimenta la
+    confirmación que la bandeja pide antes de aprobar (spec 2026-09-27 D7):
+    Servicios Escolares aprueba igual, pero sabiendo que el nombre no coincide
+    o no se pudo comparar.
     """
     im = chk.identity_mismatch if chk is not None else None
     if not isinstance(im, dict) or im.get(_UNVERIFIED):
@@ -199,39 +175,6 @@ def identity_block(chk) -> str | None:
     if campos:
         return _NOTE_IDENTITY_MISMATCH.format(campos=", ".join(campos))
     return None
-
-
-def _leave_note(db: Session, req, note: str):
-    """La aprobación automática necesita a una persona: `review_note` = motivo.
-
-    Vuelve a tomar el lock y refresca (tras un `rollback()` de
-    `_create_account_with_sii_nip` ya no lo tiene) y solo escribe si la
-    solicitud sigue `pending_review`. Devuelve `(False, note)`.
-    """
-    _lock(db, req.id)
-    db.refresh(req)
-    if req.status == "pending_review":
-        req.review_note = note[:2000]
-    db.commit()
-    return False, note
-
-
-def _verdict_stale(chk, *, version: str | None, now: datetime, max_age: int) -> bool:
-    """¿El veredicto `chk` ya no sirve para aprobar solo? (revisión final C5)
-
-    Sí si es de OTRA versión de reglas que la vigente (`version`; `None` = las
-    reglas no cargan: tampoco se aprueba con un veredicto que no se puede
-    cotejar) o si terminó hace más de `max_age` horas (spec §8: «de ≤
-    TITULATEC_SII_VERDICT_MAX_AGE_HOURS», contadas desde `finished_at`, también
-    con ventana de veto). Que la edad supere la ventana (`max_age > delay`) lo
-    exige `Settings` al arrancar: si no, todo veredicto llegaría viejo al vencer
-    la ventana y se reconsultaría sin fin.
-    """
-    if version is None or chk.rules_version != version:
-        return True
-    if chk.finished_at is None:
-        return True
-    return chk.finished_at + timedelta(hours=max_age) < now
 
 
 def _lock(db: Session, req_id: int) -> None:
@@ -363,14 +306,7 @@ def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False) -> bool
 
 
 class EligibilityService:
-    """Consulta de elegibilidad, aprobación automática y barrido (modo `sii`)."""
-
-    @staticmethod
-    def delay_hours() -> int:
-        """Ventana de veto antes de aprobar sola (TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS)."""
-        from itcj2.config import get_settings
-
-        return get_settings().TITULATEC_SII_AUTO_APPROVE_DELAY_HOURS
+    """Consulta de elegibilidad y barrido (modo `sii`). No aprueba nada."""
 
     @staticmethod
     def max_attempts() -> int:
@@ -378,14 +314,6 @@ class EligibilityService:
         from itcj2.config import get_settings
 
         return get_settings().TITULATEC_SII_MAX_ATTEMPTS
-
-    @staticmethod
-    def verdict_max_age_hours() -> int:
-        """Edad máxima de un veredicto apto para aprobar solo
-        (TITULATEC_SII_VERDICT_MAX_AGE_HOURS), desde que terminó la consulta."""
-        from itcj2.config import get_settings
-
-        return get_settings().TITULATEC_SII_VERDICT_MAX_AGE_HOURS
 
     @staticmethod
     def rules_version() -> str | None:
@@ -398,28 +326,6 @@ class EligibilityService:
             return RuleSet.load(sii_client.SiiConfig.rules_dir()).version or None
         except SiiError:
             return None
-
-    @staticmethod
-    def stale_apt_count(db: Session, cohort_id: int, *, now: datetime | None = None) -> int:
-        """Solicitudes `pending_review` de la convocatoria, aptas y sin nota, cuyo
-        veredicto ya no sirve para aprobar solo (`_verdict_stale`): las que el
-        barrido reconsultará antes de aprobar. El aviso del interruptor lo dice
-        al encenderlo (revisión final C5)."""
-        from itcj2.apps.titulatec.models import EligibilityCheck, EnrollmentRequest
-
-        EC, ER = EligibilityCheck, EnrollmentRequest
-        aptas = (db.query(EC)
-                 .join(ER, ER.last_check_id == EC.id)
-                 .filter(ER.cohort_id == cohort_id, ER.status == "pending_review",
-                         ER.review_note.is_(None), EC.status == "apt")
-                 .all())
-        if not aptas:
-            return 0
-        version = EligibilityService.rules_version()
-        now = now or datetime.now()
-        max_age = EligibilityService.verdict_max_age_hours()
-        return sum(1 for chk in aptas
-                   if _verdict_stale(chk, version=version, now=now, max_age=max_age))
 
     @staticmethod
     def latest_check(db: Session, req):
@@ -499,129 +405,9 @@ class EligibilityService:
         chk.finished_at = datetime.now()
         chk.duration_ms = duration_ms
         db.commit()
-
-        # Apta y sin ventana de veto: se aprueba ya. `auto_approve` revalida
-        # todo (convocatoria, interruptor) bajo su propio lock. Un fallo aquí
-        # no deshace la consulta, que ya quedó guardada: el barrido lo retoma.
-        if chk.status == "apt" and EligibilityService.delay_hours() == 0:
-            try:
-                EligibilityService.auto_approve(db, req.id)
-            except Exception as exc:  # noqa: BLE001 — la consulta ya se guardó
-                db.rollback()
-                logger.warning("SII: la aprobación automática de la solicitud %s falló (%s)",
-                               req_id, type(exc).__name__)
+        # Nada más: el veredicto queda para Servicios Escolares, que aprueba
+        # siempre desde la bandeja (spec 2026-09-27 §A3).
         return chk
-
-    @staticmethod
-    def auto_approve(db: Session, req_id: int, *, now: datetime | None = None):
-        """Aprueba SOLA una solicitud apta. Devuelve `(ok, detalle)`.
-
-        Revalida bajo el lock de la solicitud, en este orden: modo `sii`, que
-        siga `pending_review`, que la consulta VIGENTE sea `apt`, que haya
-        pasado la ventana de veto (`delay_hours()` desde `finished_at`; `now`
-        es inyectable), que la convocatoria siga `open` y con
-        `sii_auto_approve` encendido (Review Focus 5: SE pudo cerrarla o
-        apagarlo dentro de la ventana). Si algo de eso falla no escribe nada.
-        Un veredicto de OTRA versión de reglas o más viejo que
-        `verdict_max_age_hours()` (desde `finished_at`) no aprueba:
-        encola una consulta nueva (`force`) tras soltar el lock
-        (`_MSG_STALE_VERDICT`; revisión final C5).
-        Si el NOMBRE tecleado no es el del SII, o no se pudo comparar
-        (`identity_block`: sin `[identity]`, columna mal escrita, nombre vacío),
-        no aprueba y deja la nota: la cuenta nueva solo nace con un nombre que
-        el SII confirma. Tampoco si la cuenta existe DESACTIVADA: abrir la liga
-        la reactivaría sin que nadie lo vea (queda para SE con la nota).
-
-        Lo que decide y escribe la aprobación es el MISMO núcleo que usa la
-        bandeja (`EnrollmentRequestService._approve_locked`), con actor `None`:
-
-        - CON cuenta: la liga de siempre (D5 y contraseña; la cuenta no se
-          toca) -> `approved`.
-        - SIN cuenta: la cuenta nace con el NIP DEL SII -> `converted`; correo
-          SIN el NIP.
-
-        Aprobada sola = `reviewed_by_id` NULL + `reviewed_at`; el evento del
-        proceso lleva `auto: true`, `rules_version` y `check_id` (con cuenta, lo
-        escribe `_convert` al abrir la liga). Correo e invalidación de authz
-        DESPUÉS del commit.
-
-        Lo que necesita a una persona (sin NIP en el SII, la consulta del NIP
-        mal configurada, NIP con otro formato, D5, sin contraseña, datos
-        inválidos, no se pudo crear la cuenta) queda `pending_review` con
-        `review_note` = el motivo, y el barrido ya no insiste. Solo lo
-        transitorio (el SII no respondió al pedir el NIP, `SiiUnavailable`) no
-        deja nota: el barrido lo reintenta cuando el SII vuelva.
-        """
-        from itcj2.core.models.user import User
-        from itcj2.apps.titulatec.models import EnrollmentRequest
-        from itcj2.apps.titulatec.services import enrollment_request_service as ers
-
-        ERS = ers.EnrollmentRequestService
-        if ERS.reviewer_mode() != "sii":
-            return False, _MSG_NOT_SII
-        req = db.get(EnrollmentRequest, req_id)
-        if req is None:
-            return False, ers._MSG_GONE
-        ahora = now or datetime.now()
-
-        def _no(motivo: str):
-            db.commit()      # nada escrito: solo cierra la transacción y suelta el lock
-            return False, motivo
-
-        # Dos vueltas como mucho: si todo pasa y hace falta el NIP del SII
-        # (sin cuenta), se pide SIN el lock (`_sii_nip_unlocked`) y la segunda
-        # vuelta revalida TODO bajo el lock (revisión final C6/C8).
-        sii_nip = None
-        while True:
-            _lock(db, req.id)
-            db.refresh(req)
-            if req.status != "pending_review":
-                return _no(ers._MSG_RESOLVED)
-            chk = EligibilityService.latest_check(db, req)
-            if chk is None or chk.status != "apt":
-                return _no(_MSG_NOT_APT)
-            delay = EligibilityService.delay_hours()
-            if delay and (chk.finished_at is None
-                          or chk.finished_at + timedelta(hours=delay) > ahora):
-                return _no(_MSG_IN_WINDOW)
-            cohort, motivo = ers._cohort_gate(db, req)
-            if cohort is None:
-                return _no(motivo)
-            if not cohort.sii_auto_approve:
-                return _no(_MSG_AUTO_OFF)
-            if _verdict_stale(chk, version=EligibilityService.rules_version(), now=ahora,
-                              max_age=EligibilityService.verdict_max_age_hours()):
-                # Después del commit de `_no` (suelta el lock): la tarea lo toma.
-                resultado = _no(_MSG_STALE_VERDICT)
-                enqueue_check(req.id, force=True)
-                return resultado
-            bloqueo = identity_block(chk)
-            if bloqueo:
-                return _leave_note(db, req, bloqueo)
-            cuenta = (db.query(User)
-                      .filter_by(control_number=(req.control_number or "").strip()).first())
-            if cuenta is not None and not cuenta.is_active:
-                return _leave_note(db, req, _NOTE_ACCOUNT_INACTIVE)
-            if sii_nip is None:
-                sii_nip = ERS._sii_nip_unlocked(db, req)
-                if sii_nip is not None:
-                    continue
-            break
-
-        ok, detalle, falla_nip = ERS._approve_locked(
-            db, req, cohort, actor_id=None, program_id=req.program_id,
-            event_extra={"auto": True, "rules_version": chk.rules_version,
-                         "check_id": chk.id},
-            sii_nip=sii_nip)
-        if ok:
-            return True, detalle
-        if falla_nip == NIP_MISSING:
-            return _leave_note(db, req, _NOTE_SII_NO_NIP)
-        if falla_nip == NIP_UNAVAILABLE:
-            return _no(_MSG_SII_UNREACHABLE)
-        if falla_nip is not None:
-            return _leave_note(db, req, _NOTE_SII_NIP_CONFIG.format(tipo=falla_nip))
-        return _leave_note(db, req, detalle)
 
     @staticmethod
     def recheck_errors(db: Session, *, cohort_id: int | None = None,
@@ -666,9 +452,11 @@ class EligibilityService:
     @staticmethod
     def sweep(db: Session, *, now: datetime | None = None, cohort_id: int | None = None,
               max_seconds: float | None = None) -> dict:
-        """Barrido periódico. Devuelve `{"checked", "approved", "retried"}`.
+        """Barrido periódico. Devuelve `{"checked", "retried"}`.
 
-        Sobre las solicitudes `pending_review` (de `cohort_id`, si se da):
+        Solo CONSULTA, nunca aprueba (spec 2026-09-27 §A3: una apta queda para
+        Servicios Escolares como cualquier otra). Sobre las solicitudes
+        `pending_review` (de `cohort_id`, si se da):
 
         - sin consulta vigente (el worker o el broker no estaban) → primera
           consulta (`checked`);
@@ -678,37 +466,29 @@ class EligibilityService:
           retoma forzada, aunque esté en el tope (`retried`). Un error de
           configuración (reglas, consulta inválida) no se reintenta: esperar
           no lo arregla; tras corregirlo, `recheck_errors` (CLI
-          `sii-sweep --reconsultar-errores`) o «Reintentar consulta»;
-        - vigente `apt` con la ventana de veto vencida, sin `review_note` (la
-          nota es «esto necesita a una persona»: no se insiste), convocatoria
-          `open` y con el interruptor encendido → `auto_approve`; si el
-          veredicto era viejo o de otras reglas, `auto_approve` encola la
-          reconsulta y cuenta en `retried`.
+          `sii-sweep --reconsultar-errores`) o «Reintentar consulta».
 
-        `approved` cuenta toda solicitud que el barrido dejó aprobada, también
-        las que su propia consulta aprobó al instante. Cada solicitud va por
-        separado: la que revienta se registra por su TIPO y no detiene a las
-        demás. `max_seconds` es el presupuesto: no toma solicitudes nuevas
-        pasado ese tiempo (la tarea termina antes de que celery la corte; lo
-        que quedó lo toma el siguiente barrido). Lote de `_SWEEP_BATCH`.
+        Cada solicitud va por separado: la que revienta se registra por su TIPO
+        y no detiene a las demás. `max_seconds` es el presupuesto: no toma
+        solicitudes nuevas pasado ese tiempo (la tarea termina antes de que
+        celery la corte; lo que quedó lo toma el siguiente barrido). Lote de
+        `_SWEEP_BATCH`.
         """
         from sqlalchemy import and_, or_
 
-        from itcj2.apps.titulatec.models import Cohort, EligibilityCheck, EnrollmentRequest
+        from itcj2.apps.titulatec.models import EligibilityCheck, EnrollmentRequest
         from itcj2.apps.titulatec.services.enrollment_request_service import (
             EnrollmentRequestService,
         )
 
-        out = {"checked": 0, "approved": 0, "retried": 0}
+        out = {"checked": 0, "retried": 0}
         if EnrollmentRequestService.reviewer_mode() != "sii":
             return out
         now = now or datetime.now()
         tope = EligibilityService.max_attempts()
-        ventana = timedelta(hours=EligibilityService.delay_hours())
         EC, ER = EligibilityCheck, EnrollmentRequest
 
         q = (db.query(ER.id, EC.status, EC.attempt)
-             .join(Cohort, Cohort.id == ER.cohort_id)
              .outerjoin(EC, EC.id == ER.last_check_id)
              .filter(ER.status == "pending_review")
              .filter(or_(
@@ -717,9 +497,6 @@ class EligibilityService:
                  # Colgada, aunque esté en el tope (revisión final): nadie más
                  # la retoma; se fuerza abajo.
                  and_(EC.status == "pending", EC.started_at < now - _PENDING_STALE),
-                 and_(EC.status == "apt", EC.finished_at <= now - ventana,
-                      ER.review_note.is_(None), Cohort.status == "open",
-                      Cohort.sii_auto_approve.is_(True)),
              )))
         if cohort_id:
             q = q.filter(ER.cohort_id == cohort_id)
@@ -731,22 +508,13 @@ class EligibilityService:
             if max_seconds is not None and time.monotonic() - t0 >= max_seconds:
                 break
             try:
-                if status == "apt":
-                    ok, detalle = EligibilityService.auto_approve(db, req_id, now=now)
-                    out["approved"] += int(ok)
-                    out["retried"] += int(detalle == _MSG_STALE_VERDICT)
-                    continue
                 if status == "pending":
                     chk = EligibilityService.check(db, req_id, force=True)
                 else:
                     chk = EligibilityService.check(
                         db, req_id, attempt=1 if status is None else attempt + 1)
-                if chk is None:
-                    continue
-                out["checked" if status is None else "retried"] += 1
-                req = db.get(ER, req_id)
-                if req is not None and req.status != "pending_review":
-                    out["approved"] += 1
+                if chk is not None:
+                    out["checked" if status is None else "retried"] += 1
             except Exception as exc:  # noqa: BLE001 — una no detiene a las demás
                 db.rollback()
                 logger.warning("SII: el barrido no pudo con la solicitud %s (%s)",
