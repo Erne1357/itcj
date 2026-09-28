@@ -310,37 +310,86 @@ test.describe('ventana cerrada', () => {
    Los dos bloques de abajo mueven la VENTANA de la convocatoria del escenario
    (`opens_at`/`closes_at`), no solo su `status` como hace `setCohortStatus`.
    Cada uno la restaura en su `afterAll` a lo que siembra `_helpers.js`
-   (`opens_at = hoy - 1`, `closes_at = hoy + 30`), que es de lo que dependen
-   todos los demás bloques de este archivo.
+   (`opens_at = hoy - 1` a las 00:00, `closes_at = hoy + 30` a las 23:59:59),
+   que es de lo que dependen todos los demás bloques de este archivo.
+
+   Desde la spec 2026-09-27 §B la ventana es fecha Y hora, NOT NULL: ya no
+   existe la convocatoria «sin tope» (NULL) y el cierre se lee con su hora
+   («… a las 23:59»).
    =========================================================================== */
 
-/** Fija la ventana de la convocatoria del escenario en días RELATIVOS a hoy.
- *  `null` escribe NULL (sin tope), que es como están las convocatorias viejas. */
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+  'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+/** '2026-10-27T23:59:59' → '27 de octubre'. Sin `new Date()`: el ISO es la
+ *  hora LOCAL del contenedor, sin zona, y el runner la movería a la suya. */
+function diaMes(iso) {
+  const [, , m, d] = /^(\d{4})-(\d{2})-(\d{2})T/.exec(iso);
+  return `${parseInt(d, 10)} de ${MESES[parseInt(m, 10) - 1]}`;
+}
+
+/**
+ * Fija la ventana de la convocatoria del escenario en días RELATIVOS a hoy,
+ * como la guarda el panel con la hora vacía (D8): apertura a las 00:00,
+ * cierre a las 23:59:59. «Hoy» es el de `db_now()` en el contenedor, el reloj
+ * con el que `CohortService` evalúa la ventana; nunca `new Date()` del runner:
+ * `toISOString()` da la fecha en UTC y el contenedor vive en hora local, así
+ * que desde las 18:00 (UTC-6) «dentro de 11 días» ya era otro día para cada
+ * uno (medido el 2026-09-27: 2026-10-09 contra 2026-10-08).
+ *
+ * Devuelve lo que QUEDÓ escrito (`{ opensIso, closesIso }`, `isoformat()` de
+ * Python): las aserciones comparan contra eso, no contra una copia calculada
+ * aquí.
+ */
 function setCohortWindow(ctx, { abreEnDias, cierraEnDias, status = 'open' }) {
-  const expr = (d) => (d === null ? 'None' : `date.today() + timedelta(days=${d})`);
-  runInContainer(`
-from datetime import date, timedelta
+  const out = runInContainer(`
+import json
+from datetime import datetime, time, timedelta
+from itcj2.core.utils.timezone import db_now
+from itcj2.database import SessionLocal
+from sqlalchemy import text
+hoy = db_now().date()
+o = datetime.combine(hoy + timedelta(days=${parseInt(String(abreEnDias), 10)}), time(0, 0))
+c = datetime.combine(hoy + timedelta(days=${parseInt(String(cierraEnDias), 10)}), time(23, 59, 59))
+db = SessionLocal()
+try:
+    row = db.execute(text("UPDATE titulatec_cohorts SET status=:s, opens_at=:o, closes_at=:c "
+                          "WHERE id=:id RETURNING opens_at, closes_at"),
+                     {"s": "${status}", "o": o, "c": c, "id": ${ctx.cohortId}}).first()
+    db.commit()
+    print(json.dumps({"opensIso": row[0].isoformat(), "closesIso": row[1].isoformat()}))
+finally:
+    db.close()
+`).trim();
+  return JSON.parse(out);
+}
+
+/** La ventana VIGENTE de la convocatoria del escenario, leída de la base. */
+function cohortWindowFor(ctx) {
+  const out = runInContainer(`
+import json
 from itcj2.database import SessionLocal
 from sqlalchemy import text
 db = SessionLocal()
 try:
-    db.execute(text("UPDATE titulatec_cohorts SET status=:s, opens_at=:o, closes_at=:c WHERE id=:id"),
-               {"s": "${status}", "o": ${expr(abreEnDias)}, "c": ${expr(cierraEnDias)},
-                "id": ${ctx.cohortId}})
-    db.commit()
+    row = db.execute(text("SELECT opens_at, closes_at FROM titulatec_cohorts WHERE id = :id"),
+                     {"id": ${ctx.cohortId}}).first()
+    print(json.dumps({"opensIso": row[0].isoformat(), "closesIso": row[1].isoformat()}))
 finally:
     db.close()
-`);
+`).trim();
+  return JSON.parse(out);
 }
 
 test.describe('ventana cerrada: dice cuándo abre', () => {
   // `status='open'` con `opens_at` en el futuro es el caso REAL del 2026-09-17:
   // `is_public_enrollment_open` la considera cerrada -y hace bien- pero la
   // fecha ya está decidida. Antes la página mandaba a «consultar las fechas».
-  test.beforeAll(() => { setCohortWindow(ctx, { abreEnDias: 11, cierraEnDias: 20 }); });
+  let ventana;
+  test.beforeAll(() => { ventana = setCohortWindow(ctx, { abreEnDias: 11, cierraEnDias: 20 }); });
   test.afterAll(() => { setCohortWindow(ctx, { abreEnDias: -1, cierraEnDias: 30 }); });
 
-  test('muestra la fecha de apertura, la cuenta regresiva y el cierre', async ({ page }) => {
+  test('muestra la fecha de apertura, la cuenta regresiva y el cierre con su hora', async ({ page }) => {
     const res = await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
     expect(res.status()).toBe(200);
 
@@ -348,16 +397,23 @@ test.describe('ventana cerrada: dice cuándo abre', () => {
     await expect(tarjeta).toBeVisible();
     await expect(page.locator('[name="control_number"]')).toHaveCount(0);
 
-    // La fecha viaja también legible por máquina, no solo formateada.
+    // La fecha viaja también legible por máquina, no solo formateada: el ISO
+    // COMPLETO, con hora (spec 2026-09-27 §B3), el mismo que quedó en la base.
     const fecha = tarjeta.locator('time.tt-enroll-closed-date');
     await expect(fecha).toBeVisible();
-    const iso = await fecha.getAttribute('datetime');
-    const esperado = new Date(Date.now() + 11 * 864e5).toISOString().slice(0, 10);
-    expect(iso, 'el <time> no lleva la fecha de apertura en ISO').toBe(esperado);
+    expect(ventana.opensIso, 'la apertura sin hora se guarda a las 00:00').toMatch(/T00:00:00$/);
+    expect(await fecha.getAttribute('datetime'),
+      'el <time> no lleva la apertura en ISO con hora').toBe(ventana.opensIso);
+    // Abrir a las 00:00 se lee natural: el día, sin «a las 00:00».
+    await expect(fecha).toContainText(diaMes(ventana.opensIso));
+    await expect(fecha).not.toContainText('a las');
 
     await expect(tarjeta).toContainText('Faltan 11 días');
     await expect(tarjeta).toContainText('Abre de nuevo el');
-    await expect(tarjeta, 'no dice hasta cuándo se podrá enviar').toContainText('para enviar tu solicitud');
+    // El cierre SIEMPRE lleva la hora; el 23:59:59 guardado se lee «23:59».
+    expect(ventana.closesIso, 'el cierre sin hora se guarda a las 23:59:59').toMatch(/T23:59:59$/);
+    await expect(tarjeta, 'no dice hasta cuándo se podrá enviar').toContainText(
+      `Tendrás hasta el ${diaMes(ventana.closesIso)} a las 23:59 para enviar tu solicitud.`);
     // El nombre de la convocatoria NUNCA sale a la vista pública.
     await expect(tarjeta).not.toContainText(E2E_TAG);
   });
@@ -379,8 +435,13 @@ test.describe('ventana cerrada SIN fecha decidida', () => {
   // Sin ninguna convocatoria `open` con `opens_at` futuro no hay nada que
   // prometer, y la tarjeta cae al texto de siempre. Es el caso que protege de
   // inventarle una fecha al egresado.
+  //
+  // Antes se sembraba con fechas NULL; desde tt20260927b son NOT NULL, así que
+  // el caso se arma con la variante más exigente: una convocatoria que la
+  // jefatura CERRÓ a mano aunque sus fechas sigan en el futuro. Tampoco se
+  // anuncia (`next_public_enrollment_window` solo mira `status='open'`).
   test.beforeAll(() => {
-    setCohortWindow(ctx, { abreEnDias: null, cierraEnDias: null, status: 'closed' });
+    setCohortWindow(ctx, { abreEnDias: 11, cierraEnDias: 20, status: 'closed' });
   });
   test.afterAll(() => { setCohortWindow(ctx, { abreEnDias: -1, cierraEnDias: 30 }); });
 
@@ -449,12 +510,17 @@ test.describe('formulario: layout y objetivos táctiles', () => {
     expect(cajas.form.w, 'el formulario sigue angosto en escritorio').toBeGreaterThanOrEqual(560);
   });
 
-  test('el panel no nombra la convocatoria y sí dice cuándo cierra', async ({ page }) => {
+  test('el panel no nombra la convocatoria y sí dice cuándo cierra, con la hora', async ({ page }) => {
+    const { closesIso } = cohortWindowFor(ctx);
+    expect(closesIso, 'el escenario siembra el cierre a las 23:59:59').toMatch(/T23:59:59$/);
     await page.goto(ENROLL_URL, { waitUntil: 'domcontentloaded' });
 
     const aside = page.locator('.tt-enroll-aside');
     await expect(aside).toBeVisible();
-    await expect(aside).toContainText('Cierra el');
+    // «Cierra el 27 de octubre a las 23:59»: el cierre siempre lleva la hora
+    // (spec 2026-09-27 §B3) y el 23:59:59 guardado se lee «23:59».
+    await expect(aside.locator('.tt-enroll-aside-title').first())
+      .toHaveText(`Cierra el ${diaMes(closesIso)} a las 23:59`);
     await expect(aside).toContainText('Ten a la mano');
     await expect(aside).not.toContainText(E2E_TAG);
   });
