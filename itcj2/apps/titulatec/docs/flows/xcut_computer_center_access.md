@@ -41,8 +41,13 @@ pasa `revisor` al contexto de la plantilla).
 **Modo `sii` = Accesos como respaldo (2026-09-27, spec §A6).** La página se comporta como en el
 oficial (`_OFFICIAL_LIKE = (school_services, sii)` en `pages/access_admin.py`: mismas pestañas,
 acciones, textos y avisos de `_grant_notice`), con su propio encabezado: kicker «Inscripción ·
-Accesos (respaldo)» y «Solicitudes aprobadas por Servicios Escolares a las que el SII no dio NIP:
-captura el NIP de 4 dígitos o devuélvela con nota.». `_mode_block` trata `sii` como el oficial:
+Accesos (respaldo)» y una causa que depende de `sii_configured` (revisión final F4): con el SII
+configurado, «Solicitudes que Servicios Escolares aprobó y a las que el SII no dio NIP»; sin él
+(D11, producción hoy: TODA solicitud sin cuenta que SE aprueba llega aquí), «Solicitudes sin cuenta
+que aprobó Servicios Escolares (el SII no está configurado)». En los dos casos siguen las
+instrucciones del oficial: capturar el NIP de 4 dígitos (llega por correo con el usuario),
+reasignarlo mientras no haya iniciado sesión, la liga si entretanto apareció una cuenta y
+devolver con nota. `_mode_block` trata `sii` como el oficial:
 «Dar acceso», «Devolver» y «Reasignar NIP» valen; «Rechazar» y «Reenviar liga» siguen siendo del
 alterno (400). «Dar acceso» sobre una `pending_review` sigue siendo `grant_access`, que solo acepta
 `awaiting_access` (400 «Esa solicitud ya no está esperando acceso.»): una por revisar es de SE y no

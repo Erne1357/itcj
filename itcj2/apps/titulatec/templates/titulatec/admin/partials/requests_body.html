@@ -46,8 +46,9 @@
    titulatec-utils.js abre `TitulaTecUtils.confirmDialog` con el motivo (el SII
    no dijo «Apta», no hay consulta, el nombre no coincide o no se pudo
    comparar; D7). Es el ÚNICO `hx-confirm` de la bandeja. Con el SII sin
-   configurar (D11) hay un aviso arriba de la tabla, `#tt-req-sii-off`, y ni
-   confirmación ni «Reintentar consulta».
+   configurar (D11) hay un aviso arriba de la tabla, `#tt-req-sii-off`, sin
+   «Reintentar consulta» ni «Se reintenta sola»; solo confirma una consulta
+   VIEJA que marcó «No apta» o la identidad (`_approve_action`).
    Una cuenta desactivada lleva la píldora «Cuenta desactivada: se reactiva al
    abrir la liga» mientras la liga puede abrirse (por revisar o liga enviada):
    abrirla la reactiva, la única escritura sobre la cuenta además de roles y

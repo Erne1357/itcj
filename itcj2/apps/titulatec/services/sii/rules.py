@@ -460,8 +460,10 @@ class RuleSet:
 
         Hoy una: sin `[identity]` que mapee `first_name` y `last_name`, la
         consulta nunca compara el nombre tecleado con el del SII (revisión final
-        C3/C9: falla cerrado), y Servicios Escolares aprueba sin esa
-        comparación en la bandeja.
+        C3/C9: falla cerrado). Ya no condiciona una aprobación sola (retirada
+        el 2026-09-27), sí la confirmación D7: `identity_block` devuelve
+        siempre «No se pudo comparar el nombre con el SII.», así que CADA
+        aprobación de una apta pide confirmación (spec 2026-09-27 A7).
         """
         claves = set(self._identity.columns) if self._identity is not None else set()
         faltan = [k for k in IDENTITY_REQUIRED if k not in claves]
@@ -470,8 +472,8 @@ class RuleSet:
         que = ("no hay [identity]" if self._identity is None
                else f"[identity] no mapea {', '.join(faltan)}")
         return [f"{que}: sin first_name y last_name no se compara el nombre con el "
-                "formulario y Servicios Escolares no verá la comparación del nombre "
-                "al aprobar."]
+                "formulario, así que cada aprobación pedirá confirmación "
+                "(«No se pudo comparar el nombre con el SII»)."]
 
     @property
     def queries(self) -> list[str]:

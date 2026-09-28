@@ -28,8 +28,11 @@ en el historial, compacta. El botón de aprobar lo decide `_approve_action`
 `sii-check`: `EnrollmentRequestService.approval_path`, Ruling R8), y pide
 confirmación (`hx-confirm`) cuando el SII no dijo «Apta» o el nombre no
 coincide (D7). Con el SII sin configurar (D11) hay un aviso de página, sin
-confirmación ni «Reintentar consulta». «Reintentar consulta» (`reconsultar`)
-encola una consulta forzada. El NIP del SII nunca pasa por aquí: la bandeja lee
+«Reintentar consulta» ni «Se reintenta sola»; solo pide confirmación una
+consulta VIEJA que marcó «No apta» o la identidad, y aprobar sin cuenta ES
+pasar a Accesos. «Reintentar consulta» (`reconsultar`) encola una consulta
+forzada. En este modo aprobar responde con un aviso (`_approve_notice`): cuenta
+creada y si el correo salió, pasó a Accesos, o liga enviada. El NIP del SII nunca pasa por aquí: la bandeja lee
 la `EligibilityCheck`, que solo guarda su ESTADO (`nip_status`). En Inscritas,
 una cuenta que nació con el NIP del SII y cuyo correo de acceso no salió lleva
 «correo no enviado» y «Reenviar aviso» (`reenviar-aviso`, D12): el correo no
@@ -72,6 +75,14 @@ _MSG_RECHECK_NOT_QUEUED = "No se pudo solicitar la consulta; intenta de nuevo."
 _MSG_NO_REASON = "Escribe el motivo de la revocación: es lo que el alumno lee."
 _MSG_NOT_ENROLLED = "Esa solicitud no tiene una inscripción que revocar."
 _MSG_NOTICE_RESENT = "Aviso reenviado."
+# Aviso tras aprobar en el modo `sii` (revisión final F9, `_approve_notice`):
+# la fila sale de «Por revisar» y sin él SE no sabría si el correo salió.
+_MSG_ACCOUNT_MAILED = "Cuenta creada (folio {folio}); se le avisó por correo."
+_MSG_ACCOUNT_UNMAILED = ("Cuenta creada (folio {folio}), pero el correo no salió: "
+                         "reenvíalo desde Inscritas.")
+_MSG_TO_ACCESS = "Pasó a Accesos: Centro de Cómputo le capturará el NIP."
+_MSG_LINK_MAILED = "Liga enviada al correo del solicitante."
+_MSG_LINK_UNMAILED = "Liga generada, pero el correo no salió: reenvíala desde Liga enviada."
 # Sigue al motivo de `ApproveResult.detail` cuando el SII no dio un NIP válido
 # al aprobar (modo `sii`, aviso en 200).
 _MSG_NIP_FAILURE_TAIL = "Puedes pasarla a Accesos o reintentar la consulta."
@@ -260,7 +271,9 @@ def _sii_cell(chk, *, has_account: bool, compact: bool, now: datetime,
 
     `retry` = «Se reintenta sola (intento N de M).» en un `error`
     reintentable (el SII no respondió) que no llegó al tope: N es el intento
-    que sigue (lo que se reintenta es la CONSULTA, no una aprobación).
+    que sigue (lo que se reintenta es la CONSULTA, no una aprobación). Solo
+    con el SII configurado, como `can_recheck`: sin él (D11) `check`, `sweep`
+    y `recheck_errors` no hacen nada y nadie la reintentaría.
 
     `nip` = `{label, tone}` del NIP del SII, solo SIN cuenta y fuera del
     historial: con cuenta sale la liga y el NIP del SII no importa.
@@ -299,7 +312,8 @@ def _sii_cell(chk, *, has_account: bool, compact: bool, now: datetime,
         "passed": _rule_messages(leer, ok=True),
         "error": (chk.error or "") if state == "error" else "",
         "retry": (f"Se reintenta sola (intento {chk.attempt + 1} de {max_attempts})."
-                  if state == "error" and chk.retryable and chk.attempt < max_attempts
+                  if (configured and state == "error" and chk.retryable
+                      and chk.attempt < max_attempts)
                   else ""),
         "diffs": diffs,
         "nip": nip,
@@ -363,8 +377,13 @@ def _approve_action(row_ctx: dict, chk, *, configured: bool, requested: bool,
     mostrando ese último veredicto).
 
     `confirm`: el texto de `_approve_confirm` (`requested` = SE acaba de pedir
-    la consulta de esta fila), o `None` con el SII sin configurar (D11): no
-    hay veredicto que discutir.
+    la consulta de esta fila). Con el SII sin configurar (D11) no hay consulta
+    nueva posible: sin consulta, o con una que no terminó o terminó en error,
+    no hay veredicto que discutir (`None`); pero una consulta VIEJA que sí
+    marcó un problema —«No apta» o la identidad sin confirmar
+    (`identity_block`) en una apta— se sigue pintando en la celda (Ruling R10)
+    y pide la MISMA confirmación con su motivo (revisión final F6): con
+    cuenta, aprobar manda la liga al correo tecleado, justo lo que D7 ataja.
     """
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         APPROVAL_LABELS, EnrollmentRequestService,
@@ -372,12 +391,56 @@ def _approve_action(row_ctx: dict, chk, *, configured: bool, requested: bool,
 
     nip_status = chk.nip_status if (configured and chk is not None) else None
     path = EnrollmentRequestService.approval_path(row_ctx["has_account"], nip_status)
+    if configured:
+        confirm = _approve_confirm(chk, now=now, requested=requested)
+    elif chk is not None and chk.status in ("not_apt", "apt"):
+        # Veredicto terminado: `_approve_confirm` da el motivo de «No apta» o
+        # el de `identity_block` (una apta limpia sigue sin confirmación).
+        confirm = _approve_confirm(chk, now=now)
+    else:
+        confirm = None
     return {
         "label": APPROVAL_LABELS[path],
         "to_access": path == "access",
-        "confirm": (_approve_confirm(chk, now=now, requested=requested)
-                    if configured else None),
+        "confirm": confirm,
     }
+
+
+def _approve_notice(db, req, detail: str):
+    """Qué pasó tras aprobar en el modo `sii`: `(mensaje, tipo)` o `None`.
+
+    Mismo patrón que `access_admin._grant_notice`: la fila sale de «Por
+    revisar», así que sin esto SE no sabría si el correo salió. `req` ya viene
+    refrescada tras los commits del servicio (el sello del correo va en uno
+    propio). Nunca lleva el NIP: solo el folio, que ya se pinta en Inscritas.
+
+    - `converted` con `nip_source == "sii"` («Aprobar y dar acceso»): folio y,
+      con `EnrollmentRequestService.access_mail_unsent` (ÚNICO predicado de
+      «correo no enviado»), si el correo de acceso salió.
+    - `awaiting_access` (pasó a Accesos): a dónde fue.
+    - `approved` (liga): si salió (`verify_sent_at`; `_issue_activation` lo
+      pone en NULL al emitir, así que no es el de una liga anterior).
+    """
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    if req.status == "converted" and req.nip_source == "sii":
+        folio = detail
+        if not folio and req.converted_process_id:
+            proc = db.get(TitulationProcess, req.converted_process_id)
+            folio = proc.folio if proc is not None else ""
+        if EnrollmentRequestService.access_mail_unsent(req):
+            return _MSG_ACCOUNT_UNMAILED.format(folio=folio), "warning"
+        return _MSG_ACCOUNT_MAILED.format(folio=folio), "success"
+    if req.status == "awaiting_access":
+        return _MSG_TO_ACCESS, "success"
+    if req.status == "approved":
+        if req.verify_sent_at is not None:
+            return _MSG_LINK_MAILED, "success"
+        return _MSG_LINK_UNMAILED, "warning"
+    return None
 
 
 def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None = None):
@@ -671,7 +734,14 @@ async def approve(req_id: int, request: Request,
     («Aprobar y pasar a Accesos»). Si en `sii` el SII no da un NIP válido al
     aprobar, responde 200 con la bandeja re-pintada y el motivo en
     `X-Tt-Notice` (warning): un 4xx no dejaría a HTMX re-pintar la fila, que
-    ya ofrece Accesos. Cualquier otro fallo, 400 + `X-Tt-Error`.
+    ya ofrece Accesos. Cualquier otro fallo, 400 + `X-Tt-Error`. Con el SII
+    sin configurar (D11) aprobar sin cuenta ES pasar a Accesos
+    (`approve_detailed`, revisión final F8).
+
+    En el modo `sii` un éxito lleva además `X-Tt-Notice` con lo que pasó
+    (`_approve_notice`, revisión final F9): cuenta creada con su folio y si
+    el correo salió, pasó a Accesos, o liga enviada / sin enviar. Los modos
+    oficial y alterno quedan sin aviso, como siempre.
 
     La ruta no lee `nip`: un formulario viejo en caché que lo mande se ignora,
     y el NIP nunca aparece en un log ni en una cabecera (los motivos del
@@ -688,13 +758,15 @@ async def approve(req_id: int, request: Request,
     to_access = (form.get("to_access") or "").strip() == "1"
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
 
+    aviso = None
     db = SessionLocal()
     try:
         uid = int(user["sub"])
         # Alcance por carrera (Finding 1, ronda 1 de revisión): 404 liso, sin
         # `X-Tt-Error`, para que "no existe" y "no es tuya" sean indistinguibles.
         scope = _officer_scope(db, uid)
-        if _load_scoped_request(db, scope, req_id) is None:
+        req = _load_scoped_request(db, scope, req_id)
+        if req is None:
             return Response(status_code=404)
         if program_id and not _program_in_scope(scope, program_id):
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(
@@ -726,14 +798,21 @@ async def approve(req_id: int, request: Request,
             # `detail` nunca contiene el NIP, y `approve_detailed` no deja nada
             # escrito cuando falla (invariante de su docstring).
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(result.detail)})
+        if result.ok and EnrollmentRequestService.reviewer_mode() == "sii":
+            # Tras los commits del servicio (el sello del correo va en uno
+            # propio): el estado y los sellos que decide el aviso.
+            db.refresh(req)
+            aviso = _approve_notice(db, req, result.detail)
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort)
     finally:
         db.close()
     resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
     if result.nip_failure:
         # Nada escrito de la solicitud; su consulta ya dice el estado del NIP.
-        resp.headers["X-Tt-Notice"] = _hdr(f"{result.detail} {_MSG_NIP_FAILURE_TAIL}")
-        resp.headers["X-Tt-Notice-Kind"] = "warning"
+        aviso = (f"{result.detail} {_MSG_NIP_FAILURE_TAIL}", "warning")
+    if aviso is not None:
+        resp.headers["X-Tt-Notice"] = _hdr(aviso[0])
+        resp.headers["X-Tt-Notice-Kind"] = aviso[1]
     return resp
 
 

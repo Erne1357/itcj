@@ -71,7 +71,8 @@ class TestSiiRulesValidate:
         res = _run("sii-rules-validate", "--dir", str(tmp_path))
         assert res.exit_code == 0, res.output
         assert "Advertencia" in res.output and "[identity]" in res.output
-        assert "Servicios Escolares no verá la comparación del nombre" in res.output
+        assert "cada aprobación pedirá confirmación" in res.output
+        assert "No se pudo comparar el nombre con el SII" in res.output
         assert "aprobará sola" not in res.output
 
     def test_carpeta_sin_reglas(self, sii, tmp_path):

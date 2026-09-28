@@ -709,8 +709,11 @@ class TestAdvertencias:
         avisos = rs.advisories()
         assert len(avisos) == 1
         assert "[identity]" in avisos[0] and "first_name" in avisos[0]
-        # Spec 2026-09-27: ya no condiciona una aprobación sola (se retiró).
-        assert "Servicios Escolares no verá la comparación del nombre" in avisos[0]
+        # Spec 2026-09-27 A7: ya no condiciona una aprobación sola (se retiró),
+        # sí la confirmación D7: sin comparar el nombre, CADA aprobación la pide.
+        assert "no se compara el nombre con el formulario" in avisos[0]
+        assert ("cada aprobación pedirá confirmación "
+                "(«No se pudo comparar el nombre con el SII»)") in avisos[0]
         assert "aprobará sola" not in avisos[0]
 
     def test_identity_sin_apellido_paterno_advierte(self, tmp_path):

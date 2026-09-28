@@ -122,12 +122,16 @@ test('la fila "Accesos" existe en el menú, es la única que ve Centro de Cómpu
   await expect(solicitudes, 'Solicitudes no debe ser visible para Centro de Cómputo')
     .toHaveCount(0);
 
-  // Modo `sii` (el por omisión): la cabecera dice que esto es el RESPALDO de
-  // Servicios Escolares para quien el SII no dio NIP, y ya no queda el aviso
-  // de "Accesos no participa" que tenía este modo antes de la spec 2026-09-27.
+  // Modo `sii` (el por omisión) con el SII SIN configurar (el contenedor): la
+  // cabecera no culpa al SII —nadie lo consultó, TODA solicitud sin cuenta
+  // aprobada llega aquí— y da las instrucciones del oficial (revisión final
+  // F4). Ya no queda el aviso de "Accesos no participa" que tenía este modo
+  // antes de la spec 2026-09-27.
   await expect(page.getByText('Inscripción · Accesos (respaldo)')).toBeVisible();
   await expect(page.getByText(
-    'Solicitudes aprobadas por Servicios Escolares a las que el SII no dio NIP')).toBeVisible();
+    'Solicitudes sin cuenta que aprobó Servicios Escolares (el SII no está configurado)'))
+    .toBeVisible();
+  await expect(page.getByText('a las que el SII no dio NIP')).toHaveCount(0);
   await expect(page.locator('#tt-access-sii'), 'el aviso del modo sii inerte ya no existe')
     .toHaveCount(0);
 

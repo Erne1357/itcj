@@ -72,7 +72,7 @@ símbolo del servicio retirado vuelve a aparecer en un `.py`.
    - las **reglas incumplidas** con su `message` de `rules.toml` (abiertas) y las cumplidas
      plegadas («N reglas cumplidas»); el texto del error, y «Se reintenta sola (intento N de M).»
      en un error reintentable bajo el tope (N es el intento que sigue: lo que se reintenta es la
-     CONSULTA);
+     CONSULTA) — solo con el SII configurado: sin él nadie la reintenta;
    - «Diferencias con el SII»: «Nombre: «…» en el formulario, «…» en el SII» (nombre, apellidos,
      carrera);
    - solo **sin cuenta**, la píldora del NIP: «NIP en el SII: disponible» · «El SII no tiene NIP» ·
@@ -105,7 +105,11 @@ símbolo del servicio retirado vuelve a aparecer en un `.py`.
    apta» («El SII dijo «No apta»: motivo; motivo.»); o es apta pero el nombre no coincide o no se
    pudo comparar (`identity_block`). Todos terminan en «¿Aprobar de todos modos?». Una apta con el
    nombre confirmado no pregunta; una carrera distinta tampoco (el SII la manda como clave). Con el
-   SII sin configurar no hay confirmación: no hay veredicto que discutir.
+   SII sin configurar no hay consulta nueva: sin consulta, o con una en curso/colgada/en error, no
+   hay confirmación (no hay veredicto que discutir); pero una consulta **vieja** que marcó «No apta»
+   o la identidad sin confirmar en una apta se sigue pintando en la celda (Ruling R10) y pide la
+   misma confirmación con su motivo (revisión final F6: con cuenta, aprobar manda la liga al correo
+   tecleado).
 6. 🏛️ Pestañas de historial (**En Cómputo**, **Liga enviada**, **Inscritas**, **Rechazadas**) → la
    columna SII en forma **compacta** (`.tt-sii--compact`): la píldora y «N reglas incumplidas»
    plegadas, de la consulta vigente. En **Todas**, las filas pendientes van completas. «En Cómputo»
@@ -178,9 +182,9 @@ sequenceDiagram
 | 2 | 🤖 | celery | Consultar | `titulatec.sii_check_request(req_id, attempt=1, force=False)` | `EligibilityService.check` | fase ①: fila `pending` + `last_check_id`; fase ③: `status`, `rules_version`, `results`, `facts`, `identity_mismatch`, `error`, `retryable`, **`nip_status`**, `finished_at`, `duration_ms` | Reintento con `self.retry` (60 s × 2^(n-1), tope 1 h) **solo** si `retryable` y `attempt < max_attempts()`. Nunca aprueba |
 | 3 | 🤖 | beat | Barrer | `titulatec.sii_sweep()` cada 10 min (`soft_time_limit=540`, presupuesto 480 s) | `EligibilityService.sweep` | ver [Barrido](#barrido-periódico) | — |
 | 4 | 🏛️ | Solicitudes, fila `pending_review` | Reintentar consulta | `POST /titulatec/admin/solicitudes/{id}/reconsultar` (`api.approve`) | `enqueue_check(req.id, force=True)` | nada propio (la fila la abre la tarea bajo lock) | 200 + parcial (la fila ya dice «Consultando…») + `X-Tt-Notice` «Consulta al SII solicitada: el veredicto aparece al terminar.» |
-| 5a | 🏛️ | fila **con cuenta** | Aprobar y enviar liga | `POST …/{id}/aprobar` (en `run_in_threadpool`: no congela el event loop) | `approve_detailed` → `_approve_locked` | → `approved`; token (hash) + 21 días; `reviewed_by_id/at`. La cuenta no se toca | `send_verify_enrollment` → personal, tras el commit |
-| 5b | 🏛️ | fila **sin cuenta**, `nip_status = available` | Aprobar y dar acceso | `POST …/{id}/aprobar` | `approve_detailed` → `_sii_nip_unlocked` (el NIP se pide **sin** lock) → revalida → `_approve_locked` → `_create_account_with_sii_nip` | `core_users` (`hash_nip(NIP del SII)`, `must_change_password=False`, `role_id = graduate`) + `import_rows` (proceso + roles `graduate`) + perfil; solicitud → `converted`, `nip_source = 'sii'`, `access_granted_by_id/at` = SE, `reviewed_by_id/at` | `ProcessEvent(enrollment_self_service)` con `activation=nip_personal_email`, `approved_by_id`, `granted_by_id` y `nip_source: "sii"`, sin el NIP; caché de authz tras el commit; `send_enrollment_approved(nip_source="sii")` → personal, **sin NIP** («Entra con tu número de control y tu NIP del SII»); sella `access_sent_at` si sale |
-| 5c | 🏛️ | fila **sin cuenta**, cualquier otro caso | Aprobar y pasar a Accesos | `POST …/{id}/aprobar` con `to_access=1` | `approve_detailed(to_access=True)` → `_approve_locked` | → `awaiting_access`, `program_id`, `reviewed_by_id/at`; **sin** usuario ni correo; el SII **no** se consulta | — (Accesos le da el NIP: ⤵ [Accesos](xcut_computer_center_access.md)) |
+| 5a | 🏛️ | fila **con cuenta** | Aprobar y enviar liga | `POST …/{id}/aprobar` (en `run_in_threadpool`: no congela el event loop) | `approve_detailed` → `_approve_locked` | → `approved`; token (hash) + 21 días; `reviewed_by_id/at`. La cuenta no se toca | `send_verify_enrollment` → personal, tras el commit; 200 + `X-Tt-Notice` «Liga enviada al correo del solicitante.» (*warning* si no salió: «Liga generada, pero el correo no salió: reenvíala desde Liga enviada.») |
+| 5b | 🏛️ | fila **sin cuenta**, `nip_status = available` | Aprobar y dar acceso | `POST …/{id}/aprobar` | `approve_detailed` → `_sii_nip_unlocked` (el NIP se pide **sin** lock) → revalida → `_approve_locked` → `_create_account_with_sii_nip` | `core_users` (`hash_nip(NIP del SII)`, `must_change_password=False`, `role_id = graduate`) + `import_rows` (proceso + roles `graduate`) + perfil; solicitud → `converted`, `nip_source = 'sii'`, `access_granted_by_id/at` = SE, `reviewed_by_id/at` | `ProcessEvent(enrollment_self_service)` con `activation=nip_personal_email`, `approved_by_id`, `granted_by_id` y `nip_source: "sii"`, sin el NIP; caché de authz tras el commit; `send_enrollment_approved(nip_source="sii")` → personal, **sin NIP** («Entra con tu número de control y tu NIP del SII»); sella `access_sent_at` si sale; 200 + `X-Tt-Notice` «Cuenta creada (folio X); se le avisó por correo.» (*warning* si no salió, `access_mail_unsent`: «Cuenta creada (folio X), pero el correo no salió: reenvíalo desde Inscritas.») |
+| 5c | 🏛️ | fila **sin cuenta**, cualquier otro caso | Aprobar y pasar a Accesos | `POST …/{id}/aprobar` con `to_access=1` | `approve_detailed(to_access=True)` → `_approve_locked` | → `awaiting_access`, `program_id`, `reviewed_by_id/at`; **sin** usuario ni correo; el SII **no** se consulta | 200 + `X-Tt-Notice` «Pasó a Accesos: Centro de Cómputo le capturará el NIP.» (Accesos le da el NIP: ⤵ [Accesos](xcut_computer_center_access.md)). Con el SII sin configurar, aprobar **sin** `to_access` es esto mismo (F8) |
 | 5d | 🏛️ | como 5b, pero el SII ya no da un NIP válido | (el mismo clic) | `POST …/{id}/aprobar` | `approve_detailed` → `ApproveResult(False, motivo, nip_failure)` → `EligibilityService.record_nip_status` | **nada** de la solicitud; la consulta vigente guarda el `nip_status` visto (transacción propia y corta, solo si `last_check_id` sigue siendo esa) | **200** + bandeja re-pintada (la fila ya ofrece «Aprobar y pasar a Accesos») + `X-Tt-Notice` *warning*: «<motivo> Puedes pasarla a Accesos o reintentar la consulta.» |
 | 6 | 🏛️ | Solicitudes | Rechazar | `POST …/{id}/rechazar` | `reject` | igual que el modo oficial | `send_enrollment_rejected`, firmado «Servicios Escolares» |
 | 7 | 🏛️ | Inscritas, «correo no enviado» | Reenviar aviso | `POST /titulatec/admin/solicitudes/{id}/reenviar-aviso` (`api.approve`, `_load_scoped_request`) | `resend_access_notice` (lock + refresh; exige `converted`, `nip_source = 'sii'`, `access_sent_at` nulo y que la cuenta del control sea la dueña de `converted_process_id`) | ninguna credencial; `access_sent_at` si el correo sale | `send_enrollment_approved(nip_source="sii")` → personal, sin NIP; 200 + `X-Tt-Notice` «Aviso reenviado.» |
@@ -259,12 +263,19 @@ criterio es `EligibilityService.sii_configured()` (`SiiConfig.backend() != "disa
   `sii-sweep` imprime «El SII no está configurado (TITULATEC_SII_BACKEND=disabled); no se consultó
   nada.» y sale 0;
 - `POST …/reconsultar` responde 400 «El SII no está configurado.» antes de abrir sesión;
-- la bandeja pinta el aviso `#tt-req-sii-off`, sin «Reintentar consulta» ni confirmación D7, y toda
+- la bandeja pinta el aviso `#tt-req-sii-off`, sin «Reintentar consulta», sin «Se reintenta sola» y
+  sin confirmación D7 salvo que una consulta vieja marque «No apta» o la identidad (F6), y toda
   fila **sin cuenta** ofrece «Aprobar y pasar a Accesos» (Ruling R10: aunque una consulta vieja
   diga `available`; la celda sí sigue mostrando ese último veredicto). Con cuenta, «Aprobar y
   enviar liga» como siempre;
-- un POST directo de «dar acceso» (sin `to_access`) le pediría el NIP a un SII que no hay:
-  `SiiUnavailable` → `unavailable` → 200 + aviso, sin escribir nada de la solicitud.
+- aprobar **sin** `to_access` una solicitud sin cuenta (la página del modo oficial abierta el día
+  del deploy, con su «Aprobar y pasar a Cómputo», o una vieja en caché con «dar acceso») ES pasarla
+  a Accesos (`approve_detailed` fuerza `to_access`, revisión final F8): `awaiting_access`, 200 +
+  «Pasó a Accesos…», sin pedirle el NIP a un SII que no hay ni dejar un WARNING por clic. Con
+  cuenta, la liga como siempre (decidido bajo el lock);
+- las cabeceras lo dicen: Solicitudes, «El SII todavía no está configurado: tú revisas cada
+  solicitud…»; Accesos, «Solicitudes sin cuenta que aprobó Servicios Escolares (el SII no está
+  configurado)…» con las instrucciones del modo oficial (F4).
 
 Al configurarlo (backend `odbc` + reinicio), el barrido toma toda `pending_review` sin consulta
 vigente como su **primera consulta**: no hace falta `--reconsultar-errores`.
@@ -401,9 +412,8 @@ vea nada): `docker compose exec celery-worker python -m itcj2.cli.main titulatec
 
 - `sii-ping` — backend y latencia; exit 1 si no responde.
 - `sii-rules-validate [--dir RUTA]` — reglas + advertencias. Sin `[identity]` que mapee
-  `first_name`/`last_name` advierte (exit 0) que no se comparará el nombre y Servicios Escolares no
-  verá esa comparación al aprobar: toda apta pedirá confirmación con «No se pudo comparar el nombre
-  con el SII.».
+  `first_name`/`last_name` advierte (exit 0) que no se compara el nombre con el formulario, así que
+  cada aprobación pedirá confirmación («No se pudo comparar el nombre con el SII»).
 - `sii-check <control> [--cohort ID]` — dry-run: veredicto por regla, hechos, identidad,
   advertencias y `NIP: <estado> — <detalle>` (`disponible` · `no tiene` · `formato inválido` ·
   `no se pudo leer (el SII no respondió)` · `error de configuración` · `sin revisar`; el valor

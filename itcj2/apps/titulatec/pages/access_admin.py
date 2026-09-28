@@ -22,7 +22,9 @@ Modo (`EnrollmentRequestService.reviewer_mode()`):
   pasa aquí (`approve(to_access=True)` -> `awaiting_access`). Accesos es el
   RESPALDO y opera como en el oficial (`_OFFICIAL_LIKE`): mismas pestañas,
   mismas acciones. «Con acceso» deja fuera las cuentas que nacieron con el NIP
-  del SII (`nip_source == "sii"`): CC no intervino en ellas.
+  del SII (`nip_source == "sii"`): CC no intervino en ellas. Con el SII sin
+  configurar (D11) no es un respaldo sino el único camino: TODA solicitud sin
+  cuenta que SE aprueba llega aquí, y la cabecera lo dice (`sii_configured`).
 
 «Dar acceso» y «Reasignar NIP» responden el parcial con un aviso `X-Tt-Notice`
 (folio y si el correo salió, `_grant_notice`): la fila sale de la pestaña en
@@ -208,6 +210,7 @@ def _body_ctx(db, *, status, cohort_id):
     from itcj2.core.models.program import Program
     from itcj2.core.models.user import User
     from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest, TitulationProcess
+    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService, entry_year,
     )
@@ -216,8 +219,12 @@ def _body_ctx(db, *, status, cohort_id):
     tab = _tab(mode, status)
     # `official`: SE aprueba y CC solo da el acceso (oficial y `sii`); `sii`
     # solo cambia la cabecera de la página (Accesos como respaldo).
+    # `sii_configured` (D11): con el SII sin configurar TODA solicitud sin
+    # cuenta que SE aprueba llega aquí, no solo «a las que el SII no dio NIP»;
+    # la cabecera dice la causa real (revisión final F4).
     ctx = {"sii": mode == _SII, "rows": [], "status": tab, "tabs": _TABS[mode],
            "cohort_id": cohort_id, "mode": mode, "official": mode in _OFFICIAL_LIKE,
+           "sii_configured": EligibilityService.sii_configured(),
            "programs": [], "link_days": EnrollmentRequestService.link_ttl_days()}
 
     if not ctx["official"]:

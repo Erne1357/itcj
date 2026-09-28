@@ -976,7 +976,14 @@ MSG_NIP_FALLA = {
     "error": "No se pudo leer el NIP en el SII (revisa la configuración de las reglas).",
 }
 AVISO_ACCESOS = "Puedes pasarla a Accesos o reintentar la consulta."
+AVISO_PASO_A_ACCESOS = "Pasó a Accesos: Centro de Cómputo le capturará el NIP."
 NIP_RARO = "12345"
+
+
+def _aviso(resp) -> tuple[str, str]:
+    """`(X-Tt-Notice, X-Tt-Notice-Kind)` ya decodificado; `("", "")` sin aviso."""
+    return (unquote(resp.headers.get("X-Tt-Notice", "")),
+            resp.headers.get("X-Tt-Notice-Kind", ""))
 
 
 @pytest.fixture()
@@ -1299,37 +1306,66 @@ class TestModoSiiSEDecide:
         assert espia_correo == []
         assert chk.nip_status == "missing"
 
-    def test_ruta_aprobar_sin_sii_configurado_avisa_y_no_truena(
-        self, client_as, db_session, make_head, make_cohort, sii, espia_correo,
+    def test_ruta_aprobar_sin_sii_configurado_pasa_a_accesos(
+        self, client_as, db_session, make_head, make_cohort, sii, espia_correo, pide_nip,
+        caplog,
     ):
-        """Review Focus 1 por la ruta: con el SII sin configurar (D11) un POST
-        de aprobar SIN `to_access` de una fila sin cuenta (p. ej. una página
-        vieja que aún ofrecía «dar acceso») no es 400 ni 500: 200 + aviso
-        warning (el SII «no respondió»: `unavailable`), nada escrito, y la fila
-        re-pintada ofrece «Aprobar y pasar a Accesos»."""
+        """Review Focus 1 por la ruta (revisión final F8, D11): con el SII sin
+        configurar, un POST de aprobar SIN `to_access` de una fila sin cuenta
+        (el botón «Aprobar y pasar a Cómputo» de una página pintada por el modo
+        oficial el día del deploy, o una vieja que aún ofrecía «dar acceso») ES
+        pasarla a Accesos: termina `awaiting_access`, 200 sin aviso de error, y
+        nunca se le pide el NIP a un SII que no hay (ni un WARNING por clic)."""
         sii.backend = "disabled"
         head = make_head(perm_codes=LIST_PERMS)
         cohort = make_cohort(status="open")
         control = "99552012"
         req = _make_req(db_session, cohort, control=control)
 
-        resp = client_as(head).post(
-            f"{URL}/{req.id}/aprobar",
-            data={"program_id": "", "status": "pending_review", "cohort_id": str(cohort.id)})
+        with caplog.at_level("WARNING"):
+            resp = client_as(head).post(
+                f"{URL}/{req.id}/aprobar",
+                data={"program_id": "", "status": "pending_review",
+                      "cohort_id": str(cohort.id)})
 
         assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
         assert "X-Tt-Error" not in resp.headers
-        assert resp.headers["X-Tt-Notice-Kind"] == "warning"
-        assert unquote(resp.headers["X-Tt-Notice"]) == (
-            f"{MSG_NIP_FALLA['unavailable']} {AVISO_ACCESOS}")
-        fila = _fila_repintada(resp.text, req)
-        assert "Aprobar y pasar a Accesos" in fila
-        assert '<input type="hidden" name="to_access" value="1">' in fila
+        # Sin aviso de error: el de éxito de pasar a Accesos (F9).
+        assert _aviso(resp) == (AVISO_PASO_A_ACCESOS, "success")
+        assert pide_nip == [], "sin SII configurado no se le pide el NIP"
+        assert not [r for r in caplog.records if r.levelname == "WARNING"], caplog.text
+        assert f'id="tt-req-{req.id}"' not in resp.text, "salió de «Por revisar»"
         db_session.refresh(req)
-        assert req.status == "pending_review" and req.reviewed_by_id is None
+        assert req.status == "awaiting_access" and req.reviewed_by_id == head.id
         assert req.last_check_id is None, "sin SII no se abre ninguna consulta"
         assert _usuario(db_session, control) is None
-        assert espia_correo == []
+        assert espia_correo == [], "el alumno no se entera del paso intermedio"
+
+    def test_sin_sii_configurado_aprobar_sin_to_access_es_pasar_a_accesos(
+        self, db_session, make_cohort, make_user, sii, espia_correo, pide_nip,
+    ):
+        """F8 en el servicio: la decisión es de `approve_detailed`, bajo el
+        lock. Sin cuenta → `awaiting_access` como con `to_access=True`; con
+        cuenta, la liga de siempre (el SII no se consulta en ningún caso)."""
+        sii.backend = "disabled"
+        se = make_user()
+        cohort = make_cohort(status="open")
+        sin_cuenta = _make_req(db_session, cohort, control="99552013")
+        _cuenta(db_session, "99552014")
+        con_cuenta = _make_req(db_session, cohort, control="99552014")
+
+        res_sin = _ers().approve_detailed(db_session, sin_cuenta.id, nip="", program_id=None,
+                                          actor_id=se.id)
+        res_con = _ers().approve_detailed(db_session, con_cuenta.id, nip="", program_id=None,
+                                          actor_id=se.id)
+
+        assert res_sin == (True, "", None)
+        assert sin_cuenta.status == "awaiting_access" and sin_cuenta.reviewed_by_id == se.id
+        assert sin_cuenta.nip_source is None and _usuario(db_session, "99552013") is None
+        assert res_con == (True, "", None)
+        assert con_cuenta.status == "approved" and con_cuenta.verify_token_hash is not None
+        assert pide_nip == []
+        assert [n for n, _ in espia_correo] == ["send_verify_enrollment"]
 
     def test_ruta_aprobar_con_to_access(
         self, client_as, db_session, make_head, make_cohort, sii, espia_correo, pide_nip,
@@ -1345,11 +1381,96 @@ class TestModoSiiSEDecide:
                   "cohort_id": str(cohort.id)})
 
         assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
-        assert "X-Tt-Notice" not in resp.headers
+        # Revisión final (F9): la fila sale de «Por revisar»; el aviso dice a dónde.
+        assert _aviso(resp) == (AVISO_PASO_A_ACCESOS, "success")
         db_session.refresh(req)
         assert req.status == "awaiting_access" and req.reviewed_by_id == head.id
         assert _usuario(db_session, "99552009") is None
         assert pide_nip == [] and espia_correo == []
+
+    # -- aviso tras aprobar (revisión final F9) --------------------------------
+    @pytest.mark.parametrize("sale", [True, False], ids=["correo_sale", "correo_no_sale"])
+    def test_ruta_aprobar_y_dar_acceso_avisa_el_folio_y_si_salio_el_correo(
+        self, client_as, db_session, make_head, make_cohort, sii, monkeypatch, sale,
+    ):
+        """«Aprobar y dar acceso» saca la fila de «Por revisar»: sin aviso SE no
+        sabría si el correo de acceso salió (patrón de `access_admin._grant_notice`,
+        con `access_mail_unsent` como único predicado). Nunca el NIP."""
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+        monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved",
+                            staticmethod(lambda *a, **k: sale))
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        control = "99552015"
+        req = _make_req(db_session, cohort, control=control)
+        sii.alumno(control, nip="3571")
+
+        resp = client_as(head).post(
+            f"{URL}/{req.id}/aprobar",
+            data={"program_id": "", "status": "pending_review", "cohort_id": str(cohort.id)})
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        db_session.refresh(req)
+        assert (req.status, req.nip_source) == ("converted", "sii")
+        folio = db_session.get(TitulationProcess, req.converted_process_id).folio
+        if sale:
+            assert _aviso(resp) == (
+                f"Cuenta creada (folio {folio}); se le avisó por correo.", "success")
+        else:
+            assert req.access_sent_at is None, "premisa: el correo no salió"
+            assert _aviso(resp) == (
+                f"Cuenta creada (folio {folio}), pero el correo no salió: reenvíalo "
+                "desde Inscritas.", "warning")
+        assert "3571" not in resp.headers.get("X-Tt-Notice", "")
+
+    @pytest.mark.parametrize("sale", [True, False], ids=["correo_sale", "correo_no_sale"])
+    def test_ruta_aprobar_con_cuenta_avisa_si_salio_la_liga(
+        self, client_as, db_session, make_head, make_cohort, sii, monkeypatch, sale,
+    ):
+        from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+        monkeypatch.setattr(TitulaTecEmailHelper, "send_verify_enrollment",
+                            staticmethod(lambda *a, **k: sale))
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        control = "99552016"
+        _cuenta(db_session, control)
+        req = _make_req(db_session, cohort, control=control)
+
+        resp = client_as(head).post(
+            f"{URL}/{req.id}/aprobar",
+            data={"program_id": "", "status": "pending_review", "cohort_id": str(cohort.id)})
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        db_session.refresh(req)
+        assert req.status == "approved"
+        if sale:
+            assert _aviso(resp) == ("Liga enviada al correo del solicitante.", "success")
+        else:
+            assert req.verify_sent_at is None, "premisa: el correo no salió"
+            assert _aviso(resp) == (
+                "Liga generada, pero el correo no salió: reenvíala desde Liga enviada.",
+                "warning")
+
+    def test_modo_oficial_aprobar_sigue_sin_aviso(
+        self, client_as, db_session, make_head, make_cohort, espia_correo, monkeypatch,
+    ):
+        """Los avisos de F9 son del modo `sii`: el oficial queda sin cambios."""
+        monkeypatch.setattr(_ers(), "reviewer_mode", staticmethod(lambda: "school_services"))
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        req = _make_req(db_session, cohort, control="99552017")
+
+        resp = client_as(head).post(
+            f"{URL}/{req.id}/aprobar",
+            data={"program_id": "", "status": "pending_review", "cohort_id": str(cohort.id)})
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        db_session.refresh(req)
+        assert req.status == "awaiting_access"
+        assert "X-Tt-Notice" not in resp.headers
 
     @pytest.mark.parametrize("nip,estado", [("8642", "converted"), ("86421", "pending_review")],
                              ids=["dar_acceso", "formato_invalido"])

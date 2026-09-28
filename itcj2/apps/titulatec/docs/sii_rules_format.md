@@ -126,8 +126,8 @@ Solo nombres simples: `{a.b}` o `{a[0]}` no se evalúan.
   columna «SII». El apellido materno es opcional; una carrera distinta se muestra pero no pide
   confirmación (el SII suele mandarla como clave).
 - `sii-rules-validate` **advierte** (exit 0) si `[identity]` falta o no mapea `first_name` y
-  `last_name`: las reglas son válidas, pero no se comparará el nombre con el formulario y
-  Servicios Escolares no verá esa comparación al aprobar.
+  `last_name`: las reglas son válidas, pero no se compara el nombre con el formulario, así que
+  **cada aprobación pedirá confirmación** («No se pudo comparar el nombre con el SII»).
 
 ### Credencial (NIP)
 

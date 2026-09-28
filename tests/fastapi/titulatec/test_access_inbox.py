@@ -1314,8 +1314,26 @@ def test_un_control_sin_ano_de_ingreso_no_dice_ingreso_sin_ano(
 # -> `awaiting_access`) y aquí CC opera como en el modo oficial: mismas pestañas
 # y acciones. Rechazar y reenviar la liga siguen siendo solo del alterno.
 # `modo_sii` vive en conftest.py; `sii` (el SII falso) en `_sii_fake.py`.
-CABECERA_SII = ("Solicitudes aprobadas por Servicios Escolares a las que el SII no dio "
-                "NIP: captura el NIP de 4 dígitos o devuélvela con nota.")
+# Revisión final (F4): la causa depende de si el SII está configurado, y las
+# instrucciones de operación son las del oficial (Accesos opera igual).
+CABECERA_SII = "Solicitudes que Servicios Escolares aprobó y a las que el SII no dio NIP"
+CABECERA_SII_OFF = ("Solicitudes sin cuenta que aprobó Servicios Escolares (el SII no está "
+                    "configurado)")
+INSTRUCCIONES_ACCESOS = (
+    "captura su NIP de 4 dígitos y le llega por correo con su usuario",
+    "Mientras nunca haya iniciado sesión puedes reasignarle el NIP",
+    "Si entretanto apareció una cuenta con ese número de control, se le envía una liga "
+    "de activación",
+    "devuélvela a Servicios Escolares con una nota",
+)
+
+
+@pytest.fixture()
+def sii_configurado(monkeypatch):
+    """Un backend que no es `disabled` (el del contenedor lo es)."""
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig
+
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "fake"))
 MSG_SOLO_ALTERNO = "En este modo rechazar y reenviar la liga son de Servicios Escolares."
 
 
@@ -1333,6 +1351,7 @@ def _pasar_a_accesos(client_as, se, req, cohort) -> None:
 
 def test_en_modo_sii_por_dar_acceso_lista_lo_que_se_paso(
     client_as, db_session, make_cc, make_head, make_cohort, correo_falso, modo_sii,
+    sii_configurado,
 ):
     """Lo que SE pasó a Accesos es la cola de CC, FIFO por la aprobación de SE;
     lo que sigue en revisión de SE no. Antes: solo el aviso `#tt-access-sii`,
@@ -1353,6 +1372,9 @@ def test_en_modo_sii_por_dar_acceso_lista_lo_que_se_paso(
     texto = _plano(resp.text)
     assert "Inscripción · Accesos (respaldo)" in texto
     assert CABECERA_SII in texto
+    for instruccion in INSTRUCCIONES_ACCESOS:
+        assert instruccion in texto, instruccion
+    assert CABECERA_SII_OFF not in texto
     assert "Egresados sin cuenta cuya solicitud ya aprobó" not in texto
     assert 'id="tt-access-sii"' not in resp.text
     posiciones = [texto.index(p) for p in OFICIAL]
@@ -1379,7 +1401,7 @@ def test_en_modo_sii_por_dar_acceso_lista_lo_que_se_paso(
 
 
 def test_en_modo_sii_el_landing_de_centro_de_computo_abre(
-    client_as, make_cc, modo_sii,
+    client_as, make_cc, modo_sii, sii_configurado,
 ):
     """Menú y landing sin cambios: `titulatec_computer_center` aterriza en Accesos."""
     from itcj2.apps.titulatec.pages.nav import resolve_dashboard_url
@@ -1390,6 +1412,33 @@ def test_en_modo_sii_el_landing_de_centro_de_computo_abre(
     assert destino == URL
     assert resp.status_code == 200, resp.text[:500]
     assert CABECERA_SII in _plano(resp.text)
+
+
+def test_en_modo_sii_sin_sii_configurado_la_cabecera_no_culpa_al_sii(
+    client_as, make_cc, modo_sii, monkeypatch,
+):
+    """Revisión final (F4): con el SII sin configurar (D11, producción hoy) no
+    se consulta a nadie: TODA solicitud sin cuenta que SE aprueba llega aquí.
+    La cabecera no dice «a las que el SII no dio NIP» (Centro de Cómputo
+    creería que el SII no tiene su NIP) y conserva las instrucciones del
+    oficial: capturar el NIP, reasignarlo, la liga si apareció una cuenta y
+    devolver con nota."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig
+
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "disabled"))
+    monkeypatch.setattr(EnrollmentRequestService, "_link_ttl_hours",
+                        staticmethod(lambda: 10 * 24))
+
+    texto = _plano(client_as(make_cc()).get(URL).text)
+
+    assert CABECERA_SII_OFF in texto
+    assert "el SII no dio NIP" not in texto
+    for instruccion in INSTRUCCIONES_ACCESOS:
+        assert instruccion in texto, instruccion
+    assert "liga de activación de 10 días" in texto
 
 
 def test_en_modo_sii_dar_acceso_crea_la_cuenta_con_el_nip_capturado(

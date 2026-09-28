@@ -10,10 +10,18 @@
      «1 día» en singular. En el `sii` (spec 2026-09-27): quién decide
      (Servicios Escolares, con el veredicto del SII en su columna: nada se
      aprueba solo), con qué NIP nace la cuenta (el del SII) y el respaldo
-     cuando el SII no lo tiene (Accesos, D1). En el alterno, quién revisa y qué
-     ves aquí lo dice UNA vez el aviso «Solo lectura» del parcial, que se
-     repinta en cada pestaña. #}
-  {% if sii %}
+     cuando el SII no lo tiene (Accesos, D1). Con el SII sin configurar (D11,
+     `sii_configured` falso) nadie lo consulta: SE revisa y todo lo sin cuenta
+     se aprueba pasándolo a Accesos (revisión final F4). En el alterno, quién
+     revisa y qué ves aquí lo dice UNA vez el aviso «Solo lectura» del parcial,
+     que se repinta en cada pestaña. #}
+  {% if sii and not sii_configured %}
+  <p class="mb-0 small text-body-secondary">Egresados que pidieron inscribirse desde el
+     formulario público. El SII todavía no está configurado: tú revisas cada solicitud y
+     decides. Si la persona no tiene cuenta, se aprueba pasándola a Accesos, donde Centro de
+     Cómputo le captura su NIP. Si ya tiene cuenta, le llega una liga de activación de
+     {{ link_days }} {{ 'día' if link_days == 1 else 'días' }} al correo que escribió.</p>
+  {% elif sii %}
   <p class="mb-0 small text-body-secondary">Egresados que pidieron inscribirse desde el
      formulario público. El SII revisa cada solicitud y Servicios Escolares decide: en la
      columna SII ves su veredicto con el motivo de cada regla, y tú apruebas o rechazas.

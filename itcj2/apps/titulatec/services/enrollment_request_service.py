@@ -296,9 +296,11 @@ class ApproveResult(NamedTuple):
     """Lo que devuelve `EnrollmentRequestService.approve_detailed`.
 
     `nip_failure` ∈ {missing, invalid, unavailable, error} SOLO cuando, en el
-    modo `sii`, sin cuenta y sin `to_access`, el SII no dio un NIP válido AL
-    APROBAR: nada escrito de la solicitud y la bandeja ofrece pasarla a
-    Accesos. En cualquier otro caso `None`. `detail` nunca lleva el NIP.
+    modo `sii` con el SII configurado, sin cuenta y sin `to_access`, el SII no
+    dio un NIP válido AL APROBAR: nada escrito de la solicitud y la bandeja
+    ofrece pasarla a Accesos. En cualquier otro caso `None` (sin SII
+    configurado, aprobar sin cuenta ya es pasarla a Accesos). `detail` nunca
+    lleva el NIP.
     """
     ok: bool
     detail: str
@@ -613,6 +615,13 @@ class EnrollmentRequestService:
             `nip_status` (`EligibilityService.record_nip_status`, transacción
             propia y corta, DESPUÉS de soltar el lock) para que la bandeja
             ofrezca Accesos.
+          - SII SIN CONFIGURAR (D11, `EligibilityService.sii_configured()`
+            falso): aprobar sin `to_access` ES pasarla a Accesos (revisión
+            final F8). No hay SII al cual pedirle el NIP: un POST así (la
+            página del modo oficial abierta el día del deploy, o una vieja en
+            caché) se trata como `to_access=True`, sin consultar al SII ni
+            dejar un WARNING por clic. «¿Tiene cuenta?» se sigue decidiendo
+            bajo el lock en `_approve_locked`: con cuenta sale la liga.
 
         La convocatoria solo tiene que estar `open`: pasada `closes_at` se sigue
         aprobando lo que entró a tiempo (VENTANA, en el módulo).
@@ -632,6 +641,15 @@ class EnrollmentRequestService:
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
             return ApproveResult(False, _MSG_GONE, None)
+        if not to_access and EnrollmentRequestService.reviewer_mode() == "sii":
+            from itcj2.apps.titulatec.services.eligibility_service import (
+                EligibilityService,
+            )
+
+            # D11: sin SII al cual pedirle el NIP, aprobar ES pasarla a Accesos
+            # (con cuenta `_approve_locked` ignora `to_access` y manda la liga).
+            if not EligibilityService.sii_configured():
+                to_access = True
         # Modo `sii` sin cuenta y sin `to_access`: el NIP se pide al SII SIN el
         # lock (puede tardar sus timeouts) y la segunda vuelta revalida todo
         # bajo el lock (`_sii_nip_unlocked`). En cualquier otro caso hay una
