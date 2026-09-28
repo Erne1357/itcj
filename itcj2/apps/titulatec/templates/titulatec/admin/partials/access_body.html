@@ -34,7 +34,10 @@
    pero no las cuentas que nacieron con el NIP del SII (`_tab_query`).
 
    El NIP NUNCA se pinta: sus campos no llevan `value`.
-   Sin hx-confirm (no hay puente) y sin JS ni CSS en línea. #}
+   Sin hx-confirm: ninguna acción de aquí pide confirmación (si alguna la
+   necesitara, el puente existe: `hx-confirm` + `data-tt-confirm-ok` en el
+   `<form>`, que `titulatec-utils.js` lleva a `TitulaTecUtils.confirmDialog`,
+   como aprobar en Solicitudes). Sin JS ni CSS en línea. #}
 {% macro tab_fields(tab, cohort) -%}
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="cohort_id" value="{{ cohort or '' }}">

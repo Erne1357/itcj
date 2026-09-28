@@ -1708,9 +1708,11 @@ button.tt-seat--libre { pointer-events: auto; }
    barrido que la exige en los parciales de Citas
    (`test_appointments_scope_day.py::test_los_parciales_de_citas_no_llevan_js_ni_css_inline`).
 
-   El ancho tope es el mismo para los dos `<input type="date">` y el `<select>`:
-   con el `d-flex flex-wrap` del formulario, sin tope se estiran a toda la fila y
-   los tres controles dejan de leerse como un grupo. */
+   `.tt-win-field` es el ancho tope del `<select>` de Estado: con el
+   `d-flex flex-wrap` del formulario, sin tope se estira a toda la fila y deja
+   de leerse junto a la ventana. Las fechas y horas YA NO lo llevan: desde la
+   ventana con hora (2026-09-27) usan `.tt-win-date`/`.tt-win-time` de la macro
+   `window_end` (abajo). */
 .tt-win-field { max-width: 170px; }
 /* La nota explica QUÉ apaga y QUÉ enciende el botón, así que es texto de lectura,
    no adorno: `--tt-text-2` (7.58:1). `--tt-mute` está marcado PROHIBIDO PARA
@@ -2198,16 +2200,20 @@ button.tt-seat--libre { pointer-events: auto; }
    `.table-responsive`, nunca la página. El mínimo cabe en el ancho útil del
    admin a 1280 (977 px), así que en escritorio no hay barra horizontal. La
    fecha (`nowrap`) pide 100 px: con el 10 % se salía 2 px hasta 1280 (medido
-   en navegador), con el 11 % tiene 105 px en el mínimo. La carrera se queda
-   en 13 %: con el 12 % «Computacionales» se partía a media palabra. Solo con
-   el modificador: los otros modos y Accesos (que comparten la tabla)
-   conservan sus cinco. */
+   en navegador), con el 11 % tiene 105 px en el mínimo. La carrera va al 15 %
+   (revisión final F12): con el 13 % tenía ~118 px de contenido y la palabra
+   más larga de las carreras («computacionales», 124.7 px a 16 px de Geist;
+   «Semiconductores», 127.7 px) se partía a media palabra en 960-1280
+   («Ing. Sistemas / computacionale / s»). Con el 15 % tiene ~136 px en el
+   mínimo; el punto sale de «Solicitante» (18 → 17 %) y otro del SII
+   (20 → 19 %), cuyas píldoras ya parten renglón. Solo con el modificador: los
+   otros modos y Accesos (que comparten la tabla) conservan sus cinco. */
 .tt-req-table--sii { min-width: 960px; }
-.tt-req-table--sii .tt-req-col-who     { width: 18%; }
-.tt-req-table--sii .tt-req-col-prog    { width: 13%; }
+.tt-req-table--sii .tt-req-col-who     { width: 17%; }
+.tt-req-table--sii .tt-req-col-prog    { width: 15%; }
 .tt-req-table--sii .tt-req-col-contact { width: 16%; }
 .tt-req-table--sii .tt-req-col-date    { width: 11%; }
-.tt-req-table--sii .tt-req-col-sii     { width: 20%; }
+.tt-req-table--sii .tt-req-col-sii     { width: 19%; }
 .tt-req-table--sii .tt-req-col-acc     { width: 22%; }
 /* Con el 18 % la píldora «Cuenta desactivada: se reactiva al abrir la liga»
    (260 px, `nowrap`) se salía de la celda en TODOS los anchos: aquí parte

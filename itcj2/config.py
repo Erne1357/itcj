@@ -319,7 +319,12 @@ class Settings(BaseSettings):
     # la automática). nginx sirve la hoja `immutable`: sin el bump, quien la
     # tenga en caché ve la columna del SII sin anchos (la tabla se sale) y los
     # campos de hora a lo ancho de la tarjeta.
-    STATIC_VERSION: str = "1.0.1111576"
+    #
+    # Bump 2026-09-28: `titulatec/css/titulatec.css` reparte otra vez las seis
+    # columnas de Solicitudes en modo `sii` (carrera 13 → 15 %, «Solicitante»
+    # 18 → 17 %, SII 20 → 19 %; revisión final F12). Sin el bump, la hoja
+    # `immutable` en caché sigue partiendo «computacionales» a media palabra.
+    STATIC_VERSION: str = "1.0.1111577"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

@@ -2142,5 +2142,9 @@ def test_el_css_reparte_seis_columnas_en_modo_sii():
         assert m, col
         anchos[col] = int(m.group(1))
     assert sum(anchos.values()) == 100, anchos
+    # Revisión final (F12): con el 13 % la carrera tenía ~118 px de contenido y
+    # «computacionales» (124.7 px a 16 px de Geist) se partía a media palabra
+    # hasta 1280; con el 15 % (≥ 136 px en el mínimo de 960) caben todas.
+    assert anchos["prog"] >= 15, anchos
     pildora = re.search(r"\.tt-sii \.tt-pill\s*\{([^}]*)\}", css)
     assert pildora and "white-space: normal" in pildora.group(1)
