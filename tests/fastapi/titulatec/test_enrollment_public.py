@@ -814,13 +814,34 @@ def test_una_excepcion_en_create_no_produce_500_y_devuelve_la_tarjeta_generica(
 # RULING R1/R2 — leer antes / cobrar después, presupuestos y Retry-After
 # ---------------------------------------------------------------------------
 def test_los_presupuestos_del_limitador_son_los_acordados():
-    """R1/R2 del controlador: 30/hora por IP (no 5), 3/día por control."""
+    """Por IP: lo que diga `TITULATEC_ENROLL_RL_LIMIT_IP` (500/hora por omisión,
+    hotfix 2026-09-28); por control: 3/día (R1/R2 del controlador)."""
     from itcj2.apps.titulatec.pages import public as mod
+    from itcj2.config import Settings, get_settings
 
-    assert mod.ENROLL_RL_LIMIT_IP == 30
+    assert Settings.model_fields["TITULATEC_ENROLL_RL_LIMIT_IP"].default == 500
+    assert mod.ENROLL_RL_LIMIT_IP == get_settings().TITULATEC_ENROLL_RL_LIMIT_IP
     assert mod.ENROLL_RL_WINDOW_IP == 3600
     assert mod.ENROLL_RL_LIMIT_CN == 3
     assert mod.ENROLL_RL_WINDOW_CN == 86400
+
+
+def test_el_limite_por_ip_se_ajusta_por_variable_de_entorno(monkeypatch):
+    """Hotfix 2026-09-28: en prod TODO visitante llega con la IP de la puerta de
+    enlace de Docker (`rl:enroll:ip:172.19.0.1`) y el campus sale por un solo
+    NAT, así que el límite por IP es de hecho GLOBAL. Se ajusta sin tocar código
+    (variable + reinicio); fuera de rango truena al arrancar."""
+    from pydantic import ValidationError
+
+    from itcj2.config import Settings
+
+    monkeypatch.setenv("TITULATEC_ENROLL_RL_LIMIT_IP", "750")
+    assert Settings(_env_file=None).TITULATEC_ENROLL_RL_LIMIT_IP == 750
+
+    for invalido in ("0", "-5"):
+        monkeypatch.setenv("TITULATEC_ENROLL_RL_LIMIT_IP", invalido)
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
 
 
 @pytest.mark.parametrize("errata", [

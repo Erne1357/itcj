@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse, Response
 
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from itcj2.config import get_settings
 from itcj2.dependencies import get_current_user_optional
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.public")
@@ -1292,7 +1293,14 @@ _ENROLL_CARD = {
 # a leer-antes/cobrar-después: para que un `create` que falle (una excepción de
 # escritura, no un rechazo de validación) no queme uno de los tres intentos del
 # egresado.
-ENROLL_RL_LIMIT_IP = 30
+#
+# Hotfix 2026-09-28: el límite por IP sale de `TITULATEC_ENROLL_RL_LIMIT_IP`
+# (500/hora por omisión). En producción todos los visitantes comparten la IP de
+# la puerta de enlace de Docker y el campus sale por un solo NAT: el cubo
+# `enroll:ip` es de hecho global y a 30/hora se agotaba en el arranque de la
+# convocatoria. Se lee al importar (cambiarlo exige reiniciar); las pruebas lo
+# parchean aquí, en el módulo.
+ENROLL_RL_LIMIT_IP = get_settings().TITULATEC_ENROLL_RL_LIMIT_IP
 ENROLL_RL_WINDOW_IP = 3600
 ENROLL_RL_LIMIT_CN = 3
 ENROLL_RL_WINDOW_CN = 86400

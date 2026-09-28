@@ -493,6 +493,14 @@ class Settings(BaseSettings):
     # vencida; `le=90`: la liga es una credencial al correo personal y no debe
     # vivir un semestre. Fuera de rango truena al arrancar, no a media operación.
     TITULATEC_ENROLLMENT_LINK_TTL_DAYS: int = Field(default=21, ge=1, le=90)
+    # Hotfix 2026-09-28: inscripciones públicas EXITOSAS por hora y por IP
+    # (`pages/public.py::ENROLL_RL_LIMIT_IP`). En producción TODO visitante llega
+    # con la IP de la puerta de enlace de Docker (`rl:enroll:ip:172.19.0.1`) y el
+    # campus sale por un solo NAT, así que en la práctica es un límite GLOBAL: con
+    # 30/hora la inscripción se bloqueaba en el arranque de la convocatoria
+    # (~500 egresados). El anti-abuso por identidad sigue siendo el de 3/día por
+    # número de control. Se lee al importar el módulo: cambiarlo exige reiniciar.
+    TITULATEC_ENROLL_RL_LIMIT_IP: int = Field(default=500, ge=1, le=100000)
     # D6: quién revisa las solicitudes. Por omisión `sii` (spec 2026-09-27, «el
     # SII informa, Servicios Escolares decide»): la consulta automática al SII
     # trae veredicto + NIP, pero SE sigue dando el paso final desde la bandeja
