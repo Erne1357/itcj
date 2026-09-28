@@ -24,6 +24,8 @@ python-socketio[asyncio]>=5.11.0
 
 # File handling
 Pillow>=10.0.0
+# Compresión de PDFs de TitulaTec (BSD; se evitó PyMuPDF/Ghostscript por la AGPL)
+pypdf>=6.19,<7
 openpyxl>=3.1.0
 reportlab>=4.0.0
 python-docx>=1.0.0

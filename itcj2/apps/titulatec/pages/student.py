@@ -2,6 +2,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
@@ -39,7 +40,8 @@ _PHASE_INFO = {
             "Acta de nacimiento (PDF).",
             "Certificado de bachillerato (PDF).",
             "CURP certificada (PDF): la impresión certificada, no la simple.",
-            "Cada archivo va en PDF y pesa máximo 10 MB.",
+            "Cada archivo va en PDF de hasta {pdf_max_mb} MB. Si pesa más "
+            "(hasta {pdf_upload_mb} MB), lo comprimimos automáticamente.",
             "Cuando estén los 3, toca «Enviar a revisión».",
         ],
         "who": "Tú subes los tres archivos; Servicios Escolares los revisa y los aprueba "
@@ -109,7 +111,8 @@ _PHASE_INFO = {
             "Descargar el Anexo III desde la app.",
             "Las firmas: por residencias, solo la del presidente; en tesis y proyecto de "
             "investigación, la de todos los sinodales.",
-            "Escanearlo y subirlo en PDF (máximo 10 MB).",
+            "Escanearlo y subirlo en PDF de hasta {pdf_max_mb} MB (si pesa más, hasta "
+            "{pdf_upload_mb} MB, lo comprimimos automáticamente).",
         ],
         "who": "El Depto. de Titulación habilita el documento; tú consigues las firmas y "
                "lo subes escaneado.",
@@ -143,6 +146,24 @@ _PHASE_INFO = {
 
 # Compatibilidad: la instrucción breve sigue disponible como antes.
 _PHASE_HELP = {code: info["desc"] for code, info in _PHASE_INFO.items()}
+
+
+def _with_pdf_limits(text: str) -> str:
+    """Rellena `{pdf_max_mb}` / `{pdf_upload_mb}` con los topes de la config.
+
+    Los topes de PDF viven en `TITULATEC_MAX_PDF_SIZE` / `..._UPLOAD_SIZE` y se
+    cambian por `.env`: el copy de `_PHASE_INFO` no puede llevar el número
+    escrito (decía «máximo 10 MB» cuando el tope bajó a 2). `replace` y no
+    `str.format` para que una llave suelta en otro texto no truene.
+    """
+    if "{pdf_" not in text:
+        return text
+    from itcj2.apps.titulatec.utils.storage import pdf_limits_mb
+
+    max_mb, upload_mb = pdf_limits_mb()
+    return (text.replace("{pdf_max_mb}", str(max_mb))
+                .replace("{pdf_upload_mb}", str(upload_mb)))
+
 
 # CTA del alumno por código de fase (solo las soportadas hoy).
 _PHASE_CTA = {
@@ -337,9 +358,17 @@ def _phase_guard_page(db, process, phase_number) -> Response | None:
 
 
 def _slot_ctx(dtype, doc, *, error: str | None = None) -> dict:
-    """Contexto autónomo de un slot de documento para el parcial."""
+    """Contexto autónomo de un slot de documento para el parcial.
+
+    `hint` es la ayuda de la casilla; la de PDF sale de la config
+    (`storage.pdf_upload_hint`), nunca escrita en la plantilla.
+    """
+    from itcj2.apps.titulatec.utils.storage import pdf_upload_hint
+
+    hint = pdf_upload_hint() if dtype.file_kind == "pdf" else "Imagen (jpg, png, webp)"
     return {
         "dtype": {"code": dtype.code, "name": dtype.name, "file_kind": dtype.file_kind},
+        "hint": hint,
         "doc": ({
             "review_status": doc.review_status,
             "review_note": doc.review_note,
@@ -585,7 +614,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             "is_target": pd.number == open_phase,
             "handoff": pd.number >= handoff_phase,
             "desc": info.get("desc", ""),
-            "needs": info.get("needs", []),
+            "needs": [_with_pdf_limits(n) for n in info.get("needs", [])],
             "who": info.get("who", ""),
             "cta": None,
             "rejection_reason": None,
@@ -882,7 +911,7 @@ async def document_upload(
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import DocumentType
     from itcj2.apps.titulatec.services.document_service import DocumentService
-    from itcj2.apps.titulatec.utils.storage import StorageError
+    from itcj2.apps.titulatec.utils.storage import StorageError, check_pdf_upload_size
 
     db = SessionLocal()
     try:
@@ -899,12 +928,19 @@ async def document_upload(
         if fuera_de_fase:
             return fuera_de_fase
 
-        raw = await archivo.read()
         error = None
         doc = DocumentService.get_document(db, process.id, type_code)
         try:
-            doc = DocumentService.save(
-                db, process, type_code,
+            # Antes de leer el cuerpo: un PDF que ya excede lo que se acepta
+            # para comprimir (`TITULATEC_MAX_PDF_UPLOAD_SIZE`) no se sube a
+            # memoria. `save_document` lo vuelve a comprobar sobre los bytes.
+            if dtype.file_kind == "pdf":
+                check_pdf_upload_size(archivo.size)
+            raw = await archivo.read()
+            # En el threadpool: comprimir un PDF escaneado es CPU (segundos) y
+            # en el event loop congelaría el worker entero.
+            doc = await run_in_threadpool(
+                DocumentService.save, db, process, type_code,
                 raw=raw, original_name=archivo.filename,
                 content_type=archivo.content_type, uploaded_by_id=int(user["sub"]),
             )
@@ -914,7 +950,10 @@ async def document_upload(
         ctx = _slot_ctx(dtype, doc, error=error)
         resp = render_titulatec(request, "titulatec/partials/document_slot.html", ctx)
         if error:
-            resp.headers["X-Tt-Error"] = error
+            # Percent-codificado (`_hdr`): los mensajes de `storage` llevan
+            # acentos («escanéalo», «máximo») y un header se escribe en latin-1.
+            # `static/js/student/errors.js` lo decodifica.
+            resp.headers["X-Tt-Error"] = _hdr(error)
         return resp
     finally:
         db.close()

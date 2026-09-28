@@ -18,7 +18,7 @@ class DocumentService:
 
         Existe porque de un documento no quedaba ABSOLUTAMENTE NADA de lo
         anterior: `save()` pisa la fila y `storage.save_document` pisa el archivo
-        (nombre fijo `{type_code}.{ext}`), y `review()` pisa `review_note`. Un
+        (nombre fijo `{control}_{ETIQUETA}.{ext}`), y `review()` pisa `review_note`. Un
         acta rechazada por falta de sello y vuelta a subir no dejaba ni el motivo
         ni la fecha ni quien la rechazo.
         """
