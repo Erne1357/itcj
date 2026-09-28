@@ -8,9 +8,10 @@
    la pestaña donde estaba el oficial.
 
    Lo que ofrece cada fila sale de su estado y de si el número de control tiene
-   cuenta HOY en `core_users`, que es la misma pregunta que se hace `approve()`:
-   - por revisar, sin cuenta: carrera, «Aprobar y pasar a Cómputo» (SIN NIP: lo
-     da Centro de Cómputo, 2026-09-24);
+   cuenta HOY en `core_users`, que es la misma pregunta que se hace `approve()`.
+   El botón de aprobar es `r.approve` (`label`, `to_access`, `confirm`):
+   - por revisar, sin cuenta (modo oficial): carrera, «Aprobar y pasar a
+     Cómputo» (SIN NIP: lo da Centro de Cómputo, 2026-09-24);
    - por revisar, con cuenta: carrera, «Aprobar y enviar liga», con el aviso de a
      dónde va la liga (el riesgo aceptado de docs/flows/xcut_public_enrollment.md);
    - por revisar y devuelta por Centro de Cómputo: además, su nota y la
@@ -24,13 +25,27 @@
    - rechazada: motivo.
    `can_act` falso (modo alterno, revisa Centro de Cómputo) = SOLO LECTURA: ni
    un formulario, y un aviso arriba. Las rutas POST lo cortan aparte.
-   Modo `sii` (`sii`, spec 2026-09-25 §3.5 y 2026-09-27): se actúa como en el
-   oficial —el SII informa, Servicios Escolares aprueba SIEMPRE—, pero sin
-   cuenta el botón es «Aprobar y crear cuenta» (nace con el NIP DEL SII), y
-   cada fila `pending_review` trae `#tt-req-sii-<id>` (`r.sii`, `_sii_row`):
-   veredicto, reglas incumplidas (las cumplidas plegadas), error, diferencias
-   formulario↔SII, intentos y «Reintentar consulta» (no mientras una consulta
-   está en curso). Todo lo del SII se pinta escapado.
+   Modo `sii` (`sii`, spec 2026-09-25 §3.5 y 2026-09-27 §A5): se actúa como en
+   el oficial —el SII informa, Servicios Escolares aprueba SIEMPRE— con una
+   SEXTA columna, «SII», entre «Recibida» y las acciones, en TODAS las
+   pestañas: `#tt-req-sii-<id>` (`r.sii`, `_sii_cell`). En lo pendiente
+   (también en «Todas») va completa: veredicto, reglas incumplidas (las
+   cumplidas plegadas), error, diferencias formulario↔SII, intentos, el NIP del
+   SII (solo sin cuenta) y «Reintentar consulta» (no mientras una consulta está
+   en curso ni con el SII sin configurar). En el historial, compacta
+   (`.tt-sii--compact`): la píldora y las reglas incumplidas plegadas. Todo lo
+   del SII se pinta escapado. El botón sale de `approval_path` (Ruling R8):
+   con cuenta «Aprobar y enviar liga»; sin cuenta y con el NIP del SII
+   disponible «Aprobar y dar acceso» (la cuenta nace con él); si no, «Aprobar y
+   pasar a Accesos», el único que manda `to_access=1` (Centro de Cómputo le
+   captura el NIP). Con `r.approve.confirm` el formulario de aprobar lleva
+   `hx-confirm` + `data-tt-confirm-ok` EN EL `<form>` (el que tiene `hx-post`;
+   ver survey_reviews_body.html): el puente `htmx:confirm` de
+   titulatec-utils.js abre `TitulaTecUtils.confirmDialog` con el motivo (el SII
+   no dijo «Apta», no hay consulta, el nombre no coincide o no se pudo
+   comparar; D7). Es el ÚNICO `hx-confirm` de la bandeja. Con el SII sin
+   configurar (D11) hay un aviso arriba de la tabla, `#tt-req-sii-off`, y ni
+   confirmación ni «Reintentar consulta».
    Una cuenta desactivada lleva la píldora «Cuenta desactivada: se reactiva al
    abrir la liga» mientras la liga puede abrirse (por revisar o liga enviada):
    abrirla la reactiva, la única escritura sobre la cuenta además de roles y
@@ -46,7 +61,7 @@
    `rejection_sent_at`, y «Rechazada antes» cuando hay una solicitud anterior
    (mismo control, `rejected`, mismo alcance) — motivo truncado con CSS,
    completo en `title`.
-   Sin hx-confirm (no hay puente) y sin JS ni CSS en línea. #}
+   Sin JS ni CSS en línea. #}
 {% macro tab_fields(tab, cohort) -%}
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="cohort_id" value="{{ cohort or '' }}">
@@ -59,6 +74,14 @@
     <span class="tt-kicker"><i class="bi bi-eye me-1" aria-hidden="true"></i>Solo lectura</span>
     <p class="mb-0">La revisión la hace Centro de Cómputo: aprueba, rechaza y da el acceso
        desde su bandeja. Aquí ves cómo va cada solicitud.</p>
+  </div>
+  {% endif %}
+
+  {% if sii and not sii_configured %}
+  <div class="tt-card tt-card--accent mb-3" id="tt-req-sii-off">
+    <span class="tt-kicker"><i class="bi bi-plug me-1" aria-hidden="true"></i>SII sin configurar</span>
+    <p class="mb-0">El SII no está configurado: las solicitudes sin cuenta se aprueban
+       pasándolas a Accesos.</p>
   </div>
   {% endif %}
 
@@ -158,15 +181,18 @@
      la convocatoria bajo la carrera, y `table-layout: fixed` + `<colgroup>`
      reparte el ancho (titulatec.css, «Bandeja de solicitudes»). Las acciones
      se apilan dentro de su columna. Bajo ~760 px la tabla conserva un mínimo y
-     se desplaza dentro de `.table-responsive`, como el resto de tablas admin. #}
+     se desplaza dentro de `.table-responsive`, como el resto de tablas admin.
+     En el modo `sii` son SEIS: la del SII entre «Recibida» y las acciones
+     (`.tt-req-table--sii` reparte los anchos; los otros modos, intactos). #}
   <div class="table-responsive">
-    <table class="table table-sm tt-req-table">
+    <table class="table table-sm tt-req-table{% if sii %} tt-req-table--sii{% endif %}">
       <colgroup>
         <col class="tt-req-col-who"><col class="tt-req-col-prog"><col class="tt-req-col-contact">
-        <col class="tt-req-col-date"><col class="tt-req-col-acc">
+        <col class="tt-req-col-date">{% if sii %}<col class="tt-req-col-sii">{% endif %}<col class="tt-req-col-acc">
       </colgroup>
       <thead><tr>
         <th>Solicitante</th><th>Carrera</th><th>Contacto</th><th>Recibida</th>
+        {% if sii %}<th>SII</th>{% endif %}
         <th><span class="visually-hidden">Acciones</span></th>
       </tr></thead>
       <tbody>
@@ -202,49 +228,67 @@
           <span class="tt-req-sub tt-mono">{{ r.phone }}</span>
         </td>
         <td class="tt-mono tt-req-date">{{ r.created }}</td>
-        <td class="tt-req-acc">
-          {% if r.reviewable %}
-            {% if r.sii %}{% set s = r.sii %}
-            <div class="tt-sii" id="tt-req-sii-{{ r.id }}">
-              <div class="tt-sii-head">
-                <span class="tt-pill tt-pill--{{ s.tone }}"><i class="bi {{ s.icon }}" aria-hidden="true"></i>{{ s.label }}</span>
-                {% if s.attempt %}<span class="tt-sii-meta">SII · intento {{ s.attempt }} de {{ s.max }}{% if s.when and s.state != 'stale' %} · {{ s.when }}{% endif %}</span>{% endif %}
-              </div>
-              {% if s.failed %}
+        {% if sii %}{% set s = r.sii %}
+        <td>
+          {% if s.compact %}
+          {# Historial: ya no es trabajo de nadie; lo que dijo el SII, plegado. #}
+          <div class="tt-sii tt-sii--compact" id="tt-req-sii-{{ r.id }}">
+            <span class="tt-pill tt-pill--{{ s.tone }}"><i class="bi {{ s.icon }}" aria-hidden="true"></i>{{ s.label }}</span>
+            {% if s.failed %}
+            <details class="tt-sii-fold">
+              <summary>{{ s.failed | length }} {{ 'regla incumplida' if s.failed | length == 1 else 'reglas incumplidas' }}</summary>
               <ul class="tt-sii-rules">
                 {% for m in s.failed %}<li><i class="bi bi-x-circle" aria-hidden="true"></i><span>{{ m }}</span></li>{% endfor %}
               </ul>
-              {% endif %}
-              {% if s.passed %}
-              <details class="tt-sii-ok">
-                <summary>{{ s.passed | length }} {{ 'regla cumplida' if s.passed | length == 1 else 'reglas cumplidas' }}</summary>
-                <ul class="tt-sii-rules tt-sii-rules--ok">
-                  {% for m in s.passed %}<li><i class="bi bi-check-circle" aria-hidden="true"></i><span>{{ m }}</span></li>{% endfor %}
-                </ul>
-              </details>
-              {% endif %}
-              {% if s.error %}<p class="tt-sii-line">{{ s.error }}</p>{% endif %}
-              {% if s.retry %}<p class="tt-sii-line tt-sii-why">{{ s.retry }}</p>{% endif %}
-              {% if s.diffs %}
-              <div class="tt-sii-diffs">
-                <span class="tt-sii-sub"><i class="bi bi-person-exclamation me-1" aria-hidden="true"></i>Diferencias con el SII</span>
-                <ul class="tt-sii-rules">
-                  {% for d in s.diffs %}<li><span>{{ d.label }}: «{{ d.form }}» en el formulario, «{{ d.sii }}» en el SII</span></li>{% endfor %}
-                </ul>
-              </div>
-              {% endif %}
-              {% if can_act and s.can_recheck and r.status == 'pending_review' %}
-              <form class="tt-req-form tt-req-form--inline"
-                    hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reconsultar"
-                    hx-target="#tt-requests-body" hx-swap="outerHTML"
-                    hx-disabled-elt="find button">
-                {{ tab_fields(status, cohort_id) }}
-                <button type="submit" class="btn btn-sm tt-btn-ghost">
-                  <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>{{ 'Reintentar consulta' if s.attempt else 'Consultar al SII' }}</button>
-              </form>
-              {% endif %}
+            </details>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="tt-sii" id="tt-req-sii-{{ r.id }}">
+            <div class="tt-sii-head">
+              <span class="tt-pill tt-pill--{{ s.tone }}"><i class="bi {{ s.icon }}" aria-hidden="true"></i>{{ s.label }}</span>
+              {% if s.attempt %}<span class="tt-sii-meta">SII · intento {{ s.attempt }} de {{ s.max }}{% if s.when and s.state != 'stale' %} · {{ s.when }}{% endif %}</span>{% endif %}
+            </div>
+            {% if s.failed %}
+            <ul class="tt-sii-rules">
+              {% for m in s.failed %}<li><i class="bi bi-x-circle" aria-hidden="true"></i><span>{{ m }}</span></li>{% endfor %}
+            </ul>
+            {% endif %}
+            {% if s.passed %}
+            <details class="tt-sii-ok">
+              <summary>{{ s.passed | length }} {{ 'regla cumplida' if s.passed | length == 1 else 'reglas cumplidas' }}</summary>
+              <ul class="tt-sii-rules tt-sii-rules--ok">
+                {% for m in s.passed %}<li><i class="bi bi-check-circle" aria-hidden="true"></i><span>{{ m }}</span></li>{% endfor %}
+              </ul>
+            </details>
+            {% endif %}
+            {% if s.error %}<p class="tt-sii-line">{{ s.error }}</p>{% endif %}
+            {% if s.retry %}<p class="tt-sii-line tt-sii-why">{{ s.retry }}</p>{% endif %}
+            {% if s.diffs %}
+            <div class="tt-sii-diffs">
+              <span class="tt-sii-sub"><i class="bi bi-person-exclamation me-1" aria-hidden="true"></i>Diferencias con el SII</span>
+              <ul class="tt-sii-rules">
+                {% for d in s.diffs %}<li><span>{{ d.label }}: «{{ d.form }}» en el formulario, «{{ d.sii }}» en el SII</span></li>{% endfor %}
+              </ul>
             </div>
             {% endif %}
+            {% if s.nip %}<span class="tt-pill tt-pill--{{ s.nip.tone }}"><i class="bi bi-key" aria-hidden="true"></i>{{ s.nip.label }}</span>{% endif %}
+            {% if can_act and s.can_recheck and r.status == 'pending_review' %}
+            <form class="tt-req-form tt-req-form--inline"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reconsultar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id) }}
+              <button type="submit" class="btn btn-sm tt-btn-ghost">
+                <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>{{ 'Reintentar consulta' if s.attempt else 'Consultar al SII' }}</button>
+            </form>
+            {% endif %}
+          </div>
+          {% endif %}
+        </td>
+        {% endif %}
+        <td class="tt-req-acc">
+          {% if r.reviewable %}
             {% if r.returned %}
             <p class="small mb-1"><i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i><strong>Devuelta por Centro de Cómputo:</strong> {{ r.return_note }}</p>
             {% endif %}
@@ -253,26 +297,28 @@
             <form class="tt-req-form"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/aprobar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
-                  hx-disabled-elt="find button">
+                  hx-disabled-elt="find button"{% if r.approve.confirm %}
+                  hx-confirm="Aprobar solicitud|{{ r.approve.confirm }}" data-tt-confirm-ok="Aprobar"{% endif %}>
               {{ tab_fields(status, cohort_id) }}
+              {% if r.approve.to_access %}<input type="hidden" name="to_access" value="1">{% endif %}
               <select class="tt-field tt-field--xs" name="program_id" aria-label="Carrera">
                 <option value="">Carrera…</option>
                 {% for p in programs %}
                 <option value="{{ p.id }}"{% if r.program_id == p.id %} selected{% endif %}>{{ p.name }}</option>
                 {% endfor %}
               </select>
-              <button type="submit" class="btn btn-sm tt-btn-ink">
-                {%- if r.has_account %}Aprobar y enviar liga{% elif sii %}Aprobar y crear cuenta{% else %}Aprobar y pasar a Cómputo{% endif -%}
-              </button>
+              <button type="submit" class="btn btn-sm tt-btn-ink">{{ r.approve.label }}</button>
             </form>
-            {% if sii and not r.has_account %}
-            <p class="small mt-1 mb-1"><i class="bi bi-key me-1" aria-hidden="true"></i>La cuenta nace
-               con su NIP del SII; el correo no lo lleva.</p>
-            {% endif %}
             {% if r.has_account %}
             <p class="small mt-1 mb-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>La
                liga de activación irá a este correo, que escribió el solicitante. Confirma su
                identidad antes de aprobar.</p>
+            {% elif sii and r.approve.to_access %}
+            <p class="small mt-1 mb-1"><i class="bi bi-pc-display me-1" aria-hidden="true"></i>Centro
+               de Cómputo le captura el NIP en Accesos; el correo sale entonces.</p>
+            {% elif sii %}
+            <p class="small mt-1 mb-1"><i class="bi bi-key me-1" aria-hidden="true"></i>La cuenta nace
+               con su NIP del SII; el correo no lo lleva.</p>
             {% endif %}
             <form class="tt-req-form tt-req-form--inline mt-1"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"

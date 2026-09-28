@@ -2170,6 +2170,27 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-req-col-contact { width: 20%; }
 .tt-req-col-date    { width: 11%; }
 .tt-req-col-acc     { width: 28%; }
+/* Modo `sii` (2026-09-27): SEIS columnas, la del SII entre «Recibida» y las
+   acciones, que ya no cargan el veredicto. Mismas reglas que arriba: todo en
+   porcentaje y un mínimo bajo el que la tabla se desplaza DENTRO de
+   `.table-responsive`, nunca la página. El mínimo cabe en el ancho útil del
+   admin a 1280 (977 px), así que en escritorio no hay barra horizontal. La
+   fecha (`nowrap`) pide 100 px: con el 10 % se salía 2 px hasta 1280 (medido
+   en navegador), con el 11 % tiene 105 px en el mínimo. La carrera se queda
+   en 13 %: con el 12 % «Computacionales» se partía a media palabra. Solo con
+   el modificador: los otros modos y Accesos (que comparten la tabla)
+   conservan sus cinco. */
+.tt-req-table--sii { min-width: 960px; }
+.tt-req-table--sii .tt-req-col-who     { width: 18%; }
+.tt-req-table--sii .tt-req-col-prog    { width: 13%; }
+.tt-req-table--sii .tt-req-col-contact { width: 16%; }
+.tt-req-table--sii .tt-req-col-date    { width: 11%; }
+.tt-req-table--sii .tt-req-col-sii     { width: 20%; }
+.tt-req-table--sii .tt-req-col-acc     { width: 22%; }
+/* Con el 18 % la píldora «Cuenta desactivada: se reactiva al abrir la liga»
+   (260 px, `nowrap`) se salía de la celda en TODOS los anchos: aquí parte
+   renglón. */
+.tt-req-table--sii .tt-req-tags .tt-pill { white-space: normal; max-width: 100%; }
 /* El `<th>` de acciones lleva su nombre en un `.visually-hidden`, que es
    `position: absolute`. Sin un ancestro posicionado DENTRO del contenedor con
    scroll, ese span no lo recorta el `overflow` y estiraba la PÁGINA a 538 px
@@ -2207,17 +2228,21 @@ button.tt-seat--libre { pointer-events: auto; }
   overflow: hidden; margin-top: var(--tt-sp-1); color: var(--tt-text-3);
 }
 
-/* Veredicto del SII en «Por revisar» (modo `sii`, 2026-09-25). Va arriba de
-   los formularios de la celda de acciones, separado por un filete: primero el
-   porqué, después la decisión. Las reglas incumplidas van abiertas y las
-   cumplidas plegadas en un `<details>` (una apta tiene 6+ reglas y empujaba
-   los botones fuera de la vista). Tokens de tipografía, texto nunca en
-   `--tt-mute` y el foco del `<summary>` con `--tt-focus`. */
-.tt-sii {
-  display: flex; flex-direction: column; gap: var(--tt-sp-1);
-  margin-bottom: var(--tt-sp-2); padding-bottom: var(--tt-sp-2);
-  border-bottom: 1px solid var(--tt-line-soft); min-width: 0;
-}
+/* Veredicto del SII (modo `sii`). Desde 2026-09-27 vive en su PROPIA columna,
+   a la izquierda de las acciones: primero el porqué, después la decisión (ya
+   no hace falta el filete que lo separaba de los formularios). Las reglas
+   incumplidas van abiertas y las cumplidas plegadas en un `<details>` (una
+   apta tiene 6+ reglas y empujaba los botones fuera de la vista). En el
+   historial va compacta (`.tt-sii--compact`): la píldora y las incumplidas
+   plegadas. Tokens de tipografía, texto nunca en `--tt-mute` y el foco del
+   `<summary>` con `--tt-focus`. */
+.tt-sii { display: flex; flex-direction: column; gap: var(--tt-sp-1); min-width: 0; }
+.tt-sii--compact { gap: 2px; }
+/* Las píldoras del SII son largas («No se pudo leer el NIP (SII sin
+   respuesta)», «Consultando… sin respuesta desde …») y la de `.tt-pill` no
+   parte renglón: en una columna del 20 % se salían de la celda. */
+.tt-sii .tt-pill { white-space: normal; max-width: 100%; }
+.tt-sii > .tt-pill { align-self: flex-start; }
 .tt-sii-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-1) var(--tt-sp-2); }
 .tt-sii-meta { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
 .tt-sii-rules { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -2227,8 +2252,10 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-sii-rules li span { min-width: 0; overflow-wrap: anywhere; }
 .tt-sii-rules--ok li { color: var(--tt-text-2); }
 .tt-sii-rules--ok li i { color: #166534; }
-.tt-sii-ok > summary { font-size: var(--tt-fs-100); color: var(--tt-text-2); cursor: pointer; }
-.tt-sii-ok > summary:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: var(--tt-r-sm); }
+.tt-sii-ok > summary,
+.tt-sii-fold > summary { font-size: var(--tt-fs-100); color: var(--tt-text-2); cursor: pointer; }
+.tt-sii-ok > summary:focus-visible,
+.tt-sii-fold > summary:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: var(--tt-r-sm); }
 .tt-sii-sub { font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2); }
 .tt-sii-diffs .tt-sii-rules li { color: var(--tt-text-2); }
 .tt-sii-line { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }

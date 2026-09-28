@@ -1032,11 +1032,15 @@ def _sii_cohort_outcome(cohort_id: int, control: str, nip_status: str | None) ->
     Ninguna se aprueba sola: con cualquier veredicto la decide SE. El botón
     sale de «¿tiene cuenta?» (contra `core_users` ahora, como al aprobar) y del
     estado del NIP, con la MISMA decisión que la bandeja
-    (`EnrollmentRequestService.approval_path` + `APPROVAL_LABELS`, Ruling R8)."""
+    (`EnrollmentRequestService.approval_path` + `APPROVAL_LABELS`, Ruling R8).
+    Un control que no cumple `CONTROL_NUMBER_RE` no se busca en `core_users`
+    (mismo corte que `EligibilityService.check` y la aprobación): cuenta como
+    sin cuenta."""
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         APPROVAL_LABELS, EnrollmentRequestService,
     )
+    from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
     from itcj2.core.models.user import User
     from itcj2.database import SessionLocal
 
@@ -1045,7 +1049,9 @@ def _sii_cohort_outcome(cohort_id: int, control: str, nip_status: str | None) ->
         cohort = db.get(Cohort, cohort_id)
         if cohort is None:
             _sii_fail(f"No existe la convocatoria {cohort_id}.")
-        tiene_cuenta = db.query(User.id).filter_by(control_number=control).first() is not None
+        tiene_cuenta = (CONTROL_NUMBER_RE.fullmatch(control) is not None
+                        and db.query(User.id).filter_by(control_number=control)
+                        .first() is not None)
         boton = APPROVAL_LABELS[EnrollmentRequestService.approval_path(tiene_cuenta, nip_status)]
         click.echo(f"Convocatoria: {cohort.name} (id {cohort.id}, {cohort.status})")
         click.echo(f"Cuenta: {'sí' if tiene_cuenta else 'no'}")

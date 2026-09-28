@@ -30,7 +30,7 @@ from urllib.parse import unquote
 
 import pytest
 
-from tests.fastapi.titulatec._sii_fake import sii  # noqa: F401
+from tests.fastapi.titulatec._sii_fake import pide_nip, sii  # noqa: F401
 
 URL = "/titulatec/admin/solicitudes"
 NIP = "4917"
@@ -993,20 +993,11 @@ def espia_correo(monkeypatch):
     return llamadas
 
 
-@pytest.fixture()
-def pide_nip(monkeypatch):
-    """Espía de `fetch_sii_nip`: anota el control y deja responder al real."""
-    from itcj2.apps.titulatec.services import eligibility_service as elig
-
-    llamadas = []
-    real = elig.fetch_sii_nip
-
-    def _espia(control):
-        llamadas.append(control)
-        return real(control)
-
-    monkeypatch.setattr(elig, "fetch_sii_nip", _espia)
-    return llamadas
+def _fila_repintada(html: str, req) -> str:
+    """El `<tr>` de la solicitud en la bandeja que devolvió la ruta."""
+    marca = f'id="tt-req-{req.id}"'
+    assert marca in html, f"no está la fila de la solicitud {req.id}"
+    return html.split(marca, 1)[1].split("</tr>", 1)[0]
 
 
 def _ers():
@@ -1278,8 +1269,8 @@ class TestModoSiiSEDecide:
         self, client_as, db_session, make_head, make_cohort, sii, espia_correo,
     ):
         """200 (no 4xx) para que HTMX re-pinte la bandeja; el motivo va en
-        `X-Tt-Notice` de tipo warning. La afirmación del botón «Aprobar y pasar
-        a Accesos» en la fila re-pintada es de la Tarea 6."""
+        `X-Tt-Notice` de tipo warning, y la fila re-pintada ya ofrece «Aprobar
+        y pasar a Accesos» (la consulta vigente dice ahora `missing`)."""
         head = make_head(perm_codes=LIST_PERMS)
         cohort = make_cohort(status="open")
         control = "99552008"
@@ -1298,12 +1289,48 @@ class TestModoSiiSEDecide:
         assert unquote(resp.headers["X-Tt-Notice"]) == (
             f"{MSG_NIP_FALLA['missing']} {AVISO_ACCESOS}")
         assert f'id="tt-req-{req.id}"' in resp.text, "la fila sigue en «Por revisar»"
+        fila = _fila_repintada(resp.text, req)
+        assert "Aprobar y pasar a Accesos" in fila
+        assert '<input type="hidden" name="to_access" value="1">' in fila
+        assert "Aprobar y dar acceso" not in fila
         db_session.refresh(req)
         db_session.refresh(chk)
         assert req.status == "pending_review" and req.reviewed_by_id is None
         assert _usuario(db_session, control) is None
         assert espia_correo == []
         assert chk.nip_status == "missing"
+
+    def test_ruta_aprobar_sin_sii_configurado_avisa_y_no_truena(
+        self, client_as, db_session, make_head, make_cohort, sii, espia_correo,
+    ):
+        """Review Focus 1 por la ruta: con el SII sin configurar (D11) un POST
+        de aprobar SIN `to_access` de una fila sin cuenta (p. ej. una página
+        vieja que aún ofrecía «dar acceso») no es 400 ni 500: 200 + aviso
+        warning (el SII «no respondió»: `unavailable`), nada escrito, y la fila
+        re-pintada ofrece «Aprobar y pasar a Accesos»."""
+        sii.backend = "disabled"
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        control = "99552012"
+        req = _make_req(db_session, cohort, control=control)
+
+        resp = client_as(head).post(
+            f"{URL}/{req.id}/aprobar",
+            data={"program_id": "", "status": "pending_review", "cohort_id": str(cohort.id)})
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        assert "X-Tt-Error" not in resp.headers
+        assert resp.headers["X-Tt-Notice-Kind"] == "warning"
+        assert unquote(resp.headers["X-Tt-Notice"]) == (
+            f"{MSG_NIP_FALLA['unavailable']} {AVISO_ACCESOS}")
+        fila = _fila_repintada(resp.text, req)
+        assert "Aprobar y pasar a Accesos" in fila
+        assert '<input type="hidden" name="to_access" value="1">' in fila
+        db_session.refresh(req)
+        assert req.status == "pending_review" and req.reviewed_by_id is None
+        assert req.last_check_id is None, "sin SII no se abre ninguna consulta"
+        assert _usuario(db_session, control) is None
+        assert espia_correo == []
 
     def test_ruta_aprobar_con_to_access(
         self, client_as, db_session, make_head, make_cohort, sii, espia_correo, pide_nip,

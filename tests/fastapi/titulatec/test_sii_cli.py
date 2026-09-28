@@ -274,6 +274,21 @@ class TestSiiCheckConConvocatoria:
         assert "Veredicto: ERROR" in res.output and "NIP: sin revisar" in res.output
         assert "Servicios Escolares vería: Aprobar y pasar a Accesos" in res.output
 
+    def test_un_control_con_formato_invalido_no_busca_la_cuenta(
+            self, sii, tmp_path, patched_session_local, make_cohort, make_user):
+        """Mismo corte que `check()` y la aprobación: un control fuera de
+        `CONTROL_NUMBER_RE` no se busca en `core_users`, cuenta como sin
+        cuenta aunque exista un usuario con ese texto (p. ej. un legado)."""
+        control = "9958904"          # 7 dígitos
+        sii["fake"] = _fake_alumno(tmp_path, control, None)
+        make_user(control_number=control)
+        cohort = make_cohort(status="open")
+
+        res = _run("sii-check", control, "--cohort", str(cohort.id))
+
+        assert "Cuenta: no" in res.output, res.output
+        assert "Servicios Escolares vería: Aprobar y pasar a Accesos" in res.output
+
     def test_convocatoria_inexistente(self, sii, patched_session_local):
         res = _run("sii-check", "20110001", "--cohort", "999999999")
         assert res.exit_code != 0

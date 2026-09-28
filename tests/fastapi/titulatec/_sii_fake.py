@@ -6,10 +6,14 @@ números de control son sintéticos (`9955xxxx`, `9958xxxx`): los `2011xxxx` de
 `sii_fixtures/fake_sii.json` podrían existir como cuentas reales en la BD de
 dev, y «¿tiene cuenta?» se decide contra `core_users`.
 
+`pide_nip` es el espía de `fetch_sii_nip` (anota cada control al que se le
+pidió el NIP y deja responder al real); antes vivía duplicado en
+`test_enrollment_approve.py` y `test_eligibility_service.py`.
+
 Uso desde un archivo de prueba (pytest toma la fixture del espacio de nombres
 del módulo; mismo patrón que `test_documents_fifo.py`)::
 
-    from tests.fastapi.titulatec._sii_fake import sii  # noqa: F401
+    from tests.fastapi.titulatec._sii_fake import pide_nip, sii  # noqa: F401
 """
 from __future__ import annotations
 
@@ -87,3 +91,19 @@ def sii(monkeypatch, tmp_path):
     monkeypatch.setattr(SiiConfig, "rules_dir", staticmethod(lambda: Path(fake.rules)))
     monkeypatch.setattr(SiiConfig, "odbc_connection_string", staticmethod(lambda: ""))
     return fake
+
+
+@pytest.fixture()
+def pide_nip(monkeypatch):
+    """Espía de `fetch_sii_nip`: anota el control y deja responder al real."""
+    from itcj2.apps.titulatec.services import eligibility_service as elig
+
+    llamadas = []
+    real = elig.fetch_sii_nip
+
+    def _espia(control):
+        llamadas.append(control)
+        return real(control)
+
+    monkeypatch.setattr(elig, "fetch_sii_nip", _espia)
+    return llamadas

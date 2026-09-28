@@ -32,7 +32,9 @@ from itcj2.apps.titulatec.services.eligibility_service import (
     _PENDING_STALE, NIP_MISSING, NIP_UNAVAILABLE,
 )
 from itcj2.apps.titulatec.services.sii.client import SiiConfig
-from tests.fastapi.titulatec._sii_fake import FIXTURES, RULES_VERSION, sii  # noqa: F401
+from tests.fastapi.titulatec._sii_fake import (  # noqa: F401
+    FIXTURES, RULES_VERSION, pide_nip, sii,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -499,23 +501,8 @@ def test_identity_block_sin_consulta_falla_cerrado():
 # veredicto que no es `error`, la consulta pregunta también por el NIP del SII
 # y guarda SOLO en qué estado está (`nip_status`): con eso la bandeja pinta
 # desde el inicio «dar acceso» o «pasar a Accesos». El valor jamás se guarda.
+# El espía `pide_nip` es el compartido de `_sii_fake.py`.
 # ---------------------------------------------------------------------------
-@pytest.fixture()
-def pide_nip(monkeypatch):
-    """Espía de `fetch_sii_nip`: anota el control y deja responder al real."""
-    from itcj2.apps.titulatec.services import eligibility_service as elig
-
-    llamadas = []
-    real = elig.fetch_sii_nip
-
-    def _espia(control):
-        llamadas.append(control)
-        return real(control)
-
-    monkeypatch.setattr(elig, "fetch_sii_nip", _espia)
-    return llamadas
-
-
 def test_el_dominio_del_estado_del_nip_es_el_de_la_spec():
     from itcj2.apps.titulatec.services.eligibility_service import NIP_STATUSES
 
