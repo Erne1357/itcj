@@ -59,8 +59,25 @@ sequenceDiagram
 |---|---|---|---|---|---|---|
 | 1 | 🏛️ | `/admin/documents` | Selecciona proceso | `GET …/documents/body?selected=` | `_body_ctx` (scoped, `pages/documents.py:87-115`) | (lectura) |
 | 2 | 🏛️ | panel derecho (doc activo) | Aprueba/rechaza doc | `POST …/{pid}/document/review` (`type_code`+`note` en form; reject exige `note`) | `DocumentService.review` (`services/document_service.py:166-187`) | `Document.review_status`, `review_note`, `reviewed_by_id` · commit en `:186` |
-| 2b | 🏛️ | visor | Ve PDF (PDF.js→canvas) / lo expande al modal `#tt-doc-modal` | `GET …/{pid}/document/{code}` (`?download=1` descarga) | `DocumentService.get_document` | (lectura) |
+| 2b | 🏛️ | visor | Ve PDF (PDF.js→canvas) / lo expande al modal `#tt-doc-modal` | `GET …/{pid}/document/{code}` (`?download=1` descarga) | `DocumentService.get_document` + `_storage_keys` → `storage.download_filename` | (lectura) · `Content-Disposition: inline\|attachment; filename="{control}_{ETIQUETA}.{ext}"` |
 | 3 | 🤖 | — | Auto-avance si las 3 aprobadas | (mismo POST) | `DocumentService.initial_docs_all_approved` + `PhaseService.can_transition` + `...approve_phase` (`pages/documents.py:181-183`) | fase1→`approved`, `current_phase=2`, `ProcessEvent` · commit en `services/phase_service.py:283` |
+
+### Nombre del archivo descargado (desde 2026-09-28)
+
+`GET …/{pid}/document/{code}` —aquí y su gemela de Citas, `pages/appointments.py`
+(`/admin/appointments/{pid}/document/{code}`, siempre `inline`)— manda
+`Content-Disposition: …; filename="{control}_{ETIQUETA}.{ext}"`: `23XXXXXX_ACTA.pdf`,
+`…_CERTIFICADO.pdf`, `…_CURP.pdf`, y el código en mayúsculas para cualquier otro tipo. Lo calcula
+`storage.download_filename(control, type_code, doc.file_path)` con el control de
+`DocumentService._storage_keys` y la extensión de `file_path`, **no** con el nombre real del
+archivo: un documento subido antes del cambio (todavía `curp.pdf` en disco, hasta correr
+`titulatec rename-documents`) ya se descarga con el nombre nuevo. `Document.original_name` se
+sigue guardando (y se muestra en el slot del alumno y en el expediente) pero **ya no nombra la
+descarga**; antes iba tal cual al header. Con un número de control no alfanumérico (fila vieja
+del importador) cae a la etiqueta sola (`CURP.pdf`), y con un `type_code` fuera de
+`^[a-z0-9_]+$` a `documento.{ext}` (el catálogo real ya cumple; revisión 2026-09-28, m7): la
+descarga nunca falla por el nombre. Fijado por
+`tests/fastapi/titulatec/test_document_files_routes.py` y `test_document_storage.py`.
 
 ### De dónde sale el visor (ojo con los parciales muertos)
 

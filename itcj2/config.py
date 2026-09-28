@@ -324,7 +324,12 @@ class Settings(BaseSettings):
     # columnas de Solicitudes en modo `sii` (carrera 13 → 15 %, «Solicitante»
     # 18 → 17 %, SII 20 → 19 %; revisión final F12). Sin el bump, la hoja
     # `immutable` en caché sigue partiendo «computacionales» a media palabra.
-    STATIC_VERSION: str = "1.0.1111577"
+    #
+    # Bump 2026-09-28 (2): `titulatec/css/titulatec.css` suma
+    # `.tt-dropzone-hint`, la ayuda de la casilla de subida («PDF de hasta
+    # 2 MB…») que antes iba con estilo en línea. Sin el bump, la hoja
+    # `immutable` en caché no la trae y la ayuda sale del tamaño del título.
+    STATIC_VERSION: str = "1.0.1111578"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -429,11 +434,26 @@ class Settings(BaseSettings):
     VISTETEC_ALLOWED_EXTENSIONS: str = "jpg,jpeg,png,webp"
 
     # TitulaTec — archivos del proceso de titulación.
-    # Estructura: instance/apps/titulatec/{convocatoria}/{control_number}/{tipo_documento}.{ext}
+    # Estructura: instance/apps/titulatec/{convocatoria}/{control_number}/documents/{control_number}_{TIPO}.{ext}
+    # (TIPO = ACTA | CERTIFICADO | CURP | código del tipo en mayúsculas, `utils/storage.py`).
     # Solo se conserva la última versión de cada documento (se sobreescribe por nombre fijo).
     TITULATEC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "titulatec")
     TITULATEC_MAX_IMAGE_SIZE: int = 3 * 1024 * 1024
-    TITULATEC_MAX_PDF_SIZE: int = 10 * 1024 * 1024
+    # PDFs (2026-09-28): dos topes distintos a propósito.
+    # - MAX_PDF_SIZE es lo que pesa el archivo GUARDADO. 2 MB alcanza de sobra
+    #   para un acta o una CURP escaneadas a 150 dpi (medido: una página A4
+    #   fotográfica a 150 dpi y JPEG q75 queda en ~250 KB) y deja el disco y la
+    #   descarga del revisor en un tamaño razonable. Antes se guardaban hasta
+    #   10 MB tal cual.
+    # - MAX_PDF_UPLOAD_SIZE es lo máximo que se RECIBE para intentar
+    #   comprimir (`utils/pdf_compress.py`): el alumno no tiene por qué saber
+    #   bajar la resolución de su escáner. Arriba de esto ni se intenta (CPU y
+    #   memoria del worker). Debe quedar por debajo del `client_max_body_size`
+    #   de nginx (30M en el compose).
+    # Ambos por `.env`; cambiarlos exige reiniciar los procesos backend
+    # (`get_settings()` vive en `lru_cache`).
+    TITULATEC_MAX_PDF_SIZE: int = 2 * 1024 * 1024
+    TITULATEC_MAX_PDF_UPLOAD_SIZE: int = 20 * 1024 * 1024
     TITULATEC_ALLOWED_IMAGE_EXTENSIONS: str = "jpg,jpeg,png,webp"
     TITULATEC_ALLOWED_DOC_EXTENSIONS: str = "pdf"
     # Umbrales de "días sin moverse" para señalar procesos atorados en la bandeja admin.

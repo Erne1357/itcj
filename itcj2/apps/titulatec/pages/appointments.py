@@ -1570,19 +1570,21 @@ async def document_file(
     db = SessionLocal()
     try:
         # Antes de tocar disco: aqui viaja el acta de nacimiento / la CURP.
-        assert_process_in_scope(db, int(user["sub"]), process_id)
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
         doc = DocumentService.get_document(db, process_id, type_code)
         if not doc:
             return Response(status_code=404)
         path = storage.abs_path(doc.file_path)
         mime = doc.mime_type
-        original = doc.original_name
+        # Mismo nombre que la bandeja de Documentos: `{control}_{ETIQUETA}.{ext}`.
+        _period, control = DocumentService._storage_keys(db, proc)
+        filename = storage.download_filename(control, type_code, doc.file_path)
     finally:
         db.close()
     if not path.exists():
         return Response(status_code=404)
     return FileResponse(str(path), media_type=mime,
-                        headers={"Content-Disposition": f'inline; filename="{original}"'})
+                        headers={"Content-Disposition": f'inline; filename="{filename}"'})
 
 
 # ===========================================================================

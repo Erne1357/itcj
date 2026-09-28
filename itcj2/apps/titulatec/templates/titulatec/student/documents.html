@@ -26,7 +26,7 @@
       </div>
 
       {% for slot in slots %}
-        {% with dtype=slot.dtype, doc=slot.doc, upload_url=slot.upload_url, delete_url=slot.delete_url, error=slot.error %}
+        {% with dtype=slot.dtype, doc=slot.doc, upload_url=slot.upload_url, delete_url=slot.delete_url, error=slot.error, hint=slot.hint %}
           {% include "titulatec/partials/document_slot.html" %}
         {% endwith %}
       {% endfor %}

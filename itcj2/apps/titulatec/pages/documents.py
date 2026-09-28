@@ -293,17 +293,21 @@ async def document_file(process_id: int, type_code: str, request: Request, downl
     db = SessionLocal()
     try:
         # Antes de tocar disco: esta ruta admite `?download=1` sobre acta/CURP.
-        assert_process_in_scope(db, int(user["sub"]), process_id)
+        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
         doc = DocumentService.get_document(db, process_id, type_code)
         if not doc:
             return Response(status_code=404)
         path = storage.abs_path(doc.file_path)
         mime = doc.mime_type
-        original = doc.original_name
+        # `{control}_{ETIQUETA}.{ext}` (2026-09-28), calculado y no leído del
+        # disco: un archivo que aún no pasó por `rename-documents` ya se
+        # descarga con el nombre nuevo. `original_name` ya no nombra nada.
+        _period, control = DocumentService._storage_keys(db, proc)
+        filename = storage.download_filename(control, type_code, doc.file_path)
     finally:
         db.close()
     if not path.exists():
         return Response(status_code=404)
     disp = "attachment" if download else "inline"
     return FileResponse(str(path), media_type=mime,
-                        headers={"Content-Disposition": f'{disp}; filename="{original or type_code}"'})
+                        headers={"Content-Disposition": f'{disp}; filename="{filename}"'})
