@@ -495,7 +495,7 @@ aceptándola — solo el formulario público dejó de alimentarla.
 
 **Formulario, defensas públicas:**
 - Trampa llena → la misma tarjeta, sin escritura ni cobro.
-- Límite por IP (30/hora) y por número de control (3/día): se **leen** antes y se **cobran** solo tras
+- Límite por IP (500/hora por omisión, `TITULATEC_ENROLL_RL_LIMIT_IP`; en prod todos comparten la IP de la puerta de enlace de Docker y el NAT del campus, así que es de hecho global — hotfix 2026-09-28) y por número de control (3/día): se **leen** antes y se **cobran** solo tras
   un `create` que termina; al agotarse, tarjeta «Demasiados intentos» con `Retry-After`. Redis
   caído → la misma tarjeta (`fail_open=False`).
 - Sin `Content-Length` → 411; cuerpo > 256 KB → 413.
