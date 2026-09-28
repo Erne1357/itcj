@@ -18,6 +18,11 @@ Modo (`EnrollmentRequestService.reviewer_mode()`):
   `pending_review` (o legado) APRUEBA (`approve`, con NIP si no hay cuenta, liga
   si la hay) y sobre una `awaiting_access` sobrante da el acceso
   (`grant_access`); además rechaza y reenvía la liga. Pestañas de revisión.
+- SII (`sii`, spec 2026-09-27 §A6): SE aprueba y, a quien el SII no dio NIP, lo
+  pasa aquí (`approve(to_access=True)` -> `awaiting_access`). Accesos es el
+  RESPALDO y opera como en el oficial (`_OFFICIAL_LIKE`): mismas pestañas,
+  mismas acciones. «Con acceso» deja fuera las cuentas que nacieron con el NIP
+  del SII (`nip_source == "sii"`): CC no intervino en ellas.
 
 «Dar acceso» y «Reasignar NIP» responden el parcial con un aviso `X-Tt-Notice`
 (folio y si el correo salió, `_grant_notice`): la fila sale de la pestaña en
@@ -51,12 +56,13 @@ _REJECT = ["titulatec.enrollment_access.api.reject"]
 _OFFICIAL = "school_services"
 _ALTERNATE = "computer_center"
 _SII = "sii"
+# Modos en que SE aprueba y CC solo da el acceso: en `sii` Accesos es el
+# respaldo de SE y se comporta como en el oficial (pestañas, acciones, textos).
+_OFFICIAL_LIKE = (_OFFICIAL, _SII)
 
 _MSG_ONLY_OFFICIAL = ("En este modo Centro de Cómputo revisa las solicitudes: ya no se "
                       "devuelven a Servicios Escolares.")
 _MSG_ONLY_ALTERNATE = "En este modo rechazar y reenviar la liga son de Servicios Escolares."
-_MSG_SII = ("En este modo las solicitudes las contesta el SII y Servicios Escolares; "
-            "Centro de Cómputo no tiene acciones.")
 _MSG_GRANT_FAILED = "No pudimos completar el acceso; intenta de nuevo."
 _MSG_REASSIGN_FAILED = "No pudimos reasignar el NIP; intenta de nuevo."
 
@@ -75,6 +81,7 @@ _TABS = {
         ("all", "Todas"),
     ),
 }
+_TABS[_SII] = _TABS[_OFFICIAL]
 # Pestañas donde conviven estados: la fila lleva su etiqueta.
 _MIXED_TABS = ("granted", "returned", "all")
 _STATUS_LABELS = {
@@ -111,13 +118,14 @@ def _mode() -> str:
 def _mode_block(allowed: str | None = None):
     """400 con el motivo si la acción no es del modo vigente; si lo es, `None`.
 
-    `allowed=None`: la acción vale en los dos modos de CC (oficial y alterno).
-    En modo sii ninguna vale (`_MSG_SII`). Va ANTES de abrir sesión: el corte es
-    de la ruta, no de la plantilla.
+    `allowed=None`: la acción vale en todos los modos. En `sii` vale lo mismo
+    que en el oficial (`_OFFICIAL_LIKE`: dar acceso, devolver, reasignar; no
+    rechazar ni reenviar). Va ANTES de abrir sesión: el corte es de la ruta, no
+    de la plantilla.
     """
     mode = _mode()
     if mode == _SII:
-        return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_SII)})
+        mode = _OFFICIAL
     if allowed is None or mode == allowed:
         return None
     msg = _MSG_ONLY_OFFICIAL if allowed == _OFFICIAL else _MSG_ONLY_ALTERNATE
@@ -145,6 +153,8 @@ def _fmt(dt, with_time=False) -> str:
 
 def _tab_query(q, tab: str):
     """Filtro y orden de cada pestaña sobre `EnrollmentRequest`."""
+    from sqlalchemy import or_
+
     from itcj2.apps.titulatec.models import EnrollmentRequest as ER
 
     if tab == "awaiting_access":
@@ -158,8 +168,12 @@ def _tab_query(q, tab: str):
         # Única excepción: la fila que volvió a una cola de trabajo conservando
         # el sello — la D10 que `verify()` devolvió a revisión de SE y, si SE la
         # reaprobó sin cuenta, la que está otra vez en «Por dar acceso».
+        # Y la cuenta que nació con el NIP del SII (spec 2026-09-27 §A6):
+        # `_create_account` también le sella `access_granted_*`, pero CC no
+        # intervino. `NULL` (anteriores a la columna) sí entra.
         return (q.filter(ER.access_granted_at.isnot(None),
-                         ER.status.notin_(_REVIEWABLE + ("awaiting_access",)))
+                         ER.status.notin_(_REVIEWABLE + ("awaiting_access",)),
+                         or_(ER.nip_source.is_(None), ER.nip_source != "sii"))
                 .order_by(ER.access_granted_at.desc(), ER.id.desc()))
     if tab == "returned":
         return (q.filter(ER.returned_at.isnot(None))
@@ -199,15 +213,12 @@ def _body_ctx(db, *, status, cohort_id):
     )
 
     mode = EnrollmentRequestService.reviewer_mode()
-    if mode == _SII:
-        # CC no participa: solo el aviso, sin pestañas ni filas (ni consultas).
-        return {"sii": True, "sii_msg": _MSG_SII, "rows": [], "tabs": (), "status": "",
-                "cohort_id": cohort_id, "mode": mode, "official": False,
-                "programs": [], "link_days": EnrollmentRequestService.link_ttl_days()}
     tab = _tab(mode, status)
-    ctx = {"sii": False, "rows": [], "status": tab, "tabs": _TABS[mode], "cohort_id": cohort_id,
-           "mode": mode, "official": mode == _OFFICIAL, "programs": [],
-           "link_days": EnrollmentRequestService.link_ttl_days()}
+    # `official`: SE aprueba y CC solo da el acceso (oficial y `sii`); `sii`
+    # solo cambia la cabecera de la página (Accesos como respaldo).
+    ctx = {"sii": mode == _SII, "rows": [], "status": tab, "tabs": _TABS[mode],
+           "cohort_id": cohort_id, "mode": mode, "official": mode in _OFFICIAL_LIKE,
+           "programs": [], "link_days": EnrollmentRequestService.link_ttl_days()}
 
     if not ctx["official"]:
         # Solo el modo alterno aprueba, y aprobar deja escoger la carrera.
@@ -381,7 +392,7 @@ def _grant_notice(db, req, detail: str):
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
-    official = _mode() == _OFFICIAL
+    official = _mode() in _OFFICIAL_LIKE
     if req.status == "converted":
         folio = _folio(db, req, detail)
         if EnrollmentRequestService.access_mail_unsent(req):
@@ -432,12 +443,11 @@ async def body(request: Request, status: str = "", cohort_id: str = "",
 @router.post("/{req_id}/dar-acceso", name="titulatec.pages.access.grant")
 async def grant(req_id: int, request: Request,
                 user: dict = Depends(require_page_app("titulatec", perms=_GRANT))):
-    """Da el acceso (ambos modos) o, en el alterno, aprueba una por revisar.
+    """Da el acceso (todos los modos) o, en el alterno, aprueba una por revisar.
 
-    Oficial: SIEMPRE `grant_access`, que solo acepta `awaiting_access` — una
-    `pending_review` sigue siendo de SE (Review Focus 3). Alterno: sobre una
-    `awaiting_access` sobrante, `grant_access`; sobre el resto, `approve`.
-    Sii: 400 antes de abrir sesión (`_mode_block`).
+    Oficial y `sii`: SIEMPRE `grant_access`, que solo acepta `awaiting_access`
+    — una `pending_review` sigue siendo de SE (Review Focus 3). Alterno: sobre
+    una `awaiting_access` sobrante, `grant_access`; sobre el resto, `approve`.
     """
     bloqueo = _mode_block()
     if bloqueo is not None:
@@ -456,7 +466,7 @@ async def grant(req_id: int, request: Request,
         if req is None:
             return Response(status_code=404)
         try:
-            if _mode() == _OFFICIAL or req.status == "awaiting_access":
+            if _mode() in _OFFICIAL_LIKE or req.status == "awaiting_access":
                 ok, detail = EnrollmentRequestService.grant_access(
                     db, req_id, nip=nip, actor_id=uid)
             else:
@@ -482,7 +492,7 @@ async def grant(req_id: int, request: Request,
 @router.post("/{req_id}/devolver", name="titulatec.pages.access.return")
 async def return_to_review(req_id: int, request: Request,
                            user: dict = Depends(require_page_app("titulatec", perms=_RETURN))):
-    """Devuelve a SE con nota (solo modo oficial). Sin correo al alumno."""
+    """Devuelve a SE con nota (modo oficial y `sii`). Sin correo al alumno."""
     bloqueo = _mode_block(_OFFICIAL)
     if bloqueo is not None:
         return bloqueo
@@ -563,11 +573,12 @@ async def resend(req_id: int, request: Request,
 @router.post("/{req_id}/reasignar-nip", name="titulatec.pages.access.reassign")
 async def reassign_nip(req_id: int, request: Request,
                        user: dict = Depends(require_page_app("titulatec", perms=_GRANT))):
-    """Reasigna el NIP (D8, ambos modos) y lo reenvía, o no si viene `no_mail`
+    """Reasigna el NIP (D8, todos los modos) y lo reenvía, o no si viene `no_mail`
     («lo dicto por teléfono»: el correo mal escrito). La elegibilidad la decide
     el servicio bajo el bloqueo de la cuenta; el botón aparece con
     `can_reassign_nip` (nunca ha iniciado sesión), haya salido o no el correo.
-    Sii: 400 antes de abrir sesión (`_mode_block`)."""
+    Una cuenta que nació con el NIP del SII no es elegible
+    (`must_change_password=False`)."""
     bloqueo = _mode_block()
     if bloqueo is not None:
         return bloqueo

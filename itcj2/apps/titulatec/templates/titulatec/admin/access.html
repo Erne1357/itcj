@@ -3,14 +3,16 @@
 {% block admin_view %}access{% endblock %}
 {% block admin_main %}
 <div class="px-4 pt-4 pb-2">
-  <span class="tt-kicker">Inscripción · Centro de Cómputo</span>
+  <span class="tt-kicker">{{ 'Inscripción · Accesos (respaldo)' if sii else 'Inscripción · Centro de Cómputo' }}</span>
   <h1 class="tt-display h3 fw-medium">Accesos</h1>
-  {# Texto por modo (`official`), siempre en segunda persona; los días de la
+  {# Texto por modo, siempre en segunda persona. `sii` va primero: su contexto
+     también trae `official` (mismas acciones que el oficial). Los días de la
      liga salen de `link_days` (`link_ttl_days()`), la misma fuente que el
      vencimiento y el correo, con «1 día» en singular. #}
   {% set dias = link_days ~ (' día' if link_days == 1 else ' días') %}
   {% if sii %}
-  {# Modo sii: CC no participa; el aviso va en el parcial (`#tt-access-sii`). #}
+  <p class="mb-0 small text-body-secondary">Solicitudes aprobadas por Servicios Escolares
+     a las que el SII no dio NIP: captura el NIP de 4 dígitos o devuélvela con nota.</p>
   {% elif official %}
   <p class="mb-0 small text-body-secondary">Egresados sin cuenta cuya solicitud ya aprobó
      Servicios Escolares. Escribe un NIP de 4 dígitos: a la persona le llega por correo con

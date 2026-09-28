@@ -9,7 +9,9 @@
    formulario de fila la manda de vuelta, junto con la convocatoria, en campos
    ocultos: la acción vuelve a pintar la pestaña donde estaba CC.
 
-   Modo oficial (`official`): Por dar acceso · Con acceso · Devueltas. Una fila
+   Modo oficial (`official`, también en modo `sii`, donde Accesos es el
+   respaldo de SE para quien el SII no dio NIP): Por dar acceso · Con acceso ·
+   Devueltas. Una fila
    `awaiting_access` ofrece «Dar acceso» (NIP) o, si el control ya tiene cuenta
    HOY, «Enviar liga» con el aviso D10 — la misma pregunta que se hace
    `grant_access()` —, más «Devolver a Servicios Escolares» (nota ≤ 2000).
@@ -28,10 +30,8 @@
    `r.can_reassign`), haya salido o no el correo: un correo mal escrito también
    «sale». Su formulario dice a qué correo va y deja no mandarlo (`no_mail`,
    «lo dicto por teléfono»).
-   «Con acceso» también lista la D10 que SE canceló (`rejected`, sin acciones).
-
-   Modo sii (`sii`): CC no participa; solo el aviso `#tt-access-sii`, sin
-   pestañas, tabla ni formularios (las rutas POST responden 400 de todos modos).
+   «Con acceso» también lista la D10 que SE canceló (`rejected`, sin acciones),
+   pero no las cuentas que nacieron con el NIP del SII (`_tab_query`).
 
    El NIP NUNCA se pinta: sus campos no llevan `value`.
    Sin hx-confirm (no hay puente) y sin JS ni CSS en línea. #}
@@ -46,13 +46,6 @@
 {%- endmacro %}
 {%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
 <div id="tt-access-body" data-tt-view="access-body">
-  {% if sii %}
-  <div class="tt-card" id="tt-access-sii">
-    <span class="tt-kicker"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>Sin acciones en este modo</span>
-    <p class="mb-0">{{ sii_msg }}</p>
-  </div>
-  {% else %}
-
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
     {% for key, label in tabs %}
     <button id="tt-acc-tab-{{ key }}" type="button"
@@ -250,6 +243,5 @@
       </tbody>
     </table>
   </div>
-  {% endif %}
   {% endif %}
 </div>
