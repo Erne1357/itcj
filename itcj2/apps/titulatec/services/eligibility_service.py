@@ -44,8 +44,8 @@ ya haya veredicto (el SII pudo cambiar), con el siguiente número de intento.
 SE APRUEBA SIEMPRE (spec 2026-09-27 «el SII informa, Servicios Escolares
 decide», §A3). La consulta NO aprueba nada: deja el veredicto, las reglas y las
 diferencias de identidad para la bandeja de Solicitudes, y Servicios Escolares
-da siempre el paso final (`EnrollmentRequestService.approve`, el único que
-llama al núcleo `_approve_locked`; lo fija una prueba estructural). La
+da siempre el paso final (`EnrollmentRequestService.approve_detailed`, el único
+que llama al núcleo `_approve_locked`; lo fija una prueba estructural). La
 aprobación automática, su interruptor por convocatoria, la ventana de veto y la
 edad máxima del veredicto se retiraron (D2).
 
@@ -59,7 +59,10 @@ misma línea en que se pidió: nunca llega a un atributo, log, `facts`,
 `results` ni payload. `RuleSet.evaluate` no corre la consulta de
 `[credential]`, y los `facts`/`results` son la lista blanca de las reglas. Un
 error que no es del SII se registra solo por su TIPO (su texto puede traer
-cualquier cosa: la cadena de conexión, datos de la fila).
+cualquier cosa: la cadena de conexión, datos de la fila). Si AL APROBAR el SII
+ya no da un NIP válido, la aprobación no escribe nada de la solicitud y
+`record_nip_status` deja en la consulta vigente lo que vio (la fila pasa a
+ofrecer Accesos).
 
 Los settings del SII de este servicio se leen SOLO por `max_attempts()` (los
 tests parchean ese método, nunca `get_settings`).
@@ -90,8 +93,10 @@ _PENDING_STALE = timedelta(minutes=15)
 # Solicitudes por pasada del barrido (el resto, en la siguiente).
 _SWEEP_BATCH = 200
 
-# `falla_nip` de `fetch_sii_nip` / `EnrollmentRequestService._approve_locked`:
-# el SII respondió sin NIP, o no respondió (el nombre del tipo de su error).
+# `falla` de `fetch_sii_nip` (el nombre del tipo de su error) que
+# `EligibilityService.classify_sii_nip` traduce a `NIP_STATUSES`:
+# `NIP_UNAVAILABLE` = el SII no respondió; `NIP_MISSING` (o `None`) = respondió
+# sin NIP.
 NIP_MISSING = "missing"
 NIP_UNAVAILABLE = "SiiUnavailable"
 
@@ -360,7 +365,8 @@ class EligibilityService:
     @staticmethod
     def classify_sii_nip(secret, falla) -> str:
         """El estado del NIP del SII (`NIP_STATUSES`) para `(Secret | None, falla)`
-        de `fetch_sii_nip` o de `_approve_locked`. ÚNICA función que traduce.
+        de `fetch_sii_nip` (en `check`, `sii-check` y `_approve_locked`). ÚNICA
+        función que traduce.
 
         `secret` con formato válido → `available`; con otro formato →
         `invalid`; sin `secret` y sin falla (o `NIP_MISSING`) → `missing`;
@@ -411,12 +417,15 @@ class EligibilityService:
         `nip_status` (spec 2026-09-27 §A2): `not_needed` si el control tenía
         cuenta en ①; sin cuenta y con veredicto que no es `error`, el estado
         que da `classify_sii_nip` al NIP pedido en ②; `None` con veredicto
-        `error` (no se llegó a preguntar).
+        `error` (no se llegó a preguntar). Un control que no cumple
+        `CONTROL_NUMBER_RE` no se busca en `core_users` (mismo corte que
+        `_sii_nip_unlocked`): cuenta como sin cuenta.
         """
         from itcj2.apps.titulatec.models import EligibilityCheck, EnrollmentRequest
         from itcj2.apps.titulatec.services.enrollment_request_service import (
             EnrollmentRequestService,
         )
+        from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
         from itcj2.core.models.user import User
 
         if EnrollmentRequestService.reviewer_mode() != "sii":
@@ -455,8 +464,11 @@ class EligibilityService:
         db.flush()
         req.last_check_id = chk.id
         control = (req.control_number or "").strip()
-        # Mismo criterio que la aprobación (`_approve_locked`): `core_users` ahora.
-        tiene_cuenta = db.query(User.id).filter_by(control_number=control).first() is not None
+        # Mismo criterio que la aprobación (`_sii_nip_unlocked`): `core_users`
+        # ahora, y solo con un control de formato válido.
+        tiene_cuenta = (CONTROL_NUMBER_RE.fullmatch(control) is not None
+                        and db.query(User.id).filter_by(control_number=control)
+                        .first() is not None)
         db.commit()          # suelta el lock: el SII puede tardar
 
         # ② El SII, sin lock ni transacción abierta.
@@ -489,6 +501,47 @@ class EligibilityService:
         # Nada más: el veredicto queda para Servicios Escolares, que aprueba
         # siempre desde la bandeja (spec 2026-09-27 §A3).
         return chk
+
+    @staticmethod
+    def record_nip_status(db: Session, req_id: int, check_id: int | None,
+                          status: str) -> bool:
+        """Guarda en la consulta `check_id` el estado del NIP que vio la
+        APROBACIÓN (`approve_detailed`, cuando el SII no dio un NIP válido):
+        así la bandeja ya ofrece «pasar a Accesos». `True` si escribió.
+
+        Solo si `check_id` sigue siendo la consulta VIGENTE de la solicitud
+        (`last_check_id`) bajo el lock + `refresh`: una consulta más nueva no se
+        pisa con lo que vio una aprobación anterior. `False` sin consulta
+        (`None`) o con un `status` fuera de `NIP_STATUSES`. Transacción propia
+        y corta: el llamador ya soltó la suya. Nunca lanza: registra solo el
+        TIPO del error, `rollback` y `False`.
+        """
+        from itcj2.apps.titulatec.models import EligibilityCheck, EnrollmentRequest
+
+        if check_id is None or status not in NIP_STATUSES:
+            return False
+        try:
+            req = db.get(EnrollmentRequest, req_id)
+            chk = None
+            if req is not None:
+                _lock(db, req.id)
+                db.refresh(req)
+                if req.last_check_id == check_id:
+                    chk = db.get(EligibilityCheck, check_id, populate_existing=True)
+            if chk is None:
+                db.commit()      # cierra la transacción (y el lock) sin escribir
+                return False
+            chk.nip_status = status
+            db.commit()
+            return True
+        except Exception as exc:  # noqa: BLE001 — un aviso, nunca tumba la aprobación
+            try:
+                db.rollback()
+            except Exception:      # pragma: no cover - sesión ya inservible
+                pass
+            logger.warning("No se pudo guardar el estado del NIP de la solicitud %s (%s)",
+                           req_id, type(exc).__name__)
+            return False
 
     @staticmethod
     def recheck_errors(db: Session, *, cohort_id: int | None = None,

@@ -16,9 +16,11 @@ y sus tres POST responden 400 ANTES de abrir sesión (`_alternate_mode_block`),
 así que ni un POST directo sin la UI aprueba, rechaza o reenvía.
 
 En el modo `sii` (spec 2026-09-25 §3.5; spec 2026-09-27 «el SII informa,
-Servicios Escolares decide») SE actúa como en el oficial (la cuenta nueva nace
-con el NIP DEL SII, `approve()`) y es quien aprueba SIEMPRE: nada se aprueba
-solo. Cada fila «Por revisar» trae el veredicto VIGENTE del SII (`_sii_row`):
+Servicios Escolares decide») SE es quien aprueba SIEMPRE: nada se aprueba solo.
+Sin cuenta, la cuenta nace con el NIP DEL SII o, con `to_access`, la solicitud
+pasa a Accesos (`approve_detailed`); si el SII no da un NIP válido al aprobar,
+nada se escribe y la ruta avisa en 200. Cada fila «Por revisar» trae el
+veredicto VIGENTE del SII (`_sii_row`):
 reglas con su motivo, diferencias de identidad e intentos. «Reintentar
 consulta» (`reconsultar`) encola una consulta forzada. El NIP del SII nunca
 pasa por aquí: la bandeja lee la `EligibilityCheck`, que no lo guarda.
@@ -59,6 +61,9 @@ _MSG_RECHECK_QUEUED = "Consulta al SII solicitada: el veredicto aparece al termi
 _MSG_RECHECK_NOT_QUEUED = "No se pudo solicitar la consulta; intenta de nuevo."
 _MSG_NO_REASON = "Escribe el motivo de la revocación: es lo que el alumno lee."
 _MSG_NOT_ENROLLED = "Esa solicitud no tiene una inscripción que revocar."
+# Sigue al motivo de `ApproveResult.detail` cuando el SII no dio un NIP válido
+# al aprobar (modo `sii`, aviso en 200).
+_MSG_NIP_FAILURE_TAIL = "Puedes pasarla a Accesos o reintentar la consulta."
 
 # Veredicto de la consulta vigente → (etiqueta, tono de `.tt-pill--*`, icono).
 # `pending` fresca = otro proceso consulta ahora; `stale` = `pending` colgada
@@ -494,10 +499,19 @@ async def body(request: Request, status: str = "", cohort_id: str = "",
 @router.post("/{req_id}/aprobar", name="titulatec.pages.requests.approve")
 async def approve(req_id: int, request: Request,
                   user: dict = Depends(require_page_app("titulatec", perms=_APPROVE))):
-    """Aprueba (modo oficial). Sin cuenta pasa a Centro de Cómputo
-    (`awaiting_access`), que da el NIP; con cuenta, emite la liga de activación.
-    La ruta ya no lee `nip`: un formulario viejo en caché que lo mande se
-    ignora, y nunca aparece en un log ni cabecera."""
+    """Aprueba una solicitud (`EnrollmentRequestService.approve_detailed`).
+
+    Con cuenta emite la liga de activación. Sin cuenta: en el modo oficial pasa
+    a «En Cómputo» (`awaiting_access`); en el modo `sii` crea la cuenta con el
+    NIP del SII, o la pasa a Accesos si el formulario manda `to_access=1`
+    («Aprobar y pasar a Accesos»). Si en `sii` el SII no da un NIP válido al
+    aprobar, responde 200 con la bandeja re-pintada y el motivo en
+    `X-Tt-Notice` (warning): un 4xx no dejaría a HTMX re-pintar la fila, que
+    ya ofrece Accesos. Cualquier otro fallo, 400 + `X-Tt-Error`.
+
+    La ruta no lee `nip`: un formulario viejo en caché que lo mande se ignora,
+    y el NIP nunca aparece en un log ni en una cabecera (los motivos del
+    servicio no lo llevan)."""
     bloqueo = _alternate_mode_block()
     if bloqueo is not None:
         return bloqueo
@@ -507,6 +521,7 @@ async def approve(req_id: int, request: Request,
     )
     form = await request.form()
     program_id = _to_int((form.get("program_id") or "").strip())
+    to_access = (form.get("to_access") or "").strip() == "1"
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
 
     db = SessionLocal()
@@ -521,15 +536,16 @@ async def approve(req_id: int, request: Request,
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(
                 "Esa carrera no está en tu alcance.")})
         try:
-            # `nip=""`: en modo oficial `approve` no lo usa, y en el alterno
+            # `nip=""`: ni el modo oficial ni el `sii` lo usan, y en el alterno
             # esta ruta ya cortó arriba. En el threadpool, no en el event loop:
             # en modo `sii` pide el NIP al SII (pyodbc, bloqueante, hasta sus
             # timeouts) y congelaría el proceso HTTP entero (revisión final C6).
-            ok, detail = await run_in_threadpool(
-                EnrollmentRequestService.approve,
-                db, req_id, nip="", program_id=program_id, actor_id=uid)
+            result = await run_in_threadpool(
+                EnrollmentRequestService.approve_detailed,
+                db, req_id, nip="", program_id=program_id, actor_id=uid,
+                to_access=to_access)
         except Exception as exc:
-            # `approve` es dueña de su transacción: un fallo real en cualquier
+            # `approve_detailed` es dueña de su transacción: un fallo real en cualquier
             # punto se deshace entero aquí, mismo patrón que `enroll_verify`
             # (`pages/public.py`). El NIP NUNCA se loguea, ni aquí ni abajo, y
             # tampoco la traza: la de un `IntegrityError` trae los parámetros
@@ -542,14 +558,19 @@ async def approve(req_id: int, request: Request,
                 logger.warning("aprobar: rollback fallido tras el error")
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(
                 "No pudimos completar la aprobación; intenta de nuevo.")})
-        if not ok:
-            # `detail` nunca contiene el NIP, y `approve` no deja nada escrito
-            # cuando devuelve `(False, ...)` (invariante de su docstring).
-            return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
+        if not result.ok and not result.nip_failure:
+            # `detail` nunca contiene el NIP, y `approve_detailed` no deja nada
+            # escrito cuando falla (invariante de su docstring).
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(result.detail)})
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort)
     finally:
         db.close()
-    return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
+    resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
+    if result.nip_failure:
+        # Nada escrito de la solicitud; su consulta ya dice el estado del NIP.
+        resp.headers["X-Tt-Notice"] = _hdr(f"{result.detail} {_MSG_NIP_FAILURE_TAIL}")
+        resp.headers["X-Tt-Notice-Kind"] = "warning"
+    return resp
 
 
 @router.post("/{req_id}/rechazar", name="titulatec.pages.requests.reject")

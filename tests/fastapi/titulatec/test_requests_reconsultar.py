@@ -424,7 +424,7 @@ def test_aprobar_corre_el_servicio_fuera_del_event_loop(
     import asyncio
 
     from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
+        ApproveResult, EnrollmentRequestService,
     )
 
     visto = {}
@@ -435,9 +435,11 @@ def test_aprobar_corre_el_servicio_fuera_del_event_loop(
             visto["loop"] = True
         except RuntimeError:
             visto["loop"] = False
-        return False, "Detenido por la prueba."
+        return ApproveResult(False, "Detenido por la prueba.", None)
 
-    monkeypatch.setattr(EnrollmentRequestService, "approve", staticmethod(_approve))
+    # La ruta llama a `approve_detailed` (Tarea 5: distingue la falla del NIP).
+    monkeypatch.setattr(EnrollmentRequestService, "approve_detailed",
+                        staticmethod(_approve))
     head = make_head(perm_codes=LIST_PERMS)
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99650090")

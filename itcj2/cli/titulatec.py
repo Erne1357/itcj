@@ -1031,9 +1031,12 @@ def _sii_cohort_outcome(cohort_id: int, control: str, nip_status: str | None) ->
 
     Ninguna se aprueba sola: con cualquier veredicto la decide SE. El botón
     sale de «¿tiene cuenta?» (contra `core_users` ahora, como al aprobar) y del
-    estado del NIP: con cuenta, la liga; sin cuenta y NIP `available`, la
-    cuenta con el NIP del SII; si no, pasarla a Accesos."""
+    estado del NIP, con la MISMA decisión que la bandeja
+    (`EnrollmentRequestService.approval_path` + `APPROVAL_LABELS`, Ruling R8)."""
     from itcj2.apps.titulatec.models import Cohort
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        APPROVAL_LABELS, EnrollmentRequestService,
+    )
     from itcj2.core.models.user import User
     from itcj2.database import SessionLocal
 
@@ -1043,12 +1046,7 @@ def _sii_cohort_outcome(cohort_id: int, control: str, nip_status: str | None) ->
         if cohort is None:
             _sii_fail(f"No existe la convocatoria {cohort_id}.")
         tiene_cuenta = db.query(User.id).filter_by(control_number=control).first() is not None
-        if tiene_cuenta:
-            boton = "Aprobar y enviar liga"
-        elif nip_status == "available":
-            boton = "Aprobar y dar acceso"
-        else:
-            boton = "Aprobar y pasar a Accesos"
+        boton = APPROVAL_LABELS[EnrollmentRequestService.approval_path(tiene_cuenta, nip_status)]
         click.echo(f"Convocatoria: {cohort.name} (id {cohort.id}, {cohort.status})")
         click.echo(f"Cuenta: {'sí' if tiene_cuenta else 'no'}")
         click.echo(f"  → En «Por revisar», Servicios Escolares vería: {boton}")

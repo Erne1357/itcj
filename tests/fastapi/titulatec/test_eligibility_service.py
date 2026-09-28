@@ -3,10 +3,11 @@
 decide siempre (spec 2026-09-27 §A3).
 
 Corre con el SII FALSO y las reglas sintéticas de `sii_fixtures/` (se parchea
-`SiiConfig`, nunca `get_settings`). El JSON del SII falso lo arma cada prueba
-en `tmp_path` con números de control `9958xxxx`: los `2011xxxx` de
-`sii_fixtures/fake_sii.json` podrían existir como cuentas reales en la BD de
-dev, y «¿tiene cuenta?» se decide contra `core_users`.
+`SiiConfig`, nunca `get_settings`): la fixture `sii` y `FakeSii` viven en
+`_sii_fake.py`, compartidos con `test_enrollment_approve.py`. El JSON del SII
+falso lo arma cada prueba en `tmp_path` con números de control `9958xxxx`:
+los `2011xxxx` de `sii_fixtures/fake_sii.json` podrían existir como cuentas
+reales en la BD de dev, y «¿tiene cuenta?» se decide contra `core_users`.
 
 Máquina que fija este archivo:
 
@@ -31,78 +32,12 @@ from itcj2.apps.titulatec.services.eligibility_service import (
     _PENDING_STALE, NIP_MISSING, NIP_UNAVAILABLE,
 )
 from itcj2.apps.titulatec.services.sii.client import SiiConfig
-
-FIXTURES = Path(__file__).parent / "sii_fixtures"
-NIP_SII = "4321"
-RULES_VERSION = "test-2026-09-25.1"
+from tests.fastapi.titulatec._sii_fake import FIXTURES, RULES_VERSION, sii  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
-# Fixtures locales
+# Fixtures locales (el SII falso, `sii`, es el compartido de `_sii_fake.py`)
 # ---------------------------------------------------------------------------
-class _FakeSii:
-    """Arma el JSON del SII falso por prueba (controles sintéticos)."""
-
-    def __init__(self, path: Path):
-        self.path = path
-        self.data = {"queries": {"alumno": {}, "adeudos": {}, "nip": {}}}
-        self.backend = "fake"
-        self.rules = FIXTURES
-        self._write()
-
-    def _write(self):
-        self.path.write_text(json.dumps(self.data), encoding="utf-8")
-
-    def alumno(self, control, *, nombre="EGRESADA", paterno="DEL SII", materno=None,
-               carrera="Ingenieria Ficticia", nip=NIP_SII, **over):
-        row = {"no_de_control": control, "nombre": nombre, "apellido_paterno": paterno,
-               "apellido_materno": materno, "carrera": carrera, "anio_ingreso": 2019,
-               "estatus": "EGRESADO", "creditos_aprobados": 260, "creditos_carrera": 260,
-               "servicio_social": "S", "residencia": "S"}
-        row.update(over)
-        self.data["queries"]["alumno"][control] = [row]
-        if nip is not None:
-            self.data["queries"]["nip"][control] = [{"nip": nip}]
-        self._write()
-
-    def no_apta(self, control, **kw):
-        self.alumno(control, creditos_aprobados=200, **kw)
-
-    def caido(self, control):
-        self.data["queries"]["alumno"][control] = {"error": "unavailable"}
-        self._write()
-
-    def nip_caido(self, control):
-        self.data["queries"]["nip"][control] = {"error": "unavailable"}
-        self._write()
-
-    def consulta_invalida(self, control):
-        """`SiiQueryError`: el SII respondió, pero la consulta no sirve."""
-        self.data["queries"]["alumno"][control] = {"error": "query"}
-        self._write()
-
-    def nip_invalido(self, control):
-        """`SiiQueryError` al pedir el NIP (p. ej. sin permiso sobre la tabla)."""
-        self.data["queries"]["nip"][control] = {"error": "query"}
-        self._write()
-
-    def nip_sin_columna(self, control):
-        """La consulta del NIP no devuelve la columna de `[credential]`
-        (`SiiRulesError`); la fila trae otro dato que NO debe aparecer."""
-        self.data["queries"]["nip"][control] = [{"otra": "7777"}]
-        self._write()
-
-
-@pytest.fixture()
-def sii(monkeypatch, tmp_path):
-    fake = _FakeSii(tmp_path / "fake_sii.json")
-    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: fake.backend))
-    monkeypatch.setattr(SiiConfig, "fake_file", staticmethod(lambda: fake.path))
-    monkeypatch.setattr(SiiConfig, "rules_dir", staticmethod(lambda: Path(fake.rules)))
-    monkeypatch.setattr(SiiConfig, "odbc_connection_string", staticmethod(lambda: ""))
-    return fake
-
-
 # `modo_sii` vive en conftest.py (Tarea 1: una sola copia compartida en vez de
 # 6 duplicadas por archivo).
 
@@ -597,8 +532,9 @@ def test_el_dominio_del_estado_del_nip_es_el_de_la_spec():
     (None, "SiiQueryError", "error"),
 ], ids=["valido", "cinco_digitos", "sin_nip", "nip_missing", "sii_caido", "de_config"])
 def test_classify_sii_nip_cubre_todo_el_dominio(valor, falla, esperado):
-    """UNA función traduce `(Secret | None, falla)` de `fetch_sii_nip` (o de
-    `_approve_locked`, que dice `NIP_MISSING`) al estado que se guarda."""
+    """UNA función traduce `(Secret | None, falla)` de `fetch_sii_nip` (en la
+    consulta y en `_approve_locked`; `NIP_MISSING` equivale a «sin NIP») al
+    estado que se guarda."""
     from itcj2.apps.titulatec.services.eligibility_service import NIP_STATUSES
     from itcj2.apps.titulatec.services.sii.rules import Secret
 
@@ -691,6 +627,25 @@ def test_la_consulta_guarda_not_needed_con_cuenta(
 
     assert chk.status == "apt" and chk.nip_status == "not_needed"
     assert pide_nip == []
+
+
+def test_con_control_invalido_no_se_busca_cuenta(
+    db_session, make_cohort, sii, modo_sii, pide_nip,
+):
+    """Mismo corte que la aprobación (`_sii_nip_unlocked`): un control que no
+    cumple `CONTROL_NUMBER_RE` no se busca en `core_users`, así que una cuenta
+    con ese mismo texto no lo vuelve `not_needed`: se trata como sin cuenta."""
+    control = "9958015X"
+    _cuenta(db_session, control)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control=control)
+    sii.alumno(control)
+
+    chk = _svc().check(db_session, req.id)
+
+    assert chk.status == "apt"
+    assert chk.nip_status == "available", "como si no tuviera cuenta"
+    assert pide_nip == [control]
 
 
 def test_con_veredicto_error_no_se_pide_el_nip(
@@ -1104,14 +1059,17 @@ class _LlamadasAlNucleo(ast.NodeVisitor):
 
 
 def test_nada_llama_al_nucleo_de_aprobacion_salvo_approve():
-    """«Barrido de escritores»: el único que aprueba es `approve()` (la bandeja
-    de Servicios Escolares). Se recorre TODO `itcj2/`, no solo el servicio del
-    SII: una ruta desatendida nueva que llame al núcleo sale aquí en rojo. Y el
-    símbolo `auto_approve` no vuelve (ni en código ni en un docstring que lo
-    siga anunciando)."""
+    """«Barrido de escritores»: el único que aprueba es la bandeja de Servicios
+    Escolares, por `approve_detailed()` (lock, estado y el NIP del SII; desde la
+    Tarea 5 `approve()` solo le delega) — Ruling R2: el conjunto permitido son
+    esas dos. Se recorre TODO `itcj2/`, no solo el servicio del SII: una ruta
+    desatendida nueva que llame al núcleo sale aquí en rojo. Y el símbolo
+    `auto_approve` no vuelve (ni en código ni en un docstring que lo siga
+    anunciando)."""
     raiz = Path(__file__).resolve().parents[3]
-    permitidas = {("itcj2/apps/titulatec/services/enrollment_request_service.py",
-                   "EnrollmentRequestService.approve")}
+    servicio = "itcj2/apps/titulatec/services/enrollment_request_service.py"
+    permitidas = {(servicio, "EnrollmentRequestService.approve"),
+                  (servicio, "EnrollmentRequestService.approve_detailed")}
     simbolo = re.compile(r"\bauto_approve\b")
 
     encontradas, con_simbolo = set(), []
@@ -1126,7 +1084,8 @@ def test_nada_llama_al_nucleo_de_aprobacion_salvo_approve():
         visor.visit(ast.parse(texto, filename=rel))
         encontradas.update((rel, donde) for donde in visor.llamadas)
 
-    assert encontradas == permitidas
+    assert encontradas, "alguien tiene que llamar al núcleo"
+    assert encontradas <= permitidas, encontradas - permitidas
     assert con_simbolo == []
 
 
@@ -1169,6 +1128,7 @@ def test_se_aprueba_sin_cuenta_con_el_nip_del_sii_e_ignora_el_del_formulario(
 
     assert ok is True and folio
     assert req.status == "converted" and req.reviewed_by_id == se.id
+    assert req.nip_source == "sii"
     user = _usuario(db_session, "99580050")
     assert verify_nip("3579", user.password_hash)
     assert not verify_nip("1111", user.password_hash)
@@ -1190,7 +1150,7 @@ def test_un_nip_del_sii_con_otro_formato_no_crea_cuenta_ni_se_filtra(
         ok, motivo = _ers().approve(db_session, req.id, nip="", program_id=None,
                                     actor_id=se.id)
 
-    assert ok is False and "12AB" not in motivo
+    assert (ok, motivo) == (False, "El NIP del SII no tiene un formato válido (4 dígitos).")
     assert req.status == "pending_review"
     assert _usuario(db_session, "99580040") is None
     assert "12AB" not in caplog.text
@@ -1240,10 +1200,17 @@ def test_una_falla_al_crear_la_cuenta_no_filtra_el_nip_ni_su_hash(
     assert "RuntimeError" in caplog.text
 
 
-@pytest.mark.parametrize("falla", ["sin_nip", "caido", "invalido"])
+@pytest.mark.parametrize("falla,motivo", [
+    ("sin_nip", "El SII no tiene NIP para esta persona."),
+    ("caido", "El SII no respondió al pedir el NIP."),
+    ("invalido", "No se pudo leer el NIP en el SII (revisa la configuración de las reglas)."),
+])
 def test_se_no_puede_aprobar_sin_cuenta_si_el_sii_no_da_el_nip(
-    db_session, make_cohort, make_user, sii, listo, falla,
+    db_session, make_cohort, make_user, sii, listo, falla, motivo,
 ):
+    """Sin pasarla a Accesos, cada falla del NIP da SU motivo (spec 2026-09-27
+    §A4); ninguno lleva el valor. La salida es «pasar a Accesos»
+    (`test_enrollment_approve.py::TestModoSiiSEDecide`)."""
     se = make_user()
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99580051")
@@ -1256,9 +1223,9 @@ def test_se_no_puede_aprobar_sin_cuenta_si_el_sii_no_da_el_nip(
         sii.alumno("99580051")
         sii.nip_invalido("99580051")
 
-    ok, motivo = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id)
+    resultado = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id)
 
-    assert (ok, motivo) == (False, "No se pudo obtener el NIP del SII.")
+    assert resultado == (False, motivo)
     assert req.status == "pending_review" and req.reviewed_by_id is None
     assert _usuario(db_session, "99580051") is None
     assert listo == []
