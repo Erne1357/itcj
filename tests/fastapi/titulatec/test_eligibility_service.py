@@ -1182,6 +1182,9 @@ def test_una_falla_al_crear_la_cuenta_no_filtra_el_nip_ni_su_hash(
 
     assert ok is False and motivo
     assert "1593" not in motivo and h not in motivo
+    # El respaldo del modo `sii` es Accesos (spec 2026-09-27 D1), no el alta
+    # desde la convocatoria.
+    assert motivo == "No se pudo crear la cuenta con el NIP del SII; pásala a Accesos."
     assert req.status == "pending_review"
     assert "1593" not in caplog.text and h not in caplog.text
     assert "RuntimeError" in caplog.text

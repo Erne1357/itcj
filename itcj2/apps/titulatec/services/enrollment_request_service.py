@@ -173,14 +173,16 @@ _ENTRY_YEAR_RE = re.compile(r"^[A-Za-z]?(\d{2})")
 # EL NIP: 4 dígitos ASCII. `[0-9]`, no `\d`: en `re` de Python `\d` también
 # casa dígitos Unicode («１２３４», «١٢٣٤») que nadie puede teclear en el login.
 # Única regla: `nip_format_ok`, que usan `_create_account`, `reassign_nip` y
-# `sii-check`.
+# `EligibilityService.classify_sii_nip`.
 _NIP_RE = re.compile(r"[0-9]{4}")
 
 
 def nip_format_ok(nip: str | None) -> bool:
     """¿`nip` sirve como NIP (exactamente 4 dígitos ASCII, `_NIP_RE`)? La
     ÚNICA regla del NIP: la usan `_create_account` y `reassign_nip`, y
-    `sii-check` para decir si el del SII serviría SIN mostrarlo."""
+    `EligibilityService.classify_sii_nip` para decir si el del SII serviría
+    SIN mostrarlo — a través de ella la aplican la consulta al SII, la
+    aprobación del modo `sii` y `sii-check`."""
     return bool(_NIP_RE.fullmatch(nip or ""))
 
 
@@ -263,8 +265,7 @@ _NIP_FAILURE_MSGS = {
     "unavailable": "El SII no respondió al pedir el NIP.",
     "error": "No se pudo leer el NIP en el SII (revisa la configuración de las reglas).",
 }
-_MSG_SII_ACCOUNT_FAILED = ("No se pudo crear la cuenta con el NIP del SII; da de alta a la "
-                           "persona desde la convocatoria.")
+_MSG_SII_ACCOUNT_FAILED = "No se pudo crear la cuenta con el NIP del SII; pásala a Accesos."
 _NOTE_LINK_COHORT_CLOSED = "La convocatoria estaba cerrada cuando se abrió la liga de activación."
 _NOTE_LINK_NO_ACCOUNT = "La cuenta de ese número de control ya no existe."
 _NOTE_LINK_NO_PROCESS = ("No se pudo crear el proceso al abrir la liga; revisa los datos "
@@ -1142,7 +1143,9 @@ class EnrollmentRequestService:
                         event_extra: dict | None = None):
         """Crea la cuenta NUEVA de una solicitud sin cuenta. `(ok, detalle, summary, user)`.
 
-        Lo usan `approve()` (modo alterno y modo `sii`) y `grant_access()`.
+        Lo usan `_approve_locked` (el núcleo de `approve_detailed`: modo
+        alterno, y modo `sii` vía `_create_account_with_sii_nip`) y
+        `grant_access()`.
         `nip_source` (obligatorio, `NIP_SOURCES`) dice de dónde salió el NIP y
         queda en `req.nip_source`: `"form"` el alterno, `"center"` Centro de
         Cómputo, `"sii"` el modo `sii`. En este último el NIP es el del SII:

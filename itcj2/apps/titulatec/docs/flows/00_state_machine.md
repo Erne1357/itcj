@@ -65,7 +65,7 @@ la convocatoria no la resucita (la pausa/reanudación solo mueve `active`↔`on_
 sitio por sitio (excluir / etiquetar «Revocado» / bloquear); una revocada no cuenta como proceso
 vivo para D5 —la persona puede inscribirse en **otra** convocatoria— pero en la **misma** no (D1:
 una sola fila por alumno y convocatoria). Detalle:
-[Elegibilidad automática contra el SII › Revocar](xcut_sii_eligibility.md#revocar-inscripción).
+[Consulta de elegibilidad al SII › Revocar](xcut_sii_eligibility.md#revocar-inscripción).
 
 ### Quién puede mover/dictaminar qué, y cuándo — cuatro puntos de aplicación
 
@@ -300,15 +300,16 @@ stateDiagram-v2
 Es previo a las 9 fases: nace con el formulario público de `/titulatec/inscripcion` y termina en
 `converted` (que abre la fase 0/1 vía `ImportService.import_rows`) o en `rejected`. Siete
 valores, `String(20)`; `unverified`/`verified` son LEGADO del flujo con liga previa y ya no se
-escriben. Quién revisa (SE o CC) y si `awaiting_access` aparece en el camino lo decide
-`EnrollmentRequestService.reviewer_mode()` (`TITULATEC_ENROLLMENT_REVIEWER`, 2026-09-24):
+escriben. Quién revisa (SE o CC) y por dónde pasa una solicitud sin cuenta lo decide
+`EnrollmentRequestService.reviewer_mode()` (`TITULATEC_ENROLLMENT_REVIEWER`; **`sii` por omisión
+desde 2026-09-27**, `school_services` y `computer_center` como respaldo):
 
 ```mermaid
 stateDiagram-v2
     [*] --> pending_review: 👤 envía el formulario público
-    pending_review --> awaiting_access: 🏛️ SE aprueba SIN cuenta · modo OFICIAL (por omisión) · SIN correo
-    pending_review --> converted: 🏛️/💻 aprueba SIN cuenta · modo ALTERNO · usuario + NIP por correo
-    pending_review --> approved: 🏛️/💻 aprueba CON cuenta (ambos modos) · liga de 21 días por correo
+    pending_review --> awaiting_access: 🏛️ SE aprueba SIN cuenta · modo SII «pasar a Accesos» u OFICIAL · SIN correo
+    pending_review --> converted: 🏛️ SE aprueba SIN cuenta con el NIP del SII (modo SII) · 💻 CC con NIP (ALTERNO)
+    pending_review --> approved: 🏛️/💻 aprueba CON cuenta (todos los modos) · liga de 21 días por correo
     awaiting_access --> converted: 💻 CC da el acceso, SIN cuenta · usuario + NIP por correo
     awaiting_access --> approved: 💻 CC da el acceso, CON cuenta (D10) · liga por correo
     awaiting_access --> pending_review: 💻 CC devuelve a SE · return_note, sin correo
@@ -321,16 +322,32 @@ stateDiagram-v2
     rejected --> [*]
 ```
 
-**Modo `sii` (2026-09-25):** las mismas aristas que el ALTERNO (`pending_review → converted` sin
-cuenta, con el NIP del SII; `→ approved` con cuenta), escritas por la aprobación automática (actor
-`None`) o por SE; sin `awaiting_access`. Lo que decide si una solicitud se aprueba sola es el check
-de elegibilidad de abajo.
+**Modo `sii` (por omisión desde 2026-09-27, «el SII informa, Servicios Escolares decide»):**
+TODAS las salidas de `pending_review` las escribe **SE** desde Solicitudes — nada se aprueba solo
+(la aprobación automática del 2026-09-25 se retiró el 2026-09-27). El botón lo decide
+`approval_path(tiene_cuenta, nip_status)`:
 
-**`awaiting_access` solo existe en el modo oficial** — el alumno nunca se entera de él (ni al
-entrar ni al salir hay correo). Detalle completo de quién ve cada estado, los dos modos y D8/D10:
-[Accesos de Centro de Cómputo](xcut_computer_center_access.md); el resto del ciclo (formulario,
-liga, riesgo aceptado, rol `graduate`):
+| Caso (al aprobar, bajo el lock) | Transición | `nip_source` |
+|---|---|---|
+| Con cuenta (`to_access` se ignora) | `pending_review → approved` (liga) | — |
+| Sin cuenta, «Aprobar y dar acceso» y el SII da un NIP válido | `pending_review → converted` (cuenta con el NIP del SII, correo sin NIP) | `sii` |
+| Sin cuenta, «Aprobar y pasar a Accesos» (`to_access`) | `pending_review → awaiting_access` → CC como en el oficial | `center` (al dar acceso) |
+| Sin cuenta, «dar acceso», pero el SII ya no da un NIP válido | ninguna: sigue `pending_review`; la consulta vigente guarda el `nip_status` visto | — |
+
+La consulta al SII **no mueve** la solicitud: deja una `EligibilityCheck` (abajo).
+
+**`awaiting_access` existe en los modos `sii` y oficial** — el alumno nunca se entera de él (ni al
+entrar ni al salir hay correo). En el alterno aprobar ya es de Centro de Cómputo y no pasa por ahí
+(solo quedan las sobrantes de otro modo). Detalle completo de quién ve cada estado, los modos y
+D8/D10: [Accesos de Centro de Cómputo](xcut_computer_center_access.md); el resto del ciclo
+(formulario, liga, riesgo aceptado, rol `graduate`):
 [Inscripción pública con revisión previa](xcut_public_enrollment.md).
+
+**`nip_source`** (`titulatec_enrollment_requests`, `sii | center | form`, nullable,
+`tt20260927a`): de dónde salió el NIP de la cuenta que **creó** la solicitud — `sii` (aprobación con
+el NIP del SII), `center` (Centro de Cómputo en Accesos, `grant_access`), `form` (modo alterno).
+`NULL` = cuenta que ya existía (liga) o fila anterior. Lo escribe solo `_create_account`; «Con
+acceso» de Accesos deja fuera `sii` y «Reenviar aviso» lo exige.
 
 ## Estado de un check de elegibilidad (`EligibilityCheck.status`) — modo `sii`
 
@@ -352,7 +369,21 @@ stateDiagram-v2
   `force`) **inserta** otra con `attempt + 1` y mueve `last_check_id`.
 - `pending` de más de 15 min (`_PENDING_STALE`) = colgada: el barrido o `force` la retoman.
 - `error` + `retryable = true` se reintenta solo hasta `TITULATEC_SII_MAX_ATTEMPTS`; `retryable =
-  false` espera a que SE la reconsulte.
-- `apt` aprueba la solicitud **solo** si pasa las revalidaciones de `auto_approve` (ventana,
-  convocatoria `open`, interruptor, nombre igual al del SII, NIP disponible). Detalle:
-  [`xcut_sii_eligibility.md`](xcut_sii_eligibility.md).
+  false` espera a que SE la reconsulte (o `sii-sweep --reconsultar-errores`).
+- Ningún veredicto aprueba nada: `apt`, `not_apt` y `error` son información para SE, que decide
+  siempre (`not_apt`, `error`, sin consulta o un nombre que no coincide piden confirmación al
+  aprobar, D7).
+- Con el SII sin configurar (`TITULATEC_SII_BACKEND=disabled`) no nace ninguna fila.
+
+**Eje aparte: `nip_status`** (`tt20260927a`) — solo el ESTADO del NIP del SII, nunca el valor.
+Lo fija la fase ③ de `check` (y, si al aprobar el SII ya no da un NIP válido,
+`EligibilityService.record_nip_status` sobre la consulta que siga vigente):
+
+| Valor | Cuándo |
+|---|---|
+| `available` · `missing` · `invalid` · `unavailable` · `error` | sin cuenta y veredicto ≠ `error`: lo que dio `classify_sii_nip` (NIP de 4 dígitos · sin NIP · otro formato · el SII no respondió · `[credential]` mal configurada) |
+| `not_needed` | la persona tenía cuenta al consultar: no se pidió |
+| `NULL` | no se revisó: veredicto `error`, consulta en curso, o fila anterior a `tt20260927a` |
+
+Solo `available` (y con el SII configurado) hace que la bandeja ofrezca «Aprobar y dar acceso»;
+cualquier otro, sin cuenta, «Aprobar y pasar a Accesos». Detalle: [`xcut_sii_eligibility.md`](xcut_sii_eligibility.md).

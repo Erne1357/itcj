@@ -83,10 +83,11 @@ def _parse_window_dt(date_raw: str | None, time_raw: str | None, *,
     """Fecha `YYYY-MM-DD` (obligatoria) + hora `HH:MM` (opcional) → `datetime`.
 
     Hora vacía → `default`. Fecha vacía o ilegible, u hora ilegible → `None`,
-    nunca un 500: la ruta lo convierte en «La apertura y el cierre son
-    obligatorios.». Una hora que no se entiende NO cae al valor por omisión:
-    abrir a las 00:00 lo que la jefa quiso abrir a las 09:00 es peor que
-    pedírsela otra vez.
+    nunca un 500: el panel de la ventana (`cohort_window`) lo convierte en
+    400 «La apertura y el cierre son obligatorios.» y el alta de convocatoria
+    (`cohort_create`) en un 303 a `?error=ventana`, sin crear nada. Una hora
+    que no se entiende NO cae al valor por omisión: abrir a las 00:00 lo que
+    la jefa quiso abrir a las 09:00 es peor que pedírsela otra vez.
     """
     d = _parse_day(date_raw)
     if d is None:

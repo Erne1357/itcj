@@ -461,8 +461,9 @@ def test_la_regla_del_nip_vive_en_un_solo_lugar():
 
     src = _inspect.getsource(mod)
     assert r"\d{4}" not in src
-    # Revisión final: la regla vive en `nip_format_ok` (también la usa
-    # `sii-check`); `_create_account` y `reassign_nip` la llaman.
+    # Revisión final: la regla vive en `nip_format_ok`; `_create_account` y
+    # `reassign_nip` la llaman, y `EligibilityService.classify_sii_nip` (la
+    # consulta al SII, la aprobación del modo `sii` y `sii-check`) también.
     assert src.count("_NIP_RE.fullmatch(") == 1
     for fn in (mod.EnrollmentRequestService._create_account,
                mod.EnrollmentRequestService.reassign_nip):

@@ -309,7 +309,17 @@ class Settings(BaseSettings):
     # cierra tras una revocación exitosa y limpia el motivo al cerrarlo. Sin el
     # bump, el navegador sirve el JS viejo (el POST funciona igual: el `hx-post`
     # va en la plantilla, pero el modal no se cierra solo).
-    STATIC_VERSION: str = "1.0.1111575"
+    #
+    # Bump 2026-09-27: `titulatec/css/titulatec.css` («el SII informa, Servicios
+    # Escolares decide» + ventana con hora). Suma `.tt-req-table--sii` (la
+    # SEXTA columna «SII» de Solicitudes con sus anchos y el `min-width: 960px`),
+    # `.tt-sii--compact`/`.tt-sii-fold` (la celda compacta del historial) y los
+    # `.tt-win-*` de la pareja fecha + hora (macro `window_end`, panel de la
+    # ventana y alta de convocatoria); retira `.tt-win-auto` (el interruptor de
+    # la automática). nginx sirve la hoja `immutable`: sin el bump, quien la
+    # tenga en caché ve la columna del SII sin anchos (la tabla se sale) y los
+    # campos de hora a lo ancho de la tarjeta.
+    STATIC_VERSION: str = "1.0.1111576"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -468,7 +478,9 @@ class Settings(BaseSettings):
     TITULATEC_ENROLLMENT_REVIEWER: Literal["school_services", "computer_center", "sii"] = "sii"
 
     # `SiiClient` (perezoso, ver servicio): qué backend habla con el SII.
-    # `disabled` no consulta nada (checks se quedan en `pending`), `fake` lee
+    # `disabled` = SII no configurado (spec 2026-09-27 D11): no se consulta ni
+    # se encola nada (no nace ninguna `EligibilityCheck`) y la bandeja aprueba
+    # lo que no tiene cuenta pasándolo a Accesos; `fake` lee
     # `TITULATEC_SII_FAKE_FILE` (dev/demo/tests), `odbc` es el real (FreeTDS).
     TITULATEC_SII_BACKEND: Literal["disabled", "fake", "odbc"] = "disabled"
     # Cadena de conexión ODBC completa (incluye credenciales) — SecretStr para
@@ -484,8 +496,9 @@ class Settings(BaseSettings):
     TITULATEC_SII_FAKE_FILE: str = "database/SII/titulatec/fake_sii.json"
     TITULATEC_SII_CONNECT_TIMEOUT_S: int = Field(5, ge=1, le=60)
     TITULATEC_SII_QUERY_TIMEOUT_S: int = Field(10, ge=1, le=120)
-    # Tope de reintentos de `titulatec.sii_check_request` ante `SiiUnavailable`
-    # antes de dejar el check en `error` no reintentable.
+    # Tope de intentos de consulta ante `SiiUnavailable` (tarea y barrido): en
+    # el tope el check se queda en `error` y ya nadie lo retoma solo
+    # (`titulatec sii-sweep --reconsultar-errores` o «Reintentar consulta»).
     TITULATEC_SII_MAX_ATTEMPTS: int = Field(5, ge=1, le=20)
 
     model_config = {"env_file": ".env", "extra": "ignore"}

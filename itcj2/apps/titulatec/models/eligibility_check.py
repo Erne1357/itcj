@@ -50,10 +50,12 @@ class EligibilityCheck(Base):
     identity_mismatch = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)                 # mensaje de SiiUnavailable/SiiQueryError, sin credenciales
     # Solo en `status == 'error'`: True si el SII no respondio
-    # (`SiiUnavailable`: conexion, timeout, backend apagado) y por eso se
-    # reintenta (spec 3.4); False si es de configuracion (reglas, consulta
-    # invalida, falla inesperada), que esperar no arregla. NULL en los demas
-    # estados. Migracion `tt20260925b`.
+    # (`SiiUnavailable`: conexion, timeout) o celery corto la tarea por tiempo
+    # (`SoftTimeLimitExceeded`), y por eso se reintenta (spec 3.4); False si
+    # es de configuracion (reglas, consulta invalida, falla inesperada), que
+    # esperar no arregla. NULL en los demas estados. Con el SII sin configurar
+    # (backend `disabled`, spec 2026-09-27 D11) ya no se consulta: no nace
+    # ninguna fila. Migracion `tt20260925b`.
     retryable = Column(Boolean, nullable=True)
     # Dominio: `available|missing|invalid|unavailable|error|not_needed`
     # (spec `2026-09-27-titulatec-sii-informa-se-decide-design.md` A2).

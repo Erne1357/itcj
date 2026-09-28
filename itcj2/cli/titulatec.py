@@ -1069,8 +1069,10 @@ def sii_check_command(control_number, cohort_id):
     """Dry-run: evalúa las reglas del SII para un número de control.
 
     Imprime el resultado por regla, los hechos, la identidad y el estado del
-    NIP (el mismo que guardaría la consulta, `classify_sii_nip`; el valor
-    siempre enmascarado). Con `--cohort`, el botón que vería Servicios
+    NIP (`classify_sii_nip`; el valor siempre enmascarado): el que guardaría
+    la consulta para una persona SIN cuenta. Aquí se pregunta siempre,
+    aunque el control ya tenga cuenta (la consulta, en ese caso, ni lo pide y
+    guarda `not_needed`). Con `--cohort`, el botón que vería Servicios
     Escolares. No escribe nada. Sale 1 ante `error` o un NIP que no serviría
     para crear la cuenta (formato inválido, SII sin respuesta, `[credential]`
     mal configurada).

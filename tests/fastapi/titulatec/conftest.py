@@ -205,19 +205,21 @@ def modo_sii(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _sin_broker(monkeypatch):
-    """`celery_app.send_task` real tocaría Redis: `EligibilityService.enqueue_check`
-    lo llama por nombre (sin sesión de BD de por medio) desde `create()` en modo
-    `sii` y desde `sii-check`/`sii-sweep`. Con `sii` ya de default (Tarea 1) y
+    """`celery_app.send_task` real tocaría Redis: `enqueue_check` lo llama por
+    nombre (sin sesión de BD de por medio) desde `create()` en modo `sii`,
+    desde «Reintentar consulta» de la bandeja y desde `recheck_errors`
+    (`sii-sweep --reconsultar-errores`). Con `sii` ya de default (Tarea 1) y
     creciendo el número de archivos que usan la fixture `modo_sii`, este parche
     es AUTOUSE para que ningún archivo nuevo tenga que acordarse de mockearlo:
     registra la llamada y devuelve `None` en vez de tocar el broker.
 
-    Los dos tests que prueban el `enqueue_check` REAL
-    (`test_eligibility_service.py::test_enqueue_check_nunca_lanza` y
-    `..._manda_la_tarea_por_nombre_sin_reintentar_el_broker`) hacen
-    `monkeypatch.undo()` primero (mismo `monkeypatch`, function-scoped: deshace
-    tambien este parche) y vuelven a parchear `send_task` ELLOS MISMOS despues
-    -> su parche, por ser el ultimo `setattr`, gana.
+    Los tres tests que prueban el `enqueue_check` REAL
+    (`test_eligibility_service.py::test_enqueue_check_nunca_lanza`,
+    `..._manda_la_tarea_por_nombre_sin_reintentar_el_broker` y
+    `test_sii_no_configurado_no_consulta`) hacen `monkeypatch.undo()` primero
+    (mismo `monkeypatch`, function-scoped: deshace tambien este parche) y
+    vuelven a parchear `send_task` ELLOS MISMOS despues -> su parche, por ser
+    el ultimo `setattr`, gana.
     """
     from itcj2.celery_app import celery_app
 
