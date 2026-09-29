@@ -44,9 +44,19 @@ periódicas las mandan por NOMBRE, no por ruta de módulo):
         `{"disabled": True}`. Una corrida sin movimiento va al log en DEBUG,
         no en INFO: corre 1440 veces al día.
 
-La lógica vive en los services (`EligibilityService`, `MailDispatcher`); aquí
-solo sesión, reintento y resultado. `SessionLocal` se importa DENTRO de cada
-tarea (los tests lo parchean).
+    titulatec.email_reminders()
+        Periódica, diaria a las 9:00 (spec 2026-09-28 §6 C4/C5; su alta en
+        `core_periodic_tasks` es un DML aparte). Encola los recordatorios que
+        tocan hoy —la cita de cotejo del día siguiente, los documentos que
+        faltan o hay que corregir, la encuesta de egresados— con su aviso
+        in-app (`MailReminders.run`); los manda `email_dispatch`. Idempotente:
+        correrla dos veces no duplica correos ni avisos. Devuelve
+        `{"appt", "docs", "survey"}` (recordatorios nuevos de cada tipo) o
+        `{"disabled": True}` con el correo apagado.
+
+La lógica vive en los services (`EligibilityService`, `MailDispatcher`,
+`MailReminders`); aquí solo sesión, reintento y resultado. `SessionLocal` se
+importa DENTRO de cada tarea (los tests lo parchean).
 """
 import logging
 
@@ -91,6 +101,22 @@ TASK_DEFINITIONS = [
             "personal del egresado. Agrupa los movimientos de un mismo proceso, "
             "descarta lo que ya no aplica y reintenta con espera creciente hasta "
             "TITULATEC_EMAIL_MAX_ATTEMPTS. Con TITULATEC_EMAIL_ENABLED=false no hace nada."
+        ),
+        "app_name": "titulatec",
+        "category": "notification",
+        "default_args": {},
+    },
+    {
+        "task_name": "titulatec.email_reminders",
+        "display_name": "Recordatorios por correo al egresado (TitulaTec)",
+        "description": (
+            "Diario: encola los recordatorios del proceso de titulación con su aviso en "
+            "la app — la cita de cotejo del día siguiente "
+            "(TITULATEC_APPT_REMINDER_DAYS_BEFORE), los documentos iniciales que faltan "
+            "o hay que corregir y la encuesta de egresados (a los "
+            "TITULATEC_REMINDER_FIRST_DAYS días, luego cada TITULATEC_REMINDER_EVERY_DAYS, "
+            "hasta TITULATEC_REMINDER_MAX). No duplica si corre dos veces; los manda el "
+            "despacho de correos. Con TITULATEC_EMAIL_ENABLED=false no hace nada."
         ),
         "app_name": "titulatec",
         "category": "notification",
@@ -178,4 +204,24 @@ def email_dispatch(self, task_run_id: int | None = None) -> dict:
         out = MailDispatcher.run(db)
     logger.log(logging.INFO if any(out.values()) else logging.DEBUG,
                "Correos: despacho — %s", out)
+    return out
+
+
+@celery_app.task(
+    bind=True,
+    base=LoggedTask,
+    name="titulatec.email_reminders",
+    soft_time_limit=540,
+    time_limit=600,
+)
+def email_reminders(self, task_run_id: int | None = None) -> dict:
+    """Barrido diario de recordatorios (`MailReminders.run`, con su reloj
+    `db_now()`). Devuelve `{"appt", "docs", "survey"}` —recordatorios nuevos
+    de cada tipo— o `{"disabled": True}` con el correo apagado."""
+    from itcj2.apps.titulatec.services.mail_reminders import MailReminders
+    from itcj2.database import SessionLocal
+
+    with SessionLocal() as db:
+        out = MailReminders.run(db)
+    logger.info("Correos: recordatorios — %s", out)
     return out

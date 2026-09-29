@@ -249,7 +249,14 @@ estado y su franja ocupada** mientras el alumno recibe una fila nueva en otra.
 | No se presentó (desde 2026-09-28) | `APPOINTMENT_NO_SHOW` «No registramos tu asistencia a tu cita» | siempre |
 | Deshacer «no se presentó» (desde 2026-09-28) | `APPOINTMENT_NO_SHOW_UNDONE` «Se corrigió tu asistencia a la cita» | siempre |
 
-Los cinco llevan de cuerpo «fecha · hora · lugar» y apuntan a la fase 2. **El auto-agendado no le
+Además, el **recordatorio de la cita** (desde 2026-09-29): el barrido diario de las 9:00
+(`titulatec.email_reminders` → `MailReminders.run`, `services/mail_reminders.py`) avisa
+`APPOINTMENT_REMINDER` «Mañana es tu cita de cotejo» por la cita VIGENTE `scheduled`/`confirmed`
+cuya fecha es la de mañana (`TITULATEC_APPT_REMINDER_DAYS_BEFORE`, 0 = apagado), salvo que se
+haya agendado o movido hace menos de 24 h; una vez por cita, y solo si su correo `appt_reminder`
+se encoló (fila nueva).
+
+Los seis llevan de cuerpo «fecha · hora · lugar» y apuntan a la fase 2. **El auto-agendado no le
 notifica nada al encargado**: se entera por el distintivo «El alumno agendó» de su tablero.
 
 > La comparación «¿el actor es el alumno?» va con `int()` en los dos lados: `user["sub"]` es

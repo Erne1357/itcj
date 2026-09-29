@@ -30,11 +30,14 @@ CONTRATO DE `MailComposer.compose(db, rows, process, user)`:
   sueltas, ninguna) → `ValueError`. Es un error del llamador, y adivinar podría
   mandarle a un egresado lo de otro.
 
-EXTENDER (la Tarea 8 registra aquí los tres recordatorios): escribir
-`_compose_<kind>(db, rows, process, user) -> Composed | Obsolete` en este
-módulo y darlo de alta en `MailComposer.REGISTRY`. Su re-validación al enviar
-(D8) va dentro de esa función: si el correo ya no aplica, devuelve
-`Obsolete("motivo legible")`, que va a `last_error` (String(255)).
+EXTENDER: escribir `_compose_<kind>(db, rows, process, user) -> Composed |
+Obsolete` en este módulo y darlo de alta en `MailComposer.REGISTRY`. Su
+re-validación al enviar (D8) va dentro de esa función: si el correo ya no
+aplica, devuelve `Obsolete("motivo legible")`, que va a `last_error`
+(String(255)). Así se registraron los tres recordatorios del barrido diario
+(`services/mail_reminders.py`, Tarea 8): `appt_reminder`, `docs_reminder` y
+`survey_reminder`. Sus títulos (`asunto_recordatorio_*`) los comparte el aviso
+in-app que crea el barrido: un solo texto para los dos canales.
 """
 from __future__ import annotations
 
@@ -46,6 +49,7 @@ from typing import TYPE_CHECKING, Callable
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.utils.dates_es import dia_largo, dia_mes_hora, hora
+from itcj2.core.utils.timezone import db_now
 
 if TYPE_CHECKING:  # solo para las anotaciones: los modelos se importan dentro de cada función
     from itcj2.apps.titulatec.models.email_outbox import EmailOutbox
@@ -56,10 +60,13 @@ logger = logging.getLogger(__name__)
 _PREFIJO = "[TitulaTec ITCJ] "
 
 # Pantallas del egresado a las que lleva cada correo (spec §5). Pasan por
-# `StudentMail.link`, que exige que `safe_next` las acepte tal cual.
+# `StudentMail.link`, que exige que `safe_next` las acepte tal cual. La
+# encuesta de egresados es la única fuera de `/titulatec/student/`: vive en
+# `pages/public.py` (con sesión, precarga sus datos).
 _DOCUMENTOS = "/titulatec/student/documents"
 _CITA = "/titulatec/student/cita"
 _TABLERO = "/titulatec/student/dashboard"
+_ENCUESTA = "/titulatec/encuesta-egresados"
 
 # Cita VIGENTE de la que se avisa fecha y lugar: la que todavía va a ocurrir.
 _CITA_VIVA = frozenset({"scheduled", "confirmed"})
@@ -334,6 +341,125 @@ def _compose_appt_no_show(db: Session, rows: list, process, user) -> Composed | 
 
 
 # ---------------------------------------------------------------------------
+# Recordatorios (#8, #10, #11). Los encola el barrido diario
+# (`mail_reminders.MailReminders.run`); aquí se re-validan al ENVIAR (D8) y se
+# arman con el estado de ese momento. Ninguno aplica a un proceso que ya no
+# está `active` (en pausa o concluido; el revocado lo descarta antes el
+# despachador).
+# ---------------------------------------------------------------------------
+ASUNTO_RECORDATORIO_ENCUESTA = "Llena tu encuesta de egresados"
+
+
+def asunto_recordatorio_cita(dias: int) -> str:
+    """Asunto (y título del aviso in-app) del recordatorio de cita según los
+    días de CALENDARIO que faltan. Con el valor por omisión
+    (`TITULATEC_APPT_REMINDER_DAYS_BEFORE = 1`) es «Mañana es tu cita de
+    cotejo»; el setting admite hasta 7 días, y un correo reintentado puede
+    salir ya el día de la cita: ahí «mañana» sería falso."""
+    if dias <= 0:
+        return "Hoy es tu cita de cotejo"
+    if dias == 1:
+        return "Mañana es tu cita de cotejo"
+    return f"Tu cita de cotejo es en {dias} días"
+
+
+def asunto_recordatorio_documentos(por_subir: bool) -> str:
+    """Asunto (y título del aviso in-app) del recordatorio de documentos: «por
+    subir» si falta alguno; «por corregir» si solo quedan rechazados."""
+    return ("Te faltan documentos por subir" if por_subir
+            else "Te faltan documentos por corregir")
+
+
+def _proceso_inactivo(process) -> Obsolete | None:
+    """Los recordatorios son solo de procesos `active` (spec C4)."""
+    if process.status != "active":
+        return Obsolete("el proceso ya no está activo")
+    return None
+
+
+def _compose_appt_reminder(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """#8, recordatorio de la cita. Aplica si la cita del payload sigue siendo
+    la VIGENTE, activa (`scheduled`/`confirmed`), con la misma fecha y todavía
+    en el futuro. Se arma con la cita vigente como #7: fecha, hora, lugar, qué
+    llevar (lectura NO sembradora) y «confirma tu asistencia» si no la
+    confirmó. El asunto dice cuándo es de verdad (`asunto_recordatorio_cita`)."""
+    from itcj2.apps.titulatec.models import ReviewAppointment
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+
+    inactivo = _proceso_inactivo(process)
+    if inactivo is not None:
+        return inactivo
+    datos = _datos(rows[-1])
+    appt_id = _entero(datos.get("appt_id"))
+    appt = db.get(ReviewAppointment, appt_id) if appt_id is not None else None
+    if appt is None or appt.process_id != process.id:
+        return Obsolete("la cita ya no existe")
+    if not appt.is_current:
+        return Obsolete("la cita ya no es la vigente")
+    if appt.status not in _CITA_VIVA:
+        return Obsolete("la cita ya está " + _CITA_YA.get(appt.status, str(appt.status)))
+    cuando = appt.scheduled_at
+    if _cuando(datos.get("scheduled_at")) != cuando:
+        return Obsolete("la cita cambió de fecha")
+    ahora = db_now()
+    if cuando <= ahora:
+        return Obsolete("la cita ya pasó")
+
+    asunto = asunto_recordatorio_cita((cuando.date() - ahora.date()).days)
+    requisitos = [{"label": r.label, "hint": _texto(r.hint)}
+                  for r in CotejoRequirementService.list(db, process.cohort_id,
+                                                         active_only=True)]
+    return _correo(user, asunto, "appt_reminder.html", _CITA,
+                   titulo=asunto, fecha=dia_largo(cuando, hoy=ahora.date()),
+                   hora=hora(cuando), lugar=_texto(appt.location),
+                   confirmar=appt.confirmed_at is None, requisitos=requisitos)
+
+
+def _compose_docs_reminder(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """#10, recordatorio de documentos. Aplica si el proceso sigue en la fase
+    `initial_docs` con documentos que faltan o que hay que corregir. Los
+    nombres salen del estado ACTUAL (`DocumentService.initial_docs_summary`),
+    no del payload: lo que subió después de encolarse ya no se le pide."""
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    inactivo = _proceso_inactivo(process)
+    if inactivo is not None:
+        return inactivo
+    inicial = PhaseService.phase_number_for_code(db, "initial_docs")
+    if inicial is None or process.current_phase != inicial:
+        return Obsolete("ya no está en la fase de documentos")
+    items = DocumentService.initial_docs_summary(db, process.id)["items"]
+    faltantes = [d["name"] for d in items if d["status"] == "missing"]
+    por_corregir = [d["name"] for d in items if d["status"] == "rejected"]
+    if not (faltantes or por_corregir):
+        return Obsolete("ya no le faltan documentos ni tiene por corregir")
+    return _correo(user, asunto_recordatorio_documentos(bool(faltantes)),
+                   "docs_reminder.html", _DOCUMENTOS,
+                   faltantes=faltantes, por_corregir=por_corregir)
+
+
+def _compose_survey_reminder(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """#11, recordatorio de la encuesta de egresados. Aplica si el proceso sigue
+    en la fase de la cita de cotejo sin haberla enviado (sin fila en
+    `titulatec_survey_reviews`: con ella ya puede agendar, D2). Lleva a la
+    encuesta."""
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    inactivo = _proceso_inactivo(process)
+    if inactivo is not None:
+        return inactivo
+    if process.current_phase != PhaseService.PHASE_COTEJO:
+        return Obsolete("ya no está en la fase de la cita de cotejo")
+    if SurveyReviewService.get_for_process(db, process.id) is not None:
+        return Obsolete("ya envió la encuesta de egresados")
+    return _correo(user, ASUNTO_RECORDATORIO_ENCUESTA, "survey_reminder.html", _ENCUESTA)
+
+
+# ---------------------------------------------------------------------------
 # Punto de entrada
 # ---------------------------------------------------------------------------
 class MailComposer:
@@ -342,7 +468,7 @@ class MailComposer:
     # kind -> fn(db, rows, process, user) -> Composed | Obsolete, para una fila
     # SUELTA: los grupos se reconocen antes, por su `group_key`. `docs_review` y
     # `appt_changed` siempre llegan en su grupo; registrarlos cubre la fila que
-    # llegara sin él. La Tarea 8 agrega aquí los tres recordatorios.
+    # llegara sin él. Los tres recordatorios (Tarea 8) son siempre sueltos.
     REGISTRY: dict[str, Callable[..., Composed | Obsolete]] = {
         "docs_review": _compose_docs_group,
         "phase_approved": _compose_phase_approved,
@@ -352,6 +478,9 @@ class MailComposer:
         "survey_revoked": _compose_survey,
         "appt_changed": _compose_appt_group,
         "appt_no_show": _compose_appt_no_show,
+        "appt_reminder": _compose_appt_reminder,
+        "docs_reminder": _compose_docs_reminder,
+        "survey_reminder": _compose_survey_reminder,
     }
 
     @staticmethod

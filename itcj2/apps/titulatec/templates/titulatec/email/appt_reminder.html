@@ -1,0 +1,23 @@
+{# Recordatorio de la cita de cotejo (spec 2026-09-28 §5, #8). Lo encola el
+   barrido diario (`titulatec.email_reminders`) el día anterior a la cita y se
+   re-valida al enviar (D8): la cita sigue siendo la vigente, activa, con la
+   misma fecha y en el futuro. Se arma con la cita VIGENTE: fecha, hora, lugar,
+   qué llevar y «confirma tu asistencia» si no la confirmó.
+   Contexto: first_name, link, titulo («Mañana es tu cita de cotejo»), fecha,
+   hora, lugar, confirmar, requisitos = [{label, hint}]. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}{{ titulo|e }} — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  <strong>{{ titulo|e }}.</strong> Estos son sus datos:
+</p>
+{{ m.datos_cita(fecha, hora, lugar) }}
+{% if confirmar %}{{ m.aviso("Confirma tu asistencia desde la plataforma.") }}{% endif %}
+{{ m.requisitos(requisitos) }}
+{{ m.boton(link, "Ver mi cita") }}
+<p style="margin:0;color:#607D8B;font-size:13px;">
+  Si no puedes asistir, entra a la plataforma para ver tus opciones.
+</p>
+{% endblock %}

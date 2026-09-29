@@ -77,6 +77,13 @@ flowchart TD
 | Cita reagendada | `APPOINTMENT_RESCHEDULED` | `AppointmentService.reschedule` | fase 2 |
 | No se presentó (2026-09-28) | `APPOINTMENT_NO_SHOW` | `AppointmentService.mark_no_show` | fase 2 |
 | Se corrigió la asistencia (2026-09-28) | `APPOINTMENT_NO_SHOW_UNDONE` | `AppointmentService.undo_no_show` | fase 2 |
+| Recordatorio de la cita (2026-09-29) | `APPOINTMENT_REMINDER` | `MailReminders.run` (barrido diario `titulatec.email_reminders`) | fase 2 |
+| Recordatorio de documentos (2026-09-29) | `DOCUMENTS_REMINDER` | `MailReminders.run` (idem) | fase 1 |
+| Recordatorio de la encuesta de egresados (2026-09-29) | `SURVEY_REMINDER` | `MailReminders.run` (idem) | fase 2 |
+
+Los tres recordatorios nacen en Celery, sin loop para el push de Socket.IO: el aviso aparece al
+recargar. Y solo si su correo se encoló de verdad (fila nueva), así que el barrido corrido dos
+veces no duplica avisos.
 
 ## Mini-perfil (standalone)
 

@@ -19,6 +19,11 @@ Lo que se fija aquí. El despachador (Tarea 7) consume EXACTAMENTE esto:
    sin cambios.
 6. Texto libre escapado (Review Focus 2); ninguna liga fuera de `safe_next`;
    ningún render con `None`, código crudo o variables sin definir.
+7. Recordatorios (#8, #10, #11; Tarea 8), re-validados al enviar (D8): la cita
+   sigue vigente, activa, con la misma fecha y en el futuro; siguen faltando
+   documentos o hay por corregir (con los nombres del estado ACTUAL, no del
+   payload); sigue en la fase 2 sin encuesta. Si no, `Obsolete`. Y ningún
+   `kind` del catálogo se queda sin composición.
 
 Las filas se encolan con `StudentMail` (el contrato real de los payloads), no a
 mano: si la Tarea 4 cambia un payload, esto se entera.
@@ -28,7 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import time, timedelta
+from datetime import datetime, time, timedelta
 from urllib.parse import unquote
 
 import pytest
@@ -44,6 +49,13 @@ _NOMBRES = {
     "high_school_cert": "Certificado de bachillerato",
     "curp": "CURP certificada",
 }
+
+# Reloj del compositor para los recordatorios (el de cita dice «mañana» y se
+# re-valida contra la hora). Lunes 10 de marzo de 2031: con `hoy` fijo, la
+# fecha larga no depende del año en curso.
+HOY_FIJO = datetime(2031, 3, 10, 9, 0)
+CITA_MANANA = datetime(2031, 3, 11, 10, 30)
+ANCLA = datetime(2031, 3, 1, 9, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +103,31 @@ def cita_esc(agenda_slots, make_survey_review):
     cupo 1) con la encuesta de `p1` YA ENVIADA: sin ella no se agenda (D2)."""
     make_survey_review(agenda_slots["p1"])
     return agenda_slots
+
+
+@pytest.fixture()
+def reloj(monkeypatch):
+    """Fija el `db_now()` del compositor (por omisión `HOY_FIJO`) y lo devuelve."""
+    def _fijar(ahora=HOY_FIJO):
+        monkeypatch.setattr("itcj2.apps.titulatec.services.mail_compose.db_now",
+                            lambda: ahora)
+        return ahora
+
+    return _fijar
+
+
+def _recordatorio(db, kind, proc, appt=None):
+    """Lo que encola el barrido diario (`MailReminders.run`), por el contrato
+    real de `StudentMail`. Devuelve la fila."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    if kind == "appt_reminder":
+        assert StudentMail.appointment_reminder(db, proc, appt=appt) is True
+    elif kind == "docs_reminder":
+        assert StudentMail.docs_reminder(db, proc, anchor=ANCLA, index=0) is True
+    else:
+        assert StudentMail.survey_reminder(db, proc, anchor=ANCLA, index=0) is True
+    return [f for f in _pendientes(db, proc.id) if f.kind == kind][-1]
 
 
 def _pendientes(db, pid):
@@ -703,12 +740,201 @@ def test_no_show_de_otra_cita_no_lo_vuelve_obsoleto(db_session, proceso,
 
 
 # ---------------------------------------------------------------------------
+# #8 / #10 / #11 — recordatorios del barrido diario, re-validados al enviar (D8)
+# ---------------------------------------------------------------------------
+def test_recordatorio_de_cita_con_datos_requisitos_y_confirmar(db_session, proceso,
+                                                              make_appointment, reloj):
+    """«Mañana es tu cita de cotejo» + fecha, hora, lugar, qué llevar (lectura no
+    sembradora, como #7) y «confirma tu asistencia» si no la confirmó."""
+    reloj()
+    proc = proceso(fase=2)
+    appt = make_appointment(proc, when=CITA_MANANA, location="Ventanilla 3")
+    _requisito(db_session, proc.cohort_id, "12 fotografías", hint="Tamaño credencial",
+               orden=2)
+    _requisito(db_session, proc.cohort_id, "Actas de nacimiento", orden=1)
+    _requisito(db_session, proc.cohort_id, "Requisito retirado", orden=0, activo=False)
+    _recordatorio(db_session, "appt_reminder", proc, appt)
+
+    c = _componer(db_session, proc)
+
+    assert c.subject == "[TitulaTec ITCJ] Mañana es tu cita de cotejo"
+    assert c.template == "appt_reminder.html"
+    assert c.link == _liga("/titulatec/student/cita")
+    assert (c.context["fecha"], c.context["hora"], c.context["lugar"]) == (
+        "martes 11 de marzo", "10:30", "Ventanilla 3")
+    assert c.context["confirmar"] is True
+    assert c.context["requisitos"] == [
+        {"label": "Actas de nacimiento", "hint": None},
+        {"label": "12 fotografías", "hint": "Tamaño credencial"},
+    ]
+    html = _html(c)
+    assert "Mañana es tu cita de cotejo" in html
+    assert "Confirma tu asistencia" in html
+    assert "Ventanilla 3" in html and "Tamaño credencial" in html
+    assert "Requisito retirado" not in html
+
+
+def test_recordatorio_de_cita_confirmada_ya_no_pide_confirmar(db_session, proceso,
+                                                             make_appointment, reloj):
+    reloj()
+    proc = proceso(fase=2)
+    appt = make_appointment(proc, when=CITA_MANANA, status="confirmed")
+    appt.confirmed_at = HOY_FIJO - timedelta(days=2)
+    _recordatorio(db_session, "appt_reminder", proc, appt)
+
+    c = _componer(db_session, proc)
+
+    assert c.context["confirmar"] is False
+    assert "Confirma tu asistencia" not in _html(c)
+
+
+@pytest.mark.parametrize("cuando, asunto", [
+    (CITA_MANANA, "Mañana es tu cita de cotejo"),
+    (CITA_MANANA + timedelta(days=1), "Tu cita de cotejo es en 2 días"),
+    (HOY_FIJO + timedelta(hours=3), "Hoy es tu cita de cotejo"),
+], ids=["manana", "en-2-dias", "hoy"])
+def test_recordatorio_de_cita_dice_cuando_de_verdad(db_session, proceso, make_appointment,
+                                                   reloj, cuando, asunto):
+    """«Mañana» solo si la cita es mañana al ENVIAR: el setting admite hasta 7
+    días antes, y un correo reintentado puede salir ya el día de la cita."""
+    reloj()
+    proc = proceso(fase=2)
+    _recordatorio(db_session, "appt_reminder", proc, make_appointment(proc, when=cuando))
+
+    c = _componer(db_session, proc)
+
+    assert c.subject == "[TitulaTec ITCJ] " + asunto
+    assert asunto in _html(c)
+
+
+@pytest.mark.parametrize("docs, asunto, faltantes, por_corregir", [
+    ({}, "Te faltan documentos por subir",
+     ["Acta de nacimiento", "Certificado de bachillerato", "CURP certificada"], []),
+    ({"birth_certificate": "approved", "high_school_cert": "pending", "curp": "rejected"},
+     "Te faltan documentos por corregir", [], ["CURP certificada"]),
+    ({"birth_certificate": "rejected", "curp": "pending"},
+     "Te faltan documentos por subir", ["Certificado de bachillerato"],
+     ["Acta de nacimiento"]),
+], ids=["faltan-los-3", "solo-por-corregir", "falta-y-por-corregir"])
+def test_recordatorio_de_documentos_por_nombre(db_session, proceso, seed_document_types,
+                                              make_document, docs, asunto, faltantes,
+                                              por_corregir):
+    seed_document_types()
+    proc = proceso(fase=1)
+    for code, estado in docs.items():
+        make_document(proc, type_code=code, review_status=estado)
+    _recordatorio(db_session, "docs_reminder", proc)
+
+    c = _componer(db_session, proc)
+
+    assert c.subject == "[TitulaTec ITCJ] " + asunto
+    assert c.template == "docs_reminder.html"
+    assert c.link == _liga("/titulatec/student/documents")
+    assert (c.context["faltantes"], c.context["por_corregir"]) == (faltantes, por_corregir)
+    html = _html(c)
+    for nombre in faltantes + por_corregir:
+        assert nombre in html
+
+
+def test_recordatorio_de_documentos_con_el_estado_actual(db_session, proceso,
+                                                         seed_document_types,
+                                                         make_document):
+    """Encolado cuando faltaban los 3; al enviar ya subió dos: el correo nombra
+    solo el que falta HOY (el payload no trae nombres, a propósito)."""
+    seed_document_types()
+    proc = proceso(fase=1)
+    fila = _recordatorio(db_session, "docs_reminder", proc)
+    make_document(proc, type_code="birth_certificate")
+    make_document(proc, type_code="curp")
+    db_session.flush()
+
+    c = _componer(db_session, proc, [fila])
+
+    assert c.context["faltantes"] == ["Certificado de bachillerato"]
+    assert c.context["por_corregir"] == []
+    html = _html(c)
+    assert "Acta de nacimiento" not in html and "CURP certificada" not in html
+
+
+def test_recordatorio_de_encuesta(db_session, proceso):
+    proc = proceso(fase=2)
+    _recordatorio(db_session, "survey_reminder", proc)
+
+    c = _componer(db_session, proc)
+
+    assert c.subject == "[TitulaTec ITCJ] Llena tu encuesta de egresados"
+    assert c.template == "survey_reminder.html"
+    assert c.link == _liga("/titulatec/encuesta-egresados")
+    assert "sin ella no puedes agendar tu cita de cotejo" in _html(c)
+
+
+_KIND_DE = {"cita": "appt_reminder", "documentos": "docs_reminder",
+            "encuesta": "survey_reminder"}
+
+
+@pytest.mark.parametrize("caso, motivo", [
+    ("cita-cancelada", "la cita ya no es la vigente"),
+    ("cita-movida", "la cita ya no es la vigente"),
+    ("cita-a-otra-hora", "la cita cambió de fecha"),
+    ("cita-en-cotejo", "la cita ya está en cotejo"),
+    ("cita-ya-paso", "la cita ya pasó"),
+    ("cita-proceso-en-pausa", "el proceso ya no está activo"),
+    ("documentos-completos", "ya no le faltan documentos ni tiene por corregir"),
+    ("documentos-fase-aprobada", "ya no está en la fase de documentos"),
+    ("documentos-proceso-en-pausa", "el proceso ya no está activo"),
+    ("encuesta-enviada", "ya envió la encuesta de egresados"),
+    ("encuesta-fase-aprobada", "ya no está en la fase de la cita de cotejo"),
+    ("encuesta-proceso-en-pausa", "el proceso ya no está activo"),
+])
+def test_recordatorio_obsoleto_al_enviar(db_session, proceso, seed_document_types,
+                                         make_appointment, make_document,
+                                         make_survey_review, reloj, caso, motivo):
+    """D8: el recordatorio se encoló cuando aplicaba (compone bien), pero al
+    ENVIAR ya no: sale `Obsolete` con un motivo legible (va a `last_error`)."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.mail_compose import Composed, Obsolete
+
+    seed_document_types()
+    reloj()
+    kind = _KIND_DE[caso.split("-")[0]]
+    proc = proceso(fase=1 if kind == "docs_reminder" else 2)
+    appt = make_appointment(proc, when=CITA_MANANA) if kind == "appt_reminder" else None
+    fila = _recordatorio(db_session, kind, proc, appt)
+    assert isinstance(_componer(db_session, proc, [fila]), Composed), "antes, sí aplica"
+
+    if caso == "cita-cancelada":
+        AppointmentService.cancel(db_session, appt, proc.student_id, "Ya no puedo ir")
+    elif caso == "cita-movida":             # `reschedule`: otra fila pasa a ser la vigente
+        appt.status, appt.is_current = "superseded", False
+        db_session.flush()
+        make_appointment(proc, when=CITA_MANANA + timedelta(days=2), attempt_no=2)
+    elif caso == "cita-a-otra-hora":
+        appt.scheduled_at = CITA_MANANA + timedelta(hours=2)
+    elif caso == "cita-en-cotejo":
+        appt.status = "in_progress"
+    elif caso == "cita-ya-paso":
+        reloj(CITA_MANANA + timedelta(minutes=1))
+    elif caso.endswith("proceso-en-pausa"):
+        proc.status = "on_hold"
+    elif caso == "documentos-completos":
+        for code in _NOMBRES:
+            make_document(proc, type_code=code)
+    elif caso == "documentos-fase-aprobada" or caso == "encuesta-fase-aprobada":
+        proc.current_phase += 1
+    elif caso == "encuesta-enviada":
+        make_survey_review(proc)
+    db_session.flush()
+
+    assert _componer(db_session, proc, [fila]) == Obsolete(motivo)
+
+
+# ---------------------------------------------------------------------------
 # Review Focus 2 — el texto libre sale escapado
 # ---------------------------------------------------------------------------
-def test_texto_libre_sale_escapado(db_session, proceso, cita_esc):
+def test_texto_libre_sale_escapado(db_session, proceso, cita_esc, make_appointment, reloj):
     """Los motivos los escribe el personal y el nombre lo tecleó un formulario
     público: en un correo HTML eso es inyección. Sale escapado, nunca como
-    HTML."""
+    HTML. El lugar de la cita también lo teclea el personal (recordatorio #8)."""
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
@@ -731,6 +957,12 @@ def test_texto_libre_sale_escapado(db_session, proceso, cita_esc):
     _ya_salio(db_session, cita_esc["p1"].id)
     AppointmentService.cancel(db_session, appt, cita_esc["off"].id, MALICIOSO)
     correos["cancelación de cita"] = _componer(db_session, cita_esc["p1"])
+
+    reloj()
+    p = proceso(fase=2)
+    _recordatorio(db_session, "appt_reminder", p,
+                  make_appointment(p, when=CITA_MANANA, location=MALICIOSO))
+    correos["recordatorio de cita"] = _componer(db_session, p)
 
     for nombre, c in correos.items():
         # Con el entorno real y sin autoescape: el `|e` de la plantilla basta solo.
@@ -769,7 +1001,8 @@ def test_toda_variable_de_las_plantillas_de_correo_lleva_e():
 # Barrida: un correo de cada tipo y variante
 # ---------------------------------------------------------------------------
 @pytest.fixture()
-def todos(db_session, proceso, make_appointment):
+def todos(db_session, proceso, make_appointment, make_document, seed_document_types,
+          reloj):
     """Un correo de CADA tipo y variante, con los huecos opcionales en `None`
     donde el contrato lo permite (sin motivo, sin nota, sin lugar, sin
     requisitos). Devuelve `({variante: Composed}, {kinds cubiertos})`."""
@@ -778,6 +1011,8 @@ def todos(db_session, proceso, make_appointment):
     from itcj2.core.utils.timezone import db_now
 
     db = db_session
+    seed_document_types()
+    reloj()                     # los recordatorios de cita se re-validan contra la hora
     correos, tipos = {}, set()
 
     def _anota(nombre, proc):
@@ -849,6 +1084,33 @@ def todos(db_session, proceso, make_appointment):
     StudentMail.appointment_no_show(db, p, appt=appt)
     _anota("no se presentó", p)
 
+    p = proceso(fase=2)
+    _recordatorio(db, "appt_reminder", p, make_appointment(p, when=CITA_MANANA,
+                                                           location=None))
+    _anota("recordatorio de cita sin lugar ni requisitos", p)
+
+    p = proceso(fase=2)
+    appt = make_appointment(p, when=CITA_MANANA, status="confirmed")
+    appt.confirmed_at = HOY_FIJO
+    _requisito(db, p.cohort_id, "12 fotografías", hint="Tamaño credencial", orden=0)
+    _recordatorio(db, "appt_reminder", p, appt)
+    _anota("recordatorio de cita confirmada con requisitos", p)
+
+    p = proceso(fase=1)
+    _recordatorio(db, "docs_reminder", p)
+    _anota("recordatorio de documentos por subir", p)
+
+    p = proceso(fase=1)
+    for code in _NOMBRES:
+        make_document(p, type_code=code,
+                      review_status="rejected" if code == "curp" else "approved")
+    _recordatorio(db, "docs_reminder", p)
+    _anota("recordatorio de documentos por corregir", p)
+
+    p = proceso(fase=2)
+    _recordatorio(db, "survey_reminder", p)
+    _anota("recordatorio de encuesta", p)
+
     return correos, tipos
 
 
@@ -865,7 +1127,10 @@ def test_todas_las_ligas_pasan_safe_next(todos):
         assert c.link.startswith(prefijo), nombre
         ruta = unquote(c.link[len(prefijo):])
         assert safe_next(ruta) == ruta, nombre
-        assert ruta.startswith("/titulatec/student/"), nombre
+        # Todas llevan a una pantalla del egresado; la encuesta de egresados es
+        # la única fuera de `/titulatec/student/` (vive en `pages/public.py`).
+        assert (ruta.startswith("/titulatec/student/")
+                or ruta == "/titulatec/encuesta-egresados"), nombre
         html = _html(c)
         # El botón y la liga en texto plano: la MISMA liga, y ninguna otra.
         assert set(re.findall(r'href="([^"]*)"', html)) == {c.link}, nombre
@@ -902,14 +1167,24 @@ def test_el_contexto_es_de_datos_planos(todos):
 # ---------------------------------------------------------------------------
 # Contrato con el despachador
 # ---------------------------------------------------------------------------
-def test_registry_cubre_el_catalogo_salvo_los_recordatorios():
+def test_todo_kind_tiene_composicion():
+    """Cada `kind` del catálogo tiene quién lo componga: su grupo (`docs:` /
+    `cita:`, que el compositor reconoce por la llave) o una entrada del
+    REGISTRY. Un tipo nuevo sin composición caería en `Obsolete` en silencio
+    (solo un error en el log) y el egresado nunca recibiría ese correo."""
     from itcj2.apps.titulatec.models.email_outbox import OUTBOX_KINDS
     from itcj2.apps.titulatec.services.mail_compose import MailComposer
 
-    # Los tres recordatorios los registra la Tarea 8; al hacerlo, esto queda vacío.
-    pendientes_t8 = {"appt_reminder", "docs_reminder", "survey_reminder"}
-    assert set(MailComposer.REGISTRY) <= set(OUTBOX_KINDS)
-    assert set(OUTBOX_KINDS) - set(MailComposer.REGISTRY) == pendientes_t8
+    # Los que viajan SIEMPRE en su grupo; el REGISTRY los cubre además por si
+    # una fila llegara sin él.
+    por_grupo = {"docs_review": "docs:", "appt_changed": "cita:"}
+    sin_composicion = sorted(k for k in OUTBOX_KINDS
+                             if k not in MailComposer.REGISTRY and k not in por_grupo)
+    assert not sin_composicion, f"kinds sin composición: {sin_composicion}"
+    assert set(MailComposer.REGISTRY) <= set(OUTBOX_KINDS), "REGISTRY con kinds que no existen"
+    assert all(callable(fn) for fn in MailComposer.REGISTRY.values())
+    for kind in ("appt_reminder", "docs_reminder", "survey_reminder"):
+        assert kind in MailComposer.REGISTRY, kind
 
 
 def test_tipo_sin_composicion_queda_obsoleto_y_en_el_log(db_session, proceso,
