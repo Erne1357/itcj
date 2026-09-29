@@ -194,27 +194,28 @@ payload — ver §4.
 Tarea Celery `titulatec.email_dispatch`, **cada 5 minutos** (`*/5 * * * *`; ruling 18,
 2026-09-29 — antes corría a cada minuto, pero el scheduler del core crea un `core_task_runs` por
 ejecución y no hay retención; `tasks/titulatec_tasks.py:189-211`, `soft_time_limit=50`).
-`MailDispatcher.run(db, now=None, limit=50)` (`:216-246`) es el único que muta `status` después
+`MailDispatcher.run(db, now=None, limit=50)` (`:217-247`) es el único que muta `status` después
 del alta.
 
 1. Apagado (`MailSettings.enabled()` falso) → `{"disabled": True}` sin tocar la BD.
 2. Candidatas: `pending` con `not_before <= now`, hasta `limit`, bajo `FOR UPDATE SKIP LOCKED`
-   (`:229-235`) — lo que otra corrida tiene tomado ni se ve.
-3. **Unidades** (`_unidades`, `:109-116`): el `group_key` con TODAS sus filas `pending` (aunque el
-   `limit` haya dejado alguna fuera), o la fila suelta. `_tomar` (`:135-162`) vuelve a tomar la
+   (`:230-236`) — lo que otra corrida tiene tomado ni se ve.
+3. **Unidades** (`_unidades`, `:110-117`): el `group_key` con TODAS sus filas `pending` (aunque el
+   `limit` haya dejado alguna fuera), o la fila suelta. `_tomar` (`:136-163`) vuelve a tomar la
    unidad CON CANDADO justo antes de procesarla (`populate_existing`, nada de lo que hay en
    memoria se da por bueno) y se rinde (`None`) si otra corrida tiene parte del grupo, si ya no
    queda nada `pending`, o si ninguna fila cumple `not_before <= now` todavía.
 4. **Espera del grupo (D7)**: si la fila más nueva del grupo tiene `created_at > now - espera`
-   (`MailSettings.digest_minutes()`) → `"waiting"`, no se toca (`_unidad`, `:302-305`).
+   (`MailSettings.digest_minutes()`) → `"waiting"`, no se toca (`_unidad`, `:303-306`).
 5. Por unidad, en orden: proceso o alumno ya no existen → `obsolete`; proceso `cancelled` →
    `obsolete` («inscripción revocada» — ya salió `send_process_cancelled`); sin correo personal
    (`StudentMail.contact_email`) → `no_recipient`; `MailComposer.compose` → `Obsolete` → `obsolete`
-   con su motivo; si no, `email_helper.deliver_detailed` (`:318-330`).
-6. Salió → `sent` + `sent_at`/`sent_to`/`subject`. No salió → `attempts += 1`,
+   con su motivo; si no, `email_helper.deliver_detailed` (`:319-331`).
+6. Salió → `sent` + `sent_at`/`sent_to`/`subject`, y `last_error` en blanco (el motivo de un
+   intento anterior ya no describe el correo que llegó). No salió → `attempts += 1`,
    `not_before = now + backoff_minutes(attempts)` (1, 2, 4, 8, 16, 32… min, tope 60 —
-   `backoff_minutes`, `:210-214`); al llegar a `MailSettings.max_attempts()` (default **7**,
-   ruling 20) → `failed` con `last_error` legible (`_MOTIVOS`, `:98-102`: «Cuenta de correo no
+   `backoff_minutes`, `:211-215`); al llegar a `MailSettings.max_attempts()` (default **7**,
+   ruling 20) → `failed` con `last_error` legible (`_MOTIVOS`, `:99-103`: «Cuenta de correo no
    conectada», «Error en la plantilla», «Error al enviar»). Siete intentos = seis esperas
    (1+2+4+8+16+32 min): ~1 h de reintentos antes de darlo por fallido (cada espera se redondea a la
    siguiente corrida de 5 minutos, así que el séptimo intento cae hacia los 80 min del primero);
@@ -224,7 +225,7 @@ del alta.
 
 ### Transacciones y concurrencia (Review Focus 1)
 
-Una unidad = una transacción con `commit()` al cerrarla (`_despachar`, `:248-269`), que suelta
+Una unidad = una transacción con `commit()` al cerrarla (`_despachar`, `:249-270`), que suelta
 TODOS los candados de la selección — por eso cada unidad se re-toma con `FOR UPDATE SKIP LOCKED`
 antes de procesarse. Dos corridas simultáneas (beat encimado, dos workers) nunca mandan la misma
 fila dos veces: lo fija `tests/fastapi/titulatec/test_mail_dispatch.py` (test de «segunda corrida
@@ -232,30 +233,30 @@ no reenvía» + test estructural de que la consulta usa `with_for_update(skip_lo
 
 - **Excepción inesperada en una unidad** (componer, renderizar, enviar…): `rollback()` y, en una
   transacción NUEVA, intento fallido de TODAS sus filas con `last_error = "Error interno al
-  preparar el correo"` (ruling 2026-09-29, `_intento_fallido`, `:271-286`) — si no, se
+  preparar el correo"` (ruling 2026-09-29, `_intento_fallido`, `:272-287`) — si no, se
   reintentaría en cada corrida sin fin y jamás se vería «Falló» en el expediente. El lote sigue con la
   siguiente unidad.
 - **Corte de Celery** (`SoftTimeLimitExceeded`) **también cuenta como intento fallido** de la
   unidad en curso, con `last_error = "Tiempo agotado al enviar"` (ruling 2026-09-29,
-  `_despachar:259-264`): `rollback`, se registra el intento en una transacción nueva, y se vuelve
+  `_despachar:260-265`): `rollback`, se registra el intento en una transacción nueva, y se vuelve
   a lanzar la excepción — el LOTE termina ahí (lo que quedó sale en la corrida siguiente). Si el
   corte cae dentro de `graph_send_mail`, lo atrapa `email_helper._send` como cualquier error de
   envío («Error al enviar»), no como timeout de celery.
-- **Presupuesto de la corrida**: `_PRESUPUESTO_S = 15` segundos (`:94`) — pasado ese tiempo no se
-  toma otra unidad (`run`, `:238-241`); lo que falta sale en la corrida siguiente (5 minutos
+- **Presupuesto de la corrida**: `_PRESUPUESTO_S = 15` segundos (`:95`) — pasado ese tiempo no se
+  toma otra unidad (`run`, `:239-242`); lo que falta sale en la corrida siguiente (5 minutos
   después). Existe porque el
   `soft_time_limit` de la tarea es 50 s y un envío puede tardar hasta 30 s (el `timeout` de
   `graph_send_mail`): la unidad que empieza dentro del presupuesto termina antes del corte.
 - **«Al menos una vez»**: se envía y DESPUÉS se marca `sent`; si ese commit fallara, el correo
   volvería a salir. Por eso lo que se escribe tras un envío siempre cabe en su columna (`_cabe`,
-  `:165-171`, recorta al `String(N)` de cada columna).
+  `:166-172`, recorta al `String(N)` de cada columna).
 
 ### Dev sin cuenta Graph — `[TT-MAIL]`
 
 Sin token de Graph y fuera de producción (`email_helper._is_production()` falso):
 `logger.warning("[TT-MAIL] %s -> %s · %s · %s", kind, to, correo.subject, correo.link)`
-(`mail_dispatch.py:338-340`). En producción, jamás. El despachador pasa **`link=None`** a
-`deliver_detailed` (`:328-330`, ruling 2026-09-29) — el `[TT-VERIFY-LINK]` que
+(`mail_dispatch.py:341-343`). En producción, jamás. El despachador pasa **`link=None`** a
+`deliver_detailed` (`:329-331`, ruling 2026-09-29) — el `[TT-VERIFY-LINK]` que
 `email_helper._dev_link` también podría loguear es el de la liga de **activación de la
 inscripción** (los 6 correos viejos), no de estos; con `link=None` esa función retorna sin loguear
 nada, así que la liga de ESTE correo sale **solo** por `[TT-MAIL]`.
@@ -422,6 +423,11 @@ o «—» si aún no salió) · «N avisos agrupados» si junta más de uno · p
 | `failed` | Falló (+ `last_error`) | danger |
 | `no_recipient` | Sin correo personal | amber |
 | `obsolete` | Ya no aplicaba | neutral |
+
+El motivo (`last_error`) se pinta solo en `failed`, `pending` (el reintento en espera dice por qué)
+y `obsolete` (por qué ya no aplicaba); en `sent` y `no_recipient` sería un error viejo que ya no
+describe nada, así que no se enseña (`_exp_mail.html`). El despachador, además, lo deja en blanco
+al marcar `sent` (§4, paso 6).
 
 **Solo lectura, sin reenviar (D11)**: el personal necesita saber qué se mandó, cuándo, a dónde y
 si falló — no repetir el envío desde aquí (fuera de alcance de esta entrega).

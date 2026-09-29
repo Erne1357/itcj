@@ -54,7 +54,10 @@
           <div class="when"><span class="tt-mono">{{ m.when }}</span>
             · <span class="quien">{{ m.to }}</span>
             {%- if m.n > 1 %} · {{ m.n }} avisos agrupados{% endif %}</div>
-          {% if m.error %}<div class="detalle">{{ m.error }}</div>{% endif %}
+          {# El motivo solo explica algo en lo que falló, sigue en cola (el
+             reintento dice por qué) o ya no aplicaba; en un enviado o en «Sin
+             correo personal» sería un error viejo que ya no describe nada. #}
+          {% if m.error and m.status in ("failed", "pending", "obsolete") %}<div class="detalle">{{ m.error }}</div>{% endif %}
         </div>
       </div>
       {% endfor %}

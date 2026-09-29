@@ -19,7 +19,8 @@ UNA CORRIDA (`run`)
    revocada»: ya salió `send_process_cancelled`); sin correo personal
    (`StudentMail.contact_email`) → `no_recipient`; `MailComposer.compose` →
    `Obsolete` → `obsolete` con su motivo; si no, `email_helper.deliver_detailed`.
-5. Salió → `sent` con `sent_at`, `sent_to` y `subject`. No salió →
+5. Salió → `sent` con `sent_at`, `sent_to` y `subject`, y `last_error` vacío
+   (el motivo de un intento anterior ya no describe el correo). No salió →
    `attempts + 1` y `not_before = now + backoff_minutes(attempts)`; al llegar a
    `MailSettings.max_attempts()`, `failed`. `last_error` legible. Todas las
    filas de una unidad quedan con el mismo desenlace y el mismo conteo de
@@ -334,6 +335,8 @@ class MailDispatcher:
                 fila.sent_at = now
                 fila.sent_to = _cabe(to, "sent_to")
                 fila.subject = _cabe(correo.subject, "subject")
+                # El motivo de un intento anterior ya no describe este correo.
+                fila.last_error = None
             return "sent"
         if error == "cuenta_no_conectada" and not email_helper._is_production():
             logger.warning("[TT-MAIL] %s -> %s · %s · %s",

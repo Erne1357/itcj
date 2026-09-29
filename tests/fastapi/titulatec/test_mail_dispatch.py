@@ -405,6 +405,25 @@ def test_sin_cuenta_reintenta_con_espera(db_session, egresado, graph):
     assert (fila.attempts, fila.not_before) == (2, AHORA + timedelta(minutes=3))
 
 
+def test_enviado_tras_un_reintento_no_arrastra_el_error_anterior(db_session, egresado,
+                                                                 graph):
+    """El primer intento falló (cuenta no conectada) y el segundo salió: la fila
+    queda `sent` SIN `last_error` — el motivo era del intento anterior, no del
+    correo que ya llegó, y la bitácora no debe enseñar un «Enviado» con error."""
+    graph.token = None
+    fila = _suelta(db_session, egresado())
+    db_session.commit()
+    assert _despachar(db_session) == _conteo(retry=1)
+    _refrescar(db_session, fila)
+    assert fila.last_error == "Cuenta de correo no conectada"
+
+    graph.token = "token-de-prueba"
+    assert _despachar(db_session, now=fila.not_before) == _conteo(sent=1)
+
+    _refrescar(db_session, fila)
+    assert (fila.status, fila.attempts, fila.last_error) == ("sent", 1, None)
+
+
 def test_agota_intentos_y_falla(db_session, egresado, graph, monkeypatch):
     from itcj2.apps.titulatec.services.student_mail import MailSettings
 

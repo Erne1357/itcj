@@ -113,6 +113,25 @@ def test_pinta_los_cinco_estados_con_su_etiqueta(expediente, client_as, db_sessi
     assert "alumno@example.com" in html, "el destinatario del enviado no salió"
 
 
+@pytest.mark.parametrize("status, se_ve", [
+    ("failed", True), ("pending", True), ("obsolete", True),
+    ("sent", False), ("no_recipient", False),
+])
+def test_el_motivo_solo_se_pinta_donde_explica_algo(expediente, client_as, db_session,
+                                                    status, se_ve):
+    """`last_error` es el motivo del fallo (o de por qué ya no aplicaba): se
+    pinta en `failed`, `pending` (el reintento en espera dice por qué) y
+    `obsolete`. En un `sent` (filas de antes del arreglo, o escritas a mano) o en
+    un «Sin correo personal» sería un error que ya no describe nada."""
+    esc = expediente()
+    _fila(db_session, esc["proc"], status=status, sent_to="ana@example.com",
+          last_error="Cuenta de correo no conectada")
+
+    zona = _zona(client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text)
+
+    assert ("Cuenta de correo no conectada" in zona) is se_ve
+
+
 def test_sin_asunto_usa_la_etiqueta_del_tipo(expediente, client_as, db_session):
     """`subject` solo se llena al enviar (bitácora del despachador); antes de
     eso la fila enseña `StudentMail.KIND_LABELS[kind]`, no un hueco vacío."""
