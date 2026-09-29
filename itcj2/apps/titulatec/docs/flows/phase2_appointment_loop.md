@@ -274,7 +274,7 @@ la fila siempre trae id (`SlotService.assign` hace `flush`; las demás ya exist�
 | Agendar (`create`) | `appt_changed`, `event=scheduled` | `cita:{pid}` | **siempre**, también si agenda el propio alumno (`by=student`): le sirve de comprobante (D9). Su in-app sigue suprimido |
 | Reagendar / mover (`reschedule`) | `appt_changed`, `event=rescheduled` | `cita:{pid}` | siempre; la fila habla de la cita NUEVA |
 | Cancelar (`cancel`) | `appt_changed`, `event=cancelled` + motivo | `cita:{pid}` | **la misma condición que el in-app**: ni la del propio alumno ni la de la revocación |
-| No se presentó (`mark_no_show`) | `appt_no_show` | individual; `not_before` = ahora + `TITULATEC_EMAIL_DIGEST_MINUTES` | siempre; si se deshace dentro de la espera, el despachador lo da por obsoleto (D8) |
+| No se presentó (`mark_no_show`) | `appt_no_show` | individual; `not_before` = ahora + `TITULATEC_EMAIL_DIGEST_MINUTES` | siempre; si se deshace dentro de la espera, el despachador lo da por obsoleto (D8), y también si dentro de la espera ya se le agendó otra cita o se reagendó (la del aviso dejó de ser la vigente: «ya hay una cita nueva», B3) |
 | Deshacer «no se presentó» | — | — | solo in-app |
 
 El grupo `cita:{pid}` hace que agendar y mover varias veces dentro de la espera salga en **un**

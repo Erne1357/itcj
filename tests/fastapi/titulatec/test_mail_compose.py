@@ -735,21 +735,46 @@ def test_no_show_duplicado_solo_sale_el_mas_reciente(db_session, cita_esc):
     assert c.template == "appt_no_show.html"
 
 
+def test_no_show_con_una_cita_nueva_ya_agendada_es_obsoleto(db_session, cita_esc):
+    """B3: el encargado marcó «no se presentó» y, dentro de la gracia, ya le
+    agendaron otra cita (o la agendó él). La del aviso sigue `no_show` pero ya
+    no es la VIGENTE: «Agenda una nueva» sería falso, no sale."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.mail_compose import Obsolete
+
+    esc = cita_esc
+    appt = _agendar(db_session, esc)
+    _ya_salio(db_session, esc["p1"].id)
+    AppointmentService.mark_no_show(db_session, appt, esc["off"].id)
+    nueva = _agendar(db_session, esc, slot=time(10, 0))
+    db_session.flush()
+    assert (appt.status, appt.is_current, nueva.is_current) == ("no_show", False, True)
+    (aviso,) = [f for f in _pendientes(db_session, esc["p1"].id) if f.kind == "appt_no_show"]
+
+    assert _componer(db_session, esc["p1"], [aviso]) == Obsolete("ya hay una cita nueva")
+
+
 def test_no_show_de_otra_cita_no_lo_vuelve_obsoleto(db_session, proceso,
                                                     make_appointment):
-    """El aviso más reciente es de OTRO intento: el de la primera cita sigue
-    siendo verdad y sale."""
-    from itcj2.apps.titulatec.services.mail_compose import Composed
+    """La regla «hay un aviso más reciente» es de la MISMA cita (`appt_id`): un
+    aviso más reciente de OTRO intento no vuelve obsoleto el de la cita
+    vigente, que sigue siendo verdad y sale.
+
+    B3 (ronda final) cambió la otra mitad de lo que esta prueba afirmaba antes:
+    el aviso de un intento que YA NO es el vigente no sale («ya hay una cita
+    nueva»), así que aquí la cita del aviso que sale es la vigente."""
+    from itcj2.apps.titulatec.services.mail_compose import Composed, Obsolete
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
     proc = proceso(fase=2)
-    primera = make_appointment(proc, status="no_show", is_current=False, attempt_no=1)
-    segunda = make_appointment(proc, status="no_show", attempt_no=2)
-    StudentMail.appointment_no_show(db_session, proc, appt=primera)
-    StudentMail.appointment_no_show(db_session, proc, appt=segunda)
-    de_la_primera, _de_la_segunda = _pendientes(db_session, proc.id)
+    vieja = make_appointment(proc, status="no_show", is_current=False, attempt_no=1)
+    vigente = make_appointment(proc, status="no_show", attempt_no=2)
+    StudentMail.appointment_no_show(db_session, proc, appt=vigente)
+    StudentMail.appointment_no_show(db_session, proc, appt=vieja)   # más reciente, OTRO intento
+    de_la_vigente, de_la_vieja = _pendientes(db_session, proc.id)
 
-    assert isinstance(_componer(db_session, proc, [de_la_primera]), Composed)
+    assert isinstance(_componer(db_session, proc, [de_la_vigente]), Composed)
+    assert _componer(db_session, proc, [de_la_vieja]) == Obsolete("ya hay una cita nueva")
 
 
 # ---------------------------------------------------------------------------

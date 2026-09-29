@@ -61,14 +61,14 @@ y el texto plano debajo. Plantillas bajo `templates/titulatec/email/`.
 | 5 | `survey_rejected` | individual | `SurveyReviewService.reject` → `StudentMail.survey_result(result="rejected", reason=motivo)` (`survey_review_service.py:231-238`) | `_compose_survey` | `survey_result.html` | idem | sin cambio (`SURVEY_REVIEW_REJECTED`, `:231-234`) |
 | 6 | `survey_revoked` | individual | `SurveyReviewService.revoke` → `StudentMail.survey_result(result="revoked", reason=motivo)` (`survey_review_service.py:271-278`) | `_compose_survey` | `survey_result.html` | idem | sin cambio (`SURVEY_REVIEW_REVOKED`, `:271-274`) |
 | 7 | `appt_changed` | `cita:{pid}` | `AppointmentService.create` (`appointment_service.py:662-677`, D9: **siempre**, incluso si agenda el propio alumno), `.reschedule` (`:741-747`), `.cancel` (`:868-885`, **solo** si `notify=True` **y** el actor no es el alumno) → `StudentMail.appointment_changed` (`student_mail.py:363-379`) | `_compose_appt_group` (`:213-268`) | `appt_changed.html` (vigente) **o** `appt_cancelled.html` (sin vigente) | `/titulatec/student/cita` | sin cambio |
-| 8 | `appt_reminder` | `appt_reminder:{appt_id}` | `MailReminders._citas` → `_recordar_cita` → `StudentMail.appointment_reminder` (`mail_reminders.py:261-292`, `:151-161`, `student_mail.py:391-401`) | `_compose_appt_reminder` (`:380-417`) | `appt_reminder.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_REMINDER`, `mail_reminders.py:159`) |
-| 9 | `appt_no_show` | individual, `not_before = +digest_minutes` | `AppointmentService.mark_no_show` → `StudentMail.appointment_no_show` (`appointment_service.py:787-792`, `student_mail.py:381-389`) | `_compose_appt_no_show` (`:316-340`) | `appt_no_show.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_NO_SHOW`, `:793-795`) + `undo_no_show` solo in-app (`APPOINTMENT_NO_SHOW_UNDONE`, `:813-815`, sin correo propio: el de «no se presentó» que siga en su gracia lo da por obsoleto el despachador) |
-| 10 | `docs_reminder` | `docs_reminder:{pid}:{ancla}:{n}` | `MailReminders._documentos` → `_recordar_documentos` → `StudentMail.docs_reminder` (`mail_reminders.py:294-363`, `:164-181`, `student_mail.py:403-409`) | `_compose_docs_reminder` (`:420-441`) | `docs_reminder.html` | `/titulatec/student/documents` | **nuevo** (`DOCUMENTS_REMINDER`, `mail_reminders.py:178-180`) |
-| 11 | `survey_reminder` | `survey_reminder:{pid}:{ancla}:{n}` | `MailReminders._encuestas` → `_recordar_encuesta` → `StudentMail.survey_reminder` (`mail_reminders.py:365-399`, `:184-198`, `student_mail.py:411-417`) | `_compose_survey_reminder` (`:444-459`) | `survey_reminder.html` | `/titulatec/encuesta-egresados` | **nuevo** (`SURVEY_REMINDER`, `mail_reminders.py:195-197`) |
+| 8 | `appt_reminder` | `appt_reminder:{appt_id}` | `MailReminders._citas` → `_recordar_cita` → `StudentMail.appointment_reminder` (`mail_reminders.py:261-292`, `:151-161`, `student_mail.py:391-401`) | `_compose_appt_reminder` (`:385-422`) | `appt_reminder.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_REMINDER`, `mail_reminders.py:159`) |
+| 9 | `appt_no_show` | individual, `not_before = +digest_minutes` | `AppointmentService.mark_no_show` → `StudentMail.appointment_no_show` (`appointment_service.py:787-792`, `student_mail.py:381-389`) | `_compose_appt_no_show` (`:316-345`) | `appt_no_show.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_NO_SHOW`, `:793-795`) + `undo_no_show` solo in-app (`APPOINTMENT_NO_SHOW_UNDONE`, `:813-815`, sin correo propio: el de «no se presentó» que siga en su gracia lo da por obsoleto el despachador) |
+| 10 | `docs_reminder` | `docs_reminder:{pid}:{ancla}:{n}` | `MailReminders._documentos` → `_recordar_documentos` → `StudentMail.docs_reminder` (`mail_reminders.py:294-363`, `:164-181`, `student_mail.py:403-409`) | `_compose_docs_reminder` (`:425-446`) | `docs_reminder.html` | `/titulatec/student/documents` | **nuevo** (`DOCUMENTS_REMINDER`, `mail_reminders.py:178-180`) |
+| 11 | `survey_reminder` | `survey_reminder:{pid}:{ancla}:{n}` | `MailReminders._encuestas` → `_recordar_encuesta` → `StudentMail.survey_reminder` (`mail_reminders.py:365-399`, `:184-198`, `student_mail.py:411-417`) | `_compose_survey_reminder` (`:449-464`) | `survey_reminder.html` | `/titulatec/encuesta-egresados` | **nuevo** (`SURVEY_REMINDER`, `mail_reminders.py:195-197`) |
 
-`MailComposer.REGISTRY` (`mail_compose.py:472-484`) es el mapeo `kind → función` para una fila
+`MailComposer.REGISTRY` (`mail_compose.py:477-489`) es el mapeo `kind → función` para una fila
 SUELTA; los grupos (`docs:`/`cita:`) se reconocen antes por su `group_key`
-(`MailComposer.compose`, `:486-520`). Un `kind` sin composición registrada queda `obsolete` con
+(`MailComposer.compose`, `:491-525`). Un `kind` sin composición registrada queda `obsolete` con
 error en el log — no se reintenta sin fin.
 
 ### Sin correo (a propósito)
@@ -132,12 +132,12 @@ Contrato completo en el docstring del módulo (líneas 1-44); resumen:
 
 ## 3. Componer — `MailComposer` (`services/mail_compose.py`)
 
-`MailComposer.compose(db, rows, process, user)` (`:486-520`) recibe filas YA tomadas por el
+`MailComposer.compose(db, rows, process, user)` (`:491-525`) recibe filas YA tomadas por el
 despachador (todas del mismo proceso: un grupo entero o una fila suelta) y devuelve `Composed`
 (`subject`, `template`, `context`, `link`) o `Obsolete(reason)`. **Solo lectura**: ni commit, ni
 flush, ni siembra — los requisitos "qué llevar" de la cita salen de
 `CotejoRequirementService.list` y **nunca** de `.list_or_seed`/`RequirementService
-.list_with_status`, que siembran y commitean (`mail_compose.py:14-19`, `243-246`, `411-413`).
+.list_with_status`, que siembran y commitean (`mail_compose.py:14-19`, `244-246`, `416-418`).
 Filas de otro proceso/alumno, de dos grupos, o varias sueltas sin grupo → `ValueError` (error del
 llamador; adivinar podría mandarle a un egresado lo de otro).
 
@@ -177,14 +177,17 @@ Servicios Escolares» si la siguiente fase ya es del corte a T-soft / «Avanzast
 `_compose_phase_rejected` (`:296-302`), `_compose_survey` (`:305-313`, usa `_GTV` — `:82-86` — para
 el asunto sin prefijo de cada resultado).
 
-`_compose_appt_no_show` (`:316-340`, #9): re-validado al enviar (D8) — si el encargado deshizo la
+`_compose_appt_no_show` (`:316-345`, #9): re-validado al enviar (D8) — si el encargado deshizo la
 inasistencia dentro de la gracia, `Obsolete("se corrigió la asistencia")`; si hay OTRA fila
 `appt_no_show` de la MISMA cita con `id` mayor (marcar → deshacer → marcar dentro de la espera),
 `Obsolete("hay un aviso más reciente de la misma cita")` — sale solo la más reciente (ruling
-2026-09-29, `:324-331`).
+2026-09-29, `:327-334`); y si la cita del aviso ya no es la **VIGENTE** —dentro de la gracia se le
+agendó otra o se reagendó: el intento nuevo le quita `is_current` y la vieja conserva su
+`no_show`—, `Obsolete("ya hay una cita nueva")`: «Agenda una nueva» sería falso (B3, ronda final
+2026-09-29).
 
-Los tres recordatorios (`_compose_appt_reminder` `:380-417`, `_compose_docs_reminder` `:420-441`,
-`_compose_survey_reminder` `:444-459`) se re-validan al enviar contra el estado ACTUAL, no el del
+Los tres recordatorios (`_compose_appt_reminder` `:385-422`, `_compose_docs_reminder` `:425-446`,
+`_compose_survey_reminder` `:449-464`) se re-validan al enviar contra el estado ACTUAL, no el del
 payload — ver §4.
 
 ---

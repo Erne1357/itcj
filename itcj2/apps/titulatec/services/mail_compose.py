@@ -317,7 +317,10 @@ def _compose_appt_no_show(db: Session, rows: list, process, user) -> Composed | 
     """#9, «no se presentó», re-validado al enviar (D8): si el encargado lo
     deshizo dentro de la gracia, obsoleto. Si hay OTRA fila de «no se presentó»
     de la MISMA cita más reciente (marcar → deshacer → marcar), sale solo esa
-    (ruling 2026-09-29)."""
+    (ruling 2026-09-29). Y si la cita ya no es la VIGENTE (dentro de la gracia
+    se le agendó otra, o se reagendó: el intento nuevo le quita `is_current` y
+    la vieja conserva su `no_show`), «Agenda una nueva» sería falso: obsoleto
+    (B3, ronda final)."""
     from itcj2.apps.titulatec.models import EmailOutbox, ReviewAppointment
 
     fila = rows[-1]
@@ -333,6 +336,8 @@ def _compose_appt_no_show(db: Session, rows: list, process, user) -> Composed | 
     appt = db.get(ReviewAppointment, appt_id) if appt_id is not None else None
     if appt is None or appt.process_id != process.id:
         return Obsolete("la cita ya no existe")
+    if not appt.is_current:
+        return Obsolete("ya hay una cita nueva")
     if appt.status != "no_show":
         return Obsolete("se corrigió la asistencia")
     cuando = appt.scheduled_at
