@@ -146,6 +146,21 @@ def _texto(el):
     return " ".join(el.text_content().split())
 
 
+def _vigente(make_appointment, esc, proc, status):
+    """Cita VIGENTE de ayer en `status`, sin ventana (la de un intento anterior)."""
+    ayer = datetime.combine(esc["dia"].date - timedelta(days=1), time(10, 0))
+    return make_appointment(proc, when=ayer, status=status, created_by=esc["off"])
+
+
+def _fase_02(db, proc, status):
+    """Deja la fase 02 del proceso en `status` (`make_process` la crea `in_progress`)."""
+    from itcj2.apps.titulatec.models import ProcessPhase
+
+    fila = db.query(ProcessPhase).filter_by(process_id=proc.id, phase_number=2).one()
+    fila.status = status
+    db.flush()
+
+
 # ===========================================================================
 # El servicio
 # ===========================================================================
@@ -264,6 +279,26 @@ def test_con_cita_viva_no_abre_otra(db_session, esc):
         _atender(db_session, esc, p)
 
     assert [c.status for c in _citas(db_session, p.id)] == ["in_progress"]
+
+
+@pytest.mark.parametrize("vigente,fase", [("no_show", "in_progress"),
+                                          ("attended", "rejected")])
+def test_tras_no_show_o_fase_rechazada_abre_un_intento_nuevo(db_session, esc,
+                                                             make_appointment,
+                                                             vigente, fase):
+    """Los dos casos «sin cita viva» con cita vigente (ruling de la revisión
+    de T6): quien no llegó a su cita, o a quien le rechazaron la fase 02 (D5),
+    vuelve y está enfrente. `create` abre el intento siguiente y la fila vieja
+    conserva su estado: ni se borra la ausencia ni la evidencia del cotejo."""
+    p = esc["p"][0]
+    vieja = _vigente(make_appointment, esc, p, vigente)
+    _fase_02(db_session, p, fase)
+
+    nueva = _atender(db_session, esc, p)
+
+    assert nueva.id != vieja.id
+    assert (nueva.status, nueva.is_current, nueva.attempt_no) == ("in_progress", True, 2)
+    assert (vieja.status, vieja.is_current) == (vigente, False)
 
 
 # ===========================================================================
@@ -404,6 +439,97 @@ def test_con_cita_viva_la_ficha_no_ofrece_atender_ahora(db_session, esc, client_
     # Control positivo: el de al lado, sin cita, sí lo ve (con un lugar menos).
     assert _detail_ctx(db_session, otro.id, user_id=esc["off"].id)["walkins_hoy"] == [
         {"id": esc["w"].id, "horario": "08:00–14:00", "libres": 1}]
+
+
+@pytest.mark.parametrize("vigente,fase,ofrece", [
+    ("no_show", "in_progress", True),     # no llegó a su cita; hoy está enfrente
+    ("attended", "rejected", True),       # D5: le faltaron papeles y volvió
+    ("attended", "in_progress", False),   # el cotejo ocurrió; falta el dictamen
+    ("attended", "approved", False),      # fase 02 aprobada: no hay nada que atender
+], ids=["no_show", "atendida-rechazada", "atendida-sin-dictamen", "atendida-aprobada"])
+def test_con_cita_vigente_la_ficha_ofrece_atender_ahora_solo_si_abriria_otro_intento(
+        db_session, esc, client_as, make_appointment, vigente, fase, ofrece):
+    """D7 dice «sin cita viva», no «sin cita» (ruling de la revisión de T6): el
+    botón sale también sobre un `no_show` vigente o una `attended` con la fase
+    02 rechazada —los dos casos en que el encargado le abriría un intento
+    nuevo—, y NO sobre una `attended` cuya fase está por dictaminarse o ya se
+    aprobó."""
+    from itcj2.apps.titulatec.pages.appointments import _detail_ctx
+
+    p = esc["p"][0]
+    _vigente(make_appointment, esc, p, vigente)
+    _fase_02(db_session, p, fase)
+
+    esperado = ([{"id": esc["w"].id, "horario": "08:00–14:00", "libres": 2}]
+                if ofrece else [])
+    assert _detail_ctx(db_session, p.id, user_id=esc["off"].id)["walkins_hoy"] == esperado
+
+    ficha = _ficha(client_as, esc, p)
+    formularios = ficha.xpath('.//form[@id="appt-atender-%d"]' % esc["w"].id)
+    assert len(formularios) == (1 if ofrece else 0)
+    if ofrece:
+        (form,) = formularios
+        assert form.get("hx-post") == _url(esc, p)
+        assert _texto(form) == "Atender ahora · sin horario 08:00–14:00 · quedan 2"
+
+
+@pytest.mark.parametrize("vigente", [None, "no_show"], ids=["sin_cita", "no_show"])
+def test_sin_tu_sin_horario_de_hoy_no_se_ofrece(db_session, esc, client_as,
+                                                make_appointment, vigente):
+    """Sin un espacio sin horario de hoy no hay dónde «atender ahora», ni sin
+    cita ni tras un `no_show`. El control positivo va primero: con su sin
+    horario, el mismo egresado SÍ lo tenía."""
+    from itcj2.apps.titulatec.pages.appointments import _detail_ctx
+
+    p = esc["p"][0]
+    if vigente:
+        _vigente(make_appointment, esc, p, vigente)
+    assert _detail_ctx(db_session, p.id, user_id=esc["off"].id)["walkins_hoy"]
+
+    esc["w"].visibility = "bookable"
+    db_session.flush()
+
+    assert _detail_ctx(db_session, p.id, user_id=esc["off"].id)["walkins_hoy"] == []
+    assert not _ficha(client_as, esc, p).xpath('.//*[starts-with(@id, "appt-atender-")]')
+
+
+# ===========================================================================
+# La línea de tiempo del alumno
+# ===========================================================================
+def test_la_linea_de_tiempo_del_alumno_pone_la_cita_antes_que_el_cotejo(db_session, esc):
+    """Ruling de la revisión de T6. Los dos eventos de «Atender ahora» comparten
+    `created_at` —el `NOW()` de su transacción—, así que el orden lo tiene que
+    decidir el `id`, como ya hacen el expediente y `process_service`.
+
+    Postgres no promete el orden de los empates: devuelve las filas como las
+    lee. El escenario reubica en el disco el `appointment_scheduled` (MISMO id y
+    mismos datos: DELETE + INSERT crudos) para que quede detrás del
+    `appointment_in_progress`, que es lo que el espacio libre de una tabla
+    viva puede hacer por su cuenta. Sin el desempate, «Cotejo en proceso»
+    salía antes que «Cita agendada».
+    """
+    import json
+
+    from itcj2.apps.titulatec.pages.student import _phases_ctx
+
+    p = esc["p"][0]
+    _atender(db_session, esc, p)
+    fila = db_session.execute(text(
+        "SELECT id, process_id, actor_id, event_type, phase_number, payload, created_at "
+        "FROM titulatec_process_events "
+        "WHERE process_id = :p AND event_type = 'appointment_scheduled'"),
+        {"p": p.id}).mappings().one()
+    db_session.execute(text("DELETE FROM titulatec_process_events WHERE id = :id"),
+                       {"id": fila["id"]})
+    db_session.execute(text(
+        "INSERT INTO titulatec_process_events "
+        "(id, process_id, actor_id, event_type, phase_number, payload, created_at) "
+        "VALUES (:id, :process_id, :actor_id, :event_type, :phase_number, "
+        "CAST(:payload AS json), :created_at)"),
+        {**fila, "payload": json.dumps(fila["payload"])})
+
+    (fase2,) = [c for c in _phases_ctx(db_session, p)["phases"] if c["number"] == 2]
+    assert [e["label"] for e in fase2["events"]] == ["Cita agendada", "Cotejo en proceso"]
 
 
 # ===========================================================================

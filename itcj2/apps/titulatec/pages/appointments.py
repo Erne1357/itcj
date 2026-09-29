@@ -303,20 +303,33 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
 
     # «Atender ahora» (D7, spec 2026-09-29-titulatec-cotejo-espacios-design.md
     # §4): los espacios SIN HORARIO de HOY de quien mira la ficha, abiertos y
-    # con sus lugares libres, SOLO si el proceso no tiene cita viva. El dia es
-    # el de la convocatoria activa y tiene que seguir habilitado: en uno
-    # cerrado `create` contestaria `DayNotAllowed`, y un boton que siempre
-    # falla es peor que no estar. `libres` = cupo total menos TODAS las vivas
-    # del espacio, de cualquier hora (`SlotService.occupancy`, como en
-    # `_espacios_ctx`). Diccionarios planos, por la misma razon que
-    # `requisitos` arriba.
-    from itcj2.apps.titulatec.services.appointment_service import _ESTADOS_ACTIVOS
+    # con sus lugares libres, SOLO si el encargado le abriria un intento NUEVO.
+    # D7 dice «sin cita viva», no «sin cita» (ruling de la revision de T6), y
+    # sin cita viva son tres casos: sin cita vigente, vigente `no_show` (no
+    # llego a su cita; hoy esta enfrente) y vigente `attended` con la fase 02
+    # RECHAZADA (D5: le faltaron papeles y volvio). Una `attended` con la fase
+    # por dictaminar o ya aprobada NO: el cotejo ya ocurrio y lo que sigue es
+    # el dictamen, no otra cita. El dia es el de la convocatoria activa y tiene
+    # que seguir habilitado: en uno cerrado `create` contestaria
+    # `DayNotAllowed`, y un boton que siempre falla es peor que no estar.
+    # `libres` = cupo total menos TODAS las vivas del espacio, de cualquier
+    # hora (`SlotService.occupancy`, como en `_espacios_ctx`). Diccionarios
+    # planos, por la misma razon que `requisitos` arriba.
+    from itcj2.apps.titulatec.models import ProcessPhase
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.slot_service import SlotService
     from itcj2.core.utils.timezone import db_now
 
+    abriria_intento = (
+        appt is None or appt.status == "no_show"
+        or (appt.status == "attended"
+            and db.query(ProcessPhase.status)
+                  .filter_by(process_id=process_id,
+                             phase_number=PhaseService.PHASE_COTEJO)
+                  .scalar() == "rejected"))
     hoy = db_now().date()
     walkins_hoy = []
-    if user_id is not None and (appt is None or appt.status not in _ESTADOS_ACTIVOS):
+    if user_id is not None and abriria_intento:
         cohort_activa = _active_cohort_id(db)
         fila_hoy = ReviewDayService.get(db, cohort_activa, hoy) if cohort_activa else None
         if fila_hoy is not None and not fila_hoy.is_closed:

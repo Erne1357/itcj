@@ -298,18 +298,20 @@
       <a class="btn btn-sm tt-btn-ink"
          {{ appt_nav(page_url ~ '?date=' ~ day ~ '&p=' ~ detail.process.id) }}>
         <i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Agendar a este alumno</a>
+      {% endif %}
 
-      {# «Atender ahora» (D7): el egresado está enfrente y sin cita. Un botón por
-         espacio SIN HORARIO de HOY del propio encargado (`detail.walkins_hoy`);
+      {# «Atender ahora» (D7): el egresado está enfrente y sin cita VIVA. Un botón
+         por espacio SIN HORARIO de HOY del propio encargado (`detail.walkins_hoy`);
          lo sienta y arranca el cotejo en una sola transacción, sin aviso ni
          correo de «agendada». Vuelve a la ficha en el día de HOY, que es donde
          queda la cita. Lleno: `aria-disabled` y no `disabled`, para que se
          pueda descubrir tabulando (mismo criterio que el visor), y fuera de
          todo form: no hay nada que enviar.
 
-         Solo en esta rama, aunque el contexto se llena en toda ficha sin cita
-         VIVA: un `no_show` vigente tiene «Deshacer no se presentó», que le
-         devuelve SU cita en vez de abrirle otro intento y ocupar otro lugar. #}
+         Va FUERA del `if detail.appt`: `_detail_ctx` solo llena
+         `walkins_hoy` cuando el encargado le abriría un intento nuevo —sin
+         cita, `no_show` vigente o `attended` con la fase 02 rechazada (ruling
+         de la revisión de T6)—, así que aquí no se repite la regla. #}
       {% if detail.walkins_hoy %}
       <div class="d-flex flex-wrap gap-2 mt-3">
         {% for w in detail.walkins_hoy %}
@@ -327,7 +329,6 @@
         {% endif %}
         {% endfor %}
       </div>
-      {% endif %}
       {% endif %}
     </div>
 

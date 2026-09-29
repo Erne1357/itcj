@@ -694,9 +694,14 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     }
 
     events_by_phase: dict[int, list] = {}
+    # `(created_at, id)`, como el expediente y `process_service`: los eventos de
+    # una misma transacción comparten `created_at` (el `NOW()` de la
+    # transacción) y Postgres no promete el orden de los empates. «Atender
+    # ahora» escribe dos seguidos, y sin el `id` «Cotejo en proceso» podía salir
+    # antes que «Cita agendada».
     for ev in (db.query(ProcessEvent)
                .filter_by(process_id=process.id)
-               .order_by(ProcessEvent.created_at).all()):
+               .order_by(ProcessEvent.created_at, ProcessEvent.id).all()):
         # Un evento sin fase no pertenece a ningún acordeón; no lo colgamos de una
         # fase arbitraria para no inventar historial.
         if ev.phase_number is None:
