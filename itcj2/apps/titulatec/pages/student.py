@@ -357,12 +357,20 @@ def _phase_guard_page(db, process, phase_number) -> Response | None:
     return RedirectResponse(destino, status_code=302)
 
 
-def _slot_ctx(dtype, doc, *, error: str | None = None) -> dict:
+def _slot_ctx(dtype, doc, *, error: str | None = None, sent_at=None) -> dict:
     """Contexto autónomo de un slot de documento para el parcial.
 
     `hint` es la ayuda de la casilla; la de PDF sale de la config
     (`storage.pdf_upload_hint`), nunca escrita en la plantilla.
+
+    `sent_at` (Tarea 2, 2026-09-28, spec §4 A3): fecha/hora de la ULTIMA
+    subida real de este documento -- el llamador la resuelve con
+    `DocumentService.last_uploads` (respaldo `doc.created_at`) porque esta
+    función no abre sesión de BD. Se formatea aquí a `sent_label`
+    ("Enviado el {dia_mes_hora}") con `utils/dates_es`, o `None` sin fecha o
+    sin documento (nada que enviar).
     """
+    from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
     from itcj2.apps.titulatec.utils.storage import pdf_upload_hint
 
     hint = pdf_upload_hint() if dtype.file_kind == "pdf" else "Imagen (jpg, png, webp)"
@@ -377,9 +385,46 @@ def _slot_ctx(dtype, doc, *, error: str | None = None) -> dict:
             "size_bytes": doc.size_bytes or 0,
             "version": doc.version,
         } if doc else None),
+        "sent_label": (f"Enviado el {dia_mes_hora(sent_at)}" if (doc and sent_at) else None),
         "upload_url": f"/titulatec/student/documents/{dtype.code}",
         "delete_url": f"/titulatec/student/documents/{dtype.code}",
         "error": error,
+    }
+
+
+def _docs_status_ctx(db, process) -> dict:
+    """Contexto del aviso de pie de Documentos (`#tt-docs-status`, Tarea 2,
+    2026-09-28, spec §4 A4).
+
+    Prioridad YA resuelta aquí (rechazados > faltantes > aprobados >
+    enviados): `initial_docs_summary` reparte los 3 documentos iniciales entre
+    exactamente un `status` cada uno (`approved|rejected|pending|missing`),
+    así que los 4 estados de salida son mutuamente excluyentes.
+
+    `contact_email` solo se resuelve para `state == "sent"` (el único texto
+    que lo usa, spec A4 #4): evita la consulta de respaldo a
+    `EnrollmentRequest` cuando no hace falta. `next_url` solo para
+    `state == "approved"` (spec A4 #3, liga a la cita de cotejo).
+    """
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    summary = DocumentService.initial_docs_summary(db, process.id)
+    counts = summary["counts"]
+    if counts["rejected"]:
+        state = "rejected"
+    elif counts["missing"]:
+        state = "missing"
+    elif counts["approved"] == summary["total"]:
+        state = "approved"
+    else:
+        state = "sent"
+
+    return {
+        "state": state,
+        "missing_names": [it["name"] for it in summary["items"] if it["status"] == "missing"],
+        "contact_email": (StudentMail.contact_email(db, process) if state == "sent" else None),
+        "next_url": ("/titulatec/student/cita" if state == "approved" else None),
     }
 
 
@@ -881,18 +926,26 @@ async def documents(
         if fuera_de_fase:
             return fuera_de_fase
         slots = []
+        status_ctx = None
         if process:
+            # UN lote para los 3 slots (Tarea 2, spec A3): "Enviado el ..." es
+            # la ULTIMA subida real de cada tipo, no `doc.created_at` (que no
+            # se resetea al resubir).
+            sent_map = DocumentService.last_uploads(db, [process.id], codes=_INITIAL_DOC_TYPES)
             for code in _INITIAL_DOC_TYPES:
                 dtype = db.query(DocumentType).filter_by(code=code, is_active=True).first()
                 if not dtype:
                     continue
                 doc = DocumentService.get_document(db, process.id, code)
-                slots.append(_slot_ctx(dtype, doc))
+                sent_at = sent_map.get((process.id, code)) or (doc.created_at if doc else None)
+                slots.append(_slot_ctx(dtype, doc, sent_at=sent_at))
+            status_ctx = _docs_status_ctx(db, process)
         all_uploaded = bool(slots) and all(s["doc"] for s in slots)
         ctx = {
             "process": process.to_dict() if process else None,
             "slots": slots,
             "all_uploaded": all_uploaded,
+            "status": status_ctx,
         }
     finally:
         db.close()
@@ -907,7 +960,14 @@ async def document_upload(
     archivo: UploadFile = File(...),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.upload.own"])),
 ):
-    """Sube/sobreescribe un documento. Devuelve el parcial del slot (HTMX)."""
+    """Sube/sobreescribe un documento. Devuelve el parcial del slot (HTMX).
+
+    Tarea 2 (2026-09-28, spec §4 A4): la respuesta trae ADEMÁS el aviso de
+    estado (`#tt-docs-status`) pegado por `hx-swap-oob` -- esta ruta solo
+    reemplaza su propio `#slot-{code}`, así que el refresco del aviso viaja
+    aparte, en la MISMA respuesta (también cuando hay error: 200 +
+    `X-Tt-Error`, el estado del proceso no cambió pero el aviso puede seguir
+    diciendo lo mismo que antes de intentar)."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import DocumentType
     from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -961,7 +1021,12 @@ async def document_upload(
         except (StorageError, ValueError) as exc:
             error = str(exc)
 
-        ctx = _slot_ctx(dtype, doc, error=error)
+        # Tarea 2: la fecha de envio (exito) o la ULTIMA subida buena previa
+        # (error: no se escribio ProcessEvent nuevo) sale del mismo lote.
+        sent_map = DocumentService.last_uploads(db, [process.id], codes=[type_code])
+        sent_at = sent_map.get((process.id, type_code)) or (doc.created_at if doc else None)
+        ctx = _slot_ctx(dtype, doc, error=error, sent_at=sent_at)
+        ctx["status_oob"] = _docs_status_ctx(db, process)
         resp = render_titulatec(request, "titulatec/partials/document_slot.html", ctx)
         if error:
             # Percent-codificado (`_hdr`): los mensajes de `storage` llevan
@@ -979,7 +1044,12 @@ async def document_delete(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.delete.own"])),
 ):
-    """Elimina un documento. Devuelve el parcial del slot vacío (HTMX)."""
+    """Elimina un documento. Devuelve el parcial del slot vacío (HTMX).
+
+    Tarea 2 (2026-09-28, spec §4 A4): igual que la subida, la respuesta trae
+    el aviso de estado (`#tt-docs-status`) pegado por `hx-swap-oob` -- borrar
+    puede regresar la fase a "en curso" o descompletar la fase 1, y el aviso
+    tiene que reflejarlo sin recargar la página."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import DocumentType
     from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -998,7 +1068,10 @@ async def document_delete(
             return fuera_de_fase
         if process:
             DocumentService.delete(db, process.id, type_code, actor_id=int(user["sub"]))
-        return render_titulatec(request, "titulatec/partials/document_slot.html", _slot_ctx(dtype, None))
+        ctx = _slot_ctx(dtype, None)
+        if process:
+            ctx["status_oob"] = _docs_status_ctx(db, process)
+        return render_titulatec(request, "titulatec/partials/document_slot.html", ctx)
     finally:
         db.close()
 

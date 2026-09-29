@@ -319,6 +319,12 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
 .tt-dropzone:hover { border-color: var(--tt-accent); background: var(--tt-amber-soft); }
 /* Ayuda de la casilla (formato y tope; `storage.pdf_upload_hint`). */
 .tt-dropzone-hint { font-size: .6875rem; color: var(--tt-mute); }
+/* "Enviado el ..." bajo el nombre del archivo (vista del alumno, Tarea 2,
+   2026-09-28, spec A3): mismo tamaño que la línea de peso/versión de al lado
+   (`.6875rem`, literal como el resto de esta sección), pero `--tt-text-3` y
+   NO `--tt-mute` -- esta SÍ es texto que se lee, no un icono/borde decorativo
+   (`--tt-mute` está PROHIBIDO PARA TEXTO, `:14-16`). */
+.tt-doc-sent { font-size: .6875rem; color: var(--tt-text-3); margin-top: 2px; }
 
 /* ============================ SHELL MÓVIL ============================== */
 /* Aquí vivía `.tt-mobile { max-width: 430px }`, con CERO usos en templates y JS

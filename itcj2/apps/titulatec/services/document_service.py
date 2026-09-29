@@ -156,6 +156,52 @@ class DocumentService:
         return new_status
 
     @staticmethod
+    def last_uploads(db: Session, process_ids: list[int],
+                     codes: list[str] | None = None) -> dict:
+        """Ultima llegada de cada (proceso, tipo) segun la bitacora, en UN lote.
+
+        Extraido de `pages/documents.py::_last_uploads` (Tarea 2, 2026-09-28,
+        plan titulatec-correos-notificaciones): la bandeja del personal (FIFO
+        de "Por evaluar") y la vista del alumno (`pages/student.py::
+        _docs_status_ctx`, linea "Enviado el ...") necesitan la MISMA fuente de
+        verdad de "cuando llego de verdad cada documento" -- `Document` no
+        sirve sola porque una resubida NO resetea `created_at`
+        (`DocumentService.save` actualiza la fila en su lugar, solo sube
+        `version`) y `updated_at` no tiene `onupdate` ni la escribe nadie. Cada
+        subida real SI deja un `ProcessEvent(document_uploaded)` en la MISMA
+        transaccion (ver `save()` arriba), con `type_code` en el payload. Se
+        toma el MAXIMO por (proceso, tipo): un documento rechazado y vuelto a
+        subir cuenta desde la resubida, no desde el primer intento -- es una
+        llegada NUEVA.
+
+        `codes` (opcional): filtra el TIPO ademas del proceso -- la vista del
+        alumno solo necesita uno a la vez; `None` (por omision) considera
+        cualquier tipo, el comportamiento de siempre para la bandeja
+        (`pages/documents.py::_last_uploads`, que delega aqui y no lo pasa).
+        Filtra DESPUES de traer las filas (no en SQL): mismo numero y forma de
+        consulta que antes, asi que `_order_pending_by_wait` sigue costando
+        UNA consulta por lote (`test_documents_fifo.py::
+        test_la_pestana_pendiente_no_escala_con_las_filas`).
+        """
+        from itcj2.apps.titulatec.models import ProcessEvent
+
+        if not process_ids:
+            return {}
+        ultimas = {}
+        filas = (db.query(ProcessEvent.process_id, ProcessEvent.payload, ProcessEvent.created_at)
+                 .filter(ProcessEvent.process_id.in_(process_ids),
+                         ProcessEvent.event_type == "document_uploaded")
+                 .all())
+        for process_id, payload, subido_en in filas:
+            type_code = (payload or {}).get("type_code")
+            if not type_code or (codes is not None and type_code not in codes):
+                continue
+            clave = (process_id, type_code)
+            if clave not in ultimas or subido_en > ultimas[clave]:
+                ultimas[clave] = subido_en
+        return ultimas
+
+    @staticmethod
     def get_active_process(db: Session, student_id: int):
         """Proceso activo más reciente del alumno (o None)."""
         from itcj2.apps.titulatec.models import TitulationProcess

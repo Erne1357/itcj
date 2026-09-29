@@ -329,7 +329,9 @@ class Settings(BaseSettings):
     # `.tt-dropzone-hint`, la ayuda de la casilla de subida («PDF de hasta
     # 2 MB…») que antes iba con estilo en línea. Sin el bump, la hoja
     # `immutable` en caché no la trae y la ayuda sale del tamaño del título.
-    STATIC_VERSION: str = "1.0.1111578"
+    #
+    # Bump 2026-09-28: aviso de estado de Documentos.
+    STATIC_VERSION: str = "1.0.1111579"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

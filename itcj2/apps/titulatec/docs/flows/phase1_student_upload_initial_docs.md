@@ -30,6 +30,11 @@ Documentos requeridos (`DocumentType.code`): `birth_certificate`, `high_school_c
 3. Cuando los 3 están subidos, la fase pasa sola a `in_review`
    (`DocumentService.sync_initial_phase`, Tarea 1 2026-09-28): no hay botón que tocar,
    ni un segundo paso — el propio `POST` de la 3ª subida ya la deja en revisión.
+4. La pantalla lo dice sin ambigüedad (Tarea 2, 2026-09-28): cada casilla subida trae su
+   propia píldora (`doc_pill_alumno`, `_macros.html` — **distinta** de `estado_pill`, la
+   del personal) y la fecha de la última llegada real; al pie, un aviso
+   (`#tt-docs-status`) resume el conjunto. Ver «UI: píldora, fecha y aviso de estado»
+   más abajo.
 
 ## Secuencia
 
@@ -157,6 +162,41 @@ duda») (ver
 
 - 3 filas en `titulatec_documents` con `review_status=pending`.
 - `ProcessPhase[1].status = in_review` → aparece en la bandeja admin para revisión.
+
+## UI: píldora, fecha de envío y aviso de estado (Tarea 2, 2026-09-28)
+
+Spec `2026-09-28-titulatec-correos-notificaciones-design.md` §4 A3/A4. Sin botón que tocar
+(Tarea 1), la pantalla tiene que decir por sí sola que lo subido YA se envió:
+
+- **Píldora por casilla** (`doc_pill_alumno(doc.review_status)`, `_macros.html`) — habla en
+  voz del ALUMNO, no del personal (`estado_pill`, que sigue usando `documents_body.html`/el
+  expediente, sin cambios): `pending` → «Enviado · en revisión» (ámbar) · `approved` →
+  «Aprobado» (verde) · `rejected` → «Necesita corrección» (rojo).
+- **«Enviado el {día} de {mes} a las {HH:MM}»** bajo el nombre del archivo
+  (`utils/dates_es.dia_mes_hora`) — la ÚLTIMA `ProcessEvent(document_uploaded)` de ese tipo,
+  no `Document.created_at` (no se resetea al resubir): `DocumentService.last_uploads(db,
+  process_ids, codes=None)`, extraída de `pages/documents.py::_last_uploads` (misma
+  semántica — esa función ahora delega ahí, la bandeja admin no cambia). Respaldo
+  `Document.created_at` si no hay evento (fila sembrada o subida antes de `2f43e7e5`).
+- **Aviso al pie** (`#tt-docs-status`, `partials/student/_docs_status.html`,
+  `pages/student.py::_docs_status_ctx`), prioridad rechazados > faltantes > aprobados >
+  enviados (los 4 son mutuamente excluyentes: `DocumentService.initial_docs_summary` reparte
+  los 3 documentos entre exactamente un `status` cada uno):
+  1. Rechazados → «Corrige los documentos marcados. Al subirlos vuelven a revisión solos.»
+  2. Faltan → «Te faltan N: {nombres}.»
+  3. Los 3 aprobados → «¡Tus documentos fueron aprobados! Sigue: cita de cotejo» (liga a
+     `/titulatec/student/cita`).
+  4. Los 3 enviados (sin rechazos, no los 3 aprobados) → «Tus 3 documentos llegaron a
+     Servicios Escolares y están en revisión. Te avisaremos a **{correo personal}** y aquí en
+     la app.» — el correo sale de `StudentMail.contact_email(db, process)` (perfil →
+     `EnrollmentRequest` que convirtió el proceso → nada; **nunca** el institucional); sin
+     correo se omite la parte «a {correo}».
+- **Refresco sin recargar**: la respuesta de subir y de borrar un documento
+  (`POST`/`DELETE /student/documents/{type_code}`) solo reemplaza su propio
+  `#slot-{type_code}` — el aviso viaja ADEMÁS, pegado con `hx-swap-oob="true"`
+  (`ctx["status_oob"] = _docs_status_ctx(...)`, leído por `document_slot.html`). También en
+  la subida con error (200 + `X-Tt-Error`): el estado del proceso no cambió, pero el aviso
+  vuelve a pintarse igual, sin quedar huérfano de un swap anterior.
 
 ## Caminos alternos / errores ❗
 

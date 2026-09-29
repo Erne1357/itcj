@@ -1,0 +1,294 @@
+"""Documentos del alumno: píldora propia, fecha de envío y aviso de estado al
+pie (`#tt-docs-status`, spec 2026-09-28 §4 A3/A4, plan
+titulatec-correos-notificaciones, Tarea 2).
+
+Retirado «Enviar a revisión» (Tarea 1): subir YA es enviar. Lo que se fija
+aquí es que la pantalla lo diga sin ambigüedad:
+
+1. Píldora del alumno (`doc_pill_alumno`, `_macros.html`) -- DISTINTA de
+   `estado_pill` (la del personal, que sigue diciendo "Pendiente"/"En
+   revisión"): `pending` -> "Enviado · en revisión", `approved` -> "Aprobado",
+   `rejected` -> "Necesita corrección".
+2. "Enviado el {fecha}" bajo el nombre del archivo: última
+   `ProcessEvent(document_uploaded)` de ese tipo (`DocumentService.last_uploads`,
+   extraído de `pages/documents.py::_last_uploads`), respaldo
+   `Document.created_at`.
+3. Aviso al pie, prioridad rechazados > faltantes > aprobados > enviados
+   (spec A4), re-pintado por `hx-swap-oob` en cada subida/borrado -- también
+   en la subida con error (200 + `X-Tt-Error`).
+4. La bandeja del PERSONAL no se toca: sigue usando `estado_pill`.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+
+import pytest
+
+from tests.fastapi.titulatec.test_documents_fifo import _evento_subida
+from tests.fastapi.titulatec.test_student_mail import perfil  # noqa: F401 (fixture reusada)
+
+PDF = ("documento.pdf", b"%PDF-1.4 documento de prueba", "application/pdf")
+
+# Mismo set que `test_initial_phase_sync.py::STUDENT_PERMS`: el default de
+# `conftest.py` no trae `.delete.own`, y aquí se necesitan las tres rutas.
+STUDENT_PERMS = (
+    "titulatec.dashboard.student",
+    "titulatec.document.api.read.own",
+    "titulatec.document.api.upload.own",
+    "titulatec.document.api.delete.own",
+)
+
+
+@pytest.fixture()
+def esc(db_session, seed_phase_defs, seed_document_types, make_cohort, make_student,
+        make_process, tmp_path, monkeypatch):
+    """Alumno con proceso en fase 1, listo para subir/borrar por HTTP."""
+    def _build(current_phase=1, status="active"):
+        monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
+        seed_phase_defs()
+        seed_document_types()
+        student = make_student(perm_codes=STUDENT_PERMS)
+        proc = make_process(student, cohort=make_cohort(),
+                            current_phase=current_phase, status=status)
+        return student, proc
+    return _build
+
+
+# ===========================================================================
+# 1. Píldora propia del alumno (A3)
+# ===========================================================================
+def test_pildora_enviado_en_revision_para_pendiente(esc, client_as):
+    student, proc = esc()
+
+    resp = client_as(student).post("/titulatec/student/documents/birth_certificate",
+                                   files={"archivo": PDF})
+
+    assert resp.status_code == 200, resp.text[:300]
+    html = client_as(student).get("/titulatec/student/documents").text
+    assert "Enviado · en revisión" in html
+
+
+def test_pildora_aprobado(esc, client_as, make_document):
+    student, proc = esc()
+    make_document(proc, type_code="birth_certificate", review_status="approved")
+
+    html = client_as(student).get("/titulatec/student/documents").text
+
+    assert "Aprobado" in html
+
+
+def test_pildora_necesita_correccion(esc, client_as, make_document):
+    student, proc = esc()
+    make_document(proc, type_code="birth_certificate", review_status="rejected")
+
+    html = client_as(student).get("/titulatec/student/documents").text
+
+    assert "Necesita corrección" in html
+
+
+# ===========================================================================
+# 2. "Enviado el ..." = la ULTIMA subida real (A3)
+# ===========================================================================
+def test_fecha_de_envio_es_la_ultima_subida(esc, client_as, make_document, db_session):
+    from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
+
+    student, proc = esc()
+    make_document(proc, type_code="birth_certificate")
+    t1 = datetime(2026, 1, 5, 9, 0)
+    t2 = datetime(2026, 1, 7, 16, 30)
+    _evento_subida(db_session, proc, "birth_certificate", t1)
+    _evento_subida(db_session, proc, "birth_certificate", t2)
+
+    html = client_as(student).get("/titulatec/student/documents").text
+
+    assert f"Enviado el {dia_mes_hora(t2)}" in html
+    assert f"Enviado el {dia_mes_hora(t1)}" not in html
+
+
+# ===========================================================================
+# 3. Aviso al pie: contenido por estado y prioridad (A4)
+# ===========================================================================
+def test_aviso_faltan_nombra_los_documentos(esc, client_as, make_document):
+    student, proc = esc()
+    make_document(proc, type_code="birth_certificate")   # faltan 2
+
+    html = client_as(student).get("/titulatec/student/documents").text
+
+    assert "Te faltan 2" in html
+    assert "Certificado de bachillerato" in html
+    assert "CURP certificada" in html
+
+
+def test_aviso_enviados_muestra_el_correo_personal(esc, client_as, make_document, perfil):
+    student, proc = esc()
+    for code in ("birth_certificate", "high_school_cert", "curp"):
+        make_document(proc, type_code=code)
+    perfil(student.id, "alumno.personal@example.invalid")
+
+    html = client_as(student).get("/titulatec/student/documents").text
+
+    assert "en revisión" in html
+    assert "alumno.personal@example.invalid" in html
+    assert "Te avisaremos a" in html
+
+
+def test_aviso_enviados_sin_correo_personal_no_inventa(esc, client_as, make_document):
+    student, proc = esc()
+    for code in ("birth_certificate", "high_school_cert", "curp"):
+        make_document(proc, type_code=code)
+
+    html = client_as(student).get("/titulatec/student/documents").text
+
+    assert "Te avisaremos aquí en la app." in html
+    assert "Te avisaremos a " not in html
+    assert "@" not in html.split('id="tt-docs-status"', 1)[1].split("</div>", 1)[0]
+
+
+def test_aviso_aprobados_invita_a_agendar_la_cita(esc, client_as, make_document):
+    """Los 4 estados del aviso son mutuamente excluyentes (A4): "aprobado" NO
+    lo ejercita ningun test del Step 1 del brief (todos los demas si), y es un
+    branch real de `_docs_status.html` -- se cubre aqui para no dejarlo a
+    ciegas."""
+    student, proc = esc()
+    for code in ("birth_certificate", "high_school_cert", "curp"):
+        make_document(proc, type_code=code, review_status="approved")
+
+    html = client_as(student).get("/titulatec/student/documents").text
+
+    assert "¡Tus documentos fueron aprobados!" in html
+    assert 'href="/titulatec/student/cita"' in html
+    assert "Te faltan" not in html
+    assert "Corrige los documentos marcados" not in html
+
+
+def test_aviso_rechazado_gana_a_faltantes(esc, client_as, make_document):
+    student, proc = esc()
+    make_document(proc, type_code="birth_certificate", review_status="rejected")
+    # high_school_cert y curp quedan "missing": si "faltan" ganara, ambos
+    # avisos coexistirian en el texto y este test no discriminaria nada.
+
+    html = client_as(student).get("/titulatec/student/documents").text
+
+    assert "Corrige los documentos marcados" in html
+    assert "Te faltan" not in html
+
+
+# ===========================================================================
+# 4. El aviso viaja OOB en subir/borrar -- tambien con error (A4)
+# ===========================================================================
+def test_subir_devuelve_el_aviso_oob(esc, client_as):
+    student, proc = esc()
+
+    resp = client_as(student).post("/titulatec/student/documents/birth_certificate",
+                                   files={"archivo": PDF})
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert 'id="tt-docs-status"' in resp.text
+    assert 'hx-swap-oob="true"' in resp.text
+    assert "Te faltan 2" in resp.text
+
+
+def test_borrar_devuelve_el_aviso_oob(esc, client_as):
+    student, proc = esc()
+    cli = client_as(student)
+    for code in ("birth_certificate", "high_school_cert", "curp"):
+        resp = cli.post(f"/titulatec/student/documents/{code}", files={"archivo": PDF})
+        assert resp.status_code == 200, resp.text[:300]
+
+    resp = cli.delete("/titulatec/student/documents/curp")
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert 'id="tt-docs-status"' in resp.text
+    assert 'hx-swap-oob="true"' in resp.text
+    assert "Te faltan 1" in resp.text
+
+
+def test_subida_con_error_tambien_trae_el_aviso(esc, client_as, monkeypatch):
+    """Mismo truco que `test_document_files_routes.py::test_mas_del_maximo...`:
+    un tope minusculo hace que CUALQUIER PDF se rechace ANTES de leer el
+    cuerpo (`check_pdf_upload_size`), sin tocar la compresion real."""
+    from itcj2.config import get_settings
+
+    student, proc = esc()
+    monkeypatch.setattr(get_settings(), "TITULATEC_MAX_PDF_UPLOAD_SIZE", 1)
+
+    resp = client_as(student).post("/titulatec/student/documents/birth_certificate",
+                                   files={"archivo": PDF})
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert "X-Tt-Error" in resp.headers
+    assert 'id="tt-docs-status"' in resp.text
+    assert 'hx-swap-oob="true"' in resp.text
+
+
+# ===========================================================================
+# 5. La bandeja del PERSONAL no cambia (sigue usando `estado_pill`)
+# ===========================================================================
+def test_la_bandeja_del_personal_sigue_diciendo_pendiente(
+    client_as, make_head, seed_document_types, make_cohort, make_student,
+    make_process, make_document,
+):
+    seed_document_types()
+    student = make_student()
+    proc = make_process(student, cohort=make_cohort())
+    make_document(proc, type_code="birth_certificate")   # review_status="pending"
+    jefa = make_head()
+
+    html = client_as(jefa).get(
+        "/titulatec/admin/documents/body?status=&selected=%d" % proc.id).text
+
+    assert "Pendiente" in html
+    assert "Enviado · en revisión" not in html
+
+
+# ===========================================================================
+# 6. `DocumentService.last_uploads` == el `_last_uploads` de la bandeja
+# ===========================================================================
+def test_last_uploads_es_equivalente_al_de_la_bandeja(
+    db_session, seed_document_types, make_cohort, make_student, make_process, make_document,
+):
+    from itcj2.apps.titulatec.pages.documents import _last_uploads
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+
+    seed_document_types()
+    student = make_student()
+    proc = make_process(student, cohort=make_cohort())
+    make_document(proc, type_code="birth_certificate")
+    _evento_subida(db_session, proc, "birth_certificate", datetime(2026, 1, 1, 10, 0))
+    _evento_subida(db_session, proc, "birth_certificate", datetime(2026, 1, 2, 11, 0))
+
+    viejo = _last_uploads(db_session, [proc.id])
+    nuevo = DocumentService.last_uploads(db_session, [proc.id])
+
+    assert viejo == nuevo
+    assert viejo[(proc.id, "birth_certificate")] == datetime(2026, 1, 2, 11, 0)
+
+
+# ===========================================================================
+# 7. Contrato de la app: sin <script>/on*= NUEVOS en las plantillas tocadas
+# ===========================================================================
+def test_sin_script_inline_en_las_plantillas_tocadas():
+    """Barre las 4 plantillas de esta tarea. El único `on[a-z]+=` que
+    sobrevive es el PREEXISTENTE de `document_slot.html`
+    (`onclick="event.stopPropagation()"` x2, en los inputs de archivo ocultos,
+    ajeno a esta tarea) -- nada nuevo se agrega en ninguna de las 4."""
+    import re
+    from pathlib import Path
+
+    import itcj2.apps.titulatec as _tt_pkg
+
+    base = Path(_tt_pkg.__file__).resolve().parent / "templates" / "titulatec"
+    archivos = {
+        base / "_macros.html": 0,
+        base / "partials" / "document_slot.html": 2,
+        base / "partials" / "student" / "_docs_status.html": 0,
+        base / "student" / "documents.html": 0,
+    }
+    for path, permitidos in archivos.items():
+        texto = path.read_text(encoding="utf-8")
+        assert "<script" not in texto.lower(), f"{path.name}: <script> inline"
+        hallados = re.findall(r'\son[a-z]+\s*=\s*"([^"]*)"', texto, flags=re.I)
+        if permitidos:
+            assert hallados == ["event.stopPropagation()"] * permitidos, (path.name, hallados)
+        else:
+            assert not hallados, f"{path.name}: on*= inline nuevo: {hallados}"

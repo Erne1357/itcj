@@ -1,0 +1,46 @@
+{# ===========================================================================
+   _docs_status.html — aviso de estado al pie de Documentos (alumno, Tarea 2,
+   2026-09-28, spec §4 A4). Raíz `<div id="tt-docs-status">`.
+
+   Contexto: DOS formas de llegar aquí, mismas 4 claves en ambas
+   (state: rejected|missing|approved|sent · missing_names: list[str] ·
+   contact_email: str|None · next_url: str|None), producidas por
+   `pages/student.py::_docs_status_ctx`:
+
+   - `status` (dict): carga completa de la página (`student/documents.html`),
+     pintado UNA vez, sin `hx-swap-oob`.
+   - `status_oob` (dict): respuesta de subir/borrar un documento
+     (`document_slot.html`, que solo reemplaza su propio `#slot-{code}`) --
+     cuando está definido y es verdadero, este parcial se pinta con
+     `hx-swap-oob="true"` para refrescar el aviso sin tocar el resto de la
+     página. `status_oob` gana si ambos existieran a la vez (no ocurre hoy:
+     cada caller pasa uno solo).
+
+   Reusa `.tt-card`/`.tt-card--{tone}` y `.tt-cita-why` (fila icono+texto,
+   `titulatec.css`, ya genérica pese al nombre -- la usan `cita_card.html` y
+   `_cita_panel.html`): ningún CSS nuevo para el cuerpo del aviso, solo
+   `.tt-doc-sent` (sección DOCUMENTO) para la fecha de envío del slot.
+   =========================================================================== #}
+{% set _s = status_oob if (status_oob is defined and status_oob) else status %}
+{% set _oob = status_oob is defined and status_oob %}
+{% set _tone = {"rejected": "danger", "missing": "accent", "approved": "success", "sent": "accent"} %}
+{% set _icon = {"rejected": "exclamation-triangle", "missing": "cloud-upload", "approved": "check-circle", "sent": "check2-circle"} %}
+<div id="tt-docs-status" class="tt-card tt-card--{{ _tone[_s.state] }} mt-3 tt-anim-in"
+     role="status" aria-live="polite"
+     {% if _oob %}hx-swap-oob="true"{% endif %}>
+  <div class="tt-cita-why">
+    <i class="bi bi-{{ _icon[_s.state] }}" aria-hidden="true"></i>
+    {% if _s.state == "rejected" %}
+      <p class="mb-0">Corrige los documentos marcados. Al subirlos vuelven a revisión solos.</p>
+    {% elif _s.state == "missing" %}
+      <p class="mb-0">Te faltan {{ _s.missing_names|length }}: {{ _s.missing_names|join(", ")|e }}.</p>
+    {% elif _s.state == "approved" %}
+      <p class="mb-0">¡Tus documentos fueron aprobados! Sigue: <a href="{{ _s.next_url }}">cita de cotejo</a>.</p>
+    {% else %}
+      <p class="mb-0">
+        Tus 3 documentos llegaron a Servicios Escolares y están en revisión.
+        {% if _s.contact_email %}Te avisaremos a <strong>{{ _s.contact_email|e }}</strong> y aquí en la app.{% else %}Te avisaremos aquí en la app.{% endif %}
+      </p>
+    {% endif %}
+  </div>
+</div>
