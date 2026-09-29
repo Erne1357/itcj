@@ -342,7 +342,13 @@ class Settings(BaseSettings):
     # correos-notificaciones §7) -- delegación aparte de la de fases
     # (`#exp-correos [data-tt-acc]`, sin memoria entre swaps). Sin el bump, el
     # JS cacheado no abre/cierra la bitácora (el botón queda inerte).
-    STATIC_VERSION: str = "1.0.1111581"
+    #
+    # Bump 2026-09-29 (2): `titulatec/css/titulatec.css` suma
+    # `#exp-correos .quien { overflow-wrap: anywhere; }` -- el correo personal
+    # del destinatario en la bitácora del expediente puede ser largo y sin
+    # espacios, y no debe romper `scrollWidth <= innerWidth` a 360px. Sin el
+    # bump, la hoja `immutable` en caché sigue sin la regla.
+    STATIC_VERSION: str = "1.0.1111582"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

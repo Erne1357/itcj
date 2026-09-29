@@ -1707,6 +1707,14 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-timeline-item .when .quien { font-family: var(--tt-ui); }
 .tt-timeline-item .detalle { font-size: var(--tt-fs-100); color: var(--tt-text-2);
   margin-top: 2px; max-width: 62ch; }
+/* Bitácora de correos (`#exp-correos`, `_exp_mail.html`): el destinatario es el
+   correo PERSONAL del egresado, que puede ser largo y sin espacios
+   ("nombre.apellido.segundoapellido2005@hotmail.com") y no debe empujar el
+   ancho a 360px (invariante `scrollWidth <= innerWidth`). Acotada a la
+   bitácora, NO a `.tt-timeline-item .when .quien` global (el historial de fases
+   pinta ahí nombres cortos): mismo recurso que `#tt-docs-status .tt-cita-why p`.
+   El padre (`.min-w-0`) ya deja encoger al hijo flex. */
+#exp-correos .quien { overflow-wrap: anywhere; }
 
 /* — Móvil: un dato por línea y sin separadores —
    Va al FINAL del bloque a propósito: a igual especificidad gana la última

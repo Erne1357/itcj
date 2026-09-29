@@ -413,7 +413,9 @@ Cada entrada: fecha larga · `subject` (o `StudentMail.KIND_LABELS[kind]` — `s
 — mientras la fila no se ha enviado; si el `kind` no tiene etiqueta, **cae al código crudo del
 `kind`** en vez de reventar — `KIND_LABELS.get(m.kind, m.kind)`, `pages/admin.py:1216`,
 `test_expediente_mail.py::test_kind_desconocido_no_revienta_la_pagina`) · destinatario (`sent_to`
-o «—» si aún no salió) · «N avisos agrupados» si junta más de uno · píldora de estado,
+o «—» si aún no salió; partible —`#exp-correos .quien { overflow-wrap: anywhere; }` en
+`titulatec.css`—: un correo personal largo y sin espacios no rompe `scrollWidth <= innerWidth` a
+360px) · «N avisos agrupados» si junta más de uno · píldora de estado,
 `_MAIL_STATUS_UI` (`pages/admin.py:1130-1136`):
 
 | `status` | Píldora | Tono |

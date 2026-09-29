@@ -165,6 +165,34 @@ def test_kind_desconocido_no_revienta_la_pagina(expediente, client_as, db_sessio
         "sin etiqueta debería degradar al código crudo, no ocultar la fila")
 
 
+def test_el_correo_largo_del_destinatario_puede_partirse(expediente, client_as, db_session):
+    """Invariante duro `scrollWidth <= innerWidth` (360px): un correo personal
+    largo y sin espacios en `.quien` no puede empujar el ancho. Mismo arreglo
+    que `#tt-docs-status` (`test_student_documents_status.py::
+    test_el_correo_largo_en_el_aviso_puede_partirse`): una regla ACOTADA a la
+    bitácora con `overflow-wrap: anywhere` —no a `.tt-timeline-item .when
+    .quien` global, que también usa el historial de fases—, y el correo llega
+    íntegro dentro de `#exp-correos` (el navegador verifica el ancho, no esto)."""
+    import re
+    from pathlib import Path
+
+    import itcj2.apps.titulatec as _tt_pkg
+
+    css = (Path(_tt_pkg.__file__).resolve().parent / "static" / "css"
+           / "titulatec.css").read_text(encoding="utf-8")
+    regla = re.search(r"#exp-correos\s+\.quien\s*\{([^}]*)\}", css)
+    assert regla, "falta la regla `#exp-correos .quien { ... }` en titulatec.css"
+    assert "overflow-wrap: anywhere" in regla.group(1)
+
+    esc = expediente()
+    largo = "nombre.apellido.segundoapellido2005.egresado@hotmail.com"
+    _fila(db_session, esc["proc"], status="sent", sent_to=largo)
+
+    zona = _zona(client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text)
+
+    assert f'<span class="quien">{largo}</span>' in zona
+
+
 def test_sin_destinatario_muestra_raya(expediente, client_as, db_session):
     """`sent_to` va vacío en lo que no se ha enviado: la fila lo dice con «—»,
     no con un espacio en blanco ni resolviendo el correo aquí."""
