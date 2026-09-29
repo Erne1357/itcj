@@ -25,11 +25,19 @@ QUÉ TOCA (solo procesos `status = 'active'`; cadencia moderada, D6)
 - Encuesta (#11): `current_phase` = `PhaseService.PHASE_COTEJO`, sin fila en
   `titulatec_survey_reviews`. Ancla = `started_at` de la fase 2 (sin él, se
   omite).
-- Documentos y encuesta: `due_index(ancla, now, enviados)`, con `enviados` = las
-  filas del outbox de ESA ancla (el prefijo de su `dedupe_key`, salieran o no).
-  Toca a los `first_days()` del ancla, luego cada `every_days()`, hasta
-  `max_reminders()` (0 = nunca). Una subida o un rechazo nuevos mueven el ancla
-  y la cuenta vuelve a empezar.
+- Documentos y encuesta: `due_index(ancla, now, enviados, anterior)`, con
+  `enviados` = las filas del outbox de ESA ancla (el prefijo de su
+  `dedupe_key`, salieran o no) y `anterior` = el `created_at` de la más nueva de
+  ellas. Toca a los `first_days()` del ancla, luego cada `every_days()`, hasta
+  `max_reminders()` (0 = nunca); y del segundo en adelante, además, con
+  `every_days()` días de CALENDARIO desde el anterior (ruling 19): con un ancla
+  vieja (el primer barrido de producción, o el correo que se vuelve a encender)
+  la fórmula del ancla ya venció para varios índices, y sin esa espera un
+  barrido diario los mandaba en días seguidos. Así sale el 0 el primer día y los
+  siguientes cada `every_days()`. El `created_at` de estas filas es el `now` del
+  barrido que las encoló (`StudentMail._reminder`): la separación se mide con
+  el mismo reloj con el que se compara. Una subida o un rechazo nuevos mueven el
+  ancla y la cuenta vuelve a empezar.
 
 IDEMPOTENCIA. Cada recordatorio entra con su `dedupe_key` (`INSERT … ON
 CONFLICT DO NOTHING`, en `StudentMail`), y el aviso in-app se crea solo si esa
@@ -102,25 +110,29 @@ def _aislado(db: Session, kind: str, process_id: int, paso, *args) -> bool:
 
 
 def _llaves(db: Session, kind: str, pids: list) -> dict:
-    """`{process_id: [dedupe_key]}` de las filas `kind` de esos procesos, en UNA
-    consulta."""
+    """`{process_id: [(dedupe_key, created_at)]}` de las filas `kind` de esos
+    procesos, en UNA consulta."""
     from itcj2.apps.titulatec.models import EmailOutbox
 
-    out: dict[int, list[str]] = defaultdict(list)
-    for pid, llave in (db.query(EmailOutbox.process_id, EmailOutbox.dedupe_key)
-                       .filter(EmailOutbox.kind == kind,
-                               EmailOutbox.process_id.in_(pids),
-                               EmailOutbox.dedupe_key.isnot(None))):
-        out[pid].append(llave)
+    out: dict[int, list[tuple[str, datetime]]] = defaultdict(list)
+    for pid, llave, creada in (db.query(EmailOutbox.process_id, EmailOutbox.dedupe_key,
+                                        EmailOutbox.created_at)
+                               .filter(EmailOutbox.kind == kind,
+                                       EmailOutbox.process_id.in_(pids),
+                                       EmailOutbox.dedupe_key.isnot(None))):
+        out[pid].append((llave, creada))
     return out
 
 
-def _enviados(llaves: dict, kind: str, pid: int, ancla: datetime) -> int:
-    """Recordatorios `kind` ya encolados para ESA ancla: las llaves
-    `{kind}:{pid}:{ancla:%Y%m%dT%H%M%S}:{n}` que escribe `StudentMail`. Cuentan
-    todas, salieran o no: cada una ya ocupó su lugar en la cadencia."""
+def _enviados(llaves: dict, kind: str, pid: int,
+              ancla: datetime) -> tuple[int, datetime | None]:
+    """Recordatorios `kind` ya encolados para ESA ancla —las llaves
+    `{kind}:{pid}:{ancla:%Y%m%dT%H%M%S}:{n}` que escribe `StudentMail`— y el
+    `created_at` del más nuevo (`None` si no hay). Cuentan todos, salieran o
+    no: cada uno ya ocupó su lugar en la cadencia."""
     prefijo = f"{kind}:{pid}:{ancla:%Y%m%dT%H%M%S}:"
-    return sum(1 for llave in llaves.get(pid, ()) if llave.startswith(prefijo))
+    fechas = [creada for llave, creada in llaves.get(pid, ()) if llave.startswith(prefijo)]
+    return len(fechas), max(fechas, default=None)
 
 
 # ---------------------------------------------------------------------------
@@ -140,13 +152,13 @@ def _recordar_cita(db: Session, proc, appt, titulo: str) -> bool:
 
 
 def _recordar_documentos(db: Session, proc, ancla: datetime, indice: int, fase: int,
-                         faltan: list, corregir: list) -> bool:
+                         faltan: list, corregir: list, now: datetime) -> bool:
     """#10. El aviso nombra lo que falta y lo que hay que corregir."""
     from itcj2.apps.titulatec.services.mail_compose import asunto_recordatorio_documentos
     from itcj2.apps.titulatec.services.notify import notify_student
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
-    if not StudentMail.docs_reminder(db, proc, anchor=ancla, index=indice):
+    if not StudentMail.docs_reminder(db, proc, anchor=ancla, index=indice, created_at=now):
         return False
     partes = []
     if faltan:
@@ -159,14 +171,16 @@ def _recordar_documentos(db: Session, proc, ancla: datetime, indice: int, fase: 
     return True
 
 
-def _recordar_encuesta(db: Session, proc, ancla: datetime, indice: int) -> bool:
+def _recordar_encuesta(db: Session, proc, ancla: datetime, indice: int,
+                       now: datetime) -> bool:
     """#11."""
     from itcj2.apps.titulatec.services.mail_compose import ASUNTO_RECORDATORIO_ENCUESTA
     from itcj2.apps.titulatec.services.notify import notify_student
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
-    if not StudentMail.survey_reminder(db, proc, anchor=ancla, index=indice):
+    if not StudentMail.survey_reminder(db, proc, anchor=ancla, index=indice,
+                                       created_at=now):
         return False
     notify_student(db, proc.student_id, type="SURVEY_REMINDER",
                    title=ASUNTO_RECORDATORIO_ENCUESTA, body=_CUERPO_ENCUESTA,
@@ -179,17 +193,33 @@ class MailReminders:
     módulo."""
 
     @staticmethod
-    def due_index(anchor: datetime, now: datetime, sent: int) -> int | None:
+    def due_index(anchor: datetime, now: datetime, sent: int,
+                  last_sent_at: datetime | None = None) -> int | None:
         """Índice del recordatorio que toca encolar para `anchor` (== `sent`, los
-        ya encolados para ella) o `None`. Toca si `sent < max_reminders()` y
-        `now >= anchor + first_days() + sent * every_days()` (en días)."""
+        ya encolados para ella) o `None`. Toca si `sent < max_reminders()`,
+        `now >= anchor + first_days() + sent * every_days()` (en días) y, para
+        `sent >= 1`, además han pasado `every_days()` días desde
+        `last_sent_at` —el `created_at` del recordatorio anterior de esa ancla—
+        (ruling 19: un ancla vieja no manda varios en días seguidos).
+
+        Esa separación se cuenta en días de CALENDARIO, no en bloques de 24 h:
+        el anterior lo encoló el barrido de las 9:00 y el de la semana siguiente
+        corre a la misma hora con unos segundos de diferencia (beat no dispara al
+        mismo microsegundo); contada en horas, la mitad de las semanas saldría un
+        día tarde. `last_sent_at=None` = sin dato del anterior: solo la fórmula
+        del ancla."""
         from itcj2.apps.titulatec.services.student_mail import MailSettings
 
         if sent >= MailSettings.max_reminders():
             return None
-        vence = anchor + timedelta(days=MailSettings.first_days()
-                                   + sent * MailSettings.every_days())
-        return sent if now >= vence else None
+        cada = MailSettings.every_days()
+        vence = anchor + timedelta(days=MailSettings.first_days() + sent * cada)
+        if now < vence:
+            return None
+        if sent >= 1 and last_sent_at is not None \
+                and (now.date() - last_sent_at.date()).days < cada:
+            return None
+        return sent
 
     @staticmethod
     def run(db: Session, *, now: datetime | None = None) -> dict:
@@ -307,10 +337,10 @@ class MailReminders:
             ultima = actividad.get(pid)
             ancla = base if ultima is None else max(base, ultima)
             indice = MailReminders.due_index(
-                ancla, now, _enviados(llaves, "docs_reminder", pid, ancla))
+                ancla, now, *_enviados(llaves, "docs_reminder", pid, ancla))
             if indice is not None:
                 n += _aislado(db, "docs_reminder", pid, _recordar_documentos,
-                              db, proc, ancla, indice, fase, faltan, corregir)
+                              db, proc, ancla, indice, fase, faltan, corregir, now)
         return n
 
     @staticmethod
@@ -343,8 +373,8 @@ class MailReminders:
         n = 0
         for proc, ancla in filas:
             indice = MailReminders.due_index(
-                ancla, now, _enviados(llaves, "survey_reminder", proc.id, ancla))
+                ancla, now, *_enviados(llaves, "survey_reminder", proc.id, ancla))
             if indice is not None:
                 n += _aislado(db, "survey_reminder", proc.id, _recordar_encuesta,
-                              db, proc, ancla, indice)
+                              db, proc, ancla, indice, now)
         return n

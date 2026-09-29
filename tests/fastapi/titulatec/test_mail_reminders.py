@@ -337,6 +337,53 @@ def test_due_index_cadencia(pasado, enviados, esperado):
     assert MailReminders.due_index(_ANCLA, _ANCLA + pasado, enviados) == esperado
 
 
+@pytest.mark.parametrize("anterior, ahora, esperado", [
+    (datetime(2001, 3, 1, 9, 0), datetime(2001, 3, 1, 9, 0), None),       # mismo día
+    (datetime(2001, 3, 1, 9, 0), datetime(2001, 3, 7, 9, 0), None),       # 6 días
+    (datetime(2001, 3, 1, 9, 0), datetime(2001, 3, 8, 9, 0), 1),          # 7 días
+    (datetime(2001, 3, 1, 9, 0), datetime(2001, 3, 9, 9, 0), 1),          # 8 días
+    # El barrido de la semana siguiente arrancó unos segundos MÁS TEMPRANO que
+    # el que encoló el anterior (beat no dispara al mismo microsegundo): siguen
+    # siendo 7 días de calendario y toca.
+    (datetime(2001, 3, 1, 9, 0, 5), datetime(2001, 3, 8, 9, 0, 1), 1),
+], ids=["mismo-dia", "6-dias", "7-dias", "8-dias", "7-dias-segundos-antes"])
+def test_due_index_espera_every_days_desde_el_recordatorio_anterior(anterior, ahora,
+                                                                    esperado):
+    """Ruling 19: del segundo en adelante (`sent >= 1`) exige ADEMÁS que desde el
+    recordatorio anterior de ESA ancla hayan pasado `every_days()` días. Aquí la
+    fórmula del ancla ya venció de sobra (ancla dos meses atrás): lo único que
+    decide es la separación con el anterior, contada en días de CALENDARIO."""
+    from itcj2.apps.titulatec.services.mail_reminders import MailReminders
+
+    assert MailReminders.due_index(_ANCLA, ahora, 1, anterior) == esperado
+
+
+def test_ancla_vieja_no_manda_recordatorios_en_dias_seguidos(db_session, en_documentos,
+                                                            en_cotejo):
+    """Ruling 19: con un ancla de 19 días (el primer barrido de producción, o
+    el correo que se vuelve a encender), la fórmula del ancla ya venció para
+    los índices 0, 1 y 2. Antes, un barrido diario los mandaba en tres días
+    seguidos; ahora sale el 0 el primer día y los siguientes cada 7 días desde
+    el anterior. Igual para documentos y para la encuesta."""
+    docs = en_documentos(inicio=AHORA - timedelta(days=19))
+    encuesta = en_cotejo(inicio=AHORA - timedelta(days=19))
+
+    por_dia = {}
+    for dia in (0, 1, 2, 6, 7, 8, 13, 14, 15, 21):
+        conteo = _barrer(db_session, now=AHORA + timedelta(days=dia))
+        por_dia[dia] = (conteo["docs"], conteo["survey"])
+
+    assert por_dia == {0: (1, 1), 1: (0, 0), 2: (0, 0), 6: (0, 0), 7: (1, 1), 8: (0, 0),
+                       13: (0, 0), 14: (1, 1), 15: (0, 0), 21: (0, 0)}
+    for proc, kind in ((docs, "docs_reminder"), (encuesta, "survey_reminder")):
+        filas = _filas(db_session, proc.id, kind)
+        assert [f.payload["index"] for f in filas] == [0, 1, 2]
+        # La separación se mide con el `created_at` de cada recordatorio, que es
+        # el reloj del barrido que lo encoló (no el `NOW()` real de la BD).
+        assert [f.created_at for f in filas] == [
+            AHORA, AHORA + timedelta(days=7), AHORA + timedelta(days=14)]
+
+
 def test_due_index_con_maximo_cero_nunca(monkeypatch):
     """`TITULATEC_REMINDER_MAX = 0` = sin recordatorios de documentos/encuesta."""
     from itcj2.apps.titulatec.services.mail_reminders import MailReminders

@@ -144,7 +144,7 @@ def _iso(value):
 
 
 def _outbox_values(model, *, kind, process, payload, group_key, dedupe_key,
-                   not_before) -> dict:
+                   not_before, created_at=None) -> dict:
     """Valida TODO antes de tocar la sesión y arma las columnas de la fila.
     Cualquier problema levanta aquí (y `_best_effort` lo convierte en `False`),
     nunca en el flush del llamador."""
@@ -164,13 +164,16 @@ def _outbox_values(model, *, kind, process, payload, group_key, dedupe_key,
         if valor is not None and (not isinstance(valor, str) or not valor
                                   or len(valor) > columnas[nombre].type.length):
             raise ValueError(f"{nombre} inválida: {valor!r}")
-    if not_before is not None and not isinstance(not_before, datetime):
-        raise ValueError("not_before debe ser datetime")
+    for nombre, valor in (("not_before", not_before), ("created_at", created_at)):
+        if valor is not None and not isinstance(valor, datetime):
+            raise ValueError(f"{nombre} debe ser datetime")
 
     values = {"kind": kind, "process_id": pid, "user_id": uid,
               "group_key": group_key, "dedupe_key": dedupe_key, "payload": congelado}
     if not_before is not None:           # si no, el server_default NOW()
         values["not_before"] = not_before
+    if created_at is not None:           # ídem
+        values["created_at"] = created_at
     return values
 
 
@@ -267,17 +270,22 @@ class StudentMail:
     @_best_effort
     def enqueue(db: Session, *, kind: str, process, payload: dict,
                 group_key: str | None = None, dedupe_key: str | None = None,
-                not_before: datetime | None = None) -> bool:
+                not_before: datetime | None = None,
+                created_at: datetime | None = None) -> bool:
         """Deja el correo `kind` pendiente para el alumno del proceso
         (`user_id = process.student_id`). `True` = quedó en la transacción del
-        llamador. Contrato completo en el docstring del módulo."""
+        llamador. `not_before`/`created_at` en `None` = el `NOW()` de la BD;
+        `created_at` explícito solo lo usan los recordatorios de cadencia (el
+        reloj del barrido, ver `_reminder`). Contrato completo en el docstring
+        del módulo."""
         if not MailSettings.enabled():
             return False
         from itcj2.apps.titulatec.models import EmailOutbox
 
         values = _outbox_values(EmailOutbox, kind=kind, process=process,
                                 payload=payload, group_key=group_key,
-                                dedupe_key=dedupe_key, not_before=not_before)
+                                dedupe_key=dedupe_key, not_before=not_before,
+                                created_at=created_at)
         if dedupe_key is None:
             db.add(EmailOutbox(**values))
             return True
@@ -394,21 +402,32 @@ class StudentMail:
 
     @staticmethod
     @_best_effort
-    def docs_reminder(db: Session, process, *, anchor: datetime, index: int) -> bool:
+    def docs_reminder(db: Session, process, *, anchor: datetime, index: int,
+                      created_at: datetime | None = None) -> bool:
         """Recordatorio de documentos (#10): el `index`-ésimo de esa ancla."""
-        return StudentMail._reminder(db, "docs_reminder", process, anchor, index)
+        return StudentMail._reminder(db, "docs_reminder", process, anchor, index,
+                                     created_at)
 
     @staticmethod
     @_best_effort
-    def survey_reminder(db: Session, process, *, anchor: datetime, index: int) -> bool:
+    def survey_reminder(db: Session, process, *, anchor: datetime, index: int,
+                        created_at: datetime | None = None) -> bool:
         """Recordatorio de la encuesta de egresados (#11): el `index`-ésimo de esa ancla."""
-        return StudentMail._reminder(db, "survey_reminder", process, anchor, index)
+        return StudentMail._reminder(db, "survey_reminder", process, anchor, index,
+                                     created_at)
 
     @staticmethod
-    def _reminder(db: Session, kind: str, process, anchor: datetime, index: int) -> bool:
+    def _reminder(db: Session, kind: str, process, anchor: datetime, index: int,
+                  created_at: datetime | None) -> bool:
         """Llave `{kind}:{pid}:{ancla}:{n}`: el barrido la recalcula igual en cada
-        corrida, así que correrlo dos veces no duplica."""
+        corrida, así que correrlo dos veces no duplica.
+
+        `created_at` = el reloj del barrido que lo encola (`now` de
+        `MailReminders.run`). La cadencia del ruling 19 mide la separación con
+        el recordatorio anterior de la MISMA ancla por su `created_at`, así que
+        tiene que salir del mismo reloj con el que después se compara."""
         return StudentMail.enqueue(
             db, kind=kind, process=process,
             payload={"anchor": anchor.isoformat(), "index": index},
-            dedupe_key=f"{kind}:{process.id}:{anchor:%Y%m%dT%H%M%S}:{index}")
+            dedupe_key=f"{kind}:{process.id}:{anchor:%Y%m%dT%H%M%S}:{index}",
+            created_at=created_at)
