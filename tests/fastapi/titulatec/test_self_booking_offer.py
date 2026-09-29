@@ -84,9 +84,10 @@ def test_un_dia_cerrado_no_se_ofrece(db_session, publicado):
     assert SelfBookingService.offer(db_session, publicado["p1"].id) == []
 
 
-def test_el_walkin_viaja_como_anuncio_sin_franjas(db_session, publicado):
-    """D2: «abierto sin cita» no crea ningún registro; el alumno ve el horario
-    completo, el lugar y el nombre del encargado, y no botones."""
+def test_el_walkin_viaja_con_lugares_y_reservable(db_session, publicado):
+    """D3/D4 (spec 2026-09-29 §3.3): «sin horario» ya no es solo un anuncio -el
+    alumno APARTA LUGAR sin elegir hora-, así que la oferta trae cuánto queda y
+    si todavía se puede. `agenda_slots` da `capacity=1` y nadie lo ocupa aún."""
     publicado["w"].visibility = "walkin"
     publicado["w"].location = "Edificio A"
     db_session.flush()
@@ -94,9 +95,46 @@ def test_el_walkin_viaja_como_anuncio_sin_franjas(db_session, publicado):
     ventana = _ventanas(SelfBookingService.offer(db_session, publicado["p1"].id))[0]
 
     assert ventana["visibility"] == "walkin"
-    assert ventana["slots"] == []
     assert ventana["start_time"] == time(9, 0) and ventana["end_time"] == time(11, 0)
     assert ventana["location"] == "Edificio A"
+    assert ventana["capacity"] == 1
+    assert ventana["places_left"] == 1
+    assert ventana["reservable"] is True
+    assert ventana["slots"] == [time(9, 0)], "la apertura, NUNCA una franja elegida"
+
+
+def test_el_walkin_lleno_no_es_reservable(db_session, publicado, make_survey_review):
+    """`places_left` nunca negativo, y `reservable` sale de `slots` -nunca de
+    una cuenta aparte que pudiera divergir (D5)."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    publicado["w"].visibility = "walkin"
+    db_session.flush()
+    make_survey_review(publicado["p2"], status="approved")
+    AppointmentService.create(db_session, publicado["p2"].id, window_id=publicado["w"].id,
+                              slot_start=time(9, 0), created_by_id=publicado["off"].id)
+
+    ventana = _ventanas(SelfBookingService.offer(db_session, publicado["p1"].id))[0]
+
+    assert ventana["places_left"] == 0
+    assert ventana["reservable"] is False
+    assert ventana["slots"] == []
+
+
+def test_el_walkin_que_cierra_en_menos_de_una_hora_no_es_reservable(
+        db_session, publicado, monkeypatch):
+    """D5: el corte se mide contra el CIERRE (11:00), no contra la apertura
+    -que en un `walkin` ya pasó en cuanto el espacio abrió."""
+    monkeypatch.setattr(sb_mod, "db_now",
+                        lambda: datetime.combine(_DIA, time(10, 15)))
+    publicado["w"].visibility = "walkin"
+    db_session.flush()
+
+    ventana = _ventanas(SelfBookingService.offer(db_session, publicado["p1"].id))[0]
+
+    assert ventana["places_left"] == 1, "todavia hay lugar..."
+    assert ventana["reservable"] is False, "...pero cierra en 45 minutos"
+    assert ventana["slots"] == []
 
 
 def test_un_walkin_que_ya_termino_hoy_deja_de_anunciarse(db_session, publicado,
@@ -257,15 +295,63 @@ def test_no_agenda_en_un_espacio_privado(db_session, publicado):
                                 time(9, 30), publicado["p1"].student_id)
 
 
-def test_no_agenda_en_un_espacio_walkin(db_session, publicado):
-    """D2: el walk-in es un anuncio, no una agenda. Se ofrece, pero no acepta
-    reservas — y eso se decide en el servidor, no escondiendo el botón."""
+def test_book_en_un_espacio_walkin_aparta_lugar_a_la_apertura(db_session, publicado):
+    """D3/D4: el walk-in ya no es solo un anuncio -el egresado APARTA LUGAR sin
+    elegir hora, por el mismo `book`. Lo que mande `slot_start` se IGNORA: la
+    cita se sienta a la apertura del espacio, no a la hora que llegó."""
     publicado["w"].visibility = "walkin"
     db_session.flush()
 
-    with pytest.raises(err.NotYours):
+    ap = SelfBookingService.book(db_session, publicado["p1"].id, publicado["w"].id,
+                                 time(10, 30), publicado["p1"].student_id)
+
+    assert ap.booked_by == "student"
+    assert ap.status == "scheduled" and ap.is_current is True
+    assert ap.window_id == publicado["w"].id
+    assert ap.scheduled_at == datetime.combine(_DIA, time(9, 0)), (
+        "la apertura, no los 10:30 que mando el formulario")
+
+
+def test_book_en_un_espacio_walkin_sin_slot_en_el_form(db_session, publicado):
+    """El formulario de un `walkin` no manda `slot`: no hay hora que elegir."""
+    publicado["w"].visibility = "walkin"
+    db_session.flush()
+
+    ap = SelfBookingService.book(db_session, publicado["p1"].id, publicado["w"].id,
+                                 None, publicado["p1"].student_id)
+
+    assert ap.scheduled_at == datetime.combine(_DIA, time(9, 0))
+
+
+def test_book_en_un_walkin_que_cierra_pronto(db_session, publicado, monkeypatch):
+    """D5: `book` mide la anticipación contra el CIERRE del espacio, no contra
+    la apertura -que ya pasó en cuanto el `walkin` abrió."""
+    publicado["w"].visibility = "walkin"
+    db_session.flush()
+    monkeypatch.setattr(sb_mod, "db_now",
+                        lambda: datetime.combine(_DIA, time(10, 15)))
+
+    with pytest.raises(err.SlotTooSoon) as exc:
         SelfBookingService.book(db_session, publicado["p1"].id, publicado["w"].id,
-                                time(9, 30), publicado["p1"].student_id)
+                                None, publicado["p1"].student_id)
+
+    assert "Este espacio cierra" in str(exc.value), str(exc.value)
+
+
+def test_no_agenda_en_el_walkin_de_otra_carrera(
+        db_session, publicado, make_program, make_officer, make_review_window):
+    """El control crítico de §4.1 (`_window_in_offer`) sigue aplicando: ahora
+    `walkin` también agenda, pero solo el de la carrera del proceso."""
+    otra = make_program("Ingenieria Ajena al Walkin de Book")
+    ajeno, pos_ajeno = make_officer([otra])
+    w_ajena = make_review_window(publicado["dia"], ajeno, start="12:00", end="13:00",
+                                 slot=30, cap=1, position=pos_ajeno)
+    w_ajena.visibility = "walkin"
+    db_session.flush()
+
+    with pytest.raises(err.NotYours):
+        SelfBookingService.book(db_session, publicado["p1"].id, w_ajena.id,
+                                None, publicado["p1"].student_id)
 
 
 def test_no_agenda_una_franja_que_arranca_en_menos_de_una_hora(

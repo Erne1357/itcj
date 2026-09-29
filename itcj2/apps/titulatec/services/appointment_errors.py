@@ -230,22 +230,42 @@ class SelfBookingNotAllowed(AppointmentError):
 
 
 class SlotTooSoon(AppointmentError):
-    """D8: el egresado agenda hasta `TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES` antes."""
+    """D8: el egresado agenda hasta `TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES` antes.
 
-    def __init__(self, minutos: int = 60):
-        super().__init__(f"Esa franja empieza en menos de {_lapso(minutos)}. "
-                         f"Elige una más adelante.")
+    `sin_horario=True` es el espacio SIN horario (D5, spec 2026-09-29-
+    titulatec-cotejo-espacios-design.md §3.3): ahí no hay una franja que
+    empiece, hay un espacio que CIERRA, así que el texto habla de eso -no de
+    «esa franja empieza»- aunque el código y el `_lapso` sean los mismos.
+    """
+
+    def __init__(self, minutos: int = 60, *, sin_horario: bool = False):
+        if sin_horario:
+            super().__init__(
+                f"Este espacio cierra en menos de {_lapso(minutos)}; ya no se "
+                f"puede apartar lugar.")
+        else:
+            super().__init__(f"Esa franja empieza en menos de {_lapso(minutos)}. "
+                             f"Elige una más adelante.")
 
 
 class CancelTooLate(AppointmentError):
     """D8: el egresado cancela hasta `TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES` antes.
 
     El encargado NO pasa por aquí: su `cancel` no tiene ventana de tiempo.
+
+    `sin_horario=True` (D5) es un lugar apartado en un espacio SIN horario: no
+    hay una hora de cita que perder, el corte es el CIERRE del espacio, y el
+    texto dice «tu lugar», no «tu cita».
     """
 
-    def __init__(self, minutos: int = 120):
-        super().__init__(f"Ya faltan menos de {_lapso(minutos)} para tu cita, así que "
-                         f"ya no puedes cancelarla. Avisa a tu encargado de carrera.")
+    def __init__(self, minutos: int = 120, *, sin_horario: bool = False):
+        if sin_horario:
+            super().__init__(
+                f"Ya faltan menos de {_lapso(minutos)} para que cierre el "
+                f"espacio, así que no puedes cancelar tu lugar.")
+        else:
+            super().__init__(f"Ya faltan menos de {_lapso(minutos)} para tu cita, así que "
+                             f"ya no puedes cancelarla. Avisa a tu encargado de carrera.")
 
 
 class NotYours(AppointmentError):

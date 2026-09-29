@@ -10,7 +10,7 @@ Aparte, lo que la capa del alumno aporta sobre `AppointmentService.cancel`
 —la ventana de 2 h (D8) y que la cita sea suya—, que es lo ÚNICO que
 `SelfBookingService.cancel` tiene de propio: todo lo demás lo delega (D13).
 """
-from datetime import time, timedelta
+from datetime import datetime, time, timedelta
 
 import pytest
 
@@ -65,6 +65,78 @@ def test_no_presentarse_no_libera_la_franja(db_session, esc):
     with pytest.raises(err.SlotFull):
         AppointmentService.create(db_session, esc["p2"].id, window_id=esc["w"].id,
                                   slot_start=time(9, 0), created_by_id=esc["off"].id)
+
+
+def test_cancelar_un_lugar_walkin_libera_el_cupo(db_session, agenda_slots,
+                                                  make_survey_review):
+    """D3/D4/D12: cancelar un LUGAR apartado en un `walkin` también lo
+    devuelve al pozo -mismo `_ESTADOS_QUE_LIBERAN` de siempre-, y otro alumno
+    lo toma de verdad, no solo se pinta libre."""
+    agenda_slots["w"].visibility = "walkin"
+    db_session.flush()
+    make_survey_review(agenda_slots["p1"], status="approved")
+    make_survey_review(agenda_slots["p2"], status="approved")
+    cita = SelfBookingService.book(db_session, agenda_slots["p1"].id,
+                                   agenda_slots["w"].id, None,
+                                   agenda_slots["p1"].student_id)
+    assert time(9, 0) not in SlotService.free_slots(db_session, agenda_slots["w"])
+
+    SelfBookingService.cancel(db_session, cita, agenda_slots["p1"].student_id,
+                              "Ya no puedo")
+
+    assert time(9, 0) in SlotService.free_slots(db_session, agenda_slots["w"])
+    otra = AppointmentService.create(db_session, agenda_slots["p2"].id,
+                                     window_id=agenda_slots["w"].id,
+                                     slot_start=time(9, 0), created_by_id=agenda_slots["off"].id)
+    assert otra.scheduled_at.time() == time(9, 0)
+
+
+# =========================================================================
+# D5: la ventana de cancelar en un `walkin` se mide contra el CIERRE
+# =========================================================================
+class TestLaVentanaDeCancelarEnUnWalkin:
+    """`_within_cancel_window` mide contra `scheduled_at` en una cita normal,
+    pero un lugar apartado en un `walkin` guarda ahí la APERTURA, no una hora
+    de cita -medir contra eso habría rechazado cancelar apenas el espacio
+    abriera. D5 (spec 2026-09-29 §3.3) corrige la referencia: el CIERRE."""
+
+    @pytest.fixture()
+    def cita_walkin(self, db_session, agenda_slots, make_survey_review):
+        agenda_slots["w"].visibility = "walkin"
+        agenda_slots["w"].end_time = time(14, 0)
+        db_session.flush()
+        make_survey_review(agenda_slots["p1"], status="approved")
+        cita = SelfBookingService.book(db_session, agenda_slots["p1"].id,
+                                       agenda_slots["w"].id, None,
+                                       agenda_slots["p1"].student_id)
+        return dict(agenda_slots, cita=cita)
+
+    def test_puede_cancelar_aunque_el_espacio_ya_abrio(
+            self, db_session, cita_walkin, monkeypatch):
+        """A las 11:30 -mucho después de la apertura (09:00), pero a más de
+        2 h del cierre (14:00)- sigue pudiendo. Contra `scheduled_at` (09:00,
+        la apertura) esto ya habría sido rechazado."""
+        dia = cita_walkin["cita"].scheduled_at.date()
+        monkeypatch.setattr(sb_mod, "db_now",
+                            lambda: datetime.combine(dia, time(11, 30)))
+
+        SelfBookingService.cancel(db_session, cita_walkin["cita"],
+                                  cita_walkin["p1"].student_id)
+
+        assert cita_walkin["cita"].status == "cancelled"
+
+    def test_no_puede_cancelar_a_menos_de_dos_horas_del_cierre(
+            self, db_session, cita_walkin, monkeypatch):
+        dia = cita_walkin["cita"].scheduled_at.date()
+        monkeypatch.setattr(sb_mod, "db_now",
+                            lambda: datetime.combine(dia, time(12, 30)))
+
+        with pytest.raises(err.CancelTooLate) as exc:
+            SelfBookingService.cancel(db_session, cita_walkin["cita"],
+                                      cita_walkin["p1"].student_id)
+
+        assert "cierre" in str(exc.value)
+        assert cita_walkin["cita"].status == "scheduled"
 
 
 # =========================================================================

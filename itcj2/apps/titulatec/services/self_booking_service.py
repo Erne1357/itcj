@@ -325,19 +325,32 @@ class SelfBookingService:
 
     @staticmethod
     def _offerable_slots(db: Session, window, *, ahora: datetime | None = None) -> list:
-        """Franjas LIBRES de una ventana `bookable` que todavía admiten reserva.
+        """Franjas -o lugar- LIBRES de una ventana `bookable`/`walkin` que
+        todavía admiten reserva.
 
         Mismo corte que usa `book`, a propósito: si la oferta pintara una
-        franja que la escritura va a rechazar, el egresado pulsaría un botón
-        que siempre falla y no sabría por qué.
+        franja (o un lugar) que la escritura va a rechazar, el egresado
+        pulsaría un botón que siempre falla y no sabría por qué.
+
+        Sin horario (D5, spec 2026-09-29-titulatec-cotejo-espacios-design.md
+        §3.3): `SlotService.free_slots` ya dice si queda lugar -una sola
+        franja, la apertura, con TODAS las citas vivas contando contra
+        `capacity`-, y aquí la anticipación mínima se mide contra el CIERRE
+        del espacio, no contra la apertura: es apartar lugar, no elegir hora.
+        Devuelve `[start_time]` o `[]`, nunca la apertura si el espacio está
+        lleno o cierra en menos del lapso mínimo.
         """
         from itcj2.apps.titulatec.services.slot_service import SlotService
 
         ahora = ahora or db_now()
         minimo = SelfBookingService._min_bookable_at(ahora)
         dia = window.review_day.date
-        return [h for h in SlotService.free_slots(db, window)
-                if datetime.combine(dia, h) >= minimo]
+        libres = SlotService.free_slots(db, window)
+        if window.visibility == "walkin":
+            if not libres or datetime.combine(dia, window.end_time) < minimo:
+                return []
+            return libres
+        return [h for h in libres if datetime.combine(dia, h) >= minimo]
 
     @staticmethod
     def offer(db: Session, process_id: int) -> list[dict]:
@@ -349,18 +362,35 @@ class SelfBookingService:
               "owners": [{"owner_id": int, "owner_name": str,
                           "windows": [{"window_id", "visibility",
                                        "start_time", "end_time",
-                                       "location", "slots": [time, ...]}]}]}]
+                                       "location", "slots": [time, ...],
+                                       # SOLO en walkin (D3/D4, §3.3):
+                                       "capacity": int,
+                                       "places_left": int,
+                                       "reservable": bool}]}]}]
 
         Es el CATÁLOGO, no la puerta: quién puede reservar lo decide
         `eligibility`, y los dos se consumen juntos en la pantalla del alumno.
         Por eso la oferta incluye los `walkin` aunque el alumno esté bloqueado
         por D9: puede presentarse aunque no pueda reservar.
 
-        Las `walkin` viajan **sin franjas**, como anuncio (D2: no crean ningún
-        registro; el alumno llega y el encargado lo atiende desde su cola). Una
-        `bookable` sin franjas ofrecibles se omite: no es oferta, es ruido.
+        Un `walkin` (D3: «sin horario · apartan lugar») viaja con `capacity`
+        (el total del espacio), `places_left` (nunca negativo: `capacity`
+        menos la ocupación TOTAL de `SlotService.occupancy`, que en `walkin`
+        cuenta toda cita viva bajo la apertura) y `reservable` -derivado de
+        `slots`, nunca de una cuenta aparte, para que las dos no puedan
+        divergir-. `slots` es `[start_time]` si se puede apartar lugar, `[]`
+        si está lleno o cierra en menos del lapso mínimo (D5). El que ya
+        TERMINÓ hoy sigue omitido por completo -mismo corte de siempre, ahora
+        también aplicado a un espacio que sí se puede reservar-: el corte por
+        DÍA (`date >= hoy`) no basta, a las 18:00 la pantalla seguiría
+        diciendo «abierto sin cita, 09:00-11:00» y mandaría al egresado a
+        caminar hasta un cubículo vacío. Vive aquí y no en la plantilla: la UI
+        pinta lo que recibe, no filtra datos.
+
+        Una `bookable` sin franjas ofrecibles se omite: no es oferta, es ruido.
         """
         from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.slot_service import SlotService
         from itcj2.core.models.user import User
 
         proc = db.get(TitulationProcess, int(process_id))
@@ -382,15 +412,26 @@ class SelfBookingService:
                 item["slots"] = SelfBookingService._offerable_slots(db, w, ahora=ahora)
                 if not item["slots"]:
                     continue
-            elif datetime.combine(dia.date, w.end_time) <= ahora:
-                # Un `walkin` que YA TERMINÓ hoy deja de anunciarse. El corte
-                # por DÍA (`date >= hoy`) no basta: a las 18:00 la pantalla
-                # seguiría diciendo «abierto sin cita, 09:00-11:00» y mandaría
-                # al egresado a caminar hasta un cubículo vacío. Es el gemelo
-                # del corte por hora de las `bookable`, y vive aquí —en la
-                # oferta— y no en la plantilla: la UI pinta lo que recibe, no
-                # filtra datos.
-                continue
+            else:
+                if datetime.combine(dia.date, w.end_time) <= ahora:
+                    # Un `walkin` que YA TERMINÓ hoy deja de anunciarse. El
+                    # corte por DÍA (`date >= hoy`) no basta: a las 18:00 la
+                    # pantalla seguiría diciendo «abierto sin cita, 09:00-11:00»
+                    # y mandaría al egresado a caminar hasta un cubículo vacío.
+                    # Es el gemelo del corte por hora de las `bookable`, y vive
+                    # aquí —en la oferta— y no en la plantilla: la UI pinta lo
+                    # que recibe, no filtra datos.
+                    continue
+                item["slots"] = SelfBookingService._offerable_slots(db, w, ahora=ahora)
+                capacidad = int(w.capacity or 1)
+                ocupados = SlotService.occupancy(db, w).get(w.start_time, 0)
+                item["capacity"] = capacidad
+                item["places_left"] = max(0, capacidad - ocupados)
+                # Derivado de `slots` -que ya decidió lugar libre Y anticipación
+                # contra el CIERRE, D5- y no una cuenta aparte: con dos cuentas
+                # separadas un día divergen y el botón se pinta cuando el
+                # servidor ya va a rechazarlo.
+                item["reservable"] = bool(item["slots"])
             por_dia.setdefault(dia.date, {}).setdefault(w.owner_user_id, []).append(item)
 
         salida = []
@@ -408,7 +449,8 @@ class SelfBookingService:
     # ------------------------------------------------------------ §4.1: agendar
     @staticmethod
     def _window_in_offer(db: Session, process_id: int, window_id):
-        """La ventana **agendable** de la oferta de ESE proceso, o None.
+        """La ventana **ofrecible** -`bookable` o `walkin`- de la oferta de ESE
+        proceso, o None.
 
         **Control de seguridad crítico de la spec.** `window_id` llega en el
         cuerpo del formulario, no en la ruta, así que el regresor estructural
@@ -418,8 +460,11 @@ class SelfBookingService:
         misma clase de agujero que dejó abierto el reparto masivo.
 
         Se revalida contra el proceso del usuario autenticado, jamás contra un
-        id que venga del formulario, y `walkin` queda fuera: es un anuncio, no
-        una agenda (D2).
+        id que venga del formulario. Desde D3/D4 (spec 2026-09-29 §3.3) un
+        `walkin` YA es agendable -el egresado aparta lugar sin hora-, así que
+        `_VISIBLES` (`bookable`, `walkin`) decide, no un literal repetido: es
+        el MISMO conjunto que ya filtra `_offerable_windows`, para que este
+        `in` nunca acepte algo que la oferta no ofreció.
         """
         from itcj2.apps.titulatec.models import TitulationProcess
 
@@ -428,26 +473,35 @@ class SelfBookingService:
         proc = db.get(TitulationProcess, int(process_id))
         wid = int(window_id)
         for _dia, w in SelfBookingService._offerable_windows(db, proc, ahora=db_now()):
-            if w.id == wid and w.visibility == "bookable":
+            if w.id == wid and w.visibility in _VISIBLES:
                 return w
         return None
 
     @staticmethod
     def book(db: Session, process_id: int, window_id, slot_start, actor_id: int):
-        """El egresado toma una franja. Dueña de la transacción.
+        """El egresado toma una franja -o aparta lugar en un `walkin`-. Dueña
+        de la transacción.
 
         El orden importa (§4.1):
 
         1. `eligibility` se re-verifica **aquí dentro**, no antes: lo que pintó
            la UI es informativo y pudo quedarse rancio.
-        2. La ventana tiene que existir, estar `open`, ser `bookable` y
-           pertenecer a la oferta de ESTE proceso (`_window_in_offer`).
-        3. La anticipación mínima se mide contra `db_now()` (D8).
+        2. La ventana tiene que existir, estar `open`, ser `bookable` o
+           `walkin` (D3/D4) y pertenecer a la oferta de ESTE proceso
+           (`_window_in_offer`).
+        3. La anticipación mínima se mide contra `db_now()` (D8): en
+           `bookable` contra la FRANJA elegida; en `walkin` (D5) contra el
+           CIERRE del espacio, y el `slot_start` que haya mandado el
+           formulario se IGNORA -no hay hora que elegir, se ignora ANTES de
+           mirar si venía vacío, así que un walkin nunca levanta
+           `MissingSchedule`- y se reemplaza por `ventana.start_time`, la
+           misma franja única que ya usa `SlotService.slots` para un `walkin`.
         4. Se delega en `AppointmentService.create(..., booked_by='student')`,
            que aporta las guardas duras —encuesta enviada, día habilitado,
            franja real, cupo, lock de ventana y advisory lock del proceso, con
            la re-comprobación de D4 DENTRO del lock que cierra el TOCTOU del
-           doble clic—. **No se reimplementan aquí.**
+           doble clic—. **No se reimplementan aquí.** Es también quien decide
+           `SlotFull` si dos egresados apartan el último lugar a la vez.
         5. No notifica a nadie: al alumno porque acaba de pulsar el botón
            (`create` lo calla cuando el actor es el propio alumno) y al
            encargado porque D11 dice que se entera por su tablero.
@@ -483,13 +537,21 @@ class SelfBookingService:
         if ventana is None:
             raise NotYours("Ese espacio ya no está disponible para agendar.")
 
-        if slot_start is None:
-            raise MissingSchedule()
-
         minutos = SelfBookingService._settings().TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES
-        cuando = datetime.combine(ventana.review_day.date, slot_start)
-        if cuando < SelfBookingService._min_bookable_at():
-            raise SlotTooSoon(minutos)
+        if ventana.visibility == "walkin":
+            # D3/D4: aparta LUGAR, no hora. Lo que haya mandado el formulario
+            # se descarta -antes de comprobar si venía vacío- y se sienta a la
+            # apertura, la misma franja única que ofrece `offer()` en `slots`.
+            slot_start = ventana.start_time
+            cierra = datetime.combine(ventana.review_day.date, ventana.end_time)
+            if cierra < SelfBookingService._min_bookable_at():
+                raise SlotTooSoon(minutos, sin_horario=True)
+        else:
+            if slot_start is None:
+                raise MissingSchedule()
+            cuando = datetime.combine(ventana.review_day.date, slot_start)
+            if cuando < SelfBookingService._min_bookable_at():
+                raise SlotTooSoon(minutos)
 
         # El conflicto de D4 puede llegar TAMBIÉN por debajo de `eligibility`, y
         # cuando llega trae el mensaje equivocado. `eligibility` corre fuera de
@@ -531,16 +593,31 @@ class SelfBookingService:
     # ----------------------------------------------------------- §4.1: cancelar
     @staticmethod
     def _within_cancel_window(appt) -> bool:
-        """¿Estamos todavía a más de `MIN_LEAD` de la cita? (D8)
+        """¿Estamos todavía a más de `MIN_LEAD` de la cita -o del CIERRE, en
+        un `walkin`-? (D8, D5)
 
         La desigualdad vive AQUÍ y en ningún otro sitio. La consumen `cancel`,
         que la niega para levantar `CancelTooLate`, y `can_self_cancel`, que es
         quien decide si la pantalla pinta el botón «Cancelar mi cita». Con la
         cuenta repetida en la plantilla, el botón se ofrecería justo cuando el
         servidor ya va a rechazarlo.
+
+        `SlotService.is_walkin_reservation` decide la referencia: un lugar
+        apartado en un `walkin` (D5, spec 2026-09-29 §3.3) mide el corte
+        contra el CIERRE del espacio, no contra `scheduled_at` -que ahí es la
+        APERTURA, no una hora de cita-. La cita de legado sentada a mano a
+        OTRA hora dentro de un `walkin` (la regla de legado de D11) sigue
+        siendo una cita normal: mide contra su propia `scheduled_at`, como
+        siempre.
         """
+        from itcj2.apps.titulatec.services.slot_service import SlotService
+
         minutos = SelfBookingService._settings().TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES
-        return db_now() <= appt.scheduled_at - timedelta(minutes=minutos)
+        if SlotService.is_walkin_reservation(appt):
+            referencia = datetime.combine(appt.scheduled_at.date(), appt.window.end_time)
+        else:
+            referencia = appt.scheduled_at
+        return db_now() <= referencia - timedelta(minutes=minutos)
 
     @staticmethod
     def can_self_cancel(appt) -> bool:
@@ -581,6 +658,7 @@ class SelfBookingService:
         """
         from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+        from itcj2.apps.titulatec.services.slot_service import SlotService
 
         proc = db.get(TitulationProcess, appt.process_id)
         if proc is None or int(actor_id) != int(proc.student_id):
@@ -588,11 +666,12 @@ class SelfBookingService:
 
         minutos = SelfBookingService._settings().TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES
         # Spec, literal: puede cancelar mientras
-        # `db_now() <= scheduled_at - MIN_LEAD`. La desigualdad vive en
+        # `db_now() <= scheduled_at - MIN_LEAD` -o, en un lugar apartado sin
+        # horario (D5), `db_now() <= cierre - MIN_LEAD`. La desigualdad vive en
         # `_within_cancel_window`, que es lo MISMO que mira la pantalla para
         # decidir si pinta el botón: dos cuentas separadas acabarían ofreciendo
         # un botón que el servidor rechaza.
         if not SelfBookingService._within_cancel_window(appt):
-            raise CancelTooLate(minutos)
+            raise CancelTooLate(minutos, sin_horario=SlotService.is_walkin_reservation(appt))
 
         return AppointmentService.cancel(db, appt, actor_id, reason)
