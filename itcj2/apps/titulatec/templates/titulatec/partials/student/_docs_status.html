@@ -33,7 +33,8 @@
     {% if _s.state == "rejected" %}
       <p class="mb-0">Corrige los documentos marcados. Al subirlos vuelven a revisión solos.</p>
     {% elif _s.state == "missing" %}
-      <p class="mb-0">Te faltan {{ _s.missing_names|length }}: {{ _s.missing_names|join(", ")|e }}.</p>
+      {% set _n = _s.missing_names|length %}
+      <p class="mb-0">Te {{ "falta" if _n == 1 else "faltan" }} {{ _n }}: {{ _s.missing_names|join(", ")|e }}.</p>
     {% elif _s.state == "approved" %}
       <p class="mb-0">¡Tus documentos fueron aprobados! Sigue: <a href="{{ _s.next_url }}">cita de cotejo</a>.</p>
     {% else %}

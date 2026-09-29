@@ -183,7 +183,8 @@ Spec `2026-09-28-titulatec-correos-notificaciones-design.md` §4 A3/A4. Sin bot�
   enviados (los 4 son mutuamente excluyentes: `DocumentService.initial_docs_summary` reparte
   los 3 documentos entre exactamente un `status` cada uno):
   1. Rechazados → «Corrige los documentos marcados. Al subirlos vuelven a revisión solos.»
-  2. Faltan → «Te faltan N: {nombres}.»
+  2. Faltan → «Te faltan N: {nombres}.», en singular con uno: «Te falta 1: {nombre}.» (B6,
+     ronda final 2026-09-29).
   3. Los 3 aprobados → «¡Tus documentos fueron aprobados! Sigue: cita de cotejo» (liga a
      `/titulatec/student/cita`).
   4. Los 3 enviados (sin rechazos, no los 3 aprobados) → «Tus 3 documentos llegaron a

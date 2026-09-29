@@ -119,6 +119,18 @@ def test_aviso_faltan_nombra_los_documentos(esc, client_as, make_document):
     assert "CURP certificada" in html
 
 
+def test_aviso_falta_uno_en_singular(esc, client_as, make_document):
+    """B6: con un solo faltante el aviso dice «Te falta 1: …», no «Te faltan 1»."""
+    student, proc = esc()
+    make_document(proc, type_code="birth_certificate")
+    make_document(proc, type_code="high_school_cert")          # falta solo la CURP
+
+    html = client_as(student).get("/titulatec/student/documents").text
+
+    assert "Te falta 1: CURP certificada." in html
+    assert "Te faltan" not in html
+
+
 def test_aviso_enviados_muestra_el_correo_personal(esc, client_as, make_document, perfil):
     student, proc = esc()
     for code in ("birth_certificate", "high_school_cert", "curp"):
@@ -200,7 +212,7 @@ def test_borrar_devuelve_el_aviso_oob(esc, client_as):
     assert resp.status_code == 200, resp.text[:300]
     assert 'id="tt-docs-status"' in resp.text
     assert 'hx-swap-oob="true"' in resp.text
-    assert "Te faltan 1" in resp.text
+    assert "Te falta 1: CURP certificada." in resp.text          # singular (B6)
 
 
 def test_subida_con_error_tambien_trae_el_aviso(esc, client_as, monkeypatch):
