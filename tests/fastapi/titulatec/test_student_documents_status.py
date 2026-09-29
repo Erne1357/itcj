@@ -292,3 +292,59 @@ def test_sin_script_inline_en_las_plantillas_tocadas():
             assert hallados == ["event.stopPropagation()"] * permitidos, (path.name, hallados)
         else:
             assert not hallados, f"{path.name}: on*= inline nuevo: {hallados}"
+
+
+# ===========================================================================
+# 8. Fix round 1 (ruling 11): el correo largo no puede romper el ancho
+# ===========================================================================
+def test_el_correo_largo_en_el_aviso_puede_partirse(esc, client_as, make_document, perfil):
+    """Hallazgo del revisor: un correo personal largo y sin espacios (p. ej.
+    «nombre.apellido.segundoapellido2005@hotmail.com») dentro de
+    `#tt-docs-status` (`.tt-cita-why`/`.tt-cita-why p`) puede empujar el ancho
+    a 360px y romper el invariante duro `scrollWidth <= innerWidth`, porque
+    `titulatec.css:1910-1912` no traía `overflow-wrap: anywhere` -- a
+    diferencia de `.tt-reqinfo-vista`/`.tt-reqinfo-body` (`:1827-1828`) y
+    `.tt-sii-rules li span`/`.tt-sii-line` (`:2288`/`:2297`), que SÍ la
+    aplican a contenido de largo variable.
+
+    Arreglo: una regla ACOTADA a `#tt-docs-status` (no a `.tt-cita-why`
+    global -- la usan `cita_card.html`/`_cita_panel.html` con contenido corto
+    y controlado). Dos partes: (a) la regla existe en el CSS con el selector
+    correcto (patrón de `test_documents_inbox.py::
+    test_la_primitiva_del_indicador_existe_en_el_css`); (b) el correo largo
+    de verdad llega íntegro dentro del aviso servido (el navegador es quien
+    verifica el invariante visual a 360px, no este test)."""
+    import re
+    from pathlib import Path
+
+    import itcj2.apps.titulatec as _tt_pkg
+
+    css_path = (Path(_tt_pkg.__file__).resolve().parent / "static" / "css" / "titulatec.css")
+    css = css_path.read_text(encoding="utf-8")
+
+    regla = re.search(r'#tt-docs-status\s+\.tt-cita-why\s+p\s*\{([^}]*)\}', css)
+    assert regla, "falta la regla `#tt-docs-status .tt-cita-why p { ... }` en titulatec.css"
+    assert "overflow-wrap: anywhere" in regla.group(1), (
+        "`#tt-docs-status .tt-cita-why p` no trae `overflow-wrap: anywhere`")
+    # Acotada: la clase GLOBAL `.tt-cita-why` (la usan `cita_card.html`/
+    # `_cita_panel.html`, contenido corto y controlado) debe seguir BYTE A BYTE
+    # como antes de este arreglo -- ninguna de sus 3 reglas gana `overflow-wrap`.
+    bloque_global = (
+        '.tt-cita-why { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }\n'
+        '.tt-cita-why i { flex: 0 0 auto; margin-top: 2px; color: var(--tt-amber-ink); }\n'
+        '.tt-cita-why p { font-size: var(--tt-fs-200); color: var(--tt-text-2); min-width: 0; }'
+    )
+    assert bloque_global in css, (
+        "`.tt-cita-why` global cambió: este arreglo debe ser ACOTADO a #tt-docs-status, "
+        "sin tocar la clase que usan cita_card.html/_cita_panel.html")
+
+    student, proc = esc()
+    for code in ("birth_certificate", "high_school_cert", "curp"):
+        make_document(proc, type_code=code)
+    correo_largo = "nombre.apellido.segundoapellido2005@hotmail.com"
+    perfil(student.id, correo_largo)
+
+    html = client_as(student).get("/titulatec/student/documents").text
+
+    aviso = html.split('id="tt-docs-status"', 1)[1]
+    assert correo_largo in aviso

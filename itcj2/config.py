@@ -331,7 +331,12 @@ class Settings(BaseSettings):
     # `immutable` en caché no la trae y la ayuda sale del tamaño del título.
     #
     # Bump 2026-09-28: aviso de estado de Documentos.
-    STATIC_VERSION: str = "1.0.1111579"
+    #
+    # Bump 2026-09-28 (2): ronda de arreglo 1 de Documentos -- `#tt-docs-status
+    # .tt-cita-why p` suma `overflow-wrap: anywhere` (ruling 11: un correo
+    # personal largo y sin espacios no debe romper `scrollWidth <=
+    # innerWidth`). Sin el bump, la hoja `immutable` en caché sigue sin la regla.
+    STATIC_VERSION: str = "1.0.1111580"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

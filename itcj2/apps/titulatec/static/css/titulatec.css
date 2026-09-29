@@ -325,6 +325,18 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
    NO `--tt-mute` -- esta SÍ es texto que se lee, no un icono/borde decorativo
    (`--tt-mute` está PROHIBIDO PARA TEXTO, `:14-16`). */
 .tt-doc-sent { font-size: .6875rem; color: var(--tt-text-3); margin-top: 2px; }
+/* Aviso de estado de Documentos (`#tt-docs-status`, ronda de arreglo 1,
+   ruling 11): el correo personal puede ser largo y sin espacios
+   ("nombre.apellido.segundoapellido2005@hotmail.com") y no debe empujar el
+   ancho a 360px (invariante `scrollWidth <= innerWidth`). Acotada a este
+   aviso -- NO a `.tt-cita-why` global (la usan `cita_card.html` y
+   `_cita_panel.html`, con contenido corto y controlado) -- mismo recurso que
+   `.tt-reqinfo-vista`/`.tt-reqinfo-body` (`:1827-1828`) y `.tt-sii-rules li
+   span`/`.tt-sii-line` (`:2288`/`:2297`) usan para contenido de largo
+   variable. `min-width: 0` ya lo trae `.tt-cita-why`/`.tt-cita-why p`
+   (:1910/:1912) -- sin eso, el hijo flex no se encoge y `overflow-wrap` no
+   tiene margen para actuar. */
+#tt-docs-status .tt-cita-why p { overflow-wrap: anywhere; }
 
 /* ============================ SHELL MÓVIL ============================== */
 /* Aquí vivía `.tt-mobile { max-width: 430px }`, con CERO usos en templates y JS
