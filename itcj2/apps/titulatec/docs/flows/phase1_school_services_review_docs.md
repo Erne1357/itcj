@@ -7,9 +7,9 @@
 | | |
 |---|---|
 | **Actor(es)** | 🏛️ Servicios Escolares (`titulatec_school_services` / `_head`) · 🎓 Titulaciones |
-| **Permiso(s)** | ver: cualquiera de `titulatec.document.page.list`, `...dashboard.school_services`, `...dashboard.titulaciones`, `...dashboard.admin` (`_VIEW_PERMS`, `pages/documents.py:14-15`) · dictaminar: `titulatec.document.api.approve` **o** `...reject` (`_REVIEW_PERMS`, `pages/documents.py:16`) · ver el archivo: `titulatec.document.api.read.all` (`pages/documents.py:193`) |
+| **Permiso(s)** | ver: cualquiera de `titulatec.document.page.list`, `...dashboard.school_services`, `...dashboard.titulaciones`, `...dashboard.admin` (`_VIEW_PERMS`, `pages/documents.py:14-15`) · dictaminar: `titulatec.document.api.approve` **o** `...reject` (`_REVIEW_PERMS`, `pages/documents.py:16`) · ver el archivo: `titulatec.document.api.read.all` (`pages/documents.py:273`) |
 | **Trigger** | El alumno subió documentos (fase 1); aparecen en la pestaña **Documentos**. |
-| **Precondiciones** | Proceso `status='active'` con **al menos un archivo subido** (`pages/documents.py:91,105`). El auto-avance además exige que la fase 1 sea la transición legal del proceso: `PhaseService.can_transition(db, proc, 1)` (`pages/documents.py:182`), o sea proceso `active` **y** `current_phase == 1`. |
+| **Precondiciones** | Proceso `status='active'` con **al menos un archivo subido** (`pages/documents.py:161,175`). El auto-avance además exige que la fase 1 sea la transición legal del proceso: `PhaseService.can_transition(db, proc, 1)` (`pages/documents.py:262`), o sea proceso `active` **y** `current_phase == 1`. |
 | **Sub-flujos** | ⤵ al 3.º aprobado invoca el [motor de avance de fase](engine_approve_advance_phase.md). |
 | **Estado final** | 3 docs `approved` → fase 1 `approved`, `current_phase=2` → elegible para [cita de cotejo](phase2_appointment_loop.md). |
 
@@ -18,14 +18,15 @@
 1. `/titulatec/admin/documents` (pestaña **Documentos** del menú admin; la entrada del menú solo
    aparece con `titulatec.document.page.list` — `pages/nav.py:98` — mientras que la página acepta
    además los tres `dashboard.*` de `_VIEW_PERMS`).
-2. Bandeja master-detail acotada por carrera (`officer_programs`, `pages/documents.py:90`): izquierda
+2. Bandeja master-detail acotada por carrera (`officer_programs`, `pages/documents.py:160`): izquierda
    lista de procesos con pill de pendientes (o ✓ si los 3 están aprobados); derecha visor + dictamen
-   del documento activo. El dictamen (`:151`) y el servido del archivo (`:191`) arrancan con
-   `assert_process_in_scope` → **404** fuera del alcance, así que el dictamen y su auto-avance de
-   fase no pueden tocar un proceso de otra carrera. Ver [alcance por carrera](engine_officer_scope.md).
+   del documento activo. El dictamen (`:226`) y el servido del archivo (`:271`) arrancan con
+   `assert_process_in_scope` (`:250` y `:281` respectivamente) → **404** fuera del alcance, así que
+   el dictamen y su auto-avance de fase no pueden tocar un proceso de otra carrera. Ver
+   [alcance por carrera](engine_officer_scope.md).
 3. Filtros: Todos / Por evaluar / Con rechazo / Completos (`partials/documents_body.html:8`).
    Encabezado "N por evaluar" = suma de pendientes de las **filas ya filtradas**, no del scope
-   completo (`pages/documents.py:106-112`).
+   completo (`pages/documents.py:176-186`).
 
 ## Secuencia
 
@@ -59,10 +60,10 @@ sequenceDiagram
 
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Correo |
 |---|---|---|---|---|---|---|---|
-| 1 | 🏛️ | `/admin/documents` | Selecciona proceso | `GET …/documents/body?selected=` | `_body_ctx` (scoped, `pages/documents.py:87-115`) | (lectura) | — |
+| 1 | 🏛️ | `/admin/documents` | Selecciona proceso | `GET …/documents/body?selected=` | `_body_ctx` (scoped, `pages/documents.py:145-190`) | (lectura) | — |
 | 2 | 🏛️ | panel derecho (doc activo) | Aprueba/rechaza doc | `POST …/{pid}/document/review` (`type_code`+`note` en form; reject exige `note`) | `DocumentService.review` | `Document.review_status`, `review_note`, `reviewed_by_id` · un solo commit al final | `docs_review` (aprobado **y** rechazado), grupo `docs:{pid}` |
 | 2b | 🏛️ | visor | Ve PDF (PDF.js→canvas) / lo expande al modal `#tt-doc-modal` | `GET …/{pid}/document/{code}` (`?download=1` descarga) | `DocumentService.get_document` + `_storage_keys` → `storage.download_filename` | (lectura) · `Content-Disposition: inline\|attachment; filename="{control}_{ETIQUETA}.{ext}"` | — |
-| 3 | 🤖 | — | Auto-avance si las 3 aprobadas | (mismo POST) | `DocumentService.initial_docs_all_approved` + `PhaseService.can_transition` + `...approve_phase` (`pages/documents.py:181-183`) | fase1→`approved`, `current_phase=2`, `ProcessEvent` · commit propio de `approve_phase` | `phase_approved`, **mismo** grupo `docs:{pid}` |
+| 3 | 🤖 | — | Auto-avance si las 3 aprobadas | (mismo POST) | `DocumentService.initial_docs_all_approved` + `PhaseService.can_transition` + `...approve_phase` (`pages/documents.py:261-263`) | fase1→`approved`, `current_phase=2`, `ProcessEvent` · commit propio de `approve_phase` | `phase_approved`, **mismo** grupo `docs:{pid}` |
 
 ### Correo al egresado (desde 2026-09-28)
 
@@ -191,84 +192,92 @@ Ojo con el markup de esta vista en concreto: la barra de filtros vive **dentro**
 la cubre. Es correcto (esos filtros pertenecen al estado viejo) pero es distinto de Citas, donde el
 segmento queda fuera del host.
 
-## Los DOS disparadores del avance de fase 1 ❗
+## El dictamen de documentos, y el «Mover de fase» del expediente que puede saltárselo ❗
 
-La fase 1 puede avanzar por dos caminos distintos, y **hoy no son simétricos**:
+**Corrección 2026-09-29 (deuda de documentación): esta sección describía un endpoint que ya no
+existe.** Hasta el rediseño del expediente (2026-09-03, commit `2684de57` "el detalle del proceso
+pasa a ser el expediente del alumno") había, en efecto, **dos** endpoints para dictaminar el mismo
+documento con reglas distintas: el de esta bandeja y un gemelo en el entonces "detalle del
+proceso" (`POST /admin/processes/{id}/documents/{type}/review`, sin exigir motivo al rechazar y
+sin auto-avance). Ese rediseño **borró** el endpoint gemelo y su template
+(`partials/admin_process_detail.html` ya no existe en el repo) — hoy dictaminar un documento
+individual tiene **un solo camino**: esta bandeja. El expediente muestra los 3 documentos de la
+fase 1 en **solo lectura**, con un enlace «Dictaminar en la bandeja» (ver
+[expediente del alumno](xcut_admin_process_expediente.md), sección "Los documentos no se
+dictaminan aquí").
 
-| | A · pestaña Documentos | B · detalle del proceso |
-|---|---|---|
-| Dónde | `/titulatec/admin/documents` | `/titulatec/admin/processes/{id}` |
-| Botones | Aprobar/Rechazar del dictamen (`partials/documents_body.html:103-112`) | ✔/✕ por documento (`partials/admin_process_detail.html:62-67`) y **"Aprobar fase NN"** (`partials/admin_process_detail.html:114-116`) |
-| Endpoint de dictamen | `POST /admin/documents/{pid}/document/review` (`pages/documents.py:107`) | `POST /admin/processes/{pid}/documents/{type}/review` (`pages/admin.py:810`) |
-| Permisos del dictamen | `document.api.approve` / `.reject` (`pages/documents.py:16`) | `document.api.approve` / `.reject` (`pages/admin.py:815-816`) — **los mismos** |
-| ¿Auto-avanza al 3.º aprobado? | **Sí** (`pages/documents.py:181-183`) | **No**: `doc_review` solo llama `DocumentService.review` y re-renderiza (`pages/admin.py:818-833`) |
-| Avance de fase | implícito | explícito: `POST …/phase/{n}/approve` → `titulatec.process.api.approve_phase` (`pages/admin.py:863-885`) |
+**Lo que SÍ sigue vivo es una asimetría parecida, con otra forma.** El expediente conserva un
+mecanismo GENÉRICO para mover cualquier fase — el botón «Mover de fase» de `#exp-head`
+(`partials/processes/_exp_shell.html:50-55`), visible con `process.status == 'active' and
+can_dictaminar_fase` (`:39`, `can_dictaminar_fase` = OR de `approve_phase`/`reject_phase`,
+`pages/admin.py:1426-1441`) — que abre un modal cuyos botones Aprobar/Rechazar apuntan **siempre**
+a `current_phase`. Cuando `current_phase == 1`, ese modal puede aprobar la fase 1 exactamente
+igual que antes lo hacía el endpoint borrado:
 
-**DEFECTO CONOCIDO (asimetría).** Dos endpoints con **el mismo par de permisos** producen efectos
-distintos sobre la misma transición:
+- Endpoint: `POST /processes/{process_id}/phase/{n}/approve` (`pages/admin.py:1768`) →
+  `PhaseService.approve_phase` (**la misma función** que usa el auto-avance de la bandeja).
+- Permiso: `titulatec.process.api.approve_phase` (`pages/admin.py:1773`) — **el mismo par** que ya
+  exige el dictamen por documento (`document.api.approve`/`.reject`, `pages/documents.py:16`); los
+  tres roles operativos (`titulatec_school_services`, `..._head`, `titulatec_titulaciones`) tienen
+  ambos permisos a la vez.
+- Guarda: `PhaseService.assert_can_transition` (`phase_service.py:122-133`, vía `can_transition`,
+  `:109-119`) exige que `n` sea la fase EN CURSO de un proceso `active`. **No mira el estado de los
+  documentos** — ver [motor de avance](engine_approve_advance_phase.md).
 
-- `pages/documents.py:181-183` avanza la fase 1 solo por haber aprobado el último documento.
-- `pages/admin.py:822-833` no avanza nada; hay que pulsar además "Aprobar fase 01".
+**Consecuencia (verificada en el código):** se puede aprobar la fase 1 desde «Mover de fase» con
+documentos `pending` o `rejected`, dejando el proceso en fase 2 sin los 3 aprobados — la bandeja lo
+seguiría mostrando como "Por evaluar" mientras `AppointmentService.list_pending_processes` sigue
+exigiendo las 3 aprobadas para dejar agendar. El guard del botón (`_exp_shell.html:39`) solo mira
+permiso y estado del PROCESO, nunca el de sus documentos — es el mismo defecto de fondo que antes,
+solo que hoy vive en el modal genérico y no en un botón dedicado de documentos.
 
-Los tres roles operativos (`titulatec_school_services`, `..._head`, `titulatec_titulaciones`) tienen
-a la vez `document.api.approve/reject` y `process.api.approve_phase`
-(`database/DML/titulatec/03_insert_role_permissions.sql:38-39,55-56,74-76`), así que la misma persona
-ve los dos caminos y obtiene resultados distintos según por dónde entre.
-
-Agravantes verificados del botón manual:
-
-- Su **único** guard de render es `process.status == 'active'`
-  (`partials/admin_process_detail.html:105`); no mira el estado de la fase ni si los documentos están
-  aprobados.
-- El endpoint valida la **transición** pero no el **dictamen**: desde 2026-09 `phase_approve` exige
-  que `n` sea la fase en curso de un proceso `active` (`PhaseService.assert_can_transition`, →
-  [motor de avance](engine_approve_advance_phase.md#guarda-de-transición-desde-2026-09)), y responde
-  `400` + `X-Tt-Error` si no. Lo que no mira es el estado de los documentos.
-- Consecuencia: se puede aprobar la fase 1 con documentos `pending` o `rejected` y dejar el proceso en
-  fase 2 con documentos sin aprobar. La bandeja lo seguiría mostrando como "Por evaluar" mientras
-  `AppointmentService.list_pending_processes` sigue exigiendo las 3 aprobadas.
-
-**El auto-avance no es atómico.** Son dos transacciones separadas con una lectura en medio:
-`DocumentService.review` hace `db.commit()` (`services/document_service.py:186`); después
-`pages/documents.py:181` relee `process.current_phase` y `PhaseService.approve_phase` hace su propio
-`db.commit()` (`services/phase_service.py:283`). Si el segundo commit falla —o dos revisores aprueban
-el último documento a la vez— el documento queda `approved` y la fase no avanza: hay que empujarla
-con el botón manual. No hay bloqueo de fila; la idempotencia la da `can_transition` (la segunda pasada ya no encuentra el proceso en la fase 1).
-Los correos siguen a su transacción: el `docs_review` queda con el 1.er commit y el `phase_approved`
-solo existe si el 2.º se confirmó — nunca se avisa un avance que no ocurrió.
+**El auto-avance de la bandeja no es atómico.** Son dos transacciones separadas con una lectura en
+medio: `DocumentService.review` hace su propio `db.commit()` (`services/document_service.py:416`);
+después `pages/documents.py:261-263` relee `initial_docs_all_approved` + `can_transition` y, si
+aplica, llama a `PhaseService.approve_phase`, que hace el suyo
+(`services/phase_service.py:450`). Si el segundo commit falla —o dos revisores aprueban el último
+documento a la vez— el documento queda `approved` y la fase no avanza: hay que empujarla con
+«Mover de fase». No hay bloqueo de fila; la idempotencia la da `can_transition` (la segunda pasada
+ya no encuentra el proceso en la fase 1). Los correos siguen a su propia transacción: el
+`docs_review` queda con el 1.er commit y el `phase_approved` solo existe si el 2.º se confirmó —
+nunca se avisa un avance que no ocurrió.
 
 ## Estado resultante
 
 - 3 `Document.review_status = approved` → `initial_docs_all_approved == True`
-  (`services/document_service.py:10-17`).
+  (`services/document_service.py:31-38`).
 - Fase 1 `approved`, `current_phase = 2`, `ProcessEvent(phase_approved)` y notificación
-  `PHASE_APPROVED` al alumno (`services/phase_service.py:245,267-270,278-281`).
+  `PHASE_APPROVED` al alumno (`services/phase_service.py:401,424,433-436`).
 - En `titulatec_email_outbox`: un `docs_review` por dictamen más el `phase_approved` del avance,
-  todos `pending` en el grupo `docs:{pid}` (un solo correo al egresado).
+  todos `pending` en el MISMO grupo `docs:{pid}` — **un solo correo** cuando esa TANDA de
+  dictámenes se despacha (`TITULATEC_EMAIL_DIGEST_MINUTES` sin movimiento, D7). Es por VENTANA de
+  agrupado, no por proceso entero: si un dictamen de días antes ya salió (`sent`), el de hoy abre
+  una tanda nueva en el mismo `group_key` y sale en su propio correo aparte. Detalle:
+  [correos del proceso al egresado](xcut_student_email_notifications.md).
 - El proceso entra a "Por agendar" de [cita de cotejo](phase2_appointment_loop.md)
   (`AppointmentService.list_pending_processes` exige las 3 aprobadas).
 
 ## Caminos alternos / errores ❗
 
-- POST sin `type_code` → `400` + header `X-Tt-Error` (`pages/documents.py:163-164`).
-- Rechazar sin comentario → `400` + `X-Tt-Error` (`pages/documents.py:169-170`). El endpoint gemelo
-  del detalle de proceso **no** exige nota (`pages/admin.py:826`): rechaza con `note=None` y la
-  notificación `DOCUMENT_REJECTED` sale con el texto genérico de `services/document_service.py:183`.
+- POST sin `type_code` → `400` + header `X-Tt-Error` (`pages/documents.py:238-239`).
+- Rechazar sin comentario → `400` + `X-Tt-Error` (`pages/documents.py:244-245`). (El endpoint
+  gemelo del "detalle de proceso" que aceptaba rechazar sin motivo se borró con el rediseño del
+  expediente, 2026-09-03 — ver "El dictamen de documentos…" arriba.)
 - Rechazar un doc → `review_status=rejected`; el proceso NO avanza; sigue en "Por evaluar" / "Con
   rechazo". Cuando el alumno re-sube, `DocumentService.save` lo devuelve a `pending`
-  (`services/document_service.py:144-145`).
+  (`services/document_service.py:301`).
 - Aprobar solo 2 de 3 → no avanza (el avance solo dispara con las 3 y `current_phase == 1`).
-- Aprobar las 3 cuando la fase 1 ya no es la actual → no avanza; queda para el botón manual.
+- Aprobar las 3 cuando la fase 1 ya no es la actual → no avanza; queda para «Mover de fase».
 - La bandeja **no** exige `ProcessPhase.status`: `_body_ctx` filtra por `status='active'` y por
-  tener archivos (`pages/documents.py:91-105`). Desde 2026-09-28 (Tarea 1) ya no hay un paso de
+  tener archivos (`pages/documents.py:161,175`). Desde 2026-09-28 (Tarea 1) ya no hay un paso de
   "enviar a revisión" que el alumno pueda omitir -- `DocumentService.sync_initial_phase` deja la
   fase en `in_review` sola en cuanto llega el 3er documento -- pero la fase 1 puede seguir en
   `in_progress` mientras falte alguno de los 3 (p. ej. dos subidos y aprobados, el tercero
   todavía sin llegar): se puede aprobar y avanzar esa fase igual, porque `can_transition` no mira
   `ProcessPhase.status`, solo `process.current_phase` y `status == 'active'`.
 - El alcance por carrera cubre **las dos capas**: el listado se filtra con `officer_programs`
-  (`pages/documents.py:90`) y el POST de dictamen arranca con `assert_process_in_scope`
-  (`pages/documents.py:175`), que responde **404** —no 403— porque el id es secuencial y
+  (`pages/documents.py:160`) y el POST de dictamen arranca con `assert_process_in_scope`
+  (`pages/documents.py:250`), que responde **404** —no 403— porque el id es secuencial y
   enumerable. Antes de cerrarlo, con el `process_id` en la URL un encargado fuera de su alcance
   podía dictaminar y, peor, empujar de fase un proceso ajeno.
   Ver [alcance por carrera](engine_officer_scope.md).
@@ -276,7 +285,10 @@ solo existe si el 2.º se confirmó — nunca se avisa un avance que no ocurrió
 ## Flujos relacionados
 
 - ← Previo: [el alumno sube documentos](phase1_student_upload_initial_docs.md).
-- ↔ El mismo dictamen desde el detalle del proceso (sin auto-avance):
-  [revisión admin de documentos iniciales](phase1_admin_review_initial_docs.md).
+- ↔ Antes existía un dictamen gemelo desde el "detalle del proceso" (sin auto-avance); se borró
+  con el rediseño del expediente (2026-09-03, ver "El dictamen de documentos…" arriba).
+  [`phase1_admin_review_initial_docs.md`](phase1_admin_review_initial_docs.md) todavía describe esa
+  ruta — **desactualizado, pendiente de corregir aparte** (fuera del alcance de esta tarea).
 - ⤵ Motor: [aprobar/avanzar fase](engine_approve_advance_phase.md).
+- ⤵ Encola correo al egresado: [correos del proceso al egresado](xcut_student_email_notifications.md).
 - → Siguiente: [cita de cotejo](phase2_appointment_loop.md) (requiere los 3 aprobados).
