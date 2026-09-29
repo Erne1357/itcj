@@ -175,19 +175,34 @@ class TestNuncaTocaAprobadaNiUnProcesoInactivo:
 class TestDocumentoDeOtraFase:
     def test_documento_de_otra_fase_no_toca_la_fase_1(self, db_session, seed_phase_defs,
                                                        seed_document_types, make_cohort,
-                                                       make_student, make_process, tmp_path,
-                                                       monkeypatch):
+                                                       make_student, make_process,
+                                                       make_document, tmp_path, monkeypatch):
         """`anexo_iii` es de la fase 6: la ruta HTTP ya bloquea esta subida con
         la guarda de fase de `pages/student.py` (`dtype.phase_number=6 !=
         current_phase=1`), así que la única forma de probar que `save()` no
         dispara el sync para OTRA fase es llamando al service directo,
-        saltándose esa guarda a propósito."""
+        saltándose esa guarda a propósito.
+
+        Los 3 documentos iniciales YA están presentes (fase 1 completa,
+        `in_progress`) ANTES de guardar `anexo_iii`: si el gate de `save()`
+        (`dtype.phase_number == phase_number_for_code(...)`,
+        `document_service.py` ~283) no existiera o estuviera roto,
+        `sync_initial_phase` SÍ se dispararía y, con los 3 ya completos,
+        `in_progress` es un estado que la fase 1 SÍ acepta pasar a
+        `in_review` -- la aserción de abajo lo detectaría. Con 0 documentos
+        iniciales (como en una versión anterior de este test) el propio
+        `sync_initial_phase` no habría tocado nada de todos modos (su rama
+        "falta alguno" exige que ya estuviera `in_review`), así que el test
+        pasaba aunque el gate de `save()` no existiera -- no discriminaba
+        nada (hallazgo de revisión, ronda 1)."""
         from itcj2.apps.titulatec.services.document_service import DocumentService
         monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
         seed_phase_defs()
         seed_document_types(DOC_TYPES_OTRA_FASE)
         student = make_student()
         proc = make_process(student, cohort=make_cohort(), current_phase=1)
+        for code in ("birth_certificate", "high_school_cert", "curp"):
+            make_document(proc, type_code=code)
         assert _phase1(db_session, proc.id) == "in_progress"
 
         DocumentService.save(db_session, proc, "anexo_iii",
