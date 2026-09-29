@@ -1,11 +1,12 @@
 # El alumno sube sus documentos iniciales (Fase 1)
 
-> **Objetivo:** el alumno carga los 3 documentos iniciales y envía la fase 1 a revisión.
+> **Objetivo:** el alumno carga los 3 documentos iniciales; la fase 1 pasa sola a revisión
+> (Tarea 1, 2026-09-28: ya no hay un botón «Enviar a revisión» que tocar).
 
 | | |
 |---|---|
 | **Actor(es)** | 👤 Alumno (`graduate`) |
-| **Permiso(s)** | `document.api.read.own` (ver) · `...upload.own` · `...delete.own` · `process.api.advance` (enviar) |
+| **Permiso(s)** | `document.api.read.own` (ver) · `...upload.own` · `...delete.own` |
 | **Trigger** | El alumno toca **«Ir a documentos»** en la tarjeta «Tu proceso» del dashboard (el CTA solo existe si la fase 1 es su fase actual, [acordeón de fases](xcut_student_phase_detail.md)), o entra por el menú del alumno (drawer/rail) |
 | **Precondiciones** | Tiene un `TitulationProcess` activo (creado en [import CSV](phase0_school_services_import_csv.md)); **la fase 1 es su `current_phase`** (`in_progress` o `rejected`). **Se valida** en [`PhaseService.assert_student_can_act`](engine_student_phase_lock.md) |
 | **Estado final** | 3 `Document` subidos (`review_status=pending`) + fase 1 → `in_review` |
@@ -26,7 +27,9 @@ Documentos requeridos (`DocumentType.code`): `birth_certificate`, `high_school_c
    (`TITULATEC_MAX_PDF_SIZE` / `TITULATEC_MAX_PDF_UPLOAD_SIZE`), nunca escritos en la plantilla.
    El mismo par de números sale en la tarjeta de la fase del acordeón (`_PHASE_INFO` +
    `_with_pdf_limits`, `pages/student.py`).
-3. Cuando los 3 están subidos, se habilita **"Enviar a revisión"**.
+3. Cuando los 3 están subidos, la fase pasa sola a `in_review`
+   (`DocumentService.sync_initial_phase`, Tarea 1 2026-09-28): no hay botón que tocar,
+   ni un segundo paso — el propio `POST` de la 3ª subida ya la deja en revisión.
 
 ## Secuencia
 
@@ -48,12 +51,10 @@ sequenceDiagram
     SVC->>ST: write_document(prepared, ...) (temporal + os.replace; luego borra versiones viejas)
     ST-->>SVC: {file_path, mime, size (del archivo GUARDADO)}
     SVC->>DB: UPSERT Document (review_status=pending, version++)
+    SVC->>SVC: sync_initial_phase(process) -- ¿los 3 ya están?
+    SVC->>DB: ProcessPhase[1].status = in_review (solo si completó y venía de pending/in_progress/rejected)
     SVC-->>API: doc
-    API-->>FE: parcial document_slot.html (estado actualizado)
-    U->>FE: "Enviar a revisión"
-    FE->>API: POST /titulatec/student/phase/1/submit
-    API->>DB: ProcessPhase[1].status = in_review
-    API-->>FE: 204 (reload)
+    API-->>FE: parcial document_slot.html (estado actualizado; sin botón "Enviar a revisión")
 ```
 
 ## Pasos detallados
@@ -61,9 +62,11 @@ sequenceDiagram
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif |
 |---|---|---|---|---|---|---|---|
 | 1 | 👤 | `/student/documents` | ver slots | `GET /student/documents` | `DocumentService.get_document` ×3 | — | — |
-| 2 | 👤 | dropzone | subir/re-subir | `POST /student/documents/{type_code}` | `storage.prepare_document` (en el threadpool, sin transacción abierta; `pdf_compress.compress_pdf` si pasa de 2 MB) → `DocumentService.save(..., prepared=...)` (en el threadpool) → `storage.write_document` | `titulatec_documents` UPSERT (`review_status=pending`, `version`++, `size_bytes` = lo guardado, `original_name` = el nombre que subió el alumno), archivo en `instance/.../{period}/{control}/documents/{control}_{ETIQUETA}.{ext}` | `ProcessEvent(document_uploaded)` |
-| 3 | 👤 | botón ✕ | eliminar | `DELETE /student/documents/{type_code}` | `DocumentService.delete` | borra fila + archivo | — |
-| 4 | 👤 | botón enviar | enviar fase | `POST /student/phase/1/submit` | (inline) valida 3 docs | `ProcessPhase[1].status=in_review` | — |
+| 2 | 👤 | dropzone | subir/re-subir | `POST /student/documents/{type_code}` | `storage.prepare_document` (en el threadpool, sin transacción abierta; `pdf_compress.compress_pdf` si pasa de 2 MB) → `DocumentService.save(..., prepared=...)` (en el threadpool) → `storage.write_document` → `DocumentService.sync_initial_phase` (solo si el tipo es de la fase `initial_docs`) | `titulatec_documents` UPSERT (`review_status=pending`, `version`++, `size_bytes` = lo guardado, `original_name` = el nombre que subió el alumno), archivo en `instance/.../{period}/{control}/documents/{control}_{ETIQUETA}.{ext}`; `ProcessPhase[1].status` → `in_review` si con esta suben los 3 (desde `pending`\|`in_progress`\|`rejected`) | `ProcessEvent(document_uploaded)` |
+| 3 | 👤 | botón ✕ | eliminar | `DELETE /student/documents/{type_code}` | `DocumentService.delete` → `DocumentService.sync_initial_phase` (idem) | borra fila + archivo; `ProcessPhase[1].status` → `in_progress` si ya estaba `in_review` y con esto falta alguno | — |
+
+(2026-09-28, Tarea 1: se retiró el paso "botón enviar" — `POST /student/phase/1/submit`
+ya no existe. La fase 1 se sincroniza sola desde las filas 2 y 3 de esta tabla.)
 
 ## Tamaño y compresión (desde 2026-09-28)
 
@@ -162,13 +165,16 @@ duda») (ver
   `error` pintado dentro de la casilla, más `X-Tt-Error` (percent-codificado con `_hdr`, lo
   decodifica `student/errors.js`). Es 200 a propósito: htmx 2 no hace swap en un 4xx, y el error
   vive en el slot. No hay toast (ese canal es de `htmx:responseError`). No se guarda nada.
-- Faltan documentos al enviar → `400` + `X-Tt-Error: "Faltan documentos por subir."`.
+- Faltan documentos → nada que hacer: `sync_initial_phase` solo actúa al completar los 3
+  (o al perder uno de una fase que ya estaba en revisión). No hay un paso de "enviar" que
+  pueda rechazarse por documentos faltantes.
 - Re-subir un doc ya aprobado/rechazado lo vuelve a `pending` (sobreescribe versión).
 - **Fuera de la fase 1** ([guarda de fase](engine_student_phase_lock.md)): `GET
   /student/documents` responde `302` a `/student/dashboard?fase=1` (el acordeón, que sí
-  explica la fase) y los tres pasos 2-4 devuelven `400` + `X-Tt-Error`. Los tres son los
-  que antes dejaban **reabrir la fase 1 ya aprobada** y **borrar un documento aprobado**
-  —fila y fichero— desde la fase 2.
+  explica la fase) y los pasos 2-3 devuelven `400` + `X-Tt-Error`. Son los que antes
+  dejaban **borrar un documento aprobado** —fila y fichero— desde la fase 2 (el otro
+  agujero del reporte, **reabrir la fase 1 ya aprobada** vía `POST /phase/1/submit`, ya no
+  aplica: esa ruta no existe).
 - El paso 2 guarda por el **tipo**, no por la URL: subir un `DocumentType` de otra fase
   (`anexo_iii`, `ine`, `final_project`…) también da `400`.
 - Fase 1 `rejected` → sigue abierta: es el camino de corrección y reenvío.

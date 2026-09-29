@@ -86,12 +86,17 @@ EXTRA_SERIES = (
     + WORK_SERIES + BACKGROUND_SERIES
 )
 
-RUTAS_CON_NUMERO_ESTATICO = {
-    # El "1" es el número de fase, no un id: /phase/2/… no existe como ruta
-    # hermana parametrizada. Reconfirmado el 2026-09-21 enumerando el mapa de
-    # create_app(): es la ÚNICA plantilla de la app con un segmento numérico.
-    "/titulatec/student/phase/1/submit",
-}
+RUTAS_CON_NUMERO_ESTATICO: set[str] = set()
+# Vacío desde la Tarea 1 (2026-09-28, plan titulatec-correos-notificaciones):
+# `/titulatec/student/phase/1/submit` -- la única entrada que tuvo este set,
+# el "1" era el número de fase, no un id -- se retiró: la fase 1 ya no se
+# "envía" a mano, se sincroniza sola (`DocumentService.sync_initial_phase`,
+# llamada desde `save()`/`delete()`). Ambos tests de abajo siguen en verde con
+# el set vacío: `test_no_numeric_segment_where_a_sibling_has_a_param` no filtra
+# nada (y la app real no tiene otro segmento numérico junto a un `{param}`
+# hermano) y `test_numeric_whitelist_is_not_stale` es verdad vacía (un set
+# vacío no puede tener entradas obsoletas). Si aparece una ruta nueva con un
+# segmento numérico legítimo (no un id), va aquí con el porqué.
 
 
 @pytest.fixture(scope="module")

@@ -42,7 +42,7 @@ _PHASE_INFO = {
             "CURP certificada (PDF): la impresión certificada, no la simple.",
             "Cada archivo va en PDF de hasta {pdf_max_mb} MB. Si pesa más "
             "(hasta {pdf_upload_mb} MB), lo comprimimos automáticamente.",
-            "Cuando estén los 3, toca «Enviar a revisión».",
+            "Al subir los 3, tu fase pasa sola a revisión: no hay que enviarla a mano.",
         ],
         "who": "Tú subes los tres archivos; Servicios Escolares los revisa y los aprueba "
                "o te pide corregir.",
@@ -1647,46 +1647,5 @@ async def cita_cancel(
             return _cita_panel(request, db, user_id)
         return _cita_accion(request, db, user_id, lambda: SelfBookingService.cancel(
             db, appt, user_id, motivo))
-    finally:
-        db.close()
-
-
-@router.post("/phase/1/submit", name="titulatec.pages.student.submit_initial_docs")
-async def submit_initial_docs(
-    request: Request,
-    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.process.api.advance"])),
-):
-    """Marca la fase 1 como 'en revisión' si los 3 documentos están subidos."""
-    from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import ProcessPhase, Document
-    from itcj2.apps.titulatec.services.document_service import DocumentService
-
-    db = SessionLocal()
-    try:
-        process = DocumentService.get_active_process(db, int(user["sub"]))
-        if not process:
-            return Response(status_code=409)
-        # La guarda va ANTES del conteo: una fase cerrada no discute documentos.
-        # `n` sale del catálogo y es el mismo número que se escribe abajo, para
-        # que la guarda y la escritura no puedan desincronizarse (el `1` del path
-        # es histórico: lo conservan los enlaces de la UI).
-        n = _phase_of(db, "initial_docs")
-        fuera_de_fase = _phase_guard(db, process, n)
-        if fuera_de_fase:
-            return fuera_de_fase
-        count = db.query(Document).filter(
-            Document.process_id == process.id,
-            Document.type_code.in_(_INITIAL_DOC_TYPES),
-        ).count()
-        if count < len(_INITIAL_DOC_TYPES):
-            return Response(status_code=400, headers={"X-Tt-Error": "Faltan documentos por subir."})
-
-        phase = db.query(ProcessPhase).filter_by(process_id=process.id, phase_number=n).first()
-        if not phase:
-            phase = ProcessPhase(process_id=process.id, phase_number=n)
-            db.add(phase)
-        phase.status = "in_review"
-        db.commit()
-        return Response(status_code=204)
     finally:
         db.close()

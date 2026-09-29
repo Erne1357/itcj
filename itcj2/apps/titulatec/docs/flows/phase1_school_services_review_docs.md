@@ -238,10 +238,13 @@ con el botón manual. No hay bloqueo de fila; la idempotencia la da `can_transit
   (`services/document_service.py:144-145`).
 - Aprobar solo 2 de 3 → no avanza (el avance solo dispara con las 3 y `current_phase == 1`).
 - Aprobar las 3 cuando la fase 1 ya no es la actual → no avanza; queda para el botón manual.
-- La bandeja **no** exige que el alumno haya enviado la fase a revisión: `_body_ctx` filtra por
-  `status='active'` y por tener archivos, no por `ProcessPhase.status` (`pages/documents.py:91-105`).
-  Se puede aprobar y avanzar una fase 1 que sigue en `in_progress` porque el alumno nunca pulsó
-  "Enviar a revisión" (`pages/student.py:530-557`).
+- La bandeja **no** exige `ProcessPhase.status`: `_body_ctx` filtra por `status='active'` y por
+  tener archivos (`pages/documents.py:91-105`). Desde 2026-09-28 (Tarea 1) ya no hay un paso de
+  "enviar a revisión" que el alumno pueda omitir -- `DocumentService.sync_initial_phase` deja la
+  fase en `in_review` sola en cuanto llega el 3er documento -- pero la fase 1 puede seguir en
+  `in_progress` mientras falte alguno de los 3 (p. ej. dos subidos y aprobados, el tercero
+  todavía sin llegar): se puede aprobar y avanzar esa fase igual, porque `can_transition` no mira
+  `ProcessPhase.status`, solo `process.current_phase` y `status == 'active'`.
 - El alcance por carrera cubre **las dos capas**: el listado se filtra con `officer_programs`
   (`pages/documents.py:90`) y el POST de dictamen arranca con `assert_process_in_scope`
   (`pages/documents.py:175`), que responde **404** —no 403— porque el id es secuencial y

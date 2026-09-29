@@ -19,6 +19,13 @@ Eso reabre una fase cerrada, la reinyecta en la cola de Servicios Escolares y
 destruye evidencia ya dictaminada (`DocumentService.delete` llama tambien a
 `storage.delete_document_file`).
 
+(Nota 2026-09-28, Tarea 1 del plan titulatec-correos-notificaciones: `POST
+/student/phase/1/submit` SE RETIRO -- la fase 1 ahora se sincroniza sola,
+`DocumentService.sync_initial_phase`, llamada desde `save()`/`delete()`, y
+NUNCA toca una fase ya `approved`. El exploit de arriba queda como registro
+historico del bug que la guarda de fase cerro en su momento; `test_e4` mas
+abajo hoy solo confirma que esa ruta ya no existe.)
+
 Dos agujeros mas de la misma familia, que no estaban en el reporte y salen del
 inventario propio (ver `TestTipoDeDocumentoDeOtraFase`): `POST/DELETE
 /student/documents/{type_code}` resuelven el `DocumentType` **sin mirar su
@@ -230,17 +237,21 @@ class TestExploitsReportados:
             "la fase 3 no puede entrar en revision desde la fase 1"
         assert _format_b(db_session, esc.process.id) is None
 
-    def test_e4_no_reabre_una_fase_ya_aprobada(self, escenario, client_as, db_session):
-        """`POST /phase/1/submit` desde la fase 2 devolvia la fase 1 de
+    def test_e4_la_ruta_de_reabrir_una_fase_aprobada_ya_no_existe(self, escenario,
+                                                                  client_as, db_session):
+        """`POST /phase/1/submit` -- que desde la fase 2 devolvia la fase 1 de
         'approved' a 'in_review' y la reinyectaba en la cola de Servicios
-        Escolares."""
+        Escolares -- SE RETIRO (Tarea 1, 2026-09-28): la fase 1 se sincroniza
+        sola (`DocumentService.sync_initial_phase`) y esa funcion NUNCA toca
+        una fase `approved` (ver `test_initial_phase_sync.py::
+        test_nunca_toca_una_fase_aprobada`). Aqui solo queda constancia de que
+        la ruta vieja desaparecio y de que una fase cerrada sigue sin reabrirse."""
         esc = escenario(current_phase=2, docs=TODOS_APROBADOS)
         assert _phases(db_session, esc.process.id)[1] == "approved"
 
         resp = client_as(esc.student).post("/titulatec/student/phase/1/submit")
 
-        assert resp.status_code == 400, resp.text[:300]
-        assert resp.headers.get("X-Tt-Error")
+        assert resp.status_code in (404, 405), resp.text[:300]
         db_session.refresh(esc.process)
         assert esc.process.current_phase == 2
         assert _phases(db_session, esc.process.id)[1] == "approved", \
@@ -342,7 +353,6 @@ class TestParcialesYMutacionesDeOtraFase:
         ("doc_upload", "POST", "/titulatec/student/documents/curp",
          {"files": {"archivo": PDF}}, 1),
         ("doc_delete", "DELETE", "/titulatec/student/documents/curp", {}, 1),
-        ("phase1_submit", "POST", "/titulatec/student/phase/1/submit", {}, 1),
         ("cita_confirm", "POST", "/titulatec/student/cita/confirmar", {}, 2),
         ("cita_change", "POST", "/titulatec/student/cita/solicitar-cambio",
          {"data": {"reason": "no puedo"}}, 2),
@@ -401,9 +411,15 @@ class TestProcesoQueYaNoAdmiteCambios:
     def test_ninguna_accion_del_alumno_toca_un_proceso_no_activo(
         self, status, escenario, client_as, db_session,
     ):
+        """Probaba esto con `POST /phase/1/submit`, retirada en la Tarea 1
+        (2026-09-28): la subida de un documento es la misma mutacion, y ahora
+        ADEMAS es la unica via de `DocumentService.sync_initial_phase` -- que
+        tampoco toca nada aqui, porque la guarda de fase ya bloquea antes de
+        que `save()` se ejecute."""
         esc = escenario(current_phase=1, status=status, docs=TODOS_APROBADOS)
 
-        resp = client_as(esc.student).post("/titulatec/student/phase/1/submit")
+        resp = client_as(esc.student).post("/titulatec/student/documents/curp",
+                                           files={"archivo": PDF})
 
         assert resp.status_code == 400, resp.text[:300]
         assert status in resp.headers.get("X-Tt-Error", "")
@@ -483,15 +499,18 @@ class TestFaseRechazada:
     """
 
     def test_reenvia_la_fase_1_rechazada(self, escenario, client_as, db_session):
+        """El reenvio ya no es un segundo POST: subir el documento (aqui,
+        re-subir uno ya aprobado) completa los 3 y
+        `DocumentService.sync_initial_phase` regresa la fase sola a
+        'in_review' (Tarea 1, 2026-09-28) -- sin `POST /phase/1/submit`, que
+        ya no existe."""
         esc = escenario(current_phase=1, docs=TODOS_APROBADOS,
                         phase_overrides={1: "rejected"})
 
         subida = client_as(esc.student).post("/titulatec/student/documents/curp",
                                              files={"archivo": PDF})
-        reenvio = client_as(esc.student).post("/titulatec/student/phase/1/submit")
 
         assert subida.status_code == 200, subida.text[:300]
-        assert reenvio.status_code == 204, reenvio.text[:300]
         assert _phases(db_session, esc.process.id)[1] == "in_review"
 
     def test_corrige_y_reenvia_el_formato_b_rechazado(self, escenario, client_as,
@@ -661,6 +680,8 @@ def test_toda_ruta_del_alumno_atada_a_una_fase_invoca_la_guarda():
             if "_phase_guard" not in inspect.getsource(route.endpoint):
                 sin_guarda.append(method + " " + path)
 
-    assert revisadas == 15, "cambio el inventario de rutas del alumno: " + str(revisadas)
+    # 14 desde la Tarea 1 (2026-09-28): se retiro `POST /phase/1/submit`
+    # (eran 15). La fase 1 se sincroniza sola, `DocumentService.sync_initial_phase`.
+    assert revisadas == 14, "cambio el inventario de rutas del alumno: " + str(revisadas)
     assert not sin_guarda, ("rutas del alumno sin guarda de fase:\n"
                             + "\n".join(sin_guarda))

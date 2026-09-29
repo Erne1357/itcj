@@ -30,21 +30,6 @@
           {% include "titulatec/partials/document_slot.html" %}
         {% endwith %}
       {% endfor %}
-
-      <div class="d-grid mt-2">
-        {% if all_uploaded %}
-          <button class="btn tt-btn-ink" style="height:48px"
-                  hx-post="/titulatec/student/phase/1/submit"
-                  hx-swap="none"
-                  onclick="setTimeout(()=>location.reload(), 400)">
-            Enviar a revisión <i class="bi bi-arrow-right ms-1"></i>
-          </button>
-        {% else %}
-          <button class="btn tt-btn-soft" style="height:48px" disabled>
-            Sube los 3 documentos para continuar
-          </button>
-        {% endif %}
-      </div>
     {% endif %}
   </div>
 {% endblock %}

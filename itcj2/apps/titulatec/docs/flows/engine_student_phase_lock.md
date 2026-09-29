@@ -81,7 +81,13 @@ misma política que `PhaseService.phase_range` y `ImportService`.
 | `/student/cita` | GET | 2 | code `review_appointment` | **302** → `?fase=2` |
 | `/student/cita/confirmar` | POST | 2 | code `review_appointment` | 400 + `X-Tt-Error` |
 | `/student/cita/solicitar-cambio` | POST | 2 | code `review_appointment` | 400 + `X-Tt-Error` |
-| `/student/phase/1/submit` | POST | 1 | code `initial_docs` | 400 + `X-Tt-Error` |
+
+`POST /student/phase/1/submit` se retiró el 2026-09-28 (Tarea 1, plan
+titulatec-correos-notificaciones): la fase 1 ya no se "envía" a mano, se sincroniza sola
+(`DocumentService.sync_initial_phase`, llamada desde `save()`/`delete()` -- ver
+[documentos iniciales](phase1_student_upload_initial_docs.md)). Esta guarda de fase no
+protege esa sincronización porque no es un endpoint: es un efecto secundario de las dos
+filas de arriba (`documents/{type_code}` POST/DELETE).
 
 Las 3 rutas del alumno **sin** fase, y por qué: `GET /student/dashboard` (es el acordeón
 informativo de las 9 — el destino del 302), `GET /student/perfil` (identidad + resumen) y
@@ -140,7 +146,7 @@ Reproducido en dev:
 | `GET /student/formato-b` desde la fase 1 | 200 — y **creaba** la fila `titulatec_format_b` (`get_or_create` hace `commit`) |
 | `POST /student/formato-b/step/1` desde la fase 1 | 200, guardaba datos de la fase 3 |
 | `POST /student/formato-b/step/3` desde la fase 1 | 200 → fase 3 `in_review` + `FormatB.submitted` con `current_phase=1`: **entraba en la cola de Titulaciones sin pasar las fases 1 y 2** |
-| `POST /student/phase/1/submit` con la fase 1 ya aprobada | 204 → la fase volvía de `approved` a `in_review` y **reabría** la cola de Servicios Escolares |
+| `POST /student/phase/1/submit` con la fase 1 ya aprobada | 204 → la fase volvía de `approved` a `in_review` y **reabría** la cola de Servicios Escolares (ruta retirada el 2026-09-28, Tarea 1: la fase 1 se sincroniza sola con `DocumentService.sync_initial_phase`, que nunca toca una fase `approved`) |
 | `DELETE /student/documents/curp` desde la fase 2 | 200 → borraba fila **y fichero** (`storage.delete_document_file`) de evidencia ya dictaminada |
 | `POST/DELETE /student/documents/{tipo de otra fase}` | subía y borraba documentos de las fases 6, 7 y 8 desde la fase 1 |
 
