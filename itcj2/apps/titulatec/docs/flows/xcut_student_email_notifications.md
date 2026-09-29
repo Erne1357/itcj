@@ -361,7 +361,9 @@ del barrido diario es su `cron_expression` en `core_periodic_tasks` (editable en
 - **Base que ya sembró el despachador con `* * * * *`** (antes del ruling 18): como el `ON CONFLICT`
   no pisa `cron_expression`, re-sembrar NO lo cambia. Pasarlo a mano —
   `UPDATE core_periodic_tasks SET cron_expression = '*/5 * * * *' WHERE task_name =
-  'titulatec.email_dispatch';` (o desde `/config/system/tasks`)— y reiniciar el beat.
+  'titulatec.email_dispatch';` (o desde `/config/system/tasks`)—; el beat lo toma solo en ≤30 s
+  (`_reload_from_db` reconstruye el schedule entero, cron incluido). Solo aplica a la base de dev:
+  producción siembra desde cero con `*/5`.
 - Comando `titulatec init-email-tasks [--dry-run]` (`cli/titulatec.py:1156-1193`): corre SOLO ese
   archivo (`_DML_MAIL_2026_09_FILES`, `:1153`). El archivo también está en `SEED_FILES`
   (`cli/titulatec.py:94`, antes del 15), así que una instalación desde cero ya lo siembra con
@@ -371,13 +373,17 @@ del barrido diario es su `cron_expression` en `core_periodic_tasks` (editable en
 
 **Orden de despliegue:**
 
-1. Merge → `alembic upgrade head` con `MIGRATE_DATABASE_URL` (crea `titulatec_email_outbox`,
-   migración `tt20260928a`, escrita a mano, `down_revision = tt20260927b`).
-2. Copiar `database/DML/titulatec/mail_2026_09/` al servidor (`database/` es gitignored) y correr
-   `python -m itcj2.cli.main titulatec init-email-tasks`.
-3. Reiniciar TODOS los procesos (HTTP, sockets, celery worker, beat) — el worker necesita conocer
-   las tareas nuevas y el beat necesita releer `core_periodic_tasks`.
-4. Verificar en `/itcj/config/email` que la cuenta Graph de **titulatec** esté conectada en
+1. Merge → el deploy (`docker/scripts/deploy.sh`) corre `alembic upgrade head` en la imagen nueva
+   (crea `titulatec_email_outbox`, migración `tt20260928a`, escrita a mano, `down_revision =
+   tt20260927b`) y, en su paso 11.1, **recrea el celery worker y el beat** (`up -d --build
+   --force-recreate celery-worker celery-worker-reports celery-beat`) con el código nuevo: no hace
+   falta reiniciarlos a mano.
+2. **Después** del deploy: copiar `database/DML/titulatec/mail_2026_09/` al servidor (`database/`
+   es gitignored) y correr `python -m itcj2.cli.main titulatec init-email-tasks`. El beat
+   (`DatabaseScheduler`) relee `core_periodic_tasks` cada 30 s (`_DEFAULT_SYNC_EVERY`), así que
+   programa las dos tareas solo. El orden importa: corrido ANTES del deploy, el beat viejo mandaría
+   `titulatec.email_dispatch` a un worker que todavía no la tiene registrada.
+3. Verificar en `/itcj/config/email` que la cuenta Graph de **titulatec** esté conectada en
    producción.
 5. **El PRIMER barrido en producción manda el recordatorio índice 0 a TODO proceso elegible esa
    misma mañana** — es una ráfaga esperada por contrato (D6: todo proceso que ya lleva más de

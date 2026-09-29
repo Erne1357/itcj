@@ -1173,9 +1173,12 @@ def init_email_tasks_command(dry_run):
     le cambió la frecuencia desde `/config/system/tasks`. Correrlo dos veces
     no duplica nada.
 
-    Tras correrlo: reinicia el celery worker (debe reconocer
-    `titulatec.email_dispatch`/`titulatec.email_reminders` si no las tenía
-    ya) y el beat (relee `core_periodic_tasks` solo).
+    Córrelo DESPUÉS del deploy: `deploy.sh` (paso 11.1) ya recrea el celery
+    worker y el beat con el código que registra
+    `titulatec.email_dispatch`/`titulatec.email_reminders`, y el beat
+    (`DatabaseScheduler`) relee `core_periodic_tasks` cada 30 s, así que no
+    hace falta reiniciar nada. Antes del deploy, el beat viejo mandaría las
+    tareas a un worker que aún no las conoce.
     """
     if dry_run:
         click.echo("[dry-run] Se ejecutaría:")
@@ -1187,8 +1190,8 @@ def init_email_tasks_command(dry_run):
     _run_sql_files([f"{_DML_MAIL_2026_09_DIR}/{nombre}" for nombre in _DML_MAIL_2026_09_FILES])
     click.echo(click.style(
         "OK: titulatec.email_dispatch (cada 5 minutos) y titulatec.email_reminders "
-        "(diaria 9:00) registradas en core_periodic_tasks. Reinicia el celery "
-        "worker y el beat.",
+        "(diaria 9:00) registradas en core_periodic_tasks. El beat las programa "
+        "solo en ~30 s (el worker ya las conoce si corrió el deploy).",
         fg="green",
     ))
 
