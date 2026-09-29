@@ -14,6 +14,19 @@ rejilla de 20 minutos). Eso la UI lo muestra en una banda «Fuera de la rejilla�
 en vez de esconderlo, y se eligió a sabiendas: materializar los slots crea un
 estado que sí se desincroniza en silencio.
 
+Sin horario (`walkin`): una sola franja
+---------------------------------------
+Spec 2026-09-29 §3.1 (D3). Un `walkin` es UNA franja que abarca todo el
+espacio, a la hora de apertura, y su ``capacity`` es el TOTAL de personas, no
+el cupo por franja. ``slot_minutes`` se conserva (la columna es NOT NULL) pero
+no se usa. El egresado aparta lugar sin hora: su cita guarda día + apertura.
+``free_slots``, ``window_occupancy``, ``day_occupancy`` y ``assign`` salen
+correctos por derivación, sin ramas propias. Lo que sí cambia es
+``occupancy``: en producción hay citas que un encargado sentó a una HORA
+dentro de un `walkin` (p. ej. 10:30), y esas cuentan bajo la apertura igual
+que los apartados, así que siguen ocupando y no caen «fuera de la rejilla».
+Esas citas de legado conservan su hora: ver ``is_walkin_reservation``.
+
 El no-show cuenta
 -----------------
 ``occupancy`` incluye las citas en ``no_show``. Decisión del usuario: «si no se
@@ -97,9 +110,13 @@ class SlotService:
 
         Solo cuenta la franja si cabe ENTERA: una ventana 09:00-10:20 con
         franjas de 30 da 09:00 y 09:30, no 10:00 (que se saldría a las 10:30).
+
+        Sin horario (`walkin`): la apertura sola, sin mirar `slot_minutes`.
         """
         if not window or not window.start_time or not window.end_time:
             return []
+        if window.visibility == "walkin":
+            return [window.start_time] if window.end_time > window.start_time else []
         paso = timedelta(minutes=int(window.slot_minutes or 0))
         if paso <= timedelta(0):
             return []
@@ -113,12 +130,16 @@ class SlotService:
         return salida
 
     @staticmethod
-    def slots_from(start, end, minutes) -> list:
+    def slots_from(start, end, minutes, *, walkin: bool = False) -> list:
         """Las mismas franjas, pero a partir de valores sueltos.
 
         La usa el editor de espacios para calcular la linea derivada («10 franjas
         de 2 personas, 20 citas en total») ANTES de que exista la ventana. Acepta
         `time` o "HH:MM" indistintamente, que es lo que llega de un formulario.
+
+        `walkin=True` es el sin horario, igual que en `slots`: la apertura sola,
+        sin mirar `minutes`. Sirve para derivar el modo DESTINO de un espacio
+        que todavía no lo tiene escrito.
         """
         def _t(v):
             if isinstance(v, time):
@@ -130,6 +151,8 @@ class SlotService:
                 return None
 
         ini, fin = _t(start), _t(end)
+        if walkin:
+            return [ini] if ini is not None and fin is not None and fin > ini else []
         try:
             paso = timedelta(minutes=int(minutes))
         except (TypeError, ValueError):
@@ -165,12 +188,22 @@ class SlotService:
 
     # -------------------------------------------------------------- ocupación
     @staticmethod
-    def occupancy(db: Session, window, *, excluir_process_id: int | None = None) -> dict:
+    def occupancy(db: Session, window, *, excluir_process_id: int | None = None,
+                  walkin: bool | None = None,
+                  inicio: time | None = None) -> dict[time, int]:
         """{hora_de_inicio: cuántas citas} de esa ventana.
 
         `excluir_process_id` es para MOVER: al recolocar a un alumno dentro de
         su propia ventana, su cita actual no puede contarse contra el cupo de
         la franja destino.
+
+        En sin horario TODAS las citas vivas cuentan bajo la apertura, sea cual
+        sea su hora (spec 2026-09-29 §3.1): la de legado sentada a las 10:30
+        sigue ocupando un lugar del cupo total. `walkin=None` es el modo actual
+        de la ventana. `walkin` e `inicio` explícitos son para medir el modo
+        DESTINO antes de escribirlo (`ReviewWindowService.update`): con
+        `walkin=False`, cada cita a su hora real; con `walkin=True`, todas bajo
+        `inicio` (o la apertura actual). `inicio` solo cuenta en sin horario.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
         if not window or not window.id:
@@ -187,10 +220,13 @@ class SlotService:
             q = q.filter(~ReviewAppointment.status.in_(_ESTADOS_QUE_LIBERAN))
         if excluir_process_id:
             q = q.filter(ReviewAppointment.process_id != excluir_process_id)
+        if walkin is None:
+            walkin = window.visibility == "walkin"
+        apertura = inicio if inicio is not None else window.start_time
         salida: dict[time, int] = {}
         for a in q.all():
             if a.scheduled_at:
-                hora = a.scheduled_at.time()
+                hora = apertura if walkin else a.scheduled_at.time()
                 salida[hora] = salida.get(hora, 0) + 1
         return salida
 
@@ -475,14 +511,35 @@ class SlotService:
         corresponde a ninguna cita viva. Un `no_show` o una `attended` que ya no
         son la vigente SÍ siguen ocupando su franja (D10/D5) y tienen que salir.
         Nunca por `is_current`: eso es del historial, no de la ocupación.
+
+        Sin horario: siempre vacía. No tiene rejilla y `occupancy` cuenta toda
+        cita viva bajo la apertura, así que la de legado de las 10:30 saldría
+        en esta banda aunque sí ocupa su lugar.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
+        if window.visibility == "walkin":
+            return []
         validas = set(SlotService.slots(window))
         q = db.query(ReviewAppointment).filter(ReviewAppointment.window_id == window.id)
         if _ESTADOS_QUE_LIBERAN:
             q = q.filter(~ReviewAppointment.status.in_(_ESTADOS_QUE_LIBERAN))
         return [a for a in q.all()
                 if a.scheduled_at and a.scheduled_at.time() not in validas]
+
+    @staticmethod
+    def is_walkin_reservation(appt) -> bool:
+        """¿Es un lugar apartado en un sin horario, y no una cita con hora?
+
+        Ventana `walkin` **y** sentada a la apertura. La segunda mitad es la
+        regla de legado (spec §6): la cita que un encargado sentó a las 10:30
+        dentro de un `walkin` conserva su hora y se anuncia «10:30», no el
+        rango. Es la definición única para la tarjeta, los avisos, los correos
+        y los cortes del alumno contra el cierre (D5, D11).
+        """
+        ventana = getattr(appt, "window", None)
+        if ventana is None or ventana.visibility != "walkin" or appt.scheduled_at is None:
+            return False
+        return appt.scheduled_at.time() == ventana.start_time
 
     # ------------------------------------------------------------ resolución
     @staticmethod

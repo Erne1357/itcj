@@ -3,7 +3,9 @@
 Lo que aquí se valida son las dos formas de perder citas en silencio:
 
 * **encoger un espacio** que ya tiene gente dentro (bajar la capacidad, recortar
-  el horario o cambiar la duración de las franjas);
+  el horario, cambiar la duración de las franjas o cambiarle el MODO: un sin
+  horario, ``walkin``, es una sola franja con el cupo total, spec 2026-09-29
+  §3.1, así que `update` valida contra el modo DESTINO);
 * **borrarlo**. Lo impide ``ON DELETE RESTRICT`` a nivel de base; este service
   solo traduce el error a una frase que se pueda leer en ventanilla.
 
@@ -23,10 +25,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.services.appointment_errors import (
-    DuplicateWindowStart, InvalidSlot, WindowInUse, WindowOverlap,
-    WindowShrinkConflict,
+    DuplicateWindowStart, InvalidSlot, PlacesOutOfRange, WalkinStartLocked,
+    WindowInUse, WindowModeConflict, WindowOverlap, WindowShrinkConflict,
 )
 from itcj2.apps.titulatec.services.slot_service import SlotService
+
+# «Abrir más lugares» (D6): de 1 a 50 por vez, nunca más de 500 en total. El
+# tope total es el MISMO `max` del campo «Personas en total» del editor: si
+# abrir lugares lo rebasara, el formulario ya no dejaría volver a guardar el
+# espacio. El texto de `PlacesOutOfRange` repite los dos números.
+_LUGARES_POR_VEZ = 50
+_LUGARES_TOPE = 500
 
 
 def _t(v):
@@ -71,7 +80,8 @@ class ReviewWindowService:
                 raise WindowOverlap()
 
     @staticmethod
-    def _assert_cabe_lo_agendado(db: Session, window, inicio, fin, minutos, cupo) -> None:
+    def _assert_cabe_lo_agendado(db: Session, window, inicio, fin, minutos, cupo,
+                                 *, walkin: bool) -> None:
         """Ninguna cita VIVA puede quedar fuera del horario nuevo, ni sobrar del cupo.
 
         Se comprueba ANTES de escribir: reducir un espacio con gente dentro no
@@ -86,17 +96,46 @@ class ReviewWindowService:
         D12 liberó el lugar), quedaban 2 filas en esa hora contra un cupo de 1
         y CUALQUIER edición del espacio —hasta cambiarle solo la ubicación—
         moría con un `WindowShrinkConflict` cuyo número, además, mentía.
+
+        Se mide contra el modo DESTINO (`walkin`), que es lo que va a quedar
+        escrito; el de origen es el que la ventana tiene todavía:
+
+        * sin horario -> sin horario, con citas vivas y otra apertura:
+          `WalkinStartLocked`. Los apartados guardan día + apertura;
+        * -> sin horario: una sola franja, así que todas las vivas cuentan
+          juntas contra el cupo TOTAL (`WindowShrinkConflict`);
+        * sin horario -> con franjas: cada cita vuelve a su hora real y tiene
+          que caber en la rejilla y en el cupo por franja nuevos
+          (`WindowModeConflict`, con cuántas no caben);
+        * con franjas -> con franjas: la rejilla y el cupo de siempre.
         """
-        ocupacion = SlotService.occupancy(db, window)
+        ocupacion = SlotService.occupancy(db, window, walkin=walkin, inicio=inicio)
         if not ocupacion:
+            return
+        cupo = int(cupo)
+        desde_walkin = window.visibility == "walkin"
+
+        if walkin:
+            vivas = sum(ocupacion.values())
+            if desde_walkin and inicio != window.start_time:
+                raise WalkinStartLocked(vivas)
+            if vivas > cupo:
+                raise WindowShrinkConflict(vivas - cupo)
             return
 
         rejilla = set(SlotService.slots_from(inicio, fin, minutos))
         fuera = sum(n for hora, n in ocupacion.items() if hora not in rejilla)
+        if desde_walkin:
+            sobran = sum(n - cupo for hora, n in ocupacion.items()
+                         if hora in rejilla and n > cupo)
+            if fuera or sobran:
+                raise WindowModeConflict(fuera + sobran)
+            return
+
         if fuera:
             raise WindowShrinkConflict(fuera)
 
-        excedidas = sum(1 for n in ocupacion.values() if n > int(cupo))
+        excedidas = sum(1 for n in ocupacion.values() if n > cupo)
         if excedidas:
             raise WindowShrinkConflict(excedidas)
 
@@ -139,7 +178,9 @@ class ReviewWindowService:
         """`visibility=None` CONSERVA el modo actual, no lo devuelve a privado.
 
         La distinción importa: los llamadores que no saben del modo (o que solo
-        tocan el horario) no pueden despublicar un espacio por omisión.
+        tocan el horario) no pueden despublicar un espacio por omisión. Por lo
+        mismo, lo agendado se valida contra el modo que va a quedar: el nuevo,
+        o el de siempre si no se pasó ninguno.
         """
         inicio, fin = _t(start_time), _t(end_time)
         if inicio is None or fin is None or fin <= inicio:
@@ -151,8 +192,10 @@ class ReviewWindowService:
         ReviewWindowService.assert_no_overlap(db, window.review_day_id,
                                               window.owner_user_id, inicio, fin,
                                               excluir_id=window.id)
+        destino = visibility if visibility is not None else window.visibility
         ReviewWindowService._assert_cabe_lo_agendado(
-            db, window, inicio, fin, int(slot_minutes or 30), int(capacity or 1))
+            db, window, inicio, fin, int(slot_minutes or 30), int(capacity or 1),
+            walkin=destino == "walkin")
 
         window.start_time = inicio
         window.end_time = fin
@@ -167,6 +210,33 @@ class ReviewWindowService:
             db.rollback()
             raise DuplicateWindowStart()
         return window
+
+    @staticmethod
+    def add_places(db: Session, window, n: int):
+        """«Abrir más lugares» (D6): `capacity += n` bajo el lock de la ventana.
+
+        `n` va de 1 a 50 y el total no pasa de 500 (`PlacesOutOfRange`). El
+        rango de `n` es entrada del usuario y se revisa antes del lock; el tope
+        total, después, contra el cupo RELEÍDO: `_lock_window` devuelve la
+        ventana del mapa de identidad, cargada antes de esperar el lock, y si
+        otro encargado abrió lugares en ese intervalo, sumarle al valor viejo
+        borraría los suyos. Sin el re-leído, el lock no protegería nada.
+        """
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            raise PlacesOutOfRange() from None
+        if not 1 <= n <= _LUGARES_POR_VEZ:
+            raise PlacesOutOfRange()
+
+        w = SlotService._lock_window(db, window.id)
+        db.refresh(w, attribute_names=["capacity"])
+        total = int(w.capacity or 1) + n
+        if total > _LUGARES_TOPE:
+            raise PlacesOutOfRange()
+        w.capacity = total
+        db.flush()
+        return w
 
     @staticmethod
     def toggle_pause(db: Session, window):

@@ -98,6 +98,50 @@ class DuplicateWindowStart(AppointmentError):
         super().__init__(msg)
 
 
+class WindowModeConflict(AppointmentError):
+    """Pasar un espacio sin horario a uno con franjas no puede dejar citas sin lugar.
+
+    Al salir de `walkin` cada cita vuelve a su hora REAL, y tiene que caber en
+    la rejilla y en el cupo POR FRANJA nuevos. Los apartados guardan todos la
+    hora de apertura, así que se amontonan en la primera franja. `n` es cuántas
+    citas no caben. Lo levanta `ReviewWindowService._assert_cabe_lo_agendado`.
+    """
+
+    def __init__(self, n: int):
+        plural = "s" if n != 1 else ""
+        verbo = "n" if n != 1 else ""
+        super().__init__(
+            f"Este espacio tiene {n} cita{plural} que no cabe{verbo} en el modo nuevo. "
+            f"Muévelas o cancélalas primero.")
+
+
+class WalkinStartLocked(AppointmentError):
+    """Un sin horario con lugares apartados no mueve su hora de apertura (D3, D4).
+
+    Cada apartado guarda `scheduled_at` = día + apertura: mover la apertura lo
+    dejaría a una hora que el espacio ya no anuncia. Ampliar el cierre o abrir
+    más lugares no le cambia nada a quien ya apartó, y por eso sí se puede.
+    """
+
+    def __init__(self, n: int):
+        plural = "es" if n != 1 else ""
+        s = "s" if n != 1 else ""
+        super().__init__(
+            f"Ya hay {n} lugar{plural} apartado{s}: no puedes cambiar la hora de "
+            f"apertura. Puedes ampliar el cierre o abrir más lugares.")
+
+
+class PlacesOutOfRange(AppointmentError):
+    """«Abrir más lugares» (D6) fuera de rango.
+
+    Los dos números son los topes de `ReviewWindowService.add_places`
+    (`_LUGARES_POR_VEZ`, `_LUGARES_TOPE`): si cambian allá, cambia este texto.
+    """
+
+    def __init__(self, msg="Puedes abrir de 1 a 50 lugares a la vez, hasta 500 en total."):
+        super().__init__(msg)
+
+
 class SurveyNotSubmitted(AppointmentError):
     """El alumno no ha enviado la encuesta de egresados (`SurveyReview` no existe).
 
