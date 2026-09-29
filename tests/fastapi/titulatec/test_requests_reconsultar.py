@@ -324,7 +324,27 @@ def test_la_ruta_pide_exactamente_el_permiso_de_aprobar():
 # ---------------------------------------------------------------------------
 # El NIP del SII jamás en el HTML (consulta REAL al SII falso)
 # ---------------------------------------------------------------------------
-NIP_SII = "8642"
+# El NIP son 4 cifras y el HTML de la bandeja está lleno de ids
+# autoincrementales (convocatoria, solicitudes, consultas). Con «8642» y un
+# `assert NIP not in html`, el id `cohort_id=186421` daba un falso positivo en
+# cuanto la secuencia de convocatorias pasaba por …8642… (medido: corrida de la
+# suite de titulatec en un proceso contra la base de dev). Dos defensas: cero a
+# la izquierda —ningún id autoincremental se imprime así— y se busca la cifra
+# AISLADA, sin dígitos pegados a ningún lado (`_nip_aparece`).
+NIP_SII = "0427"
+
+
+def _nip_aparece(texto: str) -> bool:
+    """¿Sale el NIP como número propio? Un id que lo CONTIENE (104271) no cuenta."""
+    return re.search(rf"(?<!\d){NIP_SII}(?!\d)", texto) is not None
+
+
+def test_el_detector_del_nip_ignora_ids_y_atrapa_una_fuga():
+    """El detector no puede volverse ciego: una fuga real se sigue viendo."""
+    assert not _nip_aparece('hx-get="/body?cohort_id=104271"')
+    assert not _nip_aparece("solicitud 20427 y 04270")
+    assert _nip_aparece(f'<input value="{NIP_SII}">')
+    assert _nip_aparece(f"Tu NIP es {NIP_SII}.")
 
 
 @pytest.fixture()
@@ -375,7 +395,7 @@ def test_el_nip_del_sii_nunca_llega_a_la_bandeja(
 
     assert "Le faltan créditos: 200 de 260." in _plano(_fila(html, no_apta))
     assert "Apta" in _plano(_fila(html, apta))
-    assert NIP_SII not in html
+    assert not _nip_aparece(html)
 
 
 # ---------------------------------------------------------------------------
