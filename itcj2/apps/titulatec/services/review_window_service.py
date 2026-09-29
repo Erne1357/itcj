@@ -102,8 +102,11 @@ class ReviewWindowService:
 
         * sin horario -> sin horario, con citas vivas y otra apertura:
           `WalkinStartLocked`. Los apartados guardan día + apertura;
-        * -> sin horario: una sola franja, así que todas las vivas cuentan
-          juntas contra el cupo TOTAL (`WindowShrinkConflict`);
+        * -> sin horario: ninguna viva puede quedar, por su hora real, fuera
+          del horario nuevo ``[inicio, fin)`` (una sentada a las 13:30 no cabe
+          en un 09:00-12:00 aunque sobre cupo, y se le seguiría anunciando su
+          hora); y como es una sola franja, todas cuentan juntas contra el
+          cupo TOTAL. Las dos, `WindowShrinkConflict`;
         * sin horario -> con franjas: cada cita vuelve a su hora real y tiene
           que caber en la rejilla y en el cupo por franja nuevos
           (`WindowModeConflict`, con cuántas no caben);
@@ -119,6 +122,10 @@ class ReviewWindowService:
             vivas = sum(ocupacion.values())
             if desde_walkin and inicio != window.start_time:
                 raise WalkinStartLocked(vivas)
+            reales = SlotService.occupancy(db, window, walkin=False)
+            fuera = sum(n for hora, n in reales.items() if not inicio <= hora < fin)
+            if fuera:
+                raise WindowShrinkConflict(fuera)
             if vivas > cupo:
                 raise WindowShrinkConflict(vivas - cupo)
             return
@@ -215,12 +222,17 @@ class ReviewWindowService:
     def add_places(db: Session, window, n: int):
         """«Abrir más lugares» (D6): `capacity += n` bajo el lock de la ventana.
 
+        Solo en sin horario (`InvalidSlot` si no): con franjas `capacity` es
+        POR FRANJA, que el editor topa en 20, y se edita ahí.
+
         `n` va de 1 a 50 y el total no pasa de 500 (`PlacesOutOfRange`). El
-        rango de `n` es entrada del usuario y se revisa antes del lock; el tope
-        total, después, contra el cupo RELEÍDO: `_lock_window` devuelve la
-        ventana del mapa de identidad, cargada antes de esperar el lock, y si
-        otro encargado abrió lugares en ese intervalo, sumarle al valor viejo
-        borraría los suyos. Sin el re-leído, el lock no protegería nada.
+        rango de `n` es entrada del usuario y se revisa antes del lock; el
+        modo y el tope total, después, contra la fila RELEÍDA: `_lock_window`
+        devuelve la ventana del mapa de identidad, cargada antes de esperar el
+        lock. Si en ese intervalo otro encargado abrió lugares, sumarle al
+        valor viejo borraría los suyos; si pasó el espacio a «Agendable», se
+        sumaría a un cupo por franja. Sin el re-leído, el lock no protegería
+        nada.
         """
         try:
             n = int(n)
@@ -230,7 +242,9 @@ class ReviewWindowService:
             raise PlacesOutOfRange()
 
         w = SlotService._lock_window(db, window.id)
-        db.refresh(w, attribute_names=["capacity"])
+        db.refresh(w, attribute_names=["capacity", "visibility"])
+        if w.visibility != "walkin":
+            raise InvalidSlot("Solo los espacios sin horario abren lugares.")
         total = int(w.capacity or 1) + n
         if total > _LUGARES_TOPE:
             raise PlacesOutOfRange()

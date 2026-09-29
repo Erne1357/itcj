@@ -319,6 +319,54 @@ def test_pasar_a_sin_horario_junta_todas_las_vivas_contra_el_cupo_total(
     assert SlotService.occupancy(db_session, esc["w"]) == {time(8, 0): 3}
 
 
+def test_pasar_a_sin_horario_no_deja_citas_fuera_del_horario_nuevo(db_session, sin_horario):
+    """Ruling 2026-09-29: el cupo total alcanza, pero la de las 13:30 quedaría
+    viva fuera de un 09:00-12:00, y por la regla de legado se le seguiría
+    anunciando «13:30». Con franjas, la rejilla ya lo atrapaba."""
+    esc = sin_horario
+    esc["w"].visibility = "bookable"
+    db_session.flush()
+    _apartar(db_session, esc, 0, hora=time(13, 30))
+
+    with pytest.raises(err.WindowShrinkConflict) as exc:
+        _guardar(db_session, esc["w"], visibility="walkin",
+                 start_time=time(9, 0), end_time=time(12, 0))
+    assert str(exc.value) == ("1 cita quedaría fuera del horario nuevo. "
+                              "Muévelas antes de reducirlo.")
+    assert esc["w"].visibility == "bookable"
+
+    _guardar(db_session, esc["w"], visibility="walkin",
+             start_time=time(9, 0), end_time=time(14, 0))
+    assert esc["w"].visibility == "walkin"
+
+
+def test_recortar_el_cierre_no_deja_fuera_la_cita_de_legado(
+        db_session, sin_horario, make_appointment):
+    """La de las 11:00 no cabe en un cierre a las 10:30; en uno a las 11:30 sí,
+    y ampliarlo nunca deja a nadie fuera."""
+    esc = sin_horario
+    _legado(db_session, make_appointment, esc["w"], esc["p"][0], time(11, 0))
+
+    with pytest.raises(err.WindowShrinkConflict):
+        _guardar(db_session, esc["w"], end_time=time(10, 30))
+    assert esc["w"].end_time == time(14, 0)
+
+    _guardar(db_session, esc["w"], end_time=time(11, 30))
+    _guardar(db_session, esc["w"], end_time=time(16, 0))
+    assert esc["w"].end_time == time(16, 0)
+
+
+def test_recortar_el_cierre_con_solo_apartados_si_se_puede(db_session, sin_horario):
+    """La negativa: los apartados están a la apertura, así que ningún cierre
+    posterior a ella los deja fuera."""
+    esc = sin_horario
+    _apartar(db_session, esc, 0)
+
+    _guardar(db_session, esc["w"], end_time=time(10, 30))
+
+    assert esc["w"].end_time == time(10, 30)
+
+
 def test_salir_de_sin_horario_revisa_el_cupo_por_franja_nuevo(db_session, sin_horario):
     """Sin horario -> con franjas: los tres apartados vuelven a su hora real,
     la apertura, y ahí solo cabe UNO con cupo 1 por franja."""
@@ -397,6 +445,34 @@ def test_abrir_mas_lugares_no_pasa_del_tope_total(db_session, sin_horario):
 
     ReviewWindowService.add_places(db_session, esc["w"], 20)
     assert esc["w"].capacity == 500
+
+
+@pytest.mark.parametrize("modo", ["bookable", "private"])
+def test_abrir_mas_lugares_solo_en_sin_horario(db_session, sin_horario, modo):
+    """Ruling 2026-09-29: con franjas `capacity` es POR FRANJA (el editor lo topa
+    en 20); «+50» lo dejaría en un valor que el editor ya no deja re-guardar."""
+    esc = sin_horario
+    esc["w"].visibility = modo
+    db_session.flush()
+
+    with pytest.raises(err.InvalidSlot) as exc:
+        ReviewWindowService.add_places(db_session, esc["w"], 5)
+
+    assert str(exc.value) == "Solo los espacios sin horario abren lugares."
+    assert esc["w"].capacity == 3
+
+
+def test_abrir_mas_lugares_lee_el_modo_bajo_el_lock(db_session, sin_horario):
+    """Otro encargado pasó el espacio a «Agendable» mientras este esperaba el
+    lock: el objeto en memoria sigue diciendo `walkin`, la fila ya no."""
+    esc = sin_horario
+    db_session.execute(text("UPDATE titulatec_review_windows SET visibility = 'bookable' "
+                            "WHERE id = :w"), {"w": esc["w"].id})
+    assert esc["w"].visibility == "walkin", "el escenario necesita el modo viejo en memoria"
+
+    with pytest.raises(err.InvalidSlot):
+        ReviewWindowService.add_places(db_session, esc["w"], 5)
+    assert esc["w"].capacity == 3
 
 
 def test_abrir_mas_lugares_suma_sobre_el_cupo_releido_bajo_el_lock(db_session, sin_horario):
