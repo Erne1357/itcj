@@ -56,6 +56,11 @@ _NOMBRES = {
 HOY_FIJO = datetime(2031, 3, 10, 9, 0)
 CITA_MANANA = datetime(2031, 3, 11, 10, 30)
 ANCLA = datetime(2031, 3, 1, 9, 0)
+# Reloj de las pruebas de la cita (#7/#9): antes de la agenda de `agenda_slots`
+# (lunes 7 de mayo de 2029) y en OTRO año, así que la fecha larga lleva siempre
+# «de 2029». Sin reloj fijo era una bomba de tiempo: en 2029 `dia_largo` omite
+# el año en curso y las aserciones «… de 2029» se rompían solas.
+HOY_AGENDA = datetime(2028, 11, 6, 9, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -107,9 +112,14 @@ def cita_esc(agenda_slots, make_survey_review):
 
 @pytest.fixture()
 def reloj(monkeypatch):
-    """Fija el `db_now()` del compositor (por omisión `HOY_FIJO`) y lo devuelve."""
+    """Fija el reloj del compositor (por omisión `HOY_FIJO`) y lo devuelve: su
+    `db_now()` y el de `dates_es`, que es el que lee `dia_largo` para decidir
+    si la fecha lleva año cuando el compositor no le pasa `hoy` (cita #7,
+    cancelación, «no se presentó»)."""
     def _fijar(ahora=HOY_FIJO):
         monkeypatch.setattr("itcj2.apps.titulatec.services.mail_compose.db_now",
+                            lambda: ahora)
+        monkeypatch.setattr("itcj2.apps.titulatec.utils.dates_es.db_now",
                             lambda: ahora)
         return ahora
 
@@ -435,7 +445,8 @@ def test_dictamen_de_gtv(db_session, proceso, resultado, asunto):
 # ---------------------------------------------------------------------------
 # #7 — grupo `cita:{pid}`, armado con la cita VIGENTE (Review Focus 5)
 # ---------------------------------------------------------------------------
-def test_cita_agendada_lleva_fecha_lugar_requisitos_y_confirmar(db_session, cita_esc):
+def test_cita_agendada_lleva_fecha_lugar_requisitos_y_confirmar(db_session, cita_esc, reloj):
+    reloj(HOY_AGENDA)
     esc = cita_esc
     _requisito(db_session, esc["cohort"].id, "12 fotografías",
                hint="Tamaño credencial", orden=2)
@@ -540,11 +551,12 @@ def test_cita_agendada_y_cancelada_es_neto_cero(db_session, cita_esc, mover):
 
 @pytest.mark.parametrize("mover", [False, True], ids=["cancelada",
                                                      "reagendada-y-cancelada"])
-def test_cita_cancelada_que_ya_conocia_manda_cancelacion(db_session, cita_esc, mover):
+def test_cita_cancelada_que_ya_conocia_manda_cancelacion(db_session, cita_esc, mover, reloj):
     """Su cita ya le había llegado por correo (esa fila salió); ahora el
     encargado se la cancela, con o sin moverla antes: aviso con el motivo."""
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
+    reloj(HOY_AGENDA)
     esc = cita_esc
     appt = _agendar(db_session, esc)
     _ya_salio(db_session, esc["p1"].id)
@@ -669,9 +681,10 @@ def test_requisitos_no_siembran(db_session, cita_esc, monkeypatch):
 # ---------------------------------------------------------------------------
 # #9 — «no se presentó», re-validado al enviar (D8)
 # ---------------------------------------------------------------------------
-def test_no_show_avisa_con_la_fecha_de_la_cita(db_session, cita_esc):
+def test_no_show_avisa_con_la_fecha_de_la_cita(db_session, cita_esc, reloj):
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
+    reloj(HOY_AGENDA)
     esc = cita_esc
     appt = _agendar(db_session, esc)
     _ya_salio(db_session, esc["p1"].id)
