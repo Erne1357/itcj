@@ -51,7 +51,7 @@ def expediente(seed_phase_defs, seed_document_types, make_program, make_cohort,
 
 
 def _fila(db_session, proc, *, kind="phase_approved", status="sent", subject=None,
-         sent_to=None, last_error=None):
+         sent_to=None, last_error=None, group_key=None, sent_at=None, created_at=None):
     """Fila de `titulatec_email_outbox` insertada DIRECTO (no vía `StudentMail`,
     que solo deja filas `pending`): esta zona lee lo que el despachador YA
     dejó, así que las pruebas necesitan poblar cada estado a mano."""
@@ -59,10 +59,23 @@ def _fila(db_session, proc, *, kind="phase_approved", status="sent", subject=Non
 
     row = EmailOutbox(kind=kind, process_id=proc.id, user_id=proc.student_id,
                       payload={}, status=status, subject=subject,
-                      sent_to=sent_to, last_error=last_error)
+                      sent_to=sent_to, last_error=last_error, group_key=group_key,
+                      sent_at=sent_at)
+    if created_at is not None:
+        row.created_at = created_at
     db_session.add(row)
     db_session.flush()
     return row
+
+
+def _zona(html):
+    """La bitácora: de `#exp-correos` al final del HTML."""
+    return html.split('id="exp-correos"', 1)[1]
+
+
+def _entradas(zona):
+    """Entradas de la bitácora (una por correo)."""
+    return zona.count('class="tt-timeline-item"')
 
 
 # ===========================================================================
@@ -168,6 +181,106 @@ def test_ids_estables_por_fila(expediente, client_as, db_session):
     fila = _fila(db_session, esc["proc"])
     html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
     assert f'id="exp-mail-{fila.id}"' in html, "morph-safe: id estable por fila"
+
+
+# ===========================================================================
+# 3b. Una entrada por CORREO, no por aviso (ruling 21)
+# ===========================================================================
+def test_un_grupo_enviado_junto_es_una_sola_entrada(expediente, client_as, db_session):
+    """Los 3 dictámenes de documentos salieron en UN correo (mismo grupo, mismo
+    estado, mismo `sent_at`, que el despachador pone igual a toda la unidad):
+    UNA entrada con «3 avisos agrupados», la fecha de ENVÍO (no la de alta), el
+    id de la fila más reciente del grupo, y el encabezado cuenta correos."""
+    from datetime import datetime
+
+    from itcj2.apps.titulatec.pages.admin import _fecha_larga
+
+    esc = expediente()
+    proc = esc["proc"]
+    creado = datetime(2026, 3, 2, 10, 0)
+    enviado = datetime(2026, 3, 4, 16, 45)
+    avisos = [_fila(db_session, proc, kind="docs_review", status="sent",
+                    subject="[TitulaTec ITCJ] Revisamos tus documentos",
+                    sent_to="ana@example.com", group_key=f"docs:{proc.id}",
+                    sent_at=enviado, created_at=creado + timedelta(minutes=i))
+              for i in range(3)]
+    _fila(db_session, proc, kind="phase_rejected", status="sent", subject="Otro correo",
+          sent_to="ana@example.com", sent_at=datetime(2026, 3, 1, 9, 0),
+          created_at=datetime(2026, 3, 1, 8, 50))
+
+    zona = _zona(client_as(esc["officer"]).get(f"{URL}/{proc.id}").text)
+
+    assert _entradas(zona) == 2
+    assert zona.count("avisos agrupados") == 1
+    assert "3 avisos agrupados" in zona
+    assert _fecha_larga(enviado) in zona
+    assert _fecha_larga(avisos[-1].created_at) not in zona   # la de alta NO
+    assert f'id="exp-mail-{avisos[-1].id}"' in zona           # la fila más reciente
+    assert not any(f'id="exp-mail-{f.id}"' in zona for f in avisos[:-1])
+    assert "2 correos" in zona                                # correos, no 4 filas
+
+
+def test_filas_sueltas_siguen_siendo_una_por_fila(expediente, client_as, db_session):
+    """Sin `group_key` no hay a qué juntarlas, aunque compartan estado y hora de
+    envío: cada una fue su propio correo."""
+    from datetime import datetime
+
+    esc = expediente()
+    proc = esc["proc"]
+    enviado = datetime(2026, 3, 4, 16, 45)
+    sueltas = [_fila(db_session, proc, kind=kind, status="sent", subject=f"Correo {kind}",
+                     sent_to="ana@example.com", sent_at=enviado)
+               for kind in ("phase_approved", "survey_approved")]
+
+    zona = _zona(client_as(esc["officer"]).get(f"{URL}/{proc.id}").text)
+
+    assert _entradas(zona) == 2
+    assert "avisos agrupados" not in zona
+    assert all(f'id="exp-mail-{f.id}"' in zona for f in sueltas)
+
+
+def test_el_mismo_grupo_en_dos_correos_son_dos_entradas(expediente, client_as, db_session):
+    """Un grupo que salió en dos correos distintos (otro `sent_at`) son dos
+    entradas; la del correo de un solo aviso no dice «agrupados»."""
+    from datetime import datetime
+
+    esc = expediente()
+    proc = esc["proc"]
+    grupo = f"cita:{proc.id}"
+    primero, segundo = datetime(2026, 3, 4, 16, 45), datetime(2026, 3, 9, 11, 5)
+    for enviado, n in ((primero, 2), (segundo, 1)):
+        for _ in range(n):
+            _fila(db_session, proc, kind="appt_changed", status="sent",
+                  subject="[TitulaTec ITCJ] Tu cita de cotejo", sent_to="ana@example.com",
+                  group_key=grupo, sent_at=enviado)
+
+    zona = _zona(client_as(esc["officer"]).get(f"{URL}/{proc.id}").text)
+
+    assert _entradas(zona) == 2
+    assert zona.count("avisos agrupados") == 1 and "2 avisos agrupados" in zona
+
+
+def test_un_grupo_en_cola_es_una_entrada_con_la_fecha_del_ultimo_aviso(
+        expediente, client_as, db_session):
+    """Lo que no ha salido muestra la fecha de ALTA del aviso más reciente del
+    grupo (no hay fecha de envío): es el correo que va a salir con todos."""
+    from datetime import datetime
+
+    from itcj2.apps.titulatec.pages.admin import _fecha_larga
+
+    esc = expediente()
+    proc = esc["proc"]
+    viejo, nuevo = datetime(2026, 3, 4, 16, 40), datetime(2026, 3, 4, 16, 47)
+    for creado in (viejo, nuevo):
+        _fila(db_session, proc, kind="docs_review", status="pending",
+              group_key=f"docs:{proc.id}", created_at=creado)
+
+    zona = _zona(client_as(esc["officer"]).get(f"{URL}/{proc.id}").text)
+
+    assert _entradas(zona) == 1
+    assert "2 avisos agrupados" in zona and "En cola" in zona
+    assert _fecha_larga(nuevo) in zona and _fecha_larga(viejo) not in zona
+    assert "1 correo</span>" in zona
 
 
 # ===========================================================================

@@ -1176,6 +1176,57 @@ def _fecha_larga(dt) -> str:
     return f"{dt.day} {_MESES[dt.month]} {dt.year} · {dt:%H:%M}"
 
 
+def _bitacora_correos(filas) -> list[dict]:
+    """Entradas de la zona «Correos» del expediente: UNA por CORREO, no por
+    aviso (ruling 21, spec §7). `filas` = `StudentMail.history` (más nuevas
+    primero).
+
+    Las filas de un mismo grupo (`group_key` no nulo) con el mismo `status` y
+    el mismo `sent_at` son un solo correo —el despachador marca toda la unidad
+    igual— y se juntan en la entrada de la fila MÁS RECIENTE (su id es el de la
+    entrada: estable para el morph), con `n` = cuántos avisos junta. Las filas
+    sueltas son una entrada cada una. La fecha es la de ENVÍO si salió; si no,
+    la de alta del aviso más reciente.
+
+    Dicts PLANOS: `process_detail` renderiza DESPUÉS del `db.close()` de la ruta.
+    `kind` es `String(40)` SIN CHECK en BD (fix round 1, ronda de arreglo 1):
+    `StudentMail.enqueue` valida contra `OUTBOX_KINDS` antes de escribir, pero
+    no es el único camino posible hacia la tabla (migración de datos a mano,
+    `kind` nuevo del catálogo sin actualizar `KIND_LABELS`...), así que se
+    degrada con `.get(kind, kind)` —mismo patrón que `_MAIL_STATUS_UI.get(...)`
+    y `_EVENT_UI.get(...)`—: un `kind` sin etiqueta NUNCA debe tumbar TODO el
+    expediente con un `KeyError` por una sola fila; test:
+    `test_expediente_mail.py::test_kind_desconocido_no_revienta_la_pagina`.
+    """
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    entradas: list[dict] = []
+    por_correo: dict[tuple, dict] = {}
+    for m in filas:
+        llave = (m.group_key, m.status, m.sent_at) if m.group_key else None
+        if llave in por_correo:
+            por_correo[llave]["n"] += 1
+            continue
+        etiqueta, tono = _MAIL_STATUS_UI.get(m.status, (m.status, "neutral"))
+        enviado = m.status == "sent" and m.sent_at is not None
+        entrada = {
+            "id": m.id,
+            "when": _fecha_larga(m.sent_at if enviado else m.created_at),
+            # El asunto solo existe una vez enviado: antes, el nombre del tipo.
+            "subject": m.subject or StudentMail.KIND_LABELS.get(m.kind, m.kind),
+            "to": m.sent_to or "—",
+            "status": m.status,
+            "status_label": etiqueta,
+            "tone": tono,
+            "error": m.last_error,
+            "n": 1,
+        }
+        if llave is not None:
+            por_correo[llave] = entrada
+        entradas.append(entrada)
+    return entradas
+
+
 def _back_ctx(raw: str | None) -> dict:
     """Valida el `?from=` y devuelve a dónde vuelve el botón Regresar.
 
@@ -1470,33 +1521,13 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # ---- bitácora de correos al egresado (spec 2026-09-28 §7, D11) ----
     #
     # Solo lectura, sin reenviar. UNA consulta (`StudentMail.history`, ya
-    # ordenada `created_at DESC, id DESC`): dicts PLANOS por la misma razón
-    # que `revocada`/`otros_eventos` arriba -- `process_detail` renderiza
-    # DESPUÉS del `db.close()` de la ruta. `subject` cae al nombre del tipo
-    # mientras la fila no se ha enviado. `kind` es `String(40)` SIN CHECK en
-    # BD (fix round 1, ronda de arreglo 1): `StudentMail.enqueue` valida
-    # contra `OUTBOX_KINDS` antes de escribir, pero no es el único camino
-    # posible hacia la tabla (migración de datos a mano, `kind` nuevo del
-    # catálogo sin actualizar `KIND_LABELS`...), así que se degrada con
-    # `.get(kind, kind)` -- mismo patrón que `_MAIL_STATUS_UI.get(...)`
-    # arriba y `_EVENT_UI.get(...)`. Un `kind` sin etiqueta NUNCA debe tumbar
-    # TODO el expediente con un `KeyError` por una sola fila; test:
-    # `test_expediente_mail.py::test_kind_desconocido_no_revienta_la_pagina`.
+    # ordenada `created_at DESC, id DESC`) y una entrada por CORREO, no por
+    # aviso (ruling 21): `_bitacora_correos` junta los avisos de un grupo que
+    # salieron (o se quedaron) juntos. Dicts PLANOS por la misma razón que
+    # `revocada`/`otros_eventos` arriba.
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
-    correos = []
-    for m in StudentMail.history(db, process_id):
-        etiqueta, tono = _MAIL_STATUS_UI.get(m.status, (m.status, "neutral"))
-        correos.append({
-            "id": m.id,
-            "when": _fecha_larga(m.created_at),
-            "subject": m.subject or StudentMail.KIND_LABELS.get(m.kind, m.kind),
-            "to": m.sent_to or "—",
-            "status": m.status,
-            "status_label": etiqueta,
-            "tone": tono,
-            "error": m.last_error,
-        })
+    correos = _bitacora_correos(StudentMail.history(db, process_id))
 
     return {
         "process": proc.to_dict(),

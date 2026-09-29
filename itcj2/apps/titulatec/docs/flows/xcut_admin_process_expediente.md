@@ -118,6 +118,15 @@ primero. Decisiones:
 
 * **Solo lectura, sin reenviar (D11).** El personal necesita saber qué se
   mandó, cuándo, a dónde y si falló — no repetir el envío desde aquí.
+* **Una entrada por CORREO, no por aviso (ruling 21, 2026-09-29).**
+  `pages/admin.py::_bitacora_correos` junta las filas de un mismo grupo
+  (`group_key` no nulo: `docs:{pid}`, `cita:{pid}`) con el mismo `status` y
+  el mismo `sent_at` —el despachador marca así a toda la unidad que sale en
+  un correo— en UNA entrada con «N avisos agrupados», bajo el id de la fila
+  más reciente del grupo. La fecha es la de ENVÍO si salió; si no, la de alta
+  del aviso más reciente. El conteo del encabezado cuenta correos, no filas.
+  Antes, tres dictámenes que salieron en un solo correo se leían como tres
+  correos.
 * **`subject` cae al nombre del tipo** (`StudentMail.KIND_LABELS[kind]`)
   mientras la fila no se ha enviado: el despachador solo llena `subject` al
   entregar, y una fila `pending`/`failed`/`no_recipient` no tiene uno propio

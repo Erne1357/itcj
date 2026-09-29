@@ -394,16 +394,26 @@ dure el apagado.
 
 Zona `#exp-correos` en `partials/processes/_exp_shell.html`, al final del shell (después de
 `#exp-otros`), colapsable, cerrada por omisión, **no se pinta si el proceso no tiene filas**.
-Lectura en `pages/admin.py:1470-1499` (`_detail_ctx`, dentro de `admin.py`): UNA consulta
-(`StudentMail.history(db, process_id)`, `student_mail.py:254-264`, `created_at DESC, id DESC`),
-misma guarda de alcance (`assert_process_in_scope`) y mismos permisos del expediente — sin
+Lectura en `pages/admin.py:1521-1530` (`_detail_ctx`) → `_bitacora_correos` (`:1179-1227`): UNA
+consulta (`StudentMail.history(db, process_id)`, `student_mail.py:254-264`, `created_at DESC, id
+DESC`), misma guarda de alcance (`assert_process_in_scope`) y mismos permisos del expediente — sin
 permisos nuevos (D12).
 
-Cada fila: fecha larga · `subject` (o `StudentMail.KIND_LABELS[kind]` — `student_mail.py:185-197`
+**Una entrada por CORREO, no por aviso** (ruling 21, 2026-09-29): las filas de un mismo grupo
+(`group_key` no nulo) con el mismo `status` y el mismo `sent_at` son un solo correo —el despachador
+marca toda la unidad igual— y se juntan en UNA entrada con «N avisos agrupados» cuando N > 1, bajo
+el id de la fila MÁS RECIENTE del grupo (`exp-mail-{id}`, morph-safe). Las filas sueltas son una
+entrada cada una. La fecha es la de ENVÍO (`sent_at`) si salió; si no, la de alta del aviso más
+reciente. El conteo del encabezado («N correos») cuenta entradas, no filas. Límite conocido: lo que
+no salió no guarda cuándo se decidió, así que dos correos del MISMO grupo que terminaron igual sin
+salir (p. ej. dos `failed` en dev, sin cuenta Graph) comparten llave y quedan en una sola entrada.
+
+Cada entrada: fecha larga · `subject` (o `StudentMail.KIND_LABELS[kind]` — `student_mail.py:185-197`
 — mientras la fila no se ha enviado; si el `kind` no tiene etiqueta, **cae al código crudo del
-`kind`** en vez de reventar — `KIND_LABELS.get(m.kind, m.kind)`, `pages/admin.py:1493`,
+`kind`** en vez de reventar — `KIND_LABELS.get(m.kind, m.kind)`, `pages/admin.py:1216`,
 `test_expediente_mail.py::test_kind_desconocido_no_revienta_la_pagina`) · destinatario (`sent_to`
-o «—» si aún no salió) · píldora de estado, `_MAIL_STATUS_UI` (`pages/admin.py:1130-1136`):
+o «—» si aún no salió) · «N avisos agrupados» si junta más de uno · píldora de estado,
+`_MAIL_STATUS_UI` (`pages/admin.py:1130-1136`):
 
 | `status` | Píldora | Tono |
 |---|---|---|

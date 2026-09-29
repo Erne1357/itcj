@@ -15,10 +15,17 @@
    swaps: a diferencia de las fases, nace cerrada siempre (la lista no cambia
    con las acciones del expediente, así que no hay nada que el usuario pierda).
 
-   Cada fila usa `.tt-timeline-item` (mismas clases que `_exp_timeline.html`,
+   Una ENTRADA por CORREO, no por aviso (ruling 21, `pages/admin.py::
+   _bitacora_correos`): los avisos de un grupo con el mismo estado y el mismo
+   `sent_at` son un solo correo; `m.n` dice cuántos junta («N avisos
+   agrupados» si N > 1) y `m.when` es la fecha de envío si salió, o la de alta
+   del aviso más reciente si no. El conteo del encabezado cuenta entradas.
+
+   Cada entrada usa `.tt-timeline-item` (mismas clases que `_exp_timeline.html`,
    sin incluirlo: esa vista es icono+tono, y aquí el estado va en una píldora
-   de `_macros.html`, no en el icono) con id estable `exp-mail-{{ m.id }}`
-   (morph-safe, aunque hoy el shell entero se re-renderiza como unidad).
+   de `_macros.html`, no en el icono) con id estable `exp-mail-{{ m.id }}` = la
+   fila más reciente de su grupo (morph-safe, aunque hoy el shell entero se
+   re-renderiza como unidad).
    =========================================================================== #}
 {% from "titulatec/_macros.html" import pill %}
 <div class="tt-acc-item" id="exp-correos-item">
@@ -45,7 +52,8 @@
             {{ pill(m.status_label, m.tone) }}
           </div>
           <div class="when"><span class="tt-mono">{{ m.when }}</span>
-            · <span class="quien">{{ m.to }}</span></div>
+            · <span class="quien">{{ m.to }}</span>
+            {%- if m.n > 1 %} · {{ m.n }} avisos agrupados{% endif %}</div>
           {% if m.error %}<div class="detalle">{{ m.error }}</div>{% endif %}
         </div>
       </div>
