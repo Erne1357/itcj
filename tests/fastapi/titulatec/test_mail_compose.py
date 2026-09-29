@@ -310,6 +310,29 @@ def test_docs_aprobados_y_avance_de_fase_1_en_el_mismo_correo(db_session, proces
     assert html.index("encuesta de egresados") < html.index("Agenda tu")
 
 
+def test_avance_de_fase_1_con_un_rechazo_en_el_grupo_pide_correcciones(db_session, proceso):
+    """B4: el grupo trae el avance de la fase 1 pero, tras el ÚLTIMO dictamen de
+    cada tipo, queda un rechazo (dictamen tardío desde la bandeja, o la fase 1
+    aprobada a mano con un documento rechazado). El asunto y el encabezado son
+    los de correcciones, no «¡aprobados!»; el cuerpo sí menciona el avance, y no
+    le pide volver a subir (la fase 1 ya no es la actual)."""
+    proc = proceso()
+    _dictamen(db_session, proc, "birth_certificate", "approved")
+    _avance_fase_1(db_session, proc)
+    _dictamen(db_session, proc, "curp", "rejected", note="La CURP no es legible")
+
+    c = _componer(db_session, proc)
+
+    assert c.subject == "[TitulaTec ITCJ] Revisamos tus documentos: hay correcciones"
+    assert c.template == "docs_review.html"
+    assert c.link == _liga("/titulatec/student/cita")
+    html = _html(c)
+    assert "fueron aprobados" not in html
+    assert "hay correcciones" in html and "La CURP no es legible" in html
+    assert "Fase 02 · Cita de cotejo" in html
+    assert "vuélvelos a subir" not in html
+
+
 def test_avance_de_fase_1_sin_dictamenes_en_el_grupo(db_session, proceso):
     """Los dictámenes salieron en un correo anterior y el avance llegó solo."""
     proc = proceso()

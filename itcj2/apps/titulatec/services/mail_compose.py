@@ -172,9 +172,14 @@ def _correo(user, asunto: str, plantilla: str, ruta: str, **datos) -> Composed:
 def _compose_docs_group(db: Session, rows: list, process, user) -> Composed | Obsolete:
     """#1 + #1b, grupo `docs:{pid}`. De cada documento cuenta su ÚLTIMO dictamen
     del grupo, en el lugar de su primera aparición. Si el grupo trae además el
-    avance de la fase 1 (`phase_approved`), el correo es «¡aprobados!» con los
-    siguientes pasos (encuesta → agendar) y lleva a la cita; si no, lleva a
-    Documentos."""
+    avance de la fase 1 (`phase_approved`), el correo da los siguientes pasos
+    (encuesta → agendar) y lleva a la cita; si no, lleva a Documentos.
+
+    El asunto de un grupo con avance es «¡aprobados!» SOLO si no queda ningún
+    rechazo tras el último dictamen de cada tipo (B4, ronda final): con uno
+    —dictamen tardío desde la bandeja, o la fase 1 aprobada a mano con un
+    documento rechazado— asunto y encabezado son los de correcciones, y el
+    cuerpo menciona el avance."""
     ultimos: dict[str, dict] = {}
     avance = None
     for row in rows:                                   # ya en orden (created_at, id)
@@ -196,15 +201,16 @@ def _compose_docs_group(db: Session, rows: list, process, user) -> Composed | Ob
             "note": None if aprobado else _texto(datos.get("note")),
         })
     hay_correcciones = any(not d["approved"] for d in docs)
+    con_correcciones = "Revisamos tus documentos: hay correcciones"
 
     if avance is not None:
-        return _correo(user, "¡Tus documentos fueron aprobados!", "docs_review.html", _CITA,
+        asunto = con_correcciones if hay_correcciones else "¡Tus documentos fueron aprobados!"
+        return _correo(user, asunto, "docs_review.html", _CITA,
                        advanced=True, next_name=_texto(avance.get("next_name")),
                        docs=docs, has_rejected=hay_correcciones)
     if not docs:
         return Obsolete("el grupo de documentos no trae dictámenes")
-    asunto = ("Revisamos tus documentos: hay correcciones" if hay_correcciones
-              else "Revisamos tus documentos")
+    asunto = con_correcciones if hay_correcciones else "Revisamos tus documentos"
     return _correo(user, asunto, "docs_review.html", _DOCUMENTOS,
                    advanced=False, next_name=None, docs=docs,
                    has_rejected=hay_correcciones)
