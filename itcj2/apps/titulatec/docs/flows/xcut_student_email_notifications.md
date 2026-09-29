@@ -213,9 +213,12 @@ del alta.
    con su motivo; si no, `email_helper.deliver_detailed` (`:318-330`).
 6. Salió → `sent` + `sent_at`/`sent_to`/`subject`. No salió → `attempts += 1`,
    `not_before = now + backoff_minutes(attempts)` (1, 2, 4, 8, 16, 32… min, tope 60 —
-   `backoff_minutes`, `:210-214`); al llegar a `MailSettings.max_attempts()` (default 6) → `failed`
-   con `last_error` legible (`_MOTIVOS`, `:98-102`: «Cuenta de correo no conectada», «Error en la
-   plantilla», «Error al enviar»).
+   `backoff_minutes`, `:210-214`); al llegar a `MailSettings.max_attempts()` (default **7**,
+   ruling 20) → `failed` con `last_error` legible (`_MOTIVOS`, `:98-102`: «Cuenta de correo no
+   conectada», «Error en la plantilla», «Error al enviar»). Siete intentos = seis esperas
+   (1+2+4+8+16+32 min): ~1 h de reintentos antes de darlo por fallido (cada espera se redondea a la
+   siguiente corrida de 5 minutos, así que el séptimo intento cae hacia los 80 min del primero);
+   con 6 se rendía a los ~31 min.
 7. **Todas las filas de una unidad quedan con el mismo desenlace y el mismo conteo de intentos**:
    el intento es del CORREO, no de cada fila.
 
@@ -319,7 +322,7 @@ aviso aparece al recargar — es lo esperado.
 |---|---|---|---|
 | `TITULATEC_EMAIL_ENABLED` | `True` | — | apagado completo (§7) |
 | `TITULATEC_EMAIL_DIGEST_MINUTES` | `10` | 1–120 | espera del agrupado (D7) **y** gracia de «no se presentó» (D8) |
-| `TITULATEC_EMAIL_MAX_ATTEMPTS` | `6` | 1–20 | intentos antes de `failed` |
+| `TITULATEC_EMAIL_MAX_ATTEMPTS` | `7` | 1–20 | intentos antes de `failed` (ruling 20: ~1 h de reintentos; con 6 eran ~31 min) |
 | `TITULATEC_REMINDER_FIRST_DAYS` | `3` | 1–60 | días desde el ancla al primer recordatorio de documentos/encuesta |
 | `TITULATEC_REMINDER_EVERY_DAYS` | `7` | 1–60 | días entre recordatorios siguientes |
 | `TITULATEC_REMINDER_MAX` | `3` | 0–10 | tope por ancla (0 = sin recordatorios de encuesta/documentos) |

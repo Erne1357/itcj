@@ -156,7 +156,9 @@ class TestSettingsDeCorreo:
         s = Settings(_env_file=None)
         assert s.TITULATEC_EMAIL_ENABLED is True
         assert s.TITULATEC_EMAIL_DIGEST_MINUTES == 10
-        assert s.TITULATEC_EMAIL_MAX_ATTEMPTS == 6
+        # Ruling 20: con 7, las 6 esperas (1+2+4+8+16+32 min) suman ~1 h de
+        # reintentos; con 6 se daba por fallido a los ~31 min.
+        assert s.TITULATEC_EMAIL_MAX_ATTEMPTS == 7
         assert s.TITULATEC_REMINDER_FIRST_DAYS == 3
         assert s.TITULATEC_REMINDER_EVERY_DAYS == 7
         assert s.TITULATEC_REMINDER_MAX == 3

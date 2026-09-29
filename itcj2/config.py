@@ -557,9 +557,11 @@ class Settings(BaseSettings):
     # cuando la fila mas nueva del grupo lleva esto sin movimiento. Tambien
     # es la gracia de "no se presento" (C3, D8) antes de encolar el aviso.
     TITULATEC_EMAIL_DIGEST_MINUTES: int = Field(10, ge=1, le=120)
-    # Reintentos con espera creciente (1,2,4,8,16,32 min) antes de marcar
-    # `failed` con `last_error` legible.
-    TITULATEC_EMAIL_MAX_ATTEMPTS: int = Field(6, ge=1, le=20)
+    # Intentos de envio con espera creciente (1,2,4,8,16,32 min) antes de
+    # marcar `failed` con `last_error` legible. Ruling 20 (2026-09-29): 7 = seis
+    # esperas, ~1 h de reintentos (con la corrida cada 5 min, el septimo cae
+    # hacia los 80 min del primero); con 6 se daba por fallido a los ~31 min.
+    TITULATEC_EMAIL_MAX_ATTEMPTS: int = Field(7, ge=1, le=20)
     # Recordatorios de documentos/encuesta (D6): primero a los N dias sin
     # movimiento, luego cada M dias, hasta el tope de abajo.
     TITULATEC_REMINDER_FIRST_DAYS: int = Field(3, ge=1, le=60)
