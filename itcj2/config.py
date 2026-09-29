@@ -534,6 +534,29 @@ class Settings(BaseSettings):
     # (`titulatec sii-sweep --reconsultar-errores` o «Reintentar consulta»).
     TITULATEC_SII_MAX_ATTEMPTS: int = Field(5, ge=1, le=20)
 
+    # Correos del proceso al egresado (spec 2026-09-28, motor D4: bandeja
+    # `titulatec_email_outbox` + despachador Celery cada minuto). Cambiar
+    # cualquiera exige variable de entorno y reiniciar TODOS los procesos
+    # backend (`get_settings()` vive en `lru_cache` por proceso).
+    # Apagado completo: no encola, el despachador y el barrido no tocan la BD.
+    TITULATEC_EMAIL_ENABLED: bool = True
+    # Ventana de agrupado (D7): un dictamen/cambio de cita sale en UN correo
+    # cuando la fila mas nueva del grupo lleva esto sin movimiento. Tambien
+    # es la gracia de "no se presento" (C3, D8) antes de encolar el aviso.
+    TITULATEC_EMAIL_DIGEST_MINUTES: int = Field(10, ge=1, le=120)
+    # Reintentos con espera creciente (1,2,4,8,16,32 min) antes de marcar
+    # `failed` con `last_error` legible.
+    TITULATEC_EMAIL_MAX_ATTEMPTS: int = Field(6, ge=1, le=20)
+    # Recordatorios de documentos/encuesta (D6): primero a los N dias sin
+    # movimiento, luego cada M dias, hasta el tope de abajo.
+    TITULATEC_REMINDER_FIRST_DAYS: int = Field(3, ge=1, le=60)
+    TITULATEC_REMINDER_EVERY_DAYS: int = Field(7, ge=1, le=60)
+    # Tope de recordatorios por ancla. 0 = sin recordatorios de encuesta/documentos.
+    TITULATEC_REMINDER_MAX: int = Field(3, ge=0, le=10)
+    # Recordatorio de cita de cotejo: dias antes de la fecha (barrido de las
+    # 9:00). 0 = sin recordatorio de cita.
+    TITULATEC_APPT_REMINDER_DAYS_BEFORE: int = Field(1, ge=0, le=7)
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")
