@@ -99,17 +99,45 @@ class DuplicateWindowStart(AppointmentError):
 
 
 class SurveyNotSubmitted(AppointmentError):
-    """El alumno no ha enviado la encuesta de egresados (D2).
+    """El alumno no ha enviado la encuesta de egresados (`SurveyReview` no existe).
 
     Guarda dura de `AppointmentService.create`, ANTES que cualquier otra
-    validación: hace falta la solicitud (`SurveyReview`), no que GTV ya la
-    haya liberado. Servicios Escolares puede agendar mientras GTV sigue
-    revisando en paralelo; lo único que bloquea es no haberla enviado.
+    validación. Desde D1 (2026-09-29-titulatec-cotejo-espacios-design.md §2,
+    revierte D2 del 2026-09-15) enviarla YA NO basta: hace falta además que
+    Gestión Tecnológica y Vinculación la haya LIBERADO. Este error es SOLO
+    para el pseudo-estado `'missing'` (nunca la envió); si la envió pero sigue
+    `in_review`/`rejected`, la guarda levanta `SurveyNotReleased`.
     """
 
     def __init__(self, msg="El alumno todavía no envía la encuesta de egresados. "
                            "Sin ella no se puede agendar."):
         super().__init__(msg)
+
+
+class SurveyNotReleased(AppointmentError):
+    """El alumno envió la encuesta de egresados, pero GTV todavía no la LIBERA (D1).
+
+    Guarda dura de `AppointmentService.create`, justo detrás de
+    `SurveyNotSubmitted`: cubre los dos estados de `SurveyReview.status` que
+    no son `'approved'` —`in_review` (GTV la sigue revisando) y `rejected`
+    (GTV dejó observaciones)—. Sigue siendo entrada del usuario (400, no
+    colisión de estado): lo que hay en pantalla sigue siendo verdad, solo
+    falta que GTV libere. `status` viaja en la excepción —`release_status`,
+    nunca `None`— para que quien la capture pueda distinguir los dos casos
+    sin volver a leer la fila.
+    """
+
+    _MENSAJES = {
+        "in_review": ("La encuesta de egresados de este alumno sigue en revisión con "
+                      "Gestión Tecnológica y Vinculación. Se podrá agendar cuando la liberen."),
+        "rejected": ("La encuesta de egresados de este alumno tiene observaciones de "
+                     "Gestión Tecnológica y Vinculación. Se podrá agendar cuando la liberen."),
+    }
+
+    def __init__(self, status: str, msg: str | None = None):
+        super().__init__(msg or self._MENSAJES.get(
+            status, "La encuesta de egresados de este alumno todavía no está liberada."))
+        self.status = status
 
 
 def _lapso(minutos: int) -> str:

@@ -3,7 +3,8 @@
 D13 parte las guardas en dos capas, y esa partición decide dónde vive cada regla:
 
 * **Duras**, en `AppointmentService` / `SlotService`, para TODOS (encargado
-  incluido): una sola cita vigente por proceso, encuesta enviada, día
+  incluido): una sola cita vigente por proceso, encuesta LIBERADA por GTV (D1
+  de 2026-09-29, revierte D2 del 2026-09-15: enviarla ya no basta), día
   habilitado, franja real de la rejilla, cupo libre, lock de ventana y
   advisory lock del proceso.
 * **Del alumno**, aquí: fase 2 aprobada, tope de cancelaciones propias,
@@ -72,9 +73,28 @@ class SelfBookingService:
         "proceso_inactivo": "Tu proceso no está activo.",
         "fase_aprobada": "Tu cotejo ya quedó aprobado. No necesitas otra cita.",
         "sin_encuesta": "Primero envía la encuesta de egresados.",
+        # D1 (revierte D2 del 2026-09-15): la envió, pero GTV todavía no la
+        # libera. Dos frases DISTINTAS de "sin_encuesta" -el alumno ya hizo
+        # su parte- para que sepa que no tiene nada más que hacer aquí.
+        "encuesta_en_revision": ("Tu encuesta de egresados está en revisión con Gestión "
+                                 "Tecnológica y Vinculación. Podrás agendar en cuanto la "
+                                 "liberen."),
+        "encuesta_con_observaciones": ("Gestión Tecnológica y Vinculación dejó observaciones "
+                                       "en tu encuesta de egresados. Podrás agendar en cuanto "
+                                       "la liberen."),
         "tiene_cita": "Ya tienes una cita. Cancélala si necesitas otra.",
         "bloqueado_por_cancelaciones": ("Cancelaste {n} veces. Pídele la cita a tu "
                                         "encargado de carrera."),
+    }
+
+    # Traduce `SurveyReviewService.release_status` (missing | in_review |
+    # rejected -- 'approved' nunca llega aquí, la regla 3 lo descarta antes)
+    # al código de razón de la tabla de §3. Vive junto a `MENSAJES` porque
+    # las tres llaves de este dict SON llaves de `MENSAJES`.
+    _SURVEY_REASONS: dict[str, str] = {
+        "missing": "sin_encuesta",
+        "in_review": "encuesta_en_revision",
+        "rejected": "encuesta_con_observaciones",
     }
 
     # ------------------------------------------------------------- utilería
@@ -158,7 +178,9 @@ class SelfBookingService:
 
     @staticmethod
     def eligibility(db: Session, process_id: int) -> dict:
-        """¿Puede agendar solo, y si no, por qué? (spec §3)
+        """¿Puede agendar solo, y si no, por qué? (spec §3; regla 3 revisada
+        por D1 de 2026-09-29-titulatec-cotejo-espacios-design.md §2, que
+        revierte D2 del 2026-09-15)
 
         Devuelve `{can_book, can_walkin, reason, cancellations,
         blocked_by_cancellations, current}`.
@@ -167,6 +189,14 @@ class SelfBookingService:
         falla es la que se reporta, así que un proceso inactivo **y** sin
         encuesta dice `proceso_inactivo`, no `sin_encuesta`. Reordenar la
         cadena le cambia el mensaje al alumno aunque las seis sigan estando.
+
+        La regla 3 ya no es un booleano (¿existe la solicitud?) sino un
+        `SurveyReviewService.release_status` de tres caras: `sin_encuesta`
+        (nunca la envió), `encuesta_en_revision` (la envió, GTV la revisa) y
+        `encuesta_con_observaciones` (GTV dejó observaciones). Las tres
+        bloquean `can_book` por igual —enviarla ya no basta, hace falta que
+        GTV la LIBERE (`status == 'approved'`)—, pero cada una le dice al
+        alumno algo distinto sobre qué falta.
 
         `can_walkin` **no es** `can_book`: pasa con las reglas 1 a 4 y la 5 NO
         lo apaga. El bloqueado por D9 perdió el derecho a *reservar un lugar*,
@@ -196,6 +226,7 @@ class SelfBookingService:
         current = AppointmentService.get_for_process(db, proc.id)
         cancelaciones = SelfBookingService.cancellations(db, proc)
         bloqueado = SelfBookingService.is_blocked_by_cancellations(db, proc)
+        estado_encuesta = SurveyReviewService.release_status(db, proc.id)
 
         # Las 6 reglas de §3, EN ORDEN.
         reason = None
@@ -203,8 +234,8 @@ class SelfBookingService:
             reason = "proceso_inactivo"
         elif SelfBookingService._fase_cotejo_aprobada(db, proc):
             reason = "fase_aprobada"
-        elif SurveyReviewService.get_for_process(db, proc.id) is None:
-            reason = "sin_encuesta"
+        elif estado_encuesta != "approved":
+            reason = SelfBookingService._SURVEY_REASONS[estado_encuesta]
         elif current is not None and current.status in _ESTADOS_ACTIVOS:
             reason = "tiene_cita"
         elif bloqueado:

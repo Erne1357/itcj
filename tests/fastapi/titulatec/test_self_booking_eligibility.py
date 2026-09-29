@@ -29,12 +29,13 @@ DOCS_INICIALES = ("birth_certificate", "high_school_cert", "curp")
 # ---------------------------------------------------------------- andamiaje
 @pytest.fixture()
 def alumno(agenda_slots, make_survey_review):
-    """`agenda_slots` con la encuesta de egresados YA ENVIADA para `p1`.
+    """`agenda_slots` con la encuesta de egresados YA LIBERADA para `p1`.
 
     Es el estado «puede agendar»: proceso activo, fase 2 sin aprobar,
-    solicitud de liberación abierta y ninguna cita.
+    solicitud de liberación LIBERADA por GTV (D1, revierte D2 del
+    2026-09-15: enviarla ya no basta) y ninguna cita.
     """
-    make_survey_review(agenda_slots["p1"])
+    make_survey_review(agenda_slots["p1"], status="approved")
     return agenda_slots
 
 
@@ -113,6 +114,40 @@ def test_regla_3_sin_la_encuesta_enviada_no_puede_agendar(db_session, agenda_slo
     assert e["can_book"] is False
     assert e["reason"] == "sin_encuesta"
     assert e["can_walkin"] is False
+    assert SelfBookingService.message_for(e["reason"]) == (
+        "Primero envía la encuesta de egresados.")
+
+
+def test_regla_3_con_la_encuesta_en_revision_no_puede_agendar(
+        db_session, agenda_slots, make_survey_review):
+    """D1 (revierte D2 del 2026-09-15): la envió, pero GTV todavía no la
+    libera. Motivo DISTINTO de "sin_encuesta" -el alumno ya hizo su parte-."""
+    make_survey_review(agenda_slots["p1"], status="in_review")
+
+    e = SelfBookingService.eligibility(db_session, agenda_slots["p1"].id)
+
+    assert e["can_book"] is False
+    assert e["reason"] == "encuesta_en_revision"
+    assert e["can_walkin"] is False
+    assert SelfBookingService.message_for(e["reason"]) == (
+        "Tu encuesta de egresados está en revisión con Gestión Tecnológica y "
+        "Vinculación. Podrás agendar en cuanto la liberen.")
+
+
+def test_regla_3_con_la_encuesta_con_observaciones_no_puede_agendar(
+        db_session, agenda_slots, make_survey_review):
+    """D1: GTV la revisó y dejó observaciones; sigue sin poder agendar solo
+    hasta que la libere (aprobar desde `rejected` también cuenta, §2)."""
+    make_survey_review(agenda_slots["p1"], status="rejected", reason="Falta un sello")
+
+    e = SelfBookingService.eligibility(db_session, agenda_slots["p1"].id)
+
+    assert e["can_book"] is False
+    assert e["reason"] == "encuesta_con_observaciones"
+    assert e["can_walkin"] is False
+    assert SelfBookingService.message_for(e["reason"]) == (
+        "Gestión Tecnológica y Vinculación dejó observaciones en tu encuesta "
+        "de egresados. Podrás agendar en cuanto la liberen.")
 
 
 def test_regla_4_con_una_cita_viva_no_puede_abrir_otra(db_session, alumno):

@@ -105,8 +105,10 @@ def proceso(seed_phase_defs, make_student, make_process):
 @pytest.fixture()
 def cita_esc(agenda_slots, make_survey_review):
     """`agenda_slots` (lunes 2029-05-07, ventana 09:00-11:00 en franjas de 30,
-    cupo 1) con la encuesta de `p1` YA ENVIADA: sin ella no se agenda (D2)."""
-    make_survey_review(agenda_slots["p1"])
+    cupo 1) con la encuesta de `p1` YA LIBERADA: sin liberarla no se agenda
+    (D1, spec 2026-09-29-titulatec-cotejo-espacios-design.md §2, revierte D2
+    del 2026-09-15)."""
+    make_survey_review(agenda_slots["p1"], status="approved")
     return agenda_slots
 
 

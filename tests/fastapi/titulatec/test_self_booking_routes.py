@@ -59,7 +59,7 @@ def _citas(db, proc):
 
 @pytest.fixture()
 def escena(db_session, agenda_slots, make_survey_review, make_role, grant_user_role):
-    """`agenda_slots` con la ventana PUBLICADA, la encuesta enviada y los permisos.
+    """`agenda_slots` con la ventana PUBLICADA, la encuesta LIBERADA y los permisos.
 
     `make_role` es aditivo e idempotente por nombre: añade los dos códigos
     nuevos al rol que `make_student` ya creó. `grant_user_role` invalida el
@@ -68,7 +68,8 @@ def escena(db_session, agenda_slots, make_survey_review, make_role, grant_user_r
     from itcj2.core.models.user import User
 
     esc = dict(agenda_slots)
-    make_survey_review(esc["p1"])            # D2: sin encuesta no se agenda
+    # D1 (revierte D2 del 2026-09-15): sin la encuesta LIBERADA no se agenda.
+    make_survey_review(esc["p1"], status="approved")
     esc["w"].visibility = "bookable"         # D1: publicar es deliberado
     db_session.flush()
 

@@ -40,11 +40,13 @@ def _rechazar_fase_2(db_session, process, motivo):
 @pytest.fixture()
 def esc(db_session, seed_phase_defs, make_student, make_cohort, make_process,
        make_survey_review, make_appointment):
-    """Alumno en fase 2, cotejo `attended`, encuesta ya enviada.
+    """Alumno en fase 2, cotejo `attended`, encuesta ya LIBERADA.
 
-    La encuesta hace falta para que `eligibility` no se pare antes en la regla
-    3 (`sin_encuesta`): sin ella, cualquier escenario de este archivo vería
-    esa frase en vez de la de "quedó con observaciones".
+    La encuesta hace falta LIBERADA (D1, revierte D2 del 2026-09-15) para que
+    `eligibility` no se pare antes en la regla 3 (`sin_encuesta` /
+    `encuesta_en_revision` / `encuesta_con_observaciones`): sin liberarla,
+    cualquier escenario de este archivo vería una de esas frases en vez de la
+    de "quedó con observaciones".
 
     La fase NO se marca rechazada aquí: no todos los tests de este archivo la
     quieren así (el de regresión la deja intacta).
@@ -53,7 +55,7 @@ def esc(db_session, seed_phase_defs, make_student, make_cohort, make_process,
     cohort = make_cohort()
     student = make_student()
     process = make_process(student, cohort=cohort, current_phase=2)
-    make_survey_review(process)
+    make_survey_review(process, status="approved")
     appt = make_appointment(process, status="attended")
     return {"student": student, "cohort": cohort, "process": process, "appt": appt}
 

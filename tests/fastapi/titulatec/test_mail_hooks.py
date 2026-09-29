@@ -97,9 +97,11 @@ def docs_esc(seed_phase_defs, seed_document_types, make_student, make_process,
 @pytest.fixture()
 def cita_esc(agenda_slots, make_survey_review):
     """`agenda_slots` (día 2029-05-07, ventana 09:00-11:00 de franjas de 30,
-    cupo 1) con la encuesta de egresados YA ENVIADA para `p1`: sin ella
-    `AppointmentService.create` levanta `SurveyNotSubmitted` (D2)."""
-    make_survey_review(agenda_slots["p1"])
+    cupo 1) con la encuesta de egresados YA LIBERADA para `p1`: sin liberarla
+    `AppointmentService.create` levanta `SurveyNotSubmitted`/`SurveyNotReleased`
+    (D1, spec 2026-09-29-titulatec-cotejo-espacios-design.md §2, revierte D2
+    del 2026-09-15)."""
+    make_survey_review(agenda_slots["p1"], status="approved")
     return agenda_slots
 
 

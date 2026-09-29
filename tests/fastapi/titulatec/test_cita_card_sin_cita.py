@@ -45,11 +45,13 @@ PENDIENTE = "Pendiente de agenda"
 @pytest.fixture()
 def esc(db_session, seed_phase_defs, make_student, make_cohort, make_process,
         make_survey_review, make_program):
-    """Alumno en fase 2, SIN cita, con la encuesta ya enviada y con carrera.
+    """Alumno en fase 2, SIN cita, con la encuesta ya LIBERADA y con carrera.
 
-    La encuesta hace falta o `eligibility` se para en la regla 3 y `can_book`
-    sería `False` por un motivo ajeno a lo que aquí se prueba. La carrera hace
-    falta o `offer()` nunca encuentra la ventana del encargado (`_owners_serving`).
+    La encuesta hace falta LIBERADA (D1, spec 2026-09-29-titulatec-cotejo-
+    espacios-design.md §2, revierte D2 del 2026-09-15: enviarla no basta) o
+    `eligibility` se para en la regla 3 y `can_book` sería `False` por un
+    motivo ajeno a lo que aquí se prueba. La carrera hace falta o `offer()`
+    nunca encuentra la ventana del encargado (`_owners_serving`).
     """
     seed_phase_defs()
     cohort = make_cohort()
@@ -57,7 +59,7 @@ def esc(db_session, seed_phase_defs, make_student, make_cohort, make_process,
     process = make_process(student, cohort=cohort, current_phase=2)
     prog = make_program("Ingenieria de la Tarjeta Sin Cita")
     process.program_id = prog.id
-    make_survey_review(process)
+    make_survey_review(process, status="approved")
     db_session.flush()
     return {"student": student, "cohort": cohort, "process": process, "program": prog}
 

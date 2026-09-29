@@ -28,8 +28,10 @@ _DIA = date(2029, 5, 7)          # el mismo día que arma `agenda_slots`
 
 @pytest.fixture()
 def publicado(db_session, agenda_slots, make_survey_review):
-    """La ventana de `agenda_slots` publicada como **agendable**, y `p1` listo."""
-    make_survey_review(agenda_slots["p1"])
+    """La ventana de `agenda_slots` publicada como **agendable**, y `p1` listo
+    (encuesta ya LIBERADA -- D1, revierte D2 del 2026-09-15 -- para que
+    `SelfBookingService.book` no se pare en la regla 3)."""
+    make_survey_review(agenda_slots["p1"], status="approved")
     agenda_slots["w"].visibility = "bookable"
     db_session.flush()
     return agenda_slots
@@ -165,7 +167,7 @@ def test_una_franja_llena_desaparece_de_la_oferta(db_session, publicado,
                                                   make_survey_review):
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
-    make_survey_review(publicado["p2"])
+    make_survey_review(publicado["p2"], status="approved")
     AppointmentService.create(db_session, publicado["p2"].id, window_id=publicado["w"].id,
                               slot_start=time(9, 0), created_by_id=publicado["off"].id)
 

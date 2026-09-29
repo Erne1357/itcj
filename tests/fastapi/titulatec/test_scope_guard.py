@@ -115,11 +115,15 @@ def escenario(seed_phase_defs, seed_document_types, make_program, make_cohort,
     "no existe el archivo" y el test negativo pasaria por la razon equivocada,
     tapando justo la fuga mas grave (descarga de acta/CURP ajenas).
 
-    Los tres traen ADEMAS la encuesta de egresados ya enviada (Tarea 4, D2):
-    `appt_schedule` en `ROUTES` re-agenda la cita que `make_appointment` ya les
-    dejo (pasa por `AppointmentService.create`, que ahora exige la solicitud
-    ANTES que cualquier guarda de alcance), y `test_el_guard_no_estorba_a_la_jefa`
-    la ejercita sobre los tres procesos con la jefa (alcance "ALL").
+    Los tres traen ADEMAS la encuesta de egresados ya LIBERADA (D1, spec
+    2026-09-29-titulatec-cotejo-espacios-design.md §2, revierte D2 del
+    2026-09-15): `appt_schedule` en `ROUTES` re-agenda la cita que
+    `make_appointment` ya les dejo (pasa por `AppointmentService.create`, que
+    ahora exige la solicitud LIBERADA ANTES que cualquier guarda de alcance —
+    con `in_review` levantaria `SurveyNotReleased`, que NO refresca la vista,
+    en vez de llegar hasta `AppointmentConflict`), y
+    `test_el_guard_no_estorba_a_la_jefa` la ejercita sobre los tres procesos
+    con la jefa (alcance "ALL").
     """
     def _build():
         monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
@@ -151,7 +155,7 @@ def escenario(seed_phase_defs, seed_document_types, make_program, make_cohort,
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(b"%PDF-1.4 documento de prueba")
             make_appointment(proc)
-            make_survey_review(proc)
+            make_survey_review(proc, status="approved")
             procs[key] = proc
             students[key] = student
 

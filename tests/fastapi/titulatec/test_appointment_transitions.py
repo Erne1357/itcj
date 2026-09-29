@@ -41,14 +41,16 @@ from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
 @pytest.fixture()
 def agenda_slots_survey(agenda_slots, make_survey_review):
-    """`agenda_slots`, con la encuesta de egresados YA ENVIADA para `p1`.
+    """`agenda_slots`, con la encuesta de egresados YA LIBERADA para `p1`.
 
-    Tarea 4 (D2): `AppointmentService.create` exige una solicitud
-    (`SurveyReview`) para agendar. Este archivo mide transiciones y guardas de
-    horario, no la puerta de la encuesta, así que se siembra aquí para que
-    cada `create(...)` de la matriz siga probando lo que probaba.
+    D1 (spec 2026-09-29-titulatec-cotejo-espacios-design.md §2, revierte D2
+    del 2026-09-15): `AppointmentService.create` exige que la solicitud
+    (`SurveyReview`) esté LIBERADA, no solo enviada. Este archivo mide
+    transiciones y guardas de horario, no la puerta de la encuesta, así que
+    se siembra aquí para que cada `create(...)` de la matriz siga probando lo
+    que probaba.
     """
-    make_survey_review(agenda_slots["p1"])
+    make_survey_review(agenda_slots["p1"], status="approved")
     return agenda_slots
 
 

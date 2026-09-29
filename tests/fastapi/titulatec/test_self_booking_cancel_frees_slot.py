@@ -25,11 +25,12 @@ from itcj2.apps.titulatec.services.slot_service import SlotService
 def esc(db_session, agenda_slots, make_survey_review):
     """`p1` sentado a las 09:00 en la única franja de esa hora (capacidad 1).
 
-    `p2` lleva su encuesta enviada para poder medir lo que de verdad importa:
-    que la franja quede **tomable por otro**, no solo que se pinte libre.
+    `p2` lleva su encuesta LIBERADA (D1, revierte D2 del 2026-09-15) para
+    poder medir lo que de verdad importa: que la franja quede **tomable por
+    otro**, no solo que se pinte libre.
     """
-    make_survey_review(agenda_slots["p1"])
-    make_survey_review(agenda_slots["p2"])
+    make_survey_review(agenda_slots["p1"], status="approved")
+    make_survey_review(agenda_slots["p2"], status="approved")
     cita = AppointmentService.create(
         db_session, agenda_slots["p1"].id, window_id=agenda_slots["w"].id,
         slot_start=time(9, 0), created_by_id=agenda_slots["off"].id)

@@ -696,10 +696,13 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     # alguien de otro dia dejaria de funcionar.
     pendientes = AppointmentService.list_pending_processes(db, allowed_program_ids=allowed)
     reagendar = AppointmentService.list_reschedule_processes(db, allowed_program_ids=allowed)
-    # D2: documentos aprobados pero SIN la encuesta enviada. No se puede
-    # agendar a nadie de este cubo (la guarda de `AppointmentService.create`
-    # lo rechazaría), así que sus filas no llevan navegación ni arrastre — ver
-    # `_appt_queue.html`. No entran a `visibles`: no hay ficha que abrirles.
+    # D1 (spec 2026-09-29-titulatec-cotejo-espacios-design.md §2, revierte D2
+    # del 2026-09-15): documentos aprobados pero SIN la encuesta LIBERADA por
+    # GTV — nunca la envió, o la envió y sigue `in_review`/`rejected`. No se
+    # puede agendar a nadie de este cubo (la guarda de
+    # `AppointmentService.create` lo rechazaría), así que sus filas no llevan
+    # navegación ni arrastre — ver `_appt_queue.html`. No entran a `visibles`:
+    # no hay ficha que abrirles.
     sin_encuesta = AppointmentService.list_missing_survey_processes(db, allowed_program_ids=allowed)
     # D10: los que agotaron su tope de cancelaciones (D9) y ya NO pueden
     # agendarse solos. Cubo propio y mutuamente excluyente con «Por agendar»:
@@ -763,15 +766,16 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         "reagendar_count": len(reagendar),
         "rechazados": filas_rechazados,
         "rechazados_count": len(rechazados),
-        # Lo que suma al badge «por atender»: el rechazado SIN encuesta no se
-        # puede agendar todavía (`SurveyNotSubmitted`), igual que el cubo «Sin
-        # encuesta», así que tampoco cuenta como trabajo del encargado.
+        # Lo que suma al badge «por atender»: el rechazado con la encuesta SIN
+        # LIBERAR no se puede agendar todavía (`SurveyNotSubmitted` /
+        # `SurveyNotReleased`, D1), igual que el cubo «Encuesta sin liberar»,
+        # así que tampoco cuenta como trabajo del encargado.
         "rechazados_accionables_count": sum(
-            1 for fila in filas_rechazados if not fila["sin_encuesta"]),
+            1 for fila in filas_rechazados if not fila["encuesta_sin_liberar"]),
         # No se suma al badge de la pestaña (`appointments_body.html`): ese
         # contador es "por atender" (agendar + reagendar) y este cubo no se
         # puede atender todavía — solo informa.
-        "sin_encuesta": _proc_rows(db, sin_encuesta),
+        "sin_encuesta": _proc_rows_sin_encuesta(db, sin_encuesta),
         "sin_encuesta_count": len(sin_encuesta),
         "seleccion": sorted(seleccion or []),
         "page_url": PAGE_URL, "body_url": BODY_URL,
@@ -851,6 +855,27 @@ def _proc_rows_bloqueados(db, procs):
     return filas
 
 
+def _proc_rows_sin_encuesta(db, procs):
+    """Filas del cubo «Encuesta sin liberar» (D1), con el estado real de la
+    solicitud para pintar `survey_review_pill` (`_macros.html:71-77`).
+
+    En lote (`SurveyReviewService.release_status_map`, 1 consulta): la fila
+    del que nunca envió nada pinta "Encuesta pendiente" (pseudo-estado
+    `missing`) y la del que la envió pero GTV no la ha liberado pinta su
+    estado real (`in_review`/`rejected`) — dos historias distintas dentro del
+    MISMO cubo.
+    """
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    filas = _proc_rows(db, procs)
+    if not filas:
+        return filas
+    estados = SurveyReviewService.release_status_map(db, [p.id for p in procs])
+    for fila in filas:
+        fila["survey_status"] = estados.get(fila["process_id"], "missing")
+    return filas
+
+
 def _proc_rows_rechazados(db, procs):
     """Filas del cubo de D5, con lo que decide si la fila es arrastrable.
 
@@ -860,23 +885,28 @@ def _proc_rows_rechazados(db, procs):
       tenga que abrir la ficha solo para saber que corregir. En lote (1
       consulta): son planas y el volumen es chico, pero N+1 consultas aqui
       serian evitables sin motivo.
-    * `sin_encuesta` — no existe `SurveyReview` del proceso. Importa porque
-      `AppointmentService.create` exige la encuesta ANTES que cualquier otra
-      cosa (`SurveyNotSubmitted`): un proceso puede llegar a este cubo sin
-      ella (docs/fixtures que insertan la cita sin pasar por el service), y
+    * `survey_status` + `encuesta_sin_liberar` — el estado real de la
+      solicitud (D1, revierte D2 del 2026-09-15) y si es DISTINTO de
+      `approved`. Importa porque `AppointmentService.create` exige la
+      encuesta LIBERADA antes que cualquier otra cosa (`SurveyNotSubmitted` /
+      `SurveyNotReleased`): un proceso puede llegar a este cubo sin ella
+      liberada (nunca la envio, o la envio y GTV no la ha liberado; tambien
+      docs/fixtures que insertan la cita sin pasar por el service), y
       arrastrarlo a un lugar libre revienta con un error que no explica nada.
-      Tambien en lote.
+      En lote (`SurveyReviewService.release_status_map`).
     * `bloqueado` — igual que en `_proc_rows_bloqueados`,
       `SelfBookingService.is_blocked_by_cancellations` por fila y no en lote:
       ES la fuente unica del predicado de D9, y este cubo tambien tiene pocas
       filas.
 
-    Los dos primeros no son excluyentes entre si: un rechazado puede estar SIN
-    encuesta Y bloqueado por D9 a la vez, y la plantilla pinta las dos senales.
+    Los dos primeros no son excluyentes entre si: un rechazado puede tener la
+    encuesta SIN LIBERAR Y estar bloqueado por D9 a la vez, y la plantilla
+    pinta las dos senales.
     """
-    from itcj2.apps.titulatec.models import ProcessPhase, SurveyReview
+    from itcj2.apps.titulatec.models import ProcessPhase
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
     por_id = {p.id: p for p in procs}
     filas = _proc_rows(db, procs)
@@ -891,14 +921,12 @@ def _proc_rows_rechazados(db, procs):
                             ProcessPhase.phase_number == PhaseService.PHASE_COTEJO)
                     .all()
     }
-    con_encuesta = {sid for (sid,) in
-                    db.query(SurveyReview.process_id)
-                    .filter(SurveyReview.process_id.in_(pids))
-                    .distinct()}
+    estados_encuesta = SurveyReviewService.release_status_map(db, pids)
     for fila in filas:
         pid = fila["process_id"]
         fila["motivo"] = motivos.get(pid)
-        fila["sin_encuesta"] = pid not in con_encuesta
+        fila["survey_status"] = estados_encuesta.get(pid, "missing")
+        fila["encuesta_sin_liberar"] = fila["survey_status"] != "approved"
         fila["bloqueado"] = SelfBookingService.is_blocked_by_cancellations(
             db, por_id[pid])
     return filas
