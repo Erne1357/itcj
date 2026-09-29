@@ -1,12 +1,13 @@
-"""Tareas Celery de TitulaTec — elegibilidad automática contra el SII.
+"""Tareas Celery de TitulaTec — elegibilidad contra el SII y correos del
+proceso al egresado.
 
-Spec 2026-09-25 §3.4. Solo hacen algo en el modo `sii`
+Las del SII (spec 2026-09-25 §3.4) solo hacen algo en el modo `sii`
 (`TITULATEC_ENROLLMENT_REVIEWER`) y con el SII configurado
 (`TITULATEC_SII_BACKEND` distinto de `disabled`, spec 2026-09-27 D11); si no,
 el servicio es un no-op.
 
-Tareas (nombres del spec §3.4, `titulatec.*`: `enqueue_check` y el DML de la
-periódica las mandan por NOMBRE, no por ruta de módulo):
+Tareas (nombres del spec, `titulatec.*`: `enqueue_check` y el DML de las
+periódicas las mandan por NOMBRE, no por ruta de módulo):
     titulatec.sii_check_request(req_id, attempt=1, force=False)
         Consulta al SII UNA solicitud. La encola `EnrollmentRequestService.create`
         tras el commit del alta (`eligibility_service.enqueue_check`, por nombre).
@@ -33,8 +34,19 @@ periódica las mandan por NOMBRE, no por ruta de módulo):
         de la BD (Ruling R6, no se re-siembra); la de `TASK_DEFINITIONS`,
         abajo, ya es la vigente.
 
-La lógica vive en `EligibilityService`; aquí solo sesión, reintento y resultado.
-`SessionLocal` se importa DENTRO de cada tarea (los tests lo parchean).
+    titulatec.email_dispatch()
+        Periódica, cada minuto (spec 2026-09-28 §6 C3/C5; su alta en
+        `core_periodic_tasks` es un DML aparte). Manda los correos pendientes
+        de `titulatec_email_outbox` (`MailDispatcher.run`: grupos con su
+        espera, re-validación, destinatario, Graph y reintentos) y devuelve
+        cuántos correos terminaron en cada desenlace. Con
+        `TITULATEC_EMAIL_ENABLED=false` no toca la BD y devuelve
+        `{"disabled": True}`. Una corrida sin movimiento va al log en DEBUG,
+        no en INFO: corre 1440 veces al día.
+
+La lógica vive en los services (`EligibilityService`, `MailDispatcher`); aquí
+solo sesión, reintento y resultado. `SessionLocal` se importa DENTRO de cada
+tarea (los tests lo parchean).
 """
 import logging
 
@@ -68,6 +80,20 @@ TASK_DEFINITIONS = [
         ),
         "app_name": "titulatec",
         "category": "maintenance",
+        "default_args": {},
+    },
+    {
+        "task_name": "titulatec.email_dispatch",
+        "display_name": "Despacho de correos al egresado (TitulaTec)",
+        "description": (
+            "Cada minuto: manda por correo los avisos pendientes del proceso de "
+            "titulación (dictámenes, fases, GTV, citas y recordatorios) al correo "
+            "personal del egresado. Agrupa los movimientos de un mismo proceso, "
+            "descarta lo que ya no aplica y reintenta con espera creciente hasta "
+            "TITULATEC_EMAIL_MAX_ATTEMPTS. Con TITULATEC_EMAIL_ENABLED=false no hace nada."
+        ),
+        "app_name": "titulatec",
+        "category": "notification",
         "default_args": {},
     },
 ]
@@ -130,4 +156,26 @@ def sii_sweep(self, task_run_id: int | None = None) -> dict:
     with SessionLocal() as db:
         out = EligibilityService.sweep(db, max_seconds=_SWEEP_BUDGET_S)
     logger.info("SII: barrido — %s", out)
+    return out
+
+
+@celery_app.task(
+    bind=True,
+    base=LoggedTask,
+    name="titulatec.email_dispatch",
+    soft_time_limit=50,
+    time_limit=58,
+)
+def email_dispatch(self, task_run_id: int | None = None) -> dict:
+    """Despacho periódico de los correos del proceso (`MailDispatcher.run`,
+    con su reloj `db_now()` y su lote por omisión). Devuelve
+    `{"sent", "failed", "retry", "no_recipient", "obsolete", "waiting"}` o
+    `{"disabled": True}` con el correo apagado."""
+    from itcj2.apps.titulatec.services.mail_dispatch import MailDispatcher
+    from itcj2.database import SessionLocal
+
+    with SessionLocal() as db:
+        out = MailDispatcher.run(db)
+    logger.log(logging.INFO if any(out.values()) else logging.DEBUG,
+               "Correos: despacho — %s", out)
     return out
