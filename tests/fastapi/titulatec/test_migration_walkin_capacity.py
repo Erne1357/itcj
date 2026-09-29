@@ -228,11 +228,21 @@ def test_downgrade_invierte_aproximadamente(
 
 
 def test_docstring_advierte_que_downgrade_es_aproximado():
-    """El docstring debe advertir que downgrade es solo aproximado."""
+    """El docstring debe advertir que downgrade es aproximado y no correr a mano."""
     plano = " ".join((_modulo().__doc__ or "").split())
+
+    # Verificar que advierte downgrade aproximado
     assert (
         "aproximado" in plano.lower() or "aproximada" in plano.lower()
     ), "Docstring debe advertir que downgrade es aproximado"
     assert (
         "downgrade" in plano.lower()
     ), "Docstring debe mencionar downgrade"
+
+    # Verificar que advierte no correr a mano
+    assert (
+        "no ejecutar" in plano.lower() or "no correr" in plano.lower()
+    ), "Docstring debe advertir que NO se ejecute a mano"
+    assert (
+        "alembic" in plano.lower()
+    ), "Docstring debe mencionar solo usar alembic"

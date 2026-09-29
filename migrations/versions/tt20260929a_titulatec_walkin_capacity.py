@@ -16,6 +16,10 @@ Nunca deja `capacity < 1` (CHECK de la columna); como cada franja tenía ≤
 Se prueba en dev: ventana walkin de legado con citas vivas a varias horas →
 upgrade → ocupación y tablero correctos → downgrade → upgrade.
 
+ADVERTENCIA: No ejecutar este SQL a mano. Solo vía `alembic upgrade head` o
+`alembic downgrade`. El downgrade es aproximado y puede dejar datos
+inconsistentes si se aplica fuera del orden correcto de migraciones.
+
 Revisión ID: tt20260929a
 Revises: tt20260928a
 """
