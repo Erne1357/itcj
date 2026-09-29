@@ -321,9 +321,11 @@ del barrido diario es su `cron_expression` en `core_periodic_tasks` (editable en
   `core_periodic_tasks` — sin esta fila ninguna de las dos tareas se programa, aunque el worker ya
   las tenga registradas.
 - Comando `titulatec init-email-tasks [--dry-run]` (`cli/titulatec.py:1156-1193`): corre SOLO ese
-  archivo (`_DML_MAIL_2026_09_FILES`, `:1153`) — en producción `init-titulatec` completo NUNCA se
-  re-ejecuta, así que este comando es el ÚNICO camino de despliegue para el delta de correo.
-  Idempotente.
+  archivo (`_DML_MAIL_2026_09_FILES`, `:1153`). El archivo también está en `SEED_FILES`
+  (`cli/titulatec.py:94`, antes del 15), así que una instalación desde cero ya lo siembra con
+  `init-titulatec` (`_run_sql_files(SEED_FILES)`, `:283`); en producción ese comando completo NUNCA
+  se re-ejecuta, y por eso el despliegue de este delta usa `init-email-tasks`, que corre solo este
+  archivo. Idempotente.
 
 **Orden de despliegue:**
 
