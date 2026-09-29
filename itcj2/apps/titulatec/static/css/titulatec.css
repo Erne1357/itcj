@@ -1383,6 +1383,10 @@ th.sortable { cursor: pointer; user-select: none; }
   a.tt-seat:hover, button.tt-seat:hover { border-color: var(--tt-text-3); }
 }
 
+/* «Abrir más lugares» (D6, sin horario): el número no necesita el ancho
+   completo del `.form-control`. */
+.tt-input-n { max-width: 5.5rem; }
+
 /* --- Fila de alumno (cola y resultados) --------------------------------- */
 .tt-appt-item { position: relative; display: flex; align-items: center;
                 gap: var(--tt-sp-3); min-height: 44px;
@@ -1407,6 +1411,18 @@ th.sortable { cursor: pointer; user-select: none; }
 /* La fila ENTERA es el objetivo tactil, no la casilla de 20 px. */
 label.tt-appt-item { cursor: pointer; }
 label.tt-appt-item .form-check-input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; }
+
+/* Numero de orden de apartado (D8, sin horario y buscador «Sin cita»): mismo
+   trato que `.time`, ancho fijo para que la lista no baile al pasar de un
+   digito a dos. */
+.tt-appt-item .n { flex: 0 0 28px; font-family: var(--tt-mono);
+                   font-size: var(--tt-fs-200); font-weight: 600;
+                   font-variant-numeric: tabular-nums; color: var(--tt-text-3);
+                   text-align: right; }
+/* Mismo distintivo del asiento (D11), fuera de `.tt-seat`: la lista numerada
+   del sin horario usa `.tt-appt-item`, no `.tt-seat`. */
+.tt-appt-item .meta .selfbook { font-family: var(--tt-ui); font-weight: 600;
+                                color: var(--tt-text-2); }
 
 /* --- Cola de trabajo ---------------------------------------------------- */
 .tt-queue-head { display: flex; align-items: center; justify-content: space-between;

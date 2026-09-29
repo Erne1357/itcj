@@ -525,10 +525,24 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
     Con capacidad 1 (lo normal) cada franja es una fila simple; con capacidad
     mayor la fila crece a N asientos de la MISMA caja, para que llenar un lugar
     no mueva nada de sitio.
+
+    Un espacio SIN HORARIO (D3, D6, spec 2026-09-29-titulatec-cotejo-espacios-
+    design.md §4) es un grupo aparte (`modo="sin_horario"`, contra
+    `modo="franjas"` de los demas): no tiene franjas, tiene una LISTA numerada
+    por orden de apartado. Se arma de una consulta PROPIA -- `estado NOT IN
+    (cancelled, superseded)` sobre TODA la ventana, nunca por `is_current` --
+    y no de `visibles` (que SI filtra por `is_current`, via `list_for_day`):
+    una cita de LEGADO sentada a mano a una hora dentro del walkin (10:30, p.
+    ej.) puede perder la vigencia sin dejar de ocupar un lugar, y con
+    `visibles` desaparecia de la lista sin dejar de contar en `ocupados` (nota
+    de la revision de T2). Mismo criterio que `SlotService.occupancy`, para
+    que la lista y el contador de libres nunca diverjan.
     """
+    from itcj2.apps.titulatec.models import ReviewAppointment
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
-    from itcj2.apps.titulatec.services.slot_service import SlotService
+    from itcj2.apps.titulatec.services.slot_service import SlotService, _ESTADOS_QUE_LIBERAN
+    from itcj2.core.utils.timezone import db_now
 
     fila_dia = ReviewDayService.get(db, cohort_id, day) if (cohort_id and day) else None
     if fila_dia is None:
@@ -542,17 +556,31 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
     por_hueco = {}
     for a in visibles:
         por_hueco.setdefault((a.window_id, a.scheduled_at.time()), []).append(a)
-    users, progs = _people(db, [a.process for a in visibles])
+
+    # Vivas de cada sin horario MIO, ordenadas por orden de apartado
+    # (`scheduled_at`, `id`). Una sola consulta para todos: se reparten por
+    # `window_id` abajo.
+    walkin_ids = [w.id for w in mias if w.visibility == "walkin"]
+    walkin_vivas = {}
+    if walkin_ids:
+        q = db.query(ReviewAppointment).filter(ReviewAppointment.window_id.in_(walkin_ids))
+        if _ESTADOS_QUE_LIBERAN:
+            q = q.filter(~ReviewAppointment.status.in_(_ESTADOS_QUE_LIBERAN))
+        for a in q.order_by(ReviewAppointment.scheduled_at, ReviewAppointment.id).all():
+            walkin_vivas.setdefault(a.window_id, []).append(a)
+
+    todos = list(visibles) + [a for filas in walkin_vivas.values() for a in filas]
+    users, progs = _people(db, [a.process for a in todos])
     vistos = {a.process_id for a in visibles}
 
-    def _ficha(a):
+    def _ficha(a, n=None):
         proc = a.process
         u = users.get(proc.student_id) if proc else None
         prog = progs.get(proc.program_id) if proc and proc.program_id else None
         # Helper "cuándo" (spec 2026-09-29-titulatec-cotejo-espacios-design.md
         # §6): en sin horario no hay una hora fija que enseñar en la caja.
         sin_horario = AppointmentService.when(a)["sin_horario"]
-        return {
+        ficha = {
             "process_id": a.process_id,
             "student": u.full_name if u else "—",
             "control": u.control_number if u else "—",
@@ -565,9 +593,37 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
             # el aviso.
             "booked_by": a.booked_by,
         }
+        if n is not None:
+            # Orden de apartado (D8, §4): posicion 1-based en la lista, no el
+            # `attempt_no` del proceso.
+            ficha["n"] = n
+        return ficha
 
+    hoy = db_now().date()
     grupos = []
     for w in mias:
+        ocupados, capacidad = SlotService.window_occupancy(db, w)
+
+        if w.visibility == "walkin":
+            vivas = walkin_vivas.get(w.id, [])
+            grupos.append({
+                "id": w.id,
+                "modo": "sin_horario",
+                "horario": f"{w.start_time:%H:%M}–{w.end_time:%H:%M}",
+                "location": w.location,
+                "pausada": w.status == "paused",
+                "capacidad": capacidad,
+                "ocupados": ocupados,
+                # `capacidad - ocupados`, nunca `len(lista)`: son la misma
+                # poblacion por construccion, pero `window_occupancy` es la
+                # UNICA fuente de verdad del cupo (la cabecera la usa igual).
+                "libres": max(0, capacidad - ocupados),
+                "apertura": w.start_time.strftime("%H:%M"),
+                "es_hoy": day == hoy,
+                "lista": [_ficha(a, n=i) for i, a in enumerate(vivas, start=1)],
+            })
+            continue
+
         cupo = int(w.capacity or 1)
         franjas = []
         for hora in SlotService.slots(w):
@@ -578,9 +634,9 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
                 "libres": max(0, cupo - len(dentro)),
                 "cupo": cupo,
             })
-        ocupados, capacidad = SlotService.window_occupancy(db, w)
         grupos.append({
             "id": w.id,
+            "modo": "franjas",
             "horario": f"{w.start_time:%H:%M}–{w.end_time:%H:%M}",
             "slot_minutes": w.slot_minutes,
             "capacity": cupo,
@@ -859,8 +915,12 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     # existen para pedirle. Sumar TODOS los rechazados (no solo los sin cita)
     # es deliberado y gratis: quien ya esta en `agenda_process_ids` por su
     # `attended` vigente simplemente se repite en la union de sets.
-    visibles = (AppointmentService.agenda_process_ids(db, allowed_program_ids=allowed)
-                | {p.id for p in pendientes} | {p.id for p in bloqueados}
+    #
+    # `agenda_ids` se nombra aparte (y no solo inline en la union): el
+    # buscador (D8, §4) la vuelve a necesitar para decidir, entre los
+    # rechazados, cuales estan "sin cita viva" — sin repetir la consulta.
+    agenda_ids = AppointmentService.agenda_process_ids(db, allowed_program_ids=allowed)
+    visibles = (agenda_ids | {p.id for p in pendientes} | {p.id for p in bloqueados}
                 | {p.id for p in rechazados})
     if selected_id is not None and selected_id not in visibles:
         selected_id = None
@@ -921,6 +981,16 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
                 db, program_id=program_id, status=estado or None,
                 owner_id=user_id if mias else None,
                 allowed_program_ids=allowed, q=q))
+            # D8: el buscador tambien encuentra a quien no tiene cita. Solo
+            # con `q` sin vacio y sin `estado` — un estado de CITA no puede
+            # casar con quien no tiene ninguna, asi que con el puesto esta
+            # lista siempre saldria vacia; mejor no ofrecerla que ofrecerla
+            # siempre en ceros.
+            ctx["sin_cita_rows"] = (
+                _sin_cita_rows(db, pendientes=pendientes, bloqueados=bloqueados,
+                               rechazados=rechazados, sin_encuesta=sin_encuesta,
+                               agenda_ids=agenda_ids, q=q, program_id=program_id)
+                if (q or "").strip() and not estado else [])
         else:
             ctx["board"] = _board_ctx(db, day, allowed, user_id=user_id,
                                       cohort_id=cohort_id)
@@ -1064,6 +1134,68 @@ def _proc_rows_rechazados(db, procs):
         fila["bloqueado"] = SelfBookingService.is_blocked_by_cancellations(
             db, por_id[pid])
     return filas
+
+
+def _sin_cita_rows(db, *, pendientes, bloqueados, rechazados, sin_encuesta,
+                   agenda_ids, q, program_id):
+    """Filas «Sin cita» del buscador (D8, spec §4): procesos SIN cita viva que
+    coinciden con `q`, sobre las listas que `_shell_ctx` YA calculó — sin
+    ninguna consulta nueva de citas.
+
+    Cuatro fuentes, las mismas que alimentan la cola (`_appt_queue.html`):
+    `pendientes`, `bloqueados` y `rechazados` SIN cita viva entran ABRIBLES
+    (están en `visibles`, ver `_shell_ctx`); `agenda_ids` — "con cita vigente
+    de CUALQUIER estado" — es justo el predicado que descarta, entre los
+    rechazados, a quien SÍ tiene una `attended` vigente esperando dictamen
+    (§4 del flujo: ese subconjunto no está "sin cita"). Las tres listas nunca
+    se solapan entre sí ni con `rechazados`: `_unscheduled_query` resta
+    `rechazados_ids` de su base, así que un proceso no puede caer en dos a la
+    vez. «Encuesta sin liberar» entra SIN abrir (D1: no está en `visibles`,
+    no hay ficha que darle todavía) y con su `survey_status` real, para la
+    píldora — mismo dato que ya pinta la cola.
+
+    `casefold` sobre nombre completo, número de control y folio (sin
+    mayúsculas). Respeta `program_id` como cualquier otro filtro de la vista.
+    """
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    candidatos = [(p, True) for p in pendientes]
+    candidatos += [(p, True) for p in bloqueados]
+    candidatos += [(p, True) for p in rechazados if p.id not in agenda_ids]
+    candidatos += [(p, False) for p in sin_encuesta]
+
+    if program_id:
+        candidatos = [(p, abrible) for p, abrible in candidatos
+                     if p.program_id == program_id]
+    if not candidatos:
+        return []
+
+    sin_encuesta_ids = [p.id for p, abrible in candidatos if not abrible]
+    estados_survey = (SurveyReviewService.release_status_map(db, sin_encuesta_ids)
+                      if sin_encuesta_ids else {})
+
+    users, progs = _people(db, [p for p, _ in candidatos])
+    aguja = (q or "").strip().casefold()
+    salida = []
+    for proc, abrible in candidatos:
+        u = users.get(proc.student_id)
+        prog = progs.get(proc.program_id) if proc.program_id else None
+        nombre = u.full_name if u else ""
+        control = u.control_number if u else ""
+        folio = proc.folio or ""
+        if (aguja not in nombre.casefold() and aguja not in control.casefold()
+                and aguja not in folio.casefold()):
+            continue
+        salida.append({
+            "process_id": proc.id,
+            "folio": proc.folio,
+            "student": nombre or "—",
+            "control": control or "—",
+            "program": prog.name if prog else "Sin carrera",
+            "abrible": abrible,
+            "survey_status": None if abrible else estados_survey.get(proc.id, "missing"),
+        })
+    return salida
 
 
 def _pager_ctx(db, day, allowed, selected_id):
@@ -2001,6 +2133,40 @@ def space_pause(
         return _accion_espacio(request, db, user_id=uid,
                                fn=lambda: ReviewWindowService.toggle_pause(db, w),
                                exito="Listo, el espacio cambió de estado.")
+    finally:
+        db.close()
+
+
+@router.post("/espacios/{window_id}/lugares", name="titulatec.pages.appointments.space_places")
+def space_places(
+    window_id: int,
+    request: Request,
+    n: str = Form(""),
+    user: dict = Depends(require_page_app("titulatec", perms=_ESPACIO_PERMS)),
+):
+    """«Abrir más lugares» (D6): +N al cupo TOTAL de un espacio SIN HORARIO,
+    desde el tablero de la Agenda (`_appt_board.html`).
+
+    `n` llega como `str` y no como `int`, como `window_id` en `atender-ahora`:
+    un valor vacío o basura con tipo entero sería un 422 en vez de la frase de
+    `PlacesOutOfRange`. `ReviewWindowService.add_places` valida el rango
+    (1-50), el tope total (500) y que el espacio SEA sin horario; todo eso son
+    errores de ENTRADA (400), salvo el timeout del lock. El mensaje de éxito
+    usa el valor YA aceptado por el servicio, así que solo se lee si `fn()` no
+    reventó — un `n` que no se pudo interpretar nunca llega a mostrarse.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.review_window_service import ReviewWindowService
+
+    uid = int(user["sub"])
+    n_val = _to_int(n)
+    db = SessionLocal()
+    try:
+        w = _espacio_en_alcance(db, window_id, uid)
+        return _accion_espacio(
+            request, db, user_id=uid,
+            fn=lambda: ReviewWindowService.add_places(db, w, n_val),
+            exito=f"Listo: {n_val} lugar{'es' if n_val != 1 else ''} más.")
     finally:
         db.close()
 
