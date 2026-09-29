@@ -71,13 +71,17 @@ class TestConfirm:
 class TestNotificacionDeCita:
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
     def test_notifica_al_alumno_con_fecha_y_lugar(self, mock_notify):
+        """D11 (Tarea 5): `_notify_appt` recibe la cita entera y arma el
+        cuerpo con `AppointmentService.when(appt)["label"]` — sin `window`,
+        `SimpleNamespace` se comporta como una cita normal (no sin horario)."""
         db = MagicMock()
         db.get.return_value = SimpleNamespace(student_id=7)
+        appt = SimpleNamespace(scheduled_at=datetime(2026, 6, 10, 11, 30),
+                               location="Edificio A")
 
         AppointmentService._notify_appt(
             db, process_id=1, ntype="APPOINTMENT_SCHEDULED",
-            title="Tu cita fue agendada",
-            scheduled_at=datetime(2026, 6, 10, 11, 30), location="Edificio A",
+            title="Tu cita fue agendada", appt=appt,
         )
 
         kwargs = mock_notify.call_args.kwargs
@@ -90,8 +94,8 @@ class TestNotificacionDeCita:
     def test_no_notifica_si_no_hay_proceso(self, mock_notify):
         db = MagicMock()
         db.get.return_value = None
+        appt = SimpleNamespace(scheduled_at=datetime(2026, 1, 1, 9, 0), location=None)
         AppointmentService._notify_appt(
-            db, process_id=99, ntype="X", title="t",
-            scheduled_at=datetime(2026, 1, 1, 9, 0), location=None,
+            db, process_id=99, ntype="X", title="t", appt=appt,
         )
         mock_notify.assert_not_called()

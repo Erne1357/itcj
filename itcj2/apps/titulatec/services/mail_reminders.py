@@ -156,8 +156,7 @@ def _recordar_cita(db: Session, proc, appt, titulo: str) -> bool:
 
     if not StudentMail.appointment_reminder(db, proc, appt=appt):
         return False
-    AppointmentService._notify_appt(db, proc.id, "APPOINTMENT_REMINDER", titulo,
-                                    appt.scheduled_at, appt.location)
+    AppointmentService._notify_appt(db, proc.id, "APPOINTMENT_REMINDER", titulo, appt)
     return True
 
 

@@ -63,12 +63,6 @@ _VIEW_PERMS = ["titulatec.appointment.page.list", "titulatec.dashboard.school_se
                "titulatec.dashboard.admin"]
 
 
-def _label(dt: datetime | None) -> str:
-    if not dt:
-        return "—"
-    return f"{dt.day:02d} {_MONTHS_ES[dt.month]} {dt.year} · {dt:%H:%M}"
-
-
 def _day_label(d) -> str:
     """'07 sep 2026' — cabecera de la vista de dia."""
     return f"{d.day:02d} {_MONTHS_ES[d.month]} {d.year}" if d else "—"
@@ -162,7 +156,7 @@ def _appt_dict(appt) -> dict | None:
         return None
     return {
         "id": appt.id,
-        "scheduled_label": _label(appt.scheduled_at),
+        "scheduled_label": AppointmentService.when(appt)["label"],
         "scheduled_input": _input_value(appt.scheduled_at),
         "location": appt.location,
         "status": appt.status,
@@ -292,7 +286,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     # renderiza DESPUES de su `db.close()`.
     intentos = [{
         "n": a.attempt_no,
-        "when": _label(a.scheduled_at),
+        "when": AppointmentService.when(a)["label"],
         "status": a.status,
         "by_student": a.booked_by == "student",
         "is_current": bool(a.is_current),
@@ -374,20 +368,24 @@ def _time_label(dt) -> str:
 
 def _appt_rows(db, appts):
     """Filas de agenda a partir de citas YA acotadas."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
     rows = []
     users, progs = _people(db, [a.process for a in appts])
     for a in appts:
         proc = a.process
         u = users.get(proc.student_id) if proc else None
         prog = progs.get(proc.program_id) if proc and proc.program_id else None
+        info = AppointmentService.when(a)
         rows.append({
             "process_id": a.process_id,
             "folio": proc.folio if proc else "—",
             "student": u.full_name if u else "—",
             "control": u.control_number if u else "—",
             "program": prog.name if prog else "—",
-            "time_label": _time_label(a.scheduled_at),
-            "scheduled_label": _label(a.scheduled_at),
+            # D11: en sin horario no hay una hora fija que enseñar.
+            "time_label": "Sin horario" if info["sin_horario"] else _time_label(a.scheduled_at),
+            "scheduled_label": info["label"],
             "day": a.scheduled_at.date().isoformat() if a.scheduled_at else None,
             "status": a.status,
             "change_request": bool(a.change_request),
@@ -505,13 +503,16 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
         proc = a.process
         u = users.get(proc.student_id) if proc else None
         prog = progs.get(proc.program_id) if proc and proc.program_id else None
+        # Helper "cuándo" (spec 2026-09-29-titulatec-cotejo-espacios-design.md
+        # §6): en sin horario no hay una hora fija que enseñar en la caja.
+        sin_horario = AppointmentService.when(a)["sin_horario"]
         return {
             "process_id": a.process_id,
             "student": u.full_name if u else "—",
             "control": u.control_number if u else "—",
             "program": prog.name if prog else "—",
             "status": a.status,
-            "time_label": _time_label(a.scheduled_at),
+            "time_label": "Sin horario" if sin_horario else _time_label(a.scheduled_at),
             "change_request": bool(a.change_request),
             # D11: el encargado se entera del auto-agendado por su tablero, con
             # distintivo. No hay notificacion ni correo, asi que este dato ES

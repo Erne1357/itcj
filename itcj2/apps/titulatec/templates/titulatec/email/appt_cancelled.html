@@ -1,7 +1,7 @@
 {# Cita de cotejo cancelada por Servicios Escolares (spec 2026-09-28 §5, #7,
    sin cita vigente al enviar). El motivo es el de la ÚLTIMA cancelación del
    grupo `cita:`; sin motivo capturado, el recuadro no se pinta.
-   Contexto: first_name, link, fecha, hora, reason. #}
+   Contexto: first_name, link, fecha, hora, sin_horario, reason. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
 {% block titulo %}Tu cita de cotejo fue cancelada — TitulaTec ITCJ{% endblock %}
@@ -9,7 +9,7 @@
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 <p style="margin:0 0 20px;">
   <strong>Tu cita de cotejo
-  {%- if fecha %} del {{ fecha|e }}{% if hora %} a las {{ hora|e }}{% endif %}{% endif %}
+  {%- if fecha %} del {{ fecha|e }}{% if hora %}{% if sin_horario %} ({{ hora|e }}, por orden de llegada){% else %} a las {{ hora|e }}{% endif %}{% endif %}{% endif %}
   fue cancelada.</strong>
 </p>
 {% if reason %}{{ m.motivo(reason) }}{% endif %}

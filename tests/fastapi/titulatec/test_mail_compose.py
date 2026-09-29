@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from urllib.parse import unquote
 
 import pytest
@@ -251,6 +251,38 @@ def _mover(db, esc, appt, slot):
 
     return AppointmentService.reschedule(db, appt, window_id=esc["w"].id,
                                          slot_start=slot, actor_id=esc["off"].id)
+
+
+@pytest.fixture()
+def walkin_esc(seed_phase_defs, make_program, make_cohort, make_review_day, make_officer,
+               make_student, make_process, make_review_window, make_survey_review):
+    """Como `cita_esc`, pero con un espacio SIN HORARIO 08:00-14:00 (D3): la
+    encuesta de `p1` ya liberada, así que `AppointmentService.create` real
+    funciona igual que con franjas."""
+    seed_phase_defs()
+    prog = make_program("Ingenieria Sin Horario de Correos")
+    cohort = make_cohort()
+    dia = make_review_day(cohort, day=date(2029, 5, 7))
+    officer, pos = make_officer([prog])
+    w = make_review_window(dia, officer, start="08:00", end="14:00", slot=30, cap=3,
+                           position=pos, visibility="walkin")
+    p1 = make_process(make_student(), cohort=cohort, program=prog, current_phase=2)
+    make_survey_review(p1, status="approved")
+    return {"prog": prog, "cohort": cohort, "dia": dia, "off": officer, "pos": pos,
+            "w": w, "p1": p1}
+
+
+def _walkin_appt(db, esc, make_appointment, **kw):
+    """Reserva sin horario (a la apertura) del `walkin` de `esc`, SIN pasar
+    por `AppointmentService` (no encola `appt_changed`): igual que `_legado`
+    en `test_walkin_core.py` pero a la HORA DE APERTURA, así que
+    `is_walkin_reservation` la reconoce como reserva y no como legado."""
+    w = esc["w"]
+    appt = make_appointment(esc["p1"], when=datetime.combine(esc["dia"].date, w.start_time),
+                            location="Sala de cotejo", **kw)
+    appt.window = w
+    db.flush()
+    return appt
 
 
 # ---------------------------------------------------------------------------
@@ -594,6 +626,29 @@ def test_cita_que_agendo_el_alumno_sin_cambios_es_su_comprobante(db_session, cit
     assert c.context["changed"] is False
 
 
+def test_cita_sin_horario_lleva_el_rango_en_asunto_y_datos(db_session, walkin_esc, reloj):
+    """Asunto walkin (D11, spec §6): «Tu cita de cotejo: 07 de mayo, de 08:00 a
+    14:00» — día con cero, sin año, coma antes del rango. El contexto trae
+    `sin_horario` para que `datos_cita` rotule «Horario»."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    reloj(HOY_AGENDA)
+    esc = walkin_esc
+    AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                              slot_start=esc["w"].start_time, created_by_id=esc["off"].id,
+                              location="Sala de cotejo")
+
+    c = _componer(db_session, esc["p1"])
+
+    assert c.subject == "[TitulaTec ITCJ] Tu cita de cotejo: 07 de mayo, de 08:00 a 14:00"
+    assert c.context["sin_horario"] is True
+    assert (c.context["fecha"], c.context["hora"]) == (
+        "lunes 7 de mayo de 2029", "de 08:00 a 14:00")
+    html = _html(c, estricto=True)
+    assert ">Horario<" in html
+    assert ">Hora<" not in html
+
+
 @pytest.mark.parametrize("mover", [False, True], ids=["agendar-cancelar",
                                                      "agendar-mover-cancelar"])
 def test_cita_agendada_y_cancelada_es_neto_cero(db_session, cita_esc, mover):
@@ -660,6 +715,58 @@ def test_cita_cancelada_dos_veces_usa_la_ultima_cancelacion(db_session, cita_esc
 
     assert c.template == "appt_cancelled.html"
     assert (c.context["reason"], c.context["hora"]) == ("Segundo motivo", "09:30")
+
+
+def test_cita_cancelada_sin_horario_lleva_el_rango(db_session, walkin_esc, reloj):
+    """Aclaración del controlador: el correo de cancelación resuelve la cita
+    por `appt_id` (no por la fecha cruda del payload), así que también sabe
+    si era sin horario."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    reloj(HOY_AGENDA)
+    esc = walkin_esc
+    appt = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                     slot_start=esc["w"].start_time,
+                                     created_by_id=esc["off"].id)
+    _ya_salio(db_session, esc["p1"].id)
+    AppointmentService.cancel(db_session, appt, esc["off"].id, "Ya no hay lugar")
+
+    c = _componer(db_session, esc["p1"])
+
+    assert c.template == "appt_cancelled.html"
+    assert c.context["sin_horario"] is True
+    assert (c.context["fecha"], c.context["hora"]) == (
+        "lunes 7 de mayo de 2029", "de 08:00 a 14:00")
+    html = _html(c)
+    assert "(de 08:00 a 14:00, por orden de llegada)" in html
+    assert "a las de 08:00" not in html
+
+
+def test_cita_cancelada_con_appt_id_ilocalizable_usa_el_formato_del_payload(
+        db_session, walkin_esc, reloj):
+    """Si `db.get(ReviewAppointment, appt_id)` no encuentra la fila (dato
+    corrupto, caso límite), se cae al formato normal con la fecha cruda del
+    payload — sin `sin_horario`, porque sin la ventana no hay forma de
+    saberlo (aclaración del controlador)."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    reloj(HOY_AGENDA)
+    esc = walkin_esc
+    appt = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                     slot_start=esc["w"].start_time,
+                                     created_by_id=esc["off"].id)
+    _ya_salio(db_session, esc["p1"].id)
+    AppointmentService.cancel(db_session, appt, esc["off"].id, "Motivo")
+    (fila,) = [f for f in _pendientes(db_session, esc["p1"].id)
+              if f.payload.get("event") == "cancelled"]
+    fila.payload = {**fila.payload, "appt_id": 999999}
+    db_session.flush()
+
+    c = _componer(db_session, esc["p1"], [fila])
+
+    assert c.context["sin_horario"] is False
+    assert (c.context["fecha"], c.context["hora"]) == (
+        "lunes 7 de mayo de 2029", "08:00")
 
 
 def test_cita_cancelada_por_el_propio_alumno_tras_reagendar_es_obsoleta(
@@ -841,6 +948,25 @@ def test_no_show_de_otra_cita_no_lo_vuelve_obsoleto(db_session, proceso,
     assert _componer(db_session, proc, [de_la_vieja]) == Obsolete("ya hay una cita nueva")
 
 
+def test_no_show_sin_horario_lleva_el_rango(db_session, walkin_esc, make_appointment, reloj):
+    """D11: la re-validación al enviar sigue usando la cita real (`appt_id`),
+    así que también hereda su variante sin horario."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    reloj(HOY_AGENDA)
+    esc = walkin_esc
+    appt = _walkin_appt(db_session, esc, make_appointment, status="no_show")
+    StudentMail.appointment_no_show(db_session, esc["p1"], appt=appt)
+
+    c = _componer(db_session, esc["p1"])
+
+    assert c.context["sin_horario"] is True
+    assert (c.context["fecha"], c.context["hora"]) == (
+        "lunes 7 de mayo de 2029", "de 08:00 a 14:00")
+    html = _html(c)
+    assert "(de 08:00 a 14:00, por orden de llegada)" in html
+
+
 # ---------------------------------------------------------------------------
 # #8 / #10 / #11 — recordatorios del barrido diario, re-validados al enviar (D8)
 # ---------------------------------------------------------------------------
@@ -907,6 +1033,20 @@ def test_recordatorio_de_cita_dice_cuando_de_verdad(db_session, proceso, make_ap
 
     assert c.subject == "[TitulaTec ITCJ] " + asunto
     assert asunto in _html(c)
+
+
+def test_recordatorio_sin_horario_lleva_el_rango(db_session, walkin_esc, make_appointment,
+                                                 reloj):
+    reloj(HOY_AGENDA)
+    esc = walkin_esc
+    appt = _walkin_appt(db_session, esc, make_appointment)
+    _recordatorio(db_session, "appt_reminder", esc["p1"], appt)
+
+    c = _componer(db_session, esc["p1"])
+
+    assert c.context["sin_horario"] is True
+    assert (c.context["fecha"], c.context["hora"]) == (
+        "lunes 7 de mayo de 2029", "de 08:00 a 14:00")
 
 
 @pytest.mark.parametrize("docs, asunto, faltantes, por_corregir", [

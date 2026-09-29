@@ -2,8 +2,8 @@
    cita VIGENTE al enviar: una ráfaga de cambios en el tablero sale como UN
    correo con la fecha final (D7). También es el comprobante de la cita que
    agendó el propio alumno (D9): fecha, lugar y qué llevar.
-   Contexto: first_name, link, changed, fecha, hora, lugar, confirmar,
-   requisitos = [{label, hint}]. #}
+   Contexto: first_name, link, changed, fecha, hora, sin_horario, lugar,
+   confirmar, requisitos = [{label, hint}]. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
 {% block titulo %}{% if changed %}Cambió tu cita de cotejo{% else %}Tu cita de cotejo{% endif %} — TitulaTec ITCJ{% endblock %}
@@ -16,7 +16,7 @@
   Estos son los datos de <strong>tu cita de cotejo</strong>:
   {%- endif %}
 </p>
-{{ m.datos_cita(fecha, hora, lugar) }}
+{{ m.datos_cita(fecha, hora, lugar, sin_horario) }}
 {% if confirmar %}{{ m.aviso("Confirma tu asistencia desde la plataforma.") }}{% endif %}
 {{ m.requisitos(requisitos) }}
 {{ m.boton(link, "Ver mi cita") }}

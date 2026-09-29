@@ -1,6 +1,6 @@
 {# «No se presentó» (spec 2026-09-28 §5, #9). Se re-valida al enviar (D8): si
    el encargado lo deshizo dentro de la espera, no sale.
-   Contexto: first_name, link, fecha, hora. #}
+   Contexto: first_name, link, fecha, hora, sin_horario. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
 {% block titulo %}No registramos tu asistencia — TitulaTec ITCJ{% endblock %}
@@ -8,7 +8,7 @@
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 <p style="margin:0 0 20px;">
   <strong>No registramos tu asistencia</strong> a tu cita de cotejo del {{ fecha|e }}
-  a las {{ hora|e }}.
+  {% if sin_horario %}({{ hora|e }}, por orden de llegada){% else %}a las {{ hora|e }}{% endif %}.
 </p>
 <p style="margin:0 0 24px;">
   Agenda una nueva desde la plataforma: según tu convocatoria, la agendas tú o

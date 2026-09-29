@@ -504,7 +504,7 @@ def _appt_progress(appt) -> dict:
         "label": label,
         "tone": tone,
         "status": appt.status,
-        "scheduled_label": _cita_label(appt.scheduled_at),
+        "scheduled_label": AppointmentService.when(appt)["label"],
         "location": appt.location,
         "confirmed": appt.confirmed_at is not None,
         "change_requested": change_requested,
@@ -1399,8 +1399,13 @@ def _cita_card_ctx(db, user_id: int, *, agenda: dict | None = None) -> dict:
     appt = AppointmentService.get_for_process(db, process.id) if process else None
     appt_ctx = None
     if appt:
+        when = AppointmentService.when(appt)
         appt_ctx = {
-            "scheduled_label": _cita_label(appt.scheduled_at),
+            "scheduled_label": when["label"],
+            # D11 (Tarea 9): la tarjeta rotula «de HH:MM a HH:MM · por orden
+            # de llegada» en vez de una hora fija cuando `sin_horario`.
+            "sin_horario": when["sin_horario"],
+            "hora": when["hora"],
             "location": appt.location,
             "status": appt.status,
             "confirmed": appt.confirmed_at is not None,

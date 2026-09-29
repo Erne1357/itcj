@@ -57,7 +57,7 @@ que aceptara fecha y hora sueltas, bastaba con no pasar por el que valida.
 """
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import time
 
 from sqlalchemy.orm import Session
 
@@ -572,8 +572,44 @@ class AppointmentService:
                   "jul", "ago", "sep", "oct", "nov", "dic"]
 
     @staticmethod
-    def _notify_appt(db: Session, process_id: int, ntype: str, title: str,
-                     scheduled_at: datetime, location: str | None) -> None:
+    def when(appt) -> dict:
+        """Cuándo es `appt`, en el único formato que comparten la tarjeta del
+        alumno, la ficha y el tablero del encargado, el expediente, los avisos
+        in-app y los correos (D11, spec 2026-09-29-titulatec-cotejo-espacios-
+        design.md §6).
+
+        `sin_horario` la decide `SlotService.is_walkin_reservation`: ventana
+        `walkin` **y** sentada a la apertura — la regla de legado (una cita
+        que un encargado sentó a mano a OTRA hora dentro de un `walkin`
+        conserva SU hora, nunca el rango). `hora` es «09:30», o el espacio
+        ENTERO («de 08:00 a 14:00») en sin horario. `fecha` es la larga, con
+        año solo si no es el actual (`dates_es.dia_largo`); `fecha_corta`
+        SIEMPRE lleva año («07 oct 2026», el mismo formato que ya usaban los
+        avisos in-app). `label` es la lectura de un vistazo: `fecha_corta` +
+        ` · ` + `hora`.
+        """
+        from itcj2.apps.titulatec.services.slot_service import SlotService
+        from itcj2.apps.titulatec.utils.dates_es import dia_largo
+
+        cuando = appt.scheduled_at
+        sin_horario = SlotService.is_walkin_reservation(appt)
+        if sin_horario:
+            ventana = appt.window
+            hora_txt = f"de {ventana.start_time:%H:%M} a {ventana.end_time:%H:%M}"
+        else:
+            hora_txt = f"{cuando:%H:%M}"
+        fecha_corta = (f"{cuando.day:02d} {AppointmentService._MONTHS_ES[cuando.month]} "
+                       f"{cuando.year}")
+        return {
+            "fecha": dia_largo(cuando),
+            "fecha_corta": fecha_corta,
+            "hora": hora_txt,
+            "sin_horario": sin_horario,
+            "label": f"{fecha_corta} · {hora_txt}",
+        }
+
+    @staticmethod
+    def _notify_appt(db: Session, process_id: int, ntype: str, title: str, appt) -> None:
         """Avisa al alumno (in-app) de un cambio en su cita. Best-effort."""
         from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.services.notify import notify_student
@@ -581,9 +617,8 @@ class AppointmentService:
         proc = db.get(TitulationProcess, process_id)
         if not proc:
             return
-        when = (f"{scheduled_at.day:02d} {AppointmentService._MONTHS_ES[scheduled_at.month]} "
-                f"{scheduled_at.year} · {scheduled_at:%H:%M}")
-        body = when + (f" · {location}" if location else "")
+        body = AppointmentService.when(appt)["label"] + (
+            f" · {appt.location}" if appt.location else "")
         notify_student(db, proc.student_id, type=ntype, title=title, body=body,
                        process_id=process_id, phase_number=2)
 
@@ -677,8 +712,7 @@ class AppointmentService:
         proc = db.get(TitulationProcess, process_id)
         if proc is None or int(created_by_id) != int(proc.student_id):
             AppointmentService._notify_appt(db, process_id, "APPOINTMENT_SCHEDULED",
-                                            "Tu cita de cotejo fue agendada",
-                                            appt.scheduled_at, appt.location)
+                                            "Tu cita de cotejo fue agendada", appt)
         # El correo, en cambio, sale SIEMPRE (spec 2026-09-28 §5 #7, D9): al
         # alumno que agendó él mismo le sirve de comprobante —fecha, lugar,
         # qué llevar—. Grupo `cita:{pid}`: agendar y mover dentro de la espera
@@ -745,8 +779,7 @@ class AppointmentService:
                                 {"scheduled_at": appt.scheduled_at.isoformat(),
                                  "window_id": window.id})
         AppointmentService._notify_appt(db, appt.process_id, "APPOINTMENT_RESCHEDULED",
-                                        "Tu cita de cotejo fue reagendada",
-                                        appt.scheduled_at, appt.location)
+                                        "Tu cita de cotejo fue reagendada", appt)
         # Correo (spec 2026-09-28 §5 #7), mismo grupo `cita:{pid}` que el de
         # agendar: mover tres veces en el tablero = un correo con la fecha
         # final (D7). Habla de la cita NUEVA, que ya trae id (`assign` hizo
@@ -804,8 +837,7 @@ class AppointmentService:
             # La cita ya existe en la BD: trae id.
             StudentMail.appointment_no_show(db, proc, appt=appt)
         AppointmentService._notify_appt(db, appt.process_id, "APPOINTMENT_NO_SHOW",
-                                        "No registramos tu asistencia a tu cita",
-                                        appt.scheduled_at, appt.location)
+                                        "No registramos tu asistencia a tu cita", appt)
         db.commit()
         db.refresh(appt)
         return appt
@@ -824,8 +856,7 @@ class AppointmentService:
         appt.status = "in_progress"
         AppointmentService._log(db, appt.process_id, actor_id, "appointment_undo_no_show")
         AppointmentService._notify_appt(db, appt.process_id, "APPOINTMENT_NO_SHOW_UNDONE",
-                                        "Se corrigió tu asistencia a la cita",
-                                        appt.scheduled_at, appt.location)
+                                        "Se corrigió tu asistencia a la cita", appt)
         db.commit()
         db.refresh(appt)
         return appt
@@ -886,8 +917,7 @@ class AppointmentService:
         if notify and proc is not None and int(actor_id) != int(proc.student_id):
             AppointmentService._notify_appt(
                 db, appt.process_id, "APPOINTMENT_CANCELLED",
-                "Tu cita de cotejo fue cancelada",
-                appt.scheduled_at, appt.location)
+                "Tu cita de cotejo fue cancelada", appt)
             # El correo, bajo la MISMA condición (spec 2026-09-28 §5 #7): ni
             # por la cancelación del propio alumno (D9) ni por la de la
             # revocación (`notify=False`: su aviso es `send_process_cancelled`).
