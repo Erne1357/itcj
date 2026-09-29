@@ -44,7 +44,13 @@ logger = logging.getLogger(__name__)
 
 APP_KEY = "titulatec"
 
-_BASE_URL = "https://enlinea.cdjuarez.tecnm.mx/titulatec"
+# Origen público de las ligas que salen por correo: ÚNICA fuente en la app
+# (spec 2026-09-28 C7). `enrollment_request_service.PUBLIC_BASE_URL` es su alias
+# y `StudentMail.link` arma aquí las ligas del correo del proceso. Nunca sale
+# del `Host` de la petición, que el cliente controla.
+PUBLIC_ORIGIN = "https://enlinea.cdjuarez.tecnm.mx"
+
+_BASE_URL = f"{PUBLIC_ORIGIN}/titulatec"
 _STUDENT_URL = f"{_BASE_URL}/student/dashboard"
 
 
