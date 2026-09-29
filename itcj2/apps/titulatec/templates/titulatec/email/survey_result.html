@@ -1,0 +1,31 @@
+{# Dictamen de GTV sobre la encuesta de egresados (spec 2026-09-28 §5,
+   #4-#6). `result`: approved (liberada), rejected (observaciones) o revoked
+   (se revocó la liberación). Con observaciones o revocada: el motivo y
+   «acude a la ventanilla de GTV». Contexto: first_name, link, result, reason. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}{% if result == "approved" %}GTV liberó tu encuesta de egresados{% elif result == "rejected" %}GTV dejó observaciones en tu encuesta{% else %}Se revocó la liberación de tu encuesta{% endif %} — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+{% if result == "approved" %}
+<p style="margin:0 0 24px;">
+  Gestión Tecnológica y Vinculación (GTV) <strong>liberó tu encuesta de egresados</strong>.
+  Ya quedó acreditada en tu proceso como requisito de tu cita de cotejo.
+</p>
+{% else %}
+<p style="margin:0 0 20px;">
+  {% if result == "rejected" -%}
+  Gestión Tecnológica y Vinculación (GTV) revisó tu encuesta de egresados y
+  <strong>dejó observaciones</strong>.
+  {%- else -%}
+  Gestión Tecnológica y Vinculación (GTV) <strong>revocó la liberación de tu encuesta
+  de egresados</strong>.
+  {%- endif %}
+</p>
+{% if reason %}{{ m.motivo(reason, "Observaciones" if result == "rejected" else "Motivo") }}{% endif %}
+<p style="margin:0 0 24px;">
+  <strong>Acude a la ventanilla de GTV</strong> para resolverlo.
+</p>
+{% endif %}
+{{ m.boton(link, "Ver mi proceso") }}
+{% endblock %}

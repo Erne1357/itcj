@@ -1,0 +1,79 @@
+{# Piezas comunes de los correos del proceso al egresado (spec 2026-09-28 §5),
+   los que arma `services/mail_compose.py`; los seis de la inscripción no las
+   usan. El guion bajo del nombre dice que esto no es un correo.
+
+   HTML de CORREO: tablas y estilos en línea (Outlook no entiende flex ni
+   hojas de estilo), nunca <script> ni <style>. TODO texto variable entra con
+   `|e`: motivos y notas los escribe el personal, y el nombre de pila lo tecleó
+   un formulario público. #}
+
+{# Botón principal y, debajo, la MISMA liga en texto plano (spec §5): hay
+   clientes de correo que no pintan el botón o que bloquean los enlaces con
+   estilo. `link` sale de `StudentMail.link` (el login con `next`). #}
+{% macro boton(link, texto) -%}
+<p style="margin:0 0 12px;text-align:center;">
+  <a href="{{ link|e }}"
+     style="display:inline-block;background-color:#1F3D7A;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:6px;font-weight:700;">
+    {{ texto|e }}</a>
+</p>
+<p style="margin:0 0 24px;text-align:center;color:#607D8B;font-size:12px;line-height:1.5;word-break:break-all;">
+  Si el botón no funciona, copia esta liga en tu navegador:<br>
+  <a href="{{ link|e }}" style="color:#1F3D7A;">{{ link|e }}</a>
+</p>
+{%- endmacro %}
+
+{# Texto libre del personal (motivo de un rechazo, observación de GTV, motivo
+   de una cancelación) en su recuadro. `white-space:pre-line` respeta los
+   saltos de línea que escribió sin convertirlos a HTML; por eso el texto va
+   pegado a su <td>: cualquier sangría se pintaría como líneas en blanco. #}
+{% macro motivo(texto, titulo="Motivo") -%}
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="border-left:4px solid #B71C1C;background-color:#FBE9E7;border-radius:4px;margin-bottom:24px;">
+  <tr><td style="padding:14px 16px 4px;color:#B71C1C;font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;">{{ titulo|e }}</td></tr>
+  <tr><td style="padding:0 16px 14px;color:#37474F;font-size:14px;white-space:pre-line;">{{ texto|e }}</td></tr>
+</table>
+{%- endmacro %}
+
+{# Aviso destacado, neutro: el paso al Departamento de Titulación,
+   «confirma tu asistencia». #}
+{% macro aviso(texto) -%}
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="border-left:4px solid #1F3D7A;background-color:#E8EEF7;border-radius:4px;margin-bottom:24px;">
+  <tr><td style="padding:14px 16px;color:#37474F;font-size:14px;">{{ texto|e }}</td></tr>
+</table>
+{%- endmacro %}
+
+{# Fecha, hora y lugar de una cita de cotejo. Sin lugar, esa fila no se pinta
+   (nunca «None»). #}
+{% macro datos_cita(fecha, hora, lugar) -%}
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="border:1px solid #CFD8DC;border-radius:6px;margin-bottom:24px;">
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:12px;width:90px;">Fecha</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:15px;font-weight:700;">{{ fecha|e }}</td>
+  </tr>
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:12px;border-top:1px solid #ECEFF1;">Hora</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:15px;font-weight:700;border-top:1px solid #ECEFF1;">{{ hora|e }}</td>
+  </tr>
+  {%- if lugar %}
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:12px;border-top:1px solid #ECEFF1;">Lugar</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:14px;border-top:1px solid #ECEFF1;">{{ lugar|e }}</td>
+  </tr>
+  {%- endif %}
+</table>
+{%- endmacro %}
+
+{# «Qué llevar a tu cita»: los requisitos ACTIVOS de la convocatoria, como
+   `[{label, hint}]`. Sin requisitos, la sección no se pinta. #}
+{% macro requisitos(items) -%}
+{%- if items %}
+<p style="margin:0 0 8px;color:#1F3D7A;font-weight:700;">Qué llevar a tu cita</p>
+<ul style="margin:0 0 24px;padding-left:20px;">
+  {%- for r in items %}
+  <li style="margin:0 0 6px;">{{ r.label|e }}{% if r.hint %}<br><span style="color:#607D8B;font-size:13px;">{{ r.hint|e }}</span>{% endif %}</li>
+  {%- endfor %}
+</ul>
+{%- endif %}
+{%- endmacro %}
