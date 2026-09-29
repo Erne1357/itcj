@@ -149,6 +149,32 @@ def _n() -> int:
     return next(_seq)
 
 
+_B36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def _period_code(n: int) -> str:
+    """Codigo de periodo de prueba UNICO por `n`: "29" + `n` en base 36 a 4 cifras.
+
+    `core_academic_periods.code` es String(6): esto da 36**4 = 1 679 616
+    codigos distintos. Si algun dia se rebasa, el codigo mide 7 y la BD lo
+    rechaza en voz alta -- nunca un truncado silencioso. El generador anterior,
+    `f"29{n:03d}A"[:6]`, truncaba desde n = 10 000 (10020...10029 -> "291002"):
+    `make_period` es get-or-create por codigo, devolvia el MISMO periodo y la
+    segunda `make_cohort` chocaba con el UNIQUE de `titulatec_cohorts.period_id`
+    al correr la suite de titulatec entera en un proceso. El prefijo "29" nunca
+    es un periodo real (los reales son AAAAS, 5 cifras) y no choca con los
+    codigos explicitos de 5 caracteres de otras pruebas ("29997").
+    Lo fija `test_conftest_period_codes.py`.
+    """
+    digitos = ""
+    while True:
+        n, resto = divmod(n, 36)
+        digitos = _B36[resto] + digitos
+        if n == 0:
+            break
+    return "29" + digitos.rjust(4, "0")
+
+
 # ---------------------------------------------------------------------------
 # Modo de revision y TTL de la liga: fijos por defecto para TODA la suite
 # ---------------------------------------------------------------------------
@@ -777,7 +803,7 @@ def make_period(db_session):
     from itcj2.core.models.academic_period import AcademicPeriod
 
     def _make(code=None, status="INACTIVE"):
-        code = code or f"29{_n():03d}A"[:6]
+        code = code or _period_code(_n())
         row = db_session.query(AcademicPeriod).filter_by(code=code).first()
         if row is None:
             row = AcademicPeriod(
