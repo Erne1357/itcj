@@ -42,7 +42,8 @@ periódicas las mandan por NOMBRE, no por ruta de módulo):
         destinatario, Graph y reintentos) y devuelve cuántos correos
         terminaron en cada desenlace. Con `TITULATEC_EMAIL_ENABLED=false` no
         toca la BD y devuelve `{"disabled": True}`. Una corrida sin movimiento
-        va al log en DEBUG, no en INFO: corre 288 veces al día.
+        —en ceros o con el correo apagado— va al log en DEBUG, no en INFO:
+        corre 288 veces al día.
 
     titulatec.email_reminders()
         Periódica, diaria a las 9:00 (spec 2026-09-28 §6 C4/C5; su alta en
@@ -202,7 +203,10 @@ def email_dispatch(self, task_run_id: int | None = None) -> dict:
 
     with SessionLocal() as db:
         out = MailDispatcher.run(db)
-    logger.log(logging.INFO if any(out.values()) else logging.DEBUG,
+    # INFO solo si algún correo tuvo desenlace; en ceros o con el correo
+    # apagado (`{"disabled": True}`) no hay nada que contar: DEBUG.
+    movimiento = not out.get("disabled") and any(out.values())
+    logger.log(logging.INFO if movimiento else logging.DEBUG,
                "Correos: despacho — %s", out)
     return out
 

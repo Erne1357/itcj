@@ -304,6 +304,22 @@ def test_el_despacho_sin_movimiento_no_llena_el_log(monkeypatch, patched_session
     assert not [r for r in caplog.records if r.name == "itcj2.tasks.titulatec_tasks"]
 
 
+def test_el_despacho_con_el_correo_apagado_no_llena_el_log(monkeypatch,
+                                                           patched_session_local, caplog):
+    """Con `TITULATEC_EMAIL_ENABLED=false` (el `MailDispatcher.run` REAL) cada
+    corrida devuelve `{"disabled": True}`: no hay nada que contar, así que va a
+    DEBUG igual que una corrida en ceros, no una línea de INFO cada 5 minutos
+    mientras dure el apagado."""
+    from itcj2.apps.titulatec.services.student_mail import MailSettings
+
+    monkeypatch.setattr(MailSettings, "enabled", staticmethod(lambda: False))
+
+    with caplog.at_level(logging.INFO, logger="itcj2.tasks.titulatec_tasks"):
+        assert tasks.email_dispatch.run() == {"disabled": True}
+
+    assert not [r for r in caplog.records if r.name == "itcj2.tasks.titulatec_tasks"]
+
+
 # ---------------------------------------------------------------------------
 # email_reminders (periódica, diaria 9:00): recordatorios por correo
 # ---------------------------------------------------------------------------

@@ -193,7 +193,7 @@ payload — ver §4.
 
 Tarea Celery `titulatec.email_dispatch`, **cada 5 minutos** (`*/5 * * * *`; ruling 18,
 2026-09-29 — antes corría a cada minuto, pero el scheduler del core crea un `core_task_runs` por
-ejecución y no hay retención; `tasks/titulatec_tasks.py:188-207`, `soft_time_limit=50`).
+ejecución y no hay retención; `tasks/titulatec_tasks.py:189-211`, `soft_time_limit=50`).
 `MailDispatcher.run(db, now=None, limit=50)` (`:216-246`) es el único que muta `status` después
 del alta.
 
@@ -265,7 +265,7 @@ nada, así que la liga de ESTE correo sale **solo** por `[TT-MAIL]`.
 ## 5. Recordar — `MailReminders` (`services/mail_reminders.py`)
 
 Tarea Celery `titulatec.email_reminders`, **diaria a las 9:00** (cron en `core_periodic_tasks`,
-zona `APP_TZ`; `tasks/titulatec_tasks.py:210-227`, `soft_time_limit=540`).
+zona `APP_TZ`; `tasks/titulatec_tasks.py:214-231`, `soft_time_limit=540`).
 `MailReminders.run(db, now=None)` (`:234-259`) encola en `titulatec_email_outbox` lo que toca hoy
 y crea su in-app (misma transacción); el despachador los manda en su corrida siguiente (cada 5
 minutos) y los
@@ -339,7 +339,7 @@ del barrido diario es su `cron_expression` en `core_periodic_tasks` (editable en
 ## 7. Tareas, DML y despliegue (spec §9)
 
 - `titulatec.email_dispatch` y `titulatec.email_reminders` en `TASK_DEFINITIONS`
-  (`tasks/titulatec_tasks.py:96-124`) — registro en el WORKER, no en `core_periodic_tasks`.
+  (`tasks/titulatec_tasks.py:97-125`) — registro en el WORKER, no en `core_periodic_tasks`.
 - DML `database/DML/titulatec/mail_2026_09/17_insert_email_tasks.sql` (gitignored, subcarpeta
   propia): da de alta `core_task_definitions` + `core_periodic_tasks` (`*/5 * * * *` y
   `0 9 * * *`, zona `APP_TZ`), idempotente (`ON CONFLICT`, no pisa `is_active`/`cron_expression` si
@@ -384,7 +384,9 @@ del barrido diario es su `cron_expression` en `core_periodic_tasks` (editable en
 `TITULATEC_EMAIL_ENABLED=false` + reinicio de todos los procesos. No borra nada: lo ya encolado se
 queda `pending` y sale al volver a encender. Si eso no se quiere, marcar las filas `obsolete` a
 mano (sin herramienta de CLI para esto en esta entrega — UPDATE directo). El despachador y el
-barrido, con el interruptor apagado, no tocan la BD (`{"disabled": True}`).
+barrido, con el interruptor apagado, no tocan la BD (`{"disabled": True}`); el despacho deja esa
+corrida en el log en DEBUG, igual que una en ceros — no una línea de INFO cada 5 minutos mientras
+dure el apagado.
 
 ---
 
