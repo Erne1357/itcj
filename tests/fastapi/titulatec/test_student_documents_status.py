@@ -187,7 +187,50 @@ def test_aviso_rechazado_gana_a_faltantes(esc, client_as, make_document):
 
 # ===========================================================================
 # 4. El aviso viaja OOB en subir/borrar -- tambien con error (A4)
+#
+# B7 (ronda final): la región viva (`#tt-docs-status`, `role="status"`
+# `aria-live="polite"`) es un envoltorio ESTABLE que el OOB no reemplaza; lo
+# que viaja es su contenido, la tarjeta `#tt-docs-status-card`. Si el OOB
+# reemplazara la región viva entera, el lector de pantalla no anunciaría el
+# cambio (la región «nueva» no estaba en el DOM cuando cambió).
 # ===========================================================================
+def _tarjeta_oob(texto):
+    """Atributos de la tarjeta del aviso (`#tt-docs-status-card`), o `None`."""
+    import re
+
+    m = re.search(r'<div id="tt-docs-status-card"([^>]*)>', texto)
+    return m.group(1) if m else None
+
+
+def _assert_viaja_solo_la_tarjeta(texto):
+    """La respuesta trae la tarjeta con `hx-swap-oob="true"` y NO la región
+    viva: esa se queda en la página."""
+    tarjeta = _tarjeta_oob(texto)
+    assert tarjeta is not None, "la respuesta no trae la tarjeta del aviso"
+    assert 'hx-swap-oob="true"' in tarjeta
+    assert 'id="tt-docs-status"' not in texto, "el OOB no debe reemplazar la región viva"
+    assert 'role="status"' not in texto
+
+
+def test_la_region_viva_es_estable_y_envuelve_la_tarjeta(esc, client_as):
+    """Carga completa: `#tt-docs-status` lleva `role="status"` y
+    `aria-live="polite"`, sin `hx-swap-oob`, y adentro la tarjeta con id propio
+    (sin `role`: una región viva dentro de otra se anunciaría dos veces)."""
+    import re
+
+    student, proc = esc()
+
+    html = client_as(student).get("/titulatec/student/documents").text
+
+    region = re.search(r'<div id="tt-docs-status"([^>]*)>\s*<div id="tt-docs-status-card"'
+                       r'([^>]*)>', html)
+    assert region, "la tarjeta tiene que vivir DENTRO de la región viva"
+    envoltorio, tarjeta = region.groups()
+    assert 'role="status"' in envoltorio and 'aria-live="polite"' in envoltorio
+    assert "hx-swap-oob" not in envoltorio + tarjeta
+    assert "role=" not in tarjeta
+
+
 def test_subir_devuelve_el_aviso_oob(esc, client_as):
     student, proc = esc()
 
@@ -195,8 +238,7 @@ def test_subir_devuelve_el_aviso_oob(esc, client_as):
                                    files={"archivo": PDF})
 
     assert resp.status_code == 200, resp.text[:300]
-    assert 'id="tt-docs-status"' in resp.text
-    assert 'hx-swap-oob="true"' in resp.text
+    _assert_viaja_solo_la_tarjeta(resp.text)
     assert "Te faltan 2" in resp.text
 
 
@@ -210,8 +252,7 @@ def test_borrar_devuelve_el_aviso_oob(esc, client_as):
     resp = cli.delete("/titulatec/student/documents/curp")
 
     assert resp.status_code == 200, resp.text[:300]
-    assert 'id="tt-docs-status"' in resp.text
-    assert 'hx-swap-oob="true"' in resp.text
+    _assert_viaja_solo_la_tarjeta(resp.text)
     assert "Te falta 1: CURP certificada." in resp.text          # singular (B6)
 
 
@@ -229,8 +270,7 @@ def test_subida_con_error_tambien_trae_el_aviso(esc, client_as, monkeypatch):
 
     assert resp.status_code == 200, resp.text[:300]
     assert "X-Tt-Error" in resp.headers
-    assert 'id="tt-docs-status"' in resp.text
-    assert 'hx-swap-oob="true"' in resp.text
+    _assert_viaja_solo_la_tarjeta(resp.text)
 
 
 # ===========================================================================

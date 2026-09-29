@@ -194,10 +194,18 @@ Spec `2026-09-28-titulatec-correos-notificaciones-design.md` §4 A3/A4. Sin bot�
      correo se omite la parte «a {correo}».
 - **Refresco sin recargar**: la respuesta de subir y de borrar un documento
   (`POST`/`DELETE /student/documents/{type_code}`) solo reemplaza su propio
-  `#slot-{type_code}` — el aviso viaja ADEMÁS, pegado con `hx-swap-oob="true"`
-  (`ctx["status_oob"] = _docs_status_ctx(...)`, leído por `document_slot.html`). También en
-  la subida con error (200 + `X-Tt-Error`): el estado del proceso no cambió, pero el aviso
-  vuelve a pintarse igual, sin quedar huérfano de un swap anterior.
+  `#slot-{type_code}` — la tarjeta del aviso (`#tt-docs-status-card`) viaja ADEMÁS, pegada con
+  `hx-swap-oob="true"` (`ctx["status_oob"] = _docs_status_ctx(...)`, leído por
+  `document_slot.html`). También en la subida con error (200 + `X-Tt-Error`): el estado del
+  proceso no cambió, pero el aviso vuelve a pintarse igual, sin quedar huérfano de un swap
+  anterior.
+- **Región viva estable** (B7, ronda final 2026-09-29): `#tt-docs-status`
+  (`role="status"` `aria-live="polite"`) es un envoltorio que se pinta una sola vez, en la
+  carga completa, y que ningún swap reemplaza; el OOB cambia solo la tarjeta de adentro. Un
+  lector de pantalla anuncia los cambios DENTRO de una región que ya estaba en el DOM: cuando
+  el OOB reemplazaba la región entera, el cambio no se anunciaba. La tarjeta no lleva `role`
+  (una región viva dentro de otra se anunciaría dos veces). Sin JS: es solo el marcado de
+  `partials/student/_docs_status.html`.
 
 ## Caminos alternos / errores ❗
 

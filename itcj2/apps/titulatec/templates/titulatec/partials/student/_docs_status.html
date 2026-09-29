@@ -1,33 +1,45 @@
 {# ===========================================================================
    _docs_status.html — aviso de estado al pie de Documentos (alumno, Tarea 2,
-   2026-09-28, spec §4 A4). Raíz `<div id="tt-docs-status">`.
+   2026-09-28, spec §4 A4).
+
+   Dos piezas (B7, ronda final 2026-09-29):
+   - `<div id="tt-docs-status" role="status" aria-live="polite">`: la REGIÓN
+     VIVA. Es un envoltorio estable: se pinta una sola vez, en la carga
+     completa, y ningún swap la reemplaza. Un lector de pantalla anuncia los
+     cambios DENTRO de una región que ya estaba en el DOM; si el OOB la
+     reemplazara entera (como antes), el cambio no se anunciaba.
+   - `<div id="tt-docs-status-card">`: la tarjeta con el mensaje. Es lo único
+     que cambia, y es lo que viaja por `hx-swap-oob`. Sin `role`: una región
+     viva dentro de otra se anunciaría dos veces.
 
    Contexto: DOS formas de llegar aquí, mismas 4 claves en ambas
    (state: rejected|missing|approved|sent · missing_names: list[str] ·
    contact_email: str|None · next_url: str|None), producidas por
    `pages/student.py::_docs_status_ctx`:
 
-   - `status` (dict): carga completa de la página (`student/documents.html`),
-     pintado UNA vez, sin `hx-swap-oob`.
+   - `status` (dict): carga completa de la página (`student/documents.html`):
+     región viva + tarjeta, sin `hx-swap-oob`.
    - `status_oob` (dict): respuesta de subir/borrar un documento
      (`document_slot.html`, que solo reemplaza su propio `#slot-{code}`) --
-     cuando está definido y es verdadero, este parcial se pinta con
-     `hx-swap-oob="true"` para refrescar el aviso sin tocar el resto de la
-     página. `status_oob` gana si ambos existieran a la vez (no ocurre hoy:
-     cada caller pasa uno solo).
+     cuando está definido y es verdadero, se pinta SOLO la tarjeta, con
+     `hx-swap-oob="true"`: reemplaza `#tt-docs-status-card` dentro de la región
+     viva sin tocar el resto de la página. `status_oob` gana si ambos
+     existieran a la vez (no ocurre hoy: cada caller pasa uno solo).
 
    Reusa `.tt-card`/`.tt-card--{tone}` y `.tt-cita-why` (fila icono+texto,
    `titulatec.css`, ya genérica pese al nombre -- la usan `cita_card.html` y
    `_cita_panel.html`): ningún CSS nuevo para el cuerpo del aviso, solo
-   `.tt-doc-sent` (sección DOCUMENTO) para la fecha de envío del slot.
+   `.tt-doc-sent` (sección DOCUMENTO) para la fecha de envío del slot. La
+   regla `#tt-docs-status .tt-cita-why p` (correo largo partible) sigue
+   aplicando: la tarjeta vive dentro de la región.
    =========================================================================== #}
 {% set _s = status_oob if (status_oob is defined and status_oob) else status %}
 {% set _oob = status_oob is defined and status_oob %}
 {% set _tone = {"rejected": "danger", "missing": "accent", "approved": "success", "sent": "accent"} %}
 {% set _icon = {"rejected": "exclamation-triangle", "missing": "cloud-upload", "approved": "check-circle", "sent": "check2-circle"} %}
-<div id="tt-docs-status" class="tt-card tt-card--{{ _tone[_s.state] }} mt-3 tt-anim-in"
-     role="status" aria-live="polite"
-     {% if _oob %}hx-swap-oob="true"{% endif %}>
+{% if not _oob %}<div id="tt-docs-status" role="status" aria-live="polite">{% endif %}
+<div id="tt-docs-status-card" class="tt-card tt-card--{{ _tone[_s.state] }} mt-3 tt-anim-in"
+     {%- if _oob %} hx-swap-oob="true"{% endif %}>
   <div class="tt-cita-why">
     <i class="bi bi-{{ _icon[_s.state] }}" aria-hidden="true"></i>
     {% if _s.state == "rejected" %}
@@ -45,3 +57,4 @@
     {% endif %}
   </div>
 </div>
+{% if not _oob %}</div>{% endif %}
