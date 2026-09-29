@@ -167,6 +167,7 @@ sequenceDiagram
     SVC->>SLOT: assign() — lock de ventana + advisory lock del proceso
     SLOT->>DB: cierra la vigente (si la hay) + INSERT intento nuevo
     SVC->>DB: ProcessEvent(appointment_scheduled) + notif al alumno
+    SVC->>DB: INSERT email_outbox (appt_changed, grupo cita:{pid}) — misma transacción
     U->>API: POST /student/cita/confirmar
     API->>SVC: confirm() → confirmed, confirmed_at
     S->>API: POST /admin/appointments/{pid}/start
@@ -182,25 +183,25 @@ sequenceDiagram
 
 Todas las rutas del encargado cuelgan de `/titulatec/admin/appointments`.
 
-| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif |
-|---|---|---|---|---|---|---|---|
-| 0 | 🏛️ | Espacios | abrir/editar su espacio | `POST /espacios/{window_id}` (`nuevo` o id) | `ReviewWindowService.create` / `.update` | `titulatec_review_windows` | — |
-| 0b| 🏛️ | Espacios | pausar · eliminar · copiar a los demás días | `POST /espacios/{id}/pausa` · `/eliminar` · `/copiar` | `toggle_pause` · `delete` · `copy_to_days` | ídem (copiar **también copia el modo**) | — |
-| 1 | 🏛️ | Agenda · tablero | **agendar** picando un lugar libre (o arrastrando al alumno) | `POST /{pid}/move?window_id=&slot=` | `AppointmentService.create` → `SlotService.assign` | **INSERT** cita `scheduled`, `is_current`, `attempt_no=max+1`, `booked_by='officer'` | `appointment_scheduled` + notif `APPOINTMENT_SCHEDULED` |
-| 1b| 🏛️ | ficha | agendar desde el formulario | `POST /{pid}/schedule` | ídem | ídem | ídem |
-| 2 | 👤 | `/student/cita` | confirmar | `POST /student/cita/confirmar` | `AppointmentService.confirm` | `confirmed`, `confirmed_at` | `appointment_confirmed` |
-| 2b| 👤 | `/student/cita` | solicitar cambio | `POST /student/cita/solicitar-cambio` (form `reason`) | `AppointmentService.request_change` | **columna propia** `change_request` + `change_requested_at` | `appointment_change_requested` |
-| 2c| 👤 | `/student/cita` | **agendar / cancelar él mismo** | `POST /student/cita/agendar` · `/cancelar` | `SelfBookingService.book` · `.cancel` | ⤵ [flujo dedicado](phase2_student_self_booking.md) | `appointment_scheduled` · `appointment_cancelled`, **sin notif** |
-| 3 | 🏛️ | Atender | iniciar el cotejo | `POST /{pid}/start` | `AppointmentService.start` | `in_progress` | `appointment_in_progress` |
-| 3v| 🏛️ | Atender | ver documento (el cotejo) | `GET /{pid}/document/{type_code}` | `DocumentService.get_document` + `storage.abs_path` | — (FileResponse inline) | — |
-| 4 | 🏛️ | Atender | marcar asistió | `POST /{pid}/attended` | `AppointmentService.mark_attended` | `attended` | `appointment_attended` |
-| 4b| 🏛️ | tablero | **mover de franja** (picando el destino, o arrastrando) | `POST /{pid}/move?window_id=&slot=` | `AppointmentService.reschedule` | la vigente pasa a `superseded` (si estaba viva) e **INSERTA** la nueva | `appointment_rescheduled` + notif `APPOINTMENT_RESCHEDULED` |
-| 4c| 🏛️ | Atender | no se presentó | `POST /{pid}/no-show` | `mark_no_show` | `no_show` — **conserva su franja ocupada** | `appointment_no_show` *(sin notificación)* |
-| 4d| 🏛️ | Atender | **deshacer «no se presentó»** | `POST /{pid}/undo-no-show` | `undo_no_show` | `no_show → in_progress` | `appointment_undo_no_show` |
-| 4e| 🏛️ | Atender | **cancelar la cita** | `POST /{pid}/cancelar` (form `motivo`) | `AppointmentService.cancel` | `cancelled`, `is_current=False`, sella `cancelled_*`; **libera la franja** | `appointment_cancelled` + notif `APPOINTMENT_CANCELLED` |
-| 4f| 🏛️ | Atender · checklist | marcar / dispensar / desmarcar requisito | `POST /{pid}/requisitos/{rid}` (form `action`, `note`) | `RequirementService.fulfill` / `.unfulfill` | `RequirementFulfillment(fulfilled\|waived)` o borrada | `requirement_fulfilled` / `requirement_unfulfilled` |
-| 5 | 🏛️/🎓 | Atender | **aprobar fase 02** | `POST /{pid}/fase2/aprobar` | `PhaseService.approve_phase` ⤵ | fase2=`approved`, fase3=`in_progress`, `current_phase=3` | `phase_approved` |
-| 5b| 🏛️ | Atender | **rechazar fase 02** (motivo obligatorio) | `POST /{pid}/fase2/rechazar` (form `reason`) | `PhaseService.reject_phase` | fase2=`rejected` + `rejection_reason` | `phase_rejected` + notif `PHASE_REJECTED` |
+| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif | Correo |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 🏛️ | Espacios | abrir/editar su espacio | `POST /espacios/{window_id}` (`nuevo` o id) | `ReviewWindowService.create` / `.update` | `titulatec_review_windows` | — | — |
+| 0b| 🏛️ | Espacios | pausar · eliminar · copiar a los demás días | `POST /espacios/{id}/pausa` · `/eliminar` · `/copiar` | `toggle_pause` · `delete` · `copy_to_days` | ídem (copiar **también copia el modo**) | — | — |
+| 1 | 🏛️ | Agenda · tablero | **agendar** picando un lugar libre (o arrastrando al alumno) | `POST /{pid}/move?window_id=&slot=` | `AppointmentService.create` → `SlotService.assign` | **INSERT** cita `scheduled`, `is_current`, `attempt_no=max+1`, `booked_by='officer'` | `appointment_scheduled` + notif `APPOINTMENT_SCHEDULED` | `appt_changed` (`scheduled`, `by=officer`) |
+| 1b| 🏛️ | ficha | agendar desde el formulario | `POST /{pid}/schedule` | ídem | ídem | ídem | ídem |
+| 2 | 👤 | `/student/cita` | confirmar | `POST /student/cita/confirmar` | `AppointmentService.confirm` | `confirmed`, `confirmed_at` | `appointment_confirmed` | — |
+| 2b| 👤 | `/student/cita` | solicitar cambio | `POST /student/cita/solicitar-cambio` (form `reason`) | `AppointmentService.request_change` | **columna propia** `change_request` + `change_requested_at` | `appointment_change_requested` | — |
+| 2c| 👤 | `/student/cita` | **agendar / cancelar él mismo** | `POST /student/cita/agendar` · `/cancelar` | `SelfBookingService.book` · `.cancel` | ⤵ [flujo dedicado](phase2_student_self_booking.md) | `appointment_scheduled` · `appointment_cancelled`, **sin notif** | agendar: `appt_changed` (`by=student`, comprobante, D9) · cancelar: — |
+| 3 | 🏛️ | Atender | iniciar el cotejo | `POST /{pid}/start` | `AppointmentService.start` | `in_progress` | `appointment_in_progress` | — |
+| 3v| 🏛️ | Atender | ver documento (el cotejo) | `GET /{pid}/document/{type_code}` | `DocumentService.get_document` + `storage.abs_path` | — (FileResponse inline) | — | — |
+| 4 | 🏛️ | Atender | marcar asistió | `POST /{pid}/attended` | `AppointmentService.mark_attended` | `attended` | `appointment_attended` | — (lo cubre el avance de la fase 2) |
+| 4b| 🏛️ | tablero | **mover de franja** (picando el destino, o arrastrando) | `POST /{pid}/move?window_id=&slot=` | `AppointmentService.reschedule` | la vigente pasa a `superseded` (si estaba viva) e **INSERTA** la nueva | `appointment_rescheduled` + notif `APPOINTMENT_RESCHEDULED` | `appt_changed` (`rescheduled`, la cita NUEVA) |
+| 4c| 🏛️ | Atender | no se presentó | `POST /{pid}/no-show` | `mark_no_show` | `no_show` — **conserva su franja ocupada** | `appointment_no_show` + notif `APPOINTMENT_NO_SHOW` | `appt_no_show`, con gracia (`not_before` = +espera del agrupado) |
+| 4d| 🏛️ | Atender | **deshacer «no se presentó»** | `POST /{pid}/undo-no-show` | `undo_no_show` | `no_show → in_progress` | `appointment_undo_no_show` + notif `APPOINTMENT_NO_SHOW_UNDONE` | — (el `appt_no_show` pendiente sale `obsolete` al re-validar) |
+| 4e| 🏛️ | Atender | **cancelar la cita** | `POST /{pid}/cancelar` (form `motivo`) | `AppointmentService.cancel` | `cancelled`, `is_current=False`, sella `cancelled_*`; **libera la franja** | `appointment_cancelled` + notif `APPOINTMENT_CANCELLED` | `appt_changed` (`cancelled`, con el motivo) |
+| 4f| 🏛️ | Atender · checklist | marcar / dispensar / desmarcar requisito | `POST /{pid}/requisitos/{rid}` (form `action`, `note`) | `RequirementService.fulfill` / `.unfulfill` | `RequirementFulfillment(fulfilled\|waived)` o borrada | `requirement_fulfilled` / `requirement_unfulfilled` | — |
+| 5 | 🏛️/🎓 | Atender | **aprobar fase 02** | `POST /{pid}/fase2/aprobar` | `PhaseService.approve_phase` ⤵ | fase2=`approved`, fase3=`in_progress`, `current_phase=3` | `phase_approved` | `phase_approved` (con el corte por omisión, `handoff=true`) |
+| 5b| 🏛️ | Atender | **rechazar fase 02** (motivo obligatorio) | `POST /{pid}/fase2/rechazar` (form `reason`) | `PhaseService.reject_phase` | fase2=`rejected` + `rejection_reason` | `phase_rejected` + notif `PHASE_REJECTED` | `phase_rejected` (con el motivo) |
 
 **Sobre el paso 1 y el 4b: son la misma ruta.** `move` decide sola cuál corresponde, y el criterio
 es el **complemento exacto** de la guarda de `create`: si hay cita **viva**
@@ -237,21 +238,42 @@ estado y su franja ocupada** mientras el alumno recibe una fila nueva en otra.
 
 ## Notificaciones al alumno
 
-**Solo tres acciones notifican**, y son estas (`_notify_appt` → `services/notify.notify_student` →
-tab **Avisos** del shell):
+**Cinco acciones avisan en la app**, y son estas (`_notify_appt` → `services/notify.notify_student`
+→ tab **Avisos** del shell):
 
 | Acción | Tipo | Condición |
 |---|---|---|
 | Agendar | `APPOINTMENT_SCHEDULED` | **salvo que agende el propio alumno** (no se le avisa de su propio clic) |
 | Reagendar / mover | `APPOINTMENT_RESCHEDULED` | siempre |
-| Cancelar | `APPOINTMENT_CANCELLED` | **salvo que cancele el propio alumno** |
+| Cancelar | `APPOINTMENT_CANCELLED` | **salvo que cancele el propio alumno** (ni la revocación, `notify=False`) |
+| No se presentó (desde 2026-09-28) | `APPOINTMENT_NO_SHOW` «No registramos tu asistencia a tu cita» | siempre |
+| Deshacer «no se presentó» (desde 2026-09-28) | `APPOINTMENT_NO_SHOW_UNDONE` «Se corrigió tu asistencia a la cita» | siempre |
 
-**`no_show` no notifica** (no hay call site), y **el auto-agendado no le notifica nada al
-encargado**: se entera por el distintivo «El alumno agendó» de su tablero.
+Los cinco llevan de cuerpo «fecha · hora · lugar» y apuntan a la fase 2. **El auto-agendado no le
+notifica nada al encargado**: se entera por el distintivo «El alumno agendó» de su tablero.
 
 > La comparación «¿el actor es el alumno?» va con `int()` en los dos lados: `user["sub"]` es
 > **string**, y sin la coerción `"7" != 7` es siempre verdadero — el alumno recibiría aviso de su
 > propio clic y el silencio de esa rama sería mentira.
+
+### Correo al egresado (desde 2026-09-28)
+
+Cada acción **encola** su correo con `StudentMail` (`services/student_mail.py`) en la **misma
+transacción** que la escritura de la cita; lo envía después el despachador periódico. La cita de
+la fila siempre trae id (`SlotService.assign` hace `flush`; las demás ya existían).
+
+| Acción | `kind` | Grupo / espera | Condición |
+|---|---|---|---|
+| Agendar (`create`) | `appt_changed`, `event=scheduled` | `cita:{pid}` | **siempre**, también si agenda el propio alumno (`by=student`): le sirve de comprobante (D9). Su in-app sigue suprimido |
+| Reagendar / mover (`reschedule`) | `appt_changed`, `event=rescheduled` | `cita:{pid}` | siempre; la fila habla de la cita NUEVA |
+| Cancelar (`cancel`) | `appt_changed`, `event=cancelled` + motivo | `cita:{pid}` | **la misma condición que el in-app**: ni la del propio alumno ni la de la revocación |
+| No se presentó (`mark_no_show`) | `appt_no_show` | individual; `not_before` = ahora + `TITULATEC_EMAIL_DIGEST_MINUTES` | siempre; si se deshace dentro de la espera, el despachador lo da por obsoleto (D8) |
+| Deshacer «no se presentó» | — | — | solo in-app |
+
+El grupo `cita:{pid}` hace que agendar y mover varias veces dentro de la espera salga en **un**
+correo con la cita vigente (D7). Sin correo, a propósito: confirmar, solicitar cambio, iniciar,
+«asistió» (lo cubre el avance de la fase 2) y la cancelación hecha por el propio alumno. Lo fijan
+`tests/fastapi/titulatec/test_mail_hooks.py` y el barrido por AST de `test_mail_writers.py`.
 
 ## Caminos alternos / errores ❗
 

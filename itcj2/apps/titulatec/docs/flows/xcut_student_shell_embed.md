@@ -75,6 +75,8 @@ flowchart TD
 | Fase rechazada | `PHASE_REJECTED` | `PhaseService.reject_phase` | esa fase |
 | Cita agendada | `APPOINTMENT_SCHEDULED` | `AppointmentService.create` | fase 2 |
 | Cita reagendada | `APPOINTMENT_RESCHEDULED` | `AppointmentService.reschedule` | fase 2 |
+| No se presentó (2026-09-28) | `APPOINTMENT_NO_SHOW` | `AppointmentService.mark_no_show` | fase 2 |
+| Se corrigió la asistencia (2026-09-28) | `APPOINTMENT_NO_SHOW_UNDONE` | `AppointmentService.undo_no_show` | fase 2 |
 
 ## Mini-perfil (standalone)
 

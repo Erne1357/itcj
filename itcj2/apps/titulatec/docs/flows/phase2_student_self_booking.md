@@ -153,14 +153,20 @@ el encargado anunció abierta a todos. Colgarlo de `can_book` le fabricaría un 
 
 ## Pasos detallados
 
-| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif |
-|---|---|---|---|---|---|---|---|
-| 1 | 🏛️ | Citas · Espacios | publicar el espacio | `POST /admin/appointments/espacios/{window_id}` (form `visibility`) | `ReviewWindowService.create` / `.update` | `titulatec_review_windows.visibility` ← `bookable\|walkin` | — |
-| 2 | 👤 | `/student/cita` | ver la oferta | `GET /student/cita` | `SelfBookingService.eligibility` + `.offer` | — (lectura) | — |
-| 2b | 👤 | tira de días | cambiar de día | `GET /student/cita?dia=YYYY-MM-DD` | ídem | — (lectura) | — |
-| 3 | 👤 | rejilla de franjas | **agendar** | `POST /student/cita/agendar` (form `window_id` + `slot`) | `SelfBookingService.book` → `AppointmentService.create(booked_by='student')` → `SlotService.assign` | **INSERT** `ReviewAppointment(status=scheduled, is_current=True, attempt_no=max+1, booked_by='student')`; la vigente anterior se cierra | `appointment_scheduled`. **Sin notificación a nadie**: al alumno porque acaba de pulsar el botón, al encargado por D11 |
-| 4 | 👤 | tarjeta de la cita | **cancelar** | `POST /student/cita/cancelar` (form `motivo`, opcional) | `SelfBookingService.cancel` → `AppointmentService.cancel` | `status='cancelled'`, `is_current=False`, `cancelled_at`, `cancelled_by_id`, `cancel_reason`; **la franja se libera** | `appointment_cancelled`. Sin notificación (el actor es el propio alumno) |
-| 5 | 🏛️ | Citas · Agenda | enterarse | `GET /admin/appointments?date=…` | `_board_ctx` → `booked_by` | — (lectura) | — |
+| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif | Correo |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 🏛️ | Citas · Espacios | publicar el espacio | `POST /admin/appointments/espacios/{window_id}` (form `visibility`) | `ReviewWindowService.create` / `.update` | `titulatec_review_windows.visibility` ← `bookable\|walkin` | — | — |
+| 2 | 👤 | `/student/cita` | ver la oferta | `GET /student/cita` | `SelfBookingService.eligibility` + `.offer` | — (lectura) | — | — |
+| 2b | 👤 | tira de días | cambiar de día | `GET /student/cita?dia=YYYY-MM-DD` | ídem | — (lectura) | — | — |
+| 3 | 👤 | rejilla de franjas | **agendar** | `POST /student/cita/agendar` (form `window_id` + `slot`) | `SelfBookingService.book` → `AppointmentService.create(booked_by='student')` → `SlotService.assign` | **INSERT** `ReviewAppointment(status=scheduled, is_current=True, attempt_no=max+1, booked_by='student')`; la vigente anterior se cierra | `appointment_scheduled`. **Sin notificación in-app a nadie**: al alumno porque acaba de pulsar el botón, al encargado por D11 | **Sí**: `appt_changed` (`event=scheduled`, `by=student`, grupo `cita:{pid}`) — su comprobante: fecha, lugar, qué llevar (D9) |
+| 4 | 👤 | tarjeta de la cita | **cancelar** | `POST /student/cita/cancelar` (form `motivo`, opcional) | `SelfBookingService.cancel` → `AppointmentService.cancel` | `status='cancelled'`, `is_current=False`, `cancelled_at`, `cancelled_by_id`, `cancel_reason`; **la franja se libera** | `appointment_cancelled`. Sin notificación (el actor es el propio alumno) | **No** (su propia acción; `cancel` solo encola bajo la condición del in-app) |
+| 5 | 🏛️ | Citas · Agenda | enterarse | `GET /admin/appointments?date=…` | `_board_ctx` → `booked_by` | — (lectura) | — | — |
+
+> **El correo del paso 3 NO es un aviso de su propio clic, es un comprobante** (spec 2026-09-28,
+> D9): el in-app sigue suprimido y el correo sale igual. Si el alumno agenda y cancela dentro de
+> la espera del agrupado, el grupo `cita:{pid}` queda en neto cero y el despachador no manda nada
+> (lo decide al enviar, no aquí). Lo fijan `test_alumno_agenda_encola_pero_sin_in_app` y
+> `test_alumno_cancela_no_encola` en `tests/fastapi/titulatec/test_mail_hooks.py`.
 
 > **`GET /student/cita?dia=` NO es una ruta nueva**: es la misma con querystring. Lo que decide
 > parcial-contra-página es la cabecera `HX-Request`, no la presencia del parámetro — ese mismo
@@ -204,7 +210,8 @@ existe para cerrar.
 - La franja queda ocupada; el tablero del encargado la pinta con el distintivo **«El alumno
   agendó»** en la línea `.meta` del asiento (nunca en una línea nueva: el asiento es de alto fijo
   y crecer movería la fila).
-- `ProcessEvent(appointment_scheduled)`; **ninguna notificación** (D11).
+- `ProcessEvent(appointment_scheduled)`; **ninguna notificación in-app** (D11), pero sí una fila
+  `appt_changed` en `titulatec_email_outbox` (el comprobante por correo, D9).
 - Tras cancelar: la fila deja de ser la vigente, la franja vuelve al pozo **en el acto** y el
   proceso está «sin cita» otra vez — puede agendar de nuevo, hasta el tope.
 

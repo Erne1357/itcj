@@ -198,6 +198,10 @@ class SurveyReviewService:
                        title="Tu encuesta de egresados fue liberada",
                        process_id=process.id, phase_number=PHASE_COTEJO)
 
+        # Correo (spec 2026-09-28 §5, #4), en esta misma transacción.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.survey_result(db, process, result="approved")
+
         db.commit()
         return review
 
@@ -228,6 +232,10 @@ class SurveyReviewService:
         notify_student(db, process.student_id, type="SURVEY_REVIEW_REJECTED",
                        title="Gestión Tecnológica y Vinculación dejó observaciones",
                        body=motivo, process_id=process.id, phase_number=PHASE_COTEJO)
+
+        # Correo (spec 2026-09-28 §5, #5): las observaciones, ya recortadas.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.survey_result(db, process, result="rejected", reason=motivo)
 
         db.commit()
         return review
@@ -264,6 +272,10 @@ class SurveyReviewService:
         notify_student(db, process.student_id, type="SURVEY_REVIEW_REVOKED",
                        title="Se revocó la liberación de tu encuesta",
                        body=motivo, process_id=process.id, phase_number=PHASE_COTEJO)
+
+        # Correo (spec 2026-09-28 §5, #6): el motivo de la revocación.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.survey_result(db, process, result="revoked", reason=motivo)
 
         db.commit()
         return review

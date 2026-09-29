@@ -42,12 +42,14 @@ sequenceDiagram
     Note over API: sin type_code → 400 · reject sin note → 400 (comentario obligatorio)
     API->>DS: review(pid, type_code, status, note, reviewer)
     DS->>DB: Document.review_status = approved|rejected
+    DS->>DB: INSERT email_outbox (docs_review, grupo docs:{pid})
     DS->>DB: COMMIT (1.º)
     API->>DB: SELECT process.current_phase
     API->>DS: initial_docs_all_approved(pid)?
     alt las 3 approved y can_transition(proc, 1)
         API->>PS: approve_phase(proc, 1, reviewer)
         PS->>DB: fase1=approved, current_phase=2, ProcessEvent
+        PS->>DB: INSERT email_outbox (phase_approved, MISMO grupo docs:{pid})
         PS->>DB: COMMIT (2.º)
     end
     API-->>FE: re-render #docs-body
@@ -55,12 +57,27 @@ sequenceDiagram
 
 ## Pasos detallados
 
-| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD |
-|---|---|---|---|---|---|---|
-| 1 | 🏛️ | `/admin/documents` | Selecciona proceso | `GET …/documents/body?selected=` | `_body_ctx` (scoped, `pages/documents.py:87-115`) | (lectura) |
-| 2 | 🏛️ | panel derecho (doc activo) | Aprueba/rechaza doc | `POST …/{pid}/document/review` (`type_code`+`note` en form; reject exige `note`) | `DocumentService.review` (`services/document_service.py:166-187`) | `Document.review_status`, `review_note`, `reviewed_by_id` · commit en `:186` |
-| 2b | 🏛️ | visor | Ve PDF (PDF.js→canvas) / lo expande al modal `#tt-doc-modal` | `GET …/{pid}/document/{code}` (`?download=1` descarga) | `DocumentService.get_document` + `_storage_keys` → `storage.download_filename` | (lectura) · `Content-Disposition: inline\|attachment; filename="{control}_{ETIQUETA}.{ext}"` |
-| 3 | 🤖 | — | Auto-avance si las 3 aprobadas | (mismo POST) | `DocumentService.initial_docs_all_approved` + `PhaseService.can_transition` + `...approve_phase` (`pages/documents.py:181-183`) | fase1→`approved`, `current_phase=2`, `ProcessEvent` · commit en `services/phase_service.py:283` |
+| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Correo |
+|---|---|---|---|---|---|---|---|
+| 1 | 🏛️ | `/admin/documents` | Selecciona proceso | `GET …/documents/body?selected=` | `_body_ctx` (scoped, `pages/documents.py:87-115`) | (lectura) | — |
+| 2 | 🏛️ | panel derecho (doc activo) | Aprueba/rechaza doc | `POST …/{pid}/document/review` (`type_code`+`note` en form; reject exige `note`) | `DocumentService.review` | `Document.review_status`, `review_note`, `reviewed_by_id` · un solo commit al final | `docs_review` (aprobado **y** rechazado), grupo `docs:{pid}` |
+| 2b | 🏛️ | visor | Ve PDF (PDF.js→canvas) / lo expande al modal `#tt-doc-modal` | `GET …/{pid}/document/{code}` (`?download=1` descarga) | `DocumentService.get_document` + `_storage_keys` → `storage.download_filename` | (lectura) · `Content-Disposition: inline\|attachment; filename="{control}_{ETIQUETA}.{ext}"` | — |
+| 3 | 🤖 | — | Auto-avance si las 3 aprobadas | (mismo POST) | `DocumentService.initial_docs_all_approved` + `PhaseService.can_transition` + `...approve_phase` (`pages/documents.py:181-183`) | fase1→`approved`, `current_phase=2`, `ProcessEvent` · commit propio de `approve_phase` | `phase_approved`, **mismo** grupo `docs:{pid}` |
+
+### Correo al egresado (desde 2026-09-28)
+
+`DocumentService.review` encola con `StudentMail.doc_reviewed` —antes de su `commit`, en la misma
+transacción que el dictamen— una fila `docs_review` con payload `{type_code, name, status, note}`:
+`name` es el `DocumentType.name` (si el tipo ya no está en el catálogo, su código) y `note` el
+motivo **tal como estaba al dictaminar** (`review_note` es un solo hueco y el siguiente dictamen lo
+pisa). Aprobado y rechazado encolan los dos; el in-app sigue siendo solo del rechazo
+(`DOCUMENT_REJECTED`).
+
+Todo va al grupo `docs:{pid}`, igual que el `phase_approved` del auto-avance (paso 3): el
+despachador junta el grupo en **un** correo cuando lleva `TITULATEC_EMAIL_DIGEST_MINUTES` sin
+movimiento (D7), así que dictaminar los 3 documentos de corrido y el avance de fase salen juntos.
+Lo fija `tests/fastapi/titulatec/test_mail_hooks.py`
+(`test_tercer_aprobado_encola_tambien_phase_approved_en_el_grupo`, por la ruta real).
 
 ### Nombre del archivo descargado (desde 2026-09-28)
 
@@ -217,6 +234,8 @@ Agravantes verificados del botón manual:
 `db.commit()` (`services/phase_service.py:283`). Si el segundo commit falla —o dos revisores aprueban
 el último documento a la vez— el documento queda `approved` y la fase no avanza: hay que empujarla
 con el botón manual. No hay bloqueo de fila; la idempotencia la da `can_transition` (la segunda pasada ya no encuentra el proceso en la fase 1).
+Los correos siguen a su transacción: el `docs_review` queda con el 1.er commit y el `phase_approved`
+solo existe si el 2.º se confirmó — nunca se avisa un avance que no ocurrió.
 
 ## Estado resultante
 
@@ -224,6 +243,8 @@ con el botón manual. No hay bloqueo de fila; la idempotencia la da `can_transit
   (`services/document_service.py:10-17`).
 - Fase 1 `approved`, `current_phase = 2`, `ProcessEvent(phase_approved)` y notificación
   `PHASE_APPROVED` al alumno (`services/phase_service.py:245,267-270,278-281`).
+- En `titulatec_email_outbox`: un `docs_review` por dictamen más el `phase_approved` del avance,
+  todos `pending` en el grupo `docs:{pid}` (un solo correo al egresado).
 - El proceso entra a "Por agendar" de [cita de cotejo](phase2_appointment_loop.md)
   (`AppointmentService.list_pending_processes` exige las 3 aprobadas).
 

@@ -344,15 +344,28 @@ class DocumentService:
             {"type_code": type_code, "note": note or None},
         )
 
-        if status == "rejected":
-            from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.models import TitulationProcess
+        proc = db.get(TitulationProcess, process_id)
+
+        if status == "rejected" and proc:
             from itcj2.apps.titulatec.services.notify import notify_student
-            proc = db.get(TitulationProcess, process_id)
-            if proc:
-                notify_student(db, proc.student_id, type="DOCUMENT_REJECTED",
-                               title="Un documento necesita correcciones",
-                               body=(note or "Revisa el documento rechazado y vuelve a subirlo."),
-                               process_id=process_id, phase_number=1)
+            notify_student(db, proc.student_id, type="DOCUMENT_REJECTED",
+                           title="Un documento necesita correcciones",
+                           body=(note or "Revisa el documento rechazado y vuelve a subirlo."),
+                           process_id=process_id, phase_number=1)
+
+        # Correo (spec 2026-09-28 §5, #1): aprobado Y rechazado, al grupo
+        # `docs:{pid}` -- sale en UN correo con los demás dictámenes (y con el
+        # avance de la fase 1) cuando el grupo lleva la espera sin movimiento
+        # (D7). El motivo va congelado en el payload por lo mismo que en el
+        # evento. En esta transacción: si el commit falla, la fila se va con el
+        # dictamen. Nombre del catálogo; si el tipo ya no está, su código.
+        if proc:
+            from itcj2.apps.titulatec.services.student_mail import StudentMail
+            StudentMail.doc_reviewed(
+                db, proc, type_code=type_code,
+                doc_name=getattr(dtype, "name", None) or type_code,
+                status=status, note=note or None)
 
         db.commit()
         return True
