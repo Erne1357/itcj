@@ -438,8 +438,32 @@ def test_cita_confirmada_ya_no_pide_confirmar(db_session, cita_esc):
 
 
 def test_cita_rafaga_un_solo_correo_con_la_fecha_final(db_session, cita_esc):
-    """Agendar → mover → mover dentro de la espera: UN correo, con la fecha de
-    la cita vigente y no con la de cada fila (D7)."""
+    """El alumno ya conocía su cita (ese correo salió) y el encargado la mueve
+    dos veces dentro de la espera: UN correo «Cambió…», con la fecha de la
+    cita vigente y no con la de cada fila (D7)."""
+    esc = cita_esc
+    conocida = _agendar(db_session, esc, slot=time(9, 0))
+    _ya_salio(db_session, esc["p1"].id)
+    segunda = _mover(db_session, esc, conocida, time(9, 30))
+    _mover(db_session, esc, segunda, time(10, 0))
+    filas = _pendientes(db_session, esc["p1"].id)
+    assert _eventos(filas) == ["rescheduled", "rescheduled"]
+
+    c = _componer(db_session, esc["p1"], filas)
+
+    assert c.subject == "[TitulaTec ITCJ] Cambió tu cita de cotejo: 7 de mayo a las 10:00"
+    assert c.template == "appt_changed.html"
+    assert (c.context["hora"], c.context["changed"]) == ("10:00", True)
+    html = _html(c)
+    assert "10:00" in html
+    assert "09:00" not in html and "09:30" not in html
+
+
+def test_rafaga_que_empieza_en_creacion_dice_tu_cita(db_session, cita_esc):
+    """Agendar → mover → mover dentro de la espera: para el alumno es la PRIMERA
+    noticia de su cita, así que el correo no dice «Cambió…» aunque haya
+    `rescheduled` en el grupo; es un solo correo con la fecha final (ruling 3,
+    2026-09-29)."""
     esc = cita_esc
     primera = _agendar(db_session, esc, slot=time(9, 0))
     segunda = _mover(db_session, esc, primera, time(9, 30))
@@ -449,10 +473,11 @@ def test_cita_rafaga_un_solo_correo_con_la_fecha_final(db_session, cita_esc):
 
     c = _componer(db_session, esc["p1"], filas)
 
-    assert c.subject == "[TitulaTec ITCJ] Cambió tu cita de cotejo: 7 de mayo a las 10:00"
+    assert c.subject == "[TitulaTec ITCJ] Tu cita de cotejo: 7 de mayo a las 10:00"
     assert c.template == "appt_changed.html"
-    assert (c.context["hora"], c.context["changed"]) == ("10:00", True)
+    assert (c.context["hora"], c.context["changed"]) == ("10:00", False)
     html = _html(c)
+    assert "cambió" not in html.lower()          # ni en el título ni en el cuerpo
     assert "10:00" in html
     assert "09:00" not in html and "09:30" not in html
 
