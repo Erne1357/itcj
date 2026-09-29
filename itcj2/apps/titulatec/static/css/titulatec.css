@@ -2106,6 +2106,18 @@ button.tt-seat--libre { pointer-events: auto; }
    espacio se guarda. */
 .tt-vis-aviso { font-size: var(--tt-fs-100); color: var(--tt-amber-ink); }
 
+/* --- Sin horario (D3): cupo TOTAL en vez de por franja --------------------
+   Los DOS campos de cupo viven SIEMPRE en el DOM -- el que se oculta sigue
+   validandose en HTML5 (min/max), asi que los dos cargan con un valor valido
+   de por si (`_espacios_ctx`). Alternan con `:has()`, sin JS: el mismo idiom
+   que ya usa `.tt-vis-opt:has(input:checked)` arriba. */
+.tt-f-mode-total { display: none; }
+.tt-form-grid:has(#esp-vis-walkin:checked) .tt-f-mode-franja { display: none; }
+.tt-form-grid:has(#esp-vis-walkin:checked) .tt-f-mode-total { display: block; }
+
+/* --- Varios dias (D9): «Tambien en estos dias» / «Copiar a otros dias» --- */
+#appt-space-editor summary { cursor: pointer; }
+
 /* --- Historial de intentos (ficha de Atender) ---------------------------- */
 .tt-attempts { list-style: none; margin: 0; padding: 0;
                display: flex; flex-direction: column; gap: var(--tt-sp-1); }

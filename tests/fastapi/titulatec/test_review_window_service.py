@@ -14,7 +14,7 @@ El predicado correcto es el de `occupancy`, y es por ESTADO, nunca por
     presento es que ya paso»);
   * `attended` tambien: la franja se uso de verdad.
 """
-from datetime import time
+from datetime import date, time
 
 import pytest
 
@@ -158,3 +158,92 @@ class TestBorrar:
         ReviewWindowService.delete(db_session, otra)
 
         assert db_session.get(ReviewWindow, wid) is None
+
+
+class TestModoDestino:
+    """Ruling 2026-09-29 (revisión de T2, arrastrada a la Tarea 4 — spec §3.2).
+
+    Pasar de franjas a sin horario con más vivas que el cupo total es un
+    conflicto de MODO, no de horario: el horario no se tocó, es el cupo TOTAL
+    del modo nuevo el que no las aguanta. Antes las dos ramas —esta y «bajar
+    el cupo YA estando en sin horario»— disparaban la misma excepción
+    (`WindowShrinkConflict`), y su frase («quedaría fuera del horario nuevo»)
+    no describía lo que de verdad pasó aquí.
+    """
+
+    def test_pasar_a_walkin_con_mas_vivas_que_el_cupo_es_conflicto_de_modo(
+            self, db_session, agenda_slots):
+        esc = agenda_slots            # 09:00-11:00, franjas de 30, cupo 1
+        SlotService.assign(db_session, esc["w"].id, time(9, 0),
+                           esc["p1"].id, esc["off"].id)
+        SlotService.assign(db_session, esc["w"].id, time(9, 30),
+                           esc["p2"].id, esc["off"].id)
+
+        with pytest.raises(err.WindowModeConflict) as exc:
+            _update_igual(db_session, esc["w"], visibility="walkin", capacity=1)
+        assert str(exc.value) == ("Este espacio tiene 1 cita que no cabe en el modo "
+                                  "nuevo. Muévelas o cancélalas primero.")
+        assert esc["w"].visibility == "private"
+
+        _update_igual(db_session, esc["w"], visibility="walkin", capacity=2)
+        assert esc["w"].visibility == "walkin"
+
+
+class TestVariosDias:
+    """D9 (spec §5, Tarea 4): crear o copiar el mismo espacio en varios días a
+    la vez, saltando SOLO el día donde el dueño YA tiene algo que se ENCIMA.
+    """
+
+    def test_create_many_crea_en_varios_dias_y_salta_el_que_se_encima(
+            self, db_session, make_program, make_cohort, make_review_day,
+            make_officer, make_review_window):
+        prog = make_program("Ingeniería de Varios Días")
+        cohort = make_cohort()
+        off, pos = make_officer([prog])
+        d1 = make_review_day(cohort, day=date(2029, 6, 4))
+        d2 = make_review_day(cohort, day=date(2029, 6, 5))
+        d3 = make_review_day(cohort, day=date(2029, 6, 6))
+        # El dueño YA tiene algo en d2 que se encima con el 09:00-11:00 nuevo.
+        make_review_window(d2, off, start="10:00", end="12:00", position=pos)
+
+        creados, saltados = ReviewWindowService.create_many(
+            db_session, [d1.id, d2.id, d3.id], off.id, position_id=pos.id,
+            actor_id=off.id, start_time="09:00", end_time="11:00",
+            slot_minutes=30, capacity=1, location=None, visibility="private")
+
+        assert [c.review_day_id for c in creados] == [d1.id, d3.id]
+        assert saltados == [d2.date]
+
+    def test_copy_to_days_copia_solo_a_los_elegidos_y_solo_salta_por_encimado(
+            self, db_session, make_program, make_cohort, make_review_day,
+            make_officer, make_review_window):
+        """D9 (spec §0.2, el bug de origen): antes bastaba con que el dueño YA
+        tuviera un espacio ese día, aunque no chocara. Ahora salta solo si el
+        horario nuevo se ENCIMA de verdad — y solo copia a los días elegidos,
+        no a «todos los que estén libres»."""
+        from itcj2.apps.titulatec.models import ReviewWindow
+
+        prog = make_program("Ingeniería de Copiar")
+        cohort = make_cohort()
+        off, pos = make_officer([prog])
+        origen_dia = make_review_day(cohort, day=date(2029, 6, 18))
+        origen = make_review_window(origen_dia, off, start="09:00", end="11:00",
+                                    position=pos)
+
+        sin_encimar = make_review_day(cohort, day=date(2029, 6, 19))
+        # Otro espacio del mismo dueño, a OTRA hora: no choca con 09:00-11:00.
+        make_review_window(sin_encimar, off, start="14:00", end="15:00",
+                           position=pos)
+
+        encimado = make_review_day(cohort, day=date(2029, 6, 20))
+        make_review_window(encimado, off, start="10:00", end="12:00", position=pos)
+
+        no_elegido = make_review_day(cohort, day=date(2029, 6, 21))  # libre, no se pasa
+
+        creados, saltados = ReviewWindowService.copy_to_days(
+            db_session, origen, [sin_encimar.id, encimado.id])
+
+        assert [c.review_day_id for c in creados] == [sin_encimar.id]
+        assert saltados == [encimado.date]
+        assert (db_session.query(ReviewWindow)
+               .filter_by(review_day_id=no_elegido.id).count()) == 0

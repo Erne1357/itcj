@@ -67,17 +67,30 @@ class ReviewWindowService:
 
     # -------------------------------------------------------------- escritura
     @staticmethod
-    def assert_no_overlap(db: Session, review_day_id: int, owner_id: int,
-                          inicio, fin, *, excluir_id=None) -> None:
+    def _se_encima(db: Session, review_day_id: int, owner_id: int, inicio, fin,
+                   *, excluir_id=None) -> bool:
+        """True si `[inicio, fin)` se encima con OTRO espacio del mismo dueño
+        ese día.
+
+        Es el predicado puro, sin la excepción: `assert_no_overlap` lo usa tal
+        cual para crear/editar UN espacio, y `create_many`/`copy_to_days` (D9)
+        lo usan para decidir a cuál de varios días saltarse, uno por uno, sin
+        levantar nada.
+        """
         from itcj2.apps.titulatec.models import ReviewWindow
         q = (db.query(ReviewWindow)
              .filter(ReviewWindow.review_day_id == review_day_id,
                      ReviewWindow.owner_user_id == owner_id))
         if excluir_id:
             q = q.filter(ReviewWindow.id != excluir_id)
-        for otra in q.all():
-            if inicio < otra.end_time and otra.start_time < fin:
-                raise WindowOverlap()
+        return any(inicio < otra.end_time and otra.start_time < fin for otra in q.all())
+
+    @staticmethod
+    def assert_no_overlap(db: Session, review_day_id: int, owner_id: int,
+                          inicio, fin, *, excluir_id=None) -> None:
+        if ReviewWindowService._se_encima(db, review_day_id, owner_id, inicio, fin,
+                                          excluir_id=excluir_id):
+            raise WindowOverlap()
 
     @staticmethod
     def _assert_cabe_lo_agendado(db: Session, window, inicio, fin, minutos, cupo,
@@ -111,25 +124,46 @@ class ReviewWindowService:
           que caber en la rejilla y en el cupo por franja nuevos
           (`WindowModeConflict`, con cuántas no caben);
         * con franjas -> con franjas: la rejilla y el cupo de siempre.
+
+        Ruling 2026-09-29 (revisión de T2, arrastrada a la Tarea 4 — spec
+        §3.2): dentro de las dos que van HACIA sin horario, el cupo total que
+        no alcanza es dos cosas distintas según de dónde se venga. Si YA era
+        sin horario y se baja el cupo por debajo de lo apartado, el horario no
+        se tocó — sigue siendo el encogimiento de siempre
+        (`WindowShrinkConflict`). Si se viene de franjas, el horario tampoco
+        cambia de sitio: es el CUPO TOTAL del modo nuevo el que no las
+        aguanta, y eso es `WindowModeConflict`, no un horario que se quedó
+        chico. Antes las dos disparaban `WindowShrinkConflict`, y su frase
+        («fuera del horario nuevo») no describía lo que pasó en el segundo
+        caso: el horario no cambió, el modo sí.
         """
-        ocupacion = SlotService.occupancy(db, window, walkin=walkin, inicio=inicio)
-        if not ocupacion:
-            return
         cupo = int(cupo)
         desde_walkin = window.visibility == "walkin"
 
         if walkin:
-            vivas = sum(ocupacion.values())
+            # UNA sola consulta, agrupada por hora REAL: sirve para «vivas»
+            # (la suma, que da igual cómo se agrupe) y para «fuera» (qué horas
+            # caen fuera del horario nuevo). Antes se pedía `occupancy` DOS
+            # veces —una agrupada por apertura, solo para sumarla después— y
+            # las dos cuentan exactamente las mismas filas.
+            reales = SlotService.occupancy(db, window, walkin=False)
+            if not reales:
+                return
+            vivas = sum(reales.values())
             if desde_walkin and inicio != window.start_time:
                 raise WalkinStartLocked(vivas)
-            reales = SlotService.occupancy(db, window, walkin=False)
             fuera = sum(n for hora, n in reales.items() if not inicio <= hora < fin)
             if fuera:
                 raise WindowShrinkConflict(fuera)
             if vivas > cupo:
-                raise WindowShrinkConflict(vivas - cupo)
+                if desde_walkin:
+                    raise WindowShrinkConflict(vivas - cupo)
+                raise WindowModeConflict(vivas - cupo)
             return
 
+        ocupacion = SlotService.occupancy(db, window, walkin=False)
+        if not ocupacion:
+            return
         rejilla = set(SlotService.slots_from(inicio, fin, minutos))
         fuera = sum(n for hora, n in ocupacion.items() if hora not in rejilla)
         if desde_walkin:
@@ -290,31 +324,83 @@ class ReviewWindowService:
         db.flush()
 
     @staticmethod
-    def copy_to_days(db: Session, window, review_day_ids) -> tuple[list, list]:
-        """Replica el horario en otros días. Devuelve (creados, saltados).
+    def create_many(db: Session, day_ids, owner_id: int, *,
+                    position_id=None, actor_id=None, **campos) -> tuple[list, list]:
+        """Crea el MISMO espacio en varios días a la vez (D9). (creados, saltados).
 
-        Los días donde el dueño YA tiene un espacio no se tocan: copiar no puede
-        pisar una configuración que alguien hizo a mano.
+        `saltados` son FECHAS (`date`), no ids de día: es lo que necesita el
+        aviso («se saltaron 2: mar 07, jue 09»). Se salta un día cuando el
+        horario nuevo se ENCIMA con otro espacio del mismo dueño ese día — el
+        mismo predicado que usa `assert_no_overlap` al crear uno solo, sin la
+        excepción.
+
+        El encimado se resuelve para TODOS los días ANTES de crear el primero.
+        `create()` solo atrapa la UNIQUE del arranque (`DuplicateWindowStart`
+        vía `IntegrityError`), no el solape; un `IntegrityError` a mitad del
+        lote se llevaría el `db.rollback()` por delante de lo YA creado en
+        esta misma llamada (todavía sin commit: el dueño de la transacción es
+        la ruta). Decidir el reparto completo de una sola pasada evita ese
+        riesgo salvo carrera real entre dos peticiones — y entonces sí falla
+        el lote entero, que es aceptable (spec §5).
+        """
+        from itcj2.apps.titulatec.models import CohortReviewDay
+
+        inicio, fin = _t(campos.get("start_time")), _t(campos.get("end_time"))
+        if inicio is None or fin is None or fin <= inicio:
+            raise InvalidSlot("La hora de fin tiene que ser posterior a la de inicio.")
+
+        filas = (db.query(CohortReviewDay)
+                 .filter(CohortReviewDay.id.in_(day_ids)).all())
+        por_id = {f.id: f for f in filas}
+
+        a_crear, saltados = [], []
+        for did in day_ids:
+            fila = por_id.get(did)
+            if fila is None:            # id que ya no existe: se ignora, no truena
+                continue
+            if ReviewWindowService._se_encima(db, fila.id, owner_id, inicio, fin):
+                saltados.append(fila.date)
+            else:
+                a_crear.append(fila)
+
+        creados = [ReviewWindowService.create(
+            db, fila.id, owner_id, position_id=position_id, actor_id=actor_id,
+            **campos) for fila in a_crear]
+        return creados, saltados
+
+    @staticmethod
+    def copy_to_days(db: Session, window, review_day_ids) -> tuple[list, list]:
+        """Replica el horario en los DÍAS ELEGIDOS. Devuelve (creados, saltados).
+
+        D9 (spec §0.2, el bug de origen): antes copiaba a TODOS los días de la
+        convocatoria y saltaba cualquiera donde el dueño YA tuviera un espacio,
+        aunque fuera a otra hora — «copiar a los demás días» pisaba en silencio
+        la elección de dejar un hueco. Ahora copia solo a los días que se le
+        pasan, y salta nada más el que de verdad se ENCIMA con el horario que
+        se está copiando (mismo predicado que `create_many`, y `saltados` es
+        igual de fechas: las dos alimentan el mismo aviso).
 
         **Copia también el MODO** (`visibility`). Sin eso, el encargado publica
         el lunes como «Agendable», copia a los demás días y el martes nace
         privado: espacios gemelos con visibilidad distinta y nada que se lo
         diga. El horario y el modo son la misma decisión.
         """
-        from itcj2.apps.titulatec.models import ReviewWindow
+        from itcj2.apps.titulatec.models import CohortReviewDay
+        filas = (db.query(CohortReviewDay)
+                 .filter(CohortReviewDay.id.in_(review_day_ids)).all())
+        por_id = {f.id: f for f in filas}
+
         creados, saltados = [], []
         for did in review_day_ids:
-            if did == window.review_day_id:
+            fila = por_id.get(did)
+            if fila is None or fila.id == window.review_day_id:
                 continue
-            existe = (db.query(ReviewWindow)
-                      .filter(ReviewWindow.review_day_id == did,
-                              ReviewWindow.owner_user_id == window.owner_user_id)
-                      .first())
-            if existe is not None:
-                saltados.append(did)
+            if ReviewWindowService._se_encima(db, fila.id, window.owner_user_id,
+                                              window.start_time, window.end_time):
+                saltados.append(fila.date)
                 continue
             creados.append(ReviewWindowService.create(
-                db, did, window.owner_user_id,
+                db, fila.id, window.owner_user_id,
                 start_time=window.start_time, end_time=window.end_time,
                 slot_minutes=window.slot_minutes, capacity=window.capacity,
                 location=window.location, position_id=window.owner_position_id,

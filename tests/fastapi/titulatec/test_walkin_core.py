@@ -302,7 +302,14 @@ def test_bajar_el_cupo_total_bajo_los_apartados_es_conflicto(
 
 def test_pasar_a_sin_horario_junta_todas_las_vivas_contra_el_cupo_total(
         db_session, sin_horario):
-    """Con franjas -> sin horario: las citas de cualquier hora cuentan juntas."""
+    """Con franjas -> sin horario: las citas de cualquier hora cuentan juntas.
+
+    Ruling 2026-09-29 (revision de T2, arrastrada a la Tarea 4): el horario no
+    se toca (sigue 08:00-14:00), asi que esto NO es un horario que se quedo
+    chico -- es el CUPO TOTAL del modo nuevo el que no aguanta a las 3 vivas.
+    Antes disparaba `WindowShrinkConflict`, cuyo texto («fuera del horario
+    nuevo») no describia lo que de verdad paso.
+    """
     esc = sin_horario
     esc["w"].visibility = "bookable"            # 3 por franja
     db_session.flush()
@@ -310,8 +317,10 @@ def test_pasar_a_sin_horario_junta_todas_las_vivas_contra_el_cupo_total(
     _apartar(db_session, esc, 1)
     _apartar(db_session, esc, 2, hora=time(10, 30))
 
-    with pytest.raises(err.WindowShrinkConflict):
+    with pytest.raises(err.WindowModeConflict) as exc:
         _guardar(db_session, esc["w"], visibility="walkin", capacity=2)
+    assert str(exc.value) == ("Este espacio tiene 1 cita que no cabe en el modo "
+                              "nuevo. Muévelas o cancélalas primero.")
     assert esc["w"].visibility == "bookable"
 
     _guardar(db_session, esc["w"], visibility="walkin", capacity=3)

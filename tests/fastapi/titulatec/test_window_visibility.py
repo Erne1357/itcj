@@ -162,7 +162,10 @@ def test_copiar_a_los_demas_dias_copia_tambien_el_modo(editor, client_as, db_ses
     esc["w"].visibility = "bookable"
     db_session.flush()
 
-    resp = client_as(esc["off"]).post(_url(esc, "/copiar"))
+    # D9: `dias` ahora es obligatorio (el encargado ELIGE, ya no copia a
+    # "todos los que no tengan espacio" — ver test_spaces_multiday_routes.py).
+    resp = client_as(esc["off"]).post(
+        _url(esc, "/copiar"), data={"dias": [esc["otro"].date.isoformat()]})
     assert resp.status_code == 200, resp.text[:300]
 
     db_session.expire_all()
@@ -192,7 +195,7 @@ def test_el_editor_ofrece_los_tres_modos_con_su_linea_derivada(editor, client_as
     assert "El egresado no lo ve" in html
     assert "10 franjas libres" in html, (
         "la linea de «Agendable» no cuenta las franjas reales de esta ventana")
-    assert "llega sin cita" in html
+    assert "aparta un lugar (quedan 10)" in html
 
 
 def test_la_linea_de_agendable_cuenta_FRANJAS_no_CITAS(editor, client_as,

@@ -42,9 +42,13 @@
         <span class="flex-grow-1 min-w-0">
           <span class="horario d-block">{{ e.horario }}</span>
           <span class="detalle d-block text-truncate">
+            {%- if e.visibility == 'walkin' -%}
+            sin horario · {{ e.ocupados }}/{{ e.capacidad }} lugares
+            {%- else -%}
             franjas de {{ e.slot_minutes }} min ·
             {{ e.capacity }} lugar{{ 'es' if e.capacity != 1 }} ·
             {{ e.ocupados }}/{{ e.capacidad }} ocupados
+            {%- endif -%}
             {%- if e.location %} · {{ e.location }}{% endif %}
           </span>
         </span>
@@ -52,7 +56,7 @@
            puede distinguir de un vistazo un espacio publicado de uno privado, y
            publicar es justo la decisión que quiere poder revisar. #}
         {% if e.visibility == 'bookable' %}{{ pill('Agendable', 'navy', 'calendar-check') }}
-        {% elif e.visibility == 'walkin' %}{{ pill('Sin cita', 'violet', 'door-open') }}
+        {% elif e.visibility == 'walkin' %}{{ pill('Sin horario', 'violet', 'door-open') }}
         {% else %}{{ pill('Privado', 'neutral', 'eye-slash') }}{% endif %}
         {% if e.pausada %}<span class="tt-pill tt-pill--neutral">En pausa</span>{% endif %}
       </a>

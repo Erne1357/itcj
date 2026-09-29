@@ -429,6 +429,52 @@ def _dias_ctx(db, cohort_id, *, abierto, today):
     return salida
 
 
+# ===========================================================================
+# Varios días a la vez (D9, spec §5) — «También en estos días» / «Copiar»
+# ===========================================================================
+# UNA sola fuente para «qué día es válido para crear/copiar un espacio»: de la
+# convocatoria activa, ABIERTO (no cerrado) y `>= hoy`. La usan tanto las
+# casillas que se ofrecen en el editor como la validación de lo que llega por
+# POST — así una casilla nunca ofrece un día que la ruta luego vaya a ignorar
+# en silencio.
+
+def _dias_validas(db, cohort_id):
+    """Filas de `CohortReviewDay` que `create_many`/`copy_to_days` aceptan."""
+    from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
+    from itcj2.core.utils.timezone import db_now
+    if not cohort_id:
+        return []
+    hoy = db_now().date()
+    return [f for f in ReviewDayService.list_rows(db, cohort_id) if f.date >= hoy]
+
+
+def _dias_opciones_ctx(db, cohort_id, *, excluir_iso=None):
+    """Casillas de «También en estos días» / «Copiar a otros días»."""
+    return [{
+        "id": f.id, "iso": f.date.isoformat(), "dow": _dow_es(f.date),
+        "dom": f.date.day, "mon": _MONTHS_ES[f.date.month], "checked": False,
+    } for f in _dias_validas(db, cohort_id) if f.date.isoformat() != excluir_iso]
+
+
+def _dias_ids_por_iso(db, cohort_id, isos):
+    """ISOs marcados -> ids de día VALIDOS, sin duplicar y en el orden en que
+    llegaron. Lo que ya no aplica (día cerrado o pasado entre el render y el
+    POST) se descarta en silencio, no truena."""
+    validos = {f.date.isoformat(): f.id for f in _dias_validas(db, cohort_id)}
+    return [validos[iso] for iso in dict.fromkeys(isos) if iso in validos]
+
+
+def _mensaje_dias_saltados(saltados) -> str | None:
+    """'Se saltaron 2 porque se enciman con otro espacio tuyo: mar 07, jue 09.'
+    o la versión singular. `None` si no hubo ninguno."""
+    if not saltados:
+        return None
+    m = len(saltados)
+    fechas = ", ".join(f"{_dow_es(d)} {d.day:02d}" for d in saltados)
+    return (f"Se salt{'aron' if m != 1 else 'ó'} {m} porque se encima"
+           f"{'n' if m != 1 else ''} con otro espacio tuyo: {fechas}.")
+
+
 def _board_ctx(db, day, allowed, *, user_id, cohort_id):
     """El tablero de un dia: una fila por franja, con quien la ocupa.
 
@@ -529,7 +575,7 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
     fila_dia = ReviewDayService.get(db, cohort_id, day) if (cohort_id and day) else None
     if fila_dia is None:
         return {"dia_id": None, "mios": [], "ajenos": [], "editor": None,
-                "defaults": None, "sin_alcance": False}
+                "defaults": None, "sin_alcance": False, "dias_opciones": []}
 
     # Ruling 14 de la ejecucion: `SelfBookingService.offer` resuelve la carrera
     # con ESTE mismo predicado, asi que quien no tenga carreras asignadas puede
@@ -570,11 +616,18 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
     editor = None
     editor_w = None
     if editando == "nuevo":
+        n_defaults = len(SlotService.slots_from(
+            defaults["start_time"], defaults["end_time"], defaults["slot_minutes"]))
         editor = {"id": None,
                   "start": defaults["start_time"].strftime("%H:%M"),
                   "end": defaults["end_time"].strftime("%H:%M"),
                   "slot_minutes": defaults["slot_minutes"],
                   "capacity": defaults["capacity"],
+                  # D3: cupo TOTAL por omision = franjas del dia x cupo del
+                  # dia -- lo que ese horario ya ofrecia en franjas, expresado
+                  # como sin horario. Topado a [1, 500], el mismo rango que
+                  # valida el editor.
+                  "capacity_total": min(500, max(1, n_defaults * int(defaults["capacity"]))),
                   "location": defaults["location"] or "",
                   # D1: todo espacio nace PRIVADO. Publicar es deliberado.
                   "visibility": "private",
@@ -604,24 +657,46 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
                 and ReviewWindowService.puede_editar(
                     w, user_id, manage_all=_puede_todo(db, user_id))):
             editor_w = w
+            # `capacity` efectiva (D3, spec §3.2): en `walkin` la columna YA es
+            # el cupo TOTAL (T3), no el de por franja. El campo oculto que
+            # necesita un valor VALIDO de todos modos —HTML5 sigue validando
+            # lo que se oculta por CSS— cae al default del dia; al reves
+            # cuando NO es walkin, `capacity_total` se deriva mas abajo, ya
+            # con `n` conocido.
+            if w.visibility == "walkin":
+                cap_franja, cap_total = defaults["capacity"], w.capacity
+            else:
+                cap_franja, cap_total = w.capacity, None
             editor = {"id": w.id, "start": w.start_time.strftime("%H:%M"),
                       "end": w.end_time.strftime("%H:%M"),
-                      "slot_minutes": w.slot_minutes, "capacity": w.capacity,
+                      "slot_minutes": w.slot_minutes, "capacity": cap_franja,
+                      "capacity_total": cap_total,
                       "location": w.location or "", "pausada": w.status == "paused",
                       "visibility": w.visibility}
     if editor is not None:
         n = len(SlotService.slots_from(editor["start"], editor["end"],
                                        editor["slot_minutes"]))
-        editor["derivada"] = (
-            f"De {editor['start']} a {editor['end']} en franjas de "
-            f"{editor['slot_minutes']} minutos: {n} franja{'s' if n != 1 else ''} "
-            f"de {editor['capacity']} persona{'s' if editor['capacity'] != 1 else ''} "
-            f"— {n * int(editor['capacity'])} citas en total.")
+        cap_franja = int(editor["capacity"])
+        if editor["capacity_total"] is None:
+            editor["capacity_total"] = min(500, max(1, n * cap_franja))
+        cap_total = int(editor["capacity_total"])
 
-        # Las tres lineas de §6, calculadas EN EL SERVIDOR igual que la de
-        # arriba. Dicen la verdad sobre ESTE espacio («tus 10 franjas libres»),
-        # no una frase generica: duplicar el calculo de franjas en JavaScript es
-        # justo lo que el editor evita desde su rediseno.
+        if editor["visibility"] == "walkin":
+            editor["derivada"] = (
+                f"De {editor['start']} a {editor['end']}, sin horario: hasta "
+                f"{cap_total} persona{'s' if cap_total != 1 else ''} por orden "
+                f"de llegada.")
+        else:
+            editor["derivada"] = (
+                f"De {editor['start']} a {editor['end']} en franjas de "
+                f"{editor['slot_minutes']} minutos: {n} franja{'s' if n != 1 else ''} "
+                f"de {cap_franja} persona{'s' if cap_franja != 1 else ''} "
+                f"— {n * cap_franja} citas en total.")
+
+        # Las lineas de §6, calculadas EN EL SERVIDOR igual que la de arriba.
+        # Dicen la verdad sobre ESTE espacio («tus 10 franjas libres»), no una
+        # frase generica: duplicar el calculo en JavaScript es justo lo que el
+        # editor evita desde su rediseno.
         # FRANJAS libres, no CITAS libres: `free_slots` devuelve `list[time]`
         # (una entrada por franja con lugar), asi que la rama del espacio nuevo
         # tiene que contar `n` a secas. Con `n * capacity` la frase decia «20
@@ -629,6 +704,14 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
         # que es justo lo que hacia pasar al test sin que el numero fuera cierto.
         libres = (len(SlotService.free_slots(db, editor_w)) if editor_w is not None
                   else n)
+        # LUGARES libres del SIN HORARIO, no franjas: `free_slots` cuenta
+        # franjas (0 o 1 en walkin, nunca "quedan 7"). El cupo total menos las
+        # vivas REALES —de cualquier hora, igual que `SlotService.occupancy`—
+        # es el mismo numero que veria el egresado si el espacio fuera walkin
+        # ahora mismo.
+        ocupados_reales = (sum(SlotService.occupancy(db, editor_w).values())
+                           if editor_w is not None else 0)
+        libres_walkin = max(0, cap_total - ocupados_reales)
         lugar = editor["location"] or "el lugar que pongas arriba"
         editor["vis_lineas"] = {
             "private": "Solo tú agendas en este espacio. El egresado no lo ve.",
@@ -636,10 +719,14 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
                          f"franja{'s' if libres != 1 else ''} libre"
                          f"{'s' if libres != 1 else ''} y elige una."),
             "walkin": (f"El egresado ve «{_dia_largo(day)}, {editor['start']} a "
-                       f"{editor['end']}, {lugar}» y llega sin cita."),
+                       f"{editor['end']}, {lugar}» y aparta un lugar "
+                       f"(quedan {libres_walkin})."),
         }
+    dias_opciones = (_dias_opciones_ctx(db, cohort_id, excluir_iso=day.isoformat())
+                     if editor is not None else [])
     return {"dia_id": fila_dia.id, "mios": mios, "ajenos": ajenos,
-            "editor": editor, "defaults": defaults, "sin_alcance": sin_alcance}
+            "editor": editor, "defaults": defaults, "sin_alcance": sin_alcance,
+            "dias_opciones": dias_opciones}
 
 
 def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
@@ -1661,12 +1748,18 @@ def _accion_espacio(request, db, *, user_id, fn, exito=None, kind="success"):
     `kind` decide el tono del aviso. No todo lo que sale bien sale BIEN del
     todo: publicar un espacio sin carreras asignadas se guarda, pero no lo vera
     nadie, y anunciarlo en verde seria mentir con el color.
+
+    `exito` es un texto fijo, O UN CALLABLE que recibe lo que devolvió `fn()` y
+    regresa `(mensaje, kind)`. Hace falta para D9: el aviso «Espacio creado en
+    N días, se saltaron M» no se puede fijar ANTES de correr `fn` porque N y M
+    SON el resultado. Los llamadores que ya existían (pausar, borrar, guardar
+    sin días nuevos) siguen pasando un texto fijo y no notan el cambio.
     """
     from itcj2.apps.titulatec.services.appointment_errors import (
         AppointmentError, SlotLockTimeout,
     )
     try:
-        fn()
+        resultado = fn()
         db.commit()
     except AppointmentError as e:
         if isinstance(e, SlotLockTimeout):
@@ -1685,7 +1778,8 @@ def _accion_espacio(request, db, *, user_id, fn, exito=None, kind="success"):
     resp = _render_body(request, db, selected_id=None, user_id=user_id,
                         **_action_ctx(request))
     if exito:
-        resp.headers["X-Tt-Notice"] = _hdr(exito)
+        mensaje, kind = exito(resultado) if callable(exito) else (exito, kind)
+        resp.headers["X-Tt-Notice"] = _hdr(mensaje)
         resp.headers["X-Tt-Notice-Kind"] = kind
     return resp
 
@@ -1698,8 +1792,10 @@ def space_save(
     end_time: str = Form(""),
     slot_minutes: str = Form("30"),
     capacity: str = Form("1"),
+    capacity_total: str = Form(""),
     location: str = Form(""),
     visibility: str = Form("private"),
+    dias: list[str] = Form(default=[]),
     user: dict = Depends(require_page_app("titulatec", perms=_ESPACIO_PERMS)),
 ):
     """Crea o actualiza un espacio. `window_id` es un entero o la palabra 'nuevo'.
@@ -1712,6 +1808,15 @@ def space_save(
     puede editar un espacio puede publicarlo. Se valida aqui contra el dominio
     porque el `CheckConstraint` de la tabla lo rechazaria con un `IntegrityError`
     crudo, o sea un 500 en vez de una frase.
+
+    `capacity_total` es el cupo TOTAL de un espacio sin horario (D3); con
+    franjas se sigue usando `capacity`, el de siempre. El servidor decide cuál
+    de los dos CUENTA según `visibility` — el que no aplica viaja igual en el
+    formulario (oculto por CSS, nunca por `type=hidden`), porque HTML5 lo
+    sigue validando aunque esté oculto.
+
+    `dias` (D9) son fechas ISO adicionales, SOLO en `window_id == "nuevo"`: el
+    día de la URL (`?date=`) siempre se crea, pase lo que pase en `dias`.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
@@ -1725,10 +1830,14 @@ def space_save(
     uid = int(user["sub"])
     db = SessionLocal()
     try:
+        # `capacity` efectiva (D3, spec §3.2): sin horario captura el cupo
+        # TOTAL en «Personas en total»; con franjas, el de siempre («Personas
+        # por franja»).
+        capacidad_cruda = capacity_total if visibility == "walkin" else capacity
         campos = dict(
             start_time=start_time, end_time=end_time,
             slot_minutes=_to_int(slot_minutes) or 30,
-            capacity=_to_int(capacity) or 1,
+            capacity=_to_int(capacidad_cruda) or 1,
             location=(location or None),
             visibility=visibility,
         )
@@ -1751,11 +1860,37 @@ def space_save(
                 return Response(status_code=400, headers={
                     "X-Tt-Error": _hdr("Ese día no está habilitado para cotejo.")})
             pos = _puesto_del_usuario(db, uid)
-            return _accion_espacio(request, db, user_id=uid,
-                                   fn=lambda: ReviewWindowService.create(
-                                       db, fila.id, uid, position_id=pos,
-                                       actor_id=uid, **campos),
-                                   exito=exito, kind=kind)
+
+            # D9: además del día de la URL, los que se hayan marcado en
+            # «También en estos días». Solo los VALIDOS (convocatoria activa,
+            # abiertos, >= hoy) — las mismas casillas que ofreció el editor:
+            # un día que se cerró entre el render y el POST se ignora en
+            # silencio, no truena.
+            extra_ids = [i for i in _dias_ids_por_iso(db, cohort_id, dias)
+                        if i != fila.id]
+            day_ids = [fila.id] + extra_ids
+
+            def _crear():
+                return ReviewWindowService.create_many(
+                    db, day_ids, uid, position_id=pos, actor_id=uid, **campos)
+
+            def _aviso(resultado):
+                creados, saltados = resultado
+                n = len(creados)
+                partes = [f"Espacio creado en {n} día{'s' if n != 1 else ''}."]
+                extra = _mensaje_dias_saltados(saltados)
+                if extra:
+                    partes.append(extra)
+                if avisa_sin_alcance:
+                    partes.append(
+                        "NINGÚN egresado lo verá: no tienes carreras asignadas. "
+                        "Pídele a la jefatura de Servicios Escolares que te "
+                        "asigne las que atiendes.")
+                return " ".join(partes), (
+                    "warning" if (saltados or avisa_sin_alcance) else "success")
+
+            return _accion_espacio(request, db, user_id=uid, fn=_crear,
+                                   exito=_aviso, kind=kind)
         w = _espacio_en_alcance(db, _to_int(window_id), uid)
         return _accion_espacio(request, db, user_id=uid,
                                fn=lambda: ReviewWindowService.update(db, w, **campos),
@@ -1808,22 +1943,44 @@ def space_delete(
 def space_copy(
     window_id: int,
     request: Request,
+    dias: list[str] = Form(default=[]),
     user: dict = Depends(require_page_app("titulatec", perms=_ESPACIO_PERMS)),
 ):
-    """Replica el horario en los demás días de cotejo que aún no tengan uno."""
+    """Replica el horario en los días ELEGIDOS (D9, spec §0.2 y §5).
+
+    Antes copiaba a TODOS los días de la convocatoria y saltaba cualquiera
+    donde el dueño YA tuviera un espacio, aunque no chocara con el horario que
+    se copiaba: «copiar a los demás días» pisaba en silencio la elección de
+    dejar un hueco. Ahora el encargado elige los días con casillas, y solo se
+    salta el que de verdad se ENCIMA.
+    """
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
     from itcj2.apps.titulatec.services.review_window_service import ReviewWindowService
+
+    if not dias:
+        return Response(status_code=400, headers={
+            "X-Tt-Error": _hdr("Elige al menos un día.")})
 
     uid = int(user["sub"])
     db = SessionLocal()
     try:
         w = _espacio_en_alcance(db, window_id, uid)
         cohort_id = _active_cohort_id(db)
-        ids = [f.id for f in ReviewDayService.list_rows(db, cohort_id)] if cohort_id else []
-        return _accion_espacio(request, db, user_id=uid,
-                               fn=lambda: ReviewWindowService.copy_to_days(db, w, ids),
-                               exito="Horario copiado a los días que no tenían espacio.")
+        day_ids = _dias_ids_por_iso(db, cohort_id, dias) if cohort_id else []
+
+        def _aviso(resultado):
+            creados, saltados = resultado
+            n = len(creados)
+            partes = [f"Horario copiado a {n} día{'s' if n != 1 else ''}."]
+            extra = _mensaje_dias_saltados(saltados)
+            if extra:
+                partes.append(extra)
+            return " ".join(partes), ("warning" if saltados else "success")
+
+        return _accion_espacio(
+            request, db, user_id=uid,
+            fn=lambda: ReviewWindowService.copy_to_days(db, w, day_ids),
+            exito=_aviso)
     finally:
         db.close()
 
