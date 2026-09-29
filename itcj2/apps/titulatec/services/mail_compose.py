@@ -223,9 +223,12 @@ def _compose_appt_group(db: Session, rows: list, process, user) -> Composed | Ob
 
     - Vigente `scheduled`/`confirmed` → fecha, hora, lugar, qué llevar y
       «confirma tu asistencia» si no la confirmó. «Cambió…» solo si el alumno
-      ya conocía su cita (el primer evento del grupo NO es la creación) y hubo
-      un `rescheduled`; una ráfaga que empieza en la creación es su primera
-      noticia y dice «Tu cita de cotejo: …» (ruling 3, 2026-09-29).
+      ya conocía su cita y hubo un `rescheduled`; una ráfaga que empieza en la
+      creación POR EL ENCARGADO es su primera noticia y dice «Tu cita de
+      cotejo: …» (ruling 3, 2026-09-29). La creación por el propio alumno
+      (`by == "student"`, auto-agendado) no es primera noticia: él ya conocía
+      la fecha, así que si el encargado se la mueve es «Cambió…» (B5, ronda
+      final).
     - Vigente en otro estado (en cotejo, atendida, no se presentó) → obsoleto.
     - Sin vigente (`cancel` le quita la vigencia):
         * el primer evento del grupo es la creación → agendada y cancelada
@@ -245,7 +248,12 @@ def _compose_appt_group(db: Session, rows: list, process, user) -> Composed | Ob
 
     if vigente is not None and vigente.status in _CITA_VIVA:
         cuando = vigente.scheduled_at
-        cambio = eventos[0] != "scheduled" and "rescheduled" in eventos
+        primero = _datos(rows[0])
+        # Primera noticia = la creación hecha por el ENCARGADO; la que hizo el
+        # propio alumno ya la conocía él (B5).
+        primera_noticia = (primero.get("event") == "scheduled"
+                           and primero.get("by") != "student")
+        cambio = not primera_noticia and "rescheduled" in eventos
         # Lectura NO sembradora (ver docstring del módulo).
         requisitos = [{"label": r.label, "hint": _texto(r.hint)}
                       for r in CotejoRequirementService.list(db, process.cohort_id,

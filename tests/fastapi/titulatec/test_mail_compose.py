@@ -553,6 +553,45 @@ def test_rafaga_que_empieza_en_creacion_dice_tu_cita(db_session, cita_esc):
     assert "09:00" not in html and "09:30" not in html
 
 
+def test_cita_que_agendo_el_alumno_y_movio_el_encargado_dice_cambio(db_session, cita_esc):
+    """B5 (refina el ruling 3): la ráfaga empieza con la creación POR EL ALUMNO
+    (auto-agendado: ya conocía la fecha, lo que le llega es su comprobante). Si
+    el encargado se la mueve dentro de la espera, el asunto es «Cambió…». Solo
+    la creación por el ENCARGADO es la primera noticia de la cita."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    esc = cita_esc
+    propia = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                       slot_start=time(9, 0),
+                                       created_by_id=esc["p1"].student_id,
+                                       location="Ventanilla 3")
+    _mover(db_session, esc, propia, time(10, 0))
+    filas = _pendientes(db_session, esc["p1"].id)
+    assert [(f.payload["event"], f.payload["by"]) for f in filas] == [
+        ("scheduled", "student"), ("rescheduled", "officer")]
+
+    c = _componer(db_session, esc["p1"], filas)
+
+    assert c.subject == "[TitulaTec ITCJ] Cambió tu cita de cotejo: 7 de mayo a las 10:00"
+    assert (c.context["hora"], c.context["changed"]) == ("10:00", True)
+
+
+def test_cita_que_agendo_el_alumno_sin_cambios_es_su_comprobante(db_session, cita_esc):
+    """Sin `rescheduled` no hubo cambio: la cita que agendó él mismo sale como
+    «Tu cita de cotejo: …» (comprobante, D9)."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    esc = cita_esc
+    AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                              slot_start=time(9, 0), created_by_id=esc["p1"].student_id,
+                              location="Ventanilla 3")
+
+    c = _componer(db_session, esc["p1"])
+
+    assert c.subject == "[TitulaTec ITCJ] Tu cita de cotejo: 7 de mayo a las 09:00"
+    assert c.context["changed"] is False
+
+
 @pytest.mark.parametrize("mover", [False, True], ids=["agendar-cancelar",
                                                      "agendar-mover-cancelar"])
 def test_cita_agendada_y_cancelada_es_neto_cero(db_session, cita_esc, mover):

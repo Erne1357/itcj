@@ -166,7 +166,10 @@ el encargado anunció abierta a todos. Colgarlo de `can_book` le fabricaría un 
 > D9): el in-app sigue suprimido y el correo sale igual. Si el alumno agenda y cancela dentro de
 > la espera del agrupado, el grupo `cita:{pid}` queda en neto cero y el despachador no manda nada
 > (lo decide al enviar, no aquí). Lo fijan `test_alumno_agenda_encola_pero_sin_in_app` y
-> `test_alumno_cancela_no_encola` en `tests/fastapi/titulatec/test_mail_hooks.py`.
+> `test_alumno_cancela_no_encola` en `tests/fastapi/titulatec/test_mail_hooks.py`. Si en cambio el
+> ENCARGADO se la mueve dentro de la espera, el correo dice «Cambió tu cita de cotejo: …»: la
+> creación del propio alumno no es su «primera noticia» —ya conocía la fecha—, solo la del
+> encargado lo es (B5, ronda final 2026-09-29; `mail_compose._compose_appt_group`).
 
 > **`GET /student/cita?dia=` NO es una ruta nueva**: es la misma con querystring. Lo que decide
 > parcial-contra-página es la cabecera `HX-Request`, no la presencia del parámetro — ese mismo
