@@ -1122,6 +1122,19 @@ _EVENT_UI = {
     "survey_review_revoked":        ("Se revocó la liberación",   "arrow-counterclockwise", "amber"),
 }
 
+# Estado de `EmailOutbox.status` -> (etiqueta, tono) para la píldora de la
+# zona «Correos» del expediente (spec 2026-09-28-titulatec-correos-
+# notificaciones §7). Dominio cerrado en `OUTBOX_STATUSES`
+# (`models/email_outbox.py`): un estado nuevo ahí también necesita entrada
+# aquí, o se pinta con su código crudo (mismo respaldo que `_EVENT_UI`).
+_MAIL_STATUS_UI = {
+    "sent":         ("Enviado",              "success"),
+    "pending":      ("En cola",              "neutral"),
+    "failed":       ("Falló",                "danger"),
+    "no_recipient": ("Sin correo personal",  "amber"),
+    "obsolete":     ("Ya no aplicaba",       "neutral"),
+}
+
 # Fases con contenido propio en el expediente. El resto tiene modelo y tabla y
 # nada más (sinodales, anexo, entrega final, ceremonia): se pintan diciéndolo,
 # porque un panel vacío se lee como «no ha pasado nada» y no como «esto todavía
@@ -1454,6 +1467,32 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
     survey = SurveyReviewService.summary_for_process(db, process_id)
 
+    # ---- bitácora de correos al egresado (spec 2026-09-28 §7, D11) ----
+    #
+    # Solo lectura, sin reenviar. UNA consulta (`StudentMail.history`, ya
+    # ordenada `created_at DESC, id DESC`): dicts PLANOS por la misma razón
+    # que `revocada`/`otros_eventos` arriba -- `process_detail` renderiza
+    # DESPUÉS del `db.close()` de la ruta. `subject` cae al nombre del tipo
+    # mientras la fila no se ha enviado (`StudentMail.KIND_LABELS[kind]` es
+    # seguro: `kind` siempre sale de `OUTBOX_KINDS`, que `KIND_LABELS` cubre
+    # entero -- lo fija
+    # `test_student_mail.py::test_kind_labels_cubre_todos_los_kinds`).
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    correos = []
+    for m in StudentMail.history(db, process_id):
+        etiqueta, tono = _MAIL_STATUS_UI.get(m.status, (m.status, "neutral"))
+        correos.append({
+            "id": m.id,
+            "when": _fecha_larga(m.created_at),
+            "subject": m.subject or StudentMail.KIND_LABELS[m.kind],
+            "to": m.sent_to or "—",
+            "status": m.status,
+            "status_label": etiqueta,
+            "tone": tono,
+            "error": m.last_error,
+        })
+
     return {
         "process": proc.to_dict(),
         "student": {
@@ -1488,6 +1527,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "can_revoke": can_revoke,
         "revocada": revocada,
         "survey": survey,
+        "correos": correos,
     }
 
 

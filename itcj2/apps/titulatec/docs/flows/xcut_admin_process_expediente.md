@@ -39,6 +39,7 @@ GET /titulatec/admin/processes/{id}?fase=N&doc=CODE&from=…
 | `#exp-head` | Regresar · folio · nombre · control · correo · carrera · modalidad · progreso · «Mover de fase» |
 | `#exp-fases` | acordeón de las 9 fases (`tt-acc`), la actual abierta |
 | `#exp-otros` | movimientos sin fase; **no se pinta si está vacío** |
+| `#exp-correos` | bitácora de correos al egresado, solo lectura, colapsable y cerrada por omisión; **no se pinta si está vacía** — ver abajo |
 | `#exp-modal-fase` | modal de mover de fase — **fuera** del shell, ver abajo |
 
 ### Contenido por fase
@@ -105,6 +106,37 @@ Las acciones devuelven el expediente **entero**. El estado de lo abierto vive en
 respuesta no traiga, y sin memoria el revisor perdía en cada acción todo lo que
 había desplegado para comparar.
 
+### La bitácora de correos (spec 2026-09-28-titulatec-correos-notificaciones §7)
+
+Zona `#exp-correos`, al final del shell, después de `#exp-otros`. Lee
+`titulatec_email_outbox` (motor de la Parte C del spec: cada evento del
+proceso que debe avisar al egresado por correo — dictamen de documentos,
+avance/rechazo de fase, resultado de GTV, cita de cotejo, recordatorios —
+deja ahí una fila que un despachador periódico envía) con
+`StudentMail.history(db, process_id)`, **una sola consulta**, más nuevas
+primero. Decisiones:
+
+* **Solo lectura, sin reenviar (D11).** El personal necesita saber qué se
+  mandó, cuándo, a dónde y si falló — no repetir el envío desde aquí.
+* **`subject` cae al nombre del tipo** (`StudentMail.KIND_LABELS[kind]`)
+  mientras la fila no se ha enviado: el despachador solo llena `subject` al
+  entregar, y una fila `pending`/`failed`/`no_recipient` no tiene uno propio
+  todavía.
+* **`sent_to` no se resuelve aquí.** Solo se llena al enviar; una fila que
+  aún no salió enseña «—» en vez de adivinar el correo del alumno.
+* **Colapsable y cerrada por omisión, SIN memoria entre swaps** — a
+  diferencia del acordeón de fases (arriba), que sí la recuerda. La lista de
+  correos no cambia con las acciones del expediente, así que no hay nada que
+  el usuario pierda al re-renderizarse cerrada. Por eso `admin/expediente.js`
+  la engancha con una delegación de clic APARTE (`#exp-correos
+  [data-tt-acc]`): la delegación de fases está acotada a `#exp-fases` (su Set
+  `abiertas` es de números de fase), así que un botón fuera de esa sección no
+  la disparaba.
+* **No se pinta si el proceso no tiene ninguna fila** — mismo patrón que
+  `#exp-otros`: el `{% if correos %}` envuelve la sección entera en
+  `_exp_shell.html`, así que un proceso sin correos no deja ni el `<section>`
+  vacío en el DOM.
+
 ---
 
 ## Eventos que escribe la app
@@ -143,6 +175,14 @@ eventos nuevos, las 9 fases, el deep-link `?fase=`, los documentos sin dictamen,
 el censo que confirma que la ruta borrada no volvió, el `?from=` válido y los
 cinco maliciosos, los enlaces de las cuatro pestañas, y que la página no hace una
 consulta por documento.
+
+`tests/fastapi/titulatec/test_expediente_mail.py` (8 pruebas, Task 10 del spec
+2026-09-28-titulatec-correos-notificaciones): la zona no se pinta sin filas,
+los cinco estados con su etiqueta (`sent`/`pending`/`failed`/`no_recipient`/
+`obsolete`) y el motivo visible en el fallido, el asunto cae al nombre del
+tipo sin enviar todavía, el destinatario vacío enseña «—», el orden más nuevo
+primero, ids estables por fila (`exp-mail-{id}`), el alcance por carrera
+(404) y que leerla es una sola consulta sin importar cuántas filas haya.
 
 A mano, en Chromium: `scrollWidth <= innerWidth` a 390/768/1280/1920, contraste
 ≥4.5 en los doce textos de la vista, el modal entero dentro de la ventana, el

@@ -1,11 +1,19 @@
 /* ===========================================================================
    TitulaTec · Admin — Expediente del alumno (/admin/processes/{id}).
 
-   Tres cosas, y las tres por delegación en `document`:
+   Cuatro cosas, y las cuatro por delegación en `document`:
      1. acordeón de las 9 fases (abrir/cerrar);
      2. recuerdo de qué fases quedaron abiertas, para que un swap no las cierre;
      3. el modal de mover de fase: pedir motivo antes de rechazar (y el de
-        revocar la inscripción, con la misma guarda).
+        revocar la inscripción, con la misma guarda);
+     4. acordeón de la zona «Correos» (abrir/cerrar), SIN memoria: a diferencia
+        de las fases nace cerrada siempre -- la lista no cambia con las
+        acciones del expediente, así que un swap no le quita nada al usuario.
+        Va aparte de (1)/(2) porque esas viven acotadas a `#exp-fases`
+        (`abiertas` es un Set de NÚMEROS de fase, y `reponer()` solo lee
+        `#exp-fases [data-tt-acc]`); mezclar la llave `"correos"` ahí sería
+        colar una fase que no existe. Reusa el mismo helper `abrir()`, mismo
+        marcado (`tt-acc`/`aria-expanded`/`aria-controls`/`hidden`).
 
    Contrato, igual que `admin/processes.js` y `admin/appointments.js`:
    se carga UNA vez desde `admin/base_admin.html` (el bloque `scripts` no entra
@@ -82,6 +90,15 @@
       if (abiertas === null) abiertas = new Set();
       if (on) abiertas.add(btn.getAttribute('data-tt-acc'));
       else abiertas.delete(btn.getAttribute('data-tt-acc'));
+      return;
+    }
+
+    // Acordeón de «Correos» (punto 4 del docstring): mismo botón/panel que
+    // las fases, pero SIN memoria -- no se guarda en `abiertas` (ese Set es
+    // de números de fase) ni se restaura en `reponer()`.
+    var mailBtn = e.target.closest('#exp-correos [data-tt-acc]');
+    if (mailBtn) {
+      abrir(mailBtn, mailBtn.getAttribute('aria-expanded') !== 'true');
       return;
     }
 

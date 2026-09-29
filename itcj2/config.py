@@ -336,7 +336,13 @@ class Settings(BaseSettings):
     # .tt-cita-why p` suma `overflow-wrap: anywhere` (ruling 11: un correo
     # personal largo y sin espacios no debe romper `scrollWidth <=
     # innerWidth`). Sin el bump, la hoja `immutable` en caché sigue sin la regla.
-    STATIC_VERSION: str = "1.0.1111580"
+    #
+    # Bump 2026-09-29: `titulatec/js/admin/expediente.js` suma el acordeón de
+    # la zona «Correos» del expediente (Task 10, spec 2026-09-28-titulatec-
+    # correos-notificaciones §7) -- delegación aparte de la de fases
+    # (`#exp-correos [data-tt-acc]`, sin memoria entre swaps). Sin el bump, el
+    # JS cacheado no abre/cierra la bitácora (el botón queda inerte).
+    STATIC_VERSION: str = "1.0.1111581"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
