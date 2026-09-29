@@ -4,12 +4,20 @@
    Contexto: dtype {code,name,file_kind} · doc (Document|None) · upload_url · delete_url
              · hint (ayuda de la casilla; la de PDF sale de la config vía
                `storage.pdf_upload_hint`, nunca escrita aquí) · error
+             · sent_label (Tarea 2, 2026-09-28: "Enviado el ..." ya formateado,
+               o None sin fecha o sin documento)
+             · status_oob (Tarea 2, dict|None: cuando el CALLER lo define y es
+               verdadero -las respuestas de subir/borrar, que solo reemplazan
+               este slot- se agrega al final el aviso de estado
+               (`partials/student/_docs_status.html`) con `hx-swap-oob`. La
+               carga completa de la página (`student/documents.html`) NO lo
+               pasa: ya pinta ese aviso una sola vez, aparte, con `status`.)
    =========================================================================== #}
-{% from "titulatec/_macros.html" import estado_pill %}
+{% from "titulatec/_macros.html" import doc_pill_alumno %}
 <div class="tt-doc-slot mb-3" id="slot-{{ dtype.code }}">
   <div class="d-flex align-items-center justify-content-between mb-1">
     <label class="tt-label mb-0">{{ dtype.name }}</label>
-    {% if doc %}{{ estado_pill(doc.review_status) }}{% endif %}
+    {% if doc %}{{ doc_pill_alumno(doc.review_status) }}{% endif %}
   </div>
 
   {% if doc %}
@@ -20,6 +28,7 @@
         <div class="tt-mono" style="font-size:.6875rem;color:var(--tt-mute)">
           {{ (doc.size_bytes / 1024)|round(0)|int }} KB · v{{ doc.version }}
         </div>
+        {% if sent_label %}<div class="tt-doc-sent">{{ sent_label }}</div>{% endif %}
       </div>
       <button type="button" class="tt-iconbtn"
               hx-delete="{{ delete_url }}" hx-target="#slot-{{ dtype.code }}" hx-swap="outerHTML"
@@ -67,3 +76,5 @@
     </div>
   {% endif %}
 </div>
+
+{% if status_oob %}{% include "titulatec/partials/student/_docs_status.html" %}{% endif %}

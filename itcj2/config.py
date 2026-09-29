@@ -329,7 +329,26 @@ class Settings(BaseSettings):
     # `.tt-dropzone-hint`, la ayuda de la casilla de subida («PDF de hasta
     # 2 MB…») que antes iba con estilo en línea. Sin el bump, la hoja
     # `immutable` en caché no la trae y la ayuda sale del tamaño del título.
-    STATIC_VERSION: str = "1.0.1111578"
+    #
+    # Bump 2026-09-28: aviso de estado de Documentos.
+    #
+    # Bump 2026-09-28 (2): ronda de arreglo 1 de Documentos -- `#tt-docs-status
+    # .tt-cita-why p` suma `overflow-wrap: anywhere` (ruling 11: un correo
+    # personal largo y sin espacios no debe romper `scrollWidth <=
+    # innerWidth`). Sin el bump, la hoja `immutable` en caché sigue sin la regla.
+    #
+    # Bump 2026-09-29: `titulatec/js/admin/expediente.js` suma el acordeón de
+    # la zona «Correos» del expediente (Task 10, spec 2026-09-28-titulatec-
+    # correos-notificaciones §7) -- delegación aparte de la de fases
+    # (`#exp-correos [data-tt-acc]`, sin memoria entre swaps). Sin el bump, el
+    # JS cacheado no abre/cierra la bitácora (el botón queda inerte).
+    #
+    # Bump 2026-09-29 (2): `titulatec/css/titulatec.css` suma
+    # `#exp-correos .quien { overflow-wrap: anywhere; }` -- el correo personal
+    # del destinatario en la bitácora del expediente puede ser largo y sin
+    # espacios, y no debe romper `scrollWidth <= innerWidth` a 360px. Sin el
+    # bump, la hoja `immutable` en caché sigue sin la regla.
+    STATIC_VERSION: str = "1.0.1111582"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -533,6 +552,31 @@ class Settings(BaseSettings):
     # el tope el check se queda en `error` y ya nadie lo retoma solo
     # (`titulatec sii-sweep --reconsultar-errores` o «Reintentar consulta»).
     TITULATEC_SII_MAX_ATTEMPTS: int = Field(5, ge=1, le=20)
+
+    # Correos del proceso al egresado (spec 2026-09-28, motor D4: bandeja
+    # `titulatec_email_outbox` + despachador Celery cada 5 minutos). Cambiar
+    # cualquiera exige variable de entorno y reiniciar TODOS los procesos
+    # backend (`get_settings()` vive en `lru_cache` por proceso).
+    # Apagado completo: no encola, el despachador y el barrido no tocan la BD.
+    TITULATEC_EMAIL_ENABLED: bool = True
+    # Ventana de agrupado (D7): un dictamen/cambio de cita sale en UN correo
+    # cuando la fila mas nueva del grupo lleva esto sin movimiento. Tambien
+    # es la gracia de "no se presento" (C3, D8) antes de encolar el aviso.
+    TITULATEC_EMAIL_DIGEST_MINUTES: int = Field(10, ge=1, le=120)
+    # Intentos de envio con espera creciente (1,2,4,8,16,32 min) antes de
+    # marcar `failed` con `last_error` legible. Ruling 20 (2026-09-29): 7 = seis
+    # esperas, ~1 h de reintentos (con la corrida cada 5 min, el septimo cae
+    # hacia los 80 min del primero); con 6 se daba por fallido a los ~31 min.
+    TITULATEC_EMAIL_MAX_ATTEMPTS: int = Field(7, ge=1, le=20)
+    # Recordatorios de documentos/encuesta (D6): primero a los N dias sin
+    # movimiento, luego cada M dias, hasta el tope de abajo.
+    TITULATEC_REMINDER_FIRST_DAYS: int = Field(3, ge=1, le=60)
+    TITULATEC_REMINDER_EVERY_DAYS: int = Field(7, ge=1, le=60)
+    # Tope de recordatorios por ancla. 0 = sin recordatorios de encuesta/documentos.
+    TITULATEC_REMINDER_MAX: int = Field(3, ge=0, le=10)
+    # Recordatorio de cita de cotejo: dias antes de la fecha (barrido de las
+    # 9:00). 0 = sin recordatorio de cita.
+    TITULATEC_APPT_REMINDER_DAYS_BEFORE: int = Field(1, ge=0, le=7)
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

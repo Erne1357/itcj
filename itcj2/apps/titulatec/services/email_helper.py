@@ -34,6 +34,15 @@ Sin token de Graph y con `FLASK_ENV != "production"`, la liga se escribe al log
 con la marca `[TT-VERIFY-LINK]`. Sin esto el flujo es imposible de probar a mano
 en local. En producción, jamás: una liga de activación en el log es una
 credencial en texto claro.
+
+== Correos del proceso (spec 2026-09-28) ==
+No pasan por `TitulaTecEmailHelper`: los encola `StudentMail` en
+`titulatec_email_outbox` y los manda el despachador (`mail_dispatch`) con
+`deliver_detailed`, la misma tubería que `_deliver` pero con el motivo del
+fallo (para `last_error` y el reintento). `_deliver` delega en ella y los 6
+correos de arriba no cambian. Su E9 ampliado (`[TT-MAIL]`) lo escribe el
+despachador, que pasa `link=None`: `[TT-VERIFY-LINK]` queda solo para la liga
+de activación.
 """
 import logging
 
@@ -44,7 +53,13 @@ logger = logging.getLogger(__name__)
 
 APP_KEY = "titulatec"
 
-_BASE_URL = "https://enlinea.cdjuarez.tecnm.mx/titulatec"
+# Origen público de las ligas que salen por correo: ÚNICA fuente en la app
+# (spec 2026-09-28 C7). `enrollment_request_service.PUBLIC_BASE_URL` es su alias
+# y `StudentMail.link` arma aquí las ligas del correo del proceso. Nunca sale
+# del `Host` de la petición, que el cliente controla.
+PUBLIC_ORIGIN = "https://enlinea.cdjuarez.tecnm.mx"
+
+_BASE_URL = f"{PUBLIC_ORIGIN}/titulatec"
 _STUDENT_URL = f"{_BASE_URL}/student/dashboard"
 
 
@@ -115,23 +130,41 @@ def _send(token: str, subject: str, html: str, recipient_email: str) -> bool:
         return False
 
 
-def _deliver(*, template: str, context: dict, subject: str, to: str | None,
-             que: str, link: str | None = None) -> bool:
-    """Tubería común: destinatario → token (o E9) → plantilla → envío."""
+def deliver_detailed(*, template: str, context: dict, subject: str, to: str | None,
+                     que: str, link: str | None = None) -> tuple[bool, str | None]:
+    """Tubería común: destinatario → token (o E9) → plantilla → envío, con el
+    MOTIVO del fallo.
+
+    `(True, None)` si salió; si no, `(False, código)` con código:
+    `"sin_destinatario"` (no hay `to`), `"cuenta_no_conectada"` (sin token de
+    Graph; aquí rige E9), `"plantilla"` (no existe o revienta) o `"envio"`
+    (Graph no respondió 200/202, o el envío lanzó). El despachador de los
+    correos del proceso (`mail_dispatch`) lo usa para dejar un `last_error`
+    legible y decidir el reintento; `_deliver` es este mismo camino reducido
+    a `bool`.
+    """
     if not to:
         logger.debug("Sin destinatario — se omite el envío de %s", que)
-        return False
+        return False, "sin_destinatario"
     token = _acquire_token(que)
     if token is None:
         _dev_link(to, link)
-        return False
+        return False, "cuenta_no_conectada"
     html = _render(template, context)
     if html is None:
-        return False
-    ok = _send(token, subject, html, to)
-    if ok:
-        logger.info("[titulatec] %s -> %s", que, to)
-    return ok
+        return False, "plantilla"
+    if not _send(token, subject, html, to):
+        return False, "envio"
+    logger.info("[titulatec] %s -> %s", que, to)
+    return True, None
+
+
+def _deliver(*, template: str, context: dict, subject: str, to: str | None,
+             que: str, link: str | None = None) -> bool:
+    """Tubería común: destinatario → token (o E9) → plantilla → envío. Es
+    `deliver_detailed` sin el motivo: la usan los 6 correos de inscripción."""
+    return deliver_detailed(template=template, context=context, subject=subject,
+                            to=to, que=que, link=link)[0]
 
 
 class TitulaTecEmailHelper:

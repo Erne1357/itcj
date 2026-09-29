@@ -1,12 +1,16 @@
-"""Tareas celery del SII (spec 2026-09-25 §3.4, Tarea 4).
+"""Tareas celery de TitulaTec: las del SII (spec 2026-09-25 §3.4, Tarea 4), el
+despacho de correos del proceso (spec 2026-09-28 §6 C3/C5) y el barrido diario
+de recordatorios (§6 C4/C5).
 
 Sin broker ni worker: se llama el cuerpo de la tarea (`task.run`, que en una
-tarea `bind=True` ya trae `self`) con `EligibilityService` parcheado, y el
-`retry` de la tarea se sustituye por un registro. `SessionLocal` apunta a la
-sesión del test (`patched_session_local`).
+tarea `bind=True` ya trae `self`) con el service parcheado
+(`EligibilityService`, `MailDispatcher`, `MailReminders`), y el `retry` de la
+tarea se sustituye por un registro. `SessionLocal` apunta a la sesión del test
+(`patched_session_local`).
 """
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -177,8 +181,8 @@ def test_el_barrido_esta_registrado_y_catalogado():
     from itcj2.celery_app import celery_app
 
     assert "titulatec.sii_sweep" in celery_app.tasks
-    definicion, = tasks.TASK_DEFINITIONS
-    assert definicion["task_name"] == tasks.sii_sweep.name
+    definicion, = [d for d in tasks.TASK_DEFINITIONS
+                   if d["task_name"] == tasks.sii_sweep.name]
     assert definicion["app_name"] == "titulatec"
 
 
@@ -226,6 +230,149 @@ def test_el_dml_de_la_periodica_programa_la_tarea_por_su_nombre_registrado():
 
     # Una vez en `core_task_definitions` y otra en `core_periodic_tasks`.
     assert sql.count(f"'{tasks.sii_sweep.name}'") >= 2
+
+
+# ---------------------------------------------------------------------------
+# email_dispatch (periódica, cada 5 minutos): correos del proceso al egresado
+# ---------------------------------------------------------------------------
+_DESPACHO = {"sent": 2, "failed": 0, "retry": 1, "no_recipient": 0, "obsolete": 0,
+             "waiting": 1}
+
+
+def test_el_despacho_de_correos_esta_registrado_y_catalogado():
+    """Spec C5: nombre por `name=` (el DML de la periódica, Tarea 9, la programa
+    por nombre), límites de celery del contrato y su entrada en
+    `TASK_DEFINITIONS`."""
+    from itcj2.celery_app import celery_app
+
+    assert tasks.email_dispatch.name == "titulatec.email_dispatch"
+    assert "titulatec.email_dispatch" in celery_app.tasks
+    assert (tasks.email_dispatch.soft_time_limit, tasks.email_dispatch.time_limit) == (50, 58)
+    definicion, = [d for d in tasks.TASK_DEFINITIONS
+                   if d["task_name"] == tasks.email_dispatch.name]
+    assert definicion["app_name"] == "titulatec"
+    assert definicion["default_args"] == {}
+
+
+def test_el_despacho_se_describe_cada_5_minutos():
+    """Ruling 18: el despachador corre cada 5 minutos (`*/5 * * * *` en el DML),
+    y su descripción —la que enseña /config/system/tasks y que el DML copia
+    literal— lo dice así, no «cada minuto»."""
+    definicion, = [d for d in tasks.TASK_DEFINITIONS
+                   if d["task_name"] == tasks.email_dispatch.name]
+
+    assert definicion["description"].startswith("Cada 5 minutos: ")
+    assert "cada minuto" not in definicion["description"].lower()
+
+
+def test_el_despacho_corre_con_su_sesion_y_devuelve_su_resultado(
+    monkeypatch, patched_session_local, db_session, caplog,
+):
+    """La tarea solo abre la sesión (`SessionLocal` importado DENTRO) y llama
+    a `MailDispatcher.run` con sus valores por omisión (`now` = `db_now()` y el
+    lote de 50 los decide el service); devuelve su dict y lo deja en el log."""
+    from itcj2.apps.titulatec.services.mail_dispatch import MailDispatcher
+
+    llamadas = []
+
+    def _run(db, *, now=None, limit=50):
+        llamadas.append((db.get_bind() is db_session.get_bind(), now, limit))
+        return dict(_DESPACHO)
+
+    monkeypatch.setattr(MailDispatcher, "run", staticmethod(_run))
+
+    with caplog.at_level(logging.INFO, logger="itcj2.tasks.titulatec_tasks"):
+        out = tasks.email_dispatch.run()
+
+    assert out == _DESPACHO
+    assert llamadas == [(True, None, 50)], "usa SessionLocal() y los valores del service"
+    assert str(_DESPACHO) in caplog.text
+
+
+def test_el_despacho_sin_movimiento_no_llena_el_log(monkeypatch, patched_session_local,
+                                                    caplog):
+    """Corre cada 5 minutos: una corrida en ceros va a DEBUG, no a INFO (288
+    líneas al día sin información)."""
+    from itcj2.apps.titulatec.services.mail_dispatch import MailDispatcher
+
+    ceros = dict.fromkeys(_DESPACHO, 0)
+    monkeypatch.setattr(MailDispatcher, "run", staticmethod(lambda db, **kw: dict(ceros)))
+
+    with caplog.at_level(logging.INFO, logger="itcj2.tasks.titulatec_tasks"):
+        assert tasks.email_dispatch.run() == ceros
+
+    assert not [r for r in caplog.records if r.name == "itcj2.tasks.titulatec_tasks"]
+
+
+def test_el_despacho_con_el_correo_apagado_no_llena_el_log(monkeypatch,
+                                                           patched_session_local, caplog):
+    """Con `TITULATEC_EMAIL_ENABLED=false` (el `MailDispatcher.run` REAL) cada
+    corrida devuelve `{"disabled": True}`: no hay nada que contar, así que va a
+    DEBUG igual que una corrida en ceros, no una línea de INFO cada 5 minutos
+    mientras dure el apagado."""
+    from itcj2.apps.titulatec.services.student_mail import MailSettings
+
+    monkeypatch.setattr(MailSettings, "enabled", staticmethod(lambda: False))
+
+    with caplog.at_level(logging.INFO, logger="itcj2.tasks.titulatec_tasks"):
+        assert tasks.email_dispatch.run() == {"disabled": True}
+
+    assert not [r for r in caplog.records if r.name == "itcj2.tasks.titulatec_tasks"]
+
+
+# ---------------------------------------------------------------------------
+# email_reminders (periódica, diaria 9:00): recordatorios por correo
+# ---------------------------------------------------------------------------
+def test_los_recordatorios_estan_registrados_y_catalogados():
+    """Spec C5: nombre por `name=` (el DML de la periódica, Tarea 9, la programa
+    por nombre), límites de celery del contrato y su entrada en
+    `TASK_DEFINITIONS`."""
+    from itcj2.celery_app import celery_app
+
+    assert tasks.email_reminders.name == "titulatec.email_reminders"
+    assert "titulatec.email_reminders" in celery_app.tasks
+    assert (tasks.email_reminders.soft_time_limit,
+            tasks.email_reminders.time_limit) == (540, 600)
+    definicion, = [d for d in tasks.TASK_DEFINITIONS
+                   if d["task_name"] == tasks.email_reminders.name]
+    assert definicion["app_name"] == "titulatec"
+    assert definicion["default_args"] == {}
+    assert definicion["display_name"] and definicion["description"]
+
+
+def test_los_recordatorios_corren_con_su_sesion_y_devuelven_su_resultado(
+    monkeypatch, patched_session_local, db_session, caplog,
+):
+    """La tarea solo abre la sesión (`SessionLocal` importado DENTRO) y llama a
+    `MailReminders.run` con su reloj por omisión (`db_now()`, lo decide el
+    service); devuelve su dict y lo deja en el log (corre una vez al día)."""
+    from itcj2.apps.titulatec.services.mail_reminders import MailReminders
+
+    resultado = {"appt": 2, "docs": 1, "survey": 0}
+    llamadas = []
+
+    def _run(db, *, now=None):
+        llamadas.append((db.get_bind() is db_session.get_bind(), now))
+        return dict(resultado)
+
+    monkeypatch.setattr(MailReminders, "run", staticmethod(_run))
+
+    with caplog.at_level(logging.INFO, logger="itcj2.tasks.titulatec_tasks"):
+        out = tasks.email_reminders.run()
+
+    assert out == resultado
+    assert llamadas == [(True, None)], "usa SessionLocal() y el reloj del service"
+    assert str(resultado) in caplog.text
+
+
+def test_los_recordatorios_con_el_correo_apagado_no_hacen_nada(monkeypatch,
+                                                              patched_session_local):
+    """Con el `MailReminders.run` REAL: `TITULATEC_EMAIL_ENABLED=false` → nada."""
+    from itcj2.apps.titulatec.services.student_mail import MailSettings
+
+    monkeypatch.setattr(MailSettings, "enabled", staticmethod(lambda: False))
+
+    assert tasks.email_reminders.run() == {"disabled": True}
 
 
 # ---------------------------------------------------------------------------

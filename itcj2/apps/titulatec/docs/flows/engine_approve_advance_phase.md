@@ -34,16 +34,17 @@ sequenceDiagram
     SVC->>DB: siguiente aplicable → in_progress (si pending/rejected)
     SVC->>DB: process.current_phase = siguiente  (o status=completed)
     SVC->>DB: INSERT ProcessEvent(phase_approved)
+    SVC->>DB: INSERT titulatec_email_outbox (StudentMail.phase_approved) — misma transacción
     SVC-->>API: {next_phase, completed}
     API-->>FE: re-render #process-detail (partial)
 ```
 
 ## Pasos detallados
 
-| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos |
-|---|---|---|---|---|---|---|---|
-| 1 | 🏛️/🎓 | detalle proceso | Aprobar fase N | `POST .../phase/{n}/approve` | `PhaseService.approve_phase` | `ProcessPhase[n]=approved`, `completed_at`, `reviewed_by_id`; siguiente=`in_progress`; `process.current_phase`↑ (o `status=completed`) | `phase_approved` (+`process_completed` si última) |
-| 1b| 🏛️/🎓 | detalle proceso | Rechazar fase N | `POST .../phase/{n}/reject` (form `reason`) | `PhaseService.reject_phase` | `ProcessPhase[n]=rejected`, `rejection_reason`; `current_phase=n` | `phase_rejected` (payload `reason`) |
+| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos | Correo |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 🏛️/🎓 | detalle proceso | Aprobar fase N | `POST .../phase/{n}/approve` | `PhaseService.approve_phase` | `ProcessPhase[n]=approved`, `completed_at`, `reviewed_by_id`; siguiente=`in_progress`; `process.current_phase`↑ (o `status=completed`) | `phase_approved` (+`process_completed` si última) | `phase_approved` (grupo `docs:{pid}` si N es `initial_docs`; si no, individual) |
+| 1b| 🏛️/🎓 | detalle proceso | Rechazar fase N | `POST .../phase/{n}/reject` (form `reason`) | `PhaseService.reject_phase` | `ProcessPhase[n]=rejected`, `rejection_reason`; `current_phase=n` | `phase_rejected` (payload `reason`) | `phase_rejected` (individual, con el motivo) |
 
 ## Lógica de "siguiente aplicable"
 
@@ -104,6 +105,23 @@ la fase). Tabla de eventos en
 > `/titulatec/student/dashboard?fase={n}` — el acordeón de esa fase, ya abierto y resaltado en el
 > HTML de la respuesta. La ruta **no se puede borrar**: esas URLs están escritas dentro de filas de
 > `core_notifications` que ya existen. Ver [acordeón de fases](xcut_student_phase_detail.md).
+
+## Correo al egresado (desde 2026-09-28)
+
+Además del in-app (que no cambió), las dos funciones **encolan** un correo con `StudentMail`
+(`services/student_mail.py`), en la **misma transacción** que el dictamen — antes del
+`db.commit()` final: si el commit falla, la fila de `titulatec_email_outbox` se va con él. Aquí no
+se envía nada: lo manda el despachador periódico (`titulatec.email_dispatch`, tarea aparte).
+
+| Función | `kind` | Grupo | Payload |
+|---|---|---|---|
+| `approve_phase` | `phase_approved` | `docs:{pid}` si la fase aprobada es `initial_docs` (sale en el MISMO correo que el dictamen de sus documentos, D7); cualquier otra fase, individual | `phase_number`, `phase_name` y `next_name` (`_phase_label`: «Fase NN · Nombre»), `next_phase`, `handoff` (= `next_phase >= _handoff_phase()`: la siguiente ya la opera T-soft), `completed` (sin siguiente) |
+| `reject_phase` | `phase_rejected` | individual | `phase_number`, `phase_name`, `reason` |
+
+`_auto_close_cotejo_appointment` (arriba) **no** encola nada propio: el correo es el del dictamen.
+Lo fija `tests/fastapi/titulatec/test_mail_hooks.py` (qué se encola) y
+`test_mail_writers.py` (barrido por AST: un escritor nuevo de `phase_approved`/`phase_rejected`
+que no llame a `StudentMail` sale en rojo).
 
 ## Guarda de transición (desde 2026-09)
 

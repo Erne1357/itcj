@@ -10,6 +10,7 @@ Comandos:
     titulatec sii-rules-validate [--dir]  Valida rules.toml + queries/*.sql del SII.
     titulatec sii-check <control>         Dry-run de las reglas del SII (NIP enmascarado).
     titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta y reintenta).
+    titulatec init-email-tasks [--dry-run] Da de alta las periódicas de correo (envío + recordatorios).
 """
 import os
 from pathlib import Path, PurePosixPath
@@ -78,6 +79,19 @@ SEED_FILES = [
     # inserta permisos, así que va antes del 15 sin problema. Fuera del modo
     # `sii` la tarea no hace nada.
     "sii_2026_09/16_insert_sii_sweep_task.sql",
+    # --- Delta 2026-09-28: correos del proceso al egresado --------------------
+    # Alta de las tareas periódicas `titulatec.email_dispatch` (cada 5 minutos)
+    # y `titulatec.email_reminders` (diaria 9:00): Celery Beat corre con
+    # `DatabaseScheduler`, que SOLO lee `core_periodic_tasks` — sin esta fila
+    # ninguna de las dos se programa, aunque el worker ya las tenga
+    # registradas (`TASK_DEFINITIONS` en `itcj2/tasks/titulatec_tasks.py`).
+    # Idempotente (ON CONFLICT, mismo patrón que el 16 de arriba: no pisa
+    # `is_active` ni `cron_expression` al re-sembrar). No inserta permisos,
+    # así que va antes del 15 sin problema. También corre SOLA con
+    # `titulatec init-email-tasks` (spec 2026-09-28 §6 C5): en producción
+    # `init-titulatec` completo NUNCA se re-ejecuta, así que ese comando es el
+    # único camino de despliegue para este archivo.
+    "mail_2026_09/17_insert_email_tasks.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
@@ -1120,6 +1134,63 @@ def load_survey_2026_09_command(dry_run):
             fg="green",
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Correos del proceso al egresado (spec 2026-09-28 §6 C5): tareas periódicas
+# `titulatec.email_dispatch` (cada 5 minutos) y `titulatec.email_reminders`
+# (diaria 9:00), ya registradas en el worker (`TASK_DEFINITIONS`,
+# `itcj2/tasks/titulatec_tasks.py`, tareas 7/8 de este plan). Faltaba darlas
+# de alta en `core_periodic_tasks` — sin esa fila Celery Beat
+# (`DatabaseScheduler`, SOLO lee BD) nunca las programa.
+# ---------------------------------------------------------------------------
+_DML_MAIL_2026_09_DIR = "mail_2026_09"
+# Debe listar TODOS los .sql del directorio (mismo contrato que
+# `_DML_SURVEY_2026_09_FILES` de arriba): lo fija
+# `test_todo_sql_del_directorio_esta_en_la_lista`
+# (tests/fastapi/titulatec/test_cli_mail_tasks.py). Un archivo que se cae de
+# aquí no lo corre nadie y nada se pone rojo.
+_DML_MAIL_2026_09_FILES = ["17_insert_email_tasks.sql"]
+
+
+@titulatec_cli.command("init-email-tasks")
+@click.option("--dry-run", is_flag=True, help="Lista el archivo sin ejecutarlo.")
+def init_email_tasks_command(dry_run):
+    """Da de alta las 2 tareas periódicas de correo del proceso al egresado.
+
+    Corre SOLO `database/DML/titulatec/mail_2026_09/17_insert_email_tasks.sql`:
+    `core_task_definitions` + `core_periodic_tasks` de `titulatec.email_dispatch`
+    (cada 5 minutos) y `titulatec.email_reminders` (diaria 9:00) — spec
+    2026-09-28 §6 C5. Celery Beat corre con `DatabaseScheduler`, que SOLO lee
+    `core_periodic_tasks`: sin esta fila ninguna de las dos tareas se
+    programa, aunque el worker ya las tenga registradas.
+
+    NO re-ejecuta el resto de `SEED_FILES` (eso es `init-titulatec`): en
+    producción el DML viejo NUNCA se re-ejecuta, así que este comando es el
+    único camino de despliegue para el delta de correo. Idempotente, mismo
+    patrón que `sii_2026_09/16_insert_sii_sweep_task.sql`: el `ON CONFLICT`
+    no pisa `is_active` ni `cron_expression` si alguien pausó una periódica o
+    le cambió la frecuencia desde `/config/system/tasks`. Correrlo dos veces
+    no duplica nada.
+
+    Tras correrlo: reinicia el celery worker (debe reconocer
+    `titulatec.email_dispatch`/`titulatec.email_reminders` si no las tenía
+    ya) y el beat (relee `core_periodic_tasks` solo).
+    """
+    if dry_run:
+        click.echo("[dry-run] Se ejecutaría:")
+        for nombre in _DML_MAIL_2026_09_FILES:
+            click.echo(f"  {_DML_MAIL_2026_09_DIR}/{nombre}")
+        click.echo("Dry-run: no se ejecutó nada.")
+        return
+
+    _run_sql_files([f"{_DML_MAIL_2026_09_DIR}/{nombre}" for nombre in _DML_MAIL_2026_09_FILES])
+    click.echo(click.style(
+        "OK: titulatec.email_dispatch (cada 5 minutos) y titulatec.email_reminders "
+        "(diaria 9:00) registradas en core_periodic_tasks. Reinicia el celery "
+        "worker y el beat.",
+        fg="green",
+    ))
 
 
 # ---------------------------------------------------------------------------

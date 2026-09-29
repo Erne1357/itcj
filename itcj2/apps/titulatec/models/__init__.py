@@ -28,6 +28,7 @@ from itcj2.apps.titulatec.models.requirement_fulfillment import (  # noqa: F401
 from itcj2.apps.titulatec.models.enrollment_request import EnrollmentRequest  # noqa: F401
 from itcj2.apps.titulatec.models.survey_review import SurveyReview  # noqa: F401
 from itcj2.apps.titulatec.models.eligibility_check import EligibilityCheck  # noqa: F401
+from itcj2.apps.titulatec.models.email_outbox import EmailOutbox  # noqa: F401
 
 __all__ = [
     "Modality",
@@ -56,4 +57,5 @@ __all__ = [
     "EnrollmentRequest",
     "SurveyReview",
     "EligibilityCheck",
+    "EmailOutbox",
 ]

@@ -24,6 +24,18 @@
   {% else %}{{ pill(estado, "neutral") }}{% endif %}
 {% endmacro %}
 
+{# — Píldora de un documento en la VISTA DEL ALUMNO (Tarea 2, 2026-09-28, spec
+   §4 A3). NO reusa `estado_pill`: esa habla en voz del personal
+   ("Pendiente"/"En revisión", que usa `documents_body.html`/el expediente y
+   NO cambia); aquí "pending" se lee "Enviado · en revisión" -- ya se envió al
+   subir, no hay botón "Enviar a revisión" que darle (Tarea 1). #}
+{% macro doc_pill_alumno(status) %}
+  {% if status == "approved" %}{{ pill("Aprobado", "success", "check-lg") }}
+  {% elif status == "rejected" %}{{ pill("Necesita corrección", "danger", "exclamation-triangle") }}
+  {% elif status == "pending" %}{{ pill("Enviado · en revisión", "amber", "clock") }}
+  {% else %}{{ pill(status, "neutral") }}{% endif %}
+{% endmacro %}
+
 {# — Estado del PROCESO (`TitulationProcess.status`), no de una fase. Antes las
      tablas imprimian el codigo crudo («cancelled», «on_hold»). — #}
 {% macro proceso_pill(estado) %}

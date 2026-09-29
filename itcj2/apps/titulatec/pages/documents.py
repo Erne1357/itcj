@@ -93,33 +93,18 @@ def _doc_row(proc, *, users, progs, names, docs):
 def _last_uploads(db, process_ids):
     """Ultima llegada de cada (proceso, tipo) segun la bitacora, en UN lote.
 
-    Fuente de verdad de "cuanto lleva esperando" un documento: `Document` no
-    sirve sola porque una resubida NO resetea `created_at`
-    (`DocumentService.save` actualiza la fila en su lugar, solo sube
-    `version`) y `updated_at` no tiene `onupdate` ni la escribe nadie. Cada
-    subida real SI deja un `ProcessEvent(document_uploaded)` en la MISMA
-    transaccion (`services/document_service.py:184-189`), con `type_code` en
-    el payload. Se toma el MAXIMO por (proceso, tipo): un documento rechazado
-    y vuelto a subir cuenta desde la resubida, no desde el primer intento --
-    es una llegada NUEVA, se va al final de la fila.
+    Delegado a `DocumentService.last_uploads` (Tarea 2, 2026-09-28, plan
+    titulatec-correos-notificaciones): la vista del alumno
+    (`pages/student.py::_docs_status_ctx`, linea "Enviado el ...") necesita la
+    MISMA fuente de verdad de "cuando llego de verdad cada documento", asi que
+    la logica se movio al service y aqui solo se reexporta -- misma firma,
+    mismos resultados (`test_last_uploads_es_equivalente_al_de_la_bandeja`),
+    para no romper a quien ya importa esta funcion desde este modulo
+    (`test_documents_fifo.py`, `test_documents_inbox.py`).
     """
-    from itcj2.apps.titulatec.models import ProcessEvent
+    from itcj2.apps.titulatec.services.document_service import DocumentService
 
-    if not process_ids:
-        return {}
-    ultimas = {}
-    filas = (db.query(ProcessEvent.process_id, ProcessEvent.payload, ProcessEvent.created_at)
-             .filter(ProcessEvent.process_id.in_(process_ids),
-                     ProcessEvent.event_type == "document_uploaded")
-             .all())
-    for process_id, payload, subido_en in filas:
-        type_code = (payload or {}).get("type_code")
-        if not type_code:
-            continue
-        clave = (process_id, type_code)
-        if clave not in ultimas or subido_en > ultimas[clave]:
-            ultimas[clave] = subido_en
-    return ultimas
+    return DocumentService.last_uploads(db, process_ids)
 
 
 def _order_pending_by_wait(db, rows):

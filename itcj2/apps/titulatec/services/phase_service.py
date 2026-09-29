@@ -435,6 +435,18 @@ class PhaseService:
                            body=f"{PhaseService._phase_label(db, phase_number)} fue aprobada.",
                            process_id=process.id, phase_number=nxt)
 
+        # Correo (spec 2026-09-28 §5, #1b/#2), en esta misma transacción. La
+        # fase `initial_docs` va al grupo `docs:{pid}` —sale junto con el
+        # dictamen de sus documentos— y las demás solas (lo decide
+        # `StudentMail`). `handoff`: la siguiente fase ya la opera T-soft.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.phase_approved(
+            db, process, phase_number=phase_number,
+            phase_name=PhaseService._phase_label(db, phase_number),
+            next_phase=nxt,
+            next_name=(PhaseService._phase_label(db, nxt) if nxt is not None else None),
+            handoff=nxt is not None and nxt >= PhaseService._handoff_phase())
+
         db.commit()
         return {"next_phase": nxt, "completed": nxt is None}
 
@@ -467,5 +479,13 @@ class PhaseService:
                        title="Una fase necesita correcciones",
                        body=(reason or f"{PhaseService._phase_label(db, phase_number)} fue rechazada."),
                        process_id=process.id, phase_number=phase_number)
+
+        # Correo (spec 2026-09-28 §5, #3): individual, con el motivo tal como
+        # quedó; en esta misma transacción.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.phase_rejected(
+            db, process, phase_number=phase_number,
+            phase_name=PhaseService._phase_label(db, phase_number),
+            reason=reason or None)
 
         db.commit()

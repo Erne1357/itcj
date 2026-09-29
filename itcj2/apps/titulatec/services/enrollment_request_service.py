@@ -133,6 +133,7 @@ from typing import NamedTuple
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from itcj2.apps.titulatec.services.email_helper import PUBLIC_ORIGIN
 from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
 
 logger = logging.getLogger("itcj2.apps.titulatec.enrollment_request")
@@ -206,9 +207,10 @@ MAX_VERIFY_SENDS = 3             # tope del reenvío PÚBLICO; la bandeja no lo 
 MIN_SECONDS_BETWEEN_SENDS = 300
 MAX_PUBLIC_BODY_BYTES = 256 * 1024
 
-# Mismo origen que `MaintEmailHelper._BASE_URL`: las ligas de correo salen de
-# aquí, nunca del `Host` de la petición (que el cliente controla).
-PUBLIC_BASE_URL = "https://enlinea.cdjuarez.tecnm.mx"
+# Alias del origen público único (`email_helper.PUBLIC_ORIGIN`, spec 2026-09-28
+# C7): las ligas de correo salen de ahí, nunca del `Host` de la petición (que el
+# cliente controla). Conserva el nombre porque lo usan `_verify_link` y sus pruebas.
+PUBLIC_BASE_URL = PUBLIC_ORIGIN
 
 # Prefijo de Redis del TEXTO CLARO del token. La llave es el propio hash, así que
 # una entrada rancia jamás puede aplicarse a otra solicitud.

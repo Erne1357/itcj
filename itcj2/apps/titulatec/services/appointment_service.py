@@ -660,11 +660,21 @@ class AppointmentService:
         # siempre verdadero — el alumno recibiría aviso de su propio clic y el
         # silencio de esta rama sería mentira.
         from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
         proc = db.get(TitulationProcess, process_id)
         if proc is None or int(created_by_id) != int(proc.student_id):
             AppointmentService._notify_appt(db, process_id, "APPOINTMENT_SCHEDULED",
                                             "Tu cita de cotejo fue agendada",
                                             appt.scheduled_at, appt.location)
+        # El correo, en cambio, sale SIEMPRE (spec 2026-09-28 §5 #7, D9): al
+        # alumno que agendó él mismo le sirve de comprobante —fecha, lugar,
+        # qué llevar—. Grupo `cita:{pid}`: agendar y mover dentro de la espera
+        # salen en un solo correo con la cita vigente (D7). `appt` ya trae id:
+        # `SlotService.assign` hizo flush.
+        if proc is not None:
+            StudentMail.appointment_changed(
+                db, proc, event="scheduled", appt=appt,
+                by="student" if int(created_by_id) == int(proc.student_id) else "officer")
         db.commit()
         db.refresh(appt)
         return appt
@@ -724,6 +734,17 @@ class AppointmentService:
         AppointmentService._notify_appt(db, appt.process_id, "APPOINTMENT_RESCHEDULED",
                                         "Tu cita de cotejo fue reagendada",
                                         appt.scheduled_at, appt.location)
+        # Correo (spec 2026-09-28 §5 #7), mismo grupo `cita:{pid}` que el de
+        # agendar: mover tres veces en el tablero = un correo con la fecha
+        # final (D7). Habla de la cita NUEVA, que ya trae id (`assign` hizo
+        # flush); `by` con la misma regla del actor que `create`.
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        proc = db.get(TitulationProcess, appt.process_id)
+        if proc is not None:
+            StudentMail.appointment_changed(
+                db, proc, event="rescheduled", appt=appt,
+                by="student" if int(actor_id) == int(proc.student_id) else "officer")
         db.commit()
         db.refresh(appt)
         return appt
@@ -754,10 +775,24 @@ class AppointmentService:
 
     @staticmethod
     def mark_no_show(db: Session, appt, actor_id: int):
-        """El alumno no llegó. Su lugar NO se libera: la franja ya se consumió."""
+        """El alumno no llegó. Su lugar NO se libera: la franja ya se consumió.
+
+        Le avisa al alumno (spec 2026-09-28 §5 #9): in-app en el acto y correo
+        con la gracia del agrupado (D8) — si el encargado lo deshace dentro de
+        ella, el despachador da el correo por obsoleto y no sale.
+        """
         AppointmentService.assert_transition(appt.status, "no_show")
         appt.status = "no_show"
         AppointmentService._log(db, appt.process_id, actor_id, "appointment_no_show")
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        proc = db.get(TitulationProcess, appt.process_id)
+        if proc is not None:
+            # La cita ya existe en la BD: trae id.
+            StudentMail.appointment_no_show(db, proc, appt=appt)
+        AppointmentService._notify_appt(db, appt.process_id, "APPOINTMENT_NO_SHOW",
+                                        "No registramos tu asistencia a tu cita",
+                                        appt.scheduled_at, appt.location)
         db.commit()
         db.refresh(appt)
         return appt
@@ -767,11 +802,17 @@ class AppointmentService:
         """«Deshacer no se presentó». Devuelve la cita a `in_progress`.
 
         Existe porque marcar una ausencia es un clic con consecuencias para un
-        egresado (le dispara notificación) y hasta ahora no tenía reverso.
+        egresado (le dispara aviso en la app y correo) y hasta ahora no tenía
+        reverso. La corrección se avisa solo en la app: el correo de «no se
+        presentó» que siga en su gracia lo da por obsoleto el despachador al
+        re-validar (D8), así que no hay nada que encolar aquí.
         """
         AppointmentService.assert_transition(appt.status, "in_progress")
         appt.status = "in_progress"
         AppointmentService._log(db, appt.process_id, actor_id, "appointment_undo_no_show")
+        AppointmentService._notify_appt(db, appt.process_id, "APPOINTMENT_NO_SHOW_UNDONE",
+                                        "Se corrigió tu asistencia a la cita",
+                                        appt.scheduled_at, appt.location)
         db.commit()
         db.refresh(appt)
         return appt
@@ -807,7 +848,8 @@ class AppointmentService:
         notificación AL ENCARGADO por un auto-agendado; no dice callarle al
         alumno, y una cancelación es más disruptiva que una reagenda —que sí
         le avisa—. Quien cancela su propia cita acaba de pulsar el botón, así
-        que a ése no se le avisa de su propio clic.
+        que a ése no se le avisa de su propio clic. El aviso es in-app **y**
+        correo (spec 2026-09-28 §5 #7), los dos bajo la misma condición.
         """
         AppointmentService.assert_transition(appt.status, "cancelled")
         appt.status = "cancelled"
@@ -833,6 +875,14 @@ class AppointmentService:
                 db, appt.process_id, "APPOINTMENT_CANCELLED",
                 "Tu cita de cotejo fue cancelada",
                 appt.scheduled_at, appt.location)
+            # El correo, bajo la MISMA condición (spec 2026-09-28 §5 #7): ni
+            # por la cancelación del propio alumno (D9) ni por la de la
+            # revocación (`notify=False`: su aviso es `send_process_cancelled`).
+            # Aquí el actor nunca es el alumno, así que `by` es el encargado.
+            from itcj2.apps.titulatec.services.student_mail import StudentMail
+            StudentMail.appointment_changed(
+                db, proc, event="cancelled", appt=appt, by="officer",
+                reason=appt.cancel_reason)
         if not commit:
             db.flush()
             return appt

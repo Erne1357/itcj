@@ -55,7 +55,7 @@ def _declared_models() -> dict[str, str]:
     return found
 
 
-def test_hay_26_modelos_declarados():
+def test_hay_27_modelos_declarados():
     """Guarda del propio test: si el AST deja de ver clases, lo de abajo pasaria
     en verde sin verificar nada.
 
@@ -63,14 +63,15 @@ def test_hay_26_modelos_declarados():
     `survey.py` declara CUATRO (SurveyForm, SurveyResponse, SurveyAnswer,
     SurveyDraft), mas RequirementFulfillment, EnrollmentRequest y SurveyReview.
     + 1 de la elegibilidad SII (2026-09-25): `EligibilityCheck`.
+    + 1 de la bandeja de salida de correos (2026-09-28): `EmailOutbox`.
 
     El spec dice «23» en §3.9 porque ahi cuenta cinco tablas de titulatec; §3.2
     a §3.7 definen seis. El numero bueno es el que ve el AST.
     """
     declared = _declared_models()
 
-    assert len(declared) == 26, (
-        f"se esperaban 26 modelos titulatec, el AST vio {len(declared)}: "
+    assert len(declared) == 27, (
+        f"se esperaban 27 modelos titulatec, el AST vio {len(declared)}: "
         f"{sorted(declared)}"
     )
 

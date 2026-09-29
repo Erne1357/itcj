@@ -1,0 +1,65 @@
+{# Dictamen de los documentos iniciales (spec 2026-09-28 §5, #1 y #1b). Lo
+   arma `mail_compose._compose_docs_group` con el ÚLTIMO dictamen de cada
+   documento del grupo `docs:{pid}`. `advanced`: el grupo trae además el avance
+   de la fase 1, así que el correo da los siguientes pasos (encuesta de
+   egresados → agendar) y lleva a la cita. `has_rejected` MANDA sobre
+   `advanced` en el encabezado (B4, ronda final): con un documento que quedó
+   rechazado, el correo dice «hay correcciones» aunque la fase haya avanzado, y
+   solo menciona el avance (sin pedir volver a subir: la fase 1 ya no es la
+   actual).
+   Contexto: first_name, link, advanced, next_name, has_rejected,
+   docs = [{name, approved, note}]. Nombres y motivos con `|e`. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}{% if has_rejected %}Revisamos tus documentos: hay correcciones{% elif advanced %}¡Tus documentos fueron aprobados!{% else %}Revisamos tus documentos{% endif %} — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+{% if has_rejected %}
+<p style="margin:0 0 20px;">
+  Servicios Escolares revisó tus documentos y <strong>hay correcciones</strong>:
+</p>
+{% elif advanced %}
+<p style="margin:0 0 20px;">
+  <strong>¡Tus documentos fueron aprobados!</strong>
+  {%- if next_name %} Avanzas a <strong>{{ next_name|e }}</strong>.{% endif %}
+</p>
+{% else %}
+<p style="margin:0 0 20px;">Servicios Escolares revisó tus documentos:</p>
+{% endif %}
+{% if docs %}
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="border:1px solid #CFD8DC;border-radius:6px;margin-bottom:24px;">
+  {%- for d in docs %}
+  <tr>
+    <td style="padding:12px 16px;color:#37474F;font-size:14px;{% if not loop.first %}border-top:1px solid #ECEFF1;{% endif %}">
+      {{ d.name|e }}
+      {%- if d.note %}<br><span style="color:#B71C1C;font-size:13px;">{{ d.note|e }}</span>{% endif %}
+    </td>
+    <td style="padding:12px 16px;font-size:13px;font-weight:700;text-align:right;white-space:nowrap;{% if not loop.first %}border-top:1px solid #ECEFF1;{% endif %}{% if d.approved %}color:#2E7D32;{% else %}color:#B71C1C;{% endif %}">
+      {%- if d.approved %}&#10003; Aprobado{% else %}&#10007; Necesita corrección{% endif -%}
+    </td>
+  </tr>
+  {%- endfor %}
+</table>
+{% endif %}
+{% if advanced %}
+{% if has_rejected %}
+<p style="margin:0 0 20px;">
+  Tu trámite avanzó a <strong>{{ (next_name or "la cita de cotejo")|e }}</strong>.
+</p>
+{% endif %}
+<p style="margin:0 0 8px;color:#1F3D7A;font-weight:700;">Siguientes pasos</p>
+<ol style="margin:0 0 24px;padding-left:20px;">
+  <li style="margin:0 0 6px;">Contesta la <strong>encuesta de egresados</strong>, si aún no lo haces: sin ella no puedes agendar tu cita de cotejo.</li>
+  <li style="margin:0;">Agenda tu <strong>cita de cotejo</strong>. Según tu convocatoria, la agendas tú o Servicios Escolares te asigna la fecha.</li>
+</ol>
+{{ m.boton(link, "Ver mi cita de cotejo") }}
+{% else %}
+{% if has_rejected %}
+<p style="margin:0 0 24px;">
+  Corrige los documentos marcados y vuélvelos a subir: al subirlos regresan solos a revisión.
+</p>
+{% endif %}
+{{ m.boton(link, "Ver mis documentos") }}
+{% endif %}
+{% endblock %}

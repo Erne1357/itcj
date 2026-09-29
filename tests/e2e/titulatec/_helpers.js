@@ -464,6 +464,26 @@ try:
     db.execute(text("DELETE FROM titulatec_cohort_review_days WHERE cohort_id = :c"),
                {"c": ${ctx.cohortId}})
 
+    # BANDEJA DE CORREOS (spec 2026-09-28-titulatec-correos-notificaciones):
+    # cada evento del proceso encola su correo en \`titulatec_email_outbox\`
+    # (agendar la cita en citas-autoagenda, el dictamen de GTV en
+    # admin-releases...), con FK a \`titulatec_processes\` Y a \`core_users\`,
+    # ninguna con cascade: sin esto el DELETE de procesos (y el de usuarios)
+    # revienta con ForeignKeyViolation. Por proceso de la convocatoria del
+    # escenario y, además, por usuario del TAG: \`process_id\` es nullable.
+    db.execute(text("DELETE FROM titulatec_email_outbox WHERE process_id IN "
+                    "(SELECT id FROM titulatec_processes WHERE cohort_id = :c)"),
+               {"c": ${ctx.cohortId}})
+    db.execute(text("DELETE FROM titulatec_email_outbox WHERE user_id IN "
+                    "(SELECT id FROM core_users WHERE first_name = :t OR username LIKE '2999%')"),
+               {"t": TAG})
+    # DOCUMENTOS de los procesos del escenario (FK a \`titulatec_processes\`).
+    # Hoy ninguna spec sube archivos; si alguna lo hace, sus archivos se
+    # borran abajo, después del commit.
+    db.execute(text("DELETE FROM titulatec_documents WHERE process_id IN "
+                    "(SELECT id FROM titulatec_processes WHERE cohort_id = :c)"),
+               {"c": ${ctx.cohortId}})
+
     db.execute(text("DELETE FROM titulatec_requirement_fulfillments WHERE process_id IN "
                     "(SELECT id FROM titulatec_processes WHERE cohort_id = :c)"),
                {"c": ${ctx.cohortId}})
@@ -480,6 +500,11 @@ try:
     db.execute(text("DELETE FROM titulatec_cotejo_requirements WHERE cohort_id = :c"),
                {"c": ${ctx.cohortId}})
     db.execute(text("DELETE FROM titulatec_cohorts WHERE id = :c"), {"c": ${ctx.cohortId}})
+    # El código del periodo nombra la carpeta de archivos del escenario
+    # (\`{TITULATEC_UPLOAD_PATH}/{period_code}/...\`, utils/storage.py): se lee
+    # antes de borrar la fila.
+    periodo = db.execute(text("SELECT code FROM core_academic_periods WHERE id = :p"),
+                         {"p": ${ctx.periodId}}).scalar()
     db.execute(text("DELETE FROM core_academic_periods WHERE id = :p"), {"p": ${ctx.periodId}})
 
     # Usuarios del escenario, incluidos los que crea una aprobación de solicitud
@@ -521,6 +546,19 @@ try:
     db.execute(text("DELETE FROM core_programs WHERE name LIKE :t"), {"t": TAG + "%"})
 
     db.commit()
+
+    # Archivos subidos por el escenario, si alguna spec subió documentos: la
+    # carpeta del periodo SINTÉTICO (\`29991\`, SEED_PY), solo si existe. La
+    # guarda \`2999\` impide borrar la carpeta de un periodo real aunque el id
+    # apuntara a otro.
+    if periodo and str(periodo).startswith("2999"):
+        import shutil
+        from pathlib import Path
+        from itcj2.config import get_settings
+
+        carpeta = Path(get_settings().TITULATEC_UPLOAD_PATH) / str(periodo)
+        if carpeta.is_dir():
+            shutil.rmtree(carpeta)
     print("E2E titulatec cleanup OK (deletes)")
 finally:
     db.close()

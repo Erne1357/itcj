@@ -151,4 +151,13 @@
   </section>
   {% endif %}
 
+  {# Bitácora de correos al egresado (spec 2026-09-28-titulatec-correos-
+     notificaciones §7, D11): solo lectura, sin reenviar, colapsable y cerrada
+     por omisión. No existe en el DOM si el proceso no tiene ninguna fila. #}
+  {% if correos %}
+  <section id="exp-correos" class="tt-card tt-acc" aria-label="Correos enviados al alumno">
+    {% include "titulatec/partials/processes/_exp_mail.html" %}
+  </section>
+  {% endif %}
+
 </div>

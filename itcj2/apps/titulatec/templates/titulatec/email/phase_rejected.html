@@ -1,0 +1,18 @@
+{# Fase rechazada (spec 2026-09-28 §5, #3): el motivo tal como quedó al
+   dictaminar y qué hacer. Sin motivo capturado, el recuadro no se pinta.
+   Contexto: first_name, link, phase_name, reason. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}Una fase necesita correcciones — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  Revisamos tu <strong>{{ phase_name|e }}</strong> y <strong>necesita correcciones</strong>.
+</p>
+{% if reason %}{{ m.motivo(reason) }}{% endif %}
+<p style="margin:0 0 24px;">
+  <strong>Qué hacer:</strong> atiende lo que se te indica y entra a la plataforma para ver
+  el detalle y el siguiente paso de tu fase. Si tienes dudas, acude a Servicios Escolares.
+</p>
+{{ m.boton(link, "Ver mi fase") }}
+{% endblock %}

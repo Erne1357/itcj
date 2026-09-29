@@ -34,7 +34,7 @@ stateDiagram-v2
     pending --> skipped: modalidad salta la fase (ej. EGEL salta 4 y 5)
 ```
 
-> **Ojo:** una fase `rejected` **no** regresa a `in_progress` cuando el alumno corrige. El reenvío la manda directo a `in_review`: fase 1 en `pages/student.py:1622` (`phase.status = "in_review"`) y fase 3 en `services/format_b_service.py:91` (`FormatBService.submit()`). El único código que escribe `in_progress` sobre una fase `rejected` es `services/phase_service.py:92-93`, y solo cuando esa fase resulta ser la **siguiente aplicable** al aprobarse otra (regla de abajo), no como «reapertura» de la fase rechazada.
+> **Ojo:** una fase `rejected` **no** regresa a `in_progress` cuando el alumno corrige. El reenvío la manda directo a `in_review`: fase 1 en `services/document_service.py::DocumentService.sync_initial_phase` (desde 2026-09-28, Tarea 1 -- se llama sola en `save()`/`delete()` al completar los 3 documentos iniciales; ya **no** es `pages/student.py:1622`, ese endpoint se retiró) y fase 3 en `services/format_b_service.py:91` (`FormatBService.submit()`). El único código que escribe `in_progress` sobre una fase `rejected` es `services/phase_service.py:92-93`, y solo cuando esa fase resulta ser la **siguiente aplicable** al aprobarse otra (regla de abajo), no como «reapertura» de la fase rechazada.
 
 **Reglas (las implementa [`PhaseService`](engine_approve_advance_phase.md)):**
 - Aprobar fase N → `N.status=approved` → activa la **siguiente aplicable** (`in_progress`,

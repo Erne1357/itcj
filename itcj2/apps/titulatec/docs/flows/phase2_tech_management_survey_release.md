@@ -59,19 +59,20 @@ sequenceDiagram
     SVC->>SVC: RequirementService.fulfill(graduate_survey, external_ref="survey_review:{id}")
     SVC->>DB: UPDATE status=approved, rejection_reason=NULL<br/>+ ProcessEvent(survey_review_approved)
     SVC->>DB: notify_student(SURVEY_REVIEW_APPROVED)
+    SVC->>DB: INSERT email_outbox (survey_approved) — misma transacción
     SVC-->>API: review
     API-->>G: #tt-releases-body (parcial re-renderizado, misma pestaña)
 ```
 
 ## Pasos detallados
 
-| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif |
-|---|---|---|---|---|---|---|---|
-| 1 | 👤 | `/titulatec/encuesta-egresados` | envía la encuesta (proceso acreditable, sin solicitud previa) | `POST /titulatec/encuesta-egresados` (`pages/public.py::survey_submit`) | `SurveyService.submit` → `SurveyReviewService.open_for_submission` | `titulatec_survey_reviews` INSERT (`status=in_review`, `submitted_at`) | `survey_review_submitted` (fase 2) |
-| 2 | 🛠️ | Liberaciones | ver la cola / buscar / paginar | `GET /titulatec/admin/liberaciones[/body]` | `SurveyReviewService.list_for_inbox` + `counts_by_status` | — (lectura) | — |
-| 3 | 🛠️ | fila, "Liberar" | libera (desde `in_review` **o** `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/liberar` | `SurveyReviewService.approve` | `status=approved`, `reviewed_by_id`/`reviewed_at`, `rejection_reason=NULL`; `titulatec_requirement_fulfillments` ← `RequirementService.fulfill(graduate_survey, source="system", external_ref="survey_review:{id}")` | `survey_review_approved` + notif `SURVEY_REVIEW_APPROVED` |
-| 4 | 🛠️ | fila, motivo + "Observar" | deja/actualiza observaciones (desde `in_review` o `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/observar` (form `reason`) | `SurveyReviewService.reject` | `status=rejected`, `rejection_reason=motivo`, `reviewed_by_id`/`reviewed_at` | `survey_review_rejected` (payload `reason`) + notif `SURVEY_REVIEW_REJECTED` |
-| 5 | 🛠️ | fila, motivo + "Revocar" (solo si `can_revoke`) | revoca una liberación | `POST /titulatec/admin/liberaciones/{review_id}/revocar` (form `reason`) | `SurveyReviewService.revoke` | `status=rejected`, `rejection_reason=motivo`; `titulatec_requirement_fulfillments` ← `RequirementService.unfulfill(graduate_survey)` | `survey_review_revoked` (payload `reason`) + notif `SURVEY_REVIEW_REVOKED` |
+| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif | Correo |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 👤 | `/titulatec/encuesta-egresados` | envía la encuesta (proceso acreditable, sin solicitud previa) | `POST /titulatec/encuesta-egresados` (`pages/public.py::survey_submit`) | `SurveyService.submit` → `SurveyReviewService.open_for_submission` | `titulatec_survey_reviews` INSERT (`status=in_review`, `submitted_at`) | `survey_review_submitted` (fase 2) | — (acción del propio egresado) |
+| 2 | 🛠️ | Liberaciones | ver la cola / buscar / paginar | `GET /titulatec/admin/liberaciones[/body]` | `SurveyReviewService.list_for_inbox` + `counts_by_status` | — (lectura) | — | — |
+| 3 | 🛠️ | fila, "Liberar" | libera (desde `in_review` **o** `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/liberar` | `SurveyReviewService.approve` | `status=approved`, `reviewed_by_id`/`reviewed_at`, `rejection_reason=NULL`; `titulatec_requirement_fulfillments` ← `RequirementService.fulfill(graduate_survey, source="system", external_ref="survey_review:{id}")` | `survey_review_approved` + notif `SURVEY_REVIEW_APPROVED` | `survey_approved` |
+| 4 | 🛠️ | fila, motivo + "Observar" | deja/actualiza observaciones (desde `in_review` o `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/observar` (form `reason`) | `SurveyReviewService.reject` | `status=rejected`, `rejection_reason=motivo`, `reviewed_by_id`/`reviewed_at` | `survey_review_rejected` (payload `reason`) + notif `SURVEY_REVIEW_REJECTED` | `survey_rejected` (con el motivo) |
+| 5 | 🛠️ | fila, motivo + "Revocar" (solo si `can_revoke`) | revoca una liberación | `POST /titulatec/admin/liberaciones/{review_id}/revocar` (form `reason`) | `SurveyReviewService.revoke` | `status=rejected`, `rejection_reason=motivo`; `titulatec_requirement_fulfillments` ← `RequirementService.unfulfill(graduate_survey)` | `survey_review_revoked` (payload `reason`) + notif `SURVEY_REVIEW_REVOKED` | `survey_revoked` (con el motivo) |
 
 Las tres acciones de GTV (3–5) leen la fila con `SELECT … FOR UPDATE` antes de validar nada, y
 hacen **un solo `commit`** al final (`services/survey_review_service.py`, mismo patrón que
@@ -103,8 +104,13 @@ hacen **un solo `commit`** al final (`services/survey_review_service.py`, mismo 
 | `SURVEY_REVIEW_REJECTED` | "Gestión Tecnológica y Vinculación dejó observaciones" | el motivo |
 | `SURVEY_REVIEW_REVOKED` | "Se revocó la liberación de tu encuesta" | el motivo |
 
-No hay correo: este dictamen es solo in-app (el canal de correo de TitulaTec está pausado en
-dev, y el diseño lo deja fuera de alcance a propósito).
+**Correo (desde 2026-09-28).** Además del in-app, cada transición encola su correo con
+`StudentMail.survey_result` (`services/student_mail.py`) en la misma transacción, antes del
+`commit` — `result` ∈ `approved|rejected|revoked` → `kind` `survey_approved` / `survey_rejected` /
+`survey_revoked`, individual, payload `{reason}` (el motivo ya recortado; `None` al liberar). Aquí
+no se envía nada: lo manda después el despachador periódico (`titulatec.email_dispatch`). Abrir
+la solicitud (paso 1) no lleva correo: es acción del propio egresado. Lo fija
+`tests/fastapi/titulatec/test_mail_hooks.py::test_gtv_liberar_observar_revocar_encolan`.
 
 ## Dónde se ve el estatus (lectura, cuatro pantallas más)
 
