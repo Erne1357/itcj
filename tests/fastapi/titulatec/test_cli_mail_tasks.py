@@ -4,8 +4,8 @@
 Por que existe
 --------------
 Celery Beat corre con `itcj2.tasks.scheduler:DatabaseScheduler`, que SOLO lee
-`core_periodic_tasks`: sin las filas de `titulatec.email_dispatch` (cada
-minuto) y `titulatec.email_reminders` (diario 9:00) esas tareas nunca se
+`core_periodic_tasks`: sin las filas de `titulatec.email_dispatch` (cada 5
+minutos) y `titulatec.email_reminders` (diario 9:00) esas tareas nunca se
 programan, aunque el worker las tenga registradas (`itcj2/tasks/
 titulatec_tasks.py`). El DML que las da de alta vive en
 `database/DML/titulatec/mail_2026_09/17_insert_email_tasks.sql` (gitignored,
@@ -95,6 +95,33 @@ def test_todo_sql_del_directorio_esta_en_la_lista():
         "el directorio mail_2026_09/ y la lista del comando divergen: "
         f"en disco {en_disco}, en la lista {sorted(_DML_MAIL_2026_09_FILES)}.")
     assert _MAIL_SQL_NAME in en_disco
+
+
+@requires_dml
+def test_el_despacho_corre_cada_5_minutos_y_se_describe_igual_que_en_el_worker():
+    """Ruling 18 (spec D4/C5): el despachador corre cada 5 minutos, no cada
+    minuto -- el scheduler del core crea un `core_task_runs` por ejecución y
+    no hay retención. El DML lo siembra con `*/5 * * * *`, y la descripción de
+    cada tarea en `core_task_definitions` es copia LITERAL de la de
+    `TASK_DEFINITIONS` (itcj2/tasks/titulatec_tasks.py): una que diga «cada
+    minuto» en un lado y «cada 5 minutos» en el otro miente en
+    /config/system/tasks según quién la sembró."""
+    from itcj2.tasks import titulatec_tasks
+
+    sql = (DML_TITULATEC / _DML_MAIL_2026_09_DIR / _MAIL_SQL_NAME).read_text(encoding="utf-8")
+
+    # El INSERT de `core_periodic_tasks`: task_name, cron y luego kwargs '{}'.
+    cron = re.search(r"'titulatec\.email_dispatch',\s*'([^']*)',\s*'\{\}'", sql)
+    assert cron, "no se encontró el cron de titulatec.email_dispatch en el DML"
+    assert cron.group(1) == "*/5 * * * *"
+    # Literales de SQL adyacentes (separados por un salto de línea) son UNA cadena.
+    unido = re.sub(r"'\s*\n\s*'", "", sql)
+    for definicion in titulatec_tasks.TASK_DEFINITIONS:
+        if definicion["task_name"].startswith("titulatec.email_"):
+            assert f"'{definicion['description']}'" in unido, (
+                f"{definicion['task_name']}: la descripción del DML no es la de "
+                "TASK_DEFINITIONS")
+    assert "cada minuto" not in sql.lower()
 
 
 @requires_dml

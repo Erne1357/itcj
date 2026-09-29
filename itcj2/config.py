@@ -548,7 +548,7 @@ class Settings(BaseSettings):
     TITULATEC_SII_MAX_ATTEMPTS: int = Field(5, ge=1, le=20)
 
     # Correos del proceso al egresado (spec 2026-09-28, motor D4: bandeja
-    # `titulatec_email_outbox` + despachador Celery cada minuto). Cambiar
+    # `titulatec_email_outbox` + despachador Celery cada 5 minutos). Cambiar
     # cualquiera exige variable de entorno y reiniciar TODOS los procesos
     # backend (`get_settings()` vive en `lru_cache` por proceso).
     # Apagado completo: no encola, el despachador y el barrido no tocan la BD.

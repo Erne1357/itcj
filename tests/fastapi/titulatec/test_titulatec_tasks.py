@@ -233,7 +233,7 @@ def test_el_dml_de_la_periodica_programa_la_tarea_por_su_nombre_registrado():
 
 
 # ---------------------------------------------------------------------------
-# email_dispatch (periódica, cada minuto): correos del proceso al egresado
+# email_dispatch (periódica, cada 5 minutos): correos del proceso al egresado
 # ---------------------------------------------------------------------------
 _DESPACHO = {"sent": 2, "failed": 0, "retry": 1, "no_recipient": 0, "obsolete": 0,
              "waiting": 1}
@@ -252,6 +252,17 @@ def test_el_despacho_de_correos_esta_registrado_y_catalogado():
                    if d["task_name"] == tasks.email_dispatch.name]
     assert definicion["app_name"] == "titulatec"
     assert definicion["default_args"] == {}
+
+
+def test_el_despacho_se_describe_cada_5_minutos():
+    """Ruling 18: el despachador corre cada 5 minutos (`*/5 * * * *` en el DML),
+    y su descripción —la que enseña /config/system/tasks y que el DML copia
+    literal— lo dice así, no «cada minuto»."""
+    definicion, = [d for d in tasks.TASK_DEFINITIONS
+                   if d["task_name"] == tasks.email_dispatch.name]
+
+    assert definicion["description"].startswith("Cada 5 minutos: ")
+    assert "cada minuto" not in definicion["description"].lower()
 
 
 def test_el_despacho_corre_con_su_sesion_y_devuelve_su_resultado(
@@ -280,8 +291,8 @@ def test_el_despacho_corre_con_su_sesion_y_devuelve_su_resultado(
 
 def test_el_despacho_sin_movimiento_no_llena_el_log(monkeypatch, patched_session_local,
                                                     caplog):
-    """Corre cada minuto: una corrida en ceros va a DEBUG, no a INFO (1440 líneas
-    al día sin información)."""
+    """Corre cada 5 minutos: una corrida en ceros va a DEBUG, no a INFO (288
+    líneas al día sin información)."""
     from itcj2.apps.titulatec.services.mail_dispatch import MailDispatcher
 
     ceros = dict.fromkeys(_DESPACHO, 0)

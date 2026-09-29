@@ -7,7 +7,7 @@ cotejo, recordatorios...) inserta una fila aqui EN LA MISMA transaccion que
 lo origina -- el `enqueue` del servicio de encolado (tarea aparte) no hace
 commit ni flush obligatorio, asi que si esa transaccion revierte la fila
 nunca existio (Global Constraints, punto de revision #4). La tarea
-periodica `titulatec.email_dispatch` (cada minuto, `FOR UPDATE SKIP
+periodica `titulatec.email_dispatch` (cada 5 minutos, `FOR UPDATE SKIP
 LOCKED`) es la unica que envia y la unica que muta `status` fuera de la
 insercion inicial.
 

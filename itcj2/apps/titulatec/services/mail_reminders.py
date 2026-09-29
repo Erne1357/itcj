@@ -4,9 +4,9 @@
 La tarea periódica `titulatec.email_reminders` (diaria, 9:00) llama a
 `MailReminders.run`: encola en `titulatec_email_outbox` los recordatorios que
 tocan hoy y crea su aviso in-app. Aquí no se envía nada: el despachador
-(`titulatec.email_dispatch`) los manda en el minuto siguiente y los RE-VALIDA al
-enviar (D8, `mail_compose._compose_*_reminder`); lo que ya no aplica queda
-`obsolete`.
+(`titulatec.email_dispatch`, cada 5 minutos) los manda en su corrida siguiente y
+los RE-VALIDA al enviar (D8, `mail_compose._compose_*_reminder`); lo que ya no
+aplica queda `obsolete`.
 
 QUÉ TOCA (solo procesos `status = 'active'`; cadencia moderada, D6)
 - Cita (#8): la VIGENTE (`is_current`), `scheduled`/`confirmed`, cuya FECHA es

@@ -80,8 +80,8 @@ SEED_FILES = [
     # `sii` la tarea no hace nada.
     "sii_2026_09/16_insert_sii_sweep_task.sql",
     # --- Delta 2026-09-28: correos del proceso al egresado --------------------
-    # Alta de las tareas periódicas `titulatec.email_dispatch` (cada minuto) y
-    # `titulatec.email_reminders` (diaria 9:00): Celery Beat corre con
+    # Alta de las tareas periódicas `titulatec.email_dispatch` (cada 5 minutos)
+    # y `titulatec.email_reminders` (diaria 9:00): Celery Beat corre con
     # `DatabaseScheduler`, que SOLO lee `core_periodic_tasks` — sin esta fila
     # ninguna de las dos se programa, aunque el worker ya las tenga
     # registradas (`TASK_DEFINITIONS` en `itcj2/tasks/titulatec_tasks.py`).
@@ -1138,7 +1138,7 @@ def load_survey_2026_09_command(dry_run):
 
 # ---------------------------------------------------------------------------
 # Correos del proceso al egresado (spec 2026-09-28 §6 C5): tareas periódicas
-# `titulatec.email_dispatch` (cada minuto) y `titulatec.email_reminders`
+# `titulatec.email_dispatch` (cada 5 minutos) y `titulatec.email_reminders`
 # (diaria 9:00), ya registradas en el worker (`TASK_DEFINITIONS`,
 # `itcj2/tasks/titulatec_tasks.py`, tareas 7/8 de este plan). Faltaba darlas
 # de alta en `core_periodic_tasks` — sin esa fila Celery Beat
@@ -1160,8 +1160,8 @@ def init_email_tasks_command(dry_run):
 
     Corre SOLO `database/DML/titulatec/mail_2026_09/17_insert_email_tasks.sql`:
     `core_task_definitions` + `core_periodic_tasks` de `titulatec.email_dispatch`
-    (cada minuto) y `titulatec.email_reminders` (diaria 9:00) — spec 2026-09-28
-    §6 C5. Celery Beat corre con `DatabaseScheduler`, que SOLO lee
+    (cada 5 minutos) y `titulatec.email_reminders` (diaria 9:00) — spec
+    2026-09-28 §6 C5. Celery Beat corre con `DatabaseScheduler`, que SOLO lee
     `core_periodic_tasks`: sin esta fila ninguna de las dos tareas se
     programa, aunque el worker ya las tenga registradas.
 
@@ -1186,7 +1186,7 @@ def init_email_tasks_command(dry_run):
 
     _run_sql_files([f"{_DML_MAIL_2026_09_DIR}/{nombre}" for nombre in _DML_MAIL_2026_09_FILES])
     click.echo(click.style(
-        "OK: titulatec.email_dispatch (cada minuto) y titulatec.email_reminders "
+        "OK: titulatec.email_dispatch (cada 5 minutos) y titulatec.email_reminders "
         "(diaria 9:00) registradas en core_periodic_tasks. Reinicia el celery "
         "worker y el beat.",
         fg="green",

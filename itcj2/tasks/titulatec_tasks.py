@@ -35,14 +35,14 @@ periódicas las mandan por NOMBRE, no por ruta de módulo):
         abajo, ya es la vigente.
 
     titulatec.email_dispatch()
-        Periódica, cada minuto (spec 2026-09-28 §6 C3/C5; su alta en
-        `core_periodic_tasks` es un DML aparte). Manda los correos pendientes
-        de `titulatec_email_outbox` (`MailDispatcher.run`: grupos con su
-        espera, re-validación, destinatario, Graph y reintentos) y devuelve
-        cuántos correos terminaron en cada desenlace. Con
-        `TITULATEC_EMAIL_ENABLED=false` no toca la BD y devuelve
-        `{"disabled": True}`. Una corrida sin movimiento va al log en DEBUG,
-        no en INFO: corre 1440 veces al día.
+        Periódica, cada 5 minutos (`*/5 * * * *`, spec 2026-09-28 §6 C3/C5,
+        ruling 18; su alta en `core_periodic_tasks` es un DML aparte). Manda
+        los correos pendientes de `titulatec_email_outbox`
+        (`MailDispatcher.run`: grupos con su espera, re-validación,
+        destinatario, Graph y reintentos) y devuelve cuántos correos
+        terminaron en cada desenlace. Con `TITULATEC_EMAIL_ENABLED=false` no
+        toca la BD y devuelve `{"disabled": True}`. Una corrida sin movimiento
+        va al log en DEBUG, no en INFO: corre 288 veces al día.
 
     titulatec.email_reminders()
         Periódica, diaria a las 9:00 (spec 2026-09-28 §6 C4/C5; su alta en
@@ -96,7 +96,7 @@ TASK_DEFINITIONS = [
         "task_name": "titulatec.email_dispatch",
         "display_name": "Despacho de correos al egresado (TitulaTec)",
         "description": (
-            "Cada minuto: manda por correo los avisos pendientes del proceso de "
+            "Cada 5 minutos: manda por correo los avisos pendientes del proceso de "
             "titulación (dictámenes, fases, GTV, citas y recordatorios) al correo "
             "personal del egresado. Agrupa los movimientos de un mismo proceso, "
             "descarta lo que ya no aplica y reintenta con espera creciente hasta "

@@ -337,7 +337,7 @@ def test_compose_obsoleto(db_session, egresado, graph, monkeypatch):
 def test_fila_sin_proceso_queda_obsoleta(db_session, make_student, graph):
     """`process_id` admite NULL en el modelo, aunque `enqueue` siempre lo llena.
     Una fila así no se puede componer ni tiene a quién ir: se cierra con su
-    motivo en vez de ocupar un lugar del lote cada minuto."""
+    motivo en vez de ocupar un lugar del lote en cada corrida."""
     from itcj2.apps.titulatec.models import EmailOutbox
 
     fila = EmailOutbox(kind="phase_rejected", process_id=None,
@@ -524,7 +524,7 @@ def test_limite_suave_de_celery_cuenta_intento_y_se_propaga(db_session, egresado
     """Ruling 14: que celery corte la tarea a media unidad TAMBIÉN es un intento
     fallido de esa unidad («Tiempo agotado al enviar», con su espera), registrado
     en una transacción nueva; después la excepción se propaga y el lote termina
-    ahí. Sin contarlo, un Graph colgado se reintentaría cada minuto sin tope."""
+    ahí. Sin contarlo, un Graph colgado se reintentaría en cada corrida sin tope."""
     from celery.exceptions import SoftTimeLimitExceeded
 
     _cortar_en(monkeypatch, donde)

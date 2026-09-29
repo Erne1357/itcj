@@ -1,6 +1,6 @@
 """Despachador de los correos del proceso al egresado (spec 2026-09-28 §6 C3).
 
-La tarea periódica `titulatec.email_dispatch` (cada minuto) llama a
+La tarea periódica `titulatec.email_dispatch` (cada 5 minutos) llama a
 `MailDispatcher.run`: toma lo pendiente de `titulatec_email_outbox`, lo manda
 por Graph y deja el desenlace en cada fila. Es el ÚNICO que envía y el único
 que cambia `status` después del encolado (`StudentMail.enqueue`).
@@ -43,13 +43,14 @@ TRANSACCIONES Y CONCURRENCIA (Review Focus 1: la misma fila jamás sale dos vece
 - Excepción inesperada en una unidad (componer, renderizar, enviar…):
   `rollback` y, en una transacción nueva, intento fallido de todas sus filas
   con «Error interno al preparar el correo» (ruling 2026-09-29): si no, se
-  reintentaría cada minuto sin fin y jamás se vería «Falló» en el expediente.
+  reintentaría en cada corrida sin fin y jamás se vería «Falló» en el
+  expediente.
   El lote sigue con la siguiente unidad.
 - Que celery corte la tarea (`SoftTimeLimitExceeded`) TAMBIÉN es un intento
   fallido de la unidad en curso («Tiempo agotado al enviar», ruling 14):
   `rollback`, el intento en una transacción nueva, y se vuelve a lanzar (el
-  lote termina ahí). Sin contarlo, un Graph colgado se reintentaría cada
-  minuto sin tope. Si el corte cae DENTRO de `graph_send_mail`, lo atrapa
+  lote termina ahí). Sin contarlo, un Graph colgado se reintentaría en cada
+  corrida sin tope. Si el corte cae DENTRO de `graph_send_mail`, lo atrapa
   `email_helper._send` (compartido con los correos de inscripción, que no
   cambian) como cualquier error de envío: cuenta como «Error al enviar» y la
   corrida termina por el presupuesto. Para no llegar al corte, la corrida deja
@@ -88,8 +89,8 @@ _BACKOFF_TOPE_MIN = 60
 # Presupuesto de una corrida: pasado este tiempo no se toma otra unidad. La
 # tarea tiene `soft_time_limit=50` y un envío puede tardar hasta 30 s (el
 # `timeout` de `graph_send_mail`): la unidad que empieza dentro del presupuesto
-# termina antes del corte. Lo que queda sale en la corrida siguiente (cada
-# minuto). `_reloj` es el reloj monotónico (las pruebas lo sustituyen).
+# termina antes del corte. Lo que queda sale en la corrida siguiente (cada 5
+# minutos). `_reloj` es el reloj monotónico (las pruebas lo sustituyen).
 _PRESUPUESTO_S = 15
 _reloj = time.monotonic
 
