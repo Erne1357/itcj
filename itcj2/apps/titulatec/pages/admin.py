@@ -1473,10 +1473,15 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # ordenada `created_at DESC, id DESC`): dicts PLANOS por la misma razón
     # que `revocada`/`otros_eventos` arriba -- `process_detail` renderiza
     # DESPUÉS del `db.close()` de la ruta. `subject` cae al nombre del tipo
-    # mientras la fila no se ha enviado (`StudentMail.KIND_LABELS[kind]` es
-    # seguro: `kind` siempre sale de `OUTBOX_KINDS`, que `KIND_LABELS` cubre
-    # entero -- lo fija
-    # `test_student_mail.py::test_kind_labels_cubre_todos_los_kinds`).
+    # mientras la fila no se ha enviado. `kind` es `String(40)` SIN CHECK en
+    # BD (fix round 1, ronda de arreglo 1): `StudentMail.enqueue` valida
+    # contra `OUTBOX_KINDS` antes de escribir, pero no es el único camino
+    # posible hacia la tabla (migración de datos a mano, `kind` nuevo del
+    # catálogo sin actualizar `KIND_LABELS`...), así que se degrada con
+    # `.get(kind, kind)` -- mismo patrón que `_MAIL_STATUS_UI.get(...)`
+    # arriba y `_EVENT_UI.get(...)`. Un `kind` sin etiqueta NUNCA debe tumbar
+    # TODO el expediente con un `KeyError` por una sola fila; test:
+    # `test_expediente_mail.py::test_kind_desconocido_no_revienta_la_pagina`.
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
     correos = []
@@ -1485,7 +1490,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         correos.append({
             "id": m.id,
             "when": _fecha_larga(m.created_at),
-            "subject": m.subject or StudentMail.KIND_LABELS[m.kind],
+            "subject": m.subject or StudentMail.KIND_LABELS.get(m.kind, m.kind),
             "to": m.sent_to or "—",
             "status": m.status,
             "status_label": etiqueta,

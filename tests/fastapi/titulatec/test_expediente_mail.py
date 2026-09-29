@@ -112,6 +112,27 @@ def test_sin_asunto_usa_la_etiqueta_del_tipo(expediente, client_as, db_session):
         "sin asunto (aún no se envía) debería caer al nombre del tipo")
 
 
+def test_kind_desconocido_no_revienta_la_pagina(expediente, client_as, db_session):
+    """Fix round 1 (ronda de arreglo 1, hallazgo Importante): `EmailOutbox.kind`
+    es `String(40)` SIN CHECK en BD — nada impide una fila con un `kind` que
+    `StudentMail.KIND_LABELS` no conoce (`StudentMail.enqueue`, que sí valida
+    contra `OUTBOX_KINDS`, no es el único camino de escritura posible; esta
+    fila se inserta DIRECTO, como haría una migración de datos manual o un
+    `kind` nuevo del catálogo sin actualizar `KIND_LABELS`). Antes del fix
+    `KIND_LABELS[m.kind]` indexaba directo y tronaba con `KeyError` -> 500 de
+    TODO el expediente, no solo de esa fila. El resto del archivo degrada con
+    `.get(...)` (`_MAIL_STATUS_UI`, `_EVENT_UI`); esta fila debe hacer lo
+    mismo: 200 y el código crudo en vez de una etiqueta."""
+    esc = expediente()
+    _fila(db_session, esc["proc"], kind="un_kind_que_no_existe", subject=None)
+
+    r = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}")
+    assert r.status_code == 200, (
+        f"un kind sin etiqueta no debe tumbar la página: {r.status_code}")
+    assert "un_kind_que_no_existe" in r.text, (
+        "sin etiqueta debería degradar al código crudo, no ocultar la fila")
+
+
 def test_sin_destinatario_muestra_raya(expediente, client_as, db_session):
     """`sent_to` va vacío en lo que no se ha enviado: la fila lo dice con «—»,
     no con un espacio en blanco ni resolviendo el correo aquí."""
