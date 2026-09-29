@@ -197,6 +197,33 @@ class TestCopiarConDias:
         db_session.expire_all()
         assert _windows_de(db_session, esc["dias"][_D2].id) == []
 
+    def test_copiar_con_dias_que_ya_no_son_validos_responde_200_sin_copiar(
+            self, dias4, client_as, db_session, make_review_window):
+        """Ronda de arreglo 1: el formulario SÍ traía una casilla marcada,
+        pero ese día se CERRÓ entre el render del editor y este POST.
+
+        Colisión de estado, no error de entrada: 200 con el cuerpo fresco y
+        el aviso — nunca «Horario copiado a 0 días.» con tono de ÉXITO, que
+        es lo que pasaba antes de este arreglo (`day_ids` se quedaba en `[]`
+        y `copy_to_days(db, w, [])` no fallaba, solo no copiaba nada).
+        """
+        esc = dias4
+        w = make_review_window(esc["dias"][_D1], esc["off"], start="09:00",
+                               end="14:00", position=esc["pos"])
+        esc["dias"][_D2].is_closed = True
+        db_session.flush()
+
+        resp = client_as(esc["off"]).post(
+            _url_copiar(w.id, _D1), data={"dias": [_D2.isoformat()]})
+
+        assert resp.status_code == 200, resp.text[:300]
+        mensaje, kind = _aviso(resp)
+        assert mensaje == ("Ninguno de los días que elegiste sigue abierto "
+                           "para cotejo. Revisa la lista y vuelve a intentar.")
+        assert kind == "warning"
+        db_session.expire_all()
+        assert _windows_de(db_session, esc["dias"][_D2].id) == []
+
 
 class TestMarcadoDelEditor:
     """El fieldset de crear y el `<details>` de copiar nunca salen a la vez:

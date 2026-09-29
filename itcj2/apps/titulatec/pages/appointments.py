@@ -1968,6 +1968,24 @@ def space_copy(
         cohort_id = _active_cohort_id(db)
         day_ids = _dias_ids_por_iso(db, cohort_id, dias) if cohort_id else []
 
+        # Colisión de estado, no error de entrada (ronda de arreglo 1): el
+        # formulario SÍ traía casillas marcadas (si no, ya habría salido el
+        # 400 de arriba), pero entre el render del editor y este POST TODAS
+        # esas fechas dejaron de ser válidas -- el día se cerró, o ya pasó.
+        # Sin este corte, `copy_to_days(db, w, [])` devuelve `([], [])` sin
+        # tocar nada y el aviso de abajo lo anunciaría como «Horario copiado
+        # a 0 días.» con tono de ÉXITO: un no-op disfrazado. Se corta ANTES
+        # de llamar al servicio, con el mismo par de headers que arma
+        # `_accion_espacio` para una colisión de estado (200 + cuerpo fresco).
+        if not day_ids:
+            resp = _render_body(request, db, selected_id=None, user_id=uid,
+                                **_action_ctx(request))
+            resp.headers["X-Tt-Notice"] = _hdr(
+                "Ninguno de los días que elegiste sigue abierto para cotejo. "
+                "Revisa la lista y vuelve a intentar.")
+            resp.headers["X-Tt-Notice-Kind"] = "warning"
+            return resp
+
         def _aviso(resultado):
             creados, saltados = resultado
             n = len(creados)
