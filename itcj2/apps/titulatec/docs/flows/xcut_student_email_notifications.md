@@ -61,10 +61,10 @@ y el texto plano debajo. Plantillas bajo `templates/titulatec/email/`.
 | 5 | `survey_rejected` | individual | `SurveyReviewService.reject` → `StudentMail.survey_result(result="rejected", reason=motivo)` (`survey_review_service.py:231-238`) | `_compose_survey` | `survey_result.html` | idem | sin cambio (`SURVEY_REVIEW_REJECTED`, `:231-234`) |
 | 6 | `survey_revoked` | individual | `SurveyReviewService.revoke` → `StudentMail.survey_result(result="revoked", reason=motivo)` (`survey_review_service.py:271-278`) | `_compose_survey` | `survey_result.html` | idem | sin cambio (`SURVEY_REVIEW_REVOKED`, `:271-274`) |
 | 7 | `appt_changed` | `cita:{pid}` | `AppointmentService.create` (`appointment_service.py:662-677`, D9: **siempre**, incluso si agenda el propio alumno), `.reschedule` (`:741-747`), `.cancel` (`:868-885`, **solo** si `notify=True` **y** el actor no es el alumno) → `StudentMail.appointment_changed` (`student_mail.py:363-379`) | `_compose_appt_group` (`:213-268`) | `appt_changed.html` (vigente) **o** `appt_cancelled.html` (sin vigente) | `/titulatec/student/cita` | sin cambio |
-| 8 | `appt_reminder` | `appt_reminder:{appt_id}` | `MailReminders._citas` → `_recordar_cita` → `StudentMail.appointment_reminder` (`mail_reminders.py:242-273`, `:141-151`, `student_mail.py:391-401`) | `_compose_appt_reminder` (`:380-417`) | `appt_reminder.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_REMINDER`, `mail_reminders.py:149`) |
+| 8 | `appt_reminder` | `appt_reminder:{appt_id}` | `MailReminders._citas` → `_recordar_cita` → `StudentMail.appointment_reminder` (`mail_reminders.py:261-292`, `:151-161`, `student_mail.py:391-401`) | `_compose_appt_reminder` (`:380-417`) | `appt_reminder.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_REMINDER`, `mail_reminders.py:159`) |
 | 9 | `appt_no_show` | individual, `not_before = +digest_minutes` | `AppointmentService.mark_no_show` → `StudentMail.appointment_no_show` (`appointment_service.py:787-792`, `student_mail.py:381-389`) | `_compose_appt_no_show` (`:316-340`) | `appt_no_show.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_NO_SHOW`, `:793-795`) + `undo_no_show` solo in-app (`APPOINTMENT_NO_SHOW_UNDONE`, `:813-815`, sin correo propio: el de «no se presentó» que siga en su gracia lo da por obsoleto el despachador) |
-| 10 | `docs_reminder` | `docs_reminder:{pid}:{ancla}:{n}` | `MailReminders._documentos` → `_recordar_documentos` → `StudentMail.docs_reminder` (`mail_reminders.py:275-344`, `:154-171`, `student_mail.py:403-409`) | `_compose_docs_reminder` (`:420-441`) | `docs_reminder.html` | `/titulatec/student/documents` | **nuevo** (`DOCUMENTS_REMINDER`, `mail_reminders.py:168-170`) |
-| 11 | `survey_reminder` | `survey_reminder:{pid}:{ancla}:{n}` | `MailReminders._encuestas` → `_recordar_encuesta` → `StudentMail.survey_reminder` (`mail_reminders.py:346-380`, `:174-188`, `student_mail.py:411-417`) | `_compose_survey_reminder` (`:444-459`) | `survey_reminder.html` | `/titulatec/encuesta-egresados` | **nuevo** (`SURVEY_REMINDER`, `mail_reminders.py:185-187`) |
+| 10 | `docs_reminder` | `docs_reminder:{pid}:{ancla}:{n}` | `MailReminders._documentos` → `_recordar_documentos` → `StudentMail.docs_reminder` (`mail_reminders.py:294-363`, `:164-181`, `student_mail.py:403-409`) | `_compose_docs_reminder` (`:420-441`) | `docs_reminder.html` | `/titulatec/student/documents` | **nuevo** (`DOCUMENTS_REMINDER`, `mail_reminders.py:178-180`) |
+| 11 | `survey_reminder` | `survey_reminder:{pid}:{ancla}:{n}` | `MailReminders._encuestas` → `_recordar_encuesta` → `StudentMail.survey_reminder` (`mail_reminders.py:365-399`, `:184-198`, `student_mail.py:411-417`) | `_compose_survey_reminder` (`:444-459`) | `survey_reminder.html` | `/titulatec/encuesta-egresados` | **nuevo** (`SURVEY_REMINDER`, `mail_reminders.py:195-197`) |
 
 `MailComposer.REGISTRY` (`mail_compose.py:472-484`) es el mapeo `kind → función` para una fila
 SUELTA; los grupos (`docs:`/`cita:`) se reconocen antes por su `group_key`
@@ -260,23 +260,27 @@ nada, así que la liga de ESTE correo sale **solo** por `[TT-MAIL]`.
 
 Tarea Celery `titulatec.email_reminders`, **diaria a las 9:00** (cron en `core_periodic_tasks`,
 zona `APP_TZ`; `tasks/titulatec_tasks.py:210-227`, `soft_time_limit=540`).
-`MailReminders.run(db, now=None)` (`:224-240`) encola en `titulatec_email_outbox` lo que toca hoy
+`MailReminders.run(db, now=None)` (`:234-259`) encola en `titulatec_email_outbox` lo que toca hoy
 y crea su in-app (misma transacción); el despachador los manda en el minuto siguiente y los
 RE-VALIDA al enviar (D8, §3 arriba). Solo procesos `status = 'active'`. Commit al terminar cada
-tipo (cita, documentos, encuesta) — lo de uno queda firme aunque el siguiente reviente.
+tipo (cita, documentos, encuesta) — lo de uno queda firme aunque el siguiente reviente. Si celery
+corta la tarea (`SoftTimeLimitExceeded`), `_aislado` NO se lo traga como la falla de un candidato:
+el candidato a medias se deshace con su SAVEPOINT, `run` commitea lo encolado antes del corte y
+vuelve a lanzar la excepción (mismo patrón del despachador, §4); el barrido termina ahí y lo que
+faltó lo toma la corrida siguiente (las llaves no dejan duplicar).
 
 | Recordatorio | Candidato | Ancla | Cuándo toca |
 |---|---|---|---|
-| `appt_reminder` | cita **VIGENTE** (`is_current`) `scheduled`/`confirmed` cuya FECHA es hoy + `TITULATEC_APPT_REMINDER_DAYS_BEFORE` (`_citas`, `:242-273`) | — | una vez por cita (`appt_id`); se omite si se agendó/cambió hace < 24 h (`_CITA_RECIENTE`, `:77`) — acaba de recibir el correo #7 |
-| `docs_reminder` | `current_phase` = fase `initial_docs` con documentos que faltan o `rejected` (`_documentos`, `:275-344`) | `max(inicio de la fase 1 —o el alta del proceso—, última `document_uploaded`, última `document_rejected`)` | `MailReminders.due_index` (`:195-222`) |
-| `survey_reminder` | `current_phase` = `PhaseService.PHASE_COTEJO` sin fila en `titulatec_survey_reviews` (`_encuestas`, `:346-380`) | `started_at` de la fase 2 (sin él, se omite) | idem |
+| `appt_reminder` | cita **VIGENTE** (`is_current`) `scheduled`/`confirmed` cuya FECHA es hoy + `TITULATEC_APPT_REMINDER_DAYS_BEFORE` (`_citas`, `:261-292`) | — | una vez por cita (`appt_id`); se omite si se agendó/cambió hace < 24 h (`_CITA_RECIENTE`, `:83`) — acaba de recibir el correo #7 |
+| `docs_reminder` | `current_phase` = fase `initial_docs` con documentos que faltan o `rejected` (`_documentos`, `:294-363`) | `max(inicio de la fase 1 —o el alta del proceso—, última `document_uploaded`, última `document_rejected`)` | `MailReminders.due_index` (`:205-232`) |
+| `survey_reminder` | `current_phase` = `PhaseService.PHASE_COTEJO` sin fila en `titulatec_survey_reviews` (`_encuestas`, `:365-399`) | `started_at` de la fase 2 (sin él, se omite) | idem |
 
-**Fórmula común** (`due_index(anchor, now, sent, last_sent_at)`, `:195-222`): toca el índice
+**Fórmula común** (`due_index(anchor, now, sent, last_sent_at)`, `:205-232`): toca el índice
 `sent` si `sent < max_reminders()` y `now >= anchor + first_days() + sent · every_days()` (días)
 **y**, del segundo en adelante (`sent >= 1`), además han pasado `every_days()` días de CALENDARIO
 desde `last_sent_at` — el `created_at` del recordatorio anterior de ESA ancla (ruling 19,
-2026-09-29). `sent` y `last_sent_at` salen de la misma consulta por lote (`_llaves`, `:112-124`,
-trae `dedupe_key` y `created_at`; `_enviados`, `:127-135`, cuenta el prefijo de la llave,
+2026-09-29). `sent` y `last_sent_at` salen de la misma consulta por lote (`_llaves`, `:122-134`,
+trae `dedupe_key` y `created_at`; `_enviados`, `:137-145`, cuenta el prefijo de la llave,
 salieran o no, y toma el `created_at` más nuevo) — sin N+1.
 
 Por qué la segunda condición: con un ancla vieja (el primer barrido de producción, o el correo que
@@ -292,12 +296,12 @@ sin recordatorio de cita.
 
 **Borde de medianoche (Review Focus 3, `APP_TZ`)**: «mañana» es la FECHA siguiente, no «dentro de
 24 h» — a las 9:00, la cita de mañana a las 00:30 SÍ recibe recordatorio; la de hoy a las 23:30 NO
-(`_citas` calcula `desde`/`hasta` con `datetime.combine(...).date(), time.min)`, `:258-266`). Test
+(`_citas` calcula `desde`/`hasta` con `datetime.combine(...).date(), time.min)`, `:277-285`). Test
 con `now` fijo en `tests/fastapi/titulatec/test_mail_reminders.py`.
 
 **Idempotencia**: cada recordatorio entra con su `dedupe_key` único (`INSERT … ON CONFLICT DO
 NOTHING`, §2) y el in-app se crea SOLO si esa llamada devolvió `True` (fila nueva) — correr el
-barrido dos veces no duplica ni correos ni avisos (`_aislado`, `:88-109`, cada candidato en su
+barrido dos veces no duplica ni correos ni avisos (`_aislado`, `:94-119`, cada candidato en su
 propio `SAVEPOINT`: su correo y su aviso quedan juntos o no queda ninguno).
 
 In-app desde Celery: `notify_student` hace flush pero no hay loop de Socket.IO ahí, así que el

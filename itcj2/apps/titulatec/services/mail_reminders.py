@@ -51,6 +51,11 @@ TRANSACCIONES Y LECTURAS
   no cuenta y el barrido sigue: la llave deja reintentarlo en la corrida
   siguiente.
 - Commit al terminar cada tipo (cita, documentos, encuesta).
+- Que celery corte la tarea (`SoftTimeLimitExceeded`) no es la falla de un
+  candidato: `_aislado` no se lo traga. El candidato a medias se deshace con
+  su SAVEPOINT, `run` commitea lo encolado antes del corte y vuelve a lanzar la
+  excepción (mismo patrón del despachador): el barrido termina ahí y lo que
+  faltó lo toma la corrida siguiente (las llaves no dejan duplicar).
 - Consultas por lote: el número de SELECT no crece con los candidatos (sin N+1
   por proceso).
 
@@ -67,6 +72,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, time, timedelta
 
+from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy.orm import Session
 
 from itcj2.core.utils.timezone import db_now
@@ -89,10 +95,12 @@ def _aislado(db: Session, kind: str, process_id: int, paso, *args) -> bool:
     """`paso(*args)` —el correo de UN candidato y, si es nuevo, su aviso— en
     su propio SAVEPOINT. `True` = los dos quedaron en la transacción.
 
-    Nunca lanza. Si `paso` revienta, el SAVEPOINT se deshace (correo y aviso
-    juntos) y el barrido sigue. Si el flush del aviso falló, `notify_student`
-    se traga el error pero Postgres ya deshizo el SAVEPOINT, y con él el
-    correo: eso se ve en `is_active` y tampoco cuenta.
+    Si `paso` revienta, el SAVEPOINT se deshace (correo y aviso juntos) y el
+    barrido sigue. Si el flush del aviso falló, `notify_student` se traga el
+    error pero Postgres ya deshizo el SAVEPOINT, y con él el correo: eso se ve
+    en `is_active` y tampoco cuenta. Lo único que lanza es el corte de celery
+    (`SoftTimeLimitExceeded`), después de deshacer el SAVEPOINT: no es la falla
+    de un candidato y le toca a `run`.
     """
     try:
         with db.begin_nested() as punto:
@@ -103,6 +111,8 @@ def _aislado(db: Session, kind: str, process_id: int, paso, *args) -> bool:
                                "reintenta en la corrida siguiente", kind, process_id)
                 hecho = False
         return hecho
+    except SoftTimeLimitExceeded:
+        raise
     except Exception:
         logger.exception("[titulatec] Recordatorio %s del proceso %s: no se encoló; se "
                          "reintenta en la corrida siguiente", kind, process_id)
@@ -235,7 +245,16 @@ class MailReminders:
         for clave, barrido in (("appt", MailReminders._citas),
                                ("docs", MailReminders._documentos),
                                ("survey", MailReminders._encuestas)):
-            out[clave] = barrido(db, now)
+            try:
+                out[clave] = barrido(db, now)
+            except SoftTimeLimitExceeded:
+                # Celery cortó la tarea: lo encolado antes del corte queda firme
+                # (el candidato a medias ya se deshizo con su SAVEPOINT) y el
+                # corte sigue su camino; lo que faltó lo toma la corrida siguiente.
+                logger.warning("[titulatec] Celery cortó el barrido de recordatorios en "
+                               "%s: queda lo encolado hasta ahí", clave)
+                db.commit()
+                raise
             db.commit()          # lo de cada tipo queda firme aunque el siguiente reviente
         return out
 

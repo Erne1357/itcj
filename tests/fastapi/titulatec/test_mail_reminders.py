@@ -594,6 +594,42 @@ def test_un_candidato_que_falla_no_detiene_a_los_demas(db_session, con_cita, mon
     assert len(_filas(db_session, primero.id)) == 1
 
 
+def test_el_corte_de_celery_se_propaga_y_lo_encolado_antes_queda_firme(
+        db_session, con_cita, en_documentos, monkeypatch):
+    """Que celery corte la tarea (`SoftTimeLimitExceeded`) NO es la falla de un
+    candidato: `_aislado` no se lo traga (antes lo contaba como «no se encoló»
+    y el barrido seguía como si nada, ya pasado el límite). El candidato a
+    medias se deshace con su SAVEPOINT, lo encolado ANTES del corte queda
+    firme (commit, mismo patrón del despachador) y la excepción sigue su
+    camino: el barrido termina ahí."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    primero, _ = con_cita()
+    cortado, _ = con_cita()
+    docs = en_documentos()
+    db_session.commit()                    # el andamiaje, a salvo del rollback de abajo
+    original = AppointmentService._notify_appt
+
+    def _notify(db, process_id, *args, **kwargs):
+        if process_id == cortado.id:
+            raise SoftTimeLimitExceeded()
+        return original(db, process_id, *args, **kwargs)
+
+    monkeypatch.setattr(AppointmentService, "_notify_appt", staticmethod(_notify))
+
+    with pytest.raises(SoftTimeLimitExceeded):
+        _barrer(db_session)
+
+    db_session.rollback()                  # lo que el barrido no commiteó se pierde aquí
+    assert len(_filas(db_session, primero.id)) == 1        # antes del corte: firme
+    assert len(_avisos(db_session, primero.student_id)) == 1
+    assert _filas(db_session, cortado.id) == []            # a medias: se deshizo entero
+    assert _avisos(db_session, cortado.student_id) == []
+    assert _filas(db_session, docs.id) == []               # después del corte: no corrió
+
+
 def test_un_aviso_que_revienta_en_la_bd_no_deja_el_correo_solo(db_session, con_cita,
                                                                monkeypatch):
     """El caso real: `notify_student` se traga el error de su flush, pero
