@@ -61,9 +61,10 @@ _INITIAL_DOCS = ("birth_certificate", "high_school_cert", "curp")
 
 # (alias, metodo, plantilla de URL, form). Las 13 rutas que la matriz ejercita
 # de punta a punta. NO son todas las que llevan `{process_id}`: el censo por AST
-# de `test_toda_ruta_con_process_id_invoca_el_guard` cuenta 20, y las que faltan
-# aqui (las de requisitos, dictamen de fase 02, mover, deshacer no-show y revocar
-# inscripcion) quedan
+# de `test_toda_ruta_con_process_id_invoca_el_guard` cuenta 21, y las que faltan
+# aqui (las de requisitos, dictamen de fase 02, mover, deshacer no-show, revocar
+# inscripcion y «Atender ahora», que tiene su 404/200 en `test_atender_ahora.py`)
+# quedan
 # cubiertas por ese censo estructural. El comentario decia "las 13 rutas" cuando
 # la lista tenia 12 y el censo 18: dos numeros de segunda mano en una linea.
 ROUTES = [
@@ -623,7 +624,8 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
                           + str(antes[0].lineno) + ", antes del guard)")
 
     # 20 desde 2026-09-25: + `POST /admin/processes/{id}/cancelar` (revocar).
-    assert revisadas == 20, (
+    # 21 desde 2026-09-29: + `POST /admin/appointments/{id}/atender-ahora` (D7).
+    assert revisadas == 21, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
         "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
         "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"

@@ -228,7 +228,9 @@ class ReviewWindowService:
             raise InvalidSlot("La hora de fin tiene que ser posterior a la de inicio.")
 
         # Bajo el mismo lock que usa el cupo, para que nadie agende justo
-        # mientras se encoge el espacio.
+        # mientras se encoge el espacio. `_lock_window` relee `window` (es el
+        # mismo objeto del mapa de identidad): lo de abajo valida contra la
+        # fila de ahora, no contra la que se cargó antes de esperar.
         SlotService._lock_window(db, window.id)
         ReviewWindowService.assert_no_overlap(db, window.review_day_id,
                                               window.owner_user_id, inicio, fin,
@@ -261,12 +263,11 @@ class ReviewWindowService:
 
         `n` va de 1 a 50 y el total no pasa de 500 (`PlacesOutOfRange`). El
         rango de `n` es entrada del usuario y se revisa antes del lock; el
-        modo y el tope total, después, contra la fila RELEÍDA: `_lock_window`
-        devuelve la ventana del mapa de identidad, cargada antes de esperar el
-        lock. Si en ese intervalo otro encargado abrió lugares, sumarle al
-        valor viejo borraría los suyos; si pasó el espacio a «Agendable», se
-        sumaría a un cupo por franja. Sin el re-leído, el lock no protegería
-        nada.
+        modo y el tope total, después, contra la fila que `_lock_window` RELEE
+        bajo el lock (esa es la única relectura; aquí no se repite). Si
+        mientras se esperaba otro encargado abrió lugares, sumarle al valor
+        viejo borraría los suyos; si pasó el espacio a «Agendable», se sumaría
+        a un cupo por franja.
         """
         try:
             n = int(n)
@@ -276,7 +277,6 @@ class ReviewWindowService:
             raise PlacesOutOfRange()
 
         w = SlotService._lock_window(db, window.id)
-        db.refresh(w, attribute_names=["capacity", "visibility"])
         if w.visibility != "walkin":
             raise InvalidSlot("Solo los espacios sin horario abren lugares.")
         total = int(w.capacity or 1) + n

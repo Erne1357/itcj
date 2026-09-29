@@ -268,23 +268,38 @@ class SlotService:
     # ------------------------------------------------------------ asignación
     @staticmethod
     def _lock_window(db: Session, window_id: int):
-        """Bloquea la fila de la ventana y devuelve la ventana cargada.
+        """Bloquea la fila de la ventana y la devuelve RELEÍDA bajo el lock.
 
         `lock_timeout` es LOCAL, no de sesión: PgBouncer está en modo
         transaccional y un `SET` de sesión se le queda pegado a otro cliente.
+
+        La relectura es la mitad que hace servir al lock. El objeto del mapa
+        de identidad se cargó ANTES de esperar, así que sin el `refresh`
+        `assign`, `update` y el reparto validaban con el modo, el horario y el
+        cupo de antes de que otro encargado guardara los suyos: una edición de
+        modo o de cupo concurrente con una reserva dejaba una de más. Es la
+        ÚNICA relectura: los llamadores no refrescan por su cuenta (`add_places`
+        lo hacía, solo de dos columnas, y ya no hace falta). Y es del objeto
+        ENTERO: quien ya tenía la ventana en la mano (`update` la recibe de la
+        ruta) ve los valores de ahora sin cambiar de referencia.
+
+        Si la fila ya no existe (la borraron mientras se esperaba), el
+        `FOR UPDATE` no devuelve nada: la frase de ventanilla, no un error de
+        integridad al insertar la cita ni uno del `refresh`.
         """
         from itcj2.apps.titulatec.models import ReviewWindow
         try:
             db.execute(text("SET LOCAL lock_timeout = '3s'"))
-            db.execute(
+            fila = db.execute(
                 text("SELECT id FROM titulatec_review_windows WHERE id = :w FOR UPDATE"),
                 {"w": int(window_id)},
             ).first()
         except OperationalError as e:      # lock_timeout agotado
             raise SlotLockTimeout() from e
-        window = db.get(ReviewWindow, int(window_id))
+        window = db.get(ReviewWindow, int(window_id)) if fila is not None else None
         if window is None:
             raise InvalidSlot("Ese espacio ya no existe.")
+        db.refresh(window)
         return window
 
     @staticmethod

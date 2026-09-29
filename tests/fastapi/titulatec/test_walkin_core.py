@@ -487,10 +487,10 @@ def test_abrir_mas_lugares_lee_el_modo_bajo_el_lock(db_session, sin_horario):
 def test_abrir_mas_lugares_suma_sobre_el_cupo_releido_bajo_el_lock(db_session, sin_horario):
     """Otro encargado abrió lugares mientras este esperaba el lock.
 
-    `_lock_window` devuelve la ventana del mapa de identidad, cargada ANTES de
-    esperar. El UPDATE crudo hace de la transacción ajena ya commiteada: el
-    objeto en memoria sigue diciendo 3 y la fila dice 10. Sumarle al 3 perdería
-    los siete lugares del otro.
+    El objeto del mapa de identidad se cargó ANTES de esperar; `_lock_window`
+    lo relee bajo el lock (la única relectura, Tarea 6). El UPDATE crudo hace
+    de la transacción ajena ya commiteada: el objeto en memoria sigue diciendo
+    3 y la fila dice 10. Sumarle al 3 perdería los siete lugares del otro.
     """
     esc = sin_horario
     db_session.execute(text("UPDATE titulatec_review_windows SET capacity = 10 "

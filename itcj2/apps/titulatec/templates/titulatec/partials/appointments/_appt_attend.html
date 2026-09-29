@@ -298,6 +298,36 @@
       <a class="btn btn-sm tt-btn-ink"
          {{ appt_nav(page_url ~ '?date=' ~ day ~ '&p=' ~ detail.process.id) }}>
         <i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Agendar a este alumno</a>
+
+      {# «Atender ahora» (D7): el egresado está enfrente y sin cita. Un botón por
+         espacio SIN HORARIO de HOY del propio encargado (`detail.walkins_hoy`);
+         lo sienta y arranca el cotejo en una sola transacción, sin aviso ni
+         correo de «agendada». Vuelve a la ficha en el día de HOY, que es donde
+         queda la cita. Lleno: `aria-disabled` y no `disabled`, para que se
+         pueda descubrir tabulando (mismo criterio que el visor), y fuera de
+         todo form: no hay nada que enviar.
+
+         Solo en esta rama, aunque el contexto se llena en toda ficha sin cita
+         VIVA: un `no_show` vigente tiene «Deshacer no se presentó», que le
+         devuelve SU cita en vez de abrirle otro intento y ocupar otro lugar. #}
+      {% if detail.walkins_hoy %}
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        {% for w in detail.walkins_hoy %}
+        {% if w.libres > 0 %}
+        <form id="appt-atender-{{ w.id }}"
+              {{ appt_action(BASE ~ '/atender-ahora?v=atender&date=' ~ detail.hoy ~ '&selected=' ~ detail.process.id) }}>
+          <input type="hidden" name="window_id" value="{{ w.id }}">
+          <button type="submit" class="btn btn-sm tt-btn-ink">
+            <i class="bi bi-person-check me-1" aria-hidden="true"></i>Atender ahora · sin horario {{ w.horario }} · {{ 'queda' if w.libres == 1 else 'quedan' }} {{ w.libres }}</button>
+        </form>
+        {% else %}
+        <button type="button" id="appt-atender-{{ w.id }}" class="btn btn-sm tt-btn-ghost"
+                aria-disabled="true">
+          <i class="bi bi-person-check me-1" aria-hidden="true"></i>Atender ahora · sin horario {{ w.horario }} · Lleno: abre más lugares en la Agenda</button>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
       {% endif %}
     </div>
 

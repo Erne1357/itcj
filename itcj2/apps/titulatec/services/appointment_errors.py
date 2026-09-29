@@ -142,6 +142,21 @@ class PlacesOutOfRange(AppointmentError):
         super().__init__(msg)
 
 
+class NotWalkinToday(AppointmentError):
+    """«Atender ahora» (D7) fuera de su único caso: un espacio SIN HORARIO, de
+    HOY (`db_now()`), del PROPIO encargado.
+
+    Lo levanta `AppointmentService.attend_now` antes de delegar en `create`.
+    La ficha solo ofrece el botón en esos espacios, así que llegar aquí es un
+    formulario viejo o armado a mano: entrada del usuario (400), igual que un
+    día que ya no está habilitado. El espacio que no existe lleva la MISMA
+    frase: el id es secuencial y un mensaje distinto confirmaría cuáles existen.
+    """
+
+    def __init__(self, msg="“Atender ahora” solo funciona en tus espacios sin horario de hoy."):
+        super().__init__(msg)
+
+
 class SurveyNotSubmitted(AppointmentError):
     """El alumno no ha enviado la encuesta de egresados (`SurveyReview` no existe).
 

@@ -154,6 +154,10 @@ class AppointmentService:
                           q: str | None = None) -> list:
         """Citas de la agenda, ordenadas por fecha. Filtros opcionales.
 
+        A la misma hora desempata el `id`, que es el orden de apartado: en un
+        sin horario todas guardan la apertura, y sin desempate Postgres las
+        devuelve en el orden en que las lee (spec 2026-09-29 §4).
+
         `allowed_program_ids`: None = sin restricción de carrera; set vacío = [].
         `q`: busca por nombre del alumno o número de control, DENTRO del alcance.
         """
@@ -186,7 +190,7 @@ class AppointmentService:
                      .filter(or_(User.control_number.ilike(aguja),
                                  nombre.ilike(aguja),
                                  TitulationProcess.folio.ilike(aguja))))
-        return query.order_by(ReviewAppointment.scheduled_at).all()
+        return query.order_by(ReviewAppointment.scheduled_at, ReviewAppointment.id).all()
 
     @staticmethod
     def counts_by_day(db: Session, start, end, *, allowed_program_ids: set | None = None) -> dict:
@@ -210,7 +214,8 @@ class AppointmentService:
 
     @staticmethod
     def list_for_day(db: Session, day, *, allowed_program_ids: set | None = None) -> list:
-        """Citas cuyo scheduled_at cae en el día `day` (date), ordenadas por hora.
+        """Citas cuyo scheduled_at cae en el día `day` (date), ordenadas por hora
+        y, a la misma hora, por orden de apartado (`id`, ver `list_appointments`).
 
         allowed_program_ids: None = sin restricción; set vacío = devuelve [].
         """
@@ -231,7 +236,7 @@ class AppointmentService:
         )
         if allowed_program_ids is not None:
             q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
-        return q.order_by(ReviewAppointment.scheduled_at).all()
+        return q.order_by(ReviewAppointment.scheduled_at, ReviewAppointment.id).all()
 
     @staticmethod
     def agenda_process_ids(db: Session, *, allowed_program_ids: set | None = None) -> set:
@@ -626,7 +631,8 @@ class AppointmentService:
     @staticmethod
     def create(db: Session, process_id: int, *, window_id: int | None,
                slot_start: time | None, created_by_id: int,
-               location: str | None = None, booked_by: str = "officer"):
+               location: str | None = None, booked_by: str = "officer",
+               start_now: bool = False):
         """Abre un intento de cita en una franja concreta. Dueña de la transacción.
 
         Valida, en este orden: que el alumno YA HAYA ENVIADO la encuesta de
@@ -647,6 +653,15 @@ class AppointmentService:
         Es el camino de los intentos NUEVOS, incluidos los que siguen a un
         `no_show` (D7), a una `attended` con faltantes (D5) y a una
         `cancelled` (D6). Mover una cita viva es `reschedule`.
+
+        `start_now=True` es «Atender ahora» (D7 de la spec 2026-09-29-titulatec-
+        cotejo-espacios-design.md §4) y lo pasa solo `attend_now`: el egresado
+        está enfrente, así que la cita nace ya `in_progress` en esta MISMA
+        transacción (`scheduled -> in_progress` por la matriz, con sus dos
+        eventos) y SIN aviso in-app ni correo de «agendada» — acaba de llegar a
+        la ventanilla. Es un parámetro y no otra función para que las guardas de
+        arriba sigan siendo UNA (regla D13): encuesta, revocación, cita viva,
+        día y cupo valen igual para esta cita que para cualquier otra.
         """
         from itcj2.apps.titulatec.models import ReviewWindow
         from itcj2.apps.titulatec.services.appointment_errors import (
@@ -695,10 +710,26 @@ class AppointmentService:
                                   created_by_id, location=location,
                                   rechazar_activa=True)
         appt.booked_by = booked_by
+        payload = {"scheduled_at": appt.scheduled_at.isoformat(),
+                   "location": appt.location, "window_id": window.id}
+        if start_now:
+            payload.update({"walkin": True, "attend_now": True})
         AppointmentService._log(
-            db, process_id, created_by_id, "appointment_scheduled",
-            {"scheduled_at": appt.scheduled_at.isoformat(), "location": appt.location,
-             "window_id": window.id})
+            db, process_id, created_by_id, "appointment_scheduled", payload)
+        if start_now:
+            # «Atender ahora» (D7): el cotejo arranca en la misma transacción
+            # que sienta al egresado, por la matriz y con su propio evento,
+            # igual que `start`. Sin `_notify_appt` ni `StudentMail`: está
+            # enfrente. Es la rama sin correo que `RAMAS_SIN_CORREO`
+            # (test_mail_writers.py) registra y `test_atender_ahora_no_encola`
+            # fija.
+            AppointmentService.assert_transition(appt.status, "in_progress")
+            appt.status = "in_progress"
+            AppointmentService._log(db, process_id, created_by_id,
+                                    "appointment_in_progress")
+            db.commit()
+            db.refresh(appt)
+            return appt
         # Avisa al alumno SALVO que haya sido él quien agendó: acaba de pulsar
         # el botón y notificarle su propio clic es ruido (auto-agendado, §4.1).
         # Es la misma condición EXACTA que `cancel` —actor == alumno— y por la
@@ -725,6 +756,38 @@ class AppointmentService:
         db.commit()
         db.refresh(appt)
         return appt
+
+    @staticmethod
+    def attend_now(db: Session, process_id: int, *, window_id: int | None,
+                   actor_id: int):
+        """«Atender ahora» (D7, spec 2026-09-29-titulatec-cotejo-espacios-design.md
+        §4): el egresado está enfrente y sin cita viva, y el encargado lo sienta
+        en SU espacio sin horario de HOY con el cotejo ya iniciado. Dueña de la
+        transacción (vía `create`).
+
+        Solo valida lo propio de este camino: ventana `walkin`, del actor
+        (`owner_user_id`; quien tenga `manage.all` tampoco atiende aquí con el
+        espacio de otro) y con día == hoy (`db_now()`). Si no, `NotWalkinToday`,
+        con la MISMA frase para el espacio que no existe. Lo demás —revocación,
+        encuesta liberada, cita viva, día habilitado, cupo— lo decide `create`
+        y NO se repite aquí (D13): dos copias de una guarda acaban diciendo
+        cosas distintas.
+
+        Esta comprobación corre antes de los locks, como las rápidas de
+        `create`. Lo que decide el cupo y la cita viva va dentro, en
+        `SlotService.assign`, contra la ventana releída bajo su lock.
+        """
+        from itcj2.apps.titulatec.models import ReviewWindow
+        from itcj2.apps.titulatec.services.appointment_errors import NotWalkinToday
+
+        window = db.get(ReviewWindow, int(window_id)) if window_id else None
+        if (window is None or window.visibility != "walkin"
+                or window.owner_user_id != int(actor_id)
+                or window.review_day.date != db_now().date()):
+            raise NotWalkinToday()
+        return AppointmentService.create(
+            db, process_id, window_id=window.id, slot_start=window.start_time,
+            created_by_id=actor_id, booked_by="officer", start_now=True)
 
     @staticmethod
     def reschedule(db: Session, appt, *, window_id: int | None,

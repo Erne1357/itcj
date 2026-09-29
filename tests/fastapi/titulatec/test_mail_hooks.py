@@ -365,6 +365,58 @@ def test_revocar_proceso_no_encola_cancelacion_de_cita(db_session, cita_esc,
     assert _graph_espiado == []
 
 
+@pytest.fixture()
+def atender_esc(make_program, make_cohort, make_review_day, make_officer, make_student,
+                make_process, make_review_window, make_survey_review):
+    """El sin horario de HOY del encargado y dos egresados con la encuesta
+    LIBERADA: «Atender ahora» (D7) solo existe en el espacio sin horario de hoy
+    del propio encargado (spec 2026-09-29-titulatec-cotejo-espacios-design.md §4)."""
+    from itcj2.core.utils.timezone import db_now
+
+    prog = make_program("Ingenieria de Atender Ahora")
+    cohort = make_cohort()
+    dia = make_review_day(cohort, day=db_now().date())
+    off, pos = make_officer([prog])
+    w = make_review_window(dia, off, start="08:00", end="14:00", cap=5,
+                           location="Ventanilla 2", position=pos, visibility="walkin")
+    p1, p2 = (make_process(make_student(), cohort=cohort, program=prog, current_phase=2)
+              for _ in range(2))
+    for p in (p1, p2):
+        make_survey_review(p, status="approved")
+    return {"off": off, "w": w, "p1": p1, "p2": p2}
+
+
+def test_atender_ahora_no_encola(db_session, atender_esc):
+    """«Atender ahora» (D7): el egresado está enfrente, así que su cita nace
+    `in_progress` SIN correo ni aviso in-app de «agendada». Es la rama sin
+    correo de `AppointmentService.create` (`start_now=True`) que registra
+    `RAMAS_SIN_CORREO`, y va por el camino real, `attend_now`.
+
+    La segunda mitad es el control positivo: el MISMO espacio, agendado por la
+    vía normal, sí encola y sí avisa. Sin ella, «cero filas» pasaría también
+    con el correo apagado."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.core.models.notification import Notification
+
+    esc = atender_esc
+    p1, p2 = esc["p1"], esc["p2"]
+
+    appt = AppointmentService.attend_now(db_session, p1.id, window_id=esc["w"].id,
+                                         actor_id=esc["off"].id)
+
+    assert appt.status == "in_progress"
+    assert _outbox(db_session, p1.id) == []
+    assert (db_session.query(Notification)
+            .filter_by(user_id=p1.student_id, app_name="titulatec").count()) == 0
+
+    AppointmentService.create(db_session, p2.id, window_id=esc["w"].id,
+                              slot_start=time(8, 0), created_by_id=esc["off"].id)
+    (fila,) = _outbox(db_session, p2.id)
+    assert fila.kind == "appt_changed"
+    assert fila.payload["event"] == "scheduled"
+    assert len(_avisos(db_session, p2.student_id, "APPOINTMENT_SCHEDULED")) == 1
+
+
 # ---------------------------------------------------------------------------
 # #9 — «no se presentó» (correo con gracia + in-app nuevo) y su corrección
 # ---------------------------------------------------------------------------
