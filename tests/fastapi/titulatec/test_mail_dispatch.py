@@ -10,11 +10,14 @@ Lo que se fija aquí:
 3. Revocado → obsoleto; sin correo personal → `no_recipient`; el `Obsolete`
    del compositor → obsoleto con su motivo.
 4. Reintentos con espera creciente y `failed` al tope; un error inesperado
-   cuenta como intento (ruling 2026-09-29) y no detiene el lote.
+   cuenta como intento (ruling 2026-09-29) y no detiene el lote. El corte de
+   celery (`SoftTimeLimitExceeded`) también cuenta, y ahí el lote termina
+   (ruling 14).
 5. Concurrencia (Review Focus 1): la consulta usa `FOR UPDATE SKIP LOCKED`; una
    segunda corrida no reenvía; una fila que otra corrida mandó mientras esta
    estaba ocupada tampoco.
-6. E9 ampliado: `[TT-MAIL]` solo fuera de producción y solo sin cuenta.
+6. E9 ampliado: `[TT-MAIL]` solo fuera de producción y solo sin cuenta; la liga
+   del proceso nunca sale como `[TT-VERIFY-LINK]` (ruling 12).
 7. `_deliver` (los 6 correos de inscripción) sin cambios; `deliver_detailed`
    da el motivo del fallo.
 
@@ -495,27 +498,70 @@ def test_excepcion_en_compose_cuenta_como_intento(db_session, egresado, graph,
         "failed", 2, "Error interno al preparar el correo")
 
 
-def test_limite_suave_de_celery_corta_sin_contar_intento(db_session, egresado, graph,
-                                                         monkeypatch):
-    """Que celery corte la tarea no es un fallo del correo: se propaga, sin
-    intento contado, y la fila sale en la siguiente corrida."""
+def _cortar_en(monkeypatch, donde):
+    """Celery corta la tarea (`SoftTimeLimitExceeded`) en ese punto de la unidad.
+    `envio`: el paso de envío de la tubería (`email_helper._send`); `token`: MSAL
+    colgado al pedir el token de Graph; `componer`: antes de llegar a Graph."""
     from celery.exceptions import SoftTimeLimitExceeded
 
+    from itcj2.apps.titulatec.services import email_helper
     from itcj2.apps.titulatec.services.mail_compose import MailComposer
 
-    def _cortada(db, rows, process, user):
+    def _cortada(*_args, **_kwargs):
         raise SoftTimeLimitExceeded()
 
-    monkeypatch.setattr(MailComposer, "compose", staticmethod(_cortada))
+    if donde == "envio":
+        monkeypatch.setattr(email_helper, "_send", _cortada)
+    elif donde == "token":
+        monkeypatch.setattr("itcj2.core.utils.msgraph_mail.acquire_token_silent", _cortada)
+    else:
+        monkeypatch.setattr(MailComposer, "compose", staticmethod(_cortada))
+
+
+@pytest.mark.parametrize("donde", ["envio", "token", "componer"])
+def test_limite_suave_de_celery_cuenta_intento_y_se_propaga(db_session, egresado, graph,
+                                                            monkeypatch, donde):
+    """Ruling 14: que celery corte la tarea a media unidad TAMBIÉN es un intento
+    fallido de esa unidad («Tiempo agotado al enviar», con su espera), registrado
+    en una transacción nueva; después la excepción se propaga y el lote termina
+    ahí. Sin contarlo, un Graph colgado se reintentaría cada minuto sin tope."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    _cortar_en(monkeypatch, donde)
+    proc = egresado()
+    cortada = _suelta(db_session, proc, motivo="primera")
+    siguiente = _suelta(db_session, proc, motivo="segunda")
+    db_session.commit()
+
+    with pytest.raises(SoftTimeLimitExceeded):
+        _despachar(db_session)
+
+    _refrescar(db_session, cortada, siguiente)
+    assert (cortada.status, cortada.attempts, cortada.not_before, cortada.last_error) == (
+        "pending", 1, AHORA + timedelta(minutes=1), "Tiempo agotado al enviar")
+    assert (siguiente.status, siguiente.attempts, siguiente.last_error) == (
+        "pending", 0, None), "el lote termina en la unidad cortada"
+    assert graph.enviados == []
+
+
+def test_limite_suave_de_celery_al_tope_queda_fallido(db_session, egresado, graph,
+                                                      monkeypatch):
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from itcj2.apps.titulatec.services.student_mail import MailSettings
+
+    monkeypatch.setattr(MailSettings, "max_attempts", staticmethod(lambda: 2))
+    _cortar_en(monkeypatch, "envio")
     fila = _suelta(db_session, egresado())
+    fila.attempts = 1                      # ya lleva un intento fallido
     db_session.commit()
 
     with pytest.raises(SoftTimeLimitExceeded):
         _despachar(db_session)
 
     _refrescar(db_session, fila)
-    assert (fila.status, fila.attempts, fila.last_error) == ("pending", 0, None)
-    assert graph.enviados == []
+    assert (fila.status, fila.attempts, fila.last_error) == (
+        "failed", 2, "Tiempo agotado al enviar")
 
 
 def test_presupuesto_de_tiempo_deja_el_resto_para_la_siguiente_corrida(
@@ -748,6 +794,29 @@ def test_log_tt_mail_solo_fuera_de_produccion(db_session, egresado, graph, monke
         assert CORREO not in caplog.text
     else:
         assert lineas == [f"[TT-MAIL] phase_rejected -> {CORREO} · {ASUNTO_FASE} · {liga}"]
+
+
+def test_en_dev_la_liga_del_proceso_sale_solo_en_tt_mail(db_session, egresado, graph,
+                                                         monkeypatch, caplog):
+    """Ruling 12: `[TT-VERIFY-LINK]` es de la liga de ACTIVACIÓN de la
+    inscripción. El despachador le pasa `link=None` a `deliver_detailed`, así
+    que la liga de un correo del proceso queda en el log una sola vez: en su
+    `[TT-MAIL]`."""
+    from itcj2.apps.titulatec.services import email_helper
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    monkeypatch.setattr(email_helper, "_is_production", lambda: False)
+    graph.token = None
+    _suelta(db_session, egresado())
+    db_session.commit()
+    liga = StudentMail.link("/titulatec/student/dashboard?fase=1")
+
+    with caplog.at_level(logging.DEBUG, logger="itcj2"):
+        assert _despachar(db_session) == _conteo(retry=1)
+
+    assert "[TT-VERIFY-LINK]" not in caplog.text
+    con_liga = [r.getMessage() for r in caplog.records if liga in r.getMessage()]
+    assert con_liga == [f"[TT-MAIL] phase_rejected -> {CORREO} · {ASUNTO_FASE} · {liga}"]
 
 
 # ---------------------------------------------------------------------------

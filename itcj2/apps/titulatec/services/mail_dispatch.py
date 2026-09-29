@@ -26,6 +26,8 @@ UNA CORRIDA (`run`)
    intentos: el intento es del CORREO, no de cada fila.
 6. E9 ampliado: sin cuenta de Graph y fuera de producción,
    `[TT-MAIL] kind -> destinatario · asunto · liga` al log. En producción, jamás.
+   A `deliver_detailed` se le pasa `link=None` (ruling 12): su `[TT-VERIFY-LINK]`
+   es de la liga de activación de la inscripción, no de estas.
 
 Devuelve cuántas UNIDADES (correos) terminaron en cada desenlace:
 `{"sent", "failed", "retry", "no_recipient", "obsolete", "waiting"}`.
@@ -43,10 +45,16 @@ TRANSACCIONES Y CONCURRENCIA (Review Focus 1: la misma fila jamás sale dos vece
   con «Error interno al preparar el correo» (ruling 2026-09-29): si no, se
   reintentaría cada minuto sin fin y jamás se vería «Falló» en el expediente.
   El lote sigue con la siguiente unidad.
-- Que celery corte la tarea (`SoftTimeLimitExceeded`) no es un fallo del
-  correo: `rollback` y se propaga, sin contar intento. Para no llegar ahí, la
-  corrida deja de tomar unidades pasado `_PRESUPUESTO_S`; lo que quedó lo toma
-  la corrida siguiente.
+- Que celery corte la tarea (`SoftTimeLimitExceeded`) TAMBIÉN es un intento
+  fallido de la unidad en curso («Tiempo agotado al enviar», ruling 14):
+  `rollback`, el intento en una transacción nueva, y se vuelve a lanzar (el
+  lote termina ahí). Sin contarlo, un Graph colgado se reintentaría cada
+  minuto sin tope. Si el corte cae DENTRO de `graph_send_mail`, lo atrapa
+  `email_helper._send` (compartido con los correos de inscripción, que no
+  cambian) como cualquier error de envío: cuenta como «Error al enviar» y la
+  corrida termina por el presupuesto. Para no llegar al corte, la corrida deja
+  de tomar unidades pasado `_PRESUPUESTO_S`; lo que quedó lo toma la
+  siguiente.
 - Entrega «al menos una vez»: se envía y DESPUÉS se marca. Si el commit que
   marca `sent` fallara, el correo volvería a salir; por eso lo que se escribe
   tras un envío siempre cabe en su columna (`_cabe`).
@@ -92,6 +100,7 @@ _MOTIVOS = {
     "envio": "Error al enviar",
 }
 _ERROR_INTERNO = "Error interno al preparar el correo"
+_TIEMPO_AGOTADO = "Tiempo agotado al enviar"
 _REVOCADA = "inscripción revocada"
 _SIN_PROCESO = "el proceso o su alumno ya no existe"
 
@@ -239,26 +248,38 @@ class MailDispatcher:
     def _despachar(db: Session, unidad: tuple[str, object], now: datetime,
                    procesos: dict, alumnos: dict) -> str | None:
         """Una unidad en su propia transacción. Una excepción inesperada es un
-        intento fallido (registrado en otra transacción) y no detiene el lote."""
+        intento fallido (registrado en otra transacción) y el lote sigue; el
+        corte de celery también es un intento fallido, pero se vuelve a lanzar
+        y el lote termina ahí."""
         try:
             desenlace = MailDispatcher._unidad(db, unidad, now, procesos, alumnos)
             db.commit()
             return desenlace
-        except Exception as exc:
+        except SoftTimeLimitExceeded:
             db.rollback()
-            if isinstance(exc, SoftTimeLimitExceeded):
-                raise
+            logger.warning("[titulatec] Celery cortó el despacho a media unidad (%s %s): "
+                           "cuenta como intento", *unidad)
+            MailDispatcher._intento_fallido(db, unidad, now, _TIEMPO_AGOTADO)
+            raise
+        except Exception:
+            db.rollback()
             logger.exception("[titulatec] Error interno al despachar el correo (%s %s)",
                              *unidad)
+            return MailDispatcher._intento_fallido(db, unidad, now, _ERROR_INTERNO)
+
+    @staticmethod
+    def _intento_fallido(db: Session, unidad: tuple[str, object], now: datetime,
+                         motivo: str) -> str | None:
+        """Tras el `rollback` de una unidad que reventó: en una transacción NUEVA,
+        intento fallido de todas sus filas (`retry` o `failed` al tope). Nunca
+        lanza: si ni esto se puede, queda en el log y la fila sigue `pending`."""
         try:
             filas = _tomar(db, unidad, now)
-            desenlace = None if filas is None else _fallar(filas, now, _ERROR_INTERNO)
+            desenlace = None if filas is None else _fallar(filas, now, motivo)
             db.commit()
             return desenlace
-        except Exception as exc:
+        except Exception:
             db.rollback()
-            if isinstance(exc, SoftTimeLimitExceeded):
-                raise
             logger.exception("[titulatec] No se pudo registrar el intento fallido del "
                              "correo (%s %s)", *unidad)
             return None
@@ -301,9 +322,11 @@ class MailDispatcher:
             return _cerrar(filas, "obsolete", correo.reason)
 
         kind = _primera(filas).kind
+        # `link=None` (ruling 12): el E9 de `deliver_detailed` (`[TT-VERIFY-LINK]`)
+        # es de la liga de ACTIVACIÓN; la de este correo sale en el `[TT-MAIL]` de abajo.
         ok, error = email_helper.deliver_detailed(
             template=correo.template, context=correo.context, subject=correo.subject,
-            to=to, que=f"mail:{kind}", link=correo.link)
+            to=to, que=f"mail:{kind}", link=None)
         if ok:
             for fila in filas:
                 fila.status = "sent"

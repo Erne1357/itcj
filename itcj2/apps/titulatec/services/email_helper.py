@@ -41,7 +41,8 @@ No pasan por `TitulaTecEmailHelper`: los encola `StudentMail` en
 `deliver_detailed`, la misma tubería que `_deliver` pero con el motivo del
 fallo (para `last_error` y el reintento). `_deliver` delega en ella y los 6
 correos de arriba no cambian. Su E9 ampliado (`[TT-MAIL]`) lo escribe el
-despachador.
+despachador, que pasa `link=None`: `[TT-VERIFY-LINK]` queda solo para la liga
+de activación.
 """
 import logging
 
