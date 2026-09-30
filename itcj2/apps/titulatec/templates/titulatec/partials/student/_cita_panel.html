@@ -34,11 +34,15 @@
    una cita vigente VIVA (`scheduled`/`confirmed`/`in_progress`) -mismos tres
    estados que `_ESTADOS_ACTIVOS`-. Contenido sin cambios respecto a la
    versión que vivía en `cita.html`; solo se mudó de sitio y de envoltura. — #}
+{% set _tt_total = checklist|length %}
+{% set _tt_listos = checklist|selectattr('done')|list|length %}
 <details id="tt-cita-reqs" class="tt-card mt-3 tt-anim-in"
          {% if appt and appt.status in ('scheduled', 'confirmed', 'in_progress') %}open{% endif %}>
   <summary class="tt-cita-reqs-sum">
     <i class="bi bi-bag-check" aria-hidden="true"></i>
-    <span>Qué llevar a tu cita · {{ checklist|length }} requisitos ({{ checklist|selectattr('done')|list|length }} listos)</span>
+    {# M-7 (revisión final): plural real -antes siempre decía "1 requisitos
+       (1 listos)"-. #}
+    <span>Qué llevar a tu cita · {{ _tt_total }} requisito{{ 's' if _tt_total != 1 }} ({{ _tt_listos }} listo{{ 's' if _tt_listos != 1 }})</span>
     <i class="bi bi-chevron-down tt-cita-reqs-chev" aria-hidden="true"></i>
   </summary>
   <p class="tt-cita-reqs-hint mb-2 mt-2">

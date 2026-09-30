@@ -205,7 +205,10 @@ def test_sin_horario_lleno_no_ofrece_boton(
     resp = client_as(esc["student"]).get(URL, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:300]
-    assert "0 de 1 lugares" in resp.text
+    # M-7 (revisión final): plural real -antes siempre decía "lugares", aun
+    # con capacity=1-.
+    assert "0 de 1 lugar" in resp.text
+    assert "0 de 1 lugares" not in resp.text
     assert "Lleno por ahora" in resp.text
     assert "Apartar mi lugar" not in resp.text
 
@@ -357,7 +360,32 @@ def test_el_resumen_de_requisitos_cuenta_totales_y_listos(
     resp = client_as(esc["student"]).get(URL, follow_redirects=False)
 
     assert resp.status_code == 200, resp.text[:300]
-    assert "Qué llevar a tu cita · 1 requisitos (1 listos)" in resp.text
+    # M-7 (revisión final): plural real -antes siempre decía "1 requisitos
+    # (1 listos)", aunque fueran uno solo-.
+    assert "Qué llevar a tu cita · 1 requisito (1 listo)" in resp.text
+
+
+def test_el_resumen_de_requisitos_usa_plural_con_mas_de_uno(
+        db_session, esc, client_as):
+    """Control positivo del anterior: con MÁS de un requisito, el plural
+    sigue diciendo «requisitos»/«listos» -M-7 no rompe el caso normal-."""
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+    from itcj2.apps.titulatec.services.requirement_service import RequirementService
+
+    uno = CotejoRequirementService.create(db_session, esc["cohort"].id,
+                                          label="Uno", hint=None, icon=None)
+    CotejoRequirementService.create(db_session, esc["cohort"].id,
+                                    label="Dos", hint=None, icon=None)
+    RequirementService.fulfill(db_session, esc["process"].id, uno.id,
+                               source="officer", commit=False)
+    db_session.flush()
+
+    resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert "Qué llevar a tu cita · 2 requisitos (1 listo)" in resp.text
 
 
 # ---------------------------------------------------------------------------

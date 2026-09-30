@@ -104,7 +104,7 @@
            presentarse -ahí no hay cupo que reservar, solo llegar-. #}
         <div class="meta">
           <i class="bi bi-door-open" aria-hidden="true"></i>{{ w.range }}
-          {%- if agenda.modo == 'agendar' and w.motivo != 'cierra_pronto' %} · {{ w.places_left }} de {{ w.capacity }} lugares{% endif -%}
+          {%- if agenda.modo == 'agendar' and w.motivo != 'cierra_pronto' %} · {{ w.places_left }} de {{ w.capacity }} lugar{{ 'es' if w.capacity != 1 }}{% endif -%}
           {%- if w.location %} · <i class="bi bi-geo-alt" aria-hidden="true"></i>{{ w.location }}{% endif %}
         </div>
         {% if agenda.modo == 'presentarse' %}
