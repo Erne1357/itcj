@@ -663,11 +663,16 @@ async def survey(
     aquí mismo) y del mapa de visibilidad, nunca de un índice guardado aparte.
     """
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.survey_service import SURVEY_CODE, SurveyService
+    from itcj2.apps.titulatec.services.survey_service import SurveyService
 
     db = SessionLocal()
     try:
-        form = SurveyService.open_form(db, SURVEY_CODE)
+        # Tarea 6: el formulario se resuelve POR PERFIL, no por una constante
+        # fija (spec 2026-09-30-titulatec-posgrado-design.md §4.5, invariante
+        # 5). Sin sesión, `form_for_user` resuelve la cadena de licenciatura
+        # -- el `_requiere_sesion(form)` de abajo sigue mandando al login
+        # exactamente igual que antes.
+        form = SurveyService.form_for_user(db, int(user["sub"]) if user else None)
         # Tarea F: UNA sola vez, antes de cualquier rama -la barra lo necesita
         # tanto si hay formulario abierto como si no-. Sin sesion no cuesta
         # nada (`_back_link` devuelve `None` sin tocar Redis ni BD), asi que
@@ -810,7 +815,7 @@ async def survey_submit(
     from itcj2.database import SessionLocal
     from itcj2.core.utils.client_ip import client_ip
     from itcj2.apps.titulatec.services.survey_service import (
-        MAX_PUBLIC_BODY_BYTES, SURVEY_CODE, SurveyService,
+        MAX_PUBLIC_BODY_BYTES, SurveyService,
     )
 
     # 1) Tamaño ANTES de `request.form()`: esa llamada bufferea el cuerpo ENTERO
@@ -847,7 +852,9 @@ async def survey_submit(
     cabeceras: dict[str, str] = {}
     db = SessionLocal()
     try:
-        form = SurveyService.open_form(db, SURVEY_CODE)
+        # Tarea 6: por perfil, no por constante fija (ver el docstring de
+        # `SurveyService.form_for_user`).
+        form = SurveyService.form_for_user(db, int(user["sub"]) if user else None)
         if form is None:
             # Único 400 público: no hay formulario que re-renderizar (§6.1).
             return Response(status_code=400, headers={
@@ -1013,7 +1020,7 @@ async def survey_step(
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_service import (
-        MAX_PUBLIC_BODY_BYTES, SURVEY_CODE, SurveyService,
+        MAX_PUBLIC_BODY_BYTES, SurveyService,
     )
     from itcj2.apps.titulatec.utils.survey_validator import validate_answers
 
@@ -1031,7 +1038,8 @@ async def survey_step(
 
     db = SessionLocal()
     try:
-        form = SurveyService.open_form(db, SURVEY_CODE)
+        # Tarea 6: por perfil, no por constante fija.
+        form = SurveyService.form_for_user(db, int(user["sub"]) if user else None)
         if form is None:
             return Response(status_code=400, headers={
                 "X-Tt-Error": _hdr("La encuesta ya no está disponible. "
@@ -1169,7 +1177,7 @@ async def survey_draft(
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_service import (
-        MAX_ANSWERS_JSON_BYTES, MAX_PUBLIC_BODY_BYTES, SURVEY_CODE, SurveyService,
+        MAX_ANSWERS_JSON_BYTES, MAX_PUBLIC_BODY_BYTES, SurveyService,
     )
 
     # 1) Tamaño ANTES de `request.form()`, igual que en `survey_submit`: esa
@@ -1202,7 +1210,9 @@ async def survey_draft(
         data = await request.form()
         guardado = False
         try:
-            form = SurveyService.open_form(db, SURVEY_CODE)
+            # Tarea 6: por perfil, no por constante fija. Aquí `user` ya es
+            # verdadero (la rama `if not user` de arriba corta antes).
+            form = SurveyService.form_for_user(db, int(user["sub"]) if user else None)
             if form is None:
                 return Response(status_code=204)
 

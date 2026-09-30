@@ -46,6 +46,19 @@ logger = logging.getLogger("itcj2.apps.titulatec.services.survey")
 
 # — Constantes compartidas (seccion 5 del contrato de interfaces) —
 SURVEY_CODE = "egresados"
+# Perfil de posgrado (spec 2026-09-30-titulatec-posgrado-design.md seccion 4.5, D3):
+# su contenido AUN NO EXISTE. Hasta que se publique una version 'open' con
+# este `code`, posgrado contesta la de licenciatura -- ver
+# `SURVEY_CODES_BY_TRACK` y `form_for_user`, junto a `open_form` mas abajo.
+SURVEY_CODE_POSGRADO = "egresados_posgrado"
+# Perfil (lo que devuelve `TrackService`, invariante 2) -> cadena de codigos a
+# probar EN ORDEN: gana el primero con formulario `open` (`form_for_user`).
+# Licenciatura es una cadena de UN solo elemento, asi que su comportamiento
+# queda IDENTICO al de `SURVEY_CODE` solo (invariante 3, spec seccion 6).
+SURVEY_CODES_BY_TRACK = {
+    "licenciatura": (SURVEY_CODE,),
+    "posgrado": (SURVEY_CODE_POSGRADO, SURVEY_CODE),
+}
 AUTO_SOURCE_SURVEY = "graduate_survey"
 MAX_PUBLIC_BODY_BYTES = 256 * 1024
 MAX_ANSWERS_JSON_BYTES = 128 * 1024
@@ -148,6 +161,45 @@ class SurveyService:
                 .filter(SurveyForm.code == code, SurveyForm.status == "open")
                 .order_by(SurveyForm.version.desc())
                 .first())
+
+    @staticmethod
+    def form_for_user(db: Session, user_id: int | None):
+        """Formulario que le toca contestar a ESTE visitante, por perfil.
+
+        Spec 2026-09-30-titulatec-posgrado-design.md seccion 4.5, invariante 5: el
+        formulario se resuelve por REQUEST, nunca por una constante fija. Es
+        el reemplazo directo de `open_form(db, SURVEY_CODE)` en las 4 rutas
+        publicas (GET, paso, borrador, envio).
+
+        Sin `user_id` (visitante anonimo) o sin proceso acreditable
+        (`ProcessService.creditable_process` -- el MISMO selector que ya usa
+        `_solicitud_existente` en `pages/public.py` para decidir "no hay nada
+        que congelar"), resuelve la cadena de licenciatura: invariante 3, la
+        licenciatura -y quien todavia no tiene proceso- ve exactamente lo que
+        veia antes de esta tarea.
+
+        Con proceso, `TrackService.for_process` da el perfil y
+        `SURVEY_CODES_BY_TRACK` la cadena de codigos a probar EN ORDEN: gana
+        el primero con `open_form(...)` no nulo. D3 (interino): mientras
+        `egresados_posgrado` no tenga ninguna version en `status='open'`, un
+        posgrado cae a `egresados` -exactamente como licenciatura-, y el
+        cambio a su propio formulario es automatico en cuanto alguien
+        publique esa version, sin tocar este metodo ni ningun llamador.
+        """
+        from itcj2.apps.titulatec.services.process_service import ProcessService
+        from itcj2.apps.titulatec.services.track_service import TRACK_LICENCIATURA, TrackService
+
+        track = TRACK_LICENCIATURA
+        if user_id is not None:
+            process = ProcessService.creditable_process(db, user_id)
+            if process is not None:
+                track = TrackService.for_process(db, process)
+
+        for code in SURVEY_CODES_BY_TRACK[track]:
+            form = SurveyService.open_form(db, code)
+            if form is not None:
+                return form
+        return None
 
     # -----------------------------------------------------------------
     # Borradores (solo con sesion)

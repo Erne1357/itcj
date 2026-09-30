@@ -42,14 +42,30 @@ def _to_int(raw):
 
 
 def _resolve_form(db, form_id):
-    """El formulario pedido, o el más reciente si no se pidió ninguno."""
+    """El formulario pedido; sin `form_id`, el de licenciatura si está
+    abierto, y si no el más reciente (orden de siempre).
+
+    Tarea 6 (spec 2026-09-30-titulatec-posgrado-design.md §4.5): antes de
+    esta tarea, "sin form_id" tomaba SIEMPRE el más reciente por
+    `(status, version, id)`. En cuanto exista una versión `open` de
+    `egresados_posgrado`, ese orden abriría la bandeja de GTV -y el CSV, que
+    reusa este mismo resolver- en el formulario de posgrado por omisión,
+    aunque casi todas las respuestas sigan siendo de licenciatura mientras
+    dura el interino (D3). El selector (`_forms`) ya lista TODOS los
+    formularios -quien quiera ver otro simplemente lo elige-, así que este
+    default solo evita sorprender a quien entra sin tocarlo.
+    """
     from itcj2.apps.titulatec.models import SurveyForm
+    from itcj2.apps.titulatec.services.survey_service import SURVEY_CODE, SurveyService
+
     if form_id:
         return db.get(SurveyForm, form_id)
-    return (db.query(SurveyForm)
-            .order_by(SurveyForm.status.desc(), SurveyForm.version.desc(),
-                      SurveyForm.id.desc())
-            .first())
+    return SurveyService.open_form(db, SURVEY_CODE) or (
+        db.query(SurveyForm)
+        .order_by(SurveyForm.status.desc(), SurveyForm.version.desc(),
+                  SurveyForm.id.desc())
+        .first()
+    )
 
 
 def _forms(db):
