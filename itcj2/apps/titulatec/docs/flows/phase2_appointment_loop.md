@@ -221,7 +221,7 @@ Todas las rutas del encargado cuelgan de `/titulatec/admin/appointments`.
 |---|---|---|---|---|---|---|---|---|
 | 0 | 🏛️ | Espacios | abrir/editar su espacio | `POST /espacios/{window_id}` (`nuevo` o id) | `ReviewWindowService.create` / `.update` | `titulatec_review_windows` | — | — |
 | 0b| 🏛️ | Espacios | pausar · eliminar · copiar a los demás días | `POST /espacios/{id}/pausa` · `/eliminar` · `/copiar` | `toggle_pause` · `delete` · `copy_to_days` | ídem (copiar **también copia el modo**) | — | — |
-| 0c| 🏛️ | Agenda · tablero (bloque **Sin horario**) | **«Abrir más lugares»** (D6): +N al cupo TOTAL | `POST /espacios/{id}/lugares` (form `n`) | `ReviewWindowService.add_places` | `titulatec_review_windows.capacity += n` (n: 1-50 por vez, tope 500 en total) bajo el lock de la ventana | — | — |
+| 0c| 🏛️ | Agenda · tablero (bloque **Sin horario**) | **«Abrir más lugares»** (D6): +N al cupo TOTAL | `POST /espacios/{id}/lugares` (form `n`) | `ReviewWindowService.add_places` | `titulatec_review_windows.capacity += n` (n: 1-50 por vez, tope 100 en total — D12) bajo el lock de la ventana | — | — |
 | 1 | 🏛️ | Agenda · tablero | **agendar** picando un lugar libre (o arrastrando al alumno) | `POST /{pid}/move?window_id=&slot=` | `AppointmentService.create` → `SlotService.assign` | **INSERT** cita `scheduled`, `is_current`, `attempt_no=max+1`, `booked_by='officer'` | `appointment_scheduled` + notif `APPOINTMENT_SCHEDULED` | `appt_changed` (`scheduled`, `by=officer`) |
 | 1b| 🏛️ | ficha | agendar desde el formulario | `POST /{pid}/schedule` | ídem | ídem | ídem | ídem |
 | 1c| 🏛️ | Agenda · tablero / Atender · ficha (espacio **Sin horario** de HOY) | **«Atender ahora»** (D7): sienta al egresado y arranca el cotejo en una sola transacción | `POST /{pid}/atender-ahora` (form `window_id`) | `AppointmentService.attend_now` → `create(..., start_now=True)` | **INSERT** cita `scheduled` → `in_progress` (misma transacción), `booked_by='officer'` | `appointment_scheduled` + `appointment_in_progress`, **sin** notif in-app | — (sin correo de «agendada»: el egresado está enfrente) |
@@ -250,9 +250,9 @@ quien atendió y le faltaron papeles.
 > **«Abrir más lugares» (0c, D6) solo existe en espacios Sin horario.** Con franjas, `capacity` es
 > el cupo POR FRANJA y se edita en el editor de espacios (máx. 20); ahí `add_places` responde
 > `InvalidSlot` («Solo los espacios sin horario abren lugares.»). El rango de `n` (1-50) se valida
-> antes del lock; el modo y el tope total (500 — el mismo `max` del campo «Personas en total» del
-> editor) se validan contra la fila que `_lock_window` **relee** bajo el lock, para que dos
-> encargados abriendo lugares a la vez no se pisen.
+> antes del lock; el modo y el tope total (100 desde D12 — el mismo `max` del campo «Personas en
+> total» del editor; un espacio nuevo nace con 30) se validan contra la fila que `_lock_window`
+> **relee** bajo el lock, para que dos encargados abriendo lugares a la vez no se pisen.
 >
 > **«Atender ahora» (1c, D7) tiene su propia guarda, además de la de `create`.** Solo funciona en un
 > espacio **Sin horario**, **de HOY** (`db_now().date()`) y **del propio encargado** (ni siquiera
@@ -356,9 +356,9 @@ correo con la cita vigente (D7). Sin correo, a propósito: confirmar, solicitar 
   → `WalkinStartLocked` (los apartados guardan día + apertura; ampliar el CIERRE o abrir más
   lugares sí se puede); encoger el horario o el cupo total por debajo de las citas vivas →
   `WindowShrinkConflict`; pasar de franjas a Sin horario sin que quepan las vivas en el cupo total
-  nuevo → `WindowModeConflict`; «Abrir más lugares» fuera de 1-50 por vez o por encima de 500 en
-  total → `PlacesOutOfRange`. Las cuatro las levanta `ReviewWindowService` (crear/editar el espacio,
-  o `add_places`), nunca `AppointmentService`.
+  nuevo → `WindowModeConflict`; «Abrir más lugares» fuera de 1-50 por vez o por encima de 100 en
+  total (D12) → `PlacesOutOfRange`. Las cuatro las levanta `ReviewWindowService` (crear/editar el
+  espacio, o `add_places`), nunca `AppointmentService`.
 - **Doble clic en «Agendar»** → `AppointmentConflict`. La guarda de `create` corre **fuera** de los
   locks, así que la que vale es la re-comprobación de dentro del advisory lock (`rechazar_activa`).
   Sin ella, el segundo clic superaba al primero y —peor— **liberaba su franja**, porque
