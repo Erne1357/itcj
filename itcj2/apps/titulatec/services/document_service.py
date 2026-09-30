@@ -5,7 +5,93 @@ from sqlalchemy.orm import Session
 
 
 class DocumentService:
-    INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
+    # Fase 1 por PERFIL (spec 2026-09-30-titulatec-posgrado-design.md §4.4,
+    # invariante 1: el set de fase 1 de un proceso sale SOLO de aquí). Retira
+    # al antiguo `INITIAL_DOC_TYPES` -- el mismo literal de 3 códigos repetido
+    # aquí y en `pages/{documents,student,appointments,admin}.py`, sin
+    # distinguir perfil; esas páginas siguen con su copia hasta que las
+    # Tareas 4 y 5 las hagan consumir este servicio.
+    #
+    # `BASE_INITIAL_DOCS`: acta, certificado y CURP -- licenciatura Y el
+    # "suelo" de posgrado. `POSGRADO_EXTRA_DOCS`: los 4 que solo sube un
+    # egresado de posgrado (`TrackService.TRACK_POSGRADO`) -- cédula
+    # profesional, título, oficios de autorización de la DEPI y el
+    # comprobante de e.firma/cita SAT. Ver `initial_doc_types`.
+    BASE_INITIAL_DOCS: tuple[str, ...] = ("birth_certificate", "high_school_cert", "curp")
+    POSGRADO_EXTRA_DOCS: tuple[str, ...] = (
+        "professional_license", "degree_title", "postgrad_authorization", "efirma_sat",
+    )
+
+    # Ayuda por espacio (alumno), SOLO los 4 extras -- los 3 base no cambian
+    # de texto por perfil (spec §4.4). D6: cédula y título son del GRADO
+    # ANTERIOR (maestría los sube de licenciatura; doctorado, de maestría).
+    # D5: los oficios de la DEPI van en un solo PDF.
+    INITIAL_DOC_HINTS: dict[str, str] = {
+        "professional_license": (
+            "De tu grado anterior (licenciatura si cursaste maestría; "
+            "maestría si cursaste doctorado)."
+        ),
+        "degree_title": (
+            "De tu grado anterior (licenciatura si cursaste maestría; "
+            "maestría si cursaste doctorado)."
+        ),
+        "postgrad_authorization": "Júntalos en un solo PDF.",
+        "efirma_sat": "Comprobante de tu e.firma o de tu cita con el SAT.",
+    }
+
+    # ------------------------------------------------------------- set por perfil
+    @staticmethod
+    def initial_doc_types(track: str) -> tuple[str, ...]:
+        """Documentos de la fase 1 para un PERFIL ya resuelto (no un proceso).
+
+        `track` es lo que devuelve `TrackService` (invariante 2: el perfil
+        sale SOLO de ahí, nadie más compara nombres de carrera ni `level`).
+        Posgrado (`TrackService.TRACK_POSGRADO`): los 3 base + los 4 extras,
+        EN ESE ORDEN -- el orden importa para `initial_docs_summary` y para
+        la UI que itera esta tupla (los base van primero, igual que hoy).
+        Cualquier otro valor -- incluido uno que no debería llegar tras pasar
+        por `TrackService` -- cae a licenciatura: falla CERRADO (pide de más,
+        nunca de menos).
+        """
+        from itcj2.apps.titulatec.services.track_service import TRACK_POSGRADO
+
+        if track == TRACK_POSGRADO:
+            return DocumentService.BASE_INITIAL_DOCS + DocumentService.POSGRADO_EXTRA_DOCS
+        return DocumentService.BASE_INITIAL_DOCS
+
+    @staticmethod
+    def initial_doc_types_for(db: Session, process) -> tuple[str, ...]:
+        """`initial_doc_types` del perfil de un proceso YA CARGADO."""
+        from itcj2.apps.titulatec.services.track_service import TrackService
+
+        return DocumentService.initial_doc_types(TrackService.for_process(db, process))
+
+    @staticmethod
+    def initial_doc_types_for_id(db: Session, process_id: int) -> tuple[str, ...]:
+        """Igual que `initial_doc_types_for`, buscando primero el proceso por id.
+
+        Un proceso inexistente resuelve a licenciatura, igual que
+        `TrackService.for_process_id` -- nunca una excepción.
+        """
+        from itcj2.apps.titulatec.services.track_service import TrackService
+
+        return DocumentService.initial_doc_types(TrackService.for_process_id(db, process_id))
+
+    @staticmethod
+    def initial_doc_types_by_process(db: Session, processes) -> dict[int, tuple[str, ...]]:
+        """`initial_doc_types_for` de VARIOS procesos en UNA sola consulta.
+
+        Para bandejas y barridos que ya trajeron la lista completa de
+        procesos (p. ej. `AppointmentService._pending_candidates`,
+        `MailReminders._documentos`): resolver el perfil proceso por proceso
+        dispararía la consulta de `TrackService.for_process` (carrera) una
+        vez por candidato. Vía `TrackService.for_processes` -- lista vacía o
+        sin ningún `program_id` no consulta nada.
+        """
+        from itcj2.apps.titulatec.services.track_service import TrackService
+
+        tracks = TrackService.for_processes(db, processes)
+        return {pid: DocumentService.initial_doc_types(track) for pid, track in tracks.items()}
 
     # ----------------------------------------------------------------- bitacora
     @staticmethod
@@ -29,22 +115,67 @@ class DocumentService:
         ))
 
     @staticmethod
-    def initial_docs_all_approved(db, process_id: int) -> bool:
-        """True si los 3 documentos iniciales están en review_status='approved'."""
-        for code in DocumentService.INITIAL_DOC_TYPES:
+    def initial_docs_all_approved(db, process_id: int,
+                                  codes: tuple[str, ...] | None = None) -> bool:
+        """True si todos los documentos iniciales de `codes` están `approved`.
+
+        `codes=None` (uso normal): el set del PROPIO proceso
+        (`initial_doc_types_for_id`) -- licenciatura, 3; posgrado, 7. Quien ya
+        tiene el set en mano (p. ej. un lote resuelto con
+        `initial_doc_types_by_process`) lo pasa explícito para no repetir esa
+        consulta por candidato.
+
+        R-G (spec 2026-09-30-titulatec-posgrado-design.md §5, invariante 8,
+        deriva de D9): un proceso de posgrado que YA PASÓ la fase de
+        `initial_docs` (`process.current_phase` mayor que su número de fase)
+        no se regresa por los extras de posgrado que le falten -- esos
+        códigos FALTANTES dejan de contar. Uno que SÍ tiene fila debe estar
+        `approved`, igual que cualquier otro; los 3 base SIEMPRE se exigen,
+        haya pasado la fase o no. Sin proceso o sin catálogo de fases, la
+        fase 1 se trata como ABIERTA (se exige el set completo) -- nunca se
+        lanza una excepción por esto.
+
+        El estado de la fase (proceso + número de `initial_docs`) se calcula
+        LA PRIMERA VEZ que hace falta -- un extra ausente -- y se reutiliza
+        después: si `codes` no trae ningún extra (licenciatura de toda la
+        vida, o un `db` de prueba tipo `MagicMock`), esa consulta ni se
+        intenta.
+        """
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        if codes is None:
+            codes = DocumentService.initial_doc_types_for_id(db, process_id)
+
+        fase1_cerrada = None
+        for code in codes:
             doc = DocumentService.get_document(db, process_id, code)
+            if doc is None and code in DocumentService.POSGRADO_EXTRA_DOCS:
+                if fase1_cerrada is None:
+                    proceso = db.get(TitulationProcess, process_id)
+                    n = PhaseService.phase_number_for_code(db, "initial_docs")
+                    fase1_cerrada = bool(
+                        proceso is not None and n is not None and proceso.current_phase > n
+                    )
+                if fase1_cerrada:
+                    continue
+                return False
             if not doc or doc.review_status != "approved":
                 return False
         return True
 
     @staticmethod
-    def initial_docs_summary(db, process_id: int) -> dict:
-        """Resumen de los 3 documentos iniciales en **dos** consultas fijas.
+    def initial_docs_summary(db, process_id: int,
+                             codes: tuple[str, ...] | None = None) -> dict:
+        """Resumen de los documentos iniciales del proceso en pocas consultas FIJAS.
 
-        Lo consume el acordeón del dashboard del alumno, que se pinta 9 veces por
-        carga: `initial_docs_all_approved` haría una consulta por código (y no
-        distingue rechazado de faltante), así que ahí sería un N+1 en la pantalla
-        más visitada de la app.
+        Lo consume el acordeón del dashboard del alumno, la pantalla más
+        visitada de la app: `initial_docs_all_approved` haría una consulta
+        por código (y no distingue rechazado de faltante), así que ahí sería
+        un N+1. `codes=None` (uso normal) resuelve el set del PROPIO proceso
+        (`initial_doc_types_for_id`); quien ya lo tenga en mano lo pasa
+        explícito. Las consultas de documentos y nombres son SIEMPRE dos, sin
+        importar cuántos códigos traiga `codes` -- solo cambia el `IN (...)`.
 
         `status` por documento: ``approved|rejected|pending|missing`` — ``missing``
         es el pseudo-estado de la UI cuando no hay fila (mismo criterio que
@@ -52,7 +183,9 @@ class DocumentService:
         """
         from itcj2.apps.titulatec.models import Document, DocumentType
 
-        codes = DocumentService.INITIAL_DOC_TYPES
+        if codes is None:
+            codes = DocumentService.initial_doc_types_for_id(db, process_id)
+
         docs = {
             d.type_code: d for d in
             db.query(Document)
@@ -88,8 +221,9 @@ class DocumentService:
 
     @staticmethod
     def sync_initial_phase(db: Session, process) -> str | None:
-        """Sincroniza `ProcessPhase(1)` según cuántos de los 3 documentos
-        iniciales están presentes. Reemplaza al antiguo
+        """Sincroniza `ProcessPhase(1)` según cuántos documentos iniciales DEL
+        PERFIL del proceso (`initial_doc_types_for`: licenciatura, 3;
+        posgrado, 7) están presentes. Reemplaza al antiguo
         `POST /student/phase/1/submit` (Tarea 1, 2026-09-28, plan
         titulatec-correos-notificaciones): la fase 1 ya no se "envía" a mano,
         se sincroniza sola en cada `save()`/`delete()` de un documento de esa
@@ -103,11 +237,13 @@ class DocumentService:
         - Solo actúa si `process.status == "active"` **y**
           `process.current_phase` es justo esa fase: una fase ya pasada,
           todavía futura, o un proceso en pausa/cerrado no se tocan.
-        - 3 presentes -> `"in_review"`, pero SOLO si estaba en
+        - TODOS presentes -> `"in_review"`, pero SOLO si estaba en
           `pending|in_progress|rejected` (crea la fila `ProcessPhase` si
           falta, como hacía la ruta vieja).
         - Falta alguno -> `"in_progress"`, pero SOLO si estaba `"in_review"`.
-        - NUNCA toca `approved` ni `skipped`.
+        - NUNCA toca `approved` ni `skipped` (R-G, spec §5: `init-posgrado` y
+          esta misma función re-sincronizando una fase ya cerrada no pueden
+          regresarla).
 
         Esto NO es una guarda de acceso (no lanza `ValueError`): es un efecto
         secundario de guardar/borrar un documento, así que ante cualquier caso
@@ -129,13 +265,14 @@ class DocumentService:
         if process.status != "active" or process.current_phase != n:
             return None
 
+        codes = DocumentService.initial_doc_types_for(db, process)
         count = (
             db.query(Document)
             .filter(Document.process_id == process.id,
-                    Document.type_code.in_(DocumentService.INITIAL_DOC_TYPES))
+                    Document.type_code.in_(codes))
             .count()
         )
-        complete = count >= len(DocumentService.INITIAL_DOC_TYPES)
+        complete = count >= len(codes)
 
         phase = db.query(ProcessPhase).filter_by(process_id=process.id, phase_number=n).first()
         current_status = phase.status if phase else "pending"

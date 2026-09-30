@@ -292,8 +292,11 @@ class MailReminders:
 
     @staticmethod
     def _documentos(db: Session, now: datetime) -> int:
-        """#10: procesos con su inicio de fase, documentos, nombres, actividad y
-        llaves, cinco consultas para todos."""
+        """#10: procesos con su inicio de fase, documentos, nombres, perfil,
+        actividad y llaves -- cinco consultas fijas, más la del perfil
+        (`DocumentService.initial_doc_types_by_process`, una sola para todo
+        el lote y NINGUNA si nadie trae carrera) cuando hace falta resolver
+        el set de posgrado."""
         from sqlalchemy import and_, func
 
         from itcj2.apps.titulatec.models import (
@@ -319,21 +322,31 @@ class MailReminders:
         if not filas:
             return 0
 
-        # El criterio de `initial_docs_summary` para todos a la vez: sin fila =
-        # falta; `rejected` = por corregir. Nombres del catálogo (sin
-        # `is_active`, como allá), o el código si no hay fila.
-        codigos = DocumentService.INITIAL_DOC_TYPES
+        # Todos aquí siguen EN la fase de documentos (`current_phase == fase`):
+        # R-G (spec 2026-09-30-titulatec-posgrado-design.md §5) no aplica --
+        # esa regla es para quien YA la pasó. El set es el DE CADA PROCESO
+        # (licenciatura: 3; posgrado: 7), resuelto en LOTE
+        # (`initial_doc_types_by_process`); la consulta de estados usa la
+        # UNIÓN de todos los sets para no repetir un SELECT por perfil
+        # distinto, y cada proceso decide "falta"/"corregir" contra el SUYO.
+        # El criterio es el de `initial_docs_summary`: sin fila = falta;
+        # `rejected` = por corregir. Nombres del catálogo (sin `is_active`,
+        # como allá), o el código si no hay fila.
+        procesos = [p for p, _ in filas]
+        codes_by_process = DocumentService.initial_doc_types_by_process(db, procesos)
+        union_codigos = sorted({c for codigos in codes_by_process.values() for c in codigos})
         estados: dict[int, dict[str, str]] = defaultdict(dict)
         for pid, codigo, estado in (db.query(Document.process_id, Document.type_code,
                                              Document.review_status)
-                                    .filter(Document.process_id.in_([p.id for p, _ in filas]),
-                                            Document.type_code.in_(codigos))):
+                                    .filter(Document.process_id.in_([p.id for p in procesos]),
+                                            Document.type_code.in_(union_codigos))):
             estados[pid][codigo] = estado
         nombres = dict(db.query(DocumentType.code, DocumentType.name)
-                       .filter(DocumentType.code.in_(codigos)).all())
+                       .filter(DocumentType.code.in_(union_codigos)).all())
 
         pendientes = {}
         for proc, inicio in filas:
+            codigos = codes_by_process.get(proc.id, DocumentService.BASE_INITIAL_DOCS)
             docs = estados.get(proc.id, {})
             faltan = [nombres.get(c, c) for c in codigos if c not in docs]
             corregir = [nombres.get(c, c) for c in codigos if docs.get(c) == "rejected"]

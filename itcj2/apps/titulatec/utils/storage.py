@@ -35,13 +35,19 @@ _MAX_IMAGE_DIM = 1920
 _JPEG_QUALITY = 85
 _MB = 1024 * 1024
 
-# Etiqueta del archivo en disco y en la descarga. Los tres iniciales llevan el
-# nombre corto con el que los conoce la ventanilla; el resto, su código en
-# mayúsculas (EGEL_PROOF, INE, ANEXO_III, RESIDENCY_PROOF, FINAL_PROJECT...).
+# Etiqueta del archivo en disco y en la descarga. Los documentos iniciales --
+# los 3 de licenciatura y los 4 extras de posgrado (spec 2026-09-30-titulatec-
+# posgrado-design.md §4.4) -- llevan el nombre corto con el que los conoce la
+# ventanilla; el resto, su código en mayúsculas (EGEL_PROOF, INE, ANEXO_III,
+# RESIDENCY_PROOF, FINAL_PROJECT...).
 _DOCUMENT_LABELS = {
     "birth_certificate": "ACTA",
     "high_school_cert": "CERTIFICADO",
     "curp": "CURP",
+    "professional_license": "CEDULA",
+    "degree_title": "TITULO",
+    "postgrad_authorization": "OFICIOS",
+    "efirma_sat": "EFIRMA",
 }
 
 # El número de control viene de `core_users.control_number`, que el importador

@@ -740,6 +740,18 @@ INITIAL_DOC_TYPES = (
     ("curp", "CURP certificada", 1),
 )
 
+# Los 4 extras de fase 1 que solo sube un egresado de posgrado (spec
+# 2026-09-30-titulatec-posgrado-design.md §4.4). `seed_document_types` no los
+# siembra por omision -- se piden con
+# `seed_document_types(types=INITIAL_DOC_TYPES + POSGRADO_DOC_TYPES)`.
+POSGRADO_DOC_TYPES = (
+    ("professional_license", "Cédula profesional", 1),
+    ("degree_title", "Título", 1),
+    ("postgrad_authorization",
+     "Oficios de autorización de la División de Estudios de Posgrado", 1),
+    ("efirma_sat", "Comprobante de e.firma o cita con el SAT", 1),
+)
+
 
 @pytest.fixture()
 def seed_phase_defs(db_session):

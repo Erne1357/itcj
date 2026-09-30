@@ -324,11 +324,15 @@ class AppointmentService:
     @staticmethod
     def _pending_candidates(db: Session, *, program_id: int | None,
                             allowed_program_ids: set | None) -> list:
-        """Procesos activos, SIN cita vigente, con los 3 documentos iniciales
-        aprobados y con la encuesta de egresados ya LIBERADA por Gestión
-        Tecnológica y Vinculación (D1, spec 2026-09-29-titulatec-cotejo-
-        espacios-design.md §2 — revierte D2 del 2026-09-15: antes bastaba con
-        que la solicitud existiera, sin importar su estado).
+        """Procesos activos, SIN cita vigente, con los documentos iniciales DE
+        SU PERFIL aprobados (licenciatura: 3; posgrado: 7 --
+        `DocumentService.initial_doc_types_for`, con la excepción R-G de un
+        proceso cuya fase 1 ya cerró: spec 2026-09-30-titulatec-posgrado-
+        design.md §5, invariante 8) y con la encuesta de egresados ya
+        LIBERADA por Gestión Tecnológica y Vinculación (D1, spec 2026-09-29-
+        titulatec-cotejo-espacios-design.md §2 — revierte D2 del 2026-09-15:
+        antes bastaba con que la solicitud existiera, sin importar su
+        estado).
 
         De aquí salen DOS cubos que se reparten el conjunto sin solaparse
         (§6): «Por agendar» y «Requieren que les agendes» (los bloqueados por
@@ -338,7 +342,7 @@ class AppointmentService:
 
         Los `no_show` NO entran: conservan su cita y su lugar («si no se
         presentó es que ya pasó») y viven en `list_reschedule_processes`.
-        Quien SÍ tiene los 3 documentos pero cuya encuesta no está liberada
+        Quien SÍ tiene sus documentos pero cuya encuesta no está liberada
         (nunca la envió, o la envió y GTV todavía no la libera) vive en
         `list_missing_survey_processes`.
         """
@@ -353,7 +357,14 @@ class AppointmentService:
                             SurveyReview.status == "approved")
                     .exists())
         candidates = q.order_by(TitulationProcess.created_at).all()
-        return [p for p in candidates if DocumentService.initial_docs_all_approved(db, p.id)]
+        # Perfil de TODOS en UNA consulta (`TrackService.for_processes`, vía
+        # `initial_doc_types_by_process`) -- no una por candidato: cada
+        # llamada a `initial_docs_all_approved` recibe su propio set ya
+        # resuelto y no vuelve a preguntar por la carrera.
+        codes_by_process = DocumentService.initial_doc_types_by_process(db, candidates)
+        return [p for p in candidates
+                if DocumentService.initial_docs_all_approved(
+                    db, p.id, codes=codes_by_process[p.id])]
 
     @staticmethod
     def list_pending_processes(db: Session, *, program_id: int | None = None,
@@ -405,9 +416,9 @@ class AppointmentService:
     @staticmethod
     def list_missing_survey_processes(db: Session, *, program_id: int | None = None,
                                       allowed_program_ids: set | None = None) -> list:
-        """Procesos activos, SIN cita, con los 3 documentos aprobados, pero
-        SIN la encuesta de egresados LIBERADA (D1, revierte D2 del
-        2026-09-15).
+        """Procesos activos, SIN cita, con los documentos iniciales de su
+        perfil aprobados (ver `_pending_candidates`), pero SIN la encuesta de
+        egresados LIBERADA (D1, revierte D2 del 2026-09-15).
 
         Mismo universo y alcance que `list_pending_processes` — misma base
         (`_unscheduled_query`) y mismo filtro de documentos — con el ÚNICO
@@ -430,7 +441,10 @@ class AppointmentService:
                             SurveyReview.status == "approved")
                     .exists())
         candidates = q.order_by(TitulationProcess.created_at).all()
-        return [p for p in candidates if DocumentService.initial_docs_all_approved(db, p.id)]
+        codes_by_process = DocumentService.initial_doc_types_by_process(db, candidates)
+        return [p for p in candidates
+                if DocumentService.initial_docs_all_approved(
+                    db, p.id, codes=codes_by_process[p.id])]
 
     @staticmethod
     def list_reschedule_processes(db: Session, *,
