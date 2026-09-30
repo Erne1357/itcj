@@ -11,6 +11,7 @@ Comandos:
     titulatec sii-check <control>         Dry-run de las reglas del SII (NIP enmascarado).
     titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta y reintenta).
     titulatec init-email-tasks [--dry-run] Da de alta las periódicas de correo (envío + recordatorios).
+    titulatec init-posgrado [--dry-run]    Clasifica las 4 carreras de posgrado y sus 4 documentos de fase 1.
 """
 import os
 from pathlib import Path, PurePosixPath
@@ -92,6 +93,20 @@ SEED_FILES = [
     # `init-titulatec` completo NUNCA se re-ejecuta, así que ese comando es el
     # único camino de despliegue para este archivo.
     "mail_2026_09/17_insert_email_tasks.sql",
+    # --- Delta 2026-10: egresados de posgrado (perfil de titulación) --------
+    # Clasifica las 4 carreras de posgrado (2 maestrías + la de industrial +
+    # el doctorado) por NOMBRE NORMALIZADO -- nunca por id ni "las últimas 4"
+    # (spec 2026-09-30-titulatec-posgrado-design.md, D2) -- y da de alta los
+    # 4 tipos de documento extra de fase 1 (`DocumentService.
+    # POSGRADO_EXTRA_DOCS`). El 18 aborta SIN escribir ante cualquier
+    # ambigüedad o carrera de posgrado a medias: nunca duplica (invariante 7).
+    # No inserta permisos, así que va antes del 15 sin problema. También
+    # corre SOLA con `titulatec init-posgrado` (D10, mismo patrón que el 17 de
+    # arriba): en producción las 4 carreras YA EXISTEN (tecleadas a mano) e
+    # `init-titulatec` completo NUNCA se re-ejecuta allí, así que ese comando
+    # es el único camino de despliegue para este delta.
+    "posgrado_2026_10/18_classify_posgrado_programs.sql",
+    "posgrado_2026_10/19_insert_posgrado_doc_types.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
@@ -1192,6 +1207,270 @@ def init_email_tasks_command(dry_run):
         "OK: titulatec.email_dispatch (cada 5 minutos) y titulatec.email_reminders "
         "(diaria 9:00) registradas en core_periodic_tasks. El beat las programa "
         "solo en ~30 s (el worker ya las conoce si corrió el deploy).",
+        fg="green",
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Egresados de posgrado / perfil de titulación (2026-10, spec
+# 2026-09-30-titulatec-posgrado-design.md): las 4 carreras de posgrado del
+# ITCJ (2 maestrías + la de industrial + el doctorado) YA EXISTEN en
+# producción -- tecleadas a mano, ortografía desconocida -- pero NO en dev/CI.
+# `18_classify_posgrado_programs.sql` las ubica por NOMBRE NORMALIZADO (D2:
+# nunca por id ni "las últimas 4", que en dev/CI marcaría licenciatura) y les
+# marca `core_programs.level`; aborta SIN escribir ante cualquier ambigüedad
+# o carrera de posgrado a medias (invariante 7). El 19 da de alta los 4
+# tipos de documento extra de fase 1 (`DocumentService.POSGRADO_EXTRA_DOCS`).
+# Mismo patrón D10 que el correo
+# (`init-email-tasks`): producción ya corrió `init-titulatec` y ese comando
+# nunca se re-ejecuta allí, así que este comando es el único camino de
+# despliegue para este delta -- además de sumarse a `SEED_FILES` arriba.
+# ---------------------------------------------------------------------------
+_DML_POSGRADO_2026_10_DIR = "posgrado_2026_10"
+# Debe listar TODOS los .sql del directorio (mismo contrato que
+# `_DML_MAIL_2026_09_FILES`/`_DML_SURVEY_2026_09_FILES`): lo fija
+# `test_directorio_lista_exactamente_los_dos_archivos`
+# (tests/fastapi/titulatec/test_cli_posgrado.py). Un archivo que se cae de
+# aquí no lo corre nadie y nada se pone rojo.
+_DML_POSGRADO_2026_10_FILES = [
+    "18_classify_posgrado_programs.sql",
+    "19_insert_posgrado_doc_types.sql",
+]
+
+
+def _verify_posgrado() -> list[str]:
+    """Comprueba que el delta de posgrado ATERRIZÓ. Devuelve la lista de problemas.
+
+    Mismo contrato que `_verify_survey_2026_09`/`_verify_titulacion`/
+    `_verify_computer_center`: abre su propia conexión, arma sets contra la
+    BD y devuelve strings de problema en vez de levantar -- los `RAISE
+    NOTICE` del 18/19 son INVISIBLES para `itcj2/` (nada lee
+    `connection.notices`), así que sin esto el operador vería "OK" aunque,
+    por ejemplo, el 19 no hubiera activado un tipo por un `ON CONFLICT` mal
+    resuelto.
+
+    Comprueba:
+      - las 4 carreras de posgrado, cada una por SU patrón exacto del 18
+        (spec §4.2): las 3 de `MAESTRIA%` (`%NEGOCIOS%`, `%ADMINISTRATIVA%`,
+        `%INDUSTRIAL%`) con nivel `maestria`, y la de `DOCTORADO%` con nivel
+        `doctorado`. Un patrón con 0 o 2+ carreras es un problema (el 18
+        debería haber abortado antes de llegar aquí, pero esta verificación
+        no confía en eso -- mismo espíritu que el resto de los `_verify_*`).
+      - los 4 tipos de `DocumentService.POSGRADO_EXTRA_DOCS` existen,
+        ACTIVOS y en fase 1 (`titulatec_document_types`).
+    """
+    from sqlalchemy import text
+
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.cli.core import _get_engine
+
+    problemas: list[str] = []
+    # (nivel esperado, patrón1, patrón2-o-None): los mismos 4 patrones del 18.
+    patrones = (
+        ("maestria", "MAESTRIA%", "%NEGOCIOS%"),
+        ("maestria", "MAESTRIA%", "%ADMINISTRATIVA%"),
+        ("maestria", "MAESTRIA%", "%INDUSTRIAL%"),
+        ("doctorado", "DOCTORADO%", None),
+    )
+    norm = "upper(translate(name, 'áéíóúüÁÉÍÓÚÜ', 'aeiouuAEIOUU'))"
+
+    with _get_engine().connect() as conn:
+        for nivel, patron1, patron2 in patrones:
+            condicion = f"{norm} LIKE :p1"
+            params = {"p1": patron1}
+            if patron2:
+                condicion += f" AND {norm} LIKE :p2"
+                params["p2"] = patron2
+            filas = conn.execute(
+                text(f"SELECT id, name, level FROM core_programs WHERE {condicion}"),
+                params,
+            ).fetchall()
+            etiqueta = patron1 + (f" + {patron2}" if patron2 else "")
+            if len(filas) != 1:
+                problemas.append(
+                    f"carrera de posgrado ({etiqueta}): se esperaba exactamente 1, hay {len(filas)}"
+                )
+            elif filas[0][2] != nivel:
+                problemas.append(
+                    f"carrera '{filas[0][1]}' (id {filas[0][0]}): nivel es "
+                    f"'{filas[0][2]}', se esperaba '{nivel}'"
+                )
+
+        codigos = list(DocumentService.POSGRADO_EXTRA_DOCS)
+        activos = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT code FROM titulatec_document_types "
+                    " WHERE code = ANY(:codes) AND is_active = TRUE AND phase_number = 1"
+                ),
+                {"codes": codigos},
+            )
+        }
+        for code in codigos:
+            if code not in activos:
+                problemas.append(f"tipo de documento ausente o inactivo en fase 1: {code}")
+
+    return problemas
+
+
+def _resync_posgrado_phase1(dry_run: bool) -> list[tuple[int, str, str | None]]:
+    """Re-sincroniza `ProcessPhase(1)` de los procesos de posgrado ACTIVOS que
+    siguen en esa fase, tras clasificar las 4 carreras (spec
+    2026-09-30-titulatec-posgrado-design.md §5).
+
+    Por qué hace falta
+    -------------------
+    `DocumentService.sync_initial_phase` solo corre HOY MISMO como efecto
+    secundario de `DocumentService.save`/`delete` (subir o borrar un
+    documento). Un proceso de posgrado que YA TENÍA sus 3 documentos base
+    ANTES de este despliegue quedó en `in_review` esperando revisión con
+    SOLO 3 -- clasificar la carrera (18) no dispara por sí sola ese
+    recálculo, y sin este resync el proceso se vería atorado en Documentos
+    hasta que alguien subiera o borrara uno por casualidad.
+
+    Alcance: proceso `status == 'active'` y `current_phase` igual al número
+    de fase `initial_docs` en el catálogo, filtrado a perfil posgrado
+    (`TrackService.for_processes`, invariante 2: el perfil sale SOLO de
+    ahí). Sin el catálogo de fases (BD nueva sin `init-titulatec`), no hay
+    nada que resincronizar -- devuelve `[]` sin abrir más consultas.
+
+    R-G (invariante 8, spec §5/§6, deriva de D9): un proceso que YA PASÓ la
+    fase 1 no entra aquí (su `current_phase` ya no es el de `initial_docs`),
+    y `sync_initial_phase` en sí mismo nunca toca `approved`/`skipped` -- no
+    se regresa.
+
+    `dry_run=True`: calcula todo igual (incluidas las mutaciones en memoria
+    de `sync_initial_phase`) y termina en ROLLBACK -- nunca escribe.
+    `dry_run=False` hace COMMIT una sola vez, al final.
+
+    Devuelve una tupla `(process_id, folio, nuevo_estado)` por proceso en
+    alcance; `nuevo_estado` es lo que devolvió `sync_initial_phase` (`None`
+    si no cambió nada -- p. ej. ya estaba `in_progress` con menos de 7).
+    """
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.track_service import TRACK_POSGRADO, TrackService
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    resultados: list[tuple[int, str, str | None]] = []
+    try:
+        n = PhaseService.phase_number_for_code(db, "initial_docs")
+        if n is None:
+            return resultados
+
+        procesos = (
+            db.query(TitulationProcess)
+            .filter(TitulationProcess.status == "active", TitulationProcess.current_phase == n)
+            .all()
+        )
+        if procesos:
+            tracks = TrackService.for_processes(db, procesos)
+            for proceso in procesos:
+                if tracks.get(proceso.id) != TRACK_POSGRADO:
+                    continue
+                nuevo_estado = DocumentService.sync_initial_phase(db, proceso)
+                resultados.append((proceso.id, proceso.folio, nuevo_estado))
+
+        if dry_run:
+            db.rollback()
+        else:
+            db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+    return resultados
+
+
+@titulatec_cli.command("init-posgrado")
+@click.option("--dry-run", is_flag=True,
+              help="Lista archivos y procesos a re-sincronizar sin escribir.")
+def init_posgrado_command(dry_run):
+    """Clasifica las 4 carreras de posgrado y da de alta sus 4 documentos de fase 1.
+
+    Corre SOLO `database/DML/titulatec/posgrado_2026_10/`
+    (`_DML_POSGRADO_2026_10_FILES`, D10): producción ya corrió
+    `init-titulatec` y ese comando nunca se re-ejecuta allí, así que este es
+    el único camino de despliegue para este delta -- además de sumarse a
+    `SEED_FILES` para una instalación desde cero.
+
+    `18_classify_posgrado_programs.sql` ubica las 4 carreras (2 maestrías +
+    la de industrial + el doctorado) POR NOMBRE NORMALIZADO (D2), nunca por
+    id ni "las últimas 4": en una base sin posgrados tecleados a mano (dev,
+    CI, instalación nueva) inserta las 4 con nombres canónicos; en una base
+    con posgrado ya tecleado a mano (prod) las ubica y marca su nivel. Aborta
+    SIN escribir ante cualquier ambigüedad (2+ carreras casan un mismo
+    patrón) o ante una carrera de posgrado a medias (alguna raíz
+    MAESTR/DOCTOR existe pero un patrón no casa) -- nunca duplica
+    (invariante 7). `19_insert_posgrado_doc_types.sql` da de alta los 4 tipos
+    de documento extra de fase 1 (`DocumentService.POSGRADO_EXTRA_DOCS`).
+
+    Al terminar VERIFICA con `_verify_posgrado()` (los `RAISE NOTICE` del SQL
+    son invisibles, mismo motivo que el resto de los `_verify_*` de este
+    archivo) e imprime id/nombre/nivel de las 4 carreras. Después
+    RE-SINCRONIZA la fase 1 de los procesos de posgrado ACTIVOS que siguen en
+    esa fase (spec §5): uno que llevaba los 3 documentos base y estaba
+    `in_review` esperando revisión pasa a `in_progress` (le faltan los 4
+    nuevos) -- sin avisos ni correos, `sync_initial_phase` solo escribe
+    estado. R-G (invariante 8): un proceso que YA PASÓ la fase 1 no se toca,
+    aunque le falten los 4 extras -- no se regresa (D9).
+
+    `--dry-run`: lista los 2 archivos y los procesos que se re-sincronizarían
+    (con el estado que resultaría), sin escribir nada -- ni el SQL ni el
+    resync. Sale 0.
+    """
+    if dry_run:
+        click.echo("[dry-run] Se ejecutaría:")
+        for nombre in _DML_POSGRADO_2026_10_FILES:
+            click.echo(f"  {_DML_POSGRADO_2026_10_DIR}/{nombre}")
+        resultados = _resync_posgrado_phase1(dry_run=True)
+        click.echo(
+            f"[dry-run] Procesos de posgrado a re-sincronizar en fase 1: {len(resultados)}"
+        )
+        for pid, folio, nuevo_estado in resultados:
+            click.echo(f"  {folio} (id {pid}): -> {nuevo_estado or '(sin cambio)'}")
+        click.echo("Dry-run: no se ejecutó nada.")
+        return
+
+    _run_sql_files(
+        [f"{_DML_POSGRADO_2026_10_DIR}/{nombre}" for nombre in _DML_POSGRADO_2026_10_FILES]
+    )
+
+    problemas = _verify_posgrado()
+    if problemas:
+        click.echo()
+        for p in problemas:
+            click.echo(click.style(f"ERROR: {p}", fg="red"), err=True)
+        raise click.Abort()
+
+    from sqlalchemy import text
+
+    from itcj2.cli.core import _get_engine
+
+    with _get_engine().connect() as conn:
+        carreras = conn.execute(
+            text(
+                "SELECT id, name, level FROM core_programs "
+                " WHERE level IN ('maestria', 'doctorado') ORDER BY id"
+            )
+        ).fetchall()
+    click.echo("Carreras de posgrado clasificadas:")
+    for pid, name, level in carreras:
+        click.echo(f"  {pid} · {name} · {level}")
+
+    resultados = _resync_posgrado_phase1(dry_run=False)
+    click.echo(f"Procesos de posgrado re-sincronizados en fase 1: {len(resultados)}")
+    for pid, folio, nuevo_estado in resultados:
+        click.echo(f"  {folio} (id {pid}): -> {nuevo_estado or '(sin cambio)'}")
+
+    click.echo(click.style(
+        "OK: 4 carreras de posgrado clasificadas y 4 tipos de documento de "
+        "fase 1 dados de alta/actualizados.",
         fg="green",
     ))
 
