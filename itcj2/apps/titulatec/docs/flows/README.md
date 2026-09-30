@@ -52,7 +52,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 ### Fase 1 — Documentos iniciales
 - [El alumno sube sus documentos iniciales](phase1_student_upload_initial_docs.md) 👤
 - [Servicios Escolares / Titulaciones revisa los documentos](phase1_admin_review_initial_docs.md) 🏛️🎓 ⤵ engine
-- [Revisión de documentos (pestaña Documentos + auto-avance)](phase1_school_services_review_docs.md) 🏛️🎓 ⤵ engine — bandeja dedicada; 3 aprobadas → fase 2.
+- [Revisión de documentos (pestaña Documentos + auto-avance)](phase1_school_services_review_docs.md) 🏛️🎓 ⤵ engine — bandeja dedicada; todos los documentos DEL PERFIL aprobados (3 en licenciatura, 7 en posgrado, desde 2026-09-30) → fase 2.
 
 ### Fase 2 — Cita de cotejo
 - [Cita de cotejo (loop completo)](phase2_appointment_loop.md) 🏛️👤 ⤵ engine
@@ -65,6 +65,9 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - *(revisión de Formato B → ver flujo de revisión, pendiente de documentar)*
 
 ### Transversales (building blocks)
+- [Perfil de titulación por nivel de carrera (licenciatura | posgrado)](engine_process_track.md) 🤖
+  (2026-09-30) — `TrackService` traduce `core_programs.level`; de ahí cuelgan el set de documentos
+  de fase 1 (3 o 7), el formulario de encuesta y la píldora «Posgrado».
 - [Motor de avance de fase: aprobar / rechazar](engine_approve_advance_phase.md) 🤖 — invocado por casi todos.
 - [Guarda de fase del alumno: solo la fase en curso se ejecuta](engine_student_phase_lock.md) 👤🤖 — gemela de la anterior: siguientes = informativas, anteriores = inmutables.
 - [Alcance por carrera + asignación delegada de encargados](engine_officer_scope.md) 🏛️ — `officer_programs` acota bandeja/kanban/citas; el jefe da de alta encargados.

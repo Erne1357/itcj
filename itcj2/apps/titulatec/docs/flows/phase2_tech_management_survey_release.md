@@ -28,6 +28,16 @@
 > service la consulta para decidir si se puede agendar**, no solo si el requisito `graduate_survey`
 > se acredita.
 
+> **Qué formulario contestó el egresado no le importa a este flujo (2026-09-30, spec
+> `titulatec-posgrado-design.md` §4.5).** El envío que abre la solicitud (paso 1, abajo) sale de
+> `SurveyService.submit`, y desde qué formulario resolvió `pages/public.py` con
+> `SurveyService.form_for_user(db, user_id)` — licenciatura (`egresados`) o, para un egresado de
+> posgrado, `egresados_posgrado` si ya existe abierto, o la de licenciatura mientras no exista (D3,
+> interino) — es indistinto para `SurveyReview`: es por PROCESO
+> (`UNIQUE(process_id)`), sin `form_id`. GTV libera/observa/revoca exactamente igual sin importar
+> cuál contestó. Detalle de la resolución por perfil: [perfil de
+> titulación](engine_process_track.md).
+
 ## Ruta en la app (UI)
 
 1. 🛠️ GTV inicia sesión → aterriza directo en `/titulatec/admin/liberaciones` (`_ROLE_DASHBOARD`,
@@ -193,6 +203,8 @@ el sistema; no se marca a mano" por la píldora `survey_review_pill(status)` —
 
 - ← Lo abre: el envío de la encuesta (`pages/public.py::survey_submit` → `SurveyService.submit`)
   — sin flujo documentado propio todavía.
+- ← Qué formulario contestó el egresado (indistinto para este flujo): [perfil de titulación por
+  nivel de carrera](engine_process_track.md) — `SurveyService.form_for_user`.
 - ⤵ Guarda de agendar: [cita de cotejo (loop completo)](phase2_appointment_loop.md) — la puerta
   D1 del 2026-09-29 (encuesta LIBERADA; **revierte D2 del 2026-09-15**, que se conformaba con
   enviarla) y el cubo "Encuesta sin liberar" (antes "Sin encuesta").

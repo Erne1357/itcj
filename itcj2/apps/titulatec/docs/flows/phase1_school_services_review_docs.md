@@ -1,8 +1,9 @@
 # Revisión de documentos iniciales (pestaña Documentos)
 
-> **Objetivo:** Servicios Escolares aprueba/rechaza los 3 documentos iniciales desde una bandeja
-> dedicada; al aprobar los 3, el proceso avanza solo a fase 2 y el alumno queda **elegible para
-> agendar cotejo**.
+> **Objetivo:** Servicios Escolares aprueba/rechaza los documentos iniciales de CADA proceso —3 en
+> licenciatura, 7 en posgrado (spec `2026-09-30-titulatec-posgrado-design.md` §4.4)— desde una
+> bandeja dedicada; al aprobar el set completo, el proceso avanza solo a fase 2 y el alumno queda
+> **elegible para agendar cotejo**.
 
 | | |
 |---|---|
@@ -10,8 +11,8 @@
 | **Permiso(s)** | ver: cualquiera de `titulatec.document.page.list`, `...dashboard.school_services`, `...dashboard.titulaciones`, `...dashboard.admin` (`_VIEW_PERMS`, `pages/documents.py:14-15`) · dictaminar: `titulatec.document.api.approve` **o** `...reject` (`_REVIEW_PERMS`, `pages/documents.py:16`) · ver el archivo: `titulatec.document.api.read.all` (`pages/documents.py:273`) |
 | **Trigger** | El alumno subió documentos (fase 1); aparecen en la pestaña **Documentos**. |
 | **Precondiciones** | Proceso `status='active'` con **al menos un archivo subido** (`pages/documents.py:161,175`). El auto-avance además exige que la fase 1 sea la transición legal del proceso: `PhaseService.can_transition(db, proc, 1)` (`pages/documents.py:262`), o sea proceso `active` **y** `current_phase == 1`. |
-| **Sub-flujos** | ⤵ al 3.º aprobado invoca el [motor de avance de fase](engine_approve_advance_phase.md). |
-| **Estado final** | 3 docs `approved` → fase 1 `approved`, `current_phase=2` → elegible para [cita de cotejo](phase2_appointment_loop.md). |
+| **Sub-flujos** | ⤵ al aprobar el último pendiente del set invoca el [motor de avance de fase](engine_approve_advance_phase.md). |
+| **Estado final** | todos los docs del set `approved` → fase 1 `approved`, `current_phase=2` → elegible para [cita de cotejo](phase2_appointment_loop.md). |
 
 ## Ruta en la app (UI)
 
@@ -19,10 +20,15 @@
    aparece con `titulatec.document.page.list` — `pages/nav.py:98` — mientras que la página acepta
    además los tres `dashboard.*` de `_VIEW_PERMS`).
 2. Bandeja master-detail acotada por carrera (`officer_programs`, `pages/documents.py:160`): izquierda
-   lista de procesos con pill de pendientes (o ✓ si los 3 están aprobados); derecha visor + dictamen
-   del documento activo. El dictamen (`:226`) y el servido del archivo (`:271`) arrancan con
-   `assert_process_in_scope` (`:250` y `:281` respectivamente) → **404** fuera del alcance, así que
-   el dictamen y su auto-avance de fase no pueden tocar un proceso de otra carrera. Ver
+   lista de procesos con pill de pendientes (o ✓ si todos los de SU perfil están aprobados); derecha
+   visor + dictamen del documento activo. **Perfiles mezclados en la misma bandeja** (Tarea 4, spec
+   §4.4): cada fila trae su propio set de 3 o 7 códigos
+   (`_doc_rows`/`_doc_row`, `pages/documents.py:18-108`, vía `TrackService.for_level` reusando el
+   `Program` ya cargado para el nombre de la carrera — sin consulta aparte) y la fila de un proceso
+   de posgrado lleva la píldora **«Posgrado»** (`track_pill`, `_macros.html:92`) junto a la carrera,
+   en `partials/documents_body.html`. El dictamen (`:226`) y el servido del archivo (`:271`) arrancan
+   con `assert_process_in_scope` (`:250` y `:281` respectivamente) → **404** fuera del alcance, así
+   que el dictamen y su auto-avance de fase no pueden tocar un proceso de otra carrera. Ver
    [alcance por carrera](engine_officer_scope.md).
 3. Filtros: Todos / Por evaluar / Con rechazo / Completos (`partials/documents_body.html:8`).
    Encabezado "N por evaluar" = suma de pendientes de las **filas ya filtradas**, no del scope
@@ -141,6 +147,12 @@ resolución del alcance por carrera, que este cambio no toca. Desde el 2026-09-2
 paga **una más, también fija**: los eventos de subida del lote (`_last_uploads`, ver abajo), que
 son los que dan su orden FIFO. Lo fija `test_la_pestana_pendiente_no_escala_con_las_filas`.
 
+**Con posgrado mezclado (Tarea 4, 2026-09-30) el `IN (3)` de `DocumentType`/`Document` pasa a ser
+`IN (hasta 7)`**: `_doc_rows` resuelve el perfil de cada proceso primero (`TrackService.for_level`)
+y arma `all_codes` con la UNIÓN de los sets de 3 y 7 en juego, así que sigue siendo **una** consulta
+cada una — más ancha, no más numerosa. El conteo de **5** no cambia pase lo que pase con los
+perfiles de la página (`test_documents_inbox.py::test_las_filas_de_la_bandeja_cuestan_lo_mismo_con_2_que_con_8`).
+
 De paso, el `ORDER BY` gana un desempate por `id` (`pages/documents.py:103-104`).
 `created_at` es `server_default NOW()` y en Postgres `NOW()` es la hora de **inicio de la
 transacción**: varios procesos creados en la misma —una importación, por ejemplo— empatan, y
@@ -244,8 +256,9 @@ nunca se avisa un avance que no ocurrió.
 
 ## Estado resultante
 
-- 3 `Document.review_status = approved` → `initial_docs_all_approved == True`
-  (`services/document_service.py:31-38`).
+- Todos los `Document.review_status = approved` del set del PERFIL (3 en licenciatura, 7 en
+  posgrado) → `initial_docs_all_approved == True` (`services/document_service.py:117-165`; el set
+  sale de [`TrackService`](engine_process_track.md), nunca de un `3` fijo).
 - Fase 1 `approved`, `current_phase = 2`, `ProcessEvent(phase_approved)` y notificación
   `PHASE_APPROVED` al alumno (`services/phase_service.py:401,424,433-436`).
 - En `titulatec_email_outbox`: un `docs_review` por dictamen más el `phase_approved` del avance,
@@ -255,7 +268,8 @@ nunca se avisa un avance que no ocurrió.
   una tanda nueva en el mismo `group_key` y sale en su propio correo aparte. Detalle:
   [correos del proceso al egresado](xcut_student_email_notifications.md).
 - El proceso entra a "Por agendar" de [cita de cotejo](phase2_appointment_loop.md)
-  (`AppointmentService.list_pending_processes` exige las 3 aprobadas).
+  (`AppointmentService.list_pending_processes` exige el set del perfil aprobado — R-G exceptúa los
+  extras de posgrado FALTANTES si la fase 1 ya cerró; ver [perfil de titulación](engine_process_track.md)).
 
 ## Caminos alternos / errores ❗
 
@@ -266,15 +280,18 @@ nunca se avisa un avance que no ocurrió.
 - Rechazar un doc → `review_status=rejected`; el proceso NO avanza; sigue en "Por evaluar" / "Con
   rechazo". Cuando el alumno re-sube, `DocumentService.save` lo devuelve a `pending`
   (`services/document_service.py:301`).
-- Aprobar solo 2 de 3 → no avanza (el avance solo dispara con las 3 y `current_phase == 1`).
-- Aprobar las 3 cuando la fase 1 ya no es la actual → no avanza; queda para «Mover de fase».
+- Aprobar solo una parte del set (p. ej. 2 de 3 en licenciatura, o 6 de 7 en posgrado) → no avanza
+  (el avance solo dispara con el set COMPLETO del perfil aprobado y `current_phase == 1`).
+- Aprobar el set completo cuando la fase 1 ya no es la actual → no avanza; queda para «Mover de
+  fase».
 - La bandeja **no** exige `ProcessPhase.status`: `_body_ctx` filtra por `status='active'` y por
   tener archivos (`pages/documents.py:161,175`). Desde 2026-09-28 (Tarea 1) ya no hay un paso de
   "enviar a revisión" que el alumno pueda omitir -- `DocumentService.sync_initial_phase` deja la
-  fase en `in_review` sola en cuanto llega el 3er documento -- pero la fase 1 puede seguir en
-  `in_progress` mientras falte alguno de los 3 (p. ej. dos subidos y aprobados, el tercero
-  todavía sin llegar): se puede aprobar y avanzar esa fase igual, porque `can_transition` no mira
-  `ProcessPhase.status`, solo `process.current_phase` y `status == 'active'`.
+  fase en `in_review` sola en cuanto llega el ÚLTIMO documento del set de SU perfil -- pero la fase
+  1 puede seguir en `in_progress` mientras falte alguno de ese set (p. ej., en licenciatura, dos
+  subidos y aprobados y el tercero todavía sin llegar): se puede aprobar y avanzar esa fase igual,
+  porque `can_transition` no mira `ProcessPhase.status`, solo `process.current_phase` y `status ==
+  'active'`.
 - El alcance por carrera cubre **las dos capas**: el listado se filtra con `officer_programs`
   (`pages/documents.py:160`) y el POST de dictamen arranca con `assert_process_in_scope`
   (`pages/documents.py:250`), que responde **404** —no 403— porque el id es secuencial y
@@ -290,5 +307,7 @@ nunca se avisa un avance que no ocurrió.
   [`phase1_admin_review_initial_docs.md`](phase1_admin_review_initial_docs.md) todavía describe esa
   ruta — **desactualizado, pendiente de corregir aparte** (fuera del alcance de esta tarea).
 - ⤵ Motor: [aprobar/avanzar fase](engine_approve_advance_phase.md).
+- ⤵ De dónde sale el set de 3 vs. 7 y la píldora «Posgrado»: [perfil de titulación por nivel de
+  carrera](engine_process_track.md).
 - ⤵ Encola correo al egresado: [correos del proceso al egresado](xcut_student_email_notifications.md).
-- → Siguiente: [cita de cotejo](phase2_appointment_loop.md) (requiere los 3 aprobados).
+- → Siguiente: [cita de cotejo](phase2_appointment_loop.md) (requiere el set del perfil aprobado).

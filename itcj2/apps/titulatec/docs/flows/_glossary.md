@@ -7,7 +7,10 @@
 > `SurveyReviewService`) se verificaron aparte contra código y BD el **2026-09-15**; el resto de
 > este archivo NO se re-auditó a esa fecha y puede haber quedado atrás de otras apps de la misma
 > campaña (encuesta, solicitudes de inscripción, espacios de cotejo) — ver las notas fechadas
-> 2026-09-15 en este mismo archivo para lo que sí se corrigió.
+> 2026-09-15 en este mismo archivo para lo que sí se corrigió. El perfil de titulación por nivel de
+> carrera (`core_programs.level`, `TrackService`, fila nueva de la tabla de Servicios) se verificó
+> aparte contra código el **2026-09-30**; detalle completo en
+> [engine_process_track.md](engine_process_track.md), no en este archivo.
 
 ## Entidades / tablas (`titulatec_*`)
 
@@ -35,8 +38,11 @@
 | `Ceremony` | `titulatec_ceremonies` | Acto protocolario (fase 8) | `cohort_id`, `scheduled_at`, `room`, `whatsapp_group_url`, `status` (`pending`/`scheduled`/`done`) |
 | `CeremonyProcess` | `titulatec_ceremony_processes` | Alumnos dentro de un acto (M2M) | `ceremony_id`, `process_id`, `final_project_path`, `presentation_path` |
 
-> FK a alumnos/usuarios: `core_users.id` (**BigInteger**). Carrera: reusa `core_programs`.
-> Período: `core_academic_periods` (vía `Cohort.period_id`).
+> FK a alumnos/usuarios: `core_users.id` (**BigInteger**). Carrera: reusa `core_programs` —
+> **desde 2026-09-30** trae `level` (`licenciatura`\|`maestria`\|`doctorado`, `CheckConstraint
+> ck_core_programs_level`), de donde `TrackService` deriva el perfil de titulación `posgrado`; ver
+> [perfil de titulación por nivel de carrera](engine_process_track.md). Período:
+> `core_academic_periods` (vía `Cohort.period_id`).
 
 ## Roles (en app `titulatec`)
 
@@ -154,16 +160,18 @@ Quién los tiene en BD hoy (los de puerta):
 
 ## Servicios
 
-11 de los ~19 módulos en `itcj2/apps/titulatec/services/` están documentados abajo (lista
+12 de los ~20 módulos en `itcj2/apps/titulatec/services/` están documentados abajo (lista
 PARCIAL, no exhaustiva — quedan fuera `cohort_service`, `email_helper`,
 `enrollment_request_service`, `process_service`, `requirement_service`,
 `review_window_service`, `slot_service` y `survey_service`: deuda de documentación de la
-campaña de encuesta/convocatoria anterior a esta tarea).
+campaña de encuesta/convocatoria anterior a esta tarea; `survey_service.form_for_user` sí está
+documentado, pero en [el perfil de titulación](engine_process_track.md), no aquí).
 
 | Símbolo | Archivo | Responsabilidad |
 |---|---|---|
+| `TrackService` (2026-09-30) | `services/track_service.py` | Perfil de titulación por nivel de carrera: `for_level`/`for_process`/`for_process_id`/`for_processes` traducen `core_programs.level` a `licenciatura` \| `posgrado` — **único** lugar que compara `.level` o nombres de carrera. Detalle: [perfil de titulación por nivel de carrera](engine_process_track.md) |
 | `PhaseService` | `services/phase_service.py` | Motor de fases: `approve_phase`/`reject_phase`, salto de fases según la modalidad (`_skips`/`_next_applicable`) y log de `ProcessEvent`. **Y las dos guardas**: `assert_can_transition` (dictamen 🏛️🎓) y `assert_student_can_act` (ejecución 👤) — [guarda de fase del alumno](engine_student_phase_lock.md) |
-| `DocumentService` | `services/document_service.py` | Guardar/leer/borrar documentos y `review()` (2026-09-21: rechaza dictaminar un documento cuyo TIPO pertenece a una fase congelada por el corte a T-soft — `dtype.phase_number >= PhaseService._handoff_phase()`; guarda angosta a propósito, NO mira `current_phase`, para no romper el dictamen tardío); además las consultas de elegibilidad `initial_docs_all_approved` y `list_phase_document_types` |
+| `DocumentService` | `services/document_service.py` | Guardar/leer/borrar documentos y `review()` (2026-09-21: rechaza dictaminar un documento cuyo TIPO pertenece a una fase congelada por el corte a T-soft — `dtype.phase_number >= PhaseService._handoff_phase()`; guarda angosta a propósito, NO mira `current_phase`, para no romper el dictamen tardío); además las consultas de elegibilidad `initial_docs_all_approved` (2026-09-30: exceptúa extras de posgrado FALTANTES si la fase 1 ya cerró, R-G) y `list_phase_document_types`. El set de fase 1 por perfil (`initial_doc_types*`) también vive aquí — ver [perfil de titulación](engine_process_track.md) |
 | `FormatBService` | `services/format_b_service.py` | Formato B multi-step: `get_or_create`, `save_step`, `submit(db, fb, process)` (reaplica la guarda de fase del alumno), `review(db, fb, process, ...)` (2026-09-21: ganó `process` y reaplica `assert_can_transition`, la guarda gemela del admin), `to_ctx` |
 | `ImportService` | `services/import_service.py` | Import CSV de la convocatoria: `parse` → `autodetect_mapping` → `build_preview` → `import_rows` (crea/empata usuario, otorga rol `graduate` y revoca `student` vía `_sync_graduate_roles`, crea proceso + sus 9 `ProcessPhase`) |
 | `AppointmentService` | `services/appointment_service.py` | Cita de cotejo (fase 2): `create`, `reschedule`, `start`, `mark_attended`, `mark_no_show`, `confirm`, `request_change`; y las lecturas de la agenda `list_appointments`, `counts_by_day`, `list_for_day`, `list_pending_processes`, `agenda_process_ids` (universo acotado contra el que se valida el `?selected=`). **Las cinco lecturas tienen `allowed_program_ids` con default ABIERTO** |

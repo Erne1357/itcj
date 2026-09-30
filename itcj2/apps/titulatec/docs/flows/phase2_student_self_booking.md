@@ -309,6 +309,18 @@ Por eso `cancel` **envuelve** a `AppointmentService.cancel` y `book` **delega** 
 compartida se le aplicaría también al encargado, que no tiene ventana de tiempo. **Si acabas
 escribiendo dos veces la misma regla, la partición está mal hecha.**
 
+**Ninguna de las dos capas mira documentos (2026-09-30, R-G — spec
+`titulatec-posgrado-design.md` §5/§6, invariante 8).** Para llegar a esta pantalla el proceso ya
+está en fase 2, así que la fase 1 (los documentos) ya quedó atrás; ni `eligibility()`
+(`SelfBookingService`) ni `AppointmentService.create` llaman a `DocumentService` en ningún punto.
+R-G — "un posgrado que cerró su fase 1 antes del despliegue no se regresa aunque le falten los 4
+extras" — se resuelve ENTERAMENTE dentro de `DocumentService.initial_docs_all_approved`, y su único
+consumidor es `AppointmentService._pending_candidates` (la cola del ENCARGADO, ⤵ [cita de cotejo
+(loop completo)](phase2_appointment_loop.md), cubos «Por agendar» / «Requieren que les agendes» /
+«Encuesta sin liberar»). Un egresado de posgrado que R-G mantiene en «Por agendar» agenda su propia
+cita exactamente igual que cualquier otro — esta pantalla no le agrega ni le quita ninguna
+validación. Detalle completo: [perfil de titulación por nivel de carrera](engine_process_track.md).
+
 ## El control de seguridad crítico ❗
 
 `window_id` llega en el **cuerpo del formulario**, no en la ruta. El regresor estructural
@@ -398,7 +410,9 @@ abriendo o cerrando la ventana sola.
 ## Flujos relacionados
 
 - ⤵ [Cita de cotejo · loop del encargado](phase2_appointment_loop.md) — la otra mitad: quién
-  atiende, marca asistencia y dictamina la fase 2.
+  atiende, marca asistencia y dictamina la fase 2; ahí sí pega R-G (cola «Por agendar»).
+- ⤵ [Perfil de titulación por nivel de carrera](engine_process_track.md) — por qué R-G no toca esta
+  pantalla.
 - ⤵ [Alcance por carrera](engine_officer_scope.md) — `offer` usa su predicado **en sentido inverso**.
 - ⤵ [Guarda de fase del alumno](engine_student_phase_lock.md) — las dos rutas nuevas pasan por ella.
 - ← Puerta previa: [liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md)

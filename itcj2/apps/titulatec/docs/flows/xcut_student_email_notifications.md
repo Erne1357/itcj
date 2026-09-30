@@ -290,8 +290,19 @@ faltó lo toma la corrida siguiente (las llaves no dejan duplicar).
 | Recordatorio | Candidato | Ancla | Cuándo toca |
 |---|---|---|---|
 | `appt_reminder` | cita **VIGENTE** (`is_current`) `scheduled`/`confirmed` cuya FECHA es hoy + `TITULATEC_APPT_REMINDER_DAYS_BEFORE` (`_citas`, `:261-292`) | — | una vez por cita (`appt_id`); se omite si se agendó/cambió hace < 24 h (`_CITA_RECIENTE`, `:83`) — acaba de recibir el correo #7 |
-| `docs_reminder` | `current_phase` = fase `initial_docs` con documentos que faltan o `rejected` (`_documentos`, `:294-363`) | `max(inicio de la fase 1 —o el alta del proceso—, última `document_uploaded`, última `document_rejected`)` | `MailReminders.due_index` (`:205-232`) |
+| `docs_reminder` | `current_phase` = fase `initial_docs` con documentos que faltan o `rejected`, **contra el set DEL PERFIL del proceso** (`_documentos`, `:294-363`) | `max(inicio de la fase 1 —o el alta del proceso—, última `document_uploaded`, última `document_rejected`)` | `MailReminders.due_index` (`:205-232`) |
 | `survey_reminder` | `current_phase` = `PhaseService.PHASE_COTEJO` sin fila en `titulatec_survey_reviews` (`_encuestas`, `:365-399`) | `started_at` de la fase 2 (sin él, se omite) | idem |
+
+**`docs_reminder` por perfil (2026-09-30, spec `titulatec-posgrado-design.md` §4.4).** `_documentos`
+resuelve el set de TODOS los procesos candidatos en una sola llamada
+(`DocumentService.initial_doc_types_by_process`, `mail_reminders.py:336`) y mide "falta"/"por
+corregir" de cada proceso contra SU PROPIO set (3 en licenciatura, 7 en posgrado) — nunca contra un
+`3` fijo; R-G (⤵ [perfil de titulación](engine_process_track.md)) no aplica aquí porque este
+recordatorio solo mira procesos que SIGUEN en la fase `initial_docs`
+(`current_phase == fase`), y esa regla es para quien ya la pasó. Los nombres que lista el correo
+(«te falta: ...») salen del catálogo con la misma consulta de unión de códigos que usa la bandeja
+admin, así que un extra de posgrado aparece con su nombre real («Cédula profesional»), no con el
+código crudo.
 
 **Fórmula común** (`due_index(anchor, now, sent, last_sent_at)`, `:205-232`): toca el índice
 `sent` si `sent < max_reminders()` y `now >= anchor + first_days() + sent · every_days()` (días)
@@ -458,6 +469,8 @@ si falló — no repetir el envío desde aquí (fuera de alcance de esta entrega
   [motor de avance de fase](engine_approve_advance_phase.md),
   [liberación GTV de la encuesta](phase2_tech_management_survey_release.md),
   [cita de cotejo](phase2_appointment_loop.md), [auto-agendado](phase2_student_self_booking.md).
+- ← De dónde sale el set de 3 vs. 7 que mide `docs_reminder`: [perfil de titulación por nivel de
+  carrera](engine_process_track.md).
 - ← Antecedente (no cambia): los 6 correos de inscripción de
   [inscripción pública](xcut_public_enrollment.md) (`services/email_helper.py`, `_deliver`).
 - → Lo lee: [expediente del alumno](xcut_admin_process_expediente.md) (bitácora `#exp-correos`).
