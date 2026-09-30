@@ -156,6 +156,32 @@ def _como_execute_sql_file(sql: str) -> str:
     return "\n".join(cleaned_lines)
 
 
+def _patch_dml_titulatec(monkeypatch, tmp_path, incluir_archivos: bool):
+    """Apunta `itcj2.cli.titulatec.DML_TITULATEC` a `tmp_path` (con
+    `posgrado_2026_10/` creado adentro, y los 2 `.sql` -- vacios, contenido
+    irrelevante -- solo si `incluir_archivos`).
+
+    Ronda 3 (revision Opus): el chequeo `faltan` del dry-run
+    (`(DML_TITULATEC / _DML_POSGRADO_2026_10_DIR / nombre).exists()`) es una
+    lectura de disco REAL, sin mock, contra los globales del modulo. Antes de
+    esta ronda, las pruebas de `--dry-run` de esta suite no lo tocaban y
+    pasaban solo porque este worktree SI tiene
+    `database/DML/titulatec/posgrado_2026_10/` en disco -- pero esa carpeta
+    esta gitignored y el workflow de CI hace un checkout limpio que NUNCA la
+    trae, asi que las mismas pruebas (sin `@requires_dml`, se supone que
+    "corren siempre") habrian fallado ahi con exit_code 1 en cuanto la ronda
+    2 hizo que `faltan` afectara el exit code. Con esto, el resultado del
+    chequeo de disco queda bajo control del test, independiente de si el
+    checkout trae o no la carpeta real.
+    """
+    d = tmp_path / _DML_POSGRADO_2026_10_DIR
+    d.mkdir()
+    if incluir_archivos:
+        for nombre in _DML_POSGRADO_2026_10_FILES:
+            (d / nombre).write_text("-- contenido irrelevante en estas pruebas\n")
+    monkeypatch.setattr("itcj2.cli.titulatec.DML_TITULATEC", tmp_path)
+
+
 # ---------------------------------------------------------------------------
 # Constantes de Python (sin BD, corren siempre)
 # ---------------------------------------------------------------------------
@@ -179,7 +205,8 @@ def test_seed_files_incluye_los_dos_archivos_en_orden_antes_del_15():
 # Comando -- TODO parchado (hermetico, ronda 1): ninguna de estas toca la BD
 # de dev de verdad.
 # ---------------------------------------------------------------------------
-def test_dry_run_rama_update_lista_matches_y_candidatos():
+def test_dry_run_rama_update_lista_matches_y_candidatos(tmp_path, monkeypatch):
+    _patch_dml_titulatec(monkeypatch, tmp_path, incluir_archivos=True)
     precheck = {
         "branch": "update",
         "matches": [
@@ -209,7 +236,8 @@ def test_dry_run_rama_update_lista_matches_y_candidatos():
     assert "no se ejecut" in res.output.lower()
 
 
-def test_dry_run_rama_insert_no_pide_preview_y_lo_avisa():
+def test_dry_run_rama_insert_no_pide_preview_y_lo_avisa(tmp_path, monkeypatch):
+    _patch_dml_titulatec(monkeypatch, tmp_path, incluir_archivos=True)
     precheck = {"branch": "insert", "matches": [], "reasons": []}
     with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
          patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
@@ -224,7 +252,8 @@ def test_dry_run_rama_insert_no_pide_preview_y_lo_avisa():
     assert "Procesos de posgrado a re-sincronizar en fase 1: 0" in res.output
 
 
-def test_dry_run_rama_abort_sale_no_cero_y_no_pide_preview():
+def test_dry_run_rama_abort_sale_no_cero_y_no_pide_preview(tmp_path, monkeypatch):
+    _patch_dml_titulatec(monkeypatch, tmp_path, incluir_archivos=True)
     precheck = {
         "branch": "abort",
         "matches": [],
@@ -242,19 +271,23 @@ def test_dry_run_rama_abort_sale_no_cero_y_no_pide_preview():
     assert "DOCTORADO%: 2 carreras casan" in res.output
 
 
-def test_dry_run_sale_no_cero_si_falta_un_archivo_en_disco(monkeypatch):
+def test_dry_run_sale_no_cero_si_falta_un_archivo_en_disco(tmp_path, monkeypatch):
     """R8 #2 (revision Opus, ronda 2): antes el dry-run imprimia una linea
     roja de "faltan archivos" pero salia 0 igual -- un despliegue que
     olvidara copiar `posgrado_2026_10/` veria "Dry-run: no se ejecuto nada"
     con exit 0 tranquilizador, aunque la corrida real fuera a fallar en
     `_run_sql_files`. El resto del reporte (rama, candidatos) se sigue
     imprimiendo -- el precheck lee `core_programs` directo, no necesita los
-    archivos en disco."""
+    archivos en disco.
+
+    Ronda 3: `_patch_dml_titulatec(..., incluir_archivos=False)` crea
+    `posgrado_2026_10/` VACIO dentro de `tmp_path` (a diferencia de la
+    version anterior de esta prueba, que apuntaba a un nombre de carpeta que
+    no existia en absoluto) -- mas fiel al caso real (el directorio SI
+    existe, pero le faltan los .sql) y, de paso, la misma tecnica que las
+    otras pruebas de `--dry-run` de este archivo."""
     precheck = {"branch": "update", "matches": [], "reasons": []}
-    monkeypatch.setattr(
-        "itcj2.cli.titulatec._DML_POSGRADO_2026_10_DIR",
-        "no_existe_este_directorio_de_prueba",
-    )
+    _patch_dml_titulatec(monkeypatch, tmp_path, incluir_archivos=False)
     with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
          patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
          patch("itcj2.cli.titulatec._posgrado_resync_preview", return_value=[]):
