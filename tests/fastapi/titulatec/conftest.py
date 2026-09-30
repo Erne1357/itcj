@@ -435,14 +435,23 @@ def make_user(db_session):
 
 @pytest.fixture()
 def make_program(db_session):
-    """Carrera (`core_programs`). Idempotente por nombre."""
+    """Carrera (`core_programs`). Idempotente por nombre.
+
+    `level` (licenciatura|maestria|doctorado, default licenciatura): si la
+    carrera ya existia con OTRO nivel, la ajusta -- para que un test de
+    posgrado pueda reusar una carrera que otro test ya sembro en licenciatura,
+    sin duplicar filas por nombre (UNIQUE).
+    """
     from itcj2.core.models.program import Program
 
-    def _make(name):
+    def _make(name, level="licenciatura"):
         prog = db_session.query(Program).filter_by(name=name).first()
         if prog is None:
-            prog = Program(name=name)
+            prog = Program(name=name, level=level)
             db_session.add(prog)
+            db_session.flush()
+        elif prog.level != level:
+            prog.level = level
             db_session.flush()
         return prog
 
