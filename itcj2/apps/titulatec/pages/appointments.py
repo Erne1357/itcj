@@ -46,8 +46,6 @@ router = APIRouter(prefix="/admin/appointments", tags=["titulatec-pages-appointm
 PAGE_URL = "/titulatec/admin/appointments"
 BODY_URL = "/titulatec/admin/appointments/body"
 
-_INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
-
 _MONTHS_ES = ["", "ene", "feb", "mar", "abr", "may", "jun",
               "jul", "ago", "sep", "oct", "nov", "dic"]
 
@@ -169,9 +167,11 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     """Ficha del alumno seleccionado (zona C), acotada al alcance.
 
     Devuelve nombre, numero de control y correo del alumno, mas las `view_url` de
-    sus 3 documentos iniciales: es la ficha completa. Resuelve el proceso por el
-    predicado de alcance y no por `db.get`, como segunda linea de defensa — lo
-    llaman `_shell_ctx` y, a traves de `_render_body`, las acciones.
+    sus documentos iniciales (3 en licenciatura, 7 en posgrado -- Tarea 4, spec
+    2026-09-30-titulatec-posgrado-design.md §4.4): es la ficha completa.
+    Resuelve el proceso por el predicado de alcance y no por `db.get`, como
+    segunda linea de defensa — lo llaman `_shell_ctx` y, a traves de
+    `_render_body`, las acciones.
 
     Desde el 2026-09-07 trae tambien el CHECKLIST de requisitos de cotejo
     (`requisitos`, `can_mark_reqs`), con las mismas claves que el expediente: el
@@ -184,6 +184,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.scope_service import process_in_scope
+    from itcj2.apps.titulatec.services.track_service import TrackService
 
     proc = process_in_scope(db, user_id, process_id)
     if not proc:
@@ -195,8 +196,17 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
 
     from itcj2.apps.titulatec.utils import storage
 
+    # Perfil del proceso (spec 2026-09-30-titulatec-posgrado-design.md §4.4,
+    # Tarea 4): licenciatura/"sin carrera" listan los 3 de siempre; posgrado,
+    # los 7. `program` ya está cargado arriba, así que `for_level` reusa ese
+    # mismo objeto en vez de que `TrackService.for_process` repita el
+    # `db.get(Program, ...)` (aunque saldría del identity map, esto evita
+    # incluso esa segunda vuelta).
+    track = TrackService.for_level(program.level if program else None)
+    codes = DocumentService.initial_doc_types(track)
+
     docs = []
-    for code in _INITIAL_DOC_TYPES:
+    for code in codes:
         dt = db.query(DocumentType).filter_by(code=code).first()
         doc = DocumentService.get_document(db, process_id, code)
         # `missing` se resuelve EN EL SERVIDOR. Sin esto, un archivo que ya no
@@ -363,6 +373,9 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
                     "control": student.control_number if student else "—",
                     "email": student.email if student else None},
         "program_name": program.name if program else None,
+        # Perfil ya resuelto arriba -- alimenta `track_pill` junto a la
+        # carrera en `_appt_attend.html:69`.
+        "track": track,
         "modality_name": modality.name if modality else None,
         "cohort_period": cohort.period_code if cohort else None,
         "appt": _appt_dict(appt),

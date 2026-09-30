@@ -1,7 +1,7 @@
 {# Bandeja de revisión de documentos. Re-render en #docs-body (HTMX).
    Visor con PDF.js (renderiza a canvas → inmune al bloqueo del visor PDF del
    navegador). El dictamen (aprobar/rechazar + comentario) aplica al doc ACTIVO. #}
-{% from "titulatec/_macros.html" import estado_pill %}
+{% from "titulatec/_macros.html" import estado_pill, track_pill %}
 
 <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
   <span class="tt-pill tt-pill--amber"><i class="bi bi-hourglass-split me-1"></i>{{ total_pending }} por evaluar</span>
@@ -24,7 +24,7 @@
            hx-target="#docs-body" hx-swap="innerHTML" hx-indicator="#docs-skel">
           <div class="flex-grow-1 min-w-0">
             <div style="font-size:.85rem;font-weight:600;color:var(--tt-ink)">{{ r.student }}</div>
-            <div class="tt-mono" style="font-size:.7rem;color:var(--tt-mute)">{{ r.control }} · {{ r.program }}</div>
+            <div class="tt-mono" style="font-size:.7rem;color:var(--tt-mute)">{{ r.control }} · {{ r.program }}{{ track_pill(r.track) }}</div>
           </div>
           {% if r.all_approved %}<span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i></span>
           {% elif r.pending %}<span class="tt-pill tt-pill--amber">{{ r.pending }}</span>
@@ -56,7 +56,7 @@
         <div class="min-w-0">
           <span class="tt-kicker">{{ detail.folio }}</span>
           <div class="tt-display" style="font-size:1.1rem;font-weight:600">{{ detail.student }}</div>
-          <div class="tt-mono" style="font-size:.72rem;color:var(--tt-mute)">{{ detail.control }} · {{ detail.program }}</div>
+          <div class="tt-mono" style="font-size:.72rem;color:var(--tt-mute)">{{ detail.control }} · {{ detail.program }}{{ track_pill(detail.track) }}</div>
         </div>
         <a class="btn btn-sm tt-btn-ghost"
            href="/titulatec/admin/processes/{{ detail.process_id }}?fase=1&from={{ VOLVER }}">

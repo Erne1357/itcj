@@ -1072,8 +1072,6 @@ async def import_commit(
 # Bandeja de procesos + revisión (aprobar/rechazar documentos y fases)
 # ===========================================================================
 
-_INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
-
 # Cómo se lee cada suceso del expediente. La voz es la del PERSONAL, no la del
 # alumno: en `pages/student.py` el mismo evento dice «Confirmaste tu asistencia»
 # y aquí «El alumno confirmó». Un evento sin entrada aquí se pinta con su código
@@ -1318,8 +1316,10 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         PhaseDefinition, ProcessEvent, ProcessPhase, FormatB,
     )
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
     from itcj2.apps.titulatec.services.process_service import ProcessService
+    from itcj2.apps.titulatec.services.track_service import TrackService
     from itcj2.apps.titulatec.utils import storage
 
     proc = db.get(TitulationProcess, process_id)
@@ -1330,6 +1330,14 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     modality = db.get(Modality, proc.modality_id) if proc.modality_id else None
     program = db.get(Program, proc.program_id) if proc.program_id else None
 
+    # Perfil del proceso (spec 2026-09-30-titulatec-posgrado-design.md §4.4,
+    # Tarea 4): licenciatura/"sin carrera" -> los 3 documentos de siempre;
+    # posgrado -> los 7. `program` ya está cargado arriba (para `program_name`),
+    # así que `for_level` reusa ese objeto en vez de que `TrackService.
+    # for_process` repita el `db.get(Program, ...)`.
+    track = TrackService.for_level(program.level if program else None)
+    initial_codes = DocumentService.initial_doc_types(track)
+
     # ---- catálogos y filas del proceso, por lote ----
     pdefs = (db.query(PhaseDefinition).filter_by(is_active=True)
              .order_by(PhaseDefinition.order_index).all())
@@ -1338,11 +1346,11 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # Sin `is_active`: si un tipo se desactiva, el documento ya subido tiene que
     # seguir mostrándose con su nombre y no con el código crudo.
     tipos = {t.code: t.name for t in db.query(DocumentType)
-             .filter(DocumentType.code.in_(_INITIAL_DOC_TYPES)).all()}
-    doc_names = {code: tipos.get(code, code) for code in _INITIAL_DOC_TYPES}
+             .filter(DocumentType.code.in_(initial_codes)).all()}
+    doc_names = {code: tipos.get(code, code) for code in initial_codes}
     docs_db = {d.type_code: d for d in db.query(Document)
                .filter(Document.process_id == process_id,
-                       Document.type_code.in_(_INITIAL_DOC_TYPES)).all()}
+                       Document.type_code.in_(initial_codes)).all()}
 
     eventos = (db.query(ProcessEvent).filter_by(process_id=process_id)
                .order_by(ProcessEvent.created_at, ProcessEvent.id).all())
@@ -1354,7 +1362,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
 
     # ---- documentos de la fase 1 (solo lectura) ----
     docs = []
-    for code in _INITIAL_DOC_TYPES:
+    for code in initial_codes:
         doc = docs_db.get(code)
         # `missing` se resuelve EN EL SERVIDOR: un archivo que ya no está en
         # disco tiene que decirlo, no dejar un visor mudo.
@@ -1539,6 +1547,9 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "cohort_period": cohort.period_code if cohort else None,
         "cohort_id": proc.cohort_id,
         "program_name": program.name if program else None,
+        # Perfil ya resuelto arriba -- alimenta `track_pill` junto a la
+        # carrera en `_exp_shell.html:86`.
+        "track": track,
         "modality_name": modality.name if modality else None,
         "current_phase": current,
         "progress_pct": max(0, min(100, round(current / max_phase * 100))),

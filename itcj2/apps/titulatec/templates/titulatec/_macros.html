@@ -76,6 +76,21 @@
   {% else %}{{ pill(status, "neutral") }}{% endif %}
 {% endmacro %}
 
+{# — Píldora "Posgrado" junto a la carrera (bandeja de Documentos, expediente,
+   ficha de cotejo — spec 2026-09-30-titulatec-posgrado-design.md §4.4). `track`
+   ya viene resuelto por `TrackService` (invariante 2: aquí no se compara nada
+   de `Program.level` ni nombres de carrera, solo el string que devolvió el
+   servicio). Licenciatura (o cualquier otro valor) no pinta nada -- es el caso
+   de siempre y no lleva distintivo.
+
+   Todo en UNA línea a propósito: un `if` de varias líneas deja indentación
+   como salida del macro incluso cuando la condición es falsa, y eso le
+   agregaría un espacio de más al lado de la carrera en CADA fila de
+   licenciatura -- justo lo que la invariante 3 (licenciatura queda idéntica)
+   prohíbe. El espacio antes de `pill(...)` sí es intencional: así el llamador
+   no necesita poner uno y para licenciatura el macro entero es `""`. #}
+{% macro track_pill(track) %}{% if track == "posgrado" %} {{ pill("Posgrado", tone="violet", icon="mortarboard") }}{% endif %}{% endmacro %}
+
 {# — SKELETON de carga — úsalo en regiones que cargan vía HTMX (clase htmx-indicator) #}
 {% macro skel_line(w="") %}<div class="tt-skel tt-skel-line {{ w }}"></div>{% endmacro %}
 {% macro skel_card() %}<div class="tt-skel tt-skel-card"></div>{% endmacro %}

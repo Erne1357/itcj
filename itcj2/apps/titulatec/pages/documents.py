@@ -10,7 +10,6 @@ from itcj2.apps.titulatec.pages.nav import render_titulatec
 logger = logging.getLogger("itcj2.apps.titulatec.pages.documents")
 router = APIRouter(prefix="/admin/documents", tags=["titulatec-pages-documents"])
 
-_INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
 _VIEW_PERMS = ["titulatec.document.page.list", "titulatec.dashboard.school_services",
                "titulatec.dashboard.titulaciones", "titulatec.dashboard.admin"]
 _REVIEW_PERMS = ["titulatec.document.api.approve", "titulatec.document.api.reject"]
@@ -32,10 +31,24 @@ def _doc_rows(db, procs):
     `UNIQUE(process_id, type_code)`, asi que el `.first()` de cada fila no podia
     devolver mas de un candidato y el `IN` no depende del orden de Postgres.
     El orden de las filas lo sigue fijando el `order_by` de `_body_ctx`.
+
+    Perfiles mezclados (spec 2026-09-30-titulatec-posgrado-design.md §4.4,
+    Tarea 4): cada proceso trae SU PROPIO set de códigos (3 en licenciatura, 7
+    en posgrado, vía `DocumentService.initial_doc_types` + `TrackService`), y
+    `names`/`docs` se consultan con la UNIÓN de todos los códigos en juego —
+    sigue siendo UNA consulta cada una, con un `IN (...)` más ancho cuando hay
+    posgrado de por medio. El nivel de la carrera NO paga una consulta aparte:
+    sale del mismo `Program` que `progs` ya trae para el nombre a mostrar
+    (`TrackService.for_level`, no `TrackService.for_processes`, que repetiría
+    esa lectura). El conteo se queda en 4 pase lo que pase —
+    `test_documents_inbox.py::test_las_filas_de_la_bandeja_cuestan_lo_mismo_con_2_que_con_8`
+    lo exige exacto sobre datos homogéneos, sin margen de +1.
     """
     from itcj2.core.models.user import User
     from itcj2.core.models.program import Program
     from itcj2.apps.titulatec.models import Document, DocumentType
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.track_service import TrackService
 
     if not procs:
         return []
@@ -43,29 +56,50 @@ def _doc_rows(db, procs):
     user_ids = {p.student_id for p in procs if p.student_id}
     prog_ids = {p.program_id for p in procs if p.program_id}
 
+    # Carreras PRIMERO: el mismo objeto sirve para el nombre a mostrar Y para
+    # resolver el perfil (`.level`) de cada fila, sin una segunda consulta.
+    progs = ({g.id: g for g in db.query(Program).filter(Program.id.in_(prog_ids)).all()}
+             if prog_ids else {})
+    tracks_by_pid = {
+        p.id: TrackService.for_level(progs[p.program_id].level
+                                     if p.program_id in progs else None)
+        for p in procs
+    }
+    codes_by_pid = {pid: DocumentService.initial_doc_types(track)
+                    for pid, track in tracks_by_pid.items()}
+    all_codes = set()
+    for codes in codes_by_pid.values():
+        all_codes.update(codes)
+
     # Sin filtro `is_active`: si un tipo se desactiva, el documento ya subido
     # debe seguir mostrandose con su nombre y no con el codigo crudo (mismo
     # criterio que `DocumentService.initial_docs_summary`).
     names = {t.code: t.name for t in db.query(DocumentType)
-             .filter(DocumentType.code.in_(_INITIAL_DOC_TYPES)).all()}
+             .filter(DocumentType.code.in_(all_codes)).all()}
     docs = {(d.process_id, d.type_code): d for d in db.query(Document)
             .filter(Document.process_id.in_(proc_ids),
-                    Document.type_code.in_(_INITIAL_DOC_TYPES)).all()}
+                    Document.type_code.in_(all_codes)).all()}
     users = ({u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()}
              if user_ids else {})
-    progs = ({g.id: g for g in db.query(Program).filter(Program.id.in_(prog_ids)).all()}
-             if prog_ids else {})
 
-    return [_doc_row(p, users=users, progs=progs, names=names, docs=docs) for p in procs]
+    return [_doc_row(p, users=users, progs=progs, names=names, docs=docs,
+                     codes=codes_by_pid[p.id], track=tracks_by_pid[p.id])
+            for p in procs]
 
 
-def _doc_row(proc, *, users, progs, names, docs):
-    """Fila de la bandeja. Sin `db`: los catalogos llegan ya resueltos (`_doc_rows`)."""
+def _doc_row(proc, *, users, progs, names, docs, codes, track):
+    """Fila de la bandeja. Sin `db`: los catalogos llegan ya resueltos (`_doc_rows`).
+
+    `codes` y `track` son los del PROPIO proceso (perfil ya resuelto en
+    `_doc_rows`): licenciatura y "sin carrera" traen los 3 de siempre;
+    posgrado, los 7. `track` alimenta la píldora "Posgrado" de la plantilla
+    (`track_pill`, `_macros.html`) — vacío para cualquier otro valor.
+    """
     u = users.get(proc.student_id)
     prog = progs.get(proc.program_id) if proc.program_id else None
     docs_out = []
     pending = 0
-    for code in _INITIAL_DOC_TYPES:
+    for code in codes:
         doc = docs.get((proc.id, code))
         status = doc.review_status if doc else "missing"
         if status in ("pending", "missing", "in_review"):
@@ -85,6 +119,7 @@ def _doc_row(proc, *, users, progs, names, docs):
         "process_id": proc.id, "folio": proc.folio,
         "student": u.full_name if u else "—", "control": u.control_number if u else "—",
         "program": prog.name if prog else "—",
+        "track": track,
         "docs": docs_out, "pending": pending,
         "all_approved": all(d["status"] == "approved" for d in docs_out),
     }
@@ -226,7 +261,10 @@ async def body(request: Request, status: str = "", selected: str = "",
 @router.post("/{process_id}/document/review", name="titulatec.pages.documents.review")
 async def review(process_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_REVIEW_PERMS))):
-    """Aprueba/rechaza un doc; si quedan los 3 aprobados y la fase es 1, auto-avanza a fase 2.
+    """Aprueba/rechaza un doc; si queda aprobado el set completo del proceso (3 en
+    licenciatura, 7 en posgrado) y la fase es 1, auto-avanza a fase 2 -- ya
+    resuelto por `DocumentService.initial_docs_all_approved` (Tarea 3), sin
+    cambio de llamada aquí (Tarea 4).
     El tipo de documento llega en el form (type_code), no en la URL (panel de dictamen único)."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
