@@ -594,16 +594,32 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
 
     def _ficha(a, n=None):
         proc = a.process
-        u = users.get(proc.student_id) if proc else None
-        prog = progs.get(proc.program_id) if proc and proc.program_id else None
+        # M-1 (revisión final): `walkin_vivas` es una consulta PROPIA, sin
+        # filtro de alcance (a diferencia de `visibles`, que ya viene acotada
+        # por `allowed_program_ids`) -- a propósito, porque una cita de OTRA
+        # carrera puede seguir sentada en el sin horario de este encargado
+        # (p.ej. la sentó a mano quien sí tenía `read.all` antes de que le
+        # recortaran las carreras). Sin este chequeo, esa fila enseñaría
+        # nombre, control y carrera de un alumno fuera del alcance del
+        # usuario que mira el tablero.
+        en_alcance = allowed is None or (proc is not None and proc.program_id in allowed)
+        u = users.get(proc.student_id) if (en_alcance and proc) else None
+        prog = progs.get(proc.program_id) if (en_alcance and proc and proc.program_id) else None
         # Helper "cuándo" (spec 2026-09-29-titulatec-cotejo-espacios-design.md
         # §6): en sin horario no hay una hora fija que enseñar en la caja.
         sin_horario = AppointmentService.when(a)["sin_horario"]
         ficha = {
             "process_id": a.process_id,
-            "student": u.full_name if u else "—",
-            "control": u.control_number if u else "—",
-            "program": prog.name if prog else "—",
+            # M-2 (revisión final): un `no_show` que sigue vivo en la lista
+            # (D10) y una cita nueva del MISMO proceso pueden convivir en el
+            # mismo espacio sin horario -comparten `process_id`-, así que la
+            # fila necesita un id por CITA, no por proceso, o saldrían dos
+            # elementos con el mismo id en el DOM.
+            "appt_id": a.id,
+            "student": (u.full_name if u else "—") if en_alcance else "Alumno de otra carrera",
+            "control": (u.control_number if u else "—") if en_alcance else None,
+            "program": (prog.name if prog else "—") if en_alcance else None,
+            "en_alcance": en_alcance,
             "status": a.status,
             "time_label": "Sin horario" if sin_horario else _time_label(a.scheduled_at),
             "change_request": bool(a.change_request),

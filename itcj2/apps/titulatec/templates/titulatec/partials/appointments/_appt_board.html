@@ -78,8 +78,24 @@
       {% for o in g.lista %}
       {# Lista numerada por orden de apartado (D8): `o.n` es la posicion, no el
          intento del proceso. Mismo `.tt-appt-item` de la cola y los
-         resultados, con el numero a la izquierda. #}
-      <a class="tt-appt-item" id="appt-walkin-row-p{{ o.process_id }}"
+         resultados, con el numero a la izquierda.
+
+         M-1 (revisión final): `o.en_alcance` es `False` cuando el proceso es
+         de OTRA carrera -no lo puso `visibles` (ya acotada), lo puso la
+         consulta propia de vivas del sin horario, sin filtro-. Se pinta
+         ANONIMA, conservando la numeración (para que el conteo cuadre con la
+         cabecera), sin control/carrera ni enlace: abrir la ficha revelaría un
+         proceso fuera del alcance de quien mira.
+
+         M-2 (revisión final): el id de fila es por CITA
+         (`appt-walkin-row-a{appt_id}`), no por proceso. Un `no_show` que
+         sigue vivo en la lista (D10) y una cita nueva del MISMO proceso
+         pueden convivir en el mismo espacio -comparten `process_id`-, y con
+         un id por proceso saldrían dos filas con el MISMO id, invalido en el
+         DOM. `data-tt-pid` conserva el process id para quien lo necesite
+         buscar (tests, futuro JS). #}
+      {% if o.en_alcance %}
+      <a class="tt-appt-item" id="appt-walkin-row-a{{ o.appt_id }}" data-tt-pid="{{ o.process_id }}"
          {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ o.process_id) }}>
         <span class="n">{{ o.n }}</span>
         <span class="flex-grow-1 min-w-0">
@@ -93,6 +109,16 @@
         </span>
         {{ appt_pill(o.status) }}
       </a>
+      {% else %}
+      <div class="tt-appt-item" id="appt-walkin-row-a{{ o.appt_id }}" data-tt-pid="{{ o.process_id }}"
+           aria-disabled="true">
+        <span class="n">{{ o.n }}</span>
+        <span class="flex-grow-1 min-w-0">
+          <span class="who d-block text-truncate">Alumno de otra carrera</span>
+        </span>
+        {{ appt_pill(o.status) }}
+      </div>
+      {% endif %}
       {% endfor %}
 
       {# UN solo destino de arrastre para todo el espacio: no hay franjas que

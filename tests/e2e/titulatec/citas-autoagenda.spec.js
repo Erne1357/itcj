@@ -499,10 +499,13 @@ test('el egresado aparta lugar en el espacio sin horario', async ({ browser }) =
   expect((await post).status()).toBe(200);
 
   // El POST responde con el PANEL re-renderizado, igual que agendar una
-  // franja. «por orden de llegada» es la copia PROPIA de `cita_card.html` en
-  // sin horario (D11: `AppointmentService.when` no la trae) — su presencia
-  // prueba que la cita quedó como WALKIN y no como una franja convencional.
-  await expect(tarjeta).toContainText('Tu cita de cotejo');
+  // franja. El kicker «Tu lugar está apartado» (T9, revisión final, spec §6)
+  // y «por orden de llegada» -copia PROPIA de `cita_card.html` en sin
+  // horario, D11: `AppointmentService.when` no la trae- prueban que la cita
+  // quedó como WALKIN y no como una franja convencional (esa sigue diciendo
+  // «Tu cita de cotejo»).
+  await expect(tarjeta).toContainText('Tu lugar está apartado');
+  await expect(tarjeta).not.toContainText('Tu cita de cotejo');
   await expect(tarjeta).toContainText('por orden de llegada');
   await expect(tarjeta).toContainText('Módulo sin horario · E2E');
 
@@ -536,7 +539,12 @@ test('el encargado ve el lugar apartado numerado en su bloque «Sin horario»', 
   // Se entera por su tablero -«El alumno apartó»-, igual que con una franja
   // auto-agendada («El alumno agendó»). `o.n` es el orden de apartado (D8):
   // el PRIMERO en apartar es el «1» de la lista.
-  const fila = page.locator(`#appt-walkin-row-p${ctx.processId}`);
+  //
+  // M-2 (revisión final): el id de fila es por CITA (`appt-walkin-row-a{id}`),
+  // no por proceso -dos citas del mismo proceso podrían convivir en el mismo
+  // espacio (un `no_show` que sigue vivo, D10, más una nueva)-, así que se
+  // busca por `data-tt-pid`, que sí conserva el process id.
+  const fila = bloque.locator(`[data-tt-pid="${ctx.processId}"]`);
   await expect(fila).toBeVisible();
   await expect(fila.locator('.n')).toHaveText('1');
   await expect(fila).toContainText('El alumno apartó');

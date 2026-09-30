@@ -261,7 +261,9 @@ def test_la_raiz_y_las_filas_llevan_ids_estables(db_session, esc, client_as,
     html = client_as(esc["off"]).get(URL + "?date=" + _D.isoformat()).text
     sec = _seccion_walkin(html, esc["w"].id)
 
-    assert sec.xpath('.//a[@id="appt-walkin-row-p%d"]' % apartada.process_id)
+    # M-2 (revisión final): el id es por CITA, no por proceso.
+    (fila,) = sec.xpath('.//a[@id="appt-walkin-row-a%d"]' % apartada.id)
+    assert fila.get("data-tt-pid") == str(apartada.process_id)
     assert sec.xpath('.//*[@id="appt-walkin-drop-%d"]' % esc["w"].id)
     # El form de «Abrir más lugares» vuelve a la Agenda de este día.
     (form,) = sec.xpath('.//form[.//input[@name="n"]]')
@@ -270,6 +272,70 @@ def test_la_raiz_y_las_filas_llevan_ids_estables(db_session, esc, client_as,
     (campo,) = form.xpath('.//input[@name="n"]')
     assert (campo.get("type"), campo.get("min"), campo.get("max"), campo.get("value")) == (
         "number", "1", "50", "1")
+
+
+def test_una_cita_fuera_de_alcance_se_pinta_anonima(
+        db_session, esc, client_as, make_program, make_student, make_process,
+        make_appointment):
+    """M-1 (revisión final): un proceso de OTRA carrera puede seguir sentado
+    en el sin horario de este encargado -p.ej. lo sentó a mano quien sí tenía
+    `read.all` antes de que le recortaran las carreras-. `walkin_vivas` es
+    una consulta PROPIA sin filtro de alcance (a diferencia de `visibles`), a
+    propósito: la cita de legado no puede desaparecer de la lista (nota de la
+    revisión de T2). La fila se pinta anónima, sin control/carrera ni
+    enlace, pero conserva su lugar en la numeración."""
+    ajena = make_program("Ingeniería Ajena al Tablero Walkin")
+    proc_ajeno = make_process(make_student(last_name="AJENO"), cohort=esc["cohort"],
+                              program=ajena, current_phase=2)
+    apartada = _apartar(db_session, esc, 0)
+    a_ajena = make_appointment(proc_ajeno, when=datetime.combine(_D, time(8, 0)))
+    a_ajena.window = esc["w"]
+    db_session.flush()
+
+    html = client_as(esc["off"]).get(URL + "?date=" + _D.isoformat()).text
+    sec = _seccion_walkin(html, esc["w"].id)
+
+    # La propia (en alcance) sigue siendo un enlace con su nombre real.
+    (fila_propia,) = sec.xpath('.//a[@id="appt-walkin-row-a%d"]' % apartada.id)
+    assert fila_propia.get("data-tt-pid") == str(apartada.process_id)
+    assert "1" == fila_propia.xpath('.//span[@class="n"]')[0].text_content().strip()
+
+    # La ajena: sin enlace (no es un `<a>`), anónima, y con el 2 conservado.
+    assert not sec.xpath('.//a[@data-tt-pid="%d"]' % proc_ajeno.id)
+    (fila_ajena,) = sec.xpath('.//*[@data-tt-pid="%d"]' % proc_ajeno.id)
+    assert fila_ajena.get("id") == "appt-walkin-row-a%d" % a_ajena.id
+    assert fila_ajena.tag != "a"
+    texto = lxml.html.tostring(fila_ajena, encoding="unicode")
+    assert "Alumno de otra carrera" in texto
+    assert "2" == fila_ajena.xpath('.//span[@class="n"]')[0].text_content().strip()
+    for oculto in (proc_ajeno.folio, "AJENO", ajena.name):
+        assert oculto not in texto
+
+
+def test_no_show_y_nueva_cita_en_el_mismo_espacio_dan_ids_distintos(
+        db_session, esc, client_as, make_appointment):
+    """M-2 (revisión final): un `no_show` sigue vivo en la lista (D10, D12);
+    si el proceso vuelve a apartar lugar en el MISMO espacio, `assign`
+    (`_open_new_attempt`) NO borra la fila vieja -conserva su status, solo
+    pierde `is_current`-, así que las dos siguen contando en `walkin_vivas`
+    y las dos se pintan: dos filas que comparten `process_id` pero son citas
+    DISTINTAS. El id de fila tiene que ser por CITA o saldrían con el mismo
+    id, inválido en el DOM."""
+    vieja = make_appointment(esc["p"][0], when=datetime.combine(_D, time(8, 0)),
+                             status="no_show", is_current=True)
+    vieja.window = esc["w"]
+    db_session.flush()
+
+    nueva = _apartar(db_session, esc, 0)
+
+    html = client_as(esc["off"]).get(URL + "?date=" + _D.isoformat()).text
+    sec = _seccion_walkin(html, esc["w"].id)
+
+    filas = sec.xpath('.//*[@data-tt-pid="%d"]' % esc["p"][0].id)
+    assert len(filas) == 2, "el no_show y la nueva son DOS filas del mismo proceso"
+    ids = {f.get("id") for f in filas}
+    assert ids == {"appt-walkin-row-a%d" % vieja.id, "appt-walkin-row-a%d" % nueva.id}
+    assert len(ids) == 2, "los ids de las dos filas no pueden repetirse"
 
 
 def test_el_alumno_aparto_dice_aparto_no_agendo(db_session, esc, client_as,
@@ -283,7 +349,7 @@ def test_el_alumno_aparto_dice_aparto_no_agendo(db_session, esc, client_as,
 
     html = client_as(esc["off"]).get(URL + "?date=" + _D.isoformat()).text
     sec = _seccion_walkin(html, esc["w"].id)
-    fila = sec.xpath('.//a[@id="appt-walkin-row-p%d"]' % esc["p"][0].id)[0]
+    fila = sec.xpath('.//a[@id="appt-walkin-row-a%d"]' % a.id)[0]
 
     assert "El alumno apartó" in lxml.html.tostring(fila, encoding="unicode")
     assert "El alumno agendó" not in lxml.html.tostring(fila, encoding="unicode")
