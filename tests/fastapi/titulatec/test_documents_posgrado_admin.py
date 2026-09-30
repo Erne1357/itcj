@@ -232,7 +232,7 @@ def test_dictamen_de_posgrado_no_avanza_con_los_3_base_pero_si_con_los_7(
 # ---------------------------------------------------------------------------
 def test_visor_de_cotejo_posgrado_lista_los_7_con_faltantes_y_trae_la_pildora(
         db_session, seed_document_types, make_program, make_cohort, make_student,
-        make_process, make_document, make_head):
+        make_process, make_document, make_appointment, make_head, client_as):
     from itcj2.apps.titulatec.pages.appointments import _detail_ctx
 
     seed_document_types(types=INITIAL_DOC_TYPES + POSGRADO_DOC_TYPES)
@@ -255,10 +255,28 @@ def test_visor_de_cotejo_posgrado_lista_los_7_con_faltantes_y_trae_la_pildora(
     faltantes = {d["type_code"] for d in detail["docs"] if d["doc"] is None}
     assert faltantes == set(POSGRADO_CODES) | {"high_school_cert", "curp"}
 
+    # Nivel HTTP (hallazgo de revisión, ronda 1): el contexto no basta -- si la
+    # plantilla dejara de pintar `track_pill`/de iterar `detail.docs`, nada de
+    # lo de arriba lo notaria. Una cita VIGENTE mete al proceso en el universo
+    # `agenda_process_ids` (`_shell_ctx`), que es lo que hace alcanzable
+    # `?selected=` sin necesitar depender de la cola "Por agendar" (encuesta,
+    # fase, etc. -- ajenos a esta prueba). Mismo patron que
+    # `test_atender_ahora.py::_ficha`.
+    make_appointment(proc)
+    html = client_as(jefa).get(
+        "/titulatec/admin/appointments/body?v=atender&selected=%d" % proc.id).text
+    assert 'id="appt-attend"' in html          # la sub-vista "atender" SI se renderizo
+    assert "tt-pill tt-pill--violet" in html
+    assert "Posgrado" in html
+    for _, nombre, _ in POSGRADO_DOC_TYPES:
+        assert nombre in html
+    for _, nombre, _ in INITIAL_DOC_TYPES:
+        assert nombre in html
+
 
 def test_visor_de_cotejo_licenciatura_no_lleva_pildora(
         db_session, seed_document_types, make_program, make_cohort, make_student,
-        make_process, make_head):
+        make_process, make_appointment, make_head, client_as):
     from itcj2.apps.titulatec.pages.appointments import _detail_ctx
 
     seed_document_types()
@@ -271,6 +289,15 @@ def test_visor_de_cotejo_licenciatura_no_lleva_pildora(
 
     assert detail["track"] == "licenciatura"
     assert len(detail["docs"]) == 3
+
+    # Nivel HTTP (hallazgo de revision, ronda 1): control negativo del mismo
+    # visor -- sin esto, un `track_pill` que se disparara SIEMPRE habria
+    # pasado la prueba de posgrado sin que nada lo notara aqui.
+    make_appointment(proc)
+    html = client_as(jefa).get(
+        "/titulatec/admin/appointments/body?v=atender&selected=%d" % proc.id).text
+    assert 'id="appt-attend"' in html
+    assert "tt-pill--violet" not in html
 
 
 # ---------------------------------------------------------------------------
