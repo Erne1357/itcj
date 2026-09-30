@@ -1096,7 +1096,7 @@ try:
         st = "approved" if n < 2 else "in_progress" if n == 2 else "pending"
         db.add(ProcessPhase(process_id=proc.id, phase_number=n, status=st))
 
-    for code in DocumentService.INITIAL_DOC_TYPES:
+    for code in DocumentService.BASE_INITIAL_DOCS:
         db.add(Document(process_id=proc.id, phase_number=1, type_code=code,
                         file_path=f"e2e/{code}.pdf", review_status="approved",
                         uploaded_by_id=student.id))
