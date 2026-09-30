@@ -1,24 +1,28 @@
 {# ===========================================================================
-   _cita_panel.html — las CUATRO CARAS de la pantalla de la cita (spec §7).
+   _cita_panel.html — las CUATRO CARAS de la pantalla de la cita (spec §7),
+   MÁS el checklist plegado (D10, Tarea 9).
 
    Se incluye dentro de `#tt-cita-panel` y es lo que devuelven los dos POST del
    auto-agendado (`/cita/agendar` y `/cita/cancelar`): un POST de esta app
    responde con el parcial re-renderizado, no con JSON.
 
-   Contexto: `_cita_panel_ctx(...)` -> `process`, `appt`, `agenda`.
+   Contexto: `_cita_panel_ctx(...)` -> `process`, `appt`, `agenda`, `checklist`.
 
-   El ORDEN de las caras no es cosmético:
+   El ORDEN (spec §6) no es cosmético:
 
      1. la tarjeta de la cita (si la hay), que es la respuesta a «¿cuándo me
         toca?» y por eso va primero;
-     2. el selector de agendado, cuando `can_book`;
+     2. «Qué llevar», plegado -abierto solo con cita vigente VIVA-: el alumno
+        que ya tiene fecha quiere ver esto antes que el selector;
+     3. el selector -franjas Y sin horario juntos, D3/D4-, cuando hay `modo`;
      4. la frase que dice POR QUÉ no puede, justo donde estaría el selector —
-        así el hueco queda explicado en lugar de mudo;
-     3. la atención sin cita, al final, como alternativa.
+        así el hueco queda explicado en lugar de mudo.
 
-   La 3 y la 4 conviven a propósito en el único caso donde eso importa: el
-   bloqueado por D9 no puede RESERVAR pero sí PRESENTARSE.
+   `modo == "presentarse"` (el bloqueado por D9) y `message` conviven a
+   propósito en el único caso donde eso importa: perdió el derecho a
+   RESERVAR, no el de PRESENTARSE.
    =========================================================================== #}
+{% from "titulatec/_macros.html" import survey_review_pill %}
 
 {# `#tt-cita-card` sigue siendo el destino de «Confirmar asistencia» y
    «Solicitar cambio», que se swappean SOLOS (sin repintar el panel entero). #}
@@ -26,7 +30,59 @@
   {% include "titulatec/partials/cita_card.html" %}
 </div>
 
-{% if agenda.can_book and agenda.dias %}
+{# — Requisitos de cotejo de SU convocatoria (D10): plegados, `open` solo con
+   una cita vigente VIVA (`scheduled`/`confirmed`/`in_progress`) -mismos tres
+   estados que `_ESTADOS_ACTIVOS`-. Contenido sin cambios respecto a la
+   versión que vivía en `cita.html`; solo se mudó de sitio y de envoltura. — #}
+<details id="tt-cita-reqs" class="tt-card mt-3 tt-anim-in"
+         {% if appt and appt.status in ('scheduled', 'confirmed', 'in_progress') %}open{% endif %}>
+  <summary class="tt-cita-reqs-sum">
+    <i class="bi bi-bag-check" aria-hidden="true"></i>
+    <span>Qué llevar a tu cita · {{ checklist|length }} requisitos ({{ checklist|selectattr('done')|list|length }} listos)</span>
+    <i class="bi bi-chevron-down tt-cita-reqs-chev" aria-hidden="true"></i>
+  </summary>
+  <p class="tt-cita-reqs-hint mb-2 mt-2">
+    Lleva todo físico el día de tu cita. No se suben aquí.</p>
+  <div class="d-flex flex-column">
+    {% for it in checklist %}
+    <div class="tt-cita-reqs-row d-flex align-items-start gap-3 py-2">
+      <span class="tt-cita-reqs-icon d-flex align-items-center justify-content-center">
+        <i class="bi bi-{{ it.icon }}"></i></span>
+      <div class="flex-grow-1 min-w-0">
+        <div class="tt-cita-reqs-title">{{ it.title }}
+          {% if it.info_html %}<button type="button" class="tt-reqinfo-btn"
+                  data-bs-toggle="modal" data-bs-target="#tt-reqinfo-modal-{{ it.id }}"
+                  aria-haspopup="dialog" aria-label="Información sobre {{ it.title }}"><i class="bi bi-info-circle" aria-hidden="true"></i></button>{% endif %}
+          {% if not it.required %}<span class="tt-pill tt-pill--neutral">opcional</span>{% endif %}
+        </div>
+        {% if it.hint %}<div class="tt-cita-reqs-item-hint">{{ it.hint }}</div>{% endif %}
+        {% if it.survey %}
+        {# D3: la libera GTV, no el envío -- el estatus real de la
+           solicitud sustituye al "Listo"/"Dispensado" genérico de abajo. #}
+        <div class="mt-1">
+          {{ survey_review_pill(it.survey.status) }}
+          {%- if it.survey.status == 'rejected' and it.survey.reason %}
+            — {{ it.survey.reason }}
+          {%- endif %}
+        </div>
+        {% endif %}
+        {% if it.survey_url %}
+        <a href="{{ it.survey_url }}" class="btn btn-sm tt-btn-soft mt-2">
+          <i class="bi bi-pencil-square me-1"></i>Contestar la encuesta</a>
+        {% endif %}
+      </div>
+      {% if it.done %}
+      <span class="tt-pill tt-pill--success tt-cita-reqs-done">{{ 'Dispensado' if it.status == 'waived' else 'Listo' }}{% if it.when %} · {{ it.when }}{% endif %}</span>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="tt-cita-reqs-empty mb-0">
+      Servicios Escolares aún no publica los requisitos de tu convocatoria.</p>
+    {% endfor %}
+  </div>
+</details>
+
+{% if agenda.modo and agenda.dias %}
   {% include "titulatec/partials/student/_cita_agendar.html" %}
 {% elif fase_rechazada and appt and agenda.can_book and not agenda.dias %}
   {# La fase 02 quedó con observaciones y el alumno YA puede volver a agendar
@@ -55,8 +111,4 @@
       <p class="mb-0">{{ agenda.message }}</p>
     </div>
   </div>
-{% endif %}
-
-{% if agenda.can_walkin and agenda.walkins %}
-  {% include "titulatec/partials/student/_cita_walkin.html" %}
 {% endif %}

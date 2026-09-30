@@ -286,10 +286,22 @@ class NotYours(AppointmentError):
 # Colisión de estado: 200 con el cuerpo fresco
 # --------------------------------------------------------------------------
 class SlotFull(AppointmentError):
+    """El cupo se agotó entre que se pintó la pantalla y se envió el POST.
+
+    `sin_horario=True` (D10, Tarea 9 del plan 2026-09-29-titulatec-cotejo-
+    espacios) es un espacio SIN horario (`walkin`): ahí no hay una FRANJA que
+    se llenó, hay LUGARES, así que el texto habla de eso -mismo patrón que
+    `SlotTooSoon`/`CancelTooLate`- aunque el código sea el mismo. El agendable
+    conserva su texto de siempre.
+    """
+
     refresca_la_vista = True
 
-    def __init__(self, msg="Esa franja se llenó hace un momento. Elige otro lugar."):
-        super().__init__(msg)
+    def __init__(self, *, sin_horario: bool = False):
+        if sin_horario:
+            super().__init__("Ese espacio sin horario se llenó hace un momento.")
+        else:
+            super().__init__("Esa franja se llenó hace un momento. Elige otro lugar.")
 
 
 class InvalidTransition(AppointmentError):

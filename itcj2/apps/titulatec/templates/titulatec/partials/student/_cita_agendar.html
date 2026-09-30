@@ -1,5 +1,19 @@
 {# ===========================================================================
-   _cita_agendar.html — cara 2: día -> encargado -> franjas (spec §7).
+   _cita_agendar.html — el selector, unificado (D3/D4/D10, spec §6/§7).
+
+   Una tira de días -franjas Y espacios sin horario juntos, ya no hay un
+   parcial aparte para el walk-in (`_cita_walkin.html` se retiró en la
+   Tarea 9)- y dentro de cada día, encargados PLEGABLES (`<details>` nativo,
+   cero JS): abiertos los dos si son ≤2 ese día, si no solo el primero
+   (`owner["open"]`, calculado en `_agenda_ctx`).
+
+   Dos modos, decididos por `agenda.modo`:
+
+   * `"agendar"` -- franjas (12 visibles + «Ver N horas más») Y espacios sin
+     horario («Apartar mi lugar» si `reservable`, si no «Lleno por ahora»).
+   * `"presentarse"` -- el bloqueado por D9: SOLO ventanas sin horario, SIN
+     ningún botón -perdió el derecho a reservar, no el de presentarse-, con el
+     texto de presentarse.
 
    Es TAMBIÉN la respuesta de `GET /student/cita?dia=YYYY-MM-DD`, y por eso su
    raíz lleva el id del destino: el swap es `morph`-libre pero sí `outerHTML`
@@ -9,7 +23,9 @@
    tiene que coincidir igual o htmx no encuentra dónde poner la respuesta.)
 
    Una franja es un `<button type="submit" name="slot">` dentro de un
-   `<form method="post">`: **no se teclea una hora**.
+   `<form method="post">`: **no se teclea una hora**. Un lugar sin horario es
+   el MISMO form, pero con solo `window_id`: D4 dice que el egresado aparta
+   lugar sin hora, así que no hay `slot` que elegir.
 
    Sobre el `action`/`method` y el `href` de los días: son el camino sin htmx.
    El GET lo sirve entero —la ruta devuelve la PÁGINA completa cuando falta la
@@ -20,7 +36,11 @@
    =========================================================================== #}
 <div id="tt-cita-agendar" class="tt-card mt-3 tt-anim-in">
   <span class="tt-kicker"><i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Agendar mi cita</span>
-  <p class="tt-cita-hint">Elige el día y toca la hora que te acomode.</p>
+  {% if agenda.modo == 'presentarse' %}
+  <p class="tt-cita-hint">Preséntate dentro del horario de estos espacios.</p>
+  {% else %}
+  <p class="tt-cita-hint">Elige el día y toca la hora que te acomode, o aparta un lugar sin horario.</p>
+  {% endif %}
 
   {# — Tira de días. Es la que puede crecer, así que scrollea DENTRO de sí
      misma: la página nunca se desborda en horizontal. — #}
@@ -40,14 +60,16 @@
 
   {% if agenda.dia_actual %}
     {% for o in agenda.dia_actual.owners %}
-    <div class="tt-slotblock">
-      <div class="tt-slotblock-head">
+    <details class="tt-slotblock"{% if o.open %} open{% endif %}>
+      <summary class="tt-slotblock-head">
         <i class="bi bi-person-badge" aria-hidden="true"></i>
         <span class="who">{{ o.owner_name }}</span>
-      </div>
-
+        <i class="bi bi-chevron-down tt-slotblock-chev" aria-hidden="true"></i>
+      </summary>
+      <div class="tt-slotblock-body">
       {% for w in o.windows %}
       <div class="tt-slotwin">
+        {% if w.kind == 'franjas' %}
         <div class="meta">
           <i class="bi bi-clock" aria-hidden="true"></i>{{ w.range }}
           {%- if w.location %} · <i class="bi bi-geo-alt" aria-hidden="true"></i>{{ w.location }}{% endif %}
@@ -57,15 +79,50 @@
               hx-target="#tt-cita-panel" hx-swap="innerHTML">
           <input type="hidden" name="window_id" value="{{ w.window_id }}">
           <div class="tt-slotgrid">
-            {% for s in w.slots %}
+            {% for s in w.slots_visible %}
             <button type="submit" name="slot" value="{{ s }}" class="tt-slot"
                     aria-label="Agendar el {{ agenda.dia_actual.label }} a las {{ s }} con {{ o.owner_name }}">{{ s }}</button>
             {% endfor %}
           </div>
+          {% if w.slots_more %}
+          <details class="mt-2">
+            <summary class="tt-cita-more-sum">Ver {{ w.slots_more|length }} horas más</summary>
+            <div class="tt-slotgrid mt-2">
+              {% for s in w.slots_more %}
+              <button type="submit" name="slot" value="{{ s }}" class="tt-slot"
+                      aria-label="Agendar el {{ agenda.dia_actual.label }} a las {{ s }} con {{ o.owner_name }}">{{ s }}</button>
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
         </form>
+        {% else %}
+        {# Espacio sin horario (D3/D4): «{range} · {places_left} de {capacity}
+           lugares» en modo agendar; solo el horario y el lugar en modo
+           presentarse -ahí no hay cupo que reservar, solo llegar-. #}
+        <div class="meta">
+          <i class="bi bi-door-open" aria-hidden="true"></i>{{ w.range }}
+          {%- if agenda.modo == 'agendar' %} · {{ w.places_left }} de {{ w.capacity }} lugares{% endif -%}
+          {%- if w.location %} · <i class="bi bi-geo-alt" aria-hidden="true"></i>{{ w.location }}{% endif %}
+        </div>
+        {% if agenda.modo == 'presentarse' %}
+        <p class="tt-cita-note mb-0">Preséntate en este horario; tu encargado te registra si hay lugar.</p>
+        {% elif w.reservable %}
+        <form method="post" action="/titulatec/student/cita/agendar"
+              hx-post="/titulatec/student/cita/agendar"
+              hx-target="#tt-cita-panel" hx-swap="innerHTML">
+          <input type="hidden" name="window_id" value="{{ w.window_id }}">
+          <button type="submit" class="btn btn-sm tt-btn-soft">
+            <i class="bi bi-door-open me-1" aria-hidden="true"></i>Apartar mi lugar</button>
+        </form>
+        {% else %}
+        <span class="tt-pill tt-pill--neutral">Lleno por ahora</span>
+        {% endif %}
+        {% endif %}
       </div>
       {% endfor %}
-    </div>
+      </div>
+    </details>
     {% endfor %}
   {% endif %}
 </div>

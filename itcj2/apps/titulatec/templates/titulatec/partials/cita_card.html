@@ -54,20 +54,25 @@
 
      `agenda` lo pone `_cita_card_ctx`, tambien cuando este parcial se swappea
      solo. El `agenda and ...` es defensivo: si algun dia alguien lo renderiza
-     sin contexto, cae a la cara conservadora en vez de reventar. #}
-  {% set puede_agendar = agenda and agenda.can_book and agenda.dias %}
-  {% set hay_walkin = agenda and agenda.can_walkin and agenda.walkins %}
+     sin contexto, cae a la cara conservadora en vez de reventar.
+
+     Tarea 9 (D3/D4/D10): un espacio `walkin` YA es agendable -el egresado
+     aparta lugar sin hora-, así que ya no hay una cara aparte de "solo
+     atención sin cita": `agenda.modo` decide, y `agenda.hay_sin_horario` solo
+     ajusta la COPIA cuando el modo es "agendar" y también hay un espacio sin
+     horario en la oferta. #}
+  {% set modo = agenda.modo if agenda else None %}
   <div class="tt-card tt-card--accent">
-    {% if puede_agendar %}
+    {% if modo == 'agendar' %}
       <span class="tt-pill tt-pill--navy"><i class="bi bi-calendar-plus"></i> Te toca agendar</span>
       <p class="tt-cita-note mb-0 mt-2">
         Todavía no tienes cita de cotejo.
-        {% if hay_walkin %}
-          Agéndala aquí abajo, o preséntate sin cita dentro del horario de atención.
+        {% if agenda.hay_sin_horario %}
+          Agéndala aquí abajo: elige una hora o aparta un lugar sin horario.
         {% else %}
           Agéndala aquí abajo con el día y la hora que te acomoden.
         {% endif %}</p>
-    {% elif hay_walkin %}
+    {% elif modo == 'presentarse' %}
       <span class="tt-pill tt-pill--navy"><i class="bi bi-door-open"></i> Atención sin cita</span>
       <p class="tt-cita-note mb-0 mt-2">
         No necesitas agendar: preséntate dentro del horario de atención de abajo
@@ -96,7 +101,11 @@
       <span class="tt-kicker">Tu cita de cotejo</span>
       {{ appt_pill(appt.status) }}
     </div>
-    <div class="tt-display tt-cita-when mt-2">{{ appt.scheduled_label }}</div>
+    {# D11: `scheduled_label` ya trae «de HH:MM a HH:MM» en un lugar sin
+       horario (`AppointmentService.when`); el «por orden de llegada» es la
+       única copia propia de esta tarjeta -no vive en el helper porque avisos
+       y correos no la necesitan-. #}
+    <div class="tt-display tt-cita-when mt-2">{{ appt.scheduled_label }}{% if appt.sin_horario %} · por orden de llegada{% endif %}</div>
     <div class="tt-cita-where mt-1">
       <i class="bi bi-geo-alt me-1"></i>{{ appt.location or 'Lugar por confirmar' }}</div>
 
@@ -148,12 +157,18 @@
        convierte en `TitulaTecUtils.confirmDialog` — nunca el `confirm()`
        nativo, que este proyecto prohíbe. — #}
     {% if appt.can_cancel %}
+      {# D5/D10: en un lugar sin horario no hay "cita" que cancelar, hay
+         "lugar" que soltar -mismo botón, texto y `hx-confirm` distintos-. #}
       <form class="mt-2" hx-post="/titulatec/student/cita/cancelar"
             hx-target="#tt-cita-panel" hx-swap="innerHTML"
+            {% if appt.sin_horario %}
+            hx-confirm="Cancelar tu lugar|Vas a liberar tu lugar sin horario. Podrás apartar otro mientras queden lugares."
+            {% else %}
             hx-confirm="Cancelar tu cita|Vas a liberar tu lugar. Podrás agendar otro mientras queden espacios disponibles."
+            {% endif %}
             data-tt-confirm-ok="Sí, cancelar">
         <button class="btn btn-sm tt-btn-ghost w-100" type="submit">
-          <i class="bi bi-x-circle me-1"></i>Cancelar mi cita</button>
+          <i class="bi bi-x-circle me-1"></i>{% if appt.sin_horario %}Cancelar mi lugar{% else %}Cancelar mi cita{% endif %}</button>
       </form>
     {% endif %}
   </div>

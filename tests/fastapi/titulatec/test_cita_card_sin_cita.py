@@ -18,8 +18,10 @@ antes del auto-agendado, cuando la única via era que Servicios Escolares
 asignara la fecha.
 
 Ahora son tres caras, decididas por lo mismo que decide qué secciones se pintan
-debajo (`agenda.can_book`/`agenda.dias` y `agenda.can_walkin`/`agenda.walkins`),
-para que la tarjeta y el cuerpo de la pantalla no puedan volver a contradecirse.
+debajo (`agenda.modo`, D10/Tarea 9: `"agendar"` cuando `can_book` y hay algo
+publicado -franjas O sin horario, D3/D4 hace que apartar lugar SEA agendar-,
+`"presentarse"` cuando solo `can_walkin`), para que la tarjeta y el cuerpo de
+la pantalla no puedan volver a contradecirse.
 
 Estos tests se escriben por las TRES caras y por la contradicción: cada caso
 positivo viene con la negación del texto que sobra. Sin esa negación, la copia
@@ -97,10 +99,45 @@ def test_con_espacio_bookable_la_tarjeta_dice_que_le_toca_a_el(
 # ---------------------------------------------------------------------------
 # Cara 2: solo atención sin cita
 # ---------------------------------------------------------------------------
-def test_con_solo_walkin_la_tarjeta_dice_que_no_hace_falta_agendar(
+def test_con_solo_walkin_y_elegible_la_tarjeta_dice_que_le_toca_a_el(
         db_session, esc, client_as, make_officer, make_review_day, make_review_window):
+    """Tarea 9 (D3/D4): un `walkin` YA es agendable -el egresado aparta lugar
+    sin hora-, así que un alumno de otro modo elegible (`can_book` True) ve
+    «Te toca agendar», no «Atención sin cita». La cara puramente informativa
+    («Atención sin cita», sin ningún botón) quedó para quien SÍ está
+    bloqueado -ver el test de abajo-, no para «solo hay un walkin»."""
     _publicar(db_session, esc, make_officer, make_review_day, make_review_window,
               "walkin")
+
+    cuerpo = client_as(esc["student"]).get(URL, follow_redirects=False).text
+
+    assert TE_TOCA in cuerpo
+    assert "aparta un lugar sin horario" in cuerpo
+    assert ASIGNA not in cuerpo
+    assert SIN_CITA not in cuerpo
+    # D3/D4: el walkin se agenda por la MISMA ruta, con solo `window_id`.
+    assert 'name="window_id"' in cuerpo
+    assert 'name="slot"' not in cuerpo, "un sin horario no ofrece franjas con hora"
+
+
+def test_bloqueado_por_cancelaciones_con_solo_walkin_solo_puede_presentarse(
+        db_session, esc, client_as, make_officer, make_review_day, make_review_window,
+        make_appointment):
+    """La cara realmente informativa: el bloqueado por D9 perdió el derecho a
+    RESERVAR (así que el walkin, que ya es reservable, no le sirve), no el de
+    PRESENTARSE a una atención que el encargado anunció abierta a todos."""
+    from itcj2.config import get_settings
+
+    _publicar(db_session, esc, make_officer, make_review_day, make_review_window,
+              "walkin")
+    tope = get_settings().TITULATEC_SELF_CANCEL_MAX
+    for _ in range(tope):
+        make_appointment(esc["process"], status="cancelled", is_current=False)
+    from itcj2.apps.titulatec.models import ReviewAppointment
+    for ap in (db_session.query(ReviewAppointment)
+               .filter_by(process_id=esc["process"].id).all()):
+        ap.cancelled_by_id = esc["student"].id
+    db_session.flush()
 
     cuerpo = client_as(esc["student"]).get(URL, follow_redirects=False).text
 
@@ -108,7 +145,10 @@ def test_con_solo_walkin_la_tarjeta_dice_que_no_hace_falta_agendar(
     assert "No necesitas agendar" in cuerpo
     assert ASIGNA not in cuerpo
     assert TE_TOCA not in cuerpo
-    # D2: una ventana `walkin` es anuncio, no agenda — no publica franjas.
+    assert f"Cancelaste {tope} veces" in cuerpo
+    # Perdió RESERVAR, no PRESENTARSE: sin botón, sin `window_id` en un form.
+    assert "Apartar mi lugar" not in cuerpo
+    assert 'name="window_id"' not in cuerpo
     assert 'name="slot"' not in cuerpo
 
 
@@ -132,7 +172,7 @@ def test_con_bookable_y_walkin_la_tarjeta_ofrece_las_dos(
     cuerpo = client_as(esc["student"]).get(URL, follow_redirects=False).text
 
     assert TE_TOCA in cuerpo, "con espacio agendable, agendar es la acción principal"
-    assert "o preséntate sin cita" in cuerpo, "la segunda vía tiene que nombrarse"
+    assert "aparta un lugar sin horario" in cuerpo, "la segunda vía tiene que nombrarse"
     assert ASIGNA not in cuerpo
 
 
@@ -202,7 +242,8 @@ def test_la_tarjeta_sola_trae_su_agenda(db_session, esc):
     ctx = _cita_card_ctx(db_session, esc["student"].id)
 
     assert "agenda" in ctx, "la tarjeta se quedó sin el dato que decide qué dice"
-    assert set(ctx["agenda"]) >= {"can_book", "can_walkin", "dias", "walkins"}
+    assert set(ctx["agenda"]) >= {"can_book", "can_walkin", "dias", "modo",
+                                  "hay_sin_horario"}
 
 
 def test_el_panel_no_calcula_la_agenda_dos_veces(db_session, esc, monkeypatch):

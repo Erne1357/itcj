@@ -1,5 +1,4 @@
 {% extends "titulatec/student/base_student.html" %}
-{% from "titulatec/_macros.html" import survey_review_pill %}
 {% block student_title %}Cita de cotejo · TitulaTec{% endblock %}
 {% block student_active %}cita{% endblock %}
 {% block student_page %}student_cita{% endblock %}
@@ -15,7 +14,7 @@
      proceso— no era comprobable desde fuera: ni esta plantilla ni
      `partials/cita_card.html` imprimian el folio en ningun sitio. Sin esto, un
      cumplimiento que aterrice en otro proceso vivo del alumno se ve idéntico a
-     uno correcto. Lo consumen `test_survey_credit_route.py` y los E2E. #}
+     uno correcto. Lo consumen `test_survey_review_submit.py` y los E2E. #}
   <div id="tt-cita-process" data-tt-process="{{ process.folio if process else '' }}" hidden></div>
   <div class="p-3 p-lg-4">
     {# Host de las cuatro caras (§7). El panel entero es lo que devuelven los
@@ -23,52 +22,6 @@
        siendo el destino de «Confirmar asistencia» y «Solicitar cambio». #}
     <div id="tt-cita-panel" class="tt-anim-in">
       {% include "titulatec/partials/student/_cita_panel.html" %}
-    </div>
-
-    {# — Requisitos de cotejo de SU convocatoria (los edita Servicios Escolares) — #}
-    <div class="tt-card mt-3 tt-anim-in">
-      <span class="tt-kicker"><i class="bi bi-bag-check me-1"></i>Qué llevar a tu cita</span>
-      <p class="mb-2 mt-1" style="font-size:.8rem;color:var(--tt-slate)">
-        Lleva todo físico el día de tu cita. No se suben aquí.</p>
-      <div class="d-flex flex-column">
-        {% for it in checklist %}
-        <div class="d-flex align-items-start gap-3 py-2"
-             {% if not loop.last %}style="border-bottom:1px solid var(--tt-line-soft)"{% endif %}>
-          <span class="d-flex align-items-center justify-content-center"
-                style="width:34px;height:34px;border-radius:9px;background:var(--tt-mist);border:1px solid var(--tt-line);flex:0 0 auto">
-            <i class="bi bi-{{ it.icon }}" style="color:var(--tt-slate)"></i></span>
-          <div class="flex-grow-1 min-w-0">
-            <div style="font-size:.86rem;font-weight:600">{{ it.title }}
-              {% if it.info_html %}<button type="button" class="tt-reqinfo-btn"
-                      data-bs-toggle="modal" data-bs-target="#tt-reqinfo-modal-{{ it.id }}"
-                      aria-haspopup="dialog" aria-label="Información sobre {{ it.title }}"><i class="bi bi-info-circle" aria-hidden="true"></i></button>{% endif %}
-              {% if not it.required %}<span class="tt-pill tt-pill--neutral">opcional</span>{% endif %}
-            </div>
-            {% if it.hint %}<div style="font-size:.76rem;color:var(--tt-mute)">{{ it.hint }}</div>{% endif %}
-            {% if it.survey %}
-            {# D3: la libera GTV, no el envío -- el estatus real de la
-               solicitud sustituye al "Listo"/"Dispensado" genérico de abajo. #}
-            <div class="mt-1">
-              {{ survey_review_pill(it.survey.status) }}
-              {%- if it.survey.status == 'rejected' and it.survey.reason %}
-                — {{ it.survey.reason }}
-              {%- endif %}
-            </div>
-            {% endif %}
-            {% if it.survey_url %}
-            <a href="{{ it.survey_url }}" class="btn btn-sm tt-btn-soft mt-2">
-              <i class="bi bi-pencil-square me-1"></i>Contestar la encuesta</a>
-            {% endif %}
-          </div>
-          {% if it.done %}
-          <span class="tt-pill tt-pill--success" style="flex:0 0 auto">{{ 'Dispensado' if it.status == 'waived' else 'Listo' }}{% if it.when %} · {{ it.when }}{% endif %}</span>
-          {% endif %}
-        </div>
-        {% else %}
-        <p class="mb-0" style="font-size:.8rem;color:var(--tt-mute)">
-          Servicios Escolares aún no publica los requisitos de tu convocatoria.</p>
-        {% endfor %}
-      </div>
     </div>
   </div>
 {% endblock %}

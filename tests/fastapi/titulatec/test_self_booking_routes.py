@@ -195,7 +195,10 @@ def test_apartar_el_ultimo_lugar_de_un_walkin_ya_tomado_responde_panel_fresco(
     """Review Focus 2: el último lugar lo toman dos a la vez. Aquí el
     encargado ya sentó a `p2` a mano en la única plaza (`agenda_slots` da
     `capacity=1`); el clic de `p1` no debe crear un 11avo de 10, sino
-    responder 200 con el panel fresco y el aviso de `SlotFull`."""
+    responder 200 con el panel fresco y el aviso de `SlotFull`.
+
+    Ruling 2026-09-29 (Tarea 9, D10): en un espacio SIN horario no hay una
+    FRANJA que se llenó, hay LUGARES -texto propio, mismo `SlotFull`-."""
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
     escena["w"].visibility = "walkin"
@@ -208,7 +211,29 @@ def test_apartar_el_ultimo_lugar_de_un_walkin_ya_tomado_responde_panel_fresco(
         AGENDAR, data={"window_id": str(escena["w"].id)})
 
     assert resp.status_code == 200, _msg(resp) or resp.text[:300]
-    assert "llenó" in unquote(resp.headers.get("X-Tt-Notice", "")), dict(resp.headers)
+    assert (unquote(resp.headers.get("X-Tt-Notice", ""))
+            == "Ese espacio sin horario se llenó hace un momento."), dict(resp.headers)
+    assert _citas(db_session, escena["p1"]) == [], "no debio crearse una cita de mas"
+
+
+def test_el_ultimo_lugar_de_una_franja_agendable_conserva_su_texto_de_siempre(
+        db_session, escena, client_as, make_survey_review):
+    """El arrastre del ruling de arriba: el `SlotFull` de una ventana
+    AGENDABLE (franjas) no cambia -sigue hablando de "franja", no de
+    "lugares"-. Mismo montaje que el test del `walkin`, pero sin tocar
+    `visibility` (`escena["w"]` ya es `bookable`)."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    make_survey_review(escena["p2"], status="approved")
+    AppointmentService.create(db_session, escena["p2"].id, window_id=escena["w"].id,
+                              slot_start=time(9, 30), created_by_id=escena["off"].id)
+
+    resp = client_as(escena["alumno"]).post(
+        AGENDAR, data={"window_id": str(escena["w"].id), "slot": "09:30"})
+
+    assert resp.status_code == 200, _msg(resp) or resp.text[:300]
+    assert (unquote(resp.headers.get("X-Tt-Notice", ""))
+            == "Esa franja se llenó hace un momento. Elige otro lugar."), dict(resp.headers)
     assert _citas(db_session, escena["p1"]) == [], "no debio crearse una cita de mas"
 
 
@@ -543,9 +568,11 @@ def test_el_dia_no_ofrece_franjas_a_quien_ya_no_puede_agendar(
     assert resp.headers.get("HX-Reswap") == "innerHTML"
 
 
-def test_el_walkin_se_anuncia_con_su_horario_y_su_encargado(db_session, escena,
-                                                             client_as):
-    """Cara 3: «Atención sin cita», con horario completo, lugar y nombre."""
+def test_el_walkin_se_anuncia_con_su_horario_lugar_y_boton_de_apartar(db_session, escena,
+                                                                       client_as):
+    """D3/D4 (Tarea 9): con el egresado elegible, un `walkin` ya no es solo un
+    anuncio -«Atención sin cita»-: se ofrece con su horario, su lugar Y el
+    botón «Apartar mi lugar», por la MISMA ruta que una franja."""
     escena["w"].visibility = "walkin"
     escena["w"].location = "Edificio A"
     db_session.flush()
@@ -553,10 +580,11 @@ def test_el_walkin_se_anuncia_con_su_horario_y_su_encargado(db_session, escena,
     resp = client_as(escena["alumno"]).get(CITA, follow_redirects=False)
 
     assert resp.status_code == 200
-    assert "sin cita" in resp.text.lower()
+    assert "Apartar mi lugar" in resp.text
     assert "Edificio A" in resp.text
     assert "09:00" in resp.text and "11:00" in resp.text
-    assert 'name="slot"' not in resp.text, "un walk-in no ofrece franjas (D2)"
+    assert 'name="window_id"' in resp.text
+    assert 'name="slot"' not in resp.text, "un sin horario no ofrece franjas con hora (D3/D4)"
 
 
 def test_el_bloqueado_por_cancelaciones_ve_la_frase_y_sigue_viendo_el_walkin(

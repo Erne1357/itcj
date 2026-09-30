@@ -420,7 +420,10 @@ class SlotService:
 
         ocupacion = SlotService.occupancy(db, window, excluir_process_id=process_id)
         if ocupacion.get(slot_start, 0) >= int(window.capacity or 1):
-            raise SlotFull()
+            # D10 (Tarea 9): en un espacio SIN horario no hay una franja que se
+            # llenó, hay LUGARES -el texto lo dice distinto aunque el código
+            # sea el mismo `SlotFull`, `refresca_la_vista=True`-.
+            raise SlotFull(sin_horario=(window.visibility == "walkin"))
 
         cuando = datetime.combine(window.review_day.date, slot_start)
         lugar = location if location is not None else window.location
