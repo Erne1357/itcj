@@ -12,9 +12,6 @@ logger = logging.getLogger("itcj2.apps.titulatec.pages.student")
 
 router = APIRouter(prefix="/student", tags=["titulatec-pages-student"])
 
-# Documentos de la fase 1 (iniciales). egel_proof solo aplica a modalidad EGEL.
-_INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
-
 # --- Contenido del acordeón de fase (alumno) -------------------------------
 # Una entrada por código de fase (titulatec_phase_definitions.code):
 #   desc  : qué es la fase, en 1-2 frases.
@@ -144,7 +141,57 @@ _PHASE_INFO = {
     },
 }
 
-# Compatibilidad: la instrucción breve sigue disponible como antes.
+# Variante de `_PHASE_INFO` SOLO para "initial_docs" en perfil posgrado (spec
+# 2026-09-30-titulatec-posgrado-design.md §4.4, invariante 1): un egresado de
+# posgrado sube 7 documentos en la fase 1 (los 3 de siempre + 4 extras), no 3,
+# y el acordeón del dashboard tiene que decirlo. No es un dict de 9 fases:
+# solo trae la ÚNICA que cambia por perfil -- el resto es igual para
+# cualquier egresado (D8, spec §2).
+_PHASE_INFO_POSGRADO = {
+    "initial_docs": {
+        "desc": "Sube tu acta de nacimiento, tu certificado de bachillerato, tu CURP "
+                "certificada y los 4 documentos adicionales de posgrado. Son los mismos "
+                "que vas a llevar en físico a la cita de cotejo.",
+        "needs": [
+            "Acta de nacimiento (PDF).",
+            "Certificado de bachillerato (PDF).",
+            "CURP certificada (PDF): la impresión certificada, no la simple.",
+            "Cédula profesional y título de tu grado anterior (licenciatura si "
+            "cursaste maestría; maestría si cursaste doctorado).",
+            "Oficios de autorización de la División de Estudios de Posgrado e "
+            "Investigación (DEPI), en un solo PDF.",
+            "Comprobante de tu e.firma o de tu cita con el SAT.",
+            "Cada archivo va en PDF de hasta {pdf_max_mb} MB. Si pesa más "
+            "(hasta {pdf_upload_mb} MB), lo comprimimos automáticamente.",
+            "Al subir los 7, tu fase pasa sola a revisión: no hay que enviarla a mano.",
+        ],
+        "who": "Tú subes los siete archivos; Servicios Escolares los revisa y los "
+               "aprueba o te pide corregir.",
+    },
+}
+
+
+def _phase_info(code: str, track: str) -> dict:
+    """`_PHASE_INFO[code]`, con la variante de posgrado SOLO en `initial_docs`.
+
+    `track` es lo que devuelve `TrackService` (invariante 2: el perfil sale
+    SOLO de ahí). Fuera de `initial_docs` -- y para licenciatura siempre -- es
+    exactamente `_PHASE_INFO.get(code, {})`: ninguna otra fase distingue
+    perfil (D8, spec §2).
+    """
+    from itcj2.apps.titulatec.services.track_service import TRACK_POSGRADO
+
+    if track == TRACK_POSGRADO:
+        override = _PHASE_INFO_POSGRADO.get(code)
+        if override is not None:
+            return override
+    return _PHASE_INFO.get(code, {})
+
+
+# Compatibilidad: la instrucción breve sigue disponible como antes. SIEMPRE
+# derivado de `_PHASE_INFO` (licenciatura): nada aquí distingue perfil -- un
+# consumidor que algún día necesite la variante de posgrado debe pedirla vía
+# `_phase_info`, no aquí.
 _PHASE_HELP = {code: info["desc"] for code, info in _PHASE_INFO.items()}
 
 
@@ -357,6 +404,38 @@ def _phase_guard_page(db, process, phase_number) -> Response | None:
     return RedirectResponse(destino, status_code=302)
 
 
+def _initial_docs_set_guard(db, process, dtype) -> Response | None:
+    """400 + `X-Tt-Error` si `dtype` es de la fase `initial_docs` pero su código
+    NO está en el set del PERFIL de `process` (spec 2026-09-30-titulatec-
+    posgrado-design.md §4.4, "hueco cerrado"; invariante 4).
+
+    Cierra el hueco que `_phase_guard` no tapa: esa guarda solo compara
+    `dtype.phase_number` contra `process.current_phase` (CUALQUIER tipo de la
+    fase 1 la pasa), así que sin esto licenciatura podía subir los 4 extras de
+    posgrado (`professional_license`, `degree_title`, `postgrad_authorization`,
+    `efirma_sat`) y CUALQUIER perfil podía subir un tipo de fase 1 activo en el
+    catálogo pero fuera de las dos listas de `DocumentService` (p. ej.
+    `egel_proof`).
+
+    Solo opina sobre `initial_docs`: el resto de fases no tiene sets por
+    perfil y sigue dependiendo nada más de `_phase_guard`. Sin proceso, `None`
+    (nada que guardar aquí; cada ruta ya resuelve "no tienes proceso" por su
+    cuenta) -- mismo criterio que `_phase_guard`.
+    """
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    if process is None:
+        return None
+    if dtype.phase_number != PhaseService.phase_number_for_code(db, "initial_docs"):
+        return None
+    if dtype.code in DocumentService.initial_doc_types_for(db, process):
+        return None
+    return Response(status_code=400, headers={
+        "X-Tt-Error": _hdr("Este documento no aplica a tu proceso."),
+    })
+
+
 def _slot_ctx(dtype, doc, *, error: str | None = None, sent_at=None) -> dict:
     """Contexto autónomo de un slot de documento para el parcial.
 
@@ -397,14 +476,18 @@ def _docs_status_ctx(db, process) -> dict:
     2026-09-28, spec §4 A4).
 
     Prioridad YA resuelta aquí (rechazados > faltantes > aprobados >
-    enviados): `initial_docs_summary` reparte los 3 documentos iniciales entre
-    exactamente un `status` cada uno (`approved|rejected|pending|missing`),
-    así que los 4 estados de salida son mutuamente excluyentes.
+    enviados): `initial_docs_summary` reparte los documentos iniciales DEL
+    PERFIL del proceso (spec 2026-09-30-titulatec-posgrado-design.md §4.4:
+    licenciatura, 3; posgrado, 7) entre exactamente un `status` cada uno
+    (`approved|rejected|pending|missing`), así que los 4 estados de salida son
+    mutuamente excluyentes.
 
     `contact_email` solo se resuelve para `state == "sent"` (el único texto
     que lo usa, spec A4 #4): evita la consulta de respaldo a
     `EnrollmentRequest` cuando no hace falta. `next_url` solo para
-    `state == "approved"` (spec A4 #3, liga a la cita de cotejo).
+    `state == "approved"` (spec A4 #3, liga a la cita de cotejo). `total` es
+    el tamaño del set del PROPIO proceso -- lo usa `_docs_status.html` para
+    "Tus N documentos..." (con N=3 el texto de licenciatura queda igual).
     """
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.student_mail import StudentMail
@@ -425,6 +508,7 @@ def _docs_status_ctx(db, process) -> dict:
         "missing_names": [it["name"] for it in summary["items"] if it["status"] == "missing"],
         "contact_email": (StudentMail.contact_email(db, process) if state == "sent" else None),
         "next_url": ("/titulatec/student/cita" if state == "approved" else None),
+        "total": summary["total"],
     }
 
 
@@ -626,12 +710,19 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.track_service import TrackService, TRACK_LICENCIATURA
 
     # Corte a T-soft (Tarea 3): se LEE aquí, en cada llamada a `_phases_ctx`
     # (una por carga del dashboard) -- nunca una constante de módulo ni un
     # valor de import time, o la reversibilidad por env var / monkeypatch de
     # `PhaseService._handoff_phase` deja de funcionar (ver su propio docstring).
     handoff_phase = PhaseService._handoff_phase()
+    # Perfil del proceso (spec 2026-09-30-titulatec-posgrado-design.md §4.4,
+    # invariante 2: el perfil sale SOLO de `TrackService`): decide la variante
+    # de `initial_docs` en `_phase_info`. Sin proceso, licenciatura -- mismo
+    # criterio que `TrackService.for_process`, sin reventar por `process is
+    # None` (esa función exige un proceso real).
+    track = TrackService.for_process(db, process) if process is not None else TRACK_LICENCIATURA
 
     pdefs = (
         db.query(PhaseDefinition)
@@ -641,7 +732,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     )
 
     def _base_card(pd, **over) -> dict:
-        info = _PHASE_INFO.get(pd.code, {})
+        info = _phase_info(pd.code, track)
         resp_label = _RESPONSIBLE_LABEL.get(pd.responsible, "el área responsable")
         card = {
             "number": pd.number,
@@ -919,10 +1010,21 @@ async def documents(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.read.own"])),
 ):
-    """Página de documentos iniciales (fase 1) con dropzones HTMX."""
+    """Página de documentos iniciales (fase 1) con dropzones HTMX.
+
+    El set de espacios sale del PERFIL del proceso
+    (`DocumentService.initial_doc_types_for`, spec 2026-09-30-titulatec-
+    posgrado-design.md §4.4, invariante 1): licenciatura, 3; posgrado, 7 (los
+    3 de siempre + 4 extras). Los 4 extras traen su propia línea de ayuda
+    (`DocumentService.INITIAL_DOC_HINTS`, `doc_hint` en el contexto del slot)
+    -- ADEMÁS de la ayuda de formato (PDF/imagen) que ya trae `_slot_ctx`, no
+    en su lugar. Con licenciatura (`docs_total == 3`) los textos dinámicos de
+    la plantilla quedan byte a byte como antes (Controller ruling R1).
+    """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import DocumentType
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.track_service import TrackService, TRACK_LICENCIATURA
 
     db = SessionLocal()
     try:
@@ -930,20 +1032,24 @@ async def documents(
         fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "initial_docs"))
         if fuera_de_fase:
             return fuera_de_fase
+        track = TrackService.for_process(db, process) if process else TRACK_LICENCIATURA
         slots = []
         status_ctx = None
         if process:
-            # UN lote para los 3 slots (Tarea 2, spec A3): "Enviado el ..." es
+            codes = DocumentService.initial_doc_types_for(db, process)
+            # UN lote para todos los slots (Tarea 2, spec A3): "Enviado el ..." es
             # la ULTIMA subida real de cada tipo, no `doc.created_at` (que no
             # se resetea al resubir).
-            sent_map = DocumentService.last_uploads(db, [process.id], codes=_INITIAL_DOC_TYPES)
-            for code in _INITIAL_DOC_TYPES:
+            sent_map = DocumentService.last_uploads(db, [process.id], codes=codes)
+            for code in codes:
                 dtype = db.query(DocumentType).filter_by(code=code, is_active=True).first()
                 if not dtype:
                     continue
                 doc = DocumentService.get_document(db, process.id, code)
                 sent_at = sent_map.get((process.id, code)) or (doc.created_at if doc else None)
-                slots.append(_slot_ctx(dtype, doc, sent_at=sent_at))
+                slot = _slot_ctx(dtype, doc, sent_at=sent_at)
+                slot["doc_hint"] = DocumentService.INITIAL_DOC_HINTS.get(code)
+                slots.append(slot)
             status_ctx = _docs_status_ctx(db, process)
         all_uploaded = bool(slots) and all(s["doc"] for s in slots)
         ctx = {
@@ -951,6 +1057,8 @@ async def documents(
             "slots": slots,
             "all_uploaded": all_uploaded,
             "status": status_ctx,
+            "track": track,
+            "docs_total": len(slots),
         }
     finally:
         db.close()
@@ -993,6 +1101,15 @@ async def document_upload(
         fuera_de_fase = _phase_guard(db, process, dtype.phase_number)
         if fuera_de_fase:
             return fuera_de_fase
+        # Hueco cerrado (spec §4.4): `_phase_guard` solo mira la FASE del tipo,
+        # no si el CÓDIGO aplica al perfil del proceso -- sin esto, licenciatura
+        # subía los 4 extras de posgrado y cualquiera subía un tipo de fase 1
+        # activo pero fuera de las dos listas de `DocumentService`. Antes de
+        # leer el cuerpo o tocar storage (orden: dtype -> proceso ->
+        # `_phase_guard` -> set -> storage).
+        fuera_del_set = _initial_docs_set_guard(db, process, dtype)
+        if fuera_del_set:
+            return fuera_del_set
 
         error = None
         doc = DocumentService.get_document(db, process.id, type_code)
@@ -1031,6 +1148,7 @@ async def document_upload(
         sent_map = DocumentService.last_uploads(db, [process.id], codes=[type_code])
         sent_at = sent_map.get((process.id, type_code)) or (doc.created_at if doc else None)
         ctx = _slot_ctx(dtype, doc, error=error, sent_at=sent_at)
+        ctx["doc_hint"] = DocumentService.INITIAL_DOC_HINTS.get(type_code)
         ctx["status_oob"] = _docs_status_ctx(db, process)
         resp = render_titulatec(request, "titulatec/partials/document_slot.html", ctx)
         if error:
@@ -1071,9 +1189,17 @@ async def document_delete(
         fuera_de_fase = _phase_guard(db, process, dtype.phase_number)
         if fuera_de_fase:
             return fuera_de_fase
+        # Mismo hueco que en la subida (spec §4.4): un código de fase 1 que no
+        # aplica al perfil del proceso tampoco se BORRA -- da igual que la fila
+        # exista o no (`DocumentService.delete` ya no-opea sin fila). Orden:
+        # dtype -> proceso -> `_phase_guard` -> set -> storage.
+        fuera_del_set = _initial_docs_set_guard(db, process, dtype)
+        if fuera_del_set:
+            return fuera_del_set
         if process:
             DocumentService.delete(db, process.id, type_code, actor_id=int(user["sub"]))
         ctx = _slot_ctx(dtype, None)
+        ctx["doc_hint"] = DocumentService.INITIAL_DOC_HINTS.get(type_code)
         if process:
             ctx["status_oob"] = _docs_status_ctx(db, process)
         return render_titulatec(request, "titulatec/partials/document_slot.html", ctx)
