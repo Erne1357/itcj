@@ -131,6 +131,26 @@ class WalkinStartLocked(AppointmentError):
             f"apertura. Puedes ampliar el cierre o abrir más lugares.")
 
 
+class WalkinCloseLocked(AppointmentError):
+    """Un sin horario con lugares apartados no adelanta su cierre (revisión final, I-1).
+
+    La reserva solo guarda día + apertura (D4): no guarda su propio cierre.
+    Adelantarlo («recortar») movería en silencio dos promesas que el egresado
+    ya recibió — que el espacio sigue abierto hasta `end_time` y su corte de
+    cancelación, `fin - TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES` (D5) — sin que
+    nadie se lo avise. Ampliar el cierre o abrir más lugares no le cambia nada
+    a quien ya apartó, y por eso sí se permite. Mismo patrón de mensaje que
+    `WalkinStartLocked`.
+    """
+
+    def __init__(self, n: int):
+        plural = "es" if n != 1 else ""
+        s = "s" if n != 1 else ""
+        super().__init__(
+            f"Ya hay {n} lugar{plural} apartado{s}: no puedes adelantar el "
+            f"cierre. Puedes ampliarlo o abrir más lugares.")
+
+
 class PlacesOutOfRange(AppointmentError):
     """«Abrir más lugares» (D6) fuera de rango.
 

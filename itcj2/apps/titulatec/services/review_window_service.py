@@ -25,8 +25,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.services.appointment_errors import (
-    DuplicateWindowStart, InvalidSlot, PlacesOutOfRange, WalkinStartLocked,
-    WindowInUse, WindowModeConflict, WindowOverlap, WindowShrinkConflict,
+    DuplicateWindowStart, InvalidSlot, PlacesOutOfRange, WalkinCloseLocked,
+    WalkinStartLocked, WindowInUse, WindowModeConflict, WindowOverlap,
+    WindowShrinkConflict,
 )
 from itcj2.apps.titulatec.services.slot_service import SlotService
 
@@ -115,6 +116,12 @@ class ReviewWindowService:
 
         * sin horario -> sin horario, con citas vivas y otra apertura:
           `WalkinStartLocked`. Los apartados guardan día + apertura;
+        * sin horario -> sin horario, con lugares apartados (`is_walkin_
+          reservation`, o sea sentados a la apertura) y un cierre MÁS
+          TEMPRANO que el actual: `WalkinCloseLocked` (revisión final, I-1).
+          La reserva no guarda su propio cierre, así que adelantarlo movería
+          en silencio lo prometido y su corte de cancelación (D5). Ampliarlo
+          sí se permite, igual que abrir más lugares;
         * -> sin horario: ninguna viva puede quedar, por su hora real, fuera
           del horario nuevo ``[inicio, fin)`` (una sentada a las 13:30 no cabe
           en un 09:00-12:00 aunque sobre cupo, y se le seguiría anunciando su
@@ -152,6 +159,16 @@ class ReviewWindowService:
             vivas = sum(reales.values())
             if desde_walkin and inicio != window.start_time:
                 raise WalkinStartLocked(vivas)
+            if desde_walkin and fin < window.end_time:
+                # `reales` ya agrupa por hora REAL (walkin=False): las citas
+                # sentadas a la apertura son exactamente las que
+                # `SlotService.is_walkin_reservation` marcaría como lugar
+                # apartado (misma condición: ventana walkin + hora ==
+                # apertura, y aquí `window.visibility` todavía es la de
+                # antes de este `update`, así que sigue siendo 'walkin').
+                apartados = reales.get(window.start_time, 0)
+                if apartados:
+                    raise WalkinCloseLocked(apartados)
             fuera = sum(n for hora, n in reales.items() if not inicio <= hora < fin)
             if fuera:
                 raise WindowShrinkConflict(fuera)

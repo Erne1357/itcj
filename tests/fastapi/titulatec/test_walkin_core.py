@@ -365,15 +365,36 @@ def test_recortar_el_cierre_no_deja_fuera_la_cita_de_legado(
     assert esc["w"].end_time == time(16, 0)
 
 
-def test_recortar_el_cierre_con_solo_apartados_si_se_puede(db_session, sin_horario):
-    """La negativa: los apartados están a la apertura, así que ningún cierre
-    posterior a ella los deja fuera."""
+def test_recortar_el_cierre_con_apartados_se_bloquea(db_session, sin_horario):
+    """I-1 (revisión final): aunque el cierre nuevo no deje a nadie fuera de
+    la rejilla (los apartados están a la apertura), adelantar el cierre con
+    lugares apartados vivos se bloquea — la reserva no guarda su propio
+    cierre y recortarlo movería en silencio el corte de cancelación (D5).
+    Ampliarlo sigue permitido."""
+    esc = sin_horario
+    _apartar(db_session, esc, 0)
+    _apartar(db_session, esc, 1)
+
+    with pytest.raises(err.WalkinCloseLocked) as exc:
+        _guardar(db_session, esc["w"], end_time=time(10, 30))
+    assert str(exc.value) == (
+        "Ya hay 2 lugares apartados: no puedes adelantar el cierre. "
+        "Puedes ampliarlo o abrir más lugares.")
+    assert esc["w"].end_time == time(14, 0)
+
+    _guardar(db_session, esc["w"], end_time=time(16, 0))
+    assert esc["w"].end_time == time(16, 0)
+
+
+def test_recortar_el_cierre_con_un_solo_apartado_usa_singular(db_session, sin_horario):
     esc = sin_horario
     _apartar(db_session, esc, 0)
 
-    _guardar(db_session, esc["w"], end_time=time(10, 30))
-
-    assert esc["w"].end_time == time(10, 30)
+    with pytest.raises(err.WalkinCloseLocked) as exc:
+        _guardar(db_session, esc["w"], end_time=time(10, 30))
+    assert str(exc.value) == (
+        "Ya hay 1 lugar apartado: no puedes adelantar el cierre. "
+        "Puedes ampliarlo o abrir más lugares.")
 
 
 def test_salir_de_sin_horario_revisa_el_cupo_por_franja_nuevo(db_session, sin_horario):
