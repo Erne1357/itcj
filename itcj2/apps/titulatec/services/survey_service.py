@@ -185,21 +185,67 @@ class SurveyService:
         posgrado cae a `egresados` -exactamente como licenciatura-, y el
         cambio a su propio formulario es automatico en cuanto alguien
         publique esa version, sin tocar este metodo ni ningun llamador.
+
+        Fallo transitorio (ronda de revision R10): si resolver el proceso o
+        el perfil revienta -`ProcessService.creditable_process` o
+        `TrackService.for_process`-, esto degrada a la cadena de
+        licenciatura en vez de propagar la excepcion, el MISMO riesgo y el
+        MISMO criterio que ya usa `_solicitud_existente` en `pages/public.py`
+        para el mismo gate (BD/Redis caidos): la ley del modulo ("Ninguna
+        entrada del visitante puede producir un 500") tambien aplica aqui,
+        aunque este metodo viva en el service. Igual que `_solicitud_
+        existente`, este primer catch NO hace `db.rollback()`: un fallo que
+        nunca toco la BD (el `RuntimeError` que simulan las pruebas, o
+        cualquier error puramente de Python) deja la sesion tan sana como
+        estaba, y un `rollback()` a la fuerza aqui DESCARTARIA sin necesidad
+        todo lo que esa misma sesion ya tenia pendiente -en un test, las filas
+        que los fixtures acaban de insertar (incluido el propio `User` del
+        JWT en curso): se probo agregando un rollback incondicional en esta
+        rama y `test_fallo_transitorio_en_solicitud_existente_no_produce_500`
+        pasaba a fallar con `ForeignKeyViolation` sobre `core_student_profile`
+        -el `User` del alumno ya no estaba-, y la prueba nueva de este mismo
+        archivo resolvia el `egresados` sembrado en dev (id real) en vez del
+        que el propio test acababa de crear. La consulta de respaldo de abajo
+        SI necesita su propio rollback si de verdad hereda una transaccion
+        abortada (un `OperationalError` real no se recupera solo), pero eso
+        se resuelve REACTIVAMENTE, solo si esa consulta falla -nunca antes-.
         """
         from itcj2.apps.titulatec.services.process_service import ProcessService
         from itcj2.apps.titulatec.services.track_service import TRACK_LICENCIATURA, TrackService
 
         track = TRACK_LICENCIATURA
         if user_id is not None:
-            process = ProcessService.creditable_process(db, user_id)
-            if process is not None:
-                track = TrackService.for_process(db, process)
+            try:
+                process = ProcessService.creditable_process(db, user_id)
+                if process is not None:
+                    track = TrackService.for_process(db, process)
+            except Exception:
+                logger.warning(
+                    "survey: fallo resolviendo el perfil del proceso (user_id=%s)", user_id)
+                track = TRACK_LICENCIATURA
 
-        for code in SURVEY_CODES_BY_TRACK[track]:
-            form = SurveyService.open_form(db, code)
-            if form is not None:
-                return form
-        return None
+        try:
+            for code in SURVEY_CODES_BY_TRACK[track]:
+                form = SurveyService.open_form(db, code)
+                if form is not None:
+                    return form
+            return None
+        except Exception:
+            # Solo se llega aqui si la consulta de arriba SI revento -nunca
+            # por el fallo ya atrapado arriba, que jamas toco la BD-: una
+            # transaccion de verdad abortada (`OperationalError`) no se
+            # recupera sin rollback, asi que aqui SI hace falta antes de
+            # reintentar UNA vez, con la cadena de licenciatura (el mismo
+            # respaldo de siempre).
+            logger.warning(
+                "survey: fallo consultando el formulario abierto; reintentando tras rollback "
+                "(user_id=%s)", user_id)
+            try:
+                db.rollback()
+            except Exception:      # pragma: no cover - sesion ya inservible
+                logger.warning("survey: rollback fallido tras el fallo de consulta")
+                return None
+            return SurveyService.open_form(db, SURVEY_CODE)
 
     # -----------------------------------------------------------------
     # Borradores (solo con sesion)

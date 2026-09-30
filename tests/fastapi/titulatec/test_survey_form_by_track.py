@@ -157,6 +157,36 @@ def test_form_for_user_sin_proceso_acreditable_resuelve_licenciatura(
     assert form.id == egresados.id
 
 
+def test_form_for_user_fallo_resolviendo_el_proceso_degrada_a_licenciatura(
+    db_session, make_program, make_student, make_process, make_survey_form, monkeypatch,
+):
+    """Ronda de revision R10: un `ProcessService.creditable_process` que
+    revienta -mismo riesgo que ya cubre `_solicitud_existente` en
+    `pages/public.py` para el mismo gate- no debe propagar. Un posgrado con
+    `egresados_posgrado` abierto (que en el camino normal GANARIA) cae a
+    `egresados` en vez de tirar un 500: la ley del modulo ("Ninguna entrada
+    del visitante puede producir un 500") tambien aplica dentro del service.
+    """
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+    from itcj2.apps.titulatec.services.survey_service import SurveyService
+
+    egresados = make_survey_form(code="egresados")
+    make_survey_form(code="egresados_posgrado")
+    prog = make_program("Maestria Fallo Transitorio de Prueba Track", level="maestria")
+    student = make_student()
+    make_process(student, program=prog)
+
+    def _revienta(db, user_id):
+        raise RuntimeError("BD/Redis caidos (simulado)")
+
+    monkeypatch.setattr(ProcessService, "creditable_process", staticmethod(_revienta))
+
+    form = SurveyService.form_for_user(db_session, student.id)
+
+    assert form is not None
+    assert form.id == egresados.id
+
+
 # ---------------------------------------------------------------------------
 # Nivel HTTP: las 4 rutas publicas
 # ---------------------------------------------------------------------------
