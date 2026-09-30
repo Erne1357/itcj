@@ -20,45 +20,60 @@
  *   2. La vista de agendado del egresado (día con 3 encargados y 20 franjas)
  *      no desborda en los 6 viewports, y sus plegables (D10) están en su
  *      lugar: solo el primer encargado abierto, «Ver N horas más» presente.
- *   3. El egresado aparta lugar en el espacio SIN HORARIO de hoy (D3/D4).
- *   4. El encargado lo ve numerado en el bloque «Sin horario» de su tablero,
+ *   3. El egresado agenda una franja de MAÑANA con un clic (D2 del rediseño
+ *      de 2026-09-03: nunca se teclea una hora).
+ *   4. El encargado ve «El alumno agendó» en el asiento de su tablero de
+ *      mañana (D11: sin notificación ni correo, el distintivo ES el aviso).
+ *   5. El egresado CANCELA esa cita desde la tarjeta («Cancelar mi cita»,
+ *      confirmando en el modal real de la app — nunca `confirm()` nativo,
+ *      prohibido en el proyecto). La franja es de mañana, a más de las 2 h
+ *      que exige D8, así que el botón se ofrece y la cancelación procede; la
+ *      franja vuelve al pozo (D12) y el egresado recupera `can_book` para
+ *      el paso siguiente.
+ *   6. El egresado aparta lugar en el espacio SIN HORARIO de hoy (D3/D4) —
+ *      el MISMO actor, ya sin cita viva tras el paso 5.
+ *   7. El encargado lo ve numerado en el bloque «Sin horario» de su tablero,
  *      con «El alumno apartó» (D11: mismo distintivo que un auto-agendado).
- *   5. El encargado usa «Atender ahora» (D7) sobre OTRO proceso pendiente —no
- *      el que acaba de apartar lugar, que ya tiene cita viva— y su ficha pasa
- *      a «En proceso» sin que nadie pasara por «Apartarle lugar».
+ *   8. El encargado usa «Atender ahora» (D7) sobre OTRO proceso pendiente —no
+ *      el del paso 6, que ya tiene cita viva en el sin horario— y su ficha
+ *      pasa a «En proceso» sin que nadie pasara por «Apartarle lugar».
  *
- * POR QUÉ EL PASO 2 VA ANTES DE APARTAR/AGENDAR Y NO DESPUÉS.
+ * POR QUÉ EL PASO 2 VA ANTES DE AGENDAR/APARTAR Y NO DESPUÉS.
  * El invariante responsive se mide sobre «la vista nueva del alumno», que es la
  * rejilla de franjas (cara 2 de §7). En cuanto el egresado tiene una cita viva
  * (franja O sin horario, D3/D4), `eligibility` devuelve `tiene_cita`, `can_book`
  * pasa a falso y esa rejilla **deja de existir** — el panel se queda con la
- * tarjeta de la cita. Medida después de apartar, la aserción seguiría en verde
+ * tarjeta de la cita. Medida después de agendar, la aserción seguiría en verde
  * midiendo una pantalla que ya no es la que dice medir: verde y vacía, el peor
  * resultado posible.
  *
  * Y es la razón de que el paso 2 pida `?dia=` MAÑANA explícito en vez de
  * confiar en el día por omisión: con el espacio sin horario de HOY ya
- * sembrado (para el paso 3), HOY ordena ANTES que MAÑANA —`_agenda_ctx`
+ * sembrado (para el paso 6), HOY ordena ANTES que MAÑANA —`_agenda_ctx`
  * recorre los días de la oferta en orden cronológico— y sería el día que
  * abriría sin pedirlo, con un solo encargado y una sola franja: justo lo
- * opuesto de lo que este paso necesita medir.
+ * opuesto de lo que este paso necesita medir. El paso 3 pide lo mismo por el
+ * mismo motivo.
  *
- * POR QUÉ EL PASO 3 APARTA EN VEZ DE AGENDAR UNA FRANJA.
+ * POR QUÉ EL PASO 5 CANCELA EN VEZ DE DEJAR DOS ACTORES SUELTOS.
  * Un proceso tiene como mucho UNA cita viva (`titulatec_review_appointments`,
  * índice único parcial sobre `is_current`). El egresado de este archivo no
- * puede agendar una franja en MAÑANA Y apartar un lugar sin horario en HOY: la
- * primera reserva apaga `can_book` para la segunda. Esta Tarea (10) es
- * específicamente sobre el recorrido «sin horario», así que es ese el que se
- * ejerce con el actor principal; el mecanismo de franjas en sí —agendar
- * clicando una hora— no cambió en esta spec (más allá de la guarda de
- * encuesta liberada, que el paso 3 ejerce igual: si la encuesta no estuviera
- * liberada, apartar respondería 400 igual que agendar) y sigue íntegro donde
- * ya se probó.
+ * puede tener a la vez la franja de MAÑANA (paso 3) y el lugar sin horario de
+ * HOY (paso 6) — la primera reserva apaga `can_book` para la segunda. En vez
+ * de sacrificar una de las dos coberturas (agendar una franja con clic, o el
+ * recorrido «sin horario» que esta Tarea 10 vino a cubrir), el paso 5 CANCELA
+ * la primera: es el mismo mecanismo que ya prueba «Cancelar mi lugar» en el
+ * paso 6 más adelante (mismo botón, mismo `hx-confirm`, texto distinto), así
+ * que agregarlo aquí no es una aserción nueva sino la variante franja del
+ * mismo botón — y de paso dispara por primera vez en este archivo el modal de
+ * confirmación real, que hasta ahora ningún test de esta carpeta hacía clic.
  *
  * LO QUE ESTE ARCHIVO NO PRUEBA, y dónde sí está cubierto:
- * las reglas de elegibilidad (§3), las ventanas de tiempo de D8, el tope de D9,
- * el IDOR del `window_id`, `WindowModeConflict`/`WindowShrinkConflict` del
- * editor y el candado de `add_places` viven en `tests/fastapi/titulatec/`
+ * las reglas de elegibilidad (§3), las ventanas de tiempo EXACTAS de D8 (el
+ * corte a los 60/120 minutos, no que el botón exista y funcione — eso sí lo
+ * prueba el paso 5), el tope de D9, el IDOR del `window_id`,
+ * `WindowModeConflict`/`WindowShrinkConflict` del editor y el candado de
+ * `add_places` viven en `tests/fastapi/titulatec/`
  * (`test_self_booking_eligibility.py`, `test_self_booking_routes.py`,
  * `test_self_booking_offer.py`, `test_window_visibility.py`,
  * `test_review_window_service.py`). Repetirlas en un navegador las haría más
@@ -75,18 +90,20 @@ const { test, expect } = require('@playwright/test');
 const {
   seedScenario, cleanupScenario, stateFor, seedSurveyReview, seedReviewDay,
   setStudentPhase, tomorrowInContainer, todayInContainer, seedWalkinWindow,
-  seedExtraOfficerWindow, seedSecondPendingProcess,
+  seedExtraOfficerWindow, seedSecondPendingProcess, E2E_TAG,
 } = require('./_helpers');
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
-// Los 5 tests son UN recorrido encadenado sobre el MISMO escenario: el 3
-// aparta lugar en el espacio sin horario que ya trae sembrado, el 4 mira la
-// fila que crea el 3, y el 5 sienta a un SEGUNDO proceso en ese mismo espacio
-// (el 3 ya lo dejó ocupado en 1 lugar). Eso hoy se cumple por el
+// Los 8 tests son UN recorrido encadenado sobre el MISMO escenario: el 3
+// agenda la franja que publica el 1, el 4 mira el asiento que crea el 3, el 5
+// cancela esa misma cita (libera al actor para el resto del recorrido), el 6
+// aparta lugar en el espacio sin horario que ya trae sembrado, el 7 mira la
+// fila que crea el 6, y el 8 sienta a un SEGUNDO proceso en ese mismo espacio
+// (el 6 ya lo dejó ocupado en 1 lugar). Eso hoy se cumple por el
 // `fullyParallel: false` + `workers: 1` del config GLOBAL, que es de otro
 // archivo y no sabe de esta dependencia — el día que alguien lo paralelice,
-// los tests 2-5 revientan de forma ilegible en vez de saltarse. `mode:
+// los tests 2-8 revientan de forma ilegible en vez de saltarse. `mode:
 // 'serial'` lo fija AQUÍ y además aborta la cadena al primer fallo, que es lo
 // correcto para un recorrido: si nadie publicó el espacio, «el egresado
 // agenda» no es un fallo nuevo, es ruido.
@@ -120,7 +137,7 @@ let MANANA;
 // paso del recorrido.
 let HOY;
 
-// El «otro pendiente» del paso 5 (D7): un SEGUNDO proceso, sin cita viva, que
+// El «otro pendiente» del paso 8 (D7): un SEGUNDO proceso, sin cita viva, que
 // «Atender ahora» sienta directo. Se siembra en `beforeAll` (`docker exec`),
 // así que su id no se conoce hasta entonces.
 let PROCESS_ID_2;
@@ -182,13 +199,13 @@ test.beforeAll(() => {
                                 dayIso: MANANA, ...ENCARGADO_C });
 
   // Recorrido «sin horario» (Tarea 10, spec §3/§4): el espacio SIN HORARIO de
-  // HOY del encargado principal, con cupo para el que aparta lugar (paso 3) Y
-  // el que «Atender ahora» sienta después (paso 5).
+  // HOY del encargado principal, con cupo para el que aparta lugar (paso 6) Y
+  // el que «Atender ahora» sienta después (paso 8).
   seedWalkinWindow(ctx, { dayIso: HOY });
 
-  // El «otro pendiente» del paso 5 (D7: «Atender ahora» exige un proceso SIN
+  // El «otro pendiente» del paso 8 (D7: «Atender ahora» exige un proceso SIN
   // cita viva; el egresado principal deja de calificar en cuanto aparta lugar
-  // en el paso 3).
+  // en el paso 6).
   PROCESS_ID_2 = seedSecondPendingProcess(ctx);
 });
 
@@ -199,6 +216,43 @@ function esperarPost(page, ruta) {
   return page.waitForResponse(
     (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === ruta
   );
+}
+
+/**
+ * Nombre completo del encargado principal, tal como lo arma `User.full_name`
+ * ("{last_name} {first_name}", `core/models/user.py:90`): `SEED_PY` lo crea
+ * con `last_name="ENCARGADO"`.
+ */
+const OFFICER1_NAME = `ENCARGADO ${E2E_TAG}`;
+
+/**
+ * Abre el bloque plegable (D10) del encargado NOMBRADO -clic en su
+ * `<summary>` si hace falta- antes de operar dentro de él.
+ *
+ * `_agenda_ctx` abre SOLO el primero por orden alfabético de `full_name`
+ * ("{last_name} {first_name}"), así que con ≥3 encargados el que interesa no
+ * siempre es ese: hallazgo de la ronda 1 de arreglo, con "ENCARGADO DOS"
+ * (`ENCARGADO_B`) ordenando ANTES que `OFFICER1_NAME` ('D' < 'E') y dejando
+ * el bloque del encargado principal PLEGADO. `getByRole`/`.click()` no
+ * alcanzan contenido dentro de un `<details>` cerrado -queda fuera del árbol
+ * de accesibilidad, aunque siga en el DOM- así que un botón suyo sin abrir
+ * antes agota el timeout en vez de fallar con un mensaje legible. (El test 2
+ * no lo necesita: sus aserciones son `toHaveCount`/`toContainText`, que leen
+ * el DOM crudo, no el árbol de accesibilidad.)
+ */
+async function abrirBloqueEncargado(agendar, nombreEncargado) {
+  const bloque = agendar.locator('details.tt-slotblock').filter({ hasText: nombreEncargado });
+  const abierto = await bloque.evaluate((el) => el.open);
+  if (!abierto) {
+    // `summary.tt-slotblock-head`, no `summary` a secas: una ventana con
+    // «Ver N horas más» anida OTRO `<details>` con su propio `<summary
+    // class="tt-cita-more-sum">`, y `.locator('summary')` los encuentra a
+    // los DOS (descendientes, no solo hijos directos) — modo estricto de
+    // Playwright. `.tt-slotblock-head` es la clase que SOLO lleva el
+    // `<summary>` del encargado (`_cita_agendar.html`).
+    await bloque.locator('summary.tt-slotblock-head').click();
+  }
+  return bloque;
 }
 
 test('el encargado publica un espacio como «Agendable»', async ({ browser }) => {
@@ -260,7 +314,7 @@ test('la vista de agendado del egresado no desborda en los 6 viewports', async (
   for (const { w, h, perfil } of MATRIZ) {
     await page.setViewportSize({ width: w, height: h });
     // `?dia=` MAÑANA explícito: ver «POR QUÉ EL PASO 2…» en la cabecera del
-    // archivo — con HOY ya sembrado (el espacio sin horario del paso 3) y
+    // archivo — con HOY ya sembrado (el espacio sin horario del paso 6) y
     // ordenando antes que MAÑANA, el día por omisión ya no sirve para medir
     // el escenario cargado (3 encargados, 20 franjas) que este test necesita.
     await page.goto(`${CITA_ALUMNO_URL}?dia=${MANANA}`, { waitUntil: 'domcontentloaded' });
@@ -302,6 +356,119 @@ test('la vista de agendado del egresado no desborda en los 6 viewports', async (
         'el body nunca.'
     ).toBeLessThanOrEqual(medida.innerWidth);
   }
+
+  await c.close();
+});
+
+test('el egresado ve el espacio publicado y agenda su cita', async ({ browser }) => {
+  const c = await browser.newContext({ storageState: stateFor('student') });
+  const page = await c.newPage();
+  // `?dia=` MAÑANA explícito, mismo motivo que el test anterior: con HOY ya
+  // sembrado (el espacio sin horario del paso 6) y ordenando antes que
+  // MAÑANA, el día por omisión ya no aterriza donde publicó el paso 1.
+  await page.goto(`${CITA_ALUMNO_URL}?dia=${MANANA}`, { waitUntil: 'domcontentloaded' });
+
+  // Antes de agendar: sin cita, y con la oferta del encargado a la vista.
+  //
+  // La tarjeta dice «Te toca agendar», NO «Pendiente de agenda · Servicios
+  // Escolares agendará tu cita» (2026-09-18). Esa era la copia de antes del
+  // auto-agendado y se contradecía con el selector que esta misma prueba
+  // encuentra tres líneas más abajo: el egresado leía que se la iban a asignar
+  // mientras tenía las horas delante. La aserción negativa va junto a la
+  // positiva a propósito: sin ella, cualquier texto pasaría.
+  const tarjeta = page.locator('#tt-cita-card');
+  await expect(tarjeta).toContainText('Te toca agendar');
+  await expect(tarjeta).not.toContainText('Servicios Escolares agendará tu cita');
+  const agendar = page.locator('#tt-cita-agendar');
+  await expect(agendar).toBeVisible();
+  await expect(agendar).toContainText(ESPACIO.lugar);
+
+  // El bloque del encargado principal puede nacer PLEGADO (D10): con 3
+  // encargados ese día, `_agenda_ctx` abre solo el primero por orden
+  // alfabético de `full_name`, y «ENCARGADO DOS» (`ENCARGADO_B`) ordena ANTES
+  // que `OFFICER1_NAME` ('D' < 'E'). Abrirlo primero es lo que haría un
+  // usuario real con lector de pantalla o mouse ante un `<details>` cerrado.
+  await abrirBloqueEncargado(agendar, OFFICER1_NAME);
+
+  // Una franja es un `<button type="submit" name="slot">`: NO se teclea una
+  // hora (D2 del rediseño de 2026-09-03 sigue mandando). Se localiza por su
+  // `aria-label` («Agendar el <día> a las 09:00 con <encargado>»), que es lo
+  // que de verdad lee quien navega con lector de pantalla. Único match: los
+  // dos encargados EXTRA de la vista plegable publican a las 13:00 y 15:00
+  // (`ENCARGADO_B`/`ENCARGADO_C`), nunca a las 09:00.
+  const post = esperarPost(page, '/titulatec/student/cita/agendar');
+  await agendar.getByRole('button', { name: new RegExp(`a las ${ESPACIO.inicio}`) }).click();
+  expect((await post).status()).toBe(200);
+
+  // El POST responde con el PANEL re-renderizado (app pages-only: un POST
+  // devuelve el parcial, no JSON). Se reusa el locator de arriba: ahora la
+  // tarjeta se mira DOS veces en esta prueba -antes de agendar y despues- y
+  // redeclararlo era un `SyntaxError` que dejaba el archivo entero sin cargar.
+  await expect(tarjeta).toContainText('Tu cita de cotejo');
+  await expect(tarjeta).toContainText(ESPACIO.inicio);
+  await expect(tarjeta).toContainText(ESPACIO.lugar);
+
+  // D4: con cita vigente ya no puede abrir otra, así que la rejilla desaparece
+  // — y §7 prohíbe dejar en su lugar un botón deshabilitado y mudo.
+  await expect(page.locator('#tt-cita-agendar')).toHaveCount(0);
+
+  // D8: faltan más de 2 h (la cita es mañana), así que el botón de cancelar sí
+  // se ofrece. Lo decide `can_self_cancel`, el MISMO predicado que aplicará el
+  // servidor: si divergieran, aquí habría un botón que la ruta va a rechazar.
+  await expect(tarjeta.getByRole('button', { name: 'Cancelar mi cita' })).toBeVisible();
+
+  await c.close();
+});
+
+test('el encargado ve el distintivo «El alumno agendó» en su tablero', async ({ browser }) => {
+  const c = await browser.newContext({ storageState: stateFor('officer') });
+  const page = await c.newPage();
+
+  // Sub-vista Agenda (la de por omisión) en el día del espacio: ahí vive el
+  // tablero de franjas con sus asientos.
+  await page.goto(`${CITAS_URL}?date=${MANANA}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#appt-agenda')).toBeVisible();
+
+  // D11: el encargado NO recibe notificación ni correo de un auto-agendado. Se
+  // entera por su tablero, y solo por esto.
+  const asiento = page.locator(`#appt-seat-p${ctx.processId}`);
+  await expect(asiento).toBeVisible();
+  await expect(asiento).toContainText('El alumno agendó');
+  await expect(asiento).toContainText(ctx.studentControl);
+
+  await c.close();
+});
+
+test('el egresado cancela su cita de franja (D8: a más de 2 h)', async ({ browser }) => {
+  const c = await browser.newContext({ storageState: stateFor('student') });
+  const page = await c.newPage();
+  await page.goto(`${CITA_ALUMNO_URL}?dia=${MANANA}`, { waitUntil: 'domcontentloaded' });
+
+  const tarjeta = page.locator('#tt-cita-card');
+  await expect(tarjeta).toContainText('Tu cita de cotejo');
+  const boton = tarjeta.getByRole('button', { name: 'Cancelar mi cita' });
+  await expect(boton).toBeVisible();
+
+  // «Cancelar mi cita» lleva `hx-confirm`/`data-tt-confirm-ok="Sí, cancelar"`
+  // en el `<form>` (`cita_card.html`) -PROHIBIDO `confirm()` nativo en este
+  // proyecto-: el puente `htmx:confirm` -> `TitulaTecUtils.confirmDialog`
+  // (`titulatec-utils.js:265`) intercepta el submit y pinta un `.modal` de
+  // Bootstrap real; solo dispara la petición si se acepta. MISMO patrón que
+  // `admin-releases.spec.js::confirmarAccion`: el botón de confirmar de
+  // verdad es el del MODAL, escopado a `.modal.show`.
+  const post = esperarPost(page, '/titulatec/student/cita/cancelar');
+  await boton.click();
+  const modal = page.locator('.modal.show');
+  await expect(modal).toBeVisible();
+  await modal.getByRole('button', { name: 'Sí, cancelar', exact: true }).click();
+  expect((await post).status()).toBe(200);
+
+  // D12: la franja vuelve al pozo en el acto, así que el panel que se
+  // devuelve ya trae el selector de agendado otra vez -el egresado recupera
+  // `can_book`, condición del paso siguiente (apartar lugar en el sin
+  // horario)-.
+  await expect(tarjeta).toContainText('Te toca agendar');
+  await expect(page.locator('#tt-cita-agendar')).toBeVisible();
 
   await c.close();
 });
