@@ -276,6 +276,8 @@ texto, no media docena de copias que puedan divergir. `sin_horario` sale de
 legado— así que una cita que un encargado sentó a mano a OTRA hora dentro de un `walkin` conserva
 **su** hora («10:30»), nunca el rango. `hora` es `«09:30»` o, en sin horario, `«de 08:00 a 14:00»`.
 
+## Las dos capas de guardas (D13), y por qué están partidas así
+
 | Capa | Dónde | Qué valida | A quién aplica |
 |---|---|---|---|
 | **Dura** | `AppointmentService` / `SlotService` | encuesta **liberada** por GTV (D1, 2026-09-29), una sola cita vigente, día habilitado, franja real de la rejilla, cupo libre, lock de ventana + advisory lock del proceso | **todos**, encargado incluido |
