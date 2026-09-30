@@ -118,6 +118,39 @@ def test_bandeja_licenciatura_sola_no_cambia_de_texto(
     assert fila["track"] == "licenciatura"
 
 
+def test_banner_de_aprobados_cuenta_el_set_del_perfil_no_un_3_fijo(
+        db_session, seed_document_types, make_program, make_cohort, make_student,
+        make_process, make_document, make_head, client_as):
+    """Controller ruling R6 (fix previo a revision, Tarea 4):
+    `documents_body.html:133` -- el banner de exito del panel de detalle --
+    cuenta el set PROPIO de la fila (`detail.docs`), no un "3" fijo.
+    Licenciatura sigue viendo exactamente "Los 3 aprobados"; un posgrado con
+    los 7 aprobados ve "Los 7 aprobados"."""
+    seed_document_types(types=INITIAL_DOC_TYPES + POSGRADO_DOC_TYPES)
+    lic = make_program("Ingenieria Banner Aprobados T4")
+    pos = make_program("Maestria Banner Aprobados T4", level="maestria")
+    cohort = make_cohort()
+
+    proc_lic = make_process(make_student(), cohort=cohort, program=lic)
+    for code, _, _ in INITIAL_DOC_TYPES:
+        make_document(proc_lic, type_code=code, review_status="approved")
+
+    proc_pos = make_process(make_student(), cohort=cohort, program=pos)
+    for code in ALL_CODES:
+        make_document(proc_pos, type_code=code, review_status="approved")
+
+    jefa = make_head()
+    html_lic = client_as(jefa).get(
+        "/titulatec/admin/documents/body?selected=%d" % proc_lic.id).text
+    assert "Los 3 aprobados" in html_lic
+    assert "Los 7 aprobados" not in html_lic
+
+    html_pos = client_as(jefa).get(
+        "/titulatec/admin/documents/body?selected=%d" % proc_pos.id).text
+    assert "Los 7 aprobados" in html_pos
+    assert "Los 3 aprobados" not in html_pos
+
+
 # ---------------------------------------------------------------------------
 # 2 - Presupuesto de consultas: perfiles mezclados agregan a lo sumo 1
 # ---------------------------------------------------------------------------

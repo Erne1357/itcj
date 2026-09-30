@@ -130,7 +130,11 @@
         </form>
         {% endif %}
         {% if detail.all_approved %}
-        <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Los 3 aprobados · listo para agendar cotejo</span></div>
+        {# Controller ruling R6 (pre-review fix, Tarea 4): el numero sale del
+           set PROPIO de esta fila (`detail.docs`, ya resuelto por perfil en
+           `_doc_row` -- 3 en licenciatura/sin carrera, 7 en posgrado), no un
+           "3" fijo. Licenciatura sigue viendo "Los 3 aprobados" tal cual. #}
+        <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Los {{ detail.docs|length }} aprobados · listo para agendar cotejo</span></div>
         {% endif %}
       </div>
       {% endif %}
