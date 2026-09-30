@@ -2110,7 +2110,10 @@ def space_save(
     sigue validando aunque esté oculto. Un `capacity_total` explícito fuera de
     `[1, WALKIN_TOPE]` (100, D12) es 400: hoy el `max` del HTML es lo único
     que lo frena, y un formulario armado a mano (o una pestaña vieja con el
-    `max` de antes, 500) lo saltaría en silencio.
+    `max` de antes, 500) lo saltaría en silencio. Al ACTUALIZAR el techo real
+    es `max(WALKIN_TOPE, w.capacity)` (Arreglo 1): nunca obliga a bajar de lo
+    que el espacio YA tiene, aunque la red de seguridad de la migración
+    (`GREATEST(30, vivas)`) lo haya dejado por encima de 100.
 
     `dias` (D9) son fechas ISO adicionales, SOLO en `window_id == "nuevo"`: el
     día de la URL (`?date=`) siempre se crea, pase lo que pase en `dias`.
@@ -2157,8 +2160,28 @@ def space_save(
             # ese `max` del HTML -saltable a mano-, así que se revisa también
             # aquí, igual que `visibility` arriba (mejor una frase que el
             # `CheckConstraint` de más abajo en la validación de agenda).
+            #
+            # Arreglo 1 (ronda de revisión del cambio cupo 30/100): al
+            # ACTUALIZAR, el techo real es `max(WALKIN_TOPE, w.capacity)`, NO
+            # `WALKIN_TOPE` a secas. La red de seguridad de la migración
+            # (`GREATEST(30, vivas)`) puede dejar un walkin con más de 100
+            # citas vivas; los DOS campos de cupo viven siempre en el DOM
+            # (D3), así que CUALQUIER guardado de ese espacio -aunque solo
+            # cambie el lugar- manda de vuelta su propio `capacity_total`. Sin
+            # este techo dinámico ese número por sí solo ya rebasaba
+            # `WALKIN_TOPE` y el 400 dejaba el espacio IMPOSIBLE de
+            # re-guardar para siempre, para cualquier campo. Nunca obliga a
+            # BAJAR de lo que ya tiene. Al CREAR no hay `w.capacity` previo,
+            # así que el techo sigue siendo `WALKIN_TOPE` a secas. El mensaje
+            # de 400 NO cambia: sigue anunciando el rango normal (1-100), que
+            # es el que aplica salvo este caso raro.
+            techo = WALKIN_TOPE
+            if window_id != "nuevo":
+                w_actual = ReviewWindowService.get(db, _to_int(window_id))
+                if w_actual is not None:
+                    techo = max(WALKIN_TOPE, w_actual.capacity)
             cupo_val = _to_int(capacity_total)
-            if cupo_val is None or not (1 <= cupo_val <= WALKIN_TOPE):
+            if cupo_val is None or not (1 <= cupo_val <= techo):
                 return Response(status_code=400, headers={
                     "X-Tt-Error": _hdr(
                         "El cupo de un espacio sin horario va de 1 a "

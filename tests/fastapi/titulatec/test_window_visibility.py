@@ -313,6 +313,56 @@ def test_una_pestana_nueva_si_manda_capacity_total_y_esa_gana(
 
 
 # ---------------------------------------------------------------------------
+# Arreglo 1 (ronda de revision del cambio cupo 30/100): un walkin que la red
+# de seguridad de la migracion (`GREATEST(30, vivas)`) dejo con mas de 100
+# citas vivas no puede quedar IMPOSIBLE de re-guardar para siempre.
+# ---------------------------------------------------------------------------
+
+def test_walkin_con_mas_de_100_vivas_se_puede_re_guardar_sin_bajarle_el_cupo(
+        editor, client_as, db_session):
+    """`capacity=120` puesto con UPDATE crudo (como lo dejaria la red de
+    seguridad de la migracion con >100 vivas). Los dos campos de cupo viven
+    siempre en el DOM (D3), asi que la pestaña ACTUAL manda de vuelta su
+    propio `capacity_total=120` aunque solo se este cambiando el lugar -- sin
+    el techo dinamico (`max(WALKIN_TOPE, w.capacity)`), ese numero por si
+    solo ya rebasaba 100 y el 400 dejaba el espacio sin poder re-guardar
+    NINGUN campo, para siempre."""
+    esc = editor
+    esc["w"].visibility = "walkin"
+    esc["w"].capacity = 120
+    db_session.flush()
+
+    resp = client_as(esc["off"]).post(_url(esc), data=_form(
+        visibility="walkin", capacity="1", capacity_total="120",
+        location="Edificio B"))
+
+    assert resp.status_code == 200, resp.text[:300]
+    db_session.expire_all()
+    assert esc["w"].capacity == 120, "no debe obligar a bajar de lo que ya tenia"
+    assert esc["w"].location == "Edificio B", "el resto del guardado si debe surtir efecto"
+
+
+def test_walkin_con_mas_de_100_vivas_no_puede_subir_mas_alla_de_lo_que_ya_tiene(
+        editor, client_as, db_session):
+    """El techo dinamico nunca obliga a BAJAR de lo que ya tiene, pero
+    tampoco te deja SUBIR de ahi por este camino (para eso esta "Abrir mas
+    lugares", que sigue topado en 100 -- no cambia)."""
+    esc = editor
+    esc["w"].visibility = "walkin"
+    esc["w"].capacity = 120
+    db_session.flush()
+
+    resp = client_as(esc["off"]).post(_url(esc), data=_form(
+        visibility="walkin", capacity="1", capacity_total="121"))
+
+    assert resp.status_code == 400
+    assert unquote(resp.headers["X-Tt-Error"]) == (
+        "El cupo de un espacio sin horario va de 1 a 100 personas.")
+    db_session.expire_all()
+    assert esc["w"].capacity == 120, "un 400 no debe tocar la fila"
+
+
+# ---------------------------------------------------------------------------
 # Las otras dos acciones de Espacios, que tampoco tenian prueba de RUTA
 # ---------------------------------------------------------------------------
 # El defecto que encontraron los tests de arriba (`_accion_espacio` llamaba a
