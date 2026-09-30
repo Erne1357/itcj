@@ -177,10 +177,20 @@ GTV_PERMS = [
 # Deliberadamente SIN titulatec.process.api.read.all: con el, officer_programs
 # devuelve "ALL" y el tablero dejaria de estar acotado por carrera, que es
 # justo lo que este escenario quiere ejercer de verdad.
+#
+# titulatec.appointment.api.create (Tarea 10, spec 2026-09-29-titulatec-
+# cotejo-espacios-design.md §4/D7): sin el, POST .../atender-ahora
+# devuelve 403 antes de llegar al service -el boton se pinta igual (el
+# template no mira permisos, solo detail.walkins_hoy), asi que el sintoma
+# seria un click que nunca dispara el POST que espera esperarPost()-. Es el
+# MISMO permiso que ya exige la ruta schedule (agendar/mover a mano desde el
+# tablero), asi que sumarlo tambien deja al encargado listo para esa otra
+# accion si algun test futuro la necesita.
 OFFICER_PERMS = [
     "titulatec.dashboard.school_services",
     "titulatec.appointment.page.list",
     "titulatec.review_window.api.manage",
+    "titulatec.appointment.api.create",
 ]
 # CENTRO DE CÓMPUTO (CC), Tarea 8, spec 2026-09-24-titulatec-accesos-centro-computo.
 # Los 4 permisos exactos de la bandeja /titulatec/admin/accesos
@@ -896,6 +906,221 @@ finally:
 }
 
 /**
+ * «Hoy» según el reloj del CONTENEDOR, en ISO (`YYYY-MM-DD`). Gemelo de
+ * `tomorrowInContainer` y por el mismo motivo (Tarea 10 del plan
+ * `2026-09-29-titulatec-cotejo-espacios`, spec §4/D7): «Atender ahora» solo
+ * acepta un espacio sin horario cuyo día == `db_now().date()`, así que el día
+ * del espacio sin horario del escenario tiene que nacer con el reloj del
+ * CONTENEDOR y no el del runner — mismo riesgo de zona horaria / medianoche
+ * que ya documenta `tomorrowInContainer`.
+ */
+function todayInContainer() {
+  return runInContainer(`
+from itcj2.core.utils.timezone import db_now
+print(db_now().date().isoformat())
+`).trim();
+}
+
+/**
+ * Espacio SIN HORARIO (D3/D6/D7, spec 2026-09-29-titulatec-cotejo-espacios-
+ * design.md §3-§4) del ENCARGADO PRINCIPAL del escenario (`ctx.officerId`),
+ * para el día que se le pida — sembrado DIRECTO en BD, no por el editor del
+ * navegador: ese mecanismo (radios de visibilidad + `:has()` CSS) ya lo
+ * ejerce el primer test de este archivo publicando un espacio «Agendable»;
+ * repetirlo para «Sin horario» no cubriría un camino nuevo, solo un tercer
+ * radio del mismo formulario.
+ *
+ * `start`/`end` cubren el día casi entero por omisión (`00:00`-`23:55`) para
+ * que «apartar lugar» nunca choque con `TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES`
+ * sin importar a qué hora del día corra la suite (D5: en sin horario el corte
+ * se mide contra el CIERRE del espacio, no contra la apertura).
+ *
+ * `capacity` en un espacio `walkin` es el TOTAL de personas del espacio, no
+ * por franja (comentario de `ReviewWindow.capacity`).
+ *
+ * Cae en el borrado del escenario SIN tocar `deletePy`: la ventana cuelga de
+ * un `review_day_id` de una fila de `CohortReviewDay` de la convocatoria del
+ * escenario (que `deletePy` borra por `cohort_id`), así que su DELETE de
+ * `titulatec_review_windows WHERE review_day_id IN (...)` ya la alcanza.
+ */
+function seedWalkinWindow(ctx, { dayIso, start = '00:00', end = '23:55',
+                                  capacityTotal = 5, slotMinutes = 30,
+                                  location = 'Módulo sin horario · E2E' } = {}) {
+  const out = runInContainer(`
+from datetime import date as _date, time as _time
+from itcj2.database import SessionLocal
+from itcj2.apps.titulatec.models import CohortReviewDay, ReviewWindow
+db = SessionLocal()
+try:
+    dia = db.query(CohortReviewDay).filter_by(
+        cohort_id=${ctx.cohortId}, date=_date.fromisoformat("${dayIso}")).one()
+    w = ReviewWindow(review_day_id=dia.id, owner_user_id=${ctx.officerId},
+                     owner_position_id=${ctx.officerPositionId},
+                     start_time=_time.fromisoformat("${start}"),
+                     end_time=_time.fromisoformat("${end}"),
+                     slot_minutes=${slotMinutes}, capacity=${capacityTotal},
+                     location="${location}", status="open", visibility="walkin",
+                     created_by_id=${ctx.officerId})
+    db.add(w)
+    db.flush()
+    wid = w.id
+    db.commit()
+    print(wid)
+finally:
+    db.close()
+`).trim();
+  return parseInt(out, 10);
+}
+
+/**
+ * Un ENCARGADO EXTRA con UNA ventana `bookable` publicada, DIRECTO en BD
+ * (Tarea 10: «≥3 encargados» de la vista plegable del alumno, spec §6/D10).
+ * El editor del navegador ya prueba el publicado de un espacio en el primer
+ * test de este archivo; repetirlo dos veces más no ejerce un camino nuevo,
+ * así que estos dos encargados adicionales nacen sembrados.
+ *
+ * Reusa el rol sintético `${E2E_TAG}_officer` (`_role`, `SEED_PY`) por su
+ * `PositionAppRole`: es lo único que `scope_service._program_ids_for_user`
+ * necesita para que `SelfBookingService._owners_serving` los cuente como
+ * encargados de `ctx.programId` — igual que el encargado principal.
+ *
+ * `start`/`end` los elige quien llama para que dos ventanas de dos encargados
+ * distintos no compartan una franja con la misma hora de inicio: la prueba de
+ * agendado busca su botón por `aria-label` con «a las HH:MM», y dos botones
+ * con la misma hora romperían esa búsqueda (modo estricto de Playwright).
+ *
+ * Cae en el borrado del escenario SIN tocar `deletePy`: la ventana cuelga del
+ * mismo `review_day_id` que ya se borra por `cohort_id`; el puesto usa el
+ * MISMO prefijo `se_officer_e2e_` que el `LIKE 'se_officer_e2e_%'` de
+ * `deletePy` ya cubre (el del encargado principal es
+ * `se_officer_e2e_<cohortId>`; estos son `se_officer_e2e_<cohortId>_<suffix>`
+ * — el mismo `LIKE` casa los dos); el usuario nuevo cae por `first_name = TAG`.
+ */
+function seedExtraOfficerWindow(ctx, { suffix, lastName, dayIso, start, end,
+                                       slotMinutes = 30, capacity = 1,
+                                       location = 'Edificio B · E2E' }) {
+  const out = runInContainer(`
+from datetime import date as _date, time as _time, timedelta as _timedelta
+from itcj2.database import SessionLocal
+from itcj2.core.models.app import App
+from itcj2.core.models.position import (
+    Position, PositionAppRole, ProgramPosition, UserPosition,
+)
+from itcj2.core.models.role import Role
+from itcj2.core.models.user import User
+from itcj2.apps.titulatec.models import CohortReviewDay, ReviewWindow
+db = SessionLocal()
+try:
+    app = db.query(App).filter_by(key="titulatec").one()
+    rol_officer = db.query(Role).filter_by(name="${E2E_TAG}_officer").one()
+    dia = db.query(CohortReviewDay).filter_by(
+        cohort_id=${ctx.cohortId}, date=_date.fromisoformat("${dayIso}")).one()
+
+    officer = User(first_name="${E2E_TAG}", last_name="${lastName}",
+                   username="${E2E_TAG}_officer_${suffix}", is_active=True)
+    db.add(officer)
+    db.flush()
+    pos = Position(code="se_officer_e2e_${ctx.cohortId}_${suffix}",
+                   title="${E2E_TAG} Encargado ${suffix}",
+                   is_active=True, allows_multiple=True)
+    db.add(pos)
+    db.flush()
+    db.add(PositionAppRole(position_id=pos.id, app_id=app.id, role_id=rol_officer.id))
+    db.add(UserPosition(user_id=officer.id, position_id=pos.id,
+                        start_date=_date.today() - _timedelta(days=1), is_active=True))
+    db.add(ProgramPosition(position_id=pos.id, program_id=${ctx.programId}))
+    db.flush()
+
+    w = ReviewWindow(review_day_id=dia.id, owner_user_id=officer.id,
+                     owner_position_id=pos.id,
+                     start_time=_time.fromisoformat("${start}"),
+                     end_time=_time.fromisoformat("${end}"),
+                     slot_minutes=${slotMinutes}, capacity=${capacity},
+                     location="${location}", status="open", visibility="bookable",
+                     created_by_id=officer.id)
+    db.add(w)
+    db.flush()
+    wid = w.id
+    db.commit()
+    print(wid)
+finally:
+    db.close()
+`).trim();
+  return parseInt(out, 10);
+}
+
+/**
+ * Un SEGUNDO proceso «por agendar» (Tarea 10: «Atender ahora» sobre «otro
+ * pendiente», spec §4/D7). El alumno PRINCIPAL del escenario no sirve para
+ * este papel: en el recorrido de esta suite aparta su lugar en el espacio sin
+ * horario, así que ya tiene una cita VIVA — y D7 exige justamente lo
+ * contrario («sin cita viva»).
+ *
+ * Nace en fase 2 (cotejo), con los 3 documentos iniciales YA aprobados y la
+ * encuesta de egresados YA LIBERADA (D1): las tres cosas que
+ * `AppointmentService._pending_candidates` exige para que un proceso entre a
+ * «Por agendar» (`_shell_ctx.visibles`) — sin ellas `?selected=` se
+ * descartaría en silencio y la ficha del alumno no abriría. Mismos requisitos
+ * que exige `AppointmentService.create`, que es lo que hace `attend_now` por
+ * dentro.
+ *
+ * Sin rol ni login propios: nadie inicia sesión como este alumno, solo lo
+ * mira y lo atiende el encargado. Cae en el borrado del escenario SIN tocar
+ * `deletePy`: comparte `cohort_id`/`form_id` con el proceso principal, y esos
+ * DELETE (incluido el de `titulatec_documents`) filtran por esas columnas, no
+ * por proceso; el usuario nuevo cae por `first_name = TAG`.
+ */
+function seedSecondPendingProcess(ctx, { control = '29990102' } = {}) {
+  const out = runInContainer(`
+from itcj2.database import SessionLocal
+from itcj2.core.utils.timezone import db_now
+from itcj2.apps.titulatec.models import (
+    Document, ProcessPhase, SurveyResponse, SurveyReview, TitulationProcess,
+)
+from itcj2.apps.titulatec.services.document_service import DocumentService
+from itcj2.core.models.user import User
+db = SessionLocal()
+try:
+    student = User(first_name="${E2E_TAG}", last_name="ALUMNO DOS",
+                   control_number="${control}", username="${control}",
+                   is_active=True)
+    db.add(student)
+    db.flush()
+
+    proc = TitulationProcess(folio="TT-29991-9002", student_id=student.id,
+                             cohort_id=${ctx.cohortId}, program_id=${ctx.programId},
+                             current_phase=2, status="active")
+    db.add(proc)
+    db.flush()
+    for n in range(9):
+        st = "approved" if n < 2 else "in_progress" if n == 2 else "pending"
+        db.add(ProcessPhase(process_id=proc.id, phase_number=n, status=st))
+
+    for code in DocumentService.INITIAL_DOC_TYPES:
+        db.add(Document(process_id=proc.id, phase_number=1, type_code=code,
+                        file_path=f"e2e/{code}.pdf", review_status="approved",
+                        uploaded_by_id=student.id))
+
+    response = SurveyResponse(
+        form_id=${ctx.formId}, form_version=${ctx.formVersion},
+        user_id=student.id, process_id=proc.id,
+        cohort_id=${ctx.cohortId}, identity_source="session", answers={})
+    db.add(response)
+    db.flush()
+    db.add(SurveyReview(process_id=proc.id, response_id=response.id,
+                        status="approved", rejection_reason=None,
+                        submitted_at=db_now(), updated_at=db_now()))
+    db.flush()
+    pid = proc.id
+    db.commit()
+    print(pid)
+finally:
+    db.close()
+`).trim();
+  return parseInt(out, 10);
+}
+
+/**
  * Deja el proceso del escenario EN la fase `n` (y coherente con ella).
  *
  * `SEED_PY` lo deja en la fase 1, y la guarda de fase del alumno
@@ -962,6 +1187,10 @@ module.exports = {
   seedReviewDay,
   setStudentPhase,
   tomorrowInContainer,
+  todayInContainer,
+  seedWalkinWindow,
+  seedExtraOfficerWindow,
+  seedSecondPendingProcess,
   processFolioFor,
   E2E_TAG,
   E2E_NIP,
