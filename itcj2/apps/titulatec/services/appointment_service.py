@@ -512,7 +512,7 @@ class AppointmentService:
         de §3 (`fase_aprobada`), no necesita nada.
 
         El criterio de la fase es el mismo `PhaseService.PHASE_COTEJO` que usa
-        `SelfBookingService._fase_cotejo_aprobada`, para que grep encuentre los
+        `SelfBookingService._fase_cotejo_status`, para que grep encuentre los
         dos lados de la regla desde cualquiera de ellos.
 
         Orden: por `TitulationProcess.created_at` (no por `scheduled_at` de la

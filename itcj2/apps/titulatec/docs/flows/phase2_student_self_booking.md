@@ -87,7 +87,7 @@ ya salía `True`. Lo que faltaba era mostrarlo.
 
 `_cita_card_ctx` (`pages/student.py`) agrega un dato plano, `fase_rechazada` —
 `{"motivo": str | None}` o `None`—, leído de `ProcessPhase` (fase `PhaseService.PHASE_COTEJO`)
-y **nunca** de `appt.status`, por el mismo motivo que `_fase_cotejo_aprobada`: una `attended`
+y **nunca** de `appt.status`, por el mismo motivo que `_fase_cotejo_status`: una `attended`
 con la fase todavía sin dictaminar no es un rechazo. Lo consumen dos parciales:
 
 - **`cita_card.html`**: si `fase_rechazada`, un aviso (`.tt-card--danger`) al inicio de la

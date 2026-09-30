@@ -1467,7 +1467,7 @@ def _cita_card_ctx(db, user_id: int, *, agenda: dict | None = None) -> dict:
         }
     # Fase 02 con observaciones (Tarea B2): dato PLANO, nunca la fila `ProcessPhase`
     # completa (la plantilla se renderiza después del `db.close()` de la ruta). Se
-    # lee de `ProcessPhase`, igual que `_fase_cotejo_aprobada` en
+    # lee de `ProcessPhase`, igual que `_fase_cotejo_status` en
     # `SelfBookingService`, y NUNCA de `appt.status`: una `attended` con fase 2
     # todavía sin dictaminar no es un rechazo.
     fase_rechazada = None
