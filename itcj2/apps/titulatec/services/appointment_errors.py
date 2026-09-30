@@ -155,10 +155,13 @@ class PlacesOutOfRange(AppointmentError):
     """«Abrir más lugares» (D6) fuera de rango.
 
     Los dos números son los topes de `ReviewWindowService.add_places`
-    (`_LUGARES_POR_VEZ`, `_LUGARES_TOPE`): si cambian allá, cambia este texto.
+    (`_LUGARES_POR_VEZ`, `WALKIN_TOPE` — 100 desde D12, spec 2026-09-29-
+    titulatec-cotejo-espacios-design.md §1/§7.2): si cambian allá, cambia
+    este texto. No se importan de allá: `review_window_service.py` importa
+    de ESTE módulo, así que el import inverso sería un ciclo.
     """
 
-    def __init__(self, msg="Puedes abrir de 1 a 50 lugares a la vez, hasta 500 en total."):
+    def __init__(self, msg="Puedes abrir de 1 a 50 lugares a la vez, hasta 100 en total."):
         super().__init__(msg)
 
 

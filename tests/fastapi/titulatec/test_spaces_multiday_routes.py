@@ -132,6 +132,25 @@ class TestCapacidadEfectiva:
         assert filas[0].capacity == 7
         assert filas[0].visibility == "walkin"
 
+    @pytest.mark.parametrize("valor", ["0", "101", "abc"])
+    def test_walkin_capacity_total_fuera_de_rango_es_400(
+            self, dias4, client_as, db_session, valor):
+        """D12: el `max`/`min` del HTML («1 a 100») hoy es lo unico que frena
+        un `capacity_total` fuera de rango -- un formulario armado a mano lo
+        saltaria en silencio. `abc` cubre lo no numerico (`_to_int` -> None)."""
+        esc = dias4
+
+        resp = client_as(esc["off"]).post(
+            _url_nuevo(_D1),
+            data=_form(visibility="walkin", capacity="1", capacity_total=valor))
+
+        assert resp.status_code == 400
+        assert unquote(resp.headers["X-Tt-Error"]) == (
+            "El cupo de un espacio sin horario va de 1 a 100 personas.")
+        db_session.expire_all()
+        assert _windows_de(db_session, esc["dias"][_D1].id) == [], (
+            "una entrada invalida no debe crear nada")
+
     def test_bookable_guarda_capacity(self, dias4, client_as, db_session):
         esc = dias4
 

@@ -196,7 +196,24 @@ def test_el_editor_ofrece_los_tres_modos_con_su_linea_derivada(editor, client_as
     assert "El egresado no lo ve" in html
     assert "10 franjas libres" in html, (
         "la linea de «Agendable» no cuenta las franjas reales de esta ventana")
-    assert "aparta un lugar (quedan 10)" in html
+    # D12: el cupo total «sin horario» que se previsualiza para un espacio que
+    # HOY no es walkin ya no sale de franjas x cupo (10 x 1) -- nace en el
+    # default plano, 30.
+    assert "aparta un lugar (quedan 30)" in html
+
+
+def test_un_espacio_nuevo_de_sin_horario_nace_con_el_default_plano(editor, client_as):
+    """D12 (spec 2026-09-29-titulatec-cotejo-espacios-design.md §1/§3.2,
+    decisión del usuario 2026-09-29: «no creo que se puedan atender 500»):
+    «Personas en total» de un espacio NUEVO nace en 30, y el campo lo topa en
+    100 -- ya no franjas del día x cupo del día."""
+    esc = editor
+    url = ("/titulatec/admin/appointments?v=espacios&date=%s&w=nuevo"
+           % _D.isoformat())
+    html = client_as(esc["off"]).get(url).text
+
+    assert 'id="esp-cap-total" name="capacity_total" value="30"' in html
+    assert 'max="100"' in html
 
 
 def test_la_linea_de_agendable_cuenta_FRANJAS_no_CITAS(editor, client_as,
@@ -248,13 +265,15 @@ def test_pestana_vieja_al_actualizar_un_walkin_conserva_capacity(
     assert esc["w"].capacity == 12, "la pestaña vieja reseteó el cupo acumulado"
 
 
-def test_pestana_vieja_al_crear_un_walkin_usa_franjas_por_capacity(
+def test_pestana_vieja_al_crear_un_walkin_usa_el_default_plano(
         editor, client_as, db_session):
-    """Al CREAR no hay `w.capacity` que conservar: se reconstruye la
-    semántica vieja -franjas × cupo por franja, la MISMA fórmula de la
-    migración de solo datos `tt20260929a`-. 15:00 a 20:00 en pasos de 30 son
-    10 franjas (horario que NO se encima con `esc["w"]`, 09:00-14:00); con
-    `capacity=2` (por franja, el campo viejo) el total es 20."""
+    """Al CREAR no hay `w.capacity` que conservar: nace en el default PLANO
+    (D12: 30, decisión del usuario 2026-09-29: «no creo que se puedan
+    atender 500»), YA NO «franjas × cupo por franja» -esa semántica murió
+    junto con el tope de 500-. 15:00 a 20:00 en pasos de 30 (horario que NO
+    se encima con `esc["w"]`, 09:00-14:00) con `capacity=2` (por franja, el
+    campo viejo) daría 20 con la fórmula retirada; con el default plano da 30
+    sin importar el horario ni el `capacity` viejo."""
     from itcj2.apps.titulatec.models import ReviewWindow
 
     esc = editor
@@ -272,7 +291,7 @@ def test_pestana_vieja_al_crear_un_walkin_usa_franjas_por_capacity(
               .order_by(ReviewWindow.id.desc()).first())
     assert creado is not None, "no se creo el espacio"
     assert creado.visibility == "walkin"
-    assert creado.capacity == 20, "franjas (10) x capacity (2), semantica vieja"
+    assert creado.capacity == 30, "default plano D12, ya no franjas x capacity"
 
 
 def test_una_pestana_nueva_si_manda_capacity_total_y_esa_gana(

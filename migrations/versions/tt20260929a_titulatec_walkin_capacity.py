@@ -1,17 +1,33 @@
 """titulatec: capacidad total de espacios sin horario (walkin)
 
-La migración convierte `capacity` de espacios `walkin` de «por franja» a «total
-del espacio» (spec 2026-09-29 §3.2, D3, §7.2). Solo de datos: sin cambio de
-esquema. El tope 500 es el del editor (`ReviewWindowService`) y de `add_places`
-(regla de diseño, evita que un espacio se quede sin poder guardar).
+La migración convierte `capacity` de espacios `walkin` de «por franja» a
+«total del espacio» (spec 2026-09-29-titulatec-cotejo-espacios-design.md
+§3.2, D3, D12, §7.2). Solo de datos: sin cambio de esquema.
 
-- `capacity = LEAST(500, GREATEST(1, franjas × capacity))`
-- `franjas = FLOOR((end_time - start_time) / 60 / slot_minutes)::int`
+Decisión del usuario 2026-09-29 («no creo que se puedan atender 500»): TODOS
+los `walkin` existentes quedan en **30**, el mismo default con el que nace un
+espacio nuevo desde este deploy (`WALKIN_CUPO_DEFAULT`,
+`services/review_window_service.py`). El `GREATEST(30, vivas)` es SOLO una
+red de seguridad: si un espacio ya tiene más de 30 citas VIVAS (`status NOT
+IN ('cancelled', 'superseded')`), se conserva ese número de vivas para que
+nadie quede excedido -nunca por debajo de lo que el egresado ya tiene
+apartado-. El techo del editor y de `add_places` («Abrir más lugares») baja
+de 500 a 100 (`WALKIN_TOPE`); esta migración no lo aplica a propósito: la red
+de seguridad puede dejar, en casos raros, un espacio por encima de 100 -señal
+de que ese encargado necesita más de un espacio, no un tope que le pierda
+gente-.
+
+- `capacity = GREATEST(30, vivas)`
+- `vivas = count(*)` de `titulatec_review_appointments` de esa ventana con
+  `status NOT IN ('cancelled', 'superseded')` (mismo filtro por ESTADO que
+  `SlotService.occupancy`, nunca por `is_current`: un intento re-agendado
+  sigue vivo aunque ya no sea el vigente).
 - Solo `visibility='walkin'`; `bookable` y `private` no cambian.
 
 Downgrade: inversa aproximada (`capacity / franjas`), documentada como tal.
-Nunca deja `capacity < 1` (CHECK de la columna); como cada franja tenía ≤
-`capacity` citas, el total nuevo ≥ citas vivas: nadie queda excedido.
+Nunca deja `capacity < 1` (CHECK de la columna); como el upgrade nunca baja
+`capacity` por debajo de las citas vivas, el downgrade parte de un número que
+sigue siendo válido.
 
 Se prueba en dev: ventana walkin de legado con citas vivas a varias horas →
 upgrade → ocupación y tablero correctos → downgrade → upgrade.
@@ -32,18 +48,19 @@ branch_labels = None
 depends_on = None
 
 _TABLE = "titulatec_review_windows"
+_APPTS = "titulatec_review_appointments"
 
-# SQL de upgrade: capacity = LEAST(500, GREATEST(1, franjas × capacity))
+# SQL de upgrade: capacity = GREATEST(30, vivas). El 30 es el default nuevo
+# de un walkin (D12); el GREATEST con las vivas es la red de seguridad.
 UPGRADE_SQL = f"""
-UPDATE {_TABLE}
-SET capacity = LEAST(
-    500,
-    GREATEST(
-        1,
-        FLOOR(EXTRACT(EPOCH FROM (end_time - start_time)) / 60 / slot_minutes)::int * capacity
-    )
+UPDATE {_TABLE} w
+SET capacity = GREATEST(
+    30,
+    (SELECT count(*) FROM {_APPTS} a
+     WHERE a.window_id = w.id
+       AND a.status NOT IN ('cancelled', 'superseded'))
 )
-WHERE visibility = 'walkin'
+WHERE w.visibility = 'walkin'
 """
 
 # SQL de downgrade: inversa aproximada capacity / NULLIF(franjas, 0)

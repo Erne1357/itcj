@@ -31,12 +31,22 @@ from itcj2.apps.titulatec.services.appointment_errors import (
 )
 from itcj2.apps.titulatec.services.slot_service import SlotService
 
-# «Abrir más lugares» (D6): de 1 a 50 por vez, nunca más de 500 en total. El
-# tope total es el MISMO `max` del campo «Personas en total» del editor: si
-# abrir lugares lo rebasara, el formulario ya no dejaría volver a guardar el
-# espacio. El texto de `PlacesOutOfRange` repite los dos números.
+# «Abrir más lugares» (D6): de 1 a 50 por vez, nunca más de `WALKIN_TOPE` en
+# total. El tope total es el MISMO `max` del campo «Personas en total» del
+# editor: si abrir lugares lo rebasara, el formulario ya no dejaría volver a
+# guardar el espacio. El texto de `PlacesOutOfRange` repite los dos números
+# a mano (no los importa: crearía un ciclo, ver su docstring en
+# `appointment_errors.py`).
+#
+# D12 (spec 2026-09-29-titulatec-cotejo-espacios-design.md §1/§3.2/§7.2,
+# decisión del usuario 2026-09-29: «no creo que se puedan atender 500»): el
+# techo baja de 500 a 100 y nace un SEGUNDO número, `WALKIN_CUPO_DEFAULT`
+# (30) — el cupo con el que nace un espacio sin horario, ya no «franjas del
+# día × cupo del día». Única fuente de los dos: `pages/appointments.py` (el
+# editor y `space_save`) los importa de aquí.
 _LUGARES_POR_VEZ = 50
-_LUGARES_TOPE = 500
+WALKIN_TOPE = 100
+WALKIN_CUPO_DEFAULT = 30
 
 
 def _t(v):
@@ -278,8 +288,9 @@ class ReviewWindowService:
         Solo en sin horario (`InvalidSlot` si no): con franjas `capacity` es
         POR FRANJA, que el editor topa en 20, y se edita ahí.
 
-        `n` va de 1 a 50 y el total no pasa de 500 (`PlacesOutOfRange`). El
-        rango de `n` es entrada del usuario y se revisa antes del lock; el
+        `n` va de 1 a 50 y el total no pasa de `WALKIN_TOPE` (100,
+        `PlacesOutOfRange`). El rango de `n` es entrada del usuario y se
+        revisa antes del lock; el
         modo y el tope total, después, contra la fila que `_lock_window` RELEE
         bajo el lock (esa es la única relectura; aquí no se repite). Si
         mientras se esperaba otro encargado abrió lugares, sumarle al valor
@@ -297,7 +308,7 @@ class ReviewWindowService:
         if w.visibility != "walkin":
             raise InvalidSlot("Solo los espacios sin horario abren lugares.")
         total = int(w.capacity or 1) + n
-        if total > _LUGARES_TOPE:
+        if total > WALKIN_TOPE:
             raise PlacesOutOfRange()
         w.capacity = total
         db.flush()

@@ -227,7 +227,7 @@ def test_la_ruta_de_lugares_rechaza_fuera_de_rango(db_session, esc, client_as, n
 
     assert resp.status_code == 400
     assert unquote(resp.headers["X-Tt-Error"]) == (
-        "Puedes abrir de 1 a 50 lugares a la vez, hasta 500 en total.")
+        "Puedes abrir de 1 a 50 lugares a la vez, hasta 100 en total.")
     db_session.expire_all()
     assert esc["w"].capacity == 5
 

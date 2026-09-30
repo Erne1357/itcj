@@ -705,7 +705,8 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
     """Mis espacios de un dia, mas el editor si hay uno abierto."""
     from itcj2.apps.titulatec.models import ReviewWindow
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
-    from itcj2.apps.titulatec.services.review_window_service import ReviewWindowService
+    from itcj2.apps.titulatec.services.review_window_service import (
+        ReviewWindowService, WALKIN_CUPO_DEFAULT)
     from itcj2.apps.titulatec.services.slot_service import SlotService
 
     from itcj2.apps.titulatec.services.scope_service import _program_ids_for_user
@@ -754,18 +755,16 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
     editor = None
     editor_w = None
     if editando == "nuevo":
-        n_defaults = len(SlotService.slots_from(
-            defaults["start_time"], defaults["end_time"], defaults["slot_minutes"]))
         editor = {"id": None,
                   "start": defaults["start_time"].strftime("%H:%M"),
                   "end": defaults["end_time"].strftime("%H:%M"),
                   "slot_minutes": defaults["slot_minutes"],
                   "capacity": defaults["capacity"],
-                  # D3: cupo TOTAL por omision = franjas del dia x cupo del
-                  # dia -- lo que ese horario ya ofrecia en franjas, expresado
-                  # como sin horario. Topado a [1, 500], el mismo rango que
-                  # valida el editor.
-                  "capacity_total": min(500, max(1, n_defaults * int(defaults["capacity"]))),
+                  # D12: el cupo TOTAL de un espacio nuevo nace en el default
+                  # PLANO (decision del usuario 2026-09-29: "no creo que se
+                  # puedan atender 500"), ya NO franjas del dia x cupo del
+                  # dia -- ese calculo se retiro junto con el tope de 500.
+                  "capacity_total": WALKIN_CUPO_DEFAULT,
                   "location": defaults["location"] or "",
                   # D1: todo espacio nace PRIVADO. Publicar es deliberado.
                   "visibility": "private",
@@ -816,7 +815,10 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
                                        editor["slot_minutes"]))
         cap_franja = int(editor["capacity"])
         if editor["capacity_total"] is None:
-            editor["capacity_total"] = min(500, max(1, n * cap_franja))
+            # D12: mismo default PLANO que un espacio nuevo (ya no franjas x
+            # cupo) para el campo oculto de "Personas en total" de un espacio
+            # que hoy NO es sin horario -por si el encargado cambia el radio.
+            editor["capacity_total"] = WALKIN_CUPO_DEFAULT
         cap_total = int(editor["capacity_total"])
 
         if editor["visibility"] == "walkin":
@@ -2105,16 +2107,19 @@ def space_save(
     franjas se sigue usando `capacity`, el de siempre. El servidor decide cuál
     de los dos CUENTA según `visibility` — el que no aplica viaja igual en el
     formulario (oculto por CSS, nunca por `type=hidden`), porque HTML5 lo
-    sigue validando aunque esté oculto.
+    sigue validando aunque esté oculto. Un `capacity_total` explícito fuera de
+    `[1, WALKIN_TOPE]` (100, D12) es 400: hoy el `max` del HTML es lo único
+    que lo frena, y un formulario armado a mano (o una pestaña vieja con el
+    `max` de antes, 500) lo saltaría en silencio.
 
     `dias` (D9) son fechas ISO adicionales, SOLO en `window_id == "nuevo"`: el
     día de la URL (`?date=`) siempre se crea, pase lo que pase en `dias`.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
-    from itcj2.apps.titulatec.services.review_window_service import ReviewWindowService
+    from itcj2.apps.titulatec.services.review_window_service import (
+        ReviewWindowService, WALKIN_CUPO_DEFAULT, WALKIN_TOPE)
     from itcj2.apps.titulatec.services.scope_service import _program_ids_for_user
-    from itcj2.apps.titulatec.services.slot_service import SlotService
 
     if visibility not in _VISIBILIDADES:
         return Response(status_code=400, headers={
@@ -2133,23 +2138,34 @@ def space_save(
         # ANTES (por franja), y ese campo llega VACÍO. Tratarlo como cupo
         # TOTAL sería catastrófico: al actualizar, `_to_int("") or 1`
         # resetearía a 1 un espacio que ya tenía «Abrir más lugares»
-        # acumulados; al crear, nacería con un solo lugar en vez de uno por
-        # franja. Al ACTUALIZAR se conserva el `capacity` que la fila YA
-        # tiene (nadie lo tocó); al CREAR se reconstruye la semántica vieja
-        # -franjas × cupo por franja, la MISMA fórmula de la migración de
-        # solo datos `tt20260929a`- para que un alta desde una pestaña vieja
-        # siga dando lo que esa pantalla prometía.
+        # acumulados; al crear, nacería con un solo lugar en vez del default
+        # PLANO. Al ACTUALIZAR se conserva el `capacity` que la fila YA
+        # tiene (nadie lo tocó); al CREAR nace en `WALKIN_CUPO_DEFAULT` (30,
+        # D12) -ya NO «franjas × cupo por franja»: esa semántica se retiró
+        # junto con el tope de 500- para que un alta desde una pestaña vieja
+        # no herede un número que ya nadie prometió.
         capacity_total_raw = (capacity_total or "").strip()
         if visibility == "walkin" and not capacity_total_raw:
             if window_id == "nuevo":
-                franjas = len(SlotService.slots_from(
-                    start_time, end_time, _to_int(slot_minutes) or 30))
-                capacidad_cruda = str(max(1, franjas * (_to_int(capacity) or 1)))
+                capacidad_cruda = str(WALKIN_CUPO_DEFAULT)
             else:
                 w_actual = ReviewWindowService.get(db, _to_int(window_id))
                 capacidad_cruda = str(w_actual.capacity) if w_actual else capacity
+        elif visibility == "walkin":
+            # Entrada EXPLÍCITA (pestaña ya actualizada): 1..`WALKIN_TOPE`,
+            # el mismo rango que el `max` del editor (D12). Hoy solo lo frena
+            # ese `max` del HTML -saltable a mano-, así que se revisa también
+            # aquí, igual que `visibility` arriba (mejor una frase que el
+            # `CheckConstraint` de más abajo en la validación de agenda).
+            cupo_val = _to_int(capacity_total)
+            if cupo_val is None or not (1 <= cupo_val <= WALKIN_TOPE):
+                return Response(status_code=400, headers={
+                    "X-Tt-Error": _hdr(
+                        "El cupo de un espacio sin horario va de 1 a "
+                        f"{WALKIN_TOPE} personas.")})
+            capacidad_cruda = capacity_total
         else:
-            capacidad_cruda = capacity_total if visibility == "walkin" else capacity
+            capacidad_cruda = capacity
         campos = dict(
             start_time=start_time, end_time=end_time,
             slot_minutes=_to_int(slot_minutes) or 30,
@@ -2250,7 +2266,7 @@ def space_places(
     `n` llega como `str` y no como `int`, como `window_id` en `atender-ahora`:
     un valor vacío o basura con tipo entero sería un 422 en vez de la frase de
     `PlacesOutOfRange`. `ReviewWindowService.add_places` valida el rango
-    (1-50), el tope total (500) y que el espacio SEA sin horario; todo eso son
+    (1-50), el tope total (100, D12) y que el espacio SEA sin horario; todo eso son
     errores de ENTRADA (400), salvo el timeout del lock. El mensaje de éxito
     usa el valor YA aceptado por el servicio, así que solo se lee si `fn()` no
     reventó — un `n` que no se pudo interpretar nunca llega a mostrarse.

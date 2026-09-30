@@ -459,22 +459,23 @@ def test_abrir_mas_lugares_fuera_de_rango(db_session, sin_horario, n):
     with pytest.raises(err.PlacesOutOfRange) as exc:
         ReviewWindowService.add_places(db_session, esc["w"], n)
 
-    assert str(exc.value) == "Puedes abrir de 1 a 50 lugares a la vez, hasta 500 en total."
+    assert str(exc.value) == "Puedes abrir de 1 a 50 lugares a la vez, hasta 100 en total."
     assert esc["w"].capacity == 3
 
 
 def test_abrir_mas_lugares_no_pasa_del_tope_total(db_session, sin_horario):
-    """500 es el mismo `max` del editor: por encima ya no se podría re-guardar."""
+    """100 (D12) es el mismo `max` del editor: por encima ya no se podría
+    re-guardar."""
     esc = sin_horario
-    esc["w"].capacity = 480
+    esc["w"].capacity = 80
     db_session.flush()
 
     with pytest.raises(err.PlacesOutOfRange):
         ReviewWindowService.add_places(db_session, esc["w"], 21)
-    assert esc["w"].capacity == 480
+    assert esc["w"].capacity == 80
 
     ReviewWindowService.add_places(db_session, esc["w"], 20)
-    assert esc["w"].capacity == 500
+    assert esc["w"].capacity == 100
 
 
 @pytest.mark.parametrize("modo", ["bookable", "private"])
