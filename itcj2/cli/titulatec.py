@@ -11,7 +11,7 @@ Comandos:
     titulatec sii-check <control>         Dry-run de las reglas del SII (NIP enmascarado).
     titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta y reintenta).
     titulatec init-email-tasks [--dry-run] Da de alta las periódicas de correo (envío + recordatorios).
-    titulatec init-posgrado [--dry-run]    Clasifica las 4 carreras de posgrado y sus 4 documentos de fase 1.
+    titulatec init-posgrado [--dry-run] [--allow-insert]  Clasifica las 4 carreras de posgrado y sus 4 documentos de fase 1.
 """
 import os
 from pathlib import Path, PurePosixPath
@@ -1645,8 +1645,11 @@ def init_posgrado_command(dry_run, allow_insert):
     que se re-sincronizarían (con el estado que resultaría) usando
     `_posgrado_resync_preview` -- que identifica candidatos por `program_id`,
     NUNCA por `Program.level` (que en este punto sigue en `licenciatura` para
-    los 4). También dice si los 2 archivos existen en disco. Nunca escribe
-    nada. Sale 0 salvo que la rama sea `abort`.
+    los 4). También dice si los 2 archivos existen en disco (y en ese caso
+    sale distinto de 0, aunque el resto del reporte se imprime igual: el
+    precheck lee `core_programs` directo, no necesita los archivos). Nunca
+    escribe nada. Sale 0 solo si los 2 archivos existen Y la rama no es
+    `abort`.
     """
     if dry_run:
         faltan = [
@@ -1694,7 +1697,7 @@ def init_posgrado_command(dry_run, allow_insert):
             click.echo(f"  {folio} (id {pid}): -> {nuevo_estado or '(sin cambio)'}")
 
         click.echo("Dry-run: no se ejecutó nada.")
-        if precheck["branch"] == "abort":
+        if faltan or precheck["branch"] == "abort":
             raise click.Abort()
         return
 

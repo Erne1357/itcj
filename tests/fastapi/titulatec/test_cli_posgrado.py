@@ -62,6 +62,7 @@ import re
 import pytest
 from click.testing import CliRunner
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from unittest.mock import patch
 
 from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -241,6 +242,31 @@ def test_dry_run_rama_abort_sale_no_cero_y_no_pide_preview():
     assert "DOCTORADO%: 2 carreras casan" in res.output
 
 
+def test_dry_run_sale_no_cero_si_falta_un_archivo_en_disco(monkeypatch):
+    """R8 #2 (revision Opus, ronda 2): antes el dry-run imprimia una linea
+    roja de "faltan archivos" pero salia 0 igual -- un despliegue que
+    olvidara copiar `posgrado_2026_10/` veria "Dry-run: no se ejecuto nada"
+    con exit 0 tranquilizador, aunque la corrida real fuera a fallar en
+    `_run_sql_files`. El resto del reporte (rama, candidatos) se sigue
+    imprimiendo -- el precheck lee `core_programs` directo, no necesita los
+    archivos en disco."""
+    precheck = {"branch": "update", "matches": [], "reasons": []}
+    monkeypatch.setattr(
+        "itcj2.cli.titulatec._DML_POSGRADO_2026_10_DIR",
+        "no_existe_este_directorio_de_prueba",
+    )
+    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
+         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec._posgrado_resync_preview", return_value=[]):
+        res = CliRunner().invoke(init_posgrado_command, ["--dry-run"])
+
+    assert res.exit_code != 0, "faltar un archivo en disco debe salir distinto de 0"
+    ejecutar.assert_not_called()
+    assert "ERROR: faltan archivos en disco" in res.output
+    assert "update" in res.output, "el resto del reporte se imprime igual, no se corta"
+    assert "Dry-run: no se ejecutó nada." in res.output
+
+
 def test_real_run_ejecuta_solo_los_dos_archivos_del_delta():
     """Sin `--dry-run`, rama `update`: `_run_sql_files` recibe EXACTAMENTE
     las 2 rutas del delta de posgrado, nunca el resto de `SEED_FILES`."""
@@ -379,6 +405,38 @@ def test_los_codigos_del_19_son_los_de_document_service():
     assert len(codigos) == 4
 
 
+@requires_dml
+def test_las_constantes_de_python_atan_verbatim_al_texto_del_18():
+    """Ronda 2 (R8 #1): nada ataba `_POSGRADO_NORM`/`_POSGRADO_PATRONES` (y
+    las raices `%MAESTR%`/`%DOCTOR%`) al TEXTO del 18 -- `database/` esta
+    gitignored, asi que un `git diff` de un cambio en el SQL nunca lo ve
+    nadie, y sin esta prueba ese cambio podia desincronizar
+    `_verify_posgrado`/`_precheck_posgrado` del comportamiento real SIN que
+    ninguna prueba se pusiera roja (`_verify_posgrado`/`_precheck_posgrado`
+    seguirian usando los patrones VIEJOS, que ya no describen lo que hace el
+    18 de verdad). Compara literal contra el archivo en disco, no contra una
+    copia escrita a mano en este test -- una copia a mano tendria el MISMO
+    punto ciego."""
+    from itcj2.cli.titulatec import _POSGRADO_NORM, _POSGRADO_PATRONES
+
+    sql = (DML_TITULATEC / _DML_POSGRADO_2026_10_DIR
+           / "18_classify_posgrado_programs.sql").read_text(encoding="utf-8")
+
+    assert _POSGRADO_NORM in sql, (
+        "la normalizacion de itcj2/cli/titulatec.py (_POSGRADO_NORM) ya no "
+        "aparece literal en el 18 -- se desincronizaron")
+
+    for _nivel, patron1, patron2 in _POSGRADO_PATRONES:
+        assert f"LIKE '{patron1}'" in sql, (
+            f"el patron {patron1!r} de _POSGRADO_PATRONES no aparece en el 18")
+        if patron2:
+            assert f"LIKE '{patron2}'" in sql, (
+                f"el patron {patron2!r} de _POSGRADO_PATRONES no aparece en el 18")
+
+    assert "LIKE '%MAESTR%'" in sql, "la raiz %MAESTR% no aparece en el 18"
+    assert "LIKE '%DOCTOR%'" in sql, "la raiz %DOCTOR% no aparece en el 18"
+
+
 # ---------------------------------------------------------------------------
 # SQL de verdad (Postgres real, dentro de `begin_nested()` -- ver hint del
 # controlador: `:=`/`::` en PL/pgSQL no chocan con los bind params de
@@ -421,12 +479,24 @@ def test_el_18_clasifica_cada_patron_exactamente_una_vez_e_idempotente(db_sessio
 @requires_dml
 def test_el_18_aborta_sin_escribir_ante_un_casi_duplicado(db_session, make_program):
     """Review Focus 5 del plan: un casi-duplicado (con y sin acentos/mayusculas
-    apuntando al mismo programa) debe abortar con el `RAISE EXCEPTION` del
-    propio 18 (SQLSTATE P0001) y no cambiar nada -- ni el conteo ni el nivel
-    de ninguna de las dos filas. Ronda 1: se afina de "cualquier DBAPIError" a
-    ESTE error especifico (el RAISE del 18), para no confundirlo con un typo
-    de sintaxis o un problema de conexion que tambien seria un DBAPIError
-    pero no probaria nada sobre la logica de ambiguedad."""
+    apuntando al mismo programa) debe abortar con el `RAISE EXCEPTION` de
+    AMBIGUEDAD del propio 18 (SQLSTATE P0001) y no cambiar nada -- ni el
+    conteo ni el nivel de ninguna de las dos filas.
+
+    Ronda 2 (revision Opus, R7.4a -- la ronda 1 quedo "NOT ADDRESSED"): el
+    `pytest.raises(Exception)` + `pgcode == "P0001" or "INDUSTRIAL" in
+    str(excinfo.value)` de la ronda 1 SIEMPRE pasaba, porque
+    `str(DBAPIError)` incluye el `[SQL: ...]` completo -- el texto del propio
+    18 ya contiene "INDUSTRIAL" sin importar CUAL RAISE disparo (medido: un
+    `ProgrammingError` con pgcode 42601, la MISMA clase que el bug real del
+    `--` truncado de esta tarea, satisfacia la asercion). Se restringe a
+    `DBAPIError` y se exige pgcode P0001 Y el texto de AMBIGUEDAD
+    especificamente sobre `str(excinfo.value.orig)` (el mensaje crudo de
+    Postgres, sin el `[SQL: ...]` que SQLAlchemy le pega encima) -- el texto
+    importa porque el 18 tiene VARIOS `RAISE EXCEPTION` con pgcode P0001 (p.
+    ej. el de "0 carreras casan" de `NEGOCIOS`, linea 111, que en una BD de
+    CI vacia tambien es P0001): sin el texto, cualquiera de ellos haria
+    pasar la prueba aunque fuera el RAISE equivocado."""
     make_program("MAESTRIA EN INGENIERIA INDUSTRIAL", level="licenciatura")
     make_program("Maestría en Ingeniería Industrial", level="licenciatura")
 
@@ -437,15 +507,17 @@ def test_el_18_aborta_sin_escribir_ante_un_casi_duplicado(db_session, make_progr
          / "18_classify_posgrado_programs.sql").read_text(encoding="utf-8")
     )
 
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(DBAPIError) as excinfo:
         with db_session.begin_nested():
             db_session.execute(text(sql))
 
-    orig = getattr(excinfo.value, "orig", None)
-    pgcode = getattr(orig, "pgcode", None)
-    assert pgcode == "P0001" or "INDUSTRIAL" in str(excinfo.value), (
-        f"se esperaba el RAISE EXCEPTION del 18 (SQLSTATE P0001), salio: "
-        f"{type(excinfo.value).__name__}: {excinfo.value}")
+    orig = excinfo.value.orig
+    assert getattr(orig, "pgcode", None) == "P0001", (
+        f"se esperaba el RAISE EXCEPTION del 18 (SQLSTATE P0001), salio "
+        f"pgcode={getattr(orig, 'pgcode', None)!r}: {orig!r}")
+    assert "casan MAESTRIA + INDUSTRIAL" in str(orig), (
+        "se esperaba el RAISE de AMBIGUEDAD de INDUSTRIAL especificamente "
+        f"(no otro P0001 del mismo archivo), salio: {orig!r}")
 
     despues = db_session.execute(text("SELECT COUNT(*) FROM core_programs")).scalar()
     assert despues == antes, "el DML no debe escribir nada si aborta"
