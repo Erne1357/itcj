@@ -9,7 +9,7 @@
 | **Actor(es)** | 👤 Egresado (`graduate`) · 🏛️ Encargado de Servicios Escolares (publica el espacio; no interviene en el agendado) |
 | **Permiso(s)** | `titulatec.appointment.page.my` (la página) · **`titulatec.appointment.api.book.own`** (agendar) · **`titulatec.appointment.api.cancel.own`** (cancelar) — los dos NUEVOS, del rol `graduate`. Publicar el espacio es `titulatec.review_window.api.manage`, que el encargado ya tenía |
 | **Trigger** | El egresado abre **Cita de cotejo** y hay al menos un espacio publicado como «Agendable» o **«Sin horario»** (2026-09-29, D3/D4 — el sin horario también se aparta, ya no es solo anuncio) de su carrera |
-| **Precondiciones** | Proceso `active` · **fase 2 en curso** (guarda de fase) · fase 2 **no** aprobada · **encuesta de egresados LIBERADA** por Gestión Tecnológica y Vinculación (existe `SurveyReview` con `status == 'approved'`; 2026-09-29, revierte la exigencia de solo-ENVIADA del 2026-09-15) · sin cita vigente activa · menos de `TITULATEC_SELF_CANCEL_MAX` cancelaciones propias · la franja arranca a más de `TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES` (en un sin horario, es el CIERRE del espacio el que tiene que faltar más de ese lapso) |
+| **Precondiciones** | Proceso `active` · **fase 2 en curso** (guarda de fase) · fase 2 **no** aprobada · sin una cita vigente `attended` con la fase 2 todavía SIN veredicto (D13, 2026-09-30: `cotejo_en_dictamen` — solo se libera cuando la fase queda `rejected`) · **encuesta de egresados LIBERADA** por Gestión Tecnológica y Vinculación (existe `SurveyReview` con `status == 'approved'`; 2026-09-29, revierte la exigencia de solo-ENVIADA del 2026-09-15) · sin cita vigente activa · menos de `TITULATEC_SELF_CANCEL_MAX` cancelaciones propias · la franja arranca a más de `TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES` (en un sin horario, es el CIERRE del espacio el que tiene que faltar más de ese lapso) |
 | **Sub-flujos** | ⤵ [alcance por carrera](engine_officer_scope.md) (en sentido inverso) · ⤵ [guarda de fase del alumno](engine_student_phase_lock.md) · comparte capa dura con ⤵ [la cita de cotejo (loop del encargado)](phase2_appointment_loop.md) |
 | **Estado final** | `ReviewAppointment` nueva, `status='scheduled'`, `is_current=True`, **`booked_by='student'`**, ocupando una franja de la ventana elegida |
 
@@ -29,7 +29,11 @@ propios: quien puede editar un espacio puede publicarlo**.
 > 2026-09-15 (que dio de alta las tres visibilidades). De aquí en adelante, un `D` seguido de
 > número **con fecha 2026-09-29** —D3, D4, D5, D10, D11 principalmente— es del spec
 > **2026-09-29-titulatec-cotejo-espacios-design.md** (esta entrega, el rediseño del `walkin`):
-> letras compartidas, decisiones distintas.
+> letras compartidas, decisiones distintas. **Hay incluso una tercera capa de la misma trampa**:
+> el `D13` de la sección «Las dos capas de guardas», más abajo, es del spec 2026-09-15 (la
+> partición dura/alumno), y es DISTINTO del `D13` que cita la tabla de `eligibility()` -ese es
+> una fila que el mismo spec 2026-09-29 sumó el **2026-09-30**, al probar en dev-. Los tres textos
+> de aquí en más que digan «D13, 2026-09-30» son ese último.
 
 | `ReviewWindow.visibility` | El egresado ve | El egresado agenda | El encargado |
 |---|---|---|---|
@@ -157,23 +161,37 @@ La consumen **la pantalla del alumno y la cola del encargado**. Con dos implemen
 | 3b | la envió, pero sigue `in_review` | `encuesta_en_revision` | «Tu encuesta de egresados está en revisión con Gestión Tecnológica y Vinculación. Podrás agendar en cuanto la liberen.» |
 | 3c | la envió, pero quedó `rejected` (observaciones de GTV) | `encuesta_con_observaciones` | «Gestión Tecnológica y Vinculación dejó observaciones en tu encuesta de egresados. Podrás agendar en cuanto la liberen.» |
 | 4 | cita vigente en `scheduled\|confirmed\|in_progress` | `tiene_cita` | «Ya tienes una cita. Cancélala si necesitas otra.» |
-| 5 | cancelaciones propias ≥ `TITULATEC_SELF_CANCEL_MAX` | `bloqueado_por_cancelaciones` | «Cancelaste N veces. Pídele la cita a tu encargado de carrera.» |
-| 6 | — | `None` | puede agendar |
+| 5 | cita vigente `attended` y fase 2 SIN veredicto -ni `approved` (ya cortó en la 2) ni `rejected`- | `cotejo_en_dictamen` | «Tu cotejo ya se realizó. Servicios Escolares está por dictaminarlo; si queda con observaciones podrás agendar otra cita.» |
+| 6 | cancelaciones propias ≥ `TITULATEC_SELF_CANCEL_MAX` | `bloqueado_por_cancelaciones` | «Cancelaste N veces. Pídele la cita a tu encargado de carrera.» |
+| 7 | — | `None` | puede agendar |
+
+> **Regla 5 nueva (D13, 2026-09-30, al probar en dev).** Revierte EN PARTE la regla del
+> auto-agendado del 2026-09-15: hasta esa fecha el corte real era solo la fase 2 **aprobada** (ver
+> abajo, «Los casos que SÍ dejan agendar»), así que una `attended` con papeles faltantes podía
+> re-agendar de inmediato aunque la fase 2 siguiera sin dictaminar. Desde D13, mientras Servicios
+> Escolares no dictamine -ni apruebe ni rechace- el egresado NO agenda ni se presenta: `can_walkin`
+> también se apaga, mismo criterio que las reglas 1 a 4. Solo recupera el auto-agendado en cuanto
+> la fase 2 queda `rejected`. Un `no_show` o una `cancelled` no disparan esta regla -no están
+> `attended`- y siguen agendando sin cambio. Aplica igual a espacios con franjas y a Sin horario;
+> del lado del encargado no cambia nada -su ficha ya solo ofrecía otra cita con `attended` cuando
+> la fase 2 estaba `rejected`, ver [la otra mitad del flujo](phase2_appointment_loop.md).
 
 **La regla 3 se abrió en tres caras el 2026-09-29 (D1, revierte D2 del 2026-09-15).** Hasta esa
 fecha era un booleano —¿existe `SurveyReview`?— y bastaba con haberla ENVIADO. Ahora
 `SurveyReviewService.release_status(db, process_id)` decide entre `missing` / `in_review` /
-`rejected` (`'approved'` nunca llega aquí: cae en la regla 6, «puede agendar»), y las tres
+`rejected` (`'approved'` nunca llega aquí: cae en la regla 7, «puede agendar»), y las tres
 bloquean `can_book` por igual —enviarla ya no basta, hace falta que GTV la **libere**— pero cada
 una le dice al alumno algo distinto sobre qué falta. El diccionario `_SURVEY_REASONS` traduce el
 estado al código de razón; los tres textos viven en `SelfBookingService.MENSAJES`, junto con los
 demás.
 
 **Los casos que SÍ dejan agendar**, que son el corazón de la feature: cita `attended` con la fase 2
-**sin** aprobar, `no_show`, `cancelled`, y no haber tenido nunca una. El corte real es **la fase 2
-aprobada**, que se lee de `ProcessPhase` (`PhaseService.PHASE_COTEJO`), **nunca** de `appt.status`.
+**rechazada**, `no_show`, `cancelled`, y no haber tenido nunca una. Hasta el 2026-09-29 bastaba con
+que la fase 2 NO estuviera **aprobada**; desde D13 (2026-09-30) hace falta además que SÍ tenga
+veredicto -mientras siga sin dictaminar, bloquea con `cotejo_en_dictamen`, regla 5-. El corte se
+sigue leyendo de `ProcessPhase` (`PhaseService.PHASE_COTEJO`), **nunca** de `appt.status` a secas.
 
-**`can_walkin` no es `can_book`.** Pasa con las reglas 1 a 4 y **la 5 no lo apaga**: quien agotó
+**`can_walkin` no es `can_book`.** Pasa con las reglas 1 a 5 y **la 6 no lo apaga**: quien agotó
 sus cancelaciones perdió el derecho a reservar un lugar, no el de presentarse a una atención que
 el encargado anunció abierta a todos. Colgarlo de `can_book` le fabricaría un callejón sin salida.
 
@@ -278,10 +296,13 @@ legado— así que una cita que un encargado sentó a mano a OTRA hora dentro de
 
 ## Las dos capas de guardas (D13), y por qué están partidas así
 
+> Este `D13` es del spec 2026-09-15 (la partición dura/alumno) — **no** el `D13` de 2026-09-30 de
+> la regla `cotejo_en_dictamen`, arriba. Misma letra, specs y decisiones distintas.
+
 | Capa | Dónde | Qué valida | A quién aplica |
 |---|---|---|---|
 | **Dura** | `AppointmentService` / `SlotService` | encuesta **liberada** por GTV (D1, 2026-09-29), una sola cita vigente, día habilitado, franja real de la rejilla, cupo libre, lock de ventana + advisory lock del proceso | **todos**, encargado incluido |
-| **Del alumno** | `SelfBookingService` | fase 2 aprobada, tope de cancelaciones, anticipación mínima (contra la franja, o contra el CIERRE en un Sin horario — D5), ventana `bookable` **o `walkin`** (D3/D4) y de su carrera | solo el auto-agendado |
+| **Del alumno** | `SelfBookingService` | fase 2 aprobada, una `attended` que no deje la fase 2 sin veredicto (D13, 2026-09-30), tope de cancelaciones, anticipación mínima (contra la franja, o contra el CIERRE en un Sin horario — D5), ventana `bookable` **o `walkin`** (D3/D4) y de su carrera | solo el auto-agendado |
 
 Por eso `cancel` **envuelve** a `AppointmentService.cancel` y `book` **delega** en
 `AppointmentService.create` en vez de reimplementarlas: si la ventana de 2 h se colara a la capa
@@ -331,9 +352,12 @@ Los traduce `_cita_accion` (`pages/student.py`), y las tres salidas son un contr
 - **Entrada del usuario** (`SlotTooSoon`, `CancelTooLate`, casi toda `SelfBookingNotAllowed`) →
   **400 + `X-Tt-Error`**. htmx no hace swap en 4xx, y está bien: lo que hay en pantalla sigue
   siendo verdad.
-- **Colisión de estado** (`reason == "tiene_cita"`) → **200 con el panel fresco** + `X-Tt-Notice`.
-  Es lo que produce el doble clic en «Agendar»: ahí la pantalla **sí** está rancia —ya existe una
-  cita que el alumno no ve— y un 4xx lo dejaría mirando un selector muerto.
+- **Colisión de estado** (`reason in ("tiene_cita", "cotejo_en_dictamen")`) → **200 con el panel
+  fresco** + `X-Tt-Notice`. La primera es el doble clic en «Agendar»: ahí la pantalla **sí** está
+  rancia —ya existe una cita que el alumno no ve—. La segunda (D13, 2026-09-30) es el encargado
+  marcando «asistió» mientras el alumno tiene la pantalla de agendado abierta: su clic choca
+  contra un estado que cambió bajo sus pies, la misma familia de colisión que el doble clic. Un
+  4xx lo dejaría mirando un selector muerto.
 - **Doble clic en «Cancelar»**: la segunda vez ya no hay cita vigente → se devuelve el panel tal
   como quedó. Lo que pidió ya está hecho; un 4xx sería un error inventado.
 - **Fuera de la fase 2** → `_phase_guard`: 400 + `X-Tt-Error` en los POST, 302 al acordeón en el GET.
@@ -360,7 +384,7 @@ abriendo o cerrando la ventana sola.
 
 ## Pruebas
 
-- `tests/fastapi/titulatec/test_self_booking_eligibility.py` — las 6 reglas en orden (la 3, un test
+- `tests/fastapi/titulatec/test_self_booking_eligibility.py` — las 7 reglas en orden (la 3, un test
   por cada una de sus tres caras: `sin_encuesta` / `encuesta_en_revision` /
   `encuesta_con_observaciones`).
 - `…/test_self_booking_offer.py` — el catálogo y el predicado inverso de alcance.

@@ -341,8 +341,12 @@ correo con la cita vigente (D7). Sin correo, a propósito: confirmar, solicitar 
 - **Solicitud de cambio del alumno** (2b): vive en **columna propia** (`change_request`), no en un
   prefijo mágico dentro de `note`. El encargado ve el indicador en el asiento y reagenda.
 - **«Marcar asistió» NO aprueba la fase** (decisión): es el paso 5, separado. Permite cotejo
-  fallido sin aprobar — y, desde el auto-agendado, permite que el alumno pida otra cita mientras la
-  fase 2 siga abierta.
+  fallido sin aprobar, y el ENCARGADO le sigue pudiendo abrir otro intento sin importar el
+  veredicto. El EGRESADO es distinto desde el 2026-09-30 (D13 de
+  [el auto-agendado](phase2_student_self_booking.md)): con la cita vigente `attended` y la fase 2
+  SIN veredicto no puede pedir otra cita solo (`cotejo_en_dictamen`); recupera el auto-agendado en
+  cuanto Servicios Escolares la RECHAZA -revierte en parte la regla del 2026-09-15, que dejaba
+  agendar con cualquier `attended` sin aprobar-.
 - **Día no habilitado** → `DayNotAllowed`. La guarda vive **en el service**
   (`AppointmentService.create` llama a `ReviewDayService.assert_allowed`), así que ya no depende de
   que cada página se acuerde de validar.

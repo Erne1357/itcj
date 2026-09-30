@@ -232,7 +232,7 @@ def _lapso(minutos: int) -> str:
 
 
 class SelfBookingNotAllowed(AppointmentError):
-    """El egresado no cumple una de las 6 reglas de elegibilidad (spec §3).
+    """El egresado no cumple una de las 7 reglas de elegibilidad (spec §3).
 
     Lleva `reason` —el mismo código que devuelve
     `SelfBookingService.eligibility`— para que la ruta pueda distinguirlas sin
@@ -240,16 +240,24 @@ class SelfBookingNotAllowed(AppointmentError):
     (`SelfBookingService.message_for`): la copia vive con las reglas, no aquí,
     o habría dos sitios que decirle al alumno por qué no puede.
 
-    `tiene_cita` es la única que refresca la vista: es lo que produce un doble
-    clic en «Agendar», y ahí la pantalla ESTÁ rancia — ya existe una cita que
-    el alumno no está viendo. Las demás son estados estables: lo que hay en
-    pantalla sigue siendo verdad y solo falta el mensaje.
+    **Dos razones refrescan la vista**, las dos porque lo que había en
+    pantalla dejó de ser cierto sin que el alumno hiciera nada:
+
+    * `tiene_cita` — doble clic en «Agendar»: ya existe una cita que el
+      alumno no está viendo.
+    * `cotejo_en_dictamen` (D13, 2026-09-30) — el encargado marcó «asistió»
+      mientras el alumno tenía la pantalla de agendado abierta: su clic
+      choca contra un estado que cambió bajo sus pies, la misma clase de
+      colisión que el doble clic de arriba, no un error de entrada.
+
+    Las demás son estados estables: lo que hay en pantalla sigue siendo
+    verdad y solo falta el mensaje.
     """
 
     def __init__(self, reason: str, msg: str | None = None):
         super().__init__(msg or "Ahora mismo no puedes agendar tu cita de cotejo.")
         self.reason = reason
-        self.refresca_la_vista = reason == "tiene_cita"
+        self.refresca_la_vista = reason in ("tiene_cita", "cotejo_en_dictamen")
 
 
 class SlotTooSoon(AppointmentError):

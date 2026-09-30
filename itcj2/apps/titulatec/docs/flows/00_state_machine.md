@@ -126,8 +126,11 @@ un proceso está **liberado hacia Titulación** cuando `ProcessPhase(phase_numbe
 == 'approved'`. La fecha de liberación es su `completed_at`, no la de la cita ni la del
 alta del proceso. Deliberadamente **no** se usa el estado de la cita
 (`ReviewAppointment.status`): marcarla `attended` no libera nada — con requisitos
-faltantes el egresado puede agendar otro intento mientras la fase 2 siga abierta (ver
-más arriba, "`attended` no aprueba la fase 2"). Aprobar la fase 2 es el acto explícito de
+faltantes el encargado sigue pudiendo abrirle otro intento sin importar el veredicto (ver
+más arriba, "`attended` no aprueba la fase 2"). El EGRESADO es distinto desde el
+2026-09-30 (D13 de [el auto-agendado](phase2_student_self_booking.md)): mientras la fase 2
+siga SIN veredicto no puede agendar solo (`cotejo_en_dictamen`), y recupera el auto-agendado
+solo en cuanto Servicios Escolares la RECHAZA. Aprobar la fase 2 es el acto explícito de
 liberación. La bandeja **Liberados** (`/titulatec/admin/liberados`) lista exactamente esto.
 
 ## Estado de un documento (`Document.review_status`)
@@ -250,8 +253,12 @@ auto-agendado vino a cerrar. Lleva comentario en el código y test dedicado
 
 > `attended` **no** aprueba la fase 2. La aprobación es un paso separado: el detalle del
 > proceso → "Aprobar fase 02" → [motor de avance](engine_approve_advance_phase.md). Y por eso una
-> cita `attended` con papeles faltantes **no** cierra nada: el egresado puede agendar otra mientras
-> la fase 2 siga abierta.
+> cita `attended` con papeles faltantes **no** cierra nada para el ENCARGADO: sigue pudiendo
+> abrirle otro intento sin importar el veredicto. Para el EGRESADO es distinto desde el
+> 2026-09-30 ([D13 del auto-agendado](phase2_student_self_booking.md)): mientras la fase 2
+> siga SIN veredicto no puede agendar solo (`cotejo_en_dictamen`); recupera el auto-agendado
+> solo en cuanto Servicios Escolares la RECHAZA -revierte en parte la regla del auto-agendado
+> del 2026-09-15, que dejaba agendar con cualquier `attended` sin aprobar-.
 >
 > La flecha inversa **sí** existe, y es angosta a propósito: dictaminar la fase 02 (aprobar o
 > rechazar) puede empujar la cita de `in_progress` a `attended` —nunca al revés, y nunca sobre

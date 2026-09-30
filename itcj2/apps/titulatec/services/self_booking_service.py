@@ -1,6 +1,9 @@
 """Reglas del EGRESADO para su cita de cotejo (spec 2026-09-15 §3 y §4.1).
 
-D13 parte las guardas en dos capas, y esa partición decide dónde vive cada regla:
+D13 (del spec 2026-09-15, sin fecha propia en este docstring -no confundir con
+el D13 de 2026-09-30, más abajo en `eligibility`, que es una decisión DISTINTA
+del spec 2026-09-29-titulatec-cotejo-espacios-design.md-) parte las guardas en
+dos capas, y esa partición decide dónde vive cada regla:
 
 * **Duras**, en `AppointmentService` / `SlotService`, para TODOS (encargado
   incluido): una sola cita vigente por proceso, encuesta LIBERADA por GTV (D1
@@ -8,7 +11,9 @@ D13 parte las guardas en dos capas, y esa partición decide dónde vive cada reg
   habilitado, franja real de la rejilla, cupo libre, lock de ventana y
   advisory lock del proceso.
 * **Del alumno**, aquí: fase 2 aprobada, tope de cancelaciones propias,
-  anticipación mínima, y que la ventana esté publicada y sea de su carrera.
+  anticipación mínima, que la ventana esté publicada y sea de su carrera, y
+  -desde el 2026-09-30- que una `attended` vigente no deje la fase 2 sin
+  dictaminar (D13 de 2026-09-30, `cotejo_en_dictamen`).
 
 Por eso `cancel` **envuelve** a `AppointmentService.cancel` en vez de
 duplicarla, y `book` delega en `AppointmentService.create`: si la ventana de
@@ -83,6 +88,16 @@ class SelfBookingService:
                                        "en tu encuesta de egresados. Podrás agendar en cuanto "
                                        "la liberen."),
         "tiene_cita": "Ya tienes una cita. Cancélala si necesitas otra.",
+        # D13 (2026-09-30): la cita vigente está `attended` -el encargado ya
+        # cotejó- y la fase 2 sigue SIN veredicto -ni aprobada ni rechazada-.
+        # Revierte EN PARTE la regla del auto-agendado del 2026-09-15: el
+        # corte ya no es solo la fase aprobada, `attended` también bloquea
+        # mientras Servicios Escolares no dictamine. Con la fase `rejected`
+        # esta razón no se dispara -ahí SÍ puede, que es justo el caso que
+        # aquella regla del 2026-09-15 vino a habilitar-.
+        "cotejo_en_dictamen": ("Tu cotejo ya se realizó. Servicios Escolares está por "
+                               "dictaminarlo; si queda con observaciones podrás agendar "
+                               "otra cita."),
         "bloqueado_por_cancelaciones": ("Cancelaste {n} veces. Pídele la cita a tu "
                                         "encargado de carrera."),
     }
@@ -149,7 +164,7 @@ class SelfBookingService:
     def is_blocked_by_cancellations(db: Session, proc) -> bool:
         """El predicado de D9, aislado.
 
-        Lo comparten la regla 5 de `eligibility` y el cubo de D10
+        Lo comparten la regla 6 de `eligibility` y el cubo de D10
         (`AppointmentService.list_self_blocked_processes`), que así no puede
         discrepar de lo que ve el alumno en su pantalla.
         """
@@ -158,14 +173,26 @@ class SelfBookingService:
 
     # ------------------------------------------------------------ §3: la puerta
     @staticmethod
-    def _fase_cotejo_aprobada(db: Session, proc) -> bool:
-        """Regla 2: se lee de `ProcessPhase` de la fase 2, NUNCA de `appt.status`.
+    def _fase_cotejo_status(db: Session, proc) -> str | None:
+        """El `status` de la `ProcessPhase` de la fase 2 (cotejo), o `None` si
+        el proceso todavía no tiene esa fila.
 
-        D5: el corte real es la FASE aprobada. Una cita `attended` a la que le
-        faltaron papeles deja la fase abierta, y ese alumno **sí** puede
-        agendar otra — que es literalmente lo que esta feature viene a
-        habilitar. `PhaseService.PHASE_COTEJO` y no un `2` literal, para que
-        grep lo encuentre desde el otro lado.
+        Consulta ÚNICA -reemplaza a la vieja `_fase_cotejo_aprobada`, que solo
+        devolvía el booleano de la regla 2- porque dos reglas la necesitan:
+
+        * Regla 2 (`fase_aprobada`): `status == "approved"`. D5: el corte real
+          es la FASE aprobada, nunca `appt.status`. `PhaseService.PHASE_COTEJO`
+          y no un `2` literal, para que grep lo encuentre desde el otro lado.
+        * Regla 5 (`cotejo_en_dictamen`, D13 2026-09-30): con la cita vigente
+          en `attended`, bloquea mientras `status` no sea `rejected` -ni
+          `approved`, que ya cortó antes en la regla 2-. Una cita `attended`
+          a la que le faltaron papeles sigue pudiendo agendar otra SOLO en
+          cuanto la fase queda `rejected` -es lo que la feature del
+          2026-09-15 vino a habilitar-; mientras siga SIN veredicto, D13 la
+          bloquea.
+
+        Con dos funciones leyendo la misma fila por separado, el día que
+        alguien toque una regla y no la otra, divergen.
         """
         from itcj2.apps.titulatec.models import ProcessPhase
         from itcj2.apps.titulatec.services.phase_service import PhaseService
@@ -174,13 +201,15 @@ class SelfBookingService:
                 .filter_by(process_id=proc.id,
                            phase_number=PhaseService.PHASE_COTEJO)
                 .first())
-        return fila is not None and fila.status == "approved"
+        return fila.status if fila is not None else None
 
     @staticmethod
     def eligibility(db: Session, process_id: int) -> dict:
         """¿Puede agendar solo, y si no, por qué? (spec §3; regla 3 revisada
         por D1 de 2026-09-29-titulatec-cotejo-espacios-design.md §2, que
-        revierte D2 del 2026-09-15)
+        revierte D2 del 2026-09-15; regla 5 nueva por D13 del mismo spec §1,
+        2026-09-30, que revierte EN PARTE la regla del auto-agendado del
+        2026-09-15)
 
         Devuelve `{can_book, can_walkin, reason, cancellations,
         blocked_by_cancellations, current}`.
@@ -188,7 +217,7 @@ class SelfBookingService:
         **El ORDEN de evaluación es parte del contrato**: la primera regla que
         falla es la que se reporta, así que un proceso inactivo **y** sin
         encuesta dice `proceso_inactivo`, no `sin_encuesta`. Reordenar la
-        cadena le cambia el mensaje al alumno aunque las seis sigan estando.
+        cadena le cambia el mensaje al alumno aunque las siete sigan estando.
 
         La regla 3 ya no es un booleano (¿existe la solicitud?) sino un
         `SurveyReviewService.release_status` de tres caras: `sin_encuesta`
@@ -198,7 +227,17 @@ class SelfBookingService:
         GTV la LIBERE (`status == 'approved'`)—, pero cada una le dice al
         alumno algo distinto sobre qué falta.
 
-        `can_walkin` **no es** `can_book`: pasa con las reglas 1 a 4 y la 5 NO
+        **Regla 5, `cotejo_en_dictamen` (D13, 2026-09-30).** La cita vigente
+        está `attended` -el encargado ya cotejó- y la fase 2 sigue SIN
+        veredicto: ni `approved` (que ya cortó antes, en la regla 2) ni
+        `rejected`. Mientras Servicios Escolares no dictamine, el egresado no
+        agenda ni se presenta. Con la fase `rejected` esta regla NO se
+        dispara -ahí puede agendar otra, que es justo el caso «vino,
+        cotejamos y le faltaron papeles» que la feature del 2026-09-15 vino a
+        habilitar-, y `no_show`/`cancelled` tampoco la disparan -no están
+        `attended`-, así que los dos siguen agendando sin cambio.
+
+        `can_walkin` **no es** `can_book`: pasa con las reglas 1 a 5 y la 6 NO
         lo apaga. El bloqueado por D9 perdió el derecho a *reservar un lugar*,
         no el de *presentarse* a una atención que el encargado anunció abierta
         a todos. Colgarlo de `can_book` le fabricaría un callejón sin salida —
@@ -206,8 +245,8 @@ class SelfBookingService:
         en que su encargado atiende sin cita.
 
         `current` es la cita VIGENTE (`get_for_process`), que puede venir en
-        `attended`, `no_show` o ninguna: solo los estados VIVOS disparan la
-        regla 4.
+        `attended`, `no_show` o ninguna: los estados VIVOS disparan la regla 4
+        y un `attended` sin veredicto dispara la regla 5.
         """
         from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.services.appointment_service import (
@@ -227,23 +266,31 @@ class SelfBookingService:
         cancelaciones = SelfBookingService.cancellations(db, proc)
         bloqueado = SelfBookingService.is_blocked_by_cancellations(db, proc)
         estado_encuesta = SurveyReviewService.release_status(db, proc.id)
+        # Consulta ÚNICA para las reglas 2 y 5 -ver `_fase_cotejo_status`-.
+        fase2_status = SelfBookingService._fase_cotejo_status(db, proc)
 
-        # Las 6 reglas de §3, EN ORDEN.
+        # Las 7 reglas de §3, EN ORDEN.
         reason = None
         if proc.status != "active":
             reason = "proceso_inactivo"
-        elif SelfBookingService._fase_cotejo_aprobada(db, proc):
+        elif fase2_status == "approved":
             reason = "fase_aprobada"
         elif estado_encuesta != "approved":
             reason = SelfBookingService._SURVEY_REASONS[estado_encuesta]
         elif current is not None and current.status in _ESTADOS_ACTIVOS:
             reason = "tiene_cita"
+        elif (current is not None and current.status == "attended"
+              and fase2_status != "rejected"):
+            # D13: asistió, pero Servicios Escolares todavía no dictamina.
+            # `fase2_status == "approved"` ya cortó arriba en la regla 2, así
+            # que aquí solo quedan `None`/`pending`/`in_progress`/`in_review`.
+            reason = "cotejo_en_dictamen"
         elif bloqueado:
             reason = "bloqueado_por_cancelaciones"
 
         return {
             "can_book": reason is None,
-            # Reglas 1 a 4 sí lo apagan; la 5 no. Escrito como una sola
+            # Reglas 1 a 5 sí lo apagan; la 6 no. Escrito como una sola
             # expresión para que no pueda divergir de `reason`.
             "can_walkin": reason in (None, "bloqueado_por_cancelaciones"),
             "reason": reason,

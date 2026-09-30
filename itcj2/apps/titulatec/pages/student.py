@@ -1313,7 +1313,7 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
 
     * `"agendar"` -- `can_book` y algo publicado (franjas O sin horario: D3/D4
       hace que apartar lugar SEA agendar). Se ofrecen las dos clases de ventana.
-    * `"presentarse"` -- `can_walkin` sin `can_book` (el bloqueado de la regla 5,
+    * `"presentarse"` -- `can_walkin` sin `can_book` (el bloqueado de la regla 6,
       D9): perdió el derecho a RESERVAR, no el de PRESENTARSE. Se filtran las
       franjas -no puede tomarlas- y solo quedan los espacios `walkin`, SIN
       botón: el texto dice que se presente, no que aparte.
@@ -1686,10 +1686,14 @@ def _cita_accion(request, db, user_id: int, fn):
     * entrada del usuario (`SlotTooSoon`, `CancelTooLate`, casi toda
       `SelfBookingNotAllowed`) -> 400 + `X-Tt-Error`. htmx no swappea en 4xx, y
       está bien: lo que hay en pantalla sigue siendo verdad.
-    * colisión de estado (`refresca_la_vista`, o sea `reason == "tiene_cita"`)
-      -> **200 con el panel fresco** + `X-Tt-Notice`. Es lo que produce un doble
-      clic en «Agendar»: ahí la pantalla SÍ está rancia —ya existe una cita que
-      el alumno no está viendo— y un 4xx lo dejaría mirando un selector muerto.
+    * colisión de estado (`refresca_la_vista`, o sea `reason in ("tiene_cita",
+      "cotejo_en_dictamen")`) -> **200 con el panel fresco** + `X-Tt-Notice`.
+      Es lo que produce un doble clic en «Agendar» -ahí la pantalla SÍ está
+      rancia, ya existe una cita que el alumno no está viendo- y, desde D13
+      (2026-09-30), también lo que produce que el encargado marque «asistió»
+      mientras el alumno tiene esta pantalla abierta: los dos son el servidor
+      cambiando de opinión a mitad del clic, y un 4xx lo dejaría mirando un
+      selector muerto.
     """
     from itcj2.apps.titulatec.services.appointment_errors import (
         AppointmentError, NotYours,

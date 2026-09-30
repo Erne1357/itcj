@@ -393,7 +393,7 @@ class AppointmentService:
         están esperando a que alguien lo haga por ellos.
 
         El criterio es el mismo objeto que usa la pantalla del alumno
-        (`SelfBookingService.is_blocked_by_cancellations`, la regla 5 de §3):
+        (`SelfBookingService.is_blocked_by_cancellations`, la regla 6 de §3):
         con dos implementaciones, este cubo diría una cosa y el alumno vería
         otra.
         """

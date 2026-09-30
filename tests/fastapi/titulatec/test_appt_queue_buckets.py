@@ -104,7 +104,7 @@ def _fase2(db_session, proc, estado):
     `make_process(current_phase=2)` la crea en `in_progress`; el cubo 4 la
     necesita en `rejected`. Se resuelve por `PhaseService.PHASE_COTEJO` y no por
     un `2` literal, que es la misma constante que usan el service del cubo y
-    `SelfBookingService._fase_cotejo_aprobada`.
+    `SelfBookingService._fase_cotejo_status`.
     """
     from itcj2.apps.titulatec.models import ProcessPhase
     from itcj2.apps.titulatec.services.phase_service import PhaseService

@@ -1,4 +1,6 @@
-"""Las 6 reglas de elegibilidad del auto-agendado (spec 2026-09-15 §3).
+"""Las 7 reglas de elegibilidad del auto-agendado (spec 2026-09-15 §3; regla 5
+nueva por D13 de 2026-09-29-titulatec-cotejo-espacios-design.md, 2026-09-30 —
+no confundir con el otro D13, el de la partición dura/alumno del 2026-09-15).
 
 **El ORDEN de evaluación es parte del contrato**, no un detalle de
 implementación: la primera regla que falla es la que se reporta, así que un
@@ -7,13 +9,16 @@ Por eso hay un test por fila de la tabla y van EN ESE ORDEN, más uno que mide
 el orden en sí.
 
 Los tres casos que **sí** dejan agendar son el corazón de la feature y llevan
-test propio: `attended` con la fase 2 sin aprobar (D5), `no_show` (D7) y
-`cancelled` (D6). Ninguno de los tres se lee de `appt.status` para la regla 2 —
-el corte es la FASE aprobada (`ProcessPhase` de `PhaseService.PHASE_COTEJO`).
+test propio: `attended` con la fase 2 **rechazada** (D5, endurecido por D13
+2026-09-30 -antes bastaba con que NO estuviera aprobada; ahora hace falta que
+SÍ tenga veredicto, o cae en la regla 5 nueva, `cotejo_en_dictamen`-),
+`no_show` (D7) y `cancelled` (D6). Ninguno de los tres se lee de
+`appt.status` para la regla 2 — el corte es la FASE aprobada (`ProcessPhase`
+de `PhaseService.PHASE_COTEJO`).
 
-Y el que se olvida: el bloqueado por D9 pierde el derecho a *reservar un
-lugar*, no el de *presentarse* a una atención anunciada como abierta a todos
-(`can_walkin`).
+Y el que se olvida: el bloqueado por D9 (regla 6) pierde el derecho a
+*reservar un lugar*, no el de *presentarse* a una atención anunciada como
+abierta a todos (`can_walkin`).
 """
 from datetime import time
 
@@ -81,8 +86,41 @@ def _aprueba_la_fase_de_cotejo(db, proc):
     return fila
 
 
+def _fase2_en(db, proc, estado):
+    """Deja la fase 2 del proceso en `estado`, a mano.
+
+    Generaliza a `_aprueba_la_fase_de_cotejo` (que sigue viva sin tocar: ya
+    la usan otros tests) para la regla 5 (D13, 2026-09-30), que necesita más
+    estados que solo `approved` -`pending`/`in_progress`/`in_review` bloquean
+    con `cotejo_en_dictamen`, y `rejected` es la única puerta de salida-.
+    """
+    from itcj2.apps.titulatec.models import ProcessPhase
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    fila = (db.query(ProcessPhase)
+            .filter_by(process_id=proc.id,
+                       phase_number=PhaseService.PHASE_COTEJO).first())
+    fila.status = estado
+    db.flush()
+    return fila
+
+
+def _asiste(db, esc):
+    """Cita agendada, iniciada y marcada `attended`, de punta a punta.
+
+    No a mano (`make_appointment(status="attended")`): así se prueba el
+    camino real, y `is_current` queda en `True` como lo deja
+    `AppointmentService.mark_attended` de verdad (no toca la vigencia).
+    """
+    ap = AppointmentService.create(db, esc["p1"].id, window_id=esc["w"].id,
+                                   slot_start=time(9, 0), created_by_id=esc["off"].id)
+    AppointmentService.start(db, ap, esc["off"].id)
+    AppointmentService.mark_attended(db, ap, esc["off"].id)
+    return ap
+
+
 # =========================================================================
-# Las 6 reglas de §3, EN ORDEN
+# Las 7 reglas de §3, EN ORDEN
 # =========================================================================
 def test_regla_1_un_proceso_inactivo_no_puede_agendar(db_session, alumno):
     esc = alumno
@@ -163,7 +201,63 @@ def test_regla_4_con_una_cita_viva_no_puede_abrir_otra(db_session, alumno):
     assert e["can_walkin"] is False, "con lugar reservado no hay nada que anunciarle"
 
 
-def test_regla_5_al_llegar_al_tope_de_cancelaciones_pierde_el_auto_agendado(
+def test_regla_5_attended_con_la_fase_in_progress_no_puede_agendar_otra(db_session, alumno):
+    """`agenda_slots` nace con la fase 2 en `in_progress` (`current_phase=2`
+    la deja así): es el estado real de un alumno a mitad de su primer
+    cotejo, sin tocar nada a mano."""
+    esc = alumno
+    ap = _asiste(db_session, esc)
+
+    e = SelfBookingService.eligibility(db_session, esc["p1"].id)
+
+    assert e["can_book"] is False
+    assert e["reason"] == "cotejo_en_dictamen"
+    assert e["can_walkin"] is False, "D13: tampoco se presenta mientras no haya dictamen"
+    assert e["current"] is not None and e["current"].id == ap.id
+    assert SelfBookingService.message_for(e["reason"]) == (
+        "Tu cotejo ya se realizó. Servicios Escolares está por dictaminarlo; "
+        "si queda con observaciones podrás agendar otra cita.")
+
+
+def test_regla_5_attended_con_la_fase_pending_no_puede_agendar_otra(db_session, alumno):
+    esc = alumno
+    _asiste(db_session, esc)
+    _fase2_en(db_session, esc["p1"], "pending")
+
+    e = SelfBookingService.eligibility(db_session, esc["p1"].id)
+
+    assert e["can_book"] is False
+    assert e["reason"] == "cotejo_en_dictamen"
+
+
+def test_regla_5_attended_con_la_fase_in_review_no_puede_agendar_otra(db_session, alumno):
+    esc = alumno
+    _asiste(db_session, esc)
+    _fase2_en(db_session, esc["p1"], "in_review")
+
+    e = SelfBookingService.eligibility(db_session, esc["p1"].id)
+
+    assert e["can_book"] is False
+    assert e["reason"] == "cotejo_en_dictamen"
+
+
+def test_regla_5_attended_con_la_fase_aprobada_reporta_fase_aprobada_no_dictamen(
+        db_session, alumno):
+    """La regla 2 corta ANTES: una `attended` con la fase ya `approved` nunca
+    llega a la regla 5 -el orden es el contrato, y una segunda implementación
+    de la lectura de `ProcessPhase` (`_fase_cotejo_status`) no puede
+    discreparle a la primera-."""
+    esc = alumno
+    _asiste(db_session, esc)
+    _aprueba_la_fase_de_cotejo(db_session, esc["p1"])
+
+    e = SelfBookingService.eligibility(db_session, esc["p1"].id)
+
+    assert e["can_book"] is False
+    assert e["reason"] == "fase_aprobada"
+
+
+def test_regla_6_al_llegar_al_tope_de_cancelaciones_pierde_el_auto_agendado(
         db_session, alumno, make_appointment):
     esc = alumno
     _bloquea_por_cancelaciones(db_session, make_appointment, esc["p1"])
@@ -176,7 +270,7 @@ def test_regla_5_al_llegar_al_tope_de_cancelaciones_pierde_el_auto_agendado(
     assert e["blocked_by_cancellations"] is True
 
 
-def test_regla_6_sin_nada_que_lo_impida_puede_agendar(db_session, alumno):
+def test_regla_7_sin_nada_que_lo_impida_puede_agendar(db_session, alumno):
     e = SelfBookingService.eligibility(db_session, alumno["p1"].id)
 
     assert e["can_book"] is True
@@ -204,25 +298,31 @@ def test_el_orden_manda_inactivo_y_sin_encuesta_reporta_proceso_inactivo(
 
 
 # =========================================================================
-# Los tres que SÍ dejan agendar (D5, D7, D6)
+# Los tres que SÍ dejan agendar (D5, D7, D6; D5 endurecido por D13 2026-09-30)
 # =========================================================================
-def test_atendido_con_la_fase_2_sin_aprobar_puede_agendar_otra(db_session, alumno):
-    """D5: el corte real es la FASE aprobada, no el estado `attended`.
+def test_atendido_con_la_fase_2_rechazada_puede_agendar_otra(db_session, alumno):
+    """D5 (2026-09-15) + D13 (2026-09-30): el corte real es la FASE con
+    VEREDICTO, no el estado `attended` a secas.
 
-    Es el caso «vino, cotejamos y le faltaron papeles»: la cita se usó, la
-    fase sigue abierta y tiene que poder volver.
+    Es el caso «vino, cotejamos y le faltaron papeles»: la cita se usó,
+    Servicios Escolares dictaminó que faltó algo y tiene que poder volver.
+    Hasta el 2026-09-29 bastaba con que la fase NO estuviera `approved` -este
+    test agendaba, iniciaba y marcaba `attended` sin tocar la fase, y ya
+    podía agendar otra-; desde D13 hace falta ADEMÁS el rechazo explícito, o
+    cae en la regla 5 nueva (`cotejo_en_dictamen`, ver
+    `test_regla_5_attended_con_la_fase_in_progress_no_puede_agendar_otra` y
+    hermanos, más arriba).
     """
     esc = alumno
-    ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
-                                   slot_start=time(9, 0), created_by_id=esc["off"].id)
-    AppointmentService.start(db_session, ap, esc["off"].id)
-    AppointmentService.mark_attended(db_session, ap, esc["off"].id)
+    ap = _asiste(db_session, esc)
+    _fase2_en(db_session, esc["p1"], "rejected")
 
     e = SelfBookingService.eligibility(db_session, esc["p1"].id)
 
-    assert e["can_book"] is True, "la fase 2 sigue sin aprobarse (D5)"
+    assert e["can_book"] is True, "la fase 2 quedó rechazada (D13)"
     assert e["reason"] is None
-    assert e["current"] is not None and e["current"].status == "attended"
+    assert e["current"] is not None and e["current"].id == ap.id
+    assert e["current"].status == "attended"
 
 
 def test_tras_un_no_show_puede_agendar_otra_el_solo(db_session, alumno):
@@ -259,7 +359,7 @@ def test_tras_cancelar_puede_agendar_otra(db_session, alumno):
 # =========================================================================
 def test_el_bloqueado_por_cancelaciones_sigue_pudiendo_llegar_sin_cita(
         db_session, alumno, make_appointment):
-    """La regla 5 apaga `can_book` y **no** apaga `can_walkin` (§3).
+    """La regla 6 apaga `can_book` y **no** apaga `can_walkin` (§3).
 
     Perdió el derecho a RESERVAR un lugar, no el de PRESENTARSE a una
     atención que el encargado anunció abierta a todos. Colgar `can_walkin` de

@@ -12,8 +12,9 @@ Contrato de errores (T4):
   `assert_process_in_scope`: los ids son enteros secuenciales y un mensaje
   distintivo confirmaría cuáles existen.
 * `SlotTooSoon` / `CancelTooLate` / `SelfBookingNotAllowed` -> 400 +
-  `X-Tt-Error`, **salvo** `reason == "tiene_cita"`, que trae
-  `refresca_la_vista` y responde 200 con el panel fresco + `X-Tt-Notice`.
+  `X-Tt-Error`, **salvo** `reason in ("tiene_cita", "cotejo_en_dictamen")`
+  -la segunda, D13 2026-09-30-, que traen `refresca_la_vista` y responden
+  200 con el panel fresco + `X-Tt-Notice`.
 
 Harness: `dependency_overrides[get_db]` NO alcanza al cuerpo de la ruta en esta
 app. Se usa `client_as`, que arrastra `client` -> `patched_session_local`.
@@ -389,6 +390,31 @@ def test_el_choque_de_cita_activa_le_habla_al_ALUMNO_no_al_encargado(
     assert len(_citas(db_session, escena["p1"])) == 1, "no debio abrirse un segundo intento"
 
 
+def test_agendar_con_attended_sin_veredicto_responde_panel_fresco_y_aviso(
+        db_session, escena, client_as):
+    """D13 (2026-09-30): si el encargado marca "asistio" mientras el alumno
+    tiene la pantalla de agendado abierta, su clic no es un error de
+    entrada -es una colision de estado, la misma familia que el doble clic
+    de "tiene_cita" arriba-: 200 con el panel fresco + X-Tt-Notice, nunca un
+    400 mudo (`SelfBookingNotAllowed.refresca_la_vista`, appointment_errors.py).
+    """
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    ap = AppointmentService.create(db_session, escena["p1"].id, window_id=escena["w"].id,
+                                   slot_start=time(9, 30), created_by_id=escena["off"].id)
+    AppointmentService.start(db_session, ap, escena["off"].id)
+    AppointmentService.mark_attended(db_session, ap, escena["off"].id)
+
+    resp = client_as(escena["alumno"]).post(
+        AGENDAR, data={"window_id": str(escena["w"].id), "slot": "10:00"})
+
+    assert resp.status_code == 200, _msg(resp) or resp.text[:300]
+    aviso = unquote(resp.headers.get("X-Tt-Notice", ""))
+    assert "Tu cotejo ya se realizó" in aviso, aviso
+    assert 'name="slot"' not in resp.text, "sin veredicto no hay selector que pintar"
+    assert len(_citas(db_session, escena["p1"])) == 1, "no debio abrirse un segundo intento"
+
+
 def test_sin_el_permiso_de_agendar_no_pasa_el_gate(db_session, agenda_slots,
                                                     make_survey_review, client_as):
     """Sin `appointment.api.book.own` -> `PageForbidden`.
@@ -644,3 +670,23 @@ def test_quien_no_puede_agendar_ve_la_frase_nunca_un_boton_mudo(
     assert resp.status_code == 200
     assert "Primero envía la encuesta de egresados." in resp.text
     assert 'name="slot"' not in resp.text
+
+
+def test_el_panel_con_attended_sin_veredicto_muestra_la_frase_y_no_la_rejilla(
+        db_session, escena, client_as):
+    """D13 (2026-09-30): cara 4 -la frase que dice por qué-, nunca el
+    selector ni la promesa de «agéndala aquí abajo» que usa el modo
+    "agendar" (`cita_card.html`/`_cita_panel.html`)."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    ap = AppointmentService.create(db_session, escena["p1"].id, window_id=escena["w"].id,
+                                   slot_start=time(9, 30), created_by_id=escena["off"].id)
+    AppointmentService.start(db_session, ap, escena["off"].id)
+    AppointmentService.mark_attended(db_session, ap, escena["off"].id)
+
+    resp = client_as(escena["alumno"]).get(CITA, follow_redirects=False)
+
+    assert resp.status_code == 200
+    assert "Tu cotejo ya se realizó" in resp.text
+    assert 'name="slot"' not in resp.text
+    assert "Agéndala" not in resp.text, "no debe prometer agendar mientras espera dictamen"
