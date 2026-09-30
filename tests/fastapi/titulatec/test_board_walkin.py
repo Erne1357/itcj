@@ -406,3 +406,69 @@ def test_con_mover_ofrece_mover_aqui(db_session, esc, client_as):
     assert boton.get("hx-post") == (
         f"{URL}/{apartada.process_id}/move?v=agenda&date={_D.isoformat()}"
         f"&window_id={esc['w'].id}&slot=08:00")
+
+
+# ===========================================================================
+# M-5 (revisión final): el toast del `move()` que hay detrás de «Apartarle
+# lugar»/«Mover aquí» no puede decir «Cita agendada/movida a las X»: en un
+# sin horario no hay una CITA a esa hora, hay un LUGAR apartado por orden de
+# llegada (D4/D11). `cuando` sigue siendo la hora SOLA -aquí, la apertura del
+# espacio-, nunca el rango inicio-fin: ese es el que anuncia el tablero
+# (`g.horario`), no lo que le pasó a este alumno en concreto.
+# ===========================================================================
+def _otro_encargado(make_officer, prog, **extra_perms):
+    from tests.fastapi.titulatec.conftest import OFFICER_PERMS
+    return make_officer(
+        [prog], first_name="OTRO", last_name="ENCARGADO",
+        perm_codes=OFFICER_PERMS + ("titulatec.review_window.api.manage",
+                                    "titulatec.appointment.api.reschedule"))
+
+
+def test_apartarle_lugar_dice_lugar_apartado_no_cita_agendada(
+        db_session, esc, client_as, make_officer, make_survey_review):
+    make_survey_review(esc["p"][0], status="approved")
+    otro, _ = _otro_encargado(make_officer, esc["prog"])
+
+    resp = client_as(otro).post(
+        URL + "/%d/move?window_id=%d&slot=08:00" % (esc["p"][0].id, esc["w"].id))
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert unquote(resp.headers["X-Tt-Notice"]) == (
+        "Lugar apartado a las 08:00. Se avisó al alumno.")
+
+
+def test_mover_en_sin_horario_dice_movido_no_cita_movida(
+        db_session, esc, client_as, make_officer, make_review_window):
+    """Control del anterior: una cita YA VIVA que se re-sienta en OTRO sin
+    horario tampoco puede decir «Cita movida». `_apartar` (assign directo)
+    no exige la encuesta -a diferencia de `create`-, así que este proceso no
+    necesita `make_survey_review`."""
+    otro, _ = _otro_encargado(make_officer, esc["prog"])
+    otro_walkin = make_review_window(esc["dia"], esc["off"], start="15:00", end="18:00",
+                                     cap=3, position=esc["pos"], visibility="walkin")
+    _apartar(db_session, esc, 0)
+
+    resp = client_as(otro).post(
+        URL + "/%d/move?window_id=%d&slot=15:00" % (esc["p"][0].id, otro_walkin.id))
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert unquote(resp.headers["X-Tt-Notice"]) == (
+        "Movido a las 15:00. Se avisó al alumno.")
+
+
+def test_apartar_en_una_franja_conserva_el_texto_de_cita(
+        db_session, esc, client_as, make_officer, make_review_window,
+        make_survey_review):
+    """Negativa de control: una FRANJA agendable sigue diciendo «Cita
+    agendada», el texto de siempre -M-5 solo toca el sin horario-."""
+    make_survey_review(esc["p"][0], status="approved")
+    otro, _ = _otro_encargado(make_officer, esc["prog"])
+    franjas = make_review_window(esc["dia"], esc["off"], start="15:00", end="17:00",
+                                 slot=30, cap=1, position=esc["pos"], visibility="bookable")
+
+    resp = client_as(otro).post(
+        URL + "/%d/move?window_id=%d&slot=15:00" % (esc["p"][0].id, franjas.id))
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert unquote(resp.headers["X-Tt-Notice"]) == (
+        "Cita agendada a las 15:00. Se avisó al alumno.")

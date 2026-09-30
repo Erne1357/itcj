@@ -1882,6 +1882,7 @@ def move(
     from itcj2.apps.titulatec.services.appointment_service import (
         AppointmentService, _ESTADOS_ACTIVOS,
     )
+    from itcj2.apps.titulatec.services.review_window_service import ReviewWindowService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     q = request.query_params
@@ -1893,6 +1894,15 @@ def move(
         window_id = _to_int(q.get("window_id"))
         slot = _parse_time(q.get("slot"))
         cuando = slot.strftime("%H:%M") if slot else "esa hora"
+        # M-5 (revisión final): «Apartarle lugar»/«Mover aquí» (_appt_board.html)
+        # pegan a ESTA misma ruta con `slot=` la APERTURA del sin horario, y el
+        # toast genérico («Cita agendada/movida») engaña -no hay una CITA a esa
+        # hora, hay un LUGAR apartado por orden de llegada, D4/D11-. `cuando`
+        # sigue siendo la hora sola (aquí, la apertura), nunca el rango
+        # `inicio-fin` del espacio: eso es lo que ANUNCIA el tablero
+        # (`g.horario`), no lo que le pasó a ESTE alumno.
+        w = ReviewWindowService.get(db, window_id) if window_id else None
+        sin_horario = bool(w) and w.visibility == "walkin"
         # `appt is None` NO basta como proxy de «no hay cita que mover».
         # `get_for_process` devuelve la VIGENTE, y una `attended` sigue siendo
         # la vigente: caia en `reschedule` -> `InvalidTransition`, asi que el
@@ -1903,15 +1913,20 @@ def move(
         # nuevo. Asi los dos no pueden divergir. `cancelled`/`superseded` ni
         # llegan aqui: dejan de ser vigentes, asi que `appt` ya es None.
         if appt is None or appt.status not in _ESTADOS_ACTIVOS:
+            mensaje = (f"Lugar apartado a las {cuando}. Se avisó al alumno."
+                      if sin_horario else
+                      f"Cita agendada a las {cuando}. Se avisó al alumno.")
             return _accion(request, db, selected_id=process_id, user_id=uid,
                            fn=lambda: AppointmentService.create(
                                db, process_id, window_id=window_id, slot_start=slot,
                                created_by_id=uid),
-                           exito=f"Cita agendada a las {cuando}. Se avisó al alumno.")
+                           exito=mensaje)
+        mensaje = (f"Movido a las {cuando}. Se avisó al alumno." if sin_horario
+                  else f"Cita movida a las {cuando}. Se avisó al alumno.")
         return _accion(request, db, selected_id=process_id, user_id=uid,
                        fn=lambda: AppointmentService.reschedule(
                            db, appt, window_id=window_id, slot_start=slot, actor_id=uid),
-                       exito=f"Cita movida a las {cuando}. Se avisó al alumno.")
+                       exito=mensaje)
     finally:
         db.close()
 
