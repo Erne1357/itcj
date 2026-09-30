@@ -4,7 +4,7 @@
    misma fecha y en el futuro. Se arma con la cita VIGENTE: fecha, hora, lugar,
    qué llevar y «confirma tu asistencia» si no la confirmó.
    Contexto: first_name, link, titulo («Mañana es tu cita de cotejo»), fecha,
-   hora, lugar, confirmar, requisitos = [{label, hint}]. #}
+   hora, sin_horario, lugar, confirmar, requisitos = [{label, hint}]. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
 {% block titulo %}{{ titulo|e }} — TitulaTec ITCJ{% endblock %}
@@ -13,7 +13,7 @@
 <p style="margin:0 0 20px;">
   <strong>{{ titulo|e }}.</strong> Estos son sus datos:
 </p>
-{{ m.datos_cita(fecha, hora, lugar) }}
+{{ m.datos_cita(fecha, hora, lugar, sin_horario) }}
 {% if confirmar %}{{ m.aviso("Confirma tu asistencia desde la plataforma.") }}{% endif %}
 {{ m.requisitos(requisitos) }}
 {{ m.boton(link, "Ver mi cita") }}

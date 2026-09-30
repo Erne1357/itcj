@@ -348,7 +348,14 @@ class Settings(BaseSettings):
     # del destinatario en la bitácora del expediente puede ser largo y sin
     # espacios, y no debe romper `scrollWidth <= innerWidth` a 360px. Sin el
     # bump, la hoja `immutable` en caché sigue sin la regla.
-    STATIC_VERSION: str = "1.0.1111582"
+    #
+    # Bump 2026-09-29 (3): `titulatec/css/titulatec.css` suma el sistema
+    # visual de la cita del alumno plegable (Tarea 9, D10 -- requisitos en
+    # `<details id="tt-cita-reqs">`, encargados plegables `.tt-slotblock`,
+    # «Ver N horas más» y el resto de `.tt-cita-*`/`.tt-slotblock-*` nuevos).
+    # Sin el bump, la hoja `immutable` en caché sigue sin los estilos y los
+    # `<details>` se ven sin su cabecera ni su chevron.
+    STATIC_VERSION: str = "1.0.1111583"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

@@ -504,7 +504,7 @@ def _appt_progress(appt) -> dict:
         "label": label,
         "tone": tone,
         "status": appt.status,
-        "scheduled_label": _cita_label(appt.scheduled_at),
+        "scheduled_label": AppointmentService.when(appt)["label"],
         "location": appt.location,
         "confirmed": appt.confirmed_at is not None,
         "change_requested": change_requested,
@@ -694,9 +694,14 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     }
 
     events_by_phase: dict[int, list] = {}
+    # `(created_at, id)`, como el expediente y `process_service`: los eventos de
+    # una misma transacción comparten `created_at` (el `NOW()` de la
+    # transacción) y Postgres no promete el orden de los empates. «Atender
+    # ahora» escribe dos seguidos, y sin el `id` «Cotejo en proceso» podía salir
+    # antes que «Cita agendada».
     for ev in (db.query(ProcessEvent)
                .filter_by(process_id=process.id)
-               .order_by(ProcessEvent.created_at).all()):
+               .order_by(ProcessEvent.created_at, ProcessEvent.id).all()):
         # Un evento sin fase no pertenece a ningún acordeón; no lo colgamos de una
         # fase arbitraria para no inventar historial.
         if ev.phase_number is None:
@@ -1290,22 +1295,37 @@ def _dia_label(d) -> str:
 
 
 def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
-    """Las cuatro caras de §7, resueltas en DATOS PLANOS.
+    """Las cuatro caras de §7, resueltas en DATOS PLANOS (D10/D11, Tarea 9).
 
-    Planos porque la plantilla se renderiza DESPUÉS del `db.close()` de la ruta:
-    un atributo perezoso sobre una instancia ya desanclada lanzaría
+    Planas porque la plantilla se renderiza DESPUÉS del `db.close()` de la
+    ruta: un atributo perezoso sobre una instancia ya desanclada lanzaría
     `DetachedInstanceError` (mismo motivo que `_checklist_ctx`). `offer()` ya
     devuelve dicts, así que aquí solo se les da forma de pantalla: las horas se
     formatean AQUÍ y no en Jinja, para que la plantilla no haga aritmética.
 
-    `eligibility` decide QUIÉN puede y `offer` QUÉ hay. Se consumen juntos, y de
-    ahí sale lo que a primera vista parece una contradicción: la tarjeta de
-    «atención sin cita» convive con la frase de la cara 4, porque el bloqueado
-    por D9 no puede reservar pero sí presentarse.
+    `eligibility` decide QUIÉN puede y `offer` QUÉ hay. Un espacio `walkin`
+    (D3/D4, spec 2026-09-29-titulatec-cotejo-espacios-design.md §3.3) YA es
+    agendable -el egresado aparta lugar sin hora-, así que desde la Tarea 9
+    viaja DENTRO de `dias`, junto a las franjas: ya no hay una lista `walkins`
+    aparte.
+
+    `modo` es lo que decide la plantilla para pintar el selector:
+
+    * `"agendar"` -- `can_book` y algo publicado (franjas O sin horario: D3/D4
+      hace que apartar lugar SEA agendar). Se ofrecen las dos clases de ventana.
+    * `"presentarse"` -- `can_walkin` sin `can_book` (el bloqueado de la regla 6,
+      D9): perdió el derecho a RESERVAR, no el de PRESENTARSE. Se filtran las
+      franjas -no puede tomarlas- y solo quedan los espacios `walkin`, SIN
+      botón: el texto dice que se presente, no que aparte.
+    * `None` -- ninguna de las dos: cara 4 sola, con `message`.
+
+    La 3 y la 4 conviven a propósito en el único caso donde eso importa: el
+    bloqueado por D9 no puede reservar pero sí presentarse, y `message` no se
+    apaga por `modo == "presentarse"`.
     """
     vacio = {"can_book": False, "can_walkin": False, "reason": None,
-             "message": None, "dias": [], "dia_sel": None, "dia_actual": None,
-             "walkins": []}
+             "message": None, "modo": None, "dias": [], "dia_sel": None,
+             "dia_actual": None, "hay_sin_horario": False}
     if process is None:
         return vacio
 
@@ -1314,32 +1334,61 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
     elig = SelfBookingService.eligibility(db, process.id)
     oferta = SelfBookingService.offer(db, process.id)
 
-    dias, walkins = [], []
+    todas_las_ventanas = [w for jornada in oferta for dueno in jornada["owners"]
+                          for w in dueno["windows"]]
+    hay_sin_horario = any(w["visibility"] == "walkin" for w in todas_las_ventanas)
+    if elig["can_book"] and todas_las_ventanas:
+        modo = "agendar"
+    elif elig["can_walkin"] and hay_sin_horario:
+        modo = "presentarse"
+    else:
+        modo = None
+
+    dias = []
     for jornada in oferta:
         fecha = jornada["date"]
         duenos = []
         for dueno in jornada["owners"]:
             ventanas = []
             for w in dueno["windows"]:
-                if w["visibility"] == "walkin":
-                    # D2: anuncio, no agenda. Viaja sin franjas desde `offer`.
-                    walkins.append({
-                        "date_label": _dia_label(fecha),
-                        "start": f'{w["start_time"]:%H:%M}',
-                        "end": f'{w["end_time"]:%H:%M}',
-                        "location": w["location"],
-                        "owner_name": dueno["owner_name"],
-                    })
+                es_walkin = w["visibility"] == "walkin"
+                if modo == "presentarse" and not es_walkin:
+                    # Bloqueado por D9: solo se PRESENTA, y solo a un espacio
+                    # SIN HORARIO. Una franja agendable no le sirve -no puede
+                    # reservarla- y mezclarla aquí prometería un botón que el
+                    # servidor va a rechazar.
                     continue
+                if es_walkin:
+                    slots_visible, slots_more = [], []
+                else:
+                    horas = [f"{s:%H:%M}" for s in w["slots"]]
+                    slots_visible, slots_more = horas[:12], horas[12:]
                 ventanas.append({
                     "window_id": w["window_id"],
+                    "kind": "sin_horario" if es_walkin else "franjas",
                     "range": f'{w["start_time"]:%H:%M} a {w["end_time"]:%H:%M}',
                     "location": w["location"],
-                    "slots": [f"{s:%H:%M}" for s in w["slots"]],
+                    # 12 visibles + «Ver N horas más» (D10). Vacío en un
+                    # `sin_horario`: ahí no hay franjas que listar.
+                    "slots_visible": slots_visible,
+                    "slots_more": slots_more,
+                    "places_left": w.get("places_left") if es_walkin else None,
+                    "capacity": w.get("capacity") if es_walkin else None,
+                    "reservable": w.get("reservable") if es_walkin else None,
+                    # I-2 (revisión final): por qué no es reservable, y el
+                    # cierre ya formateado para el texto de «cierra pronto».
+                    "motivo": w.get("motivo") if es_walkin else None,
+                    "cierre": f'{w["end_time"]:%H:%M}' if es_walkin else None,
                 })
             if ventanas:
                 duenos.append({"owner_name": dueno["owner_name"], "windows": ventanas})
         if duenos:
+            # Encargados plegables (D10): abiertos los dos si son ≤2 ese día,
+            # si no solo el primero -mismo orden que ya trae `offer()`, por
+            # nombre-.
+            pocos = len(duenos) <= 2
+            for i, du in enumerate(duenos):
+                du["open"] = pocos or i == 0
             dias.append({"iso": fecha.isoformat(), "label": _dia_label(fecha),
                          "dow": _DAYS_ES[fecha.weekday()], "dom": f"{fecha.day:02d}",
                          "mon": _MONTHS_ES[fecha.month], "owners": duenos})
@@ -1362,8 +1411,9 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
                    elig["reason"], cancellations=elig["cancellations"]))
 
     return {"can_book": elig["can_book"], "can_walkin": elig["can_walkin"],
-            "reason": elig["reason"], "message": message, "dias": dias,
-            "dia_sel": dia_sel, "dia_actual": dia_actual, "walkins": walkins}
+            "reason": elig["reason"], "message": message, "modo": modo,
+            "dias": dias, "dia_sel": dia_sel, "dia_actual": dia_actual,
+            "hay_sin_horario": hay_sin_horario}
 
 
 def _cita_label(dt) -> str:
@@ -1399,8 +1449,13 @@ def _cita_card_ctx(db, user_id: int, *, agenda: dict | None = None) -> dict:
     appt = AppointmentService.get_for_process(db, process.id) if process else None
     appt_ctx = None
     if appt:
+        when = AppointmentService.when(appt)
         appt_ctx = {
-            "scheduled_label": _cita_label(appt.scheduled_at),
+            "scheduled_label": when["label"],
+            # D11 (Tarea 9): la tarjeta rotula «de HH:MM a HH:MM · por orden
+            # de llegada» en vez de una hora fija cuando `sin_horario`.
+            "sin_horario": when["sin_horario"],
+            "hora": when["hora"],
             "location": appt.location,
             "status": appt.status,
             "confirmed": appt.confirmed_at is not None,
@@ -1412,7 +1467,7 @@ def _cita_card_ctx(db, user_id: int, *, agenda: dict | None = None) -> dict:
         }
     # Fase 02 con observaciones (Tarea B2): dato PLANO, nunca la fila `ProcessPhase`
     # completa (la plantilla se renderiza después del `db.close()` de la ruta). Se
-    # lee de `ProcessPhase`, igual que `_fase_cotejo_aprobada` en
+    # lee de `ProcessPhase`, igual que `_fase_cotejo_status` en
     # `SelfBookingService`, y NUNCA de `appt.status`: una `attended` con fase 2
     # todavía sin dictaminar no es un rechazo.
     fase_rechazada = None
@@ -1445,11 +1500,19 @@ def _cita_panel_ctx(db, user_id: int, *, dia: str | None = None) -> dict:
     —el selector para pintarse y la tarjeta para saber qué decir cuando no hay
     cita— y `offer()` recorre las jornadas de la convocatoria, así que hacerlo
     dos veces por carga sería pagar el doble por el mismo dato.
+
+    `checklist` (Tarea 9, D10): el «Qué llevar» se mudó AL PANEL -antes vivía
+    aparte, en `cita.html`-, así que ahora lo calcula este contexto y no la
+    ruta `cita()` sola: los dos POST del auto-agendado (`/cita/agendar` y
+    `/cita/cancelar`) responden el panel entero y tienen que re-pintarlo igual.
     """
     from itcj2.apps.titulatec.services.process_service import ProcessService
 
-    agenda = _agenda_ctx(db, ProcessService.creditable_process(db, user_id), dia=dia)
-    return _cita_card_ctx(db, user_id, agenda=agenda)
+    process = ProcessService.creditable_process(db, user_id)
+    agenda = _agenda_ctx(db, process, dia=dia)
+    ctx = _cita_card_ctx(db, user_id, agenda=agenda)
+    ctx["checklist"] = _checklist_ctx(db, process)
+    return ctx
 
 
 def _cita_panel(request, db, user_id: int, *, dia: str | None = None):
@@ -1502,8 +1565,9 @@ async def cita(
                          else _phase_guard_page(db, process, n))
         if fuera_de_fase:
             return fuera_de_fase
+        # `_cita_panel_ctx` ya calcula `checklist` (Tarea 9): el panel y la
+        # página completa tienen que llevar el mismo dato.
         ctx = _cita_panel_ctx(db, user_id, dia=dia)
-        ctx["checklist"] = _checklist_ctx(db, process)
     finally:
         db.close()
 
@@ -1512,13 +1576,15 @@ async def cita(
     # justo lo que se swappea (`#tt-cita-agendar`, `outerHTML`).
     if dia and es_htmx:
         agenda = ctx["agenda"]
-        # La rejilla SOLO si de verdad puede agendar. Sin esta condición, quien
+        # El selector SOLO si de verdad hay algo que hacer (Tarea 9:
+        # `agenda.modo`, no solo `can_book` -el bloqueado por D9 sigue
+        # cambiando de día en modo "presentarse"-). Sin esta condición, quien
         # dejó la pestaña abierta y ya agendó (o perdió el derecho) recibía
         # franjas vivas y ninguna explicación: exactamente el «botón mudo» que
         # §7 existe para prohibir. El POST lo revalida, así que no era un
         # agujero — era una mentira en pantalla, que es lo que esta vista no
         # puede permitirse.
-        if agenda["can_book"] and agenda["dias"]:
+        if agenda["modo"] and agenda["dias"]:
             return render_titulatec(
                 request, "titulatec/partials/student/_cita_agendar.html", ctx)
         # Ya no aplica: se refresca el PANEL entero (tarjeta + la frase que
@@ -1620,10 +1686,14 @@ def _cita_accion(request, db, user_id: int, fn):
     * entrada del usuario (`SlotTooSoon`, `CancelTooLate`, casi toda
       `SelfBookingNotAllowed`) -> 400 + `X-Tt-Error`. htmx no swappea en 4xx, y
       está bien: lo que hay en pantalla sigue siendo verdad.
-    * colisión de estado (`refresca_la_vista`, o sea `reason == "tiene_cita"`)
-      -> **200 con el panel fresco** + `X-Tt-Notice`. Es lo que produce un doble
-      clic en «Agendar»: ahí la pantalla SÍ está rancia —ya existe una cita que
-      el alumno no está viendo— y un 4xx lo dejaría mirando un selector muerto.
+    * colisión de estado (`refresca_la_vista`, o sea `reason in ("tiene_cita",
+      "cotejo_en_dictamen")`) -> **200 con el panel fresco** + `X-Tt-Notice`.
+      Es lo que produce un doble clic en «Agendar» -ahí la pantalla SÍ está
+      rancia, ya existe una cita que el alumno no está viendo- y, desde D13
+      (2026-09-30), también lo que produce que el encargado marque «asistió»
+      mientras el alumno tiene esta pantalla abierta: los dos son el servidor
+      cambiando de opinión a mitad del clic, y un 4xx lo dejaría mirando un
+      selector muerto.
     """
     from itcj2.apps.titulatec.services.appointment_errors import (
         AppointmentError, NotYours,

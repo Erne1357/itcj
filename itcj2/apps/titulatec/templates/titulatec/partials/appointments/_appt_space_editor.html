@@ -7,7 +7,13 @@
 
    La línea derivada la calcula el SERVIDOR y se re-renderiza al cambiar
    cualquier campo: es la única forma de que diga la verdad sin duplicar el
-   algoritmo de franjas en JavaScript. #}
+   algoritmo de franjas en JavaScript.
+
+   Sin horario (D3): «Cada cuánto» y «Personas por franja» alternan con
+   «Personas en total» por CSS (`:has(#esp-vis-walkin:checked)`,
+   `titulatec.css`), sin JS. Los DOS campos de cupo viven siempre en el DOM: el
+   que se oculta sigue validándose en HTML5 (min/max), así que los dos cargan
+   con un valor válido de por sí — nunca uno vacío o fuera de rango. #}
 {% from "titulatec/partials/appointments/_appt_macros.html" import appt_action, appt_nav_filter %}
 
 {% set E = espacios.editor %}
@@ -30,7 +36,7 @@
       <input type="time" id="esp-end" name="end_time" value="{{ E.end }}"
              class="form-control form-control-sm" required>
     </div>
-    <div>
+    <div class="tt-f-mode-franja">
       <label class="tt-label" for="esp-slot">Cada cuánto</label>
       <select id="esp-slot" name="slot_minutes" class="form-select form-select-sm">
         {% for m in [10, 15, 20, 30, 45, 60] %}
@@ -38,10 +44,15 @@
         {% endfor %}
       </select>
     </div>
-    <div>
+    <div class="tt-f-mode-franja">
       <label class="tt-label" for="esp-cap">Personas por franja</label>
       <input type="number" id="esp-cap" name="capacity" value="{{ E.capacity }}"
              min="1" max="20" class="form-control form-control-sm">
+    </div>
+    <div class="tt-f-mode-total">
+      <label class="tt-label" for="esp-cap-total">Personas en total</label>
+      <input type="number" id="esp-cap-total" name="capacity_total" value="{{ E.capacity_total }}"
+             min="1" max="100" class="form-control form-control-sm">
     </div>
     <div class="full">
       <label class="tt-label" for="esp-loc">Lugar</label>
@@ -59,7 +70,7 @@
       <legend class="tt-label">Visibilidad para el egresado</legend>
       {% for valor, rotulo in [('private', 'Privado'),
                                ('bookable', 'Agendable'),
-                               ('walkin', 'Abierto sin cita')] %}
+                               ('walkin', 'Sin horario')] %}
       <label class="tt-vis-opt" for="esp-vis-{{ valor }}">
         <input class="form-check-input" type="radio" name="visibility"
                id="esp-vis-{{ valor }}" value="{{ valor }}"
@@ -73,13 +84,14 @@
 
       {# Ruling 14: `offer` resuelve la carrera con el mismo predicado de
          alcance del encargado, así que quien no tiene carreras asignadas —la
-         jefatura, típicamente— puede publicar un «Agendable» que no le aparece
-         a NINGÚN egresado. Se mantiene fail-closed; lo que no se mantiene es
-         el silencio. #}
+         jefatura, típicamente— puede publicar un «Agendable» O un «Sin
+         horario» (revisión final, M-3: los dos se ofrecen igual) que no le
+         aparece a NINGÚN egresado. Se mantiene fail-closed; lo que no se
+         mantiene es el silencio. #}
       {% if espacios.sin_alcance %}
       <p class="tt-vis-aviso mb-0">
         <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>
-        No tienes carreras asignadas: si lo publicas como «Agendable»,
+        No tienes carreras asignadas: si lo publicas como «Agendable» o «Sin horario»,
         <strong>ningún egresado lo verá</strong>. Pídele a la jefatura de
         Servicios Escolares que te asigne las carreras que atiendes.
       </p>
@@ -87,6 +99,27 @@
     </fieldset>
 
     <p class="tt-derivada full mb-0">{{ E.derivada }}</p>
+
+    {# D9 (spec §5): solo al ABRIR un espacio nuevo — para uno existente el
+       horario ya es el suyo, y «también en estos días» no significaría nada.
+       El día de la URL siempre se crea; estas son las fechas DE MÁS. #}
+    {% if not E.id and espacios.dias_opciones %}
+    <fieldset class="full tt-vis">
+      <legend class="tt-label">También en estos días</legend>
+      <div class="d-flex flex-wrap gap-2">
+        {% for d in espacios.dias_opciones %}
+        <label class="tt-chk" for="esp-dia-{{ d.id }}">
+          <input class="form-check-input" type="checkbox" name="dias"
+                 id="esp-dia-{{ d.id }}" value="{{ d.iso }}"
+                 {{ 'checked' if d.checked }}>
+          {{ d.dow }} {{ d.dom }} {{ d.mon }}
+        </label>
+        {% endfor %}
+      </div>
+      <button type="button" class="btn btn-sm tt-btn-ghost mt-2" data-tt-check-all>
+        <i class="bi bi-check2-all me-1" aria-hidden="true"></i>Marcar todos</button>
+    </fieldset>
+    {% endif %}
 
     <div class="full d-flex flex-wrap gap-2">
       <button type="submit" class="btn btn-sm tt-btn-ink">
@@ -98,12 +131,6 @@
         <i class="bi bi-pause me-1" aria-hidden="true"></i>
         {{ 'Reanudar' if E.pausada else 'Poner en pausa' }}</button>
 
-      <button type="button" class="btn btn-sm tt-btn-ghost"
-              hx-confirm="Copiar horario|¿Copiar este horario a los demás días de cotejo? Los días donde ya tengas un espacio no se tocan."
-              data-tt-confirm-ok="Copiar"
-              {{ appt_action(page_url ~ '/espacios/' ~ E.id ~ '/copiar?v=espacios&date=' ~ day) }}>
-        <i class="bi bi-files me-1" aria-hidden="true"></i>Copiar a los demás días</button>
-
       <button type="button" class="btn btn-sm tt-btn-danger-soft"
               hx-confirm="Eliminar espacio|¿Eliminar este espacio? Solo se puede si no tiene ninguna cita."
               data-tt-confirm-ok="Eliminar"
@@ -112,4 +139,36 @@
       {% endif %}
     </div>
   </form>
+
+  {# D9: «Copiar» es OTRO POST (`/copiar`, con sus propias casillas de día) y
+     un `<form>` no puede anidar otro — por eso vive FUERA del editor, aquí
+     abajo, en vez de ser un botón más del de arriba. `hx-confirm` va en el
+     `<form>`, no en el botón: el que dispara la petición aquí es el SUBMIT del
+     form, no un `hx-post` suelto sobre el botón. #}
+  {% if E.id and espacios.dias_opciones %}
+  <details class="mt-3">
+    <summary class="tt-label">Copiar a otros días</summary>
+    <form class="mt-2"
+          hx-confirm="Copiar horario|¿Copiar este horario a los días que elijas? Se salta el día donde ya tengas un espacio que se encime con él."
+          data-tt-confirm-ok="Copiar"
+          {{ appt_action(page_url ~ '/espacios/' ~ E.id ~ '/copiar?v=espacios&date=' ~ day) }}>
+      <div class="d-flex flex-wrap gap-2">
+        {% for d in espacios.dias_opciones %}
+        <label class="tt-chk" for="esp-copia-dia-{{ d.id }}">
+          <input class="form-check-input" type="checkbox" name="dias"
+                 id="esp-copia-dia-{{ d.id }}" value="{{ d.iso }}"
+                 {{ 'checked' if d.checked }}>
+          {{ d.dow }} {{ d.dom }} {{ d.mon }}
+        </label>
+        {% endfor %}
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        <button type="submit" class="btn btn-sm tt-btn-ghost">
+          <i class="bi bi-files me-1" aria-hidden="true"></i>Copiar</button>
+        <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-check-all>
+          <i class="bi bi-check2-all me-1" aria-hidden="true"></i>Marcar todos</button>
+      </div>
+    </form>
+  </details>
+  {% endif %}
 </div>

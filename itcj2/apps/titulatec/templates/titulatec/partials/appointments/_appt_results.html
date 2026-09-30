@@ -4,7 +4,7 @@
    cambio de pestaña: con el egresado enfrente diciendo su nombre, el camino era
    adivinar el día, abrirlo y leer la lista. Ahora se teclea y aparece. #}
 {% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav %}
-{% from "titulatec/_macros.html" import appt_pill %}
+{% from "titulatec/_macros.html" import appt_pill, survey_review_pill %}
 
 <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-2">
   <h2 class="tt-h-sec">Resultados <span class="n">{{ rows|length }}</span></h2>
@@ -27,8 +27,43 @@
   </a>
   {% endfor %}
 </div>
-{% else %}
+{% elif not sin_cita_rows %}
 <p class="tt-appt-empty mb-0">
   Ningún alumno coincide con lo que buscas. Revisa el nombre o el número de control.
 </p>
+{% endif %}
+
+{# «Sin cita» (D8, spec §4): el buscador también encuentra a quien NO tiene
+   cita — el universo de la cola (pendientes, bloqueados, rechazados sin cita
+   viva, sin encuesta liberada) que calza con `q`. Solo aparece con `q` sin
+   vacío y sin filtro de `estado` (`_shell_ctx` ya lo decide: un estado de
+   CITA no puede casar con quien no tiene ninguna). #}
+{% if sin_cita_rows %}
+<div class="mt-3">
+  <h2 class="tt-h-sec">Sin cita <span class="n">{{ sin_cita_rows|length }}</span></h2>
+  <div class="tt-queue-list mt-2">
+    {% for r in sin_cita_rows %}
+    {% if r.abrible %}
+    <a class="tt-appt-item" id="appt-sincita-{{ r.process_id }}"
+       {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ r.process_id) }}>
+      <span class="flex-grow-1 min-w-0">
+        <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
+        <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
+      </span>
+      <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    </a>
+    {% else %}
+    {# Encuesta sin liberar (D1): no está en `visibles`, no hay ficha que
+       darle todavía — fila SIN enlace, con la píldora de su estado real. #}
+    <div class="tt-appt-item" id="appt-sincita-{{ r.process_id }}">
+      <span class="flex-grow-1 min-w-0">
+        <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
+        <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
+      </span>
+      {{ survey_review_pill(r.survey_status) }}
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
 {% endif %}

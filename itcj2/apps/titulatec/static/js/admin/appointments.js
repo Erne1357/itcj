@@ -53,6 +53,18 @@
       // `toggle` devuelve true si la clase QUEDO puesta, o sea si quedo OCULTO.
       var oculto = caja.classList.toggle('d-none');
       tog.setAttribute('aria-expanded', oculto ? 'false' : 'true');
+      return;
+    }
+
+    // «Marcar todos» (D9): casillas de días del MISMO <form> que el botón —
+    // el editor de un espacio nuevo y el «Copiar a otros días» de uno
+    // existente tienen cada uno su propia lista, así que el botón nunca marca
+    // casillas de un formulario que no es el suyo.
+    var marcar = e.target.closest ? e.target.closest('[data-tt-check-all]') : null;
+    if (marcar) {
+      var form = marcar.closest('form');
+      if (!form) return;
+      $$('input[name="dias"]', form).forEach(function (c) { c.checked = true; });
     }
   });
 

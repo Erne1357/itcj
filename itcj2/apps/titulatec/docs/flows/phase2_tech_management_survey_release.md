@@ -15,6 +15,19 @@
 | **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) (la liberación desatasca `PhaseService._cotejo_gate_error`, pero aprobar la fase 2 sigue siendo un paso separado) |
 | **Estado final** | `SurveyReview.status = approved` (libera) → `graduate_survey` queda `fulfilled`; o `rejected` (con motivo) → el requisito sigue sin cumplimiento |
 
+> **Esta liberación ahora es la que abre la puerta de agendar (2026-09-29, D1 —
+> `D2` del 2026-09-15 queda REVERTIDA).** Hasta el 2026-09-29, «Por agendar» (⤵
+> [cita de cotejo](phase2_appointment_loop.md)) solo exigía que el egresado hubiera **enviado** la
+> encuesta —esta pantalla podía seguir con la solicitud `in_review` sin que eso bloqueara nada—.
+> Desde D1, el `approved` que da esta pantalla (paso 3 de «Pasos detallados», abajo) es lo que
+> **de verdad** deja agendar: la guarda dura de `AppointmentService.create` compara
+> `SurveyReviewService.release_status(db, process_id) == "approved"`
+> (`SurveyReviewService.is_released` es el azúcar booleano) y nadie más hace esa comparación. Nada
+> de lo que hace GTV en este flujo (Liberar / Observar / Revocar) cambió por esta entrega —el
+> service es 100% aditivo, dos métodos de lectura nuevos—; lo que cambió es que ahora **otro
+> service la consulta para decidir si se puede agendar**, no solo si el requisito `graduate_survey`
+> se acredita.
+
 ## Ruta en la app (UI)
 
 1. 🛠️ GTV inicia sesión → aterriza directo en `/titulatec/admin/liberaciones` (`_ROLE_DASHBOARD`,
@@ -160,11 +173,11 @@ el sistema; no se marca a mano" por la píldora `survey_review_pill(status)` —
 - **`SlotService.assign_batch` NO pasa por `AppointmentService.create`**
   (`services/slot_service.py:269`, hallazgo de la revisión de la Tarea 4 de este mismo trabajo;
   hoy **sin llamadores en producción** — es el motor de reparto masivo de citas). Inserta
-  `ReviewAppointment` directamente, así que **se saltaría la puerta de la encuesta** (D2, ⤵ ver
-  [cita de cotejo](phase2_appointment_loop.md)) si alguna vista futura lo invoca sobre un
-  proceso sin `SurveyReview`. Quien cablee esa vista debe tomar los candidatos de
-  `AppointmentService.list_pending_processes` (que ya exige la solicitud) o duplicar la guarda
-  dentro de `assign_batch`.
+  `ReviewAppointment` directamente, así que **se saltaría la puerta de la encuesta LIBERADA** (D1,
+  2026-09-29, revierte D2 del 2026-09-15 — ⤵ ver [cita de cotejo](phase2_appointment_loop.md)) si
+  alguna vista futura lo invoca sobre un proceso cuya encuesta no está liberada. Quien cablee esa
+  vista debe tomar los candidatos de `AppointmentService.list_pending_processes` (que ya exige la
+  solicitud liberada) o duplicar la guarda dentro de `assign_batch`.
 - **Proceso en fase 3 o posterior sin solicitud** (legado, de antes de esta campaña): no aparece
   en Liberaciones; ninguna puerta lo afecta retroactivamente.
 - **Convocatoria sin lista de requisitos al Liberar/Revocar**: `RequirementService.
@@ -181,7 +194,8 @@ el sistema; no se marca a mano" por la píldora `survey_review_pill(status)` —
 - ← Lo abre: el envío de la encuesta (`pages/public.py::survey_submit` → `SurveyService.submit`)
   — sin flujo documentado propio todavía.
 - ⤵ Guarda de agendar: [cita de cotejo (loop completo)](phase2_appointment_loop.md) — la puerta
-  D2 (encuesta enviada) y el cubo "Sin encuesta".
+  D1 del 2026-09-29 (encuesta LIBERADA; **revierte D2 del 2026-09-15**, que se conformaba con
+  enviarla) y el cubo "Encuesta sin liberar" (antes "Sin encuesta").
 - ⤵ Guarda de liberar la fase 2: [motor de avance de fase](engine_approve_advance_phase.md) —
   `PhaseService.approve_phase` / `_cotejo_gate_error`.
 - ← Nota informativa por requisito (pieza distinta): [información para el alumno de un

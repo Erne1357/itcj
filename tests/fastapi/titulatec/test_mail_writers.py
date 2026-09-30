@@ -115,6 +115,9 @@ RAMAS_SIN_CORREO = {
         "test_alumno_cancela_no_encola",
         "test_revocar_proceso_no_encola_cancelacion_de_cita",
     ),
+    # «Atender ahora» (D7, `start_now=True`): el egresado está enfrente; la
+    # cita nace `in_progress` sin correo ni aviso de «agendada».
+    "AppointmentService.create": ("test_atender_ahora_no_encola",),
 }
 
 _ESTADOS_VIGILADOS = frozenset({"approved", "rejected", "cancelled", "no_show",

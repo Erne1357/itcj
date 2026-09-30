@@ -23,7 +23,9 @@ Las franjas NO se materializan
 Se derivan de ``(start_time, end_time, slot_minutes)`` en `SlotService`. Sin
 tabla de slots no hay nada que mantener ni que desincronizar; el precio es que
 cambiar ``slot_minutes`` con citas dentro deja citas fuera de la rejilla, y eso
-la UI lo muestra en una banda «Fuera de la rejilla» en vez de esconderlo.
+la UI lo muestra en una banda «Fuera de la rejilla» en vez de esconderlo. En un
+``walkin`` («sin horario») la derivación da UNA sola franja, a la apertura, y
+``capacity`` es el total del espacio.
 
 Ojo con la UNIQUE
 -----------------
@@ -74,13 +76,17 @@ class ReviewWindow(Base):
     start_time = Column(Time, nullable=False)
     end_time = Column(Time, nullable=False)
     slot_minutes = Column(Integer, nullable=False, server_default=text("30"))
-    capacity = Column(Integer, nullable=False, server_default=text("1"))   # POR FRANJA
+    # POR FRANJA en private/bookable. En walkin («sin horario») es el TOTAL de
+    # personas del espacio: una sola franja a la apertura (spec 2026-09-29 §3.1).
+    capacity = Column(Integer, nullable=False, server_default=text("1"))
     location = Column(String(120), nullable=True)
     status = Column(String(20), nullable=False, server_default=text("'open'"))  # open|paused
     visibility = Column(String(20), nullable=False, server_default=text("'private'"))
     # private|bookable|walkin — modo del espacio para el auto-agendado del
-    # egresado: private = como hoy (nadie ve ni agenda solo); bookable = ve
-    # franjas con lugar y agenda; walkin = ve solo el anuncio, no agenda por si.
+    # egresado: private = nadie lo ve ni agenda solo; bookable = ve franjas con
+    # lugar y agenda una; walkin = «sin horario»: aparta lugar SIN hora (su cita
+    # guarda día + apertura) hasta llenar `capacity`, que aquí es el total del
+    # espacio. En walkin `slot_minutes` se conserva (NOT NULL) pero no se usa.
     note = Column(String(255), nullable=True)
 
     created_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=False)

@@ -62,11 +62,12 @@ def agenda(seed_phase_defs, seed_document_types, make_program, make_cohort,
         proc_ap  carrera A · SIN cita, 3 docs aprobados -> cae en "Por agendar"
         proc_bp  carrera B · SIN cita, 3 docs aprobados -> "Por agendar" del jefe
 
-    `ap` y `bp` llevan ADEMAS la encuesta de egresados ya enviada (Tarea 4,
-    D2): `list_pending_processes` exige la solicitud para contar como "Por
-    agendar"; sin sembrarla caerian en el cubo nuevo "Sin encuesta" y estos
-    tests, que miden el alcance por carrera de "Por agendar", dejarian de
-    medir lo que dicen medir.
+    `ap` y `bp` llevan ADEMAS la encuesta de egresados ya LIBERADA (D1, spec
+    2026-09-29-titulatec-cotejo-espacios-design.md §2, revierte D2 del
+    2026-09-15): `list_pending_processes` exige la solicitud LIBERADA para
+    contar como "Por agendar"; sin liberarla caerian en el cubo "Encuesta sin
+    liberar" y estos tests, que miden el alcance por carrera de "Por
+    agendar", dejarian de medir lo que dicen medir.
     """
     def _build():
         seed_phase_defs()
@@ -97,7 +98,7 @@ def agenda(seed_phase_defs, seed_document_types, make_program, make_cohort,
             if day is not None:
                 make_appointment(proc, when=datetime.combine(day, datetime.min.time()).replace(hour=hour))
             else:
-                make_survey_review(proc)
+                make_survey_review(proc, status="approved")
         return {"officer": officer, "officer_position": officer_pos, "head": head,
                 "programs": {"a": prog_a, "b": prog_b}, "cohort": cohort,
                 "procs": procs, "students": students}

@@ -98,18 +98,128 @@ class DuplicateWindowStart(AppointmentError):
         super().__init__(msg)
 
 
+class WindowModeConflict(AppointmentError):
+    """Pasar un espacio sin horario a uno con franjas no puede dejar citas sin lugar.
+
+    Al salir de `walkin` cada cita vuelve a su hora REAL, y tiene que caber en
+    la rejilla y en el cupo POR FRANJA nuevos. Los apartados guardan todos la
+    hora de apertura, así que se amontonan en la primera franja. `n` es cuántas
+    citas no caben. Lo levanta `ReviewWindowService._assert_cabe_lo_agendado`.
+    """
+
+    def __init__(self, n: int):
+        plural = "s" if n != 1 else ""
+        verbo = "n" if n != 1 else ""
+        super().__init__(
+            f"Este espacio tiene {n} cita{plural} que no cabe{verbo} en el modo nuevo. "
+            f"Muévelas o cancélalas primero.")
+
+
+class WalkinStartLocked(AppointmentError):
+    """Un sin horario con lugares apartados no mueve su hora de apertura (D3, D4).
+
+    Cada apartado guarda `scheduled_at` = día + apertura: mover la apertura lo
+    dejaría a una hora que el espacio ya no anuncia. Ampliar el cierre o abrir
+    más lugares no le cambia nada a quien ya apartó, y por eso sí se puede.
+    """
+
+    def __init__(self, n: int):
+        plural = "es" if n != 1 else ""
+        s = "s" if n != 1 else ""
+        super().__init__(
+            f"Ya hay {n} lugar{plural} apartado{s}: no puedes cambiar la hora de "
+            f"apertura. Puedes ampliar el cierre o abrir más lugares.")
+
+
+class WalkinCloseLocked(AppointmentError):
+    """Un sin horario con lugares apartados no adelanta su cierre (revisión final, I-1).
+
+    La reserva solo guarda día + apertura (D4): no guarda su propio cierre.
+    Adelantarlo («recortar») movería en silencio dos promesas que el egresado
+    ya recibió — que el espacio sigue abierto hasta `end_time` y su corte de
+    cancelación, `fin - TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES` (D5) — sin que
+    nadie se lo avise. Ampliar el cierre o abrir más lugares no le cambia nada
+    a quien ya apartó, y por eso sí se permite. Mismo patrón de mensaje que
+    `WalkinStartLocked`.
+    """
+
+    def __init__(self, n: int):
+        plural = "es" if n != 1 else ""
+        s = "s" if n != 1 else ""
+        super().__init__(
+            f"Ya hay {n} lugar{plural} apartado{s}: no puedes adelantar el "
+            f"cierre. Puedes ampliarlo o abrir más lugares.")
+
+
+class PlacesOutOfRange(AppointmentError):
+    """«Abrir más lugares» (D6) fuera de rango.
+
+    Los dos números son los topes de `ReviewWindowService.add_places`
+    (`_LUGARES_POR_VEZ`, `WALKIN_TOPE` — 100 desde D12, spec 2026-09-29-
+    titulatec-cotejo-espacios-design.md §1/§7.2): si cambian allá, cambia
+    este texto. No se importan de allá: `review_window_service.py` importa
+    de ESTE módulo, así que el import inverso sería un ciclo.
+    """
+
+    def __init__(self, msg="Puedes abrir de 1 a 50 lugares a la vez, hasta 100 en total."):
+        super().__init__(msg)
+
+
+class NotWalkinToday(AppointmentError):
+    """«Atender ahora» (D7) fuera de su único caso: un espacio SIN HORARIO, de
+    HOY (`db_now()`), del PROPIO encargado.
+
+    Lo levanta `AppointmentService.attend_now` antes de delegar en `create`.
+    La ficha solo ofrece el botón en esos espacios, así que llegar aquí es un
+    formulario viejo o armado a mano: entrada del usuario (400), igual que un
+    día que ya no está habilitado. El espacio que no existe lleva la MISMA
+    frase: el id es secuencial y un mensaje distinto confirmaría cuáles existen.
+    """
+
+    def __init__(self, msg="“Atender ahora” solo funciona en tus espacios sin horario de hoy."):
+        super().__init__(msg)
+
+
 class SurveyNotSubmitted(AppointmentError):
-    """El alumno no ha enviado la encuesta de egresados (D2).
+    """El alumno no ha enviado la encuesta de egresados (`SurveyReview` no existe).
 
     Guarda dura de `AppointmentService.create`, ANTES que cualquier otra
-    validación: hace falta la solicitud (`SurveyReview`), no que GTV ya la
-    haya liberado. Servicios Escolares puede agendar mientras GTV sigue
-    revisando en paralelo; lo único que bloquea es no haberla enviado.
+    validación. Desde D1 (2026-09-29-titulatec-cotejo-espacios-design.md §2,
+    revierte D2 del 2026-09-15) enviarla YA NO basta: hace falta además que
+    Gestión Tecnológica y Vinculación la haya LIBERADO. Este error es SOLO
+    para el pseudo-estado `'missing'` (nunca la envió); si la envió pero sigue
+    `in_review`/`rejected`, la guarda levanta `SurveyNotReleased`.
     """
 
     def __init__(self, msg="El alumno todavía no envía la encuesta de egresados. "
                            "Sin ella no se puede agendar."):
         super().__init__(msg)
+
+
+class SurveyNotReleased(AppointmentError):
+    """El alumno envió la encuesta de egresados, pero GTV todavía no la LIBERA (D1).
+
+    Guarda dura de `AppointmentService.create`, justo detrás de
+    `SurveyNotSubmitted`: cubre los dos estados de `SurveyReview.status` que
+    no son `'approved'` —`in_review` (GTV la sigue revisando) y `rejected`
+    (GTV dejó observaciones)—. Sigue siendo entrada del usuario (400, no
+    colisión de estado): lo que hay en pantalla sigue siendo verdad, solo
+    falta que GTV libere. `status` viaja en la excepción —`release_status`,
+    nunca `None`— para que quien la capture pueda distinguir los dos casos
+    sin volver a leer la fila.
+    """
+
+    _MENSAJES = {
+        "in_review": ("La encuesta de egresados de este alumno sigue en revisión con "
+                      "Gestión Tecnológica y Vinculación. Se podrá agendar cuando la liberen."),
+        "rejected": ("La encuesta de egresados de este alumno tiene observaciones de "
+                     "Gestión Tecnológica y Vinculación. Se podrá agendar cuando la liberen."),
+    }
+
+    def __init__(self, status: str, msg: str | None = None):
+        super().__init__(msg or self._MENSAJES.get(
+            status, "La encuesta de egresados de este alumno todavía no está liberada."))
+        self.status = status
 
 
 def _lapso(minutos: int) -> str:
@@ -122,7 +232,7 @@ def _lapso(minutos: int) -> str:
 
 
 class SelfBookingNotAllowed(AppointmentError):
-    """El egresado no cumple una de las 6 reglas de elegibilidad (spec §3).
+    """El egresado no cumple una de las 7 reglas de elegibilidad (spec §3).
 
     Lleva `reason` —el mismo código que devuelve
     `SelfBookingService.eligibility`— para que la ruta pueda distinguirlas sin
@@ -130,35 +240,63 @@ class SelfBookingNotAllowed(AppointmentError):
     (`SelfBookingService.message_for`): la copia vive con las reglas, no aquí,
     o habría dos sitios que decirle al alumno por qué no puede.
 
-    `tiene_cita` es la única que refresca la vista: es lo que produce un doble
-    clic en «Agendar», y ahí la pantalla ESTÁ rancia — ya existe una cita que
-    el alumno no está viendo. Las demás son estados estables: lo que hay en
-    pantalla sigue siendo verdad y solo falta el mensaje.
+    **Dos razones refrescan la vista**, las dos porque lo que había en
+    pantalla dejó de ser cierto sin que el alumno hiciera nada:
+
+    * `tiene_cita` — doble clic en «Agendar»: ya existe una cita que el
+      alumno no está viendo.
+    * `cotejo_en_dictamen` (D13, 2026-09-30) — el encargado marcó «asistió»
+      mientras el alumno tenía la pantalla de agendado abierta: su clic
+      choca contra un estado que cambió bajo sus pies, la misma clase de
+      colisión que el doble clic de arriba, no un error de entrada.
+
+    Las demás son estados estables: lo que hay en pantalla sigue siendo
+    verdad y solo falta el mensaje.
     """
 
     def __init__(self, reason: str, msg: str | None = None):
         super().__init__(msg or "Ahora mismo no puedes agendar tu cita de cotejo.")
         self.reason = reason
-        self.refresca_la_vista = reason == "tiene_cita"
+        self.refresca_la_vista = reason in ("tiene_cita", "cotejo_en_dictamen")
 
 
 class SlotTooSoon(AppointmentError):
-    """D8: el egresado agenda hasta `TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES` antes."""
+    """D8: el egresado agenda hasta `TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES` antes.
 
-    def __init__(self, minutos: int = 60):
-        super().__init__(f"Esa franja empieza en menos de {_lapso(minutos)}. "
-                         f"Elige una más adelante.")
+    `sin_horario=True` es el espacio SIN horario (D5, spec 2026-09-29-
+    titulatec-cotejo-espacios-design.md §3.3): ahí no hay una franja que
+    empiece, hay un espacio que CIERRA, así que el texto habla de eso -no de
+    «esa franja empieza»- aunque el código y el `_lapso` sean los mismos.
+    """
+
+    def __init__(self, minutos: int = 60, *, sin_horario: bool = False):
+        if sin_horario:
+            super().__init__(
+                f"Este espacio cierra en menos de {_lapso(minutos)}; ya no se "
+                f"puede apartar lugar.")
+        else:
+            super().__init__(f"Esa franja empieza en menos de {_lapso(minutos)}. "
+                             f"Elige una más adelante.")
 
 
 class CancelTooLate(AppointmentError):
     """D8: el egresado cancela hasta `TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES` antes.
 
     El encargado NO pasa por aquí: su `cancel` no tiene ventana de tiempo.
+
+    `sin_horario=True` (D5) es un lugar apartado en un espacio SIN horario: no
+    hay una hora de cita que perder, el corte es el CIERRE del espacio, y el
+    texto dice «tu lugar», no «tu cita».
     """
 
-    def __init__(self, minutos: int = 120):
-        super().__init__(f"Ya faltan menos de {_lapso(minutos)} para tu cita, así que "
-                         f"ya no puedes cancelarla. Avisa a tu encargado de carrera.")
+    def __init__(self, minutos: int = 120, *, sin_horario: bool = False):
+        if sin_horario:
+            super().__init__(
+                f"Ya faltan menos de {_lapso(minutos)} para que cierre el "
+                f"espacio, así que no puedes cancelar tu lugar.")
+        else:
+            super().__init__(f"Ya faltan menos de {_lapso(minutos)} para tu cita, así que "
+                             f"ya no puedes cancelarla. Avisa a tu encargado de carrera.")
 
 
 class NotYours(AppointmentError):
@@ -179,10 +317,22 @@ class NotYours(AppointmentError):
 # Colisión de estado: 200 con el cuerpo fresco
 # --------------------------------------------------------------------------
 class SlotFull(AppointmentError):
+    """El cupo se agotó entre que se pintó la pantalla y se envió el POST.
+
+    `sin_horario=True` (D10, Tarea 9 del plan 2026-09-29-titulatec-cotejo-
+    espacios) es un espacio SIN horario (`walkin`): ahí no hay una FRANJA que
+    se llenó, hay LUGARES, así que el texto habla de eso -mismo patrón que
+    `SlotTooSoon`/`CancelTooLate`- aunque el código sea el mismo. El agendable
+    conserva su texto de siempre.
+    """
+
     refresca_la_vista = True
 
-    def __init__(self, msg="Esa franja se llenó hace un momento. Elige otro lugar."):
-        super().__init__(msg)
+    def __init__(self, *, sin_horario: bool = False):
+        if sin_horario:
+            super().__init__("Ese espacio sin horario se llenó hace un momento.")
+        else:
+            super().__init__("Esa franja se llenó hace un momento. Elige otro lugar.")
 
 
 class InvalidTransition(AppointmentError):

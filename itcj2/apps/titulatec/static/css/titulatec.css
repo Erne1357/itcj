@@ -1383,6 +1383,10 @@ th.sortable { cursor: pointer; user-select: none; }
   a.tt-seat:hover, button.tt-seat:hover { border-color: var(--tt-text-3); }
 }
 
+/* «Abrir más lugares» (D6, sin horario): el número no necesita el ancho
+   completo del `.form-control`. */
+.tt-input-n { max-width: 5.5rem; }
+
 /* --- Fila de alumno (cola y resultados) --------------------------------- */
 .tt-appt-item { position: relative; display: flex; align-items: center;
                 gap: var(--tt-sp-3); min-height: 44px;
@@ -1407,6 +1411,18 @@ th.sortable { cursor: pointer; user-select: none; }
 /* La fila ENTERA es el objetivo tactil, no la casilla de 20 px. */
 label.tt-appt-item { cursor: pointer; }
 label.tt-appt-item .form-check-input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; }
+
+/* Numero de orden de apartado (D8, sin horario y buscador «Sin cita»): mismo
+   trato que `.time`, ancho fijo para que la lista no baile al pasar de un
+   digito a dos. */
+.tt-appt-item .n { flex: 0 0 28px; font-family: var(--tt-mono);
+                   font-size: var(--tt-fs-200); font-weight: 600;
+                   font-variant-numeric: tabular-nums; color: var(--tt-text-3);
+                   text-align: right; }
+/* Mismo distintivo del asiento (D11), fuera de `.tt-seat`: la lista numerada
+   del sin horario usa `.tt-appt-item`, no `.tt-seat`. */
+.tt-appt-item .meta .selfbook { font-family: var(--tt-ui); font-weight: 600;
+                                color: var(--tt-text-2); }
 
 /* --- Cola de trabajo ---------------------------------------------------- */
 .tt-queue-head { display: flex; align-items: center; justify-content: space-between;
@@ -1958,7 +1974,8 @@ button.tt-seat--libre { pointer-events: auto; }
 /* «Solicitar cambio» plegable: `<details>` NATIVO, cero JS — lo unico que
    permite tenerlo en un parcial que prohibe `<script>`. Sustituye a un
    `onclick` inline que hacia `classList.toggle('d-none')`. Mismo idiom (y mismo
-   `::-webkit-details-marker` apagado) que `.tt-reqinfo-sum`. */
+   `::-webkit-details-marker` apagado) que `.tt-reqinfo-sum`. Tambien la usa
+   «Ver N horas mas» de la rejilla de franjas (D10, Tarea 9). */
 .tt-cita-more-sum {
   display: flex; align-items: center; min-width: 0; min-height: 44px;
   cursor: pointer; list-style: none; border-radius: var(--tt-r-sm);
@@ -1967,6 +1984,41 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-cita-more-sum::-webkit-details-marker { display: none; }
 .tt-cita-more-sum:hover { color: var(--tt-text-1); }
 .tt-cita-more-sum:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+
+/* — «Que llevar a tu cita» plegado (D10, Tarea 9): `<details id="tt-cita-reqs">`
+   por encima del selector; `open` lo decide la plantilla con el mismo
+   `appt.status` que ya pinta la tarjeta. Mismo idiom que `.tt-cita-more-sum`:
+   marcador nativo apagado, foco con `--tt-focus`, objetivo tactil de 44px. */
+.tt-cita-reqs-sum {
+  display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px;
+  cursor: pointer; list-style: none;
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
+}
+.tt-cita-reqs-sum::-webkit-details-marker { display: none; }
+.tt-cita-reqs-sum:focus-visible {
+  outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: var(--tt-r-sm);
+}
+.tt-cita-reqs-chev {
+  margin-left: auto; flex: 0 0 auto; color: var(--tt-text-3);
+  transition: transform var(--tt-dur-2) var(--tt-ease-out);
+}
+#tt-cita-reqs[open] > .tt-cita-reqs-sum .tt-cita-reqs-chev { transform: rotate(180deg); }
+/* El cuerpo del requisito (antes 6 `style=` inline en `cita.html`, tolerados
+   porque esa vista no era un parcial; al mudarse a `_cita_panel.html`
+   -Tarea 9- entran al barrido de
+   `test_los_parciales_de_citas_no_llevan_js_ni_css_inline`, que cubre TODO
+   `partials/student/`). */
+.tt-cita-reqs-hint { font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-cita-reqs-empty { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-cita-reqs-row:not(:last-child) { border-bottom: 1px solid var(--tt-line-soft); }
+.tt-cita-reqs-icon {
+  width: 34px; height: 34px; border-radius: var(--tt-r-sm); flex: 0 0 auto;
+  background: var(--tt-mist); border: 1px solid var(--tt-line);
+}
+.tt-cita-reqs-icon i { color: var(--tt-text-2); }
+.tt-cita-reqs-title { font-size: var(--tt-fs-200); font-weight: 600; }
+.tt-cita-reqs-item-hint { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-cita-reqs-done { flex: 0 0 auto; }
 
 /* — Tira de dias —
    OJO CON EL NOMBRE: el chip se llama `.tt-daychip`, NO `.tt-day`.
@@ -2008,15 +2060,31 @@ button.tt-seat--libre { pointer-events: auto; }
    exterior se recorta en el primer y el ultimo chip. Misma leccion que `:1277`. */
 .tt-daychip:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
 
-/* — Bloque de un encargado y sus espacios — */
+/* — Encargado plegable (D10, Tarea 9): `.tt-slotblock` pasa de `<div>` a
+   `<details>` y `.tt-slotblock-head` es ahora su `<summary>`. Abierto/cerrado
+   lo decide `_agenda_ctx` (`owner["open"]`: dos o menos encargados ese día,
+   los dos abiertos; si no, solo el primero) -cero JS, `<details>` nativo-. */
 .tt-slotblock { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--tt-line-soft); }
 .tt-slotblock:first-of-type { border-top: 0; margin-top: 4px; }
-.tt-slotblock-head { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; }
+.tt-slotblock-head {
+  display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px;
+  cursor: pointer; list-style: none; -webkit-tap-highlight-color: transparent;
+}
+.tt-slotblock-head::-webkit-details-marker { display: none; }
+.tt-slotblock-head:focus-visible {
+  outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: var(--tt-r-sm);
+}
 .tt-slotblock-head i { flex: 0 0 auto; color: var(--tt-slate); }
 .tt-slotblock-head .who {
   min-width: 0; overflow-wrap: anywhere;
   font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
 }
+.tt-slotblock-chev {
+  margin-left: auto; flex: 0 0 auto; color: var(--tt-text-3);
+  transition: transform var(--tt-dur-2) var(--tt-ease-out);
+}
+.tt-slotblock[open] > .tt-slotblock-head .tt-slotblock-chev { transform: rotate(180deg); }
+.tt-slotblock-body { padding-top: 4px; }
 .tt-slotwin + .tt-slotwin { margin-top: 12px; }
 .tt-slotwin .meta {
   display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0;
@@ -2069,6 +2137,7 @@ button.tt-seat--libre { pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) {
   .tt-daychip, .tt-slot { transition: none; }
   .tt-daychip:active, .tt-slot:active { transform: none; }
+  .tt-slotblock-chev, .tt-cita-reqs-chev { transition: none; }
 }
 
 /* ===========================================================================
@@ -2105,6 +2174,18 @@ button.tt-seat--libre { pointer-events: auto; }
    NADIE (`offer` es fail-closed a proposito). Es un aviso, no un error: el
    espacio se guarda. */
 .tt-vis-aviso { font-size: var(--tt-fs-100); color: var(--tt-amber-ink); }
+
+/* --- Sin horario (D3): cupo TOTAL en vez de por franja --------------------
+   Los DOS campos de cupo viven SIEMPRE en el DOM -- el que se oculta sigue
+   validandose en HTML5 (min/max), asi que los dos cargan con un valor valido
+   de por si (`_espacios_ctx`). Alternan con `:has()`, sin JS: el mismo idiom
+   que ya usa `.tt-vis-opt:has(input:checked)` arriba. */
+.tt-f-mode-total { display: none; }
+.tt-form-grid:has(#esp-vis-walkin:checked) .tt-f-mode-franja { display: none; }
+.tt-form-grid:has(#esp-vis-walkin:checked) .tt-f-mode-total { display: block; }
+
+/* --- Varios dias (D9): «Tambien en estos dias» / «Copiar a otros dias» --- */
+#appt-space-editor summary { cursor: pointer; }
 
 /* --- Historial de intentos (ficha de Atender) ---------------------------- */
 .tt-attempts { list-style: none; margin: 0; padding: 0;

@@ -44,6 +44,125 @@
   {% endif %}
 
   {% for g in board.grupos %}
+  {% if g.modo == 'sin_horario' %}
+  {# Espacio SIN HORARIO (D3, D6): una lista numerada por orden de apartado,
+     no franjas. `capacidad`/`ocupados`/`libres` YA vienen de
+     `SlotService.window_occupancy` (`_board_ctx`), la MISMA fuente que la
+     cabecera de un espacio con franjas: la lista y el contador nunca
+     divergen. #}
+  <section class="mb-4" aria-label="Espacio sin horario · {{ g.horario }}" id="appt-walkin-{{ g.id }}">
+    <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-2">
+      <h2 class="tt-h-sec">
+        Sin horario
+        <span class="n">{{ g.ocupados }}/{{ g.capacidad }}</span>
+      </h2>
+      <span class="tt-appt-note">
+        {{ g.horario }} · {{ g.capacidad }} lugar{{ 'es' if g.capacidad != 1 }}
+        {%- if g.location %} · {{ g.location }}{% endif %}
+        {% if g.pausada %}<span class="tt-pill tt-pill--neutral ms-1">En pausa</span>{% endif %}
+      </span>
+    </div>
+
+    {# «Abrir más lugares» (D6): +N al cupo TOTAL, bajo el lock de la ventana.
+       La URL vuelve a la Agenda de este día: `QZ` ya trae `v=agenda&date=`. #}
+    <form class="d-flex flex-wrap align-items-center gap-2 mb-3"
+          {{ appt_action(page_url ~ '/espacios/' ~ g.id ~ '/lugares' ~ QZ) }}>
+      <label class="tt-appt-note mb-0" for="walkin-n-{{ g.id }}">Abrir más lugares</label>
+      <input type="number" id="walkin-n-{{ g.id }}" name="n" min="1" max="50" value="1"
+             class="form-control form-control-sm tt-input-n" aria-label="Cuántos lugares abrir">
+      <button type="submit" class="btn btn-sm tt-btn-ghost">
+        <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Abrir lugares</button>
+    </form>
+
+    <div class="tt-queue-list">
+      {% for o in g.lista %}
+      {# Lista numerada por orden de apartado (D8): `o.n` es la posicion, no el
+         intento del proceso. Mismo `.tt-appt-item` de la cola y los
+         resultados, con el numero a la izquierda.
+
+         M-1 (revisión final): `o.en_alcance` es `False` cuando el proceso es
+         de OTRA carrera -no lo puso `visibles` (ya acotada), lo puso la
+         consulta propia de vivas del sin horario, sin filtro-. Se pinta
+         ANONIMA, conservando la numeración (para que el conteo cuadre con la
+         cabecera), sin control/carrera ni enlace: abrir la ficha revelaría un
+         proceso fuera del alcance de quien mira.
+
+         M-2 (revisión final): el id de fila es por CITA
+         (`appt-walkin-row-a{appt_id}`), no por proceso. Un `no_show` que
+         sigue vivo en la lista (D10) y una cita nueva del MISMO proceso
+         pueden convivir en el mismo espacio -comparten `process_id`-, y con
+         un id por proceso saldrían dos filas con el MISMO id, invalido en el
+         DOM. `data-tt-pid` conserva el process id para quien lo necesite
+         buscar (tests, futuro JS). #}
+      {% if o.en_alcance %}
+      <a class="tt-appt-item" id="appt-walkin-row-a{{ o.appt_id }}" data-tt-pid="{{ o.process_id }}"
+         {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ o.process_id) }}>
+        <span class="n">{{ o.n }}</span>
+        <span class="flex-grow-1 min-w-0">
+          <span class="who d-block text-truncate">{{ o.student }}
+            {%- if o.change_request %}<i class="bi bi-arrow-repeat ms-1" title="Solicitó un cambio"></i>{% endif %}
+          </span>
+          <span class="meta d-block text-truncate">
+            {%- if o.booked_by == 'student' %}<span class="selfbook">El alumno apartó</span> · {% endif -%}
+            {{ o.control }} · {{ o.program }}
+          </span>
+        </span>
+        {{ appt_pill(o.status) }}
+      </a>
+      {% else %}
+      <div class="tt-appt-item" id="appt-walkin-row-a{{ o.appt_id }}" data-tt-pid="{{ o.process_id }}"
+           aria-disabled="true">
+        <span class="n">{{ o.n }}</span>
+        <span class="flex-grow-1 min-w-0">
+          <span class="who d-block text-truncate">Alumno de otra carrera</span>
+        </span>
+        {{ appt_pill(o.status) }}
+      </div>
+      {% endif %}
+      {% endfor %}
+
+      {# UN solo destino de arrastre para todo el espacio: no hay franjas que
+         repartir, solo lugares del mismo cupo total, todos a la apertura. #}
+      {% set DROP = 'data-tt-drop="' ~ g.id ~ '|' ~ g.apertura ~ '" data-tt-drop-url="'
+                    ~ page_url ~ '/@PID@/move' ~ QZ ~ AMP ~ 'window_id=' ~ g.id
+                    ~ '&slot=' ~ g.apertura ~ '"' %}
+      {% if mover %}
+      <button type="button" class="tt-seat tt-seat--libre" id="appt-walkin-drop-{{ g.id }}" {{ DROP|safe }}
+              {{ appt_action(page_url ~ '/' ~ mover ~ '/move' ~ QZ ~ AMP ~ 'window_id=' ~ g.id ~ '&slot=' ~ g.apertura) }}>
+        <span class="who"><i class="bi bi-arrow-right-short" aria-hidden="true"></i>Mover aquí</span>
+      </button>
+      {% elif seleccion %}
+      <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="tt-seat tt-seat--libre" id="appt-walkin-drop-{{ g.id }}" {{ DROP|safe }}
+                {{ appt_action(page_url ~ '/' ~ seleccion[0] ~ '/move' ~ QZ ~ AMP ~ 'window_id=' ~ g.id ~ '&slot=' ~ g.apertura) }}>
+          <span class="who"><i class="bi bi-plus-lg" aria-hidden="true"></i>Apartarle lugar</span>
+        </button>
+        {% if g.es_hoy %}
+        {# «Atender ahora» (T6, D7): el egresado ARMADO se sienta y arranca el
+           cotejo en una sola transacción, sin pasar por «Apartarle lugar». #}
+        <form id="appt-walkin-atender-{{ g.id }}"
+              {{ appt_action(page_url ~ '/' ~ seleccion[0] ~ '/atender-ahora?v=atender&date=' ~ day ~ '&selected=' ~ seleccion[0]) }}>
+          <input type="hidden" name="window_id" value="{{ g.id }}">
+          <button type="submit" class="btn btn-sm tt-btn-ink">
+            <i class="bi bi-person-check me-1" aria-hidden="true"></i>Atender ahora</button>
+        </form>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="tt-seat tt-seat--libre" id="appt-walkin-drop-{{ g.id }}" {{ DROP|safe }}
+           {% if g.libres <= 0 %}aria-disabled="true"{% endif %}>
+        <span class="who">
+          {%- if g.libres > 0 -%}
+          {{ g.libres }} lugar{{ 'es' if g.libres != 1 }} libre{{ 's' if g.libres != 1 }}
+          {%- else -%}
+          Lleno
+          {%- endif -%}
+        </span>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+  {% else %}
   <section class="mb-4" aria-label="Espacio de {{ g.horario }}">
     <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-2">
       <h2 class="tt-h-sec">
@@ -138,6 +257,7 @@
     </div>
     {% endif %}
   </section>
+  {% endif %}
   {% endfor %}
 
   {% if board.sueltas %}

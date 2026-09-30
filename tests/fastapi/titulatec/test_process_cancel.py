@@ -248,7 +248,7 @@ class TestCita:
         from itcj2.apps.titulatec.services.appointment_errors import EnrollmentRevoked
         from itcj2.apps.titulatec.services.appointment_service import AppointmentService
         proc = agenda_slots["p1"]
-        make_survey_review(proc)
+        make_survey_review(proc, status="approved")
         appt = AppointmentService.create(db_session, proc.id, window_id=agenda_slots["w"].id,
                                          slot_start=time(9, 0),
                                          created_by_id=agenda_slots["off"].id)
@@ -302,7 +302,7 @@ class TestCarreraConLaAgenda:
         from itcj2.apps.titulatec.services.appointment_errors import EnrollmentRevoked
         from itcj2.apps.titulatec.services.appointment_service import AppointmentService
         proc = agenda_slots["p1"]
-        make_survey_review(proc)
+        make_survey_review(proc, status="approved")
         _revoca_mientras_espera_el_lock(monkeypatch, db_session, proc.id)
 
         with pytest.raises(EnrollmentRevoked):
@@ -319,7 +319,7 @@ class TestCarreraConLaAgenda:
         from itcj2.apps.titulatec.services.appointment_errors import EnrollmentRevoked
         from itcj2.apps.titulatec.services.appointment_service import AppointmentService
         proc = agenda_slots["p1"]
-        make_survey_review(proc)
+        make_survey_review(proc, status="approved")
         appt = AppointmentService.create(db_session, proc.id, window_id=agenda_slots["w"].id,
                                          slot_start=time(9, 0),
                                          created_by_id=agenda_slots["off"].id)
@@ -342,7 +342,7 @@ class TestCarreraConLaAgenda:
         from itcj2.apps.titulatec.services.appointment_errors import SelfBookingNotAllowed
         from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
         proc = agenda_slots["p1"]
-        make_survey_review(proc)
+        make_survey_review(proc, status="approved")
         agenda_slots["w"].visibility = "bookable"
         db_session.flush()
         _revoca_mientras_espera_el_lock(monkeypatch, db_session, proc.id)

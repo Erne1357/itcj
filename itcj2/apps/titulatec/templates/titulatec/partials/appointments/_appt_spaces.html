@@ -42,9 +42,13 @@
         <span class="flex-grow-1 min-w-0">
           <span class="horario d-block">{{ e.horario }}</span>
           <span class="detalle d-block text-truncate">
+            {%- if e.visibility == 'walkin' -%}
+            sin horario · {{ e.ocupados }}/{{ e.capacidad }} lugares
+            {%- else -%}
             franjas de {{ e.slot_minutes }} min ·
             {{ e.capacity }} lugar{{ 'es' if e.capacity != 1 }} ·
             {{ e.ocupados }}/{{ e.capacidad }} ocupados
+            {%- endif -%}
             {%- if e.location %} · {{ e.location }}{% endif %}
           </span>
         </span>
@@ -52,7 +56,7 @@
            puede distinguir de un vistazo un espacio publicado de uno privado, y
            publicar es justo la decisión que quiere poder revisar. #}
         {% if e.visibility == 'bookable' %}{{ pill('Agendable', 'navy', 'calendar-check') }}
-        {% elif e.visibility == 'walkin' %}{{ pill('Sin cita', 'violet', 'door-open') }}
+        {% elif e.visibility == 'walkin' %}{{ pill('Sin horario', 'violet', 'door-open') }}
         {% else %}{{ pill('Privado', 'neutral', 'eye-slash') }}{% endif %}
         {% if e.pausada %}<span class="tt-pill tt-pill--neutral">En pausa</span>{% endif %}
       </a>
@@ -60,11 +64,16 @@
     </div>
 
     {# El aviso persiste en la LISTA, no solo en el toast del guardado: un toast
-       se va y el espacio se queda publicado sin que lo vea nadie. #}
-    {% if espacios.sin_alcance and espacios.mios|selectattr('visibility', 'equalto', 'bookable')|list %}
+       se va y el espacio se queda publicado sin que lo vea nadie.
+
+       M-3 (revisión final): «Agendable» Y «Sin horario» se publican igual
+       -los dos pasan por el mismo `offer()` fail-closed-, así que el aviso
+       tiene que salir con cualquiera de los dos, no solo con «Agendable». #}
+    {% if espacios.sin_alcance and (espacios.mios|selectattr('visibility', 'equalto', 'bookable')|list
+                                    or espacios.mios|selectattr('visibility', 'equalto', 'walkin')|list) %}
     <p class="tt-vis-aviso mt-3 mb-0">
       <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>
-      Tienes espacios marcados como «Agendable», pero
+      Tienes espacios marcados como «Agendable» o «Sin horario», pero
       <strong>ningún egresado los verá</strong>: no tienes carreras asignadas.
       Pídele a la jefatura de Servicios Escolares que te asigne las que atiendes.
     </p>

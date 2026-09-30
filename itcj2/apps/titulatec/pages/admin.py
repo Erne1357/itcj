@@ -1549,7 +1549,10 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "doc_abierto": abierto["type_code"] if abierto else None,
         "doc_src": abierto["view_url"] if abierto else None,
         "appt": ({"status": appt.status,
-                  "scheduled_label": _fecha_larga(appt.scheduled_at),
+                  # Helper "cuándo" (spec 2026-09-29-titulatec-cotejo-
+                  # espacios-design.md §6, D11): una reserva sin horario
+                  # anuncia su rango, no una hora que nunca tuvo.
+                  "scheduled_label": AppointmentService.when(appt)["label"],
                   "location": appt.location, "note": appt.note,
                   "change_request": appt.change_request,
                   "change_requested_at": _fecha_larga(appt.change_requested_at)}

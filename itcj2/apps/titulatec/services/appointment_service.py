@@ -57,7 +57,7 @@ que aceptara fecha y hora sueltas, bastaba con no pasar por el que valida.
 """
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import time
 
 from sqlalchemy.orm import Session
 
@@ -154,6 +154,10 @@ class AppointmentService:
                           q: str | None = None) -> list:
         """Citas de la agenda, ordenadas por fecha. Filtros opcionales.
 
+        A la misma hora desempata el `id`, que es el orden de apartado: en un
+        sin horario todas guardan la apertura, y sin desempate Postgres las
+        devuelve en el orden en que las lee (spec 2026-09-29 §4).
+
         `allowed_program_ids`: None = sin restricción de carrera; set vacío = [].
         `q`: busca por nombre del alumno o número de control, DENTRO del alcance.
         """
@@ -186,7 +190,7 @@ class AppointmentService:
                      .filter(or_(User.control_number.ilike(aguja),
                                  nombre.ilike(aguja),
                                  TitulationProcess.folio.ilike(aguja))))
-        return query.order_by(ReviewAppointment.scheduled_at).all()
+        return query.order_by(ReviewAppointment.scheduled_at, ReviewAppointment.id).all()
 
     @staticmethod
     def counts_by_day(db: Session, start, end, *, allowed_program_ids: set | None = None) -> dict:
@@ -210,7 +214,8 @@ class AppointmentService:
 
     @staticmethod
     def list_for_day(db: Session, day, *, allowed_program_ids: set | None = None) -> list:
-        """Citas cuyo scheduled_at cae en el día `day` (date), ordenadas por hora.
+        """Citas cuyo scheduled_at cae en el día `day` (date), ordenadas por hora
+        y, a la misma hora, por orden de apartado (`id`, ver `list_appointments`).
 
         allowed_program_ids: None = sin restricción; set vacío = devuelve [].
         """
@@ -231,7 +236,7 @@ class AppointmentService:
         )
         if allowed_program_ids is not None:
             q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
-        return q.order_by(ReviewAppointment.scheduled_at).all()
+        return q.order_by(ReviewAppointment.scheduled_at, ReviewAppointment.id).all()
 
     @staticmethod
     def agenda_process_ids(db: Session, *, allowed_program_ids: set | None = None) -> set:
@@ -320,9 +325,10 @@ class AppointmentService:
     def _pending_candidates(db: Session, *, program_id: int | None,
                             allowed_program_ids: set | None) -> list:
         """Procesos activos, SIN cita vigente, con los 3 documentos iniciales
-        aprobados y con la SOLICITUD de liberación de la encuesta de egresados
-        ya abierta (D2: hace falta que la haya enviado, no que GTV ya la haya
-        liberado).
+        aprobados y con la encuesta de egresados ya LIBERADA por Gestión
+        Tecnológica y Vinculación (D1, spec 2026-09-29-titulatec-cotejo-
+        espacios-design.md §2 — revierte D2 del 2026-09-15: antes bastaba con
+        que la solicitud existiera, sin importar su estado).
 
         De aquí salen DOS cubos que se reparten el conjunto sin solaparse
         (§6): «Por agendar» y «Requieren que les agendes» (los bloqueados por
@@ -332,8 +338,9 @@ class AppointmentService:
 
         Los `no_show` NO entran: conservan su cita y su lugar («si no se
         presentó es que ya pasó») y viven en `list_reschedule_processes`.
-        Quien SÍ tiene los 3 documentos pero todavía no envía la encuesta vive
-        en `list_missing_survey_processes`.
+        Quien SÍ tiene los 3 documentos pero cuya encuesta no está liberada
+        (nunca la envió, o la envió y GTV todavía no la libera) vive en
+        `list_missing_survey_processes`.
         """
         from itcj2.apps.titulatec.models import SurveyReview, TitulationProcess
         from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -342,7 +349,8 @@ class AppointmentService:
         if q is None:
             return []
         q = q.filter(db.query(SurveyReview.id)
-                    .filter(SurveyReview.process_id == TitulationProcess.id)
+                    .filter(SurveyReview.process_id == TitulationProcess.id,
+                            SurveyReview.status == "approved")
                     .exists())
         candidates = q.order_by(TitulationProcess.created_at).all()
         return [p for p in candidates if DocumentService.initial_docs_all_approved(db, p.id)]
@@ -385,7 +393,7 @@ class AppointmentService:
         están esperando a que alguien lo haga por ellos.
 
         El criterio es el mismo objeto que usa la pantalla del alumno
-        (`SelfBookingService.is_blocked_by_cancellations`, la regla 5 de §3):
+        (`SelfBookingService.is_blocked_by_cancellations`, la regla 6 de §3):
         con dos implementaciones, este cubo diría una cosa y el alumno vería
         otra.
         """
@@ -398,14 +406,18 @@ class AppointmentService:
     def list_missing_survey_processes(db: Session, *, program_id: int | None = None,
                                       allowed_program_ids: set | None = None) -> list:
         """Procesos activos, SIN cita, con los 3 documentos aprobados, pero
-        SIN la solicitud de liberación de la encuesta de egresados (D2).
+        SIN la encuesta de egresados LIBERADA (D1, revierte D2 del
+        2026-09-15).
 
         Mismo universo y alcance que `list_pending_processes` — misma base
         (`_unscheduled_query`) y mismo filtro de documentos — con el ÚNICO
-        predicado invertido: aquí la solicitud NO existe. Alimenta el cubo
-        «Sin encuesta» de la cola: nadie se agenda sin haberla enviado, así
-        que a este grupo no le sirve un lugar libre, le sirve saber que falta
-        la encuesta.
+        predicado invertido: aquí NO existe una solicitud `approved`. Eso
+        cubre a la vez a quien nunca la envió y a quien la envió pero sigue
+        `in_review`/`rejected` — las dos filas del pseudo-estado que muestra
+        `SurveyReviewService.release_status`. Alimenta el cubo «Encuesta sin
+        liberar» de la cola: nadie se agenda sin ella liberada, así que a
+        este grupo no le sirve un lugar libre, le sirve saber en qué va su
+        solicitud (`survey_status` por fila, ver `pages/appointments.py`).
         """
         from itcj2.apps.titulatec.models import SurveyReview, TitulationProcess
         from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -414,7 +426,8 @@ class AppointmentService:
         if q is None:
             return []
         q = q.filter(~db.query(SurveyReview.id)
-                    .filter(SurveyReview.process_id == TitulationProcess.id)
+                    .filter(SurveyReview.process_id == TitulationProcess.id,
+                            SurveyReview.status == "approved")
                     .exists())
         candidates = q.order_by(TitulationProcess.created_at).all()
         return [p for p in candidates if DocumentService.initial_docs_all_approved(db, p.id)]
@@ -499,7 +512,7 @@ class AppointmentService:
         de §3 (`fase_aprobada`), no necesita nada.
 
         El criterio de la fase es el mismo `PhaseService.PHASE_COTEJO` que usa
-        `SelfBookingService._fase_cotejo_aprobada`, para que grep encuentre los
+        `SelfBookingService._fase_cotejo_status`, para que grep encuentre los
         dos lados de la regla desde cualquiera de ellos.
 
         Orden: por `TitulationProcess.created_at` (no por `scheduled_at` de la
@@ -564,8 +577,44 @@ class AppointmentService:
                   "jul", "ago", "sep", "oct", "nov", "dic"]
 
     @staticmethod
-    def _notify_appt(db: Session, process_id: int, ntype: str, title: str,
-                     scheduled_at: datetime, location: str | None) -> None:
+    def when(appt) -> dict:
+        """Cuándo es `appt`, en el único formato que comparten la tarjeta del
+        alumno, la ficha y el tablero del encargado, el expediente, los avisos
+        in-app y los correos (D11, spec 2026-09-29-titulatec-cotejo-espacios-
+        design.md §6).
+
+        `sin_horario` la decide `SlotService.is_walkin_reservation`: ventana
+        `walkin` **y** sentada a la apertura — la regla de legado (una cita
+        que un encargado sentó a mano a OTRA hora dentro de un `walkin`
+        conserva SU hora, nunca el rango). `hora` es «09:30», o el espacio
+        ENTERO («de 08:00 a 14:00») en sin horario. `fecha` es la larga, con
+        año solo si no es el actual (`dates_es.dia_largo`); `fecha_corta`
+        SIEMPRE lleva año («07 oct 2026», el mismo formato que ya usaban los
+        avisos in-app). `label` es la lectura de un vistazo: `fecha_corta` +
+        ` · ` + `hora`.
+        """
+        from itcj2.apps.titulatec.services.slot_service import SlotService
+        from itcj2.apps.titulatec.utils.dates_es import dia_largo
+
+        cuando = appt.scheduled_at
+        sin_horario = SlotService.is_walkin_reservation(appt)
+        if sin_horario:
+            ventana = appt.window
+            hora_txt = f"de {ventana.start_time:%H:%M} a {ventana.end_time:%H:%M}"
+        else:
+            hora_txt = f"{cuando:%H:%M}"
+        fecha_corta = (f"{cuando.day:02d} {AppointmentService._MONTHS_ES[cuando.month]} "
+                       f"{cuando.year}")
+        return {
+            "fecha": dia_largo(cuando),
+            "fecha_corta": fecha_corta,
+            "hora": hora_txt,
+            "sin_horario": sin_horario,
+            "label": f"{fecha_corta} · {hora_txt}",
+        }
+
+    @staticmethod
+    def _notify_appt(db: Session, process_id: int, ntype: str, title: str, appt) -> None:
         """Avisa al alumno (in-app) de un cambio en su cita. Best-effort."""
         from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.services.notify import notify_student
@@ -573,9 +622,8 @@ class AppointmentService:
         proc = db.get(TitulationProcess, process_id)
         if not proc:
             return
-        when = (f"{scheduled_at.day:02d} {AppointmentService._MONTHS_ES[scheduled_at.month]} "
-                f"{scheduled_at.year} · {scheduled_at:%H:%M}")
-        body = when + (f" · {location}" if location else "")
+        body = AppointmentService.when(appt)["label"] + (
+            f" · {appt.location}" if appt.location else "")
         notify_student(db, proc.student_id, type=ntype, title=title, body=body,
                        process_id=process_id, phase_number=2)
 
@@ -583,17 +631,20 @@ class AppointmentService:
     @staticmethod
     def create(db: Session, process_id: int, *, window_id: int | None,
                slot_start: time | None, created_by_id: int,
-               location: str | None = None, booked_by: str = "officer"):
+               location: str | None = None, booked_by: str = "officer",
+               start_now: bool = False):
         """Abre un intento de cita en una franja concreta. Dueña de la transacción.
 
         Valida, en este orden: que el alumno YA HAYA ENVIADO la encuesta de
-        egresados (`SurveyNotSubmitted`, D2 — sirve cualquier estado de
-        revisión; GTV puede seguir revisando en paralelo), que haya ventana y
-        franja (`MissingSchedule`), que no haya ya una cita ACTIVA
-        (`AppointmentConflict`, D4), que el día siga habilitado
-        (`DayNotAllowed`), que la hora sea una franja real (`InvalidSlot`) y
-        que quede lugar (`SlotFull`). La guarda de la encuesta va PRIMERO y
-        aplica a todo `create`: sin ella no hay nada más que validar.
+        egresados (`SurveyNotSubmitted` si no existe solicitud) Y que Gestión
+        Tecnológica y Vinculación ya la haya LIBERADO (`SurveyNotReleased` si
+        sigue `in_review`/`rejected` — D1, revierte D2 del 2026-09-15: enviarla
+        YA NO basta), que haya ventana y franja (`MissingSchedule`), que no
+        haya ya una cita ACTIVA (`AppointmentConflict`, D4), que el día siga
+        habilitado (`DayNotAllowed`), que la hora sea una franja real
+        (`InvalidSlot`) y que quede lugar (`SlotFull`). La guarda de la
+        encuesta va PRIMERO y aplica a todo `create`: sin ella no hay nada más
+        que validar.
 
         `booked_by` ∈ {officer, student} es el distintivo «Agendada por el
         alumno» del tablero (D11). Lo pone quien llama, no se adivina del
@@ -602,18 +653,30 @@ class AppointmentService:
         Es el camino de los intentos NUEVOS, incluidos los que siguen a un
         `no_show` (D7), a una `attended` con faltantes (D5) y a una
         `cancelled` (D6). Mover una cita viva es `reschedule`.
+
+        `start_now=True` es «Atender ahora» (D7 de la spec 2026-09-29-titulatec-
+        cotejo-espacios-design.md §4) y lo pasa solo `attend_now`: el egresado
+        está enfrente, así que la cita nace ya `in_progress` en esta MISMA
+        transacción (`scheduled -> in_progress` por la matriz, con sus dos
+        eventos) y SIN aviso in-app ni correo de «agendada» — acaba de llegar a
+        la ventanilla. Es un parámetro y no otra función para que las guardas de
+        arriba sigan siendo UNA (regla D13): encuesta, revocación, cita viva,
+        día y cupo valen igual para esta cita que para cualquier otra.
         """
         from itcj2.apps.titulatec.models import ReviewWindow
         from itcj2.apps.titulatec.services.appointment_errors import (
-            MissingSchedule, SurveyNotSubmitted,
+            MissingSchedule, SurveyNotReleased, SurveyNotSubmitted,
         )
         from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
         from itcj2.apps.titulatec.services.slot_service import SlotService
         from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
         AppointmentService._assert_not_revoked(db, process_id)
-        if SurveyReviewService.get_for_process(db, process_id) is None:
+        estado_encuesta = SurveyReviewService.release_status(db, process_id)
+        if estado_encuesta == "missing":
             raise SurveyNotSubmitted()
+        if estado_encuesta != "approved":
+            raise SurveyNotReleased(estado_encuesta)
 
         if not window_id or slot_start is None:
             raise MissingSchedule()
@@ -647,10 +710,26 @@ class AppointmentService:
                                   created_by_id, location=location,
                                   rechazar_activa=True)
         appt.booked_by = booked_by
+        payload = {"scheduled_at": appt.scheduled_at.isoformat(),
+                   "location": appt.location, "window_id": window.id}
+        if start_now:
+            payload.update({"walkin": True, "attend_now": True})
         AppointmentService._log(
-            db, process_id, created_by_id, "appointment_scheduled",
-            {"scheduled_at": appt.scheduled_at.isoformat(), "location": appt.location,
-             "window_id": window.id})
+            db, process_id, created_by_id, "appointment_scheduled", payload)
+        if start_now:
+            # «Atender ahora» (D7): el cotejo arranca en la misma transacción
+            # que sienta al egresado, por la matriz y con su propio evento,
+            # igual que `start`. Sin `_notify_appt` ni `StudentMail`: está
+            # enfrente. Es la rama sin correo que `RAMAS_SIN_CORREO`
+            # (test_mail_writers.py) registra y `test_atender_ahora_no_encola`
+            # fija.
+            AppointmentService.assert_transition(appt.status, "in_progress")
+            appt.status = "in_progress"
+            AppointmentService._log(db, process_id, created_by_id,
+                                    "appointment_in_progress")
+            db.commit()
+            db.refresh(appt)
+            return appt
         # Avisa al alumno SALVO que haya sido él quien agendó: acaba de pulsar
         # el botón y notificarle su propio clic es ruido (auto-agendado, §4.1).
         # Es la misma condición EXACTA que `cancel` —actor == alumno— y por la
@@ -664,8 +743,7 @@ class AppointmentService:
         proc = db.get(TitulationProcess, process_id)
         if proc is None or int(created_by_id) != int(proc.student_id):
             AppointmentService._notify_appt(db, process_id, "APPOINTMENT_SCHEDULED",
-                                            "Tu cita de cotejo fue agendada",
-                                            appt.scheduled_at, appt.location)
+                                            "Tu cita de cotejo fue agendada", appt)
         # El correo, en cambio, sale SIEMPRE (spec 2026-09-28 §5 #7, D9): al
         # alumno que agendó él mismo le sirve de comprobante —fecha, lugar,
         # qué llevar—. Grupo `cita:{pid}`: agendar y mover dentro de la espera
@@ -678,6 +756,38 @@ class AppointmentService:
         db.commit()
         db.refresh(appt)
         return appt
+
+    @staticmethod
+    def attend_now(db: Session, process_id: int, *, window_id: int | None,
+                   actor_id: int):
+        """«Atender ahora» (D7, spec 2026-09-29-titulatec-cotejo-espacios-design.md
+        §4): el egresado está enfrente y sin cita viva, y el encargado lo sienta
+        en SU espacio sin horario de HOY con el cotejo ya iniciado. Dueña de la
+        transacción (vía `create`).
+
+        Solo valida lo propio de este camino: ventana `walkin`, del actor
+        (`owner_user_id`; quien tenga `manage.all` tampoco atiende aquí con el
+        espacio de otro) y con día == hoy (`db_now()`). Si no, `NotWalkinToday`,
+        con la MISMA frase para el espacio que no existe. Lo demás —revocación,
+        encuesta liberada, cita viva, día habilitado, cupo— lo decide `create`
+        y NO se repite aquí (D13): dos copias de una guarda acaban diciendo
+        cosas distintas.
+
+        Esta comprobación corre antes de los locks, como las rápidas de
+        `create`. Lo que decide el cupo y la cita viva va dentro, en
+        `SlotService.assign`, contra la ventana releída bajo su lock.
+        """
+        from itcj2.apps.titulatec.models import ReviewWindow
+        from itcj2.apps.titulatec.services.appointment_errors import NotWalkinToday
+
+        window = db.get(ReviewWindow, int(window_id)) if window_id else None
+        if (window is None or window.visibility != "walkin"
+                or window.owner_user_id != int(actor_id)
+                or window.review_day.date != db_now().date()):
+            raise NotWalkinToday()
+        return AppointmentService.create(
+            db, process_id, window_id=window.id, slot_start=window.start_time,
+            created_by_id=actor_id, booked_by="officer", start_now=True)
 
     @staticmethod
     def reschedule(db: Session, appt, *, window_id: int | None,
@@ -732,8 +842,7 @@ class AppointmentService:
                                 {"scheduled_at": appt.scheduled_at.isoformat(),
                                  "window_id": window.id})
         AppointmentService._notify_appt(db, appt.process_id, "APPOINTMENT_RESCHEDULED",
-                                        "Tu cita de cotejo fue reagendada",
-                                        appt.scheduled_at, appt.location)
+                                        "Tu cita de cotejo fue reagendada", appt)
         # Correo (spec 2026-09-28 §5 #7), mismo grupo `cita:{pid}` que el de
         # agendar: mover tres veces en el tablero = un correo con la fecha
         # final (D7). Habla de la cita NUEVA, que ya trae id (`assign` hizo
@@ -791,8 +900,7 @@ class AppointmentService:
             # La cita ya existe en la BD: trae id.
             StudentMail.appointment_no_show(db, proc, appt=appt)
         AppointmentService._notify_appt(db, appt.process_id, "APPOINTMENT_NO_SHOW",
-                                        "No registramos tu asistencia a tu cita",
-                                        appt.scheduled_at, appt.location)
+                                        "No registramos tu asistencia a tu cita", appt)
         db.commit()
         db.refresh(appt)
         return appt
@@ -811,8 +919,7 @@ class AppointmentService:
         appt.status = "in_progress"
         AppointmentService._log(db, appt.process_id, actor_id, "appointment_undo_no_show")
         AppointmentService._notify_appt(db, appt.process_id, "APPOINTMENT_NO_SHOW_UNDONE",
-                                        "Se corrigió tu asistencia a la cita",
-                                        appt.scheduled_at, appt.location)
+                                        "Se corrigió tu asistencia a la cita", appt)
         db.commit()
         db.refresh(appt)
         return appt
@@ -873,8 +980,7 @@ class AppointmentService:
         if notify and proc is not None and int(actor_id) != int(proc.student_id):
             AppointmentService._notify_appt(
                 db, appt.process_id, "APPOINTMENT_CANCELLED",
-                "Tu cita de cotejo fue cancelada",
-                appt.scheduled_at, appt.location)
+                "Tu cita de cotejo fue cancelada", appt)
             # El correo, bajo la MISMA condición (spec 2026-09-28 §5 #7): ni
             # por la cancelación del propio alumno (D9) ni por la de la
             # revocación (`notify=False`: su aviso es `send_process_cancelled`).

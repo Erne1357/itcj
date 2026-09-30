@@ -1221,11 +1221,18 @@ def _hhmm(v):
 
 @pytest.fixture()
 def make_review_window(db_session):
-    """Ventana de atencion de un encargado dentro de un dia de cotejo."""
+    """Ventana de atencion de un encargado dentro de un dia de cotejo.
+
+    `visibility` repite el `server_default` de la columna ('private'): quien no
+    lo pasa ve el comportamiento de siempre. Con 'walkin' (sin horario) `cap`
+    es el TOTAL de personas del espacio, no el cupo por franja (spec
+    2026-09-29 §3.1, D3).
+    """
     from itcj2.apps.titulatec.models import ReviewWindow
 
     def _make(day, owner, *, start="09:00", end="14:00", slot=30, cap=1,
-              location=None, status="open", position=None, created_by=None):
+              location=None, status="open", position=None, created_by=None,
+              visibility="private"):
         row = ReviewWindow(
             review_day_id=day.id,
             owner_user_id=getattr(owner, "id", owner),
@@ -1236,6 +1243,7 @@ def make_review_window(db_session):
             capacity=cap,
             location=location,
             status=status,
+            visibility=visibility,
             created_by_id=(getattr(created_by, "id", created_by)
                            or getattr(owner, "id", owner)),
         )

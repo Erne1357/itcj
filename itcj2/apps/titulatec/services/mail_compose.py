@@ -48,7 +48,7 @@ from typing import TYPE_CHECKING, Callable
 
 from sqlalchemy.orm import Session
 
-from itcj2.apps.titulatec.utils.dates_es import dia_largo, dia_mes_hora, hora
+from itcj2.apps.titulatec.utils.dates_es import MESES, dia_largo, dia_mes_hora, hora
 from itcj2.core.utils.timezone import db_now
 
 if TYPE_CHECKING:  # solo para las anotaciones: los modelos se importan dentro de cada función
@@ -228,7 +228,9 @@ def _compose_appt_group(db: Session, rows: list, process, user) -> Composed | Ob
       cotejo: …» (ruling 3, 2026-09-29). La creación por el propio alumno
       (`by == "student"`, auto-agendado) no es primera noticia: él ya conocía
       la fecha, así que si el encargado se la mueve es «Cambió…» (B5, ronda
-      final).
+      final). D11: `AppointmentService.when` decide `sin_horario`; en sin
+      horario el asunto lleva el rango en vez de «a las HH:MM» («Tu cita de
+      cotejo: 07 de octubre, de 08:00 a 14:00»).
     - Vigente en otro estado (en cotejo, atendida, no se presentó) → obsoleto.
     - Sin vigente (`cancel` le quita la vigencia):
         * el primer evento del grupo es la creación → agendada y cancelada
@@ -236,8 +238,11 @@ def _compose_appt_group(db: Session, rows: list, process, user) -> Composed | Ob
         * el grupo no trae ningún `cancelled` → la canceló el propio alumno o
           la revocación, vías que no encolan → obsoleto (ruling 2026-09-29);
         * si no → «tu cita fue cancelada» con el motivo de la ÚLTIMA
-          cancelación del grupo.
+          cancelación del grupo. D11: resuelve la cita por `appt_id` del
+          payload (`db.get`) para saber también si era sin horario; si ya no
+          existe, se cae al formato normal con la fecha cruda del payload.
     """
+    from itcj2.apps.titulatec.models import ReviewAppointment
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.cotejo_requirement_service import (
         CotejoRequirementService,
@@ -248,6 +253,7 @@ def _compose_appt_group(db: Session, rows: list, process, user) -> Composed | Ob
 
     if vigente is not None and vigente.status in _CITA_VIVA:
         cuando = vigente.scheduled_at
+        info = AppointmentService.when(vigente)
         primero = _datos(rows[0])
         # Primera noticia = la creación hecha por el ENCARGADO; la que hizo el
         # propio alumno ya la conocía él (B5).
@@ -258,11 +264,15 @@ def _compose_appt_group(db: Session, rows: list, process, user) -> Composed | Ob
         requisitos = [{"label": r.label, "hint": _texto(r.hint)}
                       for r in CotejoRequirementService.list(db, process.cohort_id,
                                                              active_only=True)]
+        if info["sin_horario"]:
+            fecha_asunto = f"{cuando.day:02d} de {MESES[cuando.month]}, {info['hora']}"
+        else:
+            fecha_asunto = dia_mes_hora(cuando)
         asunto = ("Cambió tu cita de cotejo: " if cambio
-                  else "Tu cita de cotejo: ") + dia_mes_hora(cuando)
+                  else "Tu cita de cotejo: ") + fecha_asunto
         return _correo(user, asunto, "appt_changed.html", _CITA,
-                       changed=cambio, fecha=dia_largo(cuando), hora=hora(cuando),
-                       lugar=_texto(vigente.location),
+                       changed=cambio, fecha=info["fecha"], hora=info["hora"],
+                       sin_horario=info["sin_horario"], lugar=_texto(vigente.location),
                        confirmar=vigente.confirmed_at is None, requisitos=requisitos)
 
     if vigente is not None:
@@ -275,10 +285,18 @@ def _compose_appt_group(db: Session, rows: list, process, user) -> Composed | Ob
     if not cancelaciones:
         return Obsolete("la cita se canceló por una vía sin correo")
     ultima = cancelaciones[-1]
-    cuando = _cuando(ultima.get("scheduled_at"))
+    appt_id = _entero(ultima.get("appt_id"))
+    appt_cancelada = db.get(ReviewAppointment, appt_id) if appt_id is not None else None
+    if appt_cancelada is not None:
+        info = AppointmentService.when(appt_cancelada)
+        fecha, hora_txt, sin_horario = info["fecha"], info["hora"], info["sin_horario"]
+    else:
+        cuando = _cuando(ultima.get("scheduled_at"))
+        fecha = dia_largo(cuando) if cuando else None
+        hora_txt = hora(cuando) if cuando else None
+        sin_horario = False
     return _correo(user, "Tu cita de cotejo fue cancelada", "appt_cancelled.html", _CITA,
-                   fecha=dia_largo(cuando) if cuando else None,
-                   hora=hora(cuando) if cuando else None,
+                   fecha=fecha, hora=hora_txt, sin_horario=sin_horario,
                    reason=_texto(ultima.get("reason")))
 
 
@@ -334,8 +352,9 @@ def _compose_appt_no_show(db: Session, rows: list, process, user) -> Composed | 
     (ruling 2026-09-29). Y si la cita ya no es la VIGENTE (dentro de la gracia
     se le agendó otra, o se reagendó: el intento nuevo le quita `is_current` y
     la vieja conserva su `no_show`), «Agenda una nueva» sería falso: obsoleto
-    (B3, ronda final)."""
+    (B3, ronda final). D11: `AppointmentService.when` decide `sin_horario`."""
     from itcj2.apps.titulatec.models import EmailOutbox, ReviewAppointment
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
     fila = rows[-1]
     appt_id = _entero(_datos(fila).get("appt_id"))
@@ -354,9 +373,10 @@ def _compose_appt_no_show(db: Session, rows: list, process, user) -> Composed | 
         return Obsolete("ya hay una cita nueva")
     if appt.status != "no_show":
         return Obsolete("se corrigió la asistencia")
-    cuando = appt.scheduled_at
+    info = AppointmentService.when(appt)
     return _correo(user, "No registramos tu asistencia a tu cita de cotejo",
-                   "appt_no_show.html", _CITA, fecha=dia_largo(cuando), hora=hora(cuando))
+                   "appt_no_show.html", _CITA, fecha=info["fecha"], hora=info["hora"],
+                   sin_horario=info["sin_horario"])
 
 
 # ---------------------------------------------------------------------------
@@ -401,8 +421,10 @@ def _compose_appt_reminder(db: Session, rows: list, process, user) -> Composed |
     la VIGENTE, activa (`scheduled`/`confirmed`), con la misma fecha y todavía
     en el futuro. Se arma con la cita vigente como #7: fecha, hora, lugar, qué
     llevar (lectura NO sembradora) y «confirma tu asistencia» si no la
-    confirmó. El asunto dice cuándo es de verdad (`asunto_recordatorio_cita`)."""
+    confirmó. El asunto dice cuándo es de verdad (`asunto_recordatorio_cita`).
+    D11: `AppointmentService.when` decide `sin_horario`."""
     from itcj2.apps.titulatec.models import ReviewAppointment
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.cotejo_requirement_service import (
         CotejoRequirementService,
     )
@@ -427,12 +449,13 @@ def _compose_appt_reminder(db: Session, rows: list, process, user) -> Composed |
         return Obsolete("la cita ya pasó")
 
     asunto = asunto_recordatorio_cita((cuando.date() - ahora.date()).days)
+    info = AppointmentService.when(appt)
     requisitos = [{"label": r.label, "hint": _texto(r.hint)}
                   for r in CotejoRequirementService.list(db, process.cohort_id,
                                                          active_only=True)]
     return _correo(user, asunto, "appt_reminder.html", _CITA,
-                   titulo=asunto, fecha=dia_largo(cuando, hoy=ahora.date()),
-                   hora=hora(cuando), lugar=_texto(appt.location),
+                   titulo=asunto, fecha=info["fecha"], hora=info["hora"],
+                   sin_horario=info["sin_horario"], lugar=_texto(appt.location),
                    confirmar=appt.confirmed_at is None, requisitos=requisitos)
 
 
@@ -462,8 +485,12 @@ def _compose_docs_reminder(db: Session, rows: list, process, user) -> Composed |
 
 def _compose_survey_reminder(db: Session, rows: list, process, user) -> Composed | Obsolete:
     """#11, recordatorio de la encuesta de egresados. Aplica si el proceso sigue
-    en la fase de la cita de cotejo sin haberla enviado (sin fila en
-    `titulatec_survey_reviews`: con ella ya puede agendar, D2). Lleva a la
+    en la fase de la cita de cotejo sin haber ENVIADO la encuesta (sin fila en
+    `titulatec_survey_reviews`). Deja de aplicar en cuanto la envía, sea cual
+    sea su estado después (M-8, revisión final: D1 -2026-09-29, revierte D2
+    del 2026-09-15- exige además que Gestión Tecnológica y Vinculación la
+    LIBERE antes de poder agendar; este recordatorio solo empuja el ENVÍO,
+    nunca la liberación, así que su predicado no cambia con D1). Lleva a la
     encuesta."""
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService

@@ -12,8 +12,9 @@ Contrato de errores (T4):
   `assert_process_in_scope`: los ids son enteros secuenciales y un mensaje
   distintivo confirmaría cuáles existen.
 * `SlotTooSoon` / `CancelTooLate` / `SelfBookingNotAllowed` -> 400 +
-  `X-Tt-Error`, **salvo** `reason == "tiene_cita"`, que trae
-  `refresca_la_vista` y responde 200 con el panel fresco + `X-Tt-Notice`.
+  `X-Tt-Error`, **salvo** `reason in ("tiene_cita", "cotejo_en_dictamen")`
+  -la segunda, D13 2026-09-30-, que traen `refresca_la_vista` y responden
+  200 con el panel fresco + `X-Tt-Notice`.
 
 Harness: `dependency_overrides[get_db]` NO alcanza al cuerpo de la ruta en esta
 app. Se usa `client_as`, que arrastra `client` -> `patched_session_local`.
@@ -59,7 +60,7 @@ def _citas(db, proc):
 
 @pytest.fixture()
 def escena(db_session, agenda_slots, make_survey_review, make_role, grant_user_role):
-    """`agenda_slots` con la ventana PUBLICADA, la encuesta enviada y los permisos.
+    """`agenda_slots` con la ventana PUBLICADA, la encuesta LIBERADA y los permisos.
 
     `make_role` es aditivo e idempotente por nombre: añade los dos códigos
     nuevos al rol que `make_student` ya creó. `grant_user_role` invalida el
@@ -68,7 +69,8 @@ def escena(db_session, agenda_slots, make_survey_review, make_role, grant_user_r
     from itcj2.core.models.user import User
 
     esc = dict(agenda_slots)
-    make_survey_review(esc["p1"])            # D2: sin encuesta no se agenda
+    # D1 (revierte D2 del 2026-09-15): sin la encuesta LIBERADA no se agenda.
+    make_survey_review(esc["p1"], status="approved")
     esc["w"].visibility = "bookable"         # D1: publicar es deliberado
     db_session.flush()
 
@@ -136,16 +138,136 @@ def test_no_agenda_en_un_espacio_privado(db_session, escena, client_as):
     assert _citas(db_session, escena["p1"]) == []
 
 
-def test_no_agenda_en_un_espacio_walkin(db_session, escena, client_as):
-    """D2: el walk-in es un anuncio, no una agenda. Y lo decide el SERVIDOR,
-    no el hecho de no pintar el botón."""
+def test_apartar_lugar_en_un_walkin_ignora_el_slot_del_form(db_session, escena, client_as):
+    """D3/D4: por la MISMA ruta, el egresado aparta lugar en un espacio sin
+    horario. Lo que mande `slot` se ignora: la cita se sienta a la apertura."""
     escena["w"].visibility = "walkin"
     db_session.flush()
 
     resp = client_as(escena["alumno"]).post(
+        AGENDAR, data={"window_id": str(escena["w"].id), "slot": "10:45"})
+
+    assert resp.status_code == 200, _msg(resp) or resp.text[:300]
+    citas = _citas(db_session, escena["p1"])
+    assert len(citas) == 1
+    assert citas[0].booked_by == "student"
+    assert citas[0].window_id == escena["w"].id
+    assert citas[0].scheduled_at == datetime.combine(_DIA, time(9, 0)), (
+        "la apertura, no los 10:45 que mando el formulario")
+
+
+def test_el_kicker_dice_tu_lugar_apartado_en_un_walkin(db_session, escena, client_as):
+    """T9 (revisión final, FIX BEFORE MERGE): con una reserva sin horario
+    (D3/D4), la tarjeta abre con «Tu lugar está apartado» (spec §6) y no con
+    «Tu cita de cotejo» -esa sigue siendo de una franja con hora, ver
+    `test_agendar_deja_la_cita_marcada_como_agendada_por_el_alumno`-."""
+    escena["w"].visibility = "walkin"
+    db_session.flush()
+
+    resp = client_as(escena["alumno"]).post(
+        AGENDAR, data={"window_id": str(escena["w"].id)})
+
+    assert resp.status_code == 200, _msg(resp) or resp.text[:300]
+    assert "Tu lugar está apartado" in resp.text
+    assert "Tu cita de cotejo" not in resp.text
+
+
+def test_apartar_lugar_en_un_walkin_sin_slot_en_el_form(db_session, escena, client_as):
+    """El formulario de un `walkin` (Tarea 9) no manda `slot`: no hay hora que
+    elegir. La ruta no debe exigirlo -`MissingSchedule` sería un error falso."""
+    escena["w"].visibility = "walkin"
+    db_session.flush()
+
+    resp = client_as(escena["alumno"]).post(
+        AGENDAR, data={"window_id": str(escena["w"].id)})
+
+    assert resp.status_code == 200, _msg(resp) or resp.text[:300]
+    citas = _citas(db_session, escena["p1"])
+    assert len(citas) == 1
+    assert citas[0].scheduled_at == datetime.combine(_DIA, time(9, 0))
+
+
+def test_no_agenda_en_el_walkin_de_otra_carrera(
+        db_session, escena, client_as, make_program, make_officer, make_review_window):
+    """El mismo control crítico, ahora con un `walkin`: 404 limpio, sin
+    `X-Tt-Error`, cambiando un número no sienta al egresado con el encargado
+    de otra carrera."""
+    otra = make_program("Ingenieria Ajena al Walkin de Ruta")
+    ajeno, pos_ajeno = make_officer([otra])
+    w_ajena = make_review_window(escena["dia"], ajeno, start="12:00", end="13:00",
+                                 slot=30, cap=1, position=pos_ajeno)
+    w_ajena.visibility = "walkin"
+    db_session.flush()
+
+    resp = client_as(escena["alumno"]).post(
+        AGENDAR, data={"window_id": str(w_ajena.id)})
+
+    assert resp.status_code == 404, resp.text[:300]
+    assert "X-Tt-Error" not in resp.headers
+    assert _citas(db_session, escena["p1"]) == []
+
+
+def test_apartar_el_ultimo_lugar_de_un_walkin_ya_tomado_responde_panel_fresco(
+        db_session, escena, client_as, make_survey_review):
+    """Review Focus 2: el último lugar lo toman dos a la vez. Aquí el
+    encargado ya sentó a `p2` a mano en la única plaza (`agenda_slots` da
+    `capacity=1`); el clic de `p1` no debe crear un 11avo de 10, sino
+    responder 200 con el panel fresco y el aviso de `SlotFull`.
+
+    Ruling 2026-09-29 (Tarea 9, D10): en un espacio SIN horario no hay una
+    FRANJA que se llenó, hay LUGARES -texto propio, mismo `SlotFull`-."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    escena["w"].visibility = "walkin"
+    db_session.flush()
+    make_survey_review(escena["p2"], status="approved")
+    AppointmentService.create(db_session, escena["p2"].id, window_id=escena["w"].id,
+                              slot_start=time(9, 0), created_by_id=escena["off"].id)
+
+    resp = client_as(escena["alumno"]).post(
+        AGENDAR, data={"window_id": str(escena["w"].id)})
+
+    assert resp.status_code == 200, _msg(resp) or resp.text[:300]
+    assert (unquote(resp.headers.get("X-Tt-Notice", ""))
+            == "Ese espacio sin horario se llenó hace un momento."), dict(resp.headers)
+    assert _citas(db_session, escena["p1"]) == [], "no debio crearse una cita de mas"
+
+
+def test_el_ultimo_lugar_de_una_franja_agendable_conserva_su_texto_de_siempre(
+        db_session, escena, client_as, make_survey_review):
+    """El arrastre del ruling de arriba: el `SlotFull` de una ventana
+    AGENDABLE (franjas) no cambia -sigue hablando de "franja", no de
+    "lugares"-. Mismo montaje que el test del `walkin`, pero sin tocar
+    `visibility` (`escena["w"]` ya es `bookable`)."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    make_survey_review(escena["p2"], status="approved")
+    AppointmentService.create(db_session, escena["p2"].id, window_id=escena["w"].id,
+                              slot_start=time(9, 30), created_by_id=escena["off"].id)
+
+    resp = client_as(escena["alumno"]).post(
         AGENDAR, data={"window_id": str(escena["w"].id), "slot": "09:30"})
 
-    assert resp.status_code == 404
+    assert resp.status_code == 200, _msg(resp) or resp.text[:300]
+    assert (unquote(resp.headers.get("X-Tt-Notice", ""))
+            == "Esa franja se llenó hace un momento. Elige otro lugar."), dict(resp.headers)
+    assert _citas(db_session, escena["p1"]) == [], "no debio crearse una cita de mas"
+
+
+def test_apartar_lugar_en_un_walkin_que_cierra_pronto(db_session, escena, client_as,
+                                                        monkeypatch):
+    """D5: el corte se mide contra el CIERRE (11:00, default de `agenda_slots`),
+    no contra la apertura -que ya pasó en cuanto el espacio abrió."""
+    escena["w"].visibility = "walkin"
+    db_session.flush()
+    monkeypatch.setattr(sb_mod, "db_now",
+                        lambda: datetime.combine(_DIA, time(10, 15)))
+
+    resp = client_as(escena["alumno"]).post(
+        AGENDAR, data={"window_id": str(escena["w"].id)})
+
+    assert resp.status_code == 400
+    assert "Este espacio cierra" in _msg(resp), _msg(resp)
     assert _citas(db_session, escena["p1"]) == []
 
 
@@ -167,6 +289,9 @@ def test_agendar_deja_la_cita_marcada_como_agendada_por_el_alumno(
     assert citas[0].created_by_id == escena["alumno"].id
     # Es un PARCIAL, no la pagina entera: el POST responde lo que se re-pinta.
     assert "<html" not in resp.text.lower()
+    # T9 (revisión final): con franja, el kicker sigue siendo el de siempre.
+    assert "Tu cita de cotejo" in resp.text
+    assert "Tu lugar está apartado" not in resp.text
 
 
 def test_agendar_una_franja_que_arranca_en_menos_de_una_hora(
@@ -265,6 +390,31 @@ def test_el_choque_de_cita_activa_le_habla_al_ALUMNO_no_al_encargado(
     assert len(_citas(db_session, escena["p1"])) == 1, "no debio abrirse un segundo intento"
 
 
+def test_agendar_con_attended_sin_veredicto_responde_panel_fresco_y_aviso(
+        db_session, escena, client_as):
+    """D13 (2026-09-30): si el encargado marca "asistio" mientras el alumno
+    tiene la pantalla de agendado abierta, su clic no es un error de
+    entrada -es una colision de estado, la misma familia que el doble clic
+    de "tiene_cita" arriba-: 200 con el panel fresco + X-Tt-Notice, nunca un
+    400 mudo (`SelfBookingNotAllowed.refresca_la_vista`, appointment_errors.py).
+    """
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    ap = AppointmentService.create(db_session, escena["p1"].id, window_id=escena["w"].id,
+                                   slot_start=time(9, 30), created_by_id=escena["off"].id)
+    AppointmentService.start(db_session, ap, escena["off"].id)
+    AppointmentService.mark_attended(db_session, ap, escena["off"].id)
+
+    resp = client_as(escena["alumno"]).post(
+        AGENDAR, data={"window_id": str(escena["w"].id), "slot": "10:00"})
+
+    assert resp.status_code == 200, _msg(resp) or resp.text[:300]
+    aviso = unquote(resp.headers.get("X-Tt-Notice", ""))
+    assert "Tu cotejo ya se realizó" in aviso, aviso
+    assert 'name="slot"' not in resp.text, "sin veredicto no hay selector que pintar"
+    assert len(_citas(db_session, escena["p1"])) == 1, "no debio abrirse un segundo intento"
+
+
 def test_sin_el_permiso_de_agendar_no_pasa_el_gate(db_session, agenda_slots,
                                                     make_survey_review, client_as):
     """Sin `appointment.api.book.own` -> `PageForbidden`.
@@ -334,6 +484,46 @@ def test_cancelar_faltando_menos_de_dos_horas(db_session, escena, client_as,
 
     assert resp.status_code == 400
     assert "2 horas" in _msg(resp), _msg(resp)
+    cita = _citas(db_session, escena["p1"])[0]
+    assert cita.status == "scheduled", "la cita no debio tocarse"
+
+
+def test_cancelar_lugar_walkin_hasta_dos_horas_antes_del_cierre(
+        db_session, escena, client_as, monkeypatch):
+    """D5: aunque el espacio YA abrió -y por tanto la apertura, que es lo que
+    `scheduled_at` guarda para un `walkin`, quedó en el pasado-, sigue
+    pudiendo cancelar mientras falten más de 2 h para que CIERRE (14:00)."""
+    escena["w"].visibility = "walkin"
+    escena["w"].end_time = time(14, 0)
+    db_session.flush()
+    cli = client_as(escena["alumno"])
+    cli.post(AGENDAR, data={"window_id": str(escena["w"].id)})
+    monkeypatch.setattr(sb_mod, "db_now",
+                        lambda: datetime.combine(_DIA, time(11, 30)))  # ya abrió
+
+    resp = cli.post(CANCELAR, data={"motivo": "Ya no puedo"})
+
+    assert resp.status_code == 200, _msg(resp) or resp.text[:300]
+    cita = _citas(db_session, escena["p1"])[0]
+    assert cita.status == "cancelled" and cita.is_current is False
+
+
+def test_cancelar_lugar_walkin_a_menos_de_dos_horas_del_cierre(
+        db_session, escena, client_as, monkeypatch):
+    """D5, el otro lado: a menos de 2 h del CIERRE ya no se puede -el mensaje
+    habla de «lugar» y de «espacio», nunca de una hora de cita."""
+    escena["w"].visibility = "walkin"
+    escena["w"].end_time = time(14, 0)
+    db_session.flush()
+    cli = client_as(escena["alumno"])
+    cli.post(AGENDAR, data={"window_id": str(escena["w"].id)})
+    monkeypatch.setattr(sb_mod, "db_now",
+                        lambda: datetime.combine(_DIA, time(12, 30)))  # <2h de las 14:00
+
+    resp = cli.post(CANCELAR, data={"motivo": "Ya no puedo"})
+
+    assert resp.status_code == 400
+    assert "cierre" in _msg(resp) and "lugar" in _msg(resp), _msg(resp)
     cita = _citas(db_session, escena["p1"])[0]
     assert cita.status == "scheduled", "la cita no debio tocarse"
 
@@ -423,9 +613,11 @@ def test_el_dia_no_ofrece_franjas_a_quien_ya_no_puede_agendar(
     assert resp.headers.get("HX-Reswap") == "innerHTML"
 
 
-def test_el_walkin_se_anuncia_con_su_horario_y_su_encargado(db_session, escena,
-                                                             client_as):
-    """Cara 3: «Atención sin cita», con horario completo, lugar y nombre."""
+def test_el_walkin_se_anuncia_con_su_horario_lugar_y_boton_de_apartar(db_session, escena,
+                                                                       client_as):
+    """D3/D4 (Tarea 9): con el egresado elegible, un `walkin` ya no es solo un
+    anuncio -«Atención sin cita»-: se ofrece con su horario, su lugar Y el
+    botón «Apartar mi lugar», por la MISMA ruta que una franja."""
     escena["w"].visibility = "walkin"
     escena["w"].location = "Edificio A"
     db_session.flush()
@@ -433,10 +625,11 @@ def test_el_walkin_se_anuncia_con_su_horario_y_su_encargado(db_session, escena,
     resp = client_as(escena["alumno"]).get(CITA, follow_redirects=False)
 
     assert resp.status_code == 200
-    assert "sin cita" in resp.text.lower()
+    assert "Apartar mi lugar" in resp.text
     assert "Edificio A" in resp.text
     assert "09:00" in resp.text and "11:00" in resp.text
-    assert 'name="slot"' not in resp.text, "un walk-in no ofrece franjas (D2)"
+    assert 'name="window_id"' in resp.text
+    assert 'name="slot"' not in resp.text, "un sin horario no ofrece franjas con hora (D3/D4)"
 
 
 def test_el_bloqueado_por_cancelaciones_ve_la_frase_y_sigue_viendo_el_walkin(
@@ -477,3 +670,23 @@ def test_quien_no_puede_agendar_ve_la_frase_nunca_un_boton_mudo(
     assert resp.status_code == 200
     assert "Primero envía la encuesta de egresados." in resp.text
     assert 'name="slot"' not in resp.text
+
+
+def test_el_panel_con_attended_sin_veredicto_muestra_la_frase_y_no_la_rejilla(
+        db_session, escena, client_as):
+    """D13 (2026-09-30): cara 4 -la frase que dice por qué-, nunca el
+    selector ni la promesa de «agéndala aquí abajo» que usa el modo
+    "agendar" (`cita_card.html`/`_cita_panel.html`)."""
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+    ap = AppointmentService.create(db_session, escena["p1"].id, window_id=escena["w"].id,
+                                   slot_start=time(9, 30), created_by_id=escena["off"].id)
+    AppointmentService.start(db_session, ap, escena["off"].id)
+    AppointmentService.mark_attended(db_session, ap, escena["off"].id)
+
+    resp = client_as(escena["alumno"]).get(CITA, follow_redirects=False)
+
+    assert resp.status_code == 200
+    assert "Tu cotejo ya se realizó" in resp.text
+    assert 'name="slot"' not in resp.text
+    assert "Agéndala" not in resp.text, "no debe prometer agendar mientras espera dictamen"

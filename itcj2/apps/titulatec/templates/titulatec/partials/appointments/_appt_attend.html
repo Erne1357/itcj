@@ -292,12 +292,60 @@
 
       {% else %}
       <h3 class="tt-h-sec">Sin cita todavía</h3>
+      {% if not detail.encuesta_sin_liberar %}
       <p class="tt-appt-note mt-2 mb-2">
         Elige un día en el carril y pica un lugar libre del tablero para darle cita.
       </p>
       <a class="btn btn-sm tt-btn-ink"
          {{ appt_nav(page_url ~ '?date=' ~ day ~ '&p=' ~ detail.process.id) }}>
         <i class="bi bi-calendar-plus me-1" aria-hidden="true"></i>Agendar a este alumno</a>
+      {% endif %}
+      {% endif %}
+
+      {# «Atender ahora» (D7): el egresado está enfrente y sin cita VIVA. Un botón
+         por espacio SIN HORARIO de HOY del propio encargado (`detail.walkins_hoy`);
+         lo sienta y arranca el cotejo en una sola transacción, sin aviso ni
+         correo de «agendada». Vuelve a la ficha en el día de HOY, que es donde
+         queda la cita. Lleno: `aria-disabled` y no `disabled`, para que se
+         pueda descubrir tabulando (mismo criterio que el visor), y fuera de
+         todo form: no hay nada que enviar.
+
+         Va FUERA del `if detail.appt`: `_detail_ctx` solo llena
+         `walkins_hoy` cuando el encargado le abriría un intento nuevo —sin
+         cita, `no_show` vigente o `attended` con la fase 02 rechazada (ruling
+         de la revisión de T6)—, así que aquí no se repite la regla.
+
+         I-3 (revisión final): con la encuesta de egresados SIN LIBERAR (D1),
+         ni «Agendar a este alumno» (arriba) ni «Atender ahora» (abajo) se
+         ofrecen —las dos abrirían un intento nuevo que
+         `AppointmentService.create` rechazaría con `SurveyNotReleased`—.
+         `_detail_ctx` ya deja `walkins_hoy` vacío en ese caso; aquí, en el
+         MISMO lugar donde iría «Atender ahora» (sirve igual si arriba se
+         pintó una cita no-show/attended-rechazada o «Sin cita todavía»), una
+         sola píldora + aviso explican por qué, sin repetir el mensaje. #}
+      {% if detail.encuesta_sin_liberar %}
+      <div class="mt-3 d-flex align-items-center gap-2 flex-wrap">
+        {{ survey_review_pill(detail.survey_status) }}
+        <span class="tt-appt-note mb-0">
+          Se podrá agendar cuando Gestión Tecnológica y Vinculación libere su encuesta.</span>
+      </div>
+      {% elif detail.walkins_hoy %}
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        {% for w in detail.walkins_hoy %}
+        {% if w.libres > 0 %}
+        <form id="appt-atender-{{ w.id }}"
+              {{ appt_action(BASE ~ '/atender-ahora?v=atender&date=' ~ detail.hoy ~ '&selected=' ~ detail.process.id) }}>
+          <input type="hidden" name="window_id" value="{{ w.id }}">
+          <button type="submit" class="btn btn-sm tt-btn-ink">
+            <i class="bi bi-person-check me-1" aria-hidden="true"></i>Atender ahora · sin horario {{ w.horario }} · {{ 'queda' if w.libres == 1 else 'quedan' }} {{ w.libres }}</button>
+        </form>
+        {% else %}
+        <button type="button" id="appt-atender-{{ w.id }}" class="btn btn-sm tt-btn-ghost"
+                aria-disabled="true">
+          <i class="bi bi-person-check me-1" aria-hidden="true"></i>Atender ahora · sin horario {{ w.horario }} · Lleno: abre más lugares en la Agenda</button>
+        {% endif %}
+        {% endfor %}
+      </div>
       {% endif %}
     </div>
 

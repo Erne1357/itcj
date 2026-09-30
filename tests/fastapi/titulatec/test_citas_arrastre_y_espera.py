@@ -34,8 +34,9 @@ def dia_con_citas(seed_phase_defs, seed_document_types, make_program, make_cohor
                   make_survey_review):
     """Un día con espacio, dos citas y un pendiente en la cola.
 
-    "pend" lleva la encuesta de egresados ya enviada (Tarea 4, D2): sin
-    solicitud, `AppointmentService.list_pending_processes` ya no lo cuenta
+    "pend" lleva la encuesta de egresados ya LIBERADA (D1, spec 2026-09-29-
+    titulatec-cotejo-espacios-design.md §2, revierte D2 del 2026-09-15): sin
+    liberarla, `AppointmentService.list_pending_processes` ya no lo cuenta
     como "Por agendar" y estos tests de arrastre — que necesitan una fila
     arrastrable en la cola — dejarian de tener con que medir.
     """
@@ -58,7 +59,7 @@ def dia_con_citas(seed_phase_defs, seed_document_types, make_program, make_cohor
                 make_appointment(proc, when=datetime.combine(
                     _D, datetime.min.time()).replace(hour=hora))
             else:
-                make_survey_review(proc)
+                make_survey_review(proc, status="approved")
             procs[key] = proc
         return {"officer": officer, "cohort": cohort, "dia": dia, "procs": procs}
     return _build
@@ -206,9 +207,10 @@ def alumno_atendido(seed_phase_defs, seed_document_types, make_program, make_coh
                     make_survey_review):
     """Un alumno con cita `attended` a las 09:00 y la rejilla con lugares libres.
 
-    Lleva la encuesta enviada a proposito: `AppointmentService.create` exige la
-    solicitud ANTES que cualquier otra guarda (D2), asi que sin ella este test
-    fallaria por `SurveyNotSubmitted` y no por lo que viene a medir.
+    Lleva la encuesta LIBERADA a proposito (D1, revierte D2 del 2026-09-15):
+    `AppointmentService.create` exige la solicitud LIBERADA ANTES que
+    cualquier otra guarda, asi que sin ella este test fallaria por
+    `SurveyNotSubmitted`/`SurveyNotReleased` y no por lo que viene a medir.
     """
     # `OFFICER_PERMS` es el set de BANDEJA (solo lectura): el resto de este
     # archivo hace GETs de markup, asi que nunca necesito un permiso de
@@ -230,7 +232,7 @@ def alumno_atendido(seed_phase_defs, seed_document_types, make_program, make_coh
         proc = make_process(st, cohort=cohort, program=prog, current_phase=2)
         for code in ("birth_certificate", "high_school_cert", "curp"):
             make_document(proc, type_code=code, review_status="approved")
-        make_survey_review(proc)
+        make_survey_review(proc, status="approved")
         appt = make_appointment(proc, when=datetime.combine(
             _D, datetime.min.time()).replace(hour=9), status=status)
         return {"officer": officer, "proc": proc, "w": ventana, "appt": appt}

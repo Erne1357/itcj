@@ -101,6 +101,46 @@ class SurveyReviewService:
         return db.query(SurveyReview).filter_by(process_id=process_id).first()
 
     @staticmethod
+    def release_status(db: Session, process_id: int) -> str:
+        """Estado de LIBERACIÓN de la encuesta para la guarda dura de citas.
+
+        `'missing'` si el egresado no ha enviado nada (no existe fila);
+        si no, el `status` real de la solicitud: `'in_review'` | `'approved'`
+        | `'rejected'`. Fuente ÚNICA de esta comparación (spec
+        2026-09-29-titulatec-cotejo-espacios-design.md §2, D1): nadie más
+        debe comparar `SurveyReview.status == 'approved'` para decidir si se
+        puede agendar. Revierte D2 del 2026-09-15 («basta con enviarla»).
+        """
+        review = SurveyReviewService.get_for_process(db, process_id)
+        return review.status if review is not None else "missing"
+
+    @staticmethod
+    def release_status_map(db: Session, process_ids: list[int]) -> dict[int, str]:
+        """`release_status` para varios procesos EN LOTE (una sola consulta).
+
+        Para las filas de la cola: sin esto, pintar `survey_status` por fila
+        dispararía una consulta por alumno. Los ids ausentes en la tabla (el
+        egresado no ha enviado la encuesta) se completan como `'missing'`.
+        """
+        from itcj2.apps.titulatec.models import SurveyReview
+
+        if not process_ids:
+            return {}
+        filas = (db.query(SurveyReview.process_id, SurveyReview.status)
+                .filter(SurveyReview.process_id.in_(process_ids))
+                .all())
+        out = {pid: "missing" for pid in process_ids}
+        out.update({pid: status for pid, status in filas})
+        return out
+
+    @staticmethod
+    def is_released(db: Session, process_id: int) -> bool:
+        """¿GTV ya liberó la encuesta de este proceso? Azúcar sobre
+        `release_status`: la ÚNICA comparación con `'approved'` para esta
+        regla debe vivir aquí o en `release_status`, nunca reimplementada."""
+        return SurveyReviewService.release_status(db, process_id) == "approved"
+
+    @staticmethod
     def summary_for_process(db: Session, process_id: int) -> dict:
         """Foto plana de la solicitud para pintar en otras pantallas (checklist
         de Escolares, home del alumno). Nunca commitea ni siembra nada: es
