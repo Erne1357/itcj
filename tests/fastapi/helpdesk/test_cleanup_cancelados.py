@@ -37,7 +37,13 @@ VIVOS = ("PENDING", "ASSIGNED", "IN_PROGRESS", "RESOLVED_SUCCESS", "RESOLVED_FAI
 # Prefijo de los tickets que siembra el andamiaje. Es lo que separa «lo que esta
 # prueba creo» de los tickets REALES de la base de dev, y por lo que `_limpia`
 # puede devolver totales que no dependen de lo que haya en produccion.
-_PREFIJO = f"TST-CLEAN-{os.getpid()}-"
+#
+# Corto a proposito: `helpdesk_ticket.ticket_number` es `String(20)` y el PID no
+# tiene tope de 5 digitos. Con el prefijo viejo, `TST-CLEAN-{pid}-{n:04d}`, un PID
+# de 6 digitos (el contenedor de dev llego a 124189 tras muchas corridas) daba 21
+# caracteres y los 14 tests morian en el INSERT. `TCL-` + PID de hasta 7 digitos
+# (el `pid_max` de Linux es 4194304) + `-` + 4 del contador = 16 como maximo.
+_PREFIJO = f"TCL-{os.getpid()}-"
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +137,7 @@ def _limpia(db):
 
     Se sigue ejecutando la limpieza COMPLETA -eso es lo que hace la tarea y es lo
     que hay que probar-, pero los numeros que se devuelven se recortan a los
-    tickets que sembro el andamiaje, que llevan el prefijo `TST-CLEAN-<pid>-`.
+    tickets que sembro el andamiaje, que llevan el prefijo `TCL-<pid>-`.
     Lo real se borra igual, como siempre hizo esta prueba; lo que cambia es que
     ya no se cuenta.
     """
