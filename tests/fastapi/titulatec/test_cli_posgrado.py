@@ -1,5 +1,5 @@
 """Contrato del DML `posgrado_2026_10/` + comando `titulatec init-posgrado`
-(Tarea 7, spec 2026-09-30-titulatec-posgrado-design.md S 4.2/S 5/S 6).
+(Tarea 7, spec 2026-09-30-titulatec-posgrado-design.md §4.2/§5/§6).
 
 Por que existe
 --------------
@@ -15,7 +15,7 @@ viven en su propia subcarpeta con comando propio (D10, patron de
 nunca se re-ejecuta alli.
 
 `init-posgrado` tambien re-sincroniza la fase 1 de los procesos de posgrado
-que siguen en esa fase (S 5, regla R-G): `DocumentService.sync_initial_phase`
+que siguen en esa fase (§5, regla R-G): `DocumentService.sync_initial_phase`
 solo corre como efecto secundario de subir/borrar un documento, asi que
 clasificar la carrera no mueve por si sola a un proceso que ya estaba
 `in_review` esperando SOLO 3. Nunca toca un proceso cuya fase 1 ya cerro
@@ -55,7 +55,7 @@ requires_dml = pytest.mark.skipif(
     ),
 )
 
-# Los 4 patrones EXACTOS del 18 (spec S 4.2): (nivel esperado, patron1, patron2).
+# Los 4 patrones EXACTOS del 18 (spec §4.2): (nivel esperado, patron1, patron2).
 _PATRONES = (
     ("maestria", "MAESTRIA%", "%NEGOCIOS%"),
     ("maestria", "MAESTRIA%", "%ADMINISTRATIVA%"),
@@ -261,7 +261,7 @@ def test_el_18_aborta_sin_escribir_ante_un_casi_duplicado(db_session, make_progr
 
 
 # ---------------------------------------------------------------------------
-# `_resync_posgrado_phase1` (S 5, regla R-G / invariante 8)
+# `_resync_posgrado_phase1` (§5, regla R-G / invariante 8)
 # ---------------------------------------------------------------------------
 def test_resync_re_sincroniza_solo_posgrado_en_fase_1_y_respeta_dry_run(
     db_session, patched_session_local, make_program, make_user, make_process,
