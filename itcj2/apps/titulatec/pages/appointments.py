@@ -2114,6 +2114,7 @@ def space_save(
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
     from itcj2.apps.titulatec.services.review_window_service import ReviewWindowService
     from itcj2.apps.titulatec.services.scope_service import _program_ids_for_user
+    from itcj2.apps.titulatec.services.slot_service import SlotService
 
     if visibility not in _VISIBILIDADES:
         return Response(status_code=400, headers={
@@ -2125,7 +2126,30 @@ def space_save(
         # `capacity` efectiva (D3, spec §3.2): sin horario captura el cupo
         # TOTAL en «Personas en total»; con franjas, el de siempre («Personas
         # por franja»).
-        capacidad_cruda = capacity_total if visibility == "walkin" else capacity
+        #
+        # M-6 (revisión final): una PESTAÑA VIEJA -abierta antes de este
+        # deploy, blue/green (spec §7.3.4)- no conoce `capacity_total`: su
+        # formulario sigue mandando solo `capacity`, con la semántica de
+        # ANTES (por franja), y ese campo llega VACÍO. Tratarlo como cupo
+        # TOTAL sería catastrófico: al actualizar, `_to_int("") or 1`
+        # resetearía a 1 un espacio que ya tenía «Abrir más lugares»
+        # acumulados; al crear, nacería con un solo lugar en vez de uno por
+        # franja. Al ACTUALIZAR se conserva el `capacity` que la fila YA
+        # tiene (nadie lo tocó); al CREAR se reconstruye la semántica vieja
+        # -franjas × cupo por franja, la MISMA fórmula de la migración de
+        # solo datos `tt20260929a`- para que un alta desde una pestaña vieja
+        # siga dando lo que esa pantalla prometía.
+        capacity_total_raw = (capacity_total or "").strip()
+        if visibility == "walkin" and not capacity_total_raw:
+            if window_id == "nuevo":
+                franjas = len(SlotService.slots_from(
+                    start_time, end_time, _to_int(slot_minutes) or 30))
+                capacidad_cruda = str(max(1, franjas * (_to_int(capacity) or 1)))
+            else:
+                w_actual = ReviewWindowService.get(db, _to_int(window_id))
+                capacidad_cruda = str(w_actual.capacity) if w_actual else capacity
+        else:
+            capacidad_cruda = capacity_total if visibility == "walkin" else capacity
         campos = dict(
             start_time=start_time, end_time=end_time,
             slot_minutes=_to_int(slot_minutes) or 30,

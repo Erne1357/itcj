@@ -10,7 +10,7 @@ fixtures (`join_transaction_mode="create_savepoint"`, ver conftest); el
 savepoint anidado solo descarta el INSERT/UPDATE que fallo. Ver
 `test_review_window_model.py`.
 """
-from datetime import date
+from datetime import date, time
 from urllib.parse import unquote
 
 import pytest
@@ -220,6 +220,77 @@ def test_la_linea_de_agendable_cuenta_FRANJAS_no_CITAS(editor, client_as,
     assert "de 2 personas" in html, "el espacio nuevo no heredo el cupo 2 de la convocatoria"
     assert "10 franjas libres" in html
     assert "20 franjas libres" not in html, "la linea cuenta citas, no franjas"
+
+
+# ---------------------------------------------------------------------------
+# M-6 (revisión final): pestañas viejas tras el deploy
+# ---------------------------------------------------------------------------
+# Una pestaña abierta ANTES de esta entrega no conoce `capacity_total`: su
+# formulario manda solo `capacity` (semántica vieja, por franja) y
+# `capacity_total` llega VACÍO. `_form()` ya no incluye `capacity_total` en su
+# base -es justo lo que una pestaña vieja manda-, así que estos tests NO lo
+# agregan tampoco.
+
+def test_pestana_vieja_al_actualizar_un_walkin_conserva_capacity(
+        editor, client_as, db_session):
+    """Sin este fallback, `_to_int("") or 1` resetearía a 1 un espacio que ya
+    tenía lugares abiertos con «Abrir más lugares» -una pérdida silenciosa
+    justo en la ventana blue/green del deploy (spec §7.3.4)-."""
+    esc = editor
+    esc["w"].visibility = "walkin"
+    esc["w"].capacity = 12
+    db_session.flush()
+
+    resp = client_as(esc["off"]).post(_url(esc), data=_form(visibility="walkin"))
+
+    assert resp.status_code == 200, resp.text[:300]
+    db_session.expire_all()
+    assert esc["w"].capacity == 12, "la pestaña vieja reseteó el cupo acumulado"
+
+
+def test_pestana_vieja_al_crear_un_walkin_usa_franjas_por_capacity(
+        editor, client_as, db_session):
+    """Al CREAR no hay `w.capacity` que conservar: se reconstruye la
+    semántica vieja -franjas × cupo por franja, la MISMA fórmula de la
+    migración de solo datos `tt20260929a`-. 15:00 a 20:00 en pasos de 30 son
+    10 franjas (horario que NO se encima con `esc["w"]`, 09:00-14:00); con
+    `capacity=2` (por franja, el campo viejo) el total es 20."""
+    from itcj2.apps.titulatec.models import ReviewWindow
+
+    esc = editor
+    url = "/titulatec/admin/appointments/espacios/nuevo?v=espacios&date=%s" % _D.isoformat()
+
+    resp = client_as(esc["off"]).post(url, data=_form(
+        visibility="walkin", start_time="15:00", end_time="20:00",
+        slot_minutes="30", capacity="2"))
+
+    assert resp.status_code == 200, resp.text[:300]
+    creado = (db_session.query(ReviewWindow)
+              .filter(ReviewWindow.review_day_id == esc["dia"].id,
+                      ReviewWindow.owner_user_id == esc["off"].id,
+                      ReviewWindow.start_time == time(15, 0))
+              .order_by(ReviewWindow.id.desc()).first())
+    assert creado is not None, "no se creo el espacio"
+    assert creado.visibility == "walkin"
+    assert creado.capacity == 20, "franjas (10) x capacity (2), semantica vieja"
+
+
+def test_una_pestana_nueva_si_manda_capacity_total_y_esa_gana(
+        editor, client_as, db_session):
+    """Control positivo: con `capacity_total` presente (pestaña YA
+    actualizada), M-6 no aplica y el cupo se toma tal cual se mandó, aunque
+    sea distinto del `capacity` viejo que viaja oculto en el mismo form."""
+    esc = editor
+    esc["w"].visibility = "walkin"
+    esc["w"].capacity = 12
+    db_session.flush()
+
+    resp = client_as(esc["off"]).post(_url(esc), data=_form(
+        visibility="walkin", capacity="1", capacity_total="30"))
+
+    assert resp.status_code == 200, resp.text[:300]
+    db_session.expire_all()
+    assert esc["w"].capacity == 30
 
 
 # ---------------------------------------------------------------------------
