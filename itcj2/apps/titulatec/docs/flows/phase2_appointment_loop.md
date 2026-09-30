@@ -436,6 +436,12 @@ comportamiento actual, documentado para que nadie asuma otra cosa.
 > (D3/D4, spec 2026-09-29-titulatec-cotejo-espacios-design.md §3), un espacio Sin horario ya no es
 > un simple anuncio: cada lugar apartado crea un `ReviewAppointment` real, igual que una franja. Ver
 > «El modelo de la agenda» arriba.
+>
+> **Migración y reversión (I-4, revisión final):** ese cambio de semántica de `capacity` en los
+> `walkin` que ya existían en producción lo aplica la migración de solo datos `tt20260929a`
+> (`down_revision=tt20260928a`). El procedimiento completo de despliegue y reversión —incluido el
+> aviso de contrato de la ventana blue/green y el comando exacto de `alembic downgrade`— vive en
+> el `CLAUDE.md` de esta app (gitignored), §15.
 
 - **(a) El tablero no es en vivo.** No hay Socket.IO en esta app. Cancelar libera la franja en el
   acto, pero el encargado puede estar mirando un asiento que acaba de quedar libre; se resuelve en
