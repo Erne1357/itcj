@@ -488,8 +488,12 @@ def test_sin_inicio_de_fase_el_ancla_es_el_alta_del_proceso(db_session, en_docum
 
 
 def test_encuesta_enviada_no_recuerda(db_session, en_cotejo, make_survey_review):
-    """Con la encuesta enviada (cualquier estado de GTV) ya puede agendar: no hay
-    qué recordarle. Sin inicio de la fase 2 no hay ancla: se omite."""
+    """Con la encuesta enviada (cualquier estado de GTV) este recordatorio de
+    ENVÍO deja de aplicar: ya no hay qué empujar. M-8 (revisión final): esto
+    NO significa que ya pueda agendar -D1 (revierte D2 del 2026-09-15) exige
+    además que GTV la LIBERE-, solo que enviarla apaga esta bandeja en
+    concreto, que nunca vigiló la liberación. Sin inicio de la fase 2 no hay
+    ancla: se omite."""
     enviada = en_cotejo()
     make_survey_review(enviada)
     sin_inicio = en_cotejo(inicio=None)

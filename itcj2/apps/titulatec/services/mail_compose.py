@@ -485,8 +485,12 @@ def _compose_docs_reminder(db: Session, rows: list, process, user) -> Composed |
 
 def _compose_survey_reminder(db: Session, rows: list, process, user) -> Composed | Obsolete:
     """#11, recordatorio de la encuesta de egresados. Aplica si el proceso sigue
-    en la fase de la cita de cotejo sin haberla enviado (sin fila en
-    `titulatec_survey_reviews`: con ella ya puede agendar, D2). Lleva a la
+    en la fase de la cita de cotejo sin haber ENVIADO la encuesta (sin fila en
+    `titulatec_survey_reviews`). Deja de aplicar en cuanto la envía, sea cual
+    sea su estado después (M-8, revisión final: D1 -2026-09-29, revierte D2
+    del 2026-09-15- exige además que Gestión Tecnológica y Vinculación la
+    LIBERE antes de poder agendar; este recordatorio solo empuja el ENVÍO,
+    nunca la liberación, así que su predicado no cambia con D1). Lleva a la
     encuesta."""
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
