@@ -98,7 +98,9 @@
 {% else %}
   <div class="tt-card tt-card--hero">
     <div class="d-flex align-items-center justify-content-between">
-      <span class="tt-kicker">Tu cita de cotejo</span>
+      {# T9 (revisión final, spec §6): con una reserva sin horario (D3/D4) el
+         encabezado dice «apartado», no «cita»: no hay hora que citar. #}
+      <span class="tt-kicker">{% if appt.sin_horario %}Tu lugar está apartado{% else %}Tu cita de cotejo{% endif %}</span>
       {{ appt_pill(appt.status) }}
     </div>
     {# D11: `scheduled_label` ya trae «de HH:MM a HH:MM» en un lugar sin

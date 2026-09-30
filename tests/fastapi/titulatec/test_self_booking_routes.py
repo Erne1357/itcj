@@ -155,6 +155,22 @@ def test_apartar_lugar_en_un_walkin_ignora_el_slot_del_form(db_session, escena, 
         "la apertura, no los 10:45 que mando el formulario")
 
 
+def test_el_kicker_dice_tu_lugar_apartado_en_un_walkin(db_session, escena, client_as):
+    """T9 (revisión final, FIX BEFORE MERGE): con una reserva sin horario
+    (D3/D4), la tarjeta abre con «Tu lugar está apartado» (spec §6) y no con
+    «Tu cita de cotejo» -esa sigue siendo de una franja con hora, ver
+    `test_agendar_deja_la_cita_marcada_como_agendada_por_el_alumno`-."""
+    escena["w"].visibility = "walkin"
+    db_session.flush()
+
+    resp = client_as(escena["alumno"]).post(
+        AGENDAR, data={"window_id": str(escena["w"].id)})
+
+    assert resp.status_code == 200, _msg(resp) or resp.text[:300]
+    assert "Tu lugar está apartado" in resp.text
+    assert "Tu cita de cotejo" not in resp.text
+
+
 def test_apartar_lugar_en_un_walkin_sin_slot_en_el_form(db_session, escena, client_as):
     """El formulario de un `walkin` (Tarea 9) no manda `slot`: no hay hora que
     elegir. La ruta no debe exigirlo -`MissingSchedule` sería un error falso."""
@@ -272,6 +288,9 @@ def test_agendar_deja_la_cita_marcada_como_agendada_por_el_alumno(
     assert citas[0].created_by_id == escena["alumno"].id
     # Es un PARCIAL, no la pagina entera: el POST responde lo que se re-pinta.
     assert "<html" not in resp.text.lower()
+    # T9 (revisión final): con franja, el kicker sigue siendo el de siempre.
+    assert "Tu cita de cotejo" in resp.text
+    assert "Tu lugar está apartado" not in resp.text
 
 
 def test_agendar_una_franja_que_arranca_en_menos_de_una_hora(
