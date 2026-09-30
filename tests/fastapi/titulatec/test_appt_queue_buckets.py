@@ -676,3 +676,70 @@ def test_el_rechazado_con_encuesta_en_revision_no_se_arrastra(
     assert "data-tt-drag" not in fila, "arrastrable con la encuesta sin liberar"
     assert "En revisión" in fila
     assert "Encuesta pendiente" not in fila
+
+
+# ---------------------------------------------------------------------------
+# I-3 (revisión final): D1 tampoco había llegado a «Reagendar» -- un `no_show`
+# puede quedarse ahí meses después de que GTV liberó la encuesta la primera
+# vez (D2: su cita vieja no se toca), pero REAGENDAR abre un intento NUEVO y
+# ese vuelve a pasar por la guarda dura de `AppointmentService.create` (D1):
+# si GTV revocó la liberación mientras tanto, arrastrar la fila revienta con
+# `SurveyNotReleased`. Mismo molde que `rechazado_en_revision`.
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def reagendar_en_revision(seed_phase_defs, seed_document_types, make_program, make_cohort,
+                          make_review_day, make_student, make_process, make_document,
+                          make_appointment, make_officer, make_survey_review, db_session):
+    """Un `no_show` vigente con la encuesta `in_review`: la envió, GTV todavía
+    no la libera. `encuesta_sin_liberar` tiene que ser `True` -- no basta con
+    haberla enviado (D1)."""
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria del Reagendar en Revision")
+    cohort = make_cohort()
+    make_review_day(cohort, day=_D)
+    officer, pos = make_officer([prog])
+    student = make_student(first_name="ALUMNO", last_name="REAGENDARENREVISION")
+    proc = make_process(student, cohort=cohort, program=prog, current_phase=2)
+    for code in _INITIAL_DOCS:
+        make_document(proc, type_code=code, review_status="approved")
+    make_survey_review(proc, status="in_review")
+    make_appointment(proc, status="no_show", is_current=True)
+    db_session.flush()
+    return {"off": officer, "proc": proc}
+
+
+def test_el_reagendar_con_encuesta_en_revision_no_se_arrastra(
+        reagendar_en_revision, client_as):
+    """La fila de «Reagendar» pierde `data-tt-drag*` con la encuesta sin
+    liberar y avisa con la píldora de su estado real, pero conserva la
+    navegación: se puede seguir abriendo la ficha."""
+    esc = reagendar_en_revision
+    resp = client_as(esc["off"]).get(URL + "?date=" + _D.isoformat())
+    assert resp.status_code == 200
+    fila = _fila(resp.text, "appt-requeue-%d" % esc["proc"].id)
+
+    assert "data-tt-drag" not in fila, "arrastrable con la encuesta sin liberar"
+    assert "En revisión" in fila
+    assert "hx-get=" in fila and ("selected=" + str(esc["proc"].id)) in fila
+
+
+def test_el_reagendar_con_encuesta_liberada_se_arrastra(
+        reagendar_en_revision, db_session, client_as):
+    """Control positivo: SOLO con la encuesta LIBERADA la fila conserva el
+    arrastre -- mismo proceso, mismo molde que
+    `test_el_rechazado_con_encuesta_liberada_se_arrastra_y_muestra_el_motivo`."""
+    from itcj2.apps.titulatec.models import SurveyReview
+
+    esc = reagendar_en_revision
+    (db_session.query(SurveyReview)
+     .filter_by(process_id=esc["proc"].id)
+     .update({"status": "approved"}))
+    db_session.flush()
+
+    resp = client_as(esc["off"]).get(URL + "?date=" + _D.isoformat())
+    assert resp.status_code == 200
+    fila = _fila(resp.text, "appt-requeue-%d" % esc["proc"].id)
+
+    assert ('data-tt-drag="%d"' % esc["proc"].id) in fila
+    assert "En revisión" not in fila

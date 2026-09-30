@@ -327,9 +327,22 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
                   .filter_by(process_id=process_id,
                              phase_number=PhaseService.PHASE_COTEJO)
                   .scalar() == "rejected"))
+
+    # I-3 (revisión final): las dos formas de abrir un intento NUEVO —«Agendar
+    # a este alumno» y «Atender ahora»— pasarían por la guarda dura de
+    # `AppointmentService.create` (D1) y morirían con `SurveyNotSubmitted` /
+    # `SurveyNotReleased` si la encuesta de egresados no está LIBERADA. Sin
+    # esto la ficha ofrecía un botón que el servidor siempre iba a rechazar.
+    # Solo importa cuando de verdad se abriría un intento (`abriria_intento`):
+    # con una `attended` pendiente de dictamen o ya aprobada el encargado no
+    # va a agendar nada, así que el flag se queda apagado y no contradice la
+    # píldora que YA pinta el checklist de requisitos (`detail.survey`).
+    encuesta_liberada = SurveyReviewService.is_released(db, process_id)
+    encuesta_sin_liberar = abriria_intento and not encuesta_liberada
+
     hoy = db_now().date()
     walkins_hoy = []
-    if user_id is not None and abriria_intento:
+    if user_id is not None and abriria_intento and encuesta_liberada:
         cohort_activa = _active_cohort_id(db)
         fila_hoy = ReviewDayService.get(db, cohort_activa, hoy) if cohort_activa else None
         if fila_hoy is not None and not fila_hoy.is_closed:
@@ -366,6 +379,12 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
         "can_mark_reqs": can_mark_reqs,
         "survey": survey,
         "walkins_hoy": walkins_hoy,
+        # I-3: apaga «Agendar a este alumno» / «Atender ahora» en la plantilla
+        # cuando abrirían un intento que la guarda dura rechazaría.
+        # `survey_status` es el mismo `survey["status"]` de arriba — una sola
+        # lectura de la solicitud — para la píldora `survey_review_pill`.
+        "encuesta_sin_liberar": encuesta_sin_liberar,
+        "survey_status": survey["status"],
         # «Atender ahora» vuelve a la ficha en el dia de HOY, que es donde
         # queda la cita, no en el que se estaba mirando.
         "hoy": hoy.isoformat(),
@@ -956,7 +975,7 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         "pending_count": len(pendientes),
         "bloqueados": _proc_rows_bloqueados(db, bloqueados),
         "bloqueados_count": len(bloqueados),
-        "reagendar": _proc_rows(db, reagendar),
+        "reagendar": _proc_rows_reagendar(db, reagendar),
         "reagendar_count": len(reagendar),
         "rechazados": filas_rechazados,
         "rechazados_count": len(rechazados),
@@ -1077,6 +1096,30 @@ def _proc_rows_sin_encuesta(db, procs):
     estados = SurveyReviewService.release_status_map(db, [p.id for p in procs])
     for fila in filas:
         fila["survey_status"] = estados.get(fila["process_id"], "missing")
+    return filas
+
+
+def _proc_rows_reagendar(db, procs):
+    """Filas del cubo «Reagendar», con si la encuesta sigue LIBERADA (I-3).
+
+    Un `no_show` puede seguir aquí mucho después de que GTV liberó la
+    encuesta la primera vez -D2 dice que su cita vieja no se toca-, pero
+    REAGENDAR abre un intento NUEVO, y ese vuelve a pasar por la guarda dura
+    de `AppointmentService.create` (D1): si GTV revocó la liberación
+    mientras tanto, arrastrar esta fila a un lugar libre revienta con
+    `SurveyNotReleased`, un error que no explica nada en el contexto de "solo
+    no se presentó". Mismo patrón que `_proc_rows_rechazados`
+    (`SurveyReviewService.release_status_map`, en lote, una sola consulta).
+    """
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    filas = _proc_rows(db, procs)
+    if not filas:
+        return filas
+    estados = SurveyReviewService.release_status_map(db, [p.id for p in procs])
+    for fila in filas:
+        fila["survey_status"] = estados.get(fila["process_id"], "missing")
+        fila["encuesta_sin_liberar"] = fila["survey_status"] != "approved"
     return filas
 
 

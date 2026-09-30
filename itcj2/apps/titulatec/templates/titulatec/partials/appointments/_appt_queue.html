@@ -207,6 +207,13 @@
   </div>
   {% endif %}
 
+  {# «Reagendar»: un `no_show` puede seguir aquí mucho después de que GTV
+     liberó la encuesta la primera vez (D2: su cita vieja no se toca), pero
+     REAGENDAR abre un intento NUEVO y esa vuelve a pasar por la guarda dura
+     de `AppointmentService.create` (D1). El arrastre es CONDICIONAL, mismo
+     criterio que «Fase 02 rechazada» arriba: con `encuesta_sin_liberar` SIN
+     `draggable`/`data-tt-drag*` (revisión final, I-3) y con la píldora de su
+     estado real en su lugar; la ficha se sigue pudiendo abrir. #}
   {% if reagendar_count %}
   <div class="tt-card mt-3">
     <div class="tt-queue-head">
@@ -218,8 +225,10 @@
     <div class="tt-queue-list">
       {% for r in reagendar %}
       <a class="tt-appt-item" id="appt-requeue-{{ r.process_id }}"
+         {% if not r.encuesta_sin_liberar %}
          draggable="true" data-tt-drag="{{ r.process_id }}"
          data-tt-drag-name="{{ r.student }}"
+         {% endif %}
          {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ r.process_id) }}>
         {# La pastilla va DEBAJO, no al lado: en la columna de 320 px competia con
            el nombre y lo truncaba a "RODRIGO PENA N...". El nombre es el dato
@@ -228,6 +237,9 @@
           <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
           <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
         </span>
+        {% if r.encuesta_sin_liberar %}
+        {{ survey_review_pill(r.survey_status) }}
+        {% endif %}
       </a>
       {% endfor %}
     </div>

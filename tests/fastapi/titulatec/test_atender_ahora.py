@@ -493,6 +493,49 @@ def test_sin_tu_sin_horario_de_hoy_no_se_ofrece(db_session, esc, client_as,
     assert not _ficha(client_as, esc, p).xpath('.//*[starts-with(@id, "appt-atender-")]')
 
 
+@pytest.mark.parametrize("encuesta", ["in_review", "rejected"])
+def test_encuesta_sin_liberar_apaga_atender_ahora_y_agendar(
+        db_session, esc, client_as, make_appointment, encuesta):
+    """I-3 (revisión final): un `no_show` con la encuesta SIN LIBERAR (D1) es
+    justo el caso que `abriria_intento` marcaría para «Atender ahora» -pero
+    las dos guardas (`SurveyNotSubmitted`/`SurveyNotReleased`) lo rechazarían
+    igual que a «Agendar a este alumno». Ninguno de los dos botones se ofrece:
+    en su lugar, la píldora del estado real y el texto exacto."""
+    from itcj2.apps.titulatec.pages.appointments import _detail_ctx
+
+    p = esc["nuevo"](encuesta=encuesta)
+    _vigente(make_appointment, esc, p, "no_show")
+
+    ctx = _detail_ctx(db_session, p.id, user_id=esc["off"].id)
+    assert ctx["encuesta_sin_liberar"] is True
+    assert ctx["survey_status"] == encuesta
+    assert ctx["walkins_hoy"] == []
+
+    ficha = _texto(_ficha(client_as, esc, p))
+    assert "Atender ahora" not in ficha
+    assert "Agendar a este alumno" not in ficha
+    assert "Se podrá agendar cuando Gestión Tecnológica y Vinculación libere su encuesta." in ficha
+
+
+def test_encuesta_liberada_control_positivo_de_atender_ahora(
+        db_session, esc, client_as, make_appointment):
+    """Control positivo del test anterior: SOLO con la encuesta LIBERADA
+    vuelve «Atender ahora», y el aviso de bloqueo desaparece."""
+    from itcj2.apps.titulatec.pages.appointments import _detail_ctx
+
+    p = esc["nuevo"](encuesta="approved")
+    _vigente(make_appointment, esc, p, "no_show")
+
+    ctx = _detail_ctx(db_session, p.id, user_id=esc["off"].id)
+    assert ctx["encuesta_sin_liberar"] is False
+    assert ctx["walkins_hoy"] == [{"id": esc["w"].id, "horario": "08:00–14:00", "libres": 2}]
+
+    ficha = _ficha(client_as, esc, p)
+    assert ficha.xpath('.//form[@id="appt-atender-%d"]' % esc["w"].id)
+    assert ("Se podrá agendar cuando Gestión Tecnológica y Vinculación libere su encuesta."
+            not in _texto(ficha))
+
+
 # ===========================================================================
 # La línea de tiempo del alumno
 # ===========================================================================
