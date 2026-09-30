@@ -11,6 +11,7 @@ savepoint anidado solo descarta el INSERT/UPDATE que fallo. Ver
 `test_review_window_model.py`.
 """
 from datetime import date
+from urllib.parse import unquote
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -294,6 +295,10 @@ def test_el_editor_avisa_a_quien_no_tiene_carreras(editor_sin_carreras, client_a
 
     assert "tt-vis-aviso" in html, "no se avisa de que nadie vera el espacio"
     assert "ningún egresado lo verá" in html
+    # M-3 (revisión final): el aviso nombra los DOS modos publicados -antes
+    # solo decía «Agendable» en singular, aunque «Sin horario» se ofrece
+    # igual (fail-closed, Ruling 14)-.
+    assert "«Agendable» o «Sin horario»" in html
 
 
 def test_el_encargado_CON_carreras_no_ve_ese_aviso(editor, client_as):
@@ -321,6 +326,34 @@ def test_la_lista_repite_el_aviso_si_ya_hay_un_espacio_agendable(
         "/titulatec/admin/appointments?v=espacios&date=" + _D.isoformat()).text
 
     assert "ningún egresado los verá" in html
+
+
+def test_la_lista_repite_el_aviso_si_ya_hay_un_espacio_sin_horario(
+        editor_sin_carreras, client_as, db_session):
+    """M-3 (revisión final): la negativa de `bookable` de arriba tiene su
+    control positivo -antes el `selectattr` solo miraba `bookable`, así que un
+    «Sin horario» sin carreras asignadas se publicaba mudo-."""
+    esc = editor_sin_carreras
+    esc["w"].visibility = "walkin"
+    db_session.flush()
+
+    html = client_as(esc["off"]).get(
+        "/titulatec/admin/appointments?v=espacios&date=" + _D.isoformat()).text
+
+    assert "ningún egresado los verá" in html
+    assert "«Agendable» o «Sin horario»" in html
+
+
+def test_guardar_walkin_sin_carreras_avisa_en_el_toast(editor_sin_carreras, client_as):
+    """M-3 (revisión final): el toast del guardado (`space_save`) también
+    aplicaba el aviso SOLO a `bookable` (`avisa_sin_alcance`)."""
+    esc = editor_sin_carreras
+
+    resp = client_as(esc["off"]).post(_url(esc), data=_form(visibility="walkin"))
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert resp.headers["X-Tt-Notice-Kind"] == "warning"
+    assert "NINGÚN egresado lo verá" in unquote(resp.headers["X-Tt-Notice"])
 
 
 # ---------------------------------------------------------------------------

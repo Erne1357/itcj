@@ -2118,11 +2118,13 @@ def space_save(
             location=(location or None),
             visibility=visibility,
         )
-        # Ruling 14: `offer` es fail-closed, asi que un `bookable` de alguien sin
-        # carreras asignadas no se lo ofrece a NADIE. Se guarda igual —el
-        # predicado no cambia—, pero callarlo convierte un espacio publicado en
-        # un bug silencioso: el encargado cree que publico y no publico nada.
-        avisa_sin_alcance = (visibility == "bookable"
+        # Ruling 14: `offer` es fail-closed, asi que un espacio PUBLICADO -
+        # `bookable` O `walkin`, los dos se ofrecen (revisión final, M-3)- de
+        # alguien sin carreras asignadas no se lo ofrece a NADIE. Se guarda
+        # igual —el predicado no cambia—, pero callarlo convierte un espacio
+        # publicado en un bug silencioso: el encargado cree que publico y no
+        # publico nada.
+        avisa_sin_alcance = (visibility in ("bookable", "walkin")
                              and not _program_ids_for_user(db, uid))
         exito = ("Espacio guardado, pero NINGÚN egresado lo verá: no tienes "
                  "carreras asignadas. Pídele a la jefatura de Servicios "

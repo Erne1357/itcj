@@ -84,13 +84,14 @@
 
       {# Ruling 14: `offer` resuelve la carrera con el mismo predicado de
          alcance del encargado, así que quien no tiene carreras asignadas —la
-         jefatura, típicamente— puede publicar un «Agendable» que no le aparece
-         a NINGÚN egresado. Se mantiene fail-closed; lo que no se mantiene es
-         el silencio. #}
+         jefatura, típicamente— puede publicar un «Agendable» O un «Sin
+         horario» (revisión final, M-3: los dos se ofrecen igual) que no le
+         aparece a NINGÚN egresado. Se mantiene fail-closed; lo que no se
+         mantiene es el silencio. #}
       {% if espacios.sin_alcance %}
       <p class="tt-vis-aviso mb-0">
         <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>
-        No tienes carreras asignadas: si lo publicas como «Agendable»,
+        No tienes carreras asignadas: si lo publicas como «Agendable» o «Sin horario»,
         <strong>ningún egresado lo verá</strong>. Pídele a la jefatura de
         Servicios Escolares que te asigne las carreras que atiendes.
       </p>
