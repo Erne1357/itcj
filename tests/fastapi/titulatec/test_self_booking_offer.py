@@ -100,12 +100,14 @@ def test_el_walkin_viaja_con_lugares_y_reservable(db_session, publicado):
     assert ventana["capacity"] == 1
     assert ventana["places_left"] == 1
     assert ventana["reservable"] is True
+    assert ventana["motivo"] is None, "reservable: no hay motivo que dar"
     assert ventana["slots"] == [time(9, 0)], "la apertura, NUNCA una franja elegida"
 
 
 def test_el_walkin_lleno_no_es_reservable(db_session, publicado, make_survey_review):
     """`places_left` nunca negativo, y `reservable` sale de `slots` -nunca de
-    una cuenta aparte que pudiera divergir (D5)."""
+    una cuenta aparte que pudiera divergir (D5). I-2: sin lugares, `motivo`
+    es "lleno" -el encargado puede «Abrir más lugares»-."""
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
     publicado["w"].visibility = "walkin"
@@ -118,13 +120,16 @@ def test_el_walkin_lleno_no_es_reservable(db_session, publicado, make_survey_rev
 
     assert ventana["places_left"] == 0
     assert ventana["reservable"] is False
+    assert ventana["motivo"] == "lleno"
     assert ventana["slots"] == []
 
 
 def test_el_walkin_que_cierra_en_menos_de_una_hora_no_es_reservable(
         db_session, publicado, monkeypatch):
     """D5: el corte se mide contra el CIERRE (11:00), no contra la apertura
-    -que en un `walkin` ya pasó en cuanto el espacio abrió."""
+    -que en un `walkin` ya pasó en cuanto el espacio abrió. I-2: con lugar
+    libre pero fuera de la anticipación mínima, `motivo` es "cierra_pronto"
+    -no "lleno": abrir más lugares no arregla esto-."""
     monkeypatch.setattr(sb_mod, "db_now",
                         lambda: datetime.combine(_DIA, time(10, 15)))
     publicado["w"].visibility = "walkin"
@@ -134,6 +139,7 @@ def test_el_walkin_que_cierra_en_menos_de_una_hora_no_es_reservable(
 
     assert ventana["places_left"] == 1, "todavia hay lugar..."
     assert ventana["reservable"] is False, "...pero cierra en 45 minutos"
+    assert ventana["motivo"] == "cierra_pronto"
     assert ventana["slots"] == []
 
 

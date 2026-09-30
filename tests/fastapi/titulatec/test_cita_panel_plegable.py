@@ -210,6 +210,37 @@ def test_sin_horario_lleno_no_ofrece_boton(
     assert "Apartar mi lugar" not in resp.text
 
 
+def test_sin_horario_que_cierra_pronto_no_dice_lleno(
+        db_session, esc, client_as, make_officer, make_review_day, make_review_window,
+        monkeypatch):
+    """I-2 (revisión final): con lugares libres pero a menos de MIN_LEAD del
+    cierre, la pantalla NO dice «Lleno por ahora» -el encargado no puede
+    arreglar esto abriendo lugares- sino que ya cerró la reserva en línea, y
+    sin el conteo «N de M lugares» (que seguiría prometiendo cupo)."""
+    from datetime import datetime, time
+
+    import itcj2.apps.titulatec.services.self_booking_service as sb_mod
+
+    officer, pos = make_officer([esc["program"]])
+    dia = make_review_day(esc["cohort"])
+    ventana = make_review_window(dia, officer, position=pos,
+                                 start="08:00", end="14:00", cap=3)
+    ventana.visibility = "walkin"
+    db_session.flush()
+    # A las 13:30 faltan 30 min para el cierre (14:00): menos que el
+    # TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES por omisión (60).
+    monkeypatch.setattr(sb_mod, "db_now",
+                        lambda: datetime.combine(dia.date, time(13, 30)))
+
+    resp = client_as(esc["student"]).get(URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert "Ya no se aparta en línea: cierra a las 14:00." in resp.text
+    assert "Lleno por ahora" not in resp.text
+    assert "Apartar mi lugar" not in resp.text
+    assert "de 3 lugares" not in resp.text
+
+
 # ---------------------------------------------------------------------------
 # Bloqueado por D9: modo "presentarse", sin ningún botón
 # ---------------------------------------------------------------------------

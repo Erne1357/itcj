@@ -10,7 +10,9 @@
    Dos modos, decididos por `agenda.modo`:
 
    * `"agendar"` -- franjas (12 visibles + «Ver N horas más») Y espacios sin
-     horario («Apartar mi lugar» si `reservable`, si no «Lleno por ahora»).
+     horario («Apartar mi lugar» si `reservable`; si no, según `motivo` (I-2):
+     «Lleno por ahora» -con el conteo- o «Ya no se aparta en línea: cierra a
+     las {cierre}.» -sin el conteo, nadie puede abrir lugares para esto-).
    * `"presentarse"` -- el bloqueado por D9: SOLO ventanas sin horario, SIN
      ningún botón -perdió el derecho a reservar, no el de presentarse-, con el
      texto de presentarse.
@@ -102,7 +104,7 @@
            presentarse -ahí no hay cupo que reservar, solo llegar-. #}
         <div class="meta">
           <i class="bi bi-door-open" aria-hidden="true"></i>{{ w.range }}
-          {%- if agenda.modo == 'agendar' %} · {{ w.places_left }} de {{ w.capacity }} lugares{% endif -%}
+          {%- if agenda.modo == 'agendar' and w.motivo != 'cierra_pronto' %} · {{ w.places_left }} de {{ w.capacity }} lugares{% endif -%}
           {%- if w.location %} · <i class="bi bi-geo-alt" aria-hidden="true"></i>{{ w.location }}{% endif %}
         </div>
         {% if agenda.modo == 'presentarse' %}
@@ -115,6 +117,8 @@
           <button type="submit" class="btn btn-sm tt-btn-soft">
             <i class="bi bi-door-open me-1" aria-hidden="true"></i>Apartar mi lugar</button>
         </form>
+        {% elif w.motivo == 'cierra_pronto' %}
+        <span class="tt-pill tt-pill--neutral">Ya no se aparta en línea: cierra a las {{ w.cierre }}.</span>
         {% else %}
         <span class="tt-pill tt-pill--neutral">Lleno por ahora</span>
         {% endif %}

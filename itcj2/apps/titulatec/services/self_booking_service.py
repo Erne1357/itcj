@@ -366,7 +366,8 @@ class SelfBookingService:
                                        # SOLO en walkin (D3/D4, §3.3):
                                        "capacity": int,
                                        "places_left": int,
-                                       "reservable": bool}]}]}]
+                                       "reservable": bool,
+                                       "motivo": "lleno" | "cierra_pronto" | None}]}]}]
 
         Es el CATÁLOGO, no la puerta: quién puede reservar lo decide
         `eligibility`, y los dos se consumen juntos en la pantalla del alumno.
@@ -386,6 +387,16 @@ class SelfBookingService:
         diciendo «abierto sin cita, 09:00-11:00» y mandaría al egresado a
         caminar hasta un cubículo vacío. Vive aquí y no en la plantilla: la UI
         pinta lo que recibe, no filtra datos.
+
+        `motivo` (revisión final, I-2) distingue POR QUÉ un `walkin` no
+        `reservable` no lo es -«lleno» son cosas distintas para el egresado:
+        `"lleno"` (`places_left == 0`, el encargado puede «Abrir más
+        lugares») contra `"cierra_pronto"` (sobran lugares, pero
+        `ahora + MIN_LEAD` ya pasó del cierre: nadie puede abrir nada, el
+        espacio simplemente ya no acepta reservas en línea). `None` cuando SÍ
+        es reservable. Se deriva de `places_left`/`reservable`, nunca de una
+        cuenta aparte, por la misma razón que `reservable` se deriva de
+        `slots`.
 
         Una `bookable` sin franjas ofrecibles se omite: no es oferta, es ruido.
         """
@@ -432,6 +443,11 @@ class SelfBookingService:
                 # separadas un día divergen y el botón se pinta cuando el
                 # servidor ya va a rechazarlo.
                 item["reservable"] = bool(item["slots"])
+                # I-2 (revisión final): «lleno» (sin lugares, el encargado
+                # puede abrir más) es un caso distinto de «cierra pronto»
+                # (sobran lugares, pero ya no da tiempo de apartar en línea).
+                item["motivo"] = None if item["reservable"] else (
+                    "lleno" if item["places_left"] <= 0 else "cierra_pronto")
             por_dia.setdefault(dia.date, {}).setdefault(w.owner_user_id, []).append(item)
 
         salida = []

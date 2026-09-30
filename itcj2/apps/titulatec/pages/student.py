@@ -1375,6 +1375,10 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
                     "places_left": w.get("places_left") if es_walkin else None,
                     "capacity": w.get("capacity") if es_walkin else None,
                     "reservable": w.get("reservable") if es_walkin else None,
+                    # I-2 (revisión final): por qué no es reservable, y el
+                    # cierre ya formateado para el texto de «cierra pronto».
+                    "motivo": w.get("motivo") if es_walkin else None,
+                    "cierre": f'{w["end_time"]:%H:%M}' if es_walkin else None,
                 })
             if ventanas:
                 duenos.append({"owner_name": dueno["owner_name"], "windows": ventanas})
