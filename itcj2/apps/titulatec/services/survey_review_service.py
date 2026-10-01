@@ -16,6 +16,8 @@ Máquina de estados completa (modelo `SurveyReview`; detalle en
     rejected   ──Observar (reject, motivo)─────────────>  rejected   (actualiza el texto)
     approved   ──Revocar  (revoke, motivo)─────────────>  rejected   (solo si `can_revoke`)
     (constancia previa, register_prior) ───────────────>  approved   (sin pasar por in_review; D9, §4.12)
+    approved/prior ──Revocar (revoke, motivo)──────────>  (fila BORRADA: vuelve a `missing`,
+                                                           el egresado contesta; Ruling R22)
 
 Este service es el ÚNICO dueño de esas transiciones: nadie fuera de aquí debe
 mutar `SurveyReview.status`. Efecto sobre el requisito `graduate_survey`
@@ -415,10 +417,27 @@ class SurveyReviewService:
         return review
 
     @staticmethod
-    def revoke(db: Session, review_id: int, actor_id: int, reason: str) -> SurveyReview:
+    def revoke(db: Session, review_id: int, actor_id: int,
+               reason: str) -> SurveyReview | None:
         """Revoca una liberación (Revocar). Solo desde `approved` y solo si
         `can_revoke` (la fase 2 de ese proceso todavía no está `approved`).
-        Desacredita `graduate_survey` con `RequirementService.unfulfill`.
+        Desacredita `graduate_survey` con `RequirementService.unfulfill` y deja
+        `survey_review_revoked` (payload con `reason`, `origin` y `review_id`).
+
+        Una encuesta REAL (`origin='submission'`) queda `rejected` con el
+        motivo: su respuesta sigue guardada y GTV la puede volver a liberar.
+
+        Una constancia previa (`origin='prior'`, D9) NO tiene encuesta detrás
+        (`response_id` NULL): dejarla `rejected` atoraba al egresado para
+        siempre -`SurveyService.submit` corta mientras exista CUALQUIER fila y
+        la tarjeta pública le decía que ya no tenía que contestar-. Ruling R22
+        (I4 de la revisión final): tras el evento, el `unfulfill`, el aviso y
+        el correo (que le pide contestar la encuesta), la fila se BORRA y la
+        solicitud vuelve a `missing`; el egresado contesta normalmente. Sigue
+        siendo este service el único que la toca.
+
+        Devuelve la solicitud revocada, o `None` si era una previa (ya no
+        existe).
         """
         review = SurveyReviewService._locked_review(db, review_id)
         process = SurveyReviewService._active_process(db, review)
@@ -429,18 +448,22 @@ class SurveyReviewService:
         motivo = SurveyReviewService._clean_reason(reason)
         requirement = SurveyReviewService._graduate_survey_requirement(
             db, process.cohort_id)
+        origen = review.origin or "submission"
+        es_previa = origen == "prior"
 
-        review.status = "rejected"
-        review.rejection_reason = motivo
-        review.reviewed_by_id = actor_id
-        review.reviewed_at = db_now()
-        review.updated_at = db_now()
+        if not es_previa:
+            review.status = "rejected"
+            review.rejection_reason = motivo
+            review.reviewed_by_id = actor_id
+            review.reviewed_at = db_now()
+            review.updated_at = db_now()
 
         from itcj2.apps.titulatec.services.requirement_service import RequirementService
         RequirementService.unfulfill(db, process.id, requirement.id,
                                      actor_id=actor_id, commit=False)
         SurveyReviewService._log(db, process.id, actor_id, "survey_review_revoked",
-                                 {"reason": motivo})
+                                 {"reason": motivo, "origin": origen,
+                                  "review_id": review.id})
 
         # Anula la constancia vigente de esta solicitud, si la hubo. `void`
         # regresa `None` sin problema cuando `approve` nunca emitió una
@@ -457,12 +480,17 @@ class SurveyReviewService:
                        title="Se revocó la liberación de tu encuesta",
                        body=motivo, process_id=process.id, phase_number=PHASE_COTEJO)
 
-        # Correo (spec 2026-09-28 §5, #6): el motivo de la revocación.
+        # Correo (spec 2026-09-28 §5, #6): el motivo de la revocación; con
+        # `origin='prior'` le pide contestar la encuesta (Ruling R22).
         from itcj2.apps.titulatec.services.student_mail import StudentMail
-        StudentMail.survey_result(db, process, result="revoked", reason=motivo)
+        StudentMail.survey_result(db, process, result="revoked", reason=motivo,
+                                  origin=origen)
+
+        if es_previa:
+            db.delete(review)
 
         db.commit()
-        return review
+        return None if es_previa else review
 
     @staticmethod
     def can_revoke(db: Session, review) -> bool:

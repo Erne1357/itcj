@@ -430,6 +430,49 @@ def test_GET_con_constancia_previa_pinta_la_tarjeta_y_no_deja_contestar(
     assert "Gestión Tecnológica y Vinculación revisó" not in resp.text
 
 
+def test_revocar_una_previa_deja_contestar_la_encuesta(
+    client_as, make_student, make_process, make_cohort, make_survey_form, make_user,
+    db_session,
+):
+    """Ruling R22 (I4 de la revisión final): revocar una constancia previa la
+    BORRA (vuelve a `missing`), así que la página pública vuelve a ofrecer el
+    formulario -ya no la tarjeta de «ya quedó registrada»- y `submit` abre
+    una solicitud normal (`in_review`, `origin='submission'`) para GTV. Antes
+    quedaba `rejected`/`prior` sin respuesta y el egresado no podía avanzar."""
+    from unittest.mock import patch
+
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    from itcj2.core.utils.timezone import db_now
+
+    form = make_survey_form()
+    student = make_student()
+    proc = make_process(student, cohort=make_cohort(), current_phase=2)
+    gtv = make_user(first_name="GTV", last_name="REVOCA")
+    with patch("itcj2.apps.titulatec.services.notify.notify_student"):
+        previa = SurveyReviewService.register_prior(
+            db_session, proc, issued_on=db_now().date() - timedelta(days=30), note=None)
+        db_session.flush()
+        SurveyReviewService.revoke(db_session, previa.id, gtv.id,
+                                   "La constancia era de otro egresado.")
+
+    pagina = client_as(student).get(SURVEY_URL, follow_redirects=False)
+
+    assert pagina.status_code == 200, pagina.text[:500]
+    assert 'id="tt-survey-form"' in pagina.text
+    assert 'id="tt-survey-status"' not in pagina.text
+
+    response, errors, credit = SurveyService.submit(
+        db_session, form, ENVIO_OK, user_id=student.id, client_ip=None, user_agent=None)
+
+    assert errors == {}
+    assert credit == "in_review"
+    solicitudes = _reviews(db_session, process_id=proc.id)
+    assert len(solicitudes) == 1
+    assert solicitudes[0].status == "in_review"
+    assert solicitudes[0].origin == "submission"
+    assert solicitudes[0].response_id == response.id
+
+
 def test_POST_paso_con_solicitud_pinta_tarjeta_de_estatus_sin_validar_ni_escribir(
     client_as, make_student, make_process, make_cohort, make_survey_review,
     db_session,

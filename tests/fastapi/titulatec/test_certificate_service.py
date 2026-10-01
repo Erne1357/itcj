@@ -691,17 +691,22 @@ class TestGanchoGtv:
 
     def test_revocar_una_previa_sin_constancia_no_truena(
             self, db_session, gtv_escenario, make_survey_review):
+        """Una previa nunca emitió constancia: revocarla no tiene nada que
+        anular (`void` -> `None`) y, desde la Ruling R22, BORRA la solicitud
+        (vuelve a `missing`), así que `revoke` devuelve `None`."""
         from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
         process, gtv = gtv_escenario["process"], gtv_escenario["gtv"]
         review = make_survey_review(process, status="in_review")
         review.origin = "prior"
         db_session.flush()
+        review_id = review.id
 
         with patch(NOTIFY):
-            SurveyReviewService.approve(db_session, review.id, gtv.id)
-            resultado = SurveyReviewService.revoke(db_session, review.id, gtv.id, "motivo")
+            SurveyReviewService.approve(db_session, review_id, gtv.id)
+            resultado = SurveyReviewService.revoke(db_session, review_id, gtv.id, "motivo")
 
-        assert resultado.status == "rejected"
+        assert resultado is None
+        assert SurveyReviewService.get_for_process(db_session, process.id) is None
         assert (db_session.query(Certificate)
-               .filter_by(source_ref=f"survey_review:{review.id}").first()) is None
+               .filter_by(source_ref=f"survey_review:{review_id}").first()) is None

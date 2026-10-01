@@ -496,7 +496,9 @@ def _compose_survey(db: Session, rows: list, process, user) -> Composed | Obsole
       (GTV la revocó dentro de la espera), «liberó tu encuesta» es falso:
       obsoleto, y sale el correo de la revocación.
     Observaciones y revocación: el motivo, y la línea de contacto de D12 la
-    pinta la plantilla."""
+    pinta la plantilla. La revocación de una constancia previa (`origin=
+    'prior'`, Ruling R22) borró la solicitud: el correo le pide contestar la
+    encuesta y su botón lleva DIRECTO a ella, no al tablero."""
     from itcj2.apps.titulatec.services.clearance_gate import SURVEY_BLOCKERS
     from itcj2.apps.titulatec.services.phase_service import PhaseService
 
@@ -505,6 +507,7 @@ def _compose_survey(db: Session, rows: list, process, user) -> Composed | Obsole
     resultado, asunto = _GTV[fila.kind]
     origen = "prior" if datos.get("origin") == "prior" else "submission"
     falta = None
+    ruta = _tablero(PhaseService.PHASE_COTEJO)
     if resultado == "approved":
         bloqueos = _bloqueos(db, process)
         if any(codigo in SURVEY_BLOCKERS for codigo in bloqueos):
@@ -512,7 +515,9 @@ def _compose_survey(db: Session, rows: list, process, user) -> Composed | Obsole
         falta = _que_falta(db, process, bloqueos)
         if origen == "prior":
             asunto = _ASUNTO_ENCUESTA_PREVIA
-    return _correo(user, asunto, "survey_result.html", _tablero(PhaseService.PHASE_COTEJO),
+    elif resultado == "revoked" and origen == "prior":
+        ruta = _ENCUESTA
+    return _correo(user, asunto, "survey_result.html", ruta,
                    result=resultado, reason=_texto(datos.get("reason")),
                    origin=origen, falta=falta)
 

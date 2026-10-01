@@ -389,8 +389,10 @@ class StudentMail:
         `result="approved", origin="prior"` -el egresado no envió una
         encuesta real, trae su constancia del semestre anterior- y
         `survey_result.html` cambia el texto del resultado "approved" para
-        ese caso. `approve`/`reject`/`revoke` nunca lo pasan: se quedan en
-        el valor por omisión `"submission"`, el de siempre.
+        ese caso. `revoke` pasa el `origin` de la solicitud: con `"prior"`
+        (Ruling R22) la solicitud se borró y el correo le pide contestar la
+        encuesta. `approve`/`reject` nunca lo pasan: se quedan en el valor
+        por omisión `"submission"`, el de siempre.
         """
         from itcj2.apps.titulatec.models.survey_review import SURVEY_REVIEW_ORIGINS
 

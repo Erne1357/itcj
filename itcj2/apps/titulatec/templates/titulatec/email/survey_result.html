@@ -10,11 +10,15 @@
    estado VIVO del `ClearanceGate`).
    Observaciones o revocada: el motivo y, D12, «Para más información,
    contactar con servicio_ext@cdjuarez.tecnm.mx» (con su `mailto:`), en vez de
-   mandarlo a la ventanilla de GTV. #}
+   mandarlo a la ventanilla de GTV.
+   Revocada con `origin` = "prior" (Ruling R22): la solicitud se BORRÓ -no
+   había encuesta real detrás-, así que le pide contestar la encuesta en la
+   plataforma; `link` ya apunta a la encuesta y el botón lo dice. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
 {% block titulo %}{% if result == "approved" and origin == "prior" %}Tu encuesta de egresados quedó registrada como liberada{% elif result == "approved" %}GTV liberó tu encuesta de egresados{% elif result == "rejected" %}GTV dejó observaciones en tu encuesta{% else %}Se revocó la liberación de tu encuesta{% endif %} — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
+{% set previa_revocada = result == "revoked" and origin == "prior" %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 {% if result == "approved" %}
 {% if origin == "prior" %}
@@ -34,15 +38,24 @@
   {% if result == "rejected" -%}
   Gestión Tecnológica y Vinculación (GTV) revisó tu encuesta de egresados y
   <strong>dejó observaciones</strong>.
+  {%- elif previa_revocada -%}
+  Gestión Tecnológica y Vinculación (GTV) <strong>revocó la liberación</strong> que se
+  había registrado con tu constancia del semestre anterior.
   {%- else -%}
   Gestión Tecnológica y Vinculación (GTV) <strong>revocó la liberación de tu encuesta
   de egresados</strong>.
   {%- endif %}
 </p>
 {% if reason %}{{ m.motivo(reason, "Observaciones" if result == "rejected" else "Motivo") }}{% endif %}
+{% if previa_revocada %}
+<p style="margin:0 0 20px;">
+  Para continuar, <strong>contesta la encuesta de egresados en la plataforma</strong>; GTV
+  la revisará como cualquier otra.
+</p>
+{% endif %}
 <p style="margin:0 0 24px;">
   Para más información, contactar con <a href="mailto:servicio_ext@cdjuarez.tecnm.mx" style="color:#1F3D7A;">servicio_ext@cdjuarez.tecnm.mx</a>
 </p>
 {% endif %}
-{{ m.boton(link, "Ver mi proceso") }}
+{{ m.boton(link, "Contestar la encuesta" if previa_revocada else "Ver mi proceso") }}
 {% endblock %}

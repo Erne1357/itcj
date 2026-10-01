@@ -277,7 +277,10 @@ class TestRevoke:
 
         assert resultado.status == "rejected"
         assert resultado.rejection_reason == "Aclaración"
-        assert len(_events(db_session, process.id, "survey_review_revoked")) == 1
+        eventos = _events(db_session, process.id, "survey_review_revoked")
+        assert len(eventos) == 1
+        assert eventos[0].payload == {"reason": "Aclaración", "origin": "submission",
+                                      "review_id": review.id}
         mock_notify.assert_called_once()
         assert mock_notify.call_args.kwargs["type"] == "SURVEY_REVIEW_REVOKED"
         assert mock_notify.call_args.kwargs["body"] == "Aclaración"
@@ -288,6 +291,54 @@ class TestRevoke:
         req = next(r for r in CotejoRequirementService.list(db_session, process.cohort_id)
                    if r.auto_source == AUTO_SURVEY)
         assert _fulfillment(db_session, process.id, req.id) is None
+
+    def test_revocar_una_previa_la_borra_y_vuelve_a_sin_enviar(
+            self, db_session, escenario, monkeypatch):
+        """Ruling R22 (I4 de la revisión final): una liberación por constancia
+        previa (D9) no tiene encuesta real detrás. Dejarla `rejected` atoraba
+        al egresado para siempre (`SurveyService.submit` corta mientras exista
+        CUALQUIER fila). Revocarla deja el evento (con `origin`) y el
+        `unfulfill`, y BORRA la fila: la solicitud vuelve a `missing`."""
+        from datetime import timedelta
+
+        from itcj2.apps.titulatec.models import EmailOutbox
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        from itcj2.config import get_settings
+        from itcj2.core.utils.timezone import db_now
+
+        # Correo encendido sin depender del `.env` del contenedor.
+        monkeypatch.setattr(get_settings(), "TITULATEC_EMAIL_ENABLED", True)
+        process, gtv = escenario["process"], escenario["gtv"]
+        with patch(NOTIFY):
+            previa = SurveyReviewService.register_prior(
+                db_session, process, issued_on=db_now().date() - timedelta(days=30))
+        db_session.flush()
+        previa_id = previa.id
+        req = next(r for r in CotejoRequirementService.list(db_session, process.cohort_id)
+                   if r.auto_source == AUTO_SURVEY)
+        assert _fulfillment(db_session, process.id, req.id) is not None
+
+        with patch(NOTIFY) as aviso:
+            resultado = SurveyReviewService.revoke(
+                db_session, previa_id, gtv.id, "Número de control equivocado")
+
+        assert resultado is None, "la previa ya no existe: no hay solicitud que devolver"
+        assert SurveyReviewService.get_for_process(db_session, process.id) is None
+        assert SurveyReviewService.summary_for_process(db_session, process.id)["status"] == (
+            "missing")
+        assert _fulfillment(db_session, process.id, req.id) is None
+        eventos = _events(db_session, process.id, "survey_review_revoked")
+        assert [e.payload for e in eventos] == [
+            {"reason": "Número de control equivocado", "origin": "prior",
+             "review_id": previa_id}]
+        aviso.assert_called_once()
+        assert aviso.call_args.kwargs["type"] == "SURVEY_REVIEW_REVOKED"
+        db_session.flush()
+        correo = (db_session.query(EmailOutbox)
+                  .filter_by(process_id=process.id, kind="survey_revoked").one())
+        assert correo.payload["origin"] == "prior"
 
     def test_no_revoca_si_la_fase_2_ya_fue_aprobada(
             self, db_session, escenario, make_survey_review):

@@ -678,6 +678,48 @@ def test_constancia_previa_de_encuesta_usa_su_texto(db_session, con_biblioteca):
     assert "Para agendar te falta:" in texto
 
 
+def test_revocar_una_previa_pide_contestar_la_encuesta(db_session, proceso):
+    """Ruling R22 (I4): la revocación de una constancia previa BORRA la
+    solicitud; el correo lo dice -tiene que contestar la encuesta de
+    egresados en la plataforma-, lleva el motivo y la línea D12, y su botón
+    lleva directo a la encuesta (no al tablero)."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = proceso(fase=2)
+    StudentMail.survey_result(db_session, proc, result="revoked",
+                              reason="La constancia era de otro egresado.", origin="prior")
+
+    c = _componer(db_session, proc)
+    html = _html(c, estricto=True)
+    texto = _texto(html)
+
+    assert c.context["origin"] == "prior"
+    assert c.link == _liga("/titulatec/encuesta-egresados")
+    assert "revocó la liberación que se había registrado con tu constancia" in texto
+    assert "contesta la encuesta de egresados en la plataforma" in texto
+    assert "La constancia era de otro egresado." in texto
+    assert D12_TEXTO in texto and f'href="{MAILTO_GTV}"' in html
+    assert "Contestar la encuesta" in texto
+
+
+def test_revocar_una_liberacion_normal_no_pide_contestar_otra_vez(db_session, proceso,
+                                                                  make_survey_review):
+    """Control: la revocación de una encuesta REAL (la respuesta sigue
+    guardada) no le pide volver a contestarla y lleva al tablero."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = proceso(fase=2)
+    make_survey_review(proc, status="rejected")
+    StudentMail.survey_result(db_session, proc, result="revoked", reason="Motivo")
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    assert c.link == _liga("/titulatec/student/dashboard?fase=2")
+    assert "contesta la encuesta" not in texto
+    assert "Ver mi proceso" in texto
+
+
 def test_encuesta_que_ya_no_esta_liberada_es_obsoleta(db_session, proceso,
                                                      make_survey_review):
     """D11 se arma con el estado VIVO: si GTV la revocó dentro de la espera, el
