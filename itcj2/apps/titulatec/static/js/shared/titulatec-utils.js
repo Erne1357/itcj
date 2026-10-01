@@ -321,5 +321,65 @@
     }
   }
 
+  // ————————————————————————————————— `data-tt-count-into` — contador de lote
+  //
+  // Barras de accion en lote (p. ej. «Sin adeudo» de la bandeja de Biblioteca,
+  // spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.7) quieren mostrar
+  // «(N)» con cuantas filas estan marcadas, sin que cada bandeja reinvente el
+  // contador. Contrato, generico y reutilizable por cualquier bandeja futura:
+  //
+  //   <input type="checkbox" data-tt-count-into="#mi-badge" ...>
+  //   <button>Accion<span id="mi-badge"></span></button>
+  //
+  // Las casillas con el atributo se agrupan por el SELECTOR al que apuntan
+  // (varias barras en la misma pagina no se pisan entre si). El badge que ese
+  // selector resuelve recibe « (N)» cuando N > 0 y queda VACIO en N = 0 -nunca
+  // «(0)»: el servidor YA renderiza el badge vacio por la misma razon
+  // (degradacion con JS viejo en cache, ver abajo: un «(0)» fijo mentiria para
+  // siempre). Si el badge vive DENTRO de un <button>, ese boton se deshabilita
+  // en 0 y se vuelve a habilitar en cuanto hay alguno marcado.
+  //
+  // Grado de degradacion: el servidor NUNCA manda el boton deshabilitado -sin
+  // este script (JS viejo en cache, o que no llegue a cargar), el boton sigue
+  // sirviendo igual que siempre, nada mas sin el contador ni el
+  // auto-deshabilitado; la ruta ya responde 400 legible si se manda sin nada
+  // marcado.
+  //
+  // Se re-sincroniza en cada `change` de una casilla y en `htmx:afterSettle`:
+  // las bandejas re-pintan su parcial ENTERO en cada accion (pestana,
+  // busqueda, paginacion, la propia accion de lote) y el servidor manda las
+  // casillas siempre sin marcar -sin este segundo enganche el contador se
+  // quedaria pegado en el numero de ANTES del swap.
+  function _syncCountGroups() {
+    var casillas = document.querySelectorAll('[data-tt-count-into]');
+    if (!casillas.length) return;
+    var porDestino = {};
+    casillas.forEach(function (cb) {
+      var sel = cb.getAttribute('data-tt-count-into');
+      if (!sel) return;
+      if (!(sel in porDestino)) porDestino[sel] = 0;
+      if (cb.checked) porDestino[sel]++;
+    });
+    Object.keys(porDestino).forEach(function (sel) {
+      var badge = document.querySelector(sel);
+      if (!badge) return;
+      var n = porDestino[sel];
+      badge.textContent = n > 0 ? ' (' + n + ')' : '';
+      var boton = badge.closest('button');
+      if (boton) boton.disabled = (n === 0);
+    });
+  }
+  document.body.addEventListener('change', function (e) {
+    if (e.target && e.target.matches && e.target.matches('[data-tt-count-into]')) {
+      _syncCountGroups();
+    }
+  });
+  document.body.addEventListener('htmx:afterSettle', function () { _syncCountGroups(); });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _syncCountGroups);
+  } else {
+    _syncCountGroups();
+  }
+
   window.TitulaTecUtils = { showToast, confirmDialog, escapeHtml, decodeHeaderMsg };
 })();

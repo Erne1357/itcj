@@ -429,6 +429,31 @@ def test_concurrencia_otro_ya_registro_la_fila_responde_400(
 # ---------------------------------------------------------------------------
 # Lote «Sin adeudo» (D10)
 # ---------------------------------------------------------------------------
+def test_barra_de_lote_trae_el_gancho_de_conteo_y_badge_vacio(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """Fix round 1 (Important, plan-mandated, spec §4.7): la barra debe leer
+    «Sin adeudo (N)» con conteo EN VIVO de lo marcado. El servidor renderiza
+    el badge VACÍO a propósito -nunca «(0)» fijo, que mentiría para siempre
+    si el JS no llega a cargar- y cada casilla de lote lleva
+    `data-tt-count-into` apuntando a él; `titulatec-utils.js` (compartido,
+    cargado una sola vez por `base.html`) es quien lo llena en el navegador."""
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    make_process(make_student(control_number="99600065"), cohort=cohort, current_phase=1,
+                library_clearance="pending")
+
+    resp = client_as(staff).get(f"{URL}/body?status=pending")
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert '<span id="tt-lib-bulk-count"></span>' in resp.text, (
+        "el badge debe nacer vacío en el servidor (nunca un «(0)» fijo)")
+    assert 'data-tt-count-into="#tt-lib-bulk-count"' in resp.text, (
+        "la casilla de lote debe llevar el gancho genérico de conteo")
+    assert "Sin adeudo (seleccionados)" not in resp.text, (
+        "el label estático viejo (sin conteo en vivo) ya no debe aparecer")
+
+
 def test_lote_sin_adeudo_registra_varios_en_una_sola_peticion(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):

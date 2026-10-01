@@ -36,7 +36,15 @@
    aplicado al elemento que de verdad dispara la petición (ver docstring de
    `partials/survey_reviews_body.html`). Sin `<script>` inline ni
    `confirm()/alert()`: el puente `hx-confirm` -> modal ya existe
-   (`static/js/shared/titulatec-utils.js:265`). #}
+   (`static/js/shared/titulatec-utils.js:265`).
+
+   El badge `#tt-lib-bulk-count` nace VACÍO a propósito (nunca «(0)» fijo en
+   el servidor): `data-tt-count-into` en cada casilla de lote (comportamiento
+   genérico y compartido de `static/js/shared/titulatec-utils.js`, cargado una
+   sola vez por `base.html`) lo llena con «(N)» en vivo y deshabilita
+   `#tt-lib-bulk-btn` en 0. Degradación: sin ese script el botón sigue
+   sirviendo igual que siempre -la ruta ya responde 400 si se manda sin nada
+   marcado-, nada más sin el contador ni el auto-deshabilitado. #}
 {% from "titulatec/_macros.html" import library_clearance_pill %}
 {% macro tab_fields(tab, q, page) -%}
 <input type="hidden" name="status" value="{{ tab }}">
@@ -86,13 +94,19 @@
   <div id="tt-library-bulk-fields" class="d-none">{{ tab_fields(status, q, page) }}</div>
   <div class="tt-card mb-3 d-flex flex-wrap align-items-center gap-2">
     <span class="small text-body-secondary">Marca los egresados sin adeudo y regístralos de una vez.</span>
-    <button type="button" class="btn btn-sm tt-btn-ink ms-auto"
+    {# El badge nace VACÍO (nunca «(0)» fijo): `titulatec-utils.js`
+       (`data-tt-count-into`) lo llena con el conteo en vivo de casillas
+       marcadas y, con el, deshabilita el botón en 0. Sin ese script (JS
+       viejo en caché, o que no llegue a cargar) el botón sigue sirviendo
+       igual que siempre, nada más sin el contador ni el auto-deshabilitado:
+       la ruta ya responde 400 legible si se manda sin nada marcado. #}
+    <button type="button" id="tt-lib-bulk-btn" class="btn btn-sm tt-btn-ink ms-auto"
             hx-post="/titulatec/admin/biblioteca/registrar"
             hx-include="#tt-library-bulk-fields, [name='ids']:checked"
             hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="this"
             data-tt-confirm-ok="Sin adeudo"
             hx-confirm="Sin adeudo en lote|¿Marcar sin adeudo a los egresados seleccionados?">
-      <i class="bi bi-check2-all me-1"></i>Sin adeudo (seleccionados)
+      <i class="bi bi-check2-all me-1"></i>Sin adeudo<span id="tt-lib-bulk-count"></span>
     </button>
   </div>
   {% endif %}
@@ -114,7 +128,8 @@
       {% for r in rows %}
       <tr id="lib-{{ r.id }}">
         {% if status == 'pending' %}
-        <td><input type="checkbox" name="ids" value="{{ r.id }}" aria-label="Seleccionar a {{ r.student }}"></td>
+        <td><input type="checkbox" name="ids" value="{{ r.id }}" data-tt-count-into="#tt-lib-bulk-count"
+                   aria-label="Seleccionar a {{ r.student }}"></td>
         {% endif %}
         <td>{{ r.student }}</td>
         <td class="tt-mono">{{ r.control }}</td>
