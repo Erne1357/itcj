@@ -1,18 +1,33 @@
 {# Dictamen de GTV sobre la encuesta de egresados (spec 2026-09-28 §5,
    #4-#6). `result`: approved (liberada), rejected (observaciones) o revoked
    (se revocó la liberación). Con observaciones o revocada: el motivo y
-   «acude a la ventanilla de GTV». Contexto: first_name, link, result, reason. #}
+   «acude a la ventanilla de GTV». Contexto: first_name, link, result, reason
+   y -solo cuando `result == "approved"`- `origin` (D9, spec 2026-10-01-
+   titulatec-biblioteca-caja-design.md §4.11/§4.12): "prior" es una
+   constancia previa del semestre anterior, sin encuesta real ni dictamen de
+   GTV detrás. `origin` llega vía `payload["origin"]`
+   (`StudentMail.survey_result`); mientras `mail_compose.py::_compose_survey`
+   no lo pase al contexto (pendiente de otra tarea), `default('submission')`
+   mantiene el texto de siempre -- el filtro no revienta ni con
+   `StrictUndefined`. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
 {% block titulo %}{% if result == "approved" %}GTV liberó tu encuesta de egresados{% elif result == "rejected" %}GTV dejó observaciones en tu encuesta{% else %}Se revocó la liberación de tu encuesta{% endif %} — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 {% if result == "approved" %}
+{% if (origin | default('submission')) == 'prior' %}
+<p style="margin:0 0 24px;">
+  Tu encuesta de egresados del semestre anterior <strong>quedó registrada como liberada</strong>.
+  Lleva tu constancia física a tu cita de cotejo.
+</p>
+{% else %}
 <p style="margin:0 0 24px;">
   Gestión Tecnológica y Vinculación (GTV) <strong>liberó tu encuesta de egresados</strong>.
   Ya quedó acreditada en tu proceso como requisito de tu cita de cotejo.
   Ya puedes agendar tu cita de cotejo.
 </p>
+{% endif %}
 {% else %}
 <p style="margin:0 0 20px;">
   {% if result == "rejected" -%}

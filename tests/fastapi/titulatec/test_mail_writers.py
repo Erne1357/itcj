@@ -54,6 +54,10 @@ EVENTO_A_CORREO = {
     "survey_review_approved": "survey_result",
     "survey_review_rejected": "survey_result",
     "survey_review_revoked": "survey_result",
+    # Constancia previa (D9, Tarea 6): `register_prior` construye `SurveyReview`
+    # directo en `approved` y escribe este evento; el correo es el MISMO
+    # `survey_result` (con `origin="prior"` en el payload).
+    "survey_review_prior": "survey_result",
     "appointment_scheduled": "appointment_changed",
     "appointment_rescheduled": "appointment_changed",
     "appointment_cancelled": "appointment_changed",
@@ -68,6 +72,7 @@ MAPEO = {
     "SurveyReviewService.approve": "survey_result",
     "SurveyReviewService.reject": "survey_result",
     "SurveyReviewService.revoke": "survey_result",
+    "SurveyReviewService.register_prior": "survey_result",
     "AppointmentService.create": "appointment_changed",
     "AppointmentService.reschedule": "appointment_changed",
     "AppointmentService.cancel": "appointment_changed",

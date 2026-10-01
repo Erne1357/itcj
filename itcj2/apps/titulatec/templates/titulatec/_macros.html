@@ -71,11 +71,18 @@
    egresados (`SurveyReviewService`) a (texto, tono, icono). Incluye el
    PSEUDO-estado "missing" (el egresado todavía no envía la encuesta).
    NO reusa `estado_pill`: esa dice "Rechazado"/"Aprobado", y aquí GTV
-   "libera" u "observa" — vocabulario distinto para la misma forma visual. #}
-{% macro survey_review_pill(status) %}
+   "libera" u "observa" — vocabulario distinto para la misma forma visual.
+
+   `origin` (D9, spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.12):
+   gemelo de `library_clearance_pill(status, via=None)` — una solicitud
+   `approved`/`origin='prior'` (el egresado trae su constancia del semestre
+   anterior, sin encuesta real detrás) se distingue con su propia píldora en
+   vez de "Liberada". #}
+{% macro survey_review_pill(status, origin=None) %}
   {% if status == "missing" %}{{ pill("Encuesta pendiente", "neutral", "clipboard") }}
   {% elif status == "in_review" %}{{ pill("En revisión", "amber", "clock") }}
   {% elif status == "rejected" %}{{ pill("Con observaciones", "danger", "exclamation-triangle") }}
+  {% elif status == "approved" and origin == "prior" %}{{ pill("Constancia previa", "success", "file-earmark-check") }}
   {% elif status == "approved" %}{{ pill("Liberada", "success", "check-lg") }}
   {% else %}{{ pill(status, "neutral") }}{% endif %}
 {% endmacro %}

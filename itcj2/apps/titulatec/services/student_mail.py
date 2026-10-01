@@ -352,13 +352,29 @@ class StudentMail:
     @staticmethod
     @_best_effort
     def survey_result(db: Session, process, *, result: str,
-                      reason: str | None = None) -> bool:
-        """Dictamen de GTV sobre la encuesta (#4-#6): `result` ∈
-        approved|rejected|revoked → `survey_{result}`. Individual."""
+                      reason: str | None = None,
+                      origin: str = "submission") -> bool:
+        """Dictamen sobre la encuesta (#4-#6): `result` ∈
+        approved|rejected|revoked → `survey_{result}`. Individual.
+
+        `origin` (D9, spec `2026-10-01-titulatec-biblioteca-caja-design.md`
+        §4.11/§4.12) viaja en el payload junto con `reason`:
+        `SurveyReviewService.register_prior` llama con
+        `result="approved", origin="prior"` -el egresado no envió una
+        encuesta real, trae su constancia del semestre anterior- y
+        `survey_result.html` cambia el texto del resultado "approved" para
+        ese caso. `approve`/`reject`/`revoke` nunca lo pasan: se quedan en
+        el valor por omisión `"submission"`, el de siempre.
+        """
+        from itcj2.apps.titulatec.models.survey_review import SURVEY_REVIEW_ORIGINS
+
         if result not in _SURVEY_RESULTS:
             raise ValueError(f"resultado de GTV desconocido: {result!r}")
+        if origin not in SURVEY_REVIEW_ORIGINS:
+            raise ValueError(f"origen de encuesta desconocido: {origin!r}")
         return StudentMail.enqueue(
-            db, kind=f"survey_{result}", process=process, payload={"reason": reason})
+            db, kind=f"survey_{result}", process=process,
+            payload={"reason": reason, "origin": origin})
 
     @staticmethod
     @_best_effort

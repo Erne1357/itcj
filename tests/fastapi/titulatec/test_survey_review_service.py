@@ -511,6 +511,7 @@ class TestSummaryForProcess:
         assert resumen == {
             "status": "missing", "reason": None, "reviewed_by": None,
             "reviewed_at": None, "review_id": None, "response_id": None,
+            "origin": None,
         }
 
     def test_con_solicitud_en_revision(self, db_session, escenario, make_survey_review):

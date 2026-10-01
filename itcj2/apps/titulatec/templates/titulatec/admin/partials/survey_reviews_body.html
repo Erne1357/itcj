@@ -83,8 +83,8 @@
         <td>{{ r.cohort }}</td>
         <td class="tt-mono">{{ r.submitted }}</td>
         <td class="tt-mono">{{ '%02d'|format(r.current_phase) }}</td>
-        <td>{{ survey_review_pill(r.status) }}</td>
-        <td><a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas/{{ r.response_id }}">Ver respuestas</a></td>
+        <td>{{ survey_review_pill(r.status, origin=r.origin) }}</td>
+        <td>{% if r.response_id %}<a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas/{{ r.response_id }}">Ver respuestas</a>{% endif %}</td>
         <td>
           {% if r.revoked %}
             {% if r.status == 'rejected' and r.reason %}<p class="small mb-1">{{ r.reason }}</p>{% endif %}

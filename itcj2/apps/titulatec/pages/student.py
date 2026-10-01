@@ -314,6 +314,18 @@ _EVENT_LABELS = {
     "survey_review_approved":      "Gestión Tecnológica y Vinculación liberó tu encuesta",
     "survey_review_rejected":      "Gestión Tecnológica y Vinculación dejó observaciones",
     "survey_review_revoked":       "Se revocó la liberación de tu encuesta",
+    # Constancia previa de la encuesta (D9, spec 2026-10-01-titulatec-
+    # biblioteca-caja-design.md §4.12): `SurveyReviewService.register_prior`.
+    "survey_review_prior":         "Tu encuesta quedó liberada por tu constancia previa",
+    # ---- No adeudo de biblioteca (Biblioteca -> Caja), spec 2026-10-01 ----
+    "library_debt_registered":     "Biblioteca registró tu adeudo",
+    "library_no_charge":           "Biblioteca registró que no debes nada",
+    "library_amount_corrected":    "Biblioteca corrigió tu monto",
+    "library_payment_registered":  "Pagaste tu no adeudo en Caja",
+    "library_prior_registered":    "Registraste tu constancia previa de biblioteca",
+    "library_payment_reverted":    "Se revirtió tu pago de biblioteca",
+    "library_clearance_reverted":  "Se revirtió tu no adeudo de biblioteca",
+    "library_prior_undone":        "Se deshizo tu constancia previa de biblioteca",
 }
 
 

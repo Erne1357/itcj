@@ -18,6 +18,8 @@ anonymous`. Desaparecen `credited`, `already` y `no_requirement`.
 """
 from __future__ import annotations
 
+from datetime import date
+
 from itcj2.apps.titulatec.services.survey_service import SurveyService
 
 SURVEY_URL = "/titulatec/encuesta-egresados"
@@ -385,6 +387,32 @@ def test_GET_con_solicitud_pinta_tarjeta_de_estatus_sin_prellenado(
     assert "Debes Servicio Social." in resp.text
     assert _drafts(db_session, user_id=student.id) == []
     assert len(_responses(db_session, process_id=proc.id)) == 1   # la de la fixture
+
+
+def test_GET_con_constancia_previa_pinta_la_tarjeta_y_no_deja_contestar(
+    client_as, make_student, make_process, make_cohort, db_session,
+):
+    """D9 (spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.12): una
+    constancia previa (`SurveyReviewService.register_prior`, Tarea 6) deja
+    `origin='prior'`. La tarjeta de estatus es la MISMA ruta "con solicitud"
+    -nunca el formulario-, pero con su propio texto (nunca dice que GTV
+    revisó nada)."""
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    student = make_student()
+    proc = make_process(student, cohort=make_cohort())
+    SurveyReviewService.register_prior(
+        db_session, proc, issued_on=date(2026, 3, 1), note=None)
+    db_session.commit()
+
+    resp = client_as(student).get(SURVEY_URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert 'id="tt-survey-status"' in resp.text
+    assert 'id="tt-survey-form"' not in resp.text
+    assert 'data-tt-review-status="approved"' in resp.text
+    assert "semestre anterior" in resp.text
+    assert "Gestión Tecnológica y Vinculación revisó" not in resp.text
 
 
 def test_POST_paso_con_solicitud_pinta_tarjeta_de_estatus_sin_validar_ni_escribir(

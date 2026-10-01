@@ -21,6 +21,12 @@
    de `in_review|rejected|approved` -esta plantilla nunca se pinta para el
    pseudo-estado `missing` (ausencia de solicitud), que es justo el caso en
    el que se pinta el formulario en su lugar-.
+
+   `review.origin` (D9, spec 2026-10-01-titulatec-biblioteca-caja-design.md
+   §4.12): con `approved`, "prior" significa que no hubo encuesta real -SE (o
+   el desarrollador) cargó la constancia del semestre anterior por la CLI
+   `import-prior-clearances`-, así que el texto es otro y nunca menciona que
+   "GTV revisó" nada.
    =========================================================================== #}
 <div id="tt-survey-status" class="tt-card tt-card--hero tt-anim-in"
      role="status" data-tt-review-status="{{ review.status }}">
@@ -28,7 +34,11 @@
 
   {% if review.status == 'approved' %}
     <h2 class="tt-display h5 mt-1 mb-2">Tu encuesta ya fue liberada</h2>
+    {% if review.origin == 'prior' %}
+    <p class="mb-0">Tu encuesta del semestre anterior quedó registrada como liberada. Lleva tu constancia física a tu cita de cotejo; no tienes nada más que hacer aquí.</p>
+    {% else %}
     <p class="mb-0">Gestión Tecnológica y Vinculación revisó tu encuesta y la liberó{% if review.reviewed_at %} el {{ review.reviewed_at }}{% endif %}. No tienes nada más que hacer aquí; continúa con tu proceso de titulación en TitulaTec.</p>
+    {% endif %}
 
   {% elif review.status == 'rejected' %}
     <h2 class="tt-display h5 mt-1 mb-2">Tienes observaciones de Gestión Tecnológica y Vinculación</h2>

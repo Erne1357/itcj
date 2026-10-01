@@ -662,6 +662,21 @@ class ImportService:
                 # proceso que ya existia (re-importacion) no pasa por aqui.
                 LibraryClearanceService.open_for_process(db, proc, just_created=True)
 
+                # Constancias previas (D9, spec 2026-10-01-biblioteca-caja
+                # §4.12, Tarea 6): si Servicios Escolares (o el desarrollador,
+                # para la encuesta) ya habia cargado una `PriorClearance` de
+                # este numero de control ANTES de que el alumno se inscribiera
+                # -diferida por `PriorClearanceService.import_rows`-, se aplica
+                # AHORA que el proceso existe: encuesta -> `SurveyReview`
+                # aprobada; biblioteca -> `cleared/prior`. Va DESPUES del
+                # `open_for_process` de arriba (necesita la fila de biblioteca
+                # ya abierta) y sin commit propio, dentro de esta misma
+                # transaccion del lote.
+                from itcj2.apps.titulatec.services.prior_clearance_service import (
+                    PriorClearanceService,
+                )
+                PriorClearanceService.apply_pending(db, proc, control)
+
                 # Alta del alumno = el unico suceso de la fase 0. Sin el, el
                 # expediente empieza en blanco y no dice ni como entro.
                 db.add(ProcessEvent(

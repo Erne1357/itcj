@@ -13,6 +13,7 @@ Tarea 7. Aquí solo importa el CONJUNTO de permisos que el gate exige.
 from __future__ import annotations
 
 import re
+from datetime import date
 
 import pytest
 
@@ -326,6 +327,36 @@ def test_una_inscripcion_revocada_no_ofrece_acciones_y_se_etiqueta(
     assert "Revocada" in re.sub(r"<[^>]+>", " ", fila).split()
     assert "hx-post" not in fila
     assert "Fase 2 liberada" not in fila
+
+
+def test_una_constancia_previa_muestra_su_pildora_y_oculta_ver_respuestas(
+    client_as, db_session, make_gtv, make_student, make_process,
+):
+    """D9 (spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.12): una
+    liberación por constancia previa (`SurveyReviewService.register_prior`,
+    Tarea 6) sale en «Liberadas» con la píldora «Constancia previa» -no
+    «Liberada»- y SIN «Ver respuestas»: no hay `response_id`, no hay
+    encuesta real detrás. Se revoca igual que cualquier otra (sin cambios en
+    la ruta de `/revocar`)."""
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    gtv = make_gtv()
+    proc = make_process(make_student(control_number="99500070"), current_phase=1)
+    review = SurveyReviewService.register_prior(
+        db_session, proc, issued_on=date(2026, 3, 1), note=None)
+    db_session.flush()
+
+    resp = client_as(gtv).get(f"{URL}/body?status=approved&q=99500070")
+
+    assert resp.status_code == 200, resp.text[:500]
+    marca = f'id="tt-rev-{review.id}"'
+    assert marca in resp.text
+    fila = resp.text.split(marca, 1)[1].split("</tr>", 1)[0]
+    assert "Constancia previa" in fila
+    assert "Liberada</span>" not in fila
+    assert "Ver respuestas" not in fila
+    # Revocar sigue disponible (fase 2 en pending == can_revoke).
+    assert f"{URL}/{review.id}/revocar" in fila
 
 
 # ---------------------------------------------------------------------------

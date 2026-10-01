@@ -596,7 +596,9 @@ def _solicitud_existente(db, user: dict | None) -> dict | None:
 
     Con solicitud, el dict que devuelve `SurveyReviewService.
     summary_for_process` (llaves `status`, `reason`, `reviewed_by`,
-    `reviewed_at`, `review_id`, `response_id`) es SIEMPRE verdadero -nunca
+    `reviewed_at`, `review_id`, `response_id`, `origin` -D9, §4.12: "prior"
+    es una constancia previa del semestre anterior, sin encuesta real detrás-)
+    es SIEMPRE verdadero -nunca
     vacio-, asi que las rutas de abajo lo usan directo como condicion. Es el
     UNICO punto que consultan `survey` (GET), `survey_step` y `survey_draft`
     para cortar ANTES del presupuesto y de la validacion, y pintar la

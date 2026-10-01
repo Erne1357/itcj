@@ -1118,6 +1118,18 @@ _EVENT_UI = {
     "survey_review_approved":       ("GTV liberó la encuesta",    "patch-check",            "success"),
     "survey_review_rejected":       ("GTV dejó observaciones",    "chat-left-text",         "amber"),
     "survey_review_revoked":        ("Se revocó la liberación",   "arrow-counterclockwise", "amber"),
+    # Constancia previa de la encuesta (D9, spec 2026-10-01-titulatec-
+    # biblioteca-caja-design.md §4.12): `SurveyReviewService.register_prior`.
+    "survey_review_prior":          ("Se liberó por constancia previa", "file-earmark-check", "success"),
+    # ---- No adeudo de biblioteca (Biblioteca -> Caja), spec 2026-10-01 ----
+    "library_debt_registered":      ("Biblioteca registró el adeudo", "cash-coin",          "amber"),
+    "library_no_charge":            ("Biblioteca registró sin adeudo", "check2-square",     "success"),
+    "library_amount_corrected":     ("Biblioteca corrigió el monto", "pencil-square",       "amber"),
+    "library_payment_registered":   ("Caja registró el pago",     "cash-stack",             "success"),
+    "library_prior_registered":     ("Se registró una constancia previa", "file-earmark-check", "success"),
+    "library_payment_reverted":     ("Caja revirtió el pago",     "arrow-counterclockwise", "amber"),
+    "library_clearance_reverted":   ("Biblioteca revirtió la liberación", "arrow-counterclockwise", "amber"),
+    "library_prior_undone":         ("Se deshizo la constancia previa", "arrow-counterclockwise", "amber"),
 }
 
 # Estado de `EmailOutbox.status` -> (etiqueta, tono) para la píldora de la

@@ -12,6 +12,8 @@ Comandos:
     titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta y reintenta).
     titulatec init-email-tasks [--dry-run] Da de alta las periódicas de correo (envío + recordatorios).
     titulatec init-posgrado [--dry-run] [--allow-insert]  Clasifica las 4 carreras de posgrado y sus 4 documentos de fase 1.
+    titulatec init-biblioteca-caja [--dry-run]  Puestos/roles/permisos de Biblioteca-Caja + requisito automático.
+    titulatec import-prior-clearances --tipo encuesta|biblioteca ARCHIVO.csv [opts]  Constancias previas (D9).
 """
 import os
 from pathlib import Path, PurePosixPath
@@ -2298,6 +2300,116 @@ def init_biblioteca_caja_command(dry_run):
         "la base.",
         fg="green",
     ))
+
+
+# ---------------------------------------------------------------------------
+# Constancias previas (D9, spec 2026-10-01-titulatec-biblioteca-caja-design.md
+# §4.12, Tarea 6): base de encuestas del semestre anterior (`--tipo encuesta`)
+# o no adeudo de biblioteca ya pagado (`--tipo biblioteca`), por número de
+# control. TODA la lógica vive en `PriorClearanceService.import_rows`; este
+# comando solo lee el archivo y la imprime.
+# ---------------------------------------------------------------------------
+_IMPORT_PRIOR_ETIQUETAS = {
+    "applied": "Aplicadas",
+    "deferred": "Registradas para después",
+    "already": "Ya liberadas",
+    "conflicts": "Conflictos",
+    "expired": "Vencidas",
+    "invalid": "Inválidas",
+}
+_IMPORT_PRIOR_KIND = {"encuesta": "survey", "biblioteca": "library"}
+
+
+@titulatec_cli.command("import-prior-clearances")
+@click.argument("archivo", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--tipo", "tipo", type=click.Choice(["encuesta", "biblioteca"]),
+              required=True,
+              help="encuesta: liberación previa de GTV | biblioteca: no adeudo previo.")
+@click.option("--fecha", "fecha_fija", default=None,
+              help="AAAA-MM-DD: fecha de emisión para TODAS las filas "
+                   "(si el archivo no trae una columna de fecha).")
+@click.option("--columna-control", "columna_control", default=None,
+              help="Encabezado de la columna del número de control "
+                   "(si no se da, se autodetecta como en la importación de alumnos).")
+@click.option("--columna-fecha", "columna_fecha", default=None,
+              help="Encabezado de la columna con la fecha de emisión de cada fila.")
+@click.option("--dry-run", is_flag=True, help="Solo clasifica cada fila; no escribe nada.")
+def import_prior_clearances_command(archivo, tipo, fecha_fija, columna_control,
+                                    columna_fecha, dry_run):
+    """Carga constancias previas de no adeudo o de encuesta de egresados (D9).
+
+    El egresado YA traía, de ANTES de este sistema, su liberación -otro
+    semestre, en papel, en el sistema legado-: Servicios Escolares (o el
+    desarrollador, para la base completa de encuestas del semestre anterior)
+    entrega un CSV con el número de control y la fecha de emisión de cada
+    constancia. Por fila (`PriorClearanceService.import_rows`):
+
+    \b
+    - con un proceso ABIERTO (activo/en pausa, fase 2 sin aprobar) para ese
+      control -> se aplica YA (Aplicadas).
+    - sin proceso -> se difiere; se aplica sola cuando el alumno se inscriba
+      (Registradas para después).
+    - ya estaba liberado -> Ya liberadas.
+    - encuesta con una solicitud en revisión u observada -> Conflictos (lo
+      decide GTV desde su bandeja, no esta CLI).
+    - `issued_on` con más de 365 días -> Vencidas.
+    - número de control o fecha inválidos -> Inválidas.
+
+    La columna del número de control se autodetecta (mismo heurístico que la
+    importación de alumnos) o se fija con `--columna-control`. La fecha sale
+    de `--columna-fecha` (una por fila) o de `--fecha` (fija para todas);
+    falta una de las dos -> error, sin leer ni clasificar ninguna fila.
+
+    `--dry-run`: clasifica TODO -incluida la búsqueda del proceso abierto-
+    pero no escribe nada, ni siquiera un alta idempotente de la fila de
+    biblioteca.
+    """
+    from itcj2.apps.titulatec.services.import_service import ImportService
+    from itcj2.apps.titulatec.services.prior_clearance_service import PriorClearanceService
+    from itcj2.database import SessionLocal
+
+    kind = _IMPORT_PRIOR_KIND[tipo]
+    ruta = Path(archivo)
+    headers, raw_rows = ImportService.parse(ruta.read_bytes())
+    if not headers:
+        raise click.ClickException(f"{archivo}: no se pudo leer ningún encabezado.")
+
+    col_control = columna_control or ImportService.autodetect_mapping(headers).get(
+        "control_number")
+    if not col_control or col_control not in headers:
+        raise click.ClickException(
+            "No se pudo detectar la columna del número de control; "
+            "pásala con --columna-control.")
+    if columna_fecha and columna_fecha not in headers:
+        raise click.ClickException(
+            f"La columna de fecha {columna_fecha!r} no existe en el archivo.")
+    if not columna_fecha and not fecha_fija:
+        raise click.ClickException(
+            "Falta la fecha de emisión: pasa --columna-fecha (una por fila) "
+            "o --fecha AAAA-MM-DD (fija para todas las filas).")
+
+    rows = [
+        {"control_number": r.get(col_control, ""),
+         "issued_on": (r.get(columna_fecha) if columna_fecha else fecha_fija)}
+        for r in raw_rows
+    ]
+
+    db = SessionLocal()
+    try:
+        resultado = PriorClearanceService.import_rows(
+            db, kind=kind, rows=rows, source=ruta.name, dry_run=dry_run)
+    finally:
+        db.close()
+
+    prefijo = "[dry-run] " if dry_run else ""
+    click.echo(f"{prefijo}{tipo}: {len(rows)} fila(s) de {ruta.name}.")
+    for bote, etiqueta in _IMPORT_PRIOR_ETIQUETAS.items():
+        filas = resultado[bote]
+        click.echo(f"  {etiqueta}: {len(filas)}")
+        for fila in filas:
+            click.echo(f"    · {fila['control_number']}: {fila['reason']}")
+    if dry_run:
+        click.echo("Dry-run: no se escribió nada.")
 
 
 # ---------------------------------------------------------------------------

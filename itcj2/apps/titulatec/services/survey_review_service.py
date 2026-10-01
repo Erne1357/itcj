@@ -15,11 +15,17 @@ Máquina de estados completa (modelo `SurveyReview`; detalle en
     rejected   ──Liberar  (approve)───────────────────>  approved   (sin acción del egresado)
     rejected   ──Observar (reject, motivo)─────────────>  rejected   (actualiza el texto)
     approved   ──Revocar  (revoke, motivo)─────────────>  rejected   (solo si `can_revoke`)
+    (constancia previa, register_prior) ───────────────>  approved   (sin pasar por in_review; D9, §4.12)
 
 Este service es el ÚNICO dueño de esas transiciones: nadie fuera de aquí debe
 mutar `SurveyReview.status`. Efecto sobre el requisito `graduate_survey`
 (§4.3): `approve` lo `fulfill`-ea, `revoke` lo `unfulfill`-ea; `reject` nunca lo
 toca (ni desde `in_review` ni desde `rejected` hay cumplimiento que tocar).
+`register_prior` (D9, §4.12) es la sexta transición: un camino aparte que NO
+pasa por `in_review` -no hay encuesta real detrás-, solo la usa
+`PriorClearanceService` (CLI `titulatec import-prior-clearances`, nunca una
+ruta) y acredita el requisito con `external_ref=f"survey_prior:{id}"` (no
+`survey_review:{id}`, para que el cumplimiento diga de dónde vino).
 
 Gancho de constancias (spec `2026-10-01-titulatec-biblioteca-caja-design.md`
 §4.5, D7/D21/D22): `approve` emite la constancia `survey_release` vía
@@ -53,6 +59,8 @@ Reglas fijas, iguales a `RequirementService`/`PhaseService`:
   de los dos lados cerraría un ciclo.
 """
 from __future__ import annotations
+
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, aliased
@@ -164,7 +172,8 @@ class SurveyReviewService:
         review = SurveyReviewService.get_for_process(db, process_id)
         if review is None:
             return {"status": "missing", "reason": None, "reviewed_by": None,
-                    "reviewed_at": None, "review_id": None, "response_id": None}
+                    "reviewed_at": None, "review_id": None, "response_id": None,
+                    "origin": None}
 
         reviewer = db.get(User, review.reviewed_by_id) if review.reviewed_by_id else None
         return {
@@ -175,6 +184,10 @@ class SurveyReviewService:
                            if review.reviewed_at else None),
             "review_id": review.id,
             "response_id": review.response_id,
+            # 'submission' | 'prior' (D9, §4.12): la tarjeta de estatus pública
+            # (`partials/survey_status.html`) y la bandeja de GTV lo usan para
+            # distinguir una liberación real de una constancia previa.
+            "origin": review.origin,
         }
 
     # ------------------------------------------------------------- transiciones
@@ -211,6 +224,84 @@ class SurveyReviewService:
                                  {"review_id": review.id, "response_id": response.id})
         if commit:
             db.commit()
+        return review
+
+    @staticmethod
+    def register_prior(db: Session, process, *, issued_on: date,
+                       note: str | None = None,
+                       actor_id: int | None = None) -> SurveyReview:
+        """Constancia previa de la encuesta (D9, spec `2026-10-01-titulatec-
+        biblioteca-caja-design.md` §4.12): el egresado YA traía, de ANTES de
+        este sistema, su liberación de encuesta -otro semestre, en papel-.
+        Crea DIRECTO una solicitud `approved`/`origin='prior'`, sin encuesta
+        real detrás (`response_id=None`). La llama `PriorClearanceService`
+        (`import_rows`/`apply_pending`), NUNCA una ruta: no hay UI que
+        registre esto a mano (solo la CLI `titulatec
+        import-prior-clearances`), así que el proceso siempre llega ya
+        validado como "abierto" por el llamador, pero esta transición vuelve
+        a comprobar TODO por su cuenta (defensa en profundidad, igual que el
+        resto de la app).
+
+        `issued_on` obligatoria, no futura y vigente (`>= hoy -
+        PRIOR_VALIDITY_DAYS`, el MISMO límite que
+        `LibraryClearanceService.PRIOR_VALIDITY_DAYS`: exactamente 365 días
+        vale, 366 no). Acredita `graduate_survey` con
+        `external_ref=f"survey_prior:{review.id}"` -DISTINTO del
+        `survey_review:{id}` que usa `approve()`, para que el cumplimiento
+        diga de dónde vino-. NUNCA emite la constancia `survey_release`: el
+        egresado trae su papel (gancho en `approve()`, que nunca se llama
+        aquí).
+
+        SIN commit: el llamador (`PriorClearanceService`) es dueño de la
+        transacción completa del lote; aquí solo se hace `flush()` para que
+        `review.id` exista antes del evento y del cumplimiento.
+        """
+        from itcj2.apps.titulatec.models import SurveyReview
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            PRIOR_VALIDITY_DAYS,
+        )
+
+        if process.status not in ("active", "on_hold"):
+            raise ValueError(
+                f"El proceso ya no admite cambios (estado: {process.status}).")
+        if SurveyReviewService.get_for_process(db, process.id) is not None:
+            raise ValueError(
+                "Ya existe una solicitud de liberación para este proceso.")
+        fecha = SurveyReviewService._check_prior_date(issued_on, PRIOR_VALIDITY_DAYS)
+        nota = SurveyReviewService._clean_note(note)
+        requirement = SurveyReviewService._graduate_survey_requirement(
+            db, process.cohort_id)
+
+        ahora = db_now()
+        review = SurveyReview(
+            process_id=process.id, response_id=None, status="approved",
+            origin="prior", prior_issued_on=fecha, rejection_reason=None,
+            reviewed_by_id=actor_id, reviewed_at=ahora,
+            submitted_at=ahora, updated_at=ahora,
+        )
+        db.add(review)
+        db.flush()                      # necesitamos `review.id` para el evento
+
+        from itcj2.apps.titulatec.services.requirement_service import RequirementService
+        RequirementService.fulfill(
+            db, process.id, requirement.id, source="system", checked_by_id=actor_id,
+            external_ref=f"survey_prior:{review.id}", commit=False,
+        )
+        SurveyReviewService._log(db, process.id, actor_id, "survey_review_prior",
+                                 {"review_id": review.id, "issued_on": fecha.isoformat(),
+                                  "note": nota})
+
+        from itcj2.apps.titulatec.services.notify import notify_student
+        notify_student(db, process.student_id, type="SURVEY_REVIEW_APPROVED",
+                       title="Tu encuesta de egresados quedó liberada",
+                       body="Se registró tu constancia previa; llévala a tu cita de cotejo.",
+                       process_id=process.id, phase_number=PHASE_COTEJO)
+
+        # Correo (spec §4.11/§4.12): `origin='prior'` cambia el texto del
+        # resultado "approved" a la variante de constancia previa.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.survey_result(db, process, result="approved", origin="prior")
+
         return review
 
     @staticmethod
@@ -468,6 +559,10 @@ class SurveyReviewService:
                              if review.submitted_at else ""),
                 "current_phase": process.current_phase,
                 "status": review.status,
+                # 'submission' | 'prior' (D9, §4.12): la plantilla pinta la
+                # píldora «Constancia previa» y oculta «Ver respuestas»
+                # (`response_id` es NULL en una previa).
+                "origin": review.origin,
                 "reason": review.rejection_reason,
                 "reviewed_by": reviewer.full_name if reviewer else None,
                 "reviewed_at": (f"{review.reviewed_at:%d/%m/%Y}"
@@ -532,3 +627,31 @@ class SurveyReviewService:
         if len(limpio) > REASON_MAX:
             raise ValueError(f"El motivo no puede superar los {REASON_MAX} caracteres.")
         return limpio
+
+    @staticmethod
+    def _clean_note(note: str | None) -> str | None:
+        """Nota opcional de una constancia previa: recortada; en blanco ->
+        `None`; <= `REASON_MAX` caracteres. Gemela de
+        `LibraryClearanceService._clean_note`."""
+        limpio = (note or "").strip()
+        if len(limpio) > REASON_MAX:
+            raise ValueError(f"La nota no puede superar los {REASON_MAX} caracteres.")
+        return limpio or None
+
+    @staticmethod
+    def _check_prior_date(issued_on, validity_days: int) -> date:
+        """`issued_on` de una constancia previa (D9): obligatoria, no futura
+        y vigente (`>= hoy - validity_days`). Gemela de
+        `LibraryClearanceService._check_prior_date`."""
+        if issued_on is None:
+            raise ValueError("Escribe la fecha de la constancia previa.")
+        if isinstance(issued_on, datetime):
+            issued_on = issued_on.date()
+        if not isinstance(issued_on, date):
+            raise ValueError("La fecha de la constancia previa no es válida.")
+        hoy = db_now().date()
+        if issued_on > hoy:
+            raise ValueError("La fecha de la constancia previa no puede ser futura.")
+        if issued_on < hoy - timedelta(days=validity_days):
+            raise ValueError("La constancia venció: tiene más de un año.")
+        return issued_on

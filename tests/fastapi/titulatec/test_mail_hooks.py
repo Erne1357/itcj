@@ -259,9 +259,9 @@ def test_gtv_liberar_observar_revocar_encolan(db_session, make_student, make_pro
 
     filas = _outbox(db_session, proc.id)
     assert [(f.kind, f.payload, f.group_key) for f in filas] == [
-        ("survey_rejected", {"reason": "Debe Servicio Social"}, None),
-        ("survey_approved", {"reason": None}, None),
-        ("survey_revoked", {"reason": "Se liberó por error"}, None),
+        ("survey_rejected", {"reason": "Debe Servicio Social", "origin": "submission"}, None),
+        ("survey_approved", {"reason": None, "origin": "submission"}, None),
+        ("survey_revoked", {"reason": "Se liberó por error", "origin": "submission"}, None),
     ]
 
 

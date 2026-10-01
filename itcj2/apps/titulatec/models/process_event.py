@@ -54,6 +54,19 @@ EVENT_TYPES = frozenset({
     "survey_review_approved",
     "survey_review_rejected",
     "survey_review_revoked",
+    # Constancia previa de la encuesta (D9, spec 2026-10-01-titulatec-
+    # biblioteca-caja-design.md §4.12): `SurveyReviewService.register_prior`.
+    "survey_review_prior",
+    # No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-
+    # design.md §4.2/§4.12): los 8 que escribe `LibraryClearanceService`.
+    "library_debt_registered",
+    "library_no_charge",
+    "library_amount_corrected",
+    "library_payment_registered",
+    "library_prior_registered",
+    "library_payment_reverted",
+    "library_clearance_reverted",
+    "library_prior_undone",
 })
 
 
