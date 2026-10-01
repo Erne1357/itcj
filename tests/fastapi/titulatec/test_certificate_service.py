@@ -13,10 +13,14 @@ El PDF es aparte (`test_certificate_pdf.py`).
 """
 from __future__ import annotations
 
+import threading
+import time
 from datetime import datetime
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.orm import sessionmaker
 
 from itcj2.apps.titulatec.models import Certificate
 from itcj2.apps.titulatec.services.certificate_service import CERT_KINDS, CertificateService
@@ -186,6 +190,115 @@ class TestIssueNumeracion:
         with pytest.raises(ValueError):
             CertificateService.issue(db_session, kind="otra_cosa", process=escenario["process"],
                                      source_ref="x:1", actor_id=1)
+
+    def test_dos_conexiones_reales_simultaneas_numeran_sin_colision(self, _pg_engine):
+        """Review Focus #6 («emisiones simultáneas»): DOS conexiones REALES
+        a Postgres (no el `db_session` de SAVEPOINTs del resto del archivo,
+        que comparte una sola conexión física y no puede modelar bloqueo
+        entre transacciones) numerando el MISMO `(kind, year)` a la vez.
+
+        No basta con lanzar dos hilos y esperar que no truenen -- eso
+        pasaría igual aunque el segundo nunca tocara el lock del primero.
+        Este test CONFIRMA con `pg_stat_activity` que el hilo B de verdad
+        quedó bloqueado (`wait_event_type = 'Lock'`) esperando el renglón
+        que el hilo A todavía no suelta, y SOLO ENTONCES deja que A comitee
+        -- así el `{1, 2}` de abajo prueba la atomicidad del
+        `INSERT ... ON CONFLICT ... DO UPDATE`, no una coincidencia de
+        scheduling del hilo del SO.
+
+        Año 1901 a propósito: imposible de chocar con una convocatoria real
+        de la BD de dev COMPARTIDA (CLAUDE.md). El renglón que el contador
+        deja en `titulatec_certificate_counters` se borra en un `finally`
+        pase lo que pase -- nada se le queda pegado a la base compartida.
+        """
+        kind = "library_clearance"
+        year = 1901
+        Session = sessionmaker(bind=_pg_engine, future=True)
+
+        # Limpieza previa defensiva: si una corrida anterior murió a medio
+        # camino (antes de llegar a su propio `finally`), que no arrastre un
+        # renglón viejo que invalidaría el {1, 2} de abajo.
+        with _pg_engine.begin() as conn:
+            conn.execute(text("DELETE FROM titulatec_certificate_counters "
+                              "WHERE kind = :k AND year = :y"), {"k": kind, "y": year})
+
+        resultados: dict[str, str] = {}
+        errores: list[tuple[str, Exception]] = []
+        pids: dict[str, int] = {}
+        a_tiene_el_renglon = threading.Event()
+        seguir_con_commit_de_a = threading.Event()
+
+        def _hilo_a():
+            session = Session()
+            try:
+                resultados["A"] = CertificateService._next_number(session, kind, year)
+                a_tiene_el_renglon.set()
+                # Sostiene la transacción (y el lock de fila) abierta A PROPÓSITO
+                # hasta que el test de abajo confirme que B quedó esperando ESE
+                # MISMO lock -- el timeout es solo la red de seguridad para que
+                # un assert roto no cuelgue la suite.
+                seguir_con_commit_de_a.wait(timeout=5)
+                session.commit()
+            except Exception as exc:                      # pragma: no cover - diagnóstico
+                errores.append(("A", exc))
+                session.rollback()
+            finally:
+                session.close()
+
+        def _hilo_b():
+            session = Session()
+            try:
+                pids["B"] = session.execute(text("SELECT pg_backend_pid()")).scalar()
+                resultados["B"] = CertificateService._next_number(session, kind, year)
+                session.commit()
+            except Exception as exc:                      # pragma: no cover - diagnóstico
+                errores.append(("B", exc))
+                session.rollback()
+            finally:
+                session.close()
+
+        hilo_a = threading.Thread(target=_hilo_a)
+        hilo_b = threading.Thread(target=_hilo_b)
+        try:
+            hilo_a.start()
+            assert a_tiene_el_renglon.wait(timeout=5), "A no tomó el renglón a tiempo"
+
+            hilo_b.start()
+
+            # Sondea pg_stat_activity hasta ver a B esperando un lock de fila
+            # -- nunca un sleep a ciegas.
+            bloqueada = False
+            limite = time.monotonic() + 5
+            with _pg_engine.connect() as sonda:
+                while time.monotonic() < limite:
+                    pid_b = pids.get("B")
+                    if pid_b is not None:
+                        estado = sonda.execute(
+                            text("SELECT wait_event_type FROM pg_stat_activity "
+                                "WHERE pid = :pid"),
+                            {"pid": pid_b},
+                        ).scalar()
+                        if estado == "Lock":
+                            bloqueada = True
+                            break
+                    time.sleep(0.02)
+
+            assert bloqueada, "B nunca quedó esperando el lock de fila de A"
+        finally:
+            seguir_con_commit_de_a.set()
+            hilo_a.join(timeout=5)
+            hilo_b.join(timeout=5)
+
+        try:
+            assert not hilo_a.is_alive() and not hilo_b.is_alive(), "un hilo no terminó"
+            assert errores == [], f"un hilo truena: {errores!r}"
+            assert set(resultados) == {"A", "B"}
+            numeros = {_folio_n(resultados["A"]), _folio_n(resultados["B"])}
+            assert numeros == {1, 2}   # consecutivos: ni colisión ni hueco
+        finally:
+            with _pg_engine.begin() as conn:
+                conn.execute(text("DELETE FROM titulatec_certificate_counters "
+                                  "WHERE kind = :k AND year = :y"), {"k": kind, "y": year})
 
 
 # ---------------------------------------------------------------------------
