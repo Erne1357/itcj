@@ -47,7 +47,7 @@ from typing import Any, Iterable
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "build" / "sgc_legacy"
-OUT = ROOT / "database" / "DML" / "sgc" / "legacy_import"
+OUT = ROOT / "database" / "DML" / "sgi" / "legacy_import"
 
 # Basura de pruebas de 2015: apuntan a área y proceso inexistentes y sus
 # archivos ni siquiera están en disco.

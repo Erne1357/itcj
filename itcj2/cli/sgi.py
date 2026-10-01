@@ -10,7 +10,7 @@ _DML_FILES = [
     "01_insert_roles.sql",
     "02_insert_permissions.sql",
     "03_insert_role_permission.sql",
-    "04_grant_sgc_access.sql",
+    "04_grant_sgi_access.sql",
     "05_seed_catalogs.sql",
     "06_repair_document_202_flow.sql",
 ]
@@ -21,11 +21,11 @@ def init_sgi_command():
     """Carga los DML de la app sgc en orden (idempotente).
 
     Ejecuta en secuencia:
-      00_insert_app.sql             — registra la core_app 'sgi' (Calidad)
+      00_insert_app.sql             — registra la core_app 'sgi' (SGI, modulo SGC)
       01_insert_roles.sql           — consult, supervisor_doc, supervisor_inc, supervisor_prog
-      02_insert_permissions.sql     — inserta los permisos sgc.*
+      02_insert_permissions.sql     — inserta los permisos sgi.sgc.*
       03_insert_role_permission.sql — asigna permisos a roles (aditivo)
-      04_grant_sgc_access.sql     — espeja acceso desde itcj (has_any_assignment)
+      04_grant_sgi_access.sql     — espeja acceso desde itcj (has_any_assignment)
       05_seed_catalogs.sql          — mail config singleton y catálogos base
       06_repair_document_202_flow.sql — sanea el documento 202 (flujo a medio arrancar)
 
@@ -34,7 +34,7 @@ def init_sgi_command():
     cargado (``sgc import-legacy``). En una base sin ese historial no encuentra
     la fila y es un no-op limpio, no un fallo.
     """
-    dml_dir = PROJECT_ROOT / "database" / "DML" / "sgc" / "init"
+    dml_dir = PROJECT_ROOT / "database" / "DML" / "sgi" / "init"
     click.echo(f"Inicializando app sgc (DML: {dml_dir})\n")
 
     ok = 0
@@ -74,7 +74,7 @@ def grant_incident_files_command():
     llevan adjuntos. El SGC legacy sí los tenía, y al importar el historial
     aparecieron 351 archivos sin forma de verse.
     """
-    dml_dir = PROJECT_ROOT / "database" / "DML" / "sgc" / "incident_files"
+    dml_dir = PROJECT_ROOT / "database" / "DML" / "sgi" / "incident_files"
     files = ["01_insert_permissions.sql", "02_insert_role_permission.sql"]
 
     click.echo(f"Cargando permisos de archivos de incidencia ({dml_dir})\n")
@@ -124,7 +124,7 @@ def import_legacy_command(dry_run: bool):
     """
     from itcj2.database import engine
 
-    import_dir = PROJECT_ROOT / "database" / "DML" / "sgc" / "legacy_import"
+    import_dir = PROJECT_ROOT / "database" / "DML" / "sgi" / "legacy_import"
     if not import_dir.exists():
         click.echo(click.style(
             f"ERROR: no existe {import_dir}.\n"
