@@ -94,14 +94,18 @@
    Biblioteca todavía no lo revisa. `via` es `cleared_via` y solo distingue la
    constancia previa (D9: el egresado lleva su papel); `payment`, `no_charge`
    y `legacy` son «Liberado». `not_required` (convocatoria sin el requisito
-   automático) NO pinta nada: no hay liberación que mostrar. Las dos de
-   «liberado» llevan el libro y no la palomita de «Liberada»: puestas lado a
-   lado en la cola, se distinguen de un vistazo. #}
+   automático) NO pinta nada: no hay liberación que mostrar. `not_applicable`
+   (Ruling R21: ya pasó su cotejo sin un no adeudo liberado) es una píldora
+   NEUTRA «No aplica (cotejo ya liberado)» -la ven SE y la cola; las vistas
+   del egresado ni siquiera la piden-. Las dos de «liberado» llevan el libro y
+   no la palomita de «Liberada»: puestas lado a lado en la cola, se
+   distinguen de un vistazo. #}
 {% macro library_clearance_pill(status, via=None) %}
   {% if status in ("missing", "pending") %}{{ pill("En Biblioteca", "amber", "book") }}
   {% elif status == "awaiting_payment" %}{{ pill("Por pagar en Caja", "navy", "cash-coin") }}
   {% elif status == "cleared" and via == "prior" %}{{ pill("Constancia previa", "success", "file-earmark-check") }}
   {% elif status == "cleared" %}{{ pill("Liberado", "success", "book") }}
+  {% elif status == "not_applicable" %}{{ pill("No aplica (cotejo ya liberado)", "neutral", "dash-circle") }}
   {% elif status == "not_required" %}
   {% else %}{{ pill(status, "neutral") }}{% endif %}
 {% endmacro %}

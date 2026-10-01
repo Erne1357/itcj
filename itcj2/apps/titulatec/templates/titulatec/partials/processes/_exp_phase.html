@@ -176,7 +176,10 @@
              `LibraryClearanceService.summary_for_process`, MISMA fuente que
              el panel de atender (`_appt_attend.html`). Respaldo D9:
              «Constancia previa…» / «Deshacer», SOLO con
-             `library_clearance.api.prior` (`can_register_prior`). #}
+             `library_clearance.api.prior` (`can_register_prior`), y la
+             previa SOLO mientras el trámite sigue abierto: con
+             `not_applicable` (Ruling R21, ya pasó su cotejo) la píldora dice
+             «No aplica (cotejo ya liberado)» y no se ofrece nada. #}
           <div class="tt-req-meta">
             {{ library_clearance_pill(library.status, via=library.via) }}
             {%- if library.status == 'awaiting_payment' %}
@@ -189,7 +192,7 @@
               — {{ format_amount(library.total) }}{% if library.receipt %} · recibo {{ library.receipt }}{% endif %}{% if library.certificate_number %} · constancia {{ library.certificate_number }}{% endif %}
             {%- endif %}
           </div>
-          {% if can_register_prior and library.status != 'cleared' %}
+          {% if can_register_prior and library.status in ('missing', 'pending', 'awaiting_payment') %}
           <form class="d-flex flex-wrap align-items-center gap-2 mt-1"
                 hx-post="/titulatec/admin/processes/{{ process.id }}/no-adeudo-previo{{ ('?' ~ zona) if zona }}"
                 hx-target="#exp-shell" hx-swap="morph:outerHTML"

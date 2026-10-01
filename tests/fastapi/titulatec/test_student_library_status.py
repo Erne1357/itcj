@@ -480,6 +480,85 @@ class TestR12CitaVigenteNoPrometeAgendar:
 
 
 # ===========================================================================
+# Ruling R21 (I3 de la revisión final): quien YA pasó su cotejo (fase 2
+# aprobada) sin un no adeudo liberado -el backfill de `tt20261001a` lo saltó a
+# propósito- no ve «El Centro de Información está revisando tu adeudo»: el
+# estado es `not_applicable` y ni el bloque del dashboard ni la píldora de
+# «Mi cita» se pintan.
+# ===========================================================================
+class TestYaPasoSuCotejo:
+
+    @pytest.mark.parametrize("fila", [None, "pending"])
+    def test_el_dashboard_no_pinta_el_bloque_ni_la_pildora(
+        self, db_session, seed_phase_defs, make_student, make_cohort, make_process,
+        client_as, fila,
+    ):
+        seed_phase_defs()
+        cohort = make_cohort()
+        _require_library(db_session, cohort)
+        student = make_student()
+        make_process(student, cohort=cohort, current_phase=3, library_clearance=fila)
+
+        doc = _doc(client_as(student).get(DASHBOARD))
+        fase2 = _text(_phase_item(doc, 2))
+
+        assert "No adeudo de biblioteca" not in fase2
+        assert "El Centro de Información está revisando tu adeudo" not in fase2
+        assert "En Biblioteca" not in fase2
+        assert "No aplica" not in fase2      # ni siquiera la píldora neutra
+
+    def test_phases_ctx_no_cuelga_library(
+        self, db_session, seed_phase_defs, make_student, make_cohort, make_process,
+    ):
+        from itcj2.apps.titulatec.pages.student import _phases_ctx
+
+        seed_phase_defs()
+        cohort = make_cohort()
+        _require_library(db_session, cohort)
+        process = make_process(make_student(), cohort=cohort, current_phase=3,
+                               library_clearance=None)
+
+        ctx = _phases_ctx(db_session, process)
+        card = next(c for c in ctx["phases"] if c["code"] == "review_appointment")
+
+        assert card["library"] is None
+
+    def test_mi_cita_no_pinta_la_pildora_de_la_fila(
+        self, db_session, seed_phase_defs, make_student, make_process,
+    ):
+        """La fila del requisito sigue en el checklist (es requisito de la
+        convocatoria y, si se acreditó a mano, dice «Listo»), pero SIN la
+        píldora del no adeudo. `/student/cita` tiene guarda de fase (un
+        egresado en fase 3 ya no la abre): se prueba el contexto, que es lo
+        que decide la píldora."""
+        from itcj2.apps.titulatec.pages.student import _checklist_ctx
+
+        seed_phase_defs()
+        process = make_process(make_student(), current_phase=3, library_clearance=None)
+
+        filas = _checklist_ctx(db_session, process)
+        biblioteca = [f for f in filas if f["title"] == "No-adeudo de biblioteca"]
+
+        assert biblioteca, "la convocatoria sembró el requisito (DEFAULTS)"
+        assert biblioteca[0]["library"] is None
+
+    def test_con_el_no_adeudo_liberado_si_se_sigue_pintando(
+        self, db_session, seed_phase_defs, make_student, make_cohort, make_process,
+        client_as,
+    ):
+        """Control: `cleared` con la fase 2 aprobada no es `not_applicable`."""
+        seed_phase_defs()
+        cohort = make_cohort()
+        _require_library(db_session, cohort)
+        student = make_student()
+        make_process(student, cohort=cohort, current_phase=3, library_clearance="cleared")
+
+        doc = _doc(client_as(student).get(DASHBOARD))
+
+        assert "Liberado" in _text(_phase_item(doc, 2))
+
+
+# ===========================================================================
 # Forma del contexto: dict plano, mismo invariante que el resto de la app
 # ===========================================================================
 class TestFormaDelContexto:

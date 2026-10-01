@@ -489,6 +489,125 @@ class TestSummary:
 
 
 # ---------------------------------------------------------------------------
+# Ya pasó su cotejo (Rulings R20/R21, I2/I3 de la revisión final): la fase 2
+# aprobada sin un no adeudo liberado es `not_applicable`, no «en Biblioteca»,
+# y Biblioteca/SE ya no le abren trámite.
+# ---------------------------------------------------------------------------
+MSG_YA_PASO = "Este egresado ya pasó su cotejo; no necesita trámite de no adeudo."
+
+
+class TestCotejoYaLiberado:
+    @pytest.mark.parametrize("status", [None, "pending", "awaiting_payment"])
+    def test_release_status_no_aplica_con_la_fase_2_aprobada(
+            self, db_session, nuevo, status):
+        cols = ({"debt_amount": ADEUDO, "donation_amount": DONACION,
+                 "total_amount": ADEUDO + DONACION}
+                if status == "awaiting_payment" else {})
+        esc = nuevo(status=status, phase=3, **cols)     # fases 0, 1 y 2 aprobadas
+
+        assert LibraryClearanceService.release_status(
+            db_session, esc.process.id) == "not_applicable"
+
+    def test_liberado_sigue_liberado_con_la_fase_2_aprobada(self, db_session, nuevo):
+        esc = nuevo(status="cleared", cleared_via="payment", phase=3)
+
+        assert LibraryClearanceService.release_status(db_session, esc.process.id) == "cleared"
+
+    def test_la_fase_2_rechazada_no_es_no_aplica(self, db_session, nuevo):
+        """Solo `approved` cierra el trámite: con observaciones el egresado
+        vuelve a agendar y el candado sigue."""
+        esc = nuevo(status="pending", phase=2)
+        _fase2(db_session, esc.process, "rejected")
+
+        assert LibraryClearanceService.release_status(db_session, esc.process.id) == "pending"
+
+    def test_el_mapa_dice_lo_mismo_en_una_consulta(self, db_session, nuevo):
+        sin_fila = nuevo(status=None, phase=3)
+        pendiente = nuevo(status="pending", phase=3)
+        liberado = nuevo(status="cleared", phase=3)
+        abierto = nuevo(status="pending")
+
+        with _sql(db_session) as sentencias:
+            mapa = LibraryClearanceService.release_status_map(
+                db_session, [sin_fila.process.id, pendiente.process.id,
+                             liberado.process.id, abierto.process.id, 987654321])
+
+        assert mapa == {sin_fila.process.id: "not_applicable",
+                        pendiente.process.id: "not_applicable",
+                        liberado.process.id: "cleared",
+                        abierto.process.id: "pending",
+                        987654321: "missing"}           # inexistente: falla cerrado
+        assert len([s for s in sentencias if "titulatec_library_clearances" in s]) == 1
+
+    def test_el_resumen_dice_no_aplica_sin_revertir(self, db_session, nuevo):
+        sin_fila = nuevo(status=None, phase=3)
+        en_caja = nuevo(status="awaiting_payment", phase=3, debt_amount=ADEUDO,
+                        donation_amount=DONACION, total_amount=ADEUDO + DONACION)
+
+        r1 = LibraryClearanceService.summary_for_process(db_session, sin_fila.process.id)
+        r2 = LibraryClearanceService.summary_for_process(db_session, en_caja.process.id)
+
+        assert set(r1) == TestSummary.LLAVES and set(r2) == TestSummary.LLAVES
+        assert r1["status"] == r2["status"] == "not_applicable"
+        assert r1["clearance_id"] is None
+        assert r2["clearance_id"] == en_caja.clearance.id
+        assert r1["can_revert"] is r2["can_revert"] is False
+
+    def test_registrar_lo_rechaza_sin_escribir(self, db_session, nuevo, actores):
+        esc = nuevo(status="pending", phase=3)
+
+        with pytest.raises(ValueError) as exc, patch(NOTIFY):
+            LibraryClearanceService.register(
+                db_session, esc.clearance.id, actores.biblioteca.id,
+                debt_amount=ADEUDO, expected_status="pending")
+
+        assert str(exc.value) == MSG_YA_PASO
+        assert esc.clearance.status == "pending" and esc.clearance.debt_amount is None
+        assert _library_events(db_session, esc.process.id) == []
+
+    def test_el_lote_lo_omite_con_su_motivo(self, db_session, nuevo, actores):
+        abierto = nuevo()
+        cerrado = nuevo(cohort=abierto.cohort, phase=3)
+
+        with patch(NOTIFY):
+            resultado = LibraryClearanceService.register_no_debt_bulk(
+                db_session, [abierto.clearance.id, cerrado.clearance.id],
+                actores.biblioteca.id)
+
+        assert resultado["done"] == 1
+        assert resultado["skipped"] == [(cerrado.clearance.id, MSG_YA_PASO)]
+        assert cerrado.clearance.status == "pending"
+
+    def test_la_constancia_previa_lo_rechaza(self, db_session, nuevo, actores, reloj):
+        esc = nuevo(status="awaiting_payment", phase=3, debt_amount=ADEUDO,
+                    donation_amount=DONACION, total_amount=ADEUDO + DONACION)
+
+        with pytest.raises(ValueError) as exc, patch(NOTIFY):
+            LibraryClearanceService.register_prior(
+                db_session, esc.clearance.id, actores.se.id,
+                issued_on=reloj - timedelta(days=5), by="school_services")
+
+        assert str(exc.value) == MSG_YA_PASO
+        assert esc.clearance.status == "awaiting_payment"
+        assert _library_events(db_session, esc.process.id) == []
+
+    def test_por_revisar_su_contador_y_el_aviso_de_donacion_lo_excluyen(
+            self, db_session, nuevo, token):
+        abierto = nuevo(last_name=token, donation=None)
+        nuevo(cohort=abierto.cohort, last_name=token, phase=3)
+
+        filas, _ = LibraryClearanceService.list_for_inbox(
+            db_session, status="pending", q=token)
+        counts = LibraryClearanceService.counts_by_status(db_session, q=token)
+        avisos = {a["cohort_id"]: a["pending"] for a in
+                  LibraryClearanceService.cohorts_missing_donation(db_session)}
+
+        assert [f["id"] for f in filas] == [abierto.clearance.id]
+        assert counts["pending"] == 1
+        assert avisos[abierto.cohort.id] == 1
+
+
+# ---------------------------------------------------------------------------
 # Registrar (Biblioteca) desde pending
 # ---------------------------------------------------------------------------
 class TestRegister:

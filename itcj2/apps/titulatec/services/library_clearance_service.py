@@ -61,6 +61,12 @@ Reglas fijas (patrón `SurveyReviewService`):
   `LookupError` = el id no existe (la ruta lo traduce a 404).
 * Proceso admitido: `active` u `on_hold` (convocatoria en pausa: Biblioteca y
   Caja sí operan); `cancelled`/`completed` → `ValueError`.
+* Ya pasó su cotejo (Rulings R20/R21 de la revisión final): con la fase 2
+  `approved` y el no adeudo SIN liberar, `release_status`/`summary_for_process`
+  dicen `NOT_APPLICABLE` (el candado no lo cuenta y el egresado no ve «en
+  Biblioteca»), Registrar, el lote y la constancia previa responden
+  `ValueError` y «Por revisar» no lo muestra. Caja sí puede cobrar un monto
+  que Biblioteca ya mandó (`register_payment` no cambia).
 * Toda transición: `SELECT … FOR UPDATE` de la fila CON `populate_existing()`
   —tras esperar el lock se relee lo que la otra transacción ya commiteó,
   aunque esta sesión guarde la foto vieja en su mapa de identidad—; TODA la
@@ -118,6 +124,20 @@ PHASE_COTEJO = 2
 
 # Procesos sobre los que Biblioteca y Caja pueden operar (spec §4.2).
 ADMITTED_PROCESS_STATUSES = ("active", "on_hold")
+
+# Pseudo-estado de la liberación (Ruling R21, I3 de la revisión final): el
+# proceso YA pasó su cotejo -su fase 2 está `approved`- sin un no adeudo
+# liberado. El backfill de `tt20261001a` salta a propósito esos procesos (D17:
+# una fase 2 ya liberada no se toca), así que pueden no tener fila, o tener
+# una que nunca llegó a `cleared`. Como `missing`, NO se guarda: lo infieren
+# `release_status[_map]` y `summary_for_process`. `ClearanceGate` lo trata
+# igual que `not_required` (no bloquea) y las vistas del egresado no lo pintan.
+NOT_APPLICABLE = "not_applicable"
+
+# Ruling R20 (I2): a quien ya pasó su cotejo no se le abre trámite de no
+# adeudo (Registrar, lote «Sin adeudo», constancia previa).
+_MSG_COTEJO_YA_LIBERADO = ("Este egresado ya pasó su cotejo; no necesita trámite de "
+                           "no adeudo.")
 
 # Quién registra una constancia previa: va al payload del evento.
 PRIOR_BY = ("library", "school_services", "import")
@@ -280,11 +300,14 @@ class LibraryClearanceService:
     @staticmethod
     def release_status(db: Session, process_id: int) -> str:
         """Estado de liberación del no adeudo para el candado de agendar
-        (`ClearanceGate`): `'missing'` si el proceso no tiene fila; si no, su
-        `status` real (`pending` | `awaiting_payment` | `cleared`). Fuente
-        ÚNICA de esa lectura: nadie más compara `LibraryClearance.status`."""
-        row = LibraryClearanceService.get_for_process(db, process_id)
-        return row.status if row is not None else "missing"
+        (`ClearanceGate`): `'cleared'` si la fila está liberada; si no, y la
+        fase 2 del proceso YA está `approved`, `NOT_APPLICABLE` (Ruling R21:
+        ya pasó su cotejo); si no, su `status` real (`pending` |
+        `awaiting_payment`) o `'missing'` sin fila. Fuente ÚNICA de esa
+        lectura: nadie más compara `LibraryClearance.status`. Es
+        `release_status_map` con un solo id: imposible que diverjan."""
+        return LibraryClearanceService.release_status_map(
+            db, [process_id]).get(process_id, "missing")
 
     @staticmethod
     def prior_outcome(db: Session, process_id: int) -> str:
@@ -340,35 +363,66 @@ class LibraryClearanceService:
     @staticmethod
     def release_status_map(db: Session, process_ids: list[int]) -> dict[int, str]:
         """`release_status` de varios procesos EN UNA consulta (filas de la
-        cola); los ids sin fila salen como `'missing'`."""
-        from itcj2.apps.titulatec.models import LibraryClearance
+        cola): el proceso con su fila de no adeudo y su fase 2, los dos por
+        `OUTER JOIN`. Un id sin proceso sale `'missing'` (falla cerrado,
+        igual que sin fila)."""
+        from sqlalchemy import and_
+
+        from itcj2.apps.titulatec.models import (
+            LibraryClearance, ProcessPhase, TitulationProcess,
+        )
 
         if not process_ids:
             return {}
-        filas = (db.query(LibraryClearance.process_id, LibraryClearance.status)
-                 .filter(LibraryClearance.process_id.in_(process_ids))
+        filas = (db.query(TitulationProcess.id, LibraryClearance.status,
+                          ProcessPhase.status)
+                 .outerjoin(LibraryClearance,
+                            LibraryClearance.process_id == TitulationProcess.id)
+                 .outerjoin(ProcessPhase,
+                            and_(ProcessPhase.process_id == TitulationProcess.id,
+                                 ProcessPhase.phase_number == PHASE_COTEJO))
+                 .filter(TitulationProcess.id.in_(process_ids))
                  .all())
         out = {pid: "missing" for pid in process_ids}
-        out.update({pid: status for pid, status in filas})
+        for pid, estado, fase2 in filas:
+            out[pid] = LibraryClearanceService._release_of(estado, fase2)
         return out
+
+    @staticmethod
+    def _release_of(estado: str | None, fase2: str | None) -> str:
+        """Una fila (`estado`, `None` sin fila) y el estado de su fase 2 ->
+        el valor de `release_status`. Liberada gana siempre; si no, la fase
+        2 aprobada la vuelve `NOT_APPLICABLE` (Ruling R21)."""
+        if estado == "cleared":
+            return "cleared"
+        if fase2 == "approved":
+            return NOT_APPLICABLE
+        return estado or "missing"
 
     @staticmethod
     def summary_for_process(db: Session, process_id: int) -> dict:
         """Foto plana del no adeudo para el panel de atender, el expediente y
         el egresado. SOLO lectura: nunca commitea ni abre la fila.
 
-        Llaves: `status` (`'missing'` = pseudo-estado sin fila), `via`, `debt`,
+        Llaves: `status` (`'missing'` = pseudo-estado sin fila;
+        `NOT_APPLICABLE` = ya pasó su cotejo sin un no adeudo liberado, Ruling
+        R21 -mismo criterio que `release_status`-), `via`, `debt`,
         `donation`, `total` (`Decimal` | None), `note` (la de Biblioteca),
         `ready_at`, `paid_at`, `receipt`, `certificate_number` (la constancia
         VIGENTE, nunca una anulada), `prior_issued_on`, `prior_note`,
         `can_revert`, `clearance_id`. Formatear es de quien pinta
-        (`format_amount`).
+        (`format_amount`). Con `NOT_APPLICABLE` las vistas del egresado no
+        pintan nada y las de SE dicen «No aplica (cotejo ya liberado)» sin
+        ofrecer «Constancia previa…».
         """
         from itcj2.apps.titulatec.models import Certificate
 
         row = LibraryClearanceService.get_for_process(db, process_id)
+        no_aplica = ((row is None or row.status != "cleared")
+                     and LibraryClearanceService._phase2_approved(db, process_id))
         if row is None:
-            return {"status": "missing", "via": None, "debt": None, "donation": None,
+            return {"status": NOT_APPLICABLE if no_aplica else "missing",
+                    "via": None, "debt": None, "donation": None,
                     "total": None, "note": None, "ready_at": None, "paid_at": None,
                     "receipt": None, "certificate_number": None,
                     "prior_issued_on": None, "prior_note": None,
@@ -380,7 +434,7 @@ class LibraryClearanceService:
                    .order_by(Certificate.id.desc())
                    .first())
         return {
-            "status": row.status,
+            "status": NOT_APPLICABLE if no_aplica else row.status,
             "via": row.cleared_via,
             "debt": row.debt_amount,
             "donation": row.donation_amount,
@@ -433,6 +487,9 @@ class LibraryClearanceService:
         `expected_status` / `expected_total`: lo que el usuario tenía en
         pantalla. Si la fila ya no está así (otra persona la movió mientras
         tanto), `ValueError` en vez de pisar su trabajo.
+
+        Ruling R20 (I2): un proceso con la fase 2 ya `approved` (ya pasó su
+        cotejo) no abre trámite: `ValueError`, sin escribir nada.
         """
         clearance = LibraryClearanceService._locked(db, clearance_id)
         plan = LibraryClearanceService._prepare_registration(
@@ -453,9 +510,10 @@ class LibraryClearanceService:
 
         Valida TODAS las filas antes de mutar ninguna. Las que no pasan (ya no
         están `pending`, convocatoria sin donación, proceso revocado o
-        terminado, id inexistente) se omiten con su motivo, en el orden
-        recibido; los ids repetidos cuentan una vez. Devuelve
-        `{"done": int, "skipped": [(clearance_id, motivo), ...]}`.
+        terminado, fase 2 ya aprobada -Ruling R20-, id inexistente) se omiten
+        con su motivo, en el orden recibido; los ids repetidos cuentan una
+        vez. Devuelve `{"done": int, "skipped": [(clearance_id, motivo),
+        ...]}`.
         """
         from itcj2.apps.titulatec.models import LibraryClearance, TitulationProcess
 
@@ -471,11 +529,15 @@ class LibraryClearanceService:
                  .all())
         por_id = {fila.id: fila for fila in filas}
         # Los procesos en UNA consulta: el `db.get` de `_admitted_process` los
-        # toma luego del mapa de identidad en vez de pedir uno por fila.
+        # toma luego del mapa de identidad en vez de pedir uno por fila. Y las
+        # fases 2 aprobadas en OTRA (Ruling R20), no una por fila.
+        aprobadas: set[int] = set()
         if filas:
+            pids = {fila.process_id for fila in filas}
             (db.query(TitulationProcess)
-             .filter(TitulationProcess.id.in_({fila.process_id for fila in filas}))
+             .filter(TitulationProcess.id.in_(pids))
              .all())
+            aprobadas = LibraryClearanceService._phase2_approved_ids(db, pids)
 
         planes, omitidos = [], []
         for cid in ids:
@@ -486,7 +548,8 @@ class LibraryClearanceService:
             try:
                 plan = LibraryClearanceService._prepare_registration(
                     db, clearance, debt_amount=Decimal("0"), note=None,
-                    expected_status="pending")
+                    expected_status="pending",
+                    phase2_approved=clearance.process_id in aprobadas)
             except ValueError as exc:
                 omitidos.append((cid, str(exc)))
                 continue
@@ -573,12 +636,15 @@ class LibraryClearanceService:
         payload. `commit=False` (con `actor_id=None`) lo usa
         `PriorClearanceService.apply_pending` dentro de
         `ImportService.import_rows`: hace `flush()` y deja el commit al
-        llamador.
+        llamador. Ruling R20 (I2): con la fase 2 ya `approved` -ya pasó su
+        cotejo- `ValueError`; ni la importación ni el alta llegan aquí con un
+        proceso así (los dos solo aplican sobre procesos abiertos).
         """
         clearance = LibraryClearanceService._locked(db, clearance_id)
         process = LibraryClearanceService._admitted_process(db, clearance)
         if clearance.status not in ("pending", "awaiting_payment"):
             raise ValueError("Este no adeudo ya está liberado.")
+        LibraryClearanceService._assert_needs_clearance(db, process)
         if by not in PRIOR_BY:
             raise ValueError(f"Origen de constancia previa desconocido: {by!r}.")
         fecha = LibraryClearanceService._check_prior_date(issued_on)
@@ -756,8 +822,8 @@ class LibraryClearanceService:
         """Conteo por pestaña: las 3 llaves de `LIBRARY_STATUSES` siempre
         presentes. Mismo criterio que `list_for_inbox` (búsqueda `q` por nombre
         o número de control; «Por revisar» SIEMPRE sin procesos revocados ni
-        terminados), para que el contador no anuncie lo que la tabla no
-        muestra.
+        terminados, ni los que ya pasaron su cotejo -Ruling R20-), para que el
+        contador no anuncie lo que la tabla no muestra.
 
         `admitted_only` (Ruling R9, spec §4.8): además filtra `awaiting_payment`
         a procesos admitidos -- lo pide Caja («Por cobrar», lista Y contador),
@@ -794,8 +860,10 @@ class LibraryClearanceService:
 
         * `pending` («Por revisar»): FIFO por la aceptación de la inscripción
           (`TitulationProcess.created_at`); SIEMPRE fuera los procesos
-          revocados o terminados (toda acción respondería 400: patrón
-          `_no_revocada_en_revision` de GTV) -- `admitted_only` no aplica aquí.
+          revocados o terminados y los que ya pasaron su cotejo (fase 2
+          aprobada, Ruling R20): toda acción respondería 400 (patrón
+          `_no_revocada_en_revision` de GTV, `_reviewable_clause`) --
+          `admitted_only` no aplica aquí.
         * `awaiting_payment` («En caja» / «Por cobrar»): FIFO por `ready_at`.
           Biblioteca («En caja») y Caja («Por cobrar») comparten este mismo
           `status`, pero quieren cosas distintas: Biblioteca SIGUE mostrando
@@ -826,7 +894,9 @@ class LibraryClearanceService:
 
         query = (LibraryClearanceService._inbox_query(db, q)
                  .filter(LibraryClearance.status == status))
-        if status == "pending" or (status == "awaiting_payment" and admitted_only):
+        if status == "pending":
+            query = query.filter(LibraryClearanceService._reviewable_clause())
+        elif status == "awaiting_payment" and admitted_only:
             query = query.filter(TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES))
         if status == "pending":
             query = query.order_by(TitulationProcess.created_at.asc(),
@@ -846,7 +916,8 @@ class LibraryClearanceService:
     def cohorts_missing_donation(db: Session) -> list[dict]:
         """Convocatorias SIN donación capturada que tienen casos «Por revisar»
         (aviso de la bandeja de Biblioteca, D19): `[{"cohort_id", "name",
-        "pending"}]`, por nombre. Solo cuentan los procesos admitidos."""
+        "pending"}]`, por nombre. Solo cuentan los que «Por revisar» muestra
+        (`_reviewable_clause`: admitidos y sin la fase 2 aprobada)."""
         from itcj2.apps.titulatec.models import Cohort, LibraryClearance, TitulationProcess
 
         filas = (db.query(Cohort.id, Cohort.name, func.count(LibraryClearance.id))
@@ -854,7 +925,7 @@ class LibraryClearanceService:
                  .join(LibraryClearance, LibraryClearance.process_id == TitulationProcess.id)
                  .filter(Cohort.book_donation_amount.is_(None),
                          LibraryClearance.status == "pending",
-                         TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES))
+                         LibraryClearanceService._reviewable_clause())
                  .group_by(Cohort.id, Cohort.name)
                  .order_by(Cohort.name.asc(), Cohort.id.asc())
                  .all())
@@ -956,16 +1027,24 @@ class LibraryClearanceService:
 
     @staticmethod
     def _prepare_registration(db: Session, clearance, *, debt_amount, note,
-                              expected_status=None, expected_total=None) -> dict:
+                              expected_status=None, expected_total=None,
+                              phase2_approved: bool | None = None) -> dict:
         """TODA la validación de Registrar/Corregir, sin mutar nada: proceso
-        admitido, estado, lo que el usuario vio, monto, nota y donación
-        capturada. Devuelve el plan que aplica `_apply_registration`."""
+        admitido, estado, lo que el usuario vio, que todavía no pasó su
+        cotejo (Ruling R20), monto, nota y donación capturada. Devuelve el
+        plan que aplica `_apply_registration`. `phase2_approved` lo trae ya
+        resuelto el lote (una consulta para todas las filas); `None` = se
+        pregunta aquí."""
         process = LibraryClearanceService._admitted_process(db, clearance)
         if clearance.status not in ("pending", "awaiting_payment"):
             raise ValueError("Este no adeudo ya está liberado; para cambiarlo, primero "
                              "revierte la liberación.")
         LibraryClearanceService._check_expected(
             clearance, expected_status=expected_status, expected_total=expected_total)
+        if phase2_approved is None:
+            phase2_approved = LibraryClearanceService._phase2_approved(db, process.id)
+        if phase2_approved:
+            raise ValueError(_MSG_COTEJO_YA_LIBERADO)
         debt = _check_amount(debt_amount)
         nota = LibraryClearanceService._clean_note(note)
         cohort = process.cohort
@@ -1195,10 +1274,34 @@ class LibraryClearanceService:
         return fase2 is not None and fase2[0] == "approved"
 
     @staticmethod
+    def _phase2_approved_ids(db: Session, process_ids) -> set[int]:
+        """`_phase2_approved` de varios procesos en UNA consulta (el lote)."""
+        from itcj2.apps.titulatec.models import ProcessPhase
+
+        ids = list(process_ids)
+        if not ids:
+            return set()
+        return {pid for (pid,) in
+                db.query(ProcessPhase.process_id)
+                .filter(ProcessPhase.process_id.in_(ids),
+                        ProcessPhase.phase_number == PHASE_COTEJO,
+                        ProcessPhase.status == "approved")}
+
+    @staticmethod
     def _assert_phase2_open(db: Session, process) -> None:
         if LibraryClearanceService._phase2_approved(db, process.id):
             raise ValueError("La fase 2 de este egresado ya fue liberada; "
                              "ya no se puede revertir.")
+
+    @staticmethod
+    def _assert_needs_clearance(db: Session, process) -> None:
+        """Ruling R20 (I2): quien ya pasó su cotejo (fase 2 `approved`) no
+        abre trámite de no adeudo -su estado es `NOT_APPLICABLE`-. Lo usa la
+        constancia previa; Registrar y el lote hacen la MISMA pregunta, con el
+        mismo mensaje, dentro de `_prepare_registration` (el lote con la
+        respuesta ya resuelta para todas sus filas)."""
+        if LibraryClearanceService._phase2_approved(db, process.id):
+            raise ValueError(_MSG_COTEJO_YA_LIBERADO)
 
     @staticmethod
     def _notify_reverted(db: Session, process, motivo: str) -> None:
@@ -1249,16 +1352,52 @@ class LibraryClearanceService:
         return limpio or None
 
     @staticmethod
+    def _phase2_open_clause():
+        """SQL: la fase 2 del proceso NO está `approved` (sin fila cuenta como
+        no aprobada), correlacionada a `TitulationProcess` (la consulta que
+        la use debe tenerlo en su FROM). Gemela SQL de `_phase2_approved`."""
+        from sqlalchemy import exists
+
+        from itcj2.apps.titulatec.models import ProcessPhase, TitulationProcess
+        return ~(exists()
+                 .where(ProcessPhase.process_id == TitulationProcess.id,
+                        ProcessPhase.phase_number == PHASE_COTEJO,
+                        ProcessPhase.status == "approved")
+                 .correlate(TitulationProcess))
+
+    @staticmethod
+    def _reviewable_clause():
+        """«Por revisar» de Biblioteca: proceso admitido (`active`/`on_hold`)
+        Y que todavía no pasó su cotejo (Ruling R20) -- exactamente a quien
+        `register`/el lote sí aceptarían. Lista, contador y aviso de donación
+        comparten este predicado, para que ninguno anuncie lo que la tabla no
+        muestra."""
+        from sqlalchemy import and_
+
+        from itcj2.apps.titulatec.models import TitulationProcess
+        return and_(TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES),
+                    LibraryClearanceService._phase2_open_clause())
+
+    @staticmethod
     def _pending_actionable(admitted_only: bool = False):
-        """«Por revisar» SIEMPRE solo con procesos admitidos; `admitted_only`
-        suma `awaiting_payment` a esa misma regla (Ruling R9, lo pide el
-        contador de Caja, `counts_by_status(admitted_only=True)`) -- el resto
-        de las pestañas conserva el historial de los revocados o terminados.
-        El llamador ya hizo JOIN a `TitulationProcess`."""
+        """«Por revisar» SIEMPRE solo con lo que Biblioteca puede registrar
+        (`_reviewable_clause`: admitido y sin la fase 2 aprobada);
+        `admitted_only` suma `awaiting_payment` con la regla de admitidos
+        (Ruling R9, lo pide el contador de Caja, `counts_by_status(
+        admitted_only=True)`; Caja SÍ cobra aunque la fase 2 ya esté
+        aprobada) -- el resto de las pestañas conserva el historial de los
+        revocados o terminados. El llamador ya hizo JOIN a
+        `TitulationProcess`."""
+        from sqlalchemy import and_
+
         from itcj2.apps.titulatec.models import LibraryClearance, TitulationProcess
-        statuses = ("pending", "awaiting_payment") if admitted_only else ("pending",)
-        return or_(LibraryClearance.status.notin_(statuses),
-                   TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES))
+        por_revisar = or_(LibraryClearance.status != "pending",
+                          LibraryClearanceService._reviewable_clause())
+        if not admitted_only:
+            return por_revisar
+        return and_(por_revisar,
+                    or_(LibraryClearance.status != "awaiting_payment",
+                        TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES)))
 
     @staticmethod
     def _inbox_query(db: Session, q: str | None = None):

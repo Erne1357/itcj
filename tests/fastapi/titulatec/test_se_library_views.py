@@ -414,3 +414,70 @@ class TestRespaldoConstanciaPrevia:
 
         assert resp.status_code == 400, resp.text[:300]
         assert "futura" in _msg(resp)
+
+
+# ===========================================================================
+# 5. Ruling R21 (I3 de la revisión final): un egresado que YA pasó su cotejo
+#    (fase 2 aprobada) sin no adeudo liberado -el backfill lo saltó- muestra
+#    «No aplica (cotejo ya liberado)» y NO ofrece «Constancia previa…»
+# ===========================================================================
+@pytest.fixture()
+def cotejado(db_session, seed_phase_defs, seed_document_types, make_program, make_cohort,
+             make_officer, make_student, make_process, make_appointment):
+    """Convocatoria CON candado y un egresado en la fase 3 (la 2 quedó
+    `approved`) SIN fila de no adeudo, con su cita `attended` vigente (así lo
+    alcanza la ficha de atender)."""
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria del Cotejo Ya Liberado")
+    cohort = make_cohort(book_donation_amount=Decimal("800.00"))
+    CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+    db_session.flush()
+    officer, _pos = make_officer([prog])
+    proc = make_process(make_student(), cohort=cohort, program=prog,
+                        current_phase=3, library_clearance=None)
+    make_appointment(proc, status="attended", is_current=True)
+    return {"prog": prog, "cohort": cohort, "officer": officer, "proc": proc}
+
+
+class TestYaPasoSuCotejo:
+    NO_APLICA = "No aplica (cotejo ya liberado)"
+
+    def test_el_expediente_dice_no_aplica_sin_constancia_previa(
+            self, client_as, cotejado, se):
+        resp = client_as(se).get(f"/titulatec/admin/processes/{cotejado['proc'].id}?fase=2")
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert self.NO_APLICA in resp.text
+        assert "En Biblioteca" not in resp.text
+        assert "/no-adeudo-previo" not in resp.text, "no se ofrece «Constancia previa…»"
+
+    def test_el_panel_de_atender_dice_no_aplica_sin_constancia_previa(
+            self, client_as, cotejado, se):
+        resp = client_as(se).get(
+            f"/titulatec/admin/appointments/body?v=atender&selected={cotejado['proc'].id}")
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert self.NO_APLICA in resp.text
+        assert "En Biblioteca" not in resp.text
+        assert "/no-adeudo-previo" not in resp.text, "no se ofrece «Constancia previa…»"
+
+    def test_la_ruta_de_respaldo_lo_rechaza_aunque_la_llamen_a_mano(
+            self, client_as, db_session, cotejado, se):
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+
+        resp = client_as(se).post(
+            f"/titulatec/admin/processes/{cotejado['proc'].id}/no-adeudo-previo",
+            data={"issued_on": date.today().isoformat()})
+
+        assert resp.status_code == 400, resp.text[:300]
+        assert _msg(resp) == ("Este egresado ya pasó su cotejo; no necesita trámite "
+                              "de no adeudo.")
+        fila = LibraryClearanceService.get_for_process(db_session, cotejado["proc"].id)
+        assert fila is None or fila.status == "pending"

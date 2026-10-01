@@ -26,7 +26,7 @@ Qué fija este archivo:
 Convocatoria «con candado» = `seed_defaults` (los DEFAULTS de hoy ya traen el
 requisito automático, Ruling R2). Convocatoria «sin candado» = la lista VIEJA,
 con el no adeudo marcado a mano (`auto_source` NULL): así queda toda
-convocatoria hasta que corre el DML de `init-biblioteca-caja`.
+convocatoria hasta que corre el DML 22 de `activar-biblioteca-caja`.
 """
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ def _msg(resp) -> str:
 
 
 def _lista_vieja(db, cohort):
-    """La lista de requisitos ANTES del DML de `init-biblioteca-caja`: la
+    """La lista de requisitos ANTES del DML 22 (`activar-biblioteca-caja`): la
     encuesta automática y el no adeudo marcado a mano (`auto_source` NULL)."""
     from itcj2.apps.titulatec.models import CotejoRequirement
 
@@ -148,9 +148,9 @@ def esc(db_session, seed_phase_defs, seed_document_types, make_program, make_coh
                                              slot=30, cap=1, position=pos)
 
     def nuevo(*, cohort=None, encuesta="approved", biblioteca="pending", docs=True,
-              status="active", **cols):
+              status="active", fase=2, **cols):
         proc = make_process(make_student(), cohort=cohort or con, program=prog,
-                            current_phase=2, status=status, library_clearance=None)
+                            current_phase=fase, status=status, library_clearance=None)
         if biblioteca is not None:
             make_library_clearance(proc, status=biblioteca, **cols)
         if docs:
@@ -179,7 +179,7 @@ class TestLibraryRequired:
         assert _gate().library_required(db_session, esc["con"].id) is True
 
     def test_la_lista_vieja_no_lo_trae(self, db_session, esc):
-        """Hasta que corre `init-biblioteca-caja` nada cambia para nadie: el
+        """Hasta que corre `activar-biblioteca-caja` nada cambia para nadie: el
         despliegue del código no bloquea el agendado (spec §4.4)."""
         assert _gate().library_required(db_session, esc["sin"].id) is False
 
@@ -262,13 +262,28 @@ CASOS = [
     ("sin", "approved", None, {"survey": "approved", "library": "not_required"}, []),
     ("sin", "in_review", "awaiting_payment",
      {"survey": "in_review", "library": "not_required"}, ["survey_in_review"]),
+    # Ya pasó su cotejo (6.º elemento = fase actual 3: la 2 quedó `approved`,
+    # Ruling R21): sin un no adeudo liberado es `not_applicable` y no bloquea;
+    # uno liberado sigue `cleared`; sin candado manda `not_required`.
+    ("con", "approved", None, {"survey": "approved", "library": "not_applicable"}, [], 3),
+    ("con", "approved", "pending",
+     {"survey": "approved", "library": "not_applicable"}, [], 3),
+    ("con", "in_review", "awaiting_payment",
+     {"survey": "in_review", "library": "not_applicable"}, ["survey_in_review"], 3),
+    ("con", "approved", "cleared", {"survey": "approved", "library": "cleared"}, [], 3),
+    ("sin", "approved", "pending",
+     {"survey": "approved", "library": "not_required"}, [], 3),
 ]
 
 
 @pytest.fixture()
 def casos(esc):
-    return [(esc["nuevo"](cohort=esc[conv], encuesta=enc, biblioteca=bib), status, bloqueos)
-            for conv, enc, bib, status, bloqueos in CASOS]
+    out = []
+    for conv, enc, bib, status, bloqueos, *resto in CASOS:
+        fase = resto[0] if resto else 2
+        out.append((esc["nuevo"](cohort=esc[conv], encuesta=enc, biblioteca=bib, fase=fase),
+                    status, bloqueos))
+    return out
 
 
 class TestUnaSolaRespuesta:
@@ -321,9 +336,43 @@ class TestBlockers:
         assert _gate().blockers({"survey": "rejected", "library": "awaiting_payment"}) == [
             "survey_rejected", "library_awaiting_payment"]
 
-    @pytest.mark.parametrize("library", ["cleared", "not_required"])
-    def test_biblioteca_liberada_o_no_exigida_no_bloquea(self, library):
+    @pytest.mark.parametrize("library", ["cleared", "not_required", "not_applicable"])
+    def test_biblioteca_liberada_no_exigida_o_que_ya_no_aplica_no_bloquea(self, library):
         assert _gate().blockers({"survey": "approved", "library": library}) == []
+
+    def test_los_dominios_de_estado_son_cerrados(self):
+        """Ruling R21: `not_applicable` entra al dominio de `library` (lo
+        produce el dueño, `LibraryClearanceService.NOT_APPLICABLE`) y el gate
+        lo trata igual que `not_required`. Cada estado del dominio tiene una
+        respuesta definida: libre (sin bloqueo) o un código de `BLOCKERS`."""
+        from itcj2.apps.titulatec.services import clearance_gate as mod
+        from itcj2.apps.titulatec.services.library_clearance_service import NOT_APPLICABLE
+
+        assert mod.SURVEY_STATES == ("missing", "in_review", "approved", "rejected")
+        assert mod.LIBRARY_STATES == ("missing", "pending", "awaiting_payment", "cleared",
+                                      "not_required", "not_applicable")
+        assert mod.LIBRARY_NOT_APPLICABLE == NOT_APPLICABLE == "not_applicable"
+        libres = set()
+        for estado in mod.LIBRARY_STATES:
+            bloqueos = _gate().blockers({"survey": "approved", "library": estado})
+            assert set(bloqueos) <= set(mod.LIBRARY_BLOCKERS), estado
+            if not bloqueos:
+                libres.add(estado)
+        assert libres == {"cleared", "not_required", "not_applicable"}
+        for estado in mod.SURVEY_STATES:
+            bloqueos = _gate().blockers({"survey": estado, "library": "cleared"})
+            assert (bloqueos == []) is (estado == "approved"), estado
+            assert set(bloqueos) <= set(mod.SURVEY_BLOCKERS), estado
+
+    def test_status_map_solo_devuelve_estados_del_dominio(self, db_session, casos):
+        from itcj2.apps.titulatec.services import clearance_gate as mod
+
+        mapa = _gate().status_map(db_session, [proc.id for proc, *_ in casos])
+
+        assert {e["survey"] for e in mapa.values()} <= set(mod.SURVEY_STATES)
+        assert {e["library"] for e in mapa.values()} <= set(mod.LIBRARY_STATES)
+        assert "not_applicable" in {e["library"] for e in mapa.values()}, (
+            "el fixture no ejercita el estado nuevo")
 
     def test_un_estado_desconocido_falla_cerrado(self):
         """Nunca un código fuera del conjunto cerrado: los consumidores traducen
@@ -702,6 +751,23 @@ def test_la_pildora_de_cada_estado(status, via, texto):
 def test_la_pildora_no_pinta_nada_si_no_se_exige():
     """`not_required` (convocatoria sin candado): ni píldora ni código crudo."""
     assert _pildora("not_required") == ""
+
+
+def test_la_pildora_dice_no_aplica_si_ya_paso_su_cotejo():
+    """Ruling R21: `not_applicable` (fase 2 ya aprobada sin no adeudo
+    liberado) es una píldora neutra, nunca «En Biblioteca» ni el código crudo."""
+    html = _pildora("not_applicable")
+
+    assert "tt-pill" in html
+    assert "No aplica (cotejo ya liberado)" in html
+    assert "En Biblioteca" not in html and "not_applicable" not in html
+
+
+def test_cada_estado_del_dominio_tiene_su_pildora_sin_codigo_crudo():
+    from itcj2.apps.titulatec.services.clearance_gate import LIBRARY_STATES
+
+    for estado in LIBRARY_STATES:
+        assert estado not in _pildora(estado), estado
 
 
 # ===========================================================================

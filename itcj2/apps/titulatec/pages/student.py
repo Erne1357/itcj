@@ -784,6 +784,8 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
                                              process` + `total_fmt`/`breakdown`). Sin
                                              el requisito, `None` -- no hay bloque que
                                              pintar, igual que `not_required` del gate.
+                                             También `None` con `not_applicable`
+                                             (Ruling R21: ya pasó su cotejo).
     """
     from itcj2.apps.titulatec.models import (
         FormatB, PhaseDefinition, ProcessEvent, ProcessPhase,
@@ -865,18 +867,23 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     # design.md §4.10): UNA consulta fija más -- `ClearanceGate.library_required`
     # nunca siembra (su propio docstring) -- y, SOLO si la convocatoria exige el
     # no adeudo, otra para la foto plana. Convocatoria sin el requisito ACTIVO
-    # (incluida toda convocatoria hasta que corra `init-biblioteca-caja`, §4.4):
+    # (incluida toda convocatoria hasta que corra `activar-biblioteca-caja`, §4.4):
     # `library` se queda `None` y el bloque no existe, igual que `survey` nunca
     # se apaga (la encuesta es incondicional, D6) pero el no adeudo sí puede
     # estarlo.
+    #
+    # Ruling R21 (I3 de la revisión final): quien YA pasó su cotejo sin un no
+    # adeudo liberado (`NOT_APPLICABLE`) tampoco ve el bloque -decirle «El
+    # Centro de Información está revisando tu adeudo» sería falso-.
     from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
     library = None
     if ClearanceGate.library_required(db, process.cohort_id):
         from itcj2.apps.titulatec.services.library_clearance_service import (
-            LibraryClearanceService,
+            NOT_APPLICABLE, LibraryClearanceService,
         )
-        library = _library_block_ctx(
-            LibraryClearanceService.summary_for_process(db, process.id))
+        resumen = LibraryClearanceService.summary_for_process(db, process.id)
+        if resumen["status"] != NOT_APPLICABLE:
+            library = _library_block_ctx(resumen)
 
     ph_by_number = {
         ph.phase_number: ph for ph in
@@ -1436,7 +1443,7 @@ def _checklist_ctx(db, process) -> list[dict]:
     if process is None:
         return []
     from itcj2.apps.titulatec.services.library_clearance_service import (
-        AUTO_SOURCE_LIBRARY, LibraryClearanceService,
+        AUTO_SOURCE_LIBRARY, NOT_APPLICABLE, LibraryClearanceService,
     )
     from itcj2.apps.titulatec.services.requirement_service import RequirementService
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
@@ -1452,7 +1459,11 @@ def _checklist_ctx(db, process) -> list[dict]:
     # existe en `list_with_status` si la convocatoria tiene el requisito
     # ACTIVO (`list_or_seed(..., active_only=True)`), así que no hace falta
     # volver a preguntarle a `ClearanceGate`: su sola presencia ya lo dice.
-    library = _library_block_ctx(LibraryClearanceService.summary_for_process(db, process.id))
+    # Con `NOT_APPLICABLE` (Ruling R21: ya pasó su cotejo) la fila se queda
+    # SIN píldora: «Listo»/«Dispensado» si se acreditó a mano, nada si no.
+    resumen = LibraryClearanceService.summary_for_process(db, process.id)
+    library = (_library_block_ctx(resumen) if resumen["status"] != NOT_APPLICABLE
+               else None)
 
     out = []
     for it in RequirementService.list_with_status(db, process.id):

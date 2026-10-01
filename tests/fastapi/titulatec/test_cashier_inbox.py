@@ -368,11 +368,11 @@ def test_revertir_pago_regresa_a_por_cobrar(
 def test_revertir_con_fase_2_aprobada_responde_400(
     client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
 ):
+    from itcj2.apps.titulatec.models import ProcessPhase
+
     staff = make_cashier_staff()
     cohort = make_cohort(book_donation_amount=Decimal("0.00"))
-    # fase < current_phase -> "approved" (espejo del importador): current_phase=3
-    # deja la fase 2 (cotejo) ya aprobada sin tocar ProcessPhase a mano.
-    proc = make_process(make_student(control_number="99700052"), cohort=cohort, current_phase=3,
+    proc = make_process(make_student(control_number="99700052"), cohort=cohort, current_phase=2,
                         library_clearance="pending")
     clearance = _clearance(db_session, proc)
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
@@ -380,6 +380,12 @@ def test_revertir_con_fase_2_aprobada_responde_400(
     LibraryClearanceService.register_payment(db_session, clearance.id, staff.id)
     db_session.refresh(clearance)
     assert clearance.status == "cleared"
+    # El cobro ocurrió con la fase 2 ABIERTA (desde la Ruling R20 Biblioteca
+    # ya no registra a quien pasó su cotejo); DESPUÉS SE la aprueba.
+    (db_session.query(ProcessPhase)
+     .filter_by(process_id=proc.id, phase_number=2)
+     .update({"status": "approved"}))
+    db_session.flush()
 
     resp = client_as(staff).post(
         f"{URL}/{clearance.id}/revertir",

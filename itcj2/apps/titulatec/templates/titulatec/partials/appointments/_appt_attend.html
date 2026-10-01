@@ -226,7 +226,10 @@
                  `LibraryClearanceService.summary_for_process` -- MISMA
                  fuente que el expediente (`_exp_phase.html`). Respaldo D9:
                  «Constancia previa…» / «Deshacer», SOLO con
-                 `library_clearance.api.prior` (`detail.can_register_prior`). #}
+                 `library_clearance.api.prior` (`detail.can_register_prior`),
+                 y la previa SOLO mientras el trámite sigue abierto: con
+                 `not_applicable` (Ruling R21) la píldora dice «No aplica
+                 (cotejo ya liberado)» y no se ofrece nada. #}
               <div class="tt-req-meta">
                 {{ library_clearance_pill(detail.library.status, via=detail.library.via) }}
                 {%- if detail.library.status == 'awaiting_payment' %}
@@ -239,7 +242,7 @@
                   — {{ format_amount(detail.library.total) }}{% if detail.library.receipt %} · recibo {{ detail.library.receipt }}{% endif %}{% if detail.library.certificate_number %} · constancia {{ detail.library.certificate_number }}{% endif %}
                 {%- endif %}
               </div>
-              {% if detail.can_register_prior and detail.library.status != 'cleared' %}
+              {% if detail.can_register_prior and detail.library.status in ('missing', 'pending', 'awaiting_payment') %}
               <form class="d-flex flex-wrap gap-1 mt-1" {{ appt_action(BASE ~ '/no-adeudo-previo' ~ QZ) }}
                     hx-confirm="Constancia previa|¿Registrar que {{ detail.student.name }} ya pagó y trae su constancia de no adeudo? Queda liberado sin pasar por Caja."
                     data-tt-confirm-ok="Registrar">
