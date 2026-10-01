@@ -108,10 +108,18 @@
           <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Marcar asistió</button>
         {% endif %}
 
-        {% if detail.appt.status != 'attended' %}
+        {% if detail.appt.status != 'attended'
+              and not (detail.appt.status == 'no_show' and detail.liberaciones_pendientes) %}
         {# Reagendar = picar una franja en el tablero. Sin formulario que se
            despliegue y empuje lo que acabas de leer, y sin campo de hora vacío
-           que haya que volver a teclear. #}
+           que haya que volver a teclear.
+
+           Ruling R11 (revisión de la Tarea 5): un `no_show` con liberaciones
+           pendientes abre un intento NUEVO al moverse
+           (`AppointmentService.reschedule`), que ahora SÍ pasa por
+           `ClearanceGate` -- mismo criterio que ya aplica la fila de la cola
+           (`_appt_queue.html`, cubo «Reagendar»): sin el botón, y el aviso de
+           abajo («Liberaciones pendientes») ya dice qué falta. #}
         <a class="btn btn-sm tt-btn-ghost"
            {{ appt_nav(page_url ~ '?date=' ~ day ~ '&mover=' ~ detail.process.id) }}>
           <i class="bi bi-arrows-move me-1" aria-hidden="true"></i>Mover de franja</a>
@@ -212,6 +220,45 @@
                   — Liberada por GTV · {{ detail.survey.reviewed_at }}
                 {%- endif %}
               </div>
+              {% elif r.auto_source == 'library_clearance' %}
+              {# D9/Tarea 11: el no adeudo lo liberan Biblioteca y Caja, no se
+                 marca a mano. `detail.library` es el dict plano de
+                 `LibraryClearanceService.summary_for_process` -- MISMA
+                 fuente que el expediente (`_exp_phase.html`). Respaldo D9:
+                 «Constancia previa…» / «Deshacer», SOLO con
+                 `library_clearance.api.prior` (`detail.can_register_prior`). #}
+              <div class="tt-req-meta">
+                {{ library_clearance_pill(detail.library.status, via=detail.library.via) }}
+                {%- if detail.library.status == 'awaiting_payment' %}
+                  — Por cobrar {{ format_amount(detail.library.total) }} en Caja
+                {%- elif detail.library.status == 'cleared' and detail.library.via == 'prior' %}
+                  — Constancia previa{% if detail.library.prior_issued_on %} del {{ detail.library.prior_issued_on.strftime('%d/%m/%Y') }}{% endif %}{% if detail.library.prior_note %} — {{ detail.library.prior_note }}{% endif %}
+                {%- elif detail.library.status == 'cleared' and detail.library.via == 'legacy' %}
+                  — Liberado antes de este sistema
+                {%- elif detail.library.status == 'cleared' %}
+                  — {{ format_amount(detail.library.total) }}{% if detail.library.receipt %} · recibo {{ detail.library.receipt }}{% endif %}{% if detail.library.certificate_number %} · constancia {{ detail.library.certificate_number }}{% endif %}
+                {%- endif %}
+              </div>
+              {% if detail.can_register_prior and detail.library.status != 'cleared' %}
+              <form class="d-flex flex-wrap gap-1 mt-1" {{ appt_action(BASE ~ '/no-adeudo-previo' ~ QZ) }}
+                    hx-confirm="Constancia previa|¿Registrar que {{ detail.student.name }} ya pagó y trae su constancia de no adeudo? Queda liberado sin pasar por Caja."
+                    data-tt-confirm-ok="Registrar">
+                <input type="date" name="issued_on" required class="form-control form-control-sm w-auto"
+                       aria-label="Fecha de la constancia previa de {{ detail.student.name }}">
+                <input name="note" maxlength="1000" placeholder="Nota" class="form-control form-control-sm flex-grow-1"
+                       aria-label="Nota de la constancia previa de {{ detail.student.name }}">
+                <button type="submit" class="btn btn-sm tt-btn-ghost">Constancia previa…</button>
+              </form>
+              {% elif detail.can_register_prior and detail.library.can_revert and detail.library.via == 'prior' %}
+              <form class="d-flex flex-wrap gap-1 mt-1" {{ appt_action(BASE ~ '/no-adeudo-previo/deshacer' ~ QZ) }}
+                    hx-confirm="Deshacer constancia previa|¿Deshacer la constancia previa de {{ detail.student.name }}? Vuelve a pendiente."
+                    data-tt-confirm-ok="Deshacer">
+                <input name="reason" required maxlength="1000" placeholder="Motivo"
+                       class="form-control form-control-sm flex-grow-1"
+                       aria-label="Motivo para deshacer la constancia de {{ detail.student.name }}">
+                <button type="submit" class="btn btn-sm tt-btn-danger-soft">Deshacer…</button>
+              </form>
+              {% endif %}
               {% elif r.auto_source %}
               <div class="tt-req-meta">
                 Lo acredita el sistema ({{ r.auto_source }}); no se marca a mano.</div>

@@ -16,6 +16,10 @@
   {% include "titulatec/partials/cohort/cohort_window.html" %}
 </div>
 
+{# Donación voluntaria de libro (D5, Tarea 11): el contexto (`donation`,
+   `can_edit_donation`) lo pone `_donation_ctx`, misma rama `resumen`. #}
+{% include "titulatec/partials/cohort/cohort_donation.html" %}
+
 <div class="tt-card mt-3">
   <div class="d-flex align-items-center justify-content-between mb-2">
     <span class="tt-kicker">Distribución por fase</span>

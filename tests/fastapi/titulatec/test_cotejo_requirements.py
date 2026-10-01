@@ -364,8 +364,14 @@ class TestInfoHtmlEnEscritura:
 
 # El alta pide la ventana (spec 2026-09-27 §B2): fecha obligatoria + hora
 # opcional por extremo, igual que el panel. Hora vacía = 00:00 / 23:59:59.
+# `book_donation` (spec 2026-10-01-titulatec-biblioteca-caja-design.md D19,
+# Tarea 11): la donación voluntaria de libro es OBLIGATORIA desde esa tarea;
+# sin ella `cohort_create` ya no llega a crear nada (ver
+# `test_se_library_views.py::TestDonacionAlAlta`). Estos tests prueban la
+# ventana, no la donación, así que viaja ya válida.
 VENTANA_ALTA = {"opens_date": "2031-03-10", "opens_time": "09:30",
-                "closes_date": "2031-03-20", "closes_time": ""}
+                "closes_date": "2031-03-20", "closes_time": "",
+                "book_donation": "800.00"}
 AVISO_VENTANA = "Indica apertura y cierre (el cierre después de la apertura)."
 
 

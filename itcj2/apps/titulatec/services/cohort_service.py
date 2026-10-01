@@ -52,7 +52,9 @@ Dos predicados, a propósito (D5, spec 2026-09-24)
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from itcj2.core.utils.timezone import db_now
@@ -229,3 +231,45 @@ class CohortService:
 
         db.commit()
         return {"paused": paused, "resumed": resumed}
+
+    @staticmethod
+    def set_book_donation(db: Session, cohort_id: int, *, amount: Decimal) -> dict:
+        """Escribe la donación voluntaria de libro de la convocatoria (D5,
+        D19 de spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.9).
+
+        Servicios Escolares la edita en el panel Resumen
+        (`titulatec.cohort.api.update`); `amount` ya viene validado por la
+        ruta (`LibraryClearanceService.parse_amount`: 0 <= monto <=
+        $100,000). Este service NO toca ningún `LibraryClearance`: Biblioteca
+        congela la donación VIGENTE de la convocatoria al Registrar o
+        Corregir (`LibraryClearanceService._prepare_registration`), así que
+        cambiarla aquí nunca pisa un monto ya congelado (Review Focus #2,
+        D16) -- lo que ya pasó a Caja se queda con el valor de ese momento;
+        Corregir es lo único que lo vuelve a congelar con el vigente.
+
+        Devuelve `{"affected": N}`: cuántos `LibraryClearance` de esta
+        convocatoria YA tienen un monto congelado
+        (`donation_amount IS NOT NULL`, en cualquier estado que haya pasado
+        por Registrar -- `awaiting_payment` o `cleared` vía pago/sin cargo,
+        nunca `pending` ni una constancia previa, que no toca montos). La
+        ruta usa el número para el aviso «N egresados ya tienen monto
+        asignado; no cambia para ellos».
+
+        `ValueError` si la convocatoria no existe. UN commit.
+        """
+        from itcj2.apps.titulatec.models import Cohort, LibraryClearance, TitulationProcess
+
+        cohort = db.get(Cohort, cohort_id)
+        if cohort is None:
+            raise ValueError("La convocatoria no existe.")
+        cohort.book_donation_amount = amount
+
+        afectados = (
+            db.query(func.count(LibraryClearance.id))
+            .join(TitulationProcess, TitulationProcess.id == LibraryClearance.process_id)
+            .filter(TitulationProcess.cohort_id == cohort_id,
+                    LibraryClearance.donation_amount.isnot(None))
+            .scalar()) or 0
+
+        db.commit()
+        return {"affected": int(afectados)}

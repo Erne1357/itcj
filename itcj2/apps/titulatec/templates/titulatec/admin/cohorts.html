@@ -9,7 +9,7 @@
     <h1 class="tt-display mb-0" style="font-size:1.875rem;font-weight:500;letter-spacing:-.7px">Convocatorias</h1>
     {% if periods %}
     <button class="btn btn-sm tt-btn-ink ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#new-cohort"
-            aria-controls="new-cohort" aria-expanded="{{ 'true' if window_error else 'false' }}">
+            aria-controls="new-cohort" aria-expanded="{{ 'true' if window_error or donation_error else 'false' }}">
       <i class="bi bi-plus-lg me-1"></i>Nueva convocatoria
     </button>
     {% endif %}
@@ -22,20 +22,26 @@
     <div class="tt-kpi"><div class="tt-kicker">Alumnos</div><div class="num">{{ kpis.students }}</div></div>
   </div>
 
-  {# El alta rechazada vuelve aquí con `?error=ventana` (`cohort_create`): el
-     aviso va FUERA del colapsable para que se lea aunque no haya período libre,
-     y el colapsable nace desplegado para corregir sin buscar el botón. #}
+  {# El alta rechazada vuelve aquí con `?error=ventana` o `?error=donacion`
+     (`cohort_create`): el aviso va FUERA del colapsable para que se lea
+     aunque no haya período libre, y el colapsable nace desplegado para
+     corregir sin buscar el botón. #}
   {% if window_error %}
   <div id="tt-cohort-new-error" class="tt-card tt-card--danger d-flex gap-2 mt-3" role="alert">
     <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
     <span>Indica apertura y cierre (el cierre después de la apertura).</span>
+  </div>
+  {% elif donation_error %}
+  <div id="tt-cohort-new-error" class="tt-card tt-card--danger d-flex gap-2 mt-3" role="alert">
+    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+    <span>Captura la donación voluntaria de libro: un monto de $0.00 a $100,000.00.</span>
   </div>
   {% endif %}
 
   {# Alta de convocatoria (colapsable). Pide la ventana con la MISMA macro que
      el panel de Resumen: fecha obligatoria + hora opcional por extremo. #}
   {% if periods %}
-  <div class="collapse mt-3{{ ' show' if window_error }}" id="new-cohort">
+  <div class="collapse mt-3{{ ' show' if window_error or donation_error }}" id="new-cohort">
     <div class="tt-card">
       <span class="tt-kicker">Nueva convocatoria</span>
       <form method="post" action="/titulatec/admin/cohorts" class="d-flex flex-column gap-3 mt-2">
@@ -50,6 +56,19 @@
                         legend_class='tt-label', sm=False) }}
           {{ window_end('closes', 'new-closes', 'Cierre', '23:59',
                         legend_class='tt-label', sm=False) }}
+        </div>
+        {# Donación voluntaria de libro (D5/D19): obligatoria desde el alta --
+           sin ella Biblioteca no podría pasar ningún caso a Caja. Mismo
+           formato de captura que Biblioteca/Caja (`parse_amount`): texto
+           libre, no `type="number"` (no acepta comas de miles). #}
+        <div>
+          <label class="tt-label" for="new-donation">Donación voluntaria de libro ($)</label>
+          <input class="form-control" style="max-width:10rem" type="text" id="new-donation"
+                 name="book_donation" required placeholder="0.00"
+                 aria-describedby="new-donation-help">
+          <div id="new-donation-help" class="mt-1" style="font-size:.76rem;color:var(--tt-text-2)">
+            Biblioteca la suma al adeudo de cada egresado que pasa a Caja.
+          </div>
         </div>
         <div>
           <button class="btn tt-btn-ink" type="submit"><i class="bi bi-plus-lg me-1"></i>Crear</button>

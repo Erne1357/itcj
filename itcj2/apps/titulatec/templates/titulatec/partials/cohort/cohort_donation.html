@@ -1,0 +1,43 @@
+{# Donación voluntaria de libro de la convocatoria (D5/D19, spec 2026-10-01-
+   titulatec-biblioteca-caja-design.md §4.9). Biblioteca la CONGELA por cada
+   egresado al Registrar o Corregir su no adeudo; cambiarla aquí nunca mueve
+   un monto ya congelado (Review Focus #2, D16) -- la ruta avisa cuántos
+   egresados no se ven afectados.
+
+   Raíz estable `#cohort-donation`: el POST devuelve ESTE mismo parcial y
+   htmx lo swappea con outerHTML. Mismo contrato que `cohort_window.html`.
+
+   `donation.amount_raw` llega SIEMPRE precargado desde `_donation_ctx`:
+   «800.00» si ya está capturada, vacío si no (legado antes de esta tarea --
+   el alta ya la exige, D19). #}
+<div id="cohort-donation">
+  <div class="tt-card mt-3">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <span class="tt-kicker"><i class="bi bi-book me-1"></i>Donación voluntaria de libro</span>
+    </div>
+    <p class="mb-3" style="font-size:.82rem;color:var(--tt-text-2)">
+      Biblioteca la congela por cada egresado al registrar su no adeudo; cambiarla aquí
+      no mueve los montos ya registrados.
+      {% if not can_edit_donation %}<br><span style="font-size:.76rem">Solo lectura — la jefatura de Servicios Escolares la configura.</span>{% endif %}
+    </p>
+
+    {% if can_edit_donation %}
+    <form class="d-flex flex-wrap align-items-end gap-2"
+          hx-post="/titulatec/admin/cohorts/{{ cohort_id }}/donacion"
+          hx-target="#cohort-donation" hx-swap="outerHTML">
+      <div>
+        <label class="tt-kicker d-block mb-1" for="donation-amount">Monto ($)</label>
+        <input class="form-control form-control-sm" style="width:8rem" type="text"
+               id="donation-amount" name="book_donation" required
+               value="{{ donation.amount_raw }}" aria-label="Donación voluntaria de libro">
+      </div>
+      <button class="btn btn-sm tt-btn-ink" type="submit">
+        <i class="bi bi-check-lg me-1"></i>Guardar donación</button>
+    </form>
+    {% else %}
+    <div class="d-flex flex-wrap gap-3">
+      <span><span class="tt-kicker">Monto</span> <span class="tt-mono">{{ donation.amount_label }}</span></span>
+    </div>
+    {% endif %}
+  </div>
+</div>

@@ -443,3 +443,112 @@ class TestRevocarNoTocaLaCitaVigente:
         del_dia = {a.id for a in AppointmentService.list_for_day(
             db_session, esc["w"].review_day.date)}
         assert appt.id in del_dia, "la cita sigue en la agenda del día"
+
+
+# ---------------------------------------------------------------------------
+# Ruling R11 (revisión de la Tarea 5, spec 2026-10-01-titulatec-biblioteca-
+# caja-design.md): `AppointmentService.reschedule` sobre una cita vigente
+# `no_show` abre un intento NUEVO (`SlotService.assign` cierra la fila vieja
+# e inserta la siguiente) y por eso debe pasar por el MISMO candado que
+# `create` -- antes no lo hacía, ni siquiera revisaba la encuesta. Una cita
+# `scheduled`/`confirmed` que se MUEVE no abre un intento nuevo en el sentido
+# de D17 y sigue sin pasar por aquí
+# (`test_la_cita_ya_agendada_sigue_vigente_y_se_puede_mover`,
+# test_clearance_gate.py, sección 4).
+# ---------------------------------------------------------------------------
+class TestRescheduleDesdeNoShowExigeLiberaciones:
+    def test_sin_encuesta_no_reagenda_y_no_abre_intento(
+        self, db_session, agenda_slots, make_appointment,
+    ):
+        esc = agenda_slots
+        appt = make_appointment(esc["p1"], status="no_show", is_current=True)
+
+        with pytest.raises(err.SurveyNotSubmitted):
+            AppointmentService.reschedule(db_session, appt, window_id=esc["w"].id,
+                                          slot_start=time(9, 30), actor_id=esc["off"].id)
+
+        vigente = AppointmentService.get_for_process(db_session, esc["p1"].id)
+        assert vigente.id == appt.id and vigente.status == "no_show", (
+            "no debió abrir un intento nuevo")
+
+    def test_con_todo_liberado_si_reagenda(
+        self, db_session, agenda_slots, make_appointment, make_survey_review,
+    ):
+        esc = agenda_slots
+        make_survey_review(esc["p1"], status="approved")
+        appt = make_appointment(esc["p1"], status="no_show", is_current=True)
+
+        movida = AppointmentService.reschedule(db_session, appt, window_id=esc["w"].id,
+                                               slot_start=time(9, 30), actor_id=esc["off"].id)
+
+        assert movida.status == "scheduled" and movida.is_current is True
+        assert movida.id != appt.id, "reagendar desde no_show abre un intento NUEVO"
+
+    def test_con_biblioteca_pendiente_no_reagenda(
+        self, db_session, seed_phase_defs, seed_document_types, make_program,
+        make_cohort, make_review_day, make_review_window, make_officer,
+        make_student, make_process, make_survey_review, make_appointment,
+    ):
+        """Con la convocatoria exigiendo el no adeudo (`seed_defaults`) y
+        biblioteca `pending`, reagendar desde `no_show` levanta
+        `LibraryNotCleared` -- el hueco que cierra R11."""
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+
+        seed_phase_defs()
+        seed_document_types()
+        prog = make_program("Ingenieria R11")
+        cohort = make_cohort()
+        CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+        db_session.flush()
+        dia = make_review_day(cohort, day=date(2029, 5, 7))
+        officer, pos = make_officer([prog])
+        window = make_review_window(dia, officer, start="09:00", end="11:00",
+                                    slot=30, cap=1, position=pos)
+        proc = make_process(make_student(), cohort=cohort, program=prog,
+                            current_phase=2, library_clearance="pending")
+        make_survey_review(proc, status="approved")
+        appt = make_appointment(proc, status="no_show", is_current=True)
+
+        with pytest.raises(err.LibraryNotCleared) as exc:
+            AppointmentService.reschedule(db_session, appt, window_id=window.id,
+                                          slot_start=time(9, 30), actor_id=officer.id)
+
+        assert exc.value.status == "pending"
+        vigente = AppointmentService.get_for_process(db_session, proc.id)
+        assert vigente.id == appt.id
+
+
+class TestRutaRescheduleDesdeNoShow:
+    """El hueco real: `POST .../reschedule` resuelve la vigente con
+    `get_for_process` (que SÍ devuelve un `no_show`, sigue siendo vigente
+    hasta que algo lo reemplaza) y llama a `AppointmentService.reschedule`
+    directo, sin el branch de `pages/appointments.py::move` que para un
+    `no_show` -fuera de `_ESTADOS_ACTIVOS`- ya pasaba por `create`."""
+
+    def test_sin_encuesta_400_con_x_tt_error(
+        self, client_as, db_session, seed_phase_defs, seed_document_types,
+        make_program, make_cohort, make_review_day, make_review_window,
+        make_officer, make_student, make_process, make_appointment,
+    ):
+        seed_phase_defs()
+        seed_document_types()
+        prog = make_program("Ingenieria R11 Ruta")
+        cohort = make_cohort()
+        dia = make_review_day(cohort, day=date(2029, 5, 7))
+        officer, pos = make_officer(
+            [prog], perm_codes=OFFICER_PERMS + ("titulatec.appointment.api.reschedule",))
+        window = make_review_window(dia, officer, start="09:00", end="11:00",
+                                    slot=30, cap=1, position=pos)
+        proc = make_process(make_student(), cohort=cohort, program=prog, current_phase=2)
+        appt = make_appointment(proc, status="no_show", is_current=True)
+
+        resp = client_as(officer).post(
+            f"/titulatec/admin/appointments/{proc.id}/reschedule",
+            data={"window_id": window.id, "slot_start": "09:30"})
+
+        assert resp.status_code == 400, resp.text[:300]
+        assert "encuesta de egresados" in _msg(resp)
+        vigente = AppointmentService.get_for_process(db_session, proc.id)
+        assert vigente.id == appt.id and vigente.status == "no_show"

@@ -584,6 +584,38 @@ class AppointmentService:
             raise EnrollmentRevoked()
 
     @staticmethod
+    def _assert_cleared(db: Session, process_id: int) -> None:
+        """Las liberaciones del alumno (`ClearanceGate`), en el MISMO orden y
+        con los MISMOS errores que `create` (spec 2026-10-01-titulatec-
+        biblioteca-caja-design.md §4.4.1; Ruling R11 de la revisión de la
+        Tarea 5): encuesta ENVIADA, encuesta LIBERADA y, donde la
+        convocatoria lo exige, no adeudo de biblioteca liberado.
+
+        Única copia de esa comparación (reutilizada, no reimplementada): la
+        llama `create` para todo intento nuevo y `reschedule` SOLO cuando
+        `appt.status == 'no_show'` -- ese camino abre un intento nuevo
+        (`SlotService.assign` inserta la fila siguiente) igual que `create`,
+        hueco que antes no pasaba por aquí (tampoco revisaba la encuesta). Un
+        `scheduled`/`confirmed` que se MUEVE no pasa por aquí: D17 dice que la
+        cita vigente no se vuelve a mirar.
+        """
+        from itcj2.apps.titulatec.services.appointment_errors import (
+            LibraryNotCleared, SurveyNotReleased, SurveyNotSubmitted,
+        )
+        from itcj2.apps.titulatec.services.clearance_gate import (
+            SURVEY_BLOCKERS, ClearanceGate,
+        )
+
+        liberaciones = ClearanceGate.status(db, process_id)
+        bloqueos = ClearanceGate.blockers(liberaciones)
+        if bloqueos:
+            if bloqueos[0] == "survey_missing":
+                raise SurveyNotSubmitted()
+            if bloqueos[0] in SURVEY_BLOCKERS:
+                raise SurveyNotReleased(liberaciones["survey"])
+            raise LibraryNotCleared(liberaciones["library"])
+
+    @staticmethod
     def _log(db: Session, process_id: int, actor_id: int, event_type: str, payload: dict | None = None):
         from itcj2.apps.titulatec.models import ProcessEvent
         db.add(ProcessEvent(
@@ -653,23 +685,27 @@ class AppointmentService:
                start_now: bool = False):
         """Abre un intento de cita en una franja concreta. Dueña de la transacción.
 
-        Valida, en este orden: las LIBERACIONES del alumno, que pregunta a
-        `ClearanceGate` (spec 2026-10-01-titulatec-biblioteca-caja-design.md
-        §4.4.1; el primer bloqueo es el que se reporta, encuesta primero) —que
-        YA HAYA ENVIADO la encuesta de egresados (`SurveyNotSubmitted` si no
-        existe solicitud), que Gestión Tecnológica y Vinculación ya la haya
-        LIBERADO (`SurveyNotReleased` si sigue `in_review`/`rejected` — D1,
-        revierte D2 del 2026-09-15: enviarla YA NO basta) y, donde la
-        convocatoria lo exige, que su no adeudo de biblioteca esté liberado
-        (`LibraryNotCleared` si sigue en Biblioteca o por pagar en Caja, D6)—;
-        luego que haya ventana y franja (`MissingSchedule`), que no haya ya una
-        cita ACTIVA (`AppointmentConflict`, D4), que el día siga habilitado
+        Valida, en este orden: las LIBERACIONES del alumno (`_assert_cleared`,
+        que pregunta a `ClearanceGate` -- spec 2026-10-01-titulatec-
+        biblioteca-caja-design.md §4.4.1; el primer bloqueo es el que se
+        reporta, encuesta primero) —que YA HAYA ENVIADO la encuesta de
+        egresados (`SurveyNotSubmitted` si no existe solicitud), que Gestión
+        Tecnológica y Vinculación ya la haya LIBERADO (`SurveyNotReleased` si
+        sigue `in_review`/`rejected` — D1, revierte D2 del 2026-09-15:
+        enviarla YA NO basta) y, donde la convocatoria lo exige, que su no
+        adeudo de biblioteca esté liberado (`LibraryNotCleared` si sigue en
+        Biblioteca o por pagar en Caja, D6)—; luego que haya ventana y franja
+        (`MissingSchedule`), que no haya ya una cita ACTIVA
+        (`AppointmentConflict`, D4), que el día siga habilitado
         (`DayNotAllowed`), que la hora sea una franja real (`InvalidSlot`) y
         que quede lugar (`SlotFull`). La guarda de las liberaciones va PRIMERO
         y aplica a todo `create` (también tras un `no_show`, una `attended`
         rechazada o una `cancelled`): sin ellas no hay nada más que validar.
-        Una cita YA agendada no la vuelve a mirar nadie (D17): `reschedule`
-        mueve la cita viva sin pasar por aquí.
+        Una cita VIVA (`scheduled`/`confirmed`/`in_progress`) no la vuelve a
+        mirar nadie (D17): `reschedule` la mueve sin pasar por aquí. Un
+        `no_show`, en cambio, SÍ pasa por el mismo candado al reagendar
+        (`_assert_cleared`, Ruling R11 de la revisión de la Tarea 5): mover
+        desde ahí abre un intento nuevo, igual que `create`.
 
         `booked_by` ∈ {officer, student} es el distintivo «Agendada por el
         alumno» del tablero (D11). Lo pone quien llama, no se adivina del
@@ -689,24 +725,12 @@ class AppointmentService:
         viva, día y cupo valen igual para esta cita que para cualquier otra.
         """
         from itcj2.apps.titulatec.models import ReviewWindow
-        from itcj2.apps.titulatec.services.appointment_errors import (
-            LibraryNotCleared, MissingSchedule, SurveyNotReleased, SurveyNotSubmitted,
-        )
-        from itcj2.apps.titulatec.services.clearance_gate import (
-            SURVEY_BLOCKERS, ClearanceGate,
-        )
+        from itcj2.apps.titulatec.services.appointment_errors import MissingSchedule
         from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
         from itcj2.apps.titulatec.services.slot_service import SlotService
 
         AppointmentService._assert_not_revoked(db, process_id)
-        liberaciones = ClearanceGate.status(db, process_id)
-        bloqueos = ClearanceGate.blockers(liberaciones)
-        if bloqueos:
-            if bloqueos[0] == "survey_missing":
-                raise SurveyNotSubmitted()
-            if bloqueos[0] in SURVEY_BLOCKERS:
-                raise SurveyNotReleased(liberaciones["survey"])
-            raise LibraryNotCleared(liberaciones["library"])
+        AppointmentService._assert_cleared(db, process_id)
 
         if not window_id or slot_start is None:
             raise MissingSchedule()
@@ -839,6 +863,20 @@ class AppointmentService:
         `_REAGENDABLES` deja fuera `in_progress` (un cotejo empezado se cierra
         con `attended` o `no_show`) y los tres terminales.
 
+        Ruling R11 (revisión de la Tarea 5, spec 2026-10-01-titulatec-
+        biblioteca-caja-design.md): reagendar desde un `no_show` abre un
+        intento NUEVO -igual que `create`, la fila vieja se queda atrás y
+        `SlotService.assign` inserta la siguiente- así que pasa por el MISMO
+        candado de liberaciones (`AppointmentService._assert_cleared`, los
+        MISMOS errores que `create`: `SurveyNotSubmitted`/`SurveyNotReleased`/
+        `LibraryNotCleared`). Es el hueco que esta revisión cierra: antes
+        `reschedule` nunca lo consultaba, ni siquiera la encuesta. Mover una
+        cita VIVA (`scheduled`/`confirmed`) NO pasa por el candado (D17: una
+        cita ya agendada no se vuelve a mirar aunque una liberación quede
+        pendiente mientras tanto) -- por eso la llamada es condicional al
+        estado de LA FILA QUE LLEGÓ, antes de que `SlotService.assign` la
+        reemplace.
+
         **No toca `change_request`.** Antes hacía `appt.note = note`, así que la
         solicitud del alumno se perdía justo al atenderla; ahora se queda en el
         intento al que pertenecía y la cita nueva nace limpia.
@@ -851,6 +889,8 @@ class AppointmentService:
         from itcj2.apps.titulatec.services.slot_service import SlotService
 
         AppointmentService._assert_not_revoked(db, appt.process_id)
+        if appt.status == "no_show":
+            AppointmentService._assert_cleared(db, appt.process_id)
         if not window_id or slot_start is None:
             raise MissingSchedule()
         if appt.status not in _REAGENDABLES:

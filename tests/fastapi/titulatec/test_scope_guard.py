@@ -625,7 +625,11 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
 
     # 20 desde 2026-09-25: + `POST /admin/processes/{id}/cancelar` (revocar).
     # 21 desde 2026-09-29: + `POST /admin/appointments/{id}/atender-ahora` (D7).
-    assert revisadas == 21, (
+    # 25 desde 2026-10-01: + 4 rutas de respaldo «constancia previa» (D9, Tarea 11):
+    # registrar/deshacer no-adeudo-previo desde el expediente
+    # (`POST /admin/processes/{id}/no-adeudo-previo[/deshacer]`) y desde el panel
+    # de atender (`POST /admin/appointments/{id}/no-adeudo-previo[/deshacer]`).
+    assert revisadas == 25, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
         "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
         "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"

@@ -303,10 +303,16 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     # contesta 403 es peor que no estar. Con `user_id=None` el checklist sale
     # apagado, no roto.
     can_mark_reqs = False
+    # Respaldo «Constancia previa…» / «Deshacer» (D9, spec 2026-10-01-
+    # titulatec-biblioteca-caja-design.md §4.9): mismo criterio que
+    # `can_mark_reqs`, con el permiso propio de SE
+    # (`titulatec.library_clearance.api.prior`, ya otorgado por el DML).
+    can_register_prior = False
     if user_id is not None:
         from itcj2.core.services.authz_service import get_user_permissions_for_app
-        can_mark_reqs = ("titulatec.process.api.requirement.mark"
-                         in get_user_permissions_for_app(db, user_id, "titulatec"))
+        _user_perms = get_user_permissions_for_app(db, user_id, "titulatec")
+        can_mark_reqs = "titulatec.process.api.requirement.mark" in _user_perms
+        can_register_prior = "titulatec.library_clearance.api.prior" in _user_perms
 
     appt = AppointmentService.get_for_process(db, process_id)
 
@@ -332,6 +338,14 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     # DESPUÉS de su `db.close()`, igual que `requisitos` arriba.
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
     survey = SurveyReviewService.summary_for_process(db, process_id)
+
+    # Mismo trato para el no adeudo de biblioteca (D9, Tarea 11): dict plano
+    # de `LibraryClearanceService.summary_for_process`, MISMA fuente que el
+    # expediente (`pages/admin.py::_detail_ctx`).
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+    library = LibraryClearanceService.summary_for_process(db, process_id)
 
     # «Atender ahora» (D7, spec 2026-09-29-titulatec-cotejo-espacios-design.md
     # §4): los espacios SIN HORARIO de HOY de quien mira la ficha, abiertos y
@@ -421,6 +435,8 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
         "requisitos": requisitos,
         "can_mark_reqs": can_mark_reqs,
         "survey": survey,
+        "library": library,
+        "can_register_prior": can_register_prior,
         "walkins_hoy": walkins_hoy,
         # I-3: `liberaciones_pendientes` apaga «Agendar a este alumno» /
         # «Atender ahora» en la plantilla cuando abrirían un intento que la
@@ -1026,6 +1042,11 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     modo = "resultados" if buscando else "dia"
 
     filas_rechazados = _proc_rows_rechazados(db, rechazados)
+    # `format_amount` viaja COMO FUNCIÓN (no texto ya formado): la fila de
+    # solo lectura del no adeudo (`_appt_attend.html`) pinta distintos montos
+    # según `via` (adeudo + donación, total pagado...), mismo patrón que
+    # `cashier_body.html`/`library_body.html`.
+    from itcj2.apps.titulatec.services.library_clearance_service import format_amount
     ctx = {
         "v": vista, "modo": modo,
         "day": day.isoformat() if day else "",
@@ -1033,6 +1054,7 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         "day_resuelto": day_resuelto,
         "dias": _dias_ctx(db, cohort_id, abierto=day, today=today),
         "detail": detail, "selected_id": selected_id,
+        "format_amount": format_amount,
         "mover": mover,
         # Modo «estoy escribiendo el motivo del rechazo de la fase 02». Viaja
         # por querystring como `mover`, no por un `prompt()` (prohibido) ni por
@@ -1360,6 +1382,23 @@ def _hdr(msg: str) -> str:
     """
     from urllib.parse import quote
     return quote(str(msg), safe="")
+
+
+def _parse_issued_on(raw: str):
+    """«AAAA-MM-DD» del `<input type=date>` del respaldo «Constancia previa…»
+    (D9) -> `date`, o `None` si viene vacío (el service dice «Escribe la
+    fecha...», con su propio mensaje). Gemelo de
+    `pages/library_admin.py::_parse_issued_on` / `pages/admin.py::
+    _parse_issued_on`. Texto que no es una fecha ISO real -campo manipulado a
+    mano- cae en un mensaje propio, igual de legible."""
+    texto = (raw or "").strip()
+    if not texto:
+        return None
+    from datetime import date as _date
+    try:
+        return _date.fromisoformat(texto)
+    except ValueError:
+        raise ValueError("La fecha de la constancia previa no es válida.")
 
 
 def _window_y_franja(db, form, proc, user_id):
@@ -1830,6 +1869,85 @@ async def req_mark(
                 note=nota,
                 status=("waived" if accion == "waive" else "fulfilled"),
             )
+        return _render_body(request, db, selected_id=process_id, user_id=uid,
+                            **_action_ctx(request))
+    finally:
+        db.close()
+
+
+# ===========================================================================
+# Respaldo «Constancia previa…» / «Deshacer» del no adeudo de biblioteca (D9)
+# ===========================================================================
+# Servicios Escolares, desde el panel de atender (gemelas en
+# `pages/admin.py` para el expediente). Van por `{process_id}` con
+# `assert_process_in_scope` como PRIMERA sentencia del `try` (censo de
+# `test_scope_guard.py`, spec §5 invariante 6).
+
+@router.post("/{process_id}/no-adeudo-previo",
+             name="titulatec.pages.appointments.library_prior")
+async def library_prior(
+    process_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.library_clearance.api.prior"])),
+):
+    """SE registra, desde el panel de atender, que el egresado YA trae su
+    constancia previa de no adeudo (D9): `pending`/`awaiting_payment` ->
+    `cleared/prior`, sin pasar por Caja. Gemela de `pages/admin.py::
+    process_library_prior`."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    form = dict(await request.form())
+    note = form.get("note") or None
+    uid = int(user["sub"])
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, uid, process_id)
+        try:
+            issued_on = _parse_issued_on(form.get("issued_on"))
+            clearance = LibraryClearanceService.for_process_locked(db, process_id)
+            LibraryClearanceService.register_prior(
+                db, clearance.id, uid, issued_on=issued_on, note=note,
+                by="school_services")
+        except LookupError:
+            return Response(status_code=404)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        return _render_body(request, db, selected_id=process_id, user_id=uid,
+                            **_action_ctx(request))
+    finally:
+        db.close()
+
+
+@router.post("/{process_id}/no-adeudo-previo/deshacer",
+             name="titulatec.pages.appointments.library_prior_undo")
+async def library_prior_undo(
+    process_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.library_clearance.api.prior"])),
+):
+    """Deshace la constancia previa (motivo obligatorio): `cleared/prior` ->
+    `pending`. Gemela de `pages/admin.py::process_library_prior_undo`."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    form = dict(await request.form())
+    reason = form.get("reason") or ""
+    uid = int(user["sub"])
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, uid, process_id)
+        try:
+            clearance = LibraryClearanceService.for_process_locked(db, process_id)
+            LibraryClearanceService.undo_prior(db, clearance.id, uid, reason)
+        except LookupError:
+            return Response(status_code=404)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         return _render_body(request, db, selected_id=process_id, user_id=uid,
                             **_action_ctx(request))
     finally:

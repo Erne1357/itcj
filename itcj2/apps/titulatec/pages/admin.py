@@ -143,6 +143,29 @@ def _window_ctx(db, cohort, *, can_edit: bool) -> dict:
     }
 
 
+def _donation_ctx(cohort, *, can_edit: bool) -> dict:
+    """Contexto del parcial `cohort/cohort_donation.html` (D5, spec 2026-10-
+    01-titulatec-biblioteca-caja-design.md §4.9).
+
+    `amount_raw` precarga el campo del editor en formato de captura
+    («800.00»), vacío si la convocatoria no tiene donación capturada (legado
+    antes de esta tarea: el alta ya la exige, D19). `amount_label` es la
+    lectura de solo lectura (`format_amount`, «Sin capturar» si es `None`).
+    """
+    from itcj2.apps.titulatec.services.library_clearance_service import format_amount
+
+    amount = cohort.book_donation_amount
+    return {
+        "cohort_id": cohort.id,
+        "donation": {
+            "amount_raw": (f"{amount:.2f}" if amount is not None else ""),
+            "amount_label": (format_amount(amount) if amount is not None
+                             else "Sin capturar"),
+        },
+        "can_edit_donation": can_edit,
+    }
+
+
 def _cohort_summary_ctx(db, cohort) -> dict:
     from itcj2.apps.titulatec.models import TitulationProcess, ReviewAppointment, PhaseDefinition
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
@@ -437,11 +460,12 @@ async def cohorts(
     error: str = "",
     user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS)),
 ):
-    """Lista de convocatorias + alta (período académico y ventana).
+    """Lista de convocatorias + alta (período académico, ventana y donación).
 
-    `?error=ventana` lo pone `cohort_create` cuando la ventana del alta no
-    sirve: la página pinta el aviso y deja el formulario desplegado. Cualquier
-    otro valor se ignora.
+    `?error=ventana` / `?error=donacion` los pone `cohort_create` cuando la
+    ventana o la donación del alta no sirven: la página pinta el aviso que
+    corresponda y deja el formulario desplegado. Cualquier otro valor se
+    ignora.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort, TitulationProcess
@@ -472,6 +496,7 @@ async def cohorts(
     return render_titulatec(request, "titulatec/admin/cohorts.html", {
         "cohorts": rows, "periods": periods, "kpis": kpis,
         "window_error": error == "ventana",
+        "donation_error": error == "donacion",
     })
 
 
@@ -483,10 +508,11 @@ async def cohort_create(
     opens_time: str = Form(""),
     closes_date: str = Form(""),
     closes_time: str = Form(""),
+    book_donation: str = Form(""),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.create"])),
 ):
-    """Alta de convocatoria: nace en `draft`, con su ventana y su lista de
-    requisitos.
+    """Alta de convocatoria: nace en `draft`, con su ventana, su donación y su
+    lista de requisitos.
 
     * **`status='draft'`, no `'open'`.** Toda convocatoria nacía abierta con
       `opens_at`/`closes_at` en NULL, así que el predicado de "convocatoria
@@ -498,6 +524,14 @@ async def cohort_create(
       ventana inventada por el servidor sería una fecha que nadie decidió.
       Si no sirve: 303 a `?error=ventana` ANTES de abrir sesión, sin crear
       nada; la lista pinta el aviso.
+    * **La donación voluntaria de libro es OBLIGATORIA al alta** (D19, spec
+      2026-10-01-titulatec-biblioteca-caja-design.md §4.9): sin ella,
+      Biblioteca no podría pasar ni un caso a Caja
+      (`LibraryClearanceService._prepare_registration`). `parse_amount` valida
+      el formato y el tope (0 a $100,000, mismas reglas que Biblioteca/Caja);
+      inválida o vacía: 303 a `?error=donacion`, ANTES de abrir sesión, igual
+      que la ventana —se revisa DESPUÉS de la ventana, así que un alta con las
+      dos cosas mal vuelve con el aviso de ventana primero.
     * **Siembra los requisitos de cotejo en la MISMA transacción.** `list_or_seed`
       es perezoso y solo se dispararía desde una página gateada por la fase 2:
       un alumno en fase 1 que contesta la encuesta no tendría requisito que
@@ -508,12 +542,17 @@ async def cohort_create(
     from itcj2.apps.titulatec.services.cotejo_requirement_service import (
         CotejoRequirementService,
     )
+    from itcj2.apps.titulatec.services.library_clearance_service import parse_amount
     from itcj2.core.models.academic_period import AcademicPeriod
 
     apertura = _parse_window_dt(opens_date, opens_time, default=_OPENS_DEFAULT_TIME)
     cierre = _parse_window_dt(closes_date, closes_time, default=_CLOSES_DEFAULT_TIME)
     if apertura is None or cierre is None or cierre <= apertura:
         return RedirectResponse("/titulatec/admin/cohorts?error=ventana", status_code=303)
+    try:
+        donacion = parse_amount(book_donation)
+    except ValueError:
+        return RedirectResponse("/titulatec/admin/cohorts?error=donacion", status_code=303)
 
     db = SessionLocal()
     try:
@@ -524,6 +563,7 @@ async def cohort_create(
                 name=f"Convocatoria Titulación {period.code if period else period_id}",
                 status="draft", created_by_id=int(user["sub"]),
                 opens_at=apertura, closes_at=cierre,
+                book_donation_amount=donacion,
             )
             db.add(cohort)
             db.flush()          # hace falta el id para sembrar
@@ -555,6 +595,8 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
             ctx["summary"] = _cohort_summary_ctx(db, cohort)
             ctx.update(_window_ctx(
                 db, cohort, can_edit="titulatec.cohort.api.update" in perms))
+            ctx.update(_donation_ctx(
+                cohort, can_edit="titulatec.cohort.api.update" in perms))
         elif tab == "importar":
             pass  # el wizard de importación se sirve con el cohort ya en ctx
         elif tab == "dias":
@@ -894,6 +936,66 @@ async def cohort_window(
     return resp
 
 
+@router.post("/cohorts/{cohort_id}/donacion", name="titulatec.pages.admin.cohort_donation")
+async def cohort_donation(
+    cohort_id: int,
+    request: Request,
+    book_donation: str = Form(""),
+    user: dict = Depends(require_page_app("titulatec",
+                                          perms=["titulatec.cohort.api.update"])),
+):
+    """Edita la donación voluntaria de libro de la convocatoria (D5, spec
+    2026-10-01-titulatec-biblioteca-caja-design.md §4.9), desde el panel
+    Resumen.
+
+    UN SOLO código en `perms`, y el específico: mismo motivo que
+    `cohort_window` (`require_page_app` evalúa la lista como OR,
+    `dependencies.py:131`).
+
+    `parse_amount` valida formato y tope (0 a $100,000); inválido → 400 +
+    `X-Tt-Error`, sin tocar la convocatoria. `CohortService.set_book_donation`
+    es la dueña de la transacción (UN commit) y devuelve cuántos
+    `LibraryClearance` de esta convocatoria YA tienen un monto congelado
+    (Review Focus #2): ese número arma el aviso «N egresados ya tienen monto
+    asignado; no cambia para ellos (Biblioteca puede corregir)» cuando es > 0,
+    o «Donación guardada.» a secas si nadie se ve afectado.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import Cohort
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.apps.titulatec.services.library_clearance_service import parse_amount
+    from itcj2.core.services.authz_service import get_user_permissions_for_app
+
+    db = SessionLocal()
+    try:
+        cohort = db.get(Cohort, cohort_id)
+        if cohort is None:
+            return Response(status_code=404)
+        try:
+            monto = parse_amount(book_donation)
+            result = CohortService.set_book_donation(db, cohort_id, amount=monto)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+
+        perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
+        ctx = _donation_ctx(cohort, can_edit="titulatec.cohort.api.update" in perms)
+    finally:
+        db.close()
+
+    n = result["affected"]
+    if n:
+        aviso = (f"Donación guardada. {n} egresado{'s' if n != 1 else ''} ya "
+                f"tiene{'n' if n != 1 else ''} monto asignado; no cambia para "
+                "ellos (Biblioteca puede corregir).")
+    else:
+        aviso = "Donación guardada."
+
+    resp = render_titulatec(request, "titulatec/partials/cohort/cohort_donation.html", ctx)
+    resp.headers["X-Tt-Notice"] = _hdr(aviso)
+    resp.headers["X-Tt-Notice-Kind"] = "warning" if n else "success"
+    return resp
+
+
 # ===========================================================================
 # Importación de alumnos (CSV del Forms, flexible)
 # ===========================================================================
@@ -1177,6 +1279,23 @@ def _hdr(msg: str) -> str:
     """
     from urllib.parse import quote
     return quote(msg or "", safe="")
+
+
+def _parse_issued_on(raw: str):
+    """«AAAA-MM-DD» del `<input type=date>` del respaldo «Constancia previa…»
+    (D9) -> `date`, o `None` si viene vacío (el service dice «Escribe la
+    fecha...», con su propio mensaje). Gemelo de
+    `pages/library_admin.py::_parse_issued_on`. Texto que no es una fecha ISO
+    real -campo manipulado a mano- cae en un mensaje propio, igual de
+    legible."""
+    texto = (raw or "").strip()
+    if not texto:
+        return None
+    from datetime import date
+    try:
+        return date.fromisoformat(texto)
+    except ValueError:
+        raise ValueError("La fecha de la constancia previa no es válida.")
 
 
 def _fecha_larga(dt) -> str:
@@ -1518,6 +1637,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     can_dictaminar_fase = False
     can_dictaminar_fb = False
     can_revoke = False
+    can_register_prior = False
     if user_id is not None:
         from itcj2.core.services.authz_service import get_user_permissions_for_app
         _user_perms = get_user_permissions_for_app(db, user_id, "titulatec")
@@ -1535,6 +1655,13 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         # solo sobre lo que `ProcessService.cancel` acepta revocar.
         can_revoke = ("titulatec.process.api.cancel" in _user_perms
                       and proc.status in ProcessService.REVOCABLE_STATUSES)
+        # Respaldo «Constancia previa…» / «Deshacer» (D9, spec 2026-10-01-
+        # titulatec-biblioteca-caja-design.md §4.9): mismo criterio que
+        # `can_mark_reqs` -sobre una inscripción revocada no hay nada que
+        # registrar-, pero con el permiso propio de SE
+        # (`titulatec.library_clearance.api.prior`, ya otorgado por el DML).
+        can_register_prior = ("titulatec.library_clearance.api.prior" in _user_perms
+                              and proc.status != "cancelled")
 
     # La revocación vigente (motivo, cuándo, quién). Dict plano: se renderiza
     # después del `db.close()` de la ruta.
@@ -1554,6 +1681,16 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # DESPUÉS de su `db.close()`.
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
     survey = SurveyReviewService.summary_for_process(db, process_id)
+
+    # Mismo trato para el no adeudo de biblioteca (D9, Tarea 11): dict plano
+    # de `LibraryClearanceService.summary_for_process`, MISMA fuente que el
+    # panel de atender (`pages/appointments.py::_detail_ctx`). `format_amount`
+    # va al contexto -no como texto ya formado- porque la fila también pinta
+    # el desglose del recibo/certificado, que varía según `via`.
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService, format_amount,
+    )
+    library = LibraryClearanceService.summary_for_process(db, process_id)
 
     # ---- bitácora de correos al egresado (spec 2026-09-28 §7, D11) ----
     #
@@ -1606,6 +1743,9 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "can_revoke": can_revoke,
         "revocada": revocada,
         "survey": survey,
+        "library": library,
+        "can_register_prior": can_register_prior,
+        "format_amount": format_amount,
         "correos": correos,
     }
 
@@ -2005,6 +2145,91 @@ async def process_requirement(
                 checked_by_id=int(user["sub"]), note=nota,
                 status=("waived" if accion == "waive" else "fulfilled"),
             )
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
+    finally:
+        db.close()
+
+
+# ===========================================================================
+# Respaldo «Constancia previa…» / «Deshacer» del no adeudo de biblioteca (D9)
+# ===========================================================================
+# Servicios Escolares, desde el expediente (gemelas en `pages/appointments.py`
+# para el panel de atender). Van por `{process_id}` con `assert_process_in_
+# scope` como PRIMERA sentencia del `try` (censo de `test_scope_guard.py`,
+# spec §5 invariante 6) -- a diferencia de las de Biblioteca
+# (`pages/library_admin.py`), que van por `clearance_id` y ven todo.
+#
+# `LibraryClearanceService.for_process_locked` resuelve `process_id` ->
+# `LibraryClearance` (la abre `pending` si el proceso no tenía fila: alta
+# durante el blue/green) y la deja bloqueada; `register_prior`/`undo_prior`
+# vuelven a bloquearla por su `clearance_id` -misma transacción, el mismo
+# lock no se disputa a sí mismo- antes de aplicar la transición de verdad.
+
+@router.post("/processes/{process_id}/no-adeudo-previo",
+             name="titulatec.pages.admin.process_library_prior")
+async def process_library_prior(
+    process_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.library_clearance.api.prior"])),
+):
+    """SE registra, desde el expediente, que el egresado YA trae su
+    constancia previa de no adeudo (D9): `pending`/`awaiting_payment` ->
+    `cleared/prior`, sin pasar por Caja. Respaldo para quien no tiene cita
+    todavía; Biblioteca tiene el mismo botón en su propia bandeja
+    (`pages/library_admin.py::prior`)."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    form = dict(await request.form())
+    note = form.get("note") or None
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
+        try:
+            issued_on = _parse_issued_on(form.get("issued_on"))
+            clearance = LibraryClearanceService.for_process_locked(db, process_id)
+            LibraryClearanceService.register_prior(
+                db, clearance.id, int(user["sub"]), issued_on=issued_on, note=note,
+                by="school_services")
+        except LookupError:
+            return Response(status_code=404)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
+    finally:
+        db.close()
+
+
+@router.post("/processes/{process_id}/no-adeudo-previo/deshacer",
+             name="titulatec.pages.admin.process_library_prior_undo")
+async def process_library_prior_undo(
+    process_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.library_clearance.api.prior"])),
+):
+    """Deshace la constancia previa (motivo obligatorio): `cleared/prior` ->
+    `pending`. Solo si la fase 2 todavía no está aprobada
+    (`LibraryClearanceService.can_revert`, parte del dict de
+    `summary_for_process` que ya trae la plantilla)."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    form = dict(await request.form())
+    reason = form.get("reason") or ""
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
+        try:
+            clearance = LibraryClearanceService.for_process_locked(db, process_id)
+            LibraryClearanceService.undo_prior(db, clearance.id, int(user["sub"]), reason)
+        except LookupError:
+            return Response(status_code=404)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         return _render_detail_body(request, db, process_id, int(user["sub"]))
     finally:
         db.close()
