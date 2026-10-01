@@ -26,7 +26,8 @@
    §4.12): con `approved`, "prior" significa que no hubo encuesta real -SE (o
    el desarrollador) cargó la constancia del semestre anterior por la CLI
    `import-prior-clearances`-, así que el texto es otro y nunca menciona que
-   "GTV revisó" nada.
+   "GTV revisó" nada. Una previa REVOCADA no se pinta aquí: `revoke` la borra
+   y el egresado vuelve a ver el formulario (Ruling R22).
    =========================================================================== #}
 <div id="tt-survey-status" class="tt-card tt-card--hero tt-anim-in"
      role="status" data-tt-review-status="{{ review.status }}">
@@ -41,9 +42,14 @@
     {% endif %}
 
   {% elif review.status == 'rejected' %}
+    {# Observaciones o revocación de una encuesta REAL (una previa revocada ya
+       no llega aquí: se borra y vuelve el formulario, Ruling R22). Contacto =
+       la MISMA línea de D12 que los correos (Ruling R27), nunca «su
+       ventanilla». #}
     <h2 class="tt-display h5 mt-1 mb-2">Tienes observaciones de Gestión Tecnológica y Vinculación</h2>
     {% if review.reason %}<p class="mb-2" data-tt-review-reason>{{ review.reason }}</p>{% endif %}
-    <p class="mb-0">Resuélvelo directamente en su ventanilla (Residencias, Prácticas o Servicio Social); no necesitas volver a contestar esta encuesta, ya quedó registrada.</p>
+    <p class="mb-2">Para más información, contactar con <a href="mailto:servicio_ext@cdjuarez.tecnm.mx">servicio_ext@cdjuarez.tecnm.mx</a></p>
+    <p class="mb-0">No necesitas volver a contestar esta encuesta: tu respuesta ya quedó registrada.</p>
 
   {% else %}
     <h2 class="tt-display h5 mt-1 mb-2">Tu encuesta está en revisión</h2>

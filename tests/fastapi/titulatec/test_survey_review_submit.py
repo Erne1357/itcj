@@ -389,6 +389,31 @@ def test_GET_con_solicitud_pinta_tarjeta_de_estatus_sin_prellenado(
     assert len(_responses(db_session, process_id=proc.id)) == 1   # la de la fixture
 
 
+def test_GET_con_observaciones_da_el_contacto_de_servicio_externo(
+    client_as, make_student, make_process, make_cohort, make_survey_review,
+    db_session,
+):
+    """Ruling R27 (M4 de la revisión final): la tarjeta pública de una
+    encuesta con observaciones (o revocada) ya no manda «a su ventanilla
+    (Residencias, Prácticas o Servicio Social)»; da la MISMA línea de D12 que
+    los correos, con su `mailto:`."""
+    student = make_student()
+    proc = make_process(student, cohort=make_cohort())
+    make_survey_review(proc, status="rejected", reason="Falta tu folio de Servicio Social.")
+    db_session.commit()
+
+    resp = client_as(student).get(SURVEY_URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:500]
+    tarjeta = resp.text.split('id="tt-survey-status"', 1)[1]
+    texto = " ".join(tarjeta.split())
+    assert ("Para más información, contactar con "
+            '<a href="mailto:servicio_ext@cdjuarez.tecnm.mx"') in texto
+    assert ">servicio_ext@cdjuarez.tecnm.mx</a>" in tarjeta
+    assert "ventanilla" not in tarjeta
+    assert "Falta tu folio de Servicio Social." in tarjeta
+
+
 def test_GET_con_constancia_previa_pinta_la_tarjeta_y_no_deja_contestar(
     client_as, make_student, make_process, make_cohort, make_survey_form, db_session,
 ):
