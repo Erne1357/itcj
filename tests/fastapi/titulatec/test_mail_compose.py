@@ -1028,12 +1028,15 @@ def test_pasa_a_caja_obsoleto_si_ya_no_debe(db_session, con_biblioteca, bibliote
 
 
 def test_pasa_a_caja_obsoleto_si_la_fase_2_ya_se_aprobo(db_session, con_biblioteca):
-    """Ruling R30 #4 (re-revisión de la ola final): la fase 2 se aprobó
-    DURANTE la espera del despachador (p. ej. SE marcó el requisito a mano
-    en la transición) -el dueño lo clasifica `NOT_APPLICABLE` (Ruling R21),
-    aunque la fila SIGA `awaiting_payment`-: TitulaTec deja de perseguir el
-    pago por correo (Caja sigue pudiendo cobrarlo si el egresado se
-    presenta, eso no lo valida este correo)."""
+    """Ruling R30 #4 (re-revisión de la ola final, ronda 2): la fase 2 se
+    aprobó DURANTE la espera del despachador (p. ej. SE marcó el requisito a
+    mano en la transición) -el dueño lo clasifica `NOT_APPLICABLE` (Ruling
+    R21), aunque la fila SIGA `awaiting_payment`-: `payment_due` devuelve
+    `None` también ahí, así que TitulaTec deja de perseguir el pago por
+    correo con el MISMO `Obsolete` genérico de «ya no tiene un pago
+    pendiente» -este módulo no pregunta nada aparte (invariante 2)-; Caja
+    sigue pudiendo cobrarlo si el egresado se presenta, eso no lo valida
+    este correo."""
     from itcj2.apps.titulatec.models import ProcessPhase
     from itcj2.apps.titulatec.services.mail_compose import Obsolete
 
@@ -1042,8 +1045,7 @@ def test_pasa_a_caja_obsoleto_si_la_fase_2_ya_se_aprobo(db_session, con_bibliote
     db_session.add(ProcessPhase(process_id=proc.id, phase_number=2, status="approved"))
     db_session.flush()
 
-    assert _componer(db_session, proc) == Obsolete(
-        "ya pasó su cotejo; TitulaTec deja de perseguir el pago")
+    assert _componer(db_session, proc) == Obsolete("ya no tiene un pago pendiente en Caja")
 
 
 @pytest.mark.parametrize("via, frases", [
@@ -1185,11 +1187,13 @@ def test_recordatorio_de_pago_sin_candado_no_habla_de_agendar(db_session, proces
 @pytest.mark.parametrize("caso, motivo", [
     ("pagado", "ya no tiene un pago pendiente en Caja"),
     ("proceso-en-pausa", "el proceso ya no está activo"),
-    # Ruling R30 #4 (re-revisión de la ola final): la fase 2 se aprobó
-    # durante la espera del despachador -el dueño lo clasifica
+    # Ruling R30 #4 (re-revisión de la ola final, ronda 2): la fase 2 se
+    # aprobó durante la espera del despachador -el dueño lo clasifica
     # `NOT_APPLICABLE` (Ruling R21), aunque la fila SIGA `awaiting_payment`-:
-    # TitulaTec deja de perseguir el pago por correo.
-    ("fase-2-aprobada", "ya pasó su cotejo; TitulaTec deja de perseguir el pago"),
+    # `payment_due` devuelve `None` también ahí, MISMO motivo que «pagado»
+    # (este módulo no pregunta nada aparte, invariante 2) aunque el camino
+    # que lo produce sea otro.
+    ("fase-2-aprobada", "ya no tiene un pago pendiente en Caja"),
 ])
 def test_recordatorio_de_pago_obsoleto_al_enviar(db_session, con_biblioteca, caso, motivo):
     """D8: deja de salir en cuanto se libera, si el proceso ya no está activo,

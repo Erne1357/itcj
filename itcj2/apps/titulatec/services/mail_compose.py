@@ -566,11 +566,12 @@ def _compose_library_ready(db: Session, rows: list, process, user) -> Composed |
 
     - Aplica mientras tenga un pago pendiente en Caja
       (`LibraryClearanceService.payment_due`); si ya pagó, se liberó de otro
-      modo o se revirtió a Biblioteca, obsoleto.
-    - Ruling R30 #4 (re-revisión de la ola final): tampoco aplica si la fase
-      2 de ese proceso YA se aprobó -el dueño lo clasifica `NOT_APPLICABLE`
-      (`release_status`, Ruling R21)-: TitulaTec deja de perseguir el pago
-      por correo (Caja sigue pudiendo cobrarlo si el egresado se presenta).
+      modo, se revirtió a Biblioteca, o su fase 2 YA se aprobó (Ruling R30 #4,
+      re-revisión de la ola final: `payment_due` devuelve `None` también ahí
+      -`NOT_APPLICABLE`, Ruling R21-, así que TitulaTec deja de perseguir el
+      pago por correo con el MISMO `Obsolete` de abajo, sin que este módulo
+      pregunte nada aparte; Caja sigue pudiendo cobrarlo si el egresado se
+      presenta), obsoleto.
     - Un `library_ready` MÁS NUEVO del proceso lo vuelve obsoleto: los dos
       pintarían los mismos montos vigentes (registrar y corregir dentro de la
       espera del despachador = un solo correo).
@@ -583,7 +584,7 @@ def _compose_library_ready(db: Session, rows: list, process, user) -> Composed |
     """
     from itcj2.apps.titulatec.models import EmailOutbox
     from itcj2.apps.titulatec.services.library_clearance_service import (
-        NOT_APPLICABLE, LibraryClearanceService, format_amount,
+        LibraryClearanceService, format_amount,
     )
     from itcj2.apps.titulatec.services.phase_service import PhaseService
 
@@ -591,8 +592,6 @@ def _compose_library_ready(db: Session, rows: list, process, user) -> Composed |
     pago = LibraryClearanceService.payment_due(db, process.id)
     if pago is None:
         return Obsolete("ya no tiene un pago pendiente en Caja")
-    if LibraryClearanceService.release_status(db, process.id) == NOT_APPLICABLE:
-        return Obsolete("ya pasó su cotejo; TitulaTec deja de perseguir el pago")
     otras = (db.query(EmailOutbox.id, EmailOutbox.status)
              .filter(EmailOutbox.process_id == process.id,
                      EmailOutbox.kind == "library_ready",
@@ -827,17 +826,18 @@ def _compose_library_reminder(db: Session, rows: list, process, user) -> Compose
     """Recordatorio del pago pendiente en Caja (spec 2026-10-01 §4.11, D14).
     Aplica mientras el proceso siga `active` y su no adeudo tenga un pago
     pendiente (`LibraryClearanceService.payment_due`): deja de salir en cuanto
-    se libera. Ruling R30 #4 (re-revisión de la ola final): tampoco aplica si
-    la fase 2 de ese proceso YA se aprobó -el dueño lo clasifica
-    `NOT_APPLICABLE` (`release_status`, Ruling R21)-: TitulaTec deja de
-    perseguir el pago por correo (Caja sigue pudiendo cobrarlo si el
-    egresado se presenta); `MailReminders._pagos` ya no debería encolar este
-    caso, pero esta re-validación es la misma defensa en profundidad que el
-    resto de la app. Se arma con el total VIGENTE y, donde la convocatoria
+    se libera, o en cuanto su fase 2 se aprueba (Ruling R30 #4, re-revisión de
+    la ola final: `payment_due` devuelve `None` también ahí -`NOT_APPLICABLE`,
+    Ruling R21-, así que TitulaTec deja de perseguir el pago por correo con el
+    MISMO `Obsolete` de abajo, sin que este módulo pregunte nada aparte; Caja
+    sigue pudiendo cobrarlo si el egresado se presenta). `MailReminders._pagos`
+    ya no debería encolar este segundo caso (usa el mismo `awaiting_payment_
+    clause`), pero esta re-validación es la misma defensa en profundidad que
+    el resto de la app. Se arma con el total VIGENTE y, donde la convocatoria
     exige el no adeudo, dice que lo necesita para agendar. Lleva al tablero
     en la fase de la cita de cotejo."""
     from itcj2.apps.titulatec.services.library_clearance_service import (
-        NOT_APPLICABLE, LibraryClearanceService, format_amount,
+        LibraryClearanceService, format_amount,
     )
     from itcj2.apps.titulatec.services.phase_service import PhaseService
 
@@ -847,8 +847,6 @@ def _compose_library_reminder(db: Session, rows: list, process, user) -> Compose
     pago = LibraryClearanceService.payment_due(db, process.id)
     if pago is None:
         return Obsolete("ya no tiene un pago pendiente en Caja")
-    if LibraryClearanceService.release_status(db, process.id) == NOT_APPLICABLE:
-        return Obsolete("ya pasó su cotejo; TitulaTec deja de perseguir el pago")
     asunto = asunto_recordatorio_pago(pago["total"])
     return _correo(user, asunto, "library_reminder.html", _tablero(PhaseService.PHASE_COTEJO),
                    titulo=asunto, total=format_amount(pago["total"]) or None,

@@ -350,18 +350,30 @@ class LibraryClearanceService:
         """Lo que el egresado debe pagar en Caja AHORA, SOLO LECTURA:
         `{"debt", "donation", "total", "note", "ready_at"}` —los montos
         CONGELADOS de su fila (`Decimal`), la nota de Biblioteca y su entrada
-        vigente a Caja— si su no adeudo está `awaiting_payment`; `None` en
-        cualquier otro estado o sin fila.
+        vigente a Caja— si su no adeudo está `awaiting_payment` Y su fase 2
+        TODAVÍA no se aprobó; `None` en cualquier otro estado, sin fila, o con
+        la fase 2 ya `approved` (Ruling R30 #4, re-revisión de la ola final,
+        ronda 2: una fase 2 aprobada es `NOT_APPLICABLE` -Ruling R21- aunque
+        la fila SIGA `awaiting_payment` -p. ej. durante la transición D17-;
+        TitulaTec deja de PERSEGUIR el pago por correo, por el MISMO camino
+        que «ya no tiene nada que pagar»).
 
         Para los correos del pago (spec §4.11): `library_ready`,
         `library_reminder` y la reversión de un pago se re-validan con esto al
-        enviar y pintan los montos VIGENTES. Lee la FILA y no el candado a
-        propósito: lo que Biblioteca mandó a Caja se debe aunque la
-        convocatoria no exija el no adeudo para agendar. No contesta «¿le
-        faltan liberaciones?» —eso es SOLO de `ClearanceGate` (invariante 2)—:
-        como `prior_outcome`, deja la comparación de `status` en el dueño."""
+        enviar y pintan los montos VIGENTES; con la fase 2 aprobada salen
+        `Obsolete` sin que `mail_compose.py` tenga que preguntar nada aparte
+        (invariante 2: ningún consumidor fuera del dueño y del gate llama
+        `release_status`/`release_status_map`/`is_released`
+        -`test_clearance_gate.py::test_solo_el_gate_pregunta_a_los_duenos_
+        por_la_liberacion`-). Lee la FILA y no el candado a propósito: lo que
+        Biblioteca mandó a Caja se debe aunque la convocatoria no exija el no
+        adeudo para agendar -Caja SIGUE pudiendo cobrarlo si el egresado se
+        presenta, `register_payment` no llama aquí-. No contesta «¿le faltan
+        liberaciones?» —eso es SOLO de `ClearanceGate` (invariante 2)—: como
+        `prior_outcome`, deja la comparación de `status`/fase 2 en el dueño."""
         row = LibraryClearanceService.get_for_process(db, process_id)
-        if row is None or row.status != "awaiting_payment":
+        if (row is None or row.status != "awaiting_payment"
+                or LibraryClearanceService._phase2_approved(db, process_id)):
             return None
         return {"debt": row.debt_amount, "donation": row.donation_amount,
                 "total": row.total_amount, "note": row.library_note,
@@ -369,12 +381,20 @@ class LibraryClearanceService:
 
     @staticmethod
     def awaiting_payment_clause():
-        """`payment_due` en SQL, sobre `LibraryClearance` (la consulta que lo
-        use debe tenerla en su FROM): el no adeudo está en Caja. Para los
-        candidatos del recordatorio de pago (`MailReminders`), que así no
-        compara `LibraryClearance.status` por su cuenta."""
+        """`payment_due` en SQL, sobre `LibraryClearance` Y `TitulationProcess`
+        (la consulta que lo use debe tener LAS DOS en su FROM: `_phase2_
+        open_clause` correlaciona contra `TitulationProcess`): el no adeudo
+        está en Caja Y su fase 2 TODAVÍA no se aprobó -mismo criterio que
+        `payment_due`, Ruling R30 #4 ronda 2: una fase 2 ya aprobada es
+        `NOT_APPLICABLE` (Ruling R21) aunque la fila siga `awaiting_payment`-.
+        Para los candidatos del recordatorio de pago (`MailReminders`), que
+        así no compara `LibraryClearance.status` ni `ProcessPhase.status` por
+        su cuenta -ni, mucho menos, llama `release_status*` (invariante 2)."""
+        from sqlalchemy import and_
+
         from itcj2.apps.titulatec.models import LibraryClearance
-        return LibraryClearance.status == "awaiting_payment"
+        return and_(LibraryClearance.status == "awaiting_payment",
+                    LibraryClearanceService._phase2_open_clause())
 
     @staticmethod
     def release_status_map(db: Session, process_ids: list[int]) -> dict[int, str]:

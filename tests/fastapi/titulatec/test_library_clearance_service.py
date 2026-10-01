@@ -1036,21 +1036,30 @@ class TestPagoPendiente:
 
     def test_fuera_de_caja_o_sin_fila_es_none_y_la_clausula_dice_lo_mismo(
             self, db_session, nuevo):
-        from itcj2.apps.titulatec.models import LibraryClearance
+        """Ruling R30 #4 (re-revisión de la ola final, ronda 2): `payment_due`
+        y `awaiting_payment_clause` deciden EXACTAMENTE lo mismo -son la
+        MISMA pregunta en Python y en SQL-, incluida una fase 2 YA aprobada
+        (`ya_paso`, `NOT_APPLICABLE`, Ruling R21): aunque la fila SIGA
+        `awaiting_payment`, ninguno de los dos la cuenta como pago pendiente."""
+        from itcj2.apps.titulatec.models import LibraryClearance, TitulationProcess
 
         en_caja = nuevo(status="awaiting_payment", debt_amount=ADEUDO,
+                        donation_amount=DONACION, total_amount=ADEUDO + DONACION)
+        ya_paso = nuevo(status="awaiting_payment", phase=3, debt_amount=ADEUDO,
                         donation_amount=DONACION, total_amount=ADEUDO + DONACION)
         otros = [nuevo(status="pending"), nuevo(status="cleared")]
         sin_fila = nuevo(status=None)
 
         assert LibraryClearanceService.payment_due(db_session, en_caja.process.id)
-        for esc in (*otros, sin_fila):
+        for esc in (ya_paso, *otros, sin_fila):
             assert LibraryClearanceService.payment_due(db_session, esc.process.id) is None
 
-        ids = [esc.clearance.id for esc in (en_caja, *otros)]
-        en_sql = {cid for (cid,) in (db_session.query(LibraryClearance.id)
-                                     .filter(LibraryClearance.id.in_(ids),
-                                             LibraryClearanceService.awaiting_payment_clause()))}
+        ids = [esc.clearance.id for esc in (en_caja, ya_paso, *otros)]
+        en_sql = {cid for (cid,) in (
+            db_session.query(LibraryClearance.id)
+            .join(TitulationProcess, TitulationProcess.id == LibraryClearance.process_id)
+            .filter(LibraryClearance.id.in_(ids),
+                    LibraryClearanceService.awaiting_payment_clause()))}
         assert en_sql == {en_caja.clearance.id}
 
     def test_no_commitea(self, db_session, nuevo, monkeypatch):

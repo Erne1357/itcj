@@ -27,12 +27,12 @@ QUÉ TOCA (solo procesos `status = 'active'`; cadencia moderada, D6)
   `titulatec_survey_reviews`. Ancla = `started_at` de la fase 2 (sin él, se
   omite).
 - Pago pendiente en Caja (spec 2026-10-01 §4.11, D14): su no adeudo de
-  biblioteca está `awaiting_payment` (`LibraryClearanceService.
-  awaiting_payment_clause`: la comparación vive en el dueño), en CUALQUIER
-  fase —Biblioteca lo revisa desde la fase 1, D3— SALVO que su fase 2 ya se
-  haya aprobado (Ruling R30 #4, re-revisión de la ola final: p. ej. durante
-  la transición D17, SE marcó el requisito a mano): ahí el dueño lo
-  clasifica `NOT_APPLICABLE` (`release_status_map`, Ruling R21) y TitulaTec
+  biblioteca está `awaiting_payment` Y su fase 2 TODAVÍA no se aprobó
+  (`LibraryClearanceService.awaiting_payment_clause`: las dos comparaciones
+  viven en el dueño), en CUALQUIER fase —Biblioteca lo revisa desde la fase
+  1, D3— SALVO que su fase 2 ya se haya aprobado (Ruling R30 #4, re-revisión
+  de la ola final: p. ej. durante la transición D17, SE marcó el requisito a
+  mano): ahí el dueño lo clasifica `NOT_APPLICABLE` (Ruling R21) y TitulaTec
   deja de PERSEGUIR el pago por correo —Caja sigue pudiendo cobrarlo si el
   egresado se presenta; esto solo apaga el recordatorio—. Ancla = `ready_at`,
   la entrada VIGENTE a Caja (Ruling R10: revertir un pago la vuelve a fijar y
@@ -449,20 +449,23 @@ class MailReminders:
     def _pagos(db: Session, now: datetime) -> int:
         """Pago pendiente en Caja (spec 2026-10-01 §4.11, D14): procesos
         `active` de cualquier fase con su no adeudo `awaiting_payment` DE
-        VERDAD, su entrada a Caja (`ready_at`, el ancla) y su total congelado
-        (para el aviso), y sus llaves: tres consultas (candidatos,
-        `release_status_map` en lote, llaves) -el número no crece con los
-        candidatos-. Una fila sin `ready_at` no tiene ancla y se omite
-        (`_mark_ready` siempre lo fija).
+        VERDAD (`LibraryClearanceService.awaiting_payment_clause`: la
+        comparación vive en el dueño), su entrada a Caja (`ready_at`, el
+        ancla) y su total congelado (para el aviso), y sus llaves: dos
+        consultas -el número no crece con los candidatos-. Una fila sin
+        `ready_at` no tiene ancla y se omite (`_mark_ready` siempre lo fija).
 
-        Ruling R30 #4 (re-revisión de la ola final): `LibraryClearance.
+        Ruling R30 #4 (re-revisión de la ola final, ronda 2): `LibraryClearance.
         status == "awaiting_payment"` NO basta -si la fase 2 de ese proceso
         ya se aprobó (p. ej. durante la transición D17), el dueño lo
-        clasifica `NOT_APPLICABLE` (`release_status_map`, Ruling R21) y
-        TitulaTec deja de perseguir el pago por correo; Caja sigue pudiendo
-        cobrarlo si el egresado se presenta-. Nunca se compara
-        `ProcessPhase.status` a mano aquí: el filtro final pasa por el
-        predicado del dueño."""
+        clasifica `NOT_APPLICABLE` (Ruling R21) y TitulaTec deja de perseguir
+        el pago por correo; Caja sigue pudiendo cobrarlo si el egresado se
+        presenta-. `awaiting_payment_clause` YA descarta esos procesos en la
+        MISMA consulta (exige la fase 2 sin aprobar, `_phase2_open_clause`
+        del dueño): nunca se compara `ProcessPhase.status` a mano aquí, ni se
+        llama `release_status_map` desde fuera del dueño (invariante 2,
+        `test_clearance_gate.py::test_solo_el_gate_pregunta_a_los_duenos_
+        por_la_liberacion`)."""
         from itcj2.apps.titulatec.models import LibraryClearance, TitulationProcess
         from itcj2.apps.titulatec.services.library_clearance_service import (
             LibraryClearanceService,
@@ -479,11 +482,6 @@ class MailReminders:
                          LibraryClearance.ready_at.isnot(None))
                  .order_by(TitulationProcess.id)
                  .all())
-        if not filas:
-            return 0
-
-        estado = LibraryClearanceService.release_status_map(db, [p.id for p, _, _ in filas])
-        filas = [fila for fila in filas if estado.get(fila[0].id) == "awaiting_payment"]
         if not filas:
             return 0
 
