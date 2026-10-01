@@ -745,9 +745,10 @@ def test_con_cita_vigente_no_dice_que_agende(db_session, con_biblioteca, make_ap
     """D11 no le dice «Ya puedes agendar» a quien YA tiene cita: D17 conserva
     las agendadas antes del candado (su no adeudo quedó `pending` en el
     backfill y Biblioteca/Caja lo liberan después) y una `attended` en la fase
-    2 espera el dictamen (`cotejo_en_dictamen`). Ni «Ya puedes agendar» ni
-    «Para agendar te falta»: es lectura de la cita vigente, no de una
-    liberación (invariante 2)."""
+    2 espera el dictamen (`cotejo_en_dictamen`; aquí sin fila de la fase 2 =
+    sin veredicto, y con la fase `rejected` ver la prueba del Ruling R17). Ni
+    «Ya puedes agendar» ni «Para agendar te falta»: es lectura de la cita
+    vigente, no de una liberación (invariante 2)."""
     proc = con_biblioteca(biblioteca="cleared", via="no_charge", encuesta="approved")
     make_appointment(proc, status=cita)
     _liberacion(db_session, proc, kind)
@@ -758,6 +759,65 @@ def test_con_cita_vigente_no_dice_que_agende(db_session, con_biblioteca, make_ap
     assert c.context["falta"] is None
     assert YA_PUEDES not in texto
     assert "Para agendar te falta" not in texto
+
+
+def _fase_2(db, proc, status):
+    """La `ProcessPhase` de la fase 2 con `status` (`con_biblioteca` crea el
+    proceso sin fases: `None` = sin fila, que también es «sin veredicto»)."""
+    from itcj2.apps.titulatec.models import ProcessPhase
+
+    if status is not None:
+        db.add(ProcessPhase(process_id=proc.id, phase_number=2, status=status))
+        db.flush()
+
+
+@pytest.mark.parametrize("kind", ["library_cleared", "survey_approved"])
+@pytest.mark.parametrize("fase2, agenda", [
+    (None, False),               # sin veredicto (sin fila de la fase 2)
+    ("in_progress", False),
+    ("in_review", False),        # `cotejo_en_dictamen`
+    ("rejected", True),          # le faltaron papeles: agenda otra
+])
+def test_atendida_solo_apaga_d11_mientras_la_fase_2_no_tiene_veredicto(
+        db_session, con_biblioteca, make_appointment, kind, fase2, agenda):
+    """Ruling R17: una cita vigente `attended` apaga D11 SOLO mientras la fase
+    2 no tenga veredicto -el predicado `cotejo_en_dictamen` (D13 2026-09-30)
+    de `SelfBookingService.eligibility`-. Con la fase 2 `rejected` tiene que
+    agendar OTRA, así que la línea sigue al gate como siempre. Es el caso real
+    de la transición: un D17 cuyo cotejo se rechazó por el no adeudo que le
+    faltaba y que después paga en Caja."""
+    proc = con_biblioteca(biblioteca="cleared", via="payment", encuesta="approved")
+    _fase_2(db_session, proc, fase2)
+    make_appointment(proc, status="attended")
+    _liberacion(db_session, proc, kind)
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    if agenda:
+        assert c.context["falta"] == []
+        assert YA_PUEDES in texto
+    else:
+        assert c.context["falta"] is None
+        assert YA_PUEDES not in texto and "Para agendar te falta" not in texto
+
+
+def test_atendida_con_fase_2_rechazada_dice_lo_que_le_falta(db_session, con_biblioteca,
+                                                           make_appointment):
+    """Ruling R17, la otra cara: con la fase 2 `rejected` y una liberación
+    todavía pendiente, «Para agendar te falta: …» como a cualquiera."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca="pending", encuesta="approved")
+    _fase_2(db_session, proc, "rejected")
+    make_appointment(proc, status="attended")
+    StudentMail.survey_result(db_session, proc, result="approved")
+
+    c = _componer(db_session, proc)
+
+    assert c.context["falta"] == [
+        "que el Centro de Información revise tu no adeudo de biblioteca"]
+    assert "Para agendar te falta:" in _texto(_html(c, estricto=True))
 
 
 @pytest.mark.parametrize("kind", ["library_cleared", "survey_approved"])
