@@ -80,7 +80,10 @@ class LibraryClearance(Base):
     library_note = Column(Text, nullable=True)
     library_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
     library_at = Column(DateTime, nullable=True)
-    ready_at = Column(DateTime, nullable=True)   # 1a vez que paso a caja: ancla de recordatorios
+    # ULTIMA entrada a caja (Ruling R10): se vuelve a fijar cada vez que la fila
+    # pasa a `awaiting_payment` desde otro estado, no al corregir el monto.
+    # Ancla del recordatorio de pago y FIFO de "Por cobrar".
+    ready_at = Column(DateTime, nullable=True)
 
     # --- Caja ---
     paid_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)

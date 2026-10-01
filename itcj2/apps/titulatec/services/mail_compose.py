@@ -226,7 +226,14 @@ def _que_falta(db: Session, process, bloqueos: list[str] | None = None) -> list[
     `m.agenda`.
 
     - `None`: ninguna de las dos frases aplica —el proceso no está `active`
-      (en pausa no se agenda) o ya aprobó la fase 2 (no hay cita por agendar).
+      (en pausa no se agenda), ya aprobó la fase 2 (no hay cita por agendar)
+      o ya TIENE su cita: la vigente está agendada, confirmada o en cotejo
+      (D17 conserva las agendadas antes del candado, cuyo no adeudo se libera
+      después) o atendida esperando el dictamen de la fase 2
+      (`cotejo_en_dictamen`). Esto último es lectura de la cita vigente
+      (`AppointmentService.get_for_process` y la definición única
+      `_ESTADOS_ACTIVOS`), no de una liberación: el invariante 2 sigue igual.
+      Una `no_show` vigente no lo apaga (agenda una nueva).
     - `[]`: «Ya puedes agendar tu cita de cotejo».
     - Si no, una frase por pendiente: la fase 1 si todavía no la aprueban y,
       en su orden, cada bloqueo de `ClearanceGate` (`bloqueos`, si el llamador
@@ -234,12 +241,17 @@ def _que_falta(db: Session, process, bloqueos: list[str] | None = None) -> list[
       decide nada (lo decidió el gate), igual que en
       `SelfBookingService.eligibility`.
     """
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.library_clearance_service import (
         LibraryClearanceService, format_amount,
     )
     from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.slot_service import _ESTADOS_ACTIVOS
 
     if process.status != "active" or process.current_phase > PhaseService.PHASE_COTEJO:
+        return None
+    cita = AppointmentService.get_for_process(db, process.id)
+    if cita is not None and (cita.status in _ESTADOS_ACTIVOS or cita.status == "attended"):
         return None
     if bloqueos is None:
         bloqueos = _bloqueos(db, process)

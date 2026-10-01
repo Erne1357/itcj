@@ -728,6 +728,72 @@ def test_no_adeudo_liberado_dice_que_falta(db_session, con_biblioteca, fase, enc
         assert frase in texto
 
 
+def _liberacion(db, proc, kind):
+    """El correo de liberación `kind` tal como lo encola su transición."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    if kind == "library_cleared":
+        assert StudentMail.library_cleared(db, proc, via="no_charge") is True
+    else:
+        assert StudentMail.survey_result(db, proc, result="approved") is True
+
+
+@pytest.mark.parametrize("kind", ["library_cleared", "survey_approved"])
+@pytest.mark.parametrize("cita", ["scheduled", "confirmed", "in_progress", "attended"])
+def test_con_cita_vigente_no_dice_que_agende(db_session, con_biblioteca, make_appointment,
+                                            kind, cita):
+    """D11 no le dice «Ya puedes agendar» a quien YA tiene cita: D17 conserva
+    las agendadas antes del candado (su no adeudo quedó `pending` en el
+    backfill y Biblioteca/Caja lo liberan después) y una `attended` en la fase
+    2 espera el dictamen (`cotejo_en_dictamen`). Ni «Ya puedes agendar» ni
+    «Para agendar te falta»: es lectura de la cita vigente, no de una
+    liberación (invariante 2)."""
+    proc = con_biblioteca(biblioteca="cleared", via="no_charge", encuesta="approved")
+    make_appointment(proc, status=cita)
+    _liberacion(db_session, proc, kind)
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    assert c.context["falta"] is None
+    assert YA_PUEDES not in texto
+    assert "Para agendar te falta" not in texto
+
+
+@pytest.mark.parametrize("kind", ["library_cleared", "survey_approved"])
+@pytest.mark.parametrize("cita, vigente", [
+    ("no_show", True),           # no se presentó: agenda una nueva
+    ("cancelled", False),        # la cancelada deja de ser la vigente (D6)
+    ("superseded", False),       # un intento viejo, ya reemplazado
+])
+def test_sin_cita_que_lo_ocupe_si_dice_que_agende(db_session, con_biblioteca,
+                                                 make_appointment, kind, cita, vigente):
+    """El control positivo: una cita que no lo ocupa no apaga D11."""
+    proc = con_biblioteca(biblioteca="cleared", via="no_charge", encuesta="approved")
+    make_appointment(proc, status=cita, is_current=vigente)
+    _liberacion(db_session, proc, kind)
+
+    c = _componer(db_session, proc)
+
+    assert c.context["falta"] == []
+    assert YA_PUEDES in _texto(_html(c, estricto=True))
+
+
+def test_agenda_falla_cerrado_si_no_le_llega_falta():
+    """Con el entorno REAL (no estricto) un `falta` ausente es `Undefined`, que
+    no es `none`: sin la guarda, `m.agenda` pintaría «Ya puedes agendar».
+    Falla cerrado: no pinta ninguna de las dos frases."""
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+
+    html = titulatec_templates.get_template("titulatec/email/survey_result.html").render(
+        first_name="ALUMNO", link="https://example.invalid/liga", result="approved",
+        reason=None, origin="submission")
+    texto = _texto(html)
+
+    assert "liberó tu encuesta de egresados" in texto
+    assert YA_PUEDES not in texto and "Para agendar te falta" not in texto
+
+
 # ---------------------------------------------------------------------------
 # No adeudo de biblioteca (spec 2026-10-01 §4.11): los cuatro correos
 # ---------------------------------------------------------------------------

@@ -58,10 +58,12 @@
    correos de LIBERACIÓN (encuesta liberada, no adeudo liberado): «Ya puedes
    agendar tu cita de cotejo» o «Para agendar te falta: …». `falta` lo arma
    `mail_compose._que_falta` con el estado VIVO del `ClearanceGate`: `None` =
-   ninguna de las dos (proceso en pausa, o la fase 2 ya aprobada); lista vacía
-   = ya puede; si no, una frase por pendiente, en orden. #}
+   ninguna de las dos (proceso en pausa, fase 2 ya aprobada, o ya tiene su
+   cita); lista vacía = ya puede; si no, una frase por pendiente, en orden.
+   Falla cerrado: un `falta` que no llegó al contexto es `Undefined` (que NO es
+   `none` con el entorno real) y tampoco pinta nada. #}
 {% macro agenda(falta) -%}
-{%- if falta is not none %}
+{%- if falta is defined and falta is not none %}
 {%- if falta %}
 <p style="margin:0 0 8px;color:#1F3D7A;font-weight:700;">Para agendar te falta:</p>
 <ul style="margin:0 0 24px;padding-left:20px;">
