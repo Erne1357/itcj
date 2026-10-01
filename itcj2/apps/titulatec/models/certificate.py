@@ -57,7 +57,7 @@ class Certificate(Base):
     control_number = Column(String(20), nullable=False)
     student_name = Column(String(200), nullable=False)
     program_name = Column(String(200), nullable=False)
-    period_label = Column(String(20), nullable=False)
+    period_label = Column(String(40), nullable=False)
 
     issued_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     issued_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=False)

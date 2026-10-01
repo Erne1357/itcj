@@ -208,6 +208,11 @@ def test_ck_book_donation_lleva_el_nombre_del_brief(db_session):
 # Certificate / CertificateBatch / CertificateCounter
 # ---------------------------------------------------------------------------
 def _certificate_kwargs(process, **over):
+    # `period_label` usa el FORMATO REAL del spec D7/§4.5 ("Agosto-Diciembre
+    # 2026", 21 caracteres), no un placeholder corto: un placeholder de 5
+    # caracteres (p. ej. "2029A") no habria distinguido String(20) de
+    # String(40) y dejaba pasar en silencio una columna demasiado angosta
+    # para el dato real que escribe `CertificateService.issue()` (Tarea 3).
     base = dict(
         kind="survey_release",
         number=f"GTV-2029-{over.pop('_n', 1):04d}",
@@ -216,7 +221,7 @@ def _certificate_kwargs(process, **over):
         control_number="20290001",
         student_name="ALUMNO DE PRUEBA",
         program_name="Ingenieria de Pruebas",
-        period_label="2029A",
+        period_label="Agosto-Diciembre 2026",
         issued_by_id=process.student_id,
     )
     base.update(over)
@@ -234,6 +239,30 @@ def test_certificate_nace_con_issued_at_y_sin_lote_ni_anular(db_session, egresad
     assert row.issued_at is not None
     assert row.batch_id is None
     assert row.voided_at is None
+
+
+@pytest.mark.parametrize("etiqueta", ["Agosto-Diciembre 2026", "Enero-Junio 2027"])
+def test_certificate_period_label_acepta_etiquetas_reales_del_spec(
+        db_session, egresado, etiqueta):
+    """`period_label` debe caber el formato real de periodo (spec D7/§4.5),
+    no solo el placeholder corto de `_certificate_kwargs`. "Agosto-Diciembre
+    2026" mide 21 caracteres: con `String(20)` Postgres respondia
+    `StringDataRightTruncation` en el camino normal de
+    `CertificateService.issue()` (Tarea 3)."""
+    from itcj2.apps.titulatec.models import Certificate
+
+    # `_n` solo alimenta el folio de `_certificate_kwargs` (unicidad dentro de
+    # este test parametrizado); `len(etiqueta)` basta porque las dos
+    # etiquetas del spec miden distinto (21 y 16).
+    kwargs = _certificate_kwargs(egresado["process"], period_label=etiqueta,
+                                 _n=len(etiqueta))
+    row = Certificate(**kwargs)
+    db_session.add(row)
+    db_session.flush()
+    db_session.refresh(row)
+
+    assert row.period_label == etiqueta
+    assert len(etiqueta) <= 40
 
 
 def test_certificate_number_es_unico(db_session, egresado):

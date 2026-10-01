@@ -148,7 +148,7 @@ def upgrade() -> None:
         sa.Column("control_number", sa.String(length=20), nullable=False),
         sa.Column("student_name", sa.String(length=200), nullable=False),
         sa.Column("program_name", sa.String(length=200), nullable=False),
-        sa.Column("period_label", sa.String(length=20), nullable=False),
+        sa.Column("period_label", sa.String(length=40), nullable=False),
         sa.Column("issued_at", sa.DateTime(), nullable=False, server_default=sa.text("NOW()")),
         sa.Column("issued_by_id", sa.BigInteger(), nullable=False),
         sa.Column("batch_id", sa.Integer(), nullable=True),
