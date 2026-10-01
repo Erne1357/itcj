@@ -469,6 +469,34 @@ class TestImportRowsSurvey:
         review = _review_svc().get_for_process(db_session, proc.id)
         assert review.status == estado          # intacta: la CLI no decide por GTV
 
+    def test_conflicto_tras_revocar_una_previa_no_se_re_aplica_sola(
+            self, db_session, proceso, make_user, reloj):
+        """Ruling R30 #2 (re-revisión de la ola final): tras revocar una
+        previa (Ruling R22) la fila se BORRA -sin este arreglo `prior_outcome`
+        vería `missing` y la CLI la re-aprobaría sola al reimportar el MISMO
+        archivo, pisando la decisión de GTV de revocarla-. Re-importar debe
+        caer en `conflicts`, igual que una solicitud real `in_review`/
+        `rejected` (`test_conflicto_con_solicitud_del_semestre` arriba), y la
+        fila debe seguir sin existir -ninguna aplicación automática- hasta
+        que un humano la resuelva."""
+        proc = proceso(control_number="99700009")
+        gtv = make_user(first_name="GTV", last_name="DE PRUEBA")
+        with patch(NOTIFY):
+            previa = _review_svc().register_prior(
+                db_session, proc, issued_on=reloj - timedelta(days=10))
+            db_session.flush()
+            _review_svc().revoke(db_session, previa.id, gtv.id,
+                                 "Número de control equivocado")
+        assert _review_svc().get_for_process(db_session, proc.id) is None
+
+        resultado = _svc().import_rows(
+            db_session, kind="survey", source="t.csv",
+            rows=[{"control_number": "99700009", "issued_on": reloj.isoformat()}])
+
+        assert [f["control_number"] for f in resultado["conflicts"]] == ["99700009"]
+        assert resultado["applied"] == []
+        assert _review_svc().get_for_process(db_session, proc.id) is None
+
     def test_vencida(self, db_session, proceso, reloj):
         proc = proceso(control_number="99700004")
 

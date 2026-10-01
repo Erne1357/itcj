@@ -389,6 +389,55 @@ class TestRevoke:
 
 
 # ---------------------------------------------------------------------------
+# prior_outcome
+# ---------------------------------------------------------------------------
+class TestPriorOutcome:
+    def test_sin_fila_ni_revocacion_previa_es_apply(self, db_session, escenario):
+        assert SurveyReviewService.prior_outcome(
+            db_session, escenario["process"].id) == "apply"
+
+    def test_revocar_una_previa_deja_conflict_no_apply(self, db_session, escenario):
+        """Ruling R30 #2 (re-revisión de la ola final): `revoke` (Ruling R22)
+        BORRA la fila de una previa -sin este arreglo `prior_outcome` vería
+        `missing` (como si nunca hubiera pasado nada) y devolvería `apply`:
+        un re-import del mismo archivo la re-aprobaría sola, pisando la
+        decisión de GTV de revocarla-. El evento `survey_review_revoked` con
+        `origin='prior'` sobrevive al DELETE de la fila: mientras exista,
+        este proceso se queda en `conflict` (lo decide GTV, nunca una
+        importación), igual que una solicitud real `in_review`/`rejected`."""
+        from datetime import timedelta
+
+        from itcj2.core.utils.timezone import db_now
+
+        process, gtv = escenario["process"], escenario["gtv"]
+        with patch(NOTIFY):
+            previa = SurveyReviewService.register_prior(
+                db_session, process, issued_on=db_now().date() - timedelta(days=30))
+            db_session.flush()
+            SurveyReviewService.revoke(
+                db_session, previa.id, gtv.id, "Número de control equivocado")
+
+        assert SurveyReviewService.get_for_process(db_session, process.id) is None
+        assert SurveyReviewService.prior_outcome(db_session, process.id) == "conflict"
+
+    def test_revocar_una_solicitud_real_no_dispara_la_marca_de_previa(
+            self, db_session, escenario, make_survey_review):
+        """Contraste: revocar una encuesta REAL (`origin='submission'`) NO
+        borra la fila -queda `rejected`- así que `prior_outcome` sigue
+        leyendo la fila de siempre (`conflict` por la fila, no por el
+        evento); el evento de esta revocación trae `origin='submission'`, no
+        `'prior'`, así que tampoco activaría la marca nueva aunque la fila se
+        borrara."""
+        review = make_survey_review(escenario["process"], status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, escenario["gtv"].id)
+            SurveyReviewService.revoke(db_session, review.id, escenario["gtv"].id, "Aclaración")
+
+        assert SurveyReviewService.get_for_process(db_session, review.process_id) is not None
+        assert SurveyReviewService.prior_outcome(db_session, review.process_id) == "conflict"
+
+
+# ---------------------------------------------------------------------------
 # can_revoke
 # ---------------------------------------------------------------------------
 class TestCanRevoke:

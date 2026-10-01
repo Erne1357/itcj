@@ -174,13 +174,41 @@ class SurveyReviewService:
         constancias previas fuera de este service. `PriorClearanceService`
         llama aquí en vez de comparar `.status` por su cuenta (§5, invariante
         2: fuera de los dos services dueños y del gate, nadie compara esos
-        estados)."""
+        estados).
+
+        Ruling R30 #2 (re-revisión de la ola final): `revoke` (Ruling R22)
+        BORRA la fila de una previa revocada -la solicitud vuelve a
+        `missing`, para que el egresado conteste la encuesta normal-, así que
+        sin fila NO basta para decir `"apply"`: si este proceso ya tiene un
+        evento `survey_review_revoked` con `origin == "prior"` en su
+        bitácora, es que GTV YA revocó una previa aquí, y reimportar el mismo
+        archivo la re-aprobaría sola, pisando esa decisión. En ese caso
+        `"conflict"` -como una solicitud real `in_review`/`rejected`-: lo
+        vuelve a decidir GTV (una encuesta real nueva), nunca una
+        importación."""
         review = SurveyReviewService.get_for_process(db, process_id)
         if review is None:
+            if SurveyReviewService._revoked_prior_event(db, process_id):
+                return "conflict"
             return "apply"
         if review.status == "approved":
             return "already"
         return "conflict"
+
+    @staticmethod
+    def _revoked_prior_event(db: Session, process_id: int) -> bool:
+        """¿Este proceso tiene un `survey_review_revoked` con `origin ==
+        'prior'` en su bitácora? Único rastro que sobrevive al DELETE de
+        `revoke` sobre una previa (Ruling R22) -lo usa `prior_outcome` para
+        no confundir "GTV revocó esto" con "nunca pasó nada aquí". Un
+        proceso puede acumular varios (una previa revocada, luego una
+        encuesta real revocada): basta con que UNO traiga `origin='prior'`."""
+        from itcj2.apps.titulatec.models import ProcessEvent
+
+        eventos = (db.query(ProcessEvent.payload)
+                  .filter_by(process_id=process_id, event_type="survey_review_revoked")
+                  .all())
+        return any((payload or {}).get("origin") == "prior" for (payload,) in eventos)
 
     @staticmethod
     def summary_for_process(db: Session, process_id: int) -> dict:

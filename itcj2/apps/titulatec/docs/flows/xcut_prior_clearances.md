@@ -223,10 +223,14 @@ el formulario.
 - **Carga repetida de una YA aplicada** → con la misma fecha o una anterior, `already` («ya
   registrada»), sin tocar nada; con una fecha MÁS NUEVA, reemplaza y queda pendiente para la
   siguiente inscripción (`deferred`, Ruling R28).
-- **GTV revoca una previa de encuesta y luego se vuelve a importar el MISMO archivo** con el
-  proceso aún abierto → la fila se aplica otra vez (`prior_outcome` ve `missing`): la revocación
-  no deja marca que la importación lea. Si GTV revocó por un error de la base, corregir el
-  archivo antes de reimportar.
+- **GTV revoca una previa de encuesta y luego se vuelve a importar el MISMO archivo** (Ruling
+  R30 #2, re-revisión de la ola final) → **ya NO se re-aplica sola**: el evento
+  `survey_review_revoked` (`origin='prior'`) sobrevive al DELETE de la fila, y mientras exista
+  `prior_outcome` devuelve `conflict` (bote `conflicts`) en vez de `apply`, pase lo que pase en el
+  archivo -ni siquiera corrigiendo el dato de origen se vuelve a importar sola-. Es permanente
+  para ese proceso: la única salida es que el egresado conteste la encuesta REAL (el formulario
+  vuelve a estar disponible, §4.12 arriba) y GTV la revise por la vía normal
+  (`approve`/`reject`), no por esta CLI.
 - **`--fecha` y `--columna-fecha` juntas** → gana `--columna-fecha` en silencio (nota conocida).
 - **Falta `--fecha` y no hay `--columna-fecha`** → la CLI rechaza el comando completo antes de
   leer una sola fila.
@@ -235,8 +239,10 @@ el formulario.
 
 `test_prior_clearance_service.py` (clasificación, `apply_pending`, la más nueva que reemplaza
 a la aplicada, barrido AST de `.status` directo, fechas relativas no-bomba-de-tiempo — Ruling
-R14), `test_survey_review_service.py`/`test_survey_review_submit.py` (revocar una previa la
-borra y el egresado vuelve a contestar), `test_cli_prior_clearances.py`
+R14; reimportar tras revocar una previa cae en `conflicts` y no se re-aplica — Ruling R30 #2),
+`test_survey_review_service.py`/`test_survey_review_submit.py` (revocar una previa la borra y
+el egresado vuelve a contestar; `TestPriorOutcome` cubre `prior_outcome` directo, incluida la
+marca que deja la revocación), `test_cli_prior_clearances.py`
 (CLI: dry-run, autodetección de columna, los 4 formatos de fecha, botes).
 
 ## Flujos relacionados
