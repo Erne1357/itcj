@@ -8,8 +8,12 @@ Orden en PANTALLA (fijado 2026-09-17; el orden en este archivo no importa):
                                   cita vigente en absoluto)                     <- ampliado
     3. Requieren que les agendes bloqueados por D9 (3 cancelaciones propias)
     4. Reagendar                 su cita vigente quedo en `no_show`
-    5. Encuesta sin liberar      nunca la envió, o la envió y GTV no la ha
-                                  liberado (D1, revierte D2 del 2026-09-15)
+    5. Liberaciones pendientes  le falta una liberación: la encuesta (nunca la
+                                  envió, o GTV no la ha liberado -- D1, revierte
+                                  D2 del 2026-09-15) o, donde la convocatoria lo
+                                  exige, el no adeudo de biblioteca (antes
+                                  «Encuesta sin liberar»; `ClearanceGate`, Tarea
+                                  5 del plan 2026-10-01-titulatec-biblioteca-caja)
 
 Por que la exclusion mutua es el invariante y no un detalle estetico
 -------------------------------------------------------------------
@@ -31,7 +35,7 @@ D5 SE HABIA QUEDADO SIN BANDEJA, y este archivo no podia verlo
 El fixture no construia ningun `attended`, asi que la disjuncion se afirmaba
 sobre un universo donde el caso de D5 ni siquiera existia. Un proceso atendido
 al que le RECHAZAN la fase 2 caia en CERO cubos: conserva cita vigente (fuera de
-"Por agendar", "Requieren" y "Encuesta sin liberar") y no es `no_show` (fuera de
+"Por agendar", "Requieren" y "Liberaciones pendientes") y no es `no_show` (fuera de
 "Reagendar"). Auto-agendarse si podia, pero solo si alguien habia publicado un
 espacio `bookable`, y `private` es el `server_default` — o sea que el dia uno
 no aparecia en ninguna lista de nadie.
@@ -260,7 +264,7 @@ def _cubos(db_session, allowed):
             db_session, allowed_program_ids=allowed)},
         "rechazados": {p.id for p in AppointmentService.list_rejected_cotejo_processes(
             db_session, allowed_program_ids=allowed)},
-        "sin_encuesta": {p.id for p in AppointmentService.list_missing_survey_processes(
+        "liberaciones": {p.id for p in AppointmentService.list_missing_clearance_processes(
             db_session, allowed_program_ids=allowed)},
     }
 
@@ -276,7 +280,7 @@ def test_cada_proceso_cae_en_exactamente_un_cubo(cola, db_session):
         cola["pendiente"].id: "por_agendar",
         cola["bloqueado"].id: "bloqueados",
         cola["reagendar"].id: "reagendar",
-        cola["sin_encuesta"].id: "sin_encuesta",
+        cola["sin_encuesta"].id: "liberaciones",
         # Cancelo 3 veces PERO tiene cita vigente: manda la cita.
         cola["ambos"].id: "reagendar",
         # D5: atendido y con la fase 2 rechazada.
@@ -352,7 +356,7 @@ def test_el_cotejo_rechazado_tiene_bandeja_propia(cola, db_session):
         "el atendido con la fase 2 rechazada no aparece en «Fase 02 "
         "rechazada»: vuelve a estar en cero cubos, que es el defecto que este "
         "cubo cierra")
-    for otro in ("por_agendar", "bloqueados", "reagendar", "sin_encuesta"):
+    for otro in ("por_agendar", "bloqueados", "reagendar", "liberaciones"):
         assert pid not in cubos[otro], "tambien sale en %s" % otro
     # Positiva de control: el cubo 1 sigue teniendo a quien le toca.
     assert cola["pendiente"].id in cubos["por_agendar"]
@@ -378,7 +382,7 @@ def test_el_rechazado_sin_cita_vigente_tiene_bandeja_propia(cola, db_session):
     assert pid not in cubos["por_agendar"], (
         "el rechazado SIN cita se colo en «Por agendar»: deja de ser 'solo "
         "primera vez'")
-    for otro in ("bloqueados", "reagendar", "sin_encuesta"):
+    for otro in ("bloqueados", "reagendar", "liberaciones"):
         assert pid not in cubos[otro], "tambien sale en %s" % otro
     # Positiva de control: quien SI es de primera vez sigue en su cubo.
     assert cola["pendiente"].id in cubos["por_agendar"]
@@ -489,7 +493,9 @@ def test_la_cola_pinta_el_cubo_de_fase_02_rechazada(cola, client_as):
 
 def test_el_orden_de_los_cubos_en_pantalla(cola, client_as):
     """Orden fijado 2026-09-17: Por agendar, Fase 02 rechazada, Requieren que
-    les agendes, Reagendar, Encuesta sin liberar (renombrado 2026-09-29, D1).
+    les agendes, Reagendar, Liberaciones pendientes (antes «Encuesta sin
+    liberar», renombrado 2026-09-29 -- D1 -- y otra vez 2026-10-01, Tarea 5 del
+    plan biblioteca-caja).
 
     Los cinco rotulos aparecen UNA sola vez cada uno como titulo de seccion (el
     resto de sus menciones en el HTML vive en comentarios Jinja, que no llegan
@@ -503,11 +509,11 @@ def test_el_orden_de_los_cubos_en_pantalla(cola, client_as):
     i_rechazada = html.index("Fase 02 rechazada")
     i_bloqueados = html.index("Requieren que les agendes")
     i_reagendar = html.index("Reagendar")
-    i_sin_encuesta = html.index("Encuesta sin liberar")
+    i_liberaciones = html.index("Liberaciones pendientes")
 
-    assert i_agendar < i_rechazada < i_bloqueados < i_reagendar < i_sin_encuesta, (
+    assert i_agendar < i_rechazada < i_bloqueados < i_reagendar < i_liberaciones, (
         "el orden de los cubos en pantalla no es el fijado: %r"
-        % [i_agendar, i_rechazada, i_bloqueados, i_reagendar, i_sin_encuesta])
+        % [i_agendar, i_rechazada, i_bloqueados, i_reagendar, i_liberaciones])
 
 
 def _fila(html, anchor):
@@ -527,9 +533,10 @@ def test_el_rechazado_sin_encuesta_no_se_arrastra_pero_abre_ficha(cola, client_a
     `SurveyReview`. Arrastrarlo revienta en `SurveyNotSubmitted` -un error que
     no explica nada en el contexto de "nada mas le rechazaron la fase"-, asi
     que la fila pierde el arrastre y avisa con la pildora de su estado real
-    (D1: `encuesta_sin_liberar` + `survey_status`, ya no el booleano viejo
-    `sin_encuesta`), pero conserva la navegacion: se puede seguir viendo el
-    motivo y dando seguimiento.
+    (`liberaciones_pendientes` + `survey_status`, de `ClearanceGate`; antes
+    `encuesta_sin_liberar`, y antes aun el booleano `sin_encuesta`), pero
+    conserva la navegacion: se puede seguir viendo el motivo y dando
+    seguimiento.
     """
     resp = client_as(cola["off"]).get(URL + "?date=" + _D.isoformat())
     assert resp.status_code == 200
@@ -540,7 +547,7 @@ def test_el_rechazado_sin_encuesta_no_se_arrastra_pero_abre_ficha(cola, client_a
     # Nunca envio nada -> pseudo-estado "missing" -> `survey_review_pill`
     # pinta "Encuesta pendiente" (`_macros.html:71-77`), no el texto viejo.
     assert "Encuesta pendiente" in fila
-    # Sigue abriendo la ficha: `appt_nav` no depende de `encuesta_sin_liberar`.
+    # Sigue abriendo la ficha: `appt_nav` no depende de `liberaciones_pendientes`.
     assert "hx-get=" in fila and ("selected=" + str(pid)) in fila
 
 
@@ -551,7 +558,8 @@ def test_el_rechazado_con_encuesta_liberada_se_arrastra_y_muestra_el_motivo(
 
     D1: el fixture (`_con_docs_y_encuesta`, y este proceso explicitamente)
     deja la encuesta LIBERADA (`status="approved"`) -- solo con eso
-    `encuesta_sin_liberar` es `False` y la fila conserva el arrastre.
+    `liberaciones_pendientes` es `False` (la convocatoria no exige no adeudo)
+    y la fila conserva el arrastre.
     """
     from itcj2.apps.titulatec.models import ProcessPhase
     from itcj2.apps.titulatec.services.phase_service import PhaseService
@@ -577,7 +585,7 @@ def test_el_rechazado_con_encuesta_liberada_se_arrastra_y_muestra_el_motivo(
 def test_el_badge_por_atender_no_cuenta_al_rechazado_sin_encuesta(cola, client_as):
     """«Por atender» es lo que el encargado puede resolver HOY. El rechazado sin
     encuesta no se puede agendar (`SurveyNotSubmitted`), igual que el cubo
-    «Encuesta sin liberar», que tampoco suma.
+    «Liberaciones pendientes», que tampoco suma.
 
     Del fixture: por agendar 1 + bloqueados 1 + reagendar 3 (ausente, ambos,
     rechazado-ausente) + rechazados CON encuesta LIBERADA 3 (rechazado, sin
@@ -644,8 +652,8 @@ def rechazado_en_revision(seed_phase_defs, seed_document_types, make_program, ma
                           make_appointment, make_officer, make_survey_review, db_session):
     """Mismo molde que `p_rech_con_encuesta`/`p_rech_sin_encuesta` del fixture
     `cola`, pero con la solicitud `in_review`: la envió, GTV todavía no la
-    libera. `encuesta_sin_liberar` tiene que seguir siendo `True` -- no basta
-    con haberla enviado (D1)."""
+    libera. `liberaciones_pendientes` tiene que seguir siendo `True` -- no
+    basta con haberla enviado (D1)."""
     seed_phase_defs()
     seed_document_types()
     prog = make_program("Ingenieria de la Revision")
@@ -691,8 +699,8 @@ def reagendar_en_revision(seed_phase_defs, seed_document_types, make_program, ma
                           make_review_day, make_student, make_process, make_document,
                           make_appointment, make_officer, make_survey_review, db_session):
     """Un `no_show` vigente con la encuesta `in_review`: la envió, GTV todavía
-    no la libera. `encuesta_sin_liberar` tiene que ser `True` -- no basta con
-    haberla enviado (D1)."""
+    no la libera. `liberaciones_pendientes` tiene que ser `True` -- no basta
+    con haberla enviado (D1)."""
     seed_phase_defs()
     seed_document_types()
     prog = make_program("Ingenieria del Reagendar en Revision")

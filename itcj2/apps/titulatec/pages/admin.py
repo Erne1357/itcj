@@ -1944,7 +1944,8 @@ async def process_requirement(
     escribe la identidad del oficial.
 
     Los requisitos con `auto_source` son de SOLO LECTURA aquí: los acredita el
-    sistema (hoy, la encuesta de egresados) y marcarlos a mano rompería la
+    sistema (la encuesta de egresados, que libera GTV, y el no adeudo de
+    biblioteca, que liberan Biblioteca y Caja) y marcarlos a mano rompería la
     trazabilidad de `external_ref`.
 
     Devuelve el cuerpo del expediente re-renderizado, igual que aprobar/rechazar

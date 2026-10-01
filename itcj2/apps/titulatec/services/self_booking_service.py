@@ -6,10 +6,11 @@ del spec 2026-09-29-titulatec-cotejo-espacios-design.md-) parte las guardas en
 dos capas, y esa partición decide dónde vive cada regla:
 
 * **Duras**, en `AppointmentService` / `SlotService`, para TODOS (encargado
-  incluido): una sola cita vigente por proceso, encuesta LIBERADA por GTV (D1
-  de 2026-09-29, revierte D2 del 2026-09-15: enviarla ya no basta), día
-  habilitado, franja real de la rejilla, cupo libre, lock de ventana y
-  advisory lock del proceso.
+  incluido): una sola cita vigente por proceso, liberaciones completas según
+  `ClearanceGate` —encuesta LIBERADA por GTV (D1 de 2026-09-29, revierte D2
+  del 2026-09-15: enviarla ya no basta) y, donde la convocatoria lo exige, no
+  adeudo de biblioteca liberado (D6 de 2026-10-01)—, día habilitado, franja
+  real de la rejilla, cupo libre, lock de ventana y advisory lock del proceso.
 * **Del alumno**, aquí: fase 2 aprobada, tope de cancelaciones propias,
   anticipación mínima, que la ventana esté publicada y sea de su carrera, y
   -desde el 2026-09-30- que una `attended` vigente no deje la fase 2 sin
@@ -87,6 +88,16 @@ class SelfBookingService:
         "encuesta_con_observaciones": ("Gestión Tecnológica y Vinculación dejó observaciones "
                                        "en tu encuesta de egresados. Podrás agendar en cuanto "
                                        "la liberen."),
+        # Spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.4.4, literal:
+        # el no adeudo de biblioteca (D6), SOLO donde la convocatoria lo exige.
+        # `{total}` es el total congelado YA formateado («$1,200.00»): lo pone
+        # `message_for`, que lo recibe por parámetro igual que `{n}`.
+        "biblioteca_en_revision": ("El Centro de Información está revisando si tienes "
+                                   "adeudo con la biblioteca. Podrás agendar en cuanto se "
+                                   "libere tu no adeudo."),
+        "pago_pendiente": ("Pasa a Caja (Recursos Financieros) a pagar {total}; no "
+                           "necesitas cita. Podrás agendar en cuanto se libere tu no "
+                           "adeudo."),
         "tiene_cita": "Ya tienes una cita. Cancélala si necesitas otra.",
         # D13 (2026-09-30): la cita vigente está `attended` -el encargado ya
         # cotejó- y la fase 2 sigue SIN veredicto -ni aprobada ni rechazada-.
@@ -102,14 +113,17 @@ class SelfBookingService:
                                         "encargado de carrera."),
     }
 
-    # Traduce `SurveyReviewService.release_status` (missing | in_review |
-    # rejected -- 'approved' nunca llega aquí, la regla 3 lo descarta antes)
-    # al código de razón de la tabla de §3. Vive junto a `MENSAJES` porque
-    # las tres llaves de este dict SON llaves de `MENSAJES`.
-    _SURVEY_REASONS: dict[str, str] = {
-        "missing": "sin_encuesta",
-        "in_review": "encuesta_en_revision",
-        "rejected": "encuesta_con_observaciones",
+    # Traduce el PRIMER bloqueo de `ClearanceGate.blockers` (regla 3: la
+    # encuesta primero, luego el no adeudo de biblioteca) al código de razón
+    # de la tabla de §3. Vive junto a `MENSAJES` porque los cinco valores de
+    # este dict SON llaves de `MENSAJES`, y sus llaves son el conjunto cerrado
+    # `clearance_gate.BLOCKERS` (lo cruza `test_clearance_gate.py`).
+    _CLEARANCE_REASONS: dict[str, str] = {
+        "survey_missing": "sin_encuesta",
+        "survey_in_review": "encuesta_en_revision",
+        "survey_rejected": "encuesta_con_observaciones",
+        "library_pending": "biblioteca_en_revision",
+        "library_awaiting_payment": "pago_pendiente",
     }
 
     # ------------------------------------------------------------- utilería
@@ -120,12 +134,18 @@ class SelfBookingService:
         return get_settings()
 
     @staticmethod
-    def message_for(reason: str | None, *, cancellations: int | None = None) -> str | None:
+    def message_for(reason: str | None, *, cancellations: int | None = None,
+                    total=None) -> str | None:
         """La frase que ve el alumno para ese `reason`, o None si puede agendar.
 
         El conteo entra por parámetro para que el mensaje diga las veces REALES
         que canceló y no el tope configurado (son iguales en el caso normal, y
         dejan de serlo en cuanto alguien baje el tope con gente ya bloqueada).
+
+        `total` (`Decimal`, el `library_total` de `eligibility`) entra igual,
+        para `pago_pendiente`: el monto CONGELADO de su fila de no adeudo, que
+        se formatea aquí («$1,200.00», `format_amount`). Sin él, la frase sale
+        sin la cifra en vez de con un hueco.
         """
         if not reason:
             return None
@@ -136,6 +156,13 @@ class SelfBookingService:
             n = (cancellations if cancellations is not None
                  else SelfBookingService._settings().TITULATEC_SELF_CANCEL_MAX)
             return plantilla.format(n=n)
+        if "{total}" in plantilla:
+            if total is None:
+                return plantilla.replace(" {total}", "")
+            from itcj2.apps.titulatec.services.library_clearance_service import (
+                format_amount,
+            )
+            return plantilla.format(total=format_amount(total))
         return plantilla
 
     # -------------------------------------------------------- D9: el contador
@@ -207,24 +234,30 @@ class SelfBookingService:
     def eligibility(db: Session, process_id: int) -> dict:
         """¿Puede agendar solo, y si no, por qué? (spec §3; regla 3 revisada
         por D1 de 2026-09-29-titulatec-cotejo-espacios-design.md §2, que
-        revierte D2 del 2026-09-15; regla 5 nueva por D13 del mismo spec §1,
-        2026-09-30, que revierte EN PARTE la regla del auto-agendado del
-        2026-09-15)
+        revierte D2 del 2026-09-15, y ampliada a las LIBERACIONES por la spec
+        2026-10-01-titulatec-biblioteca-caja-design.md §4.4.4; regla 5 nueva
+        por D13 del spec 2026-09-29 §1, 2026-09-30, que revierte EN PARTE la
+        regla del auto-agendado del 2026-09-15)
 
         Devuelve `{can_book, can_walkin, reason, cancellations,
-        blocked_by_cancellations, current}`.
+        blocked_by_cancellations, current, library_total}`.
 
         **El ORDEN de evaluación es parte del contrato**: la primera regla que
         falla es la que se reporta, así que un proceso inactivo **y** sin
         encuesta dice `proceso_inactivo`, no `sin_encuesta`. Reordenar la
         cadena le cambia el mensaje al alumno aunque las siete sigan estando.
 
-        La regla 3 ya no es un booleano (¿existe la solicitud?) sino un
-        `SurveyReviewService.release_status` de tres caras: `sin_encuesta`
-        (nunca la envió), `encuesta_en_revision` (la envió, GTV la revisa) y
-        `encuesta_con_observaciones` (GTV dejó observaciones). Las tres
-        bloquean `can_book` por igual —enviarla ya no basta, hace falta que
-        GTV la LIBERE (`status == 'approved'`)—, pero cada una le dice al
+        La regla 3 son las LIBERACIONES y las decide `ClearanceGate` (único
+        lector, invariante 2): se reporta su PRIMER bloqueo, y el gate los
+        ordena con la encuesta primero y luego el no adeudo de biblioteca.
+        Cinco caras (`_CLEARANCE_REASONS`): `sin_encuesta` (nunca la envió),
+        `encuesta_en_revision` (la envió, GTV la revisa),
+        `encuesta_con_observaciones` (GTV dejó observaciones) y, SOLO donde la
+        convocatoria exige el no adeudo, `biblioteca_en_revision` (el Centro
+        de Información lo revisa, o el proceso aún no tiene fila) y
+        `pago_pendiente` (pasa a Caja; `library_total` trae el total
+        CONGELADO de su fila para el mensaje, `None` en cualquier otro caso).
+        Las cinco bloquean `can_book` por igual, pero cada una le dice al
         alumno algo distinto sobre qué falta.
 
         **Regla 5, `cotejo_en_dictamen` (D13, 2026-09-30).** La cita vigente
@@ -252,7 +285,7 @@ class SelfBookingService:
         from itcj2.apps.titulatec.services.appointment_service import (
             _ESTADOS_ACTIVOS, AppointmentService,
         )
-        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+        from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
 
         proc = db.get(TitulationProcess, int(process_id))
         if proc is None:
@@ -260,12 +293,13 @@ class SelfBookingService:
             # pasar; se reporta como proceso inactivo en vez de reventar.
             return {"can_book": False, "can_walkin": False,
                     "reason": "proceso_inactivo", "cancellations": 0,
-                    "blocked_by_cancellations": False, "current": None}
+                    "blocked_by_cancellations": False, "current": None,
+                    "library_total": None}
 
         current = AppointmentService.get_for_process(db, proc.id)
         cancelaciones = SelfBookingService.cancellations(db, proc)
         bloqueado = SelfBookingService.is_blocked_by_cancellations(db, proc)
-        estado_encuesta = SurveyReviewService.release_status(db, proc.id)
+        bloqueos = ClearanceGate.blockers(ClearanceGate.status(db, proc.id))
         # Consulta ÚNICA para las reglas 2 y 5 -ver `_fase_cotejo_status`-.
         fase2_status = SelfBookingService._fase_cotejo_status(db, proc)
 
@@ -275,8 +309,8 @@ class SelfBookingService:
             reason = "proceso_inactivo"
         elif fase2_status == "approved":
             reason = "fase_aprobada"
-        elif estado_encuesta != "approved":
-            reason = SelfBookingService._SURVEY_REASONS[estado_encuesta]
+        elif bloqueos:
+            reason = SelfBookingService._CLEARANCE_REASONS[bloqueos[0]]
         elif current is not None and current.status in _ESTADOS_ACTIVOS:
             reason = "tiene_cita"
         elif (current is not None and current.status == "attended"
@@ -288,6 +322,17 @@ class SelfBookingService:
         elif bloqueado:
             reason = "bloqueado_por_cancelaciones"
 
+        # El total congelado de su fila de no adeudo, SOLO para el mensaje de
+        # `pago_pendiente` («Pasa a Caja … a pagar $X»). Leerlo no decide
+        # nada: el estado ya lo decidió el gate.
+        total = None
+        if reason == "pago_pendiente":
+            from itcj2.apps.titulatec.services.library_clearance_service import (
+                LibraryClearanceService,
+            )
+            fila = LibraryClearanceService.get_for_process(db, proc.id)
+            total = fila.total_amount if fila is not None else None
+
         return {
             "can_book": reason is None,
             # Reglas 1 a 5 sí lo apagan; la 6 no. Escrito como una sola
@@ -297,6 +342,7 @@ class SelfBookingService:
             "cancellations": cancelaciones,
             "blocked_by_cancellations": bloqueado,
             "current": current,
+            "library_total": total,
         }
 
     # ------------------------------------------------------------ §4.1: oferta
@@ -560,11 +606,12 @@ class SelfBookingService:
            `MissingSchedule`- y se reemplaza por `ventana.start_time`, la
            misma franja única que ya usa `SlotService.slots` para un `walkin`.
         4. Se delega en `AppointmentService.create(..., booked_by='student')`,
-           que aporta las guardas duras —encuesta enviada, día habilitado,
-           franja real, cupo, lock de ventana y advisory lock del proceso, con
-           la re-comprobación de D4 DENTRO del lock que cierra el TOCTOU del
-           doble clic—. **No se reimplementan aquí.** Es también quien decide
-           `SlotFull` si dos egresados apartan el último lugar a la vez.
+           que aporta las guardas duras —liberaciones (`ClearanceGate`), día
+           habilitado, franja real, cupo, lock de ventana y advisory lock del
+           proceso, con la re-comprobación de D4 DENTRO del lock que cierra el
+           TOCTOU del doble clic—. **No se reimplementan aquí.** Es también
+           quien decide `SlotFull` si dos egresados apartan el último lugar a
+           la vez.
         5. No notifica a nadie: al alumno porque acaba de pulsar el botón
            (`create` lo calla cuando el actor es el propio alumno) y al
            encargado porque D11 dice que se entera por su tablero.
@@ -594,7 +641,8 @@ class SelfBookingService:
             raise SelfBookingNotAllowed(
                 elig["reason"],
                 SelfBookingService.message_for(elig["reason"],
-                                               cancellations=elig["cancellations"]))
+                                               cancellations=elig["cancellations"],
+                                               total=elig.get("library_total")))
 
         ventana = SelfBookingService._window_in_offer(db, process_id, window_id)
         if ventana is None:

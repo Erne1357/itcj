@@ -1,6 +1,8 @@
 """Puerta de agendar sin la encuesta de egresados LIBERADA por GTV, cola
-"Encuesta sin liberar" del panel de citas y sufijo de estatus de GTV en la
-guarda de la fase 2.
+«Liberaciones pendientes» del panel de citas (antes «Encuesta sin liberar»;
+renombrada por la Tarea 5 del plan 2026-10-01-titulatec-biblioteca-caja, que
+suma el no adeudo de biblioteca al mismo candado -- `ClearanceGate`) y sufijo
+de estatus de GTV en la guarda de la fase 2.
 
 Tarea 1 de
 `docs/superpowers/specs/2026-09-29-titulatec-cotejo-espacios-design.md` (D1,
@@ -201,9 +203,12 @@ class TestRutaSchedule:
 
 # ---------------------------------------------------------------------------
 # La cola: `list_pending_processes` exige la encuesta LIBERADA;
-# `list_missing_survey_processes` es su complemento en el MISMO universo
-# (activos, sin cita, 3 documentos iniciales aprobados) — ahora incluye tanto
-# a quien nunca la envió como a quien la envió pero GTV no la ha liberado.
+# `list_missing_clearance_processes` es su complemento en el MISMO universo
+# (activos, sin cita, 3 documentos iniciales aprobados) — incluye tanto a
+# quien nunca la envió como a quien la envió pero GTV no la ha liberado. Estas
+# convocatorias no traen el requisito automático de no adeudo (sin
+# `seed_defaults`), así que la biblioteca no cuenta: eso lo prueba
+# `test_clearance_gate.py`.
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def tres_procesos(seed_phase_defs, seed_document_types, make_program, make_cohort,
@@ -211,8 +216,8 @@ def tres_procesos(seed_phase_defs, seed_document_types, make_program, make_cohor
     """Tres procesos gemelos, listos salvo por la encuesta:
 
         con         GTV ya la liberó                  -> "Por agendar"
-        en_revision la envió, GTV todavía la revisa    -> "Encuesta sin liberar"
-        sin         nunca la envió                     -> "Encuesta sin liberar"
+        en_revision la envió, GTV todavía la revisa    -> "Liberaciones pendientes"
+        sin         nunca la envió                     -> "Liberaciones pendientes"
     """
     seed_phase_defs()
     seed_document_types()
@@ -239,7 +244,7 @@ class TestColaEncuestaSinLiberar:
 
         pendientes = [p.id for p in AppointmentService.list_pending_processes(db_session)]
         sin_liberar = [p.id for p in
-                      AppointmentService.list_missing_survey_processes(db_session)]
+                      AppointmentService.list_missing_clearance_processes(db_session)]
 
         assert esc["procesos"]["con"].id in pendientes
         assert esc["procesos"]["en_revision"].id not in pendientes
@@ -248,7 +253,7 @@ class TestColaEncuestaSinLiberar:
         assert esc["procesos"]["sin"].id in sin_liberar
         assert esc["procesos"]["con"].id not in sin_liberar
 
-    def test_alcance_por_carrera_en_list_missing_survey_processes(
+    def test_alcance_por_carrera_en_list_missing_clearance_processes(
         self, db_session, tres_procesos, make_program, make_student, make_process,
         make_document,
     ):
@@ -262,21 +267,21 @@ class TestColaEncuestaSinLiberar:
         for code in ("birth_certificate", "high_school_cert", "curp"):
             make_document(proc_ajeno, type_code=code, review_status="approved")
 
-        solo_prog = [p.id for p in AppointmentService.list_missing_survey_processes(
+        solo_prog = [p.id for p in AppointmentService.list_missing_clearance_processes(
             db_session, allowed_program_ids={esc["prog"].id})]
 
         assert esc["procesos"]["sin"].id in solo_prog
         assert proc_ajeno.id not in solo_prog
-        assert AppointmentService.list_missing_survey_processes(
+        assert AppointmentService.list_missing_clearance_processes(
             db_session, allowed_program_ids=set()) == []
 
     def test_la_agenda_pinta_el_cubo_renombrado_con_la_pildora_por_fila(
         self, client_as, db_session, tres_procesos, make_officer, make_survey_review,
     ):
-        """A nivel de página: el cubo se llama «Encuesta sin liberar», la fila
-        de quien nunca envió NO lleva ni arrastre ni `appt_nav` (D1: nada que
-        hacer con ella todavía) y cada fila lleva la píldora de su estado real
-        (`survey_review_pill`, `_macros.html:71-77`)."""
+        """A nivel de página: el cubo se llama «Liberaciones pendientes» (antes
+        «Encuesta sin liberar»), la fila de quien nunca envió NO lleva ni
+        arrastre ni `appt_nav` (D1: nada que hacer con ella todavía) y cada
+        fila lleva la píldora de su estado real (`survey_review_pill`)."""
         esc = tres_procesos
         make_survey_review(esc["procesos"]["en_revision"], status="in_review")
         officer, _pos = make_officer([esc["prog"]])
@@ -284,10 +289,11 @@ class TestColaEncuestaSinLiberar:
         resp = client_as(officer).get("/titulatec/admin/appointments")
 
         assert resp.status_code == 200
-        assert "Encuesta sin liberar" in resp.text
+        assert "Liberaciones pendientes" in resp.text
+        assert "Encuesta sin liberar" not in resp.text, "se quedó el rótulo viejo"
         assert "Sin encuesta" not in resp.text, "se quedó el rótulo viejo"
-        assert f'id="appt-nosurvey-{esc["procesos"]["sin"].id}"' in resp.text
-        assert f'id="appt-nosurvey-{esc["procesos"]["en_revision"].id}"' in resp.text
+        assert f'id="appt-clearance-{esc["procesos"]["sin"].id}"' in resp.text
+        assert f'id="appt-clearance-{esc["procesos"]["en_revision"].id}"' in resp.text
         assert f'data-tt-drag="{esc["procesos"]["sin"].id}"' not in resp.text
         assert f'data-tt-drag="{esc["procesos"]["en_revision"].id}"' not in resp.text
         # La píldora distingue "nunca la envió" (Encuesta pendiente) de "la
@@ -345,8 +351,9 @@ class TestReleaseStatusHelpers:
 
 # ---------------------------------------------------------------------------
 # La guarda de la fase 2: sufijo por estatus de la encuesta (D3 del plan del
-# 2026-09-15). NO la toca esta tarea: sigue leyendo `summary_for_process`
-# (existencia + estado real), no `release_status`.
+# 2026-09-15). Desde la Tarea 5 del plan 2026-10-01-titulatec-biblioteca-caja
+# el estado sale de `ClearanceGate.status` (los mismos cuatro de la encuesta);
+# el sufijo del no adeudo lo prueba `test_clearance_gate.py`.
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def escenario_fase2(db_session, seed_phase_defs, make_student, make_cohort, make_process):

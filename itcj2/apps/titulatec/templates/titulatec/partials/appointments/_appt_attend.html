@@ -8,7 +8,7 @@
    columna de 600, así que para leer un acta escaneada había que abrir el modal
    por cada documento y por cada alumno. #}
 {% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav, appt_action %}
-{% from "titulatec/_macros.html" import appt_pill, estado_pill, survey_review_pill, track_pill %}
+{% from "titulatec/_macros.html" import appt_pill, estado_pill, library_clearance_pill, survey_review_pill, track_pill %}
 
 {% set BASE = page_url ~ '/' ~ detail.process.id %}
 {% set QZ = ('?' ~ q_zone) if q_zone else '' %}
@@ -292,7 +292,7 @@
 
       {% else %}
       <h3 class="tt-h-sec">Sin cita todavía</h3>
-      {% if not detail.encuesta_sin_liberar %}
+      {% if not detail.liberaciones_pendientes %}
       <p class="tt-appt-note mt-2 mb-2">
         Elige un día en el carril y pica un lugar libre del tablero para darle cita.
       </p>
@@ -315,19 +315,32 @@
          cita, `no_show` vigente o `attended` con la fase 02 rechazada (ruling
          de la revisión de T6)—, así que aquí no se repite la regla.
 
-         I-3 (revisión final): con la encuesta de egresados SIN LIBERAR (D1),
-         ni «Agendar a este alumno» (arriba) ni «Atender ahora» (abajo) se
-         ofrecen —las dos abrirían un intento nuevo que
-         `AppointmentService.create` rechazaría con `SurveyNotReleased`—.
-         `_detail_ctx` ya deja `walkins_hoy` vacío en ese caso; aquí, en el
-         MISMO lugar donde iría «Atender ahora» (sirve igual si arriba se
-         pintó una cita no-show/attended-rechazada o «Sin cita todavía»), una
-         sola píldora + aviso explican por qué, sin repetir el mensaje. #}
-      {% if detail.encuesta_sin_liberar %}
-      <div class="mt-3 d-flex align-items-center gap-2 flex-wrap">
-        {{ survey_review_pill(detail.survey_status) }}
-        <span class="tt-appt-note mb-0">
-          Se podrá agendar cuando Gestión Tecnológica y Vinculación libere su encuesta.</span>
+         I-3 (revisión final): con alguna LIBERACIÓN pendiente según
+         `ClearanceGate` —la encuesta de egresados (D1) o, donde la
+         convocatoria lo exige, el no adeudo de biblioteca (spec 2026-10-01-
+         titulatec-biblioteca-caja §4.4.5)— ni «Agendar a este alumno» (arriba)
+         ni «Atender ahora» (abajo) se ofrecen: las dos abrirían un intento
+         nuevo que `AppointmentService.create` rechazaría. `_detail_ctx` ya
+         deja `walkins_hoy` vacío en ese caso; aquí, en el MISMO lugar donde
+         iría «Atender ahora» (sirve igual si arriba se pintó una cita
+         no-show/attended-rechazada o «Sin cita todavía»), una píldora + aviso
+         POR CADA liberación que falta explican por qué. #}
+      {% if detail.liberaciones_pendientes %}
+      <div class="mt-3 d-flex flex-column gap-2">
+        {% if detail.encuesta_sin_liberar %}
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          {{ survey_review_pill(detail.survey_status) }}
+          <span class="tt-appt-note mb-0">
+            Se podrá agendar cuando Gestión Tecnológica y Vinculación libere su encuesta.</span>
+        </div>
+        {% endif %}
+        {% if detail.biblioteca_sin_liberar %}
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          {{ library_clearance_pill(detail.library_status) }}
+          <span class="tt-appt-note mb-0">
+            Se podrá agendar cuando se libere su no adeudo de biblioteca.</span>
+        </div>
+        {% endif %}
       </div>
       {% elif detail.walkins_hoy %}
       <div class="d-flex flex-wrap gap-2 mt-3">

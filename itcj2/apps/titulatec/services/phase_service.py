@@ -283,22 +283,43 @@ class PhaseService:
         "rejected": "con observaciones de GTV",
     }
 
+    # Gemelo del de arriba para el no adeudo de biblioteca (spec 2026-10-01-
+    # titulatec-biblioteca-caja-design.md §4.4.6), por su `library` de
+    # `ClearanceGate.status`. Mismo ASCII, misma razón. `missing` (sin fila)
+    # se dice igual que `pending`; `cleared`/`not_required` no aparecen:
+    # liberado, el requisito ya está cumplido (o lo cumplió el legado a mano).
+    _SUFIJO_BIBLIOTECA = {
+        "missing": "en revision por Biblioteca",
+        "pending": "en revision por Biblioteca",
+        "awaiting_payment": "pendiente de pago en Caja",
+    }
+
+    # `auto_source` del requisito -> (llave de `ClearanceGate.status`, sufijos).
+    _SUFIJOS_LIBERACION = {
+        "graduate_survey": ("survey", _SUFIJO_ENCUESTA),
+        "library_clearance": ("library", _SUFIJO_BIBLIOTECA),
+    }
+
     @staticmethod
     def _requirement_label(db: Session, process, requirement) -> str:
         """Nombre de un requisito de cotejo para el mensaje de la guarda.
 
-        El de la encuesta de egresados (`auto_source == 'graduate_survey'`)
-        lleva además el estatus de SU solicitud de liberación: sin esto,
-        «al alumno le faltan requisitos (Encuesta de egresados)» no dice si ya
-        la envió y está en revisión, o si ni siquiera la ha contestado — la
-        diferencia entre "avisa a Escolares" y "avisa al alumno".
+        Los dos que acredita una LIBERACIÓN —la encuesta de egresados
+        (`auto_source == 'graduate_survey'`) y el no adeudo de biblioteca
+        (`'library_clearance'`)— llevan además en qué va: sin esto, «al alumno
+        le faltan requisitos (Encuesta de egresados)» no dice si ya la envió y
+        está en revisión, o si ni siquiera la ha contestado — la diferencia
+        entre "avisa a Escolares" y "avisa al alumno". El estado lo da
+        `ClearanceGate.status` (único lector, invariante 2 de la spec
+        2026-10-01-titulatec-biblioteca-caja-design.md).
         """
-        if requirement.auto_source != "graduate_survey":
+        llave_y_sufijos = PhaseService._SUFIJOS_LIBERACION.get(requirement.auto_source)
+        if llave_y_sufijos is None:
             return requirement.label
-        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+        from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
 
-        estatus = SurveyReviewService.summary_for_process(db, process.id)["status"]
-        sufijo = PhaseService._SUFIJO_ENCUESTA.get(estatus)
+        llave, sufijos = llave_y_sufijos
+        sufijo = sufijos.get(ClearanceGate.status(db, process.id)[llave])
         return f"{requirement.label} ({sufijo})" if sufijo else requirement.label
 
     @staticmethod

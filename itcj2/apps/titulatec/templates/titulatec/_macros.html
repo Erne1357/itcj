@@ -80,6 +80,25 @@
   {% else %}{{ pill(status, "neutral") }}{% endif %}
 {% endmacro %}
 
+{# — Gemela de la anterior para el no adeudo de biblioteca (spec
+   2026-10-01-titulatec-biblioteca-caja-design.md §4.4/§4.9): mapea el `library`
+   de `ClearanceGate.status` (o el `status` de `LibraryClearanceService`) a
+   (texto, tono, icono). `missing` (sin fila) se dice igual que `pending`:
+   Biblioteca todavía no lo revisa. `via` es `cleared_via` y solo distingue la
+   constancia previa (D9: el egresado lleva su papel); `payment`, `no_charge`
+   y `legacy` son «Liberado». `not_required` (convocatoria sin el requisito
+   automático) NO pinta nada: no hay liberación que mostrar. Las dos de
+   «liberado» llevan el libro y no la palomita de «Liberada»: puestas lado a
+   lado en la cola, se distinguen de un vistazo. #}
+{% macro library_clearance_pill(status, via=None) %}
+  {% if status in ("missing", "pending") %}{{ pill("En Biblioteca", "amber", "book") }}
+  {% elif status == "awaiting_payment" %}{{ pill("Por pagar en Caja", "navy", "cash-coin") }}
+  {% elif status == "cleared" and via == "prior" %}{{ pill("Constancia previa", "success", "file-earmark-check") }}
+  {% elif status == "cleared" %}{{ pill("Liberado", "success", "book") }}
+  {% elif status == "not_required" %}
+  {% else %}{{ pill(status, "neutral") }}{% endif %}
+{% endmacro %}
+
 {# — Píldora "Posgrado" junto a la carrera (bandeja de Documentos, expediente,
    ficha de cotejo — spec 2026-09-30-titulatec-posgrado-design.md §4.4). `track`
    ya viene resuelto por `TrackService` (invariante 2: aquí no se compara nada

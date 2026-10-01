@@ -362,19 +362,27 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
 
     # I-3 (revisión final): las dos formas de abrir un intento NUEVO —«Agendar
     # a este alumno» y «Atender ahora»— pasarían por la guarda dura de
-    # `AppointmentService.create` (D1) y morirían con `SurveyNotSubmitted` /
-    # `SurveyNotReleased` si la encuesta de egresados no está LIBERADA. Sin
-    # esto la ficha ofrecía un botón que el servidor siempre iba a rechazar.
+    # `AppointmentService.create` y morirían con `SurveyNotSubmitted` /
+    # `SurveyNotReleased` / `LibraryNotCleared` si al alumno le falta alguna
+    # LIBERACIÓN. Sin esto la ficha ofrecía un botón que el servidor siempre
+    # iba a rechazar. Quién decide es `ClearanceGate` (spec 2026-10-01-
+    # titulatec-biblioteca-caja-design.md §4.4.5, invariante 2), con los
+    # bloqueos ya partidos por liberación para que la ficha diga CUÁL falta.
     # Solo importa cuando de verdad se abriría un intento (`abriria_intento`):
     # con una `attended` pendiente de dictamen o ya aprobada el encargado no
-    # va a agendar nada, así que el flag se queda apagado y no contradice la
-    # píldora que YA pinta el checklist de requisitos (`detail.survey`).
-    encuesta_liberada = SurveyReviewService.is_released(db, process_id)
-    encuesta_sin_liberar = abriria_intento and not encuesta_liberada
+    # va a agendar nada, así que los flags se quedan apagados y no contradicen
+    # la píldora que YA pinta el checklist de requisitos (`detail.survey`).
+    from itcj2.apps.titulatec.services.clearance_gate import (
+        LIBRARY_BLOCKERS, SURVEY_BLOCKERS, ClearanceGate,
+    )
+    liberaciones = ClearanceGate.status(db, process_id)
+    bloqueos = set(ClearanceGate.blockers(liberaciones)) if abriria_intento else set()
+    encuesta_sin_liberar = bool(bloqueos & set(SURVEY_BLOCKERS))
+    biblioteca_sin_liberar = bool(bloqueos & set(LIBRARY_BLOCKERS))
 
     hoy = db_now().date()
     walkins_hoy = []
-    if user_id is not None and abriria_intento and encuesta_liberada:
+    if user_id is not None and abriria_intento and not bloqueos:
         cohort_activa = _active_cohort_id(db)
         fila_hoy = ReviewDayService.get(db, cohort_activa, hoy) if cohort_activa else None
         if fila_hoy is not None and not fila_hoy.is_closed:
@@ -414,12 +422,18 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
         "can_mark_reqs": can_mark_reqs,
         "survey": survey,
         "walkins_hoy": walkins_hoy,
-        # I-3: apaga «Agendar a este alumno» / «Atender ahora» en la plantilla
-        # cuando abrirían un intento que la guarda dura rechazaría.
-        # `survey_status` es el mismo `survey["status"]` de arriba — una sola
-        # lectura de la solicitud — para la píldora `survey_review_pill`.
+        # I-3: `liberaciones_pendientes` apaga «Agendar a este alumno» /
+        # «Atender ahora» en la plantilla cuando abrirían un intento que la
+        # guarda dura rechazaría; `encuesta_sin_liberar` /
+        # `biblioteca_sin_liberar` dicen cuál falta (una píldora y una frase
+        # por cada una). `survey_status`/`library_status` son los de
+        # `ClearanceGate.status`, para `survey_review_pill` /
+        # `library_clearance_pill` (`_macros.html`).
+        "liberaciones_pendientes": bool(bloqueos),
         "encuesta_sin_liberar": encuesta_sin_liberar,
-        "survey_status": survey["status"],
+        "biblioteca_sin_liberar": biblioteca_sin_liberar,
+        "survey_status": liberaciones["survey"],
+        "library_status": liberaciones["library"],
         # «Atender ahora» vuelve a la ficha en el dia de HOY, que es donde
         # queda la cita, no en el que se estaba mirando.
         "hoy": hoy.isoformat(),
@@ -958,14 +972,17 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     # alguien de otro dia dejaria de funcionar.
     pendientes = AppointmentService.list_pending_processes(db, allowed_program_ids=allowed)
     reagendar = AppointmentService.list_reschedule_processes(db, allowed_program_ids=allowed)
-    # D1 (spec 2026-09-29-titulatec-cotejo-espacios-design.md §2, revierte D2
-    # del 2026-09-15): documentos aprobados pero SIN la encuesta LIBERADA por
-    # GTV — nunca la envió, o la envió y sigue `in_review`/`rejected`. No se
-    # puede agendar a nadie de este cubo (la guarda de
-    # `AppointmentService.create` lo rechazaría), así que sus filas no llevan
-    # navegación ni arrastre — ver `_appt_queue.html`. No entran a `visibles`:
-    # no hay ficha que abrirles.
-    sin_encuesta = AppointmentService.list_missing_survey_processes(db, allowed_program_ids=allowed)
+    # «Liberaciones pendientes» (spec 2026-10-01-titulatec-biblioteca-caja-
+    # design.md §4.4.5; antes «Encuesta sin liberar», D1 de 2026-09-29):
+    # documentos aprobados pero le falta alguna LIBERACIÓN según
+    # `ClearanceGate` — la encuesta (nunca la envió, o sigue `in_review`/
+    # `rejected`) o, donde la convocatoria lo exige, el no adeudo de
+    # biblioteca (en Biblioteca o por pagar en Caja). No se puede agendar a
+    # nadie de este cubo (la guarda de `AppointmentService.create` lo
+    # rechazaría), así que sus filas no llevan navegación ni arrastre — ver
+    # `_appt_queue.html`. No entran a `visibles`: no hay ficha que abrirles.
+    liberaciones = AppointmentService.list_missing_clearance_processes(
+        db, allowed_program_ids=allowed)
     # D10: los que agotaron su tope de cancelaciones (D9) y ya NO pueden
     # agendarse solos. Cubo propio y mutuamente excluyente con «Por agendar»:
     # la resta la hace `list_pending_processes`, no esta vista.
@@ -1032,17 +1049,18 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         "reagendar_count": len(reagendar),
         "rechazados": filas_rechazados,
         "rechazados_count": len(rechazados),
-        # Lo que suma al badge «por atender»: el rechazado con la encuesta SIN
-        # LIBERAR no se puede agendar todavía (`SurveyNotSubmitted` /
-        # `SurveyNotReleased`, D1), igual que el cubo «Encuesta sin liberar»,
-        # así que tampoco cuenta como trabajo del encargado.
+        # Lo que suma al badge «por atender»: el rechazado al que le falta
+        # alguna LIBERACIÓN no se puede agendar todavía (`SurveyNotSubmitted`
+        # / `SurveyNotReleased` / `LibraryNotCleared`), igual que el cubo
+        # «Liberaciones pendientes», así que tampoco cuenta como trabajo del
+        # encargado.
         "rechazados_accionables_count": sum(
-            1 for fila in filas_rechazados if not fila["encuesta_sin_liberar"]),
+            1 for fila in filas_rechazados if not fila["liberaciones_pendientes"]),
         # No se suma al badge de la pestaña (`appointments_body.html`): ese
         # contador es "por atender" (agendar + reagendar) y este cubo no se
         # puede atender todavía — solo informa.
-        "sin_encuesta": _proc_rows_sin_encuesta(db, sin_encuesta),
-        "sin_encuesta_count": len(sin_encuesta),
+        "liberaciones": _proc_rows_liberaciones(db, liberaciones),
+        "liberaciones_count": len(liberaciones),
         "seleccion": sorted(seleccion or []),
         "page_url": PAGE_URL, "body_url": BODY_URL,
     }
@@ -1060,7 +1078,7 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
             # siempre en ceros.
             ctx["sin_cita_rows"] = (
                 _sin_cita_rows(db, pendientes=pendientes, bloqueados=bloqueados,
-                               rechazados=rechazados, sin_encuesta=sin_encuesta,
+                               rechazados=rechazados, liberaciones=liberaciones,
                                agenda_ids=agenda_ids, q=q, program_id=program_id)
                 if (q or "").strip() and not estado else [])
         else:
@@ -1131,49 +1149,56 @@ def _proc_rows_bloqueados(db, procs):
     return filas
 
 
-def _proc_rows_sin_encuesta(db, procs):
-    """Filas del cubo «Encuesta sin liberar» (D1), con el estado real de la
-    solicitud para pintar `survey_review_pill` (`_macros.html:71-77`).
+def _con_liberaciones(db, filas):
+    """Suma a cada fila de la cola su estado de LIBERACIONES, en lote
+    (`ClearanceGate.status_map`, consultas fijas, nunca una por fila; spec
+    2026-10-01-titulatec-biblioteca-caja-design.md §4.4.5):
 
-    En lote (`SurveyReviewService.release_status_map`, 1 consulta): la fila
-    del que nunca envió nada pinta "Encuesta pendiente" (pseudo-estado
-    `missing`) y la del que la envió pero GTV no la ha liberado pinta su
-    estado real (`in_review`/`rejected`) — dos historias distintas dentro del
-    MISMO cubo.
+    * `survey_status` / `library_status` — los de `ClearanceGate.status`,
+      para `survey_review_pill` / `library_clearance_pill` (`_macros.html`;
+      la de biblioteca no pinta nada con `not_required`).
+    * `liberaciones_pendientes` — le falta alguna (`ClearanceGate.blockers`).
+      Es lo que decide si la fila se arrastra: abrir un intento con alguna
+      pendiente revienta en la guarda dura de `AppointmentService.create`.
     """
-    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
 
-    filas = _proc_rows(db, procs)
     if not filas:
         return filas
-    estados = SurveyReviewService.release_status_map(db, [p.id for p in procs])
+    estados = ClearanceGate.status_map(db, [fila["process_id"] for fila in filas])
     for fila in filas:
-        fila["survey_status"] = estados.get(fila["process_id"], "missing")
+        estado = estados[fila["process_id"]]
+        fila["survey_status"] = estado["survey"]
+        fila["library_status"] = estado["library"]
+        fila["liberaciones_pendientes"] = bool(ClearanceGate.blockers(estado))
     return filas
+
+
+def _proc_rows_liberaciones(db, procs):
+    """Filas del cubo «Liberaciones pendientes» (antes «Encuesta sin
+    liberar», D1), con las DOS píldoras: la de la encuesta (la del que nunca
+    envió nada dice "Encuesta pendiente", pseudo-estado `missing`; la del que
+    la envió, su estado real) y la del no adeudo de biblioteca donde la
+    convocatoria lo exige. Varias historias distintas dentro del MISMO cubo, y
+    la fila dice cuál le toca a cada quien (`_con_liberaciones`).
+    """
+    return _con_liberaciones(db, _proc_rows(db, procs))
 
 
 def _proc_rows_reagendar(db, procs):
-    """Filas del cubo «Reagendar», con si la encuesta sigue LIBERADA (I-3).
+    """Filas del cubo «Reagendar», con si sigue teniendo sus LIBERACIONES (I-3).
 
-    Un `no_show` puede seguir aquí mucho después de que GTV liberó la
-    encuesta la primera vez -D2 dice que su cita vieja no se toca-, pero
-    REAGENDAR abre un intento NUEVO, y ese vuelve a pasar por la guarda dura
-    de `AppointmentService.create` (D1): si GTV revocó la liberación
-    mientras tanto, arrastrar esta fila a un lugar libre revienta con
-    `SurveyNotReleased`, un error que no explica nada en el contexto de "solo
+    Un `no_show` puede seguir aquí mucho después de que se liberaron la
+    encuesta y el no adeudo -su cita vieja no se toca (D2 de 2026-09-29, D17
+    de 2026-10-01)-, pero REAGENDAR abre un intento NUEVO, y ese vuelve a
+    pasar por la guarda dura de `AppointmentService.create`: si GTV revocó la
+    liberación o Biblioteca/Caja revirtieron el no adeudo mientras tanto,
+    arrastrar esta fila a un lugar libre revienta con `SurveyNotReleased` /
+    `LibraryNotCleared`, un error que no explica nada en el contexto de "solo
     no se presentó". Mismo patrón que `_proc_rows_rechazados`
-    (`SurveyReviewService.release_status_map`, en lote, una sola consulta).
+    (`_con_liberaciones`, en lote).
     """
-    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
-
-    filas = _proc_rows(db, procs)
-    if not filas:
-        return filas
-    estados = SurveyReviewService.release_status_map(db, [p.id for p in procs])
-    for fila in filas:
-        fila["survey_status"] = estados.get(fila["process_id"], "missing")
-        fila["encuesta_sin_liberar"] = fila["survey_status"] != "approved"
-    return filas
+    return _con_liberaciones(db, _proc_rows(db, procs))
 
 
 def _proc_rows_rechazados(db, procs):
@@ -1185,31 +1210,32 @@ def _proc_rows_rechazados(db, procs):
       tenga que abrir la ficha solo para saber que corregir. En lote (1
       consulta): son planas y el volumen es chico, pero N+1 consultas aqui
       serian evitables sin motivo.
-    * `survey_status` + `encuesta_sin_liberar` — el estado real de la
-      solicitud (D1, revierte D2 del 2026-09-15) y si es DISTINTO de
-      `approved`. Importa porque `AppointmentService.create` exige la
-      encuesta LIBERADA antes que cualquier otra cosa (`SurveyNotSubmitted` /
-      `SurveyNotReleased`): un proceso puede llegar a este cubo sin ella
-      liberada (nunca la envio, o la envio y GTV no la ha liberado; tambien
-      docs/fixtures que insertan la cita sin pasar por el service), y
-      arrastrarlo a un lugar libre revienta con un error que no explica nada.
-      En lote (`SurveyReviewService.release_status_map`).
+    * `survey_status` + `library_status` + `liberaciones_pendientes` — el
+      estado real de cada liberación y si le falta alguna (`ClearanceGate`,
+      spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.4.5; antes solo
+      la encuesta, D1). Importa porque `AppointmentService.create` exige las
+      liberaciones antes que cualquier otra cosa (`SurveyNotSubmitted` /
+      `SurveyNotReleased` / `LibraryNotCleared`): un proceso puede llegar a
+      este cubo sin ellas (nunca envio la encuesta, GTV no la ha liberado, el
+      no adeudo sigue en Biblioteca o por pagar; tambien docs/fixtures que
+      insertan la cita sin pasar por el service), y arrastrarlo a un lugar
+      libre revienta con un error que no explica nada. En lote
+      (`_con_liberaciones`).
     * `bloqueado` — igual que en `_proc_rows_bloqueados`,
       `SelfBookingService.is_blocked_by_cancellations` por fila y no en lote:
       ES la fuente unica del predicado de D9, y este cubo tambien tiene pocas
       filas.
 
-    Los dos primeros no son excluyentes entre si: un rechazado puede tener la
-    encuesta SIN LIBERAR Y estar bloqueado por D9 a la vez, y la plantilla
+    Los dos primeros no son excluyentes entre si: un rechazado puede tener
+    liberaciones PENDIENTES Y estar bloqueado por D9 a la vez, y la plantilla
     pinta las dos senales.
     """
     from itcj2.apps.titulatec.models import ProcessPhase
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
-    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
     por_id = {p.id: p for p in procs}
-    filas = _proc_rows(db, procs)
+    filas = _con_liberaciones(db, _proc_rows(db, procs))
     if not filas:
         return filas
 
@@ -1221,18 +1247,15 @@ def _proc_rows_rechazados(db, procs):
                             ProcessPhase.phase_number == PhaseService.PHASE_COTEJO)
                     .all()
     }
-    estados_encuesta = SurveyReviewService.release_status_map(db, pids)
     for fila in filas:
         pid = fila["process_id"]
         fila["motivo"] = motivos.get(pid)
-        fila["survey_status"] = estados_encuesta.get(pid, "missing")
-        fila["encuesta_sin_liberar"] = fila["survey_status"] != "approved"
         fila["bloqueado"] = SelfBookingService.is_blocked_by_cancellations(
             db, por_id[pid])
     return filas
 
 
-def _sin_cita_rows(db, *, pendientes, bloqueados, rechazados, sin_encuesta,
+def _sin_cita_rows(db, *, pendientes, bloqueados, rechazados, liberaciones,
                    agenda_ids, q, program_id):
     """Filas «Sin cita» del buscador (D8, spec §4): procesos SIN cita viva que
     coinciden con `q`, sobre las listas que `_shell_ctx` YA calculó — sin
@@ -1246,19 +1269,20 @@ def _sin_cita_rows(db, *, pendientes, bloqueados, rechazados, sin_encuesta,
     (§4 del flujo: ese subconjunto no está "sin cita"). Las tres listas nunca
     se solapan entre sí ni con `rechazados`: `_unscheduled_query` resta
     `rechazados_ids` de su base, así que un proceso no puede caer en dos a la
-    vez. «Encuesta sin liberar» entra SIN abrir (D1: no está en `visibles`,
-    no hay ficha que darle todavía) y con su `survey_status` real, para la
-    píldora — mismo dato que ya pinta la cola.
+    vez. «Liberaciones pendientes» (`liberaciones`) entra SIN abrir (no está
+    en `visibles`, no hay ficha que darle todavía) y con su `survey_status` y
+    `library_status` reales de `ClearanceGate`, para las píldoras — mismo dato
+    que ya pinta la cola.
 
     `casefold` sobre nombre completo, número de control y folio (sin
     mayúsculas). Respeta `program_id` como cualquier otro filtro de la vista.
     """
-    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
 
     candidatos = [(p, True) for p in pendientes]
     candidatos += [(p, True) for p in bloqueados]
     candidatos += [(p, True) for p in rechazados if p.id not in agenda_ids]
-    candidatos += [(p, False) for p in sin_encuesta]
+    candidatos += [(p, False) for p in liberaciones]
 
     if program_id:
         candidatos = [(p, abrible) for p, abrible in candidatos
@@ -1266,9 +1290,8 @@ def _sin_cita_rows(db, *, pendientes, bloqueados, rechazados, sin_encuesta,
     if not candidatos:
         return []
 
-    sin_encuesta_ids = [p.id for p, abrible in candidatos if not abrible]
-    estados_survey = (SurveyReviewService.release_status_map(db, sin_encuesta_ids)
-                      if sin_encuesta_ids else {})
+    cerrados_ids = [p.id for p, abrible in candidatos if not abrible]
+    estados = ClearanceGate.status_map(db, cerrados_ids)
 
     users, progs = _people(db, [p for p, _ in candidatos])
     aguja = (q or "").strip().casefold()
@@ -1289,7 +1312,8 @@ def _sin_cita_rows(db, *, pendientes, bloqueados, rechazados, sin_encuesta,
             "control": control or "—",
             "program": prog.name if prog else "Sin carrera",
             "abrible": abrible,
-            "survey_status": None if abrible else estados_survey.get(proc.id, "missing"),
+            "survey_status": None if abrible else estados[proc.id]["survey"],
+            "library_status": None if abrible else estados[proc.id]["library"],
         })
     return salida
 
@@ -1766,7 +1790,8 @@ async def req_mark(
     * el requisito tiene que ser de la convocatoria del alumno (si no, un `rid`
       de otra convocatoria acreditaria algo que su lista ni pide);
     * los que llevan `auto_source` son de SOLO LECTURA: los acredita el sistema
-      (hoy, la encuesta de egresados) y marcarlos a mano romperia la
+      (la encuesta de egresados, que libera GTV, y el no adeudo de biblioteca,
+      que liberan Biblioteca y Caja) y marcarlos a mano romperia la
       trazabilidad de `external_ref`.
 
     Contrato de `note`: AUSENTE conserva la que hubiera, PRESENTE Y VACIO la

@@ -1535,7 +1535,8 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
     # tienen ninguna otra señal en pantalla, y sin la frase quedaría un hueco.
     message = (None if elig["reason"] == "tiene_cita"
                else SelfBookingService.message_for(
-                   elig["reason"], cancellations=elig["cancellations"]))
+                   elig["reason"], cancellations=elig["cancellations"],
+                   total=elig.get("library_total")))
 
     return {"can_book": elig["can_book"], "can_walkin": elig["can_walkin"],
             "reason": elig["reason"], "message": message, "modo": modo,

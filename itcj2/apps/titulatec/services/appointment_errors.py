@@ -188,7 +188,9 @@ class SurveyNotSubmitted(AppointmentError):
     revierte D2 del 2026-09-15) enviarla YA NO basta: hace falta además que
     Gestión Tecnológica y Vinculación la haya LIBERADO. Este error es SOLO
     para el pseudo-estado `'missing'` (nunca la envió); si la envió pero sigue
-    `in_review`/`rejected`, la guarda levanta `SurveyNotReleased`.
+    `in_review`/`rejected`, la guarda levanta `SurveyNotReleased`. El estado
+    lo da `ClearanceGate` (spec 2026-10-01-titulatec-biblioteca-caja §4.4),
+    que suma detrás el no adeudo de biblioteca (`LibraryNotCleared`).
     """
 
     def __init__(self, msg="El alumno todavía no envía la encuesta de egresados. "
@@ -204,9 +206,9 @@ class SurveyNotReleased(AppointmentError):
     no son `'approved'` —`in_review` (GTV la sigue revisando) y `rejected`
     (GTV dejó observaciones)—. Sigue siendo entrada del usuario (400, no
     colisión de estado): lo que hay en pantalla sigue siendo verdad, solo
-    falta que GTV libere. `status` viaja en la excepción —`release_status`,
-    nunca `None`— para que quien la capture pueda distinguir los dos casos
-    sin volver a leer la fila.
+    falta que GTV libere. `status` viaja en la excepción —el `survey` de
+    `ClearanceGate.status`, nunca `None`— para que quien la capture pueda
+    distinguir los dos casos sin volver a leer la fila.
     """
 
     _MENSAJES = {
@@ -219,6 +221,37 @@ class SurveyNotReleased(AppointmentError):
     def __init__(self, status: str, msg: str | None = None):
         super().__init__(msg or self._MENSAJES.get(
             status, "La encuesta de egresados de este alumno todavía no está liberada."))
+        self.status = status
+
+
+class LibraryNotCleared(AppointmentError):
+    """El no adeudo de biblioteca del alumno todavía no está LIBERADO (D6 de
+    spec 2026-10-01-titulatec-biblioteca-caja-design.md, §4.4.1).
+
+    Guarda dura de `AppointmentService.create`, justo detrás de las dos de la
+    encuesta (`SurveyNotSubmitted`, `SurveyNotReleased`): el orden lo da
+    `ClearanceGate.blockers` (encuesta primero). Solo existe donde la
+    convocatoria del proceso exige el no adeudo
+    (`ClearanceGate.library_required`, invariante 8). Entrada del usuario
+    (400, no colisión de estado): lo que hay en pantalla sigue siendo verdad,
+    solo falta que Biblioteca o Caja lo liberen. `status` viaja en la
+    excepción —`missing` | `pending` | `awaiting_payment`, el `library` de
+    `ClearanceGate.status`— y `missing` (sin fila) se dice igual que
+    `pending`: Biblioteca todavía no lo revisa.
+    """
+
+    _MENSAJES = {
+        "pending": ("El no adeudo de biblioteca de este alumno sigue en revisión con el "
+                    "Centro de Información. Se podrá agendar cuando lo liberen."),
+        "awaiting_payment": ("El no adeudo de biblioteca de este alumno está pendiente de "
+                             "pago en Caja (Recursos Financieros). Se podrá agendar "
+                             "cuando lo pague."),
+    }
+
+    def __init__(self, status: str, msg: str | None = None):
+        clave = "pending" if status == "missing" else status
+        super().__init__(msg or self._MENSAJES.get(
+            clave, "El no adeudo de biblioteca de este alumno todavía no está liberado."))
         self.status = status
 
 
