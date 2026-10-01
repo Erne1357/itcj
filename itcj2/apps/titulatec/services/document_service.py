@@ -115,6 +115,49 @@ class DocumentService:
         ))
 
     @staticmethod
+    def excused_initial_docs(process, present_codes,
+                             *, initial_docs_phase: int | None) -> "frozenset[str]":
+        """ÚNICO predicado que decide la dispensa R-G (Ruling R11, revisión final
+        2026-09-30: R-G se quedaba en la elegibilidad -- `initial_docs_all_approved`
+        ya la aplicaba -- pero los CONTADORES seguían contando los 4 extras
+        dispensados como pendientes: la bandeja de Documentos, el resumen del
+        alumno, el visor de cotejo y el expediente tenían cada uno su propia
+        copia, o ninguna, de esta misma cuenta).
+
+        Devuelve los códigos de `POSGRADO_EXTRA_DOCS` que se DISPENSAN para
+        `process`: los que NO están en `present_codes` (sin fila `Document`)
+        **y** cuyo proceso ya pasó la fase de `initial_docs` -- `current_phase`
+        mayor que `initial_docs_phase` (el número de esa fase en el catálogo,
+        `PhaseService.phase_number_for_code(db, "initial_docs")`). Sin catálogo
+        (`initial_docs_phase=None`), sin proceso, o con la fase 1 todavía
+        abierta o en curso (`current_phase <= initial_docs_phase`): nada se
+        dispensa -- falla CERRADO, misma política que el resto de esta guarda.
+
+        Un extra que SÍ tiene fila (está en `present_codes`) NUNCA aparece
+        aquí, sea cual sea su estado (`approved`/`rejected`/`pending`): se
+        evalúa como cualquier otro documento, nunca se dispensa por el simple
+        hecho de tener fila. Los 3 `BASE_INITIAL_DOCS` nunca entran aquí (no
+        forman parte de `POSGRADO_EXTRA_DOCS`): se exigen siempre, haya
+        pasado la fase o no.
+
+        PREDICADO PURO a propósito -- sin `db`, sin consultas: el LLAMADOR
+        resuelve `initial_docs_phase` UNA SOLA VEZ (`PhaseService.
+        phase_number_for_code`) y lo reparte a cada proceso, para que un lote
+        de N filas (`pages/documents.py::_doc_rows`) no pague una consulta al
+        catálogo de fases POR FILA -- volvería a ser el N+1 que ya se cerró
+        ahí (ver su docstring).
+        """
+        if process is None or initial_docs_phase is None:
+            return frozenset()
+        current = process.current_phase
+        if not isinstance(current, int) or current <= initial_docs_phase:
+            return frozenset()
+        return frozenset(
+            code for code in DocumentService.POSGRADO_EXTRA_DOCS
+            if code not in present_codes
+        )
+
+    @staticmethod
     def initial_docs_all_approved(db, process_id: int,
                                   codes: tuple[str, ...] | None = None) -> bool:
         """True si todos los documentos iniciales de `codes` están `approved`.
@@ -126,20 +169,23 @@ class DocumentService:
         consulta por candidato.
 
         R-G (spec 2026-09-30-titulatec-posgrado-design.md §5, invariante 8,
-        deriva de D9): un proceso de posgrado que YA PASÓ la fase de
-        `initial_docs` (`process.current_phase` mayor que su número de fase)
-        no se regresa por los extras de posgrado que le falten -- esos
-        códigos FALTANTES dejan de contar. Uno que SÍ tiene fila debe estar
-        `approved`, igual que cualquier otro; los 3 base SIEMPRE se exigen,
-        haya pasado la fase o no. Sin proceso o sin catálogo de fases, la
-        fase 1 se trata como ABIERTA (se exige el set completo) -- nunca se
-        lanza una excepción por esto.
+        deriva de D9; predicado centralizado en `excused_initial_docs`,
+        Ruling R11): un proceso de posgrado que YA PASÓ la fase de
+        `initial_docs` no se regresa por los extras de posgrado que le
+        falten -- esos códigos FALTANTES dejan de contar. Uno que SÍ tiene
+        fila debe estar `approved`, igual que cualquier otro; los 3 base
+        SIEMPRE se exigen, haya pasado la fase o no. Sin proceso o sin
+        catálogo de fases, la fase 1 se trata como ABIERTA (se exige el set
+        completo) -- nunca se lanza una excepción por esto.
 
         El estado de la fase (proceso + número de `initial_docs`) se calcula
         LA PRIMERA VEZ que hace falta -- un extra ausente -- y se reutiliza
         después: si `codes` no trae ningún extra (licenciatura de toda la
         vida, o un `db` de prueba tipo `MagicMock`), esa consulta ni se
-        intenta.
+        intenta. El código actual, en ese punto, YA se sabe sin fila (`doc is
+        None`): basta pasarle a `excused_initial_docs` un `present_codes`
+        vacío -- el predicado solo necesita saber que ESTE código no está
+        presente, no le importan sus hermanos.
         """
         from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.services.phase_service import PhaseService
@@ -147,17 +193,16 @@ class DocumentService:
         if codes is None:
             codes = DocumentService.initial_doc_types_for_id(db, process_id)
 
-        fase1_cerrada = None
+        excused = None
         for code in codes:
             doc = DocumentService.get_document(db, process_id, code)
             if doc is None and code in DocumentService.POSGRADO_EXTRA_DOCS:
-                if fase1_cerrada is None:
+                if excused is None:
                     proceso = db.get(TitulationProcess, process_id)
                     n = PhaseService.phase_number_for_code(db, "initial_docs")
-                    fase1_cerrada = bool(
-                        proceso is not None and n is not None and proceso.current_phase > n
-                    )
-                if fase1_cerrada:
+                    excused = DocumentService.excused_initial_docs(
+                        proceso, frozenset(), initial_docs_phase=n)
+                if code in excused:
                     continue
                 return False
             if not doc or doc.review_status != "approved":
@@ -166,7 +211,8 @@ class DocumentService:
 
     @staticmethod
     def initial_docs_summary(db, process_id: int,
-                             codes: tuple[str, ...] | None = None) -> dict:
+                             codes: tuple[str, ...] | None = None,
+                             *, process=None) -> dict:
         """Resumen de los documentos iniciales del proceso en pocas consultas FIJAS.
 
         Lo consume el acordeón del dashboard del alumno, la pantalla más
@@ -174,14 +220,32 @@ class DocumentService:
         por código (y no distingue rechazado de faltante), así que ahí sería
         un N+1. `codes=None` (uso normal) resuelve el set del PROPIO proceso
         (`initial_doc_types_for_id`); quien ya lo tenga en mano lo pasa
-        explícito. Las consultas de documentos y nombres son SIEMPRE dos, sin
+        explícito. Las consultas de documentos y nombres son SIEMPRE dos
+        (más, a lo sumo, UNA de `TitulationProcess` y otra de
+        `PhaseDefinition` -- ver R-G abajo -- SOLO cuando hace falta), sin
         importar cuántos códigos traiga `codes` -- solo cambia el `IN (...)`.
 
-        `status` por documento: ``approved|rejected|pending|missing`` — ``missing``
-        es el pseudo-estado de la UI cuando no hay fila (mismo criterio que
-        `pages/documents.py:31`), no un valor de `Document.review_status`.
+        `status` por documento: ``approved|rejected|pending|missing|excused``.
+        ``missing`` es el pseudo-estado de la UI cuando no hay fila (mismo
+        criterio que `pages/documents.py:31`), no un valor de
+        `Document.review_status`.
+
+        R-G (spec 2026-09-30-titulatec-posgrado-design.md §5, invariante 8;
+        Ruling R11): un extra de `POSGRADO_EXTRA_DOCS` sin fila, dispensado
+        por `excused_initial_docs` (fase 1 ya cerrada), sale con
+        ``status="excused"`` -- OTRO pseudo-estado de la UI, «se entrega en
+        el cotejo», nunca un valor de `Document.review_status`. `total` y
+        `uploaded` cuentan SOLO lo exigible EN LÍNEA -- se excluyen los
+        dispensados -- así que para licenciatura y para un posgrado que
+        sigue en fase 1 el resultado es IDÉNTICO al de hoy (ahí nunca hay
+        dispensados). El número de fase de `initial_docs` (y el `process`, si
+        no llega ya resuelto) se calculan LA PRIMERA VEZ que hace falta --
+        algún extra sin fila -- igual que en `initial_docs_all_approved`;
+        `process` (opcional): el llamador que YA cargó el `TitulationProcess`
+        (p. ej. `pages/student.py`) lo pasa para no repetir ese `db.get`.
         """
-        from itcj2.apps.titulatec.models import Document, DocumentType
+        from itcj2.apps.titulatec.models import Document, DocumentType, TitulationProcess
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
 
         if codes is None:
             codes = DocumentService.initial_doc_types_for_id(db, process_id)
@@ -199,10 +263,24 @@ class DocumentService:
             db.query(DocumentType).filter(DocumentType.code.in_(codes)).all()
         }
 
-        items, counts = [], {"approved": 0, "rejected": 0, "pending": 0, "missing": 0}
+        present_codes = frozenset(docs.keys())
+        excused = frozenset()
+        if any(code in DocumentService.POSGRADO_EXTRA_DOCS and code not in present_codes
+               for code in codes):
+            if process is None:
+                process = db.get(TitulationProcess, process_id)
+            n = PhaseService.phase_number_for_code(db, "initial_docs")
+            excused = DocumentService.excused_initial_docs(
+                process, present_codes, initial_docs_phase=n)
+
+        items, counts = [], {"approved": 0, "rejected": 0, "pending": 0, "missing": 0,
+                             "excused": 0}
         for code in codes:
             doc = docs.get(code)
-            status = doc.review_status if doc else "missing"
+            if doc is None and code in excused:
+                status = "excused"
+            else:
+                status = doc.review_status if doc else "missing"
             if status not in counts:          # valor inesperado en BD: no lo perdemos
                 counts[status] = 0
             counts[status] += 1
@@ -212,9 +290,10 @@ class DocumentService:
                 "status": status,
                 "note": (doc.review_note if doc else None),
             })
+        total = len(codes) - counts["excused"]
         return {
-            "total": len(codes),
-            "uploaded": len(codes) - counts["missing"],
+            "total": total,
+            "uploaded": total - counts["missing"],
             "counts": counts,
             "items": items,
         }

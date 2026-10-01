@@ -48,6 +48,7 @@ def _doc_rows(db, procs):
     from itcj2.core.models.program import Program
     from itcj2.apps.titulatec.models import Document, DocumentType
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.track_service import TrackService
 
     if not procs:
@@ -82,26 +83,58 @@ def _doc_rows(db, procs):
     users = ({u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()}
              if user_ids else {})
 
+    # R-G (spec 2026-09-30-titulatec-posgrado-design.md §5, invariante 8;
+    # Ruling R11, revisión final): el numero de la fase `initial_docs` se
+    # calcula UNA SOLA VEZ para TODO el lote -- y SOLO si hace falta (algun
+    # extra de posgrado sin fila en `docs`) -- para que la bandeja no vuelva
+    # a pagar la consulta al catalogo de fases POR FILA (el mismo N+1 que el
+    # docstring de arriba ya midio y cerro). Para un lote homogeneo de
+    # licenciatura `codes_by_pid` nunca trae un codigo de
+    # `POSGRADO_EXTRA_DOCS`, asi que esta consulta ni se intenta.
+    initial_docs_phase = None
+    if any((p.id, code) not in docs
+           for p in procs
+           for code in codes_by_pid[p.id]
+           if code in DocumentService.POSGRADO_EXTRA_DOCS):
+        initial_docs_phase = PhaseService.phase_number_for_code(db, "initial_docs")
+
     return [_doc_row(p, users=users, progs=progs, names=names, docs=docs,
-                     codes=codes_by_pid[p.id], track=tracks_by_pid[p.id])
+                     codes=codes_by_pid[p.id], track=tracks_by_pid[p.id],
+                     initial_docs_phase=initial_docs_phase)
             for p in procs]
 
 
-def _doc_row(proc, *, users, progs, names, docs, codes, track):
+def _doc_row(proc, *, users, progs, names, docs, codes, track, initial_docs_phase=None):
     """Fila de la bandeja. Sin `db`: los catalogos llegan ya resueltos (`_doc_rows`).
 
     `codes` y `track` son los del PROPIO proceso (perfil ya resuelto en
     `_doc_rows`): licenciatura y "sin carrera" traen los 3 de siempre;
     posgrado, los 7. `track` alimenta la píldora "Posgrado" de la plantilla
     (`track_pill`, `_macros.html`) — vacío para cualquier otro valor.
+
+    `initial_docs_phase` (Ruling R11, revisión final): el numero de fase de
+    `initial_docs` YA resuelto por `_doc_rows` (una vez por lote, o `None` si
+    el lote no lo necesito). Con el, y los codigos que SI tienen fila en
+    `docs`, `DocumentService.excused_initial_docs` (predicado PURO, sin `db`)
+    dice que extras de posgrado se DISPENSAN por R-G: esos salen con
+    `status="excused"` -- pseudo-estado de la UI, igual que `missing` -- y NO
+    cuentan en `pending` ni impiden `all_approved`.
     """
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+
     u = users.get(proc.student_id)
     prog = progs.get(proc.program_id) if proc.program_id else None
+    present_codes = frozenset(code for code in codes if (proc.id, code) in docs)
+    excused = DocumentService.excused_initial_docs(
+        proc, present_codes, initial_docs_phase=initial_docs_phase)
     docs_out = []
     pending = 0
     for code in codes:
         doc = docs.get((proc.id, code))
-        status = doc.review_status if doc else "missing"
+        if doc is None and code in excused:
+            status = "excused"
+        else:
+            status = doc.review_status if doc else "missing"
         if status in ("pending", "missing", "in_review"):
             pending += 1
         docs_out.append({
@@ -121,7 +154,9 @@ def _doc_row(proc, *, users, progs, names, docs, codes, track):
         "program": prog.name if prog else "—",
         "track": track,
         "docs": docs_out, "pending": pending,
-        "all_approved": all(d["status"] == "approved" for d in docs_out),
+        # Un dispensado (R-G) no bloquea el "listo para agendar cotejo": solo
+        # los realmente exigibles -- aprobados o dispensados -- cuentan.
+        "all_approved": all(d["status"] in ("approved", "excused") for d in docs_out),
     }
 
 

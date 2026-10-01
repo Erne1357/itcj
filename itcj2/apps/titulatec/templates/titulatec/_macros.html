@@ -13,7 +13,10 @@
   </span>
 {% endmacro %}
 
-{# — Mapea un estado de fase/documento (códigos en inglés) a (texto, tono, icono) — #}
+{# — Mapea un estado de fase/documento (códigos en inglés) a (texto, tono, icono) —
+   "excused" (Ruling R11, revisión final 2026-09-30): pseudo-estado de la UI de un
+   extra de posgrado DISPENSADO por R-G (spec §5, invariante 8) -- nunca un valor
+   de `Document.review_status`, igual que "missing" no lo es. #}
 {% macro estado_pill(estado) %}
   {% if estado == "approved" %}{{ pill("Aprobado", "success", "check-lg") }}
   {% elif estado == "in_review" %}{{ pill("En revisión", "amber", "clock") }}
@@ -21,6 +24,7 @@
   {% elif estado == "in_progress" %}{{ pill("En curso", "amber", "clock") }}
   {% elif estado == "pending" %}{{ pill("Pendiente", "neutral", "hourglass-split") }}
   {% elif estado == "skipped" %}{{ pill("No aplica", "neutral", "dash-circle") }}
+  {% elif estado == "excused" %}{{ pill("En cotejo", "neutral", "calendar-check") }}
   {% else %}{{ pill(estado, "neutral") }}{% endif %}
 {% endmacro %}
 

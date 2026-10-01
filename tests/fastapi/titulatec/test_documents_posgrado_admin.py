@@ -56,7 +56,7 @@ class _Contador:
 # ---------------------------------------------------------------------------
 def test_bandeja_perfiles_mezclados_3_7_3_y_pildora_solo_en_posgrado(
         db_session, seed_document_types, make_program, make_cohort, make_student,
-        make_process, make_document, make_head, client_as):
+        make_process, make_document, make_officer, client_as):
     from itcj2.apps.titulatec.pages.documents import _doc_rows
 
     seed_document_types(types=INITIAL_DOC_TYPES + POSGRADO_DOC_TYPES)
@@ -90,11 +90,13 @@ def test_bandeja_perfiles_mezclados_3_7_3_y_pildora_solo_en_posgrado(
     assert filas[proc_pos.id]["pending"] == 7
     assert filas[proc_sin.id]["pending"] == 3
 
-    # HTML: la jefa (read.all + officers.api.manage) ve las 3 filas -- incluida
-    # la de "sin carrera" -- y la píldora "Posgrado" (tono violeta) sale
-    # EXACTAMENTE una vez, junto al proceso de posgrado.
-    jefa = make_head()
-    html = client_as(jefa).get("/titulatec/admin/documents/body").text
+    # HTML: un oficial ACOTADO a `lic`/`pos` (Menor #2, revisión final
+    # 2026-09-30 -- antes usaba a la jefa, que ve TODO: la aserción exacta de
+    # abajo se ponía roja en dev en cuanto existiera un proceso de posgrado
+    # REAL en otra carrera, ajeno a este test) ve sus 2 filas -- la píldora
+    # "Posgrado" (tono violeta) sale EXACTAMENTE una vez, junto a `proc_pos`.
+    oficial, _pos_puesto = make_officer([lic, pos])
+    html = client_as(oficial).get("/titulatec/admin/documents/body").text
     assert html.count("tt-pill tt-pill--violet") == 1
     assert "Posgrado" in html
 

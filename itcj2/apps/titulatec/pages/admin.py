@@ -1361,6 +1361,22 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
                if actor_ids else {})
 
     # ---- documentos de la fase 1 (solo lectura) ----
+    # R-G (spec 2026-09-30-titulatec-posgrado-design.md §5, invariante 8;
+    # Ruling R11, revisión final): `docs_db` YA es el lote completo (arriba),
+    # así que el `present_codes` de `excused_initial_docs` (predicado PURO,
+    # sin `db`) sale de ahí sin consulta extra. `initial_docs_phase` solo se
+    # pregunta si hace falta -- algún extra de posgrado sin fila -- para que
+    # un expediente de licenciatura (que nunca tiene codigos en
+    # `POSGRADO_EXTRA_DOCS`) no pague esa consulta.
+    present_codes = frozenset(docs_db.keys())
+    initial_docs_phase = None
+    if any(code in DocumentService.POSGRADO_EXTRA_DOCS and code not in present_codes
+           for code in initial_codes):
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        initial_docs_phase = PhaseService.phase_number_for_code(db, "initial_docs")
+    excused = DocumentService.excused_initial_docs(
+        proc, present_codes, initial_docs_phase=initial_docs_phase)
+
     docs = []
     for code in initial_codes:
         doc = docs_db.get(code)
@@ -1379,6 +1395,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
                      "version": doc.version or 1,
                      "reviewed_by": actores.get(doc.reviewed_by_id)} if doc else None),
             "missing": bool(doc) and falta,
+            "excused": doc is None and code in excused,
             "view_url": f"/titulatec/admin/documents/{process_id}/document/{code}",
         })
     legibles = [d for d in docs if d["doc"] and not d["missing"]]

@@ -492,7 +492,7 @@ def _docs_status_ctx(db, process) -> dict:
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
-    summary = DocumentService.initial_docs_summary(db, process.id)
+    summary = DocumentService.initial_docs_summary(db, process.id, process=process)
     counts = summary["counts"]
     if counts["rejected"]:
         state = "rejected"
@@ -803,7 +803,8 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         })
 
     progress_by_code = {
-        "initial_docs": _docs_progress(DocumentService.initial_docs_summary(db, process.id)),
+        "initial_docs": _docs_progress(
+            DocumentService.initial_docs_summary(db, process.id, process=process)),
         "review_appointment": _appt_progress(AppointmentService.get_for_process(db, process.id)),
         "format_b": _format_b_progress(db.get(FormatB, process.id)),
     }

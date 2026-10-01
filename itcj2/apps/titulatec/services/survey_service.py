@@ -220,8 +220,13 @@ class SurveyService:
                 if process is not None:
                     track = TrackService.for_process(db, process)
             except Exception:
+                # `exc_info=True` (Menor #5, revisión final 2026-09-30): sin
+                # esto el log decía QUE algo falló pero nunca POR QUÉ -- la
+                # causa real (traceback) se perdía en cuanto el `except` la
+                # atrapaba.
                 logger.warning(
-                    "survey: fallo resolviendo el perfil del proceso (user_id=%s)", user_id)
+                    "survey: fallo resolviendo el perfil del proceso (user_id=%s)", user_id,
+                    exc_info=True)
                 track = TRACK_LICENCIATURA
 
         try:
@@ -239,7 +244,7 @@ class SurveyService:
             # respaldo de siempre).
             logger.warning(
                 "survey: fallo consultando el formulario abierto; reintentando tras rollback "
-                "(user_id=%s)", user_id)
+                "(user_id=%s)", user_id, exc_info=True)
             try:
                 db.rollback()
             except Exception:      # pragma: no cover - sesion ya inservible

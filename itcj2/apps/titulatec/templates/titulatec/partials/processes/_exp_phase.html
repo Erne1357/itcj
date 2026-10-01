@@ -53,6 +53,11 @@
           {{ d.doc.original_name }} · {{ (d.doc.size_bytes / 1024) | round | int }} KB
           {%- if d.doc.version and d.doc.version > 1 %} · v{{ d.doc.version }}{% endif %}</span>
         {% if d.doc.review_note %}<span class="meta">{{ d.doc.review_note }}</span>{% endif %}
+        {% elif d.excused %}
+        {# "excused" (Ruling R11, revisión final 2026-09-30): extra de posgrado
+           DISPENSADO por R-G (D9) -- no está "sin subir", se entrega en el
+           cotejo (así lo sabe pedir Servicios Escolares). #}
+        <span class="meta">Se entrega en el cotejo</span>
         {% else %}
         <span class="meta">Sin subir</span>
         {% endif %}
@@ -60,6 +65,8 @@
       {% if d.doc %}{{ estado_pill(d.doc.review_status) }}{% endif %}
       {% if d.missing %}
       <span class="tt-pill tt-pill--neutral">Archivo perdido</span>
+      {% elif d.excused %}
+      <span class="tt-pill tt-pill--neutral">Se entrega en el cotejo</span>
       {% elif d.doc %}
       {# Abrir un documento es ESTADO DE SERVIDOR (`?doc=`): Idiomorph conserva
          el nodo del iframe pero sincroniza sus atributos, y `src` es uno. Con

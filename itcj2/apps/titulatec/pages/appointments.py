@@ -205,10 +205,31 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     track = TrackService.for_level(program.level if program else None)
     codes = DocumentService.initial_doc_types(track)
 
-    docs = []
+    # R-G (spec 2026-09-30-titulatec-posgrado-design.md §5, invariante 8;
+    # Ruling R11, revisión final): dos pasadas -- la primera trae `dt`/`doc`
+    # por código (igual que antes), la segunda ya sabe el `present_codes`
+    # completo para preguntarle a `excused_initial_docs` (predicado PURO,
+    # sin `db`) qué extras se DISPENSAN. `initial_docs_phase` solo se
+    # consulta para POSGRADO -- licenciatura nunca tiene codigos en
+    # `POSGRADO_EXTRA_DOCS`, asi que la pregunta ni se plantea.
+    from itcj2.apps.titulatec.services.track_service import TRACK_POSGRADO
+
+    _filas = []
     for code in codes:
         dt = db.query(DocumentType).filter_by(code=code).first()
         doc = DocumentService.get_document(db, process_id, code)
+        _filas.append((code, dt, doc))
+
+    initial_docs_phase = None
+    if track == TRACK_POSGRADO:
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        initial_docs_phase = PhaseService.phase_number_for_code(db, "initial_docs")
+    excused = DocumentService.excused_initial_docs(
+        proc, frozenset(code for code, _dt, doc in _filas if doc is not None),
+        initial_docs_phase=initial_docs_phase)
+
+    docs = []
+    for code, dt, doc in _filas:
         # `missing` se resuelve EN EL SERVIDOR. Sin esto, un archivo que ya no
         # esta en disco dejaba una caja gris de 460-520 px sin una sola palabra:
         # el visor no tenia estado de error.
@@ -224,6 +245,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
             "doc": ({"original_name": doc.original_name, "review_status": doc.review_status,
                      "size_bytes": doc.size_bytes or 0} if doc else None),
             "missing": bool(doc) and falta,
+            "excused": doc is None and code in excused,
             "view_url": f"/titulatec/admin/appointments/{process_id}/document/{code}",
         })
 
