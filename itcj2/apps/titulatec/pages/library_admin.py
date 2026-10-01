@@ -23,11 +23,14 @@ Biblioteca no tiene alcance por carrera, ve todo; §5 invariante 6, censo en
 Concurrencia (Ruling R8, spec §4.7): cada formulario de registrar/corregir
 lleva en campos ocultos el estado (`expected_status`) y, al corregir, el total
 (`expected_total`) que el usuario VIO; `LibraryClearanceService.register` los
-compara contra la fila bajo `FOR UPDATE` y levanta `ValueError` si otra
-persona ya la movió (Review Focus #1). `expected_total` se convierte con
-`Decimal(...)` DIRECTO (`_expected_total`), nunca con `parse_amount` -- ese
-tiene tope y solo acepta formatos de tecleo; el total oculto es un dato que
-esta misma bandeja ya mostró, no algo que el usuario escribe.
+compara contra la fila bajo `FOR UPDATE` y levanta `ClearanceConflict` (un
+`ValueError`) si otra persona ya la movió (Review Focus #1). Ruling R24: ese
+choque responde 200 con la bandeja re-pintada y el aviso en `X-Tt-Notice`
+(warning), nunca 400; el lote ya lo hacía (lo omite con su motivo).
+`expected_total` se convierte con `Decimal(...)` DIRECTO (`_expected_total`),
+nunca con `parse_amount` -- ese tiene tope y solo acepta formatos de tecleo;
+el total oculto es un dato que esta misma bandeja ya mostró, no algo que el
+usuario escribe.
 """
 from __future__ import annotations
 
@@ -216,10 +219,16 @@ async def register(clearance_id: int, request: Request,
     verbo en el service (`LibraryClearanceService.register`); solo cambia el
     `expected_status` oculto que manda cada formulario («Sin adeudo»/«Con
     adeudo…» -> `pending`; «Corregir…» -> `awaiting_payment` + el total
-    mostrado en `expected_total`, spec §4.7 Ruling R8)."""
+    mostrado en `expected_total`, spec §4.7 Ruling R8).
+
+    Si otra persona movió la fila mientras tanto (`ClearanceConflict`, Ruling
+    R24) NO es un 400: se responde 200 con la bandeja RE-PINTADA -con el
+    estado y el monto vigentes- y el motivo en `X-Tt-Notice` (warning), el
+    patrón de colisión de estado de la app (htmx no hace swap en un 4xx). Las
+    demás reglas de negocio siguen en 400 + `X-Tt-Error`."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import (
-        LibraryClearanceService, parse_amount,
+        ClearanceConflict, LibraryClearanceService, parse_amount,
     )
 
     form = await request.form()
@@ -227,6 +236,7 @@ async def register(clearance_id: int, request: Request,
     status, q, page = form.get("status"), form.get("q"), form.get("page")
     expected_status = form.get("expected_status") or None
 
+    choque = None
     db = SessionLocal()
     try:
         uid = int(user["sub"])
@@ -238,12 +248,18 @@ async def register(clearance_id: int, request: Request,
                 expected_status=expected_status, expected_total=expected_total)
         except LookupError:
             return Response(status_code=404)
+        except ClearanceConflict as e:
+            choque = str(e)
         except ValueError as e:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(e))})
         ctx = _body_ctx(db, status=status, q=q, page=page)
     finally:
         db.close()
-    return render_titulatec(request, "titulatec/admin/partials/library_body.html", ctx)
+    resp = render_titulatec(request, "titulatec/admin/partials/library_body.html", ctx)
+    if choque:
+        resp.headers["X-Tt-Notice"] = _hdr(choque)
+        resp.headers["X-Tt-Notice-Kind"] = "warning"
+    return resp
 
 
 @router.post("/{clearance_id}/previa", name="titulatec.pages.library.prior")

@@ -24,8 +24,11 @@
    Acciones por fila (spec §4.8):
    - `awaiting_payment`: «Registrar pago» (recibo opcional, confirmación con
      el monto y el nombre); `expected_total` oculto es el total que la cajera
-     VIO (Ruling R8) -- si Biblioteca lo corrigió mientras tanto, la ruta
-     responde 400 y esta fila se re-pinta con el monto vigente.
+     VIO (Ruling R8) -- si Biblioteca lo corrigió mientras tanto, la ruta NO
+     cobra y responde 200 con este parcial RE-PINTADO (la fila ya con el
+     monto vigente, para volver a confirmar) y el motivo en `X-Tt-Notice`
+     warning (Ruling R24; con un 400 htmx no hacía swap y la fila seguía
+     ofreciendo el monto viejo).
    - `cleared` vía `payment` con `can_revert`: «Revertir pago…» (motivo).
    - Cualquier otro caso (en Biblioteca, liberado por Biblioteca, fase 2 ya
      aprobada, inscripción revocada): sin acciones -- esta bandeja no las

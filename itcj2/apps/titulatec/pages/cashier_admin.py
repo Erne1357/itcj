@@ -29,8 +29,10 @@ alcance por carrera, ve todo; §5 invariante 6, censo en
 Concurrencia (Ruling R8, spec §4.8): el formulario de «Registrar pago» lleva
 en un campo oculto el total que la cajera VIO (`expected_total`);
 `LibraryClearanceService.register_payment` lo compara contra la fila bajo
-`FOR UPDATE` y levanta `ValueError` si Biblioteca lo corrigió mientras tanto
-(Review Focus #1): nunca se cobra un monto que la cajera no vio.
+`FOR UPDATE` y levanta `ClearanceConflict` (un `ValueError`) si Biblioteca lo
+corrigió mientras tanto (Review Focus #1): nunca se cobra un monto que la
+cajera no vio, y la ruta re-pinta la bandeja con el monto vigente + un aviso
+(Ruling R24) en vez de un 400 sin swap.
 `expected_total` se convierte con `Decimal(...)` DIRECTO (`_expected_total`),
 nunca con `parse_amount` -- ese tiene tope y solo acepta formatos de tecleo;
 el total oculto es un dato que esta misma bandeja ya mostró. Ruling R9: el
@@ -197,14 +199,21 @@ async def pay(clearance_id: int, request: Request,
     """Registrar pago: `awaiting_payment` -> `cleared/payment`
     (`LibraryClearanceService.register_payment`). Cobra el monto CONGELADO de
     la fila -nunca lo que mande el formulario-; número de recibo opcional
-    (<= 40). `expected_total` guarda la concurrencia (Ruling R8)."""
+    (<= 40). `expected_total` guarda la concurrencia (Ruling R8): si
+    Biblioteca corrigió el monto mientras tanto (`ClearanceConflict`, Ruling
+    R24) se responde 200 con la bandeja RE-PINTADA -el monto vigente a la
+    vista, para volver a confirmar- y el motivo en `X-Tt-Notice` (warning);
+    las demás reglas siguen en 400 + `X-Tt-Error`."""
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        ClearanceConflict, LibraryClearanceService,
+    )
 
     form = await request.form()
     recibo = form.get("recibo") or None
     tab, q, dia, page = form.get("tab"), form.get("q"), form.get("dia"), form.get("page")
 
+    choque = None
     db = SessionLocal()
     try:
         uid = int(user["sub"])
@@ -214,12 +223,18 @@ async def pay(clearance_id: int, request: Request,
                 db, clearance_id, uid, receipt_number=recibo, expected_total=expected_total)
         except LookupError:
             return Response(status_code=404)
+        except ClearanceConflict as e:
+            choque = str(e)
         except ValueError as e:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(e))})
         ctx = _body_ctx(db, tab=tab, q=q, dia=dia, page=page)
     finally:
         db.close()
-    return render_titulatec(request, "titulatec/admin/partials/cashier_body.html", ctx)
+    resp = render_titulatec(request, "titulatec/admin/partials/cashier_body.html", ctx)
+    if choque:
+        resp.headers["X-Tt-Notice"] = _hdr(choque)
+        resp.headers["X-Tt-Notice-Kind"] = "warning"
+    return resp
 
 
 @router.post("/{clearance_id}/revertir", name="titulatec.pages.cashier.revert")

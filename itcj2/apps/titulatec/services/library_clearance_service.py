@@ -78,6 +78,8 @@ Reglas fijas (patrón `SurveyReviewService`):
   distinto del que confirmó, las rutas pasan lo que el usuario vio:
   `register(expected_status=, expected_total=)` y
   `register_payment(expected_total=)` (opcionales; `None` = sin esa guarda).
+  Ese choque es `ClearanceConflict` (subclase de `ValueError`, Ruling R24):
+  las rutas responden 200 con la bandeja re-pintada y un aviso, no un 400.
   `expected_total` se valida con `_check_total_shape` (finito y >= 0), NUNCA
   con el tope `AMOUNT_MAX` (Ruling R9, spec §4.8): ese tope topa lo que SE
   TECLEA (`debt_amount`), y un adeudo al tope más la donación lo supera sin
@@ -172,6 +174,20 @@ _CENT = Decimal("0.01")
 _AMOUNT_RE = re.compile(r"(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.([0-9]+))?")
 
 _MSG_AMOUNT_FORMAT = "Monto no válido: escríbelo en pesos, por ejemplo 1,200.50."
+
+
+class ClearanceConflict(ValueError):
+    """Choque optimista (Ruling R24, M1 de la revisión final): la fila ya no
+    está como el usuario la vio -falló `expected_status` o `expected_total`,
+    otra persona la movió mientras tenía la pantalla abierta-.
+
+    Sigue siendo un `ValueError` (todo llamador viejo la trata como una
+    regla de negocio más, y el lote la omite con su motivo), pero las rutas
+    de Biblioteca (registrar/corregir) y Caja (pagar) la distinguen: responden
+    200 con la bandeja RE-PINTADA y el mensaje en `X-Tt-Notice` (warning), en
+    vez del 400 de las demás reglas -- htmx no hace swap en un 4xx, así que la
+    fila seguía mostrando el estado viejo y reintentar volvía a fallar.
+    Nada se escribe: se levanta antes de mutar."""
 
 
 # ---------------------------------------------------------------------------
@@ -1203,26 +1219,30 @@ class LibraryClearanceService:
 
     @staticmethod
     def _check_expected(clearance, *, expected_status=None, expected_total=None) -> None:
-        """¿Sigue la fila como la vio el usuario? (Review Focus #1).
+        """¿Sigue la fila como la vio el usuario? (Review Focus #1). Si no,
+        `ClearanceConflict` (Ruling R24): las rutas re-pintan con el estado
+        vigente en vez de responder 400.
 
         `expected_total` NO pasa por `_check_amount` (Ruling R9, spec §4.8):
         ese tope (`AMOUNT_MAX`) topa lo que SE TECLEA (`debt_amount`), pero
         `expected_total` es la SUMA ya hecha de adeudo + donación que la
         bandeja le mostró al usuario -un adeudo al tope más la donación
         fácilmente la supera- así que aquí solo se exige forma mínima
-        (`_check_total_shape`: finito y >= 0), nunca el tope.
+        (`_check_total_shape`: finito y >= 0), nunca el tope. Un total mal
+        formado NO es un choque: es un `ValueError` cualquiera (400).
         """
         if expected_status is not None and clearance.status != expected_status:
             actual = _STATUS_LABELS.get(clearance.status, clearance.status)
-            raise ValueError(f"Otra persona ya movió este caso: ahora está «{actual}». "
-                             "Revisa esa pestaña y vuelve a intentarlo.")
+            raise ClearanceConflict(
+                f"Otra persona ya movió este caso: ahora está «{actual}». "
+                "Revisa esa pestaña y vuelve a intentarlo.")
         if expected_total is not None:
             esperado = LibraryClearanceService._check_total_shape(expected_total)
             actual = clearance.total_amount
             if actual is None or Decimal(actual) != esperado:
                 detalle = f": ahora es {format_amount(actual)}" if actual is not None else ""
-                raise ValueError(f"El monto cambió mientras lo revisabas{detalle}. "
-                                 "Revisa el caso y vuelve a confirmar.")
+                raise ClearanceConflict(f"El monto cambió mientras lo revisabas{detalle}. "
+                                        "Revisa el caso y vuelve a confirmar.")
 
     @staticmethod
     def _check_total_shape(value) -> Decimal:

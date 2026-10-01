@@ -272,11 +272,14 @@ def test_doble_cobro_responde_400(
     assert clearance.receipt_number == "R-PRIMERO", "no se debe pisar el cobro de la otra cajera"
 
 
-def test_monto_corregido_mientras_tanto_responde_400_y_no_cobra_lo_que_la_cajera_no_vio(
+def test_monto_corregido_mientras_tanto_re_pinta_y_no_cobra_lo_que_la_cajera_no_vio(
     client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
 ):
-    """Ruling R8: el total oculto que la cajera VIO ya no coincide (Biblioteca
-    lo corrigió primero) -> 400, nunca se cobra un monto que no se mostró."""
+    """Ruling R8 + R24 (M1): el total oculto que la cajera VIO ya no coincide
+    (Biblioteca lo corrigió primero) -> nunca se cobra un monto que no se
+    mostró, y la ruta responde 200 con la bandeja RE-PINTADA con el monto
+    vigente y el motivo en `X-Tt-Notice` (warning) -- con un 400 htmx no hacía
+    swap y la fila seguía ofreciendo el monto viejo."""
     staff = make_cashier_staff()
     cohort = make_cohort(book_donation_amount=Decimal("100.00"))
     proc = make_process(make_student(control_number="99700031"), cohort=cohort, current_phase=1,
@@ -296,12 +299,16 @@ def test_monto_corregido_mientras_tanto_responde_400_y_no_cobra_lo_que_la_cajera
 
     resp = client_as(staff).post(
         f"{URL}/{clearance.id}/pagar",
-        data={"tab": "por_cobrar", "q": "", "dia": "", "page": "1",
+        data={"tab": "por_cobrar", "q": "99700031", "dia": "", "page": "1",
               "expected_total": "500.00"})
 
-    assert resp.status_code == 400, resp.text[:300]
-    assert resp.headers.get("X-Tt-Error")
-    assert "$1,000.00" in unquote(resp.headers["X-Tt-Error"])
+    assert resp.status_code == 200, resp.text[:300]
+    assert not resp.headers.get("X-Tt-Error")
+    aviso = unquote(resp.headers.get("X-Tt-Notice") or "")
+    assert "El monto cambió mientras lo revisabas: ahora es $1,000.00" in aviso
+    assert resp.headers.get("X-Tt-Notice-Kind") == "warning"
+    assert 'id="tt-cashier-body"' in resp.text
+    assert f'id="caja-{clearance.id}"' in resp.text and "$1,000.00" in resp.text
     db_session.refresh(clearance)
     assert clearance.status == "awaiting_payment"
     assert clearance.total_amount == Decimal("1000.00"), "el monto vigente no se debe pisar"

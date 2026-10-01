@@ -1789,6 +1789,36 @@ class TestBloqueo:
         assert "$1,300.00" in str(exc.value)
         assert esc.clearance.debt_amount == Decimal("500.00")
 
+    def test_el_choque_optimista_es_clearance_conflict(self, db_session, nuevo, actores):
+        """Ruling R24 (M1): el choque de `expected_status`/`expected_total` es
+        una excepción PROPIA -sigue siendo `ValueError` para todo llamador
+        viejo- para que Biblioteca y Caja re-pinten la bandeja (200 +
+        aviso) en vez de un 400 sin swap. Un total mal formado NO es choque:
+        sigue siendo un `ValueError` cualquiera (400)."""
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            ClearanceConflict,
+        )
+
+        assert issubclass(ClearanceConflict, ValueError)
+        esc = nuevo()
+        _a_caja(db_session, esc, actores.biblioteca)
+
+        with pytest.raises(ClearanceConflict, match="Otra persona ya movió este caso"), \
+                patch(NOTIFY):
+            LibraryClearanceService.register(
+                db_session, esc.clearance.id, actores.biblioteca2.id,
+                debt_amount=Decimal("0"), expected_status="pending")
+        with pytest.raises(ClearanceConflict, match=r"ahora es \$1,100\.00"), patch(NOTIFY):
+            LibraryClearanceService.register_payment(
+                db_session, esc.clearance.id, actores.caja.id,
+                expected_total=Decimal("999.00"))
+        with pytest.raises(ValueError) as basura, patch(NOTIFY):
+            LibraryClearanceService.register_payment(
+                db_session, esc.clearance.id, actores.caja.id,
+                expected_total=Decimal("NaN"))
+        assert not isinstance(basura.value, ClearanceConflict)
+        assert esc.clearance.status == "awaiting_payment"
+
     def test_el_lote_ve_el_estado_nuevo(self, db_session, nuevo, actores):
         esc = nuevo()
         _otra_transaccion(db_session, esc.clearance.id, status="cleared",

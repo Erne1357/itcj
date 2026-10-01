@@ -369,11 +369,14 @@ def test_corregir_en_caja_re_congela_con_la_donacion_vigente(
     assert clearance.total_amount == Decimal("600.00")
 
 
-def test_corregir_con_total_esperado_desfasado_responde_400(
+def test_corregir_con_total_esperado_desfasado_re_pinta_con_el_monto_vigente(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):
-    """R8: el total oculto que el usuario vio ya no coincide (otro lo corrigió
-    primero) -> 400, nunca se pisa el registro ajeno."""
+    """R8 + Ruling R24 (M1): el total oculto que el usuario vio ya no coincide
+    (otro lo corrigió primero) -> nunca se pisa el registro ajeno, y la ruta
+    responde 200 con la bandeja RE-PINTADA (el monto vigente a la vista) y el
+    motivo en `X-Tt-Notice` (warning). Con un 400, htmx no hacía swap: la
+    fila seguía mostrando el monto viejo y reintentar volvía a fallar."""
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 
     staff = make_library_staff()
@@ -387,21 +390,29 @@ def test_corregir_con_total_esperado_desfasado_responde_400(
 
     resp = client_as(staff).post(
         f"{URL}/{clearance.id}/registrar",
-        data={"status": "awaiting_payment", "q": "", "page": "1", "debt_amount": "100",
-              "expected_status": "awaiting_payment", "expected_total": "999.00"})
+        data={"status": "awaiting_payment", "q": "99600052", "page": "1",
+              "debt_amount": "100", "expected_status": "awaiting_payment",
+              "expected_total": "999.00"})
 
-    assert resp.status_code == 400, resp.text[:300]
-    assert resp.headers.get("X-Tt-Error")
+    assert resp.status_code == 200, resp.text[:300]
+    assert not resp.headers.get("X-Tt-Error")
+    aviso = unquote(resp.headers.get("X-Tt-Notice") or "")
+    assert "El monto cambió mientras lo revisabas: ahora es $500.00" in aviso
+    assert resp.headers.get("X-Tt-Notice-Kind") == "warning"
+    assert 'id="tt-library-body"' in resp.text
+    assert f'id="lib-{clearance.id}"' in resp.text and "$500.00" in resp.text
     db_session.refresh(clearance)
     assert clearance.debt_amount == Decimal("400.00"), "no se debe pisar el monto vigente"
 
 
-def test_concurrencia_otro_ya_registro_la_fila_responde_400(
+def test_concurrencia_otro_ya_registro_la_fila_re_pinta_y_avisa(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):
-    """Review Focus #1 (R8): dos de Biblioteca sobre la misma fila. El segundo
-    ve `expected_status=pending` (lo que vio al cargar la pantalla), pero la
-    fila ya se movió a `awaiting_payment` -> 400, nunca un doble registro."""
+    """Review Focus #1 (R8) + Ruling R24: dos de Biblioteca sobre la misma
+    fila. El segundo ve `expected_status=pending` (lo que vio al cargar la
+    pantalla), pero la fila ya se movió a `awaiting_payment` -> nunca un
+    doble registro; 200 con «Por revisar» re-pintada (la fila ya no está ahí)
+    y el aviso de que otra persona la movió."""
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 
     staff = make_library_staff()
@@ -417,13 +428,51 @@ def test_concurrencia_otro_ya_registro_la_fila_responde_400(
 
     resp = client_as(staff).post(
         f"{URL}/{clearance.id}/registrar",
-        data={"status": "pending", "q": "", "page": "1", "debt_amount": "300",
+        data={"status": "pending", "q": "99600053", "page": "1", "debt_amount": "300",
               "expected_status": "pending"})
 
-    assert resp.status_code == 400, resp.text[:300]
-    assert resp.headers.get("X-Tt-Error")
+    assert resp.status_code == 200, resp.text[:300]
+    aviso = unquote(resp.headers.get("X-Tt-Notice") or "")
+    assert "Otra persona ya movió este caso: ahora está «En caja»" in aviso
+    assert resp.headers.get("X-Tt-Notice-Kind") == "warning"
+    assert 'id="tt-library-body"' in resp.text
+    assert f'id="lib-{clearance.id}"' not in resp.text, "ya no está en «Por revisar»"
     db_session.refresh(clearance)
     assert clearance.debt_amount == Decimal("500.00"), "no se debe pisar el registro de otra persona"
+
+
+def test_lote_con_una_fila_movida_por_otro_re_pinta_y_avisa(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """Ruling R24 en el lote: la fila que otra persona movió se OMITE con el
+    motivo del choque y la bandeja se re-pinta (200 + aviso warning)."""
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_library_staff()
+    otra = make_library_staff(first_name="OTRA", last_name="BIBLIOTECARIA")
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    movida = make_process(make_student(control_number="99600054"), cohort=cohort,
+                          current_phase=1, library_clearance="pending")
+    libre = make_process(make_student(control_number="99600055"), cohort=cohort,
+                         current_phase=1, library_clearance="pending")
+    c_movida, c_libre = _clearance(db_session, movida), _clearance(db_session, libre)
+    LibraryClearanceService.register(db_session, c_movida.id, otra.id,
+                                     debt_amount=Decimal("500"))
+
+    resp = client_as(staff).post(
+        f"{URL}/registrar",
+        data={"status": "pending", "q": "", "page": "1",
+              "ids": [str(c_movida.id), str(c_libre.id)]})
+
+    assert resp.status_code == 200, resp.text[:300]
+    aviso = unquote(resp.headers.get("X-Tt-Notice") or "")
+    assert "1 registrado · 1 omitido" in aviso
+    assert "Otra persona ya movió este caso" in aviso
+    assert resp.headers.get("X-Tt-Notice-Kind") == "warning"
+    db_session.refresh(c_movida)
+    db_session.refresh(c_libre)
+    assert c_movida.debt_amount == Decimal("500.00")
+    assert c_libre.status == "cleared"
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,9 @@
      (monto + nota) · «Constancia previa…» (fecha + nota).
    - «En caja»: desglose adeudo + donación = total, nota, «Corregir…» (mismo
      endpoint que Registrar, con `expected_status=awaiting_payment` +
-     `expected_total` -- Ruling R8).
+     `expected_total` -- Ruling R8). Si otra persona movió la fila mientras
+     tanto, la ruta no escribe y responde 200 con este parcial RE-PINTADO y
+     el motivo en `X-Tt-Notice` warning (Ruling R24), nunca un 400 sin swap.
    - «Liberados»: píldora + fecha + folio de constancia; «Deshacer…» (previa)
      o «Revertir…» (sin cargo/legado) según `can_revert`; un pago se revierte
      DESDE CAJA, no aquí (el service lo rechaza con 400 si se intenta).
