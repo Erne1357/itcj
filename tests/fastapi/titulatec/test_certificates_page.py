@@ -301,6 +301,25 @@ def test_pdf_de_lote_inexistente_responde_404(client_as, make_library_cert_staff
     assert resp.status_code == 404, resp.text[:300]
 
 
+def test_el_pdf_del_lote_corre_en_el_threadpool_y_no_en_el_event_loop():
+    """Ruling R23 (I5 de la revisión final): WeasyPrint tarda segundos con un
+    lote de cientos (medido: 300 constancias = 14.6 s) y el PDF nunca se
+    guarda, así que cada «Ver PDF» lo vuelve a armar. En una `async def` eso
+    congelaba el event loop de un worker HTTP de TODA la plataforma; como
+    `def`, FastAPI la corre en su threadpool (mismo criterio que
+    `appointments.move`). El 200 + `%PDF` lo sigue fijando
+    `test_pdf_del_lote_propio_responde_200_con_pdf`."""
+    import inspect
+
+    from itcj2.apps.titulatec.pages import certificates_admin
+
+    assert not inspect.iscoroutinefunction(certificates_admin.batch_pdf), (
+        "batch_pdf debe ser `def`: el render de WeasyPrint es bloqueante")
+    ruta = next(r for r in certificates_admin.router.routes
+                if getattr(r, "name", "") == "titulatec.pages.certificates.batch_pdf")
+    assert not inspect.iscoroutinefunction(ruta.endpoint)
+
+
 # ---------------------------------------------------------------------------
 # «Lotes»: fecha, quién, cuántas, anuladas (Review Focus #6)
 # ---------------------------------------------------------------------------

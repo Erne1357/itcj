@@ -218,7 +218,7 @@ async def create_batch(
 
 
 @router.get("/lotes/{batch_id}.pdf", name="titulatec.pages.certificates.batch_pdf")
-async def batch_pdf(
+def batch_pdf(
     batch_id: int,
     user: dict = Depends(require_page_app("titulatec", perms=_LIST)),
 ):
@@ -226,7 +226,16 @@ async def batch_pdf(
     plano del parcial, nunca con JS). SIEMPRE se regenera -nunca se guarda,
     ver `utils/certificate_pdf.py`-; 404 si el lote no existe O si su `kind`
     no es de los que este actor puede imprimir (nunca 403: mismo criterio que
-    `_printable_kinds`, arriba)."""
+    `_printable_kinds`, arriba).
+
+    Es `def` y no `async def` a propósito (Ruling R23, I5 de la revisión
+    final): WeasyPrint es CPU bloqueante -medido en el contenedor: 30
+    constancias 1.7 s, 300 constancias 14.6 s- y en una `async def`
+    congelaba el event loop del worker HTTP entero (de TODA la plataforma,
+    no solo de TitulaTec) en cada «Ver PDF». En `def`, FastAPI la corre en su
+    threadpool, igual que `appointments.move` con el `FOR UPDATE` de
+    `SlotService`. No lee el cuerpo de la petición, así que no necesita
+    `await request.form()`."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import CertificateBatch
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
