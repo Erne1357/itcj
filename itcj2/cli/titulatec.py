@@ -2557,8 +2557,9 @@ def activar_biblioteca_caja_command(dry_run, force):
 
     bloquea = bool(pre["problemas"]) and not force
     if pre["problemas"] and force:
+        accion = "la corrida real encendería" if dry_run else "se enciende"
         click.echo(click.style(
-            "ADVERTENCIA: --force: se enciende el candado aunque fallen los pre-chequeos:",
+            f"ADVERTENCIA: --force: {accion} el candado aunque fallen los pre-chequeos:",
             fg="yellow"))
         for p in pre["problemas"]:
             click.echo(click.style(f"  · {p}", fg="yellow"))
