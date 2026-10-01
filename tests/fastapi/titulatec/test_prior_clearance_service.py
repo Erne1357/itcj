@@ -407,10 +407,17 @@ class TestImportRowsSurvey:
         assert review is not None and review.origin == "prior"
 
     def test_diferida_sin_proceso_y_aplicada_al_importar_el_proceso(
-            self, db_session, make_cohort, reloj):
+            self, db_session, make_cohort, reloj, titulatec_app):
         """El caso completo de D9: sin proceso todavía -> se difiere; al dar
         de alta el proceso via `ImportService.import_rows`, el gancho de la
-        Tarea 6 (`apply_pending`, después del de la Tarea 4) la aplica sola."""
+        Tarea 6 (`apply_pending`, después del de la Tarea 4) la aplica sola.
+
+        `titulatec_app`: `ImportService.import_rows` empieza con
+        `get_or_404_app(db, "titulatec")` -- en CI (réplica vacía, sin DML)
+        esa fila no existe salvo que algo la cree (aquí nada más lo hace: no
+        hay `make_role`/`grant_user_role` de por medio). `itcj` y el rol
+        `graduate` SÍ están cubiertos, por `tests/fastapi/conftest.py::
+        _seed_minimal_reference_data` (igual en CI que en dev)."""
         cohort = make_cohort()
 
         with patch(NOTIFY):

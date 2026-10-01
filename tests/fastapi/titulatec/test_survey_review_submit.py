@@ -390,16 +390,28 @@ def test_GET_con_solicitud_pinta_tarjeta_de_estatus_sin_prellenado(
 
 
 def test_GET_con_constancia_previa_pinta_la_tarjeta_y_no_deja_contestar(
-    client_as, make_student, make_process, make_cohort, db_session,
+    client_as, make_student, make_process, make_cohort, make_survey_form, db_session,
 ):
     """D9 (spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.12): una
     constancia previa (`SurveyReviewService.register_prior`, Tarea 6) deja
     `origin='prior'`. La tarjeta de estatus es la MISMA ruta "con solicitud"
     -nunca el formulario-, pero con su propio texto (nunca dice que GTV
-    revisó nada)."""
+    revisó nada).
+
+    `make_survey_form()`: `register_prior` NO pasa por `SurveyService.submit`,
+    así que no deja ningún `SurveyForm` detrás -a diferencia de los demás
+    tests "con solicitud" de este archivo, que usan `make_survey_review` y
+    ESA fábrica sí crea uno (conftest.py)-. Sin un formulario abierto,
+    `form_for_user()` regresa `None` y la ruta pinta la tarjeta "La encuesta
+    no está abierta" en vez de la de estatus -en dev pasa colado porque ahí
+    existe la fila real `('egresados', 1)` de `load-survey-2026-09`; en CI
+    (réplica vacía) no hay ninguna. Mismo patrón que
+    `test_fallo_transitorio_en_solicitud_existente_no_produce_500`, más abajo
+    en este archivo."""
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
     from itcj2.core.utils.timezone import db_now
 
+    make_survey_form()
     student = make_student()
     proc = make_process(student, cohort=make_cohort())
     # R14 (fix round 1): relativa a `db_now()`, no un `date(...)` fijo -- una

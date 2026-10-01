@@ -64,6 +64,15 @@ def gtv_escenario(db_session, make_student, make_process, make_cohort, make_user
     return {"cohort": cohort, "process": process, "gtv": gtv}
 
 
+@pytest.fixture()
+def actor(make_user):
+    """Usuario real para los FKs de auditoría (`issued_by_id`, `voided_by_id`,
+    `created_by_id`). En CI (réplica vacía, sin DML) `actor_id=1` no existe en
+    `core_users` y la escritura truena con `ForeignKeyViolation` contra
+    `titulatec_certificates_issued_by_id_fkey` (o la que toque)."""
+    return make_user(first_name="EMISOR", last_name="PRUEBA")
+
+
 def _folio_n(numero: str) -> int:
     return int(numero.rsplit("-", 1)[1])
 
@@ -105,7 +114,7 @@ class TestIssueNumeracion:
         assert cert.batch_id is None
 
     def test_usa_el_periodo_real_de_la_convocatoria_del_proceso(
-            self, db_session, make_student, make_process, make_cohort, make_period):
+            self, db_session, make_student, make_process, make_cohort, make_period, actor):
         """D22 («semestre de la constancia = periodo de la convocatoria del
         proceso») con un código REAL (`AAAAS`) de verdad: fin a fin,
         `issue()` -> `period_label()` -> «Enero-Junio 2099». Año 2099 a
@@ -115,70 +124,70 @@ class TestIssueNumeracion:
         proc = make_process(make_student(), cohort=make_cohort(period=periodo))
 
         cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                        source_ref="library_clearance:1", actor_id=1)
+                                        source_ref="library_clearance:1", actor_id=actor.id)
 
         assert cert.period_label == "Enero-Junio 2099"
 
-    def test_secuencia_por_tipo_y_anio(self, db_session, escenario):
+    def test_secuencia_por_tipo_y_anio(self, db_session, escenario, actor):
         proc = escenario["process"]
 
         c1 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref="library_clearance:1", actor_id=1)
+                                      source_ref="library_clearance:1", actor_id=actor.id)
         c2 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref="library_clearance:2", actor_id=1)
+                                      source_ref="library_clearance:2", actor_id=actor.id)
         c3 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref="library_clearance:3", actor_id=1)
+                                      source_ref="library_clearance:3", actor_id=actor.id)
 
         assert [_folio_n(c.number) for c in (c1, c2, c3)] == \
             [_folio_n(c1.number), _folio_n(c1.number) + 1, _folio_n(c1.number) + 2]
 
-    def test_tipos_distintos_no_comparten_secuencia(self, db_session, escenario):
+    def test_tipos_distintos_no_comparten_secuencia(self, db_session, escenario, actor):
         proc = escenario["process"]
 
         bib = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                       source_ref="library_clearance:1", actor_id=1)
+                                       source_ref="library_clearance:1", actor_id=actor.id)
         gtv = CertificateService.issue(db_session, kind="survey_release", process=proc,
-                                       source_ref="survey_review:1", actor_id=1)
+                                       source_ref="survey_review:1", actor_id=actor.id)
 
         assert bib.number.endswith("-0001")
         assert gtv.number.endswith("-0001")
 
-    def test_cambio_de_anio_reinicia_el_contador(self, db_session, escenario, monkeypatch):
+    def test_cambio_de_anio_reinicia_el_contador(self, db_session, escenario, monkeypatch, actor):
         import itcj2.apps.titulatec.services.certificate_service as cert_mod
 
         proc = escenario["process"]
         monkeypatch.setattr(cert_mod, "db_now", lambda: datetime(2029, 3, 1, 8, 0, 0))
         c1 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref="library_clearance:1", actor_id=1)
+                                      source_ref="library_clearance:1", actor_id=actor.id)
         assert c1.number == "BIB-2029-0001"
 
         monkeypatch.setattr(cert_mod, "db_now", lambda: datetime(2030, 1, 15, 8, 0, 0))
         c2 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref="library_clearance:2", actor_id=1)
+                                      source_ref="library_clearance:2", actor_id=actor.id)
         assert c2.number == "BIB-2030-0001"   # reinicia; NO sigue en 0002
 
-    def test_anular_no_libera_el_numero(self, db_session, escenario):
+    def test_anular_no_libera_el_numero(self, db_session, escenario, actor):
         proc = escenario["process"]
         c1 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref="library_clearance:1", actor_id=1)
-        CertificateService.void(db_session, source_ref="library_clearance:1", actor_id=1,
+                                      source_ref="library_clearance:1", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref="library_clearance:1", actor_id=actor.id,
                                 reason="Emitida por error.")
 
         c2 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref="library_clearance:9", actor_id=1)
+                                      source_ref="library_clearance:9", actor_id=actor.id)
 
         assert _folio_n(c2.number) == _folio_n(c1.number) + 1
 
     def test_re_emitir_el_mismo_origen_saca_otro_folio_y_no_reabre_el_anulado(
-            self, db_session, escenario):
+            self, db_session, escenario, actor):
         proc = escenario["process"]
         ref = "library_clearance:1"
 
         c1 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref=ref, actor_id=1)
-        CertificateService.void(db_session, source_ref=ref, actor_id=1, reason="Corregido.")
+                                      source_ref=ref, actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id, reason="Corregido.")
         c2 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref=ref, actor_id=1)
+                                      source_ref=ref, actor_id=actor.id)
 
         assert c2.id != c1.id
         assert c2.number != c1.number
@@ -317,17 +326,18 @@ class TestIssueNumeracion:
 # void
 # ---------------------------------------------------------------------------
 class TestVoid:
-    def test_anula_la_vigente_sin_borrarla(self, db_session, escenario):
+    def test_anula_la_vigente_sin_borrarla(self, db_session, escenario, actor, make_user):
         proc = escenario["process"]
+        otro = make_user(first_name="REVISOR", last_name="PRUEBA")
         cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                        source_ref="library_clearance:1", actor_id=1)
+                                        source_ref="library_clearance:1", actor_id=actor.id)
 
         anulada = CertificateService.void(db_session, source_ref="library_clearance:1",
-                                          actor_id=2, reason="  Motivo de prueba.  ")
+                                          actor_id=otro.id, reason="  Motivo de prueba.  ")
 
         assert anulada.id == cert.id
         assert anulada.voided_at is not None
-        assert anulada.voided_by_id == 2
+        assert anulada.voided_by_id == otro.id
         assert anulada.void_reason == "Motivo de prueba."   # recortado
 
     def test_sin_vigente_regresa_none(self, db_session, escenario):
@@ -335,15 +345,15 @@ class TestVoid:
                                             actor_id=1, reason="x")
         assert resultado is None
 
-    def test_no_se_puede_anular_dos_veces(self, db_session, escenario):
+    def test_no_se_puede_anular_dos_veces(self, db_session, escenario, actor):
         proc = escenario["process"]
         CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                 source_ref="library_clearance:1", actor_id=1)
+                                 source_ref="library_clearance:1", actor_id=actor.id)
 
         primera = CertificateService.void(db_session, source_ref="library_clearance:1",
-                                          actor_id=1, reason="uno")
+                                          actor_id=actor.id, reason="uno")
         segunda = CertificateService.void(db_session, source_ref="library_clearance:1",
-                                          actor_id=1, reason="dos")
+                                          actor_id=actor.id, reason="dos")
 
         assert primera is not None
         assert segunda is None
@@ -353,12 +363,12 @@ class TestVoid:
 # pending / create_batch / list_batches / certificates_of
 # ---------------------------------------------------------------------------
 class TestLotes:
-    def test_pending_count_y_pending_en_orden_fifo(self, db_session, escenario):
+    def test_pending_count_y_pending_en_orden_fifo(self, db_session, escenario, actor):
         proc = escenario["process"]
         c1 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref="library_clearance:1", actor_id=1)
+                                      source_ref="library_clearance:1", actor_id=actor.id)
         c2 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref="library_clearance:2", actor_id=1)
+                                      source_ref="library_clearance:2", actor_id=actor.id)
 
         assert CertificateService.pending_count(db_session, "library_clearance") == 2
         pendientes = CertificateService.pending(db_session, "library_clearance")
@@ -368,43 +378,45 @@ class TestLotes:
         with pytest.raises(ValueError):
             CertificateService.create_batch(db_session, kind="library_clearance", actor_id=1)
 
-    def test_create_batch_toma_las_pendientes_y_las_marca(self, db_session, escenario):
+    def test_create_batch_toma_las_pendientes_y_las_marca(self, db_session, escenario, actor):
         proc = escenario["process"]
         CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                 source_ref="library_clearance:1", actor_id=1)
+                                 source_ref="library_clearance:1", actor_id=actor.id)
         CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                 source_ref="library_clearance:2", actor_id=1)
+                                 source_ref="library_clearance:2", actor_id=actor.id)
 
-        batch = CertificateService.create_batch(db_session, kind="library_clearance", actor_id=9)
+        batch = CertificateService.create_batch(db_session, kind="library_clearance",
+                                                 actor_id=actor.id)
 
         assert batch.id is not None
         assert batch.kind == "library_clearance"
         assert batch.count == 2
-        assert batch.created_by_id == 9
+        assert batch.created_by_id == actor.id
         assert CertificateService.pending_count(db_session, "library_clearance") == 0
         miembros = CertificateService.certificates_of(db_session, batch.id)
         assert len(miembros) == 2
         assert all(c.batch_id == batch.id for c in miembros)
 
-    def test_anuladas_no_entran_al_lote(self, db_session, escenario):
+    def test_anuladas_no_entran_al_lote(self, db_session, escenario, actor):
         proc = escenario["process"]
         CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                 source_ref="library_clearance:1", actor_id=1)
-        CertificateService.void(db_session, source_ref="library_clearance:1", actor_id=1,
+                                 source_ref="library_clearance:1", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref="library_clearance:1", actor_id=actor.id,
                                 reason="no aplica")
 
         assert CertificateService.pending_count(db_session, "library_clearance") == 0
         with pytest.raises(ValueError):
-            CertificateService.create_batch(db_session, kind="library_clearance", actor_id=1)
+            CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
 
-    def test_el_lote_no_mezcla_tipos(self, db_session, escenario):
+    def test_el_lote_no_mezcla_tipos(self, db_session, escenario, actor):
         proc = escenario["process"]
         CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                 source_ref="library_clearance:1", actor_id=1)
+                                 source_ref="library_clearance:1", actor_id=actor.id)
         CertificateService.issue(db_session, kind="survey_release", process=proc,
-                                 source_ref="survey_review:1", actor_id=1)
+                                 source_ref="survey_review:1", actor_id=actor.id)
 
-        batch = CertificateService.create_batch(db_session, kind="library_clearance", actor_id=1)
+        batch = CertificateService.create_batch(db_session, kind="library_clearance",
+                                                 actor_id=actor.id)
 
         assert batch.count == 1
         assert CertificateService.pending_count(db_session, "survey_release") == 1
@@ -413,12 +425,13 @@ class TestLotes:
         with pytest.raises(ValueError):
             CertificateService.create_batch(db_session, kind="otra_cosa", actor_id=1)
 
-    def test_certificates_of_incluye_las_anuladas(self, db_session, escenario):
+    def test_certificates_of_incluye_las_anuladas(self, db_session, escenario, actor):
         proc = escenario["process"]
         CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                 source_ref="library_clearance:1", actor_id=1)
-        batch = CertificateService.create_batch(db_session, kind="library_clearance", actor_id=1)
-        CertificateService.void(db_session, source_ref="library_clearance:1", actor_id=1,
+                                 source_ref="library_clearance:1", actor_id=actor.id)
+        batch = CertificateService.create_batch(db_session, kind="library_clearance",
+                                                 actor_id=actor.id)
+        CertificateService.void(db_session, source_ref="library_clearance:1", actor_id=actor.id,
                                 reason="se corrigió después de imprimir")
 
         miembros = CertificateService.certificates_of(db_session, batch.id)
@@ -431,12 +444,12 @@ class TestLotes:
         proc = escenario["process"]
         autor = make_user(first_name="BIBLIO", last_name="TECARIA")
         CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                 source_ref="library_clearance:1", actor_id=1)
+                                 source_ref="library_clearance:1", actor_id=autor.id)
         CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                 source_ref="library_clearance:2", actor_id=1)
+                                 source_ref="library_clearance:2", actor_id=autor.id)
         batch = CertificateService.create_batch(db_session, kind="library_clearance",
                                                 actor_id=autor.id)
-        CertificateService.void(db_session, source_ref="library_clearance:1", actor_id=1,
+        CertificateService.void(db_session, source_ref="library_clearance:1", actor_id=autor.id,
                                 reason="corrección")
 
         filas, has_more = CertificateService.list_batches(db_session, kind="library_clearance")
@@ -449,12 +462,13 @@ class TestLotes:
         assert fila["voided_count"] == 1      # pero sabe cuántas de ese lote se anularon
         assert fila["created_by"] == autor.full_name
 
-    def test_list_batches_pagina(self, db_session, escenario):
+    def test_list_batches_pagina(self, db_session, escenario, actor):
         proc = escenario["process"]
         for i in range(3):
             CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                     source_ref=f"library_clearance:{i}", actor_id=1)
-            CertificateService.create_batch(db_session, kind="library_clearance", actor_id=1)
+                                     source_ref=f"library_clearance:{i}", actor_id=actor.id)
+            CertificateService.create_batch(db_session, kind="library_clearance",
+                                             actor_id=actor.id)
 
         pagina1, has_more1 = CertificateService.list_batches(
             db_session, kind="library_clearance", page=1, per_page=2)
@@ -468,11 +482,11 @@ class TestLotes:
         # más reciente primero: el último lote creado es el primero de la página 1
         assert pagina1[0]["id"] > pagina1[1]["id"] > pagina2[0]["id"]
 
-    def test_list_batches_de_otro_kind_sale_vacio(self, db_session, escenario):
+    def test_list_batches_de_otro_kind_sale_vacio(self, db_session, escenario, actor):
         proc = escenario["process"]
         CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                 source_ref="library_clearance:1", actor_id=1)
-        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=1)
+                                 source_ref="library_clearance:1", actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
 
         filas, has_more = CertificateService.list_batches(db_session, kind="survey_release")
 
@@ -506,7 +520,7 @@ class TestPeriodLabel:
         assert CertificateService.period_label(None) == ""
 
     def test_issue_trunca_el_respaldo_a_40_caracteres(
-            self, db_session, make_student, make_process, make_cohort, make_period):
+            self, db_session, make_student, make_process, make_cohort, make_period, actor):
         periodo = make_period()   # código sintético -> respaldo `name`, nunca choca
         periodo.name = "Periodo con un nombre deliberadamente larguísimo " * 2
         db_session.flush()
@@ -514,19 +528,19 @@ class TestPeriodLabel:
         proc = make_process(make_student(), cohort=make_cohort(period=periodo))
 
         cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                        source_ref="library_clearance:99", actor_id=1)
+                                        source_ref="library_clearance:99", actor_id=actor.id)
 
         assert len(cert.period_label) == 40
         assert cert.period_label == periodo.name[:40]
 
     def test_issue_trunca_control_number_y_student_name_a_su_columna(
-            self, db_session, make_user, make_process, make_cohort):
+            self, db_session, make_user, make_process, make_cohort, actor):
         alumno = make_user(first_name="X" * 150, last_name="Y" * 150,
                            control_number="9" * 30)   # más largo que String(20)
         proc = make_process(alumno, cohort=make_cohort())
 
         cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                        source_ref="library_clearance:1", actor_id=1)
+                                        source_ref="library_clearance:1", actor_id=actor.id)
 
         assert len(cert.control_number) == 20
         assert cert.control_number == ("9" * 30)[:20]

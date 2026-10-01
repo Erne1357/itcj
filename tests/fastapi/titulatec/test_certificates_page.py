@@ -118,7 +118,12 @@ def make_cert_process(make_student, make_process, make_cohort):
 # ---------------------------------------------------------------------------
 # Acceso a la página (gate único: `certificate.page.list`)
 # ---------------------------------------------------------------------------
-def test_un_outsider_no_entra(client_as, make_outsider):
+def test_un_outsider_no_entra(client_as, make_outsider, titulatec_app):
+    """`titulatec_app` asegura la fila de `core_apps` -- en CI (réplica vacía,
+    sin DML) un outsider no toca ningún fixture que la cree de rebote (a
+    diferencia de `make_head`/`make_student`, vía `make_role`/
+    `grant_user_role`), así que `has_any_assignment` -> `get_or_404_app`
+    tronaba con 404 en vez del 403 que este test espera."""
     resp = client_as(make_outsider()).get(URL)
     assert resp.status_code == 403, resp.text[:300]
 
@@ -128,7 +133,9 @@ def test_un_graduate_no_entra(client_as, make_student):
     assert resp.status_code == 403, resp.text[:300]
 
 
-def test_sin_permiso_de_pagina_responde_403_en_lote_y_pdf(client_as, make_outsider):
+def test_sin_permiso_de_pagina_responde_403_en_lote_y_pdf(client_as, make_outsider,
+                                                           titulatec_app):
+    """`titulatec_app`: mismo motivo que `test_un_outsider_no_entra`."""
     outsider = make_outsider()
 
     resp_lote = client_as(outsider).post(f"{URL}/library_clearance/lote", data={})
