@@ -302,6 +302,72 @@ stateDiagram-v2
 > `pages/survey_reviews_admin.py`; lo único que hace el egresado (enviar la encuesta) crea la
 > fila inicial en `in_review`, vía `SurveyReviewService.open_for_submission`.
 
+## Estado del no adeudo de biblioteca (`LibraryClearance.status`) — Fase 2 (2026-10-01)
+
+Nace cuando el proceso se crea —`ImportService.import_rows` abre la fila `pending` EN LA MISMA
+transacción del alta, antes de la fase 2— o, para procesos de antes de esta campaña, con el
+backfill de la migración `tt20261001a` (`cleared/legacy` si ya tenía el requisito `library_clearance`
+cumplido a mano; `pending` si no). Único dueño:
+`services/library_clearance_service.py::LibraryClearanceService`. Detalle completo, permisos y
+pantallas: [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md).
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: alta del proceso | backfill (legado cumplido)
+    pending --> awaiting_payment: 📚 Registrar, total > 0
+    pending --> cleared: 📚 Registrar, total = 0 (D18, cleared_via=no_charge)
+    awaiting_payment --> awaiting_payment: 📚 Corregir, nuevo monto > 0
+    awaiting_payment --> cleared: 📚 Corregir, nuevo monto = 0 (no_charge) · 💰 Registrar pago (payment)
+    pending --> cleared: 📚/🏛️/🤖 Constancia previa (D9, prior)
+    awaiting_payment --> cleared: 📚/🏛️/🤖 Constancia previa (D9, prior)
+    cleared --> awaiting_payment: 💰 Revertir pago (motivo; solo cleared_via=payment)
+    cleared --> pending: 📚 Revertir (motivo; solo cleared_via=no_charge|legacy) · 📚/🏛️ Deshacer previa (motivo; solo cleared_via=prior)
+```
+
+> **`cleared_via`** (`payment`\|`no_charge`\|`prior`\|`legacy`) dice CÓMO se liberó, NULL salvo en
+> `cleared`: decide qué botón de reversa aplica (un pago lo revierte Caja; sin cargo/legado lo
+> revierte Biblioteca; una previa se deshace) — ningún botón funciona sobre el `cleared_via`
+> equivocado, el service lo valida.
+>
+> **`ready_at`** (Ruling R10) es la entrada VIGENTE a `awaiting_payment`: se vuelve a fijar SOLO
+> al ENTRAR desde otro estado (Registrar desde `pending`, Revertir pago desde `cleared/payment`),
+> nunca al Corregir dentro de `awaiting_payment` — ancla del recordatorio de pago (D14) y del
+> FIFO de la bandeja de Caja.
+>
+> **Revertir/Deshacer solo con la fase 2 SIN `approved`** (`LibraryClearanceService.can_revert`,
+> gemelo de `SurveyReviewService.can_revoke`). Al volver a `pending` la fila pierde montos, nota,
+> firma, pago y datos de constancia previa — salvo `ready_at`, que queda como historia.
+>
+> **El candado de agendar es condicional** (invariante 8, `ClearanceGate.library_required`):
+> solo bloquea donde la convocatoria tiene el requisito de cotejo `library_clearance` ACTIVO con
+> `auto_source='library_clearance'` — las convocatorias nuevas ya nacen así
+> (`CotejoRequirementService.DEFAULTS`); las que ya existían lo ganan al correr `titulatec
+> init-biblioteca-caja`. Hasta entonces, el estado de esta fila se registra igual (Biblioteca y
+> Caja siempre operan sobre procesos admitidos), pero nadie se queda sin agendar por él.
+>
+> **El egresado no mueve ningún estado.** Todas las transiciones las escribe Biblioteca, Caja o
+> Servicios Escolares (respaldo D9, constancia previa); la CLI `titulatec
+> import-prior-clearances` también puede llegar a `cleared/prior` sin acción humana en el
+> momento (⤵ [constancias previas](xcut_prior_clearances.md)).
+
+## Estado de una constancia (`Certificate`) — transversal (2026-10-01)
+
+No es una máquina de estados con transiciones intermedias: una `Certificate` nace **vigente**
+(`voided_at IS NULL`) con un folio único por tipo y año (`CertificateCounter`, contador atómico),
+y su único cambio posible es **anularse** (`voided_at`/`voided_by_id`/`void_reason`) — nunca se
+borra, nunca se reutiliza su folio, y «volver a liberar» emite una fila NUEVA con folio NUEVO en
+vez de reabrir la anulada. Emisores: `SurveyReviewService.approve` (`kind='survey_release'`,
+salvo `origin='prior'`) y `LibraryClearanceService` al quedar `cleared` por `payment`/`no_charge`
+(`kind='library_clearance'`). Detalle completo: [constancias por lote](xcut_certificates_batch.md).
+
+```mermaid
+stateDiagram-v2
+    [*] --> vigente: issue() — folio atómico + datos CONGELADOS
+    vigente --> anulada: void() — GTV revoca | Biblioteca/Caja revierte
+    anulada --> [*]
+    vigente --> [*]
+```
+
 ## Estado de una solicitud de auto-inscripción (`EnrollmentRequest.status`)
 
 Es previo a las 9 fases: nace con el formulario público de `/titulatec/inscripcion` y termina en

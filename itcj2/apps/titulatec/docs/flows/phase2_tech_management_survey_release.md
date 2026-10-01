@@ -12,21 +12,26 @@
 | **Permiso(s)** | `titulatec.survey_review.page.list` (ver la bandeja) · `titulatec.survey_review.api.approve` (Liberar) · `titulatec.survey_review.api.reject` (Observar y Revocar) |
 | **Trigger** | El egresado envía la encuesta de egresados (`POST /titulatec/encuesta-egresados`) con un proceso acreditable y SIN solicitud previa |
 | **Precondiciones** | Proceso `status == "active"`; existe una fila `SurveyReview` para ese proceso (nace con el envío, una por proceso, `UNIQUE(process_id)`) |
-| **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) (la liberación desatasca `PhaseService._cotejo_gate_error`, pero aprobar la fase 2 sigue siendo un paso separado) |
-| **Estado final** | `SurveyReview.status = approved` (libera) → `graduate_survey` queda `fulfilled`; o `rejected` (con motivo) → el requisito sigue sin cumplimiento |
+| **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) (la liberación desatasca `PhaseService._cotejo_gate_error`, pero aprobar la fase 2 sigue siendo un paso separado) · ⤵ [constancias por lote](xcut_certificates_batch.md) (emite `survey_release` al liberar, salvo `origin='prior'`) · ⤵ [constancias previas](xcut_prior_clearances.md) (D9: `register_prior`, sexta transición) · ⤵ [candado único](phase2_library_clearance.md#el-candado-único-clearancegate) (`ClearanceGate`, spec 2026-10-01) |
+| **Estado final** | `SurveyReview.status = approved` (libera) → `graduate_survey` queda `fulfilled` + constancia `GTV-AAAA-NNNN` emitida (salvo `origin='prior'`); o `rejected` (con motivo) → el requisito sigue sin cumplimiento |
 
-> **Esta liberación ahora es la que abre la puerta de agendar (2026-09-29, D1 —
-> `D2` del 2026-09-15 queda REVERTIDA).** Hasta el 2026-09-29, «Por agendar» (⤵
-> [cita de cotejo](phase2_appointment_loop.md)) solo exigía que el egresado hubiera **enviado** la
-> encuesta —esta pantalla podía seguir con la solicitud `in_review` sin que eso bloqueara nada—.
-> Desde D1, el `approved` que da esta pantalla (paso 3 de «Pasos detallados», abajo) es lo que
-> **de verdad** deja agendar: la guarda dura de `AppointmentService.create` compara
-> `SurveyReviewService.release_status(db, process_id) == "approved"`
-> (`SurveyReviewService.is_released` es el azúcar booleano) y nadie más hace esa comparación. Nada
-> de lo que hace GTV en este flujo (Liberar / Observar / Revocar) cambió por esta entrega —el
-> service es 100% aditivo, dos métodos de lectura nuevos—; lo que cambió es que ahora **otro
-> service la consulta para decidir si se puede agendar**, no solo si el requisito `graduate_survey`
-> se acredita.
+> **Esta liberación es UNA de las dos que abren la puerta de agendar (2026-09-29, D1 —
+> `D2` del 2026-09-15 queda REVERTIDA; 2026-10-01, ampliada por el no adeudo de biblioteca).**
+> Hasta el 2026-09-29, «Por agendar» (⤵ [cita de cotejo](phase2_appointment_loop.md)) solo exigía
+> que el egresado hubiera **enviado** la encuesta —esta pantalla podía seguir con la solicitud
+> `in_review` sin que eso bloqueara nada—. Desde D1, el `approved` que da esta pantalla (paso 3 de
+> «Pasos detallados», abajo) es una de las dos liberaciones que exige
+> **`ClearanceGate`** (spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.4): la guarda dura
+> de `AppointmentService.create` ya no compara `SurveyReviewService.release_status(...) ==
+> "approved"` directo, sino que pregunta a `ClearanceGate.status`/`.blockers`, que por dentro SÍ
+> usa esa misma comparación (`SurveyReviewService.release_status`/`.is_released` siguen siendo la
+> ÚNICA fuente de ese estado — nadie más lo compara, ni siquiera el gate, que delega). La encuesta
+> es **incondicional** (toda convocatoria la exige) y se reporta PRIMERO en el orden de bloqueos;
+> donde la convocatoria además exige el no adeudo de biblioteca, el gate suma ese segundo
+> candado — ⤵ [no adeudo de biblioteca](phase2_library_clearance.md). Nada de lo que hace GTV en
+> este flujo (Liberar / Observar / Revocar) cambió por esta entrega —el service sigue siendo 100%
+> aditivo—; lo que cambió es que ahora `ClearanceGate` la consulta para decidir si se puede
+> agendar, no solo si el requisito `graduate_survey` se acredita.
 
 > **Qué formulario contestó el egresado no le importa a este flujo (2026-09-30, spec
 > `titulatec-posgrado-design.md` §4.5).** El envío que abre la solicitud (paso 1, abajo) sale de
@@ -37,6 +42,30 @@
 > (`UNIQUE(process_id)`), sin `form_id`. GTV libera/observa/revoca exactamente igual sin importar
 > cuál contestó. Detalle de la resolución por perfil: [perfil de
 > titulación](engine_process_track.md).
+
+> **Cuatro ajustes del 2026-10-01** (spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.5,
+> §4.12, D9/D12/D13; ninguno cambia el VERBO de Liberar/Observar/Revocar):
+>
+> 1. **Constancia al liberar.** `approve` emite `CertificateService.issue(kind="survey_release",
+>    source_ref="survey_review:{id}")` en la MISMA transacción, **salvo** `review.origin ==
+>    'prior'` (la solicitud nace de una constancia previa que SE ya capturó a mano — el egresado
+>    no necesita una nueva). `revoke` siempre llama a `CertificateService.void` (no-op si nunca
+>    emitió). GTV la imprime por lote desde la página de Constancias — ⤵
+>    [constancias por lote](xcut_certificates_batch.md).
+> 2. **Sexta transición: `register_prior` (D9).** Un camino APARTE que no pasa por `in_review`
+>    —no hay encuesta real detrás—: crea DIRECTO una solicitud `approved`/`origin='prior'`,
+>    `response_id=NULL`, acredita `graduate_survey` con `external_ref="survey_prior:{id}"`
+>    (distinto de `survey_review:{id}`, para que el cumplimiento diga de dónde vino) y NUNCA
+>    emite constancia. Solo la llama `PriorClearanceService` (CLI `titulatec
+>    import-prior-clearances`), nunca una ruta de este flujo — ⤵
+>    [constancias previas](xcut_prior_clearances.md).
+> 3. **D12 — línea de contacto en Observar y Revocar.** Los correos `survey_rejected`/
+>    `survey_revoked` ya no dicen «Acude a la ventanilla de GTV para resolverlo.»: dicen «Para más
+>    información, contactar con servicio_ext@cdjuarez.tecnm.mx» — ⤵
+>    [correos del proceso al egresado](xcut_student_email_notifications.md).
+> 4. **D13 — sin «Ya puedes agendar» fijo en `survey_approved`.** El correo de Liberar ya no trae
+>    esa frase a secas: la decide `ClearanceGate` al componer, con el estado VIVO de las DOS
+>    liberaciones (D11) — ver el flujo de correos.
 
 ## Ruta en la app (UI)
 
@@ -93,9 +122,10 @@ sequenceDiagram
 |---|---|---|---|---|---|---|---|---|
 | 1 | 👤 | `/titulatec/encuesta-egresados` | envía la encuesta (proceso acreditable, sin solicitud previa) | `POST /titulatec/encuesta-egresados` (`pages/public.py::survey_submit`) | `SurveyService.submit` → `SurveyReviewService.open_for_submission` | `titulatec_survey_reviews` INSERT (`status=in_review`, `submitted_at`) | `survey_review_submitted` (fase 2) | — (acción del propio egresado) |
 | 2 | 🛠️ | Liberaciones | ver la cola / buscar / paginar | `GET /titulatec/admin/liberaciones[/body]` | `SurveyReviewService.list_for_inbox` + `counts_by_status` | — (lectura) | — | — |
-| 3 | 🛠️ | fila, "Liberar" | libera (desde `in_review` **o** `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/liberar` | `SurveyReviewService.approve` | `status=approved`, `reviewed_by_id`/`reviewed_at`, `rejection_reason=NULL`; `titulatec_requirement_fulfillments` ← `RequirementService.fulfill(graduate_survey, source="system", external_ref="survey_review:{id}")` | `survey_review_approved` + notif `SURVEY_REVIEW_APPROVED` | `survey_approved` |
-| 4 | 🛠️ | fila, motivo + "Observar" | deja/actualiza observaciones (desde `in_review` o `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/observar` (form `reason`) | `SurveyReviewService.reject` | `status=rejected`, `rejection_reason=motivo`, `reviewed_by_id`/`reviewed_at` | `survey_review_rejected` (payload `reason`) + notif `SURVEY_REVIEW_REJECTED` | `survey_rejected` (con el motivo) |
-| 5 | 🛠️ | fila, motivo + "Revocar" (solo si `can_revoke`) | revoca una liberación | `POST /titulatec/admin/liberaciones/{review_id}/revocar` (form `reason`) | `SurveyReviewService.revoke` | `status=rejected`, `rejection_reason=motivo`; `titulatec_requirement_fulfillments` ← `RequirementService.unfulfill(graduate_survey)` | `survey_review_revoked` (payload `reason`) + notif `SURVEY_REVIEW_REVOKED` | `survey_revoked` (con el motivo) |
+| 3 | 🛠️ | fila, "Liberar" | libera (desde `in_review` **o** `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/liberar` | `SurveyReviewService.approve` | `status=approved`, `reviewed_by_id`/`reviewed_at`, `rejection_reason=NULL`; `titulatec_requirement_fulfillments` ← `RequirementService.fulfill(graduate_survey, source="system", external_ref="survey_review:{id}")`; `titulatec_certificates` ← `CertificateService.issue(kind="survey_release", ...)` **salvo** `origin='prior'` | `survey_review_approved` + notif `SURVEY_REVIEW_APPROVED` | `survey_approved` (D13: sin «Ya puedes agendar» fijo) |
+| 4 | 🛠️ | fila, motivo + "Observar" | deja/actualiza observaciones (desde `in_review` o `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/observar` (form `reason`) | `SurveyReviewService.reject` | `status=rejected`, `rejection_reason=motivo`, `reviewed_by_id`/`reviewed_at` | `survey_review_rejected` (payload `reason`) + notif `SURVEY_REVIEW_REJECTED` | `survey_rejected` (con el motivo; D12: línea de contacto `servicio_ext@cdjuarez.tecnm.mx`) |
+| 5 | 🛠️ | fila, motivo + "Revocar" (solo si `can_revoke`) | revoca una liberación | `POST /titulatec/admin/liberaciones/{review_id}/revocar` (form `reason`) | `SurveyReviewService.revoke` | `status=rejected`, `rejection_reason=motivo`; `titulatec_requirement_fulfillments` ← `RequirementService.unfulfill(graduate_survey)`; `titulatec_certificates` ← `CertificateService.void(source_ref="survey_review:{id}", ...)` (no-op si nunca emitió) | `survey_review_revoked` (payload `reason`) + notif `SURVEY_REVIEW_REVOKED` | `survey_revoked` (con el motivo; D12: línea de contacto) |
+| 6 | 🤖 | CLI `titulatec import-prior-clearances --tipo encuesta` | constancia previa (D9): el egresado YA traía su liberación de otro semestre | — (sin ruta; solo `PriorClearanceService`) | `SurveyReviewService.register_prior` | `titulatec_survey_reviews` INSERT DIRECTO `status=approved`, `origin='prior'`, `response_id=NULL`; `titulatec_requirement_fulfillments` ← `fulfill(graduate_survey, external_ref="survey_prior:{id}")`; **sin** constancia | `survey_review_prior` | `survey_approved` (texto propio de previa) |
 
 Las tres acciones de GTV (3–5) leen la fila con `SELECT … FOR UPDATE` antes de validar nada, y
 hacen **un solo `commit`** al final (`services/survey_review_service.py`, mismo patrón que
@@ -138,8 +168,12 @@ la solicitud (paso 1) no lleva correo: es acción del propio egresado. Lo fija
 ## Dónde se ve el estatus (lectura, cuatro pantallas más)
 
 `SurveyReviewService.summary_for_process` es la ÚNICA consulta que arma el dict
-(`status|reason|reviewed_by|reviewed_at|review_id|response_id`, con el pseudo-estado `missing`
-si no hay fila todavía). La pintan, todas de solo lectura:
+(`status|reason|reviewed_by|reviewed_at|review_id|response_id|origin`, con el pseudo-estado
+`missing` si no hay fila todavía). `origin` ∈ `submission` (la de siempre) \| `prior` (D9,
+⤵ [constancias previas](xcut_prior_clearances.md)): la bandeja de GTV («Liberadas») y la tarjeta
+pública de estatus lo usan para distinguir una liberación real de una constancia previa — sin
+«Ver respuestas» cuando es `prior` (no hay `SurveyResponse` detrás). La pintan, todas de solo
+lectura:
 
 | Pantalla | Contexto | Plantilla |
 |---|---|---|
@@ -205,6 +239,13 @@ el sistema; no se marca a mano" por la píldora `survey_review_pill(status)` —
   — sin flujo documentado propio todavía.
 - ← Qué formulario contestó el egresado (indistinto para este flujo): [perfil de titulación por
   nivel de carrera](engine_process_track.md) — `SurveyService.form_for_user`.
+- ⤵ [No adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md) — la OTRA
+  liberación que exige `ClearanceGate` donde la convocatoria la pide; esta encuesta sigue siendo
+  incondicional y se reporta primero.
+- ⤵ [Constancias por lote](xcut_certificates_batch.md) — numeración, PDF y D15 (GTV imprime
+  `survey_release`).
+- ⤵ [Constancias previas](xcut_prior_clearances.md) — D9, `register_prior`, la CLI de
+  importación (el único camino que crea una solicitud `origin='prior'`).
 - ⤵ Guarda de agendar: [cita de cotejo (loop completo)](phase2_appointment_loop.md) — la puerta
   D1 del 2026-09-29 (encuesta LIBERADA; **revierte D2 del 2026-09-15**, que se conformaba con
   enviarla) y el cubo "Encuesta sin liberar" (antes "Sin encuesta").

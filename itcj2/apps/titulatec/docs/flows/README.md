@@ -33,6 +33,8 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 | 🛠️ | Acción de **Gestión Tecnológica y Vinculación** (`titulatec_tech_management`, GTV — desde 2026-09-15) |
 | 🔗 | Jefe de **Vinculación** (`titulatec_vinculacion`) · 🧑‍⚖️ **Sinodal** (`titulatec_sinodal`) |
 | 💻 | Acción de **Centro de Cómputo** (`titulatec_computer_center` — desde 2026-09-24) |
+| 📚 | Acción de **Biblioteca** (`titulatec_library`, puesto «Biblioteca · No adeudo» — desde 2026-10-01) |
+| 💰 | Acción de **Caja** (`titulatec_cashier`, puesto «Caja» — desde 2026-10-01) |
 | 🤖 | Paso automático del sistema (sin humano) |
 | ⤵ | Compone/invoca otro flujo |
 | ❗ | Camino alterno / error |
@@ -55,10 +57,11 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [Revisión de documentos (pestaña Documentos + auto-avance)](phase1_school_services_review_docs.md) 🏛️🎓 ⤵ engine — bandeja dedicada; todos los documentos DEL PERFIL aprobados (3 en licenciatura, 7 en posgrado, desde 2026-09-30) → fase 2.
 
 ### Fase 2 — Cita de cotejo
-- [Cita de cotejo (loop completo)](phase2_appointment_loop.md) 🏛️👤 ⤵ engine
+- [Cita de cotejo (loop completo)](phase2_appointment_loop.md) 🏛️👤 ⤵ engine — cola de 5 cubos, el 5.º «Liberaciones pendientes» (antes «Encuesta sin liberar»; desde 2026-10-01 también cubre el no adeudo de biblioteca).
 - [El egresado agenda su propia cita](phase2_student_self_booking.md) 👤🏛️ ⤵ engine — desde 2026-09-16: el encargado publica su espacio como «Agendable» (o «Abierto sin cita») y el egresado elige franja, la cancela a tiempo, y el encargado se entera **por su tablero** con el distintivo «El alumno agendó».
 - [Información para el alumno de un requisito de cotejo](phase2_school_services_requirement_info.md) 🏛️👤 — la jefa escribe una nota enriquecida por requisito (editor Quill, sanitizada con `utils/rich_text.py`); el alumno la abre con el botón «i» en su cita.
 - [Liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md) 🛠️👤 — Gestión Tecnológica y Vinculación revisa lo que el egresado ya envió y decide si libera el requisito de cotejo `graduate_survey` o le deja observaciones; el egresado no vuelve a tocar la encuesta desde el sistema, lo resuelve físicamente en su ventanilla.
+- [No adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md) 📚💰🏛️👤 (2026-10-01) — Biblioteca revisa en FIFO a todo inscrito y registra si debe; el egresado paga adeudo + donación voluntaria de libro en Caja, sin cita; donde la convocatoria lo exige, ni agenda ni es agendado sin el no adeudo liberado (`ClearanceGate`, candado único junto con la encuesta).
 
 ### Fase 3 — Formato B
 - [El alumno llena y envía el Formato B](phase3_student_formato_b.md) 👤
@@ -73,7 +76,9 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [Alcance por carrera + asignación delegada de encargados](engine_officer_scope.md) 🏛️ — `officer_programs` acota bandeja/kanban/citas; el jefe da de alta encargados.
 - [Bandeja administrativa de procesos](xcut_admin_process_inbox.md) 🏛️🎓 ⤵ scope — tabla y kanban del mismo dataset, `idle_days` y filtro de atorados.
 - [Expediente del alumno](xcut_admin_process_expediente.md) 🏛️ ⤵ scope — acordeón de las 9 fases con el historial de cada una; documentos de solo lectura, mover de fase en modal, y el `?from=` que devuelve a la pestaña de origen con sus filtros.
-- [Correos del proceso al egresado](xcut_student_email_notifications.md) 🤖 (2026-09-28/29) ⤵ compone casi todos los anteriores — bandeja `titulatec_email_outbox` escrita en la MISMA transacción del evento + despachador Celery cada 5 minutos (agrupado por espera D7, `FOR UPDATE SKIP LOCKED`, reintentos) + barrido diario de 3 recordatorios; catálogo de 11 `kind`, ligas `/itcj/login?next=`, `[TT-MAIL]` en dev sin cuenta Graph, y la bitácora `#exp-correos` que pinta el expediente.
+- [Correos del proceso al egresado](xcut_student_email_notifications.md) 🤖 (2026-09-28/29; +4 `kind` el 2026-10-01) ⤵ compone casi todos los anteriores — bandeja `titulatec_email_outbox` escrita en la MISMA transacción del evento + despachador Celery cada 5 minutos (agrupado por espera D7, `FOR UPDATE SKIP LOCKED`, reintentos) + barrido diario de 4 recordatorios (cita, documentos, encuesta y, desde 2026-10-01, pago en Caja); catálogo de 15 `kind`, ligas `/itcj/login?next=`, `[TT-MAIL]` en dev sin cuenta Graph, y la bitácora `#exp-correos` que pinta el expediente.
+- [Constancias por lote: numeración, emisión y PDF](xcut_certificates_batch.md) 🤖📚🛠️ (2026-10-01) ⤵ compone no adeudo de biblioteca y liberación GTV — folio atómico por tipo y año, datos congelados, PDF con WeasyPrint (3 por hoja carta), lotes diarios.
+- [Constancias previas: liberaciones de antes de este sistema](xcut_prior_clearances.md) 🏛️📚🤖 (2026-10-01, D9) — un egresado que ya traía su liberación de otro semestre no repite el trámite; CLI `import-prior-clearances` + aplicación diferida al inscribirse.
 - [El alumno consulta el detalle de una fase](xcut_student_phase_detail.md) 👤 — **acordeón en el dashboard** (la pantalla `/fase/{n}` ya no existe: redirige): estado, instrucciones, sub-progreso, CTA y timeline.
 - [La jefatura da de alta encargados por carrera](xcut_school_services_manage_officers.md) 🏛️🤖 ⤵ alimenta el alcance — un encargado es un `Position` con rol y carreras; nombrar a una cuenta INACTIVA la reactiva y le restablece la contraseña (9 de 11 usuarios de Servicios Escolares lo estaban), y la pantalla lo dice antes y después.
 - [El alumno usa TitulaTec dentro del shell mobile del core](xcut_student_shell_embed.md) 👤 — embebido vs standalone, drawer/rail, notificaciones por Avisos, mini-perfil.

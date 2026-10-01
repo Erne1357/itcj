@@ -9,8 +9,8 @@
 | **Actor(es)** | 👤 Egresado (`graduate`) · 🏛️ Encargado de Servicios Escolares (publica el espacio; no interviene en el agendado) |
 | **Permiso(s)** | `titulatec.appointment.page.my` (la página) · **`titulatec.appointment.api.book.own`** (agendar) · **`titulatec.appointment.api.cancel.own`** (cancelar) — los dos NUEVOS, del rol `graduate`. Publicar el espacio es `titulatec.review_window.api.manage`, que el encargado ya tenía |
 | **Trigger** | El egresado abre **Cita de cotejo** y hay al menos un espacio publicado como «Agendable» o **«Sin horario»** (2026-09-29, D3/D4 — el sin horario también se aparta, ya no es solo anuncio) de su carrera |
-| **Precondiciones** | Proceso `active` · **fase 2 en curso** (guarda de fase) · fase 2 **no** aprobada · sin una cita vigente `attended` con la fase 2 todavía SIN veredicto (D13, 2026-09-30: `cotejo_en_dictamen` — solo se libera cuando la fase queda `rejected`) · **encuesta de egresados LIBERADA** por Gestión Tecnológica y Vinculación (existe `SurveyReview` con `status == 'approved'`; 2026-09-29, revierte la exigencia de solo-ENVIADA del 2026-09-15) · sin cita vigente activa · menos de `TITULATEC_SELF_CANCEL_MAX` cancelaciones propias · la franja arranca a más de `TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES` (en un sin horario, es el CIERRE del espacio el que tiene que faltar más de ese lapso) |
-| **Sub-flujos** | ⤵ [alcance por carrera](engine_officer_scope.md) (en sentido inverso) · ⤵ [guarda de fase del alumno](engine_student_phase_lock.md) · comparte capa dura con ⤵ [la cita de cotejo (loop del encargado)](phase2_appointment_loop.md) |
+| **Precondiciones** | Proceso `active` · **fase 2 en curso** (guarda de fase) · fase 2 **no** aprobada · sin una cita vigente `attended` con la fase 2 todavía SIN veredicto (D13, 2026-09-30: `cotejo_en_dictamen` — solo se libera cuando la fase queda `rejected`) · **las dos liberaciones de `ClearanceGate`**: encuesta de egresados LIBERADA por Gestión Tecnológica y Vinculación (existe `SurveyReview` con `status == 'approved'`; 2026-09-29, revierte la exigencia de solo-ENVIADA del 2026-09-15) y, donde la convocatoria lo exige, **no adeudo de biblioteca LIBERADO** (2026-10-01, D6 — ⤵ [no adeudo de biblioteca](phase2_library_clearance.md)) · sin cita vigente activa · menos de `TITULATEC_SELF_CANCEL_MAX` cancelaciones propias · la franja arranca a más de `TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES` (en un sin horario, es el CIERRE del espacio el que tiene que faltar más de ese lapso) |
+| **Sub-flujos** | ⤵ [alcance por carrera](engine_officer_scope.md) (en sentido inverso) · ⤵ [guarda de fase del alumno](engine_student_phase_lock.md) · comparte capa dura con ⤵ [la cita de cotejo (loop del encargado)](phase2_appointment_loop.md) · ⤵ [no adeudo de biblioteca](phase2_library_clearance.md) (`ClearanceGate`, segunda liberación de la regla 3) |
 | **Estado final** | `ReviewAppointment` nueva, `status='scheduled'`, `is_current=True`, **`booked_by='student'`**, ocupando una franja de la ventana elegida |
 
 > **La decisión de fondo (2026-09-15):** hasta esta fecha el alumno **solo podía pedir** un cambio;
@@ -160,6 +160,8 @@ La consumen **la pantalla del alumno y la cola del encargado**. Con dos implemen
 | 3a | nunca envió la encuesta (sin `SurveyReview`) | `sin_encuesta` | «Primero envía la encuesta de egresados.» |
 | 3b | la envió, pero sigue `in_review` | `encuesta_en_revision` | «Tu encuesta de egresados está en revisión con Gestión Tecnológica y Vinculación. Podrás agendar en cuanto la liberen.» |
 | 3c | la envió, pero quedó `rejected` (observaciones de GTV) | `encuesta_con_observaciones` | «Gestión Tecnológica y Vinculación dejó observaciones en tu encuesta de egresados. Podrás agendar en cuanto la liberen.» |
+| 3d | encuesta liberada, pero el no adeudo de biblioteca sigue en Biblioteca (`pending`/`missing`) **donde la convocatoria lo exige** (2026-10-01, D6) | `biblioteca_en_revision` | «El Centro de Información está revisando si tienes adeudo con la biblioteca. Podrás agendar en cuanto se libere tu no adeudo.» |
+| 3e | ídem, pero `awaiting_payment` (pasó a Caja) | `pago_pendiente` | «Pasa a Caja (Recursos Financieros) a pagar ${total}; no necesitas cita. Podrás agendar en cuanto se libere tu no adeudo.» |
 | 4 | cita vigente en `scheduled\|confirmed\|in_progress` | `tiene_cita` | «Ya tienes una cita. Cancélala si necesitas otra.» |
 | 5 | cita vigente `attended` y fase 2 SIN veredicto -ni `approved` (ya cortó en la 2) ni `rejected`- | `cotejo_en_dictamen` | «Tu cotejo ya se realizó. Servicios Escolares está por dictaminarlo; si queda con observaciones podrás agendar otra cita.» |
 | 6 | cancelaciones propias ≥ `TITULATEC_SELF_CANCEL_MAX` | `bloqueado_por_cancelaciones` | «Cancelaste N veces. Pídele la cita a tu encargado de carrera.» |
@@ -176,14 +178,29 @@ La consumen **la pantalla del alumno y la cola del encargado**. Con dos implemen
 > del lado del encargado no cambia nada -su ficha ya solo ofrecía otra cita con `attended` cuando
 > la fase 2 estaba `rejected`, ver [la otra mitad del flujo](phase2_appointment_loop.md).
 
-**La regla 3 se abrió en tres caras el 2026-09-29 (D1, revierte D2 del 2026-09-15).** Hasta esa
-fecha era un booleano —¿existe `SurveyReview`?— y bastaba con haberla ENVIADO. Ahora
-`SurveyReviewService.release_status(db, process_id)` decide entre `missing` / `in_review` /
-`rejected` (`'approved'` nunca llega aquí: cae en la regla 7, «puede agendar»), y las tres
+**La regla 3 son las LIBERACIONES, y las decide ÚNICAMENTE `ClearanceGate`** (`services/
+clearance_gate.py`, spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.4.4; único lector —
+invariante 2—, para que el cubo «Requieren que les agendes» del encargado y esta pantalla nunca
+diverjan). Se reporta su PRIMER bloqueo, en el orden fijo del gate: encuesta antes que no adeudo.
+
+**Encuesta, tres caras desde el 2026-09-29 (D1, revierte D2 del 2026-09-15).** Hasta esa fecha
+era un booleano —¿existe `SurveyReview`?— y bastaba con haberla ENVIADO. Desde D1,
+`SurveyReviewService.release_status` decide entre `missing` / `in_review` / `rejected`
+(`'approved'` nunca llega aquí como bloqueo: cae en la regla 7, «puede agendar»), y las tres
 bloquean `can_book` por igual —enviarla ya no basta, hace falta que GTV la **libere**— pero cada
-una le dice al alumno algo distinto sobre qué falta. El diccionario `_SURVEY_REASONS` traduce el
-estado al código de razón; los tres textos viven en `SelfBookingService.MENSAJES`, junto con los
-demás.
+una le dice al alumno algo distinto sobre qué falta.
+
+**No adeudo de biblioteca, dos caras desde el 2026-10-01 (D6).** SOLO si la convocatoria tiene el
+requisito automático activo (`ClearanceGate.library_required`): `pending`/`missing`
+(Biblioteca todavía no lo revisó) → `biblioteca_en_revision`; `awaiting_payment` (ya pasó a
+Caja) → `pago_pendiente`, con el total CONGELADO de su fila en el mensaje (`library_total`,
+leer el monto no decide nada — lo decidió el gate). Sin el requisito, `library` vale
+`not_required` y nunca aparece en `blockers`.
+
+El diccionario `SelfBookingService._CLEARANCE_REASONS` traduce cada código de `ClearanceGate.
+blockers` (`survey_missing`/`survey_in_review`/`survey_rejected`/`library_pending`/
+`library_awaiting_payment`) a su `reason`; los cinco textos viven en `SelfBookingService.
+MENSAJES`, junto con los demás.
 
 **Los casos que SÍ dejan agendar**, que son el corazón de la feature: cita `attended` con la fase 2
 **rechazada**, `no_show`, `cancelled`, y no haber tenido nunca una. Hasta el 2026-09-29 bastaba con
@@ -198,6 +215,32 @@ el encargado anunció abierta a todos. Colgarlo de `can_book` le fabricaría un 
 **El contador de D9 es derivado**, sin columna denormalizada: `status='cancelled'` **y**
 `cancelled_by_id == process.student_id`. Si cancela el encargado **no** le consume cupo al alumno
 — si no, el encargado podría dejarlo bloqueado sin querer.
+
+### El mensaje de la cara 4 cuando una cita vigente YA ocupa el cotejo (Ruling R12/R18)
+
+`eligibility()` reporta el PRIMER bloqueo en su orden fijo (regla 3 antes que 4/5): un egresado
+con una cita vigente que OCUPA el cotejo (D17 de ⤵ [no adeudo de biblioteca](phase2_library_clearance.md):
+las citas ya agendadas no se tocan) y al que ADEMÁS le falta el no adeudo reporta el motivo de
+biblioteca (`biblioteca_en_revision`/`pago_pendiente`), **nunca** `tiene_cita`/`cotejo_en_dictamen`
+— es CONTRATO, no se reordena. El texto normal de esos dos motivos («…Podrás agendar en cuanto se
+libere tu no adeudo») sería **falso** bajo una cita que ya tiene: no le falta agendar, le falta
+que Servicios Escolares pueda LIBERAR su cotejo (el mismo verbo que usa `PhaseService.
+_cotejo_gate_error`). `pages/student.py::_agenda_ctx` sustituye el texto SOLO en esta pantalla
+(constantes `_LIBRARY_REASONS_CON_CITA`/`_LIBRARY_BLOCK_WITH_CITA_MSG`) cuando
+`SelfBookingService.cita_ocupa_el_cotejo(db, process, elig["current"])` es verdadero —
+`SelfBookingService.MENSAJES` no cambia: lo sigue usando quien SÍ puede agendar, el cubo de la
+cola del encargado y los correos (D11).
+
+**`cita_ocupa_el_cotejo(db, proc, current) -> bool`** (`SelfBookingService`, Ruling R18 de la
+revisión de la Tarea 12): el predicado ÚNICO —antes vivía duplicado e inline en
+`mail_compose.py::_que_falta`— que responde «¿la cita vigente sigue ocupando el cotejo, o el
+egresado puede/debe agendar otra?»: `True` si está en `_ESTADOS_ACTIVOS` (`scheduled`/
+`confirmed`/`in_progress`, regla 4) o `attended` mientras la fase 2 sigue SIN veredicto (regla 5,
+`cotejo_en_dictamen` — `approved` ya cortó antes en los dos llamadores, así que basta excluir
+`rejected`). `None` (sin cita), `no_show` y `attended` con la fase 2 YA `rejected` devuelven
+`False` — esos SÍ agendan otra, y decirles «ya tienes una cita» sería tan falso como prometerles
+«podrás agendar» estando `scheduled`. Dos llamadores, misma pregunta: este (`_agenda_ctx`) y
+`mail_compose.py::_que_falta` (⤵ [correos del proceso al egresado](xcut_student_email_notifications.md)).
 
 ## Sin horario: apartar y cancelar contra el CIERRE, no la hora (D5, 2026-09-29)
 
@@ -301,7 +344,7 @@ legado— así que una cita que un encargado sentó a mano a OTRA hora dentro de
 
 | Capa | Dónde | Qué valida | A quién aplica |
 |---|---|---|---|
-| **Dura** | `AppointmentService` / `SlotService` | encuesta **liberada** por GTV (D1, 2026-09-29), una sola cita vigente, día habilitado, franja real de la rejilla, cupo libre, lock de ventana + advisory lock del proceso | **todos**, encargado incluido |
+| **Dura** | `AppointmentService` / `SlotService` | las dos liberaciones de `ClearanceGate` —encuesta **liberada** por GTV (D1, 2026-09-29) y, donde la convocatoria lo exige, no adeudo de biblioteca **liberado** (D6, 2026-10-01)—, una sola cita vigente, día habilitado, franja real de la rejilla, cupo libre, lock de ventana + advisory lock del proceso | **todos**, encargado incluido |
 | **Del alumno** | `SelfBookingService` | fase 2 aprobada, una `attended` que no deje la fase 2 sin veredicto (D13, 2026-09-30), tope de cancelaciones, anticipación mínima (contra la franja, o contra el CIERRE en un Sin horario — D5), ventana `bookable` **o `walkin`** (D3/D4) y de su carrera | solo el auto-agendado |
 
 Por eso `cancel` **envuelve** a `AppointmentService.cancel` y `book` **delega** en
@@ -317,7 +360,7 @@ R-G — "un posgrado que cerró su fase 1 antes del despliegue no se regresa aun
 extras" — se resuelve ENTERAMENTE dentro de `DocumentService.initial_docs_all_approved`, y su único
 consumidor es `AppointmentService._pending_candidates` (la cola del ENCARGADO, ⤵ [cita de cotejo
 (loop completo)](phase2_appointment_loop.md), cubos «Por agendar» / «Requieren que les agendes» /
-«Encuesta sin liberar»). Un egresado de posgrado que R-G mantiene en «Por agendar» agenda su propia
+«Liberaciones pendientes»). Un egresado de posgrado que R-G mantiene en «Por agendar» agenda su propia
 cita exactamente igual que cualquier otro — esta pantalla no le agrega ni le quita ninguna
 validación. Detalle completo: [perfil de titulación por nivel de carrera](engine_process_track.md).
 
@@ -419,4 +462,9 @@ abriendo o cerrando la ventana sola.
   — la `SurveyReview` que exige la regla 3 nace al ENVIAR la encuesta, pero desde 2026-09-29 (D1)
   la regla 3 exige además que GTV la haya LIBERADO — D2 del 2026-09-15 (bastaba con enviarla) queda
   **REVERTIDA**.
+- ⤵ [No adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md) — la segunda mitad
+  de la regla 3 (2026-10-01, D6), `biblioteca_en_revision`/`pago_pendiente`, y el Ruling R12/R18
+  de «El mensaje de la cara 4…» arriba.
+- ⤵ [Correos del proceso al egresado](xcut_student_email_notifications.md) — el otro llamador de
+  `cita_ocupa_el_cotejo` (D11, `mail_compose.py::_que_falta`).
 - 📐 [Máquina de estados](00_state_machine.md) — los 7 estados y el eje `is_current`.
