@@ -1,0 +1,408 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/indicadores/{year_id}/seguimiento
+   CONTIENE barra de titulo, tarjeta de indicador, leyenda de umbrales y la rejilla
+            de captura con su primera columna congelada y sus colores de estado
+   EN BASE  tarjeta, encabezado de pagina, tabla y formulario
+   --------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   indicators/tracking.css — rejilla de seguimiento por colores.
+   Página: /sgi/sgc/indicadores/{year_id}/seguimiento
+   Módulo: js/indicators/tracking.js
+
+   PORTE de app_prueba/css/indicators/indicators_tracking.css. Se conservan
+   sus medidas exactas (padding 20px 25px de la cabecera, celda de 120px,
+   input al 80%, línea de 1px en las cuatro caras) y sus colores de estado
+   (#ff7675 / #fdcb6e / #55efc4). Lo único que cambia son los nombres: allí
+   .bg-blanco/.bg-rojo/.bg-amarillo/.bg-verde, aquí .sgi-state-white/red/
+   yellow/green, que es lo que emite la vista. El tinte se aplica ACOTADO a
+   esta pantalla para no tocar la paleta de estado del resto de la app.
+   ========================================================================== */
+
+/* Ancho de la pantalla (legacy .tracking-container): 98% del contenedor
+   central, no del viewport. El legacy anidaba su propio contenedor dentro de
+   .main-container, así que esta vista NO se ensancha como el tablero. */
+.sgi-indicator-tracking {
+  max-width: 98%;
+  margin: 0 auto;
+  padding: 0 var(--sgi-space-3xl);
+}
+
+/* ── Barra de título (legacy .header-section) ───────────────────────────── */
+/* Es una tarjeta blanca propia, con menos sombra que las de contenido. */
+.sgi-tracking-topbar {
+  margin-bottom: var(--sgi-space-4xl);
+  padding: var(--sgi-space-3xl);
+  box-shadow: var(--sgi-elev-soft);
+}
+
+.sgi-tracking-topbar .sgi-page-head {
+  margin-bottom: 0;
+}
+
+/* NO REPONER: el titulo iba aqui a 25.6px/700 porque en el legacy era un <h2>
+   pelado que heredaba el bold del navegador. Era la quinta forma distinta del
+   mismo encabezado. Ahora usa la comun. */
+
+/* El año, en violeta (el legacy lo pintaba con un style en línea). */
+.sgi-tracking-year {
+  color: var(--sgi-primary);
+}
+
+/* Aviso de solo lectura: se pinta cuando falta sgi.sgc.indicators.api.tracking.
+   En el legacy nunca aparecía porque is_admin iba hardcodeado a True. */
+.sgi-tracking-readonly {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  margin-bottom: 1rem;
+  padding: .55rem .75rem;
+  font-size: var(--sgi-fs-md);
+  color: var(--sgi-muted);
+  background: var(--sgi-soft);
+  border: 1px solid var(--sgi-border);
+  border-radius: calc(var(--sgi-radius) - 4px);
+}
+
+/* ── Tarjeta de indicador (legacy .tracking-card) ───────────────────────── */
+/* Sin padding propio: la cabecera, la rejilla y el pie llegan hasta el borde,
+   y `overflow:hidden` recorta la cabecera gris contra el radio de la tarjeta. */
+.sgi-tracking-card {
+  margin-bottom: var(--sgi-space-5xl);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--sgi-line);
+  box-shadow: var(--sgi-elev-4);
+}
+
+.sgi-tracking-card + .sgi-tracking-card {
+  margin-top: 0;
+}
+
+.sgi-tracking-head {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--sgi-space-2xl);
+  padding: var(--sgi-space-3xl) var(--sgi-space-4xl);
+  background: var(--sgi-soft);
+  border-bottom: 1px solid var(--sgi-line);
+}
+
+.sgi-tracking-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sgi-tracking-info-full {
+  grid-column: 1 / -1;
+}
+
+.sgi-tracking-label {
+  margin-bottom: var(--sgi-space-2xs);
+  font-size: var(--sgi-fs-xs);
+  font-weight: var(--sgi-fw-bold);
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  color: var(--sgi-disabled);
+}
+
+.sgi-tracking-value {
+  overflow: hidden;
+  font-size: var(--sgi-fs-base);
+  font-weight: var(--sgi-fw-semibold);
+  color: var(--sgi-dark);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sgi-tracking-value i {
+  color: var(--sgi-disabled);
+}
+
+.sgi-tracking-strong {
+  color: var(--sgi-primary);
+}
+
+/* El color del proceso lo aplica el JS leyendo data-sgi-color: en las
+   plantillas está prohibido style="…", así que no puede venir del servidor. */
+.sgi-tracking-swatch {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  margin-right: var(--sgi-space-sm);
+  background: var(--sgi-disabled);
+}
+
+/* ── Leyenda de los cuatro umbrales (legacy .color-legend) ──────────────── */
+/* Cada umbral es una pastilla blanca con borde, no texto suelto. */
+.sgi-tracking-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sgi-space-lg);
+  margin-top: var(--sgi-space-xs);
+}
+
+.sgi-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sgi-space-xs);
+  padding: var(--sgi-space-2xs) var(--sgi-space-md);
+  font-size: var(--sgi-fs-sm);
+  font-weight: var(--sgi-fw-semibold);
+  color: var(--sgi-dark);
+  background: var(--sgi-surface);
+  border: 1px solid var(--sgi-border);
+  border-radius: var(--sgi-radius-md);
+}
+
+.sgi-legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--sgi-radius-circle);
+}
+
+/* Los puntos de la leyenda llevan los mismos hex que las celdas. */
+.sgi-legend-dot.sgi-state-white  { background: var(--sgi-surface); border: 1px solid var(--sgi-border-mid); }
+.sgi-legend-dot.sgi-state-red    { background: var(--sgi-coral); border: 0; }
+.sgi-legend-dot.sgi-state-yellow { background: var(--sgi-honey); border: 0; }
+.sgi-legend-dot.sgi-state-green  { background: var(--sgi-mint); border: 0; }
+
+.sgi-legend-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  font-size: var(--sgi-fs-sm);
+  font-weight: var(--sgi-fw-semibold);
+  color: var(--sgi-primary);
+  text-decoration: none;
+}
+
+.sgi-legend-doc:hover,
+.sgi-legend-doc:focus-visible {
+  text-decoration: underline;
+}
+
+/* Confirmación de guardado (legacy .save-indicator). El JS quita/pone el
+   atributo hidden; el legacy alternaba una clase .show a mano. */
+.sgi-tracking-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sgi-space-xs);
+  margin-left: auto;
+  font-size: var(--sgi-fs-sm);
+  font-weight: var(--sgi-fw-semibold);
+  color: var(--sgi-success);
+}
+
+.sgi-tracking-saved[hidden] {
+  display: none;
+}
+
+/* ── Rejilla de periodos (legacy .tracking-table) ───────────────────────── */
+/* Solo scroll horizontal: el legacy no acota la altura. */
+.sgi-tracking-grid {
+  overflow-x: auto;
+  background: var(--sgi-surface);
+}
+
+.sgi-tracking-table {
+  width: 100%;
+  min-width: 800px;
+  font-size: var(--sgi-fs-base);
+}
+
+/* Línea en las CUATRO caras: es lo que da el aspecto de rejilla. */
+.sgi-tracking-table th,
+.sgi-tracking-table td {
+  min-width: 120px;
+  padding: var(--sgi-space-xl);
+  text-align: center;
+  border: 1px solid var(--sgi-line);
+}
+
+.sgi-tracking-table thead th {
+  height: auto;
+  font-size: var(--sgi-fs-md);
+  font-weight: var(--sgi-fw-semibold);
+  color: var(--sgi-muted);
+  background: var(--sgi-surface-400);
+}
+
+/* Sin realce al pasar por encima: aquí cada celda es un campo, no una fila
+   clicable (el legacy tampoco lo tenía). */
+.sgi-tracking-table tbody tr:hover {
+  background-color: var(--sgi-surface);
+}
+
+.sgi-tracking-table tbody tr.sgi-tracking-plan,
+.sgi-tracking-table tbody tr.sgi-tracking-plan:hover {
+  background-color: var(--sgi-surface-50);
+}
+
+.sgi-tracking-plan-val {
+  font-size: var(--sgi-fs-xl);
+  font-weight: var(--sgi-fw-bold);
+  color: var(--sgi-grey);
+}
+
+/* Primera columna congelada. En la fila de encabezado se suma al sticky
+   vertical de .sgi-table thead th, así que gana la capa en las dos. */
+.sgi-tracking-sticky {
+  position: sticky;
+  left: 0;
+  z-index: var(--sgi-z-cell);
+  min-width: 150px;
+  font-weight: var(--sgi-fw-bold);
+  color: var(--sgi-dark);
+  background: var(--sgi-surface-100);
+  box-shadow: var(--sgi-elev-side);
+}
+
+.sgi-tracking-table th.sgi-tracking-sticky,
+.sgi-tracking-table td.sgi-tracking-sticky {
+  text-align: left;
+  border-right: 2px solid var(--sgi-border);
+}
+
+.sgi-tracking-table thead .sgi-tracking-sticky {
+  z-index: var(--sgi-z-cell-corner);
+  color: var(--sgi-dark);
+  background: var(--sgi-surface-100);
+}
+
+/* ── Celda de captura (legacy .real-input-wrapper) ──────────────────────── */
+/* El tope de ancho solo actua cuando el indicador tiene UN periodo (frecuencia
+   anual): sin el, la unica columna se come toda la fila y el campo sale de
+   1000px. En las rejillas de 12 o 52 celdas la caja mide menos que el tope y
+   la regla no interviene. */
+.sgi-tracking-cell-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sgi-space-sm);
+  max-width: 10rem;
+  margin: 0 auto;
+}
+
+.sgi-tracking-input {
+  width: 80%;
+  padding: var(--sgi-space-sm);
+  font-family: inherit;
+  font-weight: var(--sgi-fw-semibold);
+  text-align: center;
+  border: 1px solid var(--sgi-border);
+  border-radius: var(--sgi-radius-md);
+  outline: none;
+  transition: .2s;
+}
+
+/* El anillo de foco. Este campo no lleva `form-control` ni `form-select`, asi
+   que no hereda nada de la hoja base: sin esta regla no habia NINGUNA
+   diferencia visible entre enfocado y no enfocado. */
+.sgi-tracking-input:focus-visible {
+  outline: 2px solid var(--sgi-primary);
+  outline-offset: 1px;
+}
+
+
+.sgi-tracking-input:focus {
+  border-color: var(--sgi-primary);
+}
+
+/* Solo lectura: el legacy quita el recuadro y agranda el número. */
+.sgi-tracking-input:disabled {
+  font-size: var(--sgi-fs-xl);
+  color: var(--sgi-dark);
+  background: transparent;
+  border: none;
+}
+
+/* Un guardado fallido deja la celda marcada (la clase la pone tracking.js). */
+.sgi-tracking-invalid {
+  border-color: var(--sgi-danger);
+  box-shadow: 0 0 0 2px var(--sgi-danger-soft);
+}
+
+.sgi-tracking-color {
+  width: 80%;
+  padding: var(--sgi-space-2xs);
+  font-family: inherit;
+  font-size: var(--sgi-fs-sm);
+  font-weight: var(--sgi-fw-semibold);
+  color: var(--sgi-dark);
+  border: 1px solid var(--sgi-border);
+  border-radius: var(--sgi-radius-md);
+  outline: none;
+  cursor: pointer;
+}
+
+/* ── Colores de estado, ACOTADOS a esta rejilla ─────────────────────────── */
+/* Son los cuatro fondos del legacy (.bg-blanco/.bg-rojo/.bg-amarillo/.bg-verde
+   de indicators_tracking.css). Se tiñen input Y <select>, igual que allí: el
+   JS del legacy le añadía la misma clase a los dos. */
+.sgi-tracking-input.sgi-state-white,
+.sgi-tracking-color.sgi-state-white {
+  color: var(--sgi-dark);
+  background-color: var(--sgi-surface);
+  border-color: var(--sgi-border);
+}
+
+.sgi-tracking-input.sgi-state-red,
+.sgi-tracking-color.sgi-state-red {
+  color: var(--sgi-surface);
+  background-color: var(--sgi-coral);
+  border-color: var(--sgi-danger-strong);
+}
+
+.sgi-tracking-input.sgi-state-yellow,
+.sgi-tracking-color.sgi-state-yellow {
+  color: var(--sgi-dark);
+  background-color: var(--sgi-honey);
+  border-color: var(--sgi-state-yellow);
+}
+
+.sgi-tracking-input.sgi-state-green,
+.sgi-tracking-color.sgi-state-green {
+  color: var(--sgi-dark);
+  background-color: var(--sgi-mint);
+  border-color: var(--sgi-teal);
+}
+
+/* ── Pie de la tarjeta (legacy .tc-footer) ──────────────────────────────── */
+.sgi-tracking-foot {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--sgi-space-3xl);
+  padding: var(--sgi-space-2xl) var(--sgi-space-4xl);
+  font-size: var(--sgi-fs-md);
+  color: var(--sgi-muted);
+  background: var(--sgi-surface-50);
+  border-top: 1px solid var(--sgi-line);
+}
+
+.sgi-tracking-planb {
+  color: var(--sgi-danger);
+}
+
+/* Barra de scroll de la rejilla, como en el legacy. */
+.sgi-tracking-grid::-webkit-scrollbar {
+  height: 10px;
+}
+
+.sgi-tracking-grid::-webkit-scrollbar-track {
+  background: var(--sgi-surface-400);
+}
+
+.sgi-tracking-grid::-webkit-scrollbar-thumb {
+  background: var(--sgi-disabled);
+  border-radius: var(--sgi-radius-xl);
+}
+
+@media print {
+  .sgi-tracking-grid {
+    overflow: visible;
+  }
+}

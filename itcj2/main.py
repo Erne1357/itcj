@@ -300,20 +300,20 @@ def _register_error_handlers(app: FastAPI):
     # sea prefijo de otro: `_app_for` recorre la tupla con `startswith` y se
     # queda con el primero que case. Los prefijos de página registrados hoy son
     # /itcj, /help-desk, /agendatec, /vistetec, /maint, /titulatec, /directory y
-    # /adhoc — todos disjuntos, así que "/adhoc" no puede robarle una ruta a
+    # /sgi/sgc — todos disjuntos, así que "/sgi/sgc" no puede robarle una ruta a
     # nadie ni que se la roben. Si algún día se añade uno que sea prefijo de
-    # otro (p. ej. "/adhoc" y "/adhoc-legacy"), el más largo va PRIMERO.
+    # otro (p. ej. "/sgi/sgc" y "/sgi/sgc-legacy"), el más largo va PRIMERO.
     _APP_BY_PREFIX = (
         ("/maint", "maint"),
         ("/help-desk", "helpdesk"),
         ("/agendatec", "agendatec"),
-        ("/adhoc", "adhoc"),
+        ("/sgi/sgc", "sgi"),
     )
     _APP_TEMPLATE = {
         "maint": "maint/errors/error.html",
         "helpdesk": "helpdesk/errors/error.html",
         "agendatec": "agendatec/errors/error.html",
-        "adhoc": "adhoc/errors/error.html",
+        "sgi": "sgc/errors/error.html",
         "core": "core/errors/core_error.html",
     }
     # Home de cada app (botón "Ir al inicio" en 404/500). core → dashboard hub.
@@ -321,7 +321,7 @@ def _register_error_handlers(app: FastAPI):
         "maint": "/maint",
         "helpdesk": "/help-desk/",
         "agendatec": "/agendatec/",
-        "adhoc": "/adhoc/",
+        "sgi": "/sgi/sgc/",
         "core": _DASHBOARD_URL,
     }
 
@@ -389,7 +389,7 @@ def _register_error_handlers(app: FastAPI):
 
             # ── Apps con instancia Jinja2 PROPIA ──────────────────────────
             # `itcj2.templates.render` renderiza con el loader GLOBAL, que NO ve
-            # las carpetas de plantillas de maint ni de adhoc: cada una monta su
+            # las carpetas de plantillas de maint ni de sgc: cada una monta su
             # propio `Jinja2Templates`. Pedirle una de esas plantillas al global
             # da `TemplateNotFound`, y aquí eso no se nota — el `except` de abajo
             # se lo traga, `_render_error_page` devuelve None y el handler cae a
@@ -414,8 +414,8 @@ def _register_error_handlers(app: FastAPI):
                     request, template, ctx_maint, status_code=status_code
                 )
 
-            if app_key == "adhoc":
-                # `render_adhoc` ya inyecta request, current_user, current_route
+            if app_key == "sgi":
+                # `render_sgc` ya inyecta request, current_user, current_route
                 # y el `sv`/`sv_core` de UN solo argumento que esperan las
                 # plantillas de Calidad (el `sv` global toma dos: app y ruta).
                 #
@@ -425,9 +425,9 @@ def _register_error_handlers(app: FastAPI):
                 # fallado — un 500 reventando al renderizar el 500. El partial
                 # `_nav.html` hace `nav|default([])`, así que sin nav sale el
                 # shell de Calidad sin las cuatro tarjetas, y sin reventar.
-                from itcj2.apps.adhoc.pages.render import render_adhoc
+                from itcj2.apps.sgi.sgc.pages.render import render_sgc
 
-                return render_adhoc(request, template, ctx, status_code=status_code)
+                return render_sgc(request, template, ctx, status_code=status_code)
 
             from itcj2.templates import render
             return render(request, template, ctx, status_code=status_code)
@@ -441,7 +441,7 @@ def _register_error_handlers(app: FastAPI):
         """Redirige a login cuando una página requiere autenticación.
 
         Con HTMX el 302 NO sirve. Las apps que navegan con ``hx-boost``
-        (helpdesk, adhoc) no piden la página con el documento sino con un XHR, y
+        (helpdesk, sgc) no piden la página con el documento sino con un XHR, y
         un 3xx lo sigue el navegador de forma transparente: HTMX nunca ve el
         redirect, recibe un 200 con el HTML del login y lo inyecta donde iba el
         contenido. El usuario acaba con el formulario de acceso dentro del marco

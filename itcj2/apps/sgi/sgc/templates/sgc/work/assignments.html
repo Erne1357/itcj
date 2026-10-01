@@ -1,0 +1,81 @@
+{# ===========================================================================
+   work/assignments.html — /sgi/sgc/asignaciones
+   Permiso de página: sgi.sgc.tasks.page.assign
+
+   UNA pantalla que consolida las DOS rutas del legacy (`/extintor/usuarios` y
+   `/calendario/usuarios`), que renderizaban el mismo template con contextos
+   incompatibles. El destino y la selección inicial los resuelve
+   `pages/incidents.py::assignments_page` a partir de la querystring
+   (`?action=`, `?task_id=`, `?step_id=`) y viajan en `page_data`.
+
+   Las cuatro acciones y su endpoint:
+     assign       → PUT /api/sgi/v2/sgc/tasks/{id}/assignees
+     notify       → PUT /api/sgi/v2/sgc/tasks/{id}/overdue-notifications
+     step_assign  → PUT /api/sgi/v2/sgc/approval-flows/steps/{id}/validators
+     notify_step  → PUT /api/sgi/v2/sgc/approval-flows/steps/{id}/overdue-notifications
+
+   ASPECTO — porte de `templates/app_prueba/incidents/tasks_users.html`:
+   una tarjeta blanca al 98 %, título con el icono de la acción, la leyenda del
+   orden de aprobación debajo, la lista de personas con el interruptor de iOS
+   a la derecha y su badge de orden azul, y "Confirmar y Guardar" al pie, sobre
+   una línea separadora. El legacy dibujaba ese interruptor a mano en
+   `tasks_users.css`; aquí es el mismo checkbox del picker, vestido igual.
+
+   Los usuarios los pinta `shared/user-picker.js` desde `page_data`, con
+   `ordered=True`: el orden de selección ES el orden de aprobación, que es lo
+   que la propia pantalla del legacy prometía en su leyenda. Nunca se emite un
+   `<option>` desde Jinja (el `htmlUsers` del legacy era HTML crudo dentro de un
+   template literal: rompía con un apóstrofo y aceptaba `<script>`).
+   =========================================================================== #}
+{% extends "sgc/base_sgc.html" %}
+{% from "sgc/partials/_macros.html" import
+     back_button, page_header, user_picker, page_data_script %}
+
+{% block title %}{{ page_title }} · Calidad · ITCJ{% endblock %}
+
+{# `sgi-assign-body` no tenía ni una regla en ninguna hoja: gancho muerto.
+   `sgi-wide` sí (el 98 % de ancho del legacy). #}
+{% block body_class %}sgi-wide{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/sgi/sgc/css/work/assignments.css?v={{ sv('css/work/assignments.css') }}">
+{% endblock %}
+
+{% block content %}
+<section id="sgi-page-assign" class="sgi-assign" data-sgi-assign>
+  <div class="sgi-card sgi-assign-card">
+
+    {% call page_header(page_title, page_subtitle, page_icon) %}
+      {{ back_button(back_url, back_label|default('Volver', true)) }}
+    {% endcall %}
+
+    {{ user_picker(
+         'sgi-assign-picker',
+         users_key='users',
+         selected_key='selected_ids',
+         name='user_ids',
+         ordered=True,
+         search_placeholder='Buscar por nombre, correo o puesto...') }}
+
+    {# Pie de la tarjeta, NO una barra de acciones: en móvil sus dos botones se
+       estiran al 100 % (`assignments.css`), así que la etiqueta se queda entera
+       — colapsarla dejaría dos botones anchos con un icono suelto dentro.
+       `sgi-assign-confirm` se conserva: es la geometría grande del legacy
+       (12px 30px, 1rem), no un color. #}
+    <div class="sgi-assign-actions">
+      <button type="button" class="btn btn-sm btn-secondary" data-sgi-assign-cancel>
+        <i class="fa-solid fa-xmark"></i> Cancelar
+      </button>
+      <button type="button" class="btn btn-sm btn-primary sgi-assign-confirm" data-sgi-assign-save>
+        <i class="fa-solid fa-floppy-disk"></i> Confirmar y Guardar
+      </button>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script id="sgi-mod-shared-user-picker" src="/static/sgi/sgc/js/shared/user-picker.js?v={{ sv('js/shared/user-picker.js') }}"></script>
+<script id="sgi-mod-work-assignments" src="/static/sgi/sgc/js/work/assignments.js?v={{ sv('js/work/assignments.js') }}"></script>
+{% endblock %}

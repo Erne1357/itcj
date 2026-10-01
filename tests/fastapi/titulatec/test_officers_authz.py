@@ -3,7 +3,7 @@
 BLOQUEADOR reproducido en el contenedor antes de escribir estos tests. La
 pestana Encargados (`pages/officers.py`, 4 rutas) escribe sobre `core_positions`
 y `core_user_positions`, las tablas del organigrama que comparten helpdesk,
-maint, agendatec y adhoc. Con solo `titulatec.officers.api.manage` se podia:
+maint, agendatec y sgc. Con solo `titulatec.officers.api.manage` se podia:
 
   * asignar a CUALQUIER usuario del instituto a un puesto de encargado
     (`officer_service.py:75`: `allowed = department_user_ids(...) | set(user_ids)`

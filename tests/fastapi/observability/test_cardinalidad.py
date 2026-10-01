@@ -33,7 +33,7 @@ from itcj2.observability.work import (
 # que 498 son de trabajo pesado y 8 de segundo plano). Margen: 3.002 series,
 # 17,7 % sobre lo proyectado (15 % del tope), unos 150 pares nuevos a 20
 # series cada uno. Contando el producto kind x engine completo eran 18.258 y
-# el margen caía a 1.742 (~87 pares): el merge de adhoc (~90) lo ponía rojo.
+# el margen caía a 1.742 (~87 pares): el merge de sgc (~90) lo ponía rojo.
 # Los 804 pares cuentan `/metrics`, que no genera series (SKIP_PATHS): un par
 # de margen a favor.
 # Re-medido el 2026-09-24 con la presencia por app de la ronda 3

@@ -13,9 +13,9 @@ de verdad pase en local y solo reviente en CI — y como la app nueva se
 desarrolla en una rama, el fallo no aparece hasta el merge a ``main``, que es
 justo cuando bloquea el deploy.
 
-Pasó de verdad: el fixture sembraba tres apps y ``tests/fastapi/adhoc/`` daba
+Pasó de verdad: el fixture sembraba tres apps y ``tests/fastapi/sgc/`` daba
 20 fallos y 15 errores contra una BD limpia, todos con el mismo mensaje —
-``App 'adhoc' no existe o está inactiva``— y ninguno visible en desarrollo.
+``App 'sgi' no existe o está inactiva``— y ninguno visible en desarrollo.
 
 Este guard convierte ese fallo diferido en uno inmediato: si alguien registra
 una app y se olvida del seed, falla aquí, con el nombre de la app y la línea

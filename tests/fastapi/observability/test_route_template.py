@@ -212,8 +212,8 @@ def test_build_route_map_has_no_duplicate_or_empty_templates(app):
         ("/help-desk/tickets/{id}", "helpdesk"),
         ("/itcj/dashboard", "core"),
         ("/loquesea/nuevo", "otro"),
-        ("/api/adhoc/x", "adhoc"),
-        ("/adhoc/x", "adhoc"),
+        ("/api/sgi/sgc/x", "sgi"),
+        ("/sgi/sgc/x", "sgi"),
         ("__unmatched__", "otro"),
     ],
 )

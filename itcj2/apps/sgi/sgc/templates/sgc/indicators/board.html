@@ -1,0 +1,145 @@
+{# ===========================================================================
+   indicators/board.html — tablero (fichas de indicador) de un año.
+   Ruta: GET /sgi/sgc/indicadores/{year_id}/tablero
+   Permiso: sgi.sgc.indicators.page.manage
+   Legacy: app_prueba/indicators/indicators_board.html
+
+   ASPECTO: porte de indicators_board.css — una sola tarjeta blanca que
+   contiene el título ("Tableros del Año: <año>" con el año en violeta), el
+   botón gris de volver arriba a la derecha, la fila Limpiar/Filtrar, la tabla
+   y los controles inferiores (alta + cuántos capturar). Iconos Font Awesome
+   6.4, como el original.
+
+   Cambios de fondo respecto del legacy (se conservan de la migración):
+     · Los CUATRO umbrales son cuatro campos del formulario, no un string
+       "b-r-a-v" partido con .split('-') (bug #16 del plan). Por eso hay una
+       columna "Metas" que el legacy no tenía: sin ella no habría forma de ver
+       los cuatro valores sin abrir la ficha.
+     · El <select> de frecuencia ofrece Semanal | Mensual | Anual. En el legacy
+       'Semanal' se reconocía al pintar la rejilla pero el formulario no lo
+       ofrecía: era un valor inalcanzable.
+     · Los procesos ya no llegan como htmlProcesos (HTML crudo dentro de un
+       template literal de JS): viajan como JSON en page_data.
+     · Enlace de descarga de la evidencia — funcionalidad NUEVA: el legacy subía
+       el archivo y no ofrecía forma de recuperarlo.
+     · El modal es bootstrap.Modal en {% block modals %}, no un .modal-overlay
+       con style.display = 'flex'.
+   =========================================================================== #}
+{% extends "sgc/base_sgc.html" %}
+{% from "sgc/partials/_macros.html" import back_button, data_table, page_data_script, toolbar %}
+
+{% block title %}Tablero {{ year.year }} · Indicadores · Calidad{% endblock %}
+
+{% block body_class %}sgi-wide{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/sgi/sgc/css/indicators/board.css?v={{ sv('css/indicators/board.css') }}">
+{% endblock %}
+
+{% block content %}
+<section id="sgi-page-indicator-board" class="sgi-indicator-board" data-sgi-indicator-board>
+  <div class="sgi-card sgi-board-card">
+
+    <div class="sgi-page-head">
+      <div class="sgi-page-head-main">
+        <h1 class="sgi-page-title">
+          <i class="fa-solid fa-gauge-high"></i>
+          <span>Tableros del Año: <span class="sgi-board-year">{{ year.year }}</span></span>
+        </h1>
+      </div>
+      <div class="sgi-page-actions">
+        {# "Volver" abre SIEMPRE la fila de acciones: es la salida de la pantalla
+           y su sitio no puede depender de que `can_track` sea cierto, o el ancla
+           de escape se mueve según el permiso de quien mira. #}
+        {{ back_button("/sgi/sgc/indicadores", "Volver a Años") }}
+        {% if can_track %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ tracking_url }}">
+          <i class="fa-solid fa-table-cells"></i>
+          <span class="d-none d-sm-inline">Ver seguimiento</span>
+        </a>
+        {% endif %}
+      </div>
+    </div>
+
+    {# La fila Limpiar/Filtrar sale de la macro `toolbar()`, no de un <div>
+       escrito a mano: es el mismo contenedor que emiten las demás pantallas.
+       El `css=` conserva .sgi-board-controls porque esa clase NO agrupa nada,
+       solo lleva el margen del legacy (.controls-top: 20px 0); sin ella la fila
+       se pega a la cabecera. #}
+    {% call toolbar(css='sgi-board-controls') %}
+      <button type="button" class="btn btn-sm btn-secondary"
+              data-sgi-filter-clear="sgi-indicator-board">
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
+      </button>
+      <button type="button" class="btn btn-sm btn-primary" data-sgi-board-filter>
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
+      </button>
+    {% endcall %}
+
+    {{ data_table(
+         'sgi-indicator-board',
+         [
+           {'key': 'process', 'label': 'Proceso', 'filter': true, 'placeholder': 'Proceso...', 'css': 'sgi-board-col-process'},
+           {'key': 'responsible', 'label': 'Responsable', 'filter': true, 'placeholder': 'Responsable...', 'css': 'sgi-board-col-resp'},
+           {'key': 'frequency', 'label': 'Frecuencia', 'filter': true, 'placeholder': 'Frecuencia...', 'css': 'sgi-board-col-freq'},
+           {'key': 'objective', 'label': 'Objetivo', 'filter': true, 'placeholder': 'Objetivo...', 'css': 'sgi-board-col-obj'},
+           {'key': 'planned', 'label': 'Metas (E / R / P / A)', 'css': 'sgi-board-col-planned'},
+           {'key': 'evidence', 'label': 'Evidencia', 'align': 'center', 'css': 'sgi-board-col-doc'},
+           {'key': 'actions', 'label': 'Acciones', 'align': 'center', 'css': 'sgi-board-col-actions'}
+         ],
+         'No hay indicadores registrados en este año.',
+         'fa-solid fa-folder-open',
+         'lg') }}
+
+    {% if can_create %}
+    <div class="sgi-bottom-controls">
+      <button type="button" class="btn btn-sm btn-primary" data-sgi-board-new>
+        <i class="fa-solid fa-plus"></i><span class="d-none d-sm-inline">Añadir Proceso(s)</span>
+      </button>
+      <select class="sgi-qty-select sgi-board-qty" data-sgi-board-qty
+              aria-label="Cuántos indicadores capturar">
+        <option value="1">1 Proceso</option>
+        <option value="3">3 Procesos</option>
+        <option value="5">5 Procesos</option>
+      </select>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+<div class="modal fade" id="sgi-board-modal" tabindex="-1"
+     aria-labelledby="sgi-board-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable sgi-board-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title sgi-board-modal-title" id="sgi-board-modal-title">
+          <i class="fa-solid fa-gauge-high me-2"></i><span data-sgi-board-modal-label>Gestión de Proceso</span>
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div data-sgi-board-forms></div>
+      </div>
+      <div class="modal-footer sgi-board-modal-footer">
+        {# Pie de modal: eliminar a la izquierda con me-auto, cancelar y guardar a
+           la derecha. Los tres al tamaño único (btn-sm) y con la etiqueta SIN
+           envolver: dentro del modal siempre hay ancho para leer la acción. #}
+        <button type="button" class="btn btn-sm btn-danger me-auto" data-sgi-board-delete hidden>
+          <i class="fa-solid fa-trash"></i> Eliminar Proceso
+        </button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-sgi-board-save>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar Tablero
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script id="sgi-mod-indicators-board" src="/static/sgi/sgc/js/indicators/board.js?v={{ sv('js/indicators/board.js') }}"></script>
+{% endblock %}

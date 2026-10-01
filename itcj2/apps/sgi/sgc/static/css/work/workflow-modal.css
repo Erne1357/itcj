@@ -1,0 +1,282 @@
+/* ---------------------------------------------------------------------------
+   COMPONENTE  modal de workflow de una tarea (partials/_workflow_modal.html)
+   LO CARGAN   /sgi/sgc/dashboard y las listas de tareas de una incidencia o de un
+               evento de programa (.../{id}/tareas)
+   EN BASE     modal, tabla, boton, estado vacio generico, tokens
+   --------------------------------------------------------------------------- */
+
+/* ===========================================================================
+   workflow-modal.css - vestido del unico visor del hilo de una tarea.
+
+   Salio de static/css/dashboard/dashboard.css, donde vivia porque el tablero
+   era la unica pantalla que abria el modal. Al pasar el markup a un partial
+   compartido, sus reglas tenian que salir con el: una lista de tareas carga
+   work/tasks.css y jamas dashboard.css, asi que el dialogo habria aparecido sin
+   estilo -- que en esta app se ve como "no abre", porque el velo y el cuadro se
+   pintan desde aqui y desde sgc.css, no desde Bootstrap.
+
+   Toda pantalla que incluya el partial carga TAMBIEN esta hoja en su bloque
+   extra_css. Reglas: todo prefijado ".sgi-wf-", tokens de sgc.css, y nunca
+   redefinir .form-control, .card, .badge-..., .alert-... ni .bg-...
+
+   Los valores son los del legacy, ya resueltos por su cascada real; no se han
+   tocado al mover el bloque. El unico corte responsive es el de la escala de la
+   app (576px para la rejilla de tres columnas del expediente).
+
+   OJO con el gotcha del repo: jamas escribir el cierre de comentario pegado a
+   un comodin de token; cierra el comentario antes de tiempo y deja el :root
+   siguiente sin parsear.
+   =========================================================================== */
+
+/* ── Modal de workflow: cabecera ───────────────────────────────────────── */
+
+/* El legacy titula con un <h2>: 1.5rem en negrita, no el 1.25rem del
+   `.modal-title` genérico del shell. */
+.sgi-wf-modal-title {
+  font-size: var(--sgi-fs-3xl);
+  font-weight: var(--sgi-fw-bold);
+}
+
+/* ── Modal de workflow: origen de la tarea ─────────────────────────────── */
+
+/* Banda azul clara plegable (legacy `.wf-banner`). */
+.sgi-wf-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sgi-space-2xl);
+  width: 100%;
+  padding: var(--sgi-space-xl) var(--sgi-space-3xl);
+  font-size: var(--sgi-fs-base);
+  font-weight: var(--sgi-fw-semibold);
+  text-align: left;
+  color: var(--sgi-primary);
+  background: var(--sgi-info-soft);
+  border: none;
+  border-radius: var(--sgi-radius-lg);
+  cursor: pointer;
+  transition: background .2s ease;
+}
+
+.sgi-wf-banner:hover {
+  background: var(--sgi-info-soft-deep);
+}
+
+.sgi-wf-parent {
+  margin-top: var(--sgi-space-lg);
+  padding: var(--sgi-space-3xl);
+  font-size: var(--sgi-fs-lg);
+  background: var(--sgi-surface-100);
+  border: 1px solid var(--sgi-border);
+  border-radius: var(--sgi-radius-lg);
+}
+
+.sgi-wf-parent-title {
+  margin: 0 0 var(--sgi-space-2xl);
+  font-size: var(--sgi-fs-base);
+  font-weight: var(--sgi-fw-bold);
+  color: var(--sgi-dark);
+}
+
+.sgi-wf-version {
+  font-size: var(--sgi-fs-sm);
+  font-weight: var(--sgi-fw-medium);
+  color: var(--sgi-muted);
+}
+
+.sgi-wf-download {
+  margin-top: var(--sgi-space-2xl);
+}
+
+/* ── Modal de workflow: la tarea ───────────────────────────────────────── */
+
+.sgi-wf-task {
+  margin-top: var(--sgi-space-4xl);
+  padding-top: var(--sgi-space-3xl);
+  border-top: 2px dashed var(--sgi-border);
+}
+
+.sgi-wf-task-title {
+  margin-bottom: var(--sgi-space-2xl);
+  font-size: var(--sgi-fs-2xl);
+  font-weight: var(--sgi-fw-bold);
+  line-height: 1.3;
+  color: var(--sgi-primary);
+}
+
+/* El legacy la fija en tres columnas; aquí solo se apila en pantallas
+   estrechas, donde tres no caben. */
+.sgi-wf-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sgi-space-2xl);
+  margin: 0 0 var(--sgi-space-2xl);
+}
+
+@media (min-width: 576px) {
+  .sgi-wf-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.sgi-wf-cell {
+  min-width: 0;
+}
+
+.sgi-wf-label {
+  margin: 0;
+  font-size: var(--sgi-fs-sm);
+  font-weight: var(--sgi-fw-bold);
+  text-transform: uppercase;
+  color: var(--sgi-muted);
+}
+
+.sgi-wf-value {
+  margin: 0;
+  font-size: var(--sgi-fs-base);
+  font-weight: var(--sgi-fw-medium);
+  overflow-wrap: anywhere;
+  color: var(--sgi-dark);
+}
+
+.sgi-wf-value.is-primary {
+  font-weight: var(--sgi-fw-bold);
+  color: var(--sgi-primary);
+}
+
+/* ── Validaciones (tabla sgc_task_approvals) ─────────────────────────── */
+
+.sgi-wf-approvals {
+  margin-top: var(--sgi-space-2xl);
+  padding: var(--sgi-space-xl) var(--sgi-space-2xl);
+  background: var(--sgi-soft);
+  border-radius: var(--sgi-radius-lg);
+}
+
+.sgi-wf-approvals-head {
+  margin: 0 0 var(--sgi-space-md);
+  font-size: var(--sgi-fs-md);
+  font-weight: var(--sgi-fw-bold);
+  color: var(--sgi-dark);
+}
+
+.sgi-wf-approvals-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sgi-space-md) var(--sgi-space-2xl);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sgi-wf-approval {
+  font-size: var(--sgi-fs-md);
+}
+
+.sgi-wf-approval.is-ok i {
+  color: var(--sgi-success);
+}
+
+.sgi-wf-approval.is-ko i {
+  color: var(--sgi-danger);
+}
+
+/* ── Comentarios ───────────────────────────────────────────────────────── */
+
+.sgi-wf-comments {
+  margin-top: var(--sgi-space-4xl);
+}
+
+.sgi-wf-comments-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sgi-space-2xl);
+}
+
+/* El legacy lo pinta con un <h4>: 1rem y 600, no el 0.67em del <h6> nativo. */
+.sgi-wf-comments-title {
+  margin: 0;
+  font-size: var(--sgi-fs-base);
+  font-weight: var(--sgi-fw-semibold);
+  color: var(--sgi-dark);
+}
+
+.sgi-wf-comment-form {
+  margin-top: var(--sgi-space-2xl);
+  padding: var(--sgi-space-2xl);
+  background: var(--sgi-surface-300);
+  border: 1px solid var(--sgi-border);
+  border-radius: var(--sgi-radius-lg);
+}
+
+.sgi-wf-comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sgi-space-lg);
+  margin-top: var(--sgi-space-lg);
+}
+
+.sgi-wf-comment-file {
+  max-width: 22rem;
+  font-size: var(--sgi-fs-md);
+}
+
+.sgi-wf-comments-table {
+  margin-top: var(--sgi-space-3xl);
+  font-size: var(--sgi-fs-lg);
+}
+
+.sgi-wf-comments-table td {
+  vertical-align: top;
+}
+
+.sgi-wf-date {
+  white-space: nowrap;
+  font-weight: var(--sgi-fw-bold);
+}
+
+.sgi-wf-author {
+  font-weight: var(--sgi-fw-bold);
+  color: var(--sgi-info);
+}
+
+.sgi-wf-muted {
+  color: var(--sgi-muted);
+  text-align: center;
+}
+
+/* ── Pie del modal ─────────────────────────────────────────────────────── */
+
+.sgi-wf-footer {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sgi-space-lg);
+}
+
+/* Aviso de la regla de calidad: texto suelto centrado, sin recuadro (legacy
+   `#msgObligatorio`). */
+.sgi-wf-notice {
+  margin: 0;
+  font-size: var(--sgi-fs-md);
+  font-weight: var(--sgi-fw-semibold);
+  text-align: center;
+  color: var(--sgi-danger);
+}
+
+.sgi-wf-notice.is-warning {
+  color: var(--sgi-warning-ink);
+}
+
+.sgi-wf-notice.is-danger {
+  color: var(--sgi-danger);
+}
+
+.sgi-wf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sgi-space-3xl);
+}

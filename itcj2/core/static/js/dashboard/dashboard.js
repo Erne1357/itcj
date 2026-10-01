@@ -12,7 +12,7 @@ class WindowsDesktop {
       { id: 'agendatec', name: 'AgendaTec', icon: 'calendar' },
       { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket', customImage: true },
       { id: 'maint', name: 'Mantenimiento', icon: 'wrench', customImage: true },
-      { id: 'adhoc', name: 'Calidad', icon: 'clipboard-check' },
+      { id: 'sgi', name: 'SGI', icon: 'clipboard-check' },
       { id: 'titulatec', name: 'TitulaTec', icon: 'graduation-cap', customImage: true },
       { id: 'vistetec', name: 'VisteTec', icon: 'shirt', customImage: true },
       { id: 'directory', name: 'Extensiones', icon: 'book', customImage: true },
@@ -407,10 +407,15 @@ class WindowsDesktop {
         iframeSrc: "/maint/",
         icon: "wrench",
       },
-      adhoc: {
-        name: "Calidad",
-        url: "/adhoc/",
-        iframeSrc: "/adhoc/",
+      // La llave tiene que ser la misma que el `id` de `desktopItems` (arriba):
+      // `getAppConfig` busca por ese id y, si no la encuentra, cae en la config por
+      // defecto y la ventana abre /app/home. Hoy el ícono es la app SGI y su única
+      // puerta es el módulo SGC; cuando entren Buzón y Encuestas, esta URL pasa a
+      // ser el hub `/sgi/`.
+      sgi: {
+        name: "SGI — Calidad",
+        url: "/sgi/sgc/",
+        iframeSrc: "/sgi/sgc/",
         icon: "clipboard-check",
       },
       titulatec: {

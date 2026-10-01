@@ -55,16 +55,16 @@ from itcj2.apps.maint.models import (  # noqa: F401
 # Directory
 from itcj2.apps.directory.models import DirectoryEntry, DirectorySettings  # noqa: F401
 
-# Adhoc
-from itcj2.apps.adhoc.models import (  # noqa: F401
-    AdhocArea, adhoc_user_areas, AdhocProcess,
-    AdhocIndicatorYear, AdhocIndicator, AdhocIndicatorTracking,
-    AdhocMailConfig,
-    AdhocDocumentCategory, AdhocDocumentClassification,
-    AdhocApprovalFlow, AdhocApprovalFlowStep, adhoc_flow_step_assignees, AdhocDocument,
-    AdhocDocumentAcknowledgement, AdhocDocumentVisibility,
-    AdhocIncidentCategory, AdhocIncident, AdhocIncidentFile,
-    AdhocProgramCategory, AdhocProgramEvent, AdhocProgramEventFile,
-    AdhocTask, adhoc_task_assignees, AdhocTaskComment, AdhocTaskCommentFile,
-    AdhocTaskApproval,
+# Sgc
+from itcj2.apps.sgi.sgc.models import (  # noqa: F401
+    SgcArea, sgc_user_areas, SgcProcess,
+    SgcIndicatorYear, SgcIndicator, SgcIndicatorTracking,
+    SgcMailConfig,
+    SgcDocumentCategory, SgcDocumentClassification,
+    SgcApprovalFlow, SgcApprovalFlowStep, sgc_flow_step_assignees, SgcDocument,
+    SgcDocumentAcknowledgement, SgcDocumentVisibility,
+    SgcIncidentCategory, SgcIncident, SgcIncidentFile,
+    SgcProgramCategory, SgcProgramEvent, SgcProgramEventFile,
+    SgcTask, sgc_task_assignees, SgcTaskComment, SgcTaskCommentFile,
+    SgcTaskApproval,
 )

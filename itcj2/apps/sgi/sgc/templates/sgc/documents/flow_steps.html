@@ -1,0 +1,146 @@
+{# ===========================================================================
+   documents/flow_steps.html — /sgi/sgc/documentos/flujos/{flow_id}/pasos
+   Permiso: sgi.sgc.flows.page.list.
+
+   Origen legacy: templates/app_prueba/documents/documents_steps.html +
+   static/js/documents/documents_steps.js.
+
+   ASPECTO: porte 1:1 del original. Contenedor al 98% (body.sgi-wide), título
+   con el icono de lista numerada DENTRO del recuadro blanco y "Volver a Flujos"
+   en su esquina superior derecha, caja de aviso azul con filo violeta, tabla de
+   cuatro columnas (Orden · Nombre del Paso · Días Límite · Configuración y
+   Acciones) e, bajo ella, "Añadir Pasos" + cantidad a la izquierda y "Guardar
+   Diseño del Flujo" en verde a la derecha.
+
+   Qué cambia respecto del legacy:
+   * Guardar ya no es un form POST que recarga la página contra
+     `save_flow_steps`: es un PUT /approval-flows/{id}/steps, un UPSERT por
+     `step_order`. El endpoint del legacy BORRABA todos los pasos y los recreaba
+     con ids nuevos (bug #3), dejando `sgc_tasks.flow_step_id` y
+     `sgc_documents.current_step_id` apuntando a filas muertas. Por eso el
+     aviso del modal del legacy ("los usuarios asignados se perderán") ya no
+     aplica y se sustituye por el real: un paso solo se borra si nadie lo usa,
+     y si lo usan la API responde 409.
+   * Asignar validadores ya no navega a otra pantalla
+     (`/app_prueba/extintor/usuarios?action=step_assign&step_id=…`): se hace en
+     un modal con el selector compartido.
+   * Los usuarios NO se pintan desde Jinja (el legacy listaba nombre y apellido
+     en un <ul>, y en la pantalla de asignación los inyectaba como HTML crudo).
+     Van como JSON en page_data y los pinta shared/user-picker.js con
+     textContent.
+   =========================================================================== #}
+{% extends "sgc/base_sgc.html" %}
+{% from "sgc/partials/_macros.html" import page_header, back_button, data_table,
+        user_picker, page_data_script %}
+
+{% block title %}Pasos de {{ flow.name }} · Calidad{% endblock %}
+
+{% block body_class %}sgi-wide{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/sgi/sgc/css/documents/documents.css?v={{ sv('css/documents/documents.css') }}">
+<link rel="stylesheet" href="/static/sgi/sgc/css/documents/flow-steps.css?v={{ sv('css/documents/flow-steps.css') }}">
+{% endblock %}
+
+{% block content %}
+<section id="sgi-page-flow-steps" class="sgi-flow-steps" data-sgi-flow-steps>
+
+  <div class="sgi-card sgi-doc-card">
+
+    {% call page_header("Diseño del Flujo: " ~ flow.name, None, "fa-solid fa-list-ol") %}
+      {{ back_button(back_url, 'Volver a Flujos') }}
+    {% endcall %}
+
+    <div class="sgi-steps-hint">
+      <p class="sgi-steps-hint-text">
+        Aquí puedes definir los pasos secuenciales que tomará un documento para
+        ser aprobado.
+      </p>
+      <p class="sgi-steps-hint-note">
+        Un paso nuevo se guarda antes de poder asignarle validadores, y un paso
+        solo puede eliminarse si ningún documento o tarea lo está usando.
+      </p>
+    </div>
+
+    {{ data_table(
+         'sgi-steps-table',
+         [
+           {'key': 'order', 'label': 'Orden', 'align': 'center'},
+           {'key': 'name', 'label': 'Nombre del Paso'},
+           {'key': 'days', 'label': 'Días Límite'},
+           {'key': 'actions', 'label': 'Configuración y Acciones', 'align': 'center'}
+         ],
+         'Este flujo todavía no tiene pasos.',
+         'fa-solid fa-list-ol') }}
+
+    {%- if can_update %}
+    <div class="sgi-doc-bottom sgi-doc-bottom-between">
+      <span class="sgi-steps-add">
+        <button type="button" class="btn btn-sm btn-primary" data-sgi-steps-add>
+          <i class="fa-solid fa-plus"></i><span class="d-none d-sm-inline">Añadir Pasos</span>
+        </button>
+        <label class="visually-hidden" for="sgi-steps-qty">Cuántos pasos añadir</label>
+        <select class="sgi-doc-qty" id="sgi-steps-qty" data-sgi-steps-qty>
+          {% for n in range(1, 11) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+        </select>
+      </span>
+      {# `btn-primary`, no el verde del legacy: "Guardar" es la accion primaria y
+   en el resto de la app va en violeta. Dos colores para el mismo verbo era
+   justo la incoherencia que este barrido cierra. El verde se queda solo
+   donde significa otra cosa (exportar a Excel, en view_report.html). #}
+      <button type="button" class="btn btn-sm btn-primary" data-sgi-steps-save>
+        <i class="fa-solid fa-floppy-disk"></i><span class="d-none d-sm-inline">Guardar Diseño del Flujo</span>
+      </button>
+    </div>
+    {%- endif %}
+  </div>
+
+</section>
+{% endblock %}
+
+{% block modals %}
+{# — Validadores / avisos de atraso de un paso —
+   El mismo modal sirve para las dos acciones: cambia el título, la ayuda y el
+   endpoint (…/validators o …/overdue-notifications), que comparten el body
+   {"user_ids": [...]}. #}
+<div class="modal fade" id="sgi-step-users-modal" tabindex="-1"
+     aria-labelledby="sgi-step-users-modal-title" aria-hidden="true" data-sgi-step-modal>
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="sgi-step-users-modal-title" data-sgi-step-modal-title>
+          <i class="fa-solid fa-users-gear me-2"></i>Validadores del paso
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="sgi-step-modal-hint" data-sgi-step-modal-hint></p>
+        {# ordered=False A PROPÓSITO. La macro sugiere ordered=True "porque el
+           orden de marcado es el orden de aprobación", pero eso no se sostiene
+           contra esta API: `set_step_validators` guarda un CONJUNTO (no hay
+           columna de orden en sgc_flow_step_assignees) y el motor de workflow
+           completa el paso cuando TODOS los asignados han aprobado, sin
+           secuencia entre ellos (plan §10.b, rama C). Numerar la selección
+           prometería un orden que no sobrevive al guardado. La secuencia real
+           es la de los PASOS, y esa sí se ve en la tabla. #}
+        {{ user_picker('sgi-step-users-picker',
+                       users_key='users',
+                       name='user_ids',
+                       help='Todos los validadores del paso deben aprobar para que el documento avance al siguiente.') }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-sgi-step-users-save>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script id="sgi-mod-shared-user-picker" src="/static/sgi/sgc/js/shared/user-picker.js?v={{ sv('js/shared/user-picker.js') }}"></script>
+<script id="sgi-mod-documents-flow-steps" src="/static/sgi/sgc/js/documents/flow-steps.js?v={{ sv('js/documents/flow-steps.js') }}"></script>
+{% endblock %}

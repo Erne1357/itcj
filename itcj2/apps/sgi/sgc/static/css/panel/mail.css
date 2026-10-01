@@ -1,0 +1,165 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/panel/correo
+   CONTIENE tarjeta centrada de 500px y el interruptor de 60x34 con su pomo
+   EN BASE  tarjeta, boton y toast
+   --------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   panel/mail.css — interruptor global de correo (/sgi/sgc/panel/correo).
+
+   PORTE de las 132 líneas de <style> inline de control_panel/mail.html, con
+   sus valores exactos: tarjeta de 500px centrada (padding 60/40, 50px de aire
+   arriba y abajo), sobre a 3rem en violeta, interruptor de 60×34 con el pomo
+   de 26px, y botón de guardar a todo el ancho. (Su alto ya no se porta: lo
+   pone el `.btn-sm` del vocabulario común — ver la regla más abajo.)
+
+   Lo único que NO se porta: el `.main-container { … !important }`, que pisaba
+   el layout de toda la app, y el `.modal-success` casero (aquí es un toast).
+   ========================================================================== */
+
+.sgi-mail-card {
+  position: relative;
+  max-width: 500px;
+  margin: 50px auto;
+  padding: 60px 40px;
+  text-align: center;
+}
+
+/* "Volver": esquina superior derecha DENTRO de la tarjeta, como el legacy. */
+.sgi-mail-card .sgi-back {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  font-size: var(--sgi-fs-sm);
+}
+
+.sgi-mail-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sgi-space-lg);
+}
+
+.sgi-mail-icon {
+  font-size: var(--sgi-fs-5xl);
+  color: var(--sgi-primary);
+}
+
+/* El tamano y el peso vienen de `.sgi-page-title`, como en las otras 29
+   pantallas. Aqui solo se ajusta lo propio del hero: sin margen y centrado
+   (`.sgi-page-title` es flex, asi que hay que centrar su contenido).
+   Antes declaraba `font-size: 1.5em`, uno de los dos unicos `em` de la app:
+   valia 24px aqui y 36px en el panel por tener otro ancestro. */
+.sgi-mail-title {
+  margin: 0;
+  justify-content: center;
+}
+
+.sgi-mail-text {
+  margin: 0;
+  color: var(--sgi-dark);
+}
+
+/* Interruptor + etiqueta, en columna y con 40px de aire arriba y abajo. */
+.sgi-mail-switch-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sgi-space-3xl);
+  margin: var(--sgi-space-6xl) 0;
+}
+
+.sgi-switch {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+/* La casilla real es invisible pero conserva su caja: recibe el clic y el foco
+   del teclado (el riel va con pointer-events:none justo debajo). */
+.sgi-switch input {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sgi-switch input:disabled {
+  cursor: not-allowed;
+}
+
+.sgi-switch-slider {
+  position: absolute;
+  inset: 0;
+  background-color: var(--sgi-disabled);
+  border-radius: var(--sgi-radius-pill);
+  transition: .4s;
+  pointer-events: none;
+}
+
+.sgi-switch-slider::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  width: 26px;
+  height: 26px;
+  background: var(--sgi-surface);
+  border-radius: var(--sgi-radius-circle);
+  transition: .4s;
+}
+
+.sgi-switch input:checked ~ .sgi-switch-slider {
+  background-color: var(--sgi-primary);
+}
+
+.sgi-switch input:checked ~ .sgi-switch-slider::before {
+  transform: translateX(26px);
+}
+
+.sgi-switch input:focus-visible ~ .sgi-switch-slider {
+  box-shadow: 0 0 0 3px var(--sgi-primary-tint);
+}
+
+.sgi-switch input:disabled ~ .sgi-switch-slider {
+  opacity: .6;
+}
+
+.sgi-switch-label {
+  font-weight: var(--sgi-fw-semibold);
+}
+
+/* Botón de guardar: ancho completo, como el `.btn-submit` del legacy.
+   Ya NO declara `padding: var(--sgi-space-xl)` (los 12px del original). Ese
+   relleno era la altura del botón grande, y sobrescribía el del `.btn-sm` que
+   ahora lleva el marcado: el control se veía canónico en las clases y de otro
+   tamaño en pantalla, que es justo la incoherencia que se está quitando. El
+   alto lo pone `.btn-sm` de sgc.css; lo propio de esta pantalla —lo que de
+   verdad la distingue— es que ocupe todo el ancho de la tarjeta. */
+.sgi-mail-save {
+  justify-content: center;
+  width: 100%;
+}
+
+.sgi-mail-readonly {
+  margin: 0;
+  color: var(--sgi-muted);
+  font-size: var(--sgi-fs-sm);
+}
+
+@media (max-width: 575.98px) {
+  .sgi-mail-card {
+    margin: var(--sgi-space-4xl) auto;
+    padding: 45px 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sgi-switch-slider,
+  .sgi-switch-slider::before {
+    transition: none;
+  }
+}

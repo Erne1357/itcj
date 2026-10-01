@@ -1,0 +1,383 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/incidencias y /sgi/sgc/programas
+   CONTIENE rango de fechas del filtro, paginador propio, aviso de vencimiento
+            y el modal de archivos adjuntos
+   EN BASE  prioridad de fila, icono de fila, contador, barra inferior y la caja
+            del selector de cantidad
+   --------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   work/work-items.css — capa visual de INCIDENCIAS y EVENTOS DE PROGRAMA
+   (/sgi/sgc/incidencias y /sgi/sgc/programas), más el modal de archivos adjuntos.
+
+   PORTE DE `static/css/incidents/incidents.css` + `programs/programs.css` del
+   legacy, que eran la misma hoja copiada (mismos px, mismos colores, el bloque
+   `.modal-overlay` duplicado y 45 hex sueltos repetidos). Aquí es una sola,
+   con los valores exactos del original y el color siempre por token.
+
+   Equivalencias con el legacy:
+     .table-container   → .sgi-card (sgc.css)
+     .controls-top      → macro toolbar() → .sgi-toolbar (sgc.css)
+     .doc-table         → .sgi-table .sgi-table-xl (sgc.css)
+     .filter-input      → .sgi-filter-input (sgc.css)
+     .badge-urgente/…   → .sgi-prio-urgente / -media / -baja
+     .btn-icon .icon-task .icon-doc → .sgi-icon-btn .sgi-icon-…
+     .bottom-controls   → .sgi-work-bottom
+     .retraso-icon      → .sgi-overdue
+
+   Convenciones (plan 6.4): clases prefijadas .sgi-, colores por variable, y
+   NUNCA la secuencia de cierre de comentario pegada a un comodín — es un
+   gotcha real del repo que rompe el :root siguiente.
+   ========================================================================== */
+
+/* ---------- contenedor de la pantalla ---------- */
+
+.sgi-work {
+  display: block;
+}
+
+.sgi-work.is-loading {
+  opacity: .6;
+  pointer-events: none;
+}
+
+/* La tarjeta única del legacy: título, botón "Volver", controles, tabla y
+   controles inferiores viven todos dentro. `overflow-x` va en el envoltorio de
+   la tabla, no aquí, para no recortar sombras ni el foco. */
+.sgi-work-card {
+  padding: var(--sgi-space-4xl);
+}
+
+/* ---------- controles superiores ---------- */
+
+/* `.sgi-work-controls` ya no existe: la fila "Limpiar / Filtrar" la pinta la
+   macro `toolbar()` con `.sgi-toolbar` de sgc.css, que declaraba justo esta
+   misma regla (era la copia numero N de `.controls-top`). El `margin-top` que
+   habia aqui colapsaba con el margen inferior, mayor, de `.sgi-page-head`, asi
+   que al quitarlo manda ese y la pantalla no se mueve. */
+
+/* ---------- fila de filtros dentro de la tabla ---------- */
+
+/* El legacy usa `.filter-input` para inputs Y selects por igual: 5px de
+   relleno, borde gris y radio 4. `.sgi-filter-input` de sgc.css ya lo
+   define; aquí solo se afinan los selects y el rango de fechas. */
+.sgi-work-table select.sgi-filter-input {
+  background: var(--sgi-surface);
+  cursor: pointer;
+}
+
+/* Compromiso lleva DOS controles (desde / hasta) en la misma celda: en el
+   legacy esa celda iba vacía porque el rango no existía. Se apilan para que la
+   columna conserve el ancho que tiene en el original. */
+.sgi-work-daterange {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sgi-space-2xs);
+}
+
+.sgi-work-daterange .sgi-filter-input {
+  min-width: 0;
+  width: 7.6rem;
+  padding: 3px 5px;
+  font-size: var(--sgi-fs-xs);
+}
+
+/* El folio nunca se parte: en el legacy cabe entero en su columna. */
+.sgi-work-table [data-sgi-cell="folio"],
+.sgi-work-table th[data-sgi-filter-key="folio"] {
+  white-space: nowrap;
+}
+
+/* El título de la fila se corta en el legacy solo por el ancho de la columna:
+   nunca lleva puntos suspensivos ni un tope de caracteres. */
+.sgi-work-table .sgi-cell-clamp {
+  display: table-cell;
+  max-width: 22rem;
+  overflow: visible;
+}
+
+/* ---------- iconos de acción de la fila ---------- */
+
+/* El icono base (legacy `.btn-icon` / `.icon-action-blue`) y las variantes
+   primary/trash viven en sgc.css. Aqui, lo propio de estas dos pantallas:
+   el icono se tine de lila al pasar el raton y hay dos colores mas. */
+.sgi-icon-btn:hover {
+  color: var(--sgi-secondary);
+}
+
+.sgi-icon-task { color: var(--sgi-green-flat); }
+.sgi-icon-doc  { color: var(--sgi-blue-flat); }
+
+/* Cada variante de color REPITE su color en :hover, que es la convencion de
+   sgc.css (`.sgi-icon-danger:hover`, `.sgi-icon-warning:hover`…). Hacen
+   falta dos veces:
+     · el `.sgi-icon-btn:hover` de arriba tine de lila TODO icono de estas dos
+       pantallas, y con la misma especificidad (0,2,0) gana el que se declara
+       despues — estos;
+     · aqui habia un `color: inherit` que hacia caer los tres al gris de la
+       celda, justo lo contrario de lo que dice el bloque de arriba y de lo que
+       hace la pantalla hermana de tareas.
+   El realce al pasar el raton lo pone el `transform: scale(1.2)` del componente
+   comun, no un cambio de color. */
+.sgi-icon-task:hover,
+.sgi-icon-task:focus-visible { color: var(--sgi-green-flat); }
+
+.sgi-icon-doc:hover,
+.sgi-icon-doc:focus-visible { color: var(--sgi-blue-flat); }
+
+.sgi-icon-trash:hover,
+.sgi-icon-trash:focus-visible { color: var(--sgi-danger); }
+
+/* La columna de acciones del legacy centra sus iconos con 12px de separación. */
+.sgi-work-table .sgi-actions {
+  gap: var(--sgi-space-xl);
+}
+
+/* ---------- controles inferiores (legacy `.bottom-controls`) ---------- */
+
+/* La barra y la caja del selector son de sgc.css; aqui, sus medidas. */
+.sgi-work-bottom .sgi-qty-select {
+  max-width: 11rem;
+  padding: var(--sgi-space-lg);
+  border-radius: var(--sgi-radius-lg);
+  font-size: var(--sgi-fs-lg);
+}
+
+/* Conteo y paginación: el legacy no paginaba, así que esto va discreto y
+   empujado a la derecha para no competir con el botón de alta.
+   `flex-wrap` porque desde A29 la fila lleva además la tira de números: con las
+   276 incidencias reales son doce páginas, y en un teléfono no caben en una
+   sola línea. */
+.sgi-work-pager {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-left: auto;
+}
+
+.sgi-work-count {
+  color: var(--sgi-muted);
+  font-size: var(--sgi-fs-md);
+}
+
+.sgi-work-pageinfo {
+  color: var(--sgi-dark);
+  font-size: var(--sgi-fs-md);
+  min-width: 8rem;
+  text-align: center;
+}
+
+/* ── Los números de página ──────────────────────────────────────────────
+   Los pinta `shared/pager.js` dentro del propio paginador de la plantilla,
+   entre "anterior" y "siguiente". Con las 276 incidencias del SGC a 25 por
+   página son doce, y antes de esto llegar a la última eran once clics.
+
+   El bloque está ESPEJADO en documents/documents.css, con las mismas clases: la
+   única hoja que cargan las dos pantallas es la base, y esto es un componente
+   de pantalla, no del shell. Si algún día el paginador se usa en una tercera,
+   el bloque se sube a la hoja base y estos dos se borran. */
+.sgi-pager-pages {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sgi-space-2xs);
+}
+
+/* La tira se oculta con `tira.hidden = true`; quien lo aplica es
+   `.sgi-shell [hidden] { display: none !important }` de la hoja base, que
+   gana a cualquier regla normal de aquí. No hace falta repetirla. */
+
+.sgi-pager-page {
+  min-width: 2.1rem;
+  padding: var(--sgi-space-2xs) var(--sgi-space-sm);
+  border: 1px solid var(--sgi-border);
+  border-radius: var(--sgi-radius-md);
+  background: var(--sgi-surface);
+  color: var(--sgi-slate);
+  font-family: inherit;
+  font-size: var(--sgi-fs-md);
+  font-weight: var(--sgi-fw-medium);
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.sgi-pager-page:hover {
+  background: var(--sgi-primary-soft);
+  border-color: var(--sgi-primary);
+  color: var(--sgi-primary);
+}
+
+/* El resalte cuelga de `aria-current` y no de una clase paralela: así es
+   imposible que haya un botón pintado como "estás aquí" que el lector de
+   pantalla no anuncie. */
+.sgi-pager-page[aria-current="page"] {
+  background: var(--sgi-primary);
+  border-color: var(--sgi-primary);
+  color: var(--sgi-surface);
+  font-weight: var(--sgi-fw-semibold);
+  cursor: default;
+}
+
+.sgi-pager-page:focus-visible {
+  outline: 2px solid var(--sgi-primary);
+  outline-offset: 1px;
+}
+
+.sgi-pager-gap {
+  min-width: 1.25rem;
+  text-align: center;
+  color: var(--sgi-muted);
+  font-size: var(--sgi-fs-md);
+}
+
+/* ---------- celdas ---------- */
+
+/* Aviso de compromiso vencido sin cierre real. Legacy `.retraso-icon`: rojo,
+   5px a la derecha del texto y parpadeando. */
+.sgi-overdue {
+  color: var(--sgi-danger);
+  margin-left: var(--sgi-space-xs);
+  animation: sgi-overdue-blink 1.5s infinite;
+}
+
+/* El guard de sgc.css (`@media (prefers-reduced-motion: reduce)`) no llega
+   hasta aqui: tiene la misma especificidad (0,1,0) que la regla de arriba y su
+   hoja se carga ANTES, asi que pierde. Hay que repetirlo en la hoja de pagina o
+   el icono sigue parpadeando indefinidamente para quien pidio no ver movimiento. */
+@media (prefers-reduced-motion: reduce) {
+  .sgi-overdue { animation: none; }
+}
+
+/* Parpadeo propio: el generico de sgc.css baja a .35, este a .3. */
+@keyframes sgi-overdue-blink {
+  0%   { opacity: 1; }
+  50%  { opacity: .3; }
+  100% { opacity: 1; }
+}
+
+.sgi-muted-cell {
+  color: var(--sgi-muted);
+  font-style: italic;
+}
+
+/* ---------- modal de archivos (incidencia / evento de programa) ---------- */
+
+.sgi-files-list {
+  min-height: 4rem;
+}
+
+.sgi-files-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sgi-files-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .6rem .25rem;
+  border-bottom: 1px solid var(--sgi-border);
+}
+
+.sgi-files-item:last-child {
+  border-bottom: 0;
+}
+
+.sgi-files-info {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-width: 0;
+}
+
+.sgi-files-name {
+  color: var(--sgi-dark);
+  font-weight: var(--sgi-fw-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sgi-files-meta {
+  color: var(--sgi-muted);
+  font-size: var(--sgi-fs-sm);
+  white-space: nowrap;
+}
+
+.sgi-files-empty,
+.sgi-files-error {
+  margin: 0;
+  padding: 1.25rem .25rem;
+  text-align: center;
+}
+
+.sgi-files-empty {
+  color: var(--sgi-muted);
+}
+
+.sgi-files-error {
+  color: var(--sgi-danger);
+}
+
+/* Adjunto de incidencia migrado sin binario (51 de 351 — el proveedor del
+   SGC legacy ya no tiene el archivo). Mismo criterio que `.sgi-file-none`
+   de documents/document-list.js: icono apagado + `title` explicativo en vez
+   de un enlace de descarga que el backend respondería con 404. Los eventos
+   de programa no tienen adjuntos sin binario, pero la clase queda aquí
+   porque esta hoja ya es compartida por las dos pantallas. */
+.sgi-file-none {
+  color: var(--sgi-disabled);
+}
+
+/* Caja de subida: el legacy la dibuja con borde discontinuo (`.file-upload-box`). */
+.sgi-files-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: .5rem;
+  margin-top: 1rem;
+  padding: var(--sgi-space-2xl);
+  border: 1px dashed var(--sgi-disabled);
+  border-radius: var(--sgi-radius-md);
+}
+
+.sgi-files-upload .sgi-label {
+  width: 100%;
+  margin-bottom: .25rem;
+}
+
+.sgi-files-upload input[type="file"] {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+/* ---------- pantallas estrechas ---------- */
+
+@media (max-width: 575.98px) {
+  .sgi-work-card {
+    padding: var(--sgi-space-2xl);
+  }
+
+  .sgi-work-pager {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  /* El rótulo deja de reservar 8rem: con la tira de números al lado, ese hueco
+     empujaba "siguiente" fuera de la pantalla. */
+  .sgi-work-pageinfo {
+    min-width: 0;
+  }
+
+  /* Doce números no caben en 360px ni con la fila partida: se aprieta el botón
+     para que quepan siete y el resto pase a la segunda línea. */
+  .sgi-pager-page {
+    min-width: 1.9rem;
+    padding: var(--sgi-space-2xs) var(--sgi-space-xs);
+  }
+}

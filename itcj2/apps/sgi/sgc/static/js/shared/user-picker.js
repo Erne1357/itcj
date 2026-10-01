@@ -1,0 +1,569 @@
+/**
+ * shared/user-picker.js — selector múltiple de usuarios de Calidad.
+ *
+ * Expone SOLO `window.SgcUserPicker` (IIFE, sin globales sueltas).
+ *
+ * QUÉ SUSTITUYE
+ * -------------
+ * En el legacy los usuarios se inyectaban desde Jinja como HTML CRUDO dentro de
+ * un template literal (`INCIDENTS_CONFIG.htmlUsers`, `TAREAS_CONFIG.htmlUsers`,
+ * `PROGRAMS_CONFIG.htmlUsers`, `USUARIOS_CONFIG.areasAppJson`), sin `|tojson` ni
+ * escape de backticks: un apellido con un apóstrofo o con `${` rompía la página
+ * o inyectaba script. Y la pantalla de asignación (`tasks_users.html`) pintaba
+ * la tabla entera desde Jinja con un N+1 por usuario.
+ *
+ * Aquí los usuarios llegan como JSON en el bloque `page_data_script()` y el DOM
+ * se construye en JS con textContent (cero innerHTML con datos del servidor).
+ *
+ * DÓNDE SE USA
+ * ------------
+ *   - asignación de responsables de tarea  → PUT /api/sgi/v2/sgc/tasks/{id}/assignees
+ *   - validadores de un paso de flujo      → PUT /api/sgi/v2/sgc/approval-flows/steps/{id}/validators
+ *   - avisos de vencimiento                → PUT …/overdue-notifications
+ * Los tres reciben `{"user_ids": [1, 2, 3]}`.
+ *
+ * EL ORDEN IMPORTA
+ * ----------------
+ * Con `ordered: true` la selección se numera y `getSelection()` devuelve los ids
+ * EN EL ORDEN EN QUE SE MARCARON: en los pasos de aprobación ese es el orden
+ * secuencial de validación (lo dice la propia pantalla del legacy). Sin
+ * `ordered` el orden sigue siendo estable, pero no se muestra.
+ *
+ * MARCADO DECLARATIVO (macro `user_picker()` de partials/_macros.html)
+ * -------------------------------------------------------------------
+ *   <div data-sgi-user-picker
+ *        data-sgi-users-key="users"          ← clave dentro de page_data
+ *        data-sgi-selected-key="assigned_ids"
+ *        data-sgi-name="user_ids"
+ *        data-sgi-ordered="1"></div>
+ *
+ * USO DESDE JS
+ * ------------
+ *   var picker = SgcUserPicker.mount(el, { users: [...], selected: [3], ordered: true });
+ *   picker.getSelection();            // [3, 7]
+ *   picker.setSelection([1, 2]);
+ *   el.addEventListener('sgc:user-picker-change', function (e) { e.detail.selected });
+ *
+ * Para un <select> de UN solo usuario (el caso del modal de tareas del legacy):
+ *   SgcUserPicker.fillSelect(selectEl, users, { selected: 4 });
+ *
+ * FICHAS "SIN ACCESO"
+ * -------------------
+ * Un usuario puede traer `without_access: true`. Significa que sigue asignado
+ * pero ya no puede entrar a la app, así que se pinta marcado —en la lista y en
+ * su ficha— y `selectionWithoutAccess()` lo delata antes de guardar.
+ *
+ * QUIÉN tiene acceso no se decide aquí: lo calcula el servidor
+ * (`pages/_work_context.py::picker_users`, con el MISMO criterio que llena la
+ * lista de asignables) y este archivo solo lo pinta. Antes de esa marca, el
+ * respaldo `'#' + id` de `renderSelection` era todo lo que se veía de esa
+ * persona: un número, en la pantalla a la que manda el aviso de "tarea
+ * bloqueada" para arreglarla.
+ */
+(function () {
+    'use strict';
+
+    var U = window.SgiUtils;
+
+    // ==================== HELPERS ====================
+
+    function displayName(user) {
+        if (!user) return '';
+        if (user.full_name) return String(user.full_name);
+        var parts = [];
+        if (user.first_name) parts.push(user.first_name);
+        if (user.last_name) parts.push(user.last_name);
+        if (user.middle_name) parts.push(user.middle_name);
+        if (parts.length) return parts.join(' ');
+        if (user.name) return String(user.name);
+        if (user.username) return String(user.username);
+        return '#' + user.id;
+    }
+
+    /**
+     * ¿El servidor marcó a esta persona como "ya no entra a la app"?
+     *
+     * Una sola lectura de la clave para los dos sitios que la pintan (la fila
+     * de la lista y la ficha de la selección) y para `selectionWithoutAccess`,
+     * que es lo que impide que uno de los tres se olvide de mirarla.
+     */
+    function withoutAccess(user) {
+        return !!(user && user.without_access);
+    }
+
+    /** Segunda línea: puesto / departamento / correo, lo que haya. */
+    function metaLine(user) {
+        var bits = [];
+        if (user.position) bits.push(user.position);
+        if (user.position_title) bits.push(user.position_title);
+        if (user.department) bits.push(user.department);
+        if (user.area) bits.push(user.area);
+        if (user.email) bits.push(user.email);
+        if (!bits.length && user.username) bits.push(user.username);
+        return bits.join(' · ');
+    }
+
+    //: Lo que dice la marca, en los dos sitios. Escrito una vez: la fila y la
+    //: ficha tienen que explicar lo MISMO, porque son la misma persona.
+    var SIN_ACCESO_CORTO = 'Sin acceso';
+    var SIN_ACCESO_LARGO = 'Ya no puede entrar a Calidad: sigue asignado, pero ' +
+        'no puede atender nada. Quítalo de la selección con su ✕.';
+
+    function normalize(value) {
+        var text = (value === null || value === undefined) ? '' : String(value);
+        if (text.normalize) text = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return text.toLowerCase();
+    }
+
+    function searchBlob(user) {
+        return normalize([
+            displayName(user), user.email, user.username, user.control_number,
+            user.position, user.position_title, user.department, user.area
+        ].filter(Boolean).join(' '));
+    }
+
+    function toIdList(value) {
+        if (!value) return [];
+        var list = Array.isArray(value) ? value : [value];
+        var out = [];
+        for (var i = 0; i < list.length; i++) {
+            if (list[i] === null || list[i] === undefined || list[i] === '') continue;
+            out.push(String(list[i]));
+        }
+        return out;
+    }
+
+    // ==================== INSTANCIA ====================
+
+    function Picker(root, opts) {
+        var o = opts || {};
+        var d = root.dataset || {};
+
+        this.root = root;
+        this.users = o.users || [];
+        this.ordered = o.ordered !== undefined ? !!o.ordered : (d.sgiOrdered === '1');
+        this.name = o.name || d.sgiName || 'user_ids';
+        this.searchPlaceholder = o.searchPlaceholder || d.sgiSearchPlaceholder ||
+            'Buscar por nombre, correo o puesto...';
+        this.emptyMessage = o.emptyMessage || 'No hay usuarios disponibles.';
+        this.selected = toIdList(o.selected);
+        this.term = '';
+        this.nodes = {};
+    }
+
+    Picker.prototype.render = function () {
+        var box = document.createElement('div');
+        box.className = 'sgi-user-picker-box';
+
+        // — cabecera: buscador + contador —
+        var head = document.createElement('div');
+        head.className = 'sgi-user-picker-head';
+
+        var search = document.createElement('input');
+        search.type = 'search';
+        search.className = 'form-control form-control-sm sgi-user-picker-search';
+        search.placeholder = this.searchPlaceholder;
+        search.setAttribute('aria-label', this.searchPlaceholder);
+        head.appendChild(search);
+
+        var count = document.createElement('span');
+        count.className = 'sgi-user-picker-count';
+        head.appendChild(count);
+
+        var clear = document.createElement('button');
+        clear.type = 'button';
+        clear.className = 'btn btn-sm btn-outline-secondary';
+        clear.innerHTML = '<i class="fa-solid fa-eraser"></i>';   // markup estático
+        clear.title = 'Limpiar selección';
+        clear.setAttribute('aria-label', 'Limpiar selección');
+        clear.setAttribute('data-sgi-picker-clear', '');
+        head.appendChild(clear);
+
+        box.appendChild(head);
+
+        // — lista —
+        var list = document.createElement('div');
+        list.className = 'sgi-user-picker-list';
+        list.setAttribute('role', 'group');
+        box.appendChild(list);
+
+        // — chips de lo seleccionado —
+        var chips = document.createElement('div');
+        chips.className = 'sgi-user-picker-selected';
+        box.appendChild(chips);
+
+        // — valor para envíos por formulario clásico (opcional) —
+        var hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = this.name;
+        box.appendChild(hidden);
+
+        this.root.appendChild(box);
+        this.nodes = { box: box, search: search, count: count, list: list, chips: chips, hidden: hidden };
+
+        this.renderList();
+        this.renderSelection();
+        this.bind();
+    };
+
+    Picker.prototype.renderList = function () {
+        var list = this.nodes.list;
+        list.textContent = '';
+
+        var visible = 0;
+        for (var i = 0; i < this.users.length; i++) {
+            var user = this.users[i];
+            if (this.term && searchBlob(user).indexOf(this.term) === -1) continue;
+            list.appendChild(this.buildOption(user));
+            visible++;
+        }
+
+        if (!visible) {
+            var empty = document.createElement('p');
+            empty.className = 'sgi-picker-empty';
+            empty.textContent = this.users.length ? 'Sin coincidencias.' : this.emptyMessage;
+            list.appendChild(empty);
+        }
+        this.renderCount();
+    };
+
+    Picker.prototype.buildOption = function (user) {
+        var id = String(user.id);
+        var label = document.createElement('label');
+        label.className = 'sgi-user-option';
+
+        var check = document.createElement('input');
+        check.type = 'checkbox';
+        check.className = 'form-check-input';
+        check.value = id;
+        check.checked = this.selected.indexOf(id) !== -1;
+        check.setAttribute('data-sgi-picker-check', '');
+        label.appendChild(check);
+
+        var body = document.createElement('div');
+        body.className = 'sgi-user-option-body';
+
+        var name = document.createElement('span');
+        name.className = 'sgi-user-option-name';
+        name.textContent = displayName(user);      // textContent, nunca innerHTML
+        body.appendChild(name);
+
+        var meta = metaLine(user);
+        if (meta) {
+            var metaEl = document.createElement('span');
+            metaEl.className = 'sgi-user-option-meta';
+            metaEl.textContent = meta;
+            body.appendChild(metaEl);
+        }
+
+        // La marca va DENTRO de la ficha, debajo del nombre, y no como un
+        // atenuado de la fila entera: atenuar diría "no se puede elegir", y sí
+        // se puede —de hecho está elegido—; lo que hace falta es leer por qué
+        // sobra. El `title` de la fila repite la frase larga para quien pasa el
+        // ratón sin llegar a la ficha de la selección.
+        if (withoutAccess(user)) {
+            label.className += ' sgi-user-option-off';
+            label.title = SIN_ACCESO_LARGO;
+            var flag = document.createElement('span');
+            flag.className = 'sgi-user-option-flag';
+            flag.textContent = SIN_ACCESO_CORTO;
+            body.appendChild(flag);
+        }
+
+        label.appendChild(body);
+
+        if (this.ordered) {
+            var order = this.selected.indexOf(id);
+            var badge = document.createElement('span');
+            badge.className = 'sgi-order-badge';
+            badge.setAttribute('data-sgi-picker-order', id);
+            badge.textContent = order === -1 ? '' : String(order + 1);
+            badge.hidden = order === -1;
+            label.appendChild(badge);
+        }
+
+        return label;
+    };
+
+    Picker.prototype.renderSelection = function () {
+        var chips = this.nodes.chips;
+        chips.textContent = '';
+
+        for (var i = 0; i < this.selected.length; i++) {
+            var user = this.find(this.selected[i]);
+            var chip = document.createElement('span');
+            chip.className = 'sgi-chip';
+            if (withoutAccess(user)) {
+                chip.className += ' sgi-chip-off';
+                chip.title = SIN_ACCESO_LARGO;
+            }
+
+            if (this.ordered) {
+                var order = document.createElement('span');
+                order.className = 'sgi-order-badge';
+                order.textContent = String(i + 1);
+                chip.appendChild(order);
+            }
+
+            var text = document.createElement('span');
+            text.className = 'sgi-chip-label';
+            text.textContent = user ? displayName(user) : ('#' + this.selected[i]);
+            chip.appendChild(text);
+
+            // El rótulo va en su propio <span> y no pegado al nombre: el nombre
+            // se corta con puntos suspensivos cuando no cabe (`.sgi-chip-label`),
+            // y un "· sin acceso" concatenado sería lo PRIMERO que desaparece.
+            if (withoutAccess(user)) {
+                var chipFlag = document.createElement('span');
+                chipFlag.className = 'sgi-chip-flag';
+                chipFlag.textContent = SIN_ACCESO_CORTO;
+                chip.appendChild(chipFlag);
+            }
+
+            var remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'sgi-chip-remove';
+            remove.innerHTML = '<i class="fa-solid fa-xmark"></i>';   // markup estático
+            remove.title = 'Quitar';
+            remove.setAttribute('aria-label', 'Quitar');
+            remove.setAttribute('data-sgi-picker-remove', this.selected[i]);
+            chip.appendChild(remove);
+
+            chips.appendChild(chip);
+        }
+
+        chips.hidden = this.selected.length === 0;
+        this.nodes.hidden.value = this.selected.join(',');
+        this.renderCount();
+        this.syncBadges();
+    };
+
+    Picker.prototype.renderCount = function () {
+        this.nodes.count.textContent = this.selected.length
+            ? (this.selected.length + ' seleccionado(s)')
+            : 'Ninguno seleccionado';
+    };
+
+    Picker.prototype.syncBadges = function () {
+        if (!this.ordered) return;
+        var badges = this.nodes.list.querySelectorAll('[data-sgi-picker-order]');
+        for (var i = 0; i < badges.length; i++) {
+            var id = badges[i].getAttribute('data-sgi-picker-order');
+            var pos = this.selected.indexOf(id);
+            badges[i].textContent = pos === -1 ? '' : String(pos + 1);
+            badges[i].hidden = pos === -1;
+        }
+    };
+
+    Picker.prototype.find = function (id) {
+        for (var i = 0; i < this.users.length; i++) {
+            if (String(this.users[i].id) === String(id)) return this.users[i];
+        }
+        return null;
+    };
+
+    Picker.prototype.toggle = function (id, on) {
+        var key = String(id);
+        var at = this.selected.indexOf(key);
+        if (on && at === -1) this.selected.push(key);
+        else if (!on && at !== -1) this.selected.splice(at, 1);
+        this.renderSelection();
+        this.emit();
+    };
+
+    Picker.prototype.emit = function () {
+        try {
+            this.root.dispatchEvent(new CustomEvent('sgc:user-picker-change', {
+                bubbles: true,
+                detail: { selected: this.getSelection() }
+            }));
+        } catch (e) { /* sin CustomEvent constructor: no es crítico */ }
+    };
+
+    Picker.prototype.bind = function () {
+        var self = this;
+
+        this.nodes.search.addEventListener('input', function () {
+            self.term = normalize(this.value);
+            self.renderList();
+            self.syncBadges();
+        });
+
+        this.nodes.list.addEventListener('change', function (evt) {
+            var check = evt.target.closest('[data-sgi-picker-check]');
+            if (!check) return;
+            self.toggle(check.value, check.checked);
+        });
+
+        this.nodes.chips.addEventListener('click', function (evt) {
+            var btn = evt.target.closest('[data-sgi-picker-remove]');
+            if (!btn) return;
+            evt.preventDefault();
+            var id = btn.getAttribute('data-sgi-picker-remove');
+            self.toggle(id, false);
+            var check = self.nodes.list.querySelector(
+                '[data-sgi-picker-check][value="' + String(id).replace(/["\\]/g, '\\$&') + '"]'
+            );
+            if (check) check.checked = false;
+        });
+
+        this.nodes.box.addEventListener('click', function (evt) {
+            if (!evt.target.closest('[data-sgi-picker-clear]')) return;
+            evt.preventDefault();
+            self.clear();
+        });
+    };
+
+    // ---------- API de instancia ----------
+
+    /** ids seleccionados, como enteros y EN ORDEN DE SELECCIÓN. */
+    Picker.prototype.getSelection = function () {
+        var out = [];
+        for (var i = 0; i < this.selected.length; i++) {
+            var n = parseInt(this.selected[i], 10);
+            out.push(isNaN(n) ? this.selected[i] : n);
+        }
+        return out;
+    };
+
+    /**
+     * Los seleccionados que el SERVIDOR marcó como "ya no entra a la app".
+     *
+     * Devuelve las fichas enteras, no solo sus ids: quien avisa antes de
+     * guardar (`work/assignments.js`) tiene que poder decir el nombre, y
+     * volver a buscarlo por su cuenta sería una segunda forma de resolver lo
+     * mismo. Un id seleccionado que ni siquiera está en `users` NO cuenta: de
+     * ese no se sabe nada, y afirmar que no tiene acceso sería inventarlo.
+     *
+     * @returns {Array<Object>} las fichas marcadas, en orden de selección
+     */
+    Picker.prototype.selectionWithoutAccess = function () {
+        var out = [];
+        for (var i = 0; i < this.selected.length; i++) {
+            var user = this.find(this.selected[i]);
+            if (withoutAccess(user)) out.push(user);
+        }
+        return out;
+    };
+
+    Picker.prototype.setSelection = function (ids) {
+        this.selected = toIdList(ids);
+        this.renderList();
+        this.renderSelection();
+    };
+
+    Picker.prototype.setUsers = function (users) {
+        this.users = users || [];
+        this.renderList();
+        this.renderSelection();
+    };
+
+    Picker.prototype.clear = function () {
+        this.selected = [];
+        this.renderList();
+        this.renderSelection();
+        this.emit();
+    };
+
+    Picker.prototype.destroy = function () {
+        this.root.textContent = '';
+        delete this.root.dataset.sgiPickerBound;
+    };
+
+    // ==================== API PÚBLICA ====================
+
+    /**
+     * Monta un selector en `el`.
+     * @param {HTMLElement|string} el  elemento o id
+     * @param {{users:Array, selected:Array, ordered:boolean, name:string,
+     *          searchPlaceholder:string, emptyMessage:string}} [opts]
+     * @returns {Picker|null}
+     */
+    function mount(el, opts) {
+        var root = (typeof el === 'string') ? document.getElementById(el) : el;
+        if (!root) return null;
+        if (root.dataset.sgiPickerBound === '1') return root._sgiPicker || null;
+        root.dataset.sgiPickerBound = '1';
+
+        var picker = new Picker(root, opts);
+        picker.render();
+        root._sgiPicker = picker;
+        return picker;
+    }
+
+    /** Devuelve la instancia ya montada sobre `el`, si la hay. */
+    function get(el) {
+        var root = (typeof el === 'string') ? document.getElementById(el) : el;
+        return (root && root._sgiPicker) || null;
+    }
+
+    /**
+     * Rellena un <select> de usuarios desde JSON. Reemplaza al `htmlUsers` del
+     * legacy: cada <option> se crea con createElement + textContent, así que un
+     * apellido con comillas o con markup no puede inyectar nada.
+     * @param {HTMLSelectElement|string} select
+     * @param {Array} users
+     * @param {{selected:*, placeholder:?string, labelFn:Function}} [opts]
+     */
+    function fillSelect(select, users, opts) {
+        var el = (typeof select === 'string') ? document.getElementById(select) : select;
+        if (!el) return;
+        var o = opts || {};
+        var chosen = toIdList(o.selected);
+        var label = typeof o.labelFn === 'function' ? o.labelFn : displayName;
+
+        el.textContent = '';
+        if (o.placeholder !== null) {
+            var ph = document.createElement('option');
+            ph.value = '';
+            ph.textContent = o.placeholder || 'Seleccionar usuario...';
+            el.appendChild(ph);
+        }
+        for (var i = 0; i < (users || []).length; i++) {
+            var user = users[i];
+            var option = document.createElement('option');
+            option.value = String(user.id);
+            option.textContent = label(user);
+            if (chosen.indexOf(String(user.id)) !== -1) option.selected = true;
+            el.appendChild(option);
+        }
+    }
+
+    /** Monta los `[data-sgi-user-picker]` que haya en `scope`, leyendo page_data. */
+    function initAll(scope) {
+        var node = scope || document;
+        var data = (U && typeof U.pageData === 'function') ? U.pageData() : {};
+        var roots = [];
+        var i;
+
+        if (node.matches && node.matches('[data-sgi-user-picker]')) roots.push(node);
+        var found = node.querySelectorAll('[data-sgi-user-picker]');
+        for (i = 0; i < found.length; i++) roots.push(found[i]);
+
+        var out = [];
+        for (i = 0; i < roots.length; i++) {
+            var root = roots[i];
+            var usersKey = root.dataset.sgiUsersKey || 'users';
+            var selectedKey = root.dataset.sgiSelectedKey;
+            var made = mount(root, {
+                users: data[usersKey] || [],
+                selected: selectedKey ? data[selectedKey] : []
+            });
+            if (made) out.push(made);
+        }
+        return out;
+    }
+
+    if (U && typeof U.onReady === 'function') {
+        U.onReady(function (root) { initAll(root || document); });
+    }
+
+    window.SgcUserPicker = {
+        mount: mount,
+        get: get,
+        initAll: initAll,
+        fillSelect: fillSelect,
+        displayName: displayName,
+        withoutAccess: withoutAccess
+    };
+})();

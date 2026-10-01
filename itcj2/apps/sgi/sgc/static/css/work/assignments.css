@@ -1,0 +1,165 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/asignaciones
+   CONTIENE aspecto de la lista de personas: fila con linea inferior, checkbox
+            vestido de interruptor de iOS y el numero de turno
+   EN BASE  el selector de usuarios entero (.sgi-user-picker…), tarjeta y boton
+   --------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   work/assignments.css — pantalla /sgi/sgc/asignaciones.
+
+   PORTE de `static/css/incidents/tasks_users.css` del legacy. El markup de la
+   lista lo pinta `shared/user-picker.js` (clases .sgi-user-picker…, que ya
+   define sgc.css), así que aquí se le da EL ASPECTO del original:
+
+     .table-container  → .sgi-card
+     .controls-top     → cabecera del picker (buscador + contador + limpiar)
+     .doc-table filas  → .sgi-user-option, con línea inferior y 12px de aire
+     .switch/.slider   → el propio checkbox del picker, vestido de interruptor
+                         de iOS (50x26, pastilla gris que se pone violeta)
+     .order-badge      → .sgi-order-badge en azul 2980b9, círculo con sombra
+     botón Confirmar   → .sgi-assign-confirm, sobre una línea separadora
+   ========================================================================== */
+
+.sgi-assign {
+  display: block;
+}
+
+.sgi-assign-card {
+  padding: var(--sgi-space-4xl);
+}
+
+/* El legacy deja el título pegado a la leyenda (5px) y la leyenda a 20px de la
+   lista. `.sgi-page-head` ya trae el hueco de abajo. */
+.sgi-assign-card .sgi-page-head {
+  margin-bottom: var(--sgi-space-3xl);
+}
+
+/* ---------- lista de personas ---------- */
+
+/* Sin recuadro exterior: en el legacy la lista es una tabla dentro de la
+   tarjeta, no una caja aparte. */
+.sgi-assign .sgi-user-picker-box {
+  border: 0;
+  border-radius: 0;
+}
+
+/* Cabecera = la fila de controles del legacy: buscador a la izquierda,
+   contador y "limpiar selecciones" a la derecha. */
+.sgi-assign .sgi-user-picker-head {
+  gap: var(--sgi-space-lg);
+  padding: var(--sgi-space-lg) 0 var(--sgi-space-2xl);
+  background: none;
+  border-bottom: 0;
+}
+
+.sgi-assign .sgi-user-picker-search {
+  flex: 1 1 20rem;
+}
+
+/* La lista es larga a propósito: el legacy no la acota, así que aquí se le da
+   una altura cómoda con su propio scroll y los botones quedan alcanzables. */
+.sgi-assign .sgi-user-picker-list {
+  max-height: 60vh;
+  border-top: 1px solid var(--sgi-line);
+}
+
+/* Fila = fila de tabla del legacy: 12px de relleno y línea inferior. */
+.sgi-assign .sgi-user-option {
+  gap: var(--sgi-space-xl);
+  padding: var(--sgi-space-xl);
+}
+
+/* Orden visual del legacy: datos · interruptor · número de turno. En el DOM el
+   checkbox va primero (es la etiqueta del label), así que se recoloca con
+   `order` en vez de reordenar el markup del módulo compartido. */
+.sgi-assign .sgi-user-option-body { order: 1; }
+.sgi-assign .sgi-user-option input[type="checkbox"] { order: 2; }
+.sgi-assign .sgi-order-badge { order: 3; }
+
+.sgi-assign .sgi-user-option-name {
+  font-size: var(--sgi-fs-lg);
+  font-weight: var(--sgi-fw-normal);
+}
+
+/* ---------- interruptor de iOS (legacy `.switch` + `.slider`) ---------- */
+
+.sgi-assign .sgi-user-option input[type="checkbox"] {
+  position: relative;
+  flex: 0 0 auto;
+  width: 50px;
+  height: 26px;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--sgi-border-mid);
+  border: 0;
+  border-radius: var(--sgi-radius-pill);
+  cursor: pointer;
+  transition: .4s;
+}
+
+.sgi-assign .sgi-user-option input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  width: 20px;
+  height: 20px;
+  background-color: var(--sgi-surface);
+  border-radius: var(--sgi-radius-circle);
+  transition: .4s;
+}
+
+.sgi-assign .sgi-user-option input[type="checkbox"]:checked {
+  background-color: var(--sgi-primary);
+}
+
+.sgi-assign .sgi-user-option input[type="checkbox"]:checked::before {
+  transform: translateX(24px);
+}
+
+.sgi-assign .sgi-user-option input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--sgi-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- badge de orden (legacy `.order-badge`) ---------- */
+
+/* Azul 2980b9 = --sgi-info, círculo con sombra y 10px de aire a la
+   izquierda del interruptor. */
+.sgi-assign .sgi-order-badge {
+  min-width: 1.6rem;
+  height: 1.6rem;
+  margin-left: var(--sgi-space-lg);
+  background: var(--sgi-info);
+  box-shadow: var(--sgi-elev-pin);
+}
+
+/* ---------- pie: confirmar ---------- */
+
+.sgi-assign-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sgi-space-lg);
+  margin-top: var(--sgi-space-4xl);
+  padding-top: var(--sgi-space-3xl);
+  border-top: 1px solid var(--sgi-line);
+}
+
+/* Legacy: 12px 30px y 1rem, más grande que el resto de la pantalla. */
+.sgi-assign-confirm {
+  padding: var(--sgi-space-xl) var(--sgi-space-5xl);
+  font-size: var(--sgi-fs-base);
+}
+
+@media (max-width: 575.98px) {
+  .sgi-assign-card {
+    padding: var(--sgi-space-2xl);
+  }
+
+  .sgi-assign-actions .btn {
+    flex: 1 1 100%;
+  }
+}

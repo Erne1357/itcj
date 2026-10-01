@@ -1,0 +1,109 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/documentos/flujos
+   CONTIENE nombre del flujo, linea de uso bajo el nombre, ancho de la columna
+            Configuracion, recorte de la descripcion a una linea, el contador de
+            pasos y la papelera deshabilitada
+   EN BASE  iconos de fila, tabla, tarjeta y barra inferior
+   --------------------------------------------------------------------------- */
+
+/* ===========================================================================
+   documents/flows.css — /sgi/sgc/documentos/flujos.
+
+   Se carga DESPUÉS de documents/documents.css, que ya trae la tarjeta con el
+   título dentro, la botonera superior, los iconos de acción y los controles
+   inferiores. Aquí solo queda lo propio de la pantalla.
+
+   El legacy (documents_flows.css) redeclaraba `.doc-table`, `.filter-input`,
+   `.btn-action` y un bloque `.modal-overlay` completo. Todo eso vive ya en
+   sgc.css y en documents.css.
+   =========================================================================== */
+
+.sgi-flows {
+  display: block;
+}
+
+/* El nombre del flujo va en peso normal: en el legacy la celda es un <td> a
+   secas (`documents_flows.html:33`) y `.doc-table td` no toca el font-weight.
+   El 600 que habia aqui era un realce inventado, no un porte. */
+.sgi-flow-name {
+  color: var(--sgi-dark);
+}
+
+/* El nombre pasa a ser un bloque porque debajo va la linea de uso. */
+.sgi-flow-name-text {
+  display: block;
+}
+
+/* Linea de uso: cuantos documentos del SGC usan este flujo. Es el numero que
+   decide si la papelera de la fila se puede pulsar, asi que se lee en la fila
+   y no solo en el tooltip del boton apagado.
+
+   Va en el gris de texto atenuado y NO en el de placeholder, tambien cuando
+   dice "Sin documentos": los dos estados son informacion —uno explica una
+   papelera apagada, el otro explica una viva— y la informacion tiene que
+   leerse. Mismo criterio que la columna "Paso" de work/tasks.js. */
+.sgi-flow-usage {
+  display: block;
+  margin-top: var(--sgi-space-2xs);
+  color: var(--sgi-muted);
+  font-size: var(--sgi-fs-sm);
+  font-weight: var(--sgi-fw-normal);
+}
+
+/* Legacy `.icon-btn`: un punto más grandes que los del panel de documentos. */
+.sgi-flows .sgi-icon-action {
+  font-size: var(--sgi-fs-2xl);
+  margin: 0 var(--sgi-space-xs);
+}
+
+/* Columna "Configuración" del legacy: 150px y centrada. */
+.sgi-flows .sgi-table th:last-child,
+.sgi-flows .sgi-table td:last-child {
+  width: 150px;
+}
+
+/* La descripción se recorta a UNA línea con puntos suspensivos: dentro de una
+   celda de tabla el clamp de -webkit-box de sgc.css deja asomar un trozo de
+   la línea siguiente, y esta columna ni siquiera existe en el legacy. */
+.sgi-flows .sgi-cell-clamp {
+  display: block;
+  max-width: 46ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Número de pasos: texto, nunca pastilla (el legacy no tiene esta columna y no
+   se le inventa un color). */
+.sgi-flow-steps-count {
+  color: var(--sgi-muted);
+  font-size: var(--sgi-fs-md);
+  font-weight: var(--sgi-fw-semibold);
+}
+
+.sgi-flow-steps-none {
+  color: var(--sgi-disabled);
+  font-size: var(--sgi-fs-md);
+  font-weight: var(--sgi-fw-semibold);
+}
+
+/* Papelera deshabilitada: el flujo ya lo usan documentos del SGC y el guard del
+   servidor no se relaja, asi que la fila deja de ofrecer lo que no se puede.
+
+   Mismo tratamiento que la accion "Editar" del panel de documentos y por la
+   misma razon: deshabilitado tiene que VERSE deshabilitado sin pasar el raton
+   por encima, asi que pierde el rojo de la accion destructiva y se queda en el
+   gris de "no disponible"; la opacidad vuelve a 1 porque el .4 de la base sobre
+   ese gris deja el icono en un fantasma.
+
+   `pointer-events` vuelve a `auto` a proposito. La base lo anula (sgc.css) y
+   con eso el navegador tampoco muestra el `title` del boton, que aqui es lo
+   unico que dice CUANTOS documentos lo usan y que hacer en su lugar. Un boton
+   `disabled` no dispara `click` aunque reciba el raton, y flows.js ademas lo
+   comprueba en su listener delegado. */
+.sgi-flows .sgi-actions .sgi-icon-action:disabled {
+  opacity: 1;
+  color: var(--sgi-disabled);
+  pointer-events: auto;
+  cursor: not-allowed;
+}

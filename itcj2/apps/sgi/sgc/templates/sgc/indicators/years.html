@@ -1,0 +1,146 @@
+{# ===========================================================================
+   indicators/years.html — lista de años del tablero de indicadores.
+   Ruta: GET /sgi/sgc/indicadores?mode=config|tracking
+   Permiso: sgi.sgc.indicators.page.list
+   Legacy: app_prueba/indicators/indicators_years.html
+
+   ASPECTO: porte de indicators_year.css — una sola tarjeta blanca de 30px con
+   el título ("Tablero de Indicadores"), la línea de ayuda con el icono de
+   información, el botón gris de volver arriba a la derecha, la fila
+   Limpiar/Filtrar, la tabla y los controles inferiores (alta + cuántos años).
+   Iconos Font Awesome 6.4, como el original.
+
+   Cambios de fondo respecto del legacy (se conservan de la migración):
+     · Cero atributos de estilo en línea (el legacy tenía 11 en 60 líneas) y
+       cero HTML crudo en JS.
+     · El modal deja de ser un .modal-overlay con display:flex y pasa a
+       bootstrap.Modal, dentro de {% block modals %} a nivel <body>.
+     · El borrado ya no construye un <form> sintético y hace submit(): va por
+       DELETE /api/sgi/v2/sgc/indicator-years/{id} tras SgiUtils.confirmDialog().
+     · La URL de destino de cada fila ya no se arma con un url_for(id=0) al que
+       se le hace .replace('/0','/') dentro de un string JS, ni ramifica con un
+       condicional de Jinja en medio de esa cadena: viaja como
+       target_base/target_suffix en el bloque page_data.
+     · La columna "Indicadores" es nueva: el conteo ya viene de la misma
+       consulta que la lista, así que enseñarlo no cuesta una query extra.
+   =========================================================================== #}
+{% extends "sgc/base_sgc.html" %}
+{% from "sgc/partials/_macros.html" import back_button, data_table, page_data_script, toolbar %}
+
+{% block title %}Indicadores · Calidad · ITCJ{% endblock %}
+
+{% block body_class %}sgi-wide{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/sgi/sgc/css/indicators/years.css?v={{ sv('css/indicators/years.css') }}">
+{% endblock %}
+
+{% block content %}
+<section id="sgi-page-indicator-years" class="sgi-indicator-years" data-sgi-indicator-years>
+  <div class="sgi-card sgi-years-card">
+
+    <div class="sgi-page-head">
+      <div class="sgi-page-head-main">
+        <h1 class="sgi-page-title">
+          <i class="fa-solid fa-chart-line"></i>
+          <span>Tablero de Indicadores</span>
+        </h1>
+      </div>
+      <div class="sgi-page-actions">
+        {{ back_button("/sgi/sgc/panel", "Volver al Panel") }}
+      </div>
+    </div>
+
+    <p class="sgi-years-hint">
+      <i class="fa-solid fa-circle-info"></i>
+      Seleccione el año de seguimiento o registre uno nuevo.
+      {# El conmutador se pinta SOLO si el usuario puede entrar en el modo
+         contrario: `swap_url` sale vacío si no, con el mismo criterio que
+         `target_base`. Preguntar aquí por `mode` y nada más era ofrecerle a
+         todo el que no es admin un enlace que recarga esta misma pantalla,
+         porque la ruta reconmuta el modo al no tener su permiso. Y el `title`
+         describe el DESTINO, no lo que ya se está viendo. #}
+      {% if swap_url %}
+        {% if mode == 'tracking' %}
+      <a class="sgi-years-mode-swap" href="{{ swap_url }}"
+         title="Cada año abrirá las fichas de indicador">Ir a configuración</a>
+        {% else %}
+      <a class="sgi-years-mode-swap" href="{{ swap_url }}"
+         title="Cada año abrirá la rejilla de captura por colores">Ir a seguimiento</a>
+        {% endif %}
+      {% endif %}
+    </p>
+
+    {# La fila Limpiar/Filtrar sale de la macro `toolbar()`, no de un <div>
+       escrito a mano. El `css=` conserva .sgi-years-controls porque esa clase
+       NO agrupa nada, solo lleva el margen del legacy (.controls-top:
+       25px 0 15px), que no es el mismo que el del tablero. #}
+    {% call toolbar(css='sgi-years-controls') %}
+      <button type="button" class="btn btn-sm btn-secondary"
+              data-sgi-filter-clear="sgi-indicator-years">
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
+      </button>
+      <button type="button" class="btn btn-sm btn-primary" data-sgi-years-filter>
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
+      </button>
+    {% endcall %}
+
+    {{ data_table(
+         'sgi-indicator-years',
+         [
+           {'key': 'year', 'label': 'Año de Seguimiento', 'filter': true, 'placeholder': 'Buscar año...'},
+           {'key': 'indicators_count', 'label': 'Indicadores', 'align': 'center', 'css': 'sgi-years-col-count'},
+           {'key': 'actions', 'label': 'Acciones', 'align': 'center', 'css': 'sgi-years-col-actions'}
+         ],
+         'No hay años registrados.',
+         'fa-solid fa-calendar-days') }}
+
+    {% if can_create %}
+    <div class="sgi-bottom-controls">
+      <button type="button" class="btn btn-sm btn-primary" data-sgi-years-new>
+        <i class="fa-solid fa-plus"></i><span class="d-none d-sm-inline">Añadir Nuevo(s)</span>
+      </button>
+      <select class="sgi-qty-select sgi-years-qty" data-sgi-years-qty
+              aria-label="Cuántos años capturar">
+        <option value="1">1 Año</option>
+        <option value="3">3 Años</option>
+        <option value="5">5 Años</option>
+        <option value="10">10 Años</option>
+      </select>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+<div class="modal fade" id="sgi-years-modal" tabindex="-1"
+     aria-labelledby="sgi-years-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title sgi-years-modal-title" id="sgi-years-modal-title">
+          <i class="fa-regular fa-calendar me-2"></i>Alta de Tablero
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="sgi-form-grid" data-sgi-years-fields></div>
+      </div>
+      <div class="modal-footer">
+        {# Pie de modal al tamaño único y con la etiqueta sin envolver: dentro
+           del modal siempre hay ancho para leer la acción. #}
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-sgi-years-save>
+          <i class="fa-solid fa-floppy-disk"></i> Aceptar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script id="sgi-mod-indicators-years" src="/static/sgi/sgc/js/indicators/years.js?v={{ sv('js/indicators/years.js') }}"></script>
+{% endblock %}

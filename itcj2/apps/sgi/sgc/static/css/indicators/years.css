@@ -1,0 +1,127 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/indicadores
+   CONTIENE linea de ayuda con el conmutador de modo, anchos de columna, el ano en
+            violeta y el bote de basura de la fila
+   EN BASE  icono de fila pelado, caja del selector de cantidad, tabla y modal
+   --------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   indicators/years.css — lista de años del tablero de indicadores.
+   Página: /sgi/sgc/indicadores   ·   Módulo: js/indicators/years.js
+
+   PORTE de app_prueba/css/indicators/indicators_year.css: tarjeta de 30px,
+   línea de ayuda con el icono de información, botón gris de volver, fila
+   Limpiar/Filtrar, año en violeta a 1.1rem y bote de basura pelado. Lo que
+   allí eran .modal-overlay, .form-input y .btn-action lo pone ya sgc.css
+   (que es el porte del CSS del legacy); aquí solo queda lo propio de la
+   pantalla, prefijado .sgi-…
+   ========================================================================== */
+
+/* La tarjeta de esta pantalla es la ancha del legacy (padding 30, no 25). */
+.sgi-years-card {
+  padding: var(--sgi-space-5xl);
+}
+
+/* Línea de ayuda del legacy: icono de información + texto gris pequeño. El
+   enlace de la derecha conmuta el modo (config ↔ seguimiento), que es lo
+   único que esta pantalla tiene de más que el original. */
+.sgi-years-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+  margin-bottom: var(--sgi-space-3xl);
+  font-size: var(--sgi-fs-lg);
+  color: var(--sgi-muted);
+}
+
+.sgi-years-hint > i {
+  color: var(--sgi-primary);
+}
+
+.sgi-years-mode-swap {
+  margin-left: auto;
+  font-weight: var(--sgi-fw-semibold);
+  color: var(--sgi-primary);
+  text-decoration: none;
+}
+
+.sgi-years-mode-swap:hover,
+.sgi-years-mode-swap:focus-visible {
+  text-decoration: underline;
+}
+
+/* Fila Limpiar / Filtrar (legacy .controls-top: margin 25px 0 15px). La plantilla
+   ya no escribe esta clase a mano: llega por el `css=` de la macro toolbar(), que
+   es quien pone el contenedor. Aquí solo queda el margen, no el layout. */
+.sgi-years-controls {
+  gap: var(--sgi-space-lg);
+  margin: var(--sgi-space-4xl) 0 var(--sgi-space-2xl);
+}
+
+/* Las celdas de esta tabla son más altas que las de la app (legacy: 15px 12px
+   y 0.95rem), porque la lista tiene una sola columna de datos. */
+.sgi-indicator-years .sgi-table th,
+.sgi-indicator-years .sgi-table td {
+  padding: var(--sgi-space-2xl) var(--sgi-space-xl);
+  font-size: var(--sgi-fs-base);
+}
+
+.sgi-years-col-count   { width: 140px; }
+.sgi-years-col-actions { width: 100px; }
+
+/* El año es el dato principal de la fila: se lee de un vistazo. */
+.sgi-years-value {
+  font-size: var(--sgi-fs-xl);
+  font-weight: var(--sgi-fw-bold);
+  color: var(--sgi-primary);
+}
+
+/* Contador de indicadores del año (viene de la misma consulta que la lista). */
+.sgi-years-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Bote de basura del legacy (.icon-btn): sin recuadro, crece al pasar por
+   encima y se oscurece. */
+.sgi-years-actions {
+  justify-content: center;
+}
+
+.sgi-years-icon {
+  padding: var(--sgi-space-xs);
+  color: var(--sgi-coral);
+}
+
+.sgi-years-icon:hover {
+  color: var(--sgi-danger-strong);
+}
+
+/* Selector de cuántos años capturar (legacy .qty-select). */
+.sgi-years-qty {
+  max-width: 10rem;
+  padding: var(--sgi-space-lg) var(--sgi-space-2xl);
+  border-radius: var(--sgi-radius-lg);
+  outline: none;
+}
+
+/* El anillo de foco. Este campo no lleva `form-control` ni `form-select`, asi
+   que no hereda nada de la hoja base: sin esta regla no habia NINGUNA
+   diferencia visible entre enfocado y no enfocado. */
+.sgi-years-qty:focus-visible {
+  outline: 2px solid var(--sgi-primary);
+  outline-offset: 1px;
+}
+
+
+/* Filas clicables: el cursor lo pone .sgi-row-click de la base; aquí solo se
+   marca el foco por teclado, porque la fila es navegable con Tab. */
+.sgi-indicator-years tbody tr[data-id]:focus-visible {
+  outline: 2px solid var(--sgi-primary);
+  outline-offset: -2px;
+}
+
+/* El titulo del modal va en violeta, como en el legacy. */
+.sgi-years-modal-title {
+  color: var(--sgi-primary);
+}

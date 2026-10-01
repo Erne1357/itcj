@@ -1,0 +1,42 @@
+{# ===========================================================================
+   documents/document_classifications.html — /sgi/sgc/documentos/clasificaciones
+   Permiso: sgi.sgc.doc_catalogs.page.list.
+
+   Origen legacy: templates/app_prueba/documents/documents_classifications.html
+   + static/js/documents/documents_classifications.js (112 líneas), que era
+   `documents_categories.js` con el nombre de la clase cambiado.
+
+   Igual que categorías: macro `catalog_page()` + `shared/catalog-crud.js`, sin
+   una sola línea de JS propio (plan §6.5) y sin hoja propia. El título dentro
+   del recuadro blanco lo pone la capa de catálogo de sgc.css, compartida por
+   las cuatro pantallas; el ancho, el `body_class` sgi-wide de aquí abajo.
+   =========================================================================== #}
+{% extends "sgc/base_sgc.html" %}
+{% from "sgc/partials/_macros.html" import catalog_page, catalog_modal %}
+
+{% block title %}Clasificaciones de documento · Calidad{% endblock %}
+
+{% block body_class %}sgi-wide{% endblock %}
+
+{% block content %}
+{{ catalog_page(
+     "Clasificación de Documentos",
+     "document-classifications",
+     "/api/sgi/v2/sgc/document-classifications",
+     back_url,
+     singular="clasificación",
+     plural="clasificaciones",
+     icon="fa-solid fa-layer-group",
+     name_label="Nombre de la Clasificación",
+     can_create=can_create,
+     can_update=can_update,
+     can_delete=can_delete) }}
+{% endblock %}
+
+{% block modals %}
+{{ catalog_modal("document-classifications", singular="clasificación", name_label="Nombre") }}
+{% endblock %}
+
+{% block extra_js %}
+<script id="sgi-mod-shared-catalog-crud" src="/static/sgi/sgc/js/shared/catalog-crud.js?v={{ sv('js/shared/catalog-crud.js') }}"></script>
+{% endblock %}

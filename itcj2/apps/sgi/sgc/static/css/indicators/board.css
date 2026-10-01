@@ -1,0 +1,325 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/indicadores/{year_id}/tablero
+   CONTIENE anchos de columna, punto de proceso, pastilla de frecuencia, chips de
+            umbral, y el formulario del modal con sus cuatro cuadros de color
+   EN BASE  icono de fila pelado, caja del selector de cantidad, tabla y modal
+   --------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   indicators/board.css — tablero (fichas de indicador) de un año.
+   Página: /sgi/sgc/indicadores/{year_id}/tablero   ·   Módulo: js/indicators/board.js
+
+   PORTE de app_prueba/css/indicators/indicators_board.css: tarjeta de 25px,
+   botón gris de volver arriba a la derecha, punto de proceso de 12px, pastilla
+   de frecuencia azul con borde, iconos de fila pelados que crecen al pasar por
+   encima, y los cuatro cuadros de color del formulario (#ff7675 / #ffeaa7 /
+   #55efc4). Lo que allí eran .bg-rojo/.bg-amarillo/.bg-verde aquí son las
+   .sgi-state-… que emite el JS; el tinte se aplica acotado a esta pantalla.
+   ========================================================================== */
+
+/* ── Tarjeta y cabecera ─────────────────────────────────────────────────── */
+
+.sgi-board-card .sgi-page-head {
+  margin-bottom: 0;
+}
+
+/* El año, en violeta (el legacy lo pintaba con un style en línea). */
+.sgi-board-year {
+  color: var(--sgi-primary);
+}
+
+/* Fila Limpiar / Filtrar (legacy .controls-top: margin 20px 0). La plantilla ya
+   no escribe esta clase a mano: llega por el `css=` de la macro toolbar(), que
+   es quien pone el contenedor. Aquí solo queda el margen, no el layout. */
+.sgi-board-controls {
+  gap: var(--sgi-space-lg);
+  margin: var(--sgi-space-3xl) 0;
+}
+
+/* ── Anchos de columna (legacy: style="width: …%") ──────────────────────── */
+/* El legacy tenía 5 columnas; aquí hay 7 porque los 4 umbrales y la evidencia
+   son datos que su tabla no mostraba. Los porcentajes se reparten igual. */
+.sgi-board-col-process { width: 18%; }
+.sgi-board-col-resp    { width: 16%; }
+.sgi-board-col-freq    { width: 10%; }
+.sgi-board-col-obj     { width: 26%; }
+.sgi-board-col-planned { width: 15%; }
+.sgi-board-col-doc     { width: 7%; }
+.sgi-board-col-actions { width: 8%; }
+
+/* ── Celdas de la tabla ─────────────────────────────────────────────────── */
+
+.sgi-indicator-board .sgi-table th,
+.sgi-indicator-board .sgi-table td {
+  padding: var(--sgi-space-xl);
+}
+
+.sgi-board-process {
+  display: inline-flex;
+  align-items: center;
+  font-weight: var(--sgi-fw-bold);
+}
+
+/* Punto del color del proceso (legacy .badge-proceso: 12px con sombra). */
+.sgi-board-dot {
+  width: 12px;
+  height: 12px;
+  margin-right: var(--sgi-space-md);
+  border: 0;
+  box-shadow: var(--sgi-elev-1);
+}
+
+/* Icono del responsable: gris claro, como en el original. */
+.sgi-board-resp-icon {
+  margin-right: var(--sgi-space-xs);
+  color: var(--sgi-grey-pale);
+}
+
+/* Pastilla de frecuencia (legacy .badge-freq). Ojo: NO va en mayúsculas, a
+   diferencia del badge genérico de la app. */
+.sgi-board-freq {
+  display: inline-block;
+  padding: var(--sgi-space-2xs) var(--sgi-space-lg);
+  font-size: var(--sgi-fs-sm);
+  font-weight: var(--sgi-fw-bold);
+  color: var(--sgi-info);
+  background-color: var(--sgi-info-soft-alt);
+  border: 1px solid var(--sgi-info-border);
+  border-radius: var(--sgi-radius-pill);
+  white-space: nowrap;
+}
+
+.sgi-board-freq-none {
+  color: var(--sgi-muted);
+  background-color: var(--sgi-soft);
+  border-color: var(--sgi-border);
+}
+
+.sgi-board-objective {
+  color: var(--sgi-muted);
+}
+
+/* Los cuatro umbrales en una sola celda, cada uno con su color de estado.
+   El legacy los guardaba concatenados en un string "b-r-a-v". */
+.sgi-board-planned {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: var(--sgi-space-2xs);
+}
+
+.sgi-board-planned-chip {
+  min-width: 2.1rem;
+  padding: 2px 6px;
+  font-size: var(--sgi-fs-xs);
+  font-weight: var(--sgi-fw-black);
+  text-align: center;
+  border: 1px solid var(--sgi-border-veil);
+  border-radius: var(--sgi-radius-md);
+}
+
+/* Los cuatro fondos del legacy (indicators_board.css: .bg-blanco/.bg-rojo/…). */
+.sgi-board-planned-chip.sgi-state-white  { color: var(--sgi-dark); background-color: var(--sgi-surface); }
+.sgi-board-planned-chip.sgi-state-red    { color: var(--sgi-surface);              background-color: var(--sgi-coral); }
+.sgi-board-planned-chip.sgi-state-yellow { color: var(--sgi-dark); background-color: var(--sgi-amber); }
+.sgi-board-planned-chip.sgi-state-green  { color: var(--sgi-dark); background-color: var(--sgi-mint); }
+
+/* ── Iconos de fila (legacy .btn-icon-small) ────────────────────────────── */
+/* Sin recuadro: un icono a pelo que crece al pasar por encima. */
+.sgi-board-actions {
+  justify-content: center;
+  gap: var(--sgi-space-sm);
+}
+
+.sgi-board-icon {
+  padding: var(--sgi-space-xs);
+}
+
+.sgi-board-icon-edit   { color: var(--sgi-primary); }
+.sgi-board-icon-delete { color: var(--sgi-coral); }
+
+/* ── Controles inferiores (legacy .bottom-controls + .qty-select) ───────── */
+
+.sgi-board-qty {
+  max-width: 10rem;
+  padding: var(--sgi-space-lg);
+  border-radius: var(--sgi-radius-md);
+  outline: none;
+}
+
+/* El anillo de foco. Este campo no lleva `form-control` ni `form-select`, asi
+   que no hereda nada de la hoja base: sin esta regla no habia NINGUNA
+   diferencia visible entre enfocado y no enfocado. */
+.sgi-board-qty:focus-visible {
+  outline: 2px solid var(--sgi-primary);
+  outline-offset: 1px;
+}
+
+
+/* ── Evidencia ──────────────────────────────────────────────────────────── */
+
+.sgi-board-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  font-size: var(--sgi-fs-sm);
+}
+
+.sgi-board-evidence-link {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-weight: var(--sgi-fw-semibold);
+  color: var(--sgi-primary);
+  text-decoration: none;
+}
+
+.sgi-board-evidence-link:hover,
+.sgi-board-evidence-link:focus-visible {
+  text-decoration: underline;
+}
+
+.sgi-board-evidence-none {
+  color: var(--sgi-muted);
+}
+
+/* ── Formulario del modal (legacy .process-card + .form-grid-ind) ───────── */
+/* Cada ficha es una tarjeta gris dentro del modal, no una sección separada
+   por una línea de puntos. */
+.sgi-board-form {
+  padding: var(--sgi-space-3xl);
+  margin-bottom: var(--sgi-space-4xl);
+  background: var(--sgi-soft);
+  border: 1px solid var(--sgi-border);
+  border-radius: var(--sgi-radius-xl);
+  box-shadow: var(--sgi-elev-2);
+}
+
+.sgi-board-form:last-child {
+  margin-bottom: 0;
+}
+
+.sgi-board-form-title {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding-bottom: var(--sgi-space-md);
+  margin-bottom: var(--sgi-space-2xl);
+  font-size: var(--sgi-fs-xl);
+  font-weight: var(--sgi-fw-semibold);
+  color: var(--sgi-dark);
+  border-bottom: 2px solid var(--sgi-border);
+}
+
+.sgi-board-form-title i {
+  color: var(--sgi-primary);
+}
+
+/* El modal del legacy mide 1000px (.modal-lg de indicators_board.css), no los
+   600 del dialogo por defecto ni los 1200 del extragrande. */
+.sgi-board-dialog {
+  width: 1000px;
+  max-width: 95%;
+}
+
+/* El titulo del modal va en violeta, como en el legacy. */
+.sgi-board-modal-title {
+  color: var(--sgi-primary);
+}
+
+/* Rejilla de DOS columnas (legacy .form-grid-ind), no auto-fit: con cuatro
+   columnas los campos quedan estrechos y el formulario no se parece. */
+.sgi-board-form .sgi-form-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Etiquetas del formulario del legacy: mas oscuras y en negrita. */
+.sgi-board-form .sgi-label {
+  color: var(--sgi-slate);
+  font-weight: var(--sgi-fw-bold);
+}
+
+/* Fila de los cuatro umbrales: cuatro campos independientes, uno por color
+   (legacy .planned-colors-container, cuatro columnas). */
+.sgi-board-thresholds {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sgi-space-2xl);
+  margin-top: var(--sgi-space-xs);
+}
+
+@media (max-width: 767.98px) {
+  .sgi-board-thresholds { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Cada umbral va en su propia caja blanca (legacy .color-input-group). El
+   envoltorio lo emite board.js sin clase, asi que se selecciona por elemento. */
+.sgi-board-thresholds > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sgi-space-xs);
+  padding: var(--sgi-space-lg);
+  background: var(--sgi-surface);
+  border: 1px solid var(--sgi-border);
+  border-radius: var(--sgi-radius-lg);
+}
+
+.sgi-board-threshold-tag {
+  display: block;
+  margin-bottom: var(--sgi-space-xs);
+  font-size: var(--sgi-fs-xs);
+  font-weight: var(--sgi-fw-bold);
+  letter-spacing: .02em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.sgi-board-threshold-tag-white  { color: var(--sgi-muted); }
+.sgi-board-threshold-tag-red    { color: var(--sgi-danger-strong); }
+.sgi-board-threshold-tag-yellow { color: var(--sgi-warning-ink); }
+.sgi-board-threshold-tag-green  { color: var(--sgi-teal); }
+
+/* El cuadro del umbral (legacy .color-box-input): grande, centrado y con el
+   fondo de su color. */
+.sgi-board-threshold-input {
+  width: 100%;
+  padding: var(--sgi-space-lg);
+  font-family: inherit;
+  font-size: var(--sgi-fs-base);
+  font-weight: var(--sgi-fw-black);
+  color: var(--sgi-dark);
+  text-align: center;
+  border: 1px solid var(--sgi-border-veil);
+  border-radius: var(--sgi-radius-md);
+  outline: none;
+}
+
+/* El anillo de foco. Este campo no lleva `form-control` ni `form-select`, asi
+   que no hereda nada de la hoja base: sin esta regla no habia NINGUNA
+   diferencia visible entre enfocado y no enfocado. */
+.sgi-board-threshold-input:focus-visible {
+  outline: 2px solid var(--sgi-primary);
+  outline-offset: 1px;
+}
+
+
+.sgi-board-threshold-input:focus {
+  border-color: var(--sgi-primary);
+}
+
+.sgi-board-threshold-input.sgi-state-white  { color: var(--sgi-dark); background-color: var(--sgi-surface); }
+.sgi-board-threshold-input.sgi-state-red    { color: var(--sgi-surface);              background-color: var(--sgi-coral); }
+.sgi-board-threshold-input.sgi-state-yellow { color: var(--sgi-dark); background-color: var(--sgi-amber); }
+.sgi-board-threshold-input.sgi-state-green  { color: var(--sgi-dark); background-color: var(--sgi-mint); }
+
+.sgi-board-threshold-input.sgi-state-red::placeholder {
+  color: var(--sgi-on-danger-faint);
+}
+
+/* El pie del modal lleva el botón de eliminar a la izquierda y los de
+   cancelar/guardar a la derecha (legacy .btn-delete con margin-right:auto). */
+.sgi-board-modal-footer {
+  flex-wrap: wrap;
+  gap: .4rem;
+}

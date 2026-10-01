@@ -1,0 +1,202 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/documentos/panel
+   CONTIENE ancho y compactado de la tabla de 12 columnas, techo de las dos
+            columnas de texto libre, colapso de "Notas" en pantalla estrecha,
+            hover azul de la fila, accion de fila deshabilitada, aviso de
+            version superada y avisos del campo de archivo del modal de alta y
+            edicion, y la ficha del documento dentro del modal de arranque de
+            flujo
+   EN BASE  todo lo demas, via documents/documents.css + sgc.css
+   --------------------------------------------------------------------------- */
+
+/* ===========================================================================
+   documents/documents-panel.css — /sgi/sgc/documentos/panel.
+
+   Se carga DESPUÉS de documents/documents.css, que ya trae las piezas comunes
+   de la sección (fila de filtros, celda de archivo, iconos de acción,
+   controles inferiores, paginador). Aquí solo va lo propio del panel.
+
+   El legacy tenía todo esto en advanced_documents.css junto a 4 bloques
+   `.modal-overlay` duplicados y a redefiniciones de las clases de formulario
+   que pisaban Bootstrap. Nada de eso sobrevive: los modales son bootstrap.Modal
+   y la rejilla es .sgi-form-grid.
+   =========================================================================== */
+
+/* ── Raíz de la pantalla ───────────────────────────────────────────────── */
+.sgi-doc-panel {
+  display: block;
+}
+
+/* Ancho mínimo de la tabla. El 2000px que había aquí era el `.doc-table` del
+   legacy copiado tal cual: un número medido sobre las 13 columnas del original,
+   heredado sin revisar cuando el porte se quedó en 11. La auditoría (A21) lo
+   midió: a 1280px —la resolución habitual de los equipos del ITCJ— dejaba 550px
+   fuera de la pantalla, y "Vigencia" habría sumado otros 200.
+
+   El ancho de una tabla `auto` no lo fija este número: lo fija la columna que
+   más pide. Aquí eran las dos de texto libre (Nombre y Notas), que sin techo
+   crecen con el documento más largo del SGC. Con las dos acotadas más abajo, la
+   suma medida de las doce columnas ronda los 1850px: una columna MÁS que antes
+   y 150px MENOS de desplazamiento lateral.
+
+   Las celdas van un punto más compactas que las de la vista de consulta, como
+   en el legacy. */
+.sgi-doc-panel .sgi-table {
+  min-width: 1850px;
+}
+
+/* Techo de las dos columnas de texto libre.
+   `.sgi-cell-clamp` (sgc.css) las acota a 32ch, que es lo correcto en una
+   tabla de seis columnas; en una de doce, 32+32 son ~500px que le quita a las
+   otras diez. Se bajan aquí y no en la hoja base porque la vista de consulta,
+   con menos columnas, sí puede permitírselo.
+   El texto íntegro sigue alcanzable: `clampCell` lo deja en el `title` del
+   <td>. */
+.sgi-doc-panel .sgi-table td[data-sgi-cell="title"] {
+  max-width: 26ch;
+}
+
+.sgi-doc-panel .sgi-table td[data-sgi-cell="notes"] {
+  max-width: 22ch;
+}
+
+.sgi-doc-panel .sgi-table th,
+.sgi-doc-panel .sgi-table td {
+  padding: var(--sgi-space-lg);
+  font-size: var(--sgi-fs-md);
+}
+
+/* Legacy `.interactive-row:hover`: azul muy tenue, no el lavanda del resto. */
+.sgi-doc-panel .sgi-table tbody tr:hover {
+  background-color: var(--sgi-info-soft);
+}
+
+.sgi-doc-panel .sgi-table tbody tr[data-sgi-empty]:hover {
+  background: transparent;
+}
+
+/* ── Accion de fila deshabilitada ──────────────────────────────────────
+   "Editar" se pinta en TODAS las filas, tambien en los 198 documentos que la
+   regla del SGC no deja editar: escondido, el usuario lo busca y nadie le
+   cuenta por que no esta. Deshabilitado tiene que verse deshabilitado sin
+   pasar el raton por encima, asi que no basta con el cursor: pierde el color
+   de marca y se queda en el gris de "no disponible", que es la unica accion
+   apagada de una botonera de cinco iconos de color.
+
+   `pointer-events` vuelve a `auto` a proposito. La base lo anula
+   (sgc.css), y con eso el navegador tampoco muestra el `title` del boton
+   — que aqui es justo lo unico que explica POR QUE no se puede editar. Un
+   boton `disabled` no dispara `click` aunque reciba el raton, asi que
+   devolverle los eventos no habilita nada; el JS ademas lo comprueba. */
+.sgi-doc-panel .sgi-actions .sgi-icon-action:disabled {
+  opacity: 1;
+  color: var(--sgi-disabled);
+  pointer-events: auto;
+  cursor: not-allowed;
+}
+
+/* ── Aviso de la version que se supera ─────────────────────────────────
+   Lo enciende documents-panel.js solo al anexar una version. Es el unico sitio
+   de la pantalla donde se avisa de que un documento del SGC deja de ser el
+   vigente, asi que lleva el ambar de aviso y la barra lateral: tiene que verse
+   sin leerlo, con el modal recien abierto y el foco ya en el primer campo. */
+.sgi-doc-version-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sgi-space-lg);
+  margin: 0 0 var(--sgi-space-3xl);
+  padding: var(--sgi-space-xl);
+  background: var(--sgi-warning-soft);
+  border: 1px solid var(--sgi-warning);
+  border-left: 3px solid var(--sgi-warning);
+  border-radius: calc(var(--sgi-radius) - 6px);
+  color: var(--sgi-warning-ink);
+  font-size: var(--sgi-fs-md);
+  line-height: 1.45;
+}
+
+/* El icono no se encoge cuando el texto pasa a tres lineas. */
+.sgi-doc-version-warning > i {
+  flex: 0 0 auto;
+  margin-top: var(--sgi-space-2xs);
+  font-size: var(--sgi-fs-lg);
+}
+
+/* ── Avisos del campo de archivo (modo edicion) ────────────────────────
+   Dos estados y un solo sitio donde se leen: encima del control, dentro de su
+   propio campo. Comparten forma con el aviso de version superada de arriba
+   —barra lateral, icono que no se encoge, misma escala de texto— porque son la
+   misma clase de mensaje: la consecuencia de lo que estas a punto de guardar.
+   Lo que cambia es el tono, y el tono es la diferencia real entre los dos: uno
+   avisa de algo irreversible que TU puedes provocar, el otro explica una regla
+   del SGC que no depende de ti. */
+.sgi-doc-file-warning,
+.sgi-doc-file-locked {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sgi-space-md);
+  padding: var(--sgi-space-lg) var(--sgi-space-xl);
+  border-radius: calc(var(--sgi-radius) - 6px);
+  font-size: var(--sgi-fs-md);
+  line-height: 1.45;
+}
+
+.sgi-doc-file-warning > i,
+.sgi-doc-file-locked > i {
+  flex: 0 0 auto;
+  margin-top: var(--sgi-space-2xs);
+}
+
+/* Reemplazar el binario lo borra del disco y no se recupera: es el rojo, no el
+   ambar del anexado. Anexar una version deja las dos; esto no deja ninguna. */
+.sgi-doc-file-warning {
+  margin: 0 0 var(--sgi-space-md);
+  background: var(--sgi-danger-soft);
+  border-left: 3px solid var(--sgi-danger);
+  color: var(--sgi-danger-ink);
+}
+
+/* Aqui no hay nada que el usuario pueda hacer mal: ocupa el hueco del input
+   que no se pinta y explica la regla. Tono apagado, sin alarma. */
+.sgi-doc-file-locked {
+  margin: 0;
+  background: var(--sgi-soft);
+  border-left: 3px solid var(--sgi-border-mid);
+  color: var(--sgi-muted);
+}
+
+/* ── Modal de arranque de flujo ────────────────────────────────────────── */
+.sgi-flow-doc {
+  margin-bottom: .85rem;
+  padding: .6rem .75rem;
+  background: var(--sgi-soft);
+  border: 1px solid var(--sgi-border);
+  border-left: 3px solid var(--sgi-primary);
+  border-radius: calc(var(--sgi-radius) - 6px);
+  color: var(--sgi-dark);
+  font-size: var(--sgi-fs-lg);
+  font-weight: var(--sgi-fw-semibold);
+}
+
+/* ── Tableta y movil ───────────────────────────────────────────────────
+   Doce columnas no caben en 991px por mucho que se recorte: lo que se decide
+   aqui es cual sobra ANTES que las demas, y es "Notas". Es la unica columna que
+   no participa en ninguna decision de la pantalla —no se filtra por ella, no
+   ordena, no cambia lo que se puede hacer con el documento—, ya viene acotada a
+   dos lineas, y su texto completo vive en el `title` del <td>, que en una
+   pantalla tactil no hay forma de ver. Quitarla devuelve ~200px de los ~950 que
+   faltan; el resto se sigue recorriendo en horizontal, que es lo honesto con
+   doce columnas.
+
+   El corte es 991.98, de la escala de la app (575.98 / 767.98 / 991.98). Un
+   valor a medida lo caza test_los_cortes_responsive_son_los_de_la_escala. */
+@media (max-width: 991.98px) {
+  .sgi-doc-panel .sgi-table th[data-sgi-col="notes"],
+  .sgi-doc-panel .sgi-table td[data-sgi-cell="notes"] {
+    display: none;
+  }
+
+  .sgi-doc-panel .sgi-table {
+    min-width: 1650px;
+  }
+}

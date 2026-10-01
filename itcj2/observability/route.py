@@ -276,7 +276,7 @@ APP_KEYS = frozenset({
     # rama (no aparece en itcj2/routers.py), pero la clave ya se reconoce
     # aquí para no tener que volver a tocar este archivo el día que se
     # registre — una clave dormida, no un bug.
-    "adhoc",
+    "sgi",
     "core",
 })
 

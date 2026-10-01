@@ -1,0 +1,148 @@
+{# ===========================================================================
+   panel/color_catalog.html — catálogo de nombre + color.
+
+   UNA plantilla para DOS pantallas (plan §6.5): /sgi/sgc/panel/areas y
+   /sgi/sgc/panel/procesos. En el legacy eran `areas_conf.html` + `areas_conf.js`
+   y `processes.html` + `processes.js`, copias literales entre sí salvo los ids.
+
+   Toda la configuración llega en el contexto desde pages/panel.py y se expone
+   al módulo JS por atributos data-* (no hay constantes inline en <script>).
+
+   Diferencias reales entre los dos recursos:
+     · área    → tiene `is_active` (has_active)
+     · proceso → tiene `description` (has_description). Su color es ahora una
+       columna de verdad; el legacy lo guardaba dentro de `description`.
+   =========================================================================== #}
+{% extends "sgc/base_sgc.html" %}
+{% from "sgc/partials/_macros.html" import page_header, back_button, data_table, form_field, color_field %}
+
+{% block title %}{{ page_title }} · Calidad · ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/sgi/sgc/css/panel/color-catalog.css?v={{ sv('css/panel/color-catalog.css') }}">
+{% endblock %}
+
+{% block content %}
+<section id="sgi-page-color-catalog" class="sgi-color-catalog"
+         data-sgi-color-catalog
+         data-sgi-resource="{{ resource }}"
+         data-sgi-api="{{ api_path }}"
+         data-sgi-singular="{{ singular }}"
+         data-sgi-plural="{{ plural }}"
+         data-sgi-name-label="{{ name_label }}"
+         data-sgi-default-color="{{ default_color }}"
+         data-sgi-has-active="{{ 1 if has_active else 0 }}"
+         data-sgi-has-description="{{ 1 if has_description else 0 }}"
+         data-sgi-can-create="{{ 1 if can_create else 0 }}"
+         data-sgi-can-update="{{ 1 if can_update else 0 }}"
+         data-sgi-can-delete="{{ 1 if can_delete else 0 }}">
+
+  {# Como en el legacy, el encabezado y sus botones van DENTRO de la tarjeta
+     blanca (`.table-container`), no encima de ella. #}
+  <div class="sgi-card">
+    {% call page_header(page_title, None, icon) %}
+      {{ back_button("/sgi/sgc/panel", "Volver al Panel") }}
+      {% if can_create %}
+      <button type="button" class="btn btn-sm btn-primary" data-sgi-catalog-new>
+        <i class="fa-solid fa-plus"></i>
+        <span class="d-none d-sm-inline">Añadir Nuevo(s)</span>
+      </button>
+      {% endif %}
+    {% endcall %}
+
+    {{ data_table('sgi-color-catalog-' ~ resource, columns, empty_message, 'fa-solid fa-tags') }}
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+{# — ALTA MASIVA — los campos los construye el módulo JS según la cantidad. — #}
+<div class="modal fade" id="sgi-color-new-{{ resource }}" tabindex="-1"
+     aria-labelledby="sgi-color-new-{{ resource }}-title" aria-hidden="true"
+     data-sgi-color-modal="new">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="sgi-color-new-{{ resource }}-title">
+          <i class="fa-solid fa-circle-plus me-2"></i>Agregar {{ plural }}
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="sgi-catalog-count">
+          <label class="form-label sgi-label" for="sgi-color-qty-{{ resource }}">Cuántas capturar</label>
+          <select class="form-select sgi-qty-select" id="sgi-color-qty-{{ resource }}" data-sgi-catalog-qty>
+            {% for n in range(1, 11) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="sgi-color-new-fields" data-sgi-catalog-fields></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-sgi-catalog-save>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# — EDICIÓN — un solo registro. El botón de eliminar pide confirmación con
+     SgiUtils.confirmDialog(); el legacy usaba un submit con `formaction`. — #}
+<div class="modal fade" id="sgi-color-edit-{{ resource }}" tabindex="-1"
+     aria-labelledby="sgi-color-edit-{{ resource }}-title" aria-hidden="true"
+     data-sgi-color-modal="edit">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="sgi-color-edit-{{ resource }}-title">
+          <i class="fa-solid fa-pen-to-square me-2"></i>Editar {{ singular }}
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="sgi-form-grid">
+          {{ form_field('name', name_label, required=True, id='sgi-edit-name-' ~ resource,
+                        col='sgi-field-full', attrs={'maxlength': '100', 'data-sgi-edit-field': 'name'}) }}
+          {{ color_field('color', 'Color', default_color, id='sgi-edit-color-' ~ resource,
+                         attrs={'data-sgi-edit-field': 'color'}) }}
+          {% if has_description %}
+          {{ form_field('description', 'Descripción', 'textarea', rows=3,
+                        id='sgi-edit-description-' ~ resource, col='sgi-field-full',
+                        help='Opcional. Vaciarla borra la descripción guardada.',
+                        attrs={'data-sgi-edit-field': 'description'}) }}
+          {% endif %}
+          {% if has_active %}
+          {{ form_field('is_active', 'Área activa', 'checkbox', value=True,
+                        id='sgi-edit-active-' ~ resource, col='sgi-field-full',
+                        attrs={'data-sgi-edit-field': 'is_active'}) }}
+          {% endif %}
+        </div>
+      </div>
+      {# Pie canónico de tres piezas: eliminar `btn-danger me-auto` a la izquierda,
+         cancelar `btn-secondary` y confirmar `btn-primary` a la derecha, los tres
+         `btn-sm`. El `me-auto` es lo que separa los bandos —`.modal-footer` ya es
+         flex con `justify-content:flex-end`—, así que el envoltorio
+         `.sgi-modal-footer-split` + `.sgi-modal-footer-actions` que hacía ese
+         mismo trabajo a mano sobra y se ha quitado (y sus reglas de la hoja).
+         El eliminar era `btn-outline-danger`, el único contorno en un pie de modal
+         de toda la app: el borrado destructivo se pinta sólido, como en el resto. #}
+      <div class="modal-footer">
+        {% if can_delete %}
+        <button type="button" class="btn btn-sm btn-danger me-auto" data-sgi-catalog-delete>
+          <i class="fa-solid fa-trash"></i> Eliminar
+        </button>
+        {% endif %}
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-sgi-catalog-update>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script id="sgi-mod-panel-color-catalog" src="/static/sgi/sgc/js/panel/color-catalog.js?v={{ sv('js/panel/color-catalog.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,99 @@
+{# ===========================================================================
+   partials/_document_versions_modal.html — modal "Historial de versiones".
+
+   Lo incluyen desde su `{% block modals %}` las DOS pantallas de documentos:
+
+     {% block modals %}
+       {% include "sgc/partials/_document_versions_modal.html" %}
+     {% endblock %}
+
+   POR QUÉ UN PARTIAL Y NO UNA MACRO
+   ---------------------------------
+   No recibe parámetros: el modal es siempre el mismo y lo rellena
+   `js/documents/document-versions.js` con la respuesta de
+   GET /api/sgi/v2/sgc/documents/{id}/versions. Una macro sin argumentos sería
+   una indirección de más; el `{% include %}` deja claro que las dos pantallas
+   montan el MISMO nodo.
+
+   QUÉ RESUELVE
+   ------------
+   Las dos listas ocultan por defecto las versiones superadas (58 de las 202
+   filas), así que tiene que haber un sitio donde se vean todas. Este es. En el
+   legacy este bloque existía dentro de `advanced_documents.html` pero era un
+   mockup: la fecha estaba escrita a mano y la versión anterior se calculaba
+   restando 1.0 a la actual.
+
+   REGLAS QUE CUMPLE
+   -----------------
+   * Familia de modal PROPIA (`.sgi-modal > .sgi-modal-dialog >
+     .sgi-modal-content`), no la de Bootstrap: lo abre
+     `SgiUtils.openModal()` y lo cierra el `data-sgi-modal-close` delegado.
+   * Va en `{% block modals %}`, que vive al final de #sgi-root (la caja que
+     HTMX intercambia, así el diálogo entra y sale con su pantalla) y fuera de
+     cualquier contenedor con `transform`/`filter`/`perspective` — esos crean un
+     containing block nuevo y rompen el `position: fixed` del velo.
+   * Un solo pie, con el par del vocabulario de la app; todo botón con `btn-sm`.
+   * Cero CSS en línea y cero manejadores en línea.
+   * La tabla va dentro de `.sgi-table-wrap`: con el diálogo estrechado en un
+     móvil, las cinco columnas se desplazan en horizontal en vez de desbordar.
+
+   El `<tbody>` arranca solo con la fila de "sin datos"; el JS inserta las
+   versiones ANTES de ella y la esconde cuando hay filas.
+   =========================================================================== #}
+<div class="sgi-modal" id="sgi-doc-versions-modal" role="dialog" aria-modal="true"
+     aria-labelledby="sgi-doc-versions-modal-title" aria-hidden="true"
+     data-sgi-versions-modal>
+  <div class="sgi-modal-dialog sgi-doc-versions-dialog">
+    <div class="sgi-modal-content">
+
+      <div class="sgi-modal-header">
+        <h2 class="sgi-modal-title" id="sgi-doc-versions-modal-title">
+          <i class="fa-solid fa-code-branch me-2"></i>Historial de versiones
+        </h2>
+        <button type="button" class="btn-close" data-sgi-modal-close aria-label="Cerrar"></button>
+      </div>
+
+      <div class="sgi-modal-body">
+        {# Código y título del documento desde el que se abrió el historial. Lo
+           escribe el JS con textContent; nace vacío y oculto. #}
+        <p class="sgi-doc-versions-doc" data-sgi-versions-doc hidden></p>
+
+        {# Línea de estado: "Cargando historial…", el número de versiones de la
+           cadena, "Esta es la única versión registrada" o el error. Es `polite`
+           porque el contenido del modal cambia sin que el usuario navegue. #}
+        <p class="sgi-doc-versions-note" data-sgi-versions-note aria-live="polite" hidden></p>
+
+        <div class="sgi-table-wrap">
+          <table class="sgi-table sgi-table-auto sgi-doc-versions-table">
+            <thead>
+              <tr>
+                <th scope="col" class="sgi-col-start">Versión</th>
+                <th scope="col" class="sgi-col-start">Estatus</th>
+                <th scope="col" class="sgi-col-start">Vigencia</th>
+                <th scope="col" class="sgi-col-start">Aprobación</th>
+                <th scope="col" class="sgi-col-center">Archivo</th>
+              </tr>
+            </thead>
+            <tbody data-sgi-versions-body>
+              <tr class="sgi-table-empty" data-sgi-empty data-sgi-versions-empty>
+                <td colspan="5">
+                  <div class="sgi-empty">
+                    <i class="fa-solid fa-code-branch sgi-empty-icon"></i>
+                    <p class="sgi-empty-text mb-0">
+                      No se encontraron versiones de este documento.
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="sgi-modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-sgi-modal-close>Cerrar</button>
+      </div>
+
+    </div>
+  </div>
+</div>

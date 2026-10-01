@@ -1,0 +1,125 @@
+{# ===========================================================================
+   documents/flows.html — /sgi/sgc/documentos/flujos
+   Permiso: sgi.sgc.flows.page.list.
+
+   Origen legacy: templates/app_prueba/documents/documents_flows.html +
+   static/js/documents/documents_flows.js.
+
+   ASPECTO: porte 1:1 del original. Contenedor al 98% (body.sgi-wide), título
+   con el icono del diagrama DENTRO del recuadro blanco y el botón "Volver" en
+   su esquina superior derecha, botonera Limpiar/Filtrar a la derecha, tabla con
+   la fila de filtros bajo la cabecera, iconos de acción pelados (sin recuadro)
+   y "Añadir Nuevo Flujo" bajo la tabla.
+
+   Qué cambia respecto del legacy:
+   * El modal `.modal-overlay` con display flex forzado desde JS es un
+     bootstrap.Modal en el bloque de modales, y el confirm() nativo para borrar
+     pasa a SgiUtils.confirmDialog (que devuelve Promise<boolean>).
+   * El legacy abría el modal de edición al pulsar CUALQUIER punto de la fila,
+     incluidos los botones: había que meter stopPropagation() en cada uno.
+     Aquí cada acción tiene su botón con su `data-sgi-flow-action`.
+   * Desaparece el botón "Documentos Asociados", que no tenía handler ni
+     data-* (analysis src_paginas.md, línea 340).
+   * "Configurar pasos" es un <a> de verdad (se puede abrir en otra pestaña),
+     no un window.location.href dentro de un listener.
+   * Se añaden dos columnas que el legacy no tenía (descripción y número de
+     pasos) porque la API ya las devuelve y sin ellas la tabla de flujos no
+     dice nada.
+   =========================================================================== #}
+{% extends "sgc/base_sgc.html" %}
+{% from "sgc/partials/_macros.html" import page_header, back_button, data_table,
+        form_field, page_data_script, toolbar %}
+
+{% block title %}Flujos de aprobación · Calidad{% endblock %}
+
+{% block body_class %}sgi-wide{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/sgi/sgc/css/documents/documents.css?v={{ sv('css/documents/documents.css') }}">
+<link rel="stylesheet" href="/static/sgi/sgc/css/documents/flows.css?v={{ sv('css/documents/flows.css') }}">
+{% endblock %}
+
+{% block content %}
+<section id="sgi-page-flows" class="sgi-flows" data-sgi-flows>
+
+  <div class="sgi-card sgi-doc-card">
+
+    {% call page_header("Flujos de Aprobación", None, "fa-solid fa-diagram-project") %}
+      {{ back_button(back_url, 'Volver a Documentos') }}
+    {% endcall %}
+
+    {# Misma botonera que el panel de documentos, con el mismo modificador de
+       margen superior. Los iconos NO son un adorno nuevo: este par Limpiar /
+       Filtrar es el que emiten toolbar() y filter_bar() en el resto de la app,
+       y aquí eran los únicos dos que salían pelados. El
+       `data-sgi-filter-clear` sigue apuntando a la misma tabla. #}
+    {% call toolbar(css='sgi-doc-controls-sm') %}
+      <button type="button" class="btn btn-sm btn-secondary"
+              data-sgi-filter-clear="sgi-flows-table">
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
+      </button>
+      <button type="button" class="btn btn-sm btn-primary" data-sgi-flow-apply>
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
+      </button>
+    {% endcall %}
+
+    {{ data_table(
+         'sgi-flows-table',
+         [
+           {'key': 'name', 'label': 'Nombre del Flujo', 'filter': true,
+            'placeholder': 'Buscar flujo...'},
+           {'key': 'description', 'label': 'Descripción'},
+           {'key': 'steps', 'label': 'Pasos', 'align': 'center'},
+           {'key': 'actions', 'label': 'Configuración', 'align': 'center'}
+         ],
+         'No hay flujos registrados.',
+         'fa-solid fa-diagram-project') }}
+
+    {%- if can_create %}
+    <div class="sgi-doc-bottom">
+      <button type="button" class="btn btn-sm btn-primary" data-sgi-flow-new>
+        <i class="fa-solid fa-plus"></i><span class="d-none d-sm-inline">Añadir Nuevo Flujo</span>
+      </button>
+    </div>
+    {%- endif %}
+  </div>
+
+</section>
+{% endblock %}
+
+{% block modals %}
+<div class="modal fade" id="sgi-flow-modal" tabindex="-1"
+     aria-labelledby="sgi-flow-modal-title" aria-hidden="true" data-sgi-flow-modal>
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="sgi-flow-modal-title" data-sgi-flow-modal-title>
+          <i class="fa-solid fa-diagram-project me-2"></i>Gestión de Flujo
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {{ form_field('name', 'Nombre del Flujo', required=True,
+                      placeholder='Ej: Revisión de Calidad',
+                      id='sgi-flow-name',
+                      attrs={'maxlength': '100'}) }}
+        {{ form_field('description', 'Descripción', 'textarea', rows=2,
+                      placeholder='Para qué sirve este flujo (opcional)',
+                      id='sgi-flow-description',
+                      attrs={'maxlength': '255'}) }}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-sgi-flow-save>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script id="sgi-mod-documents-flows" src="/static/sgi/sgc/js/documents/flows.js?v={{ sv('js/documents/flows.js') }}"></script>
+{% endblock %}

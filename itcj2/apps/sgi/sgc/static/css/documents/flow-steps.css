@@ -1,0 +1,182 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/documentos/flujos/{flow_id}/pasos
+   CONTIENE aviso superior, anchos de columna, campo de paso, fila de detalle
+            desplegable y las pastillas de validador
+   EN BASE  iconos de fila, tabla, tarjeta y modal
+   --------------------------------------------------------------------------- */
+
+/* ===========================================================================
+   documents/flow-steps.css — /sgi/sgc/documentos/flujos/{flow_id}/pasos.
+
+   Se carga DESPUÉS de documents/documents.css, que ya trae la tarjeta con el
+   título dentro, los iconos de acción y los controles inferiores. Aquí solo
+   quedan las piezas propias de la pantalla, todas prefijadas y con tokens.
+
+   Porte de documents_steps.css: `.info-box`, `.child-row`, `.user-list-badge`
+   y los estilos que el legacy escribía con style="..." dentro del template.
+   =========================================================================== */
+
+.sgi-flow-steps {
+  display: block;
+}
+
+/* ── Aviso superior (legacy `.info-box`) ────────────────────────────────
+   Recuadro azul muy tenue con un filo violeta a la izquierda. */
+.sgi-steps-hint {
+  margin-bottom: var(--sgi-space-4xl);
+  padding: var(--sgi-space-2xl) var(--sgi-space-3xl);
+  background-color: var(--sgi-info-soft-alt);
+  border-left: 4px solid var(--sgi-primary);
+  border-radius: var(--sgi-radius-lg);
+}
+
+.sgi-steps-hint-text {
+  margin: 0;
+  color: var(--sgi-dark);
+  font-size: var(--sgi-fs-base);
+  line-height: 1.5;
+}
+
+.sgi-steps-hint-note {
+  margin: var(--sgi-space-lg) 0 0;
+  color: var(--sgi-muted);
+  font-size: var(--sgi-fs-md);
+  line-height: 1.5;
+}
+
+/* ── Columnas de la tabla (legacy: 50px / auto / 120px / 220px) ─────────── */
+.sgi-flow-steps .sgi-table th:first-child,
+.sgi-flow-steps .sgi-table td:first-child {
+  width: 50px;
+}
+
+.sgi-flow-steps .sgi-table th:nth-child(3),
+.sgi-flow-steps .sgi-table td:nth-child(3) {
+  width: 120px;
+}
+
+.sgi-flow-steps .sgi-table th:last-child,
+.sgi-flow-steps .sgi-table td:last-child {
+  width: 220px;
+}
+
+/* ── Fila de paso ──────────────────────────────────────────────────────
+   Legacy: el número de orden es TEXTO gris en negrita, no una pastilla. */
+.sgi-step-order {
+  color: var(--sgi-disabled);
+  font-size: var(--sgi-fs-xl);
+  font-weight: var(--sgi-fw-bold);
+}
+
+/* Legacy `.form-control` de esta pantalla: borde muy claro, 8px de relleno,
+   y el filo violeta al enfocar. Prefijado para no pisar el de sgc.css. */
+.sgi-step-input {
+  width: 100%;
+  padding: var(--sgi-space-md);
+  color: var(--sgi-dark);
+  background: var(--sgi-surface);
+  border: 1px solid var(--sgi-line);
+  border-radius: var(--sgi-radius-md);
+  font-family: inherit;
+  font-size: var(--sgi-fs-lg);
+  outline: none;
+}
+
+/* El anillo de foco. Este campo no lleva `form-control` ni `form-select`, asi
+   que no hereda nada de la hoja base: sin esta regla no habia NINGUNA
+   diferencia visible entre enfocado y no enfocado. */
+.sgi-step-input:focus-visible {
+  outline: 2px solid var(--sgi-primary);
+  outline-offset: 1px;
+}
+
+
+.sgi-step-input:focus {
+  border-color: var(--sgi-primary);
+}
+
+.sgi-step-input:disabled {
+  background: var(--sgi-soft);
+  cursor: not-allowed;
+}
+
+.sgi-step-days {
+  max-width: 7rem;
+}
+
+/* Legacy `.icon-action-blue`: separación entre los iconos de la fila. */
+.sgi-flow-steps .sgi-icon-action {
+  margin: 0 var(--sgi-space-xs);
+}
+
+/* ── Añadir pasos ──────────────────────────────────────────────────────── */
+.sgi-steps-add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sgi-space-lg);
+}
+
+/* ── Fila de detalle (legacy `.child-row`) ──────────────────────────────
+   Fondo casi blanco y filo violeta inyectado con una sombra interior. */
+.sgi-step-detail[hidden] {
+  display: none;
+}
+
+.sgi-step-detail > td {
+  padding: var(--sgi-space-2xl) var(--sgi-space-4xl);
+  background: var(--sgi-soft);
+  border-bottom: 2px solid var(--sgi-border);
+  box-shadow: inset 4px 0 0 var(--sgi-primary);
+}
+
+.sgi-step-detail-box {
+  padding: 0;
+}
+
+.sgi-step-detail-title {
+  margin-bottom: var(--sgi-space-xs);
+  color: var(--sgi-primary);
+  font-size: var(--sgi-fs-lg);
+  font-weight: var(--sgi-fw-bold);
+}
+
+.sgi-step-detail-empty {
+  margin-bottom: 0;
+  color: var(--sgi-danger);
+  font-size: var(--sgi-fs-md);
+}
+
+/* Legacy `.user-list-badge`: pastillas azules con borde. */
+.sgi-step-users {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sgi-space-lg);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sgi-step-users > li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sgi-space-md);
+  padding: var(--sgi-space-sm) var(--sgi-space-xl);
+  background: var(--sgi-info-soft);
+  border: 1px solid var(--sgi-info-border);
+  border-radius: var(--sgi-radius-pill);
+  color: var(--sgi-info);
+  font-size: var(--sgi-fs-md);
+  font-weight: var(--sgi-fw-bold);
+}
+
+.sgi-step-user-name {
+  color: var(--sgi-info);
+  font-weight: var(--sgi-fw-bold);
+}
+
+/* ── Modal de validadores ──────────────────────────────────────────────── */
+.sgi-step-modal-hint {
+  margin-bottom: .85rem;
+  color: var(--sgi-muted);
+  font-size: var(--sgi-fs-lg);
+}

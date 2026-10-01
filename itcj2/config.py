@@ -356,13 +356,13 @@ class Settings(BaseSettings):
     # Sin el bump, la hoja `immutable` en caché sigue sin los estilos y los
     # `<details>` se ven sin su cabecera ni su chevron.
     #
-    # 2026-09-30: el merge de adhoc (Calidad / SGC) NO lleva bump. Sus 49
-    # estáticos son nuevos: ninguna URL de /static/adhoc/ está cacheada en
-    # ningún navegador, así que no hay nada que invalidar. El tripwire de
-    # `tests/fastapi/adhoc/test_template_conventions.py::_ULTIMO_BUMP` sí se
-    # actualizó, porque fija el par (versión, huella) y la versión de la rama
-    # era más baja que esta.
-    STATIC_VERSION: str = "1.0.1111583"
+    # 2026-10-01: alta del módulo SGC (Calidad) bajo la app SGI. Sus 49 estáticos
+    # llegan con URL nueva (`/static/sgi/sgc/...`, `sgc.css`, `sgi-utils.js`), así
+    # que no hay caché que invalidar; el bump existe porque el tripwire de
+    # `tests/fastapi/sgc/test_template_conventions.py` aparea esta constante con la
+    # huella SHA-256 de los CSS/JS del módulo, y esa huella cambió con el renombre.
+    # Los dos se actualizan juntos, siempre.
+    STATIC_VERSION: str = "1.0.1111584"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -591,12 +591,12 @@ class Settings(BaseSettings):
     # Recordatorio de cita de cotejo: dias antes de la fecha (barrido de las
     # 9:00). 0 = sin recordatorio de cita.
     TITULATEC_APPT_REMINDER_DAYS_BEFORE: int = Field(1, ge=0, le=7)
-    # Adhoc (Calidad / SGC ISO 9001) — adjuntos de documentos, eventos de
+    # Sgc (Calidad / SGC ISO 9001) — adjuntos de documentos, eventos de
     # programa, comentarios de tarea e indicadores.
-    # Estructura: instance/apps/adhoc/{documents,program_events,task_comments,indicators}/{entity_id}/
-    ADHOC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "adhoc")
-    ADHOC_MAX_FILE_SIZE: int = 10 * 1024 * 1024
-    ADHOC_ALLOWED_EXTENSIONS: str = "pdf,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,webp,csv,txt"
+    # Estructura: instance/apps/sgi/sgc/{documents,program_events,task_comments,indicators}/{entity_id}/
+    SGC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "sgi", "sgc")
+    SGC_MAX_FILE_SIZE: int = 10 * 1024 * 1024
+    SGC_ALLOWED_EXTENSIONS: str = "pdf,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,webp,csv,txt"
 
 
     model_config = {"env_file": ".env", "extra": "ignore"}

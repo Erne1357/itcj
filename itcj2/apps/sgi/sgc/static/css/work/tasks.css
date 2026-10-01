@@ -1,0 +1,237 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/incidencias/{id}/tareas, /sgi/sgc/programas/{id}/tareas y
+            /sgi/sgc/documentos/{id}/tareas
+   CONTIENE suelo de ancho de la tabla, compactado de la tabla, separacion de los
+            iconos de la columna Acciones,
+            los dos colores de icono propios (usuarios y campana), los dos
+            estados del contador de la columna Notas (clicable y apagado), la
+            columna "Paso" y el aviso de atasco (los dos ultimos solo se ven en
+            la pantalla de documento)
+   EN BASE  prioridad de fila, icono de fila, contador, pastilla, barra inferior
+            y la caja del selector de cantidad
+   --------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   work/tasks.css — tareas de una incidencia, de un evento de programa o de un
+   documento (/sgi/sgc/incidencias/{id}/tareas, /sgi/sgc/programas/{id}/tareas y
+   /sgi/sgc/documentos/{id}/tareas).
+
+   PORTE de `static/css/incidents/tasks.css` del legacy. Una sola hoja para las
+   tres rutas, igual que el template: allí la tarjeta del expediente estaba
+   escrita a golpe de atributos style= dentro del HTML. Lo que solo existe en la
+   pantalla de documento —la columna "Paso" y el aviso de atasco— vive aquí
+   igual: es la misma pantalla con una columna más, no otra.
+
+   Equivalencias:
+     .table-container    → .sgi-card (sgc.css)
+     .controls-top       → macro toolbar() → .sgi-toolbar (sgc.css)
+     .doc-table          → .sgi-table (suelo de 1140px, en esta hoja)
+     .icon-btn-group     → .sgi-actions (sgc.css) con 12px de separación
+     .btn-icon-small     → .sgi-icon-btn
+     .ic-users/-bell/…   → .sgi-icon-users / -bell / -trash
+     .empty-state        → .sgi-empty (sgc.css)
+
+   OJO — RENOMBRADO: la raiz de esta pantalla se llamaba `.sgi-tasks`, el
+   MISMO nombre que la seccion del tablero de tareas del dashboard, que es otra
+   cosa (98 % de ancho, 20px de relleno, interlineado normal). Como cada una
+   vive en su hoja no chocaban, pero bastaba con que dos pantallas cargaran las
+   dos hojas para que el tablero se llevara la geometria de la otra. Aqui es
+   `.sgi-worktasks`. Los `data-sgi-tasks…`, los id y los name NO cambian:
+   de ellos dependen el JS y los tests.
+   ========================================================================== */
+
+.sgi-worktasks {
+  display: block;
+}
+
+.sgi-worktasks-card {
+  padding: var(--sgi-space-4xl);
+}
+
+/* ---------- controles superiores ---------- */
+
+/* `.sgi-worktasks-controls` ya no existe: la fila "Limpiar / Filtrar" la pinta
+   la macro `toolbar()` con `.sgi-toolbar` de sgc.css: flex, wrap, alineada a
+   la derecha y con el MISMO hueco inferior (3xl). El hueco superior lo daba aqui
+   un `margin-top` de 3xl que colapsaba con el margen inferior, mayor (4xl), de
+   `.sgi-page-head`: sin la regla manda ese y el resultado no cambia.
+   La UNICA diferencia es la separacion entre los dos botones: 10px (lg) aqui,
+   15px (2xl) en `.sgi-toolbar`. Es el objetivo del barrido, no un descuido:
+   son los mismos 15px que ya separaban "Limpiar / Filtrar" en la pantalla
+   hermana de incidencias/programas. */
+
+/* ---------- tabla ---------- */
+
+/* SUELO DE ANCHO: 1140px, medido, no heredado.
+   La plantilla pide `width='auto'` a la macro `data_table()` (min-width: 0) y
+   el suelo lo pone esta regla, porque es propio de esta pantalla.
+
+   Antes venia del escalon compartido `.sgi-table-lg` (1200px) y desbordaba:
+   a 1280 —la resolucion de los equipos del ITCJ— el envoltorio mide 1164px
+   (98% de 1280, menos 2x20 del contenedor y 2x25 de la tarjeta), asi que
+   sobraban 36px EXACTOS. Y 36px sobre 1200 dejan el pulgar de la barra al 97%
+   del riel: la ultima columna, "Acciones", quedaba fuera de la vista sin
+   ninguna senal de que estuviera ahi. Se perdia "Eliminar" en las tres
+   pantallas (medido: 36px ocultos en incidencia, programa y documento).
+
+   Por que 1140 y no 1164: en un equipo real con barra de scroll vertical
+   clasica el envoltorio baja a ~1150px, y el suelo tiene que caber tambien
+   ahi. Por debajo de eso la tabla vuelve a desplazarse lateralmente, que es
+   para lo que existe `.sgi-table-wrap`; lo que no puede es desbordarse en la
+   resolucion en la que se trabaja todos los dias.
+
+   No lleva media query: la escala de cortes de la app es 575.98 / 767.98 /
+   991.98 y `test_los_cortes_responsive_son_los_de_la_escala` existe para que
+   nadie invente un cuarto. Un corte a 1280 no arreglaria nada, ademas: el
+   problema esta por ENCIMA del ultimo corte. */
+.sgi-worktasks .sgi-table {
+  min-width: 1140px;
+}
+
+/* El legacy aprieta esta tabla a 10px de relleno y 0.9rem, un punto más grande
+   que la de incidencias.
+
+   El relleno HORIZONTAL baja a 8px, y es lo que hace que bajar el suelo no le
+   cueste ancho a ninguna columna: son 4px menos por celda, es decir 36px en las
+   9 columnas de incidencia/programa —los mismos 36px que se recortan del
+   suelo— y 40px en las 10 de documento. Medido a 1280: el ancho de contenido
+   de cada columna queda igual (o 4px mejor en documento) que con los 1200px
+   viejos, y la altura de fila no se mueve —en la pantalla de programa incluso
+   baja: la fila mas alta pasa de 315px a 294px—. El vertical se queda en 10px:
+   es el que da el aire de la fila. */
+.sgi-worktasks .sgi-table th,
+.sgi-worktasks .sgi-table td {
+  padding: var(--sgi-space-lg) var(--sgi-space-md);
+  font-size: var(--sgi-fs-lg);
+}
+
+/* Grupo de iconos de la columna Acciones (legacy `.icon-btn-group`). */
+.sgi-worktasks .sgi-actions {
+  justify-content: center;
+  gap: var(--sgi-space-xl);
+}
+
+/* Legacy `.btn-icon-small`: un punto más pequeños que los de incidencias. */
+.sgi-worktasks .sgi-icon-btn {
+  font-size: var(--sgi-fs-xl);
+}
+
+/* Colores propios de esta pantalla (legacy: users 3498db, bell e67e22). El
+   icono base, `.sgi-icon-primary` y `.sgi-icon-trash` los pone sgc.css. */
+.sgi-icon-users { color: var(--sgi-blue-flat); }
+.sgi-icon-bell  { color: var(--sgi-warning-ink); }
+
+/* ---------- celdas ---------- */
+
+/* "Sin asignar" en gris claro, como el legacy. */
+.sgi-worktasks .sgi-muted-cell {
+  color: var(--sgi-disabled);
+  font-style: normal;
+}
+
+/* ---------- columna Notas: el contador del hilo ---------- */
+
+/* La pastilla la pinta sgc.css (`.sgi-count-pill`). Aqui solo van sus dos
+   ESTADOS, que son propios de esta pantalla porque es la unica donde el
+   contador abre algo.
+
+   `.sgi-count-btn` es la caja del boton, no la pastilla: sin fondo, sin
+   borde y sin relleno, para que lo que se ve siga siendo exactamente la misma
+   pastilla de antes. Lo que cambia al pulsarla no es su forma, es que ahora
+   hay algo detras. */
+.sgi-worktasks .sgi-count-btn {
+  display: inline-flex;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+/* El realce va en la PASTILLA, no en el boton: el boton no tiene superficie
+   propia. Se sube el tinte al escalon fuerte, que es el mismo salto que usa el
+   resto de la app para "esto responde". */
+.sgi-worktasks .sgi-count-btn:hover .sgi-count-pill,
+.sgi-worktasks .sgi-count-btn:focus-visible .sgi-count-pill {
+  background: var(--sgi-primary-tint-strong);
+}
+
+/* El anillo de foco es el de `.btn` y el de la barra de filtros: quien tabula
+   por la tabla ve el mismo dibujo que en el resto de la pantalla. */
+.sgi-worktasks .sgi-count-btn:focus-visible {
+  outline: 2px solid var(--sgi-primary);
+  outline-offset: 2px;
+  border-radius: var(--sgi-radius-pill);
+}
+
+/* Contador APAGADO: hay comentarios, pero este usuario no alcanza ese hilo.
+   Tiene que VERSE apagado, no solo comportarse como tal —el cursor no existe en
+   una pantalla tactil y no lo ve nadie que no pase el raton por encima—, asi
+   que pierde el violeta de la marca y se va al gris, y baja de semibold a
+   normal. Se queda legible a proposito (4.7:1 sobre su propio fondo, AA para
+   texto normal): el numero de comentarios que no puedes abrir sigue siendo
+   informacion, no ruido que tachar. */
+.sgi-worktasks .sgi-count-off {
+  background: var(--sgi-surface-400);
+  color: var(--sgi-muted);
+  font-weight: var(--sgi-fw-normal);
+  cursor: help;
+}
+
+/* ---------- columna "Paso" (solo la pantalla de un documento) ---------- */
+
+/* El numero de orden se atenua para que el ojo baje por los NOMBRES de los
+   pasos, que es lo que se lee ("Revision y liberacion", "Autorizacion"), y el
+   numero quede de guia lateral. Cifras de ancho fijo para que la columna de
+   puntos no baile entre filas. */
+.sgi-worktasks .sgi-step-order {
+  color: var(--sgi-muted);
+  font-weight: var(--sgi-fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* "Fuera del flujo": la celda de una tarea que cuelga del documento pero no de
+   un paso —la correccion de un rechazo, o cualquiera dada de alta a mano—.
+
+   NO reutiliza `.sgi-muted-cell`, que es el placeholder de "Sin asignar" y
+   en esta hoja va en `--sgi-disabled`: 1.9:1 sobre la tarjeta blanca, el
+   texto menos legible de la pantalla. Aqui el texto es INFORMACION, no un
+   hueco, asi que va en el gris de texto atenuado (`--sgi-muted`, 5.24:1),
+   el mismo con el que el contador apagado se queda legible dos reglas mas
+   arriba y por la misma razon. */
+.sgi-worktasks .sgi-step-empty {
+  color: var(--sgi-muted);
+}
+
+/* ---------- aviso de atasco de la columna Acciones ---------- */
+
+/* La pastilla es la `.sgi-badge` de la app con su tono de peligro o de aviso:
+   nada nuevo que aprender, y los dos estados se distinguen por color ANTES de
+   leerlos. Aqui solo se le mete el icono dentro y se le baja el relleno lateral,
+   que con un glifo delante sobraba.
+
+   `cursor: help` es el mismo gesto que ya usa el contador apagado de esta hoja:
+   dice que hay algo escrito detras sin prometer que se pueda pulsar —porque no
+   se puede: no es un control, es un rotulo—. */
+.sgi-worktasks .sgi-task-stuck {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sgi-space-2xs);
+  padding: var(--sgi-space-2xs) var(--sgi-space-md);
+  cursor: help;
+}
+
+/* ---------- controles inferiores (legacy `.bottom-controls`) ---------- */
+
+/* La barra y la caja del selector son de sgc.css; aqui, sus medidas. */
+.sgi-worktasks-bottom .sgi-qty-select {
+  max-width: 10rem;
+  padding: var(--sgi-space-lg);
+  border-radius: var(--sgi-radius-lg);
+  font-size: var(--sgi-fs-lg);
+}
+
+@media (max-width: 575.98px) {
+  .sgi-worktasks-card {
+    padding: var(--sgi-space-2xl);
+  }
+}

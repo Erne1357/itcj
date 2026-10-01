@@ -1,0 +1,79 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/panel
+   CONTIENE rejilla de tres columnas del panel y el tamano de sus tarjetas, mas el
+            accidente de cascada del legacy que agranda la fila de navegacion
+   EN BASE  la tarjeta (.sgi-tile) y la fila de navegacion
+   --------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   panel/panel.css — rejilla del Panel de Control (/sgi/sgc/panel).
+
+   PORTE de control_panel/control_panel.css sobre el `.card` de
+   dashboard/layout_dashboard.css (en el legacy la segunda hoja pisaba a la
+   primera: de ahí padding 20px y el icono a 1.5rem, pero conservando la
+   tarjeta horizontal con borde izquierdo violeta).
+
+   La tarjeta base (.sgi-tile, .sgi-tile-grid) vive en sgc.css: aquí solo
+   van los valores propios de esta pantalla. Nada de .card a secas — esa clase
+   es de Bootstrap y el legacy la pisaba (su JS enganchaba TODAS las .card de la
+   página, incluidas las del layout).
+   ========================================================================== */
+
+/* El encabezado es el comun (`page_header()` + `.sgi-page-title`): esta
+   pantalla ya no declara el suyo. Lo unico propio es el aire que deja debajo,
+   que en el legacy eran 25px. */
+.sgi-panel-page .sgi-page-head {
+  margin-bottom: var(--sgi-space-4xl);
+}
+
+/* Rejilla de TRES columnas fijas (`.panel-grid`), no auto-fill. */
+.sgi-panel-grid {
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sgi-space-3xl);
+}
+
+/* `.card` del legacy tras la cascada: padding 20px y ancho tope de 280px, que
+   es lo que deja el hueco entre columnas del original. */
+.sgi-panel-grid .sgi-tile {
+  padding: var(--sgi-space-3xl);
+  max-width: 280px;
+  text-align: center;
+}
+
+/* `.card-icon` de control_panel.css: 1.5rem y 10px de margen inferior (el
+   círculo sigue siendo el de 55px de layout_dashboard.css). */
+.sgi-panel-grid .sgi-tile-icon {
+  margin-bottom: var(--sgi-space-lg);
+  font-size: var(--sgi-fs-3xl);
+}
+
+.sgi-panel-grid .sgi-tile-title {
+  margin: 0;
+  font-size: var(--sgi-fs-xl);
+  font-weight: var(--sgi-fw-semibold);
+}
+
+@media (max-width: 991.98px) {
+  .sgi-panel-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 575.98px) {
+  .sgi-panel-grid { grid-template-columns: 1fr; }
+
+  .sgi-panel-grid .sgi-tile { max-width: none; }
+}
+
+/* NO REPONER: aqui vivia el unico bloque de toda la app en el que una hoja de
+   pagina repintaba el shell. Reproducia un accidente de cascada del legacy
+   (control_panel.html metia su <link> dentro del `{% block content %}`, el
+   navegador lo izaba al <head> por detras de layout_dashboard.css, y sus reglas
+   `.card` / `.card-icon` alcanzaban tambien a las tarjetas del menu superior).
+   Efecto: en /sgi/sgc/panel, y solo ahi, la barra de navegacion medra a 105px, el
+   glifo baja de 32px a 24px y el texto arranca 5px antes.
+
+   La barra es el UNICO elemento que persiste entre pantallas; que se redibuje
+   al navegar era el defecto mas visible del producto, y ademas se volvio mas
+   evidente al arreglar el intercambio de la caja (antes la clase de pagina no
+   llegaba cuando venias navegando, asi que el salto solo pasaba en carga
+   directa). Decision del dueno del producto: la barra mide lo mismo en las 30
+   pantallas. Cubierto por tests/e2e/sgc/visual-contract.spec.js. */

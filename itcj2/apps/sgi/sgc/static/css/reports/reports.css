@@ -1,0 +1,264 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /sgi/sgc/reportes
+   CONTIENE rejilla de tarjetas de reporte con su icono superpuesto y el modal de
+            filtros (ancho variable segun el reporte elegido)
+   EN BASE  tarjeta, tabla, boton, modal y el encabezado en negrita
+   --------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   reports/reports.css — Centro de Reportes (pantalla de selección).
+
+   PORTE 1:1 de static/css/control_panel/reports.css del legacy (ojo: la
+   pantalla de selección usa la hoja de `control_panel/`, no la de `reports/`).
+   Se conservan sus valores exactos: 35px de padding en la tarjeta, rejilla
+   `auto-fit minmax(240px, 1fr)` con 25px de hueco, tarjeta gris #f8f9fa con
+   borde #ecf0f3, icono base de 3rem en #dfe6e9 y su icono superpuesto de 1.5rem
+   en el color de marca.
+
+   Lo que NO se copia del legacy porque ya vive en sgc.css: `.doc-table`
+   (→ `.sgi-table`), `.filter-input` (→ `.sgi-filter-input`), `.btn-action`
+   y sus variantes (→ `btn btn-sm {variante}`), y el overlay del modal
+   (`.modal-overlay`/`.modal-content` → los alias sin prefijo de la §9).
+   ========================================================================== */
+
+/* ── La tarjeta contenedora (legacy `.table-container`) ─────────────────── */
+/* `.sgi-card` trae 25px; el legacy usa 35px en esta pantalla. */
+.sgi-reports {
+  padding: 35px;
+}
+
+/* "Volver al Panel": anclado a la esquina, como el `.btn-back-panel` del
+   legacy (position:absolute; top:25px; right:25px). */
+.sgi-reports-back {
+  position: absolute;
+  top: 25px;
+  right: 25px;
+  z-index: var(--sgi-z-sticky);
+}
+
+/* Encabezado (legacy `.header-title`): flex de [icono, texto] con 15px de
+   hueco, centrado en vertical y 30px hasta la rejilla. El hueco de la derecha
+   deja sitio al botón anclado. */
+.sgi-reports-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sgi-space-2xl);
+  margin-bottom: var(--sgi-space-5xl);
+  padding-right: 170px;
+}
+
+.sgi-reports-head-icon {
+  flex: 0 0 auto;
+  font-size: var(--sgi-fs-4xl);
+  color: var(--sgi-primary);
+}
+
+/* El subtítulo del legacy es un <p> normal: 16px y peso 400, no el 0.9rem/300
+   del subtítulo genérico de página. */
+.sgi-reports-head .sgi-page-subtitle {
+  margin-top: var(--sgi-space-xs);
+  font-size: var(--sgi-fs-base);
+  font-weight: var(--sgi-fw-normal);
+}
+
+/* ── Rejilla y tarjetas de reporte ─────────────────────────────────────── */
+.sgi-reports-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--sgi-space-4xl);
+  margin-top: var(--sgi-space-3xl);
+}
+
+/* Es un <button> (el legacy usaba un <div> con listener: ni focusable ni
+   operable con teclado). De ahí `font: inherit` y `appearance: none`: lo demás
+   son los valores literales de `.report-card`. */
+.sgi-report-card {
+  /* Columna en vez de bloque por un detalle del agente de usuario: el contenido
+     de un <button> más alto que su contenido se centra en vertical, y como la
+     rejilla estira las cinco tarjetas a la altura de la más alta, las de título
+     de una sola línea bajaban 13px respecto al legacy, que usa un <div>. */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  width: 100%;
+  padding: var(--sgi-space-5xl) var(--sgi-space-3xl);
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  background: var(--sgi-soft);
+  border: 1px solid var(--sgi-line);
+  border-radius: var(--sgi-radius);
+  box-shadow: var(--sgi-elev-2);
+  cursor: pointer;
+  appearance: none;
+  transition: all .3s ease;
+}
+
+.sgi-report-card:hover {
+  background: var(--sgi-surface);
+  border-color: var(--sgi-primary);
+  box-shadow: var(--sgi-elev-hover-2);
+  transform: translateY(-5px);
+}
+
+.sgi-report-card:focus-visible {
+  outline: 2px solid var(--sgi-primary);
+  outline-offset: 2px;
+}
+
+/* Icono base + icono superpuesto abajo a la derecha (legacy `.icon-wrapper`).
+   `line-height: normal` no es adorno: es la caja de línea del icono de 3rem que
+   va dentro. Con el `line-height: 1.5` que la app hereda del <body> mediría
+   72px en vez de 48 y el glifo se pintaría 12px por debajo de su sitio (el
+   legacy no declara line-height en ninguna parte). */
+.sgi-report-icon {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  margin: 0 auto var(--sgi-space-lg);
+  line-height: normal;
+}
+
+.sgi-report-icon-base {
+  font-size: var(--sgi-fs-5xl);
+  line-height: normal;
+  color: var(--sgi-border);
+  transition: .3s;
+}
+
+.sgi-report-card:hover .sgi-report-icon-base {
+  color: var(--sgi-disabled);
+}
+
+.sgi-report-icon-overlay {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  padding: 2px;
+  font-size: var(--sgi-fs-3xl);
+  color: var(--sgi-primary);
+  background: var(--sgi-surface);
+  border-radius: var(--sgi-radius-circle);
+  transition: .3s;
+}
+
+/* Legacy `.report-card h3`: 1.1rem con la negrita del navegador (700). */
+.sgi-report-card-title {
+  display: block;
+  margin: var(--sgi-space-2xl) 0 var(--sgi-space-xs);
+  color: var(--sgi-dark);
+  font-size: var(--sgi-fs-xl);
+  font-weight: var(--sgi-fw-bold);
+}
+
+@media (max-width: 575.98px) {
+  .sgi-reports { padding: var(--sgi-space-3xl); }
+  .sgi-reports-head { padding-right: 0; margin-top: 35px; }
+  .sgi-reports-back { top: 20px; right: 20px; }
+}
+
+/* ── Modal de filtros ──────────────────────────────────────────────────── */
+/* El legacy tenía DOS: 850px el de parámetros y 1200px el de "Documentos y
+   Notas". Aquí es uno solo y el ancho lo decide el reporte elegido, que el JS
+   marca en `data-sgi-subject`. */
+#sgi-report-modal[data-sgi-subject="documents"] .modal-dialog {
+  width: 1200px;
+}
+
+#sgi-report-modal .modal-content {
+  padding: var(--sgi-space-5xl);
+}
+
+/* Cabecera y pie del legacy: filete de 2px en #f1f2f6, no el de 1px del
+   modal genérico. */
+#sgi-report-modal .modal-header {
+  padding-bottom: var(--sgi-space-2xl);
+  border-bottom: 2px solid var(--sgi-line);
+}
+
+#sgi-report-modal .modal-footer {
+  padding-top: var(--sgi-space-3xl);
+  border-top: 2px solid var(--sgi-line);
+}
+
+/* Título en el color de marca y al tamaño del <h2> del legacy. */
+.sgi-report-modal-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sgi-space-lg);
+  color: var(--sgi-primary);
+  font-size: var(--sgi-fs-3xl);
+}
+
+/* Barra "Limpiar / Buscar" (legacy `.actions`: 10px de hueco y 15px al que
+   viene debajo). A la izquierda, en el hueco que el legacy dejaba vacío, el
+   contador de la vista previa.
+
+   SE LLAMA `-launch` Y NO `-actions` A PROPÓSITO. Con el nombre viejo había dos
+   `.sgi-report-actions` con geometrías incompatibles: esta (barra de un modal,
+   sin ancho máximo) y la de view-report.css (barra de pantalla, centrada y
+   clavada al ancho de la hoja de 1000/1200/1300px). Nunca dieron guerra porque
+   las dos pantallas cargan hojas distintas, pero al buscar la clase salían las
+   dos reglas y cualquiera podía "arreglar" la que no era. La de view-report
+   conserva el nombre; la del modal —que aquí lanza el reporte— es `-launch`. */
+.sgi-report-launch {
+  gap: var(--sgi-space-lg);
+  margin-bottom: var(--sgi-space-2xl);
+}
+
+.sgi-report-launch-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sgi-space-lg);
+  margin-left: auto;
+}
+
+/* NO REPONER: aquí vivía `.sgi-btn-search`, el sexto alias del legacy
+   (`.btn-filter`, #34495e → token oscuro). Solo lo usaba el botón "Buscar" de
+   esta pantalla, así que era un color de botón que no existía en ninguna otra
+   barra de la app; y como no traía `btn-sm` ni `:hover`, salía más grande y
+   más muerto que el "Limpiar" que tenía al lado. Ahora es `btn btn-sm
+   btn-primary`, igual que cualquier otro botón de filtrar. */
+
+/* Los tres filtros, en columnas sobre la vista previa. */
+.sgi-report-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sgi-space-lg);
+  margin-bottom: var(--sgi-space-2xl);
+}
+
+@media (max-width: 575.98px) {
+  .sgi-report-filters { grid-template-columns: 1fr; }
+}
+
+/* Caja de la vista previa: el recuadro con scroll del legacy
+   (`.table-scroll-container`). El scroll es suyo, no del cuerpo del diálogo,
+   para que la cabecera pegajosa de la tabla sirva de algo. */
+.sgi-report-preview .sgi-table-wrap {
+  max-height: 40vh;
+  border: 1px solid var(--sgi-line);
+  border-radius: var(--sgi-radius-lg);
+}
+
+.sgi-report-preview[hidden] {
+  display: none;
+}
+
+.sgi-report-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sgi-space-md);
+  margin: 0;
+  color: var(--sgi-muted);
+  font-size: var(--sgi-fs-lg);
+}
+
+.sgi-report-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sgi-space-lg);
+  align-items: center;
+  justify-content: space-between;
+}

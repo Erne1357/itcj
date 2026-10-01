@@ -2,7 +2,7 @@
 
 Contexto
 --------
-``helpdesk`` y ``adhoc`` navegan con ``hx-boost``: el clic en un enlace no es una
+``helpdesk`` y ``sgc`` navegan con ``hx-boost``: el clic en un enlace no es una
 navegación del documento sino un XHR que sustituye un trozo del DOM. Cuando la
 cookie ``itcj_token`` ha caducado, la página lanza ``PageLoginRequired`` y el
 manejador de :mod:`itcj2.main` responde ``302`` a ``/itcj/login``.

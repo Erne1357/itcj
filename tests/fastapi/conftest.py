@@ -151,7 +151,7 @@ def _seed_minimal_reference_data(_pg_engine):
     `core_apps` de verdad pasa en local y solo revienta en CI, donde la BD se
     construye vacía con `create_all`. Comprobado ejecutando la suite contra una
     BD limpia: 20 fallos y 15 errores, todos con el mismo mensaje —
-    "App 'adhoc' no existe o está inactiva"— y ninguno visible en local.
+    "App 'sgi' no existe o está inactiva"— y ninguno visible en local.
 
     La lista son las claves sobre las que el código pone un gate
     (`require_app`, `require_page_app`, `require_perms`, `require_roles`). El
@@ -167,7 +167,7 @@ def _seed_minimal_reference_data(_pg_engine):
                 ('itcj', 'Plataforma ITCJ', true, false, true),
                 ('helpdesk', 'Help desk', true, false, true),
                 ('maint', 'Mantenimiento', true, false, true),
-                ('adhoc', 'Calidad', true, false, true),
+                ('sgi', 'SGI', true, false, true),
                 ('agendatec', 'AgendaTec', true, true, true),
                 ('vistetec', 'VisteTec', true, true, true),
                 ('titulatec', 'TitulaTec', true, true, true),
