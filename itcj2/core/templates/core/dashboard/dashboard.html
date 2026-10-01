@@ -67,6 +67,19 @@
                 <span class="icon-label">Mantenimiento</span>
             </div>
 
+            {# El estático vive DENTRO del módulo (itcj2/apps/sgi/sgc/static), que es lo
+               que nginx sirve en /static/sgi/sgc/. Por eso la ruta del `url_for` lleva
+               los dos tramos y la llave del manifest (`sgi`) sólo el primero: `sv()`
+               resuelve contra la raíz de estáticos de la app. #}
+            <div class="desktop-icon" data-app="sgi">
+                <div class="icon-container" style="position: relative;">
+                    <img src="{{ url_for('static', filename='sgi/sgc/images/sgi-logo-guinda-1024.png') }}?v={{ sv('sgi', 'images/sgi-logo-guinda-1024.png') }}" alt="SGI"
+                        style="width:45px;height:45px;">
+                    <span id="badge-sgi" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 10px; padding: 2px 5px;">0</span>
+                </div>
+                <span class="icon-label">SGI</span>
+            </div>
+
             <div class="desktop-icon" data-app="directory">
                 <div class="icon-container" style="position: relative;">
                     <img src="{{ url_for('static', filename='directory/images/directory.png') }}" alt="Extensiones"

@@ -679,7 +679,10 @@ _ESTATICOS = RAIZ / "static"
 #: Actualizado al integrar la rama en main (2026-09-30): la huella es la misma
 #: —ningún estático de sgc cambió— y la versión pasa a ser la de main, que
 #: venía más alta por los bumps de titulatec.
-_ULTIMO_BUMP = ("1.0.1111584", "7f16a94c7d1370cb")
+#: La huella no cambia con el logo del escritorio: sólo cubre los CSS/JS del
+#: módulo, y el PNG nuevo no es ninguno de los dos. La versión sí sube, porque
+#: el bump lo pide `dashboard.js` (estático del core).
+_ULTIMO_BUMP = ("1.0.1111585", "7f16a94c7d1370cb")
 
 
 def _huella_estaticos() -> str:

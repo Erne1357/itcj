@@ -362,7 +362,13 @@ class Settings(BaseSettings):
     # `tests/fastapi/sgc/test_template_conventions.py` aparea esta constante con la
     # huella SHA-256 de los CSS/JS del módulo, y esa huella cambió con el renombre.
     # Los dos se actualizan juntos, siempre.
-    STATIC_VERSION: str = "1.0.1111584"
+    #
+    # Bump 2026-10-01 (b): el SGI estrena logo propio en el escritorio
+    # (`sgi/sgc/images/sgi-logo-guinda-1024.png`) y `dashboard.js` marca su item
+    # con `customImage: true`. Sin el bump, un navegador con el JS viejo en caché
+    # ignora la marca, `buildTile` descarta el marcado escrito a mano y el ícono
+    # vuelve a salir como el genérico de lucide.
+    STATIC_VERSION: str = "1.0.1111585"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

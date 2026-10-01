@@ -12,7 +12,7 @@ class WindowsDesktop {
       { id: 'agendatec', name: 'AgendaTec', icon: 'calendar' },
       { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket', customImage: true },
       { id: 'maint', name: 'Mantenimiento', icon: 'wrench', customImage: true },
-      { id: 'sgi', name: 'SGI', icon: 'clipboard-check' },
+      { id: 'sgi', name: 'SGI', icon: 'clipboard-check', customImage: true },
       { id: 'titulatec', name: 'TitulaTec', icon: 'graduation-cap', customImage: true },
       { id: 'vistetec', name: 'VisteTec', icon: 'shirt', customImage: true },
       { id: 'directory', name: 'Extensiones', icon: 'book', customImage: true },
