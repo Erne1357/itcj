@@ -8,7 +8,7 @@
 |---|---|
 | **Actor(es)** | 🏛️ Servicios Escolares (encargado de la carrera) · 👤 Alumno |
 | **Permiso(s)** | **Ver la agenda:** `appointment.page.list` ∨ `dashboard.school_services` ∨ `dashboard.admin`. **Actuar:** `appointment.api.create` (agendar) · `.reschedule` (reagendar / mover) · `.update` (iniciar, no-show, deshacer, **cancelar**) · `.mark_attended` · `process.api.requirement.mark` (checklist) · `process.api.approve_phase` / `.reject_phase`. **Espacios:** `review_window.api.manage` ∨ `.manage.all`. **Alumno:** `appointment.page.my` · `.api.confirm.own` · `.api.book.own` · `.api.cancel.own` |
-| **Trigger** | El proceso aparece en «Por agendar»: activo, **sin cita vigente**, **la fase 02 nunca rechazada**, los 3 documentos iniciales aprobados y la **encuesta de egresados ya LIBERADA** por Gestión Tecnológica y Vinculación (2026-09-29, D1 — revierte D2 del 2026-09-15, que se conformaba con que la hubieran enviado) |
+| **Trigger** | El proceso aparece en «Por agendar»: activo, **sin cita vigente**, **la fase 02 nunca rechazada**, los documentos iniciales de SU PERFIL aprobados (3 en licenciatura, 7 en posgrado — [perfil de titulación](engine_process_track.md); R-G exceptúa los extras de posgrado FALTANTES si la fase 1 ya cerró antes del despliegue de ese perfil) y la **encuesta de egresados ya LIBERADA** por Gestión Tecnológica y Vinculación (2026-09-29, D1 — revierte D2 del 2026-09-15, que se conformaba con que la hubieran enviado) |
 | **Precondiciones** | `DocumentService.initial_docs_all_approved(db, process_id)` y `SurveyReviewService.release_status(db, process_id) == "approved"` (guarda dura de `AppointmentService.create`: `SurveyNotSubmitted` si nunca la envió, `SurveyNotReleased` si la envió pero GTV no la ha liberado) |
 | **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) · ⤵ [alcance por carrera](engine_officer_scope.md) · ⤵ [el egresado agenda solo](phase2_student_self_booking.md) |
 | **Estado final** | Cita `attended`; fase 2 `approved`; fase 3 `in_progress` |
@@ -23,10 +23,12 @@
 
 > **Elegibilidad — corrección (jun-2026).** «Por agendar» **no** es `current_phase == 2`: el commit
 > `ae0dfe1` quitó ese filtro de `AppointmentService.list_pending_processes`. El criterio es
-> `status == "active"` + sin cita vigente + los **3 documentos iniciales aprobados**
-> (`birth_certificate`, `high_school_cert`, `curp`). En la práctica coinciden —aprobar el 3.er
-> documento aprueba la fase 1 y deja `current_phase=2`—, pero **la fase (en el sentido de
-> `current_phase`) ya no se consulta**.
+> `status == "active"` + sin cita vigente + los **documentos iniciales de SU PERFIL aprobados** — 3
+> en licenciatura (`birth_certificate`, `high_school_cert`, `curp`), 7 en posgrado (ver
+> [perfil de titulación](engine_process_track.md); R-G exceptúa los extras de posgrado FALTANTES si
+> la fase 1 ya cerró, 2026-09-30). En la práctica coinciden —aprobar el último documento aprueba la
+> fase 1 y deja `current_phase=2`—, pero **la fase (en el sentido de `current_phase`) ya no se
+> consulta**.
 >
 > **Corrección (2026-09-17): la fase SÍ vuelve a consultarse, pero por otra columna.** Desde el
 > cubo «Fase 02 rechazada» (más abajo), «Por agendar» también excluye a quien tenga una

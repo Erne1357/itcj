@@ -26,9 +26,13 @@ Compatibilidad blue/green: el codigo viejo (anterior a este deploy) no lista
 sigue funcionando sin cambios contra la tabla ya migrada. Esa version vieja
 jamas escribe un valor fuera del dominio porque nunca escribe la columna.
 
-Downgrade: quita el CheckConstraint y despues la columna (un constraint vivo
-impide tirar la columna). Sin perdida de informacion mas alla del propio
-nivel: en esta rama nada mas depende todavia de esta columna.
+Downgrade: quita el CheckConstraint y despues la columna, en el mismo orden
+simetrico que el alta -- no porque Postgres lo exija (tirar la columna se
+lleva el CheckConstraint solo, sin necesitar CASCADE: version anterior de
+este docstring decia lo contrario), sino para no depender de ese
+comportamiento implicito y dejar la intencion explicita en el propio script.
+Sin perdida de informacion mas alla del propio nivel: en esta rama nada mas
+depende todavia de esta columna.
 
 Revisión ID: tt20260930a
 Revises: tt20260929a

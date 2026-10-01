@@ -42,8 +42,11 @@
   debe llamarla ni replicar la comparación.
 - Migración `tt20260930a` (`migrations/versions/tt20260930a_core_programs_level.py`,
   `down_revision="tt20260929a"`), **escrita a mano** (nada de autogenerate): `add_column` con
-  `server_default='licenciatura'` + `create_check_constraint`; el downgrade quita primero el check
-  y luego la columna (un constraint vivo impide tirar la columna).
+  `server_default='licenciatura'` + `create_check_constraint`; el downgrade quita primero el check y
+  luego la columna, en el mismo orden simétrico que el alta — no porque Postgres lo exija (tirar la
+  columna se lleva el `CheckConstraint` solo, sin `CASCADE`: corrección de la revisión final, el
+  docstring de la migración decía lo contrario), sino para no depender de ese comportamiento
+  implícito y dejar la intención explícita en el propio script.
 - Compatibilidad blue/green: el código viejo no lista `level` en sus `SELECT`/`INSERT` explícitos
   de `core_programs` — el `server_default` la llena sola —, así que una versión anterior del
   backend sigue funcionando contra la tabla ya migrada.
@@ -162,17 +165,31 @@ Deriva de D9 (spec §5): un proceso de posgrado que **ya pasó** la fase de `ini
 del despliegue de este perfil (con solo los 3 documentos base, porque el perfil posgrado todavía no
 existía) no debe regresar a Documentos por los 4 extras que nunca le pidieron.
 
-- **Dónde vive:** `DocumentService.initial_docs_all_approved` (`:117-165`). Un código
-  `POSGRADO_EXTRA_DOCS` SIN fila deja de contar **solo si** `process.current_phase` ya pasó el
-  número de la fase `initial_docs` (`PhaseService.phase_number_for_code`); los 3 base **siempre**
-  se exigen, haya pasado la fase o no, y un extra que SÍ tiene fila debe estar `approved` igual que
-  cualquier otro. Sin proceso o sin catálogo de fases, la fase se trata como ABIERTA (se exige el
-  set completo) — nunca lanza una excepción.
-- **A quién afecta de verdad:** solo a `AppointmentService._pending_candidates` (vía
-  `list_pending_processes`/`list_self_blocked_processes`/`list_missing_survey_processes`,
-  consumidos por la cola del encargado en [`phase2_appointment_loop.md`](phase2_appointment_loop.md)
-  vía `pages/appointments.py:937`). Es la única superficie donde
-  `initial_docs_all_approved` decide algo que puede CAMBIAR el resultado por un extra ausente.
+- **Dónde vive el predicado (Ruling R11, revisión final 2026-09-30):**
+  `DocumentService.excused_initial_docs(process, present_codes, *, initial_docs_phase)` — PURO, sin
+  `db`: devuelve los códigos de `POSGRADO_EXTRA_DOCS` SIN fila que se dispensan **solo si**
+  `process.current_phase` ya pasó el número de la fase `initial_docs`
+  (`PhaseService.phase_number_for_code`, que el llamador resuelve una vez y reparte). Los 3 base
+  **siempre** se exigen, haya pasado la fase o no, y un extra que SÍ tiene fila debe estar `approved`
+  igual que cualquier otro. Sin proceso o sin catálogo de fases, la fase se trata como ABIERTA (se
+  exige el set completo) — nunca lanza una excepción. `initial_docs_all_approved` ya NO trae la
+  lógica en línea: consulta este predicado.
+- **A quién afecta (hallazgo de la revisión final — R-G llegaba solo a la elegibilidad, no a los
+  CONTADORES):**
+  - **Elegibilidad de cotejo**: `AppointmentService._pending_candidates` (vía
+    `list_pending_processes`/`list_self_blocked_processes`/`list_missing_survey_processes`,
+    consumidos por la cola del encargado en [`phase2_appointment_loop.md`](phase2_appointment_loop.md)
+    vía `pages/appointments.py:937`) — decide si el proceso ENTRA a la cola.
+  - **Bandeja de Documentos** (`pages/documents.py::_doc_row`): un dispensado sale con
+    `status="excused"` — pseudo-estado de la UI, igual que `missing` — y NO cuenta en `pending` ni
+    impide `all_approved`; píldora neutra «En cotejo» (`estado_pill`, `_macros.html`). Sin esto, un
+    proceso así se quedaba para siempre en la cola «Por evaluar» con una píldora «4».
+  - **Resumen del alumno** (`DocumentService.initial_docs_summary` → `pages/student.py::
+    _docs_progress`): `total`/`uploaded` cuentan SOLO lo exigible (sin los dispensados);
+    `counts["excused"]`; el acordeón pinta «Se entrega en el cotejo» en vez de «sin subir».
+  - **Visor de cotejo y expediente** (`pages/appointments.py`/`pages/admin.py::_detail_ctx`): mismos
+    7 renglones, pero un dispensado se rotula «Se entrega en el cotejo» en vez de «Falta» — así
+    Servicios Escolares sabe qué pedir en el cotejo (D9).
 - **A quién NO afecta:** [el auto-agendado del propio egresado](phase2_student_self_booking.md).
   `SelfBookingService.eligibility()` no llama a `DocumentService` en ningún punto — sus 7 reglas
   miran `process.status`, el veredicto de la fase 2, el estado de la encuesta y las cancelaciones,
@@ -273,12 +290,37 @@ SurveyService.form_for_user(db, user_id: int | None) -> SurveyForm | None   # (:
 
 1. Antes de fusionar: `SELECT id, name FROM core_programs ORDER BY id DESC LIMIT 6;` — las 4 de
    posgrado deben empezar con «Maestría»/«Doctorado» (si no, el 18 abortará; corregir el nombre
-   primero) — y revisar procesos de posgrado por fase (para avisar a Servicios Escolares del §5).
+   primero) — y revisar procesos de posgrado por fase (para avisar a Servicios Escolares del §5 y de
+   la población R-G, punto 3 de abajo).
 2. Fusionar → `alembic upgrade head` (llega a `tt20260930a`) → copiar
-   `database/DML/titulatec/posgrado_2026_10/` al servidor → `titulatec init-posgrado` → comparar los
-   ids impresos con las 4 más recientes.
-3. Reversa: `alembic downgrade tt20260929a` + `rollback.sh`. El código viejo ignora la columna y los
-   tipos nuevos (no los pinta; su hueco de subida sigue siendo el de antes).
+   `database/DML/titulatec/posgrado_2026_10/` al servidor → `titulatec init-posgrado`,
+   INMEDIATAMENTE después del deploy y FUERA DE HORARIO (hallazgo de la revisión final: hasta que
+   corre, aprobar los 3 documentos base de un posgrado lo avanza de fase como si fuera licenciatura y
+   lo suma a la población R-G de abajo) → comparar los ids impresos con las 4 más recientes.
+3. `init-posgrado` (dry-run y corrida real) imprime además la población R-G bajo «Pedir en el cotejo
+   (fase 1 ya cerrada): N» (D9 sin herramienta, Tarea 8, solo lectura) — avisarla a Servicios
+   Escolares. Avisar TAMBIÉN de que el barrido de recordatorios de las 9:00
+   (`MailReminders._documentos`) le va a mandar a cada posgrado que SIGUE en fase 1 con ≥3 días sin
+   actividad el recordatorio de documentos con los 4 campos nuevos — es el aviso correcto para quien
+   no ha pasado la fase, no un error.
+4. Reversa — ORDEN INVERTIDO al de otras migraciones de esta app (p. ej.
+   [elegibilidad SII](xcut_sii_eligibility.md#volver-atrás), que SÍ baja la BD antes de
+   `rollback.sh`): hallazgo de la revisión final. `core_programs.level` lo lee el ORM de `Program`
+   en cada carga (`SELECT` sin lista explícita de columnas) — con la imagen NUEVA todavía sirviendo,
+   tirar la columna ANTES revienta esa lectura con `UndefinedColumn` hasta que `rollback.sh` conmute
+   nginx y recree celery/sockets. El código VIEJO, en cambio, tolera la columna de más (no la lista
+   en su `SELECT`/`INSERT`): por eso aquí `rollback.sh` va PRIMERO.
+   1. `./docker/scripts/rollback.sh` (el código viejo ya sirve; tolera `level` de más).
+   2. Después, `alembic downgrade tt20260929a` como paso suelto DESDE LA IMAGEN NUEVA (la vieja no
+      trae `tt20260930a` y alembic no la encontraría):
+      ```bash
+      export IMAGE_TAG="$(git rev-parse --short HEAD)"   # la imagen NUEVA (la que corrió el deploy)
+      docker compose -f docker/compose/docker-compose.prod.yml --profile blue \
+          run --rm --entrypoint "" -e PYTHONPATH=/app backend-blue \
+          bash -c "cd /app && alembic -c migrations/alembic.ini downgrade tt20260929a"
+      ```
+   La reversa sigue siendo obligatoria antes de desplegar un `main` revertido: ese árbol no reconoce
+   `tt20260930a` y `alembic` no podría ubicarla.
 
 ## Procesos en curso al desplegar (spec §5)
 

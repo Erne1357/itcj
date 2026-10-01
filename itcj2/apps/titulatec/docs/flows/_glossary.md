@@ -171,7 +171,7 @@ documentado, pero en [el perfil de titulación](engine_process_track.md), no aqu
 |---|---|---|
 | `TrackService` (2026-09-30) | `services/track_service.py` | Perfil de titulación por nivel de carrera: `for_level`/`for_process`/`for_process_id`/`for_processes` traducen `core_programs.level` a `licenciatura` \| `posgrado` — **único** lugar que compara `.level` o nombres de carrera. Detalle: [perfil de titulación por nivel de carrera](engine_process_track.md) |
 | `PhaseService` | `services/phase_service.py` | Motor de fases: `approve_phase`/`reject_phase`, salto de fases según la modalidad (`_skips`/`_next_applicable`) y log de `ProcessEvent`. **Y las dos guardas**: `assert_can_transition` (dictamen 🏛️🎓) y `assert_student_can_act` (ejecución 👤) — [guarda de fase del alumno](engine_student_phase_lock.md) |
-| `DocumentService` | `services/document_service.py` | Guardar/leer/borrar documentos y `review()` (2026-09-21: rechaza dictaminar un documento cuyo TIPO pertenece a una fase congelada por el corte a T-soft — `dtype.phase_number >= PhaseService._handoff_phase()`; guarda angosta a propósito, NO mira `current_phase`, para no romper el dictamen tardío); además las consultas de elegibilidad `initial_docs_all_approved` (2026-09-30: exceptúa extras de posgrado FALTANTES si la fase 1 ya cerró, R-G) y `list_phase_document_types`. El set de fase 1 por perfil (`initial_doc_types*`) también vive aquí — ver [perfil de titulación](engine_process_track.md) |
+| `DocumentService` | `services/document_service.py` | Guardar/leer/borrar documentos y `review()` (2026-09-21: rechaza dictaminar un documento cuyo TIPO pertenece a una fase congelada por el corte a T-soft — `dtype.phase_number >= PhaseService._handoff_phase()`; guarda angosta a propósito, NO mira `current_phase`, para no romper el dictamen tardío); además las consultas de elegibilidad `initial_docs_all_approved` y `list_phase_document_types`. El set de fase 1 por perfil (`initial_doc_types*`) también vive aquí. R-G (2026-09-30, Ruling R11 revisión final): `excused_initial_docs` es el ÚNICO predicado que exceptúa extras de posgrado FALTANTES si la fase 1 ya cerró — lo consultan `initial_docs_all_approved` (elegibilidad) Y `initial_docs_summary`/la bandeja/el visor de cotejo/el expediente (contadores) — ver [perfil de titulación](engine_process_track.md) |
 | `FormatBService` | `services/format_b_service.py` | Formato B multi-step: `get_or_create`, `save_step`, `submit(db, fb, process)` (reaplica la guarda de fase del alumno), `review(db, fb, process, ...)` (2026-09-21: ganó `process` y reaplica `assert_can_transition`, la guarda gemela del admin), `to_ctx` |
 | `ImportService` | `services/import_service.py` | Import CSV de la convocatoria: `parse` → `autodetect_mapping` → `build_preview` → `import_rows` (crea/empata usuario, otorga rol `graduate` y revoca `student` vía `_sync_graduate_roles`, crea proceso + sus 9 `ProcessPhase`) |
 | `AppointmentService` | `services/appointment_service.py` | Cita de cotejo (fase 2): `create`, `reschedule`, `start`, `mark_attended`, `mark_no_show`, `confirm`, `request_change`; y las lecturas de la agenda `list_appointments`, `counts_by_day`, `list_for_day`, `list_pending_processes`, `agenda_process_ids` (universo acotado contra el que se valida el `?selected=`). **Las cinco lecturas tienen `allowed_program_ids` con default ABIERTO** |
@@ -190,10 +190,13 @@ documentado, pero en [el perfil de titulación](engine_process_track.md), no aqu
 - `CohortReviewDay` (`titulatec_cohort_review_days`, `UNIQUE(cohort_id, date)`): fechas que la jefa
   habilita por convocatoria. Perm `titulatec.cohort.api.review_days` (solo
   `titulatec_school_services_head`), exigido en `pages/admin.py:244, 257, 399`.
-- Pestaña **Documentos** (perm `titulatec.document.page.list`): bandeja de revisión. Al aprobar los 3
-  iniciales (`birth_certificate`, `high_school_cert`, `curp` — `pages/documents.py:13`) con la fase en
-  1, `pages/documents.py:135-137` llama `PhaseService.approve_phase(db, proc, 1, ...)` y auto-avanza
-  1→2. Elegibilidad de cotejo = `DocumentService.initial_docs_all_approved`.
+- Pestaña **Documentos** (perm `titulatec.document.page.list`): bandeja de revisión. Al aprobar TODOS
+  los documentos iniciales DEL PERFIL del proceso (3 en licenciatura; 7 en posgrado —
+  `DocumentService.initial_doc_types_for`, ver [perfil de titulación](engine_process_track.md); R-G
+  exceptúa los extras de posgrado FALTANTES si la fase 1 ya cerró) con la fase en 1,
+  `pages/documents.py:334-336` llama `PhaseService.approve_phase(db, proc, 1, ...)` y auto-avanza
+  1→2. Elegibilidad de cotejo = `DocumentService.initial_docs_all_approved` (consulta
+  `excused_initial_docs` para R-G).
 
 ## UI / convenciones front
 
