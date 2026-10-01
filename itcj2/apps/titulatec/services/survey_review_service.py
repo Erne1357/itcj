@@ -21,6 +21,15 @@ mutar `SurveyReview.status`. Efecto sobre el requisito `graduate_survey`
 (§4.3): `approve` lo `fulfill`-ea, `revoke` lo `unfulfill`-ea; `reject` nunca lo
 toca (ni desde `in_review` ni desde `rejected` hay cumplimiento que tocar).
 
+Gancho de constancias (spec `2026-10-01-titulatec-biblioteca-caja-design.md`
+§4.5, D7/D21/D22): `approve` emite la constancia `survey_release` vía
+`CertificateService.issue` -- salvo que `review.origin == 'prior'` (esa
+solicitud nace de una constancia previa que SE ya capturó a mano, §4.12; el
+egresado no necesita una nueva). `revoke` siempre llama a
+`CertificateService.void`, que es un no-op (`None`) cuando no había nada que
+anular. Ambos, en la MISMA transacción, antes del único `commit` de la
+transición.
+
 Reglas fijas, iguales a `RequirementService`/`PhaseService`:
 
 * Métodos `@staticmethod`, `db: Session` primero, UN solo `commit` al final de
@@ -233,6 +242,17 @@ class SurveyReviewService:
         SurveyReviewService._log(db, process.id, actor_id, "survey_review_approved",
                                  {"review_id": review.id})
 
+        # Constancia de liberación de encuesta (spec §4.5, D7/D21/D22): NUNCA
+        # para origin='prior' -- esa solicitud la creó Servicios Escolares a
+        # partir de una constancia previa (§4.12) y el egresado ya trae su
+        # papel de antes de este sistema. Misma transacción, antes del commit.
+        if review.origin != "prior":
+            from itcj2.apps.titulatec.services.certificate_service import CertificateService
+            CertificateService.issue(
+                db, kind="survey_release", process=process,
+                source_ref=f"survey_review:{review.id}", actor_id=actor_id,
+            )
+
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="SURVEY_REVIEW_APPROVED",
                        title="Tu encuesta de egresados fue liberada",
@@ -307,6 +327,16 @@ class SurveyReviewService:
                                      actor_id=actor_id, commit=False)
         SurveyReviewService._log(db, process.id, actor_id, "survey_review_revoked",
                                  {"reason": motivo})
+
+        # Anula la constancia vigente de esta solicitud, si la hubo. `void`
+        # regresa `None` sin problema cuando `approve` nunca emitió una
+        # (origin='prior'): no hay nada que anular y eso es el camino normal.
+        # Misma transacción, antes del commit.
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+        CertificateService.void(
+            db, source_ref=f"survey_review:{review.id}", actor_id=actor_id,
+            reason=motivo,
+        )
 
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="SURVEY_REVIEW_REVOKED",
