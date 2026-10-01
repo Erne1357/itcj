@@ -426,9 +426,12 @@ def test_el_folio_continua_desde_el_ultimo_y_no_desde_el_conteo(
     period_code = cohort.period_code or str(cohort.period_id)
 
     # Dos procesos previos (0001 y 0002) y se borra el primero: count()==1 -> el
-    # importador volveria a emitir 0002.
+    # importador volveria a emitir 0002. El borrado necesita al proceso SIN fila
+    # de no adeudo de biblioteca (FK de `titulatec_library_clearances`; el
+    # default de `make_process` la crea).
     viejo = make_process(make_student(), cohort=cohort, phases=False,
-                         folio="TT-{}-0001".format(period_code))
+                         folio="TT-{}-0001".format(period_code),
+                         library_clearance=None)
     make_process(make_student(), cohort=cohort, phases=False,
                  folio="TT-{}-0002".format(period_code))
     db_session.query(TitulationProcess).filter_by(id=viejo.id).delete()
