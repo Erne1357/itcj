@@ -286,12 +286,19 @@ stateDiagram-v2
     rejected --> approved: 🛠️ GTV libera (sin acción del egresado)
     rejected --> rejected: 🛠️ GTV observa de nuevo (actualiza el motivo)
     approved --> rejected: 🛠️ GTV revoca (motivo) — solo si la fase 2 no está `approved`
-    approved --> [*]
+    [*] --> approved: 🤖 constancia previa (D9, origin=prior, sin encuesta real)
+    approved --> [*]: 🛠️ GTV revoca una PREVIA (motivo) — la fila se BORRA: vuelve a missing (R22)
 ```
 
 > **Pseudo-estado `missing`**: no es un valor de la columna, es la AUSENCIA de fila (el
 > egresado todavía no envía la encuesta) — mismo idioma que "ausencia de fila = pendiente" en
 > `RequirementFulfillment`. Lo calcula `SurveyReviewService.summary_for_process`.
+>
+> **Revocar una constancia previa la borra** (Ruling R22): una previa (`origin='prior'`) no
+> tiene encuesta real detrás; si quedara `rejected`, `SurveyService.submit` (que corta mientras
+> exista CUALQUIER fila) no dejaría al egresado contestar nunca. `revoke` deja el evento
+> `survey_review_revoked` (con `origin`) y el `unfulfill`, y borra la fila: la solicitud vuelve
+> a `missing` y el egresado contesta normalmente.
 >
 > **Liberar acredita, revocar desacredita; observar no toca nada.** `approve` llama a
 > `RequirementService.fulfill` sobre `graduate_survey`; `revoke` llama a `unfulfill`. Ni
@@ -342,8 +349,15 @@ stateDiagram-v2
 > solo bloquea donde la convocatoria tiene el requisito de cotejo `library_clearance` ACTIVO con
 > `auto_source='library_clearance'` — las convocatorias nuevas ya nacen así
 > (`CotejoRequirementService.DEFAULTS`); las que ya existían lo ganan al correr `titulatec
-> init-biblioteca-caja`. Hasta entonces, el estado de esta fila se registra igual (Biblioteca y
-> Caja siempre operan sobre procesos admitidos), pero nadie se queda sin agendar por él.
+> activar-biblioteca-caja` (el paso 2 del despliegue; `init-biblioteca-caja` solo crea puestos,
+> roles y permisos, Ruling R19). Hasta entonces, el estado de esta fila se registra igual
+> (Biblioteca y Caja siempre operan sobre procesos admitidos), pero nadie se queda sin agendar
+> por él. La activación también promueve a `cleared/legacy` las `pending` que SE siguió marcando
+> a mano después de la migración (Ruling R20).
+>
+> **`not_applicable`** (Ruling R21) es un pseudo-estado de LECTURA, no una columna: fase 2 ya
+> `approved` sin el no adeudo liberado. No bloquea, el egresado no lo ve y SE ve «No aplica
+> (cotejo ya liberado)»; Registrar, el lote y la constancia previa lo rechazan.
 >
 > **El egresado no mueve ningún estado.** Todas las transiciones las escribe Biblioteca, Caja o
 > Servicios Escolares (respaldo D9, constancia previa); la CLI `titulatec
@@ -356,7 +370,8 @@ No es una máquina de estados con transiciones intermedias: una `Certificate` na
 (`voided_at IS NULL`) con un folio único por tipo y año (`CertificateCounter`, contador atómico),
 y su único cambio posible es **anularse** (`voided_at`/`voided_by_id`/`void_reason`) — nunca se
 borra, nunca se reutiliza su folio, y «volver a liberar» emite una fila NUEVA con folio NUEVO en
-vez de reabrir la anulada. Emisores: `SurveyReviewService.approve` (`kind='survey_release'`,
+vez de reabrir la anulada. A lo más UNA vigente por `source_ref`: la cuidan los emisores y la
+base (UNIQUE parcial `uq_titulatec_certificates_live_source`, Ruling R29). Emisores: `SurveyReviewService.approve` (`kind='survey_release'`,
 salvo `origin='prior'`) y `LibraryClearanceService` al quedar `cleared` por `payment`/`no_charge`
 (`kind='library_clearance'`). Detalle completo: [constancias por lote](xcut_certificates_batch.md).
 

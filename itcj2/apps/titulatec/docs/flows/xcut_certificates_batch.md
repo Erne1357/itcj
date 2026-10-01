@@ -79,11 +79,15 @@ sequenceDiagram
 
 - **`issue(db, *, kind, process, source_ref, actor_id)`**: folio + datos CONGELADOS del proceso
   EN ESE MOMENTO (D7/D21/D22: número de control, nombre, carrera, semestre — un cambio posterior
-  del alumno o la convocatoria no mueve lo ya impreso). Incondicional: no comprueba que
-  `source_ref` ya tenga una vigente — ese candado («a lo más UNA vigente por `source_ref`», §5
-  invariante 5) es responsabilidad del LLAMADOR, que conoce su propia máquina de estados
-  (`SurveyReviewService.approve` solo emite desde `in_review`/`rejected`, nunca dos veces sobre
-  una ya `approved`; `LibraryClearanceService` solo al ENTRAR a `cleared/payment|no_charge`).
+  del alumno o la convocatoria no mueve lo ya impreso). No consulta antes si `source_ref` ya
+  tiene una vigente: «a lo más UNA vigente por `source_ref`» (§5 invariante 5) la cuida primero
+  el LLAMADOR, que conoce su propia máquina de estados (`SurveyReviewService.approve` solo emite
+  desde `in_review`/`rejected`, nunca dos veces sobre una ya `approved`; `LibraryClearanceService`
+  solo al ENTRAR a `cleared/payment|no_charge`), y la RESPALDA la base: el UNIQUE parcial
+  `uq_titulatec_certificates_live_source` sobre `(source_ref) WHERE voided_at IS NULL` (Ruling
+  R29, en el modelo y en `tt20261001a`). Un llamador que se equivocara truena con
+  `IntegrityError` en el `flush()`; una anulada y su reemplazo sí conviven (la anulada sale del
+  índice).
   **Sin commit** — transacción del llamador. `source_ref` = `"survey_review:{id}"` |
   `"library_clearance:{id}"` (sin FK real: puede apuntar a cualquiera de los dos dueños según
   `kind`).
@@ -98,10 +102,13 @@ sequenceDiagram
 
 ## Lotes y PDF
 
-- **`pending(db, kind)`**: constancias `kind` sueltas (`batch_id IS NULL`) y vigentes
-  (`voided_at IS NULL`), FIFO por `issued_at` — mismo predicado que el índice parcial
-  `ix_titulatec_certificates_pending_print`. `pending_count(db, kind)` para el badge «Por
-  imprimir (N)».
+- **`pending(db, kind)`**: constancias `kind` sueltas (`batch_id IS NULL`), vigentes
+  (`voided_at IS NULL`) y de un proceso NO revocado (Ruling R26: `ProcessService.cancel` no
+  anula constancias, y SE no debe recibir papeles de una inscripción dada de baja; la constancia
+  no se toca, solo no se imprime), FIFO por `issued_at`. `pending_count(db, kind)` para el badge
+  «Por imprimir (N)». Los tres (`pending`, `pending_count`, `create_batch`) comparten UNA
+  definición, `_pending_criteria(kind)` (el revocado con `NOT EXISTS`, no JOIN: el `FOR UPDATE
+  SKIP LOCKED` del lote bloquea solo constancias).
 - **`create_batch(db, *, kind, actor_id)`**: toma TODAS las pendientes con `FOR UPDATE SKIP
   LOCKED` (si otra transacción las está imprimiendo ahora mismo, esta llamada simplemente no las
   ve, en vez de bloquearse), crea el `CertificateBatch`, les pone `batch_id` a todas. **Commit
@@ -110,7 +117,10 @@ sequenceDiagram
 - **El PDF NUNCA se guarda**: `utils/certificate_pdf.py::render_certificates_pdf(certs) ->
   bytes` lo REGENERA siempre a partir de los datos ya CONGELADOS de cada fila — mismo resultado
   cada vez, nada que mantener sincronizado. `GET /lotes/{batch_id}.pdf` lo sirve `inline` (se
-  abre en pestaña nueva desde un `<a target="_blank">` plano del parcial, nunca `<script>`).
+  abre en pestaña nueva desde un `<a target="_blank">` plano del parcial, nunca `<script>`). Esa
+  ruta es **`def`, no `async def`** (Ruling R23): WeasyPrint es CPU bloqueante —30 constancias
+  1.7 s, 300 constancias 14.6 s, medido en el contenedor— y en el event loop congelaba un worker
+  HTTP de toda la plataforma en cada «Ver PDF»; como `def`, FastAPI la corre en su threadpool.
 - **`certificates_of(db, batch_id)`**: todas las de un lote, anuladas incluidas — una anulada
   sale marcada «ANULADA» en el PDF, nunca desaparece del lote que ya se imprimió.
 - **`list_batches(db, *, kind, page, per_page)`**: lotes más recientes primero, con
@@ -167,7 +177,8 @@ llamador (`create_batch` ya impide un lote de 0 constancias).
 
 - `Certificate` con `number` único (`BIB-AAAA-NNNN` / `GTV-AAAA-NNNN`), datos congelados,
   `issued_at`/`issued_by_id`; `batch_id` `NULL` hasta que se imprime.
-- A lo más UNA vigente (no anulada) por `source_ref`; anular nunca borra ni reutiliza el folio.
+- A lo más UNA vigente (no anulada) por `source_ref` (los emisores + el UNIQUE parcial de la
+  base); anular nunca borra ni reutiliza el folio.
 - `CertificateBatch` con `count` fijo (las constancias de ese lote no se mueven a otro lote
   después, aunque se anulen).
 - `CertificateCounter(kind, year)` con `last_value` monotónico — nunca retrocede.
@@ -185,6 +196,11 @@ llamador (`create_batch` ya impide un lote de 0 constancias).
   llamada simplemente no ve las filas que la primera ya tomó (no se bloquea, no duplica el lote).
 - **Anular algo que nunca se emitió** (`origin='prior'` revocado) → `void` devuelve `None`, sin
   error: camino normal, no hay nada que anular.
+- **Una segunda vigente del mismo origen** (un llamador que se saltara su máquina de estados) →
+  `IntegrityError` contra `uq_titulatec_certificates_live_source`: la base no deja dos papeles
+  válidos del mismo trámite.
+- **Inscripción revocada con constancias sin imprimir** → no salen en «Por imprimir» ni en el
+  lote (`_pending_criteria`); se quedan sin lote y sin anular.
 
 ## Despliegue
 
@@ -198,9 +214,11 @@ antes.
 ## Pruebas
 
 `test_certificate_service.py` (numeración atómica con dos conexiones reales, `void`, lotes con
-`SKIP LOCKED`, `period_label`, truncado de `program_name`), `test_certificate_pdf.py` (3 por
-página, texto extraíble con `pypdf`, sello ANULADA), `test_certificates_page.py` (página:
-`_printable_kinds`, 404 por `kind`/`batch_id`, sin `{process_id}`).
+`SKIP LOCKED`, revocadas fuera de «Por imprimir», dos vigentes del mismo origen truenan,
+`period_label`, truncado de `program_name`), `test_biblioteca_caja_models.py` (el UNIQUE
+parcial en el modelo y en la BD), `test_certificate_pdf.py` (3 por página, texto extraíble con
+`pypdf`, sello ANULADA), `test_certificates_page.py` (página: `_printable_kinds`, 404 por
+`kind`/`batch_id`, sin `{process_id}`, la ruta del PDF no es corrutina).
 
 ## Flujos relacionados
 

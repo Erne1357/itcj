@@ -195,7 +195,8 @@ requisito automático activo (`ClearanceGate.library_required`): `pending`/`miss
 (Biblioteca todavía no lo revisó) → `biblioteca_en_revision`; `awaiting_payment` (ya pasó a
 Caja) → `pago_pendiente`, con el total CONGELADO de su fila en el mensaje (`library_total`,
 leer el monto no decide nada — lo decidió el gate). Sin el requisito, `library` vale
-`not_required` y nunca aparece en `blockers`.
+`not_required` y nunca aparece en `blockers`; tampoco `not_applicable` (fase 2 ya aprobada sin
+el no adeudo liberado, Ruling R21 — de todos modos la regla 2, «fase aprobada», corta antes).
 
 El diccionario `SelfBookingService._CLEARANCE_REASONS` traduce cada código de `ClearanceGate.
 blockers` (`survey_missing`/`survey_in_review`/`survey_rejected`/`library_pending`/

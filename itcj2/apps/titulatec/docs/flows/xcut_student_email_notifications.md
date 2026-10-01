@@ -62,7 +62,7 @@ botón con la liga y el texto plano debajo. Plantillas bajo `templates/titulatec
 | 3 | `phase_rejected` | individual | `PhaseService.reject_phase` → `StudentMail.phase_rejected` (`phase_service.py:485-489`, `student_mail.py:342-350`) | `_compose_phase_rejected` (`:310-316`) | `phase_rejected.html` | `/titulatec/student/dashboard?fase=N` | sin cambio (`PHASE_REJECTED`, `phase_service.py:477-481`) |
 | 4 | `survey_approved` | individual | `SurveyReviewService.approve` → `StudentMail.survey_result(result="approved")` (`survey_review_service.py:196-203`) | `_compose_survey` (`:319-327`) | `survey_result.html` | `/titulatec/student/dashboard?fase=2` | sin cambio (`SURVEY_REVIEW_APPROVED`, `:196-199`) |
 | 5 | `survey_rejected` | individual | `SurveyReviewService.reject` → `StudentMail.survey_result(result="rejected", reason=motivo)` (`survey_review_service.py:231-238`) | `_compose_survey` | `survey_result.html` | idem | sin cambio (`SURVEY_REVIEW_REJECTED`, `:231-234`) |
-| 6 | `survey_revoked` | individual | `SurveyReviewService.revoke` → `StudentMail.survey_result(result="revoked", reason=motivo)` (`survey_review_service.py:271-278`) | `_compose_survey` | `survey_result.html` | idem | sin cambio (`SURVEY_REVIEW_REVOKED`, `:271-274`) |
+| 6 | `survey_revoked` | individual | `SurveyReviewService.revoke` → `StudentMail.survey_result(result="revoked", reason=motivo, origin=...)` (`survey_review_service.py`) | `_compose_survey` | `survey_result.html` | idem; con `origin='prior'` (Ruling R22: la previa se borró) `/titulatec/encuesta-egresados` | sin cambio (`SURVEY_REVIEW_REVOKED`) |
 | 7 | `appt_changed` | `cita:{pid}` | `AppointmentService.create` (`appointment_service.py:662-677`, D9: **siempre**, incluso si agenda el propio alumno), `.reschedule` (`:741-747`), `.cancel` (`:868-885`, **solo** si `notify=True` **y** el actor no es el alumno) → `StudentMail.appointment_changed` (`student_mail.py:363-379`) | `_compose_appt_group` (`:219-282`) | `appt_changed.html` (vigente) **o** `appt_cancelled.html` (sin vigente) | `/titulatec/student/cita` | sin cambio |
 | 8 | `appt_reminder` | `appt_reminder:{appt_id}` | `MailReminders._citas` → `_recordar_cita` → `StudentMail.appointment_reminder` (`mail_reminders.py:261-292`, `:151-161`, `student_mail.py:391-401`) | `_compose_appt_reminder` (`:399-436`) | `appt_reminder.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_REMINDER`, `mail_reminders.py:159`) |
 | 9 | `appt_no_show` | individual, `not_before = +digest_minutes` | `AppointmentService.mark_no_show` → `StudentMail.appointment_no_show` (`appointment_service.py:787-792`, `student_mail.py:381-389`) | `_compose_appt_no_show` (`:330-359`) | `appt_no_show.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_NO_SHOW`, `:793-795`) + `undo_no_show` solo in-app (`APPOINTMENT_NO_SHOW_UNDONE`, `:813-815`, sin correo propio: el de «no se presentó» que siga en su gracia lo da por obsoleto el despachador) |
@@ -200,7 +200,11 @@ Servicios Escolares» si la siguiente fase ya es del corte a T-soft / «Avanzast
 `_compose_phase_rejected` (`:310-316`), `_compose_survey` (`:485-517`, usa `_GTV` para el asunto
 sin prefijo de cada resultado; desde el 2026-10-01 trae además `origin` —`prior`, D9, cambia
 texto y asunto— y, al liberar, ya NO dice «Ya puedes agendar» fijo: lo resuelve `_que_falta`,
-D11/D13, ver abajo).
+D11/D13, ver abajo). La revocación de una constancia previa (`result="revoked"`,
+`origin="prior"`, Ruling R22) BORRÓ la solicitud: el correo dice que se revocó la liberación
+registrada con su constancia del semestre anterior, le pide **contestar la encuesta de
+egresados en la plataforma**, conserva el motivo y la línea D12, y su liga/botón («Contestar la
+encuesta») lleva a `/titulatec/encuesta-egresados` en vez del tablero.
 
 `_compose_appt_no_show` (`:330-359`, #9): re-validado al enviar (D8) — si el encargado deshizo la
 inasistencia dentro de la gracia, `Obsolete("se corrigió la asistencia")`; si hay OTRA fila

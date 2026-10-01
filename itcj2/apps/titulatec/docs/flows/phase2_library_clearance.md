@@ -13,7 +13,7 @@
 | **Actor(es)** | 📚 Biblioteca (`titulatec_library`, puesto «Biblioteca · No adeudo» en `info_center`) · 💰 Caja (`titulatec_cashier`, puesto «Caja» en `financial_resources`) · 🏛️ Servicios Escolares (respaldo D9: donación de la convocatoria, constancia previa) · 👤 Egresado (solo lee su estado) |
 | **Permiso(s)** | `titulatec.library_clearance.page.list` (bandeja Biblioteca) · `.api.register` (registrar/lote/corregir) · `.api.prior` (constancia previa, también SE) · `.api.revert` (revertir sin cargo/legado) · `.api.print_certificates` (⤵ [constancias](xcut_certificates_batch.md)) · `titulatec.library_payment.page.list` (bandeja Caja) · `.api.register` (pagar) · `.api.revert` (revertir pago) · `titulatec.cohort.api.update` (SE: donación de la convocatoria) |
 | **Trigger** | `TitulationProcess` nuevo (`ImportService.import_rows`, cualquier vía de alta) → `LibraryClearanceService.open_for_process(..., just_created=True)` abre la fila `pending` EN LA MISMA transacción del alta, antes de la fase 2 |
-| **Precondiciones** | Proceso admitido (`active`/`on_hold`; `cancelled`/`completed` → `ValueError`). Para pasar a Caja: la convocatoria tiene `Cohort.book_donation_amount` capturada (D19) |
+| **Precondiciones** | Proceso admitido (`active`/`on_hold`; `cancelled`/`completed` → `ValueError`) que **todavía no pasa su cotejo** (fase 2 sin aprobar; con ella aprobada el no adeudo es `not_applicable`, Rulings R20/R21). Para pasar a Caja: la convocatoria tiene `Cohort.book_donation_amount` capturada (D19). El candado solo existe tras `titulatec activar-biblioteca-caja` (ver [Despliegue](#despliegue-en-dos-pasos-ruling-r19)) |
 | **Sub-flujos** | ⤵ [Constancias por lote](xcut_certificates_batch.md) (la constancia BIB que emite `payment`/`no_charge`) · ⤵ [Constancias previas](xcut_prior_clearances.md) (D9, el camino `prior`) · ⤵ [Correos del proceso al egresado](xcut_student_email_notifications.md) (4 `kind` nuevos) · ⤵ compone [motor de avance de fase](engine_approve_advance_phase.md) (requisito de la fase 2) · ⤵ [cita de cotejo](phase2_appointment_loop.md) y [auto-agendado](phase2_student_self_booking.md) (consumen el candado) |
 | **Estado final** | `LibraryClearance.status = cleared` (`cleared_via` ∈ `payment`\|`no_charge`\|`prior`\|`legacy`) → requisito `library_clearance` `fulfilled` (`external_ref="library_clearance:{id}"`) → donde la convocatoria lo exige, `ClearanceGate` dejó de bloquear a este proceso |
 
@@ -74,8 +74,19 @@ stateDiagram-v2
 
 (`cleared_no_charge`/`cleared_payment`/`cleared_prior` son el mismo `status='cleared'` con
 distinto `cleared_via` — separados aquí solo para dibujar las flechas de reversa correctas;
-`legacy` es un cuarto `cleared_via`, exclusivo del backfill, sin arista de entrada dibujable
-porque nace ya así.)
+`legacy` es un cuarto `cleared_via` sin arista de entrada dibujable: lo escribe el DATO, nunca
+una transición — el backfill de `tt20261001a` y, al encender el candado, el re-backfill y la
+**promoción D17** de `activar-biblioteca-caja` (Ruling R20, ver [Despliegue](#despliegue-en-dos-pasos-ruling-r19)).)
+
+**Ya pasó su cotejo (Rulings R20/R21).** Con la fase 2 `approved` y el no adeudo SIN liberar (sin
+fila —el backfill salta a propósito esos procesos— o con una fila que nunca llegó a `cleared`),
+`LibraryClearanceService.release_status[_map]`/`summary_for_process` dicen el pseudo-estado
+**`not_applicable`** (no se guarda, como `missing`). `ClearanceGate` lo trata igual que
+`not_required` (no bloquea), las vistas del egresado no lo pintan y las de SE dicen «No aplica
+(cotejo ya liberado)». **Registrar**, el **lote** y la **constancia previa** lo rechazan («Este
+egresado ya pasó su cotejo; no necesita trámite de no adeudo.») y **«Por revisar»** (lista,
+contador y aviso de donación, `_reviewable_clause`) no lo muestra. Caja sí cobra un monto que
+Biblioteca ya le mandó (`register_payment` no cambia).
 
 - **Registrar** = adeudo tecleado (0 = «sin adeudo») + nota opcional. Congela
   `donation_amount` desde `Cohort.book_donation_amount` VIGENTE; `ValueError` (D19) si la
@@ -83,9 +94,9 @@ porque nace ya así.)
   estado de entrada) vuelve a congelar con la donación VIGENTE de ese momento — si SE la cambió
   entre medias, la corrección la toma; lo ya cobrado NO se mueve (D16, Review Focus #2).
 - **Lote «Sin adeudo»** (D10) = `register_no_debt_bulk`: adeudo 0 sobre los ids marcados, UNA
-  transacción, UN commit; lo que no pasa la validación (otro estado, convocatoria sin donación,
-  proceso no admitido, id inexistente) se omite con su motivo — la respuesta dice «N registrados
-  · M omitidos» (`X-Tt-Notice`).
+  transacción, UN commit; lo que no pasa la validación (otro estado o movida por otra persona,
+  convocatoria sin donación, proceso no admitido, fase 2 ya aprobada, id inexistente) se omite con
+  su motivo — la respuesta dice «N registrados · M omitidos» (`X-Tt-Notice`).
 - **Total = 0** (adeudo 0 y donación 0, D18) libera DIRECTO a `cleared/no_charge` sin pasar por
   Caja. Adeudo 0 con donación > 0 SÍ pasa a Caja (el egresado paga solo la donación).
 - **Revertir/Deshacer**: solo si la fase 2 del proceso NO está `approved` (gemelo de
@@ -124,19 +135,23 @@ alguna liberación?» (§5 invariante 2); fuera de aquí y de los dos dueños
 
 - `library_required(db, cohort_id)` → ¿hay un `CotejoRequirement` ACTIVO con
   `auto_source='library_clearance'` en esa convocatoria? **El candado de biblioteca aplica
-  SOLO ahí.** Hasta que corre `titulatec init-biblioteca-caja` (que marca el requisito como
-  automático en las convocatorias YA sembradas) nada cambia para nadie: desplegar el código no
-  bloquea el agendado antes de que Biblioteca y Caja tengan ocupante. Una convocatoria nueva ya
-  nace con el requisito automático (`CotejoRequirementService.DEFAULTS`).
+  SOLO ahí.** Hasta que corre `titulatec activar-biblioteca-caja` (que marca el requisito como
+  automático en las convocatorias YA sembradas; `init-biblioteca-caja` ya NO lo hace, Ruling
+  R19) nada cambia para nadie: desplegar el código no bloquea el agendado antes de que Biblioteca
+  y Caja tengan ocupante. Una convocatoria nueva ya nace con el requisito automático
+  (`CotejoRequirementService.DEFAULTS`).
 - `status(db, pid)` → `{"survey": SurveyReviewService.release_status(...), "library":
-  LibraryClearanceService.release_status(...)}` — `library` ∈ `missing`\|`pending`\|
-  `awaiting_payment`\|`cleared`\|`not_required`. `status_map(db, ids)` en lote (consultas
-  FIJAS, nunca una por proceso).
+  LibraryClearanceService.release_status(...)}` — dominios CERRADOS (`SURVEY_STATES`,
+  `LIBRARY_STATES`, los fija la prueba): `library` ∈ `missing`\|`pending`\|`awaiting_payment`\|
+  `cleared`\|`not_required`\|`not_applicable`. `status_map(db, ids)` en lote (consultas FIJAS,
+  nunca una por proceso; la de biblioteca trae fila y fase 2 en UNA consulta).
 - `blockers(status)` → lista ORDENADA (**encuesta primero**) de `BLOCKERS` = `survey_missing`\|
-  `survey_in_review`\|`survey_rejected`\|`library_pending`\|`library_awaiting_payment`. Un
-  estado que no se reconoce bloquea (falla cerrado). `is_clear(db, pid)` → sin bloqueos.
-- `released_clause()`/`not_released_clause()` — lo mismo en SQL (tres `EXISTS` correlacionados a
-  `TitulationProcess`), para las consultas de la cola.
+  `survey_in_review`\|`survey_rejected`\|`library_pending`\|`library_awaiting_payment`. En
+  biblioteca no bloquean `cleared`, `not_required` ni `not_applicable`. Un estado que no se
+  reconoce bloquea (falla cerrado). `is_clear(db, pid)` → sin bloqueos.
+- `released_clause()`/`not_released_clause()` — lo mismo en SQL (cuatro `EXISTS`
+  correlacionados a `TitulationProcess`: encuesta liberada, convocatoria con candado, no adeudo
+  liberado y fase 2 aprobada), para las consultas de la cola.
 
 **Consumidores** (barrido de lectores, spec §4.4; ninguno guarda su propia comparación):
 
@@ -221,17 +236,27 @@ carrera, §4.6, §5 invariante 6, censo de `test_scope_guard.py`); las de respal
 (`pages/admin.py`, `pages/appointments.py`, filas 5 y 10) van por `{process_id}` con
 `assert_process_in_scope` como PRIMERA sentencia del `try`.
 
-## Concurrencia (Review Focus #1, Ruling R8)
+## Concurrencia (Review Focus #1, Rulings R8 y R24)
 
 Dos personas sobre la misma fila (dos de Biblioteca; Biblioteca corrige mientras Caja cobra):
 cada formulario de Registrar/Corregir/Pagar manda en campos ocultos lo que el usuario VIO —
 `expected_status` (Biblioteca) y `expected_total` (Biblioteca al corregir, Caja siempre) — y
-`_check_expected` los compara contra la fila bajo `FOR UPDATE`: quien llega segundo recibe un
-`ValueError` claro («Otra persona ya movió este caso…» / «El monto cambió mientras lo
-revisabas…»), nunca un doble cobro ni un monto pisado. `expected_total` se valida con
-`_check_total_shape` (finito y `>= 0`) y **nunca** con el tope `AMOUNT_MAX` (Ruling R9): ese
-tope topa lo que se TECLEA (`debt_amount`); un adeudo al tope más la donación fácilmente lo
-supera sin dejar de ser un total legítimo.
+`_check_expected` los compara contra la fila bajo `FOR UPDATE`: quien llega segundo recibe
+`ClearanceConflict` (subclase de `ValueError`: «Otra persona ya movió este caso…» / «El monto
+cambió mientras lo revisabas: ahora es $X…»), nunca un doble cobro ni un monto pisado.
+
+**Ruling R24:** ese choque NO es un 400. `pages/library_admin.py::register` y
+`pages/cashier_admin.py::pay` responden **200** con la bandeja **re-pintada** —la fila ya con su
+estado y monto vigentes, para volver a confirmar— y el motivo en `X-Tt-Notice` con
+`X-Tt-Notice-Kind: warning` (el patrón de colisión de estado que pinta `titulatec-utils.js`).
+Con un 400 htmx no hacía swap: la fila seguía mostrando lo viejo y reintentar volvía a fallar.
+El lote ya lo hacía (la fila movida se omite con su motivo). Las demás reglas de negocio siguen
+en `400` + `X-Tt-Error`.
+
+`expected_total` se valida con `_check_total_shape` (finito y `>= 0`; un total mal formado es un
+`ValueError` cualquiera, 400) y **nunca** con el tope `AMOUNT_MAX` (Ruling R9): ese tope topa lo
+que se TECLEA (`debt_amount`); un adeudo al tope más la donación fácilmente lo supera sin dejar
+de ser un total legítimo.
 
 ## Dinero (`parse_amount` / `format_amount`)
 
@@ -258,7 +283,10 @@ científica o pasa de `AMOUNT_MAX = $100,000.00`. Nunca `float`. `format_amount(
   fecha, o total pagado + recibo + número de constancia) — `_appt_attend.html`/`_exp_phase.html`,
   alimentada por `LibraryClearanceService.summary_for_process`. El botón «Constancia previa…»/
   «Deshacer» exige `library_clearance.api.prior` (respaldo D9: Biblioteca o Caja podrían no
-  estar disponibles) y va por `{process_id}` + `assert_process_in_scope`.
+  estar disponibles) y va por `{process_id}` + `assert_process_in_scope`. «Constancia previa…»
+  solo se ofrece con el trámite ABIERTO (`missing`/`pending`/`awaiting_payment`): con
+  `not_applicable` la píldora neutra dice «No aplica (cotejo ya liberado)» y no hay botón (la
+  ruta, llamada a mano, responde 400 con el mismo motivo que Biblioteca).
 
 ## Egresado
 
@@ -274,6 +302,9 @@ científica o pasa de `AMOUNT_MAX = $100,000.00`. Nunca `float`. `format_amount(
   cuando la cita vigente ya OCUPA el cotejo (Ruling R12/R18, ver ese flujo): ahí el texto cambia
   a que Servicios Escolares necesita el no adeudo liberado para poder liberar la fase 2, nunca
   «podrás agendar».
+- **Ya pasó su cotejo** (`not_applicable`, Ruling R21): ni el bloque del dashboard ni la píldora
+  de «Mi cita» se pintan —decirle «El Centro de Información está revisando tu adeudo» sería
+  falso—; la fila del requisito queda con su «Listo» si se acreditó a mano.
 
 ## Correos y avisos
 
@@ -289,8 +320,8 @@ revierte/deshace) y `library_reminder` (recordatorio diario del pago pendiente, 
 `CotejoRequirementService.DEFAULTS` lleva `library_clearance` con `auto_source=
 'library_clearance'` (cabe en `String(20)`) para convocatorias NUEVAS; el DML
 `database/DML/titulatec/biblioteca_2026_10/22_library_requirement_auto.sql` (vía
-`titulatec init-biblioteca-caja`) pone al día las filas YA sembradas, respetando las pistas que
-SE ya hubiera editado. Las rutas de marcado manual del encargado (`appointments.py:1796`,
+`titulatec activar-biblioteca-caja`, ver [Despliegue](#despliegue-en-dos-pasos-ruling-r19)) pone
+al día las filas YA sembradas, respetando las pistas que SE ya hubiera editado. Las rutas de marcado manual del encargado (`appointments.py:1796`,
 `admin.py:1982`) YA rechazaban todo `auto_source` desde la liberación GTV (2026-09-15): no
 cambian. `pages/student.py` deja de pedirle al alumno «No-adeudo de biblioteca y comprobante de
 la encuesta»: ahora dice que las áreas envían las constancias a Servicios Escolares.
@@ -319,7 +350,11 @@ la encuesta»: ahora dice que las áreas envían las constancias a Servicios Esc
   sigue visible en «En caja»/«Liberados» con su píldora, sin acciones.
 - **Convocatoria en pausa** (`on_hold`) → Biblioteca y Caja SÍ operan (D17: solo el agendado se
   bloquea mientras la convocatoria está cerrada, no estas bandejas).
-- **Dos personas sobre la misma fila** → ver «Concurrencia» arriba.
+- **Ya pasó su cotejo** (fase 2 `approved`) → Registrar / lote / constancia previa: `ValueError`
+  «Este egresado ya pasó su cotejo; no necesita trámite de no adeudo.» (`400`, o «omitido» en el
+  lote); «Por revisar» ni siquiera lo muestra (Ruling R20).
+- **Dos personas sobre la misma fila** → `200` + bandeja re-pintada + aviso warning, ver
+  «Concurrencia» arriba (Ruling R24).
 - **Revertir/Deshacer con la fase 2 ya `approved`** → `ValueError` («ya fue liberada; ya no se
   puede revertir») → `400`.
 - **Revertir un pago desde Biblioteca, o un sin-cargo/legado desde Caja** → cada transición
@@ -330,15 +365,61 @@ la encuesta»: ahora dice que las áreas envían las constancias a Servicios Esc
 - **Lote «Sin adeudo» con selección inválida** (ids no numéricos, vacía) → `400` + `X-Tt-Error`
   ANTES de tocar el service.
 
+## Despliegue en dos pasos (Ruling R19)
+
+El comando que crea los puestos NO puede ser el mismo que enciende el candado: los puestos no
+existen hasta el DML 20 y, si el 22 corría en el mismo paso, todo egresado de toda convocatoria
+quedaba bloqueado sin nadie (salvo `admin`) que pudiera liberarlo. Por eso son dos comandos
+(`itcj2/cli/titulatec.py`), y `SEED_FILES` (alta desde cero con `init-titulatec`) conserva los
+tres archivos juntos —ahí no hay procesos que proteger—:
+
+1. **`titulatec init-biblioteca-caja [--dry-run]`** — SOLO el 20 (puestos «Biblioteca · No
+   adeudo» en `info_center` y «Caja» en `financial_resources`, sin ocupante) y el 21 (roles
+   `titulatec_library`/`titulatec_cashier`, los 10 permisos, sus concesiones —`admin` explícito—
+   y el mapeo puesto→rol), verificados con `_verify_biblioteca_caja`. **No toca convocatorias,
+   requisitos ni filas de no adeudo:** nadie queda bloqueado por correrlo.
+2. Asignar ocupantes a los dos puestos (`/itcj/config/positions`) y que Servicios Escolares
+   capture la donación de cada convocatoria que quedará con candado y tenga procesos por revisar
+   (la bandeja de Biblioteca ya las anuncia; los pre-chequeos de abajo las listan).
+3. **`titulatec activar-biblioteca-caja [--dry-run] [--force]`** — fuera de horario:
+   1. **Pre-chequeos de solo lectura** (`_precheck_activar_biblioteca`): cada puesto con al menos
+      un ocupante VIGENTE (asignación activa en fechas y usuario activo) y ninguna convocatoria
+      con fila `code='library_clearance'` que tenga procesos `active`/`on_hold` sin la fase 2
+      aprobada y SIN donación. Si algo falla, **aborta con exit 1** listando lo que falta y sin
+      escribir nada; `--force` lo imprime como advertencia y sigue.
+   2. DML 22: requisito `library_clearance` automático, obligatorio y activo en TODA convocatoria
+      ya sembrada (y sus pistas, solo donde seguían en el default viejo). **Aquí se enciende el
+      candado.**
+   3. Re-backfill (`_library_clearance_rebackfill`, mismo predicado que el backfill de la
+      migración): fila para los procesos creados en el blue/green.
+   4. **Promoción D17** (`_library_clearance_promote`, Ruling R20): las `pending` que Biblioteca
+      no ha tocado (`library_at IS NULL`) pasan a `cleared/legacy` si su requisito ya está
+      `fulfilled`/`waived` (SE lo siguió marcando a mano después de la migración, mientras el
+      requisito era manual) o si su fase 2 ya está `approved`. Dato, como el backfill: sin
+      eventos ni correos.
+   5. Verificación del requisito automático (`_verify_candado_biblioteca`).
+
+   Imprime el conteo de cada paso; todo es idempotente (una segunda corrida no cambia nada).
+   `--dry-run` corre los pre-chequeos y cuenta lo que haría cada paso sin escribir, y sale
+   distinto de 0 si la corrida real abortaría.
+4. Ese mismo día, Biblioteca corre su lote «Sin adeudo»: desde la activación nadie agenda sin no
+   adeudo donde la convocatoria lo exige (salvo legado, quien ya pasó su cotejo y las citas ya
+   agendadas, D17).
+
+**Reversa:** primero `rollback.sh` y, ENSEGUIDA, `downgrade tt20260930a` desde la imagen nueva:
+entre los dos, el código viejo ve el requisito automático y no deja marcarlo a mano.
+
 ## Pruebas
 
 `tests/fastapi/titulatec/test_biblioteca_caja_models.py` (modelo + migración, ida y vuelta),
-`test_library_clearance_service.py` (máquina de estados completa, concurrencia con `FOR UPDATE`,
-`parse_amount`), `test_clearance_gate.py` (estado, lote, cláusula SQL, prueba estructural),
-`test_library_inbox.py` / `test_cashier_inbox.py` (páginas: authz, sin `{process_id}`, swap
-`outerHTML`, 400 + `X-Tt-Error`), `test_se_library_views.py` (respaldo de SE),
-`test_student_library_status.py` (dashboard/Mi cita del egresado), `test_cli_biblioteca_caja.py`
-(comando `init-biblioteca-caja`, dry-run, re-backfill, `_verify_biblioteca_caja`).
+`test_library_clearance_service.py` (máquina de estados completa, concurrencia con `FOR UPDATE` y
+`ClearanceConflict`, `parse_amount`, «ya pasó su cotejo»), `test_clearance_gate.py` (estado con
+dominios cerrados, lote, cláusula SQL, prueba estructural), `test_library_inbox.py` /
+`test_cashier_inbox.py` (páginas: authz, sin `{process_id}`, swap `outerHTML`, 400 +
+`X-Tt-Error`, choque = 200 + re-pintado + aviso), `test_se_library_views.py` (respaldo de SE,
+«No aplica»), `test_student_library_status.py` (dashboard/Mi cita del egresado),
+`test_cli_biblioteca_caja.py` (los dos comandos, dry-run, pre-chequeos, re-backfill, promoción
+D17).
 
 ## Flujos relacionados
 

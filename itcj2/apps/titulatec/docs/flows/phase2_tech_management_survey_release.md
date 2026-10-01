@@ -2,9 +2,9 @@
 
 > **Objetivo:** Gestión Tecnológica y Vinculación (GTV) revisa la encuesta de egresados que el
 > alumno ya envió y decide si libera el requisito de cotejo `graduate_survey` o le deja
-> observaciones. Lo que detecta lo resuelve el egresado **físicamente** en la ventanilla de GTV
-> (Residencias, Prácticas, Servicio Social) — el egresado nunca vuelve a tocar la encuesta desde
-> el sistema.
+> observaciones. Lo que detecta lo resuelve el egresado **con GTV, fuera del sistema** (contacto
+> D12: servicio_ext@cdjuarez.tecnm.mx) — el egresado nunca vuelve a tocar la encuesta desde el
+> sistema, salvo que GTV revoque una constancia PREVIA (esa se borra y la contesta, Ruling R22).
 
 | | |
 |---|---|
@@ -66,6 +66,20 @@
 > 4. **D13 — sin «Ya puedes agendar» fijo en `survey_approved`.** El correo de Liberar ya no trae
 >    esa frase a secas: la decide `ClearanceGate` al componer, con el estado VIVO de las DOS
 >    liberaciones (D11) — ver el flujo de correos.
+>
+> **Dos ajustes de la revisión final (2026-10-01):**
+>
+> 5. **Revocar una constancia previa la BORRA (Ruling R22).** Con `origin='prior'` no hay
+>    encuesta real detrás: si quedara `rejected`, `SurveyService.submit` (que corta mientras
+>    exista cualquier fila) dejaría al egresado sin poder contestar nunca. `revoke` deja el evento
+>    `survey_review_revoked` (payload `reason`, `origin`, `review_id`), el `unfulfill`, el aviso y
+>    el correo `survey_revoked` con `origin='prior'` —que le pide contestar la encuesta en la
+>    plataforma, con el botón directo a ella— y borra la fila: la solicitud vuelve a `missing`.
+>    `revoke` devuelve `None` en ese caso. La revocación de una encuesta REAL no cambia.
+> 6. **D12 también en la tarjeta pública (Ruling R27).** La tarjeta de estatus de
+>    `/encuesta-egresados` con observaciones (o revocada) ya no manda «a su ventanilla
+>    (Residencias, Prácticas o Servicio Social)»: da la misma línea que los correos, «Para más
+>    información, contactar con servicio_ext@cdjuarez.tecnm.mx» (con su `mailto:`).
 
 ## Ruta en la app (UI)
 
@@ -124,7 +138,7 @@ sequenceDiagram
 | 2 | 🛠️ | Liberaciones | ver la cola / buscar / paginar | `GET /titulatec/admin/liberaciones[/body]` | `SurveyReviewService.list_for_inbox` + `counts_by_status` | — (lectura) | — | — |
 | 3 | 🛠️ | fila, "Liberar" | libera (desde `in_review` **o** `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/liberar` | `SurveyReviewService.approve` | `status=approved`, `reviewed_by_id`/`reviewed_at`, `rejection_reason=NULL`; `titulatec_requirement_fulfillments` ← `RequirementService.fulfill(graduate_survey, source="system", external_ref="survey_review:{id}")`; `titulatec_certificates` ← `CertificateService.issue(kind="survey_release", ...)` **salvo** `origin='prior'` | `survey_review_approved` + notif `SURVEY_REVIEW_APPROVED` | `survey_approved` (D13: sin «Ya puedes agendar» fijo) |
 | 4 | 🛠️ | fila, motivo + "Observar" | deja/actualiza observaciones (desde `in_review` o `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/observar` (form `reason`) | `SurveyReviewService.reject` | `status=rejected`, `rejection_reason=motivo`, `reviewed_by_id`/`reviewed_at` | `survey_review_rejected` (payload `reason`) + notif `SURVEY_REVIEW_REJECTED` | `survey_rejected` (con el motivo; D12: línea de contacto `servicio_ext@cdjuarez.tecnm.mx`) |
-| 5 | 🛠️ | fila, motivo + "Revocar" (solo si `can_revoke`) | revoca una liberación | `POST /titulatec/admin/liberaciones/{review_id}/revocar` (form `reason`) | `SurveyReviewService.revoke` | `status=rejected`, `rejection_reason=motivo`; `titulatec_requirement_fulfillments` ← `RequirementService.unfulfill(graduate_survey)`; `titulatec_certificates` ← `CertificateService.void(source_ref="survey_review:{id}", ...)` (no-op si nunca emitió) | `survey_review_revoked` (payload `reason`) + notif `SURVEY_REVIEW_REVOKED` | `survey_revoked` (con el motivo; D12: línea de contacto) |
+| 5 | 🛠️ | fila, motivo + "Revocar" (solo si `can_revoke`) | revoca una liberación | `POST /titulatec/admin/liberaciones/{review_id}/revocar` (form `reason`) | `SurveyReviewService.revoke` | `status=rejected`, `rejection_reason=motivo` — **una previa (`origin='prior'`) se BORRA** y vuelve a `missing` (Ruling R22); `titulatec_requirement_fulfillments` ← `RequirementService.unfulfill(graduate_survey)`; `titulatec_certificates` ← `CertificateService.void(source_ref="survey_review:{id}", ...)` (no-op si nunca emitió) | `survey_review_revoked` (payload `reason`, `origin`, `review_id`) + notif `SURVEY_REVIEW_REVOKED` | `survey_revoked` (con el motivo; D12: línea de contacto; con `origin='prior'` pide contestar la encuesta) |
 | 6 | 🤖 | CLI `titulatec import-prior-clearances --tipo encuesta` | constancia previa (D9): el egresado YA traía su liberación de otro semestre | — (sin ruta; solo `PriorClearanceService`) | `SurveyReviewService.register_prior` | `titulatec_survey_reviews` INSERT DIRECTO `status=approved`, `origin='prior'`, `response_id=NULL`; `titulatec_requirement_fulfillments` ← `fulfill(graduate_survey, external_ref="survey_prior:{id}")`; **sin** constancia | `survey_review_prior` | `survey_approved` (texto propio de previa) |
 
 Las tres acciones de GTV (3–5) leen la fila con `SELECT … FOR UPDATE` antes de validar nada, y
@@ -141,7 +155,9 @@ hacen **un solo `commit`** al final (`services/survey_review_service.py`, mismo 
   (nunca lo tuvo — ni `in_review` ni `rejected` tienen nada que `fulfill`/`unfulfill`).
 - **Revocar:** `SurveyReview.status=rejected` con motivo; `graduate_survey` vuelve a quedar sin
   cumplimiento (la fila de `RequirementFulfillment` se borra vía `unfulfill`). Solo posible
-  mientras la `ProcessPhase` de la fase 2 de ese proceso **no** esté `approved`.
+  mientras la `ProcessPhase` de la fase 2 de ese proceso **no** esté `approved`. Una constancia
+  previa revocada no queda `rejected`: se BORRA y el egresado vuelve a ver el formulario de la
+  encuesta (Ruling R22).
 - Las tres transiciones cuelgan un `ProcessEvent` de la **fase 2**, visible en el timeline del
   egresado (`_EVENT_LABELS`, `pages/student.py:169-172`) y en el expediente admin.
 - El egresado **nunca** mueve un estado por su cuenta: `rejected → approved` (corrección
@@ -208,9 +224,11 @@ el sistema; no se marca a mano" por la píldora `survey_review_pill(status)` —
   estado que dejó el primero.
 - **El egresado no puede reabrir su propia encuesta tras observaciones** (D6, fuera de alcance
   del diseño): `SurveyService.submit` corta con `already_submitted` en cuanto existe una
-  `SurveyReview`, sea cual sea su estado. La corrección ocurre físicamente en la ventanilla de
-  GTV, y es GTV quien mueve `rejected → approved` directamente cuando el pendiente se resuelve
-  — nunca hay un reenvío del alumno de por medio.
+  `SurveyReview`, sea cual sea su estado. La corrección se resuelve con GTV fuera del sistema
+  (contacto D12: servicio_ext@cdjuarez.tecnm.mx, en el correo y en la tarjeta pública), y es GTV
+  quien mueve `rejected → approved` directamente cuando el pendiente se resuelve — nunca hay un
+  reenvío del alumno de por medio. **Excepción:** una constancia previa revocada se borra
+  (Ruling R22), así que ese egresado SÍ contesta la encuesta (no tenía una real).
 
 ## Bordes conocidos
 

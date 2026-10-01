@@ -85,9 +85,12 @@ El motor de `titulatec import-prior-clearances`. Por fila:
    de `ImportService`) → bote `invalid` si no calza.
 2. **`issued_on`**: ver «Reglas de vigencia» abajo → `invalid`/`expired` si no pasa.
 3. **Proceso ABIERTO** para ese control:
-   - **sin proceso** → se DIFIERE: upsert de `PriorClearance` → bote `deferred`. Si esa MISMA
-     constancia ya se había aplicado antes (a un proceso anterior) → `already` (nada que diferir
-     de nuevo).
+   - **sin proceso** → se DIFIERE: upsert de `PriorClearance` → bote `deferred`. Si la que había
+     ya se APLICÓ a un proceso anterior (revocado o terminado): con una fecha **más nueva** (otro
+     semestre) la REEMPLAZA —fecha/nota/origen, `applied_*` a `NULL`— y vuelve a quedar
+     pendiente para la siguiente inscripción → `deferred` («más nueva que la que ya se aplicó
+     antes…», Ruling R28); con la misma fecha o una anterior → `already` («ya registrada»), sin
+     tocar nada.
    - **con proceso, `kind=survey`**: sin `SurveyReview` → `register_prior` → `applied`; ya
      `approved` → `already`; `in_review`/`rejected` → **`conflicts`** (lo decide GTV desde su
      bandeja, NUNCA esta CLI — el egresado ya envió la encuesta de ESTE semestre y hay un humano
@@ -172,12 +175,17 @@ alta); las rutas de UI siempre usan `commit=True` (su propia transacción).
 
 En la bandeja de Liberaciones, una solicitud con `origin='prior'` sale en **«Liberadas»** con la
 píldora «Constancia previa», **sin** el enlace «Ver respuestas» (no hay `SurveyResponse`
-detrás: `response_id` es `NULL`). Se revoca exactamente igual que una liberación real
+detrás: `response_id` es `NULL`). Se revoca con el mismo botón que una liberación real
 (`SurveyReviewService.revoke`, que SIEMPRE llama a `CertificateService.void` — no-op porque
-`approve` nunca emitió constancia para un `origin='prior'`). La encuesta pública, si el egresado
-abre el formulario con una previa ya aplicada, muestra la tarjeta de estado («quedó liberada con
-tu constancia del semestre anterior») y no deja contestar — mismo camino que cualquier solicitud
-ya `approved`.
+`approve` nunca emitió constancia para un `origin='prior'`), pero el resultado es otro (Ruling
+R22): tras el evento `survey_review_revoked` (payload con `origin='prior'`), el `unfulfill`, el
+aviso y el correo, la solicitud se **BORRA** —vuelve a `missing`— porque una previa `rejected`
+dejaba al egresado sin salida (`SurveyService.submit` corta mientras exista cualquier fila). El
+correo `survey_revoked` con `origin='prior'` le pide contestar la encuesta en la plataforma
+(botón directo a la encuesta, más la línea D12 de contacto). La encuesta pública, si el egresado
+abre el formulario con una previa VIGENTE, muestra la tarjeta de estado («quedó liberada con tu
+constancia del semestre anterior») y no deja contestar; con la previa revocada vuelve a mostrar
+el formulario.
 
 ## Pasos detallados
 
@@ -212,15 +220,23 @@ ya `approved`.
   el alta del proceso sigue sin tumbarse.
 - **Carga repetida del mismo `(kind, control_number)`** (aún diferida) → `UNIQUE` la actualiza
   (fecha/nota/origen), no la duplica.
-- **Carga repetida de una YA aplicada** → `already`, sin tocar nada.
+- **Carga repetida de una YA aplicada** → con la misma fecha o una anterior, `already` («ya
+  registrada»), sin tocar nada; con una fecha MÁS NUEVA, reemplaza y queda pendiente para la
+  siguiente inscripción (`deferred`, Ruling R28).
+- **GTV revoca una previa de encuesta y luego se vuelve a importar el MISMO archivo** con el
+  proceso aún abierto → la fila se aplica otra vez (`prior_outcome` ve `missing`): la revocación
+  no deja marca que la importación lea. Si GTV revocó por un error de la base, corregir el
+  archivo antes de reimportar.
 - **`--fecha` y `--columna-fecha` juntas** → gana `--columna-fecha` en silencio (nota conocida).
 - **Falta `--fecha` y no hay `--columna-fecha`** → la CLI rechaza el comando completo antes de
   leer una sola fila.
 
 ## Pruebas
 
-`test_prior_clearance_service.py` (clasificación, `apply_pending`, barrido AST de
-`.status` directo, fechas relativas no-bomba-de-tiempo — Ruling R14), `test_cli_prior_clearances.py`
+`test_prior_clearance_service.py` (clasificación, `apply_pending`, la más nueva que reemplaza
+a la aplicada, barrido AST de `.status` directo, fechas relativas no-bomba-de-tiempo — Ruling
+R14), `test_survey_review_service.py`/`test_survey_review_submit.py` (revocar una previa la
+borra y el egresado vuelve a contestar), `test_cli_prior_clearances.py`
 (CLI: dry-run, autodetección de columna, los 4 formatos de fecha, botes).
 
 ## Flujos relacionados

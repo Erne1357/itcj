@@ -157,8 +157,9 @@ módulo admin del CLAUDE.md §4):
   Desde el 2026-10-01 (spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.3), el requisito
   `library_clearance` («No-adeudo de biblioteca») pasa por el MISMO patrón: convocatoria por
   convocatoria, `CotejoRequirementService.DEFAULTS` lo marca `auto_source='library_clearance'`
-  (las YA sembradas las pone al día `titulatec init-biblioteca-caja`, DML
-  `biblioteca_2026_10/22_library_requirement_auto.sql`), y lo acreditan Biblioteca y Caja —
+  (las YA sembradas las pone al día `titulatec activar-biblioteca-caja` —el paso 2 del
+  despliegue, Ruling R19—, DML `biblioteca_2026_10/22_library_requirement_auto.sql`), y lo
+  acreditan Biblioteca y Caja —
   ⤵ ver [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md). Las dos pistas
   por defecto quedan fijas en el código (`CotejoRequirementService.DEFAULTS`): «La libera GTV y
   envía la constancia a Servicios Escolares; no necesitas llevar nada.» (encuesta) y «Lo liberan
