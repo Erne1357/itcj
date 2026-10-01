@@ -28,9 +28,17 @@ la donación VIGENTE. «Sin adeudo» es adeudo 0, no total 0: con donación el
 egresado igual pasa a Caja; total 0 libera sin pasar por Caja (D18). Al volver
 a `pending` (Revertir sin cargo/legado, Deshacer previa) la fila regresa a la
 forma de recién abierta —sin montos ni datos de Biblioteca, Caja o constancia
-previa; lo anterior queda en el payload del evento— salvo `ready_at`, que es
-la PRIMERA vez que pasó a caja (ancla de recordatorios). Una constancia previa
+previa; lo anterior queda en el payload del evento— salvo `ready_at`, que
+queda como historia hasta la siguiente entrada a Caja. Una constancia previa
 registrada desde `awaiting_payment` conserva los montos como historia.
+
+Ruling R10 (revisión de la Tarea 4): `ready_at` es la entrada VIGENTE a Caja —
+ancla del recordatorio de pago y FIFO de «Por cobrar»—: se vuelve a fijar CADA
+vez que la fila ENTRA a `awaiting_payment` desde otro estado (Registrar desde
+`pending`, Revertir pago desde `cleared/payment`), nunca al corregir dentro de
+`awaiting_payment`. Y una corrección que no cambia nada (mismo adeudo, misma
+donación congelada, misma nota) es no-op: sin evento, sin aviso, sin correo y
+sin firma nueva de Biblioteca.
 
 Requisito `library_clearance`: quedar `cleared` → `RequirementService.fulfill`
 (source='system', external_ref='library_clearance:{id}'); salir de `cleared`
@@ -68,9 +76,14 @@ Reglas fijas (patrón `SurveyReviewService`):
   con el tope `AMOUNT_MAX` (Ruling R9, spec §4.8): ese tope topa lo que SE
   TECLEA (`debt_amount`), y un adeudo al tope más la donación lo supera sin
   dejar de ser un total legítimo.
-* Correos: cada transición marca, junto a su aviso y antes del commit, el
-  punto donde se encolará su correo de `StudentMail` (spec §4.11). Hoy no se
-  encola ninguno: los agrega la tarea de correos.
+* Correos (spec §4.11, §5 invariante 9): cada transición encola su correo
+  de `StudentMail` junto a su aviso in-app, antes de su único commit (la
+  fila nace en la MISMA transacción; si el commit falla, se va con él):
+  pasa a Caja o se corrige el monto → `library_ready`; queda liberado (sin
+  cargo, pago o constancia previa) → `library_cleared`; se revierte o
+  deshace → `library_reverted`. El recordatorio del pago pendiente lo encola
+  el barrido diario (`MailReminders`). `test_mail_writers.py` fija evento →
+  correo por AST.
 * `updated_at` no tiene `onupdate` (ver el modelo): se fija a mano.
 """
 from __future__ import annotations
@@ -294,6 +307,37 @@ class LibraryClearanceService:
         return "already"
 
     @staticmethod
+    def payment_due(db: Session, process_id: int) -> dict | None:
+        """Lo que el egresado debe pagar en Caja AHORA, SOLO LECTURA:
+        `{"debt", "donation", "total", "note", "ready_at"}` —los montos
+        CONGELADOS de su fila (`Decimal`), la nota de Biblioteca y su entrada
+        vigente a Caja— si su no adeudo está `awaiting_payment`; `None` en
+        cualquier otro estado o sin fila.
+
+        Para los correos del pago (spec §4.11): `library_ready`,
+        `library_reminder` y la reversión de un pago se re-validan con esto al
+        enviar y pintan los montos VIGENTES. Lee la FILA y no el candado a
+        propósito: lo que Biblioteca mandó a Caja se debe aunque la
+        convocatoria no exija el no adeudo para agendar. No contesta «¿le
+        faltan liberaciones?» —eso es SOLO de `ClearanceGate` (invariante 2)—:
+        como `prior_outcome`, deja la comparación de `status` en el dueño."""
+        row = LibraryClearanceService.get_for_process(db, process_id)
+        if row is None or row.status != "awaiting_payment":
+            return None
+        return {"debt": row.debt_amount, "donation": row.donation_amount,
+                "total": row.total_amount, "note": row.library_note,
+                "ready_at": row.ready_at}
+
+    @staticmethod
+    def awaiting_payment_clause():
+        """`payment_due` en SQL, sobre `LibraryClearance` (la consulta que lo
+        use debe tenerla en su FROM): el no adeudo está en Caja. Para los
+        candidatos del recordatorio de pago (`MailReminders`), que así no
+        compara `LibraryClearance.status` por su cuenta."""
+        from itcj2.apps.titulatec.models import LibraryClearance
+        return LibraryClearance.status == "awaiting_payment"
+
+    @staticmethod
     def release_status_map(db: Session, process_ids: list[int]) -> dict[int, str]:
         """`release_status` de varios procesos EN UNA consulta (filas de la
         cola); los ids sin fila salen como `'missing'`."""
@@ -383,7 +427,8 @@ class LibraryClearanceService:
         Congela la donación VIGENTE de la convocatoria. Total > 0 →
         `awaiting_payment` (`library_debt_registered` o, al corregir,
         `library_amount_corrected`); total 0 → `cleared/no_charge` con
-        constancia BIB y requisito cumplido (`library_no_charge`).
+        constancia BIB y requisito cumplido (`library_no_charge`). Corregir sin
+        cambiar nada es no-op (Ruling R10): la fila queda como estaba.
 
         `expected_status` / `expected_total`: lo que el usuario tenía en
         pantalla. Si la fila ya no está así (otra persona la movió mientras
@@ -510,8 +555,8 @@ class LibraryClearanceService:
                        title="Tu no adeudo de biblioteca quedó liberado",
                        body=f"Caja registró tu pago de {format_amount(clearance.total_amount)}.",
                        process_id=process.id, phase_number=PHASE_COTEJO)
-        # Correo (spec §4.11, `library_cleared`, via='payment'): pendiente de la
-        # tarea de correos; se encolará AQUÍ, junto al aviso, antes del commit.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.library_cleared(db, process, via="payment")
 
         db.commit()
         return clearance
@@ -560,9 +605,10 @@ class LibraryClearanceService:
                        body="Se registró tu constancia de no adeudo previa; llévala "
                             "a tu cita de cotejo.",
                        process_id=process.id, phase_number=PHASE_COTEJO)
-        # Correo (spec §4.11, `library_cleared`, via='prior' → «lleva tu
-        # constancia física a tu cotejo»): pendiente de la tarea de correos; se
-        # encolará AQUÍ, junto al aviso, antes del commit.
+        # «Lleva tu constancia física a tu cotejo». También desde la importación
+        # (`commit=False`): queda en la transacción del lote del llamador.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.library_cleared(db, process, via="prior")
 
         if commit:
             db.commit()
@@ -576,7 +622,8 @@ class LibraryClearanceService:
 
         Solo con la fase 2 sin aprobar (`can_revert`). El monto congelado se
         queda (sigue debiéndolo); se borran pago y recibo —salen del corte del
-        día—, se descumple el requisito y se anula la constancia.
+        día—, se descumple el requisito y se anula la constancia. Es una
+        entrada NUEVA a Caja: `ready_at` se vuelve a fijar (Ruling R10).
         """
         clearance = LibraryClearanceService._locked(db, clearance_id)
         process = LibraryClearanceService._admitted_process(db, clearance)
@@ -589,12 +636,14 @@ class LibraryClearanceService:
         previo = {"receipt": clearance.receipt_number,
                   "paid_at": clearance.paid_at.isoformat() if clearance.paid_at else None,
                   "total": _txt(clearance.total_amount)}
+        ahora = db_now()
         clearance.status = "awaiting_payment"
         clearance.cleared_via = None
         clearance.paid_by_id = None
         clearance.paid_at = None
         clearance.receipt_number = None
-        clearance.updated_at = db_now()
+        clearance.ready_at = ahora          # vuelve a entrar a Caja (Ruling R10)
+        clearance.updated_at = ahora
 
         LibraryClearanceService._unfulfill(db, process, requirement, actor_id)
         from itcj2.apps.titulatec.services.certificate_service import CertificateService
@@ -606,8 +655,9 @@ class LibraryClearanceService:
                                      "library_payment_reverted", datos)
 
         LibraryClearanceService._notify_reverted(db, process, motivo)
-        # Correo (spec §4.11, `library_reverted`, a 'awaiting_payment'):
-        # pendiente de la tarea de correos; se encolará AQUÍ, antes del commit.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.library_reverted(db, process, reason=motivo,
+                                     to_status="awaiting_payment")
 
         db.commit()
         return clearance
@@ -649,8 +699,8 @@ class LibraryClearanceService:
                                      "library_clearance_reverted", datos)
 
         LibraryClearanceService._notify_reverted(db, process, motivo)
-        # Correo (spec §4.11, `library_reverted`, a 'pending'): pendiente de la
-        # tarea de correos; se encolará AQUÍ, antes del commit.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.library_reverted(db, process, reason=motivo, to_status="pending")
 
         db.commit()
         return clearance
@@ -677,8 +727,8 @@ class LibraryClearanceService:
                                      "library_prior_undone", datos)
 
         LibraryClearanceService._notify_reverted(db, process, motivo)
-        # Correo (spec §4.11, `library_reverted`, a 'pending'): pendiente de la
-        # tarea de correos; se encolará AQUÍ, antes del commit.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.library_reverted(db, process, reason=motivo, to_status="pending")
 
         db.commit()
         return clearance
@@ -951,14 +1001,23 @@ class LibraryClearanceService:
 
     @staticmethod
     def _mark_ready(db: Session, clearance, plan: dict, actor_id: int) -> None:
-        """→ `awaiting_payment` (pasa a Caja, o corrige el monto). Sin commit."""
+        """→ `awaiting_payment` (pasa a Caja, o corrige el monto). Sin commit.
+
+        Ruling R10: (a) entrar a Caja desde `pending` vuelve a fijar
+        `ready_at` (corregir dentro de `awaiting_payment`, no); (b) una
+        corrección que no cambia nada —mismo adeudo, misma donación congelada
+        (la vigente de la convocatoria), misma nota— es no-op: ni evento, ni
+        aviso, ni correo, ni firma nueva."""
+        if plan["correcting"] and LibraryClearanceService._same_registration(
+                clearance, plan):
+            return
         previo = LibraryClearanceService._amounts(clearance) if plan["correcting"] else None
         ahora = db_now()
         clearance.status = "awaiting_payment"
         clearance.cleared_via = None
         LibraryClearanceService._stamp_registration(clearance, plan, actor_id, ahora)
-        if clearance.ready_at is None:
-            clearance.ready_at = ahora          # la PRIMERA vez que pasa a caja
+        if not plan["correcting"]:
+            clearance.ready_at = ahora          # entra a Caja (Ruling R10)
 
         datos = {"clearance_id": clearance.id, **LibraryClearanceService._amounts(clearance),
                  "note": plan["note"]}
@@ -984,9 +1043,18 @@ class LibraryClearanceService:
                              f"({desglose}). Acude a Caja (Recursos Financieros) con tu "
                              "número de control; no necesitas cita."),
                        process_id=process.id, phase_number=PHASE_COTEJO)
-        # Correo (spec §4.11, `library_ready`, updated=plan["correcting"]):
-        # pendiente de la tarea de correos; se encolará AQUÍ, junto al aviso,
-        # antes del commit del llamador.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.library_ready(db, process, debt=plan["debt"],
+                                  donation=plan["donation"], total=plan["total"],
+                                  note=plan["note"], updated=plan["correcting"])
+
+    @staticmethod
+    def _same_registration(clearance, plan: dict) -> bool:
+        """¿La corrección deja la fila igual? Mismo adeudo, misma donación
+        congelada y misma nota (el total se deriva de los dos montos)."""
+        return (clearance.debt_amount == plan["debt"]
+                and clearance.donation_amount == plan["donation"]
+                and clearance.library_note == plan["note"])
 
     @staticmethod
     def _clear_no_charge(db: Session, clearance, plan: dict, actor_id: int,
@@ -1013,13 +1081,13 @@ class LibraryClearanceService:
                        title="Tu no adeudo de biblioteca quedó liberado",
                        body="Biblioteca registró que no tienes nada que pagar.",
                        process_id=process.id, phase_number=PHASE_COTEJO)
-        # Correo (spec §4.11, `library_cleared`, via='no_charge'): pendiente de
-        # la tarea de correos; se encolará AQUÍ, junto al aviso, antes del
-        # commit del llamador.
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.library_cleared(db, process, via="no_charge")
 
     @staticmethod
     def _reset_to_pending(clearance) -> None:
-        """Vuelve la fila a la forma de recién abierta (conserva `ready_at`)."""
+        """Vuelve la fila a la forma de recién abierta. Conserva `ready_at`
+        como historia: la siguiente entrada a Caja lo vuelve a fijar (R10)."""
         clearance.status = "pending"
         clearance.cleared_via = None
         clearance.debt_amount = None

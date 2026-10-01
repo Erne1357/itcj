@@ -1,0 +1,21 @@
+{# Recordatorio del pago pendiente en Caja (spec 2026-10-01-titulatec-
+   biblioteca-caja-design.md §4.11, D14). Lo encola el barrido diario a los 3
+   días de que el no adeudo entró a Caja (`ready_at`), luego cada 7, máximo 3.
+   Se re-valida al enviar (D8): en cuanto se libera, o si el proceso ya no
+   está activo, no sale. `titulo` («Tienes pendiente tu pago de $X en Caja»)
+   lleva el total VIGENTE y es también el asunto y el título del aviso in-app.
+   `library_required` = su convocatoria exige el no adeudo para agendar.
+   Contexto: first_name, link, titulo, total, library_required. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}{{ titulo|e }} — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  <strong>{{ titulo|e }}</strong> (Recursos Financieros) para liberar tu no adeudo de
+  biblioteca{% if library_required %}, que necesitas para agendar tu cita de cotejo{% endif %}.
+  No lo dejes para el último momento.
+</p>
+{{ m.aviso("Acude a Caja (Recursos Financieros) con tu número de control; no necesitas cita.") }}
+{{ m.boton(link, "Ver mi proceso") }}
+{% endblock %}

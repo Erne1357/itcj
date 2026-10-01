@@ -13,7 +13,7 @@ recordatorios):
 - NO hace commit. Sin `dedupe_key` tampoco hace flush: solo `db.add(row)`. El
   service del evento es dueño de su transacción; si revierte, la fila nunca
   existió.
-- Con `dedupe_key` (solo los tres recordatorios) ejecuta en el acto
+- Con `dedupe_key` (solo los cuatro recordatorios) ejecuta en el acto
   `INSERT … ON CONFLICT (dedupe_key) DO NOTHING RETURNING id` y devuelve si
   insertó: correr el barrido dos veces no duplica. Ese INSERT va dentro de un
   SAVEPOINT de la conexión (sin flush de la sesión): si Postgres lo rechaza se
@@ -28,10 +28,11 @@ recordatorios):
   acción que la originó.
 - `TITULATEC_EMAIL_ENABLED = false` → `False` sin escribir nada.
 
-El payload lleva solo hechos del evento, serializables (fechas en ISO): nunca
-NIP, token, liga de activación ni contraseña (el correo del NIP no pasa por
-esta tabla, D3). Se guarda una copia congelada (ida y vuelta por JSON), así que
-lo que el llamador cambie después en su dict no llega a la fila.
+El payload lleva solo hechos del evento, serializables (fechas en ISO; montos
+como texto «1200.00», porque JSON no serializa `Decimal`): nunca NIP, token,
+liga de activación ni contraseña (el correo del NIP no pasa por esta tabla,
+D3). Se guarda una copia congelada (ida y vuelta por JSON), así que lo que el
+llamador cambie después en su dict no llega a la fila.
 
 LIGAS (D10, C7): `{PUBLIC_ORIGIN}/itcj/login?next=<ruta codificada>`. Con
 sesión, el login redirige directo a `next`; sin sesión, entra y cae ahí. La
@@ -48,6 +49,7 @@ import functools
 import json
 import logging
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -65,6 +67,11 @@ _DOC_STATUSES = ("approved", "rejected")
 _SURVEY_RESULTS = ("approved", "rejected", "revoked")
 _APPT_EVENTS = ("scheduled", "rescheduled", "cancelled")
 _APPT_ACTORS = ("officer", "student")
+# No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+# §4.2/§4.11): cómo quedó liberado (el `legacy` del backfill nunca es una
+# transición, así que nunca llega aquí) y a qué estado regresa al revertir.
+_LIBRARY_VIAS = ("payment", "no_charge", "prior")
+_LIBRARY_REVERTED_TO = ("awaiting_payment", "pending")
 
 
 def _settings():
@@ -143,6 +150,21 @@ def _iso(value):
     return value.isoformat() if value is not None else None
 
 
+def _monto(value):
+    """Monto a texto con centavos para el payload («1200.00»): JSON no
+    serializa `Decimal`. Solo `Decimal` o `int` finitos (nunca `float`, `bool`
+    ni texto, la regla del dinero de la app); `None` pasa igual. Otra cosa
+    levanta y `_best_effort` lo vuelve `False`."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (Decimal, int)):
+        raise ValueError(f"monto inválido: {value!r}")
+    monto = Decimal(value)
+    if not monto.is_finite():
+        raise ValueError(f"monto inválido: {value!r}")
+    return f"{monto:.2f}"
+
+
 def _outbox_values(model, *, kind, process, payload, group_key, dedupe_key,
                    not_before, created_at=None) -> dict:
     """Valida TODO antes de tocar la sesión y arma las columnas de la fila.
@@ -194,6 +216,10 @@ class StudentMail:
         "appt_no_show": "Aviso de inasistencia a la cita",
         "docs_reminder": "Recordatorio de documentos",
         "survey_reminder": "Recordatorio de encuesta de egresados",
+        "library_ready": "Biblioteca lo pasó a Caja",
+        "library_cleared": "Se liberó el no adeudo de biblioteca",
+        "library_reverted": "Se revirtió el no adeudo de biblioteca",
+        "library_reminder": "Recordatorio de pago en Caja",
     }
 
     # ------------------------------------------------------------------
@@ -416,6 +442,46 @@ class StudentMail:
                      "location": appt.location},
             dedupe_key=f"appt_reminder:{appt.id}")
 
+    # ---- No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-
+    # design.md §4.11). Los encola `LibraryClearanceService` junto al aviso
+    # in-app de cada transición, antes de su único commit. Individuales.
+    @staticmethod
+    @_best_effort
+    def library_ready(db: Session, process, *, debt, donation, total,
+                      note: str | None, updated: bool) -> bool:
+        """Pasa a Caja (`library_debt_registered`) o Biblioteca corrigió el
+        monto (`library_amount_corrected`, `updated=True`). Los montos van como
+        texto «1200.00» y la nota tal como quedó; al ENVIAR el correo se
+        re-valida (sigue `awaiting_payment`) y pinta los montos VIGENTES de la
+        fila, no estos."""
+        return StudentMail.enqueue(
+            db, kind="library_ready", process=process,
+            payload={"debt": _monto(debt), "donation": _monto(donation),
+                     "total": _monto(total), "note": note, "updated": bool(updated)})
+
+    @staticmethod
+    @_best_effort
+    def library_cleared(db: Session, process, *, via: str) -> bool:
+        """El no adeudo quedó liberado: `via` ∈ payment (Caja cobró) |
+        no_charge (total $0, D18) | prior (constancia previa, D9). El correo
+        dice, con el estado VIVO, si ya puede agendar o qué le falta (D11)."""
+        if via not in _LIBRARY_VIAS:
+            raise ValueError(f"vía de liberación desconocida: {via!r}")
+        return StudentMail.enqueue(db, kind="library_cleared", process=process,
+                                   payload={"via": via})
+
+    @staticmethod
+    @_best_effort
+    def library_reverted(db: Session, process, *, reason: str | None,
+                         to_status: str) -> bool:
+        """Se revirtió o deshizo la liberación, con su motivo: `to_status` es
+        a dónde regresó (`awaiting_payment` = Caja revirtió el pago;
+        `pending` = Biblioteca lo vuelve a revisar). Decide el «qué sigue»."""
+        if to_status not in _LIBRARY_REVERTED_TO:
+            raise ValueError(f"estado de reversión desconocido: {to_status!r}")
+        return StudentMail.enqueue(db, kind="library_reverted", process=process,
+                                   payload={"reason": reason, "to_status": to_status})
+
     @staticmethod
     @_best_effort
     def docs_reminder(db: Session, process, *, anchor: datetime, index: int,
@@ -430,6 +496,16 @@ class StudentMail:
                         created_at: datetime | None = None) -> bool:
         """Recordatorio de la encuesta de egresados (#11): el `index`-ésimo de esa ancla."""
         return StudentMail._reminder(db, "survey_reminder", process, anchor, index,
+                                     created_at)
+
+    @staticmethod
+    @_best_effort
+    def library_reminder(db: Session, process, *, anchor: datetime, index: int,
+                         created_at: datetime | None = None) -> bool:
+        """Recordatorio del pago pendiente en Caja (spec 2026-10-01 §4.11,
+        D14): el `index`-ésimo de esa ancla (`ready_at`, la entrada VIGENTE a
+        Caja)."""
+        return StudentMail._reminder(db, "library_reminder", process, anchor, index,
                                      created_at)
 
     @staticmethod

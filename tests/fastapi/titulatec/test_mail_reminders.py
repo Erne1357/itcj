@@ -10,6 +10,9 @@ Lo que se fija aquí:
 2. Documentos (#10) y encuesta (#11): la cadencia de `due_index` (a los 3 días
    del ancla, luego cada 7, máximo 3), contando lo ya encolado para ESA ancla;
    una subida o un rechazo nuevos mueven el ancla y la cuenta vuelve a empezar.
+   Pago pendiente en Caja (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+   §4.11, D14): la misma cadencia con ancla `ready_at` -la entrada VIGENTE a
+   Caja, Ruling R10-, en cualquier fase; deja de salir al liberarse.
 3. Idempotencia: correr el barrido dos veces no duplica filas ni avisos in-app
    (el in-app solo nace si el correo se encoló de verdad).
 4. Solo procesos `active`; con el correo apagado no toca la BD; consultas por
@@ -29,6 +32,7 @@ from __future__ import annotations
 import logging
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -36,7 +40,7 @@ import itcj2.models  # noqa: F401
 
 AHORA = datetime(2001, 2, 3, 9, 0)             # el barrido corre a las 9:00
 MANANA_10 = datetime(2001, 2, 4, 10, 0)
-CEROS = {"appt": 0, "docs": 0, "survey": 0}
+CEROS = {"appt": 0, "docs": 0, "survey": 0, "library": 0}
 LOGGER = "itcj2.apps.titulatec.services.mail_reminders"
 
 
@@ -128,6 +132,25 @@ def en_cotejo(catalogos, db_session, make_student, make_process):
     return _make
 
 
+@pytest.fixture()
+def en_caja(catalogos, db_session, make_student, make_process, make_library_clearance):
+    """Proceso con su no adeudo `awaiting_payment` (adeudo $300 + donación $800
+    = $1,100) que ENTRÓ a Caja en `entrada` (por omisión hace 4 días: vence el
+    primer recordatorio y el segundo todavía no). En la fase 2 sin
+    `started_at` (no entra al de la encuesta); `fase=1` lo deja en documentos
+    con el alta de hoy como ancla, que a la hora de `AHORA` no vence."""
+    def _make(entrada=AHORA - timedelta(days=4), *, proceso="active", fase=2):
+        proc = make_process(make_student(), current_phase=fase, status=proceso,
+                            library_clearance=None)
+        make_library_clearance(proc, status="awaiting_payment",
+                               debt_amount=Decimal("300.00"),
+                               donation_amount=Decimal("800.00"),
+                               total_amount=Decimal("1100.00"), ready_at=entrada)
+        return proc
+
+    return _make
+
+
 def _filas(db, pid, kind=None):
     """Filas del outbox del proceso en orden de llegada. El flush es EXPLÍCITO:
     en producción `autoflush=False`."""
@@ -198,19 +221,22 @@ def test_cita_de_manana_encola_una_vez_y_notifica(db_session, con_cita, estado):
                           "phase_number": 2}
 
 
-def test_correr_dos_veces_no_duplica(db_session, con_cita, en_documentos, en_cotejo):
-    """Los tres recordatorios a la vez: la segunda corrida (mismo reloj) no
+def test_correr_dos_veces_no_duplica(db_session, con_cita, en_documentos, en_cotejo,
+                                    en_caja):
+    """Los cuatro recordatorios a la vez: la segunda corrida (mismo reloj) no
     encola nada ni vuelve a avisar en la app."""
     cita, _ = con_cita()
     docs = en_documentos()
     encuesta = en_cotejo()
+    pago = en_caja()
 
-    assert _barrer(db_session) == _conteo(appt=1, docs=1, survey=1)
+    assert _barrer(db_session) == _conteo(appt=1, docs=1, survey=1, library=1)
     assert _barrer(db_session) == CEROS
 
     for proc, kind, tipo in ((cita, "appt_reminder", "APPOINTMENT_REMINDER"),
                              (docs, "docs_reminder", "DOCUMENTS_REMINDER"),
-                             (encuesta, "survey_reminder", "SURVEY_REMINDER")):
+                             (encuesta, "survey_reminder", "SURVEY_REMINDER"),
+                             (pago, "library_reminder", "LIBRARY_REMINDER")):
         assert [f.kind for f in _filas(db_session, proc.id)] == [kind]
         assert [a.type for a in _avisos(db_session, proc.student_id)] == [tipo]
 
@@ -513,13 +539,109 @@ def test_encuesta_enviada_no_recuerda(db_session, en_cotejo, make_survey_review)
 
 
 # ---------------------------------------------------------------------------
+# Pago pendiente en Caja (spec 2026-10-01 §4.11, D14)
+# ---------------------------------------------------------------------------
+def test_pago_pendiente_recuerda_con_el_total_y_su_aviso(db_session, en_caja):
+    proc = en_caja()
+    entrada = AHORA - timedelta(days=4)
+
+    assert _barrer(db_session) == _conteo(library=1)
+
+    (fila,) = _filas(db_session, proc.id)
+    assert (fila.kind, fila.status, fila.user_id) == ("library_reminder", "pending",
+                                                      proc.student_id)
+    assert fila.payload == {"anchor": entrada.isoformat(), "index": 0}
+    assert fila.dedupe_key == f"library_reminder:{proc.id}:{entrada:%Y%m%dT%H%M%S}:0"
+    (aviso,) = _avisos(db_session, proc.student_id)
+    assert (aviso.type, aviso.title) == ("LIBRARY_REMINDER",
+                                         "Tienes pendiente tu pago de $1,100.00 en Caja")
+    assert aviso.body == ("Acude a Caja (Recursos Financieros) con tu número de control; "
+                          "no necesitas cita.")
+    assert aviso.data["url"] == "/titulatec/student/fase/2"
+
+
+def test_cadencia_del_pago_en_el_barrido(db_session, en_caja):
+    """La de `due_index` contra la cuenta REAL de filas: el 0 al día 3 de la
+    entrada a Caja, el 1 al 10, el 2 al 17 y ya nada más."""
+    proc = en_caja(entrada=_ANCLA)
+
+    por_dia = {dia: _barrer(db_session, now=_ANCLA + timedelta(days=dia))["library"]
+               for dia in (2, 3, 4, 9, 10, 11, 17, 24, 31)}
+
+    assert por_dia == {2: 0, 3: 1, 4: 0, 9: 0, 10: 1, 11: 0, 17: 1, 24: 0, 31: 0}
+    filas = _filas(db_session, proc.id, "library_reminder")
+    assert [f.payload for f in filas] == [
+        {"anchor": "2001-01-01T15:30:00", "index": i} for i in range(3)]
+    assert len(_avisos(db_session, proc.student_id, "LIBRARY_REMINDER")) == 3
+
+
+def test_en_cualquier_fase(db_session, en_caja):
+    """El no adeudo corre desde la fase 1 (D3): el recordatorio no mira la fase."""
+    en_documentos = en_caja(fase=1)
+    en_cotejo = en_caja(fase=2)
+
+    assert _barrer(db_session) == _conteo(library=2)
+    for proc in (en_documentos, en_cotejo):
+        assert [f.kind for f in _filas(db_session, proc.id)] == ["library_reminder"]
+
+
+def test_al_liberarse_deja_de_recordar(db_session, en_caja):
+    """Caja registró el pago: la fila ya no está `awaiting_payment` y el
+    siguiente recordatorio de la cadencia no sale."""
+    from itcj2.apps.titulatec.models import LibraryClearance
+
+    proc = en_caja(entrada=_ANCLA)
+    assert _barrer(db_session, now=_ANCLA + timedelta(days=3))["library"] == 1
+
+    fila = db_session.query(LibraryClearance).filter_by(process_id=proc.id).one()
+    fila.status, fila.cleared_via = "cleared", "payment"
+    db_session.flush()
+
+    assert _barrer(db_session, now=_ANCLA + timedelta(days=10))["library"] == 0
+    assert len(_filas(db_session, proc.id, "library_reminder")) == 1
+
+
+def test_una_nueva_entrada_a_caja_reinicia_el_ancla(db_session, en_caja):
+    """Ruling R10: revertir el pago vuelve a fijar `ready_at`. Con el ancla
+    vieja, a los 2 días de la nueva entrada ya tocaría el recordatorio 1
+    (entrada + 3 + 7 = AHORA); con la nueva, la cuenta empieza de cero."""
+    from itcj2.apps.titulatec.models import LibraryClearance
+
+    vieja = AHORA - timedelta(days=10)
+    proc = en_caja(entrada=vieja)
+    assert _barrer(db_session, now=AHORA)["library"] == 1          # el 0 del ancla vieja
+
+    nueva = AHORA + timedelta(days=1)
+    fila = db_session.query(LibraryClearance).filter_by(process_id=proc.id).one()
+    fila.ready_at = nueva
+    db_session.flush()
+
+    assert _barrer(db_session, now=AHORA + timedelta(days=2))["library"] == 0
+    assert _barrer(db_session, now=nueva + timedelta(days=3))["library"] == 1
+
+    primero, segundo = _filas(db_session, proc.id, "library_reminder")
+    assert primero.payload == {"anchor": vieja.isoformat(), "index": 0}
+    assert segundo.payload == {"anchor": nueva.isoformat(), "index": 0}
+
+
+def test_maximo_cero_apaga_el_de_pago(db_session, en_caja, monkeypatch):
+    from itcj2.apps.titulatec.services.student_mail import MailSettings
+
+    monkeypatch.setattr(MailSettings, "max_reminders", staticmethod(lambda: 0))
+    proc = en_caja()
+
+    assert _barrer(db_session) == CEROS
+    assert _filas(db_session, proc.id) == []
+
+
+# ---------------------------------------------------------------------------
 # Alcance, apagado, lotes y aislamiento
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("estado", ["on_hold", "cancelled", "completed"])
 def test_proceso_en_pausa_o_revocado_no(db_session, con_cita, en_documentos, en_cotejo,
-                                        estado):
+                                        en_caja, estado):
     procesos = [con_cita(proceso=estado)[0], en_documentos(proceso=estado),
-                en_cotejo(proceso=estado)]
+                en_cotejo(proceso=estado), en_caja(proceso=estado)]
 
     assert _barrer(db_session) == CEROS
     for proc in procesos:
@@ -527,7 +649,8 @@ def test_proceso_en_pausa_o_revocado_no(db_session, con_cita, en_documentos, en_
         assert _avisos(db_session, proc.student_id) == []
 
 
-def test_apagado_no_toca_nada(db_session, con_cita, en_documentos, en_cotejo, monkeypatch):
+def test_apagado_no_toca_nada(db_session, con_cita, en_documentos, en_cotejo, en_caja,
+                              monkeypatch):
     """`TITULATEC_EMAIL_ENABLED = false`: termina sin tocar la BD (spec C2, §9.5)."""
     from itcj2.apps.titulatec.services.mail_reminders import MailReminders
     from itcj2.apps.titulatec.services.student_mail import MailSettings
@@ -540,30 +663,34 @@ def test_apagado_no_toca_nada(db_session, con_cita, en_documentos, en_cotejo, mo
 
     assert MailReminders.run(_SinBD(), now=AHORA) == {"disabled": True}
 
-    procesos = [con_cita()[0], en_documentos(), en_cotejo()]
+    procesos = [con_cita()[0], en_documentos(), en_cotejo(), en_caja()]
     assert MailReminders.run(db_session, now=AHORA) == {"disabled": True}
     for proc in procesos:
         assert _filas(db_session, proc.id) == []
         assert _avisos(db_session, proc.student_id) == []
 
 
-def test_consultas_por_lote_sin_n_mas_1(db_session, con_cita, en_documentos, en_cotejo):
+def test_consultas_por_lote_sin_n_mas_1(db_session, con_cita, en_documentos, en_cotejo,
+                                       en_caja):
     """Las lecturas no crecen con los candidatos: con uno de cada tipo y con
     tres de cada tipo, el barrido hace EXACTAMENTE los mismos SELECT (lo que sí
     crece son las escrituras, una fila y un aviso por recordatorio)."""
     con_cita()
     en_documentos()
     en_cotejo()
+    en_caja()
     with _lecturas(db_session) as uno:
-        assert _barrer(db_session) == _conteo(appt=1, docs=1, survey=1)
+        assert _barrer(db_session) == _conteo(appt=1, docs=1, survey=1, library=1)
 
     otro_dia = AHORA + timedelta(days=1)
     for _ in range(3):
         con_cita(MANANA_10 + timedelta(days=1), now=otro_dia)
         en_documentos(inicio=otro_dia - timedelta(days=4))
         en_cotejo(inicio=otro_dia - timedelta(days=4))
+        en_caja(entrada=otro_dia - timedelta(days=4))
     with _lecturas(db_session) as tres:
-        assert _barrer(db_session, now=otro_dia) == _conteo(appt=3, docs=3, survey=3)
+        assert _barrer(db_session, now=otro_dia) == _conteo(appt=3, docs=3, survey=3,
+                                                            library=3)
 
     assert len(tres) == len(uno), "\n\n".join(tres)
 

@@ -1,0 +1,39 @@
+{# El no adeudo de biblioteca quedó liberado (spec 2026-10-01-titulatec-
+   biblioteca-caja-design.md §4.11): por pago en Caja (`pagado` = lo que cobró),
+   sin cargo (total $0, D18) o por constancia previa (D9: lleva su papel al
+   cotejo). En los dos primeros la constancia la envía el Centro de Información
+   a Servicios Escolares (D7). D11 (`m.agenda(falta)`): si ya puede agendar o
+   qué le falta, con el estado VIVO. Se re-valida al enviar (D8): si ya se
+   revirtió, no sale.
+   Contexto: first_name, link, via (payment|no_charge|prior; None si no se
+   reconoce), pagado, falta. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}Tu no adeudo de biblioteca quedó liberado — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  {% if via == "payment" -%}
+  Caja (Recursos Financieros) registró tu pago{% if pagado %} de <strong>{{ pagado|e }}</strong>{% endif %}:
+  <strong>tu no adeudo de biblioteca quedó liberado</strong>.
+  {%- elif via == "no_charge" -%}
+  El Centro de Información (Biblioteca) registró que no tienes nada que pagar:
+  <strong>tu no adeudo de biblioteca quedó liberado</strong>.
+  {%- elif via == "prior" -%}
+  Tu constancia de no adeudo previa quedó registrada:
+  <strong>tu no adeudo de biblioteca quedó liberado</strong>.
+  {%- else -%}
+  <strong>Tu no adeudo de biblioteca quedó liberado</strong>.
+  {%- endif %}
+</p>
+{% if via == "prior" %}
+{{ m.aviso("Lleva tu constancia física a tu cita de cotejo.") }}
+{% else %}
+<p style="margin:0 0 24px;">
+  Para tu cita de cotejo no necesitas llevar nada de biblioteca: el Centro de Información
+  envía tu constancia a Servicios Escolares.
+</p>
+{% endif %}
+{{ m.agenda(falta) }}
+{{ m.boton(link, "Ver mi proceso") }}
+{% endblock %}

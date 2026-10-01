@@ -23,7 +23,17 @@ CONTRATO DE `MailComposer.compose(db, rows, process, user)`:
   `StudentMail.link(ruta)` y es el mismo valor que `Composed.link`.
 - `Composed.template` es el archivo bajo `titulatec/email/`: lo que recibe
   `email_helper._render`. Todas las plantillas escapan con `|e` cada texto
-  variable (motivos, notas, nombres, lugares).
+  variable (motivos, notas, nombres, lugares). La única pieza con HTML propio
+  es la «Información para el alumno» del no adeudo: se sanitiza aquí y se
+  marca como `Markup` junto al sanitizador (`_info_biblioteca`), y `|e` la
+  respeta; cualquier otra cadena que llegara a ese hueco saldría escapada.
+- D11 (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.11): los dos
+  correos de LIBERACIÓN (encuesta liberada, no adeudo liberado) dicen «Ya
+  puedes agendar tu cita de cotejo» o «Para agendar te falta: …» con el
+  estado VIVO; lo arma UN solo ayudante, `_que_falta`, y las liberaciones las
+  decide SOLO `ClearanceGate` (invariante 2): aquí no se compara ningún
+  estado de `SurveyReview` ni de `LibraryClearance`. Lo que el egresado debe
+  en Caja lo lee el dueño (`LibraryClearanceService.payment_due`).
 - Orden de los eventos de un grupo: `(created_at, id)`. Las filas de una misma
   transacción comparten `NOW()` y el id desempata.
 - Filas que no van juntas (de otro proceso o alumno, de dos grupos, varias
@@ -34,10 +44,13 @@ EXTENDER: escribir `_compose_<kind>(db, rows, process, user) -> Composed |
 Obsolete` en este módulo y darlo de alta en `MailComposer.REGISTRY`. Su
 re-validación al enviar (D8) va dentro de esa función: si el correo ya no
 aplica, devuelve `Obsolete("motivo legible")`, que va a `last_error`
-(String(255)). Así se registraron los tres recordatorios del barrido diario
-(`services/mail_reminders.py`, Tarea 8): `appt_reminder`, `docs_reminder` y
-`survey_reminder`. Sus títulos (`asunto_recordatorio_*`) los comparte el aviso
-in-app que crea el barrido: un solo texto para los dos canales.
+(String(255)). Así se registraron los recordatorios del barrido diario
+(`services/mail_reminders.py`, Tarea 8): `appt_reminder`, `docs_reminder`,
+`survey_reminder` y, con el no adeudo de biblioteca, `library_reminder`. Sus
+títulos (`asunto_recordatorio_*`) los comparte el aviso in-app que crea el
+barrido: un solo texto para los dos canales. Y los tres correos de las
+transiciones del no adeudo: `library_ready`, `library_cleared` y
+`library_reverted`.
 """
 from __future__ import annotations
 
@@ -84,6 +97,38 @@ _GTV = {
     "survey_rejected": ("rejected", "GTV dejó observaciones en tu encuesta de egresados"),
     "survey_revoked": ("revoked", "Se revocó la liberación de tu encuesta de egresados"),
 }
+# La liberada por constancia previa (D9): GTV no dictaminó nada en este sistema.
+_ASUNTO_ENCUESTA_PREVIA = "Tu encuesta de egresados quedó registrada como liberada"
+
+# D11: lo que falta para agendar, en la voz de «Para agendar te falta: …». Una
+# frase por código de `ClearanceGate.BLOCKERS` (conjunto CERRADO; lo cruza
+# `test_mail_compose.py`), más la fase 1: el no adeudo se libera desde ella
+# (D3) y una constancia previa de encuesta llega desde la inscripción (D9).
+_FALTA_FASE_1 = "que Servicios Escolares apruebe tus documentos iniciales"
+_FALTA = {
+    "survey_missing": "enviar tu encuesta de egresados",
+    "survey_in_review": ("que Gestión Tecnológica y Vinculación (GTV) libere tu encuesta "
+                         "de egresados (ya la enviaste; está en revisión)"),
+    "survey_rejected": ("atender las observaciones de Gestión Tecnológica y Vinculación "
+                        "(GTV) a tu encuesta de egresados"),
+    "library_pending": "que el Centro de Información revise tu no adeudo de biblioteca",
+    "library_awaiting_payment": ("pagar en Caja (Recursos Financieros) para liberar tu no "
+                                 "adeudo de biblioteca"),
+}
+# El de Caja con su total congelado, cuando se conoce.
+_FALTA_PAGO = ("pagar {total} en Caja (Recursos Financieros) para liberar tu no adeudo "
+               "de biblioteca")
+
+# Asuntos del no adeudo de biblioteca (spec 2026-10-01 §4.11), sin prefijo.
+_ASUNTO_CAJA = "Ya puedes pasar a Caja por tu no adeudo de biblioteca"
+_ASUNTO_CAJA_CORREGIDO = "Biblioteca corrigió el monto de tu no adeudo de biblioteca"
+_ASUNTO_LIBERADO = "Tu no adeudo de biblioteca quedó liberado"
+_ASUNTO_REVERTIDO = "Se revirtió tu no adeudo de biblioteca"
+_VIAS_LIBERACION = ("payment", "no_charge", "prior")
+# El `code` del requisito de cotejo del no adeudo (la «Información para el
+# alumno» de `library_ready` sale de él; también en la lista vieja, sin
+# `auto_source`).
+_CODIGO_REQUISITO_BIBLIOTECA = "library_clearance"
 
 
 @dataclass(frozen=True)
@@ -164,6 +209,93 @@ def _correo(user, asunto: str, plantilla: str, ruta: str, **datos) -> Composed:
     return Composed(subject=_PREFIJO + asunto, template=plantilla,
                     context={"first_name": user.first_name, "link": link, **datos},
                     link=link)
+
+
+def _bloqueos(db: Session, process) -> list[str]:
+    """Las liberaciones que le faltan, según el ÚNICO que lo sabe:
+    `ClearanceGate` (códigos de `BLOCKERS`, encuesta primero)."""
+    from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
+
+    return ClearanceGate.blockers(ClearanceGate.status(db, process.id))
+
+
+def _que_falta(db: Session, process, bloqueos: list[str] | None = None) -> list[str] | None:
+    """D11 (spec 2026-10-01 §4.11): qué le falta para agendar su cita de cotejo,
+    con el estado VIVO al componer. Lo usan los dos correos de liberación
+    (encuesta liberada y no adeudo liberado); la plantilla lo pinta con
+    `m.agenda`.
+
+    - `None`: ninguna de las dos frases aplica —el proceso no está `active`
+      (en pausa no se agenda) o ya aprobó la fase 2 (no hay cita por agendar).
+    - `[]`: «Ya puedes agendar tu cita de cotejo».
+    - Si no, una frase por pendiente: la fase 1 si todavía no la aprueban y,
+      en su orden, cada bloqueo de `ClearanceGate` (`bloqueos`, si el llamador
+      ya los tiene). El de Caja lleva el total congelado de su fila; leerlo no
+      decide nada (lo decidió el gate), igual que en
+      `SelfBookingService.eligibility`.
+    """
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService, format_amount,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    if process.status != "active" or process.current_phase > PhaseService.PHASE_COTEJO:
+        return None
+    if bloqueos is None:
+        bloqueos = _bloqueos(db, process)
+    falta = [_FALTA_FASE_1] if process.current_phase < PhaseService.PHASE_COTEJO else []
+    for codigo in bloqueos:
+        if codigo == "library_awaiting_payment":
+            pago = LibraryClearanceService.payment_due(db, process.id)
+            total = format_amount(pago["total"]) if pago is not None else ""
+            falta.append(_FALTA_PAGO.format(total=total) if total else _FALTA[codigo])
+        else:
+            falta.append(_FALTA[codigo])
+    return falta
+
+
+def _hay_posterior(db: Session, fila, kind: str) -> bool:
+    """¿El proceso tiene una fila `kind` encolada DESPUÉS de `fila` (id mayor),
+    en cualquier estado? Cada transición del no adeudo encola la suya: con
+    una posterior, `fila` ya no describe cómo quedó."""
+    from itcj2.apps.titulatec.models import EmailOutbox
+
+    return (db.query(EmailOutbox.id)
+            .filter(EmailOutbox.process_id == fila.process_id,
+                    EmailOutbox.kind == kind,
+                    EmailOutbox.id > fila.id)
+            .first()) is not None
+
+
+def _info_biblioteca(db: Session, cohort_id: int):
+    """La «Información para el alumno» del requisito de cotejo del no adeudo
+    (activo) de la convocatoria, o `None`. Se vuelve a sanitizar al pintar
+    (`sanitize_info_html`, como las vistas: un UPDATE a mano tampoco inyecta)
+    y se marca como `Markup` AQUÍ, junto al sanitizador: la plantilla la pasa
+    por `|e` como todo, que respeta lo ya marcado. Lectura de la columna, no
+    siembra."""
+    from markupsafe import Markup
+
+    from itcj2.apps.titulatec.models import CotejoRequirement
+    from itcj2.apps.titulatec.utils.rich_text import sanitize_info_html
+
+    fila = (db.query(CotejoRequirement.info_html)
+            .filter(CotejoRequirement.cohort_id == cohort_id,
+                    CotejoRequirement.code == _CODIGO_REQUISITO_BIBLIOTECA,
+                    CotejoRequirement.is_active.is_(True))
+            .order_by(CotejoRequirement.order_index, CotejoRequirement.id)
+            .first())
+    limpio = sanitize_info_html(fila[0], max_len=None) if fila is not None and fila[0] else None
+    return Markup(limpio) if limpio else None
+
+
+def _exige_biblioteca(db: Session, process) -> bool:
+    """¿Su convocatoria exige el no adeudo para agendar? (`ClearanceGate`,
+    invariante 8). Solo entonces los correos del pago dicen que lo necesita
+    para agendar."""
+    from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
+
+    return ClearanceGate.library_required(db, process.cohort_id)
 
 
 # ---------------------------------------------------------------------------
@@ -336,13 +468,37 @@ def _compose_phase_rejected(db: Session, rows: list, process, user) -> Composed 
 
 def _compose_survey(db: Session, rows: list, process, user) -> Composed | Obsolete:
     """#4-#6, dictamen de GTV sobre la encuesta de egresados (liberada, con
-    observaciones o revocada). Lleva al tablero en la fase de la cita de cotejo."""
+    observaciones o revocada). Lleva al tablero en la fase de la cita de cotejo.
+
+    Liberada (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.11):
+    - `origin` del payload llega a la plantilla: `prior` (constancia previa
+      del semestre anterior, D9) cambia el texto y el asunto (GTV no
+      dictaminó nada aquí); una fila sin él es `submission`, la de siempre.
+    - D13: ya no dice «Ya puedes agendar tu cita de cotejo» fijo; lo decide
+      D11 (`falta`, `_que_falta`) con el estado VIVO.
+    - Re-validada al enviar (D8): si al ENVIAR la encuesta ya no está liberada
+      (GTV la revocó dentro de la espera), «liberó tu encuesta» es falso:
+      obsoleto, y sale el correo de la revocación.
+    Observaciones y revocación: el motivo, y la línea de contacto de D12 la
+    pinta la plantilla."""
+    from itcj2.apps.titulatec.services.clearance_gate import SURVEY_BLOCKERS
     from itcj2.apps.titulatec.services.phase_service import PhaseService
 
     fila = rows[-1]
+    datos = _datos(fila)
     resultado, asunto = _GTV[fila.kind]
+    origen = "prior" if datos.get("origin") == "prior" else "submission"
+    falta = None
+    if resultado == "approved":
+        bloqueos = _bloqueos(db, process)
+        if any(codigo in SURVEY_BLOCKERS for codigo in bloqueos):
+            return Obsolete("la encuesta ya no está liberada")
+        falta = _que_falta(db, process, bloqueos)
+        if origen == "prior":
+            asunto = _ASUNTO_ENCUESTA_PREVIA
     return _correo(user, asunto, "survey_result.html", _tablero(PhaseService.PHASE_COTEJO),
-                   result=resultado, reason=_texto(_datos(fila).get("reason")))
+                   result=resultado, reason=_texto(datos.get("reason")),
+                   origin=origen, falta=falta)
 
 
 def _compose_appt_no_show(db: Session, rows: list, process, user) -> Composed | Obsolete:
@@ -380,11 +536,131 @@ def _compose_appt_no_show(db: Session, rows: list, process, user) -> Composed | 
 
 
 # ---------------------------------------------------------------------------
-# Recordatorios (#8, #10, #11). Los encola el barrido diario
-# (`mail_reminders.MailReminders.run`); aquí se re-validan al ENVIAR (D8) y se
-# arman con el estado de ese momento. Ninguno aplica a un proceso que ya no
-# está `active` (en pausa o concluido; el revocado lo descarta antes el
-# despachador).
+# No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+# §4.11). Individuales; cada uno se re-valida al ENVIAR (D8) y lleva al tablero
+# en la fase de la cita de cotejo, como los de GTV.
+# ---------------------------------------------------------------------------
+def _compose_library_ready(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Pasa a Caja: Biblioteca registró el adeudo, o corrigió el monto.
+
+    - Aplica mientras tenga un pago pendiente en Caja
+      (`LibraryClearanceService.payment_due`); si ya pagó, se liberó de otro
+      modo o se revirtió a Biblioteca, obsoleto.
+    - Un `library_ready` MÁS NUEVO del proceso lo vuelve obsoleto: los dos
+      pintarían los mismos montos vigentes (registrar y corregir dentro de la
+      espera del despachador = un solo correo).
+    - Pinta los montos VIGENTES de la fila y su nota, no los del payload.
+      «Corrigió el monto» solo si el egresado YA recibió (`sent`) un aviso
+      anterior de Caja: si no, para él es la primera noticia.
+    - Lleva la «Información para el alumno» del requisito, si SE la escribió
+      (`_info_biblioteca`), y, donde la convocatoria exige el no adeudo, que
+      lo necesita para agendar.
+    """
+    from itcj2.apps.titulatec.models import EmailOutbox
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService, format_amount,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    fila = rows[-1]
+    pago = LibraryClearanceService.payment_due(db, process.id)
+    if pago is None:
+        return Obsolete("ya no tiene un pago pendiente en Caja")
+    otras = (db.query(EmailOutbox.id, EmailOutbox.status)
+             .filter(EmailOutbox.process_id == process.id,
+                     EmailOutbox.kind == "library_ready",
+                     EmailOutbox.id != fila.id)
+             .all())
+    if any(otra_id > fila.id for otra_id, _ in otras):
+        return Obsolete("hay un aviso más reciente del monto a pagar")
+    corrigio = bool(_datos(fila).get("updated")) and any(st == "sent" for _, st in otras)
+
+    return _correo(user, _ASUNTO_CAJA_CORREGIDO if corrigio else _ASUNTO_CAJA,
+                   "library_ready.html", _tablero(PhaseService.PHASE_COTEJO),
+                   updated=corrigio,
+                   debt=format_amount(pago["debt"]), sin_adeudo=not pago["debt"],
+                   donation=format_amount(pago["donation"]),
+                   con_donacion=bool(pago["donation"]),
+                   total=format_amount(pago["total"]),
+                   note=_texto(pago["note"]),
+                   info_html=_info_biblioteca(db, process.cohort_id),
+                   library_required=_exige_biblioteca(db, process))
+
+
+def _compose_library_cleared(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """El no adeudo quedó liberado: por pago en Caja (con lo que cobró), sin
+    cargo (total $0) o por constancia previa («lleva tu constancia física a
+    tu cita de cotejo»). D11 (`falta`): si ya puede agendar o qué le falta.
+
+    Re-validado al enviar (D8): si después se revirtió, «quedó liberado» ya
+    es falso y sale el correo de la reversión, así que obsoleto. Se ve de dos
+    formas: hay un `library_reverted` más nuevo del proceso (cualquier
+    convocatoria), o el gate ve que el no adeudo volvió a faltar (donde la
+    convocatoria lo exige; ahí también si aquel correo no llegó a encolarse).
+    """
+    from itcj2.apps.titulatec.services.clearance_gate import LIBRARY_BLOCKERS
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService, format_amount,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    fila = rows[-1]
+    if _hay_posterior(db, fila, "library_reverted"):
+        return Obsolete("el no adeudo se revirtió después")
+    bloqueos = _bloqueos(db, process)
+    if any(codigo in LIBRARY_BLOCKERS for codigo in bloqueos):
+        return Obsolete("el no adeudo ya no está liberado")
+
+    via = _datos(fila).get("via")
+    via = via if via in _VIAS_LIBERACION else None
+    pagado = None
+    if via == "payment":
+        # Lo que Caja cobró: el total congelado de la fila (leerlo no decide nada).
+        no_adeudo = LibraryClearanceService.get_for_process(db, process.id)
+        if no_adeudo is not None:
+            pagado = format_amount(no_adeudo.total_amount) or None
+    return _correo(user, _ASUNTO_LIBERADO, "library_cleared.html",
+                   _tablero(PhaseService.PHASE_COTEJO),
+                   via=via, pagado=pagado, falta=_que_falta(db, process, bloqueos))
+
+
+def _compose_library_reverted(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Se revirtió o deshizo la liberación: el motivo y qué sigue según a dónde
+    regresó —a Caja (`awaiting_payment`, con el monto VIGENTE por pagar) o a
+    Biblioteca (`pending`)—.
+
+    Re-validado al enviar (D8): obsoleto si después se volvió a liberar (hay
+    un `library_cleared` más nuevo del proceso: sale ese), o si regresó a Caja
+    y ya no tiene pago pendiente. Volver a pasar a Caja después NO lo vuelve
+    obsoleto: el motivo de la reversión sigue siendo la explicación, y el
+    aviso de Caja sale aparte."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService, format_amount,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    fila = rows[-1]
+    datos = _datos(fila)
+    if _hay_posterior(db, fila, "library_cleared"):
+        return Obsolete("el no adeudo se volvió a liberar")
+    hacia = "awaiting_payment" if datos.get("to_status") == "awaiting_payment" else "pending"
+    total = None
+    if hacia == "awaiting_payment":
+        pago = LibraryClearanceService.payment_due(db, process.id)
+        if pago is None:
+            return Obsolete("ya no tiene un pago pendiente en Caja")
+        total = format_amount(pago["total"]) or None
+    return _correo(user, _ASUNTO_REVERTIDO, "library_reverted.html",
+                   _tablero(PhaseService.PHASE_COTEJO),
+                   to_status=hacia, reason=_texto(datos.get("reason")), total=total)
+
+
+# ---------------------------------------------------------------------------
+# Recordatorios (#8, #10, #11 y el del pago pendiente en Caja, spec 2026-10-01
+# §4.11). Los encola el barrido diario (`mail_reminders.MailReminders.run`);
+# aquí se re-validan al ENVIAR (D8) y se arman con el estado de ese momento.
+# Ninguno aplica a un proceso que ya no está `active` (en pausa o concluido; el
+# revocado lo descarta antes el despachador).
 # ---------------------------------------------------------------------------
 ASUNTO_RECORDATORIO_ENCUESTA = "Llena tu encuesta de egresados"
 
@@ -407,6 +683,18 @@ def asunto_recordatorio_documentos(por_subir: bool) -> str:
     subir» si falta alguno; «por corregir» si solo quedan rechazados."""
     return ("Te faltan documentos por subir" if por_subir
             else "Te faltan documentos por corregir")
+
+
+def asunto_recordatorio_pago(total) -> str:
+    """Asunto (y título del aviso in-app) del recordatorio del pago pendiente
+    en Caja (spec 2026-10-01 §4.11, D14), con el total congelado (`Decimal`)
+    formateado: «Tienes pendiente tu pago de $1,100.00 en Caja». Sin total, la
+    frase sale sin la cifra en vez de con un hueco."""
+    from itcj2.apps.titulatec.services.library_clearance_service import format_amount
+
+    cifra = format_amount(total)
+    return (f"Tienes pendiente tu pago de {cifra} en Caja" if cifra
+            else "Tienes pendiente tu pago en Caja")
 
 
 def _proceso_inactivo(process) -> Obsolete | None:
@@ -491,7 +779,9 @@ def _compose_survey_reminder(db: Session, rows: list, process, user) -> Composed
     del 2026-09-15- exige además que Gestión Tecnológica y Vinculación la
     LIBERE antes de poder agendar; este recordatorio solo empuja el ENVÍO,
     nunca la liberación, así que su predicado no cambia con D1). Lleva a la
-    encuesta."""
+    encuesta. Donde la convocatoria exige el no adeudo de biblioteca (spec
+    2026-10-01 §4.11), avisa que podrá agendar en cuanto GTV la libere Y
+    tenga su no adeudo."""
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
@@ -502,7 +792,32 @@ def _compose_survey_reminder(db: Session, rows: list, process, user) -> Composed
         return Obsolete("ya no está en la fase de la cita de cotejo")
     if SurveyReviewService.get_for_process(db, process.id) is not None:
         return Obsolete("ya envió la encuesta de egresados")
-    return _correo(user, ASUNTO_RECORDATORIO_ENCUESTA, "survey_reminder.html", _ENCUESTA)
+    return _correo(user, ASUNTO_RECORDATORIO_ENCUESTA, "survey_reminder.html", _ENCUESTA,
+                   library_required=_exige_biblioteca(db, process))
+
+
+def _compose_library_reminder(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Recordatorio del pago pendiente en Caja (spec 2026-10-01 §4.11, D14).
+    Aplica mientras el proceso siga `active` y su no adeudo tenga un pago
+    pendiente (`LibraryClearanceService.payment_due`): deja de salir en cuanto
+    se libera. Se arma con el total VIGENTE y, donde la convocatoria exige el
+    no adeudo, dice que lo necesita para agendar. Lleva al tablero en la fase
+    de la cita de cotejo."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService, format_amount,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    inactivo = _proceso_inactivo(process)
+    if inactivo is not None:
+        return inactivo
+    pago = LibraryClearanceService.payment_due(db, process.id)
+    if pago is None:
+        return Obsolete("ya no tiene un pago pendiente en Caja")
+    asunto = asunto_recordatorio_pago(pago["total"])
+    return _correo(user, asunto, "library_reminder.html", _tablero(PhaseService.PHASE_COTEJO),
+                   titulo=asunto, total=format_amount(pago["total"]) or None,
+                   library_required=_exige_biblioteca(db, process))
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +829,8 @@ class MailComposer:
     # kind -> fn(db, rows, process, user) -> Composed | Obsolete, para una fila
     # SUELTA: los grupos se reconocen antes, por su `group_key`. `docs_review` y
     # `appt_changed` siempre llegan en su grupo; registrarlos cubre la fila que
-    # llegara sin él. Los tres recordatorios (Tarea 8) son siempre sueltos.
+    # llegara sin él. Los recordatorios (Tarea 8) y los cuatro del no adeudo de
+    # biblioteca (spec 2026-10-01 §4.11) son siempre sueltos.
     REGISTRY: dict[str, Callable[..., Composed | Obsolete]] = {
         "docs_review": _compose_docs_group,
         "phase_approved": _compose_phase_approved,
@@ -527,6 +843,10 @@ class MailComposer:
         "appt_reminder": _compose_appt_reminder,
         "docs_reminder": _compose_docs_reminder,
         "survey_reminder": _compose_survey_reminder,
+        "library_ready": _compose_library_ready,
+        "library_cleared": _compose_library_cleared,
+        "library_reverted": _compose_library_reverted,
+        "library_reminder": _compose_library_reminder,
     }
 
     @staticmethod

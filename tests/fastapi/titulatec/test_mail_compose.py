@@ -24,6 +24,13 @@ Lo que se fija aquí. El despachador (Tarea 7) consume EXACTAMENTE esto:
    documentos o hay por corregir (con los nombres del estado ACTUAL, no del
    payload); sigue en la fase 2 sin encuesta. Si no, `Obsolete`. Y ningún
    `kind` del catálogo se queda sin composición.
+8. No adeudo de biblioteca y ajustes de GTV (spec 2026-10-01-titulatec-
+   biblioteca-caja-design.md §4.11, D11-D14; Tarea 10 de ese plan): D11 «Ya
+   puedes agendar» / «Para agendar te falta: …» con el estado VIVO del
+   `ClearanceGate` en la encuesta liberada y en el no adeudo liberado; D12
+   (`mailto:` en observaciones y revocación); D13; la variante `prior`; los
+   cuatro correos nuevos, cada uno re-validado al enviar, con los montos
+   VIGENTES y la «Información para el alumno» sanitizada.
 
 Las filas se encolan con `StudentMail` (el contrato real de los payloads), no a
 mano: si la Tarea 4 cambia un payload, esto se entera.
@@ -34,8 +41,10 @@ import json
 import logging
 import re
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from urllib.parse import unquote
 
+import lxml.html
 import pytest
 
 import itcj2.models  # noqa: F401
@@ -43,6 +52,13 @@ import itcj2.models  # noqa: F401
 PREFIJO = "[TitulaTec ITCJ] "
 MALICIOSO = '<script>alert(1)</script> & "x"'
 LOGGER = "itcj2.apps.titulatec.services.mail_compose"
+
+# D12 (spec 2026-10-01-titulatec-biblioteca-caja-design.md §2), literal: la ÚNICA
+# liga de un correo que no es la del login (observaciones y revocación de GTV).
+MAILTO_GTV = "mailto:servicio_ext@cdjuarez.tecnm.mx"
+D12_TEXTO = "Para más información, contactar con servicio_ext@cdjuarez.tecnm.mx"
+# D11/D13: la frase que antes iba fija en la encuesta liberada.
+YA_PUEDES = "Ya puedes agendar tu cita de cotejo"
 
 _NOMBRES = {
     "birth_certificate": "Acta de nacimiento",
@@ -137,9 +153,63 @@ def _recordatorio(db, kind, proc, appt=None):
         assert StudentMail.appointment_reminder(db, proc, appt=appt) is True
     elif kind == "docs_reminder":
         assert StudentMail.docs_reminder(db, proc, anchor=ANCLA, index=0) is True
+    elif kind == "library_reminder":
+        assert StudentMail.library_reminder(db, proc, anchor=ANCLA, index=0) is True
     else:
         assert StudentMail.survey_reminder(db, proc, anchor=ANCLA, index=0) is True
     return [f for f in _pendientes(db, proc.id) if f.kind == kind][-1]
+
+
+def _texto(html):
+    """El texto que LEE el egresado: sin etiquetas y con los espacios juntos
+    (las plantillas parten las frases en varias líneas)."""
+    return " ".join(lxml.html.fromstring(html).text_content().split())
+
+
+@pytest.fixture()
+def con_biblioteca(db_session, seed_phase_defs, make_student, make_cohort, make_process,
+                   make_library_clearance, make_survey_review):
+    """Proceso de una convocatoria CON candado de biblioteca (requisito
+    automático `library_clearance` activo, con su «Información para el
+    alumno» si se da `info_html`) y su fila de no adeudo en `biblioteca`
+    (`cleared_via` = `via`). En caja o liberada lleva adeudo $300 + donación
+    $800 = $1,100, sobrescribibles por `**cols`. `encuesta` = estado de su
+    `SurveyReview` (`None` = no la ha enviado)."""
+    from itcj2.apps.titulatec.models import CotejoRequirement
+
+    seed_phase_defs()
+
+    def _make(fase=2, biblioteca="pending", via=None, encuesta=None, info_html=None,
+              **cols):
+        cohort = make_cohort(book_donation_amount=Decimal("800.00"))
+        db_session.add(CotejoRequirement(
+            cohort_id=cohort.id, label="No-adeudo de biblioteca", icon="book",
+            code="library_clearance", auto_source="library_clearance",
+            order_index=0, info_html=info_html))
+        db_session.flush()
+        proc = make_process(make_student(first_name="ALUMNO"), cohort=cohort,
+                            current_phase=fase, phases=False, library_clearance=None)
+        if biblioteca in ("awaiting_payment", "cleared"):
+            cols = {"debt_amount": Decimal("300.00"), "donation_amount": Decimal("800.00"),
+                    "total_amount": Decimal("1100.00"),
+                    "ready_at": datetime(2031, 3, 1, 9, 0), **cols}
+        if via is not None:
+            cols["cleared_via"] = via
+        make_library_clearance(proc, status=biblioteca, **cols)
+        if encuesta is not None:
+            make_survey_review(proc, status=encuesta)
+        return proc
+
+    return _make
+
+
+def _pasa_a_caja(db, proc, *, debt=Decimal("300.00"), donation=Decimal("800.00"),
+                 total=Decimal("1100.00"), note=None, updated=False):
+    """Lo que encola `LibraryClearanceService._mark_ready`."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    assert StudentMail.library_ready(db, proc, debt=debt, donation=donation, total=total,
+                                     note=note, updated=updated) is True
 
 
 def _pendientes(db, pid):
@@ -480,10 +550,12 @@ def test_fase_rechazada_con_motivo_y_que_hacer(db_session, proceso):
     ("rejected", "[TitulaTec ITCJ] GTV dejó observaciones en tu encuesta de egresados"),
     ("revoked", "[TitulaTec ITCJ] Se revocó la liberación de tu encuesta de egresados"),
 ])
-def test_dictamen_de_gtv(db_session, proceso, resultado, asunto):
+def test_dictamen_de_gtv(db_session, proceso, make_survey_review, resultado, asunto):
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
     proc = proceso(fase=2)
+    # El estado que deja cada dictamen (revocar la regresa a `rejected`).
+    make_survey_review(proc, status="approved" if resultado == "approved" else "rejected")
     motivo = None if resultado == "approved" else "Debe Servicio Social"
     StudentMail.survey_result(db_session, proc, result=resultado, reason=motivo)
 
@@ -494,9 +566,456 @@ def test_dictamen_de_gtv(db_session, proceso, resultado, asunto):
     assert c.link == _liga("/titulatec/student/dashboard?fase=2")
     assert c.context["result"] == resultado
     html = _html(c)
-    # Observaciones y revocación: el motivo y a dónde acudir.
+    # Observaciones y revocación: el motivo y, D12 (spec 2026-10-01 §2), a quién
+    # escribir; la ventanilla de GTV ya no se menciona.
     assert ("Debe Servicio Social" in html) is (motivo is not None)
-    assert ("ventanilla de GTV" in html) is (resultado != "approved")
+    assert "ventanilla de GTV" not in html
+    assert (D12_TEXTO in _texto(html)) is (resultado != "approved")
+    assert (f'href="{MAILTO_GTV}"' in html) is (resultado != "approved")
+    # D13: liberada ya no dice «Ya puedes agendar» fijo; lo decide D11 (aquí,
+    # sin nada pendiente, sí lo dice).
+    assert (YA_PUEDES in _texto(html)) is (resultado == "approved")
+
+
+@pytest.mark.parametrize("resultado", ["rejected", "revoked"])
+def test_d12_en_observaciones_y_revocacion(db_session, proceso, make_survey_review,
+                                          resultado):
+    """D12: «Acude a la ventanilla de GTV para resolverlo.» → «Para más
+    información, contactar con servicio_ext@cdjuarez.tecnm.mx», con la liga
+    `mailto:` en el correo."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = proceso(fase=2)
+    make_survey_review(proc, status="rejected")
+    StudentMail.survey_result(db_session, proc, result=resultado, reason="Debe Servicio Social")
+
+    html = _html(_componer(db_session, proc))
+
+    assert ('Para más información, contactar con <a href="mailto:servicio_ext@cdjuarez'
+            '.tecnm.mx"') in html
+    assert ">servicio_ext@cdjuarez.tecnm.mx</a>" in html
+    assert "Acude a la ventanilla" not in html
+
+
+# ---------------------------------------------------------------------------
+# D11 — «Ya puedes agendar» / «Para agendar te falta: …» con el estado VIVO
+# (`ClearanceGate`, al componer) en los correos de liberación
+# ---------------------------------------------------------------------------
+def test_cada_bloqueo_del_gate_tiene_su_frase():
+    """El conjunto cerrado de `ClearanceGate.BLOCKERS`, ni uno más ni uno menos:
+    un bloqueo nuevo sin frase rompería la composición."""
+    from itcj2.apps.titulatec.services.clearance_gate import BLOCKERS
+    from itcj2.apps.titulatec.services.mail_compose import _FALTA
+
+    assert set(_FALTA) == set(BLOCKERS)
+    assert all(texto and texto[:1].islower() for texto in _FALTA.values())
+
+
+@pytest.mark.parametrize("biblioteca, falta", [
+    ("cleared", None),
+    ("pending", "que el Centro de Información revise tu no adeudo de biblioteca"),
+    ("awaiting_payment",
+     "pagar $1,100.00 en Caja (Recursos Financieros) para liberar tu no adeudo de "
+     "biblioteca"),
+], ids=["biblioteca-liberada", "biblioteca-en-revision", "pago-pendiente"])
+def test_encuesta_liberada_segun_el_no_adeudo(db_session, con_biblioteca, biblioteca,
+                                             falta):
+    """D11/D13: GTV liberó la encuesta; si el no adeudo sigue pendiente, el correo
+    dice qué falta en vez de «Ya puedes agendar»."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca=biblioteca, encuesta="approved")
+    StudentMail.survey_result(db_session, proc, result="approved")
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    assert "liberó tu encuesta de egresados" in texto
+    if falta is None:
+        assert YA_PUEDES in texto
+        assert "Para agendar te falta" not in texto
+        assert c.context["falta"] == []
+    else:
+        assert YA_PUEDES not in texto
+        assert "Para agendar te falta:" in texto
+        assert c.context["falta"] == [falta]
+        assert falta in texto
+
+
+def test_convocatoria_sin_candado_no_pide_no_adeudo(db_session, proceso,
+                                                   make_survey_review):
+    """Invariante 8: sin el requisito automático, el no adeudo no bloquea."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = proceso(fase=2)
+    make_survey_review(proc, status="approved")
+    StudentMail.survey_result(db_session, proc, result="approved")
+
+    c = _componer(db_session, proc)
+
+    assert c.context["falta"] == []
+    assert YA_PUEDES in _texto(_html(c))
+
+
+def test_constancia_previa_de_encuesta_usa_su_texto(db_session, con_biblioteca):
+    """T6 dejó la variante `prior` en la plantilla; el compositor le pasa
+    `origin` del payload: sale el texto de la constancia previa, no el de
+    liberación normal, y con D11."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca="pending", encuesta="approved")
+    StudentMail.survey_result(db_session, proc, result="approved", origin="prior")
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    # GTV no dictaminó nada aquí: el asunto tampoco dice que la liberó.
+    assert c.subject == "[TitulaTec ITCJ] Tu encuesta de egresados quedó registrada como liberada"
+    assert c.context["origin"] == "prior"
+    assert "Tu encuesta de egresados del semestre anterior quedó registrada como liberada" in texto
+    assert "Lleva tu constancia física a tu cita de cotejo" in texto
+    assert "Gestión Tecnológica y Vinculación (GTV) liberó" not in texto
+    assert "Para agendar te falta:" in texto
+
+
+def test_encuesta_que_ya_no_esta_liberada_es_obsoleta(db_session, proceso,
+                                                     make_survey_review):
+    """D11 se arma con el estado VIVO: si GTV la revocó dentro de la espera, el
+    «liberó tu encuesta» ya es falso (y sale el correo de la revocación)."""
+    from itcj2.apps.titulatec.services.mail_compose import Obsolete
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = proceso(fase=2)
+    make_survey_review(proc, status="rejected")
+    StudentMail.survey_result(db_session, proc, result="approved")
+
+    assert _componer(db_session, proc) == Obsolete("la encuesta ya no está liberada")
+
+
+@pytest.mark.parametrize("fase, encuesta, esperado", [
+    (1, "approved", ["que Servicios Escolares apruebe tus documentos iniciales"]),
+    (1, None, ["que Servicios Escolares apruebe tus documentos iniciales",
+               "enviar tu encuesta de egresados"]),
+    (2, None, ["enviar tu encuesta de egresados"]),
+    (2, "in_review", ["que Gestión Tecnológica y Vinculación (GTV) libere tu encuesta "
+                      "de egresados (ya la enviaste; está en revisión)"]),
+    (2, "rejected", ["atender las observaciones de Gestión Tecnológica y Vinculación "
+                     "(GTV) a tu encuesta de egresados"]),
+    (2, "approved", []),
+    (3, "approved", None),
+], ids=["fase-1-encuesta-liberada", "fase-1-sin-encuesta", "sin-encuesta",
+        "encuesta-en-revision", "encuesta-con-observaciones", "todo-liberado",
+        "cotejo-ya-aprobado"])
+def test_no_adeudo_liberado_dice_que_falta(db_session, con_biblioteca, fase, encuesta,
+                                          esperado):
+    """D11 en `library_cleared`. El no adeudo se libera desde la fase 1 (D3):
+    ahí todavía faltan los documentos iniciales, aunque la encuesta ya venga
+    liberada (constancia previa, D9). Con la fase 2 aprobada ya no hay cita
+    por agendar: ninguna de las dos frases."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(fase=fase, biblioteca="cleared", via="no_charge",
+                          encuesta=encuesta)
+    StudentMail.library_cleared(db_session, proc, via="no_charge")
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    assert c.context["falta"] == esperado
+    assert (YA_PUEDES in texto) is (esperado == [])
+    assert ("Para agendar te falta:" in texto) is bool(esperado)
+    for frase in esperado or ():
+        assert frase in texto
+
+
+# ---------------------------------------------------------------------------
+# No adeudo de biblioteca (spec 2026-10-01 §4.11): los cuatro correos
+# ---------------------------------------------------------------------------
+def test_pasa_a_caja_con_desglose_nota_e_informacion(db_session, con_biblioteca):
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca="awaiting_payment", library_note="Debe 2 libros",
+                          info_html="<p>Caja abre de <strong>9:00 a 14:00</strong>.</p>")
+    _pasa_a_caja(db_session, proc)
+
+    c = _componer(db_session, proc)
+    html = _html(c, estricto=True)
+    texto = _texto(html)
+
+    assert c.subject == "[TitulaTec ITCJ] Ya puedes pasar a Caja por tu no adeudo de biblioteca"
+    assert c.template == "library_ready.html"
+    assert c.link == _liga("/titulatec/student/dashboard?fase=2")
+    assert (c.context["debt"], c.context["donation"], c.context["total"]) == (
+        "$300.00", "$800.00", "$1,100.00")
+    assert c.context["updated"] is False
+    for frase in ("Adeudo con la biblioteca", "$300.00", "Donación voluntaria de libro",
+                  "$800.00", "Total a pagar", "$1,100.00", "Debe 2 libros",
+                  "con tu número de control", "no necesitas cita",
+                  "Información para el alumno", "Caja abre de 9:00 a 14:00"):
+        assert frase in texto, frase
+    # El HTML de SE sale como HTML (ya sanitizado), no escapado.
+    assert "<strong>9:00 a 14:00</strong>" in html
+    # Con el candado de biblioteca, por qué conviene pagar pronto.
+    assert "para agendar tu cita de cotejo" in texto
+
+
+def test_pasa_a_caja_sin_adeudo_ni_nota_ni_informacion(db_session, con_biblioteca):
+    """«Sin adeudo» (adeudo 0) igual pasa a Caja por la donación; sin nota ni
+    información, esas secciones no se pintan (nunca un hueco ni «None»)."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca="awaiting_payment", debt_amount=Decimal("0.00"),
+                          total_amount=Decimal("800.00"))
+    _pasa_a_caja(db_session, proc, debt=Decimal("0.00"), total=Decimal("800.00"))
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    assert c.context["debt"] == "$0.00" and c.context["note"] is None
+    assert c.context["info_html"] is None
+    assert "Sin adeudo" in texto and "$800.00" in texto
+    assert "Nota de Biblioteca" not in texto and "Información para el alumno" not in texto
+
+
+def test_pasa_a_caja_pinta_los_montos_vigentes(db_session, con_biblioteca):
+    """D8: los montos se releen de la fila al ENVIAR, no del payload."""
+    from itcj2.apps.titulatec.models import LibraryClearance
+
+    proc = con_biblioteca(biblioteca="awaiting_payment")
+    _pasa_a_caja(db_session, proc)
+    fila = db_session.query(LibraryClearance).filter_by(process_id=proc.id).one()
+    fila.debt_amount, fila.total_amount = Decimal("500.00"), Decimal("1300.00")
+    db_session.flush()
+
+    c = _componer(db_session, proc)
+
+    assert (c.context["debt"], c.context["total"]) == ("$500.00", "$1,300.00")
+
+
+def test_la_informacion_de_se_sale_sanitizada(db_session, con_biblioteca):
+    """`info_html` se vuelve a sanitizar al pintar (un UPDATE a mano no inyecta)
+    y sus ligas http/https quedan; un `javascript:` o un `<script>`, no."""
+    proc = con_biblioteca(
+        biblioteca="awaiting_payment",
+        info_html=('<p onclick="x()">Ver <a href="https://example.invalid/caja">horario</a>'
+                   '<script>alert(1)</script><a href="javascript:alert(2)">mal</a></p>'))
+    _pasa_a_caja(db_session, proc)
+
+    html = _html(_componer(db_session, proc), sin_autoescape=True)
+
+    assert "<script" not in html and "alert(" not in html and "onclick" not in html
+    assert 'href="https://example.invalid/caja"' in html
+    assert "javascript:" not in html
+
+
+def test_correccion_del_monto(db_session, con_biblioteca):
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca="awaiting_payment")
+    _pasa_a_caja(db_session, proc)
+    _ya_salio(db_session, proc.id)
+    _pasa_a_caja(db_session, proc, updated=True)
+
+    c = _componer(db_session, proc)
+
+    assert c.subject == ("[TitulaTec ITCJ] Biblioteca corrigió el monto de tu no adeudo "
+                         "de biblioteca")
+    assert c.context["updated"] is True
+    assert "corrigió el monto" in _texto(_html(c))
+
+
+def test_dos_avisos_de_caja_seguidos_sale_solo_el_ultimo(db_session, con_biblioteca):
+    """Registrar y corregir dentro de la espera del despachador: los dos pintan
+    los montos VIGENTES, así que el viejo sobra. Y como el egresado nunca
+    recibió el primero, el que sale no habla de una «corrección»."""
+    from itcj2.apps.titulatec.services.mail_compose import Obsolete
+
+    proc = con_biblioteca(biblioteca="awaiting_payment")
+    _pasa_a_caja(db_session, proc)
+    _pasa_a_caja(db_session, proc, updated=True)
+    viejo, nuevo = _pendientes(db_session, proc.id)
+
+    assert _componer(db_session, proc, [viejo]) == Obsolete(
+        "hay un aviso más reciente del monto a pagar")
+    c = _componer(db_session, proc, [nuevo])
+    assert c.context["updated"] is False
+    assert c.subject.endswith("Ya puedes pasar a Caja por tu no adeudo de biblioteca")
+
+
+@pytest.mark.parametrize("biblioteca", ["pending", "cleared"])
+def test_pasa_a_caja_obsoleto_si_ya_no_debe(db_session, con_biblioteca, biblioteca):
+    """Pagó (o se liberó de otro modo, o se revirtió a Biblioteca) antes de que
+    saliera el aviso: ya no hay nada que pagar en Caja."""
+    from itcj2.apps.titulatec.models import LibraryClearance
+    from itcj2.apps.titulatec.services.mail_compose import Obsolete
+
+    proc = con_biblioteca(biblioteca="awaiting_payment")
+    _pasa_a_caja(db_session, proc)
+    fila = db_session.query(LibraryClearance).filter_by(process_id=proc.id).one()
+    fila.status = biblioteca
+    fila.cleared_via = "payment" if biblioteca == "cleared" else None
+    db_session.flush()
+
+    assert _componer(db_session, proc) == Obsolete("ya no tiene un pago pendiente en Caja")
+
+
+@pytest.mark.parametrize("via, frases", [
+    ("payment", ["Caja (Recursos Financieros) registró tu pago de $1,100.00",
+                 "no necesitas llevar nada"]),
+    ("no_charge", ["registró que no tienes nada que pagar",
+                   "no necesitas llevar nada"]),
+    ("prior", ["Tu constancia de no adeudo previa quedó registrada",
+               "Lleva tu constancia física a tu cita de cotejo"]),
+])
+def test_no_adeudo_liberado_por_cada_via(db_session, con_biblioteca, via, frases):
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca="cleared", via=via, encuesta="approved")
+    StudentMail.library_cleared(db_session, proc, via=via)
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    assert c.subject == "[TitulaTec ITCJ] Tu no adeudo de biblioteca quedó liberado"
+    assert c.template == "library_cleared.html"
+    assert c.link == _liga("/titulatec/student/dashboard?fase=2")
+    assert c.context["via"] == via
+    for frase in frases:
+        assert frase in texto, frase
+    assert YA_PUEDES in texto
+    assert ("constancia física" in texto) is (via == "prior")
+
+
+def test_no_adeudo_liberado_que_se_revirtio_es_obsoleto(db_session, con_biblioteca):
+    """Con el candado, el gate ve que el no adeudo volvió a faltar: «quedó
+    liberado» ya es falso (y sale el correo de la reversión)."""
+    from itcj2.apps.titulatec.models import LibraryClearance
+    from itcj2.apps.titulatec.services.mail_compose import Obsolete
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca="cleared", via="no_charge", encuesta="approved")
+    StudentMail.library_cleared(db_session, proc, via="no_charge")
+    fila = db_session.query(LibraryClearance).filter_by(process_id=proc.id).one()
+    fila.status, fila.cleared_via = "pending", None
+    db_session.flush()
+
+    assert _componer(db_session, proc) == Obsolete("el no adeudo ya no está liberado")
+
+
+def test_no_adeudo_liberado_con_una_reversion_posterior_es_obsoleto(
+        db_session, proceso, make_survey_review):
+    """Sin candado el gate no lo distingue (`not_required`): manda la fila de
+    la reversión encolada después."""
+    from itcj2.apps.titulatec.services.mail_compose import Obsolete
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = proceso(fase=2)
+    make_survey_review(proc, status="approved")
+    StudentMail.library_cleared(db_session, proc, via="no_charge")
+    StudentMail.library_reverted(db_session, proc, reason="Sí debía un libro",
+                                 to_status="pending")
+    liberado, revertido = _pendientes(db_session, proc.id)
+
+    assert _componer(db_session, proc, [liberado]) == Obsolete(
+        "el no adeudo se revirtió después")
+    assert _componer(db_session, proc, [revertido]).template == "library_reverted.html"
+
+
+@pytest.mark.parametrize("hacia, frases", [
+    ("awaiting_payment", ["Caja (Recursos Financieros) revirtió el registro de tu pago",
+                          "Tu pago de $1,100.00 vuelve a quedar pendiente",
+                          "con tu número de control"]),
+    ("pending", ["Se revirtió la liberación de tu no adeudo de biblioteca",
+                 "El Centro de Información volverá a revisar tu caso"]),
+])
+def test_reversion_con_motivo_y_que_sigue(db_session, con_biblioteca, hacia, frases):
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca=hacia)
+    StudentMail.library_reverted(db_session, proc, reason="Pago duplicado", to_status=hacia)
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    assert c.subject == "[TitulaTec ITCJ] Se revirtió tu no adeudo de biblioteca"
+    assert c.template == "library_reverted.html"
+    assert c.context["to_status"] == hacia
+    assert "Pago duplicado" in texto
+    for frase in frases:
+        assert frase in texto, frase
+
+
+def test_reversion_obsoleta_si_se_volvio_a_liberar(db_session, proceso):
+    from itcj2.apps.titulatec.services.mail_compose import Obsolete
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = proceso(fase=2)
+    StudentMail.library_reverted(db_session, proc, reason="Error", to_status="pending")
+    StudentMail.library_cleared(db_session, proc, via="prior")
+    revertido, _liberado = _pendientes(db_session, proc.id)
+
+    assert _componer(db_session, proc, [revertido]) == Obsolete(
+        "el no adeudo se volvió a liberar")
+
+
+def test_recordatorio_de_pago(db_session, con_biblioteca):
+    proc = con_biblioteca(biblioteca="awaiting_payment")
+    _recordatorio(db_session, "library_reminder", proc)
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    assert c.subject == "[TitulaTec ITCJ] Tienes pendiente tu pago de $1,100.00 en Caja"
+    assert c.template == "library_reminder.html"
+    assert c.link == _liga("/titulatec/student/dashboard?fase=2")
+    assert c.context["total"] == "$1,100.00"
+    for frase in ("Tienes pendiente tu pago de $1,100.00 en Caja",
+                  "con tu número de control", "no necesitas cita",
+                  "para agendar tu cita de cotejo"):
+        assert frase in texto, frase
+
+
+def test_recordatorio_de_pago_sin_candado_no_habla_de_agendar(db_session, proceso):
+    """Sin el requisito automático el no adeudo no bloquea el agendado: el
+    recordatorio no puede decir que lo necesita para agendar (pero lo que
+    Biblioteca mandó a Caja se sigue debiendo y sí se recuerda)."""
+    from itcj2.apps.titulatec.models import LibraryClearance
+
+    proc = proceso(fase=2)
+    fila = db_session.query(LibraryClearance).filter_by(process_id=proc.id).one()
+    fila.status, fila.cleared_via = "awaiting_payment", None
+    fila.debt_amount, fila.donation_amount = Decimal("300.00"), Decimal("800.00")
+    fila.total_amount = Decimal("1100.00")
+    db_session.flush()
+    _recordatorio(db_session, "library_reminder", proc)
+
+    texto = _texto(_html(_componer(db_session, proc), estricto=True))
+
+    assert "Tienes pendiente tu pago de $1,100.00 en Caja" in texto
+    assert "agendar" not in texto
+
+
+@pytest.mark.parametrize("caso, motivo", [
+    ("pagado", "ya no tiene un pago pendiente en Caja"),
+    ("proceso-en-pausa", "el proceso ya no está activo"),
+])
+def test_recordatorio_de_pago_obsoleto_al_enviar(db_session, con_biblioteca, caso, motivo):
+    """D8: deja de salir en cuanto se libera, o si el proceso ya no está activo."""
+    from itcj2.apps.titulatec.models import LibraryClearance
+    from itcj2.apps.titulatec.services.mail_compose import Composed, Obsolete
+
+    proc = con_biblioteca(biblioteca="awaiting_payment")
+    fila = _recordatorio(db_session, "library_reminder", proc)
+    assert isinstance(_componer(db_session, proc, [fila]), Composed), "antes, sí aplica"
+
+    if caso == "pagado":
+        no_adeudo = db_session.query(LibraryClearance).filter_by(process_id=proc.id).one()
+        no_adeudo.status, no_adeudo.cleared_via = "cleared", "payment"
+    else:
+        proc.status = "on_hold"
+    db_session.flush()
+
+    assert _componer(db_session, proc, [fila]) == Obsolete(motivo)
 
 
 # ---------------------------------------------------------------------------
@@ -1108,6 +1627,23 @@ def test_recordatorio_de_encuesta(db_session, proceso):
     assert c.template == "survey_reminder.html"
     assert c.link == _liga("/titulatec/encuesta-egresados")
     assert "sin ella no puedes agendar tu cita de cotejo" in _html(c)
+    # Sin candado de biblioteca no se le pide el no adeudo (invariante 8).
+    assert c.context["library_required"] is False
+    assert "no adeudo" not in _texto(_html(c))
+
+
+def test_recordatorio_de_encuesta_con_candado_pide_tambien_el_no_adeudo(
+        db_session, con_biblioteca):
+    """Spec 2026-10-01 §4.11: «en cuanto GTV la libere y tengas tu no adeudo,
+    podrás agendar» (donde la convocatoria lo exige)."""
+    proc = con_biblioteca(biblioteca="pending")
+    _recordatorio(db_session, "survey_reminder", proc)
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    assert c.context["library_required"] is True
+    assert "en cuanto GTV la libere y tengas tu no adeudo, podrás agendar" in texto
 
 
 _KIND_DE = {"cita": "appt_reminder", "documentos": "docs_reminder",
@@ -1173,10 +1709,13 @@ def test_recordatorio_obsoleto_al_enviar(db_session, proceso, seed_document_type
 # ---------------------------------------------------------------------------
 # Review Focus 2 — el texto libre sale escapado
 # ---------------------------------------------------------------------------
-def test_texto_libre_sale_escapado(db_session, proceso, cita_esc, make_appointment, reloj):
+def test_texto_libre_sale_escapado(db_session, proceso, cita_esc, make_appointment,
+                                  con_biblioteca, reloj):
     """Los motivos los escribe el personal y el nombre lo tecleó un formulario
     público: en un correo HTML eso es inyección. Sale escapado, nunca como
-    HTML. El lugar de la cita también lo teclea el personal (recordatorio #8)."""
+    HTML. El lugar de la cita también lo teclea el personal (recordatorio #8),
+    igual que la nota de Biblioteca y el motivo de una reversión del no
+    adeudo."""
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
@@ -1205,6 +1744,14 @@ def test_texto_libre_sale_escapado(db_session, proceso, cita_esc, make_appointme
     _recordatorio(db_session, "appt_reminder", p,
                   make_appointment(p, when=CITA_MANANA, location=MALICIOSO))
     correos["recordatorio de cita"] = _componer(db_session, p)
+
+    p = con_biblioteca(biblioteca="awaiting_payment", library_note=MALICIOSO)
+    _pasa_a_caja(db_session, p, note=MALICIOSO)
+    correos["pasa a Caja con nota"] = _componer(db_session, p)
+
+    p = con_biblioteca(biblioteca="pending")
+    StudentMail.library_reverted(db_session, p, reason=MALICIOSO, to_status="pending")
+    correos["reversión del no adeudo"] = _componer(db_session, p)
 
     for nombre, c in correos.items():
         # Con el entorno real y sin autoescape: el `|e` de la plantilla basta solo.
@@ -1244,7 +1791,7 @@ def test_toda_variable_de_las_plantillas_de_correo_lleva_e():
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def todos(db_session, proceso, make_appointment, make_document, seed_document_types,
-          reloj):
+          make_survey_review, con_biblioteca, reloj):
     """Un correo de CADA tipo y variante, con los huecos opcionales en `None`
     donde el contrato lo permite (sin motivo, sin nota, sin lugar, sin
     requisitos). Devuelve `({variante: Composed}, {kinds cubiertos})`."""
@@ -1299,8 +1846,48 @@ def todos(db_session, proceso, make_appointment, make_document, seed_document_ty
 
     for resultado in ("approved", "rejected", "revoked"):
         p = proceso(fase=2)
+        make_survey_review(p, status="approved" if resultado == "approved" else "rejected")
         StudentMail.survey_result(db, p, result=resultado, reason=None)
         _anota(f"GTV {resultado} sin motivo", p)
+
+    p = con_biblioteca(biblioteca="awaiting_payment", encuesta="approved")
+    StudentMail.survey_result(db, p, result="approved", origin="prior")
+    _anota("GTV constancia previa con pago pendiente", p)
+
+    # No adeudo de biblioteca (spec 2026-10-01 §4.11).
+    p = con_biblioteca(biblioteca="awaiting_payment")
+    _pasa_a_caja(db, p)
+    _anota("pasa a Caja sin nota ni información", p)
+
+    p = con_biblioteca(biblioteca="awaiting_payment", library_note="Debe 2 libros",
+                       info_html="<p>Caja abre de <strong>9:00 a 14:00</strong>.</p>")
+    _pasa_a_caja(db, p)
+    _ya_salio(db, p.id)
+    _pasa_a_caja(db, p, note="Debe 2 libros", updated=True)
+    _anota("corrección del monto con nota e información", p)
+
+    for nombre, via, encuesta, fase in (
+        ("liberado por pago con todo liberado", "payment", "approved", 2),
+        ("liberado sin cargo sin encuesta", "no_charge", None, 2),
+        ("liberado por constancia previa en fase 1", "prior", "in_review", 1),
+        ("liberado con el cotejo ya aprobado", "payment", "approved", 3),
+    ):
+        p = con_biblioteca(fase=fase, biblioteca="cleared", via=via, encuesta=encuesta)
+        StudentMail.library_cleared(db, p, via=via)
+        _anota(f"no adeudo {nombre}", p)
+
+    for hacia, motivo in (("awaiting_payment", "Pago duplicado"), ("pending", None)):
+        p = con_biblioteca(biblioteca=hacia)
+        StudentMail.library_reverted(db, p, reason=motivo, to_status=hacia)
+        _anota(f"reversión a {hacia}", p)
+
+    p = con_biblioteca(biblioteca="awaiting_payment")
+    _recordatorio(db, "library_reminder", p)
+    _anota("recordatorio de pago", p)
+
+    p = con_biblioteca(biblioteca="pending")
+    _recordatorio(db, "survey_reminder", p)
+    _anota("recordatorio de encuesta con candado de biblioteca", p)
 
     p = proceso(fase=2)
     appt = make_appointment(p, location=None)
@@ -1358,7 +1945,9 @@ def todos(db_session, proceso, make_appointment, make_document, seed_document_ty
 
 def test_todas_las_ligas_pasan_safe_next(todos):
     """C7: toda liga de todo correo es el login con un `next` que el propio
-    login acepta tal cual, y el correo no trae ninguna otra liga."""
+    login acepta tal cual, y el correo no trae ninguna otra liga. La única
+    excepción es el `mailto:` de D12 (spec 2026-10-01 §2) en las observaciones
+    y la revocación de GTV."""
     from itcj2.apps.titulatec.services.email_helper import PUBLIC_ORIGIN
     from itcj2.core.pages.auth import safe_next
 
@@ -1375,7 +1964,9 @@ def test_todas_las_ligas_pasan_safe_next(todos):
                 or ruta == "/titulatec/encuesta-egresados"), nombre
         html = _html(c)
         # El botón y la liga en texto plano: la MISMA liga, y ninguna otra.
-        assert set(re.findall(r'href="([^"]*)"', html)) == {c.link}, nombre
+        ligas = set(re.findall(r'href="([^"]*)"', html))
+        d12 = nombre in ("GTV rejected sin motivo", "GTV revoked sin motivo")
+        assert ligas == ({c.link, MAILTO_GTV} if d12 else {c.link}), nombre
         assert html.count(c.link) >= 2, nombre
 
 
@@ -1425,7 +2016,9 @@ def test_todo_kind_tiene_composicion():
     assert not sin_composicion, f"kinds sin composición: {sin_composicion}"
     assert set(MailComposer.REGISTRY) <= set(OUTBOX_KINDS), "REGISTRY con kinds que no existen"
     assert all(callable(fn) for fn in MailComposer.REGISTRY.values())
-    for kind in ("appt_reminder", "docs_reminder", "survey_reminder"):
+    for kind in ("appt_reminder", "docs_reminder", "survey_reminder",
+                 "library_ready", "library_cleared", "library_reverted",
+                 "library_reminder"):
         assert kind in MailComposer.REGISTRY, kind
 
 

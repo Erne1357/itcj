@@ -1,7 +1,8 @@
 """Contrato de `EmailOutbox` (Tarea 3 del plan
 `2026-09-28-titulatec-correos-notificaciones`): SOLO tabla, modelo y
 settings -- el servicio de encolado, el despachador y los recordatorios
-son tareas aparte.
+son tareas aparte. El catálogo de `kind` creció de 11 a 15 con el no adeudo
+de biblioteca (Tarea 10 del plan `2026-10-01-titulatec-biblioteca-caja`).
 
 Patrón de `IntegrityError` bajo `begin_nested()` como en
 `test_eligibility_check_model.py` / `test_review_window_model.py`.
@@ -22,7 +23,10 @@ class TestTablaYDominios:
     def test_dominio_de_status_es_el_del_spec(self):
         assert OUTBOX_STATUSES == ("pending", "sent", "failed", "no_recipient", "obsolete")
 
-    def test_dominio_de_kind_tiene_los_11_del_catalogo(self):
+    def test_dominio_de_kind_tiene_los_15_del_catalogo(self):
+        """Los 11 del catálogo de 2026-09-28 y, al final y en este orden, los 4
+        del no adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-
+        design.md §4.11)."""
         assert OUTBOX_KINDS == (
             "docs_review",
             "phase_approved",
@@ -35,7 +39,14 @@ class TestTablaYDominios:
             "appt_no_show",
             "docs_reminder",
             "survey_reminder",
+            "library_ready",
+            "library_cleared",
+            "library_reverted",
+            "library_reminder",
         )
+
+    def test_cada_kind_cabe_en_su_columna(self):
+        assert all(len(k) <= EmailOutbox.__table__.c.kind.type.length for k in OUTBOX_KINDS)
 
 
 @pytest.fixture()

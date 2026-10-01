@@ -1,4 +1,6 @@
-"""Ganchos del catálogo de correos en los services (spec 2026-09-28 §5, Tarea 5).
+"""Ganchos del catálogo de correos en los services (spec 2026-09-28 §5, Tarea 5;
+y el no adeudo de biblioteca, spec 2026-10-01-titulatec-biblioteca-caja-design.md
+§4.11, Tarea 10).
 
 Cada evento del catálogo deja su fila en `titulatec_email_outbox` DENTRO de la
 transacción del service que lo produce (`StudentMail.*`, sin commit propio).
@@ -18,6 +20,8 @@ Nada toca Graph: `_graph_espiado` corta el token y registra cualquier envío.
 from __future__ import annotations
 
 from datetime import time, timedelta
+from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
@@ -464,6 +468,239 @@ def test_deshacer_no_show_crea_in_app(db_session, cita_esc):
     (aviso,) = _avisos(db_session, p1.student_id, "APPOINTMENT_NO_SHOW_UNDONE")
     assert aviso.title == "Se corrigió tu asistencia a la cita"
     assert aviso.data["phase_number"] == 2
+
+
+# ---------------------------------------------------------------------------
+# No adeudo de biblioteca (spec 2026-10-01 §4.11): cada transición de
+# `LibraryClearanceService` encola su correo, en su misma transacción.
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def biblio(db_session, make_user, make_cohort, make_student, make_process,
+           make_library_clearance):
+    """Fábrica: proceso en la fase 2 con su no adeudo `pending`, en una
+    convocatoria con donación (`donation`, $800 por omisión) y el requisito
+    automático de no adeudo. Actores de Biblioteca y Caja que existen en
+    `core_users` (FK de los eventos)."""
+    from itcj2.apps.titulatec.models import CotejoRequirement
+
+    actores = SimpleNamespace(biblioteca=make_user(first_name="BIBLIOTECA"),
+                              caja=make_user(first_name="CAJA"))
+
+    def _make(donation=Decimal("800.00"), cohort=None):
+        if cohort is None:
+            cohort = make_cohort(book_donation_amount=donation)
+            db_session.add(CotejoRequirement(
+                cohort_id=cohort.id, label="No-adeudo de biblioteca", icon="book",
+                code="library_clearance", auto_source="library_clearance",
+                order_index=0))
+            db_session.flush()
+        proc = make_process(make_student(), cohort=cohort, current_phase=2,
+                            library_clearance=None)
+        fila = make_library_clearance(proc, status="pending")
+        return SimpleNamespace(proc=proc, fila=fila, cohort=cohort, **vars(actores))
+
+    return _make
+
+
+def _filas_biblioteca(db, process_id):
+    """(kind, payload, group_key, dedupe_key) de lo encolado, en orden."""
+    return [(f.kind, f.payload, f.group_key, f.dedupe_key)
+            for f in _outbox(db, process_id)]
+
+
+def _listo(debt, donation, total, note=None, updated=False):
+    return ("library_ready", {"debt": debt, "donation": donation, "total": total,
+                              "note": note, "updated": updated}, None, None)
+
+
+def test_pasar_a_caja_y_corregir_encolan_library_ready(db_session, biblio):
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+
+    esc = biblio()
+    LibraryClearanceService.register(db_session, esc.fila.id, esc.biblioteca.id,
+                                     debt_amount=Decimal("300.00"),
+                                     note="  Debe 2 libros  ")
+    LibraryClearanceService.register(db_session, esc.fila.id, esc.biblioteca.id,
+                                     debt_amount=Decimal("500.00"), note="Eran 3 libros")
+
+    assert _filas_biblioteca(db_session, esc.proc.id) == [
+        _listo("300.00", "800.00", "1100.00", "Debe 2 libros"),
+        _listo("500.00", "800.00", "1300.00", "Eran 3 libros", updated=True),
+    ]
+    assert {f.user_id for f in _outbox(db_session, esc.proc.id)} == {esc.proc.student_id}
+
+
+def test_correccion_sin_cambios_no_encola(db_session, biblio):
+    """Ruling R10 (b): una corrección idéntica (mismo adeudo, misma donación
+    congelada, misma nota) es no-op: ni correo, ni aviso, ni evento. Es la rama
+    SIN correo de `_mark_ready` (`RAMAS_SIN_CORREO`). El control positivo: con
+    otra nota, la MISMA corrección sí encola."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+
+    esc = biblio()
+    LibraryClearanceService.register(db_session, esc.fila.id, esc.biblioteca.id,
+                                     debt_amount=Decimal("300.00"), note="Debe 2 libros")
+    antes = _filas_biblioteca(db_session, esc.proc.id)
+    avisos = len(_avisos(db_session, esc.proc.student_id, "LIBRARY_READY"))
+
+    LibraryClearanceService.register(db_session, esc.fila.id, esc.biblioteca.id,
+                                     debt_amount=Decimal("300"), note="  Debe 2 libros ")
+
+    assert _filas_biblioteca(db_session, esc.proc.id) == antes
+    assert len(_avisos(db_session, esc.proc.student_id, "LIBRARY_READY")) == avisos
+
+    LibraryClearanceService.register(db_session, esc.fila.id, esc.biblioteca.id,
+                                     debt_amount=Decimal("300.00"), note="Debe 1 libro")
+    assert _filas_biblioteca(db_session, esc.proc.id)[-1] == _listo(
+        "300.00", "800.00", "1100.00", "Debe 1 libro", updated=True)
+
+
+def test_total_cero_encola_library_cleared_sin_cargo(db_session, biblio):
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+
+    esc = biblio(donation=Decimal("0.00"))
+    LibraryClearanceService.register(db_session, esc.fila.id, esc.biblioteca.id,
+                                     debt_amount=Decimal("0"), note=None)
+
+    assert _filas_biblioteca(db_session, esc.proc.id) == [
+        ("library_cleared", {"via": "no_charge"}, None, None)]
+
+
+def test_lote_sin_adeudo_encola_uno_por_caso(db_session, biblio):
+    """D10: el lote es UNA transacción, pero cada egresado recibe su correo."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+
+    a = biblio()
+    b = biblio(cohort=a.cohort)
+    LibraryClearanceService.register_no_debt_bulk(
+        db_session, [a.fila.id, b.fila.id], a.biblioteca.id)
+
+    for esc in (a, b):
+        assert _filas_biblioteca(db_session, esc.proc.id) == [
+            _listo("0.00", "800.00", "800.00")]
+
+
+def test_caja_cobra_encola_library_cleared_por_pago(db_session, biblio):
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+
+    esc = biblio()
+    LibraryClearanceService.register(db_session, esc.fila.id, esc.biblioteca.id,
+                                     debt_amount=Decimal("300.00"), note=None)
+    LibraryClearanceService.register_payment(db_session, esc.fila.id, esc.caja.id,
+                                             receipt_number="R-1")
+
+    assert [k for k, *_ in _filas_biblioteca(db_session, esc.proc.id)] == [
+        "library_ready", "library_cleared"]
+    assert _filas_biblioteca(db_session, esc.proc.id)[-1] == (
+        "library_cleared", {"via": "payment"}, None, None)
+
+
+def test_constancia_previa_encola_library_cleared_previa(db_session, biblio):
+    """D9: Biblioteca, SE o la importación (`commit=False`): las tres encolan."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+    from itcj2.core.utils.timezone import db_now
+
+    hoy = db_now().date()
+    for by, commit in (("library", True), ("school_services", True), ("import", False)):
+        esc = biblio()
+        actor = None if by == "import" else esc.biblioteca.id
+        LibraryClearanceService.register_prior(db_session, esc.fila.id, actor,
+                                               issued_on=hoy, note=None, by=by,
+                                               commit=commit)
+
+        assert _filas_biblioteca(db_session, esc.proc.id) == [
+            ("library_cleared", {"via": "prior"}, None, None)], by
+
+
+def test_revertir_pago_encola_library_reverted_a_caja(db_session, biblio):
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+
+    esc = biblio()
+    LibraryClearanceService.register(db_session, esc.fila.id, esc.biblioteca.id,
+                                     debt_amount=Decimal("300.00"), note=None)
+    LibraryClearanceService.register_payment(db_session, esc.fila.id, esc.caja.id)
+    LibraryClearanceService.revert_payment(db_session, esc.fila.id, esc.caja.id,
+                                           "  Se cobró a otra persona  ")
+
+    assert _filas_biblioteca(db_session, esc.proc.id)[-1] == (
+        "library_reverted", {"reason": "Se cobró a otra persona",
+                             "to_status": "awaiting_payment"}, None, None)
+
+
+def test_revertir_sin_cargo_y_deshacer_previa_encolan_library_reverted(db_session, biblio):
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+    from itcj2.core.utils.timezone import db_now
+
+    sin_cargo = biblio(donation=Decimal("0.00"))
+    LibraryClearanceService.register(db_session, sin_cargo.fila.id,
+                                     sin_cargo.biblioteca.id,
+                                     debt_amount=Decimal("0"), note=None)
+    LibraryClearanceService.revert_clearance(db_session, sin_cargo.fila.id,
+                                             sin_cargo.biblioteca.id, "Sí debía un libro")
+
+    previa = biblio()
+    LibraryClearanceService.register_prior(db_session, previa.fila.id,
+                                           previa.biblioteca.id,
+                                           issued_on=db_now().date(), note=None,
+                                           by="library")
+    LibraryClearanceService.undo_prior(db_session, previa.fila.id, previa.biblioteca.id,
+                                       "No era de este año")
+
+    assert _filas_biblioteca(db_session, sin_cargo.proc.id)[-1] == (
+        "library_reverted", {"reason": "Sí debía un libro", "to_status": "pending"},
+        None, None)
+    assert _filas_biblioteca(db_session, previa.proc.id)[-1] == (
+        "library_reverted", {"reason": "No era de este año", "to_status": "pending"},
+        None, None)
+
+
+def test_si_el_commit_del_cobro_falla_no_queda_correo(db_session, biblio, monkeypatch):
+    """Review Focus 4 en Caja: el correo vive en la transacción del cobro. Si el
+    COMMIT falla, se va con él (y el cobro también)."""
+    from itcj2.apps.titulatec.models import EmailOutbox, LibraryClearance
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+
+    esc = biblio()
+    LibraryClearanceService.register(db_session, esc.fila.id, esc.biblioteca.id,
+                                     debt_amount=Decimal("300.00"), note=None)
+    pid, cid, caja = esc.proc.id, esc.fila.id, esc.caja.id
+    db_session.commit()
+
+    def _commit_que_falla():
+        db_session.flush()
+        raise RuntimeError("se cayó el COMMIT")
+
+    monkeypatch.setattr(db_session, "commit", _commit_que_falla)
+    with pytest.raises(RuntimeError):
+        LibraryClearanceService.register_payment(db_session, cid, caja)
+
+    # La fila SÍ se escribió, en la MISMA transacción que el cobro.
+    assert db_session.query(EmailOutbox).filter_by(
+        process_id=pid, kind="library_cleared").count() == 1
+
+    db_session.rollback()
+
+    assert db_session.query(EmailOutbox).filter_by(
+        process_id=pid, kind="library_cleared").count() == 0
+    assert db_session.get(LibraryClearance, cid).status == "awaiting_payment"
 
 
 # ---------------------------------------------------------------------------

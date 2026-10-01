@@ -11,9 +11,10 @@ periodica `titulatec.email_dispatch` (cada 5 minutos, `FOR UPDATE SKIP
 LOCKED`) es la unica que envia y la unica que muta `status` fuera de la
 insercion inicial.
 
-`dedupe_key` (nullable, UNIQUE): solo los tres recordatorios
-(`appt_reminder`, `docs_reminder`, `survey_reminder`) la usan, con una
-llave estable por candidato (`{kind}:{id}` o `{kind}:{pid}:{ancla}:{n}`).
+`dedupe_key` (nullable, UNIQUE): solo los cuatro recordatorios
+(`appt_reminder`, `docs_reminder`, `survey_reminder`, `library_reminder`)
+la usan, con una llave estable por candidato (`{kind}:{id}` o
+`{kind}:{pid}:{ancla}:{n}`).
 El barrido inserta con `ON CONFLICT (dedupe_key) DO NOTHING`: correr la
 tarea diaria dos veces no duplica filas. El resto de los `kind` la dejan
 NULL -- Postgres permite multiples NULL bajo un UNIQUE normal, asi que
@@ -57,10 +58,14 @@ from itcj2.models.base import Base
 # de la espera).
 OUTBOX_STATUSES = ("pending", "sent", "failed", "no_recipient", "obsolete")
 
-# Catalogo cerrado de correos (spec §5), 11 kinds. `phase_approved` cubre
+# Catalogo cerrado de correos (spec §5), 15 kinds. `phase_approved` cubre
 # DOS filas del catalogo (fase `initial_docs`, agrupada con `docs_review`;
 # y el resto de las fases, individual) -- lo que cambia entre ambas es
-# `group_key`, no el `kind`.
+# `group_key`, no el `kind`. Los 4 ultimos son del no adeudo de biblioteca
+# (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.11): pasa a Caja
+# (o se corrige el monto), quedo liberado, se revirtio y el recordatorio del
+# pago pendiente; todos individuales. Sin CHECK en la BD: crecer el catalogo
+# no lleva migracion (lo fija `test_email_outbox_model.py`).
 OUTBOX_KINDS = (
     "docs_review",
     "phase_approved",
@@ -73,6 +78,10 @@ OUTBOX_KINDS = (
     "appt_no_show",
     "docs_reminder",
     "survey_reminder",
+    "library_ready",
+    "library_cleared",
+    "library_reverted",
+    "library_reminder",
 )
 
 

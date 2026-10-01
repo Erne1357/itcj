@@ -1,0 +1,36 @@
+{# Se revirtió o deshizo la liberación del no adeudo de biblioteca (spec
+   2026-10-01-titulatec-biblioteca-caja-design.md §4.11): el motivo y qué
+   sigue según a dónde regresó. `to_status` = awaiting_payment: Caja revirtió
+   el pago y el monto VIGENTE (`total`, ya formateado) vuelve a estar por
+   pagar; pending: el Centro de Información lo vuelve a revisar. Sin motivo
+   capturado, el recuadro no se pinta. Se re-valida al enviar (D8): si ya se
+   volvió a liberar, no sale.
+   Contexto: first_name, link, to_status, reason, total. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}Se revirtió tu no adeudo de biblioteca — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  {% if to_status == "awaiting_payment" -%}
+  Caja (Recursos Financieros) <strong>revirtió el registro de tu pago</strong> del no adeudo
+  de biblioteca.
+  {%- else -%}
+  <strong>Se revirtió la liberación de tu no adeudo de biblioteca</strong>.
+  {%- endif %}
+</p>
+{% if reason %}{{ m.motivo(reason) }}{% endif %}
+{% if to_status == "awaiting_payment" %}
+<p style="margin:0 0 24px;">
+  Tu pago{% if total %} de <strong>{{ total|e }}</strong>{% endif %} vuelve a quedar pendiente:
+  acude a Caja (Recursos Financieros) con tu número de control; no necesitas cita.
+  Si tienes dudas, pregunta en Caja.
+</p>
+{% else %}
+<p style="margin:0 0 24px;">
+  El Centro de Información volverá a revisar tu caso y te avisaremos en cuanto registre tu
+  no adeudo. Si tienes dudas, acude al Centro de Información.
+</p>
+{% endif %}
+{{ m.boton(link, "Ver mi proceso") }}
+{% endblock %}

@@ -709,7 +709,7 @@ class TestCorregir:
         assert fila.total_amount == Decimal("1300.00")
         assert fila.library_note == "Eran 3 libros"
         assert fila.library_by_id == actores.biblioteca2.id
-        assert fila.ready_at == primera_vez           # la PRIMERA vez que pasó a caja
+        assert fila.ready_at == primera_vez           # corregir no es entrar a caja (R10)
         assert commits == [1]
 
         evs = _events(db_session, esc.process.id, "library_amount_corrected")
@@ -769,6 +769,139 @@ class TestCorregir:
 
         assert "no tiene capturada la donación" in str(exc.value)
         assert esc.clearance.total_amount == Decimal("1100.00")
+
+
+# ---------------------------------------------------------------------------
+# Ruling R10 (revisión de la Tarea 4): `ready_at` es la entrada VIGENTE a Caja
+# y una corrección que no cambia nada es no-op
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def correo_encendido(monkeypatch):
+    """El correo encendido sin depender del `.env` del contenedor (atributo del
+    singleton de `get_settings()`, como el resto de la suite)."""
+    from itcj2.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "TITULATEC_EMAIL_ENABLED", True)
+
+
+def _outbox(db, process_id, kind):
+    from itcj2.apps.titulatec.models import EmailOutbox
+
+    db.flush()
+    return db.query(EmailOutbox).filter_by(process_id=process_id, kind=kind).count()
+
+
+class TestRulingR10:
+    def test_pasar_a_caja_vuelve_a_fijar_ready_at(self, db_session, nuevo, actores, reloj):
+        """(a) `pending → awaiting_payment` fija `ready_at` aunque la fila traiga
+        la entrada de una vuelta anterior (revertida a Biblioteca): el ancla
+        del recordatorio y el FIFO de Caja miden la entrada vigente."""
+        esc = nuevo(ready_at=datetime(2026, 1, 5, 9, 0))
+
+        fila = _a_caja(db_session, esc, actores.biblioteca)
+
+        assert fila.ready_at == HOY_FIJO
+
+    def test_revertir_el_pago_vuelve_a_fijar_ready_at(self, db_session, nuevo, actores,
+                                                      monkeypatch):
+        """(a) `cleared/payment → awaiting_payment` también es entrar a Caja."""
+        esc = nuevo()
+        monkeypatch.setattr(f"{SVC}.db_now", lambda: datetime(2026, 3, 2, 9, 0))
+        _a_caja(db_session, esc, actores.biblioteca)
+        _pagar(db_session, esc, actores.caja)
+        assert esc.clearance.ready_at == datetime(2026, 3, 2, 9, 0)
+
+        monkeypatch.setattr(f"{SVC}.db_now", lambda: datetime(2026, 9, 14, 11, 30))
+        with patch(NOTIFY):
+            fila = LibraryClearanceService.revert_payment(
+                db_session, esc.clearance.id, actores.caja.id, "Pago duplicado")
+
+        assert fila.status == "awaiting_payment"
+        assert fila.ready_at == datetime(2026, 9, 14, 11, 30)
+
+    def test_correccion_sin_cambios_es_no_op(self, db_session, nuevo, actores, commits,
+                                             correo_encendido, monkeypatch):
+        """(b) Mismo adeudo, misma donación congelada, misma nota: ni evento, ni
+        aviso, ni correo, ni firma nueva de Biblioteca."""
+        esc = nuevo()
+        monkeypatch.setattr(f"{SVC}.db_now", lambda: datetime(2026, 9, 1, 9, 0))
+        _a_caja(db_session, esc, actores.biblioteca, note="Debe 2 libros")
+        firma = (esc.clearance.library_by_id, esc.clearance.library_at,
+                 esc.clearance.updated_at, esc.clearance.ready_at)
+        eventos = len(_library_events(db_session, esc.process.id))
+        correos = _outbox(db_session, esc.process.id, "library_ready")
+        commits.clear()
+
+        monkeypatch.setattr(f"{SVC}.db_now", lambda: datetime(2026, 9, 2, 9, 0))
+        with patch(NOTIFY) as aviso:
+            fila = LibraryClearanceService.register(
+                db_session, esc.clearance.id, actores.biblioteca2.id,
+                debt_amount=Decimal("300"), note="  Debe 2 libros  ",
+                expected_status="awaiting_payment")
+
+        assert correos == 1
+        aviso.assert_not_called()
+        assert len(_library_events(db_session, esc.process.id)) == eventos
+        assert _outbox(db_session, esc.process.id, "library_ready") == correos
+        assert (fila.library_by_id, fila.library_at, fila.updated_at,
+                fila.ready_at) == firma
+        assert fila.status == "awaiting_payment"
+
+    @pytest.mark.parametrize("cambio", ["adeudo", "nota", "donacion"])
+    def test_cualquier_cambio_si_es_correccion(self, db_session, nuevo, actores, cambio):
+        """El control positivo de (b): basta UNO de los tres para corregir. La
+        donación cuenta aunque la escriba SE: corregir re-congela la vigente."""
+        esc = nuevo()
+        _a_caja(db_session, esc, actores.biblioteca, note="Debe 2 libros")
+        if cambio == "donacion":
+            esc.cohort.book_donation_amount = Decimal("950.00")
+            db_session.flush()
+
+        _a_caja(db_session, esc, actores.biblioteca,
+                debt=Decimal("500.00") if cambio == "adeudo" else ADEUDO,
+                note="Eran 3 libros" if cambio == "nota" else "Debe 2 libros")
+
+        assert len(_events(db_session, esc.process.id, "library_amount_corrected")) == 1
+
+
+# ---------------------------------------------------------------------------
+# Lecturas para los correos del pago (spec §4.11): la comparación de `status`
+# se queda en el dueño
+# ---------------------------------------------------------------------------
+class TestPagoPendiente:
+    def test_en_caja_trae_los_montos_congelados(self, db_session, nuevo, actores):
+        esc = nuevo()
+        _a_caja(db_session, esc, actores.biblioteca, note="Debe 2 libros")
+
+        assert LibraryClearanceService.payment_due(db_session, esc.process.id) == {
+            "debt": ADEUDO, "donation": DONACION, "total": ADEUDO + DONACION,
+            "note": "Debe 2 libros", "ready_at": esc.clearance.ready_at}
+
+    def test_fuera_de_caja_o_sin_fila_es_none_y_la_clausula_dice_lo_mismo(
+            self, db_session, nuevo):
+        from itcj2.apps.titulatec.models import LibraryClearance
+
+        en_caja = nuevo(status="awaiting_payment", debt_amount=ADEUDO,
+                        donation_amount=DONACION, total_amount=ADEUDO + DONACION)
+        otros = [nuevo(status="pending"), nuevo(status="cleared")]
+        sin_fila = nuevo(status=None)
+
+        assert LibraryClearanceService.payment_due(db_session, en_caja.process.id)
+        for esc in (*otros, sin_fila):
+            assert LibraryClearanceService.payment_due(db_session, esc.process.id) is None
+
+        ids = [esc.clearance.id for esc in (en_caja, *otros)]
+        en_sql = {cid for (cid,) in (db_session.query(LibraryClearance.id)
+                                     .filter(LibraryClearance.id.in_(ids),
+                                             LibraryClearanceService.awaiting_payment_clause()))}
+        assert en_sql == {en_caja.clearance.id}
+
+    def test_no_commitea(self, db_session, nuevo, monkeypatch):
+        esc = nuevo(status="awaiting_payment", debt_amount=Decimal("0.00"),
+                    donation_amount=DONACION, total_amount=DONACION)
+        monkeypatch.setattr(db_session, "commit",
+                            lambda: pytest.fail("payment_due no debe commitear"))
+        LibraryClearanceService.payment_due(db_session, esc.process.id)
 
 
 # ---------------------------------------------------------------------------

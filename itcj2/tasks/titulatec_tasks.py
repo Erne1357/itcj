@@ -49,11 +49,12 @@ periódicas las mandan por NOMBRE, no por ruta de módulo):
         Periódica, diaria a las 9:00 (spec 2026-09-28 §6 C4/C5; su alta en
         `core_periodic_tasks` es un DML aparte). Encola los recordatorios que
         tocan hoy —la cita de cotejo del día siguiente, los documentos que
-        faltan o hay que corregir, la encuesta de egresados— con su aviso
-        in-app (`MailReminders.run`); los manda `email_dispatch`. Idempotente:
+        faltan o hay que corregir, la encuesta de egresados y el pago
+        pendiente del no adeudo en Caja— con su aviso in-app
+        (`MailReminders.run`); los manda `email_dispatch`. Idempotente:
         correrla dos veces no duplica correos ni avisos. Devuelve
-        `{"appt", "docs", "survey"}` (recordatorios nuevos de cada tipo) o
-        `{"disabled": True}` con el correo apagado.
+        `{"appt", "docs", "survey", "library"}` (recordatorios nuevos de cada
+        tipo) o `{"disabled": True}` con el correo apagado.
 
 La lógica vive en los services (`EligibilityService`, `MailDispatcher`,
 `MailReminders`); aquí solo sesión, reintento y resultado. `SessionLocal` se
@@ -220,8 +221,9 @@ def email_dispatch(self, task_run_id: int | None = None) -> dict:
 )
 def email_reminders(self, task_run_id: int | None = None) -> dict:
     """Barrido diario de recordatorios (`MailReminders.run`, con su reloj
-    `db_now()`). Devuelve `{"appt", "docs", "survey"}` —recordatorios nuevos
-    de cada tipo— o `{"disabled": True}` con el correo apagado."""
+    `db_now()`). Devuelve `{"appt", "docs", "survey", "library"}`
+    —recordatorios nuevos de cada tipo— o `{"disabled": True}` con el correo
+    apagado."""
     from itcj2.apps.titulatec.services.mail_reminders import MailReminders
     from itcj2.database import SessionLocal
 

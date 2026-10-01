@@ -1,5 +1,6 @@
-"""Barrido de escritores (spec 2026-09-28 §5): ningún escritor de dictamen o de
-cita se queda sin encolar su correo por olvido.
+"""Barrido de escritores (spec 2026-09-28 §5): ningún escritor de dictamen, de
+cita o del no adeudo de biblioteca (spec 2026-10-01 §4.11) se queda sin encolar
+su correo por olvido.
 
 Recorre por AST cada función de `itcj2/apps/titulatec/services/**/*.py` y de
 `pages/*.py` (métodos de clase y funciones de módulo; lo anidado cuenta como
@@ -62,6 +63,19 @@ EVENTO_A_CORREO = {
     "appointment_rescheduled": "appointment_changed",
     "appointment_cancelled": "appointment_changed",
     "appointment_no_show": "appointment_no_show",
+    # No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+    # §4.11, Tarea 10): los 8 eventos de `LibraryClearanceService`, uno por
+    # camino. Pasar a Caja o corregir el monto -> `library_ready`; quedar
+    # liberado (sin cargo, pago o constancia previa) -> `library_cleared`;
+    # revertir o deshacer -> `library_reverted`.
+    "library_debt_registered": "library_ready",
+    "library_amount_corrected": "library_ready",
+    "library_no_charge": "library_cleared",
+    "library_payment_registered": "library_cleared",
+    "library_prior_registered": "library_cleared",
+    "library_payment_reverted": "library_reverted",
+    "library_clearance_reverted": "library_reverted",
+    "library_prior_undone": "library_reverted",
 }
 
 # Escritores que SÍ encolan: función -> la de `StudentMail` que deben llamar.
@@ -77,6 +91,15 @@ MAPEO = {
     "AppointmentService.reschedule": "appointment_changed",
     "AppointmentService.cancel": "appointment_changed",
     "AppointmentService.mark_no_show": "appointment_no_show",
+    # `register`/`register_no_debt_bulk` no escriben eventos: delegan en
+    # `_mark_ready` (pasa a Caja / corrige) y `_clear_no_charge` (total 0).
+    "LibraryClearanceService._mark_ready": "library_ready",
+    "LibraryClearanceService._clear_no_charge": "library_cleared",
+    "LibraryClearanceService.register_payment": "library_cleared",
+    "LibraryClearanceService.register_prior": "library_cleared",
+    "LibraryClearanceService.revert_payment": "library_reverted",
+    "LibraryClearanceService.revert_clearance": "library_reverted",
+    "LibraryClearanceService.undo_prior": "library_reverted",
 }
 
 # Escritores que NO encolan, cada uno con su motivo.
@@ -123,6 +146,9 @@ RAMAS_SIN_CORREO = {
     # «Atender ahora» (D7, `start_now=True`): el egresado está enfrente; la
     # cita nace `in_progress` sin correo ni aviso de «agendada».
     "AppointmentService.create": ("test_atender_ahora_no_encola",),
+    # Ruling R10 (b): corregir sin cambiar nada (mismo adeudo, misma donación
+    # congelada, misma nota) es no-op: ni evento, ni aviso, ni correo.
+    "LibraryClearanceService._mark_ready": ("test_correccion_sin_cambios_no_encola",),
 }
 
 _ESTADOS_VIGILADOS = frozenset({"approved", "rejected", "cancelled", "no_show",
@@ -323,6 +349,19 @@ def test_la_lista_blanca_no_encola_nada():
     encolan = {n: sorted(escritores[n]["correos"]) for n in LISTA_BLANCA
                if escritores[n]["correos"]}
     assert not encolan, f"Estas ya encolan; muévelas a MAPEO: {encolan}"
+
+
+def test_cada_evento_del_no_adeudo_tiene_su_correo():
+    """Los 8 de `LIBRARY_EVENT_TYPES` están en el catálogo: un evento nuevo del
+    no adeudo sin correo registrado no pasaría inadvertido (el detector solo
+    vigila los eventos que ya están en `EVENTO_A_CORREO`)."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LIBRARY_EVENT_TYPES,
+    )
+
+    assert set(LIBRARY_EVENT_TYPES) <= set(EVENTO_A_CORREO)
+    assert {EVENTO_A_CORREO[e] for e in LIBRARY_EVENT_TYPES} == {
+        "library_ready", "library_cleared", "library_reverted"}
 
 
 def test_ningun_event_type_opaco():

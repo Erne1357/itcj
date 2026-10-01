@@ -43,6 +43,41 @@
 </table>
 {%- endmacro %}
 
+{# Texto libre del personal que NO es un error (la nota de Biblioteca al pasar
+   a Caja): recuadro gris con su título. Mismo `white-space:pre-line` y misma
+   razón que `motivo`. #}
+{% macro nota(texto, titulo) -%}
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="border-left:4px solid #607D8B;background-color:#ECEFF1;border-radius:4px;margin-bottom:24px;">
+  <tr><td style="padding:14px 16px 4px;color:#455A64;font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;">{{ titulo|e }}</td></tr>
+  <tr><td style="padding:0 16px 14px;color:#37474F;font-size:14px;white-space:pre-line;">{{ texto|e }}</td></tr>
+</table>
+{%- endmacro %}
+
+{# D11 (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.11), en los dos
+   correos de LIBERACIÓN (encuesta liberada, no adeudo liberado): «Ya puedes
+   agendar tu cita de cotejo» o «Para agendar te falta: …». `falta` lo arma
+   `mail_compose._que_falta` con el estado VIVO del `ClearanceGate`: `None` =
+   ninguna de las dos (proceso en pausa, o la fase 2 ya aprobada); lista vacía
+   = ya puede; si no, una frase por pendiente, en orden. #}
+{% macro agenda(falta) -%}
+{%- if falta is not none %}
+{%- if falta %}
+<p style="margin:0 0 8px;color:#1F3D7A;font-weight:700;">Para agendar te falta:</p>
+<ul style="margin:0 0 24px;padding-left:20px;">
+  {%- for texto in falta %}
+  <li style="margin:0 0 6px;">{{ texto|e }}</li>
+  {%- endfor %}
+</ul>
+{%- else %}
+<p style="margin:0 0 24px;">
+  <strong>Ya puedes agendar tu cita de cotejo</strong>: según tu convocatoria, la agendas tú
+  desde la plataforma o Servicios Escolares te asigna la fecha.
+</p>
+{%- endif %}
+{%- endif %}
+{%- endmacro %}
+
 {# Fecha, hora y lugar de una cita de cotejo. Sin lugar, esa fila no se pinta
    (nunca «None»). `sin_horario` (D11): la reserva sin horario rotula
    «Horario» en vez de «Hora» — la decide `AppointmentService.when`
