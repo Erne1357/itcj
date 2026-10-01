@@ -47,7 +47,7 @@ LibraryClearanceService` (§5 invariante 1) — nadie más muta esa fila ni ese 
    (nº de recibo opcional, confirmación «Registrar pago de $X de NOMBRE») y **«Revertir pago…»**
    (motivo) si `can_revert`. Sin citas en Caja (D4).
 3. 🏛️ **Servicios Escolares**: panel **Resumen** de la convocatoria → «Donación voluntaria de
-   libro ($)» (obligatoria desde el alta) → **`POST /cohorts/{id}/donacion`**
+   libro ($)» (obligatoria desde el alta) → **`POST /titulatec/admin/cohorts/{cohort_id}/donacion`**
    (`titulatec.cohort.api.update`). Cola de citas → cubo **«Liberaciones pendientes»** (antes
    «Encuesta sin liberar», ⤵ [cita de cotejo](phase2_appointment_loop.md)). Panel de atender y
    expediente (fase 2) → fila `library_clearance` de solo lectura con píldora y detalle, más
@@ -213,7 +213,7 @@ sequenceDiagram
 | 8 | 💰 | fila Liberados, «Revertir pago…» | revertir un cobro (motivo) | `POST /admin/caja/{clearance_id}/revertir` | `revert_payment` | `cleared/payment → awaiting_payment`, `ready_at` NUEVO (R10) | `library_payment_reverted` | `library_reverted` |
 | 9 | 📚 | fila Liberados, «Revertir…» | revertir sin cargo/legado (motivo) | `POST /admin/biblioteca/{clearance_id}/revertir` | `revert_clearance` | `cleared/no_charge\|legacy → pending` | `library_clearance_reverted` | `library_reverted` |
 | 10| 📚/🏛️ | fila Liberados, «Deshacer…» | deshacer constancia previa (motivo) | `POST /admin/biblioteca/{clearance_id}/deshacer-previa` (Biblioteca) · rutas gemelas de SE con `{process_id}` | `undo_prior` | `cleared/prior → pending` | `library_prior_undone` | `library_reverted` |
-| 11| 🏛️ | Convocatoria · Resumen | capturar/editar la donación | `POST /admin/cohorts/{id}/donacion` | `CohortService.set_book_donation` | `titulatec_cohorts.book_donation_amount` | — | — |
+| 11| 🏛️ | Convocatoria · Resumen | capturar/editar la donación | `POST /admin/cohorts/{cohort_id}/donacion` | `CohortService.set_book_donation` | `titulatec_cohorts.book_donation_amount` | — | — |
 
 Las rutas de Biblioteca (`pages/library_admin.py`), Caja (`pages/cashier_admin.py`) y
 Constancias van por `clearance_id`/`kind`, **nunca** por `process_id` (ninguna tiene alcance por
@@ -235,10 +235,13 @@ supera sin dejar de ser un total legítimo.
 
 ## Dinero (`parse_amount` / `format_amount`)
 
-`LibraryClearanceService.parse_amount(raw) -> Decimal`: acepta «800», «800.5», «1,200.50»,
-«$1,200» y «$ 1,200.50»; `ValueError` legible —sin escribir nada— si viene vacío, es negativo,
-trae más de 2 decimales, notación científica o pasa de `AMOUNT_MAX = $100,000.00`. Nunca
-`float`. `format_amount(value) -> "$1,200.00"`. `Numeric(10,2)`/`Decimal` en toda la tabla; CHECK
+`parse_amount(raw) -> Decimal` y `format_amount(value) -> str` son funciones de MÓDULO en
+`services/library_clearance_service.py` (no métodos de `LibraryClearanceService`; los
+llamadores —`pages/library_admin.py`, `pages/cashier_admin.py`, `pages/admin.py`— las importan
+sueltas). `parse_amount` acepta «800», «800.5», «1,200.50», «$1,200» y «$ 1,200.50»; `ValueError`
+legible —sin escribir nada— si viene vacío, es negativo, trae más de 2 decimales, notación
+científica o pasa de `AMOUNT_MAX = $100,000.00`. Nunca `float`. `format_amount(value) ->
+"$1,200.00"`. `Numeric(10,2)`/`Decimal` en toda la tabla; CHECK
 `total_amount = debt_amount + donation_amount` cuando ninguno es `NULL`.
 
 ## Servicios Escolares

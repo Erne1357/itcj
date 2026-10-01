@@ -248,7 +248,8 @@ el sistema; no se marca a mano" por la píldora `survey_review_pill(status)` —
   importación (el único camino que crea una solicitud `origin='prior'`).
 - ⤵ Guarda de agendar: [cita de cotejo (loop completo)](phase2_appointment_loop.md) — la puerta
   D1 del 2026-09-29 (encuesta LIBERADA; **revierte D2 del 2026-09-15**, que se conformaba con
-  enviarla) y el cubo "Encuesta sin liberar" (antes "Sin encuesta").
+  enviarla) y el cubo «Liberaciones pendientes» (antes «Encuesta sin liberar», que a su vez fue
+  «Sin encuesta»).
 - ⤵ Guarda de liberar la fase 2: [motor de avance de fase](engine_approve_advance_phase.md) —
   `PhaseService.approve_phase` / `_cotejo_gate_error`.
 - ← Nota informativa por requisito (pieza distinta): [información para el alumno de un
