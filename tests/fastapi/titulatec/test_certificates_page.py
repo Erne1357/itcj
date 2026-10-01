@@ -45,12 +45,15 @@ _ref_counter = itertools.count(1)
 
 def _issue(db_session, kind, proc, n=1, actor_id=1):
     """Emite `n` constancias sueltas (sin lote) de `kind` para `proc`, con
-    `source_ref` únicos (contador de módulo, nunca choca entre pruebas)."""
+    `source_ref` únicos (contador de módulo, nunca choca entre pruebas NI con
+    una fila REAL de la BD de dev compartida -- Ruling R30 #1: un origen de
+    verdad siempre es `f"{kind}:{id}"` con `id` puramente numérico; el
+    prefijo `tcp` deja la cadena completa imposible de igualar)."""
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
     out = []
     for _ in range(n):
-        ref = f"{kind}:{next(_ref_counter)}"
+        ref = f"{kind}:tcp{next(_ref_counter)}"
         out.append(CertificateService.issue(db_session, kind=kind, process=proc,
                                              source_ref=ref, actor_id=actor_id))
     return out
