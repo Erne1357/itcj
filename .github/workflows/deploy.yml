@@ -105,6 +105,13 @@ jobs:
           print(f"[ci] esquema de test listo: {len(Base.metadata.tables)} tablas; enums: {sorted(_enums)}")
           PY
 
+      # WeasyPrint (constancias de TitulaTec, spec
+      # 2026-10-01-titulatec-biblioteca-caja-design.md §6) necesita Pango para
+      # el layout de texto; cairo y gdk-pixbuf ya vienen en el runner de
+      # `ubuntu-latest`. Mismos paquetes que `docker/backend/Dockerfile.fastapi`.
+      - name: Dependencias de sistema para WeasyPrint (constancias)
+        run: sudo apt-get update && sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0
+
       # Nota: create_all() solo construye tablas vacías, sin filas de referencia
       # (core_apps, core_roles). tests/fastapi/conftest.py siembra el mínimo
       # necesario (fixture `_seed_minimal_reference_data`, autouse, session-scope)
