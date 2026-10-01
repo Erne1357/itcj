@@ -208,8 +208,13 @@ class TestIssueNumeracion:
 
         Año 1901 a propósito: imposible de chocar con una convocatoria real
         de la BD de dev COMPARTIDA (CLAUDE.md). El renglón que el contador
-        deja en `titulatec_certificate_counters` se borra en un `finally`
-        pase lo que pase -- nada se le queda pegado a la base compartida.
+        deja en `titulatec_certificate_counters` se borra en un ÚNICO
+        `finally` que envuelve TODO el cuerpo (arrancar los hilos + los
+        asserts), pase lo que pase -- un `try/finally` partido en dos (uno
+        para arrancar/sondear, otro para los asserts finales) dejaba el
+        DELETE sin correr si el primero tronaba (p. ej. `assert bloqueada`),
+        y encima `hilo_b.join()` sobre un hilo que nunca arrancó revienta con
+        `RuntimeError` y tapa el assert real (fix round 2 de la revisión).
         """
         kind = "library_clearance"
         year = 1901
@@ -284,18 +289,25 @@ class TestIssueNumeracion:
                     time.sleep(0.02)
 
             assert bloqueada, "B nunca quedó esperando el lock de fila de A"
-        finally:
+
             seguir_con_commit_de_a.set()
             hilo_a.join(timeout=5)
             hilo_b.join(timeout=5)
 
-        try:
             assert not hilo_a.is_alive() and not hilo_b.is_alive(), "un hilo no terminó"
             assert errores == [], f"un hilo truena: {errores!r}"
             assert set(resultados) == {"A", "B"}
             numeros = {_folio_n(resultados["A"]), _folio_n(resultados["B"])}
             assert numeros == {1, 2}   # consecutivos: ni colisión ni hueco
         finally:
+            # Red de seguridad ÚNICA para TODO el cuerpo de arriba: pase lo
+            # que pase (cualquier assert roto, cualquier excepción), nunca se
+            # cuelga un hilo vivo ni se le queda pegado a la BD compartida el
+            # renglón de 1901.
+            seguir_con_commit_de_a.set()        # idempotente -- suelta a A
+            for hilo in (hilo_a, hilo_b):
+                if hilo.ident is not None:      # solo los que sí arrancaron
+                    hilo.join(timeout=5)
             with _pg_engine.begin() as conn:
                 conn.execute(text("DELETE FROM titulatec_certificate_counters "
                                   "WHERE kind = :k AND year = :y"), {"k": kind, "y": year})
