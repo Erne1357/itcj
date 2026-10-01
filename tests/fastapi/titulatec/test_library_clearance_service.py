@@ -1051,7 +1051,12 @@ class TestLoteSinAdeudo:
             sin_donacion.clearance.id, 9_999_999]
         motivos = dict(resultado["skipped"])
         assert "En caja" in motivos[en_caja.clearance.id]
-        assert "ya está liberado" in motivos[liberado.clearance.id]
+        # Ruling R30 #3 (M1 completo): el lote SIEMPRE manda
+        # `expected_status="pending"`; sobre una fila que ya está `cleared`
+        # eso es un choque -`ClearanceConflict`- como cualquier otro, no el
+        # «ya está liberado» genérico de antes del reordenamiento.
+        assert "Otra persona ya movió este caso: ahora está «Liberado»" in (
+            motivos[liberado.clearance.id])
         assert "revocada" in motivos[revocado.clearance.id]
         assert "no tiene capturada la donación" in motivos[sin_donacion.clearance.id]
         assert "No existe" in motivos[9_999_999]
@@ -1826,7 +1831,11 @@ class TestBloqueo:
         resultado = LibraryClearanceService.register_no_debt_bulk(
             db_session, [esc.clearance.id], actores.biblioteca.id)
         assert resultado["done"] == 0
-        assert "ya está liberado" in resultado["skipped"][0][1]
+        # Ruling R30 #3 (M1 completo): `ClearanceConflict` -choque contra el
+        # `expected_status="pending"` fijo del lote-, no el «ya está
+        # liberado» genérico de antes del reordenamiento.
+        assert "Otra persona ya movió este caso: ahora está «Liberado»" in (
+            resultado["skipped"][0][1])
 
 
 # ---------------------------------------------------------------------------

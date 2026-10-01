@@ -441,6 +441,92 @@ def test_concurrencia_otro_ya_registro_la_fila_re_pinta_y_avisa(
     assert clearance.debt_amount == Decimal("500.00"), "no se debe pisar el registro de otra persona"
 
 
+def test_dos_sin_adeudo_concurrentes_sobre_la_misma_fila_re_pinta(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """Ruling R30 #3 (re-revisión de la ola final, M1 COMPLETO): con donación
+    $0, «Sin adeudo» (adeudo 0) libera DIRECTO -`cleared/no_charge`, FUERA de
+    `("pending", "awaiting_payment")`-. Antes de este arreglo
+    `_prepare_registration` revisaba «ya está liberado» ANTES que
+    `_check_expected`, así que el segundo clic (la pantalla seguía en «Por
+    revisar») caía en el 400 PLANO sin re-pintar, a diferencia de
+    `test_concurrencia_otro_ya_registro_la_fila_re_pinta_y_avisa` de arriba
+    -ese caso deja la fila en `awaiting_payment`, que SÍ está en la tupla, así
+    que ya re-pintaba incluso antes del arreglo-. Ahora `_check_expected`
+    corre primero: mismo 200 + bandeja re-pintada + aviso que cualquier otro
+    choque, sin importar a qué estado se movió la fila."""
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_library_staff()
+    otra = make_library_staff(first_name="OTRA", last_name="BIBLIOTECARIA")
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99600111"), cohort=cohort, current_phase=1,
+                        library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    # "Otra persona" ya marcó «Sin adeudo» mientras el segundo tenía la
+    # pantalla de «Por revisar» abierta: con donación $0 y adeudo $0 libera
+    # DIRECTO, sin pasar por `awaiting_payment`.
+    LibraryClearanceService.register(db_session, clearance.id, otra.id, debt_amount=Decimal("0"))
+    db_session.refresh(clearance)
+    assert clearance.status == "cleared" and clearance.cleared_via == "no_charge"
+
+    resp = client_as(staff).post(
+        f"{URL}/{clearance.id}/registrar",
+        data={"status": "pending", "q": "99600111", "page": "1", "debt_amount": "0",
+              "expected_status": "pending"})
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert not resp.headers.get("X-Tt-Error")
+    aviso = unquote(resp.headers.get("X-Tt-Notice") or "")
+    assert "Otra persona ya movió este caso: ahora está «Liberado»" in aviso
+    assert resp.headers.get("X-Tt-Notice-Kind") == "warning"
+    assert 'id="tt-library-body"' in resp.text
+    db_session.refresh(clearance)
+    assert clearance.cleared_via == "no_charge", "no se debe reabrir ni repisar lo ya liberado"
+
+
+def test_corregir_despues_de_que_caja_cobro_re_pinta_sin_pisar_el_pago(
+    client_as, db_session, make_library_staff, make_user, make_student, make_cohort,
+    make_process,
+):
+    """Ruling R30 #3: Biblioteca tenía «Corregir…» abierto cuando Caja ya
+    cobró -la fila se movió a `cleared/payment`, FUERA de `("pending",
+    "awaiting_payment")`-. Antes del arreglo esto caía en el 400 plano de «ya
+    está liberado» sin re-pintar; ahora `_check_expected` ve el
+    `expected_status=awaiting_payment` desfasado PRIMERO y re-pinta con el
+    aviso, como cualquier otro choque; el pago de Caja nunca se pisa."""
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_library_staff()
+    cajera = make_user(first_name="CAJA", last_name="FICTICIA")
+    cohort = make_cohort(book_donation_amount=Decimal("100.00"))
+    proc = make_process(make_student(control_number="99600112"), cohort=cohort, current_phase=1,
+                        library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("400"))
+    db_session.refresh(clearance)
+    assert clearance.total_amount == Decimal("500.00")
+    # Caja ya cobró mientras Biblioteca tenía «Corregir…» abierto.
+    LibraryClearanceService.register_payment(db_session, clearance.id, cajera.id)
+    db_session.refresh(clearance)
+    assert clearance.status == "cleared" and clearance.cleared_via == "payment"
+
+    resp = client_as(staff).post(
+        f"{URL}/{clearance.id}/registrar",
+        data={"status": "awaiting_payment", "q": "99600112", "page": "1",
+              "debt_amount": "100", "expected_status": "awaiting_payment",
+              "expected_total": "500.00"})
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert not resp.headers.get("X-Tt-Error")
+    aviso = unquote(resp.headers.get("X-Tt-Notice") or "")
+    assert "Otra persona ya movió este caso: ahora está «Liberado»" in aviso
+    assert resp.headers.get("X-Tt-Notice-Kind") == "warning"
+    db_session.refresh(clearance)
+    assert clearance.cleared_via == "payment", "no se debe pisar el pago de Caja"
+    assert clearance.debt_amount == Decimal("400.00")
+
+
 def test_lote_con_una_fila_movida_por_otro_re_pinta_y_avisa(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):

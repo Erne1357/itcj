@@ -314,6 +314,51 @@ def test_monto_corregido_mientras_tanto_re_pinta_y_no_cobra_lo_que_la_cajera_no_
     assert clearance.total_amount == Decimal("1000.00"), "el monto vigente no se debe pisar"
 
 
+def test_pagar_despues_de_que_biblioteca_corrigio_a_cero_re_pinta(
+    client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
+):
+    """Ruling R30 #3 (re-revisión de la ola final, M1 COMPLETO): la cajera
+    tenía «Pagar» abierto con el total viejo cuando Biblioteca corrigió a $0
+    (adeudo y donación congelada en $0) -la fila se liberó DIRECTO
+    (`cleared/no_charge`), FUERA de `awaiting_payment`-. Antes del arreglo
+    `register_payment` revisaba los tres `if clearance.status == …` ANTES que
+    `_check_expected`, así que esto caía en el 400 plano de «ya está
+    liberado; no hay nada que cobrar» sin re-pintar; ahora `_check_expected`
+    ve el `expected_total` desfasado PRIMERO y re-pinta con el aviso -- nunca
+    se cobra sobre una fila que ya no debe nada."""
+    staff = make_cashier_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99700092"), cohort=cohort, current_phase=1,
+                        library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("500"))
+    db_session.refresh(clearance)
+    assert clearance.total_amount == Decimal("500.00")
+
+    # Biblioteca corrige a $0 mientras la cajera tenía «Pagar» abierto.
+    LibraryClearanceService.register(
+        db_session, clearance.id, staff.id, debt_amount=Decimal("0"),
+        expected_status="awaiting_payment", expected_total=Decimal("500.00"))
+    db_session.refresh(clearance)
+    assert clearance.status == "cleared" and clearance.cleared_via == "no_charge"
+
+    resp = client_as(staff).post(
+        f"{URL}/{clearance.id}/pagar",
+        data={"tab": "por_cobrar", "q": "99700092", "dia": "", "page": "1",
+              "expected_total": "500.00"})
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert not resp.headers.get("X-Tt-Error")
+    aviso = unquote(resp.headers.get("X-Tt-Notice") or "")
+    assert "El monto cambió mientras lo revisabas: ahora es $0.00" in aviso
+    assert resp.headers.get("X-Tt-Notice-Kind") == "warning"
+    assert 'id="tt-cashier-body"' in resp.text
+    db_session.refresh(clearance)
+    assert clearance.cleared_via == "no_charge", "no se debe cobrar sobre una fila ya liberada"
+    assert clearance.receipt_number is None
+
+
 def test_total_arriba_del_tope_de_monto_se_cobra_si_coincide(
     client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
 ):

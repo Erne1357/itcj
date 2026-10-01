@@ -502,7 +502,9 @@ class LibraryClearanceService:
 
         `expected_status` / `expected_total`: lo que el usuario tenía en
         pantalla. Si la fila ya no está así (otra persona la movió mientras
-        tanto), `ValueError` en vez de pisar su trabajo.
+        tanto), `ClearanceConflict` -se revisa ANTES que «ya está liberado»
+        (Ruling R30 #3): re-pinta en vez de pisar su trabajo, aunque la fila
+        ya se haya movido a `cleared`.
 
         Ruling R20 (I2): un proceso con la fase 2 ya `approved` (ya pasó su
         cotejo) no abre trámite: `ValueError`, sin escribir nada.
@@ -595,10 +597,15 @@ class LibraryClearanceService:
         recibo opcional (<= 40). Cumple el requisito, emite la constancia BIB y
         escribe `library_payment_registered`. `expected_total` = el total que
         Caja confirmó («Registrar pago de $X»): si Biblioteca lo corrigió
-        entretanto, `ValueError` para volver a confirmar.
+        entretanto -o alguien más ya cobró o liberó la fila por otra vía-,
+        `ClearanceConflict` (Ruling R30 #3, M1 completo) para re-pintar con
+        el monto/estado vigente en vez de un 400 plano; SOLO cuando el total
+        SÍ coincide (p. ej. un doble clic de «Registrar pago» sobre una fila
+        ya cobrada) sigue el `ValueError` normal de abajo.
         """
         clearance = LibraryClearanceService._locked(db, clearance_id)
         process = LibraryClearanceService._admitted_process(db, clearance)
+        LibraryClearanceService._check_expected(clearance, expected_total=expected_total)
         if clearance.status == "pending":
             raise ValueError("Biblioteca todavía no registra el monto de este egresado; "
                              "aún no hay nada que cobrar.")
@@ -608,7 +615,6 @@ class LibraryClearanceService:
             raise ValueError("Este no adeudo ya está liberado; no hay nada que cobrar.")
         if clearance.status != "awaiting_payment":
             raise ValueError(f"Este caso no está por cobrar (estado: {clearance.status}).")
-        LibraryClearanceService._check_expected(clearance, expected_total=expected_total)
         recibo = LibraryClearanceService._clean_receipt(receipt_number)
         requirement = LibraryClearanceService._library_requirement(db, process.cohort_id)
 
@@ -1050,13 +1056,21 @@ class LibraryClearanceService:
         cotejo (Ruling R20), monto, nota y donación capturada. Devuelve el
         plan que aplica `_apply_registration`. `phase2_approved` lo trae ya
         resuelto el lote (una consulta para todas las filas); `None` = se
-        pregunta aquí."""
+        pregunta aquí.
+
+        Ruling R30 #3 (re-revisión de la ola final, M1 completo): `_check_
+        expected` corre ANTES que «ya está liberado» -si el llamador mandó
+        `expected_status`/`expected_total` y ya no coinciden (otra persona
+        movió la fila mientras tanto), es SIEMPRE `ClearanceConflict` -re-
+        pinta-, nunca el 400 plano de abajo, sin importar a QUÉ estado se
+        movió. Sin expectativa (`None`) este chequeo es no-op y el orden no
+        cambia nada."""
         process = LibraryClearanceService._admitted_process(db, clearance)
+        LibraryClearanceService._check_expected(
+            clearance, expected_status=expected_status, expected_total=expected_total)
         if clearance.status not in ("pending", "awaiting_payment"):
             raise ValueError("Este no adeudo ya está liberado; para cambiarlo, primero "
                              "revierte la liberación.")
-        LibraryClearanceService._check_expected(
-            clearance, expected_status=expected_status, expected_total=expected_total)
         if phase2_approved is None:
             phase2_approved = LibraryClearanceService._phase2_approved(db, process.id)
         if phase2_approved:
