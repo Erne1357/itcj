@@ -22,7 +22,7 @@
    propósito en el único caso donde eso importa: perdió el derecho a
    RESERVAR, no el de PRESENTARSE.
    =========================================================================== #}
-{% from "titulatec/_macros.html" import survey_review_pill %}
+{% from "titulatec/_macros.html" import survey_review_pill, library_clearance_pill %}
 
 {# `#tt-cita-card` sigue siendo el destino de «Confirmar asistencia» y
    «Solicitar cambio», que se swappean SOLOS (sin repintar el panel entero). #}
@@ -68,6 +68,15 @@
           {%- if it.survey.status == 'rejected' and it.survey.reason %}
             — {{ it.survey.reason }}
           {%- endif %}
+        </div>
+        {% endif %}
+        {% if it.library %}
+        {# D6/§4.4/§4.10: lo liberan Biblioteca y Caja, no el alumno -- mismo
+           patrón que `it.survey`: el estatus real sustituye al "Listo"
+           genérico de abajo. Misma píldora que el dashboard, sin liga: aquí
+           no hay nada que el alumno pueda resolver él mismo. #}
+        <div class="mt-1">
+          {{ library_clearance_pill(it.library.status, it.library.via) }}
         </div>
         {% endif %}
         {% if it.survey_url %}

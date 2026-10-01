@@ -60,7 +60,8 @@ _PHASE_INFO = {
         "needs": [
             "Actas de nacimiento: original y copias.",
             "CURP certificada, e.Firma del SAT vigente y vigencia de derechos del IMSS.",
-            "No-adeudo de biblioteca y comprobante de la encuesta de egresados.",
+            "Las constancias de no adeudo y de la encuesta las envían las áreas a "
+            "Servicios Escolares; si registraste una constancia previa, llévala.",
             "12 fotografías tamaño credencial: ovaladas, B/N, fondo blanco, papel mate.",
             "$1,900 en efectivo para el pago del proceso.",
         ],
@@ -345,6 +346,29 @@ _SURVEY_URL = "/titulatec/encuesta-egresados"
 # cadena, en vez de repetirla a mano.
 _HANDOFF_COPY = ("Tu proceso continúa en el Departamento de Titulación, en el sistema "
                  "T-soft. El departamento te contactará por correo para darte tu usuario.")
+
+# Ruling R12 (revisión de T5, spec 2026-10-01-titulatec-biblioteca-caja-
+# design.md §4.4.4/§4.10, D17): la regla 3 de `SelfBookingService.eligibility`
+# (liberaciones) corre ANTES que la 4 (`tiene_cita`) -- es CONTRATO, no se
+# reordena --, así que un egresado que YA tiene una cita VIGENTE (D17: las
+# citas previas no se tocan) y le falta el no adeudo reporta el motivo de
+# biblioteca (`biblioteca_en_revision`/`pago_pendiente`), nunca `tiene_cita`.
+# El texto de `SelfBookingService.MENSAJES` para esos dos motivos promete
+# "Podrás agendar en cuanto se libere tu no adeudo", que es FALSO con una cita
+# ya puesta: no le falta agendar, le falta que Servicios Escolares pueda
+# LIBERAR su cotejo -el mismo verbo que ya usa `PhaseService._cotejo_gate_
+# error`, "No se puede liberar la fase 02" mientras falte algún requisito
+# ACTIVO y OBLIGATORIO (biblioteca incluida, una vez que la convocatoria la
+# exige) -, porque el no adeudo es uno de esos requisitos. `_agenda_ctx`
+# sustituye el texto SOLO para esta pantalla (`agenda.message`, cara 4 de
+# `_cita_panel.html`); `SelfBookingService.MENSAJES` no cambia -lo sigue
+# usando quien SÍ puede agendar, el cubo D10 de la cola y los correos (D11)-.
+_LIBRARY_REASONS_CON_CITA = ("biblioteca_en_revision", "pago_pendiente")
+_LIBRARY_BLOCK_WITH_CITA_MSG = (
+    "Ya tienes una cita de cotejo. Tu no adeudo de biblioteca debe quedar "
+    "liberado (Biblioteca y, si corresponde, Caja) para que Servicios "
+    "Escolares pueda liberar tu cotejo."
+)
 
 
 # ===========================================================================
@@ -633,6 +657,34 @@ def _format_b_progress(fb) -> dict:
     return {**prog, "kind": "format_b", "started": started, "label": label, "tone": tone}
 
 
+def _library_block_ctx(summary: dict) -> dict:
+    """Shapea `LibraryClearanceService.summary_for_process` para el bloque del
+    dashboard y la fila de «Mi cita» (spec 2026-10-01-titulatec-biblioteca-
+    caja-design.md §4.10): mismas llaves, más `total_fmt` y `breakdown` YA
+    FORMATEADOS -- la plantilla no hace aritmética ni decide moneda
+    (`format_amount`, nunca `float`).
+
+    `breakdown` es el MISMO texto que ya arma `LibraryClearanceService.
+    _mark_ready` para el aviso in-app del alumno («adeudo $800.00 + donación
+    voluntaria de libro $200.00»): solo las partes > 0 -- Biblioteca puede
+    registrar adeudo 0 con donación > 0 (D18: total 0, las DOS en 0, es lo
+    único que libera sin pasar por Caja; adeudo 0 con donación sí pasa).
+    """
+    from itcj2.apps.titulatec.services.library_clearance_service import format_amount
+
+    out = dict(summary)
+    out["total_fmt"] = format_amount(summary.get("total"))
+    debt = summary.get("debt") or 0
+    donation = summary.get("donation") or 0
+    partes = []
+    if debt > 0:
+        partes.append(f"adeudo {format_amount(debt)}")
+    if donation > 0:
+        partes.append(f"donación voluntaria de libro {format_amount(donation)}")
+    out["breakdown"] = " + ".join(partes)
+    return out
+
+
 def _cta_for(code: str, *, is_current: bool, status: str, handoff: bool) -> dict | None:
     """CTA de una fase. `_PHASE_CTA` sigue siendo la ÚNICA fuente de los enlaces.
 
@@ -715,6 +767,15 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         survey            dict | None       SOLO en la card `review_appointment`
                                              (dict plano de `summary_for_process`
                                              + `url`, D3, spec §6.1)
+        library           dict | None       SOLO en la card `review_appointment`,
+                                             Y SOLO si la convocatoria exige el no
+                                             adeudo (`ClearanceGate.library_required`,
+                                             spec 2026-10-01-titulatec-biblioteca-
+                                             caja-design.md §4.4/§4.10): dict plano
+                                             de `_library_block_ctx` (= `summary_for_
+                                             process` + `total_fmt`/`breakdown`). Sin
+                                             el requisito, `None` -- no hay bloque que
+                                             pintar, igual que `not_required` del gate.
     """
     from itcj2.apps.titulatec.models import (
         FormatB, PhaseDefinition, ProcessEvent, ProcessPhase,
@@ -769,6 +830,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             "events": [],
             "progress": None,
             "survey": None,
+            "library": None,
         }
         card.update(over)
         return card
@@ -790,6 +852,23 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
     survey = SurveyReviewService.summary_for_process(db, process.id)
     survey["url"] = _SURVEY_URL if survey["status"] == "missing" else None
+
+    # No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-
+    # design.md §4.10): UNA consulta fija más -- `ClearanceGate.library_required`
+    # nunca siembra (su propio docstring) -- y, SOLO si la convocatoria exige el
+    # no adeudo, otra para la foto plana. Convocatoria sin el requisito ACTIVO
+    # (incluida toda convocatoria hasta que corra `init-biblioteca-caja`, §4.4):
+    # `library` se queda `None` y el bloque no existe, igual que `survey` nunca
+    # se apaga (la encuesta es incondicional, D6) pero el no adeudo sí puede
+    # estarlo.
+    from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
+    library = None
+    if ClearanceGate.library_required(db, process.cohort_id):
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        library = _library_block_ctx(
+            LibraryClearanceService.summary_for_process(db, process.id))
 
     ph_by_number = {
         ph.phase_number: ph for ph in
@@ -854,6 +933,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             events=events_by_phase.get(pd.number, []),
             progress=progress,
             survey=(survey if pd.code == "review_appointment" else None),
+            library=(library if pd.code == "review_appointment" else None),
         ))
 
     total = len(pdefs) or 9
@@ -1347,6 +1427,9 @@ def _checklist_ctx(db, process) -> list[dict]:
     """
     if process is None:
         return []
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        AUTO_SOURCE_LIBRARY, LibraryClearanceService,
+    )
     from itcj2.apps.titulatec.services.requirement_service import RequirementService
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
     from itcj2.apps.titulatec.utils.rich_text import sanitize_info_html
@@ -1355,11 +1438,19 @@ def _checklist_ctx(db, process) -> list[dict]:
     # consulta fija, igual que `_phases_ctx`, aunque solo la use la fila con
     # `auto_source == "graduate_survey"`.
     survey = SurveyReviewService.summary_for_process(db, process.id)
+    # Gemela para el no adeudo de biblioteca (spec 2026-10-01-titulatec-
+    # biblioteca-caja-design.md §4.10, "Mi cita"): otra consulta fija, aunque
+    # solo la use la fila `auto_source == AUTO_SOURCE_LIBRARY` -esa fila solo
+    # existe en `list_with_status` si la convocatoria tiene el requisito
+    # ACTIVO (`list_or_seed(..., active_only=True)`), así que no hace falta
+    # volver a preguntarle a `ClearanceGate`: su sola presencia ya lo dice.
+    library = _library_block_ctx(LibraryClearanceService.summary_for_process(db, process.id))
 
     out = []
     for it in RequirementService.list_with_status(db, process.id):
         req, ful = it["requirement"], it["fulfillment"]
         es_encuesta = req.auto_source == "graduate_survey"
+        es_biblioteca = req.auto_source == AUTO_SOURCE_LIBRARY
         out.append({
             # Ancla del botón «i» con SU modal (`#tt-reqinfo-modal-{id}`).
             "id": req.id,
@@ -1386,6 +1477,11 @@ def _checklist_ctx(db, process) -> list[dict]:
             # "missing" = sin fila en `titulatec_survey_reviews`).
             "survey_url": (_SURVEY_URL if es_encuesta and survey["status"] == "missing"
                            else None),
+            # Gemela de "survey" (§4.10): lo liberan Biblioteca y Caja, no el
+            # alumno -- MISMA píldora que el dashboard (`library_clearance_pill`),
+            # sin liga propia: a diferencia de la encuesta, aquí no hay nada que
+            # el alumno pueda resolver desde esta pantalla.
+            "library": (library if es_biblioteca else None),
         })
     return out
 
@@ -1461,6 +1557,11 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
     La 3 y la 4 conviven a propósito en el único caso donde eso importa: el
     bloqueado por D9 no puede reservar pero sí presentarse, y `message` no se
     apaga por `modo == "presentarse"`.
+
+    Ruling R12 (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.4.4/
+    §4.10): con una cita VIGENTE y un motivo de biblioteca, `message` NO es
+    el de `SelfBookingService.MENSAJES` -ese promete agendar-, sino
+    `_LIBRARY_BLOCK_WITH_CITA_MSG` (constante de módulo).
     """
     vacio = {"can_book": False, "can_walkin": False, "reason": None,
              "message": None, "modo": None, "dias": [], "dia_sel": None,
@@ -1545,10 +1646,21 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
     # explica el porqué, con la tarjeta de la cita justo encima. Repetirlo
     # debajo sería decirle dos veces lo mismo al alumno. Las demás razones no
     # tienen ninguna otra señal en pantalla, y sin la frase quedaría un hueco.
-    message = (None if elig["reason"] == "tiene_cita"
-               else SelfBookingService.message_for(
-                   elig["reason"], cancellations=elig["cancellations"],
-                   total=elig.get("library_total")))
+    #
+    # Ruling R12: con una cita VIGENTE (`elig["current"]`, D17) el motivo
+    # reportado puede ser de biblioteca -la regla 3 de `eligibility` corre
+    # antes que la 4, es contrato- y el texto normal de `SelfBookingService.
+    # MENSAJES` prometería "podrás agendar" bajo la cita que ya tiene, que es
+    # falso. Se sustituye SOLO aquí, sin tocar `eligibility` ni `MENSAJES`
+    # (constantes `_LIBRARY_REASONS_CON_CITA`/`_LIBRARY_BLOCK_WITH_CITA_MSG`).
+    if elig["reason"] == "tiene_cita":
+        message = None
+    elif elig["current"] is not None and elig["reason"] in _LIBRARY_REASONS_CON_CITA:
+        message = _LIBRARY_BLOCK_WITH_CITA_MSG
+    else:
+        message = SelfBookingService.message_for(
+            elig["reason"], cancellations=elig["cancellations"],
+            total=elig.get("library_total"))
 
     return {"can_book": elig["can_book"], "can_walkin": elig["can_walkin"],
             "reason": elig["reason"], "message": message, "modo": modo,
