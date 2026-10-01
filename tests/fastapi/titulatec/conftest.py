@@ -848,12 +848,17 @@ def make_cohort(db_session, make_period):
     ventana (`db_now`, hora local), no en el del proceso. Quien pase
     `opens_at`/`closes_at` pasa `datetime`: un `date` se guardaría igual, pero
     el objeto en memoria no se puede comparar contra `db_now()`.
+
+    `book_donation_amount` (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+    §4.1.2): NULL por omisión -- «sin configurar», el mismo significado que
+    tiene la columna. Quien necesite una convocatoria con donación ya fijada
+    pasa `Decimal("800.00")`.
     """
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.core.utils.timezone import db_now
 
     def _make(period=None, name=None, status="open", opens_at=None, closes_at=None,
-              created_by=None):
+              created_by=None, book_donation_amount=None):
         period = period if period is not None else make_period()
         hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
         row = Cohort(
@@ -864,6 +869,7 @@ def make_cohort(db_session, make_period):
             closes_at=closes_at or (hoy + timedelta(days=30, hours=23, minutes=59,
                                                     seconds=59)),
             created_by_id=getattr(created_by, "id", created_by),
+            book_donation_amount=book_donation_amount,
         )
         db_session.add(row)
         db_session.flush()
@@ -891,17 +897,50 @@ def make_review_day(db_session):
 
 
 @pytest.fixture()
-def make_process(db_session, make_cohort):
+def make_library_clearance(db_session):
+    """Fila de no adeudo de biblioteca para un proceso (UNIQUE por proceso).
+
+    `status="cleared"` SIN `cleared_via` explícito usa `"legacy"` -- es el
+    mismo significado que le da el backfill de `tt20261001a` (ya cumplía el
+    requisito antes de este feature). Los montos quedan en NULL salvo que se
+    pasen por `**cols` (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+    §4.1.1).
+    """
+    from itcj2.apps.titulatec.models import LibraryClearance
+
+    def _make(process, status="pending", **cols):
+        if status == "cleared" and "cleared_via" not in cols:
+            cols["cleared_via"] = "legacy"
+        row = LibraryClearance(process_id=process.id, status=status, **cols)
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_process(db_session, make_cohort, make_library_clearance):
     """Proceso + sus 9 `ProcessPhase`, con la misma forma que deja el importador.
 
     Reparto de estados (espejo de `import_service.py:309-311`):
     fase < current_phase -> approved | == -> in_progress | > -> pending.
     `phases=False` crea el proceso pelado (para probar el camino sin fases).
+
+    `library_clearance="cleared"` (spec 2026-10-01-titulatec-biblioteca-caja-
+    design.md, Ruling R1 del plan): crea TAMBIÉN la fila de no adeudo de
+    biblioteca, `cleared`/`cleared_via="legacy"` por omisión, para que las
+    pruebas existentes de agendado no cambien de comportamiento cuando la
+    Tarea 5 encienda `ClearanceGate`. `library_clearance=None` no crea fila
+    (para quien quiera probar la tabla por sí misma); cualquier otro valor de
+    `LIBRARY_STATUSES` ("pending", "awaiting_payment") crea la fila en ese
+    estado.
     """
     from itcj2.apps.titulatec.models import ProcessPhase, TitulationProcess
 
     def _make(student, cohort=None, program=None, modality=None, current_phase=1,
-              status="active", phases=True, folio=None, is_app_active=True):
+              status="active", phases=True, folio=None, is_app_active=True,
+              library_clearance="cleared"):
         cohort = cohort if cohort is not None else make_cohort()
         period_code = cohort.period_code or str(cohort.period_id)
         proc = TitulationProcess(
@@ -922,6 +961,8 @@ def make_process(db_session, make_cohort):
                       else "in_progress" if n == current_phase else "pending")
                 db_session.add(ProcessPhase(process_id=proc.id, phase_number=n, status=st))
             db_session.flush()
+        if library_clearance is not None:
+            make_library_clearance(proc, status=library_clearance)
         return proc
 
     return _make
