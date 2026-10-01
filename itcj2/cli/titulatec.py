@@ -1487,6 +1487,80 @@ def _posgrado_resync_preview(db, program_ids: set[int]) -> list[tuple[int, str, 
     return resultados
 
 
+def _posgrado_rg_population(db, program_ids: set[int]) -> list[tuple[int, str, int, str]]:
+    """Población R-G (D9 sin herramienta, Tarea 8, revisión final 2026-09-30):
+    procesos de posgrado que YA PASARON la fase de `initial_docs` con ALGÚN
+    extra de `DocumentService.POSGRADO_EXTRA_DOCS` todavía sin fila.
+
+    `initial_docs_all_approved` (vía `DocumentService.excused_initial_docs`,
+    R-G) los exceptúa de por vida -- no se regresan a Documentos (D9) -- así
+    que nunca vuelven a aparecer por su cuenta en ninguna bandeja. Sin esta
+    lista, nadie en Servicios Escolares se entera de pedirles los 4 extras EN
+    el cotejo: el checklist de despliegue (`engine_process_track.md`, spec §9)
+    es la única otra forma, y es manual.
+
+    SOLO LECTURA -- no escribe ni sincroniza nada (eso lo hace
+    `_resync_posgrado_phase1`, que es justo lo contrario: fase 1 TODAVÍA
+    abierta). `program_ids` es el mismo criterio que `_posgrado_resync_
+    preview`: en el `--dry-run`, los ids que `_precheck_posgrado` ya casó
+    (`level` real todavía sin marcar); en la corrida real, los que
+    `_posgrado_clasificadas` acaba de confirmar. `program_ids` vacío -> `[]`
+    sin consultar (ni el catálogo de fases).
+
+    Devuelve `(process_id, folio, current_phase, program_name)`, uno por
+    proceso en alcance, ordenado por folio -- un proceso con los 4 extras YA
+    subidos (nada que pedir) no aparece, aunque su fase 1 también haya
+    cerrado.
+    """
+    from itcj2.apps.titulatec.models import Document, TitulationProcess
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.core.models.program import Program
+
+    if not program_ids:
+        return []
+
+    n = PhaseService.phase_number_for_code(db, "initial_docs")
+    if n is None:
+        return []
+
+    procesos = (
+        db.query(TitulationProcess)
+        .filter(
+            TitulationProcess.status == "active",
+            TitulationProcess.program_id.in_(program_ids),
+            TitulationProcess.current_phase > n,
+        )
+        .order_by(TitulationProcess.folio)
+        .all()
+    )
+    if not procesos:
+        return []
+
+    extras = set(DocumentService.POSGRADO_EXTRA_DOCS)
+    presentes_por_proceso: dict[int, set[str]] = {}
+    for pid, code in (
+        db.query(Document.process_id, Document.type_code)
+        .filter(Document.process_id.in_([p.id for p in procesos]),
+                Document.type_code.in_(extras))
+        .all()
+    ):
+        presentes_por_proceso.setdefault(pid, set()).add(code)
+
+    nombres = {p.id: p.name for p in db.query(Program).filter(Program.id.in_(program_ids)).all()}
+
+    resultados: list[tuple[int, str, int, str]] = []
+    for proceso in procesos:
+        presentes = presentes_por_proceso.get(proceso.id, set())
+        if len(presentes) >= len(extras):
+            continue        # ya tiene los 4 extras: nada que pedir en el cotejo
+        resultados.append((
+            proceso.id, proceso.folio, proceso.current_phase,
+            nombres.get(proceso.program_id, "—"),
+        ))
+    return resultados
+
+
 def _posgrado_clasificadas(conn) -> list[tuple[int, str, str]]:
     """`id, name, level` de las carreras YA clasificadas como posgrado.
 
@@ -1638,18 +1712,25 @@ def init_posgrado_command(dry_run, allow_insert):
     estaba `in_review` esperando revisión pasa a `in_progress` (le faltan los
     4 nuevos) -- sin avisos ni correos, `sync_initial_phase` solo escribe
     estado. R-G (invariante 8): un proceso que YA PASÓ la fase 1 no se toca,
-    aunque le falten los 4 extras -- no se regresa (D9).
+    aunque le falten los 4 extras -- no se regresa (D9). Por último, SOLO
+    LECTURA, imprime la población R-G (D9 sin herramienta, Tarea 8): los
+    procesos de posgrado que YA PASARON la fase 1 con algún extra todavía sin
+    fila, bajo «Pedir en el cotejo (fase 1 ya cerrada): N» -- esos nunca
+    vuelven a aparecer solos en ninguna bandeja (`initial_docs_all_approved`
+    los exceptúa de por vida), así que esta es la única forma de que
+    Servicios Escolares se entere de pedírselos EN el cotejo.
 
     `--dry-run`: corre `_precheck_posgrado()` e imprime la rama (con los
     ids/nombres que quedarían, o los motivos del abort), y lista los procesos
     que se re-sincronizarían (con el estado que resultaría) usando
     `_posgrado_resync_preview` -- que identifica candidatos por `program_id`,
     NUNCA por `Program.level` (que en este punto sigue en `licenciatura` para
-    los 4). También dice si los 2 archivos existen en disco (y en ese caso
-    sale distinto de 0, aunque el resto del reporte se imprime igual: el
-    precheck lee `core_programs` directo, no necesita los archivos). Nunca
-    escribe nada. Sale 0 solo si los 2 archivos existen Y la rama no es
-    `abort`.
+    los 4) -- y, con el mismo criterio, la población R-G
+    (`_posgrado_rg_population`) que se vería tras correr el 18 de verdad.
+    También dice si los 2 archivos existen en disco (y en ese caso sale
+    distinto de 0, aunque el resto del reporte se imprime igual: el precheck
+    lee `core_programs` directo, no necesita los archivos). Nunca escribe
+    nada. Sale 0 solo si los 2 archivos existen Y la rama no es `abort`.
     """
     if dry_run:
         faltan = [
@@ -1679,6 +1760,7 @@ def init_posgrado_command(dry_run, allow_insert):
                 click.echo(f"  {m['id']} · {m['name']} · quedaría en {m['level']}")
 
         resultados = []
+        rg = []
         if precheck["branch"] == "update":
             from itcj2.database import SessionLocal
 
@@ -1686,6 +1768,7 @@ def init_posgrado_command(dry_run, allow_insert):
             db = SessionLocal()
             try:
                 resultados = _posgrado_resync_preview(db, program_ids)
+                rg = _posgrado_rg_population(db, program_ids)
             finally:
                 db.rollback()
                 db.close()
@@ -1695,6 +1778,14 @@ def init_posgrado_command(dry_run, allow_insert):
         )
         for pid, folio, nuevo_estado in resultados:
             click.echo(f"  {folio} (id {pid}): -> {nuevo_estado or '(sin cambio)'}")
+
+        # D9 sin herramienta (Tarea 8): poblacion R-G -- procesos que YA
+        # pasaron la fase 1 con algun extra sin fila. `initial_docs_all_
+        # approved` los exceptua de por vida (no se regresan, D9), asi que
+        # SE no se entera de pedirselos en el cotejo si nadie se lo dice.
+        click.echo(f"[dry-run] Pedir en el cotejo (fase 1 ya cerrada): {len(rg)}")
+        for pid, folio, fase, carrera in rg:
+            click.echo(f"  {folio} (id {pid}): fase {fase:02d} · {carrera}")
 
         click.echo("Dry-run: no se ejecutó nada.")
         if faltan or precheck["branch"] == "abort":
@@ -1755,6 +1846,27 @@ def init_posgrado_command(dry_run, allow_insert):
     click.echo(f"Procesos de posgrado re-sincronizados en fase 1: {len(resultados)}")
     for pid, folio, nuevo_estado in resultados:
         click.echo(f"  {folio} (id {pid}): -> {nuevo_estado or '(sin cambio)'}")
+
+    # D9 sin herramienta (Tarea 8, revisión final): población R-G -- procesos
+    # que YA pasaron la fase 1 con algún extra sin fila. `initial_docs_all_
+    # approved` los exceptúa de por vida (no se regresan, D9): sin este
+    # aviso, nadie en Servicios Escolares se entera de pedírselos en el
+    # cotejo. Mismos ids que `carreras` -- las recién clasificadas -- no
+    # `Program.level` (ya coinciden en este punto, pero es la misma fuente
+    # que ya trajo `_posgrado_clasificadas` arriba, sin una segunda lectura).
+    from itcj2.database import SessionLocal
+
+    program_ids = {pid for pid, _name, _level in carreras}
+    db = SessionLocal()
+    try:
+        rg = _posgrado_rg_population(db, program_ids)
+    finally:
+        db.rollback()
+        db.close()
+
+    click.echo(f"Pedir en el cotejo (fase 1 ya cerrada): {len(rg)}")
+    for pid, folio, fase, carrera in rg:
+        click.echo(f"  {folio} (id {pid}): fase {fase:02d} · {carrera}")
 
     click.echo(click.style(
         "OK: 4 carreras de posgrado clasificadas y 4 tipos de documento de "

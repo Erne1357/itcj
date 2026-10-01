@@ -72,6 +72,7 @@ from itcj2.cli.titulatec import (
     _DML_POSGRADO_2026_10_DIR,
     _DML_POSGRADO_2026_10_FILES,
     _posgrado_resync_preview,
+    _posgrado_rg_population,
     _precheck_posgrado,
     _resync_posgrado_phase1,
     _verify_posgrado,
@@ -218,13 +219,20 @@ def test_dry_run_rama_update_lista_matches_y_candidatos(tmp_path, monkeypatch):
     with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
          patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
          patch("itcj2.cli.titulatec._posgrado_resync_preview",
-               return_value=[(55, "TT-2029A-0001", "in_progress")]) as preview:
+               return_value=[(55, "TT-2029A-0001", "in_progress")]) as preview, \
+         patch("itcj2.cli.titulatec._posgrado_rg_population",
+               return_value=[(77, "TT-2029A-0002", 2, "Prog A")]) as rg:
         res = CliRunner().invoke(init_posgrado_command, ["--dry-run"])
 
     assert res.exit_code == 0, res.output
     ejecutar.assert_not_called()
     preview.assert_called_once()
     assert preview.call_args.args[1] == {101, 104}
+    # D9 sin herramienta (Tarea 8): el dry-run tambien pide la poblacion R-G,
+    # con los MISMOS ids que el precheck caso (no `Program.level`, que en
+    # este punto sigue en 'licenciatura').
+    rg.assert_called_once()
+    assert rg.call_args.args[1] == {101, 104}
     assert "[dry-run]" in res.output
     for nombre in _DML_POSGRADO_2026_10_FILES:
         assert nombre in res.output
@@ -233,6 +241,8 @@ def test_dry_run_rama_update_lista_matches_y_candidatos(tmp_path, monkeypatch):
     assert "Prog D" in res.output and "doctorado" in res.output
     assert "TT-2029A-0001" in res.output
     assert "in_progress" in res.output
+    assert "Pedir en el cotejo" in res.output
+    assert "TT-2029A-0002" in res.output
     assert "no se ejecut" in res.output.lower()
 
 
@@ -408,6 +418,30 @@ def test_real_run_advierte_carreras_sin_clasificar():
     assert res.exit_code == 0, res.output
     assert "ADVERTENCIA" in res.output
     assert "Especialidad con Doctor en el nombre" in res.output
+
+
+def test_real_run_imprime_la_poblacion_r_g(tmp_path, monkeypatch):
+    """D9 sin herramienta (Tarea 8, revision final): la corrida real tambien
+    imprime la poblacion R-G, con los ids que `_posgrado_clasificadas` acaba
+    de confirmar (NUNCA una segunda lectura de `Program.level`)."""
+    precheck = {"branch": "update", "matches": [], "reasons": []}
+    clasificadas = [(201, "Maestria X", "maestria"), (202, "Doctorado Y", "doctorado")]
+    with patch("itcj2.cli.titulatec._run_sql_files"), \
+         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec._verify_posgrado", return_value=[]), \
+         patch("itcj2.cli.titulatec._posgrado_clasificadas", return_value=clasificadas), \
+         patch("itcj2.cli.titulatec._posgrado_warn_unclassified", return_value=[]), \
+         patch("itcj2.cli.titulatec._resync_posgrado_phase1", return_value=[]), \
+         patch("itcj2.cli.titulatec._posgrado_rg_population",
+               return_value=[(88, "TT-2029A-0003", 3, "Maestria X")]) as rg:
+        res = CliRunner().invoke(init_posgrado_command, [])
+
+    assert res.exit_code == 0, res.output
+    rg.assert_called_once()
+    assert rg.call_args.args[1] == {201, 202}
+    assert "Pedir en el cotejo (fase 1 ya cerrada): 1" in res.output
+    assert "TT-2029A-0003" in res.output
+    assert "Maestria X" in res.output
 
 
 # ---------------------------------------------------------------------------
@@ -677,6 +711,79 @@ def test_resync_preview_usa_ids_del_precheck_sin_depender_de_program_level(
 
 def test_resync_preview_vacio_sin_ids():
     assert _posgrado_resync_preview(object(), set()) == []
+
+
+# ---------------------------------------------------------------------------
+# `_posgrado_rg_population` (D9 sin herramienta, Tarea 8, revision final) --
+# Postgres real via `db_session`, mismo patron (y mismas dos razones) que
+# `_posgrado_resync_preview` arriba: no abre su propio `SessionLocal`, asi
+# que no hace falta `patched_session_local`.
+# ---------------------------------------------------------------------------
+def test_rg_population_lista_fase_1_cerrada_con_extra_faltante(
+    db_session, make_program, make_user, make_process, make_document, seed_phase_defs,
+):
+    seed_phase_defs()
+    programa = make_program("Maestria RG Population Test", level="maestria")
+
+    # Fase 1 YA CERRADA (current_phase=2), 3 base aprobados, SIN los 4
+    # extras: justo la poblacion R-G que Servicios Escolares debe pedir en
+    # el cotejo.
+    proceso = make_process(make_user(), program=programa, current_phase=2, status="active")
+    for code in ("birth_certificate", "high_school_cert", "curp"):
+        make_document(proceso, type_code=code, review_status="approved")
+
+    # Fase 1 TODAVIA ABIERTA con el mismo perfil: no es poblacion R-G (nunca
+    # paso la fase), aunque tambien le falten los 4 extras.
+    proceso_abierto = make_process(make_user(), program=programa, current_phase=1,
+                                   status="active")
+
+    # Fase 1 cerrada mas los 4 extras YA subidos: nada que pedir, no aparece.
+    proceso_completo = make_process(make_user(), program=programa, current_phase=2,
+                                    status="active")
+    for code in ("birth_certificate", "high_school_cert", "curp", "professional_license",
+                 "degree_title", "postgrad_authorization", "efirma_sat"):
+        make_document(proceso_completo, type_code=code, review_status="approved")
+
+    resultados = _posgrado_rg_population(db_session, {programa.id})
+
+    ids = {r[0] for r in resultados}
+    assert proceso.id in ids
+    assert proceso_abierto.id not in ids
+    assert proceso_completo.id not in ids
+    _pid, folio, fase, carrera = next(r for r in resultados if r[0] == proceso.id)
+    assert folio == proceso.folio
+    assert fase == 2
+    assert carrera == programa.name
+
+
+def test_rg_population_un_extra_presente_rechazado_sigue_contando(
+    db_session, make_program, make_user, make_process, make_document, seed_phase_defs,
+):
+    """Con fila (aunque rechazada) un extra no es "faltante" -- pero bastan
+    los otros 3 sin fila para que el proceso siga en la poblacion (D9: "algun
+    extra faltante", no "todos")."""
+    seed_phase_defs()
+    programa = make_program("Maestria RG Population Parcial", level="maestria")
+    proceso = make_process(make_user(), program=programa, current_phase=2, status="active")
+    for code in ("birth_certificate", "high_school_cert", "curp"):
+        make_document(proceso, type_code=code, review_status="approved")
+    make_document(proceso, type_code="professional_license", review_status="rejected")
+
+    resultados = _posgrado_rg_population(db_session, {programa.id})
+
+    assert proceso.id in {r[0] for r in resultados}
+
+
+def test_rg_population_vacio_sin_ids():
+    assert _posgrado_rg_population(object(), set()) == []
+
+
+def test_rg_population_vacio_sin_catalogo_de_fases(db_session, make_program):
+    """Sin `PhaseDefinition` sembrado (BD nueva sin `init-titulatec`):
+    `phase_number_for_code` devuelve `None` -- falla CERRADO, `[]` sin mas
+    consultas (mismo criterio que `_posgrado_resync_preview`)."""
+    programa = make_program("Maestria RG Sin Catalogo", level="maestria")
+    assert _posgrado_rg_population(db_session, {programa.id}) == []
 
 
 # ---------------------------------------------------------------------------
