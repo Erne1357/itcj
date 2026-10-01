@@ -1,28 +1,46 @@
 """No adeudo de biblioteca por proceso (Biblioteca -> Caja).
 
 Spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.1.1/§4.2. Una fila
-por proceso (`process_id` es UNIQUE): nace cuando el proceso entra a la
-bandeja de Biblioteca y es la MISMA fila que Biblioteca registra, Caja cobra
-o Servicios Escolares exonera despues -- nunca se crea una segunda (unico
-escritor: `LibraryClearanceService`, tarea aparte, spec §5 invariante 1).
+por proceso (`process_id` es UNIQUE): nace `pending` al dar de alta el
+proceso (`ImportService.import_rows` -> `LibraryClearanceService.
+open_for_process`); los procesos que ya existian la reciben del backfill de
+la migracion o del re-backfill de `activar-biblioteca-caja` (`pending`, o
+`cleared/legacy` si ya cumplian el requisito a mano). Es la MISMA fila que
+despues registra Biblioteca, cobra Caja o libera una constancia previa --
+nunca se crea una segunda (unico escritor de transiciones:
+`LibraryClearanceService`, spec §5 invariante 1; el backfill y la promocion
+D17 son DATO, sin eventos).
 
 Maquina de estados (detalle y guardas en `LibraryClearanceService`):
 
-    (nace)            ────────────────────────────>  pending
-    pending           ──Biblioteca registra adeudo──> awaiting_payment  (hay monto a cobrar)
-    pending           ──Biblioteca registra 0──────>  cleared   (cleared_via='no_charge')
-    awaiting_payment  ──Caja cobra─────────────────>  cleared   (cleared_via='payment')
-    pending/awaiting  ──SE aplica constancia previa─>  cleared   (cleared_via='prior')
+    (nace)            ──────────────────────────────────> pending
+    pending           ──Biblioteca registra, total > 0──> awaiting_payment  (hay monto a cobrar)
+    pending           ──Biblioteca registra, total = 0──> cleared   (cleared_via='no_charge')
+    awaiting_payment  ──Biblioteca corrige──────────────> awaiting_payment | cleared/no_charge
+    awaiting_payment  ──Caja cobra──────────────────────> cleared   (cleared_via='payment')
+    pending/awaiting  ──constancia previa───────────────> cleared   (cleared_via='prior';
+                         (Biblioteca, SE o la importacion   sin constancia BIB nueva)
+                          `import-prior-clearances`)
+    cleared/payment   ──Caja revierte el pago───────────> awaiting_payment
+    cleared/no_charge|legacy ──Biblioteca revierte──────> pending
+    cleared/prior     ──se deshace la previa────────────> pending
+                         (Biblioteca o SE)
 
-`cleared_via='legacy'` es EXCLUSIVO del backfill de la migracion
-`tt20261001a`: procesos que ya cumplian el requisito `library_clearance`
-antes de que este feature existiera (no hay Biblioteca/Caja/SE detras).
+Las tres reversas exigen la fase 2 SIN aprobar (`can_revert`).
+
+`cleared_via='legacy'` no tiene arista de entrada: lo escribe el dato, nunca
+una transicion -- el backfill de la migracion `tt20261001a` y la promocion
+D17 de `activar-biblioteca-caja` (Ruling R20) para procesos que ya cumplian
+el requisito `library_clearance` a mano (o cuya fase 2 ya estaba aprobada)
+antes de que el candado se encendiera; no hay Biblioteca/Caja/SE detras.
 
 Montos (`debt_amount`/`donation_amount`/`total_amount`): NULL hasta que
 Biblioteca registra el adeudo. `donation_amount` queda CONGELADA en ese
 momento con el `Cohort.book_donation_amount` vigente -- un cambio posterior
 de la convocatoria no mueve lo ya registrado; "Corregir" vuelve a congelar
-con la vigente de ese momento (Review Focus #2, tarea aparte).
+con la vigente de ese momento (Review Focus #2). Una constancia previa
+registrada desde `awaiting_payment` conserva los montos como historia; volver
+a `pending` los borra.
 """
 from sqlalchemy import (
     BigInteger, CheckConstraint, Column, Date, DateTime, ForeignKey, Integer,
@@ -39,9 +57,11 @@ LIBRARY_STATUSES = ("pending", "awaiting_payment", "cleared")
 
 # Dominio de `cleared_via`. NULL salvo cuando `status='cleared'`.
 # 'payment' = Caja cobro el monto congelado. 'no_charge' = Biblioteca
-# registro un adeudo de 0. 'prior' = Servicios Escolares aplico una
-# constancia previa (§4.12). 'legacy' = ya cumplia el requisito antes de
-# este feature (backfill de `tt20261001a`).
+# registro un total de 0 (sin adeudo y donacion $0, D18). 'prior' = una
+# constancia previa (§4.12) que registro Biblioteca, Servicios Escolares
+# (respaldo D9) o la importacion `import-prior-clearances`. 'legacy' = ya
+# cumplia el requisito antes del candado (backfill de `tt20261001a` y
+# promocion D17 de `activar-biblioteca-caja`).
 CLEARED_VIA = ("payment", "no_charge", "prior", "legacy")
 
 

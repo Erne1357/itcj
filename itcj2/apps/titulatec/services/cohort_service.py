@@ -249,11 +249,14 @@ class CohortService:
 
         Devuelve `{"affected": N}`: cuántos `LibraryClearance` de esta
         convocatoria YA tienen un monto congelado
-        (`donation_amount IS NOT NULL`, en cualquier estado que haya pasado
-        por Registrar -- `awaiting_payment` o `cleared` vía pago/sin cargo,
-        nunca `pending` ni una constancia previa, que no toca montos). La
-        ruta usa el número para el aviso «N egresados ya tienen monto
-        asignado; no cambia para ellos».
+        (`donation_amount IS NOT NULL`: toda fila que pasó por Registrar y
+        no volvió a `pending` -- `awaiting_payment`, `cleared` vía pago o sin
+        cargo, y también `cleared/prior` si la constancia previa se registró
+        DESDE `awaiting_payment`, que conserva los montos como historia).
+        Nunca `pending` (volver ahí borra los montos) ni una previa
+        registrada desde `pending` (no tiene montos). La ruta usa el número
+        para el aviso «N egresados ya tienen monto asignado; no cambia para
+        ellos».
 
         `ValueError` si la convocatoria no existe. UN commit.
         """

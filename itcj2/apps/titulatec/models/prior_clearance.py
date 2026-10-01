@@ -1,15 +1,20 @@
-"""Constancia previa (spec §4.12): alumno que ya trae una liberacion de
-encuesta o un no-adeudo de biblioteca de ANTES de este feature (otro
-periodo, papel, sistema legado). Servicios Escolares la carga (por archivo o
-a mano) y el servicio la aplica al proceso cuando el numero de control
-coincide (`applied_process_id`/`applied_at`).
+"""Constancia previa DIFERIDA (spec §4.12): alumno que ya trae una
+liberacion de encuesta o un no-adeudo de biblioteca de ANTES de este feature
+(otro periodo, papel, sistema legado) y que todavia no tiene un proceso
+abierto que la reciba. La carga la CLI `titulatec import-prior-clearances`
+(`PriorClearanceService.import_rows`): con proceso abierto la constancia se
+aplica de inmediato y NO pasa por esta tabla; sin el, se registra aqui y
+`PriorClearanceService.apply_pending` la aplica sola cuando el alumno se
+inscribe (`applied_process_id`/`applied_at`). Las constancias previas que
+Biblioteca o Servicios Escolares registran a mano en su bandeja van directo
+al proceso (`LibraryClearanceService.register_prior`), nunca aqui.
 
-Puede llegar una fila SIN proceso que la reclame todavia (alumno que aun no
-se inscribe a este periodo): por eso `applied_process_id` queda NULL hasta
-que se aplica, y una vez aplicada no se vuelve a ofrecer. `issued_on` es
-NULLABLE a proposito -- Review Focus #7 contempla constancias previas «sin
-fecha»; las reglas de vigencia (fecha futura, 365/366 dias, sin fecha) viven
-en el servicio (§4.2), no aqui.
+`applied_process_id` queda NULL hasta que se aplica, y una vez aplicada no
+se vuelve a ofrecer -- salvo que llegue otra MAS NUEVA del mismo tipo y
+numero de control: esa la reemplaza y vuelve a quedar pendiente (Ruling
+R28). `issued_on` es NULLABLE en el esquema, pero NINGUN camino la deja en
+NULL: el servicio exige la fecha (una fila sin fecha cae en «Invalidas») y
+aplica las reglas de vigencia (fecha futura, 365/366 dias, §4.2).
 """
 from sqlalchemy import (
     Column, Date, DateTime, ForeignKey, Integer, String, Text,
@@ -34,7 +39,7 @@ class PriorClearance(Base):
     id = Column(Integer, primary_key=True)
     kind = Column(String(20), nullable=False)              # dominio: PRIOR_KINDS
     control_number = Column(String(20), nullable=False, index=True)
-    issued_on = Column(Date, nullable=True)                 # NULL = sin fecha conocida
+    issued_on = Column(Date, nullable=True)                 # el servicio SIEMPRE la exige (ver docstring)
     note = Column(Text, nullable=True)
     source = Column(String(120), nullable=False)            # archivo/origen de la carga
 
