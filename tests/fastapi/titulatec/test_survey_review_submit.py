@@ -18,7 +18,7 @@ anonymous`. Desaparecen `credited`, `already` y `no_requirement`.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import timedelta
 
 from itcj2.apps.titulatec.services.survey_service import SurveyService
 
@@ -398,11 +398,14 @@ def test_GET_con_constancia_previa_pinta_la_tarjeta_y_no_deja_contestar(
     -nunca el formulario-, pero con su propio texto (nunca dice que GTV
     revisó nada)."""
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    from itcj2.core.utils.timezone import db_now
 
     student = make_student()
     proc = make_process(student, cohort=make_cohort())
+    # R14 (fix round 1): relativa a `db_now()`, no un `date(...)` fijo -- una
+    # fecha absoluta vieja de más de 365 días vence sola contra el reloj real.
     SurveyReviewService.register_prior(
-        db_session, proc, issued_on=date(2026, 3, 1), note=None)
+        db_session, proc, issued_on=db_now().date() - timedelta(days=30), note=None)
     db_session.commit()
 
     resp = client_as(student).get(SURVEY_URL, follow_redirects=False)

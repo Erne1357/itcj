@@ -2326,8 +2326,8 @@ _IMPORT_PRIOR_KIND = {"encuesta": "survey", "biblioteca": "library"}
               required=True,
               help="encuesta: liberación previa de GTV | biblioteca: no adeudo previo.")
 @click.option("--fecha", "fecha_fija", default=None,
-              help="AAAA-MM-DD: fecha de emisión para TODAS las filas "
-                   "(si el archivo no trae una columna de fecha).")
+              help="Fecha de emisión para TODAS las filas, si el archivo no trae "
+                   "columna (AAAA-MM-DD o DD/MM/AAAA, con hora opcional).")
 @click.option("--columna-control", "columna_control", default=None,
               help="Encabezado de la columna del número de control "
                    "(si no se da, se autodetecta como en la importación de alumnos).")
@@ -2358,7 +2358,10 @@ def import_prior_clearances_command(archivo, tipo, fecha_fija, columna_control,
     La columna del número de control se autodetecta (mismo heurístico que la
     importación de alumnos) o se fija con `--columna-control`. La fecha sale
     de `--columna-fecha` (una por fila) o de `--fecha` (fija para todas);
-    falta una de las dos -> error, sin leer ni clasificar ninguna fila.
+    falta una de las dos -> error, sin leer ni clasificar ninguna fila. Formatos
+    de fecha aceptados (Ruling R13): `AAAA-MM-DD`, `DD/MM/AAAA`, o cualquiera de
+    los dos con hora (`15/03/2026 10:22:33`, como exporta Google Forms es-MX);
+    cualquier otro formato cae en Inválidas con su motivo.
 
     `--dry-run`: clasifica TODO -incluida la búsqueda del proceso abierto-
     pero no escribe nada, ni siquiera un alta idempotente de la fila de

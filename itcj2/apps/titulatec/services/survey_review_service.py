@@ -158,6 +158,29 @@ class SurveyReviewService:
         return SurveyReviewService.release_status(db, process_id) == "approved"
 
     @staticmethod
+    def prior_outcome(db: Session, process_id: int) -> str:
+        """Clasifica, SOLO LECTURA, qué le tocaría a una constancia previa de
+        encuesta sobre este proceso (D9, spec §4.12): `"apply"` (no hay
+        solicitud todavía -> `register_prior` la crearía liberada),
+        `"already"` (ya hay una `approved`: nada que aplicar) o `"conflict"`
+        (hay una `in_review`/`rejected`: lo decide GTV desde su bandeja, NUNCA
+        una importación).
+
+        Distinta a propósito de `release_status`/`is_released` -esas son SOLO
+        para `ClearanceGate` y la guarda de agendar (§4.4)-: esta es la ÚNICA
+        lectura de `SurveyReview.status` permitida para la clasificación de
+        constancias previas fuera de este service. `PriorClearanceService`
+        llama aquí en vez de comparar `.status` por su cuenta (§5, invariante
+        2: fuera de los dos services dueños y del gate, nadie compara esos
+        estados)."""
+        review = SurveyReviewService.get_for_process(db, process_id)
+        if review is None:
+            return "apply"
+        if review.status == "approved":
+            return "already"
+        return "conflict"
+
+    @staticmethod
     def summary_for_process(db: Session, process_id: int) -> dict:
         """Foto plana de la solicitud para pintar en otras pantallas (checklist
         de Escolares, home del alumno). Nunca commitea ni siembra nada: es

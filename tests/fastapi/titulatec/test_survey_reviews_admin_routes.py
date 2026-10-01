@@ -13,7 +13,7 @@ Tarea 7. Aquí solo importa el CONJUNTO de permisos que el gate exige.
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import timedelta
 
 import pytest
 
@@ -339,11 +339,14 @@ def test_una_constancia_previa_muestra_su_pildora_y_oculta_ver_respuestas(
     encuesta real detrás. Se revoca igual que cualquier otra (sin cambios en
     la ruta de `/revocar`)."""
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    from itcj2.core.utils.timezone import db_now
 
     gtv = make_gtv()
     proc = make_process(make_student(control_number="99500070"), current_phase=1)
+    # R14 (fix round 1): relativa a `db_now()`, no un `date(...)` fijo -- una
+    # fecha absoluta vieja de más de 365 días vence sola contra el reloj real.
     review = SurveyReviewService.register_prior(
-        db_session, proc, issued_on=date(2026, 3, 1), note=None)
+        db_session, proc, issued_on=db_now().date() - timedelta(days=30), note=None)
     db_session.flush()
 
     resp = client_as(gtv).get(f"{URL}/body?status=approved&q=99500070")

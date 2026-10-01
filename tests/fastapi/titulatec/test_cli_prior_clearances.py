@@ -125,6 +125,53 @@ def test_tipo_invalido_lo_rechaza_click(tmp_path, db_session, patched_session_lo
 
 
 # ---------------------------------------------------------------------------
+# Ruling R13: formatos de fecha, vía --fecha y vía columna
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("texto_fecha", [
+    "2026-09-01",
+    "2026-09-01 10:22:33",
+    "01/09/2026",
+    "01/09/2026 10:22:33",
+])
+def test_fecha_fija_acepta_los_cuatro_formatos(tmp_path, db_session, patched_session_local,
+                                               proceso, texto_fecha):
+    proceso(control_number="99800006")
+    archivo = _csv(tmp_path, "previas.csv", "control\n99800006\n")
+
+    res = _invoke([str(archivo), "--tipo", "encuesta", "--fecha", texto_fecha],
+                  db_session, patched_session_local)
+
+    assert res.exit_code == 0, res.output
+    assert "Aplicadas: 1" in res.output, res.output
+
+
+def test_columna_de_fecha_en_formato_dmy_con_hora(tmp_path, db_session, patched_session_local,
+                                                   proceso):
+    """La exportación real de Google Forms es-MX: `DD/MM/AAAA HH:MM:SS`."""
+    proceso(control_number="99800007")
+    archivo = _csv(tmp_path, "previas.csv",
+                   "control,fecha\n99800007,01/09/2026 10:22:33\n")
+
+    res = _invoke([str(archivo), "--tipo", "encuesta", "--columna-fecha", "fecha"],
+                  db_session, patched_session_local)
+
+    assert res.exit_code == 0, res.output
+    assert "Aplicadas: 1" in res.output, res.output
+
+
+def test_formato_de_fecha_no_reconocido_cae_en_invalidas(tmp_path, db_session,
+                                                          patched_session_local):
+    archivo = _csv(tmp_path, "previas.csv", "control,fecha\n99800008,1-sep-2026\n")
+
+    res = _invoke([str(archivo), "--tipo", "encuesta", "--columna-fecha", "fecha"],
+                  db_session, patched_session_local)
+
+    assert res.exit_code == 0, res.output
+    assert "Inválidas: 1" in res.output, res.output
+    assert "99800008" in res.output
+
+
+# ---------------------------------------------------------------------------
 # Los 6 botes se imprimen (biblioteca, para no repetir el escenario de
 # encuesta de arriba) y dry-run no escribe nada
 # ---------------------------------------------------------------------------

@@ -270,6 +270,26 @@ class LibraryClearanceService:
         return row.status if row is not None else "missing"
 
     @staticmethod
+    def prior_outcome(db: Session, process_id: int) -> str:
+        """Clasifica, SOLO LECTURA, qué le tocaría a una constancia previa de
+        biblioteca sobre este proceso (D9, spec §4.12): `"apply"` (sin fila
+        todavía, o `pending`/`awaiting_payment`: `register_prior` la
+        liberaría) o `"already"` (`cleared`: nada que aplicar).
+
+        Distinta a propósito de `release_status` -esa es SOLO para
+        `ClearanceGate` y la guarda de agendar (§4.4)-: esta es la ÚNICA
+        lectura de `LibraryClearance.status` permitida para la clasificación
+        de constancias previas fuera de este service. `PriorClearanceService`
+        llama aquí en vez de comparar `.status` por su cuenta (§5, invariante
+        2). Gemela de `SurveyReviewService.prior_outcome` (sin el bote
+        `"conflict"`: biblioteca no tiene un estado "en revisión por alguien
+        más" que requiera que lo decida un humano)."""
+        row = LibraryClearanceService.get_for_process(db, process_id)
+        if row is None or row.status in ("pending", "awaiting_payment"):
+            return "apply"
+        return "already"
+
+    @staticmethod
     def release_status_map(db: Session, process_ids: list[int]) -> dict[int, str]:
         """`release_status` de varios procesos EN UNA consulta (filas de la
         cola); los ids sin fila salen como `'missing'`."""

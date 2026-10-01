@@ -23,7 +23,16 @@ Dos puntos de entrada:
 Quien de verdad MUTA la fila del egresado es cada dueño -`SurveyReviewService
 .register_prior` (encuesta) y `LibraryClearanceService.register_prior`
 (biblioteca)-: este módulo nunca escribe `SurveyReview.status` ni
-`LibraryClearance.status` (§5, invariante 1). Vigencia (D9): `issued_on`
+`LibraryClearance.status` (§5, invariante 1). TAMPOCO los LEE directo (fix
+round 1, Important del revisor: `clearance.status == "cleared"` y
+`existente.status == "approved"` se colaron en la primera entrega): la
+clasificación "¿aplicaría, ya se aplicó, o es un conflicto?" vive en
+`SurveyReviewService.prior_outcome`/`LibraryClearanceService.prior_outcome`
+-predicados de SOLO LECTURA de cada dueño, distintos de `release_status`
+(reservado a `ClearanceGate`)-, y este módulo SIEMPRE llama a esos dos en vez
+de comparar `.status` por su cuenta, tanto en `dry_run` como en la corrida
+real. `test_el_servicio_nunca_lee_status_directo`
+(`test_prior_clearance_service.py`) lo barre por AST. Vigencia (D9): `issued_on`
 obligatoria, no futura y `>= hoy - PRIOR_VALIDITY_DAYS` (365 días; exactamente
 365 vale, 366 no) -- el MISMO límite que `LibraryClearanceService.
 PRIOR_VALIDITY_DAYS`, reusado de allá para no declarar el número dos veces.
@@ -56,13 +65,36 @@ IMPORT_BUCKETS = ("applied", "deferred", "already", "conflicts", "expired", "inv
 # en `survey_review_service.py`/`library_clearance_service.py`).
 _PHASE_COTEJO = 2
 
+# Ruling R13: formatos de fecha que acepta una fila (y `--fecha` de la CLI).
+# `AAAA-MM-DD` (ISO, el de siempre) y `DD/MM/AAAA` (el que escribe a mano
+# Servicios Escolares), cada uno con hora opcional -la exportación de Google
+# Forms es-MX trae «15/03/2026 10:22:33»-. Se prueban EN ORDEN y se usa el
+# primero que calce completo (`strptime` exige que no sobre ni falte nada).
+_FECHA_FORMATOS = (
+    "%Y-%m-%d",
+    "%Y-%m-%d %H:%M:%S",
+    "%d/%m/%Y",
+    "%d/%m/%Y %H:%M:%S",
+)
+
+
+def _parse_fecha_texto(texto: str) -> Optional[date]:
+    """`texto` contra cada formato de `_FECHA_FORMATOS`, en orden; `None` si
+    ninguno calza completo."""
+    for formato in _FECHA_FORMATOS:
+        try:
+            return datetime.strptime(texto, formato).date()
+        except ValueError:
+            continue
+    return None
+
 
 def _parse_date(value, *, today: date) -> tuple[Optional[date], Optional[str], Optional[str]]:
-    """Texto ISO (`AAAA-MM-DD`)/`date`/`datetime` -> `(fecha, None, None)` si
-    es vigente, o `(None, bote, motivo)` si no se puede aplicar. `bote` ∈
-    `"invalid"` (ausente, no parseable o futura) | `"expired"` (> 365 días,
-    D9: exactamente 365 vale, 366 no); `motivo` ya es el texto legible que
-    imprime la CLI."""
+    """Texto (cualquiera de `_FECHA_FORMATOS`, R13)/`date`/`datetime` ->
+    `(fecha, None, None)` si es vigente, o `(None, bote, motivo)` si no se
+    puede aplicar. `bote` ∈ `"invalid"` (ausente, no parseable o futura) |
+    `"expired"` (> 365 días, D9: exactamente 365 vale, 366 no); `motivo` ya
+    es el texto legible que imprime la CLI."""
     from itcj2.apps.titulatec.services.library_clearance_service import PRIOR_VALIDITY_DAYS
 
     if value is None or (isinstance(value, str) and not value.strip()):
@@ -71,10 +103,11 @@ def _parse_date(value, *, today: date) -> tuple[Optional[date], Optional[str], O
         value = value.date()
     if not isinstance(value, date):
         texto = str(value).strip()
-        try:
-            value = datetime.strptime(texto, "%Y-%m-%d").date()
-        except ValueError:
-            return None, "invalid", f"fecha no reconocida: {texto!r} (usa AAAA-MM-DD)"
+        value = _parse_fecha_texto(texto)
+        if value is None:
+            return None, "invalid", (
+                f"fecha no reconocida: {texto!r} (usa AAAA-MM-DD o DD/MM/AAAA, "
+                "con hora opcional)")
     if value > today:
         return None, "invalid", "la fecha de emisión no puede ser futura"
     if value < today - timedelta(days=PRIOR_VALIDITY_DAYS):
@@ -177,7 +210,7 @@ class PriorClearanceService:
     def _apply_survey(db: Session, process, previa) -> None:
         from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
-        if SurveyReviewService.get_for_process(db, process.id) is not None:
+        if SurveyReviewService.prior_outcome(db, process.id) != "apply":
             return
         SurveyReviewService.register_prior(
             db, process, issued_on=previa.issued_on, note=previa.note, actor_id=None)
@@ -188,9 +221,9 @@ class PriorClearanceService:
             LibraryClearanceService,
         )
 
-        clearance = LibraryClearanceService.open_for_process(db, process)
-        if clearance.status == "cleared":
+        if LibraryClearanceService.prior_outcome(db, process.id) != "apply":
             return
+        clearance = LibraryClearanceService.open_for_process(db, process)
         LibraryClearanceService.register_prior(
             db, clearance.id, None, issued_on=previa.issued_on, note=previa.note,
             by="import", commit=False)
@@ -282,28 +315,31 @@ class PriorClearanceService:
                 continue
 
             if kind == "survey":
-                existente = SurveyReviewService.get_for_process(db, proceso.id)
-                if existente is None:
+                # Clasificación vía el ÚNICO predicado de lectura del dueño
+                # (§5, invariante 2): ni aquí ni en ningún otro .py de la app
+                # se compara `SurveyReview.status` fuera de
+                # `SurveyReviewService`/`ClearanceGate`.
+                outcome = SurveyReviewService.prior_outcome(db, proceso.id)
+                if outcome == "apply":
                     if not dry_run:
                         SurveyReviewService.register_prior(
                             db, proceso, issued_on=fecha, note=nota, actor_id=None)
                     _add("applied", control, f"encuesta liberada en el proceso {proceso.folio}")
-                elif existente.status == "approved":
+                elif outcome == "already":
                     _add("already", control, "la encuesta ya estaba liberada")
                 else:
                     _add("conflicts", control,
                         "ya envió la encuesta de este semestre; lo decide GTV")
             else:
-                if dry_run:
-                    clearance = LibraryClearanceService.get_for_process(db, proceso.id)
-                    estado = clearance.status if clearance is not None else "pending"
-                else:
-                    clearance = LibraryClearanceService.open_for_process(db, proceso)
-                    estado = clearance.status
-                if estado == "cleared":
+                # Mismo predicado, lado biblioteca: NUNCA se lee
+                # `LibraryClearance.status` aquí, ni en dry-run ni en la
+                # corrida real.
+                outcome = LibraryClearanceService.prior_outcome(db, proceso.id)
+                if outcome == "already":
                     _add("already", control, "el no adeudo ya estaba liberado")
                 else:
                     if not dry_run:
+                        clearance = LibraryClearanceService.open_for_process(db, proceso)
                         LibraryClearanceService.register_prior(
                             db, clearance.id, None, issued_on=fecha, note=nota,
                             by="import", commit=False)

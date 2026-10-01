@@ -26,12 +26,15 @@ allá.
 """
 from __future__ import annotations
 
+import ast
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 import itcj2.models  # noqa: F401
+import itcj2.apps.titulatec.services.prior_clearance_service as _prior_mod
 
 NOTIFY = "itcj2.apps.titulatec.services.notify.notify_student"
 HOY_FIJO = datetime(2026, 10, 1, 10, 0, 0)
@@ -41,6 +44,41 @@ _MODULOS_RELOJ = (
     "itcj2.apps.titulatec.services.survey_review_service",
     "itcj2.apps.titulatec.services.prior_clearance_service",
 )
+
+
+# ---------------------------------------------------------------------------
+# Estructural (fix round 1, Important del revisor; §5 invariante 2)
+# ---------------------------------------------------------------------------
+# `TitulationProcess.status`/`ProcessPhase.status` SÍ son legítimos aquí
+# (`_open_process_for_control` decide si el proceso está "abierto"; no es
+# parte del invariante de liberaciones). Todo lo demás que termine en
+# `.status` -instancia o clase- está prohibido: la clasificación real vive en
+# `SurveyReviewService.prior_outcome`/`LibraryClearanceService.prior_outcome`.
+_STATUS_PERMITIDOS = {"TitulationProcess", "ProcessPhase"}
+
+
+def test_el_servicio_nunca_lee_status_directo():
+    """`prior_clearance_service.py` no compara `SurveyReview.status` ni
+    `LibraryClearance.status` -ni a nivel de clase (`SurveyReview.status ==
+    …`, lo que ya vigila `test_clearance_gate.py`) ni, sobre todo, a nivel de
+    INSTANCIA (`clearance.status == "cleared"`, `existente.status ==
+    "approved"`): así se coló el defecto que encontró la primera revisión,
+    porque el AST de `test_clearance_gate.py` solo reconoce el patrón de
+    CLASE (el de un filtro de consulta), no el de instancia. Usa
+    `SurveyReviewService.prior_outcome`/`LibraryClearanceService.
+    prior_outcome` en su lugar (§5, invariante 2)."""
+    arbol = ast.parse(Path(_prior_mod.__file__).read_text(encoding="utf-8"),
+                      filename=_prior_mod.__file__)
+    hallazgos = [
+        f"línea {nodo.lineno}: {ast.unparse(nodo)}"
+        for nodo in ast.walk(arbol)
+        if isinstance(nodo, ast.Attribute) and nodo.attr == "status"
+        and not (isinstance(nodo.value, ast.Name) and nodo.value.id in _STATUS_PERMITIDOS)
+    ]
+    assert not hallazgos, (
+        "prior_clearance_service.py lee `.status` directo; usa "
+        "SurveyReviewService.prior_outcome / LibraryClearanceService."
+        "prior_outcome en su lugar:\n  " + "\n  ".join(hallazgos))
 
 
 # ---------------------------------------------------------------------------
@@ -534,3 +572,44 @@ class TestImportRowsGeneral:
 
         assert [f["control_number"] for f in resultado["expired"]] == ["99700020"]
         assert resultado["applied"] == []
+
+
+# ---------------------------------------------------------------------------
+# Ruling R13: formatos de fecha (AAAA-MM-DD, DD/MM/AAAA, cualquiera con hora)
+# ---------------------------------------------------------------------------
+class TestFormatosDeFecha:
+    @pytest.mark.parametrize("control, texto_fecha", [
+        ("99700030", "{iso}"),
+        ("99700031", "{iso} 10:22:33"),
+        ("99700032", "{dmy}"),
+        ("99700033", "{dmy} 10:22:33"),
+    ])
+    def test_los_cuatro_formatos_aceptados(self, db_session, proceso, reloj,
+                                           control, texto_fecha):
+        """R13: `AAAA-MM-DD`, `DD/MM/AAAA` y cualquiera de las dos con hora
+        (`15/03/2026 10:22:33`, exportación de Google Forms es-MX)."""
+        proceso(control_number=control)
+        fecha = reloj - timedelta(days=10)
+        texto = texto_fecha.format(iso=fecha.isoformat(), dmy=fecha.strftime("%d/%m/%Y"))
+
+        resultado = _svc().import_rows(
+            db_session, kind="survey", source="t.csv",
+            rows=[{"control_number": control, "issued_on": texto}])
+
+        assert [f["control_number"] for f in resultado["applied"]] == [control], (
+            texto, resultado["invalid"])
+
+    @pytest.mark.parametrize("texto_fecha", [
+        "15-03-2026",          # AAAA-MM-DD con los componentes en el orden de DD/MM/AAAA
+        "2026/03/15",           # ISO con '/' en vez de '-'
+        "15 de marzo de 2026",  # texto libre
+        "2026-03-15T10:22:33",  # separador 'T' (no soportado, solo espacio)
+        "",
+    ])
+    def test_formato_no_reconocido_cae_en_invalida(self, db_session, texto_fecha):
+        resultado = _svc().import_rows(
+            db_session, kind="survey", source="t.csv",
+            rows=[{"control_number": "99700034", "issued_on": texto_fecha}])
+
+        assert len(resultado["invalid"]) == 1
+        assert resultado["applied"] == resultado["deferred"] == resultado["expired"] == []
