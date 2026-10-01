@@ -1,0 +1,99 @@
+{# ===========================================================================
+   partials/_document_versions_modal.html — modal "Historial de versiones".
+
+   Lo incluyen desde su `{% block modals %}` las DOS pantallas de documentos:
+
+     {% block modals %}
+       {% include "adhoc/partials/_document_versions_modal.html" %}
+     {% endblock %}
+
+   POR QUÉ UN PARTIAL Y NO UNA MACRO
+   ---------------------------------
+   No recibe parámetros: el modal es siempre el mismo y lo rellena
+   `js/documents/document-versions.js` con la respuesta de
+   GET /api/adhoc/v2/documents/{id}/versions. Una macro sin argumentos sería
+   una indirección de más; el `{% include %}` deja claro que las dos pantallas
+   montan el MISMO nodo.
+
+   QUÉ RESUELVE
+   ------------
+   Las dos listas ocultan por defecto las versiones superadas (58 de las 202
+   filas), así que tiene que haber un sitio donde se vean todas. Este es. En el
+   legacy este bloque existía dentro de `advanced_documents.html` pero era un
+   mockup: la fecha estaba escrita a mano y la versión anterior se calculaba
+   restando 1.0 a la actual.
+
+   REGLAS QUE CUMPLE
+   -----------------
+   * Familia de modal PROPIA (`.adhoc-modal > .adhoc-modal-dialog >
+     .adhoc-modal-content`), no la de Bootstrap: lo abre
+     `AdhocUtils.openModal()` y lo cierra el `data-adhoc-modal-close` delegado.
+   * Va en `{% block modals %}`, que vive al final de #adhoc-root (la caja que
+     HTMX intercambia, así el diálogo entra y sale con su pantalla) y fuera de
+     cualquier contenedor con `transform`/`filter`/`perspective` — esos crean un
+     containing block nuevo y rompen el `position: fixed` del velo.
+   * Un solo pie, con el par del vocabulario de la app; todo botón con `btn-sm`.
+   * Cero CSS en línea y cero manejadores en línea.
+   * La tabla va dentro de `.adhoc-table-wrap`: con el diálogo estrechado en un
+     móvil, las cinco columnas se desplazan en horizontal en vez de desbordar.
+
+   El `<tbody>` arranca solo con la fila de "sin datos"; el JS inserta las
+   versiones ANTES de ella y la esconde cuando hay filas.
+   =========================================================================== #}
+<div class="adhoc-modal" id="adhoc-doc-versions-modal" role="dialog" aria-modal="true"
+     aria-labelledby="adhoc-doc-versions-modal-title" aria-hidden="true"
+     data-adhoc-versions-modal>
+  <div class="adhoc-modal-dialog adhoc-doc-versions-dialog">
+    <div class="adhoc-modal-content">
+
+      <div class="adhoc-modal-header">
+        <h2 class="adhoc-modal-title" id="adhoc-doc-versions-modal-title">
+          <i class="fa-solid fa-code-branch me-2"></i>Historial de versiones
+        </h2>
+        <button type="button" class="btn-close" data-adhoc-modal-close aria-label="Cerrar"></button>
+      </div>
+
+      <div class="adhoc-modal-body">
+        {# Código y título del documento desde el que se abrió el historial. Lo
+           escribe el JS con textContent; nace vacío y oculto. #}
+        <p class="adhoc-doc-versions-doc" data-adhoc-versions-doc hidden></p>
+
+        {# Línea de estado: "Cargando historial…", el número de versiones de la
+           cadena, "Esta es la única versión registrada" o el error. Es `polite`
+           porque el contenido del modal cambia sin que el usuario navegue. #}
+        <p class="adhoc-doc-versions-note" data-adhoc-versions-note aria-live="polite" hidden></p>
+
+        <div class="adhoc-table-wrap">
+          <table class="adhoc-table adhoc-table-auto adhoc-doc-versions-table">
+            <thead>
+              <tr>
+                <th scope="col" class="adhoc-col-start">Versión</th>
+                <th scope="col" class="adhoc-col-start">Estatus</th>
+                <th scope="col" class="adhoc-col-start">Vigencia</th>
+                <th scope="col" class="adhoc-col-start">Aprobación</th>
+                <th scope="col" class="adhoc-col-center">Archivo</th>
+              </tr>
+            </thead>
+            <tbody data-adhoc-versions-body>
+              <tr class="adhoc-table-empty" data-adhoc-empty data-adhoc-versions-empty>
+                <td colspan="5">
+                  <div class="adhoc-empty">
+                    <i class="fa-solid fa-code-branch adhoc-empty-icon"></i>
+                    <p class="adhoc-empty-text mb-0">
+                      No se encontraron versiones de este documento.
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="adhoc-modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-adhoc-modal-close>Cerrar</button>
+      </div>
+
+    </div>
+  </div>
+</div>

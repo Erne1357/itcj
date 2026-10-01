@@ -1,0 +1,211 @@
+{# ===========================================================================
+   dashboard/dashboard.html — tablero de "mis tareas" + modal de workflow.
+   Ruta: GET /adhoc/dashboard  ·  permiso: adhoc.dashboard.page.view
+
+   Reemplaza a templates/app_prueba/dashboard/dashboard.html, la pantalla más
+   sucia del legacy: 260 líneas de JS incrustado, 110 de CSS incrustado, 10
+   manejadores inline y 3 modales caseros con .modal-overlay. Aquí:
+
+     · el JS vive en static/js/dashboard/dashboard.js (IIFE),
+     · el CSS en static/css/dashboard/dashboard.css,
+     · el modal de workflow es un partial compartido incluido desde el
+       bloque de modales (sigue siendo un bootstrap.Modal, y sigue estando
+       fuera de cualquier contenedor con transform),
+     · las tarjetas no llevan manejadores inline: se abren por delegación desde
+       data-adhoc-task.
+
+   PRESENTACIÓN — porte 1:1 del legacy (fase visual):
+     · el saludo es UNA sola línea ("Hola, <nombre>. Estas son tus tareas
+       pendientes:"), no un título con subtítulo;
+     · la tarjeta es la `.kanban-card` original: 320 px fijos, filete violeta
+       arriba (5 px) y a la izquierda (4 px), prioridad a la izquierda y
+       estatus a la derecha, y el bloque de metadatos sobre gris #f8f9fa;
+     · los iconos son Font Awesome 6.4 (`fa-solid` / `fa-regular`), que es lo
+       que carga el shell — los mismos glifos que elegía el original.
+
+   LO ÚNICO QUE NO VIENE DEL LEGACY es el aviso de vigencia documental que va
+   entre el saludo y el tablero: el contador de documentos vigentes vencidos,
+   que se calcula en pages/dashboard.py::_expiry_notice() y llega como `expiry`
+   (o como None, y entonces no se pinta). El legacy no tenía dónde verlo.
+
+   Las tarjetas llegan ya resueltas desde pages/dashboard.py::build_card(): el
+   template no navega ninguna relación del ORM (el legacy hacía
+   tarea.creator.first_name dentro del bucle → un SELECT por tarjeta).
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import priority_badge, status_badge, page_data_script %}
+
+{% block title %}Mis tareas · Calidad · ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/dashboard/dashboard.css?v={{ sv('css/dashboard/dashboard.css') }}">
+{# El dialogo de workflow se viste aparte: su markup y su hoja los comparten
+   esta pantalla y las listas de tareas de una incidencia o de un evento. #}
+<link rel="stylesheet" href="/static/adhoc/css/work/workflow-modal.css?v={{ sv('css/work/workflow-modal.css') }}">
+{% endblock %}
+
+{% block content %}
+{# `.adhoc-tasks` es la `.tasks-section` del legacy: 98 % centrado con 20 px de
+   aire propio DENTRO del contenedor de 1200 px. De ahí el desplazamiento del
+   tablero respecto a la fila de tarjetas de navegación. #}
+<section id="adhoc-page-tasks" class="adhoc-tasks">
+  <div class="adhoc-tasks-head">
+    <h1 class="adhoc-tasks-title">Hola, <span class="adhoc-tasks-name">{{ user_name }}</span>. Estas son tus tareas pendientes:</h1>
+  </div>
+
+  {# — Aviso de vigencia documental —————————————————————————————————————
+     Va DEBAJO del saludo, no encima, por tres razones:
+
+       · el saludo es el <h1> y la identidad de la landing; un recuadro rojo
+         por delante lo empuja fuera del primer golpe de vista y se lee como un
+         error de la propia página, no como un dato del SGC;
+       · el encabezado sigue siendo el primer elemento del documento, que es lo
+         que anuncia un lector de pantalla al entrar;
+       · el saludo ocupa UNA línea, así que "debajo" sigue estando por encima
+         del tablero y sobre la línea de flotación en cualquier viewport.
+
+     No habla de "mis tareas" —es el estado del SGC entero—, de ahí el <aside>
+     con nombre propio: quien navega por landmarks lo encuentra sin barrer la
+     página.
+
+     Solo llega con `expiry` distinto de None: sin permiso de documentos, con
+     la query caída o con los dos conteos en cero, pages/dashboard.py manda
+     None y aquí no se pinta nada. La pastilla lleva el número y el texto solo
+     concuerda con él, así que la cifra no sale dos veces. #}
+  {% if expiry %}
+  <aside class="adhoc-card adhoc-expiry{% if not expiry.expired %} is-warning{% endif %}"
+         aria-label="Vigencia documental">
+    <i class="fa-solid fa-file-circle-exclamation adhoc-expiry-icon" aria-hidden="true"></i>
+    <div class="adhoc-expiry-body">
+      {% if expiry.expired %}
+      <p class="adhoc-expiry-line">
+        <span class="adhoc-badge adhoc-badge-danger">{{ expiry.expired }}</span>
+        <span class="adhoc-expiry-text">{{ expiry.expired_text }}</span>
+        <a class="adhoc-expiry-link" href="/adhoc/documentos?expiring=vencidos">
+          Revisarlos <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+        </a>
+      </p>
+      {% endif %}
+      {% if expiry.soon %}
+      <p class="adhoc-expiry-line">
+        <span class="adhoc-badge adhoc-badge-warning">{{ expiry.soon }}</span>
+        <span class="adhoc-expiry-text">{{ expiry.soon_text }}</span>
+        <a class="adhoc-expiry-link" href="/adhoc/documentos?expiring=por_vencer_30d">
+          Verlos <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+        </a>
+      </p>
+      {% endif %}
+    </div>
+  </aside>
+  {% endif %}
+
+  {% if cards %}
+  {# Tira horizontal con scroll-snap, como el legacy. El overflow vive en este
+     contenedor, así que el <body> nunca desborda en horizontal. #}
+  <div class="adhoc-kanban" data-adhoc-kanban role="list">
+    {% for c in cards %}
+    <article class="adhoc-kcard{% if c.needs_attention %} is-attention{% endif %}{% if c.is_locked %} is-locked{% endif %}"
+             role="listitem"
+             tabindex="0"
+             data-adhoc-task="{{ c.id }}"
+             data-adhoc-task-status="{{ c.status }}"
+             aria-label="Abrir la tarea {{ c.description }}">
+      {# El legacy agrupa cabecera + cuerpo en un <div> y deja el pie abajo del
+         todo con `justify-content: space-between`. Aquí el pie lo baja su
+         propio `margin-top:auto`, que da el mismo resultado sin anidar. #}
+      <div class="adhoc-kcard-head">
+        {{ priority_badge(c.priority) }}
+        <span class="adhoc-kcard-state">
+          {{ status_badge(c.status, 'task') }}
+          {% if c.is_locked %}<i class="fa-solid fa-lock adhoc-kcard-lock" aria-hidden="true"></i>{% endif %}
+        </span>
+      </div>
+
+      <div class="adhoc-kcard-body">
+        {% if c.is_review %}
+          <p class="adhoc-kcard-kicker">
+            {% if c.parent_kind == 'document' %}
+              <i class="fa-solid fa-file-signature" aria-hidden="true"></i> Revisión de documento:
+            {% else %}
+              <i class="fa-solid fa-list-check" aria-hidden="true"></i> Validar conclusión y eficacia de:
+            {% endif %}
+          </p>
+          <p class="adhoc-kcard-parent">
+            {{ c.parent_title or c.description }}{% if c.parent_version %} (v{{ c.parent_version }}){% endif %}
+          </p>
+          <p class="adhoc-kcard-sub">{{ c.description }}</p>
+        {% elif c.is_rejected %}
+          <p class="adhoc-kcard-kicker is-danger">
+            <i class="fa-solid fa-triangle-exclamation adhoc-blink" aria-hidden="true"></i> Notificación de rechazo:
+          </p>
+          <p class="adhoc-kcard-parent">{{ c.description }}</p>
+        {% else %}
+          <p class="adhoc-kcard-title">{{ c.description }}</p>
+        {% endif %}
+
+        {% if c.needs_attention %}
+        <p class="adhoc-kcard-flag">
+          <i class="fa-solid fa-triangle-exclamation adhoc-blink" aria-hidden="true"></i> ¡Atención requerida!
+        </p>
+        {% endif %}
+      </div>
+
+      <footer class="adhoc-kcard-foot">
+        <span class="adhoc-kcard-meta">
+          <i class="fa-regular fa-calendar-check adhoc-kcard-ico-date" aria-hidden="true"></i>
+          <strong>Límite:</strong> {{ c.due_label }}
+        </span>
+        <span class="adhoc-kcard-meta">
+          <i class="fa-solid fa-user-pen adhoc-kcard-ico-user" aria-hidden="true"></i>
+          <strong>Solicitante:</strong> {{ c.creator_name }}
+        </span>
+        <span class="adhoc-kcard-origin">
+          Origen: {{ c.parent_label }}
+          {%- if c.comments_count %} · {{ c.comments_count }} comentario(s){% endif %}
+        </span>
+      </footer>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  {# Recuadro grande con borde discontinuo y taza, igual que el legacy: título
+     y frase en dos líneas, sin tarjeta blanca alrededor.
+
+     El envoltorio es la misma caja flexible que la tira de tarjetas: el legacy
+     mete el estado vacío DENTRO de `.kanban-grid`, y de ahí sale su geometría
+     (los 10 px de margen no se colapsan contra el saludo y el tablero conserva
+     los 20 px de aire inferior). #}
+  <div class="adhoc-tasks-board">
+    <div class="adhoc-empty adhoc-tasks-empty">
+      <i class="fa-solid fa-mug-hot adhoc-empty-icon" aria-hidden="true"></i>
+      <h2 class="adhoc-tasks-empty-title">¡Todo al día!</h2>
+      <p class="adhoc-empty-text">No tienes tareas pendientes asignadas en este momento.</p>
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
+
+
+{% block modals %}
+{# Modal de workflow. El markup vive en partials/_workflow_modal.html porque
+   lo comparten tres pantallas: este tablero y las dos listas de tareas de un
+   expediente. El tablero es la unica que lo abre en modo COMPLETO —con
+   comentario nuevo y las tres acciones de flujo—, y por eso es la unica que
+   declara las dos capacidades. Una pantalla que no las declare recibe el
+   dialogo de solo lectura: el defecto es no poder actuar, nunca al reves. #}
+{% with wf_can_comment = page_data.can_comment,
+        wf_can_workflow = page_data.can_workflow %}
+  {% include "adhoc/partials/_workflow_modal.html" %}
+{% endwith %}
+{% endblock %}
+
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+{# El modal PRIMERO: dashboard.js lo consume por window.AdhocWorkflowModal. El
+   id es el mismo en las tres pantallas que lo cargan, asi que idiomorph
+   conserva el nodo al navegar entre ellas y el modulo no se re-ejecuta. #}
+<script id="adhoc-mod-work-workflow-modal" src="/static/adhoc/js/work/workflow-modal.js?v={{ sv('js/work/workflow-modal.js') }}"></script>
+<script id="adhoc-mod-dashboard-dashboard" src="/static/adhoc/js/dashboard/dashboard.js?v={{ sv('js/dashboard/dashboard.js') }}"></script>
+{% endblock %}

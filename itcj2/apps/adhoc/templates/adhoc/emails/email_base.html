@@ -1,0 +1,77 @@
+{#
+  Base de los 5 correos transaccionales de Calidad.
+
+  Portado de template/itcj/apps/app_prueba/templates/app_prueba/mails/email_base.html
+  con tres arreglos respecto al legacy:
+
+  1. La ruta del {% extends %} de los hijos apuntaba a 'app_prueba/emails/...',
+     una carpeta que NO existía (la real era 'mails/'). Los 5 correos habrían
+     reventado con TemplateNotFound el día que alguien los enviara. Aquí la
+     carpeta se llama 'emails/' de verdad y las rutas son 'adhoc/emails/...'.
+  2. {{ app_name }} nunca se inyectaba desde el código: salía vacío en el cuerpo
+     de los 5 correos. Ahora lo pone AdhocEmailHelper._render() en todos.
+  3. Sin <img src="cid:..."> — graph_send_mail() del core NO manda 'attachments',
+     así que el logo inline llegaba roto. Header tipográfico, como maint.
+
+  CSS inline (atributos style=): es correo, aquí sí va.
+#}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block subject %}{{ app_name }}{% endblock %}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#ecf0f3;font-family:Arial,Helvetica,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
+         style="background-color:#ecf0f3;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table width="640" cellpadding="0" cellspacing="0" role="presentation"
+               style="max-width:640px;width:100%;border-radius:12px;overflow:hidden;border:1px solid #dfe6e9;box-shadow:0 2px 8px rgba(45,52,54,.10);">
+
+          <!-- HEADER -->
+          <tr>
+            <td style="background-color:#4834d4;padding:28px 32px;text-align:center;">
+              <p style="margin:0;color:#ffffff;font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:.85;">
+                Instituto Tecnológico de Ciudad Juárez
+              </p>
+              <p style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:.5px;">
+                {{ app_name }}
+              </p>
+              <p style="margin:6px 0 0;color:#d6d1f7;font-size:13px;">
+                Sistema de Gestión de la Calidad
+              </p>
+            </td>
+          </tr>
+
+          <!-- BODY -->
+          <tr>
+            <td style="background-color:#ffffff;padding:32px;">
+              {% if recipient %}
+              <p style="margin:0 0 16px;color:#2d3436;font-size:15px;line-height:1.5;">
+                Hola <strong>{{ recipient_name }}</strong>,
+              </p>
+              {% endif %}
+              {% block content %}{% endblock %}
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td style="background-color:#f5f6fa;padding:18px 32px;text-align:center;border-top:1px solid #dfe6e9;">
+              <p style="margin:0;color:#636e72;font-size:11px;line-height:1.6;">
+                Este correo fue generado automáticamente por {{ app_name }} — ITCJ.<br>
+                Favor de no responder a este mensaje.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

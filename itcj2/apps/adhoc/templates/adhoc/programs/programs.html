@@ -1,0 +1,64 @@
+{# ===========================================================================
+   programs/programs.html — /adhoc/programas
+   Permiso de página: adhoc.programs.page.list
+
+   Extiende la base compartida con incidencias (`adhoc/work/_work_item_page.html`)
+   y añade lo único que es propio de los eventos de programa:
+     · el modal de ARCHIVOS ADJUNTOS (listar / subir / descargar / eliminar),
+     · el módulo JS que además sabe duplicar un evento.
+
+   Origen legacy: `templates/app_prueba/programs/programs.html`. Su modal de
+   archivos pintaba `${archivo.nombre}` sin escapar dentro de `innerHTML` y
+   construía la URL de descarga concatenando el nombre crudo, sin
+   `encodeURIComponent` (404 con cualquier espacio o acento). Aquí la lista se
+   construye con `textContent` y la descarga va **por id de archivo**.
+
+   Los botones de este modal siguen el vocabulario único de controles. "Subir" y
+   "Cerrar" venían con dos de los alias `.adhoc-btn-*` del legacy, que ya no
+   existen en adhoc.css, así que ahora se escriben con la variante de Bootstrap
+   y SIEMPRE con `btn-sm`. "Cerrar" es el descarte del pie, o sea la forma
+   "cancelar": `btn btn-sm btn-secondary`.
+
+   "Subir" NO colapsa su etiqueta con `d-none d-sm-inline`: vive dentro del
+   cuerpo del modal (`.adhoc-files-upload`), que no es ni `.adhoc-page-actions`
+   ni una toolbar, y ahí el texto siempre cabe.
+   =========================================================================== #}
+{% extends "adhoc/work/_work_item_page.html" %}
+
+{% block work_extra_modals %}
+<div class="modal fade" id="adhoc-files-modal" tabindex="-1"
+     aria-labelledby="adhoc-files-modal-title" aria-hidden="true" data-adhoc-files-modal>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="adhoc-files-modal-title">
+          <i class="fa-regular fa-folder-open me-2"></i>
+          <span data-adhoc-files-title>Archivos del Programa</span>
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="adhoc-files-list" data-adhoc-files-list aria-live="polite"></div>
+
+        {% if page_data.can.files_create %}
+        <div class="adhoc-files-upload">
+          <label class="form-label adhoc-label" for="adhoc-files-input">Adjuntar archivos</label>
+          <input type="file" class="form-control" id="adhoc-files-input"
+                 data-adhoc-files-input multiple>
+          <button type="button" class="btn btn-sm btn-primary" data-adhoc-files-upload>
+            <i class="fa-solid fa-upload"></i> Subir
+          </button>
+        </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block work_page_js %}
+<script id="adhoc-mod-programs-programs" src="/static/adhoc/js/programs/programs.js?v={{ sv('js/programs/programs.js') }}"></script>
+{% endblock %}

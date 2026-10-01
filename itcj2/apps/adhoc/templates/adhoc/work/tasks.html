@@ -1,0 +1,232 @@
+{# ===========================================================================
+   work/tasks.html — tareas de una incidencia, de un evento de programa O de
+   un documento.
+     /adhoc/incidencias/{id}/tareas
+     /adhoc/programas/{id}/tareas
+     /adhoc/documentos/{id}/tareas          (B4; el legacy no la tenía)
+   Permiso de página (las tres): adhoc.tasks.page.list
+
+   TRES pantallas, un solo template: todo lo que se añada aquí tiene que ser
+   condicional o valer para las tres. Hoy solo hay una diferencia —la columna
+   "Paso" del documento— y va por bandera del servidor, no por un
+   `parent_type == 'document'` escrito en la plantilla.
+
+   UN SOLO template parametrizado por `parent_type`, como pedía el plan. El
+   legacy también reusaba `incidents/tasks.html` desde la ruta de programas,
+   pero cada ruta le pasaba un contexto distinto (`notified_map` solo desde
+   programas, y sin usarse) y el template resolvía la URL de asignación con un
+   `{% raw %}{% set ruta_base = ... if parent_type == 'incident' else ... %}{% endraw %}`
+   embebido. Aquí las URLs salen de `page_data`, que arma
+   `pages/_work_context.py::tasks_page_context` — la misma función para los tres.
+
+   ASPECTO — porte de `templates/app_prueba/incidents/tasks.html`:
+     · UNA tarjeta blanca con todo dentro (`.table-container`);
+     · contenedor al 98 % (clase `adhoc-wide`);
+     · título "Tareas del Expediente: {folio}" con el icono de lista;
+     · "Volver" arriba a la derecha, "Limpiar" + "Filtrar" debajo;
+     · los filtros van en la segunda fila del <thead>, que es justo lo que
+       emite la macro `data_table()` para las columnas marcadas `filter`;
+     · "Añadir Tareas" + selector de cantidad al pie.
+
+   La lista NO viene paginada del servidor (`GET /tasks?parent_type=&parent_id=`
+   devuelve todas las de ese padre), así que el filtrado sí es en cliente y lo
+   hace `shared/table-filter.js` por CLAVE de columna. Cada <td> filtrable lleva
+   su `data-adhoc-cell`.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import
+     back_button, page_header, data_table, toolbar, page_data_script %}
+
+{% block title %}Tareas · {{ parent.folio or parent.title }} · Calidad · ITCJ{% endblock %}
+
+{# `adhoc-worktasks-body` no llegó a existir como regla en ninguna hoja: era una
+   clase-gancho que nadie enganchó. `adhoc-wide` sí (el 98 % del legacy). #}
+{% block body_class %}adhoc-wide{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/work/tasks.css?v={{ sv('css/work/tasks.css') }}">
+{# El diálogo del hilo de una tarea se viste aparte: su markup y su hoja los
+   comparten esta pantalla y el tablero. #}
+<link rel="stylesheet" href="/static/adhoc/css/work/workflow-modal.css?v={{ sv('css/work/workflow-modal.css') }}">
+{% endblock %}
+
+{% block content %}
+{# El id lleva el tipo de expediente: la misma plantilla pinta las tareas de
+   una incidencia, las de un evento de programa y las de un documento. #}
+<section id="adhoc-page-worktasks-{{ parent_type }}" class="adhoc-worktasks" data-adhoc-tasks>
+  <div class="adhoc-card adhoc-worktasks-card">
+
+    {% call page_header('Tareas del Expediente: ' ~ (parent.folio or parent.title),
+                        parent.title, 'fa-solid fa-list-check') %}
+      {{ back_button(back_url, 'Volver') }}
+    {% endcall %}
+
+    {# — CONTROLES SUPERIORES (legacy `.controls-top`) —
+       "Limpiar" lo atiende shared/table-filter.js por delegación: vacía todos
+       los `data-adhoc-filter-input` de la tabla destino. "Filtrar" existe
+       porque la pantalla del legacy lo tiene; el filtrado ya es en vivo.
+
+       Va por `toolbar()` y no por un `.adhoc-worktasks-controls` propio: era la
+       novena copia del mismo `.controls-top`. `.adhoc-toolbar` ya es flex/wrap/
+       end con el mismo hueco inferior, y el superior lo pone el margen de
+       `.adhoc-page-head` (que colapsaba con el de la regla borrada, así que el
+       margen resultante es el mismo). Lo único que se mueve es la separación
+       entre los dos botones: 10px → 15px, los mismos que ya tenía esta barra en
+       incidencias/programas. Unificar eso es justamente el objetivo. #}
+    {% call toolbar() %}
+      <button type="button" class="btn btn-sm btn-secondary"
+              data-adhoc-filter-clear="{{ page_data.table_id }}">
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
+      </button>
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-tasks-filter>
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
+      </button>
+    {% endcall %}
+
+    {# — COLUMNA "PASO", SOLO EN LA PANTALLA DE DOCUMENTO —
+       La bandera la decide el servidor (`_work_context.tasks_page_context`),
+       porque la respuesta es del dominio y no de la plantilla: solo las tareas
+       de documento cuelgan de un paso del flujo (`AdhocTask.flow_step`), y para
+       las otras dos `serialize_task` emite `flow_step: null`. Una columna con
+       diez guiones no es una columna.
+
+       Va como LISTA que se concatena, no como un `{% raw %}{% if %}{% endraw %}` alrededor de un
+       `<th>`: la macro `data_table()` deriva de la misma lista el encabezado,
+       la fila de filtros y el `colspan` de "sin resultados", así que aquí los
+       tres no pueden descuadrarse. Con un `<th>` suelto habría que acordarse de
+       tocar los tres sitios, que es el fallo clásico de este template —ya lo
+       comparten tres pantallas—. Son 9 columnas en incidencias y programas y
+       10 en documentos.
+
+       El ORDEN importa y es contrato con `work/tasks.js::buildRow`, que inserta
+       su `<td>` en esta misma posición: justo detrás de "Tarea", porque el paso
+       es parte de la identidad de la tarea (la describe: "Aprobar Documento: X
+       (Paso: Y)"), no un atributo más de su seguimiento.
+
+       `width='auto'` (min-width: 0) y NO el `'lg'` de antes: el suelo de ancho
+       de esta tabla lo pone su propia hoja (`work/tasks.css`, regla
+       `.adhoc-worktasks .adhoc-table`) porque es un valor MEDIDO sobre estas
+       tres pantallas, no el escalón compartido de 1200px. Ese escalón
+       desbordaba el envoltorio en 36px a 1280 —la resolución de los equipos del
+       ITCJ— y los 36px que se comía eran justo la columna "Acciones". #}
+    {%- set _col_paso = [
+          {'key': 'flow_step', 'label': 'Paso', 'filter': true, 'placeholder': 'Paso del flujo'}
+        ] if show_step_column else [] -%}
+    {{ data_table(
+         page_data.table_id,
+         [
+           {'key': 'description', 'label': 'Tarea', 'filter': true, 'placeholder': 'Buscar Tarea'}
+         ] + _col_paso + [
+           {'key': 'assignees', 'label': 'Responsable(s)', 'filter': true, 'placeholder': 'Responsable'},
+           {'key': 'status', 'label': 'Estatus', 'filter': true, 'placeholder': 'Estatus'},
+           {'key': 'priority', 'label': 'Prioridad'},
+           {'key': 'start_date', 'label': 'Inicio'},
+           {'key': 'due_date', 'label': 'Compromiso'},
+           {'key': 'completed_at', 'label': 'Real'},
+           {'key': 'comments', 'label': 'Notas', 'align': 'center'},
+           {'key': 'actions', 'label': 'Acciones', 'align': 'center'}
+         ],
+         'No hay tareas registradas para este expediente aún.',
+         'fa-regular fa-folder-open',
+         width='auto') }}
+
+    {# — CONTROLES INFERIORES (legacy `.bottom-controls`) — #}
+    {% if can_create %}
+    <div class="adhoc-worktasks-bottom">
+      {# La etiqueta NO se colapsa en móvil: este botón no vive en una barra de
+         acciones, sino pegado al selector de cantidad, y un "+" suelto junto a
+         un "2 Tareas" no dice qué se va a añadir. #}
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-tasks-new>
+        <i class="fa-solid fa-plus"></i> Añadir Tareas
+      </button>
+      <label class="visually-hidden" for="adhoc-tasks-qty">Cuántas tareas capturar</label>
+      <select class="adhoc-qty-select" id="adhoc-tasks-qty" data-adhoc-tasks-qty>
+        {# El legacy ofrece 1/3/5/10; el 2 se conserva porque la suite E2E lo
+           selecciona para dar de alta dos tareas de una vez. #}
+        {% for n in [1, 2, 3, 5, 10] %}<option value="{{ n }}">{{ n }} {{ 'Tarea' if n == 1 else 'Tareas' }}</option>{% endfor %}
+      </select>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+
+
+{% block modals %}
+<div class="modal fade" id="adhoc-tasks-modal" tabindex="-1"
+     aria-labelledby="adhoc-tasks-modal-title" aria-hidden="true" data-adhoc-tasks-modal>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="adhoc-tasks-modal-title">
+          <i class="fa-solid fa-list-check me-2" data-adhoc-tasks-modal-icon></i>
+          <span data-adhoc-tasks-modal-title>Gestión de Tarea</span>
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {# `hx-boost="false"` NO es decorativo: es lo que impide que HTMX se lleve
+           por delante el boton ATRAS de toda la app. `#adhoc-root` declara
+           `hx-boost="true"` y el atributo lo HEREDA todo descendiente, modales
+           incluidos; al procesar un <form> boosted, htmx 2.0.3 hace
+           (`boostElement`):
+
+               path = getRawAttribute(elt, 'action')
+               if (verb === 'get' && path.includes('?')) ...
+
+           Sin `action`, `path` es null y eso es un TypeError. En la carga normal
+           la excepcion aborta el `ready()` de htmx ANTES de instalar
+           `window.onpopstate`, asi que el ATRAS deja de hacer nada; y si se
+           llega a esta pantalla navegando, la excepcion sube dentro de
+           `restoreHistory()` y `htmx:historyRestore` no se emite nunca, con lo
+           que la lista vuelve pintada del cache y MUERTA.
+
+           Darle `action` seria mentir: este formulario no se manda nunca al
+           servidor por si mismo —tasks.js lo lee con `new FormData(form)` y llama a
+           la API con `fetch`—. Lo correcto es sacarlo del boost.
+           Regresion cubierta por tests/e2e/adhoc/navigation-integrity.spec.js
+           ("ningun <form> de dentro de #adhoc-root se queda sin action"). #}
+        <form data-adhoc-tasks-form novalidate hx-boost="false">
+          <div data-adhoc-tasks-fields></div>
+        </form>
+      </div>
+      {# Pie canónico de la app: eliminar (rojo, empujado a la izquierda con
+         `me-auto`) · cancelar (gris) · confirmar (violeta). Las tres clases son
+         las únicas admitidas en un pie de modal. #}
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-danger me-auto" data-adhoc-tasks-delete hidden>
+          <i class="fa-solid fa-trash"></i>
+          <span class="d-none d-sm-inline">Eliminar</span>
+        </button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-tasks-save>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar Cambios
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# — HILO DE LA TAREA (solo lectura) —
+   El mismo diálogo del tablero, incluido SIN el `{% raw %}{% with %}{% endraw %}` de las dos
+   capacidades: así `wf_can_comment` y `wf_can_workflow` llegan `Undefined`, ni
+   la caja de comentario ni las tres acciones de flujo se emiten, y esta
+   pantalla solo puede LEER el expediente — también cuando la tarea sigue
+   abierta. Actuar sobre una tarea sigue siendo cosa del tablero.
+
+   Sus ids van todos bajo `adhoc-wf-…` y no chocan con los del modal de edición
+   de arriba (`adhoc-tasks-…`) ni con los campos que fabrica tasks.js
+   (`adhoc-tf-{índice}-{campo}`). #}
+{% include "adhoc/partials/_workflow_modal.html" %}
+{% endblock %}
+
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+{# El modal PRIMERO: tasks.js lo consume por `window.AdhocWorkflowModal` al
+   pulsar el contador de la columna "Notas". El id es el mismo que en el
+   tablero, así que idiomorph conserva el nodo al navegar entre las dos
+   pantallas y el módulo no se re-ejecuta. #}
+<script id="adhoc-mod-work-workflow-modal" src="/static/adhoc/js/work/workflow-modal.js?v={{ sv('js/work/workflow-modal.js') }}"></script>
+<script id="adhoc-mod-work-tasks" src="/static/adhoc/js/work/tasks.js?v={{ sv('js/work/tasks.js') }}"></script>
+{% endblock %}

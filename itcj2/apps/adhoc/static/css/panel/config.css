@@ -1,0 +1,139 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/panel/configuracion
+   CONTIENE rejilla de cuatro columnas, tarjeta con filete violeta y su lista de
+            enlaces con galon
+   EN BASE  la tarjeta contenedora y el encabezado en negrita con icono a 1rem
+   --------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   panel/config.css — tercer nivel de navegación (/adhoc/panel/configuracion).
+
+   PORTE de control_panel/advanced_config.css con sus valores exactos: rejilla
+   de 4 columnas con 20px de gap y 40px de aire arriba, tarjeta con borde
+   superior violeta de 5px, cabecera con círculo lavanda de 45px separada por
+   una línea, y enlaces gris con galón que se desplazan 3px al pasar el ratón.
+
+   Todas las clases van prefijadas .adhoc-…; el contenedor de tarjeta reusa
+   .adhoc-card de adhoc.css (que ya es el `.table-container` del legacy).
+   ========================================================================== */
+
+/* Encabezado: el legacy no estiliza su `.header-title`, así que el icono queda
+   en 1rem y del color del texto, y el <h2> en negrita de verdad (700). (Que
+   ademas salga apilado —icono arriba, titulo debajo— lo resuelve el bloque de
+   encabezado apilado de adhoc.css.) */
+/* Los 20px de `.config-container { padding-top: 20px }`. Van como PADDING del
+   contenedor de contenido, no como margin del encabezado: siendo este el
+   primer hijo, su margen superior se colapsaria hacia fuera y no moveria nada.
+   Sin esto la pantalla entera queda 20px mas arriba que el original. */
+.adhoc-config-page .adhoc-page {
+  padding-top: var(--adhoc-space-3xl);
+}
+
+/* Rejilla: CUATRO columnas exactas, como el original. */
+.adhoc-config-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--adhoc-space-3xl);
+  margin-top: var(--adhoc-space-6xl);
+}
+
+/* `.adhoc-card + .adhoc-card` de adhoc.css mete 25px de margen superior entre
+   tarjetas hermanas: dentro de la rejilla eso hundía las tres últimas. */
+.adhoc-config-card + .adhoc-config-card {
+  margin-top: 0;
+}
+
+.adhoc-config-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: var(--adhoc-space-4xl) var(--adhoc-space-3xl);
+  border-top: 5px solid var(--adhoc-primary);
+  transition: .3s;
+}
+
+.adhoc-config-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--adhoc-shadow-hover);
+}
+
+.adhoc-config-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--adhoc-space-xl);
+  margin-bottom: var(--adhoc-space-3xl);
+  padding-bottom: var(--adhoc-space-2xl);
+  border-bottom: 1px solid var(--adhoc-line);
+}
+
+/* Círculo del icono: 45px, un punto menos que el de las tarjetas del panel. */
+.adhoc-config-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 45px;
+  height: 45px;
+  font-size: var(--adhoc-fs-2xl);
+  color: var(--adhoc-primary);
+  background-color: var(--adhoc-primary-tint);
+  border-radius: var(--adhoc-radius-circle);
+}
+
+.adhoc-config-card-title {
+  margin: 0;
+  color: var(--adhoc-dark);
+  font-size: var(--adhoc-fs-xl);
+  font-weight: var(--adhoc-fw-semibold);
+  white-space: nowrap;
+}
+
+.adhoc-config-links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.adhoc-config-link-item {
+  margin-bottom: var(--adhoc-space-lg);
+}
+
+.adhoc-config-link {
+  display: flex;
+  align-items: center;
+  gap: var(--adhoc-space-md);
+  color: var(--adhoc-muted);
+  font-size: var(--adhoc-fs-lg);
+  font-weight: var(--adhoc-fw-medium);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: .2s;
+}
+
+.adhoc-config-link i {
+  flex-shrink: 0;
+  font-size: var(--adhoc-fs-sm);
+  color: var(--adhoc-disabled);
+}
+
+.adhoc-config-link:hover,
+.adhoc-config-link:focus-visible {
+  color: var(--adhoc-primary);
+  padding-left: 3px;
+}
+
+/* Regla de seguridad del legacy: en móvil las tarjetas se apilan. */
+@media (max-width: 767.98px) {
+  .adhoc-config-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adhoc-config-card,
+  .adhoc-config-link {
+    transition: none;
+  }
+}

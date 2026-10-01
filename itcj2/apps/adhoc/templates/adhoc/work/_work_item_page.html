@@ -1,0 +1,308 @@
+{# ===========================================================================
+   work/_work_item_page.html — base compartida de INCIDENCIAS y EVENTOS DE
+   PROGRAMA. Las dos pantallas eran el mismo código en el legacy
+   (`incidents.js` ≈ `programs.js`, 90 % idéntico, con dos plantillas y dos
+   hojas CSS copiadas); el plan §6.5 obliga a colapsarlas en "base común + dos
+   configuraciones". Esta es la base.
+
+   Quién la extiende:
+     adhoc/incidents/incidents.html   (kind = "incident")
+     adhoc/programs/programs.html     (kind = "program")
+
+   ASPECTO — porte 1:1 de `templates/app_prueba/incidents/incidents.html` y
+   `programs/programs.html`:
+     · UNA sola tarjeta blanca (`.table-container`) que contiene título,
+       botón "Volver al Panel", controles, tabla y controles inferiores;
+     · contenedor al 98 % (`.main-container { max-width: 98% }` del legacy →
+       clase `adhoc-wide` en el <body>);
+     · los filtros viven DENTRO de la tabla, en la segunda fila del <thead>,
+       no en un panel gris aparte;
+     · "Limpiar" + "Filtrar" arriba a la derecha;
+     · "Añadir Nuevas…" + selector de cantidad abajo a la izquierda.
+
+   Lo que cambia entre las dos viaja por CONTEXTO desde `pages/`, no por
+   markup duplicado:
+     page_title · page_subtitle · page_icon · back_url · categories_url
+     columns          lista de columnas (key/label/align)
+     empty_message / empty_icon
+     new_label        texto del botón de alta masiva
+     can_create       oculta el botón de alta (el gate real es require_perms)
+     page_data        bloque JSON que lee el módulo JS (AdhocUtils.pageData)
+     date_filter_key    columna bajo la que se pinta el rango de fechas
+     date_filter_label  cómo se llama esa fecha en el aria-label del rango
+
+   Bloques que puede sobrescribir el hijo:
+     extra_css / extra_js   sus estáticos propios (SIEMPRE con ?v={{ sv(...) }})
+     work_toolbar_extra     botones de acción adicionales de la cabecera
+     work_extra_modals      modales propios (p. ej. el de archivos de programa)
+
+   POR QUÉ LA TABLA VA A MANO Y NO POR LA MACRO `data_table()`: la fila de
+   filtros de la macro solo sabe emitir `input[data-adhoc-filter-input]`, que
+   es el hook del filtrado EN CLIENTE de shared/table-filter.js. Aquí la lista
+   está paginada en el servidor, así que cada control declara
+   `data-adhoc-param` con el nombre lógico del filtro y el módulo JS lo traduce
+   al parámetro real de cada API con `page_data.query_map`. Mezclar los dos
+   hooks filtraría dos veces y escondería filas que el servidor sí devolvió.
+   El contrato con el JS se conserva intacto: `table[data-adhoc-table]`,
+   `th[data-adhoc-filter-key]` en la PRIMERA fila (de ahí sale el orden de
+   columnas), `tbody[data-adhoc-table-body]` y `tr[data-adhoc-empty]`.
+
+   Reglas duras aplicadas: cero <style>, cero style="...", cero onclick=,
+   modales en {% block modals %} a nivel <body>, y ni un solo <option>
+   pre-renderizado con datos del servidor (los `<select>` los rellena el JS
+   desde `page_data`, que es el bug de XSS #23 del legacy).
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import back_button, page_header, toolbar, page_data_script %}
+
+{% block title %}{{ page_title }} · Calidad · ITCJ{% endblock %}
+
+{# `adhoc-wide` = el `.main-container { max-width: 98% }` que las dos hojas del
+   legacy imponían con !important. Iba acompañada de `adhoc-work-body`, que no
+   tenía regla en ninguna hoja: gancho muerto, fuera. #}
+{% block body_class %}adhoc-wide{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/work/work-items.css?v={{ sv('css/work/work-items.css') }}">
+{% endblock %}
+
+{% block content %}
+{# El id lleva el tipo porque esta base sirve a incidencias Y a programa;
+   ver la nota de la macro catalog_page(). #}
+<section id="adhoc-page-work-{{ page_data.kind }}" class="adhoc-work" data-adhoc-work>
+  <div class="adhoc-card adhoc-work-card">
+
+    {% call page_header(page_title, page_subtitle, page_icon) %}
+      {{ back_button(back_url, back_label|default('Volver al Panel', true)) }}
+      {% if categories_url and can_manage_categories %}
+        <a class="btn btn-sm btn-secondary" href="{{ categories_url }}">
+          <i class="fa-solid fa-tags"></i>
+          <span class="d-none d-sm-inline">Categorías</span>
+        </a>
+      {% endif %}
+      {% block work_toolbar_extra %}{% endblock %}
+    {% endcall %}
+
+    {# — CONTROLES SUPERIORES (legacy `.controls-top`) —
+       Por la macro `toolbar()`, no por un `.adhoc-work-controls` propio: era una
+       de las ocho copias del mismo `.controls-top` y `.adhoc-toolbar` ya trae
+       exactamente esa geometría (flex/wrap, alineado a la derecha, mismo hueco
+       inferior). El hueco superior lo daba un `margin-top` que COLAPSABA con el
+       margen inferior de `.adhoc-page-head`, que es mayor; al quitarlo manda ese
+       mismo margen y la pantalla no se mueve un píxel. #}
+    {% call toolbar() %}
+      <button type="button" class="btn btn-sm btn-secondary" data-adhoc-work-clear>
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
+      </button>
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-work-filter>
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
+      </button>
+    {% endcall %}
+
+    <div class="adhoc-table-wrap adhoc-table-sticky" data-adhoc-table-wrap>
+      <table class="adhoc-table adhoc-table-xl adhoc-work-table"
+             id="{{ page_data.table_id }}" data-adhoc-table="{{ page_data.table_id }}">
+        <thead>
+          <tr>
+            {%- for col in columns %}
+            <th scope="col" data-adhoc-filter-key="{{ col.key }}"
+                class="adhoc-col-{{ col.align|default('start', true) }}">{{ col.label|default(col.key, true) }}</th>
+            {%- endfor %}
+          </tr>
+          {# Fila de filtros: cada control se pinta en SU columna, como en el
+             legacy. Los que no tienen filtro dejan la celda vacía. #}
+          {# — DÓNDE VA EL RANGO DE FECHAS —
+             Lo decide el servidor porque es él quien sabe qué columna filtra de
+             verdad `date_from`/`date_to`, y no es la misma en las dos pantallas:
+             incidencias los traduce a `commitment_from`/`commitment_to`
+             (`pages/incidents.py::_QUERY_MAP`) y `IncidentService.list` los
+             aplica sobre `commitment_date`; programas los manda tal cual y
+             `program_event_service.list_events` los aplica sobre `start_date`.
+
+             Estaba escrito a fuego bajo `commitment_date` con el rótulo
+             "Compromiso", así que en programas el usuario ponía el rango bajo
+             "Cierre" y el servidor le filtraba por la fecha de INICIO: dos
+             columnas más a la izquierda, y sin ninguna señal de que el
+             resultado no era el que pidió. El control se pinta ahora en la
+             columna que corresponde, que es la única forma de que el rótulo no
+             mienta. Los `id` no cambian: son contrato con work-items.js y con
+             los E2E. #}
+          {%- set _date_key = date_filter_key|default('commitment_date', true) -%}
+          {%- set _date_label = date_filter_label|default('Compromiso', true) -%}
+          <tr class="adhoc-filter-row">
+            {%- for col in columns %}
+            <th data-adhoc-filter-key="{{ col.key }}">
+              {%- if col.key == 'title' %}
+              <input type="search" class="adhoc-filter-input" id="adhoc-work-f-search"
+                     data-adhoc-param="search" placeholder="Buscar..."
+                     aria-label="Buscar por folio, título o descripción">
+              {%- elif col.key == 'category' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-category"
+                      data-adhoc-param="category_id" data-adhoc-options="categories"
+                      aria-label="Filtrar por categoría">
+                <option value="">Todas</option>
+              </select>
+              {%- elif col.key == 'area' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-area"
+                      data-adhoc-param="area_id" data-adhoc-options="areas"
+                      aria-label="Filtrar por área">
+                <option value="">Todas</option>
+              </select>
+              {%- elif col.key == 'process' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-process"
+                      data-adhoc-param="process_id" data-adhoc-options="processes"
+                      aria-label="Filtrar por proceso">
+                <option value="">Todos</option>
+              </select>
+              {%- elif col.key == 'responsible' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-responsible"
+                      data-adhoc-param="responsible_id" data-adhoc-options="users"
+                      aria-label="Filtrar por responsable">
+                <option value="">Todos</option>
+              </select>
+              {%- elif col.key == _date_key %}
+              <span class="adhoc-work-daterange">
+                <input type="date" class="adhoc-filter-input" id="adhoc-work-f-from"
+                       data-adhoc-param="date_from" aria-label="{{ _date_label }} desde">
+                <input type="date" class="adhoc-filter-input" id="adhoc-work-f-to"
+                       data-adhoc-param="date_to" aria-label="{{ _date_label }} hasta">
+              </span>
+              {%- elif col.key == 'priority' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-priority"
+                      data-adhoc-param="priority" data-adhoc-options="priorities"
+                      aria-label="Filtrar por prioridad">
+                <option value="">Todas</option>
+              </select>
+              {%- elif col.key == 'status' %}
+              <select class="adhoc-filter-input" id="adhoc-work-f-status"
+                      data-adhoc-param="status" data-adhoc-options="statuses"
+                      aria-label="Filtrar por estatus">
+                <option value="">Todos</option>
+              </select>
+              {%- endif %}
+            </th>
+            {%- endfor %}
+          </tr>
+        </thead>
+        <tbody id="{{ page_data.table_id }}-body" data-adhoc-table-body>
+          {# Las filas las pinta work-items.js. Esta se esconde sola (CSS :has)
+             en cuanto hay alguna fila visible. #}
+          <tr class="adhoc-table-empty" data-adhoc-empty>
+            <td colspan="{{ columns|length or 1 }}">
+              <div class="adhoc-empty">
+                <i class="{{ empty_icon|default('fa-solid fa-inbox', true) }} adhoc-empty-icon"></i>
+                <p class="adhoc-empty-text mb-0">{{ empty_message|default('No hay registros para mostrar.', true) }}</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    {# — CONTROLES INFERIORES (legacy `.bottom-controls`) — #}
+    <div class="adhoc-work-bottom">
+      {% if can_create %}
+      {# La etiqueta NO se colapsa en móvil: este botón no está en una barra de
+         acciones sino pegado al selector de cantidad, y `new_label` es lo único
+         que distingue "Añadir Nuevas Incidencias" de "Añadir Nuevos Eventos".
+         Un "+" pelado no diría cuál de las dos pantallas es. #}
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-work-new>
+        <i class="fa-solid fa-plus"></i> {{ new_label|default('Añadir Nuevos', true) }}
+      </button>
+      <label class="visually-hidden" for="adhoc-work-qty">Cuántos registros capturar</label>
+      <select class="adhoc-qty-select" id="adhoc-work-qty" data-adhoc-work-qty>
+        {% for n in [1, 2, 3, 5, 10] %}<option value="{{ n }}">{{ n }} {{ 'Registro' if n == 1 else 'Registros' }}</option>{% endfor %}
+      </select>
+      {% endif %}
+
+      <div class="adhoc-work-pager">
+        <span class="adhoc-work-count" data-adhoc-work-count aria-live="polite"></span>
+        <button type="button" class="btn btn-sm btn-secondary"
+                data-adhoc-work-page="prev" aria-label="Página anterior">
+          <i class="fa-solid fa-chevron-left"></i>
+        </button>
+        {# Región viva: al paginar, este rótulo es lo ÚNICO que cambia. El
+           conteo de al lado también lo es, pero su texto ("25 de 277
+           incidencias") es idéntico en todas las páginas completas, así que no
+           dispara ningún anuncio. Sin esto, quien pagina con lector de pantalla
+           no recibía señal alguna de que la tabla se había movido. La otra lista
+           paginada de la app (documents.html) ya lo declaraba: las dos comparten
+           `shared/pager.js` y ahora también este contrato. #}
+        <span class="adhoc-work-pageinfo" data-adhoc-work-pageinfo aria-live="polite"></span>
+        <button type="button" class="btn btn-sm btn-secondary"
+                data-adhoc-work-page="next" aria-label="Página siguiente">
+          <i class="fa-solid fa-chevron-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+
+{% block modals %}
+{# El modal vive aquí, a nivel <body> y fuera de todo contenedor con transform:
+   el legacy lo abría con `.modal-overlay` + style.display='flex', 17 veces. #}
+<div class="modal fade" id="adhoc-work-modal" tabindex="-1"
+     aria-labelledby="adhoc-work-modal-title" aria-hidden="true" data-adhoc-work-modal>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="adhoc-work-modal-title">
+          <i class="fa-solid fa-circle-plus me-2" data-adhoc-work-modal-icon></i>
+          <span data-adhoc-work-modal-title>Nuevo registro</span>
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {# `hx-boost="false"` NO es decorativo: es lo que impide que HTMX se lleve
+           por delante el boton ATRAS de toda la app. `#adhoc-root` declara
+           `hx-boost="true"` y el atributo lo HEREDA todo descendiente, modales
+           incluidos; al procesar un <form> boosted, htmx 2.0.3 hace
+           (`boostElement`):
+
+               path = getRawAttribute(elt, 'action')
+               if (verb === 'get' && path.includes('?')) ...
+
+           Sin `action`, `path` es null y eso es un TypeError. En la carga normal
+           la excepcion aborta el `ready()` de htmx ANTES de instalar
+           `window.onpopstate`, asi que el ATRAS deja de hacer nada; y si se
+           llega a esta pantalla navegando, la excepcion sube dentro de
+           `restoreHistory()` y `htmx:historyRestore` no se emite nunca, con lo
+           que la lista vuelve pintada del cache y MUERTA.
+
+           Darle `action` seria mentir: este formulario no se manda nunca al
+           servidor por si mismo —work-items.js lo lee con `new FormData(form)` y llama a
+           la API con `fetch`—. Lo correcto es sacarlo del boost.
+           Regresion cubierta por tests/e2e/adhoc/navigation-integrity.spec.js
+           ("ningun <form> de dentro de #adhoc-root se queda sin action"). #}
+        <form data-adhoc-work-form novalidate hx-boost="false">
+          <div data-adhoc-work-fields></div>
+        </form>
+      </div>
+      {# Pie canónico de la app: eliminar (rojo, `me-auto` lo empuja al extremo
+         izquierdo) · cancelar (gris) · confirmar (violeta). Nada de
+         `btn-outline-*` ni `btn-success` aquí. #}
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-danger me-auto" data-adhoc-work-delete hidden>
+          <i class="fa-solid fa-trash"></i>
+          <span class="d-none d-sm-inline">Eliminar</span>
+        </button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-work-save>
+          <i class="fa-solid fa-floppy-disk"></i> Guardar Cambios
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% block work_extra_modals %}{% endblock %}
+{% endblock %}
+
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script id="adhoc-mod-work-work-items" src="/static/adhoc/js/work/work-items.js?v={{ sv('js/work/work-items.js') }}"></script>
+{% block work_page_js %}{% endblock %}
+{% endblock %}

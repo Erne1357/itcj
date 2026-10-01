@@ -1,0 +1,46 @@
+{# ===========================================================================
+   incidents/categories.html — /adhoc/incidencias/categorias
+   Permiso de página: adhoc.incident_categories.page.list
+
+   Uno de los cuatro CRUD de catálogo "solo nombre" que el legacy tenía
+   copiados (plan §6.5). Aquí son DOS macros (`catalog_page` + `catalog_modal`)
+   y `shared/catalog-crud.js`, que ya viene resuelto de la fase base: esta
+   plantilla no aporta ni una línea de JS ni de CSS propios.
+
+   Origen legacy: `incidents/incidents_categories.html` + `incidents_categories.js`
+   — con `confirm()` para borrar, `${nombre}` sin escapar en `innerHTML` y URLs
+   con el prefijo inexistente `/app_prueba/api/incident-categories/...` (404).
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import catalog_page, catalog_modal %}
+
+{% block title %}Categorías de incidencia · Calidad · ITCJ{% endblock %}
+
+{# El legacy lleva estas dos pantallas al 98 % del ancho
+   (`.main-container { max-width: 98% !important }` en su hoja). #}
+{% block body_class %}adhoc-wide{% endblock %}
+
+{% block content %}
+  {# Título, icono y etiqueta de columna son los del legacy
+     (`incidents/incidents_categories.html`): sin subtítulo y con el extintor. #}
+  {{ catalog_page(
+       "Categorías de Incidencias",
+       "incident-categories",
+       "/api/adhoc/v2/incident-categories",
+       "/adhoc/incidencias",
+       singular="categoría",
+       plural="categorías",
+       icon="fa-solid fa-fire-extinguisher",
+       name_label="Nombre Categoría",
+       can_create=can_create,
+       can_update=can_update,
+       can_delete=can_delete) }}
+{% endblock %}
+
+{% block modals %}
+  {{ catalog_modal("incident-categories", singular="categoría", name_label="Nombre Categoría") }}
+{% endblock %}
+
+{% block extra_js %}
+<script id="adhoc-mod-shared-catalog-crud" src="/static/adhoc/js/shared/catalog-crud.js?v={{ sv('js/shared/catalog-crud.js') }}"></script>
+{% endblock %}

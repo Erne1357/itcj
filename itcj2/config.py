@@ -355,6 +355,13 @@ class Settings(BaseSettings):
     # «Ver N horas más» y el resto de `.tt-cita-*`/`.tt-slotblock-*` nuevos).
     # Sin el bump, la hoja `immutable` en caché sigue sin los estilos y los
     # `<details>` se ven sin su cabecera ni su chevron.
+    #
+    # 2026-09-30: el merge de adhoc (Calidad / SGC) NO lleva bump. Sus 49
+    # estáticos son nuevos: ninguna URL de /static/adhoc/ está cacheada en
+    # ningún navegador, así que no hay nada que invalidar. El tripwire de
+    # `tests/fastapi/adhoc/test_template_conventions.py::_ULTIMO_BUMP` sí se
+    # actualizó, porque fija el par (versión, huella) y la versión de la rama
+    # era más baja que esta.
     STATIC_VERSION: str = "1.0.1111583"
 
     # Database
@@ -584,6 +591,13 @@ class Settings(BaseSettings):
     # Recordatorio de cita de cotejo: dias antes de la fecha (barrido de las
     # 9:00). 0 = sin recordatorio de cita.
     TITULATEC_APPT_REMINDER_DAYS_BEFORE: int = Field(1, ge=0, le=7)
+    # Adhoc (Calidad / SGC ISO 9001) — adjuntos de documentos, eventos de
+    # programa, comentarios de tarea e indicadores.
+    # Estructura: instance/apps/adhoc/{documents,program_events,task_comments,indicators}/{entity_id}/
+    ADHOC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "adhoc")
+    ADHOC_MAX_FILE_SIZE: int = 10 * 1024 * 1024
+    ADHOC_ALLOWED_EXTENSIONS: str = "pdf,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,webp,csv,txt"
+
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

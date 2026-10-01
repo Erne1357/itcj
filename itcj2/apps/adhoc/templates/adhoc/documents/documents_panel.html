@@ -1,0 +1,380 @@
+{# ===========================================================================
+   documents/documents_panel.html — /adhoc/documentos/panel
+   Administración del SGC. Permiso: adhoc.documents.page.manage.
+
+   Origen legacy: templates/app_prueba/documents/advanced_documents.html.
+
+   ASPECTO: porte 1:1 del original. Contenedor al 98% (body.adhoc-wide), título
+   con el icono de carpetas DENTRO del recuadro blanco y "Volver al Panel" en su
+   esquina superior derecha, botonera Limpiar/Filtrar a la derecha, tabla ancha
+   con la FILA DE FILTROS bajo la cabecera y "Añadir Nuevos" bajo la tabla.
+
+   Qué cambia respecto del legacy:
+   * Los catálogos ya NO viajan como HTML crudo dentro de un template literal
+     (`DOC_CONFIG.categoriasHtml` y sus tres hermanos: cuatro de los siete
+     vectores de XSS del legacy, que además reventaban con un backtick o con
+     una interpolación de plantilla). Van como JSON en page_data y el JS
+     construye los <option>.
+   * Los cuatro `.modal-overlay` con display flex forzado desde JS son ahora dos
+     bootstrap.Modal en el bloque de modales, fuera de todo contenedor con
+     transform. Los de alerta y confirmación desaparecen: AdhocUtils.
+   * NO SE PORTAN (plan §4) los cinco botones "en construcción" (copiar
+     enlace, usuarios, histórico, reporte) que solo abrían un alert, ni la
+     celda de la columna de sistema de gestión. El bloque "Historial de
+     Versiones Anteriores" del original SÍ vuelve, pero de verdad: era un
+     mockup (fecha escrita a mano y versión calculada restando 1.0) y ahora es
+     el modal compartido de partials/_document_versions_modal.html, que lee la
+     cadena real con GET /documents/{id}/versions.
+   * La tabla tiene 12 columnas: las 11 portadas más "Vigencia", detrás de
+     "Versión / Estatus". 45 de los 144 documentos vigentes están vencidos y
+     hasta ahora la pantalla que los administra no lo decía en ninguna parte.
+   * La barra de botones lleva la casilla "Ver versiones anteriores": las dos
+     listas de documentos esconden por defecto las 58 versiones superadas, así
+     que hace falta un interruptor para volver a verlas.
+   * El arranque de flujo ya no vive en una fila hija con un select por
+     documento: es un modal único que se rellena con el documento pulsado.
+   * La fila lleva "Editar" (hallazgo A14): hasta ahora los 202 documentos del
+     SGC no se podían corregir desde ninguna pantalla —el PATCH existía y no lo
+     llamaba nadie— y una errata en el título solo se arreglaba borrando el
+     documento con sus tareas y su archivo. Se edita SOLO en 'Borrador' y
+     'Rechazado', y nunca una versión superada: lo aprobado se corrige anexando
+     una versión. Quién puede editar qué lo dice el servidor en cada fila
+     (`is_editable` / `file_replaceable`) y lo impone
+     `AdhocDocumentService.update` con un 409; el botón deshabilitado de la
+     fila es solo la parte visible.
+   * El filtrado es de SERVIDOR, así que la fila de filtros se escribe a mano
+     con data-adhoc-doc-filter en vez de con el `filter` de data_table().
+
+   Esta pantalla enlaza documents.css (piezas comunes de la sección: fila de
+   filtros, celda de archivo, iconos de acción, paginador) ANTES de la suya.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, back_button,
+        page_data_script, toolbar %}
+
+{% block title %}Administración de documentos · Calidad{% endblock %}
+
+{% block body_class %}adhoc-wide{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/documents/documents.css?v={{ sv('css/documents/documents.css') }}">
+<link rel="stylesheet" href="/static/adhoc/css/documents/documents-panel.css?v={{ sv('css/documents/documents-panel.css') }}">
+{% endblock %}
+
+{% block content %}
+<section id="adhoc-page-doc-panel" class="adhoc-doc-panel" data-adhoc-doc-panel>
+
+  <div class="adhoc-card adhoc-doc-card">
+
+    {% call page_header("Administración de Documentos", None, "fa-solid fa-folder-tree") %}
+      {{ back_button('/adhoc/panel', 'Volver al Panel') }}
+    {% endcall %}
+
+    {# toolbar() pone el contenedor; `adhoc-doc-controls-sm` sobrevive como
+       modificador porque aquí la botonera va DEBAJO del encabezado y necesita el
+       margen superior del legacy, que la macro no trae (ni debe: las pantallas
+       sin encabezado, como la de consulta, no lo llevan). #}
+    {% call toolbar(css='adhoc-doc-controls-sm') %}
+      {# La casilla NO es un filtro más de la fila de la tabla: no pertenece a
+         ninguna columna —decide qué FILAS existen, no qué valor tienen— y en la
+         fila de filtros habría quedado bajo una cabecera cualquiera. El <label>
+         envuelve al input a propósito: pulsar el texto conmuta la casilla sin
+         depender de que un `for` y un `id` sigan cuadrando mañana.
+         Marcada = `only_current=false` y desmarcada `only_current=true`, que es
+         el default de la API: el sentido de la casilla es el CONTRARIO al del
+         parámetro, así que los dos valores los declara el propio input y
+         `document-list.js::valorDeCasilla` los lee de ahí. Un checkbox siempre
+         tiene `.value`, así que leerlo mandaría la clave estuviera marcado o
+         no. #}
+      <label class="adhoc-doc-filter-check">
+        <input type="checkbox" data-adhoc-doc-filter="only_current"
+               data-adhoc-checked-value="false" data-adhoc-unchecked-value="true">
+        <span>Ver versiones anteriores</span>
+      </label>
+      <button type="button" class="btn btn-sm btn-secondary" data-adhoc-doc-clear>
+        <i class="fa-solid fa-eraser"></i><span class="d-none d-sm-inline">Limpiar</span>
+      </button>
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-doc-apply>
+        <i class="fa-solid fa-filter"></i><span class="d-none d-sm-inline">Filtrar</span>
+      </button>
+    {% endcall %}
+
+    <div class="adhoc-table-wrap adhoc-table-sticky" data-adhoc-table-wrap>
+      <table class="adhoc-table adhoc-table-xl" id="adhoc-doc-panel-table"
+             data-adhoc-table="adhoc-doc-panel-table">
+        <thead>
+          <tr>
+            <th scope="col" class="adhoc-col-center">Ver Doc</th>
+            <th scope="col" class="adhoc-col-start">Código</th>
+            <th scope="col" class="adhoc-col-start">Nombre Documento</th>
+            <th scope="col" class="adhoc-col-start">Versión / Estatus</th>
+            <th scope="col" class="adhoc-col-start">Vigencia</th>
+            <th scope="col" class="adhoc-col-start">Categoría</th>
+            <th scope="col" class="adhoc-col-start">Área</th>
+            <th scope="col" class="adhoc-col-start">Proceso</th>
+            <th scope="col" class="adhoc-col-start">Clasificación</th>
+            <th scope="col" class="adhoc-col-start" data-adhoc-col="notes">Notas</th>
+            <th scope="col" class="adhoc-col-start">Aprobación</th>
+            <th scope="col" class="adhoc-col-center">Acciones</th>
+          </tr>
+          <tr class="adhoc-filter-row">
+            <th></th>
+            <th>
+              <input type="search" name="q" class="adhoc-doc-filter"
+                     data-adhoc-doc-filter="q" placeholder="Buscar..."
+                     aria-label="Buscar por código o nombre del documento">
+            </th>
+            <th></th>
+            <th>
+              <select name="status" class="adhoc-doc-filter" data-adhoc-doc-filter="status"
+                      aria-label="Filtrar por estatus">
+                <option value="">Todos</option>
+                {%- for s in status_options %}
+                <option value="{{ s }}">{{ s }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th>
+              {# Los tres cubos son disjuntos y exhaustivos, y los define el
+                 SERVIDOR con DOCUMENT_EXPIRY_SOON_DAYS: vencidos (< hoy),
+                 por vencer (hoy..hoy+N) y vigentes (sin fecha o > hoy+N). Se
+                 iteran desde `expiry_options`, la MISMA lista que pinta la
+                 pantalla de consulta: escritos a mano aquí, renombrar un cubo
+                 dejaba a esta pantalla mandando un valor que la API ya no
+                 reconoce —y un filtro que la API ignora devuelve la lista
+                 entera sin avisar—, y el "30" del rótulo se quedaba viejo en
+                 cuanto la constante cambiara. #}
+              <select name="expiring" class="adhoc-doc-filter" data-adhoc-doc-filter="expiring"
+                      aria-label="Filtrar por vigencia">
+                <option value="">Todos</option>
+                {%- for o in expiry_options %}
+                <option value="{{ o.value }}">{{ o.label }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th>
+              <select name="category_id" class="adhoc-doc-filter" data-adhoc-doc-filter="category_id"
+                      aria-label="Filtrar por categoría">
+                <option value="">Todos</option>
+                {%- for o in categoria_options %}
+                <option value="{{ o.value }}">{{ o.label }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th>
+              <select name="area_id" class="adhoc-doc-filter" data-adhoc-doc-filter="area_id"
+                      aria-label="Filtrar por área">
+                <option value="">Todos</option>
+                {%- for o in area_options %}
+                <option value="{{ o.value }}">{{ o.label }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th>
+              <select name="process_id" class="adhoc-doc-filter" data-adhoc-doc-filter="process_id"
+                      aria-label="Filtrar por proceso">
+                <option value="">Todos</option>
+                {%- for o in proceso_options %}
+                <option value="{{ o.value }}">{{ o.label }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th>
+              <select name="classification_id" class="adhoc-doc-filter"
+                      data-adhoc-doc-filter="classification_id"
+                      aria-label="Filtrar por clasificación">
+                <option value="">Todos</option>
+                {%- for o in clasificacion_options %}
+                <option value="{{ o.value }}">{{ o.label }}</option>
+                {%- endfor %}
+              </select>
+            </th>
+            <th data-adhoc-col="notes"></th>
+            <th></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="adhoc-doc-panel-table-body" data-adhoc-table-body>
+          <tr class="adhoc-table-empty" data-adhoc-empty>
+            <td colspan="12">
+              <div class="adhoc-empty">
+                <i class="fa-solid fa-folder-tree adhoc-empty-icon"></i>
+                <p class="adhoc-empty-text mb-0">No hay documentos registrados.</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="adhoc-pager" data-adhoc-pager aria-label="Paginación de documentos" hidden>
+      <button type="button" class="btn btn-sm btn-secondary" data-adhoc-page="prev">
+        <i class="fa-solid fa-chevron-left"></i>
+        <span class="d-none d-sm-inline">Anterior</span>
+      </button>
+      <span class="adhoc-pager-info" data-adhoc-page-info aria-live="polite"></span>
+      <button type="button" class="btn btn-sm btn-secondary" data-adhoc-page="next">
+        <span class="d-none d-sm-inline">Siguiente</span>
+        <i class="fa-solid fa-chevron-right"></i>
+      </button>
+    </nav>
+
+    {%- if can_create %}
+    <div class="adhoc-doc-bottom">
+      <button type="button" class="btn btn-sm btn-primary" data-adhoc-doc-new>
+        <i class="fa-solid fa-plus"></i><span class="d-none d-sm-inline">Añadir Nuevos</span>
+      </button>
+    </div>
+    {%- endif %}
+  </div>
+
+</section>
+{% endblock %}
+
+{% block modals %}
+{# — Alta masiva de documentos (multipart) —
+   Los campos de cada registro los construye documents-panel.js a partir de los
+   catálogos JSON: el número de bloques lo elige el usuario en el select.
+
+   Este MISMO nodo sirve para los tres modos —alta masiva, anexar versión y
+   editar—, y por eso aquí no hay ni título ni botón definitivos: el JS cambia
+   el encabezado, esconde el selector de cantidad y reescribe el rótulo de
+   guardar (el disquete se conserva, que es el icono de "guardar" en toda la
+   app). Tres modales separados habrían sido tres rejillas de campos que se
+   desincronizan en cuanto se añada uno. #}
+<div class="modal fade" id="adhoc-doc-modal" tabindex="-1"
+     aria-labelledby="adhoc-doc-modal-title" aria-hidden="true" data-adhoc-doc-modal>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="adhoc-doc-modal-title" data-adhoc-doc-modal-title>
+          <i class="fa-solid fa-file-circle-plus me-2"></i>Añadir Documento
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {# Aviso de lo que pasa al ANEXAR una versión. Nace oculto y lo enciende
+           documents-panel.js solo en ese modo; en el alta normal no aplica.
+           Va aquí y no en un confirmDialog porque la consecuencia hay que
+           leerla MIENTRAS se rellena el formulario, no en el último clic:
+           quien anexa una versión está decidiendo si el documento que sustituye
+           deja de ser el vigente para todo el SGC, y eso no se decide en un
+           diálogo de sí/no que se cierra en dos segundos. El <strong> con el
+           código y la versión lo escribe el JS con textContent. #}
+        <p class="adhoc-doc-version-warning" data-adhoc-doc-version-warning hidden>
+          <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+          <span>Al guardar, <strong data-adhoc-doc-version-warning-doc>la versión actual</strong>
+            quedará marcada como <strong>Obsoleta</strong> y dejará de ser la vigente.
+            No se borra nada: sigue en la cadena y se consulta desde el historial de
+            versiones.</span>
+        </p>
+        <div class="adhoc-catalog-count" data-adhoc-doc-qty-box>
+          <label class="form-label adhoc-label" for="adhoc-doc-qty">Cuántos capturar</label>
+          <select class="form-select adhoc-qty-select" id="adhoc-doc-qty" data-adhoc-doc-qty>
+            {% for n in [1, 2, 3, 4, 5, 10] %}<option value="{{ n }}">{{ n }} Registro</option>{% endfor %}
+          </select>
+        </div>
+        {# El form real existe para que new FormData(form) conserve el orden del
+           DOM: los campos repetidos (titles, codes, files…) llegan a la API como
+           listas PARALELAS por índice. Un input de tipo file sin elegir manda su
+           parte con filename vacío, así que el hueco de esa fila se conserva y
+           la alineación no se rompe. #}
+        {# En modo edición este mismo <form> se manda con `fetch` a
+           PATCH /documents/{id} con los nombres en SINGULAR, no como listas
+           paralelas: el traductor está en `PATCH_FIELDS` del JS. El campo de
+           archivo solo se pinta si el servidor dijo `file_replaceable`, y
+           entonces lleva encima el aviso de que el anterior se borra del
+           disco; si no, en su hueco va la nota de que ahí no se sustituye
+           nada. Los dos avisos los construye el JS con textContent. #}
+        {# `hx-boost="false"` NO es decorativo: es lo que impide que HTMX se lleve
+           por delante el boton ATRAS de toda la app. `#adhoc-root` declara
+           `hx-boost="true"` y el atributo lo HEREDA todo descendiente, modales
+           incluidos; al procesar un <form> boosted, htmx 2.0.3 hace
+           (`boostElement`):
+
+               path = getRawAttribute(elt, 'action')
+               if (verb === 'get' && path.includes('?')) ...
+
+           Sin `action`, `path` es null y eso es un TypeError. En la carga normal
+           la excepcion aborta el `ready()` de htmx ANTES de instalar
+           `window.onpopstate`, asi que el ATRAS deja de hacer nada; y si se
+           llega a esta pantalla navegando, la excepcion sube dentro de
+           `restoreHistory()` y `htmx:historyRestore` no se emite nunca, con lo
+           que la lista vuelve pintada del cache y MUERTA.
+
+           Darle `action` seria mentir: este formulario no se manda nunca al
+           servidor por si mismo —documents-panel.js lo lee con `new FormData(form)` y llama a
+           la API con `fetch`—. Lo correcto es sacarlo del boost.
+           Regresion cubierta por tests/e2e/adhoc/navigation-integrity.spec.js
+           ("ningun <form> de dentro de #adhoc-root se queda sin action"). #}
+        <form data-adhoc-doc-form novalidate hx-boost="false">
+          <div data-adhoc-doc-fields></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-doc-save>
+          <i class="fa-solid fa-floppy-disk"></i> Aceptar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# — Arranque del flujo de aprobación — #}
+<div class="modal fade" id="adhoc-doc-flow-modal" tabindex="-1"
+     aria-labelledby="adhoc-doc-flow-modal-title" aria-hidden="true" data-adhoc-flow-modal>
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="adhoc-doc-flow-modal-title">
+          <i class="fa-solid fa-diagram-project me-2"></i>Iniciar Flujo de Aprobación
+        </h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="adhoc-flow-doc" data-adhoc-flow-doc></p>
+        <div class="adhoc-field">
+          <label class="form-label adhoc-label" for="adhoc-doc-flow-select">
+            Flujo<span class="adhoc-required" aria-hidden="true">*</span>
+          </label>
+          <select class="form-select" id="adhoc-doc-flow-select" data-adhoc-flow-select></select>
+          <div class="form-text adhoc-field-help">
+            Se creará una tarea por paso y se avisará a los validadores del primero.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" data-adhoc-flow-start>
+          <i class="fa-solid fa-stamp"></i> Sellar e Iniciar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# — Historial de versiones (partial compartido con /adhoc/documentos) —
+   No recibe parámetros: lo rellena document-versions.js con la respuesta de
+   GET /documents/{id}/versions. Las dos pantallas montan el MISMO nodo. #}
+{% include "adhoc/partials/_document_versions_modal.html" %}
+
+{# — Difusión y acuses de recibo (hallazgo A9) —
+   Solo en el PANEL, no en la lista de consulta: ver a quién se le distribuyó un
+   documento es administración del ciclo documental. Lo rellena
+   document-diffusion.js con GET /documents/{id}/acknowledgements.
+
+   Sus ids y sus `data-adhoc-diffusion-*` no coinciden con los de los otros tres
+   diálogos de esta pantalla (#adhoc-doc-modal, #adhoc-doc-flow-modal,
+   #adhoc-doc-versions-modal): con un id repetido `querySelector` devuelve el
+   primero y el modal que se rellena no es el que se abre. #}
+{% include "adhoc/partials/_document_diffusion_modal.html" %}
+{% endblock %}
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script id="adhoc-mod-documents-document-list" src="/static/adhoc/js/documents/document-list.js?v={{ sv('js/documents/document-list.js') }}"></script>
+<script id="adhoc-mod-documents-document-versions" src="/static/adhoc/js/documents/document-versions.js?v={{ sv('js/documents/document-versions.js') }}"></script>
+<script id="adhoc-mod-documents-document-diffusion" src="/static/adhoc/js/documents/document-diffusion.js?v={{ sv('js/documents/document-diffusion.js') }}"></script>
+<script id="adhoc-mod-documents-documents-panel" src="/static/adhoc/js/documents/documents-panel.js?v={{ sv('js/documents/documents-panel.js') }}"></script>
+{% endblock %}

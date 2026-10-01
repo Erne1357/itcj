@@ -27,6 +27,7 @@ apps = {
     'maint':     'itcj2/apps/maint/static',
     'directory': 'itcj2/apps/directory/static',
     'titulatec': 'itcj2/apps/titulatec/static',
+    'adhoc':     'itcj2/apps/adhoc/static',
 }
 
 manifest = {}

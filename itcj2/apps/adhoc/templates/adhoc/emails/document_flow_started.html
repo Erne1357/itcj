@@ -1,0 +1,21 @@
+{% extends 'adhoc/emails/email_base.html' %}
+{% import 'adhoc/emails/_mail_macros.html' as m %}
+
+{% block subject %}Documento para revisión — {{ app_name }}{% endblock %}
+
+{% block content %}
+{{ m.title('Documento para revisión') }}
+{{ m.lead('Se inició un flujo de aprobación y tu validación es parte del primer paso.') }}
+
+{% call m.card() %}
+  {{ m.field('Documento', document.title) }}
+  {{ m.field('Código', document.code) }}
+  {{ m.field('Versión', document.version) }}
+  {{ m.field('Estado', m.status(document.status or 'En Revisión')) }}
+  {{ m.field('Paso actual', step.name if step else None) }}
+  {{ m.field('Límite de días', step.days_limit if step else None) }}
+{% endcall %}
+
+{{ m.cta(action_url, 'Revisar documento') }}
+{{ m.muted('Ingresa al sistema para revisar el documento y emitir tu validación.') }}
+{% endblock %}

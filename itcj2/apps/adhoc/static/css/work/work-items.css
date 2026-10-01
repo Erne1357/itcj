@@ -1,0 +1,383 @@
+/* ---------------------------------------------------------------------------
+   PAGINA   /adhoc/incidencias y /adhoc/programas
+   CONTIENE rango de fechas del filtro, paginador propio, aviso de vencimiento
+            y el modal de archivos adjuntos
+   EN BASE  prioridad de fila, icono de fila, contador, barra inferior y la caja
+            del selector de cantidad
+   --------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   work/work-items.css — capa visual de INCIDENCIAS y EVENTOS DE PROGRAMA
+   (/adhoc/incidencias y /adhoc/programas), más el modal de archivos adjuntos.
+
+   PORTE DE `static/css/incidents/incidents.css` + `programs/programs.css` del
+   legacy, que eran la misma hoja copiada (mismos px, mismos colores, el bloque
+   `.modal-overlay` duplicado y 45 hex sueltos repetidos). Aquí es una sola,
+   con los valores exactos del original y el color siempre por token.
+
+   Equivalencias con el legacy:
+     .table-container   → .adhoc-card (adhoc.css)
+     .controls-top      → macro toolbar() → .adhoc-toolbar (adhoc.css)
+     .doc-table         → .adhoc-table .adhoc-table-xl (adhoc.css)
+     .filter-input      → .adhoc-filter-input (adhoc.css)
+     .badge-urgente/…   → .adhoc-prio-urgente / -media / -baja
+     .btn-icon .icon-task .icon-doc → .adhoc-icon-btn .adhoc-icon-…
+     .bottom-controls   → .adhoc-work-bottom
+     .retraso-icon      → .adhoc-overdue
+
+   Convenciones (plan 6.4): clases prefijadas .adhoc-, colores por variable, y
+   NUNCA la secuencia de cierre de comentario pegada a un comodín — es un
+   gotcha real del repo que rompe el :root siguiente.
+   ========================================================================== */
+
+/* ---------- contenedor de la pantalla ---------- */
+
+.adhoc-work {
+  display: block;
+}
+
+.adhoc-work.is-loading {
+  opacity: .6;
+  pointer-events: none;
+}
+
+/* La tarjeta única del legacy: título, botón "Volver", controles, tabla y
+   controles inferiores viven todos dentro. `overflow-x` va en el envoltorio de
+   la tabla, no aquí, para no recortar sombras ni el foco. */
+.adhoc-work-card {
+  padding: var(--adhoc-space-4xl);
+}
+
+/* ---------- controles superiores ---------- */
+
+/* `.adhoc-work-controls` ya no existe: la fila "Limpiar / Filtrar" la pinta la
+   macro `toolbar()` con `.adhoc-toolbar` de adhoc.css, que declaraba justo esta
+   misma regla (era la copia numero N de `.controls-top`). El `margin-top` que
+   habia aqui colapsaba con el margen inferior, mayor, de `.adhoc-page-head`, asi
+   que al quitarlo manda ese y la pantalla no se mueve. */
+
+/* ---------- fila de filtros dentro de la tabla ---------- */
+
+/* El legacy usa `.filter-input` para inputs Y selects por igual: 5px de
+   relleno, borde gris y radio 4. `.adhoc-filter-input` de adhoc.css ya lo
+   define; aquí solo se afinan los selects y el rango de fechas. */
+.adhoc-work-table select.adhoc-filter-input {
+  background: var(--adhoc-surface);
+  cursor: pointer;
+}
+
+/* Compromiso lleva DOS controles (desde / hasta) en la misma celda: en el
+   legacy esa celda iba vacía porque el rango no existía. Se apilan para que la
+   columna conserve el ancho que tiene en el original. */
+.adhoc-work-daterange {
+  display: flex;
+  flex-direction: column;
+  gap: var(--adhoc-space-2xs);
+}
+
+.adhoc-work-daterange .adhoc-filter-input {
+  min-width: 0;
+  width: 7.6rem;
+  padding: 3px 5px;
+  font-size: var(--adhoc-fs-xs);
+}
+
+/* El folio nunca se parte: en el legacy cabe entero en su columna. */
+.adhoc-work-table [data-adhoc-cell="folio"],
+.adhoc-work-table th[data-adhoc-filter-key="folio"] {
+  white-space: nowrap;
+}
+
+/* El título de la fila se corta en el legacy solo por el ancho de la columna:
+   nunca lleva puntos suspensivos ni un tope de caracteres. */
+.adhoc-work-table .adhoc-cell-clamp {
+  display: table-cell;
+  max-width: 22rem;
+  overflow: visible;
+}
+
+/* ---------- iconos de acción de la fila ---------- */
+
+/* El icono base (legacy `.btn-icon` / `.icon-action-blue`) y las variantes
+   primary/trash viven en adhoc.css. Aqui, lo propio de estas dos pantallas:
+   el icono se tine de lila al pasar el raton y hay dos colores mas. */
+.adhoc-icon-btn:hover {
+  color: var(--adhoc-secondary);
+}
+
+.adhoc-icon-task { color: var(--adhoc-green-flat); }
+.adhoc-icon-doc  { color: var(--adhoc-blue-flat); }
+
+/* Cada variante de color REPITE su color en :hover, que es la convencion de
+   adhoc.css (`.adhoc-icon-danger:hover`, `.adhoc-icon-warning:hover`…). Hacen
+   falta dos veces:
+     · el `.adhoc-icon-btn:hover` de arriba tine de lila TODO icono de estas dos
+       pantallas, y con la misma especificidad (0,2,0) gana el que se declara
+       despues — estos;
+     · aqui habia un `color: inherit` que hacia caer los tres al gris de la
+       celda, justo lo contrario de lo que dice el bloque de arriba y de lo que
+       hace la pantalla hermana de tareas.
+   El realce al pasar el raton lo pone el `transform: scale(1.2)` del componente
+   comun, no un cambio de color. */
+.adhoc-icon-task:hover,
+.adhoc-icon-task:focus-visible { color: var(--adhoc-green-flat); }
+
+.adhoc-icon-doc:hover,
+.adhoc-icon-doc:focus-visible { color: var(--adhoc-blue-flat); }
+
+.adhoc-icon-trash:hover,
+.adhoc-icon-trash:focus-visible { color: var(--adhoc-danger); }
+
+/* La columna de acciones del legacy centra sus iconos con 12px de separación. */
+.adhoc-work-table .adhoc-actions {
+  gap: var(--adhoc-space-xl);
+}
+
+/* ---------- controles inferiores (legacy `.bottom-controls`) ---------- */
+
+/* La barra y la caja del selector son de adhoc.css; aqui, sus medidas. */
+.adhoc-work-bottom .adhoc-qty-select {
+  max-width: 11rem;
+  padding: var(--adhoc-space-lg);
+  border-radius: var(--adhoc-radius-lg);
+  font-size: var(--adhoc-fs-lg);
+}
+
+/* Conteo y paginación: el legacy no paginaba, así que esto va discreto y
+   empujado a la derecha para no competir con el botón de alta.
+   `flex-wrap` porque desde A29 la fila lleva además la tira de números: con las
+   276 incidencias reales son doce páginas, y en un teléfono no caben en una
+   sola línea. */
+.adhoc-work-pager {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-left: auto;
+}
+
+.adhoc-work-count {
+  color: var(--adhoc-muted);
+  font-size: var(--adhoc-fs-md);
+}
+
+.adhoc-work-pageinfo {
+  color: var(--adhoc-dark);
+  font-size: var(--adhoc-fs-md);
+  min-width: 8rem;
+  text-align: center;
+}
+
+/* ── Los números de página ──────────────────────────────────────────────
+   Los pinta `shared/pager.js` dentro del propio paginador de la plantilla,
+   entre "anterior" y "siguiente". Con las 276 incidencias del SGC a 25 por
+   página son doce, y antes de esto llegar a la última eran once clics.
+
+   El bloque está ESPEJADO en documents/documents.css, con las mismas clases: la
+   única hoja que cargan las dos pantallas es la base, y esto es un componente
+   de pantalla, no del shell. Si algún día el paginador se usa en una tercera,
+   el bloque se sube a la hoja base y estos dos se borran. */
+.adhoc-pager-pages {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--adhoc-space-2xs);
+}
+
+/* La tira se oculta con `tira.hidden = true`; quien lo aplica es
+   `.adhoc-shell [hidden] { display: none !important }` de la hoja base, que
+   gana a cualquier regla normal de aquí. No hace falta repetirla. */
+
+.adhoc-pager-page {
+  min-width: 2.1rem;
+  padding: var(--adhoc-space-2xs) var(--adhoc-space-sm);
+  border: 1px solid var(--adhoc-border);
+  border-radius: var(--adhoc-radius-md);
+  background: var(--adhoc-surface);
+  color: var(--adhoc-slate);
+  font-family: inherit;
+  font-size: var(--adhoc-fs-md);
+  font-weight: var(--adhoc-fw-medium);
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.adhoc-pager-page:hover {
+  background: var(--adhoc-primary-soft);
+  border-color: var(--adhoc-primary);
+  color: var(--adhoc-primary);
+}
+
+/* El resalte cuelga de `aria-current` y no de una clase paralela: así es
+   imposible que haya un botón pintado como "estás aquí" que el lector de
+   pantalla no anuncie. */
+.adhoc-pager-page[aria-current="page"] {
+  background: var(--adhoc-primary);
+  border-color: var(--adhoc-primary);
+  color: var(--adhoc-surface);
+  font-weight: var(--adhoc-fw-semibold);
+  cursor: default;
+}
+
+.adhoc-pager-page:focus-visible {
+  outline: 2px solid var(--adhoc-primary);
+  outline-offset: 1px;
+}
+
+.adhoc-pager-gap {
+  min-width: 1.25rem;
+  text-align: center;
+  color: var(--adhoc-muted);
+  font-size: var(--adhoc-fs-md);
+}
+
+/* ---------- celdas ---------- */
+
+/* Aviso de compromiso vencido sin cierre real. Legacy `.retraso-icon`: rojo,
+   5px a la derecha del texto y parpadeando. */
+.adhoc-overdue {
+  color: var(--adhoc-danger);
+  margin-left: var(--adhoc-space-xs);
+  animation: adhoc-overdue-blink 1.5s infinite;
+}
+
+/* El guard de adhoc.css (`@media (prefers-reduced-motion: reduce)`) no llega
+   hasta aqui: tiene la misma especificidad (0,1,0) que la regla de arriba y su
+   hoja se carga ANTES, asi que pierde. Hay que repetirlo en la hoja de pagina o
+   el icono sigue parpadeando indefinidamente para quien pidio no ver movimiento. */
+@media (prefers-reduced-motion: reduce) {
+  .adhoc-overdue { animation: none; }
+}
+
+/* Parpadeo propio: el generico de adhoc.css baja a .35, este a .3. */
+@keyframes adhoc-overdue-blink {
+  0%   { opacity: 1; }
+  50%  { opacity: .3; }
+  100% { opacity: 1; }
+}
+
+.adhoc-muted-cell {
+  color: var(--adhoc-muted);
+  font-style: italic;
+}
+
+/* ---------- modal de archivos (incidencia / evento de programa) ---------- */
+
+.adhoc-files-list {
+  min-height: 4rem;
+}
+
+.adhoc-files-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.adhoc-files-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .6rem .25rem;
+  border-bottom: 1px solid var(--adhoc-border);
+}
+
+.adhoc-files-item:last-child {
+  border-bottom: 0;
+}
+
+.adhoc-files-info {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-width: 0;
+}
+
+.adhoc-files-name {
+  color: var(--adhoc-dark);
+  font-weight: var(--adhoc-fw-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adhoc-files-meta {
+  color: var(--adhoc-muted);
+  font-size: var(--adhoc-fs-sm);
+  white-space: nowrap;
+}
+
+.adhoc-files-empty,
+.adhoc-files-error {
+  margin: 0;
+  padding: 1.25rem .25rem;
+  text-align: center;
+}
+
+.adhoc-files-empty {
+  color: var(--adhoc-muted);
+}
+
+.adhoc-files-error {
+  color: var(--adhoc-danger);
+}
+
+/* Adjunto de incidencia migrado sin binario (51 de 351 — el proveedor del
+   SGC legacy ya no tiene el archivo). Mismo criterio que `.adhoc-file-none`
+   de documents/document-list.js: icono apagado + `title` explicativo en vez
+   de un enlace de descarga que el backend respondería con 404. Los eventos
+   de programa no tienen adjuntos sin binario, pero la clase queda aquí
+   porque esta hoja ya es compartida por las dos pantallas. */
+.adhoc-file-none {
+  color: var(--adhoc-disabled);
+}
+
+/* Caja de subida: el legacy la dibuja con borde discontinuo (`.file-upload-box`). */
+.adhoc-files-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: .5rem;
+  margin-top: 1rem;
+  padding: var(--adhoc-space-2xl);
+  border: 1px dashed var(--adhoc-disabled);
+  border-radius: var(--adhoc-radius-md);
+}
+
+.adhoc-files-upload .adhoc-label {
+  width: 100%;
+  margin-bottom: .25rem;
+}
+
+.adhoc-files-upload input[type="file"] {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+/* ---------- pantallas estrechas ---------- */
+
+@media (max-width: 575.98px) {
+  .adhoc-work-card {
+    padding: var(--adhoc-space-2xl);
+  }
+
+  .adhoc-work-pager {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  /* El rótulo deja de reservar 8rem: con la tira de números al lado, ese hueco
+     empujaba "siguiente" fuera de la pantalla. */
+  .adhoc-work-pageinfo {
+    min-width: 0;
+  }
+
+  /* Doce números no caben en 360px ni con la fila partida: se aprieta el botón
+     para que quepan siete y el resto pase a la segunda línea. */
+  .adhoc-pager-page {
+    min-width: 1.9rem;
+    padding: var(--adhoc-space-2xs) var(--adhoc-space-xs);
+  }
+}
