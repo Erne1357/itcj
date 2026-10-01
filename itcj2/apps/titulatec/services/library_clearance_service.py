@@ -64,6 +64,10 @@ Reglas fijas (patrón `SurveyReviewService`):
   distinto del que confirmó, las rutas pasan lo que el usuario vio:
   `register(expected_status=, expected_total=)` y
   `register_payment(expected_total=)` (opcionales; `None` = sin esa guarda).
+  `expected_total` se valida con `_check_total_shape` (finito y >= 0), NUNCA
+  con el tope `AMOUNT_MAX` (Ruling R9, spec §4.8): ese tope topa lo que SE
+  TECLEA (`debt_amount`), y un adeudo al tope más la donación lo supera sin
+  dejar de ser un total legítimo.
 * Correos: cada transición marca, junto a su aviso y antes del commit, el
   punto donde se encolará su correo de `StudentMail` (spec §4.11). Hoy no se
   encola ninguno: los agrega la tarea de correos.
@@ -697,19 +701,29 @@ class LibraryClearanceService:
 
     # ------------------------------------------------------------------ listas
     @staticmethod
-    def counts_by_status(db: Session, q: str | None = None) -> dict[str, int]:
+    def counts_by_status(db: Session, q: str | None = None, *,
+                         admitted_only: bool = False) -> dict[str, int]:
         """Conteo por pestaña: las 3 llaves de `LIBRARY_STATUSES` siempre
         presentes. Mismo criterio que `list_for_inbox` (búsqueda `q` por nombre
-        o número de control; «Por revisar» sin procesos revocados ni
+        o número de control; «Por revisar» SIEMPRE sin procesos revocados ni
         terminados), para que el contador no anuncie lo que la tabla no
-        muestra."""
+        muestra.
+
+        `admitted_only` (Ruling R9, spec §4.8): además filtra `awaiting_payment`
+        a procesos admitidos -- lo pide Caja («Por cobrar», lista Y contador),
+        gemelo de `list_for_inbox(admitted_only=)`. Por omisión en `False`: la
+        bandeja de Biblioteca («En caja») sigue contando TODO `awaiting_payment`
+        -incluido un proceso ya revocado, que se pinta «Revocada» sin
+        acciones- porque su lista (`list_for_inbox` sin el flag) también los
+        sigue mostrando; cambiar el default aquí sin tocar la lista
+        desalinearía el contador de lo que la tabla pinta."""
         from itcj2.apps.titulatec.models import LibraryClearance, TitulationProcess
         from itcj2.apps.titulatec.models.library_clearance import LIBRARY_STATUSES
         from itcj2.core.models.user import User
 
         query = (db.query(LibraryClearance.status, func.count(LibraryClearance.id))
                  .join(TitulationProcess, TitulationProcess.id == LibraryClearance.process_id)
-                 .filter(LibraryClearanceService._pending_actionable()))
+                 .filter(LibraryClearanceService._pending_actionable(admitted_only)))
         texto = (q or "").strip()
         if texto:
             patron = f"%{texto}%"
@@ -724,16 +738,29 @@ class LibraryClearanceService:
 
     @staticmethod
     def list_for_inbox(db: Session, *, status: str, q: str | None = None,
-                       page: int = 1, per_page: int = 50) -> tuple[list[dict], bool]:
+                       page: int = 1, per_page: int = 50,
+                       admitted_only: bool = False) -> tuple[list[dict], bool]:
         """Página de una pestaña de las bandejas de Biblioteca y Caja.
 
         * `pending` («Por revisar»): FIFO por la aceptación de la inscripción
-          (`TitulationProcess.created_at`); fuera los procesos revocados o
-          terminados (toda acción respondería 400: patrón
-          `_no_revocada_en_revision` de GTV).
+          (`TitulationProcess.created_at`); SIEMPRE fuera los procesos
+          revocados o terminados (toda acción respondería 400: patrón
+          `_no_revocada_en_revision` de GTV) -- `admitted_only` no aplica aquí.
         * `awaiting_payment` («En caja» / «Por cobrar»): FIFO por `ready_at`.
+          Biblioteca («En caja») y Caja («Por cobrar») comparten este mismo
+          `status`, pero quieren cosas distintas: Biblioteca SIGUE mostrando
+          un proceso ya revocado (se pinta «Revocada», sin acciones --
+          `test_una_inscripcion_revocada_no_ofrece_acciones_y_se_etiqueta`,
+          Tarea 7) para que quede claro por qué desapareció de «Por revisar»;
+          Caja no tiene ningún uso para un caso que no puede cobrar, así que
+          `admitted_only=True` (Ruling R9, spec §4.8: «Por cobrar» lista Y
+          contador solo procesos admitidos, mismo predicado que «Por
+          revisar») lo saca por completo. Por eso NO es el comportamiento por
+          omisión: el llamador de Caja (`pages/cashier_admin.py`) lo pide
+          explícito; Biblioteca no cambia.
         * `cleared` («Liberados»): lo liberado más reciente primero
-          (`updated_at`).
+          (`updated_at`); SIN este filtro -- conserva el historial de lo ya
+          liberado aunque el proceso se haya revocado después.
 
         `can_revert` y el número de constancia vigente se calculan EN LOTE (una
         consulta cada uno por página), nunca por fila. Devuelve
@@ -749,11 +776,11 @@ class LibraryClearanceService:
 
         query = (LibraryClearanceService._inbox_query(db, q)
                  .filter(LibraryClearance.status == status))
+        if status == "pending" or (status == "awaiting_payment" and admitted_only):
+            query = query.filter(TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES))
         if status == "pending":
-            query = (query
-                     .filter(TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES))
-                     .order_by(TitulationProcess.created_at.asc(),
-                               TitulationProcess.id.asc()))
+            query = query.order_by(TitulationProcess.created_at.asc(),
+                                   TitulationProcess.id.asc())
         elif status == "awaiting_payment":
             query = query.order_by(LibraryClearance.ready_at.asc(),
                                    LibraryClearance.id.asc())
@@ -1029,18 +1056,39 @@ class LibraryClearanceService:
 
     @staticmethod
     def _check_expected(clearance, *, expected_status=None, expected_total=None) -> None:
-        """¿Sigue la fila como la vio el usuario? (Review Focus #1)."""
+        """¿Sigue la fila como la vio el usuario? (Review Focus #1).
+
+        `expected_total` NO pasa por `_check_amount` (Ruling R9, spec §4.8):
+        ese tope (`AMOUNT_MAX`) topa lo que SE TECLEA (`debt_amount`), pero
+        `expected_total` es la SUMA ya hecha de adeudo + donación que la
+        bandeja le mostró al usuario -un adeudo al tope más la donación
+        fácilmente la supera- así que aquí solo se exige forma mínima
+        (`_check_total_shape`: finito y >= 0), nunca el tope.
+        """
         if expected_status is not None and clearance.status != expected_status:
             actual = _STATUS_LABELS.get(clearance.status, clearance.status)
             raise ValueError(f"Otra persona ya movió este caso: ahora está «{actual}». "
                              "Revisa esa pestaña y vuelve a intentarlo.")
         if expected_total is not None:
-            esperado = _check_amount(expected_total)
+            esperado = LibraryClearanceService._check_total_shape(expected_total)
             actual = clearance.total_amount
             if actual is None or Decimal(actual) != esperado:
                 detalle = f": ahora es {format_amount(actual)}" if actual is not None else ""
                 raise ValueError(f"El monto cambió mientras lo revisabas{detalle}. "
                                  "Revisa el caso y vuelve a confirmar.")
+
+    @staticmethod
+    def _check_total_shape(value) -> Decimal:
+        """Forma mínima de un `expected_total` (Ruling R9): finito y >= 0,
+        SIN el tope `AMOUNT_MAX` -- ver `_check_expected`. Nunca `float`."""
+        if isinstance(value, bool) or not isinstance(value, (Decimal, int)):
+            raise ValueError(_MSG_AMOUNT_FORMAT)
+        total = Decimal(value)
+        if not total.is_finite():
+            raise ValueError(_MSG_AMOUNT_FORMAT)
+        if total < 0:
+            raise ValueError("El monto no puede ser negativo.")
+        return total
 
     @staticmethod
     def _library_requirement(db: Session, cohort_id: int):
@@ -1133,12 +1181,15 @@ class LibraryClearanceService:
         return limpio or None
 
     @staticmethod
-    def _pending_actionable():
-        """«Por revisar» solo con procesos admitidos; el resto de las pestañas
-        conserva el historial de los revocados. El llamador ya hizo JOIN a
-        `TitulationProcess`."""
+    def _pending_actionable(admitted_only: bool = False):
+        """«Por revisar» SIEMPRE solo con procesos admitidos; `admitted_only`
+        suma `awaiting_payment` a esa misma regla (Ruling R9, lo pide el
+        contador de Caja, `counts_by_status(admitted_only=True)`) -- el resto
+        de las pestañas conserva el historial de los revocados o terminados.
+        El llamador ya hizo JOIN a `TitulationProcess`."""
         from itcj2.apps.titulatec.models import LibraryClearance, TitulationProcess
-        return or_(LibraryClearance.status != "pending",
+        statuses = ("pending", "awaiting_payment") if admitted_only else ("pending",)
+        return or_(LibraryClearance.status.notin_(statuses),
                    TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES))
 
     @staticmethod

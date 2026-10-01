@@ -959,6 +959,41 @@ class TestRegisterPayment:
             LibraryClearanceService.register_payment(
                 db_session, 9_999_999, actores.caja.id, receipt_number=None)
 
+    def test_expected_total_arriba_del_tope_de_monto_se_acepta_si_coincide_ruling_r9(
+            self, db_session, nuevo, actores):
+        """Ruling R9 (spec §4.8): un adeudo al tope (`AMOUNT_MAX`) más la
+        donación da un total legítimo arriba de ese mismo tope; antes de esta
+        tarea `_check_expected` reusaba `_check_amount` (que SÍ aplica
+        `AMOUNT_MAX`) y rechazaba ese `expected_total`, aunque coincidiera con
+        la fila -- nunca se podía cobrar. Ahora solo exige forma mínima
+        (finito y >= 0)."""
+        esc = nuevo(donation=Decimal("900.00"))
+        fila = _a_caja(db_session, esc, actores.biblioteca, debt=AMOUNT_MAX)
+        assert fila.total_amount == AMOUNT_MAX + Decimal("900.00")
+        assert fila.total_amount > AMOUNT_MAX
+
+        with patch(NOTIFY):
+            pagada = LibraryClearanceService.register_payment(
+                db_session, esc.clearance.id, actores.caja.id,
+                expected_total=fila.total_amount)
+
+        assert pagada.status == "cleared"
+        assert pagada.total_amount == AMOUNT_MAX + Decimal("900.00")
+
+    @pytest.mark.parametrize("expected_total", [Decimal("-1"), Decimal("NaN")])
+    def test_expected_total_sigue_exigiendo_forma_minima(
+            self, db_session, nuevo, actores, expected_total):
+        """R9 relaja el TOPE, no la forma: negativo o no finito sigue siendo
+        `ValueError`, nunca un 500 ni un cobro silencioso."""
+        esc = nuevo()
+        _a_caja(db_session, esc, actores.biblioteca)
+
+        with pytest.raises(ValueError):
+            LibraryClearanceService.register_payment(
+                db_session, esc.clearance.id, actores.caja.id,
+                expected_total=expected_total)
+        assert esc.clearance.status == "awaiting_payment"
+
 
 # ---------------------------------------------------------------------------
 # Constancia previa (D9) — Review Focus #7
@@ -1556,6 +1591,33 @@ class TestCounts:
         assert despues["cleared"] - antes["cleared"] == 1
         assert despues["awaiting_payment"] - antes["awaiting_payment"] == 0
 
+    def test_por_cobrar_tambien_excluye_revocadas_y_terminadas_ruling_r9(
+            self, db_session, nuevo, token):
+        """Ruling R9 (spec §4.8): con `admitted_only=True` -lo que pide Caja,
+        «Por cobrar»- el contador usa el MISMO filtro de admitidos que «Por
+        revisar». Por omisión (`admitted_only=False`, lo que sigue pidiendo
+        Biblioteca en «En caja») NO se aplica: un `awaiting_payment` con el
+        proceso ya revocado sigue contando -su lista también lo sigue
+        mostrando, con la píldora «Revocada» (Tarea 7)-, para que el contador
+        nunca se desalinee de lo que la tabla pinta."""
+        def _en_caja(cohort=None, **extra):
+            return nuevo(cohort=cohort, last_name=token, status="awaiting_payment",
+                         debt_amount=ADEUDO, donation_amount=DONACION,
+                         total_amount=ADEUDO + DONACION, **extra)
+
+        base = _en_caja()
+        _en_caja(base.cohort, process_status="on_hold")       # admitido: sí cuenta
+        revocado = _en_caja(base.cohort, process_status="cancelled")
+        _en_caja(base.cohort, process_status="completed")     # terminado: NO cuenta con el flag
+
+        sin_flag = LibraryClearanceService.counts_by_status(db_session, q=token)
+        con_flag = LibraryClearanceService.counts_by_status(
+            db_session, q=token, admitted_only=True)
+
+        assert sin_flag["awaiting_payment"] == 4, "Biblioteca sigue contando TODO (default)"
+        assert con_flag["awaiting_payment"] == 2, "Caja (admitted_only) descarta revocada/terminada"
+        assert revocado.clearance.status == "awaiting_payment"    # no se tocó la fila
+
 
 class TestListForInbox:
     def test_por_revisar_fifo_por_alta_y_sin_revocadas_ni_terminadas(
@@ -1594,6 +1656,38 @@ class TestListForInbox:
         assert [f["id"] for f in filas] == [
             temprano.clearance.id, medio.clearance.id, tarde.clearance.id]
         assert filas[0]["total"] == ADEUDO + DONACION
+
+    def test_por_cobrar_con_admitted_only_excluye_revocadas_y_terminadas(
+            self, db_session, nuevo, token):
+        """Ruling R9 (spec §4.8), gemela de
+        `test_por_revisar_fifo_por_alta_y_sin_revocadas_ni_terminadas`: con
+        `admitted_only=True` -lo que pide `pages/cashier_admin.py` («Por
+        cobrar»)- un proceso revocado o terminado sale de la lista aunque su
+        fila siga `awaiting_payment`; uno en pausa sigue operando (Biblioteca
+        y Caja SÍ trabajan convocatorias en pausa, spec §4.2). SIN el flag
+        (lo que sigue pidiendo Biblioteca en «En caja») el revocado se queda
+        -se pinta «Revocada», Tarea 7- porque `admitted_only` por omisión es
+        `False`."""
+        def _en_caja(cohort, ready, **extra):
+            return nuevo(cohort=cohort, last_name=token, status="awaiting_payment",
+                         debt_amount=ADEUDO, donation_amount=DONACION,
+                         total_amount=ADEUDO + DONACION, ready_at=ready, **extra)
+
+        activo = _en_caja(None, datetime(2030, 2, 1, 9, 0))
+        en_pausa = _en_caja(activo.cohort, datetime(2030, 2, 2, 9, 0),
+                            process_status="on_hold")
+        revocado = _en_caja(activo.cohort, datetime(2030, 2, 3, 9, 0),
+                            process_status="cancelled")
+        _en_caja(activo.cohort, datetime(2030, 2, 4, 9, 0), process_status="completed")
+
+        con_flag, _ = LibraryClearanceService.list_for_inbox(
+            db_session, status="awaiting_payment", q=token, admitted_only=True)
+        sin_flag, _ = LibraryClearanceService.list_for_inbox(
+            db_session, status="awaiting_payment", q=token)
+
+        assert [f["id"] for f in con_flag] == [activo.clearance.id, en_pausa.clearance.id]
+        assert revocado.clearance.id in {f["id"] for f in sin_flag}, (
+            "Biblioteca (sin el flag) sigue mostrando el revocado, con su propia píldora")
 
     def test_liberados_recientes_primero_con_constancia_y_can_revert(
             self, db_session, nuevo, actores, token):
