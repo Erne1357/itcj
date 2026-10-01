@@ -33,8 +33,13 @@ class Certificate(Base):
     `source_ref` ata la constancia a la fila que la origino SIN FK real
     (puede ser `SurveyReview` o `LibraryClearance` segun `kind`):
     `survey_review:{id}` | `library_clearance:{id}`. A lo mas UNA constancia
-    vigente (no anulada) por `source_ref` -- lo exige el servicio, no un
-    UNIQUE de base: una anulada y su reemplazo comparten `source_ref`.
+    vigente (no anulada) por `source_ref` (spec §5 invariante 5): la cuidan
+    los llamadores de `CertificateService.issue` -solo emiten al ENTRAR al
+    estado liberado y toda salida anula- y, desde la revision final (Ruling
+    R29), tambien la BASE: el UNIQUE PARCIAL `uq_titulatec_certificates_
+    live_source` sobre `source_ref` WHERE `voided_at IS NULL`. Una anulada y
+    su reemplazo SI comparten `source_ref` (la anulada queda fuera del
+    indice); dos vigentes del mismo origen truenan con `IntegrityError`.
     """
     __tablename__ = "titulatec_certificates"
     __table_args__ = (
@@ -43,6 +48,10 @@ class Certificate(Base):
         # -- el create_all del CI no pasa por Alembic.
         Index("ix_titulatec_certificates_pending_print", "kind", "issued_at",
               postgresql_where=text("batch_id IS NULL AND voided_at IS NULL")),
+        # A lo mas UNA vigente por origen (§5 invariante 5, Ruling R29).
+        # Mismo nombre y predicado que en `tt20261001a`.
+        Index("uq_titulatec_certificates_live_source", "source_ref", unique=True,
+              postgresql_where=text("voided_at IS NULL")),
     )
 
     id = Column(Integer, primary_key=True)
@@ -91,10 +100,14 @@ class CertificateBatch(Base):
 
 
 class CertificateCounter(Base):
-    """Contador atomico de folio por tipo y anio. El servicio lo lee con
-    `SELECT ... FOR UPDATE` (patron del resto de la app) e incrementa antes
-    de usar `last_value`: el folio emitido es ese valor ya incrementado,
-    nunca se reutiliza aunque la constancia se anule.
+    """Contador atomico de folio por tipo y anio. El servicio
+    (`CertificateService._next_number`) NO lo lee antes de escribir: hace UNA
+    sola sentencia `INSERT ... ON CONFLICT (kind, year) DO UPDATE SET
+    last_value = last_value + 1 RETURNING last_value` (segura con PgBouncer,
+    spec §4.5) -- la primera emision del (kind, anio) inserta 1, las demas
+    incrementan bajo el lock de fila del propio upsert. El folio emitido es
+    ese valor ya incrementado y nunca se reutiliza aunque la constancia se
+    anule.
     """
     __tablename__ = "titulatec_certificate_counters"
 

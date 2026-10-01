@@ -12,8 +12,10 @@ otra no tiene.
 Que agrega
 ----------
 1. `titulatec_certificate_batches` / `titulatec_certificates` (con el
-   indice parcial «por imprimir») / `titulatec_certificate_counters` /
-   `titulatec_prior_clearances`: motor de constancias (§4.1.3-6).
+   indice parcial «por imprimir» y el UNIQUE parcial «a lo mas una vigente
+   por origen», `uq_titulatec_certificates_live_source`, Ruling R29) /
+   `titulatec_certificate_counters` / `titulatec_prior_clearances`: motor de
+   constancias (§4.1.3-6).
 2. `titulatec_library_clearances`: no adeudo de biblioteca, una fila por
    proceso (§4.1.1), con los 4 CHECK de dinero (`total = debt + donation`,
    los tres `>= 0`).
@@ -172,6 +174,15 @@ def upgrade() -> None:
         ["kind", "issued_at"],
         postgresql_where=sa.text("batch_id IS NULL AND voided_at IS NULL"),
     )
+    # A lo mas UNA constancia vigente por origen (spec §5 invariante 5,
+    # Ruling R29 de la revision final): la anulada sale del indice, asi que
+    # una anulada y su reemplazo conviven; dos vigentes del mismo
+    # `source_ref` truenan.
+    op.create_index(
+        "uq_titulatec_certificates_live_source", "titulatec_certificates",
+        ["source_ref"], unique=True,
+        postgresql_where=sa.text("voided_at IS NULL"),
+    )
 
     op.create_table(
         "titulatec_certificate_counters",
@@ -293,6 +304,11 @@ def downgrade() -> None:
 
     op.drop_table("titulatec_certificate_counters")
 
+    # IF EXISTS: este indice se agrego editando la revision EN SITIO (Ruling
+    # R29, antes de llegar a produccion); una base migrada con el texto
+    # anterior (la de dev) no lo tiene y el DROP pelado abortaba la bajada.
+    op.drop_index("uq_titulatec_certificates_live_source",
+                  table_name="titulatec_certificates", if_exists=True)
     op.drop_index("ix_titulatec_certificates_pending_print",
                   table_name="titulatec_certificates")
     op.drop_index("ix_titulatec_certificates_batch_id", table_name="titulatec_certificates")

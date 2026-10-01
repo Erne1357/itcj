@@ -70,13 +70,16 @@ class CertificateService:
     def issue(db: Session, *, kind: str, process, source_ref: str,
               actor_id: int) -> Certificate:
         """Emite una constancia NUEVA con folio propio y datos CONGELADOS del
-        proceso en este momento (D7/D21/D22). Incondicional: no comprueba que
-        `source_ref` ya tenga una vigente — ese candado («a lo más UNA
-        vigente por `source_ref`», §5 invariante 5) es responsabilidad del
-        LLAMADOR, que conoce su propia máquina de estados (p. ej.
+        proceso en este momento (D7/D21/D22). No consulta antes si
+        `source_ref` ya tiene una vigente: «a lo más UNA vigente por
+        `source_ref`» (§5 invariante 5) la cuida primero el LLAMADOR, que
+        conoce su propia máquina de estados (p. ej.
         `SurveyReviewService.approve` solo emite desde `in_review`/`rejected`,
-        nunca dos veces sobre una ya `approved`). Sin commit — la transacción
-        del llamador decide.
+        nunca dos veces sobre una ya `approved`), y la respalda la base con el
+        UNIQUE parcial `uq_titulatec_certificates_live_source` (Ruling R29): un
+        llamador que se equivocara truena con `IntegrityError` en el `flush()`
+        de aquí, nunca deja dos vigentes. Sin commit — la transacción del
+        llamador decide.
         """
         from itcj2.apps.titulatec.models.certificate import Certificate
         from itcj2.core.models.program import Program
@@ -158,15 +161,42 @@ class CertificateService:
 
     # --------------------------------------------------------------- lectura
     @staticmethod
+    def _pending_criteria(kind: str) -> tuple:
+        """«Por imprimir» de `kind`, UNA sola definición para `pending`,
+        `pending_count` y `create_batch` (antes copiada en los tres):
+
+        * suelta (sin lote) y vigente (sin anular) — mismo predicado que el
+          índice parcial `ix_titulatec_certificates_pending_print`;
+        * y su proceso NO está revocado (Ruling R26, M3 de la revisión
+          final): `ProcessService.cancel` no anula las constancias, y SE no
+          debe recibir papeles de una inscripción dada de baja. `NOT EXISTS`
+          y no un JOIN: el `FOR UPDATE SKIP LOCKED` de `create_batch` bloquea
+          solo las constancias, nunca el proceso.
+        """
+        from sqlalchemy import exists
+
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.models.certificate import Certificate
+
+        revocado = (exists()
+                    .where(TitulationProcess.id == Certificate.process_id,
+                           TitulationProcess.status == "cancelled")
+                    .correlate(Certificate))
+        return (Certificate.kind == kind,
+                Certificate.batch_id.is_(None),
+                Certificate.voided_at.is_(None),
+                ~revocado)
+
+    @staticmethod
     def pending(db: Session, kind: str) -> list[Certificate]:
-        """«Por imprimir»: constancias de `kind` sueltas (sin lote) y
-        vigentes (sin anular), FIFO por `issued_at` — mismo predicado que el
-        índice parcial `ix_titulatec_certificates_pending_print`."""
+        """«Por imprimir»: constancias de `kind` sueltas (sin lote),
+        vigentes (sin anular) y de un proceso no revocado, FIFO por
+        `issued_at` (`_pending_criteria`)."""
         from itcj2.apps.titulatec.models.certificate import Certificate
 
         return (
             db.query(Certificate)
-            .filter_by(kind=kind, batch_id=None, voided_at=None)
+            .filter(*CertificateService._pending_criteria(kind))
             .order_by(Certificate.issued_at.asc(), Certificate.id.asc())
             .all()
         )
@@ -179,7 +209,7 @@ class CertificateService:
 
         total = (
             db.query(func.count(Certificate.id))
-            .filter_by(kind=kind, batch_id=None, voided_at=None)
+            .filter(*CertificateService._pending_criteria(kind))
             .scalar()
         )
         return total or 0
@@ -246,8 +276,9 @@ class CertificateService:
     # ------------------------------------------------------------------ lote
     @staticmethod
     def create_batch(db: Session, *, kind: str, actor_id: int) -> CertificateBatch:
-        """Toma TODAS las pendientes de `kind` con `FOR UPDATE SKIP LOCKED`
-        (si alguien más las está imprimiendo en otra transacción ahora mismo,
+        """Toma TODAS las pendientes de `kind` (`_pending_criteria`: las de
+        un proceso revocado no entran) con `FOR UPDATE SKIP LOCKED` (si
+        alguien más las está imprimiendo en otra transacción ahora mismo,
         esta llamada simplemente no las ve, en vez de bloquearse), arma el
         lote y les pone `batch_id`. Commit PROPIO: imprimir es su propia
         operación. 0 pendientes → `ValueError` legible, nada se crea."""
@@ -258,7 +289,7 @@ class CertificateService:
 
         filas = (
             db.query(Certificate)
-            .filter_by(kind=kind, batch_id=None, voided_at=None)
+            .filter(*CertificateService._pending_criteria(kind))
             .order_by(Certificate.issued_at.asc(), Certificate.id.asc())
             .with_for_update(skip_locked=True)
             .all()

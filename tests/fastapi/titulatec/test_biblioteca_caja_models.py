@@ -266,16 +266,86 @@ def test_certificate_period_label_acepta_etiquetas_reales_del_spec(
 
 
 def test_certificate_number_es_unico(db_session, egresado):
+    """Otro `source_ref` a propósito: desde la Ruling R29 dos vigentes del
+    MISMO origen también truenan, y esta prueba debe tronar SOLO por el
+    folio repetido."""
     from itcj2.apps.titulatec.models import Certificate
 
     db_session.add(Certificate(**_certificate_kwargs(egresado["process"], number="GTV-2029-0099")))
     db_session.flush()
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError) as exc:
         with db_session.begin_nested():
             db_session.add(Certificate(
-                **_certificate_kwargs(egresado["process"], number="GTV-2029-0099")))
+                **_certificate_kwargs(egresado["process"], number="GTV-2029-0099",
+                                      source_ref="survey_review:otro-origen")))
             db_session.flush()
+    assert "uq_titulatec_certificates_live_source" not in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Ruling R29: a lo más UNA constancia vigente por `source_ref` (§5 inv. 5)
+# ---------------------------------------------------------------------------
+def test_uq_constancia_vigente_por_origen_es_unico_y_parcial(db_session):
+    """Mismo nombre y predicado en el modelo y en `tt20261001a` (el CI arma
+    con `create_all`; dev/prod con Alembic)."""
+    from itcj2.apps.titulatec.models import Certificate
+
+    definicion = db_session.execute(sa_text(
+        "SELECT indexdef FROM pg_indexes "
+        "WHERE indexname = 'uq_titulatec_certificates_live_source'"
+    )).scalar()
+    assert definicion is not None, "falta el índice (¿se re-aplicó tt20261001a?)"
+    assert "UNIQUE" in definicion.upper()
+    assert "(source_ref)" in definicion
+    assert "voided_at IS NULL" in definicion
+
+    del_modelo = {ix.name: ix for ix in Certificate.__table__.indexes}
+    indice = del_modelo["uq_titulatec_certificates_live_source"]
+    assert indice.unique is True
+    assert [c.name for c in indice.columns] == ["source_ref"]
+    assert str(indice.dialect_options["postgresql"]["where"]) == "voided_at IS NULL"
+
+
+def test_dos_constancias_vigentes_del_mismo_origen_truenan(db_session, egresado):
+    from itcj2.apps.titulatec.models import Certificate
+
+    db_session.add(Certificate(**_certificate_kwargs(
+        egresado["process"], number="BIB-2029-0101", kind="library_clearance",
+        source_ref="library_clearance:r29-vigente")))
+    db_session.flush()
+
+    with pytest.raises(IntegrityError) as exc:
+        with db_session.begin_nested():
+            db_session.add(Certificate(**_certificate_kwargs(
+                egresado["process"], number="BIB-2029-0102", kind="library_clearance",
+                source_ref="library_clearance:r29-vigente")))
+            db_session.flush()
+    assert "uq_titulatec_certificates_live_source" in str(exc.value)
+
+
+def test_una_anulada_y_su_reemplazo_del_mismo_origen_conviven(db_session, egresado):
+    """Re-liberar emite OTRA constancia con el mismo `source_ref` (Review
+    Focus #6): la anulada queda fuera del índice parcial."""
+    from itcj2.core.utils.timezone import db_now
+    from itcj2.apps.titulatec.models import Certificate
+
+    anulada = Certificate(**_certificate_kwargs(
+        egresado["process"], number="BIB-2029-0111", kind="library_clearance",
+        source_ref="library_clearance:r29-reemplazo"))
+    db_session.add(anulada)
+    db_session.flush()
+    anulada.voided_at = db_now()
+    anulada.voided_by_id = egresado["process"].student_id
+    db_session.flush()
+
+    reemplazo = Certificate(**_certificate_kwargs(
+        egresado["process"], number="BIB-2029-0112", kind="library_clearance",
+        source_ref="library_clearance:r29-reemplazo"))
+    db_session.add(reemplazo)
+    db_session.flush()
+
+    assert reemplazo.id is not None and reemplazo.id != anulada.id
 
 
 def test_certificate_process_id_referencia_titulatec_processes(db_session, egresado):

@@ -200,6 +200,25 @@ class TestIssueNumeracion:
             CertificateService.issue(db_session, kind="otra_cosa", process=escenario["process"],
                                      source_ref="x:1", actor_id=1)
 
+    def test_dos_vigentes_del_mismo_origen_truenan_en_la_base(
+            self, db_session, escenario, actor):
+        """Ruling R29: «a lo más UNA vigente por `source_ref`» (§5 invariante
+        5) ya no es solo disciplina de los llamadores -- un `issue` de más
+        sobre un origen con una vigente truena en el `flush()` con el UNIQUE
+        parcial, en vez de dejar dos papeles válidos del mismo trámite."""
+        from sqlalchemy.exc import IntegrityError
+
+        proc = escenario["process"]
+        ref = "library_clearance:r29-servicio"
+        CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                 source_ref=ref, actor_id=actor.id)
+
+        with pytest.raises(IntegrityError) as exc:
+            with db_session.begin_nested():
+                CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                         source_ref=ref, actor_id=actor.id)
+        assert "uq_titulatec_certificates_live_source" in str(exc.value)
+
     def test_dos_conexiones_reales_simultaneas_numeran_sin_colision(self, _pg_engine):
         """Review Focus #6 («emisiones simultáneas»): DOS conexiones REALES
         a Postgres (no el `db_session` de SAVEPOINTs del resto del archivo,
@@ -481,6 +500,49 @@ class TestLotes:
         assert has_more2 is False
         # más reciente primero: el último lote creado es el primero de la página 1
         assert pagina1[0]["id"] > pagina1[1]["id"] > pagina2[0]["id"]
+
+    def test_las_de_una_inscripcion_revocada_no_se_imprimen(
+            self, db_session, escenario, actor, make_student, make_process):
+        """Ruling R26 (M3 de la revisión final): `ProcessService.cancel` no
+        anula las constancias del proceso, así que «Por imprimir», su
+        contador y el lote dejan FUERA las de un proceso `cancelled` -- SE no
+        debe recibir papeles de una inscripción revocada. La constancia no se
+        toca (ni se anula ni entra a un lote): solo no se imprime."""
+        vivo = CertificateService.issue(
+            db_session, kind="library_clearance", process=escenario["process"],
+            source_ref="library_clearance:m3-vivo", actor_id=actor.id)
+        revocado = make_process(make_student(), cohort=escenario["cohort"],
+                                current_phase=2)
+        de_revocado = CertificateService.issue(
+            db_session, kind="library_clearance", process=revocado,
+            source_ref="library_clearance:m3-revocado", actor_id=actor.id)
+        revocado.status = "cancelled"          # se revocó DESPUÉS de emitirla
+        db_session.flush()
+
+        assert CertificateService.pending_count(db_session, "library_clearance") == 1
+        assert [c.id for c in CertificateService.pending(db_session, "library_clearance")] == [
+            vivo.id]
+
+        batch = CertificateService.create_batch(db_session, kind="library_clearance",
+                                                actor_id=actor.id)
+
+        assert batch.count == 1
+        assert [c.id for c in CertificateService.certificates_of(db_session, batch.id)] == [
+            vivo.id]
+        db_session.refresh(de_revocado)
+        assert de_revocado.batch_id is None and de_revocado.voided_at is None
+
+    def test_solo_revocadas_pendientes_no_arman_lote(
+            self, db_session, escenario, actor, make_student, make_process):
+        revocado = make_process(make_student(), cohort=escenario["cohort"],
+                                current_phase=2, status="cancelled")
+        CertificateService.issue(db_session, kind="survey_release", process=revocado,
+                                 source_ref="survey_review:m3-solo", actor_id=actor.id)
+
+        assert CertificateService.pending_count(db_session, "survey_release") == 0
+        with pytest.raises(ValueError):
+            CertificateService.create_batch(db_session, kind="survey_release",
+                                            actor_id=actor.id)
 
     def test_list_batches_de_otro_kind_sale_vacio(self, db_session, escenario, actor):
         proc = escenario["process"]
