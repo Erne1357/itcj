@@ -381,6 +381,26 @@ tres archivos juntos —ahí no hay procesos que proteger—:
 2. Asignar ocupantes a los dos puestos (`/itcj/config/positions`) y que Servicios Escolares
    capture la donación de cada convocatoria que quedará con candado y tenga procesos por revisar
    (la bandeja de Biblioteca ya las anuncia; los pre-chequeos de abajo las listan).
+
+   **Convocatorias EXISTENTES sin NINGUNA fila de requisitos** (Ruling R30 #5, re-revisión de la
+   ola final): el pre-chequeo del paso 3 busca una fila `code='library_clearance'` — con CERO
+   filas en `titulatec_cotejo_requirements` no hay ninguna que buscar, así que no la ve, pero la
+   convocatoria igual nace con el candado (`CotejoRequirementService.DEFAULTS` lo trae activo) en
+   cuanto algo dispare `list_or_seed`/`auto_requirement` sobre ella por primera vez —un «Mi cita»
+   del egresado, GTV liberando su encuesta— **sin pasar por ningún chequeo**. Antes de activar,
+   corre:
+   ```sql
+   SELECT c.id, c.name, COUNT(DISTINCT p.id) AS procesos
+     FROM titulatec_cohorts c
+     JOIN titulatec_processes p ON p.cohort_id = c.id
+    WHERE p.status IN ('active', 'on_hold')
+      AND NOT EXISTS (SELECT 1 FROM titulatec_cotejo_requirements req WHERE req.cohort_id = c.id)
+    GROUP BY c.id, c.name ORDER BY c.name, c.id;
+   ```
+   Por cada convocatoria que salga: actívala ESE MISMO DÍA (con ocupantes y donación ya listos
+   antes de que nazca el candado), o siembra su lista ANTES con la UI de Requisitos
+   (`/titulatec/admin/cohorts/{id}/cotejo-reqs`) para que ya tenga su fila `library_clearance` y
+   el pre-chequeo del paso 3 SÍ la vea.
 3. **`titulatec activar-biblioteca-caja [--dry-run] [--force]`** — fuera de horario:
    1. **Pre-chequeos de solo lectura** (`_precheck_activar_biblioteca`): cada puesto con al menos
       un ocupante VIGENTE (asignación activa en fechas y usuario activo) y ninguna convocatoria
