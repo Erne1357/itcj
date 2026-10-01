@@ -1,0 +1,14 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Biblioteca · TitulaTec{% endblock %}
+{% block admin_view %}library{% endblock %}
+{% block admin_main %}
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Centro de Información · Biblioteca</span>
+  <h1 class="tt-display h3 fw-medium">No adeudo de biblioteca</h1>
+  <p class="mb-0 small text-body-secondary">Revisa en orden de inscripción quién no debe nada,
+     quién debe pasar a Caja y quién ya trae su constancia.</p>
+</div>
+<div class="px-4 pb-4">
+  {% include "titulatec/admin/partials/library_body.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,246 @@
+{# Bandeja de Biblioteca (no adeudo). Raíz `#tt-library-body`; TODOS los
+   controles (pestañas, búsqueda, paginación, lote y las acciones de fila)
+   apuntan a ella con `hx-swap="outerHTML"`, así que cada handler devuelve este
+   parcial completo, nunca una fila. Mismo patrón que
+   `partials/survey_reviews_body.html` (Tarea 6 de la campaña de GTV).
+
+   `status` es la pestaña activa (`_body_ctx` la normaliza: nunca un filtro
+   arbitrario). Cada formulario de fila la manda de vuelta, junto con `q` y
+   `page`, en campos ocultos.
+
+   Acciones por pestaña (spec §4.7):
+   - «Por revisar»: casilla de lote + «Sin adeudo» (fila) · «Con adeudo…»
+     (monto + nota) · «Constancia previa…» (fecha + nota).
+   - «En caja»: desglose adeudo + donación = total, nota, «Corregir…» (mismo
+     endpoint que Registrar, con `expected_status=awaiting_payment` +
+     `expected_total` -- Ruling R8).
+   - «Liberados»: píldora + fecha + folio de constancia; «Deshacer…» (previa)
+     o «Revertir…» (sin cargo/legado) según `can_revert`; un pago se revierte
+     DESDE CAJA, no aquí (el service lo rechaza con 400 si se intenta).
+   - Inscripción revocada (`r.revoked`, cualquier pestaña): sin acciones
+     (todas responderían 400), píldora «Revocada».
+
+   El LOTE no vive dentro de un `<form>` que envuelva la tabla: las casillas
+   (`name="ids"`) son inputs sueltos en su celda, y el botón «Sin adeudo»
+   las recoge por fuera con `hx-include` (selector CSS global, sin anidar
+   `<form>` dentro de las filas -- cada fila YA trae sus propios formularios de
+   acción en la misma `<tr>`, y un `<form>` no puede contener a otro). Mismo
+   truco que `admin/process_detail.html:54,96` (`hx-include` a un `<form>`
+   por id con el botón FUERA); aquí el ancla es `#tt-library-bulk-fields`
+   (status/q/page) más `[name='ids']:checked`.
+
+   `hx-confirm` y `data-tt-confirm-ok` van en el ELEMENTO QUE LLEVA `hx-post`
+   (`getClosestAttributeValue` camina hacia ANCESTROS, nunca hacia hijos): en
+   las acciones de fila eso es el `<form>`; en el botón de lote, que no vive
+   dentro de ningún `<form>`, es el propio `<button>` -- mismo criterio,
+   aplicado al elemento que de verdad dispara la petición (ver docstring de
+   `partials/survey_reviews_body.html`). Sin `<script>` inline ni
+   `confirm()/alert()`: el puente `hx-confirm` -> modal ya existe
+   (`static/js/shared/titulatec-utils.js:265`). #}
+{% from "titulatec/_macros.html" import library_clearance_pill %}
+{% macro tab_fields(tab, q, page) -%}
+<input type="hidden" name="status" value="{{ tab }}">
+<input type="hidden" name="q" value="{{ q }}">
+<input type="hidden" name="page" value="{{ page }}">
+{%- endmacro %}
+<div id="tt-library-body" data-tt-view="library-body">
+
+  <form class="d-flex flex-wrap align-items-center gap-2 mb-3"
+        hx-get="/titulatec/admin/biblioteca/body" hx-target="#tt-library-body" hx-swap="outerHTML">
+    <input type="hidden" name="status" value="{{ status }}">
+    <input type="hidden" name="page" value="1">
+    <div class="tt-search">
+      <i class="bi bi-search"></i>
+      <input type="search" name="q" value="{{ q }}" placeholder="Buscar control o nombre"
+             aria-label="Buscar control o nombre" hx-get="/titulatec/admin/biblioteca/body"
+             hx-target="#tt-library-body" hx-swap="outerHTML"
+             hx-trigger="keyup changed delay:400ms, search" hx-include="closest form">
+    </div>
+  </form>
+
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    {% for key, label in tabs %}
+    <button id="tt-lib-tab-{{ key }}" type="button"
+            class="btn btn-sm {{ 'tt-btn-ink' if status == key else 'tt-btn-ghost' }}"
+            {% if status == key %}aria-current="true"{% endif %}
+            hx-get="/titulatec/admin/biblioteca/body?status={{ key }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
+            hx-target="#tt-library-body" hx-swap="outerHTML">{{ label }}
+      <span class="tt-pill tt-pill--neutral">{{ counts.get(key, 0) }}</span></button>
+    {% endfor %}
+  </div>
+
+  {% if missing_donation %}
+  <div class="tt-card mb-3" id="tt-lib-donation-warning">
+    <span class="tt-kicker"><i class="bi bi-exclamation-triangle me-1"></i>Falta la donación voluntaria de libro</span>
+    <ul class="mb-0 small">
+      {% for c in missing_donation %}
+      <li>La convocatoria <strong>{{ c.name }}</strong> no tiene capturada la donación voluntaria
+          de libro ({{ c.pending }} caso{{ 's' if c.pending != 1 else '' }} por revisar); Servicios
+          Escolares debe capturarla para pasar casos a Caja.</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if status == 'pending' and rows %}
+  <div id="tt-library-bulk-fields" class="d-none">{{ tab_fields(status, q, page) }}</div>
+  <div class="tt-card mb-3 d-flex flex-wrap align-items-center gap-2">
+    <span class="small text-body-secondary">Marca los egresados sin adeudo y regístralos de una vez.</span>
+    <button type="button" class="btn btn-sm tt-btn-ink ms-auto"
+            hx-post="/titulatec/admin/biblioteca/registrar"
+            hx-include="#tt-library-bulk-fields, [name='ids']:checked"
+            hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="this"
+            data-tt-confirm-ok="Sin adeudo"
+            hx-confirm="Sin adeudo en lote|¿Marcar sin adeudo a los egresados seleccionados?">
+      <i class="bi bi-check2-all me-1"></i>Sin adeudo (seleccionados)
+    </button>
+  </div>
+  {% endif %}
+
+  {% if not rows %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-patch-check me-1"></i>Bandeja limpia</span>
+    <p class="mb-0">No hay casos en esta pestaña{{ ' con ese filtro' if q else '' }}.</p>
+  </div>
+  {% else %}
+  <div class="tt-table-wrap">
+    <table class="table table-sm align-middle">
+      <thead><tr>
+        {% if status == 'pending' %}<th style="width:2rem"></th>{% endif %}
+        <th>Egresado</th><th>Control</th><th>Carrera</th><th>Convocatoria</th>
+        <th>Inscrito</th><th>Monto</th><th>Estado</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr id="lib-{{ r.id }}">
+        {% if status == 'pending' %}
+        <td><input type="checkbox" name="ids" value="{{ r.id }}" aria-label="Seleccionar a {{ r.student }}"></td>
+        {% endif %}
+        <td>{{ r.student }}</td>
+        <td class="tt-mono">{{ r.control }}</td>
+        <td>{{ r.program }}</td>
+        <td>{{ r.cohort }}</td>
+        <td class="tt-mono">{{ r.enrolled_at.strftime('%d/%m/%Y') if r.enrolled_at else '—' }}</td>
+        <td>
+          {% if r.status == 'pending' %}—
+          {% elif r.status == 'awaiting_payment' %}
+            {{ format_amount(r.debt) }} + {{ format_amount(r.donation) }} = <strong>{{ format_amount(r.total) }}</strong>
+            {% if r.note %}<br><span class="small text-body-secondary">{{ r.note }}</span>{% endif %}
+          {% else %}
+            {{ format_amount(r.total) if r.total is not none else '—' }}
+          {% endif %}
+        </td>
+        <td>{{ library_clearance_pill(r.status, via=r.via) }}
+          {% if r.status == 'cleared' %}
+          <br><span class="small text-body-secondary">
+            {%- if r.via == 'payment' -%}
+            Pagó el {{ r.paid_at.strftime('%d/%m/%Y') if r.paid_at else '—' }}
+            {%- elif r.via == 'prior' -%}
+            Trae constancia del {{ r.prior_issued_on.strftime('%d/%m/%Y') if r.prior_issued_on else '—' }}
+            {%- else -%}
+            Liberado el {{ r.updated_at.strftime('%d/%m/%Y') if r.updated_at else '—' }}
+            {%- endif -%}
+          </span>
+          {% if r.certificate_number %}<br><span class="tt-mono small">{{ r.certificate_number }}</span>{% endif %}
+          {% endif %}
+        </td>
+        <td>
+          {% if r.revoked %}
+            <span class="tt-pill tt-pill--neutral">Revocada</span>
+            <p class="small mb-0 mt-1">La inscripción fue revocada: no hay acciones.</p>
+          {% elif r.status == 'pending' %}
+            <form class="d-inline" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/registrar"
+                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Sin adeudo"
+                  hx-confirm="Sin adeudo|¿Marcar a {{ r.student }} sin adeudo de biblioteca?">
+              {{ tab_fields(status, q, page) }}
+              <input type="hidden" name="debt_amount" value="0">
+              <input type="hidden" name="expected_status" value="pending">
+              <button type="submit" class="btn btn-sm tt-btn-ink">Sin adeudo</button>
+            </form>
+            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/registrar"
+                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Registrar"
+                  hx-confirm="Con adeudo|¿Registrar este adeudo para {{ r.student }}? Pasa a Caja a pagar.">
+              {{ tab_fields(status, q, page) }}
+              <input type="hidden" name="expected_status" value="pending">
+              <input class="tt-field tt-field--xs" style="width:6rem" type="text" name="debt_amount" required
+                     placeholder="Adeudo $" aria-label="Monto del adeudo de {{ r.student }}">
+              <input class="tt-field tt-field--xs" name="note" maxlength="1000" placeholder="Nota"
+                     aria-label="Nota del adeudo de {{ r.student }}">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Con adeudo…</button>
+            </form>
+            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/previa"
+                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Registrar"
+                  hx-confirm="Constancia previa|¿Registrar que {{ r.student }} ya pagó y trae su constancia? Queda liberado sin pasar por Caja.">
+              {{ tab_fields(status, q, page) }}
+              <input class="tt-field tt-field--xs" type="date" name="issued_on" required
+                     aria-label="Fecha de la constancia previa de {{ r.student }}">
+              <input class="tt-field tt-field--xs" name="note" maxlength="1000" placeholder="Nota"
+                     aria-label="Nota de la constancia previa de {{ r.student }}">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Constancia previa…</button>
+            </form>
+          {% elif r.status == 'awaiting_payment' %}
+            <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/registrar"
+                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Corregir"
+                  hx-confirm="Corregir monto|¿Corregir el monto de {{ r.student }}? Se vuelve a congelar con la donación vigente.">
+              {{ tab_fields(status, q, page) }}
+              <input type="hidden" name="expected_status" value="awaiting_payment">
+              <input type="hidden" name="expected_total" value="{{ r.total }}">
+              <input class="tt-field tt-field--xs" style="width:6rem" type="text" name="debt_amount" required
+                     value="{{ r.debt }}" aria-label="Nuevo monto del adeudo de {{ r.student }}">
+              <input class="tt-field tt-field--xs" name="note" maxlength="1000" value="{{ r.note or '' }}"
+                     placeholder="Nota" aria-label="Nota del adeudo de {{ r.student }}">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Corregir…</button>
+            </form>
+          {% elif r.status == 'cleared' %}
+            {% if r.can_revert and r.via == 'prior' %}
+            <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/deshacer-previa"
+                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Deshacer"
+                  hx-confirm="Deshacer constancia previa|¿Deshacer la constancia previa de {{ r.student }}? Vuelve a «Por revisar».">
+              {{ tab_fields(status, q, page) }}
+              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
+                     placeholder="Motivo" aria-label="Motivo para deshacer la constancia de {{ r.student }}">
+              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Deshacer…</button>
+            </form>
+            {% elif r.can_revert and r.via in ('no_charge', 'legacy') %}
+            <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/revertir"
+                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Revertir"
+                  hx-confirm="Revertir|¿Revertir el no adeudo de {{ r.student }}? Vuelve a «Por revisar».">
+              {{ tab_fields(status, q, page) }}
+              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
+                     placeholder="Motivo" aria-label="Motivo para revertir el no adeudo de {{ r.student }}">
+              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Revertir…</button>
+            </form>
+            {% elif r.can_revert and r.via == 'payment' %}
+            <span class="tt-pill tt-pill--neutral">Se revierte desde Caja</span>
+            {% else %}
+            <span class="tt-pill tt-pill--neutral">Fase 2 liberada</span>
+            {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page > 1 or has_more %}
+  <div class="d-flex gap-2 mt-2">
+    {% if page > 1 %}
+    <button class="btn btn-sm tt-btn-ghost" type="button"
+            hx-get="/titulatec/admin/biblioteca/body?status={{ status }}&page={{ page - 1 }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
+            hx-target="#tt-library-body" hx-swap="outerHTML">Anteriores</button>
+    {% endif %}
+    {% if has_more %}
+    <button class="btn btn-sm tt-btn-ghost" type="button"
+            hx-get="/titulatec/admin/biblioteca/body?status={{ status }}&page={{ page + 1 }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
+            hx-target="#tt-library-body" hx-swap="outerHTML">Siguientes</button>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% endif %}
+</div>

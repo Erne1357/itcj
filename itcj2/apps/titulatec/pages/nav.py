@@ -66,6 +66,8 @@ _ROLE_DASHBOARD = [
     # Centro de Computo (2026-09-24): su bandeja de Accesos. La jefatura trae
     # ademas `admin` por su puesto (D2) y por eso aterriza arriba, en la Bandeja.
     ("titulatec_computer_center", "/titulatec/admin/accesos"),
+    # No adeudo de biblioteca (2026-10-01): bandeja propia de Biblioteca.
+    ("titulatec_library", "/titulatec/admin/biblioteca"),
     ("titulatec_vinculacion",     "/titulatec/vinculacion/"),
     ("titulatec_sinodal",         "/titulatec/sinodal/"),
     ("graduate",                  "/titulatec/student/dashboard"),  # egresado: el alumno (2026-09-15)
@@ -119,6 +121,8 @@ _ADMIN_NAV = [
     # sin cuenta; en modo alterno, revisa todo.
     ("Accesos",             "bi-key",         "/titulatec/admin/accesos",      {"titulatec.enrollment_access.page.list"}),
     ("Liberaciones",        "bi-patch-check", "/titulatec/admin/liberaciones", {"titulatec.survey_review.page.list"}),
+    # No adeudo de biblioteca (2026-10-01): bandeja de Biblioteca (Centro de Información).
+    ("Biblioteca",          "bi-book",        "/titulatec/admin/biblioteca",   {"titulatec.library_clearance.page.list"}),
     ("Encuestas",           "bi-clipboard-data", "/titulatec/admin/encuestas", {"titulatec.survey.page.list"}),
     ("Actos protocolarios", "bi-mortarboard", "#",                             {"titulatec.ceremony.page.list"}),
 ]
