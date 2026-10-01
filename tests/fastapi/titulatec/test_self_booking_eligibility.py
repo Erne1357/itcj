@@ -468,3 +468,71 @@ class TestElCuboDeLosBloqueados:
         assert esc["p1"].id not in self._ids(
             AppointmentService.list_self_blocked_processes(
                 db_session, allowed_program_ids={esc["prog"].id}))
+
+
+# =========================================================================
+# `cita_ocupa_el_cotejo` (Ruling R18, revisión de la Tarea 12): el predicado
+# compartido con `mail_compose.py::_que_falta` (D11/Ruling R17) y, desde R18,
+# con `pages/student.py::_agenda_ctx` (Ruling R12). Las mismas reglas 4/5 de
+# arriba, leídas por su cuenta: `current` en `_ESTADOS_ACTIVOS` o `attended`
+# sin veredicto de fase 2 -> True; sin cita, `no_show`, `cancelled` o
+# `attended` con la fase 2 YA `rejected` -> False (son justo los tres casos
+# de la sección «Los tres que SÍ dejan agendar», de arriba, más `None`).
+# =========================================================================
+def test_cita_ocupa_el_cotejo_sin_cita_es_false(db_session, alumno):
+    assert SelfBookingService.cita_ocupa_el_cotejo(db_session, alumno["p1"], None) is False
+
+
+@pytest.mark.parametrize("transicion", ["scheduled", "confirmed", "in_progress"])
+def test_cita_ocupa_el_cotejo_estados_vivos_son_true(db_session, alumno, transicion):
+    """Las tres de `_ESTADOS_ACTIVOS` (regla 4, D17): agendada, confirmada o
+    el cotejo ya en curso -todas siguen ocupando el turno del egresado.
+    `scheduled` -> `in_progress` directo (sin pasar por `confirmed`), igual
+    que `_asiste`: la matriz de transiciones lo permite."""
+    esc = alumno
+    ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                   slot_start=time(9, 0), created_by_id=esc["off"].id)
+    if transicion == "confirmed":
+        AppointmentService.confirm(db_session, ap, esc["p1"].student_id)
+    elif transicion == "in_progress":
+        AppointmentService.start(db_session, ap, esc["off"].id)
+    db_session.refresh(ap)
+    assert ap.status == transicion
+
+    assert SelfBookingService.cita_ocupa_el_cotejo(db_session, esc["p1"], ap) is True
+
+
+def test_cita_ocupa_el_cotejo_attended_sin_veredicto_es_true(db_session, alumno):
+    """Regla 5 (`cotejo_en_dictamen`, D13 2026-09-30): asistió, pero
+    Servicios Escolares todavía no dictamina -sigue ocupando el turno-."""
+    esc = alumno
+    ap = _asiste(db_session, esc)
+
+    assert SelfBookingService.cita_ocupa_el_cotejo(db_session, esc["p1"], ap) is True
+
+
+def test_cita_ocupa_el_cotejo_attended_con_fase_rechazada_es_false(db_session, alumno):
+    """D5+D13: con la fase 2 YA `rejected` el egresado SÍ va a agendar otra
+    -el caso «vino, cotejamos y le faltaron papeles»-, así que esta cita ya
+    NO ocupa el cotejo (Ruling R18: el bug que esto corrige prometía «ya
+    tienes una cita» justo aquí, bajo «No asististe» no, pero con el mismo
+    error de fondo que el de `no_show`)."""
+    esc = alumno
+    ap = _asiste(db_session, esc)
+    _fase2_en(db_session, esc["p1"], "rejected")
+
+    assert SelfBookingService.cita_ocupa_el_cotejo(db_session, esc["p1"], ap) is False
+
+
+def test_cita_ocupa_el_cotejo_no_show_es_false(db_session, alumno):
+    """D7: no se presentó, agenda otra él solo -esta cita YA NO ocupa el
+    cotejo. Es el caso concreto que Ruling R18 corrige: antes del fix,
+    `_agenda_ctx` la trataba igual que una `scheduled` y le decía «ya tienes
+    una cita de cotejo» bajo la tarjeta que dice «No asististe»."""
+    esc = alumno
+    ap = AppointmentService.create(db_session, esc["p1"].id, window_id=esc["w"].id,
+                                   slot_start=time(9, 0), created_by_id=esc["off"].id)
+    AppointmentService.mark_no_show(db_session, ap, esc["off"].id)
+    db_session.refresh(ap)
+
+    assert SelfBookingService.cita_ocupa_el_cotejo(db_session, esc["p1"], ap) is False

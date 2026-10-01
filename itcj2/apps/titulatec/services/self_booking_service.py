@@ -231,6 +231,43 @@ class SelfBookingService:
         return fila.status if fila is not None else None
 
     @staticmethod
+    def cita_ocupa_el_cotejo(db: Session, proc, current) -> bool:
+        """¿La cita VIGENTE (`current`, el resultado de `AppointmentService.
+        get_for_process`, o `None`) sigue OCUPANDO el cotejo -el egresado NO
+        necesita (ni puede) agendar otra ahora mismo-?
+
+        Ruling R18 (revisión de la Tarea 12, spec 2026-10-01-titulatec-
+        biblioteca-caja-design.md): extrae a UN predicado público el que ya
+        vivía DUPLICADO e inline en `mail_compose.py::_que_falta` (D11,
+        Ruling R17 de la Tarea 10) -las mismas reglas 4/5 de `eligibility`,
+        leídas aparte-: `current` en uno de `_ESTADOS_ACTIVOS` (scheduled/
+        confirmed/in_progress, regla 4, D17) o `attended` mientras la fase 2
+        sigue SIN veredicto (regla 5, `cotejo_en_dictamen`, D13 2026-09-30:
+        `approved` ya cerró el proceso antes de llegar aquí en los dos
+        llamadores, así que basta excluir `rejected`). `None` (sin cita),
+        `no_show` y `attended` con la fase 2 YA `rejected` devuelven
+        `False` -esos SÍ agendan otra, y decirles «ya tienes una cita» sería
+        tan falso como prometerles «podrás agendar» estando `scheduled`-.
+
+        Dos llamadores, MISMA pregunta, cada uno con su propio «y entonces
+        qué digo»: `mail_compose.py::_que_falta` (si ocupa el cotejo, no hay
+        frase de agendado que mandar en el correo de liberación) y
+        `pages/student.py::_agenda_ctx` (Ruling R12: si ocupa el cotejo Y el
+        motivo es de biblioteca, la cara 4 no promete agendar). Recibe
+        `current` YA resuelto -no vuelve a consultar `ReviewAppointment`-
+        porque los dos llamadores (y `eligibility`) ya lo tienen a mano; una
+        tercera consulta por el mismo dato sería puro N+1.
+        """
+        from itcj2.apps.titulatec.services.appointment_service import _ESTADOS_ACTIVOS
+
+        if current is None:
+            return False
+        if current.status in _ESTADOS_ACTIVOS:
+            return True
+        return (current.status == "attended"
+                and SelfBookingService._fase_cotejo_status(db, proc) != "rejected")
+
+    @staticmethod
     def eligibility(db: Session, process_id: int) -> dict:
         """¿Puede agendar solo, y si no, por qué? (spec §3; regla 3 revisada
         por D1 de 2026-09-29-titulatec-cotejo-espacios-design.md §2, que

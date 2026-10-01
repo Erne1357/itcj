@@ -393,11 +393,13 @@ class TestR12CitaVigenteNoPrometeAgendar:
         assert _PROMETE_AGENDAR not in resp.text
         assert "Servicios Escolares pueda liberar tu cotejo" in resp.text
 
-    def test_con_cita_attended_tambien_aplica(
+    def test_con_cita_attended_sin_veredicto_tambien_aplica(
         self, db_session, escenario, make_library_clearance, make_appointment, client_as,
     ):
-        """`current` incluye `attended` -- D17/R12 no se limita a
-        scheduled/confirmed: una cita ya REALIZADA tampoco se iba a "re-agendar"."""
+        """`attended` SIN veredicto de fase 2 sigue OCUPANDO el cotejo
+        (`cita_ocupa_el_cotejo`, D13/Ruling R18) -- `escenario` deja la fase 2
+        en `in_progress` (ni aprobada ni rechazada), así que esta cita
+        REALIZADA tampoco se iba a "re-agendar": el override SÍ aplica."""
         make_library_clearance(escenario["process"], status="pending")
         make_appointment(escenario["process"], status="attended")
 
@@ -405,6 +407,48 @@ class TestR12CitaVigenteNoPrometeAgendar:
 
         assert resp.status_code == 200, resp.text[:400]
         assert _PROMETE_AGENDAR not in resp.text
+
+    def test_con_cita_no_show_si_promete_agendar_normalmente(
+        self, db_session, escenario, make_library_clearance, make_appointment, client_as,
+    ):
+        """Ruling R18 (revisión de la Tarea 12): una `no_show` NO ocupa el
+        cotejo -- el egresado va a agendar OTRA cita él solo (D7), así que el
+        mensaje correcto vuelve a ser el normal de `SelfBookingService.
+        MENSAJES`. Antes del fix, el blanket `elig["current"] is not None`
+        atrapaba tambien este caso y le decia "ya tienes una cita" justo
+        debajo de la tarjeta que dice "No asististe"."""
+        make_library_clearance(escenario["process"], status="pending")
+        make_appointment(escenario["process"], status="no_show")
+
+        resp = client_as(escenario["student"]).get(CITA)
+
+        assert resp.status_code == 200, resp.text[:400]
+        assert _PROMETE_AGENDAR in resp.text
+        assert "Servicios Escolares pueda liberar tu cotejo" not in resp.text
+
+    def test_con_cita_attended_y_fase_rechazada_si_promete_agendar_normalmente(
+        self, db_session, escenario, make_library_clearance, make_appointment, client_as,
+    ):
+        """Ruling R18: `attended` con la fase 2 YA `rejected` -el caso "vino,
+        cotejamos y le faltaron papeles"- tampoco ocupa el cotejo: el
+        egresado SÍ puede (y tiene que) agendar otra, así que el mensaje
+        correcto vuelve a ser el normal."""
+        from itcj2.apps.titulatec.models import ProcessPhase
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        make_library_clearance(escenario["process"], status="pending")
+        make_appointment(escenario["process"], status="attended")
+        fila = (db_session.query(ProcessPhase)
+                .filter_by(process_id=escenario["process"].id,
+                           phase_number=PhaseService.PHASE_COTEJO).first())
+        fila.status = "rejected"
+        db_session.flush()
+
+        resp = client_as(escenario["student"]).get(CITA)
+
+        assert resp.status_code == 200, resp.text[:400]
+        assert _PROMETE_AGENDAR in resp.text
+        assert "Servicios Escolares pueda liberar tu cotejo" not in resp.text
 
     def test_sin_cita_vigente_si_promete_agendar_normalmente(
         self, db_session, escenario, make_library_clearance, client_as,

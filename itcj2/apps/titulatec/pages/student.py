@@ -349,13 +349,14 @@ _HANDOFF_COPY = ("Tu proceso continúa en el Departamento de Titulación, en el 
 
 # Ruling R12 (revisión de T5, spec 2026-10-01-titulatec-biblioteca-caja-
 # design.md §4.4.4/§4.10, D17): la regla 3 de `SelfBookingService.eligibility`
-# (liberaciones) corre ANTES que la 4 (`tiene_cita`) -- es CONTRATO, no se
-# reordena --, así que un egresado que YA tiene una cita VIGENTE (D17: las
-# citas previas no se tocan) y le falta el no adeudo reporta el motivo de
-# biblioteca (`biblioteca_en_revision`/`pago_pendiente`), nunca `tiene_cita`.
-# El texto de `SelfBookingService.MENSAJES` para esos dos motivos promete
-# "Podrás agendar en cuanto se libere tu no adeudo", que es FALSO con una cita
-# ya puesta: no le falta agendar, le falta que Servicios Escolares pueda
+# (liberaciones) corre ANTES que la 4/5 (`tiene_cita`/`cotejo_en_dictamen`)
+# -- es CONTRATO, no se reordena --, así que un egresado cuya cita vigente
+# OCUPA el cotejo (D17: las citas previas no se tocan) y le falta el no
+# adeudo reporta el motivo de biblioteca (`biblioteca_en_revision`/
+# `pago_pendiente`), nunca `tiene_cita`/`cotejo_en_dictamen`. El texto de
+# `SelfBookingService.MENSAJES` para esos dos motivos promete "Podrás agendar
+# en cuanto se libere tu no adeudo", que es FALSO con una cita que ocupa el
+# cotejo: no le falta agendar, le falta que Servicios Escolares pueda
 # LIBERAR su cotejo -el mismo verbo que ya usa `PhaseService._cotejo_gate_
 # error`, "No se puede liberar la fase 02" mientras falte algún requisito
 # ACTIVO y OBLIGATORIO (biblioteca incluida, una vez que la convocatoria la
@@ -363,6 +364,13 @@ _HANDOFF_COPY = ("Tu proceso continúa en el Departamento de Titulación, en el 
 # sustituye el texto SOLO para esta pantalla (`agenda.message`, cara 4 de
 # `_cita_panel.html`); `SelfBookingService.MENSAJES` no cambia -lo sigue
 # usando quien SÍ puede agendar, el cubo D10 de la cola y los correos (D11)-.
+#
+# Ruling R18 (revisión de la Tarea 12): "OCUPA el cotejo" NO es "tiene una
+# cita vigente" a secas -una `no_show`, o una `attended` con la fase 2 YA
+# `rejected`, SÍ van a agendar otra, y ahí el mensaje correcto sigue siendo
+# el de `MENSAJES`-. El predicado exacto es `SelfBookingService.
+# cita_ocupa_el_cotejo` (gemelo del que ya usaba `mail_compose.py::
+# _que_falta`, D11/Ruling R17).
 _LIBRARY_REASONS_CON_CITA = ("biblioteca_en_revision", "pago_pendiente")
 _LIBRARY_BLOCK_WITH_CITA_MSG = (
     "Ya tienes una cita de cotejo. Tu no adeudo de biblioteca debe quedar "
@@ -1559,9 +1567,13 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
     apaga por `modo == "presentarse"`.
 
     Ruling R12 (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.4.4/
-    §4.10): con una cita VIGENTE y un motivo de biblioteca, `message` NO es
-    el de `SelfBookingService.MENSAJES` -ese promete agendar-, sino
-    `_LIBRARY_BLOCK_WITH_CITA_MSG` (constante de módulo).
+    §4.10), refinada por Ruling R18: con un motivo de biblioteca Y una cita
+    vigente que OCUPA el cotejo (`SelfBookingService.cita_ocupa_el_cotejo`
+    -scheduled/confirmed/in_progress, o `attended` sin veredicto de fase 2-),
+    `message` NO es el de `SelfBookingService.MENSAJES` -ese promete
+    agendar-, sino `_LIBRARY_BLOCK_WITH_CITA_MSG` (constante de módulo). Una
+    cita `no_show`, o `attended` con la fase 2 ya `rejected`, NO ocupa el
+    cotejo -el egresado sí va a agendar otra- y sigue con el mensaje normal.
     """
     vacio = {"can_book": False, "can_walkin": False, "reason": None,
              "message": None, "modo": None, "dias": [], "dia_sel": None,
@@ -1647,15 +1659,23 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
     # debajo sería decirle dos veces lo mismo al alumno. Las demás razones no
     # tienen ninguna otra señal en pantalla, y sin la frase quedaría un hueco.
     #
-    # Ruling R12: con una cita VIGENTE (`elig["current"]`, D17) el motivo
+    # Ruling R12: con una cita VIGENTE que OCUPA el cotejo (D17) el motivo
     # reportado puede ser de biblioteca -la regla 3 de `eligibility` corre
-    # antes que la 4, es contrato- y el texto normal de `SelfBookingService.
+    # antes que la 4/5, es contrato- y el texto normal de `SelfBookingService.
     # MENSAJES` prometería "podrás agendar" bajo la cita que ya tiene, que es
     # falso. Se sustituye SOLO aquí, sin tocar `eligibility` ni `MENSAJES`
     # (constantes `_LIBRARY_REASONS_CON_CITA`/`_LIBRARY_BLOCK_WITH_CITA_MSG`).
+    #
+    # Ruling R18 (revisión de la Tarea 12): "OCUPA el cotejo" es
+    # `SelfBookingService.cita_ocupa_el_cotejo`, NO un simple `elig["current"]
+    # is not None` -ese blanco también atrapaba `no_show` y `attended` con la
+    # fase 2 YA `rejected`, los dos casos en que el egresado SÍ tiene que
+    # agendar otra y el mensaje correcto vuelve a ser el de `MENSAJES`
+    # ("Podrás agendar en cuanto se libere tu no adeudo"), no este.
     if elig["reason"] == "tiene_cita":
         message = None
-    elif elig["current"] is not None and elig["reason"] in _LIBRARY_REASONS_CON_CITA:
+    elif (elig["reason"] in _LIBRARY_REASONS_CON_CITA
+          and SelfBookingService.cita_ocupa_el_cotejo(db, process, elig["current"])):
         message = _LIBRARY_BLOCK_WITH_CITA_MSG
     else:
         message = SelfBookingService.message_for(

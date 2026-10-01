@@ -227,18 +227,17 @@ def _que_falta(db: Session, process, bloqueos: list[str] | None = None) -> list[
 
     - `None`: ninguna de las dos frases aplica —el proceso no está `active`
       (en pausa no se agenda), ya aprobó la fase 2 (no hay cita por agendar)
-      o ya TIENE su cita: la vigente está agendada, confirmada o en cotejo
-      (D17 conserva las agendadas antes del candado, cuyo no adeudo se libera
-      después) o atendida mientras la fase 2 no tiene veredicto
-      (`cotejo_en_dictamen`, D13 2026-09-30: el mismo predicado y la misma
-      lectura de la fase 2 que `SelfBookingService.eligibility`). Con la
-      fase 2 `rejected` le faltaron papeles y tiene que agendar OTRA: la
-      línea sigue al gate como siempre (Ruling R17) —el caso de la
-      transición: un D17 cuyo cotejo se rechazó por el no adeudo y que
-      después paga en Caja—. Es lectura de la cita vigente
-      (`AppointmentService.get_for_process` y la definición única
-      `_ESTADOS_ACTIVOS`), no de una liberación: el invariante 2 sigue igual.
-      Una `no_show` vigente no lo apaga (agenda una nueva).
+      o su cita vigente OCUPA el cotejo (`SelfBookingService.
+      cita_ocupa_el_cotejo`, Ruling R18: agendada, confirmada o en cotejo
+      -D17 conserva las agendadas antes del candado, cuyo no adeudo se libera
+      después- o atendida mientras la fase 2 no tiene veredicto, D13
+      2026-09-30 -mismo predicado y misma lectura de la fase 2 que
+      `SelfBookingService.eligibility`, y que ahora también usa `_agenda_ctx`
+      del alumno, Ruling R12 de la Tarea 12-). Con la fase 2 `rejected` le
+      faltaron papeles y tiene que agendar OTRA: la línea sigue al gate como
+      siempre (Ruling R17) —el caso de la transición: un D17 cuyo cotejo se
+      rechazó por el no adeudo y que después paga en Caja—. Una `no_show`
+      vigente tampoco ocupa el cotejo (agenda una nueva).
     - `[]`: «Ya puedes agendar tu cita de cotejo».
     - Si no, una frase por pendiente: la fase 1 si todavía no la aprueban y,
       en su orden, cada bloqueo de `ClearanceGate` (`bloqueos`, si el llamador
@@ -252,17 +251,12 @@ def _que_falta(db: Session, process, bloqueos: list[str] | None = None) -> list[
     )
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
-    from itcj2.apps.titulatec.services.slot_service import _ESTADOS_ACTIVOS
 
     if process.status != "active" or process.current_phase > PhaseService.PHASE_COTEJO:
         return None
     cita = AppointmentService.get_for_process(db, process.id)
-    if cita is not None:
-        if cita.status in _ESTADOS_ACTIVOS:
-            return None
-        if (cita.status == "attended"
-                and SelfBookingService._fase_cotejo_status(db, process) != "rejected"):
-            return None
+    if SelfBookingService.cita_ocupa_el_cotejo(db, process, cita):
+        return None
     if bloqueos is None:
         bloqueos = _bloqueos(db, process)
     falta = [_FALTA_FASE_1] if process.current_phase < PhaseService.PHASE_COTEJO else []
