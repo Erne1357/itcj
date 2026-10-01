@@ -39,7 +39,7 @@ intercepta su `SessionLocal()` interno) -- nunca contra el engine de
 produccion sin aislar.
 """
 from datetime import date, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
