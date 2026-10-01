@@ -560,6 +560,86 @@ class TestImportRowsLibrary:
         assert db_session.query(LibraryClearance).filter_by(process_id=proc.id).first() is None
 
 
+class TestPreviaMasNuevaQueLaAplicada:
+    """Ruling R28 (M5 de la revisión final): con UNIQUE(kind, control_number),
+    la previa de un semestre NUEVO para un egresado cuya previa vieja ya se
+    aplicó a un proceso anterior (revocado o terminado) caía en «Ya
+    liberadas» y nunca quedaba para su inscripción nueva. Una fecha MÁS
+    NUEVA reemplaza fecha/nota/origen y limpia `applied_*` (queda pendiente
+    para un proceso futuro); una igual o más vieja se reporta como ya
+    registrada, sin tocar nada."""
+
+    @staticmethod
+    def _aplicada_a_un_proceso_cerrado(db_session, make_student, make_process,
+                                       make_cohort, control, fecha):
+        student = make_student(control_number=control)
+        viejo = make_process(student, cohort=make_cohort(), status="cancelled",
+                             library_clearance=None)
+        return student, viejo, _prior(db_session, kind="survey", control=control,
+                                      issued_on=fecha, note="semestre viejo",
+                                      source="viejo.csv", applied_process=viejo)
+
+    def test_una_mas_nueva_reemplaza_y_queda_para_la_siguiente_inscripcion(
+            self, db_session, make_student, make_process, make_cohort, reloj):
+        student, _viejo, previa = self._aplicada_a_un_proceso_cerrado(
+            db_session, make_student, make_process, make_cohort, "99700040",
+            reloj - timedelta(days=200))
+
+        resultado = _svc().import_rows(
+            db_session, kind="survey", source="nuevo.csv",
+            rows=[{"control_number": "99700040", "note": "semestre nuevo",
+                   "issued_on": (reloj - timedelta(days=10)).isoformat()}])
+
+        assert [f["control_number"] for f in resultado["deferred"]] == ["99700040"]
+        assert "más nueva" in resultado["deferred"][0]["reason"]
+        assert resultado["already"] == []
+        db_session.refresh(previa)
+        assert previa.issued_on == reloj - timedelta(days=10)
+        assert (previa.note, previa.source) == ("semestre nuevo", "nuevo.csv")
+        assert previa.applied_process_id is None and previa.applied_at is None
+
+        # Y se aplica sola a la inscripción nueva (el gancho de `import_rows`).
+        nuevo = make_process(student, cohort=make_cohort(), library_clearance=None)
+        with patch(NOTIFY):
+            assert _svc().apply_pending(db_session, nuevo, "99700040") == ["survey"]
+        assert _review_svc().get_for_process(db_session, nuevo.id).origin == "prior"
+
+    @pytest.mark.parametrize("dias", [200, 250], ids=["misma-fecha", "mas-vieja"])
+    def test_igual_o_mas_vieja_se_reporta_ya_registrada_sin_tocar_nada(
+            self, db_session, make_student, make_process, make_cohort, reloj, dias):
+        _student, viejo, previa = self._aplicada_a_un_proceso_cerrado(
+            db_session, make_student, make_process, make_cohort, "99700041",
+            reloj - timedelta(days=200))
+
+        resultado = _svc().import_rows(
+            db_session, kind="survey", source="nuevo.csv",
+            rows=[{"control_number": "99700041",
+                   "issued_on": (reloj - timedelta(days=dias)).isoformat()}])
+
+        assert [f["control_number"] for f in resultado["already"]] == ["99700041"]
+        assert "ya registrada" in resultado["already"][0]["reason"]
+        db_session.refresh(previa)
+        assert previa.applied_process_id == viejo.id
+        assert previa.issued_on == reloj - timedelta(days=200)
+        assert previa.source == "viejo.csv"
+
+    def test_dry_run_clasifica_igual_sin_escribir(
+            self, db_session, make_student, make_process, make_cohort, reloj):
+        _student, viejo, previa = self._aplicada_a_un_proceso_cerrado(
+            db_session, make_student, make_process, make_cohort, "99700042",
+            reloj - timedelta(days=200))
+
+        resultado = _svc().import_rows(
+            db_session, kind="survey", source="nuevo.csv", dry_run=True,
+            rows=[{"control_number": "99700042",
+                   "issued_on": (reloj - timedelta(days=10)).isoformat()}])
+
+        assert [f["control_number"] for f in resultado["deferred"]] == ["99700042"]
+        assert not db_session.new and not db_session.dirty and not db_session.deleted
+        db_session.refresh(previa)
+        assert previa.applied_process_id == viejo.id
+
+
 class TestImportRowsGeneral:
     def test_tipo_desconocido(self, db_session):
         with pytest.raises(ValueError):

@@ -253,9 +253,11 @@ class PriorClearanceService:
            - sin proceso abierto -> se DIFIERE: upsert de `PriorClearance`
              (único por `kind`+`control_number`; una fila repetida actualiza
              `issued_on`/`note`/`source` en vez de duplicar) -> `deferred`.
-             Si esa misma constancia YA se había aplicado antes (a un
-             proceso anterior) no hay nada que diferir de nuevo -> `already`.
-             `apply_pending` la aplicará sola cuando el alumno se inscriba.
+             Si la que había YA se aplicó a un proceso anterior: con una fecha
+             MÁS NUEVA la reemplaza y vuelve a quedar pendiente -> `deferred`
+             (Ruling R28); con la misma fecha o una anterior, ya registrada
+             -> `already`. `apply_pending` la aplicará sola cuando el alumno
+             se inscriba.
            - con proceso, encuesta: sin `SurveyReview` ->
              `SurveyReviewService.register_prior` -> `applied`; con una YA
              `approved` -> `already`; `in_review`/`rejected` -> `conflicts`
@@ -308,7 +310,12 @@ class PriorClearanceService:
                     db, kind=kind, control=control, issued_on=fecha, note=nota,
                     source=source, dry_run=dry_run)
                 if bote == "already":
-                    _add("already", control, "ya se había aplicado antes")
+                    _add("already", control,
+                        "ya registrada: se aplicó antes y esta no es más nueva")
+                elif bote == "replaced":
+                    _add("deferred", control,
+                        "más nueva que la que ya se aplicó antes; se aplicará "
+                        "cuando se inscriba")
                 else:
                     _add("deferred", control,
                         "sin proceso abierto; se aplicará cuando se inscriba")
@@ -353,21 +360,33 @@ class PriorClearanceService:
     @staticmethod
     def _defer(db: Session, *, kind: str, control: str, issued_on: date,
               note: Optional[str], source: str, dry_run: bool) -> str:
-        """Registra (o actualiza) la `PriorClearance` diferida de `control`,
-        o confirma que ya se había aplicado antes. UNIQUE (kind,
-        control_number): una segunda carga del MISMO número actualiza
-        fecha/nota/origen en vez de duplicar. Devuelve `"deferred"` (quedó
-        en espera, nueva o actualizada) o `"already"` (una carga anterior YA
-        se aplicó a un proceso -- no hay nada que diferir de nuevo). Sin
-        escritura alguna si `dry_run`."""
+        """Registra (o actualiza) la `PriorClearance` diferida de `control`.
+        UNIQUE (kind, control_number): una segunda carga del MISMO número
+        actualiza fecha/nota/origen en vez de duplicar. Devuelve:
+
+        * `"deferred"` -- quedó en espera (nueva, o una pendiente actualizada);
+        * `"replaced"` -- Ruling R28 (M5 de la revisión final): la que había
+          YA se aplicó a un proceso anterior (revocado o terminado) y esta es
+          MÁS NUEVA -otro semestre-: reemplaza fecha/nota/origen y limpia
+          `applied_*`, así que queda pendiente para un proceso futuro
+          (`apply_pending`). La aplicada vieja sigue en su proceso (su
+          `SurveyReview`/`LibraryClearance`); solo deja de estar en este
+          registro;
+        * `"already"` -- la que había ya se aplicó y esta NO es más nueva
+          (misma fecha o anterior): ya registrada, no se toca nada.
+
+        Sin escritura alguna si `dry_run` (la clasificación es la misma)."""
         from itcj2.apps.titulatec.models import PriorClearance
 
         query = db.query(PriorClearance).filter_by(kind=kind, control_number=control)
         fila = query.first() if dry_run else query.with_for_update().first()
+        reemplaza = False
         if fila is not None and fila.applied_process_id is not None:
-            return "already"
+            if fila.issued_on is not None and issued_on <= fila.issued_on:
+                return "already"
+            reemplaza = True
         if dry_run:
-            return "deferred"
+            return "replaced" if reemplaza else "deferred"
         if fila is None:
             db.add(PriorClearance(kind=kind, control_number=control, issued_on=issued_on,
                                   note=note, source=source))
@@ -375,5 +394,8 @@ class PriorClearanceService:
             fila.issued_on = issued_on
             fila.note = note
             fila.source = source
+            if reemplaza:
+                fila.applied_process_id = None
+                fila.applied_at = None
         db.flush()
-        return "deferred"
+        return "replaced" if reemplaza else "deferred"
