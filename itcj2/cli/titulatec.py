@@ -12,7 +12,8 @@ Comandos:
     titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta y reintenta).
     titulatec init-email-tasks [--dry-run] Da de alta las periódicas de correo (envío + recordatorios).
     titulatec init-posgrado [--dry-run] [--allow-insert]  Clasifica las 4 carreras de posgrado y sus 4 documentos de fase 1.
-    titulatec init-biblioteca-caja [--dry-run]  Puestos/roles/permisos de Biblioteca-Caja + requisito automático.
+    titulatec init-biblioteca-caja [--dry-run]  Paso 1: puestos/roles/permisos de Biblioteca-Caja (no enciende el candado).
+    titulatec activar-biblioteca-caja [--dry-run] [--force]  Paso 2: pre-chequeos + requisito automático + re-backfill + promoción D17.
     titulatec import-prior-clearances --tipo encuesta|biblioteca ARCHIVO.csv [opts]  Constancias previas (D9).
 """
 import os
@@ -116,9 +117,12 @@ SEED_FILES = [
     # concesiones, incluido admin EXPLICITO (21), y el requisito automatico de
     # `library_clearance` sobre las convocatorias YA sembradas (22). No
     # inserta nada que el 03 pudiera revocar, asi que va antes del 15 sin
-    # problema. Tambien corre SOLO con `titulatec init-biblioteca-caja`
-    # (mismo patron D10 que posgrado/correo de arriba): en produccion
-    # `init-titulatec` completo NUNCA se re-ejecuta.
+    # problema. En una instalacion desde cero los tres van juntos (no hay
+    # procesos que proteger). En produccion `init-titulatec` completo NUNCA se
+    # re-ejecuta: ahi corren en DOS pasos (Ruling R19) -- `titulatec
+    # init-biblioteca-caja` (20 y 21, no enciende nada) y, ya con ocupantes y
+    # donaciones, `titulatec activar-biblioteca-caja` (22 + re-backfill +
+    # promocion D17).
     "biblioteca_2026_10/20_insert_library_cashier_positions.sql",
     "biblioteca_2026_10/21_insert_library_cashier_roles_perms.sql",
     "biblioteca_2026_10/22_library_requirement_auto.sql",
@@ -1900,15 +1904,28 @@ def init_posgrado_command(dry_run, allow_insert):
 # nuevo por area, rol nuevo por puesto, 10 permisos nuevos (88 -> 98).
 # ---------------------------------------------------------------------------
 _DML_BIBLIOTECA_2026_10_DIR = "biblioteca_2026_10"
-# Debe listar TODOS los .sql del directorio (mismo contrato que
-# `_DML_POSGRADO_2026_10_FILES`/`_DML_MAIL_2026_09_FILES`/
+# Despliegue en DOS pasos (Ruling R19, I1 de la revision final): el comando
+# que crea los puestos ya no puede ser el mismo que enciende el candado, o
+# «asignar ocupantes antes» es imposible (los puestos no existen hasta el 20,
+# y el 22 bloquea a todos en el mismo paso).
+#   - `init-biblioteca-caja` corre SOLO estos dos: puestos (20) y roles,
+#     permisos, mapeo y concesiones (21). NO enciende nada.
+#   - `activar-biblioteca-caja` corre SOLO el 22 (requisito automatico =
+#     candado encendido), tras sus pre-chequeos, y luego el re-backfill y la
+#     promocion de los marcados a mano (Ruling R20).
+# Entre las DOS listas deben estar TODOS los .sql del directorio (mismo
+# contrato que `_DML_POSGRADO_2026_10_FILES`/`_DML_MAIL_2026_09_FILES`/
 # `_DML_SURVEY_2026_09_FILES`): lo fija
-# `test_todo_sql_del_delta_esta_en_la_lista_del_comando`
+# `test_todo_sql_del_delta_esta_en_una_lista_de_comando`
 # (tests/fastapi/titulatec/test_cli_biblioteca_caja.py). Un archivo que se
-# caiga de aqui no lo corre nadie y nada se pone rojo.
+# caiga de las dos no lo corre nadie y nada se pone rojo. `SEED_FILES` (alta
+# desde cero con `init-titulatec`) conserva los TRES: ahi no hay procesos que
+# proteger y encender de inmediato esta bien.
 _DML_BIBLIOTECA_2026_10_FILES = [
     "20_insert_library_cashier_positions.sql",
     "21_insert_library_cashier_roles_perms.sql",
+]
+_DML_BIBLIOTECA_2026_10_ACTIVAR_FILES = [
     "22_library_requirement_auto.sql",
 ]
 
@@ -1950,6 +1967,10 @@ _PERMISOS_BIBLIOTECA_CAJA_2026_10 = (
 _PERMISOS_ROL_LIBRARY = _PERMISOS_LIBRARY_CLEARANCE + (_PERM_CERTIFICATE_PAGE_LIST,)
 _PERMISOS_ROL_CASHIER = _PERMISOS_LIBRARY_PAYMENT
 
+# Puestos que deben tener ocupante antes de encender el candado (pre-chequeo
+# de `activar-biblioteca-caja`): sin ellos nadie salvo `admin` libera a nadie.
+_PUESTOS_BIBLIOTECA_CAJA = (_PUESTO_LIBRARY, _PUESTO_CASHIER)
+
 
 # --- Re-backfill de `titulatec_library_clearances` --------------------------
 # MISMO predicado que el backfill de la migracion `tt20261001a`
@@ -1960,9 +1981,10 @@ _PERMISOS_ROL_CASHIER = _PERMISOS_LIBRARY_PAYMENT
 # ya tiene un `RequirementFulfillment` fulfilled|waived del requisito
 # `library_clearance` de SU convocatoria; si no, 'pending'. Existe para
 # alcanzar los procesos que se crearon durante la ventana blue/green, entre
-# que corrio la migracion y que corre este comando (Review Focus #5 del
-# plan) -- la migracion por si sola solo ve los procesos que existian AL
-# MOMENTO de aplicarse.
+# que corrio la migracion y que corre `activar-biblioteca-caja` (Review Focus
+# #5 del plan; Ruling R19: lo corre la ACTIVACION, ya no
+# `init-biblioteca-caja`) -- la migracion por si sola solo ve los procesos
+# que existian AL MOMENTO de aplicarse.
 #
 # El fragmento de predicado es el MISMO texto Python para el INSERT real y
 # para el COUNT de la vista previa (`--dry-run`): no hay forma de que
@@ -2021,6 +2043,16 @@ def _library_clearance_rebackfill(dry_run: bool) -> int:
 
     Devuelve cuantas filas creo (o crearia, en dry-run).
     """
+    return _run_counted_sql(_LIBRARY_CLEARANCE_REBACKFILL_SQL,
+                            _LIBRARY_CLEARANCE_REBACKFILL_COUNT_SQL, dry_run)
+
+
+def _run_counted_sql(sql: str, count_sql: str, dry_run: bool) -> int:
+    """Corre `sql` (un INSERT/UPDATE de datos) y devuelve cuantas filas tocó,
+    o, con `dry_run`, solo cuenta con `count_sql` (SELECT, nunca escribe).
+    Abre su PROPIA sesion (import local de `SessionLocal`, convencion del
+    proyecto) para que `patched_session_local` la intercepte en las pruebas;
+    UN commit en la corrida real."""
     from sqlalchemy import text
 
     from itcj2.database import SessionLocal
@@ -2028,10 +2060,10 @@ def _library_clearance_rebackfill(dry_run: bool) -> int:
     db = SessionLocal()
     try:
         if dry_run:
-            count = db.execute(text(_LIBRARY_CLEARANCE_REBACKFILL_COUNT_SQL)).scalar() or 0
+            count = db.execute(text(count_sql)).scalar() or 0
             db.rollback()
         else:
-            result = db.execute(text(_LIBRARY_CLEARANCE_REBACKFILL_SQL))
+            result = db.execute(text(sql))
             count = result.rowcount or 0
             db.commit()
         return count
@@ -2042,8 +2074,69 @@ def _library_clearance_rebackfill(dry_run: bool) -> int:
         db.close()
 
 
+# --- Promocion D17 de la ventana de transicion (Ruling R20, I2) ------------
+# El backfill decide `legacy` vs `pending` cuando corre (migracion o
+# re-backfill). Hasta que la activacion enciende el candado, el requisito
+# `library_clearance` sigue siendo MANUAL (`auto_source` NULL) y Servicios
+# Escolares lo sigue marcando a mano -con el codigo viejo (blue/green) y con
+# el nuevo-; el re-backfill nunca revisita una fila que YA existe. Sin esto,
+# quien entrego su papel DESPUES de la migracion quedaria bloqueado
+# (`library_pending`) y en la cola de Biblioteca, contra D17.
+#
+# Promueve a `cleared`/`cleared_via='legacy'` SOLO filas `pending` que
+# Biblioteca no ha tocado (`library_at IS NULL`) cuando su convocatoria tiene
+# el requisito `library_clearance` cumplido (`fulfilled|waived`) para ese
+# proceso, o cuando su fase 2 ya esta `approved` (ya paso su cotejo). Es DATO
+# como el backfill: sin eventos, sin avisos, sin correos, sin constancia (el
+# legado nunca emite). Idempotente: una fila promovida deja de ser `pending`.
+# El predicado es el MISMO texto para el UPDATE real y el COUNT de la vista
+# previa.
+_LIBRARY_CLEARANCE_PROMOTE_CONDITIONS = """
+       p.id = lc.process_id
+   AND lc.status = 'pending'
+   AND lc.library_at IS NULL
+   AND (
+       EXISTS (
+           SELECT 1
+             FROM titulatec_requirement_fulfillments rf
+             JOIN titulatec_cotejo_requirements req ON req.id = rf.requirement_id
+            WHERE rf.process_id = p.id
+              AND req.cohort_id = p.cohort_id
+              AND req.code = 'library_clearance'
+              AND rf.status IN ('fulfilled', 'waived')
+       )
+       OR EXISTS (
+           SELECT 1 FROM titulatec_process_phases ph
+            WHERE ph.process_id = p.id AND ph.phase_number = 2 AND ph.status = 'approved'
+       )
+   )
+"""
+
+_LIBRARY_CLEARANCE_PROMOTE_SQL = (
+    "UPDATE titulatec_library_clearances lc "
+    "   SET status = 'cleared', cleared_via = 'legacy', updated_at = NOW() "
+    "  FROM titulatec_processes p "
+    " WHERE" + _LIBRARY_CLEARANCE_PROMOTE_CONDITIONS
+)
+
+_LIBRARY_CLEARANCE_PROMOTE_COUNT_SQL = (
+    "SELECT COUNT(*) FROM titulatec_library_clearances lc, titulatec_processes p "
+    " WHERE" + _LIBRARY_CLEARANCE_PROMOTE_CONDITIONS
+)
+
+
+def _library_clearance_promote(dry_run: bool) -> int:
+    """Promocion D17 de la ventana de transicion (Ruling R20): `pending` no
+    tocadas por Biblioteca -> `cleared/legacy` si el requisito ya esta
+    cumplido a mano o la fase 2 ya esta aprobada. Devuelve cuantas promovio
+    (o promoveria, en dry-run). Idempotente; sin eventos."""
+    return _run_counted_sql(_LIBRARY_CLEARANCE_PROMOTE_SQL,
+                            _LIBRARY_CLEARANCE_PROMOTE_COUNT_SQL, dry_run)
+
+
 def _verify_biblioteca_caja() -> list[str]:
-    """Comprueba que el delta de Biblioteca/Caja ATERRIZO. Devuelve problemas.
+    """Comprueba que el 20 y el 21 ATERRIZARON (lo que corre
+    `init-biblioteca-caja`). Devuelve problemas.
 
     Mismo contrato que el resto de los `_verify_*` de este archivo: abre su
     propia conexion, arma sets contra la BD y devuelve strings de problema en
@@ -2063,11 +2156,10 @@ def _verify_biblioteca_caja() -> list[str]:
       - `admin` CONTIENE los 10 (concesion EXPLICITA del 21: en produccion
         nunca se re-corre el 15, que es quien normalmente se lo daria
         dinamicamente);
-      - el mapeo puesto->rol: cada puesto nuevo INCLUYE su rol nuevo;
-      - el requisito automatico: NINGUNA fila `titulatec_cotejo_requirements`
-        con `code='library_clearance'` se quedo sin
-        `auto_source='library_clearance'`/`is_required=TRUE`/`is_active=TRUE`
-        (el 22 las corrige TODAS, sin condicion sobre el valor anterior).
+      - el mapeo puesto->rol: cada puesto nuevo INCLUYE su rol nuevo.
+
+    El requisito automatico (el 22) NO es de aqui: lo verifica
+    `_verify_candado_biblioteca`, en `activar-biblioteca-caja` (Ruling R19).
 
     Si algun puesto no existe en la base (0 filas), el mensaje lo dice
     explicitamente -- igual que `_verify_computer_center` con Centro de
@@ -2183,95 +2275,206 @@ def _verify_biblioteca_caja() -> list[str]:
                 f"(hay {sorted(puestos_de_rol[_ROL_CASHIER])})"
             )
 
-        n_mal = conn.execute(
-            text(
-                "SELECT COUNT(*) FROM titulatec_cotejo_requirements "
-                " WHERE code = 'library_clearance' "
-                "   AND (auto_source IS DISTINCT FROM 'library_clearance' "
-                "        OR is_required IS DISTINCT FROM TRUE "
-                "        OR is_active IS DISTINCT FROM TRUE)"
-            )
-        ).scalar()
-        if n_mal:
-            problemas.append(
-                f"{n_mal} fila(s) de titulatec_cotejo_requirements con "
-                "code='library_clearance' sin auto_source/is_required/is_active "
-                "correctos (el 22_library_requirement_auto.sql no aterrizo)"
-            )
-
     return problemas
+
+
+# Requisitos `library_clearance` que el 22 todavia tiene que poner al dia
+# (automatico + obligatorio + activo). Mismo predicado para el conteo de la
+# vista previa de la activacion y para su verificacion final (debe dar 0).
+_LIBRARY_REQUIREMENT_OFF_COUNT_SQL = """
+SELECT COUNT(*) FROM titulatec_cotejo_requirements
+ WHERE code = 'library_clearance'
+   AND (auto_source IS DISTINCT FROM 'library_clearance'
+        OR is_required IS DISTINCT FROM TRUE
+        OR is_active IS DISTINCT FROM TRUE)
+"""
+
+
+def _library_requirements_off() -> tuple[int, int]:
+    """`(por_encender, total)`: cuantas filas `code='library_clearance'`
+    siguen sin el requisito automatico/obligatorio/activo, de cuantas.
+    Solo lectura, conexion propia (como los `_verify_*`)."""
+    from sqlalchemy import text
+
+    from itcj2.cli.core import _get_engine
+
+    with _get_engine().connect() as conn:
+        por_encender = conn.execute(text(_LIBRARY_REQUIREMENT_OFF_COUNT_SQL)).scalar() or 0
+        total = conn.execute(text(
+            "SELECT COUNT(*) FROM titulatec_cotejo_requirements "
+            " WHERE code = 'library_clearance'")).scalar() or 0
+    return por_encender, total
+
+
+# --- Pre-chequeos de `activar-biblioteca-caja` (Ruling R19) ----------------
+# Ocupante VIGENTE: mismo criterio que `authz_service._active_position_filter`
+# (activo, `start_date <= hoy`, `end_date` NULL o >= hoy) y usuario activo.
+_OCUPANTES_SQL = """
+SELECT pos.code, COUNT(u.id)
+  FROM core_positions pos
+  LEFT JOIN core_user_positions up
+         ON up.position_id = pos.id
+        AND up.is_active
+        AND up.start_date <= CURRENT_DATE
+        AND (up.end_date IS NULL OR up.end_date >= CURRENT_DATE)
+  LEFT JOIN core_users u ON u.id = up.user_id AND u.is_active
+ WHERE pos.code = ANY(:codes)
+ GROUP BY pos.code
+"""
+
+# Convocatorias que QUEDARAN con candado (tienen fila `code='library_clearance'`:
+# el 22 las pone TODAS automaticas) con procesos admitidos que todavia no
+# pasan su cotejo (`active|on_hold`, fase 2 sin aprobar) y SIN donacion
+# capturada: ahi Biblioteca no puede pasar a nadie a Caja (D19).
+_SIN_DONACION_SQL = """
+SELECT c.id, c.name, COUNT(DISTINCT p.id)
+  FROM titulatec_cohorts c
+  JOIN titulatec_processes p ON p.cohort_id = c.id
+ WHERE c.book_donation_amount IS NULL
+   AND p.status IN ('active', 'on_hold')
+   AND NOT EXISTS (
+       SELECT 1 FROM titulatec_process_phases ph
+        WHERE ph.process_id = p.id AND ph.phase_number = 2 AND ph.status = 'approved'
+   )
+   AND EXISTS (
+       SELECT 1 FROM titulatec_cotejo_requirements req
+        WHERE req.cohort_id = c.id AND req.code = 'library_clearance'
+   )
+ GROUP BY c.id, c.name
+ ORDER BY c.name, c.id
+"""
+
+
+def _precheck_activar_biblioteca() -> dict:
+    """Pre-chequeos de SOLO LECTURA de `activar-biblioteca-caja` (Ruling R19).
+
+    Devuelve `{"ocupantes": {codigo_de_puesto: N | None}, "sin_donacion":
+    [{"cohort_id", "name", "pending"}], "problemas": [str, ...]}`:
+
+    * cada puesto nuevo (`library_clearance_info_center`,
+      `cashier_financial_resources`) con al menos UN ocupante vigente --
+      `None` si el puesto ni existe (falta `init-biblioteca-caja`);
+    * toda convocatoria que quedará con candado y tenga procesos admitidos
+      sin la fase 2 aprobada, con `book_donation_amount` capturada.
+
+    `problemas` vacío = se puede encender. Abre su PROPIA sesión
+    (`SessionLocal`, import local) para que `patched_session_local` la
+    intercepte en las pruebas; solo hace SELECT y la cierra (cerrar termina
+    la transacción de lectura -- sin `rollback` explícito, que en las
+    pruebas desharía los datos sembrados desde el último commit).
+    """
+    from sqlalchemy import text
+
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        ocupantes: dict[str, int | None] = {code: None for code in _PUESTOS_BIBLIOTECA_CAJA}
+        for code, n in db.execute(text(_OCUPANTES_SQL),
+                                  {"codes": list(_PUESTOS_BIBLIOTECA_CAJA)}):
+            ocupantes[code] = int(n)
+        sin_donacion = [{"cohort_id": cid, "name": nombre, "pending": int(n)}
+                        for cid, nombre, n in db.execute(text(_SIN_DONACION_SQL))]
+    finally:
+        db.close()
+
+    problemas: list[str] = []
+    for code in _PUESTOS_BIBLIOTECA_CAJA:
+        if ocupantes[code] is None:
+            problemas.append(
+                f"puesto ausente: {code} (corre primero `titulatec init-biblioteca-caja`)")
+        elif ocupantes[code] == 0:
+            problemas.append(
+                f"puesto {code} sin ocupante vigente: asígnalo en /itcj/config/positions "
+                "antes de encender el candado (sin él nadie libera a nadie)")
+    for c in sin_donacion:
+        problemas.append(
+            f"convocatoria «{c['name']}» (id {c['cohort_id']}) sin donación voluntaria de "
+            f"libro y con {c['pending']} proceso(s) que aún no pasan su cotejo: Servicios "
+            "Escolares debe capturarla (panel Resumen) o Biblioteca no podrá pasarlos a "
+            "Caja (D19)")
+    return {"ocupantes": ocupantes, "sin_donacion": sin_donacion, "problemas": problemas}
+
+
+def _verify_candado_biblioteca() -> list[str]:
+    """Comprueba que el 22 ATERRIZO (lo que corre `activar-biblioteca-caja`):
+    NINGUNA fila `titulatec_cotejo_requirements` con `code='library_clearance'`
+    se quedo sin `auto_source='library_clearance'`/`is_required=TRUE`/
+    `is_active=TRUE` (el 22 las corrige TODAS, sin condicion sobre el valor
+    anterior). Devuelve problemas, mismo contrato que los demas `_verify_*`."""
+    por_encender, _total = _library_requirements_off()
+    if por_encender:
+        return [
+            f"{por_encender} fila(s) de titulatec_cotejo_requirements con "
+            "code='library_clearance' sin auto_source/is_required/is_active "
+            "correctos (el 22_library_requirement_auto.sql no aterrizo)"
+        ]
+    return []
+
+
+def _faltan_en_disco(nombres: list[str]) -> list[str]:
+    """Los archivos de `biblioteca_2026_10/` de `nombres` que NO están en disco."""
+    dml_dir = DML_TITULATEC / _DML_BIBLIOTECA_2026_10_DIR
+    return [nombre for nombre in nombres if not (dml_dir / nombre).exists()]
+
+
+def _abortar_con(problemas: list[str]) -> None:
+    """Imprime cada problema en rojo (stderr) y sale distinto de 0."""
+    click.echo()
+    for p in problemas:
+        click.echo(click.style(f"ERROR: {p}", fg="red"), err=True)
+    raise click.Abort()
 
 
 @titulatec_cli.command("init-biblioteca-caja")
 @click.option("--dry-run", is_flag=True,
-              help="Lista los archivos y cuenta el re-backfill, sin escribir nada.")
+              help="Comprueba los archivos en disco y los lista, sin escribir nada.")
 def init_biblioteca_caja_command(dry_run):
-    """Puestos, roles y permisos de Biblioteca/Caja + requisito automatico.
+    """Paso 1 del despliegue de Biblioteca/Caja: puestos, roles y permisos.
+    NO enciende el candado (eso es `activar-biblioteca-caja`, Ruling R19).
 
-    Corre SOLO `database/DML/titulatec/biblioteca_2026_10/`
+    Corre SOLO el 20 y el 21 de `database/DML/titulatec/biblioteca_2026_10/`
     (`_DML_BIBLIOTECA_2026_10_FILES`, D10 -- mismo patron que
     `init-posgrado`/`init-email-tasks`): produccion ya corrio
-    `init-titulatec` y ese comando nunca se re-ejecuta alli, asi que este es
-    el unico camino de despliegue para este delta -- ademas de sumarse a
-    `SEED_FILES` para una instalacion desde cero.
+    `init-titulatec` y ese comando nunca se re-ejecuta alli, asi que este
+    (con `activar-biblioteca-caja`) es el unico camino de despliegue para
+    este delta -- ademas de sumarse a `SEED_FILES` para una instalacion desde
+    cero, que si corre los tres de una vez.
 
     `20_insert_library_cashier_positions.sql` crea los 2 puestos NUEVOS
-    (nacen SIN OCUPANTE: asignarlos es un paso del lanzamiento, spec §6 paso
-    3). `21_insert_library_cashier_roles_perms.sql` crea los roles
+    (nacen SIN OCUPANTE: asignarlos es el paso siguiente del lanzamiento).
+    `21_insert_library_cashier_roles_perms.sql` crea los roles
     `titulatec_library`/`titulatec_cashier`, el mapeo puesto→rol y los 10
     permisos con TODAS sus concesiones (incluido `admin` EXPLICITO: en
     produccion nunca se re-corre `15_grant_admin_all_perms.sql`).
-    `22_library_requirement_auto.sql` pasa el requisito `library_clearance`
-    de las convocatorias YA sembradas a automatico (`auto_source`,
-    `is_required`, `is_active`) y pone al dia sus pistas -- SOLO donde
-    seguian identicas al default viejo, para respetar lo que Servicios
-    Escolares ya hubiera editado.
-
-    Tras el DML, re-backfillea `titulatec_library_clearances`
-    (`_library_clearance_rebackfill`, MISMO predicado que el backfill de la
-    migracion `tt20261001a`): alcanza los procesos creados durante la
-    ventana blue/green, entre que corrio la migracion y que corre este
-    comando (Review Focus #5 del plan). Idempotente: una segunda corrida
-    crea 0 filas.
 
     Al terminar VERIFICA con `_verify_biblioteca_caja()` (los `RAISE NOTICE`
     del SQL son invisibles, mismo motivo que el resto de los `_verify_*` de
     este archivo): puestos, los 10 permisos, las concesiones EXACTAS de los
-    2 roles nuevos, las concesiones nuevas de GTV/Servicios Escolares/admin,
-    el mapeo puesto→rol y que NINGUNA fila de `library_clearance` se haya
-    quedado sin el requisito automatico. Aborta si algo no aterrizo.
+    2 roles nuevos, las concesiones nuevas de GTV/Servicios Escolares/admin y
+    el mapeo puesto→rol. Aborta si algo no aterrizo. No toca convocatorias,
+    requisitos ni filas de no adeudo: nadie queda bloqueado por correrlo.
 
-    `--dry-run`: comprueba que los 3 archivos existen en disco y CUENTA
-    cuantas filas crearia el re-backfill, sin escribir nada (ni DML ni
-    backfill).
+    `--dry-run`: comprueba que los 2 archivos existen en disco y los lista,
+    sin escribir nada.
 
-    ADVERTENCIA (spec §6, paso 3): desde que esta corrida real termina, el
-    requisito `library_clearance` queda automatico en TODA convocatoria ya
-    sembrada -- Task 5 (`ClearanceGate`) es quien de verdad bloquea el
-    agendado por esto, pero la fila ya queda lista antes de que ese candado
-    exista. Antes de correrlo en produccion: ocupantes asignados en
-    "Biblioteca · No adeudo" y "Caja", Servicios Escolares con la donacion
-    de la convocatoria abierta capturada, y avisar a Biblioteca/Caja/GTV/SE.
+    Despues: asignar ocupantes a «Biblioteca · No adeudo» y «Caja»
+    (`/itcj/config/positions`), que Servicios Escolares capture la donacion
+    de cada convocatoria que quedara con candado, y entonces
+    `titulatec activar-biblioteca-caja --dry-run` (sus pre-chequeos dicen
+    que falta).
     """
-    dml_dir = DML_TITULATEC / _DML_BIBLIOTECA_2026_10_DIR
+    faltan = _faltan_en_disco(_DML_BIBLIOTECA_2026_10_FILES)
 
     if dry_run:
-        faltan = [
-            nombre for nombre in _DML_BIBLIOTECA_2026_10_FILES
-            if not (dml_dir / nombre).exists()
-        ]
         if faltan:
             click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
         else:
             click.echo("Archivos en disco: OK. Se ejecutarían:")
             for nombre in _DML_BIBLIOTECA_2026_10_FILES:
                 click.echo(f"  {_DML_BIBLIOTECA_2026_10_DIR}/{nombre}")
-
-        count = _library_clearance_rebackfill(dry_run=True)
-        click.echo(
-            f"[dry-run] Procesos sin fila de no adeudo que el re-backfill "
-            f"crearía (pending/legacy): {count}"
-        )
+        click.echo("[dry-run] El requisito automático (el candado) NO se toca aquí: "
+                   "es `titulatec activar-biblioteca-caja`.")
         click.echo("Dry-run: no se ejecutó nada.")
         if faltan:
             raise click.Abort()
@@ -2281,23 +2484,134 @@ def init_biblioteca_caja_command(dry_run):
         [f"{_DML_BIBLIOTECA_2026_10_DIR}/{nombre}" for nombre in _DML_BIBLIOTECA_2026_10_FILES]
     )
 
-    creadas = _library_clearance_rebackfill(dry_run=False)
-    click.echo(
-        f"Re-backfill de no adeudo: {creadas} fila(s) creada(s) "
-        "(pending/legacy) para procesos sin fila todavía."
-    )
-
     problemas = _verify_biblioteca_caja()
     if problemas:
-        click.echo()
-        for p in problemas:
-            click.echo(click.style(f"ERROR: {p}", fg="red"), err=True)
-        raise click.Abort()
+        _abortar_con(problemas)
 
     click.echo(click.style(
-        "OK: 2 puestos, 2 roles, 10 permisos (88 → 98) con sus concesiones, "
-        "mapeo puesto→rol y requisito automático de no adeudo verificados en "
-        "la base.",
+        "OK: 2 puestos, 2 roles, 10 permisos (88 → 98) con sus concesiones y "
+        "mapeo puesto→rol verificados en la base. El candado sigue APAGADO.",
+        fg="green",
+    ))
+    click.echo(
+        "Siguiente: asignar ocupantes a «Biblioteca · No adeudo» y «Caja», capturar "
+        "la donación de cada convocatoria con procesos por revisar y correr "
+        "`titulatec activar-biblioteca-caja --dry-run`."
+    )
+
+
+@titulatec_cli.command("activar-biblioteca-caja")
+@click.option("--dry-run", is_flag=True,
+              help="Corre los pre-chequeos y cuenta lo que haría cada paso, sin escribir nada.")
+@click.option("--force", is_flag=True,
+              help="Enciende el candado AUNQUE fallen los pre-chequeos (ocupantes, donación).")
+def activar_biblioteca_caja_command(dry_run, force):
+    """Paso 2 del despliegue de Biblioteca/Caja: ENCIENDE el candado del no
+    adeudo (Ruling R19). Desde que termina, nadie agenda ni es agendado sin no
+    adeudo donde la convocatoria lo exige (salvo legado, quien ya pasó su
+    cotejo y las citas ya agendadas, D17).
+
+    1. Pre-chequeos de SOLO LECTURA (`_precheck_activar_biblioteca`): los 2
+       puestos nuevos con al menos un ocupante vigente, y toda convocatoria
+       que quedará con candado (tiene fila `code='library_clearance'`) con
+       procesos que aún no pasan su cotejo y SIN donación capturada. Si algo
+       falla, ABORTA (exit 1) listando lo que falta, sin escribir nada --
+       salvo `--force`, que lo imprime como advertencia y sigue.
+    2. `22_library_requirement_auto.sql` (`_DML_BIBLIOTECA_2026_10_ACTIVAR_
+       FILES`): requisito `library_clearance` automático, obligatorio y
+       activo en TODA convocatoria ya sembrada (y sus pistas, solo donde
+       seguían en el default viejo).
+    3. Re-backfill (`_library_clearance_rebackfill`, MISMO predicado que el
+       backfill de `tt20261001a`): fila para los procesos creados en el
+       blue/green. Idempotente.
+    4. Promoción D17 (`_library_clearance_promote`, Ruling R20): `pending`
+       sin tocar por Biblioteca -> `cleared/legacy` si su requisito ya está
+       cumplido a mano o su fase 2 ya está aprobada. Idempotente, sin
+       eventos.
+    5. Verificación (`_verify_candado_biblioteca`): ninguna fila
+       `library_clearance` quedó sin el requisito automático. Aborta si algo
+       no aterrizó.
+
+    Imprime los conteos de cada paso. Correrlo dos veces no cambia nada la
+    segunda (todos los pasos son idempotentes). `--dry-run`: pre-chequeos +
+    lo que haría cada paso (requisitos por encender, filas del re-backfill,
+    filas de la promoción), sin escribir nada; sale distinto de 0 si faltan
+    archivos o si los pre-chequeos fallan sin `--force` -- igual que la
+    corrida real.
+
+    Correrlo FUERA de horario y que Biblioteca haga ese mismo día su lote
+    «Sin adeudo»: quien no tenga no adeudo liberado queda bloqueado desde
+    este momento.
+    """
+    faltan = _faltan_en_disco(_DML_BIBLIOTECA_2026_10_ACTIVAR_FILES)
+    pre = _precheck_activar_biblioteca()
+
+    for code in _PUESTOS_BIBLIOTECA_CAJA:
+        n = pre["ocupantes"][code]
+        click.echo(f"Puesto {code}: "
+                   + ("NO EXISTE" if n is None else f"{n} ocupante(s) vigente(s)"))
+    click.echo(f"Convocatorias con candado sin donación y procesos por revisar: "
+               f"{len(pre['sin_donacion'])}")
+    for c in pre["sin_donacion"]:
+        click.echo(f"  · {c['name']} (id {c['cohort_id']}): {c['pending']} proceso(s)")
+
+    bloquea = bool(pre["problemas"]) and not force
+    if pre["problemas"] and force:
+        click.echo(click.style(
+            "ADVERTENCIA: --force: se enciende el candado aunque fallen los pre-chequeos:",
+            fg="yellow"))
+        for p in pre["problemas"]:
+            click.echo(click.style(f"  · {p}", fg="yellow"))
+
+    if dry_run:
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutaría:")
+            for nombre in _DML_BIBLIOTECA_2026_10_ACTIVAR_FILES:
+                click.echo(f"  {_DML_BIBLIOTECA_2026_10_DIR}/{nombre}")
+        por_encender, total = _library_requirements_off()
+        click.echo(f"[dry-run] Requisitos de no adeudo por encender: {por_encender} "
+                   f"de {total}")
+        click.echo(f"[dry-run] Re-backfill: {_library_clearance_rebackfill(dry_run=True)} "
+                   "fila(s) que crearía (pending/legacy)")
+        click.echo(f"[dry-run] Promoción D17: {_library_clearance_promote(dry_run=True)} "
+                   "fila(s) pending que pasarían a cleared/legacy")
+        click.echo("Dry-run: no se ejecutó nada.")
+        if bloquea:
+            _abortar_con(pre["problemas"] + [
+                "la corrida real abortaría: resuélvelo o pasa --force"])
+        if faltan:
+            raise click.Abort()
+        return
+
+    if faltan:
+        _abortar_con([f"faltan archivos en disco: {faltan}"])
+    if bloquea:
+        _abortar_con(pre["problemas"] + [
+            "no se encendió nada: resuélvelo o pasa --force"])
+
+    por_encender, total = _library_requirements_off()
+    _run_sql_files([f"{_DML_BIBLIOTECA_2026_10_DIR}/{nombre}"
+                    for nombre in _DML_BIBLIOTECA_2026_10_ACTIVAR_FILES])
+    click.echo(f"Requisito automático de no adeudo: {por_encender} fila(s) encendida(s) "
+               f"de {total}.")
+
+    creadas = _library_clearance_rebackfill(dry_run=False)
+    click.echo(f"Re-backfill de no adeudo: {creadas} fila(s) creada(s) "
+               "(pending/legacy) para procesos sin fila todavía.")
+
+    promovidas = _library_clearance_promote(dry_run=False)
+    click.echo(f"Promoción D17: {promovidas} fila(s) pending -> cleared/legacy "
+               "(requisito ya cumplido a mano o fase 2 ya aprobada).")
+
+    problemas = _verify_candado_biblioteca()
+    if problemas:
+        _abortar_con(problemas)
+
+    click.echo(click.style(
+        "OK: candado de no adeudo ENCENDIDO y verificado (requisito automático en "
+        "toda convocatoria con la fila).",
         fg="green",
     ))
 
