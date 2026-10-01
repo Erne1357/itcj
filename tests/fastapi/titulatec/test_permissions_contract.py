@@ -205,13 +205,20 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_88_permisos_conocidos():
+def test_el_dml_declara_los_98_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    88 es el numero verificado en BD tras `titulatec init-titulatec`. Eran 84
-    hasta el 2026-09-24, cuando la spec de Accesos de Centro de Computo (NIP
-    en dos pasos) anadio los cuatro codigos de la bandeja nueva
-    (`titulatec.enrollment_access.page.list`,
+    98 es el numero verificado en BD tras `titulatec init-biblioteca-caja`
+    (o tras `init-titulatec` desde cero). Eran 88 hasta el 2026-10-01, cuando
+    la spec de no adeudo de biblioteca (Biblioteca -> Caja,
+    2026-10-01-titulatec-biblioteca-caja-design.md §4.6) anadio los diez
+    codigos nuevos (`titulatec.library_clearance.*` x5,
+    `titulatec.library_payment.*` x3, `titulatec.survey_review.api.
+    print_certificates` y `titulatec.certificate.page.list`) en su propio
+    delta `biblioteca_2026_10/21_insert_library_cashier_roles_perms.sql`.
+    Antes de eso eran 84 hasta el 2026-09-24, cuando la spec de Accesos de
+    Centro de Computo (NIP en dos pasos) anadio los cuatro codigos de la
+    bandeja nueva (`titulatec.enrollment_access.page.list`,
     `titulatec.enrollment_access.api.grant`,
     `titulatec.enrollment_access.api.return` y
     `titulatec.enrollment_access.api.reject`) a `02_insert_permissions.sql`.
@@ -238,12 +245,13 @@ def test_el_dml_declara_los_88_permisos_conocidos():
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 88, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 88 "
-        "(2026-09-24: sube de 84 a 88 por los cuatro "
-        "titulatec.enrollment_access.*, la bandeja de Accesos de Centro de "
-        "Computo). Actualiza este numero SOLO si el cambio en "
-        f"database/DML/titulatec/ es intencional. Declarados: {sorted(declared)}"
+    assert len(declared) == 98, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 98 "
+        "(2026-10-01: sube de 88 a 98 por los diez titulatec.library_clearance.*/"
+        "library_payment.*/survey_review.api.print_certificates/"
+        "certificate.page.list, no adeudo de biblioteca). Actualiza este numero "
+        f"SOLO si el cambio en database/DML/titulatec/ es intencional. "
+        f"Declarados: {sorted(declared)}"
     )
 
 

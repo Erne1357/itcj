@@ -107,12 +107,26 @@ SEED_FILES = [
     # es el único camino de despliegue para este delta.
     "posgrado_2026_10/18_classify_posgrado_programs.sql",
     "posgrado_2026_10/19_insert_posgrado_doc_types.sql",
+    # --- Delta 2026-10-01: no adeudo de biblioteca (Biblioteca -> Caja) -----
+    # Spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.6/§6: puestos
+    # library_clearance_info_center/cashier_financial_resources (20), roles
+    # titulatec_library/titulatec_cashier + los 10 permisos nuevos y TODAS sus
+    # concesiones, incluido admin EXPLICITO (21), y el requisito automatico de
+    # `library_clearance` sobre las convocatorias YA sembradas (22). No
+    # inserta nada que el 03 pudiera revocar, asi que va antes del 15 sin
+    # problema. Tambien corre SOLO con `titulatec init-biblioteca-caja`
+    # (mismo patron D10 que posgrado/correo de arriba): en produccion
+    # `init-titulatec` completo NUNCA se re-ejecuta.
+    "biblioteca_2026_10/20_insert_library_cashier_positions.sql",
+    "biblioteca_2026_10/21_insert_library_cashier_roles_perms.sql",
+    "biblioteca_2026_10/22_library_requirement_auto.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
-    # correr después de CUALQUIER archivo que inserte permisos (02, 07, 08 y
-    # survey_2026_09/09) para que "todos" sea de verdad todos. Solo concede
-    # (ON CONFLICT DO NOTHING): re-correrlo nunca revoca nada.
+    # correr después de CUALQUIER archivo que inserte permisos (02, 07, 08,
+    # survey_2026_09/09 y biblioteca_2026_10/21) para que "todos" sea de
+    # verdad todos. Solo concede (ON CONFLICT DO NOTHING): re-correrlo nunca
+    # revoca nada.
     "15_grant_admin_all_perms.sql",
 ]
 
@@ -1871,6 +1885,417 @@ def init_posgrado_command(dry_run, allow_insert):
     click.echo(click.style(
         "OK: 4 carreras de posgrado clasificadas y 4 tipos de documento de "
         "fase 1 dados de alta/actualizados.",
+        fg="green",
+    ))
+
+
+# ---------------------------------------------------------------------------
+# No adeudo de biblioteca (Biblioteca -> Caja), 2026-10-01 (spec
+# 2026-10-01-titulatec-biblioteca-caja-design.md, §4.6/§6): Biblioteca revisa
+# en FIFO a todo inscrito y registra si debe (y cuanto); el egresado va
+# directo a Caja a pagar adeudo + "Donacion voluntaria de libro"; Caja
+# registra el pago y eso libera el requisito `library_clearance`. Puesto
+# nuevo por area, rol nuevo por puesto, 10 permisos nuevos (88 -> 98).
+# ---------------------------------------------------------------------------
+_DML_BIBLIOTECA_2026_10_DIR = "biblioteca_2026_10"
+# Debe listar TODOS los .sql del directorio (mismo contrato que
+# `_DML_POSGRADO_2026_10_FILES`/`_DML_MAIL_2026_09_FILES`/
+# `_DML_SURVEY_2026_09_FILES`): lo fija
+# `test_todo_sql_del_delta_esta_en_la_lista_del_comando`
+# (tests/fastapi/titulatec/test_cli_biblioteca_caja.py). Un archivo que se
+# caiga de aqui no lo corre nadie y nada se pone rojo.
+_DML_BIBLIOTECA_2026_10_FILES = [
+    "20_insert_library_cashier_positions.sql",
+    "21_insert_library_cashier_roles_perms.sql",
+    "22_library_requirement_auto.sql",
+]
+
+_ROL_LIBRARY = "titulatec_library"
+_ROL_CASHIER = "titulatec_cashier"
+_PUESTO_LIBRARY = "library_clearance_info_center"      # depto info_center, "Biblioteca · No adeudo"
+_PUESTO_CASHIER = "cashier_financial_resources"         # depto financial_resources, "Caja"
+
+# Los 5 de la bandeja de Biblioteca.
+_PERMISOS_LIBRARY_CLEARANCE = (
+    "titulatec.library_clearance.page.list",
+    "titulatec.library_clearance.api.register",
+    "titulatec.library_clearance.api.prior",
+    "titulatec.library_clearance.api.revert",
+    "titulatec.library_clearance.api.print_certificates",
+)
+# Los 3 de la bandeja de Caja.
+_PERMISOS_LIBRARY_PAYMENT = (
+    "titulatec.library_payment.page.list",
+    "titulatec.library_payment.api.register",
+    "titulatec.library_payment.api.revert",
+)
+# Los 2 sueltos del delta: imprimir constancias de la encuesta (GTV) y la
+# bandeja de Constancias (comun a encuesta y no adeudo).
+_PERM_SURVEY_PRINT_CERTIFICATES = "titulatec.survey_review.api.print_certificates"
+_PERM_CERTIFICATE_PAGE_LIST = "titulatec.certificate.page.list"
+
+# Los 10 del delta (spec §4.6, tabla). FUENTE UNICA para `_verify_biblioteca_
+# caja` y para `test_los_diez_codigos_del_delta_son_los_del_contrato`.
+_PERMISOS_BIBLIOTECA_CAJA_2026_10 = (
+    _PERMISOS_LIBRARY_CLEARANCE
+    + _PERMISOS_LIBRARY_PAYMENT
+    + (_PERM_SURVEY_PRINT_CERTIFICATES, _PERM_CERTIFICATE_PAGE_LIST)
+)
+
+# Reparto EXACTO de los dos roles nuevos (spec §4.6): titulatec_library son
+# los 5 de Biblioteca MAS certificate.page.list (ve la bandeja de
+# Constancias); titulatec_cashier son SOLO los 3 de Caja.
+_PERMISOS_ROL_LIBRARY = _PERMISOS_LIBRARY_CLEARANCE + (_PERM_CERTIFICATE_PAGE_LIST,)
+_PERMISOS_ROL_CASHIER = _PERMISOS_LIBRARY_PAYMENT
+
+
+# --- Re-backfill de `titulatec_library_clearances` --------------------------
+# MISMO predicado que el backfill de la migracion `tt20261001a`
+# (migrations/versions/tt20261001a_titulatec_biblioteca_caja.py,
+# BACKFILL_SQL): por cada proceso activo/en pausa cuya fase 2 NO este
+# aprobada (sin fila cuenta como NO aprobada) y que TODAVIA no tenga fila en
+# `titulatec_library_clearances`, inserta 'cleared'/cleared_via='legacy' si
+# ya tiene un `RequirementFulfillment` fulfilled|waived del requisito
+# `library_clearance` de SU convocatoria; si no, 'pending'. Existe para
+# alcanzar los procesos que se crearon durante la ventana blue/green, entre
+# que corrio la migracion y que corre este comando (Review Focus #5 del
+# plan) -- la migracion por si sola solo ve los procesos que existian AL
+# MOMENTO de aplicarse.
+#
+# El fragmento de predicado es el MISMO texto Python para el INSERT real y
+# para el COUNT de la vista previa (`--dry-run`): no hay forma de que
+# diverjan sin que el propio archivo deje de compilar.
+_LIBRARY_CLEARANCE_BACKFILL_PREDICATE = """
+  FROM titulatec_processes p
+ WHERE p.status IN ('active', 'on_hold')
+   AND NOT EXISTS (
+       SELECT 1 FROM titulatec_process_phases ph
+        WHERE ph.process_id = p.id AND ph.phase_number = 2 AND ph.status = 'approved'
+   )
+   AND NOT EXISTS (
+       SELECT 1 FROM titulatec_library_clearances lc WHERE lc.process_id = p.id
+   )
+"""
+
+_LIBRARY_CLEARANCE_REBACKFILL_SQL = """
+INSERT INTO titulatec_library_clearances
+    (process_id, status, cleared_via, created_at, updated_at)
+SELECT
+    p.id,
+    CASE WHEN EXISTS (
+        SELECT 1
+          FROM titulatec_requirement_fulfillments rf
+          JOIN titulatec_cotejo_requirements req ON req.id = rf.requirement_id
+         WHERE rf.process_id = p.id
+           AND req.cohort_id = p.cohort_id
+           AND req.code = 'library_clearance'
+           AND rf.status IN ('fulfilled', 'waived')
+    ) THEN 'cleared' ELSE 'pending' END,
+    CASE WHEN EXISTS (
+        SELECT 1
+          FROM titulatec_requirement_fulfillments rf
+          JOIN titulatec_cotejo_requirements req ON req.id = rf.requirement_id
+         WHERE rf.process_id = p.id
+           AND req.cohort_id = p.cohort_id
+           AND req.code = 'library_clearance'
+           AND rf.status IN ('fulfilled', 'waived')
+    ) THEN 'legacy' ELSE NULL END,
+    NOW(),
+    NOW()
+""" + _LIBRARY_CLEARANCE_BACKFILL_PREDICATE
+
+_LIBRARY_CLEARANCE_REBACKFILL_COUNT_SQL = "SELECT COUNT(*)" + _LIBRARY_CLEARANCE_BACKFILL_PREDICATE
+
+
+def _library_clearance_rebackfill(dry_run: bool) -> int:
+    """Re-backfill idempotente de `titulatec_library_clearances`.
+
+    Abre su PROPIA sesion (import local de `SessionLocal`, convencion del
+    proyecto) para que `patched_session_local` pueda interceptarla en los
+    tests -- mismo patron que `_resync_posgrado_phase1`. `dry_run=True` solo
+    CUENTA (SELECT, nunca escribe); `dry_run=False` inserta y hace UN commit.
+    Idempotente por construccion: el `NOT EXISTS` sobre la propia tabla hace
+    que una segunda corrida inserte 0 filas.
+
+    Devuelve cuantas filas creo (o crearia, en dry-run).
+    """
+    from sqlalchemy import text
+
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        if dry_run:
+            count = db.execute(text(_LIBRARY_CLEARANCE_REBACKFILL_COUNT_SQL)).scalar() or 0
+            db.rollback()
+        else:
+            result = db.execute(text(_LIBRARY_CLEARANCE_REBACKFILL_SQL))
+            count = result.rowcount or 0
+            db.commit()
+        return count
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _verify_biblioteca_caja() -> list[str]:
+    """Comprueba que el delta de Biblioteca/Caja ATERRIZO. Devuelve problemas.
+
+    Mismo contrato que el resto de los `_verify_*` de este archivo: abre su
+    propia conexion, arma sets contra la BD y devuelve strings de problema en
+    vez de levantar -- los `RAISE NOTICE` del 20/21/22 son INVISIBLES para
+    `itcj2/` (nada lee `connection.notices`).
+
+    Seis chequeos (spec §4.6):
+      - los 2 puestos nuevos existen;
+      - los 10 permisos existen;
+      - `titulatec_library` concede EXACTAMENTE sus 6 (los 5 de Biblioteca +
+        certificate.page.list) y `titulatec_cashier` EXACTAMENTE sus 3 --
+        mismo patron "exacto" que `_verify_computer_center`;
+      - GTV (`titulatec_tech_management`), Servicios Escolares operativo y su
+        jefatura CONTIENEN sus concesiones nuevas -- semantica "al menos",
+        porque ya traian otros permisos de antes (patron A7, igual que
+        `_verify_titulacion`/`_verify_computer_center`);
+      - `admin` CONTIENE los 10 (concesion EXPLICITA del 21: en produccion
+        nunca se re-corre el 15, que es quien normalmente se lo daria
+        dinamicamente);
+      - el mapeo puesto->rol: cada puesto nuevo INCLUYE su rol nuevo;
+      - el requisito automatico: NINGUNA fila `titulatec_cotejo_requirements`
+        con `code='library_clearance'` se quedo sin
+        `auto_source='library_clearance'`/`is_required=TRUE`/`is_active=TRUE`
+        (el 22 las corrige TODAS, sin condicion sobre el valor anterior).
+
+    Si algun puesto no existe en la base (0 filas), el mensaje lo dice
+    explicitamente -- igual que `_verify_computer_center` con Centro de
+    Computo -- en vez de solo reportar que falta el mapeo.
+    """
+    from sqlalchemy import text
+
+    from itcj2.cli.core import _get_engine
+
+    problemas: list[str] = []
+
+    with _get_engine().connect() as conn:
+        puestos = {
+            row[0]
+            for row in conn.execute(
+                text("SELECT code FROM core_positions WHERE code = ANY(:codes)"),
+                {"codes": [_PUESTO_LIBRARY, _PUESTO_CASHIER]},
+            )
+        }
+        for code in (_PUESTO_LIBRARY, _PUESTO_CASHIER):
+            if code not in puestos:
+                problemas.append(
+                    f"puesto ausente: {code} (el organigrama de Biblioteca/Caja "
+                    "no esta sembrado en esta base)"
+                )
+
+        permisos = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT p.code FROM core_permissions p "
+                    "JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                    "WHERE p.code = ANY(:codes)"
+                ),
+                {"codes": list(_PERMISOS_BIBLIOTECA_CAJA_2026_10)},
+            )
+        }
+        for code in _PERMISOS_BIBLIOTECA_CAJA_2026_10:
+            if code not in permisos:
+                problemas.append(f"permiso ausente: {code}")
+
+        concedidos = {
+            (row[0], row[1])
+            for row in conn.execute(
+                text(
+                    "SELECT r.name, p.code "
+                    "  FROM core_role_permissions rp "
+                    "  JOIN core_roles r ON r.id = rp.role_id "
+                    "  JOIN core_permissions p ON p.id = rp.perm_id "
+                    "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                    " WHERE p.code = ANY(:codes)"
+                ),
+                {"codes": list(_PERMISOS_BIBLIOTECA_CAJA_2026_10)},
+            )
+        }
+
+        concedidos_library = {c for (r, c) in concedidos if r == _ROL_LIBRARY}
+        if concedidos_library != set(_PERMISOS_ROL_LIBRARY):
+            faltan = set(_PERMISOS_ROL_LIBRARY) - concedidos_library
+            sobran = concedidos_library - set(_PERMISOS_ROL_LIBRARY)
+            problemas.append(
+                f"{_ROL_LIBRARY} no tiene exactamente sus 6 permisos "
+                f"(faltan {sorted(faltan)}, sobran {sorted(sobran)})"
+            )
+
+        concedidos_cashier = {c for (r, c) in concedidos if r == _ROL_CASHIER}
+        if concedidos_cashier != set(_PERMISOS_ROL_CASHIER):
+            faltan = set(_PERMISOS_ROL_CASHIER) - concedidos_cashier
+            sobran = concedidos_cashier - set(_PERMISOS_ROL_CASHIER)
+            problemas.append(
+                f"{_ROL_CASHIER} no tiene exactamente sus 3 permisos "
+                f"(faltan {sorted(faltan)}, sobran {sorted(sobran)})"
+            )
+
+        for code in (_PERM_SURVEY_PRINT_CERTIFICATES, _PERM_CERTIFICATE_PAGE_LIST):
+            if (_ROL_GTV, code) not in concedidos:
+                problemas.append(f"sin grant a GTV ({_ROL_GTV}): {code}")
+
+        for rol in (_ROL_OPERATIVO_ESCOLARES, _ROL_JEFATURA_ESCOLARES):
+            if (rol, "titulatec.library_clearance.api.prior") not in concedidos:
+                problemas.append(
+                    f"sin grant a {rol}: titulatec.library_clearance.api.prior "
+                    "(respaldo D9)"
+                )
+
+        for code in _PERMISOS_BIBLIOTECA_CAJA_2026_10:
+            if (_ROL_ADMIN, code) not in concedidos:
+                problemas.append(f"sin grant a {_ROL_ADMIN}: {code}")
+
+        puestos_de_rol = {}
+        for rol in (_ROL_LIBRARY, _ROL_CASHIER):
+            puestos_de_rol[rol] = {
+                row[0]
+                for row in conn.execute(
+                    text(
+                        "SELECT pos.code FROM core_position_app_roles par "
+                        "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
+                        "  JOIN core_roles r ON r.id = par.role_id "
+                        "  JOIN core_positions pos ON pos.id = par.position_id "
+                        " WHERE r.name = :rol"
+                    ),
+                    {"rol": rol},
+                )
+            }
+        if _PUESTO_LIBRARY not in puestos_de_rol[_ROL_LIBRARY]:
+            problemas.append(
+                f"mapeo puesto→rol de {_ROL_LIBRARY}: falta {_PUESTO_LIBRARY} "
+                f"(hay {sorted(puestos_de_rol[_ROL_LIBRARY])})"
+            )
+        if _PUESTO_CASHIER not in puestos_de_rol[_ROL_CASHIER]:
+            problemas.append(
+                f"mapeo puesto→rol de {_ROL_CASHIER}: falta {_PUESTO_CASHIER} "
+                f"(hay {sorted(puestos_de_rol[_ROL_CASHIER])})"
+            )
+
+        n_mal = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM titulatec_cotejo_requirements "
+                " WHERE code = 'library_clearance' "
+                "   AND (auto_source IS DISTINCT FROM 'library_clearance' "
+                "        OR is_required IS DISTINCT FROM TRUE "
+                "        OR is_active IS DISTINCT FROM TRUE)"
+            )
+        ).scalar()
+        if n_mal:
+            problemas.append(
+                f"{n_mal} fila(s) de titulatec_cotejo_requirements con "
+                "code='library_clearance' sin auto_source/is_required/is_active "
+                "correctos (el 22_library_requirement_auto.sql no aterrizo)"
+            )
+
+    return problemas
+
+
+@titulatec_cli.command("init-biblioteca-caja")
+@click.option("--dry-run", is_flag=True,
+              help="Lista los archivos y cuenta el re-backfill, sin escribir nada.")
+def init_biblioteca_caja_command(dry_run):
+    """Puestos, roles y permisos de Biblioteca/Caja + requisito automatico.
+
+    Corre SOLO `database/DML/titulatec/biblioteca_2026_10/`
+    (`_DML_BIBLIOTECA_2026_10_FILES`, D10 -- mismo patron que
+    `init-posgrado`/`init-email-tasks`): produccion ya corrio
+    `init-titulatec` y ese comando nunca se re-ejecuta alli, asi que este es
+    el unico camino de despliegue para este delta -- ademas de sumarse a
+    `SEED_FILES` para una instalacion desde cero.
+
+    `20_insert_library_cashier_positions.sql` crea los 2 puestos NUEVOS
+    (nacen SIN OCUPANTE: asignarlos es un paso del lanzamiento, spec §6 paso
+    3). `21_insert_library_cashier_roles_perms.sql` crea los roles
+    `titulatec_library`/`titulatec_cashier`, el mapeo puesto→rol y los 10
+    permisos con TODAS sus concesiones (incluido `admin` EXPLICITO: en
+    produccion nunca se re-corre `15_grant_admin_all_perms.sql`).
+    `22_library_requirement_auto.sql` pasa el requisito `library_clearance`
+    de las convocatorias YA sembradas a automatico (`auto_source`,
+    `is_required`, `is_active`) y pone al dia sus pistas -- SOLO donde
+    seguian identicas al default viejo, para respetar lo que Servicios
+    Escolares ya hubiera editado.
+
+    Tras el DML, re-backfillea `titulatec_library_clearances`
+    (`_library_clearance_rebackfill`, MISMO predicado que el backfill de la
+    migracion `tt20261001a`): alcanza los procesos creados durante la
+    ventana blue/green, entre que corrio la migracion y que corre este
+    comando (Review Focus #5 del plan). Idempotente: una segunda corrida
+    crea 0 filas.
+
+    Al terminar VERIFICA con `_verify_biblioteca_caja()` (los `RAISE NOTICE`
+    del SQL son invisibles, mismo motivo que el resto de los `_verify_*` de
+    este archivo): puestos, los 10 permisos, las concesiones EXACTAS de los
+    2 roles nuevos, las concesiones nuevas de GTV/Servicios Escolares/admin,
+    el mapeo puesto→rol y que NINGUNA fila de `library_clearance` se haya
+    quedado sin el requisito automatico. Aborta si algo no aterrizo.
+
+    `--dry-run`: comprueba que los 3 archivos existen en disco y CUENTA
+    cuantas filas crearia el re-backfill, sin escribir nada (ni DML ni
+    backfill).
+
+    ADVERTENCIA (spec §6, paso 3): desde que esta corrida real termina, el
+    requisito `library_clearance` queda automatico en TODA convocatoria ya
+    sembrada -- Task 5 (`ClearanceGate`) es quien de verdad bloquea el
+    agendado por esto, pero la fila ya queda lista antes de que ese candado
+    exista. Antes de correrlo en produccion: ocupantes asignados en
+    "Biblioteca · No adeudo" y "Caja", Servicios Escolares con la donacion
+    de la convocatoria abierta capturada, y avisar a Biblioteca/Caja/GTV/SE.
+    """
+    dml_dir = DML_TITULATEC / _DML_BIBLIOTECA_2026_10_DIR
+
+    if dry_run:
+        faltan = [
+            nombre for nombre in _DML_BIBLIOTECA_2026_10_FILES
+            if not (dml_dir / nombre).exists()
+        ]
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutarían:")
+            for nombre in _DML_BIBLIOTECA_2026_10_FILES:
+                click.echo(f"  {_DML_BIBLIOTECA_2026_10_DIR}/{nombre}")
+
+        count = _library_clearance_rebackfill(dry_run=True)
+        click.echo(
+            f"[dry-run] Procesos sin fila de no adeudo que el re-backfill "
+            f"crearía (pending/legacy): {count}"
+        )
+        click.echo("Dry-run: no se ejecutó nada.")
+        if faltan:
+            raise click.Abort()
+        return
+
+    _run_sql_files(
+        [f"{_DML_BIBLIOTECA_2026_10_DIR}/{nombre}" for nombre in _DML_BIBLIOTECA_2026_10_FILES]
+    )
+
+    creadas = _library_clearance_rebackfill(dry_run=False)
+    click.echo(
+        f"Re-backfill de no adeudo: {creadas} fila(s) creada(s) "
+        "(pending/legacy) para procesos sin fila todavía."
+    )
+
+    problemas = _verify_biblioteca_caja()
+    if problemas:
+        click.echo()
+        for p in problemas:
+            click.echo(click.style(f"ERROR: {p}", fg="red"), err=True)
+        raise click.Abort()
+
+    click.echo(click.style(
+        "OK: 2 puestos, 2 roles, 10 permisos (88 → 98) con sus concesiones, "
+        "mapeo puesto→rol y requisito automático de no adeudo verificados en "
+        "la base.",
         fg="green",
     ))
 
