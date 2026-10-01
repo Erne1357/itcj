@@ -1,0 +1,108 @@
+{# Página de Constancias (lotes e impresión). Raíz `#tt-cert-body`; TODOS los
+   controles (generar lote, paginación de «Lotes») apuntan a ella con
+   `hx-swap="outerHTML"`, así que cada handler devuelve este parcial completo.
+   Mismo patrón que `partials/library_body.html` y `partials/cashier_body.html`.
+
+   Una SECCIÓN por cada `kind` que este actor puede imprimir (`sections`, ya
+   filtrado y ordenado por `_printable_kinds` -- nunca los dos `CERT_KINDS`
+   fijos): el Centro de Información solo ve «No adeudo de biblioteca», GTV
+   solo «Liberación de encuesta de egresados», un actor con los dos permisos
+   (como `admin`) ve ambas. Sin ningún permiso de imprimir -caso límite, D15-
+   la raíz queda con el aviso de «sin tipos asignados».
+
+   «Generar lote» (D7) vive en un `<form>` propio por sección -sin casillas
+   que recoger, a diferencia del lote de Biblioteca-: `hx-confirm` +
+   `data-tt-confirm-ok` van en el `<form>` (no en el botón), con el puente
+   hx-confirm -> modal ya cargado una sola vez por `base.html`
+   (`static/js/shared/titulatec-utils.js:265`). Dos campos ocultos
+   (`page_library_clearance`/`page_survey_release`) reenvían la página actual
+   de «Lotes» de la OTRA sección -crear un lote reinicia a la página 1 SOLO la
+   de su propio tipo, la ruta ya lo resuelve (`pages/certificates_admin.py`).
+
+   Tras crear un lote, `new_batch` trae el PDF recién generado: un `<a
+   target="_blank">` PLANO (sin script inline) que lo abre en pestaña nueva;
+   el badge «Por imprimir» de esa misma respuesta ya sale en 0, así que el
+   contador de la página queda al día sin nada más. #}
+<div id="tt-cert-body" data-tt-view="certificates-body">
+
+  {% if not sections %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-printer me-1"></i>Sin tipos asignados</span>
+    <p class="mb-0">No tienes permiso para imprimir ningún tipo de constancia.</p>
+  </div>
+  {% endif %}
+
+  {% for s in sections %}
+  <div class="tt-card mb-4" id="tt-cert-kind-{{ s.kind }}">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+      <div>
+        <span class="tt-kicker">{{ s.label }}</span>
+        <h2 class="h5 mb-0">Por imprimir ({{ s.pending_count }})</h2>
+      </div>
+      <form hx-post="/titulatec/admin/constancias/{{ s.kind }}/lote"
+            hx-target="#tt-cert-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+            data-tt-confirm-ok="Generar lote"
+            hx-confirm="Generar lote|¿Generar el lote con las {{ s.pending_count }} constancia{{ 's' if s.pending_count != 1 else '' }} por imprimir de {{ s.label|lower }}?">
+        <input type="hidden" name="page_library_clearance" value="{{ pages.library_clearance }}">
+        <input type="hidden" name="page_survey_release" value="{{ pages.survey_release }}">
+        <button type="submit" id="tt-cert-lote-btn-{{ s.kind }}" class="btn btn-sm tt-btn-ink"
+                {{ 'disabled' if s.pending_count == 0 else '' }}>
+          <i class="bi bi-printer me-1"></i>Generar lote ({{ s.pending_count }})
+        </button>
+      </form>
+    </div>
+
+    {% if new_batch and new_batch.kind == s.kind %}
+    <div class="tt-card mb-3" id="tt-cert-new-batch-{{ s.kind }}">
+      <span class="tt-kicker"><i class="bi bi-check2-circle me-1"></i>Lote generado</span>
+      <p class="mb-2">Lote #{{ new_batch.id }} con {{ new_batch.count }}
+         constancia{{ 's' if new_batch.count != 1 else '' }}, listo para imprimir.</p>
+      <a class="btn btn-sm tt-btn-ink" href="/titulatec/admin/constancias/lotes/{{ new_batch.id }}.pdf"
+         target="_blank" rel="noopener">
+        <i class="bi bi-file-earmark-pdf me-1"></i>Abrir PDF del lote
+      </a>
+    </div>
+    {% endif %}
+
+    <div class="tt-table-wrap">
+      <table class="table table-sm align-middle">
+        <thead><tr>
+          <th>Lote</th><th>Fecha</th><th>Quién</th><th>Cuántas</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% if not s.batches %}
+        <tr><td colspan="5" class="text-center text-muted">Sin lotes todavía.</td></tr>
+        {% endif %}
+        {% for b in s.batches %}
+        <tr id="cert-batch-{{ b.id }}">
+          <td class="tt-mono">#{{ b.id }}</td>
+          <td>{{ b.created_at.strftime('%d/%m/%Y %H:%M') if b.created_at else '—' }}</td>
+          <td>{{ b.created_by or '—' }}</td>
+          <td>{{ b.count }}
+            {%- if b.voided_count %} <span class="tt-pill tt-pill--neutral">{{ b.voided_count }} anulada{{ 's' if b.voided_count != 1 else '' }}</span>{% endif %}</td>
+          <td>
+            <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/constancias/lotes/{{ b.id }}.pdf"
+               target="_blank" rel="noopener">
+              <i class="bi bi-file-earmark-pdf me-1"></i>Ver PDF
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if s.page > 1 or s.has_more %}
+    <div class="d-flex gap-2 mt-2">
+      {% if s.page > 1 %}
+      <button class="btn btn-sm tt-btn-ghost" type="button"
+              hx-get="{{ s.prev_url }}" hx-target="#tt-cert-body" hx-swap="outerHTML">Anteriores</button>
+      {% endif %}
+      {% if s.has_more %}
+      <button class="btn btn-sm tt-btn-ghost" type="button"
+              hx-get="{{ s.next_url }}" hx-target="#tt-cert-body" hx-swap="outerHTML">Siguientes</button>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
