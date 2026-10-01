@@ -565,6 +565,44 @@ class TestCotejoYaLiberado:
         assert esc.clearance.status == "pending" and esc.clearance.debt_amount is None
         assert _library_events(db_session, esc.process.id) == []
 
+    def test_corregir_tambien_lo_rechaza_sin_escribir(self, db_session, nuevo, actores):
+        """Ruling R30 #4 (re-revisión de la ola final): R20 ya rechaza
+        «Corregir…», no solo «Registrar»/«Sin adeudo» desde «Por revisar» --
+        una fila `awaiting_payment` cuya fase 2 se aprobó DURANTE la
+        transición (p. ej. SE marcó el requisito a mano) tampoco admite
+        corregir el monto desde «En caja»."""
+        esc = nuevo(status="awaiting_payment", phase=3, debt_amount=ADEUDO,
+                    donation_amount=DONACION, total_amount=ADEUDO + DONACION)
+
+        with pytest.raises(ValueError) as exc, patch(NOTIFY):
+            LibraryClearanceService.register(
+                db_session, esc.clearance.id, actores.biblioteca.id,
+                debt_amount=Decimal("100"), expected_status="awaiting_payment")
+
+        assert str(exc.value) == MSG_YA_PASO
+        assert esc.clearance.status == "awaiting_payment"
+        assert esc.clearance.debt_amount == ADEUDO            # no se pisó
+        assert _library_events(db_session, esc.process.id) == []
+
+    def test_caja_si_puede_cobrar_aunque_ya_paso_su_cotejo(self, db_session, nuevo, actores):
+        """Ruling R30 #4: Caja SÍ puede seguir cobrando si el egresado se
+        presenta -el adeudo EXISTE aunque el dueño ya clasifique la fila
+        `NOT_APPLICABLE` para el candado y los correos (Ruling R21)-;
+        `register_payment` nunca mira la fase 2."""
+        esc = nuevo(status="awaiting_payment", phase=3, debt_amount=ADEUDO,
+                    donation_amount=DONACION, total_amount=ADEUDO + DONACION)
+        assert LibraryClearanceService.release_status(
+            db_session, esc.process.id) == "not_applicable"
+
+        with patch(NOTIFY):
+            LibraryClearanceService.register_payment(
+                db_session, esc.clearance.id, actores.caja.id, receipt_number="R-1")
+
+        assert esc.clearance.status == "cleared" and esc.clearance.cleared_via == "payment"
+        assert esc.clearance.receipt_number == "R-1"
+        assert len(_certs(db_session, esc.clearance.id)) == 1
+        assert len(_library_events(db_session, esc.process.id)) == 1
+
     def test_el_lote_lo_omite_con_su_motivo(self, db_session, nuevo, actores):
         abierto = nuevo()
         cerrado = nuevo(cohort=abierto.cohort, phase=3)

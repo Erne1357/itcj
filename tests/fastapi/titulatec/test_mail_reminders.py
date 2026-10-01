@@ -585,6 +585,23 @@ def test_en_cualquier_fase(db_session, en_caja):
         assert [f.kind for f in _filas(db_session, proc.id)] == ["library_reminder"]
 
 
+def test_fase_2_aprobada_deja_de_perseguir_el_pago(db_session, en_caja):
+    """Ruling R30 #4 (re-revisión de la ola final): una fila `awaiting_payment`
+    cuya fase 2 YA se aprobó (p. ej. durante la transición D17, Servicios
+    Escolares marcó el requisito a mano) es `NOT_APPLICABLE` para el dueño
+    (Ruling R21) -- deja de perseguir el pago por CORREO; Caja sigue pudiendo
+    cobrarlo si el egresado se presenta (lo prueba
+    `test_library_clearance_service.py::TestCotejoYaLiberado`, no este
+    archivo). `fase=3` dibuja fases 0, 1 y 2 `approved` (`make_process`)."""
+    ya_paso = en_caja(fase=3)
+    sigue = en_caja(fase=2)
+
+    assert _barrer(db_session) == _conteo(library=1)
+
+    assert _filas(db_session, ya_paso.id, "library_reminder") == []
+    assert len(_filas(db_session, sigue.id, "library_reminder")) == 1
+
+
 def test_al_liberarse_deja_de_recordar(db_session, en_caja):
     """Caja registró el pago: la fila ya no está `awaiting_payment` y el
     siguiente recordatorio de la cadencia no sale."""

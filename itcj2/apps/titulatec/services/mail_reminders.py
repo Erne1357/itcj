@@ -29,9 +29,15 @@ QUÉ TOCA (solo procesos `status = 'active'`; cadencia moderada, D6)
 - Pago pendiente en Caja (spec 2026-10-01 §4.11, D14): su no adeudo de
   biblioteca está `awaiting_payment` (`LibraryClearanceService.
   awaiting_payment_clause`: la comparación vive en el dueño), en CUALQUIER
-  fase —Biblioteca lo revisa desde la fase 1, D3—. Ancla = `ready_at`, la
-  entrada VIGENTE a Caja (Ruling R10: revertir un pago la vuelve a fijar y la
-  cuenta empieza de cero). Al liberarse deja de ser candidato.
+  fase —Biblioteca lo revisa desde la fase 1, D3— SALVO que su fase 2 ya se
+  haya aprobado (Ruling R30 #4, re-revisión de la ola final: p. ej. durante
+  la transición D17, SE marcó el requisito a mano): ahí el dueño lo
+  clasifica `NOT_APPLICABLE` (`release_status_map`, Ruling R21) y TitulaTec
+  deja de PERSEGUIR el pago por correo —Caja sigue pudiendo cobrarlo si el
+  egresado se presenta; esto solo apaga el recordatorio—. Ancla = `ready_at`,
+  la entrada VIGENTE a Caja (Ruling R10: revertir un pago la vuelve a fijar y
+  la cuenta empieza de cero). Al liberarse (o volverse `NOT_APPLICABLE`) deja
+  de ser candidato.
 - Documentos, encuesta y pago: `due_index(ancla, now, enviados, anterior)`, con
   `enviados` = las filas del outbox de ESA ancla (el prefijo de su
   `dedupe_key`, salieran o no) y `anterior` = el `created_at` de la más nueva de
@@ -442,10 +448,21 @@ class MailReminders:
     @staticmethod
     def _pagos(db: Session, now: datetime) -> int:
         """Pago pendiente en Caja (spec 2026-10-01 §4.11, D14): procesos
-        `active` de cualquier fase con su no adeudo `awaiting_payment`, su
-        entrada a Caja (`ready_at`, el ancla) y su total congelado (para el
-        aviso), y sus llaves: dos consultas. Una fila sin `ready_at` no tiene
-        ancla y se omite (`_mark_ready` siempre lo fija)."""
+        `active` de cualquier fase con su no adeudo `awaiting_payment` DE
+        VERDAD, su entrada a Caja (`ready_at`, el ancla) y su total congelado
+        (para el aviso), y sus llaves: tres consultas (candidatos,
+        `release_status_map` en lote, llaves) -el número no crece con los
+        candidatos-. Una fila sin `ready_at` no tiene ancla y se omite
+        (`_mark_ready` siempre lo fija).
+
+        Ruling R30 #4 (re-revisión de la ola final): `LibraryClearance.
+        status == "awaiting_payment"` NO basta -si la fase 2 de ese proceso
+        ya se aprobó (p. ej. durante la transición D17), el dueño lo
+        clasifica `NOT_APPLICABLE` (`release_status_map`, Ruling R21) y
+        TitulaTec deja de perseguir el pago por correo; Caja sigue pudiendo
+        cobrarlo si el egresado se presenta-. Nunca se compara
+        `ProcessPhase.status` a mano aquí: el filtro final pasa por el
+        predicado del dueño."""
         from itcj2.apps.titulatec.models import LibraryClearance, TitulationProcess
         from itcj2.apps.titulatec.services.library_clearance_service import (
             LibraryClearanceService,
@@ -462,6 +479,11 @@ class MailReminders:
                          LibraryClearance.ready_at.isnot(None))
                  .order_by(TitulationProcess.id)
                  .all())
+        if not filas:
+            return 0
+
+        estado = LibraryClearanceService.release_status_map(db, [p.id for p, _, _ in filas])
+        filas = [fila for fila in filas if estado.get(fila[0].id) == "awaiting_payment"]
         if not filas:
             return 0
 

@@ -1027,6 +1027,25 @@ def test_pasa_a_caja_obsoleto_si_ya_no_debe(db_session, con_biblioteca, bibliote
     assert _componer(db_session, proc) == Obsolete("ya no tiene un pago pendiente en Caja")
 
 
+def test_pasa_a_caja_obsoleto_si_la_fase_2_ya_se_aprobo(db_session, con_biblioteca):
+    """Ruling R30 #4 (re-revisión de la ola final): la fase 2 se aprobó
+    DURANTE la espera del despachador (p. ej. SE marcó el requisito a mano
+    en la transición) -el dueño lo clasifica `NOT_APPLICABLE` (Ruling R21),
+    aunque la fila SIGA `awaiting_payment`-: TitulaTec deja de perseguir el
+    pago por correo (Caja sigue pudiendo cobrarlo si el egresado se
+    presenta, eso no lo valida este correo)."""
+    from itcj2.apps.titulatec.models import ProcessPhase
+    from itcj2.apps.titulatec.services.mail_compose import Obsolete
+
+    proc = con_biblioteca(biblioteca="awaiting_payment")
+    _pasa_a_caja(db_session, proc)
+    db_session.add(ProcessPhase(process_id=proc.id, phase_number=2, status="approved"))
+    db_session.flush()
+
+    assert _componer(db_session, proc) == Obsolete(
+        "ya pasó su cotejo; TitulaTec deja de perseguir el pago")
+
+
 @pytest.mark.parametrize("via, frases", [
     ("payment", ["Caja (Recursos Financieros) registró tu pago de $1,100.00",
                  "no necesitas llevar nada"]),
@@ -1166,10 +1185,16 @@ def test_recordatorio_de_pago_sin_candado_no_habla_de_agendar(db_session, proces
 @pytest.mark.parametrize("caso, motivo", [
     ("pagado", "ya no tiene un pago pendiente en Caja"),
     ("proceso-en-pausa", "el proceso ya no está activo"),
+    # Ruling R30 #4 (re-revisión de la ola final): la fase 2 se aprobó
+    # durante la espera del despachador -el dueño lo clasifica
+    # `NOT_APPLICABLE` (Ruling R21), aunque la fila SIGA `awaiting_payment`-:
+    # TitulaTec deja de perseguir el pago por correo.
+    ("fase-2-aprobada", "ya pasó su cotejo; TitulaTec deja de perseguir el pago"),
 ])
 def test_recordatorio_de_pago_obsoleto_al_enviar(db_session, con_biblioteca, caso, motivo):
-    """D8: deja de salir en cuanto se libera, o si el proceso ya no está activo."""
-    from itcj2.apps.titulatec.models import LibraryClearance
+    """D8: deja de salir en cuanto se libera, si el proceso ya no está activo,
+    o si su fase 2 ya se aprobó."""
+    from itcj2.apps.titulatec.models import LibraryClearance, ProcessPhase
     from itcj2.apps.titulatec.services.mail_compose import Composed, Obsolete
 
     proc = con_biblioteca(biblioteca="awaiting_payment")
@@ -1179,6 +1204,8 @@ def test_recordatorio_de_pago_obsoleto_al_enviar(db_session, con_biblioteca, cas
     if caso == "pagado":
         no_adeudo = db_session.query(LibraryClearance).filter_by(process_id=proc.id).one()
         no_adeudo.status, no_adeudo.cleared_via = "cleared", "payment"
+    elif caso == "fase-2-aprobada":
+        db_session.add(ProcessPhase(process_id=proc.id, phase_number=2, status="approved"))
     else:
         proc.status = "on_hold"
     db_session.flush()
