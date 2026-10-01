@@ -180,8 +180,10 @@ def step_users(ctx: Ctx) -> list[SqlFile]:
     g = SqlFile(
         "02_user_app_roles.sql",
         "Acceso a la app segun los flags ac_docs / ac_inci / ac_repo",
-        "Solo reciben rol los usuarios ACTIVOS del legacy; los placeholders inactivos\n"
-        "conservan el historial pero no entran a la app.",
+        "Los usuarios ACTIVOS del legacy reciben el rol que dicen sus flags. Los\n"
+        "placeholders inactivos reciben `consult` SOLO PARA QUE SE VEAN: el rol no\n"
+        "les da acceso (siguen is_active=false) pero sin el no aparecen en ninguna\n"
+        "pantalla de la app.",
     )
     grants = []
     for e in entries:
@@ -189,6 +191,26 @@ def step_users(ctx: Ctx) -> list[SqlFile]:
             continue
         for role in _roles_for(e.get("flags") or {}):
             grants.append((e["legacy_id"], role))
+
+    # Visibilidad del historico (2026-10-01). `UserAdminService.list_users` arma la
+    # pantalla de Usuarios con un JOIN contra `core_user_app_roles`: quien no tiene
+    # rol en la app no sale ahi, y tampoco en ninguna otra lista. Eso dejaba 17
+    # cuentas invisibles con 207 tareas, 51 incidencias y 61 documentos a su nombre
+    # -- trabajo sin dueno que no habia desde donde reasignar.
+    #
+    # El rol NO les abre la puerta: siguen inactivas, y tanto `_app_user_ids` (el
+    # que enciende el aviso de "tarea atascada") como `assignable_users` (el que
+    # llena el selector de responsables) exigen `is_active` ADEMAS del rol. Asi que
+    # el aviso sigue marcando sus tareas y el selector sigue sin ofrecerlas.
+    #
+    # Es `consult` y no un rol nuevo porque el vocabulario de la app es cerrado
+    # (`schemas/admin.py::SGC_APP_ROLES`): un rol fuera de esa lista da acceso con
+    # CERO permisos, que es un 403 en las 26 paginas el dia que alguien reactive la
+    # cuenta.
+    ya_tienen_rol = {legacy_id for legacy_id, _ in grants}
+    for e in entries:
+        if e["verdict"] == "placeholder" and e["legacy_id"] not in ya_tienen_rol:
+            grants.append((e["legacy_id"], "consult"))
     if grants:
         g.add(
             "INSERT INTO core_user_app_roles (user_id, app_id, role_id)\n"
