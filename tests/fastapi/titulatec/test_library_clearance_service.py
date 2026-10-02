@@ -2051,6 +2051,40 @@ class TestListForInbox:
         assert por_id[revocado.clearance.id]["revoked"] is True
         assert por_id[revocado.clearance.id]["can_revert"] is False
 
+    def test_fila_trae_certificate_el_dict_de_print_status_map(
+            self, db_session, nuevo, actores, token):
+        """Tarea 3 (`2026-10-02-titulatec-constancias-y-pendientes-design.md`
+        §3.3): `_rows` sustituyó su consulta propia de folio vigente por
+        `CertificateService.print_status_map` -UNA llamada por página- y
+        agrega la llave `certificate` con el dict completo que esa llamada
+        regresa; la plantilla lo pinta con la macro `certificate_cell`.
+        `certificate_number` SIGUE siendo la vigente (Caja y otras vistas ya
+        la leen) y coincide con `certificate["number"]`."""
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+        pagado = nuevo(last_name=token)
+        _a_caja(db_session, pagado, actores.biblioteca)
+        _pagar(db_session, pagado, actores.caja)
+        batch = CertificateService.create_batch(db_session, kind="library_clearance",
+                                                actor_id=actores.caja.id)
+        sin_constancia = nuevo(cohort=pagado.cohort, last_name=token)
+
+        filas, _ = LibraryClearanceService.list_for_inbox(
+            db_session, status="cleared", q=token)
+        por_id = {f["id"]: f for f in filas}
+
+        pagada = por_id[pagado.clearance.id]
+        assert pagada["certificate"]["printed"] is True
+        assert pagada["certificate"]["batch_id"] == batch.id
+        assert pagada["certificate"]["number"] == pagada["certificate_number"]
+        assert pagada["certificate"]["voided_printed"] is None
+
+        filas_pend, _ = LibraryClearanceService.list_for_inbox(
+            db_session, status="pending", q=token)
+        sin_fila = next(f for f in filas_pend if f["id"] == sin_constancia.clearance.id)
+        assert sin_fila["certificate"] is None
+        assert sin_fila["certificate_number"] is None
+
     def test_can_revert_en_lote_mira_la_fase_2(self, db_session, nuevo, token):
         abierta = nuevo(last_name=token, status="cleared", phase=2)
         cerrada = nuevo(cohort=abierta.cohort, last_name=token, status="cleared", phase=2)

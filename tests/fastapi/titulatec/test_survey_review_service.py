@@ -601,6 +601,36 @@ class TestListForInbox:
         assert por_id[r_libre.id]["can_revoke"] is True
         assert por_id[r_cerrada.id]["can_revoke"] is False
 
+    def test_fila_trae_certificate_el_dict_de_print_status_map(
+            self, db_session, make_student, make_cohort, make_process,
+            make_survey_review, make_user):
+        """Tarea 3 (`2026-10-02-titulatec-constancias-y-pendientes-design.md`
+        §3.3): la fila agrega `certificate` -el dict de
+        `CertificateService.print_status_map` para `survey_review:{id}`,
+        UNA llamada por página- que la plantilla pinta con `certificate_cell`."""
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+        cohort = make_cohort()
+        gtv = make_user(first_name="GTV", last_name="DE PRUEBA")
+        proc = make_process(make_student(), cohort=cohort, current_phase=2)
+        review = make_survey_review(proc, status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, gtv.id)
+        batch = CertificateService.create_batch(db_session, kind="survey_release",
+                                                actor_id=gtv.id)
+        sin_liberar = make_survey_review(
+            make_process(make_student(), cohort=cohort, current_phase=2), status="in_review")
+
+        filas, _ = SurveyReviewService.list_for_inbox(db_session, status="approved")
+        fila = next(f for f in filas if f["id"] == review.id)
+        assert fila["certificate"]["printed"] is True
+        assert fila["certificate"]["batch_id"] == batch.id
+
+        filas_en_revision, _ = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review")
+        fila_sin = next(f for f in filas_en_revision if f["id"] == sin_liberar.id)
+        assert fila_sin["certificate"] is None
+
 
 # ---------------------------------------------------------------------------
 # summary_for_process

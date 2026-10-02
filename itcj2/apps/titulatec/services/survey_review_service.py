@@ -581,6 +581,12 @@ class SurveyReviewService:
         se calcula EN LOTE con una sola consulta extra a `ProcessPhase` (fase
         2 de los procesos de la página) — nunca una consulta por fila; el
         estado del PROCESO ya viene del `JOIN` principal, sin consulta aparte.
+
+        `certificate` (Tarea 3 de `2026-10-02-titulatec-constancias-y-
+        pendientes-design.md` §3.3, invariante 2): el dict de
+        `CertificateService.print_status_map` para `survey_review:{id}` -una
+        sola llamada por página, hasta 2 consultas MÁS- o `None`; la
+        plantilla lo pinta con la macro `certificate_cell`.
         """
         from itcj2.core.models.program import Program
         from itcj2.core.models.user import User
@@ -623,6 +629,9 @@ class SurveyReviewService:
                    ProcessPhase.phase_number == PHASE_COTEJO)
             .all()
         ) if process_ids else {}
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+        refs = [f"survey_review:{review.id}" for review, *_ in filas]
+        estado_impresion = CertificateService.print_status_map(db, refs)
 
         out = []
         for review, process, student, program, cohort, reviewer in filas:
@@ -648,6 +657,7 @@ class SurveyReviewService:
                                if review.reviewed_at else None),
                 "can_revoke": (process.status == "active"
                               and fase2_status.get(process.id) != "approved"),
+                "certificate": estado_impresion.get(f"survey_review:{review.id}"),
                 # Inscripción revocada (`ProcessService.cancel`): el historial la
                 # conserva, pero toda acción respondería 400 (`_active_process`).
                 "revoked": process.status == "cancelled",

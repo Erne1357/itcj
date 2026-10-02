@@ -1475,10 +1475,18 @@ class LibraryClearanceService:
 
     @staticmethod
     def _rows(db: Session, filas) -> list[dict]:
-        """Dicts de las bandejas. `can_revert` y la constancia vigente en DOS
-        consultas por página, nunca una por fila. Valores crudos (`Decimal`,
-        `datetime`, `date`): formatear es de la plantilla (`format_amount`)."""
-        from itcj2.apps.titulatec.models import Certificate, ProcessPhase
+        """Dicts de las bandejas. `can_revert` en una consulta y el estado de
+        impresión de la constancia vía `CertificateService.print_status_map`
+        -hasta 2 consultas MÁS, nunca una por fila- (Tarea 3 de
+        `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.3,
+        invariante 2). `certificate` es el dict completo que esa llamada
+        regresa (o `None`); la plantilla lo pinta con la macro
+        `certificate_cell`. `certificate_number` se CONSERVA -la constancia
+        VIGENTE, nunca una anulada- porque Caja y otras vistas ya lo leen
+        directo. Valores crudos (`Decimal`, `datetime`, `date`): formatear es
+        de la plantilla (`format_amount`)."""
+        from itcj2.apps.titulatec.models import ProcessPhase
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
         if not filas:
             return []
@@ -1489,13 +1497,11 @@ class LibraryClearanceService:
                     ProcessPhase.phase_number == PHASE_COTEJO)
             .all())
         refs = [_ref(clearance.id) for clearance, *_ in filas]
-        vigentes = dict(
-            db.query(Certificate.source_ref, Certificate.number)
-            .filter(Certificate.source_ref.in_(refs), Certificate.voided_at.is_(None))
-            .all())
+        estado_impresion = CertificateService.print_status_map(db, refs)
 
         out = []
         for clearance, process, student, program, cohort in filas:
+            certificate = estado_impresion.get(_ref(clearance.id))
             out.append({
                 "id": clearance.id,
                 "process_id": process.id,
@@ -1519,7 +1525,8 @@ class LibraryClearanceService:
                 "prior_note": clearance.prior_note,
                 "updated_at": clearance.updated_at,
                 "enrolled_at": process.created_at,
-                "certificate_number": vigentes.get(_ref(clearance.id)),
+                "certificate": certificate,
+                "certificate_number": certificate["number"] if certificate else None,
                 "can_revert": (clearance.status == "cleared"
                                and process.status in ADMITTED_PROCESS_STATUSES
                                and fase2.get(process.id) != "approved"),

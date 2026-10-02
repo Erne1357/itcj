@@ -16,11 +16,21 @@
      `expected_total` -- Ruling R8). Si otra persona movió la fila mientras
      tanto, la ruta no escribe y responde 200 con este parcial RE-PINTADO y
      el motivo en `X-Tt-Notice` warning (Ruling R24), nunca un 400 sin swap.
-   - «Liberados»: píldora + fecha + folio de constancia; «Deshacer…» (previa)
-     o «Revertir…» (sin cargo/legado) según `can_revert`; un pago se revierte
-     DESDE CAJA, no aquí (el service lo rechaza con 400 si se intenta).
+   - «Liberados»: píldora + fecha; «Deshacer…» (previa) o «Revertir…» (sin
+     cargo/legado) según `can_revert`; un pago se revierte DESDE CAJA, no
+     aquí (el service lo rechaza con 400 si se intenta).
    - Inscripción revocada (`r.revoked`, cualquier pestaña): sin acciones
-     (todas responderían 400), píldora «Revocada».
+     (todas responderían 400), píldora «Revocada» -la columna «Constancia»
+     SÍ conserva su celda: no lee nada del proceso (Review Focus #5 de
+     `2026-10-02-titulatec-constancias-y-pendientes-design.md`).
+
+   Columna «Constancia» (Tarea 3 de esa misma spec, §3.3/E1/E6), entre
+   «Estado» y las acciones, en las 3 pestañas: folio + si ya se imprimió
+   (`certificate_cell`, con el dict de `CertificateService.print_status_map`
+   que `_rows` agrega en `r.certificate`) -- reemplaza al folio suelto que
+   antes vivía bajo «Estado» en «Liberados». `prior=True` con
+   `r.via == 'prior'`; `legacy=True` con `r.via == 'legacy'` (el backfill sin
+   Biblioteca/Caja/SE detrás, D17 de la spec de ayer).
 
    El LOTE no vive dentro de un `<form>` que envuelva la tabla: las casillas
    (`name="ids"`) son inputs sueltos en su celda, y el botón «Sin adeudo»
@@ -47,7 +57,7 @@
    `#tt-lib-bulk-btn` en 0. Degradación: sin ese script el botón sigue
    sirviendo igual que siempre -la ruta ya responde 400 si se manda sin nada
    marcado-, nada más sin el contador ni el auto-deshabilitado. #}
-{% from "titulatec/_macros.html" import library_clearance_pill %}
+{% from "titulatec/_macros.html" import library_clearance_pill, certificate_cell %}
 {% macro tab_fields(tab, q, page) -%}
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="q" value="{{ q }}">
@@ -124,7 +134,7 @@
       <thead><tr>
         {% if status == 'pending' %}<th style="width:2rem"></th>{% endif %}
         <th>Egresado</th><th>Control</th><th>Carrera</th><th>Convocatoria</th>
-        <th>Inscrito</th><th>Monto</th><th>Estado</th><th></th>
+        <th>Inscrito</th><th>Monto</th><th>Estado</th><th>Constancia</th><th></th>
       </tr></thead>
       <tbody>
       {% for r in rows %}
@@ -158,9 +168,9 @@
             Liberado el {{ r.updated_at.strftime('%d/%m/%Y') if r.updated_at else '—' }}
             {%- endif -%}
           </span>
-          {% if r.certificate_number %}<br><span class="tt-mono small">{{ r.certificate_number }}</span>{% endif %}
           {% endif %}
         </td>
+        <td>{{ certificate_cell(r.certificate, prior=(r.via == 'prior'), legacy=(r.via == 'legacy')) }}</td>
         <td>
           {% if r.revoked %}
             <span class="tt-pill tt-pill--neutral">Revocada</span>

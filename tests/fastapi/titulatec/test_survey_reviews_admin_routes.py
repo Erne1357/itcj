@@ -363,6 +363,191 @@ def test_una_constancia_previa_muestra_su_pildora_y_oculta_ver_respuestas(
 
 
 # ---------------------------------------------------------------------------
+# Columna «Constancia» (Tarea 3, 2026-10-02-titulatec-constancias-y-pendientes
+# -design.md §3.3/E1/E6): folio + si ya se imprimió, a la derecha de «Estado»
+# en las 3 pestañas.
+# ---------------------------------------------------------------------------
+def _certs(db_session, review_id):
+    from itcj2.apps.titulatec.models import Certificate
+    return (db_session.query(Certificate)
+            .filter_by(source_ref=f"survey_review:{review_id}")
+            .order_by(Certificate.id).all())
+
+
+def _fila(html, marca):
+    assert marca in html, "falta la fila sembrada"
+    return html.split(marca, 1)[1].split("</tr>", 1)[0]
+
+
+def test_columna_constancia_liberada_sin_imprimir_muestra_folio_y_pildora_ambar(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+):
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    gtv = make_gtv()
+    proc = make_process(make_student(control_number="99500080"), current_phase=1)
+    review = make_survey_review(proc, status="in_review")
+    SurveyReviewService.approve(db_session, review.id, gtv.id)
+    cert = _certs(db_session, review.id)[0]
+
+    resp = client_as(gtv).get(f"{URL}/body?status=approved&q=99500080")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="tt-rev-{review.id}"')
+    assert cert.number in fila
+    assert "Sin imprimir" in fila
+    assert "tt-pill--amber" in fila
+    assert "Impresa" not in fila
+
+
+def test_columna_constancia_impresa_muestra_pildora_verde_lote_y_fecha(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+):
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    gtv = make_gtv()
+    proc = make_process(make_student(control_number="99500081"), current_phase=1)
+    review = make_survey_review(proc, status="in_review")
+    SurveyReviewService.approve(db_session, review.id, gtv.id)
+    cert = _certs(db_session, review.id)[0]
+    batch = CertificateService.create_batch(db_session, kind="survey_release", actor_id=gtv.id)
+
+    resp = client_as(gtv).get(f"{URL}/body?status=approved&q=99500081")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="tt-rev-{review.id}"')
+    assert cert.number in fila
+    assert "Impresa" in fila
+    assert "tt-pill--success" in fila
+    assert f"lote #{batch.id}" in fila
+    assert batch.created_at.strftime("%d/%m/%Y") in fila
+
+
+def test_columna_constancia_anulada_tras_imprimir_avisa_retirar_el_papel(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+):
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    gtv = make_gtv()
+    proc = make_process(make_student(control_number="99500082"), current_phase=1)
+    review = make_survey_review(proc, status="in_review")
+    SurveyReviewService.approve(db_session, review.id, gtv.id)
+    cert = _certs(db_session, review.id)[0]
+    batch = CertificateService.create_batch(db_session, kind="survey_release", actor_id=gtv.id)
+
+    resp_rev = client_as(gtv).post(
+        f"{URL}/{review.id}/revocar",
+        data={"status": "approved", "q": "", "page": "1", "reason": "se liberó por error"})
+    assert resp_rev.status_code == 200, resp_rev.text[:500]
+    db_session.refresh(review)
+    assert review.status == "rejected"
+
+    resp = client_as(gtv).get(f"{URL}/body?status=rejected&q=99500082")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="tt-rev-{review.id}"')
+    assert "Anulada tras imprimir" in fila
+    assert "tt-pill--danger" in fila
+    assert cert.number in fila
+    assert f"lote #{batch.id} — retira ese papel" in fila
+
+
+def test_columna_constancia_en_constancia_previa_no_emite_folio(
+    client_as, db_session, make_gtv, make_student, make_process,
+):
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    from itcj2.core.utils.timezone import db_now
+
+    gtv = make_gtv()
+    proc = make_process(make_student(control_number="99500083"), current_phase=1)
+    review = SurveyReviewService.register_prior(
+        db_session, proc, issued_on=db_now().date() - timedelta(days=30), note=None)
+    db_session.flush()
+
+    resp = client_as(gtv).get(f"{URL}/body?status=approved&q=99500083")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="tt-rev-{review.id}"')
+    assert "Constancia previa (papel del egresado)" in fila
+    assert "GTV-" not in fila
+
+
+def test_columna_constancia_revocada_conserva_la_celda_impresa_sin_acciones(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+):
+    """Review Focus #5: con el proceso `cancelled` la celda conserva el
+    estado de SU constancia (no lee nada del proceso) y la fila sigue sin
+    acciones."""
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    gtv = make_gtv()
+    proc = make_process(make_student(control_number="99500084"), current_phase=2)
+    review = make_survey_review(proc, status="in_review")
+    SurveyReviewService.approve(db_session, review.id, gtv.id)
+    CertificateService.create_batch(db_session, kind="survey_release", actor_id=gtv.id)
+    proc.status = "cancelled"          # se revocó DESPUÉS de liberarse e imprimirse
+    db_session.flush()
+
+    resp = client_as(gtv).get(f"{URL}/body?status=approved&q=99500084")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="tt-rev-{review.id}"')
+    assert "Revocada" in re.sub(r"<[^>]+>", " ", fila).split()
+    assert "hx-post" not in fila
+    assert "Impresa" in fila
+
+
+def test_columna_constancia_no_hace_una_consulta_por_fila(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+):
+    """Invariante 2: `print_status_map` agrega el estado de impresión de TODA
+    la página en, cuando mucho, 2 consultas -- nunca una por fila."""
+    from sqlalchemy import event
+
+    gtv = make_gtv()
+    engine = db_session.get_bind()
+    consultas = []
+
+    def _cuenta(conn, cursor, statement, *a):
+        if "titulatec_certificates" in statement or "titulatec_certificate_batches" in statement:
+            consultas.append(statement)
+
+    make_survey_review(
+        make_process(make_student(control_number="99500090", last_name="CONSULTAUNO"),
+                    current_phase=1),
+        status="in_review")
+    event.listen(engine, "before_cursor_execute", _cuenta)
+    try:
+        resp1 = client_as(gtv).get(f"{URL}/body?status=in_review&q=CONSULTAUNO")
+    finally:
+        event.remove(engine, "before_cursor_execute", _cuenta)
+    assert resp1.status_code == 200, resp1.text[:300]
+    con_una_fila = len(consultas)
+
+    for i in range(20):
+        make_survey_review(
+            make_process(make_student(control_number=f"995001{i:02d}",
+                                      last_name="CONSULTAVEINTE"), current_phase=1),
+            status="in_review")
+    consultas.clear()
+    event.listen(engine, "before_cursor_execute", _cuenta)
+    try:
+        resp2 = client_as(gtv).get(f"{URL}/body?status=in_review&q=CONSULTAVEINTE")
+    finally:
+        event.remove(engine, "before_cursor_execute", _cuenta)
+    assert resp2.status_code == 200, resp2.text[:300]
+    con_veinte_filas = len(consultas)
+
+    assert "CONSULTAVEINTE" in resp2.text, "control positivo: sí se sembraron las 20"
+    assert con_una_fila >= 1, "la columna debe consultar el estado de impresión"
+    assert con_una_fila == con_veinte_filas, (
+        f"1 fila: {con_una_fila} consultas; 20 filas: {con_veinte_filas}")
+
+
+# ---------------------------------------------------------------------------
 # Errores: 400 de regla, 404 de existencia
 # ---------------------------------------------------------------------------
 def test_motivo_vacio_al_observar_responde_400(

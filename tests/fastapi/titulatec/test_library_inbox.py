@@ -66,6 +66,21 @@ def _clearance(db_session, process):
     return LibraryClearanceService.get_for_process(db_session, process.id)
 
 
+def _certs(db_session, clearance_id):
+    from itcj2.apps.titulatec.models import Certificate
+    return (db_session.query(Certificate)
+            .filter_by(source_ref=f"library_clearance:{clearance_id}")
+            .order_by(Certificate.id).all())
+
+
+def _fila(html, marca):
+    """La fila completa (hasta el siguiente `</tr>`): acota los asserts a ESA
+    fila y no a cualquier otra parte de la bandeja (patrón ya usado por
+    `test_una_inscripcion_revocada_no_ofrece_acciones_y_se_etiqueta`)."""
+    assert marca in html, "falta la fila sembrada"
+    return html.split(marca, 1)[1].split("</tr>", 1)[0]
+
+
 # ---------------------------------------------------------------------------
 # Acceso
 # ---------------------------------------------------------------------------
@@ -825,6 +840,210 @@ def test_liberados_muestra_pildora_fecha_y_numero_de_constancia(
     assert resp.status_code == 200, resp.text[:500]
     assert f'id="lib-{clearance.id}"' in resp.text
     assert "BIB-" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Columna «Constancia» (Tarea 3, 2026-10-02-titulatec-constancias-y-pendientes
+# -design.md §3.3/E1/E6): folio + si ya se imprimió, a la derecha de «Estado»
+# en las 3 pestañas. Reemplaza el folio suelto que antes vivía bajo «Estado».
+# ---------------------------------------------------------------------------
+def test_columna_constancia_vigente_sin_imprimir_muestra_folio_y_pildora_ambar(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99600210"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("0"))
+    cert = _certs(db_session, clearance.id)[0]
+
+    resp = client_as(staff).get(f"{URL}/body?status=cleared&q=99600210")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="lib-{clearance.id}"')
+    assert cert.number in fila
+    assert "Sin imprimir" in fila
+    assert "tt-pill--amber" in fila
+    assert "Impresa" not in fila
+
+
+def test_columna_constancia_impresa_muestra_pildora_verde_lote_y_fecha(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99600211"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("0"))
+    cert = _certs(db_session, clearance.id)[0]
+    batch = CertificateService.create_batch(db_session, kind="library_clearance",
+                                            actor_id=staff.id)
+
+    resp = client_as(staff).get(f"{URL}/body?status=cleared&q=99600211")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="lib-{clearance.id}"')
+    assert cert.number in fila
+    assert "Impresa" in fila
+    assert "tt-pill--success" in fila
+    assert f"lote #{batch.id}" in fila
+    assert batch.created_at.strftime("%d/%m/%Y") in fila
+
+
+def test_columna_constancia_anulada_tras_imprimir_avisa_retirar_el_papel(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """Pagado -> impreso -> revertido (Review Focus #1 del plan): la celda ya
+    no trae la vigente (se anuló); avisa que hay un papel que retirar."""
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99600212"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("0"))
+    cert = _certs(db_session, clearance.id)[0]
+    batch = CertificateService.create_batch(db_session, kind="library_clearance",
+                                            actor_id=staff.id)
+    LibraryClearanceService.revert_clearance(db_session, clearance.id, staff.id,
+                                             "se imprimió por error")
+    db_session.refresh(clearance)
+    assert clearance.status == "pending"
+
+    resp = client_as(staff).get(f"{URL}/body?status=pending&q=99600212")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="lib-{clearance.id}"')
+    assert "Anulada tras imprimir" in fila
+    assert "tt-pill--danger" in fila
+    assert cert.number in fila
+    assert f"lote #{batch.id} — retira ese papel" in fila
+
+
+def test_columna_constancia_en_constancia_previa_no_emite_folio(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("150.00"))
+    proc = make_process(make_student(control_number="99600213"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    fecha = (date.today() - timedelta(days=30)).isoformat()
+
+    resp_post = client_as(staff).post(
+        f"{URL}/{clearance.id}/previa",
+        data={"status": "pending", "q": "", "page": "1", "issued_on": fecha})
+    assert resp_post.status_code == 200, resp_post.text[:500]
+
+    resp = client_as(staff).get(f"{URL}/body?status=cleared&q=99600213")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="lib-{clearance.id}"')
+    assert "Constancia previa (papel del egresado)" in fila
+    assert "BIB-" not in fila
+
+
+def test_columna_constancia_en_legado_no_muestra_nada(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99600214"), cohort=cohort,
+                        current_phase=1, library_clearance="cleared")
+    clearance = _clearance(db_session, proc)
+    assert clearance.cleared_via == "legacy"
+
+    resp = client_as(staff).get(f"{URL}/body?status=cleared&q=99600214")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="lib-{clearance.id}"')
+    assert "BIB-" not in fila
+    assert "Impresa" not in fila
+    assert "Sin imprimir" not in fila
+    assert "Anulada tras imprimir" not in fila
+
+
+def test_columna_constancia_revocada_conserva_la_celda_impresa_sin_acciones(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """Review Focus #5: con el proceso `cancelled` la celda conserva el
+    estado de SU constancia (no lee nada del proceso) y la fila sigue sin
+    acciones."""
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99600215"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("0"))
+    CertificateService.create_batch(db_session, kind="library_clearance", actor_id=staff.id)
+    proc.status = "cancelled"          # se revocó DESPUÉS de liberarse e imprimirse
+    db_session.flush()
+
+    resp = client_as(staff).get(f"{URL}/body?status=cleared&q=99600215")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="lib-{clearance.id}"')
+    assert "Revocada" in re.sub(r"<[^>]+>", " ", fila).split()
+    assert "hx-post" not in fila
+    assert "Impresa" in fila
+
+
+def test_columna_constancia_no_hace_una_consulta_por_fila(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """Invariante 2 (`2026-10-02-titulatec-constancias-y-pendientes-design.md`
+    §4): `print_status_map` agrega el estado de impresión de TODA la página
+    en, cuando mucho, 2 consultas -- nunca una por fila. Patrón de conteo de
+    `test_enrollment_inbox.py::test_la_consulta_vigente_se_carga_sin_n_mas_1`."""
+    from sqlalchemy import event
+
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    engine = db_session.get_bind()
+    consultas = []
+
+    def _cuenta(conn, cursor, statement, *a):
+        if "titulatec_certificates" in statement or "titulatec_certificate_batches" in statement:
+            consultas.append(statement)
+
+    make_process(make_student(control_number="99600220", last_name="CONSULTAUNO"),
+                cohort=cohort, current_phase=1, library_clearance="pending")
+    event.listen(engine, "before_cursor_execute", _cuenta)
+    try:
+        resp1 = client_as(staff).get(f"{URL}/body?status=pending&q=CONSULTAUNO")
+    finally:
+        event.remove(engine, "before_cursor_execute", _cuenta)
+    assert resp1.status_code == 200, resp1.text[:300]
+    con_una_fila = len(consultas)
+
+    for i in range(20):
+        make_process(make_student(control_number=f"996003{i:02d}", last_name="CONSULTAVEINTE"),
+                    cohort=cohort, current_phase=1, library_clearance="pending")
+    consultas.clear()
+    event.listen(engine, "before_cursor_execute", _cuenta)
+    try:
+        resp2 = client_as(staff).get(f"{URL}/body?status=pending&q=CONSULTAVEINTE")
+    finally:
+        event.remove(engine, "before_cursor_execute", _cuenta)
+    assert resp2.status_code == 200, resp2.text[:300]
+    con_veinte_filas = len(consultas)
+
+    assert "CONSULTAVEINTE" in resp2.text, "control positivo: sí se sembraron las 20"
+    assert con_una_fila >= 1, "la columna debe consultar el estado de impresión"
+    assert con_una_fila == con_veinte_filas, (
+        f"1 fila: {con_una_fila} consultas; 20 filas: {con_veinte_filas}")
 
 
 # ---------------------------------------------------------------------------

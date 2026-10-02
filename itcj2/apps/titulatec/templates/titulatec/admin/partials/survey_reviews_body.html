@@ -16,10 +16,19 @@
      si no, la píldora "Fase 2 liberada" (ya no se puede deshacer).
    - Inscripción revocada (`r.revoked`, cualquier pestaña de historial): sin
      acciones (todas responderían 400), píldora «Revocada» y, en «Con
-     observaciones», el texto vigente.
+     observaciones», el texto vigente -la columna «Constancia» SÍ conserva
+     su celda: no lee nada del proceso (Review Focus #5 de
+     `2026-10-02-titulatec-constancias-y-pendientes-design.md`).
    Sin `hx-confirm` salvo Liberar/Revocar (Observar no destruye nada) y sin
    JS ni CSS en línea: el puente `hx-confirm` -> modal ya existe
    (`static/js/shared/titulatec-utils.js:265`).
+
+   Columna «Constancia» (Tarea 3 de `2026-10-02-titulatec-constancias-y-
+   pendientes-design.md` §3.3/E1/E6), entre «Estado» y «Ver respuestas»/las
+   acciones, en las 3 pestañas: folio + si ya se imprimió (`certificate_cell`,
+   con el dict de `CertificateService.print_status_map` que `list_for_inbox`
+   agrega en `r.certificate`). `prior=True` con `r.origin == 'prior'` (D9,
+   §4.12); GTV no tiene legado (`legacy` queda en su valor por omisión).
 
    `hx-confirm` y `data-tt-confirm-ok` van en el `<form>` (el elemento que
    lleva `hx-post`), NUNCA en el `<button>` que dispara el submit: htmx
@@ -30,7 +39,7 @@
    con la petición sin confirmar nada (defecto real, detectado por E2E el
    2026-09-15 en Liberar/Revocar; ver `docs/superpowers/specs/2026-09-15-
    titulatec-liberacion-gtv-design.md` §6.3 y el reporte de la Tarea 8). #}
-{% from "titulatec/_macros.html" import survey_review_pill %}
+{% from "titulatec/_macros.html" import survey_review_pill, certificate_cell %}
 {% macro tab_fields(tab, q, page) -%}
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="q" value="{{ q }}">
@@ -72,7 +81,7 @@
     <table class="table table-sm align-middle">
       <thead><tr>
         <th>Egresado</th><th>Control</th><th>Carrera</th><th>Convocatoria</th>
-        <th>Enviada</th><th>Fase actual</th><th>Estado</th><th></th><th></th>
+        <th>Enviada</th><th>Fase actual</th><th>Estado</th><th>Constancia</th><th></th><th></th>
       </tr></thead>
       <tbody>
       {% for r in rows %}
@@ -84,6 +93,7 @@
         <td class="tt-mono">{{ r.submitted }}</td>
         <td class="tt-mono">{{ '%02d'|format(r.current_phase) }}</td>
         <td>{{ survey_review_pill(r.status, origin=r.origin) }}</td>
+        <td>{{ certificate_cell(r.certificate, prior=(r.origin == 'prior')) }}</td>
         <td>{% if r.response_id %}<a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas/{{ r.response_id }}">Ver respuestas</a>{% endif %}</td>
         <td>
           {% if r.revoked %}
