@@ -1163,6 +1163,10 @@ def f(hacia):
 def f(survey):
     return survey["status"] == "missing"
 """,
+    "dict['status'] con literal NO exclusivo (in_review, Ruling R9 literal)": """
+def f(resumen):
+    return resumen["status"] == "in_review"
+""",
     "dict['status'] contra una CONSTANTE importada, no un literal": """
 def f(resumen):
     return resumen["status"] != NOT_APPLICABLE
@@ -1175,9 +1179,21 @@ def f(db):
 def f(db):
     return db.query(LibraryClearance).join(TitulationProcess).filter_by(status="active")
 """,
-    "getattr con default, receptor no ligado": """
+    # Fix round 1 (revisión de m11/m18): esta entrada era una negativa
+    # verdadera por el motivo EQUIVOCADO -el fragmento no tiene ningún
+    # `ast.Compare` (es un `BoolOp`, `… or "draft"`), así que nunca entraba
+    # ni al primer `if` de `_comparaciones`; no probaba nada sobre el
+    # receptor-. Se queda, RENOMBRADA con honestidad, como caso aparte -sigue
+    # siendo válido confirmar que una forma fuera de un `Compare` no se
+    # marca-, y el límite real que el nombre viejo prometía («receptor no
+    # ligado») lo prueba la entrada de abajo, con un `Compare` de verdad.
+    "getattr con default, fuera de un Compare (BoolOp, no la forma del detector)": """
 def f(fb):
     return getattr(fb, "status", None) or "draft"
+""",
+    "getattr(x, 'status') == literal, receptor NO ligado a una liberación": """
+def f(fb):
+    return getattr(fb, "status") == "cleared"
 """,
 }
 
