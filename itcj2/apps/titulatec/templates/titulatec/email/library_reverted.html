@@ -6,10 +6,11 @@
    capturado, el recuadro no se pinta. Se re-valida al enviar (D8): si ya se
    volvió a liberar, no sale. Si lo último que el egresado recibió por correo
    del no adeudo no fue un «quedó liberado» (no recibió ninguno, o fue una
-   reversión), no sale SOLO cuando entre eso y esta reversión se encoló un
-   «quedó liberado» que nunca le llegó: liberar y revertir en la misma espera,
-   o Caja se equivocó de renglón (E10, spec 2026-10-02 §2, afinada por el
-   Ruling R12). Un no adeudo legado, uno liberado con el correo apagado o uno
+   reversión), no sale SOLO cuando entre eso -o la reversión anterior, si es
+   más reciente: cierra el ciclo viejo- y esta reversión se encoló un «quedó
+   liberado» que nunca le llegó: liberar y revertir en la misma espera, o Caja
+   se equivocó de renglón (E10, spec 2026-10-02 §2, afinada por los Rulings
+   R12 y R17). Un no adeudo legado, uno liberado con el correo apagado o uno
    re-liberado sin correo SÍ lo recibe: vio «Liberado» en la app y esta es la
    única noticia por fuera. Las demás reglas, en
    `mail_compose._compose_library_reverted`.

@@ -1193,18 +1193,19 @@ def test_no_adeudo_liberado_con_una_reversion_posterior_es_obsoleto_y_la_reversi
         "no salió el aviso de la liberación que revierte")
 
 
-# E10 (spec 2026-10-02 §2, m30), afinada por el Ruling R12 de la revisión
-# final (antes R8). Sea S lo último que el egresado recibió POR CORREO del no
-# adeudo: la fila `library_cleared`/`library_reverted` más reciente del
-# proceso, encolada ANTES que la reversión y `sent`. Si S es un «quedó
-# liberado», la reversión sale. Si no (S es una reversión, o no hay S), es
-# obsoleta SOLO si entre S (o el inicio) y ella hay un `library_cleared`
-# encolado, en cualquier estado: se liberó y se revirtió en la misma espera,
-# o Caja se equivocó de renglón, y ese «quedó liberado» nunca le llegó. Sin
-# ese `library_cleared` (no adeudo legado, liberado con el correo apagado,
-# re-liberado sin correo) sale: el egresado vio «Liberado» en la app y el
-# correo es el único aviso que le llega por fuera. En las dos ramas (a Caja y
-# a Biblioteca).
+# E10 (spec 2026-10-02 §2, m30), afinada por los Rulings R12 y R17 de la
+# revisión final (antes R8). Sea S lo último que el egresado recibió POR
+# CORREO del no adeudo: la fila `library_cleared`/`library_reverted` más
+# reciente del proceso, encolada ANTES que la reversión y `sent`. Si S es un
+# «quedó liberado», la reversión sale. Si no (S es una reversión, o no hay S),
+# es obsoleta SOLO si hay un `library_cleared` encolado, en cualquier estado,
+# entre ella y W, el más reciente de dos puntos: S, o la reversión anterior en
+# cualquier estado, que cierra el ciclo viejo (R17). Ese caso es liberar y
+# revertir en la misma espera, o el renglón equivocado de Caja: el «quedó
+# liberado» nunca le llegó. Sin ese `library_cleared` (no adeudo legado,
+# liberado con el correo apagado, re-liberado sin correo) sale: el egresado
+# vio «Liberado» en la app y el correo es el único aviso que le llega por
+# fuera. En las dos ramas (a Caja y a Biblioteca).
 _HACIA_Y_VIA = [("awaiting_payment", "payment"), ("pending", "no_charge")]
 _NO_SALIO = "no salió el aviso de la liberación que revierte"
 
@@ -1382,8 +1383,61 @@ def test_la_reversion_sale_tras_una_re_liberacion_sin_correo(
     assert c.context["to_status"] == hacia
 
 
-# Ruling R12, por el camino REAL del dueño (`LibraryClearanceService`): las
-# filas las encola la transición, no la prueba.
+@pytest.mark.parametrize("hacia, via", _HACIA_Y_VIA)
+def test_la_reversion_de_una_re_liberacion_sin_correo_tras_un_ciclo_abortado_sale(
+        db_session, con_biblioteca, hacia, via):
+    """Ruling R17 (O1 de la re-revisión): un ciclo ya CERRADO no calla la
+    reversión de uno nuevo. Primero se libera y se revierte en la misma
+    espera (#1 y #2, los dos obsoletos). Luego se re-libera SIN correo
+    (correo apagado, o la promoción D17 entre `init-` y
+    `activar-biblioteca-caja`) y se revierte otra vez (#3). No hay S, pero
+    la reversión #2 cierra el ciclo viejo: la ventana empieza ahí (W = #2) y
+    entre #2 y #3 no hay ningún `library_cleared`, así que #3 SALE. Con la
+    ventana de R12, desde el inicio, el #1 sin salir la callaba, aunque el
+    egresado vio «Liberado» en la app tras la re-liberación."""
+    from itcj2.apps.titulatec.services.mail_compose import Composed, Obsolete
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca=hacia)
+    StudentMail.library_cleared(db_session, proc, via=via)
+    StudentMail.library_reverted(db_session, proc, reason="Primera", to_status=hacia)
+    liberado, revertido = _pendientes(db_session, proc.id)
+    # La corrida del despachador, en orden de id: los dos salen obsoletos.
+    for fila, motivo in ((liberado, "el no adeudo se revirtió después"),
+                         (revertido, _NO_SALIO)):
+        assert _componer(db_session, proc, [fila]) == Obsolete(motivo)
+        fila.status = "obsolete"
+        db_session.flush()
+    # La re-liberación no encoló correo: ninguna fila entre #2 y #3.
+    StudentMail.library_reverted(db_session, proc, reason="Otra vez", to_status=hacia)
+
+    c = _componer(db_session, proc)
+
+    assert isinstance(c, Composed), c
+    assert c.context["reason"] == "Otra vez"
+    assert c.context["to_status"] == hacia
+
+
+def test_la_reversion_de_otro_egresado_no_cierra_el_ciclo(db_session, con_biblioteca):
+    """Ruling R17: la reversión anterior que cierra el ciclo es la DEL MISMO
+    proceso. Liberar y revertir en la misma espera sigue obsoleto aunque otro
+    egresado tenga una reversión encolada en medio. Si contara, la ventana
+    empezaría después del liberado sin salir y la reversión saldría."""
+    from itcj2.apps.titulatec.services.mail_compose import Obsolete
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca="pending")
+    otro = con_biblioteca(biblioteca="pending")
+    StudentMail.library_cleared(db_session, proc, via="no_charge")
+    StudentMail.library_reverted(db_session, otro, reason="Del otro", to_status="pending")
+    StudentMail.library_reverted(db_session, proc, reason="Misma espera", to_status="pending")
+    revertido = [f for f in _pendientes(db_session, proc.id) if f.kind == "library_reverted"]
+
+    assert _componer(db_session, proc, revertido) == Obsolete(_NO_SALIO)
+
+
+# Rulings R12/R17, por el camino REAL del dueño (`LibraryClearanceService`):
+# las filas las encola la transición, no la prueba.
 _NOTIFY = "itcj2.apps.titulatec.services.notify.notify_student"
 
 

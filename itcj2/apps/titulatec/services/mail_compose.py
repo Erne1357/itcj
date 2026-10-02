@@ -289,9 +289,9 @@ def _hay_entre(db: Session, fila, kind: str, *, despues_de: int) -> bool:
     """¿El proceso tiene una fila `kind` encolada ENTRE la fila de id
     `despues_de` y `fila` (`despues_de < id < fila.id`), en cualquier estado?
     `despues_de=0` = desde el inicio. La gemela acotada de `_hay_posterior`:
-    el Ruling R12 la usa para saber si una reversión deshace una liberación
-    cuyo «quedó liberado» se encoló después de lo último que el egresado
-    recibió y nunca le llegó."""
+    los Rulings R12/R17 la usan para saber si una reversión deshace una
+    liberación del ciclo VIGENTE cuyo «quedó liberado» nunca le llegó
+    (`despues_de` = W, ver `_compose_library_reverted`)."""
     from itcj2.apps.titulatec.models import EmailOutbox
 
     return (db.query(EmailOutbox.id)
@@ -302,15 +302,31 @@ def _hay_entre(db: Session, fila, kind: str, *, despues_de: int) -> bool:
             .first()) is not None
 
 
+def _ultima_antes(db: Session, fila, kind: str) -> int | None:
+    """El id de la fila `kind` más reciente del proceso encolada ANTES de
+    `fila` (id menor), en CUALQUIER estado, o `None`. Para el Ruling R17: la
+    reversión anterior, salga o no, cierra el ciclo viejo y es uno de los
+    dos extremos posibles de la ventana de `_hay_entre`."""
+    from sqlalchemy import func
+
+    from itcj2.apps.titulatec.models import EmailOutbox
+
+    return (db.query(func.max(EmailOutbox.id))
+            .filter(EmailOutbox.process_id == fila.process_id,
+                    EmailOutbox.kind == kind,
+                    EmailOutbox.id < fila.id)
+            .scalar())
+
+
 def _ultimo_enviado(db: Session, fila, kinds: tuple[str, ...]):
     """La fila (`id`, `kind`) más reciente del proceso, entre `kinds`, que
     SALIÓ (`sent`) y se encoló ANTES de `fila` (id menor), o `None` si
     ninguna salió: lo ÚLTIMO que el egresado leyó por correo de esa familia
     de avisos (una fila pendiente, obsoleta, fallida o sin destinatario nunca
     le llegó). Mira hacia atrás, como `_hay_posterior` mira hacia adelante;
-    su `id` acota la búsqueda de `_hay_entre` (Ruling R12). Supone que las
-    filas `sent` del outbox nunca se borran (hoy no existe ninguna tarea de
-    retención).
+    su `id` es uno de los dos extremos posibles de la ventana de `_hay_entre`
+    (Rulings R12/R17; el otro, `_ultima_antes`). Supone que las filas `sent`
+    del outbox nunca se borran (hoy no existe ninguna tarea de retención).
 
     Límite conocido (angosto; se documenta, el despachador no cambia): un
     correo que está saliendo todavía no es `sent`. (a) Dos corridas del
@@ -715,23 +731,28 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
 
     1. Después se volvió a liberar: hay un `library_cleared` más nuevo del
        proceso, y sale ese.
-    2. E10 (spec 2026-10-02 §2, m30), afinada por el Ruling R12 de la
-       revisión final (antes R8), en las DOS ramas. Sea S lo ÚLTIMO que el
-       egresado recibió por correo del no adeudo: la fila `library_cleared`
-       o `library_reverted` más reciente del proceso, encolada ANTES que
-       esta y `sent` (`_ultimo_enviado`).
+    2. E10 (spec 2026-10-02 §2, m30), afinada por los Rulings R12 y R17 de
+       la revisión final (antes R8), en las DOS ramas. Sea S lo ÚLTIMO que
+       el egresado recibió por correo del no adeudo: la fila
+       `library_cleared` o `library_reverted` más reciente del proceso,
+       encolada ANTES que esta y `sent` (`_ultimo_enviado`).
        - S es un «quedó liberado»: sale -es la noticia que lo corrige-.
        - Si no (S es una reversión, o no le llegó ninguno), es obsoleta SOLO
-         si entre S (o el inicio) y esta hay un `library_cleared` encolado,
-         en cualquier estado (`_hay_entre`): se liberó y se revirtió dentro
-         de la misma espera del despachador, o Caja se equivocó de renglón,
-         y ese «quedó liberado» nunca le llegó; «Se revirtió tu no adeudo…»
-         sería ruido o, peor, falso.
+         si hay un `library_cleared` encolado, en cualquier estado, entre
+         esta y W (`_hay_entre`). W es el más reciente de S y la reversión
+         anterior en cualquier estado (`_ultima_antes`, Ruling R17): una
+         reversión, salga o no, cierra el ciclo viejo, así que un liberado
+         sin salir de un ciclo ya cerrado no calla la reversión de una
+         re-liberación posterior hecha sin correo. Ese `library_cleared`
+         del ciclo vigente es liberar y revertir dentro de la misma espera
+         del despachador, o Caja equivocándose de renglón, y su «quedó
+         liberado» nunca le llegó; «Se revirtió tu no adeudo…» sería ruido
+         o, peor, falso.
        - Si no lo hay, sale: un no adeudo legado del backfill (o de la
          promoción D17), una liberación con el correo apagado o una
-         re-liberación sin correo no encolaron ningún «quedó liberado», pero
-         el egresado SÍ vio «Liberado» en la app, y este correo es el único
-         aviso que le llega por fuera.
+         re-liberación sin correo no encolaron ningún «quedó liberado» en el
+         ciclo vigente, pero el egresado SÍ vio «Liberado» en la app, y este
+         correo es el único aviso que le llega por fuera.
        Anclar en lo último ENVIADO, y no en el liberado más reciente saliera
        o no, conserva la reversión legítima de R8: liberado (salió) →
        revertido, re-liberado y revertido en una sola espera ⇒ los dos de en
@@ -762,7 +783,8 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
         return Obsolete("el no adeudo se volvió a liberar")
     ultimo = _ultimo_enviado(db, fila, ("library_cleared", "library_reverted"))
     if ultimo is None or ultimo.kind != "library_cleared":
-        desde = ultimo.id if ultimo is not None else 0
+        desde = max(ultimo.id if ultimo is not None else 0,
+                    _ultima_antes(db, fila, "library_reverted") or 0)
         if _hay_entre(db, fila, "library_cleared", despues_de=desde):
             return Obsolete("no salió el aviso de la liberación que revierte")
     hacia = "awaiting_payment" if datos.get("to_status") == "awaiting_payment" else "pending"
