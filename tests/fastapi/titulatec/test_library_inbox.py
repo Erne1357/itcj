@@ -666,6 +666,68 @@ def test_lote_sin_seleccion_responde_400(client_as, make_library_staff):
     assert resp.headers.get("X-Tt-Error")
 
 
+def test_lote_con_un_id_no_numerico_responde_400(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """m19: `ids=["abc"]` (o mezclado con uno válido -el campo oculto manipulado
+    a mano, o una casilla que mandara basura-) no debe llegar a `int(cid)` sin
+    red: la ruta ya responde 400 limpio (`register_bulk`), pero no tenía
+    prueba propia."""
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    p1 = make_process(make_student(control_number="99600301"), cohort=cohort, current_phase=1,
+                      library_clearance="pending")
+    c1 = _clearance(db_session, p1)
+
+    resp = client_as(staff).post(
+        f"{URL}/registrar",
+        data={"status": "pending", "q": "", "page": "1",
+              "ids": [str(c1.id), "abc"]})
+
+    assert resp.status_code == 400, resp.text[:300]
+    assert unquote(resp.headers.get("X-Tt-Error") or "") == "Selección inválida."
+    db_session.refresh(c1)
+    assert c1.status == "pending", "una seleccion invalida no debe registrar nada"
+
+
+def test_lote_con_todos_ya_fuera_de_pendiente_no_registra_ninguno(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """m20: con TODOS los ids ya fuera de «Por revisar» (alguien más los
+    movió mientras la bandeja seguía abierta -mismo choque que la prueba de
+    omisión PARCIAL de arriba, aquí con los DOS ids omitidos-) el lote no
+    registra a nadie, pero sigue respondiendo 200 -nunca 400, Ruling R24- con
+    «0 registrados · N omitidos» en warning."""
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    p1 = make_process(make_student(control_number="99600302"), cohort=cohort, current_phase=1,
+                      library_clearance="pending")
+    p2 = make_process(make_student(control_number="99600303"), cohort=cohort, current_phase=1,
+                      library_clearance="pending")
+    c1, c2 = _clearance(db_session, p1), _clearance(db_session, p2)
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    LibraryClearanceService.register(db_session, c1.id, staff.id, debt_amount=Decimal("0"))
+    LibraryClearanceService.register(db_session, c2.id, staff.id, debt_amount=Decimal("0"))
+    db_session.refresh(c1)
+    db_session.refresh(c2)
+    assert c1.status == "cleared" and c2.status == "cleared"
+
+    resp = client_as(staff).post(
+        f"{URL}/registrar",
+        data={"status": "pending", "q": "", "page": "1",
+              "ids": [str(c1.id), str(c2.id)]})
+
+    assert resp.status_code == 200, resp.text[:500]
+    aviso = unquote(resp.headers.get("X-Tt-Notice") or "")
+    assert "0 registrados" in aviso
+    assert "2 omitidos" in aviso
+    assert resp.headers.get("X-Tt-Notice-Kind") == "warning"
+    db_session.refresh(c1)
+    db_session.refresh(c2)
+    assert c1.status == "cleared" and c2.status == "cleared", (
+        "nada debe mutar cuando TODOS los ids se omiten")
+
+
 # ---------------------------------------------------------------------------
 # Constancia previa (D9) / Deshacer
 # ---------------------------------------------------------------------------
@@ -1133,6 +1195,103 @@ def test_permiso_de_list_no_alcanza_para_registrar(
               "expected_status": "pending"})
 
     assert resp.status_code == 403, resp.text[:300]
+
+
+# ---------------------------------------------------------------------------
+# m21: el permiso EXACTO de cada ruta (sin nada de más) ya alcanza. Los
+# negativos de arriba (permisos CRUZADOS, p.ej. `api.prior` contra
+# `/revertir`) ya atraparían un cableado erróneo, pero nunca ejercitan el
+# camino de éxito con el permiso justo de SU PROPIA ruta -un `perms=[...]`
+# vacío o apuntando a una lista equivocada pasaría esos negativos igual
+# (ambos dan 403) y solo lo delata un 200 que hoy nadie pedía.
+# ---------------------------------------------------------------------------
+def test_permiso_exacto_de_prior_basta_para_constancia_previa(
+    client_as, db_session, make_user, make_role, grant_user_role,
+    make_student, make_cohort, make_process,
+):
+    user = make_user(first_name="SOLO", last_name="PREVIAEXACTO")
+    role = make_role("tt_test_solo_previa_exacto", (
+        "titulatec.library_clearance.page.list",
+        "titulatec.library_clearance.api.prior",
+    ))
+    grant_user_role(user, role)
+    cohort = make_cohort(book_donation_amount=Decimal("150.00"))
+    proc = make_process(make_student(control_number="99600304"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    fecha = (date.today() - timedelta(days=30)).isoformat()
+
+    resp = client_as(user).post(
+        f"{URL}/{clearance.id}/previa",
+        data={"status": "pending", "q": "", "page": "1", "issued_on": fecha})
+
+    assert resp.status_code == 200, resp.text[:500]
+    db_session.refresh(clearance)
+    assert clearance.status == "cleared" and clearance.cleared_via == "prior"
+
+
+def test_permiso_exacto_de_prior_basta_para_deshacer_previa(
+    client_as, db_session, make_user, make_role, grant_user_role,
+    make_student, make_cohort, make_process,
+):
+    """Mismo permiso exacto que la prueba anterior (`_PRIOR` de
+    `pages/library_admin.py` cubre las DOS rutas), ejercitado en SU PROPIA
+    ruta -un typo que apuntara `/deshacer-previa` a otra lista no lo
+    atraparía la prueba de `/previa`."""
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    user = make_user(first_name="SOLO", last_name="DESHACEREXACTO")
+    role = make_role("tt_test_solo_deshacer_exacto", (
+        "titulatec.library_clearance.page.list",
+        "titulatec.library_clearance.api.prior",
+    ))
+    grant_user_role(user, role)
+    cohort = make_cohort(book_donation_amount=Decimal("150.00"))
+    proc = make_process(make_student(control_number="99600305"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register_prior(
+        db_session, clearance.id, user.id,
+        issued_on=date.today() - timedelta(days=10), by="library")
+    db_session.refresh(clearance)
+    assert clearance.status == "cleared" and clearance.cleared_via == "prior"
+
+    resp = client_as(user).post(
+        f"{URL}/{clearance.id}/deshacer-previa",
+        data={"status": "cleared", "q": "", "page": "1", "reason": "fecha mal capturada"})
+
+    assert resp.status_code == 200, resp.text[:500]
+    db_session.refresh(clearance)
+    assert clearance.status == "pending"
+
+
+def test_permiso_exacto_de_revert_basta_para_revertir(
+    client_as, db_session, make_user, make_role, grant_user_role,
+    make_student, make_cohort, make_process,
+):
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    user = make_user(first_name="SOLO", last_name="REVERTEXACTO")
+    role = make_role("tt_test_solo_revert_exacto", (
+        "titulatec.library_clearance.page.list",
+        "titulatec.library_clearance.api.revert",
+    ))
+    grant_user_role(user, role)
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99600306"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, user.id, debt_amount=Decimal("0"))
+    db_session.refresh(clearance)
+    assert clearance.status == "cleared" and clearance.cleared_via == "no_charge"
+
+    resp = client_as(user).post(
+        f"{URL}/{clearance.id}/revertir",
+        data={"status": "cleared", "q": "", "page": "1", "reason": "me equivoqué"})
+
+    assert resp.status_code == 200, resp.text[:500]
+    db_session.refresh(clearance)
+    assert clearance.status == "pending"
 
 
 # ---------------------------------------------------------------------------

@@ -598,6 +598,91 @@ def test_el_badge_por_atender_no_cuenta_al_rechazado_sin_encuesta(cola, client_a
         "el badge «por atender» no descuenta al rechazado sin encuesta")
 
 
+# ---------------------------------------------------------------------------
+# m12 (triage-minors.md): el bloqueo de «Fase 02 rechazada» puede ser
+# EXCLUSIVO de biblioteca (la encuesta ya liberada), no solo de la encuesta
+# -las dos pruebas de arriba (`rech_sin_encuesta`/`rech_con_encuesta`, dentro
+# de `cola`) nunca ejercitan ese lado: la convocatoria de `cola` no trae el
+# candado de biblioteca activo (`make_cohort()` sin `seed_defaults`), asi que
+# `ClearanceGate` nunca bloquea por biblioteca ahi.
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def rechazado_bloqueado_solo_por_biblioteca(
+        seed_phase_defs, seed_document_types, make_program, make_cohort,
+        make_review_day, make_student, make_process, make_document,
+        make_officer, make_survey_review, db_session):
+    """Convocatoria CON el candado de biblioteca (`CotejoRequirementService.
+    seed_defaults`): `bloqueado` tiene la encuesta YA aprobada y el no
+    adeudo `pending` -el UNICO bloqueo es biblioteca, `ClearanceGate.
+    blockers` nunca se ejercito aqui con ese lado-; `control` es el MISMO
+    cubo (fase 2 rechazada, misma convocatoria con candado) pero con el no
+    adeudo YA liberado, para que la resta de `rechazados_accionables_count`
+    no se confirme contra un cubo vacio (REGLA DE ORO del encabezado)."""
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria del Candado Solo Biblioteca")
+    cohort = make_cohort()
+    CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+    make_review_day(cohort, day=_D)
+    officer, pos = make_officer([prog])
+
+    def _proc(nombre, library_clearance):
+        student = make_student(first_name="ALUMNO", last_name=nombre)
+        proc = make_process(student, cohort=cohort, program=prog, current_phase=2,
+                            library_clearance=library_clearance)
+        for code in _INITIAL_DOCS:
+            make_document(proc, type_code=code, review_status="approved")
+        make_survey_review(proc, status="approved")
+        _fase2(db_session, proc, "rejected")
+        return proc
+
+    bloqueado = _proc("SOLOBIBLIOTECA", "pending")
+    control = _proc("BIBLIOTECALIBERADA", "cleared")
+    db_session.flush()
+    return {"off": officer, "bloqueado": bloqueado, "control": control}
+
+
+def test_el_rechazado_bloqueado_solo_por_biblioteca_no_se_arrastra(
+        rechazado_bloqueado_solo_por_biblioteca, client_as):
+    """A diferencia de «sin encuesta»/«en revision» (bloqueo de GTV), este
+    bloqueo es EXCLUSIVO de biblioteca -la encuesta ya esta aprobada, asi que
+    la fila no debe mostrar «Encuesta pendiente»/«En revisión», solo «En
+    Biblioteca» (`ClearanceGate.blockers` -> `library_pending`)."""
+    esc = rechazado_bloqueado_solo_por_biblioteca
+    resp = client_as(esc["off"]).get(URL + "?date=" + _D.isoformat())
+    assert resp.status_code == 200
+    fila = _fila(resp.text, "appt-rejected-%d" % esc["bloqueado"].id)
+
+    assert "data-tt-drag" not in fila, "arrastrable con el no adeudo pendiente"
+    assert "En Biblioteca" in fila
+    assert "Encuesta pendiente" not in fila
+    assert "En revisión" not in fila
+
+
+def test_el_badge_por_atender_no_cuenta_al_rechazado_bloqueado_solo_por_biblioteca(
+        rechazado_bloqueado_solo_por_biblioteca, client_as):
+    """Mismo invariante que `test_el_badge_por_atender_no_cuenta_al_rechazado_
+    sin_encuesta`, pero disparado por el bloqueo de biblioteca: el control (no
+    adeudo YA liberado) SI cuenta -1 por atender, no 2- si
+    `rechazados_accionables_count` alguna vez volviera a sumar a quien le
+    falta SOLO biblioteca, este badge lo delataria."""
+    esc = rechazado_bloqueado_solo_por_biblioteca
+    resp = client_as(esc["off"]).get(URL + "?date=" + _D.isoformat())
+    assert resp.status_code == 200
+
+    assert ", 1 por atender" in resp.text, (
+        "el badge «por atender» no debe contar al rechazado bloqueado solo "
+        "por biblioteca")
+    fila_control = _fila(resp.text, "appt-rejected-%d" % esc["control"].id)
+    assert ('data-tt-drag="%d"' % esc["control"].id) in fila_control, (
+        "control invalido: el no adeudo liberado deberia seguir siendo "
+        "arrastrable")
+
+
 def test_selected_de_un_rechazado_sin_cita_abre_la_ficha(cola, db_session, client_as):
     """`_shell_ctx` suma los rechazados a `visibles` a mano: quien de ellos no
     tiene cita vigente no entra por `agenda_process_ids`, asi que sin esa union
