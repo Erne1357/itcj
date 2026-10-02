@@ -129,19 +129,24 @@
    es el mismo por si el dato algún día lo trae.
 
    Orden de pintado: (1) con folio vigente, el folio y, según `info.printed`,
-   «Impresa · lote #N · fecha» o «Sin imprimir»; (2) si no, el motivo
-   (`prior`/`legacy`/nunca tuvo constancia, los tres como «—» salvo la
-   previa); (3) ADEMÁS, siempre que no haya vigente Y `info.voided_printed`
-   exista, el aviso de retirar el papel -nunca reemplaza al paso (2), se
-   agrega debajo-.
+   «Impresa · lote #N · fecha» o «Sin imprimir»; (2) si no hay vigente, el
+   motivo: `prior` pinta «Constancia previa (papel del egresado)» y `legacy`
+   «—»; sin ninguno de los dos, «—» (nunca tuvo constancia) SALVO que
+   `info.voided_printed` exista -ahí no pinta nada (M1 de la revisión
+   final): la fila SÍ tuvo constancia, y un «—» encima del aviso decía lo
+   contrario-; (3) ADEMÁS, siempre que no haya vigente Y
+   `info.voided_printed` exista, el aviso de retirar el papel: debajo del
+   texto de (2) cuando lo hay (`prior`/`legacy`, con `<br>`), o como lo
+   PRIMERO de la celda cuando no.
 
    Respaldo final (Ruling R4, revisión de la Tarea 3): un `info` que es un
    dict (no `None`) sin folio vigente, sin `voided_printed` y ni `prior` ni
    `legacy` es CONTRACTUALMENTE IMPOSIBLE hoy -`print_status_map` solo
    regresa folio vigente, `voided_printed` o `None`-, pero la celda nunca
-   debe quedar en blanco si ese contrato cambiara. #}
+   debe quedar en blanco si ese contrato cambiara: pinta «—». #}
 {% macro certificate_cell(info, prior=False, legacy=False) %}
   {%- set vigente = info and info.number -%}
+  {%- set retirar = not vigente and info and info.voided_printed -%}
   {%- if vigente -%}
     <span class="tt-mono small">{{ info.number }}</span><br>
     {%- if info.printed %}
@@ -154,13 +159,14 @@
     <span class="small text-body-secondary">Constancia previa (papel del egresado)</span>
   {%- elif legacy -%}
     —
-  {%- elif info is none -%}
-    —
+  {%- elif retirar -%}
+    {#- M1: nada antes del aviso de (3), que abre la celda. -#}
   {%- else -%}
     —
   {%- endif -%}
-  {%- if not vigente and info and info.voided_printed %}
-    <br>{{ pill("Anulada tras imprimir", "danger", "exclamation-octagon") }}
+  {%- if retirar -%}
+    {%- if prior or legacy %}<br>{% endif -%}
+    {{ pill("Anulada tras imprimir", "danger", "exclamation-octagon") }}
     <span class="tt-mono small">{{ info.voided_printed.number }}</span>
     <span class="small text-body-secondary">lote #{{ info.voided_printed.batch_id }} — retira ese papel</span>
   {%- endif -%}

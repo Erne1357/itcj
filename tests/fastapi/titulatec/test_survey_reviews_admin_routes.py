@@ -379,6 +379,19 @@ def _fila(html, marca):
     return html.split(marca, 1)[1].split("</tr>", 1)[0]
 
 
+def _celda(fila, texto):
+    """El ÚNICO `<td>` de `fila` que contiene `texto`, tal cual (HTML crudo):
+    acota los asserts a ESA celda -la columna «Constancia»- y no a la fila."""
+    celdas = [c for c in re.findall(r"<td[^>]*>(.*?)</td>", fila, re.S) if texto in c]
+    assert len(celdas) == 1, celdas
+    return celdas[0]
+
+
+def _visible(html):
+    """El texto que se lee de un pedazo de HTML: sin etiquetas, espacios juntos."""
+    return " ".join(re.sub(r"<[^>]+>", " ", html).split())
+
+
 def test_columna_constancia_liberada_sin_imprimir_muestra_folio_y_pildora_ambar(
     client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
 ):
@@ -427,6 +440,9 @@ def test_columna_constancia_impresa_muestra_pildora_verde_lote_y_fecha(
 def test_columna_constancia_anulada_tras_imprimir_avisa_retirar_el_papel(
     client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
 ):
+    """M1 (revisión final): sin constancia vigente ni `prior`, la celda ABRE
+    con el aviso de retirar el papel -nada de un «—» suelto ni un `<br>`
+    arriba-: la fila SÍ tuvo constancia, «—» decía lo contrario."""
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
@@ -452,6 +468,9 @@ def test_columna_constancia_anulada_tras_imprimir_avisa_retirar_el_papel(
     assert "tt-pill--danger" in fila
     assert cert.number in fila
     assert f"lote #{batch.id} — retira ese papel" in fila
+    celda = _celda(fila, "Anulada tras imprimir")
+    assert not celda.lstrip().startswith(("—", "<br")), celda
+    assert _visible(celda).startswith("Anulada tras imprimir"), _visible(celda)
 
 
 def test_columna_constancia_en_constancia_previa_no_emite_folio(
