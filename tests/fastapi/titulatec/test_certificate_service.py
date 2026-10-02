@@ -353,9 +353,27 @@ class TestIssueNumeracion:
             # cuelga un hilo vivo ni se le queda pegado a la BD compartida el
             # renglón de 1901.
             seguir_con_commit_de_a.set()        # idempotente -- suelta a A
-            for hilo in (hilo_a, hilo_b):
+            vivos = []
+            for nombre, hilo in (("A", hilo_a), ("B", hilo_b)):
                 if hilo.ident is not None:      # solo los que sí arrancaron
                     hilo.join(timeout=5)
+                    if hilo.is_alive():
+                        vivos.append(nombre)
+            # m08 (triage-minors.md): si un hilo SIGUE vivo después de su
+            # propio join(timeout=5), su sesión probablemente sigue abierta y
+            # sosteniendo el lock de fila -- borrar aquí A CIEGAS arriesga que
+            # el DELETE de abajo se quede esperando ESE MISMO lock (la suite
+            # se cuelga sin ninguna pista de qué pasó) o que pise una fila que
+            # esa sesión todavía necesita. Se prefiere fallar RUIDOSO y dejar
+            # el renglón de 1901 SIN BORRAR (año sintético: purgable a mano,
+            # nunca puede chocar con una convocatoria real) en vez de competir
+            # por su lock. Nunca pasa en una corrida sana: 5 s de margen ya es
+            # generoso frente al <1 s que tarda el camino feliz completo.
+            if vivos:
+                pytest.fail(
+                    f"hilo(s) {vivos!r} seguían vivos tras el join; no se "
+                    f"borró titulatec_certificate_counters (kind={kind!r}, "
+                    f"year={year}) para no competir por su lock de fila")
             with _pg_engine.begin() as conn:
                 conn.execute(text("DELETE FROM titulatec_certificate_counters "
                                   "WHERE kind = :k AND year = :y"), {"k": kind, "y": year})
@@ -632,6 +650,21 @@ class TestPeriodLabel:
         assert len(cert.control_number) == 20
         assert cert.control_number == ("9" * 30)[:20]
         assert len(cert.student_name) <= 200
+
+    def test_issue_trunca_program_name_a_su_columna(
+            self, db_session, make_user, make_process, make_cohort, make_program, actor):
+        """m06 (triage-minors.md): `Certificate.program_name` es
+        `String(200)` (`models/certificate.py`:68), pero `core_programs.name`
+        es `Text` sin tope -- una carrera con un nombre larguísimo SÍ puede
+        llegar hasta aquí sin que la base la rechace antes."""
+        carrera = make_program("Z" * 250)   # más largo que String(200)
+        proc = make_process(make_user(), cohort=make_cohort(), program=carrera)
+
+        cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                        source_ref=_ref(), actor_id=actor.id)
+
+        assert len(cert.program_name) == 200
+        assert cert.program_name == ("Z" * 250)[:200]
 
 
 # ---------------------------------------------------------------------------
