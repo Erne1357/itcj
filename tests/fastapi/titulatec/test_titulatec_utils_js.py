@@ -179,3 +179,64 @@ def test_remember_nunca_revienta_sin_almacenamiento():
     for pos in usos:
         linea = bloque[bloque.rfind("\n", 0, pos):bloque.find("\n", pos)]
         assert "try" in linea, "acceso a localStorage fuera de try: " + linea.strip()
+
+
+# --- `data-tt-count-into` — contador de lote (m22, triage-minors.md) ------
+#
+# Sin navegador ni htmx reales en este arnes (test ESTRUCTURAL, como el resto
+# del archivo): se fija el CONTRATO en el texto fuente -la unica forma
+# practica de pinchar la guarda aqui es leerla-, no su efecto en un DOM vivo.
+# Mutacion manual verificada a mano (revertida): quitar la linea
+# `if (boton.classList.contains('htmx-request')) return;` hace fallar
+# `test_sync_count_groups_no_reactiva_un_boton_con_peticion_en_vuelo`; quitar
+# el listener de `htmx:afterRequest` hace fallar
+# `test_sync_count_groups_se_re_sincroniza_al_terminar_la_peticion`.
+
+def _bloque_sync_count(texto):
+    """Recorta desde `_syncCountGroups` hasta el siguiente landmark
+    inconfundible (la exposicion final de `window.TitulaTecUtils`), mismo
+    patron que `_bloque_htmx_confirm`/`_bloque_remember`."""
+    inicio = texto.find("_syncCountGroups")
+    assert inicio != -1, "no se encontro _syncCountGroups en titulatec-utils.js"
+    fin = texto.find("window.TitulaTecUtils", inicio)
+    assert fin != -1, "no se encontro 'window.TitulaTecUtils =' despues de _syncCountGroups"
+    return texto[inicio:fin]
+
+
+def test_sync_count_groups_no_reactiva_un_boton_con_peticion_en_vuelo():
+    """`hx-disabled-elt="this"` deshabilita el boton de lote mientras su
+    peticion esta en vuelo y htmx le agrega la clase `htmx-request`; las
+    casillas que alimentan el contador NO se deshabilitan. Sin esta guarda,
+    desmarcar/marcar una casilla mientras se espera la respuesta reactivaria
+    el boton (via el listener de `change`) y abriria la puerta a un doble
+    envio del lote."""
+    bloque = _bloque_sync_count(_js_texto())
+    m_guarda = re.search(
+        r"if\s*\(\s*boton\.classList\.contains\(\s*['\"]htmx-request['\"]\s*\)\s*\)\s*return",
+        bloque)
+    assert m_guarda, (
+        "falta la guarda `if (boton.classList.contains('htmx-request')) "
+        "return;` antes de asignar boton.disabled -sin ella, un boton con "
+        "una peticion en vuelo se podria re-habilitar."
+    )
+    i_disabled = bloque.find(".disabled =")
+    assert i_disabled != -1 and i_disabled > m_guarda.end(), (
+        "boton.disabled debe asignarse DESPUES de la guarda de 'htmx-request', "
+        "no antes."
+    )
+
+
+def test_sync_count_groups_se_re_sincroniza_al_terminar_la_peticion():
+    """Al terminar la peticion (exito o error -sin swap en un 4xx-) htmx
+    limpia 'htmx-request' y el `disabled` de `hx-disabled-elt` por su cuenta,
+    SIN mirar el conteo real de casillas: `htmx:afterRequest` debe volver a
+    llamar `_syncCountGroups()` para que el boton quede disabled/enabled
+    segun el conteo VIGENTE en ese momento, no el de antes de la peticion."""
+    texto = _js_texto()
+    assert re.search(
+        r"addEventListener\(\s*['\"]htmx:afterRequest['\"]\s*,\s*function\s*\([^)]*\)\s*"
+        r"\{\s*_syncCountGroups\(\)\s*;?\s*\}\s*\)",
+        texto), (
+        "falta un listener de 'htmx:afterRequest' que vuelva a llamar "
+        "_syncCountGroups() al terminar la peticion."
+    )

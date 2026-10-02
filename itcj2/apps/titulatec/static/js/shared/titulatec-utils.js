@@ -350,6 +350,18 @@
   // busqueda, paginacion, la propia accion de lote) y el servidor manda las
   // casillas siempre sin marcar -sin este segundo enganche el contador se
   // quedaria pegado en el numero de ANTES del swap.
+  //
+  // m22 (triage-minors.md): el boton de lote lleva `hx-disabled-elt="this"`
+  // -htmx lo deshabilita y le agrega la clase `htmx-request` mientras su
+  // peticion esta en vuelo-, pero las casillas NO se deshabilitan. Si el
+  // usuario desmarca/marca una mientras espera, el `change` de arriba vuelve
+  // a llamar esta funcion, y sin la guarda de abajo reescribiria
+  // `boton.disabled` con el conteo actual -reactivando un boton que htmx
+  // apago a proposito y abriendo la puerta a un doble envio-. Con la guarda,
+  // una peticion en vuelo manda sobre el conteo; `htmx:afterRequest` (exito
+  // o error, sin importar si hubo swap) vuelve a llamar esta funcion al
+  // terminar, para que el boton quede disabled/enabled segun el conteo
+  // VIGENTE y no el restaurado a ciegas por htmx.
   function _syncCountGroups() {
     var casillas = document.querySelectorAll('[data-tt-count-into]');
     if (!casillas.length) return;
@@ -366,7 +378,9 @@
       var n = porDestino[sel];
       badge.textContent = n > 0 ? ' (' + n + ')' : '';
       var boton = badge.closest('button');
-      if (boton) boton.disabled = (n === 0);
+      if (!boton) return;
+      if (boton.classList.contains('htmx-request')) return;
+      boton.disabled = (n === 0);
     });
   }
   document.body.addEventListener('change', function (e) {
@@ -375,6 +389,7 @@
     }
   });
   document.body.addEventListener('htmx:afterSettle', function () { _syncCountGroups(); });
+  document.body.addEventListener('htmx:afterRequest', function () { _syncCountGroups(); });
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', _syncCountGroups);
   } else {
