@@ -4,9 +4,10 @@
    el pago y el monto VIGENTE (`total`, ya formateado) vuelve a estar por
    pagar; pending: el Centro de Información lo vuelve a revisar. Sin motivo
    capturado, el recuadro no se pinta. Se re-valida al enviar (D8): si ya se
-   volvió a liberar, o si nunca salió el «quedó liberado» que desmiente (E10,
-   spec 2026-10-02 §2), no sale; las demás reglas, en
-   `mail_compose._compose_library_reverted`.
+   volvió a liberar, o si lo último que el egresado recibió por correo del no
+   adeudo no fue un «quedó liberado» (E10, spec 2026-10-02 §2, ancla del
+   Ruling R8: no recibió ninguno, o ya recibió una reversión), no sale; las
+   demás reglas, en `mail_compose._compose_library_reverted`.
    Contexto: first_name, link, to_status, reason, total. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}

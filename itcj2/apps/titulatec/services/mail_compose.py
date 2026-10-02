@@ -285,21 +285,24 @@ def _hay_posterior(db: Session, fila, kind: str) -> bool:
             .first()) is not None
 
 
-def _salio_el_anterior(db: Session, fila, kind: str) -> bool:
-    """¿SALIÓ (`sent`) la fila `kind` más reciente del proceso encolada ANTES
-    de `fila` (id menor)? `False` si esa fila no salió —sigue pendiente, se
-    declaró obsoleta, agotó sus intentos o no tuvo destinatario— y también si
-    no hay ninguna. Gemela de `_hay_posterior`: mira hacia atrás y solo a la
-    MÁS reciente (con varias vueltas liberar → revertir, decide la última)."""
+def _ultimo_enviado(db: Session, fila, kinds: tuple[str, ...]) -> str | None:
+    """El `kind` de la fila más reciente del proceso, entre `kinds`, que SALIÓ
+    (`sent`) y se encoló ANTES de `fila` (id menor), o `None` si ninguna
+    salió: lo ÚLTIMO que el egresado leyó por correo de esa familia de avisos
+    (una fila pendiente, obsoleta, fallida o sin destinatario nunca le
+    llegó). Mira hacia atrás, como `_hay_posterior` mira hacia adelante.
+    Supone que las filas `sent` del outbox nunca se borran (hoy no existe
+    ninguna tarea de retención)."""
     from itcj2.apps.titulatec.models import EmailOutbox
 
-    anterior = (db.query(EmailOutbox.status)
-                .filter(EmailOutbox.process_id == fila.process_id,
-                        EmailOutbox.kind == kind,
-                        EmailOutbox.id < fila.id)
-                .order_by(EmailOutbox.id.desc())
-                .first())
-    return anterior is not None and anterior[0] == "sent"
+    ultimo = (db.query(EmailOutbox.kind)
+              .filter(EmailOutbox.process_id == fila.process_id,
+                      EmailOutbox.kind.in_(kinds),
+                      EmailOutbox.status == "sent",
+                      EmailOutbox.id < fila.id)
+              .order_by(EmailOutbox.id.desc())
+              .first())
+    return ultimo[0] if ultimo is not None else None
 
 
 def _info_biblioteca(db: Session, cohort_id: int):
@@ -641,10 +644,11 @@ def _compose_library_cleared(db: Session, rows: list, process, user) -> Composed
     es falso, así que obsoleto. Se ve de dos formas: hay un
     `library_reverted` más nuevo del proceso (cualquier convocatoria), o el
     gate ve que el no adeudo volvió a faltar (donde la convocatoria lo exige;
-    ahí también si aquel correo no llegó a encolarse). Y como este aviso no
-    sale, el de la reversión tampoco (E10, `_compose_library_reverted`):
-    liberar y revertir dentro de la misma espera del despachador no le manda
-    nada al egresado, porque para él nada cambió.
+    ahí también si aquel correo no llegó a encolarse). La reversión que lo
+    desmiente decide aparte si sale (E10, `_compose_library_reverted`): solo
+    si lo último que el egresado recibió por correo del no adeudo fue un
+    «quedó liberado». Así, liberar y revertir dentro de la misma espera no
+    le manda nada si lo último que ya le había llegado no era un liberado.
     """
     from itcj2.apps.titulatec.services.clearance_gate import LIBRARY_BLOCKERS
     from itcj2.apps.titulatec.services.library_clearance_service import (
@@ -681,15 +685,20 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
 
     1. Después se volvió a liberar: hay un `library_cleared` más nuevo del
        proceso, y sale ese.
-    2. E10 (spec 2026-10-02 §2, m30), en las DOS ramas: no salió (`sent`) el
-       liberado que esta reversión desmiente —el `library_cleared` más
-       reciente del proceso encolado ANTES que ella, `_salio_el_anterior`—, o
-       no hay ninguno (un legado del backfill, una liberación de cuando el
-       correo estaba apagado). Para el egresado nada cambió: «Se revirtió tu
-       no adeudo…» sin un «quedó liberado» previo sería ruido (un «Deshacer»
-       de Biblioteca dentro de la espera) o, peor, falso (Caja se equivocó de
-       renglón). El liberado de esa misma ventana también sale obsoleto
-       (`_compose_library_cleared`): liberar y revertir no manda nada.
+    2. E10 (spec 2026-10-02 §2, m30; ancla del Ruling R8), en las DOS ramas:
+       lo ÚLTIMO que el egresado recibió por correo del no adeudo —la fila
+       `library_cleared` o `library_reverted` más reciente del proceso,
+       encolada ANTES que esta y `sent` (`_ultimo_enviado`)— tiene que ser
+       un «quedó liberado». Si no recibió ninguno (un legado del backfill,
+       una liberación con el correo apagado, o liberar y revertir dentro de
+       la misma espera del despachador) o si lo último ya fue una reversión
+       (se re-liberó sin correo —correo apagado, promoción D17— y se revierte
+       otra vez), para él, por correo, nada cambió: «Se revirtió tu no
+       adeudo…» sería ruido o, peor, falso (Caja se equivocó de renglón).
+       Anclar en lo último ENVIADO, y no en el liberado más reciente saliera
+       o no, conserva la reversión legítima: liberado (salió) → revertido,
+       re-liberado y revertido en una sola espera ⇒ los dos de en medio salen
+       obsoletos (la regla 1 y `_compose_library_cleared`) y este sí sale.
     3. Regresó a Caja y ya no tiene pago pendiente (`payment_due`: también
        con la fase 2 ya aprobada, Ruling R30 #4).
     4. Regresó a Biblioteca y Biblioteca ya no revisará su caso
@@ -713,8 +722,11 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
     datos = _datos(fila)
     if _hay_posterior(db, fila, "library_cleared"):
         return Obsolete("el no adeudo se volvió a liberar")
-    if not _salio_el_anterior(db, fila, "library_cleared"):
+    ultimo = _ultimo_enviado(db, fila, ("library_cleared", "library_reverted"))
+    if ultimo is None:
         return Obsolete("no salió el aviso de la liberación que revierte")
+    if ultimo != "library_cleared":
+        return Obsolete("su último aviso por correo ya fue una reversión")
     hacia = "awaiting_payment" if datos.get("to_status") == "awaiting_payment" else "pending"
     total = None
     if hacia == "awaiting_payment":
