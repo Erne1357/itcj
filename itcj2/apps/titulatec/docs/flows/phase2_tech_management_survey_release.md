@@ -86,7 +86,13 @@
 1. 🛠️ GTV inicia sesión → aterriza directo en `/titulatec/admin/liberaciones` (`_ROLE_DASHBOARD`,
    `pages/nav.py`) o entra por el ítem **Liberaciones** del menú admin.
 2. Pestañas **En revisión** (default, la cola de trabajo) · **Con observaciones** · **Liberadas**,
-   cada una con su contador. Buscador por número de control o nombre; 50 filas por página.
+   cada una con su contador. Buscador por número de control o nombre; 50 filas por página. Columna
+   **«Constancia»** (2026-10-02, entre «Estado» y «Ver respuestas»/las acciones, en las TRES
+   pestañas): folio y, si ya se imprimió, «Impresa · lote #N · fecha» o «Sin imprimir»; «Anulada
+   tras imprimir» si la última se anuló DESPUÉS de imprimirse — ⤵ [constancias por
+   lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7). Con una
+   inscripción revocada (cualquier pestaña de historial) la fila pierde sus acciones y pinta
+   «Revocada», pero la celda de constancia SÍ se conserva: no lee nada del proceso.
 3. En una fila de **En revisión**/**Con observaciones**: botón **Liberar** (con `hx-confirm`,
    siempre disponible) y un campo de motivo + **Observar**/**Actualizar observaciones**.
 4. En una fila de **Liberadas**: "Liberada por {nombre} el {fecha}" y, solo si `can_revoke`, un
@@ -204,6 +210,14 @@ el sistema; no se marca a mano" por la píldora `survey_review_pill(status)` —
 `_macros.html`, que a propósito NO reusa `estado_pill` ("Aprobado"/"Rechazado"): GTV "libera" u
 "observa", vocabulario distinto para la misma forma visual — más el motivo si `rejected`, o
 "Liberada por GTV · fecha" si `approved`.
+
+**Constancia en el panel de atender y el expediente (2026-10-02).** `summary_for_process` agrega
+la llave `certificate` (`CertificateService.print_status_map(db, [f"survey_review:{id}"])[ref]`,
+o `None`); `_appt_attend.html`/`_exp_phase.html` pintan `certificate_cell(certificate,
+prior=(origin == 'prior'))` junto a la píldora — folio + «Impresa»/«Sin imprimir», o «Anulada tras
+imprimir» — ⤵ [constancias por
+lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7). Sigue ≤2 consultas
+(la misma cota que ya usa `list_for_inbox`).
 
 ## Caminos alternos / errores ❗
 

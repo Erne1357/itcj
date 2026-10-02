@@ -37,21 +37,29 @@ LibraryClearanceService` (§5 invariante 1) — nadie más muta esa fila ni ese 
      no tiene capturada la donación voluntaria de libro; Servicios Escolares debe capturarla
      para pasar casos a Caja.»
    - **En caja**: desglose (adeudo + donación = total), nota, **«Corregir…»**.
-   - **Liberados**: cómo se liberó (píldora), fecha, número de constancia, **«Revertir…»**/
-     **«Deshacer…»** según permiso y `can_revert`.
+   - **Liberados**: cómo se liberó (píldora), fecha, **«Revertir…»**/**«Deshacer…»** según
+     permiso y `can_revert`.
+   - Columna **«Constancia»** en las TRES pestañas (2026-10-02, ⤵ [constancias por
+     lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7)): folio y, si ya
+     se imprimió, «Impresa · lote #N · fecha» o «Sin imprimir»; si la última constancia se anuló
+     DESPUÉS de imprimirse, «Anulada tras imprimir» con el lote a retirar. Reemplaza el folio
+     suelto que antes vivía bajo «Estado», solo en «Liberados».
 2. 💰 **Caja** inicia sesión → aterriza en `/titulatec/admin/caja` o entra por **Caja**
    (`bi-cash-coin`). Buscador primero (autofocus, nombre o control, **en cualquier estado**:
-   «En Biblioteca» / «Por cobrar $X» / «Liberado»), con precedencia sobre las pestañas. Sin
-   buscar: **Por cobrar** (`awaiting_payment`, FIFO por `ready_at`, solo procesos admitidos) y
-   **Pagados** (selector de día, hoy por omisión, con «Total del día $X»). **«Registrar pago»**
+   «En Biblioteca» / «Por cobrar $X» / «Pagado» / «Liberado», con la píldora PROPIA de Caja —
+   `caja_pill`, 2026-10-02, nunca la `library_clearance_pill` compartida—), con precedencia sobre
+   las pestañas. Sin buscar: **Por cobrar** (`awaiting_payment`, FIFO por `ready_at`, solo
+   procesos admitidos) y **«Corte del día»** (antes «Pagados»: selector de día, hoy por omisión,
+   FIJO una vez cerrado ese día — ver «Caja: corte del día fijo» abajo). **«Registrar pago»**
    (nº de recibo opcional, confirmación «Registrar pago de $X de NOMBRE») y **«Revertir pago…»**
    (motivo) si `can_revert`. Sin citas en Caja (D4).
 3. 🏛️ **Servicios Escolares**: panel **Resumen** de la convocatoria → «Donación voluntaria de
    libro ($)» (obligatoria desde el alta) → **`POST /titulatec/admin/cohorts/{cohort_id}/donacion`**
    (`titulatec.cohort.api.update`). Cola de citas → cubo **«Liberaciones pendientes»** (antes
    «Encuesta sin liberar», ⤵ [cita de cotejo](phase2_appointment_loop.md)). Panel de atender y
-   expediente (fase 2) → fila `library_clearance` de solo lectura con píldora y detalle, más
-   **«Constancia previa…»**/**«Deshacer»** de respaldo (D9, con `library_clearance.api.prior`).
+   expediente (fase 2) → fila `library_clearance` de solo lectura con píldora, detalle y (2026-10-02)
+   la celda de constancia (folio + si ya se imprimió), más **«Constancia previa…»**/**«Deshacer»**
+   de respaldo (D9, con `library_clearance.api.prior`).
 4. 👤 **Egresado**: dashboard → bloque «No adeudo de biblioteca» (visible desde la fase 1, solo
    si la convocatoria lo exige) y «Mi cita» → la misma fila con su píldora.
 
@@ -269,6 +277,50 @@ científica o pasa de `AMOUNT_MAX = $100,000.00`. Nunca `float`. `format_amount(
 "$1,200.00"`. `Numeric(10,2)`/`Decimal` en toda la tabla; CHECK
 `total_amount = debt_amount + donation_amount` cuando ninguno es `NULL`.
 
+## Caja: corte del día fijo (2026-10-02, E3)
+
+Pedido del usuario: el corte de un día no debe moverse después de cerrado. `LibraryClearanceService.
+day_cut(db, day) -> dict` reemplazó a `paid_on` (que leía la fila VIGENTE por `paid_at`: una
+reversa posterior la bajaba en silencio, incluso de un día YA cerrado). Fuente: la bitácora
+(`titulatec_process_events`), con `created_at` en `[día, día+1)` — invariante 3 de la spec: los
+eventos no se editan ni se borran, así que el corte de HOY nunca lo mueve algo que pase mañana.
+
+- `library_payment_registered` es un **cobro** (monto con signo `+`); `library_payment_reverted`
+  es una **reversa** (signo `−`, con el motivo y la fecha del cobro que revirtió). Devuelve
+  `{"rows", "charged", "reverted", "net"}`, todo `Decimal` a centavos —`charged`/`reverted` no
+  negativos, `net = charged - reverted` sí puede serlo (un día con solo reversas de cobros de
+  OTRO día)—. **Review Focus #3**: cobro ayer + reversa hoy deja el corte de ayer intacto y el de
+  hoy con el `−monto`; cobro + reversa + cobro el mismo día deja 3 renglones con neto de un cobro.
+- Cada renglón trae hora, egresado, control, carrera, el movimiento (cobro/reversa), el monto con
+  signo, recibo (en una reversa, el del cobro que revirtió), quién lo hizo, motivo/cobro original
+  (solo reversas), el folio que ESE evento trae en su payload (histórico, no necesariamente el
+  vigente) y `can_revert_here`. Tolerante a payloads viejos sin `total` o con uno no finito
+  (`NaN`/`sNaN`/`Infinity`): cuenta como `Decimal("0.00")`, nunca truena.
+- **«Revertir…» solo en el cobro VIGENTE** (`can_revert_here`): su folio de payload es la
+  constancia vigente de la fila **y** la fila sigue siendo revertible AHORA
+  (`LibraryClearanceService._revertible_ids`, el MISMO predicado batched que usa `can_revert`/
+  `_rows`: liberada, proceso admitido, fase 2 sin aprobar). En LOTE —hasta 2 consultas de folios
+  vigentes vía `CertificateService.print_status_map` + 1 de `_revertible_ids`—, nunca una por
+  renglón. Como cada cobro saca un folio nuevo, dos cobros de la misma fila (uno revertido, el
+  vigente) solo pueden coincidir con el folio vigente en el más reciente.
+- **Pestaña «Corte del día»** (la clave sigue siendo `pagados`; la etiqueta cambió de «Pagados»).
+  Encabezado: «Cobrado $X · Revertido −$Y · **Total del día $Z**» (el signo «−» solo aparece si
+  `reverted`/`net` son negativos). Un día sin movimientos dice «No hay movimientos ese día.».
+  Revertir desde un día que NO es hoy avisa en `X-Tt-Notice`: «Pago revertido. La reversa (−$X)
+  quedó en el corte de hoy (dd/mm/aaaa).» — la reversa SIEMPRE entra al corte de HOY, nunca al del
+  cobro original.
+- **Caja tiene su propia píldora** (E11/m27, macro `caja_pill` en `cashier_body.html`, no la
+  `library_clearance_pill` compartida —la usan más de 12 vistas—): «Revocada» · «Por cobrar $X» ·
+  «Pagado» (`via == 'payment'`) · «Liberado» (otro `cleared`) · «En Biblioteca» (cualquier otro).
+  Se usa en la tabla de búsqueda/«Por cobrar»; la tabla del «Corte del día» no lleva píldora de
+  caso, solo la etiqueta Cobro/Reversa del renglón.
+- **Sin columna «Constancia»** en ninguna de las dos tablas de Caja: el folio histórico SÍ viaja
+  en cada renglón del corte (`certificate`) y el folio vigente sigue bajo la píldora en la tabla de
+  búsqueda/«Por cobrar» (`r.certificate_number`, sin `certificate_cell`) — ver ⤵ [constancias por
+  lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7).
+- **Sin migración**: `titulatec_process_events.created_at` ya tenía índice; en producción no hay
+  datos previos porque la función no se había desplegado.
+
 ## Servicios Escolares
 
 - **Donación de la convocatoria** (D5): obligatoria en el alta (`CohortService.create`);
@@ -280,13 +332,23 @@ científica o pasa de `AMOUNT_MAX = $100,000.00`. Nunca `float`. `format_amount(
   píldoras por fila — ⤵ [cita de cotejo](phase2_appointment_loop.md).
 - **Panel de atender y expediente** (fase 2): fila `library_clearance` de solo lectura
   (`library_clearance_pill(status, via=)` + detalle: por cobrar y cuánto, constancia previa y
-  fecha, o total pagado + recibo + número de constancia) — `_appt_attend.html`/`_exp_phase.html`,
-  alimentada por `LibraryClearanceService.summary_for_process`. El botón «Constancia previa…»/
-  «Deshacer» exige `library_clearance.api.prior` (respaldo D9: Biblioteca o Caja podrían no
-  estar disponibles) y va por `{process_id}` + `assert_process_in_scope`. «Constancia previa…»
-  solo se ofrece con el trámite ABIERTO (`missing`/`pending`/`awaiting_payment`): con
-  `not_applicable` la píldora neutra dice «No aplica (cotejo ya liberado)» y no hay botón (la
-  ruta, llamada a mano, responde 400 con el mismo motivo que Biblioteca).
+  fecha, o total pagado + recibo) — `_appt_attend.html`/`_exp_phase.html`, alimentada por
+  `LibraryClearanceService.summary_for_process`. El botón «Constancia previa…»/«Deshacer» exige
+  `library_clearance.api.prior` (respaldo D9: Biblioteca o Caja podrían no estar disponibles) y va
+  por `{process_id}` + `assert_process_in_scope`. «Constancia previa…» solo se ofrece con el
+  trámite ABIERTO (`missing`/`pending`/`awaiting_payment`): con `not_applicable` la píldora neutra
+  dice «No aplica (cotejo ya liberado)» y no hay botón (la ruta, llamada a mano, responde 400 con
+  el mismo motivo que Biblioteca).
+  - **Constancia (2026-10-02)**: junto a la píldora, `certificate_cell(certificate, prior=)`
+    (`summary_for_process` agrega la llave `certificate` con `CertificateService.
+    print_status_map`; `certificate_number` se sigue exponiendo, derivado del mismo dict, para
+    quien ya lo lee) — folio + «Impresa · lote #N · fecha» / «Sin imprimir», o «Anulada tras
+    imprimir» si la última se anuló después de imprimirse. ⤵ [constancias por
+    lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7).
+  - **m42 — proceso revocado:** con `TitulationProcess.status == 'cancelled'` y el no adeudo
+    todavía `missing`/`pending`, el renglón ya NO dice «En Biblioteca»: pinta una píldora neutra
+    «Revocada» (mismo marcado que usan las bandejas en su columna de Acciones) — la celda de
+    constancia se conserva tal cual.
 
 ## Egresado
 
@@ -371,13 +433,20 @@ El comando que crea los puestos NO puede ser el mismo que enciende el candado: l
 existen hasta el DML 20 y, si el 22 corría en el mismo paso, todo egresado de toda convocatoria
 quedaba bloqueado sin nadie (salvo `admin`) que pudiera liberarlo. Por eso son dos comandos
 (`itcj2/cli/titulatec.py`), y `SEED_FILES` (alta desde cero con `init-titulatec`) conserva los
-tres archivos juntos —ahí no hay procesos que proteger—:
+CUATRO archivos juntos —ahí no hay procesos que proteger, y el 23 ahí no cambia nada (el 17 ya
+siembra ese texto)—:
 
-1. **`titulatec init-biblioteca-caja [--dry-run]`** — SOLO el 20 (puestos «Biblioteca · No
-   adeudo» en `info_center` y «Caja» en `financial_resources`, sin ocupante) y el 21 (roles
+1. **`titulatec init-biblioteca-caja [--dry-run]`** — el 20 (puestos «Biblioteca · No adeudo» en
+   `info_center` y «Caja» en `financial_resources`, sin ocupante), el 21 (roles
    `titulatec_library`/`titulatec_cashier`, los 10 permisos, sus concesiones —`admin` explícito—
-   y el mapeo puesto→rol), verificados con `_verify_biblioteca_caja`. **No toca convocatorias,
-   requisitos ni filas de no adeudo:** nadie queda bloqueado por correrlo.
+   y el mapeo puesto→rol) y, desde el 2026-10-02 (m33), el 23
+   (`biblioteca_2026_10/23_update_email_reminders_description.sql`): pone al día las DOS
+   descripciones de la tarea `titulatec.email_reminders` (`core_task_definitions` y su fila de
+   `core_periodic_tasks`) para que mencionen el recordatorio del pago pendiente en Caja — solo
+   `UPDATE … WHERE … IS DISTINCT FROM`, idempotente; si `init-email-tasks` nunca corrió, no hace
+   nada y el 17 ya siembra ese texto. El 20 y el 21 quedan verificados con
+   `_verify_biblioteca_caja`; el 23 no (una base sin la tarea sembrada es válida). **No toca
+   convocatorias, requisitos ni filas de no adeudo:** nadie queda bloqueado por correrlo.
 2. Asignar ocupantes a los dos puestos (`/itcj/config/positions`) y que Servicios Escolares
    capture la donación de cada convocatoria que quedará con candado y tenga procesos por revisar
    (la bandeja de Biblioteca ya las anuncia; los pre-chequeos de abajo las listan).
@@ -426,6 +495,12 @@ tres archivos juntos —ahí no hay procesos que proteger—:
    adeudo donde la convocatoria lo exige (salvo legado, quien ya pasó su cotejo y las citas ya
    agendadas, D17).
 
+**Copias manuales al checkout principal (2026-10-02, `database/` gitignored):** la carpeta
+`biblioteca_2026_10/` COMPLETA (ahora 4 archivos, con el 23) y, ADEMÁS, el
+`mail_2026_09/17_insert_email_tasks.sql` YA EDITADO (mismo texto que `TASK_DEFINITIONS`) — si se
+queda la copia VIEJA del 17, un `init-email-tasks` posterior sobre una base ya actualizada por el
+23 regresa la descripción anterior (`ON CONFLICT … DO UPDATE SET description`).
+
 **Reversa:** primero `rollback.sh` y, ENSEGUIDA, `downgrade tt20260930a` desde la imagen nueva:
 entre los dos, el código viejo ve el requisito automático y no deja marcarlo a mano.
 
@@ -433,13 +508,19 @@ entre los dos, el código viejo ve el requisito automático y no deja marcarlo a
 
 `tests/fastapi/titulatec/test_biblioteca_caja_models.py` (modelo + migración, ida y vuelta),
 `test_library_clearance_service.py` (máquina de estados completa, concurrencia con `FOR UPDATE` y
-`ClearanceConflict`, `parse_amount`, «ya pasó su cotejo»), `test_clearance_gate.py` (estado con
-dominios cerrados, lote, cláusula SQL, prueba estructural), `test_library_inbox.py` /
-`test_cashier_inbox.py` (páginas: authz, sin `{process_id}`, swap `outerHTML`, 400 +
-`X-Tt-Error`, choque = 200 + re-pintado + aviso), `test_se_library_views.py` (respaldo de SE,
-«No aplica»), `test_student_library_status.py` (dashboard/Mi cita del egresado),
-`test_cli_biblioteca_caja.py` (los dos comandos, dry-run, pre-chequeos, re-backfill, promoción
-D17).
+`ClearanceConflict`, `parse_amount`, «ya pasó su cotejo», `day_cut` —ayer fijo/hoy con signo,
+cobro-reversa-cobro mismo día, día vacío, payload viejo sin `total`—, `_revertible_ids`,
+`reviewable` —7 casos parametrizados, misma partición que `_reviewable_clause`—),
+`test_clearance_gate.py` (estado con dominios cerrados, lote, cláusula SQL, prueba estructural,
+incluida la forma de INSTANCIA/dict que ensanchó la Tarea 9), `test_library_inbox.py` (páginas: authz, sin
+`{process_id}`, swap `outerHTML`, 400 + `X-Tt-Error`, choque = 200 + re-pintado + aviso, columna
+«Constancia» en sus 3 pestañas), `test_cashier_inbox.py` (ídem + «Corte del día»: `dia` basura cae
+en hoy, «Revertir…» solo en el cobro vigente del corte, aviso de éxito viendo hoy u otro día,
+`caja_pill` por fila), `test_se_library_views.py` (respaldo de SE, «No aplica», «Revocada» con el
+proceso revocado —m42—, la celda de constancia en las dos vistas), `test_student_library_status.py`
+(dashboard/Mi cita del egresado), `test_cli_biblioteca_caja.py` (los dos comandos, dry-run,
+pre-chequeos, re-backfill, promoción D17, `[20, 21, 23]` del primer comando y que nunca re-corre
+`mail_2026_09/`).
 
 ## Flujos relacionados
 

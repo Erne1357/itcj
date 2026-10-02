@@ -186,6 +186,17 @@ cita **nueva** a los que solo necesitan *seguimiento*:
 > **la misma línea de D9** que el cubo 3 («Agotó sus cancelaciones…») — `liberaciones_pendientes`
 > y bloqueado por D9 no son excluyentes entre sí.
 
+> **Ensanchado el 2026-10-02 (m41): la fase 02 YA `approved` por otra vía también se resta.**
+> `_unscheduled_query` ya restaba la fase 02 `rejected` (cubo propio); le faltaba una resta
+> ANÁLOGA para la fase 02 ya `approved` sin pasar por una cita aquí —una excepción manual, un dato
+> heredado—: sin ella, ese proceso (nunca tuvo cita, o se le canceló la única que tuvo) seguía
+> contando como «sin cita» en la base COMPARTIDA y podía reaparecer en «Por agendar», «Requieren
+> que les agendes» o «Liberaciones pendientes» como si le faltara algo, cuando ya terminó su
+> cotejo (mismo caso terminal que `fase_aprobada` corta del lado del auto-agendado, §3 de ⤵
+> [auto-agendado](phase2_student_self_booking.md)). La resta es una consulta APARTE —a propósito,
+> no fusionada con `rechazados_ids` en un solo `.in_(("rejected", "approved"))`—: cada resta
+> documenta su propio motivo por separado.
+
 La exclusión de los cubos 1 y 3 **no** se resuelve en la plantilla: la resta la hace
 `list_pending_processes`, que excluye a los del cubo 3. Filtrar en el template dejaría los
 **contadores** mintiendo. La del cubo 2 frente al 4 es **estructural** y no una resta: los dos

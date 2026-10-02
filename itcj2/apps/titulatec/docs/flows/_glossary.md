@@ -117,14 +117,25 @@ Son dos cosas distintas y aquí van como dos columnas:
   88 → 98, +10 nuevos — ver módulos `library_clearance`/`library_payment`/`certificate` abajo; el
   comando `titulatec init-biblioteca-caja` —paso 1 del despliegue, que ya no enciende el
   candado— lo confirma en su `_verify_biblioteca_caja()`).
-- **Exigidos por el código** — los que aparecen en un `require_page_app(..., perms=[...])` o en una
-  entrada del menú `_ADMIN_NAV`; **39** códigos distintos a la fecha de la última auditoría
-  (2026-09-01) — cifra sin recalcular tras `07`/`08`/`survey_2026_09`/el delta de biblioteca-caja,
-  así que hoy es un PISO, no el total vigente. Los 10 de biblioteca-caja SÍ se exigen todos (los
-  `page.list` de las 3 bandejas nuevas y los 7 `api.*`, uno por ruta de acción).
+- **Exigidos por el código** — los que aparecen en un `require_page_app(..., perms=[...])`
+  (resolviendo el nombre a su lista/tupla cuando `perms=` pasa una constante en vez de un literal
+  inline) o en una entrada del menú `_ADMIN_NAV`; **69** códigos `titulatec.*` distintos,
+  recalculados el **2026-10-02** (m38) con un barrido AST propio sobre TODO
+  `itcj2/apps/titulatec/**/*.py` (118 llamadas a `require_page_app` encontradas, las 118 con un
+  `perms=` resoluble —0 sin resolver—; 16 códigos en `_ADMIN_NAV`; unión sin duplicados).
+  Reemplaza el **39** de la auditoría manual del 2026-09-01 (ya un PISO desde entonces, por
+  `07`/`08`/`survey_2026_09`/el delta de biblioteca-caja). Los 10 de biblioteca-caja de ayer SÍ
+  entran en esta cuenta, salvo los DOS `api.print_certificates` (`library_clearance`/
+  `survey_review`): esos se exigen por OTRA vía —`_printable_kinds`/`get_user_permissions_for_app`
+  en `pages/certificates_admin.py`, pertenencia directa al set de permisos del actor, nunca
+  `require_page_app`— así que el método (y la cifra) de este párrafo no los cuenta, aunque la
+  tabla de abajo sí los liste como exigidos. Como todo conteo sobre código: hay que re-correr el
+  barrido si se agregan rutas nuevas.
 
 Un permiso definido y no exigido **no es un error**: es capacidad ya modelada para fases que aún no
-tienen pantalla. En sentido contrario sí sería bug, y hoy no lo hay: los 39 exigidos existen en BD.
+tienen pantalla. En sentido contrario sí sería bug, y hoy no lo hay: verificado contra
+`database/DML/titulatec/**/*.sql` (02/07/08/`survey_2026_09`/`biblioteca_2026_10`/21) que los 69
+exigidos existen en BD.
 
 | Módulo | Definidos en BD | Exigidos por el código |
 |---|---|---|
@@ -211,7 +222,7 @@ detalle en sus propios flujos.
 | `SurveyReviewService` | `services/survey_review_service.py` | Solicitud de liberación de GTV para la encuesta de egresados (fase 2, 2026-09-15): `open_for_submission`, `approve`, `reject`, `revoke`, `can_revoke`, `summary_for_process`, `counts_by_status`, `list_for_inbox`, `register_prior`/`prior_outcome` (D9, 2026-10-01) — único dueño de `SurveyReview.status` |
 | `LibraryClearanceService` (NUEVO 2026-10-01) | `services/library_clearance_service.py` | No adeudo de biblioteca (fase 2): `register` (Registrar/Corregir), `register_no_debt_bulk` (lote D10), `register_payment`, `register_prior` (D9), `revert_payment`, `revert_clearance`, `undo_prior`, `for_process_locked` (respaldo SE), `summary_for_process`, `list_for_inbox`, `search`, `day_cut` (corte del día FIJO desde `ProcessEvent`, 2026-10-02) — único dueño de `LibraryClearance.status`. `release_status[_map]`/`summary_for_process` dicen `not_applicable` (`NOT_APPLICABLE`, Ruling R21) cuando la fase 2 ya está aprobada sin el no adeudo liberado; el choque de concurrencia es `ClearanceConflict` (subclase de `ValueError`, Ruling R24). El mismo archivo expone `parse_amount`/`format_amount` como funciones de MÓDULO, no métodos de la clase. Detalle: [no adeudo de biblioteca](phase2_library_clearance.md) |
 | `ClearanceGate` (NUEVO 2026-10-01) | `services/clearance_gate.py` | Candado único de liberaciones para agendar: `status`/`status_map` (dominios cerrados `SURVEY_STATES`/`LIBRARY_STATES`; `not_required` y `not_applicable` no bloquean), `blockers`, `is_clear`, `released_clause`/`not_released_clause`, `library_required` — ÚNICA fuente de «¿le falta alguna liberación?» (invariante 2; prueba estructural). Detalle: [no adeudo de biblioteca § el candado único](phase2_library_clearance.md#el-candado-único-clearancegate) |
-| `CertificateService` (NUEVO 2026-10-01) | `services/certificate_service.py` | Motor compartido de constancias (GTV y no adeudo): `issue`, `void`, `pending`/`pending_count`/`create_batch` (las de una inscripción revocada NO se imprimen, Ruling R26), `list_batches`, `certificates_of`, `period_label` — único dueño de `Certificate`/`CertificateBatch`/`CertificateCounter`. Detalle: [constancias por lote](xcut_certificates_batch.md) |
+| `CertificateService` (NUEVO 2026-10-01) | `services/certificate_service.py` | Motor compartido de constancias (GTV y no adeudo): `issue`, `void`, `pending`/`pending_count`/`create_batch` (las de una inscripción revocada NO se imprimen, Ruling R26), `list_batches`, `certificates_of`, `period_label`, y (2026-10-02) `print_status_map`/`voided_after_print` — el estado de impresión, ≤2 consultas por llamada, invariante 4 (no lee ninguna tabla de liberación) — único dueño de `Certificate`/`CertificateBatch`/`CertificateCounter`. Detalle: [constancias por lote](xcut_certificates_batch.md) |
 | `PriorClearanceService` (NUEVO 2026-10-01) | `services/prior_clearance_service.py` | Constancias previas (D9): `apply_pending` (alta de proceso), `import_rows` (CLI). Nunca muta `SurveyReview`/`LibraryClearance` directo: llama a los dueños. Detalle: [constancias previas](xcut_prior_clearances.md) |
 | `scope_service` (módulo, no clase) | `services/scope_service.py` | `officer_programs(db, user_id)` → `"ALL"` si tiene `titulatec.process.api.read.all`, si no el set de `program_id` ligados a sus puestos |
 | `notify` (módulo, no clase) | `services/notify.py` | `notify_student(...)`: enruta los avisos in-app por el `NotificationService` del core (tab **Avisos** del shell mobile + FAB por-app) |

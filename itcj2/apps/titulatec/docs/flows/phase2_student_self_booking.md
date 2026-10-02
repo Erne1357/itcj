@@ -228,11 +228,13 @@ libere tu no adeudo») sería **falso** bajo una cita que ya tiene: no le falta 
 que Servicios Escolares pueda LIBERAR su cotejo (el mismo verbo que usa `PhaseService.
 _cotejo_gate_error`). `pages/student.py::_agenda_ctx` sustituye el texto SOLO en esta pantalla
 (constantes `_LIBRARY_REASONS_CON_CITA`/`_LIBRARY_BLOCK_WITH_CITA_MSG`) cuando
-`SelfBookingService.cita_ocupa_el_cotejo(db, process, elig["current"])` es verdadero —
+`SelfBookingService.cita_ocupa_el_cotejo(db, process, elig["current"], elig["fase2_status"])` es
+verdadero —
 `SelfBookingService.MENSAJES` no cambia: lo sigue usando quien SÍ puede agendar, el cubo de la
 cola del encargado y los correos (D11).
 
-**`cita_ocupa_el_cotejo(db, proc, current) -> bool`** (`SelfBookingService`, Ruling R18 de la
+**`cita_ocupa_el_cotejo(db, proc, current, fase2_status=_FASE2_NO_PROVISTA) -> bool`**
+(`SelfBookingService`, Ruling R18 de la
 revisión de la Tarea 12): el predicado ÚNICO —antes vivía duplicado e inline en
 `mail_compose.py::_que_falta`— que responde «¿la cita vigente sigue ocupando el cotejo, o el
 egresado puede/debe agendar otra?»: `True` si está en `_ESTADOS_ACTIVOS` (`scheduled`/
@@ -242,6 +244,16 @@ egresado puede/debe agendar otra?»: `True` si está en `_ESTADOS_ACTIVOS` (`sch
 `False` — esos SÍ agendan otra, y decirles «ya tienes una cita» sería tan falso como prometerles
 «podrás agendar» estando `scheduled`. Dos llamadores, misma pregunta: este (`_agenda_ctx`) y
 `mail_compose.py::_que_falta` (⤵ [correos del proceso al egresado](xcut_student_email_notifications.md)).
+
+**`fase2_status`, parámetro opcional (m37, 2026-10-02).** `eligibility()` ya leía
+`_fase_cotejo_status` ella misma (reglas 2/5) pero no lo exponía; ahora lo agrega a su dict de
+retorno (`elig["fase2_status"]`), y `_agenda_ctx` —el único llamador que YA tiene ese valor a la
+mano— se lo pasa como cuarto argumento a `cita_ocupa_el_cotejo` en vez de dejar que vuelva a
+consultar `ProcessPhase` (ahorra una consulta por carga de «Mi cita»). El valor por omisión es un
+centinela privado del módulo (`_FASE2_NO_PROVISTA = object()`), NUNCA `None`: un proceso sin fila
+de fase 2 es un valor real y distinto de «no me lo pasaron». `mail_compose.py::_que_falta` (el
+otro llamador) sigue sin pasarlo —tres posicionales, sin tocar su firma— y `cita_ocupa_el_cotejo`
+se comporta exactamente igual que antes: consulta `_fase_cotejo_status` ella misma.
 
 ## Sin horario: apartar y cancelar contra el CIERRE, no la hora (D5, 2026-09-29)
 
@@ -443,6 +455,9 @@ abriendo o cerrando la ventana sola.
 - `tests/fastapi/titulatec/test_self_booking_eligibility.py` — las 7 reglas en orden (la 3, un test
   por cada una de sus tres caras: `sin_encuesta` / `encuesta_en_revision` /
   `encuesta_con_observaciones`).
+- `…/test_student_library_status.py::TestR12CitaVigenteNoPrometeAgendar` — presupuesto de
+  consultas de `_agenda_ctx` (m37, 2026-10-02): pasar `elig["fase2_status"]` a
+  `cita_ocupa_el_cotejo` evita releer `ProcessPhase` una segunda vez.
 - `…/test_self_booking_offer.py` — el catálogo y el predicado inverso de alcance.
 - `…/test_self_booking_routes.py` — agendar y cancelar de punta a punta, las ventanas de tiempo,
   el tope, **y el IDOR**.
