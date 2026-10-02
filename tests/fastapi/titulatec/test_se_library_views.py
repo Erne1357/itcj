@@ -774,6 +774,24 @@ class TestProcesoRevocadoPildoraDeNoAdeudo:
                            revocado_sin_fila["proc"].id,
                            contiene=("Revocada",), no_contiene=("En Biblioteca",))
 
+    def test_ninguna_vista_ofrece_constancia_previa_a_un_revocado(
+            self, client_as, revocado, caso, se):
+        """M2 (revisión final): el panel de atender ofrecía «Constancia
+        previa…» a un proceso revocado -justo al lado de la «Revocada» de m42-
+        y la ruta contestaba 400. Ahora pide lo mismo que el expediente
+        (`pages/admin.py::_detail_ctx`): el permiso Y el proceso no
+        `cancelled`. Control positivo: la MISMA actora sí ve el formulario en
+        un proceso vivo (`caso`, por pagar en Caja)."""
+        vivo = _atender(client_as, se, caso["proc"].id)
+        assert vivo.status_code == 200, vivo.text[:300]
+        assert "/no-adeudo-previo" in vivo.text, "control positivo: con permiso sí se ofrece"
+
+        for resp in (_atender(client_as, se, revocado["proc"].id),
+                     _expediente(client_as, se, revocado["proc"].id)):
+            assert resp.status_code == 200, resp.text[:300]
+            assert "Revocada" in resp.text
+            assert "/no-adeudo-previo" not in resp.text, "no se ofrece «Constancia previa…»"
+
     def test_ya_liberado_antes_de_revocar_conserva_su_pildora_y_constancia(
             self, client_as, db_session, caso):
         """Review Focus #5: un no adeudo que YA se liberó (y su constancia ya

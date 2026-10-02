@@ -304,15 +304,20 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     # apagado, no roto.
     can_mark_reqs = False
     # Respaldo «Constancia previa…» / «Deshacer» (D9, spec 2026-10-01-
-    # titulatec-biblioteca-caja-design.md §4.9): mismo criterio que
-    # `can_mark_reqs`, con el permiso propio de SE
-    # (`titulatec.library_clearance.api.prior`, ya otorgado por el DML).
+    # titulatec-biblioteca-caja-design.md §4.9): el permiso propio de SE
+    # (`titulatec.library_clearance.api.prior`, ya otorgado por el DML) Y el
+    # proceso no revocado -sobre una inscripción revocada no hay nada que
+    # registrar y la ruta respondería 400-, igual que el expediente
+    # (`pages/admin.py::_detail_ctx`; M2 de la revisión final: el panel lo
+    # ofrecía junto a la «Revocada» de m42, al que llega una cita `attended`
+    # que `ProcessService.cancel` deja vigente).
     can_register_prior = False
     if user_id is not None:
         from itcj2.core.services.authz_service import get_user_permissions_for_app
         _user_perms = get_user_permissions_for_app(db, user_id, "titulatec")
         can_mark_reqs = "titulatec.process.api.requirement.mark" in _user_perms
-        can_register_prior = "titulatec.library_clearance.api.prior" in _user_perms
+        can_register_prior = ("titulatec.library_clearance.api.prior" in _user_perms
+                              and proc.status != "cancelled")
 
     appt = AppointmentService.get_for_process(db, process_id)
 

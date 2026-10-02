@@ -233,8 +233,10 @@
                  `LibraryClearanceService.summary_for_process` -- MISMA
                  fuente que el expediente (`_exp_phase.html`). Respaldo D9:
                  «Constancia previa…» / «Deshacer», SOLO con
-                 `library_clearance.api.prior` (`detail.can_register_prior`),
-                 y la previa SOLO mientras el trámite sigue abierto: con
+                 `library_clearance.api.prior` y el proceso no revocado
+                 (`detail.can_register_prior`, igual que el expediente: M2
+                 de la revisión final), y la previa SOLO mientras el trámite
+                 sigue abierto: con
                  `not_applicable` (Ruling R21) la píldora dice «No aplica
                  (cotejo ya liberado)» y no se ofrece nada. `certificate_cell`
                  (Tarea 4, §3.4) pinta si la constancia BIB ya se imprimió y
