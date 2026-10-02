@@ -34,6 +34,7 @@ from itcj2.cli.titulatec import (
     _DML_MAIL_2026_09_FILES,
     init_email_tasks_command,
 )
+from tests.fastapi.titulatec._dml_texts import periodica_de_recordatorios_del_17
 
 _MAIL_SQL_NAME = "17_insert_email_tasks.sql"
 
@@ -124,16 +125,6 @@ def test_el_despacho_corre_cada_5_minutos_y_se_describe_igual_que_en_el_worker()
     assert "cada minuto" not in sql.lower()
 
 
-def _descripcion_periodica_de_recordatorios(sql: str) -> str:
-    """La descripción de 'TitulaTec: recordatorios por correo' en el INSERT de
-    `core_periodic_tasks` del DML 17 (literales de SQL adyacentes unidos)."""
-    unido = re.sub(r"'\s*\n\s*'", "", sql)
-    fila = re.search(r"'TitulaTec: recordatorios por correo',\s*'titulatec\.email_reminders',"
-                     r"\s*'[^']*',\s*'\{\}',\s*TRUE,\s*'([^']*)'", unido)
-    assert fila, "no se encontró la periódica de recordatorios en el DML 17"
-    return fila.group(1)
-
-
 @requires_dml
 def test_la_periodica_de_recordatorios_menciona_el_pago_en_caja():
     """m33 (spec 2026-10-02 §3.7): la descripción de la fila de
@@ -142,10 +133,9 @@ def test_la_periodica_de_recordatorios_menciona_el_pago_en_caja():
     Una base ya sembrada la recibe con el delta
     `biblioteca_2026_10/23_update_email_reminders_description.sql` (este
     archivo viejo no se re-corre en producción); que el 23 escriba este MISMO
-    texto lo fija `test_cli_biblioteca_caja.py`."""
-    sql = (DML_TITULATEC / _DML_MAIL_2026_09_DIR / _MAIL_SQL_NAME).read_text(encoding="utf-8")
-
-    assert "pago pendiente en Caja" in _descripcion_periodica_de_recordatorios(sql)
+    texto lo fija `test_cli_biblioteca_caja.py`, con el mismo lector
+    (`_dml_texts.periodica_de_recordatorios_del_17`)."""
+    assert "pago pendiente en Caja" in periodica_de_recordatorios_del_17()
 
 
 @requires_dml

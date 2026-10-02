@@ -74,6 +74,10 @@ from itcj2.cli.titulatec import (
     init_biblioteca_caja_command,
 )
 from itcj2.core.utils.timezone import db_now
+from tests.fastapi.titulatec._dml_texts import (
+    periodica_de_recordatorios_del_17,
+    unir_literales,
+)
 
 _TODOS_LOS_DEL_DELTA = _DML_BIBLIOTECA_2026_10_FILES + _DML_BIBLIOTECA_2026_10_ACTIVAR_FILES
 
@@ -204,21 +208,6 @@ def test_todo_sql_del_delta_esta_en_una_lista_de_comando():
         assert nombre in en_disco, f"falta {nombre} en el directorio del delta"
 
 
-def _periodica_de_recordatorios_del_17() -> str:
-    """La descripción de 'TitulaTec: recordatorios por correo' que siembra el
-    DML 17 (`mail_2026_09/`) en `core_periodic_tasks`, con sus literales de
-    SQL adyacentes unidos."""
-    import re
-
-    sql = (DML_TITULATEC / "mail_2026_09" / "17_insert_email_tasks.sql").read_text(
-        encoding="utf-8")
-    unido = re.sub(r"'\s*\n\s*'", "", sql)
-    fila = re.search(r"'TitulaTec: recordatorios por correo',\s*'titulatec\.email_reminders',"
-                     r"\s*'[^']*',\s*'\{\}',\s*TRUE,\s*'([^']*)'", unido)
-    assert fila, "no se encontró la periódica de recordatorios en el DML 17"
-    return fila.group(1)
-
-
 @requires_dml
 def test_el_23_deja_las_dos_descripciones_como_las_siembra_el_17():
     """m33 (spec 2026-10-02 §6): una base YA sembrada (producción: el 17 viejo
@@ -227,7 +216,13 @@ def test_el_23_deja_las_dos_descripciones_como_las_siembra_el_17():
     literal de `TASK_DEFINITIONS` (itcj2/tasks/titulatec_tasks.py), y la de la
     fila de `core_periodic_tasks`. Solo UPDATE (no da de alta la tarea ni
     borra nada) e idempotente (`IS DISTINCT FROM`: re-correrlo no toca
-    `updated_at`)."""
+    `updated_at`).
+
+    Las DOS sentencias se fijan completas -tabla, SET con la variable que
+    lleva cada texto y las llaves del WHERE (`task_name` en las
+    definiciones; `name` + `task_name` en la periódica)-: una errata en una
+    llave volvería al 23 un no-op silencioso (0 filas y un NOTICE que nadie
+    lee)."""
     import re
 
     from itcj2.tasks import titulatec_tasks
@@ -236,19 +231,27 @@ def test_el_23_deja_las_dos_descripciones_como_las_siembra_el_17():
            / "23_update_email_reminders_description.sql").read_text(encoding="utf-8")
     codigo = "\n".join(linea for linea in sql.splitlines()
                        if not linea.lstrip().startswith("--"))
-    unido = re.sub(r"'\s*\n\s*'", "", codigo)
+    plano = " ".join(unir_literales(codigo).split())
     definicion, = [d for d in titulatec_tasks.TASK_DEFINITIONS
                    if d["task_name"] == "titulatec.email_reminders"]
 
-    assert f"'{definicion['description']}'" in unido, (
+    def _plano(texto: str) -> str:
+        return " ".join(texto.split())
+
+    assert _plano(f"v_texto_definicion TEXT := '{definicion['description']}';") in plano, (
         "la descripción de core_task_definitions del 23 no es la de TASK_DEFINITIONS")
-    assert f"'{_periodica_de_recordatorios_del_17()}'" in unido, (
-        "la descripción de core_periodic_tasks del 23 no es la que siembra el 17")
+    assert _plano(f"v_texto_periodica TEXT := '{periodica_de_recordatorios_del_17()}';") in (
+        plano), "la descripción de core_periodic_tasks del 23 no es la que siembra el 17"
+    assert ("UPDATE core_task_definitions SET description = v_texto_definicion, "
+            "updated_at = NOW() WHERE task_name = 'titulatec.email_reminders' "
+            "AND description IS DISTINCT FROM v_texto_definicion;") in plano
+    assert ("UPDATE core_periodic_tasks SET description = v_texto_periodica, "
+            "updated_at = NOW() WHERE name = 'TitulaTec: recordatorios por correo' "
+            "AND task_name = 'titulatec.email_reminders' "
+            "AND description IS DISTINCT FROM v_texto_periodica;") in plano
     assert "pago pendiente en Caja" in definicion["description"]
     assert not re.search(r"\b(INSERT|DELETE|TRUNCATE|DROP)\b", codigo, re.IGNORECASE)
-    assert "UPDATE core_task_definitions" in codigo
-    assert "UPDATE core_periodic_tasks" in codigo
-    assert codigo.count("IS DISTINCT FROM") == 2
+    assert plano.count("UPDATE ") == 2
 
 
 # --- init-biblioteca-caja (paso 1: NO enciende nada) -----------------------
