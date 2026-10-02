@@ -780,6 +780,21 @@ _MODELOS = {"SurveyReview", "LibraryClearance"}
 _SERVICIOS = {"SurveyReviewService", "LibraryClearanceService"}
 _API_LIBERACION = {"release_status", "release_status_map", "is_released"}
 _FILTROS = {"in_", "notin_", "not_in", "is_", "is_not", "isnot"}
+# Métodos de consulta que devuelven UNA fila (instancia), nunca una lista: el
+# otro extremo de una cadena `db.query(Modelo)…` que vale la pena seguir para
+# la mitad "instancia" de abajo. `.all()`/`.count()` quedan fuera a propósito:
+# lo que ligan no tiene un `.status` de instancia que comparar.
+_METODOS_FILA_UNICA = ("first", "one", "one_or_none", "scalar")
+# Literales EXCLUSIVOS del dominio de `LibraryClearance.status`
+# (`models/library_clearance.py::LIBRARY_STATUSES`) en TODA la app -barrido
+# manual-: ni `SurveyReview.status` los usa (su dominio es
+# `in_review|approved|rejected`), ni ninguna otra tabla. Es la señal de la
+# forma "dict" de abajo -el `x` de `x["status"]` puede ser CUALQUIER
+# nombre, nunca se filtra por él; ver el porqué en `_compara_dict_status`-.
+# Sin `in_review`/`approved`/`rejected`/`pending`/`missing`: Ruling R9, los
+# usan fases, documentos y Formato B también -un literal compartido no
+# identifica una liberación-.
+_LITERALES_EXCLUSIVOS_DE_LIBERACION = {"awaiting_payment", "cleared"}
 
 
 def _fuentes():
@@ -790,18 +805,220 @@ def _fuentes():
 
 
 def _status_de_modelo(nodo) -> bool:
+    """`Modelo.status`: el nombre LITERAL de un modelo de liberación."""
     return (isinstance(nodo, ast.Attribute) and nodo.attr == "status"
             and isinstance(nodo.value, ast.Name) and nodo.value.id in _MODELOS)
 
 
+def _status_via_getattr(nodo, receptores) -> bool:
+    """`getattr(x, "status")` / `getattr(x, "status", default)`, con `x` un
+    `Name` en `receptores`: el nombre LITERAL de un modelo (clase) o un
+    nombre ligado -en esta función- a una fila de liberación
+    (`_instancias_de_liberacion`). La forma `getattr` de cualquiera de las
+    otras dos (clase/instancia): m18."""
+    return (isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Name)
+            and nodo.func.id == "getattr" and len(nodo.args) >= 2
+            and isinstance(nodo.args[0], ast.Name) and nodo.args[0].id in receptores
+            and isinstance(nodo.args[1], ast.Constant) and nodo.args[1].value == "status")
+
+
+def _modelo_de_la_cadena(nodo):
+    """Si `nodo` es (parte de) una cadena `db.query(Modelo)…`, el nombre del
+    `Modelo` de liberación; `None` si no empieza así, o si un `.join(...)` se
+    interpone -`filter_by`/el resto de la cadena pasaría a aplicar sobre la
+    entidad UNIDA, no sobre `Modelo`, que es justo lo que `filter_by` hace en
+    SQLAlchemy (se aplica a la última entidad mencionada)-."""
+    while isinstance(nodo, ast.Call):
+        if not isinstance(nodo.func, ast.Attribute):
+            return None
+        if nodo.func.attr == "query":
+            if len(nodo.args) == 1 and isinstance(nodo.args[0], ast.Name):
+                return nodo.args[0].id if nodo.args[0].id in _MODELOS else None
+            return None
+        if nodo.func.attr == "join":
+            return None
+        nodo = nodo.func.value
+    return None
+
+
+def _filtro_status_en_modelo(nodo) -> bool:
+    """`algo.filter_by(status=…)` sobre una consulta que arranca en
+    `db.query(Modelo)` de liberación (m11)."""
+    return (isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute)
+            and nodo.func.attr == "filter_by"
+            and any(kw.arg == "status" for kw in nodo.keywords)
+            and _modelo_de_la_cadena(nodo.func.value) is not None)
+
+
+def _instancias_de_liberacion(func) -> set[str]:
+    """Nombres que, DENTRO de esta función, quedan ligados a una FILA
+    (instancia) de `LibraryClearance`/`SurveyReview` (m11): `x = db.query(
+    Modelo)….first()/.one()/.one_or_none()/.scalar()`, `x = db.get(Modelo,
+    …)` o `x = <Dueño>.get_for_process(…)`.
+
+    Heurística de UNA sola asignación simple (`x = …`): no sigue
+    reasignaciones condicionales, tuplas ni desempaquetados. A PROPÓSITO no
+    sigue otros métodos del dueño que también devuelven la fila
+    (`for_process_locked`, `open_for_process`, `revert_payment`…): hoy
+    ninguno se usa fuera del dueño para leer `.status` después (barrido
+    manual, reporte de la Tarea 9), y una lista abierta de métodos del dueño
+    sería un segundo lugar que mantener sincronizado cada vez que el dueño
+    agregue uno -el mismo riesgo de *drift* que este archivo existe para
+    cerrar-. Es TAMBIÉN por qué es por FUNCIÓN y no global al módulo: dos
+    funciones distintas reusan el mismo nombre genérico (`row`, `fila`) para
+    cosas distintas; ligar por nombre a nivel de módulo marcaría la fila de
+    otro modelo en una función que nunca tocó una liberación."""
+    nombres = set()
+    for nodo in ast.walk(func):
+        if not (isinstance(nodo, ast.Assign) and len(nodo.targets) == 1
+                and isinstance(nodo.targets[0], ast.Name)):
+            continue
+        valor = nodo.value
+        if not isinstance(valor, ast.Call) or not isinstance(valor.func, ast.Attribute):
+            continue
+        nombre = nodo.targets[0].id
+        if (valor.func.attr == "get_for_process"
+                and isinstance(valor.func.value, ast.Name)
+                and valor.func.value.id in _SERVICIOS):
+            nombres.add(nombre)
+        elif (valor.func.attr == "get"
+              and isinstance(valor.func.value, ast.Name) and valor.func.value.id == "db"
+              and valor.args and isinstance(valor.args[0], ast.Name)
+              and valor.args[0].id in _MODELOS):
+            nombres.add(nombre)
+        elif (valor.func.attr in _METODOS_FILA_UNICA
+              and _modelo_de_la_cadena(valor.func.value) is not None):
+            nombres.add(nombre)
+    return nombres
+
+
+def _status_de_instancia(nodo, instancias) -> bool:
+    """`x.status`, con `x` un nombre ligado -en la MISMA función- a una fila
+    de liberación (m11)."""
+    return (isinstance(nodo, ast.Attribute) and nodo.attr == "status"
+            and isinstance(nodo.value, ast.Name) and nodo.value.id in instancias)
+
+
+def _dict_status(nodo) -> bool:
+    """`x["status"]`, cualquier `x` -mitad "receptor" de la forma dict-."""
+    return (isinstance(nodo, ast.Subscript)
+            and isinstance(nodo.slice, ast.Constant) and nodo.slice.value == "status")
+
+
+def _trae_literal_exclusivo(nodo) -> bool:
+    """¿Este lado de la comparación -un literal, o una lista/tupla/set
+    literal del lado derecho de un `in`/`not in`- contiene un valor que SOLO
+    existe en el dominio de `LibraryClearance.status`? Mitad "literal" de la
+    forma dict: ver `_compara_dict_status` para el porqué de esta mitad y no
+    el nombre del receptor."""
+    if isinstance(nodo, ast.Constant) and nodo.value in _LITERALES_EXCLUSIVOS_DE_LIBERACION:
+        return True
+    if isinstance(nodo, (ast.List, ast.Tuple, ast.Set)):
+        return any(isinstance(el, ast.Constant)
+                  and el.value in _LITERALES_EXCLUSIVOS_DE_LIBERACION
+                  for el in nodo.elts)
+    return False
+
+
+def _compara_dict_status(nodo: ast.Compare) -> bool:
+    """`x["status"]` comparado (`==`/`!=`/`in`/`not in`) contra un literal
+    EXCLUSIVO de liberación (m11).
+
+    Por qué el LITERAL y no el nombre de `x`: el nombre que de verdad usa el
+    código (`summary`/`resumen`) también lo usa `DocumentService.
+    initial_docs_summary` para un dict SIN relación con liberaciones -un
+    detector por nombre marcaría ESE falso positivo real
+    (`pages/student.py::_docs_status_ctx`)-, mientras que
+    `awaiting_payment`/`cleared` son, hoy, exclusivos de `LibraryClearance.
+    status` en toda la app. Efecto secundario DELIBERADO: no marca
+    `survey["status"] == "missing"` ni `resumen["status"] != NOT_APPLICABLE`
+    (`pages/student.py`, lecturas del dict de rendering que expone
+    `summary_for_process` -FUERA de `_API_LIBERACION` a propósito-, contra un
+    pseudo-estado de presencia, no contra el valor que significa "liberado").
+    Ver el docstring de `_comparaciones` para el resto de lo que esta forma
+    no cubre."""
+    lados = (nodo.left, *nodo.comparators)
+    return (any(_dict_status(l) for l in lados)
+            and any(_trae_literal_exclusivo(l) for l in lados))
+
+
 def _comparaciones(arbol):
-    """`SurveyReview.status ==/!= …` y `….status.in_(…)` (y familia)."""
+    """Las formas de preguntar por el estado de una liberación que el
+    invariante 2 prohíbe fuera del gate y los dueños (m11/m18, Tarea 9 de
+    2026-10-02-titulatec-constancias-y-pendientes: antes de esta ronda, SOLO
+    se detectaba la primera).
+
+    1. **Clase**: `Modelo.status ==/!= …`, `….status.in_(…)` (y familia,
+       `_FILTROS`) y `getattr(Modelo, "status")`.
+    2. **`filter_by`**: `algo.filter_by(status=…)` sobre una consulta que
+       arranca en `db.query(Modelo)`, sin `.join(...)` de por medio
+       (`_filtro_status_en_modelo`).
+    3. **Instancia**: `x.status` o `getattr(x, "status")`, con `x` un nombre
+       ligado -EN LA MISMA función- a una fila de liberación
+       (`_instancias_de_liberacion`): así se coló el defecto que encontró la
+       primera revisión humana (`clearance.status == "cleared"`, T6) y que el
+       detector viejo -solo clase- no veía.
+    4. **Dict**: `x["status"]` comparado contra un literal EXCLUSIVO del
+       dominio de `LibraryClearance.status` (`awaiting_payment`/`cleared`)
+       -nunca por el nombre de `x`, ver `_compara_dict_status`-.
+
+    Lo que esta prueba NO marca, a propósito (barrido manual completo en el
+    reporte de la Tarea 9; «Hallazgos» si alguno resultó ser real):
+
+    * Un literal NO exclusivo (`in_review`/`approved`/`rejected`/`pending`/
+      `missing`) o una CONSTANTE importada (`NOT_APPLICABLE`) del lado del
+      dict: Ruling R9 -un literal compartido con fases/documentos/Formato B
+      no identifica una liberación- y, para `NOT_APPLICABLE`, porque son
+      lecturas DELIBERADAS del dict de rendering del propio dueño, no una
+      re-derivación (ver `_compara_dict_status`).
+    * Una variable suelta comparada contra un literal (`hacia ==
+      "awaiting_payment"` en `mail_compose.py::_compose_library_reverted`):
+      no es `.status`, `["status"]` ni `getattr(…, "status")` de nada -lee el
+      payload (`ProcessEvent.data`) del propio evento que el DUEÑO ya
+      escribió, no pregunta por el estado de nadie-.
+    * Métodos del dueño que devuelven la fila y NO son `get_for_process`
+      (`for_process_locked`, `open_for_process`, `revert_payment`…): ver
+      `_instancias_de_liberacion`.
+    * `self.status` dentro de los propios modelos (`models/library_clearance.
+      py`/`models/survey_review.py::__repr__`): `self` nunca es un nombre
+      ligado -no hay `self = …`- ni el nombre literal del modelo.
+    """
+    # Formas 1/2/4: no dependen de en qué función viven.
     for nodo in ast.walk(arbol):
         if isinstance(nodo, ast.Compare):
-            if any(_status_de_modelo(o) for o in (nodo.left, *nodo.comparators)):
+            lados = (nodo.left, *nodo.comparators)
+            if any(_status_de_modelo(o) or _status_via_getattr(o, _MODELOS) for o in lados):
+                yield nodo.lineno, ast.unparse(nodo)
+            elif _compara_dict_status(nodo):
                 yield nodo.lineno, ast.unparse(nodo)
         elif (isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute)
               and nodo.func.attr in _FILTROS and _status_de_modelo(nodo.func.value)):
+            yield nodo.lineno, ast.unparse(nodo)
+        elif _filtro_status_en_modelo(nodo):
+            yield nodo.lineno, ast.unparse(nodo)
+
+    # Forma 3: por función -el nombre que liga una fila de liberación es
+    # local a cada función, nunca global al módulo-. `vistos` solo por
+    # higiene (una función anidada dentro de otra se recorrería dos veces;
+    # no hay ninguna hoy en la app, pero cuesta cero evitar el duplicado).
+    vistos = set()
+    for func in ast.walk(arbol):
+        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        instancias = _instancias_de_liberacion(func)
+        if not instancias:
+            continue
+        for nodo in ast.walk(func):
+            if not isinstance(nodo, ast.Compare):
+                continue
+            lados = (nodo.left, *nodo.comparators)
+            if not any(_status_de_instancia(o, instancias)
+                      or _status_via_getattr(o, instancias) for o in lados):
+                continue
+            clave = (nodo.lineno, nodo.col_offset)
+            if clave in vistos:
+                continue
+            vistos.add(clave)
             yield nodo.lineno, ast.unparse(nodo)
 
 
@@ -817,9 +1034,12 @@ def _preguntas_de_liberacion(arbol):
 
 def test_nadie_fuera_del_gate_compara_el_estado_de_las_liberaciones():
     """Fuera de `SurveyReviewService`, `LibraryClearanceService` y
-    `ClearanceGate`, ningún `.py` de la app filtra por `SurveyReview.status`
-    ni por `LibraryClearance.status`: «¿le faltan liberaciones?» tiene UNA
-    fuente (spec §5, invariante 2)."""
+    `ClearanceGate`, ningún `.py` de la app pregunta por el estado de una
+    liberación en ninguna de las cuatro formas que reconoce `_comparaciones`
+    -clase, `filter_by`, instancia o dict- (spec §5, invariante 2; ensanchada
+    en m11/m18, Tarea 9 de 2026-10-02-titulatec-constancias-y-pendientes: las
+    meta-pruebas de la sección 11 fijan, con fragmentos sintéticos, qué marca
+    y qué NO marca cada forma)."""
     ofensores, en_duenos, en_gate = [], 0, 0
     for ruta, arbol in _fuentes():
         hallazgos = list(_comparaciones(arbol))
@@ -853,3 +1073,129 @@ def test_solo_el_gate_pregunta_a_los_duenos_por_la_liberacion():
     assert en_gate >= 2, "el gate debería preguntarle a los dos dueños"
     assert not ofensores, ("preguntan por la liberación sin pasar por ClearanceGate:\n"
                            + "\n".join(ofensores))
+
+
+# ===========================================================================
+# 11. Meta: el detector de la sección 10, contra fragmentos sintéticos
+# ===========================================================================
+# m11/m18 (Tarea 9, 2026-10-02-titulatec-constancias-y-pendientes): un
+# fragmento por forma que `_comparaciones` DEBE marcar, y uno por cada caso
+# benigno que NO debe marcar. `ast.parse` sobre el fragmento, nunca `exec`:
+# los nombres (`LibraryClearance`, `fila`, `db`…) no necesitan existir ni
+# resolver a nada real -el detector solo mira la FORMA del árbol-, así que un
+# fragmento puede inventar cualquier nombre sin romper nada.
+#
+# Antes de m11/m18, el detector viejo (solo la forma 1, "clase") fallaba
+# TODAS las claves de `_DEBE_MARCAR` salvo las tres primeras: ese era el RED.
+_DEBE_MARCAR = {
+    "clase: Modelo.status == literal": """
+def f():
+    return LibraryClearance.status == "cleared"
+""",
+    "clase: ….status.in_(…)": """
+def f(db):
+    return db.query(LibraryClearance).filter(LibraryClearance.status.in_(("pending",)))
+""",
+    "clase: getattr(Modelo, 'status')": """
+def f():
+    return getattr(LibraryClearance, "status") == "cleared"
+""",
+    "filter_by(status=…) sobre consulta del modelo": """
+def f(db, pid):
+    return db.query(LibraryClearance).filter_by(status="pending").first()
+""",
+    "instancia: x.status tras <Dueño>.get_for_process": """
+def f(db, proc):
+    fila = LibraryClearanceService.get_for_process(db, proc.id)
+    return fila.status == "cleared"
+""",
+    "instancia: x.status tras db.query(Modelo)....first()": """
+def f(db, pid):
+    row = db.query(LibraryClearance).filter_by(process_id=pid).first()
+    return row.status == "pending"
+""",
+    "instancia: x.status tras db.get(Modelo, …)": """
+def f(db, pid):
+    row = db.get(LibraryClearance, pid)
+    return row.status != "cleared"
+""",
+    "instancia: getattr(x, 'status') tras get_for_process": """
+def f(db, proc):
+    review = SurveyReviewService.get_for_process(db, proc.id)
+    return getattr(review, "status") == "approved"
+""",
+    "dict: x['status'] == literal exclusivo": """
+def f(resumen):
+    return resumen["status"] == "cleared"
+""",
+    "dict: x['status'] in (…literal exclusivo…)": """
+def f(resumen):
+    return resumen["status"] in ("awaiting_payment", "cleared")
+""",
+}
+
+# Los límites DELIBERADOS del detector (ver el docstring de `_comparaciones`):
+# un literal compartido, una constante importada, un receptor no ligado, un
+# `.join(...)` de por medio o una variable suelta no son, por sí solos, una
+# pregunta sobre el estado de una liberación.
+_NO_DEBE_MARCAR = {
+    "otro modelo, mismo literal (EmailOutbox)": """
+def f():
+    return EmailOutbox.status == "sent"
+""",
+    "instancia NO ligada, literal compartido (process)": """
+def f(process):
+    return process.status == "cancelled"
+""",
+    "atributo DISTINTO de status (review_status)": """
+def f(doc):
+    return doc.review_status == "in_review"
+""",
+    "instancia NO ligada (appt)": """
+def f(appt):
+    return appt.status == "attended"
+""",
+    "variable suelta contra literal (payload del propio dueño)": """
+def f(hacia):
+    return hacia == "awaiting_payment"
+""",
+    "dict['status'] con literal NO exclusivo (missing, Ruling R9)": """
+def f(survey):
+    return survey["status"] == "missing"
+""",
+    "dict['status'] contra una CONSTANTE importada, no un literal": """
+def f(resumen):
+    return resumen["status"] != NOT_APPLICABLE
+""",
+    "filter_by(status=…) sobre OTRO modelo": """
+def f(db):
+    return db.query(TitulationProcess).filter_by(status="active")
+""",
+    "filter_by(status=…) tras un .join(...): ya no es el modelo base": """
+def f(db):
+    return db.query(LibraryClearance).join(TitulationProcess).filter_by(status="active")
+""",
+    "getattr con default, receptor no ligado": """
+def f(fb):
+    return getattr(fb, "status", None) or "draft"
+""",
+}
+
+
+@pytest.mark.parametrize("nombre, fuente", sorted(_DEBE_MARCAR.items()))
+def test_el_detector_marca_cada_forma_prohibida(nombre, fuente):
+    """Una clave por forma de `_comparaciones` (1-4): el RED de m11/m18 antes
+    del ensanche -con el detector viejo, todas salvo las tres primeras
+    fallaban-."""
+    arbol = ast.parse(fuente)
+    assert list(_comparaciones(arbol)), "el detector no marcó: %s" % nombre
+
+
+@pytest.mark.parametrize("nombre, fuente", sorted(_NO_DEBE_MARCAR.items()))
+def test_el_detector_no_marca_los_casos_benignos(nombre, fuente):
+    """Ninguno de estos fragmentos es, de verdad, una pregunta sobre el
+    estado de una liberación -ver el docstring de `_comparaciones`, «Lo que
+    esta prueba NO marca»-: si el detector los marcara, sería un falso
+    positivo nuevo."""
+    arbol = ast.parse(fuente)
+    assert not list(_comparaciones(arbol)), "el detector marcó de más: %s" % nombre
