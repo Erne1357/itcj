@@ -4,10 +4,15 @@
    el pago y el monto VIGENTE (`total`, ya formateado) vuelve a estar por
    pagar; pending: el Centro de Información lo vuelve a revisar. Sin motivo
    capturado, el recuadro no se pinta. Se re-valida al enviar (D8): si ya se
-   volvió a liberar, o si lo último que el egresado recibió por correo del no
-   adeudo no fue un «quedó liberado» (E10, spec 2026-10-02 §2, ancla del
-   Ruling R8: no recibió ninguno, o ya recibió una reversión), no sale; las
-   demás reglas, en `mail_compose._compose_library_reverted`.
+   volvió a liberar, no sale. Si lo último que el egresado recibió por correo
+   del no adeudo no fue un «quedó liberado» (no recibió ninguno, o fue una
+   reversión), no sale SOLO cuando entre eso y esta reversión se encoló un
+   «quedó liberado» que nunca le llegó: liberar y revertir en la misma espera,
+   o Caja se equivocó de renglón (E10, spec 2026-10-02 §2, afinada por el
+   Ruling R12). Un no adeudo legado, uno liberado con el correo apagado o uno
+   re-liberado sin correo SÍ lo recibe: vio «Liberado» en la app y esta es la
+   única noticia por fuera. Las demás reglas, en
+   `mail_compose._compose_library_reverted`.
    Contexto: first_name, link, to_status, reason, total. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}

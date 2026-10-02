@@ -4,8 +4,10 @@
    cotejo). En los dos primeros la constancia la envía el Centro de Información
    a Servicios Escolares (D7). D11 (`m.agenda(falta)`): si ya puede agendar o
    qué le falta, con el estado VIVO. Se re-valida al enviar (D8): si ya se
-   revirtió, no sale (la reversión sale solo si lo último que recibió por
-   correo fue un «quedó liberado», E10).
+   revirtió, no sale, y la reversión que lo desmiente tampoco, salvo que lo
+   último que recibió por correo del no adeudo fuera un «quedó liberado»
+   (E10/Ruling R12: un liberado encolado que no salió vuelve obsoleta la
+   reversión que lo deshace).
    Contexto: first_name, link, via (payment|no_charge|prior; None si no se
    reconoce), pagado, falta. #}
 {% extends "titulatec/email/_base_email.html" %}
