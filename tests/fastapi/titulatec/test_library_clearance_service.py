@@ -2395,6 +2395,30 @@ class TestDayCut:
         assert corte["net"] == Decimal("0.00")
 
 
+class TestEventAmount:
+    """`_event_amount` (usado por `day_cut`): nunca truena, incluidos los
+    valores especiales de `Decimal` que SÍ parsean sin error -- `Decimal(
+    "NaN")` no lanza al construirse, pero compararlo con `>= 0`/`< 0` SÍ
+    lanza `InvalidOperation`; `is_finite()` se revisa primero para que
+    ninguna comparación posterior truene."""
+
+    @pytest.mark.parametrize("raw, esperado", [
+        (None, Decimal("0.00")),
+        ("", Decimal("0.00")),
+        ("abc", Decimal("0.00")),
+        ("-5", Decimal("0.00")),
+        ("NaN", Decimal("0.00")),
+        ("sNaN", Decimal("0.00")),
+        ("Infinity", Decimal("0.00")),
+        ("-Infinity", Decimal("0.00")),
+        ("800.00", Decimal("800.00")),
+        ("1200.5", Decimal("1200.50")),
+        (800, Decimal("800.00")),
+    ])
+    def test_nunca_truena(self, raw, esperado):
+        assert LibraryClearanceService._event_amount(raw) == esperado
+
+
 # ---------------------------------------------------------------------------
 # Alta del proceso: `ImportService.import_rows` abre la fila
 # ---------------------------------------------------------------------------

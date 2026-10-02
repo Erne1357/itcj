@@ -497,15 +497,15 @@ class LibraryClearanceService:
         la fase 2 todavía no está `approved`. Qué transición aplica la decide
         `cleared_via` (pago → `revert_payment`; sin cargo/legado →
         `revert_clearance`; previa → `undo_prior`).
-        """
-        from itcj2.apps.titulatec.models import TitulationProcess
 
+        Delega el predicado a `_revertible_ids` (mismo criterio exacto que
+        usan `_rows` y `day_cut` en lote, para que un renglón nunca diga algo
+        distinto de lo que diría este método uno por uno); el `status !=
+        'cleared'` se revisa ANTES, sin consulta, para el caso común.
+        """
         if clearance is None or clearance.status != "cleared":
             return False
-        process = db.get(TitulationProcess, clearance.process_id)
-        if process is None or process.status not in ADMITTED_PROCESS_STATUSES:
-            return False
-        return not LibraryClearanceService._phase2_approved(db, process.id)
+        return clearance.id in LibraryClearanceService._revertible_ids(db, [clearance.id])
 
     # ------------------------------------------------------------- transiciones
     @staticmethod
@@ -1026,23 +1026,24 @@ class LibraryClearanceService:
         el histórico, no necesariamente el vigente) y `can_revert_here`.
 
         Tolerante a payloads viejos de dev incompletos (nunca truena): un
-        `total` ausente o que no parsea cuenta como `Decimal("0.00")` --
-        entra así a `charged`/`reverted` (no distorsiona el corte) y, como un
+        `total` ausente, que no parsea o no finito (`NaN`/`sNaN`/`Infinity`
+        -- `_event_amount`) cuenta como `Decimal("0.00")` -- entra así a
+        `charged`/`reverted` (no distorsiona el corte) y, como un
         cobro/reversa REAL nunca tiene total 0 (`register_payment` solo corre
         sobre un total > 0), un `amount` en cero es por construcción ese
         dato viejo: la plantilla lo pinta «—» (un `Decimal` en 0 es «falsy»).
 
         `can_revert_here` (SOLO en cobros; las reversas nunca ofrecen
         «Revertir…»): el folio de ESE cobro sigue siendo la constancia
-        VIGENTE de su fila **y** la fila es revertible AHORA (`can_revert`:
-        liberada, proceso admitido, fase 2 sin aprobar). En LOTE -- una
-        consulta de folios vigentes (`CertificateService.print_status_map`),
-        una de los `status` actuales de las filas y una de fases 2 aprobadas
-        (`_phase2_approved_ids`), nunca una por renglón. Dos cobros de la
-        MISMA fila (revertido y vuelto a cobrar) solo pueden coincidir con el
-        folio vigente en el MÁS RECIENTE -- cada cobro saca un folio nuevo
-        (§5 invariante 5 de la spec de ayer)."""
-        from itcj2.apps.titulatec.models import LibraryClearance, ProcessEvent, TitulationProcess
+        VIGENTE de su fila **y** la fila es revertible AHORA (`_revertible_
+        ids`, el mismo predicado batched que usa `_rows`: liberada, proceso
+        admitido, fase 2 sin aprobar). En LOTE -- hasta dos consultas de
+        folios vigentes (`CertificateService.print_status_map`, que hace como
+        máximo 2 por llamada) y una de `_revertible_ids`, nunca una por
+        renglón. Dos cobros de la MISMA fila (revertido y vuelto a cobrar)
+        solo pueden coincidir con el folio vigente en el MÁS RECIENTE -- cada
+        cobro saca un folio nuevo (§5 invariante 5 de la spec de ayer)."""
+        from itcj2.apps.titulatec.models import ProcessEvent, TitulationProcess
         from itcj2.apps.titulatec.services.certificate_service import CertificateService
         from itcj2.core.models.program import Program
         from itcj2.core.models.user import User
@@ -1077,24 +1078,19 @@ class LibraryClearanceService:
             if event.event_type == "library_payment_registered"
             and (event.payload or {}).get("clearance_id") is not None
         })
-        estado_actual: dict[int, str] = {}
         folio_vigente: dict[int, str | None] = {}
+        revertibles: set[int] = set()
         if charge_ids:
-            estado_actual = dict(
-                db.query(LibraryClearance.id, LibraryClearance.status)
-                .filter(LibraryClearance.id.in_(charge_ids))
-                .all())
             impresion = CertificateService.print_status_map(
                 db, [_ref(cid) for cid in charge_ids])
             folio_vigente = {cid: (impresion.get(_ref(cid)) or {}).get("number")
                              for cid in charge_ids}
-        fase2_aprobada = LibraryClearanceService._phase2_approved_ids(
-            db, {process.id for _, process, *_ in filas})
+            revertibles = LibraryClearanceService._revertible_ids(db, charge_ids)
 
         rows = []
         charged = Decimal("0.00")
         reverted = Decimal("0.00")
-        for event, process, student, program, actor in filas:
+        for event, _process, student, program, actor in filas:
             payload = event.payload or {}
             es_cobro = event.event_type == "library_payment_registered"
             monto = LibraryClearanceService._event_amount(payload.get("total"))
@@ -1118,9 +1114,7 @@ class LibraryClearanceService:
                 "certificate": certificate,
                 "can_revert_here": bool(
                     es_cobro and clearance_id is not None
-                    and estado_actual.get(clearance_id) == "cleared"
-                    and process.status in ADMITTED_PROCESS_STATUSES
-                    and process.id not in fase2_aprobada
+                    and clearance_id in revertibles
                     and certificate is not None
                     and folio_vigente.get(clearance_id) == certificate),
             })
@@ -1409,17 +1403,25 @@ class LibraryClearanceService:
     @staticmethod
     def _event_amount(raw) -> Decimal:
         """`payload.total` (texto) de un evento de Caja -> `Decimal` a
-        centavos, para `day_cut`. Ausente, que no parsea o negativo ->
-        `Decimal("0.00")` -- dato viejo de dev; nunca truena. Un cobro/reversa
-        REAL nunca tiene total 0 (`register_payment` solo corre con total >
-        0), así que 0 identifica por construcción un payload incompleto."""
+        centavos, para `day_cut`. Ausente, que no parsea, no finito (`NaN`,
+        `sNaN`, `Infinity`/`-Infinity`) o negativo -> `Decimal("0.00")` --
+        dato viejo de dev; nunca truena. `is_finite()` se revisa DENTRO del
+        `try` y ANTES de cualquier comparación: `Decimal(...)` parsea
+        `"NaN"` sin error (`sNaN`/`Infinity` sí truenan ahí, pero un `NaN`
+        plano no), y comparar un `Decimal('NaN')` con `>= 0` o `< 0` lanza
+        `InvalidOperation` -- revisar `is_finite()` primero evita las dos
+        rutas de crash. Un cobro/reversa REAL nunca tiene total 0
+        (`register_payment` solo corre con total > 0), así que 0 identifica
+        por construcción un payload incompleto."""
         if raw in (None, ""):
             return Decimal("0.00")
         try:
-            monto = Decimal(str(raw)).quantize(_CENT)
+            monto = Decimal(str(raw))
+            if not monto.is_finite() or monto < 0:
+                return Decimal("0.00")
+            return monto.quantize(_CENT)
         except (InvalidOperation, ValueError, TypeError):
             return Decimal("0.00")
-        return monto if monto >= 0 else Decimal("0.00")
 
     @staticmethod
     def _parse_event_iso(raw) -> datetime | None:
@@ -1481,6 +1483,41 @@ class LibraryClearanceService:
                 .filter(ProcessPhase.process_id.in_(ids),
                         ProcessPhase.phase_number == PHASE_COTEJO,
                         ProcessPhase.status == "approved")}
+
+    @staticmethod
+    def _revertible_ids(db: Session, clearance_ids) -> set[int]:
+        """`can_revert` de VARIAS filas en UNA sola consulta (nunca una por
+        renglón): liberada (`cleared`), su proceso sigue admitido
+        (`active`/`on_hold`) y la fase 2 todavía no está `approved` -- el
+        MISMO predicado que `can_revert`, que delega aquí con un solo id.
+        `_rows` y `day_cut` son los únicos que necesitan «revertible» de
+        MUCHAS filas a la vez; un id que no aparece en el resultado no es
+        revertible (incluido uno que no existe -- falla cerrado)."""
+        from sqlalchemy import and_
+
+        from itcj2.apps.titulatec.models import (
+            LibraryClearance, ProcessPhase, TitulationProcess,
+        )
+
+        ids = list(clearance_ids)
+        if not ids:
+            return set()
+        filas = (
+            db.query(LibraryClearance.id, LibraryClearance.status,
+                     TitulationProcess.status, ProcessPhase.status)
+            .join(TitulationProcess, TitulationProcess.id == LibraryClearance.process_id)
+            .outerjoin(ProcessPhase,
+                       and_(ProcessPhase.process_id == TitulationProcess.id,
+                            ProcessPhase.phase_number == PHASE_COTEJO))
+            .filter(LibraryClearance.id.in_(ids))
+            .all()
+        )
+        return {
+            cid for cid, estado_clearance, estado_proceso, estado_fase2 in filas
+            if estado_clearance == "cleared"
+            and estado_proceso in ADMITTED_PROCESS_STATUSES
+            and estado_fase2 != "approved"
+        }
 
     @staticmethod
     def _assert_phase2_open(db: Session, process) -> None:
@@ -1626,7 +1663,8 @@ class LibraryClearanceService:
 
     @staticmethod
     def _rows(db: Session, filas) -> list[dict]:
-        """Dicts de las bandejas. `can_revert` en una consulta y el estado de
+        """Dicts de las bandejas. `can_revert` en UNA consulta (`_revertible_
+        ids`, el mismo predicado batched que usa `day_cut`) y el estado de
         impresión de la constancia vía `CertificateService.print_status_map`
         -hasta 2 consultas MÁS, nunca una por fila- (Tarea 3 de
         `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.3,
@@ -1636,17 +1674,12 @@ class LibraryClearanceService:
         VIGENTE, nunca una anulada- porque Caja y otras vistas ya lo leen
         directo. Valores crudos (`Decimal`, `datetime`, `date`): formatear es
         de la plantilla (`format_amount`)."""
-        from itcj2.apps.titulatec.models import ProcessPhase
         from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
         if not filas:
             return []
-        pids = [process.id for _, process, *_ in filas]
-        fase2 = dict(
-            db.query(ProcessPhase.process_id, ProcessPhase.status)
-            .filter(ProcessPhase.process_id.in_(pids),
-                    ProcessPhase.phase_number == PHASE_COTEJO)
-            .all())
+        revertibles = LibraryClearanceService._revertible_ids(
+            db, [clearance.id for clearance, *_ in filas])
         refs = [_ref(clearance.id) for clearance, *_ in filas]
         estado_impresion = CertificateService.print_status_map(db, refs)
 
@@ -1678,9 +1711,7 @@ class LibraryClearanceService:
                 "enrolled_at": process.created_at,
                 "certificate": certificate,
                 "certificate_number": certificate["number"] if certificate else None,
-                "can_revert": (clearance.status == "cleared"
-                               and process.status in ADMITTED_PROCESS_STATUSES
-                               and fase2.get(process.id) != "approved"),
+                "can_revert": clearance.id in revertibles,
                 "revoked": process.status == "cancelled",
                 "admitted": process.status in ADMITTED_PROCESS_STATUSES,
                 "donation_missing": cohort.book_donation_amount is None,

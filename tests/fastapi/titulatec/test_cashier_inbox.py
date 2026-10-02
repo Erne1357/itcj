@@ -64,6 +64,14 @@ def _tab_span(html, tab_id):
     return m.group(0) if m else ""
 
 
+def _row(html, row_id):
+    """Recorta la fila `<tr id="...">...</tr>` completa (búsqueda/«Por
+    cobrar» o «Corte del día»), para revisar SU contenido -nunca el texto de
+    otra fila de la misma tabla."""
+    m = re.search(r'<tr id="%s">.*?</tr>' % re.escape(row_id), html, re.S)
+    return m.group(0) if m else ""
+
+
 def _clearance(db_session, process):
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
     return LibraryClearanceService.get_for_process(db_session, process.id)
@@ -563,24 +571,73 @@ def test_pagados_dia_vacio_sin_movimientos(client_as, make_cashier_staff):
     assert "Total del día $0.00" in resp.text
 
 
+def test_dia_con_reversa_muestra_monto_negativo_y_totales_con_signo(
+    client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
+    monkeypatch,
+):
+    """Un renglón `reversal` en el corte del día trae el «−» real en su
+    Monto; el encabezado dice «Revertido −$Y» (Y > 0) y un «Total del día»
+    NEGATIVO cuando el cobro que esa reversa anula es de OTRO día -el corte
+    de hoy solo trae la reversa (E3)."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_cashier_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99700132"), cohort=cohort, current_phase=1,
+                        library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("300"))
+
+    def _en(cuando, fn):
+        monkeypatch.setattr(SVC_DB_NOW, lambda: cuando)
+        fn()
+        evento = (db_session.query(ProcessEvent)
+                 .filter_by(process_id=proc.id)
+                 .order_by(ProcessEvent.id.desc()).first())
+        evento.created_at = cuando
+        return evento
+
+    _en(datetime(2031, 4, 27, 9, 0), lambda: LibraryClearanceService.register_payment(
+        db_session, clearance.id, staff.id, receipt_number="R-1"))
+    reversa = _en(datetime(2031, 4, 28, 9, 0), lambda: LibraryClearanceService.revert_payment(
+        db_session, clearance.id, staff.id, "Error"))
+
+    resp = client_as(staff).get(f"{URL}/body?tab=pagados&dia=2031-04-28")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _row(resp.text, f"caja-mov-{reversa.id}")
+    assert fila, "no se encontró el renglón de la reversa"
+    assert "−$300.00" in fila
+    assert "Revertido −$300.00" in resp.text
+    assert "Total del día −$300.00" in resp.text
+
+
 def test_pildoras_propias_de_caja_en_busqueda(
     client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
 ):
     """m27 (E11): Caja pinta su PROPIA píldora en la búsqueda -- nunca la
     compartida `library_clearance_pill` («Por pagar en Caja»/«Constancia
-    previa»)."""
+    previa»). Cada aserción se recorta a SU PROPIA fila (`caja-{id}`, `_row`)
+    -nunca el texto de otro renglón de la misma tabla-, incluida la regla
+    «Revocada» PRIMERO (manda sobre cualquier `status`, aunque el no adeudo
+    siga `awaiting_payment`)."""
+    from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 
     staff = make_cashier_staff()
     cohort = make_cohort(book_donation_amount=Decimal("50.00"))
-    make_process(make_student(control_number="99700124", first_name="UNO",
-                              last_name="PILDORACAJA"),
-                cohort=cohort, current_phase=1, library_clearance="pending")
+    p_pendiente = make_process(make_student(control_number="99700124", first_name="UNO",
+                                            last_name="PILDORACAJA"),
+                               cohort=cohort, current_phase=1, library_clearance="pending")
+    c_pendiente = _clearance(db_session, p_pendiente)
+
     p_caja = make_process(make_student(control_number="99700125", first_name="DOS",
                                        last_name="PILDORACAJA"),
                           cohort=cohort, current_phase=1, library_clearance="pending")
     c_caja = _clearance(db_session, p_caja)
     LibraryClearanceService.register(db_session, c_caja.id, staff.id, debt_amount=Decimal("100"))
+
     p_pagado = make_process(make_student(control_number="99700126", first_name="TRES",
                                          last_name="PILDORACAJA"),
                             cohort=cohort, current_phase=1, library_clearance="pending")
@@ -597,13 +654,31 @@ def test_pildoras_propias_de_caja_en_busqueda(
     db_session.refresh(c_liberado)
     assert c_liberado.status == "cleared" and c_liberado.cleared_via == "no_charge"
 
+    # Revocado CON un no-adeudo todavía `awaiting_payment` (m27): «Revocada»
+    # manda, nunca «Por cobrar $X» aunque el status siga diciendo eso.
+    p_revocado = make_process(make_student(control_number="99700128", first_name="CINCO",
+                                           last_name="PILDORACAJA"),
+                              cohort=cohort, current_phase=1, library_clearance="pending")
+    c_revocado = _clearance(db_session, p_revocado)
+    LibraryClearanceService.register(db_session, c_revocado.id, staff.id, debt_amount=Decimal("100"))
+    (db_session.query(TitulationProcess).filter_by(id=p_revocado.id)
+     .update({"status": "cancelled"}))
+    db_session.flush()
+
     resp = client_as(staff).get(f"{URL}/body?q=PILDORACAJA")
 
     assert resp.status_code == 200, resp.text[:500]
-    assert "En Biblioteca" in resp.text
-    assert "Por cobrar $150.00" in resp.text          # 100 adeudo + 50 donación
-    assert "Pagado" in resp.text
-    assert "Liberado" in resp.text
+    assert "En Biblioteca" in _row(resp.text, f"caja-{c_pendiente.id}")
+
+    fila_caja = _row(resp.text, f"caja-{c_caja.id}")
+    assert "Por cobrar $150.00" in fila_caja          # 100 adeudo + 50 donación
+
+    assert "Pagado" in _row(resp.text, f"caja-{c_pagado.id}")
+    assert "Liberado" in _row(resp.text, f"caja-{c_liberado.id}")
+
+    fila_revocada = _row(resp.text, f"caja-{c_revocado.id}")
+    assert fila_revocada.count("Revocada") == 1, "la píldora manda; sin duplicado (m27/cosmético)"
+    assert "Por cobrar" not in fila_revocada
 
 
 def test_revertir_solo_aparece_en_el_cobro_vigente_del_corte(

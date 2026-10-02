@@ -255,9 +255,16 @@ async def revert(clearance_id: int, request: Request,
     fase 2 no está aprobada (`can_revert`); el monto congelado se queda (sigue
     debiéndolo) y se anula la constancia. El corte del día del cobro original
     NO cambia (E3, invariante 3): esta reversa entra al corte de HOY como su
-    propio renglón, en negativo."""
+    propio renglón, en negativo -- si la cajera revertía mientras veía el
+    corte de OTRO día, el aviso de éxito (`X-Tt-Notice`, success) se lo
+    aclara."""
+    from datetime import date
+
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    from itcj2.core.utils.timezone import db_now
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService, format_amount,
+    )
 
     form = await request.form()
     reason = form.get("reason") or ""
@@ -267,12 +274,25 @@ async def revert(clearance_id: int, request: Request,
     try:
         uid = int(user["sub"])
         try:
-            LibraryClearanceService.revert_payment(db, clearance_id, uid, reason)
+            clearance = LibraryClearanceService.revert_payment(db, clearance_id, uid, reason)
         except LookupError:
             return Response(status_code=404)
         except ValueError as e:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(e))})
+        monto_revertido = clearance.total_amount   # leer ANTES de cerrar (expire_on_commit)
         ctx = _body_ctx(db, tab=tab, q=q, dia=dia, page=page)
     finally:
         db.close()
-    return render_titulatec(request, "titulatec/admin/partials/cashier_body.html", ctx)
+
+    hoy = db_now().date()
+    dia_vista = date.fromisoformat(ctx["dia"])
+    if dia_vista != hoy:
+        aviso = (f"Pago revertido. La reversa (−{format_amount(monto_revertido)}) "
+                 f"quedó en el corte de hoy ({hoy.strftime('%d/%m/%Y')}).")
+    else:
+        aviso = "Pago revertido."
+
+    resp = render_titulatec(request, "titulatec/admin/partials/cashier_body.html", ctx)
+    resp.headers["X-Tt-Notice"] = _hdr(aviso)
+    resp.headers["X-Tt-Notice-Kind"] = "success"
+    return resp

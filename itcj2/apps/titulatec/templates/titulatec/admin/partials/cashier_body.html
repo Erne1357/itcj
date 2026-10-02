@@ -56,8 +56,10 @@
 {%- endmacro %}
 {# Píldora PROPIA de Caja (m27, E11) -- nunca `library_clearance_pill`
    (`_macros.html`, la usan más de 12 vistas): `r` es la fila de `_rows`
-   (búsqueda / «Por cobrar»). `revoked` manda siempre -- mismo texto que ya
-   usaba la columna de acciones para un proceso revocado. #}
+   (búsqueda / «Por cobrar»). `revoked` manda siempre, aunque el `status`
+   real siga diciendo «Por cobrar»/«Pagado»/etc. -- la columna de acciones ya
+   NO repite «Revocada» (dice «Sin acciones en Caja», como cualquier otra
+   fila sin acción), para no mostrarla dos veces en el mismo renglón. #}
 {% macro caja_pill(r) %}
   {%- if r.revoked -%}
     {{ pill("Revocada", "neutral") }}
@@ -112,8 +114,8 @@
              hx-get="/titulatec/admin/caja/body" hx-target="#tt-cashier-body" hx-swap="outerHTML"
              hx-trigger="change" hx-include="closest form">
       <span class="tt-kicker">Cobrado {{ format_amount(day_cut.charged) }}
-        · Revertido −{{ format_amount(day_cut.reverted) }}
-        · Total del día {{ '−' if day_cut.net < 0 else '' }}{{ format_amount(day_cut.net if day_cut.net >= 0 else -day_cut.net) }}</span>
+        · Revertido {{ '−' if day_cut.reverted > 0 else '' }}{{ format_amount(day_cut.reverted) }}
+        · <strong>Total del día {{ '−' if day_cut.net < 0 else '' }}{{ format_amount(day_cut.net if day_cut.net >= 0 else -day_cut.net) }}</strong></span>
     </form>
     {% endif %}
   </div>
@@ -154,7 +156,7 @@
           </td>
           <td>{{ r.receipt or '—' }}</td>
           <td>{{ r.actor or '—' }}</td>
-          <td>{{ r.reason or '—' }}</td>
+          <td class="tt-td-wrap">{{ r.reason or '—' }}</td>
           <td>{{ r.original_paid_at.strftime('%d/%m/%Y %H:%M') if r.original_paid_at else '—' }}</td>
           <td>
             {% if r.can_revert_here %}
@@ -219,7 +221,7 @@
         </td>
         <td>
           {% if r.revoked %}
-            <span class="tt-pill tt-pill--neutral">Revocada</span>
+            <span class="small text-body-secondary">Sin acciones en Caja</span>
           {% elif r.status == 'awaiting_payment' %}
             <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/caja/{{ r.id }}/pagar"
                   hx-target="#tt-cashier-body" hx-swap="outerHTML" hx-disabled-elt="find button"
