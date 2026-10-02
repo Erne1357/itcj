@@ -625,6 +625,27 @@ class TestCeldaDeConstanciaBiblioteca:
         _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
                            contiene=("Constancia previa (papel del egresado)",))
 
+    def test_legado_no_muestra_nada(self, client_as, db_session, caso):
+        """R5(b) (revisión de la Tarea 4): `via == 'legacy'` (backfill sin
+        Biblioteca/Caja/SE detrás, D17) -- la celda no tiene nada que
+        mostrar: ni folio, ni «Impresa»/«Sin imprimir»/«Anulada tras
+        imprimir», ni el texto de constancia previa. Mismo criterio de
+        ausencia que `test_library_inbox.py::
+        test_columna_constancia_en_legado_no_muestra_nada` (la bandeja),
+        aquí en las dos vistas de SE."""
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        clearance.status = "cleared"
+        clearance.cleared_via = "legacy"
+        db_session.flush()
+
+        _en_las_dos_vistas(
+            client_as, caso["officer"], caso["proc"].id,
+            no_contiene=("BIB-", "Impresa", "Sin imprimir", "Anulada tras imprimir",
+                        "Constancia previa (papel del egresado)"))
+
 
 class TestCeldaDeConstanciaEncuesta:
     def test_sin_imprimir_tras_liberar(self, client_as, db_session, caso, make_survey_review):
@@ -709,9 +730,48 @@ def revocado(db_session, seed_phase_defs, seed_document_types, make_program, mak
     return {"prog": prog, "officer": officer, "proc": proc}
 
 
+@pytest.fixture()
+def revocado_sin_fila(db_session, seed_phase_defs, seed_document_types, make_program,
+                      make_cohort, make_officer, make_student, make_process,
+                      make_appointment):
+    """R5(a) (revisión de la Tarea 4): mismo molde que `revocado`, pero SIN
+    NINGUNA fila de `LibraryClearance` (alta durante el blue/green, antes de
+    que exista la fila) -- `summary_for_process` da el pseudo-estado
+    `missing`, que la plantilla trata igual que `pending`
+    (`library.status in ('missing', 'pending')`), pero hasta ahora solo
+    `revocado` (con fila `pending`) tenía prueba."""
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria de la Celda Revocada Sin Fila")
+    cohort = make_cohort(book_donation_amount=Decimal("800.00"))
+    CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+    db_session.flush()
+    officer, _pos = make_officer([prog])
+    proc = make_process(make_student(), cohort=cohort, program=prog, current_phase=2,
+                        status="cancelled", library_clearance=None)
+    make_appointment(proc, status="attended", is_current=True)
+    return {"prog": prog, "officer": officer, "proc": proc}
+
+
 class TestProcesoRevocadoPildoraDeNoAdeudo:
     def test_pendiente_pinta_revocada_no_en_biblioteca(self, client_as, revocado):
         _en_las_dos_vistas(client_as, revocado["officer"], revocado["proc"].id,
+                           contiene=("Revocada",), no_contiene=("En Biblioteca",))
+
+    def test_pendiente_sin_fila_pinta_revocada_no_en_biblioteca(
+            self, client_as, revocado_sin_fila):
+        """R5(a): sin NINGUNA fila de `LibraryClearance` (pseudo-estado
+        `missing`, no solo `pending`) el proceso revocado debe seguir
+        pintando «Revocada», no «En Biblioteca» -- la prueba hermana de
+        arriba cubre `pending`; `missing` es la otra mitad del
+        `in ('missing', 'pending')` de la plantilla, sin prueba propia hasta
+        ahora."""
+        _en_las_dos_vistas(client_as, revocado_sin_fila["officer"],
+                           revocado_sin_fila["proc"].id,
                            contiene=("Revocada",), no_contiene=("En Biblioteca",))
 
     def test_ya_liberado_antes_de_revocar_conserva_su_pildora_y_constancia(
