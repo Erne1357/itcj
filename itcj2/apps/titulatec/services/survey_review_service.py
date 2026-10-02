@@ -197,24 +197,29 @@ class SurveyReviewService:
 
     @staticmethod
     def prior_conflict_reason(db: Session, process_id: int) -> str | None:
-        """Para un proceso en conflicto (`prior_outcome(db, process_id) ==
-        "conflict"`), el SUBMOTIVO exacto que la CLI de constancias previas
-        (`PriorClearanceService.import_rows`, D9 m39) necesita para no
-        imprimir un mensaje engañoso: `"revoked"` si GTV YA revocó una previa
-        de encuesta en este proceso (`_revoked_prior_event`, Ruling R30 #2 --
-        reimportar el mismo archivo no debe sonar como "ya envió la encuesta
-        de este semestre", sino "GTV la revocó, el egresado debe contestar de
-        nuevo"), o `"in_review"` si hay una solicitud real `in_review`/
-        `rejected` esperando revisión humana. `None` si el proceso NO está en
-        conflicto (`prior_outcome` daría `"apply"` o `"already"`).
+        """Por qué una constancia previa de encuesta choca con este proceso.
+        SOLO LECTURA. Devuelve:
 
-        Otra lectura de solo lectura permitida de `SurveyReview.status`/
-        `_revoked_prior_event` fuera de este service, igual que `prior_
-        outcome` (§5, invariante 2): `PriorClearanceService` llama aquí en
-        vez de leer el evento o el estado por su cuenta. No cambia el
-        dominio de retorno de `prior_outcome` -otros llamadores dependen de
-        esos tres valores (`apply`/`already`/`conflict`)-: esto es una
-        clasificación MÁS FINA, aparte, solo para el caso `conflict`."""
+        - `"revoked"`: GTV ya revocó una constancia previa en este proceso
+          (`_revoked_prior_event`, Ruling R30 #2) y la solicitud se borró;
+        - `"in_review"`: hay una solicitud real `in_review` o `rejected` que
+          espera la decisión de GTV;
+        - `None`: el proceso no está en conflicto (`prior_outcome` daría
+          `"apply"` o `"already"`).
+
+        La usa la importación de constancias previas
+        (`PriorClearanceService.import_rows`, m39) para que el motivo de un
+        conflicto diga la verdad: con `"revoked"` no es «ya envió la encuesta
+        de este semestre; lo decide GTV», sino «GTV revocó su constancia
+        previa; debe contestar la encuesta de egresados».
+
+        Vive aquí, en el dueño, por el invariante 2 (§5): solo este service
+        compara `SurveyReview.status` y lee el evento de revocación;
+        `PriorClearanceService` le pregunta a este método en vez de hacerlo
+        por su cuenta, igual que con `prior_outcome`. No cambia los tres
+        valores de `prior_outcome` (`apply`/`already`/`conflict`), de los que
+        dependen otros llamadores: es una clasificación más fina, aparte,
+        solo para `conflict`."""
         review = SurveyReviewService.get_for_process(db, process_id)
         if review is None:
             if SurveyReviewService._revoked_prior_event(db, process_id):
