@@ -468,16 +468,20 @@ class LibraryClearanceService:
         `NOT_APPLICABLE` = ya pasó su cotejo sin un no adeudo liberado, Ruling
         R21 -mismo criterio que `release_status`-), `via`, `debt`,
         `donation`, `total` (`Decimal` | None), `note` (la de Biblioteca),
-        `ready_at`, `paid_at`, `receipt`, `certificate_number` (la constancia
-        VIGENTE, nunca una anulada), `certificate` (Tarea 4 de
-        `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.4: el
-        dict COMPLETO de `CertificateService.print_status_map` para esta fila,
-        o `None`; `certificate_number` se DERIVA de ahí -- la plantilla pinta
-        la celda con `certificate_cell`), `prior_issued_on`, `prior_note`,
-        `can_revert`, `clearance_id`. Formatear es de quien pinta
-        (`format_amount`). Con `NOT_APPLICABLE` las vistas del egresado no
-        pintan nada y las de SE dicen «No aplica (cotejo ya liberado)» sin
-        ofrecer «Constancia previa…».
+        `ready_at`, `paid_at`, `receipt`, `certificate_number` (el folio de
+        la constancia VIGENTE, nunca una anulada:
+        `CertificateService.current_number`, UNA consulta barata),
+        `prior_issued_on`, `prior_note`, `can_revert`, `clearance_id`.
+        Formatear es de quien pinta (`format_amount`). Con `NOT_APPLICABLE`
+        las vistas del egresado no pintan nada y las de SE dicen «No aplica
+        (cotejo ya liberado)» sin ofrecer «Constancia previa…».
+
+        NO trae el estado de impresión (Ruling R14, revisión final de
+        `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.4):
+        este resumen también lo usan el tablero del egresado y «Mi cita»,
+        que no lo pintan. Las dos vistas de SE lo cuelgan ellas como
+        `certificate`, con UNA llamada a `CertificateService.print_status_map`
+        para encuesta y no adeudo juntos (refs de `certificate_ref`).
         """
         from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
@@ -488,12 +492,10 @@ class LibraryClearanceService:
             return {"status": NOT_APPLICABLE if no_aplica else "missing",
                     "via": None, "debt": None, "donation": None,
                     "total": None, "note": None, "ready_at": None, "paid_at": None,
-                    "receipt": None, "certificate_number": None, "certificate": None,
+                    "receipt": None, "certificate_number": None,
                     "prior_issued_on": None, "prior_note": None,
                     "can_revert": False, "clearance_id": None}
 
-        ref = _ref(row.id)
-        certificate = CertificateService.print_status_map(db, [ref])[ref]
         return {
             "status": NOT_APPLICABLE if no_aplica else row.status,
             "via": row.cleared_via,
@@ -504,13 +506,21 @@ class LibraryClearanceService:
             "ready_at": row.ready_at,
             "paid_at": row.paid_at,
             "receipt": row.receipt_number,
-            "certificate_number": certificate["number"] if certificate else None,
-            "certificate": certificate,
+            "certificate_number": CertificateService.current_number(db, _ref(row.id)),
             "prior_issued_on": row.prior_issued_on,
             "prior_note": row.prior_note,
             "can_revert": LibraryClearanceService.can_revert(db, row),
             "clearance_id": row.id,
         }
+
+    @staticmethod
+    def certificate_ref(clearance_id: int | None) -> str | None:
+        """El `source_ref` de las constancias BIB de la fila
+        `clearance_id` -el MISMO con que se emiten y anulan (`_ref`)-, o
+        `None` sin fila. Con él las dos vistas de SE piden la marca de
+        impresión en su UNA llamada a `CertificateService.print_status_map`
+        (Ruling R14); un ref que no existe no se pide."""
+        return _ref(clearance_id) if clearance_id is not None else None
 
     @staticmethod
     def can_revert(db: Session, clearance) -> bool:

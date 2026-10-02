@@ -28,7 +28,9 @@ las dos filas -encuesta y no adeudo- en estas MISMAS dos pantallas, y m42
 cobrar»- pinta «Revocada», nunca «En Biblioteca» ni «Por pagar en Caja». De
 la revisión final, en las mismas dos pantallas: una constancia vigente sin
 lote de un revocado dice «No se imprimirá (inscripción revocada)» (Ruling
-R13) y ninguna ofrece «Constancia previa…» a un revocado (M2).
+R13), ninguna ofrece «Constancia previa…» a un revocado (M2) y las dos
+celdas salen de UNA llamada a `print_status_map` por vista (Ruling R14,
+sección 9).
 """
 from __future__ import annotations
 
@@ -557,9 +559,10 @@ def _expediente(client_as, actor, proc_id):
 
 def _en_las_dos_vistas(client_as, actor, proc_id, *, contiene=(), no_contiene=()):
     """Pide atender y expediente y repite las MISMAS aserciones en los dos:
-    comparten fuente (`summary_for_process`) y macro (`certificate_cell`), así
-    que un hueco en una y no en la otra sería un error de cableado de la
-    plantilla, no de los datos."""
+    comparten fuente (`summary_for_process` más la UNA llamada a
+    `print_status_map` que cuelga `certificate`, Ruling R14) y macro
+    (`certificate_cell`), así que un hueco en una y no en la otra sería un
+    error de cableado de la plantilla, no de los datos."""
     for resp in (_atender(client_as, actor, proc_id), _expediente(client_as, actor, proc_id)):
         assert resp.status_code == 200, resp.text[:300]
         for texto in contiene:
@@ -935,3 +938,110 @@ def test_certificate_cell_revocada_solo_cambia_la_vigente_sin_lote():
     for info in (impresa, anulada):
         assert _celda(info, True) == _celda(info, False)
         assert "No se imprimirá" not in _celda(info, True)
+
+
+# ===========================================================================
+# 9. Ruling R14 (M3 + P2 de la revisión final): UNA lectura de la marca
+#    «impresa» por vista de SE. Cada vista hace UNA llamada a
+#    `print_status_map` con los refs de encuesta y no adeudo que EXISTAN y
+#    cuelga `certificate` en cada resumen; los `summary_for_process` ya no la
+#    pagan (también los usan el tablero del egresado, «Mi cita» y las páginas
+#    públicas). Antes (Tarea 4) era una llamada por resumen: hasta 4
+#    consultas por vista.
+# ===========================================================================
+@pytest.fixture()
+def espia(db_session, monkeypatch):
+    """Espía de `CertificateService.print_status_map` (delega en la real) y
+    de TODO el SQL que la sesión manda mientras dura la prueba."""
+    from types import SimpleNamespace
+
+    from sqlalchemy import event
+
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    original = CertificateService.print_status_map
+    llamadas, sentencias = [], []
+
+    def _espia(db, source_refs):
+        llamadas.append(sorted(source_refs))
+        return original(db, source_refs)
+
+    def _antes(_conn, _cursor, statement, *_a):
+        sentencias.append(statement)
+
+    monkeypatch.setattr(CertificateService, "print_status_map", staticmethod(_espia))
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", _antes)
+    try:
+        yield SimpleNamespace(llamadas=llamadas, sentencias=sentencias)
+    finally:
+        event.remove(bind, "before_cursor_execute", _antes)
+
+
+def _por_vista(client_as, actor, proc_id, espia):
+    """(nombre, llamadas, sentencias) de cada vista de SE, medidas por separado."""
+    for vista in (_atender, _expediente):
+        espia.llamadas.clear()
+        espia.sentencias.clear()
+        resp = vista(client_as, actor, proc_id)
+        assert resp.status_code == 200, resp.text[:300]
+        yield vista.__name__, list(espia.llamadas), list(espia.sentencias)
+
+
+def _de_la_marca(sentencias):
+    """Las consultas del estado de impresión: las únicas que tocan los lotes."""
+    return [s for s in sentencias if "titulatec_certificate_batches" in s]
+
+
+def _de_constancias(sentencias):
+    return [s for s in sentencias if "titulatec_certificates" in s]
+
+
+class TestUnaLecturaDeLaMarcaPorVista:
+    def test_una_llamada_con_los_dos_refs_y_a_lo_mas_2_consultas(
+            self, client_as, db_session, caso, make_survey_review, espia):
+        """Encuesta en revisión y no adeudo por pagar: NINGUNO tiene
+        constancia vigente, el peor caso de `print_status_map` (vigentes +
+        anuladas con lote = 2 consultas). Por vista: UNA llamada con los dos
+        refs y a lo más 2 consultas de la marca (las que tocan los lotes);
+        sobre `titulatec_certificates`, esas más el folio vigente del resumen
+        de biblioteca (`certificate_number`, que R14 conserva)."""
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+
+        review = make_survey_review(caso["proc"], status="in_review")
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        refs = sorted([f"survey_review:{review.id}", f"library_clearance:{clearance.id}"])
+
+        for nombre, llamadas, sentencias in _por_vista(client_as, caso["officer"],
+                                                       caso["proc"].id, espia):
+            assert llamadas == [refs], nombre
+            assert 1 <= len(_de_la_marca(sentencias)) <= 2, (nombre, _de_la_marca(sentencias))
+            assert len(_de_constancias(sentencias)) <= len(_de_la_marca(sentencias)) + 1, (
+                nombre, _de_constancias(sentencias))
+
+    def test_sin_solicitud_de_encuesta_solo_pide_el_no_adeudo(
+            self, client_as, db_session, caso, espia):
+        """El egresado no ha enviado la encuesta (pseudo-estado `missing`, sin
+        `review_id`): su ref no existe y no se pide; la celda de la encuesta
+        recibe `None` («—»)."""
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+
+        for nombre, llamadas, _sentencias in _por_vista(client_as, caso["officer"],
+                                                        caso["proc"].id, espia):
+            assert llamadas == [[f"library_clearance:{clearance.id}"]], nombre
+
+    def test_sin_solicitud_ni_fila_no_consulta_constancias(
+            self, client_as, revocado_sin_fila, espia):
+        """Ni solicitud de encuesta ni fila de no adeudo: la llamada va vacía
+        (`print_status_map([])` no toca la base) y no hay folio que buscar,
+        así que la vista no consulta constancias en absoluto."""
+        for nombre, llamadas, sentencias in _por_vista(
+                client_as, revocado_sin_fila["officer"], revocado_sin_fila["proc"].id, espia):
+            assert llamadas == [[]], nombre
+            assert not [s for s in sentencias if "titulatec_certificate" in s], nombre

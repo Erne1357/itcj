@@ -847,6 +847,52 @@ class TestPrintStatusMap:
 
 
 # ---------------------------------------------------------------------------
+# current_number -- folio vigente de UN origen, sin la marca (Ruling R14 de la
+# revisión final: `LibraryClearanceService.summary_for_process` lo usa para
+# `certificate_number`; la marca la cuelgan las vistas de SE)
+# ---------------------------------------------------------------------------
+class TestCurrentNumber:
+    def test_folio_de_la_vigente_en_una_consulta_sin_lotes(self, db_session, escenario, actor):
+        ref = _ref()
+        cert = CertificateService.issue(db_session, kind="library_clearance",
+                                        process=escenario["process"], source_ref=ref,
+                                        actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+
+        numero, selects = _contar_selects(
+            db_session, lambda: CertificateService.current_number(db_session, ref))
+
+        assert numero == cert.number
+        assert len(selects) == 1, "\n".join(selects)
+        assert "titulatec_certificate_batches" not in selects[0]
+
+    def test_anulada_da_none_aunque_se_haya_impreso(self, db_session, escenario, actor):
+        ref = _ref()
+        CertificateService.issue(db_session, kind="library_clearance",
+                                 process=escenario["process"], source_ref=ref,
+                                 actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id, reason="x")
+
+        assert CertificateService.current_number(db_session, ref) is None
+
+    def test_re_emitida_da_la_nueva(self, db_session, escenario, actor):
+        ref = _ref()
+        CertificateService.issue(db_session, kind="library_clearance",
+                                 process=escenario["process"], source_ref=ref,
+                                 actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id, reason="x")
+        nueva = CertificateService.issue(db_session, kind="library_clearance",
+                                         process=escenario["process"], source_ref=ref,
+                                         actor_id=actor.id)
+
+        assert CertificateService.current_number(db_session, ref) == nueva.number
+
+    def test_origen_sin_constancia_da_none(self, db_session):
+        assert CertificateService.current_number(db_session, _ref("nunca_existio")) is None
+
+
+# ---------------------------------------------------------------------------
 # voided_after_print -- anuladas que SÍ se imprimieron (Tarea 2, E6)
 # ---------------------------------------------------------------------------
 class TestVoidedAfterPrint:

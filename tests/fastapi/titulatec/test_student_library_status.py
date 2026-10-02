@@ -678,3 +678,61 @@ class TestNeedsDeLaFaseDeCotejo:
         assert ("Las constancias de no adeudo y de la encuesta las envían las "
                 "áreas a Servicios Escolares") in fila
         assert "si registraste una constancia previa, llévala" in fila
+
+
+# ===========================================================================
+# Ruling R14 (M3 de la revisión final): el tablero y «Mi cita» usan los dos
+# `summary_for_process`, pero la marca «impresa» de la constancia es de SE
+# (la cuelgan sus dos vistas con UNA llamada): aquí no se paga.
+# ===========================================================================
+class TestSinMarcaDeImpresion:
+    @pytest.fixture()
+    def escenario(self, db_session, seed_phase_defs, make_student, make_cohort,
+                  make_process, make_survey_review, make_library_clearance, make_user):
+        """Encuesta liberada y no adeudo pagado, cada uno con su constancia
+        VIGENTE emitida: lo que antes hacía que cada resumen llamara
+        `print_status_map`."""
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+        seed_phase_defs()
+        cohort = make_cohort()
+        _require_library(db_session, cohort)
+        student = make_student()
+        process = make_process(student, cohort=cohort, current_phase=2,
+                               library_clearance=None)
+        review = make_survey_review(process, status="approved")
+        fila = make_library_clearance(process, status="cleared", cleared_via="payment",
+                                      debt_amount=Decimal("300.00"),
+                                      donation_amount=Decimal("0.00"),
+                                      total_amount=Decimal("300.00"))
+        actor = make_user(first_name="EMISOR", last_name="R14")
+        for kind, ref in (("survey_release", f"survey_review:{review.id}"),
+                          ("library_clearance", f"library_clearance:{fila.id}")):
+            CertificateService.issue(db_session, kind=kind, process=process,
+                                     source_ref=ref, actor_id=actor.id)
+        return {"student": student, "process": process}
+
+    @pytest.mark.parametrize("url", [DASHBOARD, CITA], ids=["tablero", "mi-cita"])
+    def test_no_consulta_la_marca(self, db_session, escenario, client_as, monkeypatch, url):
+        from sqlalchemy import event
+
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+        llamadas, sentencias = [], []
+        monkeypatch.setattr(CertificateService, "print_status_map", staticmethod(
+            lambda db, refs: llamadas.append(list(refs)) or {}))
+
+        def _antes(_conn, _cursor, statement, *_a):
+            sentencias.append(statement)
+
+        bind = db_session.get_bind()
+        event.listen(bind, "before_cursor_execute", _antes)
+        try:
+            resp = client_as(escenario["student"]).get(url)
+        finally:
+            event.remove(bind, "before_cursor_execute", _antes)
+
+        assert resp.status_code == 200, resp.text[:400]
+        assert "Liberado" in resp.text, "control: la página sí pinta el no adeudo"
+        assert llamadas == []
+        assert not [s for s in sentencias if "titulatec_certificate_batches" in s]

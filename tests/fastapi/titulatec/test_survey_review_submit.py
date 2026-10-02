@@ -389,6 +389,47 @@ def test_GET_con_solicitud_pinta_tarjeta_de_estatus_sin_prellenado(
     assert len(_responses(db_session, process_id=proc.id)) == 1   # la de la fixture
 
 
+def test_GET_con_solicitud_no_consulta_constancias(
+    client_as, make_student, make_process, make_cohort, make_survey_review, make_user,
+    db_session, monkeypatch,
+):
+    """Ruling R14 (M3 de la revisión final): la tarjeta de estatus pública
+    no pinta la constancia, así que `_solicitud_existente` ->
+    `SurveyReviewService.summary_for_process` ya no llama `print_status_map`
+    ni toca `titulatec_certificates`/`titulatec_certificate_batches`, aun con
+    la constancia `survey_release` emitida. Las otras tres rutas públicas de
+    la encuesta pasan por el MISMO `_solicitud_existente`."""
+    from sqlalchemy import event
+
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    student = make_student()
+    proc = make_process(student, cohort=make_cohort())
+    review = make_survey_review(proc, status="approved")
+    CertificateService.issue(db_session, kind="survey_release", process=proc,
+                             source_ref=f"survey_review:{review.id}",
+                             actor_id=make_user(first_name="GTV", last_name="R14").id)
+    db_session.commit()
+    llamadas, sentencias = [], []
+    monkeypatch.setattr(CertificateService, "print_status_map", staticmethod(
+        lambda db, refs: llamadas.append(list(refs)) or {}))
+
+    def _antes(_conn, _cursor, statement, *_a):
+        sentencias.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", _antes)
+    try:
+        resp = client_as(student).get(SURVEY_URL, follow_redirects=False)
+    finally:
+        event.remove(bind, "before_cursor_execute", _antes)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert 'data-tt-review-status="approved"' in resp.text, "control: tarjeta con solicitud"
+    assert llamadas == []
+    assert not [s for s in sentencias if "titulatec_certificate" in s], sentencias
+
+
 def test_GET_con_observaciones_da_el_contacto_de_servicio_externo(
     client_as, make_student, make_process, make_cohort, make_survey_review,
     db_session,

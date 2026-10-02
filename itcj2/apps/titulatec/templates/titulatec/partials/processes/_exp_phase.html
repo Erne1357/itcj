@@ -163,8 +163,10 @@
              de `SurveyReviewService.summary_for_process`, igual que en el
              panel de atender (`_appt_attend.html`, Tarea 4). `certificate_cell`
              (Tarea 4, §3.4) pinta si la constancia `survey_release` ya se
-             imprimió -- MISMA fuente (`survey.certificate`) que la bandeja
-             de GTV. Con el proceso `cancelled`, una vigente sin lote dice
+             imprimió -- MISMA fuente (`print_status_map`) que la bandeja de
+             GTV: `survey.certificate` lo cuelga `pages/admin.py::_detail_ctx`
+             con UNA llamada para las dos filas (Ruling R14). Con el proceso
+             `cancelled`, una vigente sin lote dice
              «No se imprimirá (inscripción revocada)» (Ruling R13,
              `revoked=`). #}
           <div class="tt-req-meta">

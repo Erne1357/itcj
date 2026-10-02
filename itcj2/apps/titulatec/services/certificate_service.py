@@ -13,11 +13,14 @@ partir de los datos ya CONGELADOS en cada fila, siempre que haga falta.
 Desde la Tarea 2 de `2026-10-02-titulatec-constancias-y-pendientes-design.md`
 (§3.2, E1/E6/E7, §5 invariante 4) también es el ÚNICO lugar que calcula el
 ESTADO DE IMPRESIÓN: `print_status_map` (por `source_ref`, hasta 2 consultas
-por llamada — lo consumen las bandejas de Biblioteca/GTV y las vistas de SE)
-y `voided_after_print` (por `kind`, para la página de Constancias). Las dos
-son de solo lectura y nunca tocan `TitulationProcess` (salvo
-`_pending_criteria`, ya existente) ni ninguna tabla de liberación — eso lo
-cuidan `LibraryClearanceService`/`SurveyReviewService`/`ClearanceGate`.
+por llamada — lo consumen las bandejas de Biblioteca/GTV, UNA llamada por
+página, y las dos vistas de SE, UNA llamada por vista para encuesta y no
+adeudo juntos, Ruling R14) y `voided_after_print` (por `kind`, para la página
+de Constancias). Las dos son de solo lectura y nunca tocan `TitulationProcess`
+(salvo `_pending_criteria`, ya existente) ni ninguna tabla de liberación — eso
+lo cuidan `LibraryClearanceService`/`SurveyReviewService`/`ClearanceGate`. El
+folio vigente SIN la marca (`current_number`, una consulta, igual de solo
+lectura) es para el `certificate_number` del resumen de biblioteca.
 
 Reglas fijas, iguales a `SurveyReviewService`:
 
@@ -232,6 +235,30 @@ class CertificateService:
             .scalar()
         )
         return total or 0
+
+    @staticmethod
+    def current_number(db: Session, source_ref: str) -> str | None:
+        """Folio de la constancia VIGENTE de `source_ref` (`voided_at IS
+        NULL`; a lo más una por origen, índice parcial
+        `uq_titulatec_certificates_live_source`), o `None` -nunca el de una
+        anulada, aunque se haya impreso-. UNA consulta barata sobre
+        `titulatec_certificates`, sin lotes ni marca de impresión: la usa
+        `LibraryClearanceService.summary_for_process` para su
+        `certificate_number` (Ruling R14, revisión final de
+        `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.4: el
+        resumen ya no paga `print_status_map`; la marca la cuelgan las dos
+        vistas de SE con UNA llamada). Solo lectura; no lee
+        `TitulationProcess` ni ninguna tabla de liberación (invariante 4)."""
+        from itcj2.apps.titulatec.models.certificate import Certificate
+
+        fila = (
+            db.query(Certificate.number)
+            .filter(Certificate.source_ref == source_ref,
+                    Certificate.voided_at.is_(None))
+            .order_by(Certificate.id.desc())
+            .first()
+        )
+        return fila[0] if fila is not None else None
 
     # ------------------------------------------------------- estado de impresión
     @staticmethod

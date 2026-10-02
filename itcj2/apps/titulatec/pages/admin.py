@@ -1675,6 +1675,23 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     )
     library = LibraryClearanceService.summary_for_process(db, process_id)
 
+    # Celda «Constancia» de las dos filas (Ruling R14, revisión final de
+    # `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.4): UNA
+    # llamada a `print_status_map` para encuesta y no adeudo juntos -a lo más
+    # 2 consultas por vista, invariante 2- con los refs que EXISTAN (sin
+    # solicitud o sin fila no se pide nada), colgada como `certificate` en
+    # cada resumen (`None` si no aplica). Los `summary_for_process` no la
+    # consultan: también los usan el tablero del egresado, «Mi cita» y las
+    # páginas públicas. MISMO bloque que `pages/appointments.py::_detail_ctx`.
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    ref_encuesta = SurveyReviewService.certificate_ref(survey["review_id"])
+    ref_biblioteca = LibraryClearanceService.certificate_ref(library["clearance_id"])
+    impresion = CertificateService.print_status_map(
+        db, [ref for ref in (ref_encuesta, ref_biblioteca) if ref])
+    survey["certificate"] = impresion.get(ref_encuesta)
+    library["certificate"] = impresion.get(ref_biblioteca)
+
     # ---- bitácora de correos al egresado (spec 2026-09-28 §7, D11) ----
     #
     # Solo lectura, sin reenviar. UNA consulta (`StudentMail.history`, ya
