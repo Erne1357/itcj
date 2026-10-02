@@ -693,11 +693,14 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
     3. Regresó a Caja y ya no tiene pago pendiente (`payment_due`: también
        con la fase 2 ya aprobada, Ruling R30 #4).
     4. Regresó a Biblioteca y Biblioteca ya no revisará su caso
-       (`LibraryClearanceService.reviewable`, m40: su fase 2 ya se aprobó
-       -Ruling R20-, p. ej. en una convocatoria sin candado antes de que
-       saliera el correo): «El Centro de Información volverá a revisar tu
-       caso» sería falso. Cada rama le pregunta al dueño (`payment_due`,
-       `reviewable`); aquí no se compara ningún estado (invariante 2).
+       (`LibraryClearanceService.reviewable` falso: proceso no admitido o
+       fase 2 ya aprobada, Ruling R20). Al componer, en la práctica es la
+       fase 2 aprobada (m40; p. ej. en una convocatoria sin candado, antes de
+       que saliera el correo): el revocado lo descarta antes el despachador
+       y un proceso concluido ya la aprobó. «El Centro de Información volverá
+       a revisar tu caso» sería falso. Cada rama le pregunta al dueño
+       (`payment_due`, `reviewable`); aquí no se compara ningún estado
+       (invariante 2).
 
     Volver a pasar a Caja después NO lo vuelve obsoleto: el motivo de la
     reversión sigue siendo la explicación, y el aviso de Caja sale aparte."""
