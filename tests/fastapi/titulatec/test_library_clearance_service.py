@@ -1130,6 +1130,71 @@ class TestPagoPendiente:
 
 
 # ---------------------------------------------------------------------------
+# ¿Biblioteca todavía revisa su caso? (m40, spec 2026-10-02 §3.7): el
+# predicado del dueño con el que el correo de la reversión a Biblioteca se
+# vuelve obsoleto sin que `mail_compose.py` compare estados (invariante 2)
+# ---------------------------------------------------------------------------
+class TestRevisable:
+    @pytest.mark.parametrize("process_status, phase, fase2, revisable", [
+        ("active", 1, None, True),               # Biblioteca revisa desde la fase 1 (D3)
+        ("active", 2, None, True),               # fase 2 en curso
+        ("active", 2, "rejected", True),         # con observaciones vuelve a agendar
+        ("on_hold", 2, None, True),              # en pausa Biblioteca SÍ opera
+        ("active", 3, None, False),              # ya pasó su cotejo (Ruling R20)
+        ("cancelled", 2, None, False),           # revocado
+        ("completed", 9, None, False),           # terminó
+    ], ids=["fase-1", "fase-2-en-curso", "fase-2-rechazada", "en-pausa",
+            "cotejo-aprobado", "revocado", "terminado"])
+    def test_admitido_y_sin_la_fase_2_aprobada(self, db_session, nuevo, process_status,
+                                               phase, fase2, revisable):
+        """Lo mismo que «Por revisar» (`_reviewable_clause`): proceso admitido
+        Y fase 2 sin aprobar. Sin mirar el estado de la fila de no adeudo."""
+        esc = nuevo(status="pending", process_status=process_status, phase=phase)
+        if fase2 is not None:
+            _fase2(db_session, esc.process, fase2)
+
+        assert LibraryClearanceService.reviewable(db_session, esc.process.id) is revisable
+
+    def test_sin_fila_de_no_adeudo_tambien_responde(self, db_session, nuevo):
+        """Pregunta por el PROCESO, no por la fila: sin fila (alta durante el
+        blue/green) Biblioteca igual lo revisaría."""
+        esc = nuevo(status=None, phase=2)
+
+        assert LibraryClearanceService.reviewable(db_session, esc.process.id) is True
+
+    def test_proceso_inexistente_falla_cerrado(self, db_session):
+        assert LibraryClearanceService.reviewable(db_session, 987654321) is False
+
+    def test_dice_lo_mismo_que_la_clausula_de_por_revisar(self, db_session, nuevo):
+        """Gemela en Python de `_reviewable_clause` (la de la bandeja): parten
+        los MISMOS casos, para que el correo nunca prometa «volverá a revisar
+        tu caso» a quien Biblioteca no ve en «Por revisar»."""
+        from itcj2.apps.titulatec.models import TitulationProcess
+
+        casos = [nuevo(status="pending", phase=1),
+                 nuevo(status="pending", phase=2, process_status="on_hold"),
+                 nuevo(status="awaiting_payment", phase=3, debt_amount=ADEUDO,
+                       donation_amount=DONACION, total_amount=ADEUDO + DONACION),
+                 nuevo(status="cleared", phase=2, process_status="cancelled"),
+                 nuevo(status="pending", phase=9, process_status="completed")]
+        ids = [esc.process.id for esc in casos]
+
+        en_python = {pid for pid in ids if LibraryClearanceService.reviewable(db_session, pid)}
+        en_sql = {pid for (pid,) in (
+            db_session.query(TitulationProcess.id)
+            .filter(TitulationProcess.id.in_(ids),
+                    LibraryClearanceService._reviewable_clause()))}
+
+        assert en_python == en_sql == {casos[0].process.id, casos[1].process.id}
+
+    def test_no_commitea(self, db_session, nuevo, monkeypatch):
+        esc = nuevo(status="pending", phase=2)
+        monkeypatch.setattr(db_session, "commit",
+                            lambda: pytest.fail("reviewable no debe commitear"))
+        LibraryClearanceService.reviewable(db_session, esc.process.id)
+
+
+# ---------------------------------------------------------------------------
 # Lote «Sin adeudo» (D10)
 # ---------------------------------------------------------------------------
 class TestLoteSinAdeudo:

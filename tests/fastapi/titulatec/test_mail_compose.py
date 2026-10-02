@@ -1260,6 +1260,52 @@ def test_reversion_con_motivo_y_que_sigue(db_session, con_biblioteca, hacia, fra
         assert frase in texto, frase
 
 
+def test_reversion_a_biblioteca_obsoleta_con_el_cotejo_ya_aprobado(db_session, proceso):
+    """m40 (spec 2026-10-02 §3.7): la rama `pending` también se re-valida
+    contra la fase 2. El caso del triage: convocatoria SIN candado, Biblioteca
+    revierte (a `pending`) y la fase 2 se aprueba por otra vía antes de que el
+    despachador mande el correo. «El Centro de Información volverá a revisar
+    tu caso» ya es falso -a quien pasó su cotejo Biblioteca ya no lo revisa,
+    Ruling R20-: obsoleto, por el predicado del dueño
+    (`LibraryClearanceService.reviewable`), sin comparar estados aquí."""
+    from itcj2.apps.titulatec.models import LibraryClearance
+    from itcj2.apps.titulatec.services.mail_compose import Composed, Obsolete
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = proceso(fase=2)
+    _liberado_que_salio(db_session, proc)
+    fila = db_session.query(LibraryClearance).filter_by(process_id=proc.id).one()
+    fila.status, fila.cleared_via = "pending", None
+    db_session.flush()
+    StudentMail.library_reverted(db_session, proc, reason="Sí debía un libro",
+                                 to_status="pending")
+    assert isinstance(_componer(db_session, proc), Composed), "antes, sí aplica"
+
+    _fase_2(db_session, proc, "approved")
+
+    assert _componer(db_session, proc) == Obsolete(
+        "Biblioteca ya no revisará su caso: ya pasó su cotejo")
+
+
+def test_reversion_a_caja_obsoleta_con_el_cotejo_ya_aprobado(db_session, con_biblioteca):
+    """La otra rama, ya cubierta desde el Ruling R32 y sin prueba propia hasta
+    ahora: con la fase 2 aprobada `payment_due` es `None` (Ruling R30 #4), así
+    que la reversión a Caja sale obsoleta con el MISMO motivo que «ya no
+    debe» -este módulo no pregunta nada aparte-."""
+    from itcj2.apps.titulatec.services.mail_compose import Composed, Obsolete
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca="awaiting_payment")
+    _liberado_que_salio(db_session, proc, via="payment")
+    StudentMail.library_reverted(db_session, proc, reason="Pago duplicado",
+                                 to_status="awaiting_payment")
+    assert isinstance(_componer(db_session, proc), Composed), "antes, sí aplica"
+
+    _fase_2(db_session, proc, "approved")
+
+    assert _componer(db_session, proc) == Obsolete("ya no tiene un pago pendiente en Caja")
+
+
 def test_reversion_obsoleta_si_se_volvio_a_liberar(db_session, proceso):
     from itcj2.apps.titulatec.services.mail_compose import Obsolete
     from itcj2.apps.titulatec.services.student_mail import StudentMail

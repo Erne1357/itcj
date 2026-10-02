@@ -397,6 +397,30 @@ class LibraryClearanceService:
                     LibraryClearanceService._phase2_open_clause())
 
     @staticmethod
+    def reviewable(db: Session, process_id: int) -> bool:
+        """¿Biblioteca todavía revisa el no adeudo de este proceso? SOLO
+        LECTURA: el proceso existe, está admitido (`active`/`on_hold`) y su
+        fase 2 (la cita de cotejo) NO está `approved` -Ruling R20: a quien
+        ya pasó su cotejo no se le abre trámite de no adeudo-. Es la gemela
+        en Python de `_reviewable_clause` («Por revisar»): exactamente a
+        quien `register`, el lote y la constancia previa aceptarían. No mira
+        la fila de no adeudo (pregunta por el proceso; sin fila también
+        responde). Un id sin proceso es `False` (falla cerrado).
+
+        Para el correo de la reversión a Biblioteca (m40,
+        `mail_compose._compose_library_reverted`): «El Centro de Información
+        volverá a revisar tu caso» solo es cierto mientras esto sea `True`.
+        Con la fase 2 ya aprobada el correo sale `Obsolete` sin que
+        `mail_compose.py` compare estados (invariante 2): la misma forma que
+        `payment_due` le da a la reversión a Caja."""
+        from itcj2.apps.titulatec.models import TitulationProcess
+
+        process = db.get(TitulationProcess, process_id)
+        return (process is not None
+                and process.status in ADMITTED_PROCESS_STATUSES
+                and not LibraryClearanceService._phase2_approved(db, process_id))
+
+    @staticmethod
     def release_status_map(db: Session, process_ids: list[int]) -> dict[int, str]:
         """`release_status` de varios procesos EN UNA consulta (filas de la
         cola): el proceso con su fila de no adeudo y su fase 2, los dos por
@@ -1603,7 +1627,9 @@ class LibraryClearanceService:
         Y que todavía no pasó su cotejo (Ruling R20) -- exactamente a quien
         `register`/el lote sí aceptarían. Lista, contador y aviso de donación
         comparten este predicado, para que ninguno anuncie lo que la tabla no
-        muestra."""
+        muestra. Su gemela en Python, para UN proceso, es `reviewable` (el
+        correo de la reversión a Biblioteca); las dos parten los mismos
+        casos (`test_library_clearance_service.py::TestRevisable`)."""
         from sqlalchemy import and_
 
         from itcj2.apps.titulatec.models import TitulationProcess

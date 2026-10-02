@@ -33,7 +33,9 @@ CONTRATO DE `MailComposer.compose(db, rows, process, user)`:
   estado VIVO; lo arma UN solo ayudante, `_que_falta`, y las liberaciones las
   decide SOLO `ClearanceGate` (invariante 2): aquí no se compara ningún
   estado de `SurveyReview` ni de `LibraryClearance`. Lo que el egresado debe
-  en Caja lo lee el dueño (`LibraryClearanceService.payment_due`).
+  en Caja lo lee el dueño (`LibraryClearanceService.payment_due`), y si
+  Biblioteca todavía revisa su caso, también (`LibraryClearanceService.
+  reviewable`).
 - Orden de los eventos de un grupo: `(created_at, id)`. Las filas de una misma
   transacción comparten `NOW()` y el id desempata.
 - Filas que no van juntas (de otro proceso o alumno, de dos grupos, varias
@@ -690,6 +692,12 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
        (`_compose_library_cleared`): liberar y revertir no manda nada.
     3. Regresó a Caja y ya no tiene pago pendiente (`payment_due`: también
        con la fase 2 ya aprobada, Ruling R30 #4).
+    4. Regresó a Biblioteca y Biblioteca ya no revisará su caso
+       (`LibraryClearanceService.reviewable`, m40: su fase 2 ya se aprobó
+       -Ruling R20-, p. ej. en una convocatoria sin candado antes de que
+       saliera el correo): «El Centro de Información volverá a revisar tu
+       caso» sería falso. Cada rama le pregunta al dueño (`payment_due`,
+       `reviewable`); aquí no se compara ningún estado (invariante 2).
 
     Volver a pasar a Caja después NO lo vuelve obsoleto: el motivo de la
     reversión sigue siendo la explicación, y el aviso de Caja sale aparte."""
@@ -711,6 +719,8 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
         if pago is None:
             return Obsolete("ya no tiene un pago pendiente en Caja")
         total = format_amount(pago["total"]) or None
+    elif not LibraryClearanceService.reviewable(db, process.id):
+        return Obsolete("Biblioteca ya no revisará su caso: ya pasó su cotejo")
     return _correo(user, _ASUNTO_REVERTIDO, "library_reverted.html",
                    _tablero(PhaseService.PHASE_COTEJO),
                    to_status=hacia, reason=_texto(datos.get("reason")), total=total)
