@@ -150,6 +150,52 @@ def test_tres_ranuras_en_la_hoja_llevan_dos_lineas_de_corte():
     assert html.count('class="cut"') == 2
 
 
+def test_slot_foot_se_ancla_al_fondo_con_posicion_absoluta():
+    """Ruling R1 (fix round 1): WeasyPrint 70 tiene soporte PARCIAL de flex
+    -- el truco `margin-top: auto` (para empujar un hijo al fondo de un
+    contenedor `flex-direction: column`) no tenía efecto ahí: el pie
+    («Fecha de emisión» / «Nombre, firma y sello») quedaba pegado justo
+    debajo de la tabla de datos, con el resto de la ranura en blanco por
+    debajo (hasta ~55% vacío en 2 por hoja) y SIN espacio arriba de la línea
+    para firmar y sellar -- confirmado visualmente corriendo
+    `.superpowers/sdd/2026-10-02-titulatec-constancias-y-pendientes/
+    render_sample.py` y leyendo `sample_2xhoja.pdf`/`sample_3xhoja.pdf` con
+    el visor de PDF (ver el report del fix para el detalle).
+
+    No se fija con las coordenadas que entrega pypdf: se probó y no son una
+    base confiable para ESTA plantilla (WeasyPrint aísla cada `.slot` --
+    `overflow: hidden` + posicionamiento absoluto -- en su propio espacio de
+    transformación; los valores de `PageObject.extract_text(visitor_text=
+    ...)` caen FUERA del `mediabox` de la página, ~980pt en una página de
+    792pt de alto). Se fija en cambio el MECANISMO -el CSS mismo, leído del
+    `<style>` de `sheet.html` vía el loader de Jinja, sin pasar por
+    WeasyPrint-: `.slot` sigue siendo `position: relative` (ya lo era) y
+    `.slot-foot` depende de `position: absolute` anclada con `bottom`,
+    nunca de `margin-top: auto`."""
+    import re
+
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+
+    source, _, _ = titulatec_templates.env.loader.get_source(
+        titulatec_templates.env, "titulatec/certificates/sheet.html")
+    style = source.split("<style>", 1)[1].split("</style>", 1)[0]
+    style = re.sub(r"/\*.*?\*/", "", style, flags=re.DOTALL)   # sin comentarios CSS
+
+    # selector EXACTO -> cuerpo de la regla; distingue `.slot-foot` de
+    # `.sheet--2 .slot-foot` (que solo ajusta el tamaño de letra).
+    rules = {sel.strip(): body for sel, body in
+             re.findall(r"([^{}]+)\{([^{}]*)\}", style)}
+
+    slot = rules[".slot"]
+    assert "position" in slot and "relative" in slot, slot
+
+    pie = rules.get(".slot-foot")
+    assert pie is not None, "no se encontró la regla .slot-foot en sheet.html"
+    assert "position" in pie and "absolute" in pie, pie
+    assert "bottom" in pie, pie
+    assert "margin-top" not in pie, pie
+
+
 @pytest.mark.parametrize("per_page", [2, 3])
 def test_constancia_anulada_lleva_el_sello_en_los_dos_acomodos(per_page):
     certs = [_cert(voided_at=datetime(2026, 9, 29, 9, 0, 0))]

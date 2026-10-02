@@ -136,12 +136,29 @@
     white-space: nowrap;
     width: 1.1in;
   }
+  /* Pie (fecha de emisión + firma) ANCLADO AL FONDO de la ranura con
+     POSICIÓN ABSOLUTA -- no con el truco de flex `margin-top: auto`
+     (Ruling R1, fix round 1): WeasyPrint 70 tiene soporte PARCIAL de flex y
+     ese truco no empujaba nada: el pie quedaba pegado justo debajo de la
+     tabla de datos, con el resto de la ranura en blanco por debajo (hasta
+     ~55% de la ranura vacío en 2 por hoja) y SIN espacio arriba de la línea
+     para firmar y sellar.
+
+     `.slot` ya es `position: relative`: el cuadro de contención de un hijo
+     absoluto es la PADDING BOX del ancestro posicionado (no su content box),
+     así que `left`/`right`/`bottom` repiten el padding de `.slot`
+     (`0.14in 0.2in`) para que el pie quede exactamente donde quedaría un
+     hijo normal con ese mismo padding -- en los dos acomodos, el hueco entre
+     la tabla y la línea de firma es justo el espacio libre que sobra arriba
+     del pie. */
   .slot-foot {
+    position: absolute;
+    left: 0.2in;
+    right: 0.2in;
+    bottom: 0.14in;
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
-    margin-top: auto;
-    padding-top: 0.08in;
     font-size: 8.5pt;
   }
   .signature { text-align: center; }

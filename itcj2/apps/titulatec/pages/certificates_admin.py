@@ -272,10 +272,10 @@ def batch_pdf(
     final): WeasyPrint es CPU bloqueante -medido en el contenedor: 30
     constancias 1.7 s, 300 constancias 14.6 s- y en una `async def`
     congelaba el event loop del worker HTTP entero (de TODA la plataforma,
-    no solo de TitulaTec) en cada «Ver PDF». En `def`, FastAPI la corre en su
-    threadpool, igual que `appointments.move` con el `FOR UPDATE` de
-    `SlotService`. No lee el cuerpo de la petición, así que no necesita
-    `await request.form()`."""
+    no solo de TitulaTec) en cada «PDF · 3 por hoja»/«PDF · 2 por hoja». En
+    `def`, FastAPI la corre en su threadpool, igual que `appointments.move`
+    con el `FOR UPDATE` de `SlotService`. No lee el cuerpo de la petición,
+    así que no necesita `await request.form()`."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import CertificateBatch
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
