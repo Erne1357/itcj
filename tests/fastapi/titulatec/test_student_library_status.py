@@ -408,6 +408,56 @@ class TestR12CitaVigenteNoPrometeAgendar:
         assert resp.status_code == 200, resp.text[:400]
         assert _PROMETE_AGENDAR not in resp.text
 
+    def test_el_caso_attended_con_biblioteca_pendiente_no_relee_la_fase_2(
+        self, db_session, escenario, make_library_clearance, make_appointment,
+    ):
+        """m37 (Tarea 9, 2026-10-02-titulatec-constancias-y-pendientes): mismo
+        camino que la prueba anterior -`attended` sin veredicto, bloqueo de
+        biblioteca con cita vigente (R12/R18)-, pero contando SELECTs sobre
+        `_agenda_ctx` DIRECTO (mismo patrón que `test_student_dashboard_
+        accordion.py::test_el_contexto_no_hace_una_consulta_por_fase`).
+
+        Antes del fix, `eligibility` ya leía la fase 2 UNA vez (reglas 2/5,
+        `_fase_cotejo_status`) y, en ESTE caso -- `reason` de biblioteca con
+        una cita que ocupa el cotejo --, `cita_ocupa_el_cotejo` la volvía a
+        leer para decidir si el mensaje es el de R12. Dos SELECT a la MISMA
+        fila de `ProcessPhase` por la misma carga de "Mi cita". El fix le
+        pasa a `cita_ocupa_el_cotejo` el status que `eligibility` YA leyó
+        (`elig["fase2_status"]`), así que la cuenta baja en uno."""
+        from sqlalchemy import event
+
+        from itcj2.apps.titulatec.pages.student import (
+            _LIBRARY_BLOCK_WITH_CITA_MSG, _agenda_ctx,
+        )
+
+        make_library_clearance(escenario["process"], status="pending")
+        make_appointment(escenario["process"], status="attended")
+
+        selects = []
+
+        def _count(conn, cursor, statement, params, context, executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                selects.append(statement)
+
+        bind = db_session.get_bind()
+        event.listen(bind, "before_cursor_execute", _count)
+        try:
+            ctx = _agenda_ctx(db_session, escenario["process"])
+        finally:
+            event.remove(bind, "before_cursor_execute", _count)
+
+        assert ctx["message"] == _LIBRARY_BLOCK_WITH_CITA_MSG
+        # Presupuesto (medido con el contador): cita vigente -1- +
+        # cancelaciones -2, `cancellations()` se llama dos veces, una desde
+        # `is_blocked_by_cancellations`, preexistente y fuera del alcance de
+        # m37- + `ClearanceGate.status_map` -4: procesos, requisito, encuesta,
+        # biblioteca- + fase 2 -1 sola vez, `_fase_cotejo_status`- = 8.
+        # `offer()` no agrega ninguna aquí: el proceso de este escenario no
+        # tiene `program_id`, así que `_offerable_windows` corta ANTES de
+        # consultar `CohortReviewDay`/`ReviewWindow` (fail-closed). Antes del
+        # fix eran 9: `cita_ocupa_el_cotejo` releía la fase 2 por su cuenta.
+        assert len(selects) <= 8, "\n".join(selects)
+
     def test_con_cita_no_show_si_promete_agendar_normalmente(
         self, db_session, escenario, make_library_clearance, make_appointment, client_as,
     ):

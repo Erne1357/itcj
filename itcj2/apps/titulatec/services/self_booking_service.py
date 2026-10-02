@@ -58,6 +58,13 @@ from itcj2.core.utils.timezone import db_now
 # revalidación de `book`, así que publicar sigue siendo un acto deliberado.
 _VISIBLES: tuple[str, ...] = ("bookable", "walkin")
 
+# Centinela privado de `cita_ocupa_el_cotejo` (m37, Tarea 9 de
+# 2026-10-02-titulatec-constancias-y-pendientes): «no me pasaron el status de
+# fase 2, consúltalo tú». No puede ser `None` -ese SÍ es un valor real y
+# distinto: el proceso todavía no tiene fila de `ProcessPhase` para el cotejo
+# (ver `_fase_cotejo_status`)-.
+_FASE2_NO_PROVISTA = object()
+
 
 def _nombre(user) -> str:
     """Nombre del encargado para el anuncio del espacio.
@@ -231,7 +238,7 @@ class SelfBookingService:
         return fila.status if fila is not None else None
 
     @staticmethod
-    def cita_ocupa_el_cotejo(db: Session, proc, current) -> bool:
+    def cita_ocupa_el_cotejo(db: Session, proc, current, fase2_status=_FASE2_NO_PROVISTA) -> bool:
         """¿La cita VIGENTE (`current`, el resultado de `AppointmentService.
         get_for_process`, o `None`) sigue OCUPANDO el cotejo -el egresado NO
         necesita (ni puede) agendar otra ahora mismo-?
@@ -257,6 +264,20 @@ class SelfBookingService:
         `current` YA resuelto -no vuelve a consultar `ReviewAppointment`-
         porque los dos llamadores (y `eligibility`) ya lo tienen a mano; una
         tercera consulta por el mismo dato sería puro N+1.
+
+        `fase2_status`, opcional (m37, Tarea 9 de 2026-10-02-titulatec-
+        constancias-y-pendientes): el status de `ProcessPhase` del cotejo YA
+        LEÍDO por el llamador (`_fase_cotejo_status`), para el único camino
+        que lo necesita -`current.status == "attended"`-. `eligibility` ya lo
+        lee SIEMPRE (reglas 2/5) y lo expone en su dict de retorno
+        (`elig["fase2_status"]`); `_agenda_ctx` se lo pasa aquí para no
+        volver a consultar la MISMA fila de `ProcessPhase` que `eligibility`
+        acaba de leer -el N+1 que describe m37-. Por omisión -el centinela
+        `_FASE2_NO_PROVISTA`, nunca `None`: un proceso SIN fila de fase 2 es
+        un caso real y distinto de «no me lo pasaron»- se consulta aquí
+        mismo, como siempre: `mail_compose.py::_que_falta` y cualquier otro
+        llamador que no lo tenga a mano siguen funcionando IGUAL, sin tocar
+        su firma.
         """
         from itcj2.apps.titulatec.services.appointment_service import _ESTADOS_ACTIVOS
 
@@ -264,8 +285,11 @@ class SelfBookingService:
             return False
         if current.status in _ESTADOS_ACTIVOS:
             return True
-        return (current.status == "attended"
-                and SelfBookingService._fase_cotejo_status(db, proc) != "rejected")
+        if current.status != "attended":
+            return False
+        if fase2_status is _FASE2_NO_PROVISTA:
+            fase2_status = SelfBookingService._fase_cotejo_status(db, proc)
+        return fase2_status != "rejected"
 
     @staticmethod
     def eligibility(db: Session, process_id: int) -> dict:
@@ -277,7 +301,11 @@ class SelfBookingService:
         regla del auto-agendado del 2026-09-15)
 
         Devuelve `{can_book, can_walkin, reason, cancellations,
-        blocked_by_cancellations, current, library_total}`.
+        blocked_by_cancellations, current, library_total, fase2_status}`.
+        `fase2_status` es el status de `ProcessPhase` del cotejo que las
+        reglas 2/5 YA leyeron (`_fase_cotejo_status`): se expone para que
+        `_agenda_ctx` se lo pase a `cita_ocupa_el_cotejo` sin releerlo (m37,
+        Tarea 9 de 2026-10-02-titulatec-constancias-y-pendientes).
 
         **El ORDEN de evaluación es parte del contrato**: la primera regla que
         falla es la que se reporta, así que un proceso inactivo **y** sin
@@ -331,7 +359,7 @@ class SelfBookingService:
             return {"can_book": False, "can_walkin": False,
                     "reason": "proceso_inactivo", "cancellations": 0,
                     "blocked_by_cancellations": False, "current": None,
-                    "library_total": None}
+                    "library_total": None, "fase2_status": None}
 
         current = AppointmentService.get_for_process(db, proc.id)
         cancelaciones = SelfBookingService.cancellations(db, proc)
@@ -380,6 +408,11 @@ class SelfBookingService:
             "blocked_by_cancellations": bloqueado,
             "current": current,
             "library_total": total,
+            # El status de fase 2 YA LEÍDO arriba (reglas 2/5), para que
+            # `_agenda_ctx` se lo pase a `cita_ocupa_el_cotejo` sin volver a
+            # consultar la MISMA fila de `ProcessPhase` (m37, Tarea 9 de
+            # 2026-10-02-titulatec-constancias-y-pendientes).
+            "fase2_status": fase2_status,
         }
 
     # ------------------------------------------------------------ §4.1: oferta

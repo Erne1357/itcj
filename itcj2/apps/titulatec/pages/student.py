@@ -1683,10 +1683,15 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
     # fase 2 YA `rejected`, los dos casos en que el egresado SÍ tiene que
     # agendar otra y el mensaje correcto vuelve a ser el de `MENSAJES`
     # ("Podrás agendar en cuanto se libere tu no adeudo"), no este.
+    #
+    # `elig["fase2_status"]` (m37, Tarea 9): `eligibility` YA leyó la fase 2
+    # (reglas 2/5); pasárselo a `cita_ocupa_el_cotejo` evita que vuelva a
+    # consultar la MISMA fila de `ProcessPhase` -el N+1 acotado a este caso-.
     if elig["reason"] == "tiene_cita":
         message = None
     elif (elig["reason"] in _LIBRARY_REASONS_CON_CITA
-          and SelfBookingService.cita_ocupa_el_cotejo(db, process, elig["current"])):
+          and SelfBookingService.cita_ocupa_el_cotejo(
+              db, process, elig["current"], elig["fase2_status"])):
         message = _LIBRARY_BLOCK_WITH_CITA_MSG
     else:
         message = SelfBookingService.message_for(
