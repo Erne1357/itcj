@@ -670,7 +670,9 @@ def test_body_ctx_agrega_pending_rows_y_voided_rows(
 ):
     """Contrato de `_body_ctx`: cada sección trae `pending_rows` (de
     `CertificateService.pending`, aplanado a dict) y `voided_rows` (de
-    `CertificateService.voided_after_print`, tal cual)."""
+    `CertificateService.voided_after_print`, tal cual). `pending_count` sale
+    de `len(pending_rows)` -- fix round 1: antes repetía la consulta vía
+    `CertificateService.pending_count` con el MISMO predicado."""
     from itcj2.apps.titulatec.pages.certificates_admin import _body_ctx
 
     staff = make_library_cert_staff()
@@ -687,6 +689,7 @@ def test_body_ctx_agrega_pending_rows_y_voided_rows(
         "control": cert.control_number, "carrera": cert.program_name,
         "emitida": cert.issued_at,
     }]
+    assert seccion["pending_count"] == 1
     assert seccion["voided_rows"] == []
 
 

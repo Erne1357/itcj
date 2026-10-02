@@ -31,9 +31,12 @@
 
    Tarea 2 (E6/E7, spec §3.2/§3.5): bajo el encabezado de cada sección, un
    `<details id="tt-cert-pending-{kind}">` CERRADO por omisión (sin JS, solo
-   `<details>`/`<summary>` nativos) lista QUIÉNES están «Por imprimir»
-   -mismo orden FIFO que tomará el lote (`s.pending_rows`, de
-   `CertificateService.pending`)- y NO se pinta con 0 pendientes. Debajo,
+   `<details>`/`<summary>` nativos; el `<summary>` reusa `.tt-sii-fold`
+   -ya definida en `titulatec.css` para el mismo patrón en
+   `requests_body.html`- en vez de la tipografía/cursor por omisión del
+   navegador) lista QUIÉNES están «Por imprimir» -mismo orden FIFO que
+   tomará el lote (`s.pending_rows`, de `CertificateService.pending`)- y NO
+   se pinta con 0 pendientes. Debajo,
    `<div id="tt-cert-voided-{kind}">` sale SOLO si `s.voided_rows` (de
    `CertificateService.voided_after_print`, últimos 30 días) trae algo: una
    constancia que se anuló DESPUÉS de haberse impreso, para que el área sepa
@@ -72,7 +75,7 @@
     </div>
 
     {% if s.pending_rows %}
-    <details class="tt-card mb-3" id="tt-cert-pending-{{ s.kind }}">
+    <details class="tt-card mb-3 tt-sii-fold" id="tt-cert-pending-{{ s.kind }}">
       <summary>Ver quiénes ({{ s.pending_rows|length }})</summary>
       <div class="tt-table-wrap mt-2">
         <table class="table table-sm align-middle">

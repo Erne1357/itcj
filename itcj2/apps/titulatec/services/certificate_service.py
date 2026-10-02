@@ -217,8 +217,13 @@ class CertificateService:
 
     @staticmethod
     def pending_count(db: Session, kind: str) -> int:
-        """`len(pending(...))` sin traer las filas — para el badge «Por
-        imprimir (N)» de la página de Constancias."""
+        """`len(pending(...))` sin traer las filas — para quien solo
+        necesite el número, sin pagar el costo de traer las filas completas.
+        La página de Constancias YA trae `pending()` para listar «Quiénes»
+        (Tarea 2/E7, `pages/certificates_admin.py::_body_ctx`) y deriva su
+        badge «Por imprimir (N)» de `len(pending_rows)` en vez de llamar
+        este método aparte — así evita una segunda consulta con el MISMO
+        predicado (`_pending_criteria`) que `pending()` ya resolvió."""
         from itcj2.apps.titulatec.models.certificate import Certificate
 
         total = (

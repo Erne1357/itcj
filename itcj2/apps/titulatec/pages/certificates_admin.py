@@ -165,7 +165,12 @@ def _body_ctx(db, *, user_id: int, pages: dict[str, int], new_batch: dict | None
     egresado, control, carrera, emitida) para que la plantilla no toque el
     ORM- y `voided_rows` -de `CertificateService.voided_after_print` tal
     cual, sin transformar-. La plantilla decide con el largo de cada lista
-    si pinta el `<details>` de pendientes o la sección de anuladas."""
+    si pinta el `<details>` de pendientes o la sección de anuladas.
+    `pending_count` sale de `len(pending_rows)`, NO de una llamada aparte a
+    `CertificateService.pending_count` -esa haría una segunda consulta con
+    el MISMO predicado (`_pending_criteria`) que `pending()` ya resolvió
+    arriba; `pending_count` se queda disponible en el servicio para quien
+    solo necesite el número sin pagar el costo de traer las filas."""
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
     if kinds is None:
@@ -184,7 +189,7 @@ def _body_ctx(db, *, user_id: int, pages: dict[str, int], new_batch: dict | None
         sections.append({
             "kind": kind,
             "label": _KIND_LABELS[kind],
-            "pending_count": CertificateService.pending_count(db, kind),
+            "pending_count": len(pending_rows),
             "pending_rows": pending_rows,
             "voided_rows": CertificateService.voided_after_print(db, kind),
             "batches": batches,

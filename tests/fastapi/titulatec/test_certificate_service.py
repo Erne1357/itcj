@@ -703,6 +703,65 @@ class TestPrintStatusMap:
 
         assert mapa[ref] is None
 
+    def test_voided_printed_ignora_una_anulada_mas_nueva_pero_sin_lote(
+            self, db_session, escenario, actor):
+        """Dos anuladas del mismo origen, sin vigente: la vieja SÍ estuvo en
+        un lote, la nueva (más reciente por `voided_at`, forzado a propósito)
+        nunca se imprimió. `voided_printed` debe tomar la VIEJA -- confirma
+        que el filtro es «con lote», no solo «la más reciente», aunque el
+        orden temporal diga lo contrario."""
+        proc = escenario["process"]
+        ref = _ref()
+        vieja = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                         source_ref=ref, actor_id=actor.id)
+        batch_vieja = CertificateService.create_batch(db_session, kind="library_clearance",
+                                                       actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id,
+                                reason="vieja, con lote")
+        vieja_voided_at = vieja.voided_at
+
+        nueva = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                         source_ref=ref, actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id,
+                                reason="nueva, nunca se imprimió")
+        nueva.voided_at = vieja_voided_at + timedelta(hours=1)   # MÁS reciente, a propósito
+        db_session.flush()
+
+        mapa = CertificateService.print_status_map(db_session, [ref])
+
+        vp = mapa[ref]["voided_printed"]
+        assert vp is not None
+        assert vp["number"] == vieja.number
+        assert vp["batch_id"] == batch_vieja.id
+
+    def test_voided_printed_con_dos_anuladas_con_lote_toma_la_mas_reciente(
+            self, db_session, escenario, actor):
+        """Dos anuladas del mismo origen, AMBAS con lote, sin vigente:
+        `voided_printed` es la más reciente (`voided_at` forzado para que el
+        orden sea inequívoco, sin depender del reloj de pared)."""
+        proc = escenario["process"]
+        ref = _ref()
+        primera = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                           source_ref=ref, actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id, reason="primera")
+        primera.voided_at = db_now() - timedelta(days=2)
+        db_session.flush()
+
+        segunda = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                           source_ref=ref, actor_id=actor.id)
+        batch_segunda = CertificateService.create_batch(db_session, kind="library_clearance",
+                                                         actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id, reason="segunda")
+        segunda.voided_at = db_now() - timedelta(days=1)
+        db_session.flush()
+
+        mapa = CertificateService.print_status_map(db_session, [ref])
+
+        vp = mapa[ref]["voided_printed"]
+        assert vp["number"] == segunda.number
+        assert vp["batch_id"] == batch_segunda.id
+
     def test_anulada_re_emitida_la_vigente_nueva_gana(self, db_session, escenario, actor):
         """pagado -> impreso -> revertido -> pagado otra vez: la celda debe
         mostrar la constancia NUEVA («Sin imprimir»), nunca la vieja impresa
@@ -856,6 +915,44 @@ class TestVoidedAfterPrint:
         filas = CertificateService.voided_after_print(db_session, "library_clearance")
 
         assert [f["number"] for f in filas] == [cert.number]
+
+    def test_el_limite_de_days_es_cerrado_exacto_incluye_un_segundo_antes_excluye(
+            self, db_session, escenario, actor, monkeypatch):
+        """`voided_at >= db_now() - timedelta(days=days)`: el límite es
+        CERRADO (`>=`, no `>`). Reloj CONGELADO (no el de pared) para que la
+        comparación sea exacta -- dos llamadas reales a `db_now()` (una al
+        armar el dato, otra dentro del servicio al consultar) podrían diferir
+        por microsegundos y volver el límite «exacto» indistinguible de «un
+        poco antes», tapando justo el caso que esta prueba quiere fijar."""
+        import itcj2.apps.titulatec.services.certificate_service as cert_mod
+
+        ahora = datetime(2030, 6, 15, 12, 0, 0)
+        monkeypatch.setattr(cert_mod, "db_now", lambda: ahora)
+
+        proc = escenario["process"]
+        ref_limite, ref_fuera = _ref(), _ref()
+
+        en_el_limite = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                                source_ref=ref_limite, actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref_limite, actor_id=actor.id,
+                                reason="justo en el límite")
+        en_el_limite.voided_at = ahora - timedelta(days=30)   # == corte, exacto
+
+        fuera_del_limite = CertificateService.issue(db_session, kind="library_clearance",
+                                                     process=proc, source_ref=ref_fuera,
+                                                     actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref_fuera, actor_id=actor.id,
+                                reason="un segundo antes del límite")
+        fuera_del_limite.voided_at = ahora - timedelta(days=30, seconds=1)   # 1s antes del corte
+        db_session.flush()
+
+        filas = CertificateService.voided_after_print(db_session, "library_clearance")
+
+        numeros = [f["number"] for f in filas]
+        assert en_el_limite.number in numeros
+        assert fuera_del_limite.number not in numeros
 
     def test_respeta_el_parametro_days(self, db_session, escenario, actor):
         proc = escenario["process"]
