@@ -1281,23 +1281,6 @@ def _hdr(msg: str) -> str:
     return quote(msg or "", safe="")
 
 
-def _parse_issued_on(raw: str):
-    """«AAAA-MM-DD» del `<input type=date>` del respaldo «Constancia previa…»
-    (D9) -> `date`, o `None` si viene vacío (el service dice «Escribe la
-    fecha...», con su propio mensaje). Gemelo de
-    `pages/library_admin.py::_parse_issued_on`. Texto que no es una fecha ISO
-    real -campo manipulado a mano- cae en un mensaje propio, igual de
-    legible."""
-    texto = (raw or "").strip()
-    if not texto:
-        return None
-    from datetime import date
-    try:
-        return date.fromisoformat(texto)
-    except ValueError:
-        raise ValueError("La fecha de la constancia previa no es válida.")
-
-
 def _fecha_larga(dt) -> str:
     """`3 sep 2026 · 14:05`. Sin año no se distingue una convocatoria de otra."""
     if not dt:
@@ -2181,6 +2164,7 @@ async def process_library_prior(
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+    from itcj2.apps.titulatec.utils.form_dates import parse_issued_on
 
     form = dict(await request.form())
     note = form.get("note") or None
@@ -2188,7 +2172,7 @@ async def process_library_prior(
     try:
         assert_process_in_scope(db, int(user["sub"]), process_id)
         try:
-            issued_on = _parse_issued_on(form.get("issued_on"))
+            issued_on = parse_issued_on(form.get("issued_on"))
             clearance = LibraryClearanceService.for_process_locked(db, process_id)
             LibraryClearanceService.register_prior(
                 db, clearance.id, int(user["sub"]), issued_on=issued_on, note=note,

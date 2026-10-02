@@ -99,21 +99,6 @@ def _expected_total(raw):
         raise ValueError("El total no es válido; recarga la bandeja e intenta de nuevo.")
 
 
-def _parse_issued_on(raw: str):
-    """«AAAA-MM-DD» del `<input type=date>` -> `date`, o `None` si viene
-    vacío (el service dice «Escribe la fecha...», con su propio mensaje).
-    Texto que no es una fecha ISO real -campo manipulado a mano- cae en un
-    mensaje propio, igual de legible."""
-    texto = (raw or "").strip()
-    if not texto:
-        return None
-    from datetime import date
-    try:
-        return date.fromisoformat(texto)
-    except ValueError:
-        raise ValueError("La fecha de la constancia previa no es válida.")
-
-
 def _bulk_notice(result: dict) -> str:
     """«N registrados · M omitidos» (D10), con los motivos de lo omitido."""
     done, skipped = result["done"], result["skipped"]
@@ -269,6 +254,7 @@ async def prior(clearance_id: int, request: Request,
     registra Biblioteca sin pasar por Caja (`register_prior(by="library")`)."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    from itcj2.apps.titulatec.utils.form_dates import parse_issued_on
 
     form = await request.form()
     note = form.get("note") or None
@@ -278,7 +264,7 @@ async def prior(clearance_id: int, request: Request,
     try:
         uid = int(user["sub"])
         try:
-            issued_on = _parse_issued_on(form.get("issued_on"))
+            issued_on = parse_issued_on(form.get("issued_on"))
             LibraryClearanceService.register_prior(
                 db, clearance_id, uid, issued_on=issued_on, note=note, by="library")
         except LookupError:
