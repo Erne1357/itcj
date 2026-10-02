@@ -205,6 +205,50 @@ class TestDonacionEditable:
         assert "no cambia para ellos" in aviso and "Biblioteca puede corregir" in aviso
         assert resp.headers.get("X-Tt-Notice-Kind") == "warning"
 
+    def test_editar_con_un_caso_revocado_no_lo_cuenta_como_afectado(
+        self, db_session, client_as, se, seed_phase_defs, seed_document_types,
+        make_program, make_cohort, make_student, make_process,
+    ):
+        """m35 (triage-minors.md): el conteo de «afectados» debe filtrar los
+        MISMOS estados admitidos que usa `LibraryClearanceService`
+        (`ADMITTED_PROCESS_STATUSES`, importada de ese módulo -no
+        duplicada-): un proceso REVOCADO con el monto YA congelado (se le
+        registró el adeudo ANTES de revocarse) no es un caso vivo que
+        Biblioteca vaya a corregir, así que no debe sumar al aviso -control
+        positivo al lado (test anterior): un proceso admitido SÍ cuenta."""
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+
+        seed_phase_defs()
+        seed_document_types()
+        prog = make_program("Ingenieria de la Donacion Revocada")
+        cohort = make_cohort(book_donation_amount=Decimal("500.00"))
+        CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+        db_session.flush()
+        proc = make_process(make_student(), cohort=cohort, program=prog,
+                            current_phase=2, library_clearance="pending")
+        clearance = LibraryClearanceService.get_for_process(db_session, proc.id)
+        LibraryClearanceService.register(db_session, clearance.id, se.id,
+                                         debt_amount=Decimal("400.00"))
+        assert clearance.donation_amount == Decimal("500.00")
+        proc.status = "cancelled"          # se revocó DESPUÉS de congelar el monto
+        db_session.flush()
+
+        resp = client_as(se).post(
+            f"/titulatec/admin/cohorts/{cohort.id}/donacion",
+            data={"book_donation": "900.00"})
+
+        assert resp.status_code == 200, resp.text[:300]
+        db_session.refresh(cohort)
+        assert cohort.book_donation_amount == Decimal("900.00")
+        assert _notice(resp) == "Donación guardada.", (
+            "un proceso revocado no debe aparecer en el aviso de afectados")
+        assert resp.headers.get("X-Tt-Notice-Kind") == "success"
+
     def test_monto_invalido_400_sin_tocar_nada(self, db_session, client_as, se, make_cohort):
         cohort = make_cohort(book_donation_amount=Decimal("500.00"))
 

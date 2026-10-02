@@ -254,13 +254,21 @@ class CohortService:
         cargo, y también `cleared/prior` si la constancia previa se registró
         DESDE `awaiting_payment`, que conserva los montos como historia).
         Nunca `pending` (volver ahí borra los montos) ni una previa
-        registrada desde `pending` (no tiene montos). La ruta usa el número
-        para el aviso «N egresados ya tienen monto asignado; no cambia para
-        ellos».
+        registrada desde `pending` (no tiene montos). m35 (triage-minors.md):
+        el conteo también exige `TitulationProcess.status` admitido
+        (`ADMITTED_PROCESS_STATUSES`, el MISMO filtro que ya usa
+        `LibraryClearanceService` para "casos vivos") -- un proceso revocado
+        o terminado con el monto ya congelado no es un caso que Biblioteca
+        vaya a corregir, así que no debe inflar el aviso. La ruta usa el
+        número para el aviso «N egresados ya tienen monto asignado; no
+        cambia para ellos».
 
         `ValueError` si la convocatoria no existe. UN commit.
         """
         from itcj2.apps.titulatec.models import Cohort, LibraryClearance, TitulationProcess
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            ADMITTED_PROCESS_STATUSES,
+        )
 
         cohort = db.get(Cohort, cohort_id)
         if cohort is None:
@@ -271,6 +279,7 @@ class CohortService:
             db.query(func.count(LibraryClearance.id))
             .join(TitulationProcess, TitulationProcess.id == LibraryClearance.process_id)
             .filter(TitulationProcess.cohort_id == cohort_id,
+                    TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES),
                     LibraryClearance.donation_amount.isnot(None))
             .scalar()) or 0
 
