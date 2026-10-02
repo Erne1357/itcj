@@ -283,6 +283,23 @@ def _hay_posterior(db: Session, fila, kind: str) -> bool:
             .first()) is not None
 
 
+def _salio_el_anterior(db: Session, fila, kind: str) -> bool:
+    """¿SALIÓ (`sent`) la fila `kind` más reciente del proceso encolada ANTES
+    de `fila` (id menor)? `False` si esa fila no salió —sigue pendiente, se
+    declaró obsoleta, agotó sus intentos o no tuvo destinatario— y también si
+    no hay ninguna. Gemela de `_hay_posterior`: mira hacia atrás y solo a la
+    MÁS reciente (con varias vueltas liberar → revertir, decide la última)."""
+    from itcj2.apps.titulatec.models import EmailOutbox
+
+    anterior = (db.query(EmailOutbox.status)
+                .filter(EmailOutbox.process_id == fila.process_id,
+                        EmailOutbox.kind == kind,
+                        EmailOutbox.id < fila.id)
+                .order_by(EmailOutbox.id.desc())
+                .first())
+    return anterior is not None and anterior[0] == "sent"
+
+
 def _info_biblioteca(db: Session, cohort_id: int):
     """La «Información para el alumno» del requisito de cotejo del no adeudo
     (activo) de la convocatoria, o `None`. Se vuelve a sanitizar al pintar
@@ -619,10 +636,13 @@ def _compose_library_cleared(db: Session, rows: list, process, user) -> Composed
     tu cita de cotejo»). D11 (`falta`): si ya puede agendar o qué le falta.
 
     Re-validado al enviar (D8): si después se revirtió, «quedó liberado» ya
-    es falso y sale el correo de la reversión, así que obsoleto. Se ve de dos
-    formas: hay un `library_reverted` más nuevo del proceso (cualquier
-    convocatoria), o el gate ve que el no adeudo volvió a faltar (donde la
-    convocatoria lo exige; ahí también si aquel correo no llegó a encolarse).
+    es falso, así que obsoleto. Se ve de dos formas: hay un
+    `library_reverted` más nuevo del proceso (cualquier convocatoria), o el
+    gate ve que el no adeudo volvió a faltar (donde la convocatoria lo exige;
+    ahí también si aquel correo no llegó a encolarse). Y como este aviso no
+    sale, el de la reversión tampoco (E10, `_compose_library_reverted`):
+    liberar y revertir dentro de la misma espera del despachador no le manda
+    nada al egresado, porque para él nada cambió.
     """
     from itcj2.apps.titulatec.services.clearance_gate import LIBRARY_BLOCKERS
     from itcj2.apps.titulatec.services.library_clearance_service import (
@@ -655,11 +675,24 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
     regresó —a Caja (`awaiting_payment`, con el monto VIGENTE por pagar) o a
     Biblioteca (`pending`)—.
 
-    Re-validado al enviar (D8): obsoleto si después se volvió a liberar (hay
-    un `library_cleared` más nuevo del proceso: sale ese), o si regresó a Caja
-    y ya no tiene pago pendiente. Volver a pasar a Caja después NO lo vuelve
-    obsoleto: el motivo de la reversión sigue siendo la explicación, y el
-    aviso de Caja sale aparte."""
+    Re-validado al enviar (D8), obsoleto, en este orden:
+
+    1. Después se volvió a liberar: hay un `library_cleared` más nuevo del
+       proceso, y sale ese.
+    2. E10 (spec 2026-10-02 §2, m30), en las DOS ramas: no salió (`sent`) el
+       liberado que esta reversión desmiente —el `library_cleared` más
+       reciente del proceso encolado ANTES que ella, `_salio_el_anterior`—, o
+       no hay ninguno (un legado del backfill, una liberación de cuando el
+       correo estaba apagado). Para el egresado nada cambió: «Se revirtió tu
+       no adeudo…» sin un «quedó liberado» previo sería ruido (un «Deshacer»
+       de Biblioteca dentro de la espera) o, peor, falso (Caja se equivocó de
+       renglón). El liberado de esa misma ventana también sale obsoleto
+       (`_compose_library_cleared`): liberar y revertir no manda nada.
+    3. Regresó a Caja y ya no tiene pago pendiente (`payment_due`: también
+       con la fase 2 ya aprobada, Ruling R30 #4).
+
+    Volver a pasar a Caja después NO lo vuelve obsoleto: el motivo de la
+    reversión sigue siendo la explicación, y el aviso de Caja sale aparte."""
     from itcj2.apps.titulatec.services.library_clearance_service import (
         LibraryClearanceService, format_amount,
     )
@@ -669,6 +702,8 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
     datos = _datos(fila)
     if _hay_posterior(db, fila, "library_cleared"):
         return Obsolete("el no adeudo se volvió a liberar")
+    if not _salio_el_anterior(db, fila, "library_cleared"):
+        return Obsolete("no salió el aviso de la liberación que revierte")
     hacia = "awaiting_payment" if datos.get("to_status") == "awaiting_payment" else "pending"
     total = None
     if hacia == "awaiting_payment":

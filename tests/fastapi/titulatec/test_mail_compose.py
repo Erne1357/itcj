@@ -230,6 +230,16 @@ def _ya_salio(db, pid):
     db.flush()
 
 
+def _liberado_que_salio(db, proc, via="no_charge"):
+    """El egresado YA recibió «Tu no adeudo de biblioteca quedó liberado»: el
+    `library_cleared` real, dado por enviado. Sin eso, la reversión que
+    venga después no sale (E10, spec 2026-10-02 §2)."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    assert StudentMail.library_cleared(db, proc, via=via) is True
+    _ya_salio(db, proc.id)
+
+
 def _componer(db, proc, filas=None):
     """`MailComposer.compose` tal como lo llama el despachador. De paso fija que
     componer es solo LECTURA: la sesión queda sin nada nuevo ni modificado."""
@@ -1077,7 +1087,8 @@ def test_no_adeudo_liberado_por_cada_via(db_session, con_biblioteca, via, frases
 
 def test_no_adeudo_liberado_que_se_revirtio_es_obsoleto(db_session, con_biblioteca):
     """Con el candado, el gate ve que el no adeudo volvió a faltar: «quedó
-    liberado» ya es falso (y sale el correo de la reversión)."""
+    liberado» ya es falso. Y como este aviso no sale, el de la reversión
+    tampoco (E10): para el egresado nada cambió."""
     from itcj2.apps.titulatec.models import LibraryClearance
     from itcj2.apps.titulatec.services.mail_compose import Obsolete
     from itcj2.apps.titulatec.services.student_mail import StudentMail
@@ -1091,10 +1102,18 @@ def test_no_adeudo_liberado_que_se_revirtio_es_obsoleto(db_session, con_bibliote
     assert _componer(db_session, proc) == Obsolete("el no adeudo ya no está liberado")
 
 
-def test_no_adeudo_liberado_con_una_reversion_posterior_es_obsoleto(
+def test_no_adeudo_liberado_con_una_reversion_posterior_es_obsoleto_y_la_reversion_tambien(
         db_session, proceso, make_survey_review):
-    """Sin candado el gate no lo distingue (`not_required`): manda la fila de
-    la reversión encolada después."""
+    """Liberar y revertir dentro de la misma espera del despachador: NO sale
+    ninguno de los dos correos.
+
+    El liberado, porque «quedó liberado» ya es falso (sin candado el gate no lo
+    distingue -`not_required`-: lo delata la fila de la reversión encolada
+    después). Y la reversión -esta aserción se INVIRTIÓ con E10 (spec
+    2026-10-02 §2, m30); antes salía- porque el egresado nunca recibió el
+    «quedó liberado» que ella desmiente: para él nada cambió, y «Se revirtió
+    tu no adeudo…» sin un liberado previo es ruido (un «Deshacer» de
+    Biblioteca) o, peor, falso (Caja se equivocó de renglón)."""
     from itcj2.apps.titulatec.services.mail_compose import Obsolete
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
@@ -1107,7 +1126,112 @@ def test_no_adeudo_liberado_con_una_reversion_posterior_es_obsoleto(
 
     assert _componer(db_session, proc, [liberado]) == Obsolete(
         "el no adeudo se revirtió después")
-    assert _componer(db_session, proc, [revertido]).template == "library_reverted.html"
+    assert _componer(db_session, proc, [revertido]) == Obsolete(
+        "no salió el aviso de la liberación que revierte")
+
+
+# E10 (spec 2026-10-02 §2, m30): la reversión sale SOLO si salió el liberado
+# que revierte -el `library_cleared` más reciente del proceso encolado ANTES
+# que ella-, en las dos ramas (a Caja y a Biblioteca).
+_HACIA_Y_VIA = [("awaiting_payment", "payment"), ("pending", "no_charge")]
+_NO_SALIO = "no salió el aviso de la liberación que revierte"
+
+
+@pytest.mark.parametrize("hacia, via", _HACIA_Y_VIA)
+def test_la_reversion_sale_si_el_egresado_recibio_el_liberado(db_session, con_biblioteca,
+                                                              hacia, via):
+    """El control positivo de E10: el «quedó liberado» SÍ le llegó, así que la
+    reversión es la noticia que lo corrige y sale."""
+    from itcj2.apps.titulatec.services.mail_compose import Composed
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca=hacia)
+    _liberado_que_salio(db_session, proc, via=via)
+    StudentMail.library_reverted(db_session, proc, reason="Motivo", to_status=hacia)
+
+    c = _componer(db_session, proc)
+
+    assert isinstance(c, Composed), c
+    assert c.template == "library_reverted.html"
+    assert c.context["to_status"] == hacia
+
+
+@pytest.mark.parametrize("hacia, via", _HACIA_Y_VIA)
+@pytest.mark.parametrize("estado", ["pending", "obsolete", "failed", "no_recipient"])
+def test_la_reversion_no_sale_si_el_liberado_no_salio(db_session, con_biblioteca, hacia,
+                                                      via, estado):
+    """El liberado que revierte sigue en cola (en la misma corrida el
+    despachador lo vuelve obsoleto), ya se declaró obsoleto, se agotaron sus
+    intentos o no tenía a quién mandarse: el egresado nunca lo leyó, así que
+    la reversión tampoco sale (E10)."""
+    from itcj2.apps.titulatec.services.mail_compose import Obsolete
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca=hacia)
+    assert StudentMail.library_cleared(db_session, proc, via=via) is True
+    liberado = _pendientes(db_session, proc.id)[-1]
+    liberado.status = estado
+    db_session.flush()
+    StudentMail.library_reverted(db_session, proc, reason="Motivo", to_status=hacia)
+    revertido = [f for f in _pendientes(db_session, proc.id)
+                 if f.kind == "library_reverted"]
+
+    assert _componer(db_session, proc, revertido) == Obsolete(_NO_SALIO)
+
+
+@pytest.mark.parametrize("hacia, via", _HACIA_Y_VIA)
+def test_la_reversion_sin_ningun_liberado_previo_no_sale(db_session, con_biblioteca, hacia,
+                                                         via):
+    """Sin NINGÚN `library_cleared` antes (p. ej. un legado del backfill, o
+    una liberación de cuando el correo estaba apagado), el egresado nunca
+    recibió un «quedó liberado» por correo: la reversión tampoco sale. El
+    liberado que SÍ salió de OTRO egresado no cuenta."""
+    from itcj2.apps.titulatec.services.mail_compose import Obsolete
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    otro = con_biblioteca(biblioteca=hacia)
+    _liberado_que_salio(db_session, otro, via=via)
+    proc = con_biblioteca(biblioteca=hacia)
+    StudentMail.library_reverted(db_session, proc, reason="Motivo", to_status=hacia)
+
+    assert _componer(db_session, proc) == Obsolete(_NO_SALIO)
+
+
+@pytest.mark.parametrize("primero_salio, sale", [
+    (True, False),     # liberó (salió) → revirtió (salió) → liberó (no salió) → revierte
+    (False, True),     # liberó y revirtió en la espera → liberó (salió) → revierte
+], ids=["el-mas-reciente-no-salio", "el-mas-reciente-si-salio"])
+def test_la_reversion_mira_el_liberado_mas_reciente_anterior(db_session, con_biblioteca,
+                                                             primero_salio, sale):
+    """La reversión desmiente el liberado MÁS RECIENTE encolado antes que ella,
+    no uno viejo de un ciclo anterior: con dos vueltas liberar → revertir,
+    decide el segundo liberado."""
+    from itcj2.apps.titulatec.services.mail_compose import Composed, Obsolete
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca="pending")
+
+    def _vuelta(salio):
+        StudentMail.library_cleared(db_session, proc, via="no_charge")
+        StudentMail.library_reverted(db_session, proc, reason="Vuelta", to_status="pending")
+        for fila in _pendientes(db_session, proc.id):
+            fila.status = "sent" if salio else "obsolete"
+        db_session.flush()
+
+    _vuelta(primero_salio)
+    assert StudentMail.library_cleared(db_session, proc, via="no_charge") is True
+    segundo = _pendientes(db_session, proc.id)[-1]
+    segundo.status = "obsolete" if primero_salio else "sent"
+    db_session.flush()
+    StudentMail.library_reverted(db_session, proc, reason="Otra vez", to_status="pending")
+
+    c = _componer(db_session, proc)
+
+    if sale:
+        assert isinstance(c, Composed), c
+        assert c.context["reason"] == "Otra vez"
+    else:
+        assert c == Obsolete(_NO_SALIO)
 
 
 @pytest.mark.parametrize("hacia, frases", [
@@ -1121,6 +1245,8 @@ def test_reversion_con_motivo_y_que_sigue(db_session, con_biblioteca, hacia, fra
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
     proc = con_biblioteca(biblioteca=hacia)
+    _liberado_que_salio(db_session, proc,
+                        via="payment" if hacia == "awaiting_payment" else "no_charge")
     StudentMail.library_reverted(db_session, proc, reason="Pago duplicado", to_status=hacia)
 
     c = _componer(db_session, proc)
@@ -1949,6 +2075,7 @@ def test_texto_libre_sale_escapado(db_session, proceso, cita_esc, make_appointme
     correos["pasa a Caja con nota"] = _componer(db_session, p)
 
     p = con_biblioteca(biblioteca="pending")
+    _liberado_que_salio(db_session, p)
     StudentMail.library_reverted(db_session, p, reason=MALICIOSO, to_status="pending")
     correos["reversión del no adeudo"] = _componer(db_session, p)
 
@@ -2077,6 +2204,8 @@ def todos(db_session, proceso, make_appointment, make_document, seed_document_ty
 
     for hacia, motivo in (("awaiting_payment", "Pago duplicado"), ("pending", None)):
         p = con_biblioteca(biblioteca=hacia)
+        # E10: la reversión sale solo si el liberado que revierte ya salió.
+        _liberado_que_salio(db, p, via="payment" if hacia == "awaiting_payment" else "no_charge")
         StudentMail.library_reverted(db, p, reason=motivo, to_status=hacia)
         _anota(f"reversión a {hacia}", p)
 
