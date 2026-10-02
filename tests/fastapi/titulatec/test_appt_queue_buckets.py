@@ -424,6 +424,41 @@ def test_la_fase_aprobada_no_pide_otra_cita(cola, db_session):
     assert not any(cola["rechazado"].id in ids for ids in cubos.values())
 
 
+def test_la_fase_aprobada_por_otra_via_sin_cita_vigente_desaparece_de_los_tres_cubos(
+        cola, db_session):
+    """m41 (Tarea 9, 2026-10-02-titulatec-constancias-y-pendientes):
+    `_unscheduled_query` -la base COMPARTIDA de "Por agendar" (1), "Requieren
+    que les agendes" (3) y "Liberaciones pendientes" (5)- ya restaba la fase 2
+    `rejected` pero no la YA `approved` por otra vía (excepción manual, dato
+    heredado) SIN ninguna cita vigente.
+
+    Distinto del vecino de arriba (`test_la_fase_aprobada_no_pide_otra_cita`):
+    ese mueve a `cola["rechazado"]`, que conserva una cita `attended` VIGENTE
+    y por eso YA quedaba fuera por `with_appt` -no por la resta nueva-. Aquí
+    ninguno de los tres procesos tuvo cita jamás: solo la resta nueva los saca.
+
+    Un proceso por cubo -el que YA vive ahí de forma natural en el fixture-,
+    para que cada desaparición pruebe la resta nueva y no un efecto lateral de
+    otra exclusión: `pendiente` (1, "por agendar"), `bloqueado` (3 cancelaciones
+    propias, "requieren que les agendes") y `sin_encuesta` (5, "liberaciones
+    pendientes" -nunca envió la encuesta-)."""
+    for nombre in ("pendiente", "bloqueado", "sin_encuesta"):
+        _fase2(db_session, cola[nombre], "approved")
+
+    cubos = _cubos(db_session, {cola["prog"].id})
+
+    for nombre in ("pendiente", "bloqueado", "sin_encuesta"):
+        pid = cola[nombre].id
+        donde = sorted(k for k, ids in cubos.items() if pid in ids)
+        assert donde == [], (
+            "%s con la fase 2 aprobada por otra vía sigue en %s" % (nombre, donde))
+    # Regla de oro: la negativa no viaja sola. El resto de la cola, SIN tocar
+    # su fase 2, sigue en su cubo -si el predicado nuevo marcara de más
+    # (p. ej. por error de alcance), también habrían desaparecido-.
+    assert cola["reagendar"].id in cubos["reagendar"]
+    assert cola["rechazado"].id in cubos["rechazados"]
+
+
 def test_el_criterio_del_cubo_es_el_mismo_que_ve_el_alumno(cola, db_session):
     """El cubo y la pantalla del alumno comparten `is_blocked_by_cancellations`.
 

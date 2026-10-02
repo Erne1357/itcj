@@ -272,11 +272,12 @@ class AppointmentService:
                            allowed_program_ids: set | None):
         """Base compartida de `list_pending_processes`,
         `list_self_blocked_processes` y `list_missing_clearance_processes`:
-        procesos activos, SIN cita, acotados por carrera. Cada llamador le
-        agrega su propio predicado de liberaciones (`ClearanceGate.
-        released_clause` / su negación), el filtro de documentos y el de D9,
-        para no arriesgarse a que los cubos se desincronicen del universo que
-        comparten.
+        procesos activos, SIN cita, acotados por carrera, SIN fase 2
+        `rejected` (bandeja propia) ni YA `approved` (m41: no necesita que se
+        le agende, con cita vigente o sin ella). Cada llamador le agrega su
+        propio predicado de liberaciones (`ClearanceGate.released_clause` /
+        su negación), el filtro de documentos y el de D9, para no arriesgarse
+        a que los cubos se desincronicen del universo que comparten.
 
         `None` si `allowed_program_ids` cerró el alcance (set vacío): el
         llamador debe leerlo así y devolver `[]` sin más consultas.
@@ -317,6 +318,25 @@ class AppointmentService:
                           .distinct()]
         if rechazados_ids:
             q = q.filter(~TitulationProcess.id.in_(rechazados_ids))
+        # m41 (Tarea 9, 2026-10-02-titulatec-constancias-y-pendientes): la fase
+        # 2 YA aprobada -por otra vía, sin pasar por una cita aquí: excepción
+        # manual, dato heredado- tampoco necesita que se le agende -es el
+        # mismo caso terminal de §3 (`fase_aprobada`) que ya corta el
+        # auto-agendado del alumno-. Sin esta resta, un proceso así -nunca
+        # tuvo cita, o se le canceló la única que tuvo- seguía contando como
+        # "sin cita" en la base COMPARTIDA y podía reaparecer en "Por
+        # agendar", "Requieren que les agendes" o "Liberaciones pendientes"
+        # como si le faltara algo. Misma forma que `rechazados_ids`, A
+        # PROPÓSITO: una consulta aparte y no un `.in_(("rejected",
+        # "approved"))` fusionado, para que cada resta documente su propio
+        # motivo por separado.
+        aprobados_ids = [pid for (pid,) in
+                         db.query(ProcessPhase.process_id)
+                         .filter(ProcessPhase.phase_number == PhaseService.PHASE_COTEJO,
+                                 ProcessPhase.status == "approved")
+                         .distinct()]
+        if aprobados_ids:
+            q = q.filter(~TitulationProcess.id.in_(aprobados_ids))
         if allowed_program_ids is not None:
             q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
         if program_id:
