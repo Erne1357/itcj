@@ -75,6 +75,7 @@ from itcj2.cli.titulatec import (
 )
 from itcj2.core.utils.timezone import db_now
 from tests.fastapi.titulatec._dml_texts import (
+    compactar_fuera_de_literales,
     periodica_de_recordatorios_del_17,
     unir_literales,
 )
@@ -208,6 +209,43 @@ def test_todo_sql_del_delta_esta_en_una_lista_de_comando():
         assert nombre in en_disco, f"falta {nombre} en el directorio del delta"
 
 
+def _texto_del_23() -> str:
+    return (DML_TITULATEC / _DML_BIBLIOTECA_2026_10_DIR
+            / "23_update_email_reminders_description.sql").read_text(encoding="utf-8")
+
+
+def _verifica_el_23(sql: str) -> None:
+    """Las aserciones sobre el TEXTO del 23 (las corre la prueba con el archivo
+    real y la meta-prueba con erratas en memoria). Compara con los espacios
+    colapsados SOLO fuera de los literales (`compactar_fuera_de_literales`):
+    cada texto y cada llave del WHERE se comparan EXACTOS, también sus
+    espacios."""
+    import re
+
+    from itcj2.tasks import titulatec_tasks
+
+    codigo = "\n".join(linea for linea in sql.splitlines()
+                       if not linea.lstrip().startswith("--"))
+    plano = compactar_fuera_de_literales(unir_literales(codigo))
+    definicion, = [d for d in titulatec_tasks.TASK_DEFINITIONS
+                   if d["task_name"] == "titulatec.email_reminders"]
+
+    assert f"v_texto_definicion TEXT := '{definicion['description']}';" in plano, (
+        "la descripción de core_task_definitions del 23 no es la de TASK_DEFINITIONS")
+    assert f"v_texto_periodica TEXT := '{periodica_de_recordatorios_del_17()}';" in plano, (
+        "la descripción de core_periodic_tasks del 23 no es la que siembra el 17")
+    assert ("UPDATE core_task_definitions SET description = v_texto_definicion, "
+            "updated_at = NOW() WHERE task_name = 'titulatec.email_reminders' "
+            "AND description IS DISTINCT FROM v_texto_definicion;") in plano
+    assert ("UPDATE core_periodic_tasks SET description = v_texto_periodica, "
+            "updated_at = NOW() WHERE name = 'TitulaTec: recordatorios por correo' "
+            "AND task_name = 'titulatec.email_reminders' "
+            "AND description IS DISTINCT FROM v_texto_periodica;") in plano
+    assert "pago pendiente en Caja" in definicion["description"]
+    assert not re.search(r"\b(INSERT|DELETE|TRUNCATE|DROP)\b", codigo, re.IGNORECASE)
+    assert plano.count("UPDATE ") == 2
+
+
 @requires_dml
 def test_el_23_deja_las_dos_descripciones_como_las_siembra_el_17():
     """m33 (spec 2026-10-02 §6): una base YA sembrada (producción: el 17 viejo
@@ -223,35 +261,30 @@ def test_el_23_deja_las_dos_descripciones_como_las_siembra_el_17():
     definiciones; `name` + `task_name` en la periódica)-: una errata en una
     llave volvería al 23 un no-op silencioso (0 filas y un NOTICE que nadie
     lee)."""
-    import re
+    _verifica_el_23(_texto_del_23())
 
-    from itcj2.tasks import titulatec_tasks
 
-    sql = (DML_TITULATEC / _DML_BIBLIOTECA_2026_10_DIR
-           / "23_update_email_reminders_description.sql").read_text(encoding="utf-8")
-    codigo = "\n".join(linea for linea in sql.splitlines()
-                       if not linea.lstrip().startswith("--"))
-    plano = " ".join(unir_literales(codigo).split())
-    definicion, = [d for d in titulatec_tasks.TASK_DEFINITIONS
-                   if d["task_name"] == "titulatec.email_reminders"]
+@requires_dml
+@pytest.mark.parametrize("original, errata", [
+    ("WHERE name = 'TitulaTec: recordatorios por correo'",
+     "WHERE name = 'TitulaTec: recordatorios  por correo'"),
+    ("WHERE task_name = 'titulatec.email_reminders'",
+     "WHERE task_name = 'titulatec.email_reminder'"),
+    ("AND task_name = 'titulatec.email_reminders'",
+     "AND task_name = 'titulatec.email_dispatch'"),
+    ("con su aviso en '", "con su aviso  en '"),
+], ids=["espacio-doble-en-la-llave-name", "task-name-de-las-definiciones",
+        "task-name-de-la-periodica", "espacio-doble-dentro-de-un-texto"])
+def test_el_pin_del_23_ve_cada_errata(original, errata):
+    """Meta-prueba EN MEMORIA (no escribe en disco): cada errata en una llave
+    del WHERE -también la de puros espacios dentro de un literal, que un
+    `" ".join(split())` escondía- o dentro de un texto pone roja la
+    verificación del 23."""
+    sql = _texto_del_23()
+    assert sql.count(original) == 1, f"la errata debe tocar UN solo lugar: {original!r}"
 
-    def _plano(texto: str) -> str:
-        return " ".join(texto.split())
-
-    assert _plano(f"v_texto_definicion TEXT := '{definicion['description']}';") in plano, (
-        "la descripción de core_task_definitions del 23 no es la de TASK_DEFINITIONS")
-    assert _plano(f"v_texto_periodica TEXT := '{periodica_de_recordatorios_del_17()}';") in (
-        plano), "la descripción de core_periodic_tasks del 23 no es la que siembra el 17"
-    assert ("UPDATE core_task_definitions SET description = v_texto_definicion, "
-            "updated_at = NOW() WHERE task_name = 'titulatec.email_reminders' "
-            "AND description IS DISTINCT FROM v_texto_definicion;") in plano
-    assert ("UPDATE core_periodic_tasks SET description = v_texto_periodica, "
-            "updated_at = NOW() WHERE name = 'TitulaTec: recordatorios por correo' "
-            "AND task_name = 'titulatec.email_reminders' "
-            "AND description IS DISTINCT FROM v_texto_periodica;") in plano
-    assert "pago pendiente en Caja" in definicion["description"]
-    assert not re.search(r"\b(INSERT|DELETE|TRUNCATE|DROP)\b", codigo, re.IGNORECASE)
-    assert plano.count("UPDATE ") == 2
+    with pytest.raises(AssertionError):
+        _verifica_el_23(sql.replace(original, errata))
 
 
 # --- init-biblioteca-caja (paso 1: NO enciende nada) -----------------------

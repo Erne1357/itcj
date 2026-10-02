@@ -34,7 +34,10 @@ from itcj2.cli.titulatec import (
     _DML_MAIL_2026_09_FILES,
     init_email_tasks_command,
 )
-from tests.fastapi.titulatec._dml_texts import periodica_de_recordatorios_del_17
+from tests.fastapi.titulatec._dml_texts import (
+    periodica_de_recordatorios_del_17,
+    unir_literales,
+)
 
 _MAIL_SQL_NAME = "17_insert_email_tasks.sql"
 
@@ -116,7 +119,7 @@ def test_el_despacho_corre_cada_5_minutos_y_se_describe_igual_que_en_el_worker()
     assert cron, "no se encontró el cron de titulatec.email_dispatch en el DML"
     assert cron.group(1) == "*/5 * * * *"
     # Literales de SQL adyacentes (separados por un salto de línea) son UNA cadena.
-    unido = re.sub(r"'\s*\n\s*'", "", sql)
+    unido = unir_literales(sql)
     for definicion in titulatec_tasks.TASK_DEFINITIONS:
         if definicion["task_name"].startswith("titulatec.email_"):
             assert f"'{definicion['description']}'" in unido, (

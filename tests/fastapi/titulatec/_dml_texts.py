@@ -19,6 +19,16 @@ def unir_literales(sql: str) -> str:
     return re.sub(r"'\s*\n\s*'", "", sql)
 
 
+def compactar_fuera_de_literales(sql: str) -> str:
+    """Colapsa a UN espacio cada tramo de espacios FUERA de los literales de
+    SQL y deja cada literal ('…') EXACTO, para comparar sentencias completas
+    sin depender de la sangría. Un `" ".join(sql.split())` colapsaría también
+    los espacios DENTRO de un texto o de una llave del WHERE y escondería una
+    errata ('recordatorios  por correo'). Un `''` escapado parte el literal
+    en dos tramos contiguos: ninguno se toca."""
+    return re.sub(r"('[^']*')|\s+", lambda m: m.group(1) or " ", sql)
+
+
 def periodica_de_recordatorios_del_17() -> str:
     """La descripción de 'TitulaTec: recordatorios por correo' que el DML 17
     siembra en `core_periodic_tasks` (el INSERT: name, task_name, cron,
