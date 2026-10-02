@@ -19,10 +19,15 @@
    de «Lotes» de la OTRA sección -crear un lote reinicia a la página 1 SOLO la
    de su propio tipo, la ruta ya lo resuelve (`pages/certificates_admin.py`).
 
-   Tras crear un lote, `new_batch` trae el PDF recién generado: un `<a
-   target="_blank">` PLANO (sin script inline) que lo abre en pestaña nueva;
-   el badge «Por imprimir» de esa misma respuesta ya sale en 0, así que el
-   contador de la página queda al día sin nada más. #}
+   Tras crear un lote, `new_batch` trae los DOS enlaces al PDF recién
+   generado -3 y 2 por hoja (`?por_hoja=`, spec §3.1/E4), el de 3 primero por
+   ser el de siempre-, `<a target="_blank">` PLANOS (sin script inline) que
+   lo abren en pestaña nueva; el badge «Por imprimir» de esa misma respuesta
+   ya sale en 0, así que el contador de la página queda al día sin nada más.
+   Cada fila de «Lotes» lleva los MISMOS dos enlaces, con ids
+   `tt-cert-pdf-{id}-3`/`-2` -- el lote recién creado sale TAMBIÉN como
+   primera fila de su tabla en esta misma respuesta, así que la tarjeta usa
+   el prefijo `tt-cert-new-pdf-` para no repetir id dentro de la página. #}
 <div id="tt-cert-body" data-tt-view="certificates-body">
 
   {% if not sections %}
@@ -42,7 +47,7 @@
       <form hx-post="/titulatec/admin/constancias/{{ s.kind }}/lote"
             hx-target="#tt-cert-body" hx-swap="outerHTML" hx-disabled-elt="find button"
             data-tt-confirm-ok="Generar lote"
-            hx-confirm="Generar lote|¿Generar el lote con las {{ s.pending_count }} constancia{{ 's' if s.pending_count != 1 else '' }} por imprimir de {{ s.label|lower }}?">
+            hx-confirm="Generar lote|¿Generar el lote con {{ 'la' if s.pending_count == 1 else 'las' }} {{ s.pending_count }} constancia{{ 's' if s.pending_count != 1 else '' }} por imprimir de {{ s.label|lower }}?">
         <input type="hidden" name="page_library_clearance" value="{{ pages.library_clearance }}">
         <input type="hidden" name="page_survey_release" value="{{ pages.survey_release }}">
         <button type="submit" id="tt-cert-lote-btn-{{ s.kind }}" class="btn btn-sm tt-btn-ink"
@@ -57,10 +62,18 @@
       <span class="tt-kicker"><i class="bi bi-check2-circle me-1"></i>Lote generado</span>
       <p class="mb-2">Lote #{{ new_batch.id }} con {{ new_batch.count }}
          constancia{{ 's' if new_batch.count != 1 else '' }}, listo para imprimir.</p>
-      <a class="btn btn-sm tt-btn-ink" href="/titulatec/admin/constancias/lotes/{{ new_batch.id }}.pdf"
-         target="_blank" rel="noopener">
-        <i class="bi bi-file-earmark-pdf me-1"></i>Abrir PDF del lote
-      </a>
+      <div class="d-flex flex-wrap gap-1">
+        <a class="btn btn-sm tt-btn-ink" id="tt-cert-new-pdf-{{ new_batch.id }}-3"
+           href="/titulatec/admin/constancias/lotes/{{ new_batch.id }}.pdf?por_hoja=3"
+           target="_blank" rel="noopener">
+          <i class="bi bi-file-earmark-pdf me-1"></i>PDF · 3 por hoja
+        </a>
+        <a class="btn btn-sm tt-btn-ghost" id="tt-cert-new-pdf-{{ new_batch.id }}-2"
+           href="/titulatec/admin/constancias/lotes/{{ new_batch.id }}.pdf?por_hoja=2"
+           target="_blank" rel="noopener">
+          <i class="bi bi-file-earmark-pdf me-1"></i>PDF · 2 por hoja
+        </a>
+      </div>
     </div>
     {% endif %}
 
@@ -81,10 +94,18 @@
           <td>{{ b.count }}
             {%- if b.voided_count %} <span class="tt-pill tt-pill--neutral">{{ b.voided_count }} anulada{{ 's' if b.voided_count != 1 else '' }}</span>{% endif %}</td>
           <td>
-            <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/constancias/lotes/{{ b.id }}.pdf"
-               target="_blank" rel="noopener">
-              <i class="bi bi-file-earmark-pdf me-1"></i>Ver PDF
-            </a>
+            <div class="d-flex flex-wrap gap-1">
+              <a class="btn btn-sm tt-btn-ghost" id="tt-cert-pdf-{{ b.id }}-3"
+                 href="/titulatec/admin/constancias/lotes/{{ b.id }}.pdf?por_hoja=3"
+                 target="_blank" rel="noopener">
+                <i class="bi bi-file-earmark-pdf me-1"></i>PDF · 3 por hoja
+              </a>
+              <a class="btn btn-sm tt-btn-ghost" id="tt-cert-pdf-{{ b.id }}-2"
+                 href="/titulatec/admin/constancias/lotes/{{ b.id }}.pdf?por_hoja=2"
+                 target="_blank" rel="noopener">
+                <i class="bi bi-file-earmark-pdf me-1"></i>PDF · 2 por hoja
+              </a>
+            </div>
           </td>
         </tr>
         {% endfor %}

@@ -3,15 +3,18 @@
 El Centro de Información (no adeudo de biblioteca) y Gestión Tecnológica y
 Vinculación -GTV- (encuesta de egresados) comparten esta MISMA página -cada
 quien ve solo los `kind` de `CERT_KINDS` que puede imprimir (D15)-: «Por
-imprimir (N)» -> «Generar lote (N)» (confirmación) -> el PDF del lote (3 por
-hoja carta, WeasyPrint) se abre en pestaña nueva desde un `<a target="_blank">`
-plano del parcial re-pintado. «Lotes» lista los anteriores con fecha, quién,
-cuántas (y cuántas anuladas) y «Ver PDF».
+imprimir (N)» -> «Generar lote (N)» (confirmación) -> el PDF del lote (2 o 3
+por hoja carta a elegir, WeasyPrint) se abre en pestaña nueva desde un
+`<a target="_blank">` plano del parcial re-pintado -- dos enlaces por lote,
+uno por acomodo. «Lotes» lista los anteriores con fecha, quién, cuántas (y
+cuántas anuladas) y los dos «PDF · N por hoja».
 
 Spec `docs/superpowers/specs/2026-10-01-titulatec-biblioteca-caja-design.md`
 §4.5 (motor de constancias / la página), D7/D15, §4.6 (permisos/menú), §5
-invariantes 5 y 6 (sin `{process_id}` en estas rutas). Estas pruebas cubren
-la RUTA (permisos de página vs. permiso de imprimir por tipo, 404 vs 403, el
+invariantes 5 y 6 (sin `{process_id}` en estas rutas); Tarea 1 de
+`2026-10-02-titulatec-constancias-y-pendientes-design.md` §2 (E4/E8) y §3.1
+(2 o 3 por hoja, `por_hoja` como filtro de vista). Estas pruebas cubren la
+RUTA (permisos de página vs. permiso de imprimir por tipo, 404 vs 403, el
 PDF, la cuenta de pendientes); el motor en sí (numeración, anulación, lotes)
 ya lo cubre `test_certificate_service.py` (Tarea 3) y el PDF puro
 `test_certificate_pdf.py`.
@@ -244,6 +247,153 @@ def test_generar_lote_crea_y_vacia_por_imprimir(
     assert ".pdf" in resp.text
 
 
+def test_lote_generado_trae_los_dos_enlaces_de_pdf_y_el_de_3_va_primero(
+    client_as, db_session, make_library_cert_staff, make_cert_process,
+):
+    """Spec §3.1 (E4): dos enlaces planos por lote, 3 por hoja primero (es el
+    acomodo de siempre)."""
+    staff = make_library_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)
+
+    resp = client_as(staff).post(
+        f"{URL}/library_clearance/lote",
+        data={"page_library_clearance": "1", "page_survey_release": "1"})
+
+    assert resp.status_code == 200, resp.text[:500]
+    texto = resp.text
+    assert "PDF · 3 por hoja" in texto and "PDF · 2 por hoja" in texto
+    assert texto.index("PDF · 3 por hoja") < texto.index("PDF · 2 por hoja")
+    assert "por_hoja=3" in texto and "por_hoja=2" in texto
+    assert 'target="_blank"' in texto and 'rel="noopener"' in texto
+
+
+def test_generar_lote_no_duplica_ids_entre_la_tarjeta_y_la_fila(
+    client_as, db_session, make_library_cert_staff, make_cert_process,
+):
+    """El lote recién creado sale en la tarjeta «Lote generado» Y en la
+    primera fila de «Lotes» de la MISMA respuesta (`create_batch` manda ese
+    lote a la página 1 de su `kind`) -- los ids de sus enlaces de PDF no deben
+    chocar entre las dos secciones."""
+    import re
+
+    staff = make_library_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)
+
+    resp = client_as(staff).post(
+        f"{URL}/library_clearance/lote",
+        data={"page_library_clearance": "1", "page_survey_release": "1"})
+
+    assert resp.status_code == 200, resp.text[:500]
+    ids = re.findall(r'id="(tt-cert-(?:new-)?pdf-\d+-[23])"', resp.text)
+    assert len(ids) == 4, ids              # tarjeta (2) + fila (2)
+    assert len(ids) == len(set(ids)), f"ids de PDF duplicados: {ids}"
+
+
+def test_cada_fila_de_lotes_trae_los_dos_enlaces_de_pdf_con_ids_estables(
+    client_as, db_session, make_library_cert_staff, make_cert_process,
+):
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    staff = make_library_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)
+    batch = CertificateService.create_batch(db_session, kind="library_clearance", actor_id=staff.id)
+
+    resp = client_as(staff).get(f"{URL}/body")
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert f'id="tt-cert-pdf-{batch.id}-3"' in resp.text
+    assert f'id="tt-cert-pdf-{batch.id}-2"' in resp.text
+    assert (resp.text.index(f'id="tt-cert-pdf-{batch.id}-3"')
+            < resp.text.index(f'id="tt-cert-pdf-{batch.id}-2"'))
+
+
+def test_hx_confirm_usa_el_articulo_la_con_una_sola_pendiente(
+    client_as, db_session, make_library_cert_staff, make_cert_process,
+):
+    """m28: `certificates_body.html` decía «las 1 constancia» -- el artículo
+    ahora concuerda con la cantidad, igual que ya hacía la «s» de plural."""
+    staff = make_library_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)
+
+    resp = client_as(staff).get(URL)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert "con la 1 constancia por imprimir" in resp.text
+    assert "con las 1 constancia" not in resp.text
+
+
+def test_hx_confirm_usa_el_articulo_las_en_plural(
+    client_as, db_session, make_library_cert_staff, make_cert_process,
+):
+    staff = make_library_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=2, actor_id=staff.id)
+
+    resp = client_as(staff).get(URL)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert "con las 2 constancias por imprimir" in resp.text
+
+
+def test_create_batch_resuelve_kinds_imprimibles_una_sola_vez(
+    client_as, db_session, make_library_cert_staff, make_cert_process, monkeypatch,
+):
+    """m29: `create_batch` llamaba `_printable_kinds` (-> 3 SELECT de
+    permisos vía `get_user_permissions_for_app`/`effective_perm_set`, sin
+    caché) DOS veces -- una para el 404 por `kind` ajeno, otra DENTRO de
+    `_body_ctx` al repintar el parcial. `_body_ctx` ahora acepta `kinds` ya
+    resuelto y `create_batch` se lo pasa.
+
+    Se cuenta `_printable_kinds` (el helper de ESTE módulo), no
+    `get_user_permissions_for_app` directo: la misma petición también pasa
+    por `require_page_app` (gate de página, vía `cached_perms`) y por
+    `render_titulatec` -> `admin_nav_items` (menú admin) -- las dos
+    resuelven permisos de `titulatec` POR SU CUENTA, sin relación con este
+    pendiente, y contarlas junto con `_printable_kinds` haría la prueba
+    depender de si el caché de Redis está tibio o frío (ajeno a lo que aquí
+    se arregla)."""
+    import itcj2.apps.titulatec.pages.certificates_admin as certificates_admin
+
+    staff = make_library_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)
+
+    llamadas = []
+    original = certificates_admin._printable_kinds
+
+    def _contador(db, user_id):
+        llamadas.append(user_id)
+        return original(db, user_id)
+
+    monkeypatch.setattr(certificates_admin, "_printable_kinds", _contador)
+
+    resp = client_as(staff).post(
+        f"{URL}/library_clearance/lote",
+        data={"page_library_clearance": "1", "page_survey_release": "1"})
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert len(llamadas) == 1, f"_printable_kinds se llamó {len(llamadas)} veces, se esperaba 1"
+
+
+def test_body_ctx_acepta_kinds_precalculado(db_session, make_library_cert_staff):
+    """Contrato de `_body_ctx(..., kinds=None)`: si el llamador YA resolvió
+    los `kind` imprimibles (como hace `create_batch`), se usan tal cual, sin
+    volver a preguntar permisos."""
+    from itcj2.apps.titulatec.pages.certificates_admin import _body_ctx
+
+    staff = make_library_cert_staff()
+
+    ctx = _body_ctx(db_session, user_id=staff.id,
+                    pages={"library_clearance": 1, "survey_release": 1},
+                    kinds=["library_clearance"])
+
+    assert [s["kind"] for s in ctx["sections"]] == ["library_clearance"]
+
+
 def test_generar_lote_sin_pendientes_responde_400(client_as, make_library_cert_staff):
     resp = client_as(make_library_cert_staff()).post(f"{URL}/library_clearance/lote", data={})
 
@@ -302,6 +452,46 @@ def test_pdf_de_lote_inexistente_responde_404(client_as, make_library_cert_staff
     resp = client_as(make_library_cert_staff()).get(f"{URL}/lotes/999999.pdf")
 
     assert resp.status_code == 404, resp.text[:300]
+
+
+@pytest.mark.parametrize("por_hoja,esperado", [
+    ("2", 2), ("3", 3), ("4", 3), ("abc", 3), ("", 3),
+])
+def test_pdf_por_hoja_200_pdf_y_el_nombre_refleja_el_acomodo_usado(
+    client_as, db_session, make_library_cert_staff, make_cert_process, por_hoja, esperado,
+):
+    """Spec §3.1: `por_hoja` es un filtro de VISTA (como `_parse_dia` de
+    Caja) -- fuera de forma (`4`, `abc`, vacío) cae en 3, nunca 400/500."""
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    staff = make_library_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)
+    batch = CertificateService.create_batch(db_session, kind="library_clearance", actor_id=staff.id)
+
+    resp = client_as(staff).get(f"{URL}/lotes/{batch.id}.pdf", params={"por_hoja": por_hoja})
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert resp.content[:4] == b"%PDF"
+    assert f"_{esperado}xhoja.pdf" in resp.headers["content-disposition"]
+
+
+def test_pdf_sin_por_hoja_en_absoluto_usa_3(
+    client_as, db_session, make_library_cert_staff, make_cert_process,
+):
+    """Distinto del caso `por_hoja=""` de arriba: aquí el query param ni
+    siquiera está presente en la URL."""
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    staff = make_library_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)
+    batch = CertificateService.create_batch(db_session, kind="library_clearance", actor_id=staff.id)
+
+    resp = client_as(staff).get(f"{URL}/lotes/{batch.id}.pdf")
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert "_3xhoja.pdf" in resp.headers["content-disposition"]
 
 
 def test_el_pdf_del_lote_corre_en_el_threadpool_y_no_en_el_event_loop():

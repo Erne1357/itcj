@@ -6,15 +6,18 @@ El Centro de Información (constancias de no adeudo) y Gestión Tecnológica y
 Vinculación -GTV- (constancias de encuesta) comparten esta MISMA página -cada
 quien ve solo los `kind` de `CERT_KINDS` que puede imprimir, D15-. Una vez al
 día: «Por imprimir (N)» -> «Generar lote (N)» (confirmación) -> el PDF del
-lote (3 por hoja carta, WeasyPrint, `utils/certificate_pdf.py`) se abre en
-pestaña nueva desde un `<a target="_blank">` PLANO del parcial re-pintado,
-nunca con `<script>` inline. «Lotes» lista los anteriores con fecha, quién,
-cuántas (y cuántas anuladas) y «Ver PDF».
+lote (2 o 3 por hoja carta A ELEGIR -`por_hoja`, spec §3.1/E4-, WeasyPrint,
+`utils/certificate_pdf.py`) se abre en pestaña nueva desde uno de los DOS
+`<a target="_blank">` PLANOS del parcial re-pintado, nunca con `<script>`
+inline. «Lotes» lista los anteriores con fecha, quién, cuántas (y cuántas
+anuladas) y los dos enlaces «PDF · N por hoja».
 
 Spec `docs/superpowers/specs/2026-10-01-titulatec-biblioteca-caja-design.md`
-§4.5 (motor de constancias / la página), D7 (3 por hoja, se acumulan, el área
-genera el PDF cuando quiere), D15 (Centro de Información imprime no adeudo;
-GTV imprime encuesta), §4.6 (permisos/menú), §5 invariantes 5 y 6.
+§4.5 (motor de constancias / la página), D7 (se acumulan, el área genera el
+PDF cuando quiere), D15 (Centro de Información imprime no adeudo; GTV imprime
+encuesta), §4.6 (permisos/menú), §5 invariantes 5 y 6; Tarea 1 de
+`2026-10-02-titulatec-constancias-y-pendientes-design.md` §2 (E4/E8) y §3.1
+(2 o 3 por hoja, `por_hoja` como filtro de vista, plantilla en dos piezas).
 
 Gate de página -ÚNICO código, spec §4.6-: `titulatec.certificate.page.list`
 en las CUATRO rutas. Es el permiso de ENTRAR a la página. Qué tipos puede de
@@ -96,6 +99,23 @@ def _pages(lib_raw, survey_raw) -> dict[str, int]:
     return {"library_clearance": _to_page(lib_raw), "survey_release": _to_page(survey_raw)}
 
 
+def _parse_por_hoja(raw) -> int:
+    """`por_hoja` del query string del PDF -> 2 o 3, o
+    `DEFAULT_PER_PAGE` si falta o viene fuera de forma (ausente, vacío,
+    `abc`, `4`, ...): es un filtro de VISTA (spec §3.1, mismo criterio que
+    `_parse_dia` de `pages/cashier_admin.py`), nunca una acción, así que un
+    valor fuera de forma cae al valor por omisión en vez de responder 400.
+    La función ESTRICTA (`ValueError` con cualquier otro valor) es
+    `render_certificates_pdf`; esta normaliza ANTES de llamarla."""
+    from itcj2.apps.titulatec.utils.certificate_pdf import ALLOWED_PER_PAGE, DEFAULT_PER_PAGE
+
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_PER_PAGE
+    return n if n in ALLOWED_PER_PAGE else DEFAULT_PER_PAGE
+
+
 def _printable_kinds(db, user_id: int) -> list[str]:
     """Los `CERT_KINDS` que este actor puede IMPRIMIR, en el orden de
     `CERT_KINDS` (nunca el de llegada del set de permisos). ÚNICO lugar del
@@ -118,14 +138,22 @@ def _body_url(pages: dict[str, int]) -> str:
     return "/titulatec/admin/constancias/body?" + urlencode(qs)
 
 
-def _body_ctx(db, *, user_id: int, pages: dict[str, int], new_batch: dict | None = None) -> dict:
+def _body_ctx(db, *, user_id: int, pages: dict[str, int], new_batch: dict | None = None,
+              kinds: list[str] | None = None) -> dict:
     """Contexto del parcial: una sección por cada `kind` que este actor puede
     imprimir, en el orden de `CERT_KINDS`. Todo lo que la plantilla pinta
     -enlaces de paginación incluidos- ya viene PRECALCULADO: la plantilla no
-    decide nada, solo pinta (mismo criterio que `utils/certificate_pdf.py`)."""
+    decide nada, solo pinta (mismo criterio que `utils/certificate_pdf.py`).
+
+    `kinds=None` (el caso normal: `list_certificates`/`body`) los resuelve
+    aquí mismo con `_printable_kinds`. `create_batch` YA los necesita resueltos
+    antes de llegar aquí (para decidir su propio 404) y los pasa -- así no
+    se pregunta permisos dos veces por la misma petición (m29,
+    triage-minors.md)."""
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
-    kinds = _printable_kinds(db, user_id)
+    if kinds is None:
+        kinds = _printable_kinds(db, user_id)
     sections = []
     for kind in kinds:
         page = pages.get(kind, 1)
@@ -184,9 +212,10 @@ async def create_batch(
     user: dict = Depends(require_page_app("titulatec", perms=_LIST)),
 ):
     """«Generar lote» (D7): toma TODAS las pendientes de `kind` y las agrupa
-    (`CertificateService.create_batch`, su propio commit). El enlace para
-    abrir el PDF en pestaña nueva (`target="_blank"`, sin script inline) sale
-    en el parcial re-pintado, como «Lote recién generado»."""
+    (`CertificateService.create_batch`, su propio commit). Los DOS enlaces
+    para abrir el PDF en pestaña nueva (3 y 2 por hoja, `target="_blank"`,
+    sin script inline) salen en el parcial re-pintado, como «Lote recién
+    generado»."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
@@ -196,7 +225,8 @@ async def create_batch(
     db = SessionLocal()
     try:
         uid = int(user["sub"])
-        if kind not in _printable_kinds(db, uid):
+        kinds = _printable_kinds(db, uid)
+        if kind not in kinds:
             return Response(status_code=404)
         try:
             batch = CertificateService.create_batch(db, kind=kind, actor_id=uid)
@@ -206,7 +236,9 @@ async def create_batch(
         # El lote recién creado siempre sale en la primera página de «Lotes»
         # de SU kind; la página del otro kind (si lo hay) se conserva tal cual.
         pages[kind] = 1
-        ctx = _body_ctx(db, user_id=uid, pages=pages,
+        # `kinds` ya resuelto arriba (línea del 404): se lo pasamos a
+        # `_body_ctx` para no volver a preguntar permisos (m29).
+        ctx = _body_ctx(db, user_id=uid, pages=pages, kinds=kinds,
                         new_batch={"id": batch_id, "kind": kind, "count": batch_count})
     finally:
         db.close()
@@ -220,13 +252,21 @@ async def create_batch(
 @router.get("/lotes/{batch_id}.pdf", name="titulatec.pages.certificates.batch_pdf")
 def batch_pdf(
     batch_id: int,
+    por_hoja: str = "",
     user: dict = Depends(require_page_app("titulatec", perms=_LIST)),
 ):
-    """El PDF de un lote, inline (se abre en pestaña nueva desde un `<a>`
-    plano del parcial, nunca con JS). SIEMPRE se regenera -nunca se guarda,
-    ver `utils/certificate_pdf.py`-; 404 si el lote no existe O si su `kind`
-    no es de los que este actor puede imprimir (nunca 403: mismo criterio que
-    `_printable_kinds`, arriba).
+    """El PDF de un lote, inline (se abre en pestaña nueva desde uno de los
+    dos `<a>` planos del parcial -3 o 2 por hoja-, nunca con JS). SIEMPRE se
+    regenera -nunca se guarda, ver `utils/certificate_pdf.py`-; 404 si el
+    lote no existe O si su `kind` no es de los que este actor puede imprimir
+    (nunca 403: mismo criterio que `_printable_kinds`, arriba).
+
+    `por_hoja` (spec §3.1/E4) es un filtro de VISTA, normalizado por
+    `_parse_por_hoja` ANTES de llamar a `render_certificates_pdf` -ausente,
+    vacío o fuera de forma (`4`, `abc`, ...) caen en 3, nunca 400/500-; el
+    acomodo elegido se refleja en el nombre del archivo
+    (`constancias_{kind}_{batch_id}_{n}xhoja.pdf`), nunca se guarda en el
+    lote (el mismo lote puede reabrirse después con el otro acomodo).
 
     Es `def` y no `async def` a propósito (Ruling R23, I5 de la revisión
     final): WeasyPrint es CPU bloqueante -medido en el contenedor: 30
@@ -241,6 +281,7 @@ def batch_pdf(
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
     from itcj2.apps.titulatec.utils.certificate_pdf import render_certificates_pdf
 
+    n = _parse_por_hoja(por_hoja)
     db = SessionLocal()
     try:
         uid = int(user["sub"])
@@ -251,9 +292,9 @@ def batch_pdf(
         if kind not in _printable_kinds(db, uid):
             return Response(status_code=404)
         certs = CertificateService.certificates_of(db, batch_id)
-        pdf_bytes = render_certificates_pdf(certs)
+        pdf_bytes = render_certificates_pdf(certs, per_page=n)
     finally:
         db.close()
-    filename = f"constancias_{kind}_{batch_id}.pdf"
+    filename = f"constancias_{kind}_{batch_id}_{n}xhoja.pdf"
     return Response(content=pdf_bytes, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="{filename}"'})

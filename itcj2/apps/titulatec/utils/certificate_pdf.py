@@ -1,11 +1,22 @@
 """PDF de constancias por lote (TitulaTec) -- WeasyPrint sobre HTML/CSS propio.
 
-Spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.5: 3 constancias por
-hoja carta, separadas por una línea de corte punteada con una tijera entre
-cada ranura. El PDF NUNCA se guarda (ver el docstring de
-`models/certificate.py`): esta función lo REGENERA siempre, a partir de los
-datos ya CONGELADOS en cada fila -- mismo resultado cada vez, nada que
-mantener sincronizado con la base.
+Spec `2026-10-02-titulatec-constancias-y-pendientes-design.md` §2 (E4/E8) y
+§3.1: 2 o 3 constancias por hoja carta, acomodo elegido CADA VEZ que se abre
+el PDF (nunca se guarda en el lote; antecede spec
+`2026-10-01-titulatec-biblioteca-caja-design.md` §4.5, que fijaba 3 siempre).
+Separadas por una línea de corte punteada con una tijera entre cada ranura.
+El PDF NUNCA se guarda (ver el docstring de `models/certificate.py`): esta
+función lo REGENERA siempre, a partir de los datos ya CONGELADOS en cada fila
+-- mismo resultado cada vez, nada que mantener sincronizado con la base.
+
+Plantilla en DOS PIEZAS (E8, pensando en los formatos oficiales que cada área
+trae después): `sheet.html` (la hoja carta -- `@page`, acomodo `sheet--2`/
+`sheet--3`, línea de corte) y la RANURA de una constancia, una plantilla por
+`kind` (`SLOT_TEMPLATES`). Hoy los dos tipos comparten la misma
+`_slot.html` (el contenido de siempre, sin cambios); el día que llegue un
+formato propio por área, solo cambia esa entrada del mapa -- ni `sheet.html`
+ni esta función se tocan. `_cert_ctx` ya resuelve la plantilla de ranura de
+cada constancia (`slot_template`): `sheet.html` no decide nada, solo pinta.
 
 La plantilla (`templates/titulatec/certificates/sheet.html`) NO extiende
 `base.html` ni ningún layout HTTP de la app: es un documento HTML completo,
@@ -29,10 +40,14 @@ import itcj2
 
 from itcj2.apps.titulatec.utils.dates_es import dia_mes
 
-# Constancias por hoja carta (spec D7/§4.5). Cambiar esto mueve también la
-# plantilla (grupos de `PER_PAGE` ranuras por `.sheet`) -- ver
-# `sheet.html`.
-PER_PAGE = 3
+# Acomodos permitidos y el que se usa por omisión (spec E4: 3 si no se pide
+# nada, D7 de ayer). Un `per_page` fuera de este dominio es un error de
+# PROGRAMADOR -- `ValueError` -- distinto del filtro de VISTA `por_hoja` de
+# la ruta (`pages/certificates_admin.py::_parse_por_hoja`), que normaliza
+# cualquier valor fuera de forma ANTES de llegar aquí y nunca deja pasar uno
+# inválido.
+ALLOWED_PER_PAGE = (2, 3)
+DEFAULT_PER_PAGE = 3
 
 # `itcj2/core/static/`: calculado desde el paquete, no desde el cwd del
 # proceso (WeasyPrint resuelve las rutas relativas del HTML contra esto).
@@ -40,11 +55,20 @@ CORE_STATIC_DIR = Path(itcj2.__file__).resolve().parent / "core" / "static"
 
 _TEMPLATE_NAME = "titulatec/certificates/sheet.html"
 
+# kind -> plantilla de RANURA (E8). Hoy los dos tipos comparten el mismo
+# contenido (`_slot.html`); mañana, cuando lleguen los formatos oficiales de
+# cada área, cada entrada apunta a la suya sin tocar `sheet.html` ni
+# `render_certificates_pdf`.
+SLOT_TEMPLATES: dict[str, str] = {
+    "library_clearance": "titulatec/certificates/_slot.html",
+    "survey_release": "titulatec/certificates/_slot.html",
+}
+
 
 def _cert_ctx(cert) -> dict:
     """Una `Certificate` -> el dict plano que consume la plantilla. Todo
-    PRECALCULADO en Python (fecha en español, textos del tipo): la plantilla
-    no toma ninguna decisión, solo pinta."""
+    PRECALCULADO en Python (fecha en español, textos del tipo, plantilla de
+    ranura según `kind`): la plantilla no toma ninguna decisión, solo pinta."""
     from itcj2.apps.titulatec.services.certificate_service import CERT_KINDS
 
     kind = CERT_KINDS[cert.kind]
@@ -59,12 +83,18 @@ def _cert_ctx(cert) -> dict:
         "title": kind["title"],
         "department": kind["department"],
         "phrase": kind["phrase"],
+        "slot_template": SLOT_TEMPLATES[cert.kind],
     }
 
 
-def render_certificates_pdf(certs: list[Certificate]) -> bytes:
+def render_certificates_pdf(certs: list[Certificate], per_page: int = DEFAULT_PER_PAGE) -> bytes:
     """Arma el PDF de una lista de constancias (típicamente las de UN lote,
-    en el orden que traiga `certs`): `PER_PAGE` por hoja carta.
+    en el orden que traiga `certs`): `per_page` (2 o 3, spec E4) por hoja
+    carta. Un `per_page` fuera de `ALLOWED_PER_PAGE` truena con `ValueError`:
+    esta función no ve la petición HTTP directamente -- la ruta
+    (`pages/certificates_admin.py::batch_pdf`) ya normalizó cualquier valor
+    fuera de forma antes de llamarla, así que llegar aquí con otro valor es
+    un error de quien programa, no de quien usa la página.
 
     Una lista vacía SÍ produce un PDF (de una página en blanco -- WeasyPrint
     siempre renderiza al menos el `@page` declarado, aunque el cuerpo esté
@@ -74,10 +104,13 @@ def render_certificates_pdf(certs: list[Certificate]) -> bytes:
     from weasyprint import HTML
     from itcj2.apps.titulatec.pages.nav import titulatec_templates
 
+    if per_page not in ALLOWED_PER_PAGE:
+        raise ValueError(f"per_page debe ser uno de {ALLOWED_PER_PAGE}, no {per_page!r}.")
+
     grupos = [
-        [_cert_ctx(c) for c in certs[i:i + PER_PAGE]]
-        for i in range(0, len(certs), PER_PAGE)
+        [_cert_ctx(c) for c in certs[i:i + per_page]]
+        for i in range(0, len(certs), per_page)
     ]
     template = titulatec_templates.get_template(_TEMPLATE_NAME)
-    html = template.render(groups=grupos)
+    html = template.render(groups=grupos, per_page=per_page)
     return HTML(string=html, base_url=str(CORE_STATIC_DIR)).write_pdf()

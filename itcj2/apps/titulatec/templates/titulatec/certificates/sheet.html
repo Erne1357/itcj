@@ -1,19 +1,26 @@
 <!--
   Hoja de constancias para WeasyPrint (TitulaTec).
 
-  Spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.5: 3 constancias
-  por hoja carta, cada una en una ranura de ALTO FIJO (`break-inside: avoid`),
-  separadas por una línea de corte punteada con tijera. NO extiende
-  `base.html` ni ningún layout HTTP de la app -- es un documento HTML
-  completo pensado SOLO para `weasyprint.HTML(...).write_pdf()`
+  Spec `2026-10-02-titulatec-constancias-y-pendientes-design.md` §2 (E4/E8) y
+  §3.1: 2 o 3 constancias por hoja carta -- el acomodo se elige CADA VEZ que
+  se abre el PDF, nunca se guarda en el lote --, cada una en una ranura de
+  ALTO FIJO (`break-inside: avoid`, el alto exacto depende del acomodo),
+  separadas por una línea de corte punteada con tijera, nunca tras la última
+  de la hoja. NO extiende `base.html` ni ningún layout HTTP de la app -- es
+  un documento HTML completo pensado SOLO para
+  `weasyprint.HTML(...).write_pdf()`
   (`utils/certificate_pdf.py::render_certificates_pdf`), nunca para un
   `Request`/`TemplateResponse`.
 
-  Contexto esperado: `groups` = lista de hojas, cada hoja una lista de hasta
-  `PER_PAGE` dicts (`utils/certificate_pdf.py::_cert_ctx`) con: number,
-  control_number, student_name, program_name, period_label, issued_label,
-  voided, title, department, phrase. Todo ya viene PRECALCULADO -- esta
-  plantilla solo pinta, no decide nada.
+  Plantilla en DOS PIEZAS (E8): esta hoja (acomodo + línea de corte) y la
+  RANURA de cada constancia, incluida por tipo vía `SLOT_TEMPLATES`
+  (`utils/certificate_pdf.py`) -- ya resuelta por constancia en
+  `c.slot_template` (`_cert_ctx`): esta plantilla no decide nada, solo pinta.
+
+  Contexto esperado: `per_page` (2 o 3) y `groups` = lista de hojas, cada hoja
+  una lista de hasta `per_page` dicts (`utils/certificate_pdf.py::_cert_ctx`)
+  con: number, control_number, student_name, program_name, period_label,
+  issued_label, voided, title, department, phrase, slot_template.
 -->
 <!doctype html>
 <html lang="es">
@@ -33,18 +40,18 @@
     color: #1a1a1a;
     font-size: 10pt;
   }
-  /* Una hoja por grupo de PER_PAGE constancias; la siguiente hoja siempre
+  /* Una hoja por grupo de `per_page` constancias; la siguiente hoja siempre
      arranca en una página nueva (nunca tras la última). */
   .sheet + .sheet {
     break-before: page;
     page-break-before: always;
   }
   /* Ranura de alto FIJO: si el contenido se desborda (un nombre/carrera muy
-     largos) se recorta en vez de empujar la paginación -- 3 por hoja es un
-     contrato duro, no "hasta 3". */
+     largos) se recorta en vez de empujar la paginación -- `per_page` por
+     hoja es un contrato duro, no "hasta `per_page`". El alto exacto depende
+     del acomodo (`.sheet--3 .slot` / `.sheet--2 .slot`, abajo). */
   .slot {
     position: relative;
-    height: 3.2in;
     padding: 0.14in 0.2in;
     border: 1pt solid #bbb;
     border-radius: 4pt;
@@ -54,6 +61,18 @@
     display: flex;
     flex-direction: column;
   }
+  /* 3 por hoja (acomodo de siempre, D7 de ayer): 3 x 3.2in + 2 líneas de
+     corte caben en carta (11in - 0.6in de márgenes @page = 10.4in útiles). */
+  .sheet--3 .slot { height: 3.2in; }
+  /* 2 por hoja (spec §3.1/E4): ranura más alta y tipografía algo mayor
+     (abajo); 2 x 4.9in + 1 línea de corte ≈ 10.1in, sin desbordar a una
+     tercera página. */
+  .sheet--2 .slot { height: 4.9in; }
+  .sheet--2 .slot-title { font-size: 15pt; }
+  .sheet--2 .slot-body { font-size: 11.5pt; line-height: 1.5; }
+  .sheet--2 .fields { font-size: 10.5pt; }
+  .sheet--2 .fields td.label { width: 1.3in; }
+  .sheet--2 .slot-foot { font-size: 10pt; }
   /* Línea de corte con tijera, entre ranuras de la MISMA hoja (nunca tras la
      última de la hoja). */
   .cut {
@@ -148,40 +167,9 @@
 </head>
 <body>
 {% for grupo in groups %}
-<div class="sheet">
+<div class="sheet sheet--{{ per_page }}">
   {% for c in grupo %}
-  <div class="slot">
-    {% if c.voided %}<div class="stamp">ANULADA</div>{% endif %}
-    <div class="slot-head">
-      <img src="images/logo_tecnm.png" alt="TecNM">
-      <div class="titles">
-        <p class="inst">Tecnológico Nacional de México</p>
-        <p class="dept">Instituto Tecnológico de Ciudad Juárez · {{ c.department }}</p>
-      </div>
-      <img src="images/escudo_itcj_negro.png" alt="ITCJ">
-    </div>
-    <div class="slot-title">{{ c.title }}</div>
-    <div class="slot-body">
-      Se hace constar que <strong>{{ c.student_name }}</strong> {{ c.phrase }}.
-    </div>
-    <table class="fields">
-      <tr>
-        <td class="label">No. de control:</td><td>{{ c.control_number }}</td>
-        <td class="label">Carrera:</td><td>{{ c.program_name }}</td>
-      </tr>
-      <tr>
-        <td class="label">Semestre:</td><td>{{ c.period_label }}</td>
-        <td class="label">Folio:</td><td>{{ c.number }}</td>
-      </tr>
-    </table>
-    <div class="slot-foot">
-      <div>Fecha de emisión: {{ c.issued_label }}</div>
-      <div class="signature">
-        <div class="line"></div>
-        Nombre, firma y sello
-      </div>
-    </div>
-  </div>
+  {% include c.slot_template %}
   {% if not loop.last %}
   <div class="cut"><span class="scissors">&#9986;</span><span class="dash"></span></div>
   {% endif %}
