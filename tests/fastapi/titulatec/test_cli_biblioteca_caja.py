@@ -15,7 +15,9 @@ subcarpeta `biblioteca_2026_10/` -- NUNCA en el 01/02/03/05, cuyos DELETE del
 permiso concedido ahi.
 
 Despliegue en DOS pasos (Ruling R19): `init-biblioteca-caja` corre SOLO el 20
-y el 21 (puestos, roles, permisos: no enciende nada) y `activar-biblioteca-
+y el 21 (puestos, roles, permisos: no enciende nada) más el 23 (m33 de
+2026-10-02: la descripción de la tarea de recordatorios por correo, que ahora
+menciona el pago pendiente en Caja) y `activar-biblioteca-
 caja` -tras sus pre-chequeos de ocupantes y donación, que abortan sin
 `--force`- corre el 22 (el candado), RE-BACKFILLEA `titulatec_library_
 clearances` con el MISMO predicado que el backfill de la migracion
@@ -136,21 +138,25 @@ def test_el_reparto_de_los_roles_nuevos_es_exacto():
 
 
 def test_las_dos_listas_reparten_el_delta_sin_solaparse():
-    """Ruling R19: `init-biblioteca-caja` = 20 + 21 (no enciende nada);
-    `activar-biblioteca-caja` = SOLO el 22 (el candado). Ninguno corre lo
-    del otro."""
+    """Ruling R19: `init-biblioteca-caja` = 20 + 21 (no enciende nada) + 23
+    (m33, spec 2026-10-02 §6: la descripción de los recordatorios por correo,
+    que ahora mencionan el pago pendiente en Caja); `activar-biblioteca-caja`
+    = SOLO el 22 (el candado). Ninguno corre lo del otro."""
     assert _DML_BIBLIOTECA_2026_10_FILES == [
         "20_insert_library_cashier_positions.sql",
         "21_insert_library_cashier_roles_perms.sql",
+        "23_update_email_reminders_description.sql",
     ]
     assert _DML_BIBLIOTECA_2026_10_ACTIVAR_FILES == ["22_library_requirement_auto.sql"]
     assert not set(_DML_BIBLIOTECA_2026_10_FILES) & set(_DML_BIBLIOTECA_2026_10_ACTIVAR_FILES)
 
 
 def test_el_delta_esta_en_seed_files_con_su_prefijo_de_subcarpeta():
-    """Sin esto, una base NUEVA (`core seed-reference-data`) nace sin los 3:
-    `SEED_FILES` conserva el 20, el 21 Y el 22 (desde cero, encender de
-    inmediato está bien: no hay procesos que proteger)."""
+    """Sin esto, una base NUEVA (`core seed-reference-data`) nace sin el
+    delta: `SEED_FILES` conserva el 20, el 21 Y el 22 (desde cero, encender
+    de inmediato está bien: no hay procesos que proteger) y el 23 (ahí no
+    cambia nada: el 17 ya siembra el texto nuevo; lo deja al día si el 17 en
+    disco fuera una copia vieja)."""
     for nombre in _TODOS_LOS_DEL_DELTA:
         assert f"{_DML_BIBLIOTECA_2026_10_DIR}/{nombre}" in SEED_FILES, (
             f"{nombre} no esta en SEED_FILES con el prefijo {_DML_BIBLIOTECA_2026_10_DIR}/")
@@ -193,8 +199,56 @@ def test_todo_sql_del_delta_esta_en_una_lista_de_comando():
 
     for nombre in ("20_insert_library_cashier_positions.sql",
                    "21_insert_library_cashier_roles_perms.sql",
-                   "22_library_requirement_auto.sql"):
+                   "22_library_requirement_auto.sql",
+                   "23_update_email_reminders_description.sql"):
         assert nombre in en_disco, f"falta {nombre} en el directorio del delta"
+
+
+def _periodica_de_recordatorios_del_17() -> str:
+    """La descripción de 'TitulaTec: recordatorios por correo' que siembra el
+    DML 17 (`mail_2026_09/`) en `core_periodic_tasks`, con sus literales de
+    SQL adyacentes unidos."""
+    import re
+
+    sql = (DML_TITULATEC / "mail_2026_09" / "17_insert_email_tasks.sql").read_text(
+        encoding="utf-8")
+    unido = re.sub(r"'\s*\n\s*'", "", sql)
+    fila = re.search(r"'TitulaTec: recordatorios por correo',\s*'titulatec\.email_reminders',"
+                     r"\s*'[^']*',\s*'\{\}',\s*TRUE,\s*'([^']*)'", unido)
+    assert fila, "no se encontró la periódica de recordatorios en el DML 17"
+    return fila.group(1)
+
+
+@requires_dml
+def test_el_23_deja_las_dos_descripciones_como_las_siembra_el_17():
+    """m33 (spec 2026-10-02 §6): una base YA sembrada (producción: el 17 viejo
+    nunca se re-corre) recibe con el 23 las MISMAS dos descripciones que una
+    instalación desde cero recibe del 17: la de `core_task_definitions`, copia
+    literal de `TASK_DEFINITIONS` (itcj2/tasks/titulatec_tasks.py), y la de la
+    fila de `core_periodic_tasks`. Solo UPDATE (no da de alta la tarea ni
+    borra nada) e idempotente (`IS DISTINCT FROM`: re-correrlo no toca
+    `updated_at`)."""
+    import re
+
+    from itcj2.tasks import titulatec_tasks
+
+    sql = (DML_TITULATEC / _DML_BIBLIOTECA_2026_10_DIR
+           / "23_update_email_reminders_description.sql").read_text(encoding="utf-8")
+    codigo = "\n".join(linea for linea in sql.splitlines()
+                       if not linea.lstrip().startswith("--"))
+    unido = re.sub(r"'\s*\n\s*'", "", codigo)
+    definicion, = [d for d in titulatec_tasks.TASK_DEFINITIONS
+                   if d["task_name"] == "titulatec.email_reminders"]
+
+    assert f"'{definicion['description']}'" in unido, (
+        "la descripción de core_task_definitions del 23 no es la de TASK_DEFINITIONS")
+    assert f"'{_periodica_de_recordatorios_del_17()}'" in unido, (
+        "la descripción de core_periodic_tasks del 23 no es la que siembra el 17")
+    assert "pago pendiente en Caja" in definicion["description"]
+    assert not re.search(r"\b(INSERT|DELETE|TRUNCATE|DROP)\b", codigo, re.IGNORECASE)
+    assert "UPDATE core_task_definitions" in codigo
+    assert "UPDATE core_periodic_tasks" in codigo
+    assert codigo.count("IS DISTINCT FROM") == 2
 
 
 # --- init-biblioteca-caja (paso 1: NO enciende nada) -----------------------
@@ -212,12 +266,13 @@ def test_init_dry_run_no_ejecuta_sql_ni_verifica():
     rebackfill.assert_not_called()
     promover.assert_not_called()
     assert "20_insert_library_cashier_positions.sql" in res.output
+    assert "23_update_email_reminders_description.sql" in res.output
     assert "22_library_requirement_auto.sql" not in res.output
     assert "Dry-run: no se ejecutó nada." in res.output
 
 
 @requires_dml
-def test_init_corre_solo_el_20_y_el_21_y_no_enciende_nada():
+def test_init_corre_el_20_21_y_23_y_no_enciende_nada():
     with patch("itcj2.cli.core.execute_sql_file", return_value=True) as ejecutar, \
          patch(f"{_MOD}._verify_biblioteca_caja", return_value=[]) as verificar, \
          patch(f"{_MOD}._verify_candado_biblioteca") as verificar_candado, \
@@ -228,10 +283,13 @@ def test_init_corre_solo_el_20_y_el_21_y_no_enciende_nada():
     assert res.exit_code == 0, res.output
     corridos = [str(c.args[0]) for c in ejecutar.call_args_list]
     assert [r.rsplit("/", 1)[-1] for r in corridos] == _DML_BIBLIOTECA_2026_10_FILES, corridos
-    # NUNCA el 22 (el candado), ni el DML base, ni otros deltas.
+    # NUNCA el 22 (el candado), ni el DML base, ni otros deltas -- tampoco el
+    # 17 viejo de `mail_2026_09/` (regla del proyecto: un DML viejo no se
+    # re-corre en producción; su texto nuevo llega con el 23).
     assert not any("22_library_requirement_auto" in r or "01_insert_roles" in r
                    or "03_insert_role_permissions" in r or "survey_2026_09" in r
-                   or "posgrado_2026_10" in r for r in corridos), corridos
+                   or "posgrado_2026_10" in r or "mail_2026_09" in r
+                   for r in corridos), corridos
     verificar.assert_called_once_with()
     verificar_candado.assert_not_called()
     rebackfill.assert_not_called()

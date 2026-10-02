@@ -111,14 +111,19 @@ TASK_DEFINITIONS = [
     {
         "task_name": "titulatec.email_reminders",
         "display_name": "Recordatorios por correo al egresado (TitulaTec)",
+        # Copia LITERAL en `database/DML/titulatec/mail_2026_09/17_insert_email_tasks.sql`
+        # (instalación desde cero; lo fija test_cli_mail_tasks.py) y en
+        # `biblioteca_2026_10/23_update_email_reminders_description.sql` (base ya
+        # sembrada; lo fija test_cli_biblioteca_caja.py).
         "description": (
             "Diario: encola los recordatorios del proceso de titulación con su aviso en "
             "la app — la cita de cotejo del día siguiente "
             "(TITULATEC_APPT_REMINDER_DAYS_BEFORE), los documentos iniciales que faltan "
-            "o hay que corregir y la encuesta de egresados (a los "
-            "TITULATEC_REMINDER_FIRST_DAYS días, luego cada TITULATEC_REMINDER_EVERY_DAYS, "
-            "hasta TITULATEC_REMINDER_MAX). No duplica si corre dos veces; los manda el "
-            "despacho de correos. Con TITULATEC_EMAIL_ENABLED=false no hace nada."
+            "o hay que corregir, la encuesta de egresados y el pago pendiente en Caja del "
+            "no adeudo de biblioteca (a los TITULATEC_REMINDER_FIRST_DAYS días, luego cada "
+            "TITULATEC_REMINDER_EVERY_DAYS, hasta TITULATEC_REMINDER_MAX). No duplica si "
+            "corre dos veces; los manda el despacho de correos. Con "
+            "TITULATEC_EMAIL_ENABLED=false no hace nada."
         ),
         "app_name": "titulatec",
         "category": "notification",

@@ -338,6 +338,10 @@ def test_los_recordatorios_estan_registrados_y_catalogados():
     assert definicion["app_name"] == "titulatec"
     assert definicion["default_args"] == {}
     assert definicion["display_name"] and definicion["description"]
+    # m33 (spec 2026-10-02 §3.7): la tarea también encola el recordatorio del
+    # pago pendiente en Caja (`MailReminders._pagos`, la llave "library" de su
+    # resultado), y /config/system/tasks tiene que decirlo.
+    assert "pago pendiente en Caja" in definicion["description"]
 
 
 def test_los_recordatorios_corren_con_su_sesion_y_devuelven_su_resultado(

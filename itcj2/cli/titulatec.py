@@ -12,7 +12,7 @@ Comandos:
     titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta y reintenta).
     titulatec init-email-tasks [--dry-run] Da de alta las periódicas de correo (envío + recordatorios).
     titulatec init-posgrado [--dry-run] [--allow-insert]  Clasifica las 4 carreras de posgrado y sus 4 documentos de fase 1.
-    titulatec init-biblioteca-caja [--dry-run]  Paso 1: puestos/roles/permisos de Biblioteca-Caja (no enciende el candado).
+    titulatec init-biblioteca-caja [--dry-run]  Paso 1: puestos/roles/permisos de Biblioteca-Caja + descripción de recordatorios (no enciende el candado).
     titulatec activar-biblioteca-caja [--dry-run] [--force]  Paso 2: pre-chequeos + requisito automático + re-backfill + promoción D17.
     titulatec import-prior-clearances --tipo encuesta|biblioteca ARCHIVO.csv [opts]  Constancias previas (D9).
 """
@@ -120,12 +120,17 @@ SEED_FILES = [
     # problema. En una instalacion desde cero los tres van juntos (no hay
     # procesos que proteger). En produccion `init-titulatec` completo NUNCA se
     # re-ejecuta: ahi corren en DOS pasos (Ruling R19) -- `titulatec
-    # init-biblioteca-caja` (20 y 21, no enciende nada) y, ya con ocupantes y
-    # donaciones, `titulatec activar-biblioteca-caja` (22 + re-backfill +
-    # promocion D17).
+    # init-biblioteca-caja` (20, 21 y 23, no enciende nada) y, ya con
+    # ocupantes y donaciones, `titulatec activar-biblioteca-caja` (22 +
+    # re-backfill + promocion D17).
     "biblioteca_2026_10/20_insert_library_cashier_positions.sql",
     "biblioteca_2026_10/21_insert_library_cashier_roles_perms.sql",
     "biblioteca_2026_10/22_library_requirement_auto.sql",
+    # El 23 (m33, spec 2026-10-02 §6) pone al dia la descripcion de
+    # `titulatec.email_reminders` (ahora menciona el pago pendiente en Caja)
+    # en una base YA sembrada. Aqui, despues del 17, no cambia nada (el 17 ya
+    # siembra ese texto); va para que el delta siga completo en `SEED_FILES`.
+    "biblioteca_2026_10/23_update_email_reminders_description.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
@@ -1908,8 +1913,11 @@ _DML_BIBLIOTECA_2026_10_DIR = "biblioteca_2026_10"
 # que crea los puestos ya no puede ser el mismo que enciende el candado, o
 # «asignar ocupantes antes» es imposible (los puestos no existen hasta el 20,
 # y el 22 bloquea a todos en el mismo paso).
-#   - `init-biblioteca-caja` corre SOLO estos dos: puestos (20) y roles,
-#     permisos, mapeo y concesiones (21). NO enciende nada.
+#   - `init-biblioteca-caja` corre SOLO estos: puestos (20); roles,
+#     permisos, mapeo y concesiones (21), y la descripcion nueva de la tarea
+#     de recordatorios por correo, que ahora menciona el pago pendiente en
+#     Caja (23, m33 de 2026-10-02: el 17 de `mail_2026_09/` no se re-corre en
+#     produccion). NO enciende nada.
 #   - `activar-biblioteca-caja` corre SOLO el 22 (requisito automatico =
 #     candado encendido), tras sus pre-chequeos, y luego el re-backfill y la
 #     promocion de los marcados a mano (Ruling R20).
@@ -1919,11 +1927,12 @@ _DML_BIBLIOTECA_2026_10_DIR = "biblioteca_2026_10"
 # `test_todo_sql_del_delta_esta_en_una_lista_de_comando`
 # (tests/fastapi/titulatec/test_cli_biblioteca_caja.py). Un archivo que se
 # caiga de las dos no lo corre nadie y nada se pone rojo. `SEED_FILES` (alta
-# desde cero con `init-titulatec`) conserva los TRES: ahi no hay procesos que
-# proteger y encender de inmediato esta bien.
+# desde cero con `init-titulatec`) conserva los CUATRO: ahi no hay procesos
+# que proteger y encender de inmediato esta bien (el 23, ahi, no cambia nada).
 _DML_BIBLIOTECA_2026_10_FILES = [
     "20_insert_library_cashier_positions.sql",
     "21_insert_library_cashier_roles_perms.sql",
+    "23_update_email_reminders_description.sql",
 ]
 _DML_BIBLIOTECA_2026_10_ACTIVAR_FILES = [
     "22_library_requirement_auto.sql",
@@ -2443,13 +2452,14 @@ def init_biblioteca_caja_command(dry_run):
     """Paso 1 del despliegue de Biblioteca/Caja: puestos, roles y permisos.
     NO enciende el candado (eso es `activar-biblioteca-caja`, Ruling R19).
 
-    Corre SOLO el 20 y el 21 de `database/DML/titulatec/biblioteca_2026_10/`
+    Corre SOLO el 20, el 21 y el 23 de
+    `database/DML/titulatec/biblioteca_2026_10/`
     (`_DML_BIBLIOTECA_2026_10_FILES`, D10 -- mismo patron que
     `init-posgrado`/`init-email-tasks`): produccion ya corrio
     `init-titulatec` y ese comando nunca se re-ejecuta alli, asi que este
     (con `activar-biblioteca-caja`) es el unico camino de despliegue para
     este delta -- ademas de sumarse a `SEED_FILES` para una instalacion desde
-    cero, que si corre los tres de una vez.
+    cero, que si corre los cuatro de una vez.
 
     `20_insert_library_cashier_positions.sql` crea los 2 puestos NUEVOS
     (nacen SIN OCUPANTE: asignarlos es el paso siguiente del lanzamiento).
@@ -2457,15 +2467,22 @@ def init_biblioteca_caja_command(dry_run):
     `titulatec_library`/`titulatec_cashier`, el mapeo puesto→rol y los 10
     permisos con TODAS sus concesiones (incluido `admin` EXPLICITO: en
     produccion nunca se re-corre `15_grant_admin_all_perms.sql`).
+    `23_update_email_reminders_description.sql` (m33, spec 2026-10-02 §6)
+    pone al dia las dos descripciones de `titulatec.email_reminders`
+    (`core_task_definitions` y su fila de `core_periodic_tasks`): ahora
+    mencionan el recordatorio del pago pendiente en Caja. Solo UPDATE e
+    idempotente; si la tarea todavia no esta sembrada (falta
+    `init-email-tasks`), no hace nada y el 17 la sembrara ya con ese texto.
 
     Al terminar VERIFICA con `_verify_biblioteca_caja()` (los `RAISE NOTICE`
     del SQL son invisibles, mismo motivo que el resto de los `_verify_*` de
     este archivo): puestos, los 10 permisos, las concesiones EXACTAS de los
     2 roles nuevos, las concesiones nuevas de GTV/Servicios Escolares/admin y
-    el mapeo puesto→rol. Aborta si algo no aterrizo. No toca convocatorias,
+    el mapeo puesto→rol. Aborta si algo no aterrizo. El 23 no se verifica
+    (una base sin la tarea sembrada es valida). No toca convocatorias,
     requisitos ni filas de no adeudo: nadie queda bloqueado por correrlo.
 
-    `--dry-run`: comprueba que los 2 archivos existen en disco y los lista,
+    `--dry-run`: comprueba que los 3 archivos existen en disco y los lista,
     sin escribir nada.
 
     Despues: asignar ocupantes a «Biblioteca · No adeudo» y «Caja»
@@ -2503,6 +2520,10 @@ def init_biblioteca_caja_command(dry_run):
         "mapeo puesto→rol verificados en la base. El candado sigue APAGADO.",
         fg="green",
     ))
+    click.echo(
+        "Descripción de titulatec.email_reminders al día (23), si la tarea ya "
+        "estaba sembrada."
+    )
     click.echo(
         "Siguiente: asignar ocupantes a «Biblioteca · No adeudo» y «Caja», capturar "
         "la donación de cada convocatoria con procesos por revisar y correr "
