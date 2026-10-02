@@ -1052,8 +1052,10 @@ class LibraryClearanceService:
         reverted` sí puede ser negativo (un día con solo reversas de cobros de
         OTRO día). Todo `Decimal` a centavos.
 
-        Cada renglón: `kind` (`"charge"`|`"reversal"`), `at`, `clearance_id`,
-        `student`, `control`, `program`, `amount` CON SIGNO (positivo cobro,
+        Cada renglón: `id` (el del evento: la plantilla lo usa como id
+        estable del renglón, `caja-mov-{id}`), `kind`
+        (`"charge"`|`"reversal"`), `at`, `clearance_id`, `student`,
+        `control`, `program`, `amount` CON SIGNO (positivo cobro,
         negativo reversa), `receipt`, `actor` (quién lo hizo, `None` sin
         actor), `reason`/`original_paid_at` (SOLO reversas; `None` en
         cobros), `certificate` (el folio que ESE evento trae en su payload --
@@ -1639,7 +1641,10 @@ class LibraryClearanceService:
         comparten este predicado, para que ninguno anuncie lo que la tabla no
         muestra. Su gemela en Python, para UN proceso, es `reviewable` (el
         correo de la reversión a Biblioteca); las dos parten los mismos
-        casos (`test_library_clearance_service.py::TestRevisable`)."""
+        casos: las dos recorren la misma tabla de `TestRevisable`
+        (`test_admitido_y_sin_la_fase_2_aprobada` para `reviewable`,
+        `test_la_clausula_sql_parte_los_mismos_casos` para esta, con y sin
+        fila de no adeudo; `test_library_clearance_service.py`)."""
         from sqlalchemy import and_
 
         from itcj2.apps.titulatec.models import TitulationProcess

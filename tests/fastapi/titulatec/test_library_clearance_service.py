@@ -1175,7 +1175,9 @@ class TestPagoPendiente:
 # vuelve obsoleto sin que `mail_compose.py` compare estados (invariante 2)
 # ---------------------------------------------------------------------------
 class TestRevisable:
-    @pytest.mark.parametrize("process_status, phase, fase2, revisable", [
+    # La tabla de casos que parten `reviewable` (Python) y `_reviewable_clause`
+    # (SQL, «Por revisar»): las DOS se prueban fila por fila contra ella.
+    CASOS = pytest.mark.parametrize("process_status, phase, fase2, revisable", [
         ("active", 1, None, True),               # Biblioteca revisa desde la fase 1 (D3)
         ("active", 2, None, True),               # fase 2 en curso
         ("active", 2, "rejected", True),         # con observaciones vuelve a agendar
@@ -1185,6 +1187,8 @@ class TestRevisable:
         ("completed", 9, None, False),           # terminó
     ], ids=["fase-1", "fase-2-en-curso", "fase-2-rechazada", "en-pausa",
             "cotejo-aprobado", "revocado", "terminado"])
+
+    @CASOS
     def test_admitido_y_sin_la_fase_2_aprobada(self, db_session, nuevo, process_status,
                                                phase, fase2, revisable):
         """Lo mismo que «Por revisar» (`_reviewable_clause`): proceso admitido
@@ -1194,6 +1198,31 @@ class TestRevisable:
             _fase2(db_session, esc.process, fase2)
 
         assert LibraryClearanceService.reviewable(db_session, esc.process.id) is revisable
+
+    @CASOS
+    def test_la_clausula_sql_parte_los_mismos_casos(self, db_session, nuevo, process_status,
+                                                    phase, fase2, revisable):
+        """M5 (revisión final): la gemela SQL, `_reviewable_clause`, contra la
+        MISMA tabla -antes solo `reviewable` la recorría y el docstring de la
+        cláusula citaba esta clase-. Una fila sin no adeudo se cuenta igual:
+        la cláusula pregunta por el proceso."""
+        from itcj2.apps.titulatec.models import TitulationProcess
+
+        esc = nuevo(status="pending", process_status=process_status, phase=phase)
+        sin_fila = nuevo(status=None, process_status=process_status, phase=phase)
+        ids = [esc.process.id, sin_fila.process.id]
+        if fase2 is not None:
+            _fase2(db_session, esc.process, fase2)
+            _fase2(db_session, sin_fila.process, fase2)
+
+        en_sql = {pid for (pid,) in (
+            db_session.query(TitulationProcess.id)
+            .filter(TitulationProcess.id.in_(ids),
+                    LibraryClearanceService._reviewable_clause()))}
+
+        assert en_sql == (set(ids) if revisable else set())
+        assert {pid for pid in ids
+                if LibraryClearanceService.reviewable(db_session, pid)} == en_sql
 
     def test_sin_fila_de_no_adeudo_tambien_responde(self, db_session, nuevo):
         """Pregunta por el PROCESO, no por la fila: sin fila (alta durante el

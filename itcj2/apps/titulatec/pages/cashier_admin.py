@@ -22,8 +22,9 @@ con `q` no vacío se listan resultados de `search` en cualquier estado, con la
 píldora PROPIA de Caja (E11, macro `caja_pill` de `cashier_body.html`): «En
 Biblioteca», «Por cobrar $X», «Pagado» o «Liberado» -- nunca la compartida
 `library_clearance_pill` (spec `2026-10-02-titulatec-constancias-y-pendientes-
-design.md` §3.6, m27). Sin importar la pestaña activa; limpiar el buscador
-regresa a la pestaña. Sin `q`: «Por cobrar» (`awaiting_payment`, FIFO por
+design.md`: E11 en §2, m27 en la tabla de §3.7). Sin importar la pestaña
+activa; limpiar el buscador regresa a la pestaña. Sin `q`: «Por cobrar»
+(`awaiting_payment`, FIFO por
 `ready_at`, Ruling R9: solo procesos admitidos, mismo filtro que «Por
 revisar» de Biblioteca) o «Pagados» («Corte del día»: selector de día, por
 omisión hoy vía `db_now().date()`, con «Cobrado/Revertido/Total del día»).

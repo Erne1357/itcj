@@ -16,11 +16,14 @@ ESTADO DE IMPRESIÓN: `print_status_map` (por `source_ref`, hasta 2 consultas
 por llamada — lo consumen las bandejas de Biblioteca/GTV, UNA llamada por
 página, y las dos vistas de SE, UNA llamada por vista para encuesta y no
 adeudo juntos, Ruling R14) y `voided_after_print` (por `kind`, para la página
-de Constancias). Las dos son de solo lectura y nunca tocan `TitulationProcess`
-(salvo `_pending_criteria`, ya existente) ni ninguna tabla de liberación — eso
-lo cuidan `LibraryClearanceService`/`SurveyReviewService`/`ClearanceGate`. El
-folio vigente SIN la marca (`current_number`, una consulta, igual de solo
-lectura) es para el `certificate_number` del resumen de biblioteca.
+de Constancias). Las dos son de solo lectura y no tocan `TitulationProcess` ni
+ninguna tabla de liberación — eso lo cuidan `LibraryClearanceService`/
+`SurveyReviewService`/`ClearanceGate`. El folio vigente SIN la marca
+(`current_number`, una consulta, igual de solo lectura) es para el
+`certificate_number` del resumen de biblioteca. En todo el servicio, la única
+lectura de `TitulationProcess` es `_pending_criteria` (el `NOT EXISTS` de
+«proceso revocado» de «Por imprimir»: `pending`, `pending_count` y
+`create_batch`, Ruling R26), que ninguna de esas tres usa.
 
 Reglas fijas, iguales a `SurveyReviewService`:
 

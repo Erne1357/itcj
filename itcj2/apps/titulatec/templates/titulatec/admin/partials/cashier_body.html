@@ -7,9 +7,10 @@
    El buscador tiene PRECEDENCIA sobre las pestañas (spec
    2026-10-01-titulatec-biblioteca-caja-design.md §4.8): con `q` no vacío
    (`searching`) se listan resultados de `LibraryClearanceService.search` en
-   CUALQUIER estado, con la píldora PROPIA de Caja (`caja_pill`, abajo -- E11,
-   spec 2026-10-02-titulatec-constancias-y-pendientes-design.md §3.6/m27; NO
-   la `library_clearance_pill` compartida), sin importar la pestaña activa --
+   CUALQUIER estado, con la píldora PROPIA de Caja (`caja_pill`, abajo -- spec
+   2026-10-02-titulatec-constancias-y-pendientes-design.md, E11 en §2 y m27 en
+   la tabla de §3.7; NO la `library_clearance_pill` compartida), sin importar
+   la pestaña activa --
    limpiar el buscador regresa a ella (las pestañas y el selector de día se
    OCULTAN mientras se busca: no aplican a una lista que ya mezcla estados y
    fechas). Sin `q`: «Por cobrar» (`awaiting_payment`, FIFO por `ready_at`,
