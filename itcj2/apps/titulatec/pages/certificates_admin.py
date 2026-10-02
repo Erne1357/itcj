@@ -12,12 +12,21 @@ lote (2 o 3 por hoja carta A ELEGIR -`por_hoja`, spec §3.1/E4-, WeasyPrint,
 inline. «Lotes» lista los anteriores con fecha, quién, cuántas (y cuántas
 anuladas) y los dos enlaces «PDF · N por hoja».
 
+«Por imprimir (N)» también se puede desplegar -`<details>` plegado por
+omisión, sin JS, Tarea 2/E7- para ver QUIÉNES son, en el mismo orden FIFO que
+tomará el lote (`CertificateService.pending`). Si alguna constancia se anuló
+DESPUÉS de haberse impreso, «Anuladas después de imprimir (últimos 30 días)»
+(Tarea 2/E6, `CertificateService.voided_after_print`) avisa que hay que
+retirar ese papel; la sección no sale si no hay ninguna.
+
 Spec `docs/superpowers/specs/2026-10-01-titulatec-biblioteca-caja-design.md`
 §4.5 (motor de constancias / la página), D7 (se acumulan, el área genera el
 PDF cuando quiere), D15 (Centro de Información imprime no adeudo; GTV imprime
 encuesta), §4.6 (permisos/menú), §5 invariantes 5 y 6; Tarea 1 de
 `2026-10-02-titulatec-constancias-y-pendientes-design.md` §2 (E4/E8) y §3.1
-(2 o 3 por hoja, `por_hoja` como filtro de vista, plantilla en dos piezas).
+(2 o 3 por hoja, `por_hoja` como filtro de vista, plantilla en dos piezas);
+Tarea 2 §2 (E6/E7) y §3.2/§3.5 (estado de impresión, lista de «Por imprimir»
+plegable y anuladas tras imprimir).
 
 Gate de página -ÚNICO código, spec §4.6-: `titulatec.certificate.page.list`
 en las CUATRO rutas. Es el permiso de ENTRAR a la página. Qué tipos puede de
@@ -149,7 +158,14 @@ def _body_ctx(db, *, user_id: int, pages: dict[str, int], new_batch: dict | None
     aquí mismo con `_printable_kinds`. `create_batch` YA los necesita resueltos
     antes de llegar aquí (para decidir su propio 404) y los pasa -- así no
     se pregunta permisos dos veces por la misma petición (m29,
-    triage-minors.md)."""
+    triage-minors.md).
+
+    Tarea 2 (E6/E7): cada sección también trae `pending_rows` -los nombres
+    FIFO de `CertificateService.pending`, ya aplanados a dict (folio,
+    egresado, control, carrera, emitida) para que la plantilla no toque el
+    ORM- y `voided_rows` -de `CertificateService.voided_after_print` tal
+    cual, sin transformar-. La plantilla decide con el largo de cada lista
+    si pinta el `<details>` de pendientes o la sección de anuladas."""
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
     if kinds is None:
@@ -159,10 +175,18 @@ def _body_ctx(db, *, user_id: int, pages: dict[str, int], new_batch: dict | None
         page = pages.get(kind, 1)
         batches, has_more = CertificateService.list_batches(
             db, kind=kind, page=page, per_page=_PAGE_SIZE)
+        pending_rows = [
+            {"id": c.id, "folio": c.number, "egresado": c.student_name,
+             "control": c.control_number, "carrera": c.program_name,
+             "emitida": c.issued_at}
+            for c in CertificateService.pending(db, kind)
+        ]
         sections.append({
             "kind": kind,
             "label": _KIND_LABELS[kind],
             "pending_count": CertificateService.pending_count(db, kind),
+            "pending_rows": pending_rows,
+            "voided_rows": CertificateService.voided_after_print(db, kind),
             "batches": batches,
             "page": page,
             "has_more": has_more,

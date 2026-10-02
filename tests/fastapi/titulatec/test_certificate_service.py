@@ -1,13 +1,17 @@
 """Tests de `CertificateService`: motor compartido de constancias (Tarea 3,
 spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.5, D7/D21/D22, §5
-invariante 5).
+invariante 5) y su estado de impresión (Tarea 2, spec
+`2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.2, invariantes
+2 y 4).
 
 Cubre: numeración atómica por tipo y año (`issue`), anulación sin borrar ni
 liberar folio (`void`), lotes (`pending`/`create_batch`/`list_batches`/
-`certificates_of`), `period_label`, y el gancho de GTV dentro de
-`SurveyReviewService.approve`/`revoke` -- desde la perspectiva de la
-constancia que (no) emiten, no de la máquina de estados de la solicitud (eso
-ya lo cubre `test_survey_review_service.py`, que este archivo NO toca).
+`certificates_of`), estado de impresión por `source_ref`
+(`print_status_map`) y por `kind` (`voided_after_print`), `period_label`, y
+el gancho de GTV dentro de `SurveyReviewService.approve`/`revoke` -- desde la
+perspectiva de la constancia que (no) emiten, no de la máquina de estados de
+la solicitud (eso ya lo cubre `test_survey_review_service.py`, que este
+archivo NO toca).
 
 El PDF es aparte (`test_certificate_pdf.py`).
 """
@@ -16,7 +20,7 @@ from __future__ import annotations
 import itertools
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -25,6 +29,7 @@ from sqlalchemy.orm import sessionmaker
 
 from itcj2.apps.titulatec.models import Certificate
 from itcj2.apps.titulatec.services.certificate_service import CERT_KINDS, CertificateService
+from itcj2.core.utils.timezone import db_now
 
 NOTIFY = "itcj2.apps.titulatec.services.notify.notify_student"
 
@@ -93,6 +98,28 @@ def actor(make_user):
 
 def _folio_n(numero: str) -> int:
     return int(numero.rsplit("-", 1)[1])
+
+
+def _contar_selects(db_session, fn):
+    """Corre `fn()` contando los SELECT que dispara contra `db_session` --
+    mismo criterio que `test_student_dashboard_accordion.py:629-663`
+    (listener `before_cursor_execute`), en un helper para no repetirlo en
+    cada prueba de presupuesto de `print_status_map`."""
+    from sqlalchemy import event
+
+    selects = []
+
+    def _count(conn, cursor, statement, params, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", _count)
+    try:
+        resultado = fn()
+    finally:
+        event.remove(bind, "before_cursor_execute", _count)
+    return resultado, selects
 
 
 # ---------------------------------------------------------------------------
@@ -597,6 +624,292 @@ class TestLotes:
 
         assert filas == []
         assert has_more is False
+
+
+# ---------------------------------------------------------------------------
+# print_status_map -- estado de impresión por `source_ref` (Tarea 2, spec
+# 2026-10-02-titulatec-constancias-y-pendientes-design.md §3.2, invariante 2)
+# ---------------------------------------------------------------------------
+class TestPrintStatusMap:
+    def test_vigente_sin_lote(self, db_session, escenario, actor):
+        proc = escenario["process"]
+        ref = _ref()
+        cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                        source_ref=ref, actor_id=actor.id)
+
+        mapa = CertificateService.print_status_map(db_session, [ref])
+
+        assert mapa[ref] == {
+            "number": cert.number,
+            "issued_at": cert.issued_at,
+            "printed": False,
+            "batch_id": None,
+            "batch_at": None,
+            "voided_printed": None,
+        }
+
+    def test_vigente_en_lote(self, db_session, escenario, actor):
+        proc = escenario["process"]
+        ref = _ref()
+        cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                        source_ref=ref, actor_id=actor.id)
+        batch = CertificateService.create_batch(db_session, kind="library_clearance",
+                                                 actor_id=actor.id)
+
+        mapa = CertificateService.print_status_map(db_session, [ref])
+
+        assert mapa[ref]["number"] == cert.number
+        assert mapa[ref]["printed"] is True
+        assert mapa[ref]["batch_id"] == batch.id
+        assert mapa[ref]["batch_at"] == batch.created_at
+        assert mapa[ref]["voided_printed"] is None
+
+    def test_pagado_impreso_anulado_trae_voided_printed(self, db_session, escenario, actor):
+        """pagado -> impreso -> revertido: sin vigente, `voided_printed`
+        trae la anulada CON lote (Review Focus #1 del plan)."""
+        proc = escenario["process"]
+        ref = _ref()
+        cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                        source_ref=ref, actor_id=actor.id)
+        batch = CertificateService.create_batch(db_session, kind="library_clearance",
+                                                 actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id,
+                                reason="reversa de pago")
+
+        mapa = CertificateService.print_status_map(db_session, [ref])
+
+        assert mapa[ref]["number"] is None
+        assert mapa[ref]["issued_at"] is None
+        assert mapa[ref]["printed"] is False
+        assert mapa[ref]["batch_id"] is None
+        assert mapa[ref]["batch_at"] is None
+        vp = mapa[ref]["voided_printed"]
+        assert vp["number"] == cert.number
+        assert vp["batch_id"] == batch.id
+        assert vp["batch_at"] == batch.created_at
+        assert vp["voided_at"] is not None
+        assert vp["void_reason"] == "reversa de pago"
+        assert set(vp) == {"number", "batch_id", "batch_at", "voided_at", "void_reason"}
+
+    def test_anulada_sin_lote_no_cuenta_como_impresa(self, db_session, escenario, actor):
+        proc = escenario["process"]
+        ref = _ref()
+        CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                 source_ref=ref, actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id,
+                                reason="nunca se imprimió")
+
+        mapa = CertificateService.print_status_map(db_session, [ref])
+
+        assert mapa[ref] is None
+
+    def test_anulada_re_emitida_la_vigente_nueva_gana(self, db_session, escenario, actor):
+        """pagado -> impreso -> revertido -> pagado otra vez: la celda debe
+        mostrar la constancia NUEVA («Sin imprimir»), nunca la vieja impresa
+        (Review Focus #1 del plan)."""
+        proc = escenario["process"]
+        ref = _ref()
+        CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                 source_ref=ref, actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id,
+                                reason="se corrigió")
+        nueva = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                         source_ref=ref, actor_id=actor.id)
+
+        mapa = CertificateService.print_status_map(db_session, [ref])
+
+        assert mapa[ref]["number"] == nueva.number
+        assert mapa[ref]["printed"] is False
+        assert mapa[ref]["batch_id"] is None
+        assert mapa[ref]["voided_printed"] is None   # la vigente manda
+
+    def test_ref_desconocido_da_none(self, db_session, escenario, actor):
+        proc = escenario["process"]
+        conocido = _ref()
+        CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                 source_ref=conocido, actor_id=actor.id)
+        desconocido = _ref("nunca_existio")
+
+        mapa = CertificateService.print_status_map(db_session, [conocido, desconocido])
+
+        assert desconocido in mapa
+        assert mapa[desconocido] is None
+        assert mapa[conocido] is not None
+
+    def test_lista_vacia_no_hace_consultas(self, db_session):
+        mapa, selects = _contar_selects(
+            db_session, lambda: CertificateService.print_status_map(db_session, []))
+
+        assert mapa == {}
+        assert selects == []
+
+    def test_refs_duplicados_se_deduplican(self, db_session, escenario, actor):
+        proc = escenario["process"]
+        ref = _ref()
+        CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                 source_ref=ref, actor_id=actor.id)
+
+        mapa = CertificateService.print_status_map(db_session, [ref, ref, ref])
+
+        assert list(mapa.keys()) == [ref]
+
+    @pytest.mark.parametrize("n_refs", [1, 20])
+    def test_presupuesto_1_consulta_si_todas_tienen_vigente(
+            self, db_session, escenario, actor, n_refs):
+        proc = escenario["process"]
+        refs = [_ref() for _ in range(n_refs)]
+        for ref in refs:
+            CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                     source_ref=ref, actor_id=actor.id)
+
+        mapa, selects = _contar_selects(
+            db_session, lambda: CertificateService.print_status_map(db_session, refs))
+
+        assert all(mapa[r] is not None for r in refs)
+        assert len(selects) == 1, "\n".join(selects)
+
+    @pytest.mark.parametrize("n_refs", [1, 20])
+    def test_presupuesto_2_consultas_si_ninguna_tiene_vigente(
+            self, db_session, escenario, actor, n_refs):
+        proc = escenario["process"]
+        refs = [_ref() for _ in range(n_refs)]
+        for ref in refs:
+            CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                     source_ref=ref, actor_id=actor.id)
+            CertificateService.void(db_session, source_ref=ref, actor_id=actor.id,
+                                    reason="sin lote")
+
+        mapa, selects = _contar_selects(
+            db_session, lambda: CertificateService.print_status_map(db_session, refs))
+
+        assert all(mapa[r] is None for r in refs)   # ninguna entró a un lote
+        assert len(selects) == 2, "\n".join(selects)
+
+
+# ---------------------------------------------------------------------------
+# voided_after_print -- anuladas que SÍ se imprimieron (Tarea 2, E6)
+# ---------------------------------------------------------------------------
+class TestVoidedAfterPrint:
+    def test_trae_las_con_lote_mas_recientes_primero(self, db_session, escenario, actor):
+        proc = escenario["process"]
+        ref1, ref2 = _ref(), _ref()
+        c1 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                      source_ref=ref1, actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref1, actor_id=actor.id, reason="motivo 1")
+
+        c2 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                      source_ref=ref2, actor_id=actor.id)
+        batch2 = CertificateService.create_batch(db_session, kind="library_clearance",
+                                                  actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref2, actor_id=actor.id, reason="motivo 2")
+
+        filas = CertificateService.voided_after_print(db_session, "library_clearance")
+
+        assert [f["number"] for f in filas] == [c2.number, c1.number]   # más reciente primero
+        assert filas[0]["batch_id"] == batch2.id
+        assert filas[0]["batch_at"] == batch2.created_at
+        assert filas[0]["student_name"] == c2.student_name
+        assert filas[0]["control_number"] == c2.control_number
+        assert filas[0]["void_reason"] == "motivo 2"
+        assert filas[0]["voided_at"] is not None
+        assert set(filas[0]) == {"number", "student_name", "control_number", "batch_id",
+                                  "batch_at", "voided_at", "void_reason"}
+
+    def test_excluye_anuladas_sin_lote(self, db_session, escenario, actor):
+        proc = escenario["process"]
+        ref = _ref()
+        CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                 source_ref=ref, actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id,
+                                reason="nunca se imprimió")
+
+        filas = CertificateService.voided_after_print(db_session, "library_clearance")
+
+        assert filas == []
+
+    def test_excluye_anuladas_de_hace_31_dias(self, db_session, escenario, actor):
+        proc = escenario["process"]
+        ref = _ref()
+        cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                        source_ref=ref, actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id, reason="vieja")
+        cert.voided_at = db_now() - timedelta(days=31)
+        db_session.flush()
+
+        filas = CertificateService.voided_after_print(db_session, "library_clearance")
+
+        assert filas == []
+
+    def test_incluye_dentro_de_los_30_dias(self, db_session, escenario, actor):
+        proc = escenario["process"]
+        ref = _ref()
+        cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                        source_ref=ref, actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id, reason="reciente")
+        cert.voided_at = db_now() - timedelta(days=10)
+        db_session.flush()
+
+        filas = CertificateService.voided_after_print(db_session, "library_clearance")
+
+        assert [f["number"] for f in filas] == [cert.number]
+
+    def test_respeta_el_parametro_days(self, db_session, escenario, actor):
+        proc = escenario["process"]
+        ref = _ref()
+        cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                        source_ref=ref, actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id,
+                                reason="hace 10 días")
+        cert.voided_at = db_now() - timedelta(days=10)
+        db_session.flush()
+
+        con_30 = CertificateService.voided_after_print(db_session, "library_clearance")
+        con_7 = CertificateService.voided_after_print(db_session, "library_clearance", days=7)
+
+        assert [f["number"] for f in con_30] == [cert.number]
+        assert con_7 == []
+
+    def test_no_mezcla_kind(self, db_session, escenario, actor):
+        proc = escenario["process"]
+        ref_bib, ref_gtv = _ref(), _ref("survey_review")
+        CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                 source_ref=ref_bib, actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref_bib, actor_id=actor.id, reason="bib")
+
+        CertificateService.issue(db_session, kind="survey_release", process=proc,
+                                 source_ref=ref_gtv, actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="survey_release", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref_gtv, actor_id=actor.id, reason="gtv")
+
+        filas_bib = CertificateService.voided_after_print(db_session, "library_clearance")
+
+        assert len(filas_bib) == 1
+        assert filas_bib[0]["number"].startswith("BIB-")
+
+    def test_incluye_aunque_el_proceso_se_haya_revocado_despues(
+            self, db_session, escenario, actor):
+        """E6: el papel sigue circulando aunque la inscripción se revoque
+        DESPUÉS de anular la constancia ya impresa -- a diferencia de
+        `pending` (Ruling R26), esta lista NO filtra por
+        `TitulationProcess.status`."""
+        proc = escenario["process"]
+        ref = _ref()
+        cert = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                        source_ref=ref, actor_id=actor.id)
+        CertificateService.create_batch(db_session, kind="library_clearance", actor_id=actor.id)
+        CertificateService.void(db_session, source_ref=ref, actor_id=actor.id, reason="motivo")
+        proc.status = "cancelled"
+        db_session.flush()
+
+        filas = CertificateService.voided_after_print(db_session, "library_clearance")
+
+        assert [f["number"] for f in filas] == [cert.number]
 
 
 # ---------------------------------------------------------------------------

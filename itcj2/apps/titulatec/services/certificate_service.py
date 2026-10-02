@@ -10,6 +10,15 @@ emitir (`issue`) para el mismo `source_ref` — eso saca un folio NUEVO. El PDF
 no vive aquí: `utils/certificate_pdf.py::render_certificates_pdf` lo arma a
 partir de los datos ya CONGELADOS en cada fila, siempre que haga falta.
 
+Desde la Tarea 2 de `2026-10-02-titulatec-constancias-y-pendientes-design.md`
+(§3.2, E1/E6/E7, §5 invariante 4) también es el ÚNICO lugar que calcula el
+ESTADO DE IMPRESIÓN: `print_status_map` (por `source_ref`, hasta 2 consultas
+por llamada — lo consumen las bandejas de Biblioteca/GTV y las vistas de SE)
+y `voided_after_print` (por `kind`, para la página de Constancias). Las dos
+son de solo lectura y nunca tocan `TitulationProcess` (salvo
+`_pending_criteria`, ya existente) ni ninguna tabla de liberación — eso lo
+cuidan `LibraryClearanceService`/`SurveyReviewService`/`ClearanceGate`.
+
 Reglas fijas, iguales a `SurveyReviewService`:
 
 * Métodos `@staticmethod`, `db: Session` primero, imports de modelos y de
@@ -22,6 +31,8 @@ Reglas fijas, iguales a `SurveyReviewService`:
   usuario.
 """
 from __future__ import annotations
+
+from datetime import timedelta
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -63,7 +74,10 @@ _PERIOD_LABEL_MAX = 40
 
 class CertificateService:
     """Único dueño de `titulatec_certificates` / `_certificate_batches` /
-    `_certificate_counters`."""
+    `_certificate_counters`. También expone el estado de impresión de solo
+    lectura (`print_status_map`, `voided_after_print`) para que otras vistas
+    lo lean sin tocar la tabla directo (Tarea 2 de
+    `2026-10-02-titulatec-constancias-y-pendientes-design.md`)."""
 
     # ------------------------------------------------------------- emisión
     @staticmethod
@@ -213,6 +227,144 @@ class CertificateService:
             .scalar()
         )
         return total or 0
+
+    # ------------------------------------------------------- estado de impresión
+    @staticmethod
+    def print_status_map(db: Session, source_refs: list[str]) -> dict[str, dict | None]:
+        """Estado de impresión de cada `source_ref`, para que las bandejas de
+        Biblioteca/GTV y las vistas de SE pinten la celda «Constancia» con UNA
+        sola llamada por página (spec §3.2/§4.5, invariante 2) — a lo más 2
+        consultas por llamada, sin importar cuántos `source_refs` traiga
+        (lista vacía -> `{}` sin tocar la base). `source_refs` repetidos se
+        de-duplican solos: el resultado es un dict, una llave por ref único.
+
+        Cada llave del resultado trae SIEMPRE uno de estos dos valores:
+
+        * si `source_ref` tiene una constancia VIGENTE (`voided_at IS NULL`,
+          a lo más una por origen — índice parcial
+          `uq_titulatec_certificates_live_source`): `number`/`issued_at`/
+          `batch_id` de esa constancia, `batch_at` = `CertificateBatch.
+          created_at` del lote (`None` si sigue suelta), `printed = batch_id
+          is not None` y `voided_printed = None` — SIEMPRE, aunque una
+          constancia anulada anterior del mismo origen sí se haya impreso: la
+          vigente manda; esa anulada impresa aparece aparte en
+          `voided_after_print`, nunca aquí.
+        * si NO hay vigente pero sí una anulada que alcanzó a entrar a un
+          lote: `number=None`, `issued_at=None`, `printed=False`,
+          `batch_id=None`, `batch_at=None` y `voided_printed` con los datos
+          de la anulada CON lote más reciente (`number`, `batch_id`,
+          `batch_at`, `voided_at`, `void_reason`) — si existe una anulada
+          todavía más reciente pero SIN lote, se ignora para este cálculo
+          (nunca se imprimió, no hay papel que retirar).
+
+        `None` (no un dict) cuando `source_ref` no tiene vigente NI ninguna
+        anulada con lote — nunca tuvo constancia, o las que tuvo se anularon
+        sin haberse impreso nunca.
+
+        Invariante 4: no lee `TitulationProcess` ni ninguna tabla de
+        liberación — solo `titulatec_certificates` / `_certificate_batches`.
+        """
+        from itcj2.apps.titulatec.models.certificate import Certificate, CertificateBatch
+
+        refs = list(dict.fromkeys(source_refs))
+        if not refs:
+            return {}
+
+        vigentes = (
+            db.query(Certificate, CertificateBatch)
+            .outerjoin(CertificateBatch, CertificateBatch.id == Certificate.batch_id)
+            .filter(Certificate.source_ref.in_(refs), Certificate.voided_at.is_(None))
+            .all()
+        )
+        vigentes_by_ref = {cert.source_ref: (cert, batch) for cert, batch in vigentes}
+
+        # Segunda consulta SOLO si hace falta: refs sin vigente, buscando su
+        # anulada-con-lote más reciente (nunca una por fila).
+        refs_sin_vigente = [r for r in refs if r not in vigentes_by_ref]
+        anuladas_by_ref: dict[str, tuple] = {}
+        if refs_sin_vigente:
+            anuladas = (
+                db.query(Certificate, CertificateBatch)
+                .join(CertificateBatch, CertificateBatch.id == Certificate.batch_id)
+                .filter(Certificate.source_ref.in_(refs_sin_vigente),
+                        Certificate.voided_at.isnot(None))
+                .order_by(Certificate.voided_at.desc(), Certificate.id.desc())
+                .all()
+            )
+            for cert, batch in anuladas:
+                anuladas_by_ref.setdefault(cert.source_ref, (cert, batch))   # la primera = la más reciente
+
+        out: dict[str, dict | None] = {}
+        for ref in refs:
+            if ref in vigentes_by_ref:
+                cert, batch = vigentes_by_ref[ref]
+                out[ref] = {
+                    "number": cert.number,
+                    "issued_at": cert.issued_at,
+                    "printed": cert.batch_id is not None,
+                    "batch_id": cert.batch_id,
+                    "batch_at": batch.created_at if batch else None,
+                    "voided_printed": None,
+                }
+            elif ref in anuladas_by_ref:
+                cert, batch = anuladas_by_ref[ref]
+                out[ref] = {
+                    "number": None,
+                    "issued_at": None,
+                    "printed": False,
+                    "batch_id": None,
+                    "batch_at": None,
+                    "voided_printed": {
+                        "number": cert.number,
+                        "batch_id": cert.batch_id,
+                        "batch_at": batch.created_at,
+                        "voided_at": cert.voided_at,
+                        "void_reason": cert.void_reason,
+                    },
+                }
+            else:
+                out[ref] = None
+        return out
+
+    @staticmethod
+    def voided_after_print(db: Session, kind: str, *, days: int = 30) -> list[dict]:
+        """Constancias de `kind` ANULADAS que alcanzaron a entrar a un lote
+        (`batch_id IS NOT NULL`) y se anularon en los últimos `days` días
+        (`voided_at >= db_now() - days`), de la más reciente a la más vieja
+        (spec §3.2/E6) — para que la página de Constancias avise que hay que
+        retirar ese papel; antes de esto SE no se enteraba cuando se anulaba
+        una constancia ya impresa.
+
+        Incluye las de un proceso YA revocado después (a diferencia de
+        `pending`/`_pending_criteria`, Ruling R26): el papel sigue circulando
+        y hay que recuperarlo igual, revocar la inscripción después no lo
+        deshace. No lee `TitulationProcess` en absoluto — invariante 4.
+        """
+        from itcj2.apps.titulatec.models.certificate import Certificate, CertificateBatch
+
+        corte = db_now() - timedelta(days=days)
+        filas = (
+            db.query(Certificate, CertificateBatch)
+            .join(CertificateBatch, CertificateBatch.id == Certificate.batch_id)
+            .filter(Certificate.kind == kind,
+                    Certificate.voided_at.isnot(None),
+                    Certificate.batch_id.isnot(None),
+                    Certificate.voided_at >= corte)
+            .order_by(Certificate.voided_at.desc(), Certificate.id.desc())
+            .all()
+        )
+        return [
+            {
+                "number": cert.number,
+                "student_name": cert.student_name,
+                "control_number": cert.control_number,
+                "batch_id": cert.batch_id,
+                "batch_at": batch.created_at,
+                "voided_at": cert.voided_at,
+                "void_reason": cert.void_reason,
+            }
+            for cert, batch in filas
+        ]
 
     @staticmethod
     def certificates_of(db: Session, batch_id: int) -> list[Certificate]:

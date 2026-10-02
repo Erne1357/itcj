@@ -13,10 +13,15 @@ Spec `docs/superpowers/specs/2026-10-01-titulatec-biblioteca-caja-design.md`
 §4.5 (motor de constancias / la página), D7/D15, §4.6 (permisos/menú), §5
 invariantes 5 y 6 (sin `{process_id}` en estas rutas); Tarea 1 de
 `2026-10-02-titulatec-constancias-y-pendientes-design.md` §2 (E4/E8) y §3.1
-(2 o 3 por hoja, `por_hoja` como filtro de vista). Estas pruebas cubren la
-RUTA (permisos de página vs. permiso de imprimir por tipo, 404 vs 403, el
-PDF, la cuenta de pendientes); el motor en sí (numeración, anulación, lotes)
-ya lo cubre `test_certificate_service.py` (Tarea 3) y el PDF puro
+(2 o 3 por hoja, `por_hoja` como filtro de vista); Tarea 2 §2 (E6/E7) y
+§3.2/§3.5 -el `<details>` plegado de «Por imprimir» (FIFO, con ids
+`tt-cert-pending-{kind}`/`-row-{id}`) y la sección «Anuladas después de
+imprimir», que solo sale cuando hay filas (`tt-cert-voided-{kind}`/
+`-row-{number}`)-. Estas pruebas cubren la RUTA (permisos de página vs.
+permiso de imprimir por tipo, 404 vs 403, el PDF, la cuenta de pendientes,
+las dos listas nuevas); el motor en sí (numeración, anulación, lotes,
+`print_status_map`/`voided_after_print`) ya lo cubre
+`test_certificate_service.py` (Tarea 3/Tarea 2) y el PDF puro
 `test_certificate_pdf.py`.
 
 `make_*_cert_staff` son actores sintéticos con rol DIRECTO (`grant_user_role`),
@@ -581,6 +586,108 @@ def test_anuladas_se_listan_en_el_lote(
     assert resp.status_code == 200, resp.text[:500]
     assert f'id="cert-batch-{batch.id}"' in resp.text
     assert "1 anulada" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# «Por imprimir» plegable y «Anuladas después de imprimir» (Tarea 2, E6/E7)
+# ---------------------------------------------------------------------------
+def test_detalle_de_pendientes_lista_fifo_y_sale_colapsado(
+    client_as, db_session, make_library_cert_staff, make_cert_process,
+):
+    import re
+
+    staff = make_library_cert_staff()
+    proc1 = make_cert_process(control_number="20260001")
+    proc2 = make_cert_process(control_number="20260002")
+    c1 = _issue(db_session, "library_clearance", proc1, n=1, actor_id=staff.id)[0]
+    c2 = _issue(db_session, "library_clearance", proc2, n=1, actor_id=staff.id)[0]
+
+    resp = client_as(staff).get(URL)
+
+    assert resp.status_code == 200, resp.text[:500]
+    texto = resp.text
+    assert 'id="tt-cert-pending-library_clearance"' in texto
+    assert "Ver quiénes (2)" in texto
+    assert f'id="tt-cert-pending-row-{c1.id}"' in texto
+    assert f'id="tt-cert-pending-row-{c2.id}"' in texto
+    # FIFO: la primera emitida sale primero en el marcado.
+    assert (texto.index(f'id="tt-cert-pending-row-{c1.id}"')
+            < texto.index(f'id="tt-cert-pending-row-{c2.id}"'))
+    # Colapsado por omisión: el <details> no trae el atributo `open`.
+    etiqueta = re.search(
+        r'<details[^>]*id="tt-cert-pending-library_clearance"[^>]*>', texto)
+    assert etiqueta is not None, texto[:500]
+    assert " open" not in etiqueta.group()
+
+
+def test_detalle_de_pendientes_no_se_pinta_con_0_pendientes(
+    client_as, make_library_cert_staff,
+):
+    resp = client_as(make_library_cert_staff()).get(URL)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert 'id="tt-cert-pending-library_clearance"' not in resp.text
+
+
+def test_seccion_de_anuladas_no_se_pinta_sin_filas(
+    client_as, db_session, make_library_cert_staff, make_cert_process,
+):
+    staff = make_library_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)   # sin lote, sin anular
+
+    resp = client_as(staff).get(URL)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert 'id="tt-cert-voided-library_clearance"' not in resp.text
+
+
+def test_seccion_de_anuladas_aparece_con_folio_lote_y_motivo(
+    client_as, db_session, make_library_cert_staff, make_cert_process,
+):
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    staff = make_library_cert_staff()
+    proc = make_cert_process()
+    cert = _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)[0]
+    batch = CertificateService.create_batch(db_session, kind="library_clearance", actor_id=staff.id)
+    CertificateService.void(db_session, source_ref=cert.source_ref, actor_id=staff.id,
+                            reason="se corrigió después de imprimir")
+
+    resp = client_as(staff).get(URL)
+
+    assert resp.status_code == 200, resp.text[:500]
+    texto = resp.text
+    assert 'id="tt-cert-voided-library_clearance"' in texto
+    assert f'id="tt-cert-voided-row-{cert.number}"' in texto
+    assert cert.number in texto
+    assert f"#{batch.id}" in texto
+    assert "se corrigió después de imprimir" in texto
+
+
+def test_body_ctx_agrega_pending_rows_y_voided_rows(
+    db_session, make_library_cert_staff, make_cert_process,
+):
+    """Contrato de `_body_ctx`: cada sección trae `pending_rows` (de
+    `CertificateService.pending`, aplanado a dict) y `voided_rows` (de
+    `CertificateService.voided_after_print`, tal cual)."""
+    from itcj2.apps.titulatec.pages.certificates_admin import _body_ctx
+
+    staff = make_library_cert_staff()
+    proc = make_cert_process()
+    cert = _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)[0]
+
+    ctx = _body_ctx(db_session, user_id=staff.id,
+                    pages={"library_clearance": 1, "survey_release": 1},
+                    kinds=["library_clearance"])
+
+    seccion = ctx["sections"][0]
+    assert seccion["pending_rows"] == [{
+        "id": cert.id, "folio": cert.number, "egresado": cert.student_name,
+        "control": cert.control_number, "carrera": cert.program_name,
+        "emitida": cert.issued_at,
+    }]
+    assert seccion["voided_rows"] == []
 
 
 # ---------------------------------------------------------------------------

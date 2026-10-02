@@ -27,7 +27,21 @@
    Cada fila de «Lotes» lleva los MISMOS dos enlaces, con ids
    `tt-cert-pdf-{id}-3`/`-2` -- el lote recién creado sale TAMBIÉN como
    primera fila de su tabla en esta misma respuesta, así que la tarjeta usa
-   el prefijo `tt-cert-new-pdf-` para no repetir id dentro de la página. #}
+   el prefijo `tt-cert-new-pdf-` para no repetir id dentro de la página.
+
+   Tarea 2 (E6/E7, spec §3.2/§3.5): bajo el encabezado de cada sección, un
+   `<details id="tt-cert-pending-{kind}">` CERRADO por omisión (sin JS, solo
+   `<details>`/`<summary>` nativos) lista QUIÉNES están «Por imprimir»
+   -mismo orden FIFO que tomará el lote (`s.pending_rows`, de
+   `CertificateService.pending`)- y NO se pinta con 0 pendientes. Debajo,
+   `<div id="tt-cert-voided-{kind}">` sale SOLO si `s.voided_rows` (de
+   `CertificateService.voided_after_print`, últimos 30 días) trae algo: una
+   constancia que se anuló DESPUÉS de haberse impreso, para que el área sepa
+   que tiene que retirar ese papel. Filas con ids estables
+   `tt-cert-pending-row-{cert.id}` / `tt-cert-voided-row-{cert.number}` -las
+   anuladas no traen `id` propio en el dict del servicio (contrato fijo,
+   compartido con las bandejas de la Tarea 3), así que la fila usa el folio
+   (`number`), único por constancia igual que un id numérico. #}
 <div id="tt-cert-body" data-tt-view="certificates-body">
 
   {% if not sections %}
@@ -56,6 +70,55 @@
         </button>
       </form>
     </div>
+
+    {% if s.pending_rows %}
+    <details class="tt-card mb-3" id="tt-cert-pending-{{ s.kind }}">
+      <summary>Ver quiénes ({{ s.pending_rows|length }})</summary>
+      <div class="tt-table-wrap mt-2">
+        <table class="table table-sm align-middle">
+          <thead><tr>
+            <th>Folio</th><th>Egresado</th><th>Control</th><th>Carrera</th><th>Emitida</th>
+          </tr></thead>
+          <tbody>
+          {% for row in s.pending_rows %}
+          <tr id="tt-cert-pending-row-{{ row.id }}">
+            <td class="tt-mono">{{ row.folio }}</td>
+            <td>{{ row.egresado }}</td>
+            <td class="tt-mono">{{ row.control }}</td>
+            <td>{{ row.carrera }}</td>
+            <td>{{ row.emitida.strftime('%d/%m/%Y') if row.emitida else '—' }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {% endif %}
+
+    {% if s.voided_rows %}
+    <div class="tt-card mb-3" id="tt-cert-voided-{{ s.kind }}">
+      <span class="tt-kicker"><i class="bi bi-exclamation-triangle me-1"></i>Anuladas después de imprimir (últimos 30 días)</span>
+      <div class="tt-table-wrap mt-2">
+        <table class="table table-sm align-middle">
+          <thead><tr>
+            <th>Folio</th><th>Egresado</th><th>Control</th><th>Lote</th><th>Anulada el</th><th>Motivo</th>
+          </tr></thead>
+          <tbody>
+          {% for row in s.voided_rows %}
+          <tr id="tt-cert-voided-row-{{ row.number }}">
+            <td class="tt-mono">{{ row.number }}</td>
+            <td>{{ row.student_name }}</td>
+            <td class="tt-mono">{{ row.control_number }}</td>
+            <td class="tt-mono">#{{ row.batch_id }}{% if row.batch_at %} · {{ row.batch_at.strftime('%d/%m/%Y') }}{% endif %}</td>
+            <td>{{ row.voided_at.strftime('%d/%m/%Y') if row.voided_at else '—' }}</td>
+            <td>{{ row.void_reason or '—' }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
 
     {% if new_batch and new_batch.kind == s.kind %}
     <div class="tt-card mb-3" id="tt-cert-new-batch-{{ s.kind }}">
