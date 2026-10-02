@@ -8,7 +8,7 @@
    columna de 600, así que para leer un acta escaneada había que abrir el modal
    por cada documento y por cada alumno. #}
 {% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav, appt_action %}
-{% from "titulatec/_macros.html" import appt_pill, estado_pill, library_clearance_pill, survey_review_pill, track_pill %}
+{% from "titulatec/_macros.html" import appt_pill, estado_pill, library_clearance_pill, survey_review_pill, track_pill, certificate_cell %}
 
 {% set BASE = page_url ~ '/' ~ detail.process.id %}
 {% set QZ = ('?' ~ q_zone) if q_zone else '' %}
@@ -211,7 +211,11 @@
               {% if r.auto_source == 'graduate_survey' %}
               {# D3: aqui ya NO manda "lo acredita el sistema" — el requisito lo
                  libera GTV, no el envio de la encuesta. `detail.survey` es el
-                 dict plano de `SurveyReviewService.summary_for_process`. #}
+                 dict plano de `SurveyReviewService.summary_for_process`.
+                 `certificate_cell` (Tarea 4 de `2026-10-02-titulatec-
+                 constancias-y-pendientes-design.md` §3.4) pinta si la
+                 constancia `survey_release` ya se imprimió -- MISMA fuente
+                 (`detail.survey.certificate`) que la bandeja de GTV. #}
               <div class="tt-req-meta">
                 {{ survey_review_pill(detail.survey.status) }}
                 {%- if detail.survey.status == 'rejected' and detail.survey.reason %}
@@ -219,6 +223,7 @@
                 {%- elif detail.survey.status == 'approved' %}
                   — Liberada por GTV · {{ detail.survey.reviewed_at }}
                 {%- endif %}
+                <br>{{ certificate_cell(detail.survey.certificate, prior=(detail.survey.origin == 'prior')) }}
               </div>
               {% elif r.auto_source == 'library_clearance' %}
               {# D9/Tarea 11: el no adeudo lo liberan Biblioteca y Caja, no se
@@ -229,9 +234,21 @@
                  `library_clearance.api.prior` (`detail.can_register_prior`),
                  y la previa SOLO mientras el trámite sigue abierto: con
                  `not_applicable` (Ruling R21) la píldora dice «No aplica
-                 (cotejo ya liberado)» y no se ofrece nada. #}
+                 (cotejo ya liberado)» y no se ofrece nada. `certificate_cell`
+                 (Tarea 4, §3.4) pinta si la constancia BIB ya se imprimió y
+                 reemplaza el folio suelto que antes salía bajo «Liberado».
+                 m42 (`triage-minors.md`): con el proceso `cancelled` y el no
+                 adeudo todavía `missing`/`pending`, la píldora propia dice
+                 «Revocada» -- `library_clearance_pill` no mira
+                 `TitulationProcess.status`; aquí sí porque esta vista YA
+                 tiene `detail.process` a la mano (no se toca la macro
+                 compartida, la usan +12 vistas). #}
               <div class="tt-req-meta">
-                {{ library_clearance_pill(detail.library.status, via=detail.library.via) }}
+                {%- if detail.process.status == 'cancelled' and detail.library.status in ('missing', 'pending') -%}
+                  <span class="tt-pill tt-pill--neutral">Revocada</span>
+                {%- else -%}
+                  {{ library_clearance_pill(detail.library.status, via=detail.library.via) }}
+                {%- endif %}
                 {%- if detail.library.status == 'awaiting_payment' %}
                   — Por cobrar {{ format_amount(detail.library.total) }} en Caja
                 {%- elif detail.library.status == 'cleared' and detail.library.via == 'prior' %}
@@ -239,8 +256,9 @@
                 {%- elif detail.library.status == 'cleared' and detail.library.via == 'legacy' %}
                   — Liberado antes de este sistema
                 {%- elif detail.library.status == 'cleared' %}
-                  — {{ format_amount(detail.library.total) }}{% if detail.library.receipt %} · recibo {{ detail.library.receipt }}{% endif %}{% if detail.library.certificate_number %} · constancia {{ detail.library.certificate_number }}{% endif %}
+                  — {{ format_amount(detail.library.total) }}{% if detail.library.receipt %} · recibo {{ detail.library.receipt }}{% endif %}
                 {%- endif %}
+                <br>{{ certificate_cell(detail.library.certificate, prior=(detail.library.via == 'prior'), legacy=(detail.library.via == 'legacy')) }}
               </div>
               {% if detail.can_register_prior and detail.library.status in ('missing', 'pending', 'awaiting_payment') %}
               <form class="d-flex flex-wrap gap-1 mt-1" {{ appt_action(BASE ~ '/no-adeudo-previo' ~ QZ) }}

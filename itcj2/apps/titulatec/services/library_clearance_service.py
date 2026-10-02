@@ -445,13 +445,17 @@ class LibraryClearanceService:
         R21 -mismo criterio que `release_status`-), `via`, `debt`,
         `donation`, `total` (`Decimal` | None), `note` (la de Biblioteca),
         `ready_at`, `paid_at`, `receipt`, `certificate_number` (la constancia
-        VIGENTE, nunca una anulada), `prior_issued_on`, `prior_note`,
+        VIGENTE, nunca una anulada), `certificate` (Tarea 4 de
+        `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.4: el
+        dict COMPLETO de `CertificateService.print_status_map` para esta fila,
+        o `None`; `certificate_number` se DERIVA de ahí -- la plantilla pinta
+        la celda con `certificate_cell`), `prior_issued_on`, `prior_note`,
         `can_revert`, `clearance_id`. Formatear es de quien pinta
         (`format_amount`). Con `NOT_APPLICABLE` las vistas del egresado no
         pintan nada y las de SE dicen «No aplica (cotejo ya liberado)» sin
         ofrecer «Constancia previa…».
         """
-        from itcj2.apps.titulatec.models import Certificate
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
         row = LibraryClearanceService.get_for_process(db, process_id)
         no_aplica = ((row is None or row.status != "cleared")
@@ -460,15 +464,12 @@ class LibraryClearanceService:
             return {"status": NOT_APPLICABLE if no_aplica else "missing",
                     "via": None, "debt": None, "donation": None,
                     "total": None, "note": None, "ready_at": None, "paid_at": None,
-                    "receipt": None, "certificate_number": None,
+                    "receipt": None, "certificate_number": None, "certificate": None,
                     "prior_issued_on": None, "prior_note": None,
                     "can_revert": False, "clearance_id": None}
 
-        vigente = (db.query(Certificate.number)
-                   .filter(Certificate.source_ref == _ref(row.id),
-                           Certificate.voided_at.is_(None))
-                   .order_by(Certificate.id.desc())
-                   .first())
+        ref = _ref(row.id)
+        certificate = CertificateService.print_status_map(db, [ref])[ref]
         return {
             "status": NOT_APPLICABLE if no_aplica else row.status,
             "via": row.cleared_via,
@@ -479,7 +480,8 @@ class LibraryClearanceService:
             "ready_at": row.ready_at,
             "paid_at": row.paid_at,
             "receipt": row.receipt_number,
-            "certificate_number": vigente[0] if vigente else None,
+            "certificate_number": certificate["number"] if certificate else None,
+            "certificate": certificate,
             "prior_issued_on": row.prior_issued_on,
             "prior_note": row.prior_note,
             "can_revert": LibraryClearanceService.can_revert(db, row),

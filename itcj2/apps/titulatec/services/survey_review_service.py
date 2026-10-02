@@ -218,7 +218,13 @@ class SurveyReviewService:
         transacción o no.
 
         `status="missing"` es un PSEUDO-estado: no existe fila todavía (el
-        egresado no ha enviado la encuesta).
+        egresado no ha enviado la encuesta); ahí `certificate` es `None` sin
+        consultar nada. Llaves: `status`, `reason`, `reviewed_by`,
+        `reviewed_at`, `review_id`, `response_id`, `origin`, `certificate`
+        (Tarea 4 de `2026-10-02-titulatec-constancias-y-pendientes-design.md`
+        §3.4: el dict COMPLETO de `CertificateService.print_status_map` para
+        `survey_review:{id}`, o `None`; la plantilla pinta la celda con
+        `certificate_cell`).
         """
         from itcj2.core.models.user import User
 
@@ -226,8 +232,11 @@ class SurveyReviewService:
         if review is None:
             return {"status": "missing", "reason": None, "reviewed_by": None,
                     "reviewed_at": None, "review_id": None, "response_id": None,
-                    "origin": None}
+                    "origin": None, "certificate": None}
 
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+        ref = f"survey_review:{review.id}"
         reviewer = db.get(User, review.reviewed_by_id) if review.reviewed_by_id else None
         return {
             "status": review.status,
@@ -241,6 +250,7 @@ class SurveyReviewService:
             # (`partials/survey_status.html`) y la bandeja de GTV lo usan para
             # distinguir una liberación real de una constancia previa.
             "origin": review.origin,
+            "certificate": CertificateService.print_status_map(db, [ref])[ref],
         }
 
     # ------------------------------------------------------------- transiciones

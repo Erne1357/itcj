@@ -19,11 +19,18 @@ El censo estructural de `test_scope_guard.py` (`test_toda_ruta_con_process_id_
 invoca_el_guard`) es quien garantiza que las 4 rutas nuevas de respaldo
 llaman `assert_process_in_scope` como primera sentencia del `try`; aquí solo
 se ejercita el comportamiento (200/400/403/404).
+
+Secciones 6-7 (Tarea 4 de `2026-10-02-titulatec-constancias-y-pendientes-
+design.md` §3.4): la celda «Constancia» (`certificate_cell`, Tarea 3) junto a
+las dos filas -encuesta y no adeudo- en estas MISMAS dos pantallas, y m42
+(`triage-minors.md`): un proceso revocado con el no adeudo todavía
+`missing`/`pending` pinta «Revocada», nunca «En Biblioteca».
 """
 from __future__ import annotations
 
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 from urllib.parse import unquote
 
 import pytest
@@ -31,6 +38,8 @@ import pytest
 import itcj2.models  # noqa: F401
 
 from tests.fastapi.titulatec.conftest import HEAD_PERMS, OFFICER_PERMS
+
+NOTIFY = "itcj2.apps.titulatec.services.notify.notify_student"
 
 # Servicios Escolares: alta/edición de convocatoria + respaldo de constancia
 # previa. Los tres códigos nuevos (`cohort.api.create/update` ya existían;
@@ -481,3 +490,223 @@ class TestYaPasoSuCotejo:
                               "de no adeudo.")
         fila = LibraryClearanceService.get_for_process(db_session, cotejado["proc"].id)
         assert fila is None or fila.status == "pending"
+
+
+# ===========================================================================
+# 6. Celda «Constancia» (Tarea 4, §3.4): el panel de atender y el expediente
+#    pintan `certificate_cell` junto a CADA fila -encuesta y no adeudo-, la
+#    MISMA fuente que las bandejas (`CertificateService.print_status_map`,
+#    Tareas 2/3): impresa, sin imprimir, anulada tras imprimir y previa.
+# ===========================================================================
+def _atender(client_as, actor, proc_id):
+    return client_as(actor).get(
+        f"/titulatec/admin/appointments/body?v=atender&selected={proc_id}")
+
+
+def _expediente(client_as, actor, proc_id):
+    return client_as(actor).get(f"/titulatec/admin/processes/{proc_id}")
+
+
+def _en_las_dos_vistas(client_as, actor, proc_id, *, contiene=(), no_contiene=()):
+    """Pide atender y expediente y repite las MISMAS aserciones en los dos:
+    comparten fuente (`summary_for_process`) y macro (`certificate_cell`), así
+    que un hueco en una y no en la otra sería un error de cableado de la
+    plantilla, no de los datos."""
+    for resp in (_atender(client_as, actor, proc_id), _expediente(client_as, actor, proc_id)):
+        assert resp.status_code == 200, resp.text[:300]
+        for texto in contiene:
+            assert texto in resp.text, texto
+        for texto in no_contiene:
+            assert texto not in resp.text, texto
+
+
+class TestCeldaDeConstanciaBiblioteca:
+    def test_sin_imprimir_tras_pagar(self, client_as, db_session, caso):
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        with patch(NOTIFY):
+            LibraryClearanceService.register_payment(
+                db_session, clearance.id, caso["officer"].id, receipt_number="R-0001")
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=("Sin imprimir",), no_contiene=("Impresa",))
+
+    def test_impresa_tras_el_lote(self, client_as, db_session, caso):
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        with patch(NOTIFY):
+            LibraryClearanceService.register_payment(
+                db_session, clearance.id, caso["officer"].id, receipt_number="R-0002")
+        batch = CertificateService.create_batch(
+            db_session, kind="library_clearance", actor_id=caso["officer"].id)
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=("Impresa", f"lote #{batch.id}"))
+
+    def test_anulada_tras_imprimir_avisa_retirar_el_papel(self, client_as, db_session, caso):
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        with patch(NOTIFY):
+            LibraryClearanceService.register_payment(
+                db_session, clearance.id, caso["officer"].id, receipt_number="R-0003")
+        CertificateService.create_batch(db_session, kind="library_clearance",
+                                        actor_id=caso["officer"].id)
+        with patch(NOTIFY):
+            LibraryClearanceService.revert_payment(
+                db_session, clearance.id, caso["officer"].id, "Pago duplicado")
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=("Anulada tras imprimir", "retira ese papel"),
+                           no_contiene=("Sin imprimir",))
+
+    def test_previa_no_tiene_folio(self, client_as, db_session, caso):
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        with patch(NOTIFY):
+            LibraryClearanceService.register_prior(
+                db_session, clearance.id, caso["officer"].id,
+                issued_on=date.today() - timedelta(days=10), note="Papel de antes",
+                by="library")
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=("Constancia previa (papel del egresado)",))
+
+
+class TestCeldaDeConstanciaEncuesta:
+    def test_sin_imprimir_tras_liberar(self, client_as, db_session, caso, make_survey_review):
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        review = make_survey_review(caso["proc"], status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, caso["officer"].id)
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=("Sin imprimir",), no_contiene=("Impresa",))
+
+    def test_impresa_tras_el_lote(self, client_as, db_session, caso, make_survey_review):
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        review = make_survey_review(caso["proc"], status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, caso["officer"].id)
+        batch = CertificateService.create_batch(
+            db_session, kind="survey_release", actor_id=caso["officer"].id)
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=("Impresa", f"lote #{batch.id}"))
+
+    def test_anulada_tras_imprimir_avisa_retirar_el_papel(
+            self, client_as, db_session, caso, make_survey_review):
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        review = make_survey_review(caso["proc"], status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, caso["officer"].id)
+        CertificateService.create_batch(db_session, kind="survey_release",
+                                        actor_id=caso["officer"].id)
+        with patch(NOTIFY):
+            SurveyReviewService.revoke(
+                db_session, review.id, caso["officer"].id, "Aclaración de GTV")
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=("Anulada tras imprimir", "retira ese papel"),
+                           no_contiene=("Sin imprimir",))
+
+    def test_previa_no_tiene_folio(self, client_as, db_session, caso):
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        with patch(NOTIFY):
+            SurveyReviewService.register_prior(
+                db_session, caso["proc"], issued_on=date.today() - timedelta(days=10),
+                actor_id=caso["officer"].id)
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=("Constancia previa (papel del egresado)",))
+
+
+# ===========================================================================
+# 7. m42 (`triage-minors.md`): `library_clearance_pill` no mira
+#    `TitulationProcess.status`, así que un proceso REVOCADO con el no adeudo
+#    todavía `missing`/`pending` mostraba «En Biblioteca» como si el trámite
+#    siguiera vivo. Las dos vistas tienen el proceso a la mano: deciden ELLAS
+#    (no se toca la macro compartida -la usan +12 vistas-).
+# ===========================================================================
+@pytest.fixture()
+def revocado(db_session, seed_phase_defs, seed_document_types, make_program, make_cohort,
+            make_officer, make_student, make_process, make_appointment):
+    """Proceso YA `cancelled` desde que nace, con su no adeudo `pending` y una
+    cita `attended` vigente (alcanzable desde atender)."""
+    from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+        CotejoRequirementService,
+    )
+
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria de la Celda Revocada")
+    cohort = make_cohort(book_donation_amount=Decimal("800.00"))
+    CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+    db_session.flush()
+    officer, _pos = make_officer([prog])
+    proc = make_process(make_student(), cohort=cohort, program=prog, current_phase=2,
+                        status="cancelled", library_clearance="pending")
+    make_appointment(proc, status="attended", is_current=True)
+    return {"prog": prog, "officer": officer, "proc": proc}
+
+
+class TestProcesoRevocadoPildoraDeNoAdeudo:
+    def test_pendiente_pinta_revocada_no_en_biblioteca(self, client_as, revocado):
+        _en_las_dos_vistas(client_as, revocado["officer"], revocado["proc"].id,
+                           contiene=("Revocada",), no_contiene=("En Biblioteca",))
+
+    def test_ya_liberado_antes_de_revocar_conserva_su_pildora_y_constancia(
+            self, client_as, db_session, caso):
+        """Review Focus #5: un no adeudo que YA se liberó (y su constancia ya
+        se imprimió) ANTES de la revocación conserva su píldora «Liberado» y
+        la celda sigue mostrando «Impresa» -revocar la inscripción no reescribe
+        la historia del trámite que sí se completó."""
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        with patch(NOTIFY):
+            LibraryClearanceService.register_payment(
+                db_session, clearance.id, caso["officer"].id, receipt_number="R-0004")
+        CertificateService.create_batch(db_session, kind="library_clearance",
+                                        actor_id=caso["officer"].id)
+        caso["proc"].status = "cancelled"
+        db_session.flush()
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=("Liberado", "Impresa"),
+                           no_contiene=("Revocada", "En Biblioteca"))
+
+
+# ===========================================================================
+# 8. Macro `certificate_cell`: respaldo final (Ruling R4, revisión de la
+#    Tarea 3) -- un `info` dict sin folio vigente, sin `voided_printed` y ni
+#    `prior` ni `legacy` es contractualmente imposible hoy (`print_status_map`
+#    solo da folio vigente, `voided_printed` o `None`), pero el macro no debe
+#    quedar en blanco si algún día pasa.
+# ===========================================================================
+def test_certificate_cell_nunca_queda_vacia():
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+
+    tpl = titulatec_templates.env.from_string(
+        '{% from "titulatec/_macros.html" import certificate_cell %}'
+        '{{ certificate_cell(info) }}')
+    html = " ".join(tpl.render(info={"number": None, "voided_printed": None}).split())
+
+    assert html == "—"

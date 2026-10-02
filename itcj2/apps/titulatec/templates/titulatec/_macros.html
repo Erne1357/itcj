@@ -133,7 +133,13 @@
    (`prior`/`legacy`/nunca tuvo constancia, los tres como «—» salvo la
    previa); (3) ADEMÁS, siempre que no haya vigente Y `info.voided_printed`
    exista, el aviso de retirar el papel -nunca reemplaza al paso (2), se
-   agrega debajo-. #}
+   agrega debajo-.
+
+   Respaldo final (Ruling R4, revisión de la Tarea 3): un `info` que es un
+   dict (no `None`) sin folio vigente, sin `voided_printed` y ni `prior` ni
+   `legacy` es CONTRACTUALMENTE IMPOSIBLE hoy -`print_status_map` solo
+   regresa folio vigente, `voided_printed` o `None`-, pero la celda nunca
+   debe quedar en blanco si ese contrato cambiara. #}
 {% macro certificate_cell(info, prior=False, legacy=False) %}
   {%- set vigente = info and info.number -%}
   {%- if vigente -%}
@@ -149,6 +155,8 @@
   {%- elif legacy -%}
     —
   {%- elif info is none -%}
+    —
+  {%- else -%}
     —
   {%- endif -%}
   {%- if not vigente and info and info.voided_printed %}

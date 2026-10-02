@@ -642,6 +642,10 @@ class TestSummaryForProcess:
             "status": "missing", "reason": None, "reviewed_by": None,
             "reviewed_at": None, "review_id": None, "response_id": None,
             "origin": None,
+            # Tarea 4 (`2026-10-02-titulatec-constancias-y-pendientes-
+            # design.md` §3.4): sin fila no hay nada que consultar en
+            # `CertificateService.print_status_map` -- `None` sin tocar la base.
+            "certificate": None,
         }
 
     def test_con_solicitud_en_revision(self, db_session, escenario, make_survey_review):
@@ -655,6 +659,9 @@ class TestSummaryForProcess:
         assert resumen["response_id"] == review.response_id
         assert resumen["reviewed_by"] is None
         assert resumen["reviewed_at"] is None
+        # `approve()` es quien emite la constancia `survey_release`; mientras
+        # sigue `in_review` no hay nada que `print_status_map` encuentre.
+        assert resumen["certificate"] is None
 
     def test_con_observaciones_y_revisor(self, db_session, escenario, make_survey_review):
         process, gtv = escenario["process"], escenario["gtv"]
@@ -673,3 +680,70 @@ class TestSummaryForProcess:
             db_session, "commit",
             lambda: pytest.fail("summary_for_process no debe commitear"))
         SurveyReviewService.summary_for_process(db_session, escenario["process"].id)
+
+    def test_certificate_sin_imprimir_tras_aprobar(
+            self, db_session, escenario, make_survey_review):
+        """`approve()` emite la constancia `survey_release` vigente, SUELTA
+        (sin lote) -- `certificate["printed"]` es `False` hasta que entre a un
+        lote (Tarea 4, §3.4)."""
+        process, gtv = escenario["process"], escenario["gtv"]
+        review = make_survey_review(process, status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, gtv.id)
+
+        resumen = SurveyReviewService.summary_for_process(db_session, process.id)
+        assert resumen["certificate"]["printed"] is False
+        assert resumen["certificate"]["number"] is not None
+        assert resumen["certificate"]["voided_printed"] is None
+
+    def test_certificate_impresa_tras_el_lote(self, db_session, escenario, make_survey_review):
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+        process, gtv = escenario["process"], escenario["gtv"]
+        review = make_survey_review(process, status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, gtv.id)
+        batch = CertificateService.create_batch(db_session, kind="survey_release",
+                                                actor_id=gtv.id)
+
+        resumen = SurveyReviewService.summary_for_process(db_session, process.id)
+        assert resumen["certificate"]["printed"] is True
+        assert resumen["certificate"]["batch_id"] == batch.id
+
+    def test_certificate_anulada_tras_imprimir_en_el_resumen(
+            self, db_session, escenario, make_survey_review):
+        """Liberada -> impresa -> revocada (Review Focus #1): sin vigente,
+        pero `certificate["voided_printed"]` trae la anulada que sí se
+        imprimió -- la celda avisa que hay que retirar ese papel."""
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+        process, gtv = escenario["process"], escenario["gtv"]
+        review = make_survey_review(process, status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, gtv.id)
+        batch = CertificateService.create_batch(db_session, kind="survey_release",
+                                                actor_id=gtv.id)
+        with patch(NOTIFY):
+            SurveyReviewService.revoke(db_session, review.id, gtv.id, "Aclaración de GTV")
+
+        resumen = SurveyReviewService.summary_for_process(db_session, process.id)
+        assert resumen["certificate"]["number"] is None
+        assert resumen["certificate"]["voided_printed"]["batch_id"] == batch.id
+
+    def test_previa_no_trae_certificate(self, db_session, escenario):
+        """`register_prior` (D9) NUNCA emite constancia `survey_release`: el
+        egresado trae su papel. `certificate` es `None`, la plantilla lo pinta
+        como «Constancia previa (papel del egresado)» vía `prior=True`
+        (`origin == 'prior'`)."""
+        from datetime import timedelta
+
+        from itcj2.core.utils.timezone import db_now
+
+        process = escenario["process"]
+        with patch(NOTIFY):
+            SurveyReviewService.register_prior(
+                db_session, process, issued_on=db_now().date() - timedelta(days=10))
+
+        resumen = SurveyReviewService.summary_for_process(db_session, process.id)
+        assert resumen["origin"] == "prior"
+        assert resumen["certificate"] is None

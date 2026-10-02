@@ -10,7 +10,7 @@
    auto-avanza la fase al aprobar el tercero; tener dos caminos con dos reglas
    era la razón de quitarlo de aquí.
    =========================================================================== #}
-{% from "titulatec/_macros.html" import estado_pill, appt_pill, survey_review_pill, library_clearance_pill %}
+{% from "titulatec/_macros.html" import estado_pill, appt_pill, survey_review_pill, library_clearance_pill, certificate_cell %}
 {% set VOLVER = '&from=' ~ (back.url | urlencode) %}
 
 {# — Datos de la fase, comunes a todas — #}
@@ -161,7 +161,10 @@
           {# D3: aqui ya NO manda "lo acredita el sistema" -- el requisito lo
              libera GTV, no el envio de la encuesta. `survey` es el dict plano
              de `SurveyReviewService.summary_for_process`, igual que en el
-             panel de atender (`_appt_attend.html`, Tarea 4). #}
+             panel de atender (`_appt_attend.html`, Tarea 4). `certificate_cell`
+             (Tarea 4, §3.4) pinta si la constancia `survey_release` ya se
+             imprimió -- MISMA fuente (`survey.certificate`) que la bandeja
+             de GTV. #}
           <div class="tt-req-meta">
             {{ survey_review_pill(survey.status) }}
             {%- if survey.status == 'rejected' and survey.reason %}
@@ -169,6 +172,7 @@
             {%- elif survey.status == 'approved' %}
               — Liberada por GTV · {{ survey.reviewed_at }}
             {%- endif %}
+            <br>{{ certificate_cell(survey.certificate, prior=(survey.origin == 'prior')) }}
           </div>
           {% elif r.auto_source == 'library_clearance' %}
           {# D9/Tarea 11: el no adeudo lo liberan Biblioteca y Caja, no se
@@ -179,9 +183,21 @@
              `library_clearance.api.prior` (`can_register_prior`), y la
              previa SOLO mientras el trámite sigue abierto: con
              `not_applicable` (Ruling R21, ya pasó su cotejo) la píldora dice
-             «No aplica (cotejo ya liberado)» y no se ofrece nada. #}
+             «No aplica (cotejo ya liberado)» y no se ofrece nada.
+             `certificate_cell` (Tarea 4, §3.4) pinta si la constancia BIB ya
+             se imprimió y reemplaza el folio suelto que antes salía bajo
+             «Liberado». m42 (`triage-minors.md`): con el proceso `cancelled`
+             y el no adeudo todavía `missing`/`pending`, la píldora propia
+             dice «Revocada» -- `library_clearance_pill` no mira
+             `TitulationProcess.status`; aquí sí porque esta vista YA tiene
+             `process` a la mano (no se toca la macro compartida, la usan +12
+             vistas). #}
           <div class="tt-req-meta">
-            {{ library_clearance_pill(library.status, via=library.via) }}
+            {%- if process.status == 'cancelled' and library.status in ('missing', 'pending') -%}
+              <span class="tt-pill tt-pill--neutral">Revocada</span>
+            {%- else -%}
+              {{ library_clearance_pill(library.status, via=library.via) }}
+            {%- endif %}
             {%- if library.status == 'awaiting_payment' %}
               — Por cobrar {{ format_amount(library.total) }} en Caja
             {%- elif library.status == 'cleared' and library.via == 'prior' %}
@@ -189,8 +205,9 @@
             {%- elif library.status == 'cleared' and library.via == 'legacy' %}
               — Liberado antes de este sistema
             {%- elif library.status == 'cleared' %}
-              — {{ format_amount(library.total) }}{% if library.receipt %} · recibo {{ library.receipt }}{% endif %}{% if library.certificate_number %} · constancia {{ library.certificate_number }}{% endif %}
+              — {{ format_amount(library.total) }}{% if library.receipt %} · recibo {{ library.receipt }}{% endif %}
             {%- endif %}
+            <br>{{ certificate_cell(library.certificate, prior=(library.via == 'prior'), legacy=(library.via == 'legacy')) }}
           </div>
           {% if can_register_prior and library.status in ('missing', 'pending', 'awaiting_payment') %}
           <form class="d-flex flex-wrap align-items-center gap-2 mt-1"
