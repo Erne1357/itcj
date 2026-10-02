@@ -2238,6 +2238,21 @@ class TestSearch:
     def test_busqueda_vacia(self, db_session, q):
         assert LibraryClearanceService.search(db_session, q) == []
 
+    def test_control_exacto_sale_primero_aunque_el_nombre_alfabetico_sea_antes(
+            self, db_session, nuevo, token):
+        """m10: el `case()` de control exacto (:990-993) manda SIEMPRE sobre
+        el orden alfabético por nombre -- las pruebas de hoy nunca hacían
+        competir las dos ramas."""
+        por_nombre = nuevo(last_name=token, first_name="AAA_NOMBREANTES",
+                           control_number=f"{token}X")
+        por_control = nuevo(cohort=por_nombre.cohort, last_name=token,
+                            first_name="ZZZ_NOMBREDESPUES", control_number=token)
+
+        filas = LibraryClearanceService.search(db_session, token)
+
+        assert [f["id"] for f in filas] == [
+            por_control.clearance.id, por_nombre.clearance.id]
+
 
 class TestDayCut:
     """`day_cut` (E3): corte del día FIJO desde `ProcessEvent`, nunca desde la

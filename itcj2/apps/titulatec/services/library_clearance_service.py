@@ -890,10 +890,8 @@ class LibraryClearanceService:
                  .filter(LibraryClearanceService._pending_actionable(admitted_only)))
         texto = (q or "").strip()
         if texto:
-            patron = f"%{texto}%"
             query = (query.join(User, User.id == TitulationProcess.student_id)
-                     .filter(or_(User.full_name.ilike(patron),
-                                 User.control_number.ilike(patron))))
+                     .filter(LibraryClearanceService._search_clause(texto)))
         out = {estado: 0 for estado in LIBRARY_STATUSES}
         for estado, total in query.group_by(LibraryClearance.status).all():
             if estado in out:
@@ -1597,9 +1595,21 @@ class LibraryClearanceService:
                         TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES)))
 
     @staticmethod
+    def _search_clause(texto: str):
+        """`ILIKE` de nombre completo o número de control (m09): un solo
+        lugar para `counts_by_status` y `_inbox_query` -- antes cada uno traía
+        su propia copia literal del `or_(...)`, con riesgo de que el contador
+        de una pestaña y su lista divergieran al tocar solo una. `texto` ya
+        viene recortado y no vacío -- lo valida el llamador."""
+        from itcj2.core.models.user import User
+        patron = f"%{texto}%"
+        return or_(User.full_name.ilike(patron), User.control_number.ilike(patron))
+
+    @staticmethod
     def _inbox_query(db: Session, q: str | None = None):
         """Fila + proceso + egresado + carrera + convocatoria, con la búsqueda
-        `q` (ILIKE sobre nombre completo o número de control) ya aplicada."""
+        `q` (ILIKE sobre nombre completo o número de control, `_search_clause`)
+        ya aplicada."""
         from itcj2.apps.titulatec.models import Cohort, LibraryClearance, TitulationProcess
         from itcj2.core.models.program import Program
         from itcj2.core.models.user import User
@@ -1611,9 +1621,7 @@ class LibraryClearanceService:
                  .join(Cohort, Cohort.id == TitulationProcess.cohort_id))
         texto = (q or "").strip()
         if texto:
-            patron = f"%{texto}%"
-            query = query.filter(or_(User.full_name.ilike(patron),
-                                     User.control_number.ilike(patron)))
+            query = query.filter(LibraryClearanceService._search_clause(texto))
         return query
 
     @staticmethod
