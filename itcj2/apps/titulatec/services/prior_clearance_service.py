@@ -31,7 +31,10 @@ clasificación "¿aplicaría, ya se aplicó, o es un conflicto?" vive en
 -predicados de SOLO LECTURA de cada dueño, distintos de `release_status`
 (reservado a `ClearanceGate`)-, y este módulo SIEMPRE llama a esos dos en vez
 de comparar `.status` por su cuenta, tanto en `dry_run` como en la corrida
-real. `test_el_servicio_nunca_lee_status_directo`
+real. El MOTIVO fino de un conflicto de encuesta (¿GTV revocó una previa
+aquí, o hay una solicitud real en revisión? m39) es, por la misma regla, otro
+predicado de solo lectura del dueño: `SurveyReviewService.
+prior_conflict_reason`. `test_el_servicio_nunca_lee_status_directo`
 (`test_prior_clearance_service.py`) lo barre por AST. Vigencia (D9): `issued_on`
 obligatoria, no futura y `>= hoy - PRIOR_VALIDITY_DAYS` (365 días; exactamente
 365 vale, 366 no) -- el MISMO límite que `LibraryClearanceService.
@@ -54,9 +57,6 @@ from sqlalchemy.orm import Session
 from itcj2.core.utils.timezone import db_now
 
 logger = logging.getLogger(__name__)
-
-# Dominio de `kind` (igual que `models/prior_clearance.py::PRIOR_KINDS`).
-PRIOR_KINDS = ("survey", "library")
 
 # Llaves del resultado de `import_rows`, en el orden en que la CLI las imprime.
 IMPORT_BUCKETS = ("applied", "deferred", "already", "conflicts", "expired", "invalid")
@@ -165,7 +165,13 @@ class PriorClearanceService:
         dos, o `[]`). Una previa que ya no es válida al momento de aplicarse
         -p. ej. venció entre que se importó y que el alumno por fin se
         inscribió- se salta (se registra en el log) en vez de tumbar el alta
-        completa del proceso.
+        completa del proceso. (m14) `_apply_survey`/`_apply_library` devuelven
+        `bool` (mutó o no): solo si mutó se marca `applied_process_id`/
+        `applied_at` -si `prior_outcome` ya dice `"already"` (hoy
+        inalcanzable: el único llamador, `ImportService.import_rows`, siempre
+        trae un proceso recién creado sin review/clearance previos) la previa
+        queda SIN marcar, disponible para un proceso futuro del mismo
+        control.
         """
         from itcj2.apps.titulatec.models import PriorClearance
 
@@ -183,9 +189,9 @@ class PriorClearanceService:
         for previa in pendientes:
             try:
                 if previa.kind == "survey":
-                    PriorClearanceService._apply_survey(db, process, previa)
+                    muto = PriorClearanceService._apply_survey(db, process, previa)
                 elif previa.kind == "library":
-                    PriorClearanceService._apply_library(db, process, previa)
+                    muto = PriorClearanceService._apply_library(db, process, previa)
                 else:
                     continue
             except ValueError:
@@ -193,6 +199,8 @@ class PriorClearanceService:
                     "No se pudo aplicar la constancia previa %s (%s, control %s) "
                     "al proceso %s: ya no es válida.",
                     previa.id, previa.kind, control, process.id)
+                continue
+            if not muto:
                 continue
             previa.applied_process_id = process.id
             previa.applied_at = db_now()
@@ -207,26 +215,32 @@ class PriorClearanceService:
         return aplicadas
 
     @staticmethod
-    def _apply_survey(db: Session, process, previa) -> None:
+    def _apply_survey(db: Session, process, previa) -> bool:
+        """`True` si mutó (creó la solicitud aprobada); `False` si
+        `prior_outcome` ya no dice `"apply"` -sin fila que crear (m14):
+        `apply_pending` solo marca la previa cuando esto da `True`."""
         from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
         if SurveyReviewService.prior_outcome(db, process.id) != "apply":
-            return
+            return False
         SurveyReviewService.register_prior(
             db, process, issued_on=previa.issued_on, note=previa.note, actor_id=None)
+        return True
 
     @staticmethod
-    def _apply_library(db: Session, process, previa) -> None:
+    def _apply_library(db: Session, process, previa) -> bool:
+        """Gemela de `_apply_survey`, lado biblioteca (m14)."""
         from itcj2.apps.titulatec.services.library_clearance_service import (
             LibraryClearanceService,
         )
 
         if LibraryClearanceService.prior_outcome(db, process.id) != "apply":
-            return
+            return False
         clearance = LibraryClearanceService.open_for_process(db, process)
         LibraryClearanceService.register_prior(
             db, clearance.id, None, issued_on=previa.issued_on, note=previa.note,
             by="import", commit=False)
+        return True
 
     # ------------------------------------------------------------------
     # Importación por CLI
@@ -235,12 +249,12 @@ class PriorClearanceService:
     def import_rows(db: Session, *, kind: str, rows: list[dict], source: str,
                     dry_run: bool = False, today: Optional[date] = None) -> dict:
         """Importa, por número de control, constancias previas de un
-        semestre anterior (D9, spec §4.12). `kind` ∈ `PRIOR_KINDS`. `rows` =
-        lista de dicts `{"control_number": str, "issued_on": str|date|None,
-        "note": str|None (opcional)}` -la CLI arma esta lista desde el CSV
-        (columna de control autodetectada o `--columna-control`; fecha por
-        columna o `--fecha` fija)-; llamar directo desde una prueba también
-        vale.
+        semestre anterior (D9, spec §4.12). `kind` ∈ `PRIOR_KINDS` (importado
+        de `models/prior_clearance.py`: fuente única, m15). `rows` = lista de
+        dicts `{"control_number": str, "issued_on": str|date|None, "note":
+        str|None (opcional)}` -la CLI arma esta lista desde el CSV (columna de
+        control autodetectada o `--columna-control`; fecha por columna o
+        `--fecha` fija)-; llamar directo desde una prueba también vale.
 
         Por fila:
 
@@ -260,8 +274,12 @@ class PriorClearanceService:
              se inscriba.
            - con proceso, encuesta: sin `SurveyReview` ->
              `SurveyReviewService.register_prior` -> `applied`; con una YA
-             `approved` -> `already`; `in_review`/`rejected` -> `conflicts`
-             (lo decide GTV, no esta CLI).
+             `approved` -> `already`; `in_review`/`rejected`, o una previa
+             revocada por GTV en este proceso (Ruling R30 #2) -> `conflicts`
+             (lo decide GTV, no esta CLI) -- el MOTIVO distingue las dos
+             (m39, `SurveyReviewService.prior_conflict_reason`): «GTV revocó
+             su constancia previa; debe contestar la encuesta de egresados»
+             vs «ya envió la encuesta de este semestre; lo decide GTV».
            - con proceso, biblioteca: `pending`/`awaiting_payment` ->
              `LibraryClearanceService.register_prior` -> `applied`;
              `cleared` -> `already`.
@@ -271,10 +289,19 @@ class PriorClearanceService:
         (incluida la vigencia y la búsqueda del proceso), pero ninguna rama
         mutadora se ejecuta. `dry_run=False` hace UN commit al final.
 
+        Un MISMO `(kind, control_number)` repetido en `rows` -el mismo
+        archivo con una fila duplicada- cuenta `applied` una sola vez; la(s)
+        repetición(es) caen en `already` (m13): en la corrida real esto ya
+        salía solo (`register_prior` flushea, así que `prior_outcome` ve la
+        mutación de la fila anterior), pero en dry-run NADA muta la sesión y
+        sin este `set` las dos filas saldrían `applied`, prometiendo más
+        altas de las que la corrida real aplicaría.
+
         Devuelve un dict con las 6 llaves de `IMPORT_BUCKETS`; cada una es
         una lista de `{"control_number": str, "reason": str}`, en el orden
         del CSV.
         """
+        from itcj2.apps.titulatec.models.prior_clearance import PRIOR_KINDS
         from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
         from itcj2.apps.titulatec.services.library_clearance_service import (
             LibraryClearanceService,
@@ -286,6 +313,11 @@ class PriorClearanceService:
         hoy = today or db_now().date()
 
         out: dict[str, list[dict]] = {bote: [] for bote in IMPORT_BUCKETS}
+        # (kind, control) ya contados como `applied` EN ESTE MISMO archivo
+        # (m13): una repetición cuenta `already` en vez de volver a sumar a
+        # `applied`, en dry-run y en la corrida real por igual (en la real es
+        # un no-op: `prior_outcome` ya daría `already` por sí solo).
+        ya_aplicadas: set[tuple[str, str]] = set()
 
         def _add(bote: str, control: str, motivo: str) -> None:
             out[bote].append({"control_number": control, "reason": motivo})
@@ -327,21 +359,34 @@ class PriorClearanceService:
                 # se compara `SurveyReview.status` fuera de
                 # `SurveyReviewService`/`ClearanceGate`.
                 outcome = SurveyReviewService.prior_outcome(db, proceso.id)
+                if outcome == "apply" and (kind, control) in ya_aplicadas:
+                    outcome = "already"          # m13: duplicado en dry-run
                 if outcome == "apply":
                     if not dry_run:
                         SurveyReviewService.register_prior(
                             db, proceso, issued_on=fecha, note=nota, actor_id=None)
+                    ya_aplicadas.add((kind, control))
                     _add("applied", control, f"encuesta liberada en el proceso {proceso.folio}")
                 elif outcome == "already":
                     _add("already", control, "la encuesta ya estaba liberada")
                 else:
-                    _add("conflicts", control,
-                        "ya envió la encuesta de este semestre; lo decide GTV")
+                    # m39: el MOTIVO del conflicto -nunca el `.status`/evento
+                    # por su cuenta- lo da el dueño (§5, invariante 2).
+                    motivo = SurveyReviewService.prior_conflict_reason(db, proceso.id)
+                    if motivo == "revoked":
+                        _add("conflicts", control,
+                            "GTV revocó su constancia previa; debe contestar la "
+                            "encuesta de egresados")
+                    else:
+                        _add("conflicts", control,
+                            "ya envió la encuesta de este semestre; lo decide GTV")
             else:
                 # Mismo predicado, lado biblioteca: NUNCA se lee
                 # `LibraryClearance.status` aquí, ni en dry-run ni en la
                 # corrida real.
                 outcome = LibraryClearanceService.prior_outcome(db, proceso.id)
+                if outcome == "apply" and (kind, control) in ya_aplicadas:
+                    outcome = "already"          # m13: duplicado en dry-run
                 if outcome == "already":
                     _add("already", control, "el no adeudo ya estaba liberado")
                 else:
@@ -350,6 +395,7 @@ class PriorClearanceService:
                         LibraryClearanceService.register_prior(
                             db, clearance.id, None, issued_on=fecha, note=nota,
                             by="import", commit=False)
+                    ya_aplicadas.add((kind, control))
                     _add("applied", control,
                         f"no adeudo liberado en el proceso {proceso.folio}")
 

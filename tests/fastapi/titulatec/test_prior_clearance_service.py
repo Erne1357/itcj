@@ -81,6 +81,16 @@ def test_el_servicio_nunca_lee_status_directo():
         "prior_outcome en su lugar:\n  " + "\n  ".join(hallazgos))
 
 
+def test_el_servicio_no_declara_su_propia_copia_de_prior_kinds():
+    """m15: `PRIOR_KINDS` tiene un solo dueño (`models/prior_clearance.py`);
+    el servicio lo importa de ahí en vez de declarar su propia tupla -riesgo
+    de drift al agregar un tipo nuevo que esta prueba cierra sin tener que
+    comparar dos copias (ya no hay dos)."""
+    assert not hasattr(_prior_mod, "PRIOR_KINDS"), (
+        "prior_clearance_service.py sigue declarando su propio PRIOR_KINDS; "
+        "debe importarlo de models/prior_clearance.py")
+
+
 # ---------------------------------------------------------------------------
 # Ayudantes
 # ---------------------------------------------------------------------------
@@ -386,6 +396,44 @@ class TestApplyPending:
         assert _svc().apply_pending(db_session, proc, "") == []
         assert _svc().apply_pending(db_session, proc, None) == []
 
+    def test_no_marca_la_previa_de_biblioteca_si_el_proceso_ya_esta_liberado(
+            self, db_session, proceso, reloj):
+        """m14: `_apply_library` no muta (`prior_outcome` ya dice "already":
+        el proceso llega con su no adeudo YA `cleared`) -> `apply_pending`
+        debe dejar la `PriorClearance` SIN marcar, no contarla en el
+        resultado. Hoy inalcanzable desde `ImportService.import_rows` (el
+        único llamador siempre trae un proceso recién creado, siempre
+        `pending`), pero `apply_pending` es público: antes de este arreglo,
+        como no revisaba el valor de retorno de `_apply_library`, marcaba
+        `applied_process_id`/`applied_at` y devolvía `["library"]` IGUAL,
+        aunque no hubiera mutado nada -mintiendo sobre lo que pasó."""
+        proc = proceso(control_number="99600009", library_clearance="cleared")
+        previa = _prior(db_session, kind="library", control="99600009", issued_on=reloj)
+
+        aplicadas = _svc().apply_pending(db_session, proc, "99600009")
+
+        assert aplicadas == []
+        db_session.refresh(previa)
+        assert previa.applied_process_id is None
+        assert previa.applied_at is None
+
+    def test_no_marca_la_previa_de_encuesta_si_el_proceso_ya_tiene_revision_resuelta(
+            self, db_session, proceso, reloj):
+        """Gemela de la de arriba, lado encuesta: `prior_outcome` da
+        "already" porque ya hay una `SurveyReview` `approved` (otra vía, no
+        esta previa)."""
+        proc = proceso(control_number="99600010")
+        with patch(NOTIFY):
+            _review_svc().register_prior(db_session, proc, issued_on=reloj)
+        previa = _prior(db_session, kind="survey", control="99600010", issued_on=reloj)
+
+        aplicadas = _svc().apply_pending(db_session, proc, "99600010")
+
+        assert aplicadas == []
+        db_session.refresh(previa)
+        assert previa.applied_process_id is None
+        assert previa.applied_at is None
+
 
 # ---------------------------------------------------------------------------
 # PriorClearanceService.import_rows (motor de la CLI)
@@ -466,6 +514,8 @@ class TestImportRowsSurvey:
             rows=[{"control_number": "99700003", "issued_on": reloj.isoformat()}])
 
         assert [f["control_number"] for f in resultado["conflicts"]] == ["99700003"]
+        assert resultado["conflicts"][0]["reason"] == (
+            "ya envió la encuesta de este semestre; lo decide GTV")
         review = _review_svc().get_for_process(db_session, proc.id)
         assert review.status == estado          # intacta: la CLI no decide por GTV
 
@@ -494,6 +544,8 @@ class TestImportRowsSurvey:
             rows=[{"control_number": "99700009", "issued_on": reloj.isoformat()}])
 
         assert [f["control_number"] for f in resultado["conflicts"]] == ["99700009"]
+        assert resultado["conflicts"][0]["reason"] == (
+            "GTV revocó su constancia previa; debe contestar la encuesta de egresados")
         assert resultado["applied"] == []
         assert _review_svc().get_for_process(db_session, proc.id) is None
 
@@ -586,6 +638,24 @@ class TestImportRowsLibrary:
 
         assert [f["control_number"] for f in resultado["applied"]] == ["99700013"]
         assert db_session.query(LibraryClearance).filter_by(process_id=proc.id).first() is None
+
+    def test_dry_run_no_sobrecuenta_aplicadas_con_un_control_repetido(
+            self, db_session, proceso, reloj):
+        """m13: en dry-run NADA muta la sesión, así que sin este arreglo
+        `prior_outcome` seguiría diciendo "apply" para la SEGUNDA fila del
+        MISMO control -en la corrida real esto no pasa porque `register_
+        prior` de la primera fila flushea, y `prior_outcome` ya ve "already"
+        para la segunda-. El preview no debe prometer más altas de las que
+        la corrida real aplicaría: la repetición cae en `already`."""
+        proceso(control_number="99700014", library_clearance="pending")
+
+        resultado = _svc().import_rows(
+            db_session, kind="library", source="t.csv", dry_run=True,
+            rows=[{"control_number": "99700014", "issued_on": reloj.isoformat()},
+                 {"control_number": "99700014", "issued_on": reloj.isoformat()}])
+
+        assert [f["control_number"] for f in resultado["applied"]] == ["99700014"]
+        assert [f["control_number"] for f in resultado["already"]] == ["99700014"]
 
 
 class TestPreviaMasNuevaQueLaAplicada:
