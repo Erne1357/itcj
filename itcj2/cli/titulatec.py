@@ -2138,10 +2138,17 @@ def _verify_biblioteca_caja() -> list[str]:
     """Comprueba que el 20 y el 21 ATERRIZARON (lo que corre
     `init-biblioteca-caja`). Devuelve problemas.
 
-    Mismo contrato que el resto de los `_verify_*` de este archivo: abre su
-    propia conexion, arma sets contra la BD y devuelve strings de problema en
-    vez de levantar -- los `RAISE NOTICE` del 20/21/22 son INVISIBLES para
-    `itcj2/` (nada lee `connection.notices`).
+    Mismo contrato de SALIDA que el resto de los `_verify_*` de este archivo:
+    arma sets contra la BD y devuelve strings de problema en vez de levantar
+    -- los `RAISE NOTICE` del 20/21/22 son INVISIBLES para `itcj2/` (nada lee
+    `connection.notices`). A diferencia de esos otros `_verify_*` (que abren
+    `_get_engine().connect()` crudo), este abre su PROPIA sesión (import
+    local de `SessionLocal`, convención del proyecto) para que
+    `patched_session_local` pueda interceptarla en las pruebas -- mismo
+    patrón que `_precheck_activar_biblioteca`/`_run_counted_sql` en este
+    archivo (m04: antes usaba `_get_engine()` directo, intestable sin pegarle
+    a la BD de dev de verdad). Solo lectura: no hace falta `commit`/
+    `rollback` explícito, cerrar basta.
 
     Seis chequeos (spec §4.6):
       - los 2 puestos nuevos existen;
@@ -2167,14 +2174,15 @@ def _verify_biblioteca_caja() -> list[str]:
     """
     from sqlalchemy import text
 
-    from itcj2.cli.core import _get_engine
+    from itcj2.database import SessionLocal
 
     problemas: list[str] = []
 
-    with _get_engine().connect() as conn:
+    db = SessionLocal()
+    try:
         puestos = {
             row[0]
-            for row in conn.execute(
+            for row in db.execute(
                 text("SELECT code FROM core_positions WHERE code = ANY(:codes)"),
                 {"codes": [_PUESTO_LIBRARY, _PUESTO_CASHIER]},
             )
@@ -2188,7 +2196,7 @@ def _verify_biblioteca_caja() -> list[str]:
 
         permisos = {
             row[0]
-            for row in conn.execute(
+            for row in db.execute(
                 text(
                     "SELECT p.code FROM core_permissions p "
                     "JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
@@ -2203,7 +2211,7 @@ def _verify_biblioteca_caja() -> list[str]:
 
         concedidos = {
             (row[0], row[1])
-            for row in conn.execute(
+            for row in db.execute(
                 text(
                     "SELECT r.name, p.code "
                     "  FROM core_role_permissions rp "
@@ -2253,7 +2261,7 @@ def _verify_biblioteca_caja() -> list[str]:
         for rol in (_ROL_LIBRARY, _ROL_CASHIER):
             puestos_de_rol[rol] = {
                 row[0]
-                for row in conn.execute(
+                for row in db.execute(
                     text(
                         "SELECT pos.code FROM core_position_app_roles par "
                         "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
@@ -2274,6 +2282,8 @@ def _verify_biblioteca_caja() -> list[str]:
                 f"mapeo puesto→rol de {_ROL_CASHIER}: falta {_PUESTO_CASHIER} "
                 f"(hay {sorted(puestos_de_rol[_ROL_CASHIER])})"
             )
+    finally:
+        db.close()
 
     return problemas
 
@@ -2681,10 +2691,20 @@ def import_prior_clearances_command(archivo, tipo, fecha_fija, columna_control,
     `--dry-run`: clasifica TODO -incluida la búsqueda del proceso abierto-
     pero no escribe nada, ni siquiera un alta idempotente de la fila de
     biblioteca.
+
+    `--fecha` y `--columna-fecha` son MUTUAMENTE EXCLUSIVAS: pasar las dos a
+    la vez rechaza el comando (m16; antes `--columna-fecha` ganaba en
+    silencio, sin avisar que `--fecha` se ignoraba).
     """
     from itcj2.apps.titulatec.services.import_service import ImportService
     from itcj2.apps.titulatec.services.prior_clearance_service import PriorClearanceService
     from itcj2.database import SessionLocal
+
+    if columna_fecha and fecha_fija:
+        raise click.UsageError(
+            "No uses --fecha y --columna-fecha a la vez: --fecha fija la misma "
+            "fecha para TODAS las filas y --columna-fecha trae una por fila; "
+            "juntas, una de las dos se estaría ignorando en silencio. Elige una.")
 
     kind = _IMPORT_PRIOR_KIND[tipo]
     ruta = Path(archivo)

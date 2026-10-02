@@ -92,9 +92,11 @@ El motor de `titulatec import-prior-clearances`. Por fila:
      antes…», Ruling R28); con la misma fecha o una anterior → `already` («ya registrada»), sin
      tocar nada.
    - **con proceso, `kind=survey`**: sin `SurveyReview` → `register_prior` → `applied`; ya
-     `approved` → `already`; `in_review`/`rejected` → **`conflicts`** (lo decide GTV desde su
-     bandeja, NUNCA esta CLI — el egresado ya envió la encuesta de ESTE semestre y hay un humano
-     revisándola).
+     `approved` → `already`; `in_review`/`rejected`, o una previa revocada por GTV en este mismo
+     proceso (ver Ruling R30 #2 abajo) → **`conflicts`** (lo decide GTV desde su bandeja, NUNCA
+     esta CLI) — el MOTIVO impreso distingue las dos (m39): «ya envió la encuesta de este
+     semestre; lo decide GTV» (solicitud real) vs «GTV revocó su constancia previa; debe
+     contestar la encuesta de egresados» (previa revocada).
    - **con proceso, `kind=library`**: `pending`/`awaiting_payment` → `register_prior` →
      `applied`; `cleared` (cualquier `cleared_via`) → `already`.
 
@@ -150,7 +152,8 @@ titulatec import-prior-clearances --tipo encuesta|biblioteca ARCHIVO.csv
   `--columna-control`.
 - La fecha: `--columna-fecha` (una por fila) o `--fecha` (fija para TODAS las filas) — falta una
   de las dos → `ClickException`, sin leer ni clasificar ninguna fila. Si vienen las dos a la vez,
-  la CLI prefiere `--columna-fecha` **en silencio** (nota conocida, sin cambio de código).
+  la CLI rechaza el comando entero con `click.UsageError` (m16), también antes de leer ninguna
+  fila — antes (nota conocida, sin cambio de código) prefería `--columna-fecha` en silencio.
 - `--dry-run`: clasifica TODO —incluida la búsqueda del proceso abierto— pero no escribe nada,
   ni siquiera un alta idempotente de la fila de biblioteca.
 - Imprime, por bote (`IMPORT_BUCKETS`, en este orden): **Aplicadas** · **Registradas para
@@ -230,20 +233,27 @@ el formulario.
   archivo -ni siquiera corrigiendo el dato de origen se vuelve a importar sola-. Es permanente
   para ese proceso: la única salida es que el egresado conteste la encuesta REAL (el formulario
   vuelve a estar disponible, §4.12 arriba) y GTV la revise por la vía normal
-  (`approve`/`reject`), no por esta CLI.
-- **`--fecha` y `--columna-fecha` juntas** → gana `--columna-fecha` en silencio (nota conocida).
+  (`approve`/`reject`), no por esta CLI. El motivo que imprime la CLI en este caso es «GTV revocó
+  su constancia previa; debe contestar la encuesta de egresados» (m39,
+  `SurveyReviewService.prior_conflict_reason`) — distinto del «ya envió la encuesta de este
+  semestre; lo decide GTV» de una solicitud real `in_review`/`rejected`.
+- **`--fecha` y `--columna-fecha` juntas** → `click.UsageError`: el comando se rechaza antes de
+  leer ninguna fila (m16; antes ganaba `--columna-fecha` en silencio, sin avisar).
 - **Falta `--fecha` y no hay `--columna-fecha`** → la CLI rechaza el comando completo antes de
   leer una sola fila.
 
 ## Pruebas
 
-`test_prior_clearance_service.py` (clasificación, `apply_pending`, la más nueva que reemplaza
-a la aplicada, barrido AST de `.status` directo, fechas relativas no-bomba-de-tiempo — Ruling
-R14; reimportar tras revocar una previa cae en `conflicts` y no se re-aplica — Ruling R30 #2),
+`test_prior_clearance_service.py` (clasificación, `apply_pending` -incluido el branch silencioso
+`already` que no marca la previa, m14-, la más nueva que reemplaza a la aplicada, barrido AST de
+`.status` directo, `PRIOR_KINDS` sin copia propia -m15-, fechas relativas no-bomba-de-tiempo —
+Ruling R14; reimportar tras revocar una previa cae en `conflicts` y no se re-aplica — Ruling R30
+#2; un control repetido en el mismo archivo no sobrecuenta `applied` en dry-run — m13),
 `test_survey_review_service.py`/`test_survey_review_submit.py` (revocar una previa la borra y
 el egresado vuelve a contestar; `TestPriorOutcome` cubre `prior_outcome` directo, incluida la
-marca que deja la revocación), `test_cli_prior_clearances.py`
-(CLI: dry-run, autodetección de columna, los 4 formatos de fecha, botes).
+marca que deja la revocación; `TestPriorConflictReason` cubre el submotivo fino -m39-),
+`test_cli_prior_clearances.py` (CLI: dry-run, autodetección de columna, los 4 formatos de fecha,
+botes, `--fecha`+`--columna-fecha` juntas rechaza con `UsageError` -m16-).
 
 ## Flujos relacionados
 

@@ -38,7 +38,7 @@ real, pero DENTRO del savepoint de `db_session` (`patched_session_local`
 intercepta su `SessionLocal()` interno) -- nunca contra el engine de
 produccion sin aislar.
 """
-from datetime import date, timedelta
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
@@ -50,20 +50,28 @@ from itcj2.cli.titulatec import (
     _DML_BIBLIOTECA_2026_10_ACTIVAR_FILES,
     _DML_BIBLIOTECA_2026_10_DIR,
     _DML_BIBLIOTECA_2026_10_FILES,
+    _PERM_CERTIFICATE_PAGE_LIST,
+    _PERM_SURVEY_PRINT_CERTIFICATES,
     _PERMISOS_BIBLIOTECA_CAJA_2026_10,
     _PERMISOS_ROL_CASHIER,
     _PERMISOS_ROL_LIBRARY,
     _PUESTO_CASHIER,
     _PUESTO_LIBRARY,
     _PUESTOS_BIBLIOTECA_CAJA,
+    _ROL_ADMIN,
     _ROL_CASHIER,
+    _ROL_GTV,
+    _ROL_JEFATURA_ESCOLARES,
     _ROL_LIBRARY,
+    _ROL_OPERATIVO_ESCOLARES,
     _library_clearance_promote,
     _library_clearance_rebackfill,
     _precheck_activar_biblioteca,
+    _verify_biblioteca_caja,
     activar_biblioteca_caja_command,
     init_biblioteca_caja_command,
 )
+from itcj2.core.utils.timezone import db_now
 
 _TODOS_LOS_DEL_DELTA = _DML_BIBLIOTECA_2026_10_FILES + _DML_BIBLIOTECA_2026_10_ACTIVAR_FILES
 
@@ -605,8 +613,8 @@ def test_precheck_puestos_sin_ocupante_vigente_y_luego_con_ocupante(
 
     # Ocupantes que NO cuentan: asignación vencida y usuario desactivado.
     assign_position(make_user(), puestos[_PUESTO_LIBRARY],
-                    start_date=date.today() - timedelta(days=30),
-                    end_date=date.today() - timedelta(days=1))
+                    start_date=db_now().date() - timedelta(days=30),
+                    end_date=db_now().date() - timedelta(days=1))
     assign_position(make_user(is_active=False), puestos[_PUESTO_CASHIER])
     assert _precheck_activar_biblioteca()["ocupantes"] == {
         code: 0 for code in _PUESTOS_BIBLIOTECA_CAJA}
@@ -659,3 +667,91 @@ def test_precheck_convocatoria_con_candado_sin_donacion(
     assert con.id not in por_id, "con donación (aunque sea $0) no es problema"
     assert sin_candado.id not in por_id, "sin fila library_clearance no quedará con candado"
     assert any(sin.name in p and "donación" in p for p in pre["problemas"])
+
+
+# ---------------------------------------------------------------------------
+# `_verify_biblioteca_caja` (m04): contra Postgres real, DENTRO del savepoint
+# de `db_session` (igual que `_precheck_activar_biblioteca` arriba). Antes
+# abría `_get_engine().connect()` crudo -invisible para `patched_session_
+# local`, así que las 3 pruebas de comando de arriba la parchean- ahora abre
+# `SessionLocal()` como sus vecinas de este archivo.
+#
+# La BD de dev es COMPARTIDA y `init-biblioteca-caja` ya corrió ahí de verdad
+# (el delta no es hipotético): sin neutralizar lo AMBIENTE, una prueba que
+# sembrara "falta el mapeo X" podría ver el mapeo real de todos modos (mismo
+# código/puesto que ya existe en dev) y la aserción sería no-determinista --
+# mismo riesgo que ya resuelve `_puestos_reales` arriba para el precheck.
+# Por eso `_limpiar_y_sembrar` primero BORRA, dentro del savepoint, los
+# `RolePermission`/`PositionAppRole` de los 2 roles/puestos nuevos que caigan
+# en el universo de los 10 códigos del delta, y DESPUÉS siembra exactamente
+# lo que el 20/21 crean -así la prueba es la misma sin importar qué tan
+# sembrada esté la base real por debajo.
+# ---------------------------------------------------------------------------
+def _limpiar_y_sembrar_biblioteca_caja(db_session, titulatec_app, make_position, make_perms,
+                                       make_role, bind_position_role, *,
+                                       sin_mapeo_cashier=False):
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.position import PositionAppRole
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.role_permission import RolePermission
+
+    make_perms(_PERMISOS_BIBLIOTECA_CAJA_2026_10)
+
+    pos_library = make_position(code=_PUESTO_LIBRARY)
+    pos_cashier = make_position(code=_PUESTO_CASHIER)
+
+    perm_ids = {
+        pid for (pid,) in db_session.query(Permission.id).filter(
+            Permission.app_id == titulatec_app.id,
+            Permission.code.in_(_PERMISOS_BIBLIOTECA_CAJA_2026_10))
+    }
+    role_ids = {
+        rid for (rid,) in db_session.query(Role.id)
+        .filter(Role.name.in_([_ROL_LIBRARY, _ROL_CASHIER]))
+    }
+    if perm_ids and role_ids:
+        (db_session.query(RolePermission)
+         .filter(RolePermission.role_id.in_(role_ids), RolePermission.perm_id.in_(perm_ids))
+         .delete(synchronize_session=False))
+    (db_session.query(PositionAppRole)
+     .filter(PositionAppRole.position_id.in_([pos_library.id, pos_cashier.id]))
+     .delete(synchronize_session=False))
+    db_session.flush()
+
+    rol_library = make_role(_ROL_LIBRARY, _PERMISOS_ROL_LIBRARY)
+    rol_cashier = make_role(_ROL_CASHIER, _PERMISOS_ROL_CASHIER)
+    make_role(_ROL_GTV, [_PERM_SURVEY_PRINT_CERTIFICATES, _PERM_CERTIFICATE_PAGE_LIST])
+    make_role(_ROL_OPERATIVO_ESCOLARES, ["titulatec.library_clearance.api.prior"])
+    make_role(_ROL_JEFATURA_ESCOLARES, ["titulatec.library_clearance.api.prior"])
+    make_role(_ROL_ADMIN, _PERMISOS_BIBLIOTECA_CAJA_2026_10)
+
+    bind_position_role(pos_library, rol_library)
+    if not sin_mapeo_cashier:
+        bind_position_role(pos_cashier, rol_cashier)
+
+
+def test_verify_biblioteca_caja_sin_problemas_con_todo_bien_sembrado(
+    db_session, patched_session_local, titulatec_app, make_position, make_perms, make_role,
+    bind_position_role,
+):
+    _limpiar_y_sembrar_biblioteca_caja(
+        db_session, titulatec_app, make_position, make_perms, make_role, bind_position_role)
+
+    assert _verify_biblioteca_caja() == []
+
+
+def test_verify_biblioteca_caja_detecta_un_mapeo_puesto_rol_faltante(
+    db_session, patched_session_local, titulatec_app, make_position, make_perms, make_role,
+    bind_position_role,
+):
+    """Todo lo demás sembrado correctamente (spec §4.6); SOLO falta mapear
+    `_PUESTO_CASHIER` -> `_ROL_CASHIER` en `core_position_app_roles` -el
+    `_limpiar_y_sembrar_biblioteca_caja` de arriba ya se encargó de que
+    ningún mapeo AMBIENTE de la BD de dev real lo tape."""
+    _limpiar_y_sembrar_biblioteca_caja(
+        db_session, titulatec_app, make_position, make_perms, make_role, bind_position_role,
+        sin_mapeo_cashier=True)
+
+    assert _verify_biblioteca_caja() == [
+        f"mapeo puesto→rol de {_ROL_CASHIER}: falta {_PUESTO_CASHIER} (hay [])"
+    ]

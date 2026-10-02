@@ -111,6 +111,23 @@ def test_sin_fecha_ni_columna_falla_claro(tmp_path, db_session, patched_session_
     assert "fecha" in res.output.lower()
 
 
+def test_fecha_y_columna_fecha_juntas_rechaza_con_usage_error(
+        tmp_path, db_session, patched_session_local, proceso):
+    """m16: antes la CLI prefería `--columna-fecha` en silencio, ignorando
+    `--fecha` sin avisar (nota conocida en `xcut_prior_clearances.md`). Ahora
+    rechaza el comando completo, ANTES de leer ninguna fila -nada se
+    clasifica ni se escribe-, con `click.UsageError` (exit code 2)."""
+    proceso(control_number="99800009")
+    archivo = _csv(tmp_path, "previas.csv", "control,fecha\n99800009,2026-09-01\n")
+
+    res = _invoke([str(archivo), "--tipo", "encuesta", "--fecha", "2026-01-01",
+                  "--columna-fecha", "fecha"], db_session, patched_session_local)
+
+    assert res.exit_code == 2, res.output
+    assert "--fecha" in res.output and "--columna-fecha" in res.output
+    assert "Aplicadas" not in res.output
+
+
 def test_archivo_inexistente(db_session, patched_session_local):
     res = _invoke(["no-existe.csv", "--tipo", "encuesta", "--fecha", "2026-09-01"],
                   db_session, patched_session_local)
