@@ -1089,11 +1089,13 @@ def test_columna_constancia_revocada_sin_imprimir_dice_que_no_se_imprimira(
 ):
     """Ruling R13 (P4 de la revisión final): la constancia VIGENTE sin lote de
     una inscripción revocada nunca entrará a un lote (`_pending_criteria`,
-    Ruling R26), así que la celda dice «No se imprimirá (inscripción
-    revocada)» en una píldora NEUTRA, no «Sin imprimir» ámbar -la página de
-    Constancias tampoco la cuenta en «Por imprimir»-. El folio se conserva.
-    Control positivo: `test_columna_constancia_vigente_sin_imprimir_...` (la
-    misma constancia sin revocar sigue «Sin imprimir»)."""
+    Ruling R26), así que la celda dice «No se imprimirá» en una píldora
+    NEUTRA, no «Sin imprimir» ámbar -la página de Constancias tampoco la
+    cuenta en «Por imprimir»-. Ruling R18: el motivo, «inscripción
+    revocada», va FUERA de la píldora (que no parte renglón), en una nota
+    tenue que sí puede partirse. El folio se conserva. Control positivo:
+    `test_columna_constancia_vigente_sin_imprimir_...` (la misma constancia
+    sin revocar sigue «Sin imprimir»)."""
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 
     staff = make_library_staff()
@@ -1110,8 +1112,9 @@ def test_columna_constancia_revocada_sin_imprimir_dice_que_no_se_imprimira(
 
     assert resp.status_code == 200, resp.text[:500]
     celda = _celda(_fila(resp.text, f'id="lib-{clearance.id}"'), cert.number)
-    assert "No se imprimirá (inscripción revocada)" in celda
-    assert "tt-pill--neutral" in celda
+    pildora = re.search(r'<span class="tt-pill tt-pill--neutral">(.*?)</span>', celda, re.S)
+    assert pildora and _visible(pildora.group(1)) == "No se imprimirá", celda
+    assert '<span class="small text-body-secondary">inscripción revocada</span>' in celda
     assert "Sin imprimir" not in celda
     assert "tt-pill--amber" not in celda
 

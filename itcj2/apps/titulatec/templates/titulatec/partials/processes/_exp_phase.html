@@ -166,8 +166,8 @@
              imprimió -- MISMA fuente (`print_status_map`) que la bandeja de
              GTV: `survey.certificate` lo cuelga `pages/admin.py::_detail_ctx`
              con UNA llamada para las dos filas (Ruling R14). Con el proceso
-             `cancelled`, una vigente sin lote dice
-             «No se imprimirá (inscripción revocada)» (Ruling R13,
+             `cancelled`, una vigente sin lote pinta «No se imprimirá» + la
+             nota «inscripción revocada» (Rulings R13 y R18,
              `revoked=`). #}
           <div class="tt-req-meta">
             {{ survey_review_pill(survey.status) }}
@@ -190,8 +190,9 @@
              «No aplica (cotejo ya liberado)» y no se ofrece nada.
              `certificate_cell` (Tarea 4, §3.4) pinta si la constancia BIB ya
              se imprimió y reemplaza el folio suelto que antes salía bajo
-             «Liberado»; con el proceso `cancelled`, una vigente sin lote dice
-             «No se imprimirá (inscripción revocada)» (Ruling R13,
+             «Liberado»; con el proceso `cancelled`, una vigente sin lote pinta
+             «No se imprimirá» + la nota «inscripción revocada» (Rulings R13 y
+             R18,
              `revoked=`). m42 (`triage-minors.md`): con el proceso `cancelled`
              y el no adeudo todavía `missing`/`pending`, o `awaiting_payment`
              (Ruling R15: Caja ya no lo cobraría -`register_payment` lo

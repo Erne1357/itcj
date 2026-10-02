@@ -132,13 +132,15 @@
    (`TitulationProcess.status == 'cancelled'`). Solo cambia la vigente SIN
    lote: «Por imprimir» ya no la toma (`CertificateService.
    _pending_criteria`, Ruling R26), así que en vez de «Sin imprimir» (ámbar)
-   dice «No se imprimirá (inscripción revocada)» en una píldora neutra.
+   pinta la píldora neutra «No se imprimirá» y, FUERA de ella, la nota tenue
+   «inscripción revocada» (Ruling R18: la píldora no parte renglón -`nowrap`-
+   y con el motivo adentro desbordaba en celular; la nota sí se parte).
    «Impresa» y «Anulada tras imprimir» no cambian: ese papel existe. Las
    bandejas pasan `r.revoked`; las dos vistas de SE, el estado del proceso.
 
    Orden de pintado: (1) con folio vigente, el folio y, según `info.printed`,
-   «Impresa · lote #N · fecha», o -sin lote- «No se imprimirá (inscripción
-   revocada)» con `revoked` y «Sin imprimir» sin él; (2) si no hay vigente, el
+   «Impresa · lote #N · fecha», o -sin lote- «No se imprimirá» + «inscripción
+   revocada» con `revoked` y «Sin imprimir» sin él; (2) si no hay vigente, el
    motivo: `prior` pinta «Constancia previa (papel del egresado)» y `legacy`
    «—»; sin ninguno de los dos, «—» (nunca tuvo constancia) SALVO que
    `info.voided_printed` exista -ahí no pinta nada (M1 de la revisión
@@ -162,7 +164,8 @@
       {{ pill("Impresa", "success", "printer") }}
       <span class="small text-body-secondary">lote #{{ info.batch_id }} · {{ info.batch_at.strftime('%d/%m/%Y') if info.batch_at else '—' }}</span>
     {%- elif revoked %}
-      {{ pill("No se imprimirá (inscripción revocada)", "neutral", "slash-circle") }}
+      {{ pill("No se imprimirá", "neutral", "slash-circle") }}
+      <span class="small text-body-secondary">inscripción revocada</span>
     {%- else %}
       {{ pill("Sin imprimir", "amber", "hourglass-split") }}
     {%- endif %}

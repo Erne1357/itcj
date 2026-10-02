@@ -525,8 +525,10 @@ def test_columna_constancia_revocada_sin_imprimir_dice_que_no_se_imprimira(
 ):
     """Ruling R13 (P4 de la revisión final): la constancia VIGENTE sin lote de
     una inscripción revocada nunca entrará a un lote (`_pending_criteria`,
-    Ruling R26): la celda dice «No se imprimirá (inscripción revocada)» en una
-    píldora NEUTRA, no «Sin imprimir» ámbar. El folio se conserva."""
+    Ruling R26): la celda dice «No se imprimirá» en una píldora NEUTRA, no
+    «Sin imprimir» ámbar, y -Ruling R18- el motivo «inscripción revocada» va
+    FUERA de la píldora, en una nota tenue que puede partirse. El folio se
+    conserva."""
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
     gtv = make_gtv()
@@ -541,8 +543,9 @@ def test_columna_constancia_revocada_sin_imprimir_dice_que_no_se_imprimira(
 
     assert resp.status_code == 200, resp.text[:500]
     celda = _celda(_fila(resp.text, f'id="tt-rev-{review.id}"'), cert.number)
-    assert "No se imprimirá (inscripción revocada)" in celda
-    assert "tt-pill--neutral" in celda
+    pildora = re.search(r'<span class="tt-pill tt-pill--neutral">(.*?)</span>', celda, re.S)
+    assert pildora and _visible(pildora.group(1)) == "No se imprimirá", celda
+    assert '<span class="small text-body-secondary">inscripción revocada</span>' in celda
     assert "Sin imprimir" not in celda
     assert "tt-pill--amber" not in celda
 

@@ -27,10 +27,11 @@ las dos filas -encuesta y no adeudo- en estas MISMAS dos pantallas, y m42
 `missing`/`pending` -o `awaiting_payment`, Ruling R15, sin el sufijo «Por
 cobrar»- pinta «Revocada», nunca «En Biblioteca» ni «Por pagar en Caja». De
 la revisión final, en las mismas dos pantallas: una constancia vigente sin
-lote de un revocado dice «No se imprimirá (inscripción revocada)» (Ruling
-R13), ninguna ofrece «Constancia previa…» a un revocado (M2) y las dos
-celdas salen de UNA llamada a `print_status_map` por vista (Ruling R14,
-sección 9).
+lote de un revocado pinta la píldora «No se imprimirá» y la nota tenue
+«inscripción revocada» (Rulings R13 y R18), ninguna ofrece «Constancia
+previa…» a un revocado (M2) y las dos celdas salen de UNA llamada a
+`print_status_map` por vista, a lo más 2 consultas de constancias (Rulings
+R14 y R17, sección 9).
 """
 from __future__ import annotations
 
@@ -860,9 +861,12 @@ class TestProcesoRevocadoPildoraDeNoAdeudo:
         """Ruling R13 (P4 de la revisión final): las DOS constancias vigentes
         SIN lote -encuesta y no adeudo- de una inscripción revocada ya no
         entrarán a un lote (`_pending_criteria`, Ruling R26), así que cada
-        celda dice «No se imprimirá (inscripción revocada)», nunca «Sin
-        imprimir». Las dos vistas le pasan a la macro el estado del proceso
-        (`revoked=`); con lote siguen «Impresa» (la prueba de arriba)."""
+        celda pinta la píldora «No se imprimirá» con la nota tenue
+        «inscripción revocada» fuera de ella (Ruling R18: la nota puede
+        partirse en celular), nunca «Sin imprimir». Las dos vistas le pasan
+        a la macro el estado del proceso (`revoked=`); con lote siguen
+        «Impresa» (la prueba de arriba)."""
+        import re
         from itcj2.apps.titulatec.services.library_clearance_service import (
             LibraryClearanceService,
         )
@@ -880,7 +884,10 @@ class TestProcesoRevocadoPildoraDeNoAdeudo:
         for resp in (_atender(client_as, caso["officer"], caso["proc"].id),
                      _expediente(client_as, caso["officer"], caso["proc"].id)):
             assert resp.status_code == 200, resp.text[:300]
-            assert resp.text.count("No se imprimirá (inscripción revocada)") == 2
+            assert len(re.findall(r'<i class="bi bi-slash-circle"></i>No se imprimirá\s*</span>',
+                                  resp.text)) == 2
+            assert resp.text.count(
+                '<span class="small text-body-secondary">inscripción revocada</span>') == 2
             assert "Sin imprimir" not in resp.text
 
 
@@ -904,10 +911,11 @@ def test_certificate_cell_nunca_queda_vacia():
 
 def test_certificate_cell_revocada_solo_cambia_la_vigente_sin_lote():
     """Ruling R13: `revoked=True` cambia SOLO la vigente sin lote («Sin
-    imprimir» ámbar -> «No se imprimirá (inscripción revocada)» neutra). Una
-    impresa sigue «Impresa» (el papel existe) y una anulada tras imprimir
-    sigue pidiendo retirar el papel: las dos salen idénticas con o sin
-    `revoked`."""
+    imprimir» ámbar -> píldora neutra «No se imprimirá» con la nota tenue
+    «inscripción revocada» FUERA de ella, Ruling R18: la píldora no parte
+    renglón y la nota sí). Una impresa sigue «Impresa» (el papel existe) y
+    una anulada tras imprimir sigue pidiendo retirar el papel: las dos salen
+    idénticas con o sin `revoked`."""
     from datetime import datetime
 
     from itcj2.apps.titulatec.pages.nav import titulatec_templates
@@ -931,8 +939,9 @@ def test_certificate_cell_revocada_solo_cambia_la_vigente_sin_lote():
 
     revocada = _celda(sin_lote, True)
     assert "BIB-2031-0001" in revocada
-    assert "No se imprimirá (inscripción revocada)" in revocada
-    assert "tt-pill--neutral" in revocada
+    assert ('<span class="tt-pill tt-pill--neutral"><i class="bi bi-slash-circle"></i>'
+            'No se imprimirá </span>') in revocada, revocada
+    assert '<span class="small text-body-secondary">inscripción revocada</span>' in revocada
     assert "Sin imprimir" not in revocada and "tt-pill--amber" not in revocada
     assert "Sin imprimir" in _celda(sin_lote, False)
     for info in (impresa, anulada):
