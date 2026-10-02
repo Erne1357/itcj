@@ -28,7 +28,7 @@ sin pasar por Caja) cuando el objetivo de la prueba es ejercitar «Por cobrar».
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from urllib.parse import unquote
 
@@ -455,6 +455,71 @@ def test_revertir_con_fase_2_aprobada_responde_400(
     assert resp.headers.get("X-Tt-Error")
     db_session.refresh(clearance)
     assert clearance.status == "cleared", "la fase 2 aprobada no se debe poder revertir"
+
+
+def test_revertir_aviso_de_exito_viendo_hoy(
+    client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
+):
+    """R6 (revisión de la Tarea 5): viendo el corte de HOY, el aviso de
+    éxito es «Pago revertido.» a secas -- sin la aclaración del corte, que
+    solo aplica cuando la cajera vio OTRO día. `db_now()` para «hoy», nunca
+    el reloj de pared (regla del brief)."""
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    from itcj2.core.utils.timezone import db_now
+
+    staff = make_cashier_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99700141"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("300"))
+    LibraryClearanceService.register_payment(db_session, clearance.id, staff.id)
+
+    resp = client_as(staff).post(
+        f"{URL}/{clearance.id}/revertir",
+        data={"tab": "pagados", "q": "", "dia": db_now().date().isoformat(), "page": "1",
+              "reason": "Cobro equivocado"})
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert unquote(resp.headers.get("X-Tt-Notice") or "") == "Pago revertido."
+    assert resp.headers.get("X-Tt-Notice-Kind") == "success"
+
+
+def test_revertir_aviso_de_exito_viendo_un_dia_pasado(
+    client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
+):
+    """R6: viendo un corte YA cerrado (otro día), el aviso aclara que la
+    reversa -en negativo- quedó en el corte de HOY -el del cobro original NO
+    se mueve, E3/invariante 3-, con el monto congelado
+    (`clearance.total_amount`, sigue debiéndose) y la fecha de HOY vía
+    `db_now()`, nunca el reloj de pared."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService, format_amount,
+    )
+    from itcj2.core.utils.timezone import db_now
+
+    staff = make_cashier_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99700142"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("300"))
+    LibraryClearanceService.register_payment(db_session, clearance.id, staff.id)
+    db_session.refresh(clearance)
+    monto = clearance.total_amount
+    hoy = db_now().date()
+    dia_pasado = (hoy - timedelta(days=5)).isoformat()
+
+    resp = client_as(staff).post(
+        f"{URL}/{clearance.id}/revertir",
+        data={"tab": "pagados", "q": "", "dia": dia_pasado, "page": "1",
+              "reason": "Cobro equivocado"})
+
+    assert resp.status_code == 200, resp.text[:500]
+    esperado = (f"Pago revertido. La reversa (−{format_amount(monto)}) "
+               f"quedó en el corte de hoy ({hoy.strftime('%d/%m/%Y')}).")
+    assert unquote(resp.headers.get("X-Tt-Notice") or "") == esperado
+    assert resp.headers.get("X-Tt-Notice-Kind") == "success"
 
 
 # ---------------------------------------------------------------------------
