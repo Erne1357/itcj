@@ -90,9 +90,12 @@
    **«Constancia»** (2026-10-02, entre «Estado» y «Ver respuestas»/las acciones, en las TRES
    pestañas): folio y, si ya se imprimió, «Impresa · lote #N · fecha» o «Sin imprimir»; «Anulada
    tras imprimir» si la última se anuló DESPUÉS de imprimirse — ⤵ [constancias por
-   lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7). Con una
-   inscripción revocada (cualquier pestaña de historial) la fila pierde sus acciones y pinta
-   «Revocada», pero la celda de constancia SÍ se conserva: no lee nada del proceso.
+   lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7). La anulada
+   tras imprimir abre la celda, sin un «—» encima (M1 de la revisión final). Con una inscripción
+   revocada (cualquier pestaña de historial) la fila pierde sus acciones y pinta «Revocada», pero
+   la celda de constancia SÍ se conserva: «Impresa» y «Anulada tras imprimir» no cambian, y una
+   vigente sin lote dice «No se imprimirá (inscripción revocada)» —ya no entra a ningún lote,
+   Ruling R13; `revoked=r.revoked`—.
 3. En una fila de **En revisión**/**Con observaciones**: botón **Liberar** (con `hx-confirm`,
    siempre disponible) y un campo de motivo + **Observar**/**Actualizar observaciones**.
 4. En una fila de **Liberadas**: "Liberada por {nombre} el {fecha}" y, solo si `can_revoke`, un
@@ -211,13 +214,19 @@ el sistema; no se marca a mano" por la píldora `survey_review_pill(status)` —
 "observa", vocabulario distinto para la misma forma visual — más el motivo si `rejected`, o
 "Liberada por GTV · fecha" si `approved`.
 
-**Constancia en el panel de atender y el expediente (2026-10-02).** `summary_for_process` agrega
-la llave `certificate` (`CertificateService.print_status_map(db, [f"survey_review:{id}"])[ref]`,
-o `None`); `_appt_attend.html`/`_exp_phase.html` pintan `certificate_cell(certificate,
-prior=(origin == 'prior'))` junto a la píldora — folio + «Impresa»/«Sin imprimir», o «Anulada tras
-imprimir» — ⤵ [constancias por
-lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7). Sigue ≤2 consultas
-(la misma cota que ya usa `list_for_inbox`).
+**Constancia en el panel de atender y el expediente (2026-10-02).** `summary_for_process` NO trae
+la constancia (Ruling R14 de la revisión final: también la usan el home, «Mi cita» y la encuesta
+pública, que no la pintan, así que no consulta `titulatec_certificates`). La cuelga cada vista de
+SE: `pages/appointments.py`/`pages/admin.py::_detail_ctx` hacen UNA llamada
+`CertificateService.print_status_map(db, [ref_encuesta, ref_biblioteca])` para las dos filas, con
+los refs que existan (`SurveyReviewService.certificate_ref(review_id)` = `survey_review:{id}`; sin
+solicitud no se pide), y dejan `certificate` en el dict (`None` si no aplica).
+`_appt_attend.html`/`_exp_phase.html` pintan `certificate_cell(certificate, prior=(origin ==
+'prior'), revoked=)` junto a la píldora — folio + «Impresa»/«Sin imprimir» (o «No se imprimirá
+(inscripción revocada)» con el proceso `cancelled`, R13), o «Anulada tras imprimir» — ⤵
+[constancias por lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7). A
+lo más 2 consultas de la marca por vista (invariante 2), la misma cota de `list_for_inbox` por
+página.
 
 ## Caminos alternos / errores ❗
 

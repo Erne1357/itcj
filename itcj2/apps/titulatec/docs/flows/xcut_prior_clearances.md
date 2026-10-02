@@ -165,7 +165,9 @@ titulatec import-prior-clearances --tipo encuesta|biblioteca ARCHIVO.csv
 Biblioteca y SE tienen el MISMO botón «Constancia previa…» (fecha + nota), en rutas distintas —
 ver ⤵ [no adeudo de biblioteca, paso 5](phase2_library_clearance.md#pasos-detallados): Biblioteca
 va por `clearance_id` (`POST /admin/biblioteca/{clearance_id}/previa`), SE va por `process_id`
-con `assert_process_in_scope` (expediente y panel de atender). **No hay UI que registre una
+con `assert_process_in_scope` (expediente y panel de atender; en los dos, el botón solo sale con
+el proceso no revocado —M2 de la revisión final—: sobre una inscripción revocada la ruta
+respondería 400). **No hay UI que registre una
 previa de ENCUESTA a mano** — ese `kind` solo entra por la CLI (`import_rows`); no hay botón
 «Constancia previa de encuesta» en ninguna pantalla.
 

@@ -19,7 +19,8 @@
 Spec `docs/superpowers/specs/2026-10-01-titulatec-biblioteca-caja-design.md` §4.1.3-5, §4.5,
 D7/D8/D15/D21/D22, §5 invariante 5; ampliado por
 `docs/superpowers/specs/2026-10-02-titulatec-constancias-y-pendientes-design.md` §2 (E4/E8, 2 o 3
-por hoja) y §3.1-§3.2/§3.5 (E1/E5-E7, estado de impresión y listas de la página). Motor
+por hoja), §3.1-§3.2/§3.5 (E1/E5-E7, estado de impresión y listas de la página) y §3.4 (vistas de
+SE; Rulings R13/R14 de la revisión final). Motor
 compartido: `services/certificate_service.py::CertificateService`, **único** escritor de
 `titulatec_certificates` / `titulatec_certificate_batches` / `titulatec_certificate_counters`
 (igual que `SurveyReviewService` lo es de `titulatec_survey_reviews`). Página:
@@ -167,22 +168,45 @@ se reimprime; no hay un paso aparte de «confirmar impresión».
   CERRADO: exactamente `days` días vale, un segundo más vieja ya no), de la más reciente a la más
   vieja. Incluye las de un proceso YA revocado después (a diferencia de `pending`): el papel sigue
   circulando y hay que recuperarlo igual.
-- **`certificate_cell(info, *, prior=False, legacy=False)`** (macro en `templates/titulatec/
-  _macros.html`): pinta la celda a partir del dict de arriba (o `None`) — folio + píldora
-  «Impresa» (`lote #N · dd/mm/aaaa`) / «Sin imprimir»; «Constancia previa (papel del egresado)» si
-  `prior`; «—» si `legacy` o nunca tuvo constancia; y, ADITIVO (se suma, nunca reemplaza),
-  «Anulada tras imprimir · lote #N — retira ese papel» si hay una anulada-con-lote y no hay
-  vigente. Nunca truena con `info=None`. La usan, cada una con UNA sola llamada a
-  `print_status_map` por página/vista (invariante 2):
+- **`CertificateService.current_number(db, source_ref) -> str | None`** (Ruling R14 de la revisión
+  final): el folio de la VIGENTE de un origen, SIN la marca — UNA consulta barata a
+  `titulatec_certificates`, sin lotes. Lo usa `LibraryClearanceService.summary_for_process` para
+  su `certificate_number`; así la tabla de constancias sigue teniendo un solo lector
+  (`CertificateService`, invariante 4) y el resumen ya no paga `print_status_map`.
+- **`certificate_cell(info, *, prior=False, legacy=False, revoked=False)`** (macro en
+  `templates/titulatec/_macros.html`): pinta la celda a partir del dict de arriba (o `None`):
+  - con vigente: folio + píldora «Impresa» (`lote #N · dd/mm/aaaa`), o —sin lote— «Sin imprimir»
+    (ámbar); con `revoked` (inscripción revocada, Ruling R13) esa vigente sin lote dice **«No se
+    imprimirá (inscripción revocada)»** en una píldora neutra, porque `_pending_criteria` ya no la
+    lleva a ningún lote (R26) — así no contradice a «Por imprimir». «Impresa» y «Anulada tras
+    imprimir» no cambian con `revoked`: ese papel existe;
+  - sin vigente: «Constancia previa (papel del egresado)» si `prior`; «—» si `legacy` o si nunca
+    tuvo constancia;
+  - ADEMÁS, si no hay vigente y hay una anulada-con-lote: «Anulada tras imprimir · folio · lote #N —
+    retira ese papel». Debajo del texto de `prior`/`legacy` cuando lo hay; si no, ABRE la celda,
+    sin un «—» encima (M1 de la revisión final: la fila sí tuvo constancia).
+
+  Nunca truena con `info=None`. La usan, cada una con UNA sola llamada a `print_status_map` por
+  página/vista (invariante 2):
   - las bandejas de ⤵ [Biblioteca](phase2_library_clearance.md) y ⤵
-    [GTV](phase2_tech_management_survey_release.md) (columna «Constancia», en sus 3 pestañas);
+    [GTV](phase2_tech_management_survey_release.md) (columna «Constancia», en sus 3 pestañas; la
+    llamada la hacen `_rows`/`list_for_inbox` para la página entera; pasan `revoked=r.revoked`);
   - el panel de atender cotejo y el expediente de SE (`_appt_attend.html`/`_exp_phase.html`,
-    filas de encuesta y de no adeudo) — con el proceso `cancelled` el renglón del no adeudo
-    muestra «Revocada» en vez de la píldora de liberación, pero la celda de constancia se
-    conserva (m42);
-  - la página de Constancias misma, en las listas de abajo.
-  - Caja (`cashier_body.html`) NO la usa: sigue con el folio suelto de siempre bajo su propia
-    píldora (`caja_pill`, ⤵ [no adeudo de biblioteca](phase2_library_clearance.md)).
+    filas de encuesta y de no adeudo). Desde el Ruling R14, cada vista (`pages/appointments.py`/
+    `pages/admin.py::_detail_ctx`) hace UNA llamada `print_status_map(db, [ref_encuesta,
+    ref_biblioteca])` con los refs que existan (`SurveyReviewService.certificate_ref`/
+    `LibraryClearanceService.certificate_ref`; sin solicitud o sin fila no se pide) y cuelga
+    `certificate` en cada resumen (`None` si no aplica). Los dos `summary_for_process` ya no
+    consultan la marca: también los usan el tablero del egresado, «Mi cita» y las páginas públicas
+    de la encuesta, que no la pintan. Las dos vistas pasan `revoked=` con el estado del proceso.
+    Con el proceso `cancelled` el renglón del no adeudo muestra «Revocada» en vez de la píldora
+    de liberación (m42; desde R15 también en lugar de «Por pagar en Caja», sin el sufijo del
+    monto), y la celda de constancia se conserva.
+  - La página de Constancias NO la usa: muestra lo mismo con sus propias tablas, directo de
+    `pending`/`voided_after_print` (ver «Página de Constancias» abajo), sin `print_status_map`.
+  - Caja (`cashier_body.html`) tampoco: sigue con el folio suelto de siempre
+    (`r.certificate_number`) bajo su propia píldora (`caja_pill`, ⤵ [no adeudo de
+    biblioteca](phase2_library_clearance.md)).
 
 ### El PDF (WeasyPrint)
 
@@ -278,7 +302,8 @@ negocio es tarea del llamador (`create_batch` ya impide un lote de 0 constancias
   `IntegrityError` contra `uq_titulatec_certificates_live_source`: la base no deja dos papeles
   válidos del mismo trámite.
 - **Inscripción revocada con constancias sin imprimir** → no salen en «Por imprimir» ni en el
-  lote (`_pending_criteria`); se quedan sin lote y sin anular.
+  lote (`_pending_criteria`); se quedan sin lote y sin anular, y la celda «Constancia» de las
+  bandejas y de las vistas de SE las pinta «No se imprimirá (inscripción revocada)» (R13).
 - **`?por_hoja=` fuera de forma** (ausente, vacío, `abc`, `4`, …) → `_parse_por_hoja` cae en 3 por
   hoja (`DEFAULT_PER_PAGE`): nunca `400`/`500` — es un filtro de vista, igual que `_parse_dia` de
   Caja.
@@ -303,7 +328,14 @@ el truncado de `control_number`/`student_name` a su columna y, desde la Tarea 1 
 2026-10-02, también el de `program_name` —`core_programs.name` es `Text` sin tope,
 `Certificate.program_name` es `String(200)`—; `print_status_map`/`voided_after_print`: vigente
 sin/con lote, pagado→impreso→anulado, anulada sin lote, anulada→re-emitida, lote mixto de varias
-anuladas, el límite de 30 días CERRADO exacto, presupuesto de consultas en 1 y 20 filas),
+anuladas, el límite de 30 días CERRADO exacto, presupuesto de consultas en 1 y 20 filas;
+`current_number`: una consulta sin lotes, nunca el folio anulado),
+`test_se_library_views.py` (la celda en las dos vistas de SE; R13 en las dos celdas y por render
+directo de la macro; R14: una llamada por vista con los refs que existan y a lo más 2 consultas
+de la marca), `test_library_inbox.py`/`test_survey_reviews_admin_routes.py` (la columna en las
+bandejas; la anulada tras imprimir abre la celda sin «—», M1; R13 en las dos),
+`test_student_library_status.py`/`test_survey_review_submit.py` (R14: el tablero, «Mi cita» y la
+página pública de la encuesta no llaman `print_status_map` ni tocan los lotes),
 `test_biblioteca_caja_models.py` (el UNIQUE parcial en el modelo y en la BD),
 `test_certificate_pdf.py` (2 o 3 por página, `per_page=4` truena, el pie anclado al fondo con
 espacio de firma en los dos acomodos, el sello ANULADA en los dos acomodos, texto extraíble con
