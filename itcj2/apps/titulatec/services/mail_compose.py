@@ -878,11 +878,13 @@ def _compose_library_reminder(db: Session, rows: list, process, user) -> Compose
     sigue pudiendo cobrarlo si el egresado se presenta). `MailReminders._pagos`
     ya no debería encolar este segundo caso (usa el mismo `awaiting_payment_
     clause`), pero esta re-validación es la misma defensa en profundidad que
-    el resto de la app. Se arma con el total VIGENTE y, donde la convocatoria
-    exige el no adeudo, dice que lo necesita para agendar. Lleva al tablero
-    en la fase de la cita de cotejo."""
+    el resto de la app. Se arma con el total VIGENTE, que viaja SOLO dentro
+    de `titulo` (`asunto_recordatorio_pago`: el asunto y el título del aviso
+    in-app; la plantilla no pinta el monto aparte, m31) y, donde la
+    convocatoria exige el no adeudo, dice que lo necesita para agendar. Lleva
+    al tablero en la fase de la cita de cotejo."""
     from itcj2.apps.titulatec.services.library_clearance_service import (
-        LibraryClearanceService, format_amount,
+        LibraryClearanceService,
     )
     from itcj2.apps.titulatec.services.phase_service import PhaseService
 
@@ -894,8 +896,7 @@ def _compose_library_reminder(db: Session, rows: list, process, user) -> Compose
         return Obsolete("ya no tiene un pago pendiente en Caja")
     asunto = asunto_recordatorio_pago(pago["total"])
     return _correo(user, asunto, "library_reminder.html", _tablero(PhaseService.PHASE_COTEJO),
-                   titulo=asunto, total=format_amount(pago["total"]) or None,
-                   library_required=_exige_biblioteca(db, process))
+                   titulo=asunto, library_required=_exige_biblioteca(db, process))
 
 
 # ---------------------------------------------------------------------------

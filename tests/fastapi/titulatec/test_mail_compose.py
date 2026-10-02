@@ -1320,6 +1320,9 @@ def test_reversion_obsoleta_si_se_volvio_a_liberar(db_session, proceso):
 
 
 def test_recordatorio_de_pago(db_session, con_biblioteca):
+    """El monto viaja SOLO en `titulo` (asunto y título del aviso in-app):
+    m31 quitó del contexto un `total` que la plantilla nunca pintaba. El
+    contexto es exactamente el que documenta `library_reminder.html`."""
     proc = con_biblioteca(biblioteca="awaiting_payment")
     _recordatorio(db_session, "library_reminder", proc)
 
@@ -1329,7 +1332,8 @@ def test_recordatorio_de_pago(db_session, con_biblioteca):
     assert c.subject == "[TitulaTec ITCJ] Tienes pendiente tu pago de $1,100.00 en Caja"
     assert c.template == "library_reminder.html"
     assert c.link == _liga("/titulatec/student/dashboard?fase=2")
-    assert c.context["total"] == "$1,100.00"
+    assert set(c.context) == {"first_name", "link", "titulo", "library_required"}
+    assert c.context["titulo"] == "Tienes pendiente tu pago de $1,100.00 en Caja"
     for frase in ("Tienes pendiente tu pago de $1,100.00 en Caja",
                   "con tu número de control", "no necesitas cita",
                   "para agendar tu cita de cotejo"):
